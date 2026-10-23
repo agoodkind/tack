@@ -66,7 +66,6 @@ func storeCommand(
 	}
 }
 
-// sharedCluster returns the cluster file that the test server uses.
 func sharedCluster(_ *testing.T, env *coverageEnv) string {
 	return env.server.clusterFile
 }

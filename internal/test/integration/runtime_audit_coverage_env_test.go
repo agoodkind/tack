@@ -138,8 +138,6 @@ func (env *coverageEnv) waitForRows(t *testing.T, evidence coverageEvidence, ver
 	}
 }
 
-// describeRows returns the action and outcome of each ledger row for failure
-// messages.
 func describeRows(rows []audit.Row) string {
 	var described bytes.Buffer
 	for _, row := range rows {
@@ -154,8 +152,6 @@ func operatorEvidence(actorID uuid.UUID) coverageEvidence {
 	return coverageEvidence{orgID: audit.SystemOrgID(), requestID: "", actorID: actorID, outcome: "", outbox: nil}
 }
 
-// requireOutboxEvent requires the selected operator outbox to contain an event
-// with the expected actor, verb, and outcome.
 func requireOutboxEvent(t *testing.T, evidence coverageEvidence, verb audit.Verb, outcome audit.Outcome) {
 	t.Helper()
 	events := outboxEventsByQuery(t, evidence.outbox, "runtime_audit_actor_outbox.sql", evidence.actorID.String())
