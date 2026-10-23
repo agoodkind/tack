@@ -78,6 +78,8 @@ func backupCommand(args ...string) func(*testing.T, *coverageEnv) commandInput {
 // addBackupCommandCases adds backup command cases with their expected audit
 // verbs and outcomes, including cases that expect command failure.
 func addBackupCommandCases(cases map[string]coverageCase) {
+	cases["command ops backup retention"] = commandCase(audit.VerbOpsBackupRetention, audit.OutcomeCompleted,
+		backupCommand("ops", "backup", "retention"))
 	cases["command ops backup"] = failingCommandCase(audit.VerbOpsBackup, audit.OutcomeOK, fixedCommand("ops", "backup"))
 	cases["command ops backup yb-pitr-init"] = commandCase(audit.VerbOpsBackupYBPITRInit, audit.OutcomeCompleted, backupCommand("ops", "backup", "yb-pitr-init"))
 	cases["command ops backup yb-snapshot-export"] = commandCase(audit.VerbOpsBackupYBSnapshotExport, audit.OutcomeCompleted,

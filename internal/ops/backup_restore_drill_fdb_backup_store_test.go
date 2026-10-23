@@ -32,7 +32,7 @@ func TestFDBBackupSelectionReadsEverySessionTheStoreHolds(t *testing.T) {
 	}
 	target := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 
-	markers, err := listImmediateObjects(t.Context(), objectStore.client, objectStore.bucket.Bucket, fdbBackupMarkerPrefix)
+	markers, err := listImmediateObjects(t.Context(), objectStore.client, objectStore.bucket.Bucket)
 	if err != nil {
 		t.Fatalf("list the backups/ markers: %v", err)
 	}

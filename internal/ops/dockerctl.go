@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
@@ -142,9 +141,7 @@ func runOneShot(
 		return execResult{}, fmt.Errorf("create one-shot container: %w", err)
 	}
 	defer func() {
-		teardown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		defer cancel()
-		removeContainerForce(teardown, cli, created.ID)
+		awaitBackupContainerRemoval(ctx, cli, created.ID)
 	}()
 
 	_, err = cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})

@@ -24,6 +24,7 @@ const ledgerVerbsDeadline = 90 * time.Second
 // those commands or jobs. The test records one system-organization event per
 // verb.
 var recordedLedgerVerbs = []audit.Verb{
+	audit.VerbOpsBackupRetention,
 	audit.VerbOpsLedgerNodePrepare, audit.VerbOpsLedgerNodeWait,
 	audit.VerbOpsLedgerBootstrapWait, audit.VerbOpsLedgerAuditBootstrap,
 	audit.VerbSearchIndexStructure, audit.VerbSearchAccessRolloutPhase,

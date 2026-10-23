@@ -144,6 +144,41 @@ the bucket and the file on each guest to make the next stale run mail again.
 - A `backup_agent` is running. In normal operation it is the `fdb-backup-agent`
   Compose service (profile `backup`); it drains both backups and restores.
 
+## Expire old backups
+
+Retention permanently deletes expired backup copies. It preserves live database
+rows, audit ledger rows, backup status objects, and version-to-time records.
+The default restore window is 14 days. Ledger cleanup requires a complete export
+within that window and preserves exports exactly at the cutoff. FoundationDB
+uses its native expiration guard to preserve the snapshot and mutation logs
+needed to restore at the cutoff. Those dependencies may include older files.
+
+Run the commands from the install directory:
+
+1. Preview the selected ledger exports and FoundationDB sessions:
+
+   ```sh
+   docker compose run --rm tack-ops ops backup retention
+   ```
+
+2. Review the UTC cutoff and selected targets in the output.
+3. Delete the selected expired backups:
+
+   ```sh
+   docker compose run --rm tack-ops ops backup retention --execute
+   ```
+
+Set `--keep-days` to select a different restore window. Execution recomputes the
+selection and records audit intent, each cleanup target, and its observed result.
+If cleanup fails, inspect its audit result before retrying. An interrupted S3
+request can have an uncertain result; the audit evidence distinguishes requested
+objects from confirmed deletions. Repeated execution recomputes the remaining
+work.
+
+Retention and restore drills acquire the same filesystem lock under the backup
+root. Each command waits until the other command finishes reading or changing
+backups. Cancellation stops active one-shot containers before releasing the lock.
+
 ## FoundationDB recovery
 
 The continuous backup is stored in the object store under a marker object at

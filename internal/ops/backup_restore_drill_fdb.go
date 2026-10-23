@@ -10,25 +10,8 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 
-	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
 )
-
-// redactSecret removes both S3 credentials from text before it is logged,
-// because fdbbackup and fdbrestore echo the blobstore URL inline.
-func redactSecret(cfg *config.Config, s string) string {
-	first := cfg.BackupS3SecretKey
-	second := cfg.BackupS3AccessKey
-	if len(second) > len(first) {
-		first, second = second, first
-	}
-	for _, credential := range []string{first, second} {
-		if credential != "" {
-			s = strings.ReplaceAll(s, credential, "***REDACTED***")
-		}
-	}
-	return s
-}
 
 // restoreDrillFDB restores the FoundationDB continuous backup from the object
 // store into a throwaway standalone cluster and asserts the keyspace is
@@ -56,7 +39,7 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	// backups/ subfolder) to discover backups. fdbrestore re-adds the backups/
 	// folder from the backup name, so the selection strips the prefix to
 	// recover the bare name fdbrestore addresses.
-	markers, err := listImmediateObjects(ctx, s3Client, r.Cfg.BackupS3BucketMain, fdbBackupMarkerPrefix)
+	markers, err := listImmediateObjects(ctx, s3Client, r.Cfg.BackupS3BucketMain)
 	if err != nil {
 		return err
 	}
