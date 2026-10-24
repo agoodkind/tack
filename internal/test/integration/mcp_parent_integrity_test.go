@@ -67,9 +67,10 @@ func TestTwoParentIssueEditsWithoutAnotherParent(t *testing.T) {
 	requireParents(t, stores, issue, epic, []string{epic})
 }
 
-// createParentIntegrityNode calls the MCP create tool tool with name in the
-// harness project. The function sets parent_id to parentID when parentID is not
-// empty and returns the raw ID that the tool prints.
+// createParentIntegrityNode calls the MCP create tool that the tool parameter specifies
+// in the harness project with the node name from the name parameter. The helper sets
+// the parent_id property to parentID when the parentID parameter is not empty.
+// The helper returns the raw node ID that the tool prints.
 func createParentIntegrityNode(t *testing.T, harness *integration.MCPHarness, tool, name, parentID string) string {
 	t.Helper()
 	arguments := parentIntegrityArguments(harness, harness.Project)
