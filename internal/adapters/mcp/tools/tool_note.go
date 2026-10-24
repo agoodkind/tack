@@ -50,6 +50,17 @@ func noteToolResult(ctx context.Context, outcome audit.OutcomeDetails, reason st
 	}
 }
 
+// noteToolTarget stores target in the note on ctx and keeps the stored outcome.
+func noteToolTarget(ctx context.Context, target audit.Target) {
+	note, _ := ctx.Value(toolNoteKey{}).(*toolNote)
+	if note == nil {
+		return
+	}
+	note.mu.Lock()
+	defer note.mu.Unlock()
+	note.target = &target
+}
+
 // toolNoteResult returns the outcome, reason, and target that the call stored.
 func toolNoteResult(ctx context.Context) (audit.OutcomeDetails, string, *audit.Target) {
 	note, _ := ctx.Value(toolNoteKey{}).(*toolNote)
