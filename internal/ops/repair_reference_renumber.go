@@ -119,7 +119,7 @@ func renumberOneNode(
 			slog.String("node_id", nodeID.String()), slog.String("err", wrapped.Error()))
 		return ReferenceRename{}, wrapped
 	}
-	updated, err := env.Stores.Nodes.Get(ctx, duplicate.OrgID, nodeID)
+	updated, readDigest, err := env.Stores.Nodes.GetForUpdate(ctx, duplicate.OrgID, nodeID)
 	if err != nil {
 		wrapped := fmt.Errorf("read node %s for renumber: %w", nodeID, err)
 		env.Log.WarnContext(ctx, "repair.reference_uniqueness.node_get_failed",
@@ -151,8 +151,8 @@ func renumberOneNode(
 	}
 	updatedView := viewFromRepairedNode(updated)
 	referenceKeys := []node.ReferenceKey{{TemplateName: template.Name, Encoded: rendered}}
-	if err := env.Stores.Nodes.UpdateAtomic(
-		ctx, updated, updatedView, oldProps, indexedPropsFor(nodeType, propertyDefs), referenceKeys,
+	if err := env.Stores.Nodes.UpdateAtomicFrom(
+		ctx, readDigest, updated, updatedView, oldProps, indexedPropsFor(nodeType, propertyDefs), referenceKeys,
 	); err != nil {
 		wrapped := fmt.Errorf("write renumbered node %s: %w", nodeID, err)
 		env.Log.WarnContext(ctx, "repair.reference_uniqueness.update_failed",
@@ -189,18 +189,4 @@ func repairReferenceTemplate(
 		)
 	}
 	return nodeType, template, typeIndex, nil
-}
-
-func viewFromRepairedNode(currentNode *node.Node) *node.NodeView {
-	return &node.NodeView{
-		ID:        currentNode.ID,
-		OrgID:     currentNode.OrgID,
-		NodeType:  currentNode.NodeType,
-		Name:      currentNode.Name,
-		Props:     cloneProps(currentNode.Props),
-		CreatedBy: currentNode.CreatedBy,
-		UpdatedBy: currentNode.UpdatedBy,
-		CreatedAt: currentNode.CreatedAt,
-		UpdatedAt: currentNode.UpdatedAt,
-	}
 }

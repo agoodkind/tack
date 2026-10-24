@@ -96,7 +96,7 @@ func repairTypeScopeIDs(
 	repaired := 0
 	skipped := 0
 	for _, view := range views {
-		currentNode, err := env.Stores.Nodes.Get(ctx, orgID, view.ID)
+		currentNode, readDigest, err := env.Stores.Nodes.GetForUpdate(ctx, orgID, view.ID)
 		if err != nil || currentNode == nil {
 			skipped++
 			continue
@@ -153,7 +153,7 @@ func repairTypeScopeIDs(
 			skipped++
 			continue
 		}
-		if err := env.Stores.Nodes.UpdateAtomic(ctx, updatedNode, updatedView, oldProps, indexedProps, referenceKeys); err != nil {
+		if err := env.Stores.Nodes.UpdateAtomicFrom(ctx, readDigest, updatedNode, updatedView, oldProps, indexedProps, referenceKeys); err != nil {
 			env.Log.WarnContext(ctx, "repair.scope_ids: update node",
 				slog.String("node_id", currentNode.ID.String()),
 				slog.String("type", nodeType.TypeKey),
@@ -187,50 +187,4 @@ func deriveScopeID(ctx context.Context, env *Env, currentNode *node.Node) uuid.U
 		}
 	}
 	return uuid.Nil
-}
-
-func cloneProps(input map[string]json.RawMessage) map[string]json.RawMessage {
-	if input == nil {
-		return nil
-	}
-	out := make(map[string]json.RawMessage, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
-}
-
-func rawUUIDProp(props map[string]json.RawMessage, key string) uuid.UUID {
-	raw, ok := props[key]
-	if !ok || len(raw) == 0 {
-		return uuid.Nil
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return uuid.Nil
-	}
-	id, err := uuid.Parse(value)
-	if err != nil {
-		return uuid.Nil
-	}
-	return id
-}
-
-func rawUUIDView(view *node.NodeView, key string) uuid.UUID {
-	if view == nil {
-		return uuid.Nil
-	}
-	return rawUUIDProp(view.Props, key)
-}
-
-func stringProp(props map[string]json.RawMessage, key string) string {
-	raw, ok := props[key]
-	if !ok || len(raw) == 0 {
-		return ""
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return ""
-	}
-	return value
 }
