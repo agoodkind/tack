@@ -110,7 +110,7 @@ func newInferenceCaptureHarness(t *testing.T, fixture integration.QueryFixture) 
 	if !engineCA.AppendCertsFromPEM([]byte(engine.CA)) {
 		t.Fatal("engine CA is invalid")
 	}
-	search := &searchCapture{engine: nil, profile: false, mutex: sync.Mutex{}, searches: nil}
+	search := &searchCapture{engine: nil, profile: false, mutex: sync.Mutex{}, searches: nil, replacement: ""}
 	capture := &inferenceCapture{search: search, mutex: sync.Mutex{}, predicts: nil}
 	search.engine = &httputil.ReverseProxy{
 		Rewrite:        func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
@@ -134,6 +134,25 @@ func newInferenceCaptureHarness(t *testing.T, fixture integration.QueryFixture) 
 	cfg.SearchEndpoint = server.URL
 	cfg.SearchCA = caPath
 	return integration.ProcessHarness(t, fixture.Harness, cfg), capture
+}
+
+// oversizedQueryBytes exceeds the default 1,024-byte query limit by one byte.
+const oversizedQueryBytes = 1025
+
+// requireRejectedBeforeInference calls tack_search with an empty, a blank,
+// and an oversized query. Each call must return an error result that
+// contains the word query, and the proxy must record no model predict
+// request and no ranked batch.
+func requireRejectedBeforeInference(t *testing.T, harness *integration.MCPHarness, capture *inferenceCapture) {
+	t.Helper()
+	for _, query := range []string{"", "   ", strings.Repeat("q", oversizedQueryBytes)} {
+		if _, err := integration.TrySearch(harness, query, ""); err == nil || !strings.Contains(err.Error(), "query") {
+			t.Fatalf("search with a query of %d bytes returned error %v, want an error that contains the word query", len(query), err)
+		}
+	}
+	if exchange := capture.take(); len(exchange.Predicts) != 0 || len(exchange.Searches) != 0 {
+		t.Fatalf("rejected queries sent %d model predict requests and %d ranked batches, want none", len(exchange.Predicts), len(exchange.Searches))
+	}
 }
 
 // predictResult decodes the inference results from a model predict response.
