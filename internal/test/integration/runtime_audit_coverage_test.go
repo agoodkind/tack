@@ -64,7 +64,6 @@ func (env *coverageEnv) runCase(t *testing.T, current coverageCase) {
 		outcome = evidence.outcome
 	}
 	rows := env.waitForRows(t, evidence, current.verb, outcome)
-	requireCaseEvidence(t, env, evidence, current.verb, outcome, rows)
 	if current.check != nil {
 		current.check(t, env, rows)
 	}

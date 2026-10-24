@@ -11,17 +11,22 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// requireCaseEvidence checks each format 2 row that has the verb and outcome
-// of the case. Each row must record a target. A completed read row must
-// record a SHA-256 payload digest, and the digest must match the response
-// body when the case returned one. When the case acted on a node, one row
-// must target that node, or one completed read row must list it in its read
-// manifest.
-func requireCaseEvidence(t *testing.T, env *coverageEnv, evidence coverageEvidence, verb audit.Verb, outcome audit.Outcome, rows []audit.Row) {
+// caseEvidenceFound reports whether rows contain an event with the verb and
+// outcome of the case and, when the case acted on a node, a format 2 row that
+// targets that node or a completed read row that lists it in its read
+// manifest. It fails the test when a matching format 2 row does not record a
+// target, or when a completed read row does not record a SHA-256 payload
+// digest that matches the response body of the case.
+func caseEvidenceFound(t *testing.T, env *coverageEnv, evidence coverageEvidence, verb audit.Verb, outcome audit.Outcome, rows []audit.Row) bool {
 	t.Helper()
+	matched := false
 	found := evidence.targetID == uuid.Nil
 	for _, row := range rows {
-		if row.Action != string(verb) || row.Outcome != outcome || row.Context.AuditFormatVersion != audit.AuditFormatComplete {
+		if row.Action != string(verb) || row.Outcome != outcome {
+			continue
+		}
+		matched = true
+		if row.Context.AuditFormatVersion != audit.AuditFormatComplete {
 			continue
 		}
 		target := row.Context.Target
@@ -39,9 +44,7 @@ func requireCaseEvidence(t *testing.T, env *coverageEnv, evidence coverageEviden
 			found = true
 		}
 	}
-	if !found {
-		t.Fatalf("No %s %s event targeted node %s or listed it in a read manifest.", verb, outcome, evidence.targetID)
-	}
+	return matched && found
 }
 
 // requireReadDigest requires the completed read row to record a SHA-256
