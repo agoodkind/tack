@@ -13,8 +13,9 @@ import (
 // appendAssembledEvent prepares the event and writes actor personal data,
 // the permanent event identity claim, and the ledger row in a savepoint.
 // It accepts an already projected event without another row. After a new
-// append, it stores read manifest parts and records token use.
-func (c *Consumer) appendAssembledEvent(ctx context.Context, tx pgx.Tx, event Event, targets []Target) (projectedEvent, bool, error) {
+// append, it records token use. streamAssembly writes the read manifest parts
+// in the same transaction before the append.
+func (c *Consumer) appendAssembledEvent(ctx context.Context, tx pgx.Tx, event Event) (projectedEvent, bool, error) {
 	prepared, err := prepareEvent(ctx, event)
 	if err != nil {
 		return projectedEvent{}, false, err
@@ -44,38 +45,10 @@ func (c *Consumer) appendAssembledEvent(ctx context.Context, tx pgx.Tx, event Ev
 		slog.ErrorContext(ctx, "audit.consumer.savepoint_release_failed", slog.String("err", err.Error()))
 		return projectedEvent{}, false, fmt.Errorf("release savepoint for audit event %s: %w", event.EventID, err)
 	}
-	if err := storeReadManifest(ctx, tx, event, targets); err != nil {
-		return projectedEvent{}, false, err
-	}
 	if err := recordTokenUses(ctx, tx, []projectedEvent{projected}); err != nil {
 		return projectedEvent{}, false, err
 	}
 	return projected, true, nil
-}
-
-// storeReadManifest stores permanent read target parts by organization, event,
-// and index. It uses the JSON arrays that ReadManifestDigest hashes.
-func storeReadManifest(ctx context.Context, tx pgx.Tx, event Event, targets []Target) error {
-	if event.Context.Read == nil || event.Context.Read.ManifestParts == 0 {
-		return nil
-	}
-	parts, err := readManifestParts(targets)
-	if err != nil {
-		return rejectTransport(ctx, event.EventID, err.Error())
-	}
-	var partIndex int64
-	for _, payload := range parts {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO audit.event_parts (org_id, event_id, part_index, digest, payload)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (org_id, event_id, part_index) DO NOTHING
-		`, event.Context.OrgID, event.EventID, partIndex, sha256Hex(payload), payload); err != nil {
-			slog.ErrorContext(ctx, "audit.consumer.manifest_store_failed", slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
-			return fmt.Errorf("store audit event %s read manifest part %d: %w", event.EventID, partIndex, err)
-		}
-		partIndex++
-	}
-	return nil
 }
 
 // finishAssembly records the completed transport digest and deletes the
