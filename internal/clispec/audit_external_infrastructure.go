@@ -2,6 +2,7 @@ package clispec
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -23,9 +24,10 @@ func (o *deferredOutbox) WriteOutbox(_ context.Context, event audit.Event) error
 
 // runExternalCreatingAuditInfrastructure handles an external command that
 // creates the audit infrastructure after outbox did not save its intent. It
-// returns intentErr without running the command when the probe is missing or
-// fails, or when the outbox table and the operator login exist and intentErr
-// is not an authentication failure. Otherwise it runs the command with every
+// does not run the command when the probe is missing or fails, or when the
+// outbox table and the operator login exist and intentErr is not an
+// authentication failure. A probe failure returns the probe error joined with
+// intentErr. Otherwise it runs the command with every
 // event in memory and then writes the events to outbox in order.
 func runExternalCreatingAuditInfrastructure(
 	ctx context.Context,
@@ -44,7 +46,7 @@ func runExternalCreatingAuditInfrastructure(
 	infrastructure, probeErr := probe(ctx)
 	if probeErr != nil {
 		slog.ErrorContext(ctx, "cli.audit_infrastructure_probe_failed", slog.String("err", probeErr.Error()))
-		return intentErr
+		return fmt.Errorf("probe the audit infrastructure: %w", errors.Join(probeErr, intentErr))
 	}
 	if infrastructure.OutboxTableExists && infrastructure.OperatorLoginExists && !isAuthenticationFailure(intentErr) {
 		return intentErr
