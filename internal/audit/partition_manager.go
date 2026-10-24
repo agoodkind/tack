@@ -147,16 +147,6 @@ func NewPGPartitionStore(pool *pgxpool.Pool) partitionStore {
 	return &pgPartitionStore{pool: pool}
 }
 
-func (s *pgPartitionStore) RunMaintenance(ctx context.Context) error {
-	if _, err := s.pool.Exec(ctx, `SELECT audit.run_partition_maintenance()`); err != nil {
-		slog.ErrorContext(ctx, "audit.partition.maintenance_query_failed",
-			slog.String("err", err.Error()),
-		)
-		return fmt.Errorf("run partition maintenance: %w", err)
-	}
-	return nil
-}
-
 func (s *pgPartitionStore) HeadroomWeeks(ctx context.Context, now time.Time) (int, error) {
 	var count int
 	err := s.pool.QueryRow(ctx, `
