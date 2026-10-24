@@ -15,7 +15,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"goodkind.io/tack/internal/clispec"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/config"
 )
 
@@ -48,19 +48,19 @@ func deployVerifyTargets(cfg *config.Config, explicitTag string) []deployVerifyT
 
 // runDeployVerify compares each container with the given index digest when
 // digests is set, and otherwise with the registry digest the daemon records
-// for the expected image tag.
-func runDeployVerify(ctx context.Context, cfg *config.Config, sink clispec.ResultSink, explicitTag string, digests deployIndexDigests) error {
-	const command = "ops deploy verify"
+// for the expected image tag. It returns the printed lines as the payload and
+// one external target per checked container.
+func runDeployVerify(ctx context.Context, cfg *config.Config, explicitTag string, digests deployIndexDigests) (audit.OperatorReadOutput, error) {
 	targets := deployVerifyTargets(cfg, explicitTag)
 	cli, err := newDockerClient(ctx)
 	if err != nil {
-		return fmt.Errorf("%s: %w", command, err)
+		return audit.OperatorReadOutput{}, deployVerifyFailure(ctx, err)
 	}
 	defer func() { _ = cli.Close() }()
 
 	replicas, err := serviceReplicas(ctx, cli, cfg.DeployComposeProject, targets)
 	if err != nil {
-		return fmt.Errorf("%s: %w", command, err)
+		return audit.OperatorReadOutput{}, deployVerifyFailure(ctx, err)
 	}
 	var lines []string
 	if digests != nil {
@@ -69,14 +69,18 @@ func runDeployVerify(ctx context.Context, cfg *config.Config, sink clispec.Resul
 		lines, err = verifyLocalTagDigests(ctx, cli, replicas)
 	}
 	if err != nil {
-		return fmt.Errorf("%s: %w", command, err)
+		return audit.OperatorReadOutput{}, deployVerifyFailure(ctx, err)
 	}
 	slog.InfoContext(ctx, "ops.deploy.verify.completed", slog.Int("containers", len(replicas)))
-	if err := sink.WriteText(ctx, strings.Join(lines, "\n")); err != nil {
-		slog.ErrorContext(ctx, "ops.deploy.verify.write_result_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("%s: write result: %w", command, err)
-	}
-	return nil
+	return audit.OperatorReadOutput{
+		Payload: []byte(strings.Join(lines, "\n")), Format: deployVerifyPayloadFormat, Targets: replicaTargets(replicas),
+	}, nil
+}
+
+// deployVerifyFailure logs err and adds the command name.
+func deployVerifyFailure(ctx context.Context, err error) error {
+	slog.ErrorContext(ctx, "ops.deploy.verify.failed", slog.String("err", err.Error()))
+	return fmt.Errorf("ops deploy verify: %w", err)
 }
 
 // verifyLocalTagDigests reads each expected image's registry digest from the
