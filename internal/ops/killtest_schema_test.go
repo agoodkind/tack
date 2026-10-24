@@ -145,6 +145,7 @@ func runDropKilltestSchema(t *testing.T, dsn string, outbox *pgxpool.Pool, execu
 	var output bytes.Buffer
 	factory.Out = &output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(outbox))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(outbox))
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
 	registry := clispec.NewRegistry()
 	ops.RegisterCommands(registry, factory)

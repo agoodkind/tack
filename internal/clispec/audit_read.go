@@ -26,8 +26,9 @@ type OperatorRead func(ctx context.Context) (audit.OperatorReadOutput, error)
 // that public.ops_outbox or tack_audit_operator does not exist. If the outbox
 // and login exist but audit_operator cannot execute the read functions, it
 // writes a format 0 read event before running the read. It returns the admission
-// error if authentication or the probe fails, or if the required infrastructure
-// exists.
+// error if the probe fails or if the required infrastructure exists. It also
+// returns the admission error without running the probe if authentication
+// fails, unless spec creates the audit infrastructure.
 func RunAuditedRead(
 	ctx context.Context,
 	f *cli.Factory,
@@ -78,7 +79,7 @@ func readBeforeReadLifecycle(
 	admissionErr error,
 ) ([]byte, error) {
 	probe := f.AuditInfrastructureProbe()
-	if isAuthenticationFailure(admissionErr) || probe == nil {
+	if (isAuthenticationFailure(admissionErr) && !spec.CreatesAuditInfrastructure) || probe == nil {
 		return nil, loggedAuditError(ctx, "record read access", admissionErr)
 	}
 	infrastructure, probeErr := probe(ctx)
