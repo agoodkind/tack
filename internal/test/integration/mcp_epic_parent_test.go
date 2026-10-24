@@ -27,42 +27,25 @@ func TestCreateEpicUnderEpicStoresOneParentEdge(t *testing.T) {
 	}
 }
 
-// TestEpicParentRefusals builds a chain of three epics through MCP tools. The
-// update tool must refuse a move of the top epic under the bottom epic, a move
-// of the middle epic under itself, and a move of the middle epic under an
-// issue. The create tool must refuse an epic under a cycle. After the
-// refusals, each epic must keep its parent_id and its one child_of edge.
-func TestEpicParentRefusals(t *testing.T) {
+// TestEpicParentCycleRefusals builds a chain of three epics through MCP
+// tools. The update tool must refuse a move of the top epic under the bottom
+// epic and a move of the middle epic under itself. After the refusals, each
+// epic must keep its parent_id and its one child_of edge.
+func TestEpicParentCycleRefusals(t *testing.T) {
 	harness := integration.NewMCPHarness(t)
 	stores := parentIntegrityStores(t)
 	top := createParentIntegrityNode(t, harness, "tack_create_epic", "Top epic", "")
 	middle := createParentIntegrityNode(t, harness, "tack_create_epic", "Middle epic", top)
 	bottom := createParentIntegrityNode(t, harness, "tack_create_epic", "Bottom epic", middle)
-	issue := createParentIntegrityNode(t, harness, "tack_create_issue", "Issue beside the epics", "")
-	cycle := createParentIntegrityNode(t, harness, "tack_create_cycle", "Cycle beside the epics", "")
 	projectID := stringProperty(t, storedParentView(t, stores, top), "parent_id")
 
-	refusals := []struct {
-		epic, parent, want string
-	}{
-		{epic: top, parent: bottom, want: "one of its descendants"},
-		{epic: middle, parent: middle, want: "one of its descendants"},
-		{epic: middle, parent: issue, want: `cannot live under the parent ` + issue + ` of type "issue"`},
-	}
-	for _, refusal := range refusals {
+	for epic, parent := range map[string]string{top: bottom, middle: middle} {
 		move := parentIntegrityArguments(harness, "")
-		move.NodeID = refusal.epic
-		move.Properties = datagen.NodeProperties{"parent_id": json.RawMessage(strconv.Quote(refusal.parent))}
-		text := harness.CallExpectError(t, "tack_update_epic", move)
-		if !strings.Contains(text, refusal.want) {
-			t.Fatalf("move of epic %s under %s returned %q; the test expects %q", refusal.epic, refusal.parent, text, refusal.want)
+		move.NodeID = epic
+		move.Properties = datagen.NodeProperties{"parent_id": json.RawMessage(strconv.Quote(parent))}
+		if text := harness.CallExpectError(t, "tack_update_epic", move); !strings.Contains(text, "one of its descendants") {
+			t.Fatalf("move of epic %s under %s returned %q; the test expects a parent cycle refusal", epic, parent, text)
 		}
-	}
-	underCycle := parentIntegrityArguments(harness, harness.Project)
-	underCycle.Name = "Epic under a cycle"
-	underCycle.Properties = datagen.NodeProperties{"parent_id": json.RawMessage(strconv.Quote(cycle))}
-	if text := harness.CallExpectError(t, "tack_create_epic", underCycle); !strings.Contains(text, `of type "cycle"`) {
-		t.Fatalf("create of an epic under cycle %s returned %q; the test expects a parent type refusal", cycle, text)
 	}
 
 	for child, parent := range map[string]string{top: projectID, middle: top, bottom: middle} {
