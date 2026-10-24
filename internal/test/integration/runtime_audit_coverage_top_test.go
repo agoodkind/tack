@@ -61,6 +61,7 @@ func TestRuntimeAuditTopLevelCoverage(t *testing.T) {
 				operatorID := current.run(t, env)
 				requireOutboxEvent(t, coverageEvidence{
 					orgID: audit.SystemOrgID(), requestID: "", actorID: operatorID, outcome: "", outbox: env.admin,
+					body: nil, targetID: uuid.Nil,
 				}, current.verb, current.outcome)
 			})
 		}

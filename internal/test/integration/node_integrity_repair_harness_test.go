@@ -51,6 +51,7 @@ func runRepairCommand(t *testing.T, args ...string) (repairCommandResult, error)
 	}
 	defer pool.Close()
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := repairCommandRoot(factory)
 	root.SetArgs(append([]string{
 		"--output", "json", "--operator-id", repairOperatorID,

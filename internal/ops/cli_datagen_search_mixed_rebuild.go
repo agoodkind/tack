@@ -31,7 +31,7 @@ func searchMixedRebuild(factory *cli.Factory) datagen.SearchMixedRebuild {
 		sink := &searchMixedRebuildSink{result: searchReindexOutput{}}
 		err = clispec.RunAuditedExternal(ctx, factory.Out, externalSpec(audit.VerbOpsSearchReindex, "opensearch/serving-index"),
 			encoded, factory.OperatorIdentitySource(), factory.DeployCommit(), factory.Execute(), factory.AuditOutbox(),
-			func(stepContext context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			factory.AuditInfrastructureProbe(), func(stepContext context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 				return runSearchReindexRecorded(stepContext, factory, input, sink, steps)
 			})
 		if err != nil {

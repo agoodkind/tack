@@ -111,8 +111,10 @@ func (run *scalingRun) measure(t *testing.T) {
 	after := readLedgerStorage(t, admin)
 	run.result.ledgerIndexBytes = after.indexBytes - run.storageBefore.indexBytes
 	run.result.ledgerTotalBytes = after.totalBytes - run.storageBefore.totalBytes
-	run.result.eventBytes = perUnit(after.eventTableBytes, after.events)
-	run.result.partBytes = perUnit(after.partTableBytes, after.parts)
+	run.result.eventBytes = perUnitGrowth(after.eventTableBytes-run.storageBefore.eventTableBytes,
+		after.events-run.storageBefore.events)
+	run.result.partBytes = perUnitGrowth(after.partTableBytes-run.storageBefore.partTableBytes,
+		after.parts-run.storageBefore.parts)
 	run.measureFoundationDB(t)
 }
 

@@ -101,6 +101,7 @@ func resolveRelationshipEndpoints(ctx context.Context, resolver *Resolver, req m
 	if err != nil {
 		return none, classifyError(ctx, err)
 	}
+	noteToolTarget(ctx, relationshipTarget(sourceID, relType, targetID))
 	resolve, err := resolver.reader.Resolve(ctx, sourceID)
 	if err != nil {
 		return none, classifyError(ctx, err)

@@ -11,49 +11,14 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
-
-	"goodkind.io/tack/internal/clispec"
-	"goodkind.io/tack/internal/config"
 )
 
 // ledgerNodeHealthy is the health status the container reports once its
 // probe passes, as the Docker API spells it.
 const ledgerNodeHealthy = string(container.Healthy)
-
-// runLedgerNodeWait waits for the local ledger node under the given windows
-// and reports how long it took.
-func runLedgerNodeWait(ctx context.Context, cfg *config.Config, sink clispec.ResultSink, stallWindow, pollInterval time.Duration) error {
-	const command = "ops ledger node-wait"
-	cli, err := newDockerClient(ctx)
-	if err != nil {
-		return fmt.Errorf("%s: %w", command, err)
-	}
-	defer func() { _ = cli.Close() }()
-	watch := ledgerNodeWatch{
-		Health: func(ctx context.Context) (ledgerNodeHealth, error) {
-			return inspectLedgerNodeHealth(ctx, cli, yugabyteBackupContainer)
-		},
-		Cluster: func(ctx context.Context) (ledgerClusterCounts, error) {
-			return probeLedgerClusterCounts(ctx, cfg.BackupYBMasterAddresses)
-		},
-	}
-	took, err := awaitLedgerNode(ctx, watch, stallWindow, pollInterval)
-	if err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.node_wait.failed", slog.String("err", err.Error()))
-		return fmt.Errorf("%s: %w", command, err)
-	}
-	slog.InfoContext(ctx, "ops.ledger.node_wait.healthy", slog.Duration("took", took))
-	line := fmt.Sprintf("%s: healthy after %s", yugabyteBackupContainer, took.Round(time.Second))
-	if err := sink.WriteText(ctx, line); err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.node_wait.write_result_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("%s: write result: %w", command, err)
-	}
-	return nil
-}
 
 // inspectLedgerNodeHealth reads the container's running state and health
 // status. A container without a health check reports its status as none,

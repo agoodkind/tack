@@ -3,6 +3,7 @@
 package integration_test
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -48,6 +49,16 @@ func perUnit(total, count int64) float64 {
 		return 0
 	}
 	return float64(total) / float64(count)
+}
+
+// perUnitGrowth divides the byte growth of a table by the rows the run added
+// and formats the result for the storage table. It returns "not measured"
+// when the byte growth or the added row count is not positive.
+func perUnitGrowth(growth, added int64) string {
+	if growth <= 0 || added <= 0 {
+		return "not measured"
+	}
+	return strconv.FormatFloat(float64(growth)/float64(added), 'f', 0, 64)
 }
 
 // outboxRecordCount counts rows and parts in the YugabyteDB operator
