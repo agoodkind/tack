@@ -30,6 +30,7 @@ var splitFaultRequest = searchdomain.BeginRebuild{
 // split pause queued, validation, and alias switching. That split must
 // resume after each condition clears and serve every current node.
 func TestSearchSplitRecoversFromStepFailures(t *testing.T) {
+	shortenSearchSessions(t)
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	fixture.Worker = faultWorker(t, fixture)
 	workspace := fixture.Workspaces[0]

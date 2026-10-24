@@ -23,6 +23,7 @@ import (
 // replacement must resume from its durable state and finish with the target
 // serving every current node.
 func TestSearchRebuildRecoversFromStepFailures(t *testing.T) {
+	shortenSearchSessions(t)
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	fixture.Worker = faultWorker(t, fixture)
 	workspace := fixture.Workspaces[0]

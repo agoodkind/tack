@@ -18,8 +18,11 @@ import (
 const (
 	// rebuildTestPauseLimit shortens the replacement pause limit for the
 	// pause test. It exceeds the 30 second worker lease, as validation
-	// requires.
-	rebuildTestPauseLimit = 45 * time.Second
+	// requires. The first split attempt ends about 50 seconds after the
+	// pause, after one lease and a green wait of 20 seconds. That attempt
+	// ends before the limit and leaves the source write-blocked. The second
+	// attempt ends after the limit and fails the replacement.
+	rebuildTestPauseLimit = 75 * time.Second
 	// readOnlySetting blocks document writes and metadata writes. The engine
 	// then refuses alias changes and every other settings change on the
 	// index.

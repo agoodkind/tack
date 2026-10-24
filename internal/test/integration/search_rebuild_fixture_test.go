@@ -53,6 +53,16 @@ func runRebuildUntil(t *testing.T, fixture queryFixture, done func(searchdomain.
 // rebuildFinished accepts the state after the replacement record is gone.
 func rebuildFinished(_ searchdomain.Rebuild, found bool) bool { return !found }
 
+// shortenSearchSessions sets a 3 second idle limit and a 6 second absolute
+// limit for search sessions. Retirement of the old index then waits at most
+// 6 seconds for a session that a test search opened. A test must set the
+// limits before the fixture builds the graph.
+func shortenSearchSessions(t *testing.T) {
+	t.Helper()
+	t.Setenv("OPENSEARCH_SESSION_IDLE_TIMEOUT", "3s")
+	t.Setenv("OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT", "6s")
+}
+
 // inState accepts a replacement in state.
 func inState(state searchdomain.RebuildState) func(searchdomain.Rebuild, bool) bool {
 	return func(current searchdomain.Rebuild, found bool) bool { return found && current.State == state }
