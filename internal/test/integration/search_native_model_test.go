@@ -52,7 +52,7 @@ func nativeModelPath(modelID, suffix string) string {
 func requireNativeML(t *testing.T, client *opensearchapi.Client, method string, request nativeMLRequest) json.RawMessage {
 	t.Helper()
 	var body json.RawMessage
-	response, err := opensearch.Do(t.Context(), client.Client, method, request, &body)
+	response, err := opensearch.Do(WithTestOperation(t, t.Context()), client.Client, method, request, &body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ var undeployedModelStates = []string{"UNDEPLOYED", "DEPLOY_FAILED"}
 func undeployNativeModel(t *testing.T, adapter *search.Adapter, client *opensearchapi.Client, modelID string) {
 	t.Helper()
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), nativeRedeployTimeout)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), nativeRedeployTimeout)
 		defer cancel()
 		if err := redeployNativeModel(ctx, adapter, client); err != nil {
 			t.Errorf("redeploy native model: %v", err)

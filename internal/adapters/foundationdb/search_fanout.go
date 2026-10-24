@@ -32,6 +32,9 @@ func scheduleDeletedFanout(ctx context.Context, tr fdb.Transaction, deletion sea
 	if err := writeSearchWork(ctx, tr, class, deletion, nil); err != nil {
 		return err
 	}
+	if err := recordRolloutAffected(ctx, tr, deletion.OrgID, deletion.NodeID); err != nil {
+		return err
+	}
 	return writeSearchRecord(ctx, tr, searchCursorKey(string(class), deletion.OrgID, deletion.NodeID), searchProgressRecord{
 		Revision: deletion.Revision, Generation: deletion.Generation, Projection: "",
 		Cursor: "", Ordinal: 0, Phase: string(searchdomain.PhaseDependents),

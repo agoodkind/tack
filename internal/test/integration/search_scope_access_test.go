@@ -12,7 +12,7 @@ import (
 
 func TestSearchScopeAccessUsesEntryPoint(t *testing.T) {
 	stores := newSearchStore(t)
-	ctx := t.Context()
+	ctx := WithTestOperation(t, t.Context())
 	orgID := uuid.Must(uuid.NewV7())
 	for _, definition := range []*node.NodeType{
 		{ID: uuid.Must(uuid.NewV7()), OrgID: orgID, TypeKey: "search_entry", Features: node.Features{node.FeatureIsEntryPoint}},
@@ -82,7 +82,7 @@ func createScopeAccessNode(t *testing.T, stores *fdbadapter.Stores, orgID uuid.U
 			OrgID: orgID, SourceID: nodeID, TargetID: parentID, RelationType: node.RelChildOf,
 		})
 	}
-	if err := stores.Nodes.CreateAtomic(t.Context(), created, view, relationships, nil, nil, nil); err != nil {
+	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, view, relationships, nil, nil, nil); err != nil {
 		t.Fatalf("create search node %s: %v", nodeID, err)
 	}
 	return nodeID

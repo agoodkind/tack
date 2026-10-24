@@ -79,7 +79,7 @@ func storedParentID(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, so
 	if !source.Found {
 		return uuid.Nil, nil
 	}
-	current, _, err := readNodeAndView(ctx, tr, orgID, source)
+	current, _, _, err := readNodeAndView(ctx, tr, orgID, source)
 	if err != nil || current == nil {
 		return uuid.Nil, err
 	}

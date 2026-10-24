@@ -57,10 +57,5 @@ func TestRejectedTokenProbesSkipDevelopmentAuth(t *testing.T) {
 }
 
 func testGraph(handler http.Handler) *runtime.Graph {
-	return &runtime.Graph{
-		MCPHandler: handler,
-		AuthMiddleware: func(next http.Handler) http.Handler {
-			return next
-		},
-	}
+	return &runtime.Graph{MCPRoute: handler}
 }

@@ -13,6 +13,7 @@ func renderList(rc *renderCtx, kind string, views []*node.NodeView) string {
 	for _, view := range views {
 		items = append(items, nodeListItem(rc, view))
 	}
+	addNodeTargets(rc.ctx, views...)
 	data := collectionTemplateData{Heading: titleText(kind), Count: len(views), Noun: kind, Items: items}
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }
@@ -72,6 +73,7 @@ func renderRelationships(rc *renderCtx, direction string, rels []*node.Relations
 	for _, rel := range rels {
 		items = append(items, relationshipListItem(rc, rel, label, otherIsTarget))
 	}
+	addRelationshipTargets(rc.ctx, rels)
 	data := collectionTemplateData{Heading: fmt.Sprintf("%s relationships", titleText(direction)), Count: len(rels), Noun: "relationships", Items: items}
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }

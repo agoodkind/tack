@@ -32,7 +32,7 @@ func TestSearchDatagen(t *testing.T) {
 	cfg := *fixture.Config
 	cfg.DatagenAllowTarget = "local"
 	for run := 1; run <= 2; run++ {
-		if err := datagen.VerifySearchWithSeed(t.Context(), &cfg, searchDatagenSeed); err != nil {
+		if _, err := datagen.VerifySearchWithSeed(WithTestOperation(t, t.Context()), &cfg, searchDatagenSeed); err != nil {
 			t.Fatalf("verify search run %d with seed %d: %v", run, searchDatagenSeed, err)
 		}
 	}
@@ -52,15 +52,15 @@ func TestSearchDatagenProductionGuard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse scale: %v", err)
 	}
-	if err := datagen.VerifySearchWithSeed(t.Context(), &unmarked, searchGuardSeed); err == nil {
+	if _, err := datagen.VerifySearchWithSeed(WithTestOperation(t, t.Context()), &unmarked, searchGuardSeed); err == nil {
 		t.Fatal("a target without the QA marker was accepted")
 	}
-	if err := datagen.VerifySearchWithSeed(t.Context(), &production, searchGuardSeed); err == nil {
+	if _, err := datagen.VerifySearchWithSeed(WithTestOperation(t, t.Context()), &production, searchGuardSeed); err == nil {
 		t.Fatal("a target that identifies production was accepted")
 	}
 	planned := datagen.PlanIdentities(&unmarked, searchGuardSeed, scale)
 	for _, workspace := range planned.Workspaces {
-		view, err := fixture.Stores.Views.Get(t.Context(), workspace.OrgID)
+		view, err := fixture.Stores.Views.Get(WithTestOperation(t, t.Context()), workspace.OrgID)
 		if err != nil || view != nil {
 			t.Fatalf("refused verification left organization %s: view %v, error %v", workspace.OrgID, view, err)
 		}

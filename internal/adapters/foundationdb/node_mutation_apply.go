@@ -14,96 +14,99 @@ import (
 // rereads the idempotency record, source primary record, metadata epoch,
 // expected graph records, and parent chain before writing. The attempt writes
 // the primary, view, and resolution records, property indexes, reference claims,
-// relationships, search work, and audit intent.
+// relationships, search work, and one change event for each changed node or relationship.
 func (s *NodeStore) ApplyMutation(ctx context.Context, plan node.MutationPlan) (receipt node.MutationReceipt, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.apply_mutation")(&err)
-	written := false
+	changes, err := beginMutationAudit(ctx, plan.OrgID)
+	if err != nil {
+		return node.MutationReceipt{}, err
+	}
 	err = runNodeMutation(ctx, s.db, "apply mutation to node "+plan.NodeID.String(), func(tr fdb.Transaction) error {
+		changes.startAttempt()
 		var attemptErr error
-		receipt, written, attemptErr = s.applyMutationAttempt(ctx, tr, plan)
-		return attemptErr
+		receipt, attemptErr = s.applyMutationAttempt(ctx, tr, plan, changes)
+		if attemptErr != nil {
+			return attemptErr
+		}
+		return changes.append(ctx, tr)
 	})
 	if err != nil {
 		return node.MutationReceipt{}, err
 	}
-	if written {
-		commitStagedIntent(ctx)
-	}
+	changes.finish(ctx)
 	return receipt, nil
 }
 
-// applyMutationAttempt runs one attempt of plan inside tr. It returns false
-// when it returns a receipt from an existing idempotency record without
-// writing.
-func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction, plan node.MutationPlan) (node.MutationReceipt, bool, error) {
+// applyMutationAttempt returns the receipt without writing when the idempotency
+// record exists. Otherwise, it applies plan inside tr, records node and relationship
+// changes in changes, and returns a receipt for the write.
+func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction, plan node.MutationPlan, changes *mutationAudit) (node.MutationReceipt, error) {
 	none := node.MutationReceipt{OrgID: plan.OrgID, NodeID: plan.NodeID, SourceDigest: node.Digest{}, ResultDigest: node.Digest{}}
 	existing, err := readCreateIdempotency(ctx, tr, plan)
 	if err != nil {
-		return none, false, err
+		return none, err
 	}
 	if existing != nil {
-		return *existing, false, nil
+		return *existing, nil
 	}
 	source, err := readMutationSource(ctx, tr, plan.OrgID, plan.NodeID)
 	if err != nil {
-		return none, false, err
+		return none, err
 	}
 	if err := checkSource(ctx, plan.NodeID, plan.Source, source); err != nil {
-		return none, false, err
+		return none, err
 	}
 	if err := checkPlanShape(ctx, plan, source); err != nil {
-		return none, false, err
+		return none, err
 	}
 	schema, err := checkMutationSchema(ctx, tr, plan)
 	if err != nil {
-		return none, false, err
+		return none, err
 	}
 	records, err := checkGraphRecords(ctx, tr, plan.OrgID, plan.NodeID, plan.Graph.Records)
 	if err != nil {
-		return none, false, err
+		return none, err
 	}
 	if plan.Parent != nil {
 		if err := checkParentChain(ctx, tr, plan.OrgID, plan.NodeID, plan.Parent.TargetID, records); err != nil {
-			return none, false, err
+			return none, err
 		}
 	}
 	result := mutationResult(plan, source, s.clock.Now().UTC())
 	if err := checkMoveScope(ctx, plan, source, result, records); err != nil {
-		return none, false, err
+		return none, err
 	}
 	parentChanges, err := childOfChanges(ctx, tr, plan, source, &result)
 	if err != nil {
-		return none, false, err
+		return none, err
 	}
 	strict, err := s.fenceAttempt(ctx, tr, plan.OrgID, plan.NodeID)
 	if err != nil {
-		return none, false, err
+		return none, err
 	}
 	if err := refuseStrictResult(ctx, plan.NodeID, strict); err != nil {
-		return none, false, err
+		return none, err
 	}
 	if err := checkMutationResult(ctx, tr, plan, source, &result, schema); err != nil {
-		return none, false, err
+		return none, err
 	}
-	encoded, err := json.Marshal(&result)
+	planned, err := json.Marshal(&result)
 	if err != nil {
-		return none, false, nodeOperationFailure(ctx, "encode node "+plan.NodeID.String(), err)
+		return none, nodeOperationFailure(ctx, "encode node "+plan.NodeID.String(), err)
 	}
-	if err := advanceMutationCheckpoint(ctx, tr, plan.Checkpoint, encoded); err != nil {
-		return none, false, err
+	if err := advanceMutationCheckpoint(ctx, tr, plan.Checkpoint, planned); err != nil {
+		return none, err
 	}
-	changes := []node.RelationshipChanges{planRelationshipChanges(plan), parentChanges}
-	if err := s.writeMutation(ctx, tr, plan, source, &result, schema, changes); err != nil {
-		return none, false, err
-	}
-	if err := writeMutationIntent(ctx, tr, source.Encoding, encoded); err != nil {
-		return none, false, err
+	relationshipChanges := []node.RelationshipChanges{planRelationshipChanges(plan), parentChanges}
+	encoded, err := s.writeMutation(ctx, tr, plan, source, &result, schema, relationshipChanges, changes)
+	if err != nil {
+		return none, err
 	}
 	receipt := node.MutationReceipt{OrgID: plan.OrgID, NodeID: plan.NodeID, SourceDigest: node.Digest{}, ResultDigest: node.PrimaryDigest(encoded)}
 	if source.Exists {
 		receipt.SourceDigest = node.PrimaryDigest(source.Encoding)
 	}
-	return receipt, true, nil
+	return receipt, nil
 }
 
 // checkMutationSchema compares the stored metadata epoch with plan and returns
@@ -135,39 +138,49 @@ func checkMutationSchema(ctx context.Context, tr fdb.Transaction, plan node.Muta
 
 // writeMutation writes the records, property indexes, reference claims,
 // relationships, idempotency record, and search work for result inside tr.
+// It records the node change and each relationship change in changes and
+// returns the node record bytes that it wrote.
 func (s *NodeStore) writeMutation(
 	ctx context.Context, tr fdb.Transaction, plan node.MutationPlan, source mutationSource, result *node.Node,
-	schema node.Schema, changes []node.RelationshipChanges,
-) error {
-	if err := writeNodeRecords(ctx, tr, result, mutationView(result)); err != nil {
-		return err
+	schema node.Schema, relationshipChanges []node.RelationshipChanges, changes *mutationAudit,
+) ([]byte, error) {
+	encoded, err := writeNodeRecords(ctx, tr, result, mutationView(result))
+	if err != nil {
+		return nil, err
+	}
+	target := nodeTarget(result)
+	if len(plan.ReferenceKeys) > 0 {
+		target.Reference = plan.ReferenceKeys[0].Encoded
+	}
+	if err := changes.record(target, source.Encoding, encoded); err != nil {
+		return nil, nodeOperationFailure(ctx, "record the change of node "+plan.NodeID.String(), err)
 	}
 	reconcilePropertyIndexes(tr, result, source.Node.Props, indexedPropertyNames(schema, schema.Types[plan.NodeType]))
 	if source.Exists && plan.ReferenceKeys != nil {
 		if err := writeReferenceKeys(tr, plan.OrgID, plan.NodeID, plan.ReferenceKeys); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if !source.Exists {
 		if err := claimReferenceKeys(tr, plan.OrgID, plan.NodeID, plan.ReferenceKeys); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	if err := applyRelationshipChanges(ctx, tr, changes); err != nil {
-		return err
+	if err := applyRelationshipChanges(ctx, tr, relationshipChanges, changes); err != nil {
+		return nil, err
 	}
 	if err := writeCreateIdempotencyRecord(ctx, tr, plan); err != nil {
-		return err
+		return nil, err
 	}
 	if !s.searchWork {
-		return nil
+		return encoded, nil
 	}
 	now := s.clock.Now()
 	if _, err := scheduleSearchChange(ctx, tr, now, plan.OrgID, plan.NodeID, mutationSearchChange(source, result, schema.Definitions)); err != nil {
-		return err
+		return nil, err
 	}
 	if !source.Exists {
-		return nil
+		return encoded, nil
 	}
-	return scheduleRelatedSearchWork(ctx, tr, now, changes)
+	return encoded, scheduleRelatedSearchWork(ctx, tr, now, relationshipChanges)
 }

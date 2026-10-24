@@ -61,8 +61,8 @@ func opaqueSearchKey(prefix string) string {
 }
 
 // putSearchText stores an entry-point node type with one included and one
-// excluded property of unfamiliar opaque types, then writes one node with
-// both values in a new organization.
+// excluded text property under UUID-derived names. It then writes a node
+// with both values in a new organization.
 func putSearchText(t *testing.T, stores *fdbadapter.Stores, included, excluded string) searchFixture {
 	t.Helper()
 	return putSearchTextInOrg(t, stores, uuid.Must(uuid.NewV7()), included, excluded)
@@ -76,16 +76,16 @@ func putSearchTextInOrg(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID
 	}
 	definitions := []*node.PropertyDef{
 		{
-			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.IncludedKey, Type: node.PropertyType(opaqueSearchKey("t")),
+			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.IncludedKey, Type: node.PropertyTypeText,
 			Search: &node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 		},
 		{
-			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.ExcludedKey, Type: node.PropertyType(opaqueSearchKey("t")),
+			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.ExcludedKey, Type: node.PropertyTypeText,
 			Search: &node.SearchProjection{Include: false, Order: 1, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 		},
 	}
 	for _, definition := range definitions {
-		if err := stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+		if err := stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
 			t.Fatalf("store property definition: %v", err)
 		}
 	}
@@ -94,7 +94,7 @@ func putSearchTextInOrg(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID
 		Slug: fixture.TypeKey, PluralSlug: fixture.TypeKey + "s",
 		PropertyDefIDs: []uuid.UUID{definitions[0].ID, definitions[1].ID}, Features: node.Features{node.FeatureIsEntryPoint},
 	}
-	if err := stores.NodeTypes.Set(t.Context(), kind); err != nil {
+	if err := stores.NodeTypes.Set(WithTestOperation(t, t.Context()), kind); err != nil {
 		t.Fatalf("store node type: %v", err)
 	}
 	writeSearchNode(t, stores, fixture, included, excluded)
@@ -111,7 +111,7 @@ func writeSearchNode(t *testing.T, stores *fdbadapter.Stores, fixture searchFixt
 	now := clock.Now().UTC()
 	value := &node.Node{ID: fixture.NodeID, OrgID: fixture.OrgID, NodeType: fixture.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: fixture.NodeID, OrgID: fixture.OrgID, NodeType: fixture.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
-	if err := stores.Nodes.Set(t.Context(), value, view); err != nil {
+	if err := stores.Nodes.Set(WithTestOperation(t, t.Context()), value, view); err != nil {
 		t.Fatalf("store search node: %v", err)
 	}
 }

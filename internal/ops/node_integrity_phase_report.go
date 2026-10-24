@@ -7,7 +7,6 @@ import (
 	"maps"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -55,8 +54,7 @@ func (runner repairPhaseRunner) createReportPhase(ctx context.Context, run repai
 		return err
 	}
 	plan.Graph.Records = mergeGraphRecords(plan.Graph.Records, references)
-	target := repairEventTarget{orgID: frozen.orgID, nodeID: commentID, nodeType: report.NodeType, name: report.Name}
-	staged, err := stageRepairEvent(ctx, run, node.RepairPhaseCommentCreated, audit.VerbNodeCreate, target)
+	staged, err := stageRepairEvent(ctx, run, node.RepairPhaseCommentCreated)
 	if err != nil {
 		return err
 	}

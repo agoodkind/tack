@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
@@ -59,8 +58,7 @@ func (runner repairPhaseRunner) deletePhase(ctx context.Context, run repairPhase
 		Graph:      node.GraphExpectation{Records: nil, Relationships: outgoing, Incoming: incoming},
 		Checkpoint: &checkpoint,
 	}
-	target := repairEventTarget{orgID: frozen.orgID, nodeID: run.entry.NodeID, nodeType: run.entry.NodeType, name: snapshot.Node.Name}
-	staged, err := stageRepairEvent(ctx, run, node.RepairPhaseCompleted, audit.VerbNodeDelete, target)
+	staged, err := stageRepairEvent(ctx, run, node.RepairPhaseCompleted)
 	if err != nil {
 		return err
 	}

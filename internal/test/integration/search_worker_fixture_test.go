@@ -15,6 +15,7 @@ import (
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -65,7 +66,7 @@ func newSearchWorker(t *testing.T, stores *fdbadapter.Stores, adapter *search.Ad
 		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
-		Rebuilds: stores.SearchRebuilds(source), Replacer: adapter,
+		Rebuilds: stores.SearchRebuilds(source), Replacer: adapter, Audit: appruntime.SearchWorkerAudit(stores),
 	}, source, settings, 0)
 	if err != nil {
 		t.Fatalf("create search worker: %v", err)
@@ -84,14 +85,14 @@ func runSearchWorkerUntilIdle(t *testing.T, worker *service.SearchWorker) {
 func newSearchIndex(t *testing.T, stores *fdbadapter.Stores) (*search.Adapter, *opensearchapi.Client, search.ModelInfo, string) {
 	t.Helper()
 	adapter, client := nativeSearchClients(t)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
 	// The engine refuses to auto-create node-pages-* indexes, as production does.
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	createNativeSearchIndex(t, adapter, client, model, index)
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
+	if err := stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)
 	}
 	return adapter, client, model, index
@@ -101,11 +102,11 @@ func newSearchIndex(t *testing.T, stores *fdbadapter.Stores) (*search.Adapter, *
 // requested retirement state, in page order.
 func searchNodePages(t *testing.T, client *opensearchapi.Client, index string, nodeID uuid.UUID, retired bool) []searchPageSource {
 	t.Helper()
-	if _, err := client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{index}}); err != nil {
+	if _, err := client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Index: []string{index}}); err != nil {
 		t.Fatalf("refresh %s: %v", index, err)
 	}
 	query := fmt.Sprintf(`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":%t}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String(), retired)
-	response, err := client.Search(t.Context(), &opensearchapi.SearchReq{Indices: []string{index}, Body: strings.NewReader(query)})
+	response, err := client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{index}, Body: strings.NewReader(query)})
 	if err != nil {
 		t.Fatalf("search pages of node %s: %v", nodeID, err)
 	}
@@ -141,7 +142,7 @@ func readSearchPageSequence(t *testing.T, stores *fdbadapter.Stores, nodeID uuid
 	request := searchdomain.ContentRequest{NodeID: nodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: pageBytes, SearchGeneration: 0}
 	pages := make([]node.ContentPage, 0, 8)
 	for range 10_000 {
-		page, err := reader.Content(t.Context(), request)
+		page, err := reader.Content(WithTestOperation(t, t.Context()), request)
 		if err != nil {
 			return nil, fmt.Errorf("read page %d of node %s: %w", len(pages), nodeID, err)
 		}

@@ -79,6 +79,32 @@ jobs:
       - name: run the store-backed tests
         run: make test-store-host
 
+  # The long runtime audit suites run separately from the shared Test and
+  # store-backed jobs. The job limit allows 40 minutes for go test and
+  # 10 minutes for setup.
+  runtime-audit:
+    name: runtime audit coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: install the FoundationDB client library
+        run: |
+          fdb_version=7.4.6
+          curl -fsSL \
+            "https://github.com/apple/foundationdb/releases/download/${fdb_version}/foundationdb-clients_${fdb_version}-1_amd64.deb" \
+            -o /tmp/fdb-clients.deb
+          sudo dpkg -i /tmp/fdb-clients.deb
+          rm /tmp/fdb-clients.deb
+
+      - name: run the runtime audit coverage tests
+        run: make test-runtime-audit-host
+
   # Each job runs one final-validation search group; the job limit is the
   # group's go test limit plus 15 minutes of setup. The throughput group G2 and
   # the cluster group G4 run only on the Mac runner.
@@ -95,7 +121,7 @@ jobs:
           - group: G3
             timeout_minutes: 45
           - group: G5
-            timeout_minutes: 80
+            timeout_minutes: 110
     steps:
       - uses: actions/checkout@v7
 

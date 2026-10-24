@@ -17,82 +17,90 @@ import (
 // of them. Otherwise the step deletes the node, writes its ledger event, and
 // removes it from the stack. The step that empties the stack writes the
 // finish time into the job record, and status reads return that record. A
-// finished job and a job record that no longer exists report Done.
-func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID, events node.DeletionEventBuilder) (progress node.SubtreeDeleteProgress, err error) {
+// finished job or missing job record makes DeleteSubtreeStep report Done.
+// Each step records node and relationship changes with the actor and operation ID
+// from the job's encoded operation. It derives a base event ID from the operation ID
+// and job ID. Each change event ID is a name-based UUID of that base ID, the change
+// kind (create, update, or delete), and the record identity. A retried or resumed step
+// writes the same event IDs.
+func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID) (progress node.SubtreeDeleteProgress, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_step")(&err)
-	rootDeleted := false
 	err = runNodeMutation(ctx, s.nodes.db, "subtree delete step of job "+jobID.String(), func(tr fdb.Transaction) error {
-		rootDeleted = false
 		progress = node.SubtreeDeleteProgress{Deleted: 0, Moved: 0, Done: true}
 		job, err := readDeleteJob(ctx, tr, jobID)
 		if err != nil || job == nil {
 			return err
 		}
+		if job.Finished() {
+			progress = node.SubtreeDeleteProgress{Deleted: job.Deleted, Moved: job.Moved, Done: true}
+			return nil
+		}
+		operation, err := jobOperation(ctx, job)
+		if err != nil {
+			return err
+		}
+		changes := jobMutationAudit(operation, job.OrgID, job.ID)
 		if len(job.Stack) > 0 {
-			rootDeleted, err = s.advance(ctx, tr, job, events)
-			if err != nil {
+			if err := s.advance(ctx, tr, job, changes); err != nil {
 				return err
 			}
 		}
 		progress = node.SubtreeDeleteProgress{Deleted: job.Deleted, Moved: job.Moved, Done: len(job.Stack) == 0}
-		if job.Finished() {
-			return nil
-		}
 		now := s.nodes.clock.Now()
 		if progress.Done {
 			job.FinishedAt = now.UTC()
 		}
-		return writeDeleteJob(ctx, tr, job, now)
+		if err := writeDeleteJob(ctx, tr, job, now); err != nil {
+			return err
+		}
+		return changes.append(ctx, tr)
 	})
 	if err != nil {
 		return node.SubtreeDeleteProgress{Deleted: 0, Moved: 0, Done: false}, err
 	}
-	if rootDeleted {
-		commitStagedIntent(ctx)
-	}
 	return progress, nil
 }
 
-// advance examines the last node on the stack of job and changes job to the
-// state after the step. It reports whether the step deleted the root.
-func (s *NodeDeleteStore) advance(ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, events node.DeletionEventBuilder) (bool, error) {
+// advance processes the last node on job.Stack and updates job after the step.
+// It records node and relationship changes in changes.
+func (s *NodeDeleteStore) advance(ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, changes *mutationAudit) error {
 	topID := job.Stack[len(job.Stack)-1]
 	kinds := make(map[string]*node.NodeType)
 	resolved, err := readHierarchyNodes(ctx, tr, job.OrgID, []uuid.UUID{topID}, kinds)
 	if err != nil {
-		return false, err
+		return err
 	}
 	top := resolved[0]
 	if !top.Found {
 		job.Stack = job.Stack[:len(job.Stack)-1]
-		return false, nil
+		return nil
 	}
 	incoming, err := readDeleteEdges(ctx, tr, job.OrgID, topID, "", true)
 	if err != nil {
-		return false, err
+		return err
 	}
 	outgoing, err := readDeleteEdges(ctx, tr, job.OrgID, topID, "", false)
 	if err != nil {
-		return false, err
+		return err
 	}
 	examined := incoming[:min(len(incoming), maxDeleteEdgePage)]
 	child, others, err := findHierarchyChild(ctx, tr, job, top, examined, kinds)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if child.Found {
-		if err := s.takeChild(ctx, tr, job, child, kinds, events); err != nil {
-			return false, err
+		if err := s.takeChild(ctx, tr, job, child, kinds, changes); err != nil {
+			return err
 		}
-		return false, s.clearDeleteEdges(ctx, tr, job.OrgID, others)
+		return s.clearDeleteEdges(ctx, tr, job.OrgID, others, changes)
 	}
 	if len(incoming) > maxDeleteEdgePage || len(outgoing) > maxDeleteEdgePage {
 		page := make([]deleteEdge, 0, len(others)+maxDeleteEdgePage)
 		page = append(page, others...)
 		page = append(page, outgoing[:min(len(outgoing), maxDeleteEdgePage)]...)
-		return false, s.clearDeleteEdges(ctx, tr, job.OrgID, page)
+		return s.clearDeleteEdges(ctx, tr, job.OrgID, page, changes)
 	}
-	return s.deleteTop(ctx, tr, job, top, events)
+	return s.deleteTop(ctx, tr, job, top, changes)
 }
 
 // takeChild moves a direct child of the root to the root's parent when
@@ -100,12 +108,12 @@ func (s *NodeDeleteStore) advance(ctx context.Context, tr fdb.Transaction, job *
 // its descendants.
 func (s *NodeDeleteStore) takeChild(
 	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, child hierarchyNode,
-	kinds map[string]*node.NodeType, events node.DeletionEventBuilder,
+	kinds map[string]*node.NodeType, changes *mutationAudit,
 ) error {
 	moved := false
 	if len(job.Stack) == 1 {
 		var err error
-		moved, err = s.moveChild(ctx, tr, job, child, kinds, events)
+		moved, err = s.moveChild(ctx, tr, job, child, kinds, changes)
 		if err != nil {
 			return err
 		}

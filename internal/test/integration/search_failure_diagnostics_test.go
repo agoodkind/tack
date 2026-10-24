@@ -14,7 +14,7 @@ import (
 
 func captureSearchFailure(t *testing.T, fixture queryFixture, modelID string, containers ...string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), 30*time.Second)
 	defer cancel()
 	for _, container := range containers {
 		evidence, err := testenv.OpenSearchResourceEvidence(ctx, container)

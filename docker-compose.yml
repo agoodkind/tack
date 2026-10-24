@@ -670,6 +670,41 @@ services:
       # decision in CLAUDE.md under the Deployment section.
       - /var/run/docker.sock:/var/run/docker.sock
 
+  # Short-lived operator container for the audit queue commands
+  # (`ops audit consumer-offsets`, `ops audit dlq inspect`, `ops audit dlq
+  # replay`). Each one opens the ledger reader and the Kafka broker together.
+  # tack-ops uses host networking and cannot resolve the broker. The app
+  # service mounts no ledger reader login. This service runs on the bridge
+  # network with both (TACK-610). Invoke via:
+  #   docker compose run --rm audit-ops ops audit [subcommand] [args]
+  audit-ops:
+    image: ghcr.io/agoodkind/tack-server:${TACK_IMAGE_TAG:-latest}
+    profiles: [ops]
+    mem_limit: 256m
+    entrypoint: ["/server"]
+    environment:
+      # The application login. Every command loads it; these commands read
+      # no auth table through it.
+      DATABASE_URL_FILE: /run/secrets/DATABASE_URL
+      AUDIT_OPERATOR_DSN_FILE: /run/secrets/AUDIT_OPERATOR_DSN
+      AUDIT_READER_DSN_FILE: /run/secrets/AUDIT_READER_DSN
+      AUDIT_KAFKA_BROKERS: ${AUDIT_KAFKA_BROKERS:-}
+      AUDIT_KAFKA_TOPIC: ${AUDIT_KAFKA_TOPIC:-audit.events.v1}
+      AUDIT_KAFKA_PRODUCE_TIMEOUT: ${AUDIT_KAFKA_PRODUCE_TIMEOUT:-15s}
+      # consumer-offsets also counts the FoundationDB operator outbox.
+      FDB_CLUSTER_FILE: /etc/foundationdb/fdb.cluster
+      FDB_TRANSACTION_TIMEOUT: ${FDB_TRANSACTION_TIMEOUT:-5s}
+      ENV: ${ENV:?ENV is required, set it in .env}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    secrets:
+      - DATABASE_URL
+      - AUDIT_OPERATOR_DSN
+      - AUDIT_READER_DSN
+    volumes:
+      # Writable for the same coordinator-change reason as tack-ops (TACK-408).
+      - /etc/foundationdb:/etc/foundationdb
+      - ${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:${TACK_LEDGER_CERTS_DIR:-/etc/tack/ledger-certs}:ro
+
 secrets:
   DATABASE_URL:
     file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/DATABASE_URL
@@ -677,6 +712,8 @@ secrets:
     file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_WRITER_DSN
   AUDIT_OPERATOR_DSN:
     file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_OPERATOR_DSN
+  AUDIT_READER_DSN:
+    file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_READER_DSN
   AUDIT_CONSUMER_YUGABYTE_DSN:
     file: ${TACK_SECRETS_DIR:-/var/lib/tack/secrets}/AUDIT_CONSUMER_YUGABYTE_DSN
   AUDIT_CONSUMER_CLICKHOUSE_DSN:

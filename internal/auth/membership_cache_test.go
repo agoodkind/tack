@@ -22,22 +22,6 @@ func (c *countingMembers) ListOrgIDsForUser(_ context.Context, userID uuid.UUID)
 	return append([]uuid.UUID(nil), c.orgs[userID]...), nil
 }
 
-func (c *countingMembers) AddMember(_ context.Context, m *org.Member) error {
-	c.orgs[m.UserID] = append(c.orgs[m.UserID], m.OrgID)
-	return nil
-}
-
-func (c *countingMembers) RemoveMember(_ context.Context, orgID, userID uuid.UUID) error {
-	kept := make([]uuid.UUID, 0, len(c.orgs[userID]))
-	for _, id := range c.orgs[userID] {
-		if id != orgID {
-			kept = append(kept, id)
-		}
-	}
-	c.orgs[userID] = kept
-	return nil
-}
-
 func (c *countingMembers) ListMembers(context.Context, uuid.UUID) ([]*org.Member, error) {
 	return nil, nil
 }
@@ -62,30 +46,6 @@ func TestCachedMembersReadsOncePerLifetime(t *testing.T) {
 	}
 	if reads := store.reads.Load(); reads != 1 {
 		t.Fatalf("store read %d times, want 1", reads)
-	}
-}
-
-// TestCachedMembersForgetsOnAMembershipWrite pins that a removal through
-// this instance is refused at once, not after the lifetime.
-func TestCachedMembersForgetsOnAMembershipWrite(t *testing.T) {
-	userID := uuid.Must(uuid.NewV7())
-	orgID := uuid.Must(uuid.NewV7())
-	store := &countingMembers{orgs: map[uuid.UUID][]uuid.UUID{userID: {orgID}}}
-	cached := NewCachedMembers(store, time.Hour, 16)
-	ctx := context.Background()
-
-	if _, err := cached.ListOrgIDsForUser(ctx, userID); err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if err := cached.RemoveMember(ctx, orgID, userID); err != nil {
-		t.Fatalf("remove: %v", err)
-	}
-	orgIDs, err := cached.ListOrgIDsForUser(ctx, userID)
-	if err != nil {
-		t.Fatalf("list after remove: %v", err)
-	}
-	if len(orgIDs) != 0 {
-		t.Fatalf("a removed member still reads %v from the cache", orgIDs)
 	}
 }
 

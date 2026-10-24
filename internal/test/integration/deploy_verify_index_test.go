@@ -40,9 +40,13 @@ func TestDeployVerifyComparesTheGivenIndexDigest(t *testing.T) {
 	t.Logf("mismatching digest refused: %v", err)
 }
 
-// runOpsDeployVerify runs the audited ops deploy verify command with the two
-// digest flags and the real operator outbox.
-func runOpsDeployVerify(t *testing.T, cfg *config.Config, ledgerDSN, serverDigest, consumerDigest string) (string, error) {
+// deployVerifyOperatorID is the operator that the deploy verify tests record.
+const deployVerifyOperatorID = "019dd226-440e-729a-a442-281aaf73ca30"
+
+// runOpsDeployVerify runs the audited ops deploy verify command as operatorID
+// with the two digest flags, the real operator outbox, and the real YugabyteDB
+// read lifecycle.
+func runOpsDeployVerify(t *testing.T, cfg *config.Config, ledgerDSN, operatorID, serverDigest, consumerDigest string) (string, error) {
 	t.Helper()
 	pool, err := pgxpool.New(t.Context(), ledgerDSN)
 	if err != nil {
@@ -53,11 +57,12 @@ func runOpsDeployVerify(t *testing.T, cfg *config.Config, ledgerDSN, serverDiges
 	var output bytes.Buffer
 	factory.Out = &output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	defer factory.CloseAuditOutbox()
 	root := searchCommandRoot(factory)
 	root.SetContext(t.Context())
 	root.SetArgs([]string{
-		"--execute", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
+		"--execute", "--operator-id", operatorID,
 		"--operator-email", "operator@example.com", "--operator-name", "Deploy Verify Test",
 		"ops", "deploy", "verify", "--tack-server-digest", serverDigest, "--tack-audit-consumer-digest", consumerDigest,
 	})

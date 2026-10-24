@@ -47,8 +47,7 @@ func (runner repairPhaseRunner) resultPhase(ctx context.Context, run repairPhase
 		}
 		plan.Graph.Records = mergeGraphRecords(plan.Graph.Records, []node.GraphRecord{record})
 	}
-	target := repairEventTarget{orgID: frozen.orgID, nodeID: run.entry.NodeID, nodeType: run.entry.NodeType, name: snapshot.Node.Name}
-	staged, err := stageRepairEvent(ctx, run, node.RepairPhaseCompleted, audit.VerbNodeUpdate, target)
+	staged, err := stageRepairEvent(ctx, run, node.RepairPhaseCompleted)
 	if err != nil {
 		return err
 	}

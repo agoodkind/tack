@@ -14,6 +14,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/test/integration"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // parentEdgeKind stores the organization ID, the type key of one opaque node
@@ -45,7 +47,8 @@ type parentEdgeFixture struct {
 func newParentEdgeFixture(t *testing.T) parentEdgeFixture {
 	t.Helper()
 	cfg := newCohortEngines(t)
-	graph, err := appruntime.BuildGraph(t.Context(), cfg)
+	integration.ConfigureSearchMaintenance(t, testenv.OpenSearchWithMemory(t, cohortEngineMemoryBytes))
+	graph, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
 	if err != nil {
 		t.Fatalf("build graph: %v", err)
 	}
@@ -55,7 +58,7 @@ func newParentEdgeFixture(t *testing.T) parentEdgeFixture {
 		t.Fatalf("parse scale: %v", err)
 	}
 	seed := clock.Now().UnixNano()
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, seed, scale)
+	identities, err := datagen.BootstrapIdentities(integration.WithTestOperation(t, t.Context()), cfg, seed, scale)
 	if err != nil {
 		t.Fatalf("bootstrap identities: %v", err)
 	}
@@ -80,29 +83,29 @@ func newParentEdgeFixture(t *testing.T) parentEdgeFixture {
 // the configured OpenSearch engine. It returns the worker and its adapter.
 func newParentEdgeWorker(t *testing.T, cfg *config.Config, stores *fdbadapter.Stores) (*service.SearchWorker, *search.Adapter) {
 	t.Helper()
-	settings, err := config.LoadSearchWorkerSettings(t.Context())
+	settings, err := config.LoadSearchWorkerSettings(integration.WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("load search worker settings: %v", err)
 	}
-	certificate, err := config.LoadSearchCA(t.Context(), cfg.SearchCA)
+	certificate, err := config.LoadSearchCA(integration.WithTestOperation(t, t.Context()), cfg.SearchCA)
 	if err != nil {
 		t.Fatalf("load search CA: %v", err)
 	}
-	adapter, err := search.New(t.Context(), search.Config{
+	adapter, err := search.New(integration.WithTestOperation(t, t.Context()), search.Config{
 		Endpoint: cfg.SearchEndpoint, CA: certificate, Username: cfg.SearchUsername,
 		Password: cfg.SearchPassword, RequestTimeout: cfg.SearchRequestTimeout, MaxRetries: cfg.SearchMaxRetries,
 	})
 	if err != nil {
 		t.Fatalf("open search adapter: %v", err)
 	}
-	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(t.Context())) })
+	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(integration.WithTestOperation(t, t.Context()))) })
 	policies := stores.SearchPolicySet()
 	rollouts := stores.SearchRollouts(clock.Wall{}, policies)
 	worker, err := service.NewSearchWorker(service.SearchWorkerPorts{
 		Store: stores.SearchWork(clock.Wall{}), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
-		Rebuilds: stores.SearchRebuilds(clock.Wall{}), Replacer: adapter,
+		Rebuilds: stores.SearchRebuilds(clock.Wall{}), Replacer: adapter, Audit: appruntime.SearchWorkerAudit(stores),
 	}, clock.Wall{}, settings, 0)
 	if err != nil {
 		t.Fatalf("create search worker: %v", err)
@@ -132,7 +135,7 @@ func parentEdgeWorkspaces(t *testing.T, workspaces []datagen.WorkspaceIdentity) 
 
 func parentEdgeEntryTypes(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID) []string {
 	t.Helper()
-	types, err := stores.NodeTypes.List(t.Context(), orgID)
+	types, err := stores.NodeTypes.List(integration.WithTestOperation(t, t.Context()), orgID)
 	if err != nil {
 		t.Fatalf("list node types of organization %s: %v", orgID, err)
 	}
@@ -148,7 +151,7 @@ func parentEdgeEntryTypes(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UU
 func (f parentEdgeFixture) entry(t *testing.T, workspace datagen.WorkspaceIdentity) uuid.UUID {
 	t.Helper()
 	for _, typeKey := range parentEdgeEntryTypes(t, f.stores, workspace.OrgID) {
-		views, err := f.stores.Views.List(t.Context(), node.NodeListQuery{OrgID: workspace.OrgID, NodeType: typeKey})
+		views, err := f.stores.Views.List(integration.WithTestOperation(t, t.Context()), node.NodeListQuery{OrgID: workspace.OrgID, NodeType: typeKey})
 		if err != nil {
 			t.Fatalf("list entry nodes of type %s: %v", typeKey, err)
 		}
@@ -173,7 +176,7 @@ func (f parentEdgeFixture) putKind(t *testing.T, orgID uuid.UUID, canLiveUnder [
 			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: name, Type: node.PropertyType(parentEdgeKey("t")),
 			Search: &node.SearchProjection{Include: order == 0, Order: order, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 		}
-		if err := f.stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+		if err := f.stores.PropertyDefs.Set(integration.WithTestOperation(t, t.Context()), definition); err != nil {
 			t.Fatalf("store property definition %s: %v", name, err)
 		}
 		definitionIDs = append(definitionIDs, definition.ID)
@@ -182,7 +185,7 @@ func (f parentEdgeFixture) putKind(t *testing.T, orgID uuid.UUID, canLiveUnder [
 		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: kind.typeKey, TypeKey: kind.typeKey, Slug: kind.typeKey,
 		PluralSlug: kind.typeKey + "s", PropertyDefIDs: definitionIDs, CanLiveUnder: canLiveUnder,
 	}
-	if err := f.stores.NodeTypes.Set(t.Context(), nodeType); err != nil {
+	if err := f.stores.NodeTypes.Set(integration.WithTestOperation(t, t.Context()), nodeType); err != nil {
 		t.Fatalf("store node type %s: %v", kind.typeKey, err)
 	}
 	return kind

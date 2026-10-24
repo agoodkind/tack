@@ -18,20 +18,29 @@ import (
 // wraps domain.ErrConflict if a relationship differs from the graph expectation.
 func (s *NodeStore) DeleteNode(ctx context.Context, plan node.DeletionPlan) (receipt node.MutationReceipt, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.delete_node")(&err)
+	changes, err := beginMutationAudit(ctx, plan.OrgID)
+	if err != nil {
+		return node.MutationReceipt{}, err
+	}
 	err = runNodeMutation(ctx, s.db, "delete node "+plan.NodeID.String(), func(tr fdb.Transaction) error {
+		changes.startAttempt()
 		var attemptErr error
-		receipt, attemptErr = s.deleteNodeAttempt(ctx, tr, plan)
-		return attemptErr
+		receipt, attemptErr = s.deleteNodeAttempt(ctx, tr, plan, changes)
+		if attemptErr != nil {
+			return attemptErr
+		}
+		return changes.append(ctx, tr)
 	})
 	if err != nil {
 		return node.MutationReceipt{}, err
 	}
-	commitStagedIntent(ctx)
+	changes.finish(ctx)
 	return receipt, nil
 }
 
-// deleteNodeAttempt runs one attempt of plan inside tr.
-func (s *NodeStore) deleteNodeAttempt(ctx context.Context, tr fdb.Transaction, plan node.DeletionPlan) (node.MutationReceipt, error) {
+// deleteNodeAttempt runs one attempt of plan inside tr and records node and
+// relationship deletions in changes.
+func (s *NodeStore) deleteNodeAttempt(ctx context.Context, tr fdb.Transaction, plan node.DeletionPlan, changes *mutationAudit) (node.MutationReceipt, error) {
 	none := node.MutationReceipt{OrgID: plan.OrgID, NodeID: plan.NodeID, SourceDigest: node.Digest{}, ResultDigest: node.Digest{}}
 	if plan.Source.Absent {
 		return none, mutationRefusal(ctx, plan.NodeID, "a deletion requires an expected stored node", domain.ErrInvalidArgument)
@@ -72,10 +81,7 @@ func (s *NodeStore) deleteNodeAttempt(ctx context.Context, tr fdb.Transaction, p
 	if err := advanceMutationCheckpoint(ctx, tr, plan.Checkpoint, nil); err != nil {
 		return none, err
 	}
-	if err := s.clearNode(ctx, tr, &source.Node); err != nil {
-		return none, err
-	}
-	if err := writeMutationIntent(ctx, tr, source.Encoding, nil); err != nil {
+	if err := s.clearNode(ctx, tr, &source.Node, changes); err != nil {
 		return none, err
 	}
 	none.SourceDigest = node.PrimaryDigest(source.Encoding)

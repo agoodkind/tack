@@ -34,7 +34,7 @@ func buildActualSearchServer(t *testing.T, revision actualSourceRevision) string
 		t.Fatal(err)
 	}
 	binary := filepath.Join(t.TempDir(), "tack-server")
-	build := exec.CommandContext(t.Context(), "go", "build", "-buildvcs=false", "-tags=fdb", "-ldflags", "-X goodkind.io/tack/internal/version.commit="+string(revision)+" -X goodkind.io/tack/internal/version.dirty=true", "-o", binary, "./cmd/server")
+	build := exec.CommandContext(WithTestOperation(t, t.Context()), "go", "build", "-buildvcs=false", "-tags=fdb", "-ldflags", "-X goodkind.io/tack/internal/version.commit="+string(revision)+" -X goodkind.io/tack/internal/version.dirty=true", "-o", binary, "./cmd/server")
 	build.Dir = root
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build actual server: %v: %s", err, output)
@@ -100,7 +100,7 @@ func startActualSearchServer(t *testing.T, binary string, cfg *config.Config) *a
 	defer ticker.Stop()
 	client := &http.Client{Timeout: time.Second}
 	for {
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.endpoint+"/healthz", nil)
+		request, err := http.NewRequestWithContext(WithTestOperation(t, t.Context()), http.MethodGet, server.endpoint+"/healthz", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -118,7 +118,7 @@ func startActualSearchServer(t *testing.T, binary string, cfg *config.Config) *a
 			t.Fatalf("actual server exited before health readiness: %v", err)
 		case <-deadline.C:
 			t.Fatal("actual server health readiness timed out")
-		case <-t.Context().Done():
+		case <-WithTestOperation(t, t.Context()).Done():
 			t.Fatal("actual server readiness canceled")
 		case <-ticker.C:
 		}

@@ -81,7 +81,7 @@ func lexicalTopNodes(t *testing.T, fixture queryFixture, filter searchdomain.Acc
 		"size":  json.RawMessage(`25`),
 		"query": encodeLexical(t, map[string]map[string][]json.RawMessage{"bool": {"filter": filters, "must": {encodeLexical(t, match)}}}),
 	})
-	response, err := fixture.Client.Search(t.Context(), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, Body: strings.NewReader(string(body))})
+	response, err := fixture.Client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, Body: strings.NewReader(string(body))})
 	if err != nil {
 		t.Fatalf("lexical control %q: %v", query, err)
 	}

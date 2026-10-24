@@ -64,7 +64,7 @@ func metadataUnavailable(w http.ResponseWriter, span trace.Span, err error) {
 	http.Error(w, `{"error":"metadata unavailable"}`, http.StatusServiceUnavailable)
 }
 
-func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) *mcpserver.MCPServer {
+func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) (*mcpserver.MCPServer, *tools.Resolver) {
 	s := mcpserver.NewMCPServer("tack", "0.2.0")
 
 	resolver := tools.NewResolver(h.nodes, h.reader, h.members, nodeTypes)
@@ -90,5 +90,5 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.P
 
 	tools.RegisterResources(s, h.reader, resolver, nodeTypes, propertyDefs)
 	tools.RegisterPrompts(s, resolver, nodeTypes, propertyDefs)
-	return s
+	return s, resolver
 }
