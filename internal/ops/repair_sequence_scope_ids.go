@@ -31,15 +31,10 @@ func runRepairSequenceScopeIDs(ctx context.Context, env *Env) error {
 	return err
 }
 
-// RepairSequenceScopeIDs derives each sequence-bearing node's scope_id from its
-// parent_id chain and reclaims the rendered reference keys for each moved node.
-// RepairSequenceScopeIDs returns the repaired and skipped counts and logs the
-// refused count. UpdateAtomicFrom refuses a write when the stored node changed
-// after the read or another node owns the rendered reference claim.
-// RepairSequenceScopeIDs counts these writes as refused and returns an error
-// that wraps domain.ErrConflict and states the refused count.
-// RepairSequenceScopeIDs counts other write failures, read failures, and nodes
-// without a derivable or new scope as skipped.
+// RepairSequenceScopeIDs derives each sequence-bearing node's scope_id from its parent_id
+// chain and reclaims each moved node's rendered reference keys. The function counts writes
+// that fail with domain.ErrConflict as refused. When the count exceeds zero, the function
+// returns an error that wraps domain.ErrConflict and states the refused count.
 func RepairSequenceScopeIDs(ctx context.Context, env *Env) (int, int, error) {
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {
