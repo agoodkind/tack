@@ -2,6 +2,7 @@ package foundationdb
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"goodkind.io/tack/internal/domain"
@@ -87,6 +88,13 @@ func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction
 		return none, err
 	}
 	if err := checkMutationResult(ctx, tr, plan, source, &result, schema); err != nil {
+		return none, err
+	}
+	planned, err := json.Marshal(&result)
+	if err != nil {
+		return none, nodeOperationFailure(ctx, "encode node "+plan.NodeID.String(), err)
+	}
+	if err := advanceMutationCheckpoint(ctx, tr, plan.Checkpoint, planned); err != nil {
 		return none, err
 	}
 	relationshipChanges := []node.RelationshipChanges{planRelationshipChanges(plan), parentChanges}

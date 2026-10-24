@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,6 +40,7 @@ func runRepairCommand(t *testing.T, args ...string) (repairCommandResult, error)
 	t.Helper()
 	cfg := &config.Config{
 		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: repairTransactionTimeout,
+		RepairDir: repairDirectory(t),
 	}
 	factory := cli.System(cfg)
 	var output bytes.Buffer
@@ -90,11 +92,40 @@ func writeRepairDocument[Document ops.NodeIntegrityRequest | ops.NodeIntegrityMa
 	if err != nil {
 		t.Fatalf("encode %s: %v", name, err)
 	}
-	path := filepath.Join(t.TempDir(), name)
+	path := filepath.Join(repairDirectory(t), name)
 	if err := os.WriteFile(path, encoded, 0o600); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
 	return path
+}
+
+// repairDirectoryLock guards repairDirectories, which stores the repair
+// directory for each running test.
+var (
+	repairDirectoryLock sync.Mutex
+	repairDirectories   = map[*testing.T]string{}
+)
+
+// repairDirectory returns one temporary directory for each test. The first
+// call creates the directory with t.TempDir, and later calls in the same
+// test return that directory. runRepairCommand sets it as the repair
+// directory. writeRepairDocument and the export file paths in the repair
+// tests use it.
+func repairDirectory(t *testing.T) string {
+	t.Helper()
+	repairDirectoryLock.Lock()
+	defer repairDirectoryLock.Unlock()
+	if directory, found := repairDirectories[t]; found {
+		return directory
+	}
+	directory := t.TempDir()
+	repairDirectories[t] = directory
+	t.Cleanup(func() {
+		repairDirectoryLock.Lock()
+		defer repairDirectoryLock.Unlock()
+		delete(repairDirectories, t)
+	})
+	return directory
 }
 
 func manifestDigest(t *testing.T, manifest ops.NodeIntegrityManifest) string {

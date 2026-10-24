@@ -78,6 +78,9 @@ func (s *NodeStore) deleteNodeAttempt(ctx context.Context, tr fdb.Transaction, p
 	if _, err := s.fenceAttempt(ctx, tr, plan.OrgID, plan.NodeID); err != nil {
 		return none, err
 	}
+	if err := advanceMutationCheckpoint(ctx, tr, plan.Checkpoint, nil); err != nil {
+		return none, err
+	}
 	if err := s.clearNode(ctx, tr, &source.Node, changes); err != nil {
 		return none, err
 	}

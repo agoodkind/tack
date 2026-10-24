@@ -116,6 +116,9 @@ const (
 	VerbOpsDatagenSoak Verb = "ops.datagen_soak"
 	// VerbOpsDatagenSearch records QA verification of public search.
 	VerbOpsDatagenSearch Verb = "ops.datagen_search"
+	// VerbOpsDatagenRepair records QA proof of the node integrity repair path
+	// through ops qa datagen repair with the audit verb ops.datagen_repair.
+	VerbOpsDatagenRepair Verb = "ops.datagen_repair"
 	// VerbOpsDatagenLegacyLedgerRow records QA generation of a ledger row in
 	// the shape the writer produced before the ledger stored outcomes.
 	VerbOpsDatagenLegacyLedgerRow Verb = "ops.datagen_legacy_ledger_row"
