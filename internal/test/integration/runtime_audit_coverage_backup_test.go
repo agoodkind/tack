@@ -83,6 +83,7 @@ func addBackupCommandCases(cases map[string]coverageCase) {
 	cases["command ops backup yb-snapshot-export"] = commandCase(audit.VerbOpsBackupYBSnapshotExport, audit.OutcomeCompleted,
 		backupCommand("ops", "backup", "yb-snapshot-export"))
 	cases["command ops backup restore-drill"] = commandCase(audit.VerbOpsBackupRestoreDrill, audit.OutcomeCompleted, restoreDrillInput)
+	cases["command ops backup restore-drill"+caseVariantSeparator+"fdb-leg-skipped"] = skippedLegDrillCase()
 	cases["command ops backup restore-version"] = commandCase(audit.VerbOpsBackupFDBRestoreVersion, audit.OutcomeOK,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			env.writeVersionLog(t)
