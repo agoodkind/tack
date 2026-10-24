@@ -130,12 +130,12 @@ func (l *PoolReadLifecycle) AcknowledgePublished(ctx context.Context, reads []Pu
 	return nil
 }
 
-// splitOutboxRecords returns the manifest and the ordered part messages of a
-// read event for ops_outbox_write_encoded. It never returns the plain event
-// form. public.ops_outbox stores a plain event as jsonb, and jsonb reorders
-// the keys of Extra. The relay would then compute a digest that differs from
-// the receipt digest and could not mark the read published. The parts keep
-// the exact bytes that the receipt digest covers.
+// splitOutboxRecords returns the manifest and the ordered part messages of
+// encoded for ops_outbox_write_encoded, including for an event that fits one
+// record. public.ops_outbox stores the header in a JSONB column, which reorders
+// object members. The relay reads the transport digest from the manifest and
+// compares it with the terminal receipt digest. A plain event record would make
+// the relay compute the digest from the reordered JSON.
 func splitOutboxRecords(encoded EncodedEvent) ([]byte, [][]byte, error) {
 	parts, err := encoded.partMessages()
 	if err != nil {

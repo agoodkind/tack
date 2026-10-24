@@ -24,7 +24,8 @@ import (
 // 300 targets through EncodeEvent, the YugabyteDB outbox, and the relay;
 // the other events use the Kafka recorder. It checks permanent manifest
 // parts, verifies exports for both organizations, and requires verification
-// to reject missing, reordered, or altered manifest parts.
+// to reject missing, reordered, or altered manifest parts and an altered
+// relationship target or delta of the exported change event.
 func TestRuntimeAuditTargetRoundTrip(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
 	oldest := clock.Now().UTC().Add(-time.Minute)
@@ -85,7 +86,7 @@ func TestRuntimeAuditTargetRoundTrip(t *testing.T) {
 	if err := stack.exportAndVerify(t, orgID, oldest, latest); err != nil {
 		t.Fatalf("export of format 2 events failed verification: %v", err)
 	}
-	stack.requireManifestTamperRejected(t, orgID, oldest, latest, read.EventID)
+	stack.requireExportTamperRejected(t, orgID, oldest, latest, read.EventID, change.EventID)
 	if err := stack.exportAndVerify(t, audit.SystemOrgID(), oldest, latest); err != nil {
 		t.Fatalf("export of the unauthenticated refusal failed verification: %v", err)
 	}

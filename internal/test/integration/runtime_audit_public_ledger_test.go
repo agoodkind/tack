@@ -24,8 +24,14 @@ type publicLedger struct {
 // for the server's FoundationDB outbox.
 func startPublicLedger(t *testing.T, server *publicServer) publicLedger {
 	t.Helper()
+	return startPublicLedgerOn(t, server, startRuntimeAuditStack(t))
+}
+
+// startPublicLedgerOn starts the relay for the server's FoundationDB outbox
+// on the topic of stack, which runs the audit consumer.
+func startPublicLedgerOn(t *testing.T, server *publicServer, stack runtimeAuditStack) publicLedger {
+	t.Helper()
 	since := clock.Now().Add(-time.Hour)
-	stack := startRuntimeAuditStack(t)
 	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
 		Brokers: []string{testenv.Kafka(t)}, Topic: stack.topic,
 		YugabyteDSN: testenv.Ledger(t), FDBClusterFile: server.clusterFile, FDBTransactionTimeout: 5 * time.Second,
@@ -61,6 +67,29 @@ func (ledger publicLedger) row(t *testing.T, orgID uuid.UUID, requestID string) 
 		}
 		if clock.Now().After(deadline) {
 			t.Fatalf("ledger did not store an event for request %s within %s", requestID, publicDeliveryTimeout)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// requestRows waits until ready accepts the ledger events for requestID in
+// orgID and returns them.
+func (ledger publicLedger) requestRows(t *testing.T, orgID uuid.UUID, requestID string, ready func([]audit.Row) bool) []audit.Row {
+	t.Helper()
+	deadline := clock.Now().Add(publicDeliveryTimeout)
+	for {
+		rows, err := ledger.stack.reader.Query(t.Context(), audit.QueryFilter{
+			OrgID: orgID, Oldest: ledger.since, Latest: clock.Now().Add(time.Hour), Action: "",
+			ActorID: uuid.Nil, EntityID: uuid.Nil, RequestID: requestID, TraceID: "", Limit: 100,
+		})
+		if err != nil {
+			t.Fatalf("ledger query failed for request %s: %v", requestID, err)
+		}
+		if ready(rows) {
+			return rows
+		}
+		if clock.Now().After(deadline) {
+			t.Fatalf("ledger events for request %s after %s = %+v, want the expected events", requestID, publicDeliveryTimeout, rows)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

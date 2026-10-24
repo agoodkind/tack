@@ -3,6 +3,7 @@ package datagen
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -39,6 +40,12 @@ type discoveryDefinition struct {
 	reference string
 }
 
+// resolveCollectionItem returns the raw ID of one listed node. A scoped
+// property node, and a scoped sequence node without a resolvable sequence
+// reference, is looked up by its scoped name "<scope>::<name>". Recovery
+// creates the node only when that lookup finds no node with the name. A
+// project listed by name is skipped, because the MCP tools cannot look up a
+// project by name.
 func resolveCollectionItem(
 	ctx context.Context,
 	driver *Driver,
@@ -56,77 +63,66 @@ func resolveCollectionItem(
 	if err != nil {
 		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, err)
 	}
-	lookupReference := item.Reference
 	switch strategy {
 	case soakReferenceUUIDOnly:
 		err := invalidCollectionReference(singular, item.Reference)
 		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, err)
 	case soakReferenceDirectProperty:
 		if item.referenceIsName() {
-			return recoverCollectionItem(ctx, driver, singular, item, recovery)
+			return soakNode{}, loggedDiscoverySkip(ctx, singular, item, nameLookupUnsupported(singular, item))
 		}
 	case soakReferenceScopedSequence:
 		if !isResolvableSequenceReference(item.Reference, scopeReference) {
-			return recoverCollectionItem(ctx, driver, singular, item, recovery)
+			lookupReference := scopedNameReference(item, scopeReference)
+			// The server prints "<scope>::<name>" only for a direct child of
+			// the scope, and the get matches the name among direct children
+			// only. A node listed under another reference can be a nested
+			// node with the same name. Discovery creates a node only after a
+			// lookup of the printed scoped name finds none.
+			if lookupReference != item.Reference {
+				recovery = nil
+			}
+			return lookupScopedCollectionItem(
+				ctx, driver, token, workspaceReference, singular, item, lookupReference, recovery,
+			)
 		}
-	case soakReferenceWorkspaceScopedProperty:
-		return recoverCollectionItem(ctx, driver, singular, item, recovery)
-	case soakReferenceNestedScopedProperty:
-		if recovery != nil {
-			return recoverCollectionItem(ctx, driver, singular, item, recovery)
-		}
-		referenceScope, _, scoped := strings.Cut(lookupReference, "::")
-		if !scoped || !strings.EqualFold(referenceScope, scopeReference) {
-			lookupReference = scopeReference + "::" + item.Name
-		}
+	case soakReferenceWorkspaceScopedProperty, soakReferenceNestedScopedProperty:
+		lookupReference := scopedNameReference(item, scopeReference)
+		return lookupScopedCollectionItem(
+			ctx, driver, token, workspaceReference, singular, item, lookupReference, recovery,
+		)
 	}
 	result, err := driver.Call(ctx, token, "tack_get_"+singular, ToolArguments{
 		WorkspaceReference: workspaceReference,
-		NodeID:             lookupReference,
+		NodeID:             item.Reference,
 	})
 	if err != nil {
-		wrapped := fmt.Errorf(
-			"qa datagen soak: get %s %q: %w",
-			singular,
-			lookupReference,
-			err,
-		)
+		wrapped := fmt.Errorf("qa datagen soak: get %s %q: %w", singular, item.Reference, err)
 		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, wrapped)
 	}
-	resolved, err := resolvedCollectionNode(singular, item, result)
-	if err != nil {
-		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, err)
-	}
-	return resolved, nil
+	return matchedCollectionNode(ctx, singular, item, result)
 }
 
-func recoverCollectionItem(
+// matchedCollectionNode converts the get result of an existing node and logs
+// the match.
+func matchedCollectionNode(
 	ctx context.Context,
-	driver *Driver,
 	singular string,
 	item collectionItem,
-	recovery *discoveryDefinition,
+	result Result,
 ) (soakNode, error) {
-	if recovery == nil {
-		err := invalidCollectionReference(singular, item.Reference)
-		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, err)
-	}
-	result, err := driver.Call(
-		ctx, recovery.token, "tack_create_"+singular, recovery.arguments,
-	)
-	if err != nil {
-		wrapped := fmt.Errorf(
-			"qa datagen soak: recover %s %q: %w",
-			singular,
-			item.Name,
-			err,
-		)
-		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, wrapped)
-	}
 	resolved, err := resolvedCollectionNode(singular, item, result)
 	if err != nil {
 		return soakNode{}, loggedDiscoverySkip(ctx, singular, item, err)
 	}
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.soak.discovery_matched",
+		slog.String("node_type", singular),
+		slog.String("name", item.Name),
+		slog.String("reference", item.Reference),
+		slog.String("raw_id", resolved.RawID),
+	)
 	return resolved, nil
 }
 

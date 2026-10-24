@@ -30,6 +30,11 @@ const (
 	VerbNodeTypeUpdate     Verb = "node_type.update"
 	// VerbNodeTypeDelete records the deletion of a node type definition.
 	VerbNodeTypeDelete Verb = "node_type.delete"
+	// VerbSequenceCreate records the first stored value of a sequence counter.
+	VerbSequenceCreate Verb = "sequence.create"
+	// VerbSequenceUpdate records a change to the stored value of a sequence
+	// counter.
+	VerbSequenceUpdate Verb = "sequence.update"
 	// VerbNodeReferenceRename records a change to a node reference.
 	VerbNodeReferenceRename Verb = "node.reference_rename"
 	VerbOrgMemberAdd        Verb = "org.member_add"
@@ -262,6 +267,8 @@ var stateChangeVerbs = map[Verb]bool{
 	VerbPropertyDefDelete:  true,
 	VerbNodeTypeCreate:     true,
 	VerbNodeTypeUpdate:     true,
+	VerbSequenceCreate:     true,
+	VerbSequenceUpdate:     true,
 	VerbOrgMemberAdd:       true,
 	VerbOrgMemberRemove:    true,
 	VerbOrgMemberRoleSet:   true,

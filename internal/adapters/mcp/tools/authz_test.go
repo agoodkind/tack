@@ -223,13 +223,13 @@ func TestWrapperRefusesUnauthorizedResult(t *testing.T) {
 
 	server := mcpserver.NewMCPServer("tack", "0.2.0")
 	registerTool(server,
-		mcpmcp.Tool{Name: "tack_list_leaks", Description: "test tool", InputSchema: schema{}.toMCP()},
+		mcpmcp.Tool{Name: "tack_create_leaks", Description: "test tool", InputSchema: schema{}.toMCP()},
 		func(context.Context, mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			return successText("the crown jewels", ""), nil
 		},
 	)
 	registerTool(server,
-		mcpmcp.Tool{Name: "tack_list_marked", Description: "test tool", InputSchema: schema{}.toMCP()},
+		mcpmcp.Tool{Name: "tack_create_marked", Description: "test tool", InputSchema: schema{}.toMCP()},
 		func(ctx context.Context, _ mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			markAuthorized(ctx)
 			return successText("authorized data", ""), nil
@@ -237,7 +237,7 @@ func TestWrapperRefusesUnauthorizedResult(t *testing.T) {
 	)
 	f := &authzFixture{server: server}
 
-	isError, text := f.callTool(t, "tack_list_leaks", nil)
+	isError, text := f.callTool(t, "tack_create_leaks", nil)
 	if !isError || !strings.Contains(text, "Permission denied") {
 		t.Fatalf("unchecked handler returned isError=%v:\n%s", isError, text)
 	}
@@ -254,7 +254,7 @@ func TestWrapperRefusesUnauthorizedResult(t *testing.T) {
 		t.Fatalf("no permission_denied row recorded; events: %+v", recorder.Events())
 	}
 
-	isError, text = f.callTool(t, "tack_list_marked", nil)
+	isError, text = f.callTool(t, "tack_create_marked", nil)
 	if isError {
 		t.Fatalf("authorized handler was refused:\n%s", text)
 	}

@@ -17,7 +17,9 @@ import (
 const recordingUnavailableBody = `{"error":"audit recording unavailable"}`
 
 // requestRead contains the identity and timing of the read events for one request.
-// The recorder saves one event for each organization in orgIDs.
+// The recorder saves one event for each organization in orgIDs. httpMethod and
+// requestPath contain the checked HTTP method and request path. selection
+// contains the normalized arguments that an authenticated read supplied.
 type requestRead struct {
 	operation   requestOperation
 	operationID uuid.UUID
@@ -26,16 +28,20 @@ type requestRead struct {
 	orgIDs      []uuid.UUID
 	requestID   string
 	traceID     string
+	httpMethod  string
+	requestPath string
+	selection   *audit.ReadSelection
 }
 
 // newRequestRead creates a requestRead with a new operation ID, the unauthenticated actor,
 // and the system organization.
-func newRequestRead(ctx context.Context, operation requestOperation) requestRead {
+func newRequestRead(ctx context.Context, request *http.Request, operation requestOperation) requestRead {
 	operationID := uuid.Must(uuid.NewV7())
 	return requestRead{
 		operation: operation, operationID: operationID, startedAt: clock.Now().UTC(),
 		actor: unauthenticatedActor(ctx), orgIDs: []uuid.UUID{audit.SystemOrgID()},
 		requestID: telemetry.RequestID(ctx), traceID: telemetry.TraceID(ctx),
+		httpMethod: checkedMethod(request.Method), requestPath: checkedPath(request.URL.Path), selection: nil,
 	}
 }
 
@@ -62,6 +68,7 @@ func (read requestRead) admissions() []audit.ReadAdmission {
 				Tool: operation.tool, RPC: operation.method, Reason: "",
 				AuditFormatVersion: audit.AuditFormatComplete, OperationClass: audit.OperationRead, Phase: audit.PhaseRead,
 				OperationID: read.operationID, StartedAt: read.startedAt, Target: &target,
+				Selection: read.selection, HTTPMethod: read.httpMethod, RequestPath: read.requestPath,
 			},
 			Delta: nil, Outcome: "", Error: nil, IdempotencyKey: "", OccurredAt: read.startedAt, Extra: nil,
 		}

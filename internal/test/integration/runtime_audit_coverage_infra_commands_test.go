@@ -115,7 +115,7 @@ func addInfrastructureCommandCases(cases map[string]coverageCase) {
 			}
 			return operatorEvidence(operatorID)
 		},
-		verb: audit.VerbOpsDeployVerify, outcome: audit.OutcomeOK, check: nil,
+		verb: audit.VerbOpsDeployVerify, outcome: audit.OutcomeCompleted, check: nil,
 	}
 	cases["command ops backup buckets-init"] = commandCase(audit.VerbOpsBackupBucketsInit, audit.OutcomeCompleted,
 		func(t *testing.T, _ *coverageEnv) commandInput {
