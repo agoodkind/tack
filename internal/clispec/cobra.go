@@ -2,6 +2,7 @@ package clispec
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -105,7 +106,10 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return op.DryRun(cmd.Context(), in, NewCLISink(f))
+			return RunRecordedPreview(cmd.Context(), f, PreviewSpec(op.auditSpec()), json.RawMessage("{}"),
+				func(ctx context.Context, sink ResultSink) ([]audit.Target, error) {
+					return nil, op.DryRun(ctx, in, sink)
+				})
 		}
 		return RunAudited(cmd.Context(), dryRunDestination(f, f.Out), op.auditSpec(), f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), f.AuditInfrastructureProbe(),
 			func(ctx context.Context) error {

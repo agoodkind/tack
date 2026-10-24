@@ -75,7 +75,9 @@ type Operation[I Input] struct {
 	Params   []Param[I] `exhaustruct:"optional"`
 	New      func() I
 	// DryRun reports planned work after the audit choke-point validates the
-	// operator identity. It must not write state.
+	// operator identity. It must not write state. The choke-point records each
+	// dry run as an operator read and prints the dry-run output only after it
+	// saves the read event.
 	DryRun func(ctx context.Context, in I, sink ResultSink) error `exhaustruct:"optional"`
 	Run    func(ctx context.Context, in I, sink ResultSink) error
 }
