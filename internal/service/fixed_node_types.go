@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
@@ -25,10 +24,12 @@ type FixedNodeTypeAudit func(ctx context.Context, before, after *node.NodeType) 
 
 // FixedNodeTypeResult counts scanned, corrected, unchanged, and conflicted
 // node types. During a dry run, it counts node types that need correction as
-// corrected. A conflicted node type changed after the scan read it.
-// Changes lists each corrected or conflicted node type's org ID, node type
-// ID, type key, outcome, and CanLiveUnder values before and after correction.
-// Dry runs and execute runs both populate Changes.
+// corrected. A conflicted node type changed after the scan read it, or it is
+// a guarded type that stores a CanLiveUnder value other than the earlier and
+// current seeded values. Changes lists each corrected or conflicted node
+// type's org ID, node type ID, type key, outcome, and CanLiveUnder values
+// before and after correction. Dry runs and execute runs both populate
+// Changes.
 type FixedNodeTypeResult struct {
 	Scanned       int                   `json:"scanned"`
 	Corrected     int                   `json:"corrected"`
@@ -41,9 +42,8 @@ type FixedNodeTypeResult struct {
 
 // CorrectFixedNodeTypes calls ScanTypes to read every stored node type in
 // every organization in bounded pages. It corrects node types with a seeded
-// built-in ID. It replaces CanLiveUnder with the seeded list only when the
-// stored list is not empty, every type in the stored list appears in the
-// seeded list, and the lists differ. A dry run does not write. For each
+// built-in ID through planNodeTypeCorrection, which replaces only
+// CanLiveUnder. A dry run does not write. For each
 // correction, CorrectFixedNodeTypes calls stage and uses store.Replace to
 // commit the node type and audit event only when the stored node type still
 // matches the scanned record.
@@ -77,7 +77,18 @@ func correctNodeType(
 	ctx context.Context, store FixedNodeTypeStore, stage FixedNodeTypeAudit, stored, seed *node.NodeType, dryRun bool, result *FixedNodeTypeResult,
 ) error {
 	result.Scanned++
-	corrected := correctedNodeType(stored, seed)
+	plan := planNodeTypeCorrection(stored, seed)
+	if plan.Conflict != "" {
+		result.Conflicted++
+		result.ConflictedIDs = append(result.ConflictedIDs, stored.ID)
+		change := nodeTypeChange(FixedOutcomeConflicted, stored, plan.Proposed)
+		change.Reason = plan.Conflict
+		result.Changes = append(result.Changes, change)
+		telemetry.L(ctx).InfoContext(ctx, "metadata.fixed_node_type.conflicted", slog.String("org_id", stored.OrgID.String()),
+			slog.String("node_type_id", stored.ID.String()), slog.String("type_key", stored.TypeKey), slog.String("reason", plan.Conflict))
+		return nil
+	}
+	corrected := plan.Corrected
 	if corrected == nil {
 		result.Unchanged++
 		return nil
@@ -108,27 +119,6 @@ func correctNodeType(
 	telemetry.L(ctx).InfoContext(ctx, "metadata.fixed_node_type.corrected", slog.String("org_id", stored.OrgID.String()),
 		slog.String("node_type_id", stored.ID.String()), slog.String("type_key", stored.TypeKey))
 	return nil
-}
-
-// correctedNodeType returns a copy of stored with the seeded CanLiveUnder
-// list. It returns nil if seed is nil, the stored list is empty, the stored
-// list includes a type outside the seeded list, or both lists contain the
-// same types.
-func correctedNodeType(stored, seed *node.NodeType) *node.NodeType {
-	if seed == nil || len(stored.CanLiveUnder) == 0 {
-		return nil
-	}
-	for _, parentType := range stored.CanLiveUnder {
-		if !slices.Contains(seed.CanLiveUnder, parentType) {
-			return nil
-		}
-	}
-	if sameFeatures(stored.CanLiveUnder, seed.CanLiveUnder) {
-		return nil
-	}
-	next := *stored
-	next.CanLiveUnder = slices.Clone(seed.CanLiveUnder)
-	return &next
 }
 
 // seededNodeTypes caches seeded node types by ID for one organization.
