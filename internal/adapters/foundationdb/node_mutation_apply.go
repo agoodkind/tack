@@ -176,7 +176,7 @@ func (s *NodeStore) writeMutation(
 		return encoded, nil
 	}
 	now := s.clock.Now()
-	if _, err := scheduleSearchChange(ctx, tr, now, plan.OrgID, plan.NodeID, mutationSearchChange(source, result, schema.Definitions)); err != nil {
+	if _, err := scheduleSearchChange(ctx, tr, now, plan.OrgID, plan.NodeID, mutationSearchChange(source, result, schema)); err != nil {
 		return nil, err
 	}
 	if !source.Exists {
