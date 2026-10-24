@@ -131,13 +131,13 @@ func uniqueMatch(matches map[uuid.UUID]struct{}, kind, input string) (uuid.UUID,
 func invalidTypedNodeIDError(nt *node.NodeType, input string) error {
 	switch nt.Reference.Strategy {
 	case node.ReferenceScopedSequence:
-		return fmt.Errorf("invalid node_id %q: use a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)
+		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)}
 	case node.ReferenceDirectProperty:
-		return fmt.Errorf("invalid node_id %q: use a UUID or declared reference like TACK: %w", input, domain.ErrInvalidArgument)
+		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID or declared reference like TACK: %w", input, domain.ErrInvalidArgument)}
 	case node.ReferenceScopedProperty:
-		return fmt.Errorf("invalid node_id %q: use a UUID or scoped reference like CLYDE::In Progress: %w", input, domain.ErrInvalidArgument)
+		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID or scoped reference like CLYDE::In Progress: %w", input, domain.ErrInvalidArgument)}
 	default:
-		return fmt.Errorf("invalid node_id %q: use a UUID: %w", input, domain.ErrInvalidArgument)
+		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID: %w", input, domain.ErrInvalidArgument)}
 	}
 }
 

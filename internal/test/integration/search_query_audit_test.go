@@ -61,8 +61,14 @@ func requireSearchAuditInvocation(parent context.Context, harness *MCPHarness, r
 }
 
 // harnessReadEvents returns read events with requestID from the FoundationDB outbox.
-// It joins the parts of each multipart event before decoding the event.
 func harnessReadEvents(ctx context.Context, harness *MCPHarness, requestID string) ([]audit.Event, error) {
+	return harnessOutboxEvents(ctx, harness, requestID, audit.OperationRead)
+}
+
+// harnessOutboxEvents returns events of class with requestID from the
+// FoundationDB outbox. It joins the parts of each multipart event before
+// decoding the event.
+func harnessOutboxEvents(ctx context.Context, harness *MCPHarness, requestID string, class audit.OperationClass) ([]audit.Event, error) {
 	type outboxRecord struct {
 		Message string `json:"audit_message"`
 		EventID string `json:"event_id"`
@@ -102,7 +108,7 @@ func harnessReadEvents(ctx context.Context, harness *MCPHarness, requestID strin
 				}
 				event = envelope.Event
 			}
-			if event.Context.RequestID == requestID && event.Context.OperationClass == audit.OperationRead {
+			if event.Context.RequestID == requestID && event.Context.OperationClass == class {
 				events = append(events, event)
 			}
 		}
