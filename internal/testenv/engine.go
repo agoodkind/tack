@@ -55,6 +55,9 @@ type engineSpec struct {
 	// privileged runs the engine with every device and capability, for an
 	// engine that runs its own container daemon.
 	privileged bool `exhaustruct:"optional"`
+	// tmpfs mounts a memory file system at each path, with the mount options
+	// beside it.
+	tmpfs map[string]string `exhaustruct:"optional"`
 }
 
 // engine is a started engine container.

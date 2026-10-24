@@ -15,9 +15,22 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// foundationDBProcessPort is the port every test FoundationDB process listens
-// on.
-const foundationDBProcessPort = "4500"
+const (
+	// foundationDBProcessPort is the port every test FoundationDB process
+	// listens on.
+	foundationDBProcessPort = "4500"
+	// foundationDBDataDirectory is the data directory of each process.
+	foundationDBDataDirectory = "/var/fdb/data"
+	// foundationDBDataMount sizes the memory file system mounted at each
+	// data directory. FoundationDB refuses an exclusion that leaves less than
+	// 10 percent of the storage space free, and it measures that space on the
+	// data directory. On the runner's shared disk, that measurement follows
+	// the free space that other tests leave.
+	foundationDBDataMount = "size=2g"
+	// foundationDBJoiningClass is the process class of every process after
+	// the coordinator.
+	foundationDBJoiningClass = "storage"
+)
 
 // FoundationDBProcesses is a FoundationDB cluster of several processes that
 // one test started.
@@ -31,8 +44,8 @@ type FoundationDBProcesses struct {
 
 // FoundationDBCluster starts a FoundationDB cluster with the given number of
 // processes, configures it with single redundancy, and waits until every
-// process belongs to the cluster. The test removes every container of the
-// cluster when it ends.
+// process belongs to the cluster and the cluster reports healthy data. The
+// test removes every container of the cluster when it ends.
 func FoundationDBCluster(t *testing.T, processes int) FoundationDBProcesses {
 	t.Helper()
 	skipWhenShort(t)
@@ -68,7 +81,10 @@ func startFoundationDBProcesses(
 ) (FoundationDBProcesses, []string, error) {
 	cluster := FoundationDBProcesses{ClusterFile: "", Addresses: nil}
 	environment := []string{"FDB_NETWORKING_MODE=container", "FDB_PORT=" + foundationDBProcessPort}
-	coordinator, err := startEngine(ctx, cli, engineSpec{kind: "foundationdb", image: image, platform: nil, cmd: nil, env: environment})
+	dataMount := map[string]string{foundationDBDataDirectory: foundationDBDataMount}
+	coordinator, err := startEngine(ctx, cli, engineSpec{
+		kind: "foundationdb", image: image, platform: nil, cmd: nil, env: environment, tmpfs: dataMount,
+	})
 	if err != nil {
 		return cluster, nil, err
 	}
@@ -78,9 +94,15 @@ func startFoundationDBProcesses(
 	if err != nil {
 		return cluster, names, err
 	}
-	joining := slices.Concat(environment, []string{"FDB_CLUSTER_FILE_CONTENTS=" + strings.TrimSpace(string(contents))})
+	// Each joining process takes the storage class. The coordinator keeps
+	// every other role, so excluding a joining process moves only data.
+	joining := slices.Concat(environment, []string{
+		"FDB_CLUSTER_FILE_CONTENTS=" + strings.TrimSpace(string(contents)), "FDB_PROCESS_CLASS=" + foundationDBJoiningClass,
+	})
 	for range processes - 1 {
-		started, err := startEngine(ctx, cli, engineSpec{kind: "foundationdb", image: image, platform: nil, cmd: nil, env: joining})
+		started, err := startEngine(ctx, cli, engineSpec{
+			kind: "foundationdb", image: image, platform: nil, cmd: nil, env: joining, tmpfs: dataMount,
+		})
 		if err != nil {
 			return cluster, names, err
 		}
@@ -90,38 +112,49 @@ func startFoundationDBProcesses(
 	if err := ensureConfigured(ctx, cli, coordinator.name); err != nil {
 		return cluster, names, err
 	}
-	if err := waitForProcessCount(ctx, cli, coordinator.name, processes); err != nil {
+	if err := waitForHealthyCluster(ctx, cli, coordinator.name, processes); err != nil {
 		return cluster, names, err
 	}
 	cluster.ClusterFile, err = writeClusterFile(ctx, coordinator.name, contents)
 	return cluster, names, err
 }
 
-// foundationDBStatus is the part of `status json` that lists the processes.
+// foundationDBStatus is the part of `status json` that lists the processes
+// and reports the health of the stored data.
 type foundationDBStatus struct {
 	Cluster struct {
 		Processes map[string]json.RawMessage `json:"processes"`
+		Data      struct {
+			State struct {
+				Healthy bool   `json:"healthy"`
+				Name    string `json:"name"`
+			} `json:"state"`
+		} `json:"data"`
 	} `json:"cluster"`
 }
 
-// waitForProcessCount polls `status json` until the cluster reports want
-// processes.
-func waitForProcessCount(ctx context.Context, cli *client.Client, containerName string, want int) error {
-	reported := 0
+// waitForHealthyCluster polls `status json` until the cluster reports want
+// processes and healthy data, so data distribution is running before a test
+// moves data.
+func waitForHealthyCluster(ctx context.Context, cli *client.Client, containerName string, want int) error {
+	reported, state := 0, ""
 	for {
 		output, exitCode, err := fdbcli(ctx, cli, containerName, "status json")
 		if err != nil {
 			return err
 		}
 		var status foundationDBStatus
+		healthy := false
 		if exitCode == 0 && json.Unmarshal([]byte(output), &status) == nil {
-			reported = len(status.Cluster.Processes)
+			reported, state = len(status.Cluster.Processes), status.Cluster.Data.State.Name
+			healthy = status.Cluster.Data.State.Healthy
 		}
-		if reported == want {
+		if reported == want && healthy {
 			return nil
 		}
 		if !sleepOrDone(ctx) {
-			return fmt.Errorf("the FoundationDB cluster reported %d processes instead of %d before the deadline", reported, want)
+			return fmt.Errorf("the FoundationDB cluster reported %d of %d processes and data state %q before the deadline",
+				reported, want, state)
 		}
 	}
 }

@@ -16,13 +16,15 @@ func engineNetwork(spec engineSpec) string {
 }
 
 // engineNetworking returns the host and networking configuration of spec's
-// container. A spec with networkOf shares that container's network stack.
+// container, with spec's memory file systems. A spec with networkOf shares
+// that container's network stack.
 // Any other spec gets one endpoint on engineNetwork with spec's fixed
 // address, and spec's extra hosts entries.
 func engineNetworking(spec engineSpec) (*container.HostConfig, *network.NetworkingConfig) {
 	hostConfig := &container.HostConfig{}
 	hostConfig.ExtraHosts = spec.extraHosts
 	hostConfig.Privileged = spec.privileged
+	hostConfig.Tmpfs = spec.tmpfs
 	if spec.networkOf != "" {
 		hostConfig.NetworkMode = container.NetworkMode("container:" + spec.networkOf)
 		return hostConfig, &network.NetworkingConfig{EndpointsConfig: nil}
