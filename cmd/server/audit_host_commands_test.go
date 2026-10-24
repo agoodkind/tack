@@ -47,6 +47,7 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		t.Helper()
 		output.Reset()
 		factory.SetAuditOutbox(outbox)
+		factory.SetAuditReads(audit.NewPoolReadLifecycle(admin))
 		root := buildRoot(factory)
 		root.SetContext(ctx)
 		root.SetArgs(append([]string{
