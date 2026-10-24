@@ -26,7 +26,7 @@ func requireSearchPreviewRead(t *testing.T, cfg *config.Config, pool *pgxpool.Po
 		t.Fatalf("the dry run of %v failed: %v\n%s", command, err, output)
 	}
 	digest := payloadDigest(printedPayload(t, []byte(output)))
-	reads := outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql", string(verb), reader.String())
+	reads := readOutboxEvents(t, pool, verb, reader)
 	if len(reads) != 1 || reads[0].Outcome != audit.OutcomeCompleted || reads[0].Context.OperationClass != audit.OperationRead {
 		t.Fatalf("the dry run of %v recorded %+v instead of one completed read", command, reads)
 	}
