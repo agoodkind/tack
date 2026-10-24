@@ -47,7 +47,8 @@ func runFirstClaimedSlice(t *testing.T, worker *service.SearchWorker) {
 // TestSearchWorkerSliceStopsAtPageBound requires the first slice of a node
 // with more than 32 pages to index pages 0 to 31 and stop with work pending.
 // Page 0 is in OpenSearch before the slice reads the final page. Later slices
-// index the remaining pages once each.
+// index the remaining pages once each, and every page stores generated chunks
+// in the rank_features embedding field.
 func TestSearchWorkerSliceStopsAtPageBound(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, _, index := newSearchIndex(t, stores)
@@ -69,6 +70,7 @@ func TestSearchWorkerSliceStopsAtPageBound(t *testing.T) {
 	}
 	runSearchWorkerUntilIdle(t, worker)
 	requireIndexedPages(t, searchNodePages(t, client, index, fixture.NodeID, false), readSearchPages(t, stores, fixture.NodeID, boundPageBytes), 0)
+	requireNativeChunkMapping(t, client, index)
 }
 
 // TestSearchWorkerSliceStopsAtByteBound requires a slice to stop after the

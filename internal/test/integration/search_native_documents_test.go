@@ -3,6 +3,7 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
@@ -11,9 +12,28 @@ import (
 // strictMappingError is the OpenSearch error type for an undeclared property.
 const strictMappingError = "strict_dynamic_mapping_exception"
 
+// nativeMarkdownPage is a Markdown page with a heading, emphasis, a list, a
+// table, a code fence, and an emoji.
+const nativeMarkdownPage = "# Release checklist\n\n" +
+	"Confirm the **migration** and _rollback_ steps 🙂 before the window opens.\n\n" +
+	"- [ ] Run `./server migrate --execute`\n- [x] Read the [runbook](https://example.test/runbook#step-2)\n\n" +
+	"| Step | Owner |\n| --- | --- |\n| Deploy | Operator |\n\n" +
+	"```go\nfmt.Println(\"done\")\n```\n"
+
+// nativePunctuationPage repeats every ASCII punctuation character.
+func nativePunctuationPage() string {
+	return strings.Repeat("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ ", 8)
+}
+
+// nativeLongURLPage is one URL with a long uninterrupted path and query.
+func nativeLongURLPage() string {
+	return "https://example.test/" + strings.Repeat("segment-", 40) + "end?query=" + strings.Repeat("v", 300) + "#fragment"
+}
+
 // TestSearchNativeDocumentForms requires OpenSearch to return each page text
-// form that Tack writes unchanged. The forms exclude an empty page because
-// Tack rejects an empty page before any write.
+// form that Tack writes unchanged and to cover it with generated chunks. The
+// forms exclude an empty page because Tack rejects an empty page before any
+// write.
 func TestSearchNativeDocumentForms(t *testing.T) {
 	adapter, client := nativeSearchClients(t)
 	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
@@ -29,6 +49,9 @@ func TestSearchNativeDocumentForms(t *testing.T) {
 		{name: "ordinary", text: "Searchable ordinary page"},
 		{name: "unicode", text: unicodePage4096()},
 		{name: "newline", text: "\n\n\n"},
+		{name: "markdown", text: nativeMarkdownPage},
+		{name: "long-url", text: nativeLongURLPage()},
+		{name: "punctuation", text: nativePunctuationPage()},
 	}
 	for _, form := range forms {
 		t.Run(form.name, func(t *testing.T) {
@@ -41,9 +64,7 @@ func TestSearchNativeDocumentForms(t *testing.T) {
 			if pageText != form.text {
 				t.Fatalf("stored page text = %q, want %q", pageText, form.text)
 			}
-			if len(form.text) == len(unicodePage4096()) {
-				requireNativeChunks(t, source["page_text_semantic_info"], form.text)
-			}
+			requireNativeChunks(t, source["page_text_semantic_info"], form.text)
 		})
 	}
 }
