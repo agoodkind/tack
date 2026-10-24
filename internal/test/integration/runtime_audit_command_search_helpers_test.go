@@ -51,7 +51,7 @@ func storedRolloutInitiation(t *testing.T, clusterFile string, authority uuid.UU
 	return rollout.Initiation
 }
 
-// requireInitiation requires a search record to store the operation and
+// requireInitiation requires a search record to store the operation ID and
 // operator of the command that began it.
 func requireInitiation(t *testing.T, record string, stored searchdomain.Initiation, operationID, operatorID uuid.UUID) {
 	t.Helper()

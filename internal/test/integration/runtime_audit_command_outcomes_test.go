@@ -38,8 +38,8 @@ type migrationRangeEvidence struct {
 //     and applied version.
 //   - search_reindex checks that the reindex dry run records its read and that
 //     reindex records the source index, replacement ID, and generation when it
-//     starts a replacement. The replacement record must store the operation of
-//     that run. A second run must be refused without a step.
+//     starts a replacement. The replacement record must store the operation ID
+//     and operator of that run. A second run must be refused without a step.
 //   - seed_roles checks each role's state before and after seeding and verifies
 //     that events do not contain role passwords.
 //   - archive_node_refused checks that yb-archive-node refuses to run without
@@ -54,9 +54,9 @@ type migrationRangeEvidence struct {
 //   - access_rollout checks that the access-rollout dry run records its read and
 //     that access-rollout records the authority, candidate, backfill phase, and
 //     nonzero generation when it starts a rollout. The rollout record must store
-//     the operation of that run. A second run must be refused without a step.
-//     After access-rollback, the rollout record must store the rollback
-//     operation.
+//     the operation ID and operator of that run. A second run must be refused
+//     without a step. After access-rollback, the rollout record must store the
+//     operation ID and operator of the rollback command.
 func TestRuntimeAuditCommandOutcomes(t *testing.T) {
 	t.Run("buckets_init_refused", func(t *testing.T) {
 		pool := ledgerAdminPool(t)

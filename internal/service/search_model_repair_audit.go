@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -15,7 +14,7 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// modelTargetPrefix starts the audit target reference of one ML Commons model.
+// modelTargetPrefix is the prefix of each ML Commons model audit target reference.
 const modelTargetPrefix = "opensearch/model/"
 
 // modelRepairEvidence is the model state that a repair deploy records before
@@ -31,7 +30,7 @@ type modelRepairEvidence struct {
 	DeploySeconds   int64  `json:"deploy_seconds,omitempty"`
 }
 
-// modelDeploy is the task and the errors of one repair deploy.
+// modelDeploy stores the task ID, the errors, and the duration of one repair deploy.
 type modelDeploy struct {
 	taskID            string
 	startErr, waitErr error
@@ -49,7 +48,7 @@ func (r *SearchModelRepair) deploy(ctx context.Context, index string, claim sear
 		ModelID: modelID, Index: index, State: state, Attempt: claim.Record.Attempts,
 		StuckForSeconds: int64(stuckFor.Seconds()), TaskID: "", DeploySeconds: 0,
 	}
-	encoded, err := marshalModelRepairEvidence(planned)
+	encoded, err := json.Marshal(planned)
 	if err != nil {
 		return modelRepairFailure(ctx, "encode the repair evidence of model "+modelID, errors.Join(err, r.release(ctx, claim)))
 	}
@@ -69,7 +68,7 @@ func (r *SearchModelRepair) deploy(ctx context.Context, index string, claim sear
 		func(ctx context.Context) (json.RawMessage, error) {
 			observed := planned
 			observed.TaskID, observed.DeploySeconds = sent.taskID, int64(sent.took.Seconds())
-			encoded, err := marshalModelRepairEvidence(observed)
+			encoded, err := json.Marshal(observed)
 			if err != nil {
 				return nil, modelRepairFailure(ctx, "encode the repair evidence of model "+modelID, err)
 			}
@@ -104,14 +103,4 @@ func (r *SearchModelRepair) sendDeploy(ctx context.Context, claim searchdomain.M
 	started := r.clock.Now()
 	waitErr := r.ports.Engine.WaitModelDeploy(ctx, modelID, taskID)
 	return modelDeploy{taskID: taskID, startErr: nil, waitErr: waitErr, took: r.clock.Since(started)}
-}
-
-// marshalModelRepairEvidence encodes the step evidence of a repair deploy.
-func marshalModelRepairEvidence(evidence modelRepairEvidence) (json.RawMessage, error) {
-	encoded, err := json.Marshal(evidence)
-	if err != nil {
-		slog.Error("search.model_repair.evidence_encode_failed", slog.String("model_id", evidence.ModelID), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("marshal the repair evidence of model %s: %w", evidence.ModelID, err)
-	}
-	return encoded, nil
 }

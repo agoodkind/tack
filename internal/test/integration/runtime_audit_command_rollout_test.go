@@ -69,7 +69,7 @@ func testAccessRolloutOutcomes(t *testing.T) {
 }
 
 // requireRollbackInitiation rolls back the access rollout of authority as a
-// new operator and requires the rollout record to store the operation and
+// new operator and requires the rollout record to store the operation ID and
 // operator of the rollback command.
 func requireRollbackInitiation(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, authority uuid.UUID) {
 	t.Helper()
