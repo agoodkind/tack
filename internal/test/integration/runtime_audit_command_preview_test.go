@@ -14,7 +14,6 @@ import (
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/response"
 	"goodkind.io/tack/internal/testenv"
-	"goodkind.io/tack/internal/testenv/opsoutbox"
 )
 
 // previewCommandTarget is the resource URI that the dry run of the metadata
@@ -22,9 +21,11 @@ import (
 const previewCommandTarget = "tack:command/" + string(audit.VerbOpsBackfillMetadataNameIndex)
 
 // TestRuntimeAuditGeneratedPreviewRecordsRead runs the dry run of a generated
-// command that scans FoundationDB. It requires one completed format 2 read
-// event in the operator outbox with the command resource as its target and
-// the digest of the JSON result that the command printed.
+// command that scans FoundationDB with a deploy commit. It requires one
+// completed format 2 read event in the operator outbox with the command
+// resource as its target and the digest of the JSON result that the command
+// printed. The real relay must then publish the event and delete its outbox
+// records, which requires the published digest to match the read receipt.
 func TestRuntimeAuditGeneratedPreviewRecordsRead(t *testing.T) {
 	ledger := testenv.Ledger(t)
 	cfg := &config.Config{DatabaseURL: ledger, FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: 5 * time.Second}
@@ -43,15 +44,13 @@ func TestRuntimeAuditGeneratedPreviewRecordsRead(t *testing.T) {
 	root.SetArgs([]string{
 		"--output", "json", "--operator-id", operatorID.String(),
 		"--operator-email", "preview@example.com", "--operator-name", "Preview Test",
-		"ops", "backfill", "once-metadata-name-index",
+		"--deploy-commit", "tack-583-preview", "ops", "backfill", "once-metadata-name-index",
 	})
 	if err := root.ExecuteContext(t.Context()); err != nil {
 		t.Fatalf("the metadata name index dry run failed: %v\n%s", err, output.String())
 	}
 	payload := printedPayload(t, output.Bytes())
-	events := opsoutbox.Events(t, pool, opsoutbox.Filter{
-		Verb: audit.VerbOpsBackfillMetadataNameIndex, Path: []string{"actor", "id"}, Value: operatorID.String(),
-	})
+	events := readOutboxEvents(t, pool, audit.VerbOpsBackfillMetadataNameIndex, operatorID)
 	if len(events) != 1 {
 		t.Fatalf("the dry run recorded %d events instead of one read event: %+v", len(events), events)
 	}
@@ -68,6 +67,7 @@ func TestRuntimeAuditGeneratedPreviewRecordsRead(t *testing.T) {
 	if eventContext.Read == nil || eventContext.Read.PayloadSHA256 != payloadDigest(payload) || eventContext.Read.PayloadFormat != "application/json" {
 		t.Fatalf("the dry run read evidence is %+v instead of the JSON payload digest %s", eventContext.Read, payloadDigest(payload))
 	}
+	deliverReadThroughRelay(t, yugabyteReadBackend(t), event.EventID)
 }
 
 // printedPayload returns the compact result of the JSON document that a dry
