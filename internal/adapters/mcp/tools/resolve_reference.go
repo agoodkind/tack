@@ -62,6 +62,9 @@ func (r *Resolver) resolveScopedNodeReference(ctx context.Context, nt *node.Node
 		return uuid.Nil, fmt.Errorf("%s reference property is empty: %w", nt.Slug, domain.ErrInvalidArgument)
 	}
 	level, ok := r.referenceScopeLevel(nt)
+	if !ok && r.livesUnderEntryPoint(nt) {
+		return r.resolveEntryPointScopedReference(ctx, nt, propName, scopeIdent, localRef)
+	}
 	if !ok {
 		return uuid.Nil, fmt.Errorf("%s %q: %w", strings.ToLower(nt.Slug), input, domain.ErrNotFound)
 	}
