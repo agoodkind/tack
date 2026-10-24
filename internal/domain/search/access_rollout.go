@@ -87,6 +87,8 @@ type BeginAccessRollout struct {
 type RollbackAccessRollout struct {
 	AuthorityID        uuid.UUID
 	ExpectedGeneration int64
+	// Initiation identifies the operation that requests the rollback.
+	Initiation Initiation `exhaustruct:"optional"`
 }
 
 // AffectedNodes contains the recording counter and affected set entries for

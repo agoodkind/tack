@@ -52,6 +52,8 @@ type migrationRangeEvidence struct {
 //     that access-rollout records the authority, candidate, backfill phase, and
 //     nonzero generation when it starts a rollout. The rollout record must store
 //     the operation of that run. A second run must be refused without a step.
+//     After access-rollback, the rollout record must store the rollback
+//     operation.
 func TestRuntimeAuditCommandOutcomes(t *testing.T) {
 	t.Run("buckets_init_refused", func(t *testing.T) {
 		pool := ledgerAdminPool(t)

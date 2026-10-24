@@ -2,11 +2,14 @@ package integration_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
@@ -31,6 +34,21 @@ func requireSearchPreviewRead(t *testing.T, cfg *config.Config, pool *pgxpool.Po
 	if evidence == nil || evidence.PayloadSHA256 != digest || evidence.PayloadFormat != "application/json" {
 		t.Fatalf("the dry run of %v recorded read evidence %+v instead of the JSON digest %s of the printed result", command, evidence, digest)
 	}
+}
+
+// storedRolloutInitiation reads the access rollout of authority and returns
+// the initiation that its record stores.
+func storedRolloutInitiation(t *testing.T, clusterFile string, authority uuid.UUID) searchdomain.Initiation {
+	t.Helper()
+	stores, err := fdbadapter.NewStores(clusterFile, 5*time.Second, nil)
+	if err != nil {
+		t.Fatalf("opening FoundationDB stores failed: %v", err)
+	}
+	rollout, err := stores.SearchRollouts(clock.Wall{}, stores.SearchPolicySet()).Current(t.Context(), authority)
+	if err != nil {
+		t.Fatalf("reading the access rollout of authority %s failed: %v", authority, err)
+	}
+	return rollout.Initiation
 }
 
 // requireInitiation requires a search record to store the operation and
