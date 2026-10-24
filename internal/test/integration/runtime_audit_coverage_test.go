@@ -27,6 +27,12 @@ type coverageEvidence struct {
 	actorID   uuid.UUID
 	outcome   audit.Outcome
 	outbox    *pgxpool.Pool
+	// body is the exact response payload of a read case. A completed read
+	// event must record its SHA-256 digest. A nil body skips that comparison.
+	body []byte
+	// targetID is the node that the case acted on. Each format 2 event of the
+	// case must target it. uuid.Nil skips that comparison.
+	targetID uuid.UUID
 }
 
 // TestRuntimeAuditCoverage requires each registered operation to have a case, a
@@ -57,6 +63,7 @@ func (env *coverageEnv) runCase(t *testing.T, current coverageCase) {
 		outcome = evidence.outcome
 	}
 	rows := env.waitForRows(t, evidence, current.verb, outcome)
+	requireCaseEvidence(t, evidence, current.verb, outcome, rows)
 	if current.check != nil {
 		current.check(t, env, rows)
 	}

@@ -21,7 +21,10 @@ func (env *coverageEnv) rpcCall(t *testing.T, method string, params map[string]a
 	if response.status != status {
 		t.Fatalf("The MCP request did not return the case's expected HTTP status; the method, observed status, and response body follow: %s: %d %s", method, response.status, response.body)
 	}
-	return coverageEvidence{orgID: env.server.orgID, requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil}
+	return coverageEvidence{
+		orgID: env.server.orgID, requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil,
+		body: response.body, targetID: uuid.Nil,
+	}
 }
 
 // notify sends an authenticated MCP notification without a JSON-RPC id and
@@ -38,7 +41,10 @@ func (env *coverageEnv) notify(t *testing.T, method string, params map[string]an
 	if response.status != http.StatusAccepted {
 		t.Fatalf("The MCP notification did not return the expected HTTP 202 status; the method, observed status, and response body follow: %s: %d %s", method, response.status, response.body)
 	}
-	return coverageEvidence{orgID: audit.SystemOrgID(), requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil}
+	return coverageEvidence{
+		orgID: audit.SystemOrgID(), requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil,
+		body: nil, targetID: uuid.Nil,
+	}
 }
 
 // methodCase creates an MCP method case that requires HTTP 200 and a completed
