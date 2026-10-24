@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"goodkind.io/tack/internal/audit"
 )
@@ -65,6 +67,27 @@ func legacyFixtures(t *testing.T, revision, kind string) []legacyFixture {
 		t.Fatalf("The %s legacy fixtures do not contain a %s record", revision, kind)
 	}
 	return selected
+}
+
+// produceLegacyRecords produces each fixture key and value unchanged to the
+// pipeline topic.
+func produceLegacyRecords(t *testing.T, pipeline partsPipeline, fixtures []legacyFixture) {
+	t.Helper()
+	producer, err := kgo.NewClient(kgo.SeedBrokers(pipeline.brokers), kgo.DefaultProduceTopic(pipeline.topic))
+	if err != nil {
+		t.Fatalf("Opening the Kafka producer failed: %v", err)
+	}
+	defer producer.Close()
+	for _, fixture := range fixtures {
+		key, err := hex.DecodeString(fixture.PartitionBytes)
+		if err != nil {
+			t.Fatalf("Decoding the Kafka record key of legacy event %s failed: %v", fixture.EventID, err)
+		}
+		record := &kgo.Record{Key: key, Value: []byte(fixture.Value)}
+		if err := producer.ProduceSync(t.Context(), record).FirstErr(); err != nil {
+			t.Fatalf("Producing legacy event %s failed: %v", fixture.EventID, err)
+		}
+	}
 }
 
 // requireLegacyLedger requires one ledger row for each fixture event and an

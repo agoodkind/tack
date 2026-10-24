@@ -25,6 +25,25 @@ const (
 	legacyDeadLetterError = `insert audit event: ERROR: no partition of relation "events" found for row (SQLSTATE 23514)`
 )
 
+// TestRuntimeAuditLegacyKafkaRecords produces the format 0 Kafka records that
+// each legacy revision wrote, then produces the same records a second time.
+// The current consumer must store one ledger row per event, and the export of
+// each organization must pass chain verification.
+func TestRuntimeAuditLegacyKafkaRecords(t *testing.T) {
+	for _, revision := range legacyRevisions {
+		t.Run(revision, func(t *testing.T) {
+			fixtures := legacyFixtures(t, revision, "kafka")
+			pipeline := newPartsPipeline(t)
+			pipeline.startConsumer(t)
+			produceLegacyRecords(t, pipeline, fixtures)
+			produceLegacyRecords(t, pipeline, fixtures)
+			pipeline.waitForConsumed(t)
+			requireLegacyLedger(t, pipeline, fixtures)
+			pipeline.stack().waitForDeadLetters(t, 0)
+		})
+	}
+}
+
 // TestRuntimeAuditLegacyOutboxRecords writes the public.ops_outbox rows with
 // the legacy insert statement and the FoundationDB operator outbox entries
 // with the legacy versionstamped key. The current relay must publish every
