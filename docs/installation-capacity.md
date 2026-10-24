@@ -1,31 +1,84 @@
 # Production installation capacity
 
-This page covers the production installation's measured audit traffic, per-event storage, retention, copies, replication, backups, and days of disk left.
+This page covers the production installation's measured audit traffic, storage per ledger row and Kafka record, retention, copies, replication, backups, and days of disk left.
 
 ## Audit traffic
 
-Production reads summed committed offsets for consumer group `tack-audit-projector` on topic `audit.events.v1` through `ops audit consumer-offsets` in the `audit-ops` service.
+The `tack-backup-restore-drill.service` journal on CT 117 reports every organization in the restored ledger through `backup.restore_drill.ledger_chain.org` (`internal/ops/backup_restore_drill_ledger_orgs.go`). Organization totals:
 
-Production measurements:
+| Organization | Rows on 2026-10-24 drill |
+|---|---|
+| `019dc5ad-0408-7e43-9c4d-d3e6736ac058` (main) | 533,835 |
+| `00000000-0000-0000-0000-0000000005ee` (system) | 51,714 |
+| `00000000-0000-0000-0000-000000000000` (nil organization) | 833 |
 
-| Measure | Time (UTC) | Value | Source |
+`audit query` refuses the nil organization through `QueryFilter.Validate` in `internal/audit/reader.go`. The hourly measurements cover the main and system organizations.
+
+Each daily restore drill restores the export from that day's ledger backup. The backup settings give the export time, and the `tack-backup-restore-drill.service` journal supplies the row counts. Daily ledger totals:
+
+| Drill date | Ledger rows, all organizations | Increase from the previous drill | Nil organization increase |
 |---|---|---|---|
-| Topic partitions in the sum | 2026-10-24 12:02:24 | 256 | Production CT 117 read at this time |
-| Committed events | 2026-10-24 00:14 | 203,629 | Earlier production CT 117 read at this time |
-| Committed events | 2026-10-24 04:40 | 205,141 | Earlier production CT 117 read at this time |
-| Committed events | 2026-10-24 12:02:24 | 247,277 | Production CT 117 read at this time |
-| Total consumer lag | 2026-10-24 12:02:24 | 0 | Production CT 117 read at this time |
-| Operator outbox rows | 2026-10-24 12:02:24 | 0 | Production CT 117 read at this time |
-| FoundationDB outbox entries | 2026-10-24 12:02:24 | 0 | Production CT 117 read at this time |
+| 2026-10-21 | 574,653 | | |
+| 2026-10-22 | 577,236 | 2,583 | 2 |
+| 2026-10-23 | 581,265 | 4,029 | 6 |
+| 2026-10-24 | 586,382 | 5,117 | 6 |
 
-The capacity calculations use both measured traffic rates.
+The audit producer uses `EncodedEvent.Messages` in `internal/audit/event_parts_wire.go` to encode Kafka records. Every measured multipart event was a read event. Event records and rows:
 
-Audit rates:
-
-| Interval (UTC) | Events per hour | Events per day | Source |
+| Event shape | Parts | Kafka records | Ledger rows |
 |---|---|---|---|
-| 2026-10-24 00:14 to 04:40 | 341 | 8,185 | Production CT 117 committed-offset reads at the interval endpoints |
-| 2026-10-24 04:40 to 12:02 | 5,715 | 137,153 | Production CT 117 committed-offset reads at 04:40 and 12:02:24 |
+| Single-record event | | 1 | 1 |
+| Multipart event | One or more | One per part plus one manifest record | 1 |
+| Measured multipart read event | 1 manifest part | 2 | 1 |
+
+`ops audit consumer-offsets` through the `audit-ops` service on CT 117 supplies the summed committed offsets for group `tack-audit-projector` on `audit.events.v1`. `audit query` through the same service supplies ledger rows, with paging over each window. Measurement totals:
+
+| Window (UTC) | Duration | Committed offsets, start to end | Kafka records, measured / rows plus manifest parts | Ledger rows | Read events with one manifest part | Partitions / lag at each read |
+|---|---|---|---|---|---|---|
+| 2026-10-24 13:44:44 to 14:46:32 | 1.03 hours | 247,663 to 248,042 | 379 / 376 | 346 | | 256 / 0 |
+| 2026-10-24 04:40 to 12:02:24 | 7.37 hours | 205,141 to 247,277 | 42,136 / 42,135 | 35,109 (34,132 main; 977 system) | 7,026 | 256 / 0 |
+
+The measurement hour included a production deploy and operator runs. Deploy and measurement record counts equal their ledger rows plus read manifest parts; remaining records equal the measured increase minus those records. Measurement hour traffic:
+
+| Part of the hour | Ledger rows | Kafka records |
+|---|---|---|
+| Production deploy of Tack `4cf2b061` from 14:01:45 to 14:10:03, and its checks through 14:13:21 | 137 | 148 |
+| Deploy verify, fixed definition backfill, and node integrity backfill runs by the deploy operator from 14:23 to 14:41 | 15 | 20 |
+| The `audit query` and `consumer-offsets` runs of this measurement | 42 | 42 |
+| Remaining traffic, outside the deploy window (50.2 minutes) | 152 | 169 |
+
+The remaining measurement hour traffic and the earlier interval provide separate ledger and Kafka rates from the production reads above. Audit rates:
+
+| Traffic | Ledger rows per hour | Ledger rows per day | Kafka records per hour | Kafka records per day | Records per row |
+|---|---|---|---|---|---|
+| Remaining measurement hour traffic | 182 | 4,360 | 202 | 4,848 | 1.11 |
+| 04:40 to 12:02:24 interval | 4,762 | 114,279 | 5,715 | 137,152 | 1.20 |
+
+`audit query` supplies the action counts below. API token actor `14385627-0313-50f8-bf7e-0c966e355dd9` wrote all main organization rows in the earlier interval through MCP. Ledger rows by action:
+
+| Traffic | Action | MCP tool | Rows |
+|---|---|---|---|
+| Remaining measurement hour | `auth.token_used` | | 42 |
+| Remaining measurement hour | `mcp.protocol_read` | | 42 |
+| Remaining measurement hour | `ops.backup_yb_archive_node` | | 36 |
+| Remaining measurement hour | `ops.backup_staleness_check` | | 32 |
+| Earlier interval, main organization | `auth.token_used` | Every tool call | 17,139 |
+| Earlier interval, main organization | `relationship.list` | `tack_list_relationships` | 5,871 |
+| Earlier interval, main organization | `props.read` | `tack_get_properties` | 5,574 |
+| Earlier interval, main organization | `node.list` | `tack_list_comments` (2,550), `tack_list_activities` (2,539), and others | 5,167 |
+| Earlier interval, main organization | Other actions | | 381 |
+| Earlier interval, system organization | `ops.backup_staleness_check` | | 328 |
+| Earlier interval, system organization | `ops.backup_yb_archive_node` | | 278 |
+| Earlier interval, system organization | `mcp.protocol_read` | | 170 |
+| Earlier interval, system organization | `ops.provision` (deploy command) | | 56 |
+| Earlier interval, system organization | `ops.ledger_node_prepare` (deploy command) | | 42 |
+| Earlier interval, system organization | `ops.ledger_node_wait` (deploy command) | | 39 |
+
+`audit query` also supplies the main organization's hourly counts within the earlier interval. Main organization rows by hour:
+
+| Hour (UTC) | 05:00 | 06:00 | 07:00 | 08:00 | Every other hour |
+|---|---|---|---|---|---|
+| Ledger rows | 7,184 | 10,953 | 12,025 | 3,834 | 83 or fewer |
 
 ## Per-event storage
 
@@ -115,27 +168,28 @@ Backup settings:
 
 ## Days of disk left
 
-Each YugabyteDB node stores a replica of every ledger tablet. Daily growth equals events per day multiplied by the measured bytes per event or record.
+Each YugabyteDB node stores a replica of every ledger tablet. YugabyteDB growth uses ledger rows per day multiplied by the total relation bytes per final event in the storage table. Kafka growth uses Kafka records per day multiplied by the bytes per record in that table. Kafka deletes records older than its retention period in the retention settings.
 
-Capacity calculations:
+The calculations use production disk measurements, audit rates, and storage measurements. The measurement hour rate uses only its remaining traffic. Capacity calculations:
 
-| Store and guest | Available | Growth per day at 341 events/hour | Days left at 341 events/hour | Growth per day at 5,715 events/hour | Days left at 5,715 events/hour | Source |
+| Store and guest | Available | Growth per day, measurement hour | Days left, measurement hour | Growth per day, 04:40 to 12:02 | Days left, 04:40 to 12:02 | Growth basis and source |
 |---|---|---|---|---|---|---|
-| YugabyteDB, CT 120 | 33G | 0.081G | 407 | 1.36G | 24 | Production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594 |
-| YugabyteDB, CT 121 | 33G | 0.081G | 407 | 1.36G | 24 | Production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594 |
-| YugabyteDB, CT 122 | 32G | 0.081G | 395 | 1.36G | 24 | Production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594 |
-| Kafka, CT 117 | 220G shared | 0.0087G | Kafka alone does not fill the available disk; retention storage is 3.2G | 0.145G | Kafka alone does not fill the available disk; retention storage is 53G | Production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594; `internal/config/audit_consumer.go:28` |
-| ClickHouse, CT 117 | 220G shared | The test did not measure growth | The calculation does not compute this value | The test did not measure growth | The calculation does not compute this value | Production disk read, 2026-10-24 about 12:05 UTC; CI run 40083280758, job 120841017594 |
-| Pending read receipts, FoundationDB | Data guests | One hour of reads bounds storage | Storage does not grow beyond that bound | One hour of reads bounds storage | Storage does not grow beyond that bound | Tack `internal/audit/read_lifecycle.go` |
+| YugabyteDB, CT 120 | 33G | 0.043G | 765 | 1.13G | 29 | Ledger rows per day × 10,625 bytes; production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594 |
+| YugabyteDB, CT 121 | 33G | 0.043G | 765 | 1.13G | 29 | Ledger rows per day × 10,625 bytes; production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594 |
+| YugabyteDB, CT 122 | 32G | 0.043G | 742 | 1.13G | 28 | Ledger rows per day × 10,625 bytes; production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594 |
+| Kafka, CT 117 | 220G shared | 0.0051G | Kafka alone does not fill the available disk; one year of retention is 1.9G | 0.145G | Kafka alone does not fill the available disk; one year of retention is 53G | Kafka records per day × 1,136 bytes; production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594; `internal/config/audit_consumer.go:28` |
+| ClickHouse, CT 117 | 220G shared | not measured | not computed | not measured | not computed | Production disk read, 2026-10-24 about 12:05 UTC; CI run 40083280758, job 120841017594 |
+| Pending read receipts, FoundationDB | data guests | bounded by one hour of reads | does not grow beyond that bound | bounded by one hour of reads | does not grow beyond that bound | Tack `internal/audit/read_lifecycle.go` |
 
-The calculations use the YugabyteDB total relation measurement and the Kafka record measurement in the storage table. They exclude YugabyteDB point-in-time recovery history, compaction space, and write-ahead logs.
+The calculations use the YugabyteDB total relation measurement and the Kafka record measurement in the storage table. They exclude YugabyteDB point-in-time recovery history, compaction space, and write-ahead logs. The ledger row rates exclude the nil organization.
 
 ## Outage backlog
 
-A consumer outage adds undelivered records within Kafka's retention period.
+Kafka retains undelivered records for the topic retention period below.
 
-Backlog calculation:
+The audit rates above and Kafka bytes per record from CI run 40083280758, job 120841017594, determine the added storage. Backlog calculation:
 
-| Store and guest | Audit rate | Consumer outage | Added records | Added storage | Source |
-|---|---|---|---|---|---|
-| Kafka, CT 117 | 5,715 events per hour | 1 day | 137,153 | About 156 MB | Production audit reads, 2026-10-24 04:40 and 12:02:24 UTC; CI run 40083280758, job 120841017594 |
+| Store and guest | Audit rate | Consumer outage | Added records | Added storage | Kafka retention | Source |
+|---|---|---|---|---|---|---|
+| Kafka, CT 117 | 202 records per hour | 1 day | 4,848 | About 5.5 MB | 365 days | Remaining measurement hour traffic above; CI run 40083280758, job 120841017594; `internal/config/audit_consumer.go:28` |
+| Kafka, CT 117 | 5,715 records per hour | 1 day | 137,152 | About 156 MB | 365 days | Production audit reads, 2026-10-24 04:40 and 12:02:24 UTC; CI run 40083280758, job 120841017594; `internal/config/audit_consumer.go:28` |
