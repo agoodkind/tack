@@ -15,8 +15,8 @@ import (
 // can be restored to. It advances while the backup streams and its old end
 // moves forward as data expires, so it is read fresh for every restore.
 type fdbRestorableWindow struct {
-	Min time.Time
-	Max time.Time
+	Min time.Time `json:"min"`
+	Max time.Time `json:"max"`
 }
 
 const (

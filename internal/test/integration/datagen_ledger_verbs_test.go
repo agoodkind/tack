@@ -19,11 +19,12 @@ import (
 // recorded ledger verb events.
 const ledgerVerbsDeadline = 90 * time.Second
 
-// recordedLedgerVerbs lists the seven verbs in the seed report. Host ledger
+// recordedLedgerVerbs lists the verbs in the seed report. Host ledger
 // commands and service jobs record these verbs. ops qa datagen cannot run
 // those commands or jobs. The test records one system-organization event per
 // verb.
 var recordedLedgerVerbs = []audit.Verb{
+	audit.VerbOpsBackupRetention,
 	audit.VerbOpsLedgerNodePrepare, audit.VerbOpsLedgerNodeWait,
 	audit.VerbOpsLedgerBootstrapWait, audit.VerbOpsLedgerAuditBootstrap,
 	audit.VerbSearchIndexStructure, audit.VerbSearchAccessRolloutPhase,
@@ -44,7 +45,7 @@ type datagenSeedLedgerVerbsOutput struct {
 
 // TestDatagenSeedReportsHostOnlyLedgerVerbs runs `ops qa datagen seed
 // --commit` through the audited command tree before any ledger verb row
-// exists and requires the report to list all seven verbs from host ledger
+// exists and requires the report to list all verbs from host ledger
 // commands and service jobs with zero rows.
 // It then records one system-organization event per verb through the
 // production Kafka recorder and the real audit consumer, seeds again, and
@@ -105,7 +106,7 @@ func ledgerVerbRows(t *testing.T, output datagenSeedLedgerVerbsOutput) map[strin
 	}
 	for _, verb := range recordedLedgerVerbs {
 		if _, listed := rows[string(verb)]; !listed || len(rows) != len(recordedLedgerVerbs) {
-			t.Fatalf("ledger verbs = %+v, want the seven verbs from host ledger commands and service jobs", output.Result.LedgerVerbs.Verbs)
+			t.Fatalf("ledger verbs = %+v, want every verb from host ledger commands and service jobs", output.Result.LedgerVerbs.Verbs)
 		}
 	}
 	return rows

@@ -35,6 +35,7 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 		backupLeaf(f, "fdb-continuous-init", "Start the FoundationDB continuous backup session (idempotent)", audit.VerbOpsBackupFDBContinuousInit, runBackupFDBContinuousInitRecorded),
 		backupStalenessCheckCommand(f),
 		backupFDBRestoreVersionCommand(f),
+		backupRetentionCommand(f),
 	)
 	cmd.SetHelpCommand(backupHelpCommand())
 	cmd.InitDefaultHelpCmd()
