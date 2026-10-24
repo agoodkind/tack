@@ -26,13 +26,17 @@ type FixedNodeTypeAudit func(ctx context.Context, before, after *node.NodeType) 
 // FixedNodeTypeResult counts scanned, corrected, unchanged, and conflicted
 // node types. During a dry run, it counts node types that need correction as
 // corrected. A conflicted node type changed after the scan read it.
+// Changes lists each corrected or conflicted node type's org ID, node type
+// ID, type key, outcome, and CanLiveUnder values before and after correction.
+// Dry runs and execute runs both populate Changes.
 type FixedNodeTypeResult struct {
-	Scanned       int         `json:"scanned"`
-	Corrected     int         `json:"corrected"`
-	Unchanged     int         `json:"unchanged"`
-	Conflicted    int         `json:"conflicted"`
-	CorrectedIDs  []uuid.UUID `json:"corrected_ids,omitempty"`
-	ConflictedIDs []uuid.UUID `json:"conflicted_ids,omitempty"`
+	Scanned       int                   `json:"scanned"`
+	Corrected     int                   `json:"corrected"`
+	Unchanged     int                   `json:"unchanged"`
+	Conflicted    int                   `json:"conflicted"`
+	CorrectedIDs  []uuid.UUID           `json:"corrected_ids,omitempty"`
+	ConflictedIDs []uuid.UUID           `json:"conflicted_ids,omitempty"`
+	Changes       []FixedNodeTypeChange `json:"changes,omitempty"`
 }
 
 // CorrectFixedNodeTypes calls ScanTypes to read every stored node type in
@@ -44,7 +48,7 @@ type FixedNodeTypeResult struct {
 // commit the node type and audit event only when the stored node type still
 // matches the scanned record.
 func CorrectFixedNodeTypes(ctx context.Context, store FixedNodeTypeStore, stage FixedNodeTypeAudit, dryRun bool) (FixedNodeTypeResult, error) {
-	result := FixedNodeTypeResult{Scanned: 0, Corrected: 0, Unchanged: 0, Conflicted: 0, CorrectedIDs: nil, ConflictedIDs: nil}
+	result := FixedNodeTypeResult{Scanned: 0, Corrected: 0, Unchanged: 0, Conflicted: 0, CorrectedIDs: nil, ConflictedIDs: nil, Changes: nil}
 	seeded := seededNodeTypes{orgID: uuid.Nil, byID: nil}
 	cursor := ""
 	for {
@@ -81,6 +85,7 @@ func correctNodeType(
 	if dryRun {
 		result.Corrected++
 		result.CorrectedIDs = append(result.CorrectedIDs, stored.ID)
+		result.Changes = append(result.Changes, nodeTypeChange(FixedOutcomeCorrected, stored, corrected))
 		return nil
 	}
 	staged, err := stage(ctx, stored, corrected)
@@ -94,10 +99,12 @@ func correctNodeType(
 	if !replaced {
 		result.Conflicted++
 		result.ConflictedIDs = append(result.ConflictedIDs, stored.ID)
+		result.Changes = append(result.Changes, nodeTypeChange(FixedOutcomeConflicted, stored, corrected))
 		return nil
 	}
 	result.Corrected++
 	result.CorrectedIDs = append(result.CorrectedIDs, stored.ID)
+	result.Changes = append(result.Changes, nodeTypeChange(FixedOutcomeCorrected, stored, corrected))
 	telemetry.L(ctx).InfoContext(ctx, "metadata.fixed_node_type.corrected", slog.String("org_id", stored.OrgID.String()),
 		slog.String("node_type_id", stored.ID.String()), slog.String("type_key", stored.TypeKey))
 	return nil

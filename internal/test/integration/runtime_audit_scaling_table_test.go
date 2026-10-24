@@ -19,7 +19,7 @@ func scalingTables(results []scalingResult) string {
 	for _, result := range results {
 		tables.WriteString(result.workloadRow())
 	}
-	tables.WriteString("\nThe table compares audit storage measurements across app instance counts. YugabyteDB index and total relation bytes are the growth of the audit tables during the run. Bytes per final event and per manifest part divide the total relation bytes of audit.events and audit.event_parts by their row counts. FoundationDB replica bytes multiply the key and value bytes under the run's prefix by the storage replica count.\n\nStorage results:\n")
+	tables.WriteString("\nThe table compares audit storage measurements across app instance counts. YugabyteDB index and total relation bytes are the growth of the audit tables during the run. Bytes per final event divide the total relation byte growth of the audit.events partitions during the run by the audit.events rows the run added. Bytes per manifest part divide the total relation byte growth of audit.event_parts during the run by the audit.event_parts rows the run added. A cell reads not measured when the byte growth or the added row count is zero. FoundationDB replica bytes multiply the key and value bytes under the run's prefix by the storage replica count.\n\nStorage results:\n")
 	tables.WriteString("| Instances | Ledger row bytes | YugabyteDB audit index bytes | YugabyteDB audit total relation bytes | Bytes per final event | Bytes per manifest part | FoundationDB key and value bytes | FoundationDB storage replicas | FoundationDB replica bytes | Pending read receipts | Replica bytes per pending read receipt |\n")
 	tables.WriteString("|---|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, result := range results {
@@ -50,7 +50,7 @@ func (result scalingResult) workloadRow() string {
 // storageRow formats the run's YugabyteDB and FoundationDB storage
 // measurements as a Markdown table row.
 func (result scalingResult) storageRow() string {
-	return fmt.Sprintf("| %s | %d | %d | %d | %.0f | %.0f | %d | %d | %d | %d | %.0f |\n",
+	return fmt.Sprintf("| %s | %d | %d | %d | %s | %s | %d | %d | %d | %d | %.0f |\n",
 		result.label, result.databaseBytes, result.ledgerIndexBytes, result.ledgerTotalBytes, result.eventBytes,
 		result.partBytes, result.fdbBytes, result.replication, result.replicaBytes, result.receipts, result.receiptBytes)
 }

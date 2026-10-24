@@ -96,63 +96,6 @@ func (e EncodedEvent) Multipart() bool {
 	return !e.single
 }
 
-// VerifyEventParts checks the manifest, part order and count, payload limits,
-// and digests, then decodes the event and read targets.
-// It rejects unknown JSON fields, event identity mismatches with the header,
-// and read evidence that does not match the targets.
-func VerifyEventParts(header []byte, parts []EventPart) (Event, []Target, error) {
-	manifest, err := decodeManifestHeader(header)
-	if err != nil {
-		return Event{}, nil, err
-	}
-	envelope := make([]byte, 0, len(parts)*EventPartMaxBytes)
-	var expected uint32
-	for _, part := range parts {
-		if reason := partMismatch(manifest, part, expected); reason != "" {
-			return Event{}, nil, fmt.Errorf("verify audit event %s part %d: %s", manifest.EventID, part.Index, reason)
-		}
-		envelope = append(envelope, part.Payload...)
-		expected++
-	}
-	if expected != manifest.PartCount {
-		return Event{}, nil, fmt.Errorf("verify audit event %s: received %d of %d parts", manifest.EventID, expected, manifest.PartCount)
-	}
-	if sha256Hex(envelope) != manifest.TransportDigest {
-		return Event{}, nil, fmt.Errorf("verify audit event %s: transport digest does not match the parts", manifest.EventID)
-	}
-	decoded, err := decodeEventEnvelope(envelope)
-	if err != nil {
-		return Event{}, nil, fmt.Errorf("verify audit event %s: %s", manifest.EventID, err.Error())
-	}
-	event := decoded.Event
-	if event.EventID != manifest.EventID || event.Context.OrgID != manifest.OrgID || shardOf(event.Actor.ID, event.EventID) != manifest.Shard {
-		return Event{}, nil, fmt.Errorf("verify audit event %s: envelope identity does not match the header", manifest.EventID)
-	}
-	if err := checkReadManifest(event, decoded.ReadTargets); err != nil {
-		return Event{}, nil, fmt.Errorf("verify audit event %s: %s", manifest.EventID, err.Error())
-	}
-	return event, decoded.ReadTargets, nil
-}
-
-// partMismatch returns the first reason a part fails validation against
-// the manifest and expected index. It returns an empty string on success.
-func partMismatch(manifest transportMessage, part EventPart, expected uint32) string {
-	switch {
-	case part.EventID != manifest.EventID:
-		return "event ID differs from the header"
-	case part.Index != expected:
-		return fmt.Sprintf("part index does not match expected index %d", expected)
-	case part.Count != manifest.PartCount || part.TransportDigest != manifest.TransportDigest:
-		return "part count or transport digest differs from the header"
-	case len(part.Payload) > EventPartMaxBytes:
-		return "payload exceeds the part size limit"
-	case sha256Hex(part.Payload) != part.Digest:
-		return "payload does not match the part digest"
-	default:
-		return ""
-	}
-}
-
 // checkReadManifest rejects targets without read evidence and evidence
 // that differs from ReadManifestDigest in digest or part count.
 // It also accepts an empty evidence digest and zero part count when

@@ -42,7 +42,7 @@ func AttachExternalCheck(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, in
 			return outcome.Details, runErr
 		}
 		err = RunAuditedExternal(cmd.Context(), dryRunDestination(f, cmd.OutOrStdout()), spec, encoded,
-			f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), run)
+			f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), f.AuditInfrastructureProbe(), run)
 		if err != nil {
 			return err
 		}

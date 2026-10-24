@@ -43,8 +43,8 @@ type scalingResult struct {
 	databaseBytes    int64
 	ledgerIndexBytes int64
 	ledgerTotalBytes int64
-	eventBytes       float64
-	partBytes        float64
+	eventBytes       string
+	partBytes        string
 	brokerRecords    int64
 	brokerBytes      int64
 	fdbBytes         int64
