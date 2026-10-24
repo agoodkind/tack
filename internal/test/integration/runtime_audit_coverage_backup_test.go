@@ -138,8 +138,8 @@ func (env *coverageEnv) writeVersionLog(t *testing.T) {
 // addLedgerCommandCases adds ledger node preparation and readiness cases
 // against the separate backup ledger.
 func addLedgerCommandCases(cases map[string]coverageCase) {
-	cases["command ops ledger node-prepare"] = commandCase(audit.VerbOpsLedgerNodePrepare, audit.OutcomeOK, backupCommand("ops", "ledger", "node-prepare"))
-	cases["command ops ledger node-wait"] = commandCase(audit.VerbOpsLedgerNodeWait, audit.OutcomeOK,
+	cases["command ops ledger node-prepare"] = commandCase(audit.VerbOpsLedgerNodePrepare, audit.OutcomeCompleted, backupCommand("ops", "ledger", "node-prepare"))
+	cases["command ops ledger node-wait"] = commandCase(audit.VerbOpsLedgerNodeWait, audit.OutcomeCompleted,
 		backupCommand("ops", "ledger", "node-wait", "--stall", "3m", "--poll", "2s"))
 	cases["command ops ledger bootstrap-wait"] = commandCase(audit.VerbOpsLedgerBootstrapWait, audit.OutcomeOK,
 		backupCommand("ops", "ledger", "bootstrap-wait", "--masters", "1", "--tablet-servers", "1"))

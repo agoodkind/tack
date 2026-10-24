@@ -45,13 +45,14 @@ func searchRolloutCommand(f *cli.Factory) *cobra.Command {
 	_ = cmd.MarkFlagRequired("authority")
 	_ = cmd.MarkFlagRequired("candidate")
 	input := func() (json.RawMessage, error) { return encodeCommandInput(in) }
-	clispec.AttachExternalPreview(cmd, f, searchRolloutSpec(), input,
+	spec := searchRolloutSpec()
+	clispec.AttachExternalPreview(cmd, f, spec, input,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return runSearchRolloutRecorded(ctx, f, in, clispec.NewCLISink(f), steps)
 		},
-		func(ctx context.Context) error {
-			return previewSearchRollout(ctx, f, in, clispec.NewCLISink(f))
-		})
+		recordedSearchPreview(f, spec, input, func(ctx context.Context, sink clispec.ResultSink) error {
+			return previewSearchRollout(ctx, f, in, sink)
+		}))
 	return cmd
 }
 
@@ -114,6 +115,10 @@ func runSearchRolloutRecorded(
 		refused := commandOutcome(audit.OutcomeRefused, rolloutInProgressCode, searchdomain.ErrRolloutInProgress)
 		return refused, writeSearchRolloutResult(ctx, sink, rollouts, current, false)
 	}
+	initiation, err := commandInitiation(ctx)
+	if err != nil {
+		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
+	}
 	planned := accessRolloutEvidence{
 		AuthorityID: authorityID.String(), CandidateVersion: in.Candidate, ExpectedGeneration: current.Generation,
 		ActiveVersion: current.ActiveVersion, Phase: "", WriteVersions: nil, Generation: 0,
@@ -123,6 +128,7 @@ func runSearchRolloutRecorded(
 		func(ctx context.Context) error {
 			rollout, beginErr := rollouts.Begin(ctx, searchdomain.BeginAccessRollout{
 				AuthorityID: authorityID, CandidateVersion: in.Candidate, ExpectedGeneration: current.Generation,
+				Initiation: initiation,
 			})
 			if beginErr != nil {
 				return searchRolloutFailure(ctx, "begin access rollout of authority "+authorityID.String(), beginErr)

@@ -64,6 +64,8 @@ type Rebuild struct {
 	ScanComplete, Paused, Restored         bool
 	PausedAt                               time.Time
 	Generation                             int64
+	// Initiation identifies the operation that began the replacement.
+	Initiation Initiation `exhaustruct:"optional"`
 }
 
 // Mirror returns the replacement index in the copying, verifying, and
@@ -84,6 +86,8 @@ type BeginRebuild struct {
 	PrimaryShards, RoutingShards, Replicas int
 	Restored                               bool
 	Reason                                 string
+	// Initiation identifies the operation that requests the replacement.
+	Initiation Initiation `exhaustruct:"optional"`
 }
 
 // Validate rejects a mode other than full or split, an invalid shard

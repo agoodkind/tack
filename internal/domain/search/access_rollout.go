@@ -62,6 +62,8 @@ type AccessRollout struct {
 	// the rollout now verifies nodes in the affected set before activation.
 	AffectedPass                       bool
 	Generation, PermissionEventVersion int64
+	// Initiation identifies the operation that began the current rollout.
+	Initiation Initiation `exhaustruct:"optional"`
 }
 
 // Activated reports whether the candidate already serves new sessions.
@@ -75,6 +77,8 @@ type BeginAccessRollout struct {
 	AuthorityID        uuid.UUID
 	CandidateVersion   string
 	ExpectedGeneration int64
+	// Initiation identifies the operation that requests the rollout.
+	Initiation Initiation `exhaustruct:"optional"`
 }
 
 // RollbackAccessRollout requests rollback of one authority's access
@@ -83,6 +87,8 @@ type BeginAccessRollout struct {
 type RollbackAccessRollout struct {
 	AuthorityID        uuid.UUID
 	ExpectedGeneration int64
+	// Initiation identifies the operation that requests the rollback.
+	Initiation Initiation `exhaustruct:"optional"`
 }
 
 // AffectedNodes contains the recording counter and affected set entries for

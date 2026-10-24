@@ -86,9 +86,9 @@ func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.U
 	}
 }
 
-// completeAssembly locks a ready assembly, verifies its parts, fills a missing
-// commit version, appends the event, and finishes the assembly in one
-// transaction. A crash before commit leaves the assembly ready for another poll.
+// completeAssembly locks a ready assembly, streams and verifies its parts,
+// writes its read manifest parts, fills a missing commit version, appends the
+// event, and finishes the assembly in one transaction. A crash before commit leaves the assembly ready for another poll.
 func (c *Consumer) completeAssembly(ctx context.Context, eventID uuid.UUID) (projectedEvent, bool, error) {
 	tx, err := c.ybpool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -111,14 +111,14 @@ func (c *Consumer) completeAssembly(ctx context.Context, eventID uuid.UUID) (pro
 		slog.ErrorContext(ctx, "audit.consumer.assembly_read_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
 		return projectedEvent{}, false, fmt.Errorf("read audit event %s assembly: %w", eventID, err)
 	}
-	event, targets, transportDigest, err := verifyAssembly(ctx, tx, eventID, header)
+	event, transportDigest, err := streamAssembly(ctx, tx, eventID, header)
 	if err != nil {
 		return projectedEvent{}, false, err
 	}
 	if event.Context.CommitVersion == "" {
 		event.Context.CommitVersion = commitVersion
 	}
-	projected, landed, err := c.appendAssembledEvent(ctx, tx, event, targets)
+	projected, landed, err := c.appendAssembledEvent(ctx, tx, event)
 	if err != nil {
 		return projectedEvent{}, false, err
 	}
@@ -130,47 +130,6 @@ func (c *Consumer) completeAssembly(ctx context.Context, eventID uuid.UUID) (pro
 		return projectedEvent{}, false, fmt.Errorf("commit audit event %s completion: %w", eventID, err)
 	}
 	return projected, landed, nil
-}
-
-// verifyAssembly reads the stored parts in index order and checks them with
-// VerifyEventParts. It returns the event, read targets, and transport digest.
-func verifyAssembly(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, header []byte) (Event, []Target, string, error) {
-	manifest, err := decodeManifestHeader(header)
-	if err != nil {
-		return Event{}, nil, "", rejectTransport(ctx, eventID, err.Error())
-	}
-	rows, err := tx.Query(ctx, `
-		SELECT part_index, digest, payload FROM audit.event_assembly_parts
-		 WHERE event_id = $1
-		 ORDER BY part_index ASC
-	`, eventID)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.parts_read_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
-		return Event{}, nil, "", fmt.Errorf("read audit event %s parts: %w", eventID, err)
-	}
-	defer rows.Close()
-	parts := make([]EventPart, 0, manifest.PartCount)
-	for rows.Next() {
-		part := EventPart{
-			EventID: eventID, Index: 0, Count: manifest.PartCount,
-			Digest: "", TransportDigest: manifest.TransportDigest, Payload: nil,
-		}
-		if err := rows.Scan(&part.Index, &part.Digest, &part.Payload); err != nil {
-			slog.ErrorContext(ctx, "audit.consumer.parts_scan_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
-			return Event{}, nil, "", fmt.Errorf("scan audit event %s parts: %w", eventID, err)
-		}
-		parts = append(parts, part)
-	}
-	if err := rows.Err(); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.parts_scan_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
-		return Event{}, nil, "", fmt.Errorf("read audit event %s part rows: %w", eventID, err)
-	}
-	rows.Close()
-	event, targets, err := VerifyEventParts(header, parts)
-	if err != nil {
-		return Event{}, nil, "", rejectTransport(ctx, eventID, err.Error())
-	}
-	return event, targets, manifest.TransportDigest, nil
 }
 
 // alertWaitingAssemblies checks at most once per alert interval and logs

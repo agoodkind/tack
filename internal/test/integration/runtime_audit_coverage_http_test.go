@@ -27,7 +27,10 @@ func routeCase(method, path string, authenticated bool, status int, verb audit.V
 			if response.status != status {
 				t.Fatalf("The route did not return the case's expected HTTP status; the method, path, observed status, and response body follow: %s %s: %d %s", method, path, response.status, response.body)
 			}
-			return coverageEvidence{orgID: orgID, requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil}
+			return coverageEvidence{
+				orgID: orgID, requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil,
+				body: response.body, targetID: uuid.Nil,
+			}
 		},
 		verb: verb, outcome: outcome, check: nil,
 	}

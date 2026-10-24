@@ -2,13 +2,47 @@ package integration
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 )
+
+// TestScopeRepairReportsRefusedWrites checks that RepairSequenceScopeIDs returns
+// an error that wraps domain.ErrConflict and zero repaired nodes when another
+// issue owns QAT-1. The test checks that the stale issue keeps scope_id Fan and
+// the holder issue keeps the claim on QAT-1.
+func TestScopeRepairReportsRefusedWrites(t *testing.T) {
+	env := SetupTestEnv(t)
+	registerOpsOrg(t, env)
+	actor := uuid.New()
+	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
+	origin := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)
+	destination := mustCreateScope(t, env, "project", "Qat", workspace.ID, workspace.ID, actor)
+	holder := writeNodeWithSplitScope(t, env, "issue", "Holder", destination.ID, destination.ID, 1)
+	held := node.ReferenceKey{TemplateName: "reference", Encoded: "QAT-1"}
+	if err := env.Stores.Nodes.SetReferenceKeys(env.Ctx, env.OrgID, holder.ID, []node.ReferenceKey{held}); err != nil {
+		t.Fatalf("SetReferenceKeys failed for the holder issue: %v", err)
+	}
+	stale := writeNodeWithSplitScope(t, env, "issue", "Stale", destination.ID, origin.ID, 1)
+
+	repaired, _, err := ops.RepairSequenceScopeIDs(env.Ctx, env.Ops)
+	if !errors.Is(err, domain.ErrConflict) || repaired != 0 {
+		t.Fatalf("RepairSequenceScopeIDs returned %d repaired nodes and error %v; TestScopeRepairReportsRefusedWrites expects an error that wraps domain.ErrConflict and zero repaired nodes", repaired, err)
+	}
+	stored, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, stale.ID)
+	if err != nil || stored == nil || string(stored.Props["scope_id"]) != string(jsonStr(origin.ID.String())) {
+		t.Fatalf("The read of stale issue %s returned node %v and error %v; the stale issue must keep scope_id %s", stale.ID, stored, err, origin.ID)
+	}
+	owner, err := env.Stores.Nodes.LookupReference(env.Ctx, env.OrgID, held.TemplateName, held.Encoded)
+	if err != nil || owner != holder.ID {
+		t.Fatalf("The QAT-1 lookup returned owner %s and error %v; holder issue %s must retain the claim", owner, err, holder.ID)
+	}
+}
 
 // TestScopeRepairMovesTheReferenceWithTheNode drives the scope repair, which
 // rewrites a node's owning scope. The reference the node renders changes with

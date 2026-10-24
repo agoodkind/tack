@@ -67,6 +67,7 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 				return classifyError(ctx, err), nil
 			}
 			stampAuditNodeView(ctx, view)
+			addNodeTargets(ctx, view)
 			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
 			return successText(renderProperties(rc, view), ""), nil
 		},

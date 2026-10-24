@@ -149,7 +149,10 @@ func describeRows(rows []audit.Row) string {
 // operatorEvidence selects audit events for the given operator in the system
 // organization.
 func operatorEvidence(actorID uuid.UUID) coverageEvidence {
-	return coverageEvidence{orgID: audit.SystemOrgID(), requestID: "", actorID: actorID, outcome: "", outbox: nil}
+	return coverageEvidence{
+		orgID: audit.SystemOrgID(), requestID: "", actorID: actorID, outcome: "", outbox: nil,
+		body: nil, targetID: uuid.Nil,
+	}
 }
 
 func requireOutboxEvent(t *testing.T, evidence coverageEvidence, verb audit.Verb, outcome audit.Outcome) {

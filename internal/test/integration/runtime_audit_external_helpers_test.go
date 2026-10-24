@@ -100,6 +100,7 @@ func runOpsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ..
 	factory.Out = &output
 	factory.Err = &output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	registry := clispec.NewRegistry()
 	ops.RegisterCommands(registry, factory)
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}

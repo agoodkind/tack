@@ -52,8 +52,12 @@ func runSearchRollback(ctx context.Context, f *cli.Factory, in searchRollbackInp
 		return searchRolloutFailure(ctx, "read access rollout of authority "+authorityID.String(), err)
 	}
 	if !dryRun {
+		initiation, initiationErr := commandInitiation(ctx)
+		if initiationErr != nil {
+			return initiationErr
+		}
 		rollout, err = rollouts.Rollback(ctx, searchdomain.RollbackAccessRollout{
-			AuthorityID: authorityID, ExpectedGeneration: rollout.Generation,
+			AuthorityID: authorityID, ExpectedGeneration: rollout.Generation, Initiation: initiation,
 		})
 		if err != nil {
 			return searchRolloutFailure(ctx, "roll back access rollout of authority "+authorityID.String(), err)
