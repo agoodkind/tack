@@ -44,11 +44,10 @@ func datagenRepairOp(f *cli.Factory) clispec.Operation[datagenRepairInput] {
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsDatagenRepair), Mutates: true},
 		Group:    datagenGroup,
 		Short:    "Prove the ops backfill once-node-integrity repair path on QA or a local stack.",
-		Long: "The command defaults to a dry run that prints the repair classes it seeds and does not write any records. " +
-			"With --commit, it requires TACK_DATAGEN_ALLOW_TARGET to be exactly qa or local and requires the repair directory that TACK_REPAIR_DIR sets. " +
-			"It seeds records in a new datagen organization, freezes the repair request into a manifest, previews every entry as planned, " +
-			"executes every entry, verifies the results through view and relationship reads, and executes the manifest again to require every entry to remain unchanged. " +
-			"Each repair ID includes an organization ID suffix, and each run writes new repair checkpoints.",
+		Long: "The command defaults to a dry run and prints the repair classes it seeds. It does not write records during a dry run. " +
+			"With --commit, TACK_DATAGEN_ALLOW_TARGET must be exactly qa or local. TACK_REPAIR_DIR must identify the repair directory. " +
+			"The command creates a datagen organization, freezes and previews a repair manifest, applies every entry, verifies the results through view and relationship reads, then applies the manifest again. The second application must report every entry as unchanged. " +
+			"Each repair ID includes an organization ID suffix. Each run writes new repair checkpoints.",
 		Params: []clispec.Param[datagenRepairInput]{
 			clispec.BoolParam("commit", "Create the datagen organization and run the repair proof with TACK_DATAGEN_ALLOW_TARGET set to exactly qa or local and the repair directory set by TACK_REPAIR_DIR.", false, func(input *datagenRepairInput, value bool) { input.Commit = value }),
 		},
@@ -62,7 +61,8 @@ func datagenRepairOp(f *cli.Factory) clispec.Operation[datagenRepairInput] {
 }
 
 // runDatagenRepair writes the result, including every step that completed,
-// and returns the first failure. Without --commit, it writes only the class
+// and returns the repair error. When writing the result fails, it returns
+// that write failure instead. Without --commit, it writes only the class
 // list to the output.
 func runDatagenRepair(ctx context.Context, f *cli.Factory, input datagenRepairInput, sink clispec.ResultSink) error {
 	result := datagenRepairResult{

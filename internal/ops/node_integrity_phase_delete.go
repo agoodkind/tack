@@ -15,8 +15,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// exportPhase exports the node, reads the export back, and records its
-// digest in the exported checkpoint.
 func (runner repairPhaseRunner) exportPhase(ctx context.Context, run repairPhaseRun) error {
 	checkpoint := run.checkpoint(node.RepairPhaseExported)
 	digest, err := exportRepairNode(ctx, runner.exports, run.entry, run.manifestDigest, run.operator.ID)
@@ -77,9 +75,6 @@ func (runner repairPhaseRunner) deletePhase(ctx context.Context, run repairPhase
 	return nil
 }
 
-// readVerifiedExport verifies the export file against the frozen source,
-// requires its digest to equal the exported checkpoint digest, and returns
-// the decoded document.
 func readVerifiedExport(ctx context.Context, run repairPhaseRun) (repairExportDocument, error) {
 	var document repairExportDocument
 	if run.stored == nil || run.stored.Phase != node.RepairPhaseExported || run.stored.ExportDigest == "" {

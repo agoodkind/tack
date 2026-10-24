@@ -12,12 +12,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// verifyDatagenRepair requires each remaining repaired node to belong to
-// the datagen organization, have its selected parent_id, and have exactly
-// one child_of edge to that parent. It requires the legacy status issue to
-// have the Done state and priority high and to omit status. It requires the
-// smoke comment view to be absent and the export file of each delete entry
-// to have mode 0600.
 func verifyDatagenRepair(ctx context.Context, env *Env, fixture datagen.RepairFixture, manifest NodeIntegrityManifest) error {
 	expected := map[uuid.UUID]uuid.UUID{
 		fixture.MultipleEdges: fixture.EpicID, fixture.LegacyStatus: fixture.ProjectID, fixture.PrintedParent: fixture.EpicID,
@@ -58,9 +52,6 @@ func verifyDatagenRepair(ctx context.Context, env *Env, fixture datagen.RepairFi
 	return nil
 }
 
-// requireDatagenRepairParent reads the view and child_of edges of nodeID.
-// It requires the view to belong to orgID and have parentID as parent_id,
-// and requires exactly one child_of edge to parentID.
 func requireDatagenRepairParent(ctx context.Context, env *Env, orgID, nodeID, parentID uuid.UUID) error {
 	view, err := env.Stores.Views.Get(ctx, nodeID)
 	if err != nil || view == nil {

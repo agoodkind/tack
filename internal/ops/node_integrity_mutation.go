@@ -24,9 +24,6 @@ type repairPhaseRun struct {
 	stored         *node.RepairCheckpoint
 }
 
-// checkpoint returns the checkpoint write that sets the stored phase to
-// phase. The write preserves the comment and export fields of the stored
-// checkpoint.
 func (run repairPhaseRun) checkpoint(phase node.RepairPhase) node.CheckpointWrite {
 	write := node.CheckpointWrite{
 		Previous: "",
