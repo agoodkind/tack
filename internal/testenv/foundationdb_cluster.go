@@ -29,10 +29,10 @@ type FoundationDBProcesses struct {
 	Addresses []string
 }
 
-// FoundationDBCluster starts a cluster of processes FoundationDB processes,
-// configures it with single redundancy, and waits until every process
-// belongs to the cluster. The test removes every container of the cluster
-// when it ends.
+// FoundationDBCluster starts a FoundationDB cluster with the given number of
+// processes, configures it with single redundancy, and waits until every
+// process belongs to the cluster. The test removes every container of the
+// cluster when it ends.
 func FoundationDBCluster(t *testing.T, processes int) FoundationDBProcesses {
 	t.Helper()
 	skipWhenShort(t)

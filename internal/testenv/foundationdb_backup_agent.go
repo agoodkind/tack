@@ -13,7 +13,7 @@ import (
 const foundationDBRestorable = " is restorable"
 
 // StartFoundationDBBackupAgent starts a backup agent inside the container that
-// serves cluster. The agent runs until the test removes that container.
+// serves the cluster. The agent runs until the test removes that container.
 func StartFoundationDBBackupAgent(t *testing.T, cluster string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
@@ -29,7 +29,7 @@ func StartFoundationDBBackupAgent(t *testing.T, cluster string) {
 }
 
 // WaitForRestorableFoundationDBBackup polls `fdbbackup status` in the
-// container that serves cluster until the backup on the default tag is
+// container that serves the cluster until the backup on the default tag is
 // restorable. It does not print the status, because the status contains the
 // object store credentials of a blobstore backup.
 func WaitForRestorableFoundationDBBackup(t *testing.T, cluster string) {
