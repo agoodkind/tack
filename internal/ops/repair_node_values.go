@@ -8,10 +8,6 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-func cloneProps(input map[string]json.RawMessage) map[string]json.RawMessage {
-	return maps.Clone(input)
-}
-
 func rawUUIDProp(props map[string]json.RawMessage, key string) uuid.UUID {
 	raw, ok := props[key]
 	if !ok || len(raw) == 0 {
@@ -53,7 +49,7 @@ func viewFromRepairedNode(currentNode *node.Node) *node.NodeView {
 		OrgID:     currentNode.OrgID,
 		NodeType:  currentNode.NodeType,
 		Name:      currentNode.Name,
-		Props:     cloneProps(currentNode.Props),
+		Props:     maps.Clone(currentNode.Props),
 		CreatedBy: currentNode.CreatedBy,
 		UpdatedBy: currentNode.UpdatedBy,
 		CreatedAt: currentNode.CreatedAt,

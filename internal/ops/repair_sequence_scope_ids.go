@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
@@ -111,8 +112,8 @@ func repairTypeScopeIDs(
 			continue
 		}
 
-		oldProps := cloneProps(currentNode.Props)
-		newProps := cloneProps(currentNode.Props)
+		oldProps := maps.Clone(currentNode.Props)
+		newProps := maps.Clone(currentNode.Props)
 		scopeRaw, _ := json.Marshal(canonicalScopeID.String())
 		newProps["scope_id"] = scopeRaw
 
@@ -132,7 +133,7 @@ func repairTypeScopeIDs(
 			OrgID:     currentNode.OrgID,
 			NodeType:  currentNode.NodeType,
 			Name:      currentNode.Name,
-			Props:     cloneProps(newProps),
+			Props:     maps.Clone(newProps),
 			CreatedBy: currentNode.CreatedBy,
 			UpdatedBy: currentNode.UpdatedBy,
 			CreatedAt: currentNode.CreatedAt,

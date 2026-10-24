@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"maps"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
@@ -78,7 +79,7 @@ func pickNodeFromView(report *fdbadapter.NodeInspectionReport) *node.Node {
 		OrgID:     view.OrgID,
 		NodeType:  view.NodeType,
 		Name:      view.Name,
-		Props:     cloneProps(view.Props),
+		Props:     maps.Clone(view.Props),
 		CreatedBy: view.CreatedBy,
 		UpdatedBy: view.UpdatedBy,
 		CreatedAt: view.CreatedAt,

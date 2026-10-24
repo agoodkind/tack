@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sort"
 	"strconv"
 
@@ -129,7 +130,7 @@ func renumberOneNode(
 	if updated == nil {
 		return ReferenceRename{}, fmt.Errorf("read node %s for renumber: not found", nodeID)
 	}
-	oldProps := cloneProps(updated.Props)
+	oldProps := maps.Clone(updated.Props)
 	updated.Props[template.Generated] = json.RawMessage(strconv.FormatInt(nextValue, 10))
 	rendered, err := template.Render(node.ReferenceRenderInput{
 		NodeTypeKey: nodeType.TypeKey,
