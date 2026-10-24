@@ -40,8 +40,9 @@ type searchReindexOutput struct {
 
 // searchReindexCommand builds `ops search reindex`. With --execute, the
 // command records any replacement it begins as an external step on the
-// serving index. Without --execute, its preview prints the replacement in
-// progress or the planned replacement.
+// serving index. Without --execute, its preview records the read of the
+// replacement state and prints the replacement in progress or the planned
+// replacement.
 func searchReindexCommand(f *cli.Factory) *cobra.Command {
 	in := searchReindexInput{Mode: "full", Primaries: 0, Restored: false}
 	cmd := &cobra.Command{
@@ -57,9 +58,9 @@ func searchReindexCommand(f *cli.Factory) *cobra.Command {
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return runSearchReindexRecorded(ctx, f, in, clispec.NewCLISink(f), steps)
 		},
-		func(ctx context.Context) error {
-			return runSearchReindex(ctx, f, in, clispec.NewCLISink(f))
-		})
+		recordedSearchPreview(f, spec, input, func(ctx context.Context, sink clispec.ResultSink) error {
+			return runSearchReindex(ctx, f, in, sink)
+		}))
 	return cmd
 }
 

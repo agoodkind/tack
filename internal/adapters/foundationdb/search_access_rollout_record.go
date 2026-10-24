@@ -28,6 +28,11 @@ type searchRolloutRecord struct {
 	AffectedPass           bool      `json:"affected_pass,omitempty"`
 	Generation             int64     `json:"generation"`
 	PermissionEventVersion int64     `json:"permission_event_version"`
+	// InitiatedOperationID and InitiatedActorID identify the operation that
+	// began the current rollout. A record without a rollout, or one that a
+	// release before this field wrote, stores neither.
+	InitiatedOperationID uuid.UUID `json:"initiated_operation_id,omitzero" exhaustruct:"optional"`
+	InitiatedActorID     uuid.UUID `json:"initiated_actor_id,omitzero" exhaustruct:"optional"`
 }
 
 // stableRollout returns the state of an authority that never ran a rollout.
@@ -61,6 +66,7 @@ func (r searchRolloutRecord) rollout() searchdomain.AccessRollout {
 		Phase: searchdomain.AccessPhase(r.Phase), ScanCursor: r.ScanCursor, VerifyCursor: r.VerifyCursor,
 		RetireCursor: r.RetireCursor, ScanComplete: r.ScanComplete, AffectedPass: r.AffectedPass, Generation: r.Generation,
 		PermissionEventVersion: r.PermissionEventVersion,
+		Initiation:             searchdomain.Initiation{OperationID: r.InitiatedOperationID, ActorID: r.InitiatedActorID},
 	}
 }
 

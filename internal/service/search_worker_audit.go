@@ -35,6 +35,7 @@ type indexStructureEvidence struct {
 	RoutingShards int    `json:"routing_shards"`
 	Replicas      int    `json:"replicas"`
 	AliasIndex    string `json:"alias_index,omitempty"`
+	initiationEvidence
 }
 
 type rolloutPhaseEvidence struct {
@@ -45,13 +46,26 @@ type rolloutPhaseEvidence struct {
 	ActiveBefore     string `json:"active_before"`
 	PhaseAfter       string `json:"phase_after,omitempty"`
 	ActiveAfter      string `json:"active_after,omitempty"`
+	initiationEvidence
+}
+
+// initiationEvidence identifies the operation and actor that began the
+// replacement or rollout of a worker step. A record that does not store its
+// initiating operation leaves both IDs empty.
+type initiationEvidence struct {
+	InitiatedOperationID uuid.UUID `json:"initiated_operation_id,omitzero"`
+	InitiatedActorID     uuid.UUID `json:"initiated_actor_id,omitzero"`
+}
+
+func initiatedBy(initiation searchdomain.Initiation) initiationEvidence {
+	return initiationEvidence{InitiatedOperationID: initiation.OperationID, InitiatedActorID: initiation.ActorID}
 }
 
 func replacementEvidence(action string, rebuild searchdomain.Rebuild) indexStructureEvidence {
 	return indexStructureEvidence{
 		Action: action, RebuildID: rebuild.ID.String(), Mode: string(rebuild.Mode), SourceIndex: rebuild.SourceIndex,
 		TargetIndex: rebuild.TargetIndex, PrimaryShards: rebuild.PrimaryShards, RoutingShards: rebuild.RoutingShards,
-		Replicas: rebuild.Replicas, AliasIndex: "",
+		Replicas: rebuild.Replicas, AliasIndex: "", initiationEvidence: initiatedBy(rebuild.Initiation),
 	}
 }
 
@@ -91,6 +105,7 @@ func (w *SearchWorker) recordRolloutPhase(ctx context.Context, rollout searchdom
 	planned := rolloutPhaseEvidence{
 		AuthorityID: rollout.AuthorityID.String(), Generation: rollout.Generation, CandidateVersion: rollout.CandidateVersion,
 		PhaseBefore: string(rollout.Phase), ActiveBefore: rollout.ActiveVersion, PhaseAfter: "", ActiveAfter: "",
+		initiationEvidence: initiatedBy(rollout.Initiation),
 	}
 	encoded, err := encodeStructureEvidence(ctx, planned)
 	if err != nil {

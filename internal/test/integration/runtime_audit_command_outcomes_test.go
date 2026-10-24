@@ -36,8 +36,10 @@ type migrationRangeEvidence struct {
 //   - migrate checks refusal without a step when the version guard fails. A
 //     successful run records the version range, planned migration file digests,
 //     and applied version.
-//   - search_reindex checks that reindex records the source index and replacement
-//     ID when it starts a replacement, then refuses a second run without a step.
+//   - search_reindex checks that the reindex dry run records its read and that
+//     reindex records the source index, replacement ID, and generation when it
+//     starts a replacement. The replacement record must store the operation of
+//     that run. A second run must be refused without a step.
 //   - seed_roles checks each role's state before and after seeding and verifies
 //     that events do not contain role passwords.
 //   - archive_node_refused checks that yb-archive-node refuses to run without
@@ -46,9 +48,10 @@ type migrationRangeEvidence struct {
 //     verdict while the step and command record completed outcomes. It checks
 //     the bucket, the skipped FoundationDB check, and a STALE verdict for each
 //     reading in the step evidence. Each reading must appear in the stale list.
-//   - access_rollout checks that access-rollout records the authority, candidate,
-//     backfill phase, and nonzero generation when it starts a rollout, then
-//     refuses a second run without a step.
+//   - access_rollout checks that the access-rollout dry run records its read and
+//     that access-rollout records the authority, candidate, backfill phase, and
+//     nonzero generation when it starts a rollout. The rollout record must store
+//     the operation of that run. A second run must be refused without a step.
 func TestRuntimeAuditCommandOutcomes(t *testing.T) {
 	t.Run("buckets_init_refused", func(t *testing.T) {
 		pool := ledgerAdminPool(t)

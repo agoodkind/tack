@@ -10,6 +10,7 @@ import (
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/searchaccess"
 	"goodkind.io/tack/internal/testenv"
@@ -30,11 +31,10 @@ func testAccessRolloutOutcomes(t *testing.T) {
 	pool := ledgerAdminPool(t)
 	cfg := &config.Config{DatabaseURL: testenv.Ledger(t), FDBClusterFile: clusterFile, FDBTransactionTimeout: 5 * time.Second}
 	authority := uuid.Must(uuid.NewV7())
+	command := []string{"ops", "search", "access-rollout", "--authority", authority.String(), "--candidate", searchaccess.RotatedVersion}
+	requireSearchPreviewRead(t, cfg, pool, audit.VerbOpsSearchAccessRollout, command...)
 	operatorID := uuid.Must(uuid.NewV7())
-	arguments := []string{
-		"--execute", "--operator-id", operatorID.String(), "--operator-email", outcomeOperatorEmail,
-		"ops", "search", "access-rollout", "--authority", authority.String(), "--candidate", searchaccess.RotatedVersion,
-	}
+	arguments := append([]string{"--execute", "--operator-id", operatorID.String(), "--operator-email", outcomeOperatorEmail}, command...)
 	for range 2 {
 		if output, err := runOpsCommand(t, cfg, pool, arguments...); err != nil {
 			t.Fatalf("access-rollout failed: %v\n%s", err, output)
@@ -60,6 +60,15 @@ func testAccessRolloutOutcomes(t *testing.T) {
 			evidence, authority, searchaccess.RotatedVersion)
 	}
 	requireCompletedResult(t, eventsOfOperation(events, first), first)
+	stores, err := fdbadapter.NewStores(clusterFile, 5*time.Second, nil)
+	if err != nil {
+		t.Fatalf("opening FoundationDB stores failed: %v", err)
+	}
+	rollout, err := stores.SearchRollouts(clock.Wall{}, stores.SearchPolicySet()).Current(t.Context(), authority)
+	if err != nil {
+		t.Fatalf("reading the access rollout of authority %s failed: %v", authority, err)
+	}
+	requireInitiation(t, "access rollout", rollout.Initiation, first, operatorID)
 	if steps := eventsInPhase(events, audit.PhaseIntent, second); len(steps) != 0 {
 		t.Fatalf("the second access-rollout recorded %d step intents instead of 0", len(steps))
 	}
