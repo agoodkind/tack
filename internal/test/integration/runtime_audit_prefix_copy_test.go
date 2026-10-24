@@ -20,18 +20,17 @@ const (
 	outboxKeyFamily = "ops_outbox"
 )
 
-// readTestKeys returns every key and value in keyRange.
+// readTestKeys returns every key and value in keyRange from one transaction.
 func readTestKeys(t *testing.T, database fdb.Database, keyRange fdb.KeyRange) []fdb.KeyValue {
 	t.Helper()
-	copied, err := database.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		return tr.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
-	})
+	transaction, err := database.CreateTransaction()
+	if err != nil {
+		t.Fatalf("create the transaction that reads the test prefix: %v", err)
+	}
+	defer transaction.Cancel()
+	keyValues, err := transaction.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
 	if err != nil {
 		t.Fatalf("read the keys under the test prefix: %v", err)
-	}
-	keyValues, ok := copied.([]fdb.KeyValue)
-	if !ok {
-		t.Fatalf("read the keys under the test prefix: got %T, want []fdb.KeyValue", copied)
 	}
 	return keyValues
 }
