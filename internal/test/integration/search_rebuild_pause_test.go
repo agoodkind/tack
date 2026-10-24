@@ -140,12 +140,24 @@ func requireFailure(t *testing.T, failed searchdomain.Rebuild, text string) {
 }
 
 // requireRecovered runs the failed replacement to its end in a new worker
-// that reads only the durable failed state. The source must accept writes
-// and stay the serving index, and the failed target must be gone.
+// that reads only the durable failed state. The failed state resumes claims
+// before recovery clears the source write block. A live write that the
+// worker claims first fails on that block and stays pending. Every other
+// slice error fails the test. The source must accept writes and stay the
+// serving index, and the failed target must be gone.
 func requireRecovered(t *testing.T, fixture queryFixture, source, target string) {
 	t.Helper()
 	fixture.Worker = faultWorker(t, fixture)
-	runBoundedRebuildUntil(t, fixture, source, rebuildFinished)
+	var failures []error
+	runFaultedRebuildUntil(t, fixture, source, func(_ searchdomain.Rebuild, found bool, recorded []error) bool {
+		failures = recorded
+		return !found
+	})
+	for _, failure := range failures {
+		if !strings.Contains(failure.Error(), "to "+source+":") || !strings.Contains(failure.Error(), "index write") {
+			t.Fatalf("recovery slice failed outside the source write block: %v", failure)
+		}
+	}
 	requireWritable(t, fixture.Client, source)
 	requireServing(t, fixture, source, "")
 	if _, err := fixture.Adapter.IndexSettings(WithTestOperation(t, t.Context()), target); err == nil {
