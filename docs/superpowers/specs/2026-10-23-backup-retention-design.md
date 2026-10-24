@@ -18,6 +18,8 @@ Before deleting any expired export, establish that at least one complete export 
 
 Discover the existing backup marker objects through the production S3 helpers. Keep credential-bearing URLs in memory and redact tool errors. Use the pinned FoundationDB tool through the Docker SDK, never a host shell command.
 
+Copy a private credential file into each native tool container before starting its process. Set the directory mode to 0700 and the file mode to 0600. Pass the native tool a URL without either credential and a reference to the file. Keep both credentials out of Docker command and environment metadata. Disable persistent Docker logging and capture native output directly in memory. Keep native tracing disabled.
+
 Read the active backup identity and each backup's restorable window before selecting actions. Preserve active sessions and any session needed for the retained window. For a session spanning the cutoff, invoke `fdbbackup expire` with both the cutoff and a minimum restorability guarantee. Never pass `--force`. For a session entirely within the retained window, leave its data intact. Delete a closed session entirely older than the cutoff only when another backup's window includes the cutoff and a native restore dry-run proves that the surviving backup can restore it. Refuse an action when timestamps, identity, or restoration evidence cannot establish safety.
 
 Convert the UTC cutoff into an exact FoundationDB version with the pinned 7.4.6 `fdbrestore start --dryrun --timestamp` operation and the original cluster file. Supply the backup URL and omit a destination cluster. This operation validates the restore set without submitting a restore. Select the newest restorable snapshot with a numeric end version at or before that cutoff version. Use its numeric start version for `--expire-before-version`. Preserve the UTC cutoff in `--restorable-after-timestamp`, with the source cluster file. The native expiration guard must verify the restore boundary before deleting data. Refuse expiration when conversion or snapshot selection fails. Do not substitute displayed snapshot times, relative-day arguments, padding, or forced deletion. Include the selected deletion version in preview and audit evidence.
@@ -28,7 +30,7 @@ Retain a complete snapshot and any preceding mutation data that the native expir
 
 Use the existing external-operation choke point with a new registered audit verb and `AttachExternalPreview`. Preview performs the same read-only selection as execution. Execution recomputes its plan and saves audit intent before the first effect. Record each backup target and observed cleanup outcome, including partial completion, through the existing step recorder. Never place credentials or backup contents in audit evidence or output.
 
-Retention and restore drills acquire the same process-lifetime filesystem lock under the existing backup root before discovering backup candidates. Retain the lock until every backup read, deletion, and one-shot Docker operation ends. On cancellation, stop and await an active one-shot operation before releasing the lock. Preserve bounded per-file responsibilities and existing logger conventions.
+Retention and restore drills acquire the same process-lifetime filesystem lock under the existing backup root before discovering backup candidates. Retain the lock until every backup read, deletion, and one-shot Docker operation ends. On cancellation, stop and await an active one-shot operation before releasing the lock. Container removal must also remove its private credential file. Preserve bounded per-file responsibilities and existing logger conventions.
 
 ## Scheduling
 
@@ -45,6 +47,7 @@ Configs owns the systemd service and daily timer. The service invokes `docker co
 7. Concurrent cleanup and supported restore drills serialize safely. Cancellation releases their process lock.
 8. The new command appears in QA datagen verb reporting and runtime audit coverage; command execution records actual intent, steps, and terminal outcome.
 9. Real-dependency tests run through the existing container harness and clean up their test resources.
+10. Real native containers omit both credentials from command and environment metadata, protect the credential file, disable persistent output logs, and remove that file on completion or cancellation.
 
 ## References
 

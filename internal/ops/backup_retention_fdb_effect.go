@@ -75,6 +75,10 @@ func retentionFDBToolCommand(ctx context.Context, cfg *config.Config, tool strin
 	if !filepath.IsAbs(cfg.OpsFDBClusterDir) {
 		return "", fmt.Errorf("FoundationDB retention requires an absolute TACK_OPS_FDB_CLUSTER_DIR")
 	}
+	privateArguments, privateFiles, err := retentionFDBPrivateArguments(cfg, arguments)
+	if err != nil {
+		return "", err
+	}
 	extraHosts, err := blobstoreExtraHosts(cfg.BackupS3Endpoint)
 	if err != nil {
 		return "", err
@@ -86,10 +90,14 @@ func retentionFDBToolCommand(ctx context.Context, cfg *config.Config, tool strin
 	defer cli.Close()
 	result, err := runOneShot(ctx, cli, telemetry.L(ctx), runOneShotOptions{
 		Image: cfg.BackupFDBImage, Network: cfg.BackupFDBNetwork,
-		Entrypoint: []string{"/usr/bin/" + tool}, Cmd: arguments,
-		Env:        []string{"FDB_CLUSTER_FILE=" + retentionFDBClusterFile},
+		Entrypoint: []string{"/usr/bin/" + tool}, Cmd: privateArguments,
+		Env: []string{
+			"FDB_CLUSTER_FILE=" + retentionFDBClusterFile,
+			"FDB_BLOB_CREDENTIALS=" + privateOneShotDirectory + "/" + retentionFDBAccountFileName,
+		},
 		Binds:      []string{cfg.OpsFDBClusterDir + ":/etc/foundationdb:ro"},
 		ExtraHosts: extraHosts, Name: "",
+		PrivateFiles: privateFiles, PrivateOutput: true,
 	})
 	if err != nil {
 		if ctx.Err() != nil {

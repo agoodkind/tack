@@ -84,15 +84,17 @@ func ensureImage(ctx context.Context, cli *client.Client, log *slog.Logger, imag
 // completion, captured, and removed. Equivalent to `docker run --rm` but
 // without shelling out to the docker CLI.
 type runOneShotOptions struct {
-	Image      string
-	Network    string   // optional; empty joins default
-	Entrypoint []string // optional override
-	Cmd        []string
-	Env        []string // KEY=VAL form
-	Binds      []string // host:container[:ro]
-	ExtraHosts []string // optional /etc/hosts entries, "hostname:ip" form
-	Name       string   // optional explicit container name
-	User       string   `exhaustruct:"optional"` // optional "uid:gid"; empty uses the image user
+	Image         string
+	Network       string   // optional; empty joins default
+	Entrypoint    []string // optional override
+	Cmd           []string
+	Env           []string          // KEY=VAL form
+	Binds         []string          // host:container[:ro]
+	ExtraHosts    []string          // optional /etc/hosts entries, "hostname:ip" form
+	Name          string            // optional explicit container name
+	User          string            `exhaustruct:"optional"` // optional "uid:gid"; empty uses the image user
+	PrivateFiles  map[string][]byte `exhaustruct:"optional"`
+	PrivateOutput bool              `exhaustruct:"optional"`
 }
 
 // runOneShot creates a container with the given options, starts it, waits for
@@ -123,10 +125,7 @@ func runOneShot(
 		AttachStdout: true,
 		AttachStderr: true,
 	}
-	hostCfg := &container.HostConfig{
-		Binds:      opts.Binds,
-		ExtraHosts: opts.ExtraHosts,
-	}
+	hostCfg := oneShotHostConfig(opts)
 	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:           cfg,
 		HostConfig:       hostCfg,
@@ -141,6 +140,9 @@ func runOneShot(
 		return execResult{}, fmt.Errorf("create one-shot container: %w", err)
 	}
 	defer cleanupOneShot(ctx, cli, created.ID)
+	if opts.PrivateOutput || len(opts.PrivateFiles) > 0 {
+		return runPrivateOneShot(ctx, cli, created.ID, opts.PrivateFiles)
+	}
 
 	_, err = cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{})
 	if err != nil {

@@ -38,6 +38,7 @@ Open ready-for-review PRs. Validate cleanup on QA before production activation.
 - [x] Add shared process-lifetime locking for cleanup and supported restore drills.
 - [x] Register default preview and explicit execution through `AttachExternalPreview`.
 - [x] Record effect targets, partial completion, and secret-safe errors.
+- [ ] Give native tools private credential files and capture their output without storing credentials in Docker metadata or logs.
 - [x] Commit the coherent runtime change with the Codex trailer.
 
 ## Task 2: Verify the complete runtime behavior
@@ -49,6 +50,7 @@ Open ready-for-review PRs. Validate cleanup on QA before production activation.
 - [x] Execute the pinned native FoundationDB tool against real temporary backup data. Prove successful expiration followed by restoration at the retained boundary, a separate native refusal without deletion, and closed-session deletion that preserves the surviving session. Control the test clock rather than waiting fourteen days.
 - [x] Run real concurrent retention and restore commands against shared temporary backup storage and prove their operations serialize until cancellation or completion.
 - [x] Verify real audit intent, step, and terminal records; update datagen reporting.
+- [ ] Verify private file permissions, credential-free command and environment metadata, disabled output persistence, and cleanup through real native containers.
 - [x] Run the smallest relevant container test commands and `make build`.
 - [x] Commit the verification changes and record exact results.
 
@@ -66,6 +68,6 @@ Open ready-for-review PRs. Validate cleanup on QA before production activation.
 
 - [x] Compare implementation and tests with every acceptance requirement.
 - [x] Obtain an independent review of deletion boundaries, native backup semantics, audit coverage, and scheduling.
-- [x] Correct verified findings and rerun affected checks.
+- [ ] Correct verified findings and rerun affected checks.
 - [x] Publish the Tack PR with direct references, material test evidence, and the Configs dependency.
 - [x] Verify both PRs exist and report unverified or undeployed behavior accurately.

@@ -32,6 +32,13 @@ func TestBackupRetentionCancellationRemovesNativeReaderBeforeUnlock(t *testing.T
 	finished := make(chan error, 1)
 	go func() { _, err := fixture.runContext(t, ctx, true); finished <- err }()
 	reader := waitForRetentionReader(t, cli, fixture.config.OpsFDBClusterDir)
+	state, err := cli.ContainerInspect(t.Context(), reader, client.ContainerInspectOptions{})
+	if err != nil {
+		t.Fatal("inspect the synthetic native reader")
+	}
+	if problem := checkRetentionMetadata(t.Context(), cli, reader, fixture.config, state); problem != "" {
+		t.Fatal(problem)
+	}
 	restoreContext, cancelRestore := context.WithTimeout(t.Context(), 150*time.Millisecond)
 	defer cancelRestore()
 	if err := ops.RunBackupRestoreDrill(restoreContext, fixture.config, ops.RestoreDrillOptions{}); !errors.Is(err, context.DeadlineExceeded) {

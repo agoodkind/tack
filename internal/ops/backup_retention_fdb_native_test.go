@@ -32,6 +32,7 @@ func TestBackupRetentionFDBNativeExpirationRetainsBoundary(t *testing.T) {
 	retentionFDBTestWindow(t, fixture.config, cluster, name, cutoff.Add(15*time.Second))
 	ops.SetBackupRetentionTestClock(t, cutoff.AddDate(0, 0, 14))
 	before := retentionFDBTestKeys(t, fixture)
+	stopMetadata := observeRetentionMetadata(t, fixture.config)
 	output, err := fixture.run(t, false)
 	if err != nil {
 		t.Fatalf("public preview did not select native expiration: %v\n%s", err, output)
@@ -81,6 +82,10 @@ func TestBackupRetentionFDBNativeExpirationRetainsBoundary(t *testing.T) {
 	}
 	if removed == 0 {
 		t.Fatal("native expiration did not remove any existing backup objects")
+	}
+	metadata := stopMetadata()
+	if metadata.URLCommands == 0 || len(metadata.Problems) != 0 {
+		t.Fatalf("native command metadata verification failed: URL commands=%d problems=%v", metadata.URLCommands, metadata.Problems)
 	}
 	stepResults, terminalResults := 0, 0
 	for _, event := range fixture.events(t) {
