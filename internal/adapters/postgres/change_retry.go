@@ -40,8 +40,6 @@ func runChangeTx(ctx context.Context, pool *pgxpool.Pool, work func(pgx.Tx) erro
 		if !retryableChangeErr(err) || attempt == changeTxAttempts {
 			return fmt.Errorf("change transaction attempt %d: %w", attempt, err)
 		}
-		slog.WarnContext(ctx, "audit.change.transaction_retrying",
-			slog.Int("attempt", attempt), slog.String("wait", backoff.String()), slog.String("err", err.Error()))
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
@@ -49,6 +47,8 @@ func runChangeTx(ctx context.Context, pool *pgxpool.Pool, work func(pgx.Tx) erro
 			return errors.Join(err, fmt.Errorf("wait to retry the change transaction: %w", ctx.Err()))
 		case <-timer.C:
 		}
+		slog.WarnContext(ctx, "audit.change.transaction_retrying",
+			slog.Int("attempt", attempt), slog.String("wait", backoff.String()), slog.String("err", err.Error()))
 		backoff *= 2
 	}
 }
