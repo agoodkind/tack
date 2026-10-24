@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 
@@ -52,14 +54,15 @@ func TestRuntimeAuditLedgerNodePrepare(t *testing.T) {
 	cfg := &config.Config{DatabaseURL: testenv.Ledger(t), LedgerNodeHosts: "yb-new=192.0.2.10"}
 
 	reader := uuid.Must(uuid.NewV7())
-	if output, err := runOpsCommand(t, cfg, pool, "--output", "json", "--operator-id", reader.String(),
-		"--operator-email", outcomeOperatorEmail, "ops", "ledger", "node-prepare"); err != nil {
-		t.Fatalf("the node-prepare dry run failed: %v\n%s", err, output)
+	preview, err := runOpsCommand(t, cfg, pool, "--output", "json", "--operator-id", reader.String(),
+		"--operator-email", outcomeOperatorEmail, "ops", "ledger", "node-prepare")
+	if err != nil {
+		t.Fatalf("the node-prepare dry run failed: %v\n%s", err, preview)
 	}
-	reads := outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql", string(audit.VerbOpsLedgerNodePrepare), reader.String())
+	reads := multipartOutboxEvents(t, pool, audit.VerbOpsLedgerNodePrepare, reader)
 	if len(reads) != 1 || reads[0].Outcome != audit.OutcomeCompleted || reads[0].Context.OperationClass != audit.OperationRead ||
 		reads[0].Context.Read == nil || len(reads[0].Context.Read.PayloadSHA256) != 64 {
-		t.Fatalf("the dry run recorded %+v instead of one completed read with a payload digest", reads)
+		t.Fatalf("the dry run recorded %+v instead of one completed read with a payload digest; the dry run printed:\n%s", reads, preview)
 	}
 
 	operator := uuid.Must(uuid.NewV7())
@@ -146,6 +149,30 @@ func launcherConfigArchive(t *testing.T) *bytes.Buffer {
 		t.Fatalf("closing the archive failed: %v", err)
 	}
 	return &archive
+}
+
+// multipartOutboxEvents returns the multipart events in public.ops_outbox
+// with verb and actor. A read with targets saves a manifest record in
+// public.ops_outbox and the event in public.ops_outbox_parts.
+func multipartOutboxEvents(t *testing.T, pool *pgxpool.Pool, verb audit.Verb, actor uuid.UUID) []audit.Event {
+	t.Helper()
+	rows, err := pool.Query(t.Context(), readTestSQL(t, "runtime_audit_manifest_outbox.sql"))
+	if err != nil {
+		t.Fatalf("reading the outbox manifests failed: %v", err)
+	}
+	eventIDs, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		t.Fatalf("scanning the outbox manifests failed: %v", err)
+	}
+	var selected []audit.Event
+	for _, eventID := range eventIDs {
+		for _, event := range outboxEvents(t, yugabyteOutboxRecords(t, pool, eventID), eventID) {
+			if event.Verb == string(verb) && event.Actor.ID == actor {
+				selected = append(selected, event)
+			}
+		}
+	}
+	return selected
 }
 
 // decodeNodePrepareStep requires one step event and decodes its evidence.
