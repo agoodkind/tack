@@ -80,7 +80,6 @@ func withoutInput(json.RawMessage) (json.RawMessage, error) {
 	return nil, nil
 }
 
-// capturedWrite is one write that a preview made to its sink.
 type capturedWrite struct {
 	payload []byte
 	isJSON  bool
@@ -102,18 +101,25 @@ func (s *captureSink) WriteText(_ context.Context, body string) error {
 	return nil
 }
 
-// output returns the captured bytes as the read payload. One JSON write keeps
-// the JSON format. Other writes join with newlines in the text format.
+// output returns the captured bytes, joined with newlines, as the read
+// payload in the format that previewFormat selects.
 func (s *captureSink) output(targets []audit.Target) audit.OperatorReadOutput {
 	payloads := make([][]byte, 0, len(s.writes))
 	for _, write := range s.writes {
 		payloads = append(payloads, write.payload)
 	}
-	format := textPreviewFormat
-	if len(s.writes) == 1 && s.writes[0].isJSON {
-		format = jsonPreviewFormat
+	return audit.OperatorReadOutput{
+		Payload: bytes.Join(payloads, []byte("\n")), Format: previewFormat(s.writes), Targets: targets,
 	}
-	return audit.OperatorReadOutput{Payload: bytes.Join(payloads, []byte("\n")), Format: format, Targets: targets}
+}
+
+// previewFormat returns the JSON format for exactly one JSON write and the
+// text format for any other list of writes.
+func previewFormat(writes []capturedWrite) string {
+	if len(writes) == 1 && writes[0].isJSON {
+		return jsonPreviewFormat
+	}
+	return textPreviewFormat
 }
 
 // replay writes the captured writes to sink in their original order.

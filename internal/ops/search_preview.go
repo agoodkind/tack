@@ -10,8 +10,9 @@ import (
 )
 
 // recordedSearchPreview returns the dry run of a search command. The dry run
-// records the read of the search state through clispec.RunRecordedPreview
-// with the read definition of spec. It prints the output of preview after
+// records an operator read through clispec.RunRecordedPreview with the read
+// definition that clispec.PreviewSpec derives from spec, and the read event
+// stores the digest of the preview output. It prints the preview output after
 // the read lifecycle store saves the read event.
 func recordedSearchPreview(
 	f *cli.Factory,
