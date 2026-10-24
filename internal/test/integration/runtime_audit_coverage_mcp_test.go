@@ -40,7 +40,7 @@ func (env *coverageEnv) toolCall(t *testing.T, tool string, arguments map[string
 	response := env.server.rpc(t, requestID, "tools/call", map[string]any{"name": tool, "arguments": arguments})
 	evidence := coverageEvidence{
 		orgID: env.server.orgID, requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil,
-		body: response.body, targetID: argumentNodeID(arguments),
+		body: response.body, targetID: argumentNodeID(t, arguments),
 	}
 	return evidence, toolText(t, response)
 }
