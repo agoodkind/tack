@@ -53,10 +53,16 @@ jobs:
       working_directory: provider
       go_version_file: provider/go.mod
 
-  integration:
-    name: integration tests (FDB)
+  # The store-backed tests run in three shards on separate hosts. Each shard
+  # runs one test-store-host-shard selection in the Makefile.
+  integration-shard:
+    name: integration tests (FDB ${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [integration-a, integration-b, packages]
     steps:
       - uses: actions/checkout@v7
 
@@ -77,7 +83,19 @@ jobs:
       # internal/testenv and reach them at their bridge addresses from the
       # host.
       - name: run the store-backed tests
-        run: make test-store-host
+        run: make test-store-host-shard SHARD=${{ matrix.shard }}
+
+  # The ruleset requires the check name integration tests (FDB). This job
+  # passes only when every store-backed shard passes.
+  integration:
+    name: integration tests (FDB)
+    needs: integration-shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: require every store-backed shard to pass
+        run: test "${{ needs.integration-shard.result }}" = success
 
   # The long runtime audit suites run separately from the shared Test and
   # store-backed jobs. The job limit allows 40 minutes for go test and
