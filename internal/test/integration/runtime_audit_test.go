@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -146,10 +145,12 @@ func requireSameDelta(t *testing.T, sent audit.Event, row audit.Row) {
 	}
 }
 
-// TestRuntimeAuditMissingOutcomeRejected sends a format 2 event without an
-// outcome and a partially completed format 2 event without committed steps.
-// It requires one dead-letter row per event and verifies that the ledger
-// does not store either event.
+// TestRuntimeAuditMissingOutcomeRejected writes a format 2 event without an
+// outcome and a partially completed format 2 event without committed steps
+// to the YugabyteDB outbox. The real relay publishes both events to Kafka and
+// the real consumer processes them. Reader.ListDeadLetters must return one
+// row per event with the event's payload and its rejection reason, and the
+// ledger must not store either event.
 func TestRuntimeAuditMissingOutcomeRejected(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
 	node := audit.Target{
@@ -160,17 +161,23 @@ func TestRuntimeAuditMissingOutcomeRejected(t *testing.T) {
 	missingSteps := completeEvent(uuid.Must(uuid.NewV7()), userActor(), syntheticExternalTarget(),
 		audit.OperationExternal, audit.PhaseResult, audit.OutcomePartiallyCompleted)
 	missingSteps.Error = &audit.EventError{Code: "upload_failed", Message: "synthetic upload failure"}
-	stack.record(t, missingOutcome, missingSteps)
-
-	errorTexts := stack.waitForDeadLetters(t, 2)
-	rejections := map[uuid.UUID]string{missingOutcome.EventID: "outcome required", missingSteps.EventID: "committed step"}
-	for eventID, reason := range rejections {
-		rejected := slices.ContainsFunc(errorTexts, func(text string) bool {
-			return strings.Contains(text, "audit event "+eventID.String()+": ") && strings.Contains(text, reason)
-		})
-		if !rejected {
-			t.Fatalf("dead letter errors = %q, want event %s rejected for %q", errorTexts, eventID, reason)
+	outbox := audit.NewPoolOutbox(stack.admin)
+	sent := map[uuid.UUID]audit.Event{missingOutcome.EventID: missingOutcome, missingSteps.EventID: missingSteps}
+	for _, event := range sent {
+		if err := outbox.WriteOutbox(t.Context(), event); err != nil {
+			t.Fatalf("write event %s to the outbox: %v", event.EventID, err)
 		}
+	}
+	startOutboxRelay(t, stack)
+
+	rejections := map[uuid.UUID]string{missingOutcome.EventID: "outcome required", missingSteps.EventID: "committed step"}
+	letters := stack.waitForEventDeadLetters(t, []uuid.UUID{missingOutcome.EventID, missingSteps.EventID})
+	for eventID, reason := range rejections {
+		letter := letters[eventID]
+		if !strings.Contains(letter.Error, "audit event "+eventID.String()+": ") || !strings.Contains(letter.Error, reason) {
+			t.Fatalf("dead letter error of event %s = %q, want a rejection for %q", eventID, letter.Error, reason)
+		}
+		requireDeadLetterPayload(t, letter, sent[eventID])
 		if _, err := stack.reader.GetByID(t.Context(), eventID); !errors.Is(err, pgx.ErrNoRows) {
 			t.Fatalf("ledger read of rejected event %s = %v, want no row", eventID, err)
 		}

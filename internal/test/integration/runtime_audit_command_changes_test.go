@@ -31,6 +31,7 @@ const (
 func TestRuntimeAuditCommandChanges(t *testing.T) {
 	t.Run("sql_token_create", testCommandTokenChange)
 	t.Run("foundationdb_default_children", testCommandNodeChange)
+	t.Run("foundationdb_reference_repair", testCommandReferenceRepair)
 }
 
 func testCommandTokenChange(t *testing.T) {

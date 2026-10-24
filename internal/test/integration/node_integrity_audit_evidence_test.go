@@ -23,7 +23,10 @@ const deliveryDelay = 2 * time.Second
 // through MCP, waits deliveryDelay, and then starts the production relay and
 // audit consumer. Each ledger row must have an event time inside the window
 // of the MCP calls and before the relay and consumer started. Each row's
-// completion time must equal its event time.
+// completion time must equal its event time. After the consumer reports zero
+// lag, the ledger must contain exactly one node.create row and one
+// node.update row for the issue, because the MCP wrapper does not record a
+// change that its transaction already recorded.
 func TestNodeIntegrityAuditKeepsMutationTime(t *testing.T) {
 	harness := integration.NewAuditedMCPHarness(t)
 	stores, err := fdbadapter.NewStores(testenv.FoundationDB(t), nodeAuditTransactionTimeout, nil)
@@ -55,6 +58,12 @@ func TestNodeIntegrityAuditKeepsMutationTime(t *testing.T) {
 		}
 		if !row.Context.CompletedAt.UTC().Truncate(time.Microsecond).Equal(eventTime) {
 			t.Fatalf("%s row %s completed at %s, want its event time %s", row.Action, row.EventID, row.Context.CompletedAt, eventTime)
+		}
+	}
+	ledger.waitForNoLag(t)
+	for _, verb := range []audit.Verb{audit.VerbNodeCreate, audit.VerbNodeUpdate} {
+		if found := ledger.entityRows(t, view.OrgID, issueID, verb, 1); len(found) != 1 {
+			t.Fatalf("ledger rows of %s for issue %s = %d, want 1", verb, issueID, len(found))
 		}
 	}
 }
