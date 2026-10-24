@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/response"
@@ -28,16 +29,43 @@ func addRepairBackfillCases(cases map[string]coverageCase) {
 			return []string{"ops", "backfill", "once-search-projections", "--manifest", writeCoverageFile(t, "projections.json", []byte("[]"))}
 		}))
 	cases["command ops backfill once-node-integrity"] = commandCase(audit.VerbOpsBackfillNodeIntegrity, audit.OutcomeOK,
-		argsCommand(func(t *testing.T, env *coverageEnv) []string {
-			return []string{"ops", "backfill", "once-node-integrity", "--manifest", env.integrityManifest(t)}
-		}))
+		func(t *testing.T, env *coverageEnv) commandInput {
+			directory := t.TempDir()
+			return commandInput{
+				args:      []string{"ops", "backfill", "once-node-integrity", "--manifest", env.integrityManifest(t, directory)},
+				configure: repairDirectoryConfig(directory), outbox: nil,
+			}
+		})
+	cases["command ops qa datagen repair"] = commandCase(audit.VerbOpsDatagenRepair, audit.OutcomeOK, func(t *testing.T, _ *coverageEnv) commandInput {
+		directory := t.TempDir()
+		return commandInput{
+			args: []string{"ops", "qa", "datagen", "repair", "--commit"}, outbox: nil,
+			configure: func(cfg *config.Config) {
+				localTarget(cfg)
+				cfg.RepairDir = directory
+			},
+		}
+	})
+}
+
+// repairDirectoryConfig returns a configuration change that sets the repair
+// directory to directory.
+func repairDirectoryConfig(directory string) func(*config.Config) {
+	return func(cfg *config.Config) { cfg.RepairDir = directory }
 }
 
 // writeCoverageFile writes the supplied contents to a file in a temporary
 // directory and returns its path.
 func writeCoverageFile(t *testing.T, name string, contents []byte) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
+	return writeCoverageFileIn(t, t.TempDir(), name, contents)
+}
+
+// writeCoverageFileIn writes the supplied contents to name in directory and
+// returns its path.
+func writeCoverageFileIn(t *testing.T, directory, name string, contents []byte) string {
+	t.Helper()
+	path := filepath.Join(directory, name)
 	if err := os.WriteFile(path, contents, 0o600); err != nil {
 		t.Fatalf("Writing the temporary file failed; the command case requires file %s: %v", name, err)
 	}
@@ -45,10 +73,11 @@ func writeCoverageFile(t *testing.T, name string, contents []byte) string {
 }
 
 // integrityManifest creates an issue with two child_of relationships and
-// freezes a repair request in a dry run. It writes the returned manifest to a
-// temporary file for the case to execute with --execute. Execution does not
-// change nodes because the manifest entry does not request deletion.
-func (env *coverageEnv) integrityManifest(t *testing.T) string {
+// freezes a repair request in a dry run with directory as the repair
+// directory. It writes the request and the returned manifest to directory for
+// the case to execute with --execute. Execution does not change nodes because
+// the manifest entry does not request deletion.
+func (env *coverageEnv) integrityManifest(t *testing.T, directory string) string {
 	t.Helper()
 	fixture := env.fixture(t)
 	issue, epic := fixture.create(t, "issue"), fixture.create(t, "epic")
@@ -72,7 +101,10 @@ func (env *coverageEnv) integrityManifest(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("Repair request encoding failed; the dry run requires a JSON request: %v", err)
 	}
-	output, err := env.dryRun(t, "ops", "backfill", "once-node-integrity", "--request", writeCoverageFile(t, "request.json", request))
+	_, output, err := env.runCommand(t, commandInput{
+		args:      []string{"ops", "backfill", "once-node-integrity", "--request", writeCoverageFileIn(t, directory, "request.json", request)},
+		configure: repairDirectoryConfig(directory), outbox: nil,
+	}, "--output", "json")
 	if err != nil {
 		t.Fatalf("The node integrity dry run failed; the test expects it to freeze the repair request: %v\n%s", err, output)
 	}
@@ -87,5 +119,5 @@ func (env *coverageEnv) integrityManifest(t *testing.T) string {
 	if err := json.Unmarshal(document.Result, &result); err != nil || len(result.Manifest) == 0 {
 		t.Fatalf("The repair result does not contain a readable, nonempty manifest; the test requires one in result %s: %v", document.Result, err)
 	}
-	return writeCoverageFile(t, "manifest.json", result.Manifest)
+	return writeCoverageFileIn(t, directory, "manifest.json", result.Manifest)
 }
