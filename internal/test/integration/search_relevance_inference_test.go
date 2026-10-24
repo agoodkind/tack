@@ -65,7 +65,9 @@ type analyzerQueryText struct {
 	Analyzer  string `json:"analyzer"`
 }
 
-// TestSearchSessionInfersOnce follows a public search over 80 matching nodes
+// TestSearchSessionInfersOnce first requires empty, blank, and oversized
+// queries to fail without a model predict request or a ranked batch. It then
+// follows a public search over 80 matching nodes
 // to completion, including continuation replays. It requires at least three
 // pages and two ranked batches with exactly one model predict request.
 // The first batch must use the predicted map, and every later batch must
@@ -81,6 +83,7 @@ func TestSearchSessionInfersOnce(t *testing.T) {
 	integration.DrainSearchWork(t, fixture.Worker, sessionSlices)
 	harness, capture := newInferenceCaptureHarness(t, fixture)
 	capture.take()
+	requireRejectedBeforeInference(t, harness, capture)
 	pages := followSession(t, harness)
 	exchange := capture.take()
 	predicted := requireOnePrediction(t, exchange)
