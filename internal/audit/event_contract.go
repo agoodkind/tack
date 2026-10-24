@@ -97,6 +97,14 @@ type ReadEvidence struct {
 	ManifestParts  uint32 `json:"manifest_parts,omitzero"`
 }
 
+// ReadSelection records the arguments that selected a read's result.
+// Reference is the requested node reference. Criteria maps each other
+// argument name to its compact JSON value.
+type ReadSelection struct {
+	Reference string                     `json:"reference,omitempty"`
+	Criteria  map[string]json.RawMessage `json:"criteria,omitempty"`
+}
+
 // OutcomeDetails records an operation's terminal outcome, the failure code
 // and message for an unsuccessful outcome, and the steps that committed
 // before the operation stopped.

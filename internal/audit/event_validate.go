@@ -99,29 +99,6 @@ func ValidateChange(change Change) error {
 	return nil
 }
 
-// validateLegacyEvent rejects format 0 events that set format 2 context
-// fields, a format 2 outcome, or the unauthenticated actor kind.
-func validateLegacyEvent(event Event) error {
-	eventContext := event.Context
-	hasCompleteField := eventContext.OperationClass != "" || eventContext.Phase != "" ||
-		eventContext.OperationID != uuid.Nil || eventContext.ParentOperationID != uuid.Nil ||
-		!eventContext.StartedAt.IsZero() || !eventContext.CompletedAt.IsZero() ||
-		eventContext.Target != nil || eventContext.Read != nil || len(eventContext.CommittedSteps) != 0
-	if hasCompleteField {
-		return errors.New("format 0 event cannot set format 2 context fields")
-	}
-	if isTerminalOutcome(event.Outcome) {
-		return fmt.Errorf("format 0 event cannot set format 2 outcome %q", event.Outcome)
-	}
-	if event.Actor.Type == ActorUnauthenticated {
-		return errors.New("format 0 event cannot use the unauthenticated actor kind")
-	}
-	if len(event.Protected) != 0 {
-		return errors.New("format 0 event cannot set protected values")
-	}
-	return nil
-}
-
 func validateCompleteEvent(event Event) error {
 	eventContext := event.Context
 	switch {

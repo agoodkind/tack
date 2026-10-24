@@ -119,7 +119,7 @@ func addMCPCases(cases map[string]coverageCase) {
 }
 
 // runSearchCase invokes tack_search and validates its tool result. It expects
-// success with OpenSearch and an error result with a refused audit outcome
+// success with OpenSearch and an error result with a failed audit outcome
 // without OpenSearch.
 func runSearchCase(t *testing.T, env *coverageEnv) coverageEvidence {
 	t.Helper()
@@ -135,6 +135,6 @@ func runSearchCase(t *testing.T, env *coverageEnv) coverageEvidence {
 	if response.status != http.StatusOK || !strings.Contains(string(response.body), `"isError":true`) {
 		t.Fatalf("tack_search did not return the expected HTTP 200 response with isError=true while OpenSearch was disabled; the observed status and body follow: %d %s", response.status, response.body)
 	}
-	evidence.outcome = audit.OutcomeRefused
+	evidence.outcome = audit.OutcomeFailed
 	return evidence
 }

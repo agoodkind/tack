@@ -59,7 +59,8 @@ func RecordedMethods() []string {
 // requestOperation identifies the operation of one HTTP request.
 // Its route, method, and tool fields contain a route pattern, a known method name,
 // and a checked tool or prompt name. The recorder reads arguments only to derive
-// the organization and does not store them.
+// the organization and does not store them. selection contains the normalized
+// arguments of a read tool call or prompt.
 type requestOperation struct {
 	verb          audit.Verb
 	route         string
@@ -70,12 +71,13 @@ type requestOperation struct {
 	organizations orgSource
 	metadata      bool
 	arguments     json.RawMessage
+	selection     *audit.ReadSelection
 }
 
 func routeOperation(verb audit.Verb, route string) requestOperation {
 	return requestOperation{
 		verb: verb, route: route, method: "", tool: "", source: audit.SourceSystem, mutation: false,
-		organizations: orgSystem, metadata: false, arguments: nil,
+		organizations: orgSystem, metadata: false, arguments: nil, selection: nil,
 	}
 }
 
@@ -116,6 +118,7 @@ func mcpOperation(request *http.Request) requestOperation {
 	operation.organizations, operation.metadata = method.organizations, method.metadata
 	if method.verb == audit.VerbMCPPromptInvoked {
 		operation.tool = checkedName(message.Params.Name)
+		operation.selection = readSelection(message.Params.Arguments)
 	}
 	return operation
 }
@@ -132,6 +135,9 @@ func toolOperation(operation requestOperation, tool string, arguments json.RawMe
 	operation.verb = verb
 	operation.mutation = !audit.IsRead(verb)
 	operation.organizations, operation.arguments = orgArguments, arguments
+	if !operation.mutation {
+		operation.selection = readSelection(arguments)
+	}
 	if tool == workspaceListTool {
 		operation.organizations = orgCaller
 	}

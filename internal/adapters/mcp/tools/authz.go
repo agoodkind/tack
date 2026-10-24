@@ -73,5 +73,5 @@ func (r *Resolver) requireMembership(ctx context.Context, orgID uuid.UUID, kind,
 	}
 	slog.WarnContext(ctx, "authz.membership_refused",
 		slog.String("kind", kind), slog.String("input", input), slog.String("org_id", orgID.String()))
-	return fmt.Errorf("%s %q: %w", kind, input, domain.ErrNotFound)
+	return membershipRefusalError{err: fmt.Errorf("%s %q: %w", kind, input, domain.ErrNotFound)}
 }

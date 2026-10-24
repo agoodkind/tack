@@ -107,9 +107,9 @@ func TestDevBearerStampsSoleOrg(t *testing.T) {
 	}
 }
 
-// TestDevBearerKeepsNilForAmbiguousOrgs pins the honesty rule: zero or
-// several memberships stamp nothing, because no single org is provable.
-func TestDevBearerKeepsNilForAmbiguousOrgs(t *testing.T) {
+// TestDevBearerUsesSystemOrgForAmbiguousOrgs checks that an actor with zero
+// or several memberships produces a token_used event in the system org.
+func TestDevBearerUsesSystemOrgForAmbiguousOrgs(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	two := []uuid.UUID{uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())}
 	for name, orgs := range map[string][]uuid.UUID{"none": nil, "two": two} {
@@ -117,22 +117,23 @@ func TestDevBearerKeepsNilForAmbiguousOrgs(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("%s: status = %d, want 200", name, status)
 		}
-		if ev.Context.OrgID != uuid.Nil {
-			t.Fatalf("%s: token_used org = %s, want nil", name, ev.Context.OrgID)
+		if ev.Context.OrgID != audit.SystemOrgID() {
+			t.Fatalf("%s: token_used org = %s, want the system org", name, ev.Context.OrgID)
 		}
 	}
 }
 
-// TestDevBearerLookupFailureNeverFailsAuth pins that stamping is enrichment:
-// a membership lookup error stamps nil and the request still serves.
+// TestDevBearerLookupFailureNeverFailsAuth checks that a membership lookup
+// error produces a token_used event in the system org and the request still
+// succeeds.
 func TestDevBearerLookupFailureNeverFailsAuth(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	ev, status := driveAuth(t, DevBearer(fixedOrgs{orgs: nil, err: errors.New("membership store down")}), userID.String())
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
-	if ev.Context.OrgID != uuid.Nil {
-		t.Fatalf("token_used org = %s, want nil", ev.Context.OrgID)
+	if ev.Context.OrgID != audit.SystemOrgID() {
+		t.Fatalf("token_used org = %s, want the system org", ev.Context.OrgID)
 	}
 }
 
