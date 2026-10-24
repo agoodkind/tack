@@ -28,6 +28,9 @@ type FixedDefinitionAudit func(ctx context.Context, before, after *node.Property
 // FixedDefinitionResult counts scanned, corrected, unchanged, and
 // conflicted definitions. A dry run counts definitions that need correction
 // as corrected. A conflicted definition changed after the scan read it.
+// Changes lists each corrected or conflicted definition's org ID, property
+// definition ID, name, outcome, and before and after values only for fields
+// that need correction. Dry runs and execute runs both populate Changes.
 type FixedDefinitionResult struct {
 	Scanned       int                       `json:"scanned"`
 	Corrected     int                       `json:"corrected"`
@@ -35,6 +38,7 @@ type FixedDefinitionResult struct {
 	Conflicted    int                       `json:"conflicted"`
 	CorrectedIDs  []node.ProjectionIdentity `json:"corrected_ids,omitempty"`
 	ConflictedIDs []node.ProjectionIdentity `json:"conflicted_ids,omitempty"`
+	Changes       []FixedDefinitionChange   `json:"changes,omitempty"`
 }
 
 // CorrectFixedDefinitions uses ScanProjections to page through every
@@ -48,7 +52,7 @@ type FixedDefinitionResult struct {
 // store.Replace to commit the definition and audit event only if the stored
 // definition still matches the scanned record.
 func CorrectFixedDefinitions(ctx context.Context, store FixedDefinitionStore, stage FixedDefinitionAudit, dryRun bool) (FixedDefinitionResult, error) {
-	result := FixedDefinitionResult{Scanned: 0, Corrected: 0, Unchanged: 0, Conflicted: 0, CorrectedIDs: nil, ConflictedIDs: nil}
+	result := FixedDefinitionResult{Scanned: 0, Corrected: 0, Unchanged: 0, Conflicted: 0, CorrectedIDs: nil, ConflictedIDs: nil, Changes: nil}
 	seeded := seededDefinitions{orgID: uuid.Nil, byID: nil}
 	cursor := ""
 	for {
@@ -88,6 +92,7 @@ func correctDefinition(ctx context.Context, store FixedDefinitionStore, stage Fi
 	if dryRun {
 		result.Corrected++
 		result.CorrectedIDs = append(result.CorrectedIDs, identity)
+		result.Changes = append(result.Changes, definitionChange(fixedOutcomeCorrected, stored, corrected))
 		return nil
 	}
 	staged, err := stage(ctx, stored, corrected)
@@ -101,10 +106,12 @@ func correctDefinition(ctx context.Context, store FixedDefinitionStore, stage Fi
 	if !replaced {
 		result.Conflicted++
 		result.ConflictedIDs = append(result.ConflictedIDs, identity)
+		result.Changes = append(result.Changes, definitionChange(fixedOutcomeConflicted, stored, corrected))
 		return nil
 	}
 	result.Corrected++
 	result.CorrectedIDs = append(result.CorrectedIDs, identity)
+	result.Changes = append(result.Changes, definitionChange(fixedOutcomeCorrected, stored, corrected))
 	telemetry.L(ctx).InfoContext(ctx, "metadata.fixed_definition.corrected", slog.String("org_id", stored.OrgID.String()),
 		slog.String("property_definition_id", stored.ID.String()), slog.String("name", stored.Name))
 	return nil
