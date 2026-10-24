@@ -249,6 +249,9 @@ const (
 	// VerbAuditPartitionMaintain records one audit partition maintenance run
 	// of the audit-consumer.
 	VerbAuditPartitionMaintain Verb = "audit.partition_maintain"
+	// VerbNodeSubtreeDeleteResume records one run of the delete resumer that
+	// finishes a subtree delete job without a runner.
+	VerbNodeSubtreeDeleteResume Verb = "node.subtree_delete_resume"
 )
 
 // stateChangeVerbs is the set of application events that must be persisted

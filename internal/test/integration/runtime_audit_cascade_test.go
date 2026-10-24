@@ -52,7 +52,7 @@ func TestRuntimeAuditCascadeEvidence(t *testing.T) {
 	if _, err := env.Stores.NodeDeleter.DeleteSubtreeStep(jobContext, job.ID); err != nil {
 		t.Fatalf("run one step of job %s: %v", job.ID, err)
 	}
-	if finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0); err != nil || finished != 1 {
+	if finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0, env.LedgerResumeAudit()); err != nil || finished != 1 {
 		t.Fatalf("resume = %d, %v, want 1 finished job", finished, err)
 	}
 

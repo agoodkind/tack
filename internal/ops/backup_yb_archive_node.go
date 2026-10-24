@@ -43,7 +43,7 @@ func RunBackupYBArchiveNode(ctx context.Context, cfg *config.Config, runID strin
 	}
 
 	target, err := resolveYBArchiveTarget(ctx, cfg, newBackupS3Client(cfg), nodeName, runID)
-	if err != nil || target == nil {
+	if err != nil || target == nil || target.complete {
 		return err
 	}
 	return uploadYBNodeArchive(ctx, cfg, cli, nodeName, target)

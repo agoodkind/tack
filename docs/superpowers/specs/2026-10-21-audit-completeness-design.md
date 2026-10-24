@@ -32,6 +32,8 @@ Terminal outcomes are completed, refused, failed, partially completed and incomp
 
 An outer recorder starts before authentication and dispatch. It covers malformed requests, unsupported methods, unknown tools, prompts, resources, health checks and diagnostics. Successful authentication supplies a verified identity. Earlier failures use an unauthenticated actor and the existing system audit organization. Record method, route, operation and safe reason fields. Exclude credentials, raw request bodies and raw database errors. Link authentication and business events by operation ID without conflating their outcomes.
 
+After authentication, the recorder reads the caller's organization memberships and, for a tool call, the organization of the named workspace or node. This lookup runs before the read admission because it selects the organization of each admission. The lookup is an authorization step and returns no product data to the client. When the lookup fails with a backend error, the recorder records an early refusal event in the system organization with the verified actor, the failed outcome, and the `organization_unavailable` reason, then answers HTTP 503 without product data. A caller without memberships and a target in another organization do not cause a lookup failure.
+
 ## Read lifecycle
 
 Add transient pending records and compact terminal receipts beside each outbox. Both adapters implement `BeginRead`, `RenewRead`, `FinalizeRead`, `RecoverExpired` and `AcknowledgePublished`. The relay reads finalized entries only.
