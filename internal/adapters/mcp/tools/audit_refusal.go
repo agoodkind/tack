@@ -34,26 +34,32 @@ func (reference invalidReferenceError) Error() string { return reference.err.Err
 
 func (reference invalidReferenceError) Unwrap() error { return reference.err }
 
+// accessDeniedMessage is the audit failure message of a membership refusal.
+// The error text of that refusal matches an absent target.
+const accessDeniedMessage = "the caller is not a member of the target organization"
+
 // refusalCode returns the audit failure code and message for a refused tool
-// call with err. It reports false when err is not a refusal.
+// call with err. The message is the refusal error text that the tool returns
+// to the caller, except for a membership refusal. It reports false when err
+// is not a refusal.
 func refusalCode(err error) (string, string, bool) {
 	var refusal membershipRefusalError
 	var reference invalidReferenceError
 	switch {
 	case errors.As(err, &refusal):
-		return accessDeniedCode, "the caller is not a member of the target organization", true
+		return accessDeniedCode, accessDeniedMessage, true
 	case errors.Is(err, domain.ErrNotFound):
-		return notFoundCode, "the requested target does not exist", true
+		return notFoundCode, err.Error(), true
 	case errors.As(err, &reference):
-		return invalidReferenceCode, "the request contains an invalid node reference", true
+		return invalidReferenceCode, err.Error(), true
 	case errors.Is(err, domain.ErrInvalidArgument):
-		return invalidArgumentCode, "the request contains an invalid argument", true
+		return invalidArgumentCode, err.Error(), true
 	case errors.Is(err, domain.ErrAlreadyExists):
-		return "already_exists", "the target already exists", true
+		return "already_exists", err.Error(), true
 	case errors.Is(err, domain.ErrConflict):
-		return "conflict", "the request conflicts with the current target", true
+		return "conflict", err.Error(), true
 	case errors.Is(err, domain.ErrFailedPrecondition):
-		return "failed_precondition", "the target state does not allow the request", true
+		return "failed_precondition", err.Error(), true
 	default:
 		return "", "", false
 	}
