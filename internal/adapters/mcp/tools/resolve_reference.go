@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -48,6 +49,18 @@ func (r *Resolver) resolveDirectReference(ctx context.Context, nt *node.NodeType
 }
 
 func (r *Resolver) resolveScopedNodeReference(ctx context.Context, nt *node.NodeType, input string) (uuid.UUID, error) {
+	propName := strings.TrimSpace(nt.Reference.Property)
+	if propName == "" {
+		return uuid.Nil, fmt.Errorf("%s reference property is empty: %w", nt.Slug, domain.ErrInvalidArgument)
+	}
+	return r.resolveScopedReference(ctx, nt, propName, input)
+}
+
+// resolveScopedReference resolves "<scope reference>::<value>" to the one node
+// of type nt under that scope with propName equal to value. The scope is the
+// first level of the scope chain of nt, or the entry point when nt lives
+// directly under it.
+func (r *Resolver) resolveScopedReference(ctx context.Context, nt *node.NodeType, propName, input string) (uuid.UUID, error) {
 	scopeIdent, localRef, ok := strings.Cut(input, scopedNodeRefSeparator)
 	if !ok {
 		return uuid.Nil, invalidTypedNodeIDError(nt, input)
@@ -57,16 +70,15 @@ func (r *Resolver) resolveScopedNodeReference(ctx context.Context, nt *node.Node
 	if scopeIdent == "" || localRef == "" {
 		return uuid.Nil, invalidTypedNodeIDError(nt, input)
 	}
-	propName := strings.TrimSpace(nt.Reference.Property)
-	if propName == "" {
-		return uuid.Nil, fmt.Errorf("%s reference property is empty: %w", nt.Slug, domain.ErrInvalidArgument)
-	}
 	level, ok := r.referenceScopeLevel(nt)
 	if !ok && r.livesUnderEntryPoint(nt) {
 		return r.resolveEntryPointScopedReference(ctx, nt, propName, scopeIdent, localRef)
 	}
 	if !ok {
-		return uuid.Nil, fmt.Errorf("%s %q: %w", strings.ToLower(nt.Slug), input, domain.ErrNotFound)
+		err := fmt.Errorf("%s %q: %w", strings.ToLower(nt.Slug), input, domain.ErrNotFound)
+		slog.WarnContext(ctx, "resolver.scoped_reference.no_scope",
+			slog.String("node_type", nt.TypeKey), slog.String("err", err.Error()))
+		return uuid.Nil, err
 	}
 	userID, ok := auth.UserID(ctx)
 	if !ok {

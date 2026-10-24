@@ -43,6 +43,9 @@ func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, in
 	case node.ReferenceDirectProperty:
 		return r.resolveDirectReference(ctx, nt, input)
 	case node.ReferenceScopedSequence:
+		if strings.Contains(input, scopedNodeRefSeparator) {
+			return r.resolveScopedReference(ctx, nt, nodeNameReferenceProperty, input)
+		}
 		return r.resolveSequenceNodeID(ctx, input, []string{nt.TypeKey})
 	case node.ReferenceScopedProperty:
 		return r.resolveScopedNodeReference(ctx, nt, input)
