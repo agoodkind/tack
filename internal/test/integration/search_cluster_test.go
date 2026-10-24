@@ -3,6 +3,7 @@ package integration
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -37,10 +38,11 @@ func TestSearchClusterProxyEndpoint(t *testing.T) {
 	}
 }
 
-// TestSearchClusterEngineOutage stops the only engine and then commits a
-// FoundationDB write. Search fails explicitly, the node's search work fails,
-// and its live work stays pending. After the restart, the worker completes
-// the pending work and the node becomes searchable.
+// TestSearchClusterEngineOutage stops the only engine behind the proxy and
+// then commits a FoundationDB write. The proxy answers HTTP 503, tack_search
+// returns the unavailable response, the node's search work fails, and its
+// live work stays pending. After the restart, the worker completes the
+// pending work and the node becomes searchable.
 func TestSearchClusterEngineOutage(t *testing.T) {
 	cluster := startSearchTestCluster(t, 1)
 	fixture, spec := newClusterQueryFixture(t, cluster.Fixture)
@@ -50,8 +52,17 @@ func TestSearchClusterEngineOutage(t *testing.T) {
 	member := cluster.Members()[0]
 	cluster.StopMember(t, member)
 	nodeID := write()
-	if page, err := trySearch(fixture.Harness, clusterPhrase, ""); err == nil {
-		t.Fatalf("search during the outage returned %d results instead of an error", len(page.IDs))
+	info, err := fixture.Client.Info(WithTestOperation(t, t.Context()), nil)
+	status := 0
+	if response := info.Inspect().Response; response != nil {
+		status = response.StatusCode
+	}
+	if err == nil || status != http.StatusServiceUnavailable {
+		t.Fatalf("the proxy answered with HTTP %d and error %v during the outage, want HTTP 503", status, err)
+	}
+	text, isError, err := rawSearchCall(fixture.Harness, searchArguments(fixture.Harness, clusterPhrase, ""))
+	if err != nil || !isError || text != unavailableSearchMessage {
+		t.Fatalf("tack_search during the outage returned isError=%t text %q error %v, want %q", isError, text, err, unavailableSearchMessage)
 	}
 	clusterEventually(t, "fail the node's search work during the outage", func() error {
 		if _, err := fixture.Worker.RunSlice(WithTestOperation(t, t.Context())); err != nil && strings.Contains(err.Error(), nodeID.String()) {
