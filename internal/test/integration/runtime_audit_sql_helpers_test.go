@@ -1,48 +1,29 @@
 package integration_test
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
 	_ "embed"
-	"encoding/hex"
 	"encoding/json"
-	"net/url"
 	"reflect"
 	"testing"
-	"text/template"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/testenv"
 )
 
 //go:embed testdata/runtime_audit_outbox_events.sql
 var runtimeAuditOutboxEventsQuery string
 
-//go:embed testdata/runtime_audit_change_login.sql
-var runtimeAuditChangeLoginTemplate string
-
-//go:embed testdata/runtime_audit_drop_login.sql
-var runtimeAuditDropLoginTemplate string
-
 const (
 	sqlAuditRelayInterval = 100 * time.Millisecond
 	sqlAuditRelayBatch    = 64
 	sqlAuditProduceWait   = 30 * time.Second
-	sqlAuditLoginPrefix   = "tack_test_change_"
 	sqlAuditTool          = "runtime-audit-sql-test"
 )
-
-type sqlAuditLogin struct {
-	Login  string
-	Secret string
-}
 
 func sqlAuditPrincipal() audit.OperatorPrincipal {
 	return audit.OperatorPrincipal{
@@ -74,19 +55,6 @@ func sqlAuditContext(t *testing.T, principal audit.OperatorPrincipal) (context.C
 func sqlOperatorContext(ctx context.Context, principal audit.OperatorPrincipal) (context.Context, uuid.UUID) {
 	commandID := uuid.Must(uuid.NewV7())
 	return audit.WithOperatorPrincipal(audit.WithOpID(ctx, commandID), principal), commandID
-}
-
-func createSQLAuditUser(t *testing.T, pool *pgxpool.Pool, principal audit.OperatorPrincipal) *user.User {
-	t.Helper()
-	ctx, _ := sqlAuditContext(t, principal)
-	created, err := postgres.NewUserRepo(pool).Create(ctx, &user.User{
-		ID: uuid.Nil, Email: "sql-audit-" + uuid.NewString() + "@example.invalid",
-		DisplayName: "SQL Audit Holder", AvatarURL: nil, CreatedAt: time.Time{}, UpdatedAt: time.Time{},
-	})
-	if err != nil {
-		t.Fatalf("UserRepo.Create error = %v, want nil", err)
-	}
-	return created
 }
 
 // sqlOutboxEvents reads operator outbox events matching id as an entity ID or
@@ -136,45 +104,6 @@ func startOutboxRelay(t *testing.T, stack runtimeAuditStack) {
 	}
 	relay.Start(t.Context())
 	t.Cleanup(func() { _ = relay.Close() })
-}
-
-// changeOnlyPool opens a pool for a new login that can read and change users,
-// api_tokens, and org_members but cannot execute
-// public.ops_outbox_write_encoded. Test cleanup drops the login.
-func changeOnlyPool(t *testing.T, admin *pgxpool.Pool) *pgxpool.Pool {
-	t.Helper()
-	suffix := make([]byte, 4)
-	secret := make([]byte, 16)
-	if _, err := rand.Read(suffix); err != nil {
-		t.Fatalf("generate login suffix: got error %v, want nil", err)
-	}
-	if _, err := rand.Read(secret); err != nil {
-		t.Fatalf("generate login password: got error %v, want nil", err)
-	}
-	login := sqlAuditLogin{Login: sqlAuditLoginPrefix + hex.EncodeToString(suffix), Secret: hex.EncodeToString(secret)}
-	execLoginTemplate(t, admin, runtimeAuditChangeLoginTemplate, login)
-	t.Cleanup(func() { execLoginTemplate(t, admin, runtimeAuditDropLoginTemplate, login) })
-	parsed, err := url.Parse(admin.Config().ConnString())
-	if err != nil {
-		t.Fatalf("parse ledger connection string: got error %v, want nil", err)
-	}
-	parsed.User = url.UserPassword(login.Login, login.Secret)
-	return testenv.LedgerPool(t, parsed.String())
-}
-
-func execLoginTemplate(t *testing.T, admin *pgxpool.Pool, text string, login sqlAuditLogin) {
-	t.Helper()
-	parsed, err := template.New("login").Parse(text)
-	if err != nil {
-		t.Fatalf("parse login template: got error %v, want nil", err)
-	}
-	var statements bytes.Buffer
-	if err := parsed.Execute(&statements, login); err != nil {
-		t.Fatalf("render login statements: got error %v, want nil", err)
-	}
-	if _, err := admin.Exec(context.WithoutCancel(t.Context()), statements.String()); err != nil {
-		t.Fatalf("run login statements for %s: got error %v, want nil", login.Login, err)
-	}
 }
 
 // requireLedgerChange waits for the ledger row for sent and requires
