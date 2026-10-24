@@ -91,6 +91,7 @@ func (s *SearchAccessRolloutStore) Begin(ctx context.Context, request searchdoma
 		begun.CandidateVersion, begun.WriteVersions = request.CandidateVersion, versions
 		begun.Phase, begun.ScanCursor, begun.VerifyCursor, begun.RetireCursor = string(searchdomain.AccessBackfill), "", "", ""
 		begun.ScanComplete, begun.AffectedPass, begun.Generation, begun.PermissionEventVersion = false, false, generation, event
+		begun.InitiatedOperationID, begun.InitiatedActorID = request.Initiation.OperationID, request.Initiation.ActorID
 		if writeErr := writeSearchRecord(ctx, tr, searchRolloutKey(request.AuthorityID), begun); writeErr != nil {
 			return writeErr
 		}

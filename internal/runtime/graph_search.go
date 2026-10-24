@@ -96,7 +96,7 @@ func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadap
 		workers = append(workers, worker)
 	}
 	repair := service.NewSearchModelRepair(service.SearchModelRepairPorts{
-		Engine: adapter, Records: stores.SearchModelRepairs(), Index: stores,
+		Engine: adapter, Records: stores.SearchModelRepairs(), Index: stores, Audit: SearchModelRepairAudit(stores),
 	}, source, repairSettings, service.SearchModelRepairGates{Enabled: repairSettings.Enabled, PublicSearch: cfg.SearchPublicEnabled})
 	return searchRuntime{adapter: adapter, workers: workers, idleTime: settings.IdleInterval, retention: retention, repair: repair}, nil
 }

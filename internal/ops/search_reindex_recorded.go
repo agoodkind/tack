@@ -68,6 +68,10 @@ func runSearchReindexRecorded(
 			fmt.Errorf("index replacement %s from %s is in progress", plan.current.ID, plan.current.SourceIndex))
 		return refused, writeReindexResult(ctx, sink, plan.current, true, false)
 	}
+	plan.request.Initiation, err = commandInitiation(ctx)
+	if err != nil {
+		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
+	}
 	planned := indexReplacementEvidence{
 		Mode: string(plan.request.Mode), SourceIndex: plan.serving, PrimaryShards: plan.request.PrimaryShards,
 		RoutingShards: plan.request.RoutingShards, Replicas: plan.request.Replicas, Restored: plan.request.Restored,

@@ -6,9 +6,25 @@ import (
 	"sync"
 	"time"
 
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 )
+
+// SearchModelRepairService is the service name for model repair audit events.
+const SearchModelRepairService = "tack-search-model-repair"
+
+// SearchModelRepairAudit configures the model repair to write audit events
+// to the FoundationDB operator outbox using the SearchModelRepairService
+// actor.
+func SearchModelRepairAudit(stores *fdbadapter.Stores) service.SearchAudit {
+	return service.SearchAudit{
+		Outbox: audit.NewAppendOutbox(stores.OpsOutbox),
+		Actor:  audit.ServiceActor(cli.ServiceActorID(SearchModelRepairService), SearchModelRepairService),
+	}
+}
 
 // modelRepairLoop is the loop that deploys a stuck serving model again.
 type modelRepairLoop struct {

@@ -27,6 +27,11 @@ type searchRebuildRecord struct {
 	Restored      bool      `json:"restored"`
 	PausedAt      time.Time `json:"paused_at"`
 	Generation    int64     `json:"generation"`
+	// InitiatedOperationID and InitiatedActorID identify the operation that
+	// began the replacement. A record that a release before this field
+	// wrote stores neither.
+	InitiatedOperationID uuid.UUID `json:"initiated_operation_id,omitzero" exhaustruct:"optional"`
+	InitiatedActorID     uuid.UUID `json:"initiated_actor_id,omitzero" exhaustruct:"optional"`
 }
 
 func rebuildRecordFor(rebuild searchdomain.Rebuild) searchRebuildRecord {
@@ -37,6 +42,7 @@ func rebuildRecordFor(rebuild searchdomain.Rebuild) searchRebuildRecord {
 		PrimaryShards: rebuild.PrimaryShards, RoutingShards: rebuild.RoutingShards, Replicas: rebuild.Replicas,
 		ScanComplete: rebuild.ScanComplete, Paused: rebuild.Paused, Restored: rebuild.Restored,
 		PausedAt: rebuild.PausedAt, Generation: rebuild.Generation,
+		InitiatedOperationID: rebuild.Initiation.OperationID, InitiatedActorID: rebuild.Initiation.ActorID,
 	}
 }
 
@@ -48,6 +54,7 @@ func (r searchRebuildRecord) rebuild() searchdomain.Rebuild {
 		PrimaryShards: r.PrimaryShards, RoutingShards: r.RoutingShards, Replicas: r.Replicas,
 		ScanComplete: r.ScanComplete, Paused: r.Paused, Restored: r.Restored,
 		PausedAt: r.PausedAt, Generation: r.Generation,
+		Initiation: searchdomain.Initiation{OperationID: r.InitiatedOperationID, ActorID: r.InitiatedActorID},
 	}
 }
 
