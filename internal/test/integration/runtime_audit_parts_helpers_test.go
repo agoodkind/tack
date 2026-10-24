@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -158,6 +159,23 @@ func waitFor(t *testing.T, what string, done func() bool) {
 			t.Fatalf("%s did not happen within %s", what, runtimeAuditDeadline)
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// requireActorPII requires row to reference an audit.pii row that stores the
+// email and name of actor.
+func (p partsPipeline) requireActorPII(t *testing.T, actor audit.Actor, row audit.Row) {
+	t.Helper()
+	if row.PIIRef == nil {
+		t.Fatalf("ledger row %s does not reference the actor's personal data", row.EventID)
+	}
+	stored := protectedValues(t, p.admin, []uuid.UUID{*row.PIIRef})[*row.PIIRef]
+	var personal struct {
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}
+	if err := json.Unmarshal(stored.Value, &personal); err != nil || personal.Email != actor.Email || personal.Name != actor.Name {
+		t.Fatalf("audit.pii row %s of event %s = %s, %v, want the actor's email and name", *row.PIIRef, row.EventID, stored.Value, err)
 	}
 }
 

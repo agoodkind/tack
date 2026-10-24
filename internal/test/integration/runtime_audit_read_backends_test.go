@@ -22,9 +22,10 @@ type readBackend struct {
 	store audit.ReadLifecycle
 	// expire makes the lease and admission deadlines of eventIDs pass.
 	expire func(t *testing.T, eventIDs ...uuid.UUID)
-	// agePublished sets publication times before the receipt retention cutoff.
-	// It is nil for a store that cannot change publication times.
-	agePublished func(t *testing.T)
+	// agePublished moves publication times before the receipt retention cutoff.
+	// The FoundationDB control also requires the receipt of eventID to have a
+	// publication time and a cleanup key.
+	agePublished func(t *testing.T, eventID uuid.UUID)
 	// terminal returns the outbox events of eventID.
 	terminal func(t *testing.T, eventID uuid.UUID) []audit.Event
 	// childEnv returns the environment a child process uses to open the store.
@@ -41,7 +42,8 @@ func readBackends(t *testing.T) []*readBackend {
 }
 
 // foundationDBReadBackend opens the product read store with a new test prefix and the wall clock.
-// Its expire control waits 31 seconds in real time. It cannot change publication times.
+// Its expire control waits 31 seconds in real time. Its agePublished control rewrites
+// one receipt and its cleanup key under the test prefix.
 func foundationDBReadBackend(t *testing.T) *readBackend {
 	t.Helper()
 	clusterFile := testenv.FoundationDB(t)
@@ -60,7 +62,10 @@ func foundationDBReadBackend(t *testing.T) *readBackend {
 			t.Helper()
 			waitForReadLeases(t)
 		},
-		agePublished: nil,
+		agePublished: func(t *testing.T, eventID uuid.UUID) {
+			t.Helper()
+			ageFoundationDBReceipt(t, clusterFile, prefix, eventID)
+		},
 		terminal: func(t *testing.T, eventID uuid.UUID) []audit.Event {
 			t.Helper()
 			entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), nil, 10000)
@@ -121,7 +126,7 @@ func yugabyteReadBackend(t *testing.T) *readBackend {
 				t.Fatalf("expire the read leases: %v", err)
 			}
 		},
-		agePublished: func(t *testing.T) {
+		agePublished: func(t *testing.T, _ uuid.UUID) {
 			t.Helper()
 			if _, err := admin.Exec(t.Context(), readTestSQL(t, "runtime_audit_read_age_published.sql")); err != nil {
 				t.Fatalf("age the published receipts: %v", err)

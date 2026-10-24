@@ -97,11 +97,14 @@ func TestRuntimeAuditLargeDeltaDelivery(t *testing.T) {
 // acknowledgments and restarts the consumer after it stores two parts.
 // It interrupts a second delivery before outbox deletion, then replays every
 // record. It requires one complete ledger event, one completed transport,
-// transient state cleanup, an empty dead-letter table, and a verified export.
+// transient state cleanup, and an empty dead-letter table. The actor's email
+// and name must be stored in audit.pii and must not appear in the verified
+// export.
 func TestRuntimeAuditPartCrashRecovery(t *testing.T) {
 	pipeline := newPartsPipeline(t)
 	oldest := clock.Now().UTC().Add(-time.Minute)
 	event := largeChangeEvent(uuid.Must(uuid.NewV7()))
+	event.Actor.Email, event.Actor.Name = "part-actor-"+uuid.NewString()[:8]+"@example.test", "Part Recovery Actor"
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil || len(encoded.Parts) < 2 {
 		t.Fatalf("encode event %s into parts: %d parts, %v", event.EventID, len(encoded.Parts), err)
@@ -138,9 +141,9 @@ func TestRuntimeAuditPartCrashRecovery(t *testing.T) {
 	}
 	requireSameDelta(t, event, row)
 	pipeline.stack().waitForDeadLetters(t, 0)
-	if err := pipeline.stack().exportAndVerify(t, event.Context.OrgID, oldest, clock.Now().UTC().Add(time.Minute)); err != nil {
-		t.Fatalf("export of event %s failed verification: %v", event.EventID, err)
-	}
+	pipeline.requireActorPII(t, event.Actor, row)
+	requireExportWithout(t, pipeline.stack(), event.Context.OrgID, oldest, clock.Now().UTC().Add(time.Minute),
+		[]string{event.Actor.Email, event.Actor.Name})
 }
 
 // TestRuntimeAuditPartConflict stores an altered part with a matching part

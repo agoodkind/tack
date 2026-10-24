@@ -81,12 +81,12 @@ func TestRuntimeAuditReadStaleOwner(t *testing.T) {
 // receipts and receipts published less than one hour ago.
 //
 // The relay records publication and deletes delivered outbox records in one transaction.
-// Only the YugabyteDB case verifies deletion after the one-hour retention period. The test
-// moves stored publication times back with administrator UPDATE statements. Deletion also
-// proves that the relay marked the receipt published, because the test does not
-// acknowledge that read directly.
-//
-// FoundationDB uses the wall clock, and the test cannot wait one hour to verify deletion.
+// Each case then verifies deletion after the one-hour retention period. The YugabyteDB
+// case moves stored publication times back with administrator UPDATE statements. The
+// FoundationDB case requires the relay's publication time and cleanup key on the receipt
+// and moves both back with an administrator transaction. Deletion also proves that the
+// relay marked the receipt published, because the test does not acknowledge that read
+// directly.
 //
 // The test also checks the YugabyteDB lifecycle grants.
 func TestRuntimeAuditReadReceiptCleanup(t *testing.T) {
@@ -113,11 +113,7 @@ func TestRuntimeAuditReadReceiptCleanup(t *testing.T) {
 			if err := backend.store.FinalizeRead(t.Context(), fixture.completion); err != nil {
 				t.Fatalf("finalize before receipt retention expires: %v", err)
 			}
-			if backend.agePublished == nil {
-				t.Logf("%s: this case does not prove deletion after the retention period", backend.name)
-				return
-			}
-			backend.agePublished(t)
+			backend.agePublished(t, eventID)
 			cleanupInChild(t, backend)
 			if err := backend.store.FinalizeRead(t.Context(), fixture.completion); !errors.Is(err, audit.ErrReadOwnerLost) {
 				t.Fatalf("finalization after cleanup = %v, want audit.ErrReadOwnerLost", err)
