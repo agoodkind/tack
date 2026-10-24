@@ -11,6 +11,9 @@ const (
 	TargetNodeTypeDefinition = "node_type"
 	// TargetNodeTypePropertyDefinition is the Target.NodeType value for a property definition record.
 	TargetNodeTypePropertyDefinition = "property_def"
+	// TargetSequenceCounter is the Target.NodeType value of a resource target
+	// for one FoundationDB sequence counter.
+	TargetSequenceCounter = "sequence"
 )
 
 // ChangeEvent builds one format 2 change event for change as part of operation.
@@ -52,6 +55,10 @@ func changeVerb(change Change) Verb {
 	created, deleted := len(change.Before) == 0, len(change.After) == 0
 	if change.Target.Kind == TargetKindRelationship {
 		return pickVerb(created, deleted, VerbRelationshipAdd, VerbRelationshipUpdate, VerbRelationshipRemove)
+	}
+	if change.Target.Kind == TargetKindResource && change.Target.NodeType == TargetSequenceCounter {
+		// The store never deletes a sequence counter.
+		return pickVerb(created, deleted, VerbSequenceCreate, VerbSequenceUpdate, VerbSequenceUpdate)
 	}
 	switch change.Target.NodeType {
 	case TargetNodeTypeDefinition:

@@ -13,7 +13,15 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-const archiveUploadIncompleteCode = "archive_upload_incomplete"
+const (
+	archiveUploadIncompleteCode = "archive_upload_incomplete"
+	// archiveUploaded is the observed state of a node prefix after the command
+	// uploaded the node artifacts.
+	archiveUploaded = "uploaded"
+	// archiveAlreadyArchived is the observed state of a node prefix that
+	// contained every node artifact before the command ran.
+	archiveAlreadyArchived = "already_archived"
+)
 
 type nodeArchiveEvidence struct {
 	Bucket     string   `json:"bucket"`
@@ -23,6 +31,7 @@ type nodeArchiveEvidence struct {
 	KeyPrefix  string   `json:"key_prefix"`
 	Artifacts  []string `json:"artifacts"`
 	Present    []string `json:"present,omitempty"`
+	State      string   `json:"state,omitempty"`
 }
 
 func (nodeArchiveEvidence) isStepEvidence() {}
@@ -50,16 +59,25 @@ func runBackupYBArchiveNodeRecorded(ctx context.Context, cfg *config.Config, run
 	}
 	planned := nodeArchiveEvidence{
 		Bucket: cfg.BackupS3BucketMain, RunID: target.manifest.RunID, SnapshotID: target.manifest.SnapshotID,
-		Node: nodeName, KeyPrefix: target.prefix, Artifacts: archiveArtifactKeys(target.prefix), Present: nil,
+		Node: nodeName, KeyPrefix: target.prefix, Artifacts: archiveArtifactKeys(target.prefix), Present: nil, State: "",
 	}
 	plannedJSON, err := encodeEvidence(ctx, planned)
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 	step := audit.ExternalStep(externalTarget("s3/"+planned.Bucket+"/"+target.prefix), plannedJSON)
+	if target.complete {
+		return recordedStep(ctx, steps, step,
+			func(context.Context) error { return nil },
+			func(ctx context.Context) (json.RawMessage, error) {
+				return observeNodeArchive(ctx, client, planned, archiveAlreadyArchived)
+			})
+	}
 	details, runErr := recordedStep(ctx, steps, step,
 		func(ctx context.Context) error { return uploadYBNodeArchive(ctx, cfg, cli, nodeName, target) },
-		func(ctx context.Context) (json.RawMessage, error) { return observeNodeArchive(ctx, client, planned) })
+		func(ctx context.Context) (json.RawMessage, error) {
+			return observeNodeArchive(ctx, client, planned, archiveUploaded)
+		})
 	if runErr == nil {
 		return details, nil
 	}
@@ -99,7 +117,10 @@ func presentArchiveArtifacts(ctx context.Context, client *s3.Client, planned nod
 	return present, nil
 }
 
-func observeNodeArchive(ctx context.Context, client *s3.Client, planned nodeArchiveEvidence) (json.RawMessage, error) {
+// observeNodeArchive lists the node artifacts in the bucket and returns the
+// planned evidence with the present artifacts and state. It returns an error
+// when an artifact is absent.
+func observeNodeArchive(ctx context.Context, client *s3.Client, planned nodeArchiveEvidence, state string) (json.RawMessage, error) {
 	present, err := presentArchiveArtifacts(ctx, client, planned)
 	if err != nil {
 		return nil, err
@@ -111,6 +132,6 @@ func observeNodeArchive(ctx context.Context, client *s3.Client, planned nodeArch
 		return nil, err
 	}
 	observed := planned
-	observed.Present = present
+	observed.Present, observed.State = present, state
 	return encodeEvidence(ctx, observed)
 }

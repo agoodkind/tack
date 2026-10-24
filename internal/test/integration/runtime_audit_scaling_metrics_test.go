@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +40,34 @@ func successfulToolText(response publicResponse) (string, error) {
 	return decoded.Result.Content[0].Text, nil
 }
 
+// call selects an app handler by taking the index modulo the handler count and
+// sends an MCP tool call. It records the request count and response latency,
+// then returns the tool text or a response error.
+func (run *scalingRun) call(t *testing.T, index int, tool string, arguments map[string]any) (string, error) {
+	t.Helper()
+	server := *run.server
+	server.handler = run.handlers[index%len(run.handlers)]
+	started := clock.Now()
+	response := server.rpc(t, newRequestID(t, "scaling"), "tools/call", map[string]any{"name": tool, "arguments": arguments})
+	latency := clock.Since(started)
+	run.mu.Lock()
+	run.result.latencies = append(run.result.latencies, latency)
+	run.result.requests++
+	run.mu.Unlock()
+	return successfulToolText(response)
+}
+
+// mustCall returns the tool text from call and fails the test if call returns
+// an error.
+func (run *scalingRun) mustCall(t *testing.T, index int, tool string, arguments map[string]any) string {
+	t.Helper()
+	text, err := run.call(t, index, tool, arguments)
+	if err != nil {
+		t.Fatalf("The scaling workload received an error instead of a successful result from tool %s: %v", tool, err)
+	}
+	return text
+}
+
 // rawIDOf extracts the value after the last Raw id marker in tool text. It
 // returns errToolFailed if the marker or closing backtick is missing.
 func rawIDOf(text string) (string, error) {
@@ -61,14 +88,14 @@ func rawIDOf(text string) (string, error) {
 // starting audit workers. It times recovery until the FoundationDB outbox
 // empties and the ledger count stabilizes. It then records ledger events,
 // broker records, lease takeovers, and database, broker, and FoundationDB byte
-// measurements. Each lease acquisition after the first is a takeover.
+// measurements. Each lease acquisition after the first is a takeover. The
+// YugabyteDB audit table sizes are differences from the sizes that
+// startScalingRun read before the workload.
 func (run *scalingRun) measure(t *testing.T) {
 	t.Helper()
 	run.result.backlog = run.outboxEntries(t)
 	admin := ledgerAdminPool(t)
-	if err := admin.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_outbox_records.sql")).Scan(&run.result.yugabyteBacklog); err != nil {
-		t.Fatalf("Counting YugabyteDB operator outbox rows and parts failed: %v", err)
-	}
+	run.result.yugabyteBacklog = outboxRecordCount(t, admin)
 	topic := "audit.scaling-test-" + uuid.NewString()[:8]
 	started := clock.Now()
 	run.startWorkers(t, topic)
@@ -81,7 +108,12 @@ func (run *scalingRun) measure(t *testing.T) {
 	run.result.brokerBytes = topicBytes(t, topic)
 	run.result.brokerRecords = topicRecords(t, topic)
 	run.result.takeovers = max(run.leaseAcquisitions.Load()-1, 0)
-	run.result.replicaBytes = run.prefixBytes(t)
+	after := readLedgerStorage(t, admin)
+	run.result.ledgerIndexBytes = after.indexBytes - run.storageBefore.indexBytes
+	run.result.ledgerTotalBytes = after.totalBytes - run.storageBefore.totalBytes
+	run.result.eventBytes = perUnit(after.eventTableBytes, after.events)
+	run.result.partBytes = perUnit(after.partTableBytes, after.parts)
+	run.measureFoundationDB(t)
 }
 
 // outboxEntries counts the FoundationDB outbox entries under the run's prefix,
@@ -127,22 +159,4 @@ func (run *scalingRun) waitForLedger(t *testing.T, admin *pgxpool.Pool) (int64, 
 	}
 	t.Fatalf("The ledger event count did not become positive and stable before the deadline for organization %s: %d events", run.server.orgID, events)
 	return 0, 0
-}
-
-// row formats the run's measurements as a Markdown table row. It calculates
-// throughput and latency percentiles and marks index bytes as unmeasured.
-func (result scalingResult) row() string {
-	latencies := slices.Clone(result.latencies)
-	slices.Sort(latencies)
-	percentile := func(fraction float64) time.Duration {
-		if len(latencies) == 0 {
-			return 0
-		}
-		return latencies[int(fraction*float64(len(latencies)-1))]
-	}
-	throughput := float64(result.requests) / result.duration.Seconds()
-	return fmt.Sprintf("| %s | %d | %d | %.1f | %s | %s | %s | %d | %s | %d | %d | %d | %d | not measured | %d |\n",
-		result.label, result.requests, result.ledgerEvents, throughput, percentile(0.5), percentile(0.95), percentile(0.99),
-		result.backlog, result.recovery.Round(time.Millisecond), result.databaseBytes, result.brokerRecords, result.brokerBytes,
-		result.takeovers, result.replicaBytes)
 }

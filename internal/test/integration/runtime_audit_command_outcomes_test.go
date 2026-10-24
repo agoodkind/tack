@@ -42,6 +42,9 @@ type migrationRangeEvidence struct {
 //     that events do not contain role passwords.
 //   - archive_node_refused checks that yb-archive-node refuses to run without
 //     TACK_BACKUP_YB_ROCKSDB_DIR and records the refusal without a step.
+//   - archive_node_runs checks the manifest evidence of an archive step and
+//     the already_archived state of a node prefix that contains every
+//     artifact.
 //   - staleness_check checks that an empty backup bucket produces a stale
 //     verdict while the step and command record completed outcomes. It checks
 //     the bucket, the skipped FoundationDB check, and a STALE verdict for each
@@ -65,6 +68,7 @@ func TestRuntimeAuditCommandOutcomes(t *testing.T) {
 	t.Run("search_reindex", testSearchReindexOutcomes)
 	t.Run("seed_roles", testSeedRolesOutcomes)
 	t.Run("archive_node_refused", testArchiveNodeRefused)
+	t.Run("archive_node_runs", testArchiveNodeRuns)
 	t.Run("staleness_check", testStalenessCheckOutcome)
 	t.Run("access_rollout", testAccessRolloutOutcomes)
 }

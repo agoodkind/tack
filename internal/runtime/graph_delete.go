@@ -7,8 +7,15 @@ import (
 	"sync"
 	"time"
 
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/cli"
+	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 )
+
+// DeleteResumerService is the service name for delete resumer audit events.
+const DeleteResumerService = "tack-delete-resumer"
 
 // deleteResumeInterval is the time between two checks for subtree delete
 // jobs that lost their runner.
@@ -60,7 +67,16 @@ func (g *Graph) resumeDeletes(ctx context.Context) {
 			telemetry.L(ctx).ErrorContext(ctx, "node.subtree_delete.resume_panicked", slog.String("err", fmt.Sprint(recovered)))
 		}
 	}()
-	_, _ = g.nodes.ResumeSubtreeDeletes(ctx, deleteStaleAfter)
+	_, _ = g.nodes.ResumeSubtreeDeletes(ctx, deleteStaleAfter, DeleteResumerAudit(g.fdbStores))
+}
+
+// DeleteResumerAudit configures the delete resumer to write audit events to
+// the FoundationDB operator outbox with the DeleteResumerService actor.
+func DeleteResumerAudit(stores *fdbadapter.Stores) service.JobAudit {
+	return service.JobAudit{
+		Outbox: audit.NewAppendOutbox(stores.OpsOutbox),
+		Actor:  audit.ServiceActor(cli.ServiceActorID(DeleteResumerService), DeleteResumerService),
+	}
 }
 
 // stopDeleteResumer stops the resume loop and waits for it.

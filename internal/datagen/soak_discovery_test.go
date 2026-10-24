@@ -1,6 +1,7 @@
 package datagen
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -55,26 +56,15 @@ func TestDiscoverSoakProjectsUsesRawIDsForExistingCorpus(t *testing.T) {
 		assertRawUUID(t, issue.Name, issue.RawID)
 		assertRawUUID(t, issue.Name+" reference", issue.Reference)
 	}
-	if len(fake.renderedLabelGets) != 0 {
-		t.Fatalf("rendered label gets = %v, want none", fake.renderedLabelGets)
+	if len(fake.labelCreateArguments) != 0 {
+		t.Fatalf("label creates = %v, want none for listed labels", fake.labelCreateArguments)
 	}
-	if len(fake.labelCreateArguments) != 2 {
-		t.Fatalf("label create count = %d, want 2", len(fake.labelCreateArguments))
+	wantGets := []string{
+		"qa-777-o01-w01::developer-experience-01-w01-seed-777",
+		"qa-777-o01-w01::Soak label op-00000007 seed-777",
 	}
-	wantNames := []string{
-		"developer-experience-01-w01-seed-777",
-		"Soak label op-00000007 seed-777",
-	}
-	for index, arguments := range fake.labelCreateArguments {
-		if arguments.WorkspaceReference != "qa-777-o01-w01" {
-			t.Fatalf("label create workspace = %q", arguments.WorkspaceReference)
-		}
-		if arguments.Name != wantNames[index] {
-			t.Fatalf("label create name = %q, want %q", arguments.Name, wantNames[index])
-		}
-		if len(arguments.Properties) != 0 {
-			t.Fatalf("label create properties = %v, want none", arguments.Properties)
-		}
+	if !slices.Equal(fake.labelGets, wantGets) {
+		t.Fatalf("label gets = %q, want %q", fake.labelGets, wantGets)
 	}
 }
 

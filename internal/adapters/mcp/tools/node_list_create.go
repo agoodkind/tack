@@ -165,6 +165,10 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 		instr := ""
 		if result.Existed {
 			instr = "This create matched an existing operation. No new write was performed."
+			target := nodeTarget(result.View.NodeType, result.View.ID)
+			noteToolResult(ctx, audit.OutcomeDetails{
+				Outcome: audit.OutcomeCompleted, FailureCode: "", FailureMessage: "", CommittedSteps: nil,
+			}, idempotentMatchReason, &target)
 		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		audit.SetAuditEntity(ctx, audit.Entity{

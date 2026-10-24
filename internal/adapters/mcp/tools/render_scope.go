@@ -19,7 +19,7 @@ func (rc *renderCtx) referenceIdentifierFor(view *node.NodeView) string {
 	case node.ReferenceScopedSequence:
 		sequence := numberProp(view, nodeType.Reference.Property)
 		if sequence <= 0 {
-			return ""
+			return rc.scopedNameIdentifierFor(view, nodeType)
 		}
 		scopeIdent := rc.scopeIdentifierFor(view)
 		if scopeIdent == "" {

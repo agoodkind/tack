@@ -1,15 +1,13 @@
 package integration_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -62,10 +60,12 @@ func (stack runtimeAuditStack) deliverEncoded(t *testing.T, event audit.Event, t
 	pipeline.startRelay(t, nil)
 }
 
-// requireManifestTamperRejected exports a bundle and requires verification
-// to report a read manifest failure for each missing, reordered, or altered
-// part. The altered payload includes a matching part digest.
-func (stack runtimeAuditStack) requireManifestTamperRejected(t *testing.T, orgID uuid.UUID, oldest, latest time.Time, eventID uuid.UUID) {
+// requireExportTamperRejected exports a bundle and edits one exported row
+// for each tamper case. The cases remove, reorder, or alter the manifest
+// parts of the read event readID, and alter the target or the delta of the
+// change event changeID. Verification of each edited bundle must fail and
+// must report the expected failure for the edited row.
+func (stack runtimeAuditStack) requireExportTamperRejected(t *testing.T, orgID uuid.UUID, oldest, latest time.Time, readID, changeID uuid.UUID) {
 	t.Helper()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -85,59 +85,28 @@ func (stack runtimeAuditStack) requireManifestTamperRejected(t *testing.T, orgID
 	if err != nil {
 		t.Fatalf("read the exported rows: %v", err)
 	}
-	mutations := map[string]func([]audit.ManifestPart) []audit.ManifestPart{
-		"missing": func(parts []audit.ManifestPart) []audit.ManifestPart { return parts[:len(parts)-1] },
-		"reordered": func(parts []audit.ManifestPart) []audit.ManifestPart {
-			parts[0], parts[1] = parts[1], parts[0]
-			return parts
-		},
-		"altered": func(parts []audit.ManifestPart) []audit.ManifestPart {
-			parts[0].Payload = bytes.Replace(parts[0].Payload, []byte(`"issue"`), []byte(`"epic"`), 1)
-			digest := sha256.Sum256(parts[0].Payload)
-			parts[0].Digest = hex.EncodeToString(digest[:])
-			return parts
-		},
-	}
-	for name, mutate := range mutations {
-		tampered := tamperManifestRow(t, original, eventID, mutate)
+	tampers := manifestTampers(t, readID)
+	maps.Copy(tampers, changeTampers(t, changeID))
+	for name, tamper := range tampers {
+		tampered := tamperExportedRow(t, original, tamper.eventID, tamper.mutate)
 		if err := os.WriteFile(eventsPath, tampered, 0o600); err != nil {
-			t.Fatalf("write the %s manifest rows: %v", name, err)
+			t.Fatalf("write the %s rows: %v", name, err)
 		}
 		report, err := audit.VerifyBundle(dir, public)
 		if err != nil {
-			t.Fatalf("verify the %s manifest bundle: %v", name, err)
+			t.Fatalf("verify the %s bundle: %v", name, err)
 		}
-		if !strings.Contains(strings.Join(report.ChainBreaks, "\n"), "read manifest") {
-			t.Fatalf("verification of a %s manifest part = %v, want a read manifest failure", name, report.ChainBreaks)
+		if report.Err() == nil {
+			t.Fatalf("verification of the %s bundle passed, want a failure", name)
+		}
+		rowPrefix := "row " + tamper.eventID.String() + " "
+		reported := slices.ContainsFunc(report.ChainBreaks, func(chainBreak string) bool {
+			return strings.HasPrefix(chainBreak, rowPrefix) && strings.Contains(chainBreak, tamper.failure)
+		})
+		if !reported {
+			t.Fatalf("verification of the %s bundle = %v, want %q for row %s", name, report.ChainBreaks, tamper.failure, tamper.eventID)
 		}
 	}
-}
-
-// tamperManifestRow applies one change to the manifest parts of the selected
-// event in the exported rows.
-func tamperManifestRow(t *testing.T, rows []byte, eventID uuid.UUID, mutate func([]audit.ManifestPart) []audit.ManifestPart) []byte {
-	t.Helper()
-	lines := bytes.Split(bytes.TrimSuffix(rows, []byte("\n")), []byte("\n"))
-	output := make([]byte, 0, len(rows))
-	for _, line := range lines {
-		var row audit.Row
-		if err := json.Unmarshal(line, &row); err != nil {
-			t.Fatalf("decode an exported row: %v", err)
-		}
-		if row.EventID == eventID {
-			if len(row.ManifestParts) < 2 {
-				t.Fatalf("exported row %s has %d manifest parts, want at least 2", eventID, len(row.ManifestParts))
-			}
-			row.ManifestParts = mutate(row.ManifestParts)
-			encoded, err := json.Marshal(row)
-			if err != nil {
-				t.Fatalf("encode the tampered row: %v", err)
-			}
-			line = encoded
-		}
-		output = append(append(output, line...), '\n')
-	}
-	return output
 }
 
 // requireStoredManifest requires the reader to return the declared number

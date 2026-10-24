@@ -30,6 +30,11 @@ const (
 	VerbNodeTypeUpdate     Verb = "node_type.update"
 	// VerbNodeTypeDelete records the deletion of a node type definition.
 	VerbNodeTypeDelete Verb = "node_type.delete"
+	// VerbSequenceCreate records the first stored value of a sequence counter.
+	VerbSequenceCreate Verb = "sequence.create"
+	// VerbSequenceUpdate records a change to the stored value of a sequence
+	// counter.
+	VerbSequenceUpdate Verb = "sequence.update"
 	// VerbNodeReferenceRename records a change to a node reference.
 	VerbNodeReferenceRename Verb = "node.reference_rename"
 	VerbOrgMemberAdd        Verb = "org.member_add"
@@ -241,6 +246,9 @@ const (
 	// VerbAuditPartitionMaintain records one audit partition maintenance run
 	// of the audit-consumer.
 	VerbAuditPartitionMaintain Verb = "audit.partition_maintain"
+	// VerbNodeSubtreeDeleteResume records one run of the delete resumer that
+	// finishes a subtree delete job without a runner.
+	VerbNodeSubtreeDeleteResume Verb = "node.subtree_delete_resume"
 )
 
 // stateChangeVerbs is the set of application events that must be persisted
@@ -259,6 +267,8 @@ var stateChangeVerbs = map[Verb]bool{
 	VerbPropertyDefDelete:  true,
 	VerbNodeTypeCreate:     true,
 	VerbNodeTypeUpdate:     true,
+	VerbSequenceCreate:     true,
+	VerbSequenceUpdate:     true,
 	VerbOrgMemberAdd:       true,
 	VerbOrgMemberRemove:    true,
 	VerbOrgMemberRoleSet:   true,
