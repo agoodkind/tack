@@ -52,7 +52,7 @@ func TestDeleteLargerThanOneBudget(t *testing.T) {
 	}
 	requireNodesPresent(t, env, []uuid.UUID{project.ID})
 
-	finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0)
+	finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0, env.LedgerResumeAudit())
 	if err != nil || finished != 1 {
 		t.Fatalf("resume = %d, %v; want 1 finished job", finished, err)
 	}

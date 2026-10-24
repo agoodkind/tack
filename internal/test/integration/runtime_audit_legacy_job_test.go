@@ -109,7 +109,7 @@ func resumeLegacyJob(t *testing.T, env *integration.TestEnv, actorID uuid.UUID, 
 		record.AuditTemplate = legacyTemplate(t, env, actorID, root.ID)
 	}
 	writeLegacyJob(t, record)
-	if finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0); err != nil || finished != 1 {
+	if finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0, env.LedgerResumeAudit()); err != nil || finished != 1 {
 		t.Fatalf("ResumeSubtreeDeletes finished %d jobs with error %v instead of finishing one job without an error", finished, err)
 	}
 
