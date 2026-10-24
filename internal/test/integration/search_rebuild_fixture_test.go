@@ -3,6 +3,7 @@ package integration
 import (
 	"errors"
 	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -51,6 +52,47 @@ func runRebuildUntil(t *testing.T, fixture queryFixture, done func(searchdomain.
 
 // rebuildFinished accepts the state after the replacement record is gone.
 func rebuildFinished(_ searchdomain.Rebuild, found bool) bool { return !found }
+
+// shortenSearchSessions sets a 3 second idle limit and a 6 second absolute
+// limit for search sessions. Retirement of the old index then waits at most
+// 6 seconds for a session that a test search opened. A test must set the
+// limits before the fixture builds the graph.
+func shortenSearchSessions(t *testing.T) {
+	t.Helper()
+	t.Setenv("OPENSEARCH_SESSION_IDLE_TIMEOUT", "3s")
+	t.Setenv("OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT", "6s")
+}
+
+// inState accepts a replacement in state.
+func inState(state searchdomain.RebuildState) func(searchdomain.Rebuild, bool) bool {
+	return func(current searchdomain.Rebuild, found bool) bool { return found && current.State == state }
+}
+
+// pagesCurrent reports whether index stores one active document of the
+// current revision for every page the production reader returns.
+func pagesCurrent(t *testing.T, fixture queryFixture, index string, nodeID uuid.UUID) bool {
+	t.Helper()
+	pages := readSearchPages(t, fixture.Stores, nodeID, runtimePageBytes)
+	documents := searchNodePages(t, fixture.Client, index, nodeID, false)
+	matched := len(documents) == len(pages)
+	for number := range min(len(documents), len(pages)) {
+		matched = matched && documents[number].NodeRevision == pages[number].Revision
+	}
+	return matched
+}
+
+// requireSearchFinds requires public search for query to return every node
+// and returns the complete results.
+func requireSearchFinds(t *testing.T, fixture queryFixture, query string, nodes ...uuid.UUID) []uuid.UUID {
+	t.Helper()
+	results := callEverySearchPage(t, query, fixture.Harness)
+	for _, nodeID := range nodes {
+		if !slices.Contains(results.IDs, nodeID) {
+			t.Fatalf("search %q returned %v, want node %s", query, results.IDs, nodeID)
+		}
+	}
+	return results.IDs
+}
 
 // editOpaqueNode replaces the included value of one node through the
 // production write path.
