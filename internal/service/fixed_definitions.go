@@ -92,7 +92,7 @@ func correctDefinition(ctx context.Context, store FixedDefinitionStore, stage Fi
 	if dryRun {
 		result.Corrected++
 		result.CorrectedIDs = append(result.CorrectedIDs, identity)
-		result.Changes = append(result.Changes, definitionChange(fixedOutcomeCorrected, stored, corrected))
+		result.Changes = append(result.Changes, definitionChange(FixedOutcomeCorrected, stored, corrected))
 		return nil
 	}
 	staged, err := stage(ctx, stored, corrected)
@@ -106,12 +106,12 @@ func correctDefinition(ctx context.Context, store FixedDefinitionStore, stage Fi
 	if !replaced {
 		result.Conflicted++
 		result.ConflictedIDs = append(result.ConflictedIDs, identity)
-		result.Changes = append(result.Changes, definitionChange(fixedOutcomeConflicted, stored, corrected))
+		result.Changes = append(result.Changes, definitionChange(FixedOutcomeConflicted, stored, corrected))
 		return nil
 	}
 	result.Corrected++
 	result.CorrectedIDs = append(result.CorrectedIDs, identity)
-	result.Changes = append(result.Changes, definitionChange(fixedOutcomeCorrected, stored, corrected))
+	result.Changes = append(result.Changes, definitionChange(FixedOutcomeCorrected, stored, corrected))
 	telemetry.L(ctx).InfoContext(ctx, "metadata.fixed_definition.corrected", slog.String("org_id", stored.OrgID.String()),
 		slog.String("property_definition_id", stored.ID.String()), slog.String("name", stored.Name))
 	return nil

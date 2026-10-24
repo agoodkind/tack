@@ -94,11 +94,11 @@ func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.
 	}
 	wantChanges := []service.FixedDefinitionChange{
 		{
-			OrgID: env.OrgID, PropertyDefID: parentDefinition.ID, Name: "parent_id", Outcome: "corrected",
+			OrgID: env.OrgID, PropertyDefID: parentDefinition.ID, Name: "parent_id", Outcome: service.FixedOutcomeCorrected,
 			Search: &service.FixedSearchChange{Before: parentDefinition.Search, After: stored.Search}, AppliesToFeatures: nil,
 		},
 		{
-			OrgID: env.OrgID, PropertyDefID: scopeDefinition.ID, Name: "scope_id", Outcome: "corrected", Search: nil,
+			OrgID: env.OrgID, PropertyDefID: scopeDefinition.ID, Name: "scope_id", Outcome: service.FixedOutcomeCorrected, Search: nil,
 			AppliesToFeatures: &service.FixedListChange{Before: []string{node.FeatureHasSequenceID}, After: scope.AppliesToFeatures},
 		},
 	}
@@ -118,11 +118,15 @@ func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.
 	}
 }
 
-// requireDefinitionChanges encodes each expected entry and its reported
-// entry as JSON, matching entries by property definition ID. It fails when
-// the entries differ and uses run to label the failure message.
+// requireDefinitionChanges first fails when the reported and expected entry
+// counts differ. It then encodes each expected entry and its reported entry
+// as JSON, matching entries by property definition ID. It fails when the
+// entries differ and uses run to label the failure message.
 func requireDefinitionChanges(t *testing.T, run string, changes, want []service.FixedDefinitionChange) {
 	t.Helper()
+	if len(changes) != len(want) {
+		t.Fatalf("%s reported %d definition changes %+v, want %d", run, len(changes), changes, len(want))
+	}
 	got := make(map[uuid.UUID]string, len(changes))
 	for _, change := range changes {
 		encoded, err := json.Marshal(change)

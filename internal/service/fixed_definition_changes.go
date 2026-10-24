@@ -7,9 +7,18 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
+// FixedOutcome represents the outcome of a fixed definition or node type
+// change.
+type FixedOutcome string
+
+// FixedOutcome constants provide the supported outcome values.
 const (
-	fixedOutcomeCorrected  = "corrected"
-	fixedOutcomeConflicted = "conflicted"
+	// FixedOutcomeCorrected means the execute run replaced the record or a
+	// dry run found that it needs correction.
+	FixedOutcomeCorrected FixedOutcome = "corrected"
+	// FixedOutcomeConflicted means the record changed after the scan read it,
+	// and the execute run did not replace it.
+	FixedOutcomeConflicted FixedOutcome = "conflicted"
 )
 
 // FixedDefinitionChange records the org ID, property definition ID, name,
@@ -19,7 +28,7 @@ type FixedDefinitionChange struct {
 	OrgID             uuid.UUID          `json:"org_id"`
 	PropertyDefID     uuid.UUID          `json:"property_def_id"`
 	Name              string             `json:"name"`
-	Outcome           string             `json:"outcome"`
+	Outcome           FixedOutcome       `json:"outcome"`
 	Search            *FixedSearchChange `json:"search,omitempty"`
 	AppliesToFeatures *FixedListChange   `json:"applies_to_features,omitempty"`
 }
@@ -46,7 +55,7 @@ type FixedNodeTypeChange struct {
 	OrgID        uuid.UUID       `json:"org_id"`
 	NodeTypeID   uuid.UUID       `json:"node_type_id"`
 	TypeKey      string          `json:"type_key"`
-	Outcome      string          `json:"outcome"`
+	Outcome      FixedOutcome    `json:"outcome"`
 	CanLiveUnder FixedListChange `json:"can_live_under"`
 }
 
@@ -56,7 +65,7 @@ type FixedNodeTypeChange struct {
 // assigns a new projection. definitionChange compares the Search pointers
 // to detect a Search change and uses [slices.Equal] to detect an
 // AppliesToFeatures change.
-func definitionChange(outcome string, stored, corrected *node.PropertyDef) FixedDefinitionChange {
+func definitionChange(outcome FixedOutcome, stored, corrected *node.PropertyDef) FixedDefinitionChange {
 	change := FixedDefinitionChange{
 		OrgID: stored.OrgID, PropertyDefID: stored.ID, Name: stored.Name, Outcome: outcome, Search: nil, AppliesToFeatures: nil,
 	}
@@ -69,7 +78,7 @@ func definitionChange(outcome string, stored, corrected *node.PropertyDef) Fixed
 	return change
 }
 
-func nodeTypeChange(outcome string, stored, corrected *node.NodeType) FixedNodeTypeChange {
+func nodeTypeChange(outcome FixedOutcome, stored, corrected *node.NodeType) FixedNodeTypeChange {
 	return FixedNodeTypeChange{
 		OrgID: stored.OrgID, NodeTypeID: stored.ID, TypeKey: stored.TypeKey, Outcome: outcome,
 		CanLiveUnder: FixedListChange{Before: stored.CanLiveUnder, After: corrected.CanLiveUnder},

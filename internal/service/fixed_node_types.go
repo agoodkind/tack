@@ -85,7 +85,7 @@ func correctNodeType(
 	if dryRun {
 		result.Corrected++
 		result.CorrectedIDs = append(result.CorrectedIDs, stored.ID)
-		result.Changes = append(result.Changes, nodeTypeChange(fixedOutcomeCorrected, stored, corrected))
+		result.Changes = append(result.Changes, nodeTypeChange(FixedOutcomeCorrected, stored, corrected))
 		return nil
 	}
 	staged, err := stage(ctx, stored, corrected)
@@ -99,12 +99,12 @@ func correctNodeType(
 	if !replaced {
 		result.Conflicted++
 		result.ConflictedIDs = append(result.ConflictedIDs, stored.ID)
-		result.Changes = append(result.Changes, nodeTypeChange(fixedOutcomeConflicted, stored, corrected))
+		result.Changes = append(result.Changes, nodeTypeChange(FixedOutcomeConflicted, stored, corrected))
 		return nil
 	}
 	result.Corrected++
 	result.CorrectedIDs = append(result.CorrectedIDs, stored.ID)
-	result.Changes = append(result.Changes, nodeTypeChange(fixedOutcomeCorrected, stored, corrected))
+	result.Changes = append(result.Changes, nodeTypeChange(FixedOutcomeCorrected, stored, corrected))
 	telemetry.L(ctx).InfoContext(ctx, "metadata.fixed_node_type.corrected", slog.String("org_id", stored.OrgID.String()),
 		slog.String("node_type_id", stored.ID.String()), slog.String("type_key", stored.TypeKey))
 	return nil

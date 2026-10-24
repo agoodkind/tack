@@ -39,7 +39,7 @@ func TestNodeIntegrityFixedNodeTypesCorrectsCanLiveUnder(t *testing.T) {
 		t.Fatalf("issue CanLiveUnder after the dry run = %v, want [project]", got)
 	}
 	wantChange := service.FixedNodeTypeChange{
-		OrgID: env.OrgID, NodeTypeID: issueType.ID, TypeKey: "issue", Outcome: "corrected",
+		OrgID: env.OrgID, NodeTypeID: issueType.ID, TypeKey: "issue", Outcome: service.FixedOutcomeCorrected,
 		CanLiveUnder: service.FixedListChange{Before: []string{"project"}, After: seeded},
 	}
 	requireNodeTypeChange(t, "dry run", preview.Changes, wantChange)
