@@ -50,13 +50,15 @@ type FixedListChange struct {
 
 // FixedNodeTypeChange records the org ID, node type ID, type key, and
 // outcome for one corrected or conflicted node type. It always includes
-// the stored and corrected CanLiveUnder lists.
+// the stored and corrected CanLiveUnder lists. Reason explains a conflict
+// that the stored value causes before any write.
 type FixedNodeTypeChange struct {
 	OrgID        uuid.UUID       `json:"org_id"`
 	NodeTypeID   uuid.UUID       `json:"node_type_id"`
 	TypeKey      string          `json:"type_key"`
 	Outcome      FixedOutcome    `json:"outcome"`
 	CanLiveUnder FixedListChange `json:"can_live_under"`
+	Reason       string          `json:"reason,omitempty"`
 }
 
 // definitionChange builds a FixedDefinitionChange from the outcome and
@@ -81,6 +83,6 @@ func definitionChange(outcome FixedOutcome, stored, corrected *node.PropertyDef)
 func nodeTypeChange(outcome FixedOutcome, stored, corrected *node.NodeType) FixedNodeTypeChange {
 	return FixedNodeTypeChange{
 		OrgID: stored.OrgID, NodeTypeID: stored.ID, TypeKey: stored.TypeKey, Outcome: outcome,
-		CanLiveUnder: FixedListChange{Before: stored.CanLiveUnder, After: corrected.CanLiveUnder},
+		CanLiveUnder: FixedListChange{Before: stored.CanLiveUnder, After: corrected.CanLiveUnder}, Reason: "",
 	}
 }
