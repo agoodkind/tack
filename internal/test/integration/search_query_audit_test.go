@@ -66,16 +66,24 @@ func harnessReadEvents(ctx context.Context, harness *MCPHarness, requestID strin
 }
 
 // harnessOutboxEvents returns events of class with requestID from the
-// FoundationDB outbox. It joins the parts of each multipart event before
-// decoding the event.
+// FoundationDB outbox.
 func harnessOutboxEvents(ctx context.Context, harness *MCPHarness, requestID string, class audit.OperationClass) ([]audit.Event, error) {
+	return harnessOutboxMatching(ctx, harness, requestID, func(event audit.Event) bool {
+		return event.Context.RequestID == requestID && event.Context.OperationClass == class
+	})
+}
+
+// harnessOutboxMatching returns the FoundationDB outbox events that match
+// accepts. It joins the parts of each multipart event before decoding the
+// event. label identifies the request or tool in errors.
+func harnessOutboxMatching(ctx context.Context, harness *MCPHarness, label string, accepts func(audit.Event) bool) ([]audit.Event, error) {
 	type outboxRecord struct {
 		Message string `json:"audit_message"`
 		EventID string `json:"event_id"`
 		Payload []byte `json:"payload"`
 	}
 	if harness.outbox == nil {
-		return nil, fmt.Errorf("test harness for request %s does not have a FoundationDB outbox reader", requestID)
+		return nil, fmt.Errorf("test harness for %s does not have a FoundationDB outbox reader", label)
 	}
 	envelopes := map[string][]byte{}
 	var events []audit.Event
@@ -108,7 +116,7 @@ func harnessOutboxEvents(ctx context.Context, harness *MCPHarness, requestID str
 				}
 				event = envelope.Event
 			}
-			if event.Context.RequestID == requestID && event.Context.OperationClass == class {
+			if accepts(event) {
 				events = append(events, event)
 			}
 		}

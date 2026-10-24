@@ -23,10 +23,11 @@ const (
 )
 
 // recordToolResult records the result of one state-changing tool call outside
-// a read collector. The request recorder records every other tool call as a read. When a FoundationDB writer committed change events and the
-// call succeeded, recordToolResult records nothing more. Otherwise it records
-// one format 2 database change result event with the operation ID, target,
-// and outcome of the call.
+// a read collector. The request recorder records every other tool call as a
+// read. When a FoundationDB writer committed change events and the call
+// succeeded, recordToolResult records nothing more. Otherwise it records one
+// format 2 database change result event with the operation ID, target, and
+// outcome of the call.
 func recordToolResult(ctx context.Context, toolName string, result *mcpmcp.CallToolResult, runErr error, refused bool) {
 	committed := auditintent.Committed(ctx)
 	outcome, reason, noted := toolResultOutcome(ctx, refused, runErr, result)

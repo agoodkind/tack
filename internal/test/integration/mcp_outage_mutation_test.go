@@ -6,11 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"goodkind.io/tack/internal/audit"
 )
 
-func TestMCPMutationsPersistAndRecordInvocationsDuringSearchOutage(t *testing.T) {
+func TestMCPMutationsPersistAndRecordChangesDuringSearchOutage(t *testing.T) {
 	harness := NewAuditedMCPHarness(t)
 	createdName := "Outage ledger issue"
 	created := callToolSuccess(t, harness, "tack_create_issue", map[string]any{
@@ -42,52 +41,29 @@ func TestMCPMutationsPersistAndRecordInvocationsDuringSearchOutage(t *testing.T)
 		t.Fatal("deleted issue remains readable from the FoundationDB-backed MCP boundary")
 	}
 
-	assertInvocationRows(t, harness, []string{
+	assertChangeEvents(t, harness, []string{
 		"tack_create_issue",
 		"tack_update_issue",
 		"tack_delete_issue",
 	})
 }
 
-func assertInvocationRows(t *testing.T, harness *MCPHarness, toolNames []string) {
+// assertChangeEvents requires the FoundationDB outbox to contain at least one
+// completed change event of each tool in the harness organization.
+func assertChangeEvents(t *testing.T, harness *MCPHarness, toolNames []string) {
 	t.Helper()
-	pool, err := pgxpool.New(t.Context(), harness.ledgerDSN)
-	if err != nil {
-		t.Fatalf("open audit ledger: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	counts := make(map[string]int64, len(toolNames))
-	for {
-		complete := true
-		for _, toolName := range toolNames {
-			var count int64
-			err := pool.QueryRow(ctx, `
-				SELECT count(*)
-				  FROM audit.events
-				 WHERE org_id = $1
-				   AND action = $2
-				   AND context->>'tool' = $3
-			`, harness.orgID, audit.VerbMCPToolInvoked, toolName).Scan(&count)
-			if err != nil {
-				t.Fatalf("query audit rows for %s: %v", toolName, err)
-			}
-			counts[toolName] = count
-			if count != 1 {
-				complete = false
-			}
+	for _, toolName := range toolNames {
+		events, err := harnessOutboxMatching(ctx, harness, "tool "+toolName, func(event audit.Event) bool {
+			return event.Context.Tool == toolName && event.Context.OrgID == harness.orgID &&
+				event.Context.Phase == audit.PhaseChange && event.Outcome == audit.OutcomeCompleted
+		})
+		if err != nil {
+			t.Fatalf("read the change events of %s: %v", toolName, err)
 		}
-		if complete {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("audit invocation rows did not appear: %v", counts)
-		case <-ticker.C:
+		if len(events) == 0 {
+			t.Fatalf("the FoundationDB outbox does not contain a completed change event of %s", toolName)
 		}
 	}
 }
