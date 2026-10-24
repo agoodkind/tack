@@ -130,15 +130,18 @@ func (l *PoolReadLifecycle) AcknowledgePublished(ctx context.Context, reads []Pu
 	return nil
 }
 
-// splitOutboxRecords separates the plain event or manifest from the ordered parts
-// for ops_outbox_write_encoded.
+// splitOutboxRecords returns the manifest and the ordered part messages of a
+// read event for ops_outbox_write_encoded. It never returns the plain event
+// form. public.ops_outbox stores a plain event as jsonb, and jsonb reorders
+// the keys of Extra. The relay would then compute a digest that differs from
+// the receipt digest and could not mark the read published. The parts keep
+// the exact bytes that the receipt digest covers.
 func splitOutboxRecords(encoded EncodedEvent) ([]byte, [][]byte, error) {
-	records, err := encoded.Records()
+	parts, err := encoded.partMessages()
 	if err != nil {
 		return nil, nil, err
 	}
-	last := len(records) - 1
-	return records[last], records[:last], nil
+	return encoded.Header, parts, nil
 }
 
 // readLifecycleFailure logs a lifecycle error and adds the operation and event ID.
