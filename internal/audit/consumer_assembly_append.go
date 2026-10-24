@@ -13,8 +13,7 @@ import (
 // appendAssembledEvent prepares the event and writes actor personal data,
 // the permanent event identity claim, and the ledger row in a savepoint.
 // It accepts an already projected event without another row. After a new
-// append, it records token use. streamAssembly writes the read manifest parts
-// in the same transaction before the append.
+// append, it records token use.
 func (c *Consumer) appendAssembledEvent(ctx context.Context, tx pgx.Tx, event Event) (projectedEvent, bool, error) {
 	prepared, err := prepareEvent(ctx, event)
 	if err != nil {
