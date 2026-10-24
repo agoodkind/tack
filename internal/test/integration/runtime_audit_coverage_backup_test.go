@@ -82,8 +82,8 @@ func addBackupCommandCases(cases map[string]coverageCase) {
 	cases["command ops backup yb-pitr-init"] = commandCase(audit.VerbOpsBackupYBPITRInit, audit.OutcomeCompleted, backupCommand("ops", "backup", "yb-pitr-init"))
 	cases["command ops backup yb-snapshot-export"] = commandCase(audit.VerbOpsBackupYBSnapshotExport, audit.OutcomeCompleted,
 		backupCommand("ops", "backup", "yb-snapshot-export"))
-	cases["command ops backup restore-drill"] = commandCase(audit.VerbOpsBackupRestoreDrill, audit.OutcomePartiallyCompleted,
-		backupCommand("ops", "backup", "restore-drill"))
+	cases["command ops backup restore-drill"] = commandCase(audit.VerbOpsBackupRestoreDrill, audit.OutcomeCompleted, restoreDrillInput)
+	cases["command ops backup restore-drill"+caseVariantSeparator+"fdb-leg-skipped"] = skippedLegDrillCase()
 	cases["command ops backup restore-version"] = commandCase(audit.VerbOpsBackupFDBRestoreVersion, audit.OutcomeOK,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			env.writeVersionLog(t)
@@ -93,16 +93,8 @@ func addBackupCommandCases(cases map[string]coverageCase) {
 		backupCommand("ops", "backup", "yb-archive-node"))
 	cases["command ops backup staleness-check"] = failingCommandCase(audit.VerbOpsBackupStalenessCheck, audit.OutcomeCompleted,
 		emptyBucketStalenessInput)
-	cases["command ops backup fdb-continuous-init"] = failingCommandCase(audit.VerbOpsBackupFDBContinuousInit, audit.OutcomeFailed,
-		func(t *testing.T, env *coverageEnv) commandInput {
-			input := backupCommand("ops", "backup", "fdb-continuous-init")(t, env)
-			configure := input.configure
-			input.configure = func(cfg *config.Config) {
-				configure(cfg)
-				cfg.BackupFDBContinuous = true
-			}
-			return input
-		})
+	cases["command ops backup fdb-continuous-init"] = commandCase(audit.VerbOpsBackupFDBContinuousInit, audit.OutcomeCompleted,
+		continuousInitInput)
 }
 
 // emptyBucketStalenessInput initializes a new backup bucket that does not

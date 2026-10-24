@@ -86,9 +86,24 @@ func migratableCluster(t *testing.T, _ *coverageEnv) string {
 	return clusterFile
 }
 
+// storeExcludeProcesses is the process count of the exclude case's cluster:
+// the coordinator and the process that the case excludes.
+const storeExcludeProcesses = 2
+
+// storeExcludeInput starts a separate cluster of storeExcludeProcesses
+// processes and excludes the last process, which is not a coordinator.
+func storeExcludeInput(t *testing.T, env *coverageEnv) commandInput {
+	t.Helper()
+	cluster := testenv.FoundationDBCluster(t, storeExcludeProcesses)
+	excluded := cluster.Addresses[len(cluster.Addresses)-1]
+	return storeCommand(
+		func(*testing.T, *coverageEnv) string { return cluster.ClusterFile },
+		func(string, *testing.T) []string { return []string{"ops", "store", "exclude", "--addresses", excluded} },
+	)(t, env)
+}
+
 // addStoreCommandCases adds FoundationDB store command cases with their
-// expected audit verbs and outcomes. The exclude case expects the command to
-// fail when it targets the cluster's coordinator.
+// expected audit verbs and outcomes.
 func addStoreCommandCases(cases map[string]coverageCase) {
 	cases["command ops store status"] = commandCase(audit.VerbOpsStoreStatus, audit.OutcomeOK,
 		storeCommand(sharedCluster, func(string, *testing.T) []string { return []string{"ops", "store", "status"} }))
@@ -100,8 +115,5 @@ func addStoreCommandCases(cases map[string]coverageCase) {
 		storeCommand(freshCluster, func(connection string, t *testing.T) []string {
 			return []string{"ops", "store", "set-coordinators", "--addresses", coordinatorAddress(t, connection)}
 		}))
-	cases["command ops store exclude"] = failingCommandCase(audit.VerbOpsStoreExclude, audit.OutcomeError,
-		storeCommand(freshCluster, func(connection string, t *testing.T) []string {
-			return []string{"ops", "store", "exclude", "--addresses", coordinatorAddress(t, connection)}
-		}))
+	cases["command ops store exclude"] = commandCase(audit.VerbOpsStoreExclude, audit.OutcomeOK, storeExcludeInput)
 }

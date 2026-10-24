@@ -363,8 +363,9 @@ type Config struct {
 	// accepted, because the value reaches fdbcli as a word in a command.
 	OpsFDBRedundancyMode string `env:"TACK_OPS_FDB_REDUNDANCY_MODE" envDefault:"single"`
 	OpsAppContainer      string `env:"TACK_OPS_APP_CONTAINER" envDefault:"tack-app-1"`
-	// OpsFDBClusterDir is the host directory that contains fdb.cluster, which
-	// the ops fdbcli one-shots mount read-write at /etc/foundationdb. Load
+	// OpsFDBClusterDir is the host directory that contains fdb.cluster. The ops
+	// fdbcli one-shots mount it read-write at /etc/foundationdb, and the
+	// fdbbackup one-shots mount it read-only at the same path. Load
 	// rejects a relative path, which Docker would read as a named volume.
 	OpsFDBClusterDir string `env:"TACK_OPS_FDB_CLUSTER_DIR" envDefault:"/etc/foundationdb"`
 }
