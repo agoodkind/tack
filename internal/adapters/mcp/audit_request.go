@@ -52,7 +52,7 @@ func (recorder *RequestRecorder) UnknownRoute() http.Handler {
 // uses the unauthenticated actor and the system organization.
 func (recorder *RequestRecorder) route(operation requestOperation, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		recorder.serveRead(writer, request, newRequestRead(request.Context(), operation), next)
+		recorder.serveRead(writer, request, newRequestRead(request.Context(), request, operation), next)
 	})
 }
 
@@ -64,7 +64,7 @@ func (recorder *RequestRecorder) MCP(authenticate func(http.Handler) http.Handle
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		operation := mcpOperation(request)
 		ctx := auth.WithRejectionNote(request.Context())
-		read := newRequestRead(ctx, operation)
+		read := newRequestRead(ctx, request, operation)
 		ctx = audit.WithOpID(ctx, read.operationID)
 		request = request.WithContext(ctx)
 		if request.Method == http.MethodGet {
@@ -99,6 +99,7 @@ func (recorder *RequestRecorder) serveAuthenticated(writer http.ResponseWriter, 
 	ctx := request.Context()
 	userID, _ := auth.UserID(ctx)
 	read.actor = userActor(ctx, userID)
+	read.selection = read.operation.selection
 	orgIDs, err := handler.requestOrganizations(ctx, read.operation)
 	if err != nil {
 		result := organizationUnavailable().readResult(ctx)

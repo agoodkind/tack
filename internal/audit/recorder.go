@@ -128,6 +128,12 @@ type EventContext struct {
 	Target             *Target        `json:"target,omitempty" exhaustruct:"optional"`
 	Read               *ReadEvidence  `json:"read,omitempty" exhaustruct:"optional"`
 	CommittedSteps     []string       `json:"committed_steps,omitempty" exhaustruct:"optional"`
+	// Selection records the normalized arguments of a read, HTTPMethod the
+	// checked HTTP method, and RequestPath the checked request path. JSON
+	// encoding omits each empty value, so earlier rows keep their hashes.
+	Selection   *ReadSelection `json:"selection,omitempty" exhaustruct:"optional"`
+	HTTPMethod  string         `json:"http_method,omitempty" exhaustruct:"optional"`
+	RequestPath string         `json:"request_path,omitempty" exhaustruct:"optional"`
 }
 
 type Source string

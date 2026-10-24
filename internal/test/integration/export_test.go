@@ -181,6 +181,23 @@ func AddConsumerReplica(t *testing.T, fixture DeployFixture, name, tag string) {
 	createFromIndex(t, fixture.cli, name, "audit-consumer", fixture.registryHost+"/tack-audit-consumer:"+tag)
 }
 
+// RemoveDeployReplica removes the named container from the fixture daemon.
+func RemoveDeployReplica(t *testing.T, fixture DeployFixture, name string) {
+	t.Helper()
+	removeDeployContainer(t, fixture.cli, name)
+}
+
+// ReplaceAppReplica pushes a tack-server image index under tag, replaces
+// tack-app-1 with a container created from that index, and returns the index
+// digest.
+func ReplaceAppReplica(t *testing.T, fixture DeployFixture, tag string) string {
+	t.Helper()
+	digest := fixture.registry.pushMultiPlatformIndex(t, "tack-server", tag, "server "+tag)
+	removeDeployContainer(t, fixture.cli, "tack-app-1")
+	createFromIndex(t, fixture.cli, "tack-app-1", "app", fixture.registryHost+"/tack-server:"+tag)
+	return digest
+}
+
 // VerifyDeployAs runs ops deploy verify as operatorID against the fixture with
 // the supplied server and consumer index digests. It returns the command's
 // output and error.

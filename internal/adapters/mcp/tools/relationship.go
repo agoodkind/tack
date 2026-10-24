@@ -6,6 +6,8 @@ import (
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/service"
 
@@ -146,6 +148,16 @@ func removeRelationshipHandler(svc *service.NodeService, resolver *Resolver) mcp
 			return classifyError(ctx, err), nil
 		}
 		rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
+		// The store commits change events only when the relationship existed.
+		if !auditintent.Committed(ctx) {
+			target := relationshipTarget(endpoints.sourceID, endpoints.relType, endpoints.targetID)
+			noteToolResult(ctx, audit.OutcomeDetails{
+				Outcome: audit.OutcomeRefused, FailureCode: notFoundCode,
+				FailureMessage: "the relationship does not exist", CommittedSteps: nil,
+			}, "", &target)
+			return successText(renderRelationshipMutation(rc, "Did not remove relationship", endpoints.sourceID, endpoints.relType, endpoints.targetID),
+				"The relationship does not exist. The server did not remove an edge."), nil
+		}
 		return successText(renderRelationshipMutation(rc, "Removed relationship", endpoints.sourceID, endpoints.relType, endpoints.targetID), ""), nil
 	}
 }

@@ -12,16 +12,19 @@ import (
 
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/ops"
 )
 
 // TestRuntimeAuditSQLAtomicChange checks that ops.IssueAuthToken records one
-// change event and rolls back token creation when outbox writes fail. It uses
-// the real relay to compare the ledger change with the stored token and checks
-// that removing a missing membership returns domain.ErrNotFound and records
-// one failed result with not_found and without a delta.
+// change event. A second ops.IssueAuthToken through a login that cannot write
+// the operator outbox must fail and leave the holder's users, api_tokens, and
+// org_members rows and the outbox unchanged. The test uses the real relay to
+// compare the ledger change with the stored token. It checks that removing a
+// missing membership returns domain.ErrNotFound and records one failed result
+// with not_found and without a delta.
 func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
 	principal := sqlAuditPrincipal()
@@ -33,15 +36,17 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 		t.Fatalf("IssueAuthToken error = %v, want nil", err)
 	}
 	issueEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
+	issued, err := postgres.NewTokenRepo(stack.admin).GetByID(ctx, issue.Token.ID)
+	if err != nil {
+		t.Fatalf("TokenRepo.GetByID(%s) error = %v, want nil", issue.Token.ID, err)
+	}
 
-	restrictedPool := changeOnlyPool(t, stack.admin)
-	if _, err := ops.IssueAuthToken(ctx, restrictedPool, holder.Email, sqlAuditTokenLabel); err == nil {
-		t.Fatal("IssueAuthToken error = nil for a login without outbox write access, want an error")
-	}
-	tokenRows, err := postgres.NewTokenRepo(stack.admin).List(ctx, holder.ID)
-	if err != nil || len(tokenRows) != 1 || tokenRows[0].ID != issue.Token.ID {
-		t.Fatalf("stored token count = %d, error = %v; want only token %s and nil error", len(tokenRows), err, issue.Token.ID)
-	}
+	holderIDs := []uuid.UUID{holder.ID}
+	before := sqlRows(t, stack.admin, holderIDs)
+	failedCtx, failedID := sqlOperatorContext(t.Context(), principal)
+	_, err = ops.IssueAuthToken(failedCtx, changeOnlyPool(t, stack.admin), holder.Email, sqlAuditTokenLabel)
+	requireAuditWriteFailure(t, "IssueAuthToken", err)
+	requireSQLUnchanged(t, stack.admin, holderIDs, before, failedID)
 
 	orgID := uuid.Must(uuid.NewV7())
 	removalCtx, removal := sqlAuditContext(t, principal)
@@ -56,7 +61,7 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 	if issueRow.Delta == nil || len(issueRow.Delta.Before) != 0 {
 		t.Fatalf("token creation Delta = %+v, want non-nil Delta with empty Before", issueRow.Delta)
 	}
-	requireTokenRecord(t, issueRow.Delta.After, tokenRows[0])
+	requireTokenRecord(t, issueRow.Delta.After, issued)
 	failureRow := requireLedgerChange(t, stack, failureEvent)
 	if failureRow.Outcome != audit.OutcomeFailed || failureRow.Error == nil ||
 		failureRow.Error.Code != sqlAuditFailureCode || failureRow.Delta != nil {
@@ -64,57 +69,66 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 	}
 }
 
-// TestRuntimeAuditMembershipRoleReplacement adds a membership with role 15,
-// replaces it with role 20, repeats role 20, then removes the membership.
-// It requires one change event for each addition, replacement, and removal,
-// and requires the repeated role to produce zero events. It compares ledger
-// values and the relationship target with the stored membership. It requires
-// the replacement event to use org.member_role_set and list /role in Changed.
-// It also checks the user creation event's Changed fields, protected
-// references, and omission of the raw email and display name.
+// TestRuntimeAuditMembershipRoleReplacement runs datagen.BootstrapIdentities,
+// which creates the first actor and adds its membership with role 20. It sets
+// the role to 15 with OrgMemberRepo.AddMember because no Tack caller sets
+// role 15. A second datagen.BootstrapIdentities run for the same seed replaces
+// role 15 with role 20, and a third run repeats role 20. The test then removes
+// the membership with OrgMemberRepo.RemoveMember because the datagen callers
+// of RemoveMember run only inside the search revocation checks. It requires
+// one membership change event for each addition, replacement, and removal,
+// and requires the repeated role to produce zero membership events. It
+// compares ledger values and the relationship target with the stored
+// membership. It requires the replacement event to use org.member_role_set
+// and list /role in Changed. It also checks the user creation event's Changed
+// fields, protected references, and omission of the raw email and display
+// name.
 func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
-	ctx := t.Context()
 	principal := sqlAuditPrincipal()
-	holder := createSQLAuditUser(t, stack.admin, principal)
 	members := postgres.NewOrgMemberRepo(stack.admin)
-	orgID := uuid.Must(uuid.NewV7())
+	dsn := stack.admin.Config().ConnString()
+	seed := clock.Now().UnixNano()
 
-	add := newMemberStep(t, principal, sqlAuditMemberRole)
-	replace := newMemberStep(t, principal, sqlAuditAdminRole)
-	repeat := newMemberStep(t, principal, sqlAuditAdminRole)
-	removeCtx, remove := sqlAuditContext(t, principal)
-	for _, step := range []memberStep{add, replace, repeat} {
-		member := &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: holder.ID, Role: step.role, CreatedAt: time.Time{}}
-		if err := members.AddMember(step.ctx, member); err != nil {
-			t.Fatalf("AddMember with role %d: got error %v, want nil", step.role, err)
-		}
+	add := newMemberStep(t, principal, sqlAuditAdminRole)
+	identities := bootstrapSQLAuditIdentities(t, add.ctx, dsn, seed)
+	orgID, holderID := identities.Workspaces[0].OrgID, identities.Workspaces[0].Actors[0].UserID
+	demote := newMemberStep(t, principal, sqlAuditMemberRole)
+	member := &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: holderID, Role: demote.role, CreatedAt: time.Time{}}
+	if err := members.AddMember(demote.ctx, member); err != nil {
+		t.Fatalf("AddMember with role %d: got error %v, want nil", demote.role, err)
 	}
-	membership := requireMembership(t, members, orgID, holder.ID)
-	if err := members.RemoveMember(removeCtx, orgID, holder.ID); err != nil {
+	replace := newMemberStep(t, principal, sqlAuditAdminRole)
+	bootstrapSQLAuditIdentities(t, replace.ctx, dsn, seed)
+	repeat := newMemberStep(t, principal, sqlAuditAdminRole)
+	bootstrapSQLAuditIdentities(t, repeat.ctx, dsn, seed)
+	membership := requireMembership(t, members, orgID, holderID)
+	removeCtx, remove := sqlAuditContext(t, principal)
+	if err := members.RemoveMember(removeCtx, orgID, holderID); err != nil {
 		t.Fatalf("RemoveMember error = %v, want nil", err)
 	}
-	memberRows, err := members.ListMembers(ctx, orgID)
-	if err != nil || len(memberRows) != 0 {
-		t.Fatalf("member count after RemoveMember = %d, error = %v; want 0 and nil error", len(memberRows), err)
-	}
+	requireNoMembership(t, members, orgID, holderID)
 
-	addEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, add.operation.Context.OperationID), audit.PhaseChange)
-	replaceEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, replace.operation.Context.OperationID), audit.PhaseChange)
-	removeEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, remove.Context.OperationID), audit.PhaseChange)
-	userEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, holder.ID), audit.PhaseChange)
-	repeatEvents := sqlOutboxEvents(t, stack.admin, repeat.operation.Context.OperationID)
-	if len(repeatEvents) != 0 {
-		t.Fatalf("events for an unchanged role = %d, want 0", len(repeatEvents))
+	addEvent := onlyEvent(t, memberEvents(t, stack.admin, add.operation, holderID), audit.PhaseChange)
+	replaceEvent := onlyEvent(t, memberEvents(t, stack.admin, replace.operation, holderID), audit.PhaseChange)
+	removeEvent := onlyEvent(t, memberEvents(t, stack.admin, remove, holderID), audit.PhaseChange)
+	userEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, holderID), audit.PhaseChange)
+	if repeatEvents := memberEvents(t, stack.admin, repeat.operation, holderID); len(repeatEvents) != 0 {
+		t.Fatalf("membership events for an unchanged role = %d, want 0", len(repeatEvents))
+	}
+	holder, err := postgres.NewUserRepo(stack.admin).GetByID(t.Context(), holderID)
+	if err != nil {
+		t.Fatalf("UserRepo.GetByID(%s) error = %v, want nil", holderID, err)
 	}
 	startOutboxRelay(t, stack)
 
 	requireUserChange(t, stack, userEvent, holder)
-	want := memberRecord{ID: membership.ID, OrgID: orgID, UserID: holder.ID, Role: sqlAuditMemberRole, CreatedAt: membership.CreatedAt}
+	want := memberRecord{ID: membership.ID, OrgID: orgID, UserID: holderID, Role: sqlAuditAdminRole, CreatedAt: membership.CreatedAt}
 	addRow := requireLedgerChange(t, stack, addEvent)
 	requireMemberTarget(t, addRow, want)
 	requireMemberRecord(t, addRow.Delta.After, want)
 	replaceRow := requireLedgerChange(t, stack, replaceEvent)
+	want.Role = sqlAuditMemberRole
 	requireMemberRecord(t, replaceRow.Delta.Before, want)
 	want.Role = sqlAuditAdminRole
 	requireMemberRecord(t, replaceRow.Delta.After, want)

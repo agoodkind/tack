@@ -44,7 +44,8 @@ func TestDeployVerifyComparesTheGivenIndexDigest(t *testing.T) {
 const deployVerifyOperatorID = "019dd226-440e-729a-a442-281aaf73ca30"
 
 // runOpsDeployVerify runs the audited ops deploy verify command as operatorID
-// with the two digest flags and the real operator outbox.
+// with the two digest flags, the real operator outbox, and the real YugabyteDB
+// read lifecycle.
 func runOpsDeployVerify(t *testing.T, cfg *config.Config, ledgerDSN, operatorID, serverDigest, consumerDigest string) (string, error) {
 	t.Helper()
 	pool, err := pgxpool.New(t.Context(), ledgerDSN)
@@ -56,6 +57,7 @@ func runOpsDeployVerify(t *testing.T, cfg *config.Config, ledgerDSN, operatorID,
 	var output bytes.Buffer
 	factory.Out = &output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	defer factory.CloseAuditOutbox()
 	root := searchCommandRoot(factory)
 	root.SetContext(t.Context())

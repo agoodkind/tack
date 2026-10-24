@@ -4,7 +4,6 @@ package integration_test
 
 import (
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 )
@@ -27,49 +26,56 @@ const (
 )
 
 // scalingResult stores workload, audit recovery, and storage measurements for
-// one app instance count.
+// one app instance count. drained counts the YugabyteDB outbox records that
+// earlier tests left and that the run relayed to a separate topic before its
+// workload.
 type scalingResult struct {
-	label           string
-	instances       int
-	requests        int
-	ledgerEvents    int64
-	duration        time.Duration
-	latencies       []time.Duration
-	backlog         int
-	yugabyteBacklog int64
-	recovery        time.Duration
-	databaseBytes   int64
-	brokerRecords   int64
-	brokerBytes     int64
-	replicaBytes    int64
-	takeovers       int64
+	label            string
+	instances        int
+	requests         int
+	ledgerEvents     int64
+	duration         time.Duration
+	latencies        []time.Duration
+	backlog          int
+	yugabyteBacklog  int64
+	drained          int64
+	recovery         time.Duration
+	databaseBytes    int64
+	ledgerIndexBytes int64
+	ledgerTotalBytes int64
+	eventBytes       float64
+	partBytes        float64
+	brokerRecords    int64
+	brokerBytes      int64
+	fdbBytes         int64
+	replication      int64
+	replicaBytes     int64
+	receipts         int64
+	receiptBytes     float64
+	takeovers        int64
 }
 
 // TestRuntimeAuditScaling runs the same generated MCP workload at each
 // configured app instance count. Each run shares one FoundationDB prefix and
 // ledger across its instances. The test reports workload, audit recovery, and
 // storage measurements and requires request and ledger event counts to match
-// the one-instance run. It also checks broker record and byte limits and
-// repeats the two-instance workload with a relay crash.
+// the one-instance run. It checks the broker record count of every run,
+// including the one-instance run, against the outbox records of that run and
+// checks broker byte limits. It also repeats the two-instance workload with a
+// relay crash.
 func TestRuntimeAuditScaling(t *testing.T) {
 	results := make([]scalingResult, 0, len(scalingInstanceCounts)+1)
 	for _, instances := range scalingInstanceCounts {
 		results = append(results, runScalingWorkload(t, strconv.Itoa(instances), instances, 0))
 	}
 	baseline := results[0]
-	for _, result := range results[1:] {
+	for _, result := range results {
 		requireScalingRun(t, baseline, result, 0)
 	}
 	takeover := runScalingWorkload(t, scalingTakeoverLabel, scalingTakeoverInstances, scalingCrashAfter)
 	requireScalingRun(t, baseline, takeover, takeover.yugabyteBacklog)
 	results = append(results, takeover)
-	var table strings.Builder
-	table.WriteString("\nThe table compares MCP workload and audit recovery measurements across app instance counts.\n\nScaling results:\n| Instances | Requests | Ledger events | Throughput (requests/s) | Latency (50th percentile) | Latency (95th percentile) | Latency (99th percentile) | Outbox entries | Audit recovery time | Ledger row bytes | Broker records | Broker bytes | Lease takeovers | Index bytes | FoundationDB key and value bytes |\n")
-	table.WriteString("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
-	for _, result := range results {
-		table.WriteString(result.row())
-	}
-	t.Log(table.String())
+	t.Log(scalingTables(results))
 }
 
 // requireScalingRun requires result to match the request and ledger event

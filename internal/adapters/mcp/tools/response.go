@@ -64,14 +64,17 @@ func permissionDenied() *mcp.CallToolResult {
 
 func unexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 	telemetry.L(ctx).Error("mcp.tool.unexpected_error", "err", err)
-	audit.NoteReadOutcome(ctx, audit.OutcomeFailed, "unexpected_error", "the server could not complete the tool call")
+	noteOutcome(ctx, audit.OutcomeFailed, "unexpected_error", "the server could not complete the tool call")
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: "#### Unexpected server error\n\nThe server could not complete the request safely.\n\nNext step: Yield to the user."}},
 	}
 }
 
+// classifyError returns the tool response for err and records its typed
+// refusal code for the request's audit events.
 func classifyError(ctx context.Context, err error) *mcp.CallToolResult {
+	noteRefusal(ctx, err)
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		return recoverableError(err.Error() +
