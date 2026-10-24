@@ -25,7 +25,8 @@ import (
 // scalingRun stores the app handlers, shared test state, and measurements for
 // one scaling run. Its mutex protects request counts and latency samples during
 // concurrent tool calls. leaseAcquisitions counts each time a relay of the run
-// acquires the FoundationDB relay lease.
+// acquires the FoundationDB relay lease. storageBefore stores the YugabyteDB
+// audit table sizes before the workload.
 type scalingRun struct {
 	server            *publicServer
 	handlers          []http.Handler
@@ -34,6 +35,7 @@ type scalingRun struct {
 	mu                sync.Mutex
 	result            scalingResult
 	leaseAcquisitions atomic.Int64
+	storageBefore     ledgerStorage
 }
 
 // runScalingWorkload runs the generated MCP workload in a subtest for the
@@ -54,9 +56,11 @@ func runScalingWorkload(t *testing.T, label string, instances, crashAfter int) s
 	return result
 }
 
-// startScalingRun builds the requested number of runtime graphs on one
-// FoundationDB prefix and one ledger, then creates test identities. It leaves
-// audit relays and consumers stopped until measurement begins.
+// startScalingRun drains the YugabyteDB outbox records of earlier tests,
+// builds the requested number of runtime graphs on one FoundationDB prefix and
+// one ledger, then creates test identities. It reads the YugabyteDB audit table
+// sizes last. It leaves audit relays and consumers stopped until measurement
+// begins.
 func startScalingRun(t *testing.T, instances int) *scalingRun {
 	t.Helper()
 	ctx := integration.WithTestOperation(t, t.Context())
@@ -65,6 +69,7 @@ func startScalingRun(t *testing.T, instances int) *scalingRun {
 	prefix := append([]byte("tack-test:"), identity[:]...)
 	fdbadapter.SetTestPrefix(prefix)
 	t.Cleanup(func() { clearReadPrefix(t, clusterFile, prefix) })
+	drained := drainEarlierOutbox(t, clusterFile)
 	t.Setenv("DATABASE_URL", testenv.Ledger(t))
 	t.Setenv("FDB_CLUSTER_FILE", clusterFile)
 	cfg, err := config.Load()
@@ -101,37 +106,10 @@ func startScalingRun(t *testing.T, instances int) *scalingRun {
 		orgID: workspace.OrgID, workspace: workspace.Slug, clusterFile: clusterFile,
 	}
 	return &scalingRun{
-		server: server, handlers: handlers, prefix: prefix, crashAfter: 0, mu: sync.Mutex{}, result: scalingResult{instances: instances},
-		leaseAcquisitions: atomic.Int64{},
+		server: server, handlers: handlers, prefix: prefix, crashAfter: 0, mu: sync.Mutex{},
+		result: scalingResult{instances: instances, drained: drained}, leaseAcquisitions: atomic.Int64{},
+		storageBefore: readLedgerStorage(t, ledgerAdminPool(t)),
 	}
-}
-
-// call selects an app handler by taking the index modulo the handler count and
-// sends an MCP tool call. It records the request count and response latency,
-// then returns the tool text or a response error.
-func (run *scalingRun) call(t *testing.T, index int, tool string, arguments map[string]any) (string, error) {
-	t.Helper()
-	server := *run.server
-	server.handler = run.handlers[index%len(run.handlers)]
-	started := clock.Now()
-	response := server.rpc(t, newRequestID(t, "scaling"), "tools/call", map[string]any{"name": tool, "arguments": arguments})
-	latency := clock.Since(started)
-	run.mu.Lock()
-	run.result.latencies = append(run.result.latencies, latency)
-	run.result.requests++
-	run.mu.Unlock()
-	return successfulToolText(response)
-}
-
-// mustCall returns the tool text from call and fails the test if call returns
-// an error.
-func (run *scalingRun) mustCall(t *testing.T, index int, tool string, arguments map[string]any) string {
-	t.Helper()
-	text, err := run.call(t, index, tool, arguments)
-	if err != nil {
-		t.Fatalf("The scaling workload received an error instead of a successful result from tool %s: %v", tool, err)
-	}
-	return text
 }
 
 // execute creates the projects, runs issue creation, read, and update jobs with
