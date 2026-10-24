@@ -29,7 +29,7 @@ func (w *SearchWorker) cleanupSlice(ctx context.Context, work searchdomain.Work,
 		budget.record(accepted, 0)
 	}
 	if accepted > 0 {
-		if err := w.refreshRetired(ctx, work); err != nil {
+		if err := w.refreshWorkIndexes(ctx, work); err != nil {
 			return w.settleEngine(ctx, work, "refresh search index after retirement", err)
 		}
 	}
@@ -46,9 +46,9 @@ func (w *SearchWorker) cleanupSlice(ctx context.Context, work searchdomain.Work,
 	return nil
 }
 
-// refreshRetired refreshes the target index of work and, during a
-// replacement, the mirror index that also received the retirements.
-func (w *SearchWorker) refreshRetired(ctx context.Context, work searchdomain.Work) error {
+// refreshWorkIndexes refreshes the target index of work and, during a
+// replacement, the mirror index that also receives the writes of work.
+func (w *SearchWorker) refreshWorkIndexes(ctx context.Context, work searchdomain.Work) error {
 	for _, index := range []string{work.Target, work.Mirror} {
 		if index == "" {
 			continue
@@ -57,9 +57,9 @@ func (w *SearchWorker) refreshRetired(ctx context.Context, work searchdomain.Wor
 		err := w.ports.Writer.Refresh(operationContext, index)
 		cancel()
 		if err != nil {
-			wrapped := fmt.Errorf("refresh index %s for node %s: %w", index, work.NodeID, err)
-			telemetry.L(ctx).ErrorContext(ctx, "search.cleanup.refresh_failed", slog.String("err", wrapped.Error()),
-				slog.String("node_id", work.NodeID.String()), slog.String("index", index))
+			wrapped := fmt.Errorf("refresh index %s for work of organization %s and node %s: %w", index, work.OrgID, work.NodeID, err)
+			telemetry.L(ctx).ErrorContext(ctx, "search.worker.refresh_failed", slog.String("err", wrapped.Error()),
+				slog.String("org_id", work.OrgID.String()), slog.String("node_id", work.NodeID.String()), slog.String("index", index))
 			return wrapped
 		}
 	}

@@ -3,9 +3,11 @@ package integration_test
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
@@ -18,6 +20,9 @@ const (
 	// rollbackWaitSlices sets the worker slices a test runs while a rollout
 	// waits for an open session.
 	rollbackWaitSlices = 20
+	// rolloutRefreshDisabled is the index settings body that turns off the
+	// scheduled refresh.
+	rolloutRefreshDisabled = `{"index":{"refresh_interval":"-1"}}`
 )
 
 // TestSearchAccessRollbackDuringBackfill requires a node created during
@@ -75,8 +80,10 @@ func TestSearchAccessRollbackDuringBackfill(t *testing.T) {
 	requirePageVersions(t, rolloutPages(t, fixture, []uuid.UUID{written}), []string{searchaccess.StableVersion})
 }
 
-// TestSearchAccessRollbackAfterActivation activates the rotated version,
-// opens a session under it, and rolls back. New sessions must use the
+// TestSearchAccessRollbackAfterActivation disables the scheduled refresh of
+// the index, activates the rotated version, opens a session under it, and
+// rolls back. The rotated session must find every node with only the
+// refreshes that the worker runs. New sessions must use the
 // stable version and find every node. The rollout must wait with both
 // versions on every page while the rotated session remains open. That
 // session must finish before retirement leaves only the stable version
@@ -89,6 +96,7 @@ func TestSearchAccessRollbackAfterActivation(t *testing.T) {
 	nodes := putRolloutCorpus(t, fixture, putRolloutKind(t, fixture, workspace.OrgID), entryID, query, rollbackCorpusNodes)
 	drainRolloutWork(t, fixture)
 	before := rolloutPages(t, fixture, nodes)
+	disableRolloutRefresh(t, fixture)
 
 	beginAccessRollout(t, fixture, workspace.OrgID)
 	activated := runRolloutUntil(t, fixture, workspace.OrgID, searchdomain.AccessRollout.Activated)
@@ -160,6 +168,17 @@ func TestSearchAccessRollbackRefusedAfterRetirement(t *testing.T) {
 	final := runRolloutUntil(t, fixture, workspace.OrgID, rolloutStable)
 	requireAccessRollout(t, final, searchaccess.RotatedVersion, []string{searchaccess.RotatedVersion}, searchdomain.AccessStable)
 	requirePageVersions(t, rolloutPages(t, fixture, nodes), []string{searchaccess.RotatedVersion})
+}
+
+// disableRolloutRefresh sets index.refresh_interval to -1 on the fixture
+// index. A write then becomes searchable only after an explicit refresh.
+func disableRolloutRefresh(t *testing.T, fixture rolloutFixture) {
+	t.Helper()
+	request := opensearchapi.SettingsPutReq{Indices: []string{fixture.index}, Body: strings.NewReader(rolloutRefreshDisabled)}
+	response, err := fixture.client.Indices.Settings.Put(rolloutContext(t), request)
+	if err != nil || !response.Acknowledged {
+		t.Fatalf("Disabling the scheduled refresh of index %s failed: %v", fixture.index, err)
+	}
 }
 
 func requireNodesFound(t *testing.T, found, nodes []uuid.UUID) {
