@@ -29,8 +29,11 @@ type bootstrapLedgerRow struct {
 }
 
 // waitForBootstrapRows polls audit.events until each of the three commands has
-// a completed result row with an op id, and fails with the rows it observed
-// when the deadline passes first.
+// a pending intent row and a completed result row with an op id and a step
+// row, and fails with the rows it observed when the deadline passes first.
+// The producer picks the Kafka partition of each event from its own event ID.
+// The consumer can project the result row of a run before its intent and
+// step rows.
 func waitForBootstrapRows(t *testing.T, admin *pgxpool.Pool) []bootstrapLedgerRow {
 	t.Helper()
 	verbs := []audit.Verb{audit.VerbOpsProvision, audit.VerbOpsLedgerNodePrepare, audit.VerbOpsLedgerNodeWait}
@@ -51,7 +54,7 @@ func waitForBootstrapRows(t *testing.T, admin *pgxpool.Pool) []bootstrapLedgerRo
 			return false
 		}
 		for _, verb := range verbs {
-			if !slices.ContainsFunc(bootstrapRowsOfVerb(observed, verb), completedRunRow) {
+			if !bootstrapRunProjected(bootstrapRowsOfVerb(observed, verb)) {
 				return false
 			}
 		}
@@ -64,10 +67,18 @@ func waitForBootstrapRows(t *testing.T, admin *pgxpool.Pool) []bootstrapLedgerRo
 	return observed
 }
 
-// completedRunRow reports whether row is the completed result row of a
-// command. A result row has the op id of the command intent.
-func completedRunRow(row bootstrapLedgerRow) bool {
-	return row.Outcome == string(audit.OutcomeCompleted) && row.OpID != ""
+// bootstrapRunProjected reports whether rows contain the pending intent row
+// and the completed result row of a run, both with an op id, and at least
+// one step row without an op id.
+func bootstrapRunProjected(rows []bootstrapLedgerRow) bool {
+	intent := slices.ContainsFunc(rows, func(row bootstrapLedgerRow) bool {
+		return row.Outcome == string(audit.OutcomePending) && row.OpID != ""
+	})
+	result := slices.ContainsFunc(rows, func(row bootstrapLedgerRow) bool {
+		return row.Outcome == string(audit.OutcomeCompleted) && row.OpID != ""
+	})
+	step := slices.ContainsFunc(rows, func(row bootstrapLedgerRow) bool { return row.OpID == "" })
+	return intent && result && step
 }
 
 // bootstrapRowsOfVerb returns the rows that record verb.
