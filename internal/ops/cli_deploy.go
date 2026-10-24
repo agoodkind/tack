@@ -17,9 +17,9 @@ import (
 const (
 	// deployVerifyPayloadFormat is the media type of the deploy verify output.
 	deployVerifyPayloadFormat = "text/plain; charset=utf-8"
-	// deployProjectReference prefixes the Docker Compose project that deploy
-	// verify reads.
-	deployProjectReference = "docker/compose/"
+	// deployReference identifies the Docker Compose deployment that deploy
+	// verify reads. The read targets name each checked container.
+	deployReference = "docker/compose"
 	// deployContainerReference prefixes each container that deploy verify reads.
 	deployContainerReference = "docker/containers/"
 )
@@ -40,12 +40,12 @@ type deployVerifyInput struct {
 }
 
 // deployVerifySpec declares `ops deploy verify` as a read of the Docker
-// Compose project in the configuration of f.
-func deployVerifySpec(f *cli.Factory) audit.Spec {
+// Compose deployment.
+func deployVerifySpec() audit.Spec {
 	return audit.Spec{
 		Verb: string(audit.VerbOpsDeployVerify), Reads: true, Class: audit.OperationRead,
 		Targets: func(context.Context, json.RawMessage) ([]audit.Target, error) {
-			return []audit.Target{externalTarget(deployProjectReference + f.Cfg.DeployComposeProject)}, nil
+			return []audit.Target{externalTarget(deployReference)}, nil
 		},
 		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },
 	}
@@ -73,7 +73,7 @@ func deployVerifyCommand(f *cli.Factory) *cobra.Command {
 		}
 		return encoded, nil
 	}
-	clispec.AttachRead(cmd, f, deployVerifySpec(f), input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
+	clispec.AttachRead(cmd, f, deployVerifySpec(), input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
 		digests, err := parseDeployIndexDigests(ctx, in.ServerDigest, in.ConsumerDigest)
 		if err != nil {
 			return audit.OperatorReadOutput{}, err
