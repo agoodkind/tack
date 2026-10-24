@@ -76,16 +76,17 @@ func renumberOneNode(
 	nodeID uuid.UUID,
 	execute bool,
 ) (ReferenceRename, error) {
-	view, err := env.Stores.Views.Get(ctx, nodeID)
+	updated, readDigest, err := env.Stores.Nodes.GetForUpdate(ctx, duplicate.OrgID, nodeID)
 	if err != nil {
-		wrapped := fmt.Errorf("get node %s for renumber: %w", nodeID, err)
-		env.Log.WarnContext(ctx, "repair.reference_uniqueness.view_get_failed",
+		wrapped := fmt.Errorf("read node %s for renumber: %w", nodeID, err)
+		env.Log.WarnContext(ctx, "repair.reference_uniqueness.node_get_failed",
 			slog.String("node_id", nodeID.String()), slog.String("err", wrapped.Error()))
 		return ReferenceRename{}, wrapped
 	}
-	if view == nil {
-		return ReferenceRename{}, fmt.Errorf("get node %s for renumber: not found", nodeID)
+	if updated == nil {
+		return ReferenceRename{}, fmt.Errorf("read node %s for renumber: not found", nodeID)
 	}
+	view := viewFromRepairedNode(updated)
 	nodeType, template, typeIndex, typeErr := repairReferenceTemplate(ctx, env, duplicate.OrgID, view)
 	if typeErr != nil {
 		return ReferenceRename{}, typeErr
@@ -119,16 +120,6 @@ func renumberOneNode(
 		env.Log.WarnContext(ctx, "repair.reference_uniqueness.allocate_failed",
 			slog.String("node_id", nodeID.String()), slog.String("err", wrapped.Error()))
 		return ReferenceRename{}, wrapped
-	}
-	updated, readDigest, err := env.Stores.Nodes.GetForUpdate(ctx, duplicate.OrgID, nodeID)
-	if err != nil {
-		wrapped := fmt.Errorf("read node %s for renumber: %w", nodeID, err)
-		env.Log.WarnContext(ctx, "repair.reference_uniqueness.node_get_failed",
-			slog.String("node_id", nodeID.String()), slog.String("err", wrapped.Error()))
-		return ReferenceRename{}, wrapped
-	}
-	if updated == nil {
-		return ReferenceRename{}, fmt.Errorf("read node %s for renumber: not found", nodeID)
 	}
 	oldProps := maps.Clone(updated.Props)
 	updated.Props[template.Generated] = json.RawMessage(strconv.FormatInt(nextValue, 10))
