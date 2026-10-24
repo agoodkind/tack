@@ -3,12 +3,14 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"maps"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clispec"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -29,16 +31,21 @@ func runRepairSequenceScopeIDs(ctx context.Context, env *Env) error {
 	return err
 }
 
-// RepairSequenceScopeIDs derives each sequence-bearing node's owning scope from
-// its parent chain and writes it, returning the repaired and skipped counts. It
-// re-claims each moved node's rendered reference, so a move that would land on a
-// reference another node holds is refused and counted as skipped.
+// RepairSequenceScopeIDs derives each sequence-bearing node's scope_id from its
+// parent_id chain and reclaims the rendered reference keys for each moved node.
+// RepairSequenceScopeIDs returns the repaired and skipped counts and logs the
+// refused count. UpdateAtomicFrom refuses a write when the stored node changed
+// after the read or another node owns the rendered reference claim.
+// RepairSequenceScopeIDs counts these writes as refused and returns an error
+// that wraps domain.ErrConflict and states the refused count.
+// RepairSequenceScopeIDs counts other write failures, read failures, and nodes
+// without a derivable or new scope as skipped.
 func RepairSequenceScopeIDs(ctx context.Context, env *Env) (int, int, error) {
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {
 		return 0, 0, err
 	}
-	totalRepaired, totalSkipped := 0, 0
+	totalRepaired, totalSkipped, totalRefused := 0, 0, 0
 	for orgID := range orgIDs {
 		nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
 		if err != nil {
@@ -60,17 +67,15 @@ func RepairSequenceScopeIDs(ctx context.Context, env *Env) (int, int, error) {
 			if nodeType.Reference.Strategy != node.ReferenceScopedSequence {
 				continue
 			}
-			repaired, skipped := repairTypeScopeIDs(
+			repaired, skipped, refused := repairTypeScopeIDs(
 				ctx, env, orgID, nodeType, propertyDefs, typeIndex, scopeCache,
 			)
 			totalRepaired += repaired
 			totalSkipped += skipped
+			totalRefused += refused
 		}
 	}
-	env.Log.InfoContext(ctx, "repair.scope_ids.completed",
-		slog.Int("repaired", totalRepaired),
-		slog.Int("skipped", totalSkipped))
-	return totalRepaired, totalSkipped, nil
+	return scopeRepairResult(ctx, env, totalRepaired, totalSkipped, totalRefused)
 }
 
 func repairTypeScopeIDs(
@@ -81,7 +86,7 @@ func repairTypeScopeIDs(
 	propertyDefs []*node.PropertyDef,
 	typeIndex map[string]*node.NodeType,
 	scopeCache map[uuid.UUID]map[string]string,
-) (int, int) {
+) (int, int, int) {
 	views, err := env.Stores.Views.List(ctx, node.NodeListQuery{
 		OrgID:    orgID,
 		NodeType: nodeType.TypeKey,
@@ -91,11 +96,10 @@ func repairTypeScopeIDs(
 			slog.String("org_id", orgID.String()),
 			slog.String("type", nodeType.TypeKey),
 			slog.String("err", err.Error()))
-		return 0, 0
+		return 0, 0, 0
 	}
 	indexedProps := indexedPropsFor(nodeType, propertyDefs)
-	repaired := 0
-	skipped := 0
+	repaired, skipped, refused := 0, 0, 0
 	for _, view := range views {
 		currentNode, readDigest, err := env.Stores.Nodes.GetForUpdate(ctx, orgID, view.ID)
 		if err != nil || currentNode == nil {
@@ -159,12 +163,16 @@ func repairTypeScopeIDs(
 				slog.String("node_id", currentNode.ID.String()),
 				slog.String("type", nodeType.TypeKey),
 				slog.String("err", err.Error()))
-			skipped++
+			if errors.Is(err, domain.ErrConflict) {
+				refused++
+			} else {
+				skipped++
+			}
 			continue
 		}
 		repaired++
 	}
-	return repaired, skipped
+	return repaired, skipped, refused
 }
 
 func deriveScopeID(ctx context.Context, env *Env, currentNode *node.Node) uuid.UUID {
