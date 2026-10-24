@@ -30,8 +30,9 @@ type coverageEvidence struct {
 	// body is the exact response payload of a read case. A completed read
 	// event must record its SHA-256 digest. A nil body skips that comparison.
 	body []byte
-	// targetID is the node that the case acted on. Each format 2 event of the
-	// case must target it. uuid.Nil skips that comparison.
+	// targetID is the node that the case acted on. One format 2 event of the
+	// case must target it or list it in a read manifest. uuid.Nil skips that
+	// comparison.
 	targetID uuid.UUID
 }
 
@@ -63,7 +64,7 @@ func (env *coverageEnv) runCase(t *testing.T, current coverageCase) {
 		outcome = evidence.outcome
 	}
 	rows := env.waitForRows(t, evidence, current.verb, outcome)
-	requireCaseEvidence(t, evidence, current.verb, outcome, rows)
+	requireCaseEvidence(t, env, evidence, current.verb, outcome, rows)
 	if current.check != nil {
 		current.check(t, env, rows)
 	}
