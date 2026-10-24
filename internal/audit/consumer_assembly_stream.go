@@ -14,6 +14,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// errManifestPartStore marks a database error while writing a permanent read
+// manifest part. streamAssembly returns it without rejecting the transport.
+var errManifestPartStore = errors.New("store read manifest part")
+
 // assemblyStream decodes one event envelope from the stored parts of an
 // assembly. It writes each permanent read manifest part as soon as the part
 // has its targets and keeps at most one stored part and one manifest part in
@@ -45,6 +49,9 @@ func streamAssembly(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, header []
 		reader: reader, decoder: decoder, write: manifestPartWriter(ctx, tx), targets: 0, parts: 0, manifest: sha256.New(),
 	}
 	if err := stream.decode(); err != nil {
+		if errors.Is(err, errManifestPartStore) {
+			return Event{}, "", err
+		}
 		if reader.failure != nil && !errors.Is(reader.failure, errAssemblyPartsInvalid) {
 			return Event{}, "", reader.failure
 		}
@@ -126,15 +133,12 @@ func (s *assemblyStream) storeManifestPart(payload []byte) error {
 	if read == nil || read.ManifestParts == 0 {
 		return nil
 	}
-	if err := s.write(s.event, partIndex, payload); err != nil {
-		s.reader.failure = err
-		return err
-	}
-	return nil
+	return s.write(s.event, partIndex, payload)
 }
 
 // manifestPartWriter returns a function that inserts one permanent read
-// manifest part in tx and keeps an existing part with the same index.
+// manifest part in tx and keeps an existing part with the same index. A
+// database error wraps errManifestPartStore.
 func manifestPartWriter(ctx context.Context, tx pgx.Tx) func(event Event, partIndex int64, payload []byte) error {
 	return func(event Event, partIndex int64, payload []byte) error {
 		if _, err := tx.Exec(ctx, `
@@ -143,7 +147,7 @@ func manifestPartWriter(ctx context.Context, tx pgx.Tx) func(event Event, partIn
 			ON CONFLICT (org_id, event_id, part_index) DO NOTHING
 		`, event.Context.OrgID, event.EventID, partIndex, sha256Hex(payload), payload); err != nil {
 			slog.ErrorContext(ctx, "audit.consumer.manifest_store_failed", slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
-			return fmt.Errorf("store audit event %s read manifest part %d: %w", event.EventID, partIndex, err)
+			return fmt.Errorf("%w: audit event %s read manifest part %d: %w", errManifestPartStore, event.EventID, partIndex, err)
 		}
 		return nil
 	}
