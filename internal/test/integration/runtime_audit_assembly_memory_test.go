@@ -19,15 +19,20 @@ import (
 const (
 	// assemblySmallTargets sets the read target count of the smaller read event.
 	assemblySmallTargets = 8_000
+	// assemblyReadGrowth multiplies the target count of the larger read event.
+	assemblyReadGrowth = 16
 	// assemblySmallDeltaBytes sets the size of each old and new value of the
 	// smaller change event.
 	assemblySmallDeltaBytes = 256 << 10
-	// assemblyGrowth multiplies the size of the larger event of each kind.
-	assemblyGrowth = 4
+	// assemblyDeltaGrowth multiplies the delta size of the larger change event.
+	assemblyDeltaGrowth = 4
 	// assemblyDeltaHeapFactor limits the peak heap growth of a change event to
 	// the growth of the smaller read event plus this multiple of its old and
 	// new value bytes.
 	assemblyDeltaHeapFactor = 8
+	// assemblyHeapRuns sets how many events of each size the test measures.
+	// The test keeps the smallest peak of the runs.
+	assemblyHeapRuns = 3
 	// assemblyHeapSampleInterval sets the delay between heap samples.
 	assemblyHeapSampleInterval = 5 * time.Millisecond
 	// assemblyGCPercent limits garbage between collections while the test samples
@@ -35,15 +40,17 @@ const (
 	assemblyGCPercent = 10
 )
 
-// TestRuntimeAuditAssemblyMemoryIsBounded delivers read events with many read
-// targets and change events with large old and new values to the production
-// consumer, and samples the heap while the consumer stores and assembles their
-// parts. The larger event of each kind has four times the parts of the smaller
-// event. The peak heap growth of the larger read event must stay within twice
-// the growth of the smaller read event. The ledger stores the complete delta of
-// a change event in one row. The peak heap growth of each change event must
-// stay within the growth of the smaller read event plus eight times its old and
-// new value bytes.
+// TestRuntimeAuditAssemblyMemoryIsBounded stores every part of an event in the
+// production consumer, then samples the heap while the consumer receives the
+// manifest and assembles the event. Read events have many read targets, and
+// change events have large old and new values. Each size runs
+// assemblyHeapRuns times, and the test keeps the smallest peak heap growth.
+// The larger read event has sixteen times the parts of the smaller read event.
+// Its peak heap growth must exceed the growth of the smaller read event by less
+// than the payload bytes of the additional parts. The ledger stores the
+// complete delta of a change event in one row. The peak heap growth of each
+// change event must stay within the growth of the smaller read event plus
+// eight times its old and new value bytes.
 func TestRuntimeAuditAssemblyMemoryIsBounded(t *testing.T) {
 	pipeline := newPartsPipeline(t)
 	pipeline.startConsumer(t)
@@ -53,16 +60,19 @@ func TestRuntimeAuditAssemblyMemoryIsBounded(t *testing.T) {
 	}
 	t.Cleanup(producer.Close)
 
-	small, smallParts := assemblyPeakHeap(t, pipeline, producer, readAssemblyEvent(t, assemblySmallTargets))
-	large, largeParts := assemblyPeakHeap(t, pipeline, producer, readAssemblyEvent(t, assemblySmallTargets*assemblyGrowth))
+	small, smallParts := assemblyPeakHeap(t, pipeline, producer, func() assemblyEvent { return readAssemblyEvent(t, assemblySmallTargets) })
+	large, largeParts := assemblyPeakHeap(t, pipeline, producer, func() assemblyEvent {
+		return readAssemblyEvent(t, assemblySmallTargets*assemblyReadGrowth)
+	})
+	partBytes := int64(largeParts-smallParts) * audit.EventPartMaxBytes
 	t.Logf("Read event peak heap growth: %d bytes for %d parts, %d bytes for %d parts", small, smallParts, large, largeParts)
-	if large > 2*small {
-		t.Fatalf("The read event peak heap growth increased from %d bytes for %d parts to %d bytes for %d parts; the consumer must not hold the read targets of every part",
-			small, smallParts, large, largeParts)
+	if int64(large)-int64(small) >= partBytes {
+		t.Fatalf("The read event peak heap growth increased from %d bytes for %d parts to %d bytes for %d parts, at least the %d payload bytes of the additional parts; the consumer must not hold the read targets of every part",
+			small, smallParts, large, largeParts, partBytes)
 	}
 
-	for _, deltaBytes := range []int{assemblySmallDeltaBytes, assemblySmallDeltaBytes * assemblyGrowth} {
-		growth, parts := assemblyPeakHeap(t, pipeline, producer, changeAssemblyEvent(t, deltaBytes))
+	for _, deltaBytes := range []int{assemblySmallDeltaBytes, assemblySmallDeltaBytes * assemblyDeltaGrowth} {
+		growth, parts := assemblyPeakHeap(t, pipeline, producer, func() assemblyEvent { return changeAssemblyEvent(t, deltaBytes) })
 		limit := small + uint64(assemblyDeltaHeapFactor*2*deltaBytes)
 		t.Logf("Change event peak heap growth: %d bytes for %d parts and %d delta bytes", growth, parts, 2*deltaBytes)
 		if growth > limit {
@@ -71,30 +81,49 @@ func TestRuntimeAuditAssemblyMemoryIsBounded(t *testing.T) {
 	}
 }
 
-// assemblyEvent is an encoded event and its Kafka records.
+// assemblyEvent is an encoded event, its part records, and its manifest
+// record.
 type assemblyEvent struct {
-	eventID uuid.UUID
-	parts   int
-	records []*kgo.Record
+	eventID  uuid.UUID
+	parts    []*kgo.Record
+	manifest *kgo.Record
 }
 
-// assemblyPeakHeap produces every record of event and waits for the ledger
-// row. It returns the highest heap growth above the collected heap before the
-// first record and the part count.
-func assemblyPeakHeap(t *testing.T, pipeline partsPipeline, producer *kgo.Client, event assemblyEvent) (uint64, int) {
+// assemblyPeakHeap builds and delivers assemblyHeapRuns events. For each event,
+// it produces the part records and waits until the consumer stores every part.
+// It then collects the heap, produces the manifest record, and samples the heap
+// until the ledger row exists. It returns the smallest peak heap growth of the
+// runs and the part count.
+func assemblyPeakHeap(t *testing.T, pipeline partsPipeline, producer *kgo.Client, build func() assemblyEvent) (uint64, int) {
 	t.Helper()
-	previous := debug.SetGCPercent(assemblyGCPercent)
-	defer debug.SetGCPercent(previous)
-	runtime.GC()
-	var stats runtime.MemStats
-	runtime.ReadMemStats(&stats)
-	baseline := stats.HeapAlloc
-	peak := sampleHeap(baseline)
-	if err := producer.ProduceSync(t.Context(), event.records...).FirstErr(); err != nil {
-		t.Fatalf("Producing the records of event %s failed: %v", event.eventID, err)
+	var smallest uint64
+	parts := 0
+	for run := range assemblyHeapRuns {
+		event := build()
+		parts = len(event.parts)
+		if err := producer.ProduceSync(t.Context(), event.parts...).FirstErr(); err != nil {
+			t.Fatalf("Producing the parts of event %s failed: %v", event.eventID, err)
+		}
+		waitFor(t, "storage of every part", func() bool {
+			return pipeline.count(t, assemblyPartRowsQuery, event.eventID) == int64(parts)
+		})
+		previous := debug.SetGCPercent(assemblyGCPercent)
+		runtime.GC()
+		var stats runtime.MemStats
+		runtime.ReadMemStats(&stats)
+		baseline := stats.HeapAlloc
+		peak := sampleHeap(baseline)
+		if err := producer.ProduceSync(t.Context(), event.manifest).FirstErr(); err != nil {
+			t.Fatalf("Producing the manifest of event %s failed: %v", event.eventID, err)
+		}
+		pipeline.stack().waitForRow(t, event.eventID)
+		growth := peak() - baseline
+		debug.SetGCPercent(previous)
+		if run == 0 || growth < smallest {
+			smallest = growth
+		}
 	}
-	pipeline.stack().waitForRow(t, event.eventID)
-	return peak() - baseline, event.parts
+	return smallest, parts
 }
 
 // readAssemblyEvent encodes a completed read event with targetCount node
@@ -123,7 +152,8 @@ func changeAssemblyEvent(t *testing.T, deltaBytes int) assemblyEvent {
 	return encodeAssemblyEvent(t, event, nil)
 }
 
-// encodeAssemblyEvent encodes event with targets into Kafka records.
+// encodeAssemblyEvent encodes event with targets into Kafka records. The last
+// message is the manifest.
 func encodeAssemblyEvent(t *testing.T, event audit.Event, targets []audit.Target) assemblyEvent {
 	t.Helper()
 	encoded, err := audit.EncodeEvent(event, targets)
@@ -138,7 +168,7 @@ func encodeAssemblyEvent(t *testing.T, event audit.Event, targets []audit.Target
 	for _, message := range messages {
 		records = append(records, &kgo.Record{Key: messageKey(t, message), Value: message})
 	}
-	return assemblyEvent{eventID: event.EventID, parts: len(encoded.Parts), records: records}
+	return assemblyEvent{eventID: event.EventID, parts: records[:len(records)-1], manifest: records[len(records)-1]}
 }
 
 // sampleHeap starts a goroutine that records the highest HeapAlloc value. The
