@@ -50,7 +50,7 @@ func noteToolResult(ctx context.Context, outcome audit.OutcomeDetails, reason st
 	}
 }
 
-// noteToolTarget stores target in the note on ctx and keeps the stored outcome.
+// noteToolTarget sets the target in the note on ctx without changing the stored outcome.
 func noteToolTarget(ctx context.Context, target audit.Target) {
 	note, _ := ctx.Value(toolNoteKey{}).(*toolNote)
 	if note == nil {
