@@ -77,15 +77,21 @@ func isPayloadDigest(digest string) bool {
 }
 
 // argumentNodeID returns the node_id argument of an MCP tool call, or
-// uuid.Nil when the call does not include a valid node_id.
-func argumentNodeID(arguments map[string]any) uuid.UUID {
-	value, isString := arguments["node_id"].(string)
-	if !isString {
+// uuid.Nil when the call does not include node_id. It fails the test when
+// node_id is not a UUID string.
+func argumentNodeID(t *testing.T, arguments map[string]any) uuid.UUID {
+	t.Helper()
+	raw, present := arguments["node_id"]
+	if !present {
 		return uuid.Nil
+	}
+	value, isString := raw.(string)
+	if !isString {
+		t.Fatalf("The case passed node_id %v of type %T; the coverage check requires a UUID string.", raw, raw)
 	}
 	nodeID, err := uuid.Parse(value)
 	if err != nil {
-		return uuid.Nil
+		t.Fatalf("The case passed node_id %q, which is not a UUID: %v", value, err)
 	}
 	return nodeID
 }
