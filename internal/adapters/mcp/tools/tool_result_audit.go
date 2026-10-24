@@ -39,9 +39,12 @@ func recordToolResult(ctx context.Context, toolName string, result *mcpmcp.CallT
 	}
 	event, err := toolResultEvent(ctx, toolName, outcome, reason, toolResultTarget(ctx, toolName, noted))
 	if err == nil {
-		err = audit.ValidateEvent(event)
-	}
-	if err == nil {
+		// The audit-consumer stores an event that fails validation in the
+		// dead-letter table for repair.
+		if invalid := audit.ValidateEvent(event); invalid != nil {
+			telemetry.L(ctx).ErrorContext(ctx, "mcp.tool.result_invalid",
+				slog.String("tool", toolName), slog.String("err", invalid.Error()))
+		}
 		err = currentAuditRecorder().Record(ctx, event)
 	}
 	if err != nil {

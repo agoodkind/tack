@@ -13,6 +13,9 @@ const (
 	maxRequestPathBytes = 256
 	// maxHTTPMethodBytes limits the byte length of HTTP methods in read events.
 	maxHTTPMethodBytes = 16
+	// requestPathPunctuation lists the characters other than letters and
+	// digits that a recorded request path can contain.
+	requestPathPunctuation = "/-_.~"
 )
 
 // readSelection returns the normalized arguments of a read. The node_id
@@ -66,8 +69,8 @@ func checkedMethod(method string) string {
 }
 
 // checkedPath returns path when it starts with a slash and contains only
-// letters, digits, slashes, hyphens, underscores, periods, and tildes within
-// maxRequestPathBytes. It returns an empty string otherwise.
+// letters, digits, and requestPathPunctuation within maxRequestPathBytes. It
+// returns an empty string otherwise.
 func checkedPath(path string) string {
 	if !strings.HasPrefix(path, "/") || len(path) > maxRequestPathBytes {
 		return ""
@@ -75,7 +78,7 @@ func checkedPath(path string) string {
 	for _, character := range path {
 		letter := (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
 		digit := character >= '0' && character <= '9'
-		if !letter && !digit && !strings.ContainsRune("/-_.~", character) {
+		if !letter && !digit && !strings.ContainsRune(requestPathPunctuation, character) {
 			return ""
 		}
 	}

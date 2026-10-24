@@ -51,7 +51,10 @@ func hashBearer(raw string) string {
 }
 
 // emitAuthAudit adds the request fields to ev, validates it, and records it.
-// It logs a validation or recording failure and does not fail the request.
+// It records an event that fails validation, and the audit-consumer stores
+// that event in the dead-letter table for repair. It logs a validation or
+// recording failure and does not fail the request, because an accepted token
+// already authenticated the caller.
 func emitAuthAudit(ctx context.Context, r *http.Request, ev audit.Event) {
 	rec := currentRecorder()
 	ev.Actor.IP = clientIP(r)
@@ -63,7 +66,6 @@ func emitAuthAudit(ctx context.Context, r *http.Request, ev audit.Event) {
 	if err := audit.ValidateEvent(ev); err != nil {
 		slog.ErrorContext(ctx, "auth.audit_event_invalid",
 			slog.String("event_id", ev.EventID.String()), slog.String("err", err.Error()))
-		return
 	}
 	if err := rec.Record(ctx, ev); err != nil {
 		telemetry.L(ctx).Warn("audit.auth_record_failed", "err", err)
