@@ -17,10 +17,10 @@ import (
 )
 
 // TestSearchProjectionReadiness verifies that each audited search command
-// rejects an unknown property type without a search declaration before
-// requesting OpenSearch. It then assigns the definition a known type without
-// a declaration and verifies that provisioning succeeds with the default
-// projection.
+// rejects an invalid stored search declaration, and then an unknown property
+// type without a search declaration, before requesting OpenSearch. It then
+// assigns the definition a known type without a declaration and verifies that
+// provisioning succeeds with the default projection.
 func TestSearchProjectionReadiness(t *testing.T) {
 	env := SetupTestEnv(t)
 	control := newSearchControl(t)
@@ -28,21 +28,19 @@ func TestSearchProjectionReadiness(t *testing.T) {
 	if err != nil || len(definitions) == 0 || definitions[0].Search == nil {
 		t.Fatalf("list declared definitions: count = %d, error = %v", len(definitions), err)
 	}
+	invalid := *definitions[0]
+	invalid.Search = &node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleLabels}}
+	if err := env.Stores.PropertyDefs.Set(env.Ctx, &invalid); err != nil {
+		t.Fatalf("store a definition with an invalid search declaration: %v", err)
+	}
+	requireSearchCommandsRefuse(t, env, control, "labels search rule requires a label map")
 	undecidable := *definitions[0]
 	undecidable.Search = nil
 	undecidable.Type = node.PropertyType(opaqueSearchKey("t"))
 	if err := env.Stores.PropertyDefs.Set(env.Ctx, &undecidable); err != nil {
 		t.Fatalf("store a definition without a default projection: %v", err)
 	}
-	for _, command := range []string{"provision", "verify"} {
-		err := control.run("ops", "search", command)
-		if err == nil || !strings.Contains(err.Error(), "1 definitions without a search declaration lack a default projection") {
-			t.Fatalf("%s with an undecidable projection: error = %v", command, err)
-		}
-		if searchIndexExists(t, control, searchControlIndex) {
-			t.Fatalf("%s created %s while a definition had no projection", command, searchControlIndex)
-		}
-	}
+	requireSearchCommandsRefuse(t, env, control, "1 definitions without a search declaration lack a default projection")
 	defaulted := undecidable
 	defaulted.Type = node.PropertyTypeText
 	if err := env.Stores.PropertyDefs.Set(env.Ctx, &defaulted); err != nil {
@@ -50,6 +48,26 @@ func TestSearchProjectionReadiness(t *testing.T) {
 	}
 	if err := control.run("ops", "search", "provision"); err != nil {
 		t.Fatalf("provision with a defaulted definition: %v", err)
+	}
+}
+
+// requireSearchCommandsRefuse requires provision, reindex, and verify to fail
+// with an error that contains want. It also requires that none of them
+// created the control index or began an index replacement.
+func requireSearchCommandsRefuse(t *testing.T, env *TestEnv, control searchControl, want string) {
+	t.Helper()
+	for _, command := range []string{"provision", "reindex", "verify"} {
+		err := control.run("ops", "search", command)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s with an unready projection: error = %v, want %q", command, err, want)
+		}
+		if searchIndexExists(t, control, searchControlIndex) {
+			t.Fatalf("%s created %s while a projection was unready", command, searchControlIndex)
+		}
+	}
+	rebuild, running, err := env.Stores.SearchRebuilds(clock.Wall{}).CurrentRebuild(env.Ctx)
+	if err != nil || running {
+		t.Fatalf("index replacement after refused commands = %+v, running %t, error %v", rebuild, running, err)
 	}
 }
 
