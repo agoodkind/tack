@@ -81,6 +81,9 @@ func requireNoRepairDeploy(t *testing.T, fixture queryFixture, modelID, phase st
 }
 
 // `TestSearchModelRepairStaleDeployTask` requires repair to depend on a `RUNNING` task's update age.
+// The repair must not record audit events while the task is current. After the
+// repair deploys the model, the operator outbox must contain a completed repair
+// operation with a completed step that records the deploy task.
 func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 	t.Setenv(repairEnabledVariable, "true")
 	t.Setenv("OPENSEARCH_MODEL_REPAIR_INTERVAL", repairGateInterval.String())
@@ -116,10 +119,14 @@ func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 		t.Fatalf("expected one active deploy task after a current update: deployment %+v err %v, want 1 active deploy task", young, err)
 	}
 	since := clock.Now().UTC()
+	mark, _ := ModelRepairEvents(t, fixture.Stores, nil)
 	buildRepairingQueryGraph(t, fixture.Config)
 	time.Sleep(repairGateQuietPeriod)
 	if count := deployTasksSince(t, fixture, modelID, since); count != 0 {
 		t.Fatalf("repair deployed the model while a deploy task had a current update: %d deploy tasks of model %s since %s, want none", count, modelID, since)
+	}
+	if _, events := ModelRepairEvents(t, fixture.Stores, mark); len(events) != 0 {
+		t.Fatalf("repair recorded %d audit events while a deploy task had a current update, want none", len(events))
 	}
 
 	stale := clock.Now().Add(-staleDeployTaskAge)
@@ -133,4 +140,8 @@ func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 	if count := deployTasksSince(t, fixture, modelID, since); count != 1 {
 		t.Fatalf("expected one repair deploy after the task became stale: %d deploy tasks of model %s since %s, want 1", count, modelID, since)
 	}
+	clusterEventually(t, "recorded repair deploy", func() error {
+		_, events := ModelRepairEvents(t, fixture.Stores, mark)
+		return CompletedModelRepair(events, modelID)
+	})
 }

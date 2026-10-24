@@ -238,6 +238,9 @@ const (
 	// VerbSearchAccessRolloutPhase records a search worker step that can
 	// change the phase of an access policy rollout.
 	VerbSearchAccessRolloutPhase Verb = "search.access_rollout_phase"
+	// VerbSearchModelRepair records a model repair step that deploys a
+	// stuck serving model again.
+	VerbSearchModelRepair Verb = "search.model_repair"
 	// VerbAuditPartitionMaintain records one audit partition maintenance run
 	// of the audit-consumer.
 	VerbAuditPartitionMaintain Verb = "audit.partition_maintain"

@@ -22,6 +22,7 @@ var datagenLedgerVerbs = []string{
 	string(audit.VerbOpsLedgerAuditBootstrap),
 	string(audit.VerbSearchIndexStructure),
 	string(audit.VerbSearchAccessRolloutPhase),
+	string(audit.VerbSearchModelRepair),
 	string(audit.VerbAuditPartitionMaintain),
 }
 
