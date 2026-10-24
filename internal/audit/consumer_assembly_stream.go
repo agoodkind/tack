@@ -52,8 +52,8 @@ func streamAssembly(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, header []
 		if errors.Is(err, errManifestPartStore) {
 			return Event{}, "", err
 		}
-		if reader.failure != nil && !errors.Is(reader.failure, errAssemblyPartsInvalid) {
-			return Event{}, "", reader.failure
+		if failure := reader.databaseFailure(); failure != nil {
+			return Event{}, "", failure
 		}
 		return Event{}, "", rejectTransport(ctx, eventID, err.Error())
 	}

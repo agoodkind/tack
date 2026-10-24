@@ -17,6 +17,9 @@ import (
 // its size or digest check.
 var errAssemblyPartsInvalid = errors.New("assembly part check failed")
 
+// errAssemblyPartRead marks a database error while reading a stored part.
+var errAssemblyPartRead = errors.New("read assembly part")
+
 // assemblyPartReader returns the stored part payloads of one assembly in index
 // order as one byte stream. It reads one part per fetch call and keeps only
 // that part. It checks the size and digest of each part and adds the part
@@ -29,7 +32,8 @@ type assemblyPartReader struct {
 	next    uint32
 	pending []byte
 	hasher  hash.Hash
-	// failure is the first error that Read returned other than [io.EOF].
+	// failure is the first error that Read returned other than [io.EOF]. Read
+	// returns it again on every later call.
 	failure error
 }
 
@@ -48,7 +52,7 @@ func newAssemblyPartReader(ctx context.Context, tx pgx.Tx, manifest transportMes
 		}
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.consumer.parts_read_failed", slog.String("event_id", manifest.EventID.String()), slog.String("err", err.Error()))
-			return "", nil, false, fmt.Errorf("read audit event %s part %d: %w", manifest.EventID, index, err)
+			return "", nil, false, fmt.Errorf("%w: audit event %s part %d: %w", errAssemblyPartRead, manifest.EventID, index, err)
 		}
 		return digest, payload, true, nil
 	}
@@ -99,6 +103,15 @@ func (r *assemblyPartReader) load() error {
 func (r *assemblyPartReader) invalidPart(reason string) error {
 	slog.Warn("audit.consumer.assembly_part_invalid", slog.String("event_id", r.manifest.EventID.String()), slog.String("reason", reason))
 	return fmt.Errorf("%w: %s", errAssemblyPartsInvalid, reason)
+}
+
+// databaseFailure returns the database error that stopped Read. It returns
+// nil when Read did not fail or failed on a missing or invalid part.
+func (r *assemblyPartReader) databaseFailure() error {
+	if errors.Is(r.failure, errAssemblyPartRead) {
+		return r.failure
+	}
+	return nil
 }
 
 // complete reports whether the reader returned every declared part and the
