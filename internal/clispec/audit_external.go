@@ -25,6 +25,11 @@ type ExternalRun func(ctx context.Context, steps audit.StepRecorder) (audit.Outc
 // that spec selects from input. The resolved principal identifies the actor,
 // and Extra stores any accountable operator. When execute is false,
 // RunAuditedExternal prints the dry-run preamble without calling run.
+//
+// When outbox does not save the intent of a spec that creates the audit
+// infrastructure, RunAuditedExternal checks the infrastructure with probe
+// and can run the command with its events in memory. It writes those events
+// to outbox after the command runs.
 func RunAuditedExternal(
 	ctx context.Context,
 	output io.Writer,
@@ -34,12 +39,13 @@ func RunAuditedExternal(
 	deployCommit string,
 	execute bool,
 	outbox audit.OutboxWriter,
+	probe audit.InfrastructureProbe,
 	run ExternalRun,
 ) error {
 	ctx = withDryRunOutput(ctx, output)
-	if spec.Class != audit.OperationExternal || spec.CreatesAuditInfrastructure {
+	if spec.Class != audit.OperationExternal {
 		return loggedAuditError(ctx, "validate audit spec",
-			fmt.Errorf("audit spec %q requires the external class and cannot create audit infrastructure", spec.Verb))
+			fmt.Errorf("audit spec %q requires the external class", spec.Verb))
 	}
 	target, safeInput, err := operationTarget(ctx, spec, input)
 	if err != nil {
@@ -65,6 +71,9 @@ func RunAuditedExternal(
 	err = audit.RunExternal(runContext, outbox, intent, func(stepContext context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 		return run(stepContext, steps)
 	})
+	if errors.Is(err, audit.ErrExternalIntentNotSaved) && spec.CreatesAuditInfrastructure {
+		err = runExternalCreatingAuditInfrastructure(ctx, runContext, outbox, probe, intent, run, err)
+	}
 	if errors.Is(err, audit.ErrExternalIntentNotSaved) {
 		return loggedAuditError(ctx, "record command intent", err)
 	}
@@ -104,7 +113,7 @@ func AttachExternalPreview(
 			return loggedAuditError(cmd.Context(), "encode command input", err)
 		}
 		err = RunAuditedExternal(cmd.Context(), dryRunDestination(f, cmd.OutOrStdout()), spec, encoded,
-			f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), run)
+			f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), f.AuditInfrastructureProbe(), run)
 		if err != nil || f.Execute() || preview == nil {
 			return err
 		}
