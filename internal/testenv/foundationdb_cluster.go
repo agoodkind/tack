@@ -123,7 +123,7 @@ func startFoundationDBProcesses(
 // and reports the health of the stored data.
 type foundationDBStatus struct {
 	Cluster struct {
-		Processes map[string]json.RawMessage `json:"processes"`
+		Processes map[string]struct{} `json:"processes"`
 		Data      struct {
 			State struct {
 				Healthy bool   `json:"healthy"`
@@ -145,7 +145,11 @@ func waitForHealthyCluster(ctx context.Context, cli *client.Client, containerNam
 		}
 		var status foundationDBStatus
 		healthy := false
-		if exitCode == 0 && json.Unmarshal([]byte(output), &status) == nil {
+		if exitCode == 0 {
+			if err := json.Unmarshal([]byte(output), &status); err != nil {
+				slog.ErrorContext(ctx, "testenv.foundationdb_cluster.status_unreadable", slog.String("err", err.Error()))
+				return fmt.Errorf("parse the status json of %s: %w", containerName, err)
+			}
 			reported, state = len(status.Cluster.Processes), status.Cluster.Data.State.Name
 			healthy = status.Cluster.Data.State.Healthy
 		}
