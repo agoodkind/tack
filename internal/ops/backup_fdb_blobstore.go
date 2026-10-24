@@ -162,7 +162,7 @@ func fdbBackupStartArgs(b *backupCtx) (cmd []string, binds []string, extraHosts 
 		)
 		return nil, nil, nil, wrapped
 	}
-	binds = []string{"/etc/foundationdb:/etc/foundationdb:ro"}
+	binds = []string{fdbClusterReadOnlyBind(b.Cfg)}
 	// -z (--no-stop-when-done) keeps the backup running after it becomes
 	// restorable, so it streams a continuously-advancing restore window instead
 	// of stopping at the first snapshot. Without it fdbbackup stops once the
