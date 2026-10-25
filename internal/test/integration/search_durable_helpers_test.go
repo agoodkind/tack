@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,6 +20,7 @@ const durableDocumentLimit = 1000
 
 // durableDocument is one page document of a node in the serving index.
 type durableDocument struct {
+	ID       string  `json:"-"`
 	Revision string  `json:"node_revision"`
 	Ordinal  uint64  `json:"page_ordinal"`
 	Text     *string `json:"page_text"`
@@ -46,9 +48,20 @@ func durableNodeDocuments(t *testing.T, fixture integration.QueryFixture, nodeID
 		if err := json.Unmarshal(hit.Source, &document); err != nil {
 			t.Fatalf("decode document %s of node %s: %v", hit.ID, nodeID, err)
 		}
+		document.ID = hit.ID
 		documents = append(documents, document)
 	}
 	return documents
+}
+
+// durableDocumentIDs returns the sorted IDs of documents.
+func durableDocumentIDs(documents []durableDocument) []string {
+	ids := make([]string, 0, len(documents))
+	for _, document := range documents {
+		ids = append(ids, document.ID)
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 // editDurableNode replaces the included text of nodeID through the node
