@@ -26,11 +26,12 @@ const (
 	conflictPollInterval = 50 * time.Millisecond
 )
 
-// TestRuntimeAuditSQLMembershipConflictRetry checks that
-// OrgMemberRepo.AddMember retries after a conflicting commit causes
-// SQLSTATE 40001 and changes role 15 to role 20. It requires one
-// org.member_role_set outbox change for the operation and rejects
-// failed result events.
+// TestRuntimeAuditSQLMembershipConflictRetry: AddMember's SELECT ... FOR UPDATE
+// cannot see the uncommitted membership. Its insert waits for the open transaction.
+// After that transaction commits, YugabyteDB aborts the waiting insert with
+// SQLSTATE 40001 because the committed row is newer than AddMember's transaction snapshot.
+// YugabyteDB retries only a transaction's first statement itself; AddMember's
+// insert is the second statement.
 func TestRuntimeAuditSQLMembershipConflictRetry(t *testing.T) {
 	admin := ledgerAdminPool(t)
 	principal := sqlAuditPrincipal()
