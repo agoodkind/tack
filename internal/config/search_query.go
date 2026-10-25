@@ -41,7 +41,7 @@ type SearchQuerySettings struct {
 	IdleTimeout      time.Duration `env:"OPENSEARCH_SESSION_IDLE_TIMEOUT"     envDefault:"15m"`
 	AbsoluteTimeout  time.Duration `env:"OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT" envDefault:"2h"`
 	RequestDeadline  time.Duration `env:"OPENSEARCH_QUERY_DEADLINE"           envDefault:"20s"`
-	Concurrency      int           `env:"OPENSEARCH_QUERY_CONCURRENCY"        envDefault:"8"`
+	Concurrency      int           `env:"OPENSEARCH_QUERY_CONCURRENCY"        envDefault:"4"`
 	AdmissionWait    time.Duration `env:"OPENSEARCH_QUERY_ADMISSION_WAIT"     envDefault:"5s"`
 	CursorKey        string        `env:"OPENSEARCH_CURSOR_KEY,required"`
 }
