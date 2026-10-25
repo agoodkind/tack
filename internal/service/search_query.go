@@ -61,20 +61,21 @@ type SearchPage struct {
 }
 
 // SearchQueryService runs ranked search over durable sessions. It keeps no
-// process-local session state.
+// process-local session state. Each running search stores one value in slots.
 type SearchQueryService struct {
 	ports    SearchQueryPorts
 	clock    clock.Clock
 	settings config.SearchQuerySettings
+	slots    chan struct{}
 }
 
-// NewSearchQueryService constructs the public search service.
+// NewSearchQueryService constructs the public search service and its search slots.
 func NewSearchQueryService(ports SearchQueryPorts, source clock.Clock, settings config.SearchQuerySettings) *SearchQueryService {
-	return &SearchQueryService{ports: ports, clock: source, settings: settings}
+	return &SearchQueryService{ports: ports, clock: source, settings: settings, slots: make(chan struct{}, settings.Concurrency)}
 }
 
-// Search opens a session or continues one, then returns one bounded page of
-// currently authorized nodes.
+// Search takes a process search slot, opens a session or continues one, then
+// returns one bounded page of currently authorized nodes.
 func (s *SearchQueryService) Search(ctx context.Context, request SearchRequest) (SearchPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.settings.RequestDeadline)
 	defer cancel()
@@ -83,6 +84,11 @@ func (s *SearchQueryService) Search(ctx context.Context, request SearchRequest) 
 		return SearchPage{}, queryFailure(ctx, "validate query", request.SessionID,
 			fmt.Errorf("query must contain 1 to %d bytes of UTF-8 text: %w", s.settings.MaxQueryBytes, searchdomain.ErrInvalidQuery))
 	}
+	release, err := s.acquireSearchSlot(ctx, request.SessionID)
+	if err != nil {
+		return SearchPage{}, err
+	}
+	defer release()
 	authority, err := s.ports.Access.EntryAuthority(ctx, request.EntryPointID)
 	if err != nil {
 		return SearchPage{}, queryFailure(ctx, "resolve entry point authority", request.SessionID, err)
