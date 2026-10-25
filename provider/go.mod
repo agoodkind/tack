@@ -2,6 +2,8 @@ module goodkind.io/tack/provider
 
 go 1.27.1
 
+toolchain go1.27.3
+
 require (
 	github.com/agoodkind/terraform-provider-pveguest v0.1.1
 	github.com/google/uuid v1.6.0

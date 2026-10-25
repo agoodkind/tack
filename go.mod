@@ -2,6 +2,8 @@ module goodkind.io/tack
 
 go 1.27.1
 
+toolchain go1.27.3
+
 require (
 	connectrpc.com/connect/v2 v2.0.2
 	github.com/ClickHouse/clickhouse-go/v2 v2.49.0
