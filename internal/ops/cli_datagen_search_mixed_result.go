@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"slices"
 	"time"
 
 	"goodkind.io/tack/internal/clispec"
@@ -27,6 +28,7 @@ type datagenSearchMixedResult struct {
 	Rebuild                  datagenSearchMixedRebuild    `json:"rebuild"`
 	CatchUp                  datagenSearchMixedCatchUp    `json:"catch_up"`
 	Samples                  []datagenSearchMixedSample   `json:"samples"`
+	SkippedPhases            []string                     `json:"skipped_phases"`
 }
 
 type datagenSearchMixedWrites struct {
@@ -89,7 +91,9 @@ func searchMixedPerMinute(count int, elapsed time.Duration) float64 {
 	return float64(count) / elapsed.Minutes()
 }
 
-func searchMixedResult(input datagenSearchMixedInput, duration time.Duration, summary datagen.SearchMixedSummary) datagenSearchMixedResult {
+func searchMixedResult(
+	input datagenSearchMixedInput, duration time.Duration, summary datagen.SearchMixedSummary, stop datagenSearchStop,
+) datagenSearchMixedResult {
 	searches := summary.Search
 	return datagenSearchMixedResult{
 		datagenSearchLoadResult: datagenSearchLoadResult{
@@ -107,6 +111,7 @@ func searchMixedResult(input datagenSearchMixedInput, duration time.Duration, su
 				P95: searchLoadMilliseconds(searches.Latency.P95), P99: searchLoadMilliseconds(searches.Latency.P99),
 				Max: searchLoadMilliseconds(searches.Latency.Max),
 			},
+			MaxWallTime: stop.maxWallTime.String(), StopReason: string(stop.reason),
 		},
 		TargetWriteRatePerMinute: input.WriteRate, PlannedWrites: summary.PlannedWrites,
 		Writes: datagenSearchMixedWrites{
@@ -132,7 +137,8 @@ func searchMixedResult(input datagenSearchMixedInput, duration time.Duration, su
 			FinalState: summary.Rebuild.FinalState,
 		},
 		CatchUp: datagenSearchMixedCatchUp{Completed: summary.CatchUp.Completed, ElapsedMs: searchLoadMilliseconds(summary.CatchUp.Elapsed)},
-		Samples: searchMixedSamples(summary.Samples),
+		Samples:       searchMixedSamples(summary.Samples),
+		SkippedPhases: slices.Clone(summary.SkippedPhases),
 	}
 }
 
