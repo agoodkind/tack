@@ -137,7 +137,13 @@ func requireBreakerThreshold(t *testing.T, fixture queryFixture, value string) {
 // setBreakerThreshold writes the ML Commons heap threshold as a persistent
 // cluster setting. The value null restores the default.
 func setBreakerThreshold(ctx context.Context, fixture queryFixture, value string) error {
-	body := fmt.Appendf(nil, `{"persistent":{"plugins.ml_commons.jvm_heap_memory_threshold":%s}}`, value)
+	return setClusterSetting(ctx, fixture, "plugins.ml_commons.jvm_heap_memory_threshold", value)
+}
+
+// setClusterSetting writes one persistent cluster setting. The value is raw
+// JSON, and null restores the default.
+func setClusterSetting(ctx context.Context, fixture queryFixture, name, value string) error {
+	body := fmt.Appendf(nil, `{"persistent":{%q:%s}}`, name, value)
 	var result json.RawMessage
 	response, err := opensearch.Do(ctx, fixture.Client.Client, http.MethodPut, clusterSettingsRequest{body: body}, &result)
 	if err != nil {

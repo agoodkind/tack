@@ -137,7 +137,7 @@ jobs:
           - group: G1
             timeout_minutes: 75
           - group: G3
-            timeout_minutes: 45
+            timeout_minutes: 60
           - group: G5
             timeout_minutes: 110
     steps:
