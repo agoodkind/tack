@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/testenv"
 )
 
 const (
@@ -80,6 +82,26 @@ func requireNoRepairDeploy(t *testing.T, fixture queryFixture, modelID, phase st
 	}
 }
 
+// requireEngineAnswers waits until the restarted shared engine answers a
+// request. After outageRecoveryDeadline it fails the test with the engine
+// container state and log tail.
+func requireEngineAnswers(t *testing.T, fixture queryFixture) {
+	t.Helper()
+	deadline := clock.Now().Add(outageRecoveryDeadline)
+	for {
+		_, err := fixture.Client.Info(WithTestOperation(t, t.Context()), nil)
+		if err == nil {
+			return
+		}
+		if clock.Now().After(deadline) {
+			engine := testenv.OpenSearchWithMemory(t, nativeSearchMemoryBytes)
+			diagnostics := testenv.OpenSearchDiagnostics(context.WithoutCancel(WithTestOperation(t, t.Context())), engine)
+			t.Fatalf("the restarted engine did not answer within %s: %v: %s", outageRecoveryDeadline, err, diagnostics)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
 // `TestSearchModelRepairStaleDeployTask` requires repair to depend on a `RUNNING` task's update age.
 // The repair must not record audit events while the task is current. After the
 // repair deploys the model, the operator outbox must contain a completed repair
@@ -99,6 +121,7 @@ func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 	disableNativeRedeploy(t, fixture)
 	setEngineRunning(t, false)
 	setEngineRunning(t, true)
+	requireEngineAnswers(t, fixture)
 	clusterEventually(t, "failed model with no active deploy tasks", func() error {
 		deployment, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 		if err != nil {
