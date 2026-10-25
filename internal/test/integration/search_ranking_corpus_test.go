@@ -3,6 +3,7 @@ package integration
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -109,4 +110,84 @@ func encodeLexical[Value lexicalValue](t *testing.T, value Value) json.RawMessag
 		t.Fatalf("encode lexical control: %v", err)
 	}
 	return encoded
+}
+
+const (
+	// pageTargetRankLimit is the number of distinct nodes a page target
+	// must rank within.
+	pageTargetRankLimit = 25
+	// pageTargetAdvance is the number of new bytes each continuation page of
+	// ASCII text adds after its one-quarter overlap.
+	pageTargetAdvance = runtimePageBytes - runtimePageBytes/4
+	// pageTargetBoundary is a lexical target that crosses a page end.
+	pageTargetBoundary = "kestrelboundary"
+	// pageTargetBoundaryPrefix is the part of pageTargetBoundary that the
+	// page before the boundary ends with.
+	pageTargetBoundaryPrefix = "kestrel"
+	// pageTargetSemantic is the final-page text the semantic query "crash"
+	// retrieves without a lexical match.
+	pageTargetSemantic = "Application terminated unexpectedly."
+	// pageTargetSemanticQuery is the semantic query for pageTargetSemantic.
+	pageTargetSemanticQuery = "crash"
+	pageTargetName          = "Page position fixture"
+)
+
+// pageTarget is one query and the node it must return.
+type pageTarget struct {
+	Query  string
+	NodeID uuid.UUID
+}
+
+// pageEnd returns the projected byte offset where ASCII page ordinal ends.
+func pageEnd(ordinal int) int {
+	return runtimePageBytes + ordinal*pageTargetAdvance
+}
+
+// pageFiller returns count numbered filler sentences starting at first.
+func pageFiller(first, count int) string {
+	var filler strings.Builder
+	for number := first; number < first+count; number++ {
+		_, _ = fmt.Fprintf(&filler, "routine filler line %03d. ", number)
+	}
+	return filler.String()
+}
+
+// padToOffset appends spaces to text until it has offset bytes.
+func padToOffset(t *testing.T, text string, offset int) string {
+	t.Helper()
+	if len(text) > offset {
+		t.Fatalf("page target text has %d bytes, beyond the planned offset %d", len(text), offset)
+	}
+	return text + strings.Repeat(" ", offset-len(text))
+}
+
+// putPagePositionNodes creates a node with lexical targets on its first page,
+// a middle page, across a page end, and on its final page. The final page
+// also contains pageTargetSemantic. The function creates a second node with
+// a name and a value that each span more than three pages and end with a
+// target.
+func putPagePositionNodes(t *testing.T, fixture queryFixture, kind opaqueKind, entryID uuid.UUID) (uuid.UUID, []pageTarget) {
+	t.Helper()
+	projected := pageTargetName + "\n" + "kestrelbegin " + pageFiller(1, 10)
+	projected += " kestrelmiddle " + pageFiller(11, 10)
+	projected = padToOffset(t, projected, pageEnd(5)-len(pageTargetBoundaryPrefix)) + pageTargetBoundary + " " + pageFiller(21, 10)
+	projected = padToOffset(t, projected, pageEnd(9)) + "kestrelfinal " + pageTargetSemantic
+	positions := putOpaqueNode(t, fixture, kind, entryID, pageTargetName, projected[len(pageTargetName)+1:], "excluded")
+
+	longName := "kestrelname " + pageFiller(31, 16) + "kestrelnameend"
+	longValue := pageFiller(47, 16) + "kestrelvalueend"
+	if len(longName) <= 3*runtimePageBytes || len(longValue) <= 3*runtimePageBytes {
+		t.Fatalf("long name has %d bytes and value %d bytes, want each above %d", len(longName), len(longValue), 3*runtimePageBytes)
+	}
+	long := putOpaqueNode(t, fixture, kind, entryID, longName, longValue, "excluded")
+	targets := []pageTarget{
+		{Query: "kestrelbegin", NodeID: positions},
+		{Query: "kestrelmiddle", NodeID: positions},
+		{Query: pageTargetBoundary, NodeID: positions},
+		{Query: "kestrelfinal", NodeID: positions},
+		{Query: pageTargetSemanticQuery, NodeID: positions},
+		{Query: "kestrelnameend", NodeID: long},
+		{Query: "kestrelvalueend", NodeID: long},
+	}
+	return positions, targets
 }

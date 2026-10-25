@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -8,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
@@ -18,7 +21,101 @@ const (
 	scaleQuery          = "orbital manifest checklist"
 	scaleWriteBatch     = 100
 	scaleBulkBatch      = 500
+	// cursorTiedPages is the number of copies of one corpus page. The copies
+	// and the original page share one score and one node ID. The group
+	// contains more matches than one raw batch of 100 matches.
+	cursorTiedPages = 120
+	// cursorTiedOrdinalStart is the first page ordinal of the copies.
+	cursorTiedOrdinalStart = 1000
+	// cursorTieBatches bounds the raw batches of the tied traversal.
+	cursorTieBatches = 20
 )
+
+// putTiedPages bulk-indexes count copies of the single indexed page of
+// nodeID. Each copy has a new document ID and page ordinal and keeps the
+// node ID, type, revision, name, text, generation, and access of the page.
+// OpenSearch generates the sparse chunks of each copy from the same text.
+func putTiedPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID, count int) {
+	t.Helper()
+	pages := searchNodePages(t, fixture.Client, fixture.Index, nodeID, false)
+	if len(pages) != 1 {
+		t.Fatalf("node %s has %d active pages, want 1 to copy", nodeID, len(pages))
+	}
+	original := pages[0]
+	generation, err := strconv.Atoi(original.SearchGeneration.String())
+	if err != nil {
+		t.Fatalf("parse search generation %q of page %s: %v", original.SearchGeneration, original.ID, err)
+	}
+	var body strings.Builder
+	for ordinal := range count {
+		document := nativeDocument{
+			NodeID: original.NodeID, NodeType: original.NodeType, NodeRevision: original.NodeRevision,
+			ProjectionVersion: original.ProjectionVersion, PageOrdinal: cursorTiedOrdinalStart + ordinal,
+			Name: original.Name, PageText: original.PageText, Retired: false,
+			SearchGeneration: generation, Access: original.Access,
+		}
+		id := "tied-" + nodeID.String() + "-" + strconv.Itoa(ordinal)
+		body.WriteString(nativeIndexAction(t, fixture.Index, id, 1, encodeNativeJSON(t, document)))
+	}
+	requireBulkSucceeded(t, nativeBulk(t, fixture.Client, body.String()))
+}
+
+// requireTiedPagesOnce reads every raw batch of the session point in time
+// from the first match until OpenSearch returns an empty batch. It requires
+// each active page document of nodeID to appear exactly once, identified by
+// its shard document sort value. It also requires at least one batch
+// boundary between two matches with equal score and node ID.
+func requireTiedPagesOnce(t *testing.T, fixture queryFixture, ranker *search.QueryRanker, session searchdomain.Session, nodeID uuid.UUID) {
+	t.Helper()
+	want := len(searchNodePages(t, fixture.Client, fixture.Index, nodeID, false))
+	snapshot := session.Snapshot
+	var after json.RawMessage
+	var previous []json.RawMessage
+	positions := make(map[string]bool, want)
+	tiedBoundaries := 0
+	for range cursorTieBatches {
+		batch, err := ranker.Read(WithTestOperation(t, t.Context()), session.Query, snapshot, after)
+		if err != nil {
+			t.Fatalf("read tied raw batch: %v", err)
+		}
+		if len(batch.Hits) == 0 {
+			if len(positions) != want || tiedBoundaries == 0 {
+				t.Fatalf("traversal read %d of %d page documents of node %s with %d tied batch boundaries, want every document and at least one tied boundary",
+					len(positions), want, nodeID, tiedBoundaries)
+			}
+			return
+		}
+		snapshot.PITID = batch.PITID
+		first := hitSortValues(t, batch.Hits[0])
+		if previous != nil && bytes.Equal(previous[0], first[0]) && bytes.Equal(previous[1], first[1]) {
+			tiedBoundaries++
+		}
+		for _, hit := range batch.Hits {
+			if hit.NodeID != nodeID {
+				continue
+			}
+			position := string(hitSortValues(t, hit)[2])
+			if positions[position] {
+				t.Fatalf("traversal read the page document of node %s at shard position %s twice", nodeID, position)
+			}
+			positions[position] = true
+		}
+		last := batch.Hits[len(batch.Hits)-1]
+		previous, after = hitSortValues(t, last), last.Sort
+	}
+	t.Fatalf("tied traversal did not end within %d raw batches", cursorTieBatches)
+}
+
+// hitSortValues returns the score, node ID, and shard document sort values
+// of one match as raw JSON.
+func hitSortValues(t *testing.T, hit searchdomain.RankHit) []json.RawMessage {
+	t.Helper()
+	var values []json.RawMessage
+	if err := json.Unmarshal(hit.Sort, &values); err != nil || len(values) != 3 {
+		t.Fatalf("sort values %s are not score, node ID, and shard document: %v", hit.Sort, err)
+	}
+	return values
+}
 
 // putDuplicatePages writes count page documents for one node through the
 // typed bulk API in bounded batches. Each page stores the node's current
