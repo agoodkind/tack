@@ -48,6 +48,16 @@ func TestSearchControlCommandRejectsMappingAndModelMismatches(t *testing.T) {
 			want: "mapping field unexpected_property is not declared",
 		},
 		{
+			// A permission policy that needs a fourth access field must add
+			// that field to the index mapping because strict mapping rejects
+			// documents that contain it.
+			name: "access property",
+			mutate: func(t *testing.T) {
+				putSearchControlMapping(t, control, `{"properties":{"access":{"properties":{"roles":{"type":"keyword"}}}}}`)
+			},
+			want: "access field roles is not declared",
+		},
+		{
 			name: "registered model",
 			mutate: func(t *testing.T) {
 				otherModel := registerMismatchModel(t, control.client)

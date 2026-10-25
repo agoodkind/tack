@@ -165,8 +165,9 @@ func uniqueSearchText(pages []node.ContentPage) string {
 }
 
 // requireIndexedPages requires one active document per reader page with the
-// same text, revision, projection, and ordinal. Each document generation is
-// at least minimum and equals its access generation.
+// same text, revision, projection, and ordinal, and generated chunks with
+// sparse weights that cover each page text. Each document generation is at
+// least minimum and equals its access generation.
 func requireIndexedPages(t *testing.T, documents []searchPageSource, pages []node.ContentPage, minimum int64) {
 	t.Helper()
 	if len(documents) != len(pages) {
@@ -178,6 +179,7 @@ func requireIndexedPages(t *testing.T, documents []searchPageSource, pages []nod
 			document.NodeRevision != page.Revision || document.ProjectionVersion != page.ProjectionVersion {
 			t.Fatalf("document %d does not match reader page %d", number, page.Ordinal)
 		}
+		requireNativeChunks(t, document.Semantic, page.Text)
 		generation, err := document.SearchGeneration.Int64()
 		if err != nil || generation < minimum || int64(document.Access.Generation) != generation {
 			t.Fatalf("document %d generation = %s, access generation %d, want at least %d", number, document.SearchGeneration, document.Access.Generation, minimum)

@@ -65,10 +65,13 @@ func (s *NodeTypeStore) ScanTypes(ctx context.Context, cursor string) (types []*
 }
 
 // Replace decodes and re-encodes the stored node type before comparing it
-// with before. If the values match, Replace stores after and returns true.
-// The same transaction updates the type-key index and metadata epoch and
-// writes one change event with the stored and replacement records when they differ.
-// If the stored node type does not match before, Replace does not write and returns false.
+// with before. If the values match, Replace stores the stored record with
+// each top-level field that differs between before and after taken from
+// after, and returns true. Replace copies every other stored field with its
+// stored bytes in stored order. The same transaction updates the type-key index and metadata
+// epoch and writes one change event with the stored and replacement records
+// when they differ. If the stored node type does not match before, Replace
+// does not write and returns false.
 func (s *NodeTypeStore) Replace(ctx context.Context, before, after *node.NodeType) (replaced bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.replace")(&err)
 	expected, err := json.Marshal(before)
@@ -95,11 +98,15 @@ func (s *NodeTypeStore) Replace(ctx context.Context, before, after *node.NodeTyp
 		if matchErr != nil || !current {
 			return matchErr
 		}
+		patched, patchErr := patchedNodeType(ctx, previous, expected, encoded)
+		if patchErr != nil {
+			return patchErr
+		}
 		if err := updateNodeTypeIndex(ctx, tr, s.clock.Now(), s.searchWork, after.OrgID, after.ID, previous, after); err != nil {
 			return err
 		}
-		tr.Set(fdb.Key(key), encoded)
-		return recordMetadataChange(ctx, tr, changes, nodeTypeTarget(after.ID, after.TypeKey), previous, encoded)
+		tr.Set(fdb.Key(key), patched)
+		return recordMetadataChange(ctx, tr, changes, nodeTypeTarget(after.ID, after.TypeKey), previous, patched)
 	})
 	if err != nil {
 		return false, err

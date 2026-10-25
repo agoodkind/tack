@@ -112,6 +112,7 @@ func TestSearchNativeSparse(t *testing.T) {
 	}
 	const index = "native-sparse-compatibility"
 	createNativeSearchIndex(t, adapter, client, model, index)
+	requireNativeChunkMapping(t, client, index)
 	for _, workload := range nativeCompletePageCases() {
 		t.Run(workload.name, func(t *testing.T) {
 			text := workload.text

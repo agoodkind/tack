@@ -3,6 +3,7 @@ package integration
 import (
 	"testing"
 
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
@@ -83,6 +84,23 @@ func CallerAccess(t *testing.T, fixture QueryFixture, workspace datagen.Workspac
 func PutDuplicatePages(t *testing.T, fixture QueryFixture, kind OpaqueKind, nodeID uuid.UUID, filter searchdomain.AccessFilter, count int) {
 	t.Helper()
 	putDuplicatePages(t, fixture, kind, nodeID, filter, count)
+}
+
+// CursorSession decodes cursor with the configured key and loads its stored
+// search session.
+func CursorSession(t *testing.T, fixture QueryFixture, cursor string) searchdomain.Session {
+	t.Helper()
+	return cursorSession(t, fixture, cursor)
+}
+
+// NodeResolveRawKey returns the key of the resolution record of nodeID under
+// the test prefix.
+func NodeResolveRawKey(nodeID uuid.UUID) fdb.Key { return nodeResolveRawKey(nodeID) }
+
+// ReplaceRawValue stores value under key and returns the previous value.
+func ReplaceRawValue(t *testing.T, key fdb.Key, value []byte) []byte {
+	t.Helper()
+	return replaceRawValue(t, key, value)
 }
 
 // TrySearch calls tack_search with query and cursor and converts an error
