@@ -55,10 +55,8 @@ func StopOpenSearch(ctx context.Context, fixture OpenSearchFixture) (OpenSearchS
 	slog.InfoContext(ctx, "testenv.engine.stopped", slog.String("container", fixture.Container),
 		slog.Int("exit_code", state.ExitCode), slog.Duration("duration", stop.Duration))
 	if state.ExitCode == sigkillExitCode || state.OOMKilled {
-		wrapped := fmt.Errorf("engine %s did not exit on SIGTERM within %s: %s",
+		return stop, fmt.Errorf("engine %s did not exit on SIGTERM within %s: %s",
 			fixture.Container, OpenSearchStopTimeout, describeEngine(ctx, cli, fixture.Container, state))
-		slog.ErrorContext(ctx, "testenv.engine.killed", slog.String("err", wrapped.Error()), slog.String("container", fixture.Container))
-		return stop, wrapped
 	}
 	return stop, nil
 }
