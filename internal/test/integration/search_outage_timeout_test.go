@@ -72,7 +72,9 @@ func TestSearchUnavailableWhileEngineUnresponsive(t *testing.T) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("tack_search did not succeed within %s after the engine resumed: %v", unresponsiveRecoveryDeadline, err)
+			engine := testenv.OpenSearchWithMemory(t, integration.NativeSearchMemoryBytes)
+			diagnostics := testenv.OpenSearchDiagnostics(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), engine)
+			t.Fatalf("tack_search did not succeed within %s after the engine resumed: %v: %s", unresponsiveRecoveryDeadline, err, diagnostics)
 		}
 		time.Sleep(time.Second)
 	}
