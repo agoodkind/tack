@@ -59,6 +59,8 @@ type SearchMixedSummary struct {
 	Samples           []SearchMixedSample
 	// Measured is true after the measured window ends, including when a workload phase fails.
 	Measured bool
+	// Stopped is true when the schedule context ended before setup or the probe drain finished.
+	Stopped bool `exhaustruct:"optional"`
 }
 
 // SearchMixedFreshness reports the time between an issue's update time in FoundationDB and the
@@ -101,6 +103,8 @@ type searchMixed struct {
 }
 
 // RunSearchMixed measures search during concurrent public issue writes and the workload phases.
+// When scheduleContext ends while setup waits for search to return the corpus, RunSearchMixed
+// returns an unmeasured summary with Stopped set and a nil error.
 func RunSearchMixed(
 	scheduleContext context.Context,
 	callContext context.Context,
@@ -113,10 +117,7 @@ func RunSearchMixed(
 	plannedSearches := int(options.Duration * time.Duration(options.Rate) / time.Minute)
 	plannedWrites := int(options.Duration * time.Duration(options.WriteRate) / time.Minute)
 	if !options.Commit {
-		searches := (&searchLoadStats{}).summary(true, plannedSearches, 0, 0, 0, 0)
-		summary := (&searchMixedStats{}).summary(searches, plannedWrites, 0)
-		summary.Endpoints, summary.Burst.Planned = len(options.Endpoints), options.BurstWrites
-		return summary, nil
+		return unmeasuredSearchMixedSummary(options, true, plannedSearches, plannedWrites), nil
 	}
 	if plannedSearches < 1 || plannedWrites < 1 {
 		return SearchMixedSummary{}, fmt.Errorf("qa datagen search-mixed: schedule requires at least one search and one write: rate %d, write rate %d, duration %s", options.Rate, options.WriteRate, options.Duration)
@@ -127,7 +128,14 @@ func RunSearchMixed(
 	if !cfg.SearchPublicEnabled {
 		return SearchMixedSummary{}, loggedError(callContext, "qa datagen search-mixed: this command requires public search", errPublicSearchDisabled)
 	}
-	mixed, closeMixed, err := newSearchMixed(callContext, cfg, options, plannedSearches)
+	mixed, closeMixed, err := newSearchMixed(scheduleContext, callContext, cfg, options, plannedSearches)
+	if errors.Is(err, errSearchMixedSetupStopped) {
+		slog.InfoContext(callContext, "qa.datagen.search_mixed_setup_stopped",
+			slog.String("cause", context.Cause(scheduleContext).Error()))
+		summary := unmeasuredSearchMixedSummary(options, false, plannedSearches, plannedWrites)
+		summary.Stopped = true
+		return summary, nil
+	}
 	if err != nil {
 		return SearchMixedSummary{}, err
 	}
@@ -142,6 +150,15 @@ func RunSearchMixed(
 		slog.Int("burst_created", summary.Burst.Created), slog.Int("markers_not_found", summary.MarkersNotFound),
 		slog.Int("deleted_returned", summary.DeletedReturned), slog.Bool("caught_up", summary.CatchUp.Completed))
 	return summary, nil
+}
+
+// unmeasuredSearchMixedSummary returns the planned counts of a run that did not start the
+// measured window.
+func unmeasuredSearchMixedSummary(options SearchMixedOptions, dryRun bool, plannedSearches, plannedWrites int) SearchMixedSummary {
+	searches := (&searchLoadStats{}).summary(dryRun, plannedSearches, 0, 0, 0, 0)
+	summary := (&searchMixedStats{}).summary(searches, plannedWrites, 0)
+	summary.Endpoints, summary.Burst.Planned = len(options.Endpoints), options.BurstWrites
+	return summary
 }
 
 func validateSearchMixedOptions(options SearchMixedOptions) error {

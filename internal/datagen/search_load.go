@@ -2,31 +2,14 @@ package datagen
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
 
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 )
-
-// SearchLoadOptions specifies the search workload parameters.
-type SearchLoadOptions struct {
-	Seed        int64
-	Rate        int
-	Duration    time.Duration
-	Concurrency int
-	Commit      bool
-	// Endpoints lists base URLs for HTTP tack_search calls to deployed Tack
-	// processes. The workload builds and calls an in-process runtime graph
-	// when Endpoints is empty.
-	Endpoints []string `exhaustruct:"optional"`
-	// Client sends HTTP tack_search requests to Endpoints.
-	Client *http.Client `exhaustruct:"optional"`
-}
 
 // SearchLoadSummary reports request counts, errors, elapsed time, and latency.
 type SearchLoadSummary struct {
@@ -42,6 +25,9 @@ type SearchLoadSummary struct {
 	Elapsed         time.Duration
 	Latency         SearchLoadLatency
 	PointInTime     SearchLoadPointInTime
+	// Stopped is true when the schedule context ended before the schedule started or dropped
+	// every planned request.
+	Stopped bool `exhaustruct:"optional"`
 }
 
 type searchLoad struct {
@@ -119,34 +105,16 @@ func newSearchLoad(ctx context.Context, cfg *config.Config, options SearchLoadOp
 	}, nil
 }
 
-func validateSearchLoadOptions(options SearchLoadOptions) error {
-	if options.Duration <= 0 {
-		return errors.New("qa datagen search-load: duration must be positive")
-	}
-	if options.Concurrency <= 0 {
-		return errors.New("qa datagen search-load: concurrency must be positive")
-	}
-	if options.Rate < 0 {
-		return errors.New("qa datagen search-load: rate must not be negative")
-	}
-	if options.Commit && options.Rate == 0 {
-		return errors.New("qa datagen search-load: rate must be positive with --commit")
-	}
-	if len(options.Endpoints) > 0 && options.Client == nil {
-		return errors.New("qa datagen search-load: endpoints require an HTTP client")
-	}
-	return nil
-}
-
 func (l *searchLoad) run(scheduleContext, callContext context.Context, planned int) SearchLoadSummary {
 	interval := time.Minute / time.Duration(l.options.Rate)
 	slots := make(chan struct{}, l.options.Concurrency)
 	distinct := make(map[string]struct{}, planned)
 	var inFlight sync.WaitGroup
 	started := clock.Now()
-	sent, dropped := 0, 0
+	sent, dropped, stopped := 0, 0, false
 	for index := range planned {
 		if !waitForSearchLoadStart(scheduleContext, started.Add(time.Duration(index)*interval)) {
+			stopped = true
 			break
 		}
 		select {
@@ -174,7 +142,9 @@ func (l *searchLoad) run(scheduleContext, callContext context.Context, planned i
 	}
 	inFlight.Wait()
 	elapsed := clock.Now().Sub(started)
-	return l.stats.summary(false, planned, sent, dropped, len(distinct), elapsed)
+	summary := l.stats.summary(false, planned, sent, dropped, len(distinct), elapsed)
+	summary.Stopped = stopped
+	return summary
 }
 
 func waitForSearchLoadStart(ctx context.Context, startAt time.Time) bool {

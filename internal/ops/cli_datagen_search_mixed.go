@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"goodkind.io/tack/internal/audit"
@@ -33,6 +30,7 @@ type datagenSearchMixedInput struct {
 	BurstWrites int
 	CatchUp     string
 	Rebuild     bool
+	MaxWallTime string
 }
 
 func datagenSearchMixedOp(f *cli.Factory) clispec.Operation[datagenSearchMixedInput] {
@@ -42,7 +40,7 @@ func datagenSearchMixedOp(f *cli.Factory) clispec.Operation[datagenSearchMixedIn
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsDatagenSoak), Mutates: true},
 		Group:    datagenGroup,
 		Short:    "Measure search during concurrent writes, an ingestion burst, permission changes, and an optional index rebuild.",
-		Long:     "The command sends first-page public tack_search calls at the offered rate across two tenants. It schedules public calls to create, edit, and delete issues at the write rate. Each created or edited issue contains a unique marker word. Freshness lag measures the time from the issue update time that FoundationDB stores to the first search that returns the issue for its marker. At one quarter of the duration, the command creates the burst issues back to back. It then deletes issues and checks session continuation, page replay, and a new search while deletion work can still be pending. Any result that includes a deleted issue fails the check. The command also removes a member and repeats these checks. It allows cached membership access for AUTH_MEMBERSHIP_CACHE_LIFETIME after removal. Any search that returns an issue after that lifetime fails the check. The command also fails if any call still permits access after that lifetime plus the convergence deadline. Read sessions search 140 unchanged issues in the first tenant and 10 in the second. Their pages alternate between endpoints. The command repeats each continued page request using the next endpoint. With --rebuild, the command starts a full index rebuild with the same audited operation as ops search reindex --mode full --execute and records the rebuild separately under ops.search.reindex. After the writes and phases end, the command waits up to --catch-up for live, access, and cleanup search work with enqueue times before that moment to finish. Every two seconds, the result records the age of the oldest pending search work and each OpenSearch node's CPU, memory, JVM heap, and disk. The command does not use rates, latency, or throughput as pass thresholds. Without --commit, the command performs a dry run. After the measured window ends, the command writes the result before returning an error for a workload phase failure, a recorded goroutine panic, or a failed correctness check; it returns setup errors and other errors before that point without writing a result.",
+		Long:     "The command sends first-page public tack_search calls at the offered rate across two tenants. It schedules public calls to create, edit, and delete issues at the write rate. Each created or edited issue contains a unique marker word. Freshness lag measures the time from the issue update time that FoundationDB stores to the first search that returns the issue for its marker. At one quarter of the duration, the command creates the burst issues back to back. It then deletes issues and checks session continuation, page replay, and a new search while deletion work can still be pending. Any result that includes a deleted issue fails the check. The command also removes a member and repeats these checks. It allows cached membership access for AUTH_MEMBERSHIP_CACHE_LIFETIME after removal. Any search that returns an issue after that lifetime fails the check. The command also fails if any call still permits access after that lifetime plus the convergence deadline. Read sessions search 140 unchanged issues in the first tenant and 10 in the second. Their pages alternate between endpoints. The command repeats each continued page request using the next endpoint. With --rebuild, the command starts a full index rebuild with the same audited operation as ops search reindex --mode full --execute and records the rebuild separately under ops.search.reindex. After the writes and phases end, the command waits up to --catch-up for live, access, and cleanup search work with enqueue times before that moment to finish. Every two seconds, the result records the age of the oldest pending search work and each OpenSearch node's CPU, memory, JVM heap, and disk. The command does not use rates, latency, or throughput as pass thresholds. Without --commit, the command performs a dry run. After the measured window ends, the command writes the result before returning an error for a workload phase failure, a recorded goroutine panic, or a failed correctness check; it returns setup errors and other errors before that point without writing a result. The --max-wall-time bound starts when the command starts. When the bound expires, SIGINT arrives, or SIGTERM arrives, the command stops search loads and scheduled writes, skips the catch-up wait, ends the probe wait, and writes the result. If the ingestion burst has not started, the command skips the burst and the later phases. If the burst has started, the command finishes the burst and the later phases, including the membership restore after the revocation check. If the bound or a signal ends a setup wait for search to return the corpus, the command writes a result without measurements. The result reports the bound as max_wall_time and the reason as stop_reason: max_wall_time when the bound ended the run, signal when SIGINT or SIGTERM ended it, and none when the run finished.",
 		Params: []clispec.Param[datagenSearchMixedInput]{
 			clispec.IntParam("rate", "Set the offered number of first-page public tack_search calls per minute.", 0, func(input *datagenSearchMixedInput, value int) { input.Rate = value }),
 			clispec.IntParam("write-rate", "Set the number of scheduled issue writes per minute.", 0, func(input *datagenSearchMixedInput, value int) { input.WriteRate = value }),
@@ -54,12 +52,14 @@ func datagenSearchMixedOp(f *cli.Factory) clispec.Operation[datagenSearchMixedIn
 			clispec.IntParam("burst-writes", "Set the number of issues that the ingestion burst creates.", defaultDatagenSearchMixedBurstWrites, func(input *datagenSearchMixedInput, value int) { input.BurstWrites = value }),
 			clispec.StringParam("catch-up", "Set the longest wait for search work after the writes end.", defaultDatagenSearchMixedCatchUp, false, func(input *datagenSearchMixedInput, value string) { input.CatchUp = value }),
 			clispec.BoolParam("rebuild", "Begin one full index rebuild after the ingestion burst.", false, func(input *datagenSearchMixedInput, value bool) { input.Rebuild = value }),
+			clispec.StringParam("max-wall-time", "Set the longest time before the command stops loads and writes, counted from command start.", defaultDatagenSearchMaxWallTime, false, func(input *datagenSearchMixedInput, value string) { input.MaxWallTime = value }),
 		},
 		New: func() datagenSearchMixedInput {
 			return datagenSearchMixedInput{
 				InputMarker: clispec.InputMarker{}, Rate: 0, WriteRate: 0, Duration: defaultDatagenSearchLoadDuration,
 				Concurrency: defaultDatagenSearchLoadConcurrency, Seed: defaultDatagenSeed, Commit: false, Endpoints: "",
 				BurstWrites: defaultDatagenSearchMixedBurstWrites, CatchUp: defaultDatagenSearchMixedCatchUp, Rebuild: false,
+				MaxWallTime: defaultDatagenSearchMaxWallTime,
 			}
 		},
 		Run: func(ctx context.Context, input datagenSearchMixedInput, sink clispec.ResultSink) error {
@@ -73,15 +73,20 @@ func runDatagenSearchMixed(ctx context.Context, factory *cli.Factory, input data
 	if err != nil {
 		return err
 	}
-	signalContext, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stopSignals()
-	callContext := context.WithoutCancel(signalContext)
-	summary, runErr := datagen.RunSearchMixed(signalContext, callContext, factory.Cfg, options)
+	maxWallTime, err := parseDatagenSearchMaxWallTime(ctx, "search-mixed", input.MaxWallTime)
+	if err != nil {
+		return err
+	}
+	stopContext, stopSchedule := datagenSearchStopContext(ctx, maxWallTime)
+	defer stopSchedule()
+	callContext := context.WithoutCancel(stopContext)
+	summary, runErr := datagen.RunSearchMixed(stopContext, callContext, factory.Cfg, options)
 	if runErr != nil && !summary.Measured {
 		slog.ErrorContext(ctx, "qa.datagen.search_mixed_failed", slog.String("err", runErr.Error()))
 		return fmt.Errorf("qa datagen search-mixed: the workload failed: %w", runErr)
 	}
-	if err := clispec.WriteJSONValue(ctx, sink, searchMixedResult(input, options.Duration, summary)); err != nil {
+	if err := clispec.WriteJSONValue(ctx, sink, searchMixedResult(input, options.Duration, summary,
+		datagenSearchStopped(ctx, stopContext, "search-mixed", maxWallTime, summary.Stopped))); err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.search_mixed_result_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("qa datagen search-mixed: the command could not write the result: %w", err)
 	}

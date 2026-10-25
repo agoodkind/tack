@@ -15,7 +15,8 @@ const searchMixedMinimumTenants = 2
 
 // newSearchMixed opens the stores and readers, bootstraps the tenants, builds one driver per
 // endpoint, creates the tenant projects and the search corpus, and builds the search loads.
-func newSearchMixed(ctx context.Context, cfg *config.Config, options SearchMixedOptions, plannedSearches int) (*searchMixed, func(), error) {
+// The corpus index waits end when stopContext ends. Every call uses ctx.
+func newSearchMixed(stopContext, ctx context.Context, cfg *config.Config, options SearchMixedOptions, plannedSearches int) (*searchMixed, func(), error) {
 	limits, err := config.LoadSearchQuerySettings(ctx)
 	if err != nil {
 		return nil, nil, loggedError(ctx, "qa datagen search-mixed: the command could not load the search settings", err)
@@ -62,14 +63,14 @@ func newSearchMixed(ctx context.Context, cfg *config.Config, options SearchMixed
 		stores: stores, pages: graph, backlog: backlog, resources: resources, members: postgres.NewOrgMemberRepo(pool),
 		stats: &searchMixedStats{}, phases: &searchMixedPhaseStats{},
 	}
-	if err := mixed.prepare(ctx, plannedSearches); err != nil {
+	if err := mixed.prepare(stopContext, ctx, plannedSearches); err != nil {
 		closeAll()
 		return nil, nil, err
 	}
 	return mixed, closeAll, nil
 }
 
-func (m *searchMixed) prepare(ctx context.Context, plannedSearches int) error {
+func (m *searchMixed) prepare(stopContext, ctx context.Context, plannedSearches int) error {
 	if _, err := m.resources.read(ctx); err != nil {
 		return err
 	}
@@ -92,7 +93,7 @@ func (m *searchMixed) prepare(ctx context.Context, plannedSearches int) error {
 	if err := m.createProjects(ctx); err != nil {
 		return err
 	}
-	if err := m.createCorpus(ctx); err != nil {
+	if err := m.createCorpus(stopContext, ctx); err != nil {
 		return err
 	}
 	return m.newSearchMixedLoads(ctx, plannedSearches)

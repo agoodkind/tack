@@ -89,7 +89,9 @@ func searchMixedPerMinute(count int, elapsed time.Duration) float64 {
 	return float64(count) / elapsed.Minutes()
 }
 
-func searchMixedResult(input datagenSearchMixedInput, duration time.Duration, summary datagen.SearchMixedSummary) datagenSearchMixedResult {
+func searchMixedResult(
+	input datagenSearchMixedInput, duration time.Duration, summary datagen.SearchMixedSummary, stop datagenSearchStop,
+) datagenSearchMixedResult {
 	searches := summary.Search
 	return datagenSearchMixedResult{
 		datagenSearchLoadResult: datagenSearchLoadResult{
@@ -107,6 +109,7 @@ func searchMixedResult(input datagenSearchMixedInput, duration time.Duration, su
 				P95: searchLoadMilliseconds(searches.Latency.P95), P99: searchLoadMilliseconds(searches.Latency.P99),
 				Max: searchLoadMilliseconds(searches.Latency.Max),
 			},
+			MaxWallTime: stop.maxWallTime.String(), StopReason: string(stop.reason),
 		},
 		TargetWriteRatePerMinute: input.WriteRate, PlannedWrites: summary.PlannedWrites,
 		Writes: datagenSearchMixedWrites{

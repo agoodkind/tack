@@ -2,10 +2,17 @@ package datagen
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 )
+
+// errSearchMixedSetupStopped reports that the schedule context ended while setup waited for
+// search to return the corpus.
+var errSearchMixedSetupStopped = errors.New("qa datagen search-mixed: the schedule context ended during setup")
 
 const (
 	// searchMixedReadNodes is the number of unchanged issues that the paginated sessions of the
@@ -28,7 +35,7 @@ type searchMixedCorpus struct {
 
 // createCorpus creates the read issues of both tenants and the victim issues of the first
 // tenant through public calls, then waits until search returns each of them.
-func (m *searchMixed) createCorpus(ctx context.Context) error {
+func (m *searchMixed) createCorpus(stopContext, ctx context.Context) error {
 	read, err := m.createIssues(ctx, 0, searchMixedReadNodes, func(number int) string {
 		return fmt.Sprintf("Read corpus %s issue %d", m.readWord, number)
 	})
@@ -56,11 +63,33 @@ func (m *searchMixed) createCorpus(ctx context.Context) error {
 	for _, wait := range waits {
 		run := m.searchRun(wait.tenant, 0, wait.tenant)
 		check := func(ctx context.Context) error { return run.includes(ctx, wait.word, wait.nodes...) }
-		if err := run.eventually(ctx, "index search mixed corpus "+wait.word, check); err != nil {
+		if err := awaitCorpus(stopContext, ctx, "index search mixed corpus "+wait.word, check); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// awaitCorpus repeats check with callContext until it succeeds or the convergence deadline
+// passes. It returns errSearchMixedSetupStopped when stopContext ends between checks.
+func awaitCorpus(stopContext, callContext context.Context, description string, check func(context.Context) error) error {
+	deadline := clock.Now().Add(searchConvergenceDeadline)
+	for {
+		err := check(callContext)
+		if err == nil {
+			return nil
+		}
+		if clock.Now().After(deadline) {
+			return loggedError(callContext, "qa datagen: "+description, err)
+		}
+		timer := time.NewTimer(searchPollInterval)
+		select {
+		case <-stopContext.Done():
+			timer.Stop()
+			return errSearchMixedSetupStopped
+		case <-timer.C:
+		}
+	}
 }
 
 // searchRun returns a verification run for one tenant actor through one driver.

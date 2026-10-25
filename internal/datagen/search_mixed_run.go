@@ -93,6 +93,7 @@ func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWr
 	<-samplerDone
 	summary := m.stats.summary(searchSummary, plannedWrites, writeElapsed)
 	summary.Endpoints, summary.Tenants, summary.Measured = len(m.options.Endpoints), len(m.tenants), true
+	summary.Stopped = parentSchedule.Err() != nil
 	m.phases.apply(&summary)
 	return summary, errors.Join(phaseErr, m.panicError())
 }
