@@ -27,6 +27,7 @@ type datagenSearchMixedResult struct {
 	Rebuild                  datagenSearchMixedRebuild    `json:"rebuild"`
 	CatchUp                  datagenSearchMixedCatchUp    `json:"catch_up"`
 	Samples                  []datagenSearchMixedSample   `json:"samples"`
+	SkippedPhases            []string                     `json:"skipped_phases"`
 }
 
 type datagenSearchMixedWrites struct {
@@ -135,7 +136,8 @@ func searchMixedResult(
 			FinalState: summary.Rebuild.FinalState,
 		},
 		CatchUp: datagenSearchMixedCatchUp{Completed: summary.CatchUp.Completed, ElapsedMs: searchLoadMilliseconds(summary.CatchUp.Elapsed)},
-		Samples: searchMixedSamples(summary.Samples),
+		Samples:       searchMixedSamples(summary.Samples),
+		SkippedPhases: append([]string{}, summary.SkippedPhases...),
 	}
 }
 

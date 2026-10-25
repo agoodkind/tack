@@ -72,6 +72,7 @@ type searchMixedPhaseStats struct {
 	rebuild    SearchMixedRebuildResult `exhaustruct:"optional"`
 	catchUp    SearchMixedCatchUp       `exhaustruct:"optional"`
 	samples    []SearchMixedSample      `exhaustruct:"optional"`
+	skipped    []string                 `exhaustruct:"optional"`
 }
 
 func (p *searchMixedPhaseStats) update(change func(*searchMixedPhaseStats)) {
@@ -85,5 +86,5 @@ func (p *searchMixedPhaseStats) apply(summary *SearchMixedSummary) {
 	defer p.mutex.Unlock()
 	summary.Burst, summary.Sessions, summary.Pending = p.burst, p.sessions, p.pending
 	summary.Revocation, summary.Rebuild, summary.CatchUp = p.revocation, p.rebuild, p.catchUp
-	summary.Samples = slices.Clone(p.samples)
+	summary.Samples, summary.SkippedPhases = slices.Clone(p.samples), slices.Clone(p.skipped)
 }

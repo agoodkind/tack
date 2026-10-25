@@ -61,6 +61,8 @@ type SearchMixedSummary struct {
 	Measured bool
 	// Stopped is true when the schedule context ended before setup or the probe drain finished.
 	Stopped bool `exhaustruct:"optional"`
+	// SkippedPhases lists the workload phases that did not start because the schedule context ended.
+	SkippedPhases []string `exhaustruct:"optional"`
 }
 
 // SearchMixedFreshness reports the time between an issue's update time in FoundationDB and the
@@ -133,7 +135,7 @@ func RunSearchMixed(
 		slog.InfoContext(callContext, "qa.datagen.search_mixed_setup_stopped",
 			slog.String("cause", context.Cause(scheduleContext).Error()))
 		summary := unmeasuredSearchMixedSummary(options, false, plannedSearches, plannedWrites)
-		summary.Stopped = true
+		summary.Stopped, summary.SkippedPhases = true, searchMixedPhaseNames(options.Rebuild != nil)
 		return summary, nil
 	}
 	if err != nil {

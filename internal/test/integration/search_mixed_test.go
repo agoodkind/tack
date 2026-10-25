@@ -65,7 +65,8 @@ type searchMixedOutput struct {
 			OpenSearchNodes     []json.RawMessage `json:"opensearch_nodes"`
 			Error               string            `json:"error"`
 		} `json:"samples"`
-		StopReason string `json:"stop_reason"`
+		StopReason    string   `json:"stop_reason"`
+		SkippedPhases []string `json:"skipped_phases"`
 	} `json:"result"`
 }
 
@@ -105,8 +106,9 @@ func TestSearchMixedWorkload(t *testing.T) {
 	if result.PendingDeletion.Checks != 1 || result.PendingDeletion.PendingObserved != 1 || result.Revocation.Checks <= 0 || !result.Revocation.Refused {
 		t.Fatalf("qa datagen search-mixed: the result must confirm one deletion check with pending work and search refusal after membership removal: %s", output)
 	}
-	if !result.Rebuild.Requested || result.Rebuild.TargetIndex == "" || !result.CatchUp.Completed || result.StopReason != "none" {
-		t.Fatalf("qa datagen search-mixed: the command must request a rebuild with a target index, complete catch-up, and finish without a stop: %s", output)
+	if !result.Rebuild.Requested || result.Rebuild.TargetIndex == "" || !result.CatchUp.Completed || result.StopReason != "none" ||
+		len(result.SkippedPhases) != 0 {
+		t.Fatalf("qa datagen search-mixed: the command must request a rebuild with a target index, complete catch-up, and finish every phase without a stop: %s", output)
 	}
 	requireSearchMixedSamples(t, output, envelope)
 	requireSearchMixedReindexAudit(t, result.Rebuild.TargetIndex)
