@@ -47,7 +47,11 @@ func TestSearchRecoveryResumesRefreshAndRetirement(t *testing.T) {
 	entry := integration.EntryPoint(t, fixture, workspace)
 	nodeID := integration.PutOpaqueNode(t, fixture, kind, entry, "recovery steps", strings.Repeat("first recovery text ", 20), "excluded")
 	integration.DrainSearchWork(t, fixture.Worker, 2000)
+	// A projection activation during the first drain can schedule a second
+	// revision, and its cleanup retires the pages of the first revision
+	// before the edit. The final check compares document IDs.
 	before := durableNodeDocuments(t, fixture, nodeID, false)
+	retiredBefore := durableNodeDocuments(t, fixture, nodeID, true)
 	editDurableNode(t, fixture, kind, nodeID, strings.Repeat("second recovery text ", 20))
 
 	pagesOwner := claimRecoveryWork(t, reopenRecoveryStores(t), searchdomain.WorkClassLive, nodeID)
@@ -88,8 +92,12 @@ func TestSearchRecoveryResumesRefreshAndRetirement(t *testing.T) {
 			t.Fatalf("active document %d of node %s does not match page %d of revision %s", position, nodeID, position, pages[position].Revision)
 		}
 	}
-	if retired := durableNodeDocuments(t, fixture, nodeID, true); len(retired) != len(before) {
-		t.Fatalf("node %s has %d retired documents, want the %d pages of the old revision", nodeID, len(retired), len(before))
+	retired := durableDocumentIDs(durableNodeDocuments(t, fixture, nodeID, true))
+	wantRetired := append(durableDocumentIDs(retiredBefore), durableDocumentIDs(before)...)
+	slices.Sort(wantRetired)
+	if !slices.Equal(retired, wantRetired) {
+		t.Fatalf("node %s has retired documents %v, want the %d earlier retirements and the %d pages of the old revision %v",
+			nodeID, retired, len(retiredBefore), len(before), wantRetired)
 	}
 	for _, class := range []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassCleanup} {
 		if work, err := store.Claim(integration.WithTestOperation(t, t.Context()), class, "inspector", recoveryStepLease); !errors.Is(err, searchdomain.ErrNoWork) {
