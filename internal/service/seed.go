@@ -300,7 +300,7 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, slugAddressReference, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}, nil},
 		{"project", "projects", "Project", nodeTypeProject, projectFeatures, directIdentifier, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeState}, []string{nodeTypeWorkspace}, projectDefaultStates},
 		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, scopedSequence, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeIssue}, nil},
-		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, scopedSequence, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject}, nil},
+		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, scopedSequence, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject, nodeTypeEpic}, nil},
 		{"cycle", "cycles", "Cycle", nodeTypeCycle, cycleFeatures, scopedSequence, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
 		{"module", "modules", "Module", nodeTypeModule, moduleFeatures, scopedSequence, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
 		{"state", "states", "State", nodeTypeState, nil, scopedName, nil, []string{nodeTypeProject}, nil},

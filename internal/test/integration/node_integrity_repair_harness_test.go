@@ -38,6 +38,16 @@ type repairCommandResult struct {
 
 func runRepairCommand(t *testing.T, args ...string) (repairCommandResult, error) {
 	t.Helper()
+	var result repairCommandResult
+	err := runBackfillCommand(t, "once-node-integrity", &result, args...)
+	return result, err
+}
+
+// runBackfillCommand runs ops backfill command with args through the
+// registered command tree as the repair test operator. It decodes the JSON
+// result into result and returns the command error.
+func runBackfillCommand[Result any](t *testing.T, command string, result *Result, args ...string) error {
+	t.Helper()
 	cfg := &config.Config{
 		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: repairTransactionTimeout,
 		RepairDir: repairDirectory(t),
@@ -56,22 +66,21 @@ func runRepairCommand(t *testing.T, args ...string) (repairCommandResult, error)
 	root.SetArgs(append([]string{
 		"--output", "json", "--operator-id", repairOperatorID,
 		"--operator-email", "repair@example.com", "--operator-name", "Repair Test",
-		"ops", "backfill", "once-node-integrity",
+		"ops", "backfill", command,
 	}, args...))
 	runErr := root.Execute()
-	var result repairCommandResult
 	start := bytes.IndexByte(output.Bytes(), '{')
 	if start < 0 {
-		return result, runErr
+		return runErr
 	}
 	var document response.JSONDocument
 	if err := json.Unmarshal(output.Bytes()[start:], &document); err != nil {
-		t.Fatalf("decode repair command output %q: %v", output.String(), err)
+		t.Fatalf("decode %s command output %q: %v", command, output.String(), err)
 	}
-	if err := json.Unmarshal(document.Result, &result); err != nil {
-		t.Fatalf("decode repair command result %s: %v", document.Result, err)
+	if err := json.Unmarshal(document.Result, result); err != nil {
+		t.Fatalf("decode %s command result %s: %v", command, document.Result, err)
 	}
-	return result, runErr
+	return runErr
 }
 
 func repairCommandRoot(factory *cli.Factory) *cobra.Command {
