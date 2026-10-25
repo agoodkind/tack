@@ -32,7 +32,7 @@ func queryService(t *testing.T, fixture queryFixture, responseBytes int, idle, a
 	settings := config.SearchQuerySettings{
 		MaxQueryBytes: 1024, MaxResponseBytes: responseBytes, MaxTokenBytes: 64 << 10, BatchSize: 100, MaxBatches: 4,
 		MaxResults: 25, IdleTimeout: idle, AbsoluteTimeout: absolute, RequestDeadline: time.Minute,
-		CursorKey: os.Getenv("OPENSEARCH_CURSOR_KEY"),
+		Concurrency: 8, AdmissionWait: 5 * time.Second, CursorKey: os.Getenv("OPENSEARCH_CURSOR_KEY"),
 	}
 	if err := settings.Validate(); err != nil {
 		t.Fatalf("validate settings: %v", err)

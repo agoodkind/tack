@@ -23,10 +23,14 @@ const (
 	searchSessionMaximum      = 24 * time.Hour
 	searchDeadlineMaximum     = time.Minute
 	searchCursorKeyMinimum    = 32
+	searchConcurrencyMaximum  = 256
 )
 
 // SearchQuerySettings contains the bounded environment-backed settings of
 // public ranked search. The cursor key authenticates continuation cursors.
+// Concurrency is the number of searches one process runs at once.
+// AdmissionWait bounds how long a search waits for one of those slots, and
+// it is shorter than RequestDeadline.
 type SearchQuerySettings struct {
 	MaxQueryBytes    int           `env:"OPENSEARCH_QUERY_MAX_BYTES"          envDefault:"1024"`
 	MaxResponseBytes int           `env:"OPENSEARCH_RESPONSE_MAX_BYTES"       envDefault:"16384"`
@@ -37,6 +41,8 @@ type SearchQuerySettings struct {
 	IdleTimeout      time.Duration `env:"OPENSEARCH_SESSION_IDLE_TIMEOUT"     envDefault:"15m"`
 	AbsoluteTimeout  time.Duration `env:"OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT" envDefault:"2h"`
 	RequestDeadline  time.Duration `env:"OPENSEARCH_QUERY_DEADLINE"           envDefault:"20s"`
+	Concurrency      int           `env:"OPENSEARCH_QUERY_CONCURRENCY"        envDefault:"8"`
+	AdmissionWait    time.Duration `env:"OPENSEARCH_QUERY_ADMISSION_WAIT"     envDefault:"5s"`
 	CursorKey        string        `env:"OPENSEARCH_CURSOR_KEY,required"`
 }
 
@@ -73,7 +79,7 @@ func (s SearchQuerySettings) CursorKeyBytes() ([]byte, error) {
 }
 
 // Validate enforces the public request, response, session, batch, result,
-// and deadline limits.
+// deadline, and admission limits.
 func (s SearchQuerySettings) Validate() error {
 	if s.MaxQueryBytes < 1 || s.MaxQueryBytes > searchQueryByteMaximum {
 		return fmt.Errorf("search query bytes must be between 1 and %d", searchQueryByteMaximum)
@@ -96,8 +102,23 @@ func (s SearchQuerySettings) Validate() error {
 	if s.RequestDeadline <= 0 || s.RequestDeadline > searchDeadlineMaximum {
 		return errors.New("search query deadline must be positive and must not exceed one minute")
 	}
+	if err := s.validateAdmission(); err != nil {
+		return err
+	}
 	if _, err := s.CursorKeyBytes(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateAdmission enforces the process search slots and requires the
+// admission wait to end before the search query deadline.
+func (s SearchQuerySettings) validateAdmission() error {
+	if s.Concurrency < 1 || s.Concurrency > searchConcurrencyMaximum {
+		return fmt.Errorf("search query concurrency must be between 1 and %d", searchConcurrencyMaximum)
+	}
+	if s.AdmissionWait <= 0 || s.AdmissionWait >= s.RequestDeadline {
+		return errors.New("search admission wait must be positive and shorter than the search query deadline")
 	}
 	return nil
 }
