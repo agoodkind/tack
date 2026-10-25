@@ -70,7 +70,11 @@ func TestSearchRebuildFailsAfterPauseLimit(t *testing.T) {
 	requireFailure(t, failed, "wait for green target "+rebuild.TargetIndex)
 	requireQueued(t, fixture, source, queued, indexed)
 	requireRecovered(t, fixture, source, rebuild.TargetIndex)
-	drainSearchWork(t, fixture.Worker, 2000)
+	// A live write that failed on the write block waits for its retry delay,
+	// which a drain does not wait for.
+	runBoundedRebuildUntil(t, fixture, source, func(searchdomain.Rebuild, bool) bool {
+		return pagesCurrent(t, fixture, source, indexed) && pagesCurrent(t, fixture, source, queued)
+	})
 	requireCurrentPages(t, fixture, source, []uuid.UUID{indexed, queued})
 }
 
