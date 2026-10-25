@@ -63,7 +63,6 @@ func shortenSearchSessions(t *testing.T) {
 	t.Setenv("OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT", "6s")
 }
 
-// inState accepts a replacement in state.
 func inState(state searchdomain.RebuildState) func(searchdomain.Rebuild, bool) bool {
 	return func(current searchdomain.Rebuild, found bool) bool { return found && current.State == state }
 }

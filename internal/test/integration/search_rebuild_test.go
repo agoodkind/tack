@@ -72,12 +72,12 @@ func TestSearchRebuildRecoversFromStepFailures(t *testing.T) {
 //
 //  1. Replay: the target blocks writes while live work for replayed mirrors
 //     its pages.
-//  2. Validation: verification finds the pages of verified missing from the
-//     target.
+//  2. Validation: verification finds that the target lacks the pages of
+//     verified.
 //  3. Alias switching: the read-only target refuses the alias change.
 //
 // Before each condition clears, the public alias must select the source,
-// and public search for query must read verified from it.
+// and public search for query must return verified from it.
 func failReplayValidationSwitch(t *testing.T, fixture queryFixture, rebuild searchdomain.Rebuild, replayed, verified uuid.UUID, query string) {
 	t.Helper()
 	source, target := rebuild.SourceIndex, rebuild.TargetIndex
