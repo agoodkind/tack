@@ -61,7 +61,7 @@ func newSearchMixed(stopContext, ctx context.Context, cfg *config.Config, option
 		runKey: opaqueKey("mix"), readWord: opaqueKey("read"), victimWord: opaqueKey("victim"),
 		limits: searchLimits{MaxResults: limits.MaxResults, MaxResponseBytes: limits.MaxResponseBytes},
 		stores: stores, pages: graph, backlog: backlog, resources: resources, members: postgres.NewOrgMemberRepo(pool),
-		stats: &searchMixedStats{}, phases: &searchMixedPhaseStats{},
+		stats: &searchMixedStats{}, phases: &searchMixedPhaseStats{skipped: []string{}},
 	}
 	if err := mixed.prepare(stopContext, ctx, plannedSearches); err != nil {
 		closeAll()

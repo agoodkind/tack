@@ -58,7 +58,7 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 		},
 		Rebuild: SearchMixedRebuildResult{Requested: false, TargetIndex: "", Started: 0, Switched: 0, FinalState: ""},
 		CatchUp: SearchMixedCatchUp{Completed: false, Elapsed: 0},
-		Samples: []SearchMixedSample{}, Measured: false,
+		Samples: []SearchMixedSample{}, Measured: false, SkippedPhases: []string{},
 	}
 }
 

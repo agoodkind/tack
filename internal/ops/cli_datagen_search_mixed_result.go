@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"slices"
 	"time"
 
 	"goodkind.io/tack/internal/clispec"
@@ -137,7 +138,7 @@ func searchMixedResult(
 		},
 		CatchUp: datagenSearchMixedCatchUp{Completed: summary.CatchUp.Completed, ElapsedMs: searchLoadMilliseconds(summary.CatchUp.Elapsed)},
 		Samples:       searchMixedSamples(summary.Samples),
-		SkippedPhases: append([]string{}, summary.SkippedPhases...),
+		SkippedPhases: slices.Clone(summary.SkippedPhases),
 	}
 }
 
