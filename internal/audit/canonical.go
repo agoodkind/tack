@@ -22,12 +22,12 @@ func canonicalJSON(v any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var any any
-	if err := json.Unmarshal(raw, &any); err != nil {
+	var decodedValue any
+	if err := json.Unmarshal(raw, &decodedValue); err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	if err := writeCanonical(&buf, any); err != nil {
+	if err := writeCanonical(&buf, decodedValue); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil

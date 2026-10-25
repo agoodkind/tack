@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/clock"

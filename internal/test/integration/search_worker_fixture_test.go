@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
@@ -102,21 +102,24 @@ func newSearchIndex(t *testing.T, stores *fdbadapter.Stores) (*search.Adapter, *
 // requested retirement state, in page order.
 func searchNodePages(t *testing.T, client *opensearchapi.Client, index string, nodeID uuid.UUID, retired bool) []searchPageSource {
 	t.Helper()
-	if _, err := client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Index: []string{index}}); err != nil {
+	if _, err := client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Indices: []string{index}}); err != nil {
 		t.Fatalf("refresh %s: %v", index, err)
 	}
 	query := fmt.Sprintf(`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":%t}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String(), retired)
-	response, err := client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{index}, Body: strings.NewReader(query)})
+	response, err := client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{index}, BodyReader: strings.NewReader(query)})
 	if err != nil {
 		t.Fatalf("search pages of node %s: %v", nodeID, err)
 	}
 	pages := make([]searchPageSource, 0, len(response.Hits.Hits))
 	for _, hit := range response.Hits.Hits {
+		if hit.ID == nil {
+			t.Fatal("search page requires a document ID")
+		}
 		var page searchPageSource
 		if err := json.Unmarshal(hit.Source, &page); err != nil {
-			t.Fatalf("decode page %s: %v", hit.ID, err)
+			t.Fatalf("decode page %s: %v", *hit.ID, err)
 		}
-		page.ID = hit.ID
+		page.ID = *hit.ID
 		pages = append(pages, page)
 	}
 	return pages

@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -36,8 +36,7 @@ func waitForOpenSearchHealth(ctx context.Context, fixture OpenSearchFixture) err
 	defer func() { _ = client.Close() }()
 	var lastFailure string
 	for {
-		response, err := opensearch.Do[json.RawMessage](ctx, client, http.MethodGet,
-			opensearchapi.ClusterHealthReq{Indices: nil, Header: nil, Params: opensearchapi.ClusterHealthParams{}}, nil)
+		response, err := opensearch.Execute[json.RawMessage](ctx, client, http.MethodGet, &opensearchapi.ClusterHealthReq{Indices: nil, Header: nil, Params: &opensearchapi.ClusterHealthParams{}}, nil)
 		switch {
 		case err != nil:
 			lastFailure = err.Error()

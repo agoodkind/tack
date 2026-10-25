@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -19,7 +19,7 @@ const (
 
 func (a *Adapter) getModel(ctx context.Context, modelID string) (registeredModel, error) {
 	var model registeredModel
-	response, err := opensearch.Do(ctx, a.client, http.MethodGet, modelGetRequest{modelID: modelID}, &model)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodGet, modelGetRequest{modelID: modelID}, &model)
 	if err := checkMLResponse(ctx, response, err); err != nil {
 		wrapped := fmt.Errorf("read OpenSearch model %s: %w", modelID, engineCause(ctx, response, err))
 		if !isLoggedModelError(err) {
@@ -90,7 +90,7 @@ func modelMismatches(model registeredModel) []error {
 
 func (a *Adapter) hasDeployedWorker(ctx context.Context, modelID string) (bool, error) {
 	var profile modelProfile
-	response, err := opensearch.Do(ctx, a.client, http.MethodGet, modelProfileRequest{modelID: modelID}, &profile)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodGet, modelProfileRequest{modelID: modelID}, &profile)
 	if err := checkMLResponse(ctx, response, err); err != nil {
 		wrapped := fmt.Errorf("read OpenSearch model %s placement: %w", modelID, err)
 		if !isLoggedModelError(err) {

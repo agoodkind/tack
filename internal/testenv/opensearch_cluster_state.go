@@ -9,8 +9,8 @@ import (
 	"slices"
 	"testing"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 )
 
@@ -80,11 +80,11 @@ func (c *OpenSearchCluster) waitForClusterSize(ctx context.Context) error {
 	}
 	defer func() { _ = stateClient.Close() }()
 	filter := []string{"nodes.*.name", "metadata.cluster_coordination.last_committed_config"}
-	request := opensearchapi.ClusterStateReq{Metrics: []string{"nodes", "metadata"}, Params: opensearchapi.ClusterStateParams{FilterPath: filter}}
+	request := &opensearchapi.ClusterStateReq{Metric: []string{"nodes", "metadata"}, Params: &opensearchapi.ClusterStateParams{FilterPath: filter}}
 	members := len(c.members)
 	for {
 		var state clusterState
-		response, err := opensearch.Do(ctx, stateClient, http.MethodGet, request, &state)
+		response, err := opensearch.Execute(ctx, stateClient, http.MethodGet, request, &state)
 		if err == nil && !response.IsError() && state.settled(c.members) {
 			return nil
 		}

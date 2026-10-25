@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 // rolloutPage represents one page document read from OpenSearch.
@@ -31,22 +31,25 @@ type rolloutPage struct {
 // in order.
 func rolloutPages(t *testing.T, fixture rolloutFixture, nodes []uuid.UUID) []rolloutPage {
 	t.Helper()
-	if _, err := fixture.client.Indices.Refresh(rolloutContext(t), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.index}}); err != nil {
+	if _, err := fixture.client.Indices.Refresh(rolloutContext(t), &opensearchapi.IndicesRefreshReq{Indices: []string{fixture.index}}); err != nil {
 		t.Fatalf("cannot refresh index %s: %v", fixture.index, err)
 	}
 	pages := make([]rolloutPage, 0, len(nodes)*2)
 	for _, nodeID := range nodes {
 		query := fmt.Sprintf(`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String())
-		response, err := fixture.client.Search(rolloutContext(t), &opensearchapi.SearchReq{Indices: []string{fixture.index}, Body: strings.NewReader(query)})
+		response, err := fixture.client.Search(rolloutContext(t), &opensearchapi.SearchReq{Indices: []string{fixture.index}, BodyReader: strings.NewReader(query)})
 		if err != nil {
 			t.Fatalf("cannot search pages of node %s: %v", nodeID, err)
 		}
 		for _, hit := range response.Hits.Hits {
+			if hit.ID == nil {
+				t.Fatal("rollout page requires a document ID")
+			}
 			var page rolloutPage
 			if err := json.Unmarshal(hit.Source, &page); err != nil {
-				t.Fatalf("cannot decode page %s: %v", hit.ID, err)
+				t.Fatalf("cannot decode page %s: %v", *hit.ID, err)
 			}
-			page.ID = hit.ID
+			page.ID = *hit.ID
 			pages = append(pages, page)
 		}
 	}

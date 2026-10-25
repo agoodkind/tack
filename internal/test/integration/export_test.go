@@ -5,7 +5,7 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"

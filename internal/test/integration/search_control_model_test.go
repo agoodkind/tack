@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/clock"
 )
@@ -95,7 +95,7 @@ func deleteMismatchModel(t *testing.T, client *opensearchapi.Client, modelID str
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), time.Minute)
 	defer cancel()
-	response, err := opensearch.Do[json.RawMessage](ctx, client.Client, http.MethodDelete,
+	response, err := opensearch.Execute[json.RawMessage](ctx, client.Client, http.MethodDelete,
 		nativeMLRequest{path: nativeModelPath(modelID, ""), body: nil}, nil)
 	if err != nil {
 		t.Errorf("delete mismatch model %s: %v", modelID, err)

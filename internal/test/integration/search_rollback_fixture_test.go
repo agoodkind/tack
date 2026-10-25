@@ -9,8 +9,8 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
@@ -151,12 +151,13 @@ func rolloutSearchClients(t *testing.T, engine testenv.OpenSearchFixture) (*sear
 		t.Fatalf("cannot open search client: %v", err)
 	}
 	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(t.Context())) })
-	client, err := opensearch.NewClient(configuration.ClientConfig(nil))
+	clientAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: configuration.ClientConfig(nil)})
 	if err != nil {
 		t.Fatalf("cannot open search client: %v", err)
 	}
+	client := clientAPI.Client
 	t.Cleanup(func() { _ = client.Close() })
-	return adapter, opensearchapi.NewFromClient(client)
+	return adapter, clientAPI
 }
 
 // rolloutSearchConfig returns the production adapter settings for the
@@ -174,8 +175,7 @@ func deleteRolloutIndex(t *testing.T, client *opensearchapi.Client, index string
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Minute)
 	defer cancel()
-	response, err := opensearch.Do[json.RawMessage](ctx, client.Client, http.MethodDelete,
-		opensearchapi.IndicesDeleteReq{Indices: []string{index}}, nil)
+	response, err := opensearch.Execute[json.RawMessage](ctx, client.Client, http.MethodDelete, &opensearchapi.IndicesDeleteReq{Indices: []string{index}}, nil)
 	if err != nil {
 		t.Errorf("cannot delete index %s: %v", index, err)
 		return

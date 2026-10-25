@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync/atomic"
 
 	"github.com/google/uuid"
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 )
@@ -55,7 +56,9 @@ type argMap map[string]json.RawMessage
 func bindArgs(req mcpmcp.CallToolRequest) (argMap, error) {
 	var m argMap
 	if err := req.BindArguments(&m); err != nil {
-		return nil, err
+		wrapped := fmt.Errorf("bind arguments for tool %s: %w", req.Params.Name, err)
+		slog.Error("mcp.arguments.bind_failed", slog.String("tool", req.Params.Name), slog.Any("err", wrapped))
+		return nil, wrapped
 	}
 	return m, nil
 }
@@ -172,7 +175,9 @@ func allowedArgNames(s mcpmcp.ToolInputSchema) map[string]struct{} {
 func rejectUnknownArgs(req mcpmcp.CallToolRequest, toolName string, allowed map[string]struct{}) error {
 	var args map[string]json.RawMessage
 	if err := req.BindArguments(&args); err != nil {
-		return err
+		wrapped := fmt.Errorf("bind arguments for tool %s: %w", toolName, err)
+		slog.Error("mcp.arguments.bind_failed", slog.String("tool", toolName), slog.Any("err", wrapped))
+		return wrapped
 	}
 	if len(args) == 0 {
 		return nil

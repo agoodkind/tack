@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -32,7 +32,7 @@ func captureSearchFailure(t *testing.T, fixture queryFixture, modelID string, co
 	}
 	for _, request := range requests {
 		var raw json.RawMessage
-		response, err := opensearch.Do(ctx, fixture.Client.Client, http.MethodGet, request, &raw)
+		response, err := opensearch.Execute(ctx, fixture.Client.Client, http.MethodGet, request, &raw)
 		if err != nil {
 			t.Logf("search failure diagnostic request=%T error=%v", request, err)
 			continue

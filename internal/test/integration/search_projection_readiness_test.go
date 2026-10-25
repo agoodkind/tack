@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
@@ -179,7 +179,7 @@ func requireNodeWarnings(t *testing.T, stores *fdbadapter.Stores, nodeID uuid.UU
 
 func searchIndexExists(t *testing.T, control searchControl, index string) bool {
 	t.Helper()
-	response, err := control.client.Indices.Exists(WithTestOperation(t, t.Context()), opensearchapi.IndicesExistsReq{Indices: []string{index}})
+	response, err := control.client.Indices.Exists(WithTestOperation(t, t.Context()), &opensearchapi.IndicesExistsReq{Indices: []string{index}})
 	if response != nil && response.StatusCode == http.StatusNotFound {
 		return false
 	}

@@ -158,6 +158,8 @@ func scopeReference(nt *node.NodeType) node.ReferenceConfig {
 
 func referenceExample(reference node.ReferenceConfig) string {
 	switch reference.Strategy {
+	case node.ReferenceUUIDOnly:
+		return ""
 	case node.ReferenceDirectProperty:
 		return "TACK"
 	case node.ReferenceScopedSequence:

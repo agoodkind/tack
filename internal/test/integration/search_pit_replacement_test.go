@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/test/integration"
 )
 
@@ -85,13 +85,13 @@ func TestSearchDecoderKeepsReplacementPointInTime(t *testing.T) {
 // returns its ID.
 func createReplacementPIT(t *testing.T, fixture integration.QueryFixture) string {
 	t.Helper()
-	created, err := fixture.Client.PointInTime.Create(integration.WithTestOperation(t, t.Context()), opensearchapi.PointInTimeCreateReq{
-		Indices: []string{fixture.Index}, Header: nil, Params: opensearchapi.PointInTimeCreateParams{KeepAlive: replacementKeepAlive},
+	created, err := fixture.Client.PointInTime.Create(integration.WithTestOperation(t, t.Context()), &opensearchapi.CreatePITReq{
+		Indices: []string{fixture.Index}, Header: nil, Params: &opensearchapi.CreatePITParams{KeepAlive: replacementKeepAlive},
 	})
-	if err != nil || created.PitID == "" {
+	if err != nil || !created.PITID.IsSet() {
 		t.Fatalf("create the replacement point in time: %v", err)
 	}
-	return created.PitID
+	return created.PITID.String()
 }
 
 // deleteTestPIT deletes the point in time that the session stopped using
@@ -100,8 +100,12 @@ func createReplacementPIT(t *testing.T, fixture integration.QueryFixture) string
 func deleteTestPIT(t *testing.T, fixture integration.QueryFixture, pitID string) {
 	t.Helper()
 	ctx := context.WithoutCancel(integration.WithTestOperation(t, t.Context()))
-	_, _ = fixture.Client.PointInTime.Delete(ctx, opensearchapi.PointInTimeDeleteReq{
-		PitID: []string{pitID}, Header: nil, Params: opensearchapi.PointInTimeDeleteParams{},
+	id, err := opensearchapi.ParsePITID(pitID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = fixture.Client.PointInTime.Delete(ctx, &opensearchapi.DeletePITReq{
+		Body: &opensearchapi.DeletePITBody{PITID: []opensearchapi.PITID{id}}, Header: nil, Params: &opensearchapi.DeletePITParams{},
 	})
 }
 

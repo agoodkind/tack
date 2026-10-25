@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
@@ -87,11 +87,11 @@ func setIndexBlock(t *testing.T, client *opensearchapi.Client, index, setting st
 	if blocked {
 		t.Cleanup(func() {
 			body := strings.NewReader(fmt.Sprintf(`{%q:false}`, setting))
-			_, _ = client.Indices.Settings.Put(context.WithoutCancel(t.Context()), opensearchapi.SettingsPutReq{Indices: []string{index}, Body: body})
+			_, _ = client.Indices.PutSettings(context.WithoutCancel(t.Context()), &opensearchapi.IndicesPutSettingsReq{Indices: []string{index}, BodyReader: body})
 		})
 	}
 	body := strings.NewReader(fmt.Sprintf(`{%q:%t}`, setting, blocked))
-	response, err := client.Indices.Settings.Put(WithTestOperation(t, t.Context()), opensearchapi.SettingsPutReq{Indices: []string{index}, Body: body})
+	response, err := client.Indices.PutSettings(WithTestOperation(t, t.Context()), &opensearchapi.IndicesPutSettingsReq{Indices: []string{index}, BodyReader: body})
 	if err != nil || !response.Acknowledged {
 		t.Fatalf("set %s %t on %s: %v", setting, blocked, index, err)
 	}
@@ -106,11 +106,17 @@ func clearIndexBlock(t *testing.T, client *opensearchapi.Client, index, setting 
 // writeBlocked reports whether index has the write block.
 func writeBlocked(t *testing.T, client *opensearchapi.Client, index string) bool {
 	t.Helper()
-	response, err := client.Indices.Settings.Get(WithTestOperation(t, t.Context()), &opensearchapi.SettingsGetReq{Indices: []string{index}})
+	response, err := client.Indices.GetSettings(WithTestOperation(t, t.Context()), &opensearchapi.IndicesGetSettingsReq{Indices: []string{index}})
 	if err != nil {
 		t.Fatalf("read settings of %s: %v", index, err)
 	}
-	entry, exists := response.GetIndices()[index]
+	var indices map[string]struct {
+		Settings json.RawMessage `json:"settings"`
+	}
+	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
+		t.Fatal(err)
+	}
+	entry, exists := indices[index]
 	if !exists {
 		t.Fatalf("settings of %s are absent", index)
 	}

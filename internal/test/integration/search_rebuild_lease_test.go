@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/service"
@@ -108,9 +108,12 @@ func requireIndexBound(t *testing.T, fixture queryFixture, first string, current
 	if err != nil {
 		t.Fatalf("list search indexes: %v", err)
 	}
-	for _, index := range response.Indices {
-		if _, allowed := roles[index.Index]; index.Index >= first && !allowed {
-			t.Fatalf("index %s exists in replacement state %q outside the roles %v", index.Index, current.State, roles)
+	for _, index := range response.Records {
+		if index.Index == nil {
+			t.Fatal("index statistics require an index name")
+		}
+		if _, allowed := roles[*index.Index]; *index.Index >= first && !allowed {
+			t.Fatalf("index %s exists in replacement state %q outside the roles %v", *index.Index, current.State, roles)
 		}
 	}
 }

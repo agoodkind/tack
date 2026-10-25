@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -117,16 +117,9 @@ func requireSplitRejected(t *testing.T, fixture queryFixture, source string, cou
 
 func splitMapping(t *testing.T, fixture queryFixture, index string) string {
 	t.Helper()
-	response, err := fixture.Client.Indices.Mapping.Get(WithTestOperation(t, t.Context()), &opensearchapi.MappingGetReq{Indices: []string{index}})
-	if err != nil {
-		t.Fatalf("read split mapping: %v", err)
-	}
-	entry, found := response.GetIndices()[index]
-	if !found {
-		t.Fatal("split mapping is absent")
-	}
+	mappingJSON := nativeMapping(t, fixture.Client, index)
 	var mapping map[string]any
-	if err := json.Unmarshal(entry.Mappings, &mapping); err != nil {
+	if err := json.Unmarshal(mappingJSON, &mapping); err != nil {
 		t.Fatalf("decode split mapping: %v", err)
 	}
 	encoded, err := json.Marshal(mapping)
@@ -155,16 +148,9 @@ type mappedObject struct {
 // the three access fields.
 func requireFixedSearchMapping(t *testing.T, client *opensearchapi.Client, index string) {
 	t.Helper()
-	response, err := client.Indices.Mapping.Get(WithTestOperation(t, t.Context()), &opensearchapi.MappingGetReq{Indices: []string{index}})
-	if err != nil {
-		t.Fatalf("read the mapping of index %s: %v", index, err)
-	}
-	entry, found := response.GetIndices()[index]
-	if !found {
-		t.Fatalf("the mapping of index %s is absent", index)
-	}
+	mappingJSON := nativeMapping(t, client, index)
 	var mapping, access mappedObject
-	if err := json.Unmarshal(entry.Mappings, &mapping); err != nil {
+	if err := json.Unmarshal(mappingJSON, &mapping); err != nil {
 		t.Fatalf("decode the mapping of index %s: %v", index, err)
 	}
 	if err := json.Unmarshal(mapping.Properties["access"], &access); err != nil {
@@ -181,13 +167,13 @@ func requireFixedSearchMapping(t *testing.T, client *opensearchapi.Client, index
 func savedSparseNodes(t *testing.T, fixture queryFixture, query searchdomain.Query, tokens json.RawMessage) []uuid.UUID {
 	t.Helper()
 	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 65536, BatchSize: 100})
-	created, err := fixture.Client.PointInTime.Create(WithTestOperation(t, t.Context()), opensearchapi.PointInTimeCreateReq{
-		Indices: []string{query.Index}, Params: opensearchapi.PointInTimeCreateParams{KeepAlive: time.Minute},
+	created, err := fixture.Client.PointInTime.Create(WithTestOperation(t, t.Context()), &opensearchapi.CreatePITReq{
+		Indices: []string{query.Index}, Params: &opensearchapi.CreatePITParams{KeepAlive: time.Minute},
 	})
-	if err != nil || created.PitID == "" || created.Shards.Failed != 0 {
+	if err != nil || !created.PITID.IsSet() || created.Shards.Failed != 0 {
 		t.Fatalf("open saved sparse snapshot: %v, response=%+v", err, created)
 	}
-	snapshot := searchdomain.Snapshot{PITID: created.PitID, Index: query.Index, QueryTokens: bytes.Clone(tokens)}
+	snapshot := searchdomain.Snapshot{PITID: created.PITID.String(), Index: query.Index, QueryTokens: bytes.Clone(tokens)}
 	defer func() {
 		if err := ranker.Close(WithTestOperation(t, t.Context()), snapshot); err != nil {
 			t.Errorf("close saved sparse snapshot: %v", err)

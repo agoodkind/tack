@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -49,7 +49,7 @@ func (a *Adapter) findPinnedModel(ctx context.Context) (string, error) {
 		return "", loggedModelError{err: wrapped}
 	}
 	var found modelSearchResult
-	response, err := opensearch.Do(ctx, a.client, http.MethodPost, modelSearchRequest{body: body}, &found)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, modelSearchRequest{body: body}, &found)
 	if err := checkMLResponse(ctx, response, err); err != nil {
 		wrapped := fmt.Errorf("search registered OpenSearch models: %w", err)
 		if !isLoggedModelError(err) {
@@ -85,7 +85,7 @@ func (a *Adapter) registerPinnedModel(ctx context.Context) (string, error) {
 		return "", loggedModelError{err: wrapped}
 	}
 	var started modelTaskStart
-	response, err := opensearch.Do(ctx, a.client, http.MethodPost, modelRegisterRequest{body: body}, &started)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, modelRegisterRequest{body: body}, &started)
 	if err := checkMLResponse(ctx, response, err); err != nil {
 		wrapped := fmt.Errorf("register pinned OpenSearch model: %w", err)
 		if !isLoggedModelError(err) {
@@ -112,7 +112,7 @@ func (a *Adapter) deployOnce(ctx context.Context, modelID string) error {
 // returns its task ID.
 func (a *Adapter) startDeploy(ctx context.Context, modelID string) (string, error) {
 	var started modelTaskStart
-	response, err := opensearch.Do(ctx, a.client, http.MethodPost, modelDeployRequest{modelID: modelID}, &started)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, modelDeployRequest{modelID: modelID}, &started)
 	if err := checkMLResponse(ctx, response, err); err != nil {
 		wrapped := fmt.Errorf("deploy OpenSearch model %s: %w", modelID, err)
 		if !isLoggedModelError(err) {
@@ -149,7 +149,7 @@ func (a *Adapter) waitModelTask(ctx context.Context, taskID string) (string, err
 	defer cancel()
 	for attempt := 1; ; attempt++ {
 		var task modelTask
-		response, err := opensearch.Do(deadline, a.client, http.MethodGet, modelTaskRequest{taskID: taskID}, &task)
+		response, err := opensearch.Execute(deadline, a.client, http.MethodGet, modelTaskRequest{taskID: taskID}, &task)
 		switch {
 		case err == nil && response != nil && response.StatusCode == http.StatusTooManyRequests:
 			telemetry.L(ctx).InfoContext(ctx, "search.model.task_poll_rejected", slog.String("task_id", taskID),

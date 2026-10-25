@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -45,16 +45,22 @@ type tracePredictResponse struct {
 // It fails the test when that field is empty.
 func (r *rankingRun) indexModel(t *testing.T, index string) string {
 	t.Helper()
-	response, err := r.client.Indices.Mapping.Get(integration.WithTestOperation(t, t.Context()), &opensearchapi.MappingGetReq{Indices: []string{index}})
+	response, err := r.client.Indices.GetMapping(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesGetMappingReq{Indices: []string{index}})
 	if err != nil {
 		t.Fatalf("read mapping of %s: %v", index, err)
+	}
+	var indices map[string]struct {
+		Mappings json.RawMessage `json:"mappings"`
+	}
+	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
+		t.Fatal(err)
 	}
 	var mapping struct {
 		Meta struct {
 			ModelID string `json:"model_id"`
 		} `json:"_meta"`
 	}
-	if err := json.Unmarshal(response.GetIndices()[index].Mappings, &mapping); err != nil {
+	if err := json.Unmarshal(indices[index].Mappings, &mapping); err != nil {
 		t.Fatalf("decode mapping of %s: %v", index, err)
 	}
 	if mapping.Meta.ModelID == "" {
@@ -74,7 +80,7 @@ func (r *rankingRun) predictTraceWeights(t *testing.T, modelID, text string) map
 	}
 	request := traceMLRequest{path: "/_plugins/_ml/_predict/sparse_encoding/" + url.PathEscape(modelID), body: body}
 	var decoded tracePredictResponse
-	response, err := opensearch.Do(integration.WithTestOperation(t, t.Context()), r.client.Client, http.MethodPost, request, &decoded)
+	response, err := opensearch.Execute(integration.WithTestOperation(t, t.Context()), r.client.Client, http.MethodPost, request, &decoded)
 	if err != nil {
 		t.Fatalf("predict trace weights: %v", err)
 	}

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -57,7 +57,7 @@ func (r *rankingRun) waitIndexed(t *testing.T, nodes []uuid.UUID) {
 	}}}
 	started := clock.Now()
 	for clock.Since(started) < rankingWaitDeadline {
-		if _, err := r.client.Indices.Refresh(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Index: []string{index}}); err != nil {
+		if _, err := r.client.Indices.Refresh(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Indices: []string{index}}); err != nil {
 			t.Fatalf("refresh %s: %v", index, err)
 		}
 		indexed := len(rankedTraceNodes(t, r.traceSearch(t, index, body)))
@@ -78,7 +78,7 @@ func (r *rankingRun) beginRebuild(t *testing.T) searchdomain.Rebuild {
 		t.Fatalf("begin index replacement: %v", err)
 	}
 	t.Cleanup(func() {
-		deletion := opensearchapi.IndicesDeleteReq{Indices: []string{rebuild.TargetIndex}}
+		deletion := &opensearchapi.IndicesDeleteReq{Indices: []string{rebuild.TargetIndex}}
 		_, _ = r.client.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), deletion)
 	})
 	return rebuild
