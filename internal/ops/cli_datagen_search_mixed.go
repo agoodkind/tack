@@ -85,8 +85,9 @@ func runDatagenSearchMixed(ctx context.Context, factory *cli.Factory, input data
 		slog.ErrorContext(ctx, "qa.datagen.search_mixed_failed", slog.String("err", runErr.Error()))
 		return fmt.Errorf("qa datagen search-mixed: the workload failed: %w", runErr)
 	}
-	if err := clispec.WriteJSONValue(ctx, sink, searchMixedResult(input, options.Duration, summary,
-		datagenSearchStopped(ctx, stopContext, "search-mixed", maxWallTime, summary.Stopped))); err != nil {
+	stop := datagenSearchStopped(stopContext, maxWallTime, summary.Stopped)
+	logDatagenSearchStop(ctx, "search-mixed", stop)
+	if err := clispec.WriteJSONValue(ctx, sink, searchMixedResult(input, options.Duration, summary, stop)); err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.search_mixed_result_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("qa datagen search-mixed: the command could not write the result: %w", err)
 	}

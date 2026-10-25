@@ -86,8 +86,9 @@ func runDatagenSearchLoad(ctx context.Context, factory *cli.Factory, input datag
 		slog.ErrorContext(ctx, "qa.datagen.search_load_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("qa datagen search-load: run workload: %w", err)
 	}
-	if err := clispec.WriteJSONValue(ctx, sink, searchLoadReport(input, duration, len(endpoints), summary,
-		datagenSearchStopped(ctx, stopContext, "search-load", maxWallTime, summary.Stopped))); err != nil {
+	stop := datagenSearchStopped(stopContext, maxWallTime, summary.Stopped)
+	logDatagenSearchStop(ctx, "search-load", stop)
+	if err := clispec.WriteJSONValue(ctx, sink, searchLoadReport(input, duration, len(endpoints), summary, stop)); err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.search_load_result_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("qa datagen search-load: write result: %w", err)
 	}

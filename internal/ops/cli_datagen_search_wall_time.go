@@ -61,15 +61,23 @@ func datagenSearchStopContext(ctx context.Context, maxWallTime time.Duration) (c
 
 // datagenSearchStopped returns the stop record for a run. stopped reports whether the workload
 // ended its schedule early because the schedule context ended.
-func datagenSearchStopped(ctx, stopContext context.Context, command string, maxWallTime time.Duration, stopped bool) datagenSearchStop {
+func datagenSearchStopped(stopContext context.Context, maxWallTime time.Duration, stopped bool) datagenSearchStop {
 	reason := datagenSearchStopNone
 	if stopped {
 		reason = datagenSearchStopSignal
 		if errors.Is(context.Cause(stopContext), errDatagenSearchMaxWallTime) {
 			reason = datagenSearchStopMaxWallTime
 		}
-		slog.InfoContext(ctx, "qa.datagen.search_stopped", slog.String("command", command),
-			slog.String("reason", string(reason)), slog.Duration("max_wall_time", maxWallTime))
 	}
 	return datagenSearchStop{maxWallTime: maxWallTime, reason: reason}
+}
+
+// logDatagenSearchStop logs qa.datagen.search_stopped when a signal or the wall-time bound ended
+// the run.
+func logDatagenSearchStop(ctx context.Context, command string, stop datagenSearchStop) {
+	if stop.reason == datagenSearchStopNone {
+		return
+	}
+	slog.InfoContext(ctx, "qa.datagen.search_stopped", slog.String("command", command),
+		slog.String("reason", string(stop.reason)), slog.Duration("max_wall_time", stop.maxWallTime))
 }
