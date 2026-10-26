@@ -72,7 +72,9 @@ func NewAuditedMCPHarness(t *testing.T) *MCPHarness {
 	return newMCPHarness(t, true)
 }
 
-func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
+// harnessGraph loads the harness configuration and builds one runtime graph
+// from it. The test closes the graph during cleanup.
+func harnessGraph(t *testing.T, audited bool) (*config.Config, *appruntime.Graph) {
 	t.Helper()
 	ctx := WithTestOperation(t, t.Context())
 	cfg := harnessConfig(t)
@@ -90,6 +92,26 @@ func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
 		t.Fatalf("build graph: %v", err)
 	}
 	t.Cleanup(graph.Close)
+	return cfg, graph
+}
+
+// SecondProcess builds a second runtime graph against the same engines. The
+// returned harness sends its tool calls to that graph with the same token,
+// workspace, and project. The two graphs have separate stores, as two app
+// processes do.
+func (h *MCPHarness) SecondProcess(t *testing.T) *MCPHarness {
+	t.Helper()
+	_, graph := harnessGraph(t, false)
+	second := *h
+	second.driver = datagen.NewDriver(graph, false, nextHarnessSeed())
+	second.handler = graph.MCPRoute
+	return &second
+}
+
+func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
+	t.Helper()
+	ctx := WithTestOperation(t, t.Context())
+	cfg, graph := harnessGraph(t, audited)
 	if audited {
 		graph.StartDeleteResumer(ctx)
 	}
