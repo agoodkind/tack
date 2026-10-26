@@ -24,16 +24,17 @@ func requireField(t *testing.T, report lastChangeReport, path string, status aud
 	return audit.LastChangeEntry{}
 }
 
-// requireRelationship requires the known entry for the blocks relationship
-// from sourceID to targetID with effect, and returns the entry.
-func requireRelationship(t *testing.T, report lastChangeReport, sourceID, targetID uuid.UUID, effect audit.LastChangeEffect) audit.LastChangeEntry {
+// requireRelationship requires the entry for the blocks relationship from
+// sourceID to targetID to have status and a change with effect, and returns
+// the entry.
+func requireRelationship(t *testing.T, report lastChangeReport, sourceID, targetID uuid.UUID, status audit.LastChangeStatus, effect audit.LastChangeEffect) audit.LastChangeEntry {
 	t.Helper()
 	for _, entry := range report.Relationships {
 		if entry.SourceID != sourceID || entry.RelationType != lastChangeRelationType || entry.TargetID != targetID {
 			continue
 		}
-		if entry.Status != audit.LastChangeKnown || entry.Change == nil || entry.Change.Effect != effect {
-			t.Fatalf("relationship %s %s %s = %+v, want a known change with effect %s", sourceID, lastChangeRelationType, targetID, entry, effect)
+		if entry.Status != status || entry.Change == nil || entry.Change.Effect != effect {
+			t.Fatalf("relationship %s %s %s = %+v, want status %s with a change with effect %s", sourceID, lastChangeRelationType, targetID, entry, status, effect)
 		}
 		return entry
 	}
@@ -64,6 +65,20 @@ func requireRefusalUncounted(t *testing.T, report lastChangeReport, refused audi
 	for _, entry := range slices.Concat(report.Fields, report.Relationships) {
 		if (entry.Change != nil && entry.Change.EventID == refused.EventID) || slices.Contains(entry.CandidateEventIDs, refused.EventID) {
 			t.Fatalf("entry %+v counts the %s update %s", entry, refused.Outcome, refused.EventID)
+		}
+	}
+}
+
+// requireLegacyRelationshipRow requires the report to list legacyID as its only
+// legacy relationship row and no field entry to list legacyID.
+func requireLegacyRelationshipRow(t *testing.T, report lastChangeReport, legacyID uuid.UUID) {
+	t.Helper()
+	if !slices.Equal(report.LegacyRelationshipEventIDs, []uuid.UUID{legacyID}) {
+		t.Fatalf("legacy relationship events = %v, want only %s", report.LegacyRelationshipEventIDs, legacyID)
+	}
+	for _, entry := range report.Fields {
+		if slices.Contains(entry.LegacyEventIDs, legacyID) {
+			t.Fatalf("field entry %+v lists the legacy relationship row %s", entry, legacyID)
 		}
 	}
 }

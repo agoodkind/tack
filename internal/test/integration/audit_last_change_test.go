@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -25,12 +26,17 @@ const lastChangeLegacyGap = 50 * time.Millisecond
 // priority, renames it again, and removes its description. It adds and removes
 // a relationship from the issue and adds a relationship to the issue. It
 // records one legacy node.update row of the issue between the priority change
-// and the second rename, and it makes one refused priority update. The built
-// server then runs `audit last-change` as a login that inherits only
-// audit_reader. The report must name the second rename for /name, the
-// removal for /props/description, and the latest verb of each relationship.
-// /props/priority must report unknown with its last known change, and the
-// refused update must not appear as a change.
+// and the second rename, and it makes one refused priority update. After the
+// relationship changes, it records one legacy relationship.add row in the
+// shape that builds before commit 7a85ade3 wrote, with the issue as the
+// entity. The built server then runs `audit last-change` as a login that
+// inherits only audit_reader. The report must name the second rename for
+// /name, the removal for /props/description, and the latest verb of each
+// relationship. /props/priority must report unknown with its last known
+// change. The relationship from the issue must report unknown with the legacy
+// relationship row, the relationship to the issue must stay known, and no
+// field entry may list that row. The refused update must not appear as a
+// change.
 func TestAuditLastChangeReportsLatestChangePerPathAndRelationship(t *testing.T) {
 	harness := integration.NewAuditedMCPHarness(t)
 	stores, err := fdbadapter.NewStores(testenv.FoundationDB(t), nodeAuditTransactionTimeout, nil)
@@ -62,6 +68,8 @@ func TestAuditLastChangeReportsLatestChangePerPathAndRelationship(t *testing.T) 
 	refused.NodeID = issueID.String()
 	refused.Properties = datagen.NodeProperties{"priority": quoted(refusedOption)}
 	harness.CallExpectError(t, "tack_update_issue", refused)
+	time.Sleep(lastChangeLegacyGap)
+	legacyRelationshipTime := clock.Now().UTC()
 	view, err := stores.Views.Get(t.Context(), issueID)
 	if err != nil || view == nil {
 		t.Fatalf("issue %s after the changes = %v, %v", issueID, view, err)
@@ -69,7 +77,8 @@ func TestAuditLastChangeReportsLatestChangePerPathAndRelationship(t *testing.T) 
 
 	ledger := startNodeAuditLedger(t)
 	legacyID := recordLegacyIssueUpdate(t, ledger, view.OrgID, issueID, legacyTime)
-	rows := waitForLastChangeRows(t, ledger, view.OrgID, issueID, legacyID)
+	legacyRelationshipID := recordLegacyRelationshipAdd(t, ledger, view.OrgID, issueID, otherID, legacyRelationshipTime)
+	rows := waitForLastChangeRows(t, ledger, view.OrgID, issueID, legacyID, legacyRelationshipID)
 	report := runLastChange(t, ledger, view.OrgID, issueID, windowStart, clock.Now().Add(time.Minute))
 	if report.Truncated || !report.HistoryStartInWindow {
 		t.Fatalf("report truncated = %t, history start in window = %t; want a complete read", report.Truncated, report.HistoryStartInWindow)
@@ -87,8 +96,12 @@ func TestAuditLastChangeReportsLatestChangePerPathAndRelationship(t *testing.T) 
 		t.Fatalf("/props/priority legacy events = %v, want the legacy row %s", priority.LegacyEventIDs, legacyID)
 	}
 
-	removed := requireRelationship(t, report, issueID, otherID, audit.LastChangeRemoved)
-	added := requireRelationship(t, report, otherID, issueID, audit.LastChangeSet)
+	removed := requireRelationship(t, report, issueID, otherID, audit.LastChangeUnknown, audit.LastChangeRemoved)
+	added := requireRelationship(t, report, otherID, issueID, audit.LastChangeKnown, audit.LastChangeSet)
+	if !slices.Equal(removed.LegacyEventIDs, []uuid.UUID{legacyRelationshipID}) {
+		t.Fatalf("relationship from the issue legacy events = %v, want only %s", removed.LegacyEventIDs, legacyRelationshipID)
+	}
+	requireLegacyRelationshipRow(t, report, legacyRelationshipID)
 	if removed.Change.Action != string(audit.VerbRelationshipRemove) || added.Change.Action != string(audit.VerbRelationshipAdd) {
 		t.Fatalf("relationship actions = %s and %s, want remove and add", removed.Change.Action, added.Change.Action)
 	}
