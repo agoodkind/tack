@@ -79,18 +79,31 @@ func TestLastChangeReportsAmbiguousOrderAcrossDomains(t *testing.T) {
 }
 
 // TestLastChangeReportsPartialWithoutHistoryStart reads one update without
-// the node's creation. A path of the record without a change must report
-// partial, and a truncated read must also report partial for it.
+// the node's creation and without truncation. A path of the record without a
+// change must report partial, and the changed path must report known.
 func TestLastChangeReportsPartialWithoutHistoryStart(t *testing.T) {
 	nodeID := uuid.Must(uuid.NewV7())
 	update := changeRow(nodeID, time.Now().UTC(), "000000000000000000010000", "a", "b")
 	update.Delta.Before = json.RawMessage(`{"name":"a","description":"kept"}`)
 	update.Delta.After = json.RawMessage(`{"name":"b","description":"kept"}`)
 	update.Delta.Changed = []string{"/name"}
-	for _, truncated := range []bool{false, true} {
-		fields := deriveFields(t, nodeID, truncated, update)
-		if fields["/description"].Status != audit.LastChangePartial || fields["/name"].Status != audit.LastChangeKnown {
-			t.Fatalf("truncated %t: fields = %+v, want /description partial and /name known", truncated, fields)
-		}
+	fields := deriveFields(t, nodeID, false, update)
+	if fields["/description"].Status != audit.LastChangePartial || fields["/name"].Status != audit.LastChangeKnown {
+		t.Fatalf("fields = %+v, want /description partial and /name known", fields)
+	}
+}
+
+// TestLastChangeReportsPartialForCandidatesAfterTruncatedRead derives from
+// the newer-by-time row only, as a truncated read does when the row with the
+// later commit version has the older event time. The entry must report
+// partial with the observed row as its change and its only candidate.
+func TestLastChangeReportsPartialForCandidatesAfterTruncatedRead(t *testing.T) {
+	nodeID, now := uuid.Must(uuid.NewV7()), time.Now().UTC()
+	observed := changeRow(nodeID, now.Add(time.Second), "000000000000000000010000", "a", "b")
+	name := deriveFields(t, nodeID, true, observed)["/name"]
+	want := []uuid.UUID{observed.EventID}
+	if name.Status != audit.LastChangePartial || name.Change == nil || name.Change.EventID != observed.EventID ||
+		!slices.Equal(name.CandidateEventIDs, want) {
+		t.Fatalf("/name = %+v, want partial with change and candidates %v", name, want)
 	}
 }

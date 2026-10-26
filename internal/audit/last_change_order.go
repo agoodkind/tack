@@ -96,10 +96,25 @@ func (legacy legacyEvidence) notOlderThan(known LastChange) bool {
 	return !legacy.change.EventTime.Before(known.EventTime)
 }
 
+// readCoverage states which part of the node's history the rows read cover.
+// complete is true when the rows read include the node's creation and the
+// read was not truncated. truncated is true when the read stopped at its row
+// limit before the oldest row of the window.
+type readCoverage struct {
+	complete  bool
+	truncated bool
+}
+
 // resolveEntry sets the status, change, and evidence of entry from the
 // candidates of the entry and the legacy rows of the node. It returns false
 // when the entry has no evidence and the rows read cover the node's history.
-func resolveEntry(entry LastChangeEntry, candidates *changeCandidates, legacy []legacyEvidence, complete bool) (LastChangeEntry, bool) {
+//
+// A truncated read reads rows by event time, and a row that it did not read
+// can have an older event time and a later commit version. After a truncated
+// read, an entry with candidates therefore reports partial: it keeps the
+// observed latest candidate as Change when the candidates are ordered, and it
+// lists the observed candidates.
+func resolveEntry(entry LastChangeEntry, candidates *changeCandidates, legacy []legacyEvidence, coverage readCoverage) (LastChangeEntry, bool) {
 	if candidates == nil {
 		if len(legacy) > 0 {
 			entry.Status = LastChangeUnknown
@@ -107,7 +122,16 @@ func resolveEntry(entry LastChangeEntry, candidates *changeCandidates, legacy []
 			return entry, true
 		}
 		entry.Status = LastChangePartial
-		return entry, !complete
+		return entry, !coverage.complete
+	}
+	if coverage.truncated {
+		entry.Status = LastChangePartial
+		entry.CandidateEventIDs = candidates.eventIDs()
+		if !candidates.ambiguous() {
+			winner := candidates.winner()
+			entry.Change = &winner
+		}
+		return entry, true
 	}
 	if candidates.ambiguous() {
 		entry.Status = LastChangeAmbiguousOrder

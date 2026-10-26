@@ -11,9 +11,10 @@ import (
 // entries in source, relation type, and target order. Pass truncated as true
 // when the read stopped before the oldest row of the window. Entries without
 // change evidence report partial when truncated is true or when the rows read
-// do not include the node's creation.
+// do not include the node's creation. Every entry with candidates reports
+// partial when truncated is true.
 func (deriver *LastChangeDeriver) Report(truncated bool) LastChangeReport {
-	complete := deriver.historyStart && !truncated
+	coverage := readCoverage{complete: deriver.historyStart && !truncated, truncated: truncated}
 	report := LastChangeReport{
 		NodeID: deriver.nodeID, HistoryStartInWindow: deriver.historyStart, LegacyRowCount: len(deriver.legacy),
 		Fields: []LastChangeEntry{}, Relationships: []LastChangeEntry{},
@@ -23,7 +24,7 @@ func (deriver *LastChangeDeriver) Report(truncated bool) LastChangeReport {
 			Path: path, SourceID: uuid.Nil, RelationType: "", TargetID: uuid.Nil, Status: "",
 			Change: nil, CandidateEventIDs: nil, LegacyEventIDs: nil,
 		}
-		if resolved, ok := resolveEntry(entry, deriver.fields[path], deriver.legacy, complete); ok {
+		if resolved, ok := resolveEntry(entry, deriver.fields[path], deriver.legacy, coverage); ok {
 			report.Fields = append(report.Fields, resolved)
 		}
 	}
@@ -44,7 +45,7 @@ func (deriver *LastChangeDeriver) Report(truncated bool) LastChangeReport {
 		if candidates == nil {
 			legacy = nil
 		}
-		if resolved, ok := resolveEntry(entry, candidates, legacy, complete); ok {
+		if resolved, ok := resolveEntry(entry, candidates, legacy, coverage); ok {
 			report.Relationships = append(report.Relationships, resolved)
 		}
 	}
