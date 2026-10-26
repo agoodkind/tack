@@ -85,7 +85,7 @@ func TestSearchMixedRevocationRetriesUnavailableSearch(t *testing.T) {
 	watchContext, stopWatch := context.WithCancel(integration.WithTestOperation(t, t.Context()))
 	watched := make(chan error, 1)
 	go func() {
-		watched <- occupySlotAfterRemoval(watchContext, cfg, proxy, datagen.NewDriver(second, false, seed), identities.Workspaces[0], marker)
+		watched <- occupySlotAfterRemoval(watchContext, cfg, proxy, datagen.NewDriver(second, false, seed), identities.Workspaces[0], marker, revocationHold)
 	}()
 	output, runErr := runSearchMixedCommand(t, cfg, "--seed", strconv.FormatInt(seed, 10), "--rate", "6", "--write-rate", "6",
 		"--duration", "40s", "--concurrency", "2", "--burst-writes", "4", "--catch-up", "5m",
@@ -145,9 +145,9 @@ func startRevocationProcesses(t *testing.T, cfg *config.Config, marker string) (
 
 // occupySlotAfterRemoval waits until the ledger no longer lists the revoked member in the
 // workspace organization. It then arms the proxy and starts a search for marker through driver.
-// After the proxy receives the predict request of that search, it waits revocationHold and
-// releases the request.
-func occupySlotAfterRemoval(ctx context.Context, cfg *config.Config, proxy *predictHoldProxy, driver *datagen.Driver, workspace datagen.WorkspaceIdentity, marker string) error {
+// After the proxy receives the predict request of that search, it waits for hold and releases
+// the request.
+func occupySlotAfterRemoval(ctx context.Context, cfg *config.Config, proxy *predictHoldProxy, driver *datagen.Driver, workspace datagen.WorkspaceIdentity, marker string, hold time.Duration) error {
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, nil)
 	if err != nil {
 		return errors.New("open the ledger pool: " + err.Error())
@@ -175,7 +175,7 @@ func occupySlotAfterRemoval(ctx context.Context, cfg *config.Config, proxy *pred
 	case <-time.After(revocationHoldTimeout):
 		return errors.New("the proxy did not receive the predict request of the test search within " + revocationHoldTimeout.String())
 	}
-	<-time.After(revocationHold)
+	<-time.After(hold)
 	proxy.release()
 	<-searched
 	return nil

@@ -18,6 +18,10 @@ type SearchMixedSessions struct {
 	Pages                int `json:"pages"`
 	Replays              int `json:"replays"`
 	Endpoints            int `json:"endpoints"`
+	// Unavailable counts the unavailable responses that the session checks repeated. A request
+	// that still returns the unavailable response at the retry deadline also counts as a
+	// continuation error.
+	Unavailable          int `json:"unavailable"`
 	ContinuationErrors   int `json:"continuation_errors"`
 	MissingCorpusIssues  int `json:"missing_corpus_issues"`
 	ReplayMismatches     int `json:"replay_mismatches"`

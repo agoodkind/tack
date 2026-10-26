@@ -177,8 +177,7 @@ func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSess
 	if isAuthorizationRefusal(err, session.entry) {
 		return revokedSearchRefused, searchPage{}, nil
 	}
-	var toolError *toolCallError
-	if errors.As(err, &toolError) && toolError.message == soakSearchUnavailableText {
+	if isSearchUnavailable(err) {
 		return revokedSearchUnavailable, searchPage{}, nil
 	}
 	slog.ErrorContext(ctx, "qa.datagen.revoked_search_failed", slog.String("entry", session.entry),

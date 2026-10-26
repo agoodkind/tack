@@ -41,9 +41,10 @@ type searchMixedOutput struct {
 			Failed  int `json:"failed"`
 		} `json:"burst"`
 		Sessions struct {
-			Checks    int `json:"checks"`
-			Replays   int `json:"replays"`
-			Endpoints int `json:"endpoints"`
+			Checks      int  `json:"checks"`
+			Replays     int  `json:"replays"`
+			Endpoints   int  `json:"endpoints"`
+			Unavailable *int `json:"unavailable"`
 		} `json:"sessions"`
 		PendingDeletion struct {
 			Checks          int `json:"checks"`
@@ -101,8 +102,9 @@ func TestSearchMixedWorkload(t *testing.T) {
 	if result.MarkersNotFound != 0 || result.DeletesUnverified != 0 || result.Endpoints != 2 || result.Tenants != 2 {
 		t.Fatalf("qa datagen search-mixed: the command must find every marker and verify every deletion using two endpoints and two tenants: %s", output)
 	}
-	if result.Burst.Created != 60 || result.Burst.Failed != 0 || result.Sessions.Endpoints != 2 || result.Sessions.Replays <= 0 {
-		t.Fatalf("qa datagen search-mixed: the burst must create 60 issues without failures. The sessions must include replays across two endpoints: %s", output)
+	if result.Burst.Created != 60 || result.Burst.Failed != 0 || result.Sessions.Endpoints != 2 || result.Sessions.Replays <= 0 ||
+		result.Sessions.Unavailable == nil {
+		t.Fatalf("qa datagen search-mixed: the burst must create 60 issues without failures. The sessions must include replays across two endpoints and report unavailable responses: %s", output)
 	}
 	if result.PendingDeletion.Checks != 1 || result.PendingDeletion.PendingObserved != 1 || result.Revocation.Checks <= 0 || !result.Revocation.Refused {
 		t.Fatalf("qa datagen search-mixed: the result must confirm one deletion check with pending work and search refusal after membership removal: %s", output)
