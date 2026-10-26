@@ -2,7 +2,7 @@ package audit
 
 import (
 	"context"
-	"embed"
+	_ "embed"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,8 +11,10 @@ import (
 	"github.com/google/uuid"
 )
 
-//go:embed history_sql/*.sql
-var historyStatements embed.FS
+// nodeHistoryPageStatement is the page query that nodeHistoryPage runs.
+//
+//go:embed history_sql/node_history_page.sql
+var nodeHistoryPageStatement string
 
 const (
 	// LastChangeRowLimit caps the ledger rows that one ReadNodeHistory call
@@ -20,8 +22,6 @@ const (
 	LastChangeRowLimit = 5000
 	// nodeHistoryPageSize is the row count of one page query.
 	nodeHistoryPageSize = 500
-	// nodeHistoryPageStatement is the page query in historyStatements.
-	nodeHistoryPageStatement = "history_sql/node_history_page.sql"
 )
 
 // NodeHistoryFilter selects the ledger rows of one node in one org: the rows
@@ -32,18 +32,19 @@ type NodeHistoryFilter struct {
 	NodeID uuid.UUID
 	Oldest time.Time
 	Latest time.Time
-	// RowLimit lowers the row cap below LastChangeRowLimit for tests that
-	// need a truncated read without thousands of rows. Zero, a negative
-	// value, or a value above LastChangeRowLimit uses LastChangeRowLimit.
-	RowLimit int `exhaustruct:"optional"`
+	// rowLimitOverride lowers the row cap below LastChangeRowLimit. Only
+	// tests set it, through WithNodeHistoryRowLimit in export_test.go. Zero,
+	// a negative value, or a
+	// value above LastChangeRowLimit uses LastChangeRowLimit.
+	rowLimitOverride int `exhaustruct:"optional"`
 }
 
 // rowLimit returns the row cap of one read.
 func (filter NodeHistoryFilter) rowLimit() int {
-	if filter.RowLimit <= 0 || filter.RowLimit > LastChangeRowLimit {
+	if filter.rowLimitOverride <= 0 || filter.rowLimitOverride > LastChangeRowLimit {
 		return LastChangeRowLimit
 	}
-	return filter.RowLimit
+	return filter.rowLimitOverride
 }
 
 // NodeHistoryRead reports one ReadNodeHistory call. Truncated is true when
@@ -82,6 +83,9 @@ func (r *Reader) ReadNodeHistory(ctx context.Context, filter NodeHistoryFilter, 
 	}
 	rowLimit := filter.rowLimit()
 	for {
+		// The extra row is a probe. It separates a read of exactly rowLimit
+		// rows from a truncated read, and the loop below returns at the probe
+		// row before it calls visit.
 		limit := min(nodeHistoryPageSize, rowLimit-result.RowsRead+1)
 		rows, err := r.nodeHistoryPage(ctx, filter, position, limit)
 		if err != nil {
@@ -121,12 +125,7 @@ func (r *Reader) checkNodeHistoryFilter(filter NodeHistoryFilter) error {
 
 // nodeHistoryPage reads at most limit rows that precede position.
 func (r *Reader) nodeHistoryPage(ctx context.Context, filter NodeHistoryFilter, position historyPosition, limit int) ([]Row, error) {
-	statement, err := historyStatements.ReadFile(nodeHistoryPageStatement)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.node_history.statement_failed", slog.String("statement", nodeHistoryPageStatement), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("read %s: %w", nodeHistoryPageStatement, err)
-	}
-	rows, err := r.pool.Query(ctx, string(statement),
+	rows, err := r.pool.Query(ctx, nodeHistoryPageStatement,
 		filter.OrgID, filter.NodeID, filter.NodeID.String(), filter.Oldest,
 		position.eventTime, position.seq, position.eventID, limit)
 	if err != nil {

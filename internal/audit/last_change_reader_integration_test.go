@@ -63,9 +63,9 @@ func TestReadNodeHistoryTruncationReportsPartial(t *testing.T) {
 func nameEntry(t *testing.T, reader *audit.Reader, orgID, nodeID uuid.UUID, now time.Time, rowLimit int) audit.LastChangeEntry {
 	t.Helper()
 	deriver := audit.NewLastChangeDeriver(nodeID, "/name")
-	filter := audit.NodeHistoryFilter{
-		OrgID: orgID, NodeID: nodeID, Oldest: now.Add(-time.Minute), Latest: now.Add(time.Minute), RowLimit: rowLimit,
-	}
+	filter := audit.WithNodeHistoryRowLimit(audit.NodeHistoryFilter{
+		OrgID: orgID, NodeID: nodeID, Oldest: now.Add(-time.Minute), Latest: now.Add(time.Minute),
+	}, rowLimit)
 	read, err := reader.ReadNodeHistory(t.Context(), filter, "", deriver.Add)
 	if err != nil {
 		t.Fatalf("read the history of node %s with row limit %d: %v", nodeID, rowLimit, err)
