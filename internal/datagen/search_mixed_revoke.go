@@ -12,6 +12,12 @@ import (
 	"goodkind.io/tack/internal/domain/org"
 )
 
+const (
+	revokedCursorContinuation = "continuation"
+	revokedCursorReplay       = "replay"
+	revokedCursorNewSearch    = "new search"
+)
+
 var errSearchMixedNoContinuation = errors.New("qa datagen search-mixed: the member session did not return a continuation cursor")
 
 // checkRevocation opens a read word session as a member of the first tenant and reads two pages.
@@ -67,7 +73,7 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 		refusedAll := true
 		for position, cursor := range cursors {
 			started := clock.Now()
-			refused, returned, err := m.revokedSearch(ctx, session, attempt+position, cursor)
+			refused, returned, err := m.revokedSearch(ctx, session, attempt+position, position, cursor)
 			if err != nil {
 				return result, err
 			}
@@ -95,9 +101,11 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 	}
 }
 
-// revokedSearch uses driver number to request one page of the session.
-// It reports whether the server refused the call and returns issue IDs when the call succeeds.
-func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSession, number int, cursor string) (bool, []uuid.UUID, error) {
+// revokedSearch uses driver number to request one page of the session with the cursor at
+// position in the cursors of awaitRefusal. It reports whether the server refused the call and
+// returns issue IDs when the call succeeds. The unavailable response counts as an unrefused call
+// without results, so awaitRefusal retries it until its deadline. Every other error stops the check.
+func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSession, number, position int, cursor string) (bool, []uuid.UUID, error) {
 	page, err := callSearch(ctx, m.driver(number), session.token, session.entry, session.query, cursor)
 	if err == nil {
 		return false, page.IDs, nil
@@ -105,9 +113,25 @@ func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSess
 	if isAuthorizationRefusal(err, session.entry) {
 		return true, nil, nil
 	}
-	run := m.searchRun(session.tenant, revokedActorIndex, number)
-	if refusalErr := run.refused(ctx, session.token, session.entry, cursor); refusalErr != nil {
-		return false, nil, refusalErr
+	var toolError *toolCallError
+	if errors.As(err, &toolError) && toolError.message == soakSearchUnavailableText {
+		return false, nil, nil
 	}
-	return true, nil, nil
+	kind := revokedCursorKind(position, cursor)
+	slog.ErrorContext(ctx, "qa.datagen.revoked_search_failed", slog.String("entry", session.entry),
+		slog.Int("cursor_position", position), slog.String("cursor_kind", kind), slog.String("err", err.Error()))
+	return false, nil, fmt.Errorf("qa datagen search-mixed: the %s search at cursor position %d under %s failed without an authorization refusal: %w",
+		kind, position, session.entry, err)
+}
+
+// revokedCursorKind labels the cursor at position in the cursors that checkRevocation passes to
+// awaitRefusal: the continuation, the second page replay, and the new search.
+func revokedCursorKind(position int, cursor string) string {
+	if cursor == "" {
+		return revokedCursorNewSearch
+	}
+	if position == 0 {
+		return revokedCursorContinuation
+	}
+	return revokedCursorReplay
 }
