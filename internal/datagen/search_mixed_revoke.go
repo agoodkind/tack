@@ -18,6 +18,18 @@ const (
 	revokedCursorNewSearch    = "new search"
 )
 
+// revokedSearchOutcome is the server's answer to one search call after membership removal.
+type revokedSearchOutcome int
+
+const (
+	// revokedSearchAnswered means the server returned a page.
+	revokedSearchAnswered revokedSearchOutcome = iota
+	// revokedSearchRefused means the server returned an authorization refusal.
+	revokedSearchRefused
+	// revokedSearchUnavailable means the server returned the unavailable response.
+	revokedSearchUnavailable
+)
+
 var errSearchMixedNoContinuation = errors.New("qa datagen search-mixed: the member session did not return a continuation cursor")
 
 // checkRevocation opens a read word session as a member of the first tenant and reads two pages.
@@ -62,30 +74,35 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 // awaitRefusal retries a search with each cursor until the server refuses every call or the
 // time since membership removal exceeds the cache lifetime plus the convergence deadline.
 // It allows pages from requests that start within the cache lifetime after membership removal.
-// It counts issues from requests that start after that lifetime.
+// It counts issues from requests that start after that lifetime. An unavailable call counts as
+// unavailable, not as a page, and keeps the round from counting as refused.
 func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSession, cursors []string, removed time.Time) (SearchMixedRevocation, error) {
 	lifetime := m.cfg.AuthMembershipCacheLifetime
 	deadline := removed.Add(lifetime + searchConvergenceDeadline)
 	result := SearchMixedRevocation{
-		Checks: 0, PagesWithinCacheLifetime: 0, ResultsAfterCacheLifetime: 0, RefusedAfter: 0, Refused: false,
+		Checks: 0, PagesWithinCacheLifetime: 0, ResultsAfterCacheLifetime: 0, Unavailable: 0, RefusedAfter: 0, Refused: false,
 	}
 	for attempt := 0; ; attempt++ {
 		refusedAll := true
 		for position, cursor := range cursors {
 			started := clock.Now()
-			refused, returned, err := m.revokedSearch(ctx, session, attempt+position, position, cursor)
+			outcome, returned, err := m.revokedSearch(ctx, session, attempt+position, position, cursor)
 			if err != nil {
 				return result, err
 			}
 			result.Checks++
-			if refused {
-				continue
-			}
-			refusedAll = false
-			if started.Sub(removed) <= lifetime {
-				result.PagesWithinCacheLifetime++
-			} else {
-				result.ResultsAfterCacheLifetime += len(returned)
+			switch outcome {
+			case revokedSearchRefused:
+			case revokedSearchUnavailable:
+				refusedAll = false
+				result.Unavailable++
+			case revokedSearchAnswered:
+				refusedAll = false
+				if started.Sub(removed) <= lifetime {
+					result.PagesWithinCacheLifetime++
+				} else {
+					result.ResultsAfterCacheLifetime += len(returned)
+				}
 			}
 		}
 		if refusedAll {
@@ -102,25 +119,25 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 }
 
 // revokedSearch uses driver number to request one page of the session with the cursor at
-// position in the cursors of awaitRefusal. It reports whether the server refused the call and
-// returns issue IDs when the call succeeds. The unavailable response counts as an unrefused call
-// without results, so awaitRefusal retries it until its deadline. Every other error stops the check.
-func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSession, number, position int, cursor string) (bool, []uuid.UUID, error) {
+// position in the cursors of awaitRefusal. It reports whether the server answered, refused, or
+// returned the unavailable response, and returns issue IDs when the server answered. awaitRefusal
+// retries an unavailable call until its deadline. Every other error stops the check.
+func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSession, number, position int, cursor string) (revokedSearchOutcome, []uuid.UUID, error) {
 	page, err := callSearch(ctx, m.driver(number), session.token, session.entry, session.query, cursor)
 	if err == nil {
-		return false, page.IDs, nil
+		return revokedSearchAnswered, page.IDs, nil
 	}
 	if isAuthorizationRefusal(err, session.entry) {
-		return true, nil, nil
+		return revokedSearchRefused, nil, nil
 	}
 	var toolError *toolCallError
 	if errors.As(err, &toolError) && toolError.message == soakSearchUnavailableText {
-		return false, nil, nil
+		return revokedSearchUnavailable, nil, nil
 	}
 	kind := revokedCursorKind(position, cursor)
 	slog.ErrorContext(ctx, "qa.datagen.revoked_search_failed", slog.String("entry", session.entry),
 		slog.Int("cursor_position", position), slog.String("cursor_kind", kind), slog.String("err", err.Error()))
-	return false, nil, fmt.Errorf("qa datagen search-mixed: the %s search at cursor position %d under %s failed without an authorization refusal: %w",
+	return revokedSearchAnswered, nil, fmt.Errorf("qa datagen search-mixed: the %s search at cursor position %d under %s failed without an authorization refusal: %w",
 		kind, position, session.entry, err)
 }
 
