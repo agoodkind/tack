@@ -35,8 +35,8 @@ func TestReadNodeHistoryTruncationReportsPartial(t *testing.T) {
 		t.Fatalf("open the recorder: %v", err)
 	}
 	defer recorder.Close()
-	newerTime := nodeNameChange(orgID, nodeID, now, "000000000000000000010000")
-	laterCommit := nodeNameChange(orgID, nodeID, now.Add(-time.Second), "000000000000000000020000")
+	newerTime := nodeNameChange(t, orgID, nodeID, now, "000000000000000000010000")
+	laterCommit := nodeNameChange(t, orgID, nodeID, now.Add(-time.Second), "000000000000000000020000")
 	for _, event := range []audit.Event{newerTime, laterCommit} {
 		if err := recorder.Record(ctx, event); err != nil {
 			t.Fatalf("record event %s: %v", event.EventID, err)
@@ -80,34 +80,34 @@ func nameEntry(t *testing.T, reader *audit.Reader, orgID, nodeID uuid.UUID, now 
 	return fields[0]
 }
 
-// nodeNameChange returns a successful format 2 change event of nodeID at
-// occurredAt. The event changes /name and stores commitVersion in its
-// context.
-func nodeNameChange(orgID, nodeID uuid.UUID, occurredAt time.Time, commitVersion string) audit.Event {
-	var event audit.Event
-	event.Verb = string(audit.VerbNodeUpdate)
-	event.EventID = uuid.Must(uuid.NewV7())
-	event.Actor.Type = audit.ActorUser
-	event.Actor.ID = uuid.Must(uuid.NewV7())
-	event.Entity.Type = audit.TargetKindNode
-	event.Entity.NodeType = "issue"
-	event.Entity.ID = nodeID
-	event.Context.OrgID = orgID
-	event.Context.Source = audit.SourceMCP
-	event.Context.AuditFormatVersion = audit.AuditFormatComplete
-	event.Context.OperationClass = audit.OperationDatabaseChange
-	event.Context.Phase = audit.PhaseChange
-	event.Context.CommitVersion = commitVersion
-	event.Context.Target = &audit.Target{
+// nodeNameChange builds a format 2 change event of nodeID through
+// audit.ChangeEvent from an operation with an org ID, an operation ID, and a
+// start time. The event completes at occurredAt, changes /name, and stores
+// commitVersion in its context, as the relay does for an outbox entry.
+func nodeNameChange(t *testing.T, orgID, nodeID uuid.UUID, occurredAt time.Time, commitVersion string) audit.Event {
+	t.Helper()
+	var operation audit.Event
+	operation.Verb = string(audit.VerbNodeUpdate)
+	operation.Actor.Type = audit.ActorUser
+	operation.Actor.ID = uuid.Must(uuid.NewV7())
+	operation.Context.OrgID = orgID
+	operation.Context.Source = audit.SourceMCP
+	operation.Context.OperationID = uuid.Must(uuid.NewV7())
+	operation.Context.StartedAt = occurredAt.Add(-time.Millisecond)
+	target := audit.Target{
 		Kind: audit.TargetKindNode, NodeType: "issue", Reference: "", Name: "", URI: "", RelationType: "",
 		ID: nodeID, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
-	event.Delta = &audit.Delta{
-		Before: json.RawMessage(`{"name":"before"}`), After: json.RawMessage(`{"name":"` + commitVersion + `"}`),
-		Changed: []string{"/name"},
+	change, err := audit.NewChange(uuid.Must(uuid.NewV7()), target,
+		json.RawMessage(`{"name":"before"}`), json.RawMessage(`{"name":"`+commitVersion+`"}`))
+	if err != nil {
+		t.Fatalf("build the /name change of node %s: %v", nodeID, err)
 	}
-	event.Outcome = audit.OutcomeCompleted
-	event.OccurredAt = occurredAt
+	event, err := audit.ChangeEvent(operation, change, occurredAt)
+	if err != nil {
+		t.Fatalf("build the change event of node %s: %v", nodeID, err)
+	}
+	event.Context.CommitVersion = commitVersion
 	return event
 }
 
