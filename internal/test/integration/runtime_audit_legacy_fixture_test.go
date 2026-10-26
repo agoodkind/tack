@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -9,8 +10,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/twmb/franz-go/pkg/kgo"
 
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/audit"
 )
 
@@ -58,15 +61,35 @@ func legacyFixtures(t *testing.T, revision, kind string) []legacyFixture {
 			t.Fatalf("Decoding the %s fixture event %s failed: %v", revision, fixture.EventID, err)
 		}
 		fixture.occurredAt = event.OccurredAt
-		if _, err := admin.Exec(t.Context(), readTestSQL(t, "legacy_audit/event_partition.sql"), event.OccurredAt); err != nil {
-			t.Fatalf("Creating the audit.events partition for %s failed: %v", event.OccurredAt, err)
-		}
+		createEventPartition(t, admin, event.OccurredAt)
 		selected = append(selected, fixture)
 	}
 	if len(selected) == 0 {
 		t.Fatalf("The %s legacy fixtures do not contain a %s record", revision, kind)
 	}
 	return selected
+}
+
+// createEventPartition creates the audit.events partition for the week of
+// occurredAt as tack_migrator. Partition maintenance creates only the current
+// week and the weeks after it. A new ledger does not have a partition for a
+// fixture week in the past. The schema guard of migration 019 refuses the
+// creation from every role except tack_migrator, which also owns the
+// maintenance function.
+func createEventPartition(t *testing.T, admin *pgxpool.Pool, occurredAt time.Time) {
+	t.Helper()
+	connection, err := admin.Acquire(t.Context())
+	if err != nil {
+		t.Fatalf("Acquiring a ledger connection failed: %v", err)
+	}
+	defer connection.Release()
+	if _, err := connection.Exec(t.Context(), "SET ROLE "+migration.MigratorRole); err != nil {
+		t.Fatalf("Setting the role %s failed: %v", migration.MigratorRole, err)
+	}
+	defer func() { _, _ = connection.Exec(context.WithoutCancel(t.Context()), "RESET ROLE") }()
+	if _, err := connection.Exec(t.Context(), readTestSQL(t, "legacy_audit/event_partition.sql"), occurredAt); err != nil {
+		t.Fatalf("Creating the audit.events partition for %s failed: %v", occurredAt, err)
+	}
 }
 
 // produceLegacyRecords produces each fixture key and value unchanged to the
