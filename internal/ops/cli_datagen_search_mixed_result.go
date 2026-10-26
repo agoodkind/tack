@@ -58,6 +58,7 @@ type datagenSearchMixedRevocation struct {
 	Checks                    int     `json:"checks"`
 	PagesWithinCacheLifetime  int     `json:"pages_within_cache_lifetime"`
 	ResultsAfterCacheLifetime int     `json:"results_after_cache_lifetime"`
+	Unavailable               int     `json:"unavailable"`
 	Refused                   bool    `json:"refused"`
 	RefusedAfterMs            float64 `json:"refused_after_ms"`
 }
@@ -128,7 +129,8 @@ func searchMixedResult(
 		Burst: searchMixedBurstResult(summary.Burst), Sessions: summary.Sessions, PendingDeletion: summary.Pending,
 		Revocation: datagenSearchMixedRevocation{
 			Checks: summary.Revocation.Checks, PagesWithinCacheLifetime: summary.Revocation.PagesWithinCacheLifetime,
-			ResultsAfterCacheLifetime: summary.Revocation.ResultsAfterCacheLifetime, Refused: summary.Revocation.Refused,
+			ResultsAfterCacheLifetime: summary.Revocation.ResultsAfterCacheLifetime, Unavailable: summary.Revocation.Unavailable,
+			Refused: summary.Revocation.Refused,
 			RefusedAfterMs: searchLoadMilliseconds(summary.Revocation.RefusedAfter),
 		},
 		Rebuild: datagenSearchMixedRebuild{

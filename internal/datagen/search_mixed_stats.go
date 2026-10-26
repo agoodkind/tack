@@ -54,7 +54,7 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 		},
 		Pending: SearchMixedPending{Checks: 0, PendingObserved: 0, DeletedNodesReturned: 0},
 		Revocation: SearchMixedRevocation{
-			Checks: 0, PagesWithinCacheLifetime: 0, ResultsAfterCacheLifetime: 0, RefusedAfter: 0, Refused: false,
+			Checks: 0, PagesWithinCacheLifetime: 0, ResultsAfterCacheLifetime: 0, Unavailable: 0, RefusedAfter: 0, Refused: false,
 		},
 		Rebuild: SearchMixedRebuildResult{Requested: false, TargetIndex: "", Started: 0, Switched: 0, FinalState: ""},
 		CatchUp: SearchMixedCatchUp{Completed: false, Elapsed: 0},

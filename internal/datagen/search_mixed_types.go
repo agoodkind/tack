@@ -37,7 +37,9 @@ type SearchMixedRevocation struct {
 	Checks                    int
 	PagesWithinCacheLifetime  int
 	ResultsAfterCacheLifetime int
-	RefusedAfter              time.Duration
+	// Unavailable is the number of searches that returned the unavailable response.
+	Unavailable  int
+	RefusedAfter time.Duration
 	Refused                   bool
 }
 
