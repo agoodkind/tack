@@ -12,6 +12,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
+	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
 // maxRecordedRetryCodes bounds the retried FoundationDB error codes that
@@ -112,11 +113,33 @@ func transactSession(ctx context.Context, db fdb.Database, source clock.Clock, o
 	}
 }
 
+// sessionTimeoutError is a session store failure that ended with
+// FoundationDB error 1031 (transaction_timed_out). It keeps the text of err
+// and also wraps [searchdomain.ErrEngineUnavailable].
+type sessionTimeoutError struct{ err error }
+
+func (e sessionTimeoutError) Error() string { return e.err.Error() }
+
+func (e sessionTimeoutError) Unwrap() []error {
+	return []error{e.err, searchdomain.ErrEngineUnavailable}
+}
+
+// classifySessionError returns err as a sessionTimeoutError when err wraps
+// FoundationDB error 1031 and returns every other err unchanged.
+func classifySessionError(err error) error {
+	var databaseError fdb.Error
+	if errors.As(err, &databaseError) && databaseError.Code == transactionTimedOut {
+		return sessionTimeoutError{err: err}
+	}
+	return err
+}
+
 // sessionFailure logs and wraps one session storage failure with the
 // operation name and the session ID. It logs details in the transaction
-// group, which the log omits when details is empty.
+// group, which the log omits when details is empty. A failure with
+// FoundationDB error 1031 also wraps [searchdomain.ErrEngineUnavailable].
 func sessionFailure(ctx context.Context, operation string, sessionID uuid.UUID, err error, details ...slog.Attr) error {
-	wrapped := fmt.Errorf("%s for session %s: %w", operation, sessionID, err)
+	wrapped := fmt.Errorf("%s for session %s: %w", operation, sessionID, classifySessionError(err))
 	slog.ErrorContext(ctx, "search.session.storage_failed", slog.String("err", wrapped.Error()),
 		slog.String("operation", operation), slog.String("session_id", sessionID.String()),
 		slog.Any("transaction", slog.GroupValue(details...)))
