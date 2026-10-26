@@ -158,6 +158,14 @@ func serveSearchMixedProcess(t *testing.T, cfg *config.Config) (*appruntime.Grap
 
 func runSearchMixedCommand(t *testing.T, cfg *config.Config, flags ...string) ([]byte, error) {
 	t.Helper()
+	return runSearchMixedCommandAs(t, cfg, searchMixedOperatorID, flags...)
+}
+
+// runSearchMixedCommandAs runs the search-mixed command with operatorID as the operator. The
+// tests of one package write to one ledger. requireSearchMixedReindexAudit reads the reindex
+// events of searchMixedOperatorID, and another test that starts a rebuild uses its own operator.
+func runSearchMixedCommandAs(t *testing.T, cfg *config.Config, operatorID string, flags ...string) ([]byte, error) {
+	t.Helper()
 	var output bytes.Buffer
 	factory := cli.System(cfg)
 	factory.Out = &output
@@ -177,7 +185,7 @@ func runSearchMixedCommand(t *testing.T, cfg *config.Config, flags ...string) ([
 	}
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
 	root.SetArgs(append([]string{
-		"--execute", "--output", "json", "--operator-id", searchMixedOperatorID, "--operator-email", "operator@example.com", "--operator-name", "Search Test", "ops", "qa", "datagen", "search-mixed",
+		"--execute", "--output", "json", "--operator-id", operatorID, "--operator-email", "operator@example.com", "--operator-name", "Search Test", "ops", "qa", "datagen", "search-mixed",
 	}, flags...))
 	err = root.ExecuteContext(t.Context())
 	return output.Bytes(), err

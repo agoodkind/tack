@@ -25,6 +25,9 @@ const (
 	// sessionHoldDeadline is the search query deadline of both processes. The test search keeps
 	// its slot until the proxy releases its predict request, which happens before this deadline.
 	sessionHoldDeadline = "50s"
+	// sessionHoldOperatorID is the operator of this test's search-mixed run. Its reindex audit
+	// events stay separate from the events of searchMixedOperatorID.
+	sessionHoldOperatorID = "019dd226-440e-729a-a442-281aaf73ca31"
 )
 
 type sessionUnavailableOutput struct {
@@ -69,7 +72,7 @@ func TestSearchMixedSessionsRetryUnavailableSearch(t *testing.T) {
 	go func() {
 		watched <- occupySlotAfterRemoval(watchContext, cfg, proxy, datagen.NewDriver(second, false, seed), identities.Workspaces[0], marker, sessionHold)
 	}()
-	output, runErr := runSearchMixedCommand(t, cfg, "--seed", strconv.FormatInt(seed, 10), "--rate", "6", "--write-rate", "6",
+	output, runErr := runSearchMixedCommandAs(t, cfg, sessionHoldOperatorID, "--seed", strconv.FormatInt(seed, 10), "--rate", "6", "--write-rate", "6",
 		"--duration", "40s", "--concurrency", "2", "--burst-writes", "4", "--catch-up", "5m", "--rebuild",
 		"--endpoints", strings.Join(endpoints, ","), "--commit")
 	stopWatch()
