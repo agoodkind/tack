@@ -39,8 +39,8 @@ const (
 	// removes: the third actor of the first workspace at the medium scale.
 	revocationScale = "medium"
 	revocationActor = 2
-	// revocationCursors is the number of calls in one revocation round.
-	revocationCursors = 3
+	// revocationCursors is the size of the smallest revocation round: the replay and new search.
+	revocationCursors = 2
 	// sessionMismatchText is part of the tack_search error for a cursor of
 	// another query.
 	sessionMismatchText = "does not match this request"

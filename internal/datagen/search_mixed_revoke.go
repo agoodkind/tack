@@ -16,6 +16,8 @@ const (
 	revokedCursorContinuation = "continuation"
 	revokedCursorReplay       = "replay"
 	revokedCursorNewSearch    = "new search"
+	// revokedRoundCalls is the largest number of calls in one revocation round.
+	revokedRoundCalls = 3
 )
 
 // revokedSearchOutcome is the server's answer to one search call after membership removal.
@@ -59,7 +61,8 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 	if err := members.RemoveMember(ctx, workspace.OrgID, actor.UserID); err != nil {
 		return loggedError(ctx, "qa datagen search-mixed: the command could not remove the organization membership for user "+actor.UserID.String(), err)
 	}
-	result, checkErr := m.awaitRefusal(ctx, session, []string{second.Cursor, first.Cursor, ""}, clock.Now())
+	cursors := revokedCursors{continuation: second.Cursor, replay: first.Cursor}
+	result, checkErr := m.awaitRefusal(ctx, session, cursors, clock.Now())
 	m.phases.update(func(phases *searchMixedPhaseStats) { phases.revocation = result })
 	restored := &org.Member{ID: uuid.Nil, OrgID: member.OrgID, UserID: member.UserID, Role: member.Role, CreatedAt: time.Time{}}
 	if err := members.AddMember(context.WithoutCancel(ctx), restored); err != nil {
@@ -71,12 +74,52 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 	return checkErr
 }
 
-// awaitRefusal retries a search with each cursor until the server refuses every call or the
-// time since membership removal exceeds the cache lifetime plus the convergence deadline.
-// It allows pages from requests that start within the cache lifetime after membership removal.
-// It counts issues from requests that start after that lifetime. An unavailable call counts as
-// unavailable, not as a page, and keeps the round from counting as refused.
-func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSession, cursors []string, removed time.Time) (SearchMixedRevocation, error) {
+// revokedCursors stores the session cursors of the revocation check. continuation is the latest
+// cursor that the session returned, and it is empty after the session completes. replay is the
+// cursor that produced the latest committed page, because the session keeps a replay record for
+// that page only.
+type revokedCursors struct {
+	continuation string
+	replay       string
+}
+
+// revokedCall is one search of a revocation round.
+type revokedCall struct {
+	kind   string
+	cursor string
+}
+
+// kinds returns the continuation, the replay, and the new search of one round. It omits the
+// continuation after the session completes.
+func (c revokedCursors) kinds() []string {
+	kinds := make([]string, 0, revokedRoundCalls)
+	if c.continuation != "" {
+		kinds = append(kinds, revokedCursorContinuation)
+	}
+	return append(kinds, revokedCursorReplay, revokedCursorNewSearch)
+}
+
+// call returns the search of kind with its current cursor. A new search has no cursor.
+func (c revokedCursors) call(kind string) revokedCall {
+	cursor := ""
+	if kind == revokedCursorContinuation {
+		cursor = c.continuation
+	}
+	if kind == revokedCursorReplay {
+		cursor = c.replay
+	}
+	return revokedCall{kind: kind, cursor: cursor}
+}
+
+// awaitRefusal retries the continuation, the replay, and a new search until the server refuses
+// every call of a round or the time since membership removal exceeds the cache lifetime plus the
+// convergence deadline. It allows pages from requests that start within the cache lifetime after
+// membership removal. It counts issues from requests that start after that lifetime. An
+// unavailable call counts as unavailable, not as a page, and keeps the round from counting as
+// refused. An answered continuation advances the session. Its cursor becomes the replay cursor
+// for the next call, including the replay of the same round, and the cursor it returned becomes
+// the continuation cursor.
+func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSession, cursors revokedCursors, removed time.Time) (SearchMixedRevocation, error) {
 	lifetime := m.cfg.AuthMembershipCacheLifetime
 	deadline := removed.Add(lifetime + searchConvergenceDeadline)
 	result := SearchMixedRevocation{
@@ -84,9 +127,10 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 	}
 	for attempt := 0; ; attempt++ {
 		refusedAll := true
-		for position, cursor := range cursors {
+		for position, kind := range cursors.kinds() {
+			call := cursors.call(kind)
 			started := clock.Now()
-			outcome, returned, err := m.revokedSearch(ctx, session, attempt+position, position, cursor)
+			outcome, page, err := m.revokedSearch(ctx, session, attempt+position, position, call)
 			if err != nil {
 				return result, err
 			}
@@ -101,7 +145,10 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 				if started.Sub(removed) <= lifetime {
 					result.PagesWithinCacheLifetime++
 				} else {
-					result.ResultsAfterCacheLifetime += len(returned)
+					result.ResultsAfterCacheLifetime += len(page.IDs)
+				}
+				if call.kind == revokedCursorContinuation {
+					cursors = revokedCursors{continuation: page.Cursor, replay: call.cursor}
 				}
 			}
 		}
@@ -118,37 +165,24 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 	}
 }
 
-// revokedSearch uses driver number to request one page of the session with the cursor at
-// position in the cursors of awaitRefusal. It reports whether the server answered, refused, or
-// returned the unavailable response, and returns issue IDs when the server answered. awaitRefusal
-// retries an unavailable call until its deadline. Every other error stops the check.
-func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSession, number, position int, cursor string) (revokedSearchOutcome, []uuid.UUID, error) {
-	page, err := callSearch(ctx, m.driver(number), session.token, session.entry, session.query, cursor)
+// revokedSearch uses driver number to request one page of the session for call, the call at
+// position in its round. It reports whether the server answered, refused, or returned the
+// unavailable response, and returns the page when the server answered. awaitRefusal retries an
+// unavailable call until its deadline. Every other error stops the check.
+func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSession, number, position int, call revokedCall) (revokedSearchOutcome, searchPage, error) {
+	page, err := callSearch(ctx, m.driver(number), session.token, session.entry, session.query, call.cursor)
 	if err == nil {
-		return revokedSearchAnswered, page.IDs, nil
+		return revokedSearchAnswered, page, nil
 	}
 	if isAuthorizationRefusal(err, session.entry) {
-		return revokedSearchRefused, nil, nil
+		return revokedSearchRefused, searchPage{}, nil
 	}
 	var toolError *toolCallError
 	if errors.As(err, &toolError) && toolError.message == soakSearchUnavailableText {
-		return revokedSearchUnavailable, nil, nil
+		return revokedSearchUnavailable, searchPage{}, nil
 	}
-	kind := revokedCursorKind(position, cursor)
 	slog.ErrorContext(ctx, "qa.datagen.revoked_search_failed", slog.String("entry", session.entry),
-		slog.Int("cursor_position", position), slog.String("cursor_kind", kind), slog.String("err", err.Error()))
-	return revokedSearchAnswered, nil, fmt.Errorf("qa datagen search-mixed: the %s search at cursor position %d under %s failed without an authorization refusal: %w",
-		kind, position, session.entry, err)
-}
-
-// revokedCursorKind labels the cursor at position in the cursors that checkRevocation passes to
-// awaitRefusal: the continuation, the second page replay, and the new search.
-func revokedCursorKind(position int, cursor string) string {
-	if cursor == "" {
-		return revokedCursorNewSearch
-	}
-	if position == 0 {
-		return revokedCursorContinuation
-	}
-	return revokedCursorReplay
+		slog.Int("cursor_position", position), slog.String("cursor_kind", call.kind), slog.String("err", err.Error()))
+	return revokedSearchAnswered, searchPage{}, fmt.Errorf("qa datagen search-mixed: the %s search at cursor position %d under %s failed without an authorization refusal: %w",
+		call.kind, position, session.entry, err)
 }
