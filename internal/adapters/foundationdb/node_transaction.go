@@ -11,13 +11,16 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-func nodeOperationFailure(ctx context.Context, operation string, err error) error {
+// nodeOperationFailure logs err as node.transaction_failed with operation and
+// details, and returns err prefixed with operation. It returns err unchanged
+// when err was already logged.
+func nodeOperationFailure(ctx context.Context, operation string, err error, details ...slog.Attr) error {
 	if searchFailureWasLogged(err) {
 		return err
 	}
 	wrapped := fmt.Errorf("%s: %w", operation, err)
-	logger := telemetry.L(ctx)
-	logger.ErrorContext(ctx, "node.transaction_failed", slog.String("err", wrapped.Error()), slog.String("operation", operation))
+	attributes := append([]slog.Attr{slog.String("err", wrapped.Error()), slog.String("operation", operation)}, details...)
+	telemetry.L(ctx).LogAttrs(ctx, slog.LevelError, "node.transaction_failed", attributes...)
 	return loggedSearchError{err: wrapped}
 }
 
@@ -32,10 +35,12 @@ func runNodeMutation(ctx context.Context, database fdb.Database, operation strin
 		return nodeOperationFailure(ctx, operation, fmt.Errorf("create transaction: %w", err))
 	}
 	defer transaction.Cancel()
+	attempts := newTransactionAttempts()
 	for {
 		if err := ctx.Err(); err != nil {
 			return nodeOperationFailure(ctx, operation, fmt.Errorf("check context: %w", err))
 		}
+		attempts.start()
 		attemptErr := apply(transaction)
 		if attemptErr == nil {
 			if commitErr := transaction.Commit().Get(); commitErr != nil {
@@ -51,8 +56,9 @@ func runNodeMutation(ctx context.Context, database fdb.Database, operation strin
 		if !errors.As(attemptErr, &databaseErr) {
 			return nodeOperationFailure(ctx, operation, attemptErr)
 		}
+		attempts.recordError(databaseErr.Code)
 		if retryErr := transaction.OnError(databaseErr).Get(); retryErr != nil {
-			return retryFailure(ctx, operation, retryErr)
+			return retryFailure(ctx, operation, retryErr, attempts)
 		}
 	}
 }
@@ -64,12 +70,16 @@ const transactionTimedOut = 1031
 // node.transaction_failed with slog and return an error prefixed with operation.
 // The error wraps retryErr. If retryErr wraps transactionTimedOut (1031),
 // the error also wraps domain.ErrConflict and includes the text
-// "transaction contention: the retries exceeded the transaction timeout".
-// Otherwise, the error includes the text "retry transaction".
-func retryFailure(ctx context.Context, operation string, retryErr error) error {
+// "transaction contention: the retries exceeded the transaction timeout",
+// and the log record adds the attempt count, the time since the transaction
+// was created, and the attempt error codes from attempts. Otherwise, the
+// error includes the text "retry transaction".
+func retryFailure(ctx context.Context, operation string, retryErr error, attempts *transactionAttempts) error {
 	var databaseErr fdb.Error
 	if errors.As(retryErr, &databaseErr) && databaseErr.Code == transactionTimedOut {
-		return nodeOperationFailure(ctx, operation, fmt.Errorf("transaction contention: the retries exceeded the transaction timeout: %w: %w", retryErr, domain.ErrConflict))
+		return nodeOperationFailure(ctx, operation,
+			fmt.Errorf("transaction contention: the retries exceeded the transaction timeout: %w: %w", retryErr, domain.ErrConflict),
+			attempts.logAttributes()...)
 	}
 	return nodeOperationFailure(ctx, operation, fmt.Errorf("retry transaction: %w", retryErr))
 }
