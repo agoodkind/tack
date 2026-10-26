@@ -53,8 +53,8 @@ func TestAuditLastChangeIgnoresUpdateRefusedForNonMember(t *testing.T) {
 // through the built server three times as different operators: without
 // AUDIT_READER_DSN, with a login that inherits only the application role, and
 // with a login that inherits audit_reader. The first two runs must exit with
-// an error that states the missing setting or the permission refusal, and
-// they must not print a report. The audit_reader run must print a report. The
+// an error, log the error that states the missing setting or the permission
+// refusal, and not print a report. The audit_reader run must print a report. The
 // clispec choke-point records an audit host read before the read runs, as it
 // does for `audit query` and `audit get`. The ledger must contain exactly one
 // audit.read row with the ok outcome for each operator.
@@ -72,17 +72,17 @@ func TestAuditLastChangeRefusesWithoutAuditReaderRole(t *testing.T) {
 	}
 	for _, current := range cases {
 		operatorID := uuid.Must(uuid.NewV7())
-		stdout, stderr, err := lastChangeCommand(t, current.readerDSN, operatorID, orgID, nodeID, now.Add(-time.Hour), now.Add(time.Hour))
+		run := lastChangeCommand(t, current.readerDSN, operatorID, orgID, nodeID, now.Add(-time.Hour), now.Add(time.Hour))
 		succeeds := current.refusal == ""
-		printed := strings.Contains(stdout, `"audit.last_change"`)
-		if (err == nil) != succeeds || printed != succeeds || !strings.Contains(stdout+stderr, current.refusal) {
-			t.Fatalf("%s: error = %v, printed a report = %t, want success %t and output with %q\n%s%s",
-				current.name, err, printed, succeeds, current.refusal, stdout, stderr)
+		printed := strings.Contains(run.stdout, `"audit.last_change"`)
+		if (run.err == nil) != succeeds || printed != succeeds || !strings.Contains(run.log, current.refusal) {
+			t.Fatalf("%s: error = %v, printed a report = %t, want success %t and a log with %q\n%s",
+				current.name, run.err, printed, succeeds, current.refusal, run.output())
 		}
 		want := operatorReadRow{Action: string(audit.VerbAuditRead), Outcome: string(audit.OutcomeOK), Code: ""}
-		rows := waitForOperatorRows(t, ledger, operatorID, 1)
+		rows := waitForOperatorRows(t, ledger, operatorID, 1, run.output())
 		if len(rows) != 1 || rows[0] != want {
-			t.Fatalf("%s: ledger rows of operator %s = %+v, want only %+v", current.name, operatorID, rows, want)
+			t.Fatalf("%s: ledger rows of operator %s = %+v, want only %+v\n%s", current.name, operatorID, rows, want, run.output())
 		}
 	}
 }

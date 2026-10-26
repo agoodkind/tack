@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,25 +31,33 @@ const (
 	concurrentInitialDescription = "initial description"
 	// descriptionPath is the field path of the description property.
 	descriptionPath = "/props/description"
+	// concurrentUpdateAttempts bounds the requests one writer sends.
+	concurrentUpdateAttempts = 20
+	// concurrentRetryPause separates the requests of one writer.
+	concurrentRetryPause = 20 * time.Millisecond
+	// nodeConflictRefusal is the text of the error that Tack returns when the
+	// stored node changed after the request read it.
+	nodeConflictRefusal = "the stored node differs from the expected source: conflict"
 )
 
 // concurrentDescriptionRun is the outcome of concurrent description updates
-// of one issue: the descriptions of the successful calls, the description the
-// issue stores afterwards, the description change rows in commit version
-// order, and the `audit last-change` report.
+// of one issue: the committed descriptions, the number of conflict
+// refusals, the description the issue stores afterwards, the description
+// change rows in commit version order, and the `audit last-change` report.
 type concurrentDescriptionRun struct {
-	ledger  *nodeAuditLedger
-	orgID   uuid.UUID
-	issueID uuid.UUID
-	written []string
-	final   string
-	changes []audit.Row
-	report  lastChangeReport
+	ledger    *nodeAuditLedger
+	orgID     uuid.UUID
+	issueID   uuid.UUID
+	written   []string
+	conflicts int
+	final     string
+	changes   []audit.Row
+	report    lastChangeReport
 }
 
 // runConcurrentDescriptionUpdates creates an issue through the audited MCP
 // harness and sends concurrentDescriptionWriters concurrent updates that set
-// distinct descriptions. It waits for one change row per successful update and
+// distinct descriptions. It waits for one change row per committed update and
 // runs `audit last-change` for the issue.
 func runConcurrentDescriptionUpdates(t *testing.T) concurrentDescriptionRun {
 	t.Helper()
@@ -63,13 +72,13 @@ func runConcurrentDescriptionUpdates(t *testing.T) concurrentDescriptionRun {
 	create.Name = "concurrent last change issue"
 	create.Properties = datagen.NodeProperties{"description": quoted(concurrentInitialDescription)}
 	issueID := uuid.MustParse(harness.Call(t, "tack_create_issue", create).RawID())
-	written := writeDescriptionsConcurrently(t, harness, issueID)
+	written, conflicts := writeDescriptionsConcurrently(t, harness, issueID)
 	view, err := stores.Views.Get(t.Context(), issueID)
 	if err != nil || view == nil {
 		t.Fatalf("issue %s after the concurrent updates = %v, %v", issueID, view, err)
 	}
 	run := concurrentDescriptionRun{
-		ledger: startNodeAuditLedger(t), orgID: view.OrgID, issueID: issueID, written: written,
+		ledger: startNodeAuditLedger(t), orgID: view.OrgID, issueID: issueID, written: written, conflicts: conflicts,
 		final: decodedJSONString(t, view.Props["description"]), changes: nil, report: lastChangeReport{},
 	}
 	run.changes = waitForDescriptionChanges(t, run, len(written))
@@ -77,12 +86,15 @@ func runConcurrentDescriptionUpdates(t *testing.T) concurrentDescriptionRun {
 	return run
 }
 
-// writeDescriptionsConcurrently sends the updates at the same time and
-// returns the descriptions of the successful updates. At least two updates
-// must succeed.
-func writeDescriptionsConcurrently(t *testing.T, harness *integration.MCPHarness, issueID uuid.UUID) []string {
+// writeDescriptionsConcurrently sends the updates at the same time. A writer
+// that Tack refuses with the stored-node conflict sends its update again, up
+// to concurrentUpdateAttempts times. Every writer must commit, and any other
+// error fails the test. It returns the committed descriptions and the number
+// of conflict refusals, which must be at least one.
+func writeDescriptionsConcurrently(t *testing.T, harness *integration.MCPHarness, issueID uuid.UUID) ([]string, int) {
 	t.Helper()
 	descriptions := make([]string, concurrentDescriptionWriters)
+	conflicts := make([]int, concurrentDescriptionWriters)
 	failures := make([]error, concurrentDescriptionWriters)
 	var group sync.WaitGroup
 	for index := range concurrentDescriptionWriters {
@@ -96,20 +108,41 @@ func writeDescriptionsConcurrently(t *testing.T, harness *integration.MCPHarness
 					failures[index] = fmt.Errorf("update %d panicked: %v", index, recovered)
 				}
 			}()
-			_, failures[index] = harness.TryCall(t.Context(), "tack_update_issue", arguments)
+			conflicts[index], failures[index] = updateUntilCommitted(t.Context(), harness, arguments)
 		})
 	}
 	group.Wait()
-	written := make([]string, 0, concurrentDescriptionWriters)
-	for index, failure := range failures {
-		if failure == nil {
-			written = append(written, descriptions[index])
+	if err := errors.Join(failures...); err != nil {
+		t.Fatalf("every concurrent update must commit: %v", err)
+	}
+	refused := 0
+	for _, count := range conflicts {
+		refused += count
+	}
+	if refused == 0 {
+		t.Fatalf("the %d concurrent updates committed without a conflict refusal. The test requires at least one conflict to exercise concurrent writes", concurrentDescriptionWriters)
+	}
+	return descriptions, refused
+}
+
+// updateUntilCommitted sends one tack_update_issue request until Tack commits
+// it. It sends the request again after the stored-node conflict refusal, at
+// most concurrentUpdateAttempts times in total, and returns the number of
+// conflict refusals. Any other error ends the loop.
+func updateUntilCommitted(ctx context.Context, harness *integration.MCPHarness, arguments datagen.ToolArguments) (int, error) {
+	refused := 0
+	for range concurrentUpdateAttempts {
+		_, err := harness.TryCall(ctx, "tack_update_issue", arguments)
+		if err == nil {
+			return refused, nil
 		}
+		if !strings.Contains(err.Error(), nodeConflictRefusal) {
+			return refused, err
+		}
+		refused++
+		time.Sleep(concurrentRetryPause)
 	}
-	if len(written) < 2 {
-		t.Fatalf("concurrent updates succeeded %d times, want at least 2: %v", len(written), errors.Join(failures...))
-	}
-	return written
+	return refused, fmt.Errorf("update of node %s did not commit after %d attempts", arguments.NodeID, concurrentUpdateAttempts)
 }
 
 // waitForDescriptionChanges polls the ledger until it contains want
