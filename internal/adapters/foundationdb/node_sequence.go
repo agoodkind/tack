@@ -122,7 +122,9 @@ func (s *NodeStore) RaiseSequenceByKey(ctx context.Context, orgID uuid.UUID, cou
 }
 
 // writeSequenceWithAudit reads the mutation operation from ctx, then applies
-// change to the counter at key in one transaction with its change event.
+// change to the counter at key in one transaction with its change event. It
+// waits for the counter lock of key before it creates the transaction and
+// frees the lock after the transaction ends.
 func (s *NodeStore) writeSequenceWithAudit(
 	ctx context.Context, orgID uuid.UUID, operation string, key fdb.Key, target audit.Target, change sequenceChange,
 ) (int64, bool, error) {
@@ -130,6 +132,11 @@ func (s *NodeStore) writeSequenceWithAudit(
 	if err != nil {
 		return 0, false, err
 	}
+	release, err := s.sequenceLocks.acquire(ctx, key)
+	if err != nil {
+		return 0, false, err
+	}
+	defer release()
 	var stored int64
 	var changed bool
 	err = runNodeMutation(ctx, s.db, operation, func(tr fdb.Transaction) error {
