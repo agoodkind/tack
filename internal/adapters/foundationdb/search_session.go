@@ -76,7 +76,9 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 	return session, nil
 }
 
-// Load reads the session header and reassembles its query tokens.
+// Load reads the session header and reassembles its query tokens. For a
+// closing session, it returns the header without query tokens, because
+// CleanupSlice deletes the token chunks before the header.
 func (s *SearchSessionStore) Load(ctx context.Context, sessionID uuid.UUID) (loaded searchdomain.Session, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.load")(&err)
 	var record searchSessionRecord
@@ -89,6 +91,9 @@ func (s *SearchSessionStore) Load(ctx context.Context, sessionID uuid.UUID) (loa
 		}
 		if !found {
 			return searchdomain.ErrSessionNotFound
+		}
+		if record.Closing {
+			return nil
 		}
 		keyRange, rangeErr := fdb.PrefixRange(searchSessionPartPrefix(sessionID, sessionTokenPart))
 		if rangeErr != nil {
@@ -109,11 +114,15 @@ func (s *SearchSessionStore) Load(ctx context.Context, sessionID uuid.UUID) (loa
 	if err != nil {
 		return searchdomain.Session{}, err
 	}
-	if tokens.Len() != record.TokenBytes {
-		return searchdomain.Session{}, sessionFailure(ctx, "load search session", sessionID,
-			fmt.Errorf("query tokens contain %d bytes, want %d", tokens.Len(), record.TokenBytes))
+	var queryTokens json.RawMessage
+	if !record.Closing {
+		if tokens.Len() != record.TokenBytes {
+			return searchdomain.Session{}, sessionFailure(ctx, "load search session", sessionID,
+				fmt.Errorf("query tokens contain %d bytes, want %d", tokens.Len(), record.TokenBytes))
+		}
+		queryTokens = tokens.Bytes()
 	}
-	session, err := record.session(json.RawMessage(tokens.Bytes()))
+	session, err := record.session(queryTokens)
 	if err != nil {
 		return searchdomain.Session{}, sessionFailure(ctx, "decode search session", sessionID, err)
 	}
