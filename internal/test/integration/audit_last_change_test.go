@@ -109,12 +109,14 @@ func updateIssue(t *testing.T, harness *integration.MCPHarness, issueID uuid.UUI
 }
 
 // changeRelationship calls tool for the blocks relationship from sourceID to
-// targetID.
+// targetID. The relationship tools refuse any argument other than source_id,
+// relation_type, and target_id, and the call sets only those three.
 func changeRelationship(t *testing.T, harness *integration.MCPHarness, tool string, sourceID, targetID uuid.UUID) {
 	t.Helper()
-	arguments := auditedIssueArguments(harness)
-	arguments.SourceID = sourceID.String()
-	arguments.RelationType = lastChangeRelationType
-	arguments.TargetID = targetID.String()
+	arguments := datagen.ToolArguments{
+		WorkspaceReference: "", ProjectReference: "", IssueReference: "", Name: "", Properties: nil,
+		NodeID: "", Query: "", NodeType: "", Direction: "", SourceID: sourceID.String(),
+		RelationType: lastChangeRelationType, TargetID: targetID.String(), Limit: 0, Cursor: "",
+	}
 	harness.Call(t, tool, arguments)
 }
