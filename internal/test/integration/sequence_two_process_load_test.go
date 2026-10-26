@@ -36,14 +36,17 @@ type sequenceLoadLog struct {
 	failures []string
 }
 
-func (log *sequenceLoadLog) record(writer string, value int64, err error) {
+// record stores value when err is nil and the failure of writer otherwise.
+// It reports whether the call succeeded.
+func (log *sequenceLoadLog) record(writer string, value int64, err error) bool {
 	log.mutex.Lock()
 	defer log.mutex.Unlock()
 	if err != nil {
 		log.failures = append(log.failures, writer+": "+err.Error())
-		return
+		return false
 	}
 	log.values = append(log.values, value)
+	return true
 }
 
 // TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter
@@ -73,7 +76,9 @@ func TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter(
 			}()
 			for clock.Now().Before(deadline) {
 				value, err := busy.AllocateSequenceByKey(ctx, orgID, counterKey)
-				log.record(label, value, err)
+				if !log.record(label, value, err) {
+					return
+				}
 			}
 		})
 	}
@@ -89,8 +94,8 @@ func TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter(
 }
 
 // runQuietSequenceWriter increments the counter through store one call at a
-// time until deadline. It returns the number of calls and the duration of the
-// longest call.
+// time until deadline or until the first failed call. It returns the number
+// of calls and the duration of the longest call.
 func runQuietSequenceWriter(
 	ctx context.Context, store *fdbadapter.NodeStore, orgID uuid.UUID, counterKey string, deadline time.Time,
 	log *sequenceLoadLog,
@@ -101,8 +106,10 @@ func runQuietSequenceWriter(
 		started := clock.Now()
 		value, err := store.AllocateSequenceByKey(ctx, orgID, counterKey)
 		longest = max(longest, clock.Now().Sub(started))
-		log.record("quiet store writer", value, err)
 		calls++
+		if !log.record("quiet store writer", value, err) {
+			break
+		}
 	}
 	return calls, longest
 }

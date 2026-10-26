@@ -22,18 +22,21 @@ const transactionNotCommitted = 1020
 
 // transactionAttempts counts the attempts of one runNodeAttempts transaction
 // and keeps the FoundationDB error code of each attempt that the function
-// passed to OnError, up to attemptErrorCodeLimit codes. It also records
-// whether any attempt ended with code 1020 (not_committed).
+// passed to OnError, up to attemptErrorCodeLimit codes. It counts the codes
+// past that limit and records whether any attempt ended with code 1020
+// (not_committed).
 type transactionAttempts struct {
 	created    time.Time
 	count      int
 	codes      []string
+	omitted    int
 	conflicted bool
 }
 
-// newTransactionAttempts starts the record of a transaction created now.
-func newTransactionAttempts() *transactionAttempts {
-	return &transactionAttempts{created: clock.Now(), count: 0, codes: nil, conflicted: false}
+// newTransactionAttempts starts the record of a transaction created at
+// created.
+func newTransactionAttempts(created time.Time) *transactionAttempts {
+	return &transactionAttempts{created: created, count: 0, codes: nil, omitted: 0, conflicted: false}
 }
 
 // start counts one more attempt.
@@ -42,14 +45,17 @@ func (attempts *transactionAttempts) start() {
 }
 
 // recordError keeps code until the list contains attemptErrorCodeLimit
-// codes, and records a conflict when code is 1020.
+// codes and counts every later code as omitted. It records a conflict when
+// code is 1020.
 func (attempts *transactionAttempts) recordError(code int) {
 	if code == transactionNotCommitted {
 		attempts.conflicted = true
 	}
 	if len(attempts.codes) < attemptErrorCodeLimit {
 		attempts.codes = append(attempts.codes, strconv.Itoa(code))
+		return
 	}
+	attempts.omitted++
 }
 
 // codeList returns the kept attempt error codes in attempt order, separated
@@ -59,12 +65,14 @@ func (attempts *transactionAttempts) codeList() string {
 }
 
 // logAttributes returns the attempt count, the time since the transaction
-// was created, and the kept attempt error codes in attempt order.
+// was created, the kept attempt error codes in attempt order, and the number
+// of omitted codes.
 func (attempts *transactionAttempts) logAttributes() []slog.Attr {
 	return []slog.Attr{
 		slog.Int("attempts", attempts.count),
 		slog.Duration("elapsed", clock.Now().Sub(attempts.created)),
 		slog.String("attempt_error_codes", attempts.codeList()),
+		slog.Int("attempt_error_codes_omitted", attempts.omitted),
 	}
 }
 

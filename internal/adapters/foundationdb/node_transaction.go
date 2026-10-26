@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -42,12 +43,13 @@ func runNodeMutation(ctx context.Context, database fdb.Database, operation strin
 // runNodeMutation does. When OnError refuses a retry, it returns a
 // *retryRefusedError that it has not logged. It logs every other error.
 func runNodeAttempts(ctx context.Context, database fdb.Database, operation string, apply func(fdb.Transaction) error) error {
+	created := clock.Now()
 	transaction, err := database.CreateTransaction()
 	if err != nil {
 		return nodeOperationFailure(ctx, operation, fmt.Errorf("create transaction: %w", err))
 	}
 	defer transaction.Cancel()
-	attempts := newTransactionAttempts()
+	attempts := newTransactionAttempts(created)
 	for {
 		if err := ctx.Err(); err != nil {
 			return nodeOperationFailure(ctx, operation, fmt.Errorf("check context: %w", err))

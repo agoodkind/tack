@@ -40,5 +40,6 @@ func runSequenceTransactions(
 func logSequenceTransactionRetry(ctx context.Context, target audit.Target, transactionNumber int, attempts *transactionAttempts) {
 	slog.InfoContext(ctx, "node.sequence.transaction_retried",
 		slog.String("counter", target.URI), slog.Int("transaction", transactionNumber),
-		slog.Int("attempts", attempts.count), slog.String("attempt_error_codes", attempts.codeList()))
+		slog.Int("attempts", attempts.count), slog.String("attempt_error_codes", attempts.codeList()),
+		slog.Int("attempt_error_codes_omitted", attempts.omitted))
 }
