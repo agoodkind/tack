@@ -63,7 +63,7 @@ func (deriver *LastChangeDeriver) relationshipLegacy(identity relationshipIdenti
 }
 
 // reportPaths returns the requested path, or every path that a change row
-// names or that a record in a change row contains.
+// lists or that a record in a change row contains.
 func (deriver *LastChangeDeriver) reportPaths() []string {
 	if deriver.path != "" {
 		return []string{deriver.path}
@@ -82,7 +82,7 @@ func (deriver *LastChangeDeriver) reportPaths() []string {
 }
 
 // reportRelationships returns every relationship identity that a row read
-// names, including identities of unsuccessful changes.
+// identifies, including identities of unsuccessful changes.
 func (deriver *LastChangeDeriver) reportRelationships() []relationshipIdentity {
 	identities := make([]relationshipIdentity, 0, len(deriver.seenTargets))
 	for identity := range deriver.seenTargets {
