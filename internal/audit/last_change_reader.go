@@ -34,8 +34,8 @@ type NodeHistoryFilter struct {
 	Latest time.Time
 	// rowLimitOverride lowers the row cap below LastChangeRowLimit. Only
 	// tests set it, through WithNodeHistoryRowLimit in export_test.go. Zero,
-	// a negative value, or a
-	// value above LastChangeRowLimit uses LastChangeRowLimit.
+	// a negative value, or a value above LastChangeRowLimit uses
+	// LastChangeRowLimit.
 	rowLimitOverride int `exhaustruct:"optional"`
 }
 
