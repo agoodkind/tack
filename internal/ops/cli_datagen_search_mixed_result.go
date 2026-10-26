@@ -29,6 +29,7 @@ type datagenSearchMixedResult struct {
 	CatchUp                  datagenSearchMixedCatchUp    `json:"catch_up"`
 	Samples                  []datagenSearchMixedSample   `json:"samples"`
 	SkippedPhases            []string                     `json:"skipped_phases"`
+	CorpusIndex              datagenSearchMixedCorpusIndex `json:"corpus_index"`
 }
 
 type datagenSearchMixedWrites struct {
@@ -141,6 +142,7 @@ func searchMixedResult(
 		CatchUp: datagenSearchMixedCatchUp{Completed: summary.CatchUp.Completed, ElapsedMs: searchLoadMilliseconds(summary.CatchUp.Elapsed)},
 		Samples:       searchMixedSamples(summary.Samples),
 		SkippedPhases: slices.Clone(summary.SkippedPhases),
+		CorpusIndex:   searchMixedCorpusIndexResult(summary.CorpusIndex),
 	}
 }
 

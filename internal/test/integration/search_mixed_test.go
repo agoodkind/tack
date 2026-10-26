@@ -65,8 +65,9 @@ type searchMixedOutput struct {
 			OpenSearchNodes     []json.RawMessage `json:"opensearch_nodes"`
 			Error               string            `json:"error"`
 		} `json:"samples"`
-		StopReason    string   `json:"stop_reason"`
-		SkippedPhases []string `json:"skipped_phases"`
+		StopReason    string                 `json:"stop_reason"`
+		SkippedPhases []string               `json:"skipped_phases"`
+		CorpusIndex   searchMixedCorpusIndex `json:"corpus_index"`
 	} `json:"result"`
 }
 
@@ -111,6 +112,7 @@ func TestSearchMixedWorkload(t *testing.T) {
 		t.Fatalf("qa datagen search-mixed: the command must request a rebuild with a target index, complete catch-up, and finish every phase without a stop: %s", output)
 	}
 	requireSearchMixedSamples(t, output, envelope)
+	requireSearchMixedCorpusIndex(t, output, result.CorpusIndex)
 	requireSearchMixedReindexAudit(t, result.Rebuild.TargetIndex)
 }
 
@@ -132,21 +134,24 @@ func requireSearchMixedSamples(t *testing.T, output []byte, envelope searchMixed
 // first graph. It returns the two base URLs.
 func startSearchMixedProcesses(t *testing.T, cfg *config.Config) []string {
 	t.Helper()
-	endpoints := make([]string, 0, 2)
-	for position := range 2 {
-		graph, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
-		if err != nil {
-			t.Fatalf("qa datagen search-mixed: the test could not build runtime graph %d: %v", position, err)
-		}
-		t.Cleanup(graph.Close)
-		if position == 0 {
-			graph.StartSearchWorkers(integration.WithTestOperation(t, t.Context()))
-		}
-		server := httptest.NewServer(twoProcessHandler(graph))
-		t.Cleanup(server.Close)
-		endpoints = append(endpoints, server.URL)
+	first, firstURL := serveSearchMixedProcess(t, cfg)
+	first.StartSearchWorkers(integration.WithTestOperation(t, t.Context()))
+	_, secondURL := serveSearchMixedProcess(t, cfg)
+	return []string{firstURL, secondURL}
+}
+
+// serveSearchMixedProcess serves MCP from one runtime graph without search workers. It returns
+// the graph and the base URL.
+func serveSearchMixedProcess(t *testing.T, cfg *config.Config) (*appruntime.Graph, string) {
+	t.Helper()
+	graph, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
+	if err != nil {
+		t.Fatalf("qa datagen search-mixed: the test could not build a runtime graph: %v", err)
 	}
-	return endpoints
+	t.Cleanup(graph.Close)
+	server := httptest.NewServer(twoProcessHandler(graph))
+	t.Cleanup(server.Close)
+	return graph, server.URL
 }
 
 func runSearchMixedCommand(t *testing.T, cfg *config.Config, flags ...string) ([]byte, error) {
