@@ -17,6 +17,11 @@ var legacyChangeVerbs = []Verb{
 // anything.
 var legacyFailedOutcomes = []Outcome{OutcomeError, OutcomeRefused, OutcomeFailed, OutcomePending}
 
+// legacyRelationshipEntityKind is the entity_kind of the legacy rows that
+// recorded relationship.add and relationship.remove. Those rows store the
+// source node in entity_id and do not store the relation type or the target.
+const legacyRelationshipEntityKind = "relationship"
+
 // relationshipIdentity identifies one relationship.
 type relationshipIdentity struct {
 	sourceID     uuid.UUID
@@ -35,7 +40,11 @@ type LastChangeDeriver struct {
 	recordPaths   map[string]bool
 	relationships map[relationshipIdentity]*changeCandidates
 	seenTargets   map[relationshipIdentity]bool
-	legacy        []legacyEvidence
+	// legacy stores the legacy node rows. They apply to field entries.
+	legacy []legacyEvidence
+	// legacyRelationships stores the legacy relationship rows with the node as
+	// source. They apply to relationship entries with the node as source.
+	legacyRelationships []legacyEvidence
 }
 
 // NewLastChangeDeriver returns a deriver for nodeID. A non-empty path limits
@@ -45,7 +54,7 @@ func NewLastChangeDeriver(nodeID uuid.UUID, path string) *LastChangeDeriver {
 		nodeID: nodeID, path: path, historyStart: false,
 		fields: map[string]*changeCandidates{}, recordPaths: map[string]bool{},
 		relationships: map[relationshipIdentity]*changeCandidates{}, seenTargets: map[relationshipIdentity]bool{},
-		legacy: nil,
+		legacy: nil, legacyRelationships: nil,
 	}
 }
 
@@ -88,10 +97,15 @@ func (deriver *LastChangeDeriver) addLegacy(row Row) {
 	if row.EntityID != deriver.nodeID {
 		return
 	}
+	evidence := legacyEvidence{change: rowChange(row, LastChangeSet)}
+	if row.EntityKind == legacyRelationshipEntityKind {
+		deriver.legacyRelationships = append(deriver.legacyRelationships, evidence)
+		return
+	}
 	if Verb(row.Action) == VerbNodeCreate {
 		deriver.historyStart = true
 	}
-	deriver.legacy = append(deriver.legacy, legacyEvidence{change: rowChange(row, LastChangeSet)})
+	deriver.legacy = append(deriver.legacy, evidence)
 }
 
 func (deriver *LastChangeDeriver) addRelationshipChange(identity relationshipIdentity, row Row) {

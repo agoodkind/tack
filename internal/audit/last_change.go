@@ -25,7 +25,7 @@ const (
 	// ordered: at least one of them lacks a FoundationDB commit version.
 	LastChangeAmbiguousOrder LastChangeStatus = "ambiguous_order"
 	// LastChangePartial means the rows read do not cover the node's history,
-	// and they hold no change of the entry.
+	// and they do not contain a change of the entry.
 	LastChangePartial LastChangeStatus = "partial"
 )
 
@@ -71,11 +71,20 @@ type LastChangeEntry struct {
 // relationship of one node. HistoryStartInWindow is true when the rows read
 // include the node's creation.
 type LastChangeReport struct {
-	NodeID               uuid.UUID         `json:"node_id"`
-	HistoryStartInWindow bool              `json:"history_start_in_window"`
-	LegacyRowCount       int               `json:"legacy_row_count"`
-	Fields               []LastChangeEntry `json:"fields"`
-	Relationships        []LastChangeEntry `json:"relationships"`
+	NodeID               uuid.UUID `json:"node_id"`
+	HistoryStartInWindow bool      `json:"history_start_in_window"`
+	// LegacyRowCount counts the legacy change rows of the node in the rows
+	// read: node rows and relationship rows with the node as source.
+	LegacyRowCount int `json:"legacy_row_count"`
+	// LegacyRelationshipEventIDs lists the legacy relationship rows with the
+	// node as source. These rows store the source node and do not store the
+	// relation type or the target. Each one applies to every relationship
+	// entry with the node as source. The ledger cannot find legacy
+	// relationship rows with the node as target, because those rows store
+	// only the source node.
+	LegacyRelationshipEventIDs []uuid.UUID       `json:"legacy_relationship_event_ids"`
+	Fields                     []LastChangeEntry `json:"fields"`
+	Relationships              []LastChangeEntry `json:"relationships"`
 }
 
 // ValidateFieldPath accepts one non-empty RFC 6901 JSON pointer, such as

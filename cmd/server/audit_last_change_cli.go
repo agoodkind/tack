@@ -28,19 +28,22 @@ type auditLastChangeInput struct {
 // auditLastChangeResult is the `audit last-change` output for one node.
 type auditLastChangeResult struct {
 	clispec.ResultMarker `exhaustruct:"optional"`
-	Command              string                  `json:"command"`
-	OrgID                uuid.UUID               `json:"org_id"`
-	EntityID             uuid.UUID               `json:"entity_id"`
-	Oldest               time.Time               `json:"oldest"`
-	Latest               time.Time               `json:"latest"`
-	Path                 string                  `json:"path,omitempty"`
-	RowsRead             int                     `json:"rows_read"`
-	Truncated            bool                    `json:"truncated"`
-	NextCursor           string                  `json:"next_cursor,omitempty"`
-	HistoryStartInWindow bool                    `json:"history_start_in_window"`
-	LegacyRowCount       int                     `json:"legacy_row_count"`
-	Fields               []audit.LastChangeEntry `json:"fields"`
-	Relationships        []audit.LastChangeEntry `json:"relationships"`
+	Command              string    `json:"command"`
+	OrgID                uuid.UUID `json:"org_id"`
+	EntityID             uuid.UUID `json:"entity_id"`
+	Oldest               time.Time `json:"oldest"`
+	Latest               time.Time `json:"latest"`
+	Path                 string    `json:"path,omitempty"`
+	RowsRead             int       `json:"rows_read"`
+	Truncated            bool      `json:"truncated"`
+	NextCursor           string    `json:"next_cursor,omitempty"`
+	HistoryStartInWindow bool      `json:"history_start_in_window"`
+	LegacyRowCount       int       `json:"legacy_row_count"`
+	// LegacyRelationshipEventIDs mirrors
+	// [audit.LastChangeReport.LegacyRelationshipEventIDs].
+	LegacyRelationshipEventIDs []uuid.UUID             `json:"legacy_relationship_event_ids"`
+	Fields                     []audit.LastChangeEntry `json:"fields"`
+	Relationships              []audit.LastChangeEntry `json:"relationships"`
 }
 
 // auditLastChangeOp declares `audit last-change`: the latest successful change
@@ -120,7 +123,8 @@ func runAuditLastChange(f *cli.Factory) func(context.Context, auditLastChangeInp
 			Command: "audit.last_change", OrgID: orgID, EntityID: entityID, Oldest: oldest, Latest: latest, Path: path,
 			RowsRead: read.RowsRead, Truncated: read.Truncated, NextCursor: read.NextCursor,
 			HistoryStartInWindow: report.HistoryStartInWindow, LegacyRowCount: report.LegacyRowCount,
-			Fields: report.Fields, Relationships: report.Relationships,
+			LegacyRelationshipEventIDs: report.LegacyRelationshipEventIDs,
+			Fields:                     report.Fields, Relationships: report.Relationships,
 		})
 	}
 }

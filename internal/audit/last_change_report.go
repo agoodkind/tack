@@ -16,8 +16,10 @@ import (
 func (deriver *LastChangeDeriver) Report(truncated bool) LastChangeReport {
 	coverage := readCoverage{complete: deriver.historyStart && !truncated, truncated: truncated}
 	report := LastChangeReport{
-		NodeID: deriver.nodeID, HistoryStartInWindow: deriver.historyStart, LegacyRowCount: len(deriver.legacy),
-		Fields: []LastChangeEntry{}, Relationships: []LastChangeEntry{},
+		NodeID: deriver.nodeID, HistoryStartInWindow: deriver.historyStart,
+		LegacyRowCount:             len(deriver.legacy) + len(deriver.legacyRelationships),
+		LegacyRelationshipEventIDs: legacyEventIDs(deriver.legacyRelationships, nil),
+		Fields:                     []LastChangeEntry{}, Relationships: []LastChangeEntry{},
 	}
 	for _, path := range deriver.reportPaths() {
 		entry := LastChangeEntry{
@@ -36,20 +38,28 @@ func (deriver *LastChangeDeriver) Report(truncated bool) LastChangeReport {
 			Path: "", SourceID: identity.sourceID, RelationType: identity.relationType, TargetID: identity.targetID,
 			Status: "", Change: nil, CandidateEventIDs: nil, LegacyEventIDs: nil,
 		}
-		// A relationship identity without candidates comes from an
-		// unsuccessful change row. Legacy rows do not identify relationships.
-		// The identity reports partial when the rows read do not cover the
-		// history, and the report leaves it out otherwise.
 		candidates := deriver.relationships[identity]
-		legacy := deriver.legacy
-		if candidates == nil {
-			legacy = nil
-		}
-		if resolved, ok := resolveEntry(entry, candidates, legacy, coverage); ok {
+		if resolved, ok := resolveEntry(entry, candidates, deriver.relationshipLegacy(identity, candidates), coverage); ok {
 			report.Relationships = append(report.Relationships, resolved)
 		}
 	}
 	return report
+}
+
+// relationshipLegacy returns the legacy rows that apply to the relationship
+// entry for identity. Legacy relationship rows store only the source node, so
+// they apply to every entry with the node as source and to no entry with the
+// node as target. Legacy node rows do not apply to relationship entries.
+//
+// An identity without candidates comes from an unsuccessful change row. It
+// reports partial when the rows read do not cover the history, and the report
+// leaves it out otherwise. LegacyRelationshipEventIDs on the report lists the
+// legacy relationship rows that such an identity does not show.
+func (deriver *LastChangeDeriver) relationshipLegacy(identity relationshipIdentity, candidates *changeCandidates) []legacyEvidence {
+	if candidates == nil || identity.sourceID != deriver.nodeID {
+		return nil
+	}
+	return deriver.legacyRelationships
 }
 
 // reportPaths returns the requested path, or every path that a change row
