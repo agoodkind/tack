@@ -1,11 +1,7 @@
 package integration_test
 
 import (
-	"bytes"
 	"encoding/json"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -14,7 +10,6 @@ import (
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
-	"goodkind.io/tack/internal/testenv"
 )
 
 // lastChangeRelationType is the relation type of the relationships that the
@@ -167,32 +162,4 @@ func (l *nodeAuditLedger) orgRows(t *testing.T, orgID, entityID uuid.UUID, actio
 		t.Fatalf("read the ledger rows of org %s: %v", orgID, err)
 	}
 	return page.Rows
-}
-
-// runLastChange runs `audit last-change` for issueID through the built server
-// with the audit_reader login of ledger and decodes the result.
-func runLastChange(t *testing.T, ledger *nodeAuditLedger, orgID, issueID uuid.UUID, oldest, latest time.Time) lastChangeReport {
-	t.Helper()
-	ledgerDSN := testenv.Ledger(t)
-	logs := t.TempDir()
-	process := exec.CommandContext(t.Context(), buildMigrateServer(t),
-		"--execute", "--operator-id", uuid.Must(uuid.NewV7()).String(), "--operator-email", "last-change@example.test",
-		"--output", "json", "audit", "last-change", "--org", orgID.String(), "--entity-id", issueID.String(),
-		"--oldest", oldest.UTC().Format(time.RFC3339), "--latest", latest.UTC().Format(time.RFC3339))
-	process.Env = append(os.Environ(),
-		"DATABASE_URL="+ledgerDSN, "FDB_CLUSTER_FILE="+testenv.FoundationDB(t), "ENV=development",
-		"AUDIT_OPERATOR_DSN="+ledgerDSN, "AUDIT_READER_DSN="+ledger.cfg.AuditReaderDSN, "LOG_DISABLE_STDOUT=true",
-		"LOG_JSON_FILE="+filepath.Join(logs, "tack.json"), "LOG_TEXT_FILE="+filepath.Join(logs, "tack.log"))
-	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
-	process.Stdout, process.Stderr = stdout, stderr
-	if err := process.Run(); err != nil {
-		t.Fatalf("audit last-change failed: %v\n%s%s", err, stdout, stderr)
-	}
-	var envelope struct {
-		Result lastChangeReport `json:"result"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
-		t.Fatalf("decode the audit last-change output: %v\n%s", err, stdout)
-	}
-	return envelope.Result
 }

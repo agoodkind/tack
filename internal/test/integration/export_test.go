@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -227,3 +229,14 @@ func VerifyDeployAs(t *testing.T, fixture DeployFixture, operatorID, serverDiges
 
 // DeployTag returns the fixture's image tag.
 func DeployTag(fixture DeployFixture) string { return fixture.tag }
+
+// TryCall invokes one MCP tool through the harness's bearer token. It returns
+// an error instead of failing the test, and it is safe to use from any
+// goroutine.
+func (h *MCPHarness) TryCall(ctx context.Context, toolName string, args datagen.ToolArguments) (datagen.Result, error) {
+	result, err := h.driver.Call(ctx, h.token, toolName, args)
+	if err != nil {
+		return result, fmt.Errorf("call %s: %w", toolName, err)
+	}
+	return result, nil
+}
