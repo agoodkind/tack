@@ -50,7 +50,8 @@ func (log *sequenceLoadLog) record(writer string, value int64, err error) {
 // opens two stores on the same FoundationDB cluster, as two app processes do.
 // Writers in the busy store increment one counter back to back for longer
 // than the transaction timeout. A writer in the quiet store increments the
-// same counter one call at a time in the same period. Every increment in
+// same counter one call at a time in the same period. Each writer stops
+// starting calls at the same deadline. Every increment in
 // both stores must succeed, and the stored values must be exactly 1 through N.
 func TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter(t *testing.T) {
 	ctx := integration.WithTestOperation(t, t.Context())
@@ -60,7 +61,7 @@ func TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter(
 	orgID := uuid.Must(uuid.NewV7())
 	counterKey := "two-process-load-" + uuid.NewString() + "-"
 	log := &sequenceLoadLog{mutex: sync.Mutex{}, values: nil, failures: nil}
-	stop := make(chan struct{})
+	deadline := clock.Now().Add(sequenceLoadDuration)
 	var busyWriters sync.WaitGroup
 	for writer := range sequenceLoadBusyWriters {
 		label := fmt.Sprintf("busy store writer %d", writer)
@@ -70,19 +71,13 @@ func TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter(
 					log.record(label, 0, fmt.Errorf("panicked: %v", recovered))
 				}
 			}()
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-				}
+			for clock.Now().Before(deadline) {
 				value, err := busy.AllocateSequenceByKey(ctx, orgID, counterKey)
 				log.record(label, value, err)
 			}
 		})
 	}
-	quietCalls, longestQuietCall := runQuietSequenceWriter(ctx, quiet, orgID, counterKey, log)
-	close(stop)
+	quietCalls, longestQuietCall := runQuietSequenceWriter(ctx, quiet, orgID, counterKey, deadline, log)
 	busyWriters.Wait()
 	t.Logf("quiet store calls: %d; longest quiet store call: %s; counter values: %d",
 		quietCalls, longestQuietCall, len(log.values))
@@ -94,12 +89,12 @@ func TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter(
 }
 
 // runQuietSequenceWriter increments the counter through store one call at a
-// time until sequenceLoadDuration ends. It returns the number of calls and
-// the duration of the longest call.
+// time until deadline. It returns the number of calls and the duration of the
+// longest call.
 func runQuietSequenceWriter(
-	ctx context.Context, store *fdbadapter.NodeStore, orgID uuid.UUID, counterKey string, log *sequenceLoadLog,
+	ctx context.Context, store *fdbadapter.NodeStore, orgID uuid.UUID, counterKey string, deadline time.Time,
+	log *sequenceLoadLog,
 ) (int, time.Duration) {
-	deadline := clock.Now().Add(sequenceLoadDuration)
 	calls := 0
 	longest := time.Duration(0)
 	for clock.Now().Before(deadline) {

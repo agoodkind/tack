@@ -30,6 +30,18 @@ func nodeOperationFailure(ctx context.Context, operation string, err error, deta
 // and prefixes errors with operation. If OnError reports a transaction
 // timeout, the returned error wraps domain.ErrConflict.
 func runNodeMutation(ctx context.Context, database fdb.Database, operation string, apply func(fdb.Transaction) error) error {
+	err := runNodeAttempts(ctx, database, operation, apply)
+	var refused *retryRefusedError
+	if errors.As(err, &refused) {
+		return retryFailure(ctx, operation, refused.err, refused.attempts)
+	}
+	return err
+}
+
+// runNodeAttempts runs apply in one FoundationDB transaction as
+// runNodeMutation does. When OnError refuses a retry, it returns a
+// *retryRefusedError that it has not logged. It logs every other error.
+func runNodeAttempts(ctx context.Context, database fdb.Database, operation string, apply func(fdb.Transaction) error) error {
 	transaction, err := database.CreateTransaction()
 	if err != nil {
 		return nodeOperationFailure(ctx, operation, fmt.Errorf("create transaction: %w", err))
@@ -58,7 +70,7 @@ func runNodeMutation(ctx context.Context, database fdb.Database, operation strin
 		}
 		attempts.recordError(databaseErr.Code)
 		if retryErr := transaction.OnError(databaseErr).Get(); retryErr != nil {
-			return retryFailure(ctx, operation, retryErr, attempts)
+			return &retryRefusedError{err: retryErr, attempts: attempts}
 		}
 	}
 }
