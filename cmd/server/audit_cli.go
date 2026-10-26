@@ -27,6 +27,7 @@ func registerAudit(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, auditSignersOp(f))
 	clispec.Register(reg, auditQueryOp(f))
 	clispec.Register(reg, auditGetOp(f))
+	clispec.Register(reg, auditLastChangeOp(f))
 	clispec.Register(reg, auditRedactActorOp(f))
 
 	exportAlias := auditExportOp(f)
