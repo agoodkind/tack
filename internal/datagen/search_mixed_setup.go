@@ -15,8 +15,12 @@ const searchMixedMinimumTenants = 2
 
 // newSearchMixed opens the stores and readers, bootstraps the tenants, builds one driver per
 // endpoint, creates the tenant projects and the search corpus, and builds the search loads.
-// The corpus index waits end when stopContext ends. Every call uses ctx.
-func newSearchMixed(stopContext, ctx context.Context, cfg *config.Config, options SearchMixedOptions, plannedSearches int) (*searchMixed, func(), error) {
+// The corpus index waits end when stopContext ends and record each completed wait in corpusIndex.
+// Every call uses ctx.
+func newSearchMixed(
+	stopContext, ctx context.Context, cfg *config.Config, options SearchMixedOptions, plannedSearches int,
+	corpusIndex *searchMixedCorpusIndex,
+) (*searchMixed, func(), error) {
 	limits, err := config.LoadSearchQuerySettings(ctx)
 	if err != nil {
 		return nil, nil, loggedError(ctx, "qa datagen search-mixed: the command could not load the search settings", err)
@@ -61,7 +65,7 @@ func newSearchMixed(stopContext, ctx context.Context, cfg *config.Config, option
 		runKey: opaqueKey("mix"), readWord: opaqueKey("read"), victimWord: opaqueKey("victim"),
 		limits: searchLimits{MaxResults: limits.MaxResults, MaxResponseBytes: limits.MaxResponseBytes},
 		stores: stores, pages: graph, backlog: backlog, resources: resources, members: postgres.NewOrgMemberRepo(pool),
-		stats: &searchMixedStats{}, phases: &searchMixedPhaseStats{skipped: []string{}},
+		stats: &searchMixedStats{}, phases: &searchMixedPhaseStats{skipped: []string{}}, corpusIndex: corpusIndex,
 	}
 	if err := mixed.prepare(stopContext, ctx, plannedSearches); err != nil {
 		closeAll()

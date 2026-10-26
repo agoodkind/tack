@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
@@ -34,7 +33,8 @@ type searchMixedCorpus struct {
 }
 
 // createCorpus creates the read issues of both tenants and the victim issues of the first
-// tenant through public calls, then waits until search returns each of them.
+// tenant through public calls, then waits until search returns each of them. It records each
+// completed wait in the corpus index of the run.
 func (m *searchMixed) createCorpus(stopContext, ctx context.Context) error {
 	read, err := m.createIssues(ctx, 0, searchMixedReadNodes, func(number int) string {
 		return fmt.Sprintf("Read corpus %s issue %d", m.readWord, number)
@@ -54,42 +54,31 @@ func (m *searchMixed) createCorpus(stopContext, ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	createsEnded := clock.Now()
 	m.corpus = searchMixedCorpus{read: read, foreignRead: foreign, victims: victims}
 	waits := []struct {
+		group  string
 		tenant int
 		word   string
 		nodes  []uuid.UUID
-	}{{0, m.readWord, read}, {1, m.readWord, foreign}, {0, m.victimWord, victims}}
+	}{
+		{searchMixedReadGroup, 0, m.readWord, read},
+		{searchMixedForeignReadGroup, 1, m.readWord, foreign},
+		{searchMixedVictimGroup, 0, m.victimWord, victims},
+	}
 	for _, wait := range waits {
 		run := m.searchRun(wait.tenant, 0, wait.tenant)
-		check := func(ctx context.Context) error { return run.includes(ctx, wait.word, wait.nodes...) }
-		if err := awaitCorpus(stopContext, ctx, "index search mixed corpus "+wait.word, check); err != nil {
+		check := func(ctx context.Context) ([]uuid.UUID, error) { return run.missing(ctx, wait.word, wait.nodes...) }
+		description := fmt.Sprintf("index search mixed corpus group %s for %s", wait.group, wait.word)
+		checks, err := awaitCorpus(stopContext, ctx, description, wait.nodes, check)
+		if err != nil {
 			return err
 		}
+		m.corpusIndex.record(SearchMixedCorpusWait{
+			Group: wait.group, Tenant: wait.tenant, Nodes: len(wait.nodes), Checks: checks, Elapsed: clock.Now().Sub(createsEnded),
+		})
 	}
 	return nil
-}
-
-// awaitCorpus repeats check with callContext until it succeeds or the convergence deadline
-// passes. It returns errSearchMixedSetupStopped when stopContext ends between checks.
-func awaitCorpus(stopContext, callContext context.Context, description string, check func(context.Context) error) error {
-	deadline := clock.Now().Add(searchConvergenceDeadline)
-	for {
-		err := check(callContext)
-		if err == nil {
-			return nil
-		}
-		if clock.Now().After(deadline) {
-			return loggedError(callContext, "qa datagen: "+description, err)
-		}
-		timer := time.NewTimer(searchPollInterval)
-		select {
-		case <-stopContext.Done():
-			timer.Stop()
-			return errSearchMixedSetupStopped
-		case <-timer.C:
-		}
-	}
 }
 
 // searchRun returns a verification run for one tenant actor through one driver.

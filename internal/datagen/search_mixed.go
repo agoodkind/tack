@@ -63,6 +63,8 @@ type SearchMixedSummary struct {
 	Stopped bool `exhaustruct:"optional"`
 	// SkippedPhases lists the workload phases that did not start because the schedule context ended.
 	SkippedPhases []string `exhaustruct:"optional"`
+	// CorpusIndex lists the setup waits that finished before the measured window, in wait order.
+	CorpusIndex []SearchMixedCorpusWait `exhaustruct:"optional"`
 }
 
 // SearchMixedFreshness reports the time between an issue's update time in FoundationDB and the
@@ -92,6 +94,7 @@ type searchMixed struct {
 	members    *postgres.OrgMemberRepo
 	stats      *searchMixedStats
 	phases     *searchMixedPhaseStats
+	corpusIndex *searchMixedCorpusIndex
 	corpus     searchMixedCorpus  `exhaustruct:"optional"`
 	failureMutex sync.Mutex          `exhaustruct:"optional"`
 	failures   []error               `exhaustruct:"optional"`
@@ -130,12 +133,14 @@ func RunSearchMixed(
 	if !cfg.SearchPublicEnabled {
 		return SearchMixedSummary{}, loggedError(callContext, "qa datagen search-mixed: this command requires public search", errPublicSearchDisabled)
 	}
-	mixed, closeMixed, err := newSearchMixed(scheduleContext, callContext, cfg, options, plannedSearches)
+	corpusIndex := &searchMixedCorpusIndex{}
+	mixed, closeMixed, err := newSearchMixed(scheduleContext, callContext, cfg, options, plannedSearches, corpusIndex)
 	if errors.Is(err, errSearchMixedSetupStopped) {
 		slog.InfoContext(callContext, "qa.datagen.search_mixed_setup_stopped",
 			slog.String("cause", context.Cause(scheduleContext).Error()))
 		summary := unmeasuredSearchMixedSummary(options, false, plannedSearches, plannedWrites)
 		summary.Stopped, summary.SkippedPhases = true, searchMixedPhaseNames(options.Rebuild != nil)
+		summary.CorpusIndex = corpusIndex.snapshot()
 		return summary, nil
 	}
 	if err != nil {
@@ -143,6 +148,7 @@ func RunSearchMixed(
 	}
 	defer closeMixed()
 	summary, err := mixed.run(scheduleContext, callContext, plannedWrites)
+	summary.CorpusIndex = corpusIndex.snapshot()
 	if err != nil {
 		return summary, err
 	}
