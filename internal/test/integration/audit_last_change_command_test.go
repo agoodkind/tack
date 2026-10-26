@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -79,7 +80,11 @@ func ledgerLoginDSN(t *testing.T, ledger *nodeAuditLedger, baseRole string) stri
 	if _, err := ledger.admin.Exec(t.Context(), statement); err != nil {
 		t.Fatalf("create %s in role %s: %v", login, baseRole, err)
 	}
-	t.Cleanup(func() { _, _ = ledger.admin.Exec(t.Context(), "DROP ROLE IF EXISTS "+login) })
+	t.Cleanup(func() {
+		if _, err := ledger.admin.Exec(context.WithoutCancel(t.Context()), "DROP ROLE IF EXISTS "+login); err != nil {
+			t.Errorf("drop the test login role %s: %v", login, err)
+		}
+	})
 	parsed, err := url.Parse(testenv.Ledger(t))
 	if err != nil {
 		t.Fatalf("parse the ledger DSN: %v", err)
