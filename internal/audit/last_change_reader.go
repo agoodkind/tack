@@ -32,10 +32,22 @@ type NodeHistoryFilter struct {
 	NodeID uuid.UUID
 	Oldest time.Time
 	Latest time.Time
+	// RowLimit lowers the row cap below LastChangeRowLimit for tests that
+	// need a truncated read without thousands of rows. Zero, a negative
+	// value, or a value above LastChangeRowLimit uses LastChangeRowLimit.
+	RowLimit int `exhaustruct:"optional"`
+}
+
+// rowLimit returns the row cap of one read.
+func (filter NodeHistoryFilter) rowLimit() int {
+	if filter.RowLimit <= 0 || filter.RowLimit > LastChangeRowLimit {
+		return LastChangeRowLimit
+	}
+	return filter.RowLimit
 }
 
 // NodeHistoryRead reports one ReadNodeHistory call. Truncated is true when
-// the call stopped at LastChangeRowLimit before the oldest row of the window.
+// the call stopped at its row limit before the oldest row of the window.
 // NextCursor then resumes the read after the last row read.
 type NodeHistoryRead struct {
 	RowsRead   int
@@ -52,7 +64,7 @@ type historyPosition struct {
 }
 
 // ReadNodeHistory reads the rows that filter selects, newest first, and calls
-// visit for each row. It reads at most LastChangeRowLimit rows. An empty
+// visit for each row. It reads at most the row limit of filter. An empty
 // cursor starts at Latest; a cursor from an earlier NextCursor starts after
 // the last row that the earlier call read.
 func (r *Reader) ReadNodeHistory(ctx context.Context, filter NodeHistoryFilter, cursor string, visit func(Row) error) (NodeHistoryRead, error) {
@@ -68,14 +80,15 @@ func (r *Reader) ReadNodeHistory(ctx context.Context, filter NodeHistoryFilter, 
 		}
 		position = resumed
 	}
+	rowLimit := filter.rowLimit()
 	for {
-		limit := min(nodeHistoryPageSize, LastChangeRowLimit-result.RowsRead+1)
+		limit := min(nodeHistoryPageSize, rowLimit-result.RowsRead+1)
 		rows, err := r.nodeHistoryPage(ctx, filter, position, limit)
 		if err != nil {
 			return result, err
 		}
 		for _, row := range rows {
-			if result.RowsRead == LastChangeRowLimit {
+			if result.RowsRead == rowLimit {
 				result.Truncated = true
 				result.NextCursor = marshalHistoryCursor(position)
 				return result, nil
