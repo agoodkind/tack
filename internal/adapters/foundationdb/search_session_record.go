@@ -1,19 +1,15 @@
 package foundationdb
 
 import (
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
-	"goodkind.io/tack/internal/telemetry"
 )
 
 const (
@@ -141,51 +137,4 @@ func (e sessionStepError) Unwrap() error { return e.err }
 func isSessionOutcome(err error) bool {
 	return errors.Is(err, searchdomain.ErrSessionChanged) || errors.Is(err, searchdomain.ErrSessionExpired) ||
 		errors.Is(err, searchdomain.ErrSessionNotFound) || errors.Is(err, searchdomain.ErrInvalidQuery)
-}
-
-// transactSession runs apply and commits it, retrying retryable
-// FoundationDB errors. Each attempt bounds its timeout by the context
-// deadline, measured with source. Expected session outcomes return without
-// an error log.
-func transactSession(ctx context.Context, db fdb.Database, source clock.Clock, operation string, sessionID uuid.UUID, apply func(fdb.Transaction) error) error {
-	transaction, err := db.CreateTransaction()
-	if err != nil {
-		return sessionFailure(ctx, operation, sessionID, err)
-	}
-	defer transaction.Cancel()
-	for {
-		if err := ctx.Err(); err != nil {
-			return sessionFailure(ctx, operation, sessionID, err)
-		}
-		timeout := searchTransactionTimeout
-		if deadline, exists := ctx.Deadline(); exists {
-			timeout = max(time.Millisecond, min(timeout, deadline.Sub(source.Now())))
-		}
-		if err := transaction.Options().SetTimeout(max(int64(timeout/time.Millisecond), 1)); err != nil {
-			return sessionFailure(ctx, operation, sessionID, err)
-		}
-		err := apply(transaction)
-		if err == nil {
-			err = transaction.Commit().Get()
-		}
-		if err == nil {
-			return nil
-		}
-		if isSessionOutcome(err) {
-			return sessionStepError{operation: operation + " for session " + sessionID.String(), err: err}
-		}
-		var databaseError fdb.Error
-		if !errors.As(err, &databaseError) {
-			return sessionFailure(ctx, operation, sessionID, err)
-		}
-		if retryError := transaction.OnError(databaseError).Get(); retryError != nil {
-			return sessionFailure(ctx, operation, sessionID, retryError)
-		}
-	}
-}
-
-func sessionFailure(ctx context.Context, operation string, sessionID uuid.UUID, err error) error {
-	wrapped := fmt.Errorf("%s for session %s: %w", operation, sessionID, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.session.storage_failed", slog.String("err", wrapped.Error()), slog.String("session_id", sessionID.String()))
-	return wrapped
 }
