@@ -1,7 +1,7 @@
 -- Index relationship change rows by the nodes at each end (TACK-597).
 --
--- A relationship change row stores the zero UUID in entity_id and names the
--- relationship in context.target: kind 'relationship', source_id,
+-- A relationship change row stores the zero UUID in entity_id and stores the
+-- relationship identity in context.target: kind 'relationship', source_id,
 -- relation_type, and target_id. `audit last-change` reads the relationship
 -- rows of one node within one org. Without these indexes, that read scans
 -- every row of the org window and decodes its context.
