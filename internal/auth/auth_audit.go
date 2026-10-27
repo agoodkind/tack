@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -52,10 +53,10 @@ func hashBearer(raw string) string {
 
 // emitAuthAudit adds the request fields to ev, validates it, and records it.
 // It records an event that fails validation, and the audit-consumer stores
-// that event in the dead-letter table for repair. It logs a validation or
-// recording failure and does not fail the request, because an accepted token
-// already authenticated the caller.
-func emitAuthAudit(ctx context.Context, r *http.Request, ev audit.Event) {
+// that event in the dead-letter table for repair. It logs a validation failure
+// and continues. It returns an error when the recorder refuses the event, and
+// the middleware then refuses the request instead of serving it unaudited.
+func emitAuthAudit(ctx context.Context, r *http.Request, ev audit.Event) error {
 	rec := currentRecorder()
 	ev.Actor.IP = clientIP(r)
 	ev.Actor.UserAgent = r.UserAgent()
@@ -68,8 +69,11 @@ func emitAuthAudit(ctx context.Context, r *http.Request, ev audit.Event) {
 			slog.String("event_id", ev.EventID.String()), slog.String("err", err.Error()))
 	}
 	if err := rec.Record(ctx, ev); err != nil {
-		telemetry.L(ctx).Warn("audit.auth_record_failed", "err", err)
+		slog.ErrorContext(ctx, "audit.auth_record_failed",
+			slog.String("verb", ev.Verb), slog.String("err", err.Error()))
+		return fmt.Errorf("record auth event %s: %w", ev.Verb, err)
 	}
+	return nil
 }
 
 func clientIP(r *http.Request) string {
