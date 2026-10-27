@@ -5,10 +5,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // TestSearchExcludedPropertyRepairClearsWarning stores the label of an option
@@ -39,7 +41,11 @@ func TestSearchExcludedPropertyRepairClearsWarning(t *testing.T) {
 	}
 
 	stores := fixture.Stores
-	nodes := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter)
+	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, fixture.Config.DatabaseURL))
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	if err != nil {
+		t.Fatalf("build the node service: %v", err)
+	}
 	if _, err := nodes.Update(integration.WithTestOperation(t, t.Context()), service.UpdateInput{
 		NodeID: affected, Props: map[string]json.RawMessage{definition.Name: jsonString(t, option.Key)},
 	}); err != nil {

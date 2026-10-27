@@ -12,6 +12,7 @@ import (
 	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
@@ -47,6 +48,7 @@ type rolloutFixture struct {
 	handler    http.Handler
 	workspaces []datagen.WorkspaceIdentity
 	worker     *service.SearchWorker
+	nodes      *service.NodeService
 }
 
 // newRolloutFixture provisions the model and one serving index behind the
@@ -88,10 +90,15 @@ func newRolloutFixture(t *testing.T) rolloutFixture {
 	if err != nil {
 		t.Fatalf("cannot bootstrap identities: %v", err)
 	}
+	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, cfg.DatabaseURL))
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	if err != nil {
+		t.Fatalf("cannot build the node service: %v", err)
+	}
 	return rolloutFixture{
 		stores: stores, adapter: adapter, client: client, engine: engine, index: index, cfg: cfg,
 		handler: graph.AuthMiddleware(graph.MCPHandler), workspaces: identities.Workspaces,
-		worker: newRolloutWorker(t, stores, adapter),
+		worker: newRolloutWorker(t, stores, adapter), nodes: nodes,
 	}
 }
 

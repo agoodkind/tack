@@ -120,13 +120,9 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 	if len(existingOrgIDs) > 0 {
 		knownOrgID = existingOrgIDs[0]
 	}
-	orgID, err := ensureNode(ctx, fdbStores, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil, knownOrgID)
+	orgID, err := ensureSeedOrg(ctx, fdbStores, seeder, cfg, knownOrgID)
 	if err != nil {
 		return err
-	}
-	if err := seeder.SeedOrg(ctx, orgID); err != nil {
-		log.ErrorContext(ctx, "seed.org_definitions_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("seed: seed org definitions: %w", err)
 	}
 
 	if err := seedMembership(ctx, members, orgID, u.ID); err != nil {
@@ -148,4 +144,32 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 
 	log.InfoContext(ctx, "seed.completed", "user_id", u.ID, "org_id", orgID, "workspace_id", wsID)
 	return nil
+}
+
+// ensureSeedOrg returns the org that the node_by_property index of knownOrgID
+// lists for the seed slug, or the ID of a new org. It seeds the org's node
+// types and property definitions with SeedOrg before it creates a new org
+// node. After strict validation activates, CreateAtomic validates the org node
+// against the node type org of that org and refuses it when the type does not
+// exist.
+func ensureSeedOrg(ctx context.Context, s *fdbadapter.Stores, seeder *service.Seeder, cfg *config.Config, knownOrgID uuid.UUID) (uuid.UUID, error) {
+	existing, err := findSeedNode(ctx, s, "org", cfg.SeedOrgSlug, knownOrgID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	orgID := existing
+	if orgID == uuid.Nil {
+		orgID = seedNodeID("org", cfg.SeedOrgSlug, uuid.Nil)
+	}
+	if err := seeder.SeedOrg(ctx, orgID); err != nil {
+		slog.ErrorContext(ctx, "seed.org_definitions_failed", slog.String("err", err.Error()))
+		return uuid.Nil, fmt.Errorf("seed: seed org definitions: %w", err)
+	}
+	if existing != uuid.Nil {
+		return existing, nil
+	}
+	if err := createSeedNode(ctx, s, orgID, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil); err != nil {
+		return uuid.Nil, err
+	}
+	return orgID, nil
 }

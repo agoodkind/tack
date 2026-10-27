@@ -52,13 +52,13 @@ func BootstrapIdentities(
 	for workspaceIndex := range identities.Workspaces {
 		workspace := &identities.Workspaces[workspaceIndex]
 		if _, ok := seededOrgs[workspace.OrgID.String()]; !ok {
-			if err := bootstrapOrg(ctx, stores, workspace); err != nil {
-				return Identities{}, err
-			}
 			if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(ctx, workspace.OrgID); err != nil {
 				return Identities{}, loggedError(ctx, "qa datagen: seed org", err)
 			}
 			if err := seedQAPropertyDefs(ctx, stores.PropertyDefs, workspace.OrgID); err != nil {
+				return Identities{}, err
+			}
+			if err := bootstrapOrg(ctx, stores, workspace); err != nil {
 				return Identities{}, err
 			}
 			if err := bootstrapActors(ctx, users, tokens, members, workspace); err != nil {

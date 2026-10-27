@@ -5,7 +5,6 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/domain"
 )
 
 // mutationFence is the write fence hook for the strict validation layer.
@@ -33,14 +32,4 @@ func callFence(ctx context.Context, fence mutationFence, tr fdb.Transaction, org
 		return false, nil
 	}
 	return fence(ctx, tr, orgID, nodeID)
-}
-
-// refuseStrictResult returns an error that wraps domain.ErrFailedPrecondition
-// when strict is true. ApplyMutation does not validate complete results and
-// refuses every mutation while strict validation is active.
-func refuseStrictResult(ctx context.Context, nodeID uuid.UUID, strict bool) error {
-	if !strict {
-		return nil
-	}
-	return mutationRefusal(ctx, nodeID, "strict validation is active, and ApplyMutation does not validate complete results", domain.ErrFailedPrecondition)
 }

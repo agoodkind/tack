@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 
-	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/runtime"
@@ -64,13 +63,13 @@ func VerifySearchWithSeed(ctx context.Context, cfg *config.Config, seed int64) (
 	if err != nil {
 		return report, err
 	}
-	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, nil)
+	stores, members, closeMembers, err := openSearchFixtureStores(ctx, cfg, "search verification")
 	if err != nil {
-		return report, loggedError(ctx, "qa datagen: open foundationdb for search verification", err)
+		return report, err
 	}
-	stores.EnableSearchWork()
+	defer closeMembers()
 	workspace := identities.Workspaces[0]
-	fixture, err := newSearchFixture(ctx, stores, workspace)
+	fixture, err := newSearchFixture(ctx, stores, members, workspace)
 	if err != nil {
 		return report, err
 	}

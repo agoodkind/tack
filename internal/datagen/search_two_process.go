@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
@@ -56,16 +55,16 @@ func VerifySearchTwoProcess(ctx context.Context, cfg *config.Config, endpoints [
 	if err != nil {
 		return err
 	}
-	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, nil)
+	stores, members, closeMembers, err := openSearchFixtureStores(ctx, cfg, "two-process search")
 	if err != nil {
-		return loggedError(ctx, "qa datagen: open foundationdb for two-process search", err)
+		return err
 	}
-	stores.EnableSearchWork()
+	defer closeMembers()
 	workspace := identities.Workspaces[0]
 	if len(workspace.Actors) <= revokedActorIndex {
 		return loggedError(ctx, "qa datagen: verify two-process search", fmt.Errorf("workspace %s has %d actors", workspace.Slug, len(workspace.Actors)))
 	}
-	fixture, err := newSearchFixture(ctx, stores, workspace)
+	fixture, err := newSearchFixture(ctx, stores, members, workspace)
 	if err != nil {
 		return err
 	}

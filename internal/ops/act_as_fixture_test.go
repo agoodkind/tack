@@ -42,10 +42,13 @@ func newActAsFixture(t *testing.T, operatorFlags []string) actAsFixture {
 	t.Helper()
 	pool := testenv.LedgerPool(t, testenv.Ledger(t))
 	stores := actAsStores(t)
-	nodes := service.NewNodeService(
+	nodes, err := service.NewNodeService(
 		stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs,
-		stores.Relationships, stores.NodeDeleter,
+		stores.Relationships, stores.NodeDeleter, postgres.NewOrgMemberRepo(pool), stores.Relationships,
 	)
+	if err != nil {
+		t.Fatalf("build the node service: %v", err)
+	}
 	orgID := writeActAsOrg(t, stores, "act-as-member-org")
 	outsideOrgID := writeActAsOrg(t, stores, "act-as-outside-org")
 	workspaceID := createActAsScope(t, nodes, "workspace", "Main", orgID)

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/domain/org"
 )
 
 const (
@@ -90,11 +91,11 @@ func PrepareSearchManifest(ctx context.Context, cfg *config.Config, seed int64, 
 		return SearchManifest{}, err
 	}
 	workspace := PlanIdentities(cfg, seed, scale).Workspaces[0]
-	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, nil)
+	stores, members, closeMembers, err := openSearchFixtureStores(ctx, cfg, "the search manifest")
 	if err != nil {
-		return SearchManifest{}, loggedError(ctx, "qa datagen: open fixture stores", err)
+		return SearchManifest{}, err
 	}
-	stores.EnableSearchWork()
+	defer closeMembers()
 	manifest := SearchManifest{
 		OrgID: workspace.OrgID, WorkspaceReference: workspace.Slug,
 		ActorEmail: workspace.Actors[0].Email, CorpusSHA256: approvedSearchCorpusSHA256,
@@ -103,10 +104,10 @@ func PrepareSearchManifest(ctx context.Context, cfg *config.Config, seed int64, 
 		Types:      make([]SearchManifestType, 0, 3),
 		Properties: make([]SearchManifestProperty, 0, 6),
 	}
-	if err := prepareSemanticManifest(ctx, stores, workspace, rows, &manifest); err != nil {
+	if err := prepareSemanticManifest(ctx, stores, members, workspace, rows, &manifest); err != nil {
 		return manifest, err
 	}
-	if err := prepareTraversalManifest(ctx, stores, workspace, &manifest); err != nil {
+	if err := prepareTraversalManifest(ctx, stores, members, workspace, &manifest); err != nil {
 		return manifest, err
 	}
 	return manifest, nil
@@ -128,8 +129,11 @@ func loadApprovedSearchCorpus(ctx context.Context, corpus []byte) ([]searchManif
 	return rows, nil
 }
 
-func prepareSemanticManifest(ctx context.Context, stores *fdbadapter.Stores, workspace WorkspaceIdentity, rows []searchManifestSource, manifest *SearchManifest) error {
-	fixture, err := newSearchFixtureWithManifest(ctx, stores, workspace, manifest)
+func prepareSemanticManifest(
+	ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository, workspace WorkspaceIdentity,
+	rows []searchManifestSource, manifest *SearchManifest,
+) error {
+	fixture, err := newSearchFixtureWithManifest(ctx, stores, members, workspace, manifest)
 	if err != nil {
 		return err
 	}

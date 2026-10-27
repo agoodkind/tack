@@ -44,7 +44,8 @@ func (s *NodeStore) updateAtomic(
 		if readDigest != nil && node.PrimaryDigest(source) != *readDigest {
 			return mutationRefusal(ctx, current.ID, "stored node changed after the command read it; the operator must run the command again to read the current record", domain.ErrConflict)
 		}
-		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
+		strict, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID)
+		if err != nil {
 			return err
 		}
 		encoded, err := writeNodeRecords(ctx, tr, current, view)
@@ -58,6 +59,9 @@ func (s *NodeStore) updateAtomic(
 			}
 		}
 		if err := applyRelationshipChanges(ctx, tr, relationshipChanges, changes); err != nil {
+			return err
+		}
+		if err := checkStrictWrite(ctx, tr, strict, current, relationshipChanges); err != nil {
 			return err
 		}
 		if s.searchWork {

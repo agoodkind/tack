@@ -84,7 +84,7 @@ func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction
 	if err != nil {
 		return none, err
 	}
-	if err := refuseStrictResult(ctx, plan.NodeID, strict); err != nil {
+	if err := checkStrictMutation(ctx, tr, strict, &result, plan.Parent); err != nil {
 		return none, err
 	}
 	if err := checkMutationResult(ctx, tr, plan, source, &result, schema); err != nil {
@@ -100,6 +100,9 @@ func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction
 	relationshipChanges := []node.RelationshipChanges{planRelationshipChanges(plan), parentChanges}
 	encoded, err := s.writeMutation(ctx, tr, plan, source, &result, schema, relationshipChanges, changes)
 	if err != nil {
+		return none, err
+	}
+	if err := checkStrictRelationshipAdds(ctx, tr, strict, relationshipChanges); err != nil {
 		return none, err
 	}
 	receipt := node.MutationReceipt{OrgID: plan.OrgID, NodeID: plan.NodeID, SourceDigest: node.Digest{}, ResultDigest: node.PrimaryDigest(encoded)}

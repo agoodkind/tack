@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/test/integration"
@@ -25,7 +26,11 @@ func newRepairConsoleFixture(t *testing.T) repairConsoleFixture {
 	t.Helper()
 	env := integration.SetupTestEnv(t)
 	stores := env.Stores
-	console := ops.NewRepairConsole(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships)
+	members := postgres.NewOrgMemberRepo(env.Ops.Pool)
+	console, err := ops.NewRepairConsole(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, members, stores.Relationships, stores.Relationships)
+	if err != nil {
+		t.Fatalf("build the repair console: %v", err)
+	}
 	return repairConsoleFixture{env: env, console: console, projectID: createSchemaProject(t, env)}
 }
 

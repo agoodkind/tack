@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -40,7 +41,7 @@ type RepairFixture struct {
 // graph and legacy records as actorID. It writes only in that organization.
 // It returns the IDs it created before the first error together with that
 // error.
-func SeedRepairFixture(ctx context.Context, stores *fdbadapter.Stores, actorID uuid.UUID) (RepairFixture, error) {
+func SeedRepairFixture(ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository, actorID uuid.UUID) (RepairFixture, error) {
 	orgID := uuid.Must(uuid.NewV7())
 	suffix := strings.ReplaceAll(orgID.String(), "-", "")[20:]
 	err := ensureBootstrapNode(ctx, stores, bootstrapNode{
@@ -53,10 +54,11 @@ func SeedRepairFixture(ctx context.Context, stores *fdbadapter.Stores, actorID u
 	if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(ctx, orgID); err != nil {
 		return RepairFixture{}, loggedError(ctx, "qa datagen: seed repair organization "+orgID.String(), err)
 	}
-	builder := &repairFixtureBuilder{
-		nodes:  service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter),
-		stores: stores, orgID: orgID, actorID: actorID, err: nil,
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	if err != nil {
+		return RepairFixture{}, loggedError(ctx, "qa datagen: build the repair node service", err)
 	}
+	builder := &repairFixtureBuilder{nodes: nodes, stores: stores, orgID: orgID, actorID: actorID, err: nil}
 	fixture := builder.build(ctx)
 	fixture.OrgID, fixture.Suffix = orgID, suffix
 	return fixture, builder.err

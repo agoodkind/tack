@@ -27,13 +27,21 @@ type RelationshipStore struct {
 // NewRelationshipStore creates the relationship store. It schedules no
 // search work until [Stores.EnableSearchWork] runs.
 func NewRelationshipStore(db fdb.Database, source clock.Clock) *RelationshipStore {
-	return &RelationshipStore{db: db, clock: source, searchWork: false, writeFence: nil}
+	return &RelationshipStore{db: db, clock: source, searchWork: false, writeFence: fenceNodeMutation}
 }
 
 // Add writes rel. When its encoded value differs from the stored value, the same
 // transaction writes a change event with the old and new values.
 func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.add")(&err)
+	return s.add(ctx, rel, false)
+}
+
+// add runs the write fence for rel.SourceID, runs checkStrictRelationship
+// with memberTarget, and writes rel in one transaction. In that transaction,
+// it also schedules search work when search work is enabled and writes the
+// change event.
+func (s *RelationshipStore) add(ctx context.Context, rel *node.Relationship, memberTarget bool) error {
 	changes, err := beginMutationAudit(ctx, rel.OrgID)
 	if err != nil {
 		return err
@@ -42,7 +50,11 @@ func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (er
 	err = runNodeMutation(ctx, s.db, "add relationship "+rel.RelationType, func(tr fdb.Transaction) error {
 		searchScheduleFailed = false
 		changes.startAttempt()
-		if _, err := s.fenceAttempt(ctx, tr, rel.OrgID, rel.SourceID); err != nil {
+		strict, err := s.fenceAttempt(ctx, tr, rel.OrgID, rel.SourceID)
+		if err != nil {
+			return err
+		}
+		if err := checkStrictRelationship(ctx, tr, strict, rel, memberTarget); err != nil {
 			return err
 		}
 		if err := addRelationships(ctx, tr, []*node.Relationship{rel}, changes); err != nil {
