@@ -45,7 +45,7 @@ func (m *searchMixed) sampleUntil(ctx context.Context, windowStarted time.Time, 
 func (m *searchMixed) recordSample(ctx context.Context, windowStarted time.Time) {
 	sample := SearchMixedSample{
 		Offset: clock.Now().Sub(windowStarted), OldestPendingWork: 0, OldestClass: "",
-		RebuildState: "", Nodes: nil, Error: "",
+		RebuildState: "", Nodes: nil, Error: "", FoundationDB: nil, FoundationDBError: "",
 	}
 	problems := make([]string, 0)
 	oldest, err := m.backlog.oldest(ctx)
@@ -65,6 +65,10 @@ func (m *searchMixed) recordSample(ctx context.Context, windowStarted time.Time)
 	sample.Nodes, err = m.resources.read(ctx)
 	if err != nil {
 		problems = append(problems, err.Error())
+	}
+	sample.FoundationDB, err = m.clusterStatus.read(ctx)
+	if err != nil {
+		sample.FoundationDBError = err.Error()
 	}
 	sample.Error = strings.Join(problems, "; ")
 	m.phases.update(func(phases *searchMixedPhaseStats) {

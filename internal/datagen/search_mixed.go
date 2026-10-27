@@ -90,6 +90,7 @@ type searchMixed struct {
 	stores     *fdbadapter.Stores
 	pages      storedPageReader
 	backlog    *searchMixedBacklog
+	clusterStatus *searchMixedFoundationDBStatus
 	resources  *searchMixedResources
 	members    *postgres.OrgMemberRepo
 	stats      *searchMixedStats
