@@ -100,21 +100,8 @@ func verifyNodeOp(f *cli.Factory) clispec.Operation[verifyNodeInput] {
 				Records:      nil,
 			}
 			if strings.TrimSpace(in.Class) != "" {
-				repairClass, classErr := parseRepairClass(in.Class)
-				if classErr != nil {
-					return classErr
-				}
-				profile, profErr := readRepairProfileArg(ctx, "verify node", in.Profile)
-				if profErr != nil {
-					return profErr
-				}
-				result.RepairClass = repairClass
-				preview, previewErr := NewRepairConsoleFromEnv(env).Preview(ctx, RepairPreviewInput{Class: repairClass, NodeID: nodeID, Profile: profile})
-				if previewErr != nil {
-					result.Status = "failed"
-					result.Checks = append(result.Checks, repairCheck{Name: "repair_preview", OK: false, Details: previewErr.Error()})
-				} else {
-					result.Checks = append(result.Checks, repairCheck{Name: "repair_preview", OK: true, Details: repairPreviewStatus(preview) + ": " + preview.Summary})
+				if err := verifyRepairPreview(ctx, env, in, nodeID, &result); err != nil {
+					return err
 				}
 			}
 			if in.Records {
@@ -123,6 +110,34 @@ func verifyNodeOp(f *cli.Factory) clispec.Operation[verifyNodeInput] {
 			return clispec.WriteJSONValue(ctx, sink, result)
 		},
 	}
+}
+
+// verifyRepairPreview adds the repair_preview check for nodeID to result. A
+// failed preview marks result as failed and does not end the command.
+func verifyRepairPreview(ctx context.Context, env *Env, in verifyNodeInput, nodeID uuid.UUID, result *repairVerifyResult) error {
+	repairClass, err := parseRepairClass(in.Class)
+	if err != nil {
+		return err
+	}
+	profile, err := readRepairProfileArg(ctx, "verify node", in.Profile)
+	if err != nil {
+		return err
+	}
+	result.RepairClass = repairClass
+	console, err := NewRepairConsoleFromEnv(env)
+	if err != nil {
+		return err
+	}
+	preview, previewErr := console.Preview(ctx, RepairPreviewInput{Class: repairClass, NodeID: nodeID, Profile: profile})
+	check := repairCheck{Name: "repair_preview", OK: previewErr == nil, Details: ""}
+	if previewErr != nil {
+		result.Status = "failed"
+		check.Details = previewErr.Error()
+	} else {
+		check.Details = repairPreviewStatus(preview) + ": " + preview.Summary
+	}
+	result.Checks = append(result.Checks, check)
+	return nil
 }
 
 type validateNodeInput struct {
@@ -171,7 +186,11 @@ func validateNodeOp(f *cli.Factory) clispec.Operation[validateNodeInput] {
 				return err
 			}
 			defer env.Close()
-			preview, err := NewRepairConsoleFromEnv(env).Preview(ctx, RepairPreviewInput{Class: repairClass, NodeID: nodeID, Profile: profile})
+			console, err := NewRepairConsoleFromEnv(env)
+			if err != nil {
+				return err
+			}
+			preview, err := console.Preview(ctx, RepairPreviewInput{Class: repairClass, NodeID: nodeID, Profile: profile})
 			if err != nil {
 				slog.ErrorContext(ctx, "validate.node_preview_failed", slog.String("err", err.Error()))
 				return fmt.Errorf("validate node: preview repair for %s: %w", nodeID, err)

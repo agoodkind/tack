@@ -24,6 +24,8 @@ type datagenSearchLoadResult struct {
 	Elapsed             string                   `json:"elapsed"`
 	Errors              datagenSearchLoadErrors  `json:"errors"`
 	LatencyMs           datagenSearchLoadLatency `json:"latency_ms"`
+	MaxWallTime         string                   `json:"max_wall_time"`
+	StopReason          string                   `json:"stop_reason"`
 }
 
 type datagenSearchLoadErrors struct {
@@ -63,7 +65,9 @@ type datagenSearchLoadPointInTimeSample struct {
 	Error       string  `json:"error,omitempty"`
 }
 
-func searchLoadReport(input datagenSearchLoadInput, duration time.Duration, endpoints int, summary datagen.SearchLoadSummary) datagenSearchLoadReport {
+func searchLoadReport(
+	input datagenSearchLoadInput, duration time.Duration, endpoints int, summary datagen.SearchLoadSummary, stop datagenSearchStop,
+) datagenSearchLoadReport {
 	samples := make([]datagenSearchLoadPointInTimeSample, 0, len(summary.PointInTime.Samples))
 	for _, sample := range summary.PointInTime.Samples {
 		samples = append(samples, datagenSearchLoadPointInTimeSample{
@@ -87,6 +91,7 @@ func searchLoadReport(input datagenSearchLoadInput, duration time.Duration, endp
 				P95: searchLoadMilliseconds(summary.Latency.P95), P99: searchLoadMilliseconds(summary.Latency.P99),
 				Max: searchLoadMilliseconds(summary.Latency.Max),
 			},
+			MaxWallTime: stop.maxWallTime.String(), StopReason: string(stop.reason),
 		},
 		Endpoints: endpoints,
 		PointInTime: datagenSearchLoadPointInTime{

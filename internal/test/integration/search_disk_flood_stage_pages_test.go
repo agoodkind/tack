@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 // storedPage is the generation and text that the serving index stores for one
@@ -23,7 +23,7 @@ type storedPage struct {
 // document exists to refresh.
 func refreshServingIndex(t *testing.T, fixture queryFixture) error {
 	t.Helper()
-	_, err := fixture.Client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.Index}})
+	_, err := fixture.Client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Indices: []string{fixture.Index}})
 	return clusterFailure("refresh "+fixture.Index, err)
 }
 
@@ -33,18 +33,21 @@ func refreshServingIndex(t *testing.T, fixture queryFixture) error {
 func readStoredPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID) ([]storedPage, error) {
 	t.Helper()
 	query := fmt.Sprintf(`{"size":1000,"_source":["search_generation","page_text"],"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String())
-	response, err := fixture.Client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, Body: strings.NewReader(query)})
+	response, err := fixture.Client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, BodyReader: strings.NewReader(query)})
 	if err != nil {
 		return nil, clusterFailure("read the stored pages of node "+nodeID.String(), err)
 	}
-	if response.Timeout || response.Shards.Failed > 0 {
-		return nil, fmt.Errorf("read the stored pages of node %s: search timed out %t with %d failed shards", nodeID, response.Timeout, response.Shards.Failed)
+	if response.TimedOut || response.Shards.Failed > 0 {
+		return nil, fmt.Errorf("read the stored pages of node %s: search timed out %t with %d failed shards", nodeID, response.TimedOut, response.Shards.Failed)
 	}
 	pages := make([]storedPage, 0, len(response.Hits.Hits))
 	for _, hit := range response.Hits.Hits {
+		if hit.ID == nil {
+			return nil, fmt.Errorf("read the stored pages of node %s: document ID is absent", nodeID)
+		}
 		var page storedPage
 		if err := json.Unmarshal(hit.Source, &page); err != nil {
-			return nil, clusterFailure("decode page "+hit.ID+" of node "+nodeID.String(), err)
+			return nil, clusterFailure("decode page "+*hit.ID+" of node "+nodeID.String(), err)
 		}
 		pages = append(pages, page)
 	}

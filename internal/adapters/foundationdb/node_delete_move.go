@@ -46,11 +46,16 @@ func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.
 
 // moveChild moves child, a direct child of the deleted root, to the root's
 // parent when node.LivesUnder places the child's type under the parent's
-// type. The move replaces every child_of edge of the child with one child_of
-// edge to the parent, sets the child's parent_id to the parent, moves the
-// parent_id index entry, schedules the search work of a parent change, and
-// records the old and new values of the node and each changed child_of edge
-// in changes. It returns true when it moves the child.
+// type. It calls the write fence for the child. The move replaces every
+// child_of edge of the child with one child_of edge to the parent, sets the
+// child's parent_id to the parent, moves the parent_id index entry, schedules
+// the search work of a parent change, and records the old and new values of
+// the node and each changed child_of edge in changes.
+//
+// After replacing the child_of edges, moveChild calls checkStrictRecord on
+// the moved child inside the same transaction. If strict validation is active
+// and the moved record is invalid, moveChild returns the refusal error, and
+// the step does not commit. It returns true when it moves the child.
 func (s *NodeDeleteStore) moveChild(
 	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, child hierarchyNode,
 	kinds map[string]*node.NodeType, changes *mutationAudit,
@@ -70,7 +75,8 @@ func (s *NodeDeleteStore) moveChild(
 	if err != nil || current == nil {
 		return false, err
 	}
-	if _, err := s.nodes.fenceAttempt(ctx, tr, job.OrgID, child.ID); err != nil {
+	strict, err := s.nodes.fenceAttempt(ctx, tr, job.OrgID, child.ID)
+	if err != nil {
 		return false, err
 	}
 	now := s.nodes.clock.Now().UTC()
@@ -94,6 +100,9 @@ func (s *NodeDeleteStore) moveChild(
 	}
 	edgeChanges := parentEdgeChanges(job, child.ID, edges, now)
 	if err := applyRelationshipChanges(ctx, tr, edgeChanges, changes); err != nil {
+		return false, err
+	}
+	if err := checkStrictRecord(ctx, tr, strict, current); err != nil {
 		return false, err
 	}
 	if s.nodes.searchWork {

@@ -22,12 +22,15 @@ type NodeStore struct {
 	clock      clock.Clock
 	searchWork bool
 	writeFence mutationFence
+	// sequenceLocks lets the store write each sequence counter in one
+	// transaction at a time.
+	sequenceLocks *sequenceLockSet
 }
 
 // NewNodeStore creates the node store. It schedules no search work until
 // [Stores.EnableSearchWork] runs.
 func NewNodeStore(db fdb.Database, source clock.Clock) *NodeStore {
-	return &NodeStore{db: db, clock: source, searchWork: false, writeFence: nil}
+	return &NodeStore{db: db, clock: source, searchWork: false, writeFence: fenceNodeMutation, sequenceLocks: newSequenceLockSet()}
 }
 
 // Get resolves the node by ID through its global resolution record.
@@ -79,7 +82,8 @@ func (s *NodeStore) Set(ctx context.Context, current *node.Node, view *node.Node
 	}
 	err = runNodeMutation(ctx, s.db, "set node "+current.ID.String(), func(tr fdb.Transaction) error {
 		changes.startAttempt()
-		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
+		strict, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID)
+		if err != nil {
 			return err
 		}
 		source, err := tr.Get(fdb.Key(nodeInstanceKey(current.OrgID, current.NodeType, current.ID))).Get()
@@ -88,6 +92,9 @@ func (s *NodeStore) Set(ctx context.Context, current *node.Node, view *node.Node
 		}
 		encoded, err := writeNodeRecords(ctx, tr, current, view)
 		if err != nil {
+			return err
+		}
+		if err := checkStrictRecord(ctx, tr, strict, current); err != nil {
 			return err
 		}
 		if s.searchWork {

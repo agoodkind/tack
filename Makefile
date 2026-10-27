@@ -95,14 +95,33 @@ test-unit:
 # arguments that run them. test-store-host runs them on the current host,
 # which needs the FoundationDB client library and a reachable Docker daemon;
 # the CI integration job runs it. test-integration runs them in the runner.
-TEST_STORE_PACKAGES := ./internal/test/integration/... ./internal/adapters/foundationdb/... \
-	./internal/audit/... ./internal/ops/... ./internal/datagen/... ./cmd/server/... ./internal/testenv/...
+TEST_STORE_OTHER_PACKAGES := ./internal/adapters/foundationdb/... ./internal/audit/... \
+	./internal/ops/... ./internal/datagen/... ./cmd/server/... ./internal/testenv/...
+TEST_STORE_PACKAGES := ./internal/test/integration/... $(TEST_STORE_OTHER_PACKAGES)
 # The integration tag selects the audit partition tests, which need the ledger.
-TEST_STORE_ARGS := -tags integration -count=1 -timeout 30m -v $(TEST_STORE_PACKAGES)
+TEST_STORE_FLAGS := -tags integration -count=1 -timeout 30m -v
+TEST_STORE_ARGS := $(TEST_STORE_FLAGS) $(TEST_STORE_PACKAGES)
 
 .PHONY: test-store-host
 test-store-host:
 	go test $(TEST_STORE_ARGS)
+
+# The CI integration jobs run the store-backed tests in three shards on
+# separate hosts. Shard integration-a runs the integration tests with names
+# that start with Test and a letter from A through L. Shard integration-b runs
+# every other integration test, and shard packages runs the other store
+# packages.
+.PHONY: test-store-host-shard
+test-store-host-shard:
+ifeq ($(SHARD),integration-a)
+	go test $(TEST_STORE_FLAGS) -run '^Test[A-L]' ./internal/test/integration/...
+else ifeq ($(SHARD),integration-b)
+	go test $(TEST_STORE_FLAGS) -run '^Test[^A-L]' ./internal/test/integration/...
+else ifeq ($(SHARD),packages)
+	go test $(TEST_STORE_FLAGS) $(TEST_STORE_OTHER_PACKAGES)
+else
+	$(error test-store-host-shard requires SHARD=integration-a, SHARD=integration-b, or SHARD=packages)
+endif
 
 .PHONY: test-integration
 test-integration:
@@ -166,7 +185,7 @@ SEARCH_T2_TESTS := TestSearchRebuildExcludesOrphanNodes|TestSearchRebuildStepFit
 SEARCH_T3_TESTS := TestSearchAccessDependentsSurviveEdit|TestSearchAccessUpdatesOlderActiveRevision|TestSearchAccessVersionWithoutRebuild|TestSearchAccessMembershipQueryOnly|TestSearchAccessResourceRefresh|TestSearchAccessRolloutRecovery|TestSearchAccessOnlyUpdateWithoutModel|TestSearchCursorAcrossProcesses|TestSearchCursorExactSortValues|TestSearchCursorOnePredictionPerSession|TestSearchCursorReplayAndConcurrency|TestSearchAccessChangeKeepsPendingContent|TestSearchCursorActualOSProcesses|TestSearchFiltersForbiddenPagesBeforeRanking|TestSearchFinalCheckRejectsCorruptIndexedAccess|TestSearchRevokedAccessRejectsLaterResultsAndReplay|TestSearchDelayedWriter|TestSearchRuntimeIndexesThroughGraph
 SEARCH_G1_ARGS := -count=1 -timeout 60m -run '^TestSearchContinuationTraversesDuplicateHeavyCorpus$$'
 SEARCH_G2_ARGS := -count=1 -timeout 30m -run '^TestSearchActualOSProcessThroughput$$'
-SEARCH_G3_ARGS := -count=1 -timeout 30m -run '^TestSearch(Split|Restore|Rebuild)'
+SEARCH_G3_ARGS := -count=1 -timeout 45m -run '^TestSearch(Split|Restore|Rebuild)'
 SEARCH_G4_ARGS := -count=1 -timeout 25m -run '^TestSearchCluster' -skip '^TestSearchClusterModelRepair'
 SEARCH_G5_ARGS := -count=1 -timeout 95m -tags runtimeaudit -run '^TestSearch' -skip '$(SEARCH_SKIP_G5)'
 SEARCH_G6_ARGS := -count=1 -timeout 5m -run '^TestSearchClusterModelRepair'

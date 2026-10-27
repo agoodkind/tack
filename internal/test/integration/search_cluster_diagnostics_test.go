@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -79,9 +79,9 @@ func logClusterModelWorkers(t *testing.T, raw []byte, modelID string, cluster *t
 		} `json:"nodes"`
 	}
 	clusterRequire(t, "decode diagnostic model profile", json.Unmarshal(raw, &profile))
-	nodes, err := fixture.Client.Nodes.Info(WithTestOperation(t, t.Context()), &opensearchapi.NodesInfoReq{Metrics: []string{"http"}})
+	nodes, err := fixture.Client.Nodes.Info(WithTestOperation(t, t.Context()), &opensearchapi.NodesInfoReq{Metric: []string{"http"}})
 	clusterRequire(t, "read diagnostic surviving nodes", err)
-	t.Logf("surviving node responses total=%d successful=%d failed=%d", nodes.NodesInfo.Total, nodes.NodesInfo.Successful, nodes.NodesInfo.Failed)
+	t.Logf("surviving node responses total=%d successful=%d failed=%d", nodes.NodesRespBase.Nodes.Total, nodes.NodesRespBase.Nodes.Successful, nodes.NodesRespBase.Nodes.Failed)
 	backends := cluster.Backends(t)
 	eligible := map[string]bool{}
 	for nodeID, node := range profile.Nodes {
@@ -117,7 +117,7 @@ func logClusterModelWorkers(t *testing.T, raw []byte, modelID string, cluster *t
 func clusterMLResponse(t *testing.T, fixture queryFixture, method string, request opensearch.Request) ([]byte, int) {
 	t.Helper()
 	var raw json.RawMessage
-	response, err := opensearch.Do(WithTestOperation(t, t.Context()), fixture.Client.Client, method, request, &raw)
+	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, method, request, &raw)
 	clusterRequire(t, "perform diagnostic ML request", err)
 	if response == nil {
 		t.Fatal("diagnostic ML request returned no response")

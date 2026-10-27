@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
@@ -52,7 +52,7 @@ func TestSearchVerifyChecksTheRecordedServingIndex(t *testing.T) {
 	}
 	body := `{"actions":[{"remove":{"index":"` + rebuild.TargetIndex + `","alias":"` + search.PublicAlias + `"}},` +
 		`{"add":{"index":"` + other + `","alias":"` + search.PublicAlias + `"}}]}`
-	response, err := fixture.Client.Aliases(WithTestOperation(t, t.Context()), opensearchapi.AliasesReq{Body: strings.NewReader(body)})
+	response, err := fixture.Client.Indices.UpdateAliases(WithTestOperation(t, t.Context()), &opensearchapi.IndicesUpdateAliasesReq{BodyReader: strings.NewReader(body)})
 	if err != nil || response.Inspect().Response.IsError() {
 		t.Fatalf("point the public alias at %s: %v", other, err)
 	}

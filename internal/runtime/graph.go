@@ -17,6 +17,7 @@ import (
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 
@@ -50,8 +51,9 @@ type Graph struct {
 }
 
 // BuildGraph opens the configured datastores and assembles the node service,
-// MCP handler, and auth middleware. It also installs the process-global audit
-// sinks. On failure it releases anything it already opened and returns the error.
+// MCP handler, and auth middleware. The auth middleware and the MCP handler
+// record events with the audit recorder of this graph. On failure it releases
+// anything it already opened and returns the error.
 func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.CountingQueryTracer{Next: &telemetry.QueryTracer{}})
 	if err != nil {
@@ -77,6 +79,13 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	if cfg.SearchEndpoint != "" {
 		fdbStores.EnableSearchWork()
 		epochs = fdbStores.Views
+	}
+	orgMembers := auth.NewCachedMembers(postgres.NewOrgMemberRepo(pool),
+		cfg.AuthMembershipCacheLifetime, cfg.AuthMembershipCacheSize)
+	nodeSvc, err := buildNodeService(ctx, fdbStores, orgMembers)
+	if err != nil {
+		pool.Close()
+		return nil, err
 	}
 
 	auditRuntimeDeps, err := buildAuditRuntime(ctx, cfg, fdbStores.OpsOutbox)
@@ -112,20 +121,9 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	// that rendering off the ledger on most calls (criterion 12).
 	userRepo := auth.NewCachedUsers(postgres.NewUserRepo(pool),
 		cfg.AuthUserCacheLifetime, cfg.AuthUserCacheSize)
-	orgMembers := auth.NewCachedMembers(postgres.NewOrgMemberRepo(pool),
-		cfg.AuthMembershipCacheLifetime, cfg.AuthMembershipCacheSize)
 	// A cold request reads the token and its holder's org set in one query,
 	// so it costs one ledger read, not two (criterion 12).
 	tokenRepo.PrimeMembers(orgMembers)
-
-	nodeSvc := service.NewNodeService(
-		fdbStores.Nodes,
-		fdbStores.Views,
-		fdbStores.NodeTypes,
-		fdbStores.PropertyDefs,
-		fdbStores.Relationships,
-		fdbStores.NodeDeleter,
-	)
 
 	mcpHandler := mcpadapter.NewHandler(mcpadapter.Deps{
 		NodeSvc:            nodeSvc,
@@ -139,9 +137,9 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		Users:              userRepo,
 		Search:             searchBinding,
 		Epochs:             epochs,
+		AuditRecorder:      auditRuntimeDeps.Recorder,
 	})
-
-	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers)
+	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers, auditRuntimeDeps.Recorder)
 	productReads := fdbStores.AuditReads(source)
 	requests := mcpadapter.NewRequestRecorder(productReads)
 
@@ -168,10 +166,24 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	return graph, nil
 }
 
-func buildAuthMiddleware(cfg *config.Config, tokenRepo auth.TokenValidator, orgMembers auth.OrgLister) func(http.Handler) http.Handler {
+func buildNodeService(ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository) (*service.NodeService, error) {
+	nodeSvc, err := service.NewNodeService(
+		stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs,
+		stores.Relationships, stores.NodeDeleter, members, stores.Relationships,
+	)
+	if err != nil {
+		slog.ErrorContext(ctx, "server.node_service_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("runtime: node service: %w", err)
+	}
+	return nodeSvc, nil
+}
+
+func buildAuthMiddleware(
+	cfg *config.Config, tokenRepo auth.TokenValidator, orgMembers auth.OrgLister, recorder audit.Recorder,
+) func(http.Handler) http.Handler {
 	if cfg.Env == "development" {
 		slog.Warn("dev_auth.enabled")
-		return auth.DevBearer(orgMembers)
+		return auth.DevBearer(orgMembers, recorder)
 	}
-	return auth.Bearer(tokenRepo, orgMembers)
+	return auth.Bearer(tokenRepo, orgMembers, recorder)
 }

@@ -2,10 +2,16 @@ package datagen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 )
+
+// errSearchMixedSetupStopped reports that the schedule context ended while setup waited for
+// search to return the corpus.
+var errSearchMixedSetupStopped = errors.New("qa datagen search-mixed: the schedule context ended during setup")
 
 const (
 	// searchMixedReadNodes is the number of unchanged issues that the paginated sessions of the
@@ -27,8 +33,9 @@ type searchMixedCorpus struct {
 }
 
 // createCorpus creates the read issues of both tenants and the victim issues of the first
-// tenant through public calls, then waits until search returns each of them.
-func (m *searchMixed) createCorpus(ctx context.Context) error {
+// tenant through public calls, then waits until search returns each of them. It records each
+// completed wait in the corpus index of the run.
+func (m *searchMixed) createCorpus(stopContext, ctx context.Context) error {
 	read, err := m.createIssues(ctx, 0, searchMixedReadNodes, func(number int) string {
 		return fmt.Sprintf("Read corpus %s issue %d", m.readWord, number)
 	})
@@ -47,18 +54,29 @@ func (m *searchMixed) createCorpus(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	createsEnded := clock.Now()
 	m.corpus = searchMixedCorpus{read: read, foreignRead: foreign, victims: victims}
 	waits := []struct {
+		group  string
 		tenant int
 		word   string
 		nodes  []uuid.UUID
-	}{{0, m.readWord, read}, {1, m.readWord, foreign}, {0, m.victimWord, victims}}
+	}{
+		{searchMixedReadGroup, 0, m.readWord, read},
+		{searchMixedForeignReadGroup, 1, m.readWord, foreign},
+		{searchMixedVictimGroup, 0, m.victimWord, victims},
+	}
 	for _, wait := range waits {
 		run := m.searchRun(wait.tenant, 0, wait.tenant)
-		check := func(ctx context.Context) error { return run.includes(ctx, wait.word, wait.nodes...) }
-		if err := run.eventually(ctx, "index search mixed corpus "+wait.word, check); err != nil {
+		check := func(ctx context.Context) ([]uuid.UUID, error) { return run.missing(ctx, wait.word, wait.nodes...) }
+		description := fmt.Sprintf("index search mixed corpus group %s for %s", wait.group, wait.word)
+		checks, err := awaitCorpus(stopContext, ctx, description, wait.nodes, check)
+		if err != nil {
 			return err
 		}
+		m.corpusIndex.record(SearchMixedCorpusWait{
+			Group: wait.group, Tenant: wait.tenant, Nodes: len(wait.nodes), Checks: checks, Elapsed: clock.Now().Sub(createsEnded),
+		})
 	}
 	return nil
 }

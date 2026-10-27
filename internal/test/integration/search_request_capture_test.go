@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -41,6 +43,9 @@ type searchCapture struct {
 	profile  bool
 	mutex    sync.Mutex
 	searches []capturedSearch
+	// replacement is the point-in-time ID that the next ranked batch
+	// response returns in place of the engine's pit_id.
+	replacement string
 }
 
 // capturedBodyKey associates the original ranked batch body with its
@@ -60,11 +65,45 @@ func (capture *searchCapture) record(response *http.Response) error {
 	if err != nil {
 		return errors.New("read ranked search response: " + err.Error())
 	}
-	response.Body = io.NopCloser(bytes.NewReader(payload))
 	capture.mutex.Lock()
 	defer capture.mutex.Unlock()
+	if capture.replacement != "" {
+		payload, err = replacePITID(payload, capture.replacement)
+		if err != nil {
+			return err
+		}
+		capture.replacement = ""
+	}
+	response.Body = io.NopCloser(bytes.NewReader(payload))
+	response.ContentLength = int64(len(payload))
+	response.Header.Set("Content-Length", strconv.Itoa(len(payload)))
 	capture.searches = append(capture.searches, capturedSearch{Request: body, Response: payload})
 	return nil
+}
+
+// replaceNextPIT makes the next recorded ranked batch response return
+// replacement as its pit_id.
+func (capture *searchCapture) replaceNextPIT(replacement string) {
+	capture.mutex.Lock()
+	defer capture.mutex.Unlock()
+	capture.replacement = replacement
+}
+
+// replacePITID replaces the pit_id value of one ranked batch response body
+// and keeps every other byte.
+func replacePITID(payload []byte, replacement string) ([]byte, error) {
+	var decoded pitResponse
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return nil, fmt.Errorf("decode ranked search response: %w", err)
+	}
+	if decoded.PITID == "" {
+		return nil, errors.New("ranked search response does not contain a pit_id")
+	}
+	original := []byte(`"pit_id":"` + decoded.PITID + `"`)
+	if !bytes.Contains(payload, original) {
+		return nil, errors.New("ranked search response does not contain the compact pit_id field")
+	}
+	return bytes.Replace(payload, original, []byte(`"pit_id":"`+replacement+`"`), 1), nil
 }
 
 // ServeHTTP forwards requests and prepares POST /_search exchanges for
@@ -124,7 +163,7 @@ func newCaptureHarness(t *testing.T, fixture integration.QueryFixture, profile b
 	if !engineCA.AppendCertsFromPEM([]byte(engine.CA)) {
 		t.Fatal("engine CA is invalid")
 	}
-	capture := &searchCapture{engine: nil, profile: profile, mutex: sync.Mutex{}, searches: nil}
+	capture := &searchCapture{engine: nil, profile: profile, mutex: sync.Mutex{}, searches: nil, replacement: ""}
 	capture.engine = &httputil.ReverseProxy{
 		Rewrite:        func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
 		Transport:      &http.Transport{TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12}},

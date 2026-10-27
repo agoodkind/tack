@@ -86,6 +86,15 @@ func (w *SearchWorker) rolloutVerify(ctx context.Context, work searchdomain.Work
 	if err != nil {
 		return w.settleEngine(ctx, work, "read access rollout page documents", err)
 	}
+	/* The multi-get above reads page documents before OpenSearch makes them
+	   searchable. The last batch of a pass can activate the candidate version.
+	   Before that checkpoint, the slice refreshes the indexes of work. A
+	   session opened after the checkpoint then searches every verified page. */
+	if done {
+		if err := w.refreshWorkIndexes(ctx, work); err != nil {
+			return w.settleEngine(ctx, work, "refresh search index before access rollout checkpoint", err)
+		}
+	}
 	var step searchdomain.RolloutStep
 	verify := func(ctx context.Context) error {
 		var verifyErr error

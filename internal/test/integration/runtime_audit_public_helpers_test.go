@@ -50,6 +50,13 @@ type publicResponse struct {
 // When store is nil, the request recorder uses graph.ProductReads.
 func startPublicServer(t *testing.T, store func(*appruntime.Graph) audit.ReadLifecycle) *publicServer {
 	t.Helper()
+	return newPublicServer(t, publicConfig(t), store)
+}
+
+// publicConfig sets a new FoundationDB key prefix and the test engine
+// addresses, and returns the loaded server configuration.
+func publicConfig(t *testing.T) *config.Config {
+	t.Helper()
 	clusterFile := testenv.FoundationDB(t)
 	identity := uuid.New()
 	prefix := append([]byte("tack-test:"), identity[:]...)
@@ -61,7 +68,7 @@ func startPublicServer(t *testing.T, store func(*appruntime.Graph) audit.ReadLif
 	if err != nil {
 		t.Fatalf("config.Load failed: %v", err)
 	}
-	return newPublicServer(t, cfg, store)
+	return cfg
 }
 
 // newPublicServer builds a runtime graph from cfg and creates test identities
@@ -70,8 +77,15 @@ func startPublicServer(t *testing.T, store func(*appruntime.Graph) audit.ReadLif
 // graph's Kafka brokers and audit writer DSN and permits unrecorded operations.
 func newPublicServer(t *testing.T, cfg *config.Config, store func(*appruntime.Graph) audit.ReadLifecycle) *publicServer {
 	t.Helper()
-	ctx := integration.WithTestOperation(t, t.Context())
 	cfg.AuditKafkaBrokers, cfg.AuditWriterDSN, cfg.AuditAllowUnrecorded = "", "", true
+	return buildPublicServer(t, cfg, store)
+}
+
+// buildPublicServer builds a runtime graph from cfg with its audit settings
+// and creates test identities for authenticated requests.
+func buildPublicServer(t *testing.T, cfg *config.Config, store func(*appruntime.Graph) audit.ReadLifecycle) *publicServer {
+	t.Helper()
+	ctx := integration.WithTestOperation(t, t.Context())
 	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {
 		t.Fatalf("appruntime.BuildGraph failed: %v", err)

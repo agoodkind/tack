@@ -91,13 +91,13 @@ func capturedPITs(t *testing.T, searches []capturedSearch) []string {
 // openPITs lists the test engine's open PITs through GET /_search/point_in_time/_all.
 func openPITs(t *testing.T, fixture integration.QueryFixture) map[string]bool {
 	t.Helper()
-	listed, err := fixture.Client.PointInTime.Get(integration.WithTestOperation(t, t.Context()), nil)
+	listed, err := fixture.Client.PointInTime.GetAll(integration.WithTestOperation(t, t.Context()), nil)
 	if err != nil {
 		t.Fatalf("the test could not list open points in time: %v", err)
 	}
-	open := make(map[string]bool, len(listed.Pits))
-	for _, pit := range listed.Pits {
-		open[pit.PitID] = true
+	open := make(map[string]bool, len(listed.PITs))
+	for _, pit := range listed.PITs {
+		open[pit.PITID.String()] = true
 	}
 	return open
 }

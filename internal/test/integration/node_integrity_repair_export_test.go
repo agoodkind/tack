@@ -15,16 +15,19 @@ import (
 )
 
 // TestNodeIntegrityRepairExportsBeforeDelete executes a manifest with three
-// delete entries. The first entry must write a readable export file with
-// mode 0600, record the exported checkpoint, and keep the node. The second
-// entry must fail on a missing export directory and must not record a
-// checkpoint. The third entry must report a conflict after a change to its
-// node and must not write an export file. A second execution must not commit
-// a phase and must keep the number of stored keys unchanged.
+// delete entries through ops backfill once-node-integrity --execute.
+// The first entry must write a readable export file with mode 0600, delete
+// its node, and record the completed checkpoint. The second entry must fail
+// on a missing export directory, keep its node, and must not record a
+// checkpoint. After a change to its node, the third entry must report a
+// conflict, keep its node, and must not write an export file or record a
+// checkpoint. A second execution must report the first entry as unchanged,
+// fail the second entry again, and report the third entry as conflicted
+// again. It must keep the number of stored keys unchanged.
 func TestNodeIntegrityRepairExportsBeforeDelete(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
-	exportDir := t.TempDir()
+	exportDir := repairDirectory(t)
 	exported := deleteFixtureEntry(t, env, graph, "tack-582-export", filepath.Join(exportDir, "export.json"))
 	missing := deleteFixtureEntry(t, env, graph, "tack-582-missing-dir", filepath.Join(exportDir, "absent", "export.json"))
 	stale := deleteFixtureEntry(t, env, graph, "tack-582-stale-export", filepath.Join(exportDir, "stale.json"))
@@ -36,17 +39,17 @@ func TestNodeIntegrityRepairExportsBeforeDelete(t *testing.T) {
 	if err == nil || result.Applied == nil {
 		t.Fatalf("execute = %v with result %+v, want a failed entry and an apply result", err, result)
 	}
-	requireApplyEntry(t, *result.Applied, exported.RepairID, ops.RepairApplyApplied, node.RepairPhaseCompleted)
+	requireApplyEntry(t, *result.Applied, exported.RepairID, ops.RepairApplyApplied, "")
 	requireApplyEntry(t, *result.Applied, missing.RepairID, ops.RepairApplyFailed, node.RepairPhaseExported)
 	requireApplyEntry(t, *result.Applied, stale.RepairID, ops.RepairApplyConflicted, "")
 	requireExportFile(t, exported.Delete.ExportFile, manifest.Entries[0], graph.projectID)
 	if _, statErr := os.Stat(stale.Delete.ExportFile); !os.IsNotExist(statErr) {
 		t.Fatalf("stat stale export = %v, want no file", statErr)
 	}
-	for _, entry := range []ops.NodeIntegrityEntry{exported, missing, stale} {
-		requireRepairNodePresent(t, env, entry.NodeID)
-	}
-	requireCheckpointPhase(t, env, exported.RepairID, node.RepairPhaseExported)
+	requireRepairNodeAbsent(t, env, exported.NodeID)
+	requireRepairNodePresent(t, env, missing.NodeID)
+	requireRepairNodePresent(t, env, stale.NodeID)
+	requireCheckpointPhase(t, env, exported.RepairID, node.RepairPhaseCompleted)
 	requireCheckpointPhase(t, env, missing.RepairID, "")
 
 	before := storedKeyValues(t)
@@ -54,10 +57,10 @@ func TestNodeIntegrityRepairExportsBeforeDelete(t *testing.T) {
 	if rerun.Applied == nil {
 		t.Fatal("the second execution returned no apply result")
 	}
-	requireApplyEntry(t, *rerun.Applied, exported.RepairID, ops.RepairApplyUnchanged, node.RepairPhaseCompleted)
+	requireApplyEntry(t, *rerun.Applied, exported.RepairID, ops.RepairApplyUnchanged, "")
 	requireApplyEntry(t, *rerun.Applied, missing.RepairID, ops.RepairApplyFailed, node.RepairPhaseExported)
 	requireApplyEntry(t, *rerun.Applied, stale.RepairID, ops.RepairApplyConflicted, "")
-	requireCheckpointPhase(t, env, exported.RepairID, node.RepairPhaseExported)
+	requireCheckpointPhase(t, env, exported.RepairID, node.RepairPhaseCompleted)
 	requireCheckpointPhase(t, env, missing.RepairID, "")
 	requireCheckpointPhase(t, env, stale.RepairID, "")
 	if len(storedKeyValues(t)) != len(before) {

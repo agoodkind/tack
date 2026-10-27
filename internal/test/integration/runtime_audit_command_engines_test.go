@@ -12,6 +12,7 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/testenv"
 	"goodkind.io/tack/migrations"
@@ -41,8 +42,10 @@ type roleStepEvidence struct {
 	PasswordSet bool `json:"password_set"`
 }
 
-// testSearchReindexOutcomes runs ops search reindex twice against a serving
-// index in FoundationDB. The first run records the replacement it began.
+// testSearchReindexOutcomes runs the ops search reindex dry run, which must
+// record its read, and then runs the command twice against a serving index in
+// FoundationDB. The first run records the replacement it began with a nonzero
+// generation, and the replacement record stores the operation of that run.
 // The command refuses the second run because that replacement is in progress.
 func testSearchReindexOutcomes(t *testing.T) {
 	clusterFile := testenv.FoundationDB(t)
@@ -61,6 +64,7 @@ func testSearchReindexOutcomes(t *testing.T) {
 	t.Setenv("OPENSEARCH_REPLICAS", "0")
 	pool := ledgerAdminPool(t)
 	cfg := &config.Config{DatabaseURL: testenv.Ledger(t), FDBClusterFile: clusterFile, FDBTransactionTimeout: 5 * time.Second}
+	requireSearchPreviewRead(t, cfg, pool, audit.VerbOpsSearchReindex, "ops", "search", "reindex")
 	operatorID := uuid.Must(uuid.NewV7())
 	for range 2 {
 		if output, err := runOpsCommand(t, cfg, pool, "--execute", "--operator-id", operatorID.String(),
@@ -82,9 +86,15 @@ func testSearchReindexOutcomes(t *testing.T) {
 	if err := json.Unmarshal(stepResults[0].Extra, &evidence); err != nil {
 		t.Fatalf("decoding the replacement evidence failed: %v", err)
 	}
-	if evidence.SourceIndex != reindexServingIndex || evidence.RebuildID == "" || evidence.RebuildID == uuid.Nil.String() {
-		t.Fatalf("replacement evidence %+v must include source %s and a replacement ID", evidence, reindexServingIndex)
+	if evidence.SourceIndex != reindexServingIndex || evidence.RebuildID == "" || evidence.RebuildID == uuid.Nil.String() ||
+		evidence.Generation == 0 {
+		t.Fatalf("replacement evidence %+v must include source %s, a replacement ID, and a nonzero generation", evidence, reindexServingIndex)
 	}
+	rebuild, found, err := stores.SearchRebuilds(clock.Wall{}).CurrentRebuild(t.Context())
+	if err != nil || !found {
+		t.Fatalf("reading the index replacement failed or found none (found %t): %v", found, err)
+	}
+	requireInitiation(t, "index replacement", rebuild.Initiation, first, operatorID)
 	requireCompletedResult(t, eventsOfOperation(events, first), first)
 	if steps := eventsInPhase(events, audit.PhaseIntent, second); len(steps) != 0 {
 		t.Fatalf("the second reindex recorded %d step intents instead of 0", len(steps))

@@ -168,3 +168,10 @@ func storeCLIOptions(cfg *config.Config, command string) runOneShotOptions {
 		ExtraHosts: nil,
 	}
 }
+
+// fdbClusterReadOnlyBind mounts the directory in TACK_OPS_FDB_CLUSTER_DIR at
+// /etc/foundationdb without write access, for the fdbbackup one-shots that only
+// read the cluster file.
+func fdbClusterReadOnlyBind(cfg *config.Config) string {
+	return cfg.OpsFDBClusterDir + ":" + storeClusterMountPath + ":ro"
+}

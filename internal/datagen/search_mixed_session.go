@@ -23,9 +23,10 @@ type searchMixedSession struct {
 	offset int
 }
 
-// searchMixedTally counts the pages and violations of one session check.
+// searchMixedTally counts the pages and violations of one session check. unavailable counts the
+// unavailable responses that the check repeated.
 type searchMixedTally struct {
-	pages, replays, continuationErrors, missingCorpus, replayMismatches, crossTenant, deleted int
+	pages, replays, unavailable, continuationErrors, missingCorpus, replayMismatches, crossTenant, deleted int
 }
 
 func (m *searchMixed) sessionFor(tenant, actor int, query string, offset int) searchMixedSession {
@@ -33,9 +34,9 @@ func (m *searchMixed) sessionFor(tenant, actor int, query string, offset int) se
 	return searchMixedSession{tenant: tenant, token: workspace.Actors[actor].Token, entry: workspace.Slug, query: query, offset: offset}
 }
 
+// page requests page number of session with cursor and checks the page that the server answers.
 func (m *searchMixed) page(ctx context.Context, session searchMixedSession, number int, cursor string, tally *searchMixedTally) (searchPage, error) {
-	requested := clock.Now()
-	page, err := callSearch(ctx, m.driver(session.offset+number), session.token, session.entry, session.query, cursor)
+	page, requested, err := m.answeredPage(ctx, session, number, cursor, tally)
 	if err != nil {
 		return searchPage{}, err
 	}
@@ -44,6 +45,26 @@ func (m *searchMixed) page(ctx context.Context, session searchMixedSession, numb
 		tally.continuationErrors++
 	}
 	return page, m.inspect(ctx, session.tenant, page.IDs, requested, tally)
+}
+
+// answeredPage requests page number of session with cursor. It returns the page and the start
+// time of the request that the server answered. When the server returns the unavailable
+// response, answeredPage counts it and repeats the same request with the same driver and cursor
+// after searchMixedPollInterval. It returns the unavailable error after searchConvergenceDeadline
+// passes from the first request or when ctx ends, and it returns every other error at once.
+func (m *searchMixed) answeredPage(ctx context.Context, session searchMixedSession, number int, cursor string, tally *searchMixedTally) (searchPage, time.Time, error) {
+	deadline := clock.Now().Add(searchConvergenceDeadline)
+	for {
+		requested := clock.Now()
+		page, err := callSearch(ctx, m.driver(session.offset+number), session.token, session.entry, session.query, cursor)
+		if !isSearchUnavailable(err) {
+			return page, requested, err
+		}
+		tally.unavailable++
+		if clock.Now().After(deadline) || !waitForSearchMixedPoll(ctx) {
+			return searchPage{}, requested, err
+		}
+	}
 }
 
 // inspect counts issues that this run deleted before the search request started and issues
@@ -155,6 +176,7 @@ func (m *searchMixed) recordSessions(tally searchMixedTally) {
 		sessions.Endpoints = len(m.drivers)
 		sessions.Pages += tally.pages
 		sessions.Replays += tally.replays
+		sessions.Unavailable += tally.unavailable
 		sessions.ContinuationErrors += tally.continuationErrors
 		sessions.MissingCorpusIssues += tally.missingCorpus
 		sessions.ReplayMismatches += tally.replayMismatches

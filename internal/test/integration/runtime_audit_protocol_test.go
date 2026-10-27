@@ -25,7 +25,7 @@ type protocolCase struct {
 
 func TestRuntimeAuditProtocolCoverage(t *testing.T) {
 	server := startPublicServer(t, nil)
-	cases := protocolCases(t, server)
+	cases := append(protocolCases(t, server), refusalCases(t, server, server.foreignProject(t))...)
 	requestIDs := make([]string, len(cases))
 	responses := make([]publicResponse, len(cases))
 	for index, current := range cases {
@@ -49,6 +49,31 @@ func TestRuntimeAuditProtocolCoverage(t *testing.T) {
 		if row.ActorID != actorID {
 			t.Fatalf("%s event %s actor = %s, want %s", current.name, row.EventID, row.ActorID, actorID)
 		}
+	}
+}
+
+// refusalCases returns authenticated tool requests with unsuccessful
+// outcomes. A read of foreignProjectID, a project in an organization that
+// the caller does not belong to, is denied access. A read of a new UUID is an
+// absent target. A search fails because the test server does not run a
+// search backend.
+func refusalCases(t *testing.T, server *publicServer, foreignProjectID string) []protocolCase {
+	t.Helper()
+	call := func(name, tool string, arguments map[string]any, verb audit.Verb, outcome audit.Outcome, code string) protocolCase {
+		arguments["workspace_reference"] = server.workspace
+		return protocolCase{
+			name: name, method: http.MethodPost, path: "/mcp", bearer: server.token,
+			body:   rpcBody(t, "tools/call", map[string]any{"name": tool, "arguments": arguments}),
+			status: http.StatusOK, verb: verb, outcome: outcome, code: code, authenticated: true, tenant: true,
+		}
+	}
+	return []protocolCase{
+		call("denied access", "tack_get_project", map[string]any{"node_id": foreignProjectID},
+			audit.VerbNodeRead, audit.OutcomeRefused, "access_denied"),
+		call("absent target", "tack_get_project", map[string]any{"node_id": uuid.NewString()},
+			audit.VerbNodeRead, audit.OutcomeRefused, "not_found"),
+		call("backend error", "tack_search", map[string]any{"query": "anything"},
+			audit.VerbNodeSearch, audit.OutcomeFailed, "search_unavailable"),
 	}
 }
 

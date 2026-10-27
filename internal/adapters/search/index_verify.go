@@ -9,7 +9,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -35,13 +35,19 @@ func (a *Adapter) VerifyIndex(ctx context.Context, index string, spec IndexSpec)
 		}
 		return wrapped
 	}
-	response, err := a.api.Indices.Mapping.Get(ctx, &opensearchapi.MappingGetReq{Indices: []string{index}})
+	response, err := a.api.Indices.GetMapping(ctx, &opensearchapi.IndicesGetMappingReq{Indices: []string{index}})
 	if err != nil {
 		wrapped := fmt.Errorf("read OpenSearch index %s mapping: %w", index, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.mapping_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return wrapped
 	}
-	entry, exists := response.GetIndices()[index]
+	var indices map[string]struct {
+		Mappings json.RawMessage `json:"mappings"`
+	}
+	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
+		return engineFailure(ctx, "search.index.mapping_invalid", "decode mapping "+index, index, err)
+	}
+	entry, exists := indices[index]
 	if !exists {
 		wrapped := fmt.Errorf("OpenSearch index %s mapping is absent", index)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.mapping_absent", slog.String("err", wrapped.Error()), slog.String("index", index))

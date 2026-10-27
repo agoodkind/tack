@@ -28,7 +28,8 @@ var recordedLedgerVerbs = []audit.Verb{
 	audit.VerbOpsLedgerNodePrepare, audit.VerbOpsLedgerNodeWait,
 	audit.VerbOpsLedgerBootstrapWait, audit.VerbOpsLedgerAuditBootstrap,
 	audit.VerbSearchIndexStructure, audit.VerbSearchAccessRolloutPhase,
-	audit.VerbAuditPartitionMaintain,
+	audit.VerbSearchModelRepair, audit.VerbAuditPartitionMaintain,
+	audit.VerbNodeSubtreeDeleteResume,
 }
 
 type datagenSeedLedgerVerbsOutput struct {

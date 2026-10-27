@@ -3,8 +3,9 @@ package tools
 import (
 	"context"
 
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -46,7 +47,7 @@ func RegisterSearch(s *mcpserver.MCPServer, resolver *Resolver, binding SearchBi
 	allowed := allowedArgNames(tool.InputSchema)
 	handler := func(ctx context.Context, request mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		if binding.Runner == nil || binding.Cursors == nil {
-			return searchUnavailable(), nil
+			return searchUnavailable(ctx), nil
 		}
 		// A caller with no organization has no entry point type. Its schema
 		// lists the entry argument as "_reference", and argument validation
@@ -62,7 +63,10 @@ func RegisterSearch(s *mcpserver.MCPServer, resolver *Resolver, binding SearchBi
 	s.AddTool(tool, wrapToolHandler(tool.Name, handler))
 }
 
-func searchUnavailable() *mcpmcp.CallToolResult {
+// searchUnavailable returns the fixed unavailable response and records the
+// search_unavailable failure for the request's audit events.
+func searchUnavailable(ctx context.Context) *mcpmcp.CallToolResult {
+	noteOutcome(ctx, audit.OutcomeFailed, "search_unavailable", "the search backend could not answer the request")
 	return &mcpmcp.CallToolResult{
 		IsError: true,
 		Content: []mcpmcp.Content{mcpmcp.TextContent{Type: "text", Text: searchUnavailableText}},

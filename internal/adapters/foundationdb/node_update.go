@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -19,6 +20,17 @@ import (
 // stored value changes and one for each changed relationship.
 func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage, indexedProps []string, referenceKeys []node.ReferenceKey, relationshipChanges ...node.RelationshipChanges) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.update_atomic")(&err)
+	return s.updateAtomic(ctx, nil, current, view, oldProps, indexedProps, referenceKeys, relationshipChanges)
+}
+
+// updateAtomic performs the UpdateAtomic write. When readDigest is not nil,
+// updateAtomic compares it with the stored record digest inside the write
+// transaction. If the digests differ, updateAtomic returns an error that wraps
+// domain.ErrConflict and does not write any changes.
+func (s *NodeStore) updateAtomic(
+	ctx context.Context, readDigest *node.Digest, current *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage,
+	indexedProps []string, referenceKeys []node.ReferenceKey, relationshipChanges []node.RelationshipChanges,
+) error {
 	changes, err := beginMutationAudit(ctx, current.OrgID)
 	if err != nil {
 		return err
@@ -29,7 +41,11 @@ func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *
 		if err != nil {
 			return searchReadFailure(ctx, "read node "+current.ID.String(), err)
 		}
-		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
+		if readDigest != nil && node.PrimaryDigest(source) != *readDigest {
+			return mutationRefusal(ctx, current.ID, "stored node changed after the command read it; the operator must run the command again to read the current record", domain.ErrConflict)
+		}
+		strict, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID)
+		if err != nil {
 			return err
 		}
 		encoded, err := writeNodeRecords(ctx, tr, current, view)
@@ -43,6 +59,9 @@ func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *
 			}
 		}
 		if err := applyRelationshipChanges(ctx, tr, relationshipChanges, changes); err != nil {
+			return err
+		}
+		if err := checkStrictWrite(ctx, tr, strict, current, relationshipChanges); err != nil {
 			return err
 		}
 		if s.searchWork {

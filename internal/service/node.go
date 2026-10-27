@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -11,6 +12,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -24,8 +26,17 @@ type NodeService struct {
 	propertyDefs  node.PropertyDefRepository
 	relationships node.RelationshipRepository
 	deleter       node.NodeDeleter
+	members       org.MemberRepository
+	memberTargets node.MemberTargetAdder
 }
 
+// errMissingMemberDependency is the error that NewNodeService returns when it
+// receives a nil member repository or member target adder.
+var errMissingMemberDependency = errors.New("service.NewNodeService: the member repository and the member target adder are required")
+
+// NewNodeService returns errMissingMemberDependency when members or
+// memberTargets is nil, because AddRelationship reads both for a target that
+// does not resolve to a node.
 func NewNodeService(
 	nodes node.MutableNodeRepository,
 	reader node.NodeReader,
@@ -33,7 +44,12 @@ func NewNodeService(
 	propertyDefs node.PropertyDefRepository,
 	relationships node.RelationshipRepository,
 	deleter node.NodeDeleter,
-) *NodeService {
+	members org.MemberRepository,
+	memberTargets node.MemberTargetAdder,
+) (*NodeService, error) {
+	if members == nil || memberTargets == nil {
+		return nil, errMissingMemberDependency
+	}
 	return &NodeService{
 		nodes:         nodes,
 		reader:        reader,
@@ -41,11 +57,16 @@ func NewNodeService(
 		propertyDefs:  propertyDefs,
 		relationships: relationships,
 		deleter:       deleter,
-	}
+		members:       members,
+		memberTargets: memberTargets,
+	}, nil
 }
 
-// AddRelationship attaches a directed edge between two nodes. A child_of
-// edge returns [node.ErrReservedParentRelation]; parent_id sets the parent.
+// AddRelationship adds a directed relationship from a node to a node or an
+// organization member. It returns [node.ErrReservedParentRelation] for a
+// child_of relationship. The parent_id field sets the parent.
+// It stores a member relationship when the target is a member of rel.OrgID.
+// Otherwise, it adds a node relationship.
 func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationship) error {
 	ctx, span := telemetry.StartSpan(ctx, "service.node.relationship.add",
 		trace.WithSpanKind(trace.SpanKindInternal),
@@ -68,6 +89,18 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 	}
 	if rel.CreatedAt.IsZero() {
 		rel.CreatedAt = clock.Now().UTC()
+	}
+	memberTarget, err := s.isMemberTarget(ctx, rel)
+	if err != nil {
+		return err
+	}
+	if memberTarget {
+		if err := s.memberTargets.AddMemberTarget(ctx, rel); err != nil {
+			wrapped := fmt.Errorf("add %s relationship from %s to member %s: %w", rel.RelationType, rel.SourceID, rel.TargetID, err)
+			slog.ErrorContext(ctx, "node.relationship.add_member_target_failed", slog.String("err", wrapped.Error()))
+			return wrapped
+		}
+		return nil
 	}
 	return s.relationships.Add(ctx, rel)
 }

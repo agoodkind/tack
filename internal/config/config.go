@@ -33,6 +33,10 @@ type Config struct {
 	// SearchPublicEnabled switches tack_search from the fixed unavailable
 	// response to ranked search. Index workers run in either state.
 	SearchPublicEnabled bool `env:"OPENSEARCH_PUBLIC_ENABLED" envDefault:"false"`
+	// RepairDir sets the repair directory for ops backfill once-node-integrity.
+	// The command requires every request, manifest, and export file path to be
+	// inside this directory.
+	RepairDir string `env:"TACK_REPAIR_DIR"`
 
 	// Logging. Every field is plain pass-through to telemetry.Setup, which
 	// hands them to gklog. Setup itself never branches on ENV.
@@ -359,8 +363,9 @@ type Config struct {
 	// accepted, because the value reaches fdbcli as a word in a command.
 	OpsFDBRedundancyMode string `env:"TACK_OPS_FDB_REDUNDANCY_MODE" envDefault:"single"`
 	OpsAppContainer      string `env:"TACK_OPS_APP_CONTAINER" envDefault:"tack-app-1"`
-	// OpsFDBClusterDir is the host directory that contains fdb.cluster, which
-	// the ops fdbcli one-shots mount read-write at /etc/foundationdb. Load
+	// OpsFDBClusterDir is the host directory that contains fdb.cluster. The ops
+	// fdbcli one-shots mount it read-write at /etc/foundationdb, and the
+	// fdbbackup one-shots mount it read-only at the same path. Load
 	// rejects a relative path, which Docker would read as a named volume.
 	OpsFDBClusterDir string `env:"TACK_OPS_FDB_CLUSTER_DIR" envDefault:"/etc/foundationdb"`
 }

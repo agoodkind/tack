@@ -14,8 +14,10 @@ import (
 )
 
 // TestSearchProjectionIndexesValidContent verifies that repeated renders return
-// identical text and diagnostics. The text includes the node name and the
-// included value. The renderer omits the following values:
+// identical text and diagnostics. The text includes the node name, the
+// included value, and the declared fields of the structured value in field
+// key order. An included definition without a value adds no text and no
+// diagnostic. The renderer omits the following values:
 //   - It omits the explicitly excluded value.
 //   - It omits the invalid label value.
 //   - It omits the invalid select option value.
@@ -35,8 +37,12 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 	included, excluded, labeled := opaqueName("p"), opaqueName("p"), opaqueName("c")
 	laterName, earlierName := opaqueName("b"), opaqueName("a")
 	optioned, restricted, listed := opaqueName("o"), opaqueName("r"), opaqueName("l")
+	structured, absent, summaryKey, tagsKey := opaqueName("s"), opaqueName("x"), opaqueName("f"), opaqueName("g")
 	scalar := node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}}
 	scalarItems := node.TextRule{Mode: node.TextRuleItems, Items: &node.TextRule{Mode: node.TextRuleScalar}}
+	structuredRule := node.TextRule{Mode: node.TextRuleObject, Fields: []node.TextField{
+		{Key: tagsKey, Rule: scalarItems}, {Key: summaryKey, Rule: node.TextRule{Mode: node.TextRuleScalar}},
+	}}
 	definitions := []*node.PropertyDef{
 		projectionDefinition(orgID, included, scalar),
 		projectionDefinition(orgID, excluded, node.SearchProjection{Include: false, Order: 1, Rule: node.TextRule{Mode: node.TextRuleScalar}}),
@@ -52,6 +58,8 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 			AppliesToFeatures: []string{node.FeatureHasDueDates}, Search: &scalar,
 		},
 		projectionDefinition(orgID, listed, node.SearchProjection{Include: true, Order: 3, Rule: scalarItems}),
+		projectionDefinition(orgID, structured, node.SearchProjection{Include: true, Order: 4, Rule: structuredRule}),
+		projectionDefinition(orgID, absent, node.SearchProjection{Include: true, Order: 5, Rule: node.TextRule{Mode: node.TextRuleScalar}}),
 	}
 	want := map[string]expectedDiagnostic{
 		earlierName: {reason: node.DiagnosticUndeclared, definitionID: uuid.Nil},
@@ -84,6 +92,7 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 		optioned:    json.RawMessage(`"amber-missing-option"`),
 		restricted:  json.RawMessage(`"amber inapplicable value"`),
 		listed:      json.RawMessage(`["amber listed value", null]`),
+		structured:  json.RawMessage(`{"` + tagsKey + `":["amber structured tag"],"` + summaryKey + `":"amber structured summary"}`),
 	}
 	nodeID := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()
@@ -103,7 +112,7 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 	if err != nil || second.Text != first.Text || !slices.Equal(second.Diagnostics, first.Diagnostics) {
 		t.Fatalf("a second read returned %+v, error %v, want the first read %+v", second, err, first)
 	}
-	if want := "Projection node\namber included value\n"; first.Text != want || !first.Done {
+	if want := "Projection node\namber included value\namber structured summary\namber structured tag\n"; first.Text != want || !first.Done {
 		t.Fatalf("search text = %q, done %t, want %q on one page", first.Text, first.Done, want)
 	}
 	wantNames := make([]string, 0, len(want))

@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"syscall"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -34,18 +35,29 @@ func (e unavailableError) Unwrap() []error {
 }
 
 // engineCause wraps err as [searchdomain.ErrEngineUnavailable] when a connection fails with
-// connection refused or a response status matches unavailableStatuses.
+// connection refused, a response status matches unavailableStatuses, or the request times out.
 // It returns err unchanged otherwise. It also logs each HTTP 429 rejection once.
 func engineCause(ctx context.Context, response *opensearch.Response, err error) error {
 	refused := errors.Is(err, syscall.ECONNREFUSED)
 	rejected := response != nil && slices.Contains(unavailableStatuses, response.StatusCode)
-	if !refused && !rejected {
+	if !refused && !rejected && !engineTimedOut(ctx, err) {
 		return err
 	}
 	if response != nil && response.StatusCode == http.StatusTooManyRequests {
 		logEngineRejection(ctx, response.StatusCode, err)
 	}
 	return unavailableError{err: err}
+}
+
+// engineTimedOut reports whether err ended an engine request at the client's per-attempt
+// timeout or at the deadline of ctx. A canceled ctx means the caller stopped waiting, and
+// engineTimedOut returns false for it.
+func engineTimedOut(ctx context.Context, err error) bool {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return false
+	}
+	var netError net.Error
+	return errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netError) && netError.Timeout())
 }
 
 // logEngineRejection logs search.engine.rejected at Error level with the error text, HTTP status,

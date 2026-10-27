@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
@@ -109,6 +109,7 @@ func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult 
 	case errors.Is(err, searchdomain.ErrInvalidQuery):
 		return recoverableError("query is invalid: " + err.Error())
 	case errors.Is(err, searchaccess.ErrAccessDenied):
+		noteOutcome(ctx, audit.OutcomeRefused, accessDeniedCode, "the caller cannot search this entry point")
 		return recoverableError("the caller cannot search this entry point")
 	case errors.Is(err, searchdomain.ErrSessionExpired), errors.Is(err, searchdomain.ErrSessionNotFound):
 		return recoverableError("the search cursor expired; start a new search without cursor")
@@ -119,7 +120,7 @@ func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult 
 	case errors.Is(err, searchdomain.ErrNoServingIndex):
 		return recoverableError("no search index is provisioned")
 	case errors.Is(err, searchdomain.ErrEngineUnavailable):
-		return searchUnavailable()
+		return searchUnavailable(ctx)
 	default:
 		return unexpectedError(ctx, err)
 	}

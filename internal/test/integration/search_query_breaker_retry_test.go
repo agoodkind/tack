@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	"goodkind.io/tack/internal/clock"
 )
 
@@ -103,7 +103,7 @@ func breakerTriggers(t *testing.T, fixture queryFixture) int64 {
 		} `json:"nodes"`
 	}
 	var raw json.RawMessage
-	response, err := opensearch.Do(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, mlStatsRequest{}, &raw)
+	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, mlStatsRequest{}, &raw)
 	if err != nil || response == nil || response.IsError() {
 		t.Fatalf("read ML Commons stats: response %v err %v", response, err)
 	}
@@ -137,9 +137,15 @@ func requireBreakerThreshold(t *testing.T, fixture queryFixture, value string) {
 // setBreakerThreshold writes the ML Commons heap threshold as a persistent
 // cluster setting. The value null restores the default.
 func setBreakerThreshold(ctx context.Context, fixture queryFixture, value string) error {
-	body := fmt.Appendf(nil, `{"persistent":{"plugins.ml_commons.jvm_heap_memory_threshold":%s}}`, value)
+	return setClusterSetting(ctx, fixture, "plugins.ml_commons.jvm_heap_memory_threshold", value)
+}
+
+// setClusterSetting writes one persistent cluster setting. The value is raw
+// JSON, and null restores the default.
+func setClusterSetting(ctx context.Context, fixture queryFixture, name, value string) error {
+	body := fmt.Appendf(nil, `{"persistent":{%q:%s}}`, name, value)
 	var result json.RawMessage
-	response, err := opensearch.Do(ctx, fixture.Client.Client, http.MethodPut, clusterSettingsRequest{body: body}, &result)
+	response, err := opensearch.Execute(ctx, fixture.Client.Client, http.MethodPut, clusterSettingsRequest{body: body}, &result)
 	if err != nil {
 		return err
 	}
@@ -163,7 +169,7 @@ func predictRequests(t *testing.T, fixture queryFixture, modelID string) int {
 			} `json:"models"`
 		} `json:"nodes"`
 	}
-	response, err := opensearch.Do(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, clusterModelProfileRequest{modelID: modelID}, &profile)
+	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, clusterModelProfileRequest{modelID: modelID}, &profile)
 	if err != nil || response == nil || response.IsError() {
 		t.Fatalf("read model profile %s: response %v err %v", modelID, response, err)
 	}

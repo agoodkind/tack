@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"github.com/spf13/cobra"
 
 	"goodkind.io/tack/internal/adapters/search"
@@ -82,7 +82,7 @@ func TestSearchControlCommandsRejectIndependentTopologyAndAliasMismatches(t *tes
 	}
 	body := `{"actions":[{"remove":{"index":"` + searchControlIndex + `","alias":"` + searchControlAlias + `"}},` +
 		`{"add":{"index":"` + searchControlOtherIndex + `","alias":"` + searchControlAlias + `"}}]}`
-	response, err := control.client.Aliases(WithTestOperation(t, t.Context()), opensearchapi.AliasesReq{Body: strings.NewReader(body)})
+	response, err := control.client.Indices.UpdateAliases(WithTestOperation(t, t.Context()), &opensearchapi.IndicesUpdateAliasesReq{BodyReader: strings.NewReader(body)})
 	if err != nil {
 		t.Fatal(err)
 	}

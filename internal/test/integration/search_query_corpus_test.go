@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // opaqueKind represents a generated node type with one included and one
@@ -81,10 +83,16 @@ func entryTypeKeys(t *testing.T, fixture queryFixture, orgID uuid.UUID) []string
 }
 
 // fixtureNodeService builds the production node service over the
-// fixture's FoundationDB stores.
-func fixtureNodeService(fixture queryFixture) *service.NodeService {
+// fixture's FoundationDB stores and the ledger membership table.
+func fixtureNodeService(t *testing.T, fixture queryFixture) *service.NodeService {
+	t.Helper()
 	stores := fixture.Stores
-	return service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter)
+	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, fixture.Config.DatabaseURL))
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	if err != nil {
+		t.Fatalf("build the node service: %v", err)
+	}
+	return nodes
 }
 
 // putOpaqueNode creates a node of kind under parentID through
@@ -94,7 +102,7 @@ func fixtureNodeService(fixture queryFixture) *service.NodeService {
 func putOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID uuid.UUID, name, included, excluded string) uuid.UUID {
 	t.Helper()
 	props := map[string]json.RawMessage{kind.IncludedKey: mustJSON(included), kind.ExcludedKey: mustJSON(excluded)}
-	result, err := fixtureNodeService(fixture).Create(WithTestOperation(t, t.Context()), service.CreateInput{
+	result, err := fixtureNodeService(t, fixture).Create(WithTestOperation(t, t.Context()), service.CreateInput{
 		ParentID: parentID, NodeTypeKey: kind.TypeKey, Name: name, Props: props,
 	})
 	if err != nil {
@@ -117,7 +125,7 @@ func moveOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID,
 	if current.NodeType != kind.TypeKey || !bytes.Equal(current.Props["parent_id"], mustJSON(from.String())) {
 		t.Fatalf("node %s has type %s and parent_id %s, want type %s under %s", nodeID, current.NodeType, current.Props["parent_id"], kind.TypeKey, from)
 	}
-	if _, err := fixtureNodeService(fixture).Update(WithTestOperation(t, t.Context()), service.UpdateInput{
+	if _, err := fixtureNodeService(t, fixture).Update(WithTestOperation(t, t.Context()), service.UpdateInput{
 		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": mustJSON(to.String()), "scope_id": mustJSON(to.String())},
 	}); err != nil {
 		t.Fatalf("move node %s from %s to %s: %v", nodeID, from, to, err)

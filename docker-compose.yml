@@ -35,6 +35,8 @@ x-opensearch-environment: &opensearch_environment
   OPENSEARCH_SESSION_IDLE_TIMEOUT: ${OPENSEARCH_SESSION_IDLE_TIMEOUT:-}
   OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT: ${OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT:-}
   OPENSEARCH_QUERY_DEADLINE: ${OPENSEARCH_QUERY_DEADLINE:-}
+  OPENSEARCH_QUERY_CONCURRENCY: ${OPENSEARCH_QUERY_CONCURRENCY:-}
+  OPENSEARCH_QUERY_ADMISSION_WAIT: ${OPENSEARCH_QUERY_ADMISSION_WAIT:-}
   OPENSEARCH_PAGE_BYTES: ${OPENSEARCH_PAGE_BYTES:-}
   OPENSEARCH_WORKER_MAX_PAGES: ${OPENSEARCH_WORKER_MAX_PAGES:-}
   OPENSEARCH_WORKER_MAX_BYTES: ${OPENSEARCH_WORKER_MAX_BYTES:-}
@@ -118,6 +120,10 @@ services:
       # carries it because the generator needs FoundationDB reachability and the
       # audit DSNs, which the host-networked tack-ops container does not have.
       TACK_DATAGEN_ALLOW_TARGET: ${TACK_DATAGEN_ALLOW_TARGET:-}
+      # TACK_REPAIR_DIR sets the repair directory that the volume below mounts.
+      # The repair command refuses request, manifest, and export file paths
+      # outside this directory.
+      TACK_REPAIR_DIR: /var/lib/tack/repair
     secrets:
       - DATABASE_URL
       - AUDIT_OPERATOR_DSN
@@ -130,6 +136,12 @@ services:
       # finding the cluster once every one of them is gone (TACK-408).
       - /etc/foundationdb:/etc/foundationdb
       - tack-logs:/var/log/tack
+      # The repair command reads requests and manifests from this host
+      # directory and writes deletion exports into it. The exports remain on
+      # the host after docker compose run --rm app removes the container.
+      # Docker creates the host directory on the first start if it does not
+      # exist.
+      - /var/lib/tack/repair:/var/lib/tack/repair
     # No yugabyte dependency: deployed guests reach the ledger on the data
     # guests through the rendered override's multi-host URL, and the deploy
     # starts the app only after provision. This base file alone still dials

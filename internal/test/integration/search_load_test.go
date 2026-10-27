@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
@@ -26,6 +27,7 @@ const searchLoadMinimumSamples = 2
 
 type searchLoadOutput struct {
 	Result struct {
+		Planned            int     `json:"planned"`
 		Sent               int     `json:"sent"`
 		Completed          int     `json:"completed"`
 		Dropped            int     `json:"dropped"`
@@ -50,6 +52,8 @@ type searchLoadOutput struct {
 				Error       string `json:"error"`
 			} `json:"samples"`
 		} `json:"point_in_time"`
+		MaxWallTime string `json:"max_wall_time"`
+		StopReason  string `json:"stop_reason"`
 	} `json:"result"`
 }
 
@@ -93,6 +97,34 @@ func TestSearchLoadReportsMeasuredRate(t *testing.T) {
 	}
 	t.Logf("search load sent=%d completed=%d dropped=%d completed_per_minute=%.1f p50_ms=%.1f point_in_time_peak=%d",
 		result.Sent, result.Completed, result.Dropped, result.CompletedPerMinute, result.LatencyMs.P50, result.PointInTime.Peak)
+}
+
+// TestSearchLoadStopsAtMaxWallTime runs search-load in process with --max-wall-time 10s and
+// --duration 2m. It requires the command to write its result before the scheduling duration
+// ends, to schedule fewer requests than it planned, and to report max_wall_time as the stop
+// reason.
+func TestSearchLoadStopsAtMaxWallTime(t *testing.T) {
+	const scheduleDuration = 2 * time.Minute
+	cfg := newCohortEngines(t)
+	seed := strconv.FormatInt(clock.Now().UnixNano(), 10)
+	started := clock.Now()
+	output, err := runSearchLoadCommand(t, cfg, "--seed", seed, "--rate", "60", "--duration", scheduleDuration.String(),
+		"--concurrency", "4", "--max-wall-time", "10s", "--commit")
+	elapsed := clock.Now().Sub(started)
+	if err != nil {
+		t.Fatalf("qa datagen search-load: run workload with a wall-time bound: %v; output=%s", err, output)
+	}
+	if elapsed >= scheduleDuration {
+		t.Fatalf("qa datagen search-load: the command returned after %s, which is not before the %s duration ended", elapsed, scheduleDuration)
+	}
+	var envelope searchLoadOutput
+	if err := json.Unmarshal(output, &envelope); err != nil {
+		t.Fatalf("qa datagen search-load: decode result: %v; output=%s", err, output)
+	}
+	result := envelope.Result
+	if result.StopReason != "max_wall_time" || result.MaxWallTime != "10s" || result.Sent+result.Dropped >= result.Planned {
+		t.Fatalf("qa datagen search-load: the result must report the 10s wall-time bound as the stop reason and fewer scheduled requests than planned: %s", output)
+	}
 }
 
 func runSearchLoadCommand(t *testing.T, cfg *config.Config, flags ...string) ([]byte, error) {

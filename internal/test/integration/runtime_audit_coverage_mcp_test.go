@@ -38,7 +38,11 @@ func (env *coverageEnv) toolCall(t *testing.T, tool string, arguments map[string
 	t.Helper()
 	requestID := newRequestID(t, "coverage-"+tool)
 	response := env.server.rpc(t, requestID, "tools/call", map[string]any{"name": tool, "arguments": arguments})
-	return coverageEvidence{orgID: env.server.orgID, requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil}, toolText(t, response)
+	evidence := coverageEvidence{
+		orgID: env.server.orgID, requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil,
+		body: response.body, targetID: argumentNodeID(t, arguments),
+	}
+	return evidence, toolText(t, response)
 }
 
 // toolCase creates a tool invocation case with an expected audit verb and
@@ -119,7 +123,7 @@ func addMCPCases(cases map[string]coverageCase) {
 }
 
 // runSearchCase invokes tack_search and validates its tool result. It expects
-// success with OpenSearch and an error result with a refused audit outcome
+// success with OpenSearch and an error result with a failed audit outcome
 // without OpenSearch.
 func runSearchCase(t *testing.T, env *coverageEnv) coverageEvidence {
 	t.Helper()
@@ -127,7 +131,10 @@ func runSearchCase(t *testing.T, env *coverageEnv) coverageEvidence {
 	response := env.server.rpc(t, requestID, "tools/call", map[string]any{
 		"name": "tack_search", "arguments": map[string]any{"workspace_reference": env.server.workspace, "query": "coverage"},
 	})
-	evidence := coverageEvidence{orgID: env.server.orgID, requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil}
+	evidence := coverageEvidence{
+		orgID: env.server.orgID, requestID: requestID, actorID: uuid.Nil, outcome: "", outbox: nil,
+		body: response.body, targetID: uuid.Nil,
+	}
 	if env.searchEnabled {
 		toolText(t, response)
 		return evidence
@@ -135,6 +142,6 @@ func runSearchCase(t *testing.T, env *coverageEnv) coverageEvidence {
 	if response.status != http.StatusOK || !strings.Contains(string(response.body), `"isError":true`) {
 		t.Fatalf("tack_search did not return the expected HTTP 200 response with isError=true while OpenSearch was disabled; the observed status and body follow: %d %s", response.status, response.body)
 	}
-	evidence.outcome = audit.OutcomeRefused
+	evidence.outcome = audit.OutcomeFailed
 	return evidence
 }

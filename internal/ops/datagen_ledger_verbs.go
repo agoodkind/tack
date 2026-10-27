@@ -23,7 +23,9 @@ var datagenLedgerVerbs = []string{
 	string(audit.VerbOpsLedgerAuditBootstrap),
 	string(audit.VerbSearchIndexStructure),
 	string(audit.VerbSearchAccessRolloutPhase),
+	string(audit.VerbSearchModelRepair),
 	string(audit.VerbAuditPartitionMaintain),
+	string(audit.VerbNodeSubtreeDeleteResume),
 }
 
 // datagenLedgerVerb is the row count and newest event time of one verb on the

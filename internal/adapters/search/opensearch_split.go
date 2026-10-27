@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"slices"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -70,7 +70,7 @@ type splitSettings struct {
 // the request sets one. A target that already has the requested primary
 // count satisfies the request.
 func (a *Adapter) SplitIndex(ctx context.Context, source, target string, primaries, replicas int) error {
-	exists, err := opensearch.Do[json.RawMessage](ctx, a.client, http.MethodHead, opensearchapi.IndicesExistsReq{Indices: []string{target}}, nil)
+	exists, err := opensearch.Execute[json.RawMessage](ctx, a.client, http.MethodHead, &opensearchapi.IndicesExistsReq{Indices: []string{target}}, nil)
 	if err != nil {
 		return engineFailure(ctx, "search.split.exists_failed", "check split target "+target, target, err)
 	}
@@ -91,7 +91,7 @@ func (a *Adapter) SplitIndex(ctx context.Context, source, target string, primari
 	if err != nil {
 		return engineFailure(ctx, "search.split.encode_failed", "encode split of "+source, source, err)
 	}
-	response, err := a.api.Indices.Split(ctx, opensearchapi.IndicesSplitReq{Index: source, Target: target, Body: bytes.NewReader(body)})
+	response, err := a.api.Indices.Split(ctx, opensearchapi.IndicesSplitReq{Index: source, Target: target, BodyReader: bytes.NewReader(body)})
 	if err != nil {
 		return engineFailure(ctx, "search.split.failed", "split "+source+" into "+target, source, err)
 	}
@@ -121,7 +121,7 @@ func (a *Adapter) SetWriteBlock(ctx context.Context, index string, blocked bool)
 	if err != nil {
 		return engineFailure(ctx, "search.block.encode_failed", "encode write block of "+index, index, err)
 	}
-	response, err := a.api.Indices.Settings.Put(ctx, opensearchapi.SettingsPutReq{Indices: []string{index}, Body: bytes.NewReader(body)})
+	response, err := a.api.Indices.PutSettings(ctx, &opensearchapi.IndicesPutSettingsReq{Indices: []string{index}, BodyReader: bytes.NewReader(body)})
 	if err != nil && response != nil && response.Inspect().Response != nil && response.Inspect().Response.StatusCode == http.StatusNotFound {
 		telemetry.L(ctx).InfoContext(ctx, "search.block.index_missing", slog.String("index", index), slog.Bool("blocked", blocked))
 		return searchdomain.ErrIndexNotFound

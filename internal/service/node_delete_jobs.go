@@ -40,8 +40,9 @@ func (s *NodeService) DeleteStatus(ctx context.Context, jobID uuid.UUID) (Delete
 // step in the last staleAfter, and returns the number of jobs it finished. A
 // running job without a recent step has no runner: its request used up
 // deleteRequestBudget, stopped, or crashed. The pass also clears the records
-// of jobs that finished more than finishedDeleteRetention ago.
-func (s *NodeService) ResumeSubtreeDeletes(ctx context.Context, staleAfter time.Duration) (int, error) {
+// of jobs that finished more than finishedDeleteRetention ago. Each resumed
+// job runs as one service step that recording stores.
+func (s *NodeService) ResumeSubtreeDeletes(ctx context.Context, staleAfter time.Duration, recording JobAudit) (int, error) {
 	now := clock.Now()
 	after := uuid.Nil
 	finished := 0
@@ -53,7 +54,7 @@ func (s *NodeService) ResumeSubtreeDeletes(ctx context.Context, staleAfter time.
 		}
 		for _, job := range jobs {
 			after = job.ID
-			resumed, err := s.resumeJob(ctx, job, now, staleAfter)
+			resumed, err := s.resumeJob(ctx, recording, job, now, staleAfter)
 			if err != nil {
 				return finished, err
 			}
@@ -69,7 +70,13 @@ func (s *NodeService) ResumeSubtreeDeletes(ctx context.Context, staleAfter time.
 
 // resumeJob clears an expired finished job or finishes a stale running job.
 // It reports whether it finished a running job.
-func (s *NodeService) resumeJob(ctx context.Context, job *node.SubtreeDeleteJob, now time.Time, staleAfter time.Duration) (bool, error) {
+func (s *NodeService) resumeJob(
+	ctx context.Context,
+	recording JobAudit,
+	job *node.SubtreeDeleteJob,
+	now time.Time,
+	staleAfter time.Duration,
+) (bool, error) {
 	if job.Finished() {
 		if now.Sub(job.FinishedAt) < finishedDeleteRetention {
 			return false, nil
@@ -83,7 +90,7 @@ func (s *NodeService) resumeJob(ctx context.Context, job *node.SubtreeDeleteJob,
 	if job.UpdatedAt.After(now.Add(-staleAfter)) {
 		return false, nil
 	}
-	result, err := s.runSubtreeDelete(ctx, job.ID, 0)
+	result, err := s.recordResume(ctx, recording, job)
 	if err != nil {
 		return false, err
 	}

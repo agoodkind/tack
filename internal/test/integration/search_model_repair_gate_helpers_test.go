@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	"goodkind.io/tack/internal/config"
 	appruntime "goodkind.io/tack/internal/runtime"
 )
@@ -46,7 +46,7 @@ func disableNativeRedeploy(t *testing.T, fixture queryFixture) {
 	t.Helper()
 	body := []byte(`{"persistent":{"plugins.ml_commons.model_auto_redeploy.enable":false}}`)
 	var result json.RawMessage
-	response, err := opensearch.Do(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodPut, clusterSettingsRequest{body: body}, &result)
+	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodPut, clusterSettingsRequest{body: body}, &result)
 	if err != nil || response == nil || response.IsError() {
 		t.Fatalf("disable native automatic redeploy: response %v err %v body %s", response, err, result)
 	}
@@ -66,7 +66,7 @@ func deployTasksSince(t *testing.T, fixture queryFixture, modelID string, since 
 			} `json:"total"`
 		} `json:"hits"`
 	}
-	response, err := opensearch.Do(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodPost, deployTasksSinceRequest{body: body}, &result)
+	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodPost, deployTasksSinceRequest{body: body}, &result)
 	if err != nil || response == nil || response.IsError() {
 		t.Fatalf("count deploy tasks of model %s since %s: response %v err %v", modelID, since, response, err)
 	}
@@ -98,7 +98,7 @@ func writeDeployTask(t *testing.T, fixture queryFixture, task staleDeployTask) {
 		task.modelID, task.created.UnixMilli(), task.updated.UnixMilli())
 	request := nativeMLRequest{path: deployTaskPath + task.id + "?refresh=true", body: body}
 	var result json.RawMessage
-	response, err := opensearch.Do(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodPut, request, &result)
+	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodPut, request, &result)
 	if err != nil || response == nil || response.IsError() {
 		t.Fatalf("The repair query must observe the task immediately after insertion.  -rejected: task %s response %v err %v body %s", task.id, response, err, result)
 	}
@@ -109,7 +109,7 @@ func deleteDeployTask(t *testing.T, fixture queryFixture, taskID string) {
 	t.Helper()
 	var result json.RawMessage
 	request := nativeMLRequest{path: deployTaskPath + taskID, body: nil}
-	response, err := opensearch.Do(context.WithoutCancel(WithTestOperation(t, t.Context())), fixture.Client.Client, http.MethodDelete, request, &result)
+	response, err := opensearch.Execute(context.WithoutCancel(WithTestOperation(t, t.Context())), fixture.Client.Client, http.MethodDelete, request, &result)
 	if err != nil || response == nil || response.IsError() {
 		t.Logf("The injected task must not affect later tests after cancellation.  -failed: task %s response %v err %v body %s", taskID, response, err, result)
 	}
@@ -122,7 +122,7 @@ func restoreNativeModel(t *testing.T, fixture queryFixture) {
 	defer cancel()
 	var result json.RawMessage
 	request := clusterSettingsRequest{body: []byte(nativeRedeployDefault)}
-	response, err := opensearch.Do(ctx, fixture.Client.Client, http.MethodPut, request, &result)
+	response, err := opensearch.Execute(ctx, fixture.Client.Client, http.MethodPut, request, &result)
 	if err != nil || response == nil || response.IsError() {
 		t.Errorf("restore native redeployment setting failed: response %v err %v body %s", response, err, result)
 	}

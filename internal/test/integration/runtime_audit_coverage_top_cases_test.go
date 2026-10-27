@@ -82,6 +82,7 @@ func topLevelCases() map[string]topLevelCase {
 		"command tack audit signers":      topLevelCommand(audit.VerbAuditSignersVerified, audit.OutcomeOK, signersArgs),
 		"command tack audit query":        topLevelCommand(audit.VerbAuditRead, audit.OutcomeOK, queryArgs),
 		"command tack audit get":          topLevelCommand(audit.VerbAuditRead, audit.OutcomeOK, getArgs),
+		"command tack audit last-change":  topLevelCommand(audit.VerbAuditRead, audit.OutcomeOK, lastChangeArgs),
 		"command tack audit redact-actor": topLevelCommand(audit.VerbAuditPIIRedacted, audit.OutcomeOK, redactArgs),
 	}
 }
@@ -96,6 +97,10 @@ func queryArgs(_ *testing.T, env *topLevelEnv) []string {
 
 func getArgs(_ *testing.T, env *topLevelEnv) []string {
 	return []string{"audit", "get", "--event-id", env.eventID.String()}
+}
+
+func lastChangeArgs(_ *testing.T, env *topLevelEnv) []string {
+	return slices.Concat([]string{"audit", "last-change", "--entity-id", uuid.Must(uuid.NewV7()).String()}, env.window())
 }
 
 func redactArgs(_ *testing.T, env *topLevelEnv) []string {

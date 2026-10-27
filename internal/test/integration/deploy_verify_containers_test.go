@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 
@@ -58,12 +59,16 @@ func createServiceContainer(t *testing.T, cli *client.Client, name, service, ref
 
 // removeDeployContainer removes a test container with its anonymous volumes.
 // The registry image declares one for /var/lib/registry, which stores the
-// pushed images.
+// pushed images. It returns without an error when a test step already removed
+// the container.
 func removeDeployContainer(t *testing.T, cli *client.Client, name string) {
 	t.Helper()
 	cleanup, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	inspected, err := cli.ContainerInspect(cleanup, name, client.ContainerInspectOptions{})
+	if cerrdefs.IsNotFound(err) {
+		return
+	}
 	if err != nil {
 		t.Errorf("inspect container %s before removal: %v", name, err)
 		return

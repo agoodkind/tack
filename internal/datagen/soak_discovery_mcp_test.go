@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 type soakDiscoveryMCP struct {
-	renderedLabelGets    []string
+	labelGets            []string
 	labelCreateArguments []ToolArguments
 }
 
@@ -46,12 +44,8 @@ func (f *soakDiscoveryMCP) ServeHTTP(writer http.ResponseWriter, request *http.R
 	case "tack_list_modules":
 		writeDiscoveryList(writer, "modules", "Q0101-4", "Existing module")
 	case "tack_get_label":
-		if _, err := uuid.Parse(args.NodeID); err != nil {
-			f.renderedLabelGets = append(f.renderedLabelGets, args.NodeID)
-			writeRerunResult(writer, "not found", true)
-			return
-		}
-		writeDiscoveryNode(writer, deterministicUUID("label").String(), "", 0)
+		f.labelGets = append(f.labelGets, args.NodeID)
+		writeDiscoveryNode(writer, deterministicUUID(args.NodeID).String(), "", 0)
 	case "tack_create_label":
 		f.labelCreateArguments = append(f.labelCreateArguments, args)
 		writeDiscoveryNode(writer, deterministicUUID(args.Name).String(), "", 0)

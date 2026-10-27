@@ -2,6 +2,7 @@ package foundationdb
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"goodkind.io/tack/internal/domain"
@@ -83,15 +84,25 @@ func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction
 	if err != nil {
 		return none, err
 	}
-	if err := refuseStrictResult(ctx, plan.NodeID, strict); err != nil {
+	if err := checkStrictMutation(ctx, tr, strict, &result, plan.Parent); err != nil {
 		return none, err
 	}
 	if err := checkMutationResult(ctx, tr, plan, source, &result, schema); err != nil {
 		return none, err
 	}
+	planned, err := json.Marshal(&result)
+	if err != nil {
+		return none, nodeOperationFailure(ctx, "encode node "+plan.NodeID.String(), err)
+	}
+	if err := advanceMutationCheckpoint(ctx, tr, plan.Checkpoint, planned); err != nil {
+		return none, err
+	}
 	relationshipChanges := []node.RelationshipChanges{planRelationshipChanges(plan), parentChanges}
 	encoded, err := s.writeMutation(ctx, tr, plan, source, &result, schema, relationshipChanges, changes)
 	if err != nil {
+		return none, err
+	}
+	if err := checkStrictRelationshipAdds(ctx, tr, strict, relationshipChanges); err != nil {
 		return none, err
 	}
 	receipt := node.MutationReceipt{OrgID: plan.OrgID, NodeID: plan.NodeID, SourceDigest: node.Digest{}, ResultDigest: node.PrimaryDigest(encoded)}
@@ -168,7 +179,7 @@ func (s *NodeStore) writeMutation(
 		return encoded, nil
 	}
 	now := s.clock.Now()
-	if _, err := scheduleSearchChange(ctx, tr, now, plan.OrgID, plan.NodeID, mutationSearchChange(source, result, schema.Definitions)); err != nil {
+	if _, err := scheduleSearchChange(ctx, tr, now, plan.OrgID, plan.NodeID, mutationSearchChange(source, result, schema)); err != nil {
 		return nil, err
 	}
 	if !source.Exists {

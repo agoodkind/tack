@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -93,24 +92,18 @@ func deliverReadThroughRelay(t *testing.T, backend *readBackend, eventID uuid.UU
 }
 
 // yugabyteOutboxRecords returns the part messages and then the outbox record
-// of eventID from public.ops_outbox_parts and public.ops_outbox.
+// of eventID from public.ops_outbox_parts and public.ops_outbox. One statement
+// reads both tables from one snapshot. The result contains every record of a
+// committed write or none of them.
 func yugabyteOutboxRecords(t *testing.T, admin *pgxpool.Pool, eventID uuid.UUID) [][]byte {
 	t.Helper()
-	rows, err := admin.Query(t.Context(), readTestSQL(t, "runtime_audit_read_outbox_parts.sql"), eventID)
+	rows, err := admin.Query(t.Context(), readTestSQL(t, "runtime_audit_read_outbox_records.sql"), eventID)
 	if err != nil {
-		t.Fatalf("read the YugabyteDB outbox parts: %v", err)
+		t.Fatalf("read the YugabyteDB outbox records of event %s: %v", eventID, err)
 	}
 	records, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
 	if err != nil {
-		t.Fatalf("scan the YugabyteDB outbox parts: %v", err)
+		t.Fatalf("scan the YugabyteDB outbox records of event %s: %v", eventID, err)
 	}
-	var record []byte
-	err = admin.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_read_outbox.sql"), eventID).Scan(&record)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return records
-	}
-	if err != nil {
-		t.Fatalf("read the YugabyteDB outbox: %v", err)
-	}
-	return append(records, record)
+	return records
 }

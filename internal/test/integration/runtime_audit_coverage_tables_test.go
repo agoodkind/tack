@@ -9,15 +9,12 @@ var pendingCoverage = map[string]string{}
 // runs the OpenSearch cases successfully; the default suite checks their
 // failure or dry run behavior.
 var failureOnlyCoverage = map[string]string{
-	"mcp tool tack_search":                   coverageNeedsOpenSearch,
-	"command ops search verify":              coverageNeedsOpenSearch,
-	"command ops qa datagen search":          coverageNeedsOpenSearch,
-	"command ops qa datagen search-load":     coverageNeedsOpenSearch,
-	"command ops qa datagen search-mixed":    coverageNeedsOpenSearch,
-	"command ops search provision":           "The successful path requires OpenSearch and a FoundationDB key prefix without a serving index; TestSearchRuntimeAuditProvisionCoverage runs it.",
-	"command ops backup fdb-continuous-init": "The successful path requires a FoundationDB cluster file at /etc/foundationdb on the Docker daemon host.",
-	"command ops backup restore-drill":       "The successful path requires a FoundationDB continuous backup from ops backup fdb-continuous-init.",
-	"command ops store exclude":              "The successful path requires a FoundationDB cluster with more than one storage process.",
+	"mcp tool tack_search":                coverageNeedsOpenSearch,
+	"command ops search verify":           coverageNeedsOpenSearch,
+	"command ops qa datagen search":       coverageNeedsOpenSearch,
+	"command ops qa datagen search-load":  coverageNeedsOpenSearch,
+	"command ops qa datagen search-mixed": coverageNeedsOpenSearch,
+	"command ops search provision":        "The successful path requires OpenSearch and a FoundationDB key prefix without a serving index; TestSearchRuntimeAuditProvisionCoverage runs it.",
 }
 
 const coverageNeedsOpenSearch = "The successful path requires OpenSearch; the test runner starts it only when TACK_SEARCH_INTEGRATION=1."

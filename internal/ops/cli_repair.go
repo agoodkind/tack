@@ -93,7 +93,10 @@ func repairPreviewOp(f *cli.Factory) clispec.Operation[repairPreviewInput] {
 				return err
 			}
 			defer env.Close()
-			console := NewRepairConsoleFromEnv(env)
+			console, err := NewRepairConsoleFromEnv(env)
+			if err != nil {
+				return err
+			}
 			if strings.TrimSpace(in.Manifest) != "" {
 				out, manifestErr := previewRepairManifest(ctx, console, repairClass, in.Manifest)
 				if manifestErr != nil {
@@ -186,7 +189,10 @@ func repairApplyOp(f *cli.Factory) clispec.Operation[repairApplyInput] {
 				return err
 			}
 			defer env.Close()
-			console := NewRepairConsoleFromEnv(env)
+			console, err := NewRepairConsoleFromEnv(env)
+			if err != nil {
+				return err
+			}
 			if strings.TrimSpace(in.Manifest) != "" {
 				out, manifestErr := applyRepairManifest(ctx, console, repairClass, in.Manifest, actorID)
 				if manifestErr != nil {

@@ -29,7 +29,8 @@ func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *
 	}
 	err = runNodeMutation(ctx, s.db, "create node "+current.ID.String()+" atomically", func(tr fdb.Transaction) error {
 		changes.startAttempt()
-		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
+		strict, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID)
+		if err != nil {
 			return err
 		}
 		if err := writeCreateIdempotency(ctx, tr, current.OrgID, idempotency); err != nil {
@@ -48,6 +49,9 @@ func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *
 			return err
 		}
 		if err := addRelationships(ctx, tr, relationships, changes); err != nil {
+			return err
+		}
+		if err := checkStrictWrite(ctx, tr, strict, current, []node.RelationshipChanges{{Add: relationships, Remove: nil}}); err != nil {
 			return err
 		}
 		if s.searchWork {

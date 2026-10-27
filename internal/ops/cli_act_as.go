@@ -2,6 +2,8 @@ package ops
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
@@ -75,10 +77,14 @@ func runActAsCreateWithEnv(ctx context.Context, f *cli.Factory, input actAsCreat
 		return err
 	}
 	defer env.Close()
-	nodes := service.NewNodeService(
+	nodes, err := service.NewNodeService(
 		env.Stores.Nodes, env.Stores.Views, env.Stores.NodeTypes, env.Stores.PropertyDefs,
-		env.Stores.Relationships, env.Stores.NodeDeleter,
+		env.Stores.Relationships, env.Stores.NodeDeleter, postgres.NewOrgMemberRepo(env.Pool), env.Stores.Relationships,
 	)
+	if err != nil {
+		slog.ErrorContext(ctx, "act_as.node_service_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("build the act-as node service: %w", err)
+	}
 	deps := actAsDeps{
 		outbox:   f.AuditOutbox(),
 		identity: f.OperatorIdentitySource(),

@@ -122,15 +122,25 @@ type MutationPlan struct {
 	ReferenceKeys []ReferenceKey
 	Relationships RelationshipChanges
 	Idempotency   *IdempotencyRecord
+	Checkpoint    *CheckpointWrite `exhaustruct:"optional"`
 }
 
 // DeletionPlan specifies one checked deletion of exactly one node.
 type DeletionPlan struct {
-	OrgID   uuid.UUID
-	NodeID  uuid.UUID
-	ActorID uuid.UUID
-	Source  SourceExpectation
-	Graph   GraphExpectation
+	OrgID      uuid.UUID
+	NodeID     uuid.UUID
+	ActorID    uuid.UUID
+	Source     SourceExpectation
+	Graph      GraphExpectation
+	Checkpoint *CheckpointWrite `exhaustruct:"optional"`
+}
+
+// CheckpointWrite updates a repair checkpoint in the same transaction as
+// one checked mutation. The transaction writes Next only when the stored
+// phase equals Previous.
+type CheckpointWrite struct {
+	Previous RepairPhase
+	Next     RepairCheckpoint
 }
 
 // MutationReceipt reports the committed transaction attempt. If a create

@@ -13,9 +13,11 @@ import (
 	"github.com/google/uuid"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/test/integration"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // coverageLegacyProperty is the property key that repair cases add to a node
@@ -73,6 +75,26 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	cases["command ops batch reference.duplicates"] = commandCase(audit.VerbOpsReferenceDuplicates, audit.OutcomeOK,
 		fixedCommand("ops", "batch", "reference.duplicates"))
 	cases["command ops batch reindex"] = commandCase(audit.VerbOpsReindex, audit.OutcomeOK, fixedCommand("ops", "batch", "reindex"))
+	cases["command ops verify strict-validation"] = strictValidationCase()
+}
+
+// strictValidationCase stores an issue with an undeclared property and runs
+// the strict validation dry run, which must succeed and record a completed
+// read. The case runs without --execute to keep strict validation inactive for
+// the other cases.
+func strictValidationCase() coverageCase {
+	return coverageCase{
+		run: func(t *testing.T, env *coverageEnv) coverageEvidence {
+			nodeID, _ := env.legacyRepair(t)
+			args := []string{"ops", "verify", "strict-validation"}
+			operatorID, output, err := env.runCommand(t, commandInput{args: args, configure: nil, outbox: nil})
+			if err != nil {
+				t.Fatalf("The strict validation dry run failed with issue %s that stores an undeclared property: %v\n%s", nodeID, err, output)
+			}
+			return operatorEvidence(operatorID)
+		},
+		verb: audit.VerbOpsStrictValidation, outcome: audit.OutcomeCompleted, check: nil,
+	}
 }
 
 // stores opens FoundationDB stores using the test server's cluster file.
@@ -129,7 +151,11 @@ func (env *coverageEnv) repairProfile() *ops.RepairReferenceProfile {
 func (env *coverageEnv) repairToken(t *testing.T, nodeID uuid.UUID) string {
 	t.Helper()
 	stores := env.stores(t)
-	console := ops.NewRepairConsole(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships)
+	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, env.server.config.DatabaseURL))
+	console, err := ops.NewRepairConsole(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, members, stores.Relationships, stores.Relationships)
+	if err != nil {
+		t.Fatalf("Repair console construction failed; the repair case requires a console: %v", err)
+	}
 	preview, err := console.Preview(integration.WithTestOperation(t, t.Context()), ops.RepairPreviewInput{
 		Class: ops.RepairClassPropsTransform, NodeID: nodeID, Profile: env.repairProfile(),
 	})

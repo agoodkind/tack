@@ -99,9 +99,9 @@ func writeEvent(ctx context.Context, tx pgx.Tx, event audit.Event) error {
 	return nil
 }
 
-// changeTx runs work in one transaction on pool with pgx.BeginFunc. If the
-// transaction fails, it records a failed result event for target and joins the
-// transaction error with any error from recording that event.
+// changeTx runs work on pool with runChangeTx. If runChangeTx returns an
+// error, changeTx records a failed result event for target and joins that
+// error with any error from recording the event.
 func changeTx(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -109,7 +109,7 @@ func changeTx(
 	target audit.Target,
 	work func(pgx.Tx) error,
 ) error {
-	err := pgx.BeginFunc(ctx, pool, work)
+	err := runChangeTx(ctx, pool, work)
 	if err == nil {
 		return nil
 	}

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/node"
@@ -26,6 +26,8 @@ type authzFixture struct {
 	server             *mcpserver.MCPServer
 	relationships      *fakeRelationships
 	projectType        *node.NodeType
+	// recorder is the audit sink that ctx attaches to every tool call.
+	recorder audit.Recorder
 }
 
 type fakeRelationships struct {
@@ -51,7 +53,7 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	f := &authzFixture{
 		orgA: uuid.New(), orgB: uuid.New(),
 		workspaceID: uuid.New(), projectA: uuid.New(), projectB: uuid.New(),
-		resolver: nil, reader: nil, server: nil, relationships: &fakeRelationships{}, projectType: nil,
+		resolver: nil, reader: nil, server: nil, relationships: &fakeRelationships{}, projectType: nil, recorder: audit.NewMemoryRecorder(),
 	}
 	workspace := &node.NodeView{ID: f.workspaceID, OrgID: f.orgA, NodeType: "workspace", Name: "Main", Props: map[string]json.RawMessage{"slug": mustRaw(t, "main")}}
 	projectA := &node.NodeView{ID: f.projectA, OrgID: f.orgA, NodeType: "project", Name: "Ours", Props: map[string]json.RawMessage{"identifier": mustRaw(t, "OURS"), "parent_id": mustRaw(t, f.workspaceID.String())}}
@@ -89,7 +91,7 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 }
 
 func (f *authzFixture) ctx() context.Context {
-	return auth.WithUser(context.Background(), uuid.New())
+	return WithAuditRecorder(auth.WithUser(context.Background(), uuid.New()), f.recorder)
 }
 
 // callTool drives the registered tool through the real JSON-RPC surface, so
@@ -218,26 +220,24 @@ func TestGetRequiresWorkspaceReference(t *testing.T) {
 // authorized is the removal check: the same handler then passes.
 func TestWrapperRefusesUnauthorizedResult(t *testing.T) {
 	recorder := audit.NewMemoryRecorder()
-	SetAuditRecorder(recorder)
-	t.Cleanup(func() { SetAuditRecorder(audit.NoopRecorder{}) })
 
 	server := mcpserver.NewMCPServer("tack", "0.2.0")
 	registerTool(server,
-		mcpmcp.Tool{Name: "tack_list_leaks", Description: "test tool", InputSchema: schema{}.toMCP()},
+		mcpmcp.Tool{Name: "tack_create_leaks", Description: "test tool", InputSchema: schema{}.toMCP()},
 		func(context.Context, mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			return successText("the crown jewels", ""), nil
 		},
 	)
 	registerTool(server,
-		mcpmcp.Tool{Name: "tack_list_marked", Description: "test tool", InputSchema: schema{}.toMCP()},
+		mcpmcp.Tool{Name: "tack_create_marked", Description: "test tool", InputSchema: schema{}.toMCP()},
 		func(ctx context.Context, _ mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 			markAuthorized(ctx)
 			return successText("authorized data", ""), nil
 		},
 	)
-	f := &authzFixture{server: server}
+	f := &authzFixture{server: server, recorder: recorder}
 
-	isError, text := f.callTool(t, "tack_list_leaks", nil)
+	isError, text := f.callTool(t, "tack_create_leaks", nil)
 	if !isError || !strings.Contains(text, "Permission denied") {
 		t.Fatalf("unchecked handler returned isError=%v:\n%s", isError, text)
 	}
@@ -254,7 +254,7 @@ func TestWrapperRefusesUnauthorizedResult(t *testing.T) {
 		t.Fatalf("no permission_denied row recorded; events: %+v", recorder.Events())
 	}
 
-	isError, text = f.callTool(t, "tack_list_marked", nil)
+	isError, text = f.callTool(t, "tack_create_marked", nil)
 	if isError {
 		t.Fatalf("authorized handler was refused:\n%s", text)
 	}

@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
@@ -165,6 +165,10 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 		instr := ""
 		if result.Existed {
 			instr = "This create matched an existing operation. No new write was performed."
+			target := nodeTarget(result.View.NodeType, result.View.ID)
+			noteToolResult(ctx, audit.OutcomeDetails{
+				Outcome: audit.OutcomeCompleted, FailureCode: "", FailureMessage: "", CommittedSteps: nil,
+			}, idempotentMatchReason, &target)
 		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		audit.SetAuditEntity(ctx, audit.Entity{

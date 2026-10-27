@@ -61,10 +61,14 @@ type searchMixedOutput struct {
 			Completed bool `json:"completed"`
 		} `json:"catch_up"`
 		Samples []struct {
-			OldestPendingWorkMs float64           `json:"oldest_pending_work_ms"`
-			OpenSearchNodes     []json.RawMessage `json:"opensearch_nodes"`
-			Error               string            `json:"error"`
+			OldestPendingWorkMs float64                        `json:"oldest_pending_work_ms"`
+			OpenSearchNodes     []json.RawMessage              `json:"opensearch_nodes"`
+			Error               string                         `json:"error"`
+			FoundationDB        *searchMixedFoundationDBSample `json:"foundationdb"`
 		} `json:"samples"`
+		StopReason    string                 `json:"stop_reason"`
+		SkippedPhases []string               `json:"skipped_phases"`
+		CorpusIndex   searchMixedCorpusIndex `json:"corpus_index"`
 	} `json:"result"`
 }
 
@@ -104,10 +108,13 @@ func TestSearchMixedWorkload(t *testing.T) {
 	if result.PendingDeletion.Checks != 1 || result.PendingDeletion.PendingObserved != 1 || result.Revocation.Checks <= 0 || !result.Revocation.Refused {
 		t.Fatalf("qa datagen search-mixed: the result must confirm one deletion check with pending work and search refusal after membership removal: %s", output)
 	}
-	if !result.Rebuild.Requested || result.Rebuild.TargetIndex == "" || !result.CatchUp.Completed {
-		t.Fatalf("qa datagen search-mixed: the command must request a rebuild with a target index and complete catch-up: %s", output)
+	if !result.Rebuild.Requested || result.Rebuild.TargetIndex == "" || !result.CatchUp.Completed || result.StopReason != "none" ||
+		len(result.SkippedPhases) != 0 {
+		t.Fatalf("qa datagen search-mixed: the command must request a rebuild with a target index, complete catch-up, and finish every phase without a stop: %s", output)
 	}
 	requireSearchMixedSamples(t, output, envelope)
+	requireSearchMixedFoundationDB(t, output, envelope)
+	requireSearchMixedCorpusIndex(t, output, result.CorpusIndex)
 	requireSearchMixedReindexAudit(t, result.Rebuild.TargetIndex)
 }
 
@@ -129,24 +136,35 @@ func requireSearchMixedSamples(t *testing.T, output []byte, envelope searchMixed
 // first graph. It returns the two base URLs.
 func startSearchMixedProcesses(t *testing.T, cfg *config.Config) []string {
 	t.Helper()
-	endpoints := make([]string, 0, 2)
-	for position := range 2 {
-		graph, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
-		if err != nil {
-			t.Fatalf("qa datagen search-mixed: the test could not build runtime graph %d: %v", position, err)
-		}
-		t.Cleanup(graph.Close)
-		if position == 0 {
-			graph.StartSearchWorkers(integration.WithTestOperation(t, t.Context()))
-		}
-		server := httptest.NewServer(twoProcessHandler(graph))
-		t.Cleanup(server.Close)
-		endpoints = append(endpoints, server.URL)
+	first, firstURL := serveSearchMixedProcess(t, cfg)
+	first.StartSearchWorkers(integration.WithTestOperation(t, t.Context()))
+	_, secondURL := serveSearchMixedProcess(t, cfg)
+	return []string{firstURL, secondURL}
+}
+
+// serveSearchMixedProcess serves MCP from one runtime graph without search workers. It returns
+// the graph and the base URL.
+func serveSearchMixedProcess(t *testing.T, cfg *config.Config) (*appruntime.Graph, string) {
+	t.Helper()
+	graph, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
+	if err != nil {
+		t.Fatalf("qa datagen search-mixed: the test could not build a runtime graph: %v", err)
 	}
-	return endpoints
+	t.Cleanup(graph.Close)
+	server := httptest.NewServer(twoProcessHandler(graph))
+	t.Cleanup(server.Close)
+	return graph, server.URL
 }
 
 func runSearchMixedCommand(t *testing.T, cfg *config.Config, flags ...string) ([]byte, error) {
+	t.Helper()
+	return runSearchMixedCommandAs(t, cfg, searchMixedOperatorID, flags...)
+}
+
+// runSearchMixedCommandAs runs the search-mixed command with operatorID as the operator. The
+// tests of one package write to one ledger. requireSearchMixedReindexAudit reads the reindex
+// events of searchMixedOperatorID, and another test that starts a rebuild uses its own operator.
+func runSearchMixedCommandAs(t *testing.T, cfg *config.Config, operatorID string, flags ...string) ([]byte, error) {
 	t.Helper()
 	var output bytes.Buffer
 	factory := cli.System(cfg)
@@ -167,7 +185,7 @@ func runSearchMixedCommand(t *testing.T, cfg *config.Config, flags ...string) ([
 	}
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
 	root.SetArgs(append([]string{
-		"--execute", "--output", "json", "--operator-id", searchMixedOperatorID, "--operator-email", "operator@example.com", "--operator-name", "Search Test", "ops", "qa", "datagen", "search-mixed",
+		"--execute", "--output", "json", "--operator-id", operatorID, "--operator-email", "operator@example.com", "--operator-name", "Search Test", "ops", "qa", "datagen", "search-mixed",
 	}, flags...))
 	err = root.ExecuteContext(t.Context())
 	return output.Bytes(), err

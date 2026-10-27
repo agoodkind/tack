@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
@@ -84,13 +85,49 @@ func requireUserChange(t *testing.T, stack runtimeAuditStack, sent audit.Event, 
 	return record
 }
 
+// requireMembership returns the stored membership of userID in orgID and
+// requires its role to equal sqlAuditAdminRole.
 func requireMembership(t *testing.T, members *postgres.OrgMemberRepo, orgID, userID uuid.UUID) *org.Member {
 	t.Helper()
 	listed, err := members.ListMembers(t.Context(), orgID)
-	if err != nil || len(listed) != 1 || listed[0].UserID != userID || listed[0].Role != sqlAuditAdminRole {
-		t.Fatalf("ListMembers(%s) = %+v, %v; want one member for userID with Role sqlAuditAdminRole and nil error", orgID, listed, err)
+	if err != nil {
+		t.Fatalf("ListMembers(%s) error = %v, want nil", orgID, err)
 	}
-	return listed[0]
+	for _, member := range listed {
+		if member.UserID == userID && member.Role == sqlAuditAdminRole {
+			return member
+		}
+	}
+	t.Fatalf("ListMembers(%s) = %+v; want a member for user %s with Role sqlAuditAdminRole", orgID, listed, userID)
+	return nil
+}
+
+// requireNoMembership requires orgID to list no membership for userID.
+func requireNoMembership(t *testing.T, members *postgres.OrgMemberRepo, orgID, userID uuid.UUID) {
+	t.Helper()
+	listed, err := members.ListMembers(t.Context(), orgID)
+	if err != nil {
+		t.Fatalf("ListMembers(%s) error = %v, want nil", orgID, err)
+	}
+	for _, member := range listed {
+		if member.UserID == userID {
+			t.Fatalf("ListMembers(%s) lists user %s after RemoveMember, want no membership", orgID, userID)
+		}
+	}
+}
+
+// memberEvents returns the change events of operation in the operator outbox
+// that target a membership of userID.
+func memberEvents(t *testing.T, pool *pgxpool.Pool, operation audit.Event, userID uuid.UUID) []audit.Event {
+	t.Helper()
+	matched := make([]audit.Event, 0)
+	for _, event := range sqlOutboxEvents(t, pool, operation.Context.OperationID) {
+		target := event.Context.Target
+		if target != nil && target.Kind == audit.TargetKindRelationship && target.TargetID == userID {
+			matched = append(matched, event)
+		}
+	}
+	return matched
 }
 
 func requireMemberTarget(t *testing.T, row audit.Row, want memberRecord) {

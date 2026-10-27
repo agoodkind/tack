@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/adapters/search"
 )
@@ -48,6 +48,16 @@ func TestSearchControlCommandRejectsMappingAndModelMismatches(t *testing.T) {
 			want: "mapping field unexpected_property is not declared",
 		},
 		{
+			// A permission policy that needs a fourth access field must add
+			// that field to the index mapping because strict mapping rejects
+			// documents that contain it.
+			name: "access property",
+			mutate: func(t *testing.T) {
+				putSearchControlMapping(t, control, `{"properties":{"access":{"properties":{"roles":{"type":"keyword"}}}}}`)
+			},
+			want: "access field roles is not declared",
+		},
+		{
 			name: "registered model",
 			mutate: func(t *testing.T) {
 				otherModel := registerMismatchModel(t, control.client)
@@ -74,8 +84,8 @@ func metaMapping(mappingVersion, modelID, tokenizer string) string {
 
 func putSearchControlMapping(t *testing.T, control searchControl, body string) {
 	t.Helper()
-	response, err := control.client.Indices.Mapping.Put(WithTestOperation(t, t.Context()), opensearchapi.MappingPutReq{
-		Indices: []string{searchControlIndex}, Body: strings.NewReader(body),
+	response, err := control.client.Indices.PutMapping(WithTestOperation(t, t.Context()), &opensearchapi.IndicesPutMappingReq{
+		Indices: []string{searchControlIndex}, BodyReader: strings.NewReader(body),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -65,7 +65,9 @@ type analyzerQueryText struct {
 	Analyzer  string `json:"analyzer"`
 }
 
-// TestSearchSessionInfersOnce follows a public search over 80 matching nodes
+// TestSearchSessionInfersOnce first requires empty, blank, and oversized
+// queries to fail without a model predict request or a ranked batch. It then
+// follows a public search over 80 matching nodes
 // to completion, including continuation replays. It requires at least three
 // pages and two ranked batches with exactly one model predict request.
 // The first batch must use the predicted map, and every later batch must
@@ -81,6 +83,7 @@ func TestSearchSessionInfersOnce(t *testing.T) {
 	integration.DrainSearchWork(t, fixture.Worker, sessionSlices)
 	harness, capture := newInferenceCaptureHarness(t, fixture)
 	capture.take()
+	requireRejectedBeforeInference(t, harness, capture)
 	pages := followSession(t, harness)
 	exchange := capture.take()
 	predicted := requireOnePrediction(t, exchange)
@@ -176,7 +179,7 @@ func analyzerRanks(t *testing.T, fixture integration.QueryFixture, request ranke
 		Filter: request.Body.Query.Bool.Filter, Should: []json.RawMessage{request.Body.Query.Bool.Should[0], encoded}, MinimumShouldMatch: 1,
 	}}}
 	response, err := fixture.Client.Search(integration.WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{
-		Indices: []string{fixture.Index}, Body: bytes.NewReader(encodeTrace(t, body)),
+		Indices: []string{fixture.Index}, BodyReader: bytes.NewReader(encodeTrace(t, body)),
 	})
 	if err != nil {
 		t.Fatalf("analyzer search %q on %s: %v", query, fixture.Index, err)

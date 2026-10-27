@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"slices"
 	"time"
 
 	"goodkind.io/tack/internal/clispec"
@@ -27,6 +28,8 @@ type datagenSearchMixedResult struct {
 	Rebuild                  datagenSearchMixedRebuild    `json:"rebuild"`
 	CatchUp                  datagenSearchMixedCatchUp    `json:"catch_up"`
 	Samples                  []datagenSearchMixedSample   `json:"samples"`
+	SkippedPhases            []string                     `json:"skipped_phases"`
+	CorpusIndex              datagenSearchMixedCorpusIndex `json:"corpus_index"`
 }
 
 type datagenSearchMixedWrites struct {
@@ -56,6 +59,7 @@ type datagenSearchMixedRevocation struct {
 	Checks                    int     `json:"checks"`
 	PagesWithinCacheLifetime  int     `json:"pages_within_cache_lifetime"`
 	ResultsAfterCacheLifetime int     `json:"results_after_cache_lifetime"`
+	Unavailable               int     `json:"unavailable"`
 	Refused                   bool    `json:"refused"`
 	RefusedAfterMs            float64 `json:"refused_after_ms"`
 }
@@ -80,6 +84,8 @@ type datagenSearchMixedSample struct {
 	RebuildState        string                             `json:"rebuild_state"`
 	OpenSearchNodes     []datagen.SearchMixedNodeResources `json:"opensearch_nodes"`
 	Error               string                             `json:"error,omitempty"`
+	FoundationDB        *datagen.SearchMixedFoundationDB   `json:"foundationdb"`
+	FoundationDBError   string                             `json:"foundationdb_error,omitempty"`
 }
 
 func searchMixedPerMinute(count int, elapsed time.Duration) float64 {
@@ -89,7 +95,9 @@ func searchMixedPerMinute(count int, elapsed time.Duration) float64 {
 	return float64(count) / elapsed.Minutes()
 }
 
-func searchMixedResult(input datagenSearchMixedInput, duration time.Duration, summary datagen.SearchMixedSummary) datagenSearchMixedResult {
+func searchMixedResult(
+	input datagenSearchMixedInput, duration time.Duration, summary datagen.SearchMixedSummary, stop datagenSearchStop,
+) datagenSearchMixedResult {
 	searches := summary.Search
 	return datagenSearchMixedResult{
 		datagenSearchLoadResult: datagenSearchLoadResult{
@@ -107,6 +115,7 @@ func searchMixedResult(input datagenSearchMixedInput, duration time.Duration, su
 				P95: searchLoadMilliseconds(searches.Latency.P95), P99: searchLoadMilliseconds(searches.Latency.P99),
 				Max: searchLoadMilliseconds(searches.Latency.Max),
 			},
+			MaxWallTime: stop.maxWallTime.String(), StopReason: string(stop.reason),
 		},
 		TargetWriteRatePerMinute: input.WriteRate, PlannedWrites: summary.PlannedWrites,
 		Writes: datagenSearchMixedWrites{
@@ -123,7 +132,8 @@ func searchMixedResult(input datagenSearchMixedInput, duration time.Duration, su
 		Burst: searchMixedBurstResult(summary.Burst), Sessions: summary.Sessions, PendingDeletion: summary.Pending,
 		Revocation: datagenSearchMixedRevocation{
 			Checks: summary.Revocation.Checks, PagesWithinCacheLifetime: summary.Revocation.PagesWithinCacheLifetime,
-			ResultsAfterCacheLifetime: summary.Revocation.ResultsAfterCacheLifetime, Refused: summary.Revocation.Refused,
+			ResultsAfterCacheLifetime: summary.Revocation.ResultsAfterCacheLifetime, Unavailable: summary.Revocation.Unavailable,
+			Refused: summary.Revocation.Refused,
 			RefusedAfterMs: searchLoadMilliseconds(summary.Revocation.RefusedAfter),
 		},
 		Rebuild: datagenSearchMixedRebuild{
@@ -132,7 +142,9 @@ func searchMixedResult(input datagenSearchMixedInput, duration time.Duration, su
 			FinalState: summary.Rebuild.FinalState,
 		},
 		CatchUp: datagenSearchMixedCatchUp{Completed: summary.CatchUp.Completed, ElapsedMs: searchLoadMilliseconds(summary.CatchUp.Elapsed)},
-		Samples: searchMixedSamples(summary.Samples),
+		Samples:       searchMixedSamples(summary.Samples),
+		SkippedPhases: slices.Clone(summary.SkippedPhases),
+		CorpusIndex:   searchMixedCorpusIndexResult(summary.CorpusIndex),
 	}
 }
 
@@ -150,6 +162,7 @@ func searchMixedSamples(samples []datagen.SearchMixedSample) []datagenSearchMixe
 		results = append(results, datagenSearchMixedSample{
 			OffsetMs: searchLoadMilliseconds(sample.Offset), OldestPendingWorkMs: searchLoadMilliseconds(sample.OldestPendingWork),
 			OldestClass: sample.OldestClass, RebuildState: sample.RebuildState, OpenSearchNodes: sample.Nodes, Error: sample.Error,
+			FoundationDB: sample.FoundationDB, FoundationDBError: sample.FoundationDBError,
 		})
 	}
 	return results

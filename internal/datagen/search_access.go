@@ -44,7 +44,7 @@ func (r searchRun) verifyAccess(ctx context.Context, cfg *config.Config, seed in
 		return err
 	}
 	foreignWorkspace := foreign.Workspaces[0]
-	foreignFixture, err := newSearchFixture(ctx, r.fixture.stores, foreignWorkspace)
+	foreignFixture, err := newSearchFixture(ctx, r.fixture.stores, r.fixture.members, foreignWorkspace)
 	if err != nil {
 		return err
 	}

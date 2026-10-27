@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
@@ -67,10 +68,12 @@ func newParentEdgeFixture(t *testing.T) parentEdgeFixture {
 		t.Fatalf("open stores: %v", err)
 	}
 	stores.EnableSearchWork()
-	fixture := parentEdgeFixture{
-		cfg: cfg, stores: stores, driver: datagen.NewDriver(graph, false, seed),
-		nodes: service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter),
+	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, cfg.DatabaseURL))
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	if err != nil {
+		t.Fatalf("build the node service: %v", err)
 	}
+	fixture := parentEdgeFixture{cfg: cfg, stores: stores, driver: datagen.NewDriver(graph, false, seed), nodes: nodes}
 	fixture.worker, fixture.adapter = newParentEdgeWorker(t, cfg, stores)
 	fixture.first, fixture.second, fixture.foreign = parentEdgeWorkspaces(t, identities.Workspaces)
 	fixture.entryTypes = parentEdgeEntryTypes(t, stores, fixture.first.OrgID)

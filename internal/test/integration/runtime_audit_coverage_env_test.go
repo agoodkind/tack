@@ -108,9 +108,11 @@ func (env *coverageEnv) runCommand(t *testing.T, input commandInput, mode ...str
 	return operatorID, output.String(), err
 }
 
-// waitForRows polls the ledger for an event that matches the evidence, verb,
-// and outcome until coverageDeliveryTimeout expires. When the evidence selects
-// an operator outbox, it checks that outbox instead and returns nil.
+// waitForRows polls the ledger until caseEvidenceFound accepts the events of
+// the evidence or coverageDeliveryTimeout expires. One operation can record
+// several events, and the consumer can store them in any order. When the
+// evidence selects an operator outbox, it checks that outbox instead and
+// returns nil.
 func (env *coverageEnv) waitForRows(t *testing.T, evidence coverageEvidence, verb audit.Verb, outcome audit.Outcome) []audit.Row {
 	t.Helper()
 	if evidence.outbox != nil {
@@ -126,13 +128,12 @@ func (env *coverageEnv) waitForRows(t *testing.T, evidence coverageEvidence, ver
 		if err != nil {
 			t.Fatalf("The audit ledger query failed instead of returning rows for %+v: %v", evidence, err)
 		}
-		for _, row := range rows {
-			if row.Action == string(verb) && row.Outcome == outcome {
-				return rows
-			}
+		if caseEvidenceFound(t, env, evidence, verb, outcome, rows) {
+			return rows
 		}
 		if clock.Now().After(deadline) {
-			t.Fatalf("The audit ledger did not record a matching event before the deadline; the evidence, expected verb and outcome, and observed events follow: %+v %s %s: %s", evidence, verb, outcome, describeRows(rows))
+			t.Fatalf("The audit ledger did not record a matching event that targets node %s before the deadline; the evidence, expected verb and outcome, and observed events follow: %+v %s %s: %s",
+				evidence.targetID, evidence, verb, outcome, describeRows(rows))
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -149,7 +150,10 @@ func describeRows(rows []audit.Row) string {
 // operatorEvidence selects audit events for the given operator in the system
 // organization.
 func operatorEvidence(actorID uuid.UUID) coverageEvidence {
-	return coverageEvidence{orgID: audit.SystemOrgID(), requestID: "", actorID: actorID, outcome: "", outbox: nil}
+	return coverageEvidence{
+		orgID: audit.SystemOrgID(), requestID: "", actorID: actorID, outcome: "", outbox: nil,
+		body: nil, targetID: uuid.Nil,
+	}
 }
 
 func requireOutboxEvent(t *testing.T, evidence coverageEvidence, verb audit.Verb, outcome audit.Outcome) {

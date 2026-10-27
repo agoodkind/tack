@@ -62,6 +62,7 @@ func (s *SearchAccessRolloutStore) Rollback(ctx context.Context, request searchd
 		restored.PreviousVersion, restored.WriteVersions = record.CandidateVersion, []string{restoredVersion}
 		restored.Phase, restored.ScanCursor, restored.VerifyCursor, restored.RetireCursor = string(searchdomain.AccessVerifying), "", "", ""
 		restored.ScanComplete, restored.AffectedPass, restored.Generation = false, false, generation
+		restored.InitiatedOperationID, restored.InitiatedActorID = request.Initiation.OperationID, request.Initiation.ActorID
 		if stopErr := stopRolloutCollecting(ctx, tr, request.AuthorityID, record.Generation); stopErr != nil {
 			return stopErr
 		}

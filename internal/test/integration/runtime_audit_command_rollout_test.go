@@ -30,11 +30,10 @@ func testAccessRolloutOutcomes(t *testing.T) {
 	pool := ledgerAdminPool(t)
 	cfg := &config.Config{DatabaseURL: testenv.Ledger(t), FDBClusterFile: clusterFile, FDBTransactionTimeout: 5 * time.Second}
 	authority := uuid.Must(uuid.NewV7())
+	command := []string{"ops", "search", "access-rollout", "--authority", authority.String(), "--candidate", searchaccess.RotatedVersion}
+	requireSearchPreviewRead(t, cfg, pool, audit.VerbOpsSearchAccessRollout, command...)
 	operatorID := uuid.Must(uuid.NewV7())
-	arguments := []string{
-		"--execute", "--operator-id", operatorID.String(), "--operator-email", outcomeOperatorEmail,
-		"ops", "search", "access-rollout", "--authority", authority.String(), "--candidate", searchaccess.RotatedVersion,
-	}
+	arguments := append([]string{"--execute", "--operator-id", operatorID.String(), "--operator-email", outcomeOperatorEmail}, command...)
 	for range 2 {
 		if output, err := runOpsCommand(t, cfg, pool, arguments...); err != nil {
 			t.Fatalf("access-rollout failed: %v\n%s", err, output)
@@ -60,11 +59,31 @@ func testAccessRolloutOutcomes(t *testing.T) {
 			evidence, authority, searchaccess.RotatedVersion)
 	}
 	requireCompletedResult(t, eventsOfOperation(events, first), first)
+	requireInitiation(t, "access rollout", storedRolloutInitiation(t, clusterFile, authority), first, operatorID)
 	if steps := eventsInPhase(events, audit.PhaseIntent, second); len(steps) != 0 {
 		t.Fatalf("the second access-rollout recorded %d step intents instead of 0", len(steps))
 	}
 	requireOnlyResult(t, eventsOfOperation(events, second), audit.OutcomeRefused, "rollout_in_progress")
+	requireRollbackInitiation(t, cfg, pool, authority)
 	requireUnknownCandidateRefused(t, cfg, pool)
+}
+
+// requireRollbackInitiation rolls back the access rollout of authority as a
+// new operator and requires the rollout record to store the operation ID and
+// operator of the rollback command.
+func requireRollbackInitiation(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, authority uuid.UUID) {
+	t.Helper()
+	operatorID := uuid.Must(uuid.NewV7())
+	if output, err := runOpsCommand(t, cfg, pool, "--execute", "--operator-id", operatorID.String(), "--operator-email", outcomeOperatorEmail,
+		"ops", "search", "access-rollback", "--authority", authority.String()); err != nil {
+		t.Fatalf("access-rollback failed: %v\n%s", err, output)
+	}
+	events := outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql", string(audit.VerbOpsSearchAccessRollback), operatorID.String())
+	if len(events) == 0 {
+		t.Fatal("access-rollback did not record an event")
+	}
+	operationID := decodeCommandExtra(t, events[0]).OpID
+	requireInitiation(t, "rolled back access rollout", storedRolloutInitiation(t, cfg.FDBClusterFile, authority), operationID, operatorID)
 }
 
 func requireUnknownCandidateRefused(t *testing.T, cfg *config.Config, pool *pgxpool.Pool) {
