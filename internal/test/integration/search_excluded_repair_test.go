@@ -42,7 +42,10 @@ func TestSearchExcludedPropertyRepairClearsWarning(t *testing.T) {
 
 	stores := fixture.Stores
 	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, fixture.Config.DatabaseURL))
-	nodes := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	if err != nil {
+		t.Fatalf("build the node service: %v", err)
+	}
 	if _, err := nodes.Update(integration.WithTestOperation(t, t.Context()), service.UpdateInput{
 		NodeID: affected, Props: map[string]json.RawMessage{definition.Name: jsonString(t, option.Key)},
 	}); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -67,22 +68,27 @@ func NewRepairConsole(
 	members org.MemberRepository,
 	memberTargets node.MemberTargetAdder,
 	relationships ...node.RelationshipRepository,
-) *RepairConsole {
+) (*RepairConsole, error) {
 	var relationshipRepo node.RelationshipRepository
 	if len(relationships) > 0 {
 		relationshipRepo = relationships[0]
+	}
+	updater, err := service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, relationshipRepo, nil, members, memberTargets)
+	if err != nil {
+		slog.Error("repair.console_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("build the repair console: %w", err)
 	}
 	return &RepairConsole{
 		nodeTypes:     nodeTypes,
 		propertyDefs:  propertyDefs,
 		reader:        reader,
-		updater:       service.NewNodeService(nodes, reader, nodeTypes, propertyDefs, relationshipRepo, nil, members, memberTargets),
+		updater:       updater,
 		relationships: relationshipRepo,
-	}
+	}, nil
 }
 
 // NewRepairConsoleFromEnv builds the repair core from the shared ops env.
-func NewRepairConsoleFromEnv(env *Env) *RepairConsole {
+func NewRepairConsoleFromEnv(env *Env) (*RepairConsole, error) {
 	return NewRepairConsole(
 		env.Stores.Nodes,
 		env.Stores.Views,

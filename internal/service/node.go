@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -29,6 +30,13 @@ type NodeService struct {
 	memberTargets node.MemberTargetAdder
 }
 
+// errMissingMemberDependency reports a NodeService request without a member
+// repository or member target adder.
+var errMissingMemberDependency = errors.New("service.NewNodeService: the member repository and the member target adder are required")
+
+// NewNodeService returns errMissingMemberDependency when members or
+// memberTargets is nil, because AddRelationship reads both for a target that
+// does not resolve to a node.
 func NewNodeService(
 	nodes node.MutableNodeRepository,
 	reader node.NodeReader,
@@ -38,7 +46,10 @@ func NewNodeService(
 	deleter node.NodeDeleter,
 	members org.MemberRepository,
 	memberTargets node.MemberTargetAdder,
-) *NodeService {
+) (*NodeService, error) {
+	if members == nil || memberTargets == nil {
+		return nil, errMissingMemberDependency
+	}
 	return &NodeService{
 		nodes:         nodes,
 		reader:        reader,
@@ -48,7 +59,7 @@ func NewNodeService(
 		deleter:       deleter,
 		members:       members,
 		memberTargets: memberTargets,
-	}
+	}, nil
 }
 
 // AddRelationship adds a directed relationship from a node to a node or an

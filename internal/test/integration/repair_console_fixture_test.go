@@ -27,7 +27,10 @@ func newRepairConsoleFixture(t *testing.T) repairConsoleFixture {
 	env := integration.SetupTestEnv(t)
 	stores := env.Stores
 	members := postgres.NewOrgMemberRepo(env.Ops.Pool)
-	console := ops.NewRepairConsole(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, members, stores.Relationships, stores.Relationships)
+	console, err := ops.NewRepairConsole(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, members, stores.Relationships, stores.Relationships)
+	if err != nil {
+		t.Fatalf("build the repair console: %v", err)
+	}
 	return repairConsoleFixture{env: env, console: console, projectID: createSchemaProject(t, env)}
 }
 

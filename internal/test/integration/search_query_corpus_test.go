@@ -88,7 +88,11 @@ func fixtureNodeService(t *testing.T, fixture queryFixture) *service.NodeService
 	t.Helper()
 	stores := fixture.Stores
 	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, fixture.Config.DatabaseURL))
-	return service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	if err != nil {
+		t.Fatalf("build the node service: %v", err)
+	}
+	return nodes
 }
 
 // putOpaqueNode creates a node of kind under parentID through

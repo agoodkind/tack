@@ -68,10 +68,12 @@ func newParentEdgeFixture(t *testing.T) parentEdgeFixture {
 		t.Fatalf("open stores: %v", err)
 	}
 	stores.EnableSearchWork()
-	fixture := parentEdgeFixture{
-		cfg: cfg, stores: stores, driver: datagen.NewDriver(graph, false, seed),
-		nodes: service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, postgres.NewOrgMemberRepo(testenv.LedgerPool(t, cfg.DatabaseURL)), stores.Relationships),
+	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, cfg.DatabaseURL))
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	if err != nil {
+		t.Fatalf("build the node service: %v", err)
 	}
+	fixture := parentEdgeFixture{cfg: cfg, stores: stores, driver: datagen.NewDriver(graph, false, seed), nodes: nodes}
 	fixture.worker, fixture.adapter = newParentEdgeWorker(t, cfg, stores)
 	fixture.first, fixture.second, fixture.foreign = parentEdgeWorkspaces(t, identities.Workspaces)
 	fixture.entryTypes = parentEdgeEntryTypes(t, stores, fixture.first.OrgID)

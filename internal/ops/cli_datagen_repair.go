@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -96,7 +97,7 @@ func commitDatagenRepair(ctx context.Context, f *cli.Factory, result *datagenRep
 		return datagenRepairFailure(ctx, "open the environment", err)
 	}
 	defer env.Close()
-	fixture, err := datagen.SeedRepairFixture(ctx, env.Stores, principal.ID)
+	fixture, err := datagen.SeedRepairFixture(ctx, env.Stores, postgres.NewOrgMemberRepo(env.Pool), principal.ID)
 	result.OrgID = fixture.OrgID
 	if err != nil {
 		return datagenRepairFailure(ctx, "seed the repair fixture", err)

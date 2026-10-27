@@ -83,8 +83,7 @@ func rolloutEntryPoint(t *testing.T, fixture rolloutFixture, workspace datagen.W
 }
 
 func rolloutNodeService(fixture rolloutFixture) *service.NodeService {
-	stores := fixture.stores
-	return service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, fixture.members, stores.Relationships)
+	return fixture.nodes
 }
 
 // putRolloutNode creates one node under parentID through

@@ -152,7 +152,10 @@ func (env *coverageEnv) repairToken(t *testing.T, nodeID uuid.UUID) string {
 	t.Helper()
 	stores := env.stores(t)
 	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, env.server.config.DatabaseURL))
-	console := ops.NewRepairConsole(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, members, stores.Relationships, stores.Relationships)
+	console, err := ops.NewRepairConsole(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, members, stores.Relationships, stores.Relationships)
+	if err != nil {
+		t.Fatalf("Repair console construction failed; the repair case requires a console: %v", err)
+	}
 	preview, err := console.Preview(integration.WithTestOperation(t, t.Context()), ops.RepairPreviewInput{
 		Class: ops.RepairClassPropsTransform, NodeID: nodeID, Profile: env.repairProfile(),
 	})
