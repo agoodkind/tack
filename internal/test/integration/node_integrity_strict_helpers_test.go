@@ -15,12 +15,7 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-type strictValidationOutput struct {
-	DryRun bool                       `json:"dry_run"`
-	Result ops.StrictValidationReport `json:"result"`
-}
-
-func runStrictValidation(t *testing.T, execute bool) (strictValidationOutput, error) {
+func runStrictValidation(t *testing.T, execute bool) (ops.StrictValidationOutput, error) {
 	t.Helper()
 	ledgerDSN := testenv.Ledger(t)
 	t.Setenv("DATABASE_URL", ledgerDSN)
@@ -56,7 +51,7 @@ func runStrictValidation(t *testing.T, execute bool) (strictValidationOutput, er
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatalf("decode the strict validation output %q (command error %v): %v", output.String(), runErr, err)
 	}
-	var decoded strictValidationOutput
+	var decoded ops.StrictValidationOutput
 	if err := json.Unmarshal(document.Result, &decoded); err != nil {
 		t.Fatalf("decode the strict validation result %s (command error %v): %v", document.Result, runErr, err)
 	}

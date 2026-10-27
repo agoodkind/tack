@@ -10,7 +10,8 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-type strictValidationOutput struct {
+// StrictValidationOutput is the JSON result of ops verify strict-validation.
+type StrictValidationOutput struct {
 	clispec.ResultMarker
 	Command string                 `json:"command"`
 	DryRun  bool                   `json:"dry_run"`
@@ -54,7 +55,7 @@ func runStrictValidationCommand(ctx context.Context, f *cli.Factory, sink clispe
 	defer env.Close()
 	schemas := storeSchemaSource{nodeTypes: env.Stores.NodeTypes, propertyDefs: env.Stores.PropertyDefs}
 	report, runErr := RunStrictValidation(ctx, env.Stores.Nodes, schemas, execute)
-	output := strictValidationOutput{ResultMarker: clispec.ResultMarker{}, Command: "ops.verify.strict-validation", DryRun: !execute, Result: report}
+	output := StrictValidationOutput{ResultMarker: clispec.ResultMarker{}, Command: "ops.verify.strict-validation", DryRun: !execute, Result: report}
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 		slog.ErrorContext(ctx, "strict.report_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write the strict validation report: %w", err)
