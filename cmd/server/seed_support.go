@@ -15,7 +15,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
-	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -42,50 +41,78 @@ func userIDForEmail(email string) uuid.UUID {
 // org membership or [uuid.Nil] when a prior membership does not exist. In
 // the create transaction, CreateAtomic writes a change event for the new node
 // and writes one for its parent relationship when parentID is not [uuid.Nil].
-// It calls prepare with the node ID before returning an existing ID or writing
-// a new node. A nil prepare does nothing.
-func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID, prepare func(context.Context, uuid.UUID) error) (uuid.UUID, error) {
-	log := telemetry.L(ctx)
+func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) (uuid.UUID, error) {
+	existing, err := findSeedNode(ctx, s, typeKey, slug, lookupOrgID)
+	if err != nil || existing != uuid.Nil {
+		return existing, err
+	}
+	id := seedNodeID(typeKey, slug, parentID)
+	if err := createSeedNode(ctx, s, id, typeKey, slug, name, parentID); err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}
+
+// findSeedNode returns the ID of the node of typeKey with slug that the
+// node_by_property index of lookupOrgID lists. It returns [uuid.Nil] when
+// lookupOrgID is [uuid.Nil] or the index does not list a node.
+func findSeedNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug string, lookupOrgID uuid.UUID) (uuid.UUID, error) {
+	if lookupOrgID == uuid.Nil {
+		return uuid.Nil, nil
+	}
+	slugRaw, err := encodeSeedSlug(ctx, slug)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	existing, listErr := s.Nodes.ListByProperty(ctx, lookupOrgID, typeKey, "slug", slugRaw)
+	if listErr == nil && len(existing) > 0 {
+		telemetry.L(ctx).InfoContext(ctx, "seed.node_exists", "type", typeKey, "slug", slug, "id", existing[0].ID)
+		return existing[0].ID, nil
+	}
+	return uuid.Nil, nil
+}
+
+// seedNodeID returns the ID of a new seed node. Org nodes get a fresh random
+// UUIDv7 (TACK-230). Two calls with the same slug produce different IDs, which
+// is correct: org identity is row-level, not derivable from a slug. A
+// workspace under an org derives its ID from (orgID, slug) and stays
+// deterministic across wipe-and-reseed; anything deeper uses V7.
+func seedNodeID(typeKey, slug string, parentID uuid.UUID) uuid.UUID {
+	switch {
+	case parentID == uuid.Nil:
+		return node.NewOrgID()
+	case typeKey == "workspace":
+		return node.WorkspaceID(parentID, slug)
+	default:
+		return uuid.Must(uuid.NewV7())
+	}
+}
+
+func encodeSeedSlug(ctx context.Context, slug string) (json.RawMessage, error) {
 	slugRaw, err := json.Marshal(slug)
 	if err != nil {
 		slog.ErrorContext(ctx, "seed.encode_slug_failed", slog.String("err", err.Error()))
-		return uuid.Nil, fmt.Errorf("seed: encode slug %q: %w", slug, err)
+		return nil, fmt.Errorf("seed: encode slug %q: %w", slug, err)
 	}
-	if lookupOrgID != uuid.Nil {
-		existing, listErr := s.Nodes.ListByProperty(ctx, lookupOrgID, typeKey, "slug", slugRaw)
-		if listErr == nil && len(existing) > 0 {
-			log.InfoContext(ctx, "seed.node_exists", "type", typeKey, "slug", slug, "id", existing[0].ID)
-			if err := prepareNode(ctx, prepare, existing[0].ID); err != nil {
-				return uuid.Nil, err
-			}
-			return existing[0].ID, nil
-		}
-	}
+	return slugRaw, nil
+}
 
+// createSeedNode writes the node id of typeKey with slug and name under
+// parentID, its view, its slug index entry, and its child_of edge in one
+// CreateAtomic transaction.
+func createSeedNode(ctx context.Context, s *fdbadapter.Stores, id uuid.UUID, typeKey, slug, name string, parentID uuid.UUID) error {
+	slugRaw, err := encodeSeedSlug(ctx, slug)
+	if err != nil {
+		return err
+	}
 	now := clock.Now().UTC()
-
-	// Org nodes get a fresh random UUIDv7 (TACK-230). Two calls with the same
-	// slug produce different IDs, which is correct: org identity is row-level,
-	// not derivable from a slug. A workspace under an org derives its ID from
-	// (orgID, slug) and stays deterministic across wipe-and-reseed; anything
-	// deeper uses V7.
-	var id uuid.UUID
-	switch {
-	case parentID == uuid.Nil:
-		id = node.NewOrgID()
-	case typeKey == "workspace":
-		id = node.WorkspaceID(parentID, slug)
-	default:
-		id = uuid.Must(uuid.NewV7())
-	}
-
 	props := make(map[string]json.RawMessage)
 	props["slug"] = slugRaw
 	if parentID != uuid.Nil {
 		parentRaw, marshalErr := json.Marshal(parentID.String())
 		if marshalErr != nil {
 			slog.ErrorContext(ctx, "seed.encode_parent_failed", slog.String("err", marshalErr.Error()))
-			return uuid.Nil, fmt.Errorf("seed: encode parent_id: %w", marshalErr)
+			return fmt.Errorf("seed: encode parent_id: %w", marshalErr)
 		}
 		props["parent_id"] = parentRaw
 	}
@@ -113,36 +140,14 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 		})
 	}
 
-	if err := prepareNode(ctx, prepare, id); err != nil {
-		return uuid.Nil, err
-	}
 	// Mark slug as indexed so ListByProperty works for it. The node_by_property
 	// index written here replaces the former address_index write.
 	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil, nil); err != nil {
 		slog.ErrorContext(ctx, "seed.create_node_failed", slog.String("type", typeKey), slog.String("err", err.Error()))
-		return uuid.Nil, fmt.Errorf("seed: create node of type %s: %w", typeKey, err)
+		return fmt.Errorf("seed: create node of type %s: %w", typeKey, err)
 	}
-	log.InfoContext(ctx, "seed.node_created", "type", typeKey, "slug", slug, "id", id)
-	return id, nil
-}
-
-// prepareNode returns nil when prepare is nil. Otherwise, it calls prepare
-// with ctx and nodeID and returns the result.
-func prepareNode(ctx context.Context, prepare func(context.Context, uuid.UUID) error, nodeID uuid.UUID) error {
-	if prepare == nil {
-		return nil
-	}
-	return prepare(ctx, nodeID)
-}
-
-func seedOrgDefinitions(seeder *service.Seeder) func(context.Context, uuid.UUID) error {
-	return func(ctx context.Context, orgID uuid.UUID) error {
-		if err := seeder.SeedOrg(ctx, orgID); err != nil {
-			slog.ErrorContext(ctx, "seed.org_definitions_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("seed: seed org definitions: %w", err)
-		}
-		return nil
-	}
+	telemetry.L(ctx).InfoContext(ctx, "seed.node_created", "type", typeKey, "slug", slug, "id", id)
+	return nil
 }
 
 // generateToken returns a fresh random bearer token in the one shape every
