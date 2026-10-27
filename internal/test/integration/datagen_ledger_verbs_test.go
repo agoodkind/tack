@@ -107,7 +107,8 @@ func ledgerVerbRows(t *testing.T, output datagenSeedLedgerVerbsOutput) map[strin
 	}
 	for _, verb := range recordedLedgerVerbs {
 		if _, listed := rows[string(verb)]; !listed || len(rows) != len(recordedLedgerVerbs) {
-			t.Fatalf("ledger verbs = %+v, want every verb from host ledger commands and service jobs", output.Result.LedgerVerbs.Verbs)
+			t.Fatalf("ledger verbs = %+v, want %d rows with one row for each host ledger command and service job verb; verb %s listed = %t",
+				output.Result.LedgerVerbs.Verbs, len(recordedLedgerVerbs), verb, listed)
 		}
 	}
 	return rows
