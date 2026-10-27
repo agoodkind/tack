@@ -126,7 +126,7 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		fdbadapter.SetTestPrefix(nil)
 		t.Fatalf("open fdb: %v", err)
 	}
-	ctx := context.Background()
+	ctx := WithTestOperation(t, context.Background())
 	pool, err := postgres.NewPool(ctx, ledgerDSN, nil)
 	if err != nil {
 		fdbadapter.SetTestPrefix(nil)

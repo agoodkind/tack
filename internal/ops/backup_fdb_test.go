@@ -17,6 +17,7 @@ func TestFDBBackupStartArgsAreContinuousWhenFlagIsFalse(t *testing.T) {
 			BackupS3Region:            "us-east-1",
 			BackupS3BucketMain:        "tack-backups",
 			BackupFDBSnapshotInterval: 123,
+			OpsFDBClusterDir:          "/srv/tack/fdb",
 		},
 		Log:   slog.Default(),
 		RunID: "run",
@@ -34,7 +35,7 @@ func TestFDBBackupStartArgsAreContinuousWhenFlagIsFalse(t *testing.T) {
 		!strings.Contains(joinedCommand, "--snapshot-interval 123 -z") {
 		t.Fatalf("missing continuous backup arguments: %v", command)
 	}
-	if len(binds) != 1 || binds[0] != "/etc/foundationdb:/etc/foundationdb:ro" {
+	if len(binds) != 1 || binds[0] != "/srv/tack/fdb:/etc/foundationdb:ro" {
 		t.Fatalf("unexpected binds: %v", binds)
 	}
 	if extraHosts != nil {

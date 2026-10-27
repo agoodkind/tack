@@ -75,13 +75,31 @@ func writeActAsOrg(t *testing.T, stores *fdbadapter.Stores, slug string) uuid.UU
 		ID: orgID, OrgID: orgID, NodeType: "org", Name: slug, Props: props,
 		CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := stores.Nodes.CreateAtomic(t.Context(), value, view, nil, []string{"slug"}, nil, nil); err != nil {
+	if err := stores.Nodes.CreateAtomic(actAsFixtureContext(t), value, view, nil, []string{"slug"}, nil, nil); err != nil {
 		t.Fatalf("write org %s: %v", slug, err)
 	}
-	if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(t.Context(), orgID); err != nil {
+	if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(actAsFixtureContext(t), orgID); err != nil {
 		t.Fatalf("seed org %s: %v", slug, err)
 	}
 	return orgID
+}
+
+// actAsFixtureContext returns the test context with an audit operation of a
+// system actor for the fixture writes.
+func actAsFixtureContext(t *testing.T) context.Context {
+	t.Helper()
+	operation, err := audit.NewMutationOperation(audit.Actor{
+		Type: audit.ActorSystem, ID: uuid.New(), Email: "", Name: "act-as fixture", SessionID: "",
+		IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+	}, audit.SourceSystem, "act-as-fixture")
+	if err != nil {
+		t.Fatalf("create the fixture audit operation: %v", err)
+	}
+	attached, err := audit.WithMutationContext(t.Context(), operation)
+	if err != nil {
+		t.Fatalf("attach the fixture audit operation: %v", err)
+	}
+	return attached
 }
 
 // createActAsScope creates a workspace or project through the node service.
@@ -92,7 +110,7 @@ func createActAsScope(t *testing.T, nodes *service.NodeService, typeKey, name st
 	if typeKey == "project" {
 		props["identifier"] = actAsJSONString(t, strings.ToUpper(name))
 	}
-	created, err := nodes.Create(t.Context(), service.CreateInput{
+	created, err := nodes.Create(actAsFixtureContext(t), service.CreateInput{
 		ParentID: parentID, ScopeID: parentID, NodeTypeKey: typeKey, Name: name, Props: props,
 		Relationships: nil, ActorID: uuid.New(),
 		IdempotencyKey: "", IdempotencyFingerprint: "", IdempotencySource: "",

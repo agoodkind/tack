@@ -67,8 +67,12 @@ func startClusterContainer(ctx context.Context, cli *client.Client, spec cluster
 	if err := ensureImage(ctx, cli, engineSpec{kind: spec.name, image: spec.image, platform: nil, cmd: nil, env: nil}); err != nil {
 		return err
 	}
-	_, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:     &container.Config{Image: spec.image, Cmd: spec.cmd, Env: spec.env, Labels: map[string]string{managedLabel: "true"}},
+	owner, err := prepareCreate(ctx, cli)
+	if err != nil {
+		return err
+	}
+	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:     &container.Config{Image: spec.image, Cmd: spec.cmd, Env: spec.env, Labels: ownerLabels(owner)},
 		HostConfig: &container.HostConfig{Resources: spec.resources},
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
 			networkName: {Aliases: []string{spec.name}},

@@ -33,31 +33,32 @@ func userIDForEmail(email string) uuid.UUID {
 	return uuid.NewSHA1(userIDNamespace, []byte(strings.ToLower(email)))
 }
 
-// ensureNode creates (or re-verifies) a generic node. When a node with
-// (typeKey, slug) already exists it is detected via the org-scoped
-// node_by_property index and its ID is returned with no further writes.
-// parentID may be [uuid.Nil] for org-level nodes. lookupOrgID is the orgID used
-// to query the property index for an existing node: for non-org nodes this is
-// the parentID; for org nodes (where orgID == the node's own ID) the caller
-// supplies the orgID from the user's existing org membership, or [uuid.Nil] when
-// no prior membership exists.
+// ensureNode creates or re-verifies a generic node. It finds an existing node
+// with (typeKey, slug) through the org-scoped node_by_property index and returns
+// its ID without further writes. parentID may be [uuid.Nil] for org-level nodes.
+// ensureNode uses lookupOrgID to query the property index for an existing node.
+// For non-org nodes, lookupOrgID is parentID. For org nodes, orgID equals the
+// node's own ID, and the caller supplies lookupOrgID from the user's existing
+// org membership or [uuid.Nil] when a prior membership does not exist. In
+// the create transaction, CreateAtomic writes a change event for the new node
+// and writes one for its parent relationship when parentID is not [uuid.Nil].
 // It calls prepare with the node ID before returning an existing ID or writing
 // a new node. A nil prepare does nothing.
-func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID, prepare func(context.Context, uuid.UUID) error) (uuid.UUID, bool, error) {
+func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID, prepare func(context.Context, uuid.UUID) error) (uuid.UUID, error) {
 	log := telemetry.L(ctx)
 	slugRaw, err := json.Marshal(slug)
 	if err != nil {
 		slog.ErrorContext(ctx, "seed.encode_slug_failed", slog.String("err", err.Error()))
-		return uuid.Nil, false, fmt.Errorf("seed: encode slug %q: %w", slug, err)
+		return uuid.Nil, fmt.Errorf("seed: encode slug %q: %w", slug, err)
 	}
 	if lookupOrgID != uuid.Nil {
 		existing, listErr := s.Nodes.ListByProperty(ctx, lookupOrgID, typeKey, "slug", slugRaw)
 		if listErr == nil && len(existing) > 0 {
 			log.InfoContext(ctx, "seed.node_exists", "type", typeKey, "slug", slug, "id", existing[0].ID)
 			if err := prepareNode(ctx, prepare, existing[0].ID); err != nil {
-				return uuid.Nil, false, err
+				return uuid.Nil, err
 			}
-			return existing[0].ID, false, nil
+			return existing[0].ID, nil
 		}
 	}
 
@@ -84,7 +85,7 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 		parentRaw, marshalErr := json.Marshal(parentID.String())
 		if marshalErr != nil {
 			slog.ErrorContext(ctx, "seed.encode_parent_failed", slog.String("err", marshalErr.Error()))
-			return uuid.Nil, false, fmt.Errorf("seed: encode parent_id: %w", marshalErr)
+			return uuid.Nil, fmt.Errorf("seed: encode parent_id: %w", marshalErr)
 		}
 		props["parent_id"] = parentRaw
 	}
@@ -113,16 +114,16 @@ func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name s
 	}
 
 	if err := prepareNode(ctx, prepare, id); err != nil {
-		return uuid.Nil, false, err
+		return uuid.Nil, err
 	}
 	// Mark slug as indexed so ListByProperty works for it. The node_by_property
 	// index written here replaces the former address_index write.
 	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil, nil); err != nil {
 		slog.ErrorContext(ctx, "seed.create_node_failed", slog.String("type", typeKey), slog.String("err", err.Error()))
-		return uuid.Nil, false, fmt.Errorf("seed: create node %s: %w", typeKey, err)
+		return uuid.Nil, fmt.Errorf("seed: create node of type %s: %w", typeKey, err)
 	}
 	log.InfoContext(ctx, "seed.node_created", "type", typeKey, "slug", slug, "id", id)
-	return id, true, nil
+	return id, nil
 }
 
 // prepareNode returns nil when prepare is nil. Otherwise, it calls prepare

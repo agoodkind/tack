@@ -5,15 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/internal/runtime"
 )
 
-// SearchMixedOptions configures search load and concurrent issue writes.
+// SearchMixedOptions configures search load, issue writes, and the workload phases.
 type SearchMixedOptions struct {
 	Seed        int64
 	Rate        int
@@ -21,9 +23,18 @@ type SearchMixedOptions struct {
 	Duration    time.Duration
 	Concurrency int
 	Commit      bool
+	BurstWrites int
+	CatchUp     time.Duration
+	Endpoints   []string
+	Client      *http.Client
+	Rebuild     SearchMixedRebuild
 }
 
-// SearchMixedSummary reports search results, write counts, freshness lag, and deletion verification.
+// SearchMixedRebuild starts one full index rebuild with the audited operation
+// that ops search reindex --mode full --execute uses. It returns the target index.
+type SearchMixedRebuild func(context.Context) (string, error)
+
+// SearchMixedSummary reports the measurements and correctness checks of one workload run.
 type SearchMixedSummary struct {
 	Search            SearchLoadSummary
 	PlannedWrites     int
@@ -36,9 +47,28 @@ type SearchMixedSummary struct {
 	MarkersNotFound   int
 	DeletedReturned   int
 	DeletesUnverified int
+	ProbeErrors       int
+	Endpoints         int
+	Tenants           int
+	Burst             SearchMixedBurst
+	Sessions          SearchMixedSessions
+	Pending           SearchMixedPending
+	Revocation        SearchMixedRevocation
+	Rebuild           SearchMixedRebuildResult
+	CatchUp           SearchMixedCatchUp
+	Samples           []SearchMixedSample
+	// Measured is true after the measured window ends, including when a workload phase fails.
+	Measured bool
+	// Stopped is true when the schedule context ended before setup or the probe drain finished.
+	Stopped bool `exhaustruct:"optional"`
+	// SkippedPhases lists the workload phases that did not start because the schedule context ended.
+	SkippedPhases []string `exhaustruct:"optional"`
+	// CorpusIndex lists the setup waits that finished before the measured window, in wait order.
+	CorpusIndex []SearchMixedCorpusWait `exhaustruct:"optional"`
 }
 
-// SearchMixedFreshness reports lag from a write commit to the first search that returns the issue.
+// SearchMixedFreshness reports the time between an issue's update time in FoundationDB and the
+// first search that returns the issue for its marker word.
 type SearchMixedFreshness struct {
 	P50 time.Duration
 	P95 time.Duration
@@ -47,19 +77,39 @@ type SearchMixedFreshness struct {
 }
 
 type searchMixed struct {
-	load      *searchLoad
-	project   string
-	runKey    string
-	writeRate int
-	pages     storedPageReader
-	stats     *searchMixedStats
-	probes    sync.WaitGroup     `exhaustruct:"optional"`
-	nodeMutex sync.Mutex         `exhaustruct:"optional"`
-	nodes     []*searchMixedNode `exhaustruct:"optional"`
-	created   int                `exhaustruct:"optional"`
+	cfg        *config.Config
+	options    SearchMixedOptions
+	drivers    []*Driver
+	tenants    []*searchMixedTenant
+	loads      []*searchLoad
+	loadStats  *searchLoadStats
+	runKey     string
+	readWord   string
+	victimWord string
+	limits     searchLimits
+	stores     *fdbadapter.Stores
+	pages      storedPageReader
+	backlog    *searchMixedBacklog
+	resources  *searchMixedResources
+	members    *postgres.OrgMemberRepo
+	stats      *searchMixedStats
+	phases     *searchMixedPhaseStats
+	corpusIndex *searchMixedCorpusIndex
+	corpus     searchMixedCorpus  `exhaustruct:"optional"`
+	failureMutex sync.Mutex          `exhaustruct:"optional"`
+	failures   []error               `exhaustruct:"optional"`
+	probeMutex sync.Mutex            `exhaustruct:"optional"`
+	markers    []searchMixedMarker   `exhaustruct:"optional"`
+	deletions  []searchMixedDeletion `exhaustruct:"optional"`
+	nodeMutex  sync.Mutex         `exhaustruct:"optional"`
+	nodes      []*searchMixedNode `exhaustruct:"optional"`
+	deleted    map[uuid.UUID]time.Time `exhaustruct:"optional"`
+	created    int                `exhaustruct:"optional"`
 }
 
-// RunSearchMixed measures search freshness during concurrent public issue writes.
+// RunSearchMixed measures search during concurrent public issue writes and the workload phases.
+// When scheduleContext ends while setup waits for search to return the corpus, RunSearchMixed
+// returns an unmeasured summary with Stopped set and a nil error.
 func RunSearchMixed(
 	scheduleContext context.Context,
 	callContext context.Context,
@@ -72,8 +122,7 @@ func RunSearchMixed(
 	plannedSearches := int(options.Duration * time.Duration(options.Rate) / time.Minute)
 	plannedWrites := int(options.Duration * time.Duration(options.WriteRate) / time.Minute)
 	if !options.Commit {
-		searches := (&searchLoadStats{}).summary(true, plannedSearches, 0, 0, 0, 0)
-		return (&searchMixedStats{}).summary(searches, plannedWrites, 0), nil
+		return unmeasuredSearchMixedSummary(options, true, plannedSearches, plannedWrites), nil
 	}
 	if plannedSearches < 1 || plannedWrites < 1 {
 		return SearchMixedSummary{}, fmt.Errorf("qa datagen search-mixed: schedule requires at least one search and one write: rate %d, write rate %d, duration %s", options.Rate, options.WriteRate, options.Duration)
@@ -82,47 +131,42 @@ func RunSearchMixed(
 		return SearchMixedSummary{}, err
 	}
 	if !cfg.SearchPublicEnabled {
-		return SearchMixedSummary{}, loggedError(callContext, "qa datagen search-mixed: public search must be enabled", errPublicSearchDisabled)
+		return SearchMixedSummary{}, loggedError(callContext, "qa datagen search-mixed: this command requires public search", errPublicSearchDisabled)
 	}
-	scale, err := ParseScale(searchVerificationScale)
+	corpusIndex := &searchMixedCorpusIndex{}
+	mixed, closeMixed, err := newSearchMixed(scheduleContext, callContext, cfg, options, plannedSearches, corpusIndex)
+	if errors.Is(err, errSearchMixedSetupStopped) {
+		slog.InfoContext(callContext, "qa.datagen.search_mixed_setup_stopped",
+			slog.String("cause", context.Cause(scheduleContext).Error()))
+		summary := unmeasuredSearchMixedSummary(options, false, plannedSearches, plannedWrites)
+		summary.Stopped, summary.SkippedPhases = true, searchMixedPhaseNames(options.Rebuild != nil)
+		summary.CorpusIndex = corpusIndex.snapshot()
+		return summary, nil
+	}
 	if err != nil {
 		return SearchMixedSummary{}, err
 	}
-	graph, err := runtime.BuildGraph(callContext, cfg)
+	defer closeMixed()
+	summary, err := mixed.run(scheduleContext, callContext, plannedWrites)
+	summary.CorpusIndex = corpusIndex.snapshot()
 	if err != nil {
-		return SearchMixedSummary{}, loggedError(callContext, "qa datagen search-mixed: build runtime", err)
+		return summary, err
 	}
-	defer graph.Close()
-	identities, err := BootstrapIdentities(callContext, cfg, options.Seed, scale)
-	if err != nil {
-		return SearchMixedSummary{}, err
-	}
-	workspace := identities.Workspaces[0]
-	queries, err := newSearchLoadQueries(callContext, options.Seed, workspace, plannedSearches)
-	if err != nil {
-		return SearchMixedSummary{}, err
-	}
-	load := &searchLoad{
-		driver: NewDriver(graph, false, options.Seed), token: workspace.Actors[0].Token, entry: workspace.Slug,
-		options: SearchLoadOptions{
-			Seed: options.Seed, Rate: options.Rate, Duration: options.Duration,
-			Concurrency: options.Concurrency, Commit: true,
-		},
-		queries: queries, stats: &searchLoadStats{},
-	}
-	mixed := &searchMixed{
-		load: load, project: strings.ToUpper(opaqueKey("m")), runKey: opaqueKey("mix"),
-		writeRate: options.WriteRate, pages: graph, stats: &searchMixedStats{},
-	}
-	if err := mixed.createProject(callContext); err != nil {
-		return SearchMixedSummary{}, err
-	}
-	summary := mixed.run(scheduleContext, callContext, plannedSearches, plannedWrites)
 	slog.InfoContext(callContext, "qa.datagen.search_mixed_finished", slog.Int("rate", options.Rate),
 		slog.Int("write_rate", options.WriteRate), slog.Int("completed", summary.Search.Completed),
 		slog.Int("creates", summary.Creates), slog.Int("edits", summary.Edits), slog.Int("deletes", summary.Deletes),
-		slog.Int("markers_not_found", summary.MarkersNotFound), slog.Int("deleted_returned", summary.DeletedReturned))
+		slog.Int("burst_created", summary.Burst.Created), slog.Int("markers_not_found", summary.MarkersNotFound),
+		slog.Int("deleted_returned", summary.DeletedReturned), slog.Bool("caught_up", summary.CatchUp.Completed))
 	return summary, nil
+}
+
+// unmeasuredSearchMixedSummary returns the planned counts of a run that did not start the
+// measured window.
+func unmeasuredSearchMixedSummary(options SearchMixedOptions, dryRun bool, plannedSearches, plannedWrites int) SearchMixedSummary {
+	searches := (&searchLoadStats{}).summary(dryRun, plannedSearches, 0, 0, 0, 0)
+	summary := (&searchMixedStats{}).summary(searches, plannedWrites, 0)
+	summary.Endpoints, summary.Burst.Planned = len(options.Endpoints), options.BurstWrites
+	return summary
 }
 
 func validateSearchMixedOptions(options SearchMixedOptions) error {
@@ -132,25 +176,17 @@ func validateSearchMixedOptions(options SearchMixedOptions) error {
 	if options.Concurrency <= 0 {
 		return errors.New("qa datagen search-mixed: concurrency must be positive")
 	}
-	if options.Rate < 0 || options.WriteRate < 0 {
-		return errors.New("qa datagen search-mixed: rate and write rate must not be negative")
+	if options.Rate < 0 || options.WriteRate < 0 || options.BurstWrites < 0 {
+		return errors.New("qa datagen search-mixed: rate, write rate, and burst writes must not be negative")
 	}
-	if options.Commit && (options.Rate == 0 || options.WriteRate == 0) {
-		return errors.New("qa datagen search-mixed: rate and write rate must be positive with --commit")
+	if options.CatchUp <= 0 {
+		return errors.New("qa datagen search-mixed: catch-up timeout must be positive")
 	}
-	return nil
-}
-
-func (m *searchMixed) createProject(ctx context.Context) error {
-	properties := newProperties()
-	properties.setString("identifier", m.project)
-	_, err := m.load.driver.Call(ctx, m.load.token, "tack_create_project", ToolArguments{
-		WorkspaceReference: m.load.entry, ProjectReference: "", IssueReference: "",
-		Name: "Search mixed load " + m.runKey, Properties: properties, NodeID: "", Query: "", NodeType: "",
-		Direction: "", SourceID: "", RelationType: "", TargetID: "",
-	})
-	if err != nil {
-		return loggedError(ctx, "qa datagen search-mixed: create project", err)
+	if options.Commit && (options.Rate == 0 || options.WriteRate == 0 || options.BurstWrites == 0) {
+		return errors.New("qa datagen search-mixed: rate, write rate, and burst writes must be positive with --commit")
+	}
+	if len(options.Endpoints) > 0 && options.Client == nil {
+		return errors.New("qa datagen search-mixed: endpoints require an HTTP client")
 	}
 	return nil
 }

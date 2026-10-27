@@ -68,7 +68,15 @@ func claimEventIdentity(ctx context.Context, tx pgx.Tx, eventID uuid.UUID) (bool
 // It returns errAlreadyProjected when the event's identity is already in the
 // ledger, and errChainConflict when the head moved underneath it.
 func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainAppendResult, error) {
-	if in.Event.Outcome == "" {
+	// The function validates each event before claiming its identity. The
+	// consumer stores rejected events in the dead-letter table. Only format 0
+	// events without an outcome default to ok.
+	if err := ValidateEvent(in.Event); err != nil {
+		slog.ErrorContext(ctx, "audit.chain.event_invalid",
+			slog.String("event_id", in.EventID.String()), slog.String("err", err.Error()))
+		return chainAppendResult{}, fmt.Errorf("%w: %w", errMalformedPayload, err)
+	}
+	if in.Event.Outcome == "" && in.Event.Context.AuditFormatVersion == AuditFormatLegacy {
 		in.Event.Outcome = OutcomeOK
 	}
 	claimed, err := claimEventIdentity(ctx, tx, in.EventID)

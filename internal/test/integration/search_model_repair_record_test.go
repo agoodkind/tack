@@ -34,7 +34,7 @@ func TestSearchModelRepairRecord(t *testing.T) {
 
 	aborted := claimRepair(t, store, modelID, start.Add(46*time.Second))
 	requireClaim(t, "second claim", aborted, true, 2)
-	if err := store.ReleaseModelRepair(t.Context(), aborted); err != nil {
+	if err := store.ReleaseModelRepair(WithTestOperation(t, t.Context()), aborted); err != nil {
 		t.Fatalf("release aborted claim: %v", err)
 	}
 	second := claimRepair(t, store, modelID, start.Add(47*time.Second))
@@ -48,11 +48,11 @@ func TestSearchModelRepairRecord(t *testing.T) {
 		t.Fatalf("claim for another model replaced %q with previous found %t, want %q without a previous record", replaced.Replaced, replaced.PreviousFound, modelID)
 	}
 
-	record, found, err := store.ResetModelRepair(t.Context())
+	record, found, err := store.ResetModelRepair(WithTestOperation(t, t.Context()))
 	if err != nil || !found || record.ModelID != otherModelID || record.Attempts != 1 {
 		t.Fatalf("reset returned %+v found %t err %v, want model %s with 1 attempt", record, found, err, otherModelID)
 	}
-	if _, found, err := store.ResetModelRepair(t.Context()); err != nil || found {
+	if _, found, err := store.ResetModelRepair(WithTestOperation(t, t.Context())); err != nil || found {
 		t.Fatalf("second reset found %t err %v, want no record", found, err)
 	}
 	requireClaim(t, "claim after the reset", claimRepair(t, store, modelID, start.Add(202*time.Second)), true, 1)
@@ -60,7 +60,7 @@ func TestSearchModelRepairRecord(t *testing.T) {
 
 func claimRepair(t *testing.T, store *fdbadapter.SearchModelRepairStore, modelID string, now time.Time) searchdomain.ModelRepairClaim {
 	t.Helper()
-	claim, err := store.ClaimModelRepair(t.Context(), searchdomain.ModelRepairRequest{
+	claim, err := store.ClaimModelRepair(WithTestOperation(t, t.Context()), searchdomain.ModelRepairRequest{
 		ModelID: modelID, Now: now, Spacing: repairRecordSpacing, MaxAttempts: repairRecordMaxAttempts,
 	})
 	if err != nil {

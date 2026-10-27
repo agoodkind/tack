@@ -22,12 +22,15 @@ type NodeStore struct {
 	clock      clock.Clock
 	searchWork bool
 	writeFence mutationFence
+	// sequenceLocks lets the store write each sequence counter in one
+	// transaction at a time.
+	sequenceLocks *sequenceLockSet
 }
 
 // NewNodeStore creates the node store. It schedules no search work until
 // [Stores.EnableSearchWork] runs.
 func NewNodeStore(db fdb.Database, source clock.Clock) *NodeStore {
-	return &NodeStore{db: db, clock: source, searchWork: false, writeFence: fenceNodeMutation}
+	return &NodeStore{db: db, clock: source, searchWork: false, writeFence: fenceNodeMutation, sequenceLocks: newSequenceLockSet()}
 }
 
 // Get resolves the node by ID through its global resolution record.
@@ -73,21 +76,40 @@ func (s *NodeStore) Get(ctx context.Context, orgID, nodeID uuid.UUID) (n *node.N
 // transaction also schedules search work for the node.
 func (s *NodeStore) Set(ctx context.Context, current *node.Node, view *node.NodeView) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set")(&err)
-	return runNodeMutation(ctx, s.db, "set node "+current.ID.String(), func(tr fdb.Transaction) error {
+	changes, err := beginMutationAudit(ctx, current.OrgID)
+	if err != nil {
+		return err
+	}
+	err = runNodeMutation(ctx, s.db, "set node "+current.ID.String(), func(tr fdb.Transaction) error {
+		changes.startAttempt()
 		strict, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID)
 		if err != nil {
 			return err
 		}
-		if err := writeNodeRecords(ctx, tr, current, view); err != nil {
+		source, err := tr.Get(fdb.Key(nodeInstanceKey(current.OrgID, current.NodeType, current.ID))).Get()
+		if err != nil {
+			return searchReadFailure(ctx, "read node "+current.ID.String(), err)
+		}
+		encoded, err := writeNodeRecords(ctx, tr, current, view)
+		if err != nil {
 			return err
 		}
 		if err := checkStrictRecord(ctx, tr, strict, current); err != nil {
 			return err
 		}
-		if !s.searchWork {
-			return nil
+		if s.searchWork {
+			if _, err := scheduleSearchChange(ctx, tr, s.clock.Now(), current.OrgID, current.ID, searchChangeContent); err != nil {
+				return err
+			}
 		}
-		_, scheduleErr := scheduleSearchChange(ctx, tr, s.clock.Now(), current.OrgID, current.ID, searchChangeContent)
-		return scheduleErr
+		if err := changes.record(nodeTarget(current), source, encoded); err != nil {
+			return nodeOperationFailure(ctx, "record the change of node "+current.ID.String(), err)
+		}
+		return changes.append(ctx, tr)
 	})
+	if err != nil {
+		return err
+	}
+	changes.finish(ctx)
+	return nil
 }

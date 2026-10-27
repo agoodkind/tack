@@ -19,17 +19,20 @@ import (
 )
 
 // ybArchiveTarget is the resolved work for one archive invocation: the run's
-// manifest and the object key prefix this node must fill.
+// manifest and the object key prefix this node must fill. complete reports
+// that every artifact this node owes the run already exists under the prefix.
 type ybArchiveTarget struct {
 	manifest ybSnapshotManifest
 	prefix   string
+	complete bool
 }
 
 // resolveYBArchiveTarget decides what, if anything, this node must archive.
 // A nil target with a nil error is the quiet nothing-to-do outcome, reachable
-// only in discovery mode (empty runID): no run has a manifest yet, the newest
-// manifest does not list this node, or every artifact this node owes the run
-// is already uploaded. The orchestrator uploads the manifest last, so
+// only in discovery mode (empty runID): no run has a manifest yet or the
+// newest manifest does not list this node. A target with complete set means
+// that every artifact this node owes the run is already uploaded, and the
+// caller uploads nothing. The orchestrator uploads the manifest last, so
 // discovery walks past manifest-less run prefixes (runs that never finished)
 // instead of treating them as errors. With an explicit runID a missing
 // manifest or an unlisted node is an error, because the operator asked for
@@ -93,9 +96,8 @@ func resolveYBArchiveTarget(
 		logger.InfoContext(ctx, "backup.yb_archive.already_archived",
 			slog.String("run_id", manifest.RunID), slog.String("node", nodeName),
 			slog.String("key_prefix", ybNodeKeyPrefix(manifest.RunID, node)))
-		return nil, nil
 	}
-	return &ybArchiveTarget{manifest: manifest, prefix: ybNodeKeyPrefix(manifest.RunID, node)}, nil
+	return &ybArchiveTarget{manifest: manifest, prefix: ybNodeKeyPrefix(manifest.RunID, node), complete: complete}, nil
 }
 
 // localYBNodeName is the node name this guest's yugabyte container announces

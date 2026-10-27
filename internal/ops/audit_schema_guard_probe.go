@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 )
 
 func requireMigratorMembership(ctx context.Context, pool *pgxpool.Pool) (string, error) {
@@ -18,12 +18,12 @@ func requireMigratorMembership(ctx context.Context, pool *pgxpool.Pool) (string,
 	var member bool
 	if err := pool.QueryRow(ctx,
 		`SELECT session_user::text, pg_has_role(session_user, $1::name, 'MEMBER')`,
-		postgres.MigratorRole).Scan(&sessionRole, &member); err != nil {
+		migration.MigratorRole).Scan(&sessionRole, &member); err != nil {
 		slog.ErrorContext(ctx, "schema_guard.login_read_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("read the database login: %w", err)
 	}
 	if !member {
-		refused := fmt.Errorf("membership in role %s is required for login %s", postgres.MigratorRole, sessionRole)
+		refused := fmt.Errorf("membership in role %s is required for login %s", migration.MigratorRole, sessionRole)
 		slog.ErrorContext(ctx, "schema_guard.login_not_member", slog.String("err", refused.Error()))
 		return "", refused
 	}
@@ -43,9 +43,9 @@ func attemptSchemaGuardProbe(ctx context.Context, pool *pgxpool.Pool) (*pgconn.P
 		}
 	}()
 	for _, statement := range []string{
-		"SET ROLE " + postgres.MigratorRole,
+		"SET ROLE " + migration.MigratorRole,
 		"CREATE ROLE " + schemaGuardProbeRole + " NOLOGIN",
-		"GRANT " + schemaGuardProbeRole + " TO " + postgres.MigratorRole,
+		"GRANT " + schemaGuardProbeRole + " TO " + migration.MigratorRole,
 		"GRANT USAGE, CREATE ON SCHEMA audit TO " + schemaGuardProbeRole,
 		"SET ROLE " + schemaGuardProbeRole,
 	} {
@@ -89,7 +89,7 @@ func removeSchemaGuardProbe(ctx context.Context, pool *pgxpool.Pool) (bool, erro
 		return tablePresent, fmt.Errorf("acquire a connection to remove the schema guard probe: %w", err)
 	}
 	defer connection.Release()
-	statements := []string{"SET ROLE " + postgres.MigratorRole, "DROP TABLE IF EXISTS " + schemaGuardProbeTable}
+	statements := []string{"SET ROLE " + migration.MigratorRole, "DROP TABLE IF EXISTS " + schemaGuardProbeTable}
 	if rolePresent {
 		statements = append(statements,
 			"REVOKE ALL ON SCHEMA audit FROM "+schemaGuardProbeRole, "DROP ROLE "+schemaGuardProbeRole)

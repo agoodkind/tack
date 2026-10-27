@@ -37,8 +37,9 @@ type nodePrepareOutput struct {
 // node-prepare fails because the operator login cannot record its intent.
 // After provision, node-prepare reports the node absent or unchanged and
 // node-wait reports it healthy. The real relay and consumer then project the
-// provision and node-prepare intent and outcome pairs and the node-wait read
-// row into audit.events.
+// external runs of provision, node-prepare, and node-wait into audit.events.
+// Provision records its run in memory while it creates the operator login and
+// writes the run after the login exists.
 func TestLedgerBootstrapFromEmpty(t *testing.T) {
 	node := testenv.StartEmptyLedger(t, bootstrapLedgerContainer)
 	t.Setenv(bootstrapClusterDirectoryVariable, bootstrapClusterDirectory(t, testenv.FoundationDB(t)))
@@ -71,9 +72,9 @@ func TestLedgerBootstrapFromEmpty(t *testing.T) {
 
 		startBootstrapAuditPipeline(t, testenv.Kafka(t), node.DSN, admin)
 		rows := waitForBootstrapRows(t, admin)
-		requireBootstrapIntentAndOutcome(t, rows, audit.VerbOpsProvision)
-		requireBootstrapIntentAndOutcome(t, rows, audit.VerbOpsLedgerNodePrepare)
-		requireBootstrapReadRow(t, rows, audit.VerbOpsLedgerNodeWait)
+		requireBootstrapRun(t, rows, audit.VerbOpsProvision)
+		requireBootstrapRun(t, rows, audit.VerbOpsLedgerNodePrepare)
+		requireBootstrapRun(t, rows, audit.VerbOpsLedgerNodeWait)
 	})
 }
 

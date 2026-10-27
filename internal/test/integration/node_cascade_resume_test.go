@@ -62,7 +62,7 @@ func TestDeleteSplitsHighFanOutAcrossSteps(t *testing.T) {
 	/* Delete returns a running job once deleteRequestBudget ends. A slow
 	   runner ends the budget before the project's 111 nodes are gone; the
 	   resume pass then finishes the same job. */
-	if _, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0); err != nil {
+	if _, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0, env.LedgerResumeAudit()); err != nil {
 		t.Fatalf("resume the delete of project %s: %v", project.ID, err)
 	}
 	status, err := env.NodeSvc.DeleteStatus(env.Ctx, projectDeleted.JobID)
@@ -84,23 +84,23 @@ func TestResumeFinishesAnInterruptedDelete(t *testing.T) {
 	env := SetupTestEnv(t)
 	fixture := newCascadeFixture(t, env)
 	job := &node.SubtreeDeleteJob{
-		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, RootID: fixture.Project, AuditTemplate: nil,
+		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, RootID: fixture.Project,
 		Stack: nil, Deleted: 0, UpdatedAt: time.Time{},
 	}
 	if err := env.Stores.NodeDeleter.StartSubtreeDelete(env.Ctx, job); err != nil {
 		t.Fatalf("start the delete of project %s: %v", fixture.Project, err)
 	}
-	if _, err := env.Stores.NodeDeleter.DeleteSubtreeStep(env.Ctx, job.ID, nil); err != nil {
+	if _, err := env.Stores.NodeDeleter.DeleteSubtreeStep(env.Ctx, job.ID); err != nil {
 		t.Fatalf("run one step of job %s: %v", job.ID, err)
 	}
 
-	fresh, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, time.Hour)
+	fresh, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, time.Hour, env.LedgerResumeAudit())
 	if err != nil || fresh != 0 {
 		t.Fatalf("resume with a one-hour bound = %d, %v; want 0 finished jobs", fresh, err)
 	}
 	requireNodesPresent(t, env, []uuid.UUID{fixture.Project})
 
-	finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0)
+	finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0, env.LedgerResumeAudit())
 	if err != nil || finished != 1 {
 		t.Fatalf("resume with no bound = %d, %v; want 1 finished job", finished, err)
 	}

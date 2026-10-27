@@ -55,7 +55,7 @@ func TestSearchSummaryBatchReadsOnce(t *testing.T) {
 
 	policies := stores.SearchPolicySet()
 	before := fdbTransactionCount(t)
-	results, err := stores.NodeSummaries(policies).Summaries(t.Context(), requested, summaryNameBytes)
+	results, err := stores.NodeSummaries(policies).Summaries(WithTestOperation(t, t.Context()), requested, summaryNameBytes)
 	if err != nil {
 		t.Fatalf("read %d summaries: %v", len(requested), err)
 	}
@@ -78,7 +78,7 @@ func TestSearchSummaryBatchReadsOnce(t *testing.T) {
 			t.Errorf("node %s has a hierarchy defect and received keys %v", nodeID, result.AccessKeys)
 		}
 	}
-	_, err = policies.Index(t.Context(), searchaccess.IndexAccessRequest{
+	_, err = policies.Index(WithTestOperation(t, t.Context()), searchaccess.IndexAccessRequest{
 		Version: searchaccess.StableVersion, OrganizationID: kinds.orgID, ResourceID: orphan, Generation: 0,
 	})
 	if !errors.Is(err, node.ErrNoHierarchyParent) {
@@ -108,7 +108,7 @@ func requireIndexedKeys(t *testing.T, policies *searchaccess.PolicySet, orgID, n
 
 func indexAccess(t *testing.T, policies *searchaccess.PolicySet, version string, orgID, nodeID uuid.UUID) node.SearchAccess {
 	t.Helper()
-	access, err := policies.Index(t.Context(), searchaccess.IndexAccessRequest{
+	access, err := policies.Index(WithTestOperation(t, t.Context()), searchaccess.IndexAccessRequest{
 		Version: version, OrganizationID: orgID, ResourceID: nodeID, Generation: 0,
 	})
 	if err != nil {
@@ -162,7 +162,7 @@ func putSummaryKinds(t *testing.T, stores *fdbadapter.Stores) summaryHierarchyKi
 	for _, kind := range types {
 		kind.ID, kind.OrgID, kind.Name = uuid.Must(uuid.NewV7()), kinds.orgID, kind.TypeKey
 		kind.Slug, kind.PluralSlug = kind.TypeKey, kind.TypeKey+"s"
-		if err := stores.NodeTypes.Set(t.Context(), kind); err != nil {
+		if err := stores.NodeTypes.Set(WithTestOperation(t, t.Context()), kind); err != nil {
 			t.Fatalf("store node type %s: %v", kind.TypeKey, err)
 		}
 	}
@@ -183,7 +183,7 @@ func putSummaryNode(t *testing.T, stores *fdbadapter.Stores, kinds summaryHierar
 			OrgID: kinds.orgID, SourceID: nodeID, RelationType: node.RelChildOf, TargetID: parentID, CreatedAt: now,
 		})
 	}
-	if err := stores.Nodes.CreateAtomic(t.Context(), created, view, relationships, nil, nil, nil); err != nil {
+	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, view, relationships, nil, nil, nil); err != nil {
 		t.Fatalf("create %s node: %v", typeKey, err)
 	}
 	return nodeID

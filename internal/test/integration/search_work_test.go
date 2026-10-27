@@ -22,7 +22,7 @@ import (
 // store tests never contact OpenSearch.
 func newWorkStore(t *testing.T, stores *fdbadapter.Stores) *fdbadapter.SearchWorkStore {
 	t.Helper()
-	if err := stores.InitializeSearchIndex(t.Context(), "work-store-"+uuid.Must(uuid.NewV7()).String()); err != nil {
+	if err := stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), "work-store-"+uuid.Must(uuid.NewV7()).String()); err != nil {
 		t.Fatalf("record serving index: %v", err)
 	}
 	return stores.SearchWork(clock.Wall{})
@@ -32,16 +32,9 @@ func newWorkStore(t *testing.T, stores *fdbadapter.Stores) *fdbadapter.SearchWor
 // the items by node.
 func claimAll(t *testing.T, store *fdbadapter.SearchWorkStore, class searchdomain.WorkClass) map[uuid.UUID]searchdomain.Work {
 	t.Helper()
-	return claimAllFor(t, store, class, time.Minute)
-}
-
-// claimAllFor claims every claimable item of class under lease and returns
-// the items by node.
-func claimAllFor(t *testing.T, store *fdbadapter.SearchWorkStore, class searchdomain.WorkClass, lease time.Duration) map[uuid.UUID]searchdomain.Work {
-	t.Helper()
 	claimed := map[uuid.UUID]searchdomain.Work{}
 	for {
-		work, err := store.Claim(t.Context(), class, "inspector-"+uuid.NewString(), lease)
+		work, err := store.Claim(WithTestOperation(t, t.Context()), class, "inspector-"+uuid.NewString(), time.Minute)
 		if errors.Is(err, searchdomain.ErrNoWork) {
 			return claimed
 		}
@@ -59,11 +52,11 @@ func TestSearchWorkScheduledInCreateTransaction(t *testing.T) {
 	now := clock.Now().UTC()
 	idempotency := &node.IdempotencyRecord{Key: "create-once", NodeID: uuid.Must(uuid.NewV7()), Fingerprint: "", CreatedAt: now, Source: ""}
 	created := &node.Node{ID: idempotency.NodeID, OrgID: fixture.OrgID, NodeType: fixture.TypeKey, Name: "created", CreatedAt: now, UpdatedAt: now}
-	if err := stores.Nodes.CreateAtomic(t.Context(), created, nil, nil, nil, nil, idempotency); err != nil {
+	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, nil, nil, nil, nil, idempotency); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	rejected := &node.Node{ID: uuid.Must(uuid.NewV7()), OrgID: fixture.OrgID, NodeType: fixture.TypeKey, Name: "rejected", CreatedAt: now, UpdatedAt: now}
-	if err := stores.Nodes.CreateAtomic(t.Context(), rejected, nil, nil, nil, nil, idempotency); err == nil {
+	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), rejected, nil, nil, nil, nil, idempotency); err == nil {
 		t.Fatal("create with a reused idempotency key succeeded")
 	}
 	live := claimAll(t, store, searchdomain.WorkClassLive)
@@ -82,7 +75,7 @@ func TestSearchWorkScheduledInEditTransaction(t *testing.T) {
 	fixture := putSearchText(t, stores, "original text", "excluded text")
 	before := claimAll(t, store, searchdomain.WorkClassLive)[fixture.NodeID]
 	writeSearchNode(t, stores, fixture, "edited text", "excluded text")
-	if err := store.Yield(t.Context(), before); !errors.Is(err, searchdomain.ErrWorkChanged) {
+	if err := store.Yield(WithTestOperation(t, t.Context()), before); !errors.Is(err, searchdomain.ErrWorkChanged) {
 		t.Fatalf("stale claim yield = %v, want changed work", err)
 	}
 	after := claimAll(t, store, searchdomain.WorkClassLive)[fixture.NodeID]
@@ -97,7 +90,7 @@ func TestSearchWorkScheduledInRelationshipTransaction(t *testing.T) {
 	source := putSearchText(t, stores, "source text", "excluded")
 	target := putSearchTextInOrg(t, stores, source.OrgID, "target text", "excluded")
 	relationship := &node.Relationship{OrgID: source.OrgID, SourceID: source.NodeID, RelationType: opaqueSearchKey("r"), TargetID: target.NodeID, CreatedBy: uuid.Nil, CreatedAt: clock.Now().UTC(), Props: nil}
-	if err := stores.Relationships.Add(t.Context(), relationship); err != nil {
+	if err := stores.Relationships.Add(WithTestOperation(t, t.Context()), relationship); err != nil {
 		t.Fatalf("add relationship: %v", err)
 	}
 	access := claimAll(t, store, searchdomain.WorkClassAccess)
@@ -119,12 +112,12 @@ func TestSearchRescanRequestedByContainmentChange(t *testing.T) {
 	store := newWorkStore(t, stores)
 	fixture := putSearchText(t, stores, "contained text", "excluded")
 	claimAll(t, store, searchdomain.WorkClassRescan)
-	kind, err := stores.NodeTypes.TypeByKey(t.Context(), fixture.OrgID, fixture.TypeKey)
+	kind, err := stores.NodeTypes.TypeByKey(WithTestOperation(t, t.Context()), fixture.OrgID, fixture.TypeKey)
 	if err != nil || kind == nil {
 		t.Fatalf("read fixture node type: %v", err)
 	}
 	kind.CanContain = append(kind.CanContain, opaqueSearchKey("c"))
-	if err := stores.NodeTypes.Set(t.Context(), kind); err != nil {
+	if err := stores.NodeTypes.Set(WithTestOperation(t, t.Context()), kind); err != nil {
 		t.Fatalf("change fixture containment: %v", err)
 	}
 	if _, exists := claimAll(t, store, searchdomain.WorkClassRescan)[uuid.Nil]; !exists {
@@ -162,7 +155,7 @@ func TestSearchWorkScheduledInDeleteTransaction(t *testing.T) {
 	stores := newSearchStore(t)
 	store := newWorkStore(t, stores)
 	fixture := putSearchText(t, stores, "deleted text", "excluded")
-	if err := stores.Nodes.Delete(t.Context(), fixture.OrgID, fixture.NodeID); err != nil {
+	if err := stores.Nodes.Delete(WithTestOperation(t, t.Context()), fixture.OrgID, fixture.NodeID); err != nil {
 		t.Fatalf("delete node: %v", err)
 	}
 	if _, exists := claimAll(t, store, searchdomain.WorkClassLive)[fixture.NodeID]; exists {
@@ -185,7 +178,7 @@ func TestSearchWorkReleaseWaitsRetryAfter(t *testing.T) {
 	const retryAfter = 8 * time.Second
 	released := clock.Now()
 	failure := searchdomain.Failure{Message: "engine timeout", Counted: false, RetryAfter: retryAfter}
-	if err := store.Release(t.Context(), work, failure); err != nil {
+	if err := store.Release(WithTestOperation(t, t.Context()), work, failure); err != nil {
 		t.Fatalf("release work: %v", err)
 	}
 	waitUntil(t, released.Add(6*time.Second))

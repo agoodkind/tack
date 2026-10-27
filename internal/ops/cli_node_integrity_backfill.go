@@ -40,11 +40,15 @@ func nodeIntegrityBackfillOp(f *cli.Factory) clispec.Operation[nodeIntegrityBack
 		Long: "The command requires exactly one of --request or --manifest. " +
 			"A dry run with --request reads current records for each reviewed entry and prints a frozen manifest with its digest. " +
 			"A dry run with --manifest validates the manifest and prints each entry's state against current records and checkpoints. " +
-			"With --execute and --manifest, the command runs the export phase of each executable delete entry and records its exported checkpoint. " +
-			"The command does not run the comment, delete, or result phases. " +
-			"The command reports those entries as unchanged and includes their next phase. " +
+			"With --execute and --manifest, the command runs each executable entry phase by phase until the entry completes. " +
+			"The command records each phase's checkpoint in the same FoundationDB transaction as the phase's change. " +
+			"A delete entry exports the node, verifies the export, and then deletes exactly that node. " +
+			"A report entry creates the report comment, verifies it, and then applies the result. " +
+			"The command applies the validated result for other entries. " +
+			"The command resumes each entry at its next phase on a later execution and reports completed entries as unchanged. " +
 			"The command skips an entry when a current record differs from the frozen manifest. " +
-			"The command rejects --request with --execute.",
+			"The command rejects --request with --execute. " +
+			"Every request, manifest, and export file path must be an absolute path inside the directory that TACK_REPAIR_DIR sets.",
 		Params: []clispec.Param[nodeIntegrityBackfillInput]{
 			clispec.StringParam("request", "This path selects the reviewed repair request for a dry run that freezes a manifest.", "", false,
 				func(in *nodeIntegrityBackfillInput, value string) { in.Request = value }),
@@ -72,6 +76,10 @@ func runNodeIntegrityBackfillCommand(ctx context.Context, f *cli.Factory, in nod
 		return nodeIntegrityCommandFailure(ctx, "read the input",
 			errors.New("--request only freezes a manifest; review the frozen manifest and execute it with --manifest"))
 	}
+	directory, err := openRepairDirectory(ctx, f.Cfg.RepairDir)
+	if err != nil {
+		return nodeIntegrityCommandFailure(ctx, "open the repair directory", err)
+	}
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
 		return nodeIntegrityCommandFailure(ctx, "open the environment", err)
@@ -85,7 +93,7 @@ func runNodeIntegrityBackfillCommand(ctx context.Context, f *cli.Factory, in nod
 	switch {
 	case request != "":
 		var reviewed NodeIntegrityRequest
-		if err := readNodeIntegrityDocument(ctx, request, &reviewed); err != nil {
+		if err := readNodeIntegrityDocument(ctx, directory, request, &reviewed); err != nil {
 			return err
 		}
 		frozen, err := freezeNodeIntegrityRequest(ctx, repairs, reviewed)
@@ -95,7 +103,7 @@ func runNodeIntegrityBackfillCommand(ctx context.Context, f *cli.Factory, in nod
 		output.Manifest = &frozen
 	default:
 		var manifest NodeIntegrityManifest
-		if err := readNodeIntegrityDocument(ctx, manifestPath, &manifest); err != nil {
+		if err := readNodeIntegrityDocument(ctx, directory, manifestPath, &manifest); err != nil {
 			return err
 		}
 		if err := checkNodeIntegrityManifest(ctx, manifest); err != nil {

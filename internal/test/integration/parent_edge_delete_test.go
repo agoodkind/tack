@@ -26,7 +26,7 @@ func TestParentEdgeDeleteMovesChildIssue(t *testing.T) {
 	child := createDeleteFixtureNode(t, env, actor, issue, project, "issue", "Child issue", nil)
 	comment := createDeleteFixtureNode(t, env, actor, issue, project, "comment", "Comment on the deleted issue", nil)
 
-	result, err := env.NodeSvc.DeleteSubtree(env.Ctx, env.OrgID, issue, actor, nil)
+	result, err := env.NodeSvc.DeleteSubtree(env.Ctx, env.OrgID, issue, actor)
 	if err != nil {
 		t.Fatalf("delete issue %s: %v", issue, err)
 	}
@@ -72,7 +72,7 @@ func TestParentEdgeDeleteRefusesTwoParents(t *testing.T) {
 		}
 	}
 	for _, deleted := range []uuid.UUID{root, parent} {
-		if _, err := env.NodeSvc.DeleteSubtree(env.Ctx, env.OrgID, deleted, actor, nil); !errors.Is(err, node.ErrNoHierarchyParent) {
+		if _, err := env.NodeSvc.DeleteSubtree(env.Ctx, env.OrgID, deleted, actor); !errors.Is(err, node.ErrNoHierarchyParent) {
 			t.Fatalf("delete of issue %s returned %v, want an error that matches node.ErrNoHierarchyParent", deleted, err)
 		}
 	}

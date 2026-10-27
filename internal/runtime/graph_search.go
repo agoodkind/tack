@@ -10,11 +10,25 @@ import (
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	searchadapter "goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/telemetry"
 )
+
+// SearchWorkerService is the service name for search worker audit events.
+const SearchWorkerService = "tack-search-worker"
+
+// SearchWorkerAudit configures the worker to write audit events to the
+// FoundationDB operator outbox using the SearchWorkerService actor.
+func SearchWorkerAudit(stores *fdbadapter.Stores) service.SearchAudit {
+	return service.SearchAudit{
+		Outbox: audit.NewAppendOutbox(stores.OpsOutbox),
+		Actor:  audit.ServiceActor(cli.ServiceActorID(SearchWorkerService), SearchWorkerService),
+	}
+}
 
 // searchRuntime is the adapter, workers, and idle interval of the durable
 // indexing loops.
@@ -70,6 +84,7 @@ func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadap
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
 		Rebuilds: rebuilds, Replacer: adapter,
+		Audit: SearchWorkerAudit(stores),
 	}
 	retention := service.NewSearchRetention(rebuilds, adapter, stores, source, retentionSettings, topology)
 	workers := make([]*service.SearchWorker, 0, settings.Concurrency)
@@ -81,7 +96,7 @@ func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadap
 		workers = append(workers, worker)
 	}
 	repair := service.NewSearchModelRepair(service.SearchModelRepairPorts{
-		Engine: adapter, Records: stores.SearchModelRepairs(), Index: stores,
+		Engine: adapter, Records: stores.SearchModelRepairs(), Index: stores, Audit: SearchModelRepairAudit(stores),
 	}, source, repairSettings, service.SearchModelRepairGates{Enabled: repairSettings.Enabled, PublicSearch: cfg.SearchPublicEnabled})
 	return searchRuntime{adapter: adapter, workers: workers, idleTime: settings.IdleInterval, retention: retention, repair: repair}, nil
 }

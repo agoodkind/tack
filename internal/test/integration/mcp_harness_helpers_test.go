@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
@@ -27,6 +28,7 @@ type MCPHarness struct {
 	orgID     uuid.UUID
 	Workspace string
 	Project   string
+	outbox    *fdbadapter.OpsOutboxStore
 }
 
 // harnessConfig loads the server configuration for the test engines that
@@ -70,9 +72,11 @@ func NewAuditedMCPHarness(t *testing.T) *MCPHarness {
 	return newMCPHarness(t, true)
 }
 
-func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
+// harnessGraph loads the harness configuration and builds one runtime graph
+// from it. The test closes the graph during cleanup.
+func harnessGraph(t *testing.T, audited bool) (*config.Config, *appruntime.Graph) {
 	t.Helper()
-	ctx := t.Context()
+	ctx := WithTestOperation(t, t.Context())
 	cfg := harnessConfig(t)
 	cfg.AuditKafkaBrokers = ""
 	if audited {
@@ -88,6 +92,26 @@ func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
 		t.Fatalf("build graph: %v", err)
 	}
 	t.Cleanup(graph.Close)
+	return cfg, graph
+}
+
+// SecondProcess builds a second runtime graph against the same engines. The
+// returned harness sends its tool calls to that graph with the same token,
+// workspace, and project. The two graphs have separate stores, as two app
+// processes do.
+func (h *MCPHarness) SecondProcess(t *testing.T) *MCPHarness {
+	t.Helper()
+	_, graph := harnessGraph(t, false)
+	second := *h
+	second.driver = datagen.NewDriver(graph, false, nextHarnessSeed())
+	second.handler = graph.MCPRoute
+	return &second
+}
+
+func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
+	t.Helper()
+	ctx := WithTestOperation(t, t.Context())
+	cfg, graph := harnessGraph(t, audited)
 	if audited {
 		graph.StartDeleteResumer(ctx)
 	}
@@ -103,12 +127,13 @@ func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
 	workspace := identities.Workspaces[0]
 	harness := &MCPHarness{
 		driver:    datagen.NewDriver(graph, false, seed),
-		handler:   graph.AuthMiddleware(graph.MCPHandler),
+		handler:   graph.MCPRoute,
 		token:     workspace.Actors[0].Token,
 		ledgerDSN: cfg.DatabaseURL,
 		orgID:     workspace.OrgID,
 		Workspace: workspace.Slug,
 		Project:   "",
+		outbox:    harnessOutbox(t, cfg.FDBClusterFile),
 	}
 	harness.createProject(t)
 	return harness

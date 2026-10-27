@@ -43,6 +43,9 @@ func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, in
 	case node.ReferenceDirectProperty:
 		return r.resolveDirectReference(ctx, nt, input)
 	case node.ReferenceScopedSequence:
+		if strings.Contains(input, scopedNodeRefSeparator) {
+			return r.resolveScopedReference(ctx, nt, nodeNameReferenceProperty, input)
+		}
 		return r.resolveSequenceNodeID(ctx, input, []string{nt.TypeKey})
 	case node.ReferenceScopedProperty:
 		return r.resolveScopedNodeReference(ctx, nt, input)
@@ -59,7 +62,7 @@ func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, in
 // reference names nothing, not that the node predates enforcement.
 func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, typeKeys []string) (uuid.UUID, error) {
 	if _, _, err := r.parseSequenceReference(input, typeKeys); err != nil {
-		return uuid.Nil, fmt.Errorf("invalid node_id %q: must be a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)
+		return uuid.Nil, invalidReferenceError{err: fmt.Errorf("invalid node_id %q: must be a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)}
 	}
 	userID, ok := auth.UserID(ctx)
 	if !ok {

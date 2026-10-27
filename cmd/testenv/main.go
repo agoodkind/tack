@@ -16,7 +16,7 @@
 //	                      restart each member in turn and print the proxy
 //	                      status while each member is down
 //	testenv shared-dir    create a directory the Docker daemon sees at the same path, print it
-//	testenv down          remove every engine the tool or any test started
+//	testenv down          remove operator engines and engines of exited tests
 //
 // An engine the tool starts keeps running after it exits, for the operator to
 // use, until `testenv down` removes it. A shared directory stays until the

@@ -82,6 +82,7 @@ func (s *SearchRebuildStore) BeginRebuild(ctx context.Context, request searchdom
 			ScanCursor: "", VerifyCursor: "", Failure: "", PrimaryShards: request.PrimaryShards,
 			RoutingShards: request.RoutingShards, Replicas: request.Replicas, ScanComplete: false,
 			Paused: false, Restored: request.Restored, PausedAt: s.work.clock.Now().UTC(), Generation: generation,
+			Initiation: request.Initiation,
 		}
 		if writeErr := writeSearchRecord(ctx, tr, searchRebuildKey(), rebuildRecordFor(rebuild)); writeErr != nil {
 			return writeErr

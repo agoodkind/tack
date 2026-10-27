@@ -154,7 +154,7 @@ func (r *YBRecorder) recordOnce(ctx context.Context, ev Event, shard int16, cont
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	piiRef, err := writePIIRow(ctx, tx, ev.Actor)
+	piiRef, err := writeEventPII(ctx, tx, ev)
 	if err != nil {
 		return chainAppendResult{}, err
 	}
@@ -197,6 +197,8 @@ func actorKindCode(t ActorType) int16 {
 		return 4
 	case ActorOperator:
 		return 5
+	case ActorUnauthenticated:
+		return 6
 	default:
 		return 0
 	}

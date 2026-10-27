@@ -1,8 +1,12 @@
 package integration
 
 import (
+	"context"
+	"fmt"
 	"regexp"
 	"testing"
+
+	"goodkind.io/tack/internal/audit"
 )
 
 var confirmationReferencePattern = regexp.MustCompile("- Reference: `([^`]+)`")
@@ -11,12 +15,36 @@ var confirmationReferencePattern = regexp.MustCompile("- Reference: `([^`]+)`")
 // reference printed in the create confirmation.
 func (h *MCPHarness) CreateIssue(t *testing.T, name string) string {
 	t.Helper()
+	reference, err := h.TryCreateIssue(t.Context(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reference
+}
+
+// TryCreateIssue creates one issue in the harness's project and returns the
+// reference printed in the create confirmation. It returns an error instead
+// of failing the test, and it is safe to use from any goroutine.
+func (h *MCPHarness) TryCreateIssue(ctx context.Context, name string) (string, error) {
 	arguments := h.projectArgs()
 	arguments.Name = name
-	text := h.Call(t, "tack_create_issue", arguments).Text()
+	result, err := h.driver.Call(ctx, h.token, "tack_create_issue", arguments)
+	if err != nil {
+		return "", fmt.Errorf("call tack_create_issue for %q: %w", name, err)
+	}
+	text := result.Text()
 	match := confirmationReferencePattern.FindStringSubmatch(text)
 	if match == nil {
-		t.Fatalf("create issue confirmation has no reference:\n%s", text)
+		return "", fmt.Errorf("create issue confirmation for %q has no reference:\n%s", name, text)
 	}
-	return match[1]
+	return match[1], nil
+}
+
+// SequenceChanges returns the change events of the sequence counter stored
+// under counterKey in the harness organization from the FoundationDB outbox.
+func (h *MCPHarness) SequenceChanges(ctx context.Context, counterKey string) ([]audit.Event, error) {
+	return harnessOutboxMatching(ctx, h, "sequence counter "+counterKey, func(event audit.Event) bool {
+		return event.Entity.NodeType == audit.TargetSequenceCounter && event.Entity.Name == counterKey &&
+			event.Context.OrgID == h.orgID && event.Context.Phase == audit.PhaseChange
+	})
 }

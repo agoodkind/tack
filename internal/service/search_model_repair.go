@@ -14,11 +14,13 @@ import (
 )
 
 // SearchModelRepairPorts are the engine, the repair record store, and the
-// serving index reader of the model repair.
+// serving index reader of the model repair. Audit supplies the outbox and
+// service actor that record each repair deploy.
 type SearchModelRepairPorts struct {
 	Engine  searchdomain.ModelRepairEngine
 	Records searchdomain.ModelRepairStore
 	Index   searchdomain.ServingIndexReader
+	Audit   SearchAudit
 }
 
 // SearchModelRepair deploys the serving model again when ML Commons leaves it
@@ -120,22 +122,7 @@ func (r *SearchModelRepair) attempt(ctx context.Context, index string, claim sea
 			slog.String("state", again.State), slog.Int("active_tasks", again.ActiveTasks))
 		return nil
 	}
-	taskID, err := r.ports.Engine.StartModelDeploy(ctx, modelID)
-	if err != nil {
-		return r.deployFailed(ctx, claim, "", err)
-	}
-	telemetry.L(ctx).InfoContext(ctx, "search.model_repair.deploy_started", slog.String("model_id", modelID), slog.String("task_id", taskID),
-		slog.Int("attempt", claim.Record.Attempts), slog.String("state", again.State), slog.Duration("stuck_for", stuckFor))
-	started := r.clock.Now()
-	if err := r.ports.Engine.WaitModelDeploy(ctx, modelID, taskID); err != nil {
-		if ctx.Err() != nil {
-			return r.deployInterrupted(ctx, claim, taskID)
-		}
-		return r.deployFailed(ctx, claim, taskID, err)
-	}
-	telemetry.L(ctx).InfoContext(ctx, "search.model_repair.deploy_completed", slog.String("model_id", modelID), slog.String("task_id", taskID),
-		slog.Int("attempt", claim.Record.Attempts), slog.Duration("duration", r.clock.Since(started)))
-	return nil
+	return r.deploy(ctx, index, claim, again.State, stuckFor)
 }
 
 // deployFailed logs one failed attempt. The attempt stays counted. The last

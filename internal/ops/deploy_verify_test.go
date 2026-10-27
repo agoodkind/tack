@@ -19,8 +19,8 @@ func TestDeployVerifyTargetsFollowTheRenderedTag(t *testing.T) {
 	cfg := &config.Config{DeployRegistry: "ghcr.io/agoodkind/", DeployImageTag: "a6af885"}
 	got := deployVerifyTargets(cfg, "")
 	want := []deployVerifyTarget{
-		{Container: "tack-app-1", Image: "ghcr.io/agoodkind/tack-server:a6af885"},
-		{Container: "tack-audit-consumer-1", Image: "ghcr.io/agoodkind/tack-audit-consumer:a6af885"},
+		{Service: "app", Image: "ghcr.io/agoodkind/tack-server:a6af885"},
+		{Service: "audit-consumer", Image: "ghcr.io/agoodkind/tack-audit-consumer:a6af885"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("targets = %v, want %v", got, want)
@@ -32,8 +32,8 @@ func TestDeployVerifyTargetsFollowTheRenderedTag(t *testing.T) {
 	}
 	explicit := deployVerifyTargets(cfg, " 2eb962e ")
 	wantExplicit := []deployVerifyTarget{
-		{Container: "tack-app-1", Image: "ghcr.io/agoodkind/tack-server:2eb962e"},
-		{Container: "tack-audit-consumer-1", Image: "ghcr.io/agoodkind/tack-audit-consumer:2eb962e"},
+		{Service: "app", Image: "ghcr.io/agoodkind/tack-server:2eb962e"},
+		{Service: "audit-consumer", Image: "ghcr.io/agoodkind/tack-audit-consumer:2eb962e"},
 	}
 	if len(explicit) != len(wantExplicit) {
 		t.Fatalf("explicit targets = %v, want %v", explicit, wantExplicit)

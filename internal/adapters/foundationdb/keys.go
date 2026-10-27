@@ -78,6 +78,23 @@ const (
 	keyStrictActivation = "strict_activation"
 	keyWriteFence       = "write_fence"
 
+	// The relay lease key family stores the owner ID and the expiry in
+	// FoundationDB read versions.
+	// (ops_outbox_relay_lease) -> relay lease record JSON
+	keyOpsOutboxRelayLease = "ops_outbox_relay_lease"
+
+	// keyAuditReadPending stores pending reads by eventID. These key families
+	// do not include orgID. bucket uses the first SHA-256 byte of the event ID
+	// modulo 64. deadline and published use Unix nanoseconds.
+	// (audit_read_pending, eventID) -> pending read record JSON
+	// (audit_read_expiry, bucket, deadline, eventID) -> nil
+	// (audit_read_receipt, eventID) -> terminal receipt JSON
+	// (audit_read_cleanup, bucket, published, eventID) -> nil
+	keyAuditReadPending = "audit_read_pending"
+	keyAuditReadExpiry  = "audit_read_expiry"
+	keyAuditReadReceipt = "audit_read_receipt"
+	keyAuditReadCleanup = "audit_read_cleanup"
+
 	// Subtree delete jobs. The family is not org-scoped. A runner in any
 	// process lists every unfinished job of every organization.
 	// (node_delete_job, jobID) -> SubtreeDeleteJob JSON

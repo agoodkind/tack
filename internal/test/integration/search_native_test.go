@@ -32,12 +32,12 @@ func nativeSearchConfig(fixture testenv.OpenSearchFixture) search.Config {
 func openSearchClientsFor(t *testing.T, fixture testenv.OpenSearchFixture) (*search.Adapter, *opensearchapi.Client) {
 	t.Helper()
 	configuration := nativeSearchConfig(fixture)
-	adapter, err := search.New(t.Context(), configuration)
+	adapter, err := search.New(WithTestOperation(t, t.Context()), configuration)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := adapter.Close(context.WithoutCancel(t.Context())); err != nil {
+		if err := adapter.Close(context.WithoutCancel(WithTestOperation(t, t.Context()))); err != nil {
 			t.Error(err)
 		}
 	})
@@ -70,7 +70,7 @@ func createNativeSearchIndex(t *testing.T, adapter *search.Adapter, client *open
 	deleteNativeIndex(t, client, index)
 	t.Cleanup(func() { deleteNativeIndex(t, client, index) })
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 8, Replicas: 0}
-	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
+	if err := adapter.EnsureIndex(WithTestOperation(t, t.Context()), index, spec); err != nil {
 		t.Fatal(err)
 	}
 	return spec
@@ -79,7 +79,7 @@ func createNativeSearchIndex(t *testing.T, adapter *search.Adapter, client *open
 // deleteNativeIndex removes index and its aliases, accepting an absent index.
 func deleteNativeIndex(t *testing.T, client *opensearchapi.Client, index string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Minute)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), time.Minute)
 	defer cancel()
 	response, err := opensearch.Do[json.RawMessage](ctx, client.Client, http.MethodDelete,
 		opensearchapi.IndicesDeleteReq{Indices: []string{index}}, nil)
@@ -103,7 +103,7 @@ func unicodePage4096() string {
 func TestSearchNativeSparse(t *testing.T) {
 	adapter, client := nativeSearchClients(t)
 	requireNativeJVMHeap(t, client)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +112,7 @@ func TestSearchNativeSparse(t *testing.T) {
 	}
 	const index = "native-sparse-compatibility"
 	createNativeSearchIndex(t, adapter, client, model, index)
+	requireNativeChunkMapping(t, client, index)
 	for _, workload := range nativeCompletePageCases() {
 		t.Run(workload.name, func(t *testing.T) {
 			text := workload.text

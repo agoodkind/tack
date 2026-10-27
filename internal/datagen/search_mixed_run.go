@@ -2,8 +2,10 @@ package datagen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"goodkind.io/tack/internal/clock"
@@ -17,88 +19,169 @@ const (
 	searchMixedDeleteKind   = 2
 )
 
-func (m *searchMixed) run(scheduleContext, callContext context.Context, plannedSearches, plannedWrites int) SearchMixedSummary {
+var (
+	errSearchMixedPhasePanic = errors.New("qa datagen search-mixed: workload phase panicked")
+	errSearchMixedPanic      = errors.New("qa datagen search-mixed: a workload goroutine panicked")
+)
+
+// run starts sampling, searches, workload phases, and scheduled writes.
+// After the searches, phases, and writes finish, it waits for search work to finish
+// unless its schedule context has ended. Freshness probes search for markers during this wait.
+// It then waits up to two minutes for pending probes or until the schedule context ends.
+// If a workload phase returns an error or panics, run cancels its schedule context.
+// The cancellation stops search loads and scheduled writes.
+// run skips the catch-up wait, and drain ends its probe wait at the next poll.
+// run calls drain to cancel the probe context and wait for the prober, then closes stopSampler and waits for the sampler, then returns the summary and the joined phase and panic errors.
+func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWrites int) (SearchMixedSummary, error) {
+	scheduleContext, stopSchedule := context.WithCancel(parentSchedule)
+	defer stopSchedule()
 	probeContext, stopProbes := context.WithCancel(callContext)
 	defer stopProbes()
+	proberDone := make(chan struct{})
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				m.recordPanic(callContext, "qa.datagen.search_mixed_probe_panicked", fmt.Sprint(recovered))
+			}
+		}()
+		m.probe(probeContext, proberDone)
+	}()
+	windowStarted := clock.Now()
+	stopSampler, samplerDone := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				m.recordPanic(callContext, "qa.datagen.search_mixed_sampler_panicked", fmt.Sprint(recovered))
+			}
+		}()
+		m.sampleUntil(callContext, windowStarted, stopSampler, samplerDone)
+	}()
 	searches := make(chan SearchLoadSummary, 1)
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(callContext, "qa.datagen.search_mixed_load_panicked", slog.String("err", fmt.Sprint(recovered)))
-				searches <- m.load.stats.summary(false, plannedSearches, 0, 0, 0, 0)
+				m.recordPanic(callContext, "qa.datagen.search_mixed_load_panicked", fmt.Sprint(recovered))
+				searches <- m.loadStats.summary(false, 0, 0, 0, 0, 0)
 			}
 		}()
-		searches <- m.load.run(scheduleContext, callContext, plannedSearches)
+		searches <- m.runLoads(scheduleContext, callContext)
 	}()
-	writeElapsed := m.write(scheduleContext, callContext, probeContext, plannedWrites)
+	phaseErrors := make(chan error, 1)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				slog.ErrorContext(callContext, "qa.datagen.search_mixed_phase_panicked", slog.String("err", fmt.Sprint(recovered)))
+				stopSchedule()
+				phaseErrors <- errSearchMixedPhasePanic
+			}
+		}()
+		phaseErr := m.runPhases(scheduleContext, callContext, windowStarted)
+		if phaseErr != nil {
+			stopSchedule()
+		}
+		phaseErrors <- phaseErr
+	}()
+	writeElapsed := m.write(scheduleContext, callContext, plannedWrites)
 	searchSummary := <-searches
-	m.drain(scheduleContext, callContext, stopProbes)
-	return m.stats.summary(searchSummary, plannedWrites, writeElapsed)
+	phaseErr := <-phaseErrors
+	writesEnded := clock.Now()
+	if scheduleContext.Err() == nil {
+		m.catchUp(scheduleContext, writesEnded)
+	}
+	m.drain(scheduleContext, stopProbes, proberDone)
+	close(stopSampler)
+	<-samplerDone
+	summary := m.stats.summary(searchSummary, plannedWrites, writeElapsed)
+	summary.Endpoints, summary.Tenants, summary.Measured = len(m.options.Endpoints), len(m.tenants), true
+	summary.Stopped = parentSchedule.Err() != nil
+	m.phases.apply(&summary)
+	return summary, errors.Join(phaseErr, m.panicError())
 }
 
-func (m *searchMixed) write(scheduleContext, callContext, probeContext context.Context, planned int) time.Duration {
-	interval := time.Minute / time.Duration(m.writeRate)
+// recordPanic logs a recovered panic and records an error for run to return.
+func (m *searchMixed) recordPanic(ctx context.Context, event, detail string) {
+	slog.ErrorContext(ctx, event, slog.String("err", detail))
+	m.failureMutex.Lock()
+	defer m.failureMutex.Unlock()
+	m.failures = append(m.failures, fmt.Errorf("%w: %s", errSearchMixedPanic, detail))
+}
+
+func (m *searchMixed) panicError() error {
+	m.failureMutex.Lock()
+	defer m.failureMutex.Unlock()
+	if len(m.failures) == 0 {
+		return nil
+	}
+	joined := errors.Join(m.failures...)
+	slog.Error("qa.datagen.search_mixed_panics_recorded", slog.String("err", joined.Error()))
+	return joined
+}
+
+func (m *searchMixed) runLoads(scheduleContext, callContext context.Context) SearchLoadSummary {
+	results := make([]SearchLoadSummary, len(m.loads))
+	planned := 0
+	var loads sync.WaitGroup
+	for index, load := range m.loads {
+		loadPlanned := int(load.options.Duration * time.Duration(load.options.Rate) / time.Minute)
+		planned += loadPlanned
+		loads.Go(func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					m.recordPanic(callContext, "qa.datagen.search_mixed_load_panicked", fmt.Sprint(recovered))
+				}
+			}()
+			results[index] = load.run(scheduleContext, callContext, loadPlanned)
+		})
+	}
+	loads.Wait()
+	sent, dropped, distinct, elapsed := 0, 0, 0, time.Duration(0)
+	for _, result := range results {
+		sent, dropped, distinct = sent+result.Sent, dropped+result.Dropped, distinct+result.DistinctQueries
+		elapsed = max(elapsed, result.Elapsed)
+	}
+	return m.loadStats.summary(false, planned, sent, dropped, distinct, elapsed)
+}
+
+func (m *searchMixed) write(scheduleContext, callContext context.Context, planned int) time.Duration {
+	interval := time.Minute / time.Duration(m.options.WriteRate)
 	started := clock.Now()
 	for index := range planned {
 		if !waitForSearchLoadStart(scheduleContext, started.Add(time.Duration(index)*interval)) {
 			break
 		}
-		m.writeOne(callContext, probeContext, index)
+		m.writeOne(callContext, index)
 	}
 	return clock.Now().Sub(started)
 }
 
-func (m *searchMixed) writeOne(callContext, probeContext context.Context, index int) {
+func (m *searchMixed) writeOne(callContext context.Context, index int) {
 	switch index % searchMixedWriteKinds {
 	case searchMixedEditKind:
 		if node := m.settledNode(true); node != nil {
-			m.editIssue(callContext, probeContext, node)
+			m.editIssue(callContext, index, node)
 			return
 		}
 	case searchMixedDeleteKind:
 		if node := m.settledNode(false); node != nil {
-			m.deleteIssue(callContext, probeContext, node)
+			m.deleteIssue(callContext, index, node)
 			return
 		}
 	}
-	m.createIssue(callContext, probeContext)
+	m.createScheduledIssue(callContext, index)
 }
 
-func (m *searchMixed) probe(ctx context.Context, check func(context.Context)) {
-	m.probes.Add(1)
-	go func() {
-		defer m.probes.Done()
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(ctx, "qa.datagen.search_mixed_probe_panicked", slog.String("err", fmt.Sprint(recovered)))
-				m.stats.count(&m.stats.markersNotFound)
-			}
-		}()
-		check(ctx)
-	}()
-}
-
-func (m *searchMixed) drain(scheduleContext, callContext context.Context, stopProbes context.CancelFunc) {
-	finished := make(chan struct{})
-	go func() {
-		defer close(finished)
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(callContext, "qa.datagen.search_mixed_drain_panicked", slog.String("err", fmt.Sprint(recovered)))
-			}
-		}()
-		m.probes.Wait()
-	}()
-	timer := time.NewTimer(searchMixedDrainTimeout)
-	defer timer.Stop()
-	select {
-	case <-finished:
-		return
-	case <-timer.C:
-	case <-scheduleContext.Done():
+// drain waits until the prober finds every pending marker and verifies every pending deletion,
+// the two-minute timeout expires, or scheduleContext ends. It then stops the prober and waits
+// for it to finish.
+func (m *searchMixed) drain(scheduleContext context.Context, stopProbes context.CancelFunc, proberDone <-chan struct{}) {
+	deadline := clock.Now().Add(searchMixedDrainTimeout)
+	for m.probesPending() && clock.Now().Before(deadline) {
+		if !waitForSearchMixedPoll(scheduleContext) {
+			break
+		}
 	}
 	stopProbes()
-	<-finished
+	<-proberDone
 }
 
 func waitForSearchMixedPoll(ctx context.Context) bool {

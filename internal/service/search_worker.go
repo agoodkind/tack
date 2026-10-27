@@ -18,7 +18,7 @@ import (
 // session still reads the previous access version. Documents reads the
 // stored access of page documents for verification. Rebuilds records the
 // index replacement state. Replacer performs the OpenSearch operations of
-// the index replacement.
+// the index replacement. Audit supplies the outbox and service actor.
 type SearchWorkerPorts struct {
 	Store     searchdomain.WorkStore
 	Reader    searchdomain.ContentReader
@@ -29,6 +29,7 @@ type SearchWorkerPorts struct {
 	Documents searchdomain.DocumentAccessReader
 	Rebuilds  searchdomain.RebuildStore
 	Replacer  searchdomain.IndexReplacer
+	Audit     SearchAudit
 }
 
 // SearchWorker processes bounded durable search work of every class.
@@ -45,6 +46,9 @@ type SearchWorker struct {
 // position the worker reads in the weighted class schedule. Concurrent
 // workers with different offsets start at different positions.
 func NewSearchWorker(ports SearchWorkerPorts, source clock.Clock, settings config.SearchWorkerSettings, offset int) (*SearchWorker, error) {
+	if ports.Audit.Outbox == nil || ports.Audit.Actor.ID == uuid.Nil {
+		return nil, errors.New("search worker: set the audit outbox and service actor")
+	}
 	schedule, err := weightedSchedule(settings.ClassWeights)
 	if err != nil {
 		return nil, err

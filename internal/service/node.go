@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
@@ -80,11 +79,6 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 	if rel.CreatedAt.IsZero() {
 		rel.CreatedAt = clock.Now().UTC()
 	}
-	if err := audit.StageStateChange(ctx, audit.VerbRelationshipAdd,
-		relationshipAuditEntity(rel.SourceID, rel.RelationType, rel.TargetID)); err != nil {
-		slog.ErrorContext(ctx, "node.AddRelationship: stage audit row", slog.String("err", err.Error()))
-		return fmt.Errorf("stage the audit row for adding %s: %w", rel.RelationType, err)
-	}
 	memberTarget, err := s.isMemberTarget(ctx, rel)
 	if err != nil {
 		return err
@@ -98,14 +92,6 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 		return nil
 	}
 	return s.relationships.Add(ctx, rel)
-}
-
-// relationshipAuditEntity names a relationship in its ledger row: the source
-// node is the entity, the relation type its identifier, the target its name.
-func relationshipAuditEntity(sourceID uuid.UUID, relationType string, targetID uuid.UUID) audit.Entity {
-	return audit.Entity{
-		Type: "relationship", NodeType: "", ID: sourceID, Identifier: relationType, Name: targetID.String(),
-	}
 }
 
 // RemoveRelationship removes a directed edge.
@@ -124,11 +110,6 @@ func (s *NodeService) RemoveRelationship(ctx context.Context, orgID, sourceID uu
 		slog.String("source_id", sourceID.String()),
 		slog.String("target_id", targetID.String()),
 	)
-	if err := audit.StageStateChange(ctx, audit.VerbRelationshipRemove,
-		relationshipAuditEntity(sourceID, relationType, targetID)); err != nil {
-		slog.ErrorContext(ctx, "node.RemoveRelationship: stage audit row", slog.String("err", err.Error()))
-		return fmt.Errorf("stage the audit row for removing %s: %w", relationType, err)
-	}
 	return s.relationships.Remove(ctx, orgID, sourceID, relationType, targetID)
 }
 

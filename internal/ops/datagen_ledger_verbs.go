@@ -13,16 +13,18 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// datagenLedgerVerbs are the audit verbs that only the host-run ledger
-// commands record. `ops qa datagen` cannot run those commands: the app
-// service mounts no Docker socket for the yb-admin one-shots, and
-// audit-bootstrap refuses a populated ledger. The seed therefore reports the
-// rows the real commands wrote (AGENTS.md rule 4).
+// ops qa datagen reports existing events for these verbs because it cannot
+// run the host ledger commands or service jobs that record them.
 var datagenLedgerVerbs = []string{
 	string(audit.VerbOpsLedgerNodePrepare),
 	string(audit.VerbOpsLedgerNodeWait),
 	string(audit.VerbOpsLedgerBootstrapWait),
 	string(audit.VerbOpsLedgerAuditBootstrap),
+	string(audit.VerbSearchIndexStructure),
+	string(audit.VerbSearchAccessRolloutPhase),
+	string(audit.VerbSearchModelRepair),
+	string(audit.VerbAuditPartitionMaintain),
+	string(audit.VerbNodeSubtreeDeleteResume),
 }
 
 // datagenLedgerVerb is the row count and newest event time of one verb on the
@@ -33,19 +35,41 @@ type datagenLedgerVerb struct {
 	LatestEventAt string `json:"latest_event_time,omitempty"`
 }
 
-// datagenLedgerVerbsReport lists every host-only ledger verb, with zero
-// counts included.
+// datagenLedgerVerbsReport lists the row count of every requested verb on
+// the system organization, including zero counts.
 type datagenLedgerVerbsReport struct {
 	Command string              `json:"command"`
 	ReadAt  string              `json:"read_at"`
 	Verbs   []datagenLedgerVerb `json:"verbs"`
 }
 
+// datagenSearchAccessVerbs lists the audit verbs of the access rollout
+// and rollback commands. The ops qa datagen command cannot run those
+// operator commands. The seed reports the rows those commands wrote.
+var datagenSearchAccessVerbs = []string{
+	string(audit.VerbOpsSearchAccessRollout),
+	string(audit.VerbOpsSearchAccessRollback),
+}
+
 // readDatagenLedgerVerbs reads the presence of each host-only ledger verb
 // through AUDIT_READER_DSN. It records nothing of its own.
 func readDatagenLedgerVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
+	return readDatagenVerbPresence(ctx, f, "ops.qa.datagen.ledger_verbs", datagenLedgerVerbs)
+}
+
+// readDatagenSearchAccessVerbs reads the presence of each access rollout
+// and rollback verb through AUDIT_READER_DSN. It does not record events
+// of its own.
+func readDatagenSearchAccessVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
+	return readDatagenVerbPresence(ctx, f, "ops.qa.datagen.search_access_verbs", datagenSearchAccessVerbs)
+}
+
+// readDatagenVerbPresence reads the row count and newest event time of
+// each verb in verbs on the system organization. It uses command as the
+// report label.
+func readDatagenVerbPresence(ctx context.Context, f *cli.Factory, command string, verbs []string) (datagenLedgerVerbsReport, error) {
 	report := datagenLedgerVerbsReport{
-		Command: "ops.qa.datagen.ledger_verbs", ReadAt: clock.Now().UTC().Format(time.RFC3339Nano), Verbs: nil,
+		Command: command, ReadAt: clock.Now().UTC().Format(time.RFC3339Nano), Verbs: nil,
 	}
 	if strings.TrimSpace(f.Cfg.AuditReaderDSN) == "" {
 		err := errors.New("the ledger verb report needs AUDIT_READER_DSN")
@@ -58,9 +82,9 @@ func readDatagenLedgerVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerV
 		return report, fmt.Errorf("open the ledger reader: %w", err)
 	}
 	defer reader.Close()
-	presence, err := reader.VerbPresence(ctx, audit.SystemOrgID(), datagenLedgerVerbs)
+	presence, err := reader.VerbPresence(ctx, audit.SystemOrgID(), verbs)
 	if err != nil {
-		wrapped := fmt.Errorf("read the host-only ledger verbs: %w", err)
+		wrapped := fmt.Errorf("read the ledger verb presence: %w", err)
 		slog.ErrorContext(ctx, "qa.datagen.ledger_verbs_failed", slog.String("err", wrapped.Error()))
 		return report, wrapped
 	}

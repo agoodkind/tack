@@ -75,7 +75,7 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 		Params: opensearchapi.PointInTimeCreateParams{KeepAlive: r.settings.KeepAlive},
 	})
 	if err != nil {
-		return none, snapshotFailure(ctx, target, "create a point in time", engineCause(created.Inspect().Response, err))
+		return none, snapshotFailure(ctx, target, "create a point in time", engineCause(ctx, created.Inspect().Response, err))
 	}
 	if created.PitID == "" || created.Shards.Failed > 0 {
 		partial := searchdomain.Snapshot{PITID: created.PitID, Index: target, QueryTokens: nil}
@@ -104,7 +104,7 @@ func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot)
 	if deleted != nil && deleted.StatusCode == http.StatusNotFound {
 		return nil
 	}
-	return snapshotFailure(ctx, snapshot.Index, "delete a point in time", engineCause(deleted, err))
+	return snapshotFailure(ctx, snapshot.Index, "delete a point in time", engineCause(ctx, deleted, err))
 }
 
 func snapshotFailure(ctx context.Context, index, operation string, err error) error {

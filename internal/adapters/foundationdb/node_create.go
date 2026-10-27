@@ -18,7 +18,17 @@ import (
 // schedules search work for the node.
 func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, relationships []*node.Relationship, indexedProps []string, referenceKeys []node.ReferenceKey, idempotency *node.IdempotencyRecord) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.create_atomic")(&err)
+	changes, err := beginMutationAudit(ctx, current.OrgID)
+	if err != nil {
+		return err
+	}
+	for _, relationship := range relationships {
+		if relationship.OrgID == uuid.Nil {
+			relationship.OrgID = current.OrgID
+		}
+	}
 	err = runNodeMutation(ctx, s.db, "create node "+current.ID.String()+" atomically", func(tr fdb.Transaction) error {
+		changes.startAttempt()
 		strict, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID)
 		if err != nil {
 			return err
@@ -26,20 +36,22 @@ func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *
 		if err := writeCreateIdempotency(ctx, tr, current.OrgID, idempotency); err != nil {
 			return err
 		}
-		if err := writeNodeRecords(ctx, tr, current, view); err != nil {
+		source, err := tr.Get(fdb.Key(nodeInstanceKey(current.OrgID, current.NodeType, current.ID))).Get()
+		if err != nil {
+			return searchReadFailure(ctx, "read node "+current.ID.String(), err)
+		}
+		encoded, err := writeNodeRecords(ctx, tr, current, view)
+		if err != nil {
 			return err
 		}
 		writeCreatePropertyIndexes(tr, current, indexedProps)
 		if err := claimReferenceKeys(tr, current.OrgID, current.ID, referenceKeys); err != nil {
 			return err
 		}
-		if err := writeCreateRelationships(ctx, tr, current.OrgID, relationships); err != nil {
+		if err := addRelationships(ctx, tr, relationships, changes); err != nil {
 			return err
 		}
-		if err := checkStrictRelationshipAdds(ctx, tr, strict, []node.RelationshipChanges{{Add: relationships, Remove: nil}}); err != nil {
-			return err
-		}
-		if err := checkStrictRecord(ctx, tr, strict, current); err != nil {
+		if err := checkStrictWrite(ctx, tr, strict, current, []node.RelationshipChanges{{Add: relationships, Remove: nil}}); err != nil {
 			return err
 		}
 		if s.searchWork {
@@ -47,12 +59,15 @@ func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *
 				return err
 			}
 		}
-		return writeNodeIntent(ctx, tr, nil, current)
+		if err := changes.record(nodeTarget(current), source, encoded); err != nil {
+			return nodeOperationFailure(ctx, "record the change of node "+current.ID.String(), err)
+		}
+		return changes.append(ctx, tr)
 	})
 	if err != nil {
 		return err
 	}
-	commitStagedIntent(ctx)
+	changes.finish(ctx)
 	return nil
 }
 
@@ -63,23 +78,6 @@ func writeCreatePropertyIndexes(tr fdb.Transaction, current *node.Node, indexedP
 			tr.Set(fdb.Key(nodeByPropertyKey(current.OrgID, current.NodeType, propName, encodePropertyValue(value), current.ID)), []byte{})
 		}
 	}
-}
-
-func writeCreateRelationships(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, relationships []*node.Relationship) error {
-	for _, relationship := range relationships {
-		if relationship.OrgID == uuid.Nil {
-			relationship.OrgID = orgID
-		}
-		metadata, err := json.Marshal(relationship)
-		if err != nil {
-			wrapped := fmt.Errorf("marshal relationship %s %s %s: %w", relationship.SourceID, relationship.RelationType, relationship.TargetID, err)
-			telemetry.L(ctx).ErrorContext(ctx, "node.relationship.marshal_failed", slog.String("err", wrapped.Error()), slog.String("source_id", relationship.SourceID.String()), slog.String("target_id", relationship.TargetID.String()))
-			return loggedSearchError{err: wrapped}
-		}
-		tr.Set(fdb.Key(relationshipKey(relationship.OrgID, relationship.SourceID, relationship.RelationType, relationship.TargetID)), metadata)
-		tr.Set(fdb.Key(relationshipReverseKey(relationship.OrgID, relationship.TargetID, relationship.RelationType, relationship.SourceID)), []byte{})
-	}
-	return nil
 }
 
 func writeCreateIdempotency(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, record *node.IdempotencyRecord) error {

@@ -15,6 +15,7 @@ func renderNode(rc *renderCtx, view *node.NodeView) string {
 	if view == nil {
 		return executeMarkdownTemplate("node.md.tmpl", nodeTemplateData{Heading: "Node not found"})
 	}
+	addNodeTargets(rc.ctx, view)
 	ident := identifierFor(view, rc)
 	heading := view.Name
 	if ident != "" && ident != view.Name {

@@ -33,6 +33,7 @@ func (s *SearchAccessRolloutStore) CompleteScan(ctx context.Context, work search
 			record.ScanComplete, record.VerifyCursor = true, ""
 		default:
 			record.Phase, record.VerifyCursor = string(searchdomain.AccessVerifying), ""
+			startRolloutCollecting(tr, record.AuthorityID, record.Generation)
 		}
 		return nil
 	})

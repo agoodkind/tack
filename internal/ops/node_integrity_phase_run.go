@@ -6,7 +6,7 @@ import (
 	"log/slog"
 
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -19,10 +19,7 @@ type RepairCheckpointWriter interface {
 type repairPhaseRunner struct {
 	checkpoints RepairCheckpointWriter
 	exports     RepairExportReader
-}
-
-func (runner repairPhaseRunner) runs(phase node.RepairPhase) bool {
-	return phase == node.RepairPhaseExported
+	mutator     node.Mutator
 }
 
 func (runner repairPhaseRunner) runPhase(ctx context.Context, manifestDigest string, operator audit.OperatorPrincipal, entry NodeIntegrityEntry, phase node.RepairPhase) error {
@@ -30,19 +27,22 @@ func (runner repairPhaseRunner) runPhase(ctx context.Context, manifestDigest str
 	if err != nil {
 		return repairPhaseFailure(ctx, entry, phase, err)
 	}
-	previous := node.RepairPhase("")
-	if stored != nil {
-		previous = stored.Phase
+	run := repairPhaseRun{manifestDigest: manifestDigest, operator: operator, entry: entry, stored: stored}
+	switch {
+	case phase == node.RepairPhaseExported:
+		err = runner.exportPhase(ctx, run)
+	case phase == node.RepairPhaseCommentCreated:
+		err = runner.createReportPhase(ctx, run)
+	case phase == node.RepairPhaseCommentVerified:
+		err = runner.verifyReportPhase(ctx, run)
+	case phase == node.RepairPhaseCompleted && entry.Delete != nil:
+		err = runner.deletePhase(ctx, run)
+	case phase == node.RepairPhaseCompleted:
+		err = runner.resultPhase(ctx, run)
+	default:
+		err = fmt.Errorf("phase %q does not have a runner: %w", phase, domain.ErrInvalidArgument)
 	}
-	digest, err := exportRepairNode(ctx, runner.exports, entry, manifestDigest, operator.ID)
 	if err != nil {
-		return repairPhaseFailure(ctx, entry, phase, err)
-	}
-	next := node.RepairCheckpoint{
-		RepairID: entry.RepairID, ManifestDigest: manifestDigest, NodeID: entry.NodeID, SourceDigest: entry.Source.PrimaryDigest,
-		Phase: phase, ExportPath: entry.Delete.ExportFile, ExportDigest: digest, ActorID: operator.ID, UpdatedAt: clock.Now().UTC(),
-	}
-	if err := runner.checkpoints.AdvanceRepairCheckpoint(ctx, previous, next); err != nil {
 		return repairPhaseFailure(ctx, entry, phase, err)
 	}
 	return nil

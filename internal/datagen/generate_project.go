@@ -26,6 +26,14 @@ func (g *Generator) generateProject(
 	if err != nil {
 		return err
 	}
+	// generateContainers returns the project's epics before its cycles and modules.
+	firstEpic := ""
+	if g.scale.ContainersPerProject > 0 {
+		firstEpic = containers[0]
+	}
+	if err := g.generateNestedEpic(ctx, actor, workspace, projectIdentifier, firstEpic); err != nil {
+		return err
+	}
 	if err := g.generateIssues(
 		ctx,
 		projectIndex,

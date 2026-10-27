@@ -14,6 +14,15 @@ func checkStrictRecord(ctx context.Context, tr fdb.Transaction, strict bool, rec
 	return checkStrictMutation(ctx, tr, strict, record, nil)
 }
 
+// checkStrictWrite runs checkStrictRelationshipAdds for changesList and then
+// checkStrictRecord for record, and returns the first error.
+func checkStrictWrite(ctx context.Context, tr fdb.Transaction, strict bool, record *node.Node, changesList []node.RelationshipChanges) error {
+	if err := checkStrictRelationshipAdds(ctx, tr, strict, changesList); err != nil {
+		return err
+	}
+	return checkStrictRecord(ctx, tr, strict, record)
+}
+
 func checkStrictMutation(ctx context.Context, tr fdb.Transaction, strict bool, result *node.Node, parent *node.ParentChange) error {
 	if !strict {
 		return nil

@@ -119,7 +119,7 @@ func deleteStrictNode(t *testing.T, env *integration.TestEnv, nodeID, actorID uu
 	if _, err := env.NodeSvc.Delete(env.Ctx, nodeID, actorID); err != nil {
 		t.Fatalf("delete node %s: %v", nodeID, err)
 	}
-	if _, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0); err != nil {
+	if _, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0, env.LedgerResumeAudit()); err != nil {
 		t.Fatalf("finish the delete of node %s: %v", nodeID, err)
 	}
 }

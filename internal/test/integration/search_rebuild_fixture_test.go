@@ -3,6 +3,7 @@ package integration
 import (
 	"errors"
 	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ const rebuildDeadline = 10 * time.Minute
 // deletes its target when the test ends.
 func beginRebuild(t *testing.T, fixture queryFixture, request searchdomain.BeginRebuild) searchdomain.Rebuild {
 	t.Helper()
-	rebuild, err := fixture.Stores.SearchRebuilds(clock.Wall{}).BeginRebuild(t.Context(), request)
+	rebuild, err := fixture.Stores.SearchRebuilds(clock.Wall{}).BeginRebuild(WithTestOperation(t, t.Context()), request)
 	if err != nil {
 		t.Fatalf("begin index replacement: %v", err)
 	}
@@ -36,7 +37,7 @@ func runRebuildUntil(t *testing.T, fixture queryFixture, done func(searchdomain.
 	rebuilds := fixture.Stores.SearchRebuilds(clock.Wall{})
 	deadline := time.Now().Add(rebuildDeadline)
 	for time.Now().Before(deadline) {
-		current, found, err := rebuilds.CurrentRebuild(t.Context())
+		current, found, err := rebuilds.CurrentRebuild(WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("read index replacement: %v", err)
 		}
@@ -52,11 +53,51 @@ func runRebuildUntil(t *testing.T, fixture queryFixture, done func(searchdomain.
 // rebuildFinished accepts the state after the replacement record is gone.
 func rebuildFinished(_ searchdomain.Rebuild, found bool) bool { return !found }
 
+// shortenSearchSessions sets a 3 second idle limit and a 6 second absolute
+// limit for search sessions. Retirement of the old index then waits at most
+// 6 seconds for a session that a test search opened. A test must set the
+// limits before the fixture builds the graph.
+func shortenSearchSessions(t *testing.T) {
+	t.Helper()
+	t.Setenv("OPENSEARCH_SESSION_IDLE_TIMEOUT", "3s")
+	t.Setenv("OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT", "6s")
+}
+
+func inState(state searchdomain.RebuildState) func(searchdomain.Rebuild, bool) bool {
+	return func(current searchdomain.Rebuild, found bool) bool { return found && current.State == state }
+}
+
+// pagesCurrent reports whether index stores one active document of the
+// current revision for every page the production reader returns.
+func pagesCurrent(t *testing.T, fixture queryFixture, index string, nodeID uuid.UUID) bool {
+	t.Helper()
+	pages := readSearchPages(t, fixture.Stores, nodeID, runtimePageBytes)
+	documents := searchNodePages(t, fixture.Client, index, nodeID, false)
+	matched := len(documents) == len(pages)
+	for number := range min(len(documents), len(pages)) {
+		matched = matched && documents[number].NodeRevision == pages[number].Revision
+	}
+	return matched
+}
+
+// requireSearchFinds requires public search for query to return every node
+// and returns the complete results.
+func requireSearchFinds(t *testing.T, fixture queryFixture, query string, nodes ...uuid.UUID) []uuid.UUID {
+	t.Helper()
+	results := callEverySearchPage(t, query, fixture.Harness)
+	for _, nodeID := range nodes {
+		if !slices.Contains(results.IDs, nodeID) {
+			t.Fatalf("search %q returned %v, want node %s", query, results.IDs, nodeID)
+		}
+	}
+	return results.IDs
+}
+
 // editOpaqueNode replaces the included value of one node through the
 // production write path.
 func editOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID uuid.UUID, included string) {
 	t.Helper()
-	current, err := fixture.Stores.Nodes.Get(t.Context(), kind.OrgID, nodeID)
+	current, err := fixture.Stores.Nodes.Get(WithTestOperation(t, t.Context()), kind.OrgID, nodeID)
 	if err != nil {
 		t.Fatalf("read node %s: %v", nodeID, err)
 	}
@@ -68,7 +109,7 @@ func editOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID 
 		ID: current.ID, OrgID: current.OrgID, NodeType: current.NodeType, Name: current.Name,
 		Props: props, CreatedAt: current.CreatedAt, UpdatedAt: current.UpdatedAt,
 	}
-	if err := fixture.Stores.Nodes.Set(t.Context(), current, view); err != nil {
+	if err := fixture.Stores.Nodes.Set(WithTestOperation(t, t.Context()), current, view); err != nil {
 		t.Fatalf("edit node %s: %v", nodeID, err)
 	}
 }
@@ -77,18 +118,18 @@ func editOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID 
 // and requires the previous index to be deleted.
 func requireServing(t *testing.T, fixture queryFixture, index, previous string) {
 	t.Helper()
-	serving, err := fixture.Stores.ServingSearchIndex(t.Context())
+	serving, err := fixture.Stores.ServingSearchIndex(WithTestOperation(t, t.Context()))
 	if err != nil || serving != index {
 		t.Fatalf("serving index = %q, error = %v, want %q", serving, err, index)
 	}
-	target, err := fixture.Adapter.AliasTarget(t.Context(), search.PublicAlias)
+	target, err := fixture.Adapter.AliasTarget(WithTestOperation(t, t.Context()), search.PublicAlias)
 	if err != nil || target != index {
 		t.Fatalf("public alias target = %q, error = %v, want %q", target, err, index)
 	}
 	if previous == "" {
 		return
 	}
-	if _, err := fixture.Adapter.IndexSettings(t.Context(), previous); err == nil {
+	if _, err := fixture.Adapter.IndexSettings(WithTestOperation(t, t.Context()), previous); err == nil {
 		t.Fatalf("previous index %s still exists", previous)
 	}
 }
@@ -126,7 +167,7 @@ func requireDeletedAbsent(t *testing.T, fixture queryFixture, index string, node
 func requireTopologyRejected(t *testing.T, fixture queryFixture, request searchdomain.BeginRebuild) {
 	t.Helper()
 	request.PrimaryShards, request.RoutingShards = 3, 4
-	if _, err := fixture.Stores.SearchRebuilds(clock.Wall{}).BeginRebuild(t.Context(), request); err == nil {
+	if _, err := fixture.Stores.SearchRebuilds(clock.Wall{}).BeginRebuild(WithTestOperation(t, t.Context()), request); err == nil {
 		t.Fatal("a replacement with 3 primary shards and 4 routing shards was accepted")
 	}
 }
@@ -134,7 +175,7 @@ func requireTopologyRejected(t *testing.T, fixture queryFixture, request searchd
 // requireSecondRefused requires a second concurrent replacement to fail.
 func requireSecondRefused(t *testing.T, fixture queryFixture, request searchdomain.BeginRebuild) {
 	t.Helper()
-	_, err := fixture.Stores.SearchRebuilds(clock.Wall{}).BeginRebuild(t.Context(), request)
+	_, err := fixture.Stores.SearchRebuilds(clock.Wall{}).BeginRebuild(WithTestOperation(t, t.Context()), request)
 	if !errors.Is(err, searchdomain.ErrRebuildInProgress) {
 		t.Fatalf("second replacement error = %v, want %v", err, searchdomain.ErrRebuildInProgress)
 	}

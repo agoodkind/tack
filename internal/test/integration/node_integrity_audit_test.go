@@ -116,20 +116,21 @@ func requireCreateDelta(t *testing.T, row audit.Row, created *node.NodeView) {
 }
 
 // requireUpdateDelta checks that the update row lists exactly the name and
-// removed description as changed, includes both old values in Before, and
-// includes only the new name in After.
+// removed description as changed. Before must contain the complete old record
+// with the old name and the description. After must contain the complete new
+// record with the new name and without the description.
 func requireUpdateDelta(t *testing.T, row audit.Row) {
 	t.Helper()
 	if row.Delta == nil || !slices.Equal(row.Delta.Changed, []string{"/name", "/props/description"}) {
 		t.Fatalf("update delta = %+v, want /name and /props/description changed", row.Delta)
 	}
 	before := decodeAuditedIssueFields(t, row.Delta.Before)
-	if before.Name == nil || *before.Name != "audited issue before" || len(before.Props) != 1 || string(before.Props["description"]) != auditedDescription {
+	if before.Name == nil || *before.Name != "audited issue before" || string(before.Props["description"]) != auditedDescription {
 		t.Fatalf("update before = %s, want the old name and the removed description", row.Delta.Before)
 	}
 	after := decodeAuditedIssueFields(t, row.Delta.After)
-	if after.Name == nil || *after.Name != "audited issue after" || len(after.Props) != 0 {
-		t.Fatalf("update after = %s, want only the new name", row.Delta.After)
+	if _, kept := after.Props["description"]; kept || after.Name == nil || *after.Name != "audited issue after" {
+		t.Fatalf("update after = %s, want the new name without the description", row.Delta.After)
 	}
 }
 

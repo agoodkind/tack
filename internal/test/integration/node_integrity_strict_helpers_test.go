@@ -38,6 +38,7 @@ func runStrictValidation(t *testing.T, execute bool) (strictValidationOutput, er
 	factory := cli.System(cfg)
 	factory.Out = output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	t.Cleanup(factory.CloseAuditOutbox)
 	args := []string{
 		"--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca32",

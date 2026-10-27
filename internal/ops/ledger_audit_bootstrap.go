@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/pressly/goose/v3"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/migrations"
@@ -123,7 +123,7 @@ func writeLedgerAuditBootstrapLine(ctx context.Context, sink clispec.ResultSink,
 // `ops ledger audit-bootstrap` both run it.
 func migrateAndSeedAuditRoles(ctx context.Context, cfg *config.Config) error {
 	slog.InfoContext(ctx, "provision.migrate.start")
-	if err := postgres.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
+	if err := migration.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
 		slog.ErrorContext(ctx, "provision.migrate.failed", slog.String("err", err.Error()))
 		return fmt.Errorf("provision migrate: %w", err)
 	}

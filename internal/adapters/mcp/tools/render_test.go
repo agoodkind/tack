@@ -51,10 +51,6 @@ func (u *fakeUsers) GetByEmail(context.Context, string) (*user.User, error) {
 	panic("fakeUsers.GetByEmail called")
 }
 
-func (u *fakeUsers) Create(context.Context, *user.User) (*user.User, error) {
-	panic("fakeUsers.Create called")
-}
-
 func mustRaw(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(v)
