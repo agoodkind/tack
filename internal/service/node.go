@@ -30,8 +30,8 @@ type NodeService struct {
 	memberTargets node.MemberTargetAdder
 }
 
-// errMissingMemberDependency reports a NodeService request without a member
-// repository or member target adder.
+// errMissingMemberDependency is the error that NewNodeService returns when it
+// receives a nil member repository or member target adder.
 var errMissingMemberDependency = errors.New("service.NewNodeService: the member repository and the member target adder are required")
 
 // NewNodeService returns errMissingMemberDependency when members or
