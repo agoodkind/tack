@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 
 	"goodkind.io/tack/internal/audit"
@@ -23,13 +22,20 @@ func WithAuditRecorder(ctx context.Context, recorder audit.Recorder) context.Con
 // recorder.
 var errAuditRecorderMissing = errors.New("the request context does not have an audit recorder")
 
-// requireAuditRecorder returns the recorder on ctx. It logs and returns an
-// error when ctx does not have one.
+// requireAuditRecorder returns the recorder on ctx, or errAuditRecorderMissing
+// when ctx does not have one. The caller that refuses the request logs the
+// refusal.
 func requireAuditRecorder(ctx context.Context) (audit.Recorder, error) {
 	recorder, _ := ctx.Value(auditRecorderKey{}).(audit.Recorder)
 	if recorder == nil {
-		slog.ErrorContext(ctx, "mcp.audit_recorder_missing", slog.String("err", errAuditRecorderMissing.Error()))
-		return nil, fmt.Errorf("mcp request: %w", errAuditRecorderMissing)
+		return nil, errAuditRecorderMissing
 	}
 	return recorder, nil
+}
+
+// logRecorderMissing logs the refusal of one request that has no audit
+// recorder on its context.
+func logRecorderMissing(ctx context.Context, request string) {
+	slog.ErrorContext(ctx, "mcp.audit_recorder_missing",
+		slog.String("request", request), slog.String("err", errAuditRecorderMissing.Error()))
 }

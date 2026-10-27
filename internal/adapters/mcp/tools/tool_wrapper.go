@@ -37,13 +37,14 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 		)
 		defer span.End()
 		// A state-changing call outside a read collector records a result
-		// event through the recorder on its context. Without a recorder, the
+		// event with the recorder on its context. Without a recorder, the
 		// call fails before the handler runs and changes nothing.
 		recordsResult := !audit.HasReadCollector(ctx) && toolChangesState(name)
 		var recorder audit.Recorder
 		if recordsResult {
 			required, err := requireAuditRecorder(ctx)
 			if err != nil {
+				logRecorderMissing(ctx, "tool:"+name)
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "audit_recorder_missing")
 				return nil, err

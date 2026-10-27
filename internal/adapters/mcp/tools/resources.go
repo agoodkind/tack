@@ -82,6 +82,7 @@ func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) err
 	}
 	recorder, err := requireAuditRecorder(ctx)
 	if err != nil {
+		logRecorderMissing(ctx, "resource:"+uri)
 		return err
 	}
 	actor := audit.Actor{
