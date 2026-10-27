@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -25,7 +25,7 @@ func (a *Adapter) EnsureIndex(ctx context.Context, index string, spec IndexSpec)
 		}
 		return wrapped
 	}
-	response, err := opensearch.Do[json.RawMessage](ctx, a.client, http.MethodHead, opensearchapi.IndicesExistsReq{Indices: []string{index}}, nil)
+	response, err := opensearch.Execute[json.RawMessage](ctx, a.client, http.MethodHead, &opensearchapi.IndicesExistsReq{Indices: []string{index}}, nil)
 	if err != nil {
 		wrapped := fmt.Errorf("check OpenSearch index %s: %w", index, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.exists_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
@@ -64,7 +64,7 @@ const DefaultGreenWait = time.Minute
 func (a *Adapter) WaitGreen(ctx context.Context, index string, timeout time.Duration) error {
 	response, err := a.api.Cluster.Health(ctx, &opensearchapi.ClusterHealthReq{
 		Indices: []string{index},
-		Params:  opensearchapi.ClusterHealthParams{WaitForStatus: "green", Timeout: timeout},
+		Params:  &opensearchapi.ClusterHealthParams{WaitForStatus: "green", Timeout: timeout},
 	})
 	timedOut := response != nil && response.Inspect().Response != nil &&
 		response.Inspect().Response.StatusCode == http.StatusRequestTimeout

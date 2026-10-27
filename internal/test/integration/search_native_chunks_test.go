@@ -7,7 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 type nativeChunk struct {
@@ -98,28 +98,40 @@ type nativeChunkMapping struct {
 // count (-1), and rank_features embeddings.
 func requireNativeChunkMapping(t *testing.T, client *opensearchapi.Client, index string) {
 	t.Helper()
-	response, err := client.Indices.Mapping.Get(WithTestOperation(t, t.Context()), &opensearchapi.MappingGetReq{Indices: []string{index}})
-	if err != nil {
-		t.Fatalf("read mapping of %s: %v", index, err)
-	}
-	entry, exists := response.GetIndices()[index]
-	if !exists {
-		t.Fatalf("mapping of %s is absent", index)
-	}
+	mappingJSON := nativeMapping(t, client, index)
 	var mapping nativeChunkMapping
-	if err := json.Unmarshal(entry.Mappings, &mapping); err != nil {
+	if err := json.Unmarshal(mappingJSON, &mapping); err != nil {
 		t.Fatalf("decode mapping of %s: %v", index, err)
 	}
 	chunking := mapping.Properties.PageText.Chunking
 	if len(chunking) != 1 || chunking[0].Algorithm != "fixed_char_length" {
-		t.Fatalf("page_text chunking = %s, want one fixed_char_length chunker", entry.Mappings)
+		t.Fatalf("page_text chunking = %s, want one fixed_char_length chunker", mappingJSON)
 	}
 	parameters := chunking[0].Parameters
 	if parameters.CharLimit == nil || *parameters.CharLimit != 160 || parameters.OverlapRate == nil || *parameters.OverlapRate != 0 ||
 		parameters.MaxChunkLimit == nil || *parameters.MaxChunkLimit != -1 {
-		t.Fatalf("page_text chunking = %s, want char_limit 160, overlap_rate 0, max_chunk_limit -1", entry.Mappings)
+		t.Fatalf("page_text chunking = %s, want char_limit 160, overlap_rate 0, max_chunk_limit -1", mappingJSON)
 	}
 	if embeddingType := mapping.Properties.Semantic.Properties.Chunks.Properties.Embedding.Type; embeddingType != "rank_features" {
 		t.Fatalf("page_text_semantic_info.chunks.embedding type = %q, want rank_features", embeddingType)
 	}
+}
+
+func nativeMapping(t *testing.T, client *opensearchapi.Client, index string) json.RawMessage {
+	t.Helper()
+	response, err := client.Indices.GetMapping(WithTestOperation(t, t.Context()), &opensearchapi.IndicesGetMappingReq{Indices: []string{index}})
+	if err != nil {
+		t.Fatalf("read mapping of %s: %v", index, err)
+	}
+	var indices map[string]struct {
+		Mappings json.RawMessage `json:"mappings"`
+	}
+	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
+		t.Fatal(err)
+	}
+	entry, exists := indices[index]
+	if !exists {
+		t.Fatalf("mapping of %s is absent", index)
+	}
+	return entry.Mappings
 }

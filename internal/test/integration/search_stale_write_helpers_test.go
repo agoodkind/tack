@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -86,7 +86,7 @@ func staleRetirement(work searchdomain.Work) searchdomain.RetirementIntent {
 // rawStaleSource returns the stored _source bytes of the test page.
 func rawStaleSource(t *testing.T, client *opensearchapi.Client, index string) []byte {
 	t.Helper()
-	response, err := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.DocumentGetReq{Index: index, DocumentID: staleDocumentID})
+	response, err := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.GetReq{Index: index, ID: staleDocumentID})
 	if err != nil || !response.Found {
 		t.Fatalf("read page in %s: found %t err %v", index, response.Found, err)
 	}

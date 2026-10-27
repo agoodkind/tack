@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -20,7 +20,7 @@ func captureClusterPartialDeployment(t *testing.T, cluster *testenv.OpenSearchCl
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), 30*time.Second)
 	defer cancel()
 	var raw json.RawMessage
-	response, err := opensearch.Do(ctx, fixture.Client.Client, http.MethodGet, clusterModelRecordRequest{modelID: modelID}, &raw)
+	response, err := opensearch.Execute(ctx, fixture.Client.Client, http.MethodGet, clusterModelRecordRequest{modelID: modelID}, &raw)
 	if err != nil {
 		t.Logf("partial deployment model record request error=%v", err)
 		return
@@ -54,7 +54,7 @@ func captureClusterPartialDeployment(t *testing.T, cluster *testenv.OpenSearchCl
 		{http.MethodGet, clusterAutoRedeploySettingsRequest{}},
 	} {
 		var result json.RawMessage
-		diagnosticResponse, requestErr := opensearch.Do(ctx, fixture.Client.Client, diagnostic.method, diagnostic.request, &result)
+		diagnosticResponse, requestErr := opensearch.Execute(ctx, fixture.Client.Client, diagnostic.method, diagnostic.request, &result)
 		if requestErr != nil {
 			t.Logf("partial deployment diagnostic request=%T error=%v", diagnostic.request, requestErr)
 			continue

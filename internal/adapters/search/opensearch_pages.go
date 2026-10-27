@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -117,7 +117,7 @@ func mirrorWork(work searchdomain.Work) searchdomain.Work {
 
 // Refresh makes every completed write in index searchable.
 func (a *Adapter) Refresh(ctx context.Context, index string) error {
-	response, err := a.api.Indices.Refresh(ctx, &opensearchapi.IndicesRefreshReq{Index: []string{index}})
+	response, err := a.api.Indices.Refresh(ctx, &opensearchapi.IndicesRefreshReq{Indices: []string{index}})
 	if err != nil {
 		wrapped := fmt.Errorf("refresh OpenSearch index %s: %w", index, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.refresh_failed", slog.String("err", wrapped.Error()), slog.String("index", index))

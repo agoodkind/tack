@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/domain/node"
 )
 

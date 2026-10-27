@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/postgres"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
@@ -31,7 +31,7 @@ func corruptIndexedAccess(t *testing.T, fixture queryFixture, nodeID uuid.UUID, 
 		body.WriteString(string(header) + "\n" + string(update) + "\n")
 	}
 	requireBulkSucceeded(t, nativeBulk(t, fixture.Client, body.String()))
-	if _, err := fixture.Client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.Index}}); err != nil {
+	if _, err := fixture.Client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Indices: []string{fixture.Index}}); err != nil {
 		t.Fatalf("refresh %s: %v", fixture.Index, err)
 	}
 }

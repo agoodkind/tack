@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
@@ -170,8 +170,8 @@ func (p *searchLoadPointsInTime) read(ctx context.Context) SearchLoadPointInTime
 		Offset: clock.Now().Sub(p.started), Index: "", Open: 0, Unavailable: false, Status: 0, Error: "",
 	}
 	var stats searchLoadIndexStats
-	request := opensearchapi.IndicesStatsReq{Indices: []string{search.PublicAlias}, Metrics: searchLoadIndexMetrics}
-	response, err := opensearch.Do(ctx, p.client, http.MethodGet, request, &stats)
+	request := &opensearchapi.IndicesStatsReq{Indices: []string{search.PublicAlias}, Metric: searchLoadIndexMetrics}
+	response, err := opensearch.Execute(ctx, p.client, http.MethodGet, request, &stats)
 	if response != nil {
 		sample.Status = response.StatusCode
 	}

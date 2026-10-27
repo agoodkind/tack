@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
@@ -174,8 +174,8 @@ func TestSearchAccessRollbackRefusedAfterRetirement(t *testing.T) {
 // index. A write then becomes searchable only after an explicit refresh.
 func disableRolloutRefresh(t *testing.T, fixture rolloutFixture) {
 	t.Helper()
-	request := opensearchapi.SettingsPutReq{Indices: []string{fixture.index}, Body: strings.NewReader(rolloutRefreshDisabled)}
-	response, err := fixture.client.Indices.Settings.Put(rolloutContext(t), request)
+	request := &opensearchapi.IndicesPutSettingsReq{Indices: []string{fixture.index}, BodyReader: strings.NewReader(rolloutRefreshDisabled)}
+	response, err := fixture.client.Indices.PutSettings(rolloutContext(t), request)
 	if err != nil || !response.Acknowledged {
 		t.Fatalf("Disabling the scheduled refresh of index %s failed: %v", fixture.index, err)
 	}

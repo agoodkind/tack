@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/clock"
 )
 
@@ -124,7 +124,7 @@ func sendNativeBulk(t *testing.T, client *opensearchapi.Client, body string) []o
 	t.Helper()
 	started := clock.Now()
 	response, err := client.Bulk(WithTestOperation(t, t.Context()), opensearchapi.BulkReq{
-		Body: strings.NewReader(body), Params: opensearchapi.BulkParams{Refresh: "true"},
+		Body: strings.NewReader(body), Params: &opensearchapi.BulkParams{Refresh: "true"},
 	})
 	t.Logf("native.bulk.response wall_ms=%d response_present=%t transport_error=%t", clock.Since(started).Milliseconds(), response != nil, err != nil)
 	if response == nil || len(response.Items) == 0 {
@@ -132,15 +132,17 @@ func sendNativeBulk(t *testing.T, client *opensearchapi.Client, body string) []o
 	}
 	items := make([]opensearchapi.BulkRespItem, 0, len(response.Items))
 	for _, item := range response.Items {
-		for _, result := range item {
-			items = append(items, result)
+		for _, result := range []*opensearchapi.BulkRespItem{item.Create, item.Delete, item.Index, item.Update} {
+			if result != nil {
+				items = append(items, *result)
+			}
 		}
 	}
 	logNativeBulkSummary(t, response.Took, items)
 	return items
 }
 
-func logNativeBulkSummary(t *testing.T, took int, items []opensearchapi.BulkRespItem) {
+func logNativeBulkSummary(t *testing.T, took int64, items []opensearchapi.BulkRespItem) {
 	t.Helper()
 	var statusClasses [6]int
 	errorTypes := make(map[string]int)
@@ -175,7 +177,7 @@ func requireBulkSucceeded(t *testing.T, items []opensearchapi.BulkRespItem) {
 	t.Helper()
 	for number, item := range items {
 		if item.Error != nil || item.Status >= 300 {
-			t.Fatalf("bulk item %d for %s failed with status %d: %+v", number, item.ID, item.Status, item.Error)
+			t.Fatalf("bulk item %d for %v failed with status %d: %+v", number, item.ID, item.Status, item.Error)
 		}
 	}
 }
@@ -188,6 +190,6 @@ func requireBulkRejected(t *testing.T, items []opensearchapi.BulkRespItem, statu
 	}
 	item := items[0]
 	if item.Status != status || item.Error == nil || item.Error.Type != errorType {
-		t.Fatalf("bulk item %s status %d error %+v, want status %d type %s", item.ID, item.Status, item.Error, status, errorType)
+		t.Fatalf("bulk item %v status %d error %+v, want status %d type %s", item.ID, item.Status, item.Error, status, errorType)
 	}
 }

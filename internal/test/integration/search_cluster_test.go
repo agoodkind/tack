@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -156,7 +156,7 @@ func awaitClusterGreen(t *testing.T, fixture queryFixture) {
 	t.Helper()
 	clusterEventually(t, "wait for green cluster health", func() error {
 		response, err := fixture.Client.Cluster.Health(WithTestOperation(t, t.Context()), &opensearchapi.ClusterHealthReq{
-			Params: opensearchapi.ClusterHealthParams{WaitForStatus: "green", Timeout: search.DefaultGreenWait},
+			Params: &opensearchapi.ClusterHealthParams{WaitForStatus: "green", Timeout: search.DefaultGreenWait},
 		})
 		if err != nil {
 			return clusterFailure("read cluster health", err)

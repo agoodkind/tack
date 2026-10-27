@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 // nodePageTextLimit bounds the active pages one NodePageText call reads.
@@ -45,13 +46,13 @@ func (a *Adapter) NodePageText(ctx context.Context, index string, nodeID uuid.UU
 		return nil, err
 	}
 	response, err := a.api.Search(ctx, &opensearchapi.SearchReq{
-		Indices: []string{index}, Body: bytes.NewReader(body), Header: nil, Params: opensearchapi.SearchParams{},
+		Indices: []string{index}, BodyReader: bytes.NewReader(body), Header: nil, Params: &opensearchapi.SearchParams{},
 	})
 	if err != nil {
 		return nil, engineFailure(ctx, "search.page_text.read_failed", "read page text of node "+nodeID.String(), index, err)
 	}
-	if response.Timeout || response.Shards.Failed > 0 {
-		incomplete := fmt.Errorf("search timed out %t with %d failed shards", response.Timeout, response.Shards.Failed)
+	if response.TimedOut || response.Shards.Failed > 0 {
+		incomplete := fmt.Errorf("search timed out %t with %d failed shards", response.TimedOut, response.Shards.Failed)
 		return nil, engineFailure(ctx, "search.page_text.read_incomplete", "read page text of node "+nodeID.String(), index, incomplete)
 	}
 	if len(response.Hits.Hits) > nodePageTextLimit {
@@ -60,9 +61,12 @@ func (a *Adapter) NodePageText(ctx context.Context, index string, nodeID uuid.UU
 	}
 	texts := make([]string, 0, len(response.Hits.Hits))
 	for _, hit := range response.Hits.Hits {
+		if hit.ID == nil {
+			return nil, engineFailure(ctx, "search.page_text.decode_failed", "read page text of node "+nodeID.String(), index, errors.New("document ID is required"))
+		}
 		var source pageTextSource
 		if err := json.Unmarshal(hit.Source, &source); err != nil {
-			return nil, engineFailure(ctx, "search.page_text.decode_failed", "decode page "+hit.ID+" of node "+nodeID.String(), index, err)
+			return nil, engineFailure(ctx, "search.page_text.decode_failed", "decode page "+*hit.ID+" of node "+nodeID.String(), index, err)
 		}
 		texts = append(texts, source.PageText)
 	}

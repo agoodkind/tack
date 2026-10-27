@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 func mixedUnicodePage4096() string {
@@ -31,21 +31,23 @@ const nativeJVMHeapBytes = 3221225472
 func requireNativeJVMHeap(t *testing.T, client *opensearchapi.Client) {
 	t.Helper()
 	var stats opensearchapi.NodesStatsResp
-	response, err := opensearch.Do(WithTestOperation(t, t.Context()), client.Client, http.MethodGet,
-		opensearchapi.NodesStatsReq{Metric: []string{"jvm"}}, &stats)
+	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), client.Client, http.MethodGet, &opensearchapi.NodesStatsReq{Metric: []string{"jvm"}}, &stats)
 	if err != nil || response == nil {
 		t.Fatalf("read native JVM stats: %v", err)
 	}
 	if response.IsError() {
 		t.Fatalf("native JVM stats rejected: %v", opensearch.ParseError(response))
 	}
-	if len(stats.Nodes) != 1 || stats.NodesInfo.Failed != 0 {
-		t.Fatalf("native JVM stats returned unexpected nodes: %+v", stats.NodesInfo)
+	if len(stats.Nodes) != 1 || stats.NodesRespBase.Nodes.Failed != 0 {
+		t.Fatalf("native JVM stats returned unexpected nodes: %+v", stats.NodesRespBase.Nodes)
 	}
 	for nodeID, value := range stats.Nodes {
-		if value.JVM.Mem.HeapMaxInBytes != nativeJVMHeapBytes || value.JVM.Mem.HeapCommittedInBytes != nativeJVMHeapBytes {
+		if value.JVM == nil || value.JVM.Mem == nil || value.JVM.Mem.HeapMaxInBytes == nil || value.JVM.Mem.HeapCommittedInBytes == nil {
+			t.Fatal("native JVM statistics require committed and maximum heap bytes")
+		}
+		if *value.JVM.Mem.HeapMaxInBytes != nativeJVMHeapBytes || *value.JVM.Mem.HeapCommittedInBytes != nativeJVMHeapBytes {
 			t.Fatalf("native JVM heap=%+v, want 3 GiB committed and maximum", value.JVM.Mem)
 		}
-		t.Logf("native JVM node=%s heap_max=%d heap_committed=%d", nodeID, value.JVM.Mem.HeapMaxInBytes, value.JVM.Mem.HeapCommittedInBytes)
+		t.Logf("native JVM node=%s heap_max=%d heap_committed=%d", nodeID, *value.JVM.Mem.HeapMaxInBytes, *value.JVM.Mem.HeapCommittedInBytes)
 	}
 }

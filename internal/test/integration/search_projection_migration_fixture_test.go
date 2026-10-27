@@ -8,8 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
@@ -75,16 +74,17 @@ func newMigrationEnv(t *testing.T, pageBytes int) *migrationEnv {
 			t.Errorf("close search adapter: %v", err)
 		}
 	})
-	raw, err := opensearch.NewClient(configuration.ClientConfig(nil))
+	rawAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: configuration.ClientConfig(nil)})
 	if err != nil {
 		t.Fatalf("create OpenSearch client: %v", err)
 	}
+	raw := rawAPI.Client
 	t.Cleanup(func() {
 		if err := raw.Close(); err != nil {
 			t.Errorf("close OpenSearch client: %v", err)
 		}
 	})
-	client := opensearchapi.NewFromClient(raw)
+	client := rawAPI
 	model, err := adapter.Provision(integration.WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
@@ -95,7 +95,7 @@ func newMigrationEnv(t *testing.T, pageBytes int) *migrationEnv {
 		t.Fatalf("create index %s: %v", index, err)
 	}
 	t.Cleanup(func() {
-		if _, err := client.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), opensearchapi.IndicesDeleteReq{Indices: []string{index}}); err != nil {
+		if _, err := client.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), &opensearchapi.IndicesDeleteReq{Indices: []string{index}}); err != nil {
 			t.Errorf("delete index %s: %v", index, err)
 		}
 	})

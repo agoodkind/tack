@@ -8,8 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
@@ -57,13 +56,13 @@ func deleteSearchMixedIndex(t *testing.T, cfg *config.Config, index string) {
 		t.Fatalf("qa datagen search-mixed: the test could not read the OpenSearch CA certificate: %v", err)
 	}
 	settings := search.Config{Endpoint: cfg.SearchEndpoint, CA: string(certificate), Username: cfg.SearchUsername, Password: cfg.SearchPassword, RequestTimeout: 2 * time.Minute, MaxRetries: 1}
-	client, err := opensearch.NewClient(settings.ClientConfig(nil))
+	clientAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: settings.ClientConfig(nil)})
 	if err != nil {
 		t.Fatalf("qa datagen search-mixed: the test could not create the OpenSearch client: %v", err)
 	}
 	t.Cleanup(func() {
-		request := opensearchapi.IndicesDeleteReq{Indices: []string{index}}
-		if _, err := opensearchapi.NewFromClient(client).Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request); err != nil {
+		request := &opensearchapi.IndicesDeleteReq{Indices: []string{index}}
+		if _, err := clientAPI.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request); err != nil {
 			t.Logf("qa datagen search-mixed: the test could not delete OpenSearch index %s: %v", index, err)
 		}
 	})
