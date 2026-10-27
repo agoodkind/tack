@@ -156,6 +156,18 @@ func (s *syncedLogs) contains(message string) bool {
 	return strings.Contains(s.buf.String(), message)
 }
 
+// lineContains reports whether one log line contains both message and text.
+func (s *syncedLogs) lineContains(message, text string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for line := range strings.SplitSeq(s.buf.String(), "\n") {
+		if strings.Contains(line, message) && strings.Contains(line, text) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *syncedLogs) waitFor(t *testing.T, message string) {
 	t.Helper()
 	deadline := time.After(15 * time.Second)

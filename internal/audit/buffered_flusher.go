@@ -1,5 +1,5 @@
 // buffered_flusher.go is the buffered recorder's flusher goroutine. It
-// delivers queued read-class events in batches through the inner recorder and
+// delivers queued read-class events in batches with the inner recorder and
 // retains every event that neither the primary nor the spill accepted. It
 // delivers the retained events again after a bounded backoff with the same
 // event IDs. The consumer's event-ID claim prevents a duplicate ledger row
@@ -9,6 +9,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -102,12 +103,14 @@ func (b *BufferedRecorder) deliver(ctx context.Context, batch []Event) ([]Event,
 		return refused, nil
 	}
 	var lost []Event
+	var causes []error
 	for _, ev := range batch {
 		if err := b.inner.Record(ctx, ev); err != nil {
 			lost = append(lost, ev)
+			causes = append(causes, fmt.Errorf("record audit event %s %s: %w", ev.Verb, ev.EventID, err))
 		}
 	}
-	return lost, nil
+	return lost, errors.Join(causes...)
 }
 
 // settle keeps the events of an attempt that the inner recorder did not

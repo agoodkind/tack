@@ -62,3 +62,25 @@ func TestBufferedRetainsUndeliveredEventsUntilRecovery(t *testing.T) {
 		}
 	}
 }
+
+// TestBufferedRetainLogStatesTheRecordError is TACK-583: when the inner
+// recorder records one event at a time, the retained-event log states the
+// error that the inner recorder returned for each event and that event's ID.
+func TestBufferedRetainLogStatesTheRecordError(t *testing.T) {
+	logs := captureSyncedLogs(t)
+	// The test does not call Close: the unwired recorder refuses every
+	// retry, and Close would retry for the whole close deadline.
+	buffered := audit.NewBufferedRecorder(context.Background(), audit.UnwiredRecorder{}, nil,
+		audit.BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: 20 * time.Millisecond})
+
+	retained := retainReadEvent("unwired")
+	if err := buffered.Record(context.Background(), retained); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	logs.waitFor(t, "audit.buffer.delivery_retained")
+	for _, want := range []string{audit.ErrRecorderUnwired.Error(), retained.EventID.String()} {
+		if !logs.lineContains("audit.buffer.delivery_retained", want) {
+			t.Fatalf("audit.buffer.delivery_retained does not state %q", want)
+		}
+	}
+}
