@@ -27,8 +27,8 @@ var (
 	errQueueWaitTimeout = errors.New("audit buffer queue stayed full")
 )
 
-// waitForRoom admits ev to the queue, records it through inner when Close
-// ran during the wait, or returns an error when the wait cannot succeed.
+// waitForRoom admits ev to the queue, records it with inner when Close ran
+// during the wait, or returns an error when the wait cannot succeed.
 func (b *BufferedRecorder) waitForRoom(ctx context.Context, ev Event) error {
 	deadline := time.NewTimer(queueWaitTimeout)
 	defer deadline.Stop()

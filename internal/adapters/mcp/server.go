@@ -79,9 +79,10 @@ type Deps struct {
 	// server still matches stored metadata. With a nil reader, the cache
 	// checks only the server lifetime.
 	Epochs MetadataEpochReader
-	// AuditRecorder records the tool result and resource read events of the
-	// runtime graph that owns this handler. With a nil recorder, every such
-	// event fails to record and logs the failure.
+	// AuditRecorder is the audit recorder of the runtime graph that owns this
+	// handler. The tool wrapper and the resource handlers record their events
+	// with it. With a nil recorder, the handler refuses each state-changing
+	// tool call and each resource read that must record an event.
 	AuditRecorder audit.Recorder
 }
 

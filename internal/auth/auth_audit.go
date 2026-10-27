@@ -34,7 +34,7 @@ func hashBearer(raw string) string {
 }
 
 // emitAuthAudit adds the request fields to ev, validates it, and records it
-// through rec.
+// with rec.
 // It records an event that fails validation, and the audit-consumer stores
 // that event in the dead-letter table for repair. It logs a validation failure
 // and continues. It returns an error when the recorder refuses the event, and

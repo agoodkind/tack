@@ -66,7 +66,7 @@ func resourceReadEvent(t *testing.T, recorder *audit.MemoryRecorder) audit.Event
 }
 
 // TestResourceReadRecordsTheRead pins that reading the getting-started
-// resource records an mcp.resource_read event through the recorder on the
+// resource records an mcp.resource_read event with the recorder on the
 // request context. The handler used to take a context and ignore it, and no
 // code emitted mcp.resource_read (TACK-340).
 func TestResourceReadRecordsTheRead(t *testing.T) {

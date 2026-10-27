@@ -53,8 +53,8 @@ func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (co
 // Bearer returns HTTP middleware that requires a valid API token.
 // On success injects the user ID into the request context.
 // On failure returns 401 with a JSON body.
-// It records the auth event through recorder, the audit recorder of the
-// runtime graph that serves the request. When recorder refuses the event, it
+// It records the auth event with recorder, the audit recorder of the runtime
+// graph that serves the request. When recorder refuses the event, it
 // returns 503 with a JSON body and does not call next. A nil recorder refuses
 // every event.
 func Bearer(tokens TokenValidator, orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.Handler {
@@ -98,7 +98,7 @@ func Bearer(tokens TokenValidator, orgs OrgLister, recorder audit.Recorder) func
 // DevBearer is a shim for development: accepts any UUID in the Authorization
 // header directly as a user ID, bypassing the token table entirely.
 // Only active when env=development. It refuses a request with 503 when the
-// auth event cannot be recorded through recorder, as Bearer does.
+// recorder refuses the auth event, as Bearer does.
 func DevBearer(orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.Handler {
 	recorder = wiredRecorder(recorder)
 	return func(next http.Handler) http.Handler {

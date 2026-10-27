@@ -51,7 +51,7 @@ type Graph struct {
 
 // BuildGraph opens the configured datastores and assembles the node service,
 // MCP handler, and auth middleware. The auth middleware and the MCP handler
-// record through the audit recorder of this graph. On failure it releases
+// record events with the audit recorder of this graph. On failure it releases
 // anything it already opened and returns the error.
 func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.CountingQueryTracer{Next: &telemetry.QueryTracer{}})

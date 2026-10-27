@@ -141,8 +141,8 @@ func (b *BufferedRecorder) recordThrough(ctx context.Context, ev Event) error {
 
 // Close stops taking events into the queue, delivers the queued and retained
 // events within closeDeliveryTimeout, then closes inner when it supports
-// closing. Record sends each event recorded after Close through inner
-// directly.
+// closing. Record calls inner.Record directly for each event recorded after
+// Close.
 func (b *BufferedRecorder) Close() error {
 	b.closeOnce.Do(func() {
 		b.stopping.Lock()
