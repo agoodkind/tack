@@ -18,8 +18,8 @@ import (
 // TestNodeIntegrityStrictRefusesActivationWithInvalidRecord stores a node
 // record with an undeclared property through test-only storage setup. It
 // checks that both the dry run and the executed command report the invalid
-// record. It also checks that the executed command fails and strict
-// validation remains inactive.
+// record. The dry run must succeed, and the executed command must fail.
+// Strict validation must remain inactive after both runs.
 func TestNodeIntegrityStrictRefusesActivationWithInvalidRecord(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	nodeID := uuid.Must(uuid.NewV7())
@@ -38,8 +38,11 @@ func TestNodeIntegrityStrictRefusesActivationWithInvalidRecord(t *testing.T) {
 	}
 	for _, execute := range []bool{false, true} {
 		output, err := runStrictValidation(t, execute)
-		if err == nil {
-			t.Fatalf("strict validation with execute %t succeeded, want a refusal", execute)
+		if !execute && err != nil {
+			t.Fatalf("strict validation dry run failed: %v; want a successful report", err)
+		}
+		if execute && err == nil {
+			t.Fatal("strict validation with --execute succeeded, want a refusal")
 		}
 		reported := slices.ContainsFunc(output.Result.FirstViolations, func(violation ops.StrictViolation) bool {
 			return violation.NodeID == nodeID

@@ -77,21 +77,21 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 }
 
 // strictValidationCase stores an issue with an undeclared property and runs
-// the strict validation dry run, which must fail and record a failed read.
-// The case runs without --execute to keep strict validation inactive for the
-// other cases.
+// the strict validation dry run, which must succeed and record a completed
+// read. The case runs without --execute to keep strict validation inactive for
+// the other cases.
 func strictValidationCase() coverageCase {
 	return coverageCase{
 		run: func(t *testing.T, env *coverageEnv) coverageEvidence {
 			nodeID, _ := env.legacyRepair(t)
 			args := []string{"ops", "verify", "strict-validation"}
 			operatorID, output, err := env.runCommand(t, commandInput{args: args, configure: nil, outbox: nil})
-			if err == nil {
-				t.Fatalf("The strict validation dry run succeeded although issue %s stores an undeclared property; the output follows:\n%s", nodeID, output)
+			if err != nil {
+				t.Fatalf("The strict validation dry run failed with issue %s that stores an undeclared property: %v\n%s", nodeID, err, output)
 			}
 			return operatorEvidence(operatorID)
 		},
-		verb: audit.VerbOpsStrictValidation, outcome: audit.OutcomeFailed, check: nil,
+		verb: audit.VerbOpsStrictValidation, outcome: audit.OutcomeCompleted, check: nil,
 	}
 }
 

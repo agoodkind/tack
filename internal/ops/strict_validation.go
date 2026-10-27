@@ -70,8 +70,10 @@ type strictScan struct {
 
 // RunStrictValidation captures evidence and validates every stored node
 // record. When the evidence changes, it repeats validation for the affected
-// buckets and organizations until the evidence stops changing. It refuses
-// activation while any record is invalid. When execute is true, it activates
+// buckets and organizations until the evidence stops changing. When execute
+// is false, it returns the report without an error, including the invalid
+// records. When execute is true, it returns an error while any record is
+// invalid and does not activate strict validation. Otherwise, it activates
 // strict validation in one transaction that compares the evidence again.
 func RunStrictValidation(ctx context.Context, store StrictValidationStore, schemas StrictSchemaSource, execute bool) (StrictValidationReport, error) {
 	report := StrictValidationReport{AlreadyActive: false, Activated: false, ScanID: uuid.Nil, RecordsValidated: 0, Passes: 0, ViolationCount: 0, FirstViolations: nil}
@@ -110,11 +112,11 @@ func RunStrictValidation(ctx context.Context, store StrictValidationStore, schem
 		}
 		report.RecordsValidated = len(scan.validated)
 		scan.fill(&report)
-		if report.ViolationCount > 0 {
-			return report, strictFailure(ctx, "refuse strict validation activation", fmt.Errorf("%d invalid records: %w", report.ViolationCount, errStrictViolations))
-		}
 		if !execute {
 			return report, nil
+		}
+		if report.ViolationCount > 0 {
+			return report, strictFailure(ctx, "refuse strict validation activation", fmt.Errorf("%d invalid records: %w", report.ViolationCount, errStrictViolations))
 		}
 		activation := node.StrictActivation{Active: true, ActivatedAt: clock.Now().UTC(), ScanID: report.ScanID, RecordsValidated: report.RecordsValidated}
 		_, err = store.ActivateStrict(ctx, scan.evidence, activation)

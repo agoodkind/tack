@@ -75,7 +75,7 @@
    | `violation_count` | Require zero violations before activation. |
    | `first_violations` | Inspect up to 20 entries. Each entry includes `org_id`, `node_id`, `node_type`, and `reason`. |
 
-4. Stop if `violation_count` is nonzero. The command prints the report and exits with an error. Repair the invalid records through a reviewed manifest, then repeat the dry run before activation.
+4. Check `violation_count`. The dry run prints the report and exits successfully even when it finds invalid records. Stop if `violation_count` is nonzero. Repair the invalid records through a reviewed manifest, then repeat the dry run before activation.
 
 ## Activate strict node validation
 
@@ -97,7 +97,7 @@
 
    When evidence changes during a scan, the command validates the affected records again. After five passes that each detect changed evidence, the command exits with an error and does not activate. Rerun the command to start a new scan.
 
-   If the activation scan finds invalid records, stop and complete the reviewed repair procedure before retrying. A run after activation reports `already_active: true` and does not scan.
+   The activation command refuses activation while `violation_count` is above zero. It prints the report, exits with an error, and does not write the activation record. Complete the reviewed repair procedure before retrying. A run after activation reports `already_active: true` and does not scan.
 
 ## Record the result
 
