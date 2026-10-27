@@ -1,6 +1,6 @@
 # Activate strict node validation
 
-`ops verify strict-validation` is an audited `./server ops` command with audit verb `ops.strict_validation`. Without the global `--execute` flag, it validates every stored node record in every organization against its organization schema and prints a JSON report. Activation applies to every organization in the FoundationDB cluster. After activation, every ordinary write that stores property values validates its complete resulting record, including required properties, reference targets, and the parent, and refuses an invalid result. `RelationshipStore.Add` refuses `child_of` edges and edges with a source or target outside the organization. Commands cannot remove the activation record.
+This procedure turns on strict validation for every organization in the FoundationDB cluster. After activation, Tack refuses every ordinary write that would leave a node record invalid. Start only after the reviewed node integrity repair has completed on the environment.
 
 ## Confirm the prerequisites
 
@@ -46,7 +46,7 @@
 
 ## Run the dry run
 
-1. Run a fresh scan through the `app` service.
+1. Run a fresh scan through the `app` service. Without the global `--execute` flag, `ops verify strict-validation` validates every stored node record against its organization schema and prints a JSON report.
 
    ```bash
    docker compose run --rm app \
@@ -79,7 +79,7 @@
 
 ## Activate strict node validation
 
-1. After the prerequisite checks and a successful fresh dry run, run the activation command.
+1. After the prerequisite checks and a successful fresh dry run, run the activation command. Commands cannot remove the activation record.
 
    ```bash
    docker compose run --rm app \
@@ -108,4 +108,4 @@
    - Record `scan_id`.
    - Record `records_validated`.
    - Record `passes`.
-   - Record the activation audit event.
+   - Record the activation audit event, which has the verb `ops.strict_validation`.
