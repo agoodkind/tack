@@ -55,7 +55,7 @@ func (s *strictScan) validate(ctx context.Context, scanned node.StrictRecord) er
 		var err error
 		schema, err = s.schemas.Schema(ctx, record.OrgID)
 		if err != nil {
-			return strictFailure(ctx, "read the schema of organization "+record.OrgID.String(), err)
+			return err
 		}
 		s.cache[record.OrgID] = schema
 	}
