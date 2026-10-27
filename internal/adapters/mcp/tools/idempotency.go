@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 )
 
 type mcpRequestMetadataKey struct{}

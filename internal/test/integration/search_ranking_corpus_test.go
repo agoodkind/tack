@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
@@ -82,7 +82,7 @@ func lexicalTopNodes(t *testing.T, fixture queryFixture, filter searchdomain.Acc
 		"size":  json.RawMessage(`25`),
 		"query": encodeLexical(t, map[string]map[string][]json.RawMessage{"bool": {"filter": filters, "must": {encodeLexical(t, match)}}}),
 	})
-	response, err := fixture.Client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, Body: strings.NewReader(string(body))})
+	response, err := fixture.Client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, BodyReader: strings.NewReader(string(body))})
 	if err != nil {
 		t.Fatalf("lexical control %q: %v", query, err)
 	}

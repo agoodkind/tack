@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
@@ -132,7 +132,7 @@ func TestSearchRejectsInvalidPageText(t *testing.T) {
 		if _, err := adapter.Put(WithTestOperation(t, t.Context()), intent); err == nil {
 			t.Fatalf("put accepted the %s page", name)
 		}
-		response, _ := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.DocumentGetReq{Index: index, DocumentID: documentID})
+		response, _ := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.GetReq{Index: index, ID: documentID})
 		if response != nil && response.Found {
 			t.Fatalf("OpenSearch stored the %s page", name)
 		}

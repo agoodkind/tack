@@ -130,6 +130,8 @@ func uniqueMatch(matches map[uuid.UUID]struct{}, kind, input string) (uuid.UUID,
 
 func invalidTypedNodeIDError(nt *node.NodeType, input string) error {
 	switch nt.Reference.Strategy {
+	case node.ReferenceUUIDOnly:
+		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID: %w", input, domain.ErrInvalidArgument)}
 	case node.ReferenceScopedSequence:
 		return invalidReferenceError{err: fmt.Errorf("invalid node_id %q: use a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)}
 	case node.ReferenceDirectProperty:

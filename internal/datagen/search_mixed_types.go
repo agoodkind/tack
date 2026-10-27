@@ -62,8 +62,8 @@ type SearchMixedCatchUp struct {
 	Elapsed   time.Duration
 }
 
-// SearchMixedSample is one reading of pending search work, the rebuild state, and the
-// OpenSearch nodes.
+// SearchMixedSample is one reading of pending search work, the rebuild state, the OpenSearch
+// nodes, and the FoundationDB cluster health.
 type SearchMixedSample struct {
 	Offset            time.Duration
 	OldestPendingWork time.Duration
@@ -71,6 +71,9 @@ type SearchMixedSample struct {
 	RebuildState      string
 	Nodes             []SearchMixedNodeResources
 	Error             string
+	// FoundationDB is nil when the status read fails. FoundationDBError is the read failure.
+	FoundationDB      *SearchMixedFoundationDB
+	FoundationDBError string
 }
 
 // SearchMixedNodeResources is one OpenSearch node reading from the node statistics API.

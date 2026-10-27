@@ -7,8 +7,9 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -163,6 +164,34 @@ func ProcessHarness(t *testing.T, harness *MCPHarness, cfg *config.Config) *MCPH
 func UndeployNativeModel(t *testing.T, adapter *search.Adapter, client *opensearchapi.Client, modelID string) {
 	t.Helper()
 	undeployNativeModel(t, adapter, client, modelID)
+}
+
+// NewSearchWorker builds the production search worker over the fixture's
+// stores and adapter with pageBytes as the page bound.
+func NewSearchWorker(t *testing.T, fixture QueryFixture, pageBytes int) *service.SearchWorker {
+	t.Helper()
+	return newSearchWorker(t, fixture.Stores, fixture.Adapter, clock.Wall{}, searchWorkerSettings(pageBytes))
+}
+
+// SearchPageSource aliases one indexed page document read from OpenSearch.
+type SearchPageSource = searchPageSource
+
+// SearchNodePages refreshes the fixture's serving index and returns the
+// active page documents of nodeID in page order.
+func SearchNodePages(t *testing.T, fixture QueryFixture, nodeID uuid.UUID) []SearchPageSource {
+	t.Helper()
+	return searchNodePages(t, fixture.Client, fixture.Index, nodeID, false)
+}
+
+// SearchVerifyReport aliases the exclusion and stuck work listing that ops
+// search verify writes.
+type SearchVerifyReport = searchVerifyReport
+
+// RunSearchVerifyCommand runs ops search verify with cfg and returns its
+// listing and the command error.
+func RunSearchVerifyCommand(t *testing.T, cfg *config.Config) (SearchVerifyReport, error) {
+	t.Helper()
+	return runSearchVerifyCommand(t, cfg)
 }
 
 // DeployFixture aliases the disposable daemon and registry for deploy verify tests.

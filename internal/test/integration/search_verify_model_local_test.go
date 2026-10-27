@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/adapters/search"
 )
@@ -114,7 +114,7 @@ func createRemoteConnector(t *testing.T, client *opensearchapi.Client) string {
 	var created struct {
 		ConnectorID string `json:"connector_id"`
 	}
-	response, err := opensearch.Do(WithTestOperation(t, t.Context()), client.Client, http.MethodPost, connectorCreateRequest{body: body}, &created)
+	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), client.Client, http.MethodPost, connectorCreateRequest{body: body}, &created)
 	if err != nil || response.IsError() || created.ConnectorID == "" {
 		t.Fatalf("create remote connector: response %v, error %v", response, err)
 	}
@@ -124,7 +124,7 @@ func createRemoteConnector(t *testing.T, client *opensearchapi.Client) string {
 func deleteRemoteConnector(t *testing.T, client *opensearchapi.Client, connectorID string) {
 	t.Helper()
 	var deleted json.RawMessage
-	response, err := opensearch.Do(context.WithoutCancel(WithTestOperation(t, t.Context())), client.Client, http.MethodDelete, connectorDeleteRequest{connectorID: connectorID}, &deleted)
+	response, err := opensearch.Execute(context.WithoutCancel(WithTestOperation(t, t.Context())), client.Client, http.MethodDelete, connectorDeleteRequest{connectorID: connectorID}, &deleted)
 	if err != nil || response.IsError() {
 		t.Errorf("delete remote connector %s: response %v, error %v", connectorID, response, err)
 	}

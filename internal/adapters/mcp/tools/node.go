@@ -3,7 +3,7 @@ package tools
 import (
 	"strings"
 
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"

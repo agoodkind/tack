@@ -61,9 +61,10 @@ type searchMixedOutput struct {
 			Completed bool `json:"completed"`
 		} `json:"catch_up"`
 		Samples []struct {
-			OldestPendingWorkMs float64           `json:"oldest_pending_work_ms"`
-			OpenSearchNodes     []json.RawMessage `json:"opensearch_nodes"`
-			Error               string            `json:"error"`
+			OldestPendingWorkMs float64                        `json:"oldest_pending_work_ms"`
+			OpenSearchNodes     []json.RawMessage              `json:"opensearch_nodes"`
+			Error               string                         `json:"error"`
+			FoundationDB        *searchMixedFoundationDBSample `json:"foundationdb"`
 		} `json:"samples"`
 		StopReason    string                 `json:"stop_reason"`
 		SkippedPhases []string               `json:"skipped_phases"`
@@ -112,6 +113,7 @@ func TestSearchMixedWorkload(t *testing.T) {
 		t.Fatalf("qa datagen search-mixed: the command must request a rebuild with a target index, complete catch-up, and finish every phase without a stop: %s", output)
 	}
 	requireSearchMixedSamples(t, output, envelope)
+	requireSearchMixedFoundationDB(t, output, envelope)
 	requireSearchMixedCorpusIndex(t, output, result.CorpusIndex)
 	requireSearchMixedReindexAudit(t, result.Rebuild.TargetIndex)
 }

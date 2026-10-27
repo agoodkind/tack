@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
@@ -79,11 +79,17 @@ func (control searchControl) provisionFromEmpty(t *testing.T) {
 // index changes its UUID.
 func (control searchControl) indexUUID(t *testing.T, index string) string {
 	t.Helper()
-	response, err := control.client.Indices.Settings.Get(WithTestOperation(t, t.Context()), &opensearchapi.SettingsGetReq{Indices: []string{index}})
+	response, err := control.client.Indices.GetSettings(WithTestOperation(t, t.Context()), &opensearchapi.IndicesGetSettingsReq{Indices: []string{index}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, exists := response.GetIndices()[index]
+	var indices map[string]struct {
+		Settings json.RawMessage `json:"settings"`
+	}
+	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
+		t.Fatal(err)
+	}
+	entry, exists := indices[index]
 	if !exists {
 		t.Fatalf("OpenSearch index %s settings are absent", index)
 	}

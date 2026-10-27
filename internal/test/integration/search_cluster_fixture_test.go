@@ -179,7 +179,7 @@ func requireModelOnEveryMember(t *testing.T, fixture queryFixture, modelID strin
 	clusterEventually(t, "deploy the model to every member", func() error {
 		request, err := http.NewRequestWithContext(WithTestOperation(t, t.Context()), http.MethodGet, "/_plugins/_ml/models/"+url.PathEscape(modelID), nil)
 		clusterRequire(t, "build the model request", err)
-		response, err := fixture.Client.Client.Perform(request)
+		response, err := fixture.Client.Client.Request(request)
 		if err != nil {
 			return clusterFailure("read the model", err)
 		}

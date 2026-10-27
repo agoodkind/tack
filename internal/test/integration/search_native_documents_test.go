@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 )
@@ -170,7 +170,7 @@ func opaqueMappingDefinition(orgID uuid.UUID, number int) (*node.PropertyDef, js
 
 func nativeSource(t *testing.T, client *opensearchapi.Client, index, id string) map[string]json.RawMessage {
 	t.Helper()
-	response, err := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.DocumentGetReq{Index: index, DocumentID: id})
+	response, err := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.GetReq{Index: index, ID: id})
 	if err != nil {
 		t.Fatal(err)
 	}

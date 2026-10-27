@@ -84,6 +84,8 @@ type datagenSearchMixedSample struct {
 	RebuildState        string                             `json:"rebuild_state"`
 	OpenSearchNodes     []datagen.SearchMixedNodeResources `json:"opensearch_nodes"`
 	Error               string                             `json:"error,omitempty"`
+	FoundationDB        *datagen.SearchMixedFoundationDB   `json:"foundationdb"`
+	FoundationDBError   string                             `json:"foundationdb_error,omitempty"`
 }
 
 func searchMixedPerMinute(count int, elapsed time.Duration) float64 {
@@ -160,6 +162,7 @@ func searchMixedSamples(samples []datagen.SearchMixedSample) []datagenSearchMixe
 		results = append(results, datagenSearchMixedSample{
 			OffsetMs: searchLoadMilliseconds(sample.Offset), OldestPendingWorkMs: searchLoadMilliseconds(sample.OldestPendingWork),
 			OldestClass: sample.OldestClass, RebuildState: sample.RebuildState, OpenSearchNodes: sample.Nodes, Error: sample.Error,
+			FoundationDB: sample.FoundationDB, FoundationDBError: sample.FoundationDBError,
 		})
 	}
 	return results

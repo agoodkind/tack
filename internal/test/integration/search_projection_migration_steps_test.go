@@ -13,7 +13,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
@@ -22,7 +22,6 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// migrationSlices limits how many rescan slices one driver processes.
 const migrationSlices = 2000
 
 // runIdle runs worker slices until it cannot claim work from any class.
@@ -48,15 +47,14 @@ func (env *migrationEnv) runIdle(t *testing.T) {
 	}
 }
 
-// pages refreshes the index and returns the node's pages with the requested
-// retirement state in page order.
+// pages refreshes the index and returns the requested pages of nodeID in page order.
 func (env *migrationEnv) pages(t *testing.T, nodeID uuid.UUID, retired bool) []migrationPage {
 	t.Helper()
-	if _, err := env.Client.Indices.Refresh(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Index: []string{env.Index}}); err != nil {
+	if _, err := env.Client.Indices.Refresh(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Indices: []string{env.Index}}); err != nil {
 		t.Fatalf("refresh %s: %v", env.Index, err)
 	}
 	query := fmt.Sprintf(`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":%t}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String(), retired)
-	response, err := env.Client.Search(integration.WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{env.Index}, Body: strings.NewReader(query)})
+	response, err := env.Client.Search(integration.WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{env.Index}, BodyReader: strings.NewReader(query)})
 	if err != nil {
 		t.Fatalf("search pages of node %s: %v", nodeID, err)
 	}
@@ -64,7 +62,7 @@ func (env *migrationEnv) pages(t *testing.T, nodeID uuid.UUID, retired bool) []m
 	for _, hit := range response.Hits.Hits {
 		var page migrationPage
 		if err := json.Unmarshal(hit.Source, &page); err != nil {
-			t.Fatalf("decode page %s: %v", hit.ID, err)
+			t.Fatalf("decode page of node %s: %v", nodeID, err)
 		}
 		pages = append(pages, page)
 	}

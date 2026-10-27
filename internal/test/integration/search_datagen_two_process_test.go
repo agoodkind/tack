@@ -14,8 +14,7 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/search"
@@ -105,7 +104,7 @@ func newTwoProcessEngines(t *testing.T) *config.Config {
 		t.Fatalf("open search adapter: %v", err)
 	}
 	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(integration.WithTestOperation(t, t.Context()))) })
-	baseClient, err := opensearch.NewClient(settings.ClientConfig(nil))
+	baseClientAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: settings.ClientConfig(nil)})
 	if err != nil {
 		t.Fatalf("open OpenSearch client: %v", err)
 	}
@@ -115,8 +114,8 @@ func newTwoProcessEngines(t *testing.T) *config.Config {
 	}
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	t.Cleanup(func() {
-		request := opensearchapi.IndicesDeleteReq{Indices: []string{index}}
-		_, _ = opensearchapi.NewFromClient(baseClient).Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request)
+		request := &opensearchapi.IndicesDeleteReq{Indices: []string{index}}
+		_, _ = baseClientAPI.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request)
 	})
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
 	if err := adapter.EnsureIndex(integration.WithTestOperation(t, t.Context()), index, spec); err != nil {

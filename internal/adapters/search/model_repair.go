@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -83,7 +83,7 @@ func (a *Adapter) activeDeployTasks(ctx context.Context, modelID string, now tim
 		return 0, loggedModelError{err: wrapped}
 	}
 	var result taskCountResult
-	response, err := opensearch.Do(ctx, a.client, http.MethodPost, activeDeployTasksRequest{body: body}, &result)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, activeDeployTasksRequest{body: body}, &result)
 	if err := checkMLResponse(ctx, response, err); err != nil {
 		wrapped := fmt.Errorf("search active deploy tasks of model %s: %w", modelID, err)
 		if !isLoggedModelError(err) {

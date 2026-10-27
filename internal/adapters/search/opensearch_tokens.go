@@ -12,14 +12,13 @@ import (
 	"net/url"
 	"strconv"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
 
 // modelPredictRequest asks ML Commons for the sparse token weights of one
-// query text. [opensearch.Do] sends it because the opensearch-go v4.7.3
-// client has no ML Commons API.
+// query text. [opensearch.Execute] sends the sparse prediction request body.
 type modelPredictRequest struct {
 	modelID string
 	body    []byte
@@ -58,7 +57,7 @@ func (a *Adapter) predictQueryTokens(ctx context.Context, modelID, text string, 
 		return nil, tokenFailure(ctx, modelID, fmt.Errorf("encode prediction request: %w", err))
 	}
 	var decoded predictResponse
-	response, err := opensearch.Do(ctx, a.client, http.MethodPost, modelPredictRequest{modelID: modelID, body: body}, &decoded)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, modelPredictRequest{modelID: modelID, body: body}, &decoded)
 	if err != nil {
 		return nil, tokenFailure(ctx, modelID, fmt.Errorf("predict query tokens: %w", engineCause(ctx, response, err)))
 	}

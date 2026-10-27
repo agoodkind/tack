@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 const (
@@ -28,8 +28,8 @@ const (
 type indexedPage struct {
 	id          string
 	nodeID      uuid.UUID
-	seqNo       int
-	primaryTerm int
+	seqNo       int64
+	primaryTerm int64
 	fields      map[string]json.RawMessage
 }
 
@@ -46,13 +46,13 @@ type indexedAccess struct {
 // when a node does not have an active page.
 func indexedPages(t *testing.T, fixture rolloutFixture, nodes []uuid.UUID) []indexedPage {
 	t.Helper()
-	if _, err := fixture.client.Indices.Refresh(rolloutContext(t), &opensearchapi.IndicesRefreshReq{Index: []string{fixture.index}}); err != nil {
+	if _, err := fixture.client.Indices.Refresh(rolloutContext(t), &opensearchapi.IndicesRefreshReq{Indices: []string{fixture.index}}); err != nil {
 		t.Fatalf("cannot refresh index %s: %v", fixture.index, err)
 	}
 	pages := make([]indexedPage, 0, len(nodes)*2)
 	for _, nodeID := range nodes {
 		query := fmt.Sprintf(`{"size":1000,"seq_no_primary_term":true,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String())
-		response, err := fixture.client.Search(rolloutContext(t), &opensearchapi.SearchReq{Indices: []string{fixture.index}, Body: strings.NewReader(query)})
+		response, err := fixture.client.Search(rolloutContext(t), &opensearchapi.SearchReq{Indices: []string{fixture.index}, BodyReader: strings.NewReader(query)})
 		if err != nil {
 			t.Fatalf("cannot search pages of node %s: %v", nodeID, err)
 		}
@@ -61,10 +61,10 @@ func indexedPages(t *testing.T, fixture rolloutFixture, nodes []uuid.UUID) []ind
 		}
 		for _, hit := range response.Hits.Hits {
 			fields := map[string]json.RawMessage{}
-			if err := json.Unmarshal(hit.Source, &fields); err != nil || hit.SeqNo == nil || hit.PrimaryTerm == nil {
-				t.Fatalf("cannot decode page %s of node %s: %v", hit.ID, nodeID, err)
+			if err := json.Unmarshal(hit.Source, &fields); err != nil || hit.ID == nil || hit.SeqNo == nil || hit.PrimaryTerm == nil {
+				t.Fatalf("cannot decode page %v of node %s: %v", hit.ID, nodeID, err)
 			}
-			pages = append(pages, indexedPage{id: hit.ID, nodeID: nodeID, seqNo: *hit.SeqNo, primaryTerm: *hit.PrimaryTerm, fields: fields})
+			pages = append(pages, indexedPage{id: *hit.ID, nodeID: nodeID, seqNo: *hit.SeqNo, primaryTerm: *hit.PrimaryTerm, fields: fields})
 		}
 	}
 	return pages

@@ -53,7 +53,12 @@ func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (co
 // Bearer returns HTTP middleware that requires a valid API token.
 // On success injects the user ID into the request context.
 // On failure returns 401 with a JSON body.
-func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handler {
+// It records the auth event with recorder, the audit recorder of the runtime
+// graph that serves the request. When recorder refuses the event, it
+// returns 503 with a JSON body and does not call next. A nil recorder refuses
+// every event.
+func Bearer(tokens TokenValidator, orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.Handler {
+	recorder = wiredRecorder(recorder)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			startedAt := clock.Now()
@@ -80,7 +85,11 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 			ctx := withAuthenticatedUser(r.Context(), t.UserID)
 			ctx, soleOrg := attachMembership(ctx, orgs, t.UserID)
 			actor := audit.Actor{Type: audit.ActorUser, ID: t.UserID, APITokenLabel: hashBearer(raw)}
-			emitAuthAudit(ctx, r, tokenUsedEvent(ctx, startedAt, actor, soleOrg, tokenTarget(t.ID, t.Label), t.ID))
+			event := tokenUsedEvent(ctx, startedAt, actor, soleOrg, tokenTarget(t.ID, t.Label), t.ID)
+			if err := emitAuthAudit(ctx, recorder, r, event); err != nil {
+				auditUnavailable(w)
+				return
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -88,8 +97,10 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 
 // DevBearer is a shim for development: accepts any UUID in the Authorization
 // header directly as a user ID, bypassing the token table entirely.
-// Only active when env=development.
-func DevBearer(orgs OrgLister) func(http.Handler) http.Handler {
+// Only active when env=development. It refuses a request with 503 when the
+// recorder refuses the auth event, as Bearer does.
+func DevBearer(orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.Handler {
+	recorder = wiredRecorder(recorder)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			startedAt := clock.Now()
@@ -108,7 +119,11 @@ func DevBearer(orgs OrgLister) func(http.Handler) http.Handler {
 			ctx := withAuthenticatedUser(r.Context(), userID)
 			ctx, soleOrg := attachMembership(ctx, orgs, userID)
 			actor := audit.Actor{Type: audit.ActorUser, ID: userID, APITokenLabel: "dev"}
-			emitAuthAudit(ctx, r, tokenUsedEvent(ctx, startedAt, actor, soleOrg, userTarget(userID), uuid.Nil))
+			event := tokenUsedEvent(ctx, startedAt, actor, soleOrg, userTarget(userID), uuid.Nil)
+			if err := emitAuthAudit(ctx, recorder, r, event); err != nil {
+				auditUnavailable(w)
+				return
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -132,6 +147,14 @@ func unauthorized(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte(`{"error":"` + msg + `"}`))
+}
+
+// auditUnavailable answers 503 with a JSON body when the audit recorder did
+// not accept the auth event of an authenticated request.
+func auditUnavailable(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_, _ = w.Write([]byte(`{"error":"audit recording unavailable"}`))
 }
 
 func withAuthenticatedUser(ctx context.Context, userID uuid.UUID) context.Context {

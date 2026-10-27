@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/test/integration"
 )
 
@@ -87,8 +87,12 @@ func requireSearchError(t *testing.T, harness *integration.MCPHarness, cursor, w
 // deletePointInTime deletes one point in time through the OpenSearch client.
 func deletePointInTime(t *testing.T, fixture integration.QueryFixture, pitID string) {
 	t.Helper()
-	_, err := fixture.Client.PointInTime.Delete(integration.WithTestOperation(t, t.Context()), opensearchapi.PointInTimeDeleteReq{
-		PitID: []string{pitID}, Header: nil, Params: opensearchapi.PointInTimeDeleteParams{},
+	id, err := opensearchapi.ParsePITID(pitID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fixture.Client.PointInTime.Delete(integration.WithTestOperation(t, t.Context()), &opensearchapi.DeletePITReq{
+		Body: &opensearchapi.DeletePITBody{PITID: []opensearchapi.PITID{id}}, Header: nil, Params: &opensearchapi.DeletePITParams{},
 	})
 	if err != nil {
 		t.Fatalf("delete point in time of the open session: %v", err)
@@ -102,8 +106,8 @@ func putMappingMeta(t *testing.T, fixture integration.QueryFixture, meta failure
 	if err != nil {
 		t.Fatalf("encode mapping metadata: %v", err)
 	}
-	_, err = fixture.Client.Indices.Mapping.Put(integration.WithTestOperation(t, t.Context()), opensearchapi.MappingPutReq{
-		Indices: []string{fixture.Index}, Body: strings.NewReader(string(body)), Header: nil, Params: opensearchapi.MappingPutParams{},
+	_, err = fixture.Client.Indices.PutMapping(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesPutMappingReq{
+		Indices: []string{fixture.Index}, BodyReader: strings.NewReader(string(body)), Header: nil, Params: &opensearchapi.IndicesPutMappingParams{},
 	})
 	if err != nil {
 		t.Fatalf("replace mapping metadata of %s: %v", fixture.Index, err)

@@ -10,8 +10,8 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -47,12 +47,12 @@ func (r *QueryRanker) Read(ctx context.Context, query searchdomain.Query, snapsh
 		return none, rankFailure(ctx, snapshot.Index, err)
 	}
 	partial := false
-	request := opensearchapi.SearchReq{
-		Indices: nil, Body: bytes.NewReader(body), Header: nil,
-		Params: opensearchapi.SearchParams{AllowPartialSearchResults: &partial},
+	request := &opensearchapi.SearchReq{
+		Indices: nil, BodyReader: bytes.NewReader(body), Header: nil,
+		Params: &opensearchapi.SearchParams{AllowPartialSearchResults: &partial},
 	}
 	var decoded rankResponse
-	response, err := opensearch.Do(ctx, r.adapter.client, http.MethodPost, request, &decoded)
+	response, err := opensearch.Execute(ctx, r.adapter.client, http.MethodPost, request, &decoded)
 	if err != nil {
 		return none, rankFailure(ctx, snapshot.Index, fmt.Errorf("send search request: %w", engineCause(ctx, response, err)))
 	}
