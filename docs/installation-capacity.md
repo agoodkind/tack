@@ -94,7 +94,6 @@ Storage measurements:
 | YugabyteDB total relation bytes per final event | 10,625 bytes | Heap and indexes; 4 instances; the runs with 1 and 2 instances did not measure this value | CI run 40083280758, job 120841017594 |
 | Kafka bytes per record | 1,136 bytes | 526,027 broker bytes for 463 records; 1 instance | CI run 40083280758, job 120841017594 |
 | Replica bytes per pending read receipt | 388 bytes | 64 receipts | CI run 40083280758, job 120841017594 |
-| ClickHouse bytes per event | The test did not measure this value | Capacity calculations do not compute ClickHouse growth | CI run 40083280758, job 120841017594 |
 
 ## Production disk
 
@@ -104,7 +103,7 @@ Guest disk measurements:
 
 | Guest | Role | Disk size | Used | Available | Largest volumes | Source |
 |---|---|---|---|---|---|---|
-| CT 117 | App, audit-consumer, Kafka, ClickHouse, backup owner | 295G | 64G | 220G | `tack_clickhouse-data`: 28G; `tack_yugabyte-data`: 3.3G (retired node); `tack_tack-logs`: 1.8G; `tack_fdb-data`: 1.3G (retired node); `tack_kafka-data`: 254M | Production read, 2026-10-24 about 12:05 UTC; roles: Configs `ansible/inventory/group_vars/all/service_mapping.yml:72-116` and `ansible/playbooks/deploy-tack.yml` |
+| CT 117 | App, audit-consumer, Kafka, backup owner | 295G | 64G | 220G | `tack_clickhouse-data`: 28G (retired service); `tack_yugabyte-data`: 3.3G (retired node); `tack_tack-logs`: 1.8G; `tack_fdb-data`: 1.3G (retired node); `tack_kafka-data`: 254M | Production read, 2026-10-24 about 12:05 UTC; roles: Configs `ansible/inventory/group_vars/all/service_mapping.yml:72-116` and `ansible/playbooks/deploy-tack.yml` |
 | CT 120 | YugabyteDB yb1, FoundationDB | 59G | 24G | 33G | `tack_yugabyte-data`: 16G; `tack_fdb-data`: 148M | Production read, 2026-10-24 about 12:05 UTC; roles: Configs `ansible/inventory/group_vars/all/service_mapping.yml:72-116` and `ansible/playbooks/deploy-tack.yml` |
 | CT 121 | YugabyteDB yb2, FoundationDB | 59G | 24G | 33G | `tack_yugabyte-data`: 17G; `tack_fdb-data`: 136M | Production read, 2026-10-24 about 12:05 UTC; roles: Configs `ansible/inventory/group_vars/all/service_mapping.yml:72-116` and `ansible/playbooks/deploy-tack.yml` |
 | CT 122 | YugabyteDB yb3, FoundationDB | 59G | 25G | 32G | `tack_yugabyte-data`: 18G; `tack_fdb-data`: 131M | Production read, 2026-10-24 about 12:05 UTC; roles: Configs `ansible/inventory/group_vars/all/service_mapping.yml:72-116` and `ansible/playbooks/deploy-tack.yml` |
@@ -131,7 +130,6 @@ Retention settings:
 | `audit.event_parts`, `audit.completed_transports` | Rows do not expire | Tack `main`, `migrations/020_audit_event_parts.sql:100-120` |
 | `audit.events_dlq` | Rows do not expire; replay removes a row | Tack `main`, `migrations/011_audit_events_dlq_replay.sql:7-8` |
 | Kafka topic `audit.events.v1` | 8,760 hours (365 days); Kafka does not impose a byte limit | Tack `main`, `AUDIT_CONSUMER_TOPIC_RETENTION` default in `internal/config/audit_consumer.go:28`; application in `internal/audit/consumer_startup.go:76-159` |
-| ClickHouse `audit.events_olap` | The table does not define a time-to-live limit | Tack `main`, `internal/audit/consumer.go:958-981` |
 | Published read receipts | 1 hour after publication | Tack `main`, `ReadReceiptRetention` in `internal/audit/read_lifecycle.go` |
 | YugabyteDB point-in-time recovery history | 10,080 minutes (7 days); interval 60 minutes | Tack `main`, `internal/config/config.go:224-225` |
 | Application log files | Rotation at 100 MB; every rotated file remains; `tack_log_max_backups: 0`, `tack_log_max_age_days: 0` | Configs `ansible/inventory/group_vars/tack_all.yml:305-307` |
@@ -148,7 +146,6 @@ Store copies:
 | YugabyteDB ledger | 3 replicas, one per data node from yb1 to yb3. Configuration does not set an explicit replication factor. yugabyted raises the cluster to 3 replicas when the third node joins. | Configs `ansible/inventory/group_vars/tack_prod_all.yml:90-93`; Tack `internal/test/integration/ledger_bootstrap_cluster_test.go:117-141` |
 | FoundationDB | `double` redundancy across 3 data nodes | Configs `ansible/inventory/group_vars/tack_prod_all.yml:110` |
 | Kafka | 1 copy; 1 broker; replication factor 1; 256 partitions | Tack `docker-compose.yml:397-411` and `internal/audit/consumer_startup.go:22,82` |
-| ClickHouse | 1 copy on CT 117 | Tack `docker-compose.yml` |
 | OpenSearch | 1 shard; 0 replicas; 1 member | Configs `ansible/inventory/group_vars/tack_prod_all.yml:146-148` |
 
 ## Backups
@@ -178,7 +175,6 @@ The calculations use production disk measurements, audit rates, and storage meas
 | YugabyteDB, CT 121 | 33G | 0.043G | 765 | 1.13G | 29 | Ledger rows per day × 10,625 bytes; production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594 |
 | YugabyteDB, CT 122 | 32G | 0.043G | 742 | 1.13G | 28 | Ledger rows per day × 10,625 bytes; production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594 |
 | Kafka, CT 117 | 220G shared | 0.0051G | Kafka alone does not fill the available disk; one year of retention is 1.9G | 0.145G | Kafka alone does not fill the available disk; one year of retention is 53G | Kafka records per day × 1,136 bytes; production disk read, 2026-10-24 about 12:05 UTC; audit-rate reads above; CI run 40083280758, job 120841017594; `internal/config/audit_consumer.go:28` |
-| ClickHouse, CT 117 | 220G shared | not measured | not computed | not measured | not computed | Production disk read, 2026-10-24 about 12:05 UTC; CI run 40083280758, job 120841017594 |
 | Pending read receipts, FoundationDB | data guests | bounded by one hour of reads | does not grow beyond that bound | bounded by one hour of reads | does not grow beyond that bound | Tack `internal/audit/read_lifecycle.go` |
 
 The calculations use the YugabyteDB total relation measurement and the Kafka record measurement in the storage table. They exclude YugabyteDB point-in-time recovery history, compaction space, and write-ahead logs. The ledger row rates exclude the nil organization.

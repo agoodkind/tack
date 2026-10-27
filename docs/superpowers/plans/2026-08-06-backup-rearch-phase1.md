@@ -206,7 +206,6 @@ Add `mem_limit` directly under `restart: unless-stopped` for each service:
 | temporal | 1g |
 | temporal-ui | 512m |
 | kafka | 2g |
-| clickhouse | 2g |
 | audit-consumer | 1g |
 
 yugabyte's 10g cap sits above the 8 GiB process bound from Task 2 so the cap is the backstop, not the operating limit.
@@ -214,7 +213,7 @@ yugabyte's 10g cap sits above the 8 GiB process bound from Task 2 so the cap is 
 - [ ] **Step 2: Verify the render**
 
 Run: `docker compose config 2>/dev/null | sed -n '/mem_limit/p'`
-Expected: eleven lines.
+Expected: ten lines.
 
 - [ ] **Step 3: Commit**
 

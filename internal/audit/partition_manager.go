@@ -33,7 +33,7 @@ type partitionStore interface {
 }
 
 // PartitionManager keeps audit.events supplied with future weekly partitions.
-// It mirrors Notarizer and Reconciler: a recovered goroutine that runs once at
+// It mirrors Notarizer: a recovered goroutine that runs once at
 // boot (catch-up) and then on a fixed period. It reuses the consumer's pool
 // through the store, so Close does not close the pool.
 type PartitionManager struct {

@@ -209,8 +209,7 @@ ledger read, and zero synchronous broker round trips:
 ## Derived stores
 
 The search index rebuilds from its authoritative data and does not need a backup.
-Temporal
-workflow state has no backup, matching the recovery runbook.
+Temporal workflow state has no backup, matching the recovery runbook.
 
 ## Backups on this topology
 
