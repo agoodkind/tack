@@ -8,13 +8,14 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchtransport"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchtransport"
 	"goodkind.io/tack/internal/telemetry"
 )
 
 // endpointObserver records every connection URL the official client reports
 // in its connection lifecycle and routing events.
 type endpointObserver struct {
+	opensearchtransport.BaseConnectionObserver
 	mutex     sync.Mutex
 	endpoints map[string]struct{}
 }
@@ -22,7 +23,7 @@ type endpointObserver struct {
 var _ opensearchtransport.ConnectionObserver = (*endpointObserver)(nil)
 
 func newEndpointObserver() *endpointObserver {
-	return &endpointObserver{mutex: sync.Mutex{}, endpoints: map[string]struct{}{}}
+	return &endpointObserver{BaseConnectionObserver: opensearchtransport.BaseConnectionObserver{}, mutex: sync.Mutex{}, endpoints: map[string]struct{}{}}
 }
 
 func (o *endpointObserver) record(endpoint string) {
@@ -93,6 +94,11 @@ func (o *endpointObserver) OnRoute(event opensearchtransport.RouteEvent) {
 
 func (o *endpointObserver) OnShardMapInvalidation(event opensearchtransport.ShardMapInvalidationEvent) {
 	o.record(event.ConnURL)
+}
+
+func (o *endpointObserver) OnAddressRewrite(event opensearchtransport.AddressRewriteEvent) {
+	o.record(event.OriginalURL)
+	o.record(event.RewrittenURL)
 }
 
 // Endpoints returns, in sorted order, every endpoint that the official

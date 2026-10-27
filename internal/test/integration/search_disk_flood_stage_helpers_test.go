@@ -98,7 +98,7 @@ func readEngine(t *testing.T, fixture queryFixture, path string) ([]byte, error)
 	t.Helper()
 	request, err := http.NewRequestWithContext(WithTestOperation(t, t.Context()), http.MethodGet, path, nil)
 	clusterRequire(t, "build the engine request", err)
-	response, err := fixture.Client.Client.Perform(request)
+	response, err := fixture.Client.Client.Request(request)
 	if err != nil {
 		return nil, clusterFailure("read "+path, err)
 	}

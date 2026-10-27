@@ -5,303 +5,347 @@
 package tackv1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
-	errors "errors"
 	v1 "goodkind.io/tack/gen/tack/v1"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// NodeServiceName is the fully-qualified name of the NodeService service.
 	NodeServiceName = "tack.v1.NodeService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// NodeServiceCreateNodeProcedure is the fully-qualified name of the NodeService's CreateNode RPC.
+	// NodeServiceCreateNodeProcedure is the procedure name of the NodeService's CreateNode RPC.
 	NodeServiceCreateNodeProcedure = "/tack.v1.NodeService/CreateNode"
-	// NodeServiceGetNodeProcedure is the fully-qualified name of the NodeService's GetNode RPC.
+	// NodeServiceGetNodeProcedure is the procedure name of the NodeService's GetNode RPC.
 	NodeServiceGetNodeProcedure = "/tack.v1.NodeService/GetNode"
-	// NodeServiceUpdateNodeProcedure is the fully-qualified name of the NodeService's UpdateNode RPC.
+	// NodeServiceUpdateNodeProcedure is the procedure name of the NodeService's UpdateNode RPC.
 	NodeServiceUpdateNodeProcedure = "/tack.v1.NodeService/UpdateNode"
-	// NodeServiceDeleteNodeProcedure is the fully-qualified name of the NodeService's DeleteNode RPC.
+	// NodeServiceDeleteNodeProcedure is the procedure name of the NodeService's DeleteNode RPC.
 	NodeServiceDeleteNodeProcedure = "/tack.v1.NodeService/DeleteNode"
-	// NodeServiceListNodesProcedure is the fully-qualified name of the NodeService's ListNodes RPC.
+	// NodeServiceListNodesProcedure is the procedure name of the NodeService's ListNodes RPC.
 	NodeServiceListNodesProcedure = "/tack.v1.NodeService/ListNodes"
-	// NodeServiceAddRelationshipProcedure is the fully-qualified name of the NodeService's
-	// AddRelationship RPC.
+	// NodeServiceAddRelationshipProcedure is the procedure name of the NodeService's AddRelationship
+	// RPC.
 	NodeServiceAddRelationshipProcedure = "/tack.v1.NodeService/AddRelationship"
-	// NodeServiceRemoveRelationshipProcedure is the fully-qualified name of the NodeService's
+	// NodeServiceRemoveRelationshipProcedure is the procedure name of the NodeService's
 	// RemoveRelationship RPC.
 	NodeServiceRemoveRelationshipProcedure = "/tack.v1.NodeService/RemoveRelationship"
-	// NodeServiceListRelationshipsProcedure is the fully-qualified name of the NodeService's
+	// NodeServiceListRelationshipsProcedure is the procedure name of the NodeService's
 	// ListRelationships RPC.
 	NodeServiceListRelationshipsProcedure = "/tack.v1.NodeService/ListRelationships"
 )
 
+var (
+	nodeServiceCreateNodeSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_tack_v1_node_proto.Services().ByName("NodeService").Methods().ByName("CreateNode"),
+			Procedure:  NodeServiceCreateNodeProcedure,
+		}
+	})
+	nodeServiceGetNodeSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_tack_v1_node_proto.Services().ByName("NodeService").Methods().ByName("GetNode"),
+			Procedure:  NodeServiceGetNodeProcedure,
+		}
+	})
+	nodeServiceUpdateNodeSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_tack_v1_node_proto.Services().ByName("NodeService").Methods().ByName("UpdateNode"),
+			Procedure:  NodeServiceUpdateNodeProcedure,
+		}
+	})
+	nodeServiceDeleteNodeSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_tack_v1_node_proto.Services().ByName("NodeService").Methods().ByName("DeleteNode"),
+			Procedure:  NodeServiceDeleteNodeProcedure,
+		}
+	})
+	nodeServiceListNodesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_tack_v1_node_proto.Services().ByName("NodeService").Methods().ByName("ListNodes"),
+			Procedure:  NodeServiceListNodesProcedure,
+		}
+	})
+	nodeServiceAddRelationshipSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_tack_v1_node_proto.Services().ByName("NodeService").Methods().ByName("AddRelationship"),
+			Procedure:  NodeServiceAddRelationshipProcedure,
+		}
+	})
+	nodeServiceRemoveRelationshipSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_tack_v1_node_proto.Services().ByName("NodeService").Methods().ByName("RemoveRelationship"),
+			Procedure:  NodeServiceRemoveRelationshipProcedure,
+		}
+	})
+	nodeServiceListRelationshipsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_tack_v1_node_proto.Services().ByName("NodeService").Methods().ByName("ListRelationships"),
+			Procedure:  NodeServiceListRelationshipsProcedure,
+		}
+	})
+)
+
 // NodeServiceClient is a client for the tack.v1.NodeService service.
 type NodeServiceClient interface {
-	CreateNode(context.Context, *connect.Request[v1.CreateNodeRequest]) (*connect.Response[v1.CreateNodeResponse], error)
-	GetNode(context.Context, *connect.Request[v1.GetNodeRequest]) (*connect.Response[v1.GetNodeResponse], error)
-	UpdateNode(context.Context, *connect.Request[v1.UpdateNodeRequest]) (*connect.Response[v1.UpdateNodeResponse], error)
-	DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error)
-	ListNodes(context.Context, *connect.Request[v1.ListNodesRequest]) (*connect.Response[v1.ListNodesResponse], error)
-	AddRelationship(context.Context, *connect.Request[v1.AddRelationshipRequest]) (*connect.Response[v1.AddRelationshipResponse], error)
-	RemoveRelationship(context.Context, *connect.Request[v1.RemoveRelationshipRequest]) (*connect.Response[v1.RemoveRelationshipResponse], error)
-	ListRelationships(context.Context, *connect.Request[v1.ListRelationshipsRequest]) (*connect.Response[v1.ListRelationshipsResponse], error)
+	CreateNode(context.Context, *v1.CreateNodeRequest) (*v1.CreateNodeResponse, error)
+	GetNode(context.Context, *v1.GetNodeRequest) (*v1.GetNodeResponse, error)
+	UpdateNode(context.Context, *v1.UpdateNodeRequest) (*v1.UpdateNodeResponse, error)
+	DeleteNode(context.Context, *v1.DeleteNodeRequest) (*v1.DeleteNodeResponse, error)
+	ListNodes(context.Context, *v1.ListNodesRequest) (*v1.ListNodesResponse, error)
+	AddRelationship(context.Context, *v1.AddRelationshipRequest) (*v1.AddRelationshipResponse, error)
+	RemoveRelationship(context.Context, *v1.RemoveRelationshipRequest) (*v1.RemoveRelationshipResponse, error)
+	ListRelationships(context.Context, *v1.ListRelationshipsRequest) (*v1.ListRelationshipsResponse, error)
 }
 
-// NewNodeServiceClient constructs a client for the tack.v1.NodeService service. By default, it uses
-// the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
-// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
-// connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewNodeServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) NodeServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	nodeServiceMethods := v1.File_tack_v1_node_proto.Services().ByName("NodeService").Methods()
-	return &nodeServiceClient{
-		createNode: connect.NewClient[v1.CreateNodeRequest, v1.CreateNodeResponse](
-			httpClient,
-			baseURL+NodeServiceCreateNodeProcedure,
-			connect.WithSchema(nodeServiceMethods.ByName("CreateNode")),
-			connect.WithClientOptions(opts...),
-		),
-		getNode: connect.NewClient[v1.GetNodeRequest, v1.GetNodeResponse](
-			httpClient,
-			baseURL+NodeServiceGetNodeProcedure,
-			connect.WithSchema(nodeServiceMethods.ByName("GetNode")),
-			connect.WithClientOptions(opts...),
-		),
-		updateNode: connect.NewClient[v1.UpdateNodeRequest, v1.UpdateNodeResponse](
-			httpClient,
-			baseURL+NodeServiceUpdateNodeProcedure,
-			connect.WithSchema(nodeServiceMethods.ByName("UpdateNode")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteNode: connect.NewClient[v1.DeleteNodeRequest, v1.DeleteNodeResponse](
-			httpClient,
-			baseURL+NodeServiceDeleteNodeProcedure,
-			connect.WithSchema(nodeServiceMethods.ByName("DeleteNode")),
-			connect.WithClientOptions(opts...),
-		),
-		listNodes: connect.NewClient[v1.ListNodesRequest, v1.ListNodesResponse](
-			httpClient,
-			baseURL+NodeServiceListNodesProcedure,
-			connect.WithSchema(nodeServiceMethods.ByName("ListNodes")),
-			connect.WithClientOptions(opts...),
-		),
-		addRelationship: connect.NewClient[v1.AddRelationshipRequest, v1.AddRelationshipResponse](
-			httpClient,
-			baseURL+NodeServiceAddRelationshipProcedure,
-			connect.WithSchema(nodeServiceMethods.ByName("AddRelationship")),
-			connect.WithClientOptions(opts...),
-		),
-		removeRelationship: connect.NewClient[v1.RemoveRelationshipRequest, v1.RemoveRelationshipResponse](
-			httpClient,
-			baseURL+NodeServiceRemoveRelationshipProcedure,
-			connect.WithSchema(nodeServiceMethods.ByName("RemoveRelationship")),
-			connect.WithClientOptions(opts...),
-		),
-		listRelationships: connect.NewClient[v1.ListRelationshipsRequest, v1.ListRelationshipsResponse](
-			httpClient,
-			baseURL+NodeServiceListRelationshipsProcedure,
-			connect.WithSchema(nodeServiceMethods.ByName("ListRelationships")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// nodeServiceClient implements NodeServiceClient.
-type nodeServiceClient struct {
-	createNode         *connect.Client[v1.CreateNodeRequest, v1.CreateNodeResponse]
-	getNode            *connect.Client[v1.GetNodeRequest, v1.GetNodeResponse]
-	updateNode         *connect.Client[v1.UpdateNodeRequest, v1.UpdateNodeResponse]
-	deleteNode         *connect.Client[v1.DeleteNodeRequest, v1.DeleteNodeResponse]
-	listNodes          *connect.Client[v1.ListNodesRequest, v1.ListNodesResponse]
-	addRelationship    *connect.Client[v1.AddRelationshipRequest, v1.AddRelationshipResponse]
-	removeRelationship *connect.Client[v1.RemoveRelationshipRequest, v1.RemoveRelationshipResponse]
-	listRelationships  *connect.Client[v1.ListRelationshipsRequest, v1.ListRelationshipsResponse]
-}
-
-// CreateNode calls tack.v1.NodeService.CreateNode.
-func (c *nodeServiceClient) CreateNode(ctx context.Context, req *connect.Request[v1.CreateNodeRequest]) (*connect.Response[v1.CreateNodeResponse], error) {
-	return c.createNode.CallUnary(ctx, req)
-}
-
-// GetNode calls tack.v1.NodeService.GetNode.
-func (c *nodeServiceClient) GetNode(ctx context.Context, req *connect.Request[v1.GetNodeRequest]) (*connect.Response[v1.GetNodeResponse], error) {
-	return c.getNode.CallUnary(ctx, req)
-}
-
-// UpdateNode calls tack.v1.NodeService.UpdateNode.
-func (c *nodeServiceClient) UpdateNode(ctx context.Context, req *connect.Request[v1.UpdateNodeRequest]) (*connect.Response[v1.UpdateNodeResponse], error) {
-	return c.updateNode.CallUnary(ctx, req)
-}
-
-// DeleteNode calls tack.v1.NodeService.DeleteNode.
-func (c *nodeServiceClient) DeleteNode(ctx context.Context, req *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error) {
-	return c.deleteNode.CallUnary(ctx, req)
-}
-
-// ListNodes calls tack.v1.NodeService.ListNodes.
-func (c *nodeServiceClient) ListNodes(ctx context.Context, req *connect.Request[v1.ListNodesRequest]) (*connect.Response[v1.ListNodesResponse], error) {
-	return c.listNodes.CallUnary(ctx, req)
-}
-
-// AddRelationship calls tack.v1.NodeService.AddRelationship.
-func (c *nodeServiceClient) AddRelationship(ctx context.Context, req *connect.Request[v1.AddRelationshipRequest]) (*connect.Response[v1.AddRelationshipResponse], error) {
-	return c.addRelationship.CallUnary(ctx, req)
-}
-
-// RemoveRelationship calls tack.v1.NodeService.RemoveRelationship.
-func (c *nodeServiceClient) RemoveRelationship(ctx context.Context, req *connect.Request[v1.RemoveRelationshipRequest]) (*connect.Response[v1.RemoveRelationshipResponse], error) {
-	return c.removeRelationship.CallUnary(ctx, req)
-}
-
-// ListRelationships calls tack.v1.NodeService.ListRelationships.
-func (c *nodeServiceClient) ListRelationships(ctx context.Context, req *connect.Request[v1.ListRelationshipsRequest]) (*connect.Response[v1.ListRelationshipsResponse], error) {
-	return c.listRelationships.CallUnary(ctx, req)
+// NewNodeServiceClient constructs a client for the tack.v1.NodeService service. Multiple service
+// clients may share a single connect.Client.
+func NewNodeServiceClient(client *connect.Client) NodeServiceClient {
+	return &nodeServiceClient{client: client}
 }
 
 // NodeServiceHandler is an implementation of the tack.v1.NodeService service.
 type NodeServiceHandler interface {
-	CreateNode(context.Context, *connect.Request[v1.CreateNodeRequest]) (*connect.Response[v1.CreateNodeResponse], error)
-	GetNode(context.Context, *connect.Request[v1.GetNodeRequest]) (*connect.Response[v1.GetNodeResponse], error)
-	UpdateNode(context.Context, *connect.Request[v1.UpdateNodeRequest]) (*connect.Response[v1.UpdateNodeResponse], error)
-	DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error)
-	ListNodes(context.Context, *connect.Request[v1.ListNodesRequest]) (*connect.Response[v1.ListNodesResponse], error)
-	AddRelationship(context.Context, *connect.Request[v1.AddRelationshipRequest]) (*connect.Response[v1.AddRelationshipResponse], error)
-	RemoveRelationship(context.Context, *connect.Request[v1.RemoveRelationshipRequest]) (*connect.Response[v1.RemoveRelationshipResponse], error)
-	ListRelationships(context.Context, *connect.Request[v1.ListRelationshipsRequest]) (*connect.Response[v1.ListRelationshipsResponse], error)
+	CreateNode(context.Context, *v1.CreateNodeRequest) (*v1.CreateNodeResponse, error)
+	GetNode(context.Context, *v1.GetNodeRequest) (*v1.GetNodeResponse, error)
+	UpdateNode(context.Context, *v1.UpdateNodeRequest) (*v1.UpdateNodeResponse, error)
+	DeleteNode(context.Context, *v1.DeleteNodeRequest) (*v1.DeleteNodeResponse, error)
+	ListNodes(context.Context, *v1.ListNodesRequest) (*v1.ListNodesResponse, error)
+	AddRelationship(context.Context, *v1.AddRelationshipRequest) (*v1.AddRelationshipResponse, error)
+	RemoveRelationship(context.Context, *v1.RemoveRelationshipRequest) (*v1.RemoveRelationshipResponse, error)
+	ListRelationships(context.Context, *v1.ListRelationshipsRequest) (*v1.ListRelationshipsResponse, error)
 }
 
-// NewNodeServiceHandler builds an HTTP handler from the service implementation. It returns the path
-// on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewNodeServiceHandler(svc NodeServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	nodeServiceMethods := v1.File_tack_v1_node_proto.Services().ByName("NodeService").Methods()
-	nodeServiceCreateNodeHandler := connect.NewUnaryHandler(
-		NodeServiceCreateNodeProcedure,
-		svc.CreateNode,
-		connect.WithSchema(nodeServiceMethods.ByName("CreateNode")),
-		connect.WithHandlerOptions(opts...),
+// RegisterNodeServiceHandler registers svc as the tack.v1.NodeService implementation on server.
+func RegisterNodeServiceHandler(server *connect.Server, svc NodeServiceHandler) {
+	adapter := nodeServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: nodeServiceCreateNodeSpec(), Handler: adapter.createNode},
+		connect.Method{Spec: nodeServiceGetNodeSpec(), Handler: adapter.getNode},
+		connect.Method{Spec: nodeServiceUpdateNodeSpec(), Handler: adapter.updateNode},
+		connect.Method{Spec: nodeServiceDeleteNodeSpec(), Handler: adapter.deleteNode},
+		connect.Method{Spec: nodeServiceListNodesSpec(), Handler: adapter.listNodes},
+		connect.Method{Spec: nodeServiceAddRelationshipSpec(), Handler: adapter.addRelationship},
+		connect.Method{Spec: nodeServiceRemoveRelationshipSpec(), Handler: adapter.removeRelationship},
+		connect.Method{Spec: nodeServiceListRelationshipsSpec(), Handler: adapter.listRelationships},
 	)
-	nodeServiceGetNodeHandler := connect.NewUnaryHandler(
-		NodeServiceGetNodeProcedure,
-		svc.GetNode,
-		connect.WithSchema(nodeServiceMethods.ByName("GetNode")),
-		connect.WithHandlerOptions(opts...),
-	)
-	nodeServiceUpdateNodeHandler := connect.NewUnaryHandler(
-		NodeServiceUpdateNodeProcedure,
-		svc.UpdateNode,
-		connect.WithSchema(nodeServiceMethods.ByName("UpdateNode")),
-		connect.WithHandlerOptions(opts...),
-	)
-	nodeServiceDeleteNodeHandler := connect.NewUnaryHandler(
-		NodeServiceDeleteNodeProcedure,
-		svc.DeleteNode,
-		connect.WithSchema(nodeServiceMethods.ByName("DeleteNode")),
-		connect.WithHandlerOptions(opts...),
-	)
-	nodeServiceListNodesHandler := connect.NewUnaryHandler(
-		NodeServiceListNodesProcedure,
-		svc.ListNodes,
-		connect.WithSchema(nodeServiceMethods.ByName("ListNodes")),
-		connect.WithHandlerOptions(opts...),
-	)
-	nodeServiceAddRelationshipHandler := connect.NewUnaryHandler(
-		NodeServiceAddRelationshipProcedure,
-		svc.AddRelationship,
-		connect.WithSchema(nodeServiceMethods.ByName("AddRelationship")),
-		connect.WithHandlerOptions(opts...),
-	)
-	nodeServiceRemoveRelationshipHandler := connect.NewUnaryHandler(
-		NodeServiceRemoveRelationshipProcedure,
-		svc.RemoveRelationship,
-		connect.WithSchema(nodeServiceMethods.ByName("RemoveRelationship")),
-		connect.WithHandlerOptions(opts...),
-	)
-	nodeServiceListRelationshipsHandler := connect.NewUnaryHandler(
-		NodeServiceListRelationshipsProcedure,
-		svc.ListRelationships,
-		connect.WithSchema(nodeServiceMethods.ByName("ListRelationships")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/tack.v1.NodeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case NodeServiceCreateNodeProcedure:
-			nodeServiceCreateNodeHandler.ServeHTTP(w, r)
-		case NodeServiceGetNodeProcedure:
-			nodeServiceGetNodeHandler.ServeHTTP(w, r)
-		case NodeServiceUpdateNodeProcedure:
-			nodeServiceUpdateNodeHandler.ServeHTTP(w, r)
-		case NodeServiceDeleteNodeProcedure:
-			nodeServiceDeleteNodeHandler.ServeHTTP(w, r)
-		case NodeServiceListNodesProcedure:
-			nodeServiceListNodesHandler.ServeHTTP(w, r)
-		case NodeServiceAddRelationshipProcedure:
-			nodeServiceAddRelationshipHandler.ServeHTTP(w, r)
-		case NodeServiceRemoveRelationshipProcedure:
-			nodeServiceRemoveRelationshipHandler.ServeHTTP(w, r)
-		case NodeServiceListRelationshipsProcedure:
-			nodeServiceListRelationshipsHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedNodeServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedNodeServiceHandler struct{}
 
-func (UnimplementedNodeServiceHandler) CreateNode(context.Context, *connect.Request[v1.CreateNodeRequest]) (*connect.Response[v1.CreateNodeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.NodeService.CreateNode is not implemented"))
+func (UnimplementedNodeServiceHandler) CreateNode(context.Context, *v1.CreateNodeRequest) (*v1.CreateNodeResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "tack.v1.NodeService.CreateNode is not implemented")
 }
 
-func (UnimplementedNodeServiceHandler) GetNode(context.Context, *connect.Request[v1.GetNodeRequest]) (*connect.Response[v1.GetNodeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.NodeService.GetNode is not implemented"))
+func (UnimplementedNodeServiceHandler) GetNode(context.Context, *v1.GetNodeRequest) (*v1.GetNodeResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "tack.v1.NodeService.GetNode is not implemented")
 }
 
-func (UnimplementedNodeServiceHandler) UpdateNode(context.Context, *connect.Request[v1.UpdateNodeRequest]) (*connect.Response[v1.UpdateNodeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.NodeService.UpdateNode is not implemented"))
+func (UnimplementedNodeServiceHandler) UpdateNode(context.Context, *v1.UpdateNodeRequest) (*v1.UpdateNodeResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "tack.v1.NodeService.UpdateNode is not implemented")
 }
 
-func (UnimplementedNodeServiceHandler) DeleteNode(context.Context, *connect.Request[v1.DeleteNodeRequest]) (*connect.Response[v1.DeleteNodeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.NodeService.DeleteNode is not implemented"))
+func (UnimplementedNodeServiceHandler) DeleteNode(context.Context, *v1.DeleteNodeRequest) (*v1.DeleteNodeResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "tack.v1.NodeService.DeleteNode is not implemented")
 }
 
-func (UnimplementedNodeServiceHandler) ListNodes(context.Context, *connect.Request[v1.ListNodesRequest]) (*connect.Response[v1.ListNodesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.NodeService.ListNodes is not implemented"))
+func (UnimplementedNodeServiceHandler) ListNodes(context.Context, *v1.ListNodesRequest) (*v1.ListNodesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "tack.v1.NodeService.ListNodes is not implemented")
 }
 
-func (UnimplementedNodeServiceHandler) AddRelationship(context.Context, *connect.Request[v1.AddRelationshipRequest]) (*connect.Response[v1.AddRelationshipResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.NodeService.AddRelationship is not implemented"))
+func (UnimplementedNodeServiceHandler) AddRelationship(context.Context, *v1.AddRelationshipRequest) (*v1.AddRelationshipResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "tack.v1.NodeService.AddRelationship is not implemented")
 }
 
-func (UnimplementedNodeServiceHandler) RemoveRelationship(context.Context, *connect.Request[v1.RemoveRelationshipRequest]) (*connect.Response[v1.RemoveRelationshipResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.NodeService.RemoveRelationship is not implemented"))
+func (UnimplementedNodeServiceHandler) RemoveRelationship(context.Context, *v1.RemoveRelationshipRequest) (*v1.RemoveRelationshipResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "tack.v1.NodeService.RemoveRelationship is not implemented")
 }
 
-func (UnimplementedNodeServiceHandler) ListRelationships(context.Context, *connect.Request[v1.ListRelationshipsRequest]) (*connect.Response[v1.ListRelationshipsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tack.v1.NodeService.ListRelationships is not implemented"))
+func (UnimplementedNodeServiceHandler) ListRelationships(context.Context, *v1.ListRelationshipsRequest) (*v1.ListRelationshipsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "tack.v1.NodeService.ListRelationships is not implemented")
+}
+
+type nodeServiceClient struct {
+	client *connect.Client
+}
+
+func (c *nodeServiceClient) CreateNode(ctx context.Context, req *v1.CreateNodeRequest) (*v1.CreateNodeResponse, error) {
+	var res v1.CreateNodeResponse
+	if err := c.client.CallUnary(ctx, nodeServiceCreateNodeSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *nodeServiceClient) GetNode(ctx context.Context, req *v1.GetNodeRequest) (*v1.GetNodeResponse, error) {
+	var res v1.GetNodeResponse
+	if err := c.client.CallUnary(ctx, nodeServiceGetNodeSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *nodeServiceClient) UpdateNode(ctx context.Context, req *v1.UpdateNodeRequest) (*v1.UpdateNodeResponse, error) {
+	var res v1.UpdateNodeResponse
+	if err := c.client.CallUnary(ctx, nodeServiceUpdateNodeSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *nodeServiceClient) DeleteNode(ctx context.Context, req *v1.DeleteNodeRequest) (*v1.DeleteNodeResponse, error) {
+	var res v1.DeleteNodeResponse
+	if err := c.client.CallUnary(ctx, nodeServiceDeleteNodeSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *nodeServiceClient) ListNodes(ctx context.Context, req *v1.ListNodesRequest) (*v1.ListNodesResponse, error) {
+	var res v1.ListNodesResponse
+	if err := c.client.CallUnary(ctx, nodeServiceListNodesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *nodeServiceClient) AddRelationship(ctx context.Context, req *v1.AddRelationshipRequest) (*v1.AddRelationshipResponse, error) {
+	var res v1.AddRelationshipResponse
+	if err := c.client.CallUnary(ctx, nodeServiceAddRelationshipSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *nodeServiceClient) RemoveRelationship(ctx context.Context, req *v1.RemoveRelationshipRequest) (*v1.RemoveRelationshipResponse, error) {
+	var res v1.RemoveRelationshipResponse
+	if err := c.client.CallUnary(ctx, nodeServiceRemoveRelationshipSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *nodeServiceClient) ListRelationships(ctx context.Context, req *v1.ListRelationshipsRequest) (*v1.ListRelationshipsResponse, error) {
+	var res v1.ListRelationshipsResponse
+	if err := c.client.CallUnary(ctx, nodeServiceListRelationshipsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type nodeServiceHandler struct{ svc NodeServiceHandler }
+
+func (h nodeServiceHandler) createNode(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateNodeRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateNode(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h nodeServiceHandler) getNode(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetNodeRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetNode(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h nodeServiceHandler) updateNode(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateNodeRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpdateNode(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h nodeServiceHandler) deleteNode(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteNodeRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteNode(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h nodeServiceHandler) listNodes(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListNodesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListNodes(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h nodeServiceHandler) addRelationship(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.AddRelationshipRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.AddRelationship(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h nodeServiceHandler) removeRelationship(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.RemoveRelationshipRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.RemoveRelationship(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h nodeServiceHandler) listRelationships(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListRelationshipsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListRelationships(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }

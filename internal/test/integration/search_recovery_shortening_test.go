@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
@@ -93,7 +93,7 @@ func TestSearchRecoveryShorteningRetiresRemovedPages(t *testing.T) {
 // with no page text and no generated semantic field.
 func requireRetiredDocument(t *testing.T, client *opensearchapi.Client, index, documentID string) {
 	t.Helper()
-	response, err := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.DocumentGetReq{Index: index, DocumentID: documentID})
+	response, err := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.GetReq{Index: index, ID: documentID})
 	if err != nil || !response.Found {
 		t.Fatalf("read document %s: found %t err %v", documentID, err == nil && response.Found, err)
 	}

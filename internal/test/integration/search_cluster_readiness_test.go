@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -37,12 +37,12 @@ func requireClusterPredictors(t *testing.T, cluster *testenv.OpenSearchCluster, 
 		if len(backends) != len(members) {
 			return fmt.Errorf("proxy backends %v do not match members %v", backends, members)
 		}
-		nodes, err := fixture.Client.Nodes.Info(WithTestOperation(t, t.Context()), &opensearchapi.NodesInfoReq{Metrics: []string{"http"}})
+		nodes, err := fixture.Client.Nodes.Info(WithTestOperation(t, t.Context()), &opensearchapi.NodesInfoReq{Metric: []string{"http"}})
 		if err != nil {
 			return clusterFailure("read predictor node identities", err)
 		}
-		if nodes.NodesInfo.Failed != 0 || len(nodes.Nodes) != len(members) {
-			return fmt.Errorf("predictor nodes total=%d successful=%d failed=%d, want %d members", nodes.NodesInfo.Total, nodes.NodesInfo.Successful, nodes.NodesInfo.Failed, len(members))
+		if nodes.NodesRespBase.Nodes.Failed != 0 || len(nodes.Nodes) != len(members) {
+			return fmt.Errorf("predictor nodes total=%d successful=%d failed=%d, want %d members", nodes.NodesRespBase.Nodes.Total, nodes.NodesRespBase.Nodes.Successful, nodes.NodesRespBase.Nodes.Failed, len(members))
 		}
 		ids := make([]string, 0, len(members))
 		names := make([]string, 0, len(members))
@@ -55,7 +55,7 @@ func requireClusterPredictors(t *testing.T, cluster *testenv.OpenSearchCluster, 
 		}
 		slices.Sort(ids)
 		var raw json.RawMessage
-		response, err := opensearch.Do(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, clusterModelProfileRequest{modelID: modelID}, &raw)
+		response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, clusterModelProfileRequest{modelID: modelID}, &raw)
 		if err != nil {
 			return clusterFailure("read predictor profile", err)
 		}

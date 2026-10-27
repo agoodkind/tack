@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchtransport"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchtransport"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -73,17 +73,18 @@ func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) op
 	discoverNodesOnStart := false
 	pass := c.Password
 	return opensearch.Config{
-		Addresses:            []string{c.Endpoint},
-		Username:             c.Username,
-		Password:             pass,
-		CACert:               []byte(c.CA),
-		RequestTimeout:       c.RequestTimeout,
-		RetryOnStatus:        retryStatuses,
-		MaxRetries:           c.MaxRetries,
-		RetryBackoff:         retryBackoff,
-		EnableRetryOnTimeout: true,
-		EnableMetrics:        true,
-		Observer:             observer,
-		DiscoverNodesOnStart: &discoverNodesOnStart,
+		Addresses:             []string{c.Endpoint},
+		Username:              c.Username,
+		Password:              pass,
+		CACert:                []byte(c.CA),
+		RequestTimeout:        c.RequestTimeout,
+		RetryOnStatus:         retryStatuses,
+		MaxRetries:            c.MaxRetries,
+		RetryBackoff:          retryBackoff,
+		RetryBudget:           -1,
+		EnableRetryOnTimeout:  true,
+		Observer:              observer,
+		DiscoverNodesOnStart:  &discoverNodesOnStart,
+		DiscoverNodesInterval: -1,
 	}
 }

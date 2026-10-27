@@ -9,7 +9,7 @@ import (
 	"slices"
 	"syscall"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )

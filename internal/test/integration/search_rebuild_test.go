@@ -2,13 +2,14 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
@@ -111,12 +112,20 @@ func failReplayValidationSwitch(t *testing.T, fixture queryFixture, rebuild sear
 // deleteNodePages deletes every document of nodeID from index.
 func deleteNodePages(t *testing.T, client *opensearchapi.Client, index string, nodeID uuid.UUID) {
 	t.Helper()
-	refresh := true
 	query := strings.NewReader(fmt.Sprintf(`{"query":{"term":{"node_id":%q}}}`, nodeID.String()))
-	response, err := client.Document.DeleteByQuery(WithTestOperation(t, t.Context()), opensearchapi.DocumentDeleteByQueryReq{
-		Indices: []string{index}, Body: query, Params: opensearchapi.DocumentDeleteByQueryParams{Refresh: &refresh},
+	response, err := client.DeleteByQuery(WithTestOperation(t, t.Context()), &opensearchapi.DeleteByQueryReq{
+		Indices: []string{index}, BodyReader: query, Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},
 	})
-	if err != nil || response.Deleted == 0 {
+	if err != nil {
+		t.Fatalf("delete pages of node %s from %s: %v", nodeID, index, err)
+	}
+	var deleted struct {
+		Deleted int64 `json:"deleted"`
+	}
+	if err := json.Unmarshal(response.Body, &deleted); err != nil {
+		t.Fatalf("decode deleted pages of node %s: %v", nodeID, err)
+	}
+	if deleted.Deleted == 0 {
 		t.Fatalf("delete pages of node %s from %s: response %+v, error %v", nodeID, index, response, err)
 	}
 }

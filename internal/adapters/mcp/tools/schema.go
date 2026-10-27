@@ -7,7 +7,7 @@
 package tools
 
 import (
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 )
 
 // schemaType enumerates the JSON-schema field types we use for tool input.

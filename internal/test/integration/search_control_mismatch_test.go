@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/adapters/search"
 )
@@ -84,8 +84,8 @@ func metaMapping(mappingVersion, modelID, tokenizer string) string {
 
 func putSearchControlMapping(t *testing.T, control searchControl, body string) {
 	t.Helper()
-	response, err := control.client.Indices.Mapping.Put(WithTestOperation(t, t.Context()), opensearchapi.MappingPutReq{
-		Indices: []string{searchControlIndex}, Body: strings.NewReader(body),
+	response, err := control.client.Indices.PutMapping(WithTestOperation(t, t.Context()), &opensearchapi.IndicesPutMappingReq{
+		Indices: []string{searchControlIndex}, BodyReader: strings.NewReader(body),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"

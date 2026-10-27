@@ -4,8 +4,8 @@ import (
 	"context"
 	"log/slog"
 
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"

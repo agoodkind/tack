@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/config"
 )
 
@@ -87,8 +87,8 @@ func (r *searchMixedResources) close(ctx context.Context) {
 // read returns statistics for every OpenSearch node in node name order.
 func (r *searchMixedResources) read(ctx context.Context) ([]SearchMixedNodeResources, error) {
 	var stats searchMixedNodeStats
-	request := opensearchapi.NodesStatsReq{Metric: searchMixedNodeMetrics}
-	response, err := opensearch.Do(ctx, r.client, http.MethodGet, request, &stats)
+	request := &opensearchapi.NodesStatsReq{Metric: searchMixedNodeMetrics}
+	response, err := opensearch.Execute(ctx, r.client, http.MethodGet, request, &stats)
 	if err != nil {
 		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not read OpenSearch node statistics", err)
 	}

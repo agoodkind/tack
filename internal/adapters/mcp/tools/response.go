@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/v2/mcp"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/telemetry"

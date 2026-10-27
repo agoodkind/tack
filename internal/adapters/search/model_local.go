@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 )
 
 // connectorSearchBody requests the name and protocol of at most 100
@@ -94,7 +94,7 @@ func (a *Adapter) LocalModel(ctx context.Context, modelID string) (LocalModel, e
 
 func (a *Adapter) readLocalModel(ctx context.Context, modelID string) (LocalModel, error) {
 	var document localModelDocument
-	response, err := opensearch.Do(ctx, a.client, http.MethodGet, modelGetRequest{modelID: modelID}, &document)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodGet, modelGetRequest{modelID: modelID}, &document)
 	if err := localModelResponseError(response, err); err != nil {
 		return LocalModel{}, localModelError{operation: "read OpenSearch model " + modelID, err: err}
 	}
@@ -109,7 +109,7 @@ func (a *Adapter) readLocalModel(ctx context.Context, modelID string) (LocalMode
 // returns an empty result before the first connector creates its index.
 func (a *Adapter) readConnectors(ctx context.Context, model *LocalModel) error {
 	var found connectorSearchResult
-	response, err := opensearch.Do(ctx, a.client, http.MethodPost, connectorSearchRequest{body: []byte(connectorSearchBody)}, &found)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, connectorSearchRequest{body: []byte(connectorSearchBody)}, &found)
 	if err := localModelResponseError(response, err); err != nil {
 		return localModelError{operation: "search OpenSearch ML connectors", err: err}
 	}

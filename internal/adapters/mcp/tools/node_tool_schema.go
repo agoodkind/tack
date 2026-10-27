@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -50,6 +50,8 @@ func nodeIDSchema(entryPointParam string, resolver *Resolver) schema {
 func getTool(nt *node.NodeType, slug string, entryPointParam string, resolver *Resolver) mcpmcp.Tool {
 	description := fmt.Sprintf("Gets a %s by UUID.", nt.Name)
 	switch nt.Reference.Strategy {
+	case node.ReferenceUUIDOnly:
+		description = fmt.Sprintf("Gets a %s by UUID.", nt.Name)
 	case node.ReferenceScopedSequence:
 		description = fmt.Sprintf("Gets a %s by UUID or sequence reference like TACK-65.", nt.Name)
 	case node.ReferenceScopedProperty:

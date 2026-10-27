@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -41,16 +41,17 @@ func openSearchClientsFor(t *testing.T, fixture testenv.OpenSearchFixture) (*sea
 			t.Error(err)
 		}
 	})
-	client, err := opensearch.NewClient(configuration.ClientConfig(nil))
+	clientAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: configuration.ClientConfig(nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := clientAPI.Client
 	t.Cleanup(func() {
 		if err := client.Close(); err != nil {
 			t.Error(err)
 		}
 	})
-	return adapter, opensearchapi.NewFromClient(client)
+	return adapter, clientAPI
 }
 
 func newOpenSearchClients(t *testing.T, memoryBytes int64) (*search.Adapter, *opensearchapi.Client) {
@@ -81,8 +82,7 @@ func deleteNativeIndex(t *testing.T, client *opensearchapi.Client, index string)
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), time.Minute)
 	defer cancel()
-	response, err := opensearch.Do[json.RawMessage](ctx, client.Client, http.MethodDelete,
-		opensearchapi.IndicesDeleteReq{Indices: []string{index}}, nil)
+	response, err := opensearch.Execute[json.RawMessage](ctx, client.Client, http.MethodDelete, &opensearchapi.IndicesDeleteReq{Indices: []string{index}}, nil)
 	if err != nil {
 		t.Errorf("delete OpenSearch index %s: %v", index, err)
 		return

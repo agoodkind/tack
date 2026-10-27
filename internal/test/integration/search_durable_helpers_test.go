@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/test/integration"
@@ -31,24 +31,27 @@ type durableDocument struct {
 // order.
 func durableNodeDocuments(t *testing.T, fixture integration.QueryFixture, nodeID uuid.UUID, retired bool) []durableDocument {
 	t.Helper()
-	refresh := &opensearchapi.IndicesRefreshReq{Index: []string{fixture.Index}}
+	refresh := &opensearchapi.IndicesRefreshReq{Indices: []string{fixture.Index}}
 	if _, err := fixture.Client.Indices.Refresh(integration.WithTestOperation(t, t.Context()), refresh); err != nil {
 		t.Fatalf("refresh index %s: %v", fixture.Index, err)
 	}
 	query := fmt.Sprintf(`{"size":%d,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":%t}}]}},"sort":[{"page_ordinal":"asc"}]}`,
 		durableDocumentLimit, nodeID.String(), retired)
-	request := &opensearchapi.SearchReq{Indices: []string{fixture.Index}, Body: strings.NewReader(query)}
+	request := &opensearchapi.SearchReq{Indices: []string{fixture.Index}, BodyReader: strings.NewReader(query)}
 	response, err := fixture.Client.Search(integration.WithTestOperation(t, t.Context()), request)
 	if err != nil {
 		t.Fatalf("search the documents of node %s: %v", nodeID, err)
 	}
 	documents := make([]durableDocument, 0, len(response.Hits.Hits))
 	for _, hit := range response.Hits.Hits {
+		if hit.ID == nil {
+			t.Fatal("durable page requires a document ID")
+		}
 		var document durableDocument
 		if err := json.Unmarshal(hit.Source, &document); err != nil {
-			t.Fatalf("decode document %s of node %s: %v", hit.ID, nodeID, err)
+			t.Fatalf("decode document %s of node %s: %v", *hit.ID, nodeID, err)
 		}
-		document.ID = hit.ID
+		document.ID = *hit.ID
 		documents = append(documents, document)
 	}
 	return documents

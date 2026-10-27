@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/test/integration"
 )
 
@@ -38,8 +38,8 @@ type fieldMappingType struct {
 func requireRankFeaturesField(t *testing.T, fixture integration.QueryFixture) {
 	t.Helper()
 	var decoded map[string]fieldMappingIndex
-	request := opensearchapi.MappingFieldReq{Indices: []string{fixture.Index}, Fields: []string{sparseEmbeddingField}}
-	response, err := opensearch.Do(t.Context(), fixture.Client.Client, http.MethodGet, request, &decoded)
+	request := opensearchapi.IndicesGetFieldMappingReq{Indices: []string{fixture.Index}, Fields: []string{sparseEmbeddingField}}
+	response, err := opensearch.Execute(t.Context(), fixture.Client.Client, http.MethodGet, request, &decoded)
 	if err != nil {
 		t.Fatalf("read mapping of %s: %v", sparseEmbeddingField, err)
 	}

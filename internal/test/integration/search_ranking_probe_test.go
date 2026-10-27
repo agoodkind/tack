@@ -12,8 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
@@ -75,7 +74,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 		Endpoint: cfg.SearchEndpoint, CA: certificate, Username: cfg.SearchUsername,
 		Password: cfg.SearchPassword, RequestTimeout: 2 * time.Minute, MaxRetries: 1,
 	}
-	base, err := opensearch.NewClient(settings.ClientConfig(nil))
+	baseAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: settings.ClientConfig(nil)})
 	if err != nil {
 		t.Fatalf("open OpenSearch client: %v", err)
 	}
@@ -86,7 +85,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 	workspace := identities.Workspaces[0]
 	run := &rankingRun{
 		driver: datagen.NewDriver(graph, false, seed), token: workspace.Actors[0].Token, workspace: workspace.Slug,
-		stores: stores, client: opensearchapi.NewFromClient(base), cursors: tools.NewSearchCursorCodec(key),
+		stores: stores, client: baseAPI, cursors: tools.NewSearchCursorCodec(key),
 		names: map[uuid.UUID]string{},
 	}
 	identifier := json.RawMessage(strconv.Quote(rankingProject))

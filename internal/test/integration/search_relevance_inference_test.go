@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -179,7 +179,7 @@ func analyzerRanks(t *testing.T, fixture integration.QueryFixture, request ranke
 		Filter: request.Body.Query.Bool.Filter, Should: []json.RawMessage{request.Body.Query.Bool.Should[0], encoded}, MinimumShouldMatch: 1,
 	}}}
 	response, err := fixture.Client.Search(integration.WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{
-		Indices: []string{fixture.Index}, Body: bytes.NewReader(encodeTrace(t, body)),
+		Indices: []string{fixture.Index}, BodyReader: bytes.NewReader(encodeTrace(t, body)),
 	})
 	if err != nil {
 		t.Fatalf("analyzer search %q on %s: %v", query, fixture.Index, err)
