@@ -14,8 +14,6 @@ func checkStrictRecord(ctx context.Context, tr fdb.Transaction, strict bool, rec
 	return checkStrictMutation(ctx, tr, strict, record, nil)
 }
 
-// checkStrictWrite runs checkStrictRelationshipAdds for changesList and then
-// checkStrictRecord for record, and returns the first error.
 func checkStrictWrite(ctx context.Context, tr fdb.Transaction, strict bool, record *node.Node, changesList []node.RelationshipChanges) error {
 	if err := checkStrictRelationshipAdds(ctx, tr, strict, changesList); err != nil {
 		return err
@@ -40,10 +38,6 @@ func checkStrictMutation(ctx context.Context, tr fdb.Transaction, strict bool, r
 	return strictResultError(ctx, result.ID, schema.ValidateResult(result.NodeType, result.Props, graph).Err())
 }
 
-// strictResultError returns nil for a nil resultErr. For an invalid result,
-// it returns an error from mutationRefusal that wraps
-// domain.ErrInvalidArgument. For a schema read failure, it returns an error
-// from nodeOperationFailure that wraps node.ErrSchemaRead.
 func strictResultError(ctx context.Context, nodeID uuid.UUID, resultErr error) error {
 	if resultErr == nil {
 		return nil

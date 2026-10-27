@@ -11,12 +11,9 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// isMemberTarget resolves rel.TargetID through the node reader and returns
-// false if the target resolves to a node. It returns any resolution error
-// other than domain.ErrNotFound. If the reader returns domain.ErrNotFound,
-// it looks up the organizations of rel.TargetID in org_members and returns
-// any lookup error. After a successful lookup, it returns true only when
-// the list contains rel.OrgID.
+// isMemberTarget reads org_members through s.members, and the runtime passes
+// the cached membership repository. A removed member stays a valid target
+// until AuthMembershipCacheLifetime expires.
 func (s *NodeService) isMemberTarget(ctx context.Context, rel *node.Relationship) (bool, error) {
 	resolved, err := s.reader.Resolve(ctx, rel.TargetID)
 	if err == nil && resolved != nil {

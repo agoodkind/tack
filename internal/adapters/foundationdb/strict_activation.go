@@ -14,8 +14,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// maxStrictScanNodes limits the number of primary node records in one scan
-// page.
 const maxStrictScanNodes = 100
 
 // StrictActivation reads the strict validation activation record.
@@ -111,8 +109,6 @@ func (s *NodeStore) StrictScanPage(ctx context.Context, cursor string, limit int
 	return records, next, nil
 }
 
-// readStrictRecords decodes each primary record in items and reads its graph
-// inside tr. It reads the property definitions of each organization once.
 func readStrictRecords(ctx context.Context, tr fdb.Transaction, items []fdb.KeyValue) ([]node.StrictRecord, error) {
 	definitions := map[uuid.UUID][]*node.PropertyDef{}
 	records := make([]node.StrictRecord, 0, len(items))

@@ -24,9 +24,9 @@ func (s *NodeStore) CaptureStrictEvidence(ctx context.Context) (evidence node.St
 	return evidence, err
 }
 
-// readStrictEvidence reads the bucket epochs and metadata epochs in tr with
-// ordinary reads. If another transaction commits a write to one of those keys
-// after tr's read version, tr conflicts when it attempts to commit a write.
+// readStrictEvidence uses ordinary reads. If another transaction commits a
+// write to one of those keys after tr's read version, tr conflicts when it
+// attempts to commit a write.
 func readStrictEvidence(ctx context.Context, tr fdb.ReadTransaction) (node.StrictEvidence, error) {
 	evidence := node.StrictEvidence{Buckets: make([]int64, node.WriteFenceBuckets), MetadataEpochs: map[uuid.UUID]int64{}}
 	futures := make([]fdb.FutureByteSlice, node.WriteFenceBuckets)

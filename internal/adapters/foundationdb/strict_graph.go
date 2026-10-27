@@ -9,15 +9,13 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// strictChildOfLimit limits the child_of edges that readResultGraph reads to
+// strictChildOfLimit limits the child_of edges that readStrictGraph reads to
 // two, which identifies a node with more than one parent edge.
 const strictChildOfLimit = 2
 
-// readStrictSchema reads record's node type, organization property
-// definitions, and graph inside tr. If the parent exists in the same
-// organization and its node type definition exists, it adds that definition
-// to the schema. It returns a nil schema when record's node type does not
-// exist.
+// readStrictSchema also adds the node type of a parent in the same
+// organization, which the LivesUnder check of ValidateResult reads. It
+// returns a nil schema when the node type of record does not exist.
 func readStrictSchema(ctx context.Context, tr fdb.Transaction, record *node.Node) (*node.Schema, node.ResultGraph, error) {
 	graph := node.ResultGraph{OrgID: record.OrgID, ChildOf: nil, Targets: nil}
 	kinds := make(map[string]*node.NodeType)
@@ -48,9 +46,8 @@ func readStrictSchema(ctx context.Context, tr fdb.Transaction, record *node.Node
 	return schema, graph, nil
 }
 
-// readStrictGraph reads record's child_of targets and the resolution records
-// for IDs in its parent_id and reference properties inside tr. These reads
-// include writes that tr has already made.
+// readStrictGraph reads inside tr, and the reads include writes that tr has
+// already made.
 func readStrictGraph(ctx context.Context, tr fdb.Transaction, definitions []*node.PropertyDef, record *node.Node) (node.ResultGraph, error) {
 	graph := node.ResultGraph{OrgID: record.OrgID, ChildOf: nil, Targets: map[uuid.UUID]node.ResultTarget{}}
 	keyRange, err := fdb.PrefixRange(relationshipPrefixBySource(record.OrgID, record.ID, node.RelChildOf))
@@ -87,7 +84,6 @@ func readStrictGraph(ctx context.Context, tr fdb.Transaction, definitions []*nod
 	return graph, nil
 }
 
-// readResultTarget reads the resolution record of targetID inside tr.
 func readResultTarget(ctx context.Context, tr fdb.Transaction, targetID uuid.UUID) (node.ResultTarget, error) {
 	absent := node.ResultTarget{Found: false, OrgID: uuid.Nil, NodeType: ""}
 	encoded, err := tr.Get(fdb.Key(nodeResolveKey(targetID))).Get()

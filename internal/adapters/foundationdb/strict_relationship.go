@@ -11,20 +11,16 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// AddMemberTarget implements node.MemberTargetAdder by calling add with
-// true as the memberTarget argument.
+// AddMemberTarget implements node.MemberTargetAdder. After activation, it
+// accepts a target that does not resolve to a node.
 func (s *RelationshipStore) AddMemberTarget(ctx context.Context, rel *node.Relationship) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.add_member_target")(&err)
 	return s.add(ctx, rel, true)
 }
 
-// checkStrictRelationship returns nil when strict is false. When strict
-// is true, it rejects a child_of relationship with an error that wraps
-// node.ErrReservedParentRelation. The parent_id field sets the parent.
-// For other relationships, it returns an error that wraps
-// domain.ErrInvalidArgument when the source does not resolve to a node in
-// rel.OrgID, the target resolves to a node in another organization, or the
-// target does not resolve to a node and memberTarget is false.
+// checkStrictRelationship rejects every child_of relationship because the
+// parent_id field sets the parent. A caller sets memberTarget only after it
+// confirms in org_members that the target is a member of rel.OrgID.
 func checkStrictRelationship(ctx context.Context, tr fdb.Transaction, strict bool, rel *node.Relationship, memberTarget bool) error {
 	if !strict {
 		return nil
@@ -54,11 +50,8 @@ func checkStrictRelationship(ctx context.Context, tr fdb.Transaction, strict boo
 	return nil
 }
 
-// checkStrictRelationshipAdds returns nil when strict is false. When strict
-// is true, it calls checkStrictRelationship with memberTarget false for each
-// relationship in each Add list, except child_of, and returns the first error.
-// This rejects targets that do not resolve to nodes. checkStrictRecord or
-// checkStrictMutation checks child_of relationships.
+// checkStrictRelationshipAdds skips child_of relationships, which
+// checkStrictRecord or checkStrictMutation checks against parent_id.
 func checkStrictRelationshipAdds(ctx context.Context, tr fdb.Transaction, strict bool, changesList []node.RelationshipChanges) error {
 	if !strict {
 		return nil
