@@ -15,12 +15,22 @@ import (
 
 const retentionFDBClusterFile = "/etc/foundationdb/fdb.cluster"
 
+// retentionFDBOperation is one fdbbackup operation that retention runs.
 type retentionFDBOperation string
 
 const (
-	retentionFDBExpire retentionFDBOperation = "expire"
-	retentionFDBDelete retentionFDBOperation = "delete"
+	retentionFDBStatus   retentionFDBOperation = "status"
+	retentionFDBDescribe retentionFDBOperation = "describe"
+	retentionFDBExpire   retentionFDBOperation = "expire"
+	retentionFDBDelete   retentionFDBOperation = "delete"
 )
+
+// retentionFDBUsesSourceCluster maps each fdbbackup operation to whether it
+// connects to the source cluster. fdbbackup delete reads only the backup
+// container and does not accept a cluster file.
+var retentionFDBUsesSourceCluster = map[retentionFDBOperation]bool{
+	retentionFDBStatus: true, retentionFDBDescribe: true, retentionFDBExpire: true, retentionFDBDelete: false,
+}
 
 func revalidateRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time, action retentionFDBAction) error {
 	actions, err := planRetentionFDB(ctx, cfg, cutoff)
@@ -44,8 +54,8 @@ func applyRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time
 	if err != nil {
 		return err
 	}
-	arguments := []string{action.Action, "-d", destination}
-	switch retentionFDBOperation(action.Action) {
+	arguments := []string{"-d", destination}
+	switch action.Action {
 	case retentionFDBExpire:
 		timestamp, err := fdbRestoreTimestampArg(cutoff.UTC())
 		if err != nil {
@@ -53,19 +63,21 @@ func applyRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time
 		}
 		arguments = append(arguments, "--expire-before-version", strconv.FormatInt(action.ExpireBeforeVersion, 10), "--restorable-after-timestamp", timestamp)
 	case retentionFDBDelete:
+	case retentionFDBStatus, retentionFDBDescribe:
+		return fmt.Errorf("FoundationDB operation %q does not remove backup data", action.Action)
 	default:
 		return fmt.Errorf("unsupported FoundationDB retention action %q", action.Action)
 	}
-	_, err = retentionFDBCommand(ctx, cfg, arguments)
+	_, err = retentionFDBCommand(ctx, cfg, action.Action, arguments...)
 	if err != nil {
 		return &retentionDeleteError{cause: err, requested: 0, uncertain: true}
 	}
 	return nil
 }
 
-func retentionFDBCommand(ctx context.Context, cfg *config.Config, arguments []string) (string, error) {
-	command := append([]string{}, arguments...)
-	if retentionFDBOperation(arguments[0]) != retentionFDBDelete {
+func retentionFDBCommand(ctx context.Context, cfg *config.Config, operation retentionFDBOperation, arguments ...string) (string, error) {
+	command := append([]string{string(operation)}, arguments...)
+	if retentionFDBUsesSourceCluster[operation] {
 		command = append(command, "-C", retentionFDBClusterFile)
 	}
 	return retentionFDBToolCommand(ctx, cfg, "fdbbackup", command)

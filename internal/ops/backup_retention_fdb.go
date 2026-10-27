@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,10 +14,10 @@ import (
 )
 
 type retentionFDBAction struct {
-	Name                string              `json:"name"`
-	Action              string              `json:"action"`
-	Window              fdbRestorableWindow `json:"window"`
-	ExpireBeforeVersion int64               `json:"expire_before_version,omitempty"`
+	Name                string                `json:"name"`
+	Action              retentionFDBOperation `json:"action"`
+	Window              fdbRestorableWindow   `json:"window"`
+	ExpireBeforeVersion int64                 `json:"expire_before_version,omitempty"`
 }
 
 func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time) ([]retentionFDBAction, error) {
@@ -30,11 +31,7 @@ func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time)
 	if len(markers) == 0 {
 		return nil, nil
 	}
-	status, err := retentionFDBCommand(ctx, cfg, []string{"status"})
-	if err != nil {
-		return nil, err
-	}
-	activeName, err := retentionFDBActiveName(cfg, status)
+	activeName, err := readRetentionFDBActiveName(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +62,7 @@ func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time)
 			if err != nil {
 				return nil, err
 			}
-			actions = append(actions, retentionFDBAction{Name: name, Action: "expire", Window: window, ExpireBeforeVersion: version})
+			actions = append(actions, retentionFDBAction{Name: name, Action: retentionFDBExpire, Window: window, ExpireBeforeVersion: version})
 			continue
 		}
 		if name == activeName {
@@ -78,7 +75,7 @@ func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time)
 		if !survives {
 			return nil, fmt.Errorf("expired FoundationDB backup %s does not have a verified newer retained survivor", name)
 		}
-		actions = append(actions, retentionFDBAction{Name: name, Action: "delete", Window: window, ExpireBeforeVersion: 0})
+		actions = append(actions, retentionFDBAction{Name: name, Action: retentionFDBDelete, Window: window, ExpireBeforeVersion: 0})
 	}
 	return actions, nil
 }
@@ -100,16 +97,28 @@ func retentionFDBHasSurvivor(ctx context.Context, cfg *config.Config, name strin
 	return false, nil
 }
 
-func retentionFDBActiveName(cfg *config.Config, status string) (string, error) {
+// fdbClosedBackupStatuses lists the lowercase phrases of fdbbackup status
+// output that report a closed backup or no backup.
+var fdbClosedBackupStatuses = []string{"completed", "no previous backups", "aborted"}
+
+// readRetentionFDBActiveName runs fdbbackup status and returns the run
+// identifier of the active backup. It returns an empty name when the status
+// reports a closed backup or no backup, and an error for any other status.
+func readRetentionFDBActiveName(ctx context.Context, cfg *config.Config) (string, error) {
+	status, err := retentionFDBCommand(ctx, cfg, retentionFDBStatus)
+	if err != nil {
+		return "", err
+	}
 	active, err := fdbBackupActiveFromStatus(cfg, status)
 	if err != nil {
 		wrapped := fmt.Errorf("identify active FoundationDB backup: %w", err)
-		slog.Error("backup.retention.fdb.identity_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(ctx, "backup.retention.fdb.identity_failed", slog.String("err", wrapped.Error()))
 		return "", wrapped
 	}
 	if !active {
 		lower := strings.ToLower(status)
-		if !strings.Contains(lower, "completed") && !strings.Contains(lower, "no previous backups") && !strings.Contains(lower, "aborted") {
+		closed := slices.ContainsFunc(fdbClosedBackupStatuses, func(phrase string) bool { return strings.Contains(lower, phrase) })
+		if !closed {
 			return "", fmt.Errorf("FoundationDB status does not establish an active or closed backup identity")
 		}
 		return "", nil
@@ -131,7 +140,7 @@ func retentionFDBWindow(ctx context.Context, cfg *config.Config, name string) (f
 	if err != nil {
 		return fdbRestorableWindow{}, err
 	}
-	output, err := retentionFDBCommand(ctx, cfg, []string{"describe", "-d", destination, "--version-timestamps"})
+	output, err := retentionFDBCommand(ctx, cfg, retentionFDBDescribe, "-d", destination, "--version-timestamps")
 	if err != nil {
 		return fdbRestorableWindow{}, err
 	}
