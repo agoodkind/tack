@@ -28,7 +28,7 @@ const (
 // succeeded, recordToolResult records nothing more. Otherwise it records one
 // format 2 database change result event with the operation ID, target, and
 // outcome of the call.
-func recordToolResult(ctx context.Context, toolName string, result *mcpmcp.CallToolResult, runErr error, refused bool) {
+func recordToolResult(ctx context.Context, recorder audit.Recorder, toolName string, result *mcpmcp.CallToolResult, runErr error, refused bool) {
 	committed := auditintent.Committed(ctx)
 	outcome, reason, noted := toolResultOutcome(ctx, refused, runErr, result)
 	if committed && outcome.Outcome == audit.OutcomeCompleted {
@@ -45,7 +45,7 @@ func recordToolResult(ctx context.Context, toolName string, result *mcpmcp.CallT
 			telemetry.L(ctx).ErrorContext(ctx, "mcp.tool.result_invalid",
 				slog.String("tool", toolName), slog.String("err", invalid.Error()))
 		}
-		err = currentAuditRecorder().Record(ctx, event)
+		err = recorder.Record(ctx, event)
 	}
 	if err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "mcp.tool.result_not_recorded",

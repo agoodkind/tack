@@ -142,7 +142,7 @@ func TestCachedTokenValidatorStaysBounded(t *testing.T) {
 func TestBearerRefusesAWrappedUnauthenticated(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{}}
 	cached := NewCachedTokenValidator(store, time.Minute, 16)
-	_, status := driveAuth(t, Bearer(cached, fixedOrgs{orgs: nil, err: nil}), "tack_unknown")
+	_, status := driveAuth(t, bearerFor(cached, fixedOrgs{orgs: nil, err: nil}), "tack_unknown")
 	if status != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", status)
 	}
