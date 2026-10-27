@@ -12,28 +12,8 @@ import (
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/v2/server"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 )
-
-type auditRecorderKey struct{}
-
-// WithAuditRecorder returns a context that gives the wrapped tool handlers
-// and resource handlers recorder as their audit sink. The MCP handler of each
-// runtime graph attaches the recorder of that graph to every request.
-func WithAuditRecorder(ctx context.Context, recorder audit.Recorder) context.Context {
-	return context.WithValue(ctx, auditRecorderKey{}, recorder)
-}
-
-// currentAuditRecorder returns the recorder on ctx, or the unwired recorder,
-// which refuses and logs every event, when ctx does not have one.
-func currentAuditRecorder(ctx context.Context) audit.Recorder {
-	recorder, _ := ctx.Value(auditRecorderKey{}).(audit.Recorder)
-	if recorder == nil {
-		return audit.UnwiredRecorder{}
-	}
-	return recorder
-}
 
 // argMap is the typed shape every Tack tool handler reads its arguments
 // through. mcp-go decodes the request arguments into a generic map of raw

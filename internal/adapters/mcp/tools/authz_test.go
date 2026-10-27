@@ -26,8 +26,7 @@ type authzFixture struct {
 	server             *mcpserver.MCPServer
 	relationships      *fakeRelationships
 	projectType        *node.NodeType
-	// recorder is the audit sink of each tool call. A nil recorder leaves the
-	// context without one, and the wrapper then refuses to record.
+	// recorder is the audit sink that ctx attaches to every tool call.
 	recorder audit.Recorder
 }
 
@@ -54,7 +53,7 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	f := &authzFixture{
 		orgA: uuid.New(), orgB: uuid.New(),
 		workspaceID: uuid.New(), projectA: uuid.New(), projectB: uuid.New(),
-		resolver: nil, reader: nil, server: nil, relationships: &fakeRelationships{}, projectType: nil, recorder: nil,
+		resolver: nil, reader: nil, server: nil, relationships: &fakeRelationships{}, projectType: nil, recorder: audit.NewMemoryRecorder(),
 	}
 	workspace := &node.NodeView{ID: f.workspaceID, OrgID: f.orgA, NodeType: "workspace", Name: "Main", Props: map[string]json.RawMessage{"slug": mustRaw(t, "main")}}
 	projectA := &node.NodeView{ID: f.projectA, OrgID: f.orgA, NodeType: "project", Name: "Ours", Props: map[string]json.RawMessage{"identifier": mustRaw(t, "OURS"), "parent_id": mustRaw(t, f.workspaceID.String())}}
@@ -92,11 +91,7 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 }
 
 func (f *authzFixture) ctx() context.Context {
-	ctx := auth.WithUser(context.Background(), uuid.New())
-	if f.recorder == nil {
-		return ctx
-	}
-	return WithAuditRecorder(ctx, f.recorder)
+	return WithAuditRecorder(auth.WithUser(context.Background(), uuid.New()), f.recorder)
 }
 
 // callTool drives the registered tool through the real JSON-RPC surface, so

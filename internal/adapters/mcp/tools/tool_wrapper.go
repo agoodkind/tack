@@ -36,6 +36,20 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 			trace.WithAttributes(attribute.String("mcp.tool.name", name)),
 		)
 		defer span.End()
+		// A state-changing call outside a read collector records a result
+		// event through the recorder on its context. Without a recorder, the
+		// call fails before the handler runs and changes nothing.
+		recordsResult := !audit.HasReadCollector(ctx) && toolChangesState(name)
+		var recorder audit.Recorder
+		if recordsResult {
+			required, err := requireAuditRecorder(ctx)
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "audit_recorder_missing")
+				return nil, err
+			}
+			recorder = required
+		}
 
 		log := telemetry.L(ctx)
 		log.DebugContext(ctx, "mcp.tool.started", slog.String("tool", name))
@@ -67,8 +81,8 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 		}
 		logToolOutcome(ctx, span, name, dur.Milliseconds(), res, err)
 		noteToolOutcome(ctx, refused, err, res)
-		if !audit.HasReadCollector(ctx) && toolChangesState(name) {
-			recordToolResult(ctx, name, res, err, refused)
+		if recordsResult {
+			recordToolResult(ctx, recorder, name, res, err, refused)
 		}
 		return res, err
 	}
