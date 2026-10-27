@@ -8,14 +8,15 @@ import (
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/domain/org"
 )
 
-func prepareTraversalManifest(ctx context.Context, stores *fdbadapter.Stores, workspace WorkspaceIdentity, manifest *SearchManifest) error {
+func prepareTraversalManifest(ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository, workspace WorkspaceIdentity, manifest *SearchManifest) error {
 	phrases, err := loadSearchPhrases(ctx)
 	if err != nil {
 		return err
 	}
-	continuation, err := newSearchFixtureWithManifest(ctx, stores, workspace, manifest)
+	continuation, err := newSearchFixtureWithManifest(ctx, stores, members, workspace, manifest)
 	if err != nil {
 		return err
 	}
@@ -35,7 +36,7 @@ func prepareTraversalManifest(ctx context.Context, stores *fdbadapter.Stores, wo
 	manifest.Cases = append(manifest.Cases, SearchManifestCase{
 		Query: phrases.Continuation, NodeType: continuation.typeKey, ExpectedIDs: nodeIDs, Match: "exact", RankLimit: 0,
 	})
-	finalPage, err := newSearchFixtureWithManifest(ctx, stores, workspace, manifest)
+	finalPage, err := newSearchFixtureWithManifest(ctx, stores, members, workspace, manifest)
 	if err != nil {
 		return err
 	}

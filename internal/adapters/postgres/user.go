@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"goodkind.io/tack/internal/audit"
 	domain "goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/user"
 )
@@ -21,30 +23,49 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 	return &UserRepo{db: db}
 }
 
+// Create inserts u and writes its audit change event to the outbox in one
+// transaction. It reads the mutation operation from ctx and records the change
+// in the system organization. It keeps a supplied ID or assigns a UUIDv7 when
+// u.ID is [uuid.Nil]. The event uses protected references for email and display
+// name in After and supplies their JSON values in Protected.
 func (r *UserRepo) Create(ctx context.Context, u *user.User) (*user.User, error) {
-	// When the caller leaves u.ID zero, defer to the SQL DEFAULT (gen_random_uuid).
-	// When the caller pre-sets u.ID, INSERT the explicit value. Used by the seed
-	// path to make the dev-mode bearer (= raw user UUID) stable across wipes.
 	if u.ID == uuid.Nil {
-		const q = `
-			INSERT INTO users (email, display_name)
-			VALUES ($1, $2)
-			RETURNING id, created_at, updated_at`
-		err := r.db.QueryRow(ctx, q, u.Email, u.DisplayName).
-			Scan(&u.ID, &u.CreatedAt, &u.UpdatedAt)
-		if err != nil {
-			return nil, fmt.Errorf("user create: %w", pgErr(err))
-		}
-		return u, nil
+		u.ID = uuid.Must(uuid.NewV7())
 	}
-	const q = `
-		INSERT INTO users (id, email, display_name)
-		VALUES ($1, $2, $3)
-		RETURNING id, created_at, updated_at`
-	err := r.db.QueryRow(ctx, q, u.ID, u.Email, u.DisplayName).
-		Scan(&u.ID, &u.CreatedAt, &u.UpdatedAt)
+	operation, err := changeOperation(ctx, audit.VerbUserCreate, audit.SystemOrgID())
 	if err != nil {
-		return nil, fmt.Errorf("user create: %w", pgErr(err))
+		return nil, err
+	}
+	target := UserTarget(u.ID)
+	err = changeTx(ctx, r.db, operation, target, func(tx pgx.Tx) error {
+		const q = `
+			INSERT INTO users (id, email, display_name)
+			VALUES ($1, $2, $3)
+			RETURNING created_at, updated_at, is_active`
+		var createdAt, updatedAt time.Time
+		var isActive bool
+		if err := tx.QueryRow(ctx, q, u.ID, u.Email, u.DisplayName).Scan(&createdAt, &updatedAt, &isActive); err != nil {
+			return pgErr(err)
+		}
+		u.CreatedAt, u.UpdatedAt = createdAt, updatedAt
+		stored, protected, err := newUserValue(ctx, u, isActive)
+		if err != nil {
+			return err
+		}
+		after, err := changeValue(ctx, stored)
+		if err != nil {
+			return err
+		}
+		change, err := newChange(ctx, target, nil, after)
+		if err != nil {
+			return err
+		}
+		change.Protected = protected
+		return WriteChanges(ctx, tx, operation, []audit.Change{change})
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "user.create_failed", slog.String("user_id", u.ID.String()), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("create user %s: %w", u.ID, err)
 	}
 	return u, nil
 }

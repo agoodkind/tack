@@ -25,7 +25,7 @@ jobs:
       attestations: write
     secrets: inherit
     with:
-      golangci_lint_version: v2.13.2
+      golangci_lint_version: v2.15.0
       pre_make_commands: |
         fdb_version=7.4.6
         curl -fsSL \
@@ -49,14 +49,20 @@ jobs:
       attestations: write
     secrets: inherit
     with:
-      golangci_lint_version: v2.13.2
+      golangci_lint_version: v2.15.0
       working_directory: provider
       go_version_file: provider/go.mod
 
-  integration:
-    name: integration tests (FDB)
+  # The store-backed tests run in three shards on separate hosts. Each shard
+  # runs one test-store-host-shard selection in the Makefile.
+  integration-shard:
+    name: integration tests (FDB ${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [integration-a, integration-b, packages]
     steps:
       - uses: actions/checkout@v7
 
@@ -77,11 +83,48 @@ jobs:
       # internal/testenv and reach them at their bridge addresses from the
       # host.
       - name: run the store-backed tests
-        run: make test-store-host
+        run: make test-store-host-shard SHARD=${{ matrix.shard }}
 
-  # Each job runs one final-validation search group; the job limit is the
-  # group's go test limit plus 15 minutes of setup. The throughput group G2 and
-  # the cluster group G4 run only on the Mac runner.
+  # The ruleset requires the check name integration tests (FDB). This job
+  # passes only when every store-backed shard passes.
+  integration:
+    name: integration tests (FDB)
+    needs: integration-shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: require every store-backed shard to pass
+        run: test "${{ needs.integration-shard.result }}" = success
+
+  # The long runtime audit suites run separately from the shared Test and
+  # store-backed jobs. The job limit allows 40 minutes for go test and
+  # 10 minutes for setup.
+  runtime-audit:
+    name: runtime audit coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: install the FoundationDB client library
+        run: |
+          fdb_version=7.4.6
+          curl -fsSL \
+            "https://github.com/apple/foundationdb/releases/download/${fdb_version}/foundationdb-clients_${fdb_version}-1_amd64.deb" \
+            -o /tmp/fdb-clients.deb
+          sudo dpkg -i /tmp/fdb-clients.deb
+          rm /tmp/fdb-clients.deb
+
+      - name: run the runtime audit coverage tests
+        run: make test-runtime-audit-host
+
+  # Each job allows its search group, setup, and any earlier contract checks.
+  # The throughput group G2 and the cluster group G4 run only on the Mac runner.
   search:
     name: search integration tests (OpenSearch ${{ matrix.group }})
     runs-on: ubuntu-latest
@@ -93,9 +136,9 @@ jobs:
           - group: G1
             timeout_minutes: 75
           - group: G3
-            timeout_minutes: 45
+            timeout_minutes: 60
           - group: G5
-            timeout_minutes: 80
+            timeout_minutes: 130
     steps:
       - uses: actions/checkout@v7
 
@@ -114,5 +157,15 @@ jobs:
 
       # The tests start OpenSearch, FoundationDB, and the ledger through
       # internal/testenv and dial them at their bridge addresses from the host.
+      - name: verify the OpenSearch SDK public adapter contract
+        if: matrix.group == 'G5'
+        env:
+          GOMAXPROCS: '2'
+          GOFLAGS: -p=2
+          TACK_SEARCH_CLUSTER: '1'
+        run: >-
+          make test-search-host
+          TEST_SEARCH_ARGS='-race -p=2 -count=1 -timeout 20m -v -run ^TestSearchSDKCompatibility$$ ./internal/test/integration/...'
+
       - name: run the OpenSearch-backed tests
         run: make test-search-host-group GROUP=${{ matrix.group }}

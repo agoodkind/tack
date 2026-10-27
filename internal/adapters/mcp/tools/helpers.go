@@ -8,47 +8,12 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
-	"sync/atomic"
 
 	"github.com/google/uuid"
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/auditintent"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/auth"
-	"goodkind.io/tack/internal/clock"
-	"goodkind.io/tack/internal/telemetry"
 )
-
-// auditRecorder is the audit sink used by every wrapped tool handler. It
-// is set once at startup via SetAuditRecorder. Tools that registered before
-// the setter ran (none in current code) would silently noop; we use atomic
-// load to keep that path branch-free.
-var auditRecorder atomic.Value // holds *auditRecorderValue
-
-type auditRecorderValue struct {
-	recorder audit.Recorder
-}
-
-// SetAuditRecorder installs the process-wide Recorder used by the MCP tool
-// wrapper. Call once during server startup, before any request handles.
-func SetAuditRecorder(r audit.Recorder) {
-	if r == nil {
-		r = audit.NoopRecorder{}
-	}
-	auditRecorder.Store(&auditRecorderValue{recorder: r})
-}
-
-func currentAuditRecorder() audit.Recorder {
-	v := auditRecorder.Load()
-	if v == nil {
-		return audit.UnwiredRecorder{}
-	}
-	return v.(*auditRecorderValue).recorder
-}
 
 // argMap is the typed shape every Tack tool handler reads its arguments
 // through. mcp-go decodes the request arguments into a generic map of raw
@@ -62,7 +27,9 @@ type argMap map[string]json.RawMessage
 func bindArgs(req mcpmcp.CallToolRequest) (argMap, error) {
 	var m argMap
 	if err := req.BindArguments(&m); err != nil {
-		return nil, err
+		wrapped := fmt.Errorf("bind arguments for tool %s: %w", req.Params.Name, err)
+		slog.Error("mcp.arguments.bind_failed", slog.String("tool", req.Params.Name), slog.Any("err", wrapped))
+		return nil, wrapped
 	}
 	return m, nil
 }
@@ -179,7 +146,9 @@ func allowedArgNames(s mcpmcp.ToolInputSchema) map[string]struct{} {
 func rejectUnknownArgs(req mcpmcp.CallToolRequest, toolName string, allowed map[string]struct{}) error {
 	var args map[string]json.RawMessage
 	if err := req.BindArguments(&args); err != nil {
-		return err
+		wrapped := fmt.Errorf("bind arguments for tool %s: %w", toolName, err)
+		slog.Error("mcp.arguments.bind_failed", slog.String("tool", toolName), slog.Any("err", wrapped))
+		return wrapped
 	}
 	if len(args) == 0 {
 		return nil
@@ -219,173 +188,4 @@ func quoteAndJoin(names []string) string {
 		quoted[i] = fmt.Sprintf("%q", n)
 	}
 	return strings.Join(quoted, ", ")
-}
-
-// wrapToolHandler instruments an MCP tool handler with structured logging
-// and expvar counters. Every tool call emits exactly two events:
-//
-//   - mcp.tool.started (Debug) on entry with tool name
-//   - mcp.tool.completed (Info, status=ok) or mcp.tool.failed (Warn,
-//     status=failed/error_response) on exit, with duration_ms
-//
-// The "error_response" status is used when the inner handler returned a
-// CallToolResult with IsError=true. Those results are still nil-error
-// from Go's perspective; they signal that the LLM should self-correct.
-//
-// IncMCPTool and IncMCPToolErr update process-global expvars for /debug/vars.
-//
-// Wrap once per tool registration; the closure captures the tool name so
-// callers do not need to thread it through.
-func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
-	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-		start := clock.Now()
-		ctx, span := telemetry.StartSpan(ctx, "mcp.tool."+name,
-			trace.WithAttributes(attribute.String("mcp.tool.name", name)),
-		)
-		defer span.End()
-
-		log := telemetry.L(ctx)
-		log.DebugContext(ctx, "mcp.tool.started", slog.String("tool", name))
-
-		// Attach a mutable Scope so resolvers running inside the inner
-		// handler can stamp the org/workspace they resolved. The wrapper
-		// reads it after the handler returns and feeds it into the audit
-		// event so workspace-scoped audit queries see the row.
-		ctx = audit.WithScopeBuilder(ctx)
-		ctx = audit.WithEntityBuilder(ctx)
-		ctx = withAuthorization(ctx)
-		// A state change stages its ledger row here and the store commits it
-		// with the change; the wrapper then records nothing further for it.
-		actorID, _ := auth.UserID(ctx)
-		ctx = auditintent.WithSlot(ctx, name, actorID)
-
-		res, err := h(ctx, req)
-		dur := clock.Since(start)
-		telemetry.IncMCPTool(name)
-
-		// Fail closed: a successful result whose handler never passed a
-		// membership check is refused here, so a handler that forgets the
-		// check cannot return data.
-		refused := err == nil && (res == nil || !res.IsError) && !isAuthorized(ctx)
-		if refused {
-			log.WarnContext(ctx, "mcp.tool.refused",
-				slog.String("tool", name),
-				slog.String("reason", "no membership check passed"),
-			)
-			res = permissionDenied()
-		}
-
-		switch {
-		case err != nil:
-			telemetry.IncMCPToolErr(name)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "failed")
-			log.WarnContext(ctx, "mcp.tool.failed",
-				slog.String("tool", name),
-				slog.String("status", "failed"),
-				slog.Int64("duration_ms", dur.Milliseconds()),
-				slog.String("err", err.Error()),
-			)
-		case res != nil && res.IsError:
-			telemetry.IncMCPToolErr(name)
-			span.SetStatus(codes.Error, "error_response")
-			log.WarnContext(ctx, "mcp.tool.failed",
-				slog.String("tool", name),
-				slog.String("status", "error_response"),
-				slog.Int64("duration_ms", dur.Milliseconds()),
-			)
-		default:
-			span.SetStatus(codes.Ok, "ok")
-			log.InfoContext(ctx, "mcp.tool.completed",
-				slog.String("tool", name),
-				slog.String("status", "ok"),
-				slog.Int64("duration_ms", dur.Milliseconds()),
-			)
-		}
-		span.SetAttributes(
-			attribute.Int64("mcp.tool.duration_ms", dur.Milliseconds()),
-			attribute.Bool("mcp.tool.error", err != nil || (res != nil && res.IsError)),
-		)
-		recordToolAudit(ctx, name, req, res, err, refused)
-		return res, err
-	}
-}
-
-// recordToolAudit emits transport and semantic audit rows for an MCP tool
-// invocation. Outcome is derived from the same signal wrapToolHandler used for
-// slog. Failure to record is logged at Warn rather than failing the request:
-// the user-visible operation already completed and we do not want audit to
-// back-pressure the MCP boundary. A state change that committed its own row
-// inside its FoundationDB transaction is not recorded again here.
-func recordToolAudit(ctx context.Context, toolName string, req mcpmcp.CallToolRequest, res *mcpmcp.CallToolResult, runErr error, refused bool) {
-	verb, covered := audit.ToolVerb(toolName)
-	rec := currentAuditRecorder()
-	actor := audit.Actor{Type: audit.ActorUser}
-	if uid, found := auth.UserID(ctx); found {
-		actor.ID = uid
-	}
-	actor.RequestID = telemetry.RequestID(ctx)
-
-	outcome := audit.OutcomeOK
-	var errInfo *audit.EventError
-	switch {
-	case refused:
-		outcome = audit.OutcomeError
-		errInfo = &audit.EventError{Code: "permission_denied", Message: "no membership check passed"}
-	case runErr != nil:
-		outcome = audit.OutcomeError
-		errInfo = &audit.EventError{Code: "tool_error", Message: runErr.Error()}
-	case res != nil && res.IsError:
-		outcome = audit.OutcomeError
-		errInfo = &audit.EventError{Code: "tool_error_response"}
-	}
-
-	scope := audit.ScopeFromContext(ctx)
-	ev := audit.Event{
-		EventID: uuid.Nil,
-		Verb:    string(verb),
-		Actor:   actor,
-		Entity:  audit.Entity{Type: "mcp_tool", Name: toolName},
-		Context: audit.EventContext{
-			Source:      audit.SourceMCP,
-			Tool:        toolName,
-			OrgID:       scope.OrgID,
-			WorkspaceID: scope.WorkspaceID,
-			ScopeID:     scope.ScopeID,
-			ParentID:    scope.ParentID,
-			RequestID:   telemetry.RequestID(ctx),
-			TraceID:     telemetry.TraceID(ctx),
-		},
-		Outcome: outcome,
-		Error:   errInfo,
-	}
-	invocation := ev
-	invocation.Verb = string(audit.VerbMCPToolInvoked)
-	if err := rec.Record(ctx, invocation); err != nil {
-		telemetry.L(ctx).Warn("audit.record_failed",
-			slog.String("tool", toolName),
-			slog.String("err", err.Error()),
-		)
-	}
-	if !covered || verb == "" {
-		return
-	}
-	// The change's own transaction already carried this row (TACK-173). A
-	// failure after the commit is still recorded, because the change stands
-	// and the caller saw an error.
-	if outcome == audit.OutcomeOK && auditintent.Committed(ctx) {
-		return
-	}
-	ev.Verb = string(verb)
-	entity := audit.EntityFromContext(ctx)
-	if entity.ID != uuid.Nil {
-		ev.Entity = entity
-	}
-	if err := rec.Record(ctx, ev); err != nil {
-		telemetry.L(ctx).Warn("audit.record_failed",
-			slog.String("tool", toolName),
-			slog.String("err", err.Error()),
-		)
-	}
-	_ = req // reserved for argument-aware audit enrichment (TACK-179)
 }

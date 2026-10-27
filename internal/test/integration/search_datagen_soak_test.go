@@ -104,11 +104,31 @@ func TestSearchDatagenSoakReportsSearchLatency(t *testing.T) {
 	}
 }
 
+// TestSearchDatagenSoakContinuesDuringEngineOutage stops the OpenSearch
+// engine and runs `ops qa datagen soak --commit` with public search on. The
+// soak must count every search as unavailable and stop at max_ops after all
+// 45 operations.
+func TestSearchDatagenSoakContinuesDuringEngineOutage(t *testing.T) {
+	fixture := newQueryFixture(t, defaultQueryOptions())
+	cfg := *fixture.Config
+	cfg.DatagenAllowTarget = "local"
+	setEngineRunning(t, false)
+	t.Cleanup(func() { setEngineRunning(t, true) })
+	result := runDatagenSoakCommit(t, &cfg).Result
+	wantUnavailable := soakTestOperations / soakTestKinds
+	if result.StopReason != "max_ops" || result.Operations != soakTestOperations ||
+		result.Searches != 0 || result.SearchesUnavailable != wantUnavailable {
+		t.Fatalf("soak during the outage = %q after %d operations with %d answered and %d unavailable searches, want max_ops after %d with 0 and %d",
+			result.StopReason, result.Operations, result.Searches, result.SearchesUnavailable, soakTestOperations, wantUnavailable)
+	}
+	startEngine(t, fixture)
+}
+
 // runDatagenSoakCommit runs `ops qa datagen soak --commit` once through the
 // audited command tree with the real SQL outbox and decodes its result.
 func runDatagenSoakCommit(t *testing.T, cfg *config.Config) datagenSoakOutput {
 	t.Helper()
-	pool, err := pgxpool.New(t.Context(), cfg.DatabaseURL)
+	pool, err := pgxpool.New(WithTestOperation(t, t.Context()), cfg.DatabaseURL)
 	if err != nil {
 		t.Fatalf("open the outbox pool: %v", err)
 	}

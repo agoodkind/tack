@@ -28,6 +28,10 @@ func TestDiscoverNodesSkipsUnresolvableItem(t *testing.T) {
 				{Reference: "foreign-reference", Name: "Foreign module"},
 			})
 		case "tack_get_module":
+			if payload.Params.Arguments.NodeID != "Q0101-1" {
+				writeRerunResult(writer, `module "Foreign module": not found`, true)
+				return
+			}
 			writeDiscoveryNode(writer, deterministicUUID("module").String(), "", 0)
 		default:
 			http.Error(writer, "unexpected tool "+payload.Params.Name, http.StatusBadRequest)

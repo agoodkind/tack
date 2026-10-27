@@ -126,7 +126,7 @@ func fdbBackupStatusText(ctx context.Context, b *backupCtx) (string, error) {
 		Entrypoint: []string{"/usr/bin/fdbbackup"},
 		Cmd:        []string{"status", "-C", "/etc/foundationdb/fdb.cluster"},
 		Env:        []string{"FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster"},
-		Binds:      []string{"/etc/foundationdb:/etc/foundationdb:ro"},
+		Binds:      []string{fdbClusterReadOnlyBind(b.Cfg)},
 		ExtraHosts: nil,
 		Name:       "",
 	})

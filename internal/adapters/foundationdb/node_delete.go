@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -20,15 +21,23 @@ import (
 // work item schedules access work for at most 100 recorded nodes per slice.
 func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.delete")(&err)
+	changes, err := beginMutationAudit(ctx, orgID)
+	if err != nil {
+		return err
+	}
 	current, err := s.Get(ctx, orgID, nodeID)
 	if err != nil || current == nil {
 		return err
 	}
 	transactionErr := runNodeMutation(ctx, s.db, "node.delete", func(tr fdb.Transaction) error {
-		if err := s.clearNode(ctx, tr, current); err != nil {
+		changes.startAttempt()
+		if _, err := s.fenceAttempt(ctx, tr, orgID, nodeID); err != nil {
 			return err
 		}
-		return writeStagedIntent(ctx, tr)
+		if err := s.clearNode(ctx, tr, current, changes); err != nil {
+			return err
+		}
+		return changes.append(ctx, tr)
 	})
 	if transactionErr != nil {
 		if searchFailureWasLogged(transactionErr) {
@@ -38,19 +47,26 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err er
 		telemetry.L(ctx).ErrorContext(ctx, "node.delete_failed", slog.String("err", err.Error()), slog.String("node_id", nodeID.String()))
 		return err
 	}
-	commitStagedIntent(ctx)
+	changes.finish(ctx)
 	return nil
 }
 
 // clearNode clears the records, indexes, references, and relationships of
 // current inside tr. When search work is enabled, it also schedules the
 // retirement of the node's pages and access work for each node at the other
-// end of a cleared relationship.
-func (s *NodeStore) clearNode(ctx context.Context, tr fdb.Transaction, current *node.Node) error {
+// end of a cleared relationship. It reads the stored node record and each
+// stored relationship value inside tr and records each as removed in changes.
+func (s *NodeStore) clearNode(ctx context.Context, tr fdb.Transaction, current *node.Node, changes *mutationAudit) error {
 	orgID, nodeID := current.OrgID, current.ID
+	encoded, err := tr.Get(fdb.Key(nodeInstanceKey(orgID, current.NodeType, nodeID))).Get()
+	if err != nil {
+		return searchReadFailure(ctx, "read node "+nodeID.String(), err)
+	}
+	if err := changes.record(nodeTarget(current), encoded, nil); err != nil {
+		return nodeOperationFailure(ctx, "record the deletion of node "+nodeID.String(), err)
+	}
 	var deletion searchWorkRecord
 	if s.searchWork {
-		var err error
 		deletion, err = scheduleSearchChange(ctx, tr, s.clock.Now(), orgID, nodeID, searchChangeDeletion)
 		if err != nil {
 			return err
@@ -59,11 +75,11 @@ func (s *NodeStore) clearNode(ctx context.Context, tr fdb.Transaction, current *
 	tr.Clear(fdb.Key(nodeInstanceKey(orgID, current.NodeType, nodeID)))
 	tr.Clear(fdb.Key(nodeViewKey(orgID, current.NodeType, nodeID)))
 	tr.Clear(fdb.Key(nodeResolveKey(nodeID)))
-	sources, err := clearSourceRelationships(ctx, tr, orgID, nodeID)
+	sources, err := clearSourceRelationships(ctx, tr, orgID, nodeID, changes)
 	if err != nil {
 		return err
 	}
-	targets, err := clearTargetRelationships(ctx, tr, orgID, nodeID)
+	targets, err := clearTargetRelationships(ctx, tr, orgID, nodeID, changes)
 	if err != nil {
 		return err
 	}
@@ -78,9 +94,10 @@ func (s *NodeStore) clearNode(ctx context.Context, tr fdb.Transaction, current *
 	return clearReferenceKeys(tr, orgID, nodeID)
 }
 
-// clearSourceRelationships clears every relationship from nodeID and returns
-// the target of each cleared relationship.
-func clearSourceRelationships(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) ([]uuid.UUID, error) {
+// clearSourceRelationships clears every relationship from nodeID, records
+// each stored value as removed in changes, and returns the target of each
+// cleared relationship.
+func clearSourceRelationships(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID, changes *mutationAudit) ([]uuid.UUID, error) {
 	rangeValue, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, nodeID, ""))
 	if err != nil {
 		return nil, relationshipRangeFailure(ctx, "source", nodeID, err)
@@ -101,15 +118,19 @@ func clearSourceRelationships(ctx context.Context, tr fdb.Transaction, orgID, no
 		if parseErr == nil {
 			tr.Clear(fdb.Key(relationshipReverseKey(orgID, targetID, relationType, nodeID)))
 			targets = append(targets, targetID)
+			if err := changes.record(relationshipTarget(nodeID, relationType, targetID), item.Value, nil); err != nil {
+				return nil, nodeOperationFailure(ctx, "record a removed relationship of node "+nodeID.String(), err)
+			}
 		}
 	}
 	tr.ClearRange(rangeValue)
 	return targets, nil
 }
 
-// clearTargetRelationships clears every relationship to nodeID and returns
-// the source of each cleared relationship.
-func clearTargetRelationships(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) ([]uuid.UUID, error) {
+// clearTargetRelationships clears every relationship to nodeID, records each
+// stored value as removed in changes, and returns the source of each cleared
+// relationship.
+func clearTargetRelationships(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID, changes *mutationAudit) ([]uuid.UUID, error) {
 	rangeValue, err := fdb.PrefixRange(relationshipReversePrefixByTarget(orgID, nodeID, ""))
 	if err != nil {
 		return nil, relationshipRangeFailure(ctx, "target", nodeID, err)
@@ -118,7 +139,7 @@ func clearTargetRelationships(ctx context.Context, tr fdb.Transaction, orgID, no
 	if err != nil {
 		return nil, searchReadFailure(ctx, "read target relationships for node "+nodeID.String(), err)
 	}
-	sources := make([]uuid.UUID, 0, len(items))
+	incoming := make([]*node.Relationship, 0, len(items))
 	for _, item := range items {
 		values, unpackErr := tuple.Unpack(stripPrefix(item.Key))
 		if unpackErr != nil || len(values) < 5 {
@@ -128,11 +149,20 @@ func clearTargetRelationships(ctx context.Context, tr fdb.Transaction, orgID, no
 		sourceText, _ := values[4].(string)
 		sourceID, parseErr := uuid.Parse(sourceText)
 		if parseErr == nil {
-			tr.Clear(fdb.Key(relationshipKey(orgID, sourceID, relationType, nodeID)))
-			sources = append(sources, sourceID)
+			incoming = append(incoming, &node.Relationship{
+				OrgID: orgID, SourceID: sourceID, RelationType: relationType, TargetID: nodeID,
+				CreatedBy: uuid.Nil, CreatedAt: time.Time{}, Props: nil,
+			})
 		}
 	}
+	if err := removeRelationships(ctx, tr, incoming, changes); err != nil {
+		return nil, err
+	}
 	tr.ClearRange(rangeValue)
+	sources := make([]uuid.UUID, 0, len(incoming))
+	for _, relationship := range incoming {
+		sources = append(sources, relationship.SourceID)
+	}
 	return sources, nil
 }
 

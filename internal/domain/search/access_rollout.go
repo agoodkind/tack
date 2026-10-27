@@ -11,6 +11,26 @@ import (
 // policy transition.
 var ErrRolloutInProgress = errors.New("search access rollout is already in progress")
 
+const accessRolloutTargetPrefix = "foundationdb/search/access-rollout/"
+
+// AccessRolloutTargetReference returns the audit target reference for an
+// authority's access rollout.
+func AccessRolloutTargetReference(authority string) string {
+	return accessRolloutTargetPrefix + authority
+}
+
+// ErrNoRolloutInProgress means the authority does not have an access
+// policy rollout to roll back.
+var ErrNoRolloutInProgress = errors.New("authority does not have a rollout in progress")
+
+// ErrRetirementStarted means retirement has started and the authority
+// writes one version. Rollback cannot restore the other version.
+var ErrRetirementStarted = errors.New("cannot roll back after retirement of one version has started")
+
+// ErrRolloutChanged means another operator changed the rollout after the
+// caller read it.
+var ErrRolloutChanged = errors.New("rollout changed after the caller read it")
+
 // AccessPhase is the durable step of one authority's access policy rollout.
 type AccessPhase string
 
@@ -38,7 +58,12 @@ type AccessRollout struct {
 	Phase                                  AccessPhase
 	ScanCursor, VerifyCursor, RetireCursor string
 	ScanComplete                           bool
-	Generation, PermissionEventVersion     int64
+	// AffectedPass reports that the full verification pass has completed and
+	// the rollout now verifies nodes in the affected set before activation.
+	AffectedPass                       bool
+	Generation, PermissionEventVersion int64
+	// Initiation identifies the operation that began the current rollout.
+	Initiation Initiation `exhaustruct:"optional"`
 }
 
 // Activated reports whether the candidate already serves new sessions.
@@ -52,6 +77,26 @@ type BeginAccessRollout struct {
 	AuthorityID        uuid.UUID
 	CandidateVersion   string
 	ExpectedGeneration int64
+	// Initiation identifies the operation that requests the rollout.
+	Initiation Initiation `exhaustruct:"optional"`
+}
+
+// RollbackAccessRollout requests rollback of one authority's access
+// policy rollout. ExpectedGeneration must equal the stored rollout
+// generation.
+type RollbackAccessRollout struct {
+	AuthorityID        uuid.UUID
+	ExpectedGeneration int64
+	// Initiation identifies the operation that requests the rollback.
+	Initiation Initiation `exhaustruct:"optional"`
+}
+
+// AffectedNodes contains the recording counter and affected set entries for
+// the current rollout generation. Recorded counts recordings rather than
+// distinct nodes.
+type AffectedNodes struct {
+	Recorded int64
+	Nodes    []uuid.UUID
 }
 
 // RolloutDocument is one issued page document a verification step reads.
@@ -62,9 +107,11 @@ type RolloutDocument struct {
 
 // DocumentAccess is the stored state and access versions of one page
 // document. Found is false when OpenSearch has no document with the ID.
+// Generation is the access generation the page stores.
 type DocumentAccess struct {
 	Found, Retired bool
 	Versions       []string
+	Generation     int64
 }
 
 // RolloutStep is the outcome of one checkpointed rollout step.
@@ -84,6 +131,7 @@ const (
 type AccessRolloutStore interface {
 	Current(context.Context, uuid.UUID) (AccessRollout, error)
 	Begin(context.Context, BeginAccessRollout) (AccessRollout, error)
+	Rollback(context.Context, RollbackAccessRollout) (AccessRollout, error)
 	CompleteScan(context.Context, Work, AccessRollout, ScanResult) error
 	VerifyDocuments(context.Context, Work, AccessRollout, int) ([]RolloutDocument, bool, error)
 	CompleteVerify(context.Context, Work, AccessRollout, []RolloutDocument, map[string]DocumentAccess, bool) (RolloutStep, error)

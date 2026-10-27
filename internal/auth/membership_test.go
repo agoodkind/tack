@@ -30,9 +30,6 @@ func (c *countingOrgs) ListOrgIDsForUser(context.Context, uuid.UUID) ([]uuid.UUI
 // context, and whether one was attached.
 func membershipSeenByNext(t *testing.T, middleware func(http.Handler) http.Handler) ([]uuid.UUID, bool) {
 	t.Helper()
-	SetAuditRecorder(audit.NoopRecorder{})
-	t.Cleanup(func() { SetAuditRecorder(audit.NoopRecorder{}) })
-
 	var seen []uuid.UUID
 	var attached bool
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +63,7 @@ func TestBearerAttachesTheMembershipItReadOnce(t *testing.T) {
 	orgs := []uuid.UUID{uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())}
 	lister := &countingOrgs{orgs: orgs, err: nil}
 
-	seen, attached := membershipSeenByNext(t, Bearer(fixedValidator{userID: userID}, lister))
+	seen, attached := membershipSeenByNext(t, Bearer(fixedValidator{userID: userID}, lister, audit.NoopRecorder{}))
 
 	if calls := lister.calls.Load(); calls != 1 {
 		t.Fatalf("membership read %d times, want 1", calls)
@@ -83,7 +80,7 @@ func TestBearerAttachesNothingWhenTheReadFails(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	lister := &countingOrgs{orgs: nil, err: errors.New("membership store down")}
 
-	seen, attached := membershipSeenByNext(t, Bearer(fixedValidator{userID: userID}, lister))
+	seen, attached := membershipSeenByNext(t, Bearer(fixedValidator{userID: userID}, lister, audit.NoopRecorder{}))
 
 	if attached || seen != nil {
 		t.Fatalf("a failed read attached membership %v", seen)

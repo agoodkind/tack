@@ -16,9 +16,30 @@ import (
 // SetReferenceKeys replaces the rendered references owned by a node.
 func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUID, keys []node.ReferenceKey) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set_reference_keys")(&err)
+	changes, err := beginMutationAudit(ctx, orgID)
+	if err != nil {
+		return err
+	}
 	err = runNodeMutation(ctx, s.db, "node.set_reference_keys", func(tr fdb.Transaction) error {
-		return writeReferenceKeys(tr, orgID, nodeID, keys)
+		changes.startAttempt()
+		if _, err := s.fenceAttempt(ctx, tr, orgID, nodeID); err != nil {
+			return err
+		}
+		before, err := readOwnedReferences(ctx, tr, orgID, nodeID)
+		if err != nil {
+			return err
+		}
+		if err := writeReferenceKeys(tr, orgID, nodeID, keys); err != nil {
+			return err
+		}
+		if err := recordReferenceChange(ctx, tr, changes, orgID, nodeID, before, keys); err != nil {
+			return err
+		}
+		return changes.append(ctx, tr)
 	})
+	if err == nil {
+		changes.finish(ctx)
+	}
 	if err != nil {
 		if searchFailureWasLogged(err) {
 			return err
@@ -34,6 +55,9 @@ func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUI
 func (s *NodeStore) EnsurePropertyIndex(ctx context.Context, current *node.Node, indexedProps []string) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.ensure_property_index")(&err)
 	err = runNodeMutation(ctx, s.db, "node.ensure_property_index", func(tr fdb.Transaction) error {
+		if _, err := s.fenceAttempt(ctx, tr, current.OrgID, current.ID); err != nil {
+			return err
+		}
 		writeCreatePropertyIndexes(tr, current, indexedProps)
 		return nil
 	})

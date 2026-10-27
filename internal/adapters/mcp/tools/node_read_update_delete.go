@@ -3,8 +3,8 @@ package tools
 import (
 	"context"
 
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
@@ -48,6 +48,9 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 			return classifyError(ctx, err), nil
 		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
+		if err := rc.loadAssignees(b.Relationships, view); err != nil {
+			return classifyError(ctx, err), nil
+		}
 		return successText(renderNode(rc, view), ""), nil
 	}
 }

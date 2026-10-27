@@ -33,8 +33,7 @@ func (s *Soak) searchProject(
 		WorkspaceReference: project.Workspace.Slug,
 		Query:              query,
 	})
-	var toolError *toolCallError
-	if errors.As(err, &toolError) && toolError.message == soakSearchUnavailableText {
+	if isSearchUnavailable(err) {
 		s.summary.SearchesUnavailable++
 		return soakKindSearchUnavailable, nil
 	}
@@ -43,4 +42,11 @@ func (s *Soak) searchProject(
 	}
 	s.summary.Searches++
 	return soakKindSearch, nil
+}
+
+// isSearchUnavailable reports whether err is a tack_search tool error with the whole text
+// soakSearchUnavailableText.
+func isSearchUnavailable(err error) bool {
+	var toolError *toolCallError
+	return errors.As(err, &toolError) && toolError.message == soakSearchUnavailableText
 }

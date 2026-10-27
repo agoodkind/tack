@@ -14,14 +14,14 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
 	appruntime "goodkind.io/tack/internal/runtime"
+	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -31,17 +31,17 @@ const twoProcessTransactionTimeout = 5 * time.Second
 // TestSearchDatagenTwoProcess requires the two-process check to pass against two graphs that share one fixture.
 func TestSearchDatagenTwoProcess(t *testing.T) {
 	cfg := newTwoProcessEngines(t)
-	firstGraph, err := appruntime.BuildGraph(t.Context(), cfg)
+	firstGraph, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
 	if err != nil {
 		t.Fatalf("build first graph: %v", err)
 	}
 	t.Cleanup(firstGraph.Close)
-	secondGraph, err := appruntime.BuildGraph(t.Context(), cfg)
+	secondGraph, err := appruntime.BuildGraph(integration.WithTestOperation(t, t.Context()), cfg)
 	if err != nil {
 		t.Fatalf("build second graph: %v", err)
 	}
 	t.Cleanup(secondGraph.Close)
-	firstGraph.StartSearchWorkers(t.Context())
+	firstGraph.StartSearchWorkers(integration.WithTestOperation(t, t.Context()))
 	first := httptest.NewServer(twoProcessHandler(firstGraph))
 	t.Cleanup(first.Close)
 	second := httptest.NewServer(twoProcessHandler(secondGraph))
@@ -51,16 +51,16 @@ func TestSearchDatagenTwoProcess(t *testing.T) {
 			t.Fatalf("search with endpoints %q: got %v; output=%s", endpoints, err, output)
 		}
 	}
-	if err := datagen.VerifySearchTwoProcess(t.Context(), cfg, []string{first.URL, second.URL}, first.Client()); err != nil {
+	if err := datagen.VerifySearchTwoProcess(integration.WithTestOperation(t, t.Context()), cfg, []string{first.URL, second.URL}, first.Client()); err != nil {
 		t.Fatalf("two-process search: %v", err)
 	}
-	if err := datagen.VerifySearchTwoProcess(t.Context(), cfg, []string{first.URL}, first.Client()); err == nil {
+	if err := datagen.VerifySearchTwoProcess(integration.WithTestOperation(t, t.Context()), cfg, []string{first.URL}, first.Client()); err == nil {
 		t.Fatal("one endpoint passed the two-process check")
 	}
 }
 
 func twoProcessHandler(graph *appruntime.Graph) http.Handler {
-	handler := graph.AuthMiddleware(graph.MCPHandler)
+	handler := graph.MCPRoute
 	mux := http.NewServeMux()
 	mux.Handle("POST /mcp", handler)
 	mux.Handle("POST /mcp/", handler)
@@ -99,32 +99,32 @@ func newTwoProcessEngines(t *testing.T) *config.Config {
 	}
 	stores.EnableSearchWork()
 	settings := search.Config{Endpoint: engine.Endpoint, CA: engine.CA, Username: engine.Username, Password: engine.Password, RequestTimeout: 2 * time.Minute, MaxRetries: 1}
-	adapter, err := search.New(t.Context(), settings)
+	adapter, err := search.New(integration.WithTestOperation(t, t.Context()), settings)
 	if err != nil {
 		t.Fatalf("open search adapter: %v", err)
 	}
-	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(t.Context())) })
-	baseClient, err := opensearch.NewClient(settings.ClientConfig(nil))
+	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(integration.WithTestOperation(t, t.Context()))) })
+	baseClientAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: settings.ClientConfig(nil)})
 	if err != nil {
 		t.Fatalf("open OpenSearch client: %v", err)
 	}
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(integration.WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	t.Cleanup(func() {
-		request := opensearchapi.IndicesDeleteReq{Indices: []string{index}}
-		_, _ = opensearchapi.NewFromClient(baseClient).Indices.Delete(context.WithoutCancel(t.Context()), request)
+		request := &opensearchapi.IndicesDeleteReq{Indices: []string{index}}
+		_, _ = baseClientAPI.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request)
 	})
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
-	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
+	if err := adapter.EnsureIndex(integration.WithTestOperation(t, t.Context()), index, spec); err != nil {
 		t.Fatalf("create search index: %v", err)
 	}
-	if err := adapter.SetAlias(t.Context(), search.PublicAlias, index); err != nil {
+	if err := adapter.SetAlias(integration.WithTestOperation(t, t.Context()), search.PublicAlias, index); err != nil {
 		t.Fatalf("set public alias: %v", err)
 	}
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
+	if err := stores.InitializeSearchIndex(integration.WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)
 	}
 	cfg, err := config.Load()

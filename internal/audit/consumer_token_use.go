@@ -25,7 +25,7 @@ func recordTokenUses(ctx context.Context, tx pgx.Tx, projected []committedAuthEv
 	newest := newestTokenUses(projected)
 	for _, tokenID := range sortedTokenIDs(newest) {
 		if _, err := tx.Exec(ctx, `
-			UPDATE api_tokens
+			UPDATE public.api_tokens
 			SET last_used = GREATEST(last_used, $2::timestamptz)
 			WHERE id = $1
 		`, tokenID, newest[tokenID]); err != nil {

@@ -14,12 +14,14 @@ func (rc *renderCtx) referenceIdentifierFor(view *node.NodeView) string {
 		return ""
 	}
 	switch nodeType.Reference.Strategy {
+	case node.ReferenceUUIDOnly:
+		return ""
 	case node.ReferenceDirectProperty:
 		return referencePropertyValue(view, nodeType.Reference.Property)
 	case node.ReferenceScopedSequence:
 		sequence := numberProp(view, nodeType.Reference.Property)
 		if sequence <= 0 {
-			return ""
+			return rc.scopedNameIdentifierFor(view, nodeType)
 		}
 		scopeIdent := rc.scopeIdentifierFor(view)
 		if scopeIdent == "" {

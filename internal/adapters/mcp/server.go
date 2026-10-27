@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/user"
@@ -31,28 +31,31 @@ type MetadataEpochReader interface {
 	MetadataEpoch(ctx context.Context, orgIDs []uuid.UUID) (string, error)
 }
 
-// cachedServer is one user's generated tool server and the metadata epoch
-// it was built from.
 type cachedServer struct {
-	mcpSvr  *mcpserver.MCPServer
-	httpSvr *mcpserver.StreamableHTTPServer
-	builtAt time.Time
-	epoch   string
+	mcpSvr       *mcpserver.MCPServer
+	httpSvr      *mcpserver.StreamableHTTPServer
+	resolver     *tools.Resolver
+	nodeTypes    []*node.NodeType
+	propertyDefs []*node.PropertyDef
+	builtAt      time.Time
+	epoch        string
 }
 
 // Handler is the MCP HTTP entry point. It caches a per-user MCP server that
 // knows about the user's accessible NodeTypes.
 type Handler struct {
-	nodeSvc       *service.NodeService
-	nodes         node.NodeRepository
-	reader        node.NodeReader
-	nodeTypes     node.TypeRepository
-	propertyDefs  node.PropertyDefRepository
-	relationships node.RelationshipRepository
-	members       org.MemberRepository
-	users         user.Repository
-	search        tools.SearchBinding
-	epochs        MetadataEpochReader
+	nodeSvc            *service.NodeService
+	nodes              node.NodeRepository
+	reader             node.NodeReader
+	nodeTypes          node.TypeRepository
+	propertyDefs       node.PropertyDefRepository
+	relationships      node.RelationshipRepository
+	relationshipLister node.RelationshipBatchLister
+	members            org.MemberRepository
+	users              user.Repository
+	search             tools.SearchBinding
+	epochs             MetadataEpochReader
+	recorder           audit.Recorder
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*cachedServer
@@ -60,14 +63,15 @@ type Handler struct {
 
 // Deps bundles the dependencies for the MCP handler.
 type Deps struct {
-	NodeSvc       *service.NodeService
-	Nodes         node.NodeRepository
-	Reader        node.NodeReader
-	NodeTypes     node.TypeRepository
-	PropertyDefs  node.PropertyDefRepository
-	Relationships node.RelationshipRepository
-	Members       org.MemberRepository
-	Users         user.Repository
+	NodeSvc            *service.NodeService
+	Nodes              node.NodeRepository
+	Reader             node.NodeReader
+	NodeTypes          node.TypeRepository
+	PropertyDefs       node.PropertyDefRepository
+	Relationships      node.RelationshipRepository
+	RelationshipLister node.RelationshipBatchLister
+	Members            org.MemberRepository
+	Users              user.Repository
 	// Search runs ranked search for tack_search. A binding without a runner
 	// keeps the fixed unavailable response.
 	Search tools.SearchBinding
@@ -75,21 +79,28 @@ type Deps struct {
 	// server still matches stored metadata. With a nil reader, the cache
 	// checks only the server lifetime.
 	Epochs MetadataEpochReader
+	// AuditRecorder is the audit recorder of the runtime graph that owns this
+	// handler. The tool wrapper and the resource handlers record their events
+	// with it. With a nil recorder, the handler refuses each state-changing
+	// tool call and each resource read that must record an event.
+	AuditRecorder audit.Recorder
 }
 
 func NewHandler(d Deps) *Handler {
 	return &Handler{
-		nodeSvc:       d.NodeSvc,
-		nodes:         d.Nodes,
-		reader:        d.Reader,
-		nodeTypes:     d.NodeTypes,
-		propertyDefs:  d.PropertyDefs,
-		relationships: d.Relationships,
-		members:       d.Members,
-		users:         d.Users,
-		search:        d.Search,
-		epochs:        d.Epochs,
-		cache:         make(map[uuid.UUID]*cachedServer),
+		nodeSvc:            d.NodeSvc,
+		nodes:              d.Nodes,
+		reader:             d.Reader,
+		nodeTypes:          d.NodeTypes,
+		propertyDefs:       d.PropertyDefs,
+		relationships:      d.Relationships,
+		relationshipLister: d.RelationshipLister,
+		members:            d.Members,
+		users:              d.Users,
+		search:             d.Search,
+		epochs:             d.Epochs,
+		recorder:           d.AuditRecorder,
+		cache:              make(map[uuid.UUID]*cachedServer),
 	}
 }
 
@@ -124,6 +135,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// the first two, so a context rebuilt without them lets a retried create
 	// write a second node (TACK-476).
 	ctx = tools.WithMCPRequestMetadata(ctx, metadata)
+	ctx = tools.WithAuditRecorder(ctx, h.recorder)
 	span.SetAttributes(attribute.String("enduser.id", userID.String()))
 
 	// The membership set is on every request, cache hit or not. The
@@ -147,39 +159,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r = r.WithContext(ctx)
 
-	// With an epoch reader, the epoch read runs before dispatch on every
-	// request, and a cached server serves only while it matches the current
-	// epochs of every organization. Without one, the cache checks only its
-	// lifetime.
-	epoch := ""
-	if h.epochs != nil {
-		epoch, err = h.epochs.MetadataEpoch(ctx, orgIDs)
-		if err != nil {
-			metadataUnavailable(w, span, metadataReadFailure(ctx, "read metadata epoch", err))
-			return
-		}
-	}
-	h.mu.RLock()
-	c, ok := h.cache[userID]
-	h.mu.RUnlock()
-	if ok && c.epoch == epoch && clock.Since(c.builtAt) < serverCacheTTL {
-		span.SetAttributes(attribute.Bool("mcp.server_cache_hit", true))
-		c.httpSvr.ServeHTTP(w, r)
-		return
-	}
-	span.SetAttributes(attribute.Bool("mcp.server_cache_hit", false))
-
-	nodeTypes, propertyDefs, err := h.collectMetadata(ctx, orgIDs)
+	c, err := h.userServer(ctx, span, userID, orgIDs)
 	if err != nil {
 		metadataUnavailable(w, span, err)
 		return
 	}
-	mcpSvr := h.buildServer(nodeTypes, propertyDefs)
-	httpSvr := mcpserver.NewStreamableHTTPServer(mcpSvr, mcpserver.WithStateLess(true))
-	span.SetAttributes(attribute.Int("mcp.node_type_count", len(nodeTypes)))
-
-	h.mu.Lock()
-	h.cache[userID] = &cachedServer{mcpSvr: mcpSvr, httpSvr: httpSvr, builtAt: clock.Now(), epoch: epoch}
-	h.mu.Unlock()
-	httpSvr.ServeHTTP(w, r)
+	addMetadataTargets(ctx, c)
+	c.httpSvr.ServeHTTP(w, r)
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
-	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/adapters/postgres/migration"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -110,10 +110,10 @@ func TestDropKilltestSchemaRefusesTheMigratorLogin(t *testing.T) {
 	}
 	createKilltestSchema(t, admin)
 
-	_, err := runDropKilltestSchema(t, loginDSN(t, dsn, postgres.MigratorRole, cfg.MigratorPassword), admin, true)
-	if err == nil || !strings.Contains(err.Error(), "the login "+postgres.MigratorRole+" cannot drop") ||
+	_, err := runDropKilltestSchema(t, loginDSN(t, dsn, migration.MigratorRole, cfg.MigratorPassword), admin, true)
+	if err == nil || !strings.Contains(err.Error(), "the login "+migration.MigratorRole+" cannot drop") ||
 		!strings.Contains(err.Error(), "superuser") {
-		t.Fatalf("execute as %s: err = %v, want a refusal that states the login and the right", postgres.MigratorRole, err)
+		t.Fatalf("execute as %s: err = %v, want a refusal that states the login and the right", migration.MigratorRole, err)
 	}
 	if schemas := countRows(t.Context(), t, admin, killtestSchemaCountQuery); schemas != 1 {
 		t.Fatalf("the killtest schema is gone after the refusal")
@@ -145,6 +145,7 @@ func runDropKilltestSchema(t *testing.T, dsn string, outbox *pgxpool.Pool, execu
 	var output bytes.Buffer
 	factory.Out = &output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(outbox))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(outbox))
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
 	registry := clispec.NewRegistry()
 	ops.RegisterCommands(registry, factory)

@@ -10,6 +10,8 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // putStoredBuiltIn stores a built-in property definition for name with
@@ -22,7 +24,7 @@ func (env *migrationEnv) putStoredBuiltIn(t *testing.T, name string, include boo
 		DefaultReference: nil, ReferenceTargetTypeKey: "",
 		Search: &node.SearchProjection{Include: include, Order: 50, Rule: node.TextRule{Mode: node.TextRuleScalar, Fields: nil, Items: nil, Labels: nil}},
 	}
-	if err := env.Stores.PropertyDefs.Set(t.Context(), definition); err != nil {
+	if err := env.Stores.PropertyDefs.Set(integration.WithTestOperation(t, t.Context()), definition); err != nil {
 		t.Fatalf("store built-in definition %s: %v", name, err)
 	}
 	return definition
@@ -41,14 +43,17 @@ func (env *migrationEnv) pageText(t *testing.T, nodeID uuid.UUID) string {
 
 // TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions checks
 // corrections to definitions from an older seed. It stores parent_id with
-// search inclusion and restricts scope_id to the sequence feature. It
-// requires the correction to apply the seeded search exclusion to
-// parent_id and the seeded applicability to scope_id. Each correction must
-// record one property_def.update event with a delta. A second run must not
-// change the definitions. After the worker runs, the child's pages must
-// omit the parent UUID and retain the child's text. The child must have a
-// later revision. Nodes without parent_id must keep their page count,
-// revision, and projection version.
+// search inclusion and restricts scope_id to the has_sequence_id feature.
+// It requires the correction to apply the seeded search exclusion to
+// parent_id and the seeded applicability to scope_id. The dry run and
+// execute run must report only a search change for parent_id and only an
+// applies_to_features change for scope_id. Each entry must report the
+// stored value before correction and the value the execute run stores
+// afterward. Each correction must record one property_def.update event
+// with a delta. A second run must not change the definitions. After the
+// worker runs, the child's pages must omit the parent UUID and retain the
+// child's text. The child must have a later revision. Nodes without
+// parent_id must keep their page count, revision, and projection version.
 func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.T) {
 	env := newMigrationEnv(t, 256)
 	parentDefinition := env.putStoredBuiltIn(t, "parent_id", true, nil)
@@ -65,7 +70,7 @@ func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.
 	childBefore := env.revisions(t, []uuid.UUID{child})
 
 	principal := audit.OperatorPrincipal{ID: uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca31"), Email: "operator@example.invalid", Name: "Operator", Source: "test"}
-	ctx := audit.WithOperatorPrincipal(t.Context(), principal)
+	ctx := audit.WithOperatorPrincipal(integration.WithTestOperation(t, t.Context()), principal)
 	preview, err := ops.RunFixedDefinitionCorrection(ctx, env.Stores.PropertyDefs, true)
 	if err != nil || preview.Corrected != 2 {
 		t.Fatalf("preview = %+v, err %v; want two corrections", preview, err)
@@ -79,14 +84,26 @@ func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.
 		t.Fatalf("repeated correction = %+v, err %v; want no correction", repeated, err)
 	}
 	env.requireCorrectionEvents(t, []uuid.UUID{parentDefinition.ID, scopeDefinition.ID})
-	stored, err := env.Stores.PropertyDefs.Get(t.Context(), env.OrgID, parentDefinition.ID)
+	stored, err := env.Stores.PropertyDefs.Get(integration.WithTestOperation(t, t.Context()), env.OrgID, parentDefinition.ID)
 	if err != nil || stored.Search == nil || stored.Search.Include {
 		t.Fatalf("stored parent_id definition = %+v, err %v; want a search exclusion", stored, err)
 	}
-	scope, err := env.Stores.PropertyDefs.Get(t.Context(), env.OrgID, scopeDefinition.ID)
+	scope, err := env.Stores.PropertyDefs.Get(integration.WithTestOperation(t, t.Context()), env.OrgID, scopeDefinition.ID)
 	if err != nil || slices.Contains(scope.AppliesToFeatures, node.FeatureHasSequenceID) {
 		t.Fatalf("stored scope_id definition = %+v, err %v; want the seeded applicability", scope, err)
 	}
+	wantChanges := []service.FixedDefinitionChange{
+		{
+			OrgID: env.OrgID, PropertyDefID: parentDefinition.ID, Name: "parent_id", Outcome: service.FixedOutcomeCorrected,
+			Search: &service.FixedSearchChange{Before: parentDefinition.Search, After: stored.Search}, AppliesToFeatures: nil,
+		},
+		{
+			OrgID: env.OrgID, PropertyDefID: scopeDefinition.ID, Name: "scope_id", Outcome: service.FixedOutcomeCorrected, Search: nil,
+			AppliesToFeatures: &service.FixedListChange{Before: []string{node.FeatureHasSequenceID}, After: scope.AppliesToFeatures},
+		},
+	}
+	requireDefinitionChanges(t, "dry run", preview.Changes, wantChanges)
+	requireDefinitionChanges(t, "execute run", applied.Changes, wantChanges)
 
 	env.runIdle(t)
 	if text := env.pageText(t, child); strings.Contains(text, unaffected[0].String()) || !strings.Contains(text, "zephyr orchard beacon") {
@@ -101,12 +118,40 @@ func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.
 	}
 }
 
+// requireDefinitionChanges first fails when the reported and expected entry
+// counts differ. It then encodes each expected entry and its reported entry
+// as JSON, matching entries by property definition ID. It fails when the
+// entries differ and uses run to label the failure message.
+func requireDefinitionChanges(t *testing.T, run string, changes, want []service.FixedDefinitionChange) {
+	t.Helper()
+	if len(changes) != len(want) {
+		t.Fatalf("%s reported %d definition changes %+v, want %d", run, len(changes), changes, len(want))
+	}
+	got := make(map[uuid.UUID]string, len(changes))
+	for _, change := range changes {
+		encoded, err := json.Marshal(change)
+		if err != nil {
+			t.Fatalf("encode the %s change for %s: %v", run, change.Name, err)
+		}
+		got[change.PropertyDefID] = string(encoded)
+	}
+	for _, expected := range want {
+		encoded, err := json.Marshal(expected)
+		if err != nil {
+			t.Fatalf("encode the expected change for %s: %v", expected.Name, err)
+		}
+		if got[expected.PropertyDefID] != string(encoded) {
+			t.Fatalf("%s change for %s = %s, want %s", run, expected.Name, got[expected.PropertyDefID], encoded)
+		}
+	}
+}
+
 // requireCorrectionEvents checks the audit outbox for exactly one
 // property_def.update event with a nonempty delta.Changed list for each
 // definition in definitionIDs.
 func (env *migrationEnv) requireCorrectionEvents(t *testing.T, definitionIDs []uuid.UUID) {
 	t.Helper()
-	entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(t.Context(), nil, 100)
+	entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(integration.WithTestOperation(t, t.Context()), nil, 100)
 	if err != nil {
 		t.Fatalf("read the audit outbox: %v", err)
 	}

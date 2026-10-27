@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -56,7 +56,7 @@ func clusterPredictionDiagnostics(t *testing.T, cluster *testenv.OpenSearchClust
 
 func captureFirstCluster429(t *testing.T, cluster *testenv.OpenSearchCluster, fixture queryFixture, stoppedMember string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), 3*time.Second)
 	defer cancel()
 	var stats struct {
 		Nodes map[string]struct {
@@ -76,8 +76,7 @@ func captureFirstCluster429(t *testing.T, cluster *testenv.OpenSearchCluster, fi
 			} `json:"breakers"`
 		} `json:"nodes"`
 	}
-	response, err := opensearch.Do(ctx, fixture.Client.Client, http.MethodGet,
-		opensearchapi.NodesStatsReq{Metric: []string{"jvm", "breaker"}}, &stats)
+	response, err := opensearch.Execute(ctx, fixture.Client.Client, http.MethodGet, &opensearchapi.NodesStatsReq{Metric: []string{"jvm", "breaker"}}, &stats)
 	if err != nil || response == nil {
 		t.Logf("first HTTP 429 JVM and breaker snapshot failed at=%s error=%v", time.Now().UTC().Format(time.RFC3339Nano), err)
 	} else if response.IsError() {
@@ -95,7 +94,7 @@ func captureFirstCluster429(t *testing.T, cluster *testenv.OpenSearchCluster, fi
 			continue
 		}
 		requestedAt := time.Now().UTC().Format(time.RFC3339Nano)
-		logs, logErr := cluster.MemberLogTail(t.Context(), member)
+		logs, logErr := cluster.MemberLogTail(WithTestOperation(t, t.Context()), member)
 		if logs == "" {
 			logs = "[no log lines available]"
 		}

@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -70,21 +70,21 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 	if err != nil {
 		return none, queryStepError{operation: "open search snapshot on " + target, err: err}
 	}
-	created, err := r.adapter.api.PointInTime.Create(ctx, opensearchapi.PointInTimeCreateReq{
+	created, err := r.adapter.api.PointInTime.Create(ctx, &opensearchapi.CreatePITReq{
 		Indices: []string{target}, Header: nil,
-		Params: opensearchapi.PointInTimeCreateParams{KeepAlive: r.settings.KeepAlive},
+		Params: &opensearchapi.CreatePITParams{KeepAlive: r.settings.KeepAlive},
 	})
 	if err != nil {
-		return none, snapshotFailure(ctx, target, "create a point in time", engineCause(created.Inspect().Response, err))
+		return none, snapshotFailure(ctx, target, "create a point in time", engineCause(ctx, created.Inspect().Response, err))
 	}
-	if created.PitID == "" || created.Shards.Failed > 0 {
-		partial := searchdomain.Snapshot{PITID: created.PitID, Index: target, QueryTokens: nil}
+	if !created.PITID.IsSet() || created.Shards.Failed > 0 {
+		partial := searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: nil}
 		closeErr := r.Close(ctx, partial)
 		return none, snapshotFailure(ctx, target, "create a point in time", errors.Join(
 			fmt.Errorf("OpenSearch returned an empty ID or %d failed shards", created.Shards.Failed), closeErr))
 	}
 	telemetry.L(ctx).DebugContext(ctx, "search.snapshot.opened", slog.String("index", target), slog.Int("token_bytes", len(tokens)))
-	return searchdomain.Snapshot{PITID: created.PitID, Index: target, QueryTokens: tokens}, nil
+	return searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: tokens}, nil
 }
 
 // Close deletes the point in time. A point in time OpenSearch no longer
@@ -93,7 +93,11 @@ func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot)
 	if snapshot.PITID == "" {
 		return nil
 	}
-	response, err := r.adapter.api.PointInTime.Delete(ctx, opensearchapi.PointInTimeDeleteReq{PitID: []string{snapshot.PITID}})
+	id, err := opensearchapi.ParsePITID(snapshot.PITID)
+	if err != nil {
+		return snapshotFailure(ctx, snapshot.Index, "parse a point in time", err)
+	}
+	response, err := r.adapter.api.PointInTime.Delete(ctx, &opensearchapi.DeletePITReq{Body: &opensearchapi.DeletePITBody{PITID: []opensearchapi.PITID{id}}})
 	if err == nil {
 		return nil
 	}
@@ -104,7 +108,7 @@ func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot)
 	if deleted != nil && deleted.StatusCode == http.StatusNotFound {
 		return nil
 	}
-	return snapshotFailure(ctx, snapshot.Index, "delete a point in time", engineCause(deleted, err))
+	return snapshotFailure(ctx, snapshot.Index, "delete a point in time", engineCause(ctx, deleted, err))
 }
 
 func snapshotFailure(ctx context.Context, index, operation string, err error) error {

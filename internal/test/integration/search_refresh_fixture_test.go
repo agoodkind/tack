@@ -33,7 +33,7 @@ func putUndeclaredNode(t *testing.T, fixture queryFixture, kind opaqueKind, pare
 	created := &node.Node{ID: nodeID, OrgID: kind.OrgID, NodeType: kind.TypeKey, Name: "undeclared node", Props: props, CreatedAt: now, UpdatedAt: now}
 	view := &node.NodeView{ID: nodeID, OrgID: kind.OrgID, NodeType: kind.TypeKey, Name: "undeclared node", Props: props, CreatedAt: now, UpdatedAt: now}
 	parent := &node.Relationship{OrgID: kind.OrgID, SourceID: nodeID, TargetID: parentID, RelationType: node.RelChildOf}
-	if err := fixture.Stores.Nodes.CreateAtomic(t.Context(), created, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
+	if err := fixture.Stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
 		t.Fatalf("create undeclared node: %v", err)
 	}
 	return nodeID
@@ -44,7 +44,7 @@ func putUndeclaredNode(t *testing.T, fixture queryFixture, kind opaqueKind, pare
 func runSlicesIgnoringFailures(t *testing.T, worker *service.SearchWorker, limit int) {
 	t.Helper()
 	for range limit {
-		claimed, err := worker.RunSlice(t.Context())
+		claimed, err := worker.RunSlice(WithTestOperation(t, t.Context()))
 		if err == nil && !claimed {
 			return
 		}
@@ -55,7 +55,7 @@ func runSlicesIgnoringFailures(t *testing.T, worker *service.SearchWorker, limit
 // physical index.
 func requireAliasTarget(t *testing.T, fixture queryFixture) {
 	t.Helper()
-	target, err := fixture.Adapter.AliasTarget(t.Context(), search.PublicAlias)
+	target, err := fixture.Adapter.AliasTarget(WithTestOperation(t, t.Context()), search.PublicAlias)
 	if err != nil || target != fixture.Index {
 		t.Fatalf("public alias target = %q, error = %v, want %q", target, err, fixture.Index)
 	}
@@ -120,12 +120,12 @@ func sameOrgWorkspaces(t *testing.T, fixture queryFixture) (datagen.WorkspaceIde
 func beginRollout(t *testing.T, fixture queryFixture, authorityID uuid.UUID, candidate string) {
 	t.Helper()
 	rollouts := fixture.Stores.SearchRollouts(clock.Wall{}, fixture.Stores.SearchPolicySet())
-	current, err := rollouts.Current(t.Context(), authorityID)
+	current, err := rollouts.Current(WithTestOperation(t, t.Context()), authorityID)
 	if err != nil {
 		t.Fatalf("read access rollout: %v", err)
 	}
 	request := searchdomain.BeginAccessRollout{AuthorityID: authorityID, CandidateVersion: candidate, ExpectedGeneration: current.Generation}
-	if _, err := rollouts.Begin(t.Context(), request); err != nil {
+	if _, err := rollouts.Begin(WithTestOperation(t, t.Context()), request); err != nil {
 		t.Fatalf("begin access rollout: %v", err)
 	}
 }
@@ -138,7 +138,7 @@ func runRolloutUntilStable(t *testing.T, fixture queryFixture, worker *service.S
 	seen := make(map[searchdomain.AccessPhase]bool)
 	deadline := time.Now().Add(rolloutDeadline)
 	for time.Now().Before(deadline) {
-		current, err := rollouts.Current(t.Context(), authorityID)
+		current, err := rollouts.Current(WithTestOperation(t, t.Context()), authorityID)
 		if err != nil {
 			t.Fatalf("read access rollout: %v", err)
 		}
@@ -162,7 +162,7 @@ const idleSlicePause = 250 * time.Millisecond
 // returns an error. It waits idleSlicePause when the worker claimed no work.
 func runSliceOrPause(t *testing.T, worker *service.SearchWorker) {
 	t.Helper()
-	claimed, err := worker.RunSlice(t.Context())
+	claimed, err := worker.RunSlice(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("run search worker slice: %v", err)
 	}

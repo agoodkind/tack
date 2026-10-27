@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -31,13 +31,13 @@ func New(ctx context.Context, cfg Config) (*Adapter, error) {
 		return nil, wrapped
 	}
 	observer := newEndpointObserver()
-	client, err := opensearch.NewClient(cfg.ClientConfig(observer))
+	api, err := opensearchapi.NewClient(opensearchapi.Config{Client: cfg.ClientConfig(observer)})
 	if err != nil {
 		wrapped := fmt.Errorf("create OpenSearch client: %w", err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.client.create_failed", slog.String("err", wrapped.Error()))
 		return nil, wrapped
 	}
-	return &Adapter{client: client, api: opensearchapi.NewFromClient(client), observer: observer}, nil
+	return &Adapter{client: api.Client, api: api, observer: observer}, nil
 }
 
 // Close stops the official client's transport resources.
@@ -73,7 +73,7 @@ func (a *Adapter) CreateIndex(ctx context.Context, index string, spec IndexSpec)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.encode_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return wrapped
 	}
-	response, err := a.api.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: index, Body: bytes.NewReader(body)})
+	response, err := a.api.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: index, BodyReader: bytes.NewReader(body)})
 	if err != nil {
 		wrapped := fmt.Errorf("create OpenSearch index %q: %w", index, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.create_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
@@ -100,7 +100,7 @@ func (a *Adapter) SetReplicas(ctx context.Context, index string, replicas int) e
 		telemetry.L(ctx).ErrorContext(ctx, "search.replicas.encode_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return wrapped
 	}
-	response, err := a.api.Indices.Settings.Put(ctx, opensearchapi.SettingsPutReq{Indices: []string{index}, Body: bytes.NewReader(body)})
+	response, err := a.api.Indices.PutSettings(ctx, &opensearchapi.IndicesPutSettingsReq{Indices: []string{index}, BodyReader: bytes.NewReader(body)})
 	if err != nil {
 		wrapped := fmt.Errorf("set OpenSearch replicas for %q: %w", index, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.replicas.update_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
@@ -116,13 +116,19 @@ func (a *Adapter) SetReplicas(ctx context.Context, index string, replicas int) e
 
 // IndexInfo reads mapping metadata used by the verification command.
 func (a *Adapter) IndexInfo(ctx context.Context, index string) (IndexInfo, error) {
-	response, err := a.api.Indices.Mapping.Get(ctx, &opensearchapi.MappingGetReq{Indices: []string{index}})
+	response, err := a.api.Indices.GetMapping(ctx, &opensearchapi.IndicesGetMappingReq{Indices: []string{index}})
 	if err != nil {
-		wrapped := fmt.Errorf("read OpenSearch mapping %q: %w", index, engineCause(response.Inspect().Response, err))
+		wrapped := fmt.Errorf("read OpenSearch mapping %q: %w", index, engineCause(ctx, response.Inspect().Response, err))
 		telemetry.L(ctx).ErrorContext(ctx, "search.mapping.read_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return IndexInfo{}, wrapped
 	}
-	entry, ok := response.GetIndices()[index]
+	var indices map[string]struct {
+		Mappings json.RawMessage `json:"mappings"`
+	}
+	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
+		return IndexInfo{}, engineFailure(ctx, "search.mapping.decode_failed", "decode mapping "+index, index, err)
+	}
+	entry, ok := indices[index]
 	if !ok {
 		wrapped := fmt.Errorf("OpenSearch mapping %q is absent", index)
 		telemetry.L(ctx).ErrorContext(ctx, "search.mapping.absent", slog.String("err", wrapped.Error()), slog.String("index", index))

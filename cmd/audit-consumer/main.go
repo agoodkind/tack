@@ -18,6 +18,7 @@ import (
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auditrelay"
+	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -35,7 +36,9 @@ func newAuditRelay(ctx context.Context, cfg config.AuditConsumerSettings) (audit
 	return opened, nil
 }
 
-func newAuditConsumer(ctx context.Context, cfg config.AuditConsumerSettings) (*audit.Consumer, error) {
+const consumerService = "tack-audit-consumer"
+
+func newAuditConsumer(ctx context.Context, cfg config.AuditConsumerSettings, maintenance audit.OutboxWriter) (*audit.Consumer, error) {
 	signingHost := cfg.SigningHost
 	if signingHost == "" {
 		hostname, err := os.Hostname()
@@ -64,6 +67,7 @@ func newAuditConsumer(ctx context.Context, cfg config.AuditConsumerSettings) (*a
 		slog.ErrorContext(ctx, "audit_consumer.consumer_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("new consumer: %w", err)
 	}
+	consumer.RecordPartitionRuns(maintenance, audit.ServiceActor(cli.ServiceActorID(consumerService), consumerService))
 	return consumer, nil
 }
 
@@ -123,7 +127,7 @@ func runConsumer(cfg config.AuditConsumerSettings) error {
 		slog.String("group", cfg.GroupID),
 	)
 
-	consumer, err := newAuditConsumer(ctx, cfg)
+	consumer, err := newAuditConsumer(ctx, cfg, audit.NewRecorderOutbox(relayRecorder))
 	if err != nil {
 		if closeErr := relayRecorder.CloseContext(ctx); closeErr != nil {
 			slog.ErrorContext(ctx, "audit_consumer.relay_recorder_close_failed", slog.String("err", closeErr.Error()))

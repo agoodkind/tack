@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/testenv"
 )
 
 const (
@@ -37,7 +39,7 @@ func TestSearchClusterModelRepairGates(t *testing.T) {
 	cluster.StopMember(t, member)
 	cluster.StartMember(t, member)
 	clusterEventually(t, "leave the model stuck with no deploy task", func() error {
-		deployment, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index, clock.Now())
+		deployment, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 		if err != nil {
 			return clusterFailure("read model deployment", err)
 		}
@@ -74,20 +76,43 @@ func requireNoRepairDeploy(t *testing.T, fixture queryFixture, modelID, phase st
 	if count := deployTasksSince(t, fixture, modelID, since); count != 0 {
 		t.Fatalf("%s: the task index records %d deploy tasks of model %s since %s, want none", phase, count, modelID, since)
 	}
-	deployment, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index, clock.Now())
+	deployment, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 	if err != nil || !deployment.Stuck() {
 		t.Fatalf("%s: model deployment %+v err %v after the quiet period, want it still stuck", phase, deployment, err)
 	}
 }
 
+// requireEngineAnswers waits until the restarted shared engine answers a
+// request. After outageRecoveryDeadline it fails the test with the engine
+// container state and log tail.
+func requireEngineAnswers(t *testing.T, fixture queryFixture) {
+	t.Helper()
+	deadline := clock.Now().Add(outageRecoveryDeadline)
+	for {
+		_, err := fixture.Client.Info(WithTestOperation(t, t.Context()), nil)
+		if err == nil {
+			return
+		}
+		if clock.Now().After(deadline) {
+			engine := testenv.OpenSearchWithMemory(t, nativeSearchMemoryBytes)
+			diagnostics := testenv.OpenSearchDiagnostics(context.WithoutCancel(WithTestOperation(t, t.Context())), engine)
+			t.Fatalf("the restarted engine did not answer within %s: %v: %s", outageRecoveryDeadline, err, diagnostics)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
 // `TestSearchModelRepairStaleDeployTask` requires repair to depend on a `RUNNING` task's update age.
+// The repair must not record audit events while the task is current. After the
+// repair deploys the model, the operator outbox must contain a completed repair
+// operation with a completed step that records the deploy task.
 func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 	t.Setenv(repairEnabledVariable, "true")
 	t.Setenv("OPENSEARCH_MODEL_REPAIR_INTERVAL", repairGateInterval.String())
 	t.Setenv("OPENSEARCH_MODEL_REPAIR_STUCK_AFTER", "1s")
 	t.Setenv("OPENSEARCH_MODEL_REPAIR_ATTEMPT_SPACING", "2s")
 	fixture := newQueryFixture(t, defaultQueryOptions())
-	served, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index, clock.Now())
+	served, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 	if err != nil {
 		t.Fatalf("read serving model failed: %v", err)
 	}
@@ -96,8 +121,9 @@ func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 	disableNativeRedeploy(t, fixture)
 	setEngineRunning(t, false)
 	setEngineRunning(t, true)
+	requireEngineAnswers(t, fixture)
 	clusterEventually(t, "failed model with no active deploy tasks", func() error {
-		deployment, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index, clock.Now())
+		deployment, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 		if err != nil {
 			return clusterFailure("read model deployment failed", err)
 		}
@@ -111,15 +137,19 @@ func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 	t.Cleanup(func() { deleteDeployTask(t, fixture, taskID) })
 	created := clock.Now().Add(-2 * staleDeployTaskAge)
 	writeDeployTask(t, fixture, staleDeployTask{id: taskID, modelID: modelID, created: created, updated: clock.Now()})
-	young, err := fixture.Adapter.ModelDeployment(t.Context(), fixture.Index, clock.Now())
+	young, err := fixture.Adapter.ModelDeployment(WithTestOperation(t, t.Context()), fixture.Index, clock.Now())
 	if err != nil || young.ActiveTasks != 1 {
 		t.Fatalf("expected one active deploy task after a current update: deployment %+v err %v, want 1 active deploy task", young, err)
 	}
 	since := clock.Now().UTC()
+	mark, _ := ModelRepairEvents(t, fixture.Stores, nil)
 	buildRepairingQueryGraph(t, fixture.Config)
 	time.Sleep(repairGateQuietPeriod)
 	if count := deployTasksSince(t, fixture, modelID, since); count != 0 {
 		t.Fatalf("repair deployed the model while a deploy task had a current update: %d deploy tasks of model %s since %s, want none", count, modelID, since)
+	}
+	if _, events := ModelRepairEvents(t, fixture.Stores, mark); len(events) != 0 {
+		t.Fatalf("repair recorded %d audit events while a deploy task had a current update, want none", len(events))
 	}
 
 	stale := clock.Now().Add(-staleDeployTaskAge)
@@ -133,4 +163,8 @@ func TestSearchModelRepairStaleDeployTask(t *testing.T) {
 	if count := deployTasksSince(t, fixture, modelID, since); count != 1 {
 		t.Fatalf("expected one repair deploy after the task became stale: %d deploy tasks of model %s since %s, want 1", count, modelID, since)
 	}
+	clusterEventually(t, "recorded repair deploy", func() error {
+		_, events := ModelRepairEvents(t, fixture.Stores, mark)
+		return CompletedModelRepair(events, modelID)
+	})
 }

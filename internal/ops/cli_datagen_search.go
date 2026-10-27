@@ -31,6 +31,9 @@ type datagenSearchResult struct {
 	Verified bool                              `json:"verified"`
 	Manifest *datagen.SearchManifest           `json:"manifest,omitempty"`
 	Cohort   *datagen.SearchCohortVerification `json:"cohort,omitempty"`
+	// Search reports the warning case and relevance probe after a verified committed run.
+	// Dry runs and runs with --prepare-only or --verify-cohort do not include this field.
+	Search *datagen.SearchVerification `json:"search,omitempty"`
 }
 
 var errCohortNotVerified = errors.New("at least one manifest case did not pass")
@@ -44,6 +47,7 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 		Short:    "Verify public search with an isolated opaque organization",
 		Long: "Defaults to a dry run that validates the QA or local target. " +
 			"Pass --commit to verify a fixture when public search is enabled. " +
+			"A verified committed run reports the property warning case and the target rank for each relevance probe query. " +
 			"Pass --prepare-only --commit with --seed and --corpus to export fixture IDs " +
 			"without search requests; public search may remain disabled. " +
 			"Pass --verify-cohort --commit with a positive --seed to prepare a cohort from the embedded corpus. " +
@@ -113,7 +117,7 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 	}
 	result := datagenSearchResult{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.qa.datagen.search",
-		DryRun: !input.Commit, Verified: false, Manifest: nil, Cohort: nil,
+		DryRun: !input.Commit, Verified: false, Manifest: nil, Cohort: nil, Search: nil,
 	}
 	var runError error
 	switch {
@@ -133,10 +137,12 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 			runError = errCohortNotVerified
 		}
 	default:
-		if err := datagen.VerifySearch(ctx, factory.Cfg); err != nil {
+		verification, err := datagen.VerifySearch(ctx, factory.Cfg)
+		if err != nil {
 			slog.ErrorContext(ctx, "qa.datagen.search_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("qa datagen search: %w", err)
 		}
+		result.Search = &verification
 		if endpoints != nil {
 			client := &http.Client{Timeout: datagenSearchTwoProcessTimeout}
 			if err := datagen.VerifySearchTwoProcess(ctx, factory.Cfg, endpoints, client); err != nil {

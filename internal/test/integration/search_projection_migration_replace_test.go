@@ -11,6 +11,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // TestSearchProjectionMigrationReplaceCommitsDigestAuditAndRescan checks one
@@ -35,7 +36,7 @@ func TestSearchProjectionMigrationReplaceCommitsDigestAuditAndRescan(t *testing.
 	indexed := env.pages(t, parent, false)[0].ProjectionVersion
 
 	principal := audit.OperatorPrincipal{ID: uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca32"), Email: "operator@example.invalid", Name: "Operator", Source: "test"}
-	result, err := ops.RunFixedDefinitionCorrection(audit.WithOperatorPrincipal(t.Context(), principal), env.Stores.PropertyDefs, false)
+	result, err := ops.RunFixedDefinitionCorrection(audit.WithOperatorPrincipal(integration.WithTestOperation(t, t.Context()), principal), env.Stores.PropertyDefs, false)
 	if err != nil || result.Corrected != 1 {
 		t.Fatalf("correction = %+v, err %v; want one corrected definition", result, err)
 	}
@@ -44,11 +45,11 @@ func TestSearchProjectionMigrationReplaceCommitsDigestAuditAndRescan(t *testing.
 	}
 	env.requireCorrectionEvents(t, []uuid.UUID{parentDefinition.ID})
 	store := env.Stores.SearchWork(clock.Wall{})
-	rescan, err := store.Claim(t.Context(), searchdomain.WorkClassRescan, "replace-check", time.Minute)
+	rescan, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "replace-check", time.Minute)
 	if err != nil || rescan.OrgID != env.OrgID {
 		t.Fatalf("rescan after the correction = %+v, err %v; want the organization's rescan", rescan, err)
 	}
-	if err := store.Yield(t.Context(), rescan); err != nil {
+	if err := store.Yield(integration.WithTestOperation(t, t.Context()), rescan); err != nil {
 		t.Fatalf("yield the rescan: %v", err)
 	}
 	env.runIdle(t)

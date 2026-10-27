@@ -12,10 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/adapters/postgres"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
-	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -37,15 +35,6 @@ func writeAuthTokenResult(ctx context.Context, sink clispec.ResultSink, result c
 		return fmt.Errorf("write the token command report: %w", err)
 	}
 	return nil
-}
-
-func authTokenPrincipal(ctx context.Context, factory *cli.Factory) (audit.OperatorPrincipal, error) {
-	principal, err := factory.OperatorIdentitySource().Resolve(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "auth.token.principal_failed", slog.String("err", err.Error()))
-		return audit.OperatorPrincipal{}, fmt.Errorf("resolve the operator for the token command: %w", err)
-	}
-	return principal, nil
 }
 
 func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTokenCreateInput, sink clispec.ResultSink, execute bool) error {
@@ -75,11 +64,7 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 		result.UserID, result.Email, result.OrgID = holder.ID.String(), holder.Email, orgID.String()
 		return writeAuthTokenResult(ctx, sink, result)
 	}
-	principal, err := authTokenPrincipal(ctx, factory)
-	if err != nil {
-		return err
-	}
-	issue, err := IssueAuthToken(ctx, pool, factory.AuditOutbox(), principal, input.Email, input.Label, clock.Now().UTC())
+	issue, err := IssueAuthToken(ctx, pool, input.Email, input.Label)
 	if err != nil {
 		return err
 	}
@@ -90,7 +75,7 @@ func runAuthTokenCreate(ctx context.Context, factory *cli.Factory, input authTok
 		// The raw value is shown once and never stored, so a report that
 		// failed to reach the operator leaves a live credential nobody
 		// holds. Withdraw it through a recorded revocation and say so.
-		return withdrawUnconfirmedToken(ctx, pool, factory.AuditOutbox(), principal, issue.Token.ID,
+		return withdrawUnconfirmedToken(ctx, pool, issue.Token.ID,
 			fmt.Errorf("the token value could not be reported: %w", writeErr))
 	}
 	return nil
@@ -148,11 +133,7 @@ func runAuthTokenRevoke(ctx context.Context, factory *cli.Factory, input authTok
 	defer pool.Close()
 	var revocation AuthTokenRevocation
 	if execute {
-		principal, err := authTokenPrincipal(ctx, factory)
-		if err != nil {
-			return err
-		}
-		revocation, err = RevokeAuthToken(ctx, pool, factory.AuditOutbox(), principal, tokenID, clock.Now().UTC())
+		revocation, err = RevokeAuthToken(ctx, pool, tokenID)
 		if err != nil {
 			return err
 		}

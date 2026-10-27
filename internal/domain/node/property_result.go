@@ -9,11 +9,10 @@ import (
 	"goodkind.io/tack/internal/domain"
 )
 
-// ErrSchemaRead reports a schema condition that prevents interpretation from
-// completing.
+// ErrSchemaRead reports that interpretation lacks a required schema record.
 var ErrSchemaRead = errors.New("schema read incomplete")
 
-// PropertyIssueCode classifies why the schema rejects a property.
+// PropertyIssueCode classifies a rejected property value.
 type PropertyIssueCode string
 
 const (
@@ -35,8 +34,8 @@ type PropertyIssue struct {
 	Reason   string
 }
 
-// ReadFailure reports a schema condition that prevents interpretation from
-// completing.
+// ReadFailure reports a required schema record that interpretation did not
+// receive.
 type ReadFailure struct {
 	Subject string
 	Reason  string

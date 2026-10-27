@@ -19,14 +19,14 @@ func TestSearchSummaryBatchReturnsDeletedInPlace(t *testing.T) {
 	firstFound := putSummaryNode(t, stores, kinds, kinds.leaf, container)
 	deleted := putSummaryNode(t, stores, kinds, kinds.leaf, container)
 	lastFound := putSummaryNode(t, stores, kinds, kinds.leaf, container)
-	if err := stores.Nodes.Delete(t.Context(), kinds.orgID, deleted); err != nil {
+	if err := stores.Nodes.Delete(WithTestOperation(t, t.Context()), kinds.orgID, deleted); err != nil {
 		t.Fatalf("delete node %s: %v", deleted, err)
 	}
 	requested := []uuid.UUID{firstFound, deleted, lastFound}
 	wantStatus := []node.SummaryStatus{node.SummaryFound, node.SummaryDeleted, node.SummaryFound}
 
 	transactionsBefore := fdbTransactionCount(t)
-	results, err := stores.NodeSummaries(stores.SearchPolicySet()).Summaries(t.Context(), requested, summaryNameBytes)
+	results, err := stores.NodeSummaries(stores.SearchPolicySet()).Summaries(WithTestOperation(t, t.Context()), requested, summaryNameBytes)
 	if err != nil {
 		t.Fatalf("read %d summaries: %v", len(requested), err)
 	}

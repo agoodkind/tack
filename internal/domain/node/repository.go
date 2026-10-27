@@ -19,13 +19,15 @@ type NodeCleanupScheduler interface {
 // source of each edge under its target.
 type NodeDeleter interface {
 	// StartSubtreeDelete stores a new job record with job.RootID as the only
-	// stack entry. A committed record with an audit template owns the root's
-	// ledger event, and the start marks the caller's staged event written.
+	// stack entry and the encoded audit operation from ctx. It returns an error
+	// when audit.RequireMutationContext cannot read a valid operation from ctx.
 	StartSubtreeDelete(ctx context.Context, job *SubtreeDeleteJob) error
 	// DeleteSubtreeStep runs one bounded step of the job. The step deletes
 	// one node, adds one hierarchy child to the stack, or clears one page of
-	// edges of a node with more edges than one step reads.
-	DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID, events DeletionEventBuilder) (SubtreeDeleteProgress, error)
+	// edges of a node with more edges than one step reads. The step writes
+	// one change event for each changed node or relationship, with the actor and
+	// operation ID from the job record.
+	DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID) (SubtreeDeleteProgress, error)
 	// SubtreeDelete reads one job record. A missing record returns nil.
 	SubtreeDelete(ctx context.Context, jobID uuid.UUID) (*SubtreeDeleteJob, error)
 	// SubtreeDeletes reads at most limit job records after the job ID after,

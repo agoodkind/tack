@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -24,14 +25,15 @@ type multiGetBody struct {
 type documentAccessSource struct {
 	Retired bool `json:"retired"`
 	Access  struct {
-		Versions []string `json:"versions"`
+		Versions   []string `json:"versions"`
+		Generation int64    `json:"generation"`
 	} `json:"access"`
 }
 
-// DocumentAccess reads the retirement flag and access versions of exact page
-// documents in index with one OpenSearch multi-get request. The multi-get
-// read is realtime and does not require an index refresh. A missing document
-// returns with Found set to false.
+// DocumentAccess reads the retirement flag, access versions, and access
+// generation of exact page documents in index with one OpenSearch multi-get
+// request. The multi-get read is realtime and does not require an index
+// refresh. A missing document returns with Found set to false.
 func (a *Adapter) DocumentAccess(ctx context.Context, index string, ids []string) (map[string]searchdomain.DocumentAccess, error) {
 	states := make(map[string]searchdomain.DocumentAccess, len(ids))
 	if len(ids) == 0 {
@@ -42,24 +44,35 @@ func (a *Adapter) DocumentAccess(ctx context.Context, index string, ids []string
 		return nil, documentAccessFailure(ctx, index, "encode multi-get request", err)
 	}
 	response, err := a.api.MGet(ctx, opensearchapi.MGetReq{
-		Index: index, Body: bytes.NewReader(body),
-		Params: opensearchapi.MGetParams{SourceIncludes: []string{"retired", "access.versions"}},
+		Index: index, BodyReader: bytes.NewReader(body),
+		Params: &opensearchapi.MGetParams{SourceIncludes: []string{"retired", "access.versions", "access.generation"}},
 	})
 	if err != nil {
 		return nil, documentAccessFailure(ctx, index, "read page documents", err)
 	}
-	for _, document := range response.Docs {
-		if document.Error != nil {
-			return nil, documentAccessFailure(ctx, index, "read page document "+document.ID,
-				fmt.Errorf("%s: %s", document.Error.Type, document.Error.Reason))
+	for _, result := range response.Docs {
+		if result.Type() == opensearchapi.MGetRespItemMultiGetErrorType {
+			failure, err := result.MultiGetError()
+			if err != nil {
+				return nil, documentAccessFailure(ctx, index, "decode page document error", err)
+			}
+			reason := failure.Error.Type
+			if failure.Error.Reason != nil {
+				reason += ": " + *failure.Error.Reason
+			}
+			return nil, documentAccessFailure(ctx, index, "read page document "+failure.ID, errors.New(reason))
 		}
-		state := searchdomain.DocumentAccess{Found: document.Found, Retired: false, Versions: nil}
+		document, err := result.GetResult()
+		if err != nil {
+			return nil, documentAccessFailure(ctx, index, "decode page document", err)
+		}
+		state := searchdomain.DocumentAccess{Found: document.Found, Retired: false, Versions: nil, Generation: 0}
 		if document.Found {
 			var source documentAccessSource
 			if err := json.Unmarshal(document.Source, &source); err != nil {
 				return nil, documentAccessFailure(ctx, index, "decode page document "+document.ID, err)
 			}
-			state.Retired, state.Versions = source.Retired, source.Access.Versions
+			state.Retired, state.Versions, state.Generation = source.Retired, source.Access.Versions, source.Access.Generation
 		}
 		states[document.ID] = state
 	}

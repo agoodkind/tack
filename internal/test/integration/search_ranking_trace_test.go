@@ -9,9 +9,10 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -100,7 +101,10 @@ func (r *rankingRun) traceExplain(t *testing.T, index, query string, filters, cl
 		Filter: selected, Should: clauses, MinimumShouldMatch: 1,
 	}}}
 	for _, hit := range r.traceSearch(t, index, body) {
-		t.Logf("trace query=%q explain name=%q score=%.4f parts=[%s]", query, r.names[traceHitNode(t, hit)], hit.Score, explanationParts(hit.Explanation, 3))
+		if hit.Score == nil {
+			t.Fatal("trace explanation requires a score")
+		}
+		t.Logf("trace query=%q explain name=%q score=%.4f parts=[%s]", query, r.names[traceHitNode(t, hit)], *hit.Score, explanationParts(hit.Explanation, 3))
 	}
 }
 
@@ -114,6 +118,9 @@ func (r *rankingRun) traceChunks(t *testing.T, index, modelID, query string, nod
 		Filter: filters, Should: []json.RawMessage{}, MinimumShouldMatch: 0,
 	}}}
 	for _, hit := range r.traceSearch(t, index, body) {
+		if hit.ID == nil {
+			t.Fatal("trace chunks require a document ID")
+		}
 		var page struct {
 			PageOrdinal int `json:"page_ordinal"`
 			Semantic    struct {
@@ -124,7 +131,7 @@ func (r *rankingRun) traceChunks(t *testing.T, index, modelID, query string, nod
 			} `json:"page_text_semantic_info"`
 		}
 		if err := json.Unmarshal(hit.Source, &page); err != nil {
-			t.Fatalf("decode chunks of page %s: %v", hit.ID, err)
+			t.Fatalf("decode chunks of page %s: %v", *hit.ID, err)
 		}
 		for number, chunk := range page.Semantic.Chunks {
 			t.Logf("trace query=%q chunk name=%q page=%d chunk=%d dot=%.4f text=%q top=%s", query, r.names[nodeID], page.PageOrdinal, number,
@@ -136,8 +143,8 @@ func (r *rankingRun) traceChunks(t *testing.T, index, modelID, query string, nod
 
 func (r *rankingRun) traceSearch(t *testing.T, index string, body traceSearch) []opensearchapi.SearchHit {
 	t.Helper()
-	response, err := r.client.Search(t.Context(), &opensearchapi.SearchReq{
-		Indices: []string{index}, Body: bytes.NewReader(encodeTrace(t, body)),
+	response, err := r.client.Search(integration.WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{
+		Indices: []string{index}, BodyReader: bytes.NewReader(encodeTrace(t, body)),
 	})
 	if err != nil {
 		t.Fatalf("trace search on %s: %v", index, err)

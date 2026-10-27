@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 )
 
@@ -52,7 +52,7 @@ func nativeModelPath(modelID, suffix string) string {
 func requireNativeML(t *testing.T, client *opensearchapi.Client, method string, request nativeMLRequest) json.RawMessage {
 	t.Helper()
 	var body json.RawMessage
-	response, err := opensearch.Do(t.Context(), client.Client, method, request, &body)
+	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), client.Client, method, request, &body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ var undeployedModelStates = []string{"UNDEPLOYED", "DEPLOY_FAILED"}
 func undeployNativeModel(t *testing.T, adapter *search.Adapter, client *opensearchapi.Client, modelID string) {
 	t.Helper()
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), nativeRedeployTimeout)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), nativeRedeployTimeout)
 		defer cancel()
 		if err := redeployNativeModel(ctx, adapter, client); err != nil {
 			t.Errorf("redeploy native model: %v", err)
@@ -131,7 +131,7 @@ func redeployNativeModel(ctx context.Context, adapter *search.Adapter, client *o
 	}
 	for {
 		var body json.RawMessage
-		response, err := opensearch.Do(deadline, client.Client, http.MethodPost, request, &body)
+		response, err := opensearch.Execute(deadline, client.Client, http.MethodPost, request, &body)
 		if err != nil {
 			return fmt.Errorf("predict with redeployed model %s: %w", model.ID, err)
 		}

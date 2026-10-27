@@ -33,11 +33,6 @@ func (c *countingUsers) GetByEmail(context.Context, string) (*user.User, error) 
 	return nil, domain.ErrNotFound
 }
 
-func (c *countingUsers) Create(_ context.Context, u *user.User) (*user.User, error) {
-	c.records[u.ID] = u
-	return u, nil
-}
-
 func namedUser(name string) *user.User {
 	return &user.User{
 		ID: uuid.Must(uuid.NewV7()), Email: name + "@example.test", DisplayName: name, AvatarURL: nil,

@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -24,13 +24,19 @@ type PhysicalSettings struct {
 // state. A split target has no index.number_of_routing_shards setting. Its
 // metadata still records the routing shard count.
 func (a *Adapter) IndexSettings(ctx context.Context, index string) (PhysicalSettings, error) {
-	response, err := a.api.Indices.Settings.Get(ctx, &opensearchapi.SettingsGetReq{Indices: []string{index}})
+	response, err := a.api.Indices.GetSettings(ctx, &opensearchapi.IndicesGetSettingsReq{Indices: []string{index}})
 	if err != nil {
 		wrapped := fmt.Errorf("read OpenSearch index %s settings: %w", index, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.settings_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return PhysicalSettings{}, wrapped
 	}
-	entry, exists := response.GetIndices()[index]
+	var indices map[string]struct {
+		Settings json.RawMessage `json:"settings"`
+	}
+	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
+		return PhysicalSettings{}, engineFailure(ctx, "search.index.settings_invalid", "decode settings "+index, index, err)
+	}
+	entry, exists := indices[index]
 	if !exists {
 		wrapped := fmt.Errorf("OpenSearch index %s settings are absent", index)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.settings_absent", slog.String("err", wrapped.Error()), slog.String("index", index))
@@ -71,15 +77,25 @@ func (a *Adapter) IndexSettings(ctx context.Context, index string) (PhysicalSett
 // limits the response to that one value.
 func (a *Adapter) routingShards(ctx context.Context, index string) (int, error) {
 	response, err := a.api.Cluster.State(ctx, &opensearchapi.ClusterStateReq{
-		Metrics: []string{"metadata"}, Indices: []string{index},
-		Params: opensearchapi.ClusterStateParams{FilterPath: []string{"metadata.indices.*.routing_num_shards"}},
+		Metric: []string{"metadata"}, Indices: []string{index},
+		Params: &opensearchapi.ClusterStateParams{FilterPath: []string{"metadata.indices.*.routing_num_shards"}},
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("read OpenSearch index %s metadata: %w", index, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.metadata_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return 0, wrapped
 	}
-	entry, exists := response.Metadata.Indices[index]
+	var state struct {
+		Metadata struct {
+			Indices map[string]struct {
+				RoutingNumShards int `json:"routing_num_shards"`
+			} `json:"indices"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(response.Body, &state); err != nil {
+		return 0, engineFailure(ctx, "search.index.metadata_invalid", "decode metadata "+index, index, err)
+	}
+	entry, exists := state.Metadata.Indices[index]
 	if !exists || entry.RoutingNumShards < 1 {
 		wrapped := fmt.Errorf("OpenSearch index %s metadata has no routing shard count", index)
 		telemetry.L(ctx).ErrorContext(ctx, "search.index.metadata_invalid", slog.String("err", wrapped.Error()), slog.String("index", index))
@@ -90,13 +106,13 @@ func (a *Adapter) routingShards(ctx context.Context, index string) (int, error) 
 
 // AliasTarget requires the public alias to select exactly one physical index.
 func (a *Adapter) AliasTarget(ctx context.Context, alias string) (string, error) {
-	response, err := a.api.Indices.Alias.Get(ctx, opensearchapi.AliasGetReq{Alias: []string{alias}})
+	response, err := a.api.Indices.GetAlias(ctx, &opensearchapi.IndicesGetAliasReq{Name: []string{alias}})
 	if err != nil {
-		wrapped := fmt.Errorf("resolve OpenSearch alias %s: %w", alias, engineCause(response.Inspect().Response, err))
+		wrapped := fmt.Errorf("resolve OpenSearch alias %s: %w", alias, engineCause(ctx, response.Inspect().Response, err))
 		telemetry.L(ctx).ErrorContext(ctx, "search.alias.resolve_failed", slog.String("err", wrapped.Error()), slog.String("alias", alias))
 		return "", wrapped
 	}
-	indices := response.GetIndices()
+	indices := response.Entries
 	if len(indices) != 1 {
 		wrapped := fmt.Errorf("OpenSearch alias %s selects %d physical indices", alias, len(indices))
 		telemetry.L(ctx).ErrorContext(ctx, "search.alias.invalid", slog.String("err", wrapped.Error()), slog.String("alias", alias))
@@ -110,8 +126,7 @@ func (a *Adapter) AliasTarget(ctx context.Context, alias string) (string, error)
 
 // SetAlias binds the public name to the provisioned physical index.
 func (a *Adapter) SetAlias(ctx context.Context, alias, index string) error {
-	existsResponse, err := opensearch.Do[json.RawMessage](ctx, a.client, http.MethodHead,
-		opensearchapi.AliasExistsReq{Alias: []string{alias}}, nil)
+	existsResponse, err := opensearch.Execute[json.RawMessage](ctx, a.client, http.MethodHead, &opensearchapi.IndicesExistsAliasReq{Name: []string{alias}}, nil)
 	if err != nil {
 		wrapped := fmt.Errorf("check OpenSearch alias %s: %w", alias, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.alias.check_failed", slog.String("err", wrapped.Error()), slog.String("alias", alias))
@@ -134,7 +149,7 @@ func (a *Adapter) SetAlias(ctx context.Context, alias, index string) error {
 		}
 		return nil
 	}
-	response, err := a.api.Indices.Alias.Put(ctx, opensearchapi.AliasPutReq{Alias: alias, Indices: []string{index}})
+	response, err := a.api.Indices.PutAlias(ctx, opensearchapi.IndicesPutAliasReq{Name: alias, Indices: []string{index}})
 	if err != nil {
 		wrapped := fmt.Errorf("set OpenSearch alias %s to %s: %w", alias, index, err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.alias.set_failed", slog.String("err", wrapped.Error()), slog.String("alias", alias), slog.String("index", index))

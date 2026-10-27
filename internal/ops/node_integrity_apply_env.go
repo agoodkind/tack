@@ -19,7 +19,7 @@ func applyNodeIntegrityManifest(ctx context.Context, env *Env, manifest NodeInte
 	repairs := env.Stores.Repairs()
 	applier := repairApplier{
 		manifest: manifest, state: repairs, principal: principal,
-		phases: repairPhaseRunner{checkpoints: repairs, exports: repairs},
+		phases: repairPhaseRunner{checkpoints: repairs, exports: repairs, mutator: env.Stores.Nodes},
 	}
 	return applier.applyFrozenManifest(ctx)
 }

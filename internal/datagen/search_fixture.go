@@ -4,14 +4,17 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"maps"
+	"errors"
 	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
-	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/domain/org"
+	"goodkind.io/tack/internal/service"
 )
 
 //go:embed search_phrases.json
@@ -36,6 +39,8 @@ type searchPhrases struct {
 	Deleted           string         `json:"deleted"`
 	Continuation      string         `json:"continuation"`
 	CreatedThroughMCP string         `json:"created_through_mcp"`
+	Warning           warningPhrases `json:"warning"`
+	Relevance         probePhrases   `json:"relevance_probe"`
 }
 
 func loadSearchPhrases(ctx context.Context) (searchPhrases, error) {
@@ -51,6 +56,8 @@ func loadSearchPhrases(ctx context.Context) (searchPhrases, error) {
 // only on their stored declarations.
 type searchFixture struct {
 	stores      *fdbadapter.Stores
+	members     org.MemberRepository
+	nodes       *service.NodeService
 	orgID       uuid.UUID
 	entryID     uuid.UUID
 	typeKey     string
@@ -64,20 +71,42 @@ func opaqueKey(label string) string {
 	return label + strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", "")[20:]
 }
 
-// newSearchFixture stores one included and one excluded definition and one
-// node type that lives under the workspace entry node type.
-func newSearchFixture(ctx context.Context, stores *fdbadapter.Stores, workspace WorkspaceIdentity) (searchFixture, error) {
-	return newSearchFixtureWithManifest(ctx, stores, workspace, nil)
+// openSearchFixtureStores opens FoundationDB stores with search work enabled
+// and the ledger org_members repository. The caller runs the returned close
+// function after the last fixture write.
+func openSearchFixtureStores(ctx context.Context, cfg *config.Config, purpose string) (*fdbadapter.Stores, org.MemberRepository, func(), error) {
+	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, nil)
+	if err != nil {
+		return nil, nil, nil, loggedError(ctx, "qa datagen: open foundationdb for "+purpose, err)
+	}
+	stores.EnableSearchWork()
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, nil)
+	if err != nil {
+		return nil, nil, nil, loggedError(ctx, "qa datagen: open postgres for "+purpose, err)
+	}
+	return stores, postgres.NewOrgMemberRepo(pool), pool.Close, nil
 }
 
-func newSearchFixtureWithManifest(ctx context.Context, stores *fdbadapter.Stores, workspace WorkspaceIdentity, manifest *SearchManifest) (searchFixture, error) {
+// newSearchFixture stores one included and one excluded definition and one
+// node type that lives under the workspace entry node type.
+func newSearchFixture(ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository, workspace WorkspaceIdentity) (searchFixture, error) {
+	return newSearchFixtureWithManifest(ctx, stores, members, workspace, nil)
+}
+
+func newSearchFixtureWithManifest(
+	ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository, workspace WorkspaceIdentity, manifest *SearchManifest,
+) (searchFixture, error) {
 	entryID := node.WorkspaceID(workspace.OrgID, workspace.Slug)
 	entry, err := stores.Views.Get(ctx, entryID)
 	if err != nil || entry == nil {
 		return searchFixture{}, loggedError(ctx, "qa datagen: read search entry node "+entryID.String(), errMissing(err))
 	}
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	if err != nil {
+		return searchFixture{}, loggedError(ctx, "qa datagen: build the search fixture node service", err)
+	}
 	fixture := searchFixture{
-		stores: stores, orgID: workspace.OrgID, entryID: entryID,
+		stores: stores, members: members, nodes: nodes, orgID: workspace.OrgID, entryID: entryID,
 		typeKey: opaqueKey("n"), includedKey: opaqueKey("p"), excludedKey: opaqueKey("p"),
 	}
 	included := searchDefinition(workspace.OrgID, fixture.includedKey, true, 0)
@@ -111,7 +140,7 @@ func newSearchFixtureWithManifest(ctx context.Context, stores *fdbadapter.Stores
 
 func searchDefinition(orgID uuid.UUID, name string, include bool, order int) *node.PropertyDef {
 	return &node.PropertyDef{
-		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: name, Type: node.PropertyType(opaqueKey("t")),
+		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: name, Type: node.PropertyTypeText,
 		AppliesToFeatures: nil, Indexed: false, Options: nil, Required: false, DefaultValue: nil,
 		DefaultReference: nil, ReferenceTargetTypeKey: "",
 		Search: &node.SearchProjection{Include: include, Order: order, Rule: node.TextRule{
@@ -123,53 +152,44 @@ func searchDefinition(orgID uuid.UUID, name string, include bool, order int) *no
 // put creates one node under the entry node through the production write
 // path. That write schedules the node's search work in the same transaction.
 func (f searchFixture) put(ctx context.Context, name, included, excluded string) (uuid.UUID, error) {
-	nodeID := uuid.Must(uuid.NewV7())
 	props := map[string]json.RawMessage{
 		f.includedKey: json.RawMessage(strconv.Quote(included)),
 		f.excludedKey: json.RawMessage(strconv.Quote(excluded)),
 	}
-	now := clock.Now().UTC()
-	value := &node.Node{
-		ID: nodeID, OrgID: f.orgID, NodeType: f.typeKey, Name: name, Props: props,
-		CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
-	}
-	view := &node.NodeView{
-		ID: nodeID, OrgID: f.orgID, NodeType: f.typeKey, Name: name, Props: props,
-		CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
-	}
-	parent := &node.Relationship{
-		OrgID: f.orgID, SourceID: nodeID, RelationType: node.RelChildOf, TargetID: f.entryID,
-		CreatedBy: uuid.Nil, Props: nil, CreatedAt: now,
-	}
-	if err := f.stores.Nodes.CreateAtomic(ctx, value, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
+	result, err := f.nodes.Create(ctx, service.CreateInput{
+		ParentID: f.entryID, ScopeID: uuid.Nil, NodeTypeKey: f.typeKey, Name: name, Props: props,
+		Relationships: nil, ActorID: uuid.Nil,
+		IdempotencyKey: "", IdempotencyFingerprint: "", IdempotencySource: "",
+	})
+	if err != nil {
 		return uuid.Nil, loggedError(ctx, "qa datagen: create search node "+name, err)
 	}
-	return nodeID, nil
+	return result.View.ID, nil
 }
 
 // edit replaces the included value of one node.
 func (f searchFixture) edit(ctx context.Context, nodeID uuid.UUID, included string) error {
-	current, err := f.stores.Nodes.Get(ctx, f.orgID, nodeID)
-	if err != nil || current == nil {
-		return loggedError(ctx, "qa datagen: read search node "+nodeID.String(), errMissing(err))
-	}
-	props := maps.Clone(current.Props)
-	props[f.includedKey] = json.RawMessage(strconv.Quote(included))
-	current.Props, current.UpdatedAt = props, clock.Now().UTC()
-	view := &node.NodeView{
-		ID: current.ID, OrgID: current.OrgID, NodeType: current.NodeType, Name: current.Name, Props: props,
-		CreatedBy: current.CreatedBy, UpdatedBy: current.UpdatedBy, CreatedAt: current.CreatedAt, UpdatedAt: current.UpdatedAt,
-	}
-	if err := f.stores.Nodes.Set(ctx, current, view); err != nil {
+	if _, err := f.nodes.Update(ctx, service.UpdateInput{
+		NodeID: nodeID, Name: nil, Props: map[string]json.RawMessage{f.includedKey: json.RawMessage(strconv.Quote(included))},
+		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.Nil,
+	}); err != nil {
 		return loggedError(ctx, "qa datagen: edit search node "+nodeID.String(), err)
 	}
 	return nil
 }
 
+// errDeleteUnfinished reports that the delete job did not delete the node
+// within the request budget.
+var errDeleteUnfinished = errors.New("delete job did not delete the node within the request budget")
+
 // remove deletes one node.
 func (f searchFixture) remove(ctx context.Context, nodeID uuid.UUID) error {
-	if err := f.stores.Nodes.Delete(ctx, f.orgID, nodeID); err != nil {
+	result, err := f.nodes.Delete(ctx, nodeID, uuid.Nil)
+	if err != nil {
 		return loggedError(ctx, "qa datagen: delete search node "+nodeID.String(), err)
+	}
+	if result.State != node.SubtreeDeleteFinished {
+		return loggedError(ctx, "qa datagen: delete search node "+nodeID.String(), errDeleteUnfinished)
 	}
 	return nil
 }

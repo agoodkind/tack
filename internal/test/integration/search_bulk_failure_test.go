@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
@@ -56,7 +56,7 @@ func TestSearchPartialAccessFailureResumes(t *testing.T) {
 
 	failed := false
 	for range 50 {
-		claimed, err := worker.RunSlice(t.Context())
+		claimed, err := worker.RunSlice(WithTestOperation(t, t.Context()))
 		if err != nil {
 			failed = true
 			break
@@ -82,7 +82,7 @@ func TestSearchPartialAccessFailureResumes(t *testing.T) {
 	store := stores.SearchWork(source)
 	var pending searchdomain.Work
 	released := waitFor(t, releasedWorkWait, func() bool {
-		work, err := store.Claim(t.Context(), searchdomain.WorkClassAccess, "inspector", shortLease)
+		work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassAccess, "inspector", shortLease)
 		if errors.Is(err, searchdomain.ErrNoWork) {
 			return false
 		}
@@ -113,9 +113,9 @@ func TestSearchRejectsInvalidPageText(t *testing.T) {
 	adapter, client, _, index := newSearchIndex(t, stores)
 	fixture := putSearchText(t, stores, "valid text", readerExcludedValue)
 	store := stores.SearchWork(clock.Wall{})
-	work, err := store.Claim(t.Context(), searchdomain.WorkClassLive, "validator", time.Minute)
+	work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "validator", time.Minute)
 	for err == nil && work.NodeID != fixture.NodeID {
-		work, err = store.Claim(t.Context(), searchdomain.WorkClassLive, "validator", time.Minute)
+		work, err = store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "validator", time.Minute)
 	}
 	if err != nil {
 		t.Fatalf("claim live work: %v", err)
@@ -124,15 +124,15 @@ func TestSearchRejectsInvalidPageText(t *testing.T) {
 	for name, text := range map[string]string{"oversized": strings.Repeat("a", searchdomain.MaxPageBytes+1), "missing": ""} {
 		invalid := page
 		invalid.Text = text
-		if _, err := store.Register(t.Context(), work, invalid); err == nil {
+		if _, err := store.Register(WithTestOperation(t, t.Context()), work, invalid); err == nil {
 			t.Fatalf("register accepted the %s page", name)
 		}
 		documentID := searchdomain.DocumentID(work.OrgID, work.NodeID, invalid.Revision, invalid.ProjectionVersion, invalid.Ordinal)
 		intent := searchdomain.WriteIntent{Work: work, Page: invalid, DocumentID: documentID}
-		if _, err := adapter.Put(t.Context(), intent); err == nil {
+		if _, err := adapter.Put(WithTestOperation(t, t.Context()), intent); err == nil {
 			t.Fatalf("put accepted the %s page", name)
 		}
-		response, _ := client.Document.Get(t.Context(), opensearchapi.DocumentGetReq{Index: index, DocumentID: documentID})
+		response, _ := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.GetReq{Index: index, ID: documentID})
 		if response != nil && response.Found {
 			t.Fatalf("OpenSearch stored the %s page", name)
 		}

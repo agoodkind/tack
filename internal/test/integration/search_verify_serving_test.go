@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/audit"
@@ -40,19 +40,19 @@ func TestSearchVerifyChecksTheRecordedServingIndex(t *testing.T) {
 		t.Fatalf("ops search verify after the replacement: %v\n%s", err, output)
 	}
 
-	model, err := fixture.Adapter.Provision(t.Context())
+	model, err := fixture.Adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
 	other := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	t.Cleanup(func() { deleteNativeIndex(t, fixture.Client, other) })
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
-	if err := fixture.Adapter.EnsureIndex(t.Context(), other, spec); err != nil {
+	if err := fixture.Adapter.EnsureIndex(WithTestOperation(t, t.Context()), other, spec); err != nil {
 		t.Fatalf("create index %s: %v", other, err)
 	}
 	body := `{"actions":[{"remove":{"index":"` + rebuild.TargetIndex + `","alias":"` + search.PublicAlias + `"}},` +
 		`{"add":{"index":"` + other + `","alias":"` + search.PublicAlias + `"}}]}`
-	response, err := fixture.Client.Aliases(t.Context(), opensearchapi.AliasesReq{Body: strings.NewReader(body)})
+	response, err := fixture.Client.Indices.UpdateAliases(WithTestOperation(t, t.Context()), &opensearchapi.IndicesUpdateAliasesReq{BodyReader: strings.NewReader(body)})
 	if err != nil || response.Inspect().Response.IsError() {
 		t.Fatalf("point the public alias at %s: %v", other, err)
 	}
@@ -69,7 +69,7 @@ func runOpsSearchVerify(t *testing.T, cfg *config.Config) (string, error) {
 	factory := cli.System(cfg)
 	var output bytes.Buffer
 	factory.Out = &output
-	pool, err := pgxpool.New(t.Context(), testenv.Ledger(t))
+	pool, err := pgxpool.New(WithTestOperation(t, t.Context()), testenv.Ledger(t))
 	if err != nil {
 		t.Fatalf("open audit ledger pool: %v", err)
 	}

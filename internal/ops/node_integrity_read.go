@@ -14,7 +14,27 @@ type nodeIntegrityDocument interface {
 	NodeIntegrityRequest | NodeIntegrityManifest
 }
 
-func readNodeIntegrityDocument[Document nodeIntegrityDocument](ctx context.Context, path string, document *Document) error {
+// readNodeIntegrityDocument requires path to be inside directory. It decodes
+// one request or manifest from the file and rejects unknown fields. It then
+// requires every export file path in the decoded entries to be inside
+// directory.
+func readNodeIntegrityDocument[Document nodeIntegrityDocument](ctx context.Context, directory repairDirectory, path string, document *Document) error {
+	if err := directory.require(ctx, "document", path); err != nil {
+		return err
+	}
+	if err := decodeNodeIntegrityDocument(ctx, path, document); err != nil {
+		return err
+	}
+	switch decoded := any(document).(type) {
+	case *NodeIntegrityRequest:
+		return directory.requireExports(ctx, decoded.Entries)
+	case *NodeIntegrityManifest:
+		return directory.requireExports(ctx, decoded.Entries)
+	}
+	return nil
+}
+
+func decodeNodeIntegrityDocument[Document nodeIntegrityDocument](ctx context.Context, path string, document *Document) error {
 	file, err := os.Open(path)
 	if err != nil {
 		wrapped := fmt.Errorf("open node integrity document %q: %w", path, err)

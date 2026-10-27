@@ -11,7 +11,7 @@ import (
 // as finished and no inventory was ever written for it; the restore drill then
 // refused the run for lacking one, and nothing healed it. Against the test
 // SeaweedFS engine, yb1's prefix holds the archive and no inventory and must come back
-// as work to do, while yb2, which holds both, has nothing to do.
+// as work to do. The yb2 prefix contains both and resolves as complete.
 func TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory(t *testing.T) {
 	ctx := context.Background()
 	const runID = "20260830T010203Z"
@@ -26,7 +26,7 @@ func TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory(t *testing.T) 
 	if err != nil {
 		t.Fatalf("resolve the target for yb1: %v", err)
 	}
-	if target == nil {
+	if target == nil || target.complete {
 		t.Fatal("an archive in the store without its inventory must be redone, but yb1 found nothing to do")
 	}
 	if target.manifest.RunID != runID || target.prefix != ybNodeKeyPrefix(runID, yb1) {
@@ -38,8 +38,8 @@ func TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory(t *testing.T) 
 	if err != nil {
 		t.Fatalf("resolve the target for yb2: %v", err)
 	}
-	if done != nil {
-		t.Fatalf("a node whose every artifact is in the store must have nothing to do, got prefix %q", done.prefix)
+	if done == nil || !done.complete || done.prefix != ybNodeKeyPrefix(runID, ybSnapshotManifestNode{Name: "yb2", Prefix: "nodes/yb2/"}) {
+		t.Fatalf("a node with every artifact in the store must resolve its complete prefix, got %+v", done)
 	}
 }
 
@@ -60,7 +60,7 @@ func TestResolveYBArchiveTargetRedoesAnExplicitRunWithoutItsInventory(t *testing
 	if err != nil {
 		t.Fatalf("resolve the explicit run for yb1: %v", err)
 	}
-	if target == nil {
-		t.Fatal("an explicitly named run whose archive has no inventory must be redone")
+	if target == nil || target.complete {
+		t.Fatal("an explicitly named run with an archive and no inventory must be redone")
 	}
 }

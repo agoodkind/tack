@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -65,7 +66,7 @@ func newSearchWorker(t *testing.T, stores *fdbadapter.Stores, adapter *search.Ad
 		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
-		Rebuilds: stores.SearchRebuilds(source), Replacer: adapter,
+		Rebuilds: stores.SearchRebuilds(source), Replacer: adapter, Audit: appruntime.SearchWorkerAudit(stores),
 	}, source, settings, 0)
 	if err != nil {
 		t.Fatalf("create search worker: %v", err)
@@ -84,14 +85,14 @@ func runSearchWorkerUntilIdle(t *testing.T, worker *service.SearchWorker) {
 func newSearchIndex(t *testing.T, stores *fdbadapter.Stores) (*search.Adapter, *opensearchapi.Client, search.ModelInfo, string) {
 	t.Helper()
 	adapter, client := nativeSearchClients(t)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
 	// The engine refuses to auto-create node-pages-* indexes, as production does.
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	createNativeSearchIndex(t, adapter, client, model, index)
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
+	if err := stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)
 	}
 	return adapter, client, model, index
@@ -101,21 +102,24 @@ func newSearchIndex(t *testing.T, stores *fdbadapter.Stores) (*search.Adapter, *
 // requested retirement state, in page order.
 func searchNodePages(t *testing.T, client *opensearchapi.Client, index string, nodeID uuid.UUID, retired bool) []searchPageSource {
 	t.Helper()
-	if _, err := client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{index}}); err != nil {
+	if _, err := client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Indices: []string{index}}); err != nil {
 		t.Fatalf("refresh %s: %v", index, err)
 	}
 	query := fmt.Sprintf(`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":%t}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String(), retired)
-	response, err := client.Search(t.Context(), &opensearchapi.SearchReq{Indices: []string{index}, Body: strings.NewReader(query)})
+	response, err := client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{index}, BodyReader: strings.NewReader(query)})
 	if err != nil {
 		t.Fatalf("search pages of node %s: %v", nodeID, err)
 	}
 	pages := make([]searchPageSource, 0, len(response.Hits.Hits))
 	for _, hit := range response.Hits.Hits {
+		if hit.ID == nil {
+			t.Fatal("search page requires a document ID")
+		}
 		var page searchPageSource
 		if err := json.Unmarshal(hit.Source, &page); err != nil {
-			t.Fatalf("decode page %s: %v", hit.ID, err)
+			t.Fatalf("decode page %s: %v", *hit.ID, err)
 		}
-		page.ID = hit.ID
+		page.ID = *hit.ID
 		pages = append(pages, page)
 	}
 	return pages
@@ -141,7 +145,7 @@ func readSearchPageSequence(t *testing.T, stores *fdbadapter.Stores, nodeID uuid
 	request := searchdomain.ContentRequest{NodeID: nodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: pageBytes, SearchGeneration: 0}
 	pages := make([]node.ContentPage, 0, 8)
 	for range 10_000 {
-		page, err := reader.Content(t.Context(), request)
+		page, err := reader.Content(WithTestOperation(t, t.Context()), request)
 		if err != nil {
 			return nil, fmt.Errorf("read page %d of node %s: %w", len(pages), nodeID, err)
 		}
@@ -164,8 +168,9 @@ func uniqueSearchText(pages []node.ContentPage) string {
 }
 
 // requireIndexedPages requires one active document per reader page with the
-// same text, revision, projection, and ordinal. Each document generation is
-// at least minimum and equals its access generation.
+// same text, revision, projection, and ordinal, and generated chunks with
+// sparse weights that cover each page text. Each document generation is at
+// least minimum and equals its access generation.
 func requireIndexedPages(t *testing.T, documents []searchPageSource, pages []node.ContentPage, minimum int64) {
 	t.Helper()
 	if len(documents) != len(pages) {
@@ -177,6 +182,7 @@ func requireIndexedPages(t *testing.T, documents []searchPageSource, pages []nod
 			document.NodeRevision != page.Revision || document.ProjectionVersion != page.ProjectionVersion {
 			t.Fatalf("document %d does not match reader page %d", number, page.Ordinal)
 		}
+		requireNativeChunks(t, document.Semantic, page.Text)
 		generation, err := document.SearchGeneration.Int64()
 		if err != nil || generation < minimum || int64(document.Access.Generation) != generation {
 			t.Fatalf("document %d generation = %s, access generation %d, want at least %d", number, document.SearchGeneration, document.Access.Generation, minimum)

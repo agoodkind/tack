@@ -12,8 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
@@ -22,6 +21,7 @@ import (
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
 	appruntime "goodkind.io/tack/internal/runtime"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -58,7 +58,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 	if err != nil {
 		t.Fatalf("parse scale: %v", err)
 	}
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, seed, scale)
+	identities, err := datagen.BootstrapIdentities(integration.WithTestOperation(t, t.Context()), cfg, seed, scale)
 	if err != nil {
 		t.Fatalf("bootstrap identities: %v", err)
 	}
@@ -66,7 +66,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 	if err != nil {
 		t.Fatalf("open ranking stores: %v", err)
 	}
-	certificate, err := config.LoadSearchCA(t.Context(), cfg.SearchCA)
+	certificate, err := config.LoadSearchCA(integration.WithTestOperation(t, t.Context()), cfg.SearchCA)
 	if err != nil {
 		t.Fatalf("load search CA: %v", err)
 	}
@@ -74,7 +74,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 		Endpoint: cfg.SearchEndpoint, CA: certificate, Username: cfg.SearchUsername,
 		Password: cfg.SearchPassword, RequestTimeout: 2 * time.Minute, MaxRetries: 1,
 	}
-	base, err := opensearch.NewClient(settings.ClientConfig(nil))
+	baseAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: settings.ClientConfig(nil)})
 	if err != nil {
 		t.Fatalf("open OpenSearch client: %v", err)
 	}
@@ -85,7 +85,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 	workspace := identities.Workspaces[0]
 	run := &rankingRun{
 		driver: datagen.NewDriver(graph, false, seed), token: workspace.Actors[0].Token, workspace: workspace.Slug,
-		stores: stores, client: opensearchapi.NewFromClient(base), cursors: tools.NewSearchCursorCodec(key),
+		stores: stores, client: baseAPI, cursors: tools.NewSearchCursorCodec(key),
 		names: map[uuid.UUID]string{},
 	}
 	identifier := json.RawMessage(strconv.Quote(rankingProject))
@@ -97,7 +97,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 
 func (r *rankingRun) call(t *testing.T, tool string, arguments datagen.ToolArguments) datagen.Result {
 	t.Helper()
-	result, err := r.driver.Call(t.Context(), r.token, tool, arguments)
+	result, err := r.driver.Call(integration.WithTestOperation(t, t.Context()), r.token, tool, arguments)
 	if err != nil {
 		t.Fatalf("call %s: %v", tool, err)
 	}

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 const traceDescriptionBytes = 120
@@ -55,11 +55,14 @@ func traceDot(query, chunk map[string]float64) float64 {
 
 func traceHitNode(t *testing.T, hit opensearchapi.SearchHit) uuid.UUID {
 	t.Helper()
+	if hit.ID == nil {
+		t.Fatal("trace hit requires a document ID")
+	}
 	var source struct {
 		NodeID string `json:"node_id"`
 	}
 	if err := json.Unmarshal(hit.Source, &source); err != nil {
-		t.Fatalf("decode trace hit %s: %v", hit.ID, err)
+		t.Fatalf("decode trace hit %s: %v", *hit.ID, err)
 	}
 	nodeID, err := uuid.Parse(source.NodeID)
 	if err != nil {
@@ -73,17 +76,20 @@ func rankedTraceNodes(t *testing.T, hits []opensearchapi.SearchHit) []rankedNode
 	seen := map[uuid.UUID]bool{}
 	ranked := make([]rankedNode, 0, len(hits))
 	for _, hit := range hits {
+		if hit.Score == nil {
+			t.Fatal("ranked trace hit requires a score")
+		}
 		nodeID := traceHitNode(t, hit)
 		if seen[nodeID] {
 			continue
 		}
 		seen[nodeID] = true
-		ranked = append(ranked, rankedNode{ID: nodeID, Score: hit.Score})
+		ranked = append(ranked, rankedNode{ID: nodeID, Score: float32(*hit.Score)})
 	}
 	return ranked
 }
 
-func explanationParts(explanation *opensearchapi.DocumentExplainDetails, depth int) string {
+func explanationParts(explanation *opensearchapi.ExplainExplanation, depth int) string {
 	if explanation == nil || depth == 0 {
 		return ""
 	}

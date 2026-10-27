@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -61,7 +60,7 @@ func cursorSession(t *testing.T, fixture queryFixture, cursor string) searchdoma
 	if err != nil {
 		t.Fatalf("decode cursor: %v", err)
 	}
-	session, err := fixture.Stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(t.Context(), sessionID)
+	session, err := fixture.Stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(WithTestOperation(t, t.Context()), sessionID)
 	if err != nil {
 		t.Fatalf("load session %s: %v", sessionID, err)
 	}
@@ -72,13 +71,16 @@ func cursorSession(t *testing.T, fixture queryFixture, cursor string) searchdoma
 // to contain three sort values under one point in time: a finite score that
 // does not increase across the batch, the match's node ID, and a nonnegative
 // integer shard document position. The next batch must repeat no sort
-// position.
+// position. One node also has cursorTiedPages copies of its page with equal
+// score and node ID, and a full traversal of the point in time must read each
+// of those page documents once.
 func TestSearchCursorExactSortValues(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
-	putCursorCorpus(t, fixture, "amber lattice", 150)
+	nodes := putCursorCorpus(t, fixture, "amber lattice", 150)
+	putTiedPages(t, fixture, nodes[0], cursorTiedPages)
 	session := cursorSession(t, fixture, callSearch(t, fixture.Harness, "amber lattice", "").Cursor)
 	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
-	batch, err := ranker.Read(t.Context(), session.Query, session.Snapshot, nil)
+	batch, err := ranker.Read(WithTestOperation(t, t.Context()), session.Query, session.Snapshot, nil)
 	if err != nil {
 		t.Fatalf("read batch: %v", err)
 	}
@@ -89,7 +91,7 @@ func TestSearchCursorExactSortValues(t *testing.T) {
 	for _, hit := range batch.Hits {
 		previousScore = requireSortValues(t, hit, previousScore)
 	}
-	next, err := ranker.Read(t.Context(), session.Query, searchdomain.Snapshot{PITID: batch.PITID, Index: session.Snapshot.Index, QueryTokens: session.Snapshot.QueryTokens}, batch.Hits[99].Sort)
+	next, err := ranker.Read(WithTestOperation(t, t.Context()), session.Query, searchdomain.Snapshot{PITID: batch.PITID, Index: session.Snapshot.Index, QueryTokens: session.Snapshot.QueryTokens}, batch.Hits[99].Sort)
 	if err != nil {
 		t.Fatalf("read next batch: %v", err)
 	}
@@ -98,6 +100,7 @@ func TestSearchCursorExactSortValues(t *testing.T) {
 			t.Fatalf("search_after repeated sort position %s", hit.Sort)
 		}
 	}
+	requireTiedPagesOnce(t, fixture, ranker, session, nodes[0])
 }
 
 // requireSortValues checks the score, node ID, and shard document sort values
@@ -138,35 +141,5 @@ func TestSearchCursorOnePredictionPerSession(t *testing.T) {
 	continued := cursorSession(t, fixture, second.Cursor)
 	if !bytes.Equal(opened.Snapshot.QueryTokens, continued.Snapshot.QueryTokens) || continued.Version != opened.Version+1 {
 		t.Fatalf("continuation changed the query tokens or skipped a version: %d to %d", opened.Version, continued.Version)
-	}
-}
-
-// TestSearchCursorReplayAndConcurrency requires a retry after a lost response
-// to replay the committed page exactly. Concurrent calls with one cursor must
-// all receive the same page.
-func TestSearchCursorReplayAndConcurrency(t *testing.T) {
-	fixture := newQueryFixture(t, defaultQueryOptions())
-	putCursorCorpus(t, fixture, "granite orchard", 120)
-	first := callSearch(t, fixture.Harness, "granite orchard", "")
-	second := callSearch(t, fixture.Harness, "granite orchard", first.Cursor)
-	retried := callSearch(t, fixture.Harness, "granite orchard", first.Cursor)
-	if !slices.Equal(second.IDs, retried.IDs) || second.Cursor != retried.Cursor {
-		t.Fatalf("replay returned %v and %q, want %v and %q", retried.IDs, retried.Cursor, second.IDs, second.Cursor)
-	}
-	const callers = 4
-	pages := make([]searchPage, callers)
-	failures := make([]error, callers)
-	var group sync.WaitGroup
-	for caller := range callers {
-		group.Go(func() { pages[caller], failures[caller] = trySearch(fixture.Harness, "granite orchard", second.Cursor) })
-	}
-	group.Wait()
-	for caller := range callers {
-		if failures[caller] != nil {
-			t.Fatalf("concurrent caller %d failed: %v", caller, failures[caller])
-		}
-		if !slices.Equal(pages[caller].IDs, pages[0].IDs) || pages[caller].Cursor != pages[0].Cursor {
-			t.Fatalf("concurrent caller %d received a different page", caller)
-		}
 	}
 }

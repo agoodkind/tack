@@ -42,7 +42,11 @@ func (w *SearchWorker) rolloutScan(ctx context.Context, work searchdomain.Work, 
 	if err != nil {
 		return w.settle(ctx, work, "scan authority nodes for access rollout", err)
 	}
-	if err := w.ports.Rollouts.CompleteScan(ctx, work, rollout, scan); err != nil {
+	complete := func(ctx context.Context) error { return w.ports.Rollouts.CompleteScan(ctx, work, rollout, scan) }
+	if scan.Done {
+		complete = w.phaseStep(rollout, complete)
+	}
+	if err := complete(ctx); err != nil {
 		return w.settle(ctx, work, "checkpoint access rollout scan", err)
 	}
 	return w.yield(ctx, work)
@@ -58,7 +62,8 @@ func (w *SearchWorker) rolloutRetire(ctx context.Context, work searchdomain.Work
 	if active {
 		return w.waitRollout(ctx, work)
 	}
-	if err := w.ports.Rollouts.BeginRetire(ctx, work, rollout); err != nil {
+	retire := w.phaseStep(rollout, func(ctx context.Context) error { return w.ports.Rollouts.BeginRetire(ctx, work, rollout) })
+	if err := retire(ctx); err != nil {
 		return w.settle(ctx, work, "begin access version retirement", err)
 	}
 	return w.yield(ctx, work)
@@ -81,8 +86,28 @@ func (w *SearchWorker) rolloutVerify(ctx context.Context, work searchdomain.Work
 	if err != nil {
 		return w.settleEngine(ctx, work, "read access rollout page documents", err)
 	}
-	step, err := w.ports.Rollouts.CompleteVerify(ctx, work, rollout, documents, states, done)
-	if err != nil {
+	/* The multi-get above reads page documents before OpenSearch makes them
+	   searchable. The last batch of a pass can activate the candidate version.
+	   Before that checkpoint, the slice refreshes the indexes of work. A
+	   session opened after the checkpoint then searches every verified page. */
+	if done {
+		if err := w.refreshWorkIndexes(ctx, work); err != nil {
+			return w.settleEngine(ctx, work, "refresh search index before access rollout checkpoint", err)
+		}
+	}
+	var step searchdomain.RolloutStep
+	verify := func(ctx context.Context) error {
+		var verifyErr error
+		step, verifyErr = w.ports.Rollouts.CompleteVerify(ctx, work, rollout, documents, states, done)
+		if verifyErr != nil {
+			return structureFailure(ctx, "checkpoint the access rollout verification", verifyErr)
+		}
+		return nil
+	}
+	if done {
+		verify = w.phaseStep(rollout, verify)
+	}
+	if err := verify(ctx); err != nil {
 		return w.settle(ctx, work, "checkpoint access rollout verification", err)
 	}
 	switch step {
@@ -95,6 +120,10 @@ func (w *SearchWorker) rolloutVerify(ctx context.Context, work searchdomain.Work
 	case searchdomain.RolloutContinue:
 	}
 	return w.yield(ctx, work)
+}
+
+func (w *SearchWorker) phaseStep(rollout searchdomain.AccessRollout, effect func(context.Context) error) func(context.Context) error {
+	return func(ctx context.Context) error { return w.recordRolloutPhase(ctx, rollout, effect) }
 }
 
 // waitRollout delays the next claim of the rollout without recording a

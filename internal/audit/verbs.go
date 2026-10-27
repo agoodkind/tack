@@ -20,11 +20,21 @@ const (
 	VerbNodeDelete         Verb = "node.delete"
 	VerbRelationshipAdd    Verb = "relationship.add"
 	VerbRelationshipRemove Verb = "relationship.remove"
+	// VerbRelationshipUpdate records a write that replaces the stored value
+	// of an existing relationship.
+	VerbRelationshipUpdate Verb = "relationship.update"
 	VerbPropertyDefCreate  Verb = "property_def.create"
 	VerbPropertyDefUpdate  Verb = "property_def.update"
 	VerbPropertyDefDelete  Verb = "property_def.delete"
 	VerbNodeTypeCreate     Verb = "node_type.create"
 	VerbNodeTypeUpdate     Verb = "node_type.update"
+	// VerbNodeTypeDelete records the deletion of a node type definition.
+	VerbNodeTypeDelete Verb = "node_type.delete"
+	// VerbSequenceCreate records the first stored value of a sequence counter.
+	VerbSequenceCreate Verb = "sequence.create"
+	// VerbSequenceUpdate records a change to the stored value of a sequence
+	// counter.
+	VerbSequenceUpdate Verb = "sequence.update"
 	// VerbNodeReferenceRename records a change to a node reference.
 	VerbNodeReferenceRename Verb = "node.reference_rename"
 	VerbOrgMemberAdd        Verb = "org.member_add"
@@ -106,6 +116,9 @@ const (
 	VerbOpsDatagenSoak Verb = "ops.datagen_soak"
 	// VerbOpsDatagenSearch records QA verification of public search.
 	VerbOpsDatagenSearch Verb = "ops.datagen_search"
+	// VerbOpsDatagenRepair records QA proof of the node integrity repair path
+	// through ops qa datagen repair with the audit verb ops.datagen_repair.
+	VerbOpsDatagenRepair Verb = "ops.datagen_repair"
 	// VerbOpsDatagenLegacyLedgerRow records QA generation of a ledger row in
 	// the shape the writer produced before the ledger stored outcomes.
 	VerbOpsDatagenLegacyLedgerRow Verb = "ops.datagen_legacy_ledger_row"
@@ -119,6 +132,7 @@ const (
 	// VerbOpsAuditConsumerOffsets records an operator reading the audit
 	// consumer's committed lag and the operator outbox remainders.
 	VerbOpsAuditConsumerOffsets Verb = "ops.audit_consumer_offsets"
+	VerbOpsSearchAccessRollback Verb = "ops.search_access_rollback" // VerbOpsSearchAccessRollback records an access policy rollback.
 	// VerbOpsAuditSchemaGuardProof records the intent and outcome of a CREATE TABLE
 	// probe against the audit schema using an engine superuser login.
 	VerbOpsAuditSchemaGuardProof Verb = "ops.audit_schema_guard_proof"
@@ -164,6 +178,9 @@ const (
 	VerbOpsBackfillDropKilltestSchema Verb = "ops.backfill_drop_killtest_schema"
 	// VerbOpsReindex records property index backfills.
 	VerbOpsReindex Verb = "ops.reindex"
+	// VerbOpsStrictValidation is the audit verb for strict validation scans
+	// and activation.
+	VerbOpsStrictValidation Verb = "ops.strict_validation"
 	// VerbOpsReferenceDuplicates records duplicate reference reports.
 	VerbOpsReferenceDuplicates Verb = "ops.reference_duplicates"
 	// VerbOpsBackup records a backup command without a subcommand.
@@ -226,6 +243,21 @@ const (
 	// VerbOpsStoreExclude records an operator taking product-store processes
 	// out of service, which moves their data first (TACK-408).
 	VerbOpsStoreExclude Verb = "ops.store_exclude"
+	// VerbSearchIndexStructure records a search worker step that creates,
+	// splits, or deletes a physical index or switches the public alias.
+	VerbSearchIndexStructure Verb = "search.index_structure"
+	// VerbSearchAccessRolloutPhase records a search worker step that can
+	// change the phase of an access policy rollout.
+	VerbSearchAccessRolloutPhase Verb = "search.access_rollout_phase"
+	// VerbSearchModelRepair records a model repair step that deploys a
+	// stuck serving model again.
+	VerbSearchModelRepair Verb = "search.model_repair"
+	// VerbAuditPartitionMaintain records one audit partition maintenance run
+	// of the audit-consumer.
+	VerbAuditPartitionMaintain Verb = "audit.partition_maintain"
+	// VerbNodeSubtreeDeleteResume records one run of the delete resumer that
+	// finishes a subtree delete job without a runner.
+	VerbNodeSubtreeDeleteResume Verb = "node.subtree_delete_resume"
 )
 
 // stateChangeVerbs is the set of application events that must be persisted
@@ -237,11 +269,15 @@ var stateChangeVerbs = map[Verb]bool{
 	VerbNodeDelete:         true,
 	VerbRelationshipAdd:    true,
 	VerbRelationshipRemove: true,
+	VerbRelationshipUpdate: true,
+	VerbNodeTypeDelete:     true,
 	VerbPropertyDefCreate:  true,
 	VerbPropertyDefUpdate:  true,
 	VerbPropertyDefDelete:  true,
 	VerbNodeTypeCreate:     true,
 	VerbNodeTypeUpdate:     true,
+	VerbSequenceCreate:     true,
+	VerbSequenceUpdate:     true,
 	VerbOrgMemberAdd:       true,
 	VerbOrgMemberRemove:    true,
 	VerbOrgMemberRoleSet:   true,

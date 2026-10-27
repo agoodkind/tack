@@ -3,13 +3,14 @@ package integration
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -25,7 +26,7 @@ func TestSearchClusterProxyEndpoint(t *testing.T) {
 	requireSearchable(t, fixture, []uuid.UUID{clusterNodeWriter(t, fixture)()})
 	proxy, err := url.Parse(cluster.Fixture.Endpoint)
 	clusterRequire(t, "parse proxy endpoint", err)
-	endpoints, err := fixture.Adapter.Endpoints(t.Context())
+	endpoints, err := fixture.Adapter.Endpoints(WithTestOperation(t, t.Context()))
 	clusterRequire(t, "read adapter endpoints", err)
 	if len(endpoints) == 0 {
 		t.Fatal("the adapter reported no endpoint")
@@ -37,10 +38,11 @@ func TestSearchClusterProxyEndpoint(t *testing.T) {
 	}
 }
 
-// TestSearchClusterEngineOutage stops the only engine and then commits a
-// FoundationDB write. Search fails explicitly, the node's search work fails,
-// and its live work stays pending. After the restart, the worker completes
-// the pending work and the node becomes searchable.
+// TestSearchClusterEngineOutage stops the only engine behind the proxy and
+// then commits a FoundationDB write. The proxy answers HTTP 503, tack_search
+// returns the unavailable response, the node's search work fails, and its
+// live work stays pending. After the restart, the worker completes the
+// pending work and the node becomes searchable.
 func TestSearchClusterEngineOutage(t *testing.T) {
 	cluster := startSearchTestCluster(t, 1)
 	fixture, spec := newClusterQueryFixture(t, cluster.Fixture)
@@ -50,22 +52,31 @@ func TestSearchClusterEngineOutage(t *testing.T) {
 	member := cluster.Members()[0]
 	cluster.StopMember(t, member)
 	nodeID := write()
-	if page, err := trySearch(fixture.Harness, clusterPhrase, ""); err == nil {
-		t.Fatalf("search during the outage returned %d results instead of an error", len(page.IDs))
+	info, err := fixture.Client.Info(WithTestOperation(t, t.Context()), nil)
+	status := 0
+	if response := info.Inspect().Response; response != nil {
+		status = response.StatusCode
+	}
+	if err == nil || status != http.StatusServiceUnavailable {
+		t.Fatalf("the proxy answered with HTTP %d and error %v during the outage, want HTTP 503", status, err)
+	}
+	text, isError, err := rawSearchCall(fixture.Harness, searchArguments(fixture.Harness, clusterPhrase, ""))
+	if err != nil || !isError || text != unavailableSearchMessage {
+		t.Fatalf("tack_search during the outage returned isError=%t text %q error %v, want %q", isError, text, err, unavailableSearchMessage)
 	}
 	clusterEventually(t, "fail the node's search work during the outage", func() error {
-		if _, err := fixture.Worker.RunSlice(t.Context()); err != nil && strings.Contains(err.Error(), nodeID.String()) {
+		if _, err := fixture.Worker.RunSlice(WithTestOperation(t, t.Context())); err != nil && strings.Contains(err.Error(), nodeID.String()) {
 			return nil
 		}
 		return errors.New("no worker slice failed for the node")
 	})
 	store := fixture.Stores.SearchWork(clock.Wall{})
 	clusterEventually(t, "claim the node's pending live work", func() error {
-		work, err := store.Claim(t.Context(), searchdomain.WorkClassLive, "cluster-inspector", time.Minute)
+		work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "cluster-inspector", time.Minute)
 		if err != nil {
 			return clusterFailure("claim live work", err)
 		}
-		clusterRequire(t, "yield inspected work", store.Yield(t.Context(), work))
+		clusterRequire(t, "yield inspected work", store.Yield(WithTestOperation(t, t.Context()), work))
 		if work.NodeID != nodeID {
 			return fmt.Errorf("claimed live work of node %s", work.NodeID)
 		}
@@ -100,7 +111,7 @@ func TestSearchClusterScaleOut(t *testing.T) {
 	requireModelOnEveryMember(t, fixture, spec.Model.ID, len(members))
 	awaitGreen := func() {
 		clusterEventually(t, "wait for green index health", func() error {
-			return clusterFailure("read index health", fixture.Adapter.WaitGreen(t.Context(), fixture.Index, search.DefaultGreenWait))
+			return clusterFailure("read index health", fixture.Adapter.WaitGreen(WithTestOperation(t, t.Context()), fixture.Index, search.DefaultGreenWait))
 		})
 	}
 	awaitGreen()
@@ -109,9 +120,9 @@ func TestSearchClusterScaleOut(t *testing.T) {
 	requireSearchable(t, fixture, []uuid.UUID{initial})
 	before := pagesOf(t, fixture, []uuid.UUID{initial})
 	spec.Replicas = 1
-	clusterRequire(t, "raise the replica count", fixture.Adapter.EnsureIndex(t.Context(), fixture.Index, spec))
+	clusterRequire(t, "raise the replica count", fixture.Adapter.EnsureIndex(WithTestOperation(t, t.Context()), fixture.Index, spec))
 	awaitGreen()
-	settings, err := fixture.Adapter.IndexSettings(t.Context(), fixture.Index)
+	settings, err := fixture.Adapter.IndexSettings(WithTestOperation(t, t.Context()), fixture.Index)
 	if err != nil || settings.Replicas != 1 {
 		t.Fatalf("index settings %+v err %v, want one replica", settings, err)
 	}
@@ -144,8 +155,8 @@ func TestSearchClusterScaleOut(t *testing.T) {
 func awaitClusterGreen(t *testing.T, fixture queryFixture) {
 	t.Helper()
 	clusterEventually(t, "wait for green cluster health", func() error {
-		response, err := fixture.Client.Cluster.Health(t.Context(), &opensearchapi.ClusterHealthReq{
-			Params: opensearchapi.ClusterHealthParams{WaitForStatus: "green", Timeout: search.DefaultGreenWait},
+		response, err := fixture.Client.Cluster.Health(WithTestOperation(t, t.Context()), &opensearchapi.ClusterHealthReq{
+			Params: &opensearchapi.ClusterHealthParams{WaitForStatus: "green", Timeout: search.DefaultGreenWait},
 		})
 		if err != nil {
 			return clusterFailure("read cluster health", err)

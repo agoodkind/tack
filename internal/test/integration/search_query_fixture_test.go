@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
@@ -51,7 +51,7 @@ func newQueryFixture(t *testing.T, options queryOptions) queryFixture {
 	t.Helper()
 	stores := newSearchStore(t)
 	adapter, client := nativeSearchClients(t)
-	model, err := adapter.Provision(t.Context())
+	model, err := adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
@@ -60,13 +60,13 @@ func newQueryFixture(t *testing.T, options queryOptions) queryFixture {
 	deleteNativeIndex(t, client, index)
 	t.Cleanup(func() { deleteNativeIndex(t, client, index) })
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: options.Primaries, RoutingShards: 24, Replicas: 0}
-	if err := adapter.EnsureIndex(t.Context(), index, spec); err != nil {
+	if err := adapter.EnsureIndex(WithTestOperation(t, t.Context()), index, spec); err != nil {
 		t.Fatalf("create search index: %v", err)
 	}
-	if err := adapter.SetAlias(t.Context(), search.PublicAlias, index); err != nil {
+	if err := adapter.SetAlias(WithTestOperation(t, t.Context()), search.PublicAlias, index); err != nil {
 		t.Fatalf("set public alias: %v", err)
 	}
-	if err := stores.InitializeSearchIndex(t.Context(), index); err != nil {
+	if err := stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)
 	}
 	configureSearchRuntime(t)
@@ -78,15 +78,15 @@ func newQueryFixture(t *testing.T, options queryOptions) queryFixture {
 		t.Fatalf("parse scale: %v", err)
 	}
 	seed := nextHarnessSeed()
-	identities, err := datagen.BootstrapIdentities(t.Context(), cfg, seed, scale)
+	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, seed, scale)
 	if err != nil {
 		t.Fatalf("bootstrap identities: %v", err)
 	}
 	workspace := identities.Workspaces[0]
 	harness := &MCPHarness{
-		driver: datagen.NewDriver(graph, false, seed), handler: graph.AuthMiddleware(graph.MCPHandler),
+		driver: datagen.NewDriver(graph, false, seed), handler: graph.MCPRoute,
 		token: workspace.Actors[0].Token, ledgerDSN: cfg.DatabaseURL, orgID: workspace.OrgID,
-		Workspace: workspace.Slug, Project: "",
+		Workspace: workspace.Slug, Project: "", outbox: stores.OpsOutbox,
 	}
 	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, searchWorkerSettings(runtimePageBytes))
 	return queryFixture{
@@ -122,7 +122,7 @@ func queryConfig(t *testing.T) *config.Config {
 // buildQueryGraph builds one Tack process over the shared engines.
 func buildQueryGraph(t *testing.T, cfg *config.Config) *appruntime.Graph {
 	t.Helper()
-	graph, err := appruntime.BuildGraph(t.Context(), cfg)
+	graph, err := appruntime.BuildGraph(WithTestOperation(t, t.Context()), cfg)
 	if err != nil {
 		t.Fatalf("build graph: %v", err)
 	}
@@ -133,8 +133,9 @@ func buildQueryGraph(t *testing.T, cfg *config.Config) *appruntime.Graph {
 // processHarness returns a harness for another process with the same token.
 func processHarness(harness *MCPHarness, graph *appruntime.Graph) *MCPHarness {
 	return &MCPHarness{
-		driver: harness.driver, handler: graph.AuthMiddleware(graph.MCPHandler), token: harness.token,
+		driver: harness.driver, handler: graph.MCPRoute, token: harness.token,
 		ledgerDSN: harness.ledgerDSN, orgID: harness.orgID, Workspace: harness.Workspace, Project: "",
+		outbox: harness.outbox,
 	}
 }
 
@@ -142,7 +143,7 @@ func processHarness(harness *MCPHarness, graph *appruntime.Graph) *MCPHarness {
 // the node through the entry-point type metadata of the organization.
 func entryPoint(t *testing.T, fixture queryFixture, workspace datagen.WorkspaceIdentity) uuid.UUID {
 	t.Helper()
-	types, err := fixture.Stores.NodeTypes.List(t.Context(), workspace.OrgID)
+	types, err := fixture.Stores.NodeTypes.List(WithTestOperation(t, t.Context()), workspace.OrgID)
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
 	}
@@ -150,7 +151,7 @@ func entryPoint(t *testing.T, fixture queryFixture, workspace datagen.WorkspaceI
 		if !kind.Features.Has(node.FeatureIsEntryPoint) {
 			continue
 		}
-		views, err := fixture.Stores.Views.List(t.Context(), node.NodeListQuery{OrgID: workspace.OrgID, NodeType: kind.TypeKey})
+		views, err := fixture.Stores.Views.List(WithTestOperation(t, t.Context()), node.NodeListQuery{OrgID: workspace.OrgID, NodeType: kind.TypeKey})
 		if err != nil {
 			t.Fatalf("list entry points: %v", err)
 		}
@@ -170,7 +171,7 @@ func requireUnauthenticatedRefused(t *testing.T, harness *MCPHarness) {
 	t.Helper()
 	anonymous := &MCPHarness{
 		driver: harness.driver, handler: harness.handler, token: "", ledgerDSN: harness.ledgerDSN,
-		orgID: harness.orgID, Workspace: harness.Workspace, Project: "",
+		orgID: harness.orgID, Workspace: harness.Workspace, Project: "", outbox: harness.outbox,
 	}
 	status := rawCallStatus(t, anonymous, "tack_search", map[string]any{"query": "anything"})
 	if status != http.StatusUnauthorized {

@@ -3,7 +3,7 @@ package tools
 import (
 	"strings"
 
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/service"
@@ -19,6 +19,9 @@ type NodeTypeBinding struct {
 	// assignee UUIDs to display names. When nil, the renderer falls back to
 	// raw IDs.
 	Users user.Repository
+	// Relationships reads assigned_to relationships for nodes that the get and
+	// list tools render. Every binding must set this field.
+	Relationships node.RelationshipBatchLister
 }
 
 // RegisterNodeTools registers list/create/get/update/delete tools for a NodeType.

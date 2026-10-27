@@ -8,6 +8,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -37,28 +38,40 @@ func NewPropertyDefStore(db fdb.Database, source clock.Clock) *PropertyDefStore 
 // store it. Set also accepts a nil declaration on an existing record.
 func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.set")(&err)
+	if def.Type == node.PropertyTypeUUID && def.ReferenceTargetTypeKey != "" && !def.Indexed {
+		return unindexedReferenceError{definition: def}
+	}
 	b, err := json.Marshal(def)
 	if err != nil {
-		return fmt.Errorf("marshal property def: %w", err)
+		return nodeOperationFailure(ctx, "marshal property definition "+def.ID.String(), err)
 	}
-	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+	changes, err := beginMutationAudit(ctx, def.OrgID)
+	if err != nil {
+		return err
+	}
+	err = runNodeMutation(ctx, s.db, "set property definition "+def.ID.String(), func(tr fdb.Transaction) error {
+		changes.startAttempt()
 		key := propertyDefKey(def.OrgID, def.ID)
 		previous, readErr := tr.Get(fdb.Key(key)).Get()
 		if readErr != nil {
-			return nil, searchReadFailure(ctx, "read property definition "+def.ID.String(), readErr)
+			return searchReadFailure(ctx, "read property definition "+def.ID.String(), readErr)
 		}
 		if len(previous) == 0 && def.Search == nil {
 			if _, projectionErr := node.EffectiveSearchProjection(def); projectionErr != nil {
-				return nil, undeclaredDefinitionError{definition: def}
+				return undeclaredDefinitionError{definition: def}
 			}
 		}
 		if err := updatePropertyDefinition(ctx, tr, s.clock.Now(), s.searchWork, def.OrgID, def.ID, previous, def); err != nil {
-			return nil, err
+			return err
 		}
 		tr.Set(fdb.Key(key), b)
-		return nil, nil
+		return recordMetadataChange(ctx, tr, changes, propertyDefTarget(def.ID, def.Name), previous, b)
 	})
-	return
+	if err != nil {
+		return err
+	}
+	changes.finish(ctx)
+	return nil
 }
 
 // undeclaredDefinitionError reports Set's refusal to store a new definition
@@ -78,21 +91,38 @@ func (e undeclaredDefinitionError) Error() string {
 // Unwrap lets callers match node.ErrInvalidSearchProjection.
 func (e undeclaredDefinitionError) Unwrap() error { return node.ErrInvalidSearchProjection }
 
+// unindexedReferenceError reports the rejection of a UUID reference
+// definition that does not set Indexed. The deferred telemetry.FDBOp in Set
+// logs the error once.
+type unindexedReferenceError struct {
+	definition *node.PropertyDef
+}
+
+func (e unindexedReferenceError) Error() string {
+	return fmt.Sprintf("store property definition %q (%s) in org %s: a reference to %s nodes must set Indexed: %v",
+		e.definition.Name, e.definition.ID, e.definition.OrgID, e.definition.ReferenceTargetTypeKey, domain.ErrInvalidArgument)
+}
+
+// Unwrap lets callers match domain.ErrInvalidArgument.
+func (e unindexedReferenceError) Unwrap() error { return domain.ErrInvalidArgument }
+
 func (s *PropertyDefStore) Get(ctx context.Context, orgID, defID uuid.UUID) (def *node.PropertyDef, err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.get")(&err)
-	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		return tr.Get(fdb.Key(propertyDefKey(orgID, defID))).Get()
+	var encoded []byte
+	err = runNodeReadTransaction(ctx, s.db, "get property definition "+defID.String(), func(tr fdb.Transaction) error {
+		var readErr error
+		encoded, readErr = tr.Get(fdb.Key(propertyDefKey(orgID, defID))).Get()
+		if readErr != nil {
+			return searchReadFailure(ctx, "read property definition "+defID.String(), readErr)
+		}
+		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("fdb get property def: %w", err)
-	}
-	b, ok := val.([]byte)
-	if !ok || len(b) == 0 {
-		return nil, nil
+	if err != nil || len(encoded) == 0 {
+		return nil, err
 	}
 	var d node.PropertyDef
-	if err := json.Unmarshal(b, &d); err != nil {
-		return nil, fmt.Errorf("unmarshal property def: %w", err)
+	if err := json.Unmarshal(encoded, &d); err != nil {
+		return nil, nodeOperationFailure(ctx, "unmarshal property definition "+defID.String(), err)
 	}
 	return &d, nil
 }
@@ -101,20 +131,25 @@ func (s *PropertyDefStore) List(ctx context.Context, orgID uuid.UUID) (defs []*n
 	defer telemetry.FDBOp(ctx, "store.property_def.list")(&err)
 	pr, err := fdb.PrefixRange(propertyDefPrefix(orgID))
 	if err != nil {
-		return nil, err
+		return nil, nodeOperationFailure(ctx, "create the property definition range", err)
 	}
-	vals, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		return tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
+	var kvs []fdb.KeyValue
+	err = runNodeReadTransaction(ctx, s.db, "list property definitions", func(tr fdb.Transaction) error {
+		var readErr error
+		kvs, readErr = tr.GetRange(pr, fdb.RangeOptions{}).GetSliceWithError()
+		if readErr != nil {
+			return searchReadFailure(ctx, "read property definitions", readErr)
+		}
+		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("fdb list property defs: %w", err)
+		return nil, err
 	}
-	kvs := vals.([]fdb.KeyValue)
 	defs = make([]*node.PropertyDef, 0, len(kvs))
 	for _, kv := range kvs {
 		var d node.PropertyDef
 		if err := json.Unmarshal(kv.Value, &d); err != nil {
-			return nil, fmt.Errorf("unmarshal property def: %w", err)
+			return nil, nodeOperationFailure(ctx, "unmarshal property definition", err)
 		}
 		defs = append(defs, &d)
 	}
@@ -123,19 +158,32 @@ func (s *PropertyDefStore) List(ctx context.Context, orgID uuid.UUID) (defs []*n
 
 func (s *PropertyDefStore) Delete(ctx context.Context, orgID, defID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.delete")(&err)
-	_, err = s.db.Transact(func(tr fdb.Transaction) (any, error) {
+	changes, err := beginMutationAudit(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	err = runNodeMutation(ctx, s.db, "delete property definition "+defID.String(), func(tr fdb.Transaction) error {
+		changes.startAttempt()
 		key := propertyDefKey(orgID, defID)
 		previous, readErr := tr.Get(fdb.Key(key)).Get()
 		if readErr != nil {
-			return nil, searchReadFailure(ctx, "read property definition "+defID.String(), readErr)
+			return searchReadFailure(ctx, "read property definition "+defID.String(), readErr)
 		}
 		if err := updatePropertyDefinition(ctx, tr, s.clock.Now(), s.searchWork, orgID, defID, previous, nil); err != nil {
-			return nil, err
+			return err
 		}
 		tr.Clear(fdb.Key(key))
-		return nil, nil
+		target, err := storedPropertyDefTarget(ctx, defID, previous)
+		if err != nil {
+			return err
+		}
+		return recordMetadataChange(ctx, tr, changes, target, previous, nil)
 	})
-	return
+	if err != nil {
+		return err
+	}
+	changes.finish(ctx)
+	return nil
 }
 
 // encodePropertyValue encodes a raw JSON property value as FDB tuple bytes for

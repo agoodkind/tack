@@ -14,6 +14,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/searchaccess"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -27,7 +28,7 @@ const (
 
 func (f parentEdgeFixture) createLeaf(t *testing.T, parentID uuid.UUID, text string) uuid.UUID {
 	t.Helper()
-	created, err := f.nodes.Create(t.Context(), service.CreateInput{
+	created, err := f.nodes.Create(integration.WithTestOperation(t, t.Context()), service.CreateInput{
 		ParentID: parentID, NodeTypeKey: f.kind.typeKey, Name: text, ActorID: f.first.Actors[0].UserID,
 		Props: map[string]json.RawMessage{f.kind.included: parentEdgeJSON(t, text), f.kind.excluded: parentEdgeJSON(t, "excluded")},
 	})
@@ -37,12 +38,13 @@ func (f parentEdgeFixture) createLeaf(t *testing.T, parentID uuid.UUID, text str
 	return created.View.ID
 }
 
-// moveLeaf sets the parent_id of nodeID to parentID through
-// NodeService.Update.
+// moveLeaf calls NodeService.Update to set the parent_id and scope_id of
+// nodeID to parentID.
 func (f parentEdgeFixture) moveLeaf(t *testing.T, nodeID, parentID uuid.UUID) error {
 	t.Helper()
-	_, err := f.nodes.Update(t.Context(), service.UpdateInput{
-		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": parentEdgeJSON(t, parentID.String())},
+	target := parentEdgeJSON(t, parentID.String())
+	_, err := f.nodes.Update(integration.WithTestOperation(t, t.Context()), service.UpdateInput{
+		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target, "scope_id": target},
 		ActorID: f.first.Actors[0].UserID,
 	})
 	return err
@@ -60,7 +62,7 @@ func (f parentEdgeFixture) storeNode(t *testing.T, kind parentEdgeKind, text str
 	for _, relationship := range relationships {
 		relationship.OrgID, relationship.SourceID, relationship.CreatedAt = kind.orgID, nodeID, now
 	}
-	if err := f.stores.Nodes.CreateAtomic(t.Context(), created, view, relationships, nil, nil, nil); err != nil {
+	if err := f.stores.Nodes.CreateAtomic(integration.WithTestOperation(t, t.Context()), created, view, relationships, nil, nil, nil); err != nil {
 		t.Fatalf("store node %q: %v", text, err)
 	}
 	return nodeID
@@ -69,7 +71,7 @@ func (f parentEdgeFixture) storeNode(t *testing.T, kind parentEdgeKind, text str
 // summaryKeys returns the summary access keys of each node in nodeIDs.
 func (f parentEdgeFixture) summaryKeys(t *testing.T, nodeIDs ...uuid.UUID) map[uuid.UUID][]string {
 	t.Helper()
-	results, err := f.stores.NodeSummaries(f.stores.SearchPolicySet()).Summaries(t.Context(), nodeIDs, parentEdgeSummaryBytes)
+	results, err := f.stores.NodeSummaries(f.stores.SearchPolicySet()).Summaries(integration.WithTestOperation(t, t.Context()), nodeIDs, parentEdgeSummaryBytes)
 	if err != nil {
 		t.Fatalf("read summaries of %d nodes: %v", len(nodeIDs), err)
 	}
@@ -84,7 +86,7 @@ func (f parentEdgeFixture) summaryKeys(t *testing.T, nodeIDs ...uuid.UUID) map[u
 // organization.
 func (f parentEdgeFixture) index(t *testing.T, nodeID uuid.UUID) (node.SearchAccess, error) {
 	t.Helper()
-	access, err := f.stores.SearchPolicySet().Index(t.Context(), searchaccess.IndexAccessRequest{
+	access, err := f.stores.SearchPolicySet().Index(integration.WithTestOperation(t, t.Context()), searchaccess.IndexAccessRequest{
 		Version: searchaccess.StableVersion, OrganizationID: f.kind.orgID, ResourceID: nodeID, Generation: 0,
 	})
 	if err != nil {
@@ -100,7 +102,7 @@ func (f parentEdgeFixture) drain(t *testing.T) {
 	t.Helper()
 	deadline := clock.Now().Add(parentEdgeDeadline)
 	for clock.Now().Before(deadline) {
-		claimed, err := f.worker.RunSlice(t.Context())
+		claimed, err := f.worker.RunSlice(integration.WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("search slice failed: %v", err)
 		}
@@ -136,7 +138,7 @@ func (f parentEdgeFixture) search(t *testing.T, workspace datagen.WorkspaceIdent
 	found := []uuid.UUID{}
 	cursor := ""
 	for range parentEdgeSearchPages {
-		result, err := f.driver.Call(t.Context(), workspace.Actors[0].Token, "tack_search", datagen.ToolArguments{
+		result, err := f.driver.Call(integration.WithTestOperation(t, t.Context()), workspace.Actors[0].Token, "tack_search", datagen.ToolArguments{
 			WorkspaceReference: workspace.Slug, Query: query, Cursor: cursor,
 		})
 		if err != nil {

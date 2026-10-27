@@ -12,6 +12,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -48,12 +49,12 @@ func TestSearchRankingVersionRejectsEarlierSessions(t *testing.T) {
 	earlier.ID = uuid.Must(uuid.NewV7())
 	earlier.Binding = searchdomain.RankedSessionBinding(rankingEarlierVersion, current.PrincipalID, current.AuthorityID, current.EntryPointID, current.Query)
 	earlier.Sort, earlier.Version, earlier.Complete, earlier.Closing = nil, 0, false, false
-	if _, err := sessions.Create(t.Context(), earlier); err != nil {
+	if _, err := sessions.Create(integration.WithTestOperation(t, t.Context()), earlier); err != nil {
 		t.Fatalf("create the earlier-version session: %v", err)
 	}
 	run.requireMismatch(t, "continuation", run.cursors.Encode(earlier.ID, 0))
 	commit := searchdomain.PageCommit{Sort: current.Sort, PITID: current.Snapshot.PITID, Visited: page.IDs, ResultIDs: page.IDs, Complete: false}
-	if _, err := sessions.CommitPage(t.Context(), earlier.ID, 0, commit); err != nil {
+	if _, err := sessions.CommitPage(integration.WithTestOperation(t, t.Context()), earlier.ID, 0, commit); err != nil {
 		t.Fatalf("commit the first page of the earlier-version session: %v", err)
 	}
 	run.requireMismatch(t, "replay", run.cursors.Encode(earlier.ID, 0))
@@ -62,7 +63,7 @@ func TestSearchRankingVersionRejectsEarlierSessions(t *testing.T) {
 
 func (r *rankingRun) requireMismatch(t *testing.T, label, cursor string) {
 	t.Helper()
-	_, err := r.driver.Call(t.Context(), r.token, "tack_search", datagen.ToolArguments{
+	_, err := r.driver.Call(integration.WithTestOperation(t, t.Context()), r.token, "tack_search", datagen.ToolArguments{
 		WorkspaceReference: r.workspace, Query: rankingVersionQuery, Cursor: cursor,
 	})
 	if err == nil || !strings.Contains(err.Error(), rankingMismatchText) {

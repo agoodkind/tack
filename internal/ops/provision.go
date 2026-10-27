@@ -9,9 +9,6 @@ import (
 	"strings"
 
 	"github.com/moby/moby/client"
-	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/cli"
-	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
 )
 
@@ -25,75 +22,13 @@ import (
 // database. Its absence means the cluster has never been configured.
 const fdbAvailableMarker = "The database is available"
 
-type provisionInput struct {
-	clispec.InputMarker `exhaustruct:"optional"`
-	AllowFDBInit        bool
-}
-
-// provisionOp declares `ops provision`. The destructive fdb step is gated behind
-// --allow-fdb-init (default false) so it can never run against an
-// already-configured production cluster by accident.
-func provisionOp(f *cli.Factory) clispec.Operation[provisionInput] {
-	return clispec.Operation[provisionInput]{
-		Name:     clispec.Name{Canonical: "provision", CLIOverride: ""},
-		Lifetime: clispec.Permanent,
-		Audit: audit.Spec{
-			Verb:                       string(audit.VerbOpsProvision),
-			Mutates:                    true,
-			CreatesAuditInfrastructure: true,
-		},
-		Group:    opsGroup,
-		Aliases:  nil,
-		Hidden:   false,
-		Short:    "Bring a fresh environment to ready: fdb init (opt-in), migrate, seed audit roles, start fdb continuous backup, seed product",
-		Long:     "Ordered and idempotent: configure fdb only when unconfigured and --allow-fdb-init is set (fresh environments only, never prod), run migrations, seed the audit roles, start the FoundationDB continuous backup session when TACK_BACKUP_FDB_CONTINUOUS is true, then seed initial product data when SEED_EMAIL and SEED_NAME are set. Safe to re-run; each step no-ops when already done.",
-		Examples: nil,
-		Args:     nil,
-		Params: []clispec.Param[provisionInput]{
-			clispec.BoolParam("allow-fdb-init",
-				"Permit 'fdbcli configure new' when fdb is unconfigured. FRESH ENVIRONMENTS ONLY; never pass on prod.",
-				false, func(in *provisionInput, v bool) { in.AllowFDBInit = v }),
-		},
-		New: func() provisionInput { return provisionInput{InputMarker: clispec.InputMarker{}, AllowFDBInit: false} },
-		Run: func(ctx context.Context, in provisionInput, sink clispec.ResultSink) error {
-			if err := provisionRun(ctx, f.Cfg, in.AllowFDBInit); err != nil {
-				return err
-			}
-			return sink.WriteText(ctx, "provision complete")
-		},
-	}
-}
-
-// provisionRun executes the ordered first-boot steps. Each is idempotent so the
-// whole command converges a partially-provisioned environment.
-func provisionRun(ctx context.Context, cfg *config.Config, allowFDBInit bool) error {
-	cli, err := newDockerClient(ctx)
-	if err != nil {
-		wrapped := fmt.Errorf("provision docker client: %w", err)
-		slog.ErrorContext(ctx, "provision.docker_client.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	defer func() { _ = cli.Close() }()
-
-	if err := provisionFDB(ctx, cli, cfg, allowFDBInit); err != nil {
-		return err
-	}
-
-	if err := migrateAndSeedAuditRoles(ctx, cfg); err != nil {
-		return err
-	}
-
-	if err := provisionFDBContinuous(ctx, cfg, RunBackupFDBContinuousInit); err != nil {
-		return err
-	}
-
-	if cfg.SeedEmail == "" || cfg.SeedName == "" {
-		slog.InfoContext(ctx, "provision.seed.skipped",
-			slog.String("reason", "SEED_EMAIL and SEED_NAME unset; product seed is left to a deliberate run"))
-		return nil
-	}
-	return provisionSeed(ctx, cli, cfg)
-}
+// Observed states of the provision steps.
+const (
+	provisionFDBAlreadyConfigured = "already_configured"
+	provisionFDBConfigured        = "configured"
+	provisionSeedCompleted        = "seeded"
+	provisionSeedDeferred         = "deferred"
+)
 
 // provisionFDB configures a fresh FoundationDB cluster exactly once. A
 // configured cluster is detected via `fdbcli status minimal` and left
@@ -109,11 +44,13 @@ func provisionRun(ctx context.Context, cfg *config.Config, allowFDBInit bool) er
 // where the store processes are not all up yet, the configure fails here
 // rather than setting a mode the live processes cannot satisfy; provision is
 // re-runnable.
-func provisionFDB(ctx context.Context, cli *client.Client, cfg *config.Config, allowFDBInit bool) error {
+//
+// It returns the observed state of the cluster.
+func provisionFDB(ctx context.Context, cli *client.Client, cfg *config.Config, allowFDBInit bool) (string, error) {
 	mode := cfg.OpsFDBRedundancyMode
 	if err := validateRedundancyMode(mode); err != nil {
 		slog.ErrorContext(ctx, "provision.fdb.redundancy_rejected", slog.String("err", err.Error()))
-		return fmt.Errorf("provision fdb redundancy: %w", err)
+		return "", fmt.Errorf("provision fdb redundancy: %w", err)
 	}
 	// fdbcli exits nonzero when the cluster it is asked about was never
 	// configured, which is the reading this step wants. The exit code is
@@ -121,64 +58,34 @@ func provisionFDB(ctx context.Context, cli *client.Client, cfg *config.Config, a
 	status, _, err := readStoreCLI(ctx, cli, cfg, "status minimal")
 	if err != nil {
 		slog.ErrorContext(ctx, "provision.fdb.status_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("provision fdb status: %w", err)
+		return "", fmt.Errorf("provision fdb status: %w", err)
 	}
 	if strings.Contains(status, fdbAvailableMarker) {
 		slog.InfoContext(ctx, "provision.fdb.already_configured")
-		return nil
+		return provisionFDBAlreadyConfigured, nil
 	}
 	if !allowFDBInit {
 		unconfigured := errors.New("provision: fdb is not configured and --allow-fdb-init was not passed; pass it ONLY on a truly fresh environment, NEVER on prod")
 		slog.ErrorContext(ctx, "provision.fdb.unconfigured_no_optin", slog.String("err", unconfigured.Error()))
-		return unconfigured
+		return "", unconfigured
 	}
 	slog.WarnContext(ctx, "provision.fdb.configuring_new", slog.String("redundancy", mode))
 	out, err := runStoreCLIWith(ctx, cli, cfg, "configure new "+mode+" "+storeStorageEngine)
 	if err != nil {
 		slog.ErrorContext(ctx, "provision.fdb.configure_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("provision fdb configure: %w", err)
+		return "", fmt.Errorf("provision fdb configure: %w", err)
 	}
 	slog.InfoContext(ctx, "provision.fdb.configured", slog.String("out", out))
-	return nil
-}
-
-// provisionFDBContinuous arms the FoundationDB continuous backup stream so no
-// operator has to remember `ops backup fdb-continuous-init`. The flag is the
-// only switch: an environment that does not stream leaves it false and this is
-// a no-op. start is idempotent, because a session already running on the
-// configured destination is treated as success, so a re-run converges rather
-// than issuing a duplicate start.
-//
-// A failed start fails provision instead of being logged and swallowed,
-// including when the object store is unreachable. A provision that reports
-// success while nothing streams is exactly the silent gap this step closes,
-// and provision is re-runnable, so an operator who fixes the object store and
-// runs it again completes what a false success would have hidden forever.
-func provisionFDBContinuous(
-	ctx context.Context,
-	cfg *config.Config,
-	start func(context.Context, *config.Config) error,
-) error {
-	if !cfg.BackupFDBContinuous {
-		slog.InfoContext(ctx, "provision.fdb_continuous.skipped",
-			slog.String("reason", "TACK_BACKUP_FDB_CONTINUOUS is false"))
-		return nil
-	}
-	slog.InfoContext(ctx, "provision.fdb_continuous.start")
-	if err := start(ctx, cfg); err != nil {
-		wrapped := fmt.Errorf("provision fdb continuous backup: %w", err)
-		slog.ErrorContext(ctx, "provision.fdb_continuous.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	slog.InfoContext(ctx, "provision.fdb_continuous.ok")
-	return nil
+	return provisionFDBConfigured, nil
 }
 
 // provisionSeed runs `/server seed` inside the app container, which is on the
 // bridge and reaches FoundationDB. SEED_EMAIL and SEED_NAME are injected from
 // the provision config; seed is idempotent (it no-ops when an org already
 // exists). This is the stopgap until the typed FDB-ops path lands (TACK-318).
-func provisionSeed(ctx context.Context, cli *client.Client, cfg *config.Config) error {
+//
+// It returns the observed state of the seed.
+func provisionSeed(ctx context.Context, cli *client.Client, cfg *config.Config) (string, error) {
 	slog.InfoContext(ctx, "provision.seed.start", slog.String("container", cfg.OpsAppContainer))
 	env := []string{"SEED_EMAIL=" + cfg.SeedEmail, "SEED_NAME=" + cfg.SeedName}
 	var out bytes.Buffer
@@ -191,7 +98,7 @@ func provisionSeed(ctx context.Context, cli *client.Client, cfg *config.Config) 
 		slog.WarnContext(ctx, "provision.seed.deferred",
 			slog.String("reason", "app container not execable yet; re-run provision after the app is running"),
 			slog.String("err", err.Error()))
-		return nil
+		return provisionSeedDeferred, nil
 	}
 	if code != 0 {
 		seedErr := fmt.Errorf("provision seed: app container exited %d", code)
@@ -199,8 +106,8 @@ func provisionSeed(ctx context.Context, cli *client.Client, cfg *config.Config) 
 			slog.Int("code", code),
 			slog.String("stderr", strings.TrimSpace(stderr)),
 			slog.String("err", seedErr.Error()))
-		return seedErr
+		return "", seedErr
 	}
 	slog.InfoContext(ctx, "provision.seed.completed")
-	return nil
+	return provisionSeedCompleted, nil
 }

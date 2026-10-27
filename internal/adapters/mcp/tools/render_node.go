@@ -15,6 +15,7 @@ func renderNode(rc *renderCtx, view *node.NodeView) string {
 	if view == nil {
 		return executeMarkdownTemplate("node.md.tmpl", nodeTemplateData{Heading: "Node not found"})
 	}
+	addNodeTargets(rc.ctx, view)
 	ident := identifierFor(view, rc)
 	heading := view.Name
 	if ident != "" && ident != view.Name {
@@ -61,7 +62,7 @@ func nodeFields(rc *renderCtx, view *node.NodeView) []markdownField {
 			fields = append(fields, markdownFieldValue(humanLabel(key), value))
 		}
 	}
-	fields = appendAssignees(fields, rc, uuidArrayProp(view, "assignee_ids"))
+	fields = appendAssignees(fields, rc, view)
 	fields = appendUserField(fields, rc, "Created", view.CreatedAt, view.CreatedBy)
 	fields = appendUserField(fields, rc, "Updated", view.UpdatedAt, view.UpdatedBy)
 	fields = append(fields, markdownCodeFieldValue("Raw id", view.ID.String()))
@@ -77,23 +78,6 @@ func appendRefField(fields []markdownField, rc *renderCtx, label string, id uuid
 		return append(fields, markdownFieldValue(label, fmt.Sprintf("missing `%s`", id)))
 	}
 	return append(fields, markdownFieldValue(label, fmt.Sprintf("`%s` (`%s`)", ident, nodeType)))
-}
-
-func appendAssignees(fields []markdownField, rc *renderCtx, assignees []uuid.UUID) []markdownField {
-	if len(assignees) == 0 || rc == nil {
-		return fields
-	}
-	names := make([]string, 0, len(assignees))
-	for _, userID := range assignees {
-		name := rc.userDisplay(userID)
-		if name != "" {
-			names = append(names, name)
-		}
-	}
-	if len(names) == 0 {
-		return fields
-	}
-	return append(fields, markdownFieldValue("Assignees", strings.Join(names, ", ")))
 }
 
 func appendUserField(fields []markdownField, rc *renderCtx, label string, t time.Time, by uuid.UUID) []markdownField {

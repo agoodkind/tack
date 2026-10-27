@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -83,8 +83,10 @@ func (a *Adapter) sendBulk(ctx context.Context, index string, body []byte, opera
 	}
 	items := make([]opensearchapi.BulkRespItem, 0, len(operations))
 	for _, operation := range response.Items {
-		for _, item := range operation {
-			items = append(items, item)
+		for _, item := range []*opensearchapi.BulkRespItem{operation.Create, operation.Delete, operation.Index, operation.Update} {
+			if item != nil {
+				items = append(items, *item)
+			}
 		}
 	}
 	if len(items) != len(operations) {
@@ -97,26 +99,33 @@ func (a *Adapter) sendBulk(ctx context.Context, index string, body []byte, opera
 			break
 		}
 		item := items[position]
+		itemID := ""
+		if item.ID != nil {
+			itemID = *item.ID
+		}
 		outcome := bulkItemOutcomeFor(item, operation.documentID, policy)
 		switch outcome {
 		case bulkItemAccepted:
 			continue
 		case bulkItemObsolete:
-			obsolete := fmt.Errorf("document %s in %s has a higher generation: %w", item.ID, index, searchdomain.ErrObsoleteWrite)
+			obsolete := fmt.Errorf("document %s in %s has a higher generation: %w", itemID, index, searchdomain.ErrObsoleteWrite)
 			telemetry.L(ctx).InfoContext(ctx, "search.bulk.item_obsolete", slog.String("err", obsolete.Error()),
-				slog.String("document_id", item.ID), slog.String("index", index))
+				slog.String("document_id", itemID), slog.String("index", index))
 			return position, obsolete
 		case bulkItemConflict:
-			conflict := fmt.Errorf("document %s in %s: %w", item.ID, index, searchdomain.ErrConcurrentWrite)
+			conflict := fmt.Errorf("document %s in %s: %w", itemID, index, searchdomain.ErrConcurrentWrite)
 			telemetry.L(ctx).InfoContext(ctx, "search.bulk.item_conflict", slog.String("err", conflict.Error()),
-				slog.String("document_id", item.ID), slog.String("index", index))
+				slog.String("document_id", itemID), slog.String("index", index))
 			return position, conflict
 		case bulkItemRejected:
 			reason := ""
 			if item.Error != nil {
-				reason = item.Error.Type + ": " + item.Error.Reason
+				reason = item.Error.Type
+				if item.Error.Reason != nil {
+					reason += ": " + *item.Error.Reason
+				}
 			}
-			rejected := fmt.Errorf("bulk item %s for operation %s in %s returned status %d %s", item.ID, operation.documentID, index, item.Status, reason)
+			rejected := fmt.Errorf("bulk item %s for operation %s in %s returned status %d %s", itemID, operation.documentID, index, item.Status, reason)
 			telemetry.L(ctx).ErrorContext(ctx, "search.bulk.item_failed", slog.String("err", rejected.Error()),
 				slog.String("document_id", operation.documentID), slog.String("index", index), slog.Int("accepted", position))
 			return position, rejected
@@ -137,7 +146,7 @@ const (
 
 func bulkItemOutcomeFor(item opensearchapi.BulkRespItem, documentID string, policy bulkItemPolicy) bulkItemOutcome {
 	switch {
-	case item.ID != documentID:
+	case item.ID == nil || *item.ID != documentID:
 		return bulkItemRejected
 	case item.Error == nil && item.Status >= http.StatusOK && item.Status < http.StatusMultipleChoices:
 		return bulkItemAccepted
@@ -156,15 +165,8 @@ func bulkItemOutcomeFor(item opensearchapi.BulkRespItem, documentID string, poli
 // reason of one of its two nested causes, contains staleGenerationMarker.
 // OpenSearch wraps a Painless exception in a script exception.
 func hasStaleGenerationMarker(item opensearchapi.BulkRespItem) bool {
-	if item.Error == nil {
-		return false
-	}
-	reasons := []string{item.Error.Reason, item.Error.Cause.Reason}
-	if nested := item.Error.Cause.Cause; nested != nil && nested.Reason != nil {
-		reasons = append(reasons, *nested.Reason)
-	}
-	for _, reason := range reasons {
-		if strings.Contains(reason, staleGenerationMarker) {
+	for cause, depth := item.Error, 0; cause != nil && depth < 3; cause, depth = cause.CausedBy, depth+1 {
+		if cause.Reason != nil && strings.Contains(*cause.Reason, staleGenerationMarker) {
 			return true
 		}
 	}

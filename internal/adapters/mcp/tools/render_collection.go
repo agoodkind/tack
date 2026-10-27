@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/user"
 )
@@ -14,6 +13,7 @@ func renderList(rc *renderCtx, kind string, views []*node.NodeView) string {
 	for _, view := range views {
 		items = append(items, nodeListItem(rc, view))
 	}
+	addNodeTargets(rc.ctx, views...)
 	data := collectionTemplateData{Heading: titleText(kind), Count: len(views), Noun: kind, Items: items}
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }
@@ -73,6 +73,7 @@ func renderRelationships(rc *renderCtx, direction string, rels []*node.Relations
 	for _, rel := range rels {
 		items = append(items, relationshipListItem(rc, rel, label, otherIsTarget))
 	}
+	addRelationshipTargets(rc.ctx, rels)
 	data := collectionTemplateData{Heading: fmt.Sprintf("%s relationships", titleText(direction)), Count: len(rels), Noun: "relationships", Items: items}
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }
@@ -93,7 +94,7 @@ func nodeListItem(rc *renderCtx, view *node.NodeView) markdownItem {
 	if priority := stringProp(view, "priority"); priority != "" {
 		fields = append(fields, markdownCodeFieldValue("Priority", priority))
 	}
-	fields = appendNestedAssigned(fields, rc, uuidArrayProp(view, "assignee_ids"))
+	fields = appendNestedAssigned(fields, rc, view)
 	return markdownItem{Title: markdownCodeValue(ident), Fields: fields}
 }
 
@@ -111,14 +112,4 @@ func relationshipListItem(rc *renderCtx, rel *node.Relationship, label string, o
 		fields = append(fields, markdownFieldValue(label+" name", name))
 	}
 	return markdownItem{Title: markdownCodeValue(rel.RelationType), Fields: fields}
-}
-
-func appendNestedAssigned(fields []markdownField, rc *renderCtx, assignees []uuid.UUID) []markdownField {
-	if len(assignees) == 0 || rc == nil || rc.users == nil {
-		return append(fields, markdownFieldValue("Assigned", "unassigned"))
-	}
-	if len(assignees) == 1 {
-		return append(fields, markdownFieldValue("Assigned", rc.userDisplay(assignees[0])))
-	}
-	return append(fields, markdownFieldValue("Assigned", fmt.Sprintf("%d users", len(assignees))))
 }

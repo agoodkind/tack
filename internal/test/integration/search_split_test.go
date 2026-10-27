@@ -14,10 +14,13 @@ import (
 )
 
 // TestSearchSplitDuringChanges requires each split to finish creation with
-// the node scan complete, keep an unchanged node's semantic fields, and serve
-// every current node. It splits the serving index from one primary shard to
-// two, then from two to four, then from four to eight. It edits nodes while
-// claims are paused.
+// the node scan complete and a green target, keep an unchanged node's
+// semantic fields, and serve every current node. It splits the serving index
+// from one primary shard to two, then from two to four, then from four to
+// eight. It edits nodes while claims are paused. Rejected equal, lower, and
+// nonmultiplicative primary counts must leave the source writable. Before
+// every worker slice, the test indexes must be at most one serving, one
+// replacement, and one retiring index.
 func TestSearchSplitDuringChanges(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	workspace := fixture.Workspaces[0]
@@ -27,37 +30,40 @@ func TestSearchSplitDuringChanges(t *testing.T) {
 	edited := putOpaqueNode(t, fixture, kind, entry, "edited split node", "cobalt split original", readerExcludedValue)
 	drainSearchWork(t, fixture.Worker, 2000)
 	before := pagesOf(t, fixture, []uuid.UUID{unchanged})
-	for _, rejected := range []int{1, 3, 16} {
-		if _, err := fixture.Adapter.ValidateSplit(t.Context(), fixture.Index, rejected); err == nil {
-			t.Fatalf("split to %d primary shards was accepted", rejected)
-		}
-	}
+	requireSplitRejected(t, fixture, fixture.Index, 1, 3, 16)
+	editOpaqueNode(t, fixture, kind, edited, "cobalt split after rejection")
+	drainSearchWork(t, fixture.Worker, 2000)
+	requireCurrentPages(t, fixture, fixture.Index, []uuid.UUID{edited})
 
-	source := fixture.Index
+	first, source := fixture.Index, fixture.Index
 	created := uuid.Nil
 	for round, primaries := range []int{2, 4, 8} {
-		if _, err := fixture.Adapter.ValidateSplit(t.Context(), source, primaries); err != nil {
+		if round > 0 {
+			requireSplitRejected(t, fixture, source, 1)
+		}
+		if _, err := fixture.Adapter.ValidateSplit(WithTestOperation(t, t.Context()), source, primaries); err != nil {
 			t.Fatalf("split to %d primary shards was rejected: %v", primaries, err)
 		}
 		rebuild := beginRebuild(t, fixture, searchdomain.BeginRebuild{
 			Mode: searchdomain.ReplacementSplit, PrimaryShards: primaries, RoutingShards: 24, Replicas: 0, Restored: false, Reason: "test",
 		})
-		runRebuildUntil(t, fixture, func(current searchdomain.Rebuild, found bool) bool {
+		runBoundedRebuildUntil(t, fixture, first, func(current searchdomain.Rebuild, found bool) bool {
 			return found && current.Paused && current.State == searchdomain.RebuildCreating
 		})
 		if round == 0 {
 			created = putOpaqueNode(t, fixture, kind, entry, "created split node", "cobalt split created", readerExcludedValue)
 			editOpaqueNode(t, fixture, kind, edited, "cobalt split revised")
 		}
-		copying := runRebuildUntil(t, fixture, func(current searchdomain.Rebuild, found bool) bool {
+		copying := runBoundedRebuildUntil(t, fixture, first, func(current searchdomain.Rebuild, found bool) bool {
 			return found && current.State != searchdomain.RebuildCreating
 		})
 		if copying.State == searchdomain.RebuildFailed || !copying.ScanComplete {
 			t.Fatalf("split to %d primary shards entered %s with scan complete %t: %s", primaries, copying.State, copying.ScanComplete, copying.Failure)
 		}
-		runRebuildUntil(t, fixture, rebuildFinished)
+		requireGreen(t, fixture.Client, rebuild.TargetIndex)
+		runBoundedRebuildUntil(t, fixture, first, rebuildFinished)
 		requireServing(t, fixture, rebuild.TargetIndex, source)
-		settings, err := fixture.Adapter.IndexSettings(t.Context(), rebuild.TargetIndex)
+		settings, err := fixture.Adapter.IndexSettings(WithTestOperation(t, t.Context()), rebuild.TargetIndex)
 		if err != nil || settings.Primaries != primaries {
 			t.Fatalf("split target primaries = %d, error = %v, want %d", settings.Primaries, err, primaries)
 		}
@@ -99,17 +105,17 @@ func TestSearchSplitWithoutModel(t *testing.T) {
 	mapping := splitMapping(t, fixture, fixture.Index)
 	query := searchdomain.Query{Text: "cobalt split preserved", Index: fixture.Index, NodeType: kind.TypeKey, Access: callerAccess(t, fixture, workspace, entry)}
 	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 65536, BatchSize: 100})
-	snapshot, err := ranker.Open(t.Context(), query)
+	snapshot, err := ranker.Open(WithTestOperation(t, t.Context()), query)
 	if err != nil {
 		t.Fatalf("predict split control: %v", err)
 	}
 	tokens := bytes.Clone(snapshot.QueryTokens)
-	if err := ranker.Close(t.Context(), snapshot); err != nil {
+	if err := ranker.Close(WithTestOperation(t, t.Context()), snapshot); err != nil {
 		t.Fatalf("close split control: %v", err)
 	}
 	rawNodes := savedSparseNodes(t, fixture, query, tokens)
 	requireExactlyOnce(t, rawNodes, nodes)
-	model, err := fixture.Adapter.Provision(t.Context())
+	model, err := fixture.Adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("read split model: %v", err)
 	}
@@ -141,7 +147,7 @@ func TestSearchSplitWithoutModel(t *testing.T) {
 		t.Logf("model-free split primaries=%d nodes=%d sparse_nodes=%d token_bytes=%d", primaries, len(allNodes), len(rawNodes), len(tokens))
 		source = rebuild.TargetIndex
 	}
-	if err := redeployNativeModel(t.Context(), fixture.Adapter, fixture.Client); err != nil {
+	if err := redeployNativeModel(WithTestOperation(t, t.Context()), fixture.Adapter, fixture.Client); err != nil {
 		t.Fatalf("redeploy after native splits: %v", err)
 	}
 	fixture.Index = source

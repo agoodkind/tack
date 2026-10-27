@@ -55,6 +55,9 @@ type engineSpec struct {
 	// privileged runs the engine with every device and capability, for an
 	// engine that runs its own container daemon.
 	privileged bool `exhaustruct:"optional"`
+	// tmpfs mounts a memory file system at each path, with the mount options
+	// beside it.
+	tmpfs map[string]string `exhaustruct:"optional"`
 }
 
 // engine is a started engine container.
@@ -79,6 +82,10 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 	if err != nil {
 		return engine{}, err
 	}
+	owner, err := prepareCreate(ctx, cli)
+	if err != nil {
+		return engine{}, err
+	}
 	hostConfig, networking := engineNetworking(spec)
 	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
@@ -88,7 +95,7 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 			Cmd:         spec.cmd,
 			Env:         spec.env,
 			Healthcheck: spec.healthcheck,
-			Labels:      map[string]string{managedLabel: "true", processLabel: strconv.Itoa(os.Getpid())},
+			Labels:      ownerLabels(owner),
 		},
 		HostConfig:       hostConfig,
 		NetworkingConfig: networking,

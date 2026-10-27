@@ -79,16 +79,29 @@ func (r searchRun) ranked(ctx context.Context, query string, nodes ...uuid.UUID)
 
 // includes requires each node to appear in the complete traversal for query.
 func (r searchRun) includes(ctx context.Context, query string, nodes ...uuid.UUID) error {
-	results, err := traverseSearch(ctx, r.driver, r.token, r.entry, query, r.limits)
+	absent, err := r.missing(ctx, query, nodes...)
 	if err != nil {
 		return err
 	}
-	for _, nodeID := range nodes {
-		if !slices.Contains(results, nodeID) {
-			return fmt.Errorf("search %q omitted node %s", query, nodeID)
-		}
+	if len(absent) > 0 {
+		return fmt.Errorf("search %q omitted node %s", query, absent[0])
 	}
 	return nil
+}
+
+// missing returns, in input order, each node that the complete traversal for query omits.
+func (r searchRun) missing(ctx context.Context, query string, nodes ...uuid.UUID) ([]uuid.UUID, error) {
+	results, err := traverseSearch(ctx, r.driver, r.token, r.entry, query, r.limits)
+	if err != nil {
+		return nil, err
+	}
+	absent := make([]uuid.UUID, 0, len(nodes))
+	for _, nodeID := range nodes {
+		if !slices.Contains(results, nodeID) {
+			absent = append(absent, nodeID)
+		}
+	}
+	return absent, nil
 }
 
 // notIndexed requires nodeID to have at least one active page in the serving

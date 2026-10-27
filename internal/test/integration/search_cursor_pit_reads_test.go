@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -25,7 +25,7 @@ const diagnosticWait = 12 * time.Second
 func requireStoredName(t *testing.T, fixture queryFixture, pitID string, nodeID uuid.UUID, want, unwanted string) {
 	t.Helper()
 	body := fmt.Sprintf(`{"size":100,"pit":{"id":%q,"keep_alive":"1m"},"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}}}`, pitID, nodeID.String())
-	response, err := fixture.Client.Search(t.Context(), &opensearchapi.SearchReq{Indices: nil, Body: strings.NewReader(body)})
+	response, err := fixture.Client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: nil, BodyReader: strings.NewReader(body)})
 	if err != nil {
 		t.Fatalf("read pages of %s under point in time: %v", nodeID, err)
 	}
@@ -33,13 +33,16 @@ func requireStoredName(t *testing.T, fixture queryFixture, pitID string, nodeID 
 		t.Fatalf("no active page of %s under point in time", nodeID)
 	}
 	for _, hit := range response.Hits.Hits {
+		if hit.ID == nil {
+			t.Fatal("stored page requires a document ID")
+		}
 		var page searchPageSource
 		if err := json.Unmarshal(hit.Source, &page); err != nil || page.PageText == nil {
-			t.Fatalf("decode page %s of %s: %v", hit.ID, nodeID, err)
+			t.Fatalf("decode page %s of %s: %v", *hit.ID, nodeID, err)
 		}
-		t.Logf("page %s of %s: revision %s, name %q", hit.ID, nodeID, page.NodeRevision, page.Name)
+		t.Logf("page %s of %s: revision %s, name %q", *hit.ID, nodeID, page.NodeRevision, page.Name)
 		if !strings.HasPrefix(page.Name, want) || !strings.Contains(*page.PageText, want) || strings.Contains(*page.PageText, unwanted) {
-			t.Fatalf("page %s of %s stores name %q and text %q, want %q without %q", hit.ID, nodeID, page.Name, *page.PageText, want, unwanted)
+			t.Fatalf("page %s of %s stores name %q and text %q, want %q without %q", *hit.ID, nodeID, page.Name, *page.PageText, want, unwanted)
 		}
 	}
 }
@@ -55,7 +58,7 @@ func logLiveWorkAndPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID) {
 	drained := time.Now()
 	found := false
 	for time.Now().Before(drained.Add(diagnosticWait)) && !found {
-		work, err := store.Claim(t.Context(), searchdomain.WorkClassLive, "diagnostic", time.Minute)
+		work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "diagnostic", time.Minute)
 		if errors.Is(err, searchdomain.ErrNoWork) {
 			time.Sleep(250 * time.Millisecond)
 			continue
@@ -68,7 +71,7 @@ func logLiveWorkAndPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID) {
 			t.Logf("diagnostic: live work of %s claimable %s after the drain: generation %d revision %q phase %q ordinal %d cursor set %t",
 				nodeID, time.Since(drained), work.Generation, work.Revision, work.Phase, work.Ordinal, work.Cursor != "")
 		}
-		if err := store.Yield(t.Context(), work); err != nil {
+		if err := store.Yield(WithTestOperation(t, t.Context()), work); err != nil {
 			t.Fatalf("yield diagnostic claim of %s: %v", work.NodeID, err)
 		}
 	}
@@ -91,7 +94,7 @@ func rawMatchesFrom(t *testing.T, ranker *search.QueryRanker, session searchdoma
 	after := session.Sort
 	var nodes []uuid.UUID
 	for range pitTraversalPages {
-		batch, err := ranker.Read(t.Context(), session.Query, snapshot, after)
+		batch, err := ranker.Read(WithTestOperation(t, t.Context()), session.Query, snapshot, after)
 		if err != nil {
 			t.Fatalf("read raw batch under the session point in time: %v", err)
 		}

@@ -29,6 +29,7 @@ const (
 var breakGlassMailTests = []string{
 	"TestOpsDBSQLRecordsAgentAttribution",
 	"TestOpsDBSQLRefusesSessionWithoutService",
+	"TestRuntimeAuditCoverage",
 }
 
 // attributionExtra is the part of an operator event's extra payload these
@@ -73,6 +74,7 @@ func runOpsDBSQL(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ...s
 	var output bytes.Buffer
 	factory.Out = &output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := searchCommandRoot(factory)
 	root.SetContext(t.Context())
 	root.SetArgs(args)

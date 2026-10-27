@@ -602,3 +602,10 @@ func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
 		t.Fatal("tampered bundle accepted")
 	}
 }
+
+// WithNodeHistoryRowLimit returns filter with its row cap lowered to limit,
+// so an external test can produce a truncated read without thousands of rows.
+func WithNodeHistoryRowLimit(filter NodeHistoryFilter, limit int) NodeHistoryFilter {
+	filter.rowLimitOverride = limit
+	return filter
+}

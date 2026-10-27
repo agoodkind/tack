@@ -65,6 +65,10 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
+	owner, err := prepareCreate(ctx, cli)
+	if err != nil {
+		return OpenSearchFixture{}, created, err
+	}
 	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
 			Image: openSearchImage,
@@ -73,7 +77,7 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 				"OPENSEARCH_JAVA_OPTS=" + openSearchJavaOptions,
 				"DISABLE_INSTALL_DEMO_CONFIG=true",
 			}, settings.nodeSettings...),
-			Labels: map[string]string{managedLabel: "true"},
+			Labels: ownerLabels(owner),
 		},
 		HostConfig:       openSearchHostConfig(holder.name, settings),
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: nil},

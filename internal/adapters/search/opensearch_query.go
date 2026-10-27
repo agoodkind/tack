@@ -10,8 +10,8 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	opensearch "github.com/opensearch-project/opensearch-go/v4"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -47,14 +47,14 @@ func (r *QueryRanker) Read(ctx context.Context, query searchdomain.Query, snapsh
 		return none, rankFailure(ctx, snapshot.Index, err)
 	}
 	partial := false
-	request := opensearchapi.SearchReq{
-		Indices: nil, Body: bytes.NewReader(body), Header: nil,
-		Params: opensearchapi.SearchParams{AllowPartialSearchResults: &partial},
+	request := &opensearchapi.SearchReq{
+		Indices: nil, BodyReader: bytes.NewReader(body), Header: nil,
+		Params: &opensearchapi.SearchParams{AllowPartialSearchResults: &partial},
 	}
 	var decoded rankResponse
-	response, err := opensearch.Do(ctx, r.adapter.client, http.MethodPost, request, &decoded)
+	response, err := opensearch.Execute(ctx, r.adapter.client, http.MethodPost, request, &decoded)
 	if err != nil {
-		return none, rankFailure(ctx, snapshot.Index, fmt.Errorf("send search request: %w", engineCause(response, err)))
+		return none, rankFailure(ctx, snapshot.Index, fmt.Errorf("send search request: %w", engineCause(ctx, response, err)))
 	}
 	if response == nil {
 		return none, rankFailure(ctx, snapshot.Index, errors.New("OpenSearch returned no search response"))
@@ -96,7 +96,7 @@ func (r *QueryRanker) searchError(ctx context.Context, snapshot searchdomain.Sna
 		telemetry.L(ctx).InfoContext(ctx, "search.snapshot.lost", slog.String("index", snapshot.Index), slog.String("reason", parsed.Error()))
 		return queryStepError{operation: "read search snapshot on " + snapshot.Index, err: searchdomain.ErrSnapshotLost}
 	}
-	return rankFailure(ctx, snapshot.Index, fmt.Errorf("search request rejected: %w", engineCause(response, parsed)))
+	return rankFailure(ctx, snapshot.Index, fmt.Errorf("search request rejected: %w", engineCause(ctx, response, parsed)))
 }
 
 func rankFailure(ctx context.Context, index string, err error) error {

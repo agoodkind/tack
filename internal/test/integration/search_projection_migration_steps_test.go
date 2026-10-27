@@ -13,15 +13,15 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
 
-// migrationSlices limits how many rescan slices one driver processes.
 const migrationSlices = 2000
 
 // runIdle runs worker slices until it cannot claim work from any class.
@@ -31,7 +31,7 @@ func (env *migrationEnv) runIdle(t *testing.T) {
 	t.Helper()
 	var failingSince time.Time
 	for {
-		claimed, err := env.Worker.RunSlice(t.Context())
+		claimed, err := env.Worker.RunSlice(integration.WithTestOperation(t, t.Context()))
 		switch {
 		case err != nil && failingSince.IsZero():
 			failingSince = clock.Now()
@@ -47,15 +47,14 @@ func (env *migrationEnv) runIdle(t *testing.T) {
 	}
 }
 
-// pages refreshes the index and returns the node's pages with the requested
-// retirement state in page order.
+// pages refreshes the index and returns the requested pages of nodeID in page order.
 func (env *migrationEnv) pages(t *testing.T, nodeID uuid.UUID, retired bool) []migrationPage {
 	t.Helper()
-	if _, err := env.Client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{env.Index}}); err != nil {
+	if _, err := env.Client.Indices.Refresh(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Indices: []string{env.Index}}); err != nil {
 		t.Fatalf("refresh %s: %v", env.Index, err)
 	}
 	query := fmt.Sprintf(`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":%t}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String(), retired)
-	response, err := env.Client.Search(t.Context(), &opensearchapi.SearchReq{Indices: []string{env.Index}, Body: strings.NewReader(query)})
+	response, err := env.Client.Search(integration.WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{env.Index}, BodyReader: strings.NewReader(query)})
 	if err != nil {
 		t.Fatalf("search pages of node %s: %v", nodeID, err)
 	}
@@ -63,7 +62,7 @@ func (env *migrationEnv) pages(t *testing.T, nodeID uuid.UUID, retired bool) []m
 	for _, hit := range response.Hits.Hits {
 		var page migrationPage
 		if err := json.Unmarshal(hit.Source, &page); err != nil {
-			t.Fatalf("decode page %s: %v", hit.ID, err)
+			t.Fatalf("decode page of node %s: %v", nodeID, err)
 		}
 		pages = append(pages, page)
 	}
@@ -96,7 +95,7 @@ func (env *migrationEnv) readerPages(t *testing.T, nodeID uuid.UUID) []node.Cont
 	request := searchdomain.ContentRequest{NodeID: nodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: env.PageBytes, SearchGeneration: 0}
 	pages := make([]node.ContentPage, 0, 8)
 	for range migrationSlices {
-		page, err := reader.Content(t.Context(), request)
+		page, err := reader.Content(integration.WithTestOperation(t, t.Context()), request)
 		if err != nil {
 			t.Fatalf("read page %d of node %s: %v", len(pages), nodeID, err)
 		}
@@ -182,17 +181,17 @@ func (env *migrationEnv) driveRescan(t *testing.T, stop func(searchdomain.Work) 
 	store := env.Stores.SearchWork(clock.Wall{})
 	for processed := range migrationSlices {
 		between(processed)
-		work, err := store.Claim(t.Context(), searchdomain.WorkClassRescan, "migration-driver", time.Minute)
+		work, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "migration-driver", time.Minute)
 		if err != nil {
 			t.Fatalf("claim rescan work: %v", err)
 		}
 		if stop(work) {
-			if err := store.Yield(t.Context(), work); err != nil && !errors.Is(err, searchdomain.ErrWorkChanged) {
+			if err := store.Yield(integration.WithTestOperation(t, t.Context()), work); err != nil && !errors.Is(err, searchdomain.ErrWorkChanged) {
 				t.Fatalf("yield rescan work: %v", err)
 			}
 			return work, processed
 		}
-		if err := env.Worker.Process(t.Context(), work); err != nil {
+		if err := env.Worker.Process(integration.WithTestOperation(t, t.Context()), work); err != nil {
 			t.Fatalf("process rescan work: %v", err)
 		}
 	}

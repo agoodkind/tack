@@ -34,12 +34,13 @@ func ownDirectory(path string) {
 	owned.directories = append(owned.directories, path)
 }
 
-// Release removes every engine container and cluster-file directory this
-// process created. A test binary calls it after m.Run in its TestMain;
-// cmd/testenv calls it when a command fails partway.
+// Release removes the cluster file directories this process created and
+// every container and network with this process's run label. TestMain runs
+// Release after m.Run, the signal handler runs Release on SIGINT or SIGTERM,
+// and cmd/testenv runs Release when a command fails partway.
 func Release(ctx context.Context) error {
 	owned.Lock()
-	containers, directories := owned.containers, owned.directories
+	directories := owned.directories
 	owned.containers, owned.directories = nil, nil
 	owned.Unlock()
 	var failures []error
@@ -48,8 +49,8 @@ func Release(ctx context.Context) error {
 			failures = append(failures, fmt.Errorf("remove %s: %w", directory, err))
 		}
 	}
-	if len(containers) > 0 {
-		failures = append(failures, removeContainers(ctx, containers))
+	if self, created := knownOwner(); created {
+		failures = append(failures, removeRun(ctx, self))
 	}
 	if err := errors.Join(failures...); err != nil {
 		slog.ErrorContext(ctx, "testenv.release_failed", slog.String("err", err.Error()))
@@ -58,31 +59,27 @@ func Release(ctx context.Context) error {
 	return nil
 }
 
-// Down removes every engine container any process or cmd/testenv started on
-// this daemon, found by label, and then the engines' network.
+// Down removes the engines cmd/testenv started and the containers and
+// networks of test processes that have exited, then removes the shared
+// engine network if containers do not use it. It keeps engines of running
+// test processes and engines without owner labels, and returns the number
+// of removed containers.
 func Down(ctx context.Context) (int, error) {
 	cli, err := dockerClient(ctx)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = cli.Close() }()
-	listed, err := cli.ContainerList(ctx, client.ContainerListOptions{
-		All:     true,
-		Filters: client.Filters{}.Add("label", managedLabel),
-	})
+	self, err := currentOwner(ctx, cli)
 	if err != nil {
-		slog.ErrorContext(ctx, "testenv.down.list_failed", slog.String("err", err.Error()))
-		return 0, fmt.Errorf("list test engines: %w", err)
-	}
-	names := make([]string, 0, len(listed.Items))
-	for _, item := range listed.Items {
-		names = append(names, item.ID)
-	}
-	if err := removeContainersWith(ctx, cli, names); err != nil {
 		return 0, err
 	}
+	removed, err := removeEngines(ctx, cli, self, removeForOperator)
+	if err != nil {
+		return removed, err
+	}
 	removeNetwork(ctx, cli)
-	return len(names), nil
+	return removed, nil
 }
 
 // removeContainers force-removes containers, with their anonymous volumes.

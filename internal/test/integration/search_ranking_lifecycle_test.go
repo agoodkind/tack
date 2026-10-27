@@ -7,10 +7,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -24,7 +25,7 @@ func (r *rankingRun) session(t *testing.T, cursor string) searchdomain.Session {
 	if err != nil {
 		t.Fatalf("decode cursor: %v", err)
 	}
-	session, err := r.stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(t.Context(), sessionID)
+	session, err := r.stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(integration.WithTestOperation(t, t.Context()), sessionID)
 	if err != nil {
 		t.Fatalf("load session %s: %v", sessionID, err)
 	}
@@ -33,7 +34,7 @@ func (r *rankingRun) session(t *testing.T, cursor string) searchdomain.Session {
 
 func (r *rankingRun) servingIndex(t *testing.T) string {
 	t.Helper()
-	index, err := r.stores.ServingSearchIndex(t.Context())
+	index, err := r.stores.ServingSearchIndex(integration.WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("read serving search index: %v", err)
 	}
@@ -56,7 +57,7 @@ func (r *rankingRun) waitIndexed(t *testing.T, nodes []uuid.UUID) {
 	}}}
 	started := clock.Now()
 	for clock.Since(started) < rankingWaitDeadline {
-		if _, err := r.client.Indices.Refresh(t.Context(), &opensearchapi.IndicesRefreshReq{Index: []string{index}}); err != nil {
+		if _, err := r.client.Indices.Refresh(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Indices: []string{index}}); err != nil {
 			t.Fatalf("refresh %s: %v", index, err)
 		}
 		indexed := len(rankedTraceNodes(t, r.traceSearch(t, index, body)))
@@ -72,13 +73,13 @@ func (r *rankingRun) waitIndexed(t *testing.T, nodes []uuid.UUID) {
 func (r *rankingRun) beginRebuild(t *testing.T) searchdomain.Rebuild {
 	t.Helper()
 	request := searchdomain.BeginRebuild{Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 24, Reason: "relevance regression"}
-	rebuild, err := r.stores.SearchRebuilds(clock.Wall{}).BeginRebuild(t.Context(), request)
+	rebuild, err := r.stores.SearchRebuilds(clock.Wall{}).BeginRebuild(integration.WithTestOperation(t, t.Context()), request)
 	if err != nil {
 		t.Fatalf("begin index replacement: %v", err)
 	}
 	t.Cleanup(func() {
-		deletion := opensearchapi.IndicesDeleteReq{Indices: []string{rebuild.TargetIndex}}
-		_, _ = r.client.Indices.Delete(context.WithoutCancel(t.Context()), deletion)
+		deletion := &opensearchapi.IndicesDeleteReq{Indices: []string{rebuild.TargetIndex}}
+		_, _ = r.client.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), deletion)
 	})
 	return rebuild
 }
@@ -88,7 +89,7 @@ func (r *rankingRun) waitRebuild(t *testing.T, done func(searchdomain.Rebuild, b
 	rebuilds := r.stores.SearchRebuilds(clock.Wall{})
 	started := clock.Now()
 	for clock.Since(started) < rankingWaitDeadline {
-		current, found, err := rebuilds.CurrentRebuild(t.Context())
+		current, found, err := rebuilds.CurrentRebuild(integration.WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("read index replacement: %v", err)
 		}

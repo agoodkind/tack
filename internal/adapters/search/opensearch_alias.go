@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -49,7 +49,7 @@ func (a *Adapter) SwitchPublicAlias(ctx context.Context, from, to string) error 
 	if err != nil {
 		return engineFailure(ctx, "search.alias.encode_failed", "encode alias switch to "+to, to, err)
 	}
-	response, err := a.api.Aliases(ctx, opensearchapi.AliasesReq{Body: bytes.NewReader(body)})
+	response, err := a.api.Indices.UpdateAliases(ctx, &opensearchapi.IndicesUpdateAliasesReq{BodyReader: bytes.NewReader(body)})
 	if err != nil {
 		return engineFailure(ctx, "search.alias.switch_failed", "switch alias "+PublicAlias+" from "+from+" to "+to, to, err)
 	}
@@ -65,9 +65,9 @@ func (a *Adapter) SwitchPublicAlias(ctx context.Context, from, to string) error 
 // request.
 func (a *Adapter) DeleteIndex(ctx context.Context, index string) error {
 	ignoreMissing := true
-	_, err := a.api.Indices.Delete(ctx, opensearchapi.IndicesDeleteReq{
+	_, err := a.api.Indices.Delete(ctx, &opensearchapi.IndicesDeleteReq{
 		Indices: []string{index}, Header: nil,
-		Params: opensearchapi.IndicesDeleteParams{IgnoreUnavailable: &ignoreMissing},
+		Params: &opensearchapi.IndicesDeleteParams{IgnoreUnavailable: &ignoreMissing},
 	})
 	if err != nil {
 		return engineFailure(ctx, "search.index.delete_failed", "delete index "+index, index, err)
@@ -88,11 +88,11 @@ func (a *Adapter) IndexRetention(ctx context.Context, index string) (searchdomai
 	if err != nil {
 		return none, engineFailure(ctx, "search.retention.encode_failed", "encode retired page count", index, err)
 	}
-	count, err := a.api.Indices.Count(ctx, &opensearchapi.IndicesCountReq{Indices: []string{index}, Body: bytes.NewReader(body)})
+	count, err := a.api.Count(ctx, &opensearchapi.CountReq{Indices: []string{index}, BodyReader: bytes.NewReader(body)})
 	if err != nil {
 		return none, engineFailure(ctx, "search.retention.count_failed", "count retired pages of "+index, index, err)
 	}
-	stats, err := a.api.Indices.Stats(ctx, &opensearchapi.IndicesStatsReq{Indices: []string{index}, Metrics: []string{"store"}})
+	stats, err := a.api.Indices.Stats(ctx, &opensearchapi.IndicesStatsReq{Indices: []string{index}, Metric: []string{"store"}})
 	if err != nil {
 		return none, engineFailure(ctx, "search.retention.stats_failed", "read storage of "+index, index, err)
 	}
@@ -100,7 +100,7 @@ func (a *Adapter) IndexRetention(ctx context.Context, index string) (searchdomai
 	if !exists {
 		return none, engineFailure(ctx, "search.retention.stats_absent", "read storage of "+index, index, errors.New("statistics are absent"))
 	}
-	return searchdomain.RetentionStats{RetiredPages: int64(count.Count), PrimaryBytes: details.Primaries.Store.SizeInBytes}, nil
+	return searchdomain.RetentionStats{RetiredPages: count.Count, PrimaryBytes: details.Primaries.Store.SizeInBytes}, nil
 }
 
 // engineFailure logs one failed OpenSearch operation and returns it wrapped.

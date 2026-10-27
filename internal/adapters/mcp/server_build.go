@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
@@ -64,7 +64,7 @@ func metadataUnavailable(w http.ResponseWriter, span trace.Span, err error) {
 	http.Error(w, `{"error":"metadata unavailable"}`, http.StatusServiceUnavailable)
 }
 
-func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) *mcpserver.MCPServer {
+func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) (*mcpserver.MCPServer, *tools.Resolver) {
 	s := mcpserver.NewMCPServer("tack", "0.2.0")
 
 	resolver := tools.NewResolver(h.nodes, h.reader, h.members, nodeTypes)
@@ -76,11 +76,12 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.P
 	tools.RegisterRelationship(s, h.nodeSvc, h.relationships, resolver)
 
 	binding := tools.NodeTypeBinding{
-		NodeSvc:      h.nodeSvc,
-		Reader:       h.reader,
-		PropertyDefs: h.propertyDefs,
-		Resolver:     resolver,
-		Users:        h.users,
+		NodeSvc:       h.nodeSvc,
+		Reader:        h.reader,
+		PropertyDefs:  h.propertyDefs,
+		Resolver:      resolver,
+		Users:         h.users,
+		Relationships: h.relationshipLister,
 	}
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeTools(s, nt, binding)
@@ -89,5 +90,5 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.P
 
 	tools.RegisterResources(s, h.reader, resolver, nodeTypes, propertyDefs)
 	tools.RegisterPrompts(s, resolver, nodeTypes, propertyDefs)
-	return s
+	return s, resolver
 }

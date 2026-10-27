@@ -12,8 +12,10 @@ import (
 // source after claims pause and every earlier lease expires.
 func (w *SearchWorker) rebuildCreate(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) error {
 	if rebuild.Mode == searchdomain.ReplacementFull {
-		if err := w.engineStep(ctx, func(operation context.Context) error {
-			return w.ports.Replacer.CreateReplacement(operation, rebuild.TargetIndex, rebuild.PrimaryShards, rebuild.RoutingShards, rebuild.Replicas)
+		if err := w.recordIndexStructure(ctx, "create_replacement", rebuild.TargetIndex, rebuild, func(ctx context.Context) error {
+			return w.engineStep(ctx, func(operation context.Context) error {
+				return w.ports.Replacer.CreateReplacement(operation, rebuild.TargetIndex, rebuild.PrimaryShards, rebuild.RoutingShards, rebuild.Replicas)
+			})
 		}); err != nil {
 			return w.settleEngine(ctx, work, "create replacement index "+rebuild.TargetIndex, err)
 		}
@@ -30,7 +32,10 @@ func (w *SearchWorker) rebuildCreate(ctx context.Context, work searchdomain.Work
 	if paused, err := w.pauseClaims(ctx, work, rebuild); !paused || err != nil {
 		return err
 	}
-	switch err := w.splitSource(ctx, work, rebuild); {
+	splitErr := w.recordIndexStructure(ctx, "split", rebuild.TargetIndex, rebuild, func(ctx context.Context) error {
+		return w.splitSource(ctx, work, rebuild)
+	})
+	switch err := splitErr; {
 	case errors.Is(err, searchdomain.ErrIndexNotReady):
 		return w.targetNotGreen(ctx, work, rebuild, err)
 	case err != nil:
@@ -91,7 +96,7 @@ func (w *SearchWorker) rebuildSwitch(ctx context.Context, work searchdomain.Work
 	case err != nil:
 		return w.settleEngine(ctx, work, "wait for green replacement index "+rebuild.TargetIndex, err)
 	}
-	if err := w.moveAlias(ctx, rebuild); err != nil {
+	if err := w.recordAliasSwitch(ctx, rebuild, func(ctx context.Context) error { return w.moveAlias(ctx, rebuild) }); err != nil {
 		return w.settleEngine(ctx, work, "switch public alias to "+rebuild.TargetIndex, err)
 	}
 	if err := w.ports.Rebuilds.CompleteSwitch(ctx, work, rebuild); err != nil {

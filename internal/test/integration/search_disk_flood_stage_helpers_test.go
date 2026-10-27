@@ -96,9 +96,9 @@ func requireDiskSettings(t *testing.T, fixture queryFixture) {
 // readEngine returns the body of one GET request to the engine.
 func readEngine(t *testing.T, fixture queryFixture, path string) ([]byte, error) {
 	t.Helper()
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+	request, err := http.NewRequestWithContext(WithTestOperation(t, t.Context()), http.MethodGet, path, nil)
 	clusterRequire(t, "build the engine request", err)
-	response, err := fixture.Client.Client.Perform(request)
+	response, err := fixture.Client.Client.Request(request)
 	if err != nil {
 		return nil, clusterFailure("read "+path, err)
 	}
@@ -136,7 +136,7 @@ func renameFloodProject(t *testing.T, fixture queryFixture, nodeID uuid.UUID, na
 // name.
 func requireFoundationDBName(t *testing.T, fixture queryFixture, nodeID uuid.UUID, name string) {
 	t.Helper()
-	view, err := fixture.Stores.Views.Get(t.Context(), nodeID)
+	view, err := fixture.Stores.Views.Get(WithTestOperation(t, t.Context()), nodeID)
 	if err != nil || view == nil {
 		t.Fatalf("read node %s: %v", nodeID, err)
 	}

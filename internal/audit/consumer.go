@@ -77,6 +77,8 @@ type Consumer struct {
 	// consecutiveFailures counts polls in a row that failed a batch; the loop
 	// alone reads and writes it.
 	consecutiveFailures int
+	// assemblyAlertAt records the time of the last assembly alert check.
+	assemblyAlertAt time.Time
 }
 
 // processedSummary buffers per-batch counts so the consumer emits one
@@ -148,6 +150,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			commitOffset: 0,
 		},
 		consecutiveFailures: 0,
+		assemblyAlertAt:     time.Time{},
 	}
 
 	if cfg.SigningKeyPath != "" {
@@ -283,11 +286,16 @@ func (c *Consumer) loop(ctx context.Context) {
 
 		c.observeLag(ctx, fetches)
 
-		if fetches.NumRecords() == 0 {
+		hasRecords := fetches.NumRecords() > 0
+		failed := false
+		if hasRecords {
+			failed = c.projectFetches(ctx, fetches)
+		}
+		c.completeAssemblies(ctx)
+		c.alertWaitingAssemblies(ctx)
+		if !hasRecords {
 			continue
 		}
-
-		failed := c.projectFetches(ctx, fetches)
 		telemetry.ObserveAuditConsumerBatchLatency(sinceMs(pollStart))
 		c.backOffAfterFailures(ctx, failed)
 	}
@@ -496,13 +504,13 @@ func (c *Consumer) projectRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record
 		slog.ErrorContext(ctx, "audit.consumer.savepoint_failed", slog.String("err", err.Error()))
 		return committedAuthEvent{}, false, fmt.Errorf("savepoint for offset=%d: %w", rec.Offset, err)
 	}
-	pe, perr := c.projectOne(ctx, savepoint, rec)
+	pe, landed, perr := c.projectOne(ctx, savepoint, rec)
 	if perr == nil {
 		if err := savepoint.Commit(ctx); err != nil {
 			slog.ErrorContext(ctx, "audit.consumer.savepoint_release_failed", slog.String("err", err.Error()))
 			return committedAuthEvent{}, false, fmt.Errorf("release savepoint for offset=%d: %w", rec.Offset, err)
 		}
-		return pe, true, resolveDeadLetter(ctx, tx, rec)
+		return pe, landed, resolveDeadLetter(ctx, tx, rec)
 	}
 	_ = savepoint.Rollback(ctx)
 	switch {
@@ -537,17 +545,34 @@ type committedAuthEvent struct {
 
 // projectOne writes one event's PII row, then appends it to audit.events and
 // advances audit.chain_heads through the shared chain helper.
-func (c *Consumer) projectOne(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (committedAuthEvent, error) {
+// It first checks for part and manifest messages and stores them in the
+// batch transaction that advances audit.consumer_offsets. The consumer
+// can commit broker offsets before the event is complete. Plain records
+// follow the event path. A plain read event must declare read evidence
+// that matches an empty target list; otherwise, the consumer writes the
+// record to the dead-letter table.
+func (c *Consumer) projectOne(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (committedAuthEvent, bool, error) {
+	message, isTransport, err := decodeTransportMessage(rec.Value)
+	if err != nil {
+		return committedAuthEvent{}, false, rejectTransport(ctx, message.EventID, err.Error())
+	}
+	if isTransport {
+		return committedAuthEvent{}, false, storeTransportMessage(ctx, tx, message, rec.Value)
+	}
 	prepared, err := unmarshalRecord(ctx, rec)
 	if err != nil {
-		return committedAuthEvent{}, err
+		return committedAuthEvent{}, false, err
 	}
-	piiRef, err := writePIIRow(ctx, tx, prepared.Event.Actor)
+	if err := checkReadManifest(prepared.Event, nil); err != nil {
+		return committedAuthEvent{}, false, rejectTransport(ctx, prepared.EventID, err.Error())
+	}
+	piiRef, err := writeEventPII(ctx, tx, prepared.Event)
 	if err != nil {
-		return committedAuthEvent{}, err
+		return committedAuthEvent{}, false, err
 	}
 	prepared.PIIRef = piiRef
-	return c.advanceChain(ctx, tx, prepared)
+	projected, err := c.advanceChain(ctx, tx, prepared)
+	return projected, err == nil, err
 }
 
 // preparedEvent is the post-decode, pre-chain shape of a Kafka record. It
@@ -570,6 +595,13 @@ func unmarshalRecord(ctx context.Context, rec *kgo.Record) (preparedEvent, error
 		slog.WarnContext(ctx, "audit.consumer.malformed_json", slog.String("err", err.Error()))
 		return preparedEvent{}, fmt.Errorf("%w: %w", errMalformedPayload, err)
 	}
+	return prepareEvent(ctx, ev)
+}
+
+// prepareEvent validates the decoded event, normalizes correlation fields,
+// and computes its shard and JSON fields for ledger insertion.
+// Both plain records and assembled events use this preparation.
+func prepareEvent(ctx context.Context, ev Event) (preparedEvent, error) {
 	if ev.OccurredAt.IsZero() {
 		slog.WarnContext(ctx, "audit.consumer.malformed_no_occurred_at")
 		return preparedEvent{}, fmt.Errorf("%w: occurred_at missing", errMalformedPayload)

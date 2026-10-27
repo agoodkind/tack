@@ -2,82 +2,18 @@ package auth
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync/atomic"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/token"
 	"goodkind.io/tack/internal/telemetry"
 )
-
-// auditRecorder receives auth-event records. SetAuditRecorder installs it
-// once at startup; until then every auth event is refused and logged, so a
-// missed installation is visible rather than silent.
-var auditRecorder atomic.Value // recorderBox
-
-// recorderBox gives every stored recorder one concrete type: [atomic.Value]
-// panics when consecutive stores carry different dynamic types, which two
-// recorder implementations otherwise would.
-type recorderBox struct {
-	recorder audit.Recorder
-}
-
-// SetAuditRecorder installs the auth-event audit sink.
-func SetAuditRecorder(r audit.Recorder) {
-	if r == nil {
-		r = audit.NoopRecorder{}
-	}
-	auditRecorder.Store(recorderBox{recorder: r})
-}
-
-func currentRecorder() audit.Recorder {
-	v := auditRecorder.Load()
-	if v == nil {
-		return audit.UnwiredRecorder{}
-	}
-	return v.(recorderBox).recorder
-}
-
-// hashBearer returns a short prefix of sha256(bearer) for audit fingerprinting
-// without ever exposing the raw token. 16 hex chars = 8 bytes of entropy,
-// plenty to correlate the same client across events without aiding theft.
-func hashBearer(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:8])
-}
-
-func emitAuthAudit(ctx context.Context, r *http.Request, ev audit.Event) {
-	rec := currentRecorder()
-	ev.Actor.IP = clientIP(r)
-	ev.Actor.UserAgent = r.UserAgent()
-	ev.Actor.RequestID = telemetry.RequestID(ctx)
-	ev.Context.Source = audit.SourceMCP
-	ev.Context.RequestID = telemetry.RequestID(ctx)
-	ev.Context.TraceID = telemetry.TraceID(ctx)
-	if err := rec.Record(ctx, ev); err != nil {
-		telemetry.L(ctx).Warn("audit.auth_record_failed", "err", err)
-	}
-}
-
-func clientIP(r *http.Request) string {
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		if i := strings.IndexByte(v, ','); i >= 0 {
-			return strings.TrimSpace(v[:i])
-		}
-		return strings.TrimSpace(v)
-	}
-	return r.RemoteAddr
-}
 
 // TokenValidator is the minimal interface the middleware needs.
 type TokenValidator interface {
@@ -92,12 +28,10 @@ type OrgLister interface {
 
 // attachMembership reads the actor's org memberships once per request,
 // attaches the set to the context for the handlers behind the middleware,
-// and returns the actor's sole org for the auth event: [uuid.Nil] when the
-// actor belongs to zero or several orgs, because an auth event fires before
-// any workspace names an org and the only honest stamp is a membership that
-// admits no other answer. A lookup failure attaches nothing and stamps nil,
-// because enriching the audit context must never fail the request that a
-// working recorder would still record; the MCP handler then makes its own
+// and returns the actor's sole org for the auth event. It returns [uuid.Nil]
+// when the actor belongs to zero or several orgs, and the auth event then
+// uses the system org. A lookup failure attaches nothing and returns
+// [uuid.Nil] without failing the request. The MCP handler then makes its own
 // lookup and fails closed (TACK-503).
 func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (context.Context, uuid.UUID) {
 	if orgs == nil {
@@ -119,18 +53,18 @@ func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (co
 // Bearer returns HTTP middleware that requires a valid API token.
 // On success injects the user ID into the request context.
 // On failure returns 401 with a JSON body.
-func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handler {
+// It records the auth event with recorder, the audit recorder of the runtime
+// graph that serves the request. When recorder refuses the event, it
+// returns 503 with a JSON body and does not call next. A nil recorder refuses
+// every event.
+func Bearer(tokens TokenValidator, orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.Handler {
+	recorder = wiredRecorder(recorder)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			startedAt := clock.Now()
 			raw := extractBearer(r)
 			if raw == "" {
-				emitAuthAudit(r.Context(), r, audit.Event{
-					EventID: uuid.Nil,
-					Verb:    string(audit.VerbAuthLoginFailed),
-					Actor:   audit.Actor{Type: audit.ActorToken},
-					Entity:  audit.Entity{Type: "auth", Name: "missing_authorization"},
-					Outcome: audit.OutcomeError,
-				})
+				noteRejection(r.Context(), RejectionMissingAuthorization)
 				unauthorized(w, "missing Authorization header")
 				return
 			}
@@ -138,16 +72,11 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 			t, err := tokens.Validate(r.Context(), raw)
 			if err != nil {
 				if isUnauthenticated(err) {
-					emitAuthAudit(r.Context(), r, audit.Event{
-						EventID: uuid.Nil,
-						Verb:    string(audit.VerbAuthTokenRejected),
-						Actor:   audit.Actor{Type: audit.ActorToken, APITokenLabel: hashBearer(raw)},
-						Entity:  audit.Entity{Type: "auth", Name: "token_invalid"},
-						Outcome: audit.OutcomeError,
-					})
+					noteRejection(r.Context(), RejectionBearerRefused)
 					unauthorized(w, "invalid or expired token")
 					return
 				}
+				noteRejection(r.Context(), RejectionBearerCheckFailed)
 				telemetry.L(r.Context()).Error("token validate", "err", err)
 				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 				return
@@ -155,16 +84,12 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 
 			ctx := withAuthenticatedUser(r.Context(), t.UserID)
 			ctx, soleOrg := attachMembership(ctx, orgs, t.UserID)
-			used := audit.Event{
-				EventID: uuid.Nil,
-				Verb:    string(audit.VerbAuthTokenUsed),
-				Actor:   audit.Actor{Type: audit.ActorUser, ID: t.UserID, APITokenLabel: hashBearer(raw)},
-				Entity:  audit.Entity{Type: "auth", ID: t.UserID, Name: "token_accepted"},
-				Outcome: audit.OutcomeOK,
+			actor := audit.Actor{Type: audit.ActorUser, ID: t.UserID, APITokenLabel: hashBearer(raw)}
+			event := tokenUsedEvent(ctx, startedAt, actor, soleOrg, tokenTarget(t.ID, t.Label), t.ID)
+			if err := emitAuthAudit(ctx, recorder, r, event); err != nil {
+				auditUnavailable(w)
+				return
 			}
-			used.Context.OrgID = soleOrg
-			used.Context.APITokenID = t.ID
-			emitAuthAudit(ctx, r, used)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -172,45 +97,33 @@ func Bearer(tokens TokenValidator, orgs OrgLister) func(http.Handler) http.Handl
 
 // DevBearer is a shim for development: accepts any UUID in the Authorization
 // header directly as a user ID, bypassing the token table entirely.
-// Only active when env=development.
-func DevBearer(orgs OrgLister) func(http.Handler) http.Handler {
+// Only active when env=development. It refuses a request with 503 when the
+// recorder refuses the auth event, as Bearer does.
+func DevBearer(orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.Handler {
+	recorder = wiredRecorder(recorder)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			startedAt := clock.Now()
 			raw := extractBearer(r)
 			if raw == "" {
-				emitAuthAudit(r.Context(), r, audit.Event{
-					EventID: uuid.Nil,
-					Verb:    string(audit.VerbAuthLoginFailed),
-					Actor:   audit.Actor{Type: audit.ActorToken},
-					Entity:  audit.Entity{Type: "auth", Name: "dev_missing_authorization"},
-					Outcome: audit.OutcomeError,
-				})
+				noteRejection(r.Context(), RejectionMissingAuthorization)
 				unauthorized(w, "missing Authorization header")
 				return
 			}
 			userID, err := uuid.Parse(raw)
 			if err != nil {
-				emitAuthAudit(r.Context(), r, audit.Event{
-					EventID: uuid.Nil,
-					Verb:    string(audit.VerbAuthTokenRejected),
-					Actor:   audit.Actor{Type: audit.ActorToken},
-					Entity:  audit.Entity{Type: "auth", Name: "dev_bearer_not_uuid"},
-					Outcome: audit.OutcomeError,
-				})
+				noteRejection(r.Context(), RejectionDevIdentityInvalid)
 				unauthorized(w, "dev mode: Authorization header must be a UUID")
 				return
 			}
 			ctx := withAuthenticatedUser(r.Context(), userID)
 			ctx, soleOrg := attachMembership(ctx, orgs, userID)
-			used := audit.Event{
-				EventID: uuid.Nil,
-				Verb:    string(audit.VerbAuthTokenUsed),
-				Actor:   audit.Actor{Type: audit.ActorUser, ID: userID, APITokenLabel: "dev"},
-				Entity:  audit.Entity{Type: "auth", ID: userID, Name: "dev_bearer_accepted"},
-				Outcome: audit.OutcomeOK,
+			actor := audit.Actor{Type: audit.ActorUser, ID: userID, APITokenLabel: "dev"}
+			event := tokenUsedEvent(ctx, startedAt, actor, soleOrg, userTarget(userID), uuid.Nil)
+			if err := emitAuthAudit(ctx, recorder, r, event); err != nil {
+				auditUnavailable(w)
+				return
 			}
-			used.Context.OrgID = soleOrg
-			emitAuthAudit(ctx, r, used)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -234,6 +147,14 @@ func unauthorized(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte(`{"error":"` + msg + `"}`))
+}
+
+// auditUnavailable answers 503 with a JSON body when the audit recorder did
+// not accept the auth event of an authenticated request.
+func auditUnavailable(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_, _ = w.Write([]byte(`{"error":"audit recording unavailable"}`))
 }
 
 func withAuthenticatedUser(ctx context.Context, userID uuid.UUID) context.Context {

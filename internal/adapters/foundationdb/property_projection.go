@@ -97,6 +97,10 @@ func (s *PropertyDefStore) SetProjectionIfNil(ctx context.Context, definition *n
 			err = node.LoggedProjectionError{Cause: err}
 		}
 	}()
+	changes, err := beginMutationAudit(ctx, definition.OrgID)
+	if err != nil {
+		return false, err
+	}
 	transaction, err := s.db.CreateTransaction()
 	if err != nil {
 		wrapped := fmt.Errorf("create property projection transaction: %w", err)
@@ -110,7 +114,8 @@ func (s *PropertyDefStore) SetProjectionIfNil(ctx context.Context, definition *n
 		if err := ctx.Err(); err != nil {
 			return false, fmt.Errorf("set property projection %s: %w", definition.ID, err)
 		}
-		changed, err = setProjectionInTransaction(ctx, transaction, definition, projection)
+		changes.startAttempt()
+		changed, err = setProjectionInTransaction(ctx, transaction, definition, projection, changes)
 		if err != nil {
 			reported = true
 		}
@@ -120,9 +125,7 @@ func (s *PropertyDefStore) SetProjectionIfNil(ctx context.Context, definition *n
 			}
 		}
 		if err == nil {
-			if changed {
-				commitStagedIntent(ctx)
-			}
+			changes.finish(ctx)
 			return changed, nil
 		}
 		var databaseError fdb.Error
@@ -140,7 +143,7 @@ func (s *PropertyDefStore) SetProjectionIfNil(ctx context.Context, definition *n
 // entry, and the audit intent. It changes no projection digest and schedules
 // no search work because the initial rollout runs before the first
 // FoundationDB rebuild, and that rebuild reads the completed declarations.
-func setProjectionInTransaction(ctx context.Context, tr fdb.Transaction, definition *node.PropertyDef, projection node.SearchProjection) (changed bool, err error) {
+func setProjectionInTransaction(ctx context.Context, tr fdb.Transaction, definition *node.PropertyDef, projection node.SearchProjection, changes *mutationAudit) (changed bool, err error) {
 	logger := telemetry.L(ctx)
 	reported := false
 	defer func() {
@@ -190,8 +193,5 @@ func setProjectionInTransaction(ctx context.Context, tr fdb.Transaction, definit
 	}
 	indexPropertyName(tr, definition.OrgID, definition.ID, nil, &current)
 	tr.Set(key, encoded)
-	if intentErr := writeMutationIntent(ctx, tr, value, encoded); intentErr != nil {
-		return false, fmt.Errorf("record projection audit for property definition %s: %w", definition.ID, intentErr)
-	}
-	return true, nil
+	return true, recordMetadataChange(ctx, tr, changes, propertyDefTarget(current.ID, current.Name), value, encoded)
 }

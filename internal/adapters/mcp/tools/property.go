@@ -3,8 +3,8 @@ package tools
 import (
 	"context"
 
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -67,6 +67,7 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 				return classifyError(ctx, err), nil
 			}
 			stampAuditNodeView(ctx, view)
+			addNodeTargets(ctx, view)
 			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
 			return successText(renderProperties(rc, view), ""), nil
 		},

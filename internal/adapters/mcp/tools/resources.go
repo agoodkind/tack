@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	mcpmcp "github.com/mark3labs/mcp-go/mcp"
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/node"
@@ -54,7 +54,9 @@ func gettingStartedHandler(
 		// is recorded like any other. This handler took the context and ignored
 		// it, which is why mcp.resource_read was declared and never emitted
 		// (TACK-340).
-		recordResourceRead(ctx, gettingStartedURI, resolver)
+		if err := recordResourceRead(ctx, gettingStartedURI, resolver); err != nil {
+			return nil, err
+		}
 		return []mcpmcp.ResourceContents{
 			mcpmcp.TextResourceContents{URI: gettingStartedURI, MIMEType: "text/markdown", Text: buildGettingStartedText(resolver, nodeTypes, propertyDefs)},
 		}, nil
@@ -65,14 +67,24 @@ func gettingStartedHandler(
 //
 // A failure to record is logged rather than returned, matching the tool
 // wrapper: the read has already happened, and refusing the response afterwards
-// would neither unmake it nor record it.
+// would neither unmake it nor record it. It returns an error when the request
+// context does not have an audit recorder, and the handler then refuses the
+// read.
 //
 // A resource read resolves no workspace, so nothing stamps a scope and the
 // row would carry the nil org, which no per-tenant query, redaction, or chain
 // reaches (TACK-477). The row therefore carries the reader's sole org when
 // their membership admits exactly one, and nil when it admits zero or
 // several, the same honesty rule the auth events follow (TACK-461).
-func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) {
+func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) error {
+	if audit.HasReadCollector(ctx) {
+		return nil
+	}
+	recorder, err := requireAuditRecorder(ctx)
+	if err != nil {
+		logRecorderMissing(ctx, "resource:"+uri)
+		return err
+	}
 	actor := audit.Actor{
 		Type: audit.ActorUser, ID: uuid.Nil, Email: "", Name: "", SessionID: "",
 		IP: "", UserAgent: "", RequestID: telemetry.RequestID(ctx), APITokenLabel: "",
@@ -110,11 +122,12 @@ func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) {
 		OccurredAt:     time.Time{},
 		Extra:          nil,
 	}
-	if err := currentAuditRecorder().Record(ctx, event); err != nil {
+	if err := recorder.Record(ctx, event); err != nil {
 		telemetry.L(ctx).Warn("audit.record_failed",
 			slog.String("resource", uri),
 			slog.String("err", err.Error()))
 	}
+	return nil
 }
 
 // readerSoleOrg returns the org the reader belongs to when the membership
