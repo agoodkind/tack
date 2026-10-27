@@ -11,11 +11,10 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// TestBufferedRetainsUndeliveredEventsUntilRecovery is TACK-583. On QA the
-// broker refused an auth.token_used event, the outbox append failed with
-// FoundationDB error 1031, and the flusher discarded the event. The flusher
-// must retain such an event, count it against the queue capacity, and deliver
-// it exactly once after the broker returns.
+// TestBufferedRetainsUndeliveredEventsUntilRecovery is TACK-583. The test
+// retains a read-class event when the broker refuses production and the
+// outbox append fails. It requires the flusher to retain the event, count it
+// against queue capacity, and deliver it exactly once after broker recovery.
 func TestBufferedRetainsUndeliveredEventsUntilRecovery(t *testing.T) {
 	logs := captureSyncedLogs(t)
 	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(1, retainTopic))
