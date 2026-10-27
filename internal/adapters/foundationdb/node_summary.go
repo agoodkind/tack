@@ -126,8 +126,10 @@ func readSummaryViews(tr fdb.Transaction, nodeIDs []uuid.UUID, views []*node.Nod
 	return nil
 }
 
+// summaryFailure wraps err with the summary operation. A failure with
+// FoundationDB error 1031 also wraps [searchdomain.ErrEngineUnavailable].
 func summaryFailure(ctx context.Context, err error) error {
-	wrapped := fmt.Errorf("read node summaries: %w", err)
+	wrapped := fmt.Errorf("read node summaries: %w", classifySearchTimeout(err))
 	if searchFailureWasLogged(err) {
 		return wrapped
 	}
