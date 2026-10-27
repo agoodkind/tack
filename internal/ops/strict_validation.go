@@ -33,11 +33,6 @@ type StrictValidationStore interface {
 	ActivateStrict(ctx context.Context, evidence node.StrictEvidence, activation node.StrictActivation) (node.StrictEvidenceChange, error)
 }
 
-// StrictSchemaSource returns an organization's schema.
-type StrictSchemaSource interface {
-	Schema(ctx context.Context, orgID uuid.UUID) (node.Schema, error)
-}
-
 // StrictViolation identifies a node record that its organization's schema
 // rejects.
 type StrictViolation struct {
@@ -60,7 +55,7 @@ type StrictValidationReport struct {
 
 type strictScan struct {
 	store        StrictValidationStore
-	schemas      StrictSchemaSource
+	schemas      storeSchemaSource
 	evidence     node.StrictEvidence
 	violations   map[uuid.UUID]StrictViolation
 	cache        map[uuid.UUID]node.Schema
@@ -75,7 +70,7 @@ type strictScan struct {
 // records. When execute is true, it returns an error while any record is
 // invalid and does not activate strict validation. Otherwise, it activates
 // strict validation in one transaction that compares the evidence again.
-func RunStrictValidation(ctx context.Context, store StrictValidationStore, schemas StrictSchemaSource, execute bool) (StrictValidationReport, error) {
+func RunStrictValidation(ctx context.Context, store StrictValidationStore, schemas storeSchemaSource, execute bool) (StrictValidationReport, error) {
 	report := StrictValidationReport{AlreadyActive: false, Activated: false, ScanID: uuid.Nil, RecordsValidated: 0, Passes: 0, ViolationCount: 0, FirstViolations: nil}
 	current, err := store.StrictActivation(ctx)
 	if err != nil {
