@@ -28,9 +28,9 @@ type auditRuntime struct {
 }
 
 // buildAuditRuntime selects and wires the audit Recorder of one runtime
-// graph. The graph passes the recorder to its own auth middleware and MCP
-// handler, and Graph.Close of one graph does not change the recorder that
-// another graph in the same process uses (TACK-583). The server does not open
+// graph. The auth middleware and MCP handler of the graph record events
+// through this recorder. When one graph closes, the recorder that another
+// graph in the same process uses does not change (TACK-583). The server does not open
 // a ledger read or redaction connection: every audit read and redaction is an
 // operator command on the host, never an MCP tool.
 func buildAuditRuntime(ctx context.Context, cfg *config.Config, spill audit.OutboxAppender) (auditRuntime, error) {

@@ -90,14 +90,12 @@ func driveAuth(t *testing.T, build func(audit.Recorder) func(http.Handler) http.
 	return recorder.tokenUsed(t), resp.StatusCode
 }
 
-// bearerFor returns a builder of the Bearer middleware over tokens and orgs.
 func bearerFor(tokens TokenValidator, orgs OrgLister) func(audit.Recorder) func(http.Handler) http.Handler {
 	return func(recorder audit.Recorder) func(http.Handler) http.Handler {
 		return Bearer(tokens, orgs, recorder)
 	}
 }
 
-// devBearerFor returns a builder of the DevBearer middleware over orgs.
 func devBearerFor(orgs OrgLister) func(audit.Recorder) func(http.Handler) http.Handler {
 	return func(recorder audit.Recorder) func(http.Handler) http.Handler {
 		return DevBearer(orgs, recorder)

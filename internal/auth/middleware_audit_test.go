@@ -13,9 +13,6 @@ import (
 	"goodkind.io/tack/internal/auth"
 )
 
-// devBearerResponse sends one request with a development bearer through
-// middleware and returns the status, the decoded JSON body, and whether the
-// next handler ran.
 func devBearerResponse(t *testing.T, middleware func(http.Handler) http.Handler) (int, map[string]string, bool) {
 	t.Helper()
 	var nextRan atomic.Bool
