@@ -13,9 +13,11 @@ import (
 	"github.com/google/uuid"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/test/integration"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // coverageLegacyProperty is the property key that repair cases add to a node
@@ -149,7 +151,8 @@ func (env *coverageEnv) repairProfile() *ops.RepairReferenceProfile {
 func (env *coverageEnv) repairToken(t *testing.T, nodeID uuid.UUID) string {
 	t.Helper()
 	stores := env.stores(t)
-	console := ops.NewRepairConsole(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships)
+	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, env.server.config.DatabaseURL))
+	console := ops.NewRepairConsole(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, members, stores.Relationships, stores.Relationships)
 	preview, err := console.Preview(integration.WithTestOperation(t, t.Context()), ops.RepairPreviewInput{
 		Class: ops.RepairClassPropsTransform, NodeID: nodeID, Profile: env.repairProfile(),
 	})
