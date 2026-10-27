@@ -124,8 +124,6 @@ func TestNodeIntegrityStrictScanRefusesDisagreeingParentEdge(t *testing.T) {
 	}
 }
 
-// activateStrict runs ops verify strict-validation with --execute and
-// requires activation.
 func activateStrict(t *testing.T) {
 	t.Helper()
 	output, err := runStrictValidation(t, true)

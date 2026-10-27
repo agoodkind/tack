@@ -17,7 +17,6 @@ type strictValidationOutput struct {
 	Result  StrictValidationReport `json:"result"`
 }
 
-// strictValidationOp declares the `ops verify strict-validation` command.
 func strictValidationOp(f *cli.Factory) clispec.Operation[noInput] {
 	return clispec.Operation[noInput]{
 		Name:     clispec.Name{Canonical: "strict-validation", CLIOverride: ""},

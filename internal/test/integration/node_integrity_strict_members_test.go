@@ -106,8 +106,6 @@ func createStrictMember(t *testing.T, env *integration.TestEnv) uuid.UUID {
 	return userID
 }
 
-// createStrictUser creates a user through the YugabyteDB repository and
-// returns the user ID.
 func createStrictUser(t *testing.T, env *integration.TestEnv) uuid.UUID {
 	t.Helper()
 	userID := uuid.Must(uuid.NewV7())
@@ -120,9 +118,6 @@ func createStrictUser(t *testing.T, env *integration.TestEnv) uuid.UUID {
 	return created.ID
 }
 
-// createStrictOtherOrg seeds a second organization and writes its
-// organization node through NodeStore.CreateAtomic. It returns the
-// organization ID, which is also the ID of the organization node.
 func createStrictOtherOrg(t *testing.T, env *integration.TestEnv) uuid.UUID {
 	t.Helper()
 	orgID := uuid.Must(uuid.NewV7())

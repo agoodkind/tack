@@ -18,17 +18,14 @@ import (
 
 const (
 	// strictSoakKinds is the number of operation kinds in the soak mix.
-	strictSoakKinds = 15
-	// strictSoakOperations is three passes of the soak operation mix.
+	strictSoakKinds      = 15
 	strictSoakOperations = 3 * strictSoakKinds
 )
 
 // TestNodeIntegrityStrictDatagenSoakAfterActivation verifies that all
-// 45 soak operations succeed with strict validation active.
-// It calls integration.SetupTestEnv to set a per-test FoundationDB key
-// prefix and seed one organization. It calls activateStrict before
-// runStrictSoak. The soak stops at its first failed operation. The test
-// requires the max_ops stop reason and an operation count of 45.
+// 45 soak operations succeed with strict validation active. The soak stops
+// at its first failed operation. The max_ops stop reason with 45 operations
+// means that every operation succeeded.
 func TestNodeIntegrityStrictDatagenSoakAfterActivation(t *testing.T) {
 	integration.SetupTestEnv(t)
 	activateStrict(t)
@@ -40,19 +37,13 @@ func TestNodeIntegrityStrictDatagenSoakAfterActivation(t *testing.T) {
 	}
 }
 
-// strictSoakResult contains the soak result fields that the test reads.
 type strictSoakResult struct {
 	StopReason string `json:"stop_reason"`
 	Operations int    `json:"operations"`
 }
 
-// runStrictSoak loads the server configuration for the test engines and
-// sets DatagenAllowTarget to local. It disables public search, the audit
-// writer, and Kafka. It runs ops qa datagen soak --commit once through the
-// audited command tree with the real SQL outbox for three passes of the
-// operation mix. Each search operation counts as unavailable and does not
-// fail when public search is off. It returns the decoded stop reason and
-// operation count.
+// runStrictSoak turns public search off. With public search off, the soak
+// counts each search operation as unavailable and does not fail it.
 func runStrictSoak(t *testing.T) strictSoakResult {
 	t.Helper()
 	ledgerDSN := testenv.Ledger(t)

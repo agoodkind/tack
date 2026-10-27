@@ -13,12 +13,9 @@ import (
 )
 
 const (
-	// strictScanPageSize is the number of node records that one scan page
-	// reads.
 	strictScanPageSize = 100
 	// maxStrictPasses limits rescans when the scan evidence changes.
-	maxStrictPasses = 5
-	// maxReportedViolations limits the number of violations in the report.
+	maxStrictPasses       = 5
 	maxReportedViolations = 20
 )
 
@@ -131,8 +128,6 @@ func RunStrictValidation(ctx context.Context, store StrictValidationStore, schem
 	return report, strictFailure(ctx, "complete the strict validation scan", fmt.Errorf("evidence changed in each of %d passes: %w", maxStrictPasses, node.ErrStrictEvidenceChanged))
 }
 
-// recapture captures fresh evidence and returns the changes since the
-// evidence for the last pass. It stores the fresh evidence for the next pass.
 func (s *strictScan) recapture(ctx context.Context) (node.StrictEvidenceChange, error) {
 	later, err := s.store.CaptureStrictEvidence(ctx)
 	if err != nil {

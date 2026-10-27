@@ -82,11 +82,9 @@ func TestNodeIntegrityStrictEveryWriterAdvancesTheFence(t *testing.T) {
 	})
 }
 
-// requireFenceAdvances calls CaptureStrictEvidence before and after it calls
-// the write callback. The callback runs one operation and returns the IDs of
-// the nodes that the operation writes. For each of the 64 buckets, the helper
-// requires the epoch advance to be at least the number of returned node IDs
-// in that bucket. A bucket without a returned node ID must keep the same epoch.
+// requireFenceAdvances requires every bucket without a node that write
+// returns to keep its epoch. That check fails when a writer fences a node it
+// did not write.
 func requireFenceAdvances(t *testing.T, env *integration.TestEnv, operation string, write func() []uuid.UUID) {
 	t.Helper()
 	before, err := env.Stores.Nodes.CaptureStrictEvidence(env.Ctx)
@@ -111,9 +109,8 @@ func requireFenceAdvances(t *testing.T, env *integration.TestEnv, operation stri
 	}
 }
 
-// deleteStrictNode deletes nodeID through NodeService.Delete and calls
-// ResumeSubtreeDeletes with a zero staleness bound to finish any subtree delete
-// job that the request budget leaves running.
+// deleteStrictNode resumes subtree deletes because NodeService.Delete can
+// return before its request budget finishes the job.
 func deleteStrictNode(t *testing.T, env *integration.TestEnv, nodeID, actorID uuid.UUID) {
 	t.Helper()
 	if _, err := env.NodeSvc.Delete(env.Ctx, nodeID, actorID); err != nil {

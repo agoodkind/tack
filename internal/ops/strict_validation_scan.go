@@ -70,8 +70,6 @@ func (s *strictScan) validate(ctx context.Context, scanned node.StrictRecord) er
 	return nil
 }
 
-// affected reports whether change includes orgID or the write fence bucket
-// of nodeID or any of its recorded dependencies.
 func (s *strictScan) affected(change node.StrictEvidenceChange, orgID, nodeID uuid.UUID) bool {
 	if strictRecordAffected(change, orgID, nodeID) {
 		return true
@@ -95,8 +93,6 @@ func compareStrictViolation(left, right StrictViolation) int {
 	return bytes.Compare(left.NodeID[:], right.NodeID[:])
 }
 
-// storeSchemaSource reads an organization's node types and property
-// definitions through the metadata stores.
 type storeSchemaSource struct {
 	nodeTypes    node.TypeRepository
 	propertyDefs node.PropertyDefRepository

@@ -107,8 +107,6 @@ func storeWriterWorkspace(env *integration.TestEnv, slug string) *node.Node {
 	}
 }
 
-// storeWriterParentEdge returns a slice containing one child_of relationship
-// from record.ID to record.OrgID.
 func storeWriterParentEdge(record *node.Node) []*node.Relationship {
 	return []*node.Relationship{{
 		OrgID: record.OrgID, SourceID: record.ID, RelationType: node.RelChildOf, TargetID: record.OrgID,
