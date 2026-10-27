@@ -971,8 +971,8 @@ investigate. Mitigation: dual-write parity gate at every wave.
 The today-to-N=1 rollout is the hard cutover, not the earlier dual-write wave
 plan. See [audit-kafka-cutover.md](audit-kafka-cutover.md) for the single
 migration `003_audit_kafka_cutover.sql`, the consumer becoming the only writer
-of `audit.events`, the multi-consumer keying, and the
-cutover and rollback steps. There is no dual-write period and no `events_v2`.
+of `audit.events`, the multi-consumer keying, and the cutover and rollback
+steps. There is no dual-write period and no `events_v2`.
 
 ---
 
@@ -1037,10 +1037,10 @@ This is operations work; no code deploy required.
 - **Capacity planning.** None required at 0.37 EPS. The architecture
   has 5+ orders of magnitude of headroom.
 - **Cost.** Within an order of magnitude of current Tack hosting cost.
-  Apache Kafka runs on the existing host; the
-  SeaweedFS object store runs on its own LXC. Kafka's JVM footprint is the dominant memory cost on
-  the host; budget roughly 2 GiB heap for a small-scale single-broker
-  KRaft process.
+  Apache Kafka runs on the existing host; the SeaweedFS object store
+  runs on its own LXC. Kafka's JVM footprint is the dominant memory
+  cost on the host; budget roughly 2 GiB heap for a small-scale
+  single-broker KRaft process.
 
 ### 14.2 N=2 (first horizontal step)
 
@@ -1134,9 +1134,8 @@ This is operations work; no code deploy required.
   JSON-schema-evolution risk.
 - **Backup correctness.** Per `incident_2026-05-09_seed_parallel_org/retro_log.md`
   section 1A: prior backups were silently empty. The same class of
-  defect can recur with the broker or SeaweedFS. Each
-  backup must
-  have a restore test.
+  defect can recur with the broker or SeaweedFS. Each backup must have
+  a restore test.
 
 ---
 
