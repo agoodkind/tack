@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/org"
@@ -54,6 +55,7 @@ type Handler struct {
 	users              user.Repository
 	search             tools.SearchBinding
 	epochs             MetadataEpochReader
+	recorder           audit.Recorder
 
 	mu    sync.RWMutex
 	cache map[uuid.UUID]*cachedServer
@@ -77,6 +79,10 @@ type Deps struct {
 	// server still matches stored metadata. With a nil reader, the cache
 	// checks only the server lifetime.
 	Epochs MetadataEpochReader
+	// AuditRecorder records the tool result and resource read events of the
+	// runtime graph that owns this handler. With a nil recorder, every such
+	// event fails to record and logs the failure.
+	AuditRecorder audit.Recorder
 }
 
 func NewHandler(d Deps) *Handler {
@@ -92,6 +98,7 @@ func NewHandler(d Deps) *Handler {
 		users:              d.Users,
 		search:             d.Search,
 		epochs:             d.Epochs,
+		recorder:           d.AuditRecorder,
 		cache:              make(map[uuid.UUID]*cachedServer),
 	}
 }
@@ -127,6 +134,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// the first two, so a context rebuilt without them lets a retried create
 	// write a second node (TACK-476).
 	ctx = tools.WithMCPRequestMetadata(ctx, metadata)
+	ctx = tools.WithAuditRecorder(ctx, h.recorder)
 	span.SetAttributes(attribute.String("enduser.id", userID.String()))
 
 	// The membership set is on every request, cache hit or not. The

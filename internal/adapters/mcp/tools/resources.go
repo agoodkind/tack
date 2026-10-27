@@ -113,7 +113,7 @@ func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) {
 		OccurredAt:     time.Time{},
 		Extra:          nil,
 	}
-	if err := currentAuditRecorder().Record(ctx, event); err != nil {
+	if err := currentAuditRecorder(ctx).Record(ctx, event); err != nil {
 		telemetry.L(ctx).Warn("audit.record_failed",
 			slog.String("resource", uri),
 			slog.String("err", err.Error()))

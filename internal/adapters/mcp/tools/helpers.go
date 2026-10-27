@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync/atomic"
 
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/mcp"
@@ -16,31 +15,23 @@ import (
 	"goodkind.io/tack/internal/auth"
 )
 
-// auditRecorder is the audit sink used by every wrapped tool handler. It
-// is set once at startup via SetAuditRecorder. Tools that registered before
-// the setter ran (none in current code) would silently noop; we use atomic
-// load to keep that path branch-free.
-var auditRecorder atomic.Value // holds *auditRecorderValue
+type auditRecorderKey struct{}
 
-type auditRecorderValue struct {
-	recorder audit.Recorder
+// WithAuditRecorder returns a context that gives the wrapped tool handlers
+// and resource handlers recorder as their audit sink. The MCP handler of each
+// runtime graph attaches the recorder of that graph to every request.
+func WithAuditRecorder(ctx context.Context, recorder audit.Recorder) context.Context {
+	return context.WithValue(ctx, auditRecorderKey{}, recorder)
 }
 
-// SetAuditRecorder installs the process-wide Recorder used by the MCP tool
-// wrapper. Call once during server startup, before any request handles.
-func SetAuditRecorder(r audit.Recorder) {
-	if r == nil {
-		r = audit.NoopRecorder{}
-	}
-	auditRecorder.Store(&auditRecorderValue{recorder: r})
-}
-
-func currentAuditRecorder() audit.Recorder {
-	v := auditRecorder.Load()
-	if v == nil {
+// currentAuditRecorder returns the recorder on ctx, or the unwired recorder,
+// which refuses and logs every event, when ctx does not have one.
+func currentAuditRecorder(ctx context.Context) audit.Recorder {
+	recorder, _ := ctx.Value(auditRecorderKey{}).(audit.Recorder)
+	if recorder == nil {
 		return audit.UnwiredRecorder{}
 	}
-	return v.(*auditRecorderValue).recorder
+	return recorder
 }
 
 // argMap is the typed shape every Tack tool handler reads its arguments

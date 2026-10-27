@@ -8,37 +8,19 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync/atomic"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// auditRecorder receives auth-event records. SetAuditRecorder installs it
-// once at startup. Until then the unwired recorder refuses and logs every
-// auth event.
-var auditRecorder atomic.Value // recorderBox
-
-// recorderBox gives every stored recorder one concrete type. [atomic.Value]
-// panics when consecutive stores use different dynamic types.
-type recorderBox struct {
-	recorder audit.Recorder
-}
-
-// SetAuditRecorder installs the auth-event audit sink.
-func SetAuditRecorder(r audit.Recorder) {
-	if r == nil {
-		r = audit.NoopRecorder{}
-	}
-	auditRecorder.Store(recorderBox{recorder: r})
-}
-
-func currentRecorder() audit.Recorder {
-	box, stored := auditRecorder.Load().(recorderBox)
-	if !stored {
+// wiredRecorder returns recorder, or the unwired recorder when the caller
+// passed nil. The unwired recorder refuses and logs every auth event, and the
+// middleware then refuses each request.
+func wiredRecorder(recorder audit.Recorder) audit.Recorder {
+	if recorder == nil {
 		return audit.UnwiredRecorder{}
 	}
-	return box.recorder
+	return recorder
 }
 
 // hashBearer returns the first 16 hexadecimal characters of sha256(bearer).
@@ -51,13 +33,13 @@ func hashBearer(raw string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// emitAuthAudit adds the request fields to ev, validates it, and records it.
+// emitAuthAudit adds the request fields to ev, validates it, and records it
+// through rec.
 // It records an event that fails validation, and the audit-consumer stores
 // that event in the dead-letter table for repair. It logs a validation failure
 // and continues. It returns an error when the recorder refuses the event, and
 // the middleware then refuses the request instead of serving it unaudited.
-func emitAuthAudit(ctx context.Context, r *http.Request, ev audit.Event) error {
-	rec := currentRecorder()
+func emitAuthAudit(ctx context.Context, rec audit.Recorder, r *http.Request, ev audit.Event) error {
 	ev.Actor.IP = clientIP(r)
 	ev.Actor.UserAgent = r.UserAgent()
 	ev.Actor.RequestID = telemetry.RequestID(ctx)

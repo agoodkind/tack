@@ -62,13 +62,13 @@ func (f fixedValidator) Validate(context.Context, string) (*token.Token, error) 
 	return &token.Token{ID: f.tokenID, UserID: f.userID, Label: "test", LastUsed: nil, ExpiresAt: nil, CreatedAt: time.Time{}}, nil
 }
 
-// driveAuth sends one authenticated request through the given middleware and
-// returns the recorded auth.token_used event and the response status.
-func driveAuth(t *testing.T, middleware func(http.Handler) http.Handler, bearer string) (audit.Event, int) {
+// driveAuth sends one authenticated request through the middleware that
+// build returns for recorder, and returns the recorded auth.token_used event
+// and the response status.
+func driveAuth(t *testing.T, build func(audit.Recorder) func(http.Handler) http.Handler, bearer string) (audit.Event, int) {
 	t.Helper()
 	recorder := &captureRecorder{}
-	SetAuditRecorder(recorder)
-	t.Cleanup(func() { SetAuditRecorder(audit.NoopRecorder{}) })
+	middleware := build(recorder)
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	server := httptest.NewServer(middleware(next))
@@ -90,12 +90,26 @@ func driveAuth(t *testing.T, middleware func(http.Handler) http.Handler, bearer 
 	return recorder.tokenUsed(t), resp.StatusCode
 }
 
+// bearerFor returns a builder of the Bearer middleware over tokens and orgs.
+func bearerFor(tokens TokenValidator, orgs OrgLister) func(audit.Recorder) func(http.Handler) http.Handler {
+	return func(recorder audit.Recorder) func(http.Handler) http.Handler {
+		return Bearer(tokens, orgs, recorder)
+	}
+}
+
+// devBearerFor returns a builder of the DevBearer middleware over orgs.
+func devBearerFor(orgs OrgLister) func(audit.Recorder) func(http.Handler) http.Handler {
+	return func(recorder audit.Recorder) func(http.Handler) http.Handler {
+		return DevBearer(orgs, recorder)
+	}
+}
+
 // TestDevBearerStampsSoleOrg pins TACK-461's forward fix: an auth event for
 // an actor who belongs to exactly one org carries that org instead of nil.
 func TestDevBearerStampsSoleOrg(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
-	ev, status := driveAuth(t, DevBearer(fixedOrgs{orgs: []uuid.UUID{orgID}, err: nil}), userID.String())
+	ev, status := driveAuth(t, devBearerFor(fixedOrgs{orgs: []uuid.UUID{orgID}, err: nil}), userID.String())
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -113,7 +127,7 @@ func TestDevBearerUsesSystemOrgForAmbiguousOrgs(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	two := []uuid.UUID{uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())}
 	for name, orgs := range map[string][]uuid.UUID{"none": nil, "two": two} {
-		ev, status := driveAuth(t, DevBearer(fixedOrgs{orgs: orgs, err: nil}), userID.String())
+		ev, status := driveAuth(t, devBearerFor(fixedOrgs{orgs: orgs, err: nil}), userID.String())
 		if status != http.StatusOK {
 			t.Fatalf("%s: status = %d, want 200", name, status)
 		}
@@ -128,7 +142,7 @@ func TestDevBearerUsesSystemOrgForAmbiguousOrgs(t *testing.T) {
 // succeeds.
 func TestDevBearerLookupFailureNeverFailsAuth(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
-	ev, status := driveAuth(t, DevBearer(fixedOrgs{orgs: nil, err: errors.New("membership store down")}), userID.String())
+	ev, status := driveAuth(t, devBearerFor(fixedOrgs{orgs: nil, err: errors.New("membership store down")}), userID.String())
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -145,8 +159,8 @@ func TestBearerStampsSoleOrg(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
 	tokenID := uuid.Must(uuid.NewV7())
-	middleware := Bearer(fixedValidator{userID: userID, tokenID: tokenID}, fixedOrgs{orgs: []uuid.UUID{orgID}, err: nil})
-	ev, status := driveAuth(t, middleware, "raw-token")
+	build := bearerFor(fixedValidator{userID: userID, tokenID: tokenID}, fixedOrgs{orgs: []uuid.UUID{orgID}, err: nil})
+	ev, status := driveAuth(t, build, "raw-token")
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}

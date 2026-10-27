@@ -51,7 +51,7 @@ func TestColdRequestCostsOneLedgerRead(t *testing.T) {
 	cachedTokens := NewCachedTokenValidator(store, time.Minute, 16)
 	cachedTokens.PrimeMembers(cachedMembers)
 
-	ev, status := driveAuth(t, Bearer(cachedTokens, cachedMembers), "tack_cold")
+	ev, status := driveAuth(t, bearerFor(cachedTokens, cachedMembers), "tack_cold")
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -73,7 +73,7 @@ func TestColdRefusalCachesNoMembership(t *testing.T) {
 	cachedTokens := NewCachedTokenValidator(store, time.Minute, 16)
 	cachedTokens.PrimeMembers(cachedMembers)
 
-	if _, status := driveAuth(t, Bearer(cachedTokens, cachedMembers), "tack_unknown"); status != http.StatusUnauthorized {
+	if _, status := driveAuth(t, bearerFor(cachedTokens, cachedMembers), "tack_unknown"); status != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", status)
 	}
 	cachedMembers.cache.mu.Lock()

@@ -50,8 +50,9 @@ type Graph struct {
 }
 
 // BuildGraph opens the configured datastores and assembles the node service,
-// MCP handler, and auth middleware. It also installs the process-global audit
-// sinks. On failure it releases anything it already opened and returns the error.
+// MCP handler, and auth middleware. The auth middleware and the MCP handler
+// record through the audit recorder of this graph. On failure it releases
+// anything it already opened and returns the error.
 func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.CountingQueryTracer{Next: &telemetry.QueryTracer{}})
 	if err != nil {
@@ -139,9 +140,9 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		Users:              userRepo,
 		Search:             searchBinding,
 		Epochs:             epochs,
+		AuditRecorder:      auditRuntimeDeps.Recorder,
 	})
-
-	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers)
+	authMiddleware := buildAuthMiddleware(cfg, tokenRepo, orgMembers, auditRuntimeDeps.Recorder)
 	productReads := fdbStores.AuditReads(source)
 	requests := mcpadapter.NewRequestRecorder(productReads)
 
@@ -168,10 +169,12 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	return graph, nil
 }
 
-func buildAuthMiddleware(cfg *config.Config, tokenRepo auth.TokenValidator, orgMembers auth.OrgLister) func(http.Handler) http.Handler {
+func buildAuthMiddleware(
+	cfg *config.Config, tokenRepo auth.TokenValidator, orgMembers auth.OrgLister, recorder audit.Recorder,
+) func(http.Handler) http.Handler {
 	if cfg.Env == "development" {
 		slog.Warn("dev_auth.enabled")
-		return auth.DevBearer(orgMembers)
+		return auth.DevBearer(orgMembers, recorder)
 	}
-	return auth.Bearer(tokenRepo, orgMembers)
+	return auth.Bearer(tokenRepo, orgMembers, recorder)
 }

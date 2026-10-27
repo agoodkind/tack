@@ -45,7 +45,7 @@ func recordToolResult(ctx context.Context, toolName string, result *mcpmcp.CallT
 			telemetry.L(ctx).ErrorContext(ctx, "mcp.tool.result_invalid",
 				slog.String("tool", toolName), slog.String("err", invalid.Error()))
 		}
-		err = currentAuditRecorder().Record(ctx, event)
+		err = currentAuditRecorder(ctx).Record(ctx, event)
 	}
 	if err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "mcp.tool.result_not_recorded",

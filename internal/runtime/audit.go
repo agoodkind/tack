@@ -7,9 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	mcptools "goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/config"
 )
 
@@ -29,10 +27,12 @@ type auditRuntime struct {
 	Recorder audit.Recorder
 }
 
-// buildAuditRuntime selects and wires the audit Recorder and installs it as
-// the process-global sink for the MCP and auth boundaries. The server holds
-// no ledger read or redaction connection: every audit read and redaction is
-// an operator command on the host, never an MCP tool.
+// buildAuditRuntime selects and wires the audit Recorder of one runtime
+// graph. The graph passes the recorder to its own auth middleware and MCP
+// handler, and Graph.Close of one graph does not change the recorder that
+// another graph in the same process uses (TACK-583). The server does not open
+// a ledger read or redaction connection: every audit read and redaction is an
+// operator command on the host, never an MCP tool.
 func buildAuditRuntime(ctx context.Context, cfg *config.Config, spill audit.OutboxAppender) (auditRuntime, error) {
 	auditRec, err := buildAuditRecorder(ctx, cfg)
 	if err != nil {
@@ -62,8 +62,6 @@ func buildAuditRuntime(ctx context.Context, cfg *config.Config, spill audit.Outb
 		FlushInterval: cfg.AuditReadFlushInterval,
 	})
 	wired := audit.Recorder(audit.CanonicalRecorder{Inner: auditRec})
-	mcptools.SetAuditRecorder(wired)
-	auth.SetAuditRecorder(wired)
 	return auditRuntime{Recorder: wired}, nil
 }
 
