@@ -122,16 +122,10 @@ func (b *BufferedRecorder) Record(ctx context.Context, ev Event) error {
 		b.noteRoom(ctx)
 		return nil
 	}
-	if b.overflow == nil {
-		defer b.stopping.RUnlock()
-		if !b.room.admitWait(ctx, ev) {
-			slog.WarnContext(ctx, "audit.buffer.queue_wait_abandoned",
-				slog.String("verb", ev.Verb), slog.String("err", ctx.Err().Error()))
-			return fmt.Errorf("queue audit event %s: %w", ev.Verb, ctx.Err())
-		}
-		return nil
-	}
 	b.stopping.RUnlock()
+	if b.overflow == nil {
+		return b.waitForRoom(ctx, ev)
+	}
 	return b.overflowed(ctx, ev)
 }
 

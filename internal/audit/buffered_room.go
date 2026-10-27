@@ -6,10 +6,7 @@
 
 package audit
 
-import (
-	"context"
-	"sync"
-)
+import "sync"
 
 // bufferRoom sends an event to the queue only while the queued events and
 // the retained events together are fewer than the queue's capacity. Every
@@ -43,27 +40,35 @@ func (r *bufferRoom) tryAdmit(ev Event) bool {
 	return true
 }
 
-// admitWait waits until the queue has room and sends ev to it. It returns
-// false when ctx ends first.
-func (r *bufferRoom) admitWait(ctx context.Context, ev Event) bool {
-	for {
-		r.mu.Lock()
-		if r.hasRoom() {
-			r.queue <- ev
-			r.mu.Unlock()
-			return true
-		}
-		r.waiting++
-		opened := r.opened
-		r.mu.Unlock()
-		select {
-		case <-opened:
-			r.stopWaiting()
-		case <-ctx.Done():
-			r.stopWaiting()
-			return false
-		}
+// admission is the result of one admitOrWait call.
+type admission int
+
+const (
+	// admitted means admitOrWait sent the event to the queue.
+	admitted admission = iota
+	// refusedRetained means the queue was full while the flusher retained
+	// undelivered events, so room opens only after a delivery succeeds.
+	refusedRetained
+	// mustWait means the queue was full of queued events. The caller waits
+	// on the returned channel and then calls stopWaiting.
+	mustWait
+)
+
+// admitOrWait sends ev to the queue when it has room. When the queue is full
+// and the flusher retains events, it refuses ev. Otherwise it registers the
+// caller as a waiter and returns the channel that closes when room opens.
+func (r *bufferRoom) admitOrWait(ev Event) (admission, <-chan struct{}) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.hasRoom() {
+		r.queue <- ev
+		return admitted, nil
 	}
+	if r.retained > 0 {
+		return refusedRetained, nil
+	}
+	r.waiting++
+	return mustWait, r.opened
 }
 
 func (r *bufferRoom) stopWaiting() {
