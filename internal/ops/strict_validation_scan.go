@@ -12,10 +12,9 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// pass validates every node record on the first pass. On later passes, it
-// removes validated entries, violations, and dependencies for records with a
-// changed organization, a changed write fence bucket, or a dependency in a
-// changed bucket. It then validates affected records that the scan returns.
+// pass also revalidates an unchanged record when its parent or a reference
+// target is in a changed write fence bucket, because the result of
+// ValidateResult depends on those records.
 func (s *strictScan) pass(ctx context.Context, change node.StrictEvidenceChange, full bool) error {
 	affected := map[uuid.UUID]bool{}
 	if !full {
