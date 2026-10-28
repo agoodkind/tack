@@ -32,8 +32,8 @@ func TestSearchRebuildAndEditHistoryLeaveBoundedState(t *testing.T) {
 	t.Setenv("OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT", boundedStateAbsolute)
 	fixture := newParentEdgeFixture(t)
 	nodes := make([]uuid.UUID, 0, boundedStateNodes)
-	for range boundedStateNodes {
-		nodes = append(nodes, fixture.createLeaf(t, fixture.firstEntry, boundedStateText(0)))
+	for number := range boundedStateNodes {
+		nodes = append(nodes, fixture.createLeaf(t, fixture.firstEntry, fmt.Sprintf("%s leaf %d", boundedStateText(0), number)))
 	}
 	few := convergeAfterEdits(t, fixture, nodes, 1, boundedStateFewEdits)
 	many := convergeAfterEdits(t, fixture, nodes, boundedStateFewEdits+1, boundedStateManyEdits)

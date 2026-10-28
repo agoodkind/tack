@@ -31,7 +31,6 @@ var searchResponseLine = regexp.MustCompile("^(#### Search results|" +
 	"|  - Name: .+" +
 	"|  - (Type|State|Priority): `[^`]+`" +
 	"|  - Assigned: .+" +
-	"|  - Raw id: `[0-9a-f-]{36}`" +
 	"|More results exist\\. Next cursor: `[^`]+`)$")
 
 // searchResponseCountKeys lists JSON keys for a count value. The response
@@ -139,7 +138,7 @@ func callerTraversalWithoutForeign(t *testing.T, harness *MCPHarness, forbidden 
 				t.Fatalf("page %d contains a line outside the page grammar: %q", pageNumber, line)
 			}
 		}
-		page, err := parseSearchPage(text)
+		page, err := parseSearchPage(text, harness.titles)
 		if err != nil {
 			t.Fatalf("parse page %d: %v", pageNumber, err)
 		}

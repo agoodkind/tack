@@ -3,6 +3,8 @@ package integration_test
 import (
 	"encoding/json"
 	"testing"
+
+	"goodkind.io/tack/internal/datagen"
 )
 
 const (
@@ -87,5 +89,6 @@ func putSeedlessCorpus(t *testing.T, env seedlessEnvironment, caller seedlessOrg
 		}
 		text := callSeedlessTool(t, env, caller, "tack_create_"+typeKey, arguments)
 		caller.Nodes[spec.Name] = seedlessRawID(t, text)
+		caller.Titles.Add(datagen.SearchItem{Title: spec.Name, NodeType: typeKey}, caller.Nodes[spec.Name])
 	}
 }

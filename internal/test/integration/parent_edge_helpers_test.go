@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +34,7 @@ func (f parentEdgeFixture) createLeaf(t *testing.T, parentID uuid.UUID, text str
 	if err != nil || created == nil || created.View == nil {
 		t.Fatalf("create leaf %q under %s: %v", text, parentID, err)
 	}
+	f.titles.Add(datagen.SearchItem{Title: text, NodeType: f.kind.typeKey}, created.View.ID)
 	return created.View.ID
 }
 
@@ -65,6 +65,7 @@ func (f parentEdgeFixture) storeNode(t *testing.T, kind parentEdgeKind, text str
 	if err := f.stores.Nodes.CreateAtomic(integration.WithTestOperation(t, t.Context()), created, view, relationships, nil, nil, nil); err != nil {
 		t.Fatalf("store node %q: %v", text, err)
 	}
+	f.titles.Add(datagen.SearchItem{Title: text, NodeType: kind.typeKey}, nodeID)
 	return nodeID
 }
 
@@ -144,18 +145,15 @@ func (f parentEdgeFixture) search(t *testing.T, workspace datagen.WorkspaceIdent
 		if err != nil {
 			t.Fatalf("search %q under %s: %v", query, workspace.Slug, err)
 		}
-		cursor = ""
-		for _, line := range strings.Split(result.Text(), "\n") {
-			if marker := strings.LastIndex(line, "Raw id: `"); marker >= 0 {
-				found = append(found, uuid.MustParse(strings.TrimSuffix(line[marker+len("Raw id: `"):], "`")))
-			}
-			if _, after, found := strings.Cut(line, integration.SearchCursorMarker); found {
-				cursor = strings.TrimSuffix(after, "`")
-			}
+		page, err := integration.ParseSearchPage(result.Text(), f.titles)
+		if err != nil {
+			t.Fatalf("parse search %q under %s: %v", query, workspace.Slug, err)
 		}
-		if cursor == "" {
+		found = append(found, page.IDs...)
+		if page.Complete {
 			return found
 		}
+		cursor = page.Cursor
 	}
 	t.Fatalf("search %q did not finish within %d pages", query, parentEdgeSearchPages)
 	return nil

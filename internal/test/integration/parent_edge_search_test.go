@@ -43,8 +43,8 @@ func TestSearchParentEdgeMovedChain(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	chain := make([]uuid.UUID, 0, parentChainLength)
 	parent := fixture.firstEntry
-	for range parentChainLength {
-		parent = fixture.createLeaf(t, parent, "basalt chain leaf")
+	for number := range parentChainLength {
+		parent = fixture.createLeaf(t, parent, fmt.Sprintf("basalt chain leaf %02d", number))
 		chain = append(chain, parent)
 	}
 	fixture.drain(t)

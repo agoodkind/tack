@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/testenv"
@@ -108,6 +109,7 @@ func putOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID
 	if err != nil {
 		t.Fatalf("create opaque node of type %s under %s: %v", kind.TypeKey, parentID, err)
 	}
+	fixture.Harness.titles.Add(datagen.SearchItem{Title: name, NodeType: kind.TypeKey}, result.View.ID)
 	return result.View.ID
 }
 

@@ -44,7 +44,7 @@ func (m *searchMixed) createProjects(ctx context.Context) error {
 	for index, tenant := range m.tenants {
 		properties := newProperties()
 		properties.setString("identifier", tenant.project)
-		_, err := m.driver(index).Call(ctx, tenant.token(), "tack_create_project", ToolArguments{
+		result, err := m.driver(index).Call(ctx, tenant.token(), "tack_create_project", ToolArguments{
 			WorkspaceReference: tenant.entry(), ProjectReference: "", IssueReference: "",
 			Name: "Search mixed load " + m.runKey, Properties: properties, NodeID: "", Query: "", NodeType: "",
 			Direction: "", SourceID: "", RelationType: "", TargetID: "",
@@ -52,6 +52,10 @@ func (m *searchMixed) createProjects(ctx context.Context) error {
 		if err != nil {
 			return loggedError(ctx, "qa datagen search-mixed: the command could not create a project in "+tenant.entry(), err)
 		}
+		if err := m.registerCreated(ctx, result); err != nil {
+			return err
+		}
+		m.projectType = result.SearchItem().NodeType
 	}
 	return nil
 }

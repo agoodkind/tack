@@ -141,7 +141,7 @@ func searchSeedless(t *testing.T, env seedlessEnvironment, caller seedlessOrg, q
 			arguments["cursor"] = seedlessString(cursor)
 		}
 		text := callSeedlessTool(t, env, caller, "tack_search", arguments)
-		page, err := integration.ParseSearchPage(text)
+		page, err := integration.ParseSearchPage(text, caller.Titles)
 		if err != nil {
 			t.Fatalf("parse search %q page: %v", query, err)
 		}

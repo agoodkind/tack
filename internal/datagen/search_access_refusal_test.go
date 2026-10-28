@@ -89,7 +89,7 @@ func TestRefusedRejectsNonAuthorizationToolError(t *testing.T) {
 		driver: NewDriver(graph, false, searchRefusalSeed), token: member, entry: workspace.Slug,
 		limits: searchLimits{MaxResults: 0, MaxResponseBytes: 0}, fixture: searchFixture{}, phrases: searchPhrases{}, pages: graph,
 	}
-	_, callErr := callSearch(ctx, run.driver, member, workspace.Slug, accessPhrase, malformedSearchCursor)
+	_, callErr := callSearch(ctx, run.driver, NewSearchTitles(), member, workspace.Slug, accessPhrase, malformedSearchCursor)
 	var toolError *toolCallError
 	if !errors.As(callErr, &toolError) || !strings.Contains(toolError.message, invalidCursorProblem) {
 		t.Fatalf("member search with a malformed cursor = %v, want the tool error %q", callErr, invalidCursorProblem)
@@ -112,7 +112,7 @@ func requireUnknownBearerRejected(t *testing.T, run searchRun, token, entry stri
 	if !isAuthenticationRejection(listErr) {
 		t.Fatalf("tools/list with an unknown bearer token = %v, want HTTP 401", listErr)
 	}
-	_, searchErr := callSearch(ctx, run.driver, token, entry, accessPhrase, "")
+	_, searchErr := callSearch(ctx, run.driver, NewSearchTitles(), token, entry, accessPhrase, "")
 	if !isAuthenticationRejection(searchErr) || !isAuthorizationRefusal(searchErr, entry) {
 		t.Fatalf("tack_search with an unknown bearer token = %v, want an accepted HTTP 401", searchErr)
 	}

@@ -90,6 +90,10 @@ func (m *searchMixed) createScheduledIssue(callContext context.Context, index in
 		m.writeFailed(callContext, "qa.datagen.search_mixed_create_id_invalid", err)
 		return
 	}
+	if err := m.registerCreated(callContext, result); err != nil {
+		m.writeFailed(callContext, "qa.datagen.search_mixed_create_reference_invalid", err)
+		return
+	}
 	committed, err := m.committedAt(callContext, nodeID)
 	if err != nil {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_create_time_unread", err)

@@ -86,13 +86,17 @@ func newQueryFixture(t *testing.T, options queryOptions) queryFixture {
 	harness := &MCPHarness{
 		driver: datagen.NewDriver(graph, false, seed), handler: graph.MCPRoute,
 		token: workspace.Actors[0].Token, ledgerDSN: cfg.DatabaseURL, orgID: workspace.OrgID,
-		Workspace: workspace.Slug, Project: "", outbox: stores.OpsOutbox,
+		Workspace: workspace.Slug, Project: "", outbox: stores.OpsOutbox, titles: datagen.NewSearchTitles(),
 	}
 	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, searchWorkerSettings(runtimePageBytes))
-	return queryFixture{
+	fixture := queryFixture{
 		Stores: stores, Adapter: adapter, Client: client, Index: index, Config: cfg,
 		Graph: graph, Harness: harness, Workspaces: identities.Workspaces, Worker: worker,
 	}
+	for _, bootstrapped := range identities.Workspaces {
+		entryPoint(t, fixture, bootstrapped)
+	}
+	return fixture
 }
 
 func configureQueryEnvironment(t *testing.T, options queryOptions) {
@@ -135,7 +139,7 @@ func processHarness(harness *MCPHarness, graph *appruntime.Graph) *MCPHarness {
 	return &MCPHarness{
 		driver: harness.driver, handler: graph.MCPRoute, token: harness.token,
 		ledgerDSN: harness.ledgerDSN, orgID: harness.orgID, Workspace: harness.Workspace, Project: "",
-		outbox: harness.outbox,
+		outbox: harness.outbox, titles: harness.titles,
 	}
 }
 
@@ -157,6 +161,7 @@ func entryPoint(t *testing.T, fixture queryFixture, workspace datagen.WorkspaceI
 		}
 		for _, view := range views {
 			if view.Name == workspace.Name {
+				fixture.Harness.titles.Add(datagen.SearchItem{Title: workspace.Slug, NodeType: kind.TypeKey}, view.ID)
 				return view.ID
 			}
 		}
@@ -171,7 +176,7 @@ func requireUnauthenticatedRefused(t *testing.T, harness *MCPHarness) {
 	t.Helper()
 	anonymous := &MCPHarness{
 		driver: harness.driver, handler: harness.handler, token: "", ledgerDSN: harness.ledgerDSN,
-		orgID: harness.orgID, Workspace: harness.Workspace, Project: "", outbox: harness.outbox,
+		orgID: harness.orgID, Workspace: harness.Workspace, Project: "", outbox: harness.outbox, titles: harness.titles,
 	}
 	status := rawCallStatus(t, anonymous, "tack_search", map[string]any{"query": "anything"})
 	if status != http.StatusUnauthorized {

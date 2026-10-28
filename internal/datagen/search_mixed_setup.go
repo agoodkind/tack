@@ -67,6 +67,7 @@ func newSearchMixed(
 		stores: stores, pages: graph, backlog: backlog, clusterStatus: &searchMixedFoundationDBStatus{db: backlog.db},
 		resources: resources, members: postgres.NewOrgMemberRepo(pool),
 		stats: &searchMixedStats{}, phases: &searchMixedPhaseStats{skipped: []string{}}, corpusIndex: corpusIndex,
+		titles: NewSearchTitles(),
 	}
 	if err := mixed.prepare(stopContext, ctx, plannedSearches); err != nil {
 		closeAll()
@@ -94,6 +95,9 @@ func (m *searchMixed) prepare(stopContext, ctx context.Context, plannedSearches 
 	}
 	if m.options.Concurrency < len(m.tenants) {
 		return fmt.Errorf("qa datagen search-mixed: concurrency %d is less than the tenant count %d; set --concurrency to at least the tenant count", m.options.Concurrency, len(m.tenants))
+	}
+	if err := m.registerEntries(ctx); err != nil {
+		return err
 	}
 	if err := m.createProjects(ctx); err != nil {
 		return err

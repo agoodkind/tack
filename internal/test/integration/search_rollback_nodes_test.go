@@ -74,6 +74,7 @@ func rolloutEntryPoint(t *testing.T, fixture rolloutFixture, workspace datagen.W
 		}
 		for _, view := range views {
 			if view.Name == workspace.Name {
+				fixture.titles.Add(datagen.SearchItem{Title: workspace.Slug, NodeType: typeKey}, view.ID)
 				return view.ID
 			}
 		}
@@ -101,6 +102,7 @@ func putRolloutNode(t *testing.T, fixture rolloutFixture, kind rolloutKind, pare
 	if err != nil {
 		t.Fatalf("cannot create node under parent %s: %v", parentID, err)
 	}
+	fixture.titles.Add(datagen.SearchItem{Title: name, NodeType: kind.typeKey}, result.View.ID)
 	return result.View.ID
 }
 

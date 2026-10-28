@@ -170,7 +170,7 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 // unavailable response, and returns the page when the server answered. awaitRefusal retries an
 // unavailable call until its deadline. Every other error stops the check.
 func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSession, number, position int, call revokedCall) (revokedSearchOutcome, searchPage, error) {
-	page, err := callSearch(ctx, m.driver(number), session.token, session.entry, session.query, call.cursor)
+	page, err := callSearch(ctx, m.driver(number), m.titles, session.token, session.entry, session.query, call.cursor)
 	if err == nil {
 		return revokedSearchAnswered, page, nil
 	}

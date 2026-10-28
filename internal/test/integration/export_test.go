@@ -30,10 +30,15 @@ type SearchPage = searchPage
 // SearchCursorMarker precedes the continuation cursor in a tack_search page.
 const SearchCursorMarker = searchCursorMarker
 
-// ParseSearchPage reads result IDs and the cursor from a tack_search page
-// and reports whether the search has completed.
-func ParseSearchPage(text string) (SearchPage, error) {
-	return parseSearchPage(text)
+// ParseSearchPage reads a tack_search page and resolves result identities
+// with titles.
+func ParseSearchPage(text string, titles *datagen.SearchTitles) (SearchPage, error) {
+	return parseSearchPage(text, titles)
+}
+
+// SearchTitles returns the registry that resolves the harness search results.
+func (h *MCPHarness) SearchTitles() *datagen.SearchTitles {
+	return h.titles
 }
 
 // SearchResultItems splits a tack_search page into its result items.

@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -26,8 +26,6 @@ const (
 	sweepAttemptLimit    = 16
 	sweepExpiryMargin    = time.Second
 	secondsPerMinute     = int64(time.Minute / time.Second)
-	resultMarker         = "Raw id: `"
-	cursorMarker         = "Next cursor: `"
 )
 
 type sessionKeyLayout struct {
@@ -49,9 +47,9 @@ type statePage struct {
 	cursor string
 }
 
-// trySearchPage calls tack_search through the MCP driver and parses node IDs
-// and the next cursor from the response text. It returns the call error if
-// the request fails.
+// trySearchPage calls tack_search through the MCP driver and returns stand-in
+// result IDs and the next cursor. It returns an error when the call or
+// response parsing fails.
 func trySearchPage(t *testing.T, fixture parentEdgeFixture, query, cursor string) (statePage, error) {
 	t.Helper()
 	result, err := fixture.driver.Call(t.Context(), fixture.first.Actors[0].Token, "tack_search", datagen.ToolArguments{
@@ -60,16 +58,12 @@ func trySearchPage(t *testing.T, fixture parentEdgeFixture, query, cursor string
 	if err != nil {
 		return statePage{}, fmt.Errorf("search %q: %w", query, err)
 	}
-	page := statePage{ids: []uuid.UUID{}, cursor: ""}
-	for _, line := range strings.Split(result.Text(), "\n") {
-		if marker := strings.LastIndex(line, resultMarker); marker >= 0 {
-			page.ids = append(page.ids, uuid.MustParse(strings.TrimSuffix(line[marker+len(resultMarker):], "`")))
-		}
-		if _, after, found := strings.Cut(line, cursorMarker); found {
-			page.cursor = strings.TrimSuffix(after, "`")
-		}
+	// The session checks count printed items without resolving fixture node IDs.
+	parsed, err := integration.ParseSearchPage(result.Text(), datagen.NewSearchTitles())
+	if err != nil {
+		return statePage{}, fmt.Errorf("parse search %q: %w", query, err)
 	}
-	return page, nil
+	return statePage{ids: parsed.IDs, cursor: parsed.Cursor}, nil
 }
 
 func searchPageOf(t *testing.T, fixture parentEdgeFixture, query, cursor string) statePage {

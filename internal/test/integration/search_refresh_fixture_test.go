@@ -23,8 +23,9 @@ const rolloutDeadline = 5 * time.Minute
 // leaves behind. A worker claims the step again after the lease expires.
 const rolloutAbandonLease = 500 * time.Millisecond
 
-// putUndeclaredNode creates a node of kind under parentID with one value
-// under a property name that has no definition yet.
+// putUndeclaredNode creates a node of kind under parentID with a value for
+// a property that does not yet have a definition. It records the node in
+// fixture.Harness.titles.
 func putUndeclaredNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID uuid.UUID, name, value string) uuid.UUID {
 	t.Helper()
 	nodeID := uuid.Must(uuid.NewV7())
@@ -36,6 +37,7 @@ func putUndeclaredNode(t *testing.T, fixture queryFixture, kind opaqueKind, pare
 	if err := fixture.Stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
 		t.Fatalf("create undeclared node: %v", err)
 	}
+	fixture.Harness.titles.Add(datagen.SearchItem{Title: created.Name, NodeType: kind.TypeKey}, nodeID)
 	return nodeID
 }
 

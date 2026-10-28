@@ -19,7 +19,7 @@ func tryTypedSearch(harness *MCPHarness, query, nodeType, cursor string) (search
 	if isError {
 		return searchPage{}, errors.New(text)
 	}
-	return parseSearchPage(text)
+	return parseSearchPage(text, harness.titles)
 }
 
 func callTypedSearch(t *testing.T, harness *MCPHarness, query, nodeType, cursor string) searchPage {

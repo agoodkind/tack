@@ -117,28 +117,30 @@ func putNestedKind(t *testing.T, fixture queryFixture, orgID uuid.UUID, typeKey,
 }
 
 // identifierSearchLines follows every tack_search cursor and returns each
-// result item in response order.
-func identifierSearchLines(t *testing.T, harness *MCPHarness, query string) []string {
+// result item and its node ID in response order.
+func identifierSearchLines(t *testing.T, harness *MCPHarness, query string) ([]string, []uuid.UUID) {
 	t.Helper()
 	var lines []string
+	var ids []uuid.UUID
 	cursor := ""
 	for range 100 {
 		text, isError, err := rawSearchCall(harness, searchArguments(harness, query, cursor))
 		if err != nil || isError {
 			t.Fatalf("search %q: %v %s", query, err, text)
 		}
-		page, err := parseSearchPage(text)
+		page, err := parseSearchPage(text, harness.titles)
 		if err != nil {
 			t.Fatalf("parse search %q: %v", query, err)
 		}
 		lines = append(lines, searchResultItems(text)...)
+		ids = append(ids, page.IDs...)
 		if page.Complete {
-			return lines
+			return lines, ids
 		}
 		cursor = page.Cursor
 	}
 	t.Fatalf("search %q did not complete within 100 pages", query)
-	return nil
+	return nil, nil
 }
 
 // requireSeparatedScores requires the raw ranker to score every allowed node

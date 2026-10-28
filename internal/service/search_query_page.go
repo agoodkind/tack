@@ -18,7 +18,7 @@ const (
 	summaryNameBytes = 256
 	// resultOverheadBytes reserves bytes for list item fields and formatting
 	// beyond the summary name and node type.
-	resultOverheadBytes = 208
+	resultOverheadBytes = 160
 	// responseReserveBytes bounds the rendered header and continuation cursor.
 	responseReserveBytes = 512
 )

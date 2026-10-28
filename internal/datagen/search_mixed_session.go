@@ -56,7 +56,7 @@ func (m *searchMixed) answeredPage(ctx context.Context, session searchMixedSessi
 	deadline := clock.Now().Add(searchConvergenceDeadline)
 	for {
 		requested := clock.Now()
-		page, err := callSearch(ctx, m.driver(session.offset+number), session.token, session.entry, session.query, cursor)
+		page, err := callSearch(ctx, m.driver(session.offset+number), m.titles, session.token, session.entry, session.query, cursor)
 		if !isSearchUnavailable(err) {
 			return page, requested, err
 		}
@@ -67,11 +67,25 @@ func (m *searchMixed) answeredPage(ctx context.Context, session searchMixedSessi
 	}
 }
 
-// inspect counts issues that this run deleted before the search request started and issues
-// from another organization.
+// inspect counts deleted results and results outside the caller organization.
+// It also counts an unregistered result as cross-tenant when its project
+// reference does not identify a tenant organization.
 func (m *searchMixed) inspect(ctx context.Context, tenant int, nodeIDs []uuid.UUID, requested time.Time, tally *searchMixedTally) error {
 	orgID := m.tenants[tenant].workspace.OrgID
 	for _, nodeID := range nodeIDs {
+		if item, unresolved := m.titles.Unresolved(nodeID); unresolved {
+			itemOrgID, found, err := m.itemOrg(ctx, item)
+			if err != nil {
+				return err
+			}
+			if !found || itemOrgID != orgID {
+				slog.ErrorContext(ctx, "qa.datagen.search_mixed_foreign_result",
+					slog.String("err", fmt.Sprintf("search returned %q of type %q outside org %s", item.Title, item.NodeType, orgID)),
+					slog.String("title", item.Title), slog.String("node_type", item.NodeType), slog.String("org_id", orgID.String()))
+				tally.crossTenant++
+			}
+			continue
+		}
 		if m.deletedBefore(nodeID, requested) {
 			tally.deleted++
 			continue

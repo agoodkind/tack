@@ -75,14 +75,15 @@ func searchAs(t *testing.T, fixture rolloutFixture, workspace datagen.WorkspaceI
 	if err := json.Unmarshal(payload, &decoded); err != nil || decoded.Result.IsError || len(decoded.Result.Content) == 0 {
 		t.Fatalf("search for %q did not return a usable result: decode error %v, payload %s", query, err, payload)
 	}
-	return parseRolloutSearchPage(t, decoded.Result.Content[0].Text)
+	return parseRolloutSearchPage(t, fixture, decoded.Result.Content[0].Text)
 }
 
-// parseRolloutSearchPage reads result IDs and the continuation cursor.
-// It marks a page complete when the page omits the cursor.
-func parseRolloutSearchPage(t *testing.T, text string) rolloutSearchPage {
+// parseRolloutSearchPage resolves result IDs with fixture.titles and reads
+// the continuation cursor. It marks a page complete when the response omits
+// the cursor.
+func parseRolloutSearchPage(t *testing.T, fixture rolloutFixture, text string) rolloutSearchPage {
 	t.Helper()
-	parsed, err := integration.ParseSearchPage(text)
+	parsed, err := integration.ParseSearchPage(text, fixture.titles)
 	if err != nil {
 		t.Fatalf("parse search page: %v", err)
 	}

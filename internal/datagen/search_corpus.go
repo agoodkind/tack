@@ -161,5 +161,6 @@ func (r searchRun) createProject(ctx context.Context, workspace WorkspaceIdentit
 	if err != nil {
 		return uuid.Nil, loggedError(ctx, "qa datagen: parse search project id", fmt.Errorf("%q: %w", result.RawID(), err))
 	}
+	r.fixture.titles.Add(result.SearchItem(), projectID)
 	return projectID, nil
 }

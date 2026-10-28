@@ -26,8 +26,8 @@ func searchResultViews(ctx context.Context, reader node.NodeReader, results []no
 	return views, nil
 }
 
-// renderSearchPage renders results in rank order with the shared list layout
-// and a Raw id field, within each result's service.ResultBytes budget.
+// renderSearchPage renders results in rank order with the ordinary list item
+// layout. Each item fits within its service.ResultBytes budget.
 func renderSearchPage(rc *renderCtx, page service.SearchPage, views map[uuid.UUID]*node.NodeView, cursors *SearchCursorCodec) string {
 	items := make([]markdownItem, 0, len(page.Results))
 	for _, result := range page.Results {
@@ -35,11 +35,7 @@ func renderSearchPage(rc *renderCtx, page service.SearchPage, views map[uuid.UUI
 		if view == nil {
 			continue
 		}
-		rawID := markdownCodeFieldValue("Raw id", view.ID.String())
-		rawIDBytes := itemFieldOverheadBytes + len(rawID.Label) + len(rawID.Value)
-		item := fitItemToBudget(nodeListItem(rc, view), service.ResultBytes(result)-rawIDBytes)
-		item.Fields = append(item.Fields, rawID)
-		items = append(items, item)
+		items = append(items, fitItemToBudget(nodeListItem(rc, view), service.ResultBytes(result)))
 		addNodeTargets(rc.ctx, view)
 	}
 	nextCursor := ""

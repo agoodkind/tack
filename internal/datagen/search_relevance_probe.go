@@ -84,7 +84,7 @@ func (r searchRun) probeRelevance(ctx context.Context) (SearchRelevanceProbe, er
 // rank reads every continuation page for a query and returns the node's position
 // starting at 1 and the total node count. It returns position 0 when the node is absent.
 func (r searchRun) rank(ctx context.Context, query string, nodeID uuid.UUID) (int, int, error) {
-	results, err := traverseSearch(ctx, r.driver, r.token, r.entry, query, r.limits)
+	results, err := traverseSearch(ctx, r.driver, r.fixture.titles, r.token, r.entry, query, r.limits)
 	if err != nil {
 		return 0, 0, err
 	}

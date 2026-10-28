@@ -86,7 +86,7 @@ func (m *searchMixed) searchRun(tenant, actor, driver int) searchRun {
 	workspace := m.tenants[tenant].workspace
 	return searchRun{
 		driver: m.driver(driver), token: workspace.Actors[actor].Token, entry: workspace.Slug,
-		limits: m.limits, fixture: searchFixture{}, phrases: searchPhrases{}, pages: m.pages,
+		limits: m.limits, fixture: m.titleFixture(), phrases: searchPhrases{}, pages: m.pages,
 	}
 }
 
@@ -122,5 +122,5 @@ func (m *searchMixed) createIssue(ctx context.Context, tenant, number int, text 
 	if err != nil {
 		return uuid.Nil, loggedError(ctx, "qa datagen search-mixed: the command could not parse the created issue ID", err)
 	}
-	return nodeID, nil
+	return nodeID, m.registerCreated(ctx, result)
 }

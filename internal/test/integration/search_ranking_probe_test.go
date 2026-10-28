@@ -36,6 +36,7 @@ type rankingRun struct {
 	client    *opensearchapi.Client
 	cursors   *tools.SearchCursorCodec
 	names     map[uuid.UUID]string
+	titles    *datagen.SearchTitles
 }
 
 type rankingProbe struct {
@@ -85,7 +86,7 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 	run := &rankingRun{
 		driver: datagen.NewDriver(graph, false, seed), token: workspace.Actors[0].Token, workspace: workspace.Slug,
 		stores: stores, client: baseAPI, cursors: tools.NewSearchCursorCodec(key),
-		names: map[uuid.UUID]string{},
+		names: map[uuid.UUID]string{}, titles: datagen.NewSearchTitles(),
 	}
 	identifier := json.RawMessage(strconv.Quote(rankingProject))
 	run.call(t, "tack_create_project", datagen.ToolArguments{
@@ -121,13 +122,14 @@ func (r *rankingRun) createIssue(t *testing.T, name, description string) uuid.UU
 		t.Fatalf("parse issue ID of %q: %v", name, err)
 	}
 	r.names[nodeID] = name
+	r.titles.Add(result.SearchItem(), nodeID)
 	return nodeID
 }
 
 func (r *rankingRun) search(t *testing.T, query, cursor string) rankingPage {
 	t.Helper()
 	text := r.call(t, "tack_search", datagen.ToolArguments{WorkspaceReference: r.workspace, Query: query, Cursor: cursor}).Text()
-	parsed, err := integration.ParseSearchPage(text)
+	parsed, err := integration.ParseSearchPage(text, r.titles)
 	if err != nil {
 		t.Fatalf("parse search page: %v", err)
 	}

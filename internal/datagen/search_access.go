@@ -48,6 +48,14 @@ func (r searchRun) verifyAccess(ctx context.Context, cfg *config.Config, seed in
 	if err != nil {
 		return err
 	}
+	// Both runs use one registry to resolve either organization's results to
+	// node IDs for the isolation checks.
+	foreignFixture.titles = r.fixture.titles
+	foreignEntry, err := r.fixture.stores.Views.Get(ctx, foreignFixture.entryID)
+	if err != nil || foreignEntry == nil {
+		return loggedError(ctx, "qa datagen: read foreign entry node "+foreignFixture.entryID.String(), errMissing(err))
+	}
+	foreignFixture.titles.Add(SearchItem{Title: foreignWorkspace.Slug, NodeType: foreignEntry.NodeType}, foreignFixture.entryID)
 	callerNodes, err := putAccessNodes(ctx, r.fixture, "caller access case ", accessCallerNodes)
 	if err != nil {
 		return err
@@ -62,8 +70,12 @@ func (r searchRun) verifyAccess(ctx context.Context, cfg *config.Config, seed in
 		description string
 		check       func(context.Context) error
 	}{
-		{"isolate caller results", func(ctx context.Context) error { return r.isolated(ctx, callerNodes, foreignNodes) }},
-		{"isolate foreign results", func(ctx context.Context) error { return foreignRun.isolated(ctx, foreignNodes, callerNodes) }},
+		{"isolate caller results", func(ctx context.Context) error {
+			return r.isolated(ctx, callerNodes, foreignNodes, foreignFixture.orgID)
+		}},
+		{"isolate foreign results", func(ctx context.Context) error {
+			return foreignRun.isolated(ctx, foreignNodes, callerNodes, r.fixture.orgID)
+		}},
 	}
 	for _, step := range checks {
 		if err := r.eventually(ctx, step.description, step.check); err != nil {
@@ -101,13 +113,13 @@ func putAccessNodes(ctx context.Context, fixture searchFixture, namePrefix strin
 	return nodes, nil
 }
 
-// isolated requires the complete traversal for accessPhrase to contain every
-// allowed node and no forbidden node. It also reads the resolve record of
-// every returned node and requires the organization of the run's fixture.
-// The traversal can return other caller-organization nodes, such as nodes
-// from an earlier run with the same seed.
-func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID) error {
-	results, err := traverseSearch(ctx, r.driver, r.token, r.entry, accessPhrase, r.limits)
+// isolated requires every allowed node and rejects every forbidden node
+// across all search pages for accessPhrase. It checks each registered node's
+// organization through its resolve record. It accepts an unregistered result
+// only when the caller organization declares its node type and the other
+// organization does not.
+func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID, otherOrgID uuid.UUID) error {
+	results, err := traverseSearch(ctx, r.driver, r.fixture.titles, r.token, r.entry, accessPhrase, r.limits)
 	if err != nil {
 		return err
 	}
@@ -121,7 +133,24 @@ func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID)
 			return fmt.Errorf("search %q under %s returned node %s of another organization", accessPhrase, r.entry, nodeID)
 		}
 	}
+	ownedTypes, err := r.fixture.typeKeys(ctx, r.fixture.orgID)
+	if err != nil {
+		return err
+	}
+	otherTypes, err := r.fixture.typeKeys(ctx, otherOrgID)
+	if err != nil {
+		return err
+	}
 	for _, nodeID := range results {
+		// Every organization declares the built-in node types. A built-in type
+		// cannot establish the organization of an unregistered result.
+		if item, unresolved := r.fixture.titles.Unresolved(nodeID); unresolved {
+			if !slices.Contains(ownedTypes, item.NodeType) || slices.Contains(otherTypes, item.NodeType) {
+				return fmt.Errorf("search %q under %s returned the unregistered result %q of type %q, which only org %s must declare",
+					accessPhrase, r.entry, item.Title, item.NodeType, r.fixture.orgID)
+			}
+			continue
+		}
 		resolved, err := r.fixture.stores.Views.Resolve(ctx, nodeID)
 		if err != nil {
 			return loggedError(ctx, "qa datagen: resolve search result "+nodeID.String()+" under "+r.entry, err)

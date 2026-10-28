@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -65,13 +66,17 @@ func newClusterQueryFixture(t *testing.T, engine testenv.OpenSearchFixture) (que
 	harness := &MCPHarness{
 		driver: datagen.NewDriver(graph, false, seed), handler: graph.MCPRoute,
 		token: workspace.Actors[0].Token, ledgerDSN: cfg.DatabaseURL, orgID: workspace.OrgID,
-		Workspace: workspace.Slug, Project: "", outbox: stores.OpsOutbox,
+		Workspace: workspace.Slug, Project: "", outbox: stores.OpsOutbox, titles: datagen.NewSearchTitles(),
 	}
 	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, searchWorkerSettings(runtimePageBytes))
-	return queryFixture{
+	fixture := queryFixture{
 		Stores: stores, Adapter: adapter, Client: client, Index: index, Config: cfg,
 		Graph: graph, Harness: harness, Workspaces: identities.Workspaces, Worker: worker,
-	}, spec
+	}
+	for _, bootstrapped := range identities.Workspaces {
+		entryPoint(t, fixture, bootstrapped)
+	}
+	return fixture, spec
 }
 
 func clusterRequire(t *testing.T, operation string, err error) {
@@ -124,8 +129,10 @@ func clusterNodeWriter(t *testing.T, fixture queryFixture) func() uuid.UUID {
 	workspace := fixture.Workspaces[0]
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
 	parent := entryPoint(t, fixture, workspace)
+	var written atomic.Int64
 	return func() uuid.UUID {
-		return putOpaqueNode(t, fixture, kind, parent, "cluster node", clusterPhrase, "excluded cluster text")
+		name := "cluster node " + strconv.FormatInt(written.Add(1), 10)
+		return putOpaqueNode(t, fixture, kind, parent, name, clusterPhrase, "excluded cluster text")
 	}
 }
 

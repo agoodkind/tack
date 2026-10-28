@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -58,7 +59,7 @@ func trySearch(harness *MCPHarness, query, cursor string) (searchPage, error) {
 	if isError {
 		return searchPage{}, errors.New(text)
 	}
-	return parseSearchPage(text)
+	return parseSearchPage(text, harness.titles)
 }
 
 func rawSearchCall(harness *MCPHarness, arguments map[string]any) (string, bool, error) {
@@ -128,19 +129,16 @@ func rawCallStatus(t *testing.T, harness *MCPHarness, tool string, arguments map
 // more results.
 const searchCursorMarker = "Next cursor: `"
 
-// parseSearchPage checks the result count and reads each result's Raw id
-// field and the continuation cursor. It marks a page complete when the page
-// omits a cursor.
-func parseSearchPage(text string) (searchPage, error) {
-	page := searchPage{IDs: []uuid.UUID{}, Cursor: "", Complete: false}
-	items := searchResultItems(text)
-	for _, item := range items {
-		id, err := searchItemID(item)
-		if err != nil {
-			return searchPage{}, err
-		}
-		page.IDs = append(page.IDs, id)
+// parseSearchPage checks the result count, resolves result identities with
+// titles, and reads the continuation cursor. It marks a page complete when
+// the response omits the cursor.
+func parseSearchPage(text string, titles *datagen.SearchTitles) (searchPage, error) {
+	items := datagen.SearchResultItems(text)
+	nodeIDs, err := titles.IDs(items)
+	if err != nil {
+		return searchPage{}, fmt.Errorf("%w:\n%s", err, text)
 	}
+	page := searchPage{IDs: nodeIDs, Cursor: "", Complete: false}
 	for _, line := range strings.Split(text, "\n") {
 		if marker := strings.Index(line, searchCursorMarker); marker >= 0 {
 			page.Cursor = strings.TrimSuffix(line[marker+len(searchCursorMarker):], "`")
@@ -166,21 +164,6 @@ func searchResultItems(text string) []string {
 		}
 	}
 	return items
-}
-
-// searchItemID parses the single Raw id field in a result item.
-func searchItemID(item string) (uuid.UUID, error) {
-	const marker = "\n  - Raw id: `"
-	if strings.Count(item, marker) != 1 {
-		return uuid.Nil, fmt.Errorf("result item must have exactly one raw node ID:\n%s", item)
-	}
-	value := item[strings.Index(item, marker)+len(marker):]
-	value, _, _ = strings.Cut(value, "`")
-	id, err := uuid.Parse(value)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("parse result id %q: %w", value, err)
-	}
-	return id, nil
 }
 
 // callEverySearchPage follows each cursor until a page omits the cursor.

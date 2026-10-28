@@ -43,6 +43,7 @@ type parentEdgeFixture struct {
 	firstEntry, secondEntry uuid.UUID
 	entryTypes              []string
 	kind                    parentEdgeKind
+	titles                  *datagen.SearchTitles
 }
 
 func newParentEdgeFixture(t *testing.T) parentEdgeFixture {
@@ -73,7 +74,7 @@ func newParentEdgeFixture(t *testing.T) parentEdgeFixture {
 	if err != nil {
 		t.Fatalf("build the node service: %v", err)
 	}
-	fixture := parentEdgeFixture{cfg: cfg, stores: stores, driver: datagen.NewDriver(graph, false, seed), nodes: nodes}
+	fixture := parentEdgeFixture{cfg: cfg, stores: stores, driver: datagen.NewDriver(graph, false, seed), nodes: nodes, titles: datagen.NewSearchTitles()}
 	fixture.worker, fixture.adapter = newParentEdgeWorker(t, cfg, stores)
 	fixture.first, fixture.second, fixture.foreign = parentEdgeWorkspaces(t, identities.Workspaces)
 	fixture.entryTypes = parentEdgeEntryTypes(t, stores, fixture.first.OrgID)
@@ -160,6 +161,7 @@ func (f parentEdgeFixture) entry(t *testing.T, workspace datagen.WorkspaceIdenti
 		}
 		for _, view := range views {
 			if view.Name == workspace.Name {
+				f.titles.Add(datagen.SearchItem{Title: workspace.Slug, NodeType: typeKey}, view.ID)
 				return view.ID
 			}
 		}

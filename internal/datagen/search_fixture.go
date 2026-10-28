@@ -63,6 +63,7 @@ type searchFixture struct {
 	typeKey     string
 	includedKey string
 	excludedKey string
+	titles      *SearchTitles
 }
 
 // opaqueKey returns a lowercase identifier with a label prefix and no
@@ -108,7 +109,9 @@ func newSearchFixtureWithManifest(
 	fixture := searchFixture{
 		stores: stores, members: members, nodes: nodes, orgID: workspace.OrgID, entryID: entryID,
 		typeKey: opaqueKey("n"), includedKey: opaqueKey("p"), excludedKey: opaqueKey("p"),
+		titles: NewSearchTitles(),
 	}
+	fixture.titles.Add(SearchItem{Title: workspace.Slug, NodeType: entry.NodeType}, entryID)
 	included := searchDefinition(workspace.OrgID, fixture.includedKey, true, 0)
 	excluded := searchDefinition(workspace.OrgID, fixture.excludedKey, false, 1)
 	for _, definition := range []*node.PropertyDef{included, excluded} {
@@ -164,7 +167,21 @@ func (f searchFixture) put(ctx context.Context, name, included, excluded string)
 	if err != nil {
 		return uuid.Nil, loggedError(ctx, "qa datagen: create search node "+name, err)
 	}
+	f.titles.Add(SearchItem{Title: name, NodeType: f.typeKey}, result.View.ID)
 	return result.View.ID, nil
+}
+
+// typeKeys returns the node type keys for the requested organization.
+func (f searchFixture) typeKeys(ctx context.Context, orgID uuid.UUID) ([]string, error) {
+	types, err := f.stores.NodeTypes.List(ctx, orgID)
+	if err != nil {
+		return nil, loggedError(ctx, "qa datagen: list node types of org "+orgID.String(), err)
+	}
+	keys := make([]string, 0, len(types))
+	for _, nodeType := range types {
+		keys = append(keys, nodeType.TypeKey)
+	}
+	return keys, nil
 }
 
 // edit replaces the included value of one node.

@@ -17,18 +17,18 @@ import (
 // verifyReplay requests the second page of one session twice and requires
 // the identical node list both times.
 func (r searchRun) verifyReplay(ctx context.Context) error {
-	first, err := callSearch(ctx, r.driver, r.token, r.entry, accessPhrase, "")
+	first, err := callSearch(ctx, r.driver, r.fixture.titles, r.token, r.entry, accessPhrase, "")
 	if err != nil {
 		return err
 	}
 	if first.Cursor == "" {
 		return fmt.Errorf("qa datagen: search %q returned no continuation cursor for replay", accessPhrase)
 	}
-	second, err := callSearch(ctx, r.driver, r.token, r.entry, accessPhrase, first.Cursor)
+	second, err := callSearch(ctx, r.driver, r.fixture.titles, r.token, r.entry, accessPhrase, first.Cursor)
 	if err != nil {
 		return err
 	}
-	replayed, err := callSearch(ctx, r.driver, r.token, r.entry, accessPhrase, first.Cursor)
+	replayed, err := callSearch(ctx, r.driver, r.fixture.titles, r.token, r.entry, accessPhrase, first.Cursor)
 	if err != nil {
 		return err
 	}
@@ -39,12 +39,12 @@ func (r searchRun) verifyReplay(ctx context.Context) error {
 }
 
 // verifyRevocation opens a session as one member, removes that member from
-// the organization, and requires the open cursor and a new search to be
-// refused. It then restores the membership with its original role. The
-// restore runs after a failed refusal check too.
+// the organization, and requires the server to refuse the open cursor and
+// a new search. It then restores the membership with its original role,
+// including after a failed refusal check.
 func (r searchRun) verifyRevocation(ctx context.Context, cfg *config.Config, workspace WorkspaceIdentity) error {
 	actor := workspace.Actors[revokedActorIndex]
-	first, err := callSearch(ctx, r.driver, actor.Token, r.entry, accessPhrase, "")
+	first, err := callSearch(ctx, r.driver, r.fixture.titles, actor.Token, r.entry, accessPhrase, "")
 	if err != nil {
 		return err
 	}
