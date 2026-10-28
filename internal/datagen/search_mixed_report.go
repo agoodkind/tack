@@ -30,13 +30,12 @@ func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error
 	if s.Rebuild.FinalState == string(searchdomain.RebuildFailed) {
 		failures = append(failures, errors.New("the index rebuild failed"))
 	}
-	// A dry run does not measure a window and skips this block. A stopped run skips the catch-up
-	// wait; its probe counts each pending marker as not found and each pending deletion as unverified.
-	// Verify fails a measured run that stopped early with one error that states the stop reason.
+	// A dry run skips this block. Verify fails every other stopped run with one error that states
+	// the stop reason, whether the run stopped during setup or during the measured window.
 	// After a measured run that finished, Verify fails for incomplete catch-up, markers the probe
 	// did not find, and deletions the probe did not verify.
-	if s.Measured && s.Stopped {
-		failures = append(failures, fmt.Errorf("measured run stopped early with reason %s; the command did not run the catch-up wait or the marker and deletion verification", stopReason))
+	if s.Stopped && !s.Search.DryRun {
+		failures = append(failures, fmt.Errorf("run stopped with reason %s; the measured window did not run or did not finish", stopReason))
 	} else if s.Measured {
 		if !s.CatchUp.Completed {
 			failures = append(failures, fmt.Errorf("live, access, or cleanup search work with enqueue times before the end of writes remained pending after %s of catch-up", s.CatchUp.Elapsed))
