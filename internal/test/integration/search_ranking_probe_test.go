@@ -19,6 +19,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
+	"goodkind.io/tack/internal/domain/node"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -51,6 +52,9 @@ type rankingPage struct {
 	Complete bool
 }
 
+// newRankingRun creates a ranking run and records the workspace entry node
+// in its title registry. Search can return that node, and the workspace type
+// does not provide a public get tool.
 func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *rankingRun {
 	t.Helper()
 	seed := clock.Now().UnixNano()
@@ -88,6 +92,12 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 		stores: stores, client: baseAPI, cursors: tools.NewSearchCursorCodec(key),
 		names: map[uuid.UUID]string{}, titles: datagen.NewSearchTitles(),
 	}
+	entryID := node.WorkspaceID(workspace.OrgID, workspace.Slug)
+	entry, err := stores.Views.Get(integration.WithTestOperation(t, t.Context()), entryID)
+	if err != nil || entry == nil {
+		t.Fatalf("read the workspace entry node %s: %v", entryID, err)
+	}
+	run.titles.Add(datagen.SearchItem{Title: workspace.Slug, NodeType: entry.NodeType}, entryID)
 	identifier := json.RawMessage(strconv.Quote(rankingProject))
 	run.call(t, "tack_create_project", datagen.ToolArguments{
 		WorkspaceReference: workspace.Slug, Name: "Ranking regression", Properties: datagen.NodeProperties{"identifier": identifier},
