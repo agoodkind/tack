@@ -15,7 +15,23 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-func runStrictValidation(t *testing.T, execute bool) (ops.StrictValidationOutput, error) {
+func runStrictValidation(t *testing.T, execute bool, flags ...string) (ops.StrictValidationOutput, error) {
+	t.Helper()
+	output, runErr := runStrictValidationOutput(t, execute, flags...)
+	var document response.JSONDocument
+	if err := json.Unmarshal(output, &document); err != nil {
+		t.Fatalf("decode the strict validation output %q (command error %v): %v", output, runErr, err)
+	}
+	var decoded ops.StrictValidationOutput
+	if err := json.Unmarshal(document.Result, &decoded); err != nil {
+		t.Fatalf("decode the strict validation result %s (command error %v): %v", document.Result, runErr, err)
+	}
+	return decoded, runErr
+}
+
+// runStrictValidationOutput runs the audited command with flags after the
+// command name and returns its stdout and error.
+func runStrictValidationOutput(t *testing.T, execute bool, flags ...string) ([]byte, error) {
 	t.Helper()
 	ledgerDSN := testenv.Ledger(t)
 	t.Setenv("DATABASE_URL", ledgerDSN)
@@ -40,6 +56,7 @@ func runStrictValidation(t *testing.T, execute bool) (ops.StrictValidationOutput
 		"--operator-email", "operator@example.com", "--operator-name", "Strict Validation Test",
 		"ops", "verify", "strict-validation",
 	}
+	args = append(args, flags...)
 	if execute {
 		args = append([]string{"--execute"}, args...)
 	}
@@ -47,13 +64,5 @@ func runStrictValidation(t *testing.T, execute bool) (ops.StrictValidationOutput
 	root.SetContext(t.Context())
 	root.SetArgs(args)
 	runErr := root.Execute()
-	var document response.JSONDocument
-	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
-		t.Fatalf("decode the strict validation output %q (command error %v): %v", output.String(), runErr, err)
-	}
-	var decoded ops.StrictValidationOutput
-	if err := json.Unmarshal(document.Result, &decoded); err != nil {
-		t.Fatalf("decode the strict validation result %s (command error %v): %v", document.Result, runErr, err)
-	}
-	return decoded, runErr
+	return output.Bytes(), runErr
 }
