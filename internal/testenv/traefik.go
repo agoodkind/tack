@@ -29,11 +29,12 @@ const (
 	backendDown       = "DOWN"
 )
 
-// traefikDynamicFormat terminates client TLS with the proxy certificate,
-// re-encrypts to each member, and verifies each member against the cluster CA
-// under the shared backend name. The health check sends an authenticated
-// cluster health request to each member. Traefik marks a member that fails
-// the check DOWN and stops routing requests to it.
+// traefikDynamicFormat terminates client TLS with the proxy certificate and
+// establishes TLS connections to each member. It verifies each member against
+// the cluster CA under the shared backend name. The health check sends an
+// authenticated cluster health request to each member. Traefik marks a member
+// that fails the check DOWN and stops routing requests to it.
+// Optional fragments add the refused route when refusedPath is not empty.
 const traefikDynamicFormat = `http:
   routers:
     search:
@@ -41,7 +42,7 @@ const traefikDynamicFormat = `http:
       rule: "PathPrefix(` + "`/`" + `)"
       service: search
       tls: {}
-  services:
+%s  services:
     search:
       loadBalancer:
         serversTransport: search
@@ -52,12 +53,12 @@ const traefikDynamicFormat = `http:
           headers:
             Authorization: "Basic %s"
         servers:
-%s  serversTransports:
+%s%s  serversTransports:
     search:
       serverName: %s
       rootCAs:
         - ` + traefikCertsDir + `/ca.pem
-tls:
+%stls:
   stores:
     default:
       defaultCertificate:
@@ -84,7 +85,8 @@ func (c *OpenSearchCluster) proxyConfig() []byte {
 		_, _ = fmt.Fprintf(&servers, "          - url: %s\n", c.MemberEndpoint(member))
 	}
 	login := base64.StdEncoding.EncodeToString([]byte(c.Fixture.Username + ":" + c.Fixture.Password))
-	return fmt.Appendf(nil, traefikDynamicFormat, login, servers.String(), c.name)
+	refusal := c.refusalConfig(servers.String())
+	return fmt.Appendf(nil, traefikDynamicFormat, refusal.router, login, servers.String(), refusal.service, c.name, refusal.transport)
 }
 
 // startProxy starts Traefik on the engines' network with a certificate for

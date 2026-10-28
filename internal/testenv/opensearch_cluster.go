@@ -63,6 +63,9 @@ type OpenSearchCluster struct {
 	proxy     string
 	authority clusterAuthority
 	users     []byte
+	// refusedPath is the URL path prefix for the refused route.
+	// The proxy configuration omits that route when refusedPath is empty.
+	refusedPath string
 }
 
 // StartOpenSearchCluster starts the first of planned members and the proxy in
@@ -71,14 +74,15 @@ type OpenSearchCluster struct {
 func StartOpenSearchCluster(t T, planned int) *OpenSearchCluster {
 	t.Helper()
 	cluster := &OpenSearchCluster{
-		Fixture:   OpenSearchFixture{Endpoint: "", CA: "", Username: "", Password: "", Container: ""},
-		name:      "",
-		planned:   nil,
-		members:   nil,
-		stopped:   map[string]bool{},
-		proxy:     "",
-		authority: clusterAuthority{certificate: nil, key: nil, pem: nil},
-		users:     nil,
+		Fixture:     OpenSearchFixture{Endpoint: "", CA: "", Username: "", Password: "", Container: ""},
+		name:        "",
+		planned:     nil,
+		members:     nil,
+		stopped:     map[string]bool{},
+		proxy:       "",
+		authority:   clusterAuthority{certificate: nil, key: nil, pem: nil},
+		users:       nil,
+		refusedPath: "",
 	}
 	cluster.run(t, func(ctx context.Context, cli *client.Client) error { return cluster.start(ctx, cli, planned) })
 	return cluster
