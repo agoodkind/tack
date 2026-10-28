@@ -3,10 +3,12 @@ package ops_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/client"
@@ -124,10 +126,11 @@ func checkRetentionMetadata(ctx context.Context, cli *client.Client, identifier 
 			if errors.Is(err, context.Canceled) {
 				continue
 			}
-			if _, inspectErr := cli.ContainerInspect(ctx, identifier, client.ContainerInspectOptions{}); cerrdefs.IsNotFound(inspectErr) {
+			gone, status := retentionContainerGone(ctx, cli, identifier)
+			if gone {
 				continue
 			}
-			return "inspect protected synthetic credential file metadata"
+			return fmt.Sprintf("inspect protected synthetic credential file metadata: %v (container status %s)", err, status)
 		}
 		_ = copied.Content.Close()
 		if uint32(copied.Stat.Mode.Perm()) != permission {
@@ -135,4 +138,37 @@ func checkRetentionMetadata(ctx context.Context, cli *client.Client, identifier 
 		}
 	}
 	return ""
+}
+
+const (
+	retentionRemovalPollInterval = 100 * time.Millisecond
+	retentionRemovalTimeout      = 10 * time.Second
+)
+
+// retentionContainerGone waits for Docker to finish removing a retention container. It
+// returns false with the last observed status when the container still exists after
+// retentionRemovalTimeout.
+func retentionContainerGone(ctx context.Context, cli *client.Client, identifier string) (bool, string) {
+	deadline := time.Now().Add(retentionRemovalTimeout)
+	for {
+		state, err := cli.ContainerInspect(ctx, identifier, client.ContainerInspectOptions{})
+		if cerrdefs.IsNotFound(err) || ctx.Err() != nil {
+			return true, ""
+		}
+		status := "unknown"
+		switch {
+		case err != nil:
+			status = err.Error()
+		case state.Container.State != nil:
+			status = string(state.Container.State.Status)
+		}
+		if time.Now().After(deadline) {
+			return false, status
+		}
+		select {
+		case <-ctx.Done():
+			return true, ""
+		case <-time.After(retentionRemovalPollInterval):
+		}
+	}
 }
