@@ -53,7 +53,9 @@ func TestParentReferenceParityMovesIssues(t *testing.T) {
 // the issue under the printed state reference and under the raw state UUID
 // with an error that names parent_id. After each refusal, the issue must
 // keep parent_id equal to the project, exactly one child_of edge to the
-// project, and its stored update time.
+// project, and its stored update time. tack_create_issue must refuse an issue
+// with parent_id set to either state reference, and the project must keep
+// the same number of issues.
 func TestParentReferenceParityRefusesStateParent(t *testing.T) {
 	harness := integration.NewMCPHarness(t)
 	stores := parentIntegrityStores(t)
@@ -80,6 +82,30 @@ func TestParentReferenceParityRefusesStateParent(t *testing.T) {
 				issueID, reference, before.UpdatedAt, after.UpdatedAt)
 		}
 	}
+
+	issueCount := len(scopeIssues(t, stores, before))
+	for _, reference := range []string{stateReference, stateID.String()} {
+		create := schemaArguments(harness)
+		create.Name = "Issue under the Done state"
+		create.Properties = datagen.NodeProperties{"parent_id": quoted(reference)}
+		text := harness.CallExpectError(t, "tack_create_issue", create)
+		if !strings.Contains(text, "parent_id") {
+			t.Fatalf("create of an issue under state %q returned %q, want a parent_id refusal", reference, text)
+		}
+		if count := len(scopeIssues(t, stores, before)); count != issueCount {
+			t.Fatalf("refused create under state %q changed the project issue count from %d to %d", reference, issueCount, count)
+		}
+	}
+}
+
+// scopeIssues lists the issues with the scope_id of issue.
+func scopeIssues(t *testing.T, stores *fdbadapter.Stores, issue *node.NodeView) []*node.Node {
+	t.Helper()
+	issues, err := stores.Nodes.ListByProperty(t.Context(), issue.OrgID, "issue", "scope_id", issue.Props["scope_id"])
+	if err != nil {
+		t.Fatalf("list issues with the scope of issue %s: %v", issue.ID, err)
+	}
+	return issues
 }
 
 // createReferencedNode calls the create tool with name in the harness project
