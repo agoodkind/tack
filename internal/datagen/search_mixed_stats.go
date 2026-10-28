@@ -52,7 +52,7 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 			Checks: 0, Pages: 0, Replays: 0, Endpoints: 0, Unavailable: 0, ContinuationErrors: 0, MissingCorpusIssues: 0, ReplayMismatches: 0,
 			CrossTenantResults: 0, DeletedNodesReturned: 0,
 		},
-		Pending: SearchMixedPending{Checks: 0, PendingObserved: 0, DeletedNodesReturned: 0},
+		Pending: SearchMixedPending{Checks: 0, PendingObserved: 0, Unavailable: 0, DeletedNodesReturned: 0},
 		Revocation: SearchMixedRevocation{
 			Checks: 0, PagesWithinCacheLifetime: 0, ResultsAfterCacheLifetime: 0, Unavailable: 0, RefusedAfter: 0, Refused: false,
 		},

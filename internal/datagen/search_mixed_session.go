@@ -48,24 +48,15 @@ func (m *searchMixed) page(ctx context.Context, session searchMixedSession, numb
 }
 
 // answeredPage requests page number of session with cursor and resolves the
-// results for its tenant. It returns the page and the request's start time.
-// After an unavailable response, it counts the response and retries with the
-// same driver and cursor at searchMixedPollInterval. It stops retrying at
-// searchConvergenceDeadline or when ctx ends and returns other errors at once.
+// results for its tenant. It returns the page and the start time of the request
+// that the server answered. retryUnavailable repeats an unavailable response
+// with the same driver and cursor and counts it in tally.
 func (m *searchMixed) answeredPage(ctx context.Context, session searchMixedSession, number int, cursor string, tally *searchMixedTally) (searchPage, time.Time, error) {
-	deadline := clock.Now().Add(searchConvergenceDeadline)
-	for {
-		requested := clock.Now()
-		driver := m.driver(session.offset + number)
-		page, err := callSearch(ctx, driver, m.identities(session.tenant, driver), session.token, session.entry, session.query, cursor)
-		if !isSearchUnavailable(err) {
-			return page, requested, err
-		}
-		tally.unavailable++
-		if clock.Now().After(deadline) || !waitForSearchMixedPoll(ctx) {
-			return searchPage{}, requested, err
-		}
-	}
+	driver := m.driver(session.offset + number)
+	identities := m.identities(session.tenant, driver)
+	return retryUnavailable(ctx, &tally.unavailable, func() (searchPage, error) {
+		return callSearch(ctx, driver, identities, session.token, session.entry, session.query, cursor)
+	})
 }
 
 // inspect counts results that this run deleted before the request started.

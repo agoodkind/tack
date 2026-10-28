@@ -31,8 +31,11 @@ type SearchMixedSessions struct {
 
 // SearchMixedPending reports deletion checks and whether deletion work remained pending.
 type SearchMixedPending struct {
-	Checks               int `json:"checks"`
-	PendingObserved      int `json:"pending_observed"`
+	Checks          int `json:"checks"`
+	PendingObserved int `json:"pending_observed"`
+	// Unavailable counts the unavailable responses that the deletion check repeated, including
+	// the responses of a check that failed.
+	Unavailable          int `json:"unavailable"`
 	DeletedNodesReturned int `json:"deleted_nodes_returned"`
 }
 

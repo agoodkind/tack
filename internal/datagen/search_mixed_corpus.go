@@ -67,15 +67,15 @@ func (m *searchMixed) createCorpus(stopContext, ctx context.Context) error {
 		{searchMixedVictimGroup, 0, m.victimWord, victims},
 	}
 	for _, wait := range waits {
-		run := m.searchRun(wait.tenant, 0, wait.tenant)
-		check := func(ctx context.Context) ([]uuid.UUID, error) { return run.missing(ctx, wait.word, wait.nodes...) }
+		check := corpusMissing(stopContext, m.searchRun(wait.tenant, 0, wait.tenant), wait.word, wait.nodes)
 		description := fmt.Sprintf("index search mixed corpus group %s for %s", wait.group, wait.word)
-		checks, err := awaitCorpus(stopContext, ctx, description, wait.nodes, check)
+		checks, unavailable, err := awaitCorpus(stopContext, ctx, description, wait.nodes, check)
 		if err != nil {
 			return err
 		}
 		m.corpusIndex.record(SearchMixedCorpusWait{
-			Group: wait.group, Tenant: wait.tenant, Nodes: len(wait.nodes), Checks: checks, Elapsed: clock.Now().Sub(createsEnded),
+			Group: wait.group, Tenant: wait.tenant, Nodes: len(wait.nodes), Checks: checks, Unavailable: unavailable,
+			Elapsed: clock.Now().Sub(createsEnded),
 		})
 	}
 	return nil

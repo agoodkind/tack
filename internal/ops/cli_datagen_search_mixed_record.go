@@ -32,6 +32,7 @@ func logSearchMixedResult(ctx context.Context, result datagenSearchMixedResult) 
 		searchMixedSessionsAttr(result.Sessions),
 		slog.Group("pending_deletion", slog.Int("checks", result.PendingDeletion.Checks),
 			slog.Int("pending_observed", result.PendingDeletion.PendingObserved),
+			slog.Int("unavailable", result.PendingDeletion.Unavailable),
 			slog.Int("deleted_nodes_returned", result.PendingDeletion.DeletedNodesReturned)),
 		searchMixedRevocationAttr(result.Revocation),
 		slog.Group("rebuild", slog.Bool("requested", result.Rebuild.Requested),
