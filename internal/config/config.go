@@ -61,6 +61,12 @@ type Config struct {
 	LogMaxSizeMB     int    `env:"LOG_MAX_SIZE_MB"  envDefault:"100"`
 	LogMaxBackups    int    `env:"LOG_MAX_BACKUPS"  envDefault:"0"`
 	LogMaxAgeDays    int    `env:"LOG_MAX_AGE_DAYS" envDefault:"0"`
+	// LogCommandDir is the directory for the log files of a process that runs
+	// a command other than serve. Each such process writes its own JSON and
+	// text files in this directory, named after the command path and the
+	// request ID, and other processes do not rotate them. Empty keeps LOG_JSON_FILE
+	// and LOG_TEXT_FILE for every process.
+	LogCommandDir string `env:"LOG_COMMAND_DIR"`
 
 	// Seed: used by `./server seed` only.
 	SeedEmail         string `env:"SEED_EMAIL"`
