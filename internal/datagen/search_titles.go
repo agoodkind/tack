@@ -48,9 +48,10 @@ type SearchIdentities struct {
 	Resolve SearchResolver
 }
 
-// IDs returns real node IDs in response order and records each resolved result
-// in Titles. It fails when a title and node type match multiple recorded nodes
-// or when an unmatched result lacks a resolver or the resolver returns an error.
+// IDs returns each item's node ID in response order without changing Titles.
+// IDs calls Resolve each time an item does not match Titles.
+// IDs fails when a title and node type match multiple recorded nodes,
+// when an unmatched result lacks a resolver, or when Resolve returns an error.
 func (i SearchIdentities) IDs(ctx context.Context, items []SearchItem) ([]uuid.UUID, error) {
 	nodeIDs := make([]uuid.UUID, 0, len(items))
 	for _, item := range items {
@@ -66,7 +67,6 @@ func (i SearchIdentities) IDs(ctx context.Context, items []SearchItem) ([]uuid.U
 			if err != nil {
 				return nil, loggedError(ctx, fmt.Sprintf("qa datagen: resolve search result %q of type %q", item.Title, item.NodeType), err)
 			}
-			i.Titles.Add(item, nodeID)
 		}
 		nodeIDs = append(nodeIDs, nodeID)
 	}
