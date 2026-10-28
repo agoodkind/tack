@@ -62,8 +62,10 @@ func (l *PoolReadLifecycle) BeginRead(ctx context.Context, admission ReadAdmissi
 	var generation uint64
 	var deadline time.Time
 	bucket := int(ReadBucket(token.EventID))
-	err = l.pool.QueryRow(ctx, readStatement("begin"), token.EventID, token.Owner, bucket, template).
-		Scan(&generation, &deadline)
+	err = l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
+		return connection.QueryRow(ctx, readStatement("begin"), token.EventID, token.Owner, bucket, template).
+			Scan(&generation, &deadline)
+	})
 	if err != nil {
 		return ReadToken{}, readLifecycleFailure(ctx, "begin audit read", token.EventID, err)
 	}
@@ -72,7 +74,12 @@ func (l *PoolReadLifecycle) BeginRead(ctx context.Context, admission ReadAdmissi
 
 // RenewRead extends the lease only when token still owns the pending read.
 func (l *PoolReadLifecycle) RenewRead(ctx context.Context, token ReadToken) error {
-	_, err := l.pool.Exec(ctx, readStatement("renew"), token.EventID, token.Owner, token.Generation)
+	err := l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
+		if _, err := connection.Exec(ctx, readStatement("renew"), token.EventID, token.Owner, token.Generation); err != nil {
+			return statementFailure(ctx, "renew", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return readLifecycleFailure(ctx, "renew audit read", token.EventID, err)
 	}
@@ -87,7 +94,10 @@ func (l *PoolReadLifecycle) FinalizeRead(ctx context.Context, completion ReadCom
 	token := completion.Token
 	generation := token.Generation
 	var stored []byte
-	err := l.pool.QueryRow(ctx, readStatement("template"), token.EventID, token.Owner, generation, completion.Digest).Scan(&stored)
+	err := l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
+		return connection.QueryRow(ctx, readStatement("template"), token.EventID, token.Owner, generation, completion.Digest).
+			Scan(&stored)
+	})
 	if err != nil {
 		return readLifecycleFailure(ctx, "read audit read template", token.EventID, err)
 	}
@@ -106,8 +116,14 @@ func (l *PoolReadLifecycle) FinalizeRead(ctx context.Context, completion ReadCom
 	if err != nil {
 		return readLifecycleFailure(ctx, "encode audit read event", token.EventID, err)
 	}
-	_, err = l.pool.Exec(ctx, readStatement("finalize"), token.EventID, token.Owner, generation,
-		encoded.TransportDigest, string(completion.Event.Outcome), header, parts)
+	err = l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
+		_, err := connection.Exec(ctx, readStatement("finalize"), token.EventID, token.Owner, generation,
+			encoded.TransportDigest, string(completion.Event.Outcome), header, parts)
+		if err != nil {
+			return statementFailure(ctx, "finalize", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return readLifecycleFailure(ctx, "finalize audit read", token.EventID, err)
 	}
@@ -116,13 +132,15 @@ func (l *PoolReadLifecycle) FinalizeRead(ctx context.Context, completion ReadCom
 
 // AcknowledgePublished marks the supplied read receipts as published in one transaction.
 func (l *PoolReadLifecycle) AcknowledgePublished(ctx context.Context, reads []PublishedRead) error {
-	err := pgx.BeginFunc(ctx, l.pool, func(tx pgx.Tx) error {
-		for _, read := range reads {
-			if _, err := tx.Exec(ctx, readStatement("acknowledge"), read.EventID, read.Digest); err != nil {
-				return readLifecycleFailure(ctx, "acknowledge audit read", read.EventID, err)
+	err := l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
+		return pgx.BeginFunc(ctx, connection, func(tx pgx.Tx) error {
+			for _, read := range reads {
+				if _, err := tx.Exec(ctx, readStatement("acknowledge"), read.EventID, read.Digest); err != nil {
+					return readLifecycleFailure(ctx, "acknowledge audit read", read.EventID, err)
+				}
 			}
-		}
-		return nil
+			return nil
+		})
 	})
 	if err != nil {
 		return readLifecycleFailure(ctx, "acknowledge audit reads", uuid.Nil, err)
