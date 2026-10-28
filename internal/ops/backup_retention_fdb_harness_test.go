@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -109,12 +109,12 @@ func retentionFDBTestWindow(t *testing.T, cfg *config.Config, cluster, name stri
 		output := retentionFDBTestExec(t, cfg, cluster, []string{
 			"fdbbackup", "describe", "-d", retentionFDBTestURL(cfg, name), "-C", "/var/fdb/fdb.cluster",
 		})
-		window := retentionFDBWindow{
-			MinVersion: retentionFDBTestDescribeVersion(output, "MinRestorableVersion:"),
-			MaxVersion: retentionFDBTestDescribeVersion(output, "MaxRestorableVersion:"),
+		minVersion, maxVersion, restorable, err := ops.RestorableVersionsFromDescribe(output)
+		if err != nil {
+			t.Fatalf("read the restorable window of backup %s: %v", name, err)
 		}
-		if window.MinVersion > 0 && window.MaxVersion > after {
-			return window
+		if restorable && maxVersion > after {
+			return retentionFDBWindow{MinVersion: minVersion, MaxVersion: maxVersion}
 		}
 		select {
 		case <-ctx.Done():
@@ -166,20 +166,4 @@ func retentionFDBTestExecResult(t *testing.T, cfg *config.Config, cluster string
 		output = strings.ReplaceAll(output, credential, "[redacted]")
 	}
 	return output, state.ExitCode
-}
-
-// retentionFDBTestDescribeVersion reads the integer version before the
-// parenthesis on the describe line that starts with label, or 0 when the
-// describe has no such line.
-func retentionFDBTestDescribeVersion(describe, label string) int64 {
-	for line := range strings.SplitSeq(describe, "\n") {
-		if value, found := strings.CutPrefix(line, label); found {
-			rawVersion, _, _ := strings.Cut(value, "(")
-			version, err := strconv.ParseInt(strings.TrimSpace(rawVersion), 10, 64)
-			if err == nil {
-				return version
-			}
-		}
-	}
-	return 0
 }
