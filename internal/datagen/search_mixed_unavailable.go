@@ -12,22 +12,22 @@ import (
 // the session idle timeout prevented another retry.
 var errSearchMixedSessionExpired = errors.New("qa datagen search-mixed: the search session expired while search was unavailable")
 
-// answeredPage requests page number of session with cursor using driver session.offset+number
-// and resolves the results for the session tenant. It returns the page and the start time
-// of the request the server answered. With an empty cursor, it repeats unavailable requests
-// for up to searchConvergenceDeadline from the first request. For a continued page, retries
-// start no later than tally.answered plus m.sessionIdle. If that page stays unavailable at
-// the limit and ctx has not ended, it increments tally.expiredDuringOutage and returns an
-// error wrapping errSearchMixedSessionExpired and the unavailable error. An answered request
-// updates tally.answered to its start time.
+// answeredPage requests page number of session with cursor.
+// First pages use a retry deadline of searchConvergenceDeadline after the first request starts.
+// Continued pages use tally.answered plus m.sessionIdle as their retry deadline.
+// After an answered request, it sets tally.answered to that request's start time, resolves
+// results for the session tenant, and returns the page and that time. If a continued page still
+// returns the unavailable response at its deadline and ctx has not ended, it increments
+// tally.expiredDuringOutage and returns an error that wraps errSearchMixedSessionExpired and
+// the unavailable error.
 func (m *searchMixed) answeredPage(ctx context.Context, session searchMixedSession, number int, cursor string, tally *searchMixedTally) (searchPage, time.Time, error) {
 	driver := m.driver(session.offset + number)
 	identities := m.identities(session.tenant, driver)
-	latestStart := convergenceRetryEnd()
+	deadline := clock.Now().Add(searchConvergenceDeadline)
 	if cursor != "" {
-		latestStart = tally.answered.Add(m.sessionIdle)
+		deadline = tally.answered.Add(m.sessionIdle)
 	}
-	page, requested, err := retryUnavailable(ctx, latestStart, &tally.unavailable, func() (searchPage, error) {
+	page, requested, err := retryUnavailable(ctx, deadline, &tally.unavailable, func() (searchPage, error) {
 		return callSearch(ctx, driver, identities, session.token, session.entry, session.query, cursor)
 	})
 	if err == nil {
@@ -42,19 +42,12 @@ func (m *searchMixed) answeredPage(ctx context.Context, session searchMixedSessi
 	return searchPage{}, requested, err
 }
 
-// convergenceRetryEnd returns now plus searchConvergenceDeadline and searchMixedPollInterval.
-// The extra interval lets retryUnavailable repeat a request while searchConvergenceDeadline
-// has not passed since the first request.
-func convergenceRetryEnd() time.Time {
-	return clock.Now().Add(searchConvergenceDeadline + searchMixedPollInterval)
-}
-
-// retryUnavailable runs search and returns every result other than the unavailable response
-// at once. After each unavailable response, it increments *unavailable. It repeats search
-// after searchMixedPollInterval only if the next request would start no later than latestStart
-// and waitContext has not ended. Otherwise, it returns the unavailable error. On an answered
-// request, it returns the page and that request's start time.
-func retryUnavailable(waitContext context.Context, latestStart time.Time, unavailable *int, search func() (searchPage, error)) (searchPage, time.Time, error) {
+// retryUnavailable runs search and repeats the same request after the unavailable response.
+// It counts each unavailable response in *unavailable and waits searchMixedPollInterval.
+// It retries only while waitContext has not ended and the current time is before deadline.
+// It returns any other result with that request's start time. When retries stop, it returns
+// the last unavailable error with the last request's start time.
+func retryUnavailable(waitContext context.Context, deadline time.Time, unavailable *int, search func() (searchPage, error)) (searchPage, time.Time, error) {
 	for {
 		requested := clock.Now()
 		page, err := search()
@@ -62,7 +55,7 @@ func retryUnavailable(waitContext context.Context, latestStart time.Time, unavai
 			return page, requested, err
 		}
 		*unavailable++
-		if clock.Now().Add(searchMixedPollInterval).After(latestStart) || !waitForSearchMixedPoll(waitContext) {
+		if !waitForSearchMixedPoll(waitContext) || !clock.Now().Before(deadline) {
 			return searchPage{}, requested, err
 		}
 	}

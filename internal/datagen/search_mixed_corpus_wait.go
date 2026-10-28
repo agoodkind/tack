@@ -56,15 +56,17 @@ func (c *searchMixedCorpusIndex) snapshot() []SearchMixedCorpusWait {
 // of unavailable responses that the traversal repeated.
 type corpusCheck func(context.Context) ([]uuid.UUID, int, error)
 
-// corpusMissing returns a corpusCheck for the nodes that the traversal of run for word omits.
-// retryUnavailable repeats each page request that returns the unavailable response until
-// stopContext ends.
+// corpusMissing returns a corpus check that traverses every search page for word as run.
+// The check returns the nodes in nodes that the traversal omits and the number of unavailable
+// responses it repeated. Each page uses retryUnavailable with a deadline of
+// searchConvergenceDeadline after that page's first request starts.
+// Retries stop when stopContext ends.
 func corpusMissing(stopContext context.Context, run searchRun, word string, nodes []uuid.UUID) corpusCheck {
 	identities := run.identities()
 	return func(ctx context.Context) ([]uuid.UUID, int, error) {
 		unavailable := 0
 		results, err := traversePages(word, run.limits, func(cursor string) (searchPage, error) {
-			page, _, err := retryUnavailable(stopContext, convergenceRetryEnd(), &unavailable, func() (searchPage, error) {
+			page, _, err := retryUnavailable(stopContext, clock.Now().Add(searchConvergenceDeadline), &unavailable, func() (searchPage, error) {
 				return callSearch(ctx, run.driver, identities, run.token, run.entry, word, cursor)
 			})
 			return page, err
