@@ -71,7 +71,7 @@ func TestSearchAccessUpdatesOlderActiveRevision(t *testing.T) {
 
 	writeSearchNode(t, stores, moved.Fixture, strings.Repeat("newer revision page text ", 6), readerExcludedValue)
 	moveChild(t, stores, moved)
-	drainClass(t, stores.SearchWork(source), worker, searchdomain.WorkClassAccess)
+	drainClass(t, stores.SearchWork(source), worker, searchdomain.WorkClassAccess, classDrainSlices)
 
 	after := searchNodePages(t, client, index, moved.Fixture.NodeID, false)
 	if len(after) != len(before) {

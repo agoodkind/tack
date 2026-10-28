@@ -58,6 +58,14 @@ type searchAccessRecord struct {
 	Access            node.SearchAccess `json:"access"`
 	PagesPending      bool              `json:"pages_pending"`
 	DependentsPending bool              `json:"dependents_pending"`
+	// PageAccess stores the versions and keys shared by every page registered since record creation
+	// while tracking is on, with the lowest registered generation. It is nil before the first
+	// registration and after tracking stops.
+	PageAccess *node.SearchAccess `json:"page_access,omitempty"`
+	// PageAccessTracked starts true for a new record only when the node lacks issued pages.
+	// It stays true until registered pages differ in versions or keys, or access work records
+	// compiled access. Records that predate this field decode it as false.
+	PageAccessTracked bool `json:"page_access_tracked,omitempty"`
 }
 
 // searchScanRecord records the durable state of one organization rescan.

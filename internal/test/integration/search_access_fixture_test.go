@@ -18,6 +18,9 @@ import (
 // shortLease is the lease of a claim that a test lets expire in real time.
 const shortLease = 2 * time.Second
 
+// classDrainSlices is the slice limit that existing callers pass to drainClass.
+const classDrainSlices = 1000
+
 // waitPastLeases waits in real time until every claim in works has expired.
 func waitPastLeases(t *testing.T, works ...searchdomain.Work) {
 	t.Helper()
@@ -81,13 +84,16 @@ func claimAccessFor(t *testing.T, store *fdbadapter.SearchWorkStore, nodeID uuid
 	return searchdomain.Work{}
 }
 
-// drainClass claims and processes work of one class until none is claimable.
-func drainClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *service.SearchWorker, class searchdomain.WorkClass) {
+// drainClass claims and processes work of one class until it cannot claim more work.
+// It returns the number of processed slices for each node.
+// It fails the test if the class does not drain within maxSlices slices.
+func drainClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *service.SearchWorker, class searchdomain.WorkClass, maxSlices int) map[uuid.UUID]int {
 	t.Helper()
-	for range 1000 {
+	sliceCounts := make(map[uuid.UUID]int)
+	for range maxSlices {
 		work, err := store.Claim(WithTestOperation(t, t.Context()), class, "class-driver", time.Minute)
 		if errors.Is(err, searchdomain.ErrNoWork) {
-			return
+			return sliceCounts
 		}
 		if err != nil {
 			t.Fatalf("claim %s work: %v", class, err)
@@ -95,8 +101,10 @@ func drainClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *service
 		if err := worker.Process(WithTestOperation(t, t.Context()), work); err != nil {
 			t.Fatalf("process %s work of %s: %v", class, work.NodeID, err)
 		}
+		sliceCounts[work.NodeID]++
 	}
-	t.Fatalf("%s work did not drain within 1000 slices", class)
+	t.Fatalf("%s work did not drain within %d slices", class, maxSlices)
+	return sliceCounts
 }
 
 const (

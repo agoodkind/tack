@@ -13,13 +13,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// BeginAccess records the compiled access of one access work item before
-// any page update is sent. When the compiled access differs from the
-// recorded access, BeginAccess records it, marks every current page and
-// every dependent pending, and restarts the pages phase at the first issued
-// document. When pages are pending, the pages phase continues at the
-// checkpoint. When only dependents are pending, the dependents phase starts.
-// When nothing is pending, the work finishes.
+// BeginAccess records the compiled access of one access work item before any page update.
+// When access differs, BeginAccess calls recordCompiledAccess to skip or schedule page rewrites.
+// If tracking confirms that every issued page stores the access, it marks only dependents pending
+// and starts the dependents phase. Otherwise, it marks every current page and dependent pending
+// and restarts the pages phase at the first issued document.
+// When pages are pending, the pages phase continues at the checkpoint.
+// When only dependents are pending, the dependents phase starts.
+// When neither phase is pending, the work finishes.
 func (s *SearchWorkStore) BeginAccess(ctx context.Context, work searchdomain.Work, compiled node.SearchAccess) (plan searchdomain.AccessPlan, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.begin_access")(&err)
 	plan = searchdomain.AccessPlan{Work: work, Finished: false}
@@ -35,12 +36,10 @@ func (s *SearchWorkStore) BeginAccess(ctx context.Context, work searchdomain.Wor
 		next := work
 		switch {
 		case !sameAccess(state.Access, compiled):
-			state = searchAccessRecord{Access: compiled, PagesPending: true, DependentsPending: true}
-			state.Access.Generation = work.Generation
-			if err := writeSearchRecord(ctx, tr, searchAccessKey(work.OrgID, work.NodeID), state); err != nil {
+			next, err = recordCompiledAccess(ctx, tr, work, state, compiled)
+			if err != nil {
 				return err
 			}
-			next.Phase, next.Cursor = searchdomain.PhasePages, ""
 		case state.PagesPending:
 			return nil
 		case state.DependentsPending:
@@ -124,7 +123,7 @@ func accessRecordFor(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid
 	}
 	return searchAccessRecord{
 		Access:       node.SearchAccess{Versions: []string{searchaccess.StableVersion}, Keys: []string{}, Generation: 0},
-		PagesPending: false, DependentsPending: false,
+		PagesPending: false, DependentsPending: false, PageAccess: nil, PageAccessTracked: false,
 	}, nil
 }
 
