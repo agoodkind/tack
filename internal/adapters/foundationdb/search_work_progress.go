@@ -27,7 +27,7 @@ func (s *SearchWorkStore) CompletePage(ctx context.Context, intent searchdomain.
 		phase = searchdomain.PhaseRefresh
 	}
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		if err := s.verifyPage(ctx, tr, work, page, revision); err != nil {
+		if _, err := s.verifyPage(ctx, tr, work, page, revision); err != nil {
 			return err
 		}
 		return writeSearchRecord(ctx, tr, searchCursorKey(string(work.Class), work.OrgID, work.NodeID), searchProgressRecord{

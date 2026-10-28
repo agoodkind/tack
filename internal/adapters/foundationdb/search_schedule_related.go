@@ -10,10 +10,10 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// initializeSearchAccess records the authority's current write versions for
-// a node that has no access state yet. Its keys stay empty until the first
-// access work compiles and records them. Content pages compile keys for
-// these versions when they are read.
+// initializeSearchAccess records the authority's current write versions for a node that does
+// not yet have access state. Its keys stay empty until the first access work compiles and
+// records them. Content work compiles keys for these versions when it reads pages.
+// It starts page access tracking only when the node does not have an issued page document.
 func initializeSearchAccess(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) error {
 	var existing searchAccessRecord
 	found, err := readSearchRecord(ctx, tr, searchAccessKey(orgID, nodeID), &existing)
@@ -24,9 +24,13 @@ func initializeSearchAccess(ctx context.Context, tr fdb.Transaction, orgID, node
 	if err != nil {
 		return err
 	}
+	issued, err := hasIssuedDocuments(ctx, tr, orgID, nodeID)
+	if err != nil {
+		return err
+	}
 	return writeSearchRecord(ctx, tr, searchAccessKey(orgID, nodeID), searchAccessRecord{
 		Access:       node.SearchAccess{Versions: slices.Clone(rollout.WriteVersions), Keys: []string{}, Generation: 0},
-		PagesPending: false, DependentsPending: false,
+		PagesPending: false, DependentsPending: false, PageAccess: nil, PageAccessTracked: !issued,
 	})
 }
 

@@ -12,15 +12,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Register verifies one page against the claim and the stored checkpoint and
-// records its document ID before the OpenSearch write. The verification
-// checks the desired generation, owner, lease, serving index, revision,
-// projection version, access generation, write versions, and ordinal. A
-// registration writes a new issued key that includes the projection version
-// and never replaces an issued ID. Register returns ErrContentChanged when an
-// earlier owner registered the same ordinal of this revision under another
-// projection. The worker then schedules a new revision, and cleanup retires
-// every issued ID of the older revision.
+// Register verifies one page against the claim and the stored checkpoint and records its
+// document ID before the OpenSearch write. The verification checks the desired generation,
+// owner, lease, serving index, revision, projection version, access generation, write versions,
+// and ordinal. Each registration writes a new issued key that includes the projection version
+// and never replaces an issued ID. Register returns ErrContentChanged when an earlier owner
+// registered the same ordinal of this revision under another projection. The worker then
+// schedules a new revision, and cleanup retires every issued ID of the older revision.
+// While the node's access record tracks page access, the same transaction records the page's
+// access there.
 func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, page node.ContentPage) (intent searchdomain.WriteIntent, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.register")(&err)
 	if pageErr := searchdomain.ValidatePage(work, page); pageErr != nil {
@@ -32,8 +32,14 @@ func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, 
 	}
 	documentID := searchdomain.DocumentID(work.OrgID, work.NodeID, page.Revision, page.ProjectionVersion, page.Ordinal)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
-		if err := s.verifyPage(ctx, tr, work, page, revision); err != nil {
+		access, err := s.verifyPage(ctx, tr, work, page, revision)
+		if err != nil {
 			return err
+		}
+		if trackRegisteredAccess(&access, page.Access) {
+			if err := writeSearchRecord(ctx, tr, searchAccessKey(work.OrgID, work.NodeID), access); err != nil {
+				return err
+			}
 		}
 		if err := requireOneProjection(ctx, tr, work, page, revision); err != nil {
 			return err
@@ -79,36 +85,37 @@ func requireOneProjection(ctx context.Context, tr fdb.Transaction, work searchdo
 	return nil
 }
 
-// verifyPage requires page to be the next page of the claimed revision.
-func (s *SearchWorkStore) verifyPage(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, page node.ContentPage, revision int64) error {
+// verifyPage requires page to be the next page of the claimed revision and returns the node's
+// access record.
+func (s *SearchWorkStore) verifyPage(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, page node.ContentPage, revision int64) (searchAccessRecord, error) {
+	var access searchAccessRecord
 	record, err := s.verifyClaim(ctx, tr, work)
 	if err != nil {
-		return err
+		return access, err
 	}
 	current, err := readSearchCounter(ctx, tr, searchRevisionKey(work.OrgID, work.NodeID))
 	if err != nil {
-		return err
+		return access, err
 	}
 	if record.Revision != revision || current != revision {
-		return searchdomain.ErrWorkChanged
+		return access, searchdomain.ErrWorkChanged
 	}
 	progress, err := s.readProgress(ctx, tr, work.Class, record)
 	if err != nil {
-		return err
+		return access, err
 	}
 	if progress.Phase != string(searchdomain.PhasePages) || page.Ordinal != progress.Ordinal {
-		return searchdomain.ErrWorkChanged
+		return access, searchdomain.ErrWorkChanged
 	}
 	if progress.Ordinal > 0 && page.ProjectionVersion != progress.Projection {
-		return searchdomain.ErrWorkChanged
+		return access, searchdomain.ErrWorkChanged
 	}
-	var access searchAccessRecord
 	found, err := readSearchRecord(ctx, tr, searchAccessKey(work.OrgID, work.NodeID), &access)
 	if err != nil {
-		return err
+		return access, err
 	}
 	if !found || !slices.Equal(access.Access.Versions, page.Access.Versions) {
-		return searchdomain.ErrWorkChanged
+		return access, searchdomain.ErrWorkChanged
 	}
-	return nil
+	return access, nil
 }
