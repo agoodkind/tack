@@ -11,7 +11,7 @@ import (
 
 // Verify returns an error for each correctness check that the run failed. It returns nil when
 // every check passed.
-func (s SearchMixedSummary) Verify(ctx context.Context) error {
+func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error {
 	failures := make([]error, 0)
 	add := func(failed bool, format string, value int) {
 		if failed {
@@ -29,6 +29,19 @@ func (s SearchMixedSummary) Verify(ctx context.Context) error {
 	add(s.Revocation.Checks > 0 && !s.Revocation.Refused, "search did not refuse a removed member within %d checks", s.Revocation.Checks)
 	if s.Rebuild.FinalState == string(searchdomain.RebuildFailed) {
 		failures = append(failures, errors.New("the index rebuild failed"))
+	}
+	// A dry run skips this block. Verify fails every other stopped run with one error that states
+	// the stop reason, whether the run stopped during setup or during the measured window.
+	// After a measured run that finished, Verify fails for incomplete catch-up, markers the probe
+	// did not find, and deletions the probe did not verify.
+	if s.Stopped && !s.Search.DryRun {
+		failures = append(failures, fmt.Errorf("run stopped with reason %s; the measured window did not run or did not finish", stopReason))
+	} else if s.Measured {
+		if !s.CatchUp.Completed {
+			failures = append(failures, fmt.Errorf("live, access, or cleanup search work with enqueue times before the end of writes remained pending after %s of catch-up", s.CatchUp.Elapsed))
+		}
+		add(s.MarkersNotFound > 0, "search did not return %d written issues for their marker words", s.MarkersNotFound)
+		add(s.DeletesUnverified > 0, "the command could not verify the removal of %d deleted issues from search results", s.DeletesUnverified)
 	}
 	if len(failures) == 0 {
 		return nil

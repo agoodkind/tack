@@ -81,6 +81,7 @@ type datagenSearchMixedSample struct {
 	OffsetMs            float64                            `json:"offset_ms"`
 	OldestPendingWorkMs float64                            `json:"oldest_pending_work_ms"`
 	OldestClass         string                             `json:"oldest_class"`
+	WorkClasses         []datagen.SearchMixedWorkClass     `json:"work_classes"`
 	RebuildState        string                             `json:"rebuild_state"`
 	OpenSearchNodes     []datagen.SearchMixedNodeResources `json:"opensearch_nodes"`
 	Error               string                             `json:"error,omitempty"`
@@ -161,7 +162,8 @@ func searchMixedSamples(samples []datagen.SearchMixedSample) []datagenSearchMixe
 	for _, sample := range samples {
 		results = append(results, datagenSearchMixedSample{
 			OffsetMs: searchLoadMilliseconds(sample.Offset), OldestPendingWorkMs: searchLoadMilliseconds(sample.OldestPendingWork),
-			OldestClass: sample.OldestClass, RebuildState: sample.RebuildState, OpenSearchNodes: sample.Nodes, Error: sample.Error,
+			OldestClass: sample.OldestClass, WorkClasses: sample.WorkClasses, RebuildState: sample.RebuildState,
+			OpenSearchNodes: sample.Nodes, Error: sample.Error,
 			FoundationDB: sample.FoundationDB, FoundationDBError: sample.FoundationDBError,
 		})
 	}

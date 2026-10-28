@@ -68,6 +68,9 @@ type SearchMixedSample struct {
 	Offset            time.Duration
 	OldestPendingWork time.Duration
 	OldestClass       string
+	// WorkClasses lists classes that have age keys and omits classes without age keys.
+	// It is nil when the pending work read fails.
+	WorkClasses       []SearchMixedWorkClass
 	RebuildState      string
 	Nodes             []SearchMixedNodeResources
 	Error             string
@@ -75,6 +78,31 @@ type SearchMixedSample struct {
 	FoundationDB      *SearchMixedFoundationDB
 	FoundationDBError string
 }
+
+// SearchMixedWorkClass reports one class's count of buckets with age keys
+// and the work record state for its oldest age key in one sample.
+type SearchMixedWorkClass struct {
+	Class string `json:"class"`
+	// NonemptyBuckets counts the class's buckets that contain at least one age key.
+	NonemptyBuckets int `json:"nonempty_buckets"`
+	// OldestRecord reports the work record state for the class's oldest age key:
+	// live, missing, or superseded.
+	OldestRecord SearchMixedOldestRecord `json:"oldest_record"`
+}
+
+// SearchMixedOldestRecord is the state of the work record with the same class, bucket,
+// organization, and node as an age key.
+type SearchMixedOldestRecord string
+
+const (
+	// SearchMixedOldestRecordLive means the work record exists and stores the age key's enqueue time.
+	SearchMixedOldestRecordLive SearchMixedOldestRecord = "live"
+	// SearchMixedOldestRecordMissing means the work record does not exist.
+	SearchMixedOldestRecordMissing SearchMixedOldestRecord = "missing"
+	// SearchMixedOldestRecordSuperseded means the work record exists
+	// and stores a different enqueue time than the age key.
+	SearchMixedOldestRecordSuperseded SearchMixedOldestRecord = "superseded"
+)
 
 // SearchMixedNodeResources is one OpenSearch node reading from the node statistics API.
 type SearchMixedNodeResources struct {
