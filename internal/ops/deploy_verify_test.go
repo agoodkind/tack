@@ -17,7 +17,7 @@ import (
 // the check reads the same references the compose file resolves.
 func TestDeployVerifyTargetsFollowTheRenderedTag(t *testing.T) {
 	cfg := &config.Config{DeployRegistry: "ghcr.io/agoodkind/", DeployImageTag: "a6af885"}
-	got := deployVerifyTargets(cfg, "")
+	got := deployVerifyTargets(cfg, "", []string{appService, auditConsumerService})
 	want := []deployVerifyTarget{
 		{Service: "app", Image: "ghcr.io/agoodkind/tack-server:a6af885"},
 		{Service: "audit-consumer", Image: "ghcr.io/agoodkind/tack-audit-consumer:a6af885"},
@@ -30,7 +30,7 @@ func TestDeployVerifyTargetsFollowTheRenderedTag(t *testing.T) {
 			t.Fatalf("target %d = %v, want %v", i, got[i], want[i])
 		}
 	}
-	explicit := deployVerifyTargets(cfg, " 2eb962e ")
+	explicit := deployVerifyTargets(cfg, " 2eb962e ", []string{appService, auditConsumerService})
 	wantExplicit := []deployVerifyTarget{
 		{Service: "app", Image: "ghcr.io/agoodkind/tack-server:2eb962e"},
 		{Service: "audit-consumer", Image: "ghcr.io/agoodkind/tack-audit-consumer:2eb962e"},
