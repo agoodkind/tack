@@ -11,10 +11,18 @@ import (
 // FreshFoundationDB creates an independent cluster and removes only that cluster after the test.
 func FreshFoundationDB(t *testing.T) string {
 	t.Helper()
+	return FreshFoundationDBWithKnobs(t, nil)
+}
+
+// FreshFoundationDBWithKnobs creates an independent cluster and sets each
+// server knob name and value in knobs on its fdbserver. It removes only that
+// cluster after the test.
+func FreshFoundationDBWithKnobs(t *testing.T, knobs map[string]string) string {
+	t.Helper()
 	skipWhenShort(t)
 	ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
 	defer cancel()
-	cluster, err := provisionFoundationDB(ctx)
+	cluster, err := provisionFoundationDBWithKnobs(ctx, knobs)
 	if err != nil {
 		t.Fatalf("provision fresh FoundationDB cluster: %v", err)
 	}

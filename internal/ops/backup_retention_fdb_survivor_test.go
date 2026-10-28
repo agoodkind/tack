@@ -13,12 +13,18 @@ func TestBackupRetentionFDBRefusesSurvivorAfterCutoff(t *testing.T) {
 	fixture := newRetentionCommandFixture(t)
 	cluster := retentionFDBTestConfig(t, fixture.config)
 	oldName := retentionFDBTestStart(t, fixture.config, cluster)
-	retentionFDBTestWindow(t, fixture.config, cluster, oldName, time.Time{})
+	retentionFDBTestWindow(t, fixture.config, cluster, oldName, 0)
 	retentionFDBTestExec(t, fixture.config, cluster, []string{"fdbbackup", "discontinue", "-C", "/var/fdb/fdb.cluster", "-w"})
-	oldWindow := retentionFDBTestWindow(t, fixture.config, cluster, oldName, time.Time{})
-	cutoff := oldWindow.Max.Add(time.Second)
+	oldWindow := retentionFDBTestWindow(t, fixture.config, cluster, oldName, 0)
+	// Record a version log reading between the two sessions, which the native
+	// conversion places after the old session's last restorable version.
+	reading := retentionFDBTestRecordMoment(t, fixture, cluster, oldName, time.Now().UTC().Truncate(time.Second).Add(time.Second))
+	if reading.Version <= oldWindow.MaxVersion {
+		t.Fatalf("the reading must follow the old session: reading=%d max=%d", reading.Version, oldWindow.MaxVersion)
+	}
+	cutoff := reading.At.Add(time.Second)
 	// Create a real interval without a backup between the two sessions.
-	delay := time.Until(oldWindow.Max.Add(20 * time.Second))
+	delay := time.Until(cutoff.Add(20 * time.Second))
 	if delay > 0 {
 		timer := time.NewTimer(delay)
 		defer timer.Stop()
@@ -29,9 +35,9 @@ func TestBackupRetentionFDBRefusesSurvivorAfterCutoff(t *testing.T) {
 		}
 	}
 	newName := retentionFDBTestStart(t, fixture.config, cluster)
-	newWindow := retentionFDBTestWindow(t, fixture.config, cluster, newName, time.Time{})
-	if !newWindow.Min.After(cutoff) {
-		t.Fatalf("the new session must begin after the uncovered cutoff: min=%s cutoff=%s", newWindow.Min, cutoff)
+	newWindow := retentionFDBTestWindow(t, fixture.config, cluster, newName, 0)
+	if newWindow.MinVersion <= reading.Version {
+		t.Fatalf("the new session must begin after the uncovered cutoff: min=%d reading=%d", newWindow.MinVersion, reading.Version)
 	}
 	ops.SetBackupRetentionTestClock(t, cutoff.AddDate(0, 0, 14))
 	before := retentionFDBTestKeys(t, fixture)

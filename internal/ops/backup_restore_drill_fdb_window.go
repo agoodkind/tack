@@ -7,6 +7,7 @@ package ops
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -77,6 +78,59 @@ func describeReportsRestorable(describe string) bool {
 		}
 	}
 	return false
+}
+
+// fdbRestorableVersions is the span of versions a FoundationDB continuous
+// backup can be restored to, as `fdbbackup describe` prints it without
+// --version-timestamps.
+type fdbRestorableVersions struct {
+	MinVersion int64 `json:"min_version"`
+	MaxVersion int64 `json:"max_version"`
+}
+
+// fdbRestorableVersionsFromDescribe reads the restorable window as versions
+// out of `fdbbackup describe` output made without --version-timestamps. That
+// flag converts every snapshot version to a time inside one transaction, and
+// FoundationDB aborts that transaction after a backup writes hundreds of
+// snapshots (TACK-609). Callers must not log the raw describe output, which
+// echoes the destination URL and its blobstore credentials.
+func fdbRestorableVersionsFromDescribe(describe string) (fdbRestorableVersions, error) {
+	if !describeReportsRestorable(describe) {
+		return fdbRestorableVersions{}, errors.New(
+			"fdbbackup describe does not report the backup as restorable")
+	}
+	minVersion, err := fdbDescribeVersion(describe, fdbDescribeMinLabel)
+	if err != nil {
+		return fdbRestorableVersions{}, err
+	}
+	maxVersion, err := fdbDescribeVersion(describe, fdbDescribeMaxLabel)
+	if err != nil {
+		return fdbRestorableVersions{}, err
+	}
+	if maxVersion < minVersion {
+		return fdbRestorableVersions{}, fmt.Errorf(
+			"fdbbackup describe reports an inverted restorable window %d .. %d", minVersion, maxVersion)
+	}
+	return fdbRestorableVersions{MinVersion: minVersion, MaxVersion: maxVersion}, nil
+}
+
+// fdbDescribeVersion reads the integer version before the parenthesis on one
+// describe line. Without --version-timestamps, fdbbackup prints a relative
+// "(maxLogEnd -0.53 days)" or "(unknown)" in that position.
+func fdbDescribeVersion(describe string, label string) (int64, error) {
+	for line := range strings.SplitSeq(describe, "\n") {
+		value, found := strings.CutPrefix(strings.TrimSpace(line), label)
+		if !found {
+			continue
+		}
+		rawVersion, _, _ := strings.Cut(value, "(")
+		version, err := strconv.ParseInt(strings.TrimSpace(rawVersion), 10, 64)
+		if err != nil || version <= 0 {
+			return 0, fmt.Errorf("fdbbackup describe line %q does not carry a positive version", strings.TrimSpace(line))
+		}
+		return version, nil
+	}
+	return 0, fmt.Errorf("fdbbackup describe has no %s line", label)
 }
 
 // fdbDescribeTimestamp pulls the parenthesized timestamp off one describe line.

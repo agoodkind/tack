@@ -152,6 +152,11 @@ The default restore window is 14 days. Ledger cleanup requires a complete export
 within that window and preserves exports exactly at the cutoff. FoundationDB
 uses its native expiration guard to preserve the snapshot and mutation logs
 needed to restore at the cutoff. Those dependencies may include older files.
+FoundationDB selection converts the cutoff to a version with the
+version-to-time records that the staleness check writes. Retention refuses
+FoundationDB cleanup until those records include a reading from before the
+cutoff. The preview reports each FoundationDB window as `min_version` and
+`max_version`.
 
 Run the commands from the install directory:
 

@@ -19,6 +19,9 @@ func TestBackupRetentionCancellationRemovesNativeReaderBeforeUnlock(t *testing.T
 	fixture := newRetentionCommandFixture(t)
 	cluster := retentionFDBTestConfig(t, fixture.config)
 	fixture.store.put("backups/20261001T000000Z", nil)
+	// The plan converts the cutoff with a version log reading before its
+	// first native read.
+	retentionFDBTestAppendReading(t, fixture, retentionFDBTestReading{Version: 1, At: fixture.cutoff.Add(-time.Hour)})
 	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		t.Fatal(err)

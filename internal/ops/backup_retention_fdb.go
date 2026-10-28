@@ -16,7 +16,7 @@ import (
 type retentionFDBAction struct {
 	Name                string                `json:"name"`
 	Action              retentionFDBOperation `json:"action"`
-	Window              fdbRestorableWindow   `json:"window"`
+	Window              fdbRestorableVersions `json:"window"`
 	ExpireBeforeVersion int64                 `json:"expire_before_version,omitempty"`
 }
 
@@ -31,11 +31,15 @@ func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time)
 	if len(markers) == 0 {
 		return nil, nil
 	}
+	cutoffVersion, err := retentionFDBCutoffVersion(ctx, cfg, cutoff)
+	if err != nil {
+		return nil, err
+	}
 	activeName, err := readRetentionFDBActiveName(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	windows := make(map[string]fdbRestorableWindow, len(markers))
+	windows := make(map[string]fdbRestorableVersions, len(markers))
 	for _, name := range fdbBackupNames(markers) {
 		if _, err := time.Parse("20060102T150405Z", name); err != nil {
 			return nil, fmt.Errorf("FoundationDB backup marker %q is not a timestamp run identifier", name)
@@ -54,10 +58,10 @@ func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time)
 	actions := make([]retentionFDBAction, 0, len(markers))
 	for _, name := range fdbBackupNames(markers) {
 		window := windows[name]
-		if !window.Min.Before(cutoff) {
+		if window.MinVersion >= cutoffVersion {
 			continue
 		}
-		if !window.Max.Before(cutoff) {
+		if window.MaxVersion >= cutoffVersion {
 			version, err := retentionFDBExpireVersion(ctx, cfg, name, cutoff)
 			if err != nil {
 				return nil, err
@@ -68,7 +72,7 @@ func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time)
 		if name == activeName {
 			return nil, fmt.Errorf("active FoundationDB backup %s does not establish restorability at cutoff %s", name, formatFDBTime(cutoff))
 		}
-		survives, err := retentionFDBHasSurvivor(ctx, cfg, name, cutoff, windows)
+		survives, err := retentionFDBHasSurvivor(ctx, cfg, name, cutoff, cutoffVersion, windows)
 		if err != nil {
 			return nil, err
 		}
@@ -80,9 +84,19 @@ func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time)
 	return actions, nil
 }
 
-func retentionFDBHasSurvivor(ctx context.Context, cfg *config.Config, name string, cutoff time.Time, windows map[string]fdbRestorableWindow) (bool, error) {
+// retentionFDBHasSurvivor reports whether a backup newer than name has a
+// window that contains cutoffVersion and a native dry run that restores it at
+// the exact cutoff.
+func retentionFDBHasSurvivor(
+	ctx context.Context,
+	cfg *config.Config,
+	name string,
+	cutoff time.Time,
+	cutoffVersion int64,
+	windows map[string]fdbRestorableVersions,
+) (bool, error) {
 	for otherName, otherWindow := range windows {
-		if otherName <= name || otherWindow.Min.After(cutoff) || otherWindow.Max.Before(cutoff) {
+		if otherName <= name || otherWindow.MinVersion > cutoffVersion || otherWindow.MaxVersion < cutoffVersion {
 			continue
 		}
 		destination, err := fdbBlobstoreURL(cfg, otherName)
@@ -135,20 +149,23 @@ func readRetentionFDBActiveName(ctx context.Context, cfg *config.Config) (string
 	return name, nil
 }
 
-func retentionFDBWindow(ctx context.Context, cfg *config.Config, name string) (fdbRestorableWindow, error) {
+// retentionFDBWindow reads the restorable versions of backup name. It runs
+// describe without --version-timestamps, because that flag fails on a backup
+// with hundreds of snapshots (TACK-609).
+func retentionFDBWindow(ctx context.Context, cfg *config.Config, name string) (fdbRestorableVersions, error) {
 	destination, err := fdbBlobstoreURL(cfg, name)
 	if err != nil {
-		return fdbRestorableWindow{}, err
+		return fdbRestorableVersions{}, err
 	}
-	output, err := retentionFDBCommand(ctx, cfg, retentionFDBDescribe, "-d", destination, "--version-timestamps")
+	output, err := retentionFDBCommand(ctx, cfg, retentionFDBDescribe, "-d", destination)
 	if err != nil {
-		return fdbRestorableWindow{}, err
+		return fdbRestorableVersions{}, err
 	}
-	window, err := fdbRestorableWindowFromDescribe(output)
+	window, err := fdbRestorableVersionsFromDescribe(output)
 	if err != nil {
 		wrapped := fmt.Errorf("read FoundationDB backup %s window: %w", name, err)
 		telemetry.L(ctx).ErrorContext(ctx, "backup.retention.fdb.window_failed", slog.String("name", name), slog.String("err", wrapped.Error()))
-		return fdbRestorableWindow{}, wrapped
+		return fdbRestorableVersions{}, wrapped
 	}
 	return window, nil
 }

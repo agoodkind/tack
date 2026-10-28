@@ -25,11 +25,22 @@ const (
 	// databaseExists is what `configure new` prints when the cluster already
 	// holds a database, which makes a second configure harmless.
 	databaseExists = "Database already exists"
+	// fdbServerKnobPrefix starts each environment variable that fdbserver
+	// reads as a knob at startup.
+	fdbServerKnobPrefix = "FDB_KNOB_"
 )
 
 // provisionFoundationDB starts this process's cluster, configures it, and
 // returns the path of a local copy of its cluster file.
 func provisionFoundationDB(ctx context.Context) (string, error) {
+	return provisionFoundationDBWithKnobs(ctx, nil)
+}
+
+// provisionFoundationDBWithKnobs starts a cluster and passes each server knob
+// name and value in knobs to its fdbserver through the environment. It then
+// configures the cluster and returns the path of a local copy of its cluster
+// file.
+func provisionFoundationDBWithKnobs(ctx context.Context, knobs map[string]string) (string, error) {
 	image, err := serviceImage(ctx, foundationDBService)
 	if err != nil {
 		return "", err
@@ -39,12 +50,16 @@ func provisionFoundationDB(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer func() { _ = cli.Close() }()
+	env := []string{"FDB_NETWORKING_MODE=container", "FDB_PORT=4500", "FDB_COORDINATOR_PORT=4500"}
+	for name, value := range knobs {
+		env = append(env, fdbServerKnobPrefix+name+"="+value)
+	}
 	started, err := startEngine(ctx, cli, engineSpec{
 		kind:     "foundationdb",
 		image:    image,
 		platform: nil,
 		cmd:      nil,
-		env:      []string{"FDB_NETWORKING_MODE=container", "FDB_PORT=4500", "FDB_COORDINATOR_PORT=4500"},
+		env:      env,
 	})
 	if err != nil {
 		return "", err

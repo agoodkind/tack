@@ -27,9 +27,11 @@ func TestBackupRetentionFDBNativeExpirationRetainsBoundary(t *testing.T) {
 	fixture := newRetentionCommandFixture(t)
 	cluster := retentionFDBTestConfig(t, fixture.config)
 	name := retentionFDBTestStart(t, fixture.config, cluster)
-	window := retentionFDBTestWindow(t, fixture.config, cluster, name, time.Time{})
-	cutoff := window.Min.Add(75 * time.Second)
-	retentionFDBTestWindow(t, fixture.config, cluster, name, cutoff.Add(15*time.Second))
+	first := retentionFDBTestRecordReading(t, fixture, cluster, time.Time{})
+	reading := retentionFDBTestRecordReading(t, fixture, cluster, first.At.Add(75*time.Second))
+	cutoff := reading.At.Add(time.Second)
+	retentionFDBTestRecordReading(t, fixture, cluster, cutoff.Add(15*time.Second))
+	window := retentionFDBTestWindow(t, fixture.config, cluster, name, reading.Version)
 	ops.SetBackupRetentionTestClock(t, cutoff.AddDate(0, 0, 14))
 	before := retentionFDBTestKeys(t, fixture)
 	stopMetadata := observeRetentionMetadata(t, fixture.config)
@@ -43,28 +45,13 @@ func TestBackupRetentionFDBNativeExpirationRetainsBoundary(t *testing.T) {
 			t.Fatalf("public preview deleted existing backup object %s", key)
 		}
 	}
-	var preview retentionFDBPreview
-	jsonPlan := ""
-	for line := range strings.SplitSeq(output, "\n") {
-		if strings.HasPrefix(line, "{") {
-			if jsonPlan != "" {
-				t.Fatal("public preview printed multiple JSON plans")
-			}
-			jsonPlan = line
-		}
-	}
-	if err := json.Unmarshal([]byte(jsonPlan), &preview); err != nil {
-		t.Fatalf("public preview did not print a JSON plan: %v\n%s", err, output)
-	}
-	if len(preview.FoundationDB) != 1 {
-		t.Fatalf("public preview returned %d FDB actions", len(preview.FoundationDB))
-	}
-	action := preview.FoundationDB[0]
-	if action.Name != name || action.Action != "expire" || action.ExpireBeforeVersion <= 0 || !action.Window.Min.Equal(window.Min) || action.Window.Max.Before(cutoff) {
+	action := retentionFDBTestPreviewAction(t, output)
+	if action.Name != name || action.Action != "expire" || action.ExpireBeforeVersion <= 0 ||
+		action.Window.MinVersion != window.MinVersion || action.Window.MaxVersion < reading.Version {
 		t.Fatalf("public preview omitted safe native selection evidence: %+v", action)
 	}
 	t.Logf("selected snapshot begin version %d for retained cutoff %s", action.ExpireBeforeVersion, cutoff)
-	description := retentionFDBTestExec(t, fixture.config, cluster, []string{"fdbbackup", "describe", "-d", retentionFDBTestURL(fixture.config, name), "-C", "/var/fdb/fdb.cluster", "--version-timestamps"})
+	description := retentionFDBTestExec(t, fixture.config, cluster, []string{"fdbbackup", "describe", "-d", retentionFDBTestURL(fixture.config, name), "-C", "/var/fdb/fdb.cluster"})
 	for line := range strings.SplitSeq(description, "\n") {
 		if strings.HasPrefix(line, "Snapshot:") || strings.HasPrefix(line, "MinLogBeginVersion:") || strings.HasPrefix(line, "ContiguousLogEndVersion:") {
 			t.Log(line)
@@ -103,7 +90,8 @@ func TestBackupRetentionFDBNativeExpirationRetainsBoundary(t *testing.T) {
 		if err := json.Unmarshal(event.Extra, &evidence); err != nil {
 			t.Fatal(err)
 		}
-		if evidence.ExpireBeforeVersion != action.ExpireBeforeVersion || evidence.Action != "expire" {
+		if evidence.ExpireBeforeVersion != action.ExpireBeforeVersion || evidence.Action != "expire" ||
+			evidence.Window.MinVersion != action.Window.MinVersion || evidence.Window.MaxVersion < reading.Version {
 			t.Fatalf("audit result differs from selected native expiration: %s", event.Extra)
 		}
 		stepResults++
@@ -122,9 +110,11 @@ func TestBackupRetentionFDBNativeRefusalPreservesBackup(t *testing.T) {
 	fixture := newRetentionCommandFixture(t)
 	cluster := retentionFDBTestConfig(t, fixture.config)
 	name := retentionFDBTestStart(t, fixture.config, cluster)
-	window := retentionFDBTestWindow(t, fixture.config, cluster, name, time.Time{})
-	cutoff := window.Min.Add(15 * time.Second)
-	retentionFDBTestWindow(t, fixture.config, cluster, name, cutoff.Add(10*time.Second))
+	first := retentionFDBTestRecordReading(t, fixture, cluster, time.Time{})
+	reading := retentionFDBTestRecordReading(t, fixture, cluster, first.At.Add(15*time.Second))
+	cutoff := reading.At.Add(time.Second)
+	retentionFDBTestRecordReading(t, fixture, cluster, cutoff.Add(10*time.Second))
+	retentionFDBTestWindow(t, fixture.config, cluster, name, reading.Version)
 	before := retentionFDBTestKeys(t, fixture)
 	retentionFDBTestRefusal(t, fixture.config, cluster, name, cutoff)
 	after := retentionFDBTestKeys(t, fixture)
@@ -144,12 +134,15 @@ func TestBackupRetentionFDBDeletesClosedSessionPreservesSurvivor(t *testing.T) {
 	fixture := newRetentionCommandFixture(t)
 	cluster := retentionFDBTestConfig(t, fixture.config)
 	oldName := retentionFDBTestStart(t, fixture.config, cluster)
-	retentionFDBTestWindow(t, fixture.config, cluster, oldName, time.Time{})
+	retentionFDBTestWindow(t, fixture.config, cluster, oldName, 0)
 	retentionFDBTestExec(t, fixture.config, cluster, []string{"fdbbackup", "discontinue", "-C", "/var/fdb/fdb.cluster", "-w"})
-	oldWindow := retentionFDBTestWindow(t, fixture.config, cluster, oldName, time.Time{})
+	retentionFDBTestWindow(t, fixture.config, cluster, oldName, 0)
 	newName := retentionFDBTestStart(t, fixture.config, cluster)
-	newWindow := retentionFDBTestWindow(t, fixture.config, cluster, newName, oldWindow.Max.Add(20*time.Second))
-	cutoff := newWindow.Min.Add(10 * time.Second)
+	first := retentionFDBTestRecordReading(t, fixture, cluster, time.Time{})
+	reading := retentionFDBTestRecordReading(t, fixture, cluster, first.At.Add(10*time.Second))
+	cutoff := reading.At.Add(time.Second)
+	retentionFDBTestRecordReading(t, fixture, cluster, cutoff.Add(10*time.Second))
+	retentionFDBTestWindow(t, fixture.config, cluster, newName, reading.Version)
 	ops.SetBackupRetentionTestClock(t, cutoff.AddDate(0, 0, 14))
 	if output, err := fixture.run(t, true); err != nil {
 		t.Fatalf("public retention did not delete the closed session: %v\n%s", err, output)
