@@ -3,6 +3,7 @@ package datagen
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -22,7 +23,8 @@ type warningPhrases struct {
 	Invalid string `json:"invalid"`
 }
 
-// SearchWarningCase reports the verified warning for a node value with an inapplicable property.
+// SearchWarningCase reports the verified warning for a node value with an inapplicable
+// property. The verification deletes the node after it verifies the warning.
 type SearchWarningCase struct {
 	NodeID        uuid.UUID `json:"node_id"`
 	PropertyName  string    `json:"property_name"`
@@ -33,7 +35,9 @@ type SearchWarningCase struct {
 
 // verifyPropertyWarning makes a stored property inapplicable and checks that the serving
 // index omits its text and FoundationDB lists its warning. It also checks that tack_search
-// returns the node for its name and valid property text, then returns the warning case.
+// returns the node for its name and valid property text. It then deletes the node, which
+// strict validation rejects while it stores the inapplicable property, and returns the
+// warning case. When a check fails, it still deletes the node and returns both errors.
 func (r searchRun) verifyPropertyWarning(ctx context.Context) (SearchWarningCase, error) {
 	phrases := r.phrases.Warning
 	definition := searchDefinition(r.fixture.orgID, opaqueKey("p"), true, warningSearchOrder)
@@ -47,6 +51,21 @@ func (r searchRun) verifyPropertyWarning(ctx context.Context) (SearchWarningCase
 	if err != nil {
 		return SearchWarningCase{}, err
 	}
+	warningCase, err := r.observeWarning(ctx, nodeID, definition)
+	if err != nil {
+		joined := errors.Join(err, r.fixture.remove(ctx, nodeID))
+		return SearchWarningCase{}, loggedError(ctx, "qa datagen: verify the warning of node "+nodeID.String(), joined)
+	}
+	if err := r.removeWarningNode(ctx, nodeID); err != nil {
+		return SearchWarningCase{}, err
+	}
+	return warningCase, nil
+}
+
+// observeWarning restricts the definition to a feature that the node type lacks and checks
+// the serving index, the warning listing, and the node's remaining search text.
+func (r searchRun) observeWarning(ctx context.Context, nodeID uuid.UUID, definition *node.PropertyDef) (SearchWarningCase, error) {
+	phrases := r.phrases.Warning
 	if err := r.eventually(ctx, "find property text before restricting the property to a feature", func(ctx context.Context) error {
 		return r.includes(ctx, phrases.Invalid, nodeID)
 	}); err != nil {
