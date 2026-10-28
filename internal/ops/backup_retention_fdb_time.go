@@ -17,8 +17,8 @@ func retentionFDBRetainedVersion(ctx context.Context, cfg *config.Config, destin
 	if err != nil {
 		return 0, err
 	}
-	output, err := retentionFDBToolCommand(ctx, cfg, "fdbrestore", []string{
-		"start", "--dryrun", "--timestamp", timestamp,
+	output, err := retentionFDBToolCommand(ctx, cfg, "fdbrestore", "start", []string{
+		"--dryrun", "--timestamp", timestamp,
 		"--orig-cluster-file", retentionFDBClusterFile, "-r", destination,
 	})
 	if err != nil {

@@ -76,14 +76,17 @@ func applyRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time
 }
 
 func retentionFDBCommand(ctx context.Context, cfg *config.Config, operation retentionFDBOperation, arguments ...string) (string, error) {
-	command := append([]string{string(operation)}, arguments...)
+	command := append([]string{}, arguments...)
 	if retentionFDBUsesSourceCluster[operation] {
 		command = append(command, "-C", retentionFDBClusterFile)
 	}
-	return retentionFDBToolCommand(ctx, cfg, "fdbbackup", command)
+	return retentionFDBToolCommand(ctx, cfg, "fdbbackup", string(operation), command)
 }
 
-func retentionFDBToolCommand(ctx context.Context, cfg *config.Config, tool string, arguments []string) (string, error) {
+// retentionFDBToolCommand runs tool with operation as its first argument,
+// followed by arguments, in a one-shot container. Errors name the tool and
+// the operation.
+func retentionFDBToolCommand(ctx context.Context, cfg *config.Config, tool, operation string, arguments []string) (string, error) {
 	if !filepath.IsAbs(cfg.OpsFDBClusterDir) {
 		return "", fmt.Errorf("FoundationDB retention requires an absolute TACK_OPS_FDB_CLUSTER_DIR")
 	}
@@ -91,6 +94,7 @@ func retentionFDBToolCommand(ctx context.Context, cfg *config.Config, tool strin
 	if err != nil {
 		return "", err
 	}
+	label := tool + " " + operation
 	extraHosts, err := blobstoreExtraHosts(cfg.BackupS3Endpoint)
 	if err != nil {
 		return "", err
@@ -102,7 +106,7 @@ func retentionFDBToolCommand(ctx context.Context, cfg *config.Config, tool strin
 	defer cli.Close()
 	result, err := runOneShot(ctx, cli, telemetry.L(ctx), runOneShotOptions{
 		Image: cfg.BackupFDBImage, Network: cfg.BackupFDBNetwork,
-		Entrypoint: []string{"/usr/bin/" + tool}, Cmd: privateArguments,
+		Entrypoint: []string{"/usr/bin/" + tool}, Cmd: append([]string{operation}, privateArguments...),
 		Env: []string{
 			"FDB_CLUSTER_FILE=" + retentionFDBClusterFile,
 			"FDB_BLOB_CREDENTIALS=" + privateOneShotDirectory + "/" + retentionFDBAccountFileName,
@@ -113,17 +117,17 @@ func retentionFDBToolCommand(ctx context.Context, cfg *config.Config, tool strin
 	})
 	if err != nil {
 		if ctx.Err() != nil {
-			wrapped := fmt.Errorf("FoundationDB retention %s: %w", arguments[0], ctx.Err())
+			wrapped := fmt.Errorf("FoundationDB retention %s: %w", label, ctx.Err())
 			telemetry.L(ctx).ErrorContext(ctx, "backup.retention.fdb.command_failed", slog.String("err", wrapped.Error()))
 			return "", wrapped
 		}
-		wrapped := fmt.Errorf("FoundationDB retention %s: %s", arguments[0], redactSecret(cfg, err.Error()))
+		wrapped := fmt.Errorf("FoundationDB retention %s: %s", label, redactSecret(cfg, err.Error()))
 		telemetry.L(ctx).ErrorContext(ctx, "backup.retention.fdb.command_failed", slog.String("err", wrapped.Error()))
 		return "", wrapped
 	}
 	output := strings.TrimSpace(result.Stdout + "\n" + result.Stderr)
 	if result.ExitCode != 0 {
-		wrapped := fmt.Errorf("FoundationDB retention %s exited %d: %s", arguments[0], result.ExitCode, redactSecret(cfg, output))
+		wrapped := fmt.Errorf("FoundationDB retention %s exited %d: %s", label, result.ExitCode, redactSecret(cfg, output))
 		telemetry.L(ctx).ErrorContext(ctx, "backup.retention.fdb.command_failed", slog.String("err", wrapped.Error()))
 		return "", wrapped
 	}
