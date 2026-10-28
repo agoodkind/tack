@@ -98,7 +98,9 @@ test-unit:
 TEST_STORE_OTHER_PACKAGES := ./internal/adapters/foundationdb/... ./internal/audit/... \
 	./internal/ops/... ./internal/datagen/... ./cmd/server/... ./internal/testenv/...
 TEST_STORE_PACKAGES := ./internal/test/integration/... $(TEST_STORE_OTHER_PACKAGES)
-# The integration tag selects the audit partition tests, which need the ledger.
+# The integration tag selects the audit partition tests, which need the ledger,
+# and the FoundationDB retention tests in internal/ops, which take about 14
+# minutes.
 TEST_STORE_FLAGS := -tags integration -count=1 -timeout 30m -v
 TEST_STORE_ARGS := $(TEST_STORE_FLAGS) $(TEST_STORE_PACKAGES)
 
