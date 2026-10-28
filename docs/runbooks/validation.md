@@ -73,9 +73,12 @@ This procedure turns on strict validation for every organization in the Foundati
    | `records_validated` | Review the number of records that the command validated. |
    | `passes` | Review the number of validation passes. |
    | `violation_count` | Require zero violations before activation. |
-   | `first_violations` | Inspect up to 20 entries. Each entry includes `org_id`, `node_id`, `node_type`, and `reason`. |
+   | `max_violations` | Review the largest number of entries that `first_violations` can list. |
+   | `first_violations` | Inspect up to `max_violations` entries, ordered by `org_id` and then `node_id`. Each entry includes `org_id`, `node_id`, `node_type`, and `reason`. |
 
 4. Check `violation_count`. The dry run prints the report and exits successfully even when it finds invalid records. Stop if `violation_count` is nonzero. Repair the invalid records through a reviewed manifest, then repeat the dry run before activation.
+
+   The report lists 20 entries by default. When `violation_count` is larger than `max_violations`, rerun the dry run with `--max-violations=<n>` after `ops verify strict-validation`, where `<n>` is at least `violation_count` and at most 5000, to list every invalid record for the repair request.
 
 ## Activate strict node validation
 

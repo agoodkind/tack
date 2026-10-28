@@ -15,8 +15,13 @@ import (
 const (
 	strictScanPageSize = 100
 	// maxStrictPasses limits rescans when the scan evidence changes.
-	maxStrictPasses       = 5
-	maxReportedViolations = 20
+	maxStrictPasses = 5
+	// defaultReportedViolations is the number of invalid records the report
+	// lists when the operator does not pass --max-violations.
+	defaultReportedViolations = 20
+	// maxReportedViolations is the largest --max-violations value. It limits
+	// the size of the printed report.
+	maxReportedViolations = 5000
 )
 
 var errStrictViolations = errors.New("the strict validation scan found invalid node records")
@@ -67,7 +72,11 @@ type strictScan struct {
 // records. When execute is true, it returns an error while any record is
 // invalid and does not activate strict validation. Otherwise, it activates
 // strict validation in one transaction that compares the evidence again.
-func RunStrictValidation(ctx context.Context, store StrictValidationStore, schemas storeSchemaSource, execute bool) (StrictValidationReport, error) {
+// The report counts every invalid record and lists at most reportLimit of
+// them, ordered by organization ID and then node ID.
+func RunStrictValidation(
+	ctx context.Context, store StrictValidationStore, schemas storeSchemaSource, execute bool, reportLimit int,
+) (StrictValidationReport, error) {
 	report := StrictValidationReport{AlreadyActive: false, Activated: false, ScanID: uuid.Nil, RecordsValidated: 0, Passes: 0, ViolationCount: 0, FirstViolations: nil}
 	current, err := store.StrictActivation(ctx)
 	if err != nil {
@@ -103,7 +112,7 @@ func RunStrictValidation(ctx context.Context, store StrictValidationStore, schem
 			continue
 		}
 		report.RecordsValidated = len(scan.validated)
-		scan.fill(&report)
+		scan.fill(&report, reportLimit)
 		if !execute {
 			return report, nil
 		}
@@ -141,14 +150,24 @@ func (s *strictScan) recapture(ctx context.Context) (node.StrictEvidenceChange, 
 	return change, nil
 }
 
-func (s *strictScan) fill(report *StrictValidationReport) {
+func (s *strictScan) fill(report *StrictValidationReport, reportLimit int) {
 	report.ViolationCount = len(s.violations)
 	all := make([]StrictViolation, 0, len(s.violations))
 	for _, violation := range s.violations {
 		all = append(all, violation)
 	}
 	slices.SortFunc(all, compareStrictViolation)
-	report.FirstViolations = all[:min(len(all), maxReportedViolations)]
+	report.FirstViolations = all[:min(len(all), reportLimit)]
+}
+
+// checkReportedViolations rejects a --max-violations value outside 1 through
+// maxReportedViolations.
+func checkReportedViolations(ctx context.Context, reportLimit int) error {
+	if reportLimit >= 1 && reportLimit <= maxReportedViolations {
+		return nil
+	}
+	err := fmt.Errorf("--max-violations is %d and must be from 1 through %d", reportLimit, maxReportedViolations)
+	return strictFailure(ctx, "check the strict validation report limit", err)
 }
 
 func strictFailure(ctx context.Context, operation string, err error) error {
