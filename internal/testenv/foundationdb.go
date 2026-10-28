@@ -36,9 +36,10 @@ func provisionFoundationDB(ctx context.Context) (string, error) {
 	return provisionFoundationDBWithKnobs(ctx, nil)
 }
 
-// provisionFoundationDBWithKnobs starts a cluster, passes each server knob,
-// name to value, to its fdbserver through the environment, configures the
-// cluster, and returns the path of a local copy of its cluster file.
+// provisionFoundationDBWithKnobs starts a cluster and passes each server knob
+// name and value in knobs to its fdbserver through the environment. It then
+// configures the cluster and returns the path of a local copy of its cluster
+// file.
 func provisionFoundationDBWithKnobs(ctx context.Context, knobs map[string]string) (string, error) {
 	image, err := serviceImage(ctx, foundationDBService)
 	if err != nil {

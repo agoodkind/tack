@@ -77,8 +77,8 @@ func retentionFDBTestStatusReading(status string) (retentionFDBTestReading, bool
 
 // retentionFDBTestRecordMoment converts at to a version with the native
 // conversion of fdbrestore and appends that pair to the version log. The dry
-// run may refuse when backup name cannot restore at, after it prints the
-// conversion.
+// run prints the conversion first, and it may then refuse because backup name
+// cannot restore at the requested time.
 func retentionFDBTestRecordMoment(t *testing.T, fixture *retentionCommandFixture, cluster, name string, at time.Time) retentionFDBTestReading {
 	t.Helper()
 	timestamp := at.UTC().Format(retentionFDBTimestampLayout)

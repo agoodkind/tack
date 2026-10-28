@@ -14,9 +14,9 @@ func FreshFoundationDB(t *testing.T) string {
 	return FreshFoundationDBWithKnobs(t, nil)
 }
 
-// FreshFoundationDBWithKnobs creates an independent cluster, sets each server
-// knob, name to value, on its fdbserver, and removes only that cluster after
-// the test.
+// FreshFoundationDBWithKnobs creates an independent cluster and sets each
+// server knob name and value in knobs on its fdbserver. It removes only that
+// cluster after the test.
 func FreshFoundationDBWithKnobs(t *testing.T, knobs map[string]string) string {
 	t.Helper()
 	skipWhenShort(t)
