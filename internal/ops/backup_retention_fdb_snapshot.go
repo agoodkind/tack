@@ -21,7 +21,7 @@ func retentionFDBExpireVersion(ctx context.Context, cfg *config.Config, name str
 	if err != nil {
 		return 0, err
 	}
-	output, err := retentionFDBCommand(ctx, cfg, retentionFDBDescribe, "-d", destination, "--version-timestamps")
+	output, err := retentionFDBCommand(ctx, cfg, retentionFDBDescribe, "-d", destination)
 	if err != nil {
 		return 0, err
 	}

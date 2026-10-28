@@ -95,7 +95,7 @@ func RunBackupRetention(ctx context.Context, cfg *config.Config, options BackupR
 	}
 	completed := 0
 	for _, run := range plan.LedgerRuns {
-		evidence := retentionEvidence{Bucket: cfg.BackupS3BucketMain, Target: ybSnapshotKeyPrefix(run), Action: "delete", Cutoff: plan.Cutoff, DeletedObjects: 0, RequestedObjects: 0, Uncertain: false, ExpireBeforeVersion: 0}
+		evidence := retentionEvidence{Bucket: cfg.BackupS3BucketMain, Target: ybSnapshotKeyPrefix(run), Action: "delete", Cutoff: plan.Cutoff, DeletedObjects: 0, RequestedObjects: 0, Uncertain: false, ExpireBeforeVersion: 0, Window: nil}
 		err := retentionStep(ctx, steps, evidence, func() (int, error) {
 			return deleteRetentionPrefix(ctx, newBackupS3Client(cfg), cfg.BackupS3BucketMain, run)
 		})
@@ -105,7 +105,7 @@ func RunBackupRetention(ctx context.Context, cfg *config.Config, options BackupR
 		completed++
 	}
 	for _, action := range plan.FDB {
-		evidence := retentionEvidence{Bucket: cfg.BackupS3BucketMain, Target: "foundationdb/" + action.Name, Action: string(action.Action), Cutoff: plan.Cutoff, DeletedObjects: 0, RequestedObjects: 0, Uncertain: false, ExpireBeforeVersion: action.ExpireBeforeVersion}
+		evidence := retentionEvidence{Bucket: cfg.BackupS3BucketMain, Target: "foundationdb/" + action.Name, Action: string(action.Action), Cutoff: plan.Cutoff, DeletedObjects: 0, RequestedObjects: 0, Uncertain: false, ExpireBeforeVersion: action.ExpireBeforeVersion, Window: &action.Window}
 		err := retentionStep(ctx, steps, evidence, func() (int, error) {
 			if err := revalidateRetentionFDB(ctx, cfg, plan.Cutoff, action); err != nil {
 				return 0, err
