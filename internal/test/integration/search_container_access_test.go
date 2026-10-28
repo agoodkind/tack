@@ -82,8 +82,6 @@ func requireIssuesFoundOnce(t *testing.T, found, issues []uuid.UUID) {
 	}
 }
 
-// containerArguments returns MCP tool arguments for the harness workspace and project.
-// It leaves every other field empty.
 func containerArguments(harness *integration.MCPHarness) datagen.ToolArguments {
 	return datagen.ToolArguments{
 		WorkspaceReference: harness.Workspace, ProjectReference: harness.Project, IssueReference: "",
@@ -92,8 +90,6 @@ func containerArguments(harness *integration.MCPHarness) datagen.ToolArguments {
 	}
 }
 
-// createContainerProject creates a project with a unique identifier through tack_create_project.
-// It records the identifier as the harness project and returns the project ID.
 func createContainerProject(t *testing.T, harness *integration.MCPHarness) uuid.UUID {
 	t.Helper()
 	identifier := "CAF" + strconv.FormatInt(clock.Now().UnixNano()%1_000_000, 10)
@@ -109,8 +105,6 @@ func createContainerProject(t *testing.T, harness *integration.MCPHarness) uuid.
 	return projectID
 }
 
-// createContainerIssue creates an issue in the harness project through tack_create_issue.
-// It combines containerAccessName and number for the issue name and returns the issue ID.
 func createContainerIssue(t *testing.T, harness *integration.MCPHarness, number int) uuid.UUID {
 	t.Helper()
 	arguments := containerArguments(harness)
@@ -170,7 +164,6 @@ func logContainerAccess(t *testing.T, projectID uuid.UUID, kept []uuid.UUID, cre
 		sumSlices(fanout), len(fanout), fanout[projectID], len(kept), issueSlices)
 }
 
-// sumSlices returns the total of the slice counts.
 func sumSlices(counts map[uuid.UUID]int) int {
 	total := 0
 	for _, count := range counts {
