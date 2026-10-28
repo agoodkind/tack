@@ -39,11 +39,11 @@ func run() int {
 	requestID := uuid.NewString()
 	f := cli.System(cfg)
 	root := buildRoot(f)
-	jsonFile, textFile := processLogFiles(cfg, root, os.Args[1:], requestID)
+	logs := processLogFiles(cfg, root, os.Args[1:], requestID)
 	closer, err := telemetry.Setup(telemetry.LogConfig{
 		Level:         cfg.LogLevel,
-		JSONFile:      jsonFile,
-		TextFile:      textFile,
+		JSONFile:      logs.JSONFile,
+		TextFile:      logs.TextFile,
 		DisableStdout: cfg.LogDisableStdout,
 		MaxSizeMB:     cfg.LogMaxSizeMB,
 		MaxBackups:    cfg.LogMaxBackups,
@@ -75,6 +75,9 @@ func run() int {
 	// Log one correlated line per invocation so a command's output envelope
 	// trace_id can be matched against the run's log trail.
 	telemetry.L(ctx).InfoContext(ctx, "cli.start")
+	if logs.CommandDir != "" {
+		removeExpiredCommandLogs(ctx, logs.CommandDir, cfg.LogMaxAgeDays)
+	}
 
 	root.SetContext(ctx)
 	if err := root.Execute(); err != nil {
