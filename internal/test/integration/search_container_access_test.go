@@ -44,9 +44,9 @@ func TestSearchContainerFirstAccessKeepsUnchangedPages(t *testing.T) {
 	for number := range containerAccessIssues {
 		issues = append(issues, createContainerIssue(t, harness, number))
 	}
-	integration.DrainClass(t, fixture, searchdomain.WorkClassLive)
+	integration.DrainClass(t, fixture, searchdomain.WorkClassLive, containerAccessSlices)
 	indexed := containerPages(t, fixture, issues)
-	created := integration.DrainClass(t, fixture, searchdomain.WorkClassAccess)
+	created := integration.DrainClass(t, fixture, searchdomain.WorkClassAccess, containerAccessSlices)
 	integration.DrainSearchWork(t, fixture.Worker, containerAccessSlices)
 	before := integration.CallEverySearchPage(t, containerAccessQuery, harness)
 	requireIssuesFoundOnce(t, before, issues)
@@ -55,7 +55,7 @@ func TestSearchContainerFirstAccessKeepsUnchangedPages(t *testing.T) {
 	arguments := containerArguments(harness)
 	arguments.ProjectReference, arguments.NodeID = "", deleted.String()
 	harness.Call(t, "tack_delete_issue", arguments)
-	fanout := integration.DrainClass(t, fixture, searchdomain.WorkClassAccess)
+	fanout := integration.DrainClass(t, fixture, searchdomain.WorkClassAccess, containerAccessSlices)
 	integration.DrainSearchWork(t, fixture.Worker, containerAccessSlices)
 
 	logContainerAccess(t, projectID, kept, created, fanout)

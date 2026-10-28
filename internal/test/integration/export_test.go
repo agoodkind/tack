@@ -75,12 +75,12 @@ func DrainSearchWork(t *testing.T, worker *service.SearchWorker, maxSlices int) 
 	drainSearchWork(t, worker, maxSlices)
 }
 
-// DrainClass runs drainClass with the fixture's search work store and search worker for class.
-// It returns the number of processed slices for each node.
+// DrainClass runs drainClass for class with maxSlices and the fixture's search work store and
+// search worker. It returns the number of processed slices for each node.
 // Tests in integration_test use it to count access slices.
-func DrainClass(t *testing.T, fixture QueryFixture, class searchdomain.WorkClass) map[uuid.UUID]int {
+func DrainClass(t *testing.T, fixture QueryFixture, class searchdomain.WorkClass, maxSlices int) map[uuid.UUID]int {
 	t.Helper()
-	return drainClass(t, fixture.Stores.SearchWork(clock.Wall{}), fixture.Worker, class)
+	return drainClass(t, fixture.Stores.SearchWork(clock.Wall{}), fixture.Worker, class, maxSlices)
 }
 
 // CallerAccess compiles the access filter for the workspace's first actor

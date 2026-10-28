@@ -2,8 +2,10 @@ package foundationdb
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
@@ -69,9 +71,12 @@ func samePageTracking(first, second searchAccessRecord) bool {
 type registeredPagesState uint8
 
 const (
+	// registeredPagesUnchecked is the zero value that checkRegisteredPages never returns.
+	// recordCompiledAccess returns an error when it receives this state.
+	registeredPagesUnchecked registeredPagesState = iota
 	// registeredPagesStored indicates that every issued page already stores the compiled access
 	// or the node has not registered any pages.
-	registeredPagesStored registeredPagesState = iota + 1
+	registeredPagesStored
 	// registeredPagesUntracked indicates that tracking is off or a page repair is pending.
 	registeredPagesUntracked
 	// registeredPagesDiffer indicates that registered pages store other versions or keys.
@@ -81,6 +86,8 @@ const (
 // String returns the state name for the Debug log.
 func (state registeredPagesState) String() string {
 	switch state {
+	case registeredPagesUnchecked:
+		return "unchecked"
 	case registeredPagesStored:
 		return "stored"
 	case registeredPagesUntracked:
@@ -88,7 +95,7 @@ func (state registeredPagesState) String() string {
 	case registeredPagesDiffer:
 		return "differ"
 	default:
-		return "unknown"
+		return "invalid " + strconv.Itoa(int(state))
 	}
 }
 
@@ -118,17 +125,25 @@ func checkRegisteredPages(state searchAccessRecord, compiled node.SearchAccess, 
 
 // recordCompiledAccess calls checkRegisteredPages and logs search.access.pages_checked at Debug
 // with the node ID, state, and generation.
-// It calls skipAccessPages for registeredPagesStored and rewriteAccessPages for either other state.
+// It calls skipAccessPages for registeredPagesStored and rewriteAccessPages for
+// registeredPagesUntracked or registeredPagesDiffer. It returns an error with the node ID for
+// registeredPagesUnchecked or any value outside the declared constants.
 func recordCompiledAccess(
 	ctx context.Context, tr fdb.Transaction, work searchdomain.Work, state searchAccessRecord, compiled node.SearchAccess,
 ) (searchdomain.Work, error) {
 	check := checkRegisteredPages(state, compiled, work.Generation)
 	telemetry.L(ctx).DebugContext(ctx, "search.access.pages_checked", slog.String("node_id", work.NodeID.String()),
 		slog.String("pages", check.State.String()), slog.Int64("generation", check.Generation))
-	if check.State == registeredPagesStored {
+	switch check.State {
+	case registeredPagesStored:
 		return skipAccessPages(ctx, tr, work, compiled, check.Generation)
+	case registeredPagesUntracked, registeredPagesDiffer:
+		return rewriteAccessPages(ctx, tr, work, compiled)
+	case registeredPagesUnchecked:
+		return work, fmt.Errorf("registered pages check for node %s returned unchecked state", work.NodeID)
+	default:
+		return work, fmt.Errorf("registered pages check for node %s returned state %s", work.NodeID, check.State)
 	}
-	return rewriteAccessPages(ctx, tr, work, compiled)
 }
 
 // skipAccessPages records compiled at generation with only dependents pending.

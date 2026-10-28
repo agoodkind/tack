@@ -71,7 +71,7 @@ func TestSearchWorkerLargestSliceStaysWithinByteMaximum(t *testing.T) {
 	// The final scan page schedules access work in the transaction that
 	// enters the verifying phase (search_access_rollout_steps.go:21-35). That
 	// work records both write versions on each node before the measurement.
-	drainClass(t, work, setup, searchdomain.WorkClassAccess)
+	drainClass(t, work, setup, searchdomain.WorkClassAccess, classDrainSlices)
 
 	rebuilds := stores.SearchRebuilds(source)
 	rebuild, err := rebuilds.BeginRebuild(WithTestOperation(t, t.Context()), searchdomain.BeginRebuild{
