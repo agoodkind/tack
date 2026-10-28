@@ -90,9 +90,9 @@ func TestRuntimeAuditReadCleanupSkipsLockedReceipt(t *testing.T) {
 // TestRuntimeAuditReadRecoveryRetryKeepsSessionRole admits a read through the
 // application login, expires its lease, and locks its pending row in another
 // transaction. RecoverExpired waits for the lock. The lock transaction then
-// commits a write to the row, and YugabyteDB retries the ops_read_recover
-// statement. The application connection must then run as the application
-// login and must validate a token. RecoverExpired must save an incomplete
+// commits a write to the row to attempt to trigger an internal YugabyteDB
+// retry of the ops_read_recover statement. The application connection must
+// then run as the application login and must validate a token. RecoverExpired must save an incomplete
 // outcome. The test logs the RecoverExpired error and does not require it to
 // be nil, because the read lifecycle reports a changed session role after
 // the recovery commits (TACK-583).

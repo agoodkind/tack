@@ -73,7 +73,6 @@ func checkSessionRole(ctx context.Context, connection *pgx.Conn) error {
 	return nil
 }
 
-// statementFailure logs the error of the read lifecycle statement name and wraps it.
 func statementFailure(ctx context.Context, name string, err error) error {
 	slog.ErrorContext(ctx, "audit.read_lifecycle.statement_failed",
 		slog.String("statement", name), slog.String("err", err.Error()))
