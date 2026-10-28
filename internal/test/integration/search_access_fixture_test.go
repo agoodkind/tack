@@ -81,13 +81,15 @@ func claimAccessFor(t *testing.T, store *fdbadapter.SearchWorkStore, nodeID uuid
 	return searchdomain.Work{}
 }
 
-// drainClass claims and processes work of one class until none is claimable.
-func drainClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *service.SearchWorker, class searchdomain.WorkClass) {
+// drainClass claims and processes work of one class until it cannot claim more work.
+// It returns the number of processed slices for each node.
+func drainClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *service.SearchWorker, class searchdomain.WorkClass) map[uuid.UUID]int {
 	t.Helper()
+	sliceCounts := make(map[uuid.UUID]int)
 	for range 1000 {
 		work, err := store.Claim(WithTestOperation(t, t.Context()), class, "class-driver", time.Minute)
 		if errors.Is(err, searchdomain.ErrNoWork) {
-			return
+			return sliceCounts
 		}
 		if err != nil {
 			t.Fatalf("claim %s work: %v", class, err)
@@ -95,8 +97,10 @@ func drainClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *service
 		if err := worker.Process(WithTestOperation(t, t.Context()), work); err != nil {
 			t.Fatalf("process %s work of %s: %v", class, work.NodeID, err)
 		}
+		sliceCounts[work.NodeID]++
 	}
 	t.Fatalf("%s work did not drain within 1000 slices", class)
+	return sliceCounts
 }
 
 const (
