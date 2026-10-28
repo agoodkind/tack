@@ -96,13 +96,18 @@ func (r searchRun) missing(ctx context.Context, query string, nodes ...uuid.UUID
 	if err != nil {
 		return nil, err
 	}
+	return omitted(results, nodes), nil
+}
+
+// omitted returns, in input order, each node in nodes that results does not contain.
+func omitted(results, nodes []uuid.UUID) []uuid.UUID {
 	absent := make([]uuid.UUID, 0, len(nodes))
 	for _, nodeID := range nodes {
 		if !slices.Contains(results, nodeID) {
 			absent = append(absent, nodeID)
 		}
 	}
-	return absent, nil
+	return absent
 }
 
 // notIndexed requires nodeID to have at least one active page in the serving

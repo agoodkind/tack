@@ -32,6 +32,7 @@ func logSearchMixedResult(ctx context.Context, result datagenSearchMixedResult) 
 		searchMixedSessionsAttr(result.Sessions),
 		slog.Group("pending_deletion", slog.Int("checks", result.PendingDeletion.Checks),
 			slog.Int("pending_observed", result.PendingDeletion.PendingObserved),
+			slog.Int("unavailable", result.PendingDeletion.Unavailable),
 			slog.Int("deleted_nodes_returned", result.PendingDeletion.DeletedNodesReturned)),
 		searchMixedRevocationAttr(result.Revocation),
 		slog.Group("rebuild", slog.Bool("requested", result.Rebuild.Requested),
@@ -73,7 +74,8 @@ func searchMixedBurstAttr(burst datagenSearchMixedBurst) slog.Attr {
 func searchMixedSessionsAttr(sessions datagen.SearchMixedSessions) slog.Attr {
 	return slog.Group("sessions", slog.Int("checks", sessions.Checks), slog.Int("pages", sessions.Pages),
 		slog.Int("replays", sessions.Replays), slog.Int("endpoints", sessions.Endpoints),
-		slog.Int("unavailable", sessions.Unavailable), slog.Int("continuation_errors", sessions.ContinuationErrors),
+		slog.Int("unavailable", sessions.Unavailable), slog.Int("expired_during_outage", sessions.ExpiredDuringOutage),
+		slog.Int("continuation_errors", sessions.ContinuationErrors),
 		slog.Int("missing_corpus_issues", sessions.MissingCorpusIssues),
 		slog.Int("replay_mismatches", sessions.ReplayMismatches),
 		slog.Int("cross_tenant_results", sessions.CrossTenantResults),
