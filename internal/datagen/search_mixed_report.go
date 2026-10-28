@@ -30,6 +30,17 @@ func (s SearchMixedSummary) Verify(ctx context.Context) error {
 	if s.Rebuild.FinalState == string(searchdomain.RebuildFailed) {
 		failures = append(failures, errors.New("the index rebuild failed"))
 	}
+	// A dry run does not measure a window. A stopped run skips the catch-up wait.
+	// At the stop, the probe counts every pending marker as not found and every pending
+	// deletion as unverified. After a measured run that did not stop, Verify fails for
+	// incomplete catch-up, markers not found, and deletions not verified.
+	if s.Measured && !s.Stopped {
+		if !s.CatchUp.Completed {
+			failures = append(failures, fmt.Errorf("live, access, or cleanup search work with enqueue times before the end of writes remained pending after %s of catch-up", s.CatchUp.Elapsed))
+		}
+		add(s.MarkersNotFound > 0, "search did not return %d written issues for their marker words", s.MarkersNotFound)
+		add(s.DeletesUnverified > 0, "the command could not verify the removal of %d deleted issues from search results", s.DeletesUnverified)
+	}
 	if len(failures) == 0 {
 		return nil
 	}

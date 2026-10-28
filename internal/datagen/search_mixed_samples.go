@@ -45,19 +45,20 @@ func (m *searchMixed) sampleUntil(ctx context.Context, windowStarted time.Time, 
 func (m *searchMixed) recordSample(ctx context.Context, windowStarted time.Time) {
 	sample := SearchMixedSample{
 		Offset: clock.Now().Sub(windowStarted), OldestPendingWork: 0, OldestClass: "",
-		RebuildState: "", Nodes: nil, Error: "", FoundationDB: nil, FoundationDBError: "",
+		WorkClasses: nil, RebuildState: "", Nodes: nil, Error: "", FoundationDB: nil, FoundationDBError: "",
 	}
 	problems := make([]string, 0)
-	oldest, err := m.backlog.oldest(ctx)
+	pending, err := m.backlog.pending(ctx)
 	if err != nil {
 		problems = append(problems, err.Error())
 	}
 	now := clock.Now()
-	for class, enqueued := range oldest {
-		if class != searchdomain.WorkClassRebuild && now.Sub(enqueued) > sample.OldestPendingWork {
-			sample.OldestPendingWork, sample.OldestClass = now.Sub(enqueued), string(class)
+	for class, backlog := range pending {
+		if class != searchdomain.WorkClassRebuild && now.Sub(backlog.oldest) > sample.OldestPendingWork {
+			sample.OldestPendingWork, sample.OldestClass = now.Sub(backlog.oldest), string(class)
 		}
 	}
+	sample.WorkClasses = searchMixedWorkClasses(pending)
 	sample.RebuildState, err = m.rebuildState(ctx)
 	if err != nil {
 		problems = append(problems, err.Error())
@@ -112,8 +113,8 @@ func (m *searchMixed) catchUp(ctx context.Context, writesEnded time.Time) {
 	deadline := clock.Now().Add(m.options.CatchUp)
 	completed := false
 	for {
-		oldest, err := m.backlog.oldest(ctx)
-		completed = err == nil && caughtUp(oldest, writesEnded)
+		pending, err := m.backlog.pending(ctx)
+		completed = err == nil && caughtUp(pending, writesEnded)
 		if completed || clock.Now().After(deadline) || !waitForSearchMixedSample(ctx) {
 			break
 		}
@@ -126,13 +127,27 @@ func (m *searchMixed) catchUp(ctx context.Context, writesEnded time.Time) {
 		slog.Duration("elapsed", elapsed))
 }
 
-func caughtUp(oldest map[searchdomain.WorkClass]time.Time, writesEnded time.Time) bool {
+func caughtUp(pending map[searchdomain.WorkClass]searchClassBacklog, writesEnded time.Time) bool {
 	for _, class := range searchMixedCatchUpClasses() {
-		if enqueued, pending := oldest[class]; pending && !enqueued.After(writesEnded) {
+		if backlog, found := pending[class]; found && !backlog.oldest.After(writesEnded) {
 			return false
 		}
 	}
 	return true
+}
+
+// searchMixedWorkClasses returns one entry per class with pending search work,
+// in searchdomain.ScheduledWorkClasses order.
+func searchMixedWorkClasses(pending map[searchdomain.WorkClass]searchClassBacklog) []SearchMixedWorkClass {
+	classes := make([]SearchMixedWorkClass, 0, len(pending))
+	for _, class := range searchdomain.ScheduledWorkClasses() {
+		if backlog, found := pending[class]; found {
+			classes = append(classes, SearchMixedWorkClass{
+				Class: string(class), NonemptyBuckets: backlog.nonemptyBuckets, OldestHasLiveRecord: backlog.oldestLive,
+			})
+		}
+	}
+	return classes
 }
 
 func waitForSearchMixedSample(ctx context.Context) bool {

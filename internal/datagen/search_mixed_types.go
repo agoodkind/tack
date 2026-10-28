@@ -68,12 +68,26 @@ type SearchMixedSample struct {
 	Offset            time.Duration
 	OldestPendingWork time.Duration
 	OldestClass       string
+	// WorkClasses lists each class with pending search work and omits classes without it.
+	// It is nil when the pending work read fails.
+	WorkClasses       []SearchMixedWorkClass
 	RebuildState      string
 	Nodes             []SearchMixedNodeResources
 	Error             string
 	// FoundationDB is nil when the status read fails. FoundationDBError is the read failure.
 	FoundationDB      *SearchMixedFoundationDB
 	FoundationDBError string
+}
+
+// SearchMixedWorkClass records one class's pending search work in one sample.
+// It reports whether the class's oldest age key has a live work record or is stale.
+type SearchMixedWorkClass struct {
+	Class string `json:"class"`
+	// NonemptyBuckets counts the class's buckets that contain at least one age key.
+	NonemptyBuckets int `json:"nonempty_buckets"`
+	// OldestHasLiveRecord is true when the class's oldest age key has a live work record.
+	// It is false when that key is stale.
+	OldestHasLiveRecord bool `json:"oldest_has_live_record"`
 }
 
 // SearchMixedNodeResources is one OpenSearch node reading from the node statistics API.
