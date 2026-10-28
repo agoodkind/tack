@@ -184,6 +184,33 @@ func (f searchFixture) typeKeys(ctx context.Context, orgID uuid.UUID) ([]string,
 	return keys, nil
 }
 
+// ownsScope reports whether the fixture organization stores a node with an
+// address equal to scope. It reads the direct address property that the node
+// type declares.
+func (f searchFixture) ownsScope(ctx context.Context, scope string) (bool, error) {
+	types, err := f.stores.NodeTypes.List(ctx, f.orgID)
+	if err != nil {
+		return false, loggedError(ctx, "qa datagen: list node types of org "+f.orgID.String(), err)
+	}
+	for _, nodeType := range types {
+		property := nodeType.Reference.DirectAddressProperty()
+		if property == "" {
+			continue
+		}
+		views, err := f.stores.Views.List(ctx, node.NodeListQuery{OrgID: f.orgID, NodeType: nodeType.TypeKey})
+		if err != nil {
+			return false, loggedError(ctx, "qa datagen: list nodes of type "+nodeType.TypeKey, err)
+		}
+		for _, view := range views {
+			var address string
+			if json.Unmarshal(view.Props[property], &address) == nil && address == scope {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 // edit replaces the included value of one node.
 func (f searchFixture) edit(ctx context.Context, nodeID uuid.UUID, included string) error {
 	if _, err := f.nodes.Update(ctx, service.UpdateInput{

@@ -154,6 +154,20 @@ func (s *SearchTitles) shortenedID(item SearchItem) (uuid.UUID, bool) {
 	return matched, matched != uuid.Nil
 }
 
+// referenceScope returns the scope at the start of a printed reference.
+// It returns the text before "::" in a scoped reference or the project
+// identifier before the sequence number of an issue reference. It returns
+// title unchanged when title has neither form.
+func referenceScope(title string) string {
+	if scope, _, scoped := strings.Cut(title, scopedReferenceSeparator); scoped {
+		return scope
+	}
+	if position := strings.LastIndex(title, sequenceReferenceSeparator); position > 0 {
+		return title[:position]
+	}
+	return title
+}
+
 func searchItemKey(item SearchItem) string {
 	return item.Title + searchKeySeparator + item.NodeType
 }

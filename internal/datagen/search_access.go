@@ -116,8 +116,9 @@ func putAccessNodes(ctx context.Context, fixture searchFixture, namePrefix strin
 // isolated requires every allowed node and rejects every forbidden node
 // across all search pages for accessPhrase. It checks each registered node's
 // organization through its resolve record. It accepts an unregistered result
-// only when the caller organization declares its node type and the other
-// organization does not.
+// when only the caller organization declares its node type, or when the
+// caller organization stores a node with an address equal to the scope at the
+// start of the result's printed reference. Otherwise, the check fails.
 func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID, otherOrgID uuid.UUID) error {
 	results, err := traverseSearch(ctx, r.driver, r.fixture.titles, r.token, r.entry, accessPhrase, r.limits)
 	if err != nil {
@@ -144,9 +145,18 @@ func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID,
 	for _, nodeID := range results {
 		// Every organization declares the built-in node types. A built-in type
 		// cannot establish the organization of an unregistered result.
+		// Search can return default states of projects that the check creates
+		// through MCP without a registry entry for those states.
 		if item, unresolved := r.fixture.titles.Unresolved(nodeID); unresolved {
-			if !slices.Contains(ownedTypes, item.NodeType) || slices.Contains(otherTypes, item.NodeType) {
-				return fmt.Errorf("search %q under %s returned the unregistered result %q of type %q, which only org %s must declare",
+			if slices.Contains(ownedTypes, item.NodeType) && !slices.Contains(otherTypes, item.NodeType) {
+				continue
+			}
+			owned, err := r.fixture.ownsScope(ctx, referenceScope(item.Title))
+			if err != nil {
+				return err
+			}
+			if !owned {
+				return fmt.Errorf("search %q under %s returned the unregistered result %q of type %q outside org %s",
 					accessPhrase, r.entry, item.Title, item.NodeType, r.fixture.orgID)
 			}
 			continue

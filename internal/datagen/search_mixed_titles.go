@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain/node"
@@ -57,16 +56,11 @@ func (m *searchMixed) registerCreated(ctx context.Context, result Result) error 
 	return nil
 }
 
-// itemOrg attributes an unregistered result to a tenant organization by the
+// itemOrg finds the tenant organization for an unregistered result using the
 // project identifier at the start of its printed reference. It returns false
 // when the tenant projects do not include that identifier.
 func (m *searchMixed) itemOrg(ctx context.Context, item SearchItem) (uuid.UUID, bool, error) {
-	identifier := item.Title
-	if scope, _, scoped := strings.Cut(identifier, scopedReferenceSeparator); scoped {
-		identifier = scope
-	} else if position := strings.LastIndex(identifier, sequenceReferenceSeparator); position > 0 {
-		identifier = identifier[:position]
-	}
+	identifier := referenceScope(item.Title)
 	m.projectMutex.Lock()
 	defer m.projectMutex.Unlock()
 	if orgID, found := m.projectOrgs[identifier]; found {
