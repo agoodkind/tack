@@ -114,21 +114,37 @@ func (s *SearchTitles) lookup(item SearchItem) (uuid.UUID, bool, error) {
 	return nodeID, found, nil
 }
 
-// SearchResultItems returns the title and node type of each result item on
-// a tack_search page in response order.
+// SearchResultItems uses SearchResultBlocks to read each result's title
+// and node type in response order.
 func SearchResultItems(text string) []SearchItem {
-	items := make([]SearchItem, 0)
-	for _, line := range strings.Split(text, "\n") {
-		if title, found := strings.CutPrefix(line, searchItemPrefix); found {
-			items = append(items, SearchItem{Title: unquoteSearchValue(title), NodeType: ""})
-			continue
+	blocks := SearchResultBlocks(text)
+	items := make([]SearchItem, 0, len(blocks))
+	for _, block := range blocks {
+		lines := strings.Split(block, "\n")
+		item := SearchItem{Title: unquoteSearchValue(strings.TrimPrefix(lines[0], searchItemPrefix)), NodeType: ""}
+		for _, line := range lines[1:] {
+			if nodeType, found := strings.CutPrefix(line, searchTypeField); found {
+				item.NodeType = unquoteSearchValue(nodeType)
+			}
 		}
-		nodeType, found := strings.CutPrefix(line, searchTypeField)
-		if found && len(items) > 0 && strings.HasPrefix(line, searchFieldPrefix) {
-			items[len(items)-1].NodeType = unquoteSearchValue(nodeType)
-		}
+		items = append(items, item)
 	}
 	return items
+}
+
+// SearchResultBlocks splits a tack_search page into result blocks in response
+// order. Each block contains a title line followed by its field lines.
+func SearchResultBlocks(text string) []string {
+	blocks := make([]string, 0)
+	for _, line := range strings.Split(text, "\n") {
+		switch {
+		case strings.HasPrefix(line, searchItemPrefix):
+			blocks = append(blocks, line)
+		case strings.HasPrefix(line, searchFieldPrefix) && len(blocks) > 0:
+			blocks[len(blocks)-1] += "\n" + line
+		}
+	}
+	return blocks
 }
 
 // SearchItem reads the printed reference and node type from a write

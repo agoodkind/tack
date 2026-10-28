@@ -160,18 +160,10 @@ func (h *MCPHarness) searchIdentities() datagen.SearchIdentities {
 	return datagen.ReferenceIdentities(h.titles, h.driver, h.token, h.Workspace)
 }
 
-// searchResultItems groups each result title with its following field lines.
+// searchResultItems returns the result blocks that datagen.SearchResultBlocks
+// parses from a tack_search page.
 func searchResultItems(text string) []string {
-	var items []string
-	for _, line := range strings.Split(text, "\n") {
-		switch {
-		case strings.HasPrefix(line, "- "):
-			items = append(items, line)
-		case strings.HasPrefix(line, "  - ") && len(items) > 0:
-			items[len(items)-1] += "\n" + line
-		}
-	}
-	return items
+	return datagen.SearchResultBlocks(text)
 }
 
 // callEverySearchPage follows each cursor until a page omits the cursor.

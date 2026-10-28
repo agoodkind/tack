@@ -92,7 +92,7 @@ func (s cohortSession) traverse(ctx context.Context, query, nodeType string, sto
 	ordered := make([]uuid.UUID, 0)
 	cursor := ""
 	for range maxSearchTraversalPages {
-		page, err := callTypedSearch(ctx, s.driver, SearchIdentities{Titles: s.titles, Resolve: nil},s.token, s.entry, query, nodeType, cursor)
+		page, err := callTypedSearch(ctx, s.driver, SearchIdentities{Titles: s.titles, Resolve: nil}, s.token, s.entry, query, nodeType, cursor)
 		if err != nil {
 			return nil, err
 		}
