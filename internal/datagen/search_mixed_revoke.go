@@ -41,8 +41,9 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 	workspace := m.tenants[0].workspace
 	actor := workspace.Actors[revokedActorIndex]
 	session := m.sessionFor(0, revokedActorIndex, m.readWord, 0)
-	first, second, err := m.openRevokedSession(ctx, session)
+	first, second, opening, err := m.openRevokedSession(ctx, session)
 	if err != nil {
+		m.phases.update(func(phases *searchMixedPhaseStats) { phases.revocation.Unavailable += opening })
 		return err
 	}
 	members := m.members
@@ -55,10 +56,8 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 	}
 	cursors := revokedCursors{continuation: second.Cursor, replay: first.Cursor}
 	result, checkErr := m.awaitRefusal(ctx, session, cursors, clock.Now())
-	m.phases.update(func(phases *searchMixedPhaseStats) {
-		result.Unavailable += phases.revocation.Unavailable
-		phases.revocation = result
-	})
+	result.Unavailable += opening
+	m.phases.update(func(phases *searchMixedPhaseStats) { phases.revocation = result })
 	restored := &org.Member{ID: uuid.Nil, OrgID: member.OrgID, UserID: member.UserID, Role: member.Role, CreatedAt: time.Time{}}
 	if err := members.AddMember(context.WithoutCancel(ctx), restored); err != nil {
 		joined := errors.Join(checkErr, fmt.Errorf("qa datagen search-mixed: the command could not restore the organization membership for user %s: %w", actor.UserID, err))
