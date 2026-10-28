@@ -23,9 +23,11 @@ import (
 // relevanceProbeQueries lists the queries that the relevance probe must report in order.
 var relevanceProbeQueries = []string{"restart containers one by one", "rolling Docker restart", "restart containers sequentially"}
 
-// TestSearchDatagenReportsWarningAndRelevance runs ops qa datagen search --commit and
-// ops search verify through Cobra with real FoundationDB, YugabyteDB, and OpenSearch
-// to check the reported warning, its listing, and the relevance probe result fields.
+// TestSearchDatagenReportsWarningAndRelevance runs ops qa datagen search --commit, ops
+// search verify, and an ops verify strict-validation dry run through Cobra with real
+// FoundationDB, YugabyteDB, and OpenSearch. It checks the reported warning and the
+// relevance probe result fields. It then requires ops search verify to omit the warning
+// of the deleted warning node and strict validation to report 0 invalid records.
 func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 	cfg := newCohortEngines(t)
 	output, err := runDatagenSearchCommand(t, cfg, "--commit")
@@ -49,8 +51,12 @@ func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 		warning.Reason != string(node.DiagnosticInapplicable) || warning.Revision == "" {
 		t.Fatalf("property warning case does not include every required field or reports a reason other than inapplicable_property: %+v", warning)
 	}
-	if !verifyListsWarning(t, cfg, warning) {
-		t.Fatalf("ops search verify does not list the reported property warning case: %+v", warning)
+	if verifyListsWarning(t, cfg, warning) {
+		t.Fatalf("ops search verify still lists the property warning of the deleted warning node: %+v", warning)
+	}
+	strict, err := runStrictValidation(t, false)
+	if err != nil || strict.Result.ViolationCount != 0 {
+		t.Fatalf("ops verify strict-validation dry run after ops qa datagen search --commit = %+v, %v; want 0 invalid records", strict.Result, err)
 	}
 	relevance := envelope.Result.Search.Relevance
 	queries := make([]string, 0, len(relevance.Queries))
