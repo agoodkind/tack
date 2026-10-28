@@ -27,10 +27,10 @@ const (
 	revokedActorIndex = 2
 )
 
-// verifyAccess requires tack_search to return only nodes that the caller's
-// current membership allows. It bootstraps a second organization with
-// matching text, refuses each actor under the other organization's entry
-// node, replays one cursor, and refuses a member after removal.
+// verifyAccess checks result organizations against resolve records and requires
+// tack_search to enforce current membership. It creates matching text in a
+// second organization, checks refusal under each foreign entry, replays a
+// cursor, and checks refusal after membership removal.
 func (r searchRun) verifyAccess(ctx context.Context, cfg *config.Config, seed int64, workspace WorkspaceIdentity) error {
 	if len(workspace.Actors) <= revokedActorIndex {
 		return fmt.Errorf("qa datagen: workspace %s has %d actors, want more than %d", workspace.Slug, len(workspace.Actors), revokedActorIndex)
@@ -48,8 +48,7 @@ func (r searchRun) verifyAccess(ctx context.Context, cfg *config.Config, seed in
 	if err != nil {
 		return err
 	}
-	// Both runs use one registry to resolve either organization's results to
-	// node IDs for the isolation checks.
+	// Both runs record titles and IDs in one registry for the organization checks.
 	foreignFixture.titles = r.fixture.titles
 	foreignEntry, err := r.fixture.stores.Views.Get(ctx, foreignFixture.entryID)
 	if err != nil || foreignEntry == nil {
@@ -70,12 +69,8 @@ func (r searchRun) verifyAccess(ctx context.Context, cfg *config.Config, seed in
 		description string
 		check       func(context.Context) error
 	}{
-		{"isolate caller results", func(ctx context.Context) error {
-			return r.isolated(ctx, callerNodes, foreignNodes, foreignFixture.orgID)
-		}},
-		{"isolate foreign results", func(ctx context.Context) error {
-			return foreignRun.isolated(ctx, foreignNodes, callerNodes, r.fixture.orgID)
-		}},
+		{"isolate caller results", func(ctx context.Context) error { return r.isolated(ctx, callerNodes, foreignNodes) }},
+		{"isolate foreign results", func(ctx context.Context) error { return foreignRun.isolated(ctx, foreignNodes, callerNodes) }},
 	}
 	for _, step := range checks {
 		if err := r.eventually(ctx, step.description, step.check); err != nil {
@@ -113,14 +108,11 @@ func putAccessNodes(ctx context.Context, fixture searchFixture, namePrefix strin
 	return nodes, nil
 }
 
-// isolated requires every allowed node and rejects every forbidden node
-// across all search pages for accessPhrase. It checks each registered node's
-// organization through its resolve record. It accepts an unregistered result
-// when only the caller organization declares its node type, or when the
-// caller organization stores a node with an address equal to the scope at the
-// start of the result's printed reference. Otherwise, the check fails.
-func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID, otherOrgID uuid.UUID) error {
-	results, err := traverseSearch(ctx, r.driver, r.fixture.titles, r.token, r.entry, accessPhrase, r.limits)
+// isolated requires every allowed node and rejects every forbidden node across
+// all search pages for accessPhrase. It reads each result's resolve record and
+// rejects a result when its organization differs from the fixture organization.
+func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID) error {
+	results, err := traverseSearch(ctx, r.driver, r.identities(), r.token, r.entry, accessPhrase, r.limits)
 	if err != nil {
 		return err
 	}
@@ -134,33 +126,7 @@ func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID,
 			return fmt.Errorf("search %q under %s returned node %s of another organization", accessPhrase, r.entry, nodeID)
 		}
 	}
-	ownedTypes, err := r.fixture.typeKeys(ctx, r.fixture.orgID)
-	if err != nil {
-		return err
-	}
-	otherTypes, err := r.fixture.typeKeys(ctx, otherOrgID)
-	if err != nil {
-		return err
-	}
 	for _, nodeID := range results {
-		// Every organization declares the built-in node types. A built-in type
-		// cannot establish the organization of an unregistered result.
-		// Search can return default states of projects that the check creates
-		// through MCP without a registry entry for those states.
-		if item, unresolved := r.fixture.titles.Unresolved(nodeID); unresolved {
-			if slices.Contains(ownedTypes, item.NodeType) && !slices.Contains(otherTypes, item.NodeType) {
-				continue
-			}
-			owned, err := r.fixture.ownsScope(ctx, referenceScope(item.Title))
-			if err != nil {
-				return err
-			}
-			if !owned {
-				return fmt.Errorf("search %q under %s returned the unregistered result %q of type %q outside org %s",
-					accessPhrase, r.entry, item.Title, item.NodeType, r.fixture.orgID)
-			}
-			continue
-		}
 		resolved, err := r.fixture.stores.Views.Resolve(ctx, nodeID)
 		if err != nil {
 			return loggedError(ctx, "qa datagen: resolve search result "+nodeID.String()+" under "+r.entry, err)

@@ -22,8 +22,9 @@ const (
 	twoProcessNamePrefix    = "two process case "
 )
 
-// VerifySearchTwoProcess checks search continuation, replay, and revocation across
-// two remote Tack processes in an isolated organization.
+// VerifySearchTwoProcess resolves search results to node IDs and checks
+// continuation, replay, and membership revocation across two remote Tack
+// processes in an isolated organization.
 func VerifySearchTwoProcess(ctx context.Context, cfg *config.Config, endpoints []string, client *http.Client) error {
 	if len(endpoints) != twoProcessEndpointCount {
 		return loggedError(ctx, "qa datagen: verify two-process search", fmt.Errorf("got %d endpoints, want %d", len(endpoints), twoProcessEndpointCount))
@@ -81,7 +82,7 @@ func VerifySearchTwoProcess(ctx context.Context, cfg *config.Config, endpoints [
 	if err := run.eventually(ctx, "index two-process nodes", indexed); err != nil {
 		return err
 	}
-	baseline, err := traverseSearch(ctx, drivers[0], run.fixture.titles, run.token, run.entry, accessPhrase, run.limits)
+	baseline, err := traverseSearch(ctx, drivers[0], run.identities(),run.token, run.entry, accessPhrase, run.limits)
 	if err != nil {
 		return err
 	}
@@ -109,7 +110,7 @@ func (r searchRun) alternate(ctx context.Context, drivers []*Driver) ([]uuid.UUI
 	ordered := make([]uuid.UUID, 0)
 	cursor := ""
 	for pageIndex := range maxSearchTraversalPages {
-		page, err := callSearch(ctx, drivers[pageIndex%len(drivers)], r.fixture.titles, r.token, r.entry, accessPhrase, cursor)
+		page, err := callSearch(ctx, drivers[pageIndex%len(drivers)], r.identities(),r.token, r.entry, accessPhrase, cursor)
 		if err != nil {
 			return nil, err
 		}
@@ -137,18 +138,18 @@ func (r searchRun) alternate(ctx context.Context, drivers []*Driver) ([]uuid.UUI
 }
 
 func (r searchRun) replayAcross(ctx context.Context, drivers []*Driver) error {
-	first, err := callSearch(ctx, drivers[0], r.fixture.titles, r.token, r.entry, accessPhrase, "")
+	first, err := callSearch(ctx, drivers[0], r.identities(),r.token, r.entry, accessPhrase, "")
 	if err != nil {
 		return err
 	}
 	if first.Cursor == "" {
 		return loggedError(ctx, "qa datagen: replay across endpoints", errors.New("first page returned no continuation cursor"))
 	}
-	second, err := callSearch(ctx, drivers[1], r.fixture.titles, r.token, r.entry, accessPhrase, first.Cursor)
+	second, err := callSearch(ctx, drivers[1], r.identities(),r.token, r.entry, accessPhrase, first.Cursor)
 	if err != nil {
 		return err
 	}
-	replayed, err := callSearch(ctx, drivers[0], r.fixture.titles, r.token, r.entry, accessPhrase, first.Cursor)
+	replayed, err := callSearch(ctx, drivers[0], r.identities(),r.token, r.entry, accessPhrase, first.Cursor)
 	if err != nil {
 		return err
 	}
@@ -161,7 +162,7 @@ func (r searchRun) replayAcross(ctx context.Context, drivers []*Driver) error {
 
 func (r searchRun) revokeAcross(ctx context.Context, cfg *config.Config, drivers []*Driver, workspace WorkspaceIdentity) error {
 	actor := workspace.Actors[revokedActorIndex]
-	first, err := callSearch(ctx, drivers[0], r.fixture.titles, actor.Token, r.entry, accessPhrase, "")
+	first, err := callSearch(ctx, drivers[0], r.identities(),actor.Token, r.entry, accessPhrase, "")
 	if err != nil {
 		return err
 	}
@@ -181,7 +182,7 @@ func (r searchRun) revokeAcross(ctx context.Context, cfg *config.Config, drivers
 	if err := members.RemoveMember(ctx, workspace.OrgID, actor.UserID); err != nil {
 		return loggedError(ctx, "qa datagen: remove member "+actor.UserID.String(), err)
 	}
-	// Restoring membership before both checks finish would invalidate the remaining revocation check.
+	// Both processes must check refusal before this function restores membership.
 	var refusalErr error
 	for _, driver := range drivers {
 		endpointRun := r

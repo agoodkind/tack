@@ -55,7 +55,6 @@ func (m *searchMixed) createProjects(ctx context.Context) error {
 		if err := m.registerCreated(ctx, result); err != nil {
 			return err
 		}
-		m.projectType = result.SearchItem().NodeType
 	}
 	return nil
 }

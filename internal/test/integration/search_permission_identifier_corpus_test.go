@@ -116,8 +116,9 @@ func putNestedKind(t *testing.T, fixture queryFixture, orgID uuid.UUID, typeKey,
 	return kind
 }
 
-// identifierSearchLines follows every tack_search cursor and returns each
-// result item and its node ID in response order.
+// identifierSearchLines follows every tack_search cursor and resolves IDs
+// with the harness identities. It returns result items and IDs in matching
+// response order.
 func identifierSearchLines(t *testing.T, harness *MCPHarness, query string) ([]string, []uuid.UUID) {
 	t.Helper()
 	var lines []string
@@ -128,7 +129,7 @@ func identifierSearchLines(t *testing.T, harness *MCPHarness, query string) ([]s
 		if err != nil || isError {
 			t.Fatalf("search %q: %v %s", query, err, text)
 		}
-		page, err := parseSearchPage(text, harness.titles)
+		page, err := parseSearchPage(t.Context(), text, harness.searchIdentities())
 		if err != nil {
 			t.Fatalf("parse search %q: %v", query, err)
 		}

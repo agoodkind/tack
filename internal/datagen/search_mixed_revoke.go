@@ -165,12 +165,13 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 	}
 }
 
-// revokedSearch uses driver number to request one page of the session for call, the call at
-// position in its round. It reports whether the server answered, refused, or returned the
-// unavailable response, and returns the page when the server answered. awaitRefusal retries an
-// unavailable call until its deadline. Every other error stops the check.
+// revokedSearch uses driver number to request call from session and resolve
+// results for its tenant. It classifies the response as a page, an authorization
+// refusal, or search unavailability. It reports every other error with the
+// call's position in the round.
 func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSession, number, position int, call revokedCall) (revokedSearchOutcome, searchPage, error) {
-	page, err := callSearch(ctx, m.driver(number), m.titles, session.token, session.entry, session.query, call.cursor)
+	driver := m.driver(number)
+	page, err := callSearch(ctx, driver, m.identities(session.tenant, driver), session.token, session.entry, session.query, call.cursor)
 	if err == nil {
 		return revokedSearchAnswered, page, nil
 	}

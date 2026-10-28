@@ -171,44 +171,17 @@ func (f searchFixture) put(ctx context.Context, name, included, excluded string)
 	return result.View.ID, nil
 }
 
-// typeKeys returns the node type keys for the requested organization.
-func (f searchFixture) typeKeys(ctx context.Context, orgID uuid.UUID) ([]string, error) {
-	types, err := f.stores.NodeTypes.List(ctx, orgID)
-	if err != nil {
-		return nil, loggedError(ctx, "qa datagen: list node types of org "+orgID.String(), err)
-	}
-	keys := make([]string, 0, len(types))
-	for _, nodeType := range types {
-		keys = append(keys, nodeType.TypeKey)
-	}
-	return keys, nil
+// identities uses the run's fixture registry and organization to resolve
+// search results. Reference lookups use the run's token and entry.
+func (r searchRun) identities() SearchIdentities {
+	return r.fixture.identities(r.driver, r.token, r.entry)
 }
 
-// ownsScope reports whether the fixture organization stores a node with an
-// address equal to scope. It reads the direct address property that the node
-// type declares.
-func (f searchFixture) ownsScope(ctx context.Context, scope string) (bool, error) {
-	types, err := f.stores.NodeTypes.List(ctx, f.orgID)
-	if err != nil {
-		return false, loggedError(ctx, "qa datagen: list node types of org "+f.orgID.String(), err)
-	}
-	for _, nodeType := range types {
-		property := nodeType.Reference.DirectAddressProperty()
-		if property == "" {
-			continue
-		}
-		views, err := f.stores.Views.List(ctx, node.NodeListQuery{OrgID: f.orgID, NodeType: nodeType.TypeKey})
-		if err != nil {
-			return false, loggedError(ctx, "qa datagen: list nodes of type "+nodeType.TypeKey, err)
-		}
-		for _, view := range views {
-			var address string
-			if json.Unmarshal(view.Props[property], &address) == nil && address == scope {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
+// identities pairs the fixture registry with a resolver for its organization.
+// The resolver calls get tools with token under entry for declared references
+// and requires a unique stored name for types without a declared reference.
+func (f searchFixture) identities(driver *Driver, token, entry string) SearchIdentities {
+	return SearchIdentities{Titles: f.titles, Resolve: storeResolver(f.stores, f.orgID, ReferenceResolver(driver, token, entry))}
 }
 
 // edit replaces the included value of one node.

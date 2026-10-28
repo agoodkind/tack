@@ -1,6 +1,8 @@
 package datagen
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -19,11 +21,13 @@ const (
 	// searchShortenedSuffix ends a value that search shortened to fit the
 	// response byte budget.
 	searchShortenedSuffix = "…"
-	searchTitleShared  = "search returned the result %q of type %q, which names more than one registered node"
+	searchTitleShared     = "search returned the result %q of type %q, which names more than one registered node"
+	searchTitleUnmatched  = "search returned the result %q of type %q, which matches no recorded node"
 )
 
-// searchItemNamespace is the UUID namespace for deriving stand-in result IDs.
-var searchItemNamespace = uuid.MustParse("5f2a8d6e-3c41-4b7a-9e10-6d8c2b4f7a93")
+// errSearchResultUnresolved reports a result that the resolver cannot match
+// to a node.
+var errSearchResultUnresolved = errors.New("search result identifies no node")
 
 // SearchItem records the printed title and node type of one search result.
 // Search uses the node's declared reference as its title, or its name when
@@ -33,20 +37,52 @@ type SearchItem struct {
 	NodeType string
 }
 
-// SearchTitles maps each recorded title and node type to its fixture node ID.
-type SearchTitles struct {
-	mutex      sync.Mutex
-	ids        map[string]uuid.UUID
-	shared     map[string]bool
-	unresolved map[uuid.UUID]SearchItem
+// SearchResolver resolves a result that the title registry did not match.
+// It returns a real node ID or an error when it cannot resolve the result.
+type SearchResolver func(context.Context, SearchItem) (uuid.UUID, error)
+
+// SearchIdentities pairs a title and node type registry with an optional
+// resolver for unmatched search results.
+type SearchIdentities struct {
+	Titles  *SearchTitles
+	Resolve SearchResolver
 }
 
-// NewSearchTitles returns an empty registry.
-func NewSearchTitles() *SearchTitles {
-	return &SearchTitles{
-		mutex: sync.Mutex{}, ids: map[string]uuid.UUID{}, shared: map[string]bool{},
-		unresolved: map[uuid.UUID]SearchItem{},
+// IDs returns real node IDs in response order and records each resolved result
+// in Titles. It fails when a title and node type match multiple recorded nodes
+// or when an unmatched result lacks a resolver or the resolver returns an error.
+func (i SearchIdentities) IDs(ctx context.Context, items []SearchItem) ([]uuid.UUID, error) {
+	nodeIDs := make([]uuid.UUID, 0, len(items))
+	for _, item := range items {
+		nodeID, found, err := i.Titles.lookup(item)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			if i.Resolve == nil {
+				return nil, fmt.Errorf(searchTitleUnmatched, item.Title, item.NodeType)
+			}
+			nodeID, err = i.Resolve(ctx, item)
+			if err != nil {
+				return nil, loggedError(ctx, fmt.Sprintf("qa datagen: resolve search result %q of type %q", item.Title, item.NodeType), err)
+			}
+			i.Titles.Add(item, nodeID)
+		}
+		nodeIDs = append(nodeIDs, nodeID)
 	}
+	return nodeIDs, nil
+}
+
+// SearchTitles maps recorded title and node type pairs to node IDs.
+type SearchTitles struct {
+	mutex  sync.Mutex
+	ids    map[string]uuid.UUID
+	shared map[string]bool
+}
+
+// NewSearchTitles creates an empty title and node type registry.
+func NewSearchTitles() *SearchTitles {
+	return &SearchTitles{mutex: sync.Mutex{}, ids: map[string]uuid.UUID{}, shared: map[string]bool{}}
 }
 
 // Add records the node ID for item's title and node type. It marks the pair
@@ -61,38 +97,21 @@ func (s *SearchTitles) Add(item SearchItem, nodeID uuid.UUID) {
 	s.ids[key] = nodeID
 }
 
-// IDs returns one ID per item in response order. It tries shortenedID when
-// an exact title and node type do not match a recorded node. It assigns a
-// stable stand-in ID to each remaining item using its title and node type.
-// It returns an error when an exact pair identifies multiple recorded nodes.
-func (s *SearchTitles) IDs(items []SearchItem) ([]uuid.UUID, error) {
+// lookup matches item's title and node type to a recorded node ID. It tries
+// shortenedID when the exact pair does not match and returns an error when
+// the exact pair matches multiple nodes.
+func (s *SearchTitles) lookup(item SearchItem) (uuid.UUID, bool, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	nodeIDs := make([]uuid.UUID, 0, len(items))
-	for _, item := range items {
-		key := searchItemKey(item)
-		if s.shared[key] {
-			return nil, fmt.Errorf(searchTitleShared, item.Title, item.NodeType)
-		}
-		nodeID, found := s.ids[key]
-		if !found {
-			nodeID, found = s.shortenedID(item)
-		}
-		if !found {
-			nodeID = uuid.NewSHA1(searchItemNamespace, []byte(key))
-			s.unresolved[nodeID] = item
-		}
-		nodeIDs = append(nodeIDs, nodeID)
+	key := searchItemKey(item)
+	if s.shared[key] {
+		return uuid.Nil, false, fmt.Errorf(searchTitleShared, item.Title, item.NodeType)
 	}
-	return nodeIDs, nil
-}
-
-// Unresolved returns the result item for a stand-in ID that IDs created.
-func (s *SearchTitles) Unresolved(nodeID uuid.UUID) (SearchItem, bool) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	item, found := s.unresolved[nodeID]
-	return item, found
+	if nodeID, found := s.ids[key]; found {
+		return nodeID, true, nil
+	}
+	nodeID, found := s.shortenedID(item)
+	return nodeID, found, nil
 }
 
 // SearchResultItems returns the title and node type of each result item on
@@ -152,20 +171,6 @@ func (s *SearchTitles) shortenedID(item SearchItem) (uuid.UUID, bool) {
 		matched = nodeID
 	}
 	return matched, matched != uuid.Nil
-}
-
-// referenceScope returns the scope at the start of a printed reference.
-// It returns the text before "::" in a scoped reference or the project
-// identifier before the sequence number of an issue reference. It returns
-// title unchanged when title has neither form.
-func referenceScope(title string) string {
-	if scope, _, scoped := strings.Cut(title, scopedReferenceSeparator); scoped {
-		return scope
-	}
-	if position := strings.LastIndex(title, sequenceReferenceSeparator); position > 0 {
-		return title[:position]
-	}
-	return title
 }
 
 func searchItemKey(item SearchItem) string {

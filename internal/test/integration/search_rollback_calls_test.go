@@ -78,12 +78,12 @@ func searchAs(t *testing.T, fixture rolloutFixture, workspace datagen.WorkspaceI
 	return parseRolloutSearchPage(t, fixture, decoded.Result.Content[0].Text)
 }
 
-// parseRolloutSearchPage resolves result IDs with fixture.titles and reads
-// the continuation cursor. It marks a page complete when the response omits
-// the cursor.
+// parseRolloutSearchPage resolves result IDs using only fixture.titles and
+// fails on an unmatched result. It reads the continuation cursor and marks
+// the page complete when the response omits that cursor.
 func parseRolloutSearchPage(t *testing.T, fixture rolloutFixture, text string) rolloutSearchPage {
 	t.Helper()
-	parsed, err := integration.ParseSearchPage(text, fixture.titles)
+	parsed, err := integration.ParseSearchPage(t.Context(), text, datagen.SearchIdentities{Titles: fixture.titles, Resolve: nil})
 	if err != nil {
 		t.Fatalf("parse search page: %v", err)
 	}

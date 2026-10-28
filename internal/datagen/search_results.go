@@ -61,10 +61,10 @@ func (r searchRun) eventually(ctx context.Context, description string, check fun
 	}
 }
 
-// ranked requires each node to appear within the first searchRankBound
-// distinct nodes of the complete traversal for query.
+// ranked resolves all results for query and requires each target node within
+// the first searchRankBound distinct nodes.
 func (r searchRun) ranked(ctx context.Context, query string, nodes ...uuid.UUID) error {
-	results, err := traverseSearch(ctx, r.driver, r.fixture.titles, r.token, r.entry, query, r.limits)
+	results, err := traverseSearch(ctx, r.driver, r.identities(),r.token, r.entry, query, r.limits)
 	if err != nil {
 		return err
 	}
@@ -89,9 +89,10 @@ func (r searchRun) includes(ctx context.Context, query string, nodes ...uuid.UUI
 	return nil
 }
 
-// missing returns, in input order, each node that the complete traversal for query omits.
+// missing resolves all results for query and returns the omitted input node
+// IDs in input order.
 func (r searchRun) missing(ctx context.Context, query string, nodes ...uuid.UUID) ([]uuid.UUID, error) {
-	results, err := traverseSearch(ctx, r.driver, r.fixture.titles, r.token, r.entry, query, r.limits)
+	results, err := traverseSearch(ctx, r.driver, r.identities(),r.token, r.entry, query, r.limits)
 	if err != nil {
 		return nil, err
 	}
@@ -124,10 +125,10 @@ func (r searchRun) notIndexed(ctx context.Context, value string, nodeID uuid.UUI
 	return nil
 }
 
-// excludes requires every node in nodes to be absent from the complete
-// traversal for query.
+// excludes resolves all results for query and fails if any result matches
+// an ID in nodes.
 func (r searchRun) excludes(ctx context.Context, query string, nodes ...uuid.UUID) error {
-	results, err := traverseSearch(ctx, r.driver, r.fixture.titles, r.token, r.entry, query, r.limits)
+	results, err := traverseSearch(ctx, r.driver, r.identities(),r.token, r.entry, query, r.limits)
 	if err != nil {
 		return err
 	}

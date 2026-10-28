@@ -24,7 +24,8 @@ func (m *searchMixed) probeDeletions(ctx context.Context, tick int) {
 			continue
 		}
 		tenant := m.tenants[entry.node.tenant]
-		page, err := callSearch(ctx, m.driver(tick+entry.node.ordinal), m.titles, tenant.token(), tenant.entry(), entry.marker, "")
+		driver := m.driver(tick + entry.node.ordinal)
+		page, err := callSearch(ctx, driver, m.identities(entry.node.tenant, driver), tenant.token(), tenant.entry(), entry.marker, "")
 		if err != nil {
 			m.stats.count(&m.stats.probeErrors)
 			continue

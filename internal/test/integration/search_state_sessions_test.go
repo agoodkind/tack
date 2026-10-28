@@ -47,9 +47,9 @@ type statePage struct {
 	cursor string
 }
 
-// trySearchPage calls tack_search through the MCP driver and returns stand-in
-// result IDs and the next cursor. It returns an error when the call or
-// response parsing fails.
+// trySearchPage calls tack_search as the first workspace actor and resolves
+// result IDs with the fixture identities. It returns those IDs and the next
+// cursor, or an error when the call or parsing fails.
 func trySearchPage(t *testing.T, fixture parentEdgeFixture, query, cursor string) (statePage, error) {
 	t.Helper()
 	result, err := fixture.driver.Call(t.Context(), fixture.first.Actors[0].Token, "tack_search", datagen.ToolArguments{
@@ -58,8 +58,7 @@ func trySearchPage(t *testing.T, fixture parentEdgeFixture, query, cursor string
 	if err != nil {
 		return statePage{}, fmt.Errorf("search %q: %w", query, err)
 	}
-	// The session checks count printed items without resolving fixture node IDs.
-	parsed, err := integration.ParseSearchPage(result.Text(), datagen.NewSearchTitles())
+	parsed, err := integration.ParseSearchPage(t.Context(), result.Text(), fixture.identities(fixture.first))
 	if err != nil {
 		return statePage{}, fmt.Errorf("parse search %q: %w", query, err)
 	}

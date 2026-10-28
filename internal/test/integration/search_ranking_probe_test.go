@@ -129,7 +129,7 @@ func (r *rankingRun) createIssue(t *testing.T, name, description string) uuid.UU
 func (r *rankingRun) search(t *testing.T, query, cursor string) rankingPage {
 	t.Helper()
 	text := r.call(t, "tack_search", datagen.ToolArguments{WorkspaceReference: r.workspace, Query: query, Cursor: cursor}).Text()
-	parsed, err := integration.ParseSearchPage(text, r.titles)
+	parsed, err := integration.ParseSearchPage(t.Context(), text, datagen.ReferenceIdentities(r.titles, r.driver, r.token, r.workspace))
 	if err != nil {
 		t.Fatalf("parse search page: %v", err)
 	}

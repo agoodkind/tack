@@ -49,8 +49,9 @@ func callSearch(t *testing.T, harness *MCPHarness, query, cursor string) searchP
 	return page
 }
 
-// trySearch performs one authenticated call and returns an error instead of
-// failing the test. Concurrent goroutines use it.
+// trySearch calls tack_search as the harness caller and resolves result IDs
+// with the harness identities. It returns call and parsing errors without
+// failing the test and supports calls from concurrent goroutines.
 func trySearch(harness *MCPHarness, query, cursor string) (searchPage, error) {
 	text, isError, err := rawSearchCall(harness, searchArguments(harness, query, cursor))
 	if err != nil {
@@ -59,7 +60,7 @@ func trySearch(harness *MCPHarness, query, cursor string) (searchPage, error) {
 	if isError {
 		return searchPage{}, errors.New(text)
 	}
-	return parseSearchPage(text, harness.titles)
+	return parseSearchPage(context.Background(), text, harness.searchIdentities())
 }
 
 func rawSearchCall(harness *MCPHarness, arguments map[string]any) (string, bool, error) {
@@ -129,12 +130,12 @@ func rawCallStatus(t *testing.T, harness *MCPHarness, tool string, arguments map
 // more results.
 const searchCursorMarker = "Next cursor: `"
 
-// parseSearchPage checks the result count, resolves result identities with
-// titles, and reads the continuation cursor. It marks a page complete when
-// the response omits the cursor.
-func parseSearchPage(text string, titles *datagen.SearchTitles) (searchPage, error) {
+// parseSearchPage resolves result node IDs through identities, reads the
+// continuation cursor, and checks the printed result count. It marks the page
+// complete when the response omits the cursor.
+func parseSearchPage(ctx context.Context, text string, identities datagen.SearchIdentities) (searchPage, error) {
 	items := datagen.SearchResultItems(text)
-	nodeIDs, err := titles.IDs(items)
+	nodeIDs, err := identities.IDs(ctx, items)
 	if err != nil {
 		return searchPage{}, fmt.Errorf("%w:\n%s", err, text)
 	}
@@ -152,29 +153,12 @@ func parseSearchPage(text string, titles *datagen.SearchTitles) (searchPage, err
 	return page, nil
 }
 
-// registerSearchNodes reads each node's title from its get tool response heading
-// and records the title and type for search result lookup.
-func registerSearchNodes(t *testing.T, fixture queryFixture, nodeIDs []uuid.UUID) {
-	t.Helper()
-	for _, nodeID := range nodeIDs {
-		view, err := fixture.Stores.Views.Get(WithTestOperation(t, t.Context()), nodeID)
-		if err != nil || view == nil {
-			t.Fatalf("read node %s: %v", nodeID, err)
-		}
-		text := callToolSuccess(t, fixture.Harness, "tack_get_"+view.NodeType, map[string]any{
-			"workspace_reference": fixture.Harness.Workspace, "node_id": nodeID.String(),
-		})
-		heading, _, _ := strings.Cut(strings.TrimPrefix(text, searchHeadingPrefix), "\n")
-		title := heading
-		if quoted, found := strings.CutPrefix(heading, "`"); found {
-			title, _, _ = strings.Cut(quoted, "`")
-		}
-		fixture.Harness.titles.Add(datagen.SearchItem{Title: title, NodeType: view.NodeType}, nodeID)
-	}
+// searchIdentities pairs the harness registry with get tool lookups for
+// unmatched results. Each lookup uses the result's node type and the harness
+// caller's token and workspace entry.
+func (h *MCPHarness) searchIdentities() datagen.SearchIdentities {
+	return datagen.ReferenceIdentities(h.titles, h.driver, h.token, h.Workspace)
 }
-
-// searchHeadingPrefix precedes the title in a node's get tool response.
-const searchHeadingPrefix = "#### "
 
 // searchResultItems groups each result title with its following field lines.
 func searchResultItems(text string) []string {

@@ -86,7 +86,8 @@ func renderRelationships(rc *renderCtx, direction string, rels []*node.Relations
 func nodeListItem(rc *renderCtx, view *node.NodeView) markdownItem {
 	ident := identifierFor(view, rc)
 	nodeType := markdownCodeFieldValue("Type", view.NodeType)
-	// Search result parsing requires the full node type key.
+	// Callers use the node type key in the node_type argument and tool names.
+	// A shortened key does not identify a type.
 	nodeType.Whole = true
 	fields := []markdownField{nodeType}
 	// nodeListItem includes the Name field only when the title differs from

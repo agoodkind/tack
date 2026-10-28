@@ -23,20 +23,20 @@ type searchLimits struct {
 	MaxResults, MaxResponseBytes int
 }
 
-// callSearch calls tack_search through authenticated MCP under one entry
-// node. It resolves results with titles and reads the continuation cursor.
-func callSearch(ctx context.Context, driver *Driver, titles *SearchTitles, token, entryReference, query, cursor string) (searchPage, error) {
-	return callTypedSearch(ctx, driver, titles, token, entryReference, query, "", cursor)
+// callSearch calls tack_search with token under entryReference. It uses
+// identities to resolve result node IDs and reads the continuation cursor.
+func callSearch(ctx context.Context, driver *Driver, identities SearchIdentities, token, entryReference, query, cursor string) (searchPage, error) {
+	return callTypedSearch(ctx, driver, identities, token, entryReference, query, "", cursor)
 }
 
-// callTypedSearch is callSearch limited to nodeType. An empty nodeType
-// searches every type.
-func callTypedSearch(ctx context.Context, driver *Driver, titles *SearchTitles, token, entryReference, query, nodeType, cursor string) (searchPage, error) {
+// callTypedSearch calls tack_search with a nodeType filter and resolves each
+// result through identities. An empty nodeType searches all types.
+func callTypedSearch(ctx context.Context, driver *Driver, identities SearchIdentities, token, entryReference, query, nodeType, cursor string) (searchPage, error) {
 	text, err := searchPageText(ctx, driver, token, entryReference, query, nodeType, cursor)
 	if err != nil {
 		return searchPage{}, err
 	}
-	nodeIDs, err := titles.IDs(SearchResultItems(text))
+	nodeIDs, err := identities.IDs(ctx, SearchResultItems(text))
 	if err != nil {
 		return searchPage{}, loggedError(ctx, fmt.Sprintf("qa datagen: resolve search %q results", query), err)
 	}
@@ -57,16 +57,16 @@ func searchPageText(ctx context.Context, driver *Driver, token, entryReference, 
 	return result.Text(), nil
 }
 
-// traverseSearch follows every continuation cursor for query. It rejects a
-// duplicate node, a repeated cursor, and a page above the public result or
-// byte bound. It returns every node in response order.
-func traverseSearch(ctx context.Context, driver *Driver, titles *SearchTitles, token, entryReference, query string, limits searchLimits) ([]uuid.UUID, error) {
+// traverseSearch follows query's continuation cursors and resolves result IDs
+// through identities. It rejects duplicate nodes, repeated cursors, and pages
+// above the public result or byte limit. It returns node IDs in response order.
+func traverseSearch(ctx context.Context, driver *Driver, identities SearchIdentities, token, entryReference, query string, limits searchLimits) ([]uuid.UUID, error) {
 	seen := make(map[uuid.UUID]struct{})
 	cursors := make(map[string]struct{})
 	ordered := make([]uuid.UUID, 0)
 	cursor := ""
 	for range maxSearchTraversalPages {
-		page, err := callSearch(ctx, driver, titles, token, entryReference, query, cursor)
+		page, err := callSearch(ctx, driver, identities, token, entryReference, query, cursor)
 		if err != nil {
 			return nil, err
 		}

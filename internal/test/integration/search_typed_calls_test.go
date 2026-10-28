@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -19,7 +20,7 @@ func tryTypedSearch(harness *MCPHarness, query, nodeType, cursor string) (search
 	if isError {
 		return searchPage{}, errors.New(text)
 	}
-	return parseSearchPage(text, harness.titles)
+	return parseSearchPage(context.Background(), text, harness.searchIdentities())
 }
 
 func callTypedSearch(t *testing.T, harness *MCPHarness, query, nodeType, cursor string) searchPage {

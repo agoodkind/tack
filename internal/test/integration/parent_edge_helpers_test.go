@@ -132,8 +132,14 @@ func (f parentEdgeFixture) eventually(t *testing.T, check func() string) {
 	t.Fatalf("%s after %s", message, parentEdgeDeadline)
 }
 
-// search follows every tack_search page for query under the entry point of
-// workspace and returns the result node IDs.
+// identities pairs the fixture registry with get tool lookups as workspace's
+// first actor under its entry. Each lookup uses the result's node type.
+func (f parentEdgeFixture) identities(workspace datagen.WorkspaceIdentity) datagen.SearchIdentities {
+	return datagen.ReferenceIdentities(f.titles, f.driver, workspace.Actors[0].Token, workspace.Slug)
+}
+
+// search reads every tack_search page for query as workspace's first actor
+// under its entry and resolves result node IDs with the fixture identities.
 func (f parentEdgeFixture) search(t *testing.T, workspace datagen.WorkspaceIdentity, query string) []uuid.UUID {
 	t.Helper()
 	found := []uuid.UUID{}
@@ -145,7 +151,7 @@ func (f parentEdgeFixture) search(t *testing.T, workspace datagen.WorkspaceIdent
 		if err != nil {
 			t.Fatalf("search %q under %s: %v", query, workspace.Slug, err)
 		}
-		page, err := integration.ParseSearchPage(result.Text(), f.titles)
+		page, err := integration.ParseSearchPage(t.Context(), result.Text(), f.identities(workspace))
 		if err != nil {
 			t.Fatalf("parse search %q under %s: %v", query, workspace.Slug, err)
 		}

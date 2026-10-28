@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -141,7 +142,7 @@ func searchSeedless(t *testing.T, env seedlessEnvironment, caller seedlessOrg, q
 			arguments["cursor"] = seedlessString(cursor)
 		}
 		text := callSeedlessTool(t, env, caller, "tack_search", arguments)
-		page, err := integration.ParseSearchPage(text, caller.Titles)
+		page, err := integration.ParseSearchPage(t.Context(), text, datagen.SearchIdentities{Titles: caller.Titles, Resolve: nil})
 		if err != nil {
 			t.Fatalf("parse search %q page: %v", query, err)
 		}

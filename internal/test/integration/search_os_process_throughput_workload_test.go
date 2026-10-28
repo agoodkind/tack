@@ -270,7 +270,7 @@ func processThroughputSession(t *testing.T, corpus processThroughputCorpus, serv
 			result.err = err
 			return result
 		}
-		page, err := parseSearchPage(call.Result.Text(), corpus.fixture.Harness.titles)
+		page, err := parseSearchPage(t.Context(), call.Result.Text(), corpus.fixture.Harness.searchIdentities())
 		if err != nil {
 			result.err = fmt.Errorf("public search page did not parse")
 			return result
