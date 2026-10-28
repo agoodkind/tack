@@ -81,7 +81,7 @@ func searchReadFailure(ctx context.Context, operation string, err error) error {
 // transactionFailure logs and wraps one failure once. It returns expected
 // search outcomes and already logged errors unchanged.
 func transactionFailure(ctx context.Context, operation string, err error) error {
-	if errors.Is(err, search.ErrNoWork) || errors.Is(err, search.ErrWorkChanged) || errors.Is(err, search.ErrNoServingIndex) ||
+	if errors.Is(err, search.ErrWorkChanged) || errors.Is(err, search.ErrNoServingIndex) ||
 		errors.Is(err, node.ErrContentChanged) || errors.Is(err, search.ErrRolloutInProgress) || errors.Is(err, search.ErrRebuildInProgress) {
 		return err
 	}

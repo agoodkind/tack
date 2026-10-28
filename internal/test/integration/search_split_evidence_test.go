@@ -94,7 +94,7 @@ func TestSearchSplitRecoversFromStepFailures(t *testing.T) {
 // and waits for the replay instead of switching.
 func requireMirrorRefused(t *testing.T, fixture queryFixture, nodeID uuid.UUID, target string) {
 	t.Helper()
-	work, err := fixture.Stores.SearchWork(clock.Wall{}).Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "split-fault-test", faultLease)
+	work, _, err := fixture.Stores.SearchWork(clock.Wall{}).Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "split-fault-test", faultLease)
 	if err != nil || work.NodeID != nodeID {
 		t.Fatalf("claim live work = node %s, error %v, want node %s", work.NodeID, err, nodeID)
 	}

@@ -45,7 +45,7 @@ func TestSearchProjectionMigrationReplaceCommitsDigestAuditAndRescan(t *testing.
 	}
 	env.requireCorrectionEvents(t, []uuid.UUID{parentDefinition.ID})
 	store := env.Stores.SearchWork(clock.Wall{})
-	rescan, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "replace-check", time.Minute)
+	rescan, _, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "replace-check", time.Minute)
 	if err != nil || rescan.OrgID != env.OrgID {
 		t.Fatalf("rescan after the correction = %+v, err %v; want the organization's rescan", rescan, err)
 	}

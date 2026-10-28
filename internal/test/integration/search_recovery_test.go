@@ -26,9 +26,9 @@ func TestSearchRecoveryAfterLeaseExpiry(t *testing.T) {
 	fixture := putSearchText(t, stores, included, readerExcludedValue)
 	settings := searchWorkerSettings(recoveryPageBytes)
 	oldStore := stores.SearchWork(source)
-	oldWork, err := oldStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "old-owner", shortLease)
-	if err != nil {
-		t.Fatalf("claim live work: %v", err)
+	oldWork, claimed, err := oldStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "old-owner", shortLease)
+	if err != nil || !claimed {
+		t.Fatalf("claim live work = claimed %t, err %v", claimed, err)
 	}
 	if oldWork.Target != index {
 		t.Fatalf("claim target = %q, want serving index %q", oldWork.Target, index)
@@ -70,9 +70,9 @@ func TestSearchRecoveryProjectionChangeBetweenOwners(t *testing.T) {
 	settings := searchWorkerSettings(recoveryPageBytes)
 	reader := stores.SearchContent(stores.SearchPolicySet())
 	oldStore := stores.SearchWork(source)
-	oldWork, err := oldStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "old-owner", shortLease)
-	if err != nil {
-		t.Fatalf("claim live work: %v", err)
+	oldWork, claimed, err := oldStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "old-owner", shortLease)
+	if err != nil || !claimed {
+		t.Fatalf("claim live work = claimed %t, err %v", claimed, err)
 	}
 	request := searchdomain.ContentRequest{
 		NodeID: fixture.NodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil,
@@ -93,7 +93,7 @@ func TestSearchRecoveryProjectionChangeBetweenOwners(t *testing.T) {
 	putUnusedDefinition(t, stores, fixture.OrgID)
 	waitPastLeases(t, oldWork)
 	newStore := reopenSearchStore(t).SearchWork(source)
-	newWork, err := newStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "new-owner", settings.Lease)
+	newWork, _, err := newStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "new-owner", settings.Lease)
 	if err != nil || newWork.NodeID != fixture.NodeID || newWork.Ordinal != 0 {
 		t.Fatalf("new owner claim = %+v err %v, want the first page of %s", newWork, err, fixture.NodeID)
 	}
@@ -131,9 +131,9 @@ func TestSearchDelayedWriter(t *testing.T) {
 	source := clock.Wall{}
 	fixture := putSearchText(t, stores, "obsolete text", readerExcludedValue)
 	workStore := stores.SearchWork(source)
-	oldWork, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "old-worker", time.Minute)
-	if err != nil {
-		t.Fatalf("claim live work: %v", err)
+	oldWork, claimed, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "old-worker", time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim live work = claimed %t, err %v", claimed, err)
 	}
 	page, err := stores.SearchContent(stores.SearchPolicySet()).Content(WithTestOperation(t, t.Context()), searchdomain.ContentRequest{
 		NodeID: fixture.NodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: recoveryPageBytes, SearchGeneration: oldWork.Generation,
@@ -152,9 +152,9 @@ func TestSearchDelayedWriter(t *testing.T) {
 	if err := workStore.Release(WithTestOperation(t, t.Context()), oldWork, delayed); err != nil && !errors.Is(err, searchdomain.ErrWorkChanged) {
 		t.Fatalf("release delayed work: %v", err)
 	}
-	deletion, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassCleanup, "new-worker", time.Minute)
-	if err != nil {
-		t.Fatalf("claim deletion cleanup: %v", err)
+	deletion, claimed, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassCleanup, "new-worker", time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim deletion cleanup = claimed %t, err %v", claimed, err)
 	}
 	if !deletion.Deleted || deletion.NodeID != fixture.NodeID || deletion.Generation <= oldWork.Generation {
 		t.Fatalf("deletion work = %+v, want a later deleted cleanup of %s", deletion, fixture.NodeID)

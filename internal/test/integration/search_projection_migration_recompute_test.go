@@ -60,15 +60,15 @@ func TestSearchProjectionMigrationResumesInterruptedRecomputation(t *testing.T) 
 
 	env.forgetProjectionState(t)
 	store := env.Stores.SearchWork(clock.Wall{})
-	opening, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "interrupted-process", time.Minute)
-	if err != nil || opening.Phase != searchdomain.PhaseMetadata {
+	opening, claimed, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "interrupted-process", time.Minute)
+	if err != nil || !claimed || opening.Phase != searchdomain.PhaseMetadata {
 		t.Fatalf("claim the recomputation = %+v err %v, want metadata work", opening, err)
 	}
 	if err := env.Worker.Process(integration.WithTestOperation(t, t.Context()), opening); err != nil {
 		t.Fatalf("process the first metadata page: %v", err)
 	}
-	abandoned, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "interrupted-process", 2*time.Second)
-	if err != nil || abandoned.Phase != searchdomain.PhaseMetadata || abandoned.Cursor == "" {
+	abandoned, claimed, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "interrupted-process", 2*time.Second)
+	if err != nil || !claimed || abandoned.Phase != searchdomain.PhaseMetadata || abandoned.Cursor == "" {
 		t.Fatalf("claim after one metadata page = %+v err %v, want a metadata checkpoint", abandoned, err)
 	}
 	time.Sleep(time.Until(abandoned.LeaseUntil))
@@ -79,8 +79,8 @@ func TestSearchProjectionMigrationResumesInterruptedRecomputation(t *testing.T) 
 	}
 	restartedStores.EnableSearchWork()
 	restarted := restartedStores.SearchWork(clock.Wall{})
-	resumed, err := restarted.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "restarted-process", time.Minute)
-	if err != nil || resumed.Phase != searchdomain.PhaseMetadata || resumed.Cursor != abandoned.Cursor {
+	resumed, claimed, err := restarted.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "restarted-process", time.Minute)
+	if err != nil || !claimed || resumed.Phase != searchdomain.PhaseMetadata || resumed.Cursor != abandoned.Cursor {
 		t.Fatalf("restarted claim = %+v err %v, want the metadata checkpoint %q", resumed, err, abandoned.Cursor)
 	}
 	if err := restarted.Yield(integration.WithTestOperation(t, t.Context()), resumed); err != nil {

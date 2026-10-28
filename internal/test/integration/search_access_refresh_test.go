@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -86,8 +85,8 @@ func TestSearchAccessMembershipQueryOnly(t *testing.T) {
 	}
 	store := fixture.Stores.SearchWork(clock.Wall{})
 	for _, class := range []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess} {
-		work, err := store.Claim(WithTestOperation(t, t.Context()), class, "membership-inspector", time.Minute)
-		if !errors.Is(err, searchdomain.ErrNoWork) {
+		work, claimed, err := store.Claim(WithTestOperation(t, t.Context()), class, "membership-inspector", time.Minute)
+		if err != nil || claimed {
 			t.Fatalf("membership change left %s work %+v, error = %v", class, work, err)
 		}
 	}
@@ -140,7 +139,7 @@ func TestSearchAccessRolloutRecovery(t *testing.T) {
 	store := fixture.Stores.SearchWork(clock.Wall{})
 	abandoned := make([]searchdomain.AccessPhase, 0, 4)
 	final := runRolloutUntilStable(t, fixture, fixture.Worker, workspace.OrgID, func(phase searchdomain.AccessPhase) {
-		if _, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassRollout, "stopped-process", rolloutAbandonLease); err == nil {
+		if _, claimed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassRollout, "stopped-process", rolloutAbandonLease); err == nil && claimed {
 			abandoned = append(abandoned, phase)
 		}
 	})

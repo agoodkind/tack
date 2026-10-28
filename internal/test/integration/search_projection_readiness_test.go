@@ -90,7 +90,7 @@ func TestSearchProjectionWarningLifecycle(t *testing.T) {
 	writeUndeclaredSearchNode(t, stores, fixture, undeclared)
 
 	workStore := stores.SearchWork(source)
-	work, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "staging-owner", settings.Lease)
+	work, _, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "staging-owner", settings.Lease)
 	if err != nil || work.NodeID != fixture.NodeID {
 		t.Fatalf("claim live work = %+v, error = %v, want node %s", work, err, fixture.NodeID)
 	}

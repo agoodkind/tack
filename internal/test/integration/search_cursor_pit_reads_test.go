@@ -2,7 +2,6 @@ package integration
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -58,13 +57,13 @@ func logLiveWorkAndPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID) {
 	drained := time.Now()
 	found := false
 	for time.Now().Before(drained.Add(diagnosticWait)) && !found {
-		work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "diagnostic", time.Minute)
-		if errors.Is(err, searchdomain.ErrNoWork) {
-			time.Sleep(250 * time.Millisecond)
-			continue
-		}
+		work, claimed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "diagnostic", time.Minute)
 		if err != nil {
 			t.Fatalf("claim live work for diagnostics: %v", err)
+		}
+		if !claimed {
+			time.Sleep(250 * time.Millisecond)
+			continue
 		}
 		if work.NodeID == nodeID {
 			found = true

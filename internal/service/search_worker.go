@@ -112,11 +112,11 @@ func (w *SearchWorker) claimNext(ctx context.Context) (searchdomain.Work, bool, 
 			continue
 		}
 		tried[class] = struct{}{}
-		work, err := w.ports.Store.Claim(ctx, class, w.owner, w.settings.Lease)
+		work, claimed, err := w.ports.Store.Claim(ctx, class, w.owner, w.settings.Lease)
 		switch {
-		case err == nil:
+		case err == nil && claimed:
 			return work, true, nil
-		case errors.Is(err, searchdomain.ErrNoWork):
+		case err == nil:
 			continue
 		case errors.Is(err, searchdomain.ErrNoServingIndex):
 			telemetry.L(ctx).DebugContext(ctx, "search.worker.index_pending", slog.String("class", string(class)))

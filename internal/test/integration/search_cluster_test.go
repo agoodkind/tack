@@ -72,9 +72,12 @@ func TestSearchClusterEngineOutage(t *testing.T) {
 	})
 	store := fixture.Stores.SearchWork(clock.Wall{})
 	clusterEventually(t, "claim the node's pending live work", func() error {
-		work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "cluster-inspector", time.Minute)
+		work, claimed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "cluster-inspector", time.Minute)
 		if err != nil {
 			return clusterFailure("claim live work", err)
+		}
+		if !claimed {
+			return fmt.Errorf("node %s has no claimable live work", nodeID)
 		}
 		clusterRequire(t, "yield inspected work", store.Yield(WithTestOperation(t, t.Context()), work))
 		if work.NodeID != nodeID {

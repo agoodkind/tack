@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -139,12 +138,12 @@ func drainLiveWork(t *testing.T, fixture rolloutFixture) {
 	t.Helper()
 	store := fixture.stores.SearchWork(clock.Wall{})
 	for range rolloutDrainSlices {
-		work, err := store.Claim(rolloutContext(t), searchdomain.WorkClassLive, "rollout-live-driver", time.Minute)
-		if errors.Is(err, searchdomain.ErrNoWork) {
-			return
-		}
+		work, claimed, err := store.Claim(rolloutContext(t), searchdomain.WorkClassLive, "rollout-live-driver", time.Minute)
 		if err != nil {
 			t.Fatalf("cannot claim live work: %v", err)
+		}
+		if !claimed {
+			return
 		}
 		if err := fixture.worker.Process(rolloutContext(t), work); err != nil {
 			t.Fatalf("cannot process live work for node %s: %v", work.NodeID, err)

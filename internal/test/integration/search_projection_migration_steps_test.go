@@ -181,9 +181,9 @@ func (env *migrationEnv) driveRescan(t *testing.T, stop func(searchdomain.Work) 
 	store := env.Stores.SearchWork(clock.Wall{})
 	for processed := range migrationSlices {
 		between(processed)
-		work, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "migration-driver", time.Minute)
-		if err != nil {
-			t.Fatalf("claim rescan work: %v", err)
+		work, claimed, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "migration-driver", time.Minute)
+		if err != nil || !claimed {
+			t.Fatalf("claim rescan work = claimed %t, err %v", claimed, err)
 		}
 		if stop(work) {
 			if err := store.Yield(integration.WithTestOperation(t, t.Context()), work); err != nil && !errors.Is(err, searchdomain.ErrWorkChanged) {

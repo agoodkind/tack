@@ -21,7 +21,7 @@ func (s *SearchWorkStore) claimBucket(
 	bucket int,
 	owner string,
 	lease time.Duration,
-) (searchdomain.Work, error) {
+) (searchdomain.Work, bool, error) {
 	var selected searchdomain.Work
 	claimed := false
 	// A bucket without claimable work returns nil from the closure. The
@@ -48,14 +48,14 @@ func (s *SearchWorkStore) claimBucket(
 	var none searchdomain.Work
 	if err != nil {
 		if errors.Is(err, searchdomain.ErrNoServingIndex) {
-			return none, err
+			return none, false, err
 		}
-		return none, searchStorageError(ctx, "search.work.claim_failed", "claim search work in bucket "+strconv.Itoa(bucket), uuid.Nil, err)
+		return none, false, searchStorageError(ctx, "search.work.claim_failed", "claim search work in bucket "+strconv.Itoa(bucket), uuid.Nil, err)
 	}
 	if !claimed {
-		return none, searchdomain.ErrNoWork
+		return none, false, nil
 	}
-	return selected, nil
+	return selected, true, nil
 }
 
 func (s *SearchWorkStore) claimWorkItem(
