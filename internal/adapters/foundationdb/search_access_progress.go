@@ -14,12 +14,12 @@ import (
 )
 
 // BeginAccess records the compiled access of one access work item before any page update.
-// When that access differs from the recorded access and registeredPagesCurrent confirms
-// that every issued page already stores it, BeginAccess marks only dependents pending and
-// starts the dependents phase. For any other access difference, it records the compiled access,
-// marks every current page and every dependent pending, and restarts the pages phase at
-// the first issued document. When pages are pending, the pages phase continues at the
-// checkpoint. When only dependents are pending, the dependents phase starts.
+// When access differs, BeginAccess calls recordCompiledAccess to skip or schedule page rewrites.
+// If tracking confirms that every issued page stores the access, it marks only dependents pending
+// and starts the dependents phase. Otherwise, it marks every current page and dependent pending
+// and restarts the pages phase at the first issued document.
+// When pages are pending, the pages phase continues at the checkpoint.
+// When only dependents are pending, the dependents phase starts.
 // When neither phase is pending, the work finishes.
 func (s *SearchWorkStore) BeginAccess(ctx context.Context, work searchdomain.Work, compiled node.SearchAccess) (plan searchdomain.AccessPlan, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.begin_access")(&err)
@@ -36,17 +36,9 @@ func (s *SearchWorkStore) BeginAccess(ctx context.Context, work searchdomain.Wor
 		next := work
 		switch {
 		case !sameAccess(state.Access, compiled):
-			current, generation := registeredPagesCurrent(state, compiled, work.Generation)
-			state = searchAccessRecord{
-				Access: compiled, PagesPending: !current, DependentsPending: true, PageAccess: nil, PageAccessTracked: false,
-			}
-			state.Access.Generation = generation
-			if err := writeSearchRecord(ctx, tr, searchAccessKey(work.OrgID, work.NodeID), state); err != nil {
+			next, err = recordCompiledAccess(ctx, tr, work, state, compiled)
+			if err != nil {
 				return err
-			}
-			next.Phase, next.Cursor = searchdomain.PhasePages, ""
-			if current {
-				next.Phase = searchdomain.PhaseDependents
 			}
 		case state.PagesPending:
 			return nil

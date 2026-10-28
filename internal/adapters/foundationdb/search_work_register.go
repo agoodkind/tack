@@ -36,8 +36,9 @@ func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, 
 		if err != nil {
 			return err
 		}
-		if trackRegisteredAccess(&access, page.Access) {
-			if err := writeSearchRecord(ctx, tr, searchAccessKey(work.OrgID, work.NodeID), access); err != nil {
+		tracked := trackRegisteredAccess(access, page.Access)
+		if !samePageTracking(access, tracked) {
+			if err := writeSearchRecord(ctx, tr, searchAccessKey(work.OrgID, work.NodeID), tracked); err != nil {
 				return err
 			}
 		}
