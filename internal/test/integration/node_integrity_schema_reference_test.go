@@ -73,14 +73,7 @@ func TestNodeIntegritySchemaReferenceParity(t *testing.T) {
 
 func createSchemaIssue(t *testing.T, harness *integration.MCPHarness, name string) (uuid.UUID, string) {
 	t.Helper()
-	arguments := schemaArguments(harness)
-	arguments.Name = name
-	result := harness.Call(t, "tack_create_issue", arguments)
-	match := schemaReferencePattern.FindStringSubmatch(result.Text())
-	if match == nil {
-		t.Fatalf("create issue confirmation has no reference:\n%s", result.Text())
-	}
-	return uuid.MustParse(result.RawID()), match[1]
+	return createReferencedNode(t, harness, "tack_create_issue", name)
 }
 
 func updateSchemaState(t *testing.T, harness *integration.MCPHarness, issueID uuid.UUID, state json.RawMessage) {
