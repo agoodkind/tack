@@ -51,6 +51,8 @@ func (m *searchMixed) recordSample(ctx context.Context, windowStarted time.Time)
 	pending, err := m.backlog.pending(ctx)
 	if err != nil {
 		problems = append(problems, err.Error())
+	} else {
+		sample.WorkClasses = searchMixedWorkClasses(pending)
 	}
 	now := clock.Now()
 	for class, backlog := range pending {
@@ -58,7 +60,6 @@ func (m *searchMixed) recordSample(ctx context.Context, windowStarted time.Time)
 			sample.OldestPendingWork, sample.OldestClass = now.Sub(backlog.oldest), string(class)
 		}
 	}
-	sample.WorkClasses = searchMixedWorkClasses(pending)
 	sample.RebuildState, err = m.rebuildState(ctx)
 	if err != nil {
 		problems = append(problems, err.Error())
@@ -136,14 +137,14 @@ func caughtUp(pending map[searchdomain.WorkClass]searchClassBacklog, writesEnded
 	return true
 }
 
-// searchMixedWorkClasses returns one entry per class with pending search work,
+// searchMixedWorkClasses returns one entry per class that has age keys,
 // in searchdomain.ScheduledWorkClasses order.
 func searchMixedWorkClasses(pending map[searchdomain.WorkClass]searchClassBacklog) []SearchMixedWorkClass {
 	classes := make([]SearchMixedWorkClass, 0, len(pending))
 	for _, class := range searchdomain.ScheduledWorkClasses() {
 		if backlog, found := pending[class]; found {
 			classes = append(classes, SearchMixedWorkClass{
-				Class: string(class), NonemptyBuckets: backlog.nonemptyBuckets, OldestHasLiveRecord: backlog.oldestLive,
+				Class: string(class), NonemptyBuckets: backlog.nonemptyBuckets, OldestRecord: backlog.oldestRecord,
 			})
 		}
 	}

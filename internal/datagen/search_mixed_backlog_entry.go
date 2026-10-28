@@ -46,22 +46,26 @@ func unpackSearchAgeKey(ctx context.Context, key []byte) (searchAgeEntry, error)
 	return searchAgeEntry{bucket: bucket, enqueued: enqueued, orgID: orgID, nodeID: nodeID}, nil
 }
 
-// searchAgeEntryLive reports whether an age key has a work record with the same class, bucket,
-// organization, node, and enqueue time.
-func searchAgeEntryLive(
+// searchAgeEntryRecord reads the work record's enqueue time for an age key's class, bucket,
+// organization, and node. It returns SearchMixedOldestRecordMissing if the record does not exist,
+// SearchMixedOldestRecordSuperseded if times differ, or SearchMixedOldestRecordLive otherwise.
+func searchAgeEntryRecord(
 	ctx context.Context, snapshot fdb.Snapshot, prefix []byte, class searchdomain.WorkClass, entry searchAgeEntry,
-) (bool, error) {
+) (SearchMixedOldestRecord, error) {
 	key := prefixedKey(prefix, tuple.Tuple{searchWorkFamily, string(class), entry.bucket, entry.orgID, entry.nodeID})
 	value, err := snapshot.Get(fdb.Key(key)).Get()
 	if err != nil {
-		return false, loggedError(ctx, "the command could not read a pending search work record for class "+string(class), err)
+		return "", loggedError(ctx, "the command could not read a pending search work record for class "+string(class), err)
 	}
 	if len(value) == 0 {
-		return false, nil
+		return SearchMixedOldestRecordMissing, nil
 	}
 	var record searchWorkEnqueued
 	if err := json.Unmarshal(value, &record); err != nil {
-		return false, loggedError(ctx, "the command could not decode a pending search work record for class "+string(class), err)
+		return "", loggedError(ctx, "the command could not decode a pending search work record for class "+string(class), err)
 	}
-	return record.EnqueuedAt.UnixNano() == entry.enqueued, nil
+	if record.EnqueuedAt.UnixNano() != entry.enqueued {
+		return SearchMixedOldestRecordSuperseded, nil
+	}
+	return SearchMixedOldestRecordLive, nil
 }

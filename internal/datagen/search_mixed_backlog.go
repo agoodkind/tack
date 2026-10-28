@@ -32,12 +32,12 @@ type searchMixedBacklog struct {
 	timeout time.Duration
 }
 
-// searchClassBacklog records one reading of a class's pending search work: the oldest age key's
-// enqueue time, the nonempty bucket count, and whether that key has a live work record.
+// searchClassBacklog records one reading of a class's age keys: the oldest enqueue time, the count
+// of nonempty buckets, and the work record state for the oldest age key.
 type searchClassBacklog struct {
 	oldest          time.Time
 	nonemptyBuckets int
-	oldestLive      bool
+	oldestRecord    SearchMixedOldestRecord
 }
 
 func newSearchMixedBacklog(ctx context.Context, cfg *config.Config) (*searchMixedBacklog, error) {
@@ -90,12 +90,12 @@ func readPendingSearchWork(ctx context.Context, snapshot fdb.Snapshot) (map[sear
 }
 
 // readClassSearchWork reads each nonempty bucket's first age key for one class.
-// It counts those buckets, selects the oldest key, and checks for its live work record.
+// It counts those buckets, selects the oldest key, and reads the state of that key's work record.
 // It returns false when the class does not have any age keys.
 func readClassSearchWork(
 	ctx context.Context, snapshot fdb.Snapshot, prefix []byte, class searchdomain.WorkClass,
 ) (searchClassBacklog, bool, error) {
-	backlog := searchClassBacklog{oldest: time.Time{}, nonemptyBuckets: 0, oldestLive: false}
+	backlog := searchClassBacklog{oldest: time.Time{}, nonemptyBuckets: 0, oldestRecord: ""}
 	classRange, err := fdb.PrefixRange(prefixedKey(prefix, tuple.Tuple{searchAgeFamily, string(class)}))
 	if err != nil {
 		return backlog, false, loggedError(ctx, "the command could not create a key range for pending search work in class "+string(class), err)
@@ -125,7 +125,7 @@ func readClassSearchWork(
 		return backlog, false, nil
 	}
 	backlog.oldest = time.Unix(0, oldest.enqueued)
-	backlog.oldestLive, err = searchAgeEntryLive(ctx, snapshot, prefix, class, oldest)
+	backlog.oldestRecord, err = searchAgeEntryRecord(ctx, snapshot, prefix, class, oldest)
 	if err != nil {
 		return backlog, false, err
 	}
