@@ -34,10 +34,16 @@ func run() int {
 		return 1
 	}
 
+	// Mint a per-invocation request id so every command's output and logs share
+	// a request_id alongside the span's trace_id and span_id.
+	requestID := uuid.NewString()
+	f := cli.System(cfg)
+	root := buildRoot(f)
+	logs := processLogFiles(cfg, root, os.Args[1:], requestID)
 	closer, err := telemetry.Setup(telemetry.LogConfig{
 		Level:         cfg.LogLevel,
-		JSONFile:      cfg.LogJSONFile,
-		TextFile:      cfg.LogTextFile,
+		JSONFile:      logs.JSONFile,
+		TextFile:      logs.TextFile,
 		DisableStdout: cfg.LogDisableStdout,
 		MaxSizeMB:     cfg.LogMaxSizeMB,
 		MaxBackups:    cfg.LogMaxBackups,
@@ -59,19 +65,22 @@ func run() int {
 		slog.String("commit", version.Commit()),
 	)
 
-	f := cli.System(cfg)
+	configureAuditOutbox(f)
+	configureAuditInfrastructureProbe(f)
 	defer f.CloseAuditOutbox()
 	ctx, span := telemetry.StartSpan(context.Background(), "cli")
 	defer span.End()
-	// Mint a per-invocation request id so every command's output and logs share
-	// a request_id alongside the span's trace_id and span_id.
-	ctx = telemetry.WithRequestMetadata(ctx, uuid.NewString())
+	ctx = telemetry.WithRequestMetadata(ctx, requestID)
 	ctx = telemetry.WithTraceLogger(ctx)
 	// Log one correlated line per invocation so a command's output envelope
 	// trace_id can be matched against the run's log trail.
 	telemetry.L(ctx).InfoContext(ctx, "cli.start")
+	if logs.CommandDir != "" {
+		if removeExpiredCommandLogs(ctx, logs.CommandDir, cfg.LogMaxAgeDays) != nil {
+			return 1
+		}
+	}
 
-	root := buildRoot(f)
 	root.SetContext(ctx)
 	if err := root.Execute(); err != nil {
 		code := exitCodeOf(err)

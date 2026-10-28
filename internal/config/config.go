@@ -61,6 +61,9 @@ type Config struct {
 	LogMaxSizeMB     int    `env:"LOG_MAX_SIZE_MB"  envDefault:"100"`
 	LogMaxBackups    int    `env:"LOG_MAX_BACKUPS"  envDefault:"0"`
 	LogMaxAgeDays    int    `env:"LOG_MAX_AGE_DAYS" envDefault:"0"`
+	// LogCommandDir enables separate JSON and text log files for command processes.
+	// When empty, command processes use LOG_JSON_FILE and LOG_TEXT_FILE.
+	LogCommandDir string `env:"LOG_COMMAND_DIR"`
 
 	// Seed: used by `./server seed` only.
 	SeedEmail         string `env:"SEED_EMAIL"`

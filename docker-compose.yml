@@ -99,6 +99,7 @@ services:
       # binds the host path for cross-restart persistence.
       LOG_JSON_FILE: ${LOG_JSON_FILE:-/var/log/tack/app.jsonl}
       LOG_TEXT_FILE: ${LOG_TEXT_FILE:-/var/log/tack/app.log}
+      LOG_COMMAND_DIR: ${LOG_COMMAND_DIR:-/var/log/tack/commands}
       # Valid audit signer set (TACK-437): the key identifiers this environment
       # accepts, rendered per environment by the configs deploy. `audit
       # signers` refuses to run without it; `audit verify` rejects a manifest

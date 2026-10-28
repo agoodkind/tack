@@ -43,8 +43,6 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 	root.CompletionOptions.DisableDefaultCmd = true
 	f.RegisterGlobalFlags(root)
 	f.SetOperatorIdentitySource(cli.NewOperatorSource(f))
-	configureAuditOutbox(f)
-	configureAuditInfrastructureProbe(f)
 	clispec.AttachAudit(root, f, serve.Audit, func(ctx context.Context) error {
 		return runServer(ctx, f.Cfg)
 	})
