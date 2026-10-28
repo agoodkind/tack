@@ -29,8 +29,7 @@ type MCPHarness struct {
 	Workspace string
 	Project   string
 	outbox    *fdbadapter.OpsOutboxStore
-	// titles maps each fixture node's printed title and node type to its ID.
-	titles *datagen.SearchTitles
+	titles    *datagen.SearchTitles
 }
 
 // harnessConfig loads the server configuration for the test engines that

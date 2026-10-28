@@ -39,8 +39,8 @@ func (r searchRun) verifyReplay(ctx context.Context) error {
 }
 
 // verifyRevocation opens a member's search session and removes the membership.
-// It requires the server to refuse the open cursor and a new search, then
-// restores the original role even when the refusal check fails.
+// It requires the server to refuse a request with the open cursor and a new
+// search, then restores the original role even when the refusal check fails.
 func (r searchRun) verifyRevocation(ctx context.Context, cfg *config.Config, workspace WorkspaceIdentity) error {
 	actor := workspace.Actors[revokedActorIndex]
 	first, err := callSearch(ctx, r.driver, r.identities(), actor.Token, r.entry, accessPhrase, "")

@@ -160,8 +160,6 @@ func (h *MCPHarness) searchIdentities() datagen.SearchIdentities {
 	return datagen.ReferenceIdentities(h.titles, h.driver, h.token, h.Workspace)
 }
 
-// searchResultItems returns the result blocks that datagen.SearchResultBlocks
-// parses from a tack_search page.
 func searchResultItems(text string) []string {
 	return datagen.SearchResultBlocks(text)
 }
