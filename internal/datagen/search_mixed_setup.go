@@ -64,6 +64,7 @@ func newSearchMixed(
 		cfg: cfg, options: options, drivers: drivers, tenants: nil, loads: nil, loadStats: &searchLoadStats{},
 		runKey: opaqueKey("mix"), readWord: opaqueKey("read"), victimWord: opaqueKey("victim"),
 		limits: searchLimits{MaxResults: limits.MaxResults, MaxResponseBytes: limits.MaxResponseBytes},
+		sessionIdle: limits.IdleTimeout,
 		stores: stores, pages: graph, backlog: backlog, clusterStatus: &searchMixedFoundationDBStatus{db: backlog.db},
 		resources: resources, members: postgres.NewOrgMemberRepo(pool),
 		stats: &searchMixedStats{}, phases: &searchMixedPhaseStats{skipped: []string{}}, corpusIndex: corpusIndex,

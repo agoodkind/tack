@@ -74,7 +74,8 @@ func searchMixedBurstAttr(burst datagenSearchMixedBurst) slog.Attr {
 func searchMixedSessionsAttr(sessions datagen.SearchMixedSessions) slog.Attr {
 	return slog.Group("sessions", slog.Int("checks", sessions.Checks), slog.Int("pages", sessions.Pages),
 		slog.Int("replays", sessions.Replays), slog.Int("endpoints", sessions.Endpoints),
-		slog.Int("unavailable", sessions.Unavailable), slog.Int("continuation_errors", sessions.ContinuationErrors),
+		slog.Int("unavailable", sessions.Unavailable), slog.Int("expired_during_outage", sessions.ExpiredDuringOutage),
+		slog.Int("continuation_errors", sessions.ContinuationErrors),
 		slog.Int("missing_corpus_issues", sessions.MissingCorpusIssues),
 		slog.Int("replay_mismatches", sessions.ReplayMismatches),
 		slog.Int("cross_tenant_results", sessions.CrossTenantResults),

@@ -87,6 +87,8 @@ type searchMixed struct {
 	readWord   string
 	victimWord string
 	limits     searchLimits
+	// sessionIdle is the IdleTimeout that config.LoadSearchQuerySettings reads for the app server.
+	sessionIdle time.Duration
 	stores     *fdbadapter.Stores
 	pages      storedPageReader
 	backlog    *searchMixedBacklog

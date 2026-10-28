@@ -64,7 +64,7 @@ func corpusMissing(stopContext context.Context, run searchRun, word string, node
 	return func(ctx context.Context) ([]uuid.UUID, int, error) {
 		unavailable := 0
 		results, err := traversePages(word, run.limits, func(cursor string) (searchPage, error) {
-			page, _, err := retryUnavailable(stopContext, &unavailable, func() (searchPage, error) {
+			page, _, err := retryUnavailable(stopContext, convergenceRetryEnd(), &unavailable, func() (searchPage, error) {
 				return callSearch(ctx, run.driver, identities, run.token, run.entry, word, cursor)
 			})
 			return page, err

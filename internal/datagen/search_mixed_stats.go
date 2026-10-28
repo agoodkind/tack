@@ -49,8 +49,8 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 		MarkersNotFound: s.markersNotFound, DeletedReturned: s.deletedReturned, DeletesUnverified: s.deletesUnverified,
 		ProbeErrors: s.probeErrors, Endpoints: 0, Tenants: 0, Burst: SearchMixedBurst{Planned: 0, Created: 0, Failed: 0, Started: 0, Elapsed: 0},
 		Sessions: SearchMixedSessions{
-			Checks: 0, Pages: 0, Replays: 0, Endpoints: 0, Unavailable: 0, ContinuationErrors: 0, MissingCorpusIssues: 0, ReplayMismatches: 0,
-			CrossTenantResults: 0, DeletedNodesReturned: 0,
+			Checks: 0, Pages: 0, Replays: 0, Endpoints: 0, Unavailable: 0, ExpiredDuringOutage: 0, ContinuationErrors: 0, MissingCorpusIssues: 0,
+			ReplayMismatches: 0, CrossTenantResults: 0, DeletedNodesReturned: 0,
 		},
 		Pending: SearchMixedPending{Checks: 0, PendingObserved: 0, Unavailable: 0, DeletedNodesReturned: 0},
 		Revocation: SearchMixedRevocation{
