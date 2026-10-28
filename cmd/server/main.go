@@ -76,8 +76,7 @@ func run() int {
 	// trace_id can be matched against the run's log trail.
 	telemetry.L(ctx).InfoContext(ctx, "cli.start")
 	if logs.CommandDir != "" {
-		if err := removeExpiredCommandLogs(ctx, logs.CommandDir, cfg.LogMaxAgeDays); err != nil {
-			telemetry.L(ctx).ErrorContext(ctx, "cli.log_retention_failed", slog.String("err", err.Error()))
+		if removeExpiredCommandLogs(ctx, logs.CommandDir, cfg.LogMaxAgeDays) != nil {
 			return 1
 		}
 	}

@@ -11,8 +11,6 @@ import (
 
 const serveCommandName = "serve"
 
-// processLogs is the set of log paths for one process. CommandDir is empty for the server and
-// when LOG_COMMAND_DIR is empty.
 type processLogs struct {
 	JSONFile   string
 	TextFile   string

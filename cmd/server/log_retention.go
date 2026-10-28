@@ -55,8 +55,7 @@ func removeExpiredCommandLogs(ctx context.Context, dir string, maxAgeDays int) e
 	return nil
 }
 
-// removeExpiredCommandLog reports whether it deleted the file. A file that another process
-// deleted after the directory listing is not an error.
+// A file that another process deleted after the listing counts as already removed.
 func removeExpiredCommandLog(ctx context.Context, path string, entry fs.DirEntry, cutoff time.Time) (bool, error) {
 	info, err := entry.Info()
 	if errors.Is(err, fs.ErrNotExist) {
