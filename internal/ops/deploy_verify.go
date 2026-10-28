@@ -19,39 +19,12 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-const (
-	appService           = "app"
-	auditConsumerService = "audit-consumer"
-)
-
-// deployVerifyTarget pairs a Docker Compose service with its expected image
-// reference.
-type deployVerifyTarget struct {
-	Service string
-	Image   string
-}
-
-// deployVerifyTargets returns the app and audit-consumer services with image
-// references under cfg.DeployRegistry. It trims whitespace from the tags and
-// uses explicitTag when it is not empty, or cfg.DeployImageTag otherwise.
-func deployVerifyTargets(cfg *config.Config, explicitTag string) []deployVerifyTarget {
-	tag := strings.TrimSpace(explicitTag)
-	if tag == "" {
-		tag = strings.TrimSpace(cfg.DeployImageTag)
-	}
-	registry := strings.TrimSuffix(strings.TrimSpace(cfg.DeployRegistry), "/")
-	return []deployVerifyTarget{
-		{Service: appService, Image: registry + "/tack-server:" + tag},
-		{Service: auditConsumerService, Image: registry + "/tack-audit-consumer:" + tag},
-	}
-}
-
-// runDeployVerify compares each container with the given index digest when
-// digests is set, and otherwise with the registry digest the daemon records
-// for the expected image tag. It returns the printed lines as the payload and
-// one external target per checked container.
-func runDeployVerify(ctx context.Context, cfg *config.Config, explicitTag string, digests deployIndexDigests) (audit.OperatorReadOutput, error) {
-	targets := deployVerifyTargets(cfg, explicitTag)
+// runDeployVerify compares each container of services with the given index
+// digest when digests is set, and otherwise with the registry digest the
+// daemon records for the expected image tag. It returns the printed lines as
+// the payload and one external target per checked container.
+func runDeployVerify(ctx context.Context, cfg *config.Config, explicitTag string, services []string, digests deployIndexDigests) (audit.OperatorReadOutput, error) {
+	targets := deployVerifyTargets(cfg, explicitTag, services)
 	cli, err := newDockerClient(ctx)
 	if err != nil {
 		return audit.OperatorReadOutput{}, deployVerifyFailure(ctx, err)

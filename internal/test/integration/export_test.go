@@ -256,6 +256,22 @@ func VerifyDeployAs(t *testing.T, fixture DeployFixture, operatorID, serverDiges
 	return runOpsDeployVerify(t, cfg, fixture.ledgerDSN, operatorID, serverDigest, consumerDigest)
 }
 
+// CreateDeployAppContainer creates only the app container from the fixture's
+// tagged tack-server image with Docker Compose labels, without starting it.
+func CreateDeployAppContainer(t *testing.T, fixture DeployFixture) {
+	t.Helper()
+	createFromIndex(t, fixture.cli, "tack-app-1", "app", fixture.registryHost+"/tack-server:"+fixture.tag)
+}
+
+// VerifyDeployArgsAs runs ops deploy verify as operatorID against the fixture
+// with verifyArgs after the command path. It returns the command's output and
+// error.
+func VerifyDeployArgsAs(t *testing.T, fixture DeployFixture, operatorID string, verifyArgs ...string) (string, error) {
+	t.Helper()
+	cfg := &config.Config{DeployRegistry: fixture.registryHost, DeployImageTag: fixture.tag, DeployComposeProject: deployComposeProject}
+	return runOpsDeployVerifyArgs(t, cfg, fixture.ledgerDSN, operatorID, verifyArgs...)
+}
+
 // DeployTag returns the fixture's image tag.
 func DeployTag(fixture DeployFixture) string { return fixture.tag }
 

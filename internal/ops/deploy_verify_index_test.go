@@ -14,10 +14,11 @@ const (
 // TestParseDeployIndexDigestsRequiresBothInIndexForm requires both flags or
 // neither, each as sha256 and 64 lowercase hex digits.
 func TestParseDeployIndexDigestsRequiresBothInIndexForm(t *testing.T) {
-	if digests, err := parseDeployIndexDigests(t.Context(), "", ""); err != nil || digests != nil {
+	bothServices := []string{appService, auditConsumerService}
+	if digests, err := parseDeployIndexDigests(t.Context(), "", "", bothServices); err != nil || digests != nil {
 		t.Fatalf("no flags = %v, %v, want the local tag comparison", digests, err)
 	}
-	digests, err := parseDeployIndexDigests(t.Context(), givenIndexDigest, otherIndexDigest)
+	digests, err := parseDeployIndexDigests(t.Context(), givenIndexDigest, otherIndexDigest, bothServices)
 	if err != nil || digests[appService] != givenIndexDigest || digests[auditConsumerService] != otherIndexDigest {
 		t.Fatalf("both flags = %v, %v", digests, err)
 	}
@@ -29,7 +30,7 @@ func TestParseDeployIndexDigestsRequiresBothInIndexForm(t *testing.T) {
 		{"04fa9f93", otherIndexDigest},
 	}
 	for _, flags := range refused {
-		if _, err := parseDeployIndexDigests(t.Context(), flags[0], flags[1]); err == nil {
+		if _, err := parseDeployIndexDigests(t.Context(), flags[0], flags[1], bothServices); err == nil {
 			t.Errorf("flags %q were accepted", flags)
 		}
 	}

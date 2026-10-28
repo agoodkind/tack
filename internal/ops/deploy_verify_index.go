@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/moby/moby/api/types/image"
@@ -36,15 +37,22 @@ var indexDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // run. A nil map selects the local tag comparison.
 type deployIndexDigests map[string]string
 
-// parseDeployIndexDigests checks the two digest flags. Both empty selects the
-// local tag comparison; one without the other, or a value outside the
-// sha256 index digest form, is refused before the daemon is read.
-func parseDeployIndexDigests(ctx context.Context, server, consumer string) (deployIndexDigests, error) {
+// parseDeployIndexDigests checks the two digest flags against the checked
+// services. Both empty selects the local tag comparison. When services
+// include audit-consumer, the command refuses one flag without the other.
+// When services are only app, the command refuses --tack-audit-consumer-digest.
+// The command also refuses a value outside the sha256 index digest form. Every
+// refusal happens before the command reads the daemon.
+func parseDeployIndexDigests(ctx context.Context, server, consumer string, services []string) (deployIndexDigests, error) {
 	if server == "" && consumer == "" {
 		return nil, nil
 	}
+	appOnly := !slices.Contains(services, auditConsumerService)
 	var problems []string
-	if server == "" || consumer == "" {
+	switch {
+	case appOnly && consumer != "":
+		problems = append(problems, "--service app checks only the app service and refuses --tack-audit-consumer-digest")
+	case !appOnly && (server == "" || consumer == ""):
 		problems = append(problems, "--tack-server-digest and --tack-audit-consumer-digest must be given together")
 	}
 	for flag, value := range map[string]string{"--tack-server-digest": server, "--tack-audit-consumer-digest": consumer} {
@@ -56,6 +64,9 @@ func parseDeployIndexDigests(ctx context.Context, server, consumer string) (depl
 		err := errors.New("ops deploy verify: " + strings.Join(problems, "; "))
 		slog.ErrorContext(ctx, "ops.deploy.verify.digest_flags_invalid", slog.String("err", err.Error()))
 		return nil, err
+	}
+	if appOnly {
+		return deployIndexDigests{appService: server}, nil
 	}
 	return deployIndexDigests{appService: server, auditConsumerService: consumer}, nil
 }

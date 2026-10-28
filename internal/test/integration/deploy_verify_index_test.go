@@ -48,6 +48,15 @@ const deployVerifyOperatorID = "019dd226-440e-729a-a442-281aaf73ca30"
 // read lifecycle.
 func runOpsDeployVerify(t *testing.T, cfg *config.Config, ledgerDSN, operatorID, serverDigest, consumerDigest string) (string, error) {
 	t.Helper()
+	return runOpsDeployVerifyArgs(t, cfg, ledgerDSN, operatorID,
+		"--tack-server-digest", serverDigest, "--tack-audit-consumer-digest", consumerDigest)
+}
+
+// runOpsDeployVerifyArgs runs the audited ops deploy verify command as
+// operatorID with verifyArgs after the command path, the real operator
+// outbox, and the real YugabyteDB read lifecycle.
+func runOpsDeployVerifyArgs(t *testing.T, cfg *config.Config, ledgerDSN, operatorID string, verifyArgs ...string) (string, error) {
+	t.Helper()
 	pool, err := pgxpool.New(t.Context(), ledgerDSN)
 	if err != nil {
 		t.Fatalf("open the ledger pool: %v", err)
@@ -61,11 +70,12 @@ func runOpsDeployVerify(t *testing.T, cfg *config.Config, ledgerDSN, operatorID,
 	defer factory.CloseAuditOutbox()
 	root := searchCommandRoot(factory)
 	root.SetContext(t.Context())
-	root.SetArgs([]string{
+	args := []string{
 		"--execute", "--operator-id", operatorID,
 		"--operator-email", "operator@example.com", "--operator-name", "Deploy Verify Test",
-		"ops", "deploy", "verify", "--tack-server-digest", serverDigest, "--tack-audit-consumer-digest", consumerDigest,
-	})
+		"ops", "deploy", "verify",
+	}
+	root.SetArgs(append(args, verifyArgs...))
 	runErr := root.Execute()
 	return output.String(), runErr
 }
