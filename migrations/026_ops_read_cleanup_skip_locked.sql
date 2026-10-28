@@ -9,9 +9,11 @@
 -- the other receipts that are due.
 --
 -- CREATE OR REPLACE keeps the function owner, ops_outbox_owner, and its
--- EXECUTE grants. The current database user joins ops_outbox_owner to replace
--- the function and leaves it afterward. Each statement produces the same
--- database state when it runs again.
+-- EXECUTE grants. Up grants ops_outbox_owner to the current database user,
+-- replaces the function with the SKIP LOCKED version, and revokes that
+-- membership. Down grants the same membership, replaces the function with the
+-- version from migration 021, and revokes the membership. Each statement
+-- produces the same database state when it runs again.
 
 -- +goose Up
 -- +goose StatementBegin
