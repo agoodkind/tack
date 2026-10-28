@@ -42,23 +42,26 @@ func ReferenceResolver(driver *Driver, token, entry string) SearchResolver {
 	}
 }
 
-// storeResolver rejects results when orgID does not declare their node type.
+// storeResolver lists the node types in orgID once per resolver and rejects
+// results when orgID does not declare their node type.
 // It uses byReference for types with a declared reference. For other types,
 // it requires exactly one stored node in orgID with the result's type and
 // printed name.
 func storeResolver(stores *fdbadapter.Stores, orgID uuid.UUID, byReference SearchResolver) SearchResolver {
+	var declared map[string]*node.NodeType
 	return func(ctx context.Context, item SearchItem) (uuid.UUID, error) {
-		types, err := stores.NodeTypes.List(ctx, orgID)
-		if err != nil {
-			return uuid.Nil, loggedError(ctx, "qa datagen: list node types of org "+orgID.String(), err)
-		}
-		var nodeType *node.NodeType
-		for _, declared := range types {
-			if declared.TypeKey == item.NodeType {
-				nodeType = declared
+		if declared == nil {
+			types, err := stores.NodeTypes.List(ctx, orgID)
+			if err != nil {
+				return uuid.Nil, loggedError(ctx, "qa datagen: list node types of org "+orgID.String(), err)
+			}
+			declared = make(map[string]*node.NodeType, len(types))
+			for _, nodeType := range types {
+				declared[nodeType.TypeKey] = nodeType
 			}
 		}
-		if nodeType == nil {
+		nodeType, found := declared[item.NodeType]
+		if !found {
 			return uuid.Nil, loggedError(ctx, fmt.Sprintf("qa datagen: org %s does not declare node type %q", orgID, item.NodeType), errSearchResultUnresolved)
 		}
 		if nodeType.Reference.Strategy != "" && nodeType.Reference.Strategy != node.ReferenceUUIDOnly {
