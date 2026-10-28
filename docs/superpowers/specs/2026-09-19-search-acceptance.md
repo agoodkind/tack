@@ -146,8 +146,10 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
   a continuation, then return the remaining nodes.
 - Retry a lost response, concurrent cursor calls, and process restart. Committed
   pages must replay once. Session writes and memory must remain bounded.
-- Verify the 15-minute inactivity deadline and two-hour absolute deadline. Neither
-  replay nor continued activity may extend the absolute deadline.
+- Verify the 2-minute inactivity deadline and renewal of the point-in-time keep-alive
+  on each page. Verify that Tack deletes the point in time when a continuation uses an
+  expired cursor. Verify the two-hour absolute deadline. Neither replay nor continued
+  activity may extend the absolute deadline.
 
 ## Durable work and state lifecycle
 

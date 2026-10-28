@@ -169,7 +169,7 @@ func (s *SearchQueryService) continueSession(ctx context.Context, request Search
 		return SearchPage{}, queryFailure(ctx, "verify search session", session.ID, searchdomain.ErrSessionMismatch)
 	}
 	if session.Closing || session.Expired(s.clock.Now()) {
-		return SearchPage{}, queryFailure(ctx, "verify search session", session.ID, searchdomain.ErrSessionExpired)
+		return SearchPage{}, s.refuseExpired(ctx, session)
 	}
 	if request.Version < session.Version {
 		return s.replay(ctx, session, request.Version, filter)
