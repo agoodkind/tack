@@ -22,9 +22,6 @@ var commandLogFilePattern = regexp.MustCompile(
 
 const logRetentionDay = 24 * time.Hour
 
-// removeExpiredCommandLogs deletes the command log files in dir that were last modified more
-// than maxAgeDays days ago, and logs how many it deleted. It leaves files with other names in
-// place. A maxAgeDays of zero or less keeps every file, as lumberjack does for MaxAge 0.
 func removeExpiredCommandLogs(ctx context.Context, dir string, maxAgeDays int) {
 	if maxAgeDays <= 0 {
 		return

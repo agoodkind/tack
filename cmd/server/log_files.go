@@ -9,8 +9,6 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// serveCommandName is the subcommand that starts the server. The bare root command also
-// starts the server.
 const serveCommandName = "serve"
 
 // processLogs is the set of log paths for one process. CommandDir is empty for the server and
@@ -21,11 +19,7 @@ type processLogs struct {
 	CommandDir string
 }
 
-// processLogFiles returns the log paths for the command that args select. The server writes
-// cfg.LogJSONFile and cfg.LogTextFile. When cfg.LogCommandDir is set, every other command
-// writes its own files in that directory. Lumberjack in each process rotates a shared file by
-// renaming and compressing it, and another process that still has the renamed file open then
-// writes into a deleted file. An empty path stays empty, because empty disables that handler.
+// A one-shot command must not write a log file that another process rotates.
 func processLogFiles(cfg *config.Config, root *cobra.Command, args []string, requestID string) processLogs {
 	target, _, err := root.Find(args)
 	server := err == nil && (target == root || target.Name() == serveCommandName)

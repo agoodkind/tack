@@ -12,8 +12,6 @@ import (
 // without the samples. The log file keeps this record after the command output is lost.
 const searchMixedResultRecord = "qa.datagen.search_mixed_result"
 
-// logSearchMixedResult writes every field of result except the samples as one Info record.
-// The keys and groups match the JSON result keys.
 func logSearchMixedResult(ctx context.Context, result datagenSearchMixedResult) {
 	attributes := append(searchMixedLoadAttrs(result.datagenSearchLoadResult),
 		slog.Int("target_write_rate_per_minute", result.TargetWriteRatePerMinute),
