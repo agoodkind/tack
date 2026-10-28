@@ -16,8 +16,8 @@ import (
 // TestSearchPermissionIdentifierReplacement builds the same access corpus
 // twice. The second build gets new organizations, users, memberships, entry
 // points, hierarchy parents, and child_of edges. Each query must return the
-// same result lines in the same order once the second build's node IDs are
-// mapped to the first build's node IDs.
+// same result items in the same order after the test maps the second build's
+// node IDs to the first build's node IDs.
 func TestSearchPermissionIdentifierReplacement(t *testing.T) {
 	keys := identifierTypeKeys{Container: opaqueSearchKey("n"), Nested: opaqueSearchKey("n")}
 	first := runIdentifierBuild(t, 1, keys)
@@ -43,12 +43,12 @@ func TestSearchPermissionIdentifierReplacement(t *testing.T) {
 	}
 }
 
-// identifierBuild is the observed public behavior of one corpus build. Lines
-// stores each query's result lines without the caller's entry-point node. The
-// identity bootstrap derives the entry-point name from its seed, and semantic
-// ranking matches that name text. Between builds, the entry-point line differs,
-// and a query can return the entry-point node in one build and not the other.
-// The comparison leaves the entry-point node out.
+// identifierBuild records the public search results of one corpus build.
+// Lines stores each query's result items without the caller's entry-point
+// node. The identity bootstrap derives the entry-point name from its seed,
+// and semantic ranking matches that name text. The entry-point item differs
+// between builds, and a query can return the entry-point node in one build
+// and not the other. The comparison leaves the entry-point node out.
 type identifierBuild struct {
 	Allowed       []uuid.UUID
 	PermissionIDs []uuid.UUID
@@ -102,16 +102,12 @@ func requireDisjointPermissionIDs(t *testing.T, first, second []uuid.UUID) {
 	}
 }
 
-// resultLineID parses the raw node ID at the end of one result line.
+// resultLineID parses the raw node ID of one result item.
 func resultLineID(t *testing.T, line string) uuid.UUID {
 	t.Helper()
-	marker := strings.LastIndex(line, "Raw id: `")
-	if marker < 0 {
-		t.Fatalf("result line %q has no raw id", line)
-	}
-	id, err := uuid.Parse(strings.TrimSuffix(line[marker+len("Raw id: `"):], "`"))
+	id, err := searchItemID(line)
 	if err != nil {
-		t.Fatalf("parse result line %q: %v", line, err)
+		t.Fatal(err)
 	}
 	return id
 }

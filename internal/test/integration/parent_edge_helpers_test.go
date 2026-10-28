@@ -149,8 +149,8 @@ func (f parentEdgeFixture) search(t *testing.T, workspace datagen.WorkspaceIdent
 			if marker := strings.LastIndex(line, "Raw id: `"); marker >= 0 {
 				found = append(found, uuid.MustParse(strings.TrimSuffix(line[marker+len("Raw id: `"):], "`")))
 			}
-			if strings.HasPrefix(line, "Next cursor: `") {
-				cursor = strings.TrimSuffix(strings.TrimPrefix(line, "Next cursor: `"), "`")
+			if _, after, found := strings.Cut(line, integration.SearchCursorMarker); found {
+				cursor = strings.TrimSuffix(after, "`")
 			}
 		}
 		if cursor == "" {

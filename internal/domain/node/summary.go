@@ -16,8 +16,7 @@ const (
 	SummaryDeleted SummaryStatus = "deleted"
 )
 
-// Summary is the ID, node type, and bounded name that search displays for
-// one node.
+// Summary supplies a node's ID, node type, and bounded name for search pages.
 type Summary struct {
 	ID       uuid.UUID
 	NodeType string

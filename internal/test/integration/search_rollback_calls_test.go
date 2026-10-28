@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +22,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // rolloutSearchPage represents one parsed tack_search response.
@@ -78,27 +78,15 @@ func searchAs(t *testing.T, fixture rolloutFixture, workspace datagen.WorkspaceI
 	return parseRolloutSearchPage(t, decoded.Result.Content[0].Text)
 }
 
-// parseRolloutSearchPage reads result IDs, the next cursor, and
-// completion from the response.
+// parseRolloutSearchPage reads result IDs and the continuation cursor.
+// It marks a page complete when the page omits the cursor.
 func parseRolloutSearchPage(t *testing.T, text string) rolloutSearchPage {
 	t.Helper()
-	page := rolloutSearchPage{ids: []uuid.UUID{}, cursor: "", complete: strings.Contains(text, "The search has no more results.")}
-	for _, line := range strings.Split(text, "\n") {
-		if marker := strings.LastIndex(line, "Raw id: `"); marker >= 0 {
-			id, err := uuid.Parse(strings.TrimSuffix(line[marker+len("Raw id: `"):], "`"))
-			if err != nil {
-				t.Fatalf("cannot parse result ID from line %q: %v", line, err)
-			}
-			page.ids = append(page.ids, id)
-		}
-		if cursor, found := strings.CutPrefix(line, "Next cursor: `"); found {
-			page.cursor = strings.TrimSuffix(cursor, "`")
-		}
+	parsed, err := integration.ParseSearchPage(text)
+	if err != nil {
+		t.Fatalf("parse search page: %v", err)
 	}
-	if page.complete == (page.cursor != "") {
-		t.Fatalf("search page must contain either a cursor or completion, but not both: %s", text)
-	}
-	return page
+	return rolloutSearchPage{ids: parsed.IDs, cursor: parsed.Cursor, complete: parsed.Complete}
 }
 
 // traverseSearch follows the cursor in page until the search completes

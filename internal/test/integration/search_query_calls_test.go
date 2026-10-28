@@ -124,30 +124,67 @@ func rawCallStatus(t *testing.T, harness *MCPHarness, tool string, arguments map
 	return recorder.Code
 }
 
-// parseSearchPage reads result IDs, the next cursor, and completion.
+// searchCursorMarker precedes the continuation cursor on a page that has
+// more results.
+const searchCursorMarker = "Next cursor: `"
+
+// parseSearchPage checks the result count and reads each result's Raw id
+// field and the continuation cursor. It marks a page complete when the page
+// omits a cursor.
 func parseSearchPage(text string) (searchPage, error) {
-	page := searchPage{IDs: []uuid.UUID{}, Cursor: "", Complete: strings.Contains(text, "The search has no more results.")}
-	for _, line := range strings.Split(text, "\n") {
-		if marker := strings.LastIndex(line, "Raw id: `"); marker >= 0 {
-			value := strings.TrimSuffix(line[marker+len("Raw id: `"):], "`")
-			id, err := uuid.Parse(value)
-			if err != nil {
-				return searchPage{}, fmt.Errorf("parse result id %q: %w", value, err)
-			}
-			page.IDs = append(page.IDs, id)
+	page := searchPage{IDs: []uuid.UUID{}, Cursor: "", Complete: false}
+	items := searchResultItems(text)
+	for _, item := range items {
+		id, err := searchItemID(item)
+		if err != nil {
+			return searchPage{}, err
 		}
-		if strings.HasPrefix(line, "Next cursor: `") {
-			page.Cursor = strings.TrimSuffix(strings.TrimPrefix(line, "Next cursor: `"), "`")
+		page.IDs = append(page.IDs, id)
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if marker := strings.Index(line, searchCursorMarker); marker >= 0 {
+			page.Cursor = strings.TrimSuffix(line[marker+len(searchCursorMarker):], "`")
 		}
 	}
-	if page.Complete == (page.Cursor != "") {
-		return searchPage{}, fmt.Errorf("page must have exactly one of a cursor or completion:\n%s", text)
+	page.Complete = page.Cursor == ""
+	countLine := fmt.Sprintf("\n%d results shown.\n", len(items))
+	if !strings.Contains(text, countLine) {
+		return searchPage{}, fmt.Errorf("page has %d result items but no matching count line:\n%s", len(items), text)
 	}
 	return page, nil
 }
 
-// callEverySearchPage follows every cursor, alternating between harnesses
-// when more than one is given, until the response reports completion.
+// searchResultItems groups each result title with its following field lines.
+func searchResultItems(text string) []string {
+	var items []string
+	for _, line := range strings.Split(text, "\n") {
+		switch {
+		case strings.HasPrefix(line, "- "):
+			items = append(items, line)
+		case strings.HasPrefix(line, "  - ") && len(items) > 0:
+			items[len(items)-1] += "\n" + line
+		}
+	}
+	return items
+}
+
+// searchItemID parses the single Raw id field in a result item.
+func searchItemID(item string) (uuid.UUID, error) {
+	const marker = "\n  - Raw id: `"
+	if strings.Count(item, marker) != 1 {
+		return uuid.Nil, fmt.Errorf("result item must have exactly one raw node ID:\n%s", item)
+	}
+	value := item[strings.Index(item, marker)+len(marker):]
+	value, _, _ = strings.Cut(value, "`")
+	id, err := uuid.Parse(value)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("parse result id %q: %w", value, err)
+	}
+	return id, nil
+}
+
+// callEverySearchPage follows each cursor until a page omits the cursor.
+// It alternates between harnesses when the caller supplies more than one.
 func callEverySearchPage(t *testing.T, query string, harnesses ...*MCPHarness) searchPages {
 	t.Helper()
 	pages := searchPages{IDs: []uuid.UUID{}, Cursors: []string{}}

@@ -68,7 +68,7 @@ func TestSearchSchemaAdvertisesOnlyAcceptedArguments(t *testing.T) {
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", CanLiveUnder: []string{"project"}}
 	resolver := NewResolver(nil, nil, nil, []*node.NodeType{workspaceType, projectType, issueType})
 	server := mcpserver.NewMCPServer("tack", "0.2.0")
-	RegisterSearch(server, resolver, SearchBinding{Runner: nil, Cursors: nil})
+	RegisterSearch(server, NodeTypeBinding{Resolver: resolver}, SearchBinding{Runner: nil, Cursors: nil})
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)

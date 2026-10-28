@@ -20,8 +20,8 @@ const identifierNodeCount = 12
 // tie by node ID, and new node IDs could then reorder tied nodes.
 const minimumScoreGap = 0.001
 
-// identifierTypeKeys are the container and nested type keys. Both builds use
-// the same keys, and each result line then shows the same type key.
+// identifierTypeKeys supplies the same container and nested type keys to both
+// builds for comparison of the Type fields in their search results.
 type identifierTypeKeys struct {
 	Container, Nested string
 }
@@ -117,7 +117,7 @@ func putNestedKind(t *testing.T, fixture queryFixture, orgID uuid.UUID, typeKey,
 }
 
 // identifierSearchLines follows every tack_search cursor and returns each
-// result line in response order.
+// result item in response order.
 func identifierSearchLines(t *testing.T, harness *MCPHarness, query string) []string {
 	t.Helper()
 	var lines []string
@@ -131,11 +131,7 @@ func identifierSearchLines(t *testing.T, harness *MCPHarness, query string) []st
 		if err != nil {
 			t.Fatalf("parse search %q: %v", query, err)
 		}
-		for _, line := range strings.Split(text, "\n") {
-			if strings.HasPrefix(line, "- ") && strings.Contains(line, "Raw id: `") {
-				lines = append(lines, line)
-			}
-		}
+		lines = append(lines, searchResultItems(text)...)
 		if page.Complete {
 			return lines
 		}

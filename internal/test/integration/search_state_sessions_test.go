@@ -65,8 +65,8 @@ func trySearchPage(t *testing.T, fixture parentEdgeFixture, query, cursor string
 		if marker := strings.LastIndex(line, resultMarker); marker >= 0 {
 			page.ids = append(page.ids, uuid.MustParse(strings.TrimSuffix(line[marker+len(resultMarker):], "`")))
 		}
-		if strings.HasPrefix(line, cursorMarker) {
-			page.cursor = strings.TrimSuffix(strings.TrimPrefix(line, cursorMarker), "`")
+		if _, after, found := strings.Cut(line, cursorMarker); found {
+			page.cursor = strings.TrimSuffix(after, "`")
 		}
 	}
 	return page, nil

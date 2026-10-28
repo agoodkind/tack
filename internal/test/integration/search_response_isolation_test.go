@@ -24,14 +24,15 @@ const (
 	foreignMarker = "zephyrine"
 )
 
-// searchResponseLine matches every line a tack_search page may contain: the
-// heading, a blank line, a result, the empty-page line, the completion line,
-// and the cursor line. A count line or another field matches none of them.
+// searchResponseLine matches the permitted lines of a tack_search page.
 var searchResponseLine = regexp.MustCompile("^(#### Search results|" +
-	"|- .+ \\(.+\\) - Raw id: `[0-9a-f-]{36}`" +
-	"|- This page contains no authorized matches\\." +
-	"|The search has no more results\\." +
-	"|Next cursor: `[^`]+`)$")
+	"|[0-9]+ results shown\\." +
+	"|- `[^`]+`" +
+	"|  - Name: .+" +
+	"|  - (Type|State|Priority): `[^`]+`" +
+	"|  - Assigned: .+" +
+	"|  - Raw id: `[0-9a-f-]{36}`" +
+	"|More results exist\\. Next cursor: `[^`]+`)$")
 
 // searchResponseCountKeys lists JSON keys for a count value. The response
 // body must contain none of them.

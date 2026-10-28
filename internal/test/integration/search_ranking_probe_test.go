@@ -7,7 +7,6 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -128,23 +127,11 @@ func (r *rankingRun) createIssue(t *testing.T, name, description string) uuid.UU
 func (r *rankingRun) search(t *testing.T, query, cursor string) rankingPage {
 	t.Helper()
 	text := r.call(t, "tack_search", datagen.ToolArguments{WorkspaceReference: r.workspace, Query: query, Cursor: cursor}).Text()
-	page := rankingPage{IDs: []uuid.UUID{}, Cursor: "", Complete: strings.Contains(text, "The search has no more results.")}
-	for _, line := range strings.Split(text, "\n") {
-		if marker := strings.LastIndex(line, "Raw id: `"); marker >= 0 {
-			nodeID, err := uuid.Parse(strings.TrimSuffix(line[marker+len("Raw id: `"):], "`"))
-			if err != nil {
-				t.Fatalf("parse search result ID in %q: %v", line, err)
-			}
-			page.IDs = append(page.IDs, nodeID)
-		}
-		if strings.HasPrefix(line, "Next cursor: `") {
-			page.Cursor = strings.TrimSuffix(strings.TrimPrefix(line, "Next cursor: `"), "`")
-		}
+	parsed, err := integration.ParseSearchPage(text)
+	if err != nil {
+		t.Fatalf("parse search page: %v", err)
 	}
-	if page.Complete == (page.Cursor != "") {
-		t.Fatalf("search page must have exactly one of a cursor or completion:\n%s", text)
-	}
-	return page
+	return rankingPage{IDs: parsed.IDs, Cursor: parsed.Cursor, Complete: parsed.Complete}
 }
 
 func (r *rankingRun) require(t *testing.T, phase string, probe rankingProbe) {

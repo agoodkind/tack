@@ -27,6 +27,20 @@ type OpaqueKind = opaqueKind
 // SearchPage aliases the parsed response from the public tack_search tool.
 type SearchPage = searchPage
 
+// SearchCursorMarker precedes the continuation cursor in a tack_search page.
+const SearchCursorMarker = searchCursorMarker
+
+// ParseSearchPage reads result IDs and the cursor from a tack_search page
+// and reports whether the search has completed.
+func ParseSearchPage(text string) (SearchPage, error) {
+	return parseSearchPage(text)
+}
+
+// SearchResultItems splits a tack_search page into its result items.
+func SearchResultItems(text string) []string {
+	return searchResultItems(text)
+}
+
 // ScaleQuery supplies the matching text for the duplicate page corpus.
 const ScaleQuery = scaleQuery
 
