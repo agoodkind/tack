@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"errors"
 	"math/rand/v2"
 	"testing"
 	"time"
@@ -94,10 +93,13 @@ func TestRuntimeAuditReadCleanupSkipsLockedReceipt(t *testing.T) {
 // commits a write to the row to attempt to trigger an internal YugabyteDB
 // retry of the ops_read_recover statement. In CI run 40628475074, the
 // connection that ran the statement reported ops_outbox_owner as
-// current_user after the commit (TACK-583). RecoverExpired must return nil
-// or an error that wraps audit.ErrSessionRoleChanged, and it must save an
-// incomplete outcome. The next application connection must run as the
-// application login and must validate a token.
+// current_user after the commit (TACK-583). RecoverExpired must report one
+// recovered read with a nil error, and the read must have an incomplete
+// receipt. The next application connection must run as the application
+// login and must validate a token. The test logs how many connections the
+// one-connection pool opened during recovery. A new connection shows that
+// the read lifecycle closed a connection with a changed role. The test does
+// not require one, because the internal retry does not happen on every run.
 func TestRuntimeAuditReadRecoveryRetryKeepsSessionRole(t *testing.T) {
 	fixture := newSessionRoleFixture(t)
 	read := newReadFixture(t)
@@ -108,6 +110,7 @@ func TestRuntimeAuditReadRecoveryRetryKeepsSessionRole(t *testing.T) {
 		t.Fatalf("expire the read lease: %v", err)
 	}
 	fixture.requireApplicationSession(t, "before recovery")
+	connectionsBefore := fixture.application.Stat().NewConnsCount()
 	transaction := lockReadState(t, fixture.admin, eventID)
 	result := make(chan lifecycleResult, 1)
 	go func() {
@@ -117,8 +120,10 @@ func TestRuntimeAuditReadRecoveryRetryKeepsSessionRole(t *testing.T) {
 	recovery, waited := awaitAfterLock(t, transaction, result)
 	t.Logf("recovery saved %d reads, waited for the lock = %t, error = %v", recovery.count, waited, recovery.err)
 	fixture.requireApplicationSession(t, "after recovery")
-	if recovery.err != nil && !errors.Is(recovery.err, audit.ErrSessionRoleChanged) {
-		t.Fatalf("recover the expired read: %v; want nil or an error that wraps audit.ErrSessionRoleChanged", recovery.err)
+	t.Logf("the application pool opened %d connections during recovery",
+		fixture.application.Stat().NewConnsCount()-connectionsBefore)
+	if recovery.err != nil || recovery.count != 1 {
+		t.Fatalf("recover the expired read = %d, %v; want 1 and nil", recovery.count, recovery.err)
 	}
 	var incomplete, rows int
 	state := readTestSQL(t, "runtime_audit_read_session_state.sql")
