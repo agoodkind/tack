@@ -130,13 +130,19 @@ func (s *SearchWorkStore) claimFirstItem(
 }
 
 // pendingBuckets returns the buckets of class that contain at least one age
-// key. It issues one key selector per bucket in one transaction. The
-// selectors use snapshot reads, and snapshot reads add no read conflict
-// ranges.
+// key. It first calls [classHasAgeKey] in the same transaction. If the class
+// does not have an age key, it returns an empty list without probing buckets.
+// Otherwise, it issues one key selector per bucket across all 256 buckets.
+// Every read in the transaction uses a snapshot read. Snapshot reads do not
+// add read conflict ranges.
 func (s *SearchWorkStore) pendingBuckets(ctx context.Context, class searchdomain.WorkClass) ([]int, error) {
 	pending := make([]int, 0, searchWorkBuckets)
 	err := transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
 		pending = pending[:0]
+		classPending, probeErr := classHasAgeKey(ctx, tr, class)
+		if probeErr != nil || !classPending {
+			return probeErr
+		}
 		firstKeys := make([]fdb.FutureKey, searchWorkBuckets)
 		ends := make([]fdb.Key, searchWorkBuckets)
 		for bucket := range searchWorkBuckets {
@@ -162,6 +168,21 @@ func (s *SearchWorkStore) pendingBuckets(ctx context.Context, class searchdomain
 		return nil, searchStorageError(ctx, "search.work.probe_failed", "probe search work buckets of class "+string(class), uuid.Nil, err)
 	}
 	return pending, nil
+}
+
+// classHasAgeKey reports whether class has at least one age key in any
+// bucket. It reads at most one key with one snapshot range read limited to
+// one key.
+func classHasAgeKey(ctx context.Context, tr fdb.Transaction, class searchdomain.WorkClass) (bool, error) {
+	keyRange, err := fdb.PrefixRange(searchAgeClassPrefix(string(class)))
+	if err != nil {
+		return false, searchReadFailure(ctx, "create search age range of class "+string(class), err)
+	}
+	first, err := tr.Snapshot().GetRange(keyRange, fdb.RangeOptions{Limit: 1}).GetSliceWithError()
+	if err != nil {
+		return false, searchReadFailure(ctx, "probe search age keys of class "+string(class), err)
+	}
+	return len(first) > 0, nil
 }
 
 func searchStorageError(ctx context.Context, event, operation string, nodeID uuid.UUID, err error) error {
