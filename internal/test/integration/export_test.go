@@ -285,3 +285,54 @@ func (h *MCPHarness) TryCall(ctx context.Context, toolName string, args datagen.
 	}
 	return result, nil
 }
+
+// ClusterPhrase is the text that the cluster tests include in every node they write.
+const ClusterPhrase = clusterPhrase
+
+// StartSearchTestCluster starts a disposable OpenSearch cluster behind a Traefik proxy
+// with members as the planned member count.
+// Cleanup releases the cluster before the next test starts. The shared FoundationDB and
+// SQL fixtures keep running.
+func StartSearchTestCluster(t *testing.T, members int) *testenv.OpenSearchCluster {
+	t.Helper()
+	return startSearchTestCluster(t, members)
+}
+
+// NewClusterQueryFixture builds the production query graph, search adapter, and search
+// worker over engine and returns the fixture and index spec.
+// The query graph, search adapter, and search worker use engine.Endpoint as their only
+// endpoint.
+func NewClusterQueryFixture(t *testing.T, engine testenv.OpenSearchFixture) (QueryFixture, search.IndexSpec) {
+	t.Helper()
+	return newClusterQueryFixture(t, engine)
+}
+
+// CaptureClusterTestFailure logs member logs, search diagnostics, and proxy prediction records
+// only when t has failed.
+func CaptureClusterTestFailure(t *testing.T, cluster *testenv.OpenSearchCluster, fixture QueryFixture, modelID string) {
+	t.Helper()
+	captureClusterTestFailure(t, cluster, fixture, modelID)
+}
+
+// ClusterNodeWriter stores one node type in the first workspace and returns a function.
+// Each call creates one node with ClusterPhrase through the production create path and
+// returns its ID.
+func ClusterNodeWriter(t *testing.T, fixture QueryFixture) func() uuid.UUID {
+	t.Helper()
+	return clusterNodeWriter(t, fixture)
+}
+
+// RequireSearchable runs search worker slices and calls tack_search for ClusterPhrase until
+// every node in expected appears in the results.
+// It fails t after the cluster deadline.
+func RequireSearchable(t *testing.T, fixture QueryFixture, expected []uuid.UUID) {
+	t.Helper()
+	requireSearchable(t, fixture, expected)
+}
+
+// ClusterEventually calls check until it returns nil.
+// It fails t with the last error after the cluster deadline.
+func ClusterEventually(t *testing.T, operation string, check func() error) {
+	t.Helper()
+	clusterEventually(t, operation, check)
+}

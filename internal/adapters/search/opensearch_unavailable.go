@@ -14,9 +14,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// unavailableStatuses lists statuses that Tack classifies after the OpenSearch client finishes retrying.
-// OpenSearch returns HTTP 429 when it rejects a request, including a new point in time at the
-// search.max_open_pit_context limit. A proxy returns the other statuses when an OpenSearch member stops.
+// unavailableStatuses lists HTTP statuses that indicate request rejection or
+// member unavailability after the client stops retrying.
+// [proxyFailed] checks HTTP 500 separately.
 var unavailableStatuses = []int{
 	http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout,
 }
@@ -34,19 +34,28 @@ func (e unavailableError) Unwrap() []error {
 	return []error{searchdomain.ErrEngineUnavailable, e.err}
 }
 
-// engineCause wraps err as [searchdomain.ErrEngineUnavailable] when a connection fails with
-// connection refused, a response status matches unavailableStatuses, or the request times out.
-// It returns err unchanged otherwise. It also logs each HTTP 429 rejection once.
+// engineCause wraps err as [searchdomain.ErrEngineUnavailable] when a connection
+// fails with connection refused, the response status is in [unavailableStatuses],
+// [proxyFailed] returns true, or the request times out.
+// It returns err unchanged otherwise. It logs each HTTP 429 rejection once.
 func engineCause(ctx context.Context, response *opensearch.Response, err error) error {
 	refused := errors.Is(err, syscall.ECONNREFUSED)
 	rejected := response != nil && slices.Contains(unavailableStatuses, response.StatusCode)
-	if !refused && !rejected && !engineTimedOut(ctx, err) {
+	if !refused && !rejected && !proxyFailed(response, err) && !engineTimedOut(ctx, err) {
 		return err
 	}
 	if response != nil && response.StatusCode == http.StatusTooManyRequests {
 		logEngineRejection(ctx, response.StatusCode, err)
 	}
 	return unavailableError{err: err}
+}
+
+// proxyFailed reports whether response has HTTP 500 and err wraps
+// [opensearch.ErrJSONUnmarshalBody]. The proxy writes this response when it
+// cannot complete the round trip to OpenSearch.
+func proxyFailed(response *opensearch.Response, err error) bool {
+	return response != nil && response.StatusCode == http.StatusInternalServerError &&
+		errors.Is(err, opensearch.ErrJSONUnmarshalBody)
 }
 
 // engineTimedOut reports whether err ended an engine request at the client's per-attempt
