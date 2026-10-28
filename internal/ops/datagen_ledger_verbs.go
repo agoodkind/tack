@@ -16,6 +16,7 @@ import (
 // ops qa datagen reports existing events for these verbs because it cannot
 // run the host ledger commands or service jobs that record them.
 var datagenLedgerVerbs = []string{
+	string(audit.VerbOpsBackupRetention),
 	string(audit.VerbOpsLedgerNodePrepare),
 	string(audit.VerbOpsLedgerNodeWait),
 	string(audit.VerbOpsLedgerBootstrapWait),

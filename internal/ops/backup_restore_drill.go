@@ -64,7 +64,7 @@ func cleanupRestoreDrill(ctx context.Context, r *restoreDrillCtx) {
 	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 90*time.Second)
 	defer cancel()
 	for _, name := range r.containerNames {
-		removeContainerForce(bg, r.Cli, name)
+		awaitBackupContainerRemoval(bg, r.Cli, name)
 	}
 	removeDrillScratch(ctx, r)
 	releaseDrillRun(r)
@@ -97,6 +97,12 @@ type RestoreDrillOptions struct {
 // reads the marker's date. The drill first removes resources left by killed
 // runs.
 func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts RestoreDrillOptions) error {
+	lock, lockErr := lockBackupOperation(ctx, cfg.BackupRoot)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer lock.Close()
+	ctx = withBackupOperationLock(ctx)
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
 		err := fmt.Errorf("restore-drill: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required")
@@ -166,30 +172,6 @@ func RunBackupRestoreDrill(ctx context.Context, cfg *config.Config, opts Restore
 	}
 	logger.InfoContext(ctx, "backup.restore_drill.ok", slog.String("run_id", rctx.RunID))
 	return nil
-}
-
-// waitExecOK polls a check command inside a container until it exits zero or the
-// timeout elapses, returning an error on timeout. Used to wait for a scratch
-// engine to become ready.
-func waitExecOK(ctx context.Context, r *restoreDrillCtx, container string, timeout time.Duration, env []string, cmd []string) error {
-	pollCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for {
-		exitCode, _, err := containerExecStreaming(pollCtx, r.Cli, container, cmd, env, devNull{})
-		if err == nil && exitCode == 0 {
-			return nil
-		}
-		select {
-		case <-pollCtx.Done():
-			err := fmt.Errorf("readiness check %v timed out after %s: %w", cmd, timeout, pollCtx.Err())
-			telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.wait_timeout",
-				slog.String("container", container), slog.String("err", err.Error()))
-			return err
-		case <-ticker.C:
-		}
-	}
 }
 
 // devNull discards writes; used when an exec's stdout is irrelevant.
