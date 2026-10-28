@@ -53,7 +53,7 @@ func TestSearchContainerFirstAccessKeepsUnchangedPages(t *testing.T) {
 
 	deleted, kept := issues[0], issues[1:]
 	arguments := containerArguments(harness)
-	arguments.NodeID = deleted.String()
+	arguments.ProjectReference, arguments.NodeID = "", deleted.String()
 	harness.Call(t, "tack_delete_issue", arguments)
 	fanout := integration.DrainClass(t, fixture, searchdomain.WorkClassAccess)
 	integration.DrainSearchWork(t, fixture.Worker, containerAccessSlices)
