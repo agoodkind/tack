@@ -15,44 +15,44 @@ import (
 
 // TestSearchPermissionIdentifierReplacement builds the same access corpus
 // twice. The second build gets new organizations, users, memberships, entry
-// points, hierarchy parents, and child_of edges. Each query must return the
-// same result lines in the same order once the second build's node IDs are
-// mapped to the first build's node IDs.
+// points, hierarchy parents, and child_of edges. Each query must return
+// identical result items in identical order. The test maps the second
+// build's node IDs to the first build's node IDs to compare node identities.
 func TestSearchPermissionIdentifierReplacement(t *testing.T) {
 	keys := identifierTypeKeys{Container: opaqueSearchKey("n"), Nested: opaqueSearchKey("n")}
 	first := runIdentifierBuild(t, 1, keys)
 	second := runIdentifierBuild(t, 2, keys)
 	requireDisjointPermissionIDs(t, first.PermissionIDs, second.PermissionIDs)
 
-	replacements := make([]string, 0, 2*len(first.Allowed))
+	replacements := make(map[uuid.UUID]uuid.UUID, len(first.Allowed))
 	for number, id := range second.Allowed {
-		replacements = append(replacements, id.String(), first.Allowed[number].String())
+		replacements[id] = first.Allowed[number]
 	}
-	mapper := strings.NewReplacer(replacements...)
 	for _, query := range identifierQueries() {
 		want, got := first.Lines[query], second.Lines[query]
-		if len(got) != len(want) {
-			t.Fatalf("query %q returned %d result lines after identifier replacement, want %d\nfirst:\n%s\nsecond:\n%s",
-				query, len(got), len(want), strings.Join(want, "\n"), strings.Join(got, "\n"))
+		if !slices.Equal(got, want) {
+			t.Fatalf("query %q returned different result items after identifier replacement\nfirst:\n%s\nsecond:\n%s",
+				query, strings.Join(want, "\n"), strings.Join(got, "\n"))
 		}
-		for number, line := range got {
-			if mapped := mapper.Replace(line); mapped != want[number] {
-				t.Fatalf("query %q result %d after identifier replacement is %q, want %q", query, number, mapped, want[number])
+		for number, id := range second.IDs[query] {
+			if mapped := replacements[id]; mapped != first.IDs[query][number] {
+				t.Fatalf("query %q result %d after identifier replacement is node %s, want %s", query, number, mapped, first.IDs[query][number])
 			}
 		}
 	}
 }
 
-// identifierBuild is the observed public behavior of one corpus build. Lines
-// stores each query's result lines without the caller's entry-point node. The
-// identity bootstrap derives the entry-point name from its seed, and semantic
-// ranking matches that name text. Between builds, the entry-point line differs,
-// and a query can return the entry-point node in one build and not the other.
-// The comparison leaves the entry-point node out.
+// identifierBuild records the public search results of one corpus build.
+// Lines stores each query's result items without the caller's entry-point
+// node. The identity bootstrap derives the entry-point name from its seed,
+// and semantic ranking matches that name text. The entry-point item differs
+// between builds, and a query can return the entry-point node in one build
+// and not the other. The comparison leaves the entry-point node out.
 type identifierBuild struct {
 	Allowed       []uuid.UUID
 	PermissionIDs []uuid.UUID
 	Lines         map[string][]string
+	IDs           map[string][]uuid.UUID
 }
 
 // runIdentifierBuild creates one fixture and corpus, then records every
@@ -64,26 +64,26 @@ func runIdentifierBuild(t *testing.T, buildNumber int, keys identifierTypeKeys) 
 	corpus := putIdentifierCorpus(t, fixture, keys)
 	build := identifierBuild{
 		Allowed: corpus.Allowed, PermissionIDs: corpus.PermissionIDs,
-		Lines: map[string][]string{},
+		Lines: map[string][]string{}, IDs: map[string][]uuid.UUID{},
 	}
 	caller := fixture.Workspaces[0]
 	filter := callerAccess(t, fixture, caller, corpus.Entry)
 	for _, query := range identifierQueries() {
 		t.Logf("identifier build %d: checking raw ranking and tack_search results for %q", buildNumber, query)
 		requireSeparatedScores(t, fixture, filter, query, corpus.Allowed)
-		lines := identifierSearchLines(t, fixture.Harness, query)
-		ids := make([]uuid.UUID, 0, len(lines))
+		lines, ids := identifierSearchLines(t, fixture.Harness, query)
 		kept := make([]string, 0, len(lines))
-		for _, line := range lines {
-			id := resultLineID(t, line)
-			ids = append(ids, id)
-			if id == corpus.Entry {
+		keptIDs := make([]uuid.UUID, 0, len(ids))
+		for number, line := range lines {
+			if ids[number] == corpus.Entry {
 				continue
 			}
 			kept = append(kept, line)
+			keptIDs = append(keptIDs, ids[number])
 		}
 		requireCorpusOnce(t, ids, corpus.Allowed, corpus.Entry)
 		build.Lines[query] = kept
+		build.IDs[query] = keptIDs
 	}
 	// The next fixture sets the public alias, which the adapter refuses while
 	// the alias selects another index. Deleting this index removes the alias.
@@ -100,20 +100,6 @@ func requireDisjointPermissionIDs(t *testing.T, first, second []uuid.UUID) {
 			t.Fatalf("permission identifier %s exists in both builds", id)
 		}
 	}
-}
-
-// resultLineID parses the raw node ID at the end of one result line.
-func resultLineID(t *testing.T, line string) uuid.UUID {
-	t.Helper()
-	marker := strings.LastIndex(line, "Raw id: `")
-	if marker < 0 {
-		t.Fatalf("result line %q has no raw id", line)
-	}
-	id, err := uuid.Parse(strings.TrimSuffix(line[marker+len("Raw id: `"):], "`"))
-	if err != nil {
-		t.Fatalf("parse result line %q: %v", line, err)
-	}
-	return id
 }
 
 // rankedScores reads every raw ranker batch of one snapshot and returns the

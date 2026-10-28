@@ -164,6 +164,6 @@ func waitForSearchLoadStart(ctx context.Context, startAt time.Time) bool {
 
 func (l *searchLoad) send(ctx context.Context, driver *Driver, query string) {
 	requestStarted := clock.Now()
-	_, err := callSearch(ctx, driver, l.token, l.entry, query, "")
+	_, err := searchPageText(ctx, driver, l.token, l.entry, query, "", "")
 	l.stats.record(clock.Now().Sub(requestStarted), err)
 }

@@ -81,12 +81,13 @@ func (m *searchMixed) createCorpus(stopContext, ctx context.Context) error {
 	return nil
 }
 
-// searchRun returns a verification run for one tenant actor through one driver.
+// searchRun returns a verification run with the selected tenant's organization
+// and actor token, workspace entry, and driver.
 func (m *searchMixed) searchRun(tenant, actor, driver int) searchRun {
 	workspace := m.tenants[tenant].workspace
 	return searchRun{
 		driver: m.driver(driver), token: workspace.Actors[actor].Token, entry: workspace.Slug,
-		limits: m.limits, fixture: searchFixture{}, phrases: searchPhrases{}, pages: m.pages,
+		limits: m.limits, fixture: m.titleFixture(tenant), phrases: searchPhrases{}, pages: m.pages,
 	}
 }
 
@@ -122,5 +123,5 @@ func (m *searchMixed) createIssue(ctx context.Context, tenant, number int, text 
 	if err != nil {
 		return uuid.Nil, loggedError(ctx, "qa datagen search-mixed: the command could not parse the created issue ID", err)
 	}
-	return nodeID, nil
+	return nodeID, m.registerCreated(ctx, result)
 }

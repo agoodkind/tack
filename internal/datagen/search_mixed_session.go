@@ -47,16 +47,17 @@ func (m *searchMixed) page(ctx context.Context, session searchMixedSession, numb
 	return page, m.inspect(ctx, session.tenant, page.IDs, requested, tally)
 }
 
-// answeredPage requests page number of session with cursor. It returns the page and the start
-// time of the request that the server answered. When the server returns the unavailable
-// response, answeredPage counts it and repeats the same request with the same driver and cursor
-// after searchMixedPollInterval. It returns the unavailable error after searchConvergenceDeadline
-// passes from the first request or when ctx ends, and it returns every other error at once.
+// answeredPage requests page number of session with cursor and resolves the
+// results for its tenant. It returns the page and the request's start time.
+// After an unavailable response, it counts the response and retries with the
+// same driver and cursor at searchMixedPollInterval. It stops retrying at
+// searchConvergenceDeadline or when ctx ends and returns other errors at once.
 func (m *searchMixed) answeredPage(ctx context.Context, session searchMixedSession, number int, cursor string, tally *searchMixedTally) (searchPage, time.Time, error) {
 	deadline := clock.Now().Add(searchConvergenceDeadline)
 	for {
 		requested := clock.Now()
-		page, err := callSearch(ctx, m.driver(session.offset+number), session.token, session.entry, session.query, cursor)
+		driver := m.driver(session.offset + number)
+		page, err := callSearch(ctx, driver, m.identities(session.tenant, driver), session.token, session.entry, session.query, cursor)
 		if !isSearchUnavailable(err) {
 			return page, requested, err
 		}
@@ -67,8 +68,9 @@ func (m *searchMixed) answeredPage(ctx context.Context, session searchMixedSessi
 	}
 }
 
-// inspect counts issues that this run deleted before the search request started and issues
-// from another organization.
+// inspect counts results that this run deleted before the request started.
+// It checks the other results against their resolve records and counts nodes
+// from another organization or nodes that disappeared without a run deletion.
 func (m *searchMixed) inspect(ctx context.Context, tenant int, nodeIDs []uuid.UUID, requested time.Time, tally *searchMixedTally) error {
 	orgID := m.tenants[tenant].workspace.OrgID
 	for _, nodeID := range nodeIDs {
@@ -78,7 +80,8 @@ func (m *searchMixed) inspect(ctx context.Context, tenant int, nodeIDs []uuid.UU
 		}
 		resolved, err := m.stores.Views.Resolve(ctx, nodeID)
 		if errors.Is(err, domain.ErrNotFound) {
-			// This run can delete an issue after the server reads it but before this check resolves it.
+			// A deletion after the server's read can remove the resolve record
+			// before this check reads it.
 			if !m.deletedBefore(nodeID, clock.Now()) {
 				tally.deleted++
 			}

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
 )
 
@@ -22,9 +23,9 @@ func (h *MCPHarness) CreateIssue(t *testing.T, name string) string {
 	return reference
 }
 
-// TryCreateIssue creates one issue in the harness's project and returns the
-// reference printed in the create confirmation. It returns an error instead
-// of failing the test, and it is safe to use from any goroutine.
+// TryCreateIssue creates an issue in the harness project, registers the node
+// in h.titles, and returns its printed reference. It returns an error instead
+// of failing the test and supports concurrent calls.
 func (h *MCPHarness) TryCreateIssue(ctx context.Context, name string) (string, error) {
 	arguments := h.projectArgs()
 	arguments.Name = name
@@ -37,6 +38,11 @@ func (h *MCPHarness) TryCreateIssue(ctx context.Context, name string) (string, e
 	if match == nil {
 		return "", fmt.Errorf("create issue confirmation for %q has no reference:\n%s", name, text)
 	}
+	nodeID, err := uuid.Parse(result.RawID())
+	if err != nil {
+		return "", fmt.Errorf("parse the created issue ID of %q: %w", name, err)
+	}
+	h.titles.Add(result.SearchItem(), nodeID)
 	return match[1], nil
 }
 

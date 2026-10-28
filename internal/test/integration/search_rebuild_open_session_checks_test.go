@@ -21,8 +21,8 @@ func continueThroughRetirement(t *testing.T, fixture parentEdgeFixture, old sear
 	for clock.Now().Add(openSessionStep).Before(old.AbsoluteDeadline) {
 		if !clock.Now().Before(nextContinuation) {
 			page := searchPageOf(t, fixture, openSessionQuery, cursor)
-			if page.cursor == "" || len(page.ids) == 0 {
-				t.Fatalf("session %s returned %d results and no cursor before its absolute deadline", old.ID, len(page.ids))
+			if page.cursor == "" || page.results == 0 {
+				t.Fatalf("session %s returned %d results and no cursor before its absolute deadline", old.ID, page.results)
 			}
 			cursor, nextContinuation = page.cursor, clock.Now().Add(openSessionStep)
 		}
@@ -52,7 +52,7 @@ func requireNewSessionIndex(t *testing.T, fixture parentEdgeFixture, target stri
 	t.Helper()
 	page := searchPageOf(t, fixture, fmt.Sprintf("%s after the switch", openSessionQuery), "")
 	if page.cursor == "" {
-		t.Fatalf("a new session after the switch returned %d results and no cursor", len(page.ids))
+		t.Fatalf("a new session after the switch returned %d results and no cursor", page.results)
 	}
 	session := sessionOfCursor(t, fixture, page.cursor)
 	if session.Query.Index != target {

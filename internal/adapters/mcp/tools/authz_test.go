@@ -83,10 +83,11 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	f.server = mcpserver.NewMCPServer("tack", "0.2.0")
 	RegisterProperty(f.server, &fakePropertyDefs{defs: nil}, f.resolver)
 	RegisterRelationship(f.server, nil, f.relationships, f.resolver)
-	RegisterSearch(f.server, f.resolver, SearchBinding{Runner: nil, Cursors: nil})
-	RegisterNodeTools(f.server, f.projectType, NodeTypeBinding{
+	nodes := NodeTypeBinding{
 		NodeSvc: nil, Reader: f.reader, PropertyDefs: &fakePropertyDefs{defs: nil}, Resolver: f.resolver, Users: nil,
-	})
+	}
+	RegisterSearch(f.server, nodes, SearchBinding{Runner: nil, Cursors: nil})
+	RegisterNodeTools(f.server, f.projectType, nodes)
 	return f
 }
 

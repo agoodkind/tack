@@ -1,8 +1,6 @@
 package tools
 
 import (
-	"unicode/utf8"
-
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -20,8 +18,6 @@ const (
 	itemTitleOverheadBytes = 3
 	itemFieldOverheadBytes = 7
 )
-
-const truncatedTitleSuffix = "…`"
 
 // renderListPage renders the rows of page that fit the byte budget. When rows
 // are left out, or the store reported more, NextCursor resumes after the last
@@ -57,20 +53,4 @@ func markdownItemBytes(item markdownItem) int {
 		size += itemFieldOverheadBytes + len(field.Label) + len(field.Value)
 	}
 	return size
-}
-
-// fitItemToBudget shortens an item's title when the item alone exceeds
-// budget. Titles are Markdown code values, so the shortened title keeps a
-// closing backtick.
-func fitItemToBudget(item markdownItem, budget int) markdownItem {
-	excess := markdownItemBytes(item) - budget
-	if excess <= 0 {
-		return item
-	}
-	keep := max(len(item.Title)-excess-len(truncatedTitleSuffix), 1)
-	for keep > 1 && !utf8.RuneStart(item.Title[keep]) {
-		keep--
-	}
-	item.Title = item.Title[:keep] + truncatedTitleSuffix
-	return item
 }

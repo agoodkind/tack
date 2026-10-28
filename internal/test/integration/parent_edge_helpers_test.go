@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +34,7 @@ func (f parentEdgeFixture) createLeaf(t *testing.T, parentID uuid.UUID, text str
 	if err != nil || created == nil || created.View == nil {
 		t.Fatalf("create leaf %q under %s: %v", text, parentID, err)
 	}
+	f.titles.Add(datagen.SearchItem{Title: text, NodeType: f.kind.typeKey}, created.View.ID)
 	return created.View.ID
 }
 
@@ -65,6 +65,7 @@ func (f parentEdgeFixture) storeNode(t *testing.T, kind parentEdgeKind, text str
 	if err := f.stores.Nodes.CreateAtomic(integration.WithTestOperation(t, t.Context()), created, view, relationships, nil, nil, nil); err != nil {
 		t.Fatalf("store node %q: %v", text, err)
 	}
+	f.titles.Add(datagen.SearchItem{Title: text, NodeType: kind.typeKey}, nodeID)
 	return nodeID
 }
 
@@ -131,8 +132,14 @@ func (f parentEdgeFixture) eventually(t *testing.T, check func() string) {
 	t.Fatalf("%s after %s", message, parentEdgeDeadline)
 }
 
-// search follows every tack_search page for query under the entry point of
-// workspace and returns the result node IDs.
+// identities pairs the fixture registry with get tool lookups as workspace's
+// first actor under its entry. Each lookup uses the result's node type.
+func (f parentEdgeFixture) identities(workspace datagen.WorkspaceIdentity) datagen.SearchIdentities {
+	return datagen.ReferenceIdentities(f.titles, f.driver, workspace.Actors[0].Token, workspace.Slug)
+}
+
+// search reads every tack_search page for query as workspace's first actor
+// under its entry and resolves result node IDs with the fixture identities.
 func (f parentEdgeFixture) search(t *testing.T, workspace datagen.WorkspaceIdentity, query string) []uuid.UUID {
 	t.Helper()
 	found := []uuid.UUID{}
@@ -144,18 +151,15 @@ func (f parentEdgeFixture) search(t *testing.T, workspace datagen.WorkspaceIdent
 		if err != nil {
 			t.Fatalf("search %q under %s: %v", query, workspace.Slug, err)
 		}
-		cursor = ""
-		for _, line := range strings.Split(result.Text(), "\n") {
-			if marker := strings.LastIndex(line, "Raw id: `"); marker >= 0 {
-				found = append(found, uuid.MustParse(strings.TrimSuffix(line[marker+len("Raw id: `"):], "`")))
-			}
-			if strings.HasPrefix(line, "Next cursor: `") {
-				cursor = strings.TrimSuffix(strings.TrimPrefix(line, "Next cursor: `"), "`")
-			}
+		page, err := integration.ParseSearchPage(t.Context(), result.Text(), f.identities(workspace))
+		if err != nil {
+			t.Fatalf("parse search %q under %s: %v", query, workspace.Slug, err)
 		}
-		if cursor == "" {
+		found = append(found, page.IDs...)
+		if page.Complete {
 			return found
 		}
+		cursor = page.Cursor
 	}
 	t.Fatalf("search %q did not finish within %d pages", query, parentEdgeSearchPages)
 	return nil

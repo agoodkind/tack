@@ -63,6 +63,7 @@ type searchFixture struct {
 	typeKey     string
 	includedKey string
 	excludedKey string
+	titles      *SearchTitles
 }
 
 // opaqueKey returns a lowercase identifier with a label prefix and no
@@ -108,7 +109,9 @@ func newSearchFixtureWithManifest(
 	fixture := searchFixture{
 		stores: stores, members: members, nodes: nodes, orgID: workspace.OrgID, entryID: entryID,
 		typeKey: opaqueKey("n"), includedKey: opaqueKey("p"), excludedKey: opaqueKey("p"),
+		titles: NewSearchTitles(),
 	}
+	fixture.titles.Add(SearchItem{Title: workspace.Slug, NodeType: entry.NodeType}, entryID)
 	included := searchDefinition(workspace.OrgID, fixture.includedKey, true, 0)
 	excluded := searchDefinition(workspace.OrgID, fixture.excludedKey, false, 1)
 	for _, definition := range []*node.PropertyDef{included, excluded} {
@@ -164,7 +167,21 @@ func (f searchFixture) put(ctx context.Context, name, included, excluded string)
 	if err != nil {
 		return uuid.Nil, loggedError(ctx, "qa datagen: create search node "+name, err)
 	}
+	f.titles.Add(SearchItem{Title: name, NodeType: f.typeKey}, result.View.ID)
 	return result.View.ID, nil
+}
+
+// identities uses the run's fixture registry and organization to resolve
+// search results. Reference lookups use the run's token and entry.
+func (r searchRun) identities() SearchIdentities {
+	return r.fixture.identities(r.driver, r.token, r.entry)
+}
+
+// identities pairs the fixture registry with a resolver for its organization.
+// The resolver calls get tools with token under entry for declared references
+// and requires a unique stored name for types without a declared reference.
+func (f searchFixture) identities(driver *Driver, token, entry string) SearchIdentities {
+	return SearchIdentities{Titles: f.titles, Resolve: storeResolver(f.stores, f.orgID, ReferenceResolver(driver, token, entry))}
 }
 
 // edit replaces the included value of one node.

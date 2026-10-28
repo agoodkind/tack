@@ -43,7 +43,7 @@ func actualProcessSearch(t *testing.T, server *actualSearchServer, harness *MCPH
 	if err != nil {
 		return searchPage{}, err
 	}
-	page, err := parseSearchPage(call.Result.Text())
+	page, err := parseSearchPage(t.Context(), call.Result.Text(), harness.searchIdentities())
 	if err == nil {
 		t.Logf("actual public request pid=%d request_id=%s results=%d complete=%t", server.command.Process.Pid, call.ID, len(page.IDs), page.Complete)
 	}

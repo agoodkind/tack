@@ -29,6 +29,7 @@ type MCPHarness struct {
 	Workspace string
 	Project   string
 	outbox    *fdbadapter.OpsOutboxStore
+	titles    *datagen.SearchTitles
 }
 
 // harnessConfig loads the server configuration for the test engines that
@@ -134,6 +135,7 @@ func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
 		Workspace: workspace.Slug,
 		Project:   "",
 		outbox:    harnessOutbox(t, cfg.FDBClusterFile),
+		titles:    datagen.NewSearchTitles(),
 	}
 	harness.createProject(t)
 	return harness
@@ -165,15 +167,37 @@ func (h *MCPHarness) createProject(t *testing.T) {
 	h.Project = identifier
 }
 
-// Call invokes one MCP tool through the harness's bearer token and fails the
-// test when the call returns an error.
+// Call invokes one MCP tool with the harness bearer token and records
+// created nodes in h.titles. It fails the test when the call returns an error.
 func (h *MCPHarness) Call(t *testing.T, toolName string, args datagen.ToolArguments) datagen.Result {
 	t.Helper()
 	result, err := h.driver.Call(t.Context(), h.token, toolName, args)
 	if err != nil {
 		t.Fatalf("call %s: %v", toolName, err)
 	}
+	if strings.HasPrefix(toolName, createToolPrefix) {
+		h.registerCreated(t, result, args.Name)
+	}
 	return result
+}
+
+// createToolPrefix starts the name of every create tool.
+const createToolPrefix = "tack_create_"
+
+// registerCreated records the node ID with its printed reference and node
+// type. It uses name as the title when the write confirmation omits a
+// reference.
+func (h *MCPHarness) registerCreated(t *testing.T, result datagen.Result, name string) {
+	t.Helper()
+	nodeID, err := uuid.Parse(result.RawID())
+	if err != nil {
+		t.Fatalf("parse created node ID %q: %v", result.RawID(), err)
+	}
+	item := result.SearchItem()
+	if item.Title == "" {
+		item.Title = name
+	}
+	h.titles.Add(item, nodeID)
 }
 
 // CallExpectError invokes one MCP tool and fails the test when it succeeds,

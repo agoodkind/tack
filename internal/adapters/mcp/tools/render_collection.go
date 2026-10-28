@@ -3,10 +3,15 @@ package tools
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/domain/user"
 )
+
+// lineBreakReplacer replaces line breaks with spaces to prevent node text
+// from creating extra Markdown items.
+var lineBreakReplacer = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
 
 func renderList(rc *renderCtx, kind string, views []*node.NodeView) string {
 	items := make([]markdownItem, 0, len(views))
@@ -80,9 +85,13 @@ func renderRelationships(rc *renderCtx, direction string, rels []*node.Relations
 
 func nodeListItem(rc *renderCtx, view *node.NodeView) markdownItem {
 	ident := identifierFor(view, rc)
-	fields := []markdownField{markdownCodeFieldValue("Type", view.NodeType)}
-	// identifierFor falls back to the name, so the Name field is printed only
-	// when the title is a reference distinct from it.
+	nodeType := markdownCodeFieldValue("Type", view.NodeType)
+	// Callers use the node type key in the node_type argument and tool names.
+	// A shortened key does not identify a type.
+	nodeType.Whole = true
+	fields := []markdownField{nodeType}
+	// nodeListItem includes the Name field only when the title differs from
+	// the node name.
 	if ident == "" {
 		ident = view.Name
 	} else if ident != view.Name {
@@ -95,7 +104,10 @@ func nodeListItem(rc *renderCtx, view *node.NodeView) markdownItem {
 		fields = append(fields, markdownCodeFieldValue("Priority", priority))
 	}
 	fields = appendNestedAssigned(fields, rc, view)
-	return markdownItem{Title: markdownCodeValue(ident), Fields: fields}
+	for index := range fields {
+		fields[index].Value = lineBreakReplacer.Replace(fields[index].Value)
+	}
+	return markdownItem{Title: markdownCodeValue(lineBreakReplacer.Replace(ident)), Fields: fields}
 }
 
 func relationshipListItem(rc *renderCtx, rel *node.Relationship, label string, otherIsTarget bool) markdownItem {

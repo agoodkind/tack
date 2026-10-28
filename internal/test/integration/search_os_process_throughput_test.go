@@ -158,7 +158,7 @@ func newProcessThroughputCorpus(t *testing.T) processThroughputCorpus {
 		t.Fatal(err)
 	}
 	workspace := identities.Workspaces[0]
-	harness := &MCPHarness{token: workspace.Actors[0].Token, ledgerDSN: cfg.DatabaseURL, orgID: workspace.OrgID, Workspace: workspace.Slug, outbox: stores.OpsOutbox}
+	harness := &MCPHarness{token: workspace.Actors[0].Token, ledgerDSN: cfg.DatabaseURL, orgID: workspace.OrgID, Workspace: workspace.Slug, outbox: stores.OpsOutbox, titles: datagen.NewSearchTitles()}
 	fixture := queryFixture{Stores: stores, Adapter: adapter, Client: client, Index: index, Config: cfg, Harness: harness, Workspaces: identities.Workspaces, Worker: newSearchWorker(t, stores, adapter, clock.Wall{}, searchWorkerSettings(runtimePageBytes))}
 	corpus := processThroughputCorpus{fixture: fixture, readKind: putOpaqueKind(t, fixture, workspace.OrgID), workerKind: putOpaqueKind(t, fixture, workspace.OrgID)}
 	parent := entryPoint(t, fixture, workspace)

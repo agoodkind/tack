@@ -93,7 +93,8 @@ func (m *searchMixed) probeMarkers(ctx context.Context, tick int) {
 			for _, entry := range batch {
 				words = append(words, entry.marker)
 			}
-			page, err := callSearch(ctx, m.driver(tick+tenantIndex), tenant.token(), tenant.entry(), strings.Join(words, " "), "")
+			driver := m.driver(tick + tenantIndex)
+			page, err := callSearch(ctx, driver, m.identities(tenantIndex, driver), tenant.token(), tenant.entry(), strings.Join(words, " "), "")
 			if err != nil {
 				m.stats.count(&m.stats.probeErrors)
 				continue

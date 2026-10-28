@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/datagen"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -26,8 +26,6 @@ const (
 	sweepAttemptLimit    = 16
 	sweepExpiryMargin    = time.Second
 	secondsPerMinute     = int64(time.Minute / time.Second)
-	resultMarker         = "Raw id: `"
-	cursorMarker         = "Next cursor: `"
 )
 
 type sessionKeyLayout struct {
@@ -44,14 +42,15 @@ var sessionKeyLayouts = map[string]sessionKeyLayout{
 	sessionVersionFamily: {bucket: 4, session: 5},
 }
 
+// statePage stores the result count and next cursor from a search page.
 type statePage struct {
-	ids    []uuid.UUID
-	cursor string
+	results int
+	cursor  string
 }
 
-// trySearchPage calls tack_search through the MCP driver and parses node IDs
-// and the next cursor from the response text. It returns the call error if
-// the request fails.
+// trySearchPage calls tack_search as the first workspace actor. It counts
+// printed result items and reads the next cursor from the page text.
+// It returns an error if the search call fails.
 func trySearchPage(t *testing.T, fixture parentEdgeFixture, query, cursor string) (statePage, error) {
 	t.Helper()
 	result, err := fixture.driver.Call(t.Context(), fixture.first.Actors[0].Token, "tack_search", datagen.ToolArguments{
@@ -60,14 +59,10 @@ func trySearchPage(t *testing.T, fixture parentEdgeFixture, query, cursor string
 	if err != nil {
 		return statePage{}, fmt.Errorf("search %q: %w", query, err)
 	}
-	page := statePage{ids: []uuid.UUID{}, cursor: ""}
-	for _, line := range strings.Split(result.Text(), "\n") {
-		if marker := strings.LastIndex(line, resultMarker); marker >= 0 {
-			page.ids = append(page.ids, uuid.MustParse(strings.TrimSuffix(line[marker+len(resultMarker):], "`")))
-		}
-		if strings.HasPrefix(line, cursorMarker) {
-			page.cursor = strings.TrimSuffix(strings.TrimPrefix(line, cursorMarker), "`")
-		}
+	text := result.Text()
+	page := statePage{results: len(integration.SearchResultItems(text)), cursor: ""}
+	if _, after, found := strings.Cut(text, integration.SearchCursorMarker); found {
+		page.cursor, _, _ = strings.Cut(after, "`")
 	}
 	return page, nil
 }

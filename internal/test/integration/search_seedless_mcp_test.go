@@ -10,13 +10,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/telemetry"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
-	seedlessRawIDMarker   = " - Raw id: `"
-	seedlessCursorPrefix  = "Next cursor: `"
-	seedlessCompleteText  = "The search has no more results."
 	seedlessSearchPages   = 100
 	seedlessEventDataLine = "data: "
 )
@@ -143,38 +142,38 @@ func searchSeedless(t *testing.T, env seedlessEnvironment, caller seedlessOrg, q
 			arguments["cursor"] = seedlessString(cursor)
 		}
 		text := callSeedlessTool(t, env, caller, "tack_search", arguments)
-		cursor = ""
-		for _, line := range strings.Split(text, "\n") {
-			if strings.HasPrefix(line, seedlessCursorPrefix) {
-				cursor = strings.TrimSuffix(strings.TrimPrefix(line, seedlessCursorPrefix), "`")
-			}
-			if strings.HasPrefix(line, "- ") && strings.Contains(line, seedlessRawIDMarker) {
-				results = append(results, parseSeedlessResult(t, line))
-			}
+		page, err := integration.ParseSearchPage(t.Context(), text, datagen.SearchIdentities{Titles: caller.Titles, Resolve: nil})
+		if err != nil {
+			t.Fatalf("parse search %q page: %v", query, err)
 		}
-		complete := strings.Contains(text, seedlessCompleteText)
-		if complete == (cursor != "") {
-			t.Fatalf("search %q page must have exactly one of a cursor or completion:\n%s", query, text)
+		for number, item := range integration.SearchResultItems(text) {
+			results = append(results, parseSeedlessResult(t, item, page.IDs[number]))
 		}
-		if complete {
+		if page.Complete {
 			return results
 		}
+		cursor = page.Cursor
 	}
 	t.Fatalf("search %q did not complete within %d pages", query, seedlessSearchPages)
 	return nil
 }
 
-func parseSeedlessResult(t *testing.T, line string) seedlessResult {
+// parseSeedlessResult reads a result's name from its Name field or title
+// and reads its node type from its Type field.
+func parseSeedlessResult(t *testing.T, item string, id uuid.UUID) seedlessResult {
 	t.Helper()
-	marker := strings.LastIndex(line, seedlessRawIDMarker)
-	head := strings.TrimPrefix(line[:marker], "- ")
-	typeStart := strings.LastIndex(head, " (")
-	if typeStart < 0 || !strings.HasSuffix(head, ")") {
-		t.Fatalf("result line %q has no node type", line)
+	lines := strings.Split(item, "\n")
+	result := seedlessResult{Name: strings.Trim(strings.TrimPrefix(lines[0], "- "), "`"), Type: "", ID: id}
+	for _, line := range lines[1:] {
+		if name, found := strings.CutPrefix(line, "  - Name: "); found {
+			result.Name = name
+		}
+		if nodeType, found := strings.CutPrefix(line, "  - Type: "); found {
+			result.Type = strings.Trim(nodeType, "`")
+		}
 	}
-	id, err := uuid.Parse(strings.TrimSuffix(line[marker+len(seedlessRawIDMarker):], "`"))
-	if err != nil {
-		t.Fatalf("parse result line %q: %v", line, err)
+	if result.Type == "" {
+		t.Fatalf("result item has no node type:\n%s", item)
 	}
-	return seedlessResult{Name: head[:typeStart], Type: strings.TrimSuffix(head[typeStart+len(" ("):], ")"), ID: id}
+	return result
 }

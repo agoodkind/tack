@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/datagen"
 )
 
 type rawRPCResponse struct {
@@ -31,6 +32,8 @@ type rawToolResult struct {
 
 var rawRequestCounter atomic.Int64
 
+// callToolSuccess requires one successful text result from an MCP tool.
+// It records created nodes in harness.titles and returns the result text.
 func callToolSuccess(t *testing.T, harness *MCPHarness, toolName string, arguments map[string]any) string {
 	t.Helper()
 	result := callToolRaw(t, harness, toolName, arguments)
@@ -40,7 +43,13 @@ func callToolSuccess(t *testing.T, harness *MCPHarness, toolName string, argumen
 	if len(result.Content) != 1 || result.Content[0].Type != "text" {
 		t.Fatalf("%s content = %+v, want one text item", toolName, result.Content)
 	}
-	return result.Content[0].Text
+	text := result.Content[0].Text
+	if strings.HasPrefix(toolName, createToolPrefix) {
+		name, _ := arguments["name"].(string)
+		created := datagen.Result{Content: []datagen.ToolContent{{Type: "text", Text: text}}, IsError: false}
+		harness.registerCreated(t, created, name)
+	}
+	return text
 }
 
 func callToolRaw(t *testing.T, harness *MCPHarness, toolName string, arguments map[string]any) rawToolResult {

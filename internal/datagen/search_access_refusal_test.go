@@ -44,11 +44,10 @@ const (
 	memberEntryArgument = "workspace_reference"
 )
 
-// TestRefusedRejectsNonAuthorizationToolError runs refused against the real
-// MCP handler with public search enabled. A member's malformed cursor returns
-// the tool error "cursor is invalid", and refused must fail on this tool
-// error. An unknown bearer token and a caller with no organization have
-// their own cases below.
+// TestRefusedRejectsNonAuthorizationToolError checks refused through the real
+// MCP handler with public search enabled. It requires refused to reject the
+// "cursor is invalid" tool error from a member's malformed cursor. It also
+// checks an unknown bearer token and a caller without an organization.
 func TestRefusedRejectsNonAuthorizationToolError(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("DATABASE_URL", testenv.Ledger(t))
@@ -89,7 +88,7 @@ func TestRefusedRejectsNonAuthorizationToolError(t *testing.T) {
 		driver: NewDriver(graph, false, searchRefusalSeed), token: member, entry: workspace.Slug,
 		limits: searchLimits{MaxResults: 0, MaxResponseBytes: 0}, fixture: searchFixture{}, phrases: searchPhrases{}, pages: graph,
 	}
-	_, callErr := callSearch(ctx, run.driver, member, workspace.Slug, accessPhrase, malformedSearchCursor)
+	_, callErr := callSearch(ctx, run.driver, SearchIdentities{Titles: NewSearchTitles(), Resolve: nil}, member, workspace.Slug, accessPhrase, malformedSearchCursor)
 	var toolError *toolCallError
 	if !errors.As(callErr, &toolError) || !strings.Contains(toolError.message, invalidCursorProblem) {
 		t.Fatalf("member search with a malformed cursor = %v, want the tool error %q", callErr, invalidCursorProblem)
@@ -101,10 +100,9 @@ func TestRefusedRejectsNonAuthorizationToolError(t *testing.T) {
 	requireNoOrganizationRefusal(t, cfg, run, workspace)
 }
 
-// requireUnknownBearerRejected requires HTTP 401 from tools/list and from
-// tack_search for an unknown bearer token. isAuthorizationRefusal accepts the
-// tack_search 401. refused fails for this token because it requires a
-// successful tools/list read before the tack_search call.
+// requireUnknownBearerRejected checks that tools/list and tack_search return
+// HTTP 401 for an unknown bearer token. It requires isAuthorizationRefusal to
+// accept the tack_search refusal and refused to fail on the tools/list error.
 func requireUnknownBearerRejected(t *testing.T, run searchRun, token, entry string) {
 	t.Helper()
 	ctx := t.Context()
@@ -112,7 +110,7 @@ func requireUnknownBearerRejected(t *testing.T, run searchRun, token, entry stri
 	if !isAuthenticationRejection(listErr) {
 		t.Fatalf("tools/list with an unknown bearer token = %v, want HTTP 401", listErr)
 	}
-	_, searchErr := callSearch(ctx, run.driver, token, entry, accessPhrase, "")
+	_, searchErr := callSearch(ctx, run.driver, SearchIdentities{Titles: NewSearchTitles(), Resolve: nil}, token, entry, accessPhrase, "")
 	if !isAuthenticationRejection(searchErr) || !isAuthorizationRefusal(searchErr, entry) {
 		t.Fatalf("tack_search with an unknown bearer token = %v, want an accepted HTTP 401", searchErr)
 	}

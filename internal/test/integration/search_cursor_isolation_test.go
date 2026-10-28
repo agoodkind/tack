@@ -23,7 +23,7 @@ func actorHarness(fixture queryFixture, workspace datagen.WorkspaceIdentity, ind
 	return &MCPHarness{
 		driver: fixture.Harness.driver, handler: fixture.Harness.handler, token: workspace.Actors[index].Token,
 		ledgerDSN: fixture.Harness.ledgerDSN, orgID: workspace.OrgID, Workspace: workspace.Slug, Project: "",
-		outbox: fixture.Harness.outbox,
+		outbox: fixture.Harness.outbox, titles: fixture.Harness.titles,
 	}
 }
 

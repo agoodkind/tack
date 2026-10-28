@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -48,8 +49,9 @@ func callSearch(t *testing.T, harness *MCPHarness, query, cursor string) searchP
 	return page
 }
 
-// trySearch performs one authenticated call and returns an error instead of
-// failing the test. Concurrent goroutines use it.
+// trySearch calls tack_search as the harness caller and resolves result IDs
+// with the harness identities. It returns call and parsing errors without
+// failing the test and supports calls from concurrent goroutines.
 func trySearch(harness *MCPHarness, query, cursor string) (searchPage, error) {
 	text, isError, err := rawSearchCall(harness, searchArguments(harness, query, cursor))
 	if err != nil {
@@ -58,7 +60,7 @@ func trySearch(harness *MCPHarness, query, cursor string) (searchPage, error) {
 	if isError {
 		return searchPage{}, errors.New(text)
 	}
-	return parseSearchPage(text)
+	return parseSearchPage(context.Background(), text, harness.searchIdentities())
 }
 
 func rawSearchCall(harness *MCPHarness, arguments map[string]any) (string, bool, error) {
@@ -124,30 +126,46 @@ func rawCallStatus(t *testing.T, harness *MCPHarness, tool string, arguments map
 	return recorder.Code
 }
 
-// parseSearchPage reads result IDs, the next cursor, and completion.
-func parseSearchPage(text string) (searchPage, error) {
-	page := searchPage{IDs: []uuid.UUID{}, Cursor: "", Complete: strings.Contains(text, "The search has no more results.")}
+// searchCursorMarker precedes the continuation cursor on a page that has
+// more results.
+const searchCursorMarker = "Next cursor: `"
+
+// parseSearchPage resolves result node IDs through identities, reads the
+// continuation cursor, and checks the printed result count. It marks the page
+// complete when the response omits the cursor.
+func parseSearchPage(ctx context.Context, text string, identities datagen.SearchIdentities) (searchPage, error) {
+	items := datagen.SearchResultItems(text)
+	nodeIDs, err := identities.IDs(ctx, items)
+	if err != nil {
+		return searchPage{}, fmt.Errorf("%w:\n%s", err, text)
+	}
+	page := searchPage{IDs: nodeIDs, Cursor: "", Complete: false}
 	for _, line := range strings.Split(text, "\n") {
-		if marker := strings.LastIndex(line, "Raw id: `"); marker >= 0 {
-			value := strings.TrimSuffix(line[marker+len("Raw id: `"):], "`")
-			id, err := uuid.Parse(value)
-			if err != nil {
-				return searchPage{}, fmt.Errorf("parse result id %q: %w", value, err)
-			}
-			page.IDs = append(page.IDs, id)
-		}
-		if strings.HasPrefix(line, "Next cursor: `") {
-			page.Cursor = strings.TrimSuffix(strings.TrimPrefix(line, "Next cursor: `"), "`")
+		if marker := strings.Index(line, searchCursorMarker); marker >= 0 {
+			page.Cursor = strings.TrimSuffix(line[marker+len(searchCursorMarker):], "`")
 		}
 	}
-	if page.Complete == (page.Cursor != "") {
-		return searchPage{}, fmt.Errorf("page must have exactly one of a cursor or completion:\n%s", text)
+	page.Complete = page.Cursor == ""
+	countLine := fmt.Sprintf("\n%d results shown.\n", len(items))
+	if !strings.Contains(text, countLine) {
+		return searchPage{}, fmt.Errorf("page has %d result items but no matching count line:\n%s", len(items), text)
 	}
 	return page, nil
 }
 
-// callEverySearchPage follows every cursor, alternating between harnesses
-// when more than one is given, until the response reports completion.
+// searchIdentities pairs the harness registry with get tool lookups for
+// unmatched results. Each lookup uses the result's node type and the harness
+// caller's token and workspace entry.
+func (h *MCPHarness) searchIdentities() datagen.SearchIdentities {
+	return datagen.ReferenceIdentities(h.titles, h.driver, h.token, h.Workspace)
+}
+
+func searchResultItems(text string) []string {
+	return datagen.SearchResultBlocks(text)
+}
+
+// callEverySearchPage follows each cursor until a page omits the cursor.
+// It alternates between harnesses when the caller supplies more than one.
 func callEverySearchPage(t *testing.T, query string, harnesses ...*MCPHarness) searchPages {
 	t.Helper()
 	pages := searchPages{IDs: []uuid.UUID{}, Cursors: []string{}}

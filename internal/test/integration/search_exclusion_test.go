@@ -37,8 +37,8 @@ func TestSearchRebuildExcludesOrphanNodes(t *testing.T) {
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
 	steady := putOpaqueNode(t, fixture, kind, entry, "steady node", "amber orphan steady", readerExcludedValue)
 	drainSearchWork(t, fixture.Worker, 2000)
-	orphan := putOrphanNode(t, kind, "orphan node", "amber orphan repaired")
-	deleted := putOrphanNode(t, kind, "deleted orphan", "amber orphan deleted")
+	orphan := putOrphanNode(t, fixture, kind, "orphan node", "amber orphan repaired")
+	deleted := putOrphanNode(t, fixture, kind, "deleted orphan", "amber orphan deleted")
 
 	request := searchdomain.BeginRebuild{Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 24, Replicas: 0, Restored: false, Reason: "test"}
 	rebuild := beginRebuild(t, fixture, request)

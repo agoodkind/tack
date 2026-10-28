@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/adapters/postgres"
+	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/domain/org"
 	"goodkind.io/tack/internal/domain/user"
 	"goodkind.io/tack/internal/test/integration"
@@ -31,6 +32,7 @@ type seedlessOrg struct {
 	Token        string
 	Keys         seedlessKeys
 	Nodes        map[string]uuid.UUID
+	Titles       *datagen.SearchTitles
 }
 
 // putSeedlessOrg writes the organization root and entry node through the
@@ -42,8 +44,9 @@ func putSeedlessOrg(t *testing.T, env seedlessEnvironment, keys seedlessKeys) se
 	built := seedlessOrg{
 		OrgID: uuid.Must(uuid.NewV7()), EntryID: uuid.Must(uuid.NewV7()),
 		EntryAddress: opaqueSeedlessKey("e"), UserID: uuid.Nil, Token: "", Keys: keys,
-		Nodes: map[string]uuid.UUID{},
+		Nodes: map[string]uuid.UUID{}, Titles: datagen.NewSearchTitles(),
 	}
+	built.Titles.Add(datagen.SearchItem{Title: built.EntryAddress, NodeType: keys.Entry}, built.EntryID)
 	putSeedlessMetadata(t, env, built.OrgID, keys)
 	root := newSeedlessHierarchyNode(built.OrgID, built.OrgID, keys.Root, seedlessRootName, keys.Address, opaqueSeedlessKey("r"))
 	putSeedlessHierarchyNode(t, env, root, uuid.Nil, []string{keys.Address})

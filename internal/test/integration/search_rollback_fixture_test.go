@@ -49,6 +49,7 @@ type rolloutFixture struct {
 	workspaces []datagen.WorkspaceIdentity
 	worker     *service.SearchWorker
 	nodes      *service.NodeService
+	titles     *datagen.SearchTitles
 }
 
 // newRolloutFixture provisions the model and one serving index behind the
@@ -98,7 +99,7 @@ func newRolloutFixture(t *testing.T) rolloutFixture {
 	return rolloutFixture{
 		stores: stores, adapter: adapter, client: client, engine: engine, index: index, cfg: cfg,
 		handler: graph.AuthMiddleware(graph.MCPHandler), workspaces: identities.Workspaces,
-		worker: newRolloutWorker(t, stores, adapter), nodes: nodes,
+		worker: newRolloutWorker(t, stores, adapter), nodes: nodes, titles: datagen.NewSearchTitles(),
 	}
 }
 

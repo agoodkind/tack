@@ -30,7 +30,8 @@ type SearchBinding struct {
 // response before it reads any argument. Otherwise the same registration
 // runs ranked search. The schema offers no scope arguments because ranked
 // search covers the whole entry point.
-func RegisterSearch(s *mcpserver.MCPServer, resolver *Resolver, binding SearchBinding) {
+func RegisterSearch(s *mcpserver.MCPServer, nodes NodeTypeBinding, binding SearchBinding) {
+	resolver := nodes.Resolver
 	tool := mcpmcp.Tool{
 		Name: "tack_search",
 		Description: "tack_search runs a ranked search over the nodes under one workspace. Each call returns at most 25 nodes. " +
@@ -58,7 +59,7 @@ func RegisterSearch(s *mcpserver.MCPServer, resolver *Resolver, binding SearchBi
 		if err := rejectUnknownArgs(request, tool.Name, allowed); err != nil {
 			return recoverableError(err.Error()), nil
 		}
-		return runSearch(ctx, request, resolver, binding), nil
+		return runSearch(ctx, request, nodes, binding), nil
 	}
 	s.AddTool(tool, wrapToolHandler(tool.Name, handler))
 }

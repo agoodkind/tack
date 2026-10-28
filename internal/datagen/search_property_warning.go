@@ -136,7 +136,8 @@ func (r searchRun) listedWarning(ctx context.Context, nodeID uuid.UUID, definiti
 	}
 }
 
-// putProps uses the node service to create a node with properties under the fixture entry.
+// putProps uses the node service to create a node with properties under the
+// fixture entry. It records the node's title and type for search result lookup.
 func (f searchFixture) putProps(ctx context.Context, name string, props map[string]json.RawMessage) (uuid.UUID, error) {
 	result, err := f.nodes.Create(ctx, service.CreateInput{
 		ParentID: f.entryID, ScopeID: uuid.Nil, NodeTypeKey: f.typeKey, Name: name, Props: props,
@@ -146,5 +147,6 @@ func (f searchFixture) putProps(ctx context.Context, name string, props map[stri
 	if err != nil {
 		return uuid.Nil, loggedError(ctx, "qa datagen: create search node "+name, err)
 	}
+	f.titles.Add(SearchItem{Title: name, NodeType: f.typeKey}, result.View.ID)
 	return result.View.ID, nil
 }

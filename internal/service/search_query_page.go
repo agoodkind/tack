@@ -16,9 +16,9 @@ import (
 const (
 	// summaryNameBytes bounds the name of one returned summary.
 	summaryNameBytes = 256
-	// resultOverheadBytes bounds the rendered bytes of one result beyond its
-	// name and node type, including its node ID.
-	resultOverheadBytes = 64
+	// resultOverheadBytes reserves bytes for list item fields and formatting
+	// beyond the summary name and node type.
+	resultOverheadBytes = 160
 	// responseReserveBytes bounds the rendered header and continuation cursor.
 	responseReserveBytes = 512
 )
@@ -36,7 +36,7 @@ type pageState struct {
 	pending bool
 }
 
-// ResultBytes is the rendered byte bound of one result.
+// ResultBytes returns the byte budget for rendering one search result.
 func ResultBytes(summary node.Summary) int {
 	return len(summary.Name) + len(summary.NodeType) + resultOverheadBytes
 }

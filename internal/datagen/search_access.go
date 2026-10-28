@@ -27,10 +27,10 @@ const (
 	revokedActorIndex = 2
 )
 
-// verifyAccess requires tack_search to return only nodes that the caller's
-// current membership allows. It bootstraps a second organization with
-// matching text, refuses each actor under the other organization's entry
-// node, replays one cursor, and refuses a member after removal.
+// verifyAccess checks result organizations against resolve records and requires
+// tack_search to enforce current membership. It creates matching text in a
+// second organization, checks refusal under each foreign entry, replays a
+// cursor, and checks refusal after membership removal.
 func (r searchRun) verifyAccess(ctx context.Context, cfg *config.Config, seed int64, workspace WorkspaceIdentity) error {
 	if len(workspace.Actors) <= revokedActorIndex {
 		return fmt.Errorf("qa datagen: workspace %s has %d actors, want more than %d", workspace.Slug, len(workspace.Actors), revokedActorIndex)
@@ -48,6 +48,13 @@ func (r searchRun) verifyAccess(ctx context.Context, cfg *config.Config, seed in
 	if err != nil {
 		return err
 	}
+	// Both runs record titles and IDs in one registry for the organization checks.
+	foreignFixture.titles = r.fixture.titles
+	foreignEntry, err := r.fixture.stores.Views.Get(ctx, foreignFixture.entryID)
+	if err != nil || foreignEntry == nil {
+		return loggedError(ctx, "qa datagen: read foreign entry node "+foreignFixture.entryID.String(), errMissing(err))
+	}
+	foreignFixture.titles.Add(SearchItem{Title: foreignWorkspace.Slug, NodeType: foreignEntry.NodeType}, foreignFixture.entryID)
 	callerNodes, err := putAccessNodes(ctx, r.fixture, "caller access case ", accessCallerNodes)
 	if err != nil {
 		return err
@@ -101,13 +108,11 @@ func putAccessNodes(ctx context.Context, fixture searchFixture, namePrefix strin
 	return nodes, nil
 }
 
-// isolated requires the complete traversal for accessPhrase to contain every
-// allowed node and no forbidden node. It also reads the resolve record of
-// every returned node and requires the organization of the run's fixture.
-// The traversal can return other caller-organization nodes, such as nodes
-// from an earlier run with the same seed.
+// isolated requires every allowed node and rejects every forbidden node across
+// all search pages for accessPhrase. It reads each result's resolve record and
+// rejects a result when its organization differs from the fixture organization.
 func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID) error {
-	results, err := traverseSearch(ctx, r.driver, r.token, r.entry, accessPhrase, r.limits)
+	results, err := traverseSearch(ctx, r.driver, r.identities(), r.token, r.entry, accessPhrase, r.limits)
 	if err != nil {
 		return err
 	}

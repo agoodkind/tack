@@ -96,6 +96,7 @@ type searchMixed struct {
 	stats      *searchMixedStats
 	phases     *searchMixedPhaseStats
 	corpusIndex *searchMixedCorpusIndex
+	titles     *SearchTitles
 	corpus     searchMixedCorpus  `exhaustruct:"optional"`
 	failureMutex sync.Mutex          `exhaustruct:"optional"`
 	failures   []error               `exhaustruct:"optional"`

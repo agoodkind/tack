@@ -82,18 +82,17 @@ func countUnexpected(results, expected []uuid.UUID) int {
 	return unexpected
 }
 
-// traverse follows continuation cursors for query limited to nodeType. It
-// rejects a duplicate node, a repeated cursor, and a page above the public
-// result or byte bound.
-// traverse stops at a page boundary when stopAfter is positive and
-// the total node count is at least stopAfter.
+// traverse reads search pages for query and nodeType using only recorded node
+// identities. It rejects unresolved results, duplicate nodes, repeated cursors,
+// and pages above the public result or byte limit. When stopAfter is positive,
+// it stops after a page that brings the node count to at least stopAfter.
 func (s cohortSession) traverse(ctx context.Context, query, nodeType string, stopAfter int) ([]uuid.UUID, error) {
 	seen := make(map[uuid.UUID]struct{})
 	cursors := make(map[string]struct{})
 	ordered := make([]uuid.UUID, 0)
 	cursor := ""
 	for range maxSearchTraversalPages {
-		page, err := callTypedSearch(ctx, s.driver, s.token, s.entry, query, nodeType, cursor)
+		page, err := callTypedSearch(ctx, s.driver, SearchIdentities{Titles: s.titles, Resolve: nil}, s.token, s.entry, query, nodeType, cursor)
 		if err != nil {
 			return nil, err
 		}

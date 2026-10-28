@@ -24,14 +24,14 @@ const (
 	foreignMarker = "zephyrine"
 )
 
-// searchResponseLine matches every line a tack_search page may contain: the
-// heading, a blank line, a result, the empty-page line, the completion line,
-// and the cursor line. A count line or another field matches none of them.
+// searchResponseLine matches the permitted lines of a tack_search page.
 var searchResponseLine = regexp.MustCompile("^(#### Search results|" +
-	"|- .+ \\(.+\\) - Raw id: `[0-9a-f-]{36}`" +
-	"|- This page contains no authorized matches\\." +
-	"|The search has no more results\\." +
-	"|Next cursor: `[^`]+`)$")
+	"|[0-9]+ results shown\\." +
+	"|- `[^`]+`" +
+	"|  - Name: .+" +
+	"|  - (Type|State|Priority): `[^`]+`" +
+	"|  - Assigned: .+" +
+	"|More results exist\\. Next cursor: `[^`]+`)$")
 
 // searchResponseCountKeys lists JSON keys for a count value. The response
 // body must contain none of them.
@@ -118,9 +118,9 @@ func TestSearchResponseOmitsForeignOrganization(t *testing.T) {
 	requireCorpusOnce(t, callEverySearchPage(t, responseIsolationQuery, foreignCaller).IDs, foreignIDs, foreignEntry)
 }
 
-// callerTraversalWithoutForeign follows every page of the caller's search and
-// requires each whole response body to contain none of forbidden and each
-// tool text line to match the page grammar. It returns the result IDs.
+// callerTraversalWithoutForeign reads every search page and rejects response
+// bodies that contain a value from forbidden or tool text outside the page
+// grammar. It resolves result IDs through the harness identities.
 func callerTraversalWithoutForeign(t *testing.T, harness *MCPHarness, forbidden []string) []uuid.UUID {
 	t.Helper()
 	var seen []uuid.UUID
@@ -138,7 +138,7 @@ func callerTraversalWithoutForeign(t *testing.T, harness *MCPHarness, forbidden 
 				t.Fatalf("page %d contains a line outside the page grammar: %q", pageNumber, line)
 			}
 		}
-		page, err := parseSearchPage(text)
+		page, err := parseSearchPage(t.Context(), text, harness.searchIdentities())
 		if err != nil {
 			t.Fatalf("parse page %d: %v", pageNumber, err)
 		}

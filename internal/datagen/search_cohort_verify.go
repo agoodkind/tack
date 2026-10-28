@@ -45,6 +45,7 @@ type SearchCohortCase struct {
 // cohortSession searches as one workspace actor through authenticated MCP.
 type cohortSession struct {
 	driver *Driver
+	titles *SearchTitles
 	token  string
 	entry  string
 	limits searchLimits
@@ -86,8 +87,12 @@ func VerifySearchCohort(ctx context.Context, cfg *config.Config, seed int64) (Se
 	if workspace.Slug != manifest.WorkspaceReference {
 		return manifest, verification, fmt.Errorf("qa datagen: cohort workspace %s differs from actor workspace %s", manifest.WorkspaceReference, workspace.Slug)
 	}
+	titles := NewSearchTitles()
+	for _, prepared := range manifest.Nodes {
+		titles.Add(SearchItem{Title: prepared.Name, NodeType: prepared.NodeType}, prepared.ID)
+	}
 	session := cohortSession{
-		driver: NewDriver(graph, false, seed), token: workspace.Actors[0].Token, entry: workspace.Slug,
+		driver: NewDriver(graph, false, seed), titles: titles, token: workspace.Actors[0].Token, entry: workspace.Slug,
 		limits: searchLimits{MaxResults: limits.MaxResults, MaxResponseBytes: limits.MaxResponseBytes},
 	}
 	verification, err = session.verify(ctx, manifest.Cases)

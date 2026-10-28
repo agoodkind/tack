@@ -32,20 +32,13 @@ const (
 	pitTraversalPages = 100
 )
 
-// TestSearchCursorPointInTimeIgnoresLaterChanges opens a search session,
-// then creates, edits, and deletes issues through the MCP tools and indexes
-// every change. Under the session point in time, the raw engine matches
-// after the session sort position are the same before and after the changes
-// (spec lines 126-127). The public continuation returns the distinct nodes
-// of those raw matches that the first page did not return, minus the
-// deleted issue, which the summary check withholds (spec lines 128-129). A
-// new session returns the created issues and the edited name and omits the
-// deleted issue. A term read on node_id (a keyword field,
-// mapping_properties.go:31) returns the old stored name of the edited issue
-// under the session point in time. Under a point in time that the production
-// session open (QueryRanker.Open) creates after the changes, the same read
-// finds no active page with the old name, and a new public session for the
-// new name returns the issue.
+// TestSearchCursorPointInTimeIgnoresLaterChanges records a session's raw engine
+// matches, then creates, edits, and deletes issues through MCP and indexes the
+// changes. It requires the original snapshot to retain its matches and the
+// edited issue's old name. Continuation must return the remaining original
+// nodes except the deleted issue. Fresh searches must return the created issues
+// and the edited name and omit the deleted issue. Page parsing resolves
+// unrecorded results, including default project states, through their get tools.
 func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	harness := fixture.Harness
@@ -72,8 +65,8 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 		t.Fatalf("raw matches after the first page name %d nodes, want at least two", len(remaining))
 	}
 	edited, deleted := remaining[0], remaining[1]
-	// A deferred call runs after t.Fatalf while t.Context is still open.
-	// Cleanup functions run after t.Context is canceled.
+	// A deferred call can use t.Context after t.Fatalf. Test cleanup runs
+	// after the context ends.
 	defer func() {
 		if t.Failed() {
 			logLiveWorkAndPages(t, fixture, edited)

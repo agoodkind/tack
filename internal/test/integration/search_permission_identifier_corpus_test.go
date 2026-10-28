@@ -20,8 +20,8 @@ const identifierNodeCount = 12
 // tie by node ID, and new node IDs could then reorder tied nodes.
 const minimumScoreGap = 0.001
 
-// identifierTypeKeys are the container and nested type keys. Both builds use
-// the same keys, and each result line then shows the same type key.
+// identifierTypeKeys supplies the same container and nested type keys to both
+// builds for comparison of the Type fields in their search results.
 type identifierTypeKeys struct {
 	Container, Nested string
 }
@@ -116,33 +116,32 @@ func putNestedKind(t *testing.T, fixture queryFixture, orgID uuid.UUID, typeKey,
 	return kind
 }
 
-// identifierSearchLines follows every tack_search cursor and returns each
-// result line in response order.
-func identifierSearchLines(t *testing.T, harness *MCPHarness, query string) []string {
+// identifierSearchLines follows every tack_search cursor and resolves IDs
+// with the harness identities. It returns result items and IDs in matching
+// response order.
+func identifierSearchLines(t *testing.T, harness *MCPHarness, query string) ([]string, []uuid.UUID) {
 	t.Helper()
 	var lines []string
+	var ids []uuid.UUID
 	cursor := ""
 	for range 100 {
 		text, isError, err := rawSearchCall(harness, searchArguments(harness, query, cursor))
 		if err != nil || isError {
 			t.Fatalf("search %q: %v %s", query, err, text)
 		}
-		page, err := parseSearchPage(text)
+		page, err := parseSearchPage(t.Context(), text, harness.searchIdentities())
 		if err != nil {
 			t.Fatalf("parse search %q: %v", query, err)
 		}
-		for _, line := range strings.Split(text, "\n") {
-			if strings.HasPrefix(line, "- ") && strings.Contains(line, "Raw id: `") {
-				lines = append(lines, line)
-			}
-		}
+		lines = append(lines, searchResultItems(text)...)
+		ids = append(ids, page.IDs...)
 		if page.Complete {
-			return lines
+			return lines, ids
 		}
 		cursor = page.Cursor
 	}
 	t.Fatalf("search %q did not complete within 100 pages", query)
-	return nil
+	return nil, nil
 }
 
 // requireSeparatedScores requires the raw ranker to score every allowed node

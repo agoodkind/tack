@@ -7,7 +7,6 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
+	"goodkind.io/tack/internal/domain/node"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/test/integration"
 )
@@ -37,6 +37,7 @@ type rankingRun struct {
 	client    *opensearchapi.Client
 	cursors   *tools.SearchCursorCodec
 	names     map[uuid.UUID]string
+	titles    *datagen.SearchTitles
 }
 
 type rankingProbe struct {
@@ -51,6 +52,9 @@ type rankingPage struct {
 	Complete bool
 }
 
+// newRankingRun creates a ranking run and records the workspace entry node
+// in its title registry. Search can return that node, and the workspace type
+// does not provide a public get tool.
 func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *rankingRun {
 	t.Helper()
 	seed := clock.Now().UnixNano()
@@ -86,8 +90,14 @@ func newRankingRun(t *testing.T, cfg *config.Config, graph *appruntime.Graph) *r
 	run := &rankingRun{
 		driver: datagen.NewDriver(graph, false, seed), token: workspace.Actors[0].Token, workspace: workspace.Slug,
 		stores: stores, client: baseAPI, cursors: tools.NewSearchCursorCodec(key),
-		names: map[uuid.UUID]string{},
+		names: map[uuid.UUID]string{}, titles: datagen.NewSearchTitles(),
 	}
+	entryID := node.WorkspaceID(workspace.OrgID, workspace.Slug)
+	entry, err := stores.Views.Get(integration.WithTestOperation(t, t.Context()), entryID)
+	if err != nil || entry == nil {
+		t.Fatalf("read the workspace entry node %s: %v", entryID, err)
+	}
+	run.titles.Add(datagen.SearchItem{Title: workspace.Slug, NodeType: entry.NodeType}, entryID)
 	identifier := json.RawMessage(strconv.Quote(rankingProject))
 	run.call(t, "tack_create_project", datagen.ToolArguments{
 		WorkspaceReference: workspace.Slug, Name: "Ranking regression", Properties: datagen.NodeProperties{"identifier": identifier},
@@ -122,29 +132,18 @@ func (r *rankingRun) createIssue(t *testing.T, name, description string) uuid.UU
 		t.Fatalf("parse issue ID of %q: %v", name, err)
 	}
 	r.names[nodeID] = name
+	r.titles.Add(result.SearchItem(), nodeID)
 	return nodeID
 }
 
 func (r *rankingRun) search(t *testing.T, query, cursor string) rankingPage {
 	t.Helper()
 	text := r.call(t, "tack_search", datagen.ToolArguments{WorkspaceReference: r.workspace, Query: query, Cursor: cursor}).Text()
-	page := rankingPage{IDs: []uuid.UUID{}, Cursor: "", Complete: strings.Contains(text, "The search has no more results.")}
-	for _, line := range strings.Split(text, "\n") {
-		if marker := strings.LastIndex(line, "Raw id: `"); marker >= 0 {
-			nodeID, err := uuid.Parse(strings.TrimSuffix(line[marker+len("Raw id: `"):], "`"))
-			if err != nil {
-				t.Fatalf("parse search result ID in %q: %v", line, err)
-			}
-			page.IDs = append(page.IDs, nodeID)
-		}
-		if strings.HasPrefix(line, "Next cursor: `") {
-			page.Cursor = strings.TrimSuffix(strings.TrimPrefix(line, "Next cursor: `"), "`")
-		}
+	parsed, err := integration.ParseSearchPage(t.Context(), text, datagen.ReferenceIdentities(r.titles, r.driver, r.token, r.workspace))
+	if err != nil {
+		t.Fatalf("parse search page: %v", err)
 	}
-	if page.Complete == (page.Cursor != "") {
-		t.Fatalf("search page must have exactly one of a cursor or completion:\n%s", text)
-	}
-	return page
+	return rankingPage{IDs: parsed.IDs, Cursor: parsed.Cursor, Complete: parsed.Complete}
 }
 
 func (r *rankingRun) require(t *testing.T, phase string, probe rankingProbe) {

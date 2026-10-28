@@ -15,6 +15,7 @@ import (
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -56,11 +57,11 @@ func (report searchVerifyReport) reason(nodeID uuid.UUID) (string, bool) {
 	return "", false
 }
 
-// putOrphanNode creates one node of kind without a hierarchy parent through
-// stores that schedule no search work. The node matches a node written
-// before search work existed. A replacement scan is the first search
-// operation that reads it.
-func putOrphanNode(t *testing.T, kind opaqueKind, name, included string) uuid.UUID {
+// putOrphanNode creates a node of kind without a hierarchy parent and
+// records it in fixture.Harness.titles. The stores do not schedule search
+// work for the write. A replacement scan must read the node without a
+// search work item.
+func putOrphanNode(t *testing.T, fixture queryFixture, kind opaqueKind, name, included string) uuid.UUID {
 	t.Helper()
 	stores, err := fdbadapter.NewStores(testenv.FoundationDB(t), testTransactionTimeout, nil)
 	if err != nil {
@@ -74,6 +75,7 @@ func putOrphanNode(t *testing.T, kind opaqueKind, name, included string) uuid.UU
 	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, view, nil, nil, nil, nil); err != nil {
 		t.Fatalf("create orphan node: %v", err)
 	}
+	fixture.Harness.titles.Add(datagen.SearchItem{Title: name, NodeType: kind.TypeKey}, nodeID)
 	return nodeID
 }
 

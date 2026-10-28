@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -19,7 +21,8 @@ const searchCursorParam = "cursor"
 // runSearch resolves the workspace entry point, reads the caller's
 // organization memberships, runs one ranked page, and renders the bounded
 // result list.
-func runSearch(ctx context.Context, request mcpmcp.CallToolRequest, resolver *Resolver, binding SearchBinding) *mcpmcp.CallToolResult {
+func runSearch(ctx context.Context, request mcpmcp.CallToolRequest, nodes NodeTypeBinding, binding SearchBinding) *mcpmcp.CallToolResult {
+	resolver := nodes.Resolver
 	args, err := bindArgs(request)
 	if err != nil {
 		return recoverableError("arguments must be a JSON object: " + err.Error())
@@ -63,13 +66,15 @@ func runSearch(ctx context.Context, request mcpmcp.CallToolRequest, resolver *Re
 	if err != nil {
 		return searchFailureResult(ctx, err)
 	}
-	for _, result := range page.Results {
-		audit.AddReadTargets(ctx, entry.OrgID, audit.Target{
-			Kind: audit.TargetKindNode, NodeType: result.NodeType, Reference: "", Name: "", URI: "",
-			RelationType: "", ID: result.ID, SourceID: uuid.Nil, TargetID: uuid.Nil,
-		})
+	views, err := searchResultViews(ctx, nodes.Reader, page.Results)
+	if err != nil {
+		return unexpectedError(ctx, err)
 	}
-	return successText(renderSearchPage(page, binding.Cursors), "")
+	rc := newRenderCtxWithTypes(ctx, nodes.Reader, nodes.Users, resolver.typeIndex)
+	if err := rc.loadAssignees(nodes.Relationships, slices.Collect(maps.Values(views))...); err != nil {
+		return classifyError(ctx, err)
+	}
+	return successText(renderSearchPage(rc, page, views, binding.Cursors), "")
 }
 
 // resolveSearchNodeType accepts a node type key or slug and returns its key.
@@ -83,24 +88,6 @@ func resolveSearchNodeType(resolver *Resolver, input string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func renderSearchPage(page service.SearchPage, cursors *SearchCursorCodec) string {
-	var text strings.Builder
-	text.WriteString("#### Search results\n\n")
-	if len(page.Results) == 0 {
-		text.WriteString("- This page contains no authorized matches.\n")
-	}
-	for _, result := range page.Results {
-		name := strings.Join(strings.Fields(result.Name), " ")
-		text.WriteString("- " + name + " (" + result.NodeType + ") - Raw id: `" + result.ID.String() + "`\n")
-	}
-	if page.Complete {
-		text.WriteString("\nThe search has no more results.\n")
-		return text.String()
-	}
-	text.WriteString("\nNext cursor: `" + cursors.Encode(page.SessionID, page.NextVersion) + "`\n")
-	return text.String()
 }
 
 // searchFailureResult returns an explicit error for every failed call.
