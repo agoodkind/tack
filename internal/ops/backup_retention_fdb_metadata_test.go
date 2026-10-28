@@ -147,30 +147,39 @@ const (
 	retentionRemovalTimeout      = 10 * time.Second
 )
 
-// retentionContainerGone waits for Docker to finish removing a retention container. It
-// returns false with the last observed status when the container still exists after
-// retentionRemovalTimeout.
+// retentionContainerGone waits up to retentionRemovalTimeout for Docker to report that a
+// retention container does not exist. It returns false with the last observed status when
+// the container still exists, or with the context error when ctx ends first.
 func retentionContainerGone(ctx context.Context, cli *client.Client, identifier string) (bool, string) {
-	deadline := time.Now().Add(retentionRemovalTimeout)
-	for {
-		state, err := cli.ContainerInspect(ctx, identifier, client.ContainerInspectOptions{})
-		if cerrdefs.IsNotFound(err) || ctx.Err() != nil {
+	waitCtx, cancel := context.WithTimeout(ctx, retentionRemovalTimeout)
+	defer cancel()
+	status := "unknown"
+	for waitCtx.Err() == nil {
+		state, err := cli.ContainerInspect(waitCtx, identifier, client.ContainerInspectOptions{})
+		if cerrdefs.IsNotFound(err) {
 			return true, ""
 		}
-		status := "unknown"
-		switch {
-		case err != nil:
-			status = err.Error()
-		case state.Container.State != nil:
-			status = string(state.Container.State.Status)
-		}
-		if time.Now().After(deadline) {
-			return false, status
+		if waitCtx.Err() == nil {
+			status = retentionContainerStatus(state, err)
 		}
 		select {
-		case <-ctx.Done():
-			return true, ""
+		case <-waitCtx.Done():
 		case <-time.After(retentionRemovalPollInterval):
 		}
 	}
+	if ctx.Err() != nil {
+		return false, ctx.Err().Error()
+	}
+	return false, status
+}
+
+// retentionContainerStatus returns the inspect error text or the container state status.
+func retentionContainerStatus(state client.ContainerInspectResult, err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	if state.Container.State == nil {
+		return "unknown"
+	}
+	return string(state.Container.State.Status)
 }
