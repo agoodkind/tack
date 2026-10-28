@@ -78,11 +78,11 @@ func readPendingSearchWork(ctx context.Context, snapshot fdb.Snapshot) (map[sear
 	prefix := fdbadapter.TestPrefixRange()
 	pending := make(map[searchdomain.WorkClass]searchClassBacklog)
 	for _, class := range searchdomain.ScheduledWorkClasses() {
-		backlog, found, err := readClassSearchWork(ctx, snapshot, prefix, class)
+		backlog, err := readClassSearchWork(ctx, snapshot, prefix, class)
 		if err != nil {
 			return nil, err
 		}
-		if found {
+		if backlog.nonemptyBuckets > 0 {
 			pending[class] = backlog
 		}
 	}
@@ -91,14 +91,14 @@ func readPendingSearchWork(ctx context.Context, snapshot fdb.Snapshot) (map[sear
 
 // readClassSearchWork reads each nonempty bucket's first age key for one class.
 // It counts those buckets, selects the oldest key, and reads the state of that key's work record.
-// It returns false when the class does not have any age keys.
+// If the class does not have age keys, it returns a backlog with nonemptyBuckets equal to zero.
 func readClassSearchWork(
 	ctx context.Context, snapshot fdb.Snapshot, prefix []byte, class searchdomain.WorkClass,
-) (searchClassBacklog, bool, error) {
+) (searchClassBacklog, error) {
 	backlog := searchClassBacklog{oldest: time.Time{}, nonemptyBuckets: 0, oldestRecord: ""}
 	classRange, err := fdb.PrefixRange(prefixedKey(prefix, tuple.Tuple{searchAgeFamily, string(class)}))
 	if err != nil {
-		return backlog, false, loggedError(ctx, "the command could not create a key range for pending search work in class "+string(class), err)
+		return backlog, loggedError(ctx, "the command could not create a key range for pending search work in class "+string(class), err)
 	}
 	begin := classRange.Begin.FDBKey()
 	end := classRange.End.FDBKey()
@@ -106,14 +106,14 @@ func readClassSearchWork(
 	for {
 		key, err := snapshot.GetKey(fdb.FirstGreaterOrEqual(begin)).Get()
 		if err != nil {
-			return backlog, false, loggedError(ctx, "the command could not read a pending search work key for class "+string(class), err)
+			return backlog, loggedError(ctx, "the command could not read a pending search work key for class "+string(class), err)
 		}
 		if bytes.Compare(key, end) >= 0 {
 			break
 		}
 		entry, err := unpackSearchAgeKey(ctx, bytes.TrimPrefix(key, prefix))
 		if err != nil {
-			return backlog, false, err
+			return backlog, err
 		}
 		if backlog.nonemptyBuckets == 0 || entry.enqueued < oldest.enqueued {
 			oldest = entry
@@ -122,14 +122,14 @@ func readClassSearchWork(
 		begin = fdb.Key(prefixedKey(prefix, tuple.Tuple{searchAgeFamily, string(class), entry.bucket + 1}))
 	}
 	if backlog.nonemptyBuckets == 0 {
-		return backlog, false, nil
+		return backlog, nil
 	}
 	backlog.oldest = time.Unix(0, oldest.enqueued)
 	backlog.oldestRecord, err = searchAgeEntryRecord(ctx, snapshot, prefix, class, oldest)
 	if err != nil {
-		return backlog, false, err
+		return backlog, err
 	}
-	return backlog, true, nil
+	return backlog, nil
 }
 
 func prefixedKey(prefix []byte, key tuple.Tuple) []byte {
