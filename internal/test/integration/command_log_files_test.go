@@ -72,6 +72,38 @@ func TestCommandWritesItsOwnLogFiles(t *testing.T) {
 	if !found {
 		t.Fatalf("no command log file records log.command_files_removed with removed 1: %v", matches)
 	}
+	requireUnlistableCommandLogsStopCommand(t, binary, logs)
+}
+
+// requireUnlistableCommandLogsStopCommand runs the dry run with LOG_COMMAND_DIR set to a
+// directory with mode 0300, which the process can write to but cannot list. The command must
+// exit with a nonzero status before it prints the dry run plan, and its JSON log file must
+// record log.command_files_list_failed. The check skips when the test runs as root, because
+// root lists the directory despite its mode.
+func requireUnlistableCommandLogsStopCommand(t *testing.T, binary, logs string) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Log("skipping the unlistable LOG_COMMAND_DIR check because root can list a directory with mode 0300")
+		return
+	}
+	unlistable := filepath.Join(logs, "unlistable")
+	if err := os.Mkdir(unlistable, 0o300); err != nil {
+		t.Fatalf("create the unlistable command log directory: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(unlistable, 0o700) })
+	process := exec.CommandContext(t.Context(), binary,
+		"--operator-service", "tack-command-log-test", "ops", "qa", "datagen", "search-mixed")
+	process.Env = append(os.Environ(), "DATABASE_URL=postgres://command-log-test.invalid/tack",
+		"LOG_DISABLE_STDOUT=true", "LOG_JSON_FILE="+filepath.Join(logs, "app.jsonl"),
+		"LOG_TEXT_FILE="+filepath.Join(logs, "app.log"), "LOG_COMMAND_DIR="+unlistable, "LOG_MAX_AGE_DAYS=1")
+	output, err := process.CombinedOutput()
+	if err == nil || bytes.Contains(output, []byte("would run")) {
+		t.Fatalf("the dry run with an unlistable LOG_COMMAND_DIR = %v, want a nonzero exit before the plan:\n%s", err, output)
+	}
+	if err := os.Chmod(unlistable, 0o700); err != nil {
+		t.Fatalf("make the command log directory listable: %v", err)
+	}
+	requireOneCommandLog(t, filepath.Join(unlistable, commandLogPrefix+"*.jsonl"), "log.command_files_list_failed")
 }
 
 func runSearchMixedDryRun(t *testing.T, binary string, environment []string) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -22,17 +23,18 @@ var commandLogFilePattern = regexp.MustCompile(
 
 const logRetentionDay = 24 * time.Hour
 
-func removeExpiredCommandLogs(ctx context.Context, dir string, maxAgeDays int) {
+func removeExpiredCommandLogs(ctx context.Context, dir string, maxAgeDays int) error {
 	if maxAgeDays <= 0 {
-		return
+		return nil
 	}
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		return
+		return nil
 	}
 	if err != nil {
-		slog.ErrorContext(ctx, "log.command_files_list_failed", slog.String("dir", dir), slog.String("err", err.Error()))
-		return
+		wrapped := fmt.Errorf("list command log directory %s: %w", dir, err)
+		slog.ErrorContext(ctx, "log.command_files_list_failed", slog.String("dir", dir), slog.String("err", wrapped.Error()))
+		return wrapped
 	}
 	cutoff := clock.Now().Add(-time.Duration(maxAgeDays) * logRetentionDay)
 	removed := 0
@@ -40,21 +42,42 @@ func removeExpiredCommandLogs(ctx context.Context, dir string, maxAgeDays int) {
 		if !entry.Type().IsRegular() || !commandLogFilePattern.MatchString(entry.Name()) {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name())
-		info, err := entry.Info()
+		deleted, err := removeExpiredCommandLog(ctx, filepath.Join(dir, entry.Name()), entry, cutoff)
 		if err != nil {
-			slog.ErrorContext(ctx, "log.command_file_stat_failed", slog.String("path", path), slog.String("err", err.Error()))
-			continue
+			return err
 		}
-		if !info.ModTime().Before(cutoff) {
-			continue
+		if deleted {
+			removed++
 		}
-		if err := os.Remove(path); err != nil {
-			slog.ErrorContext(ctx, "log.command_file_remove_failed", slog.String("path", path), slog.String("err", err.Error()))
-			continue
-		}
-		removed++
 	}
 	slog.InfoContext(ctx, "log.command_files_removed", slog.String("dir", dir), slog.Int("removed", removed),
 		slog.Int("max_age_days", maxAgeDays))
+	return nil
+}
+
+// removeExpiredCommandLog reports whether it deleted the file. A file that another process
+// deleted after the directory listing is not an error.
+func removeExpiredCommandLog(ctx context.Context, path string, entry fs.DirEntry, cutoff time.Time) (bool, error) {
+	info, err := entry.Info()
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		wrapped := fmt.Errorf("stat command log file %s: %w", path, err)
+		slog.ErrorContext(ctx, "log.command_file_stat_failed", slog.String("path", path), slog.String("err", wrapped.Error()))
+		return false, wrapped
+	}
+	if !info.ModTime().Before(cutoff) {
+		return false, nil
+	}
+	err = os.Remove(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		wrapped := fmt.Errorf("remove command log file %s: %w", path, err)
+		slog.ErrorContext(ctx, "log.command_file_remove_failed", slog.String("path", path), slog.String("err", wrapped.Error()))
+		return false, wrapped
+	}
+	return true, nil
 }
