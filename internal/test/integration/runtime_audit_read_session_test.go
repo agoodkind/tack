@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"errors"
 	"math/rand/v2"
 	"testing"
 	"time"
@@ -91,11 +92,12 @@ func TestRuntimeAuditReadCleanupSkipsLockedReceipt(t *testing.T) {
 // application login, expires its lease, and locks its pending row in another
 // transaction. RecoverExpired waits for the lock. The lock transaction then
 // commits a write to the row to attempt to trigger an internal YugabyteDB
-// retry of the ops_read_recover statement. The application connection must
-// then run as the application login and must validate a token. RecoverExpired must save an incomplete
-// outcome. The test logs the RecoverExpired error and does not require it to
-// be nil, because the read lifecycle reports a changed session role after
-// the recovery commits (TACK-583).
+// retry of the ops_read_recover statement. In CI run 40628475074, the
+// connection that ran the statement reported ops_outbox_owner as
+// current_user after the commit (TACK-583). RecoverExpired must return nil
+// or an error that wraps audit.ErrSessionRoleChanged, and it must save an
+// incomplete outcome. The next application connection must run as the
+// application login and must validate a token.
 func TestRuntimeAuditReadRecoveryRetryKeepsSessionRole(t *testing.T) {
 	fixture := newSessionRoleFixture(t)
 	read := newReadFixture(t)
@@ -115,6 +117,9 @@ func TestRuntimeAuditReadRecoveryRetryKeepsSessionRole(t *testing.T) {
 	recovery, waited := awaitAfterLock(t, transaction, result)
 	t.Logf("recovery saved %d reads, waited for the lock = %t, error = %v", recovery.count, waited, recovery.err)
 	fixture.requireApplicationSession(t, "after recovery")
+	if recovery.err != nil && !errors.Is(recovery.err, audit.ErrSessionRoleChanged) {
+		t.Fatalf("recover the expired read: %v; want nil or an error that wraps audit.ErrSessionRoleChanged", recovery.err)
+	}
 	var incomplete, rows int
 	state := readTestSQL(t, "runtime_audit_read_session_state.sql")
 	if err := fixture.admin.QueryRow(t.Context(), state, []uuid.UUID{eventID}).Scan(&incomplete, &rows); err != nil {
