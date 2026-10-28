@@ -21,7 +21,7 @@ import (
 // events name, one update per token, inside the batch transaction. The update
 // keeps whichever time is later, so an event delivered out of order or twice
 // can never move a token's last use backwards.
-func recordTokenUses(ctx context.Context, tx pgx.Tx, projected []projectedEvent) error {
+func recordTokenUses(ctx context.Context, tx pgx.Tx, projected []committedAuthEvent) error {
 	newest := newestTokenUses(projected)
 	for _, tokenID := range sortedTokenIDs(newest) {
 		if _, err := tx.Exec(ctx, `
@@ -39,7 +39,7 @@ func recordTokenUses(ctx context.Context, tx pgx.Tx, projected []projectedEvent)
 
 // newestTokenUses folds a batch down to the latest accepted-auth time per
 // token, skipping events that accepted no token.
-func newestTokenUses(projected []projectedEvent) map[uuid.UUID]time.Time {
+func newestTokenUses(projected []committedAuthEvent) map[uuid.UUID]time.Time {
 	newest := map[uuid.UUID]time.Time{}
 	for _, event := range projected {
 		if event.Action != string(VerbAuthTokenUsed) || event.APITokenID == uuid.Nil {

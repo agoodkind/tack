@@ -1,6 +1,6 @@
-# Builds the audit-consumer image: the single writer of audit.events and the
-# ClickHouse projection. It tails Kafka, writes Yugabyte and ClickHouse, and
-# drains the operator-command outboxes, one of which lives in FoundationDB. The
+# Builds the audit-consumer image: the single writer of audit.events. It tails
+# Kafka, writes YugabyteDB, and drains the operator-command outboxes, one of
+# which lives in FoundationDB. The
 # FoundationDB Go bindings are a CGO wrapper over the C client, so this image
 # installs that client and builds with CGO enabled, the same way the server
 # image does.

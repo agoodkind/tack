@@ -208,9 +208,8 @@ ledger read, and zero synchronous broker round trips:
 
 ## Derived stores
 
-The search index and ClickHouse analytics projection rebuild from their
-authoritative data and are not backed up. Temporal
-workflow state has no backup, matching the recovery runbook.
+The search index rebuilds from its authoritative data and does not need a backup.
+Temporal workflow state has no backup, matching the recovery runbook.
 
 ## Backups on this topology
 
@@ -267,7 +266,7 @@ continues to manage each deployment field until a provider adopts that field.
   The prune never touches volumes, so no persisted data is at risk.
 - Every loopback and compose-internal address in the rendered environment
   becomes a routable address from the mapping: the ops database URL, the
-  audit database strings, the Kafka broker list, and the ClickHouse string.
+  audit database strings and the Kafka broker list.
 - Before sizing is committed, read the hypervisor's real free capacity. The
   repo declares about 64 GB already committed across guests and does not
   record the physical ceiling. If the reading comes up short, the unmanaged

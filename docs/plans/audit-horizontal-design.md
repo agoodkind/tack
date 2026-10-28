@@ -37,9 +37,8 @@ notarizer process, PII service) do not change.
 This rules out single-host-only choices that have no horizontal-scale
 analog: SQLite as the broker, on-host file system as the cold archive,
 in-memory key-value caches that cannot be partitioned. It permits choices
-that scale by configuration (Apache Kafka with one broker scales to many
-brokers by reconfiguration; ClickHouse with one shard scales to many shards
-by reconfiguration).
+that scale by configuration, such as Apache Kafka scaling from one broker to
+many brokers by reconfiguration.
 
 ### 1.3 Every component runs identically on N=1 and N=many
 
@@ -147,24 +146,12 @@ does not.
 |                        +-----------------+                  |
 |                                                             |
 |       +-----------------------------+                       |
-|       | ClickHouse (1 node, optional in N=1)                |
-|       | - hot OLAP, 90 day retention                        |
-|       | - fed by audit-consumer parallel sink              |
-|       +-----------------------------+                       |
-|                                                             |
-|       +-----------------------------+                       |
 |       | SeaweedFS (S3 API)          |                       |
 |       | (Iceberg cold archive)      |                       |
 |       +-----------------------------+                       |
 |                                                             |
 +-------------------------------------------------------------+
 ```
-
-ClickHouse and the cold archive are physically present at N=1 even though
-ClickHouse is overkill for 0.37 EPS. Their presence at N=1 is the price
-of horizontal-from-day-one. The N=many architecture cannot introduce them
-later without code changes; they must be in the path from day one. See
-section 3.2 for justification.
 
 ### 2.2 N=many (future multi-host)
 
@@ -206,13 +193,6 @@ section 3.2 for justification.
        | - audit.notarizations       |
        | - audit.pii                 |
        | - audit.consumer_offsets    |
-       +-----------------------------+
-              |
-              v
-       +-----------------------------+
-       | ClickHouse cluster          |
-       | (3 to N shards x R replicas)|
-       | - hot OLAP (90 day)         |
        +-----------------------------+
               |
               v
@@ -370,61 +350,14 @@ satisfies all of:
   control).
 - Mature self-host operational knowledge across the industry.
 
-### 3.2 Hot storage: Yugabyte for the chain plus ClickHouse for the OLAP read tier
+### 3.2 Hot storage: YugabyteDB
 
-Choice: dual hot tier. Yugabyte holds the integrity tables
-(`audit.chain_heads`, `audit.events`, `audit.notarizations`, `audit.pii`,
-`audit.consumer_offsets`). ClickHouse holds the projection of `audit.events`
-optimized for analytical query.
+YugabyteDB stores `audit.chain_heads`, `audit.events`, `audit.notarizations`,
+`audit.pii`, and `audit.consumer_offsets`. Ledger writes update the event and
+its hash chain in one transaction. Operator audit commands query YugabyteDB.
 
-This is a deliberate departure from the
-`/Users/agoodkind/Sites/tack/incident_2026-05-09_seed_parallel_org/audit_two_phase_plan.md`
-section 3 plan, which used Yugabyte alone. The change is motivated by
-section 5.5 of `audit_scale_architectures.md`: Yugabyte's published
-throughput tops out around 60k to 200k inserts per second per node, which
-becomes the bottleneck at the multi-million-EPS endgame. ClickHouse
-sustains hundreds of thousands of inserts per second per shard at the
-same hardware tier.
-
-Justification against horizontal-day-one:
-
-- **Yugabyte already runs in the stack.** Tack's auth tables and the
-  current `audit.events` table live in Yugabyte. Adding the audit tables
-  is config (the tables are already there), not new infrastructure.
-- **ClickHouse runs as a single-node process at N=1.** Same Compose
-  service shape as Yugabyte. ClickHouse-Keeper enables cluster mode by
-  configuration when N=many. The `clickhouse-server` binary is the same
-  in both cases.
-- **The chain integrity tier (Yugabyte) and the query tier (ClickHouse)
-  are decoupled.** The projector writes to both. ClickHouse outage does
-  not stop chain advancement. Yugabyte outage stops chain advancement
-  (which is the correct behavior; the integrity tier is the durability
-  authority).
-- **MCP audit query tools query both.** Recent rows (under 90 days, or
-  under whatever ClickHouse retention is configured) come from
-  ClickHouse for speed. Older rows or chain-verification queries come
-  from Yugabyte. Two paths from day one.
-
-Why not Yugabyte alone:
-
-- At Tack's current scale Yugabyte is enough. At the 1M EPS endgame
-  Yugabyte cannot serve analytical query latency for cross-tenant audit
-  forensics in seconds. Either ClickHouse goes in from day one or it
-  has to be retrofitted later, which violates constraint 1.2.
-
-Why not ClickHouse alone:
-
-- Yugabyte is the existing transactional store and already holds
-  `audit.chain_heads`. The hash chain advancement is a transactional
-  read-modify-write; Yugabyte's distributed SQL semantics are designed
-  for this. ClickHouse is not a transactional store.
-
-N=1 behavior: one Yugabyte node holding the chain, one ClickHouse node
-holding the OLAP projection. ClickHouse is a small process at N=1 (a few
-hundred MB of memory, single shard).
-
-N=many behavior: Yugabyte cluster with xCluster replication for
-multi-region. ClickHouse cluster with shards and replicas.
+N=1 uses one YugabyteDB node. N=many uses a cluster with xCluster replication
+for multiple regions.
 
 ### 3.3 Cold archive: Iceberg tables on SeaweedFS (S3-compatible)
 
@@ -567,8 +500,9 @@ is determined entirely by broker configuration.
 ### 3.7 Consumer binary: `cmd/audit-consumer`
 
 Choice: a single Go binary in a new `cmd/audit-consumer` directory.
-Reads from Kafka via franz-go consumer-group; writes to Yugabyte and
-ClickHouse; commits Kafka offsets transactionally.
+The consumer reads Kafka events through a franz-go consumer group, writes
+them to YugabyteDB, and commits Kafka offsets after the ledger transaction
+succeeds.
 
 Deployment model:
 
@@ -706,14 +640,6 @@ serialized only within a single (org, shard).
 At 256 partitions this table has 256 rows and is read-modify-write per
 projector commit. Negligible at any N.
 
-### 5.3 ClickHouse table partitioning
-
-`audit.events_olap` (new ClickHouse table) is partitioned by
-`toYYYYMMDD(event_time)` per day, with primary key
-`(org_id, shard, event_time, event_id)`. Replication via
-ReplicatedMergeTree at N=many; non-replicated MergeTree at N=1. The
-table definition is the same at both Ns; the engine name differs.
-
 ---
 
 ## 6. Writer path
@@ -759,9 +685,7 @@ The `audit-consumer` consumer reads from the topic asynchronously:
    (same `shardOf` function as Phase 1), reads chain head, computes
    hash, INSERTs `audit.events`, UPDATEs `audit.chain_heads`,
    UPSERTs `audit.consumer_offsets`. All in one Yugabyte transaction.
-9. Same record is also written to ClickHouse `audit.events_olap` in a
-   separate (idempotent) write.
-10. After Yugabyte commit succeeds, projector commits the Kafka offset
+9. After Yugabyte commit succeeds, projector commits the Kafka offset
     via consumer-group commit.
 
 ### 6.3 N=many writer path (state-change verb)
@@ -783,17 +707,15 @@ Same steps 1 to 6 as N=1. The difference is in step 4:
 4. `acks=-1` plus `min.insync.replicas=2` at N=many: producer waits
    for at least 2 of 3 replicas to acknowledge.
 
-The projector now runs as multiple replicas (steps 7 to 10):
+Each projector replica processes its assigned partitions:
 
 7. Each `audit-consumer` instance is assigned a subset of the 256
    topic partitions by Kafka consumer-group rebalancing. Each
    instance is responsible for its assigned partitions only.
 8. Per assigned partition, the instance runs the same per-record
    logic as N=1.
-9. ClickHouse writes go to the appropriate shard via the Distributed
-   table or via direct shard routing.
-10. Yugabyte writes go to the appropriate tablet by smart-client
-    routing.
+9. The smart-client driver routes Yugabyte writes to the appropriate
+   tablet.
 
 ### 6.5 Code-level changes by component
 
@@ -805,7 +727,6 @@ The projector now runs as multiple replicas (steps 7 to 10):
 | `audit-consumer` main loop | No | `replicas` count in deployment |
 | `audit-notarizer` | One-line addition for leader election | Same |
 | Yugabyte schema | No | None |
-| ClickHouse schema | Engine name (MergeTree vs ReplicatedMergeTree) | Distributed table at N=many |
 | Cold archive | No | S3 endpoint (single SeaweedFS at N=1; SeaweedFS or Garage cluster behind a load balancer at N=many) |
 
 The notarizer one-line change is the only code that materially differs
@@ -817,38 +738,9 @@ flag. See section 9.
 
 ## 7. Reader path
 
-MCP audit tools today query Yugabyte directly via
-`internal/audit/yugabyte.go` reader paths (not exhaustively traced in
-this document but visible at MCP `tack_audit_query` and `tack_audit_get`
-per `internal/audit/verbs.go:107`).
-
-### 7.1 N=1 reader path
-
-The MCP audit tools query Yugabyte for chain-verification queries (any
-query touching `prev_hash`, `row_hash`, `audit.chain_heads`, or
-`audit.notarizations`) and ClickHouse for analytical queries (count by
-verb over a time range, top-N actors, faceted search across `delta`
-fields).
-
-A simple routing rule lives in `internal/mcp/audit_tools.go` (or
-wherever the audit tool handlers live). Default to ClickHouse for
-recent windows; fall through to Yugabyte for older windows or for
-chain-touching queries.
-
-### 7.2 N=many reader path
-
-Same routing rule. The ClickHouse query goes to the `audit.events_olap`
-Distributed table (which fans out to all shards). The Yugabyte query
-goes to the cluster endpoint.
-
-The reader does not federate across multiple separate stores. There is
-one ClickHouse cluster (one logical store, distributed under the hood)
-and one Yugabyte cluster (same).
-
-### 7.3 What changes for the reader
-
-No code change between N=1 and N=many. Configuration values for
-`CLICKHOUSE_DSN` and `AUDIT_READER_DSN` differ.
+Operator audit commands query YugabyteDB. The reader uses a single-node
+endpoint at N=1 and a cluster endpoint at N=many. `AUDIT_READER_DSN` selects
+the endpoint.
 
 ---
 
@@ -1007,7 +899,6 @@ follows:
 - **Yugabyte tablet-level isolation.** Per-`(org_id, shard)` writes
   go to different tablets at N=many; the tablets are independent
   Raft groups.
-- **ClickHouse shard isolation at N=many.** Same.
 
 Cross-shard pressure can only happen if a single projector instance
 handles many shards and falls behind on all of them. This is mitigated
@@ -1038,7 +929,6 @@ consumer-group with one consumer per partition, statically assigned).
 | Apache Kafka crash | Restart broker (combined `broker,controller` KRaft process); producer reconnects; in-flight events lost from producer buffer if not yet ack'd |
 | `audit-consumer` crash | Restart container; resume from last committed offset |
 | Yugabyte crash | Restart; chain advancement blocks until DB up; producer state-change writes fail in the meantime |
-| ClickHouse crash | Restart; OLAP reads fall back to Yugabyte |
 | SeaweedFS crash | Restart; archiver writes fail until back |
 | CT 117 host loss | Catastrophic. Restore from backup per `audit_scale_research.md` section 8 |
 
@@ -1081,8 +971,8 @@ investigate. Mitigation: dual-write parity gate at every wave.
 The today-to-N=1 rollout is the hard cutover, not the earlier dual-write wave
 plan. See [audit-kafka-cutover.md](audit-kafka-cutover.md) for the single
 migration `003_audit_kafka_cutover.sql`, the consumer becoming the only writer
-of `audit.events`, the multi-consumer keying, the ClickHouse read tier, and the
-cutover and rollback steps. There is no dual-write period and no `events_v2`.
+of `audit.events`, the multi-consumer keying, and the cutover and rollback
+steps. There is no dual-write period and no `events_v2`.
 
 ---
 
@@ -1094,7 +984,6 @@ cutover and rollback steps. There is no dual-write period and no `events_v2`.
 |---|---|
 | Apache Kafka | Add brokers (KRaft combined or dedicated controller mode); update `controller.quorum.voters` for the new quorum; reconfigure topic with `kafka-configs.sh` to RF=3; run `kafka-reassign-partitions.sh` for partition rebalance |
 | Yugabyte | Add nodes; configure xCluster for multi-region |
-| ClickHouse | Add nodes; convert tables to `Replicated*` engine; create Distributed table |
 | SeaweedFS | Add volume servers; replicate filer; clients keep the same S3 endpoint behind a load balancer |
 | `tack-app` | `KAFKA_BROKERS` env var moves from single-host to comma-separated bootstrap-broker list; the franz-go client uses bootstrap brokers to discover the rest of the cluster |
 | `audit-consumer` | `replicas` count increases |
@@ -1109,22 +998,9 @@ change. No schema migration.
 
 ### 13.3 What prevents "no code change required to scale out"
 
-Two open issues prevent strict zero-code scale-out:
-
-1. **Notarizer leader election.** Section 9 requires a one-line
-   conditional. This is technically code. It can be made
-   configuration-only by always running the leader-election preamble
-   (with no-op behavior at replicas=1). Resolving this to zero code
-   change is a small fixup.
-2. **ClickHouse table engine name.** `MergeTree` at N=1 versus
-   `ReplicatedMergeTree` at N=many is a schema difference, not code.
-   The schema migration runs once at the N=1-to-N=many transition.
-   This is configuration if "schema migration" is configuration; it
-   is code if "schema migration" is code. Treat as configuration with
-   a documented migration step.
-
-With those two caveats, the answer is: no code change required, only
-configuration and one schema migration.
+Notarizer leader election in section 9 still requires a conditional. Running
+the leader-election preamble at every replica count would make this behavior
+configuration-only.
 
 ### 13.4 Migration steps from N=1 to N=2
 
@@ -1143,8 +1019,7 @@ configuration and one schema migration.
 5. Bring up second `audit-consumer` instance on host 2; consumer
    group rebalances.
 6. Bring up Yugabyte node 2; cluster expands.
-7. Bring up ClickHouse node 2; convert to ReplicatedMergeTree.
-8. Bring up SeaweedFS volume server 2 (or, for the Garage alternative,
+7. Bring up SeaweedFS volume server 2 (or, for the Garage alternative,
    bring up the third Garage node to reach the 3-node minimum).
 
 This is operations work; no code deploy required.
@@ -1158,14 +1033,14 @@ This is operations work; no code deploy required.
 - **Team size.** One operator (the Tack operator), part time.
 - **On-call.** Best effort. CT 117 reboot is the recovery primitive.
 - **Monitoring.** Existing slog plus new Prometheus metrics for Kafka
-  lag, projector commit rate, ClickHouse query latency.
+  lag and projector commit rate.
 - **Capacity planning.** None required at 0.37 EPS. The architecture
   has 5+ orders of magnitude of headroom.
 - **Cost.** Within an order of magnitude of current Tack hosting cost.
-  Apache Kafka and ClickHouse processes share the existing host; the
-  SeaweedFS object store runs on its own LXC. Kafka's JVM footprint is the dominant memory cost on
-  the host; budget roughly 2 GiB heap for a small-scale single-broker
-  KRaft process.
+  Apache Kafka runs on the existing host; the SeaweedFS object store
+  runs on its own LXC. Kafka's JVM footprint is the dominant memory
+  cost on the host; budget roughly 2 GiB heap for a small-scale
+  single-broker KRaft process.
 
 ### 14.2 N=2 (first horizontal step)
 
@@ -1176,7 +1051,7 @@ This is operations work; no code deploy required.
 - **On-call.** Now requires a real rotation. A single host can no
   longer be the recovery primitive.
 - **Monitoring.** Adds inter-host network metrics, broker quorum
-  health, Yugabyte cluster health, ClickHouse replication lag.
+  health and Yugabyte cluster health.
 - **Capacity planning.** Now matters. Partition reassignment under
   topic alter-config is a planned operation.
 - **Cost.** Roughly 2x to 3x N=1 cost (two hosts plus inter-host
@@ -1257,16 +1132,10 @@ This is operations work; no code deploy required.
 - **Schema drift between producer and consumer.** Same as
   Phase 2 risk in `audit_two_phase_plan.md` section 5b. Standard
   JSON-schema-evolution risk.
-- **ClickHouse and Yugabyte divergence.** ClickHouse is the
-  read-optimized copy; Yugabyte is canonical. If they diverge
-  (projector writes to one but not the other), the OLAP layer can
-  silently lie. Mitigated by parity check; the parity check runs
-  daily in production at N=many.
 - **Backup correctness.** Per `incident_2026-05-09_seed_parallel_org/retro_log.md`
   section 1A: prior backups were silently empty. The same class of
-  defect can recur with the broker, ClickHouse, or SeaweedFS. Each
-  backup must
-  have a restore test.
+  defect can recur with the broker or SeaweedFS. Each backup must have
+  a restore test.
 
 ---
 

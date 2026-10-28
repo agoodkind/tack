@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
-	chdriver "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -29,19 +27,11 @@ type ConsumerConfig struct {
 	BatchSize       int
 	PollInterval    time.Duration
 	YugabyteDSN     string
-	ClickHouseDSN   string
 	SigningKeyPath  string
 	NotarizerPeriod time.Duration
 	// SigningHost is stamped on every notarization the embedded notarizer
 	// writes (TACK-437).
 	SigningHost string
-
-	// ReconcilePeriod and ReconcileWindow drive the ClickHouse backfill: every
-	// period, audit.events rows in the trailing window that are missing from
-	// audit.events_olap are re-projected, so a ClickHouse outage self-heals
-	// (TACK-316). Zero falls back to 30m / 24h.
-	ReconcilePeriod time.Duration
-	ReconcileWindow time.Duration
 
 	// LagWarnMessages is the per-partition lag threshold above which the
 	// consumer emits a `consumer.lag.high` warning every poll. Zero falls
@@ -69,17 +59,14 @@ type ConsumerConfig struct {
 // end.
 const defaultTopicRetention = 365 * 24 * time.Hour
 
-// Consumer projects audit events from Kafka into Yugabyte (audit.events) and
-// ClickHouse (audit.events_olap) and runs an embedded notarizer goroutine. The
-// consumer is the only writer of audit.events and audit.chain_heads.
+// Consumer records Kafka audit events in YugabyteDB and runs the embedded
+// notarizer. It writes audit.events and audit.chain_heads.
 type Consumer struct {
 	cfg     ConsumerConfig
 	kclient *kgo.Client
 	ybpool  *pgxpool.Pool
-	ch      chdriver.Conn
 
 	notarizer  *Notarizer
-	reconciler *Reconciler
 	partitions *PartitionManager
 
 	stop    chan struct{}
@@ -123,12 +110,6 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		return nil, err
 	}
 
-	ch, err := openClickHouse(ctx, cfg.ClickHouseDSN)
-	if err != nil {
-		ybpool.Close()
-		return nil, err
-	}
-
 	// Autocommit stays off: the loop commits the records of each batch
 	// explicitly, right after the ledger transaction that projected them
 	// commits, so the group offset never runs ahead of the ledger. The
@@ -145,18 +126,12 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.kafka_client_failed", slog.String("err", err.Error()))
 		ybpool.Close()
-		if ch != nil {
-			_ = ch.Close()
-		}
 		return nil, fmt.Errorf("audit consumer kafka client: %w", err)
 	}
 
 	if err := ensureAuditTopic(ctx, kclient, cfg.Topic, cfg.TopicRetention); err != nil {
 		kclient.Close()
 		ybpool.Close()
-		if ch != nil {
-			_ = ch.Close()
-		}
 		return nil, err
 	}
 
@@ -164,9 +139,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		cfg:        cfg,
 		kclient:    kclient,
 		ybpool:     ybpool,
-		ch:         ch,
 		notarizer:  nil,
-		reconciler: nil,
 		partitions: nil,
 		stop:       make(chan struct{}),
 		stopped:    make(chan struct{}),
@@ -194,9 +167,6 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		c.notarizer = n
 	}
 
-	if c.ch != nil {
-		c.reconciler = NewReconciler(ybpool, ch, cfg.ReconcilePeriod, cfg.ReconcileWindow)
-	}
 	c.partitions = NewPartitionManager(NewPGPartitionStore(ybpool), cfg.PartitionPeriod)
 
 	return c, nil
@@ -233,41 +203,11 @@ func applyConsumerDefaults(cfg ConsumerConfig) ConsumerConfig {
 	return cfg
 }
 
-func openClickHouse(ctx context.Context, dsn string) (chdriver.Conn, error) {
-	if dsn == "" {
-		return nil, nil
-	}
-	opts, err := clickhouse.ParseDSN(dsn)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_dsn_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("audit consumer clickhouse parse dsn: %w", err)
-	}
-	conn, err := clickhouse.Open(opts)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_open_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("audit consumer clickhouse open: %w", err)
-	}
-	if err := conn.Ping(ctx); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_ping_failed", slog.String("err", err.Error()))
-		_ = conn.Close()
-		return nil, fmt.Errorf("audit consumer clickhouse ping: %w", err)
-	}
-	if err := ensureClickHouseSchema(ctx, conn); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_schema_failed", slog.String("err", err.Error()))
-		_ = conn.Close()
-		return nil, fmt.Errorf("audit consumer clickhouse schema: %w", err)
-	}
-	return conn, nil
-}
-
 // Start runs the poll loop and the embedded notarizer until ctx is canceled
 // or Close is called.
 func (c *Consumer) Start(ctx context.Context) {
 	if c.notarizer != nil {
 		c.notarizer.Start(ctx)
-	}
-	if c.reconciler != nil {
-		c.reconciler.Start(ctx)
 	}
 	if c.partitions != nil {
 		c.partitions.Start(ctx)
@@ -293,9 +233,6 @@ func (c *Consumer) Close() error {
 	if c.notarizer != nil {
 		_ = c.notarizer.Close()
 	}
-	if c.reconciler != nil {
-		_ = c.reconciler.Close()
-	}
 	if c.partitions != nil {
 		_ = c.partitions.Close()
 	}
@@ -309,9 +246,6 @@ func (c *Consumer) closeResources() {
 	}
 	if c.ybpool != nil {
 		c.ybpool.Close()
-	}
-	if c.ch != nil {
-		_ = c.ch.Close()
 	}
 }
 
@@ -483,15 +417,11 @@ func groupByPartition(fetches kgo.Fetches) map[topicPartition][]*kgo.Record {
 	return out
 }
 
-// projectBatch applies all records for one partition, retrying the whole batch
-// when a concurrent consumer advanced a shard this batch touches. The
-// ClickHouse projection runs once after the Yugabyte commit and is best effort.
 func (c *Consumer) projectBatch(ctx context.Context, tp topicPartition, records []*kgo.Record) error {
 	const maxChainRetries = 8
 	for attempt := 1; ; attempt++ {
-		projected, err := c.projectBatchOnce(ctx, tp, records)
+		err := c.projectBatchOnce(ctx, tp, records)
 		if err == nil {
-			c.writeClickHouseBatch(ctx, projected)
 			return nil
 		}
 		if attempt < maxChainRetries && isRetryableChainErr(err) {
@@ -506,30 +436,28 @@ func (c *Consumer) projectBatch(ctx context.Context, tp topicPartition, records 
 	}
 }
 
-// projectBatchOnce projects one partition's records in a single Yugabyte
-// transaction. The Kafka offset row in audit.consumer_offsets is updated in the
-// same transaction so a crash before commit replays the same records. It
-// returns the projected events for the best-effort ClickHouse write.
-func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, records []*kgo.Record) ([]projectedEvent, error) {
+// projectBatchOnce saves ledger rows, token use times, and the consumer offset
+// in one YugabyteDB transaction.
+func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, records []*kgo.Record) error {
 	tx, err := c.ybpool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.begin_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("begin tx: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	projected := make([]projectedEvent, 0, len(records))
+	projected := make([]committedAuthEvent, 0, len(records))
 	for _, rec := range records {
 		pe, landed, perr := c.projectRecord(ctx, tx, rec)
 		if perr != nil {
-			return nil, perr
+			return perr
 		}
 		if landed {
 			projected = append(projected, pe)
 		}
 	}
 	if err := recordTokenUses(ctx, tx, projected); err != nil {
-		return nil, err
+		return err
 	}
 
 	last := records[len(records)-1]
@@ -542,16 +470,16 @@ func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, reco
 	`, c.cfg.GroupID, tp.Topic, tp.Partition, last.Offset+1)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.offset_upsert_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("offset upsert: %w", err)
+		return fmt.Errorf("offset upsert: %w", err)
 	}
 
 	err = tx.Commit(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.commit_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("commit: %w", err)
+		return fmt.Errorf("commit: %w", err)
 	}
 
-	return projected, nil
+	return nil
 }
 
 // projectRecord projects one record inside a savepoint of the batch
@@ -570,50 +498,38 @@ func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, reco
 // A replayed record that lands deletes the dead-letter row it came from in
 // the same transaction; one the ledger already holds does the same, since the
 // event is accounted for either way.
-func (c *Consumer) projectRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (projectedEvent, bool, error) {
+func (c *Consumer) projectRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (committedAuthEvent, bool, error) {
 	savepoint, err := tx.Begin(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.savepoint_failed", slog.String("err", err.Error()))
-		return projectedEvent{}, false, fmt.Errorf("savepoint for offset=%d: %w", rec.Offset, err)
+		return committedAuthEvent{}, false, fmt.Errorf("savepoint for offset=%d: %w", rec.Offset, err)
 	}
 	pe, landed, perr := c.projectOne(ctx, savepoint, rec)
 	if perr == nil {
 		if err := savepoint.Commit(ctx); err != nil {
 			slog.ErrorContext(ctx, "audit.consumer.savepoint_release_failed", slog.String("err", err.Error()))
-			return projectedEvent{}, false, fmt.Errorf("release savepoint for offset=%d: %w", rec.Offset, err)
+			return committedAuthEvent{}, false, fmt.Errorf("release savepoint for offset=%d: %w", rec.Offset, err)
 		}
 		return pe, landed, resolveDeadLetter(ctx, tx, rec)
 	}
 	_ = savepoint.Rollback(ctx)
 	switch {
 	case errors.Is(perr, errAlreadyProjected):
-		return projectedEvent{}, false, resolveDeadLetter(ctx, tx, rec)
+		return committedAuthEvent{}, false, resolveDeadLetter(ctx, tx, rec)
 	case isRetryableChainErr(perr):
-		return projectedEvent{}, false, perr
+		return committedAuthEvent{}, false, perr
 	case isDeadLetterable(perr):
 		// Malformed payloads and refused inserts alike: the record is kept,
 		// named, and counted in the dead-letter table, and the batch goes on.
 		telemetry.IncAuditConsumerDeadLettered()
-		return projectedEvent{}, false, deadLetterRecord(ctx, tx, rec, perr)
+		return committedAuthEvent{}, false, deadLetterRecord(ctx, tx, rec, perr)
 	default:
 		slog.ErrorContext(ctx, "audit.consumer.project_record_failed",
 			slog.String("err", perr.Error()),
 			slog.Int64("offset", rec.Offset),
 		)
-		return projectedEvent{}, false, fmt.Errorf("project record offset=%d: %w", rec.Offset, perr)
+		return committedAuthEvent{}, false, fmt.Errorf("project record offset=%d: %w", rec.Offset, perr)
 	}
-}
-
-// writeClickHouseBatch projects a committed batch into ClickHouse. The OLAP
-// write is best effort, so a ClickHouse outage never blocks chain advancement.
-func (c *Consumer) writeClickHouseBatch(ctx context.Context, projected []projectedEvent) {
-	if c.ch == nil || len(projected) == 0 {
-		return
-	}
-	// Best effort: insertOLAPBatch logs its own failure at WARN, and the
-	// canonical Yugabyte write already committed, so a ClickHouse error never
-	// blocks chain advancement (TACK-317).
-	_ = insertOLAPBatch(ctx, c.ch, projected)
 }
 
 var (
@@ -621,29 +537,9 @@ var (
 	errAlreadyProjected = errors.New("event already projected")
 )
 
-type projectedEvent struct {
-	OrgID      uuid.UUID
-	Shard      int16
+type committedAuthEvent struct {
 	EventTime  time.Time
-	EventID    uuid.UUID
-	Seq        int64
-	ActorID    uuid.UUID
-	ActorKind  int16
 	Action     string
-	Outcome    Outcome
-	Error      []byte
-	Extra      []byte
-	EntityKind string
-	EntityID   uuid.UUID
-	Context    []byte
-	Delta      []byte
-	PIIRef     *uuid.UUID
-	PrevHash   []byte
-	RowHash    []byte
-	IdemKey    string
-	// APITokenID is the token an auth event accepted, kept beside the row so
-	// the batch can project the token's last use once it has committed the
-	// event that proves it (TACK-502).
 	APITokenID uuid.UUID
 }
 
@@ -655,24 +551,24 @@ type projectedEvent struct {
 // follow the event path. A plain read event must declare read evidence
 // that matches an empty target list; otherwise, the consumer writes the
 // record to the dead-letter table.
-func (c *Consumer) projectOne(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (projectedEvent, bool, error) {
+func (c *Consumer) projectOne(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (committedAuthEvent, bool, error) {
 	message, isTransport, err := decodeTransportMessage(rec.Value)
 	if err != nil {
-		return projectedEvent{}, false, rejectTransport(ctx, message.EventID, err.Error())
+		return committedAuthEvent{}, false, rejectTransport(ctx, message.EventID, err.Error())
 	}
 	if isTransport {
-		return projectedEvent{}, false, storeTransportMessage(ctx, tx, message, rec.Value)
+		return committedAuthEvent{}, false, storeTransportMessage(ctx, tx, message, rec.Value)
 	}
 	prepared, err := unmarshalRecord(ctx, rec)
 	if err != nil {
-		return projectedEvent{}, false, err
+		return committedAuthEvent{}, false, err
 	}
 	if err := checkReadManifest(prepared.Event, nil); err != nil {
-		return projectedEvent{}, false, rejectTransport(ctx, prepared.EventID, err.Error())
+		return committedAuthEvent{}, false, rejectTransport(ctx, prepared.EventID, err.Error())
 	}
 	piiRef, err := writeEventPII(ctx, tx, prepared.Event)
 	if err != nil {
-		return projectedEvent{}, false, err
+		return committedAuthEvent{}, false, err
 	}
 	prepared.PIIRef = piiRef
 	projected, err := c.advanceChain(ctx, tx, prepared)
@@ -687,8 +583,6 @@ type preparedEvent struct {
 	Shard       int16
 	ContextJSON []byte
 	DeltaJSON   []byte
-	ErrorJSON   []byte
-	ExtraJSON   []byte
 	PIIRef      uuid.UUID
 }
 
@@ -734,23 +628,12 @@ func prepareEvent(ctx context.Context, ev Event) (preparedEvent, error) {
 			return preparedEvent{}, fmt.Errorf("marshal delta: %w", err)
 		}
 	}
-	errorJSON, err := json.Marshal(ev.Error)
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.marshal_error_failed", slog.String("err", err.Error()))
-		return preparedEvent{}, fmt.Errorf("marshal event error: %w", err)
-	}
-	extraJSON := []byte("null")
-	if len(ev.Extra) != 0 {
-		extraJSON = ev.Extra
-	}
 	return preparedEvent{
 		Event:       ev,
 		EventID:     eventID,
 		Shard:       shard,
 		ContextJSON: contextJSON,
 		DeltaJSON:   deltaJSON,
-		ErrorJSON:   errorJSON,
-		ExtraJSON:   extraJSON,
 		PIIRef:      uuid.Nil,
 	}, nil
 }
@@ -760,8 +643,8 @@ func prepareEvent(ctx context.Context, ev Event) (preparedEvent, error) {
 // consumers on the same chain cannot fork it. Returns errAlreadyProjected when
 // the idempotency index rejects a redelivered event, and errChainConflict when
 // the head moved underneath this writer.
-func (c *Consumer) advanceChain(ctx context.Context, tx pgx.Tx, p preparedEvent) (projectedEvent, error) {
-	res, err := appendChainRow(ctx, tx, chainAppendInput{
+func (c *Consumer) advanceChain(ctx context.Context, tx pgx.Tx, p preparedEvent) (committedAuthEvent, error) {
+	_, err := appendChainRow(ctx, tx, chainAppendInput{
 		Event:       p.Event,
 		EventID:     p.EventID,
 		Shard:       p.Shard,
@@ -770,39 +653,13 @@ func (c *Consumer) advanceChain(ctx context.Context, tx pgx.Tx, p preparedEvent)
 		DeltaJSON:   p.DeltaJSON,
 	})
 	if err != nil {
-		return projectedEvent{}, err
+		return committedAuthEvent{}, err
 	}
-	return buildProjectedEvent(p, res.Seq, res.PrevHash, res.RowHash), nil
-}
-
-func buildProjectedEvent(p preparedEvent, seq int64, prevHash, rowHash []byte) projectedEvent {
-	var piiPtr *uuid.UUID
-	if p.PIIRef != uuid.Nil {
-		v := p.PIIRef
-		piiPtr = &v
-	}
-	return projectedEvent{
-		OrgID:      p.Event.Context.OrgID,
-		Shard:      p.Shard,
+	return committedAuthEvent{
 		EventTime:  p.Event.OccurredAt.UTC(),
-		EventID:    p.EventID,
-		Seq:        seq,
-		ActorID:    p.Event.Actor.ID,
-		ActorKind:  actorKindCode(p.Event.Actor.Type),
 		Action:     p.Event.Verb,
-		Outcome:    p.Event.Outcome,
-		Error:      p.ErrorJSON,
-		Extra:      p.ExtraJSON,
-		EntityKind: p.Event.Entity.Type,
-		EntityID:   p.Event.Entity.ID,
-		Context:    p.ContextJSON,
-		Delta:      p.DeltaJSON,
-		PIIRef:     piiPtr,
-		PrevHash:   prevHash,
-		RowHash:    rowHash,
-		IdemKey:    p.Event.IdempotencyKey,
 		APITokenID: p.Event.Context.APITokenID,
-	}
+	}, nil
 }
 
 func writePIIRow(ctx context.Context, tx pgx.Tx, actor Actor) (uuid.UUID, error) {
@@ -946,55 +803,4 @@ func piiRefArg(ref uuid.UUID) pgtype.UUID {
 		return pgtype.UUID{Bytes: [16]byte{}, Valid: false}
 	}
 	return pgtype.UUID{Bytes: ref, Valid: true}
-}
-
-// ensureClickHouseSchema creates the audit database and audit.events_olap
-// table when missing. The OLAP shape mirrors the Yugabyte audit.events fields.
-func ensureClickHouseSchema(ctx context.Context, conn chdriver.Conn) error {
-	if err := conn.Exec(ctx, `CREATE DATABASE IF NOT EXISTS audit`); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_db_create_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("create database: %w", err)
-	}
-	stmt := `
-		CREATE TABLE IF NOT EXISTS audit.events_olap (
-		    org_id          UUID,
-		    shard           Int16,
-		    event_time      DateTime64(9, 'UTC'),
-		    event_id        UUID,
-		    seq             Int64,
-		    actor_id        UUID,
-		    actor_kind      Int16,
-		    action          String,
-		    outcome         String,
-		    error           String,
-		    extra           String,
-		    entity_kind     String,
-		    entity_id       UUID,
-		    context         String,
-		    delta           String,
-		    pii_ref         Nullable(UUID),
-		    prev_hash       String,
-		    row_hash        String,
-		    idempotency_key String
-		) ENGINE = MergeTree
-		PARTITION BY toYYYYMMDD(event_time)
-		ORDER BY (org_id, shard, event_time, event_id)
-	`
-	if err := conn.Exec(ctx, stmt); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_table_create_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("create table: %w", err)
-	}
-	if err := conn.Exec(ctx, `ALTER TABLE audit.events_olap ADD COLUMN IF NOT EXISTS outcome String AFTER action`); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_outcome_column_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("add outcome column: %w", err)
-	}
-	if err := conn.Exec(ctx, `ALTER TABLE audit.events_olap ADD COLUMN IF NOT EXISTS error String AFTER outcome`); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_error_column_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("add error column: %w", err)
-	}
-	if err := conn.Exec(ctx, `ALTER TABLE audit.events_olap ADD COLUMN IF NOT EXISTS extra String AFTER error`); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.clickhouse_extra_column_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("add extra column: %w", err)
-	}
-	return nil
 }

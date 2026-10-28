@@ -27,8 +27,7 @@ const (
 )
 
 // completeAssemblies selects ready assemblies without an invalid reason after
-// each poll. It completes each event in a separate transaction and collects
-// the projected events for one ClickHouse batch write after the loop.
+// each poll. It completes each event in a separate transaction.
 func (c *Consumer) completeAssemblies(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -48,26 +47,20 @@ func (c *Consumer) completeAssemblies(ctx context.Context) {
 		slog.ErrorContext(ctx, "audit.consumer.assembly_scan_failed", slog.String("err", err.Error()))
 		return
 	}
-	completed := make([]projectedEvent, 0, len(eventIDs))
 	for _, eventID := range eventIDs {
-		if projected, landed := c.completeAssemblyWithRetry(ctx, eventID); landed {
-			completed = append(completed, projected)
-		}
+		c.completeAssemblyWithRetry(ctx, eventID)
 	}
-	c.writeClickHouseBatch(ctx, completed)
 }
 
 // completeAssemblyWithRetry retries chain conflicts within the attempt limit.
-// It returns the projected event and reports whether it produced a ledger row.
 // It records verification and event validation errors as invalid_reason and
 // logs other failures for another poll.
-func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.UUID) (projectedEvent, bool) {
-	var none projectedEvent
+func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.UUID) {
 	for attempt := 1; ; attempt++ {
-		projected, landed, err := c.completeAssembly(ctx, eventID)
+		err := c.completeAssembly(ctx, eventID)
 		switch {
 		case err == nil:
-			return projected, landed
+			return
 		case attempt < assemblyChainRetries && isRetryableChainErr(err):
 			slog.WarnContext(ctx, "audit.consumer.assembly_chain_retry", slog.String("event_id", eventID.String()), slog.Int("attempt", attempt), slog.String("err", err.Error()))
 			continue
@@ -78,10 +71,10 @@ func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.U
 				slog.ErrorContext(ctx, "audit.consumer.assembly_mark_invalid_failed", slog.String("event_id", eventID.String()), slog.String("err", markErr.Error()))
 			}
 			slog.ErrorContext(ctx, "audit.consumer.assembly_invalid", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
-			return none, false
+			return
 		default:
 			slog.ErrorContext(ctx, "audit.consumer.assembly_complete_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
-			return none, false
+			return
 		}
 	}
 }
@@ -89,11 +82,11 @@ func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.U
 // completeAssembly locks a ready assembly, streams and verifies its parts,
 // writes its read manifest parts, fills a missing commit version, appends the
 // event, and finishes the assembly in one transaction. A crash before commit leaves the assembly ready for another poll.
-func (c *Consumer) completeAssembly(ctx context.Context, eventID uuid.UUID) (projectedEvent, bool, error) {
+func (c *Consumer) completeAssembly(ctx context.Context, eventID uuid.UUID) error {
 	tx, err := c.ybpool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.begin_failed", slog.String("err", err.Error()))
-		return projectedEvent{}, false, fmt.Errorf("begin audit event %s completion: %w", eventID, err)
+		return fmt.Errorf("begin audit event %s completion: %w", eventID, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var header []byte
@@ -104,32 +97,30 @@ func (c *Consumer) completeAssembly(ctx context.Context, eventID uuid.UUID) (pro
 		 FOR UPDATE
 	`, eventID).Scan(&header, &commitVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
-		var completed projectedEvent
-		return completed, false, nil
+		return nil
 	}
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.assembly_read_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
-		return projectedEvent{}, false, fmt.Errorf("read audit event %s assembly: %w", eventID, err)
+		return fmt.Errorf("read audit event %s assembly: %w", eventID, err)
 	}
 	event, transportDigest, err := streamAssembly(ctx, tx, eventID, header)
 	if err != nil {
-		return projectedEvent{}, false, err
+		return err
 	}
 	if event.Context.CommitVersion == "" {
 		event.Context.CommitVersion = commitVersion
 	}
-	projected, landed, err := c.appendAssembledEvent(ctx, tx, event)
-	if err != nil {
-		return projectedEvent{}, false, err
+	if err := c.appendAssembledEvent(ctx, tx, event); err != nil {
+		return err
 	}
 	if err := finishAssembly(ctx, tx, eventID, transportDigest); err != nil {
-		return projectedEvent{}, false, err
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.commit_failed", slog.String("err", err.Error()))
-		return projectedEvent{}, false, fmt.Errorf("commit audit event %s completion: %w", eventID, err)
+		return fmt.Errorf("commit audit event %s completion: %w", eventID, err)
 	}
-	return projected, landed, nil
+	return nil
 }
 
 // alertWaitingAssemblies checks at most once per alert interval and logs
