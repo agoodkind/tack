@@ -707,15 +707,15 @@ Same steps 1 to 6 as N=1. The difference is in step 4:
 4. `acks=-1` plus `min.insync.replicas=2` at N=many: producer waits
    for at least 2 of 3 replicas to acknowledge.
 
-The projector now runs as multiple replicas:
+Each projector replica processes its assigned partitions:
 
 7. Each `audit-consumer` instance is assigned a subset of the 256
    topic partitions by Kafka consumer-group rebalancing. Each
    instance is responsible for its assigned partitions only.
 8. Per assigned partition, the instance runs the same per-record
    logic as N=1.
-9. Yugabyte writes go to the appropriate tablet by smart-client
-    routing.
+9. The smart-client driver routes Yugabyte writes to the appropriate
+   tablet.
 
 ### 6.5 Code-level changes by component
 

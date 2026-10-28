@@ -76,7 +76,7 @@ redelivery.
 
 - Configs renders `KAFKA_CLUSTER_ID`, `AUDIT_KAFKA_BROKERS`, and
   `COMPOSE_PROFILES` in `tack.env.j2`.
-- The `kafka` and `audit-consumer` compose services carry
+- The `kafka` and `audit-consumer` compose services define
   `profiles: [audit]` and stay off until the audit profile is enabled.
 
 ## Cutover, QA first
@@ -88,11 +88,11 @@ QA is disposable, so prove the whole thing there before prod.
    fetches the stack, and brings up the services.
 2. Run `./server migrate` (applies the single `003`), then
    `./server ops audit seed-roles`, then restart `app` and `audit-consumer`.
-3. Smoke test: a handful of MCP read and write calls each land one row in
-   `audit.events`, written by the consumer; `audit.chain_heads` advances by one
-   per write; no rows land in `audit.events_dlq`. Run two `audit-consumer`
-   replicas and confirm
-   each `(org, shard)` chain stays single-writer.
+3. Smoke test: the consumer writes one `audit.events` row for each of a
+   handful of MCP read and write calls; `audit.chain_heads` advances by one
+   per write; the consumer does not write rows to `audit.events_dlq`. Run two
+   `audit-consumer` replicas and confirm each `(org, shard)` chain stays
+   single-writer.
 
 ## Cutover, production
 
