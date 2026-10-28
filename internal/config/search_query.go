@@ -31,6 +31,13 @@ const (
 // Concurrency is the number of searches one process runs at once.
 // AdmissionWait bounds how long a search waits for one of those slots, and
 // it is shorter than RequestDeadline.
+//
+// IdleTimeout sets the session inactivity deadline and the point-in-time keep-alive.
+// Each successful page renews both. OPENSEARCH_SESSION_IDLE_TIMEOUT accepts a Go duration,
+// such as 2m or 90s. The Go default is 2 minutes when the variable is empty. Deployments set
+// the value through the Configs variable tack_search_session_idle_timeout.
+// The value must be positive and must not exceed AbsoluteTimeout.
+// A change takes effect after the app process restarts.
 type SearchQuerySettings struct {
 	MaxQueryBytes    int           `env:"OPENSEARCH_QUERY_MAX_BYTES"          envDefault:"1024"`
 	MaxResponseBytes int           `env:"OPENSEARCH_RESPONSE_MAX_BYTES"       envDefault:"16384"`
@@ -38,7 +45,7 @@ type SearchQuerySettings struct {
 	BatchSize        int           `env:"OPENSEARCH_QUERY_BATCH_SIZE"         envDefault:"100"`
 	MaxBatches       int           `env:"OPENSEARCH_QUERY_MAX_BATCHES"        envDefault:"4"`
 	MaxResults       int           `env:"OPENSEARCH_QUERY_MAX_RESULTS"        envDefault:"25"`
-	IdleTimeout      time.Duration `env:"OPENSEARCH_SESSION_IDLE_TIMEOUT"     envDefault:"15m"`
+	IdleTimeout      time.Duration `env:"OPENSEARCH_SESSION_IDLE_TIMEOUT"     envDefault:"2m"`
 	AbsoluteTimeout  time.Duration `env:"OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT" envDefault:"2h"`
 	RequestDeadline  time.Duration `env:"OPENSEARCH_QUERY_DEADLINE"           envDefault:"20s"`
 	Concurrency      int           `env:"OPENSEARCH_QUERY_CONCURRENCY"        envDefault:"4"`

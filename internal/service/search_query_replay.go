@@ -66,6 +66,17 @@ func (s *SearchQueryService) closeSession(ctx context.Context, session searchdom
 	}
 }
 
+// refuseExpired rejects continuations when sessions are closing or past idle or absolute deadlines.
+// Unless the session is closing, it deletes the point in time and marks the session closing.
+// It returns searchdomain.ErrSessionExpired; queryFailure logs and wraps the error.
+// The expiry sweep later deletes the session records.
+func (s *SearchQueryService) refuseExpired(ctx context.Context, session searchdomain.Session) error {
+	if !session.Closing {
+		s.closeSession(ctx, session)
+	}
+	return queryFailure(ctx, "verify search session", session.ID, searchdomain.ErrSessionExpired)
+}
+
 // sweepExpired closes and deletes a bounded number of expired sessions. It
 // logs each failure and returns nothing, and the public response does not
 // depend on the sweep.

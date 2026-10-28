@@ -46,6 +46,9 @@ type searchCapture struct {
 	// replacement is the point-in-time ID that the next ranked batch
 	// response returns in place of the engine's pit_id.
 	replacement string
+	// deleted stores the point in time IDs from every DELETE /_search/point_in_time request
+	// that the proxy forwarded.
+	deleted []string
 }
 
 // capturedBodyKey associates the original ranked batch body with its
@@ -106,10 +109,14 @@ func replacePITID(payload []byte, replacement string) ([]byte, error) {
 	return bytes.Replace(payload, original, []byte(`"pit_id":"`+replacement+`"`), 1), nil
 }
 
-// ServeHTTP forwards requests and prepares POST /_search exchanges for
-// recording. It adds profile: true when profiling is enabled and removes
-// Accept-Encoding from ranked batch requests to obtain plain JSON.
+// ServeHTTP forwards requests and prepares POST /_search recording. It adds profile: true when
+// profiling is enabled and removes Accept-Encoding from ranked batch requests to obtain plain JSON.
+// It records point in time delete IDs before forwarding each delete request.
 func (capture *searchCapture) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodDelete && request.URL.Path == pitDeletePath {
+		capture.recordDelete(writer, request)
+		return
+	}
 	if request.Method != http.MethodPost || request.URL.Path != rankedSearchPath {
 		capture.engine.ServeHTTP(writer, request)
 		return
@@ -163,7 +170,7 @@ func newCaptureHarness(t *testing.T, fixture integration.QueryFixture, profile b
 	if !engineCA.AppendCertsFromPEM([]byte(engine.CA)) {
 		t.Fatal("engine CA is invalid")
 	}
-	capture := &searchCapture{engine: nil, profile: profile, mutex: sync.Mutex{}, searches: nil, replacement: ""}
+	capture := &searchCapture{engine: nil, profile: profile, mutex: sync.Mutex{}, searches: nil, replacement: "", deleted: nil}
 	capture.engine = &httputil.ReverseProxy{
 		Rewrite:        func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
 		Transport:      &http.Transport{TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12}},

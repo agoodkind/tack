@@ -9,9 +9,8 @@ import (
 )
 
 const (
-	// acceptanceIdleTimeout sets the required session idle timeout to 15
-	// minutes.
-	acceptanceIdleTimeout = 15 * time.Minute
+	// acceptanceIdleTimeout sets the required session idle timeout to 2 minutes.
+	acceptanceIdleTimeout = 2 * time.Minute
 	// acceptanceAbsoluteTimeout sets the required session absolute timeout to
 	// 2 hours.
 	acceptanceAbsoluteTimeout = 2 * time.Hour
@@ -23,7 +22,7 @@ const (
 )
 
 // TestSearchSessionDefaultDeadlines verifies that empty timeout environment
-// variables select the 15 minute idle and 2 hour absolute defaults in
+// variables select the 2 minute idle and 2 hour absolute defaults in
 // production configuration, query settings, and stored tack_search session
 // deadlines.
 func TestSearchSessionDefaultDeadlines(t *testing.T) {
