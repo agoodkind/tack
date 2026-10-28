@@ -13,12 +13,12 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// TestSearchParentEdgeProjectUnderWorkspace creates a project through
-// tack_create_project and runs all claimable search work. It requires the
-// project and the workspace entry point to have equal, nonempty index access
-// keys and equal summary access keys. Search under the workspace must return
-// the project within parentEdgeDeadline, and ops search verify must not list
-// the project as excluded.
+// TestSearchParentEdgeProjectUnderWorkspace creates a project with
+// tack_create_project, records its title, and runs all claimable search work.
+// It checks that the project and workspace entry point have equal, nonempty
+// index access keys and equal summary access keys. It requires workspace search
+// to return the project within parentEdgeDeadline and checks that
+// ops search verify does not list the project as excluded.
 func TestSearchParentEdgeProjectUnderWorkspace(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	name := "garnet project under workspace"
@@ -34,6 +34,7 @@ func TestSearchParentEdgeProjectUnderWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse project ID %q: %v", created.RawID(), err)
 	}
+	fixture.titles.Add(created.SearchItem(), project)
 	fixture.drain(t)
 
 	access, err := fixture.index(t, project)

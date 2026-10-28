@@ -152,6 +152,30 @@ func parseSearchPage(text string, titles *datagen.SearchTitles) (searchPage, err
 	return page, nil
 }
 
+// registerSearchNodes reads each node's title from its get tool response heading
+// and records the title and type for search result lookup.
+func registerSearchNodes(t *testing.T, fixture queryFixture, nodeIDs []uuid.UUID) {
+	t.Helper()
+	for _, nodeID := range nodeIDs {
+		view, err := fixture.Stores.Views.Get(WithTestOperation(t, t.Context()), nodeID)
+		if err != nil || view == nil {
+			t.Fatalf("read node %s: %v", nodeID, err)
+		}
+		text := callToolSuccess(t, fixture.Harness, "tack_get_"+view.NodeType, map[string]any{
+			"workspace_reference": fixture.Harness.Workspace, "node_id": nodeID.String(),
+		})
+		heading, _, _ := strings.Cut(strings.TrimPrefix(text, searchHeadingPrefix), "\n")
+		title := heading
+		if quoted, found := strings.CutPrefix(heading, "`"); found {
+			title, _, _ = strings.Cut(quoted, "`")
+		}
+		fixture.Harness.titles.Add(datagen.SearchItem{Title: title, NodeType: view.NodeType}, nodeID)
+	}
+}
+
+// searchHeadingPrefix precedes the title in a node's get tool response.
+const searchHeadingPrefix = "#### "
+
 // searchResultItems groups each result title with its following field lines.
 func searchResultItems(text string) []string {
 	var items []string

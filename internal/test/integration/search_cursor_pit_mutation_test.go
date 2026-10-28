@@ -32,20 +32,14 @@ const (
 	pitTraversalPages = 100
 )
 
-// TestSearchCursorPointInTimeIgnoresLaterChanges opens a search session,
-// then creates, edits, and deletes issues through the MCP tools and indexes
-// every change. Under the session point in time, the raw engine matches
-// after the session sort position are the same before and after the changes
-// (spec lines 126-127). The public continuation returns the distinct nodes
-// of those raw matches that the first page did not return, minus the
-// deleted issue, which the summary check withholds (spec lines 128-129). A
-// new session returns the created issues and the edited name and omits the
-// deleted issue. A term read on node_id (a keyword field,
-// mapping_properties.go:31) returns the old stored name of the edited issue
-// under the session point in time. Under a point in time that the production
-// session open (QueryRanker.Open) creates after the changes, the same read
-// finds no active page with the old name, and a new public session for the
-// new name returns the issue.
+// TestSearchCursorPointInTimeIgnoresLaterChanges opens a search session and
+// records the title of every raw engine match after the session sort position.
+// It then creates, edits, and deletes issues with the MCP tools and indexes each
+// change. It checks that the session snapshot returns the original raw matches
+// and that continuation returns each remaining node except the deleted issue.
+// It checks that the original snapshot retains the edited issue's old name and
+// a new snapshot excludes that name. Fresh searches must return the created
+// issues and the edited name and omit the deleted issue.
 func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	harness := fixture.Harness
@@ -67,6 +61,7 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	session := cursorSession(t, fixture, first.Cursor)
 	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: 5 * time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
 	before := rawMatchesFrom(t, ranker, session)
+	registerSearchNodes(t, fixture, before)
 	remaining := distinctNodes(before, first.IDs)
 	if len(remaining) < 2 {
 		t.Fatalf("raw matches after the first page name %d nodes, want at least two", len(remaining))

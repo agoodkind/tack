@@ -14,8 +14,9 @@ const (
 	shortenedFieldFloorBytes = 16
 )
 
-// fitItemToBudget shortens field values from longest to shortest when an item
-// exceeds budget. It shortens the title only if the item still exceeds budget.
+// fitItemToBudget preserves fields with Whole set and shortens other field
+// values from longest to shortest when an item exceeds budget. It shortens
+// the title only if the item still exceeds budget.
 func fitItemToBudget(item markdownItem, budget int) markdownItem {
 	if markdownItemBytes(item) <= budget {
 		return item
@@ -33,6 +34,9 @@ func fitItemToBudget(item markdownItem, budget int) markdownItem {
 		excess := markdownItemBytes(item) - budget
 		if excess <= 0 {
 			return item
+		}
+		if fields[index].Whole {
+			continue
 		}
 		fields[index].Value = shortenMarkdownValue(fields[index].Value, excess, shortenedFieldFloorBytes)
 	}

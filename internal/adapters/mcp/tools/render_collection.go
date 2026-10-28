@@ -85,9 +85,12 @@ func renderRelationships(rc *renderCtx, direction string, rels []*node.Relations
 
 func nodeListItem(rc *renderCtx, view *node.NodeView) markdownItem {
 	ident := identifierFor(view, rc)
-	fields := []markdownField{markdownCodeFieldValue("Type", view.NodeType)}
-	// identifierFor falls back to the name, so the Name field is printed only
-	// when the title is a reference distinct from it.
+	nodeType := markdownCodeFieldValue("Type", view.NodeType)
+	// Search result parsing requires the full node type key.
+	nodeType.Whole = true
+	fields := []markdownField{nodeType}
+	// nodeListItem includes the Name field only when the title differs from
+	// the node name.
 	if ident == "" {
 		ident = view.Name
 	} else if ident != view.Name {

@@ -16,6 +16,8 @@ var markdownTemplates = template.Must(template.New("").ParseFS(markdownTemplateF
 type markdownField struct {
 	Label string
 	Value string
+	// Whole prevents fitItemToBudget from shortening Value.
+	Whole bool `exhaustruct:"optional"`
 }
 
 type markdownItem struct {

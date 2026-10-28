@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"goodkind.io/tack/internal/datagen"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/test/integration"
 )
 
@@ -54,6 +55,7 @@ func TestSearchRendersOrdinaryListItems(t *testing.T) {
 		"state":    json.RawMessage(strconv.Quote(listRenderingProject + "::" + longState)),
 	})
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
+	allowListing(t, fixture, kind)
 	entryID := integration.EntryPoint(t, fixture, workspace)
 	for number := range listRenderingNodes {
 		name := fmt.Sprintf("Quartzwillow parity node %02d", number)
@@ -81,6 +83,28 @@ func TestSearchRendersOrdinaryListItems(t *testing.T) {
 			t.Fatalf("search returned the list item %d times, want once:\n%s", count, listItem)
 		}
 	}
+}
+
+// allowListing enables the list and read operations on the generated node type.
+// The server registers the list tool for types with those operations.
+func allowListing(t *testing.T, fixture integration.QueryFixture, kind integration.OpaqueKind) {
+	t.Helper()
+	ctx := integration.WithTestOperation(t, t.Context())
+	types, err := fixture.Stores.NodeTypes.List(ctx, kind.OrgID)
+	if err != nil {
+		t.Fatalf("list node types of org %s: %v", kind.OrgID, err)
+	}
+	for _, stored := range types {
+		if stored.TypeKey != kind.TypeKey {
+			continue
+		}
+		stored.AllowedOps = []node.Op{node.OpList, node.OpRead}
+		if err := fixture.Stores.NodeTypes.Set(ctx, stored); err != nil {
+			t.Fatalf("store the operations of node type %s: %v", kind.TypeKey, err)
+		}
+		return
+	}
+	t.Fatalf("node type %s is missing", kind.TypeKey)
 }
 
 // createParityIssue creates an issue in the parity project and returns its
