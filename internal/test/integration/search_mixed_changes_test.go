@@ -42,7 +42,7 @@ func TestSearchMixedMetadataChangesAndMoves(t *testing.T) {
 	seed := strconv.FormatInt(clock.Now().UnixNano(), 10)
 	planned := strconv.Itoa(searchMixedChangesPlanned)
 	output, err := runSearchMixedCommand(t, cfg, "--seed", seed, "--rate", "30", "--write-rate", "60", "--duration", "30s",
-		"--concurrency", "4", "--burst-writes", "10", "--catch-up", "5m", "--metadata-writes", planned, "--moves", planned,
+		"--concurrency", "4", "--burst-writes", "10", "--metadata-writes", planned, "--moves", planned,
 		"--endpoints", strings.Join(endpoints, ","), "--commit")
 	if err != nil {
 		t.Fatalf("qa datagen search-mixed: the workload with metadata changes and moves failed: %v (output=%s)", err, output)

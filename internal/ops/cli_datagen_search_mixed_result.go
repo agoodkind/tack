@@ -82,6 +82,10 @@ type datagenSearchMixedRebuild struct {
 type datagenSearchMixedCatchUp struct {
 	Completed bool    `json:"completed"`
 	ElapsedMs float64 `json:"elapsed_ms"`
+	// DrainedAfterMs is the time in milliseconds from the end of writes to the first reading
+	// without pending work with an enqueue time at or before the end of writes.
+	// It is 0 when catch-up did not complete.
+	DrainedAfterMs float64 `json:"drained_after_ms"`
 }
 
 type datagenSearchMixedSample struct {
@@ -152,7 +156,10 @@ func searchMixedResult(
 			StartedMs: searchLoadMilliseconds(summary.Rebuild.Started), SwitchedAfterMs: searchLoadMilliseconds(summary.Rebuild.Switched),
 			FinalState: summary.Rebuild.FinalState,
 		},
-		CatchUp: datagenSearchMixedCatchUp{Completed: summary.CatchUp.Completed, ElapsedMs: searchLoadMilliseconds(summary.CatchUp.Elapsed)},
+		CatchUp: datagenSearchMixedCatchUp{
+			Completed: summary.CatchUp.Completed, ElapsedMs: searchLoadMilliseconds(summary.CatchUp.Elapsed),
+			DrainedAfterMs: searchLoadMilliseconds(summary.CatchUp.DrainedAfter),
+		},
 		Samples:       searchMixedSamples(summary.Samples),
 		SkippedPhases: slices.Clone(summary.SkippedPhases),
 		CorpusIndex:   searchMixedCorpusIndexResult(summary.CorpusIndex),

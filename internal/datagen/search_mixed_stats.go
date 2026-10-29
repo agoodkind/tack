@@ -61,7 +61,7 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 			Checks: 0, PagesWithinCacheLifetime: 0, ResultsAfterCacheLifetime: 0, Unavailable: 0, RefusedAfter: 0, Refused: false,
 		},
 		Rebuild: SearchMixedRebuildResult{Requested: false, TargetIndex: "", Started: 0, Switched: 0, FinalState: ""},
-		CatchUp: SearchMixedCatchUp{Completed: false, Elapsed: 0},
+		CatchUp: SearchMixedCatchUp{Completed: false, Elapsed: 0, DrainedAfter: 0},
 		Samples: []SearchMixedSample{}, Measured: false, SkippedPhases: []string{},
 		Changes: SearchMixedChanges{
 			MetadataPlanned: 0, MetadataChanges: s.metadataChanges, MetadataNotFound: s.metadataNotFound,

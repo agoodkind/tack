@@ -24,8 +24,10 @@ type SearchMixedOptions struct {
 	Concurrency int
 	Commit      bool
 	BurstWrites int
-	CatchUp     time.Duration
-	Endpoints   []string
+	// CatchUp limits the wait for pending search work after writes end when positive.
+	// When CatchUp is zero, the wait ends when that work finishes or the schedule context ends.
+	CatchUp   time.Duration
+	Endpoints []string
 	Client      *http.Client
 	Rebuild     SearchMixedRebuild
 	// MetadataWrites is the requested number of property definition changes that enable search

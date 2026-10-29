@@ -43,7 +43,7 @@ func logSearchMixedResult(ctx context.Context, result datagenSearchMixedResult) 
 			slog.Float64("switched_after_ms", result.Rebuild.SwitchedAfterMs),
 			slog.String("final_state", result.Rebuild.FinalState)),
 		slog.Group("catch_up", slog.Bool("completed", result.CatchUp.Completed),
-			slog.Float64("elapsed_ms", result.CatchUp.ElapsedMs)),
+			slog.Float64("elapsed_ms", result.CatchUp.ElapsedMs), slog.Float64("drained_after_ms", result.CatchUp.DrainedAfterMs)),
 		slog.Any("skipped_phases", result.SkippedPhases),
 		slog.Group("corpus_index", slog.String("threshold", result.CorpusIndex.Threshold),
 			slog.Any("waits", result.CorpusIndex.Waits)),

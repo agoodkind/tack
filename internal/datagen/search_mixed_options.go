@@ -25,8 +25,8 @@ func validateSearchMixedOptions(options SearchMixedOptions) error {
 	if options.Rate < 0 || options.WriteRate < 0 || options.BurstWrites < 0 {
 		return errors.New("qa datagen search-mixed: rate, write rate, and burst writes must not be negative")
 	}
-	if options.CatchUp <= 0 {
-		return errors.New("qa datagen search-mixed: catch-up timeout must be positive")
+	if options.CatchUp < 0 {
+		return errors.New("qa datagen search-mixed: --catch-up must be zero or positive")
 	}
 	if options.Commit && (options.Rate == 0 || options.WriteRate == 0 || options.BurstWrites == 0) {
 		return errors.New("qa datagen search-mixed: rate, write rate, and burst writes must be positive with --commit")
