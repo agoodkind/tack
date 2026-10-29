@@ -33,6 +33,8 @@ type delayedPageWrite struct {
 // pageDelayProxy forwards every request to the engine. It delays the first
 // bulk page write of one node and ordinal. A positive delay forwards that
 // write after the delay; a zero delay waits until the client abandons it.
+// When forwardAfter is positive, the proxy sends the abandoned delayed
+// write to the engine after forwardAfter.
 type pageDelayProxy struct {
 	engine  *httputil.ReverseProxy
 	nodeID  string
@@ -46,6 +48,12 @@ type pageDelayProxy struct {
 	heldUntil time.Time
 	abandoned bool
 	writes    []delayedPageWrite
+	// forwardAfter sets the delay before the proxy sends an abandoned write
+	// to the engine. forwardedAt records when the engine answered that write.
+	// forwardStatus records the HTTP status of the answer.
+	forwardAfter  time.Duration
+	forwardedAt   time.Time
+	forwardStatus int
 }
 
 // delayedPageBody is the part of a bulk page document the proxy reads.
@@ -83,6 +91,7 @@ func (proxy *pageDelayProxy) ServeHTTP(writer http.ResponseWriter, request *http
 	}
 	proxy.mutex.Unlock()
 	if hold && !proxy.wait(request.Context()) {
+		proxy.forwardAbandoned(request)
 		return
 	}
 	proxy.engine.ServeHTTP(writer, request)
@@ -160,6 +169,7 @@ func newDelayedMigrationEnv(t *testing.T, pageBytes int, delay time.Duration) (*
 		},
 		nodeID: "", ordinal: 0, delay: delay, started: make(chan struct{}),
 		mutex: sync.Mutex{}, delayed: false, heldFrom: time.Time{}, heldUntil: time.Time{}, abandoned: false, writes: nil,
+		forwardAfter: 0, forwardedAt: time.Time{}, forwardStatus: 0,
 	}
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {

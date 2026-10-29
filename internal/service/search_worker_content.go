@@ -39,8 +39,12 @@ func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work,
 		}
 		operationContext, cancel := context.WithTimeout(ctx, w.settings.OperationTimeout)
 		written, err := w.ports.Writer.Put(operationContext, intent)
+		timedOut := errors.Is(operationContext.Err(), context.DeadlineExceeded)
 		cancel()
 		budget.record(1, written)
+		if err != nil && timedOut {
+			return w.settleAbandonedWrite(ctx, work, "write search page", err)
+		}
 		if err != nil {
 			return w.settleEngine(ctx, work, "write search page", err)
 		}

@@ -30,6 +30,11 @@ const (
 // deletes the target, and resumes claims.
 const SearchReplacementPauseLimit = 10 * time.Minute
 
+// SearchWriteCompletionHorizon is a 90-second wait with a margin over
+// the 60 to 80 seconds OpenSearch took on QA to complete page writes
+// after the worker stopped waiting.
+const SearchWriteCompletionHorizon = 90 * time.Second
+
 // SearchWorkerSettings contains bounded environment-backed indexing settings.
 type SearchWorkerSettings struct {
 	PageBytes        int           `env:"OPENSEARCH_PAGE_BYTES"               envDefault:"4096"`
@@ -48,6 +53,11 @@ type SearchWorkerSettings struct {
 	// target. It has no environment variable. LoadSearchWorkerSettings sets
 	// it to SearchReplacementPauseLimit, and tests set a shorter limit.
 	ReplacementPauseLimit time.Duration
+	// WriteCompletionHorizon delays the next claim after a page write times
+	// out. OpenSearch can still complete the abandoned write. This field
+	// does not have an environment variable. LoadSearchWorkerSettings sets
+	// it to SearchWriteCompletionHorizon, and tests use a shorter horizon.
+	WriteCompletionHorizon time.Duration
 }
 
 // LoadSearchWorkerSettings parses and validates the indexing worker environment.
@@ -59,6 +69,7 @@ func LoadSearchWorkerSettings(ctx context.Context) (SearchWorkerSettings, error)
 		return SearchWorkerSettings{}, wrapped
 	}
 	settings.ReplacementPauseLimit = SearchReplacementPauseLimit
+	settings.WriteCompletionHorizon = SearchWriteCompletionHorizon
 	if err := settings.Validate(); err != nil {
 		wrapped := fmt.Errorf("validate search worker settings: %w", err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.worker.config_failed", slog.String("err", wrapped.Error()))
@@ -89,6 +100,9 @@ func (s SearchWorkerSettings) Validate() error {
 	}
 	if s.ReplacementPauseLimit <= s.Lease {
 		return errors.New("search replacement pause limit must exceed the worker lease")
+	}
+	if s.WriteCompletionHorizon <= s.OperationTimeout || s.WriteCompletionHorizon >= s.ReplacementPauseLimit {
+		return errors.New("search write completion horizon must exceed the operation timeout and must be shorter than the replacement pause limit")
 	}
 	if s.IdleInterval <= 0 || s.Concurrency <= 0 || s.Concurrency > searchWorkerMaximum {
 		return fmt.Errorf("search worker idle interval must be positive, and concurrency must be between 1 and %d", searchWorkerMaximum)
