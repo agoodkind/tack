@@ -121,13 +121,17 @@ func TestCreateToolDescribesScopeDiscovery(t *testing.T) {
 }
 
 func TestGettingStartedRejectsRepoNameGuessingForCreateScopes(t *testing.T) {
-	resolver := &Resolver{entryPointSlug: "workspace"}
-	body := buildGettingStartedText(resolver, nil, nil)
+	workspaceType := &node.NodeType{TypeKey: "workspace", Slug: "workspace", Features: node.Features{node.FeatureIsEntryPoint}}
+	projectType := &node.NodeType{TypeKey: "project", Slug: "project", CanLiveUnder: []string{"workspace"}, Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}}
+	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", CanLiveUnder: []string{"project"}, AllowedOps: []node.Op{node.OpCreate}}
+	nodeTypes := []*node.NodeType{workspaceType, projectType, issueType}
+	resolver := NewResolver(nil, nil, nil, nodeTypes)
+	body := buildGettingStartedText(resolver, nodeTypes, nil)
 
 	for _, want := range []string{
 		"Do not infer Tack scope inputs from repository names, org names, or chat context",
 		"Get it from `tack_list_workspaces`; do not substitute a repository or org name",
-		"get `project_reference` from `tack_list_projects`",
+		"- `tack_create_issue`\n  - Required: `workspace_reference`, `name`, `project_reference` (for example `TACK`)",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("getting started should contain %q:\n%s", want, body)

@@ -12,6 +12,7 @@ type gettingStartedTemplateData struct {
 	EntryParam       string
 	NodeTypes        []nodeTypeTemplateRow
 	ReferenceSetters []referenceSetterTemplateRow
+	CreateInputs     []createInputTemplateRow
 }
 
 type nodeTypeTemplateRow struct {
@@ -33,6 +34,7 @@ func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType, pro
 		EntryParam:       resolver.EntryPointParamName(),
 		NodeTypes:        nodeTypeRows(nodeTypes),
 		ReferenceSetters: referenceSetterRows(resolver, nodeTypes, propertyDefs),
+		CreateInputs:     createInputRows(resolver, nodeTypes),
 	}
 	return executeMarkdownTemplate("getting_started.md.tmpl", data)
 }

@@ -48,11 +48,22 @@ These tools are generated from NodeType and PropertyDef metadata:
 ## Create inputs
 
 - `{{.EntryParam}}` is required. Get it from `tack_list_workspaces`; do not substitute a repository or org name.
-- `<parent>_reference` is required when the type lives below a scope level. The exact names come from `CanLiveUnder` metadata. For project-scoped types, get `project_reference` from `tack_list_projects` or `tack_describe_{{.EntrySlug}}`.
 - `name` is required.
+- Scope references are required for the types listed below. Get each reference from the matching `tack_list_<plural>` tool or from `tack_describe_{{.EntrySlug}}`.
 - `properties` is optional, keyed by property name from `tack_list_property_defs`.
 - Create retries are protected automatically by Tack MCP. Explicit idempotency keys are for lower-level API integrations, not normal tool use.
 
+### Required inputs for each create tool
+
+These inputs come from NodeType metadata. Pass every required input. When a tool lists alternative parents, also pass exactly one of them.
+
+{{range .CreateInputs -}}
+- `{{.Tool}}`
+  - Required: {{range $index, $param := .Required}}{{if $index}}, {{end}}`{{$param.Name}}`{{if $param.Example}} (for example `{{$param.Example}}`){{end}}{{end}}
+{{- if .Alternatives}}
+  - Exactly one of: {{range $index, $param := .Alternatives}}{{if $index}}, {{end}}`{{$param.Name}}`{{if $param.Example}} (for example `{{$param.Example}}`){{end}}{{end}}
+{{- end}}
+{{end}}
 ### properties accepts both shapes
 
 Pass `properties` as a real JSON object when your client supports it. The server also accepts a JSON-encoded string of the same object; this covers MCP transports that stringify nested values. Both create and update follow the same rule.
