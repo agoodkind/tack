@@ -126,7 +126,7 @@ func TestCreateIssueRefusesMissingOrConflictingScope(t *testing.T) {
 	}{
 		"no scope":            {epicScopedArguments(harness, "", "Issue without scope"), "exactly one of"},
 		"two scopes":          {both, "exactly one of"},
-		"parent and property": {withParentProperty, "only one of epic_reference or properties.parent_id"},
+		"parent and property": {withParentProperty, "exactly one of epic_reference or properties.parent_id"},
 	}
 	for name, test := range cases {
 		if text := harness.CallExpectError(t, "tack_create_issue", test.arguments); !strings.Contains(text, test.want) {

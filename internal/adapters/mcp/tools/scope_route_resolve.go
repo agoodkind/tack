@@ -36,7 +36,7 @@ func (target routeTarget) refuseParentProperty(props map[string]json.RawMessage)
 	if _, present := props["parent_id"]; !present {
 		return nil
 	}
-	return recoverableError("choose the parent with only one of " + target.ParentParam + " or properties.parent_id")
+	return recoverableError("Specify the parent with exactly one of " + target.ParentParam + " or properties.parent_id.")
 }
 
 // createParentID returns Parent.ID when Parent and Scope have different IDs.
@@ -165,7 +165,7 @@ func (r *Resolver) ancestorOfType(ctx context.Context, start *node.NodeView, lev
 		}
 		currentID = uuidProp(view, "parent_id")
 	}
-	err := fmt.Errorf("%s %s has no %s ancestor: %w", start.NodeType, start.ID, level.Slug, domain.ErrNotFound)
+	err := fmt.Errorf("%s %s does not have a %s ancestor: %w", start.NodeType, start.ID, level.Slug, domain.ErrNotFound)
 	slog.WarnContext(ctx, "resolver.scope.ancestor_missing",
 		slog.String("node_id", start.ID.String()), slog.String("ancestor_type", level.TypeKey), slog.String("err", err.Error()))
 	return nil, err

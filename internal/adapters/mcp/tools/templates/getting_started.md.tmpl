@@ -49,13 +49,13 @@ These tools are generated from NodeType and PropertyDef metadata:
 
 - `{{.EntryParam}}` is required. Get it from `tack_list_workspaces`; do not substitute a repository or org name.
 - `name` is required.
-- Scope references are required for the types listed below. Get each reference from the matching `tack_list_<plural>` tool or from `tack_describe_{{.EntrySlug}}`.
+- Check the list below for each create tool's scope requirements. Get each reference from the matching `tack_list_<plural>` tool or from `tack_describe_{{.EntrySlug}}`.
 - `properties` is optional, keyed by property name from `tack_list_property_defs`.
 - Create retries are protected automatically by Tack MCP. Explicit idempotency keys are for lower-level API integrations, not normal tool use.
 
 ### Required inputs for each create tool
 
-These inputs come from NodeType metadata. Pass every required input. When a tool lists alternative parents, also pass exactly one of them.
+Pass every input under "Required." When a tool also lists "Exactly one of," pass exactly one of those inputs in addition to the required inputs.
 
 {{range .CreateInputs -}}
 - `{{.Tool}}`
