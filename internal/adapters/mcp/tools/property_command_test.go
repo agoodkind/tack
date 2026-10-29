@@ -36,7 +36,7 @@ func TestNormalizeCreatePropsCanonicalizesStateAlias(t *testing.T) {
 			"issue":   issueType,
 		},
 	}
-	props, parentID, err := normalizeCreateProps(auth.WithUser(context.Background(), uuid.New()), NodeTypeBinding{
+	props, parentID, _, err := normalizeCreateProps(auth.WithUser(context.Background(), uuid.New()), NodeTypeBinding{
 		Reader:       reader,
 		PropertyDefs: &fakePropertyDefs{defs: []*node.PropertyDef{{Name: "state_id", Type: node.PropertyTypeUUID, AppliesToFeatures: []string{node.FeatureHasWorkflowStates}, ReferenceTargetTypeKey: "state"}}},
 		Resolver:     resolver,
@@ -60,7 +60,7 @@ func TestNormalizeCreatePropsRejectsUnknownProperty(t *testing.T) {
 	orgID := uuid.New()
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue"}
 	resolver := &Resolver{typeIndex: map[string]*node.NodeType{"issue": issueType}}
-	_, _, err := normalizeCreateProps(context.Background(), NodeTypeBinding{
+	_, _, _, err := normalizeCreateProps(context.Background(), NodeTypeBinding{
 		PropertyDefs: &fakePropertyDefs{defs: []*node.PropertyDef{{Name: "priority", Type: node.PropertyTypeText}}},
 		Resolver:     resolver,
 	}, issueType, orgID, uuid.New(), map[string]json.RawMessage{"made_up_field": mustRaw(t, "x")})
@@ -73,7 +73,7 @@ func TestNormalizeCreatePropsRejectsAliasAndCanonicalTogether(t *testing.T) {
 	orgID := uuid.New()
 	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", Features: node.Features{node.FeatureHasWorkflowStates}}
 	resolver := &Resolver{typeIndex: map[string]*node.NodeType{"issue": issueType, "state": {TypeKey: "state", Slug: "state", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}}}}
-	_, _, err := normalizeCreateProps(context.Background(), NodeTypeBinding{
+	_, _, _, err := normalizeCreateProps(context.Background(), NodeTypeBinding{
 		PropertyDefs: &fakePropertyDefs{defs: []*node.PropertyDef{{Name: "state_id", Type: node.PropertyTypeUUID, AppliesToFeatures: []string{node.FeatureHasWorkflowStates}, ReferenceTargetTypeKey: "state"}}},
 		Resolver:     resolver,
 	}, issueType, orgID, uuid.New(), map[string]json.RawMessage{
