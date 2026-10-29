@@ -18,6 +18,8 @@ type datagenSearchMixedResult struct {
 	MarkersNotFound          int                          `json:"markers_not_found"`
 	DeletedNodesReturned     int                          `json:"deleted_nodes_returned"`
 	DeletesUnverified        int                          `json:"deletes_unverified"`
+	MetadataNotFound         int                          `json:"metadata_not_found"`
+	MovesUnverified          int                          `json:"moves_unverified"`
 	ProbeErrors              int                          `json:"probe_errors"`
 	Endpoints                int                          `json:"endpoints"`
 	Tenants                  int                          `json:"tenants"`
@@ -36,7 +38,12 @@ type datagenSearchMixedWrites struct {
 	Created int `json:"created"`
 	Edited  int `json:"edited"`
 	Deleted int `json:"deleted"`
-	Failed  int `json:"failed"`
+	// MetadataChanges counts committed property definition changes that enable search for
+	// previously excluded values.
+	MetadataChanges int `json:"metadata_changes"`
+	// Moves counts committed issue moves to projects in other workspaces.
+	Moves  int `json:"moves"`
+	Failed int `json:"failed"`
 }
 
 type datagenSearchMixedFreshness struct {
@@ -120,15 +127,18 @@ func searchMixedResult(
 		},
 		TargetWriteRatePerMinute: input.WriteRate, PlannedWrites: summary.PlannedWrites,
 		Writes: datagenSearchMixedWrites{
-			Created: summary.Creates, Edited: summary.Edits, Deleted: summary.Deletes, Failed: summary.WriteErrors,
+			Created: summary.Creates, Edited: summary.Edits, Deleted: summary.Deletes,
+			MetadataChanges: summary.Changes.MetadataChanges, Moves: summary.Changes.Moves, Failed: summary.WriteErrors,
 		},
-		WritesPerMinute: searchMixedPerMinute(summary.Creates+summary.Edits+summary.Deletes, summary.WriteElapsed),
+		WritesPerMinute: searchMixedPerMinute(
+			summary.Creates+summary.Edits+summary.Deletes+summary.Changes.MetadataChanges+summary.Changes.Moves, summary.WriteElapsed),
 		FreshnessLagMs: datagenSearchMixedFreshness{
 			P50: searchLoadMilliseconds(summary.Freshness.P50), P95: searchLoadMilliseconds(summary.Freshness.P95),
 			P99: searchLoadMilliseconds(summary.Freshness.P99), Max: searchLoadMilliseconds(summary.Freshness.Max),
 		},
 		MarkersNotFound: summary.MarkersNotFound, DeletedNodesReturned: summary.DeletedReturned,
 		DeletesUnverified: summary.DeletesUnverified, ProbeErrors: summary.ProbeErrors,
+		MetadataNotFound: summary.Changes.MetadataNotFound, MovesUnverified: summary.Changes.MovesUnverified,
 		Endpoints: summary.Endpoints, Tenants: summary.Tenants,
 		Burst: searchMixedBurstResult(summary.Burst), Sessions: summary.Sessions, PendingDeletion: summary.Pending,
 		Revocation: datagenSearchMixedRevocation{

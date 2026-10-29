@@ -93,6 +93,7 @@ func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWr
 	<-samplerDone
 	summary := m.stats.summary(searchSummary, plannedWrites, writeElapsed)
 	summary.Endpoints, summary.Tenants, summary.Measured = len(m.options.Endpoints), len(m.tenants), true
+	summary.Changes.MetadataPlanned, summary.Changes.MovesPlanned = m.options.MetadataWrites, m.options.Moves
 	summary.Stopped = parentSchedule.Err() != nil
 	m.phases.apply(&summary)
 	return summary, errors.Join(phaseErr, m.panicError())
@@ -142,12 +143,26 @@ func (m *searchMixed) runLoads(scheduleContext, callContext context.Context) Sea
 	return m.loadStats.summary(false, planned, sent, dropped, distinct, elapsed)
 }
 
+// write runs the planned writes at the write rate. At each index that searchMixedChangeSlots
+// assigns, it adds the assigned metadata change or move to the due changes. At every write index,
+// it first tries the oldest due change. When that change runs, it replaces the scheduled create,
+// edit, or delete at that index. If an issue is not available, the change stays due and write
+// runs a create, edit, or delete instead.
 func (m *searchMixed) write(scheduleContext, callContext context.Context, planned int) time.Duration {
 	interval := time.Minute / time.Duration(m.options.WriteRate)
+	slots := searchMixedChangeSlots(planned, m.options.MetadataWrites, m.options.Moves)
+	due := make([]searchMixedChangeKind, 0, len(slots))
 	started := clock.Now()
 	for index := range planned {
 		if !waitForSearchLoadStart(scheduleContext, started.Add(time.Duration(index)*interval)) {
 			break
+		}
+		if kind, found := slots[index]; found {
+			due = append(due, kind)
+		}
+		if len(due) > 0 && m.writeChange(callContext, due[0]) {
+			due = due[1:]
+			continue
 		}
 		m.writeOne(callContext, index)
 	}
@@ -168,29 +183,4 @@ func (m *searchMixed) writeOne(callContext context.Context, index int) {
 		}
 	}
 	m.createScheduledIssue(callContext, index)
-}
-
-// drain waits until the prober finds every pending marker and verifies every pending deletion,
-// the two-minute timeout expires, or scheduleContext ends. It then stops the prober and waits
-// for it to finish.
-func (m *searchMixed) drain(scheduleContext context.Context, stopProbes context.CancelFunc, proberDone <-chan struct{}) {
-	deadline := clock.Now().Add(searchMixedDrainTimeout)
-	for m.probesPending() && clock.Now().Before(deadline) {
-		if !waitForSearchMixedPoll(scheduleContext) {
-			break
-		}
-	}
-	stopProbes()
-	<-proberDone
-}
-
-func waitForSearchMixedPoll(ctx context.Context) bool {
-	timer := time.NewTimer(searchMixedPollInterval)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
 }

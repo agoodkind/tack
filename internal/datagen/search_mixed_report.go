@@ -37,11 +37,16 @@ func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error
 	if s.Stopped && !s.Search.DryRun {
 		failures = append(failures, fmt.Errorf("run stopped with reason %s; the measured window did not run or did not finish", stopReason))
 	} else if s.Measured {
+		classes := "live, access, or cleanup"
+		if s.Changes.MetadataPlanned > 0 {
+			classes = "live, access, cleanup, or rescan"
+		}
 		if !s.CatchUp.Completed {
-			failures = append(failures, fmt.Errorf("live, access, or cleanup search work with enqueue times before the end of writes remained pending after %s of catch-up", s.CatchUp.Elapsed))
+			failures = append(failures, fmt.Errorf("%s search work with enqueue times before the end of writes remained pending after %s of catch-up", classes, s.CatchUp.Elapsed))
 		}
 		add(s.MarkersNotFound > 0, "search did not return %d written issues for their marker words", s.MarkersNotFound)
 		add(s.DeletesUnverified > 0, "the command could not verify the removal of %d deleted issues from search results", s.DeletesUnverified)
+		failures = append(failures, s.Changes.failures()...)
 	}
 	if len(failures) == 0 {
 		return nil
@@ -49,4 +54,34 @@ func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error
 	joined := errors.Join(failures...)
 	slog.ErrorContext(ctx, "qa.datagen.search_mixed_checks_failed", slog.String("err", joined.Error()))
 	return joined
+}
+
+// SearchMixedChanges reports planned and committed metadata changes and moves, metadata values
+// that search did not return, and moves that the command could not verify.
+type SearchMixedChanges struct {
+	MetadataPlanned  int
+	MetadataChanges  int
+	MetadataNotFound int
+	MovesPlanned     int
+	Moves            int
+	MovesUnverified  int
+}
+
+// failures returns errors when the run commits fewer metadata changes or moves than planned,
+// when search does not return a changed metadata value, or when the command cannot verify a move.
+func (c SearchMixedChanges) failures() []error {
+	failures := make([]error, 0)
+	if c.MetadataChanges < c.MetadataPlanned {
+		failures = append(failures, fmt.Errorf("the run committed %d of %d planned metadata changes", c.MetadataChanges, c.MetadataPlanned))
+	}
+	if c.MetadataNotFound > 0 {
+		failures = append(failures, fmt.Errorf("search did not return %d issues for property values that a metadata change included", c.MetadataNotFound))
+	}
+	if c.Moves < c.MovesPlanned {
+		failures = append(failures, fmt.Errorf("the run committed %d of %d planned moves", c.Moves, c.MovesPlanned))
+	}
+	if c.MovesUnverified > 0 {
+		failures = append(failures, fmt.Errorf("the command could not verify that search returned %d moved issues only under their new workspaces", c.MovesUnverified))
+	}
+	return failures
 }

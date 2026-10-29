@@ -17,6 +17,9 @@ type searchMixedNode struct {
 	revision int
 	marker   string
 	settled  bool
+	// metadata maps each excluded definition name to the marker that the issue stores under it.
+	// It is nil for issues in the second tenant and for runs without metadata changes.
+	metadata map[string]string
 }
 
 // newSearchMixedMarker returns a marker word: k followed by 12 random hexadecimal characters.
@@ -80,7 +83,11 @@ func (m *searchMixed) createScheduledIssue(callContext context.Context, index in
 	tenantIndex := ordinal % len(m.tenants)
 	tenant := m.tenants[tenantIndex]
 	marker := newSearchMixedMarker()
-	result, err := m.driver(index).Call(callContext, tenant.token(), "tack_create_issue", m.issueArguments(tenant, "", tenant.project, marker))
+	arguments, metadata := m.issueArguments(tenant, "", tenant.project, marker), m.metadataValues(tenantIndex)
+	for name, value := range metadata {
+		arguments.Properties.setString(name, value)
+	}
+	result, err := m.driver(index).Call(callContext, tenant.token(), "tack_create_issue", arguments)
 	if err != nil {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_create_failed", err)
 		return
@@ -99,7 +106,9 @@ func (m *searchMixed) createScheduledIssue(callContext context.Context, index in
 		m.writeFailed(callContext, "qa.datagen.search_mixed_create_time_unread", err)
 		return
 	}
-	node := &searchMixedNode{id: nodeID, tenant: tenantIndex, ordinal: ordinal, revision: 1, marker: marker, settled: false}
+	node := &searchMixedNode{
+		id: nodeID, tenant: tenantIndex, ordinal: ordinal, revision: 1, marker: marker, settled: false, metadata: metadata,
+	}
 	m.nodeMutex.Lock()
 	m.nodes = append(m.nodes, node)
 	m.nodeMutex.Unlock()

@@ -17,6 +17,10 @@ type searchMixedStats struct {
 	deletedReturned   int             `exhaustruct:"optional"`
 	deletesUnverified int             `exhaustruct:"optional"`
 	probeErrors       int             `exhaustruct:"optional"`
+	metadataChanges   int             `exhaustruct:"optional"`
+	metadataNotFound  int             `exhaustruct:"optional"`
+	moves             int             `exhaustruct:"optional"`
+	movesUnverified   int             `exhaustruct:"optional"`
 }
 
 func (s *searchMixedStats) count(counter *int) {
@@ -59,6 +63,10 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 		Rebuild: SearchMixedRebuildResult{Requested: false, TargetIndex: "", Started: 0, Switched: 0, FinalState: ""},
 		CatchUp: SearchMixedCatchUp{Completed: false, Elapsed: 0},
 		Samples: []SearchMixedSample{}, Measured: false, SkippedPhases: []string{},
+		Changes: SearchMixedChanges{
+			MetadataPlanned: 0, MetadataChanges: s.metadataChanges, MetadataNotFound: s.metadataNotFound,
+			MovesPlanned: 0, Moves: s.moves, MovesUnverified: s.movesUnverified,
+		},
 	}
 }
 

@@ -44,7 +44,32 @@ func (m *searchMixed) trackDeletion(node *searchMixedNode, marker string) {
 func (m *searchMixed) probesPending() bool {
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	return len(m.markers) > 0 || len(m.deletions) > 0
+	return len(m.markers) > 0 || len(m.deletions) > 0 || len(m.metadataChecks) > 0 || len(m.moveChecks) > 0
+}
+
+// drain waits until the prober finds every pending marker and metadata value and verifies every
+// pending deletion and move. The two-minute timeout or the end of scheduleContext can stop the
+// wait early. drain then stops the prober and waits for it to finish.
+func (m *searchMixed) drain(scheduleContext context.Context, stopProbes context.CancelFunc, proberDone <-chan struct{}) {
+	deadline := clock.Now().Add(searchMixedDrainTimeout)
+	for m.probesPending() && clock.Now().Before(deadline) {
+		if !waitForSearchMixedPoll(scheduleContext) {
+			break
+		}
+	}
+	stopProbes()
+	<-proberDone
+}
+
+func waitForSearchMixedPoll(ctx context.Context) bool {
+	timer := time.NewTimer(searchMixedPollInterval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func (m *searchMixed) probe(ctx context.Context, done chan<- struct{}) {
@@ -65,10 +90,13 @@ func (m *searchMixed) probe(ctx context.Context, done chan<- struct{}) {
 		}
 		m.probeMarkers(ctx, tick)
 		m.probeDeletions(ctx, tick)
+		m.probeMetadata(ctx, tick)
+		m.probeMoves(ctx, tick)
 	}
 }
 
-// abandonProbes counts pending markers as not found and pending deletions as unverified when probing stops.
+// abandonProbes counts each pending marker and metadata value as not found when probing stops.
+// It counts each pending deletion and move as unverified.
 func (m *searchMixed) abandonProbes() {
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
@@ -78,7 +106,13 @@ func (m *searchMixed) abandonProbes() {
 	for range m.deletions {
 		m.stats.count(&m.stats.deletesUnverified)
 	}
-	m.markers, m.deletions = nil, nil
+	for range m.metadataChecks {
+		m.stats.count(&m.stats.metadataNotFound)
+	}
+	for range m.moveChecks {
+		m.stats.count(&m.stats.movesUnverified)
+	}
+	m.markers, m.deletions, m.metadataChecks, m.moveChecks = nil, nil, nil, nil
 }
 
 func (m *searchMixed) probeMarkers(ctx context.Context, tick int) {

@@ -19,8 +19,14 @@ const (
 	searchMixedRebuildFinished = "finished"
 )
 
-func searchMixedCatchUpClasses() []searchdomain.WorkClass {
-	return []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup}
+// searchMixedCatchUpClasses returns the live, access, and cleanup classes.
+// It also returns the rescan class when metadata is true.
+func searchMixedCatchUpClasses(metadata bool) []searchdomain.WorkClass {
+	classes := []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup}
+	if metadata {
+		classes = append(classes, searchdomain.WorkClassRescan)
+	}
+	return classes
 }
 
 func (m *searchMixed) sampleUntil(ctx context.Context, windowStarted time.Time, stop <-chan struct{}, done chan<- struct{}) {
@@ -109,13 +115,15 @@ func (m *searchMixed) rebuildState(ctx context.Context) (string, error) {
 }
 
 // catchUp waits for workers to finish all live, access, and cleanup work with an enqueue time
-// at or before writesEnded. It stops waiting when the catch-up timeout expires.
+// at or before writesEnded. It also waits for rescan work when MetadataWrites is positive.
+// It stops waiting when the catch-up timeout expires.
 func (m *searchMixed) catchUp(ctx context.Context, writesEnded time.Time) {
 	deadline := clock.Now().Add(m.options.CatchUp)
 	completed := false
+	classes := searchMixedCatchUpClasses(m.options.MetadataWrites > 0)
 	for {
 		pending, err := m.backlog.pending(ctx)
-		completed = err == nil && caughtUp(pending, writesEnded)
+		completed = err == nil && caughtUp(pending, writesEnded, classes)
 		if completed || clock.Now().After(deadline) || !waitForSearchMixedSample(ctx) {
 			break
 		}
@@ -128,8 +136,8 @@ func (m *searchMixed) catchUp(ctx context.Context, writesEnded time.Time) {
 		slog.Duration("elapsed", elapsed))
 }
 
-func caughtUp(pending map[searchdomain.WorkClass]searchClassBacklog, writesEnded time.Time) bool {
-	for _, class := range searchMixedCatchUpClasses() {
+func caughtUp(pending map[searchdomain.WorkClass]searchClassBacklog, writesEnded time.Time, classes []searchdomain.WorkClass) bool {
+	for _, class := range classes {
 		if backlog, found := pending[class]; found && !backlog.oldest.After(writesEnded) {
 			return false
 		}
