@@ -23,6 +23,15 @@ const (
 	// rawPropertiesFence is the opening line of the JSON block in
 	// tack_get_properties output.
 	rawPropertiesFence = "```json\n"
+	// rawPropertiesClose is the line break and fence that close the JSON block in
+	// tack_get_properties output.
+	rawPropertiesClose = "\n```"
+	// legacyOptionSlices is the maximum number of search worker slices that
+	// putLegacyOptionNode runs to drain search work.
+	legacyOptionSlices = 2000
+	// declaredOptionText is the valid text of the second node that
+	// putLegacyOptionNode creates.
+	declaredOptionText = "declared option text"
 )
 
 // TestSearchInvalidOptionKeepsSourceAndValidText requires ops search verify to
@@ -34,7 +43,7 @@ func TestSearchInvalidOptionKeepsSourceAndValidText(t *testing.T) {
 	fixture := integration.NewQueryFixture(t)
 	legacy := putLegacyOptionNode(t, fixture, fixture.Workspaces[0], "Legacy option node", legacyOptionText)
 	requireInvalidOptionWarning(t, fixture, legacy)
-	requireStoredProperty(t, fixture.Harness, legacy.NodeID, legacy.Definition.Name, legacy.Stored)
+	requireStoredProperty(t, fixture, legacy)
 	// Public tack_search combines a lexical clause with a sparse semantic clause
 	// that can return a node for a word absent from its pages.
 	// This check reads indexed page_text to prove that the index omits the option.
@@ -79,21 +88,28 @@ func TestSearchForbiddenNodeWithWarningIsWithheld(t *testing.T) {
 	}
 }
 
-// legacyOptionNode records the node ID, select property definition, stored JSON
-// value, and undeclared option token.
+// legacyOptionNode records the organization ID, node ID, select property
+// definition, stored JSON value, and undeclared option token.
 type legacyOptionNode struct {
+	OrgID      uuid.UUID
 	NodeID     uuid.UUID
 	Definition *node.PropertyDef
 	Stored     json.RawMessage
 	Token      string
 }
 
-// putLegacyOptionNode declares a select property with one option and explicit
-// search inclusion in workspace's organization. It creates an opaque node
-// through NodeService.Create with validText in an included property.
-// It stores an undeclared option through NodeStore.Set without validating the
-// value against the definition, then drains search work. The option token
-// does not occur in another field or node in the fixture.
+// putLegacyOptionNode declares a select property with one option in the
+// organization of workspace and explicitly includes the property in search.
+// It creates an opaque node through NodeService.Create with validText in an
+// included property, then stores an undeclared option through NodeStore.Set,
+// which does not check the value against the definition. The option token
+// derives from a new UUID and does not occur in another field or node in the
+// fixture.
+//
+// It creates a second node with declaredOptionText and stores the declared
+// option key through NodeStore.Set. After draining search work, it requires
+// the second node's page_text to contain the option label. This check confirms
+// that the select property renders valid values into page_text.
 func putLegacyOptionNode(t *testing.T, fixture integration.QueryFixture, workspace datagen.WorkspaceIdentity, name, validText string) legacyOptionNode {
 	t.Helper()
 	option := node.EnumOption{Key: opaqueName("k"), Label: opaqueName("l")}
@@ -110,8 +126,11 @@ func putLegacyOptionNode(t *testing.T, fixture integration.QueryFixture, workspa
 	nodeID := integration.PutOpaqueNode(t, fixture, kind, entry, name, validText, "excluded")
 	token := opaqueName("v")
 	storeUncheckedProperty(t, fixture, workspace.OrgID, nodeID, definition.Name, token)
-	integration.DrainSearchWork(t, fixture.Worker, 2000)
-	return legacyOptionNode{NodeID: nodeID, Definition: definition, Stored: jsonString(t, token), Token: token}
+	declaredID := integration.PutOpaqueNode(t, fixture, kind, entry, name+" declared", declaredOptionText, "excluded")
+	storeUncheckedProperty(t, fixture, workspace.OrgID, declaredID, definition.Name, option.Key)
+	integration.DrainSearchWork(t, fixture.Worker, legacyOptionSlices)
+	requireIndexedText(t, fixture, declaredID, option.Label, token)
+	return legacyOptionNode{OrgID: workspace.OrgID, NodeID: nodeID, Definition: definition, Stored: jsonString(t, token), Token: token}
 }
 
 // requireInvalidOptionWarning requires ops search verify to list an invalid
@@ -124,14 +143,20 @@ func requireInvalidOptionWarning(t *testing.T, fixture integration.QueryFixture,
 	}
 }
 
-// requireStoredProperty reads nodeID's raw properties through
-// tack_get_properties as the harness caller and compares the value of the
-// property specified by name with want byte for byte.
-func requireStoredProperty(t *testing.T, harness *integration.MCPHarness, nodeID uuid.UUID, name string, want json.RawMessage) {
+// requireStoredProperty calls tack_get_properties as the fixture harness caller
+// to read the node's raw properties from its NodeListView row. It compares the
+// select property value with legacy.Stored byte for byte, then reads the primary
+// record through NodeStore.Get and repeats the comparison.
+func requireStoredProperty(t *testing.T, fixture integration.QueryFixture, legacy legacyOptionNode) {
 	t.Helper()
-	text := integration.CallToolSuccess(t, harness, "tack_get_properties", map[string]any{"node_id": nodeID.String()})
+	nodeID, name := legacy.NodeID, legacy.Definition.Name
+	arguments := datagen.ToolArguments{
+		WorkspaceReference: "", ProjectReference: "", IssueReference: "", Name: "", Properties: nil,
+		NodeID: nodeID.String(), Query: "", NodeType: "", Direction: "", SourceID: "", RelationType: "", TargetID: "", Limit: 0, Cursor: "",
+	}
+	text := fixture.Harness.Call(t, "tack_get_properties", arguments).Text()
 	start := strings.Index(text, rawPropertiesFence)
-	end := strings.LastIndex(text, "\n```")
+	end := strings.LastIndex(text, rawPropertiesClose)
 	if start < 0 || end < start+len(rawPropertiesFence) {
 		t.Fatalf("tack_get_properties output has no JSON block:\n%s", text)
 	}
@@ -139,8 +164,15 @@ func requireStoredProperty(t *testing.T, harness *integration.MCPHarness, nodeID
 	if err := json.Unmarshal([]byte(text[start+len(rawPropertiesFence):end]), &props); err != nil {
 		t.Fatalf("decode the properties of node %s: %v\n%s", nodeID, err, text)
 	}
-	if !bytes.Equal(props[name], want) {
-		t.Fatalf("tack_get_properties returned %s for property %s of node %s, want %s", props[name], name, nodeID, want)
+	if !bytes.Equal(props[name], legacy.Stored) {
+		t.Fatalf("tack_get_properties returned %s for property %s of node %s, want %s", props[name], name, nodeID, legacy.Stored)
+	}
+	primary, err := fixture.Stores.Nodes.Get(integration.WithTestOperation(t, t.Context()), legacy.OrgID, nodeID)
+	if err != nil || primary == nil {
+		t.Fatalf("read the primary record of node %s: %v", nodeID, err)
+	}
+	if !bytes.Equal(primary.Props[name], legacy.Stored) {
+		t.Fatalf("the primary record of node %s stores %s for property %s, want %s", nodeID, primary.Props[name], name, legacy.Stored)
 	}
 }
 
