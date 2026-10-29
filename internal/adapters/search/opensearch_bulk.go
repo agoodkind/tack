@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
+	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -74,13 +75,33 @@ func nextBulkRequest(operations []bulkOperation, start int) (int, []byte) {
 	return end, body.Bytes()
 }
 
+// sendBulk sends one bulk request and measures its round trip.
+// After policy accepts every item, sendBulk logs search.bulk.completed
+// at Debug. On failure, it returns a bulkRequestError with the measurement.
 func (a *Adapter) sendBulk(ctx context.Context, index string, body []byte, operations []bulkOperation, policy bulkItemPolicy) (int, error) {
+	started := clock.Now()
 	response, err := a.api.Bulk(ctx, opensearchapi.BulkReq{Index: index, Body: bytes.NewReader(body)})
+	measured := bulkMeasurement{duration: clock.Since(started), pages: len(operations), bytes: len(body)}
 	if err != nil && (!opensearchapi.IsPartialFailure(err) || response == nil) {
 		wrapped := fmt.Errorf("send OpenSearch bulk request to %s: %w", index, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.bulk.request_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
-		return 0, wrapped
+		telemetry.L(ctx).ErrorContext(ctx, "search.bulk.request_failed", slog.String("err", wrapped.Error()), slog.String("index", index),
+			measured.attr())
+		return 0, bulkRequestError{err: wrapped, measured: measured}
 	}
+	accepted, err := checkBulkItems(ctx, index, response, operations, policy)
+	if err != nil {
+		return accepted, bulkRequestError{err: err, measured: measured}
+	}
+	telemetry.L(ctx).DebugContext(ctx, "search.bulk.completed", slog.String("index", index), measured.attr())
+	return accepted, nil
+}
+
+// checkBulkItems matches each item result in response with its operation.
+// It returns the length of the accepted prefix and the error of the first
+// item that policy does not accept.
+func checkBulkItems(ctx context.Context, index string, response *opensearchapi.BulkResp, operations []bulkOperation,
+	policy bulkItemPolicy,
+) (int, error) {
 	items := make([]opensearchapi.BulkRespItem, 0, len(operations))
 	for _, operation := range response.Items {
 		for _, item := range []*opensearchapi.BulkRespItem{operation.Create, operation.Delete, operation.Index, operation.Update} {

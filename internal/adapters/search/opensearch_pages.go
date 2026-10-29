@@ -137,6 +137,6 @@ func pageWriteFailure(ctx context.Context, event string, work searchdomain.Work,
 		return wrapped
 	}
 	telemetry.L(ctx).ErrorContext(ctx, event, slog.String("err", wrapped.Error()), slog.String("node_id", work.NodeID.String()),
-		slog.String("class", string(work.Class)), slog.Int64("generation", work.Generation), slog.String("index", work.Target))
+		slog.String("class", string(work.Class)), slog.Int64("generation", work.Generation), slog.String("index", work.Target), bulkAttr(err))
 	return wrapped
 }
