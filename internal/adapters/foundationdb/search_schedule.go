@@ -157,6 +157,7 @@ func applySearchRecordPlan(
 		}
 		tr.Clear(fdb.Key(searchClaimKey(string(class), bucket, current.OrgID, current.NodeID)))
 		tr.Clear(cursorKey)
+		clearPendingWrite(tr, class, current.OrgID, current.NodeID)
 		return nil
 	}
 	if !found && plan != searchRecordPut {

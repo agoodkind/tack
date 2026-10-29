@@ -30,6 +30,9 @@ func (s *SearchWorkStore) CompletePage(ctx context.Context, intent searchdomain.
 		if _, err := s.verifyPage(ctx, tr, work, page, revision); err != nil {
 			return err
 		}
+		if intent.Pending != nil {
+			clearPendingWrite(tr, work.Class, work.OrgID, work.NodeID)
+		}
 		return writeSearchRecord(ctx, tr, searchCursorKey(string(work.Class), work.OrgID, work.NodeID), searchProgressRecord{
 			Revision: revision, Generation: work.Generation, Projection: page.ProjectionVersion,
 			Cursor: cursor, Ordinal: page.Ordinal + 1, Phase: string(phase),
@@ -157,4 +160,5 @@ func clearSearchWork(tr fdb.Transaction, work searchdomain.Work, record searchWo
 	tr.Clear(fdb.Key(searchCursorKey(class, work.OrgID, work.NodeID)))
 	tr.Clear(fdb.Key(searchErrorKey(class, work.OrgID, work.NodeID)))
 	tr.Clear(fdb.Key(searchAttemptKey(class, work.OrgID, work.NodeID)))
+	clearPendingWrite(tr, work.Class, work.OrgID, work.NodeID)
 }

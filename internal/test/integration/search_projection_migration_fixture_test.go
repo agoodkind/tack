@@ -24,9 +24,7 @@ const (
 	migrationEngineMemory = int64(8 << 30)
 	migrationIdleWait     = 2 * time.Minute
 	migrationExcluded     = "EXCLUDED-MIGRATION-VALUE"
-	// migrationWriteHorizon sets the migration worker's wait after a page
-	// write times out. The horizon is shorter than claimWait, during which
-	// claimClassOf must claim the work again.
+	// migrationWriteHorizon is the default WriteHorizon for a migrationEnv.
 	migrationWriteHorizon = 25 * time.Second
 )
 
@@ -43,7 +41,9 @@ type migrationEnv struct {
 	IncludedKey string
 	ExcludedKey string
 	PageBytes   int
-	Worker      *service.SearchWorker
+	// WriteHorizon sets WriteCompletionHorizon for each worker newWorker creates.
+	WriteHorizon time.Duration
+	Worker       *service.SearchWorker
 }
 
 // migrationPage stores one page document that the test reads from OpenSearch.
@@ -108,7 +108,8 @@ func newMigrationEnv(t *testing.T, pageBytes int) *migrationEnv {
 	}
 	env := &migrationEnv{
 		Stores: stores, Adapter: adapter, Client: client, Index: index, OrgID: uuid.Must(uuid.NewV7()),
-		TypeKey: uniqueKey("n"), IncludedKey: uniqueKey("p"), ExcludedKey: uniqueKey("p"), PageBytes: pageBytes, Worker: nil,
+		TypeKey: uniqueKey("n"), IncludedKey: uniqueKey("p"), ExcludedKey: uniqueKey("p"), PageBytes: pageBytes,
+		WriteHorizon: migrationWriteHorizon, Worker: nil,
 	}
 	definitionIDs := []uuid.UUID{env.putDefinition(t, env.IncludedKey, true), env.putDefinition(t, env.ExcludedKey, false)}
 	kind := &node.NodeType{
@@ -131,7 +132,7 @@ func (env *migrationEnv) newWorker(t *testing.T, stores *fdbadapter.Stores) *ser
 		PageBytes: env.PageBytes, MaxPages: 32, MaxBytes: 5 << 20, SliceBudget: 2 * time.Second,
 		OperationTimeout: 10 * time.Second, Lease: 30 * time.Second, IdleInterval: 50 * time.Millisecond,
 		Concurrency: 1, ClassWeights: map[string]int{"live": 1, "access": 1, "cleanup": 1, "rescan": 1, "rollout": 1, "rebuild": 1, "copy": 1},
-		ReplacementPauseLimit: config.SearchReplacementPauseLimit, WriteCompletionHorizon: migrationWriteHorizon,
+		ReplacementPauseLimit: config.SearchReplacementPauseLimit, WriteCompletionHorizon: env.WriteHorizon,
 	}
 	worker, err := service.NewSearchWorker(service.SearchWorkerPorts{
 		Store: stores.SearchWork(clock.Wall{}), Reader: stores.SearchContent(policies),
