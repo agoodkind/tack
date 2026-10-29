@@ -121,9 +121,9 @@ func reopenRecoveryStores(t *testing.T) *fdbadapter.Stores {
 // requires it to belong to nodeID.
 func claimRecoveryWork(t *testing.T, stores *fdbadapter.Stores, class searchdomain.WorkClass, nodeID uuid.UUID) searchdomain.Work {
 	t.Helper()
-	work, _, err := stores.SearchWork(clock.Wall{}).Claim(integration.WithTestOperation(t, t.Context()), class, "owner-"+uuid.NewString(), recoveryStepLease)
-	if err != nil || work.NodeID != nodeID {
-		t.Fatalf("claim %s work = %+v err %v, want the work of node %s", class, work, err, nodeID)
+	work, claimed, err := stores.SearchWork(clock.Wall{}).Claim(integration.WithTestOperation(t, t.Context()), class, "owner-"+uuid.NewString(), recoveryStepLease)
+	if err != nil || !claimed || work.NodeID != nodeID {
+		t.Fatalf("claim %s work = %+v claimed %t err %v, want a non-empty claim of the work of node %s", class, work, claimed, err, nodeID)
 	}
 	return work
 }

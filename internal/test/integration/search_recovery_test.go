@@ -93,9 +93,9 @@ func TestSearchRecoveryProjectionChangeBetweenOwners(t *testing.T) {
 	putUnusedDefinition(t, stores, fixture.OrgID)
 	waitPastLeases(t, oldWork)
 	newStore := reopenSearchStore(t).SearchWork(source)
-	newWork, _, err := newStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "new-owner", settings.Lease)
-	if err != nil || newWork.NodeID != fixture.NodeID || newWork.Ordinal != 0 {
-		t.Fatalf("new owner claim = %+v err %v, want the first page of %s", newWork, err, fixture.NodeID)
+	newWork, claimed, err := newStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "new-owner", settings.Lease)
+	if err != nil || !claimed || newWork.NodeID != fixture.NodeID || newWork.Ordinal != 0 {
+		t.Fatalf("new owner claim = %+v claimed %t err %v, want a non-empty claim of the first page of %s", newWork, claimed, err, fixture.NodeID)
 	}
 	newPage, err := reader.Content(WithTestOperation(t, t.Context()), request)
 	if err != nil || newPage.ProjectionVersion == oldPage.ProjectionVersion {
