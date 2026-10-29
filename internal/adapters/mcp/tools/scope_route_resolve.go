@@ -11,6 +11,7 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain"
 	"goodkind.io/tack/internal/domain/node"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 // routeTarget pairs the resolved Scope with the create Parent.
@@ -155,7 +156,10 @@ func (r *Resolver) ancestorOfType(ctx context.Context, start *node.NodeView, lev
 		visited[currentID] = struct{}{}
 		view, err := r.reader.Get(ctx, currentID)
 		if err != nil {
-			return nil, fmt.Errorf("get ancestor %s of %s: %w", currentID, start.ID, err)
+			wrapped := fmt.Errorf("get ancestor %s of %s: %w", currentID, start.ID, err)
+			telemetry.L(ctx).ErrorContext(ctx, "resolver.scope.ancestor_read_failed",
+				slog.String("node_id", start.ID.String()), slog.String("err", wrapped.Error()))
+			return nil, wrapped
 		}
 		if view == nil {
 			break
@@ -166,7 +170,7 @@ func (r *Resolver) ancestorOfType(ctx context.Context, start *node.NodeView, lev
 		currentID = uuidProp(view, "parent_id")
 	}
 	err := fmt.Errorf("%s %s does not have a %s ancestor: %w", start.NodeType, start.ID, level.Slug, domain.ErrNotFound)
-	slog.WarnContext(ctx, "resolver.scope.ancestor_missing",
+	telemetry.L(ctx).InfoContext(ctx, "resolver.scope.ancestor_missing",
 		slog.String("node_id", start.ID.String()), slog.String("ancestor_type", level.TypeKey), slog.String("err", err.Error()))
 	return nil, err
 }

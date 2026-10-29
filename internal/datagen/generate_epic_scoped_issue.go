@@ -3,6 +3,7 @@ package datagen
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // generateEpicScopedIssue creates or reuses a seed issue and lists the epic's issues
@@ -31,11 +32,16 @@ func (g *Generator) generateEpicScopedIssue(
 		return err
 	}
 	g.recordEnsure(created)
-	if _, err := g.driver.Call(ctx, actor.Token, "tack_list_issues", ToolArguments{
+	listed, err := g.driver.Call(ctx, actor.Token, "tack_list_issues", ToolArguments{
 		WorkspaceReference: workspace.Slug,
 		EpicReference:      epicReference,
-	}); err != nil {
+	})
+	if err != nil {
 		return loggedError(ctx, "qa datagen: list issues under epic "+epicReference, err)
+	}
+	if !g.dryRun && !strings.Contains(listed.Text(), name) {
+		return loggedError(ctx, "qa datagen: list issues under epic "+epicReference,
+			fmt.Errorf("the list does not contain issue %q", name))
 	}
 	return nil
 }

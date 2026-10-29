@@ -12,6 +12,8 @@ import (
 
 const gettingStartedURI = "tack://getting-started"
 
+const exactlyOneIssueScope = "exactly one of project_reference, epic_reference, cycle_reference, module_reference, issue_reference is required"
+
 func epicScopedArguments(harness *integration.MCPHarness, epic, name string) datagen.ToolArguments {
 	arguments := parentIntegrityArguments(harness, "")
 	arguments.EpicReference = epic
@@ -124,8 +126,8 @@ func TestCreateIssueRefusesMissingOrConflictingScope(t *testing.T) {
 		arguments datagen.ToolArguments
 		want      string
 	}{
-		"no scope":            {epicScopedArguments(harness, "", "Issue without scope"), "exactly one of"},
-		"two scopes":          {both, "exactly one of"},
+		"no scope":            {epicScopedArguments(harness, "", "Issue without scope"), exactlyOneIssueScope},
+		"two scopes":          {both, exactlyOneIssueScope},
 		"parent and property": {withParentProperty, "exactly one of epic_reference or properties.parent_id"},
 	}
 	for name, test := range cases {
