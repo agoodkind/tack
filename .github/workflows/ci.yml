@@ -123,7 +123,8 @@ jobs:
       - name: run the runtime audit coverage tests
         run: make test-runtime-audit-host
 
-  # Each job allows its search group, setup, and any earlier contract checks.
+  # Each job limit allows the go test limit of its search group in the Makefile
+  # plus 15 minutes for setup. G1 allows 60 minutes of go test and G3 allows 45.
   # The throughput group G2 and the cluster group G4 run only on the Mac runner.
   search:
     name: search integration tests (OpenSearch ${{ matrix.group }})
@@ -137,8 +138,43 @@ jobs:
             timeout_minutes: 75
           - group: G3
             timeout_minutes: 60
-          - group: G5
-            timeout_minutes: 130
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: install the FoundationDB client library
+        run: |
+          fdb_version=7.4.6
+          curl -fsSL \
+            "https://github.com/apple/foundationdb/releases/download/${fdb_version}/foundationdb-clients_${fdb_version}-1_amd64.deb" \
+            -o /tmp/fdb-clients.deb
+          sudo dpkg -i /tmp/fdb-clients.deb
+          rm /tmp/fdb-clients.deb
+
+      # The tests start OpenSearch, FoundationDB, and the ledger through
+      # internal/testenv and dial them at their bridge addresses from the host.
+      - name: run the OpenSearch-backed tests
+        run: make test-search-host-group GROUP=${{ matrix.group }}
+
+  # G5A and G5B split the search tests that G1 to G4 and G6 do not select by
+  # test name. The G5A job limit allows 75 minutes of go test, 20 minutes for
+  # the SDK contract step, and 15 minutes for setup. The G5B job limit allows
+  # 75 minutes of go test and 15 minutes for setup.
+  search-g5:
+    name: search integration tests (OpenSearch ${{ matrix.group }})
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: G5A
+            timeout_minutes: 110
+          - group: G5B
+            timeout_minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -158,7 +194,7 @@ jobs:
       # The tests start OpenSearch, FoundationDB, and the ledger through
       # internal/testenv and dial them at their bridge addresses from the host.
       - name: verify the OpenSearch SDK public adapter contract
-        if: matrix.group == 'G5'
+        if: matrix.group == 'G5A'
         env:
           GOMAXPROCS: '2'
           GOFLAGS: -p=2
@@ -169,3 +205,15 @@ jobs:
 
       - name: run the OpenSearch-backed tests
         run: make test-search-host-group GROUP=${{ matrix.group }}
+
+  # The ruleset requires the check name search integration tests (OpenSearch
+  # G5). This job passes only when G5A and G5B both pass.
+  search-g5-required:
+    name: search integration tests (OpenSearch G5)
+    needs: search-g5
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: require G5A and G5B to pass
+        run: test "${{ needs.search-g5.result }}" = success
