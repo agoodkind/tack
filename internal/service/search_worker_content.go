@@ -13,8 +13,9 @@ import (
 // contentSlice writes pages of one revision. It reads, registers, writes,
 // and checkpoints each page before it reads the next page. Once the slice
 // spends its page, byte, or time budget, it yields before another remote
-// write. After the final page it refreshes the serving index in a separate
-// resumable phase.
+// write. When the page of a pending write remains absent, the slice ends
+// with an uncounted release and the store's minimum retry delay. After the
+// final page it refreshes the serving index in a separate resumable phase.
 func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work, budget *sliceBudget) error {
 	for work.Phase != searchdomain.PhaseRefresh {
 		if budget.spent() {
@@ -42,12 +43,16 @@ func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work,
 		timedOut := errors.Is(operationContext.Err(), context.DeadlineExceeded)
 		cancel()
 		budget.record(1, written)
+		if errors.Is(err, searchdomain.ErrPageWritePending) {
+			return w.awaitPendingWrite(ctx, work, intent)
+		}
 		if err != nil && timedOut {
-			return w.settleAbandonedWrite(ctx, work, "write search page", err)
+			return w.settleAbandonedWrite(ctx, work, intent, err)
 		}
 		if err != nil {
-			return w.settleEngine(ctx, work, "write search page", err)
+			return w.settleEngine(ctx, work, pageWriteOperation, err)
 		}
+		w.logStoredPendingWrite(ctx, work, intent)
 		if err := w.ports.Store.CompletePage(ctx, intent, page.NextCursor, page.Done); err != nil {
 			return w.settle(ctx, work, "checkpoint search page", err)
 		}

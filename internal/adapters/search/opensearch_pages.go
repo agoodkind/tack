@@ -12,13 +12,15 @@ import (
 )
 
 // Put writes one complete page at its FoundationDB generation. It validates
-// page_text before any engine request. In each index it reads the stored
-// page, refuses a write below the stored generation or to a retired page
-// with ErrObsoleteWrite, sends nothing for a page at the write generation,
-// and otherwise indexes with if_seq_no and if_primary_term from the read. It
-// returns the encoded request length in bytes. When the work item has a
-// mirror index, Put writes the same page to the mirror index after the
-// target accepts it.
+// page_text, then reads the stored page in each index. It returns
+// ErrObsoleteWrite for a retired page or a stored generation above the write
+// generation. It skips pages at the write generation and otherwise indexes
+// with if_seq_no and if_primary_term from the read. When intent.Pending is
+// non-nil, Put returns ErrPageWritePending for an absent page in
+// intent.Pending.Index without sending a write request to that index.
+// Put writes the mirror after the target accepts the page and returns the
+// total encoded request length in bytes. Each failed index request returns
+// a PageWriteError that identifies its physical index.
 func (a *Adapter) Put(ctx context.Context, intent searchdomain.WriteIntent) (int, error) {
 	if intent.Work.Target == "" {
 		return 0, pageWriteFailure(ctx, "search.page.target_missing", intent.Work, errors.New("page write requires a serving index"))
@@ -37,15 +39,17 @@ func (a *Adapter) Put(ctx context.Context, intent searchdomain.WriteIntent) (int
 }
 
 func (a *Adapter) putPage(ctx context.Context, intent searchdomain.WriteIntent) (int, error) {
+	held := intent.Pending != nil && intent.Pending.Index == intent.Work.Target
 	page := guardedPage{
-		documentID: intent.DocumentID, generation: intent.Work.Generation,
+		documentID: intent.DocumentID, generation: intent.Work.Generation, holdCreate: held,
 		encode: func(precondition pagePrecondition) ([]byte, error) {
 			return encodePageDocument(ctx, intent, precondition)
 		},
 	}
 	_, written, err := a.writeGuarded(ctx, intent.Work.Target, []guardedPage{page}, staleRefused)
 	if err != nil {
-		return written, pageWriteFailure(ctx, "search.page.write_failed", intent.Work, err)
+		failure := pageWriteFailure(ctx, "search.page.write_failed", intent.Work, err)
+		return written, &searchdomain.PageWriteError{Index: intent.Work.Target, Err: failure}
 	}
 	return written, nil
 }
@@ -95,7 +99,7 @@ func (a *Adapter) retireIn(ctx context.Context, work searchdomain.Work, document
 	pages := make([]guardedPage, 0, len(documents))
 	for _, document := range documents {
 		pages = append(pages, guardedPage{
-			documentID: document.DocumentID, generation: work.Generation,
+			documentID: document.DocumentID, generation: work.Generation, holdCreate: false,
 			encode: func(precondition pagePrecondition) ([]byte, error) {
 				return encodeRetirement(ctx, work, document, precondition)
 			},
@@ -133,7 +137,7 @@ func (a *Adapter) Refresh(ctx context.Context, index string) error {
 
 func pageWriteFailure(ctx context.Context, event string, work searchdomain.Work, err error) error {
 	wrapped := fmt.Errorf("write search pages for node %s at generation %d to %s: %w", work.NodeID, work.Generation, work.Target, err)
-	if errors.Is(err, searchdomain.ErrObsoleteWrite) {
+	if errors.Is(err, searchdomain.ErrObsoleteWrite) || errors.Is(err, searchdomain.ErrPageWritePending) {
 		return wrapped
 	}
 	telemetry.L(ctx).ErrorContext(ctx, event, slog.String("err", wrapped.Error()), slog.String("node_id", work.NodeID.String()),

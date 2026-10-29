@@ -30,9 +30,8 @@ const (
 // deletes the target, and resumes claims.
 const SearchReplacementPauseLimit = 10 * time.Minute
 
-// SearchWriteCompletionHorizon is a 90-second wait with a margin over
-// the 60 to 80 seconds OpenSearch took on QA to complete page writes
-// after the worker stopped waiting.
+// SearchWriteCompletionHorizon is the time from abandonment until a claim
+// may resend a page that remains absent from its recorded index.
 const SearchWriteCompletionHorizon = 90 * time.Second
 
 // SearchWorkerSettings contains bounded environment-backed indexing settings.
@@ -53,10 +52,10 @@ type SearchWorkerSettings struct {
 	// target. It has no environment variable. LoadSearchWorkerSettings sets
 	// it to SearchReplacementPauseLimit, and tests set a shorter limit.
 	ReplacementPauseLimit time.Duration
-	// WriteCompletionHorizon delays the next claim after a page write times
-	// out. OpenSearch can still complete the abandoned write. This field
-	// does not have an environment variable. LoadSearchWorkerSettings sets
-	// it to SearchWriteCompletionHorizon, and tests use a shorter horizon.
+	// WriteCompletionHorizon limits how long claims wait for an abandoned
+	// write when its page remains absent. It does not have an environment
+	// variable. LoadSearchWorkerSettings sets it to
+	// SearchWriteCompletionHorizon, and tests set other horizons.
 	WriteCompletionHorizon time.Duration
 }
 

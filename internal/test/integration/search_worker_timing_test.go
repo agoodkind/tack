@@ -140,6 +140,10 @@ func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
 	if err := store.Yield(t.Context(), next); err != nil {
 		t.Fatalf("yield the inspected claim: %v", err)
 	}
+	// The proxy never sends the abandoned write to the engine. The worker must
+	// resend page 1 after migrationWriteHorizon to finish indexing the node.
+	resent := until.Add(migrationWriteHorizon + resendMargin)
+	runSlicesUntil(t, env, resent, func() bool { return indexMismatch(t, env, delayedID) == "" })
 	env.runIdle(t)
 	requireIndexedNode(t, env, delayedID)
 	requireIndexedNode(t, env, otherID)

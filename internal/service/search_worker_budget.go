@@ -81,33 +81,24 @@ func weightedSchedule(weights map[string]int) ([]searchdomain.WorkClass, error) 
 // limit of the work. Engine operations use settleEngine or
 // settleAbandonedWrite instead.
 func (w *SearchWorker) settle(ctx context.Context, work searchdomain.Work, operation string, err error) error {
-	return w.fail(ctx, work, operation, err, true, 0)
+	return w.fail(ctx, work, operation, err, searchdomain.Failure{Message: "", Counted: true, RetryAfter: 0})
 }
 
 // settleEngine ends a slice after a failed OpenSearch operation, except
 // a page write that times out at OperationTimeout. The failure does not
 // count toward the attempt limit. The next claim waits OperationTimeout.
 func (w *SearchWorker) settleEngine(ctx context.Context, work searchdomain.Work, operation string, err error) error {
-	return w.fail(ctx, work, operation, err, false, w.settings.OperationTimeout)
-}
-
-// settleAbandonedWrite ends a slice after a page write times out at
-// OperationTimeout. The failure does not count toward the attempt limit.
-// On QA, OpenSearch completed abandoned writes 60 to 80 seconds after
-// the worker stopped waiting. The next claim waits WriteCompletionHorizon.
-// Its page state read skips another write if OpenSearch has completed
-// the page.
-func (w *SearchWorker) settleAbandonedWrite(ctx context.Context, work searchdomain.Work, operation string, err error) error {
-	return w.fail(ctx, work, operation, err, false, w.settings.WriteCompletionHorizon)
+	return w.fail(ctx, work, operation, err, searchdomain.Failure{Message: "", Counted: false, RetryAfter: w.settings.OperationTimeout})
 }
 
 // fail ends a slice after err. A changed or obsolete claim yields without
 // recording a failure. A node without exactly one hierarchy parent has an
 // unresolved permission boundary. When live, access, or copy work fails for
-// this reason, fail excludes the node from search, and the slice succeeds.
-// For any other error, fail records the failure, keeps the work pending, and
-// delays the next claim by at least retryAfter.
-func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operation string, err error, counted bool, retryAfter time.Duration) error {
+// this reason while ctx remains active, fail excludes the node from search,
+// and the slice succeeds. For other errors while ctx remains active, fail
+// sets only failure.Message and passes failure to Release. Release keeps
+// the work pending and delays the next claim by at least failure.RetryAfter.
+func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operation string, err error, failure searchdomain.Failure) error {
 	if errors.Is(err, searchdomain.ErrWorkChanged) || errors.Is(err, searchdomain.ErrObsoleteWrite) {
 		telemetry.L(ctx).InfoContext(ctx, "search.worker.work_changed", slog.String("node_id", work.NodeID.String()),
 			slog.String("class", string(work.Class)), slog.Int64("generation", work.Generation), slog.String("operation", operation))
@@ -123,7 +114,7 @@ func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operati
 	if ctx.Err() != nil {
 		return loggedWorkerError{err: wrapped}
 	}
-	failure := searchdomain.Failure{Message: wrapped.Error(), Counted: counted, RetryAfter: retryAfter}
+	failure.Message = wrapped.Error()
 	if releaseErr := w.ports.Store.Release(ctx, work, failure); releaseErr != nil && !errors.Is(releaseErr, searchdomain.ErrWorkChanged) {
 		telemetry.L(ctx).ErrorContext(ctx, "search.worker.release_failed", slog.String("err", releaseErr.Error()),
 			slog.String("node_id", work.NodeID.String()), slog.String("class", string(work.Class)))

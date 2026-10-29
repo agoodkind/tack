@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -12,16 +11,17 @@ import (
 )
 
 const (
-	// abandonedWriteDelay sets the wait after the worker abandons a delayed
-	// write before the proxy sends it to the engine. It exceeds the
-	// ten-second operation timeout and is shorter than migrationWriteHorizon.
+	// abandonedWriteDelay is the proxy's wait after the worker abandons a write
+	// until the proxy sends it to the engine. It exceeds the ten-second
+	// OperationTimeout.
 	abandonedWriteDelay = 15 * time.Second
-	// horizonClaimMargin adds time for the test to run slices after
-	// migrationWriteHorizon ends and claim the delayed work again.
-	horizonClaimMargin = 5 * time.Second
-	// abandonedWriteSlices limits the number of slices the worker runs
-	// before it abandons the delayed write.
-	abandonedWriteSlices = 20
+	// storedWriteHorizon sets WriteCompletionHorizon for tests in which the
+	// proxy sends the abandoned write. It exceeds abandonedWriteDelay plus
+	// storedWriteMargin.
+	storedWriteHorizon = 60 * time.Second
+	// storedWriteMargin bounds the allowed indexing time after the proxy sends
+	// the abandoned write to the engine.
+	storedWriteMargin = 15 * time.Second
 )
 
 // forwardAbandonedAfter sets the delay before the proxy sends an
@@ -60,59 +60,28 @@ func (proxy *pageDelayProxy) forwarded() (time.Time, int) {
 	return proxy.forwardedAt, proxy.forwardStatus
 }
 
-// TestSearchWorkerWaitsForAbandonedPageWrite delays page 1 of a node
-// until the worker stops waiting at OperationTimeout. The proxy sends
-// the abandoned write to the engine 15 seconds later. The test requires
-// the worker to finish indexing the node without sending page 1 again.
+// TestSearchWorkerWaitsForAbandonedPageWrite requires exactly one write of
+// page 1 and every page indexed within 30 seconds of abandonment. The proxy
+// sends the abandoned write to the engine after 15 seconds under a 60-second
+// horizon. On main, the next claim waits the full horizon and misses the
+// 30-second bound.
 func TestSearchWorkerWaitsForAbandonedPageWrite(t *testing.T) {
-	env, proxy := newDelayedMigrationEnv(t, timingPageBytes, 0)
-	proxy.forwardAbandonedAfter(abandonedWriteDelay)
-	// newMigrationEnv enables search work before storing two property
-	// definitions. Each definition write requests an organization rescan.
-	// runIdle finishes the rescans before the node exists. Otherwise, a
-	// rescan after the timeout schedules a new content revision at a new
-	// generation. The worker can claim that generation and write page 1
-	// before the horizon ends.
-	env.runIdle(t)
-	nodeID := uuid.Must(uuid.NewV7())
-	env.putNode(t, nodeID, strings.Repeat(timingText, 40))
-	proxy.target(nodeID, 1)
-	for range abandonedWriteSlices {
-		_, err := env.Worker.RunSlice(t.Context())
-		if _, until, _ := proxy.held(); !until.IsZero() {
-			break
-		}
-		if err != nil {
-			t.Fatalf("run a slice before the delayed write: %v", err)
-		}
-	}
-	_, until, abandoned := proxy.held()
-	if until.IsZero() || !abandoned {
-		t.Fatalf("delayed write ended at %s abandoned %t, want the worker to abandon it", until, abandoned)
-	}
-
-	for deadline := time.Now().Add(migrationWriteHorizon + horizonClaimMargin); time.Now().Before(deadline); {
-		claimed, err := env.Worker.RunSlice(t.Context())
-		if err != nil {
-			t.Fatalf("run a slice after the abandoned write: %v", err)
-		}
-		if !claimed {
-			time.Sleep(250 * time.Millisecond)
-		}
-	}
-	env.runIdle(t)
-	if forwardedAt, status := proxy.forwarded(); forwardedAt.IsZero() || status != http.StatusOK {
+	abandoned := abandonPageOne(t, storedWriteHorizon, abandonedWriteDelay)
+	env, proxy, nodeID := abandoned.env, abandoned.proxy, abandoned.nodeID
+	bound := abandoned.abandonedAt.Add(abandonedWriteDelay + storedWriteMargin)
+	indexed := runSlicesUntil(t, env, bound, func() bool { return indexMismatch(t, env, nodeID) == "" })
+	forwardedAt, status := proxy.forwarded()
+	if forwardedAt.IsZero() || status != http.StatusOK {
 		t.Fatalf("the engine answered the abandoned write at %s with status %d, want status %d", forwardedAt, status, http.StatusOK)
 	}
-	pageWrites := make([]delayedPageWrite, 0, 1)
-	for _, write := range proxy.writesOf(nodeID) {
-		if write.ordinal == 1 {
-			pageWrites = append(pageWrites, write)
-		}
+	if !indexed {
+		t.Fatalf("node %s was not indexed by %s, %s after the abandon at %s: %s",
+			nodeID, bound, bound.Sub(abandoned.abandonedAt), abandoned.abandonedAt, indexMismatch(t, env, nodeID))
 	}
-	if len(pageWrites) != 1 {
-		t.Fatalf("the proxy received %d writes of page 1 %+v after the abandon at %s, want only the abandoned write", len(pageWrites), pageWrites, until)
+	if writes := pageWrites(proxy, nodeID, 1); len(writes) != 1 {
+		t.Fatalf("the proxy received %d writes of page 1 %+v, want only the abandoned write", len(writes), writes)
 	}
+	env.runIdle(t)
 	requireIndexedNode(t, env, nodeID)
 }
 

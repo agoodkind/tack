@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -84,19 +85,29 @@ func drainWorkClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *ser
 //   - The projection version matches.
 func requireIndexedNode(t *testing.T, env *migrationEnv, nodeID uuid.UUID) {
 	t.Helper()
+	if mismatch := indexMismatch(t, env, nodeID); mismatch != "" {
+		t.Fatal(mismatch)
+	}
+}
+
+// indexMismatch returns the first difference that requireIndexedNode
+// reports, or an empty string when the active documents match the pages.
+func indexMismatch(t *testing.T, env *migrationEnv, nodeID uuid.UUID) string {
+	t.Helper()
 	documents := env.pages(t, nodeID, false)
 	pages := env.readerPages(t, nodeID)
 	if len(documents) != len(pages) {
-		t.Fatalf("node %s has %d active documents, want %d pages", nodeID, len(documents), len(pages))
+		return fmt.Sprintf("node %s has %d active documents, want %d pages", nodeID, len(documents), len(pages))
 	}
 	for number, document := range documents {
 		page := pages[number]
 		textMatches := document.PageText != nil && *document.PageText == page.Text
 		if !textMatches || document.PageOrdinal != page.Ordinal || document.NodeRevision != page.Revision ||
 			document.ProjectionVersion != page.ProjectionVersion {
-			t.Fatalf("document %d of node %s does not match reader page %d", number, nodeID, page.Ordinal)
+			return fmt.Sprintf("document %d of node %s does not match reader page %d", number, nodeID, page.Ordinal)
 		}
 	}
+	return ""
 }
 
 // TestSearchCleanupYieldsAfter100Documents indexes a node with more than 100

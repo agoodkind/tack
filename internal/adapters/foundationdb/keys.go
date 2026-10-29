@@ -124,6 +124,8 @@ const (
 	// (search_error, class, orgID, nodeID) -> last failure message
 	// (search_attempt, class, orgID, nodeID) -> counted failures of the class
 	//   since its last finished item
+	// (search_pending_write, class, orgID, nodeID) -> pending page write
+	//   record JSON
 	// (search_exclusion, orgID, nodeID) -> exclusion record JSON of a node
 	//   that search does not index
 	// (search_scan, orgID) -> rescan generation counter
@@ -170,6 +172,7 @@ const (
 	keySearchFanout            = "search_fanout"
 	keySearchError             = "search_error"
 	keySearchAttempt           = "search_attempt"
+	keySearchPendingWrite      = "search_pending_write"
 	keySearchExclusion         = "search_exclusion"
 	keySearchScan              = "search_scan"
 	keySearchProjection        = "search_projection"

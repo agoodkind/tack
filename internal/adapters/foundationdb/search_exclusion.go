@@ -62,13 +62,19 @@ func (s *SearchWorkStore) Exclude(ctx context.Context, work searchdomain.Work, r
 // recordFailure increments the work item's attempt count for a counted
 // failure. It stores the failure message, keeps the work pending, and delays
 // the next claim by the longer of searchRetryDelay and failure.RetryAfter.
-// The outcome reports whether the failure sets the count to the limit.
+// When failure.Pending is non-nil, it stores that value as the pending write
+// record for the class and node. The outcome reports whether the failure sets the count to the limit.
 func (s *SearchWorkStore) recordFailure(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, failure searchdomain.Failure) (failureOutcome, error) {
 	outcome := failureOutcome{LimitCrossed: false, Attempts: 0, ItemID: ""}
 	if failure.Counted {
 		var err error
 		outcome, err = countFailure(ctx, tr, work)
 		if err != nil {
+			return outcome, err
+		}
+	}
+	if failure.Pending != nil {
+		if err := recordPendingWrite(ctx, tr, work, *failure.Pending); err != nil {
 			return outcome, err
 		}
 	}

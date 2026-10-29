@@ -25,9 +25,12 @@ type pagePrecondition struct {
 }
 
 // guardedPage is one page write sent only after a read of the stored page.
+// When holdCreate is true and the page is absent, the write returns
+// ErrPageWritePending without sending a write request.
 type guardedPage struct {
 	documentID string
 	generation int64
+	holdCreate bool
 	encode     func(pagePrecondition) ([]byte, error)
 }
 
@@ -70,9 +73,11 @@ func decideGuardedWrite(state pageState, generation int64, rule staleRule) guard
 	}
 }
 
-// guardedPlan is the requests for one attempt of a guarded write. positions[i]
-// is the page position of operation i; positions[len(operations)] is the
-// position of the stale page, or the page count when stale is nil.
+// guardedPlan contains the requests for one attempt of a guarded write.
+// positions[i] is the page position of operation i.
+// positions[len(operations)] is the position of the stale or held page, or
+// the page count when stale is nil. stale wraps ErrObsoleteWrite for a stale
+// page or ErrPageWritePending for a held page.
 type guardedPlan struct {
 	operations []bulkOperation
 	positions  []int
@@ -140,6 +145,10 @@ func planGuardedWrite(ctx context.Context, index string, pages []guardedPage, st
 				slog.String("document_id", page.documentID), slog.String("index", index))
 			return guardedPlan{operations: operations, positions: append(positions, position), stale: stale}, nil
 		case guardWrite:
+		}
+		if !state.Found && page.holdCreate {
+			held := fmt.Errorf("document %s in %s is absent: %w", page.documentID, index, searchdomain.ErrPageWritePending)
+			return guardedPlan{operations: operations, positions: append(positions, position), stale: held}, nil
 		}
 		precondition := pagePrecondition{Create: !state.Found, SeqNo: state.SeqNo, PrimaryTerm: state.PrimaryTerm}
 		encoded, err := page.encode(precondition)

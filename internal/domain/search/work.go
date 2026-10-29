@@ -104,16 +104,6 @@ func (w Work) Excludable() bool {
 	return w.Class == WorkClassLive || w.Class == WorkClassAccess || w.Class == WorkClassCopy
 }
 
-// Failure is one failed slice of a claimed work item. Counted is false for
-// a failed OpenSearch operation, and such a failure never counts toward the
-// attempt limit of the work.
-type Failure struct {
-	Message string
-	Counted bool
-	// RetryAfter is the minimum wait before the next claim of the work.
-	RetryAfter time.Duration
-}
-
 // Exclusion is one node that search does not index. Class and Index are the
 // work class and physical index of the failure that excluded the node.
 type Exclusion struct {
@@ -130,13 +120,6 @@ type ExclusionPage struct {
 	Exclusions []Exclusion
 	NextCursor string
 	Done       bool
-}
-
-// WriteIntent binds one page write to its claimed generation and target.
-type WriteIntent struct {
-	Work       Work
-	Page       node.ContentPage
-	DocumentID string
 }
 
 // IssuedDocument identifies one registered page document.
