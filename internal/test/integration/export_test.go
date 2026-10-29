@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -306,6 +307,25 @@ func (h *MCPHarness) TryCall(ctx context.Context, toolName string, args datagen.
 		return result, fmt.Errorf("call %s: %w", toolName, err)
 	}
 	return result, nil
+}
+
+// ReadResource returns the single text entry from the MCP resource at uri.
+// It fails the test if decoding fails or the response does not contain exactly one entry.
+func (h *MCPHarness) ReadResource(t *testing.T, uri string) string {
+	t.Helper()
+	payload := callRPCRaw(t, h, "resources/read", map[string]any{"uri": uri})
+	var result struct {
+		Contents []struct {
+			Text string `json:"text"`
+		} `json:"contents"`
+	}
+	if err := json.Unmarshal(payload, &result); err != nil {
+		t.Fatalf("decode resources/read result for %s: %v\n%s", uri, err, payload)
+	}
+	if len(result.Contents) != 1 {
+		t.Fatalf("resources/read %s returned %d contents, want 1", uri, len(result.Contents))
+	}
+	return result.Contents[0].Text
 }
 
 // ClusterPhrase is the text that the cluster tests include in every node they write.
