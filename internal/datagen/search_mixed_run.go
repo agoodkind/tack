@@ -143,11 +143,6 @@ func (m *searchMixed) runLoads(scheduleContext, callContext context.Context) Sea
 	return m.loadStats.summary(false, planned, sent, dropped, distinct, elapsed)
 }
 
-// write runs the planned writes at the write rate. At each index that searchMixedChangeSlots
-// assigns, it adds the assigned metadata change or move to the due changes. At every write index,
-// it first tries the oldest due change. When that change runs, it replaces the scheduled create,
-// edit, or delete at that index. If an issue is not available, the change stays due and write
-// runs a create, edit, or delete instead.
 func (m *searchMixed) write(scheduleContext, callContext context.Context, planned int) time.Duration {
 	interval := time.Minute / time.Duration(m.options.WriteRate)
 	slots := searchMixedChangeSlots(planned, m.options.MetadataWrites, m.options.Moves)
