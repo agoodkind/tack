@@ -15,15 +15,20 @@ const (
 	changeLabelSet       = "Set"
 	changeLabelRemoved   = "Removed"
 	changeLabelUnchanged = "Unchanged"
-	maxChangeValueBytes  = 40
-	nameFieldKey         = "name"
+	// maxChangeValueBytes limits the text retained for each value in a change line
+	// before shortenText adds an ellipsis.
+	maxChangeValueBytes = 40
+	nameFieldKey        = "name"
 	// emptyStringText represents an empty string as two double quotes
 	// in a Markdown code span.
 	emptyStringText = "`\"\"`"
 )
 
+// builtinReferenceKeys lists the built-in property keys that identify reference targets.
 var builtinReferenceKeys = []string{"parent_id", "scope_id"}
 
+// writeChanges stores the requested fields and the node before and after a write.
+// Before is nil for a create.
 type writeChanges struct {
 	Before        *node.NodeView
 	After         *node.NodeView
@@ -96,6 +101,8 @@ func describeFieldChange(rc *renderCtx, changes writeChanges, key string) markdo
 	}
 }
 
+// storedValue reads the name or property value from view and reports its presence.
+// It treats a nil view, a missing property, empty JSON, and JSON null as absent.
 func (changes writeChanges) storedValue(view *node.NodeView, key string) (json.RawMessage, bool) {
 	if view == nil {
 		return nil, false
