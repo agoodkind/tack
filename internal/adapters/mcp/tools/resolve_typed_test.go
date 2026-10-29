@@ -288,7 +288,7 @@ func TestNormalizeUpdatePropsResolvesStateReference(t *testing.T) {
 			"issue":   issueType,
 		},
 	}
-	props, err := normalizeUpdateProps(auth.WithUser(context.Background(), uuid.New()), NodeTypeBinding{
+	props, _, err := normalizeUpdateProps(auth.WithUser(context.Background(), uuid.New()), NodeTypeBinding{
 		Reader:       reader,
 		PropertyDefs: &fakePropertyDefs{defs: []*node.PropertyDef{{Name: "state_id", Type: node.PropertyTypeUUID, AppliesToFeatures: []string{node.FeatureHasWorkflowStates}, ReferenceTargetTypeKey: "state"}}},
 		Resolver:     resolver,

@@ -19,7 +19,11 @@ func TestWriteConfirmationPrintsLongCommentBodyOnce(t *testing.T) {
 	view := &node.NodeView{ID: uuid.Must(uuid.NewV7()), NodeType: "comment", Name: body}
 	rc := newRenderCtxWithTypes(context.Background(), nil, nil, nil)
 
-	text := renderWriteConfirmation(rc, "Created", view, []string{"name"})
+	changes := describeFieldChanges(rc, writeChanges{
+		Before: nil, After: view, Name: &view.Name, Props: nil, ReferenceKeys: nil,
+	})
+
+	text := renderWriteConfirmation(rc, "Created", view, changes)
 
 	if len(text) > maxWriteConfirmationBytes {
 		t.Fatalf("confirmation is %d bytes, want at most %d:\n%s", len(text), maxWriteConfirmationBytes, text)

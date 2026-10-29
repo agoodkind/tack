@@ -111,7 +111,7 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 			Identifier: identifierFor(existing, rc),
 			Name:       existing.Name,
 		})
-		rawProps, err = normalizeUpdateProps(ctx, b, nt, existing, rawProps)
+		rawProps, defs, err := normalizeUpdateProps(ctx, b, nt, existing, rawProps)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -130,7 +130,10 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return successText(renderWriteConfirmation(rc, "Updated", view, changedFieldNames(in.Name, rawProps)), ""), nil
+		changes := describeFieldChanges(rc, writeChanges{
+			Before: existing, After: view, Name: in.Name, Props: rawProps, ReferenceKeys: referenceKeysOf(defs),
+		})
+		return successText(renderWriteConfirmation(rc, "Updated", view, changes), ""), nil
 	}
 }
 
