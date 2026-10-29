@@ -1,7 +1,9 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,11 +13,58 @@ import (
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/telemetry"
 )
 
-// releasedWorkWait bounds the wait for released work to become claimable
-// after its retry delay.
-const releasedWorkWait = time.Minute
+const (
+	// releasedWorkWait bounds the wait for released work to become claimable
+	// after its retry delay.
+	releasedWorkWait = time.Minute
+	// accessWriteFailedRecord identifies the record the adapter logs when an
+	// access bulk write fails.
+	accessWriteFailedRecord = "search.access.write_failed"
+)
+
+// bulkLogRecord stores the message and bulk group that the test decodes
+// from one JSON log record.
+type bulkLogRecord struct {
+	Message string        `json:"msg"`
+	Bulk    *bulkLogGroup `json:"bulk"`
+}
+
+// bulkLogGroup stores the bulk group of one log record.
+// Its DurationMS pointer is nil when the record did not contain the
+// duration_ms key.
+type bulkLogGroup struct {
+	DurationMS *int64 `json:"duration_ms"`
+	Pages      int    `json:"pages"`
+	Bytes      int    `json:"bytes"`
+}
+
+// requireBulkMeasured decodes the JSON records in logged and finds the
+// first record with message in its msg field. It fails the test unless
+// that record has a bulk group with a non-negative duration_ms value,
+// at least minPages pages, and a positive byte size. It also fails the
+// test if logged does not contain a matching record.
+func requireBulkMeasured(t *testing.T, logged *bytes.Buffer, message string, minPages int) {
+	t.Helper()
+	decoder := json.NewDecoder(logged)
+	for decoder.More() {
+		var record bulkLogRecord
+		if err := decoder.Decode(&record); err != nil {
+			t.Fatalf("decode a worker log record: %v", err)
+		}
+		if record.Message != message {
+			continue
+		}
+		bulk := record.Bulk
+		if bulk == nil || bulk.DurationMS == nil || *bulk.DurationMS < 0 || bulk.Pages < minPages || bulk.Bytes <= 0 {
+			t.Fatalf("record %s has bulk group %+v, want a duration, at least %d pages, and a positive byte size", message, bulk, minPages)
+		}
+		return
+	}
+	t.Fatalf("the worker did not log %s", message)
+}
 
 // rewriteSearchGeneration indexes page again at its own external version
 // with search_generation stored as text or as a number. Stored text makes
@@ -53,9 +102,11 @@ func TestSearchPartialAccessFailureResumes(t *testing.T) {
 	rewriteSearchGeneration(t, client, index, before[2], true)
 	moveChild(t, stores, moved)
 
+	var logged bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logged, nil))
 	failed := false
 	for range 50 {
-		claimed, err := worker.RunSlice(WithTestOperation(t, t.Context()))
+		claimed, err := worker.RunSlice(telemetry.WithLogger(WithTestOperation(t, t.Context()), logger))
 		if err != nil {
 			failed = true
 			break
@@ -67,6 +118,7 @@ func TestSearchPartialAccessFailureResumes(t *testing.T) {
 	if !failed {
 		t.Fatal("the access batch with a failing item succeeded")
 	}
+	requireBulkMeasured(t, &logged, accessWriteFailedRecord, 3)
 	// The check skips the pages after the failed item. OpenSearch applies
 	// each bulk item separately, and those pages can receive the update in
 	// the same request. The retry leaves them unchanged because their

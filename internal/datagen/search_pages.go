@@ -61,12 +61,19 @@ func searchPageText(ctx context.Context, driver *Driver, token, entryReference, 
 // through identities. It rejects duplicate nodes, repeated cursors, and pages
 // above the public result or byte limit. It returns node IDs in response order.
 func traverseSearch(ctx context.Context, driver *Driver, identities SearchIdentities, token, entryReference, query string, limits searchLimits) ([]uuid.UUID, error) {
+	return traversePages(query, limits, func(cursor string) (searchPage, error) {
+		return callSearch(ctx, driver, identities, token, entryReference, query, cursor)
+	})
+}
+
+// traversePages is traverseSearch with request as the page request for each cursor.
+func traversePages(query string, limits searchLimits, request func(cursor string) (searchPage, error)) ([]uuid.UUID, error) {
 	seen := make(map[uuid.UUID]struct{})
 	cursors := make(map[string]struct{})
 	ordered := make([]uuid.UUID, 0)
 	cursor := ""
 	for range maxSearchTraversalPages {
-		page, err := callSearch(ctx, driver, identities, token, entryReference, query, cursor)
+		page, err := request(cursor)
 		if err != nil {
 			return nil, err
 		}
