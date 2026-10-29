@@ -67,6 +67,13 @@ func (proxy *pageDelayProxy) forwarded() (time.Time, int) {
 func TestSearchWorkerWaitsForAbandonedPageWrite(t *testing.T) {
 	env, proxy := newDelayedMigrationEnv(t, timingPageBytes, 0)
 	proxy.forwardAbandonedAfter(abandonedWriteDelay)
+	// newMigrationEnv enables search work before storing two property
+	// definitions. Each definition write requests an organization rescan.
+	// runIdle finishes the rescans before the node exists. Otherwise, a
+	// rescan after the timeout schedules a new content revision at a new
+	// generation. The worker can claim that generation and write page 1
+	// before the horizon ends.
+	env.runIdle(t)
 	nodeID := uuid.Must(uuid.NewV7())
 	env.putNode(t, nodeID, strings.Repeat(timingText, 40))
 	proxy.target(nodeID, 1)
@@ -97,14 +104,27 @@ func TestSearchWorkerWaitsForAbandonedPageWrite(t *testing.T) {
 	if forwardedAt, status := proxy.forwarded(); forwardedAt.IsZero() || status != http.StatusOK {
 		t.Fatalf("the engine answered the abandoned write at %s with status %d, want status %d", forwardedAt, status, http.StatusOK)
 	}
-	pageWrites := 0
+	pageWrites := make([]delayedPageWrite, 0, 1)
 	for _, write := range proxy.writesOf(nodeID) {
 		if write.ordinal == 1 {
-			pageWrites++
+			pageWrites = append(pageWrites, write)
 		}
 	}
-	if pageWrites != 1 {
-		t.Fatalf("the proxy received %d writes of page 1, want only the abandoned write", pageWrites)
+	if len(pageWrites) != 1 {
+		t.Fatalf("the proxy received %d writes of page 1 %+v after the abandon at %s, want only the abandoned write", len(pageWrites), pageWrites, until)
 	}
 	requireIndexedNode(t, env, nodeID)
+}
+
+// writesOf returns the page writes of nodeID the proxy received.
+func (proxy *pageDelayProxy) writesOf(nodeID uuid.UUID) []delayedPageWrite {
+	proxy.mutex.Lock()
+	defer proxy.mutex.Unlock()
+	writes := make([]delayedPageWrite, 0, len(proxy.writes))
+	for _, write := range proxy.writes {
+		if write.nodeID == nodeID.String() {
+			writes = append(writes, write)
+		}
+	}
+	return writes
 }
