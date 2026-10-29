@@ -15,9 +15,6 @@ import (
 )
 
 const (
-	// oldestBucketChoices sets the concurrent claim count and the claim
-	// limit for finding the oldest item. It matches claimBucketChoices.
-	oldestBucketChoices = 4
 	// oldestBucketNodes sets the live node count, enough to populate
 	// well over oldestBucketMinimum buckets.
 	oldestBucketNodes = 160
@@ -29,11 +26,11 @@ const (
 
 // TestSearchClaimPrefersOldestBuckets writes nodes one at a time with
 // distinct live enqueue times across at least oldestBucketMinimum buckets.
-// It requires oldestBucketChoices concurrent claims to lease items from
-// more than one bucket, then yields them. A new store must lease the oldest
-// live item within oldestBucketChoices claims. A clock-chosen bucket fails
-// this test because it usually starts among newer items in the many
-// pending buckets.
+// It requires fdbadapter.ClaimBucketChoices concurrent claims to lease items
+// from more than one bucket, then yields them. A new store must lease the
+// oldest live item within fdbadapter.ClaimBucketChoices claims. A
+// clock-chosen bucket fails this test because it usually starts among newer
+// items in the many pending buckets.
 func TestSearchClaimPrefersOldestBuckets(t *testing.T) {
 	stores := integration.SetupTestEnv(t).Stores
 	stores.EnableSearchWork()
@@ -66,7 +63,7 @@ func TestSearchClaimPrefersOldestBuckets(t *testing.T) {
 	requireConcurrentClaimSpread(t, stores.SearchWork(clock.Wall{}))
 
 	store := stores.SearchWork(clock.Wall{})
-	first := make([]searchdomain.Work, 0, oldestBucketChoices)
+	first := make([]searchdomain.Work, 0, fdbadapter.ClaimBucketChoices)
 	claimed := make([]searchdomain.Work, 0, oldestBucketNodes)
 	for {
 		work, found, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "oldest-claimer", oldestClaimLease)
@@ -76,7 +73,7 @@ func TestSearchClaimPrefersOldestBuckets(t *testing.T) {
 		if !found {
 			break
 		}
-		if len(first) < oldestBucketChoices {
+		if len(first) < fdbadapter.ClaimBucketChoices {
 			first = append(first, work)
 		}
 		claimed = append(claimed, work)
@@ -96,19 +93,19 @@ func TestSearchClaimPrefersOldestBuckets(t *testing.T) {
 		}
 	}
 	t.Fatalf("the first %d claims took nodes %v, want the oldest live item %s enqueued at %s",
-		oldestBucketChoices, workNodes(first), oldest.NodeID, oldest.EnqueuedAt)
+		fdbadapter.ClaimBucketChoices, workNodes(first), oldest.NodeID, oldest.EnqueuedAt)
 }
 
-// requireConcurrentClaimSpread starts oldestBucketChoices claims together
-// on one store and requires each to lease an item. It requires the items
-// to use more than one bucket and yields every claim.
+// requireConcurrentClaimSpread starts fdbadapter.ClaimBucketChoices claims
+// together on one store and requires each to lease an item. It requires the
+// items to use more than one bucket and yields every claim.
 func requireConcurrentClaimSpread(t *testing.T, store *fdbadapter.SearchWorkStore) {
 	t.Helper()
-	claims := make([]searchdomain.Work, oldestBucketChoices)
-	failures := make([]error, oldestBucketChoices)
+	claims := make([]searchdomain.Work, fdbadapter.ClaimBucketChoices)
+	failures := make([]error, fdbadapter.ClaimBucketChoices)
 	start := make(chan struct{})
 	var group sync.WaitGroup
-	for position := range oldestBucketChoices {
+	for position := range fdbadapter.ClaimBucketChoices {
 		group.Go(func() {
 			<-start
 			work, claimed, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, uuid.NewString(), oldestClaimLease)
@@ -131,7 +128,7 @@ func requireConcurrentClaimSpread(t *testing.T, store *fdbadapter.SearchWorkStor
 		}
 	}
 	if len(spread) < 2 {
-		t.Fatalf("%d concurrent claims took nodes %v from one bucket, want more than one bucket", oldestBucketChoices, workNodes(claims))
+		t.Fatalf("%d concurrent claims took nodes %v from one bucket, want more than one bucket", fdbadapter.ClaimBucketChoices, workNodes(claims))
 	}
 }
 

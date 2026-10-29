@@ -25,7 +25,7 @@ type SearchWorkStore struct {
 	db    fdb.Database
 	clock clock.Clock
 	// rotation advances for each Claim that finds pending buckets and
-	// selects its starting position among the oldest claimBucketChoices
+	// selects its starting position among the oldest ClaimBucketChoices
 	// buckets. Workers sharing the store use the same counter for
 	// consecutive and concurrent claims.
 	rotation atomic.Int64
@@ -69,7 +69,7 @@ func (s *Stores) InitializeSearchIndex(ctx context.Context, index string) (err e
 // Claim leases one item of the requested class. A rescan claim first runs
 // one bounded step of the projection sweep. One read finds pending buckets
 // and each bucket's first age key. The store rotation selects the first
-// bucket among the claimBucketChoices buckets with the oldest first items.
+// bucket among the ClaimBucketChoices buckets with the oldest first items.
 // Claim tries the rest of those buckets in rotation order, then the
 // remaining buckets oldest first. Within each bucket, it claims the oldest
 // claimable item.

@@ -9,10 +9,10 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// claimBucketChoices limits how many of the oldest pending buckets a claim
+// ClaimBucketChoices limits how many of the oldest pending buckets a claim
 // rotates among. Multiple choices let concurrent claims start in different
 // buckets.
-const claimBucketChoices = 4
+const ClaimBucketChoices = 4
 
 // pendingBucket records a class bucket with age keys and the part of its
 // first age key after the bucket prefix. That part sorts by enqueue time.
@@ -22,14 +22,14 @@ type pendingBucket struct {
 }
 
 // claimOrder sorts pending buckets by first age key, oldest first. It
-// rotates up to claimBucketChoices oldest buckets by rotation modulo their
+// rotates up to ClaimBucketChoices oldest buckets by rotation modulo their
 // count, then appends the remaining buckets oldest first.
 func claimOrder(pending []pendingBucket, rotation int64) []int {
 	sorted := slices.Clone(pending)
 	slices.SortFunc(sorted, func(first, second pendingBucket) int {
 		return bytes.Compare(first.oldest, second.oldest)
 	})
-	choices := min(claimBucketChoices, len(sorted))
+	choices := min(ClaimBucketChoices, len(sorted))
 	start := int(rotation % int64(choices))
 	if start < 0 {
 		start += choices
