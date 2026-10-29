@@ -90,6 +90,7 @@ func addNodeToolCases(cases map[string]coverageCase) {
 // addMCPCases adds audit cases for MCP tools and protocol operations.
 func addMCPCases(cases map[string]coverageCase) {
 	addNodeToolCases(cases)
+	addEpicScopeCase(cases)
 	workspace := func(t *testing.T, env *coverageEnv) map[string]any {
 		return map[string]any{"workspace_reference": env.server.workspace}
 	}
