@@ -358,3 +358,30 @@ func ClusterEventually(t *testing.T, operation string, check func() error) {
 	t.Helper()
 	clusterEventually(t, operation, check)
 }
+
+// ActorHarness returns an MCP harness that calls the fixture's production
+// handler with the bearer token of the actor at index in workspace.
+func ActorHarness(fixture QueryFixture, workspace datagen.WorkspaceIdentity, index int) *MCPHarness {
+	return actorHarness(fixture, workspace, index)
+}
+
+// CallToolSuccess calls one MCP tool with arguments and returns its text.
+// It fails the test unless the call returns one text result without an error.
+func CallToolSuccess(t *testing.T, harness *MCPHarness, toolName string, arguments map[string]any) string {
+	t.Helper()
+	return callToolSuccess(t, harness, toolName, arguments)
+}
+
+// CorruptIndexedAccess rewrites the stored access of every active page of
+// nodeID in the serving index to the versions and keys of filter.
+func CorruptIndexedAccess(t *testing.T, fixture QueryFixture, nodeID uuid.UUID, filter searchdomain.AccessFilter) {
+	t.Helper()
+	corruptIndexedAccess(t, fixture, nodeID, filter)
+}
+
+// RawRankedNodes reads every batch from the OpenSearch ranker for text with
+// filter and returns the node IDs in rank order.
+func RawRankedNodes(t *testing.T, fixture QueryFixture, filter searchdomain.AccessFilter, text string) []uuid.UUID {
+	t.Helper()
+	return rawRankedNodes(t, fixture, filter, text)
+}
