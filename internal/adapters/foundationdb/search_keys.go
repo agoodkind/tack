@@ -29,6 +29,13 @@ func searchAgePrefix(class string, bucket int) []byte {
 	return withPrefix(tuple.Tuple{keySearchAge, class, bucket}.Pack())
 }
 
+// searchAgeClassPrefix returns the key prefix of every age key of one work
+// class in every bucket. An age key has the tuple (search_age, class,
+// bucket, enqueuedAtUnixNano, orgID, nodeID).
+func searchAgeClassPrefix(class string) []byte {
+	return withPrefix(tuple.Tuple{keySearchAge, class}.Pack())
+}
+
 func searchClaimKey(class string, bucket int, orgID, nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keySearchClaim, class, bucket, orgID.String(), nodeID.String()}.Pack())
 }
