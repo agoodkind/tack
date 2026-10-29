@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"encoding/json"
-	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -112,21 +111,22 @@ func requireLeasesOnly(t *testing.T, fixture parentEdgeFixture, bucket int64, wi
 	}
 }
 
-// claimUntilNoWork claims live work as stalledOwner without completing it
-// until Claim returns ErrNoWork. It returns the claimed node IDs and the last
-// claim's lease deadline, or fails if every allowed attempt returns work.
+// claimUntilNoWork claims live work as stalledOwner without completing it.
+// It stops when Claim reports that it did not lease an item. It returns
+// the claimed node IDs and the last claim's lease deadline. It fails the
+// test if every allowed attempt returns work.
 func claimUntilNoWork(t *testing.T, fixture parentEdgeFixture) ([]uuid.UUID, time.Time) {
 	t.Helper()
 	store := fixture.stores.SearchWork(clock.Wall{})
 	claimed := make([]uuid.UUID, 0, claimScanLimit)
 	var leaseUntil time.Time
 	for range claimScanLimit + crowdedOverflow + 1 {
-		work, err := store.Claim(t.Context(), searchdomain.WorkClassLive, stalledOwner, stalledLease)
-		if errors.Is(err, searchdomain.ErrNoWork) {
-			return claimed, leaseUntil
-		}
+		work, found, err := store.Claim(t.Context(), searchdomain.WorkClassLive, stalledOwner, stalledLease)
 		if err != nil {
 			t.Fatalf("claim live work as %s: %v", stalledOwner, err)
+		}
+		if !found {
+			return claimed, leaseUntil
 		}
 		claimed, leaseUntil = append(claimed, work.NodeID), work.LeaseUntil
 	}

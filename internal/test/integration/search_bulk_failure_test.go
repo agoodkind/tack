@@ -3,7 +3,6 @@ package integration
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -134,12 +133,12 @@ func TestSearchPartialAccessFailureResumes(t *testing.T) {
 	store := stores.SearchWork(source)
 	var pending searchdomain.Work
 	released := waitFor(t, releasedWorkWait, func() bool {
-		work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassAccess, "inspector", shortLease)
-		if errors.Is(err, searchdomain.ErrNoWork) {
-			return false
-		}
+		work, claimed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassAccess, "inspector", shortLease)
 		if err != nil {
 			t.Fatalf("claim access work: %v", err)
+		}
+		if !claimed {
+			return false
 		}
 		pending = work
 		return work.NodeID == moved.Fixture.NodeID
@@ -165,12 +164,12 @@ func TestSearchRejectsInvalidPageText(t *testing.T) {
 	adapter, client, _, index := newSearchIndex(t, stores)
 	fixture := putSearchText(t, stores, "valid text", readerExcludedValue)
 	store := stores.SearchWork(clock.Wall{})
-	work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "validator", time.Minute)
-	for err == nil && work.NodeID != fixture.NodeID {
-		work, err = store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "validator", time.Minute)
+	work, claimed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "validator", time.Minute)
+	for err == nil && claimed && work.NodeID != fixture.NodeID {
+		work, claimed, err = store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "validator", time.Minute)
 	}
-	if err != nil {
-		t.Fatalf("claim live work: %v", err)
+	if err != nil || !claimed {
+		t.Fatalf("claim live work = claimed %t, err %v", claimed, err)
 	}
 	page := readSearchPages(t, stores, fixture.NodeID, searchdomain.MaxPageBytes)[0]
 	for name, text := range map[string]string{"oversized": strings.Repeat("a", searchdomain.MaxPageBytes+1), "missing": ""} {

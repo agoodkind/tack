@@ -2,7 +2,6 @@ package integration
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -71,9 +70,9 @@ func claimAccessFor(t *testing.T, store *fdbadapter.SearchWorkStore, nodeID uuid
 		}
 	}()
 	for range 100 {
-		work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassAccess, "access-inspector", time.Minute)
-		if err != nil {
-			t.Fatalf("claim access work of %s: %v", nodeID, err)
+		work, claimed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassAccess, "access-inspector", time.Minute)
+		if err != nil || !claimed {
+			t.Fatalf("claim access work of %s = claimed %t, err %v", nodeID, claimed, err)
 		}
 		if work.NodeID == nodeID {
 			return work
@@ -91,12 +90,12 @@ func drainClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *service
 	t.Helper()
 	sliceCounts := make(map[uuid.UUID]int)
 	for range maxSlices {
-		work, err := store.Claim(WithTestOperation(t, t.Context()), class, "class-driver", time.Minute)
-		if errors.Is(err, searchdomain.ErrNoWork) {
-			return sliceCounts
-		}
+		work, claimed, err := store.Claim(WithTestOperation(t, t.Context()), class, "class-driver", time.Minute)
 		if err != nil {
 			t.Fatalf("claim %s work: %v", class, err)
+		}
+		if !claimed {
+			return sliceCounts
 		}
 		if err := worker.Process(WithTestOperation(t, t.Context()), work); err != nil {
 			t.Fatalf("process %s work of %s: %v", class, work.NodeID, err)

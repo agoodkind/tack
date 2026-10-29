@@ -63,23 +63,24 @@ func (s *Stores) InitializeSearchIndex(ctx context.Context, index string) (err e
 // to try. Claim then tries the remaining pending buckets in order.
 // Workers that call Claim at different times can start at different
 // pending buckets.
-func (s *SearchWorkStore) Claim(ctx context.Context, class searchdomain.WorkClass, owner string, lease time.Duration) (work searchdomain.Work, err error) {
+//
+// Claim returns false and a nil error when the pending buckets do not
+// contain a claimable item. The store.search_work.claim operation records
+// an empty claim as a success.
+func (s *SearchWorkStore) Claim(ctx context.Context, class searchdomain.WorkClass, owner string, lease time.Duration) (work searchdomain.Work, claimed bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.claim")(&err)
 	var none searchdomain.Work
 	if owner == "" || lease <= 0 {
-		return none, searchStorageError(ctx, "search.work.claim_invalid", "validate claim owner and lease", uuid.Nil, errors.New("owner and positive lease are required"))
+		return none, false, searchStorageError(ctx, "search.work.claim_invalid", "validate claim owner and lease", uuid.Nil, errors.New("owner and positive lease are required"))
 	}
 	if class == searchdomain.WorkClassRescan {
 		if err := s.sweepProjections(ctx); err != nil {
-			return none, searchStorageError(ctx, "search.projection.sweep_failed", "sweep organization projections", uuid.Nil, err)
+			return none, false, searchStorageError(ctx, "search.projection.sweep_failed", "sweep organization projections", uuid.Nil, err)
 		}
 	}
 	pending, err := s.pendingBuckets(ctx, class)
-	if err != nil {
-		return none, err
-	}
-	if len(pending) == 0 {
-		return none, searchdomain.ErrNoWork
+	if err != nil || len(pending) == 0 {
+		return none, false, err
 	}
 	// A clock before the Unix epoch gives a negative remainder.
 	start := int(s.clock.Now().UnixNano() % int64(len(pending)))
@@ -87,15 +88,15 @@ func (s *SearchWorkStore) Claim(ctx context.Context, class searchdomain.WorkClas
 		start += len(pending)
 	}
 	for offset := range pending {
-		work, err = s.claimBucket(ctx, class, pending[(start+offset)%len(pending)], owner, lease)
-		if err == nil {
-			return work, nil
+		work, claimed, err = s.claimBucket(ctx, class, pending[(start+offset)%len(pending)], owner, lease)
+		if err != nil {
+			return none, false, err
 		}
-		if !errors.Is(err, searchdomain.ErrNoWork) {
-			return none, err
+		if claimed {
+			return work, true, nil
 		}
 	}
-	return none, searchdomain.ErrNoWork
+	return none, false, nil
 }
 
 // claimFirstItem claims the first current work item among the age keys in

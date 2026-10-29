@@ -90,9 +90,9 @@ func TestSearchProjectionWarningLifecycle(t *testing.T) {
 	writeUndeclaredSearchNode(t, stores, fixture, undeclared)
 
 	workStore := stores.SearchWork(source)
-	work, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "staging-owner", settings.Lease)
-	if err != nil || work.NodeID != fixture.NodeID {
-		t.Fatalf("claim live work = %+v, error = %v, want node %s", work, err, fixture.NodeID)
+	work, claimed, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "staging-owner", settings.Lease)
+	if err != nil || !claimed || work.NodeID != fixture.NodeID {
+		t.Fatalf("claim live work = %+v, claimed = %t, error = %v, want a non-empty claim of node %s", work, claimed, err, fixture.NodeID)
 	}
 	page, err := stores.SearchContent(stores.SearchPolicySet()).Content(WithTestOperation(t, t.Context()), searchdomain.ContentRequest{
 		NodeID: fixture.NodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: readerPageBytes, SearchGeneration: work.Generation,

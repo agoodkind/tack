@@ -1,8 +1,10 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strconv"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/telemetry"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -28,18 +31,22 @@ func newWorkStore(t *testing.T, stores *fdbadapter.Stores) *fdbadapter.SearchWor
 	return stores.SearchWork(clock.Wall{})
 }
 
-// claimAll claims every claimable item of class for one minute and returns
-// the items by node.
+// claimAll leases every claimable item of class for one minute and returns
+// the items by node. It checks the logs after the final empty claim and
+// fails the test if a store.search_work.claim record has status failed.
 func claimAll(t *testing.T, store *fdbadapter.SearchWorkStore, class searchdomain.WorkClass) map[uuid.UUID]searchdomain.Work {
 	t.Helper()
+	var logged bytes.Buffer
+	ctx := telemetry.WithLogger(WithTestOperation(t, t.Context()), slog.New(slog.NewJSONHandler(&logged, nil)))
 	claimed := map[uuid.UUID]searchdomain.Work{}
 	for {
-		work, err := store.Claim(WithTestOperation(t, t.Context()), class, "inspector-"+uuid.NewString(), time.Minute)
-		if errors.Is(err, searchdomain.ErrNoWork) {
-			return claimed
-		}
+		work, found, err := store.Claim(ctx, class, "inspector-"+uuid.NewString(), time.Minute)
 		if err != nil {
 			t.Fatalf("claim %s work: %v", class, err)
+		}
+		if !found {
+			requireNoFailedClaim(t, &logged)
+			return claimed
 		}
 		claimed[work.NodeID] = work
 	}
