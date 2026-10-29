@@ -93,6 +93,7 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 		applies = append(applies, registerFlag(cmd, param))
 	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		defer applyHangupPolicy(cmd.Context(), op.auditSpec(), f.Execute())()
 		in := op.New()
 		for i, arg := range op.Args {
 			arg.bind(&in, args[i])
@@ -132,6 +133,7 @@ func AttachAudit(
 	cmd.Annotations[AuditVerbAnnotation] = spec.Verb
 	cmd.Annotations[AuditClassAnnotation] = string(spec.Class)
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		defer applyHangupPolicy(cmd.Context(), spec, f.Execute())()
 		return RunAudited(cmd.Context(), dryRunDestination(f, cmd.OutOrStdout()), spec, f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), f.AuditInfrastructureProbe(), run)
 	}
 }
