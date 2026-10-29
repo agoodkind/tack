@@ -18,10 +18,14 @@ type SearchMixedSessions struct {
 	Pages                int `json:"pages"`
 	Replays              int `json:"replays"`
 	Endpoints            int `json:"endpoints"`
-	// Unavailable counts the unavailable responses that the session checks repeated. A request
-	// that still returns the unavailable response at the retry deadline also counts as a
+	// Unavailable counts the unavailable responses that the session checks repeated.
+	// A first page that stays unavailable after searchConvergenceDeadline also counts as a
 	// continuation error.
 	Unavailable          int `json:"unavailable"`
+	// ExpiredDuringOutage counts continued pages that still returned the unavailable response
+	// when the session idle timeout prevented another retry. Session checks do not count
+	// these pages as continuation errors.
+	ExpiredDuringOutage  int `json:"expired_during_outage"`
 	ContinuationErrors   int `json:"continuation_errors"`
 	MissingCorpusIssues  int `json:"missing_corpus_issues"`
 	ReplayMismatches     int `json:"replay_mismatches"`
@@ -31,8 +35,11 @@ type SearchMixedSessions struct {
 
 // SearchMixedPending reports deletion checks and whether deletion work remained pending.
 type SearchMixedPending struct {
-	Checks               int `json:"checks"`
-	PendingObserved      int `json:"pending_observed"`
+	Checks          int `json:"checks"`
+	PendingObserved int `json:"pending_observed"`
+	// Unavailable counts the unavailable responses that the deletion check repeated, including
+	// the responses of a check that failed.
+	Unavailable          int `json:"unavailable"`
 	DeletedNodesReturned int `json:"deleted_nodes_returned"`
 }
 

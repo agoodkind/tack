@@ -41,17 +41,10 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 	workspace := m.tenants[0].workspace
 	actor := workspace.Actors[revokedActorIndex]
 	session := m.sessionFor(0, revokedActorIndex, m.readWord, 0)
-	tally := searchMixedTally{}
-	first, err := m.page(ctx, session, 0, "", &tally)
+	first, second, opening, err := m.openRevokedSession(ctx, session)
 	if err != nil {
+		m.phases.update(func(phases *searchMixedPhaseStats) { phases.revocation.Unavailable += opening })
 		return err
-	}
-	second, err := m.page(ctx, session, 1, first.Cursor, &tally)
-	if err != nil {
-		return err
-	}
-	if first.Cursor == "" || second.Cursor == "" {
-		return loggedError(ctx, "qa datagen search-mixed: the command could not open the member's search session", errSearchMixedNoContinuation)
 	}
 	members := m.members
 	member, err := findOrgMember(ctx, members, workspace.OrgID, actor.UserID)
@@ -63,6 +56,7 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 	}
 	cursors := revokedCursors{continuation: second.Cursor, replay: first.Cursor}
 	result, checkErr := m.awaitRefusal(ctx, session, cursors, clock.Now())
+	result.Unavailable += opening
 	m.phases.update(func(phases *searchMixedPhaseStats) { phases.revocation = result })
 	restored := &org.Member{ID: uuid.Nil, OrgID: member.OrgID, UserID: member.UserID, Role: member.Role, CreatedAt: time.Time{}}
 	if err := members.AddMember(context.WithoutCancel(ctx), restored); err != nil {

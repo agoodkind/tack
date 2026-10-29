@@ -31,6 +31,8 @@ type SearchMixedCorpusWait struct {
 	Tenant int
 	Nodes  int
 	Checks int
+	// Unavailable counts the unavailable responses that the checks of the wait repeated.
+	Unavailable int
 	// Elapsed is the time from the end of the last setup create to the end of the first check
 	// that returned every issue of the group. Setup waits for one group at a time in wait order.
 	Elapsed time.Duration
@@ -50,19 +52,56 @@ func (c *searchMixedCorpusIndex) snapshot() []SearchMixedCorpusWait {
 	return slices.Clone(c.waits)
 }
 
-// corpusCheck returns the corpus issues that one complete search traversal omits.
-type corpusCheck func(context.Context) ([]uuid.UUID, error)
+// corpusCheck returns the corpus issues that one complete search traversal omits and the number
+// of unavailable responses that the traversal repeated.
+type corpusCheck func(context.Context) ([]uuid.UUID, int, error)
+
+// corpusMissing returns a corpus check that traverses every search page for word as run.
+// The check returns the nodes in nodes that the traversal omits and the number of unavailable
+// responses it repeated. Each page uses retryUnavailable with a deadline of
+// searchConvergenceDeadline after that page's first request starts.
+// Retries stop when stopContext ends.
+func corpusMissing(stopContext context.Context, run searchRun, word string, nodes []uuid.UUID) corpusCheck {
+	identities := run.identities()
+	return func(ctx context.Context) ([]uuid.UUID, int, error) {
+		unavailable := 0
+		results, err := traversePages(word, run.limits, func(cursor string) (searchPage, error) {
+			page, _, err := retryUnavailable(stopContext, clock.Now().Add(searchConvergenceDeadline), &unavailable, func() (searchPage, error) {
+				return callSearch(ctx, run.driver, identities, run.token, run.entry, word, cursor)
+			})
+			return page, err
+		})
+		if err != nil {
+			return nil, unavailable, err
+		}
+		return omitted(results, nodes), unavailable, nil
+	}
+}
 
 // awaitCorpus repeats check with callContext until search returns every node in nodes, and
-// returns the number of checks. It fails when the number of omitted nodes does not decrease for
-// searchMixedCorpusStall. It returns errSearchMixedSetupStopped when stopContext ends between
-// checks.
-func awaitCorpus(stopContext, callContext context.Context, description string, nodes []uuid.UUID, check corpusCheck) (int, error) {
+// returns the number of checks and the unavailable responses that the checks repeated. It fails
+// when the number of omitted nodes does not decrease for searchMixedCorpusStall. A check that
+// repeated an unavailable response restarts that period, because search did not report an
+// omitted count while it was unavailable. awaitCorpus fails at once when a check returns the
+// unavailable response at its retry deadline. It returns errSearchMixedSetupStopped when
+// stopContext ends between checks or while a check repeats an unavailable response.
+func awaitCorpus(stopContext, callContext context.Context, description string, nodes []uuid.UUID, check corpusCheck) (int, int, error) {
 	latest, fewest, progressed := nodes, len(nodes), clock.Now()
+	unavailable := 0
 	for checks := 1; ; checks++ {
-		absent, err := check(callContext)
+		absent, repeated, err := check(callContext)
+		unavailable += repeated
 		if err == nil && len(absent) == 0 {
-			return checks, nil
+			return checks, unavailable, nil
+		}
+		if isSearchUnavailable(err) && stopContext.Err() != nil {
+			return checks, unavailable, errSearchMixedSetupStopped
+		}
+		if isSearchUnavailable(err) {
+			return checks, unavailable, loggedError(callContext, "qa datagen: "+description, err)
+		}
+		if repeated > 0 {
+			progressed = clock.Now()
 		}
 		if err == nil {
 			latest = absent
@@ -71,13 +110,13 @@ func awaitCorpus(stopContext, callContext context.Context, description string, n
 			}
 		}
 		if clock.Now().Sub(progressed) >= searchMixedCorpusStall {
-			return checks, corpusStalled(callContext, description, latest, len(nodes), err)
+			return checks, unavailable, corpusStalled(callContext, description, latest, len(nodes), err)
 		}
 		timer := time.NewTimer(searchPollInterval)
 		select {
 		case <-stopContext.Done():
 			timer.Stop()
-			return checks, errSearchMixedSetupStopped
+			return checks, unavailable, errSearchMixedSetupStopped
 		case <-timer.C:
 		}
 	}

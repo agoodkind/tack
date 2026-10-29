@@ -3,6 +3,8 @@ package integration
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"testing"
 )
 
@@ -19,12 +21,18 @@ type claimOperationRecord struct {
 
 // requireNoFailedClaim decodes each JSON record in logged and fails the
 // test if a record has message store.search_work.claim and status failed.
+// It also fails the test on every decode error other than [io.EOF], which
+// marks the end of the buffer.
 func requireNoFailedClaim(t *testing.T, logged *bytes.Buffer) {
 	t.Helper()
 	decoder := json.NewDecoder(logged)
-	for decoder.More() {
+	for {
 		var record claimOperationRecord
-		if err := decoder.Decode(&record); err != nil {
+		err := decoder.Decode(&record)
+		if errors.Is(err, io.EOF) {
+			return
+		}
+		if err != nil {
 			t.Fatalf("decode a claim log record: %v", err)
 		}
 		if record.Message == claimOperation && record.Status == "failed" {

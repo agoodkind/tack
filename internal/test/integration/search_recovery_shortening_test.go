@@ -33,9 +33,9 @@ func TestSearchRecoveryShorteningRetiresRemovedPages(t *testing.T) {
 
 	writeSearchNode(t, stores, fixture, readerIncludedValue()+" second revision", readerExcludedValue)
 	workStore := stores.SearchWork(source)
-	oldWork, _, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "old-owner", settings.Lease)
-	if err != nil || oldWork.NodeID != fixture.NodeID {
-		t.Fatalf("claim the second revision = %+v err %v, want %s", oldWork, err, fixture.NodeID)
+	oldWork, claimed, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "old-owner", settings.Lease)
+	if err != nil || !claimed || oldWork.NodeID != fixture.NodeID {
+		t.Fatalf("claim the second revision = %+v claimed %t err %v, want a non-empty claim of %s", oldWork, claimed, err, fixture.NodeID)
 	}
 	reader := stores.SearchContent(stores.SearchPolicySet())
 	request := searchdomain.ContentRequest{

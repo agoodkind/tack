@@ -16,14 +16,16 @@ type datagenSearchMixedCorpusWait struct {
 	Tenant    int     `json:"tenant"`
 	Nodes     int     `json:"nodes"`
 	Checks    int     `json:"checks"`
-	ElapsedMs float64 `json:"elapsed_ms"`
+	// Unavailable counts the unavailable responses that the checks of the wait repeated.
+	Unavailable int     `json:"unavailable"`
+	ElapsedMs   float64 `json:"elapsed_ms"`
 }
 
 func searchMixedCorpusIndexResult(waits []datagen.SearchMixedCorpusWait) datagenSearchMixedCorpusIndex {
 	results := make([]datagenSearchMixedCorpusWait, 0, len(waits))
 	for _, wait := range waits {
 		results = append(results, datagenSearchMixedCorpusWait{
-			Group: wait.Group, Tenant: wait.Tenant, Nodes: wait.Nodes, Checks: wait.Checks,
+			Group: wait.Group, Tenant: wait.Tenant, Nodes: wait.Nodes, Checks: wait.Checks, Unavailable: wait.Unavailable,
 			ElapsedMs: searchLoadMilliseconds(wait.Elapsed),
 		})
 	}
