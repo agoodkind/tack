@@ -11,10 +11,17 @@ import (
 	"goodkind.io/tack/internal/searchaccess"
 )
 
-// addSearchControlCases adds the provision, access rollout, and access
-// rollback cases. Provision refuses to run without OpenSearch settings. The
-// rollout commands change the FoundationDB rollout record of a new authority.
+// addSearchControlCases adds the provision, settings, access rollout, and
+// access rollback cases. Provision refuses to run without OpenSearch
+// settings. The settings command fails without OpenSearch settings and
+// reads the point-in-time limit when the environment includes OpenSearch.
+// The rollout commands change the FoundationDB rollout record of a new
+// authority.
 func addSearchControlCases(cases map[string]coverageCase) {
+	cases["command ops search settings"] = searchCommandCase(
+		failingCommandCase(audit.VerbOpsSearchSettings, audit.OutcomeOK, fixedCommand("ops", "search", "settings")),
+		commandCase(audit.VerbOpsSearchSettings, audit.OutcomeOK, fixedCommand("ops", "search", "settings")),
+	)
 	cases["command ops search provision"] = failingCommandCase(audit.VerbOpsSearchProvision, audit.OutcomeRefused,
 		fixedCommand("ops", "search", "provision"))
 	cases["command ops search access-rollout"] = commandCase(audit.VerbOpsSearchAccessRollout, audit.OutcomeCompleted,

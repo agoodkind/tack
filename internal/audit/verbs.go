@@ -211,6 +211,9 @@ const (
 	// VerbOpsSearchVerify records a check of the search model, mapping,
 	// topology, alias, and health.
 	VerbOpsSearchVerify Verb = "ops.search_verify"
+	// VerbOpsSearchSettings records a read of the persistent, transient,
+	// default, and effective values of the OpenSearch point-in-time limit.
+	VerbOpsSearchSettings Verb = "ops.search_settings"
 	// VerbOpsSearchAccessRollout records the start of an access policy
 	// rollout for one permission authority.
 	VerbOpsSearchAccessRollout Verb = "ops.search_access_rollout"

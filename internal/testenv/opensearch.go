@@ -18,6 +18,12 @@ const openSearchImage = "opensearchproject/opensearch:3.8.0"
 // The search integration job and the validation runner set it.
 const SearchIntegrationVariable = "TACK_SEARCH_INTEGRATION"
 
+// OpenSearchPointInTimeLimit is the search.max_open_pit_context node setting
+// of every shared engine. Configs sets the same node setting on every Tack
+// search member. A test compares a reported value with this value and with
+// the OpenSearch default of 300.
+const OpenSearchPointInTimeLimit = "3000"
+
 // openSearchMemoryBytes is the container memory limit of the default engine,
 // the per-guest floor the model requires.
 const openSearchMemoryBytes int64 = 8 << 30
@@ -66,7 +72,8 @@ func OpenSearchWithMemory(t T, memoryBytes int64) OpenSearchFixture {
 		ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
 		defer cancel()
 		engine.fixture, _, engine.err = provisionOpenSearch(ctx, openSearchEngineSettings{
-			memoryBytes: memoryBytes, dataVolume: "", nodeSettings: nil,
+			memoryBytes: memoryBytes, dataVolume: "",
+			nodeSettings: []string{"search.max_open_pit_context=" + OpenSearchPointInTimeLimit},
 		})
 	})
 	if engine.err != nil {

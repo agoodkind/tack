@@ -52,6 +52,14 @@ var datagenSearchAccessVerbs = []string{
 	string(audit.VerbOpsSearchAccessRollback),
 }
 
+// datagenSearchSettingsVerbs lists the audit verb of the ops search
+// settings command. The ops qa datagen command does not hold the
+// OpenSearch maintenance credentials that command reads. The seed reports
+// the rows that command wrote.
+var datagenSearchSettingsVerbs = []string{
+	string(audit.VerbOpsSearchSettings),
+}
+
 // readDatagenLedgerVerbs reads the presence of each host-only ledger verb
 // through AUDIT_READER_DSN. It records nothing of its own.
 func readDatagenLedgerVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
@@ -63,6 +71,13 @@ func readDatagenLedgerVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerV
 // of its own.
 func readDatagenSearchAccessVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
 	return readDatagenVerbPresence(ctx, f, "ops.qa.datagen.search_access_verbs", datagenSearchAccessVerbs)
+}
+
+// readDatagenSearchSettingsVerbs reads the presence of the ops search
+// settings verb through AUDIT_READER_DSN. It does not record events of its
+// own.
+func readDatagenSearchSettingsVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
+	return readDatagenVerbPresence(ctx, f, "ops.qa.datagen.search_settings_verbs", datagenSearchSettingsVerbs)
 }
 
 // readDatagenVerbPresence reads the row count and newest event time of
