@@ -30,8 +30,10 @@ func (m *searchMixed) metadataValues(tenant int) map[string]string {
 // the value before the metadata change and counts the result as absent, present, or unchecked.
 // It then stores the definition with Search.Include set to true. That write requests a rescan
 // of issues with values under the definition name. After a successful write, it adds a check for
-// the value. A failed write counts in writes.failed and still returns true. It returns false if
-// it cannot find a settled issue with a value under that definition.
+// the value. If the definition write fails, changeMetadata counts the failure in writes.failed.
+// It returns true to use the scheduled write index and does not increment the committed
+// metadata change count. It returns false if it cannot find a settled issue with a value under
+// that definition.
 func (m *searchMixed) changeMetadata(ctx context.Context, tick int) bool {
 	definition := m.changes.definitions[m.changes.changed]
 	pinned, _ := m.pinNode(func(candidate *searchMixedNode) bool {
