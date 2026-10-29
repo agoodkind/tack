@@ -11,7 +11,8 @@ type ToolArguments struct {
 	WorkspaceReference string         `json:"workspace_reference,omitempty"`
 	ProjectReference   string         `json:"project_reference,omitempty"`
 	IssueReference     string         `json:"issue_reference,omitempty"`
-	Name               string         `json:"name,omitempty"`
+	EpicReference      string         `json:"epic_reference,omitempty"      exhaustruct:"optional"`
+	Name              string         `json:"name,omitempty"`
 	Properties         NodeProperties `json:"properties,omitempty"`
 	NodeID             string         `json:"node_id,omitempty"`
 	Query              string         `json:"query,omitempty"`

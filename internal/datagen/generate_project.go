@@ -45,6 +45,9 @@ func (g *Generator) generateProject(
 	); err != nil {
 		return err
 	}
+	if err := g.generateEpicScopedIssue(ctx, actor, workspace, projectIdentifier, firstEpic); err != nil {
+		return err
+	}
 	return g.verifyListPaging(ctx, workspace, projectIdentifier)
 }
 
