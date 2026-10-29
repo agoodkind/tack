@@ -17,6 +17,14 @@ type searchMixedStats struct {
 	deletedReturned   int             `exhaustruct:"optional"`
 	deletesUnverified int             `exhaustruct:"optional"`
 	probeErrors       int             `exhaustruct:"optional"`
+	metadataChanges   int             `exhaustruct:"optional"`
+	metadataNotFound  int             `exhaustruct:"optional"`
+	moves             int             `exhaustruct:"optional"`
+	movesUnverified   int             `exhaustruct:"optional"`
+	// These counters classify checks for excluded values in active page text before metadata changes.
+	metadataAbsentBefore    int `exhaustruct:"optional"`
+	metadataPresentBefore   int `exhaustruct:"optional"`
+	metadataUncheckedBefore int `exhaustruct:"optional"`
 }
 
 func (s *searchMixedStats) count(counter *int) {
@@ -57,8 +65,14 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 			Checks: 0, PagesWithinCacheLifetime: 0, ResultsAfterCacheLifetime: 0, Unavailable: 0, RefusedAfter: 0, Refused: false,
 		},
 		Rebuild: SearchMixedRebuildResult{Requested: false, TargetIndex: "", Started: 0, Switched: 0, FinalState: ""},
-		CatchUp: SearchMixedCatchUp{Completed: false, Elapsed: 0},
+		CatchUp: SearchMixedCatchUp{Completed: false, Elapsed: 0, DrainedAfter: 0},
 		Samples: []SearchMixedSample{}, Measured: false, SkippedPhases: []string{},
+		Changes: SearchMixedChanges{
+			MetadataPlanned: 0, MetadataChanges: s.metadataChanges, MetadataNotFound: s.metadataNotFound,
+			MovesPlanned: 0, Moves: s.moves, MovesUnverified: s.movesUnverified,
+			MetadataAbsentBefore: s.metadataAbsentBefore, MetadataPresentBefore: s.metadataPresentBefore,
+			MetadataUncheckedBefore: s.metadataUncheckedBefore,
+		},
 	}
 }
 

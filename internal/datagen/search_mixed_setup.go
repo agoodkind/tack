@@ -103,6 +103,9 @@ func (m *searchMixed) prepare(stopContext, ctx context.Context, plannedSearches 
 	if err := m.createProjects(ctx); err != nil {
 		return err
 	}
+	if err := m.prepareChanges(ctx, identities); err != nil {
+		return err
+	}
 	if err := m.createCorpus(stopContext, ctx); err != nil {
 		return err
 	}

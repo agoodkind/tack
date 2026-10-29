@@ -10,13 +10,20 @@ import (
 // registerEntries records the entry node of every tenant workspace.
 func (m *searchMixed) registerEntries(ctx context.Context) error {
 	for _, tenant := range m.tenants {
-		entryID := node.WorkspaceID(tenant.workspace.OrgID, tenant.workspace.Slug)
-		entry, err := m.stores.Views.Get(ctx, entryID)
-		if err != nil || entry == nil {
-			return loggedError(ctx, "qa datagen search-mixed: the command could not read entry node "+entryID.String(), errMissing(err))
+		if err := m.registerEntry(ctx, tenant.workspace.OrgID, tenant.workspace.Slug); err != nil {
+			return err
 		}
-		m.titles.Add(SearchItem{Title: tenant.workspace.Slug, NodeType: entry.NodeType}, entryID)
 	}
+	return nil
+}
+
+func (m *searchMixed) registerEntry(ctx context.Context, orgID uuid.UUID, slug string) error {
+	entryID := node.WorkspaceID(orgID, slug)
+	entry, err := m.stores.Views.Get(ctx, entryID)
+	if err != nil || entry == nil {
+		return loggedError(ctx, "qa datagen search-mixed: the command could not read entry node "+entryID.String(), errMissing(err))
+	}
+	m.titles.Add(SearchItem{Title: slug, NodeType: entry.NodeType}, entryID)
 	return nil
 }
 

@@ -37,11 +37,16 @@ func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error
 	if s.Stopped && !s.Search.DryRun {
 		failures = append(failures, fmt.Errorf("run stopped with reason %s; the measured window did not run or did not finish", stopReason))
 	} else if s.Measured {
+		classes := "live, access, or cleanup"
+		if s.Changes.MetadataPlanned > 0 {
+			classes = "live, access, cleanup, or rescan"
+		}
 		if !s.CatchUp.Completed {
-			failures = append(failures, fmt.Errorf("live, access, or cleanup search work with enqueue times before the end of writes remained pending after %s of catch-up", s.CatchUp.Elapsed))
+			failures = append(failures, fmt.Errorf("%s search work with enqueue times before the end of writes remained pending after %s of catch-up", classes, s.CatchUp.Elapsed))
 		}
 		add(s.MarkersNotFound > 0, "search did not return %d written issues for their marker words", s.MarkersNotFound)
 		add(s.DeletesUnverified > 0, "the command could not verify the removal of %d deleted issues from search results", s.DeletesUnverified)
+		failures = append(failures, s.Changes.failures()...)
 	}
 	if len(failures) == 0 {
 		return nil
@@ -49,4 +54,48 @@ func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error
 	joined := errors.Join(failures...)
 	slog.ErrorContext(ctx, "qa.datagen.search_mixed_checks_failed", slog.String("err", joined.Error()))
 	return joined
+}
+
+// SearchMixedChanges reports planned and committed metadata changes and moves.
+// It also reports counts for active page text checks before metadata changes and metadata
+// and move checks still pending when probing stops.
+type SearchMixedChanges struct {
+	MetadataPlanned  int
+	MetadataChanges  int
+	MetadataNotFound int
+	MovesPlanned     int
+	Moves            int
+	MovesUnverified  int
+	// MetadataAbsentBefore counts checks that read at least one active page from the serving
+	// index before the metadata change and do not find the excluded property value in any page text.
+	MetadataAbsentBefore int
+	// MetadataPresentBefore counts checks that find the excluded property value in active page
+	// text from the serving index before the metadata change.
+	MetadataPresentBefore int
+	// MetadataUncheckedBefore counts checks that fail to read active pages from the serving
+	// index or find that the issue does not have any active pages before the metadata change.
+	MetadataUncheckedBefore int
+}
+
+// failures returns errors when the run commits fewer metadata changes or moves than planned,
+// when active page text contains an excluded value before its metadata change, or when a
+// metadata or move check remains pending when probing stops.
+func (c SearchMixedChanges) failures() []error {
+	failures := make([]error, 0)
+	if c.MetadataChanges < c.MetadataPlanned {
+		failures = append(failures, fmt.Errorf("the run committed %d of %d planned metadata changes", c.MetadataChanges, c.MetadataPlanned))
+	}
+	if c.MetadataPresentBefore > 0 {
+		failures = append(failures, fmt.Errorf("active page text contained excluded property values for %d issues before metadata changes", c.MetadataPresentBefore))
+	}
+	if c.MetadataNotFound > 0 {
+		failures = append(failures, fmt.Errorf("search did not return %d issues for property values that a metadata change included", c.MetadataNotFound))
+	}
+	if c.Moves < c.MovesPlanned {
+		failures = append(failures, fmt.Errorf("the run committed %d of %d planned moves", c.Moves, c.MovesPlanned))
+	}
+	if c.MovesUnverified > 0 {
+		failures = append(failures, fmt.Errorf("the command could not verify that search returned %d moved issues only under their new workspaces", c.MovesUnverified))
+	}
+	return failures
 }

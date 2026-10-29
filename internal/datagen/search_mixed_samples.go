@@ -19,8 +19,14 @@ const (
 	searchMixedRebuildFinished = "finished"
 )
 
-func searchMixedCatchUpClasses() []searchdomain.WorkClass {
-	return []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup}
+// searchMixedCatchUpClasses returns the live, access, and cleanup classes.
+// It also returns the rescan class when metadata is true.
+func searchMixedCatchUpClasses(metadata bool) []searchdomain.WorkClass {
+	classes := []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup}
+	if metadata {
+		classes = append(classes, searchdomain.WorkClassRescan)
+	}
+	return classes
 }
 
 func (m *searchMixed) sampleUntil(ctx context.Context, windowStarted time.Time, stop <-chan struct{}, done chan<- struct{}) {
@@ -108,28 +114,35 @@ func (m *searchMixed) rebuildState(ctx context.Context) (string, error) {
 	return string(rebuild.State), nil
 }
 
-// catchUp waits for workers to finish all live, access, and cleanup work with an enqueue time
-// at or before writesEnded. It stops waiting when the catch-up timeout expires.
+// catchUp waits for workers to finish live, access, and cleanup work with an enqueue time
+// at or before writesEnded. It also waits for rescan work when MetadataWrites is positive.
+// The wait ends when ctx ends or a positive CatchUp expires.
 func (m *searchMixed) catchUp(ctx context.Context, writesEnded time.Time) {
 	deadline := clock.Now().Add(m.options.CatchUp)
-	completed := false
+	bounded := m.options.CatchUp > 0
+	completed, drainedAfter := false, time.Duration(0)
+	classes := searchMixedCatchUpClasses(m.options.MetadataWrites > 0)
 	for {
 		pending, err := m.backlog.pending(ctx)
-		completed = err == nil && caughtUp(pending, writesEnded)
-		if completed || clock.Now().After(deadline) || !waitForSearchMixedSample(ctx) {
+		completed = err == nil && caughtUp(pending, writesEnded, classes)
+		if completed {
+			drainedAfter = clock.Now().Sub(writesEnded)
+			break
+		}
+		if (bounded && clock.Now().After(deadline)) || !waitForSearchMixedSample(ctx) {
 			break
 		}
 	}
 	elapsed := clock.Now().Sub(writesEnded)
 	m.phases.update(func(phases *searchMixedPhaseStats) {
-		phases.catchUp = SearchMixedCatchUp{Completed: completed, Elapsed: elapsed}
+		phases.catchUp = SearchMixedCatchUp{Completed: completed, Elapsed: elapsed, DrainedAfter: drainedAfter}
 	})
 	slog.InfoContext(ctx, "qa.datagen.search_mixed_catch_up_finished", slog.Bool("completed", completed),
-		slog.Duration("elapsed", elapsed))
+		slog.Duration("elapsed", elapsed), slog.Duration("drained_after", drainedAfter))
 }
 
-func caughtUp(pending map[searchdomain.WorkClass]searchClassBacklog, writesEnded time.Time) bool {
-	for _, class := range searchMixedCatchUpClasses() {
+func caughtUp(pending map[searchdomain.WorkClass]searchClassBacklog, writesEnded time.Time, classes []searchdomain.WorkClass) bool {
+	for _, class := range classes {
 		if backlog, found := pending[class]; found && !backlog.oldest.After(writesEnded) {
 			return false
 		}

@@ -67,6 +67,9 @@ type SearchMixedRebuildResult struct {
 type SearchMixedCatchUp struct {
 	Completed bool
 	Elapsed   time.Duration
+	// DrainedAfter is the time from the end of writes to the first reading without pending work
+	// with an enqueue time at or before the end of writes. It is zero when Completed is false.
+	DrainedAfter time.Duration
 }
 
 // SearchMixedSample is one reading of pending search work, the rebuild state, the OpenSearch

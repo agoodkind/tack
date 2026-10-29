@@ -58,7 +58,9 @@ type searchMixedOutput struct {
 			TargetIndex string `json:"target_index"`
 		} `json:"rebuild"`
 		CatchUp struct {
-			Completed bool `json:"completed"`
+			Completed      bool    `json:"completed"`
+			ElapsedMs      float64 `json:"elapsed_ms"`
+			DrainedAfterMs float64 `json:"drained_after_ms"`
 		} `json:"catch_up"`
 		Samples []struct {
 			OldestPendingWorkMs float64                        `json:"oldest_pending_work_ms"`
@@ -73,7 +75,8 @@ type searchMixedOutput struct {
 }
 
 // TestSearchMixedWorkload runs the search-mixed command over HTTP against two runtime graphs
-// in the test process.
+// in the test process without --catch-up. It checks that catch-up completes and that
+// catch_up.drained_after_ms is positive and does not exceed catch_up.elapsed_ms.
 func TestSearchMixedWorkload(t *testing.T) {
 	cfg := newCohortEngines(t)
 	t.Setenv("OPENSEARCH_WORKER_CONCURRENCY", "1")
@@ -85,7 +88,7 @@ func TestSearchMixedWorkload(t *testing.T) {
 	}
 	seed := strconv.FormatInt(clock.Now().UnixNano(), 10)
 	output, err := runSearchMixedCommand(t, cfg, "--seed", seed, "--rate", "60", "--write-rate", "60", "--duration", "40s",
-		"--concurrency", "8", "--burst-writes", "60", "--catch-up", "5m", "--rebuild", "--endpoints", strings.Join(endpoints, ","), "--commit")
+		"--concurrency", "8", "--burst-writes", "60", "--rebuild", "--endpoints", strings.Join(endpoints, ","), "--commit")
 	var envelope searchMixedOutput
 	if decodeErr := json.Unmarshal(output, &envelope); decodeErr != nil {
 		t.Fatalf("qa datagen search-mixed: the test could not decode the result: %v (command error=%v; output=%s)", decodeErr, err, output)
@@ -111,6 +114,10 @@ func TestSearchMixedWorkload(t *testing.T) {
 	if !result.Rebuild.Requested || result.Rebuild.TargetIndex == "" || !result.CatchUp.Completed || result.StopReason != "none" ||
 		len(result.SkippedPhases) != 0 {
 		t.Fatalf("qa datagen search-mixed: the command must request a rebuild with a target index, complete catch-up, and finish every phase without a stop: %s", output)
+	}
+	catchUp := result.CatchUp
+	if catchUp.DrainedAfterMs <= 0 || catchUp.DrainedAfterMs > catchUp.ElapsedMs {
+		t.Fatalf("qa datagen search-mixed: catch_up.drained_after_ms must be positive and must not exceed catch_up.elapsed_ms: %s", output)
 	}
 	requireSearchMixedSamples(t, output, envelope)
 	requireSearchMixedFoundationDB(t, output, envelope)
