@@ -46,16 +46,16 @@ func searchSettingsOp(f *cli.Factory) clispec.Operation[searchSettingsInput] {
 func runSearchSettings(ctx context.Context, f *cli.Factory, sink clispec.ResultSink) (runErr error) {
 	adapter, err := newSearchMaintenanceAdapter(ctx, f.Cfg)
 	if err != nil {
-		return searchSettingsFailure(ctx, "create search adapter", err)
+		return searchSettingsFailure("create search adapter", err)
 	}
 	defer func() {
 		if err := adapter.Close(ctx); err != nil && runErr == nil {
-			runErr = searchSettingsFailure(ctx, "close search adapter", err)
+			runErr = searchSettingsFailure("close search adapter", err)
 		}
 	}()
 	limit, err := adapter.PointInTimeLimit(ctx)
 	if err != nil {
-		return searchSettingsFailure(ctx, "read the point-in-time limit", err)
+		return searchSettingsFailure("read the point-in-time limit", err)
 	}
 	output := searchSettingsOutput{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.search.settings",
@@ -63,13 +63,15 @@ func runSearchSettings(ctx context.Context, f *cli.Factory, sink clispec.ResultS
 	}
 	telemetry.L(ctx).InfoContext(ctx, "search.settings.read", slog.String("effective", output.Effective))
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
-		return searchSettingsFailure(ctx, "write the point-in-time limit", err)
+		return searchSettingsFailure("write the point-in-time limit", err)
 	}
 	return nil
 }
 
-func searchSettingsFailure(ctx context.Context, operation string, err error) error {
+// searchSettingsFailure adds operation to err and does not log. The search
+// adapter, the adapter constructor, and the result sink log each failure
+// before they return it.
+func searchSettingsFailure(operation string, err error) error {
 	wrapped := fmt.Errorf("%s: %w", operation, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.settings.failed", slog.String("err", wrapped.Error()))
 	return wrapped
 }
