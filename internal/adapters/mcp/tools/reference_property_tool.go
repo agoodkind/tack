@@ -143,6 +143,10 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+		referenceKeys, err := writeReferenceKeys(ctx, b, existing.OrgID)
+		if err != nil {
+			return classifyError(ctx, err), nil
+		}
 		// Refuse before the write, not only in the response.
 		if !isAuthorized(ctx) {
 			return permissionDenied(), nil
@@ -157,7 +161,10 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return successText(renderWriteConfirmation(rc, "Updated", view, []string{def.Name}), ""), nil
+		changes := describeFieldChanges(rc, writeChanges{
+			Before: existing, After: view, Name: nil, Props: props, ReferenceKeys: referenceKeys,
+		})
+		return successText(renderWriteConfirmation(rc, "Updated", view, changes), ""), nil
 	}
 }
 

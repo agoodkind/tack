@@ -128,6 +128,11 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 			return classifyError(ctx, err), nil
 		}
 
+		referenceKeys, err := writeReferenceKeys(ctx, b, ws.OrgID)
+		if err != nil {
+			return classifyError(ctx, err), nil
+		}
+
 		toolName := fmt.Sprintf("tack_create_%s", strings.ToLower(nt.Slug))
 		idempotencyKey, idempotencyFingerprint, idempotencySource, err := createIdempotency(ctx, req, createIdempotencyInput{
 			ToolName:       toolName,
@@ -178,6 +183,9 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 			Identifier: identifierFor(result.View, rc),
 			Name:       result.View.Name,
 		})
-		return successText(renderWriteConfirmation(rc, "Created", result.View, changedFieldNames(&name, rawProps)), instr), nil
+		changes := describeFieldChanges(rc, writeChanges{
+			Before: nil, After: result.View, Name: &name, Props: rawProps, ReferenceKeys: referenceKeys,
+		})
+		return successText(renderWriteConfirmation(rc, "Created", result.View, changes), instr), nil
 	}
 }

@@ -115,6 +115,10 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+		referenceKeys, err := writeReferenceKeys(ctx, b, existing.OrgID)
+		if err != nil {
+			return classifyError(ctx, err), nil
+		}
 		// Refuse before the write, not only in the response.
 		if !isAuthorized(ctx) {
 			return permissionDenied(), nil
@@ -130,7 +134,10 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		return successText(renderWriteConfirmation(rc, "Updated", view, changedFieldNames(in.Name, rawProps)), ""), nil
+		changes := describeFieldChanges(rc, writeChanges{
+			Before: existing, After: view, Name: in.Name, Props: rawProps, ReferenceKeys: referenceKeys,
+		})
+		return successText(renderWriteConfirmation(rc, "Updated", view, changes), ""), nil
 	}
 }
 
