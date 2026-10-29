@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"time"
 
 	"goodkind.io/tack/internal/clock"
@@ -45,36 +44,6 @@ func (b *sliceBudget) spent() bool {
 func (b *sliceBudget) record(pages, encodedBytes int) {
 	b.pages += pages
 	b.bytes += encodedBytes
-}
-
-// weightedSchedule interleaves the classes by weight with smooth weighted
-// round robin. A class with weight w receives w turns in each rotation.
-func weightedSchedule(weights map[string]int) ([]searchdomain.WorkClass, error) {
-	total := 0
-	for _, class := range scheduledClasses {
-		weight, exists := weights[string(class)]
-		if !exists || weight < 1 {
-			return nil, fmt.Errorf("search work class %s requires a positive weight", class)
-		}
-		total += weight
-	}
-	if len(weights) != len(scheduledClasses) {
-		return nil, errors.New("search work class weights name an unknown class")
-	}
-	current := make([]int, len(scheduledClasses))
-	schedule := make([]searchdomain.WorkClass, 0, total)
-	for range total {
-		selected := 0
-		for position, class := range scheduledClasses {
-			current[position] += weights[string(class)]
-			if current[position] > current[selected] {
-				selected = position
-			}
-		}
-		current[selected] -= total
-		schedule = append(schedule, scheduledClasses[selected])
-	}
-	return slices.Clip(schedule), nil
 }
 
 // settle ends a slice after err. The failure counts toward the attempt

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -23,12 +24,20 @@ const searchRetryDelay = 5 * time.Second
 type SearchWorkStore struct {
 	db    fdb.Database
 	clock clock.Clock
+	// rotation advances for each Claim that finds pending buckets and
+	// selects its starting position among the oldest ClaimBucketChoices
+	// buckets. Workers sharing the store use the same counter for
+	// consecutive and concurrent claims.
+	rotation atomic.Int64
 }
 
-// NewSearchWorkStore creates the FoundationDB search work adapter. The clock
-// sets and checks claim leases.
+// NewSearchWorkStore creates the FoundationDB search work adapter and
+// starts the claim rotation counter at the injected clock's current time
+// in Unix nanoseconds. The clock also sets and checks claim leases.
 func NewSearchWorkStore(db fdb.Database, source clock.Clock) *SearchWorkStore {
-	return &SearchWorkStore{db: db, clock: source}
+	store := &SearchWorkStore{db: db, clock: source, rotation: atomic.Int64{}}
+	store.rotation.Store(source.Now().UnixNano())
+	return store
 }
 
 // InitializeSearchIndex records the serving physical index that every claim
@@ -58,11 +67,12 @@ func (s *Stores) InitializeSearchIndex(ctx context.Context, index string) (err e
 }
 
 // Claim leases one item of the requested class. A rescan claim first runs
-// one bounded step of the projection sweep. One read finds the buckets
-// that contain pending work. The clock selects the first pending bucket
-// to try. Claim then tries the remaining pending buckets in order.
-// Workers that call Claim at different times can start at different
-// pending buckets.
+// one bounded step of the projection sweep. One read finds pending buckets
+// and each bucket's first age key. The store rotation selects the first
+// bucket among the ClaimBucketChoices buckets with the oldest first items.
+// Claim tries the rest of those buckets in rotation order, then the
+// remaining buckets oldest first. Within each bucket, it claims the oldest
+// claimable item.
 //
 // Claim returns false and a nil error when the pending buckets do not
 // contain a claimable item. The store.search_work.claim operation records
@@ -82,13 +92,8 @@ func (s *SearchWorkStore) Claim(ctx context.Context, class searchdomain.WorkClas
 	if err != nil || len(pending) == 0 {
 		return none, false, err
 	}
-	// A clock before the Unix epoch gives a negative remainder.
-	start := int(s.clock.Now().UnixNano() % int64(len(pending)))
-	if start < 0 {
-		start += len(pending)
-	}
-	for offset := range pending {
-		work, claimed, err = s.claimBucket(ctx, class, pending[(start+offset)%len(pending)], owner, lease)
+	for _, bucket := range claimOrder(pending, s.rotation.Add(1)) {
+		work, claimed, err = s.claimBucket(ctx, class, bucket, owner, lease)
 		if err != nil {
 			return none, false, err
 		}
@@ -129,14 +134,15 @@ func (s *SearchWorkStore) claimFirstItem(
 	return none, false, nil
 }
 
-// pendingBuckets returns the buckets of class that contain at least one age
-// key. It first calls [classHasAgeKey] in the same transaction. If the class
+// pendingBuckets returns each bucket of class that has an age key and the
+// part of its first age key after the bucket prefix.
+// It first calls [classHasAgeKey] in the same transaction. If the class
 // does not have an age key, it returns an empty list without probing buckets.
 // Otherwise, it issues one key selector per bucket across all 256 buckets.
 // Every read in the transaction uses a snapshot read. Snapshot reads do not
 // add read conflict ranges.
-func (s *SearchWorkStore) pendingBuckets(ctx context.Context, class searchdomain.WorkClass) ([]int, error) {
-	pending := make([]int, 0, searchWorkBuckets)
+func (s *SearchWorkStore) pendingBuckets(ctx context.Context, class searchdomain.WorkClass) ([]pendingBucket, error) {
+	pending := make([]pendingBucket, 0, searchWorkBuckets)
 	err := transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
 		pending = pending[:0]
 		classPending, probeErr := classHasAgeKey(ctx, tr, class)
@@ -144,13 +150,16 @@ func (s *SearchWorkStore) pendingBuckets(ctx context.Context, class searchdomain
 			return probeErr
 		}
 		firstKeys := make([]fdb.FutureKey, searchWorkBuckets)
+		prefixes := make([]int, searchWorkBuckets)
 		ends := make([]fdb.Key, searchWorkBuckets)
 		for bucket := range searchWorkBuckets {
-			keyRange, err := fdb.PrefixRange(searchAgePrefix(string(class), bucket))
+			prefix := searchAgePrefix(string(class), bucket)
+			keyRange, err := fdb.PrefixRange(prefix)
 			if err != nil {
 				return searchReadFailure(ctx, "create search age range", err)
 			}
 			firstKeys[bucket] = tr.Snapshot().GetKey(fdb.FirstGreaterOrEqual(keyRange.Begin))
+			prefixes[bucket] = len(prefix)
 			ends[bucket] = keyRange.End.FDBKey()
 		}
 		for bucket, firstKey := range firstKeys {
@@ -159,7 +168,7 @@ func (s *SearchWorkStore) pendingBuckets(ctx context.Context, class searchdomain
 				return searchReadFailure(ctx, "probe search age bucket", err)
 			}
 			if bytes.Compare(key, ends[bucket]) < 0 {
-				pending = append(pending, bucket)
+				pending = append(pending, pendingBucket{bucket: bucket, oldest: key[prefixes[bucket]:]})
 			}
 		}
 		return nil
@@ -168,21 +177,6 @@ func (s *SearchWorkStore) pendingBuckets(ctx context.Context, class searchdomain
 		return nil, searchStorageError(ctx, "search.work.probe_failed", "probe search work buckets of class "+string(class), uuid.Nil, err)
 	}
 	return pending, nil
-}
-
-// classHasAgeKey reports whether class has at least one age key in any
-// bucket. It reads at most one key with one snapshot range read limited to
-// one key.
-func classHasAgeKey(ctx context.Context, tr fdb.Transaction, class searchdomain.WorkClass) (bool, error) {
-	keyRange, err := fdb.PrefixRange(searchAgeClassPrefix(string(class)))
-	if err != nil {
-		return false, searchReadFailure(ctx, "create search age range of class "+string(class), err)
-	}
-	first, err := tr.Snapshot().GetRange(keyRange, fdb.RangeOptions{Limit: 1}).GetSliceWithError()
-	if err != nil {
-		return false, searchReadFailure(ctx, "probe search age keys of class "+string(class), err)
-	}
-	return len(first) > 0, nil
 }
 
 func searchStorageError(ctx context.Context, event, operation string, nodeID uuid.UUID, err error) error {
