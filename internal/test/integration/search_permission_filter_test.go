@@ -147,3 +147,10 @@ func TestSearchFinalCheckRejectsCorruptIndexedAccess(t *testing.T) {
 		}
 	}
 }
+
+// RawRankedNodes reads every batch from the OpenSearch ranker for text with
+// filter and returns the node IDs in rank order.
+func RawRankedNodes(t *testing.T, fixture QueryFixture, filter searchdomain.AccessFilter, text string) []uuid.UUID {
+	t.Helper()
+	return rawRankedNodes(t, fixture, filter, text)
+}

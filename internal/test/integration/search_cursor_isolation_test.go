@@ -80,3 +80,9 @@ func TestSearchCursorRejectsForeignCallerAndChangedType(t *testing.T) {
 		}
 	}
 }
+
+// ActorHarness returns an MCP harness that calls the fixture's production
+// handler with the bearer token of the actor at index in workspace.
+func ActorHarness(fixture QueryFixture, workspace datagen.WorkspaceIdentity, index int) *MCPHarness {
+	return actorHarness(fixture, workspace, index)
+}

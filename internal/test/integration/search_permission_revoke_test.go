@@ -91,3 +91,10 @@ func TestSearchRevokedAccessRejectsLaterResultsAndReplay(t *testing.T) {
 		}
 	}
 }
+
+// CorruptIndexedAccess rewrites the stored access of every active page of
+// nodeID in the serving index to the versions and keys of filter.
+func CorruptIndexedAccess(t *testing.T, fixture QueryFixture, nodeID uuid.UUID, filter searchdomain.AccessFilter) {
+	t.Helper()
+	corruptIndexedAccess(t, fixture, nodeID, filter)
+}
