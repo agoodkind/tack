@@ -14,11 +14,16 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Adapter owns the single official OpenSearch client used by Tack.
+// Adapter owns Tack's official OpenSearch clients. One client sends every
+// request except the query predict. A second client sends the query predict.
 type Adapter struct {
-	client   *opensearch.Client
-	api      *opensearchapi.Client
-	observer *endpointObserver
+	client *opensearch.Client
+	api    *opensearchapi.Client
+	// predictClient sends the query predict request once without a per-attempt
+	// timeout. It does not retry after a timeout. A retry after a timeout repeats
+	// model work that OpenSearch is still computing.
+	predictClient *opensearch.Client
+	observer      *endpointObserver
 }
 
 // New constructs the official client after validating native settings.
@@ -37,12 +42,18 @@ func New(ctx context.Context, cfg Config) (*Adapter, error) {
 		telemetry.L(ctx).ErrorContext(ctx, "search.client.create_failed", slog.String("err", wrapped.Error()))
 		return nil, wrapped
 	}
-	return &Adapter{client: api.Client, api: api, observer: observer}, nil
+	predictClient, err := opensearch.NewClient(cfg.predictClientConfig(observer))
+	if err != nil {
+		wrapped := fmt.Errorf("create OpenSearch predict client: %w", errors.Join(err, api.Client.Close()))
+		telemetry.L(ctx).ErrorContext(ctx, "search.client.create_failed", slog.String("err", wrapped.Error()))
+		return nil, wrapped
+	}
+	return &Adapter{client: api.Client, api: api, predictClient: predictClient, observer: observer}, nil
 }
 
-// Close stops the official client's transport resources.
+// Close stops the transport resources of both official clients.
 func (a *Adapter) Close(ctx context.Context) error {
-	if err := a.client.Close(); err != nil {
+	if err := errors.Join(a.client.Close(), a.predictClient.Close()); err != nil {
 		wrapped := fmt.Errorf("close OpenSearch client: %w", err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.client.close_failed", slog.String("err", wrapped.Error()))
 		return wrapped
