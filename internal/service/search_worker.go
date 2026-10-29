@@ -38,29 +38,26 @@ type SearchWorker struct {
 	clock    clock.Clock
 	owner    string
 	settings config.SearchWorkerSettings
-	schedule []searchdomain.WorkClass
-	position int
+	shares   *classShares
 }
 
-// NewSearchWorker constructs one worker identity. offset sets the first
-// position the worker reads in the weighted class schedule. Concurrent
-// workers with different offsets start at different positions.
+// NewSearchWorker constructs one worker identity with class time shares.
+// offset rotates the class order used to break ties. Concurrent workers
+// with different offsets start at different classes.
 func NewSearchWorker(ports SearchWorkerPorts, source clock.Clock, settings config.SearchWorkerSettings, offset int) (*SearchWorker, error) {
 	if ports.Audit.Outbox == nil || ports.Audit.Actor.ID == uuid.Nil {
 		return nil, errors.New("search worker: set the audit outbox and service actor")
 	}
-	schedule, err := weightedSchedule(settings.ClassWeights)
+	shares, err := newClassShares(settings.ClassWeights, settings.SliceBudget, offset)
 	if err != nil {
 		return nil, err
 	}
-	return &SearchWorker{
-		ports: ports, clock: source, owner: uuid.NewString(), settings: settings,
-		schedule: schedule, position: offset % len(schedule),
-	}, nil
+	return &SearchWorker{ports: ports, clock: source, owner: uuid.NewString(), settings: settings, shares: shares}, nil
 }
 
-// RunSlice claims one work item in class rotation and processes one bounded
-// slice of it. It reports whether it claimed work.
+// RunSlice claims from the pending class with the least worker time per
+// unit of weight and processes one bounded slice. It reports whether it
+// claimed work.
 func (w *SearchWorker) RunSlice(ctx context.Context) (bool, error) {
 	work, claimed, err := w.claimNext(ctx)
 	if err != nil || !claimed {
@@ -69,16 +66,20 @@ func (w *SearchWorker) RunSlice(ctx context.Context) (bool, error) {
 	return true, w.Process(ctx, work)
 }
 
-// Process runs one bounded slice of a claimed work item and logs its page
-// count, encoded bytes, duration, and work age.
+// Process runs one bounded slice of a claimed work item. It measures elapsed
+// wall time with the injected clock and charges that time to the class,
+// including when the slice fails. It logs page count, encoded bytes,
+// duration, class_weighted_time, and work age at Debug level.
 func (w *SearchWorker) Process(ctx context.Context, work searchdomain.Work) error {
 	budget := newSliceBudget(w.clock, w.settings)
 	err := w.processClass(ctx, work, budget)
+	duration := w.clock.Since(budget.started)
+	weighted := w.shares.spend(work.Class, duration)
 	telemetry.L(ctx).DebugContext(ctx, "search.worker.slice_completed",
 		slog.String("class", string(work.Class)), slog.String("node_id", work.NodeID.String()),
 		slog.Int64("generation", work.Generation), slog.String("index", work.Target),
 		slog.Int("pages", budget.pages), slog.Int("encoded_bytes", budget.bytes),
-		slog.Duration("duration", w.clock.Since(budget.started)),
+		slog.Duration("duration", duration), slog.Duration("class_weighted_time", weighted),
 		slog.Duration("work_age", budget.started.Sub(work.EnqueuedAt)))
 	return err
 }
@@ -102,19 +103,23 @@ func (w *SearchWorker) processClass(ctx context.Context, work searchdomain.Work,
 	}
 }
 
+// claimNext tries each class once by weighted time, smallest first, and
+// returns the first claimable item. For each earlier empty class, it limits
+// the worker time that class can use before the claimed class runs again
+// to one slice budget. It resets weighted times when every class lacks
+// claimable work. ErrNoServingIndex ends the attempt without a claim or
+// error. Any other claim error ends the attempt with that error.
 func (w *SearchWorker) claimNext(ctx context.Context) (searchdomain.Work, bool, error) {
-	defer func() { w.position = (w.position + 1) % len(w.schedule) }()
 	var none searchdomain.Work
-	tried := make(map[searchdomain.WorkClass]struct{}, len(w.schedule))
-	for offset := range w.schedule {
-		class := w.schedule[(w.position+offset)%len(w.schedule)]
-		if _, seen := tried[class]; seen {
-			continue
-		}
-		tried[class] = struct{}{}
+	order := w.shares.order()
+	for tried, position := range order {
+		class := scheduledClasses[position]
 		work, claimed, err := w.ports.Store.Claim(ctx, class, w.owner, w.settings.Lease)
 		switch {
 		case err == nil && claimed:
+			for _, empty := range order[:tried] {
+				w.shares.limitBank(empty, position)
+			}
 			return work, true, nil
 		case err == nil:
 			continue
@@ -127,6 +132,7 @@ func (w *SearchWorker) claimNext(ctx context.Context) (searchdomain.Work, bool, 
 			return none, false, loggedWorkerError{err: wrapped}
 		}
 	}
+	w.shares.reset()
 	return none, false, nil
 }
 

@@ -44,9 +44,9 @@ type SearchWorkerSettings struct {
 	Lease            time.Duration `env:"OPENSEARCH_WORKER_LEASE"             envDefault:"30s"`
 	IdleInterval     time.Duration `env:"OPENSEARCH_WORKER_IDLE_INTERVAL"     envDefault:"250ms"`
 	Concurrency      int           `env:"OPENSEARCH_WORKER_CONCURRENCY"       envDefault:"1"`
-	// ClassWeights sets how many turns each work class receives in one
-	// scheduling rotation. It requires a weight of at least one for every
-	// scheduled class and no other class.
+	// ClassWeights sets each class's share of one worker's time while
+	// several classes have pending work. It requires a weight of at least
+	// one for every scheduled class and no other class.
 	ClassWeights map[string]int `env:"OPENSEARCH_WORK_CLASS_WEIGHTS" envDefault:"live:4,access:2,cleanup:2,rescan:1,rollout:1,rebuild:1,copy:2" envKeyValSeparator:":"`
 	// ReplacementPauseLimit is the longest wait for a green replacement
 	// target. It has no environment variable. LoadSearchWorkerSettings sets
