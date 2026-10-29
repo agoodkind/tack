@@ -15,7 +15,9 @@ import (
 // Commons runs the model on this single data node. action.auto_create_index
 // refuses automatic creation of every node-pages-* index, as each production
 // node configuration does. A delayed bulk write to a deleted physical index
-// then fails.
+// then fails. plugins.security.restapi.roles_enabled lets the all_access
+// administrator create roles and users through the security REST API, which
+// a test uses to run a command as a role-restricted identity.
 const openSearchConfig = `cluster.name: tack-testenv
 action.auto_create_index: "-node-pages-*,+*"
 node.name: opensearch
@@ -31,6 +33,7 @@ plugins.security.ssl.transport.enforce_hostname_verification: false
 plugins.security.nodes_dn:
   - "CN=opensearch-node"
 plugins.security.allow_default_init_securityindex: true
+plugins.security.restapi.roles_enabled: ["all_access"]
 plugins.ml_commons.only_run_on_ml_node: false
 `
 

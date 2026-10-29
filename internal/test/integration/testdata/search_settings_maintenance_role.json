@@ -1,0 +1,8 @@
+{
+  "description": "Copy of the Configs tack_maintenance role.",
+  "cluster_permissions": [
+    "cluster:admin/opensearch/ml/register_model",
+    "cluster:admin/opensearch/ml/connectors/search"
+  ],
+  "index_permissions": []
+}

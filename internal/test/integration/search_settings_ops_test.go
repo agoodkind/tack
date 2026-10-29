@@ -30,7 +30,9 @@ type searchSettingsReport struct {
 }
 
 // TestSearchSettingsReportsEffectivePointInTimeLimit runs the audited ops
-// search settings command against the shared engine. The engine starts with
+// search settings command against the shared engine as a maintenance user
+// mapped to copies of the Configs tack_runtime and tack_maintenance roles.
+// The fixture administrator writes the cluster settings. The engine starts with
 // search.max_open_pit_context as a node setting. Without a cluster setting,
 // the command must report the node setting as the default and as the
 // effective value. A persistent cluster setting must replace the effective
@@ -42,6 +44,7 @@ func TestSearchSettingsReportsEffectivePointInTimeLimit(t *testing.T) {
 	fixture := testenv.OpenSearch(t)
 	cfg := integration.SearchControlConfig(t, fixture)
 	client := integration.OpenSearchClient(t, fixture)
+	useSearchSettingsMaintenanceIdentity(t, client)
 	putPointInTimeSetting(t, client, "persistent", "null")
 	putPointInTimeSetting(t, client, "transient", "null")
 	t.Cleanup(func() {
