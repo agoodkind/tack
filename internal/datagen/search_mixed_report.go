@@ -56,8 +56,9 @@ func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error
 	return joined
 }
 
-// SearchMixedChanges reports planned and committed metadata changes and moves, metadata values
-// that search did not return, and moves that the command could not verify.
+// SearchMixedChanges reports planned and committed metadata changes and moves.
+// It also reports counts for active page text checks before metadata changes and metadata
+// and move checks still pending when probing stops.
 type SearchMixedChanges struct {
 	MetadataPlanned  int
 	MetadataChanges  int
@@ -65,26 +66,27 @@ type SearchMixedChanges struct {
 	MovesPlanned     int
 	Moves            int
 	MovesUnverified  int
-	// MetadataAbsentBefore counts searches that did not return the issue for its excluded property
-	// value before the metadata change.
+	// MetadataAbsentBefore counts checks that read at least one active page from the serving
+	// index before the metadata change and do not find the excluded property value in any page text.
 	MetadataAbsentBefore int
-	// MetadataPresentBefore counts searches that returned the issue for its excluded property value
-	// before the metadata change.
+	// MetadataPresentBefore counts checks that find the excluded property value in active page
+	// text from the serving index before the metadata change.
 	MetadataPresentBefore int
-	// MetadataUncheckedBefore counts failed searches for the issue's excluded property value
-	// before the metadata change.
+	// MetadataUncheckedBefore counts checks that fail to read active pages from the serving
+	// index or find that the issue does not have any active pages before the metadata change.
 	MetadataUncheckedBefore int
 }
 
 // failures returns errors when the run commits fewer metadata changes or moves than planned,
-// when search does not return a changed metadata value, or when the command cannot verify a move.
+// when active page text contains an excluded value before its metadata change, or when a
+// metadata or move check remains pending when probing stops.
 func (c SearchMixedChanges) failures() []error {
 	failures := make([]error, 0)
 	if c.MetadataChanges < c.MetadataPlanned {
 		failures = append(failures, fmt.Errorf("the run committed %d of %d planned metadata changes", c.MetadataChanges, c.MetadataPlanned))
 	}
 	if c.MetadataPresentBefore > 0 {
-		failures = append(failures, fmt.Errorf("search returned %d issues for excluded property values before metadata changes", c.MetadataPresentBefore))
+		failures = append(failures, fmt.Errorf("active page text contained excluded property values for %d issues before metadata changes", c.MetadataPresentBefore))
 	}
 	if c.MetadataNotFound > 0 {
 		failures = append(failures, fmt.Errorf("search did not return %d issues for property values that a metadata change included", c.MetadataNotFound))

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strconv"
+	"strings"
 
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/service"
@@ -26,15 +27,18 @@ func (m *searchMixed) metadataValues(tenant int) map[string]string {
 
 // changeMetadata selects an issue that the prober has found for its issue marker and that has a
 // value under the next excluded definition. It removes the issue from selection for later writes
-// and increments the used definition count. It uses tick to select the driver for a search for
-// the value before the metadata change and counts the result as absent, present, or unchecked.
-// It then stores the definition with Search.Include set to true. That write requests a rescan
-// of issues with values under the definition name. After a successful write, it adds a check for
-// the value. If the definition write fails, changeMetadata counts the failure in writes.failed.
-// It returns true to use the scheduled write index and does not increment the committed
-// metadata change count. It returns false if it cannot find a settled issue with a value under
-// that definition.
-func (m *searchMixed) changeMetadata(ctx context.Context, tick int) bool {
+// and increments the used definition count. It reads the issue's active pages from the serving
+// index with SearchPageText. If the read fails, it increments probe_errors and
+// metadata_unchecked_before. If the read succeeds but the issue does not have any active pages,
+// it increments metadata_unchecked_before. For a successful read with active pages, it increments
+// metadata_present_before if any page text contains the value, or metadata_absent_before if the
+// page texts do not contain the value. It then stores the definition with Search.Include set to
+// true. That write requests a rescan of issues with values under the definition name. After a
+// successful write, it adds a check for the value. If the definition write fails, changeMetadata
+// counts the failure in writes.failed. On failure, it returns true to use the scheduled write
+// index without incrementing the committed metadata change count. It returns false if it cannot
+// find a settled issue with a value under that definition.
+func (m *searchMixed) changeMetadata(ctx context.Context) bool {
 	definition := m.changes.definitions[m.changes.changed]
 	pinned, _ := m.pinNode(func(candidate *searchMixedNode) bool {
 		return candidate.settled && candidate.metadata[definition.Name] != ""
@@ -44,11 +48,14 @@ func (m *searchMixed) changeMetadata(ctx context.Context, tick int) bool {
 	}
 	m.changes.changed++
 	check := searchMixedCheck{node: pinned, marker: pinned.metadata[definition.Name]}
-	returned, err := m.probeReturns(ctx, tick, check, m.tenants[pinned.tenant].entry())
+	texts, err := m.pages.SearchPageText(ctx, pinned.id)
 	switch {
 	case err != nil:
+		m.stats.count(&m.stats.probeErrors)
 		m.stats.count(&m.stats.metadataUncheckedBefore)
-	case returned:
+	case len(texts) == 0:
+		m.stats.count(&m.stats.metadataUncheckedBefore)
+	case pageTextContains(texts, check.marker):
 		m.stats.count(&m.stats.metadataPresentBefore)
 	default:
 		m.stats.count(&m.stats.metadataAbsentBefore)
@@ -93,14 +100,26 @@ func (m *searchMixed) moveIssue(ctx context.Context) bool {
 	return true
 }
 
-// probeMetadata searches for each pending metadata value under the issue's workspace.
-// It removes a check when the first page of results returns the issue.
+// probeMetadata reads each pending issue's active pages from the serving index with
+// SearchPageText on each prober pass. A failed read counts in probe_errors and leaves the check
+// pending. When any active page text contains the value, it searches the first page under the
+// issue's workspace for that value with public tack_search. It removes the check when that
+// search returns the issue. A check still pending when probing stops increments metadata_not_found
+// and fails Verify.
 func (m *searchMixed) probeMetadata(ctx context.Context, tick int) {
 	m.probeMutex.Lock()
 	pending := slices.Clone(m.metadataChecks)
 	m.probeMutex.Unlock()
 	found := make(map[*searchMixedNode]bool)
 	for _, entry := range pending {
+		texts, err := m.pages.SearchPageText(ctx, entry.node.id)
+		if err != nil {
+			m.stats.count(&m.stats.probeErrors)
+			continue
+		}
+		if !pageTextContains(texts, entry.marker) {
+			continue
+		}
 		returned, err := m.probeReturns(ctx, tick, entry, m.tenants[entry.node.tenant].entry())
 		if err != nil {
 			continue
@@ -110,6 +129,16 @@ func (m *searchMixed) probeMetadata(ctx context.Context, tick int) {
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
 	m.metadataChecks = slices.DeleteFunc(m.metadataChecks, func(entry searchMixedCheck) bool { return found[entry.node] })
+}
+
+// pageTextContains reports whether any page text in texts contains value.
+func pageTextContains(texts []string, value string) bool {
+	for _, text := range texts {
+		if strings.Contains(text, value) {
+			return true
+		}
+	}
+	return false
 }
 
 // probeMoves searches for each moved issue's marker under its destination and original workspaces.

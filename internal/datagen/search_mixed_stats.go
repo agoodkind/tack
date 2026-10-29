@@ -21,7 +21,7 @@ type searchMixedStats struct {
 	metadataNotFound  int             `exhaustruct:"optional"`
 	moves             int             `exhaustruct:"optional"`
 	movesUnverified   int             `exhaustruct:"optional"`
-	// These counters classify searches for excluded property values before each metadata change.
+	// These counters classify checks for excluded values in active page text before metadata changes.
 	metadataAbsentBefore    int `exhaustruct:"optional"`
 	metadataPresentBefore   int `exhaustruct:"optional"`
 	metadataUncheckedBefore int `exhaustruct:"optional"`
