@@ -24,19 +24,33 @@ func (m *searchMixed) metadataValues(tenant int) map[string]string {
 	return values
 }
 
-// changeMetadata removes an issue with a value under the next excluded definition from
-// selection for later writes. It prefers an issue that the prober has already found.
-// It stores the definition with Search.Include set to true. That write requests a rescan
-// of issues with values under the definition name. An issue that the prober has already
-// found has indexed pages without the value. Only the rescan can add that value to search.
-// changeMetadata returns false if it cannot find an issue with a value under that definition.
-func (m *searchMixed) changeMetadata(ctx context.Context) bool {
+// changeMetadata selects an issue that the prober has found for its issue marker and that has a
+// value under the next excluded definition. It removes the issue from selection for later writes
+// and increments the used definition count. It uses tick to select the driver for a search for
+// the value before the metadata change and counts the result as absent, present, or unchecked.
+// It then stores the definition with Search.Include set to true. That write requests a rescan
+// of issues with values under the definition name. After a successful write, it adds a check for
+// the value. A failed write counts in writes.failed and still returns true. It returns false if
+// it cannot find a settled issue with a value under that definition.
+func (m *searchMixed) changeMetadata(ctx context.Context, tick int) bool {
 	definition := m.changes.definitions[m.changes.changed]
-	pinned, _ := m.pinNode(func(candidate *searchMixedNode) bool { return candidate.metadata[definition.Name] != "" })
+	pinned, _ := m.pinNode(func(candidate *searchMixedNode) bool {
+		return candidate.settled && candidate.metadata[definition.Name] != ""
+	})
 	if pinned == nil {
 		return false
 	}
 	m.changes.changed++
+	check := searchMixedCheck{node: pinned, marker: pinned.metadata[definition.Name]}
+	returned, err := m.probeReturns(ctx, tick, check, m.tenants[pinned.tenant].entry())
+	switch {
+	case err != nil:
+		m.stats.count(&m.stats.metadataUncheckedBefore)
+	case returned:
+		m.stats.count(&m.stats.metadataPresentBefore)
+	default:
+		m.stats.count(&m.stats.metadataAbsentBefore)
+	}
 	definition.Search.Include = true
 	if err := m.stores.PropertyDefs.Set(ctx, definition); err != nil {
 		m.writeFailed(ctx, "qa.datagen.search_mixed_metadata_change_failed", err)
@@ -45,7 +59,7 @@ func (m *searchMixed) changeMetadata(ctx context.Context) bool {
 	m.stats.count(&m.stats.metadataChanges)
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	m.metadataChecks = append(m.metadataChecks, searchMixedCheck{node: pinned, marker: pinned.metadata[definition.Name]})
+	m.metadataChecks = append(m.metadataChecks, check)
 	return true
 }
 

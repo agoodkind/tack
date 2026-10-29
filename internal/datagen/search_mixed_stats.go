@@ -21,6 +21,10 @@ type searchMixedStats struct {
 	metadataNotFound  int             `exhaustruct:"optional"`
 	moves             int             `exhaustruct:"optional"`
 	movesUnverified   int             `exhaustruct:"optional"`
+	// These counters classify searches for excluded property values before each metadata change.
+	metadataAbsentBefore    int `exhaustruct:"optional"`
+	metadataPresentBefore   int `exhaustruct:"optional"`
+	metadataUncheckedBefore int `exhaustruct:"optional"`
 }
 
 func (s *searchMixedStats) count(counter *int) {
@@ -66,6 +70,8 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 		Changes: SearchMixedChanges{
 			MetadataPlanned: 0, MetadataChanges: s.metadataChanges, MetadataNotFound: s.metadataNotFound,
 			MovesPlanned: 0, Moves: s.moves, MovesUnverified: s.movesUnverified,
+			MetadataAbsentBefore: s.metadataAbsentBefore, MetadataPresentBefore: s.metadataPresentBefore,
+			MetadataUncheckedBefore: s.metadataUncheckedBefore,
 		},
 	}
 }

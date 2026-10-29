@@ -20,19 +20,26 @@ type searchMixedChangesOutput struct {
 			Moves           int `json:"moves"`
 			Failed          int `json:"failed"`
 		} `json:"writes"`
-		MetadataNotFound int `json:"metadata_not_found"`
-		MovesUnverified  int `json:"moves_unverified"`
-		CatchUp          struct {
-			Completed bool `json:"completed"`
+		MetadataNotFound        int `json:"metadata_not_found"`
+		MovesUnverified         int `json:"moves_unverified"`
+		MetadataAbsentBefore    int `json:"metadata_absent_before"`
+		MetadataPresentBefore   int `json:"metadata_present_before"`
+		MetadataUncheckedBefore int `json:"metadata_unchecked_before"`
+		CatchUp                 struct {
+			Completed      bool    `json:"completed"`
+			ElapsedMs      float64 `json:"elapsed_ms"`
+			DrainedAfterMs float64 `json:"drained_after_ms"`
 		} `json:"catch_up"`
 	} `json:"result"`
 }
 
 // TestSearchMixedMetadataChangesAndMoves runs a short search-mixed workload over HTTP against two
 // runtime graphs in the test process with --metadata-writes 2 and --moves 2. It requires the
-// command to return without an error after catch-up completes. It requires writes.metadata_changes
-// and writes.moves to equal 2. It requires writes.failed, metadata_not_found, and moves_unverified
-// to equal 0.
+// command to return without an error and catch_up.completed to be true. It requires
+// writes.metadata_changes and writes.moves to equal 2. It requires writes.failed,
+// metadata_not_found, and moves_unverified to equal 0. It requires metadata_absent_before to
+// equal 2 and metadata_present_before and metadata_unchecked_before to equal 0. It requires
+// catch_up.drained_after_ms to be positive and not greater than catch_up.elapsed_ms.
 func TestSearchMixedMetadataChangesAndMoves(t *testing.T) {
 	cfg := newCohortEngines(t)
 	t.Setenv("OPENSEARCH_WORKER_CONCURRENCY", "1")
@@ -58,5 +65,12 @@ func TestSearchMixedMetadataChangesAndMoves(t *testing.T) {
 	}
 	if result.MetadataNotFound != 0 || result.MovesUnverified != 0 || !result.CatchUp.Completed {
 		t.Fatalf("qa datagen search-mixed: search must return every included value and every moved issue only under its new workspace after catch-up: %s", output)
+	}
+	if result.MetadataAbsentBefore != searchMixedChangesPlanned || result.MetadataPresentBefore != 0 || result.MetadataUncheckedBefore != 0 {
+		t.Fatalf("qa datagen search-mixed: metadata_absent_before must equal 2, and metadata_present_before and metadata_unchecked_before must equal 0: %s", output)
+	}
+	catchUp := result.CatchUp
+	if catchUp.DrainedAfterMs <= 0 || catchUp.DrainedAfterMs > catchUp.ElapsedMs {
+		t.Fatalf("qa datagen search-mixed: catch_up.drained_after_ms must be positive and must not exceed catch_up.elapsed_ms: %s", output)
 	}
 }

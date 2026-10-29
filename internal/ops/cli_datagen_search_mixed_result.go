@@ -20,6 +20,9 @@ type datagenSearchMixedResult struct {
 	DeletesUnverified        int                          `json:"deletes_unverified"`
 	MetadataNotFound         int                          `json:"metadata_not_found"`
 	MovesUnverified          int                          `json:"moves_unverified"`
+	MetadataAbsentBefore     int                          `json:"metadata_absent_before"`
+	MetadataPresentBefore    int                          `json:"metadata_present_before"`
+	MetadataUncheckedBefore  int                          `json:"metadata_unchecked_before"`
 	ProbeErrors              int                          `json:"probe_errors"`
 	Endpoints                int                          `json:"endpoints"`
 	Tenants                  int                          `json:"tenants"`
@@ -143,6 +146,8 @@ func searchMixedResult(
 		MarkersNotFound: summary.MarkersNotFound, DeletedNodesReturned: summary.DeletedReturned,
 		DeletesUnverified: summary.DeletesUnverified, ProbeErrors: summary.ProbeErrors,
 		MetadataNotFound: summary.Changes.MetadataNotFound, MovesUnverified: summary.Changes.MovesUnverified,
+		MetadataAbsentBefore: summary.Changes.MetadataAbsentBefore, MetadataPresentBefore: summary.Changes.MetadataPresentBefore,
+		MetadataUncheckedBefore: summary.Changes.MetadataUncheckedBefore,
 		Endpoints: summary.Endpoints, Tenants: summary.Tenants,
 		Burst: searchMixedBurstResult(summary.Burst), Sessions: summary.Sessions, PendingDeletion: summary.Pending,
 		Revocation: datagenSearchMixedRevocation{

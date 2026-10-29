@@ -92,8 +92,6 @@ func (m *searchMixed) probe(ctx context.Context, done chan<- struct{}) {
 	}
 }
 
-// abandonProbes counts each pending marker and metadata value as not found when probing stops.
-// It counts each pending deletion and move as unverified.
 func (m *searchMixed) abandonProbes() {
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()

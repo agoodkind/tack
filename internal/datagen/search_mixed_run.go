@@ -155,7 +155,7 @@ func (m *searchMixed) write(scheduleContext, callContext context.Context, planne
 		if kind, found := slots[index]; found {
 			due = append(due, kind)
 		}
-		if len(due) > 0 && m.writeChange(callContext, due[0]) {
+		if len(due) > 0 && m.writeChange(callContext, index, due[0]) {
 			due = due[1:]
 			continue
 		}

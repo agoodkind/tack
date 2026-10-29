@@ -65,6 +65,15 @@ type SearchMixedChanges struct {
 	MovesPlanned     int
 	Moves            int
 	MovesUnverified  int
+	// MetadataAbsentBefore counts searches that did not return the issue for its excluded property
+	// value before the metadata change.
+	MetadataAbsentBefore int
+	// MetadataPresentBefore counts searches that returned the issue for its excluded property value
+	// before the metadata change.
+	MetadataPresentBefore int
+	// MetadataUncheckedBefore counts failed searches for the issue's excluded property value
+	// before the metadata change.
+	MetadataUncheckedBefore int
 }
 
 // failures returns errors when the run commits fewer metadata changes or moves than planned,
@@ -73,6 +82,9 @@ func (c SearchMixedChanges) failures() []error {
 	failures := make([]error, 0)
 	if c.MetadataChanges < c.MetadataPlanned {
 		failures = append(failures, fmt.Errorf("the run committed %d of %d planned metadata changes", c.MetadataChanges, c.MetadataPlanned))
+	}
+	if c.MetadataPresentBefore > 0 {
+		failures = append(failures, fmt.Errorf("search returned %d issues for excluded property values before metadata changes", c.MetadataPresentBefore))
 	}
 	if c.MetadataNotFound > 0 {
 		failures = append(failures, fmt.Errorf("search did not return %d issues for property values that a metadata change included", c.MetadataNotFound))

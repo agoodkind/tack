@@ -153,9 +153,9 @@ func searchMixedChangeSlots(planned, metadata, moves int) map[int]searchMixedCha
 }
 
 // writeChange runs one metadata change or move. It returns false if an issue is not available.
-func (m *searchMixed) writeChange(ctx context.Context, kind searchMixedChangeKind) bool {
+func (m *searchMixed) writeChange(ctx context.Context, index int, kind searchMixedChangeKind) bool {
 	if kind == searchMixedMetadataChange {
-		return m.changeMetadata(ctx)
+		return m.changeMetadata(ctx, index)
 	}
 	return m.moveIssue(ctx)
 }
