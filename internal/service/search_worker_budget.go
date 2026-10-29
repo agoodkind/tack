@@ -77,17 +77,28 @@ func weightedSchedule(weights map[string]int) ([]searchdomain.WorkClass, error) 
 	return slices.Clip(schedule), nil
 }
 
-// settle ends a slice after err. The failure counts toward the attempt limit
-// of the work. Engine operations settle through settleEngine instead.
+// settle ends a slice after err. The failure counts toward the attempt
+// limit of the work. Engine operations use settleEngine or
+// settleAbandonedWrite instead.
 func (w *SearchWorker) settle(ctx context.Context, work searchdomain.Work, operation string, err error) error {
 	return w.fail(ctx, work, operation, err, true, 0)
 }
 
-// settleEngine ends a slice after a failed OpenSearch operation. The failure
-// never counts toward the attempt limit. OpenSearch continues a request after
-// the worker stops waiting, and the next claim waits the operation timeout.
+// settleEngine ends a slice after a failed OpenSearch operation, except
+// a page write that times out at OperationTimeout. The failure does not
+// count toward the attempt limit. The next claim waits OperationTimeout.
 func (w *SearchWorker) settleEngine(ctx context.Context, work searchdomain.Work, operation string, err error) error {
 	return w.fail(ctx, work, operation, err, false, w.settings.OperationTimeout)
+}
+
+// settleAbandonedWrite ends a slice after a page write times out at
+// OperationTimeout. The failure does not count toward the attempt limit.
+// On QA, OpenSearch completed abandoned writes 60 to 80 seconds after
+// the worker stopped waiting. The next claim waits WriteCompletionHorizon.
+// Its page state read skips another write if OpenSearch has completed
+// the page.
+func (w *SearchWorker) settleAbandonedWrite(ctx context.Context, work searchdomain.Work, operation string, err error) error {
+	return w.fail(ctx, work, operation, err, false, w.settings.WriteCompletionHorizon)
 }
 
 // fail ends a slice after err. A changed or obsolete claim yields without

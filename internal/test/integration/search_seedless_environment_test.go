@@ -190,7 +190,7 @@ func seedlessWorker(t *testing.T, stores *fdbadapter.Stores, adapter *search.Ada
 		PageBytes: seedlessPageBytes, MaxPages: 32, MaxBytes: 5 << 20, SliceBudget: 2 * time.Second,
 		OperationTimeout: 10 * time.Second, Lease: 30 * time.Second, IdleInterval: 50 * time.Millisecond,
 		Concurrency: 1, ClassWeights: map[string]int{"live": 1, "access": 1, "cleanup": 1, "rescan": 1, "rollout": 1, "rebuild": 1, "copy": 1},
-		ReplacementPauseLimit: config.SearchReplacementPauseLimit,
+		ReplacementPauseLimit: config.SearchReplacementPauseLimit, WriteCompletionHorizon: config.SearchWriteCompletionHorizon,
 	}
 	worker, err := service.NewSearchWorker(service.SearchWorkerPorts{
 		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),

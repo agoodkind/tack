@@ -25,14 +25,18 @@ import (
 
 // delayedPageWrite is one page write the delay proxy received.
 type delayedPageWrite struct {
-	nodeID   string
-	ordinal  uint64
-	received time.Time
+	nodeID     string
+	ordinal    uint64
+	revision   string
+	generation int64
+	received   time.Time
 }
 
 // pageDelayProxy forwards every request to the engine. It delays the first
 // bulk page write of one node and ordinal. A positive delay forwards that
 // write after the delay; a zero delay waits until the client abandons it.
+// When forwardAfter is positive, the proxy sends the abandoned delayed
+// write to the engine after forwardAfter.
 type pageDelayProxy struct {
 	engine  *httputil.ReverseProxy
 	nodeID  string
@@ -46,13 +50,21 @@ type pageDelayProxy struct {
 	heldUntil time.Time
 	abandoned bool
 	writes    []delayedPageWrite
+	// forwardAfter sets the delay before the proxy sends an abandoned write
+	// to the engine. forwardedAt records when the engine answered that write.
+	// forwardStatus records the HTTP status of the answer.
+	forwardAfter  time.Duration
+	forwardedAt   time.Time
+	forwardStatus int
 }
 
 // delayedPageBody is the part of a bulk page document the proxy reads.
 type delayedPageBody struct {
-	NodeID      string  `json:"node_id"`
-	PageOrdinal uint64  `json:"page_ordinal"`
-	PageText    *string `json:"page_text"`
+	NodeID           string  `json:"node_id"`
+	NodeRevision     string  `json:"node_revision"`
+	PageOrdinal      uint64  `json:"page_ordinal"`
+	SearchGeneration int64   `json:"search_generation"`
+	PageText         *string `json:"page_text"`
 }
 
 func (proxy *pageDelayProxy) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -75,7 +87,9 @@ func (proxy *pageDelayProxy) ServeHTTP(writer http.ResponseWriter, request *http
 	}
 	now := time.Now()
 	proxy.mutex.Lock()
-	proxy.writes = append(proxy.writes, delayedPageWrite{nodeID: page.NodeID, ordinal: page.PageOrdinal, received: now})
+	proxy.writes = append(proxy.writes, delayedPageWrite{
+		nodeID: page.NodeID, ordinal: page.PageOrdinal, revision: page.NodeRevision, generation: page.SearchGeneration, received: now,
+	})
 	hold := !proxy.delayed && page.NodeID == proxy.nodeID && page.PageOrdinal == proxy.ordinal
 	if hold {
 		proxy.delayed, proxy.heldFrom = true, now
@@ -83,6 +97,7 @@ func (proxy *pageDelayProxy) ServeHTTP(writer http.ResponseWriter, request *http
 	}
 	proxy.mutex.Unlock()
 	if hold && !proxy.wait(request.Context()) {
+		proxy.forwardAbandoned(request)
 		return
 	}
 	proxy.engine.ServeHTTP(writer, request)
@@ -121,19 +136,6 @@ func (proxy *pageDelayProxy) held() (from, until time.Time, abandoned bool) {
 	return proxy.heldFrom, proxy.heldUntil, proxy.abandoned
 }
 
-// writesOf returns the page writes of nodeID the proxy received.
-func (proxy *pageDelayProxy) writesOf(nodeID uuid.UUID) []delayedPageWrite {
-	proxy.mutex.Lock()
-	defer proxy.mutex.Unlock()
-	writes := make([]delayedPageWrite, 0, len(proxy.writes))
-	for _, write := range proxy.writes {
-		if write.nodeID == nodeID.String() {
-			writes = append(writes, write)
-		}
-	}
-	return writes
-}
-
 // newDelayedMigrationEnv creates a migrationEnv with newMigrationEnv, then
 // builds its adapter and production worker to use a TLS proxy for every
 // engine request. env.Client reads the same engine directly. The function
@@ -160,6 +162,7 @@ func newDelayedMigrationEnv(t *testing.T, pageBytes int, delay time.Duration) (*
 		},
 		nodeID: "", ordinal: 0, delay: delay, started: make(chan struct{}),
 		mutex: sync.Mutex{}, delayed: false, heldFrom: time.Time{}, heldUntil: time.Time{}, abandoned: false, writes: nil,
+		forwardAfter: 0, forwardedAt: time.Time{}, forwardStatus: 0,
 	}
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
