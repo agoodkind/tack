@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 	"goodkind.io/tack/internal/audit"
@@ -32,22 +31,21 @@ func listHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserv
 
 		// Walk the scope route to the deepest container, then narrow via an
 		// indexed property instead of a type-wide view scan.
-		var parentID uuid.UUID
+		target := routeTarget{Scope: ws, Parent: ws, ParentParam: ""}
 		if route.hasLevels() {
-			parent, early := resolveRouteScope(ctx, b, ws, route, args)
+			resolved, early := resolveRouteScope(ctx, b, ws, route, args)
 			if early != nil {
 				return early, nil
 			}
-			parentID = parent.ID
-		} else {
-			parentID = ws.ID
+			target = resolved
 		}
-		parentIDRaw, _ := json.Marshal(parentID.String())
+		matchProperty, matchID := listMatch(nt, route, target)
+		matchIDRaw, _ := json.Marshal(matchID.String())
 		q.ByProperty = &node.PropertyMatch{
-			PropName: listScopeProperty(nt, route),
-			Value:    parentIDRaw,
+			PropName: matchProperty,
+			Value:    matchIDRaw,
 		}
-		propFilters, err := normalizeListFilters(ctx, b, nt, ws.OrgID, parentID, args["filters"])
+		propFilters, err := normalizeListFilters(ctx, b, nt, ws.OrgID, target.Scope.ID, args["filters"])
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -109,24 +107,29 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		scopeID := ws.ID
+		target := routeTarget{Scope: ws, Parent: ws, ParentParam: ""}
 		if route.hasLevels() {
-			parent, early := resolveRouteScope(ctx, b, ws, route, args)
+			resolved, early := resolveRouteScope(ctx, b, ws, route, args)
 			if early != nil {
 				return early, nil
 			}
-			scopeID = parent.ID
+			target = resolved
 		}
+		scopeID := target.Scope.ID
 
 		rawProps, propsResult := parseToolProps(args["properties"])
 		if propsResult != nil {
 			return propsResult, nil
+		}
+		if refusal := target.refuseParentProperty(rawProps); refusal != nil {
+			return refusal, nil
 		}
 
 		rawProps, parentID, err := normalizeCreateProps(ctx, b, nt, ws.OrgID, scopeID, rawProps)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+		parentID = target.createParentID(parentID)
 
 		toolName := fmt.Sprintf("tack_create_%s", strings.ToLower(nt.Slug))
 		idempotencyKey, idempotencyFingerprint, idempotencySource, err := createIdempotency(ctx, req, createIdempotencyInput{

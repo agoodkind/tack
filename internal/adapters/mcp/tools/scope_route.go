@@ -1,10 +1,9 @@
 package tools
 
 import (
-	"context"
+	"slices"
 	"strings"
 
-	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	"goodkind.io/tack/internal/domain/node"
 )
 
@@ -73,14 +72,18 @@ func (route scopeRoute) leafParamNames() []string {
 	return names
 }
 
+// isLeafParam reports whether name matches a leaf's Level.ParamName.
+func (route scopeRoute) isLeafParam(name string) bool {
+	return slices.Contains(route.leafParamNames(), name)
+}
+
 func (route scopeRoute) exactlyOneMessage() string {
 	return "exactly one of " + strings.Join(route.leafParamNames(), ", ") + " is required"
 }
 
-// schemaFields returns the scope parameters the generated tool exposes. For a
-// single-parent route these are the chain levels, unchanged. For a
-// multi-parent route these are the union of the leaves' upper chains followed
-// by one optional field per leaf.
+// schemaFields returns chain fields when the route does not have leaves.
+// For routes with leaves, it emits each leaf parameter once and each upper parameter
+// once, skipping upper levels that use leaf parameters.
 func (route scopeRoute) schemaFields(resolver *Resolver) []schemaField {
 	if len(route.Leaves) == 0 {
 		fields := make([]schemaField, 0, len(route.Chain))
@@ -93,7 +96,7 @@ func (route scopeRoute) schemaFields(resolver *Resolver) []schemaField {
 	seen := map[string]struct{}{}
 	for _, leaf := range route.Leaves {
 		for _, level := range leaf.Chain {
-			if _, ok := seen[level.ParamName]; ok {
+			if _, ok := seen[level.ParamName]; ok || route.isLeafParam(level.ParamName) {
 				continue
 			}
 			seen[level.ParamName] = struct{}{}
@@ -109,10 +112,9 @@ func (route scopeRoute) schemaFields(resolver *Resolver) []schemaField {
 	return fields
 }
 
-// requiredParams returns the scope parameters that are required for every
-// call: the whole chain for a single-parent route, and the parameters shared
-// by every leaf's chain for a multi-parent route. Leaf parameters are never
-// listed because only one of them may be provided.
+// requiredParams returns every chain parameter when the route does not have leaves.
+// For routes with leaves, it returns only parameters shared by every leaf chain
+// and excludes all leaf parameters.
 func (route scopeRoute) requiredParams() []string {
 	if len(route.Leaves) == 0 {
 		return scopeParamNames(route.Chain)
@@ -125,50 +127,9 @@ func (route scopeRoute) requiredParams() []string {
 	}
 	required := make([]string, 0, len(route.Leaves[0].Chain))
 	for _, level := range route.Leaves[0].Chain {
-		if counts[level.ParamName] == len(route.Leaves) {
+		if counts[level.ParamName] == len(route.Leaves) && !route.isLeafParam(level.ParamName) {
 			required = append(required, level.ParamName)
 		}
 	}
 	return required
-}
-
-// resolveRouteScope resolves the scope node for one call. A non-nil result is
-// an early return the handler must pass back to the client unchanged.
-func resolveRouteScope(
-	ctx context.Context,
-	b NodeTypeBinding,
-	ws *node.NodeView,
-	route scopeRoute,
-	args argMap,
-) (*node.NodeView, *mcpmcp.CallToolResult) {
-	levels := route.Chain
-	if len(route.Leaves) > 0 {
-		var chosen *scopeLeaf
-		for i := range route.Leaves {
-			if optionalScopeReference(args, route.Leaves[i].Level) == "" {
-				continue
-			}
-			if chosen != nil {
-				return nil, recoverableError(route.exactlyOneMessage())
-			}
-			chosen = &route.Leaves[i]
-		}
-		if chosen == nil {
-			return nil, recoverableError(route.exactlyOneMessage())
-		}
-		levels = append(append([]ScopeLevel{}, chosen.Chain...), chosen.Level)
-	}
-	parent := ws
-	for _, level := range levels {
-		reference, ok := requireScopeReference(args, level)
-		if !ok {
-			return nil, recoverableError(scopeReferenceRequiredMessage(level))
-		}
-		var err error
-		parent, err = b.Resolver.ResolveScope(ctx, parent, level, reference)
-		if err != nil {
-			return nil, classifyError(ctx, err)
-		}
-	}
-	return parent, nil
 }
