@@ -47,9 +47,6 @@ func (m *searchMixed) probesPending() bool {
 	return len(m.markers) > 0 || len(m.deletions) > 0 || len(m.metadataChecks) > 0 || len(m.moveChecks) > 0
 }
 
-// drain waits until the prober finds every pending marker and metadata value and verifies every
-// pending deletion and move. The two-minute timeout or the end of scheduleContext can stop the
-// wait early. drain then stops the prober and waits for it to finish.
 func (m *searchMixed) drain(scheduleContext context.Context, stopProbes context.CancelFunc, proberDone <-chan struct{}) {
 	deadline := clock.Now().Add(searchMixedDrainTimeout)
 	for m.probesPending() && clock.Now().Before(deadline) {
