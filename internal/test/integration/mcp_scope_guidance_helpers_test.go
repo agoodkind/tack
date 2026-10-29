@@ -17,8 +17,6 @@ const (
 	guidanceAlternativesPrefix = "  - Exactly one of: "
 )
 
-// guidedCreateInputs reads required and alternative parameters for tool from guidance.
-// It fails the test if guidance does not contain an entry for tool.
 func guidedCreateInputs(t *testing.T, guidance, tool string) ([]string, []string) {
 	t.Helper()
 	lines := strings.Split(guidance, "\n")
@@ -52,8 +50,6 @@ func guidanceParams(text string) []string {
 	return names
 }
 
-// guidedArguments builds ToolArguments from names and values.
-// It fails the test if values omits a name or the helper does not support it.
 func guidedArguments(t *testing.T, values map[string]string, names []string) datagen.ToolArguments {
 	t.Helper()
 	var arguments datagen.ToolArguments
@@ -80,8 +76,6 @@ func guidedArguments(t *testing.T, values map[string]string, names []string) dat
 	return arguments
 }
 
-// printedReference extracts the reference from a create confirmation.
-// It fails the test if confirmation does not match createdReferencePattern.
 func printedReference(t *testing.T, confirmation string) string {
 	t.Helper()
 	match := createdReferencePattern.FindStringSubmatch(confirmation)

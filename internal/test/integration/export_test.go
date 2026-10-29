@@ -310,7 +310,6 @@ func (h *MCPHarness) TryCall(ctx context.Context, toolName string, args datagen.
 }
 
 // ReadResource returns the single text entry from the MCP resource at uri.
-// It fails the test if decoding fails or the response does not contain exactly one entry.
 func (h *MCPHarness) ReadResource(t *testing.T, uri string) string {
 	t.Helper()
 	payload := callRPCRaw(t, h, "resources/read", map[string]any{"uri": uri})
