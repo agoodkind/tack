@@ -137,6 +137,31 @@ func TestChangedValuesLimit(t *testing.T) {
 // The heading, Reference, and Name lines leave little room for four change lines.
 // The test checks the 1024-byte limit and at least two hidden fields; the
 // four-line limit alone hides one. It also checks that Raw id prints last.
+// TestChangedValuesIdempotentCreateReplay sends the same tack_create_issue request
+// twice through the production MCP handler. The second call matches the first by its idempotency key.
+// The test checks that the second confirmation reports that the handler did not perform a new write,
+// does not print a Set line, and prints the same Raw id as the first confirmation.
+func TestChangedValuesIdempotentCreateReplay(t *testing.T) {
+	harness := integration.NewMCPHarness(t)
+	arguments := changedValueArguments(harness, harness.Project)
+	arguments.Name = "replayed issue"
+	arguments.Properties = datagen.NodeProperties{"priority": changedValueText("high")}
+
+	first := harness.Call(t, "tack_create_issue", arguments)
+	replay := harness.Call(t, "tack_create_issue", arguments)
+
+	requireConfirmationLines(t, first.Text(), "- Set: `priority` to `high`")
+	if !strings.Contains(replay.Text(), "No new write was performed") {
+		t.Fatalf("replay lacks the next step that says no new write was performed:\n%s", replay.Text())
+	}
+	if strings.Contains(replay.Text(), "- Set:") {
+		t.Fatalf("replay prints a Set line:\n%s", replay.Text())
+	}
+	if replay.RawID() != first.RawID() {
+		t.Fatalf("replay raw id = %q, want %q", replay.RawID(), first.RawID())
+	}
+}
+
 func TestChangedValuesDropLinesForLongReferences(t *testing.T) {
 	harness := integration.NewMCPHarness(t)
 	identifier := strings.Repeat("LONGPROJECT", 20)
