@@ -17,7 +17,6 @@ func (m *searchMixed) registerEntries(ctx context.Context) error {
 	return nil
 }
 
-// registerEntry reads the workspace entry node for slug in orgID and records its title.
 func (m *searchMixed) registerEntry(ctx context.Context, orgID uuid.UUID, slug string) error {
 	entryID := node.WorkspaceID(orgID, slug)
 	entry, err := m.stores.Views.Get(ctx, entryID)

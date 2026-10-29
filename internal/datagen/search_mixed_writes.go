@@ -17,8 +17,6 @@ type searchMixedNode struct {
 	revision int
 	marker   string
 	settled  bool
-	// metadata maps each excluded definition name to the marker that the issue stores under it.
-	// It is nil for issues in the second tenant and for runs without metadata changes.
 	metadata map[string]string
 }
 
