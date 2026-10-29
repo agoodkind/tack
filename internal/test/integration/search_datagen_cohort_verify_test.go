@@ -79,7 +79,15 @@ func TestSearchDatagenVerifyCohort(t *testing.T) {
 
 func newCohortEngines(t *testing.T) *config.Config {
 	t.Helper()
-	cluster := testenv.FoundationDB(t)
+	prefix := []byte("search-cohort-test:" + uuid.Must(uuid.NewV7()).String() + ":")
+	return newCohortEnginesOn(t, testenv.FoundationDB(t), prefix)
+}
+
+// newCohortEnginesOn configures the cohort engines with the supplied
+// FoundationDB cluster file and key prefix. A nil prefix skips prefix
+// setup and range cleanup for tests that use unprefixed keys.
+func newCohortEnginesOn(t *testing.T, cluster string, prefix []byte) *config.Config {
+	t.Helper()
 	engine := testenv.OpenSearchWithMemory(t, cohortEngineMemoryBytes)
 	caPath := filepath.Join(t.TempDir(), "opensearch-ca.pem")
 	if err := os.WriteFile(caPath, []byte(engine.CA), 0o600); err != nil {
@@ -100,9 +108,10 @@ func newCohortEngines(t *testing.T) *config.Config {
 		t.Setenv(name, value)
 	}
 	integration.ConfigureSearchMaintenance(t, engine)
-	prefix := []byte("search-cohort-test:" + uuid.Must(uuid.NewV7()).String() + ":")
-	fdbadapter.SetTestPrefix(prefix)
-	t.Cleanup(func() { clearCohortPrefix(t, cluster, prefix) })
+	if prefix != nil {
+		fdbadapter.SetTestPrefix(prefix)
+		t.Cleanup(func() { clearCohortPrefix(t, cluster, prefix) })
+	}
 	stores, err := fdbadapter.NewStores(cluster, cohortTransactionTimeout, nil)
 	if err != nil {
 		t.Fatalf("open search stores: %v", err)
