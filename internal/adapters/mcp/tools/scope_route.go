@@ -72,7 +72,6 @@ func (route scopeRoute) leafParamNames() []string {
 	return names
 }
 
-// isLeafParam reports whether name matches a leaf's Level.ParamName.
 func (route scopeRoute) isLeafParam(name string) bool {
 	return slices.Contains(route.leafParamNames(), name)
 }

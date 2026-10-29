@@ -17,9 +17,6 @@ type createInputParam struct {
 	Example string
 }
 
-// createInputRows builds create tool guidance for node types that allow OpCreate
-// and do not have FeatureExcludeFromGenericTools. It separates required inputs
-// from alternative parent inputs.
 func createInputRows(resolver *Resolver, nodeTypes []*node.NodeType) []createInputTemplateRow {
 	var rows []createInputTemplateRow
 	for _, nodeType := range nodeTypes {
@@ -50,8 +47,6 @@ func createInputRows(resolver *Resolver, nodeTypes []*node.NodeType) []createInp
 	return rows
 }
 
-// requiredScopeLevels returns levels for route.requiredParams in chain order.
-// It uses the first leaf's chain when the route has leaves.
 func requiredScopeLevels(route scopeRoute) []ScopeLevel {
 	requiredNames := route.requiredParams()
 	levels := make([]ScopeLevel, 0, len(requiredNames))

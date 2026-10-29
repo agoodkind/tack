@@ -21,7 +21,6 @@ func epicScopedArguments(harness *integration.MCPHarness, epic, name string) dat
 	return arguments
 }
 
-// createProjectEpic creates an epic under harness.Project using name.
 func createProjectEpic(t *testing.T, harness *integration.MCPHarness, name string) datagen.Result {
 	t.Helper()
 	arguments := parentIntegrityArguments(harness, harness.Project)
@@ -29,16 +28,12 @@ func createProjectEpic(t *testing.T, harness *integration.MCPHarness, name strin
 	return harness.Call(t, "tack_create_epic", arguments)
 }
 
-// listedUnder calls tool with an empty arguments.Name and returns the response text.
 func listedUnder(t *testing.T, harness *integration.MCPHarness, tool string, arguments datagen.ToolArguments) string {
 	t.Helper()
 	arguments.Name = ""
 	return harness.Call(t, tool, arguments).Text()
 }
 
-// TestCreateIssueFromGeneratedGuidanceUnderEpic checks issue creation from guidance.
-// It checks the epic parent, project scope, and project identifier reference prefix.
-// It checks that project and epic lists both include the issue.
 func TestCreateIssueFromGeneratedGuidanceUnderEpic(t *testing.T) {
 	harness := integration.NewMCPHarness(t)
 	stores := parentIntegrityStores(t)
