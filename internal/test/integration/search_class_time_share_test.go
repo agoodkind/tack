@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	// pacedAccessNodes sets the access backlog size, including the hub
-	// and its linked nodes.
-	pacedAccessNodes = 60
+	// pacedAccessNodes sets the access backlog size for the hub and its
+	// linked nodes. Each item finishes in one short slice using only
+	// FoundationDB because the opaque link does not change compiled access.
+	pacedAccessNodes = 240
 	// pacedDeletedNodes sets how many indexed nodes the test deletes to
 	// schedule page cleanup.
 	pacedDeletedNodes = 60
@@ -29,9 +30,10 @@ const (
 	// pacedOtherDelay sets the proxy delay for each access update and
 	// page retirement, setting their minimum request duration.
 	pacedOtherDelay = 40 * time.Millisecond
-	// pacedSliceBudget limits each slice's worker time. A live slice
-	// writes a few delayed pages before yielding.
-	pacedSliceBudget = 500 * time.Millisecond
+	// pacedSliceBudget limits each slice's worker time and is shorter
+	// than pacedPageDelay. A live slice writes one delayed page before
+	// it yields.
+	pacedSliceBudget = 100 * time.Millisecond
 	// pacedSliceLimit sets the maximum number of claimed slices.
 	pacedSliceLimit = 600
 	// pacedDeadline sets the elapsed time limit for the slice loop.
@@ -86,15 +88,17 @@ func requireTimeShares(t *testing.T, window []fairnessSlice) {
 	}
 	classes := []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup}
 	spent := map[string]time.Duration{}
+	counts := map[string]int{}
 	total, longest := time.Duration(0), time.Duration(0)
 	for _, slice := range window {
 		spent[slice.class] += slice.duration
+		counts[slice.class]++
 		total += slice.duration
 		longest = max(longest, slice.duration)
 	}
 	if total < shareWindowSlices*longest {
-		t.Fatalf("the slices before the first class finished took %s with a longest slice of %s, want at least %d longest slices",
-			total, longest, shareWindowSlices)
+		t.Fatalf("the slices before the first class finished took %s with a longest slice of %s, want at least %d longest slices; slices by class %v, time by class %v",
+			total, longest, shareWindowSlices, counts, spent)
 	}
 	weights := 0
 	for _, class := range classes {
