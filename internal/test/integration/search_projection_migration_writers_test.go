@@ -25,12 +25,12 @@ func claimLive(t *testing.T, store *fdbadapter.SearchWorkStore) map[uuid.UUID]se
 	t.Helper()
 	claimed := map[uuid.UUID]searchdomain.Work{}
 	for {
-		work, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "delayed-writer", time.Minute)
-		if errors.Is(err, searchdomain.ErrNoWork) {
-			return claimed
-		}
+		work, found, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "delayed-writer", time.Minute)
 		if err != nil {
 			t.Fatalf("claim live work: %v", err)
+		}
+		if !found {
+			return claimed
 		}
 		claimed[work.NodeID] = work
 	}

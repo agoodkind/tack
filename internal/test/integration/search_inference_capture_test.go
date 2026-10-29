@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"io"
@@ -19,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
@@ -31,26 +31,41 @@ const predictPathPrefix = "/_plugins/_ml/_predict/"
 // request context.
 type capturedPredictKey struct{}
 
-// inferenceExchange groups captured ranked batch and model predict exchanges.
+// inferenceExchange groups captured ranked batch and model predict exchanges
+// with the count of model predict requests that arrived at the proxy.
+// The count includes requests that the engine never answered.
 type inferenceExchange struct {
 	Searches []capturedSearch
 	Predicts []capturedSearch
+	Arrivals int
 }
 
 // inferenceCapture wraps searchCapture to record model predict request and
-// response bodies in addition to ranked batches.
+// response bodies and ranked batches. It counts arriving model predict
+// requests and can delay the next one.
 type inferenceCapture struct {
 	search   *searchCapture
 	mutex    sync.Mutex
 	predicts []capturedSearch
+	// arrivals counts model predict requests that arrived at the proxy since
+	// the last take.
+	arrivals int
+	// hold delays the next arriving model predict request before the proxy
+	// forwards it. A zero value makes the proxy forward it immediately.
+	hold time.Duration
 }
 
-// ServeHTTP prepares POST model predict exchanges for recording and delegates
-// other requests to searchCapture. It removes Accept-Encoding from predict
-// requests to obtain plain JSON.
+// ServeHTTP counts each POST model predict request, applies a pending hold,
+// and prepares the exchange for recording. It sends other requests to
+// searchCapture. It drops a delayed request when the client cancels it during
+// the hold. It removes Accept-Encoding from predict requests to obtain plain
+// JSON.
 func (capture *inferenceCapture) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost || !strings.HasPrefix(request.URL.Path, predictPathPrefix) {
 		capture.search.ServeHTTP(writer, request)
+		return
+	}
+	if !capture.admitPredict(request.Context()) {
 		return
 	}
 	body, err := io.ReadAll(request.Body)
@@ -85,15 +100,16 @@ func (capture *inferenceCapture) record(response *http.Response) error {
 	return nil
 }
 
-// take returns the recorded ranked batch and model predict exchanges and
-// clears each stored slice under its recorder's mutex.
+// take returns the recorded ranked batch and model predict exchanges and the
+// predict arrival count. It clears each stored slice and the count under the
+// corresponding recorder's mutex.
 func (capture *inferenceCapture) take() inferenceExchange {
 	searches := capture.search.take()
 	capture.mutex.Lock()
 	defer capture.mutex.Unlock()
-	predicts := capture.predicts
-	capture.predicts = nil
-	return inferenceExchange{Searches: searches, Predicts: predicts}
+	predicts, arrivals := capture.predicts, capture.arrivals
+	capture.predicts, capture.arrivals = nil, 0
+	return inferenceExchange{Searches: searches, Predicts: predicts, Arrivals: arrivals}
 }
 
 // newInferenceCaptureHarness starts a TLS proxy on IPv6 loopback and configures
@@ -111,7 +127,7 @@ func newInferenceCaptureHarness(t *testing.T, fixture integration.QueryFixture) 
 		t.Fatal("engine CA is invalid")
 	}
 	search := &searchCapture{engine: nil, profile: false, mutex: sync.Mutex{}, searches: nil, replacement: ""}
-	capture := &inferenceCapture{search: search, mutex: sync.Mutex{}, predicts: nil}
+	capture := &inferenceCapture{search: search, mutex: sync.Mutex{}, predicts: nil, arrivals: 0, hold: 0}
 	search.engine = &httputil.ReverseProxy{
 		Rewrite:        func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
 		Transport:      &http.Transport{TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12}},
@@ -150,43 +166,7 @@ func requireRejectedBeforeInference(t *testing.T, harness *integration.MCPHarnes
 			t.Fatalf("search with a query of %d bytes returned error %v, want an error that contains the word query", len(query), err)
 		}
 	}
-	if exchange := capture.take(); len(exchange.Predicts) != 0 || len(exchange.Searches) != 0 {
-		t.Fatalf("rejected queries sent %d model predict requests and %d ranked batches, want none", len(exchange.Predicts), len(exchange.Searches))
+	if exchange := capture.take(); exchange.Arrivals != 0 || len(exchange.Searches) != 0 {
+		t.Fatalf("rejected queries sent %d model predict requests and %d ranked batches, want none", exchange.Arrivals, len(exchange.Searches))
 	}
-}
-
-// predictResult decodes the inference results from a model predict response.
-type predictResult struct {
-	InferenceResults []predictInference `json:"inference_results"`
-}
-
-type predictInference struct {
-	Output []predictOutput `json:"output"`
-}
-
-type predictOutput struct {
-	DataAsMap predictData `json:"dataAsMap"`
-}
-
-type predictData struct {
-	Response []map[string]float64 `json:"response"`
-}
-
-// requireOnePrediction requires exactly one model predict exchange and returns
-// its token-weight map. It fails the test unless the response contains exactly
-// one inference result, one output, and one map.
-func requireOnePrediction(t *testing.T, exchange inferenceExchange) map[string]float64 {
-	t.Helper()
-	if len(exchange.Predicts) != 1 {
-		t.Fatalf("the session sent %d model predict requests, want 1", len(exchange.Predicts))
-	}
-	var result predictResult
-	if err := json.Unmarshal(exchange.Predicts[0].Response, &result); err != nil {
-		t.Fatalf("decode model predict response: %v", err)
-	}
-	if len(result.InferenceResults) != 1 || len(result.InferenceResults[0].Output) != 1 ||
-		len(result.InferenceResults[0].Output[0].DataAsMap.Response) != 1 {
-		t.Fatalf("model predict response does not contain exactly one token-weight map: %s", exchange.Predicts[0].Response)
-	}
-	return result.InferenceResults[0].Output[0].DataAsMap.Response[0]
 }

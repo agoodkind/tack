@@ -82,13 +82,13 @@ func currentCallerAccess(t *testing.T, fixture rolloutFixture, members *postgres
 }
 
 // requireNoClaimableWork requires both a live work claim and an access work
-// claim to return ErrNoWork.
+// claim to return false and a nil error.
 func requireNoClaimableWork(t *testing.T, fixture rolloutFixture) {
 	t.Helper()
 	store := fixture.stores.SearchWork(clock.Wall{})
 	for _, class := range []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess} {
-		work, err := store.Claim(rolloutContext(t), class, "membership-inspector", time.Minute)
-		if !errors.Is(err, searchdomain.ErrNoWork) {
+		work, claimed, err := store.Claim(rolloutContext(t), class, "membership-inspector", time.Minute)
+		if err != nil || claimed {
 			t.Fatalf("the membership change left %s work %+v with error %v", class, work, err)
 		}
 	}

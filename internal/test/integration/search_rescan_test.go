@@ -113,9 +113,9 @@ func TestSearchRescanKeepsCursorAndSeparatesTypeChanges(t *testing.T) {
 	store := stores.SearchWork(source)
 	position := ""
 	for range 20 {
-		work, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "rescan-driver", time.Minute)
-		if err != nil {
-			t.Fatalf("claim rescan work: %v", err)
+		work, claimed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "rescan-driver", time.Minute)
+		if err != nil || !claimed {
+			t.Fatalf("claim rescan work = claimed %t, err %v", claimed, err)
 		}
 		if work.Phase == searchdomain.PhasePages && work.Cursor != "" {
 			position = work.Cursor
@@ -132,8 +132,8 @@ func TestSearchRescanKeepsCursorAndSeparatesTypeChanges(t *testing.T) {
 		t.Fatal("the rescan never checkpointed a node cursor")
 	}
 	includeStoredDefinition(t, stores, first.OrgID, first.ExcludedKey)
-	resumed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "rescan-driver", time.Minute)
-	if err != nil || resumed.Cursor != position {
+	resumed, claimed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "rescan-driver", time.Minute)
+	if err != nil || !claimed || resumed.Cursor != position {
 		t.Fatalf("rescan after a second request = %+v err %v, want the kept cursor %q", resumed, err, position)
 	}
 	if err := store.Yield(WithTestOperation(t, t.Context()), resumed); err != nil {

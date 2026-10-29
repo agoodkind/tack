@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -100,7 +99,7 @@ func TestSearchRecoveryResumesRefreshAndRetirement(t *testing.T) {
 			nodeID, retired, len(retiredBefore), len(before), wantRetired)
 	}
 	for _, class := range []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassCleanup} {
-		if work, err := store.Claim(integration.WithTestOperation(t, t.Context()), class, "inspector", recoveryStepLease); !errors.Is(err, searchdomain.ErrNoWork) {
+		if work, claimed, err := store.Claim(integration.WithTestOperation(t, t.Context()), class, "inspector", recoveryStepLease); err != nil || claimed {
 			t.Fatalf("%s work %+v err %v remains after the recovery", class, work, err)
 		}
 	}
@@ -122,9 +121,9 @@ func reopenRecoveryStores(t *testing.T) *fdbadapter.Stores {
 // requires it to belong to nodeID.
 func claimRecoveryWork(t *testing.T, stores *fdbadapter.Stores, class searchdomain.WorkClass, nodeID uuid.UUID) searchdomain.Work {
 	t.Helper()
-	work, err := stores.SearchWork(clock.Wall{}).Claim(integration.WithTestOperation(t, t.Context()), class, "owner-"+uuid.NewString(), recoveryStepLease)
-	if err != nil || work.NodeID != nodeID {
-		t.Fatalf("claim %s work = %+v err %v, want the work of node %s", class, work, err, nodeID)
+	work, claimed, err := stores.SearchWork(clock.Wall{}).Claim(integration.WithTestOperation(t, t.Context()), class, "owner-"+uuid.NewString(), recoveryStepLease)
+	if err != nil || !claimed || work.NodeID != nodeID {
+		t.Fatalf("claim %s work = %+v claimed %t err %v, want a non-empty claim of the work of node %s", class, work, claimed, err, nodeID)
 	}
 	return work
 }

@@ -2,7 +2,6 @@ package integration
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -68,12 +67,12 @@ func driveClasses(t *testing.T, worker *service.SearchWorker, work *fdbadapter.S
 		}
 		claimed := false
 		for _, class := range classes {
-			item, err := work.Claim(WithTestOperation(t, t.Context()), class, "setup", 30*time.Second)
-			if errors.Is(err, searchdomain.ErrNoWork) {
-				continue
-			}
+			item, found, err := work.Claim(WithTestOperation(t, t.Context()), class, "setup", 30*time.Second)
 			if err != nil {
 				t.Fatalf("claim %s work: %v", class, err)
+			}
+			if !found {
+				continue
 			}
 			claimed = true
 			if err := worker.Process(WithTestOperation(t, t.Context()), item); err != nil {
@@ -95,8 +94,8 @@ func measureLiveSlices(t *testing.T, work *fdbadapter.SearchWorkStore, rollouts 
 	measured := map[uuid.UUID][]bulkRecord{}
 	idle := 0
 	for deadline := time.Now().Add(setupDeadline); time.Now().Before(deadline) && idle < 8; {
-		item, err := work.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "measured", lease)
-		if errors.Is(err, searchdomain.ErrNoWork) {
+		item, found, err := work.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "measured", lease)
+		if err == nil && !found {
 			idle++
 			time.Sleep(250 * time.Millisecond)
 			continue

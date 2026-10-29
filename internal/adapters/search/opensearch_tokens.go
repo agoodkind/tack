@@ -57,7 +57,7 @@ func (a *Adapter) predictQueryTokens(ctx context.Context, modelID, text string, 
 		return nil, tokenFailure(ctx, modelID, fmt.Errorf("encode prediction request: %w", err))
 	}
 	var decoded predictResponse
-	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, modelPredictRequest{modelID: modelID, body: body}, &decoded)
+	response, err := opensearch.Execute(ctx, a.predictClient, http.MethodPost, modelPredictRequest{modelID: modelID, body: body}, &decoded)
 	if err != nil {
 		return nil, tokenFailure(ctx, modelID, fmt.Errorf("predict query tokens: %w", engineCause(ctx, response, err)))
 	}

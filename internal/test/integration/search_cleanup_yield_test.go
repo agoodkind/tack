@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -36,13 +35,13 @@ const (
 func claimClassOf(t *testing.T, store *fdbadapter.SearchWorkStore, class searchdomain.WorkClass, nodeID uuid.UUID) searchdomain.Work {
 	t.Helper()
 	for deadline := time.Now().Add(claimWait); time.Now().Before(deadline); {
-		work, err := store.Claim(t.Context(), class, "timing-inspector", time.Minute)
-		if errors.Is(err, searchdomain.ErrNoWork) {
-			time.Sleep(250 * time.Millisecond)
-			continue
-		}
+		work, claimed, err := store.Claim(t.Context(), class, "timing-inspector", time.Minute)
 		if err != nil {
 			t.Fatalf("claim %s work of %s: %v", class, nodeID, err)
+		}
+		if !claimed {
+			time.Sleep(250 * time.Millisecond)
+			continue
 		}
 		if work.NodeID == nodeID {
 			return work
@@ -56,17 +55,17 @@ func claimClassOf(t *testing.T, store *fdbadapter.SearchWorkStore, class searchd
 }
 
 // drainWorkClass claims work of one class and runs worker.Process on each
-// claim until the store returns ErrNoWork. It fails the test if the class
-// still has work after the claim limit.
+// claim. It stops when Claim reports that it did not lease an item. It
+// fails the test if the class still has work after the claim limit.
 func drainWorkClass(t *testing.T, store *fdbadapter.SearchWorkStore, worker *service.SearchWorker, class searchdomain.WorkClass) {
 	t.Helper()
 	for range drainSlices {
-		work, err := store.Claim(t.Context(), class, "class-driver", time.Minute)
-		if errors.Is(err, searchdomain.ErrNoWork) {
-			return
-		}
+		work, claimed, err := store.Claim(t.Context(), class, "class-driver", time.Minute)
 		if err != nil {
 			t.Fatalf("claim %s work: %v", class, err)
+		}
+		if !claimed {
+			return
 		}
 		if err := worker.Process(t.Context(), work); err != nil {
 			t.Fatalf("process %s work of %s: %v", class, work.NodeID, err)

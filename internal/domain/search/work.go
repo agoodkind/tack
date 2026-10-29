@@ -20,8 +20,6 @@ var (
 	// ErrConcurrentWrite means another write changed a page after the search
 	// adapter read it, on every one of its bounded write attempts.
 	ErrConcurrentWrite = errors.New("another write changed the search page after it was read")
-	// ErrNoWork means no item of the requested class is currently claimable.
-	ErrNoWork = errors.New("no search work is claimable")
 	// ErrNoServingIndex means FoundationDB records no serving physical index yet.
 	ErrNoServingIndex = errors.New("no serving search index is recorded")
 )

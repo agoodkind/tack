@@ -23,11 +23,13 @@ type AccessReader interface {
 	Dependents(context.Context, Work, int) (node.IDPage, error)
 }
 
-// WorkLeases claims, yields, and releases durable work. Release records a
-// failure, keeps the work pending, and delays the next claim. Exclude
-// retires the node's pages, records the exclusion, and clears the work.
+// WorkLeases claims, yields, and releases durable work. Claim returns false
+// and a nil error when the requested class does not have a claimable item.
+// Release records a failure, keeps the work pending, and delays the next
+// claim. Exclude retires the node's pages, records the exclusion, and
+// clears the work.
 type WorkLeases interface {
-	Claim(context.Context, WorkClass, string, time.Duration) (Work, error)
+	Claim(context.Context, WorkClass, string, time.Duration) (Work, bool, error)
 	Yield(context.Context, Work) error
 	Release(context.Context, Work, Failure) error
 	Exclude(context.Context, Work, string) error
