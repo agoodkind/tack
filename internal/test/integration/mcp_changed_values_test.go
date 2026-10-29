@@ -133,10 +133,6 @@ func TestChangedValuesLimit(t *testing.T) {
 	}
 }
 
-// TestChangedValuesDropLinesForLongReferences uses a 220-byte project identifier.
-// The heading, Reference, and Name lines leave little room for four change lines.
-// The test checks the 1024-byte limit and at least two hidden fields; the
-// four-line limit alone hides one. It also checks that Raw id prints last.
 // TestChangedValuesIdempotentCreateReplay sends the same tack_create_issue request
 // twice through the production MCP handler. The second call matches the first by its idempotency key.
 // The test checks that the second confirmation reports that the handler did not perform a new write,
@@ -162,6 +158,10 @@ func TestChangedValuesIdempotentCreateReplay(t *testing.T) {
 	}
 }
 
+// TestChangedValuesDropLinesForLongReferences uses a 220-byte project identifier.
+// The heading, Reference, and Name lines leave little room for four change lines.
+// The test checks the 1024-byte limit and at least two hidden fields; the
+// four-line limit alone hides one. It also checks that Raw id prints last.
 func TestChangedValuesDropLinesForLongReferences(t *testing.T) {
 	harness := integration.NewMCPHarness(t)
 	identifier := strings.Repeat("LONGPROJECT", 20)
