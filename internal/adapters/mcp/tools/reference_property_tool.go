@@ -139,11 +139,7 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 			Identifier: identifierFor(existing, rc),
 			Name:       existing.Name,
 		})
-		props, err := normalizeUpdateProps(ctx, b, nt, existing, map[string]json.RawMessage{def.Name: mustRawString(valueRef)})
-		if err != nil {
-			return classifyError(ctx, err), nil
-		}
-		referenceKeys, err := writeReferenceKeys(ctx, b, existing.OrgID)
+		props, defs, err := normalizeUpdateProps(ctx, b, nt, existing, map[string]json.RawMessage{def.Name: mustRawString(valueRef)})
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -162,7 +158,7 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 			return classifyError(ctx, err), nil
 		}
 		changes := describeFieldChanges(rc, writeChanges{
-			Before: existing, After: view, Name: nil, Props: props, ReferenceKeys: referenceKeys,
+			Before: existing, After: view, Name: nil, Props: props, ReferenceKeys: referenceKeysOf(defs),
 		})
 		return successText(renderWriteConfirmation(rc, "Updated", view, changes), ""), nil
 	}

@@ -17,6 +17,8 @@ func mustRawString(value string) json.RawMessage {
 	return service.MustRawString(value)
 }
 
+// normalizeCreateProps normalizes create properties and resolves the parent ID.
+// It also returns the property definitions it loaded.
 func normalizeCreateProps(
 	ctx context.Context,
 	b NodeTypeBinding,
@@ -24,10 +26,10 @@ func normalizeCreateProps(
 	orgID uuid.UUID,
 	scopeID uuid.UUID,
 	props map[string]json.RawMessage,
-) (map[string]json.RawMessage, uuid.UUID, error) {
+) (map[string]json.RawMessage, uuid.UUID, []*node.PropertyDef, error) {
 	defs, err := b.PropertyDefs.List(ctx, orgID)
 	if err != nil {
-		return nil, uuid.Nil, err
+		return nil, uuid.Nil, nil, err
 	}
 	command, err := service.CompileCreatePropertyCommand(
 		ctx,
@@ -45,23 +47,25 @@ func normalizeCreateProps(
 		},
 	)
 	if err != nil {
-		return nil, uuid.Nil, err
+		return nil, uuid.Nil, nil, err
 	}
 	if command == nil {
-		return nil, scopeID, nil
+		return nil, scopeID, defs, nil
 	}
-	return command.Props, command.ParentID, nil
+	return command.Props, command.ParentID, defs, nil
 }
 
+// normalizeUpdateProps normalizes update properties for the existing node.
+// It also returns the property definitions it loaded.
 func normalizeUpdateProps(
 	ctx context.Context,
 	b NodeTypeBinding,
 	nt *node.NodeType,
 	existing *node.NodeView,
 	props map[string]json.RawMessage,
-) (map[string]json.RawMessage, error) {
+) (map[string]json.RawMessage, []*node.PropertyDef, error) {
 	if existing == nil {
-		return nil, domain.ErrNotFound
+		return nil, nil, domain.ErrNotFound
 	}
 	scopeID := uuidProp(existing, "scope_id")
 	if scopeID == uuid.Nil {
@@ -69,7 +73,7 @@ func normalizeUpdateProps(
 	}
 	defs, err := b.PropertyDefs.List(ctx, existing.OrgID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	command, err := service.CompileUpdatePropertyCommand(
 		ctx,
@@ -87,12 +91,12 @@ func normalizeUpdateProps(
 		},
 	)
 	if err != nil {
-		return nil, loggedNormalizeError(ctx, nt, "update", err)
+		return nil, nil, loggedNormalizeError(ctx, nt, "update", err)
 	}
 	if command == nil {
-		return nil, nil
+		return nil, defs, nil
 	}
-	return command.Props, nil
+	return command.Props, defs, nil
 }
 
 // loggedNormalizeError logs a refused property command and wraps its cause.

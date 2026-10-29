@@ -24,7 +24,7 @@ const (
 // maxChangeLines lines from describeFieldChanges and Raw id last. If it omits lines,
 // it adds one More line with their count and tack_get_<type>. A node without a distinct
 // reference, such as a comment, prints its name once, shortened, in the heading.
-func renderWriteConfirmation(rc *renderCtx, verb string, view *node.NodeView, changes []markdownField) string {
+func renderWriteConfirmation(rc *renderCtx, verb string, view *node.NodeView, changes fieldChanges) string {
 	nodeType := strings.ToLower(view.NodeType)
 	reference := identifierFor(view, rc)
 	fields := make([]markdownField, 0, 5)
@@ -40,10 +40,10 @@ func renderWriteConfirmation(rc *renderCtx, verb string, view *node.NodeView, ch
 	}
 	fields = append(fields, markdownCodeFieldValue("Type", view.NodeType))
 	rawID := markdownCodeFieldValue("Raw id", view.ID.String())
-	shown := min(len(changes), maxChangeLines)
+	shown := len(changes.Shown)
 	for {
-		hidden := moreChangesField(rc, view, len(changes)-shown)
-		text := renderConfirmationFields(heading, fields, changes[:shown], hidden, rawID)
+		hidden := moreChangesField(rc, view, changes.Total-shown)
+		text := renderConfirmationFields(heading, fields, changes.Shown[:shown], hidden, rawID)
 		if len(text) <= maxConfirmationBytes || shown == 0 {
 			return text
 		}
@@ -94,4 +94,19 @@ func shortenText(text string, limit int) string {
 		keep--
 	}
 	return text[:keep] + truncatedNameSuffix
+}
+
+// shortenTextStart folds whitespace into single spaces and keeps at most the
+// last limit bytes on a UTF-8 character boundary.
+// It puts an ellipsis first when it shortens the text.
+func shortenTextStart(text string, limit int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) <= limit {
+		return text
+	}
+	keep := len(text) - limit
+	for keep < len(text) && !utf8.RuneStart(text[keep]) {
+		keep++
+	}
+	return truncatedNameSuffix + text[keep:]
 }

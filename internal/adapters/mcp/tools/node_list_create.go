@@ -123,12 +123,7 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 			return propsResult, nil
 		}
 
-		rawProps, parentID, err := normalizeCreateProps(ctx, b, nt, ws.OrgID, scopeID, rawProps)
-		if err != nil {
-			return classifyError(ctx, err), nil
-		}
-
-		referenceKeys, err := writeReferenceKeys(ctx, b, ws.OrgID)
+		rawProps, parentID, defs, err := normalizeCreateProps(ctx, b, nt, ws.OrgID, scopeID, rawProps)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
@@ -183,9 +178,12 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 			Identifier: identifierFor(result.View, rc),
 			Name:       result.View.Name,
 		})
-		changes := describeFieldChanges(rc, writeChanges{
-			Before: nil, After: result.View, Name: &name, Props: rawProps, ReferenceKeys: referenceKeys,
-		})
+		changes := fieldChanges{Shown: nil, Total: 0}
+		if !result.Existed {
+			changes = describeFieldChanges(rc, writeChanges{
+				Before: nil, After: result.View, Name: &name, Props: rawProps, ReferenceKeys: referenceKeysOf(defs),
+			})
+		}
 		return successText(renderWriteConfirmation(rc, "Created", result.View, changes), instr), nil
 	}
 }

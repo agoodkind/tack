@@ -133,7 +133,7 @@ func TestNormalizeUpdatePropsRejectsUnknownProperty(t *testing.T) {
 		Props: map[string]json.RawMessage{"scope_id": mustRaw(t, projectID.String())},
 	}
 	resolver := &Resolver{typeIndex: map[string]*node.NodeType{"issue": issueType}}
-	_, err := normalizeUpdateProps(context.Background(), NodeTypeBinding{
+	_, _, err := normalizeUpdateProps(context.Background(), NodeTypeBinding{
 		PropertyDefs: &fakePropertyDefs{defs: []*node.PropertyDef{{Name: "priority", Type: node.PropertyTypeText}}},
 		Resolver:     resolver,
 	}, issueType, existing, map[string]json.RawMessage{"descrption": mustRaw(t, "typo")})
