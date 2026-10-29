@@ -105,6 +105,19 @@ func resolveLevels(
 	return current, nil
 }
 
+func resolveCreateTarget(
+	ctx context.Context,
+	b NodeTypeBinding,
+	ws *node.NodeView,
+	route scopeRoute,
+	args argMap,
+) (routeTarget, *mcpmcp.CallToolResult) {
+	if !route.hasLevels() {
+		return routeTarget{Scope: ws, Parent: ws, ParentParam: ""}, nil
+	}
+	return resolveRouteScope(ctx, b, ws, route, args)
+}
+
 // resolveRouteScope resolves Scope and Parent and requires exactly one leaf when
 // route has leaves. If the leaf chain has an alternative parent level, it derives
 // Scope from Parent's ancestor at the deepest chain level.

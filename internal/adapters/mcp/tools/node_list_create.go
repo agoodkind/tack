@@ -107,13 +107,9 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		target := routeTarget{Scope: ws, Parent: ws, ParentParam: ""}
-		if route.hasLevels() {
-			resolved, early := resolveRouteScope(ctx, b, ws, route, args)
-			if early != nil {
-				return early, nil
-			}
-			target = resolved
+		target, early := resolveCreateTarget(ctx, b, ws, route, args)
+		if early != nil {
+			return early, nil
 		}
 		scopeID := target.Scope.ID
 
