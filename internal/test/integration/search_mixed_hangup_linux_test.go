@@ -35,10 +35,10 @@ const (
 )
 
 // TestSearchMixedKeepsRunningAfterHangup checks that search-mixed completes
-// after its controlling terminal closes during the measured window.
-// It requires cli.hangup_ignored as proof that the process received SIGHUP,
-// a successful exit, a result with stop_reason "none", and a completed
-// audit operation.
+// after its controlling terminal closes during the measured window. It
+// requires cli.hangup_ignored as proof that the process received SIGHUP,
+// a successful exit, a result with stop_reason "none", and a pending audit
+// intent and an ok audit outcome with one op_id.
 func TestSearchMixedKeepsRunningAfterHangup(t *testing.T) {
 	cfg := newCohortEnginesOn(t, testenv.FreshFoundationDB(t), nil)
 	t.Setenv("OPENSEARCH_WORKER_CONCURRENCY", "1")
@@ -76,11 +76,25 @@ func TestSearchMixedKeepsRunningAfterHangup(t *testing.T) {
 	}
 	events := outboxEventsByQuery(t, ledgerAdminPool(t), "runtime_audit_verb_outbox.sql",
 		string(audit.VerbOpsDatagenSoak), operatorID.String())
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
-	if len(intents) != 1 {
-		t.Fatalf("the outbox contains %d search-mixed intents for operator %s, want 1", len(intents), operatorID)
+	requireCommandAuditPair(t, events, operatorID)
+}
+
+// requireCommandAuditPair requires exactly two events in order: a pending
+// intent and an ok outcome. Both must store the same op_id in Extra.
+func requireCommandAuditPair(t *testing.T, events []audit.Event, operatorID uuid.UUID) {
+	t.Helper()
+	if len(events) != 2 || events[0].Outcome != audit.OutcomePending || events[1].Outcome != audit.OutcomeOK {
+		outcomes := make([]audit.Outcome, 0, len(events))
+		for _, event := range events {
+			outcomes = append(outcomes, event.Outcome)
+		}
+		t.Fatalf("the outbox events of operator %s have outcomes %v, want %s and then %s",
+			operatorID, outcomes, audit.OutcomePending, audit.OutcomeOK)
 	}
-	requireCompletedResult(t, events, intents[0].Context.OperationID)
+	intentOperation, outcomeOperation := decodeCommandExtra(t, events[0]).OpID, decodeCommandExtra(t, events[1]).OpID
+	if intentOperation == uuid.Nil || intentOperation != outcomeOperation {
+		t.Fatalf("the intent has op_id %s and the outcome has op_id %s, want one nonzero op_id", intentOperation, outcomeOperation)
+	}
 }
 
 // searchMixedLoggedStopReason returns stop_reason from the first
