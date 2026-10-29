@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchtransport"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -101,29 +102,40 @@ func (o *endpointObserver) OnAddressRewrite(event opensearchtransport.AddressRew
 	o.record(event.RewrittenURL)
 }
 
-// Endpoints returns, in sorted order, every endpoint that the official
-// client's connection pool metrics list and that its observer events report.
-// An observer event can report an endpoint before the client sends a request
+// Endpoints returns, in sorted order, every endpoint that either client's
+// connection pool metrics list or their shared observer events report.
+// An observer event can report an endpoint before a client sends a request
 // to it.
 func (a *Adapter) Endpoints(ctx context.Context) ([]string, error) {
-	metrics, err := a.client.Metrics()
-	if err != nil {
-		wrapped := fmt.Errorf("read OpenSearch client metrics: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.client.metrics_failed", slog.String("err", wrapped.Error()))
-		return nil, wrapped
-	}
 	endpoints := map[string]struct{}{}
 	for _, endpoint := range a.observer.snapshot() {
 		endpoints[endpoint] = struct{}{}
+	}
+	for _, client := range []*opensearch.Client{a.client, a.predictClient} {
+		if err := addPoolEndpoints(ctx, client, endpoints); err != nil {
+			return nil, err
+		}
+	}
+	return slices.Sorted(maps.Keys(endpoints)), nil
+}
+
+// addPoolEndpoints adds every connection URL that client's connection pool
+// metrics list to endpoints.
+func addPoolEndpoints(ctx context.Context, client *opensearch.Client, endpoints map[string]struct{}) error {
+	metrics, err := client.Metrics()
+	if err != nil {
+		wrapped := fmt.Errorf("read OpenSearch client metrics: %w", err)
+		telemetry.L(ctx).ErrorContext(ctx, "search.client.metrics_failed", slog.String("err", wrapped.Error()))
+		return wrapped
 	}
 	for _, connection := range metrics.Connections {
 		metric, isMetric := connection.(opensearchtransport.ConnectionMetric)
 		if !isMetric {
 			wrapped := fmt.Errorf("OpenSearch client reported connection metric type %T", connection)
 			telemetry.L(ctx).ErrorContext(ctx, "search.client.metrics_invalid", slog.String("err", wrapped.Error()))
-			return nil, wrapped
+			return wrapped
 		}
 		endpoints[metric.URL] = struct{}{}
 	}
-	return slices.Sorted(maps.Keys(endpoints)), nil
+	return nil
 }
