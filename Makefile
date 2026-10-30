@@ -176,8 +176,8 @@ test-search:
 	    test $(TEST_SEARCH_ARGS)
 
 # Final validation runs the search suite as fixed groups (Step 9, G1 to G6) and
-# the repeated tail as three groups (Step 10, T1 to T3). Each G limit is the
-# slowest complete CI measurement times 1.5, rounded up to 5 minutes; each T
+# the repeated tail as three groups (Step 10, T1 to T3). The G variables below
+# define fixed canonical limits. Step 9 records historical measurements. Each T
 # limit is three times the slowest single CI run times 1.5. G5A selects the
 # search tests with a name that continues after TestSearch with a letter from A
 # through M, and G5B selects every other search test. Together they select every
