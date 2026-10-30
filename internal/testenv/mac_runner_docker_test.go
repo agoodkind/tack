@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,17 @@ type macRuntimeSummary struct {
 	AttachComplete   bool            `json:"attach_complete"`
 	EventsComplete   bool            `json:"events_complete"`
 	AnonymousVolumes map[string]bool `json:"anonymous_volumes"`
-	Stages           []struct {
+	CreatedIDs       []string        `json:"created_ids"`
+	Baseline         struct {
+		Containers map[string]bool `json:"containers"`
+		Networks   map[string]bool `json:"networks"`
+		Volumes    map[string]bool `json:"volumes"`
+	} `json:"baseline"`
+	Operations []struct {
+		Operation string `json:"operation"`
+		ID        string `json:"id"`
+	} `json:"operations"`
+	Stages []struct {
 		Name  string `json:"name"`
 		Error string `json:"error"`
 	} `json:"stages"`
@@ -96,6 +107,22 @@ func macRuntimeEvidence(t *testing.T, options testenv.MacTestOptions, docker *cl
 	if err := json.Unmarshal(contents, &summary); err != nil {
 		t.Fatal(err)
 	}
+	for _, operation := range summary.Operations {
+		switch operation.Operation {
+		case "container remove":
+			if summary.Baseline.Containers[operation.ID] || !slices.Contains(summary.CreatedIDs, operation.ID) {
+				t.Fatalf("container mutation lacks invocation ownership: %+v", operation)
+			}
+		case "volume remove":
+			if summary.Baseline.Volumes[operation.ID] || !summary.AnonymousVolumes[operation.ID] {
+				t.Fatalf("volume mutation lacks invocation ownership: %+v", operation)
+			}
+		case "network remove":
+			if summary.Baseline.Networks[operation.ID] {
+				t.Fatalf("network mutation selected a baseline identity: %+v", operation)
+			}
+		}
+	}
 	if summary.RunnerID != "" {
 		_, err := docker.ContainerInspect(t.Context(), summary.RunnerID, client.ContainerInspectOptions{})
 		if !errdefs.IsNotFound(err) {
@@ -142,7 +169,7 @@ func TestMacRunnerDockerFlagsAndCleanup(t *testing.T) {
 	})
 	result, err := testenv.RunMacTests(t.Context(), options)
 	if err != nil || result.ExitCode != 0 {
-		t.Fatalf("fixture runner: result=%+v error=%v", result, err)
+		t.Errorf("fixture runner: result=%+v error=%v", result, err)
 	}
 	summary := macRuntimeEvidence(t, options, docker)
 	if summary.RuntimeExit == nil || *summary.RuntimeExit != 0 || !summary.AttachComplete || !summary.EventsComplete {
