@@ -12,8 +12,9 @@ This file holds durable rules and settled decisions only. It does not restate
 values that live in code or config, because copies drift. For anything concrete
 (keys, schema, env vars, services, hosts), read the source of truth named in
 [Where the truth lives](#where-the-truth-lives). Use code and configuration for
-current values and correct stale documentation. Binding rules remain
-requirements when existing code violates them.
+current values. Correct descriptive statements in this file when they conflict
+with verified code or configuration. Correct code that violates a binding rule;
+an existing violation does not override the rule.
 
 ## The seam: configs repo vs tack repo
 
