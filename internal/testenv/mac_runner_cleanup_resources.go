@@ -17,6 +17,7 @@ func (execution *macRunnerExecution) removeVolume(ctx context.Context, name stri
 		return execution.defaultClient.VolumeInspect(observation, name, client.VolumeInspectOptions{})
 	})
 	if errdefs.IsNotFound(err) {
+		execution.recordVolumeAbsent(name)
 		return nil
 	}
 	if err != nil {
@@ -47,6 +48,7 @@ func (execution *macRunnerExecution) removeVolume(ctx context.Context, name stri
 		}
 		return macRunnerFailure("verify temporary volume "+name+" absence", err)
 	}
+	execution.recordVolumeAbsent(name)
 	return nil
 }
 

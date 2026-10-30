@@ -55,9 +55,12 @@ func (execution *macRunnerExecution) create(ctx context.Context) error {
 			recoveryErr := execution.recoverContainer(context.WithoutCancel(ctx))
 			return macRunnerErrors("recover runner creation", macRunnerFailure(fmt.Sprintf("create runner attempt %d", attempt), err), recoveryErr)
 		}
-		execution.createdIDs = append(execution.createdIDs, created.ID)
+		execution.recordCreatedRunner(created.ID)
 		inspection, err := execution.inspect(ctx, created.ID)
 		if err != nil {
+			return err
+		}
+		if _, err := execution.recordTemporaryVolume(inspection); err != nil {
 			return err
 		}
 		err = execution.verify(inspection)
@@ -123,7 +126,7 @@ func (execution *macRunnerExecution) recoverContainer(ctx context.Context) error
 		return errors.New("multiple containers match partial runner ownership; preserve unknown containers")
 	}
 	if len(matches) == 1 {
-		execution.createdIDs = append(execution.createdIDs, matches[0])
+		execution.recordCreatedRunner(matches[0])
 	}
 	if len(execution.unknownResources) != 0 {
 		return errors.New("partial runner creation found resources without exact ownership; preserve unknown resources")

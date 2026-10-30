@@ -48,6 +48,7 @@ type macRunnerExecution struct {
 	networkCreated   bool
 	acceptedID       string
 	createdIDs       []string
+	temporaryVolumes map[string]macRunnerTemporaryVolume
 	anonymousVolumes map[string]bool
 	cacheVolumes     map[string]bool
 	imageEnvironment []string
@@ -62,12 +63,22 @@ type macRunnerExecution struct {
 	attach           *client.ContainerAttachResult
 	attachDone       chan error
 	attachCancel     context.CancelFunc
+	waitOutcome      <-chan macRunnerWaitOutcome
+	waitReceiverDone <-chan error
+	waitCancel       context.CancelFunc
+	waitEvidence     *macRunnerWaitEvidence
 	logFile          *os.File
 	eventCancel      context.CancelFunc
 	eventDone        chan error
 	eventsFile       *os.File
 	eventsErrorFile  *os.File
 	startedAt        time.Time
+}
+
+type macRunnerTemporaryVolume struct {
+	Name          string `json:"name,omitempty"`
+	IdentityError string `json:"identity_error,omitempty"`
+	Absent        bool   `json:"absent"`
 }
 
 func (execution *macRunnerExecution) stage(name string, err error) error {

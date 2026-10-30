@@ -38,16 +38,17 @@ func (execution *macRunnerExecution) observeEvents(ctx context.Context) error {
 		return macRunnerFailure("subscribe to container events", err)
 	default:
 	}
-	execution.eventDone = make(chan error, 1)
+	completed := make(chan error, 1)
+	execution.eventDone = completed
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				err := fmt.Errorf("container event observer panic: %v", recovered)
 				slog.Error("testenv.run_mac.events_failed", slog.String("err", err.Error()))
-				execution.eventDone <- err
+				completed <- err
 			}
 		}()
-		execution.eventDone <- execution.recordEvents(observation, stream)
+		completed <- execution.recordEvents(observation, stream)
 	}()
 	return nil
 }

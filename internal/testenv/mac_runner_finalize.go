@@ -28,6 +28,7 @@ func (execution *macRunnerExecution) finalize(ctx context.Context, primary error
 		failures = append(failures, execution.stage("terminal inspection", terminalErr))
 	}
 	failures = append(failures, execution.finishAttach())
+	failures = append(failures, execution.finishWait(cleanupContext))
 	if execution.defaultClient != nil && execution.baselineReady {
 		cleanupErr := execution.cleanup(cleanupContext)
 		execution.status("cleanup.exit", cleanupErr)

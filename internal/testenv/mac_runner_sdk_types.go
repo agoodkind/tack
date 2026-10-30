@@ -17,7 +17,7 @@ type macRunnerObservationResult interface {
 type macRunnerEvidenceValue interface {
 	macRunnerDaemon | macRunnerPinnedImage | macRunnerEnvironment | client.ContainerCreateOptions |
 		container.InspectResponse | macRunnerCreateSummary | macRunnerRefusal | []macRunnerRefusal |
-		macRunnerSummary
+		macRunnerSummary | macRunnerWaitEvidence
 }
 
 type macRunnerPinnedImage struct {

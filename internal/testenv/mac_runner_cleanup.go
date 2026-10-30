@@ -25,29 +25,28 @@ func (execution *macRunnerExecution) cleanup(ctx context.Context) error {
 	if execution.baselineReady {
 		failures = append(failures, execution.verifyPreserved(ctx))
 	}
+	failures = append(failures, execution.verifyTemporaryVolumes())
 	return macRunnerErrors("clean outer runner resources", failures...)
 }
 
 func (execution *macRunnerExecution) removeRunner(ctx context.Context, id string) error {
+	if !slices.Contains(execution.createdIDs, id) {
+		return fmt.Errorf("refuse unrecorded runner %s", id)
+	}
 	inspection, err := execution.inspect(ctx, id)
 	if errdefs.IsNotFound(err) {
-		return nil
+		return execution.cleanupMissingRunner(ctx, id)
 	}
 	if err != nil {
 		return err
-	}
-	if !slices.Contains(execution.createdIDs, id) {
-		return fmt.Errorf("refuse unrecorded runner %s", id)
 	}
 	if err := execution.owned(inspection); err != nil {
 		return err
 	}
-	temporary, err := execution.runnerTemporaryVolume(inspection)
+	temporary, err := execution.recordTemporaryVolume(inspection)
 	if err != nil {
 		return err
 	}
-	execution.anonymousVolumes[temporary] = true
-	execution.write("anonymous-volume.txt", macRunnerIdentities(execution.anonymousVolumes))
 	stopErr := execution.stopRunner(ctx, inspection)
 	_, removeErr := macObserve(ctx, func(observation context.Context) (client.ContainerRemoveResult, error) {
 		return execution.defaultClient.ContainerRemove(observation, id, client.ContainerRemoveOptions{Force: true})

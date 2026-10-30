@@ -28,11 +28,7 @@ func (execution *macRunnerExecution) run(ctx context.Context) error {
 		return macRunnerFailure("start runner "+execution.acceptedID, err)
 	}
 	execution.started = true
-	waitContext, waitCancel := context.WithCancel(ctx)
-	defer waitCancel()
-	waitTimer := time.AfterFunc(macRunnerObservation, waitCancel)
-	waited := execution.defaultClient.ContainerWait(waitContext, execution.acceptedID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
-	waitTimer.Stop()
+	execution.observeWait(ctx)
 	states, err := execution.open("states.jsonl")
 	if err != nil {
 		return err
@@ -46,13 +42,11 @@ func (execution *macRunnerExecution) run(ctx context.Context) error {
 	}
 	for {
 		select {
-		case result := <-waited.Result:
-			if result.Error != nil && result.Error.Message != "" {
-				return fmt.Errorf("wait runner %s: %s", execution.acceptedID, result.Error.Message)
+		case outcome := <-execution.waitOutcome:
+			if err := execution.recordWaitOutcome(outcome); err != nil {
+				return err
 			}
-			return execution.acceptTerminal(ctx, int(result.StatusCode))
-		case err := <-waited.Error:
-			return macRunnerFailure("wait runner "+execution.acceptedID, err)
+			return execution.acceptTerminal(ctx, int(outcome.Response.StatusCode))
 		case <-ticker.C:
 			if err := execution.observeState(ctx, encoder, createdDeadline); err != nil {
 				return err
@@ -83,17 +77,18 @@ func (execution *macRunnerExecution) attachRunner(ctx context.Context) error {
 		return macRunnerFailure("attach runner "+execution.acceptedID, err)
 	}
 	execution.attach = &attached
-	execution.attachDone = make(chan error, 1)
+	completed := make(chan error, 1)
+	execution.attachDone = completed
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				err := fmt.Errorf("runtime output observer panic: %v", recovered)
 				slog.Error("testenv.run_mac.attach_failed", slog.String("err", err.Error()))
-				execution.attachDone <- err
+				completed <- err
 			}
 		}()
 		_, err := stdcopy.StdCopy(execution.logFile, execution.logFile, attached.Reader)
-		execution.attachDone <- err
+		completed <- err
 	}()
 	return nil
 }

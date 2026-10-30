@@ -11,27 +11,29 @@ import (
 )
 
 type macRunnerSummary struct {
-	Name             string               `json:"name"`
-	RunnerID         string               `json:"runner_id,omitempty"`
-	RuntimeExit      *int                 `json:"runtime_exit,omitempty"`
-	ExitCode         int                  `json:"exit_code"`
-	Interrupted      bool                 `json:"interrupted"`
-	Started          bool                 `json:"started"`
-	AttachComplete   bool                 `json:"attach_complete"`
-	EventsComplete   bool                 `json:"events_complete"`
-	Error            string               `json:"error,omitempty"`
-	Stages           []macRunnerStage     `json:"stages"`
-	CreatedIDs       []string             `json:"created_ids"`
-	AnonymousVolumes map[string]bool      `json:"anonymous_volumes"`
-	Preserved        macRunnerBaseline    `json:"preserved"`
-	Baseline         macRunnerBaseline    `json:"baseline"`
-	Operations       []macRunnerOperation `json:"operations"`
-	UnknownResources []string             `json:"unknown_resources"`
-	CleanupComplete  bool                 `json:"outer_cleanup_complete"`
-	Caches           map[string]bool      `json:"caches"`
-	NetworkID        string               `json:"network_id,omitempty"`
-	NetworkCreated   bool                 `json:"network_created"`
-	InnerAttribution string               `json:"inner_attribution"`
+	Name             string                              `json:"name"`
+	RunnerID         string                              `json:"runner_id,omitempty"`
+	RuntimeExit      *int                                `json:"runtime_exit,omitempty"`
+	ExitCode         int                                 `json:"exit_code"`
+	Interrupted      bool                                `json:"interrupted"`
+	Started          bool                                `json:"started"`
+	AttachComplete   bool                                `json:"attach_complete"`
+	EventsComplete   bool                                `json:"events_complete"`
+	Error            string                              `json:"error,omitempty"`
+	Stages           []macRunnerStage                    `json:"stages"`
+	CreatedIDs       []string                            `json:"created_ids"`
+	AnonymousVolumes map[string]bool                     `json:"anonymous_volumes"`
+	TemporaryVolumes map[string]macRunnerTemporaryVolume `json:"temporary_volumes"`
+	Wait             *macRunnerWaitEvidence              `json:"wait,omitempty"`
+	Preserved        macRunnerBaseline                   `json:"preserved"`
+	Baseline         macRunnerBaseline                   `json:"baseline"`
+	Operations       []macRunnerOperation                `json:"operations"`
+	UnknownResources []string                            `json:"unknown_resources"`
+	CleanupComplete  bool                                `json:"outer_cleanup_complete"`
+	Caches           map[string]bool                     `json:"caches"`
+	NetworkID        string                              `json:"network_id,omitempty"`
+	NetworkCreated   bool                                `json:"network_created"`
+	InnerAttribution string                              `json:"inner_attribution"`
 }
 
 func (execution *macRunnerExecution) write(name, contents string) {
@@ -89,6 +91,7 @@ func (execution *macRunnerExecution) summarize(code int, interrupted bool, err e
 		AttachComplete: false, EventsComplete: false, Error: "",
 		Stages: execution.stages, CreatedIDs: execution.createdIDs,
 		AnonymousVolumes: execution.anonymousVolumes, Preserved: execution.preserved, Baseline: execution.baseline,
+		TemporaryVolumes: execution.temporaryVolumes, Wait: execution.waitEvidence,
 		Operations: execution.operations, CleanupComplete: false,
 		UnknownResources: execution.unknownResources,
 		Caches:           execution.cacheVolumes, NetworkID: execution.networkID,
@@ -106,6 +109,9 @@ func (execution *macRunnerExecution) summarize(code int, interrupted bool, err e
 		}
 	}
 	summary.CleanupComplete = summary.CleanupComplete && summary.EventsComplete && len(summary.UnknownResources) == 0
+	if execution.waitOutcome != nil {
+		summary.CleanupComplete = summary.CleanupComplete && execution.waitEvidence != nil && execution.waitEvidence.ReceiverComplete
+	}
 	if err != nil {
 		summary.Error = err.Error()
 	}
