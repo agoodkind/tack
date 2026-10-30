@@ -34,7 +34,7 @@ func (s *SearchWorkStore) CompletePage(ctx context.Context, intent searchdomain.
 			return err
 		}
 		if intent.Pending != nil {
-			clearPendingWrite(tr, work.Class, work.OrgID, work.NodeID, intent.Pending.DocumentID)
+			clearPendingWrite(tr, work.Class, work.OrgID, work.NodeID, intent.Pending.DocumentID, intent.Pending.Index)
 		}
 		if intent.MirrorMissed != nil {
 			if err := scheduleMirrorCopy(ctx, tr, s.clock.Now().UTC(), intent, revision); err != nil {

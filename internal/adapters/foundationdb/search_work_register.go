@@ -24,7 +24,8 @@ import (
 // Register calls checkPendingWrite in its transaction for the registered document.
 // Register returns a held record in intent.Pending and logs an expired record after commit.
 // Register also calls heldMirrorWrite in that transaction.
-// Register returns a held copy class record for the mirror in intent.MirrorMissed.
+// Register adopts deployed per-node pending state in the same transaction.
+// It returns a held live or copy record for the mirror in intent.MirrorMissed.
 func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, page node.ContentPage) (intent searchdomain.WriteIntent, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.register")(&err)
 	if pageErr := searchdomain.ValidatePage(work, page); pageErr != nil {
@@ -56,6 +57,9 @@ func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, 
 			return err
 		}
 		if err := stagePropertyWarnings(ctx, tr, work, page, revision); err != nil {
+			return err
+		}
+		if err := adoptPendingWrite(ctx, tr, work); err != nil {
 			return err
 		}
 		if pending, err = checkPendingWrite(ctx, tr, now, work, documentID); err != nil {

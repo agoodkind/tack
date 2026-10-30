@@ -124,7 +124,7 @@ const (
 	// (search_error, class, orgID, nodeID) -> last failure message
 	// (search_attempt, class, orgID, nodeID) -> counted failures of the class
 	//   since its last finished item
-	// (search_pending_write, class, orgID, nodeID, documentID) -> pending page write
+	// (search_pending_write, class, orgID, nodeID, documentID, index) -> pending page write
 	//   record JSON
 	// (search_exclusion, orgID, nodeID) -> exclusion record JSON of a node
 	//   that search does not index
