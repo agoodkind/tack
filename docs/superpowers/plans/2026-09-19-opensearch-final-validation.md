@@ -185,13 +185,13 @@ For each failure, rerun the smallest exact test until it fails consistently. Tra
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 
-Run the suite as seven fixed groups. Each group limit is the slowest complete CI measurement of that group times 1.5, rounded up to 5 minutes. The measurements come from the OpenSearch CI jobs 110765693590, 109857411134, 117516233280, 123145940911, 123131420136, 123132129545, 123110954409, 123140740521, 123142813381, 123071806333, and the completed groups of 110045603547.
+Run the suite as seven fixed groups using the current canonical limits in the [Makefile](../../../Makefile). The table pairs those limits with historical measurements. The measurements come from the OpenSearch CI jobs 110765693590, 109857411134, 117516233280, 123145940911, 123131420136, 123132129545, 123110954409, 123140740521, 123142813381, 123071806333, and the completed groups of 110045603547.
 
-| Group | Selection | Tests | Slowest measurement | Limit |
+| Group | Selection | Tests in the recorded measurement | Slowest measurement | Limit |
 | --- | --- | --- | --- | --- |
 | G1 | `^TestSearchContinuationTraversesDuplicateHeavyCorpus$` | 1 | 2388.1 s (110045603547) | 60m |
 | G2 | `^TestSearchActualOSProcessThroughput$` | 1 | 1062.7 s (110045603547) | 30m |
-| G3 | `^TestSearch(Split|Restore|Rebuild)` | 7 | 1122.4 s (110765693590) | 30m |
+| G3 | `^TestSearch(Split|Restore|Rebuild)` | 7 | 1122.4 s (110765693590) | 45m |
 | G4 | `^TestSearchCluster`, skipping `^TestSearchClusterModelRepair` | 3 | 955.4 s on the Mac runner | 25m |
 | G5A | `^TestSearch[A-M]`, skipping the G1 to G4 and G6 tests | 74 | 2862.2 s (123145940911) | 75m |
 | G5B | `^TestSearch($|[^A-M])`, skipping the G1 to G4 and G6 tests | 102 (103 listed; `TestSearchSDKCompatibility` skips in the group run) | 2904.9 s (2793.75 s for 99 tests in 123145940911 plus the slowest durations of its three unfinished tests in 123132129545) | 75m |
@@ -207,28 +207,31 @@ make test-search-group GROUP=G1
 make test-search-group GROUP=G3
 make test-search-group GROUP=G5A
 make test-search-group GROUP=G5B
-uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
-    --root "$PWD" --image "sha256:<local-runner-image-id>" \
-    --run '^TestSearchActualOSProcessThroughput$' --count 1 --timeout 30m \
-    --evidence-dir "/private/tmp/tack-search-g2-$(date +%Y%m%d-%H%M%S)"
-TACK_SEARCH_CLUSTER=1 uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
-    --root "$PWD" --image "sha256:<local-runner-image-id>" \
-    --run '^TestSearchCluster(ProxyEndpoint|EngineOutage|ScaleOut)$' --count 1 --timeout 25m \
-    --evidence-dir "/private/tmp/tack-search-g4-$(date +%Y%m%d-%H%M%S)"
-TACK_SEARCH_CLUSTER=1 uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
-    --root "$PWD" --image "sha256:<local-runner-image-id>" \
-    --run '^TestSearchClusterModelRepair' --count 1 --timeout 5m \
-    --evidence-dir "/private/tmp/tack-search-g6-$(date +%Y%m%d-%H%M%S)"
+make build BINARY=testenv CMD=./cmd/testenv
+make test-search-group TEST_SEARCH_RUNNER=mac GROUP=G2 \
+    MAC_RUNNER_IMAGE="sha256:<local-runner-image-id>" \
+    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-g2-$(date +%Y%m%d-%H%M%S)"
+TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=G4 \
+    MAC_RUNNER_IMAGE="sha256:<local-runner-image-id>" \
+    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-g4-$(date +%Y%m%d-%H%M%S)"
+TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=G6 \
+    MAC_RUNNER_IMAGE="sha256:<local-runner-image-id>" \
+    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-g6-$(date +%Y%m%d-%H%M%S)"
 make build
 ```
 
-Before the first group run, confirm the group membership against the compiled package. `go test -list` ignores `-skip`. Derive G5A and G5B from their `-run` lists with the G5 skip expression.
+Before the first group run, confirm membership against the compiled package with
+the complete group tag set. G5A and G5B include `runtimeaudit`. `go test -list`
+ignores `-skip`; filter each listed group with its skip expression. The combined
+G1 to G4 and G6 list includes every cluster test, while G4 alone excludes
+`^TestSearchClusterModelRepair`.
 
 ```sh
-go test -tags=fdb ./internal/test/integration -list '^TestSearch' | grep '^TestSearch' | sort > all.txt
-go test -tags=fdb ./internal/test/integration -list '^TestSearch(ContinuationTraversesDuplicateHeavyCorpus|ActualOSProcessThroughput)$|^TestSearch(Split|Restore|Rebuild|Cluster)' | grep '^TestSearch' | sort > g1-g4.txt
-go test -tags=fdb ./internal/test/integration -list '^TestSearch[A-M]' | grep '^TestSearch' | grep -v -E '^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$' | sort > g5a.txt
-go test -tags=fdb ./internal/test/integration -list '^TestSearch($|[^A-M])' | grep '^TestSearch' | grep -v -E '^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$' | sort > g5b.txt
+go test -tags=fdb,runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch' | grep '^TestSearch' | sort > all.txt
+go test -tags=fdb,runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch(ContinuationTraversesDuplicateHeavyCorpus|ActualOSProcessThroughput)$|^TestSearch(Split|Restore|Rebuild|Cluster)' | grep '^TestSearch' | sort > g1-g4.txt
+go test -tags=fdb,runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearchCluster' | grep '^TestSearch' | grep -v -E '^TestSearchClusterModelRepair' | sort > g4.txt
+go test -tags=fdb,runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch[A-M]' | grep '^TestSearch' | grep -v -E '^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$' | sort > g5a.txt
+go test -tags=fdb,runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch($|[^A-M])' | grep '^TestSearch' | grep -v -E '^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$' | sort > g5b.txt
 sort g1-g4.txt g5a.txt g5b.txt | uniq -d
 sort g1-g4.txt g5a.txt g5b.txt | diff - all.txt
 ```

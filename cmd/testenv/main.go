@@ -17,6 +17,7 @@
 //	                      status while each member is down
 //	testenv shared-dir    create a directory the Docker daemon sees at the same path, print it
 //	testenv down          remove operator engines and engines of exited tests
+//	testenv run-mac --root ROOT --image ID --evidence-dir DIR -- GO_TEST_FLAGS
 //
 // An engine the tool starts keeps running after it exits, for the operator to
 // use, until `testenv down` removes it. A shared directory stays until the
@@ -52,7 +53,8 @@ const (
 
 const usage = "usage: testenv ledger | foundationdb | opensearch | objectstore | kafka | " +
 	"objectstore-stop CONTAINER | objectstore-start CONTAINER | search-cluster MEMBERS | " +
-	"search-cluster-drill MEMBERS | shared-dir | down"
+	"search-cluster-drill MEMBERS | shared-dir | down | " +
+	"run-mac --root ROOT --image ID --evidence-dir DIR -- GO_TEST_FLAGS"
 
 func main() {
 	code := run(os.Args[1:])
@@ -64,6 +66,9 @@ func main() {
 
 // run dispatches one subcommand and returns the process exit code.
 func run(args []string) int {
+	if len(args) > 0 && args[0] == "run-mac" {
+		return runMac(args[1:])
+	}
 	if len(args) == 0 || len(args) > 2 {
 		_, _ = fmt.Fprintln(os.Stderr, usage)
 		return 2
