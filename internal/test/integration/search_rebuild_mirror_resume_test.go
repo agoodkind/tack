@@ -65,6 +65,7 @@ func TestSearchRebuildMirrorMissSurvivesResumedSwitch(t *testing.T) {
 	run := mirrorRun{env: env, proxy: proxy, target: target, nodeID: firstID, firstAbandoned: firstPending.AbandonedAt, secondAbandoned: time.Time{}}
 	requireReplacementPages(t, run)
 	requireResendAfterHorizon(t, proxy, firstID, mirrorExpiredOrdinal, target, firstPending.AbandonedAt)
+	requirePermanentMirrorAudit(t, env, target)
 }
 
 // startMirrorSlice runs the production worker and preserves a panic as a test error.

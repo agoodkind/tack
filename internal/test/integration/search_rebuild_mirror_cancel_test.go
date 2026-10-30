@@ -69,6 +69,7 @@ func TestSearchRebuildMirrorMissSurvivesCanceledSlice(t *testing.T) {
 	requireSwitchAfterCopies(t, env, target)
 	requireReplacementPages(t, run)
 	requireResendAfterHorizon(t, proxy, nodeID, mirrorExpiredOrdinal, target, abandonedAt)
+	requirePermanentMirrorAudit(t, env, target)
 }
 
 // TestSearchRebuildMirrorMissHeldAcrossPausedSwitch calls startMirrorRebuild, creates
