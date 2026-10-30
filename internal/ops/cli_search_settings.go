@@ -15,12 +15,18 @@ type searchSettingsInput struct {
 	clispec.InputMarker
 }
 
-// searchSettingsOutput is the value of search.max_open_pit_context in each
-// cluster settings section and the value that OpenSearch applies. An empty
-// section value means that the section does not set the setting.
+// searchSettingsOutput reports the point-in-time limit and ML heap guard.
 type searchSettingsOutput struct {
 	clispec.ResultMarker
-	Command    string `json:"command"`
+	Command                  string              `json:"command"`
+	Persistent               string              `json:"persistent"`
+	Transient                string              `json:"transient"`
+	Defaults                 string              `json:"defaults"`
+	Effective                string              `json:"effective"`
+	MLJVMHeapMemoryThreshold searchSettingOutput `json:"ml_jvm_heap_memory_threshold"`
+}
+
+type searchSettingOutput struct {
 	Persistent string `json:"persistent"`
 	Transient  string `json:"transient"`
 	Defaults   string `json:"defaults"`
@@ -33,7 +39,7 @@ func searchSettingsOp(f *cli.Factory) clispec.Operation[searchSettingsInput] {
 		Lifetime: clispec.Permanent,
 		Audit:    audit.Spec{Verb: string(audit.VerbOpsSearchSettings), Reads: true},
 		Group:    searchGroup,
-		Short:    "Read the persistent, transient, default, and effective OpenSearch point-in-time limit",
+		Short:    "Read the OpenSearch point-in-time limit and ML heap threshold",
 		New:      func() searchSettingsInput { return searchSettingsInput{InputMarker: clispec.InputMarker{}} },
 		Run: func(ctx context.Context, _ searchSettingsInput, sink clispec.ResultSink) error {
 			return runSearchSettings(ctx, f, sink)
@@ -41,8 +47,7 @@ func searchSettingsOp(f *cli.Factory) clispec.Operation[searchSettingsInput] {
 	}
 }
 
-// runSearchSettings reads search.max_open_pit_context with the maintenance
-// credentials and writes only that setting's values.
+// runSearchSettings reads the settings with the maintenance identity.
 func runSearchSettings(ctx context.Context, f *cli.Factory, sink clispec.ResultSink) (runErr error) {
 	adapter, err := newSearchMaintenanceAdapter(ctx, f.Cfg)
 	if err != nil {
@@ -53,17 +58,22 @@ func runSearchSettings(ctx context.Context, f *cli.Factory, sink clispec.ResultS
 			runErr = searchSettingsFailure("close search adapter", err)
 		}
 	}()
-	limit, err := adapter.PointInTimeLimit(ctx)
+	settings, err := adapter.Settings(ctx)
 	if err != nil {
-		return searchSettingsFailure("read the point-in-time limit", err)
+		return searchSettingsFailure("read the search settings", err)
 	}
+	limit := settings.PointInTimeLimit
+	heap := settings.MLJVMHeapMemoryThreshold
 	output := searchSettingsOutput{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.search.settings",
 		Persistent: limit.Persistent, Transient: limit.Transient, Defaults: limit.Defaults, Effective: limit.Effective(),
+		MLJVMHeapMemoryThreshold: searchSettingOutput{
+			Persistent: heap.Persistent, Transient: heap.Transient, Defaults: heap.Defaults, Effective: heap.Effective(),
+		},
 	}
 	telemetry.L(ctx).InfoContext(ctx, "search.settings.read", slog.String("effective", output.Effective))
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
-		return searchSettingsFailure("write the point-in-time limit", err)
+		return searchSettingsFailure("write the search settings", err)
 	}
 	return nil
 }

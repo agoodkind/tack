@@ -2,16 +2,13 @@ package integration_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"maps"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
@@ -22,7 +19,15 @@ import (
 
 // searchSettingsReport is the result that ops search settings writes.
 type searchSettingsReport struct {
-	Command    string `json:"command"`
+	Command                  string              `json:"command"`
+	Persistent               string              `json:"persistent"`
+	Transient                string              `json:"transient"`
+	Defaults                 string              `json:"defaults"`
+	Effective                string              `json:"effective"`
+	MLJVMHeapMemoryThreshold searchSettingReport `json:"ml_jvm_heap_memory_threshold"`
+}
+
+type searchSettingReport struct {
 	Persistent string `json:"persistent"`
 	Transient  string `json:"transient"`
 	Defaults   string `json:"defaults"`
@@ -39,29 +44,42 @@ type searchSettingsReport struct {
 // value, and a transient cluster setting must replace the persistent one.
 // OpenSearch omits the default while a cluster setting exists. Each run
 // must write one audit row of the settings verb to the operator outbox.
-// Cleanup removes both cluster settings.
+// The command also reports the ML heap default and both override sources.
+// Cleanup removes every cluster override from this test.
 func TestSearchSettingsReportsEffectivePointInTimeLimit(t *testing.T) {
 	fixture := testenv.OpenSearch(t)
 	cfg := integration.SearchControlConfig(t, fixture)
 	client := integration.OpenSearchClient(t, fixture)
 	useSearchSettingsMaintenanceIdentity(t, client)
-	putPointInTimeSetting(t, client, "persistent", "null")
-	putPointInTimeSetting(t, client, "transient", "null")
 	t.Cleanup(func() {
-		putPointInTimeSetting(t, client, "persistent", "null")
-		putPointInTimeSetting(t, client, "transient", "null")
+		clearSearchSettings(t, client)
 	})
+	clearSearchSettings(t, client)
 	node := testenv.OpenSearchPointInTimeLimit
+	heap := searchSettingReport{Defaults: "85", Effective: "85"}
 	requireSearchSettings(t, cfg, searchSettingsReport{
 		Command: "ops.search.settings", Persistent: "", Transient: "", Defaults: node, Effective: node,
+		MLJVMHeapMemoryThreshold: heap,
 	})
 	putPointInTimeSetting(t, client, "persistent", "2500")
 	requireSearchSettings(t, cfg, searchSettingsReport{
 		Command: "ops.search.settings", Persistent: "2500", Transient: "", Defaults: "", Effective: "2500",
+		MLJVMHeapMemoryThreshold: heap,
 	})
 	putPointInTimeSetting(t, client, "transient", "2000")
 	requireSearchSettings(t, cfg, searchSettingsReport{
 		Command: "ops.search.settings", Persistent: "2500", Transient: "2000", Defaults: "", Effective: "2000",
+		MLJVMHeapMemoryThreshold: heap,
+	})
+	putSearchSetting(t, client, "persistent", "plugins.ml_commons.jvm_heap_memory_threshold", "80")
+	requireSearchSettings(t, cfg, searchSettingsReport{
+		Command: "ops.search.settings", Persistent: "2500", Transient: "2000", Defaults: "", Effective: "2000",
+		MLJVMHeapMemoryThreshold: searchSettingReport{Persistent: "80", Effective: "80"},
+	})
+	putSearchSetting(t, client, "transient", "plugins.ml_commons.jvm_heap_memory_threshold", "75")
+	requireSearchSettings(t, cfg, searchSettingsReport{
+		Command: "ops.search.settings", Persistent: "2500", Transient: "2000", Defaults: "", Effective: "2000",
+		MLJVMHeapMemoryThreshold: searchSettingReport{Persistent: "80", Transient: "75", Effective: "75"},
 	})
 }
 
@@ -83,9 +101,17 @@ func requireSearchSettings(t *testing.T, cfg *config.Config, want searchSettings
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatalf("decode ops search settings fields %s: %v", raw, err)
 	}
-	wantFields := []string{"command", "defaults", "effective", "persistent", "transient"}
+	wantFields := []string{"command", "defaults", "effective", "ml_jvm_heap_memory_threshold", "persistent", "transient"}
 	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, wantFields) {
 		t.Fatalf("ops search settings fields = %v, want %v", got, wantFields)
+	}
+	var heapFields map[string]json.RawMessage
+	if err := json.Unmarshal(fields["ml_jvm_heap_memory_threshold"], &heapFields); err != nil {
+		t.Fatalf("decode ML heap setting fields: %v", err)
+	}
+	wantHeapFields := []string{"defaults", "effective", "persistent", "transient"}
+	if got := slices.Sorted(maps.Keys(heapFields)); !slices.Equal(got, wantHeapFields) {
+		t.Fatalf("ML heap setting fields = %v, want %v", got, wantHeapFields)
 	}
 	var got searchSettingsReport
 	if err := json.Unmarshal(raw, &got); err != nil {
@@ -149,22 +175,4 @@ func runSearchSettingsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Po
 		t.Fatalf("decode ops search settings output %q: %v", output.String(), err)
 	}
 	return document.Result
-}
-
-// putPointInTimeSetting writes search.max_open_pit_context in one cluster
-// settings section through the cluster settings API. A value of null
-// removes the setting from that section.
-func putPointInTimeSetting(t *testing.T, client *opensearchapi.Client, section, value string) {
-	t.Helper()
-	body := `{"` + section + `":{"search.max_open_pit_context":` + value + `}}`
-	ctx := context.WithoutCancel(integration.WithTestOperation(t, t.Context()))
-	response, err := client.Cluster.PutSettings(ctx, &opensearchapi.ClusterPutSettingsReq{
-		BodyReader: strings.NewReader(body), Header: nil, Params: &opensearchapi.ClusterPutSettingsParams{},
-	})
-	if err != nil {
-		t.Fatalf("set %s search.max_open_pit_context to %s: %v", section, value, err)
-	}
-	if !response.Acknowledged {
-		t.Fatalf("OpenSearch did not acknowledge %s search.max_open_pit_context %s", section, value)
-	}
 }
