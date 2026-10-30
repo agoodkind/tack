@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/datagen"
 	"goodkind.io/tack/internal/domain/node"
@@ -54,7 +55,7 @@ func putOpaqueKindWithTypeKey(t *testing.T, fixture queryFixture, orgID uuid.UUI
 		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: kind.TypeKey, TypeKey: kind.TypeKey,
 		Slug: kind.TypeKey, PluralSlug: kind.TypeKey + "s",
 		PropertyDefIDs: []uuid.UUID{definitions[0].ID, definitions[1].ID},
-		CanLiveUnder:   entryTypeKeys(t, fixture, orgID),
+		CanLiveUnder:   entryTypeKeys(t, fixture.Stores, orgID),
 	}
 	if err := fixture.Stores.NodeTypes.Set(WithTestOperation(t, t.Context()), nodeType); err != nil {
 		t.Fatalf("store node type: %v", err)
@@ -65,9 +66,9 @@ func putOpaqueKindWithTypeKey(t *testing.T, fixture queryFixture, orgID uuid.UUI
 // entryTypeKeys returns the type keys of the entry-point node types in orgID.
 // An opaque type declares these keys as its parents, and the access
 // hierarchy then depends only on NodeType metadata.
-func entryTypeKeys(t *testing.T, fixture queryFixture, orgID uuid.UUID) []string {
+func entryTypeKeys(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID) []string {
 	t.Helper()
-	types, err := fixture.Stores.NodeTypes.List(WithTestOperation(t, t.Context()), orgID)
+	types, err := stores.NodeTypes.List(WithTestOperation(t, t.Context()), orgID)
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
 	}
