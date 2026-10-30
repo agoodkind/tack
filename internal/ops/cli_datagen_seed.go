@@ -41,6 +41,9 @@ type datagenSeedResult struct {
 	// SearchAccessVerbs reports each access rollout and rollback verb's row
 	// count after a committed seed. It is nil after a dry run.
 	SearchAccessVerbs *datagenLedgerVerbsReport `json:"search_access_verbs,omitempty"`
+	// SearchSettingsVerbs reports the row count of the ops search settings
+	// verb after a committed seed. It is nil after a dry run.
+	SearchSettingsVerbs *datagenLedgerVerbsReport `json:"search_settings_verbs,omitempty"`
 	// CommitOrder reports node row counts, commit version counts, and repeated
 	// commit versions for the generated organizations after a committed seed.
 	// It is nil after a dry run.
@@ -97,7 +100,7 @@ func runDatagenSeed(
 		return fmt.Errorf("qa datagen seed: %w", err)
 	}
 	var remainders *auditConsumerOffsetsReport
-	var ledgerVerbs, searchAccessVerbs *datagenLedgerVerbsReport
+	var ledgerVerbs, searchAccessVerbs, searchSettingsVerbs *datagenLedgerVerbsReport
 	var commitOrder *datagenCommitOrderReport
 	if input.Commit {
 		report, readErr := readAuditConsumerOffsets(ctx, factory)
@@ -115,6 +118,11 @@ func runDatagenSeed(
 			return fmt.Errorf("qa datagen seed: %w", accessVerbsErr)
 		}
 		searchAccessVerbs = &accessVerbs
+		settingsVerbs, settingsVerbsErr := readDatagenSearchSettingsVerbs(ctx, factory)
+		if settingsVerbsErr != nil {
+			return fmt.Errorf("qa datagen seed: %w", settingsVerbsErr)
+		}
+		searchSettingsVerbs = &settingsVerbs
 		order, orderErr := readDatagenCommitOrder(ctx, factory, input.Scale, int64(input.Seed), clock.Now().UTC())
 		if orderErr != nil {
 			return fmt.Errorf("qa datagen seed: %w", orderErr)
@@ -137,6 +145,7 @@ func runDatagenSeed(
 		AuditConsumerOffsets: remainders,
 		LedgerVerbs:          ledgerVerbs,
 		SearchAccessVerbs:    searchAccessVerbs,
+		SearchSettingsVerbs:  searchSettingsVerbs,
 		CommitOrder:          commitOrder,
 	})
 }

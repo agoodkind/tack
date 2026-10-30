@@ -9,7 +9,9 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
+	"github.com/spf13/cobra"
 	"goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/datagen"
@@ -376,4 +378,26 @@ func RequireSearchable(t *testing.T, fixture QueryFixture, expected []uuid.UUID)
 func ClusterEventually(t *testing.T, operation string, check func() error) {
 	t.Helper()
 	clusterEventually(t, operation, check)
+}
+
+// SearchControlConfig returns the configuration that the audited search
+// commands use for fixture. It writes the CA and the maintenance password to
+// files, as production requires.
+func SearchControlConfig(t *testing.T, fixture testenv.OpenSearchFixture) *config.Config {
+	t.Helper()
+	return searchControlConfig(t, fixture)
+}
+
+// OpenSearchClient returns a typed official client built from the
+// production client settings for fixture.
+func OpenSearchClient(t *testing.T, fixture testenv.OpenSearchFixture) *opensearchapi.Client {
+	t.Helper()
+	_, client := openSearchClientsFor(t, fixture)
+	return client
+}
+
+// SearchCommandRoot renders the ops command tree for factory with the
+// production operator identity source.
+func SearchCommandRoot(factory *cli.Factory) *cobra.Command {
+	return searchCommandRoot(factory)
 }

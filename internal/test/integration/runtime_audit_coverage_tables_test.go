@@ -11,6 +11,7 @@ var pendingCoverage = map[string]string{}
 var failureOnlyCoverage = map[string]string{
 	"mcp tool tack_search":                coverageNeedsOpenSearch,
 	"command ops search verify":           coverageNeedsOpenSearch,
+	"command ops search settings":         coverageNeedsOpenSearch,
 	"command ops qa datagen search":       coverageNeedsOpenSearch,
 	"command ops qa datagen search-load":  coverageNeedsOpenSearch,
 	"command ops qa datagen search-mixed": coverageNeedsOpenSearch,
