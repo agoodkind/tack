@@ -11,13 +11,14 @@ type macRunnerObservationResult interface {
 		client.NetworkCreateResult | client.ContainerCreateResult | client.ContainerInspectResult |
 		client.ContainerRemoveResult | client.ContainerStopResult | client.VolumeInspectResult |
 		client.VolumeRemoveResult | client.NetworkInspectResult | client.NetworkRemoveResult |
-		client.ContainerStartResult | client.ContainerTopResult
+		client.ContainerStartResult | client.ContainerTopResult | client.NetworkDisconnectResult
 }
 
 type macRunnerEvidenceValue interface {
 	macRunnerDaemon | macRunnerPinnedImage | macRunnerEnvironment | client.ContainerCreateOptions |
 		container.InspectResponse | macRunnerCreateSummary | macRunnerRefusal | []macRunnerRefusal |
-		macRunnerSummary | macRunnerWaitEvidence
+		macRunnerSummary | macRunnerWaitEvidence | macRunnerFixtureEvidence |
+		map[string]macRunnerFixtureProcess | map[string]macRunnerPreservedResource | macRunnerAdmission
 }
 
 type macRunnerPinnedImage struct {

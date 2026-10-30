@@ -65,6 +65,9 @@ func (execution *macRunnerExecution) create(ctx context.Context) error {
 			err = execution.verify(inspection)
 		}
 		if err == nil {
+			err = execution.admitRunner(ctx, inspection)
+		}
+		if err == nil {
 			execution.acceptedID = created.ID
 			writeMacRunnerJSON(execution, "outer-created.json", inspection)
 			execution.write("outer-id.txt", created.ID+"\n")

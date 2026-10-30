@@ -27,7 +27,7 @@ func (execution *macRunnerExecution) observeEvents(ctx context.Context) error {
 	execution.eventCancel = cancel
 	timer := time.AfterFunc(macRunnerObservation, cancel)
 	stream := execution.defaultClient.Events(observation, client.EventsListOptions{
-		Since: execution.startedAt.Format(time.RFC3339Nano), Filters: client.Filters{}.Add("type", "container"),
+		Since: execution.startedAt.Format(time.RFC3339Nano), Filters: client.Filters{}.Add("type", "container", "network"),
 	})
 	timer.Stop()
 	if err := observation.Err(); err != nil {
@@ -57,10 +57,14 @@ func (execution *macRunnerExecution) recordEvents(ctx context.Context, stream cl
 	encoder := json.NewEncoder(execution.eventsFile)
 	for {
 		select {
-		case event := <-stream.Messages:
+		case event, open := <-stream.Messages:
+			if !open {
+				return errors.New("container event messages closed unexpectedly")
+			}
 			if err := encoder.Encode(event); err != nil {
 				return macRunnerFailure("write container event", err)
 			}
+			execution.recordFixtureCreate(ctx, event)
 		case err := <-stream.Err:
 			if ctx.Err() != nil && errors.Is(err, context.Canceled) {
 				return nil

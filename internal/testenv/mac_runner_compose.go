@@ -16,6 +16,10 @@ import (
 const macRunnerComposeFile = "docker-compose.test.yml"
 
 func (prepared *macRunnerPreparation) loadCompose(ctx context.Context) error {
+	return prepared.loadComposeInputs(ctx, os.Getenv("COMPOSE_PROJECT_NAME"), os.Getenv("TACK_SEARCH_CLUSTER"))
+}
+
+func (prepared *macRunnerPreparation) loadComposeInputs(ctx context.Context, projectName, cluster string) error {
 	path := filepath.Join(prepared.root, macRunnerComposeFile)
 	contents, err := os.ReadFile(path)
 	if err != nil {
@@ -28,7 +32,7 @@ func (prepared *macRunnerPreparation) loadCompose(ctx context.Context) error {
 		"TACK_TEST_ROOT":            prepared.root,
 		"TACK_SEARCH_INTEGRATION":   "1",
 		"TACK_TEST_SOURCE_REVISION": "",
-		"TACK_SEARCH_CLUSTER":       os.Getenv("TACK_SEARCH_CLUSTER"),
+		"TACK_SEARCH_CLUSTER":       cluster,
 	}
 	project, err := loader.LoadWithContext(ctx, types.ConfigDetails{
 		WorkingDir:  prepared.root,
@@ -36,8 +40,8 @@ func (prepared *macRunnerPreparation) loadCompose(ctx context.Context) error {
 		Environment: maps.Clone(environment),
 	}, func(options *loader.Options) {
 		options.SetProjectName(loader.NormalizeProjectName(filepath.Base(prepared.root)), false)
-		if name := os.Getenv("COMPOSE_PROJECT_NAME"); name != "" {
-			options.SetProjectName(name, true)
+		if projectName != "" {
+			options.SetProjectName(projectName, true)
 		}
 		options.Profiles = []string{"runner"}
 		options.SelectedServices = []string{"tests"}

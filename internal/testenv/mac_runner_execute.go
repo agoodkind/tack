@@ -20,6 +20,7 @@ func executeMacRunner(ctx, caller context.Context, prepared *macRunnerPreparatio
 	execution.preserved = macRunnerBaseline{Containers: make(map[string]bool), Networks: make(map[string]bool), Volumes: make(map[string]bool)}
 	execution.anonymousVolumes, execution.cacheVolumes = make(map[string]bool), make(map[string]bool)
 	execution.temporaryVolumes = make(map[string]macRunnerTemporaryVolume)
+	execution.fixtures = newMacRunnerFixtures()
 	execution.startedAt = clock.Now().UTC()
 	execution.write("wrapper.pid", strconv.Itoa(os.Getpid())+"\n")
 	primary := execution.stage("source preparation", preparationError)

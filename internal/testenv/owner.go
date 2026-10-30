@@ -37,6 +37,7 @@ type processOwner struct {
 	run    string
 	host   string
 	runner string
+	native bool
 	// operator is true when this process is not a test binary, such as
 	// cmd/testenv. ownerLabels then adds the operator label to its engines.
 	// prepareCreate skips test binary preparation for this process.
@@ -74,7 +75,11 @@ func currentOwner(ctx context.Context, cli *client.Client) (processOwner, error)
 	if err != nil {
 		return processOwner{}, err
 	}
-	ownerState.owner = processOwner{run: run, host: host, runner: runner, operator: !testing.Testing()}
+	native, err := verifiedNativeMacRunner(ctx, cli, runner, host)
+	if err != nil {
+		return processOwner{}, err
+	}
+	ownerState.owner = processOwner{run: run, host: host, runner: runner, native: native, operator: !testing.Testing()}
 	return ownerState.owner, nil
 }
 
@@ -99,7 +104,9 @@ func prepareCreate(ctx context.Context, cli *client.Client) (processOwner, error
 	if !owner.operator {
 		testProcessPrepared.Do(func() {
 			releaseOnSignal(ctx)
-			_, _ = removeEngines(ctx, cli, owner, ownerExited)
+			if !owner.native {
+				_, _ = removeEngines(ctx, cli, owner, ownerExited)
+			}
 		})
 	}
 	return owner, nil

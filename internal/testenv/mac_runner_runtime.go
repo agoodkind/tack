@@ -53,7 +53,8 @@ func (execution *macRunnerExecution) run(ctx context.Context) error {
 			}
 		case err := <-execution.eventDone:
 			execution.eventDone = nil
-			return macRunnerErrors("observe runner events", errors.New("container event observer stopped during runtime"), err)
+			execution.observerError = macRunnerErrors("observe runner events", errors.New("container event observer stopped during runtime"), err)
+			return execution.observerError
 		case <-ctx.Done():
 			return macRunnerFailure("observe runner runtime", ctx.Err())
 		}

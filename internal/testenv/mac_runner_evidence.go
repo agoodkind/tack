@@ -11,29 +11,33 @@ import (
 )
 
 type macRunnerSummary struct {
-	Name             string                              `json:"name"`
-	RunnerID         string                              `json:"runner_id,omitempty"`
-	RuntimeExit      *int                                `json:"runtime_exit,omitempty"`
-	ExitCode         int                                 `json:"exit_code"`
-	Interrupted      bool                                `json:"interrupted"`
-	Started          bool                                `json:"started"`
-	AttachComplete   bool                                `json:"attach_complete"`
-	EventsComplete   bool                                `json:"events_complete"`
-	Error            string                              `json:"error,omitempty"`
-	Stages           []macRunnerStage                    `json:"stages"`
-	CreatedIDs       []string                            `json:"created_ids"`
-	AnonymousVolumes map[string]bool                     `json:"anonymous_volumes"`
-	TemporaryVolumes map[string]macRunnerTemporaryVolume `json:"temporary_volumes"`
-	Wait             *macRunnerWaitEvidence              `json:"wait,omitempty"`
-	Preserved        macRunnerBaseline                   `json:"preserved"`
-	Baseline         macRunnerBaseline                   `json:"baseline"`
-	Operations       []macRunnerOperation                `json:"operations"`
-	UnknownResources []string                            `json:"unknown_resources"`
-	CleanupComplete  bool                                `json:"outer_cleanup_complete"`
-	Caches           map[string]bool                     `json:"caches"`
-	NetworkID        string                              `json:"network_id,omitempty"`
-	NetworkCreated   bool                                `json:"network_created"`
-	InnerAttribution string                              `json:"inner_attribution"`
+	Name                   string                              `json:"name"`
+	RunnerID               string                              `json:"runner_id,omitempty"`
+	RuntimeExit            *int                                `json:"runtime_exit,omitempty"`
+	ExitCode               int                                 `json:"exit_code"`
+	Interrupted            bool                                `json:"interrupted"`
+	Started                bool                                `json:"started"`
+	AttachComplete         bool                                `json:"attach_complete"`
+	EventsComplete         bool                                `json:"events_complete"`
+	Error                  string                              `json:"error,omitempty"`
+	Stages                 []macRunnerStage                    `json:"stages"`
+	CreatedIDs             []string                            `json:"created_ids"`
+	AnonymousVolumes       map[string]bool                     `json:"anonymous_volumes"`
+	TemporaryVolumes       map[string]macRunnerTemporaryVolume `json:"temporary_volumes"`
+	Wait                   *macRunnerWaitEvidence              `json:"wait,omitempty"`
+	Preserved              macRunnerBaseline                   `json:"preserved"`
+	Baseline               macRunnerBaseline                   `json:"baseline"`
+	Operations             []macRunnerOperation                `json:"operations"`
+	UnknownResources       []string                            `json:"unknown_resources"`
+	CleanupComplete        bool                                `json:"outer_cleanup_complete"`
+	Caches                 map[string]bool                     `json:"caches"`
+	NetworkID              string                              `json:"network_id,omitempty"`
+	NetworkCreated         bool                                `json:"network_created"`
+	InnerAttribution       string                              `json:"inner_attribution"`
+	Fixtures               macRunnerFixtureEvidence            `json:"fixtures"`
+	AttributionComplete    bool                                `json:"fixture_attribution_complete"`
+	FixtureCleanupComplete bool                                `json:"fixture_cleanup_complete"`
+	FullCleanupComplete    bool                                `json:"full_cleanup_complete"`
 }
 
 func (execution *macRunnerExecution) write(name, contents string) {
@@ -95,7 +99,10 @@ func (execution *macRunnerExecution) summarize(code int, interrupted bool, err e
 		Operations: execution.operations, CleanupComplete: false,
 		UnknownResources: execution.unknownResources,
 		Caches:           execution.cacheVolumes, NetworkID: execution.networkID,
-		NetworkCreated: execution.networkCreated, InnerAttribution: "Task 3 has not verified inner-engine ownership",
+		NetworkCreated: execution.networkCreated, InnerAttribution: "incomplete",
+		Fixtures: execution.fixtures, AttributionComplete: execution.attributionComplete,
+		FixtureCleanupComplete: execution.fixtureCleanupComplete,
+		FullCleanupComplete:    false,
 	}
 	for _, stage := range execution.stages {
 		if stage.Name == "outer cleanup" && stage.Error == "" {
@@ -109,12 +116,16 @@ func (execution *macRunnerExecution) summarize(code int, interrupted bool, err e
 		}
 	}
 	summary.CleanupComplete = summary.CleanupComplete && summary.EventsComplete && len(summary.UnknownResources) == 0
+	if summary.AttributionComplete {
+		summary.InnerAttribution = "verified"
+	}
 	if execution.waitOutcome != nil {
 		summary.CleanupComplete = summary.CleanupComplete && execution.waitEvidence != nil && execution.waitEvidence.ReceiverComplete
 	}
 	if err != nil {
 		summary.Error = err.Error()
 	}
+	summary.FullCleanupComplete = summary.CleanupComplete && summary.FixtureCleanupComplete
 	writeMacRunnerJSON(execution, "result.json", summary)
 	return macRunnerErrors("write final evidence", execution.evidenceErrors...)
 }

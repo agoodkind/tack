@@ -29,12 +29,16 @@ func (execution *macRunnerExecution) finalize(ctx context.Context, primary error
 	}
 	failures = append(failures, execution.finishAttach())
 	failures = append(failures, execution.finishWait(cleanupContext))
+	var attributionErr, fixtureCleanupErr error
 	if execution.defaultClient != nil && execution.baselineReady {
+		attributionErr = execution.stage("fixture attribution", execution.attributeFixtures(cleanupContext))
+		fixtureCleanupErr = execution.stage("fixture cleanup", execution.cleanupFixtures(cleanupContext))
 		cleanupErr := execution.cleanup(cleanupContext)
 		execution.status("cleanup.exit", cleanupErr)
 		failures = append(failures, execution.stage("outer cleanup", cleanupErr))
 	}
 	failures = append(failures, execution.finishEvents())
+	failures = append(failures, execution.finalizeFixtureEvidence(cleanupContext, attributionErr, fixtureCleanupErr))
 	sourceErr := execution.prepared.verifySources()
 	if !execution.prepared.sourceCaptured {
 		sourceErr = errors.New("source capture did not complete; source verification remains unavailable")
@@ -88,7 +92,8 @@ func (execution *macRunnerExecution) finishEvents() error {
 		execution.eventCancel()
 	}
 	if execution.eventDone != nil {
-		failures = append(failures, execution.stage("event completion", macRunnerAwait(execution.eventDone, "container event observer")))
+		execution.observerError = macRunnerErrors("complete event observer", execution.observerError, macRunnerAwait(execution.eventDone, "container event observer"))
+		failures = append(failures, execution.stage("event completion", execution.observerError))
 		execution.eventDone = nil
 	}
 	for _, file := range []*os.File{execution.eventsFile, execution.eventsErrorFile} {

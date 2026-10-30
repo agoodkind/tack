@@ -10,7 +10,7 @@ import (
 )
 
 func (execution *macRunnerExecution) removeVolume(ctx context.Context, name string) error {
-	if !execution.anonymousVolumes[name] || execution.baseline.Volumes[name] || execution.cacheVolumes[name] || name == "" {
+	if (!execution.anonymousVolumes[name] && !execution.fixtures.Volumes[name]) || execution.baseline.Volumes[name] || execution.cacheVolumes[name] || name == "" {
 		return fmt.Errorf("refuse unproven temporary volume %s", name)
 	}
 	_, err := macObserve(ctx, func(observation context.Context) (client.VolumeInspectResult, error) {

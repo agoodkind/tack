@@ -36,43 +36,50 @@ type macRunnerRefusal struct {
 }
 
 type macRunnerExecution struct {
-	prepared         *macRunnerPreparation
-	defaultClient    *client.Client
-	rawClient        *client.Client
-	name             string
-	labels           map[string]string
-	baseline         macRunnerBaseline
-	preserved        macRunnerBaseline
-	baselineReady    bool
-	networkID        string
-	networkCreated   bool
-	acceptedID       string
-	createdIDs       []string
-	temporaryVolumes map[string]macRunnerTemporaryVolume
-	anonymousVolumes map[string]bool
-	cacheVolumes     map[string]bool
-	imageEnvironment []string
-	refused          []macRunnerRefusal
-	stages           []macRunnerStage
-	operations       []macRunnerOperation
-	unknownResources []string
-	evidenceErrors   []error
-	runtimeExit      *int
-	started          bool
-	terminal         *container.InspectResponse
-	attach           *client.ContainerAttachResult
-	attachDone       chan error
-	attachCancel     context.CancelFunc
-	waitOutcome      <-chan macRunnerWaitOutcome
-	waitReceiverDone <-chan error
-	waitCancel       context.CancelFunc
-	waitEvidence     *macRunnerWaitEvidence
-	logFile          *os.File
-	eventCancel      context.CancelFunc
-	eventDone        chan error
-	eventsFile       *os.File
-	eventsErrorFile  *os.File
-	startedAt        time.Time
+	prepared               *macRunnerPreparation
+	defaultClient          *client.Client
+	rawClient              *client.Client
+	hostDaemon             macRunnerDaemon
+	rawDaemon              macRunnerDaemon
+	name                   string
+	labels                 map[string]string
+	baseline               macRunnerBaseline
+	preserved              macRunnerBaseline
+	baselineReady          bool
+	networkID              string
+	networkCreated         bool
+	acceptedID             string
+	createdIDs             []string
+	temporaryVolumes       map[string]macRunnerTemporaryVolume
+	anonymousVolumes       map[string]bool
+	cacheVolumes           map[string]bool
+	imageEnvironment       []string
+	refused                []macRunnerRefusal
+	stages                 []macRunnerStage
+	operations             []macRunnerOperation
+	unknownResources       []string
+	fixtures               macRunnerFixtureEvidence
+	eventSnapshot          macRunnerEventSnapshot
+	observerError          error
+	attributionComplete    bool
+	fixtureCleanupComplete bool
+	evidenceErrors         []error
+	runtimeExit            *int
+	started                bool
+	terminal               *container.InspectResponse
+	attach                 *client.ContainerAttachResult
+	attachDone             chan error
+	attachCancel           context.CancelFunc
+	waitOutcome            <-chan macRunnerWaitOutcome
+	waitReceiverDone       <-chan error
+	waitCancel             context.CancelFunc
+	waitEvidence           *macRunnerWaitEvidence
+	logFile                *os.File
+	eventCancel            context.CancelFunc
+	eventDone              chan error
+	eventsFile             *os.File
+	eventsErrorFile        *os.File
+	startedAt              time.Time
 }
 
 type macRunnerTemporaryVolume struct {
