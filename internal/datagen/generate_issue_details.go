@@ -47,17 +47,7 @@ func (g *Generator) generateIssueDetails(
 		}
 	}
 	if index%5 == 0 {
-		properties := newProperties()
-		properties.setBool("qa_checkbox", true)
-		properties.setString("qa_text", g.content.Comment())
-		_, err := g.driver.Call(ctx, actor.Token, "tack_update_issue", ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			NodeID:             issueReference,
-			Properties:         properties,
-		})
-		if err != nil {
-			return loggedError(ctx, "qa datagen: update issue", err)
-		}
+		return g.updateIssueAndCheckConfirmation(ctx, actor, workspace, projectIdentifier, issueReference)
 	}
 	return nil
 }
