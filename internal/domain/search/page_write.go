@@ -34,7 +34,10 @@ type WriteIntent struct {
 	// Pending is an unexpired pending write for DocumentID. Put does not create
 	// an absent page in Pending.Index while Pending is non-nil.
 	Pending *PendingWrite `exhaustruct:"optional"`
-	// MirrorMissed records a failed mirror write after the serving index accepts the page.
+	// MirrorMissed records a mirror write of DocumentID that the replacement index did not accept.
+	// Register sets MirrorMissed from an unexpired copy class pending record for the mirror.
+	// The worker sets MirrorMissed when the mirror request fails after the serving index accepts the page.
+	// Put does not write the mirror while MirrorMissed is set.
 	// CompletePage schedules a copy in the transaction that advances the serving cursor.
 	MirrorMissed *PendingWrite `exhaustruct:"optional"`
 }

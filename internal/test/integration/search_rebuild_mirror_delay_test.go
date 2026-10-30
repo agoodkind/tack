@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -32,67 +31,47 @@ const (
 	mirrorSecondOrdinal = 3
 )
 
-// TestSearchRebuildMirrorDelayKeepsServingFresh verifies serving progress during delayed
-// replacement writes. The test starts a full replacement through the production store.
-// It runs worker slices until the replacement enters the switching state with claims not paused.
-//
-// The test stores a node with several pages. The proxy delays the replacement write for page 1
-// until the worker abandons it at the ten-second OperationTimeout. The test then selects page 3,
-// and the proxy delays that replacement write until the worker abandons it.
-// The proxy never sends either abandoned write to OpenSearch.
-//
-// The test requires the second abandonment within 30 seconds after the first abandonment.
-// The copy item for page 1 remains pending at the second abandonment.
-// The test requires the serving index to store every node page within 30 seconds after
-// the second abandonment.
-//
-// The test calls requireSwitchAfterCopies and requires the replacement index to store every
-// node page at the current revision. For page 1 and page 3, the test requires a second replacement
-// write at or after that page's abandonment time plus mirrorWriteHorizon minus one second.
-// The timing check allows one second of clock skew.
+// TestSearchRebuildMirrorDelayKeepsServingFresh calls runTwoMirrorMisses without a step
+// between the misses.
+// The test calls requireSwitchAfterCopies.
+// The test requires the replacement index to store every page of the node at the current revision.
+// For pages 1 and 3, the test requires a second replacement index write at or after that page's
+// abandonment time plus mirrorWriteHorizon minus one second of clock skew.
+// runTwoMirrorMisses fails if the serving cursor waits for page 1's 60-second pending deadline.
 func TestSearchRebuildMirrorDelayKeepsServingFresh(t *testing.T) {
-	env, proxy := newDelayedMigrationEnv(t, timingPageBytes, 0)
-	env.WriteHorizon = mirrorWriteHorizon
-	env.Worker = newLiveFirstWorker(t, env)
-	proxy.forwardAbandonedAfter(0)
-	ctx := integration.WithTestOperation(t, t.Context())
-	if err := env.Adapter.SetAlias(ctx, search.PublicAlias, env.Index); err != nil {
-		t.Fatalf("set public alias: %v", err)
-	}
-	env.runIdle(t)
-	rebuild := beginMirrorRebuild(t, env)
-	rebuild = runRebuildSlicesUntil(t, env, func(current searchdomain.Rebuild) bool {
-		return current.State == searchdomain.RebuildSwitching && !current.Paused
-	})
-	nodeID := uuid.Must(uuid.NewV7())
-	proxy.targetIn(nodeID, mirrorFirstOrdinal, rebuild.TargetIndex)
-	env.putNode(t, nodeID, strings.Repeat(timingText, 40))
-	firstAbandoned, abandoned := awaitAbandonedWrite(t, env, proxy, time.Now().Add(mirrorSwitchDeadline))
-	if !abandoned {
-		t.Fatalf("the worker did not abandon the delayed write of page %d to %s", mirrorFirstOrdinal, rebuild.TargetIndex)
-	}
-	proxy.targetIn(nodeID, mirrorSecondOrdinal, rebuild.TargetIndex)
-	bound := firstAbandoned.Add(mirrorFreshnessBound)
-	secondAbandoned, abandoned := awaitAbandonedWrite(t, env, proxy, bound)
-	if !abandoned {
-		t.Fatalf("serving index %s lacked pages of node %s at %s, %s after the mirror write of page %d was abandoned: %s",
-			env.Index, nodeID, bound, mirrorFreshnessBound, mirrorFirstOrdinal, indexMismatch(t, env, nodeID))
-	}
+	run := runTwoMirrorMisses(t, mirrorSteps{duringFirstHold: nil, afterFirstMiss: nil})
+	requireSwitchAfterCopies(t, run.env, run.target)
+	requireReplacementPages(t, run)
+	requireResendAfterHorizon(t, run.proxy, run.nodeID, mirrorFirstOrdinal, run.target, run.firstAbandoned)
+	requireResendAfterHorizon(t, run.proxy, run.nodeID, mirrorSecondOrdinal, run.target, run.secondAbandoned)
+}
 
-	bound = secondAbandoned.Add(mirrorFreshnessBound)
-	if !runSlicesUntil(t, env, bound, func() bool { return indexMismatch(t, env, nodeID) == "" }) {
-		t.Fatalf("serving index %s lacked pages of node %s at %s, %s after the mirror write was abandoned: %s",
-			env.Index, nodeID, bound, mirrorFreshnessBound, indexMismatch(t, env, nodeID))
-	}
+// TestSearchRebuildMirrorCopyKeepsOwedPagesAcrossGenerations calls runTwoMirrorMisses
+// with raiseNodeGeneration between the misses.
+// The copy item from page 1 waits for the page 1 deadline when raiseNodeGeneration runs.
+// raiseNodeGeneration assigns the copy work record a new generation and leaves the copy
+// checkpoint at the old generation.
+// The second miss then schedules the copy for page 3.
+// The test calls requireSwitchAfterCopies and requires the replacement index to store
+// every page of the node at the switch.
+// A copy that starts at page 3 does not write page 1.
+// The replacement index then lacks page 1.
+func TestSearchRebuildMirrorCopyKeepsOwedPagesAcrossGenerations(t *testing.T) {
+	run := runTwoMirrorMisses(t, mirrorSteps{duringFirstHold: nil, afterFirstMiss: raiseNodeGeneration})
+	requireSwitchAfterCopies(t, run.env, run.target)
+	requireReplacementPages(t, run)
+}
 
-	requireSwitchAfterCopies(t, env, rebuild.TargetIndex)
-	replacement := *env
-	replacement.Index = rebuild.TargetIndex
-	if mismatch := indexMismatch(t, &replacement, nodeID); mismatch != "" {
-		t.Fatalf("replacement index %s at the switch: %s", rebuild.TargetIndex, mismatch)
+// requireReplacementPages fails the test unless the replacement index of run stores one
+// active page for every reader page of the node.
+// Each active page must match the reader page's text, ordinal, revision, and projection.
+func requireReplacementPages(t *testing.T, run mirrorRun) {
+	t.Helper()
+	replacement := *run.env
+	replacement.Index = run.target
+	if mismatch := indexMismatch(t, &replacement, run.nodeID); mismatch != "" {
+		t.Fatalf("replacement index %s at the switch: %s", run.target, mismatch)
 	}
-	requireResendAfterHorizon(t, proxy, nodeID, mirrorFirstOrdinal, rebuild.TargetIndex, firstAbandoned)
-	requireResendAfterHorizon(t, proxy, nodeID, mirrorSecondOrdinal, rebuild.TargetIndex, secondAbandoned)
 }
 
 // requireSwitchAfterCopies runs worker slices until the replacement enters the retiring state.
@@ -136,22 +115,32 @@ func requireSwitchAfterCopies(t *testing.T, env *migrationEnv, target string) {
 	}
 }
 
-// requireResendAfterHorizon fails the test if proxy receives fewer than two writes
-// of the page for nodeID and ordinal to index. It also fails the test if the second write
-// arrives before abandonedAt plus mirrorWriteHorizon minus abandonClockSkew.
+// requireResendAfterHorizon reads the page writes that the proxy received for nodeID, ordinal,
+// and index. The first write is the abandoned write, and its node revision identifies the document.
+// The helper ignores writes with other revisions of the same ordinal.
+// The helper fails the test unless the proxy received a second write of the same document at or after
+// abandonedAt plus mirrorWriteHorizon minus abandonClockSkew.
 func requireResendAfterHorizon(t *testing.T, proxy *pageDelayProxy, nodeID uuid.UUID, ordinal uint64, index string, abandonedAt time.Time) {
 	t.Helper()
+	revision := ""
 	received := make([]time.Time, 0, 2)
 	shown := make([]string, 0, 2)
 	for _, write := range pageWrites(proxy, nodeID, ordinal) {
-		if write.index == index {
-			received = append(received, write.received)
-			shown = append(shown, write.received.UTC().Format(time.RFC3339Nano))
+		if write.index != index {
+			continue
 		}
+		if revision == "" {
+			revision = write.revision
+		}
+		if write.revision != revision {
+			continue
+		}
+		received = append(received, write.received)
+		shown = append(shown, write.received.UTC().Format(time.RFC3339Nano))
 	}
 	deadline := abandonedAt.Add(mirrorWriteHorizon - abandonClockSkew)
 	if len(received) < 2 || received[1].Before(deadline) {
-		t.Fatalf("the replacement index received writes of page %d at %v, want the abandoned write and a resend at or after %s",
-			ordinal, shown, deadline.UTC().Format(time.RFC3339Nano))
+		t.Fatalf("the replacement index received writes of page %d at revision %q at %v, want the abandoned write and a resend at or after %s",
+			ordinal, revision, shown, deadline.UTC().Format(time.RFC3339Nano))
 	}
 }

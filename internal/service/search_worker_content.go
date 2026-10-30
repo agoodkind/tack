@@ -10,21 +10,24 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// contentSlice writes pages of one revision. contentSlice reads, registers, writes,
-// and checkpoints each page before reading the next page. contentSlice yields before
-// another remote write once the slice spends its page, byte, or time budget.
-// An absent page with a pending write ends the slice with an uncounted release and
-// the store's minimum retry delay.
+// contentSlice writes pages of one revision.
+// contentSlice reads, registers, writes, and checkpoints each page before reading the next page.
+// contentSlice yields before another remote write when the slice exhausts its page, byte,
+// or time budget.
+// contentSlice ends the slice with an uncounted release and the store's minimum retry delay
+// when a pending write prevents creation of an absent page.
 //
-// After the serving index accepts a page, contentSlice records a mirror error other
-// than ErrObsoleteWrite in intent.MirrorMissed and checkpoints the page.
-// CompletePage advances the serving cursor and schedules the copy in one FoundationDB
-// transaction. contentSlice writes later pages in the slice only to the serving index.
-// Those Put calls receive a copy of the intent with Work.Mirror cleared.
-// intent.Work retains Mirror for claim verification.
+// contentSlice writes a page only to the serving index when Register sets intent.MirrorMissed.
+// After the serving index accepts a page, contentSlice records a mirror error other than
+// ErrObsoleteWrite in intent.MirrorMissed and checkpoints the page.
+// CompletePage advances the serving cursor and schedules the copy in one FoundationDB transaction.
+// contentSlice writes later pages in the slice only to the serving index.
+// Those Put calls use a copy of intent with Work.Mirror cleared.
+// intent.Work still specifies Mirror for claim verification.
+// When CompletePage fails after a mirror miss, contentSlice calls keepMirrorMiss before
+// contentSlice settles the failure.
 //
-// After the final page, contentSlice refreshes the serving index in a separate
-// resumable phase.
+// After the final page, contentSlice refreshes the serving index in a separate resumable phase.
 func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work, budget *sliceBudget) error {
 	mirrorSkipped := false
 	for work.Phase != searchdomain.PhaseRefresh {
@@ -49,15 +52,16 @@ func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work,
 			return w.settle(ctx, work, "register search page", err)
 		}
 		putIntent := intent
-		if mirrorSkipped {
+		if mirrorSkipped || intent.MirrorMissed != nil {
 			putIntent.Work.Mirror = ""
 		}
 		operationContext, cancel := context.WithTimeout(ctx, w.settings.OperationTimeout)
 		written, err := w.ports.Writer.Put(operationContext, putIntent)
 		timedOut := errors.Is(operationContext.Err(), context.DeadlineExceeded)
+		abandoned := operationContext.Err() != nil
 		cancel()
 		budget.record(1, written)
-		if missed := w.mirrorMiss(ctx, intent, err, timedOut); missed != nil {
+		if missed := w.mirrorMiss(ctx, intent, err, abandoned); missed != nil {
 			intent.MirrorMissed, err, mirrorSkipped = missed, nil, true
 		}
 		if errors.Is(err, searchdomain.ErrPageWritePending) {
@@ -71,6 +75,7 @@ func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work,
 		}
 		w.logStoredPendingWrite(ctx, work, intent)
 		if err := w.ports.Store.CompletePage(ctx, intent, page.NextCursor, page.Done); err != nil {
+			w.keepMirrorMiss(ctx, intent)
 			return w.settle(ctx, work, "checkpoint search page", err)
 		}
 		work.Cursor = page.NextCursor

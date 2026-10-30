@@ -2,11 +2,89 @@ package foundationdb
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/telemetry"
 )
+
+// RecordMirrorMiss records a missed mirror write without verifying the claim of intent.
+// RecordMirrorMiss does not change state when intent.MirrorMissed is nil or its
+// deadline is at or before now. Within one FoundationDB transaction, RecordMirrorMiss
+// calls owedMirrorCopy and stops when owedMirrorCopy returns false.
+//
+// When the replacement is in the switching state with claims paused, RecordMirrorMiss
+// stores intent.MirrorMissed as a live class pending write record for the replacement
+// index. RecordMirrorMiss does not write a copy item in that state. After the switch,
+// live claims use the replacement index as Target. The next live registration of the
+// document reads that record and waits for its deadline.
+//
+// In every other state, RecordMirrorMiss calls scheduleMirrorCopy with the current
+// node generation. Copy work determines the lifetime of the copy class pending write
+// record. The next live registration of the document reads that record through
+// heldMirrorWrite and writes the page only to the serving index until the deadline
+// passes.
+func (s *SearchWorkStore) RecordMirrorMiss(ctx context.Context, intent searchdomain.WriteIntent) (err error) {
+	defer telemetry.FDBOp(ctx, "store.search_work.record_mirror_miss")(&err)
+	now := s.clock.Now()
+	if intent.MirrorMissed == nil || !now.Before(intent.MirrorMissed.Deadline) {
+		return nil
+	}
+	revision, err := strconv.ParseInt(intent.Page.Revision, 10, 64)
+	if err != nil {
+		return searchStorageError(ctx, "search.work.revision_invalid", "parse missed page revision", intent.Work.NodeID, err)
+	}
+	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
+		current, scope, owed, err := owedMirrorCopy(ctx, tr, intent, revision)
+		if err != nil || !owed {
+			return err
+		}
+		if scope.rebuild.State == searchdomain.RebuildSwitching && scope.rebuild.Paused {
+			return recordPendingWrite(ctx, tr, current.Work, *current.MirrorMissed)
+		}
+		return scheduleMirrorCopy(ctx, tr, now.UTC(), current, revision)
+	})
+	if err != nil {
+		return searchStorageError(ctx, "search.work.mirror_miss_failed", "record missed mirror write", intent.Work.NodeID, err)
+	}
+	return nil
+}
+
+// owedMirrorCopy returns false when the current node revision differs from revision,
+// the node does not have pending live work, or the replacement mirror of live claims
+// differs from intent.MirrorMissed.Index. A newer revision, removed live work, or a
+// finished or failed replacement ends the need for the page in that index.
+//
+// owedMirrorCopy returns the claim scope that it reads. RecordMirrorMiss reads the
+// replacement state from that scope. When the copy remains owed, owedMirrorCopy sets
+// intent.Work.Generation to the current node generation and returns the updated
+// intent with true.
+func owedMirrorCopy(ctx context.Context, tr fdb.Transaction, intent searchdomain.WriteIntent, revision int64) (searchdomain.WriteIntent, claimScope, bool, error) {
+	work := intent.Work
+	var scope claimScope
+	current, err := readSearchCounter(ctx, tr, searchRevisionKey(work.OrgID, work.NodeID))
+	if err != nil || current != revision {
+		return intent, scope, false, err
+	}
+	if _, livePending, err := readSearchWork(ctx, tr, searchdomain.WorkClassLive, work.OrgID, work.NodeID); err != nil || !livePending {
+		return intent, scope, false, err
+	}
+	scope, err = readClaimScope(ctx, tr)
+	if err != nil {
+		return intent, scope, false, err
+	}
+	if _, mirror, _ := scope.targets(searchdomain.WorkClassLive); mirror != intent.MirrorMissed.Index {
+		return intent, scope, false, nil
+	}
+	generation, err := readSearchCounter(ctx, tr, searchGenerationKey(work.OrgID, work.NodeID))
+	if err != nil {
+		return intent, scope, false, err
+	}
+	intent.Work.Generation = generation
+	return intent, scope, true, nil
+}
 
 // scheduleMirrorCopy runs inside the CompletePage transaction when the serving index
 // accepts a page and the replacement index misses it.
@@ -51,9 +129,11 @@ func scheduleMirrorCopy(ctx context.Context, tr fdb.Transaction, now time.Time, 
 	})
 }
 
-// copyCovers reports whether existing schedules a copy of the same generation and
-// revision from ordinal or an earlier page.
-// A copy without a checkpoint starts at the first page and covers every ordinal.
+// copyCovers returns false when existing differs from generation or revision.
+// copyCovers returns true when existing does not have a checkpoint.
+// copyCovers also returns true when the checkpoint generation or revision differs from existing.
+// readProgress starts such a copy at the first page.
+// Otherwise, copyCovers returns whether the checkpoint ordinal is at or below ordinal.
 func copyCovers(ctx context.Context, tr fdb.Transaction, existing searchWorkRecord, generation, revision int64, ordinal uint64) (bool, error) {
 	if existing.Generation != generation || existing.Revision != revision {
 		return false, nil
@@ -63,5 +143,6 @@ func copyCovers(ctx context.Context, tr fdb.Transaction, existing searchWorkReco
 	if err != nil || !started {
 		return true, err
 	}
-	return progress.Generation == generation && progress.Revision == revision && progress.Ordinal <= ordinal, nil
+	stale := progress.Generation != existing.Generation || progress.Revision != existing.Revision
+	return stale || progress.Ordinal <= ordinal, nil
 }

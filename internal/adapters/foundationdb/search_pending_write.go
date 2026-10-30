@@ -97,6 +97,27 @@ func checkPendingWrite(ctx context.Context, tr fdb.Transaction, now time.Time, w
 	return none, nil
 }
 
+// heldMirrorWrite returns nil when work does not specify a mirror.
+// heldMirrorWrite reads the copy class pending write record for documentID.
+// heldMirrorWrite returns the record when its index equals work.Mirror and now precedes its deadline.
+// heldMirrorWrite returns nil otherwise.
+// heldMirrorWrite does not clear the record.
+// The copy claim registration clears the record.
+func heldMirrorWrite(ctx context.Context, tr fdb.Transaction, now time.Time, work searchdomain.Work, documentID string) (*searchdomain.PendingWrite, error) {
+	if work.Mirror == "" {
+		return nil, nil
+	}
+	var record searchPendingWriteRecord
+	found, err := readSearchRecord(ctx, tr, searchPendingWriteKey(searchdomain.WorkClassCopy, work.OrgID, work.NodeID, documentID), &record)
+	if err != nil || !found || record.Index != work.Mirror || !now.Before(record.Deadline) {
+		return nil, err
+	}
+	return &searchdomain.PendingWrite{
+		DocumentID: record.DocumentID, Index: record.Index, Ordinal: record.Ordinal,
+		Generation: record.Generation, AbandonedAt: record.AbandonedAt, Deadline: record.Deadline,
+	}, nil
+}
+
 // logExpiredPendingWrite logs an expired pending write after Register clears
 // its record and commits. The worker may then send the page again.
 // It does not log when pending is nil.
