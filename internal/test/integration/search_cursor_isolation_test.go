@@ -50,7 +50,7 @@ func TestSearchCursorRejectsForeignCallerAndChangedType(t *testing.T) {
 	sameOrganization := actorHarness(fixture, caller, 1)
 	otherOrganizationCaller := actorHarness(fixture, foreign, 0)
 	changedType := searchArguments(fixture.Harness, cursorIsolationQuery, first.Cursor)
-	changedType["node_type"] = entryTypeKeys(t, fixture, caller.OrgID)[0]
+	changedType["node_type"] = entryTypeKeys(t, fixture.Stores, caller.OrgID)[0]
 	attempts := []struct {
 		name      string
 		harness   *MCPHarness
