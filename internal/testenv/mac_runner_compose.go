@@ -60,6 +60,9 @@ func (prepared *macRunnerPreparation) loadComposeInputs(ctx context.Context, pro
 	if service.WorkingDir != prepared.root {
 		return fmt.Errorf("tests working directory must equal checkout root %s", prepared.root)
 	}
+	if err := validateMacRunnerNestedCompose(service); err != nil {
+		return err
+	}
 	if err := prepared.configureMacRunnerVolumes(&service, project); err != nil {
 		return err
 	}
