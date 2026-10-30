@@ -23,13 +23,14 @@ type MacTestResult struct {
 
 // macRunnerPreparation stores inputs and source evidence for one invocation.
 type macRunnerPreparation struct {
-	options MacTestOptions
-	root    string
-	source  macRunnerSource
-	project *types.Project
-	service types.ServiceConfig
-	command []string
-	timeout time.Duration
+	options        MacTestOptions
+	root           string
+	source         macRunnerSource
+	sourceCaptured bool
+	project        *types.Project
+	service        types.ServiceConfig
+	command        []string
+	timeout        time.Duration
 }
 
 type macRunnerSource struct {

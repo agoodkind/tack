@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -31,7 +30,7 @@ func (options MacTestOptions) Validate() error {
 	return err
 }
 
-// RunMacTests prepares a local macOS integration test invocation.
+// RunMacTests executes local macOS integration tests and records private evidence.
 func RunMacTests(ctx context.Context, options MacTestOptions) (MacTestResult, error) {
 	result := MacTestResult{ExitCode: 1, EvidenceDirectory: options.EvidenceDirectory, RunnerID: ""}
 	if err := options.Validate(); err != nil {
@@ -40,14 +39,17 @@ func RunMacTests(ctx context.Context, options MacTestOptions) (MacTestResult, er
 	if runtime.GOOS != "darwin" {
 		return result, errors.New("run-mac requires local macOS Docker Desktop")
 	}
-	prepared, err := prepareMacRunner(ctx, options)
+	_, timeout, err := macRunnerArguments(options.TestArguments)
 	if err != nil {
 		return result, err
 	}
-	result.EvidenceDirectory = prepared.options.EvidenceDirectory
-	err = errors.New("run-mac execution is not implemented; preparation completed without creating Docker resources")
-	slog.ErrorContext(ctx, "testenv.run_mac.execution_unavailable", slog.String("err", err.Error()))
-	return result, errors.Join(ctx.Err(), err)
+	operator, cancel := context.WithTimeout(ctx, timeout+300*time.Second)
+	defer cancel()
+	prepared, err := prepareMacRunner(operator, options)
+	if prepared == nil {
+		return result, err
+	}
+	return executeMacRunner(operator, ctx, prepared, err)
 }
 
 func prepareMacRunner(ctx context.Context, options MacTestOptions) (*macRunnerPreparation, error) {
@@ -74,17 +76,18 @@ func prepareMacRunner(ctx context.Context, options MacTestOptions) (*macRunnerPr
 	}
 	prepared.source, err = captureMacRunnerSource(root, prepared.options.EvidenceDirectory)
 	if err != nil {
-		return nil, err
+		return &prepared, err
 	}
+	prepared.sourceCaptured = true
 	prepared.service.Environment["TACK_TEST_SOURCE_REVISION"] = &prepared.source.revision
 	if err := prepared.writeSourceEvidence(); err != nil {
-		return nil, err
+		return &prepared, err
 	}
 	if err := prepared.verifySources(); err != nil {
-		return nil, err
+		return &prepared, err
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, macRunnerFailure("complete macOS runner preparation", err)
+		return &prepared, macRunnerFailure("complete macOS runner preparation", err)
 	}
 	return &prepared, nil
 }
