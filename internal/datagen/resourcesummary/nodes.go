@@ -58,7 +58,7 @@ func SummarizeRun(ctx context.Context, path string) (RunSummary, error) {
 	var result runResult
 	err = json.Unmarshal(block, &result)
 	if err != nil {
-		return RunSummary{}, wrapError(ctx, "decode run result in "+path, err)
+		return RunSummary{}, wrapError("decode run result in "+path, err)
 	}
 	byName := map[string]*NodeSummary{}
 	for _, sample := range result.Samples {
@@ -121,7 +121,7 @@ func fraction(part int64, whole int64) float64 {
 func readResultBlock(ctx context.Context, path string) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, wrapError(ctx, "open run log "+path, err)
+		return nil, wrapError("open run log "+path, err)
 	}
 	defer closeFile(ctx, file)
 	scanner := bufio.NewScanner(file)
@@ -144,7 +144,7 @@ func readResultBlock(ctx context.Context, path string) ([]byte, error) {
 	}
 	scanErr := scanner.Err()
 	if scanErr != nil {
-		return nil, wrapError(ctx, "scan run log "+path, scanErr)
+		return nil, wrapError("scan run log "+path, scanErr)
 	}
 	return nil, errors.New("run log " + path + " has no complete indented result")
 }

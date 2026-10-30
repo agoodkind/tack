@@ -53,34 +53,6 @@ type HostSummary struct {
 	GuestWriteMiB    float64
 }
 
-type samplerLine struct {
-	Time     time.Time      `json:"time"`
-	Error    string         `json:"error"`
-	Meminfo  samplerMeminfo `json:"meminfo_kib"`
-	Pressure string         `json:"pressure"`
-	CPUDisk  samplerCPUDisk `json:"cpu_disk"`
-}
-
-type samplerMeminfo struct {
-	MemAvailable int64 `json:"MemAvailable"`
-}
-
-type samplerCPUDisk struct {
-	Host     map[string][]string            `json:"host"`
-	Guests   map[string]samplerGuest        `json:"guests"`
-	Pressure map[string]map[string][]string `json:"pressure"`
-}
-
-type samplerGuest struct {
-	CPU samplerGuestCPU `json:"cpu"`
-	IO  []string        `json:"io"`
-}
-
-type samplerGuestCPU struct {
-	// UsageUsec accepts a JSON number or a JSON string that contains a number.
-	UsageUsec json.Number `json:"usage_usec"`
-}
-
 // SummarizeHost reads a sampler JSON Lines file and summarizes the samples inside window
 // for the host and for the guest with guestID. It counts and skips samples that carry an
 // error.
@@ -92,10 +64,10 @@ func SummarizeHost(
 ) (HostSummary, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return HostSummary{}, wrapError(ctx, "open sampler file "+path, err)
+		return HostSummary{}, wrapError("open sampler file "+path, err)
 	}
 	defer closeFile(ctx, file)
-	accumulator := newHostAccumulator(guestID)
+	accumulator := newHostAccumulator()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, initialLineBytes), maxLineBytes)
 	lineNumber := 0
@@ -105,7 +77,7 @@ func SummarizeHost(
 		decodeErr := json.Unmarshal(scanner.Bytes(), &line)
 		if decodeErr != nil {
 			message := fmt.Sprintf("decode %s line %d", path, lineNumber)
-			return HostSummary{}, wrapError(ctx, message, decodeErr)
+			return HostSummary{}, wrapError(message, decodeErr)
 		}
 		if line.Time.Before(window.Start) || line.Time.After(window.End) {
 			continue
@@ -114,14 +86,15 @@ func SummarizeHost(
 			accumulator.summary.FailedSamples++
 			continue
 		}
-		addErr := accumulator.add(ctx, line)
-		if addErr != nil {
-			return HostSummary{}, addErr
+		sample, parseErr := parseSample(line, guestID)
+		if parseErr != nil {
+			return HostSummary{}, parseErr
 		}
+		accumulator.add(sample)
 	}
 	scanErr := scanner.Err()
 	if scanErr != nil {
-		return HostSummary{}, wrapError(ctx, "scan sampler file "+path, scanErr)
+		return HostSummary{}, wrapError("scan sampler file "+path, scanErr)
 	}
 	slog.InfoContext(ctx, "resource_summary.sampler_read",
 		slog.String("path", path), slog.Int("samples", accumulator.summary.Samples),
@@ -137,8 +110,20 @@ func closeFile(ctx context.Context, file *os.File) {
 	}
 }
 
-func wrapError(ctx context.Context, step string, err error) error {
-	slog.ErrorContext(ctx, "resource_summary.read_failed",
-		slog.String("step", step), slog.String("err", err.Error()))
-	return fmt.Errorf("%s: %w", step, err)
+// readError reports the input step that failed and its cause. The caller logs it.
+type readError struct {
+	step  string
+	cause error
+}
+
+func (failure *readError) Error() string {
+	return failure.step + ": " + failure.cause.Error()
+}
+
+func (failure *readError) Unwrap() error {
+	return failure.cause
+}
+
+func wrapError(step string, err error) error {
+	return &readError{step: step, cause: err}
 }

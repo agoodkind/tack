@@ -1,7 +1,6 @@
 package resourcesummary
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -32,7 +31,7 @@ type ioBytes struct {
 
 // parsePressure reads the avg10 value of the some and full lines in Linux pressure stall
 // information format.
-func parsePressure(ctx context.Context, lines []string) (pressureReading, error) {
+func parsePressure(lines []string) (pressureReading, error) {
 	reading := pressureReading{some: 0, full: 0}
 	if len(lines) == 0 {
 		return reading, errors.New("pressure reading has no lines")
@@ -52,7 +51,7 @@ func parsePressure(ctx context.Context, lines []string) (pressureReading, error)
 		}
 		avg10, err := strconv.ParseFloat(text, floatBits)
 		if err != nil {
-			return reading, wrapError(ctx, "parse avg10 in "+line, err)
+			return reading, wrapError("parse avg10 in "+line, err)
 		}
 		target, known := targets[fields[0]]
 		if !known {
@@ -65,7 +64,7 @@ func parsePressure(ctx context.Context, lines []string) (pressureReading, error)
 
 // parseIOStat adds the rbytes and wbytes counters of every device line in a cgroup io.stat
 // reading.
-func parseIOStat(ctx context.Context, lines []string) (ioBytes, error) {
+func parseIOStat(lines []string) (ioBytes, error) {
 	total := ioBytes{read: 0, written: 0}
 	if len(lines) == 0 {
 		return total, errors.New("io.stat reading has no lines")
@@ -83,7 +82,7 @@ func parseIOStat(ctx context.Context, lines []string) (ioBytes, error) {
 			}
 			value, err := strconv.ParseInt(text, decimalBase, int64Bits)
 			if err != nil {
-				return total, wrapError(ctx, "parse io.stat field "+field, err)
+				return total, wrapError("parse io.stat field "+field, err)
 			}
 			*counter += value
 		}
@@ -92,7 +91,7 @@ func parseIOStat(ctx context.Context, lines []string) (ioBytes, error) {
 }
 
 // parseLoad reads the 1-minute load average from the first /proc/loadavg line.
-func parseLoad(ctx context.Context, lines []string) (float64, error) {
+func parseLoad(lines []string) (float64, error) {
 	if len(lines) == 0 {
 		return 0, errors.New("loadavg reading has no lines")
 	}
@@ -102,7 +101,7 @@ func parseLoad(ctx context.Context, lines []string) (float64, error) {
 	}
 	load, err := strconv.ParseFloat(fields[0], floatBits)
 	if err != nil {
-		return 0, wrapError(ctx, "parse loadavg "+lines[0], err)
+		return 0, wrapError("parse loadavg "+lines[0], err)
 	}
 	return load, nil
 }
