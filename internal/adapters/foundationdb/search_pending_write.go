@@ -12,9 +12,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// searchPendingWriteRecord records one abandoned page write per work class
-// and node. Its key does not include the generation, and claims of newer
-// generations read the same record.
+// searchPendingWriteRecord stores one abandoned page write.
+// The key includes the work class, organization, node, and document ID.
+// The key does not include the generation.
+// Claims of newer generations of the same document read the same record.
 type searchPendingWriteRecord struct {
 	DocumentID  string    `json:"document_id"`
 	Index       string    `json:"index"`
@@ -34,32 +35,50 @@ type pendingWriteCheck struct {
 	expired *searchdomain.PendingWrite
 }
 
-func searchPendingWriteKey(class string, orgID, nodeID uuid.UUID) []byte {
-	return withPrefix(tuple.Tuple{keySearchPendingWrite, class, orgID.String(), nodeID.String()}.Pack())
+// searchPendingWritePrefix returns the prefix for all pending write records
+// for class, orgID, and nodeID.
+func searchPendingWritePrefix(class searchdomain.WorkClass, orgID, nodeID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchPendingWrite, string(class), orgID.String(), nodeID.String()}.Pack())
 }
 
-// recordPendingWrite stores pending for the class and node of work in tr.
+// searchPendingWriteKey returns the key for documentID under the pending write
+// prefix for class, orgID, and nodeID.
+func searchPendingWriteKey(class searchdomain.WorkClass, orgID, nodeID uuid.UUID, documentID string) []byte {
+	return withPrefix(tuple.Tuple{keySearchPendingWrite, string(class), orgID.String(), nodeID.String(), documentID}.Pack())
+}
+
+// recordPendingWrite stores pending under the class, organization, and node of work
+// and the document ID of pending. It does not change records for other documents.
 func recordPendingWrite(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, pending searchdomain.PendingWrite) error {
-	return writeSearchRecord(ctx, tr, searchPendingWriteKey(string(work.Class), work.OrgID, work.NodeID), searchPendingWriteRecord{
+	return writeSearchRecord(ctx, tr, searchPendingWriteKey(work.Class, work.OrgID, work.NodeID, pending.DocumentID), searchPendingWriteRecord{
 		DocumentID: pending.DocumentID, Index: pending.Index, Ordinal: pending.Ordinal,
 		Generation: pending.Generation, AbandonedAt: pending.AbandonedAt, Deadline: pending.Deadline,
 	})
 }
 
-// clearPendingWrite removes the pending write record for one class and node.
-func clearPendingWrite(tr fdb.Transaction, class searchdomain.WorkClass, orgID, nodeID uuid.UUID) {
-	tr.Clear(fdb.Key(searchPendingWriteKey(string(class), orgID, nodeID)))
+// clearPendingWrite clears the record for documentID in class, orgID, and nodeID.
+func clearPendingWrite(tr fdb.Transaction, class searchdomain.WorkClass, orgID, nodeID uuid.UUID, documentID string) {
+	tr.Clear(fdb.Key(searchPendingWriteKey(class, orgID, nodeID, documentID)))
 }
 
-// checkPendingWrite reads the pending write for the class and node of work.
-// It returns held when the document ID matches, the index is the target or
-// mirror, and now precedes the deadline. It clears any other record. It
-// returns the cleared record as expired only when the document and index
-// match and now is at or after the deadline.
+// clearPendingWrites clears all pending write records for class, orgID, and nodeID
+// with one range clear. clearSearchWork, the node deletion path, the schedule
+// removal plan, and dropSearchWork use clearPendingWrites.
+func clearPendingWrites(tr fdb.Transaction, class searchdomain.WorkClass, orgID, nodeID uuid.UUID) {
+	prefix := searchPendingWritePrefix(class, orgID, nodeID)
+	end := append(append([]byte(nil), prefix...), 0xFF)
+	tr.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
+}
+
+// checkPendingWrite reads only the pending write record for documentID.
+// It returns the record as held when the record index equals work.Target
+// and now precedes the deadline. Otherwise, it clears that record.
+// It returns the cleared record as expired only when the record index equals work.Target.
+// It never reads or clears records for other documents.
 func checkPendingWrite(ctx context.Context, tr fdb.Transaction, now time.Time, work searchdomain.Work, documentID string) (pendingWriteCheck, error) {
 	none := pendingWriteCheck{held: nil, expired: nil}
 	var record searchPendingWriteRecord
-	found, err := readSearchRecord(ctx, tr, searchPendingWriteKey(string(work.Class), work.OrgID, work.NodeID), &record)
+	found, err := readSearchRecord(ctx, tr, searchPendingWriteKey(work.Class, work.OrgID, work.NodeID, documentID), &record)
 	if err != nil || !found {
 		return none, err
 	}
@@ -67,13 +86,12 @@ func checkPendingWrite(ctx context.Context, tr fdb.Transaction, now time.Time, w
 		DocumentID: record.DocumentID, Index: record.Index, Ordinal: record.Ordinal,
 		Generation: record.Generation, AbandonedAt: record.AbandonedAt, Deadline: record.Deadline,
 	}
-	sameDocument := record.DocumentID == documentID
-	writtenIndex := record.Index == work.Target || record.Index == work.Mirror
-	if sameDocument && writtenIndex && now.Before(record.Deadline) {
+	writtenIndex := record.Index == work.Target
+	if writtenIndex && now.Before(record.Deadline) {
 		return pendingWriteCheck{held: &pending, expired: nil}, nil
 	}
-	clearPendingWrite(tr, work.Class, work.OrgID, work.NodeID)
-	if sameDocument && writtenIndex {
+	clearPendingWrite(tr, work.Class, work.OrgID, work.NodeID, documentID)
+	if writtenIndex {
 		return pendingWriteCheck{held: nil, expired: &pending}, nil
 	}
 	return none, nil

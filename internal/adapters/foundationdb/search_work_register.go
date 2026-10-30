@@ -20,10 +20,8 @@ import (
 // registered the same ordinal of this revision under another projection. The worker then
 // schedules a new revision, and cleanup retires every issued ID of the older revision.
 // While the node's access record tracks page access, the same transaction records the page's
-// access there. Register also checks the pending write in that transaction and returns it in
-// intent.Pending when the document and target or mirror index match and the deadline has not
-// passed. It clears other records in that transaction and logs matching expired records after
-// commit.
+// access there. Register calls checkPendingWrite in its transaction for the registered
+// document. It returns a held record in intent.Pending and logs an expired record after commit.
 func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, page node.ContentPage) (intent searchdomain.WriteIntent, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.register")(&err)
 	if pageErr := searchdomain.ValidatePage(work, page); pageErr != nil {

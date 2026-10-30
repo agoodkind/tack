@@ -9,8 +9,11 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// CompletePage checkpoints one page after its OpenSearch write succeeded. The
-// final page sets the checkpoint phase to PhaseRefresh.
+// CompletePage checkpoints one page after its serving index write succeeds,
+// including when the mirror write fails.
+// CompletePage calls scheduleMirrorCopy inside its FoundationDB transaction when
+// intent.MirrorMissed is set. The cursor advance and copy item commit together.
+// CompletePage sets the final page's checkpoint phase to PhaseRefresh.
 func (s *SearchWorkStore) CompletePage(ctx context.Context, intent searchdomain.WriteIntent, cursor string, done bool) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.complete_page")(&err)
 	work := intent.Work
@@ -31,7 +34,12 @@ func (s *SearchWorkStore) CompletePage(ctx context.Context, intent searchdomain.
 			return err
 		}
 		if intent.Pending != nil {
-			clearPendingWrite(tr, work.Class, work.OrgID, work.NodeID)
+			clearPendingWrite(tr, work.Class, work.OrgID, work.NodeID, intent.Pending.DocumentID)
+		}
+		if intent.MirrorMissed != nil {
+			if err := scheduleMirrorCopy(ctx, tr, s.clock.Now().UTC(), intent, revision); err != nil {
+				return err
+			}
 		}
 		return writeSearchRecord(ctx, tr, searchCursorKey(string(work.Class), work.OrgID, work.NodeID), searchProgressRecord{
 			Revision: revision, Generation: work.Generation, Projection: page.ProjectionVersion,
@@ -160,5 +168,5 @@ func clearSearchWork(tr fdb.Transaction, work searchdomain.Work, record searchWo
 	tr.Clear(fdb.Key(searchCursorKey(class, work.OrgID, work.NodeID)))
 	tr.Clear(fdb.Key(searchErrorKey(class, work.OrgID, work.NodeID)))
 	tr.Clear(fdb.Key(searchAttemptKey(class, work.OrgID, work.NodeID)))
-	clearPendingWrite(tr, work.Class, work.OrgID, work.NodeID)
+	clearPendingWrites(tr, work.Class, work.OrgID, work.NodeID)
 }

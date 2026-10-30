@@ -10,13 +10,23 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// contentSlice writes pages of one revision. It reads, registers, writes,
-// and checkpoints each page before it reads the next page. Once the slice
-// spends its page, byte, or time budget, it yields before another remote
-// write. When the page of a pending write remains absent, the slice ends
-// with an uncounted release and the store's minimum retry delay. After the
-// final page it refreshes the serving index in a separate resumable phase.
+// contentSlice writes pages of one revision. contentSlice reads, registers, writes,
+// and checkpoints each page before reading the next page. contentSlice yields before
+// another remote write once the slice spends its page, byte, or time budget.
+// An absent page with a pending write ends the slice with an uncounted release and
+// the store's minimum retry delay.
+//
+// After the serving index accepts a page, contentSlice records a mirror error other
+// than ErrObsoleteWrite in intent.MirrorMissed and checkpoints the page.
+// CompletePage advances the serving cursor and schedules the copy in one FoundationDB
+// transaction. contentSlice writes later pages in the slice only to the serving index.
+// Those Put calls receive a copy of the intent with Work.Mirror cleared.
+// intent.Work retains Mirror for claim verification.
+//
+// After the final page, contentSlice refreshes the serving index in a separate
+// resumable phase.
 func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work, budget *sliceBudget) error {
+	mirrorSkipped := false
 	for work.Phase != searchdomain.PhaseRefresh {
 		if budget.spent() {
 			return w.yield(ctx, work)
@@ -38,11 +48,18 @@ func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work,
 		if err != nil {
 			return w.settle(ctx, work, "register search page", err)
 		}
+		putIntent := intent
+		if mirrorSkipped {
+			putIntent.Work.Mirror = ""
+		}
 		operationContext, cancel := context.WithTimeout(ctx, w.settings.OperationTimeout)
-		written, err := w.ports.Writer.Put(operationContext, intent)
+		written, err := w.ports.Writer.Put(operationContext, putIntent)
 		timedOut := errors.Is(operationContext.Err(), context.DeadlineExceeded)
 		cancel()
 		budget.record(1, written)
+		if missed := w.mirrorMiss(ctx, intent, err, timedOut); missed != nil {
+			intent.MirrorMissed, err, mirrorSkipped = missed, nil, true
+		}
 		if errors.Is(err, searchdomain.ErrPageWritePending) {
 			return w.awaitPendingWrite(ctx, work, intent)
 		}

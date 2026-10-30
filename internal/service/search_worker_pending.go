@@ -78,3 +78,30 @@ func (w *SearchWorker) logStoredPendingWrite(ctx context.Context, work searchdom
 		slog.String("index", pending.Index), slog.Uint64("ordinal", pending.Ordinal),
 		slog.Duration("since_abandoned", w.clock.Since(pending.AbandonedAt)))
 }
+
+// mirrorMiss returns a PendingWrite for a failed mirror write after the serving index
+// accepts the page. mirrorMiss returns nil for ErrObsoleteWrite, every other error,
+// and claims without a mirror.
+// mirrorMiss sets Deadline to now + WriteCompletionHorizon when timedOut is true.
+// Otherwise, mirrorMiss sets Deadline to now.
+// mirrorMiss logs one Info event when returning a PendingWrite.
+func (w *SearchWorker) mirrorMiss(ctx context.Context, intent searchdomain.WriteIntent, err error, timedOut bool) *searchdomain.PendingWrite {
+	work := intent.Work
+	var pageErr *searchdomain.PageWriteError
+	if work.Mirror == "" || !errors.As(err, &pageErr) || pageErr.Index != work.Mirror || errors.Is(err, searchdomain.ErrObsoleteWrite) {
+		return nil
+	}
+	now := w.clock.Now()
+	deadline := now
+	if timedOut {
+		deadline = now.Add(w.settings.WriteCompletionHorizon)
+	}
+	telemetry.L(ctx).InfoContext(ctx, "search.worker.mirror_missed", slog.String("node_id", work.NodeID.String()),
+		slog.String("class", string(work.Class)), slog.Int64("generation", work.Generation),
+		slog.String("document_id", intent.DocumentID), slog.String("index", work.Mirror),
+		slog.Uint64("ordinal", intent.Page.Ordinal), slog.Bool("timed_out", timedOut))
+	return &searchdomain.PendingWrite{
+		DocumentID: intent.DocumentID, Index: work.Mirror, Ordinal: intent.Page.Ordinal,
+		Generation: work.Generation, AbandonedAt: now, Deadline: deadline,
+	}
+}

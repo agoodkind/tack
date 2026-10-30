@@ -32,6 +32,17 @@ func removeSearchWork(tr fdb.Transaction, class searchdomain.WorkClass, record s
 	tr.Clear(fdb.Key(searchAgeKey(string(class), bucket, record.EnqueuedAt, record.OrgID, record.NodeID)))
 }
 
+// dropSearchWork clears a work item that a claim scan cannot claim.
+// The scan rejects the item when the class lacks a target in the current claim scope
+// or the record generation differs from the desired generation.
+// dropSearchWork clears the work record, its class age entry, its claim,
+// and all pending write records for that class and node.
+func dropSearchWork(tr fdb.Transaction, class searchdomain.WorkClass, record searchWorkRecord) {
+	removeSearchWork(tr, class, record)
+	tr.Clear(fdb.Key(searchClaimKey(string(class), searchBucket(record.OrgID, record.NodeID), record.OrgID, record.NodeID)))
+	clearPendingWrites(tr, class, record.OrgID, record.NodeID)
+}
+
 // readAgedWork reads the pending record of the organization and node in one
 // class-age entry. It reports false for an entry without a record at the
 // same enqueue time.

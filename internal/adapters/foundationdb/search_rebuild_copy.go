@@ -97,12 +97,14 @@ func nodeInstanceIdentity(ctx context.Context, key fdb.Key) (uuid.UUID, uuid.UUI
 	return orgID, nodeID, nil
 }
 
-// scheduleCopy records one copy item for a node at its current generation
-// and revision. A node with pending live work receives no copy. Every live
-// claim during copying writes the replacement index as its mirror.
-// Verification schedules a copy for any page that live work wrote before
-// mirroring began. A node that search never indexed receives its first
-// revision here, with the write versions of its authority.
+// scheduleCopy records one copy item for a node at its current generation and revision.
+// scheduleCopy skips nodes with pending live work.
+// Every live claim during copying writes the replacement index as its mirror.
+// A live claim uses scheduleMirrorCopy to schedule its own copy when the replacement
+// index misses a page that the serving index accepted.
+// Verification schedules a copy for any page that live work wrote before mirroring
+// began. A node that search never indexed receives its first revision here with
+// the write versions of its authority.
 func scheduleCopy(ctx context.Context, tr fdb.Transaction, now time.Time, orgID, nodeID uuid.UUID) error {
 	if _, livePending, err := readSearchWork(ctx, tr, searchdomain.WorkClassLive, orgID, nodeID); err != nil || livePending {
 		return err
