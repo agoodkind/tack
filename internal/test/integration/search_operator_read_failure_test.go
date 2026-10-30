@@ -3,6 +3,8 @@ package integration_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -51,13 +53,32 @@ func TestSearchOperatorReadFailureBoundaries(t *testing.T) {
 			})
 			operatorID := uuid.Must(uuid.NewV7())
 			denied := rolePool(t, testenv.Ledger(t), "audit_operator")
-			root, output := searchReadCommand(t, fixture.Config, denied, operatorID, arguments...)
+			cfg := fixture.Config
+			var proxy *searchReadProxy
+			if current.command == "settings" {
+				cfg, proxy = newSearchReadProxy(t, cfg)
+			}
+			root, output := searchReadCommand(t, cfg, denied, operatorID, arguments...)
 			err := root.ExecuteContext(t.Context())
 			if !errors.Is(err, audit.ErrReadNotAdmitted) || !strings.Contains(err.Error(), "ops_read_begin") || output.Len() != 0 {
 				t.Fatalf("admission refusal = %v, output = %q; want a refused admission before command output", err, output.String())
 			}
 			if events := readOutboxEvents(t, pool, current.verb, cli.ServiceActorID(searchReadService(operatorID))); len(events) != 0 {
 				t.Fatalf("refused admission recorded a legacy successful read: %+v", events)
+			}
+			if proxy != nil {
+				if requests := proxy.observed(); len(requests) != 0 {
+					t.Fatalf("refused admission executed real backend requests: %+v", requests)
+				}
+				control, printed := searchReadCommand(t, cfg, pool, uuid.Must(uuid.NewV7()), arguments...)
+				if err := control.ExecuteContext(t.Context()); err != nil {
+					t.Fatalf("the admitted settings control failed: %v\n%s", err, printed.String())
+				}
+				want := searchReadRequest{method: http.MethodGet, path: "/_cluster/settings"}
+				if requests := proxy.observed(); !slices.Contains(requests, want) {
+					t.Fatalf("the admitted settings control did not execute %v: %+v", want, requests)
+				}
+				t.Log("real settings requests: refused admission=0; admitted control executed GET /_cluster/settings")
 			}
 		})
 		t.Run(current.command+"_finalization", func(t *testing.T) {
@@ -118,6 +139,7 @@ func TestSearchOperatorReadFailureBoundaries(t *testing.T) {
 	pipeline.startRelay(t, nil)
 	for _, event := range terminal {
 		row := pipeline.stack().waitForRow(t, event.EventID)
+		requireSearchReadLedgerIdentity(t, row, event)
 		if row.Outcome != event.Outcome || row.Context.Read != nil || row.Error == nil || row.Error.Message != event.Error.Message {
 			t.Fatalf("ledger failure %s differs from the actual command result: %+v", event.EventID, row)
 		}

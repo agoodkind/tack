@@ -74,6 +74,7 @@ func TestSearchOperatorReadsFinalizeBeforeOutput(t *testing.T) {
 	ledger := publicLedger{stack: pipeline.stack(), since: clock.Now().Add(-time.Hour)}
 	for _, event := range events {
 		row := pipeline.stack().waitForRow(t, event.EventID)
+		requireSearchReadLedgerIdentity(t, row, event)
 		if row.Outcome != event.Outcome || row.Context.OperationID != event.Context.OperationID ||
 			row.Context.Read == nil || *row.Context.Read != *event.Context.Read {
 			t.Fatalf("ledger event differs from finalized read %s: %+v", event.EventID, row)
@@ -84,6 +85,32 @@ func TestSearchOperatorReadsFinalizeBeforeOutput(t *testing.T) {
 		pipeline.requireActorPII(t, event.Actor, row)
 		t.Logf("ledger event=%s operation=%s verb=%s outcome=%s count=%d sha256=%s",
 			row.EventID, row.Context.OperationID, row.Action, row.Outcome, row.Context.Read.Count, row.Context.Read.PayloadSHA256)
+	}
+}
+
+func requireSearchReadLedgerIdentity(t *testing.T, row audit.Row, event audit.Event) {
+	t.Helper()
+	if row.ActorID != event.Actor.ID || row.Context.AuditFormatVersion != event.Context.AuditFormatVersion ||
+		row.Context.OperationClass != event.Context.OperationClass || row.Context.Phase != event.Context.Phase ||
+		row.Context.OperationID != event.Context.OperationID || row.Context.Target == nil ||
+		*row.Context.Target != *event.Context.Target || !row.Context.StartedAt.Equal(event.Context.StartedAt) ||
+		!row.Context.CompletedAt.Equal(event.Context.CompletedAt) {
+		t.Fatalf("permanent actor, target, operation, or times differ from final event %s: %+v", event.EventID, row)
+	}
+	var actual, expected struct {
+		commandExtra
+		DeployCommit string `json:"deploy_commit"`
+	}
+	if err := json.Unmarshal(row.Extra, &actual); err != nil {
+		t.Fatalf("decode permanent operator evidence: %v", err)
+	}
+	if err := json.Unmarshal(event.Extra, &expected); err != nil {
+		t.Fatalf("decode finalized operator evidence: %v", err)
+	}
+	if actual.OpID != expected.OpID || actual.DeployCommit != expected.DeployCommit ||
+		actual.SessionID != expected.SessionID || actual.OnBehalfOf == nil || expected.OnBehalfOf == nil ||
+		actual.OnBehalfOf.OperatorID != expected.OnBehalfOf.OperatorID {
+		t.Fatalf("permanent operator evidence differs from final event %s: %+v", event.EventID, actual)
 	}
 }
 

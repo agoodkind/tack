@@ -80,6 +80,7 @@ func TestOperatorReadDLQSummary(t *testing.T) {
 	pipeline.startConsumer(t)
 	pipeline.startRelay(t, nil)
 	row := pipeline.stack().waitForRow(t, event.EventID)
+	requireSearchReadLedgerIdentity(t, row, event)
 	ledger := publicLedger{stack: pipeline.stack(), since: clock.Now().Add(-time.Hour)}
 	if row.Outcome != audit.OutcomeCompleted || row.Context.Read == nil || *row.Context.Read != *event.Context.Read ||
 		!slices.Equal(ledger.manifestTargets(t, row), targets) {
