@@ -1,3 +1,5 @@
+//go:build darwin && integration
+
 package testenv_test
 
 import (
@@ -70,7 +72,7 @@ func TestMacRunnerRejectsUnsupportedCompose(t *testing.T) {
 			}
 			compose = strings.Replace(compose, "  tests:\n", "  tests:\n"+addition, 1)
 			macWrite(t, options.Root, "docker-compose.test.yml", compose)
-			if _, err := testenv.RunMacTests(t.Context(), options); err == nil || strings.Contains(err.Error(), "execution is not implemented") {
+			if _, err := testenv.RunMacTests(t.Context(), options); err == nil || strings.Contains(err.Error(), "inspect required immutable local image") {
 				t.Fatalf("RunMacTests accepted unsupported Compose %s: %v", field, err)
 			}
 			if _, err := os.Lstat(options.EvidenceDirectory); !os.IsNotExist(err) {

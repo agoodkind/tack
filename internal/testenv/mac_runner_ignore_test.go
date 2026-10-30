@@ -1,3 +1,5 @@
+//go:build darwin && integration
+
 package testenv_test
 
 import (

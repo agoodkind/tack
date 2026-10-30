@@ -1,10 +1,11 @@
+//go:build darwin && integration
+
 package testenv_test
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -28,9 +29,6 @@ type macInvocation struct {
 
 func macFixture(t *testing.T) (testenv.MacTestOptions, *git.Repository) {
 	t.Helper()
-	if runtime.GOOS != "darwin" {
-		t.Skip("run-mac requires macOS")
-	}
 	t.Setenv("COMPOSE_PROJECT_NAME", "")
 	t.Setenv("TACK_SEARCH_CLUSTER", "1")
 	root, err := filepath.EvalSymlinks(t.TempDir())
@@ -90,8 +88,11 @@ func macWrite(t *testing.T, root, path, contents string) {
 func macPrepare(t *testing.T, options testenv.MacTestOptions) macInvocation {
 	t.Helper()
 	result, err := testenv.RunMacTests(t.Context(), options)
-	if err == nil || !strings.Contains(err.Error(), "execution is not implemented") || result.ExitCode != 1 {
-		t.Fatalf("preparation must refuse execution: result=%+v error=%v", result, err)
+	if err == nil || !strings.Contains(err.Error(), "inspect required immutable local image") || result.ExitCode != 1 || result.RunnerID != "" {
+		t.Fatalf("preparation must refuse the absent immutable image: result=%+v error=%v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(result.EvidenceDirectory, "runner-request.json")); !os.IsNotExist(err) {
+		t.Fatalf("source preparation attempted container creation: %v", err)
 	}
 	contents, err := os.ReadFile(filepath.Join(result.EvidenceDirectory, "invocation.json"))
 	if err != nil {

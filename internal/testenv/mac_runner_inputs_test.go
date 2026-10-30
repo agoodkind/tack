@@ -1,3 +1,5 @@
+//go:build darwin && integration
+
 package testenv_test
 
 import (
@@ -78,7 +80,7 @@ func TestMacRunnerRejectsEvidenceReuse(t *testing.T) {
 			case "checkout parent":
 				options.EvidenceDirectory = filepath.Dir(options.Root)
 			}
-			if _, err := testenv.RunMacTests(t.Context(), options); err == nil || strings.Contains(err.Error(), "execution is not implemented") {
+			if _, err := testenv.RunMacTests(t.Context(), options); err == nil || strings.Contains(err.Error(), "inspect required immutable local image") {
 				t.Fatalf("RunMacTests accepted existing evidence: %v", err)
 			}
 		})
@@ -106,7 +108,7 @@ func TestMacRunnerRejectsCheckoutAndImage(t *testing.T) {
 				cancel()
 				ctx = canceled
 			}
-			if _, err := testenv.RunMacTests(ctx, options); err == nil || strings.Contains(err.Error(), "execution is not implemented") {
+			if _, err := testenv.RunMacTests(ctx, options); err == nil || strings.Contains(err.Error(), "inspect required immutable local image") {
 				t.Fatalf("RunMacTests accepted invalid %s: %v", invalid, err)
 			}
 		})
