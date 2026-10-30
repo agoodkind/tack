@@ -30,10 +30,12 @@ func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error
 	if s.Rebuild.FinalState == string(searchdomain.RebuildFailed) {
 		failures = append(failures, errors.New("the index rebuild failed"))
 	}
-	// A dry run skips this block. Verify fails every other stopped run with one error that states
-	// the stop reason, whether the run stopped during setup or during the measured window.
-	// After a measured run that finished, Verify fails for incomplete catch-up, markers the probe
-	// did not find, and deletions the probe did not verify.
+	// Verify skips these checks for a dry run. For every other stopped run, it reports the stop
+	// reason, whether the run stopped during setup or during the measured window.
+	// For measured runs that finish, Verify rejects incomplete catch-up, markers that search
+	// did not return, and deletions that the prober could not verify.
+	// For every measured run, stopped or finished, Verify also rejects markers that the final
+	// probe pass did not search successfully.
 	if s.Stopped && !s.Search.DryRun {
 		failures = append(failures, fmt.Errorf("run stopped with reason %s; the measured window did not run or did not finish", stopReason))
 	} else if s.Measured {
@@ -48,6 +50,7 @@ func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error
 		add(s.DeletesUnverified > 0, "the command could not verify the removal of %d deleted issues from search results", s.DeletesUnverified)
 		failures = append(failures, s.Changes.failures()...)
 	}
+	add(s.Measured && s.MarkersUnsearched > 0, "the final probe pass did not successfully search for %d written issue markers", s.MarkersUnsearched)
 	if len(failures) == 0 {
 		return nil
 	}

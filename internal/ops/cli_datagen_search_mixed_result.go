@@ -16,6 +16,7 @@ type datagenSearchMixedResult struct {
 	WritesPerMinute          float64                      `json:"writes_per_minute"`
 	FreshnessLagMs           datagenSearchMixedFreshness  `json:"freshness_lag_ms"`
 	MarkersNotFound          int                          `json:"markers_not_found"`
+	MarkersUnsearched        int                          `json:"markers_unsearched"`
 	DeletedNodesReturned     int                          `json:"deleted_nodes_returned"`
 	DeletesUnverified        int                          `json:"deletes_unverified"`
 	MetadataNotFound         int                          `json:"metadata_not_found"`
@@ -143,7 +144,8 @@ func searchMixedResult(
 			P50: searchLoadMilliseconds(summary.Freshness.P50), P95: searchLoadMilliseconds(summary.Freshness.P95),
 			P99: searchLoadMilliseconds(summary.Freshness.P99), Max: searchLoadMilliseconds(summary.Freshness.Max),
 		},
-		MarkersNotFound: summary.MarkersNotFound, DeletedNodesReturned: summary.DeletedReturned,
+		MarkersNotFound: summary.MarkersNotFound, MarkersUnsearched: summary.MarkersUnsearched,
+		DeletedNodesReturned: summary.DeletedReturned,
 		DeletesUnverified: summary.DeletesUnverified, ProbeErrors: summary.ProbeErrors,
 		MetadataNotFound: summary.Changes.MetadataNotFound, MovesUnverified: summary.Changes.MovesUnverified,
 		MetadataAbsentBefore: summary.Changes.MetadataAbsentBefore, MetadataPresentBefore: summary.Changes.MetadataPresentBefore,

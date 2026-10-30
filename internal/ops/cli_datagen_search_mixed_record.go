@@ -24,6 +24,7 @@ func logSearchMixedResult(ctx context.Context, result datagenSearchMixedResult) 
 			slog.Float64("p95", result.FreshnessLagMs.P95), slog.Float64("p99", result.FreshnessLagMs.P99),
 			slog.Float64("max", result.FreshnessLagMs.Max)),
 		slog.Int("markers_not_found", result.MarkersNotFound),
+		slog.Int("markers_unsearched", result.MarkersUnsearched),
 		slog.Int("deleted_nodes_returned", result.DeletedNodesReturned),
 		slog.Int("deletes_unverified", result.DeletesUnverified),
 		slog.Int("metadata_not_found", result.MetadataNotFound),

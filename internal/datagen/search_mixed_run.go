@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	searchMixedDrainTimeout = 2 * time.Minute
 	searchMixedPollInterval = 250 * time.Millisecond
 	searchMixedWriteKinds   = 3
 	searchMixedEditKind     = 1
@@ -27,7 +26,8 @@ var (
 // run starts sampling, searches, workload phases, and scheduled writes.
 // After the searches, phases, and writes finish, it waits for search work to finish
 // unless its schedule context has ended. Freshness probes search for markers during this wait.
-// It then waits up to two minutes for pending probes or until the schedule context ends.
+// It then waits until all probe checks settle, the next pass that starts after drain starts
+// finishes, or its schedule context ends. drain then cancels probing and waits for the prober.
 // If a workload phase returns an error or panics, run cancels its schedule context.
 // The cancellation stops search loads and scheduled writes.
 // run skips the catch-up wait, and drain ends its probe wait at the next poll.

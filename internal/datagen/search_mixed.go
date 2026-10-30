@@ -35,6 +35,10 @@ type SearchMixedOptions struct {
 	MetadataWrites int
 	// Moves is the requested number of issue moves to projects in other workspaces.
 	Moves int
+	// ProbeAfterCatchUp, when true, skips every probe pass that starts before drain starts.
+	// It defaults to false, and the ops command never sets it. Tests use it to keep markers
+	// unsettled until catch-up ends.
+	ProbeAfterCatchUp bool `exhaustruct:"optional"`
 }
 
 // SearchMixedRebuild starts one full index rebuild with the audited operation
@@ -52,6 +56,9 @@ type SearchMixedSummary struct {
 	WriteElapsed      time.Duration
 	Freshness         SearchMixedFreshness
 	MarkersNotFound   int
+	// MarkersUnsearched counts pending markers that the final probe pass did not search without
+	// an error, including markers that the pass did not attempt.
+	MarkersUnsearched int
 	DeletedReturned   int
 	DeletesUnverified int
 	ProbeErrors       int
@@ -113,6 +120,10 @@ type searchMixed struct {
 	probeMutex sync.Mutex            `exhaustruct:"optional"`
 	markers    []searchMixedMarker   `exhaustruct:"optional"`
 	deletions  []searchMixedDeletion `exhaustruct:"optional"`
+	// drainStarted is true after drain starts. The next probe pass to start is the final pass.
+	drainStarted bool `exhaustruct:"optional"`
+	// finalPassDone is true after the final probe pass finishes. That pass starts after drain starts.
+	finalPassDone bool `exhaustruct:"optional"`
 	nodeMutex  sync.Mutex         `exhaustruct:"optional"`
 	nodes      []*searchMixedNode `exhaustruct:"optional"`
 	deleted    map[uuid.UUID]time.Time `exhaustruct:"optional"`
@@ -174,6 +185,7 @@ func RunSearchMixed(
 		slog.Int("write_rate", options.WriteRate), slog.Int("completed", summary.Search.Completed),
 		slog.Int("creates", summary.Creates), slog.Int("edits", summary.Edits), slog.Int("deletes", summary.Deletes),
 		slog.Int("burst_created", summary.Burst.Created), slog.Int("markers_not_found", summary.MarkersNotFound),
+		slog.Int("markers_unsearched", summary.MarkersUnsearched),
 		slog.Int("deleted_returned", summary.DeletedReturned), slog.Bool("caught_up", summary.CatchUp.Completed))
 	return summary, nil
 }
