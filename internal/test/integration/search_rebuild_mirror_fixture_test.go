@@ -25,22 +25,10 @@ type mirrorRun struct {
 	firstAbandoned, secondAbandoned time.Time
 }
 
-// runTwoMirrorMisses creates a delayed environment with a 60-second write horizon and a
-// live-first worker.
-// runTwoMirrorMisses configures the public alias to select the serving index and begins a full
-// replacement.
-// runTwoMirrorMisses runs worker slices until the replacement enters the switching state with
-// claims enabled, then stores a node with several pages.
-//
-// The proxy delays the replacement index write for page 1 until the worker abandons the write.
-// steps.duringFirstHold runs during that delay when it is non-nil.
-// runTwoMirrorMisses fails the test when steps.duringFirstHold returns an error.
-// steps.afterFirstMiss runs after that abandonment when it is non-nil.
-// The proxy then delays the replacement index write for page 3 until the worker abandons it.
-//
-// runTwoMirrorMisses requires the second abandonment within mirrorFreshnessBound after the first.
-// runTwoMirrorMisses requires the serving index to store every page of the node within
-// mirrorFreshnessBound after the second abandonment.
+// Exercise two abandoned replacement writes while serving work continues.
+// The gap between misses and the serving freshness checks use bounds shorter
+// than the replacement write horizon.
+// Optional steps change claims or generations during or between the misses.
 func runTwoMirrorMisses(t *testing.T, steps mirrorSteps) mirrorRun {
 	t.Helper()
 	env, proxy, target := startMirrorRebuild(t)
@@ -73,12 +61,8 @@ func runTwoMirrorMisses(t *testing.T, steps mirrorSteps) mirrorRun {
 	return mirrorRun{env: env, proxy: proxy, target: target, nodeID: nodeID, firstAbandoned: first, secondAbandoned: second}
 }
 
-// startMirrorRebuild creates a delayed environment with a 60-second write horizon and a live-first
-// worker. The proxy never sends an abandoned write.
-// The helper configures the public alias to select the serving index.
-// The helper runs worker slices until the worker cannot claim any work and begins a full replacement.
-// The helper runs worker slices until the replacement enters the switching state with claims enabled.
-// The helper returns the environment, the proxy, and the replacement index.
+// Start at Switching with live claims enabled.
+// The proxy discards abandoned mirror requests; later requests must repair them.
 func startMirrorRebuild(t *testing.T) (*migrationEnv, *pageDelayProxy, string) {
 	t.Helper()
 	env, proxy := newDelayedMigrationEnv(t, timingPageBytes, 0)
@@ -96,11 +80,6 @@ func startMirrorRebuild(t *testing.T) (*migrationEnv, *pageDelayProxy, string) {
 	return env, proxy, target
 }
 
-// awaitAbandonedWrite runs worker slices one at a time until the proxy reports abandonment
-// or deadline passes. The helper checks the proxy after every slice.
-// It waits idleClaimPause after a slice fails or does not claim work.
-// It returns the time the proxy observed the abandonment and true when the proxy reports it.
-// It returns the zero time and false when deadline passes.
 func awaitAbandonedWrite(t *testing.T, env *migrationEnv, proxy *pageDelayProxy, deadline time.Time) (time.Time, bool) {
 	t.Helper()
 	for time.Now().Before(deadline) {
@@ -118,9 +97,6 @@ func awaitAbandonedWrite(t *testing.T, env *migrationEnv, proxy *pageDelayProxy,
 	return time.Time{}, false
 }
 
-// beginMirrorRebuild begins one full replacement through the production store with
-// one primary shard and eight routing shards. The replacement does not use replicas.
-// beginMirrorRebuild deletes the replacement index when the test ends.
 func beginMirrorRebuild(t *testing.T, env *migrationEnv) searchdomain.Rebuild {
 	t.Helper()
 	request := searchdomain.BeginRebuild{Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 8, Replicas: 0, Restored: false, Reason: "test"}
@@ -165,9 +141,6 @@ func runRebuildSlicesUntil(t *testing.T, env *migrationEnv, done func(searchdoma
 	return searchdomain.Rebuild{}
 }
 
-// newLiveFirstWorker creates the production worker with the settings of
-// migrationEnv.newWorker except the live class weight.
-// newLiveFirstWorker sets the live class weight to mirrorLiveWeight.
 func newLiveFirstWorker(t *testing.T, env *migrationEnv) *service.SearchWorker {
 	t.Helper()
 	policies := env.Stores.SearchPolicySet()

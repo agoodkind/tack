@@ -22,18 +22,9 @@ const (
 	mirrorSliceDeadline = 6 * time.Second
 )
 
-// TestSearchRebuildMirrorMissSurvivesExpiredSlice calls startMirrorRebuild and stores a node with
-// several pages. The proxy delays the replacement index write of page 0.
-// The test runs one worker slice with a context that expires after mirrorSliceDeadline.
-// The serving index accepts page 0 before the deadline.
-// The expired context ends the delayed mirror write. CompletePage fails with the expired context.
-// The node content and the page 0 document do not change.
-// The test calls requireSwitchAfterCopies and requireReplacementPages.
-// The test requires a second replacement index write of the page 0 document at or after the
-// abandonment time plus mirrorWriteHorizon minus one second of clock skew.
-// A worker that calls RecordMirrorMiss with the expired context does not store the pending write
-// record. The worker's next live claim writes the page 0 document to the replacement index before
-// that time.
+// The slice expires after the serving write and before the mirror request ends.
+// The expired checkpoint context must not prevent preservation of the original
+// mirror deadline for the unchanged document.
 func TestSearchRebuildMirrorMissSurvivesExpiredSlice(t *testing.T) {
 	env, proxy, target := startMirrorRebuild(t)
 	nodeID := uuid.Must(uuid.NewV7())

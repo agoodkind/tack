@@ -25,23 +25,9 @@ type sliceResult struct {
 	err     error
 }
 
-// TestSearchRebuildMirrorMissSurvivesCanceledSlice calls startMirrorRebuild and stores
-// a node with several pages. The proxy delays the replacement index write of page 0.
-//
-// The test runs one worker slice with a cancelable context. A goroutine from
-// startDuringHold cancels that context after the proxy starts delaying the write.
-// A worker stop cancels the slice context in the same way.
-//
-// The canceled context ends the delayed mirror write. CompletePage fails with the
-// canceled context. The node content and page 0 document remain unchanged.
-//
-// The test calls requireSwitchAfterCopies and requireReplacementPages. The test
-// requires a second replacement index write of the page 0 document at or after the
-// abandonment time plus mirrorWriteHorizon minus one second of clock skew.
-//
-// A worker that sets the missed write deadline to now after cancellation does not
-// store the pending write record. Its next live claim writes the page 0 document
-// to the replacement index before the horizon ends.
+// Worker cancellation abandons the mirror request before its operation timeout.
+// The canceled checkpoint must preserve the original deadline before another
+// claim resends the unchanged document.
 func TestSearchRebuildMirrorMissSurvivesCanceledSlice(t *testing.T) {
 	env, proxy, target := startMirrorRebuild(t)
 	nodeID := uuid.Must(uuid.NewV7())
@@ -72,27 +58,9 @@ func TestSearchRebuildMirrorMissSurvivesCanceledSlice(t *testing.T) {
 	requirePermanentMirrorAudit(t, env, target)
 }
 
-// TestSearchRebuildMirrorMissHeldAcrossPausedSwitch calls startMirrorRebuild, creates
-// a second live-first worker named pauser, and stores a node with several pages.
-// The proxy delays the replacement index write of page 0.
-//
-// The first worker runs the live slice in another goroutine with a cancelable
-// context. While the proxy delays the write, pauseReplacement runs pauser slices
-// until the replacement pauses claims in the switching state.
-//
-// The test then cancels the live slice. CompletePage fails, and RecordMirrorMiss
-// runs while claims are paused. The test requires that cancellation ends the delayed
-// write before mirrorOperationTimeout elapses. The test requires that a copy item
-// is not pending.
-//
-// The test runs worker slices until the replacement enters the retiring state.
-// The test then runs worker slices until the new serving index stores every page
-// of the node. That wait uses a deadline of the abandonment time plus
-// mirrorWriteHorizon plus mirrorFreshnessBound.
-//
-// The test requires the second replacement index write of the page 0 document at
-// or after the abandonment time plus mirrorWriteHorizon minus one second of clock
-// skew.
+// Cancellation during paused Switching must not add a copy after the final drain.
+// The new serving index must observe the saved live deadline before resending
+// the abandoned document after the alias switch.
 func TestSearchRebuildMirrorMissHeldAcrossPausedSwitch(t *testing.T) {
 	env, proxy, target := startMirrorRebuild(t)
 	pauser := newLiveFirstWorker(t, env)

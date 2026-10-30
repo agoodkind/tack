@@ -10,22 +10,13 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RecordMirrorMiss records a missed mirror write without verifying the claim of intent.
-// RecordMirrorMiss does not change state when intent.MirrorMissed is nil or its
-// deadline is at or before now. Within one FoundationDB transaction, RecordMirrorMiss
-// calls owedMirrorCopy and stops when owedMirrorCopy returns false.
-//
-// When the replacement is in the switching state with claims paused, RecordMirrorMiss
-// stores intent.MirrorMissed as a live class pending write record for the replacement
-// index. RecordMirrorMiss does not write a copy item in that state. After the switch,
-// live claims use the replacement index as Target. The next live registration of the
-// document reads that record and waits for its deadline.
-//
-// In every other state, RecordMirrorMiss calls scheduleMirrorCopy with the current
-// node generation. Copy work determines the lifetime of the copy class pending write
-// record. The next live registration of the document reads that record through
-// heldMirrorWrite and writes the page only to the serving index until the deadline
-// passes.
+// RecordMirrorMiss preserves an unexpired mirror deadline without requiring the
+// original claim. A changed revision, absent live work, or different replacement
+// ends the copy obligation.
+// During paused Switching, save the deadline as live pending state without adding
+// copy work after the final drain. Later live claims observe that deadline whether
+// the replacement remains a mirror or becomes the serving index.
+// Outside that pause, the pending copy retains the deadline.
 func (s *SearchWorkStore) RecordMirrorMiss(ctx context.Context, intent searchdomain.WriteIntent) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.record_mirror_miss")(&err)
 	now := s.clock.Now()
@@ -52,15 +43,8 @@ func (s *SearchWorkStore) RecordMirrorMiss(ctx context.Context, intent searchdom
 	return nil
 }
 
-// owedMirrorCopy returns false when the current node revision differs from revision,
-// the node does not have pending live work, or the replacement mirror of live claims
-// differs from intent.MirrorMissed.Index. A newer revision, removed live work, or a
-// finished or failed replacement ends the need for the page in that index.
-//
-// owedMirrorCopy returns the claim scope that it reads. RecordMirrorMiss reads the
-// replacement state from that scope. When the copy remains owed, owedMirrorCopy sets
-// intent.Work.Generation to the current node generation and returns the updated
-// intent with true.
+// An expired claim can still owe a mirror write at the current node revision.
+// Use the current generation when preserving that obligation after claim loss.
 func owedMirrorCopy(ctx context.Context, tr fdb.Transaction, intent searchdomain.WriteIntent, revision int64) (searchdomain.WriteIntent, claimScope, bool, error) {
 	work := intent.Work
 	var scope claimScope
@@ -86,17 +70,10 @@ func owedMirrorCopy(ctx context.Context, tr fdb.Transaction, intent searchdomain
 	return intent, scope, true, nil
 }
 
-// scheduleMirrorCopy runs inside the CompletePage transaction when the serving index
-// accepts a page and the replacement index misses it.
-// It first stores intent.MirrorMissed as a copy class pending write record
-// when the deadline is after now. An existing pending copy does not prevent this write.
-// scheduleMirrorCopy then skips the copy work item and checkpoint writes when copyCovers
-// reports a pending copy of the same generation and revision that starts at the missed
-// page or earlier. Otherwise, it writes a copy work item at the work generation and page
-// revision. It also writes a copy checkpoint at the missed page with work.Cursor,
-// work.Projection, the missed ordinal, and the pages phase.
-// The copy item writes only the replacement index.
-// scheduleMirrorCopy does not clear pending write records for other documents.
+// Commit owed replacement work in the serving checkpoint transaction.
+// Preserve an existing copy that starts at the missed page or an earlier page.
+// Save every unexpired document/index deadline even when that copy already exists.
+// A new copy starts with the cursor before the missed page.
 func scheduleMirrorCopy(ctx context.Context, tr fdb.Transaction, now time.Time, intent searchdomain.WriteIntent, revision int64) error {
 	work, missed := intent.Work, *intent.MirrorMissed
 	if now.Before(missed.Deadline) {
@@ -129,11 +106,8 @@ func scheduleMirrorCopy(ctx context.Context, tr fdb.Transaction, now time.Time, 
 	})
 }
 
-// copyCovers returns false when existing differs from generation or revision.
-// copyCovers returns true when existing does not have a checkpoint.
-// copyCovers also returns true when the checkpoint generation or revision differs from existing.
-// readProgress starts such a copy at the first page.
-// Otherwise, copyCovers returns whether the checkpoint ordinal is at or below ordinal.
+// readProgress starts a copy with an absent or stale checkpoint at the first page.
+// Such a copy already includes every owed ordinal in its current revision.
 func copyCovers(ctx context.Context, tr fdb.Transaction, existing searchWorkRecord, generation, revision int64, ordinal uint64) (bool, error) {
 	if existing.Generation != generation || existing.Revision != revision {
 		return false, nil

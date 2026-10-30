@@ -10,23 +10,13 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// contentSlice reads, registers, writes, and checkpoints each page before reading the next page.
-// contentSlice yields before another remote write when the slice exhausts its page, byte,
-// or time budget.
-// contentSlice ends the slice with an uncounted release and the store's minimum retry delay
-// when a pending write prevents creation of an absent page.
-//
-// contentSlice writes a page only to the serving index when Register sets intent.MirrorMissed.
-// After the serving index accepts a page, contentSlice records a mirror error other than
-// ErrObsoleteWrite in intent.MirrorMissed and checkpoints the page.
-// CompletePage advances the serving cursor and schedules the copy in one FoundationDB transaction.
-// contentSlice writes later pages in the slice only to the serving index.
-// Those Put calls use a copy of intent with Work.Mirror cleared.
-// intent.Work still specifies Mirror for claim verification.
-// When CompletePage fails after a mirror miss, contentSlice calls keepMirrorMiss before
-// contentSlice settles the failure.
-//
-// After the final page, contentSlice refreshes the serving index in a separate resumable phase.
+// A missed mirror write must not delay the serving cursor.
+// CompletePage commits the serving checkpoint and owed copy work together.
+// Claim verification needs the original Mirror. Clear it only in the request copy.
+// After a new mirror failure, later pages in the slice skip the mirror because
+// the queued copy includes the missed page and all later pages.
+// Cancellation or claim loss can prevent checkpointing after the serving write.
+// Preserve the original mirror deadline before settling that failure.
 func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work, budget *sliceBudget) error {
 	mirrorSkipped := false
 	for work.Phase != searchdomain.PhaseRefresh {

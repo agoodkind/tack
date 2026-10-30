@@ -22,20 +22,10 @@ type mirrorSteps struct {
 	afterFirstMiss  func(*testing.T, *migrationEnv, uuid.UUID)
 }
 
-// TestSearchRebuildMirrorMissSurvivesFailedCheckpoint calls runTwoMirrorMisses with relateNode.
-// relateNode adds a relationship during the delayed replacement index write of page 1.
-// The relationship raises the node generation with an access change while the worker waits
-// for the mirror write. The access change preserves the node revision and the document ID
-// of page 1.
-//
-// The worker abandons the mirror write when the ten-second OperationTimeout expires.
-// The claim generation remains older than the node generation. CompletePage then fails.
-//
-// The test calls requireSwitchAfterCopies and requireReplacementPages.
-// The test requires the second replacement index write of page 1 at or after the page 1
-// abandonment time plus mirrorWriteHorizon minus one second of clock skew.
-// A worker that does not store the missed write after the failed checkpoint writes page 1
-// to the replacement index on the next live claim before that time.
+// A relationship change raises the node generation during an abandoned mirror
+// write without changing the revision or document identity.
+// The stale claim cannot checkpoint. Its replacement must preserve the original
+// deadline before resending that document.
 func TestSearchRebuildMirrorMissSurvivesFailedCheckpoint(t *testing.T) {
 	run := runTwoMirrorMisses(t, mirrorSteps{duringFirstHold: relateNode, afterFirstMiss: nil})
 	requireSwitchAfterCopies(t, run.env, run.target)
