@@ -185,7 +185,7 @@ For each failure, rerun the smallest exact test until it fails consistently. Tra
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 
-Run the suite as seven fixed groups. Each group limit is the slowest complete CI measurement of that group times 1.5, rounded up to 5 minutes. The measurements come from the OpenSearch CI jobs 110765693590, 109857411134, 117516233280, 123145940911, 123131420136, 123132129545, 123110954409, 123140740521, 123142813381, 123071806333, and the completed groups of 110045603547.
+Run the suite as seven fixed groups using the current canonical limits in the [Makefile](../../../Makefile). The table pairs those limits with historical measurements. Multiplying G3's recorded 1122.4 seconds by 1.5 and rounding up to 5 minutes gives 30 minutes; the current canonical G3 limit is 45 minutes. The measurements come from the OpenSearch CI jobs 110765693590, 109857411134, 117516233280, 123145940911, 123131420136, 123132129545, 123110954409, 123140740521, 123142813381, 123071806333, and the completed groups of 110045603547.
 
 | Group | Selection | Tests in the recorded measurement | Slowest measurement | Limit |
 | --- | --- | --- | --- | --- |
