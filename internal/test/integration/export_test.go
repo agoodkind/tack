@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"github.com/spf13/cobra"
+	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/search"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clock"
@@ -400,4 +401,16 @@ func OpenSearchClient(t *testing.T, fixture testenv.OpenSearchFixture) *opensear
 // production operator identity source.
 func SearchCommandRoot(factory *cli.Factory) *cobra.Command {
 	return searchCommandRoot(factory)
+}
+
+// StoreTransactionTimeout exposes the FoundationDB transaction timeout to external integration tests.
+const StoreTransactionTimeout = testTransactionTimeout
+
+// OrgID returns the harness organization UUID.
+func (h *MCPHarness) OrgID() uuid.UUID { return h.orgID }
+
+// EntryTypeKeys returns the entry-point node type keys for the organization.
+func EntryTypeKeys(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID) []string {
+	t.Helper()
+	return entryTypeKeys(t, stores, orgID)
 }
