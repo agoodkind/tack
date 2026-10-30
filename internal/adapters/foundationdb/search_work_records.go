@@ -35,8 +35,6 @@ func removeSearchWork(tr fdb.Transaction, class searchdomain.WorkClass, record s
 // dropSearchWork clears a work item that a claim scan cannot claim.
 // The scan rejects the item when the class lacks a target in the current claim scope
 // or the record generation differs from the desired generation.
-// dropSearchWork clears the work record, its class age entry, its claim,
-// and all pending write records for that class and node.
 func dropSearchWork(tr fdb.Transaction, class searchdomain.WorkClass, record searchWorkRecord) {
 	removeSearchWork(tr, class, record)
 	tr.Clear(fdb.Key(searchClaimKey(string(class), searchBucket(record.OrgID, record.NodeID), record.OrgID, record.NodeID)))

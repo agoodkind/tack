@@ -10,7 +10,6 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// contentSlice writes pages of one revision.
 // contentSlice reads, registers, writes, and checkpoints each page before reading the next page.
 // contentSlice yields before another remote write when the slice exhausts its page, byte,
 // or time budget.

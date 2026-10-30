@@ -17,8 +17,6 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// mirrorRun stores the environment, the delay proxy, the replacement index, the node,
-// and the two abandonment times from one runTwoMirrorMisses call.
 type mirrorRun struct {
 	env                             *migrationEnv
 	proxy                           *pageDelayProxy
@@ -139,8 +137,6 @@ func beginMirrorRebuild(t *testing.T, env *migrationEnv) searchdomain.Rebuild {
 	return rebuild
 }
 
-// runRebuildSlicesUntil reads the replacement before each worker slice and returns
-// the record when done accepts it.
 // runRebuildSlicesUntil fails the test when the replacement record is missing or
 // mirrorSwitchDeadline expires.
 // runRebuildSlicesUntil reads the state after every slice.
