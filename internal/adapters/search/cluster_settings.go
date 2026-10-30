@@ -10,49 +10,69 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// pointInTimeLimitSetting limits the open point-in-time contexts on each
-// OpenSearch node.
-const pointInTimeLimitSetting = "search.max_open_pit_context"
+const (
+	pointInTimeLimitSetting = "search.max_open_pit_context"
+	mlHeapThresholdSetting  = "plugins.ml_commons.jvm_heap_memory_threshold"
+)
 
-// PointInTimeLimit is the value of search.max_open_pit_context in each
-// section of the cluster settings response. An empty value means that the
-// section does not set the setting.
-type PointInTimeLimit struct {
+// ClusterSettingValues reports each source of a cluster setting.
+// An empty value means that the source does not set the setting.
+type ClusterSettingValues struct {
 	Persistent string
 	Transient  string
 	Defaults   string
 }
 
-// Effective returns the value that OpenSearch applies. A transient cluster
-// setting overrides a persistent one, and a persistent cluster setting
-// overrides the node setting. When neither cluster section sets the value,
-// OpenSearch 3.8.0 reports the node setting from the container environment
-// in the defaults section. When a cluster section sets the value, the
-// defaults section omits it.
-func (limit PointInTimeLimit) Effective() string {
-	if limit.Transient != "" {
-		return limit.Transient
+// Effective selects transient, persistent, then defaults. OpenSearch omits
+// the default when a cluster override exists.
+func (values ClusterSettingValues) Effective() string {
+	if values.Transient != "" {
+		return values.Transient
 	}
-	if limit.Persistent != "" {
-		return limit.Persistent
+	if values.Persistent != "" {
+		return values.Persistent
 	}
-	return limit.Defaults
+	return values.Defaults
 }
 
-// pointInTimeLimitSection is one section of the nested cluster settings
-// response, filtered to search.max_open_pit_context.
-type pointInTimeLimitSection struct {
+// ClusterSettings reports the point-in-time limit and ML heap guard.
+type ClusterSettings struct {
+	PointInTimeLimit         ClusterSettingValues
+	MLJVMHeapMemoryThreshold ClusterSettingValues
+}
+
+type clusterSettingsSection struct {
 	Search struct {
 		MaxOpenPITContext string `json:"max_open_pit_context"`
 	} `json:"search"`
+	Plugins struct {
+		MLCommons struct {
+			JVMHeapMemoryThreshold string `json:"jvm_heap_memory_threshold"`
+		} `json:"ml_commons"`
+	} `json:"plugins"`
 }
 
-// PointInTimeLimit reads search.max_open_pit_context from the persistent,
-// transient, and defaults sections of the cluster settings. The filter path
-// limits the response to that one setting. The request reads the nested
-// form because the filter path of OpenSearch 3.8.0 does not match a flat
-// setting name that contains dots.
-func (a *Adapter) PointInTimeLimit(ctx context.Context) (PointInTimeLimit, error) {
+type clusterSettingsSections struct {
+	Persistent clusterSettingsSection `json:"persistent"`
+	Transient  clusterSettingsSection `json:"transient"`
+	Defaults   clusterSettingsSection `json:"defaults"`
+}
+
+func (sections clusterSettingsSections) values(setting string, selectValue func(clusterSettingsSection) string) (ClusterSettingValues, error) {
+	values := ClusterSettingValues{
+		Persistent: selectValue(sections.Persistent),
+		Transient:  selectValue(sections.Transient),
+		Defaults:   selectValue(sections.Defaults),
+	}
+	if values.Effective() == "" {
+		return ClusterSettingValues{}, fmt.Errorf("OpenSearch cluster settings do not report a value for %s", setting)
+	}
+	return values, nil
+}
+
+// Settings reads only the point-in-time limit and ML heap threshold with
+// defaults. Explicit nested filter paths match OpenSearch's nested response.
+func (a *Adapter) Settings(ctx context.Context) (ClusterSettings, error) {
 	includeDefaults := true
 	response, err := a.api.Cluster.GetSettings(ctx, &opensearchapi.ClusterGetSettingsReq{
 		Header: nil,
@@ -62,40 +82,41 @@ func (a *Adapter) PointInTimeLimit(ctx context.Context) (PointInTimeLimit, error
 				"persistent." + pointInTimeLimitSetting,
 				"transient." + pointInTimeLimitSetting,
 				"defaults." + pointInTimeLimitSetting,
+				"persistent." + mlHeapThresholdSetting,
+				"transient." + mlHeapThresholdSetting,
+				"defaults." + mlHeapThresholdSetting,
 			}},
 			FlatSettings: nil, IncludeDefaults: &includeDefaults,
 		},
 	})
 	if err != nil {
-		wrapped := fmt.Errorf("read OpenSearch cluster setting %s: %w", pointInTimeLimitSetting, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.cluster_settings.read_failed", slog.String("err", wrapped.Error()))
-		return PointInTimeLimit{}, wrapped
-	}
-	var sections struct {
-		Persistent pointInTimeLimitSection `json:"persistent"`
-		Transient  pointInTimeLimitSection `json:"transient"`
-		Defaults   pointInTimeLimitSection `json:"defaults"`
+		return ClusterSettings{}, clusterSettingsFailure(ctx, "read", err)
 	}
 	body := response.RawBody()
 	if body == nil {
-		wrapped := fmt.Errorf("OpenSearch returned an empty cluster settings response for %s", pointInTimeLimitSetting)
-		telemetry.L(ctx).ErrorContext(ctx, "search.cluster_settings.empty", slog.String("err", wrapped.Error()))
-		return PointInTimeLimit{}, wrapped
+		return ClusterSettings{}, clusterSettingsFailure(ctx, "empty", fmt.Errorf("OpenSearch returned an empty cluster settings response"))
 	}
+	var sections clusterSettingsSections
 	if err := json.NewDecoder(body).Decode(&sections); err != nil {
-		wrapped := fmt.Errorf("decode OpenSearch cluster setting %s: %w", pointInTimeLimitSetting, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.cluster_settings.invalid", slog.String("err", wrapped.Error()))
-		return PointInTimeLimit{}, wrapped
+		return ClusterSettings{}, clusterSettingsFailure(ctx, "decode", err)
 	}
-	limit := PointInTimeLimit{
-		Persistent: sections.Persistent.Search.MaxOpenPITContext,
-		Transient:  sections.Transient.Search.MaxOpenPITContext,
-		Defaults:   sections.Defaults.Search.MaxOpenPITContext,
+	limit, err := sections.values(pointInTimeLimitSetting, func(section clusterSettingsSection) string {
+		return section.Search.MaxOpenPITContext
+	})
+	if err != nil {
+		return ClusterSettings{}, clusterSettingsFailure(ctx, "default_absent", err)
 	}
-	if limit.Effective() == "" {
-		wrapped := fmt.Errorf("OpenSearch cluster settings do not report a value for %s", pointInTimeLimitSetting)
-		telemetry.L(ctx).ErrorContext(ctx, "search.cluster_settings.default_absent", slog.String("err", wrapped.Error()))
-		return PointInTimeLimit{}, wrapped
+	heap, err := sections.values(mlHeapThresholdSetting, func(section clusterSettingsSection) string {
+		return section.Plugins.MLCommons.JVMHeapMemoryThreshold
+	})
+	if err != nil {
+		return ClusterSettings{}, clusterSettingsFailure(ctx, "default_absent", err)
 	}
-	return limit, nil
+	return ClusterSettings{PointInTimeLimit: limit, MLJVMHeapMemoryThreshold: heap}, nil
+}
+
+func clusterSettingsFailure(ctx context.Context, operation string, err error) error {
+	wrapped := fmt.Errorf("%s OpenSearch cluster settings: %w", operation, err)
+	telemetry.L(ctx).ErrorContext(ctx, "search.cluster_settings."+operation, slog.String("err", wrapped.Error()))
+	return wrapped
 }
