@@ -11,8 +11,10 @@ you." `CLAUDE.md` is a symlink to this file.
 This file holds durable rules and settled decisions only. It does not restate
 values that live in code or config, because copies drift. For anything concrete
 (keys, schema, env vars, services, hosts), read the source of truth named in
-[Where the truth lives](#where-the-truth-lives). If this file and the code
-disagree, the code wins; fix this file.
+[Where the truth lives](#where-the-truth-lives). Use code and configuration for
+current values. Correct descriptive statements in this file when they conflict
+with verified code or configuration. Correct code that violates a binding rule;
+an existing violation does not override the rule.
 
 ## The seam: configs repo vs tack repo
 
@@ -272,6 +274,9 @@ TACK-304.
 2. **No shell-outs in tack Go.** No shell scripts and no `os/exec` of CLIs.
    Engine CLIs (`fdbbackup`, `yb-admin`, `ysql_dump`, `tar`) run inside one-shot
    containers through the Docker Go SDK helpers in `internal/ops/dockerctl.go`.
+   Do not create or use non-Go scripts, including temporary and standalone
+   helpers, without explicit operator approval. Go implementations must pass
+   this repository's canonical lint and quality checks.
 3. **Ops audit choke-point.** Every `./server ops` command records through the one
    `clispec` audit choke-point; do not weaken it, do not bypass it per command, and
    keep operator identity pluggable via `audit.OperatorIdentitySource`. See
@@ -297,6 +302,47 @@ TACK-304.
    `make build` fails once the removal day has passed. Every other command
    declares `clispec.Permanent`.
    No package outside `internal/service` reads the seed sample data (TACK-512).
+
+## Auditability gate
+
+Require complete audit evidence before merging or releasing any new or changed
+operation that reads, lists, searches, exports, creates, updates, deletes, or
+otherwise processes user data. Apply this gate to public APIs, generated tools,
+operator commands, background jobs, provider hooks, and storage writers.
+
+Follow the [complete audit recording contract](docs/superpowers/specs/2026-10-21-audit-completeness-design.md)
+through the existing shared operation definitions, transactional outboxes, and
+permanent ledger. Apply it to custom node types and relationships.
+
+1. Record the verified actor or explicit unauthenticated identity, operation,
+   complete targets, original time, committed order, and outcome. Record the
+   initiating identity during background work, retries, and recovery. Record
+   refusals, failures, partial work, and interruptions.
+2. Record actual old and new values for every changed field and relationship,
+   including removals. Commit change evidence atomically with database changes.
+   Record complete relationship identities and apply existing protected-value
+   storage and redaction rules.
+3. Admit reads durably and finalize their evidence before returning data,
+   including each streaming page or chunk. Record returned identities, result
+   counts, selection criteria, and payload fingerprints through the shared read
+   contract. A fingerprint does not reconstruct the returned content.
+4. Refuse unaudited operations when required identity or recording fails. Do not
+   release a read result or commit a database change without its required audit
+   evidence. Record external-operation intent before effects and verify actual
+   state during recovery.
+5. Add regression coverage through the affected public operation with real
+   dependencies. Inspect permanent audit records for the actual actor, targets,
+   outcomes, change values, and read manifests and fingerprints. Exercise
+   authorization refusals and recording failures; declarations and log messages
+   alone do not prove coverage.
+6. Include the audit evidence and test results in the PR. Require the existing
+   `runtime audit coverage` check and applicable integration checks to pass before
+   merge. Verify the accepted behavior on QA before production release.
+
+Do not add recording opt-outs, exclude new operations from coverage, weaken audit
+assertions, bypass required checks, or defer recording to a follow-up ticket.
+Treat an unaudited existing implementation as a defect, not an exception to this
+gate. A healthy deployment or a passing unrelated test does not satisfy it.
 
 ## No config files
 
