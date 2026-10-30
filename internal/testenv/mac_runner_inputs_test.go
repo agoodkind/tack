@@ -15,31 +15,41 @@ func TestMacRunnerRejectsArguments(t *testing.T) {
 	cases := []struct {
 		name      string
 		arguments []string
+		message   string
 	}{
-		{name: "missing selection", arguments: []string{"-count=1", "-timeout=1m"}},
-		{name: "empty selection", arguments: []string{"-run=", "-count=1", "-timeout=1m"}},
-		{name: "duplicate selection", arguments: []string{"-run=A", "-run=B", "-count=1", "-timeout=1m"}},
-		{name: "zero count", arguments: []string{"-run=A", "-count=0", "-timeout=1m"}},
-		{name: "missing count", arguments: []string{"-run=A", "-timeout=1m"}},
-		{name: "zero timeout", arguments: []string{"-run=A", "-count=1", "-timeout=0"}},
-		{name: "invalid timeout", arguments: []string{"-run=A", "-count=1", "-timeout=minute"}},
-		{name: "unknown flag", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "-json"}},
-		{name: "package", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "./..."}},
-		{name: "command", arguments: []string{"test", "-run=A", "-count=1", "-timeout=1m"}},
-		{name: "false verbose", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "-v=false"}},
-		{name: "duplicate verbose", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "-v", "-v=true"}},
+		{name: "missing selection", arguments: []string{"-count=1", "-timeout=1m"}, message: "nonempty -run expression"},
+		{name: "empty selection", arguments: []string{"-run=", "-count=1", "-timeout=1m"}, message: "nonempty -run expression"},
+		{name: "duplicate selection", arguments: []string{"-run=A", "-run=B", "-count=1", "-timeout=1m"}, message: "duplicate Go test flag -run"},
+		{name: "zero count", arguments: []string{"-run=A", "-count=0", "-timeout=1m"}, message: "positive -count"},
+		{name: "missing count", arguments: []string{"-run=A", "-timeout=1m"}, message: "positive -count"},
+		{name: "zero timeout", arguments: []string{"-run=A", "-count=1", "-timeout=0"}, message: "positive Go duration for -timeout"},
+		{name: "invalid timeout", arguments: []string{"-run=A", "-count=1", "-timeout=minute"}, message: "positive Go duration for -timeout"},
+		{name: "unknown flag", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "-json"}, message: "unsupported Go test argument"},
+		{name: "package", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "./..."}, message: "unsupported Go test argument"},
+		{name: "command", arguments: []string{"test", "-run=A", "-count=1", "-timeout=1m"}, message: "unsupported Go test argument"},
+		{name: "false verbose", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "-v=false"}, message: "-v must enable verbose output"},
+		{name: "duplicate verbose", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "-v", "-v=true"}, message: "duplicate Go test flag -v"},
+		{name: "empty skip equals", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "-skip="}, message: "nonempty value for -skip"},
+		{name: "empty skip separate", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "-skip", ""}, message: "nonempty value for -skip"},
+		{name: "empty tags equals", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "-tags="}, message: "nonempty value for -tags"},
+		{name: "empty tags separate", arguments: []string{"-run=A", "-count=1", "-timeout=1m", "-tags", ""}, message: "nonempty value for -tags"},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			options := testenv.MacTestOptions{Root: t.TempDir(), Image: macImage, EvidenceDirectory: filepath.Join(t.TempDir(), "evidence"), TestArguments: test.arguments}
-			if result, err := testenv.RunMacTests(t.Context(), options); err == nil || result.ExitCode != 1 {
-				t.Fatalf("RunMacTests accepted invalid arguments: result=%+v error=%v", result, err)
+			options, _ := macFixture(t)
+			options.TestArguments = test.arguments
+			if result, err := testenv.RunMacTests(t.Context(), options); err == nil || !strings.Contains(err.Error(), test.message) || result.ExitCode != 1 {
+				t.Fatalf("RunMacTests must reject %s with %q: result=%+v error=%v", test.name, test.message, result, err)
 			}
 			if _, err := os.Lstat(options.EvidenceDirectory); !os.IsNotExist(err) {
 				t.Fatalf("invalid arguments created evidence: %v", err)
 			}
 		})
 	}
+	t.Run("accepted input", func(t *testing.T) {
+		options, _ := macFixture(t)
+		macPrepare(t, options)
+	})
 }
 
 func TestMacRunnerAcceptsVerboseForms(t *testing.T) {

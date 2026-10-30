@@ -110,6 +110,9 @@ func macRunnerArguments(arguments []string) ([]string, time.Duration, error) {
 			}
 			value = arguments[index]
 		}
+		if (name == "skip" || name == "tags") && value == "" {
+			return nil, 0, fmt.Errorf("require a nonempty value for -%s", name)
+		}
 		values[name] = value
 	}
 	count, err := strconv.Atoi(values["count"])
@@ -129,15 +132,19 @@ func macRunnerArguments(arguments []string) ([]string, time.Duration, error) {
 			return nil, 0, errors.New("-v must enable verbose output")
 		}
 	}
-	tags := []string{"fdb"}
-	for _, tag := range strings.FieldsFunc(values["tags"], func(character rune) bool { return character == ',' || character == ' ' }) {
-		if !slices.Contains(tags, tag) {
-			tags = append(tags, tag)
-		}
-	}
-	command := []string{"test", "-tags=" + strings.Join(tags, ","), "-run", values["run"], "-count=" + values["count"], "-timeout=" + values["timeout"], "-v"}
+	command := []string{"test", "-tags=" + macRunnerTags(values["tags"]), "-run", values["run"], "-count=" + values["count"], "-timeout=" + values["timeout"], "-v"}
 	if skip, present := values["skip"]; present {
 		command = append(command, "-skip", skip)
 	}
 	return append(command, "./internal/test/integration/..."), timeout, nil
+}
+
+func macRunnerTags(value string) string {
+	tags := []string{"fdb"}
+	for _, tag := range strings.FieldsFunc(value, func(character rune) bool { return character == ',' || character == ' ' }) {
+		if !slices.Contains(tags, tag) {
+			tags = append(tags, tag)
+		}
+	}
+	return strings.Join(tags, ",")
 }
