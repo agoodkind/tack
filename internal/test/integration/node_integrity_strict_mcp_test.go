@@ -27,6 +27,7 @@ func TestNodeIntegrityStrictMCPRejectsInvalidUpdatesAfterActivation(t *testing.T
 	env := integration.SetupTestEnv(t)
 	harness := integration.NewMCPHarness(t)
 	issueID, _ := createSchemaIssue(t, harness, "Strict MCP issue")
+	otherProjectID := createStrictOtherProject(t, harness)
 	activateStrict(t)
 
 	cases := []struct {
@@ -37,25 +38,40 @@ func TestNodeIntegrityStrictMCPRejectsInvalidUpdatesAfterActivation(t *testing.T
 		{rule: "option label instead of key", properties: datagen.NodeProperties{"priority": quoted("High")}},
 		{rule: "wrong JSON type", properties: datagen.NodeProperties{"priority": json.RawMessage(`5`)}},
 		{rule: "required property removal", properties: datagen.NodeProperties{"state_id": json.RawMessage(`null`)}},
+		{rule: "client scope_id", properties: datagen.NodeProperties{"scope_id": quoted(otherProjectID)}},
+		{rule: "client sequence", properties: datagen.NodeProperties{"sequence": json.RawMessage(strictManagedSequence)}},
 	}
 	for _, rule := range cases {
-		before := strictHarnessSnapshot(t, env, harness, issueID)
-		arguments := schemaArguments(harness)
-		arguments.ProjectReference = ""
-		arguments.NodeID = issueID.String()
-		arguments.Properties = rule.properties
-		refusal := harness.CallExpectError(t, "tack_update_issue", arguments)
-		if !strings.Contains(refusal, strictToolErrorMarker) {
-			t.Fatalf("tack_update_issue with a %s = %q, want a tool error", rule.rule, refusal)
-		}
-		after := strictHarnessSnapshot(t, env, harness, issueID)
-		if after.PrimaryDigest != before.PrimaryDigest {
-			t.Fatalf("the refused tack_update_issue with a %s changed issue %s", rule.rule, issueID)
-		}
-		if !reflect.DeepEqual(after.Outgoing, before.Outgoing) {
-			t.Fatalf("the refused tack_update_issue with a %s changed the relationships of issue %s", rule.rule, issueID)
-		}
+		t.Run(rule.rule, func(t *testing.T) {
+			before := strictHarnessSnapshot(t, env, harness, issueID)
+			arguments := schemaArguments(harness)
+			arguments.ProjectReference = ""
+			arguments.NodeID = issueID.String()
+			arguments.Properties = rule.properties
+			refusal := harness.CallExpectError(t, "tack_update_issue", arguments)
+			if !strings.Contains(refusal, strictToolErrorMarker) {
+				t.Fatalf("tack_update_issue with a %s = %q, want a tool error", rule.rule, refusal)
+			}
+			after := strictHarnessSnapshot(t, env, harness, issueID)
+			if after.PrimaryDigest != before.PrimaryDigest {
+				t.Fatalf("the refused tack_update_issue with a %s changed issue %s", rule.rule, issueID)
+			}
+			if !reflect.DeepEqual(after.Outgoing, before.Outgoing) {
+				t.Fatalf("the refused tack_update_issue with a %s changed the relationships of issue %s", rule.rule, issueID)
+			}
+		})
 	}
+}
+
+// createStrictOtherProject creates a second project in the harness workspace
+// through tack_create_project and returns its ID.
+func createStrictOtherProject(t *testing.T, harness *integration.MCPHarness) string {
+	t.Helper()
+	arguments := schemaArguments(harness)
+	arguments.ProjectReference = ""
+	arguments.Name = "Strict other project"
+	arguments.Properties = datagen.NodeProperties{"identifier": quoted("STRICTOTHER")}
+	return harness.Call(t, "tack_create_project", arguments).RawID()
 }
 
 // strictHarnessSnapshot reads the mutation snapshot of nodeID in the harness

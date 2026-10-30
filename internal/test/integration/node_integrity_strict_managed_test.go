@@ -3,6 +3,7 @@ package integration_test
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -18,12 +19,13 @@ import (
 const strictManagedSequence = "999"
 
 // TestNodeIntegrityStrictRejectsClientManagedValuesAfterActivation activates
-// strict validation and then calls NodeService.Update with a client value for
-// each property that node.IsManagedProperty reports and that a client cannot
-// set through a move: the issue's scope_id, set to another project, and its
-// sequence. Each update must fail with an error that wraps
-// domain.ErrInvalidArgument. Each refused update must leave the issue's
-// primary record and outgoing relationships unchanged.
+// strict validation and then sends a client value for each property that
+// node.IsManagedProperty reports and that a client cannot set through a move:
+// scope_id, set to another project, and sequence. NodeService.Update and
+// NodeService.Create must each fail with an error that wraps
+// domain.ErrInvalidArgument and contains the property name. Each refused
+// update must leave the issue's primary record and outgoing relationships
+// unchanged, and each refused create must not store an issue.
 func TestNodeIntegrityStrictRejectsClientManagedValuesAfterActivation(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
@@ -47,19 +49,32 @@ func TestNodeIntegrityStrictRejectsClientManagedValuesAfterActivation(t *testing
 				t.Fatalf("node.IsManagedProperty(%q) = false, want a service-managed property", managed.property)
 			}
 			before, _ := mutationSnapshot(t, env, issue.ID)
-			view, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
+			_, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
 				NodeID: issue.ID, Name: nil, Props: schemaProps(managed.property, managed.value),
 				RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
 			})
-			if view != nil {
-				t.Errorf("the update returned the view with %s = %s", managed.property, view.Props[managed.property])
-			}
-			requireError(t, err, domain.ErrInvalidArgument, "the client update of the service-managed property "+managed.property)
+			requireManagedRefusal(t, err, "the client update", managed.property)
 			requireUnchanged(t, env, before)
 			after, _ := mutationSnapshot(t, env, issue.ID)
 			if !reflect.DeepEqual(after.Outgoing, before.Outgoing) {
 				t.Fatalf("the refused update of %s changed the relationships of issue %s", managed.property, issue.ID)
 			}
+
+			_, err = env.NodeSvc.Create(env.Ctx, schemaCreateInput(projectID, projectID, "issue", schemaProps(managed.property, managed.value)))
+			requireManagedRefusal(t, err, "the client create", managed.property)
+			if issues := listByScope(t, env, "issue", projectID); len(issues) != 1 {
+				t.Fatalf("project %s lists %d issues after the refused create, want 1", projectID, len(issues))
+			}
 		})
+	}
+}
+
+// requireManagedRefusal fails unless err wraps domain.ErrInvalidArgument and
+// contains property.
+func requireManagedRefusal(t *testing.T, err error, operation, property string) {
+	t.Helper()
+	requireError(t, err, domain.ErrInvalidArgument, operation+" of the service-managed property "+property)
+	if !strings.Contains(err.Error(), property) {
+		t.Fatalf("%s of %s = %v, want the property in the error", operation, property, err)
 	}
 }

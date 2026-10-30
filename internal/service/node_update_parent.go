@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/domain"
@@ -89,6 +90,24 @@ func requestedParentID(ctx context.Context, snapshot node.MutationSnapshot, prop
 		}
 	}
 	return requestedID, nil
+}
+
+// scopedUpdateProps returns in.Props with scope_id set to in.ScopeID. It
+// returns in.Props unchanged when in.ScopeID is [uuid.Nil]. A scope change
+// without a parent change returns an error that wraps
+// domain.ErrInvalidArgument, because the store checks the new scope only
+// against a new parent chain.
+func scopedUpdateProps(ctx context.Context, in UpdateInput, parent *node.ParentChange) (map[string]json.RawMessage, error) {
+	if in.ScopeID == uuid.Nil {
+		return in.Props, nil
+	}
+	if parent == nil {
+		return nil, parentRefusal(ctx, in.NodeID, "a scope change to "+in.ScopeID.String()+" requires a parent change")
+	}
+	props := make(map[string]json.RawMessage, len(in.Props)+1)
+	maps.Copy(props, in.Props)
+	props["scope_id"] = MustRawString(in.ScopeID.String())
+	return props, nil
 }
 
 // parentRefusal logs a parent request refusal for nodeID with reason and

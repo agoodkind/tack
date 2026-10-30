@@ -24,6 +24,10 @@ type UpdateInput struct {
 	Props               map[string]json.RawMessage // merged on top of existing
 	RelationshipChanges node.RelationshipChanges
 	ActorID             uuid.UUID
+	// ScopeID, when not [uuid.Nil], replaces the stored scope_id. It requires a
+	// parent change in the same update. Internal callers that move a node into
+	// another scope set it. Props cannot set scope_id.
+	ScopeID uuid.UUID `exhaustruct:"optional"`
 }
 
 // Update rewrites a node's name and/or Props. Property index entries for
@@ -64,7 +68,11 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	if err != nil {
 		return nil, err
 	}
-	merged := mergedUpdateProps(source.Props, in.Props, parent.Change)
+	props, err := scopedUpdateProps(ctx, in, parent.Change)
+	if err != nil {
+		return nil, err
+	}
+	merged := mergedUpdateProps(source.Props, props, parent.Change)
 	// An update can change a value that a reference renders from, such as the
 	// scope pointer or numbered property. Update renders reference keys from
 	// the merged properties and claims them. The store refuses a move to a
@@ -74,7 +82,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	if err != nil {
 		return nil, err
 	}
-	referenceRecords, err := s.referenceGraph(ctx, source.OrgID, schema.Schema, setUpdateProps(in.Props))
+	referenceRecords, err := s.referenceGraph(ctx, source.OrgID, schema.Schema, setUpdateProps(props))
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +93,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 		Graph: node.GraphExpectation{
 			Records: sortedGraphRecords(parent.Records, referenceRecords), Relationships: parent.Relationships, Incoming: nil,
 		},
-		Name: in.Name, Props: propsWithoutParent(in.Props), Parent: parent.Change, ReferenceKeys: referenceKeys,
+		Name: in.Name, Props: propsWithoutParent(props), Parent: parent.Change, ReferenceKeys: referenceKeys,
 		Relationships: stampRelationshipChanges(otherChanges, in.ActorID, clock.Now().UTC()), Idempotency: nil,
 	}
 	if _, err := s.nodes.ApplyMutation(ctx, plan); err != nil {
