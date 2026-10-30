@@ -101,8 +101,8 @@ func addInfrastructureCommandCases(cases map[string]coverageCase) {
 		return commandInput{args: []string{"ops", "search", "reindex"}, outbox: nil, configure: nil}
 	})
 	cases["command ops search verify"] = searchCommandCase(
-		failingCommandCase(audit.VerbOpsSearchVerify, audit.OutcomeOK, fixedCommand("ops", "search", "verify")),
-		commandCase(audit.VerbOpsSearchVerify, audit.OutcomeOK, fixedCommand("ops", "search", "verify")),
+		failingCommandCase(audit.VerbOpsSearchVerify, audit.OutcomeFailed, fixedCommand("ops", "search", "verify")),
+		commandCase(audit.VerbOpsSearchVerify, audit.OutcomeCompleted, fixedCommand("ops", "search", "verify")),
 	)
 	cases["command ops deploy verify"] = coverageCase{
 		run: func(t *testing.T, env *coverageEnv) coverageEvidence {

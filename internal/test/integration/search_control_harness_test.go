@@ -39,6 +39,7 @@ func newSearchControl(t *testing.T) searchControl {
 	}
 	t.Cleanup(pool.Close)
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	t.Cleanup(factory.CloseAuditOutbox)
 	adapter, client := openSearchClientsFor(t, fixture)
 	control := searchControl{

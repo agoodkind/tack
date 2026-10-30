@@ -67,7 +67,9 @@ func searchCommandCase(withoutSearch, withSearch coverageCase) coverageCase {
 			if env.searchEnabled {
 				return withSearch.run(t, env)
 			}
-			return withoutSearch.run(t, env)
+			evidence := withoutSearch.run(t, env)
+			evidence.outcome = withoutSearch.outcome
+			return evidence
 		},
 		verb: withSearch.verb, outcome: withSearch.outcome, check: nil,
 	}

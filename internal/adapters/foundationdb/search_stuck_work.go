@@ -103,7 +103,10 @@ func decodeStuckWork(ctx context.Context, tr fdb.Transaction, item fdb.KeyValue)
 	if err != nil {
 		return none, false, searchReadFailure(ctx, "read last search failure of "+class+" work "+itemID, err)
 	}
-	return searchdomain.StuckWork{Class: searchdomain.WorkClass(class), ItemID: itemID, Attempts: attempts, LastError: string(message)}, true, nil
+	return searchdomain.StuckWork{
+		Class: searchdomain.WorkClass(class), OrgID: orgID, NodeID: nodeID,
+		ItemID: itemID, Attempts: attempts, LastError: string(message),
+	}, true, nil
 }
 
 // searchItemID returns the node ID of node work, the organization ID of

@@ -19,8 +19,8 @@ import (
 // authority.
 func addSearchControlCases(cases map[string]coverageCase) {
 	cases["command ops search settings"] = searchCommandCase(
-		failingCommandCase(audit.VerbOpsSearchSettings, audit.OutcomeOK, fixedCommand("ops", "search", "settings")),
-		commandCase(audit.VerbOpsSearchSettings, audit.OutcomeOK, fixedCommand("ops", "search", "settings")),
+		failingCommandCase(audit.VerbOpsSearchSettings, audit.OutcomeFailed, fixedCommand("ops", "search", "settings")),
+		commandCase(audit.VerbOpsSearchSettings, audit.OutcomeCompleted, fixedCommand("ops", "search", "settings")),
 	)
 	cases["command ops search provision"] = failingCommandCase(audit.VerbOpsSearchProvision, audit.OutcomeRefused,
 		fixedCommand("ops", "search", "provision"))

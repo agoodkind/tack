@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/response"
 )
@@ -17,6 +18,16 @@ import (
 // takes a bare any.
 type Result interface {
 	isClispecResult()
+}
+
+// ReadResult supplies the returned identities of a typed read result.
+type ReadResult interface {
+	Result
+	AuditReadTargets() ([]audit.Target, error)
+}
+
+type readTargetSink interface {
+	addReadTargets([]audit.Target)
 }
 
 // ResultMarker embeds into a result struct to satisfy Result.
@@ -40,6 +51,16 @@ func WriteJSONValue(ctx context.Context, sink ResultSink, value Result) error {
 	if err != nil {
 		slog.ErrorContext(ctx, "clispec.marshal_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("clispec: marshal result: %w", err)
+	}
+	if collector, ok := sink.(readTargetSink); ok {
+		if result, ok := value.(ReadResult); ok {
+			targets, err := result.AuditReadTargets()
+			if err != nil {
+				slog.ErrorContext(ctx, "clispec.read_targets_failed", slog.String("err", err.Error()))
+				return fmt.Errorf("clispec: collect read targets: %w", err)
+			}
+			collector.addReadTargets(targets)
+		}
 	}
 	if err := sink.WriteJSON(ctx, body); err != nil {
 		return fmt.Errorf("clispec: write result: %w", err)

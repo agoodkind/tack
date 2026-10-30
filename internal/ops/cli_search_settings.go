@@ -37,7 +37,7 @@ func searchSettingsOp(f *cli.Factory) clispec.Operation[searchSettingsInput] {
 	return clispec.Operation[searchSettingsInput]{
 		Name:     clispec.Name{Canonical: "settings", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsSearchSettings), Reads: true},
+		Audit:    readSpec(audit.VerbOpsSearchSettings, "opensearch/settings"),
 		Group:    searchGroup,
 		Short:    "Read the OpenSearch point-in-time limit and ML heap threshold",
 		New:      func() searchSettingsInput { return searchSettingsInput{InputMarker: clispec.InputMarker{}} },
@@ -45,6 +45,11 @@ func searchSettingsOp(f *cli.Factory) clispec.Operation[searchSettingsInput] {
 			return runSearchSettings(ctx, f, sink)
 		},
 	}
+}
+
+// AuditReadTargets identifies the settings resource that the result reports.
+func (searchSettingsOutput) AuditReadTargets() ([]audit.Target, error) {
+	return []audit.Target{externalTarget("opensearch/settings")}, nil
 }
 
 // runSearchSettings reads the settings with the maintenance identity.
