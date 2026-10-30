@@ -12,7 +12,6 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// mirrorSteps stores two optional steps for runTwoMirrorMisses.
 // duringFirstHold runs on the test goroutine before runTwoMirrorMisses stores the node.
 // duringFirstHold returns an action that runs in another goroutine while the proxy delays
 // the replacement index write of page 1. The action returns an error.
@@ -33,12 +32,8 @@ func TestSearchRebuildMirrorMissSurvivesFailedCheckpoint(t *testing.T) {
 	requireResendAfterHorizon(t, run.proxy, run.nodeID, mirrorFirstOrdinal, run.target, run.firstAbandoned)
 }
 
-// startDuringHold returns a channel containing a nil error when duringFirstHold is nil.
-// Otherwise, startDuringHold calls duringFirstHold on the test goroutine to obtain the action.
-// The method reads the channel that the proxy closes when it starts to delay the selected write.
-// The method starts a goroutine that waits for that channel to close.
-// The goroutine runs the action and sends its error on the returned channel.
-// The goroutine sends an error on the returned channel if the action panics.
+// Create the action on the test goroutine before running it during the held request.
+// Return its error or recovered panic to the waiting test goroutine.
 func (steps mirrorSteps) startDuringHold(t *testing.T, env *migrationEnv, proxy *pageDelayProxy, nodeID uuid.UUID) <-chan error {
 	t.Helper()
 	done := make(chan error, 1)
@@ -63,11 +58,9 @@ func (steps mirrorSteps) startDuringHold(t *testing.T, env *migrationEnv, proxy 
 	return done
 }
 
-// relateNode stores a second node through the production store on the test goroutine.
-// relateNode returns an action that adds a relationship from nodeID to the second node
-// through the production store. The action reports a write failure by returning an error
-// instead of failing the test. The relationship raises the search generation of nodeID
-// with an access change and preserves its revision.
+// Create the related node on the test goroutine.
+// The returned relationship change raises search generation without changing revision.
+// Return write errors to the waiting test goroutine.
 func relateNode(t *testing.T, env *migrationEnv, nodeID uuid.UUID) func(context.Context) error {
 	t.Helper()
 	otherID := uuid.Must(uuid.NewV7())
@@ -84,8 +77,6 @@ func relateNode(t *testing.T, env *migrationEnv, nodeID uuid.UUID) func(context.
 	}
 }
 
-// raiseNodeGeneration calls relateNode and runs the returned action on the test goroutine.
-// raiseNodeGeneration fails the test when the action returns an error.
 func raiseNodeGeneration(t *testing.T, env *migrationEnv, nodeID uuid.UUID) {
 	t.Helper()
 	if err := relateNode(t, env, nodeID)(integration.WithTestOperation(t, t.Context())); err != nil {

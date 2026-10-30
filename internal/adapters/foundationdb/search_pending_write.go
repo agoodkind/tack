@@ -35,8 +35,6 @@ type pendingWriteCheck struct {
 	expired *searchdomain.PendingWrite
 }
 
-// searchPendingWritePrefix returns the prefix for all pending write records
-// for class, orgID, and nodeID.
 func searchPendingWritePrefix(class searchdomain.WorkClass, orgID, nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keySearchPendingWrite, string(class), orgID.String(), nodeID.String()}.Pack())
 }
@@ -60,9 +58,7 @@ func clearPendingWrite(tr fdb.Transaction, class searchdomain.WorkClass, orgID, 
 	tr.Clear(fdb.Key(searchPendingWriteKey(class, orgID, nodeID, documentID, index)))
 }
 
-// clearPendingWrites clears all pending write records for class, orgID, and nodeID
-// with one range clear. clearSearchWork, the node deletion path, the schedule
-// removal plan, and dropSearchWork use clearPendingWrites.
+// Clear both deployed and document/index keys when their owning work is removed.
 func clearPendingWrites(tr fdb.Transaction, class searchdomain.WorkClass, orgID, nodeID uuid.UUID) {
 	prefix := searchPendingWritePrefix(class, orgID, nodeID)
 	end := append(append([]byte(nil), prefix...), 0xFF)
@@ -87,8 +83,7 @@ func checkPendingWrite(ctx context.Context, tr fdb.Transaction, now time.Time, w
 	return pendingWriteCheck{held: nil, expired: &pending}, nil
 }
 
-// heldMirrorWrite returns nil when work does not specify a mirror.
-// It adopts deployed copy state and reads the live and copy deadlines for
+// heldMirrorWrite adopts deployed copy state and reads the live and copy deadlines for
 // documentID in work.Mirror. It returns the later unexpired original record.
 // A resumed live claim writes the serving target and schedules the owed copy
 // without clearing the live deadline merely because the target differs.

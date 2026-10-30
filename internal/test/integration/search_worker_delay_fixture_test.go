@@ -42,9 +42,8 @@ type pageDelayProxy struct {
 	engine  *httputil.ReverseProxy
 	nodeID  string
 	ordinal uint64
-	// index restricts the delayed first bulk page write for the selected node and ordinal
-	// to request paths that start with that physical index.
-	// An empty index matches every index.
+	// index limits the selected delayed write to this physical index.
+	// An empty value matches every index.
 	index   string
 	delay   time.Duration
 	started chan struct{}

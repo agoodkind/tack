@@ -106,8 +106,8 @@ func scheduleMirrorCopy(ctx context.Context, tr fdb.Transaction, now time.Time, 
 	})
 }
 
-// readProgress starts a copy with an absent or stale checkpoint at the first page.
-// Such a copy already includes every owed ordinal in its current revision.
+// readProgress restarts a copy at page zero when its checkpoint is absent or
+// belongs to another generation. That restart includes every earlier owed page.
 func copyCovers(ctx context.Context, tr fdb.Transaction, existing searchWorkRecord, generation, revision int64, ordinal uint64) (bool, error) {
 	if existing.Generation != generation || existing.Revision != revision {
 		return false, nil

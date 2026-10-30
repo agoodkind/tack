@@ -18,8 +18,6 @@ import (
 // The canceled delayed write ends before mirrorOperationTimeout elapses.
 const mirrorOperationTimeout = 10 * time.Second
 
-// sliceResult stores the claimed flag and error that RunSlice returns in another
-// goroutine.
 type sliceResult struct {
 	claimed bool
 	err     error
@@ -108,9 +106,6 @@ func TestSearchRebuildMirrorMissHeldAcrossPausedSwitch(t *testing.T) {
 	requireResendAfterHorizon(t, proxy, nodeID, mirrorExpiredOrdinal, target, abandonedAt)
 }
 
-// pauseReplacement runs pauser slices until the replacement is in the switching
-// state with claims paused. pauseReplacement fails the test when that state does
-// not occur within mirrorOperationTimeout or the replacement record is missing.
 func pauseReplacement(t *testing.T, env *migrationEnv, pauser *service.SearchWorker) {
 	t.Helper()
 	rebuilds := env.Stores.SearchRebuilds(clock.Wall{})

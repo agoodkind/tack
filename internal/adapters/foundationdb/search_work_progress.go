@@ -9,11 +9,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// CompletePage checkpoints one page after its serving index write succeeds,
-// including when the mirror write fails.
-// CompletePage calls scheduleMirrorCopy inside its FoundationDB transaction when
-// intent.MirrorMissed is set. The cursor advance and copy item commit together.
-// CompletePage sets the final page's checkpoint phase to PhaseRefresh.
+// CompletePage commits the page checkpoint and any owed replacement copy
+// in one FoundationDB transaction. A mirror failure does not prevent progress
+// after the target index accepts the page.
 func (s *SearchWorkStore) CompletePage(ctx context.Context, intent searchdomain.WriteIntent, cursor string, done bool) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.complete_page")(&err)
 	work := intent.Work

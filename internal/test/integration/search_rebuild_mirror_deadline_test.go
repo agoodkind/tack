@@ -11,14 +11,8 @@ import (
 )
 
 const (
-	// mirrorExpiredOrdinal equals the page ordinal of the replacement index write that the proxy delays
-	// in TestSearchRebuildMirrorMissSurvivesExpiredSlice.
 	mirrorExpiredOrdinal = 0
-	// mirrorSliceDeadline limits the slice context to six seconds in
-	// TestSearchRebuildMirrorMissSurvivesExpiredSlice.
-	// The slice context expires after the serving index accepts page 0 and while the proxy delays the
-	// replacement index write of page 0.
-	// The six-second deadline is shorter than the ten-second OperationTimeout.
+	// This slice deadline must expire before the worker's operation timeout.
 	mirrorSliceDeadline = 6 * time.Second
 )
 

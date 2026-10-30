@@ -87,8 +87,6 @@ func (w *SearchWorker) logStoredPendingWrite(ctx context.Context, work searchdom
 // the mirror request finished. OpenSearch can still complete that request.
 // When abandoned is true, mirrorMiss sets Deadline to now plus WriteCompletionHorizon.
 // Otherwise, the engine returned a definite error and mirrorMiss sets Deadline to now.
-//
-// mirrorMiss logs one Info event when it returns a PendingWrite.
 func (w *SearchWorker) mirrorMiss(ctx context.Context, intent searchdomain.WriteIntent, err error, abandoned bool) *searchdomain.PendingWrite {
 	work := intent.Work
 	var pageErr *searchdomain.PageWriteError
@@ -110,16 +108,9 @@ func (w *SearchWorker) mirrorMiss(ctx context.Context, intent searchdomain.Write
 	}
 }
 
-// keepMirrorMiss returns immediately when intent.MirrorMissed is nil.
-// Otherwise, keepMirrorMiss calls RecordMirrorMiss with a context that preserves
-// the values of ctx and ignores its cancellation and deadline. The context expires
-// after the worker OperationTimeout. RecordMirrorMiss runs even when the slice
-// context has expired or the worker has stopped.
-//
-// RecordMirrorMiss does not store a record when the node revision has changed,
-// live work is no longer pending, or the replacement no longer uses the missed index.
-// keepMirrorMiss logs a RecordMirrorMiss failure at Error level and does not return
-// a value. The caller settles the CompletePage failure afterward.
+// Use an independent OperationTimeout to preserve missed-write deadlines even
+// after cancellation. Retain ctx values for operation attribution.
+// Log a recording failure without replacing the original checkpoint error.
 func (w *SearchWorker) keepMirrorMiss(ctx context.Context, intent searchdomain.WriteIntent) {
 	if intent.MirrorMissed == nil {
 		return
