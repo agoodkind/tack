@@ -231,7 +231,11 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Include lexical and semantic query variation, large and small documents, principals from several tenants, index maintenance, and an isolated search outage in the workload.
 - Count offered and completed searches separately from ingestion operations.
 - Reuse the session and update machinery of `make test-search-host-group GROUP=G2` for reads of 140 unchanged nodes and updates to separate nodes.
-- Suburban provides 31.31 GiB usable memory, eight logical CPUs, and 215.92 GiB available fast storage. Stop the QA workload when an out-of-memory kill counter (`oom_kill` in a `memory.events` file) rises on the hypervisor or a Tack guest, when the hypervisor experiences sustained full memory pressure, or when repeated attempts to read that memory telemetry fail. Send `SIGTERM` to the running `ops qa datagen search-load` or `ops qa datagen search-mixed` command. A run that stops under these conditions does not complete acceptance. Run the complete workload again.
+- The QA hypervisor `suburban` provides these resources.
+  - Usable memory: 31.31 GiB
+  - Logical CPUs: eight
+  - Available fast storage: 215.92 GiB
+- Read the hypervisor `oom_kill` counter from `/proc/vmstat` on `suburban`. Read each Tack guest's `oom_kill` counter from that guest's cgroup `memory.events` file. Stop the QA workload when an out-of-memory kill counter rises on the hypervisor or a Tack guest, when the hypervisor experiences sustained full memory pressure, or when repeated attempts to read that memory telemetry fail. Send `SIGTERM` to the running `ops qa datagen search-load` or `ops qa datagen search-mixed` command. A run that stops under these conditions does not complete acceptance. Run the complete workload again.
 - One QA guest requires two logical CPUs and one 40 GiB fast disk. The measured CPU projection requires 5.43 total logical CPUs with reserve, and the host provides eight. The disk leaves 175.92 GiB, or 38.46 percent of the fast pool, available.
 - Neither initial environment claims OpenSearch node failover or horizontal scale. Do not create temporary ML-only or data-only QA nodes. Measure production capacity on `vault`. Do not reuse suburban measurements. Require the scale-out checks above before claiming production failover or increased OpenSearch capacity.
 - Before removing storage limits, test 128 KiB, 1 MiB, 8 MiB, over 100 MB, and nodes
