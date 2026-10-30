@@ -131,12 +131,18 @@ func macCommandEvidence(t *testing.T, docker *client.Client, directory string, e
 		AttachComplete   bool            `json:"attach_complete"`
 		EventsComplete   bool            `json:"events_complete"`
 		AnonymousVolumes map[string]bool `json:"anonymous_volumes"`
+		Wait             *struct {
+			ReceiverComplete bool `json:"receiver_complete"`
+		} `json:"wait"`
 	}
 	if err := json.Unmarshal(contents, &summary); err != nil {
 		t.Fatal(err)
 	}
 	if summary.ExitCode != expected || summary.Interrupted != interrupted || !summary.AttachComplete || !summary.EventsComplete || summary.RunnerID == "" {
 		t.Fatalf("public command evidence: %s", contents)
+	}
+	if summary.Wait == nil || !summary.Wait.ReceiverComplete {
+		t.Fatalf("public command did not complete its Docker wait receiver: %s", contents)
 	}
 	if !interrupted && (summary.Error != "" || summary.RuntimeExit == nil || *summary.RuntimeExit != expected) {
 		t.Fatalf("public command did not preserve the actual test exit without an orchestration error: %s", contents)
