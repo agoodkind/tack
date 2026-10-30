@@ -198,6 +198,7 @@ SEARCH_T1_ARGS := -count=3 -timeout 180m -run '^TestSearchContinuationTraversesD
 SEARCH_T2_ARGS := -count=3 -timeout 85m -run '^($(SEARCH_T2_TESTS))$$'
 SEARCH_T3_ARGS := -count=3 -timeout 50m -run '^($(SEARCH_T3_TESTS))$$'
 SEARCH_GROUP_ARGS = $(or $(SEARCH_$(GROUP)_ARGS),$(error GROUP must be one of G1 G2 G3 G4 G5A G5B G6 T1 T2 T3))
+TEST_SEARCH_RUNNER ?= compose
 
 .PHONY: test-search-host-group
 test-search-host-group:
@@ -205,9 +206,22 @@ test-search-host-group:
 
 .PHONY: test-search-group
 test-search-group:
+ifeq ($(TEST_SEARCH_RUNNER),mac)
+	$(if $(strip $(MAC_RUNNER_IMAGE)),,$(error set MAC_RUNNER_IMAGE to an existing immutable local image ID))
+	$(if $(strip $(MAC_RUNNER_EVIDENCE_DIR)),,$(error set MAC_RUNNER_EVIDENCE_DIR to a new absolute directory outside the checkout))
+	@if [ ! -x "$(CURDIR)/dist/testenv" ]; then \
+	    printf '%s\n' 'Build dist/testenv before testing: make build BINARY=testenv CMD=./cmd/testenv' >&2; \
+	    exit 1; \
+	fi
+	"$(CURDIR)/dist/testenv" run-mac --root "$(CURDIR)" --image "$(MAC_RUNNER_IMAGE)" \
+	    --evidence-dir "$(MAC_RUNNER_EVIDENCE_DIR)" -- -v $(SEARCH_GROUP_ARGS)
+else ifeq ($(TEST_SEARCH_RUNNER),compose)
 	$(TEST_RUNNER) build tests
 	TACK_TEST_SOURCE_REVISION="$(shell git rev-parse HEAD)" TACK_SEARCH_INTEGRATION=1 $(TEST_RUNNER) run --rm tests \
 	    test -v $(SEARCH_GROUP_ARGS) ./internal/test/integration/...
+else
+	$(error TEST_SEARCH_RUNNER must be compose or mac)
+endif
 
 # Remove the engines cmd/testenv started and the containers and networks of
 # test processes that have exited, then the shared network if containers do

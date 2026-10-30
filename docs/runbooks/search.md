@@ -52,19 +52,21 @@ does not establish that a particular image build passed.
 
    On macOS, use an existing local runner image and save each invocation in a
    new evidence directory. The command runs the current checkout and checks
-   fixture cleanup before it exits.
+   fixture cleanup before it exits. Build the native executable before reserving
+   the measurement window.
 
    ```sh
-   uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
+   make build BINARY=testenv CMD=./cmd/testenv
+   ./dist/testenv run-mac \
        --root "$PWD" --image "sha256:<local-runner-image-id>" \
-       --run '^TestSearchCursorActualOSProcesses$' --count 1 --timeout 30m \
-       --evidence-dir "/private/tmp/tack-search-$(date +%Y%m%d-%H%M%S)"
+       --evidence-dir "/private/tmp/tack-search-$(date +%Y%m%d-%H%M%S)" -- \
+       -run '^TestSearchCursorActualOSProcesses$' -count 1 -timeout 30m
    ```
 
    Get the immutable image ID with
    `docker image inspect tack-tests:latest --format '{{.Id}}'` and replace the
-   placeholder. The command does not build or pull an image. Create the evidence
-   directory outside the checkout.
+   placeholder. The native runner requires a new absolute evidence path outside
+   the checkout and does not build or pull an image.
 
 3. Save the complete output and terminal exit code. Record the compiled source,
    image digests and architecture, server PIDs, fixture identities, and cleanup
@@ -85,6 +87,9 @@ public error during a member stop, even if a later request succeeds.
 1. Follow the ordered groups, complete suite, and repeated tail in the
    [final validation plan](../superpowers/plans/2026-09-19-opensearch-final-validation.md).
    Use its timeouts and count requirements unchanged, and allow no skipped test.
+   On macOS, run each group with `make test-search-group TEST_SEARCH_RUNNER=mac`
+   and set `GROUP`, `MAC_RUNNER_IMAGE`, and `MAC_RUNNER_EVIDENCE_DIR` for that
+   invocation. This mode uses the existing native executable and local image.
 2. Use `TACK_SEARCH_CLUSTER=1 make test-search` for the standard container search
    target. This target supplies the source revision and search integration
    opt-in, but its 90-minute timeout does not replace the plan's 45-minute gate.
