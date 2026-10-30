@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type macRunnerSummary struct {
@@ -18,6 +19,7 @@ type macRunnerSummary struct {
 	Interrupted            bool                                `json:"interrupted"`
 	Started                bool                                `json:"started"`
 	AttachComplete         bool                                `json:"attach_complete"`
+	FinalLogsComplete      bool                                `json:"final_logs_complete"`
 	EventsComplete         bool                                `json:"events_complete"`
 	Error                  string                              `json:"error,omitempty"`
 	Stages                 []macRunnerStage                    `json:"stages"`
@@ -70,6 +72,7 @@ func (execution *macRunnerExecution) status(name string, err error) {
 	code := 0
 	if err != nil {
 		code = 1
+		execution.write(strings.TrimSuffix(name, ".exit")+".error", err.Error()+"\n")
 	}
 	execution.write(name, strconv.Itoa(code)+"\n")
 }
@@ -92,7 +95,7 @@ func (execution *macRunnerExecution) summarize(code int, interrupted bool, err e
 	summary := macRunnerSummary{
 		Name: execution.name, RunnerID: execution.runnerID(), RuntimeExit: execution.runtimeExit,
 		ExitCode: code, Interrupted: interrupted, Started: execution.started,
-		AttachComplete: false, EventsComplete: false, Error: "",
+		AttachComplete: false, FinalLogsComplete: false, EventsComplete: false, Error: "",
 		Stages: execution.stages, CreatedIDs: execution.createdIDs,
 		AnonymousVolumes: execution.anonymousVolumes, Preserved: execution.preserved, Baseline: execution.baseline,
 		TemporaryVolumes: execution.temporaryVolumes, Wait: execution.waitEvidence,
@@ -110,6 +113,9 @@ func (execution *macRunnerExecution) summarize(code int, interrupted bool, err e
 		}
 		if stage.Name == "attach completion" && stage.Error == "" {
 			summary.AttachComplete = true
+		}
+		if stage.Name == "final log retrieval" && stage.Error == "" {
+			summary.FinalLogsComplete = true
 		}
 		if stage.Name == "event completion" && stage.Error == "" {
 			summary.EventsComplete = true

@@ -38,12 +38,12 @@ func (execution *macRunnerExecution) fixtureLogs() (map[string]bool, error) {
 	}
 	complete := false
 	for _, stage := range execution.stages {
-		if stage.Name == "attach completion" && stage.Error == "" {
+		if stage.Name == "final log retrieval" && stage.Error == "" {
 			complete = true
 		}
 	}
 	if !complete {
-		return names, errors.New("fixture log attribution requires completed runtime output")
+		return names, errors.New("fixture log attribution requires complete final Docker logs")
 	}
 	file, err := os.Open(filepath.Join(execution.prepared.options.EvidenceDirectory, "runtime.log"))
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"goodkind.io/tack/internal/testenv"
 )
@@ -88,10 +89,11 @@ func TestMacRunnerRejectsEvidenceReuse(t *testing.T) {
 }
 
 func TestMacRunnerRejectsCheckoutAndImage(t *testing.T) {
-	for _, invalid := range []string{"module", "nested root", "integration", "image", "canceled"} {
+	for _, invalid := range []string{"module", "nested root", "integration", "image", "canceled", "deadline"} {
 		t.Run(invalid, func(t *testing.T) {
 			options, _ := macFixture(t)
 			ctx := t.Context()
+			expectedCode := 1
 			switch invalid {
 			case "module":
 				macWrite(t, options.Root, "go.mod", "module example.com/other\n")
@@ -107,9 +109,14 @@ func TestMacRunnerRejectsCheckoutAndImage(t *testing.T) {
 				canceled, cancel := context.WithCancel(ctx)
 				cancel()
 				ctx = canceled
+				expectedCode = 130
+			case "deadline":
+				deadline, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer cancel()
+				ctx = deadline
 			}
-			if _, err := testenv.RunMacTests(ctx, options); err == nil || strings.Contains(err.Error(), "inspect required immutable local image") {
-				t.Fatalf("RunMacTests accepted invalid %s: %v", invalid, err)
+			if result, err := testenv.RunMacTests(ctx, options); err == nil || strings.Contains(err.Error(), "inspect required immutable local image") || result.ExitCode != expectedCode {
+				t.Fatalf("RunMacTests invalid %s: result=%+v error=%v", invalid, result, err)
 			}
 		})
 	}

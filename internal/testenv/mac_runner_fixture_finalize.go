@@ -48,12 +48,6 @@ func (execution *macRunnerExecution) finalizeFixtureEvidence(ctx context.Context
 	execution.fixtureCleanupComplete = execution.attributionComplete && cleanup == nil
 	execution.status("fixture-attribution.exit", attribution)
 	execution.status("fixture-cleanup.exit", cleanup)
-	if attribution != nil {
-		execution.write("fixture-attribution.error", attribution.Error()+"\n")
-	}
-	if cleanup != nil {
-		execution.write("fixture-cleanup.error", cleanup.Error()+"\n")
-	}
 	writeMacRunnerJSON(execution, "fixture-ids.json", execution.fixtures)
 	writeMacRunnerJSON(execution, "inner-process-ids.json", execution.fixtures.Processes)
 	writeMacRunnerJSON(execution, "unattributed-preserved-ids.json", execution.fixtures.Preserved)

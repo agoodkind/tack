@@ -55,3 +55,12 @@ func TestMacRunnerCacheMarker(t *testing.T) {
 	}
 	t.Log("MAC_RUNNER_CACHE_MARKER")
 }
+
+func TestMacRunnerFinalOutput(t *testing.T) {
+	t.Cleanup(func() {
+		fmt.Fprintln(os.Stdout, "MAC_RUNNER_FINAL_STDOUT")
+		fmt.Fprintln(os.Stderr, "MAC_RUNNER_FINAL_STDERR")
+	})
+	fmt.Fprint(os.Stdout, strings.Repeat("MAC_RUNNER_STDOUT\n", 4096))
+	fmt.Fprint(os.Stderr, strings.Repeat("MAC_RUNNER_STDERR\n", 4096))
+}

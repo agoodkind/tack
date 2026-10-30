@@ -2,9 +2,6 @@ package testenv
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -16,6 +13,7 @@ func executeMacRunner(ctx, caller context.Context, prepared *macRunnerPreparatio
 	var state macRunnerExecution
 	execution := &state
 	execution.prepared = prepared
+	execution.name = prepared.name
 	execution.baseline = macRunnerBaseline{Containers: make(map[string]bool), Networks: make(map[string]bool), Volumes: make(map[string]bool)}
 	execution.preserved = macRunnerBaseline{Containers: make(map[string]bool), Networks: make(map[string]bool), Volumes: make(map[string]bool)}
 	execution.anonymousVolumes, execution.cacheVolumes = make(map[string]bool), make(map[string]bool)
@@ -38,11 +36,6 @@ func executeMacRunner(ctx, caller context.Context, prepared *macRunnerPreparatio
 }
 
 func (execution *macRunnerExecution) prepareExecution(ctx context.Context) error {
-	var suffix [12]byte
-	if _, err := rand.Read(suffix[:]); err != nil {
-		return macRunnerFailure("generate runner identity", fmt.Errorf("read random suffix: %w", err))
-	}
-	execution.name = "tack-mac-runner-" + hex.EncodeToString(suffix[:])
 	execution.labels = map[string]string{
 		macRunnerLabel: execution.name, macRunnerLabel + ".native": "true",
 		macRunnerLabel + ".image": execution.prepared.options.Image, macRunnerLabel + ".root": execution.prepared.root,

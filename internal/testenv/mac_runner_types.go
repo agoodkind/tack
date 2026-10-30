@@ -23,6 +23,7 @@ type MacTestResult struct {
 
 // macRunnerPreparation stores inputs and source evidence for one invocation.
 type macRunnerPreparation struct {
+	name           string
 	options        MacTestOptions
 	root           string
 	source         macRunnerSource
@@ -46,8 +47,10 @@ type macRunnerSourceHash struct {
 }
 
 type macRunnerInvocation struct {
-	Root     string                         `json:"root"`
-	Project  string                         `json:"project"`
-	Service  types.ServiceConfig            `json:"service"`
-	Networks map[string]types.NetworkConfig `json:"networks"`
+	SchemaVersion int                            `json:"schema_version"`
+	Name          string                         `json:"name"`
+	Root          string                         `json:"root"`
+	Project       string                         `json:"project"`
+	Service       types.ServiceConfig            `json:"service"`
+	Networks      map[string]types.NetworkConfig `json:"networks"`
 }

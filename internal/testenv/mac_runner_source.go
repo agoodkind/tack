@@ -114,6 +114,7 @@ func (prepared *macRunnerPreparation) writeSourceEvidence() error {
 		}
 	}
 	invocation, err := json.MarshalIndent(macRunnerInvocation{
+		SchemaVersion: 1, Name: prepared.name,
 		Root: prepared.root, Project: prepared.project.Name, Service: prepared.service,
 		Networks: prepared.project.Networks,
 	}, "", "  ")

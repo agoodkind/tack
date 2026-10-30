@@ -49,6 +49,7 @@ func TestMacRunnerDockerSourceMutation(t *testing.T) {
 	if err != nil || string(contents) != "1\n" {
 		t.Fatalf("source verification evidence: contents=%q error=%v", contents, err)
 	}
+	macRequireStageFailure(t, options.EvidenceDirectory, "source-hash-verification", "source hash changed")
 }
 
 func TestMacRunnerDockerAbsentImage(t *testing.T) {

@@ -3,7 +3,9 @@ package testenv
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -29,6 +31,11 @@ func (execution *macRunnerExecution) finalize(ctx context.Context, primary error
 	}
 	failures = append(failures, execution.finishAttach())
 	failures = append(failures, execution.finishWait(cleanupContext))
+	if execution.acceptedID != "" {
+		logErr := execution.captureFinalLogs(cleanupContext)
+		execution.status("final-logs.exit", logErr)
+		failures = append(failures, execution.stage("final log retrieval", logErr))
+	}
 	var attributionErr, fixtureCleanupErr error
 	if execution.defaultClient != nil && execution.baselineReady {
 		attributionErr = execution.stage("fixture attribution", execution.attributeFixtures(cleanupContext))
@@ -79,11 +86,18 @@ func (execution *macRunnerExecution) finishAttach() error {
 	}
 	if execution.logFile != nil {
 		failures = append(failures, execution.logFile.Close())
+		path := filepath.Join(execution.prepared.options.EvidenceDirectory, "attach.log")
+		slog.Debug("testenv.run_mac.attach_preserve", slog.String("runner", execution.acceptedID), slog.String("artifact", path))
+		if err := os.Rename(execution.logFile.Name(), path); err != nil {
+			failures = append(failures, macRunnerFailure("preserve attached runtime output", err))
+		}
 	}
 	if execution.attach == nil {
 		return macRunnerErrors("close runtime output", failures...)
 	}
-	return execution.stage("attach completion", macRunnerErrors("complete runtime output", failures...))
+	err := macRunnerErrors("complete runtime output", failures...)
+	execution.status("attach.exit", err)
+	return execution.stage("attach completion", err)
 }
 
 func (execution *macRunnerExecution) finishEvents() error {

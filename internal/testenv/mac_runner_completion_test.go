@@ -149,6 +149,7 @@ func TestMacRunnerDockerRemovedContainer(t *testing.T) {
 	}
 	macRuntimeEvidence(t, options, docker)
 	summary := macCorrectionEvidence(t, options.EvidenceDirectory)
+	macRequireFinalLogFailure(t, options.EvidenceDirectory, id)
 	recorded := summary.TemporaryVolumes[id]
 	if recorded.Name != volume || !recorded.Absent || recorded.IdentityError != "" || len(summary.UnknownResources) != 0 {
 		t.Fatalf("missing container did not require known temporary-volume absence: %+v", summary)
