@@ -60,10 +60,10 @@ func (execution *macRunnerExecution) create(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if _, err := execution.recordTemporaryVolume(inspection); err != nil {
-			return err
+		_, err = execution.recordTemporaryVolume(inspection)
+		if err == nil {
+			err = execution.verify(inspection)
 		}
-		err = execution.verify(inspection)
 		if err == nil {
 			execution.acceptedID = created.ID
 			writeMacRunnerJSON(execution, "outer-created.json", inspection)
