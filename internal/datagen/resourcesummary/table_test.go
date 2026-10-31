@@ -22,7 +22,8 @@ type tableRow struct {
 	value string
 }
 
-func hostTable(host resourcesummary.HostSummary) string {
+func hostTable(host resourcesummary.HostSummary, guestID string) string {
+	guest := "CT " + guestID
 	rows := []tableRow{
 		{label: "Hypervisor samples", value: strconv.Itoa(host.Samples)},
 		{label: "Failed hypervisor samples", value: strconv.Itoa(host.FailedSamples)},
@@ -36,13 +37,13 @@ func hostTable(host resourcesummary.HostSummary) string {
 		{label: "Host 1-minute load max", value: fmt.Sprintf("%.2f", host.LoadOneMinuteMax)},
 		{label: "Host IO PSI some avg10 max", value: percent(host.IOPressure.SomeAvg10Max)},
 		{label: "Host IO PSI full avg10 max", value: percent(host.IOPressure.FullAvg10Max)},
-		{label: "CT 227 average CPU", value: fmt.Sprintf("%.3f cores", host.GuestCPUCores)},
-		{label: "CT 227 CPU PSI some avg10 max", value: percent(host.GuestCPUPressure.SomeAvg10Max)},
-		{label: "CT 227 CPU PSI full avg10 max", value: percent(host.GuestCPUPressure.FullAvg10Max)},
-		{label: "CT 227 IO PSI some avg10 max", value: percent(host.GuestIOPressure.SomeAvg10Max)},
-		{label: "CT 227 IO PSI full avg10 max", value: percent(host.GuestIOPressure.FullAvg10Max)},
-		{label: "CT 227 read", value: fmt.Sprintf("%.1f MiB", host.GuestReadMiB)},
-		{label: "CT 227 write", value: fmt.Sprintf("%.1f MiB", host.GuestWriteMiB)},
+		{label: guest + " average CPU", value: fmt.Sprintf("%.3f cores", host.GuestCPUCores)},
+		{label: guest + " CPU PSI some avg10 max", value: percent(host.GuestCPUPressure.SomeAvg10Max)},
+		{label: guest + " CPU PSI full avg10 max", value: percent(host.GuestCPUPressure.FullAvg10Max)},
+		{label: guest + " IO PSI some avg10 max", value: percent(host.GuestIOPressure.SomeAvg10Max)},
+		{label: guest + " IO PSI full avg10 max", value: percent(host.GuestIOPressure.FullAvg10Max)},
+		{label: guest + " read", value: fmt.Sprintf("%.1f MiB", host.GuestReadMiB)},
+		{label: guest + " write", value: fmt.Sprintf("%.1f MiB", host.GuestWriteMiB)},
 	}
 	var builder strings.Builder
 	builder.WriteString(tableHeader)

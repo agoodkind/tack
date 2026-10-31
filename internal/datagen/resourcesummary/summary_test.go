@@ -74,7 +74,7 @@ func TestSavedRunResources(t *testing.T) {
 			if err != nil {
 				t.Fatalf("summarize %s: %v", runLogPath, err)
 			}
-			t.Logf("%s\n%s\n%s", run.name, hostTable(host), nodeTable(workload))
+			t.Logf("%s\n%s\n%s", run.name, hostTable(host, searchGuestID), nodeTable(workload))
 			checkMemory(t, run, host)
 		})
 	}

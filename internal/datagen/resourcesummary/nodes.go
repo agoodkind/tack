@@ -26,7 +26,8 @@ type NodeSummary struct {
 	CPUPercentMax        int
 	ProcessCPUPercentMax int
 	HeapUsedMaxBytes     int64
-	// HeapUsedMaxFraction is HeapUsedMaxBytes divided by heap_max_bytes of the same reading.
+	// HeapUsedMaxFraction is the largest heap_used_bytes divided by heap_max_bytes of the
+	// same reading. It can come from a reading other than the one with HeapUsedMaxBytes.
 	HeapUsedMaxFraction   float64
 	MemoryUsedMaxFraction float64
 	DiskAvailableMinBytes int64
@@ -51,7 +52,7 @@ type runSample struct {
 // SummarizeRun reads the indented search-mixed result that a run log contains between a line
 // that is only "{" and a line that is only "}", and summarizes its OpenSearch node samples.
 func SummarizeRun(ctx context.Context, path string) (RunSummary, error) {
-	block, err := readResultBlock(ctx, path)
+	block, err := readResultBlock(path)
 	if err != nil {
 		return RunSummary{}, err
 	}
@@ -84,6 +85,8 @@ func SummarizeRun(ctx context.Context, path string) (RunSummary, error) {
 	return RunSummary{Samples: len(result.Samples), Nodes: nodes}, nil
 }
 
+// newNodeSummary seeds the maximum and minimum fields from the first reading and sets
+// Readings to zero. addNodeReading then applies every reading, including the first.
 func newNodeSummary(node datagen.SearchMixedNodeResources) *NodeSummary {
 	return &NodeSummary{
 		Name:                  node.Name,
@@ -104,10 +107,9 @@ func addNodeReading(summary *NodeSummary, node datagen.SearchMixedNodeResources)
 	summary.ProcessCPUPercentMax = max(summary.ProcessCPUPercentMax, node.ProcessCPUPercent)
 	memoryFraction := fraction(node.MemoryUsedBytes, node.MemoryTotalBytes)
 	summary.MemoryUsedMaxFraction = max(summary.MemoryUsedMaxFraction, memoryFraction)
-	if node.HeapUsedBytes > summary.HeapUsedMaxBytes {
-		summary.HeapUsedMaxBytes = node.HeapUsedBytes
-		summary.HeapUsedMaxFraction = fraction(node.HeapUsedBytes, node.HeapMaxBytes)
-	}
+	heapFraction := fraction(node.HeapUsedBytes, node.HeapMaxBytes)
+	summary.HeapUsedMaxFraction = max(summary.HeapUsedMaxFraction, heapFraction)
+	summary.HeapUsedMaxBytes = max(summary.HeapUsedMaxBytes, node.HeapUsedBytes)
 	if node.DiskAvailableBytes < summary.DiskAvailableMinBytes {
 		summary.DiskAvailableMinBytes = node.DiskAvailableBytes
 		summary.DiskTotalBytes = node.DiskTotalBytes
@@ -118,12 +120,20 @@ func fraction(part int64, whole int64) float64 {
 	return float64(part) / float64(whole)
 }
 
-func readResultBlock(ctx context.Context, path string) ([]byte, error) {
+func readResultBlock(path string) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, wrapError("open run log "+path, err)
 	}
-	defer closeFile(ctx, file)
+	block, scanErr := scanResultBlock(file, path)
+	err = closeFile(file, scanErr)
+	if err != nil {
+		return nil, err
+	}
+	return block, nil
+}
+
+func scanResultBlock(file *os.File, path string) ([]byte, error) {
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, initialLineBytes), maxLineBytes)
 	var block []byte

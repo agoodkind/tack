@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -66,7 +67,23 @@ func SummarizeHost(
 	if err != nil {
 		return HostSummary{}, wrapError("open sampler file "+path, err)
 	}
-	defer closeFile(ctx, file)
+	accumulator, scanErr := scanSampler(file, path, window, guestID)
+	err = closeFile(file, scanErr)
+	if err != nil {
+		return HostSummary{}, err
+	}
+	slog.InfoContext(ctx, "resource_summary.sampler_read",
+		slog.String("path", path), slog.Int("samples", accumulator.summary.Samples),
+		slog.Int("failed_samples", accumulator.summary.FailedSamples))
+	return accumulator.finish()
+}
+
+func scanSampler(
+	file *os.File,
+	path string,
+	window Window,
+	guestID string,
+) (*hostAccumulator, error) {
 	accumulator := newHostAccumulator()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, initialLineBytes), maxLineBytes)
@@ -77,7 +94,7 @@ func SummarizeHost(
 		decodeErr := json.Unmarshal(scanner.Bytes(), &line)
 		if decodeErr != nil {
 			message := fmt.Sprintf("decode %s line %d", path, lineNumber)
-			return HostSummary{}, wrapError(message, decodeErr)
+			return nil, wrapError(message, decodeErr)
 		}
 		if line.Time.Before(window.Start) || line.Time.After(window.End) {
 			continue
@@ -88,26 +105,27 @@ func SummarizeHost(
 		}
 		sample, parseErr := parseSample(line, guestID)
 		if parseErr != nil {
-			return HostSummary{}, parseErr
+			return nil, parseErr
 		}
 		accumulator.add(sample)
 	}
 	scanErr := scanner.Err()
 	if scanErr != nil {
-		return HostSummary{}, wrapError("scan sampler file "+path, scanErr)
+		return nil, wrapError("scan sampler file "+path, scanErr)
 	}
-	slog.InfoContext(ctx, "resource_summary.sampler_read",
-		slog.String("path", path), slog.Int("samples", accumulator.summary.Samples),
-		slog.Int("failed_samples", accumulator.summary.FailedSamples))
-	return accumulator.finish()
+	return accumulator, nil
 }
 
-func closeFile(ctx context.Context, file *os.File) {
+// closeFile closes file and returns readErr together with any close error.
+func closeFile(file *os.File, readErr error) error {
 	closeErr := file.Close()
-	if closeErr != nil {
-		slog.ErrorContext(ctx, "resource_summary.close_failed",
-			slog.String("path", file.Name()), slog.String("err", closeErr.Error()))
+	if closeErr == nil {
+		return readErr
 	}
+	if readErr == nil {
+		return wrapError("close "+file.Name(), closeErr)
+	}
+	return wrapError("read and close "+file.Name(), errors.Join(readErr, closeErr))
 }
 
 // readError reports the input step that failed and its cause. The caller logs it.
