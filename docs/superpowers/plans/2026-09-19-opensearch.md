@@ -35,8 +35,8 @@ The [search architecture](../specs/2026-09-19-search-design.md) and [acceptance 
 - Process at most 32 reader pages or 5 MiB per worker slice. Process at most 100 cleanup or access IDs per slice.
 - Return at most 25 distinct nodes per public response. Read at most four OpenSearch batches of 100 page matches per response. Continuation must still return every eligible node.
 - QA and production start with one combined-role OpenSearch guest and zero replicas. Production uses normal cluster discovery from its first start.
-- Each model guest has at least 8 GiB memory, 2 CPU cores, and 40 GiB fast storage. Every search member, in QA and production, runs a 3 GiB JVM heap on an 8 GiB guest. The QA host keeps the 6.26 GiB `suburban` available-memory gate during the QA workload.
-- Keep at least 6.26 GiB available on `suburban` throughout the complete QA workload.
+- Each model guest has at least 8 GiB memory, 2 CPU cores, and 40 GiB fast storage. Every search member, in QA and production, runs a 3 GiB JVM heap on an 8 GiB guest.
+- Stop the QA workload on the memory exhaustion signals in the [acceptance spec](../specs/2026-09-19-search-acceptance.md#cluster-and-capacity).
 - Keep every new or edited file within 200 lines and split files by responsibility.
 - Use real dependencies and public boundaries. Do not use mocks, stubs, recorded responses, private helpers, or product seeds as acceptance evidence.
 - Before the first code edit, run `make build` on the exact base. Run `make build` after every coding task and before its signed commit. Fix every failure in that task.
