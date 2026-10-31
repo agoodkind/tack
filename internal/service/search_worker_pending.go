@@ -78,3 +78,47 @@ func (w *SearchWorker) logStoredPendingWrite(ctx context.Context, work searchdom
 		slog.String("index", pending.Index), slog.Uint64("ordinal", pending.Ordinal),
 		slog.Duration("since_abandoned", w.clock.Since(pending.AbandonedAt)))
 }
+
+// mirrorMiss returns a PendingWrite for a failed mirror write after the serving index
+// accepts the page. mirrorMiss returns nil for ErrObsoleteWrite, an error from another
+// index, or a claim without a mirror.
+//
+// abandoned reports that a deadline or cancellation ended the operation context before
+// the mirror request finished. OpenSearch can still complete that request.
+// When abandoned is true, mirrorMiss sets Deadline to now plus WriteCompletionHorizon.
+// Otherwise, the engine returned a definite error and mirrorMiss sets Deadline to now.
+func (w *SearchWorker) mirrorMiss(ctx context.Context, intent searchdomain.WriteIntent, err error, abandoned bool) *searchdomain.PendingWrite {
+	work := intent.Work
+	var pageErr *searchdomain.PageWriteError
+	if work.Mirror == "" || !errors.As(err, &pageErr) || pageErr.Index != work.Mirror || errors.Is(err, searchdomain.ErrObsoleteWrite) {
+		return nil
+	}
+	now := w.clock.Now()
+	deadline := now
+	if abandoned {
+		deadline = now.Add(w.settings.WriteCompletionHorizon)
+	}
+	telemetry.L(ctx).InfoContext(ctx, "search.worker.mirror_missed", slog.String("node_id", work.NodeID.String()),
+		slog.String("class", string(work.Class)), slog.Int64("generation", work.Generation),
+		slog.String("document_id", intent.DocumentID), slog.String("index", work.Mirror),
+		slog.Uint64("ordinal", intent.Page.Ordinal), slog.Bool("abandoned", abandoned))
+	return &searchdomain.PendingWrite{
+		DocumentID: intent.DocumentID, Index: work.Mirror, Ordinal: intent.Page.Ordinal,
+		Generation: work.Generation, AbandonedAt: now, Deadline: deadline,
+	}
+}
+
+// Use an independent OperationTimeout to preserve missed-write deadlines even
+// after cancellation. Retain ctx values for operation attribution.
+// Log a recording failure without replacing the original checkpoint error.
+func (w *SearchWorker) keepMirrorMiss(ctx context.Context, intent searchdomain.WriteIntent) {
+	if intent.MirrorMissed == nil {
+		return
+	}
+	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), w.settings.OperationTimeout)
+	defer cancel()
+	if err := w.ports.Store.RecordMirrorMiss(recordContext, intent); err != nil {
+		telemetry.L(ctx).ErrorContext(ctx, "search.worker.mirror_miss_record_failed", slog.String("err", err.Error()),
+			slog.String("node_id", intent.Work.NodeID.String()), slog.String("document_id", intent.DocumentID))
+	}
+}

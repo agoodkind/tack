@@ -30,6 +30,7 @@ type delayedPageWrite struct {
 	revision   string
 	generation int64
 	received   time.Time
+	index      string
 }
 
 // pageDelayProxy forwards every request to the engine. It delays the first
@@ -41,6 +42,9 @@ type pageDelayProxy struct {
 	engine  *httputil.ReverseProxy
 	nodeID  string
 	ordinal uint64
+	// index limits the selected delayed write to this physical index.
+	// An empty value matches every index.
+	index   string
 	delay   time.Duration
 	started chan struct{}
 
@@ -86,11 +90,12 @@ func (proxy *pageDelayProxy) ServeHTTP(writer http.ResponseWriter, request *http
 		return
 	}
 	now := time.Now()
+	index := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/"), "/_bulk")
 	proxy.mutex.Lock()
 	proxy.writes = append(proxy.writes, delayedPageWrite{
-		nodeID: page.NodeID, ordinal: page.PageOrdinal, revision: page.NodeRevision, generation: page.SearchGeneration, received: now,
+		nodeID: page.NodeID, ordinal: page.PageOrdinal, revision: page.NodeRevision, generation: page.SearchGeneration, received: now, index: index,
 	})
-	hold := !proxy.delayed && page.NodeID == proxy.nodeID && page.PageOrdinal == proxy.ordinal
+	hold := !proxy.delayed && page.NodeID == proxy.nodeID && page.PageOrdinal == proxy.ordinal && (proxy.index == "" || proxy.index == index)
 	if hold {
 		proxy.delayed, proxy.heldFrom = true, now
 		close(proxy.started)
@@ -160,7 +165,7 @@ func newDelayedMigrationEnv(t *testing.T, pageBytes int, delay time.Duration) (*
 			Rewrite:   func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
 			Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12}},
 		},
-		nodeID: "", ordinal: 0, delay: delay, started: make(chan struct{}),
+		nodeID: "", ordinal: 0, index: "", delay: delay, started: make(chan struct{}),
 		mutex: sync.Mutex{}, delayed: false, heldFrom: time.Time{}, heldUntil: time.Time{}, abandoned: false, writes: nil,
 		forwardAfter: 0, forwardedAt: time.Time{}, forwardStatus: 0,
 	}

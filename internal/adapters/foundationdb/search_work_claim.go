@@ -72,8 +72,7 @@ func (s *SearchWorkStore) claimWorkItem(
 	claimKey := searchClaimKey(string(class), bucket, record.OrgID, record.NodeID)
 	target, mirror, claimable := scope.targets(class)
 	if !claimable {
-		removeSearchWork(tr, class, record)
-		tr.Clear(fdb.Key(claimKey))
+		dropSearchWork(tr, class, record)
 		return none, false, nil
 	}
 	desired, err := readSearchCounter(ctx, tr, desiredGenerationKey(class, record.OrgID, record.NodeID))
@@ -81,8 +80,7 @@ func (s *SearchWorkStore) claimWorkItem(
 		return none, false, err
 	}
 	if desired != record.Generation {
-		removeSearchWork(tr, class, record)
-		tr.Clear(fdb.Key(claimKey))
+		dropSearchWork(tr, class, record)
 		return none, false, nil
 	}
 	waiting, err := projectionGate(ctx, tr, s.clock.Now(), class, record)

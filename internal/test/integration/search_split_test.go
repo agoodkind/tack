@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -153,4 +154,37 @@ func TestSearchSplitWithoutModel(t *testing.T) {
 	fixture.Index = source
 	requireExactlyOnce(t, everyTypedSearchPage(t, fixture, "cobalt split preserved", kind.TypeKey), nodes)
 	requireSemanticTargets(t, fixture, semanticPairs(t), targets, "split-redeployed")
+}
+
+// Serving work must finish while the replacement blocks writes. Its missed
+// mirror page must remain pending as copy work before replay can resume.
+func requireServingAfterMirrorRefusal(t *testing.T, fixture queryFixture, nodeID uuid.UUID, target string) {
+	t.Helper()
+	ctx := WithTestOperation(t, t.Context())
+	store := fixture.Stores.SearchWork(clock.Wall{})
+	work, claimed, err := store.Claim(ctx, searchdomain.WorkClassLive, "split-fault-test", faultLease)
+	if err != nil || !claimed || work.NodeID != nodeID || work.Target != fixture.Index || work.Mirror != target {
+		t.Fatalf("claim live work = %+v, claimed %t, error %v, want node %s targeting %s and mirroring %s", work, claimed, err, nodeID, fixture.Index, target)
+	}
+	if err := fixture.Worker.Process(ctx, work); err != nil {
+		t.Fatalf("process live work of node %s with blocked mirror %s: %v", nodeID, target, err)
+	}
+	if pending, claimed, err := store.Claim(ctx, searchdomain.WorkClassLive, "split-fault-test", faultLease); err != nil || claimed {
+		t.Fatalf("live work after serving completion = %+v, claimed %t, error %v", pending, claimed, err)
+	}
+	requireCurrentPages(t, fixture, fixture.Index, []uuid.UUID{nodeID})
+	requireServing(t, fixture, fixture.Index, "")
+	if !writeBlocked(t, fixture.Client, target) {
+		t.Fatalf("replacement %s stopped blocking writes before replay", target)
+	}
+	requireQueued(t, fixture, target, nodeID)
+	copyWork, claimed, err := store.Claim(ctx, searchdomain.WorkClassCopy, "split-fault-test", faultLease)
+	if err != nil || !claimed || copyWork.NodeID != nodeID || copyWork.OrgID != work.OrgID || copyWork.Target != target ||
+		copyWork.Generation != work.Generation || copyWork.Revision != work.Revision || copyWork.Ordinal != 0 || copyWork.Phase != searchdomain.PhasePages {
+		t.Fatalf("claim owed replacement copy = %+v, claimed %t, error %v, want the first page of node %s at generation %d and revision %s in %s",
+			copyWork, claimed, err, nodeID, work.Generation, work.Revision, target)
+	}
+	if err := store.Yield(ctx, copyWork); err != nil {
+		t.Fatalf("release observation claim for replacement copy of node %s: %v", nodeID, err)
+	}
 }
