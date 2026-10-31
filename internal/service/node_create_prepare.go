@@ -29,6 +29,9 @@ func (s *NodeService) prepareCreateProps(
 	nt *node.NodeType,
 	in CreateInput,
 ) (map[string]json.RawMessage, error) {
+	if err := refuseManagedProps(ctx, nt, "create", in.Props); err != nil {
+		return nil, err
+	}
 	props, err := s.copyCreateProps(ctx, log, orgID, nt, in)
 	if err != nil {
 		return nil, err

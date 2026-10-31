@@ -123,7 +123,7 @@ func moveNodeConcurrently(ctx context.Context, fixture rolloutFixture, nodeID, t
 		return err
 	}
 	_, err = rolloutNodeService(fixture).Update(ctx, service.UpdateInput{
-		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target, "scope_id": target},
+		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target}, ScopeID: to,
 	})
 	return err
 }
