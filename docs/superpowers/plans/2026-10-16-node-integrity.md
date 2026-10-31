@@ -4,6 +4,8 @@ Implement the [node integrity specification](../specs/2026-10-16-node-integrity.
 
 The plan uses Go, real FoundationDB, YugabyteDB, Kafka, the existing repair console, and the public MCP interface. The [search correction plan](2026-10-16-search-correction.md) covers search implementation, complete acceptance, and coordinated delivery.
 
+Use the [parallel implementation plan](2026-10-17-parallel-implementation.md) for source ownership, transaction contracts, repair checkpoints, and concurrent execution.
+
 ## Establish the implementation base
 
 1. Recheck current main, deployed images, ticket states, active worktrees, and the Tack and Proxmox deployment owners. Use an isolated worktree and preserve ongoing implementation branches.
