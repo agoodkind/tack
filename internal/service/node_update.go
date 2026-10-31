@@ -25,7 +25,7 @@ type UpdateInput struct {
 	RelationshipChanges node.RelationshipChanges
 	ActorID             uuid.UUID
 	// ScopeID, when not [uuid.Nil], replaces the stored scope_id. It requires a
-	// parent change in the same update. Internal callers that move a node into
+	// change to a different parent in the same update. Internal callers that move a node into
 	// another scope set it. Props cannot set scope_id.
 	ScopeID uuid.UUID `exhaustruct:"optional"`
 }
@@ -68,7 +68,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	if err != nil {
 		return nil, err
 	}
-	props, err := scopedUpdateProps(ctx, in, parent.Change)
+	props, err := scopedUpdateProps(ctx, in, parent.Change, snapshot.ParentID)
 	if err != nil {
 		return nil, err
 	}
