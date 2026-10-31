@@ -106,12 +106,13 @@ func scheduleMirrorCopy(ctx context.Context, tr fdb.Transaction, now time.Time, 
 	})
 }
 
-// copyCovers reports whether an existing copy item already writes the missed page
-// ordinal. It returns false when the copy record has a different generation or
-// revision. It returns true when the copy lacks a checkpoint or the checkpoint has
-// a different generation or revision. readProgress restarts such a copy at page zero.
-// Otherwise, it returns true when the checkpoint ordinal is at or before the missed
-// ordinal.
+// copyCovers returns false when the copy record has a different generation or
+// revision from the requested values. For a matching copy record, it returns true
+// with any checkpoint read error. It returns true when the checkpoint is missing
+// or has a different generation or revision from the copy record. Otherwise, it
+// returns whether the checkpoint ordinal is at or before the missed ordinal.
+// readProgress restarts copy work at ordinal zero when the checkpoint is missing
+// or has a different generation from the copy record.
 func copyCovers(ctx context.Context, tr fdb.Transaction, existing searchWorkRecord, generation, revision int64, ordinal uint64) (bool, error) {
 	if existing.Generation != generation || existing.Revision != revision {
 		return false, nil

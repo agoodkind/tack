@@ -8,8 +8,11 @@ import (
 )
 
 // rebuildSwitch runs the second copy check after pauseClaims drains live and copy
-// leases. pauseClaims blocks claims until the alias switches.
-// During that pause, RecordMirrorMiss stores an abandoned mirror write as a live
+// leases. The pause blocks live and copy claims; rebuild claims remain available.
+// When the second check finds pending copies, switchWaitsForCopies clears Paused
+// and returns before the alias switch. On the successful path, live and copy
+// claims stay paused through the alias switch until CompleteSwitch clears Paused.
+// During the pause, RecordMirrorMiss stores an abandoned mirror write as a live
 // pending deadline for the replacement index without adding a copy item.
 // After CompleteSwitch, live claims target the replacement index.
 // The next live claim reads the deadline before resending the document.
