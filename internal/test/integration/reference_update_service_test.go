@@ -36,10 +36,10 @@ func TestServiceUpdateRefusesMoveOntoHeldReference(t *testing.T) {
 	_, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
 		NodeID: mover.ID,
 		Props: map[string]json.RawMessage{
-			"scope_id":  jsonStr(first.ID.String()),
 			"parent_id": jsonStr(first.ID.String()),
 		},
 		ActorID: actor,
+		ScopeID: first.ID,
 	})
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("update moving %s into %s error = %v, want ErrConflict", mover.ID, first.ID, err)
@@ -79,10 +79,10 @@ func TestServiceUpdateReclaimsReferenceOnCleanMove(t *testing.T) {
 	if _, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
 		NodeID: mover.ID,
 		Props: map[string]json.RawMessage{
-			"scope_id":  jsonStr(destination.ID.String()),
 			"parent_id": jsonStr(destination.ID.String()),
 		},
 		ActorID: actor,
+		ScopeID: destination.ID,
 	}); err != nil {
 		t.Fatalf("clean move: %v", err)
 	}

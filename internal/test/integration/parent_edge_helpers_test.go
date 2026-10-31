@@ -44,7 +44,7 @@ func (f parentEdgeFixture) moveLeaf(t *testing.T, nodeID, parentID uuid.UUID) er
 	t.Helper()
 	target := parentEdgeJSON(t, parentID.String())
 	_, err := f.nodes.Update(integration.WithTestOperation(t, t.Context()), service.UpdateInput{
-		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target, "scope_id": target},
+		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target}, ScopeID: parentID,
 		ActorID: f.first.Actors[0].UserID,
 	})
 	return err
