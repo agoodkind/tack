@@ -1,10 +1,14 @@
 package search
 
+import "github.com/google/uuid"
+
 // StuckWork is one work item that keeps retrying after its counted failures
 // equal the attempt limit. ItemID is the node, the organization, or the
 // index replacement the item works on.
 type StuckWork struct {
 	Class     WorkClass
+	OrgID     uuid.UUID
+	NodeID    uuid.UUID
 	ItemID    string
 	Attempts  int64
 	LastError string

@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -31,20 +32,24 @@ const exclusionPollInterval = time.Second
 // searchVerifyReport is the exclusion and stuck work listing that ops search
 // verify writes.
 type searchVerifyReport struct {
-	ExcludedNodes int `json:"excluded_nodes"`
-	Exclusions    []struct {
-		NodeID string `json:"node_id"`
-		Class  string `json:"class"`
-		Index  string `json:"index"`
-		Reason string `json:"reason"`
-	} `json:"exclusions"`
-	StuckWorkItems int `json:"stuck_work_items"`
-	StuckWork      []struct {
-		Kind      string `json:"kind"`
-		ItemID    string `json:"item_id"`
-		Attempts  int64  `json:"attempts"`
-		LastError string `json:"last_error"`
-	} `json:"stuck_work"`
+	ExcludedNodes  int                     `json:"excluded_nodes"`
+	Exclusions     []searchVerifyExclusion `json:"exclusions"`
+	StuckWorkItems int                     `json:"stuck_work_items"`
+	StuckWork      []searchVerifyStuckWork `json:"stuck_work"`
+}
+
+type searchVerifyExclusion struct {
+	NodeID string `json:"node_id"`
+	Class  string `json:"class"`
+	Index  string `json:"index"`
+	Reason string `json:"reason"`
+}
+
+type searchVerifyStuckWork struct {
+	Kind      string `json:"kind"`
+	ItemID    string `json:"item_id"`
+	Attempts  int64  `json:"attempts"`
+	LastError string `json:"last_error"`
 }
 
 // reason returns the listed reason of nodeID and whether the listing has it.
@@ -80,10 +85,8 @@ func putOrphanNode(t *testing.T, fixture queryFixture, kind opaqueKind, name, in
 }
 
 // runSearchVerifyCommand runs the audited ops search verify command through
-// the rendered Cobra tree and decodes the exclusion listing it writes. It
-// returns the command error separately. The query fixture serves an index
-// other than the provisioned node-pages-1, and the physical checks that
-// follow the listing report that index.
+// the rendered Cobra tree. It decodes successful output. After a failure, it
+// requires empty output and checks the public error against stored diagnostics.
 func runSearchVerifyCommand(t *testing.T, cfg *config.Config) (searchVerifyReport, error) {
 	t.Helper()
 	factory := cli.System(cfg)
@@ -95,6 +98,7 @@ func runSearchVerifyCommand(t *testing.T, cfg *config.Config) (searchVerifyRepor
 	}
 	defer pool.Close()
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := searchCommandRoot(factory)
 	root.SetArgs([]string{
 		"--execute", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
@@ -102,11 +106,66 @@ func runSearchVerifyCommand(t *testing.T, cfg *config.Config) (searchVerifyRepor
 		"ops", "search", "verify",
 	})
 	runErr := root.Execute()
+	if runErr != nil {
+		if output.Len() != 0 {
+			t.Fatalf("failed ops search verify printed unaudited result bytes: %s", output.String())
+		}
+		return searchVerifyFailureState(t, cfg, runErr), runErr
+	}
 	var report searchVerifyReport
 	if err := json.NewDecoder(&output).Decode(&report); err != nil {
 		t.Fatalf("decode ops search verify listing (command error %v): %v", runErr, err)
 	}
 	return report, runErr
+}
+
+// searchVerifyFailureState checks every stored stuck item against the public
+// command error. Separate storage reads preserve exclusion-state assertions.
+func searchVerifyFailureState(t *testing.T, cfg *config.Config, commandError error) searchVerifyReport {
+	t.Helper()
+	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, nil)
+	if err != nil {
+		t.Fatalf("open stores to compare verify failure evidence: %v", err)
+	}
+	report := searchVerifyReport{ExcludedNodes: 0, Exclusions: nil, StuckWorkItems: 0, StuckWork: nil}
+	cursor := ""
+	for {
+		page, err := stores.SearchExclusions(t.Context(), cursor)
+		if err != nil {
+			t.Fatalf("read exclusion state after verify failure: %v", err)
+		}
+		for _, exclusion := range page.Exclusions {
+			report.Exclusions = append(report.Exclusions, searchVerifyExclusion{
+				NodeID: exclusion.NodeID.String(), Class: string(exclusion.Class), Index: exclusion.Index, Reason: exclusion.Reason,
+			})
+		}
+		if page.Done {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	cursor = ""
+	for {
+		page, err := stores.SearchStuckWork(t.Context(), cursor)
+		if err != nil {
+			t.Fatalf("read stuck work after verify failure: %v", err)
+		}
+		for _, work := range page.Work {
+			want := fmt.Sprintf("%s work %s failed %d times, last error: %s", work.Class, work.ItemID, work.Attempts, work.LastError)
+			if !strings.Contains(commandError.Error(), want) {
+				t.Fatalf("verify error %v omitted the actual stuck work %q", commandError, want)
+			}
+			report.StuckWork = append(report.StuckWork, searchVerifyStuckWork{
+				Kind: string(work.Class), ItemID: work.ItemID, Attempts: work.Attempts, LastError: work.LastError,
+			})
+		}
+		if page.Done {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	report.ExcludedNodes, report.StuckWorkItems = len(report.Exclusions), len(report.StuckWork)
+	return report
 }
 
 // indexedText reports whether an active page of nodeID in the serving index

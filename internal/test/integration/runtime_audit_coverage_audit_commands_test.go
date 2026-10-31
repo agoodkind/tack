@@ -29,7 +29,7 @@ func addAuditCommandCases(cases map[string]coverageCase) {
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{args: []string{"ops", "audit", "consumer-offsets"}, configure: reader(t, env), outbox: nil}
 		})
-	cases["command ops audit dlq inspect"] = commandCase(audit.VerbOpsAuditDLQInspect, audit.OutcomeOK,
+	cases["command ops audit dlq inspect"] = commandCase(audit.VerbOpsAuditDLQInspect, audit.OutcomeCompleted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{args: []string{"ops", "audit", "dlq", "inspect"}, configure: reader(t, env), outbox: nil}
 		})

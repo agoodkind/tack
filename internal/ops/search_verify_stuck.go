@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/google/uuid"
+
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -18,6 +20,8 @@ type searchStuckWorkOutput struct {
 	ItemID    string `json:"item_id"`
 	Attempts  int64  `json:"attempts"`
 	LastError string `json:"last_error"`
+	orgID     uuid.UUID
+	nodeID    uuid.UUID
 }
 
 // listStuckSearchWork adds every work item at or past the attempt limit to
@@ -42,7 +46,10 @@ func listStuckSearchWork(ctx context.Context, env *Env, output *searchVerifyOutp
 }
 
 func stuckWorkOutput(stuck searchdomain.StuckWork) searchStuckWorkOutput {
-	return searchStuckWorkOutput{Kind: string(stuck.Class), ItemID: stuck.ItemID, Attempts: stuck.Attempts, LastError: stuck.LastError}
+	return searchStuckWorkOutput{
+		Kind: string(stuck.Class), ItemID: stuck.ItemID, Attempts: stuck.Attempts, LastError: stuck.LastError,
+		orgID: stuck.OrgID, nodeID: stuck.NodeID,
+	}
 }
 
 // joinVerifyFailures returns the stuck work failure and the engine check

@@ -1,8 +1,6 @@
 package integration_test
 
 import (
-	"bytes"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -58,18 +56,17 @@ type attemptLimitRecord struct {
 	Err      string `json:"err"`
 }
 
-// runMaintenanceVerify runs the audited ops search verify command and
-// decodes its stuck work listing. It returns the command error separately.
+// runMaintenanceVerify checks the public verify error against stored work.
 func runMaintenanceVerify(t *testing.T, fixture integration.QueryFixture) (maintenanceReport, error) {
 	t.Helper()
-	output, runErr := runAuditedCommand(t, fixture.Config, "ops", "search", "verify")
-	var envelope struct {
-		Result maintenanceReport `json:"result"`
+	verified, runErr := integration.RunSearchVerifyCommand(t, fixture.Config)
+	report := maintenanceReport{StuckWorkItems: verified.StuckWorkItems, StuckWork: nil}
+	for _, work := range verified.StuckWork {
+		report.StuckWork = append(report.StuckWork, maintenanceStuckWork{
+			Kind: work.Kind, ItemID: work.ItemID, Attempts: work.Attempts, LastError: work.LastError,
+		})
 	}
-	if err := json.NewDecoder(bytes.NewReader(output)).Decode(&envelope); err != nil {
-		t.Fatalf("decode the ops search verify listing (command error %v): %v", runErr, err)
-	}
-	return envelope.Result, runErr
+	return report, runErr
 }
 
 // runUntilMaintenanceClear runs worker slices until no item has an attempt

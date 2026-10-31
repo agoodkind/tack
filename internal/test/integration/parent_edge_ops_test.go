@@ -7,7 +7,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/ops"
@@ -27,7 +26,7 @@ func (f parentEdgeFixture) runOps(t *testing.T, args ...string) (json.RawMessage
 		t.Fatalf("open audit ledger pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	configureSearchReadAudit(t, factory, pool)
 	t.Cleanup(factory.CloseAuditOutbox)
 	registry := clispec.NewRegistry()
 	ops.RegisterCommands(registry, factory)

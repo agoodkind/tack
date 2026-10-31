@@ -20,7 +20,7 @@ func searchVerifyOp(f *cli.Factory) clispec.Operation[searchVerifyInput] {
 	return clispec.Operation[searchVerifyInput]{
 		Name:     clispec.Name{Canonical: "verify", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsSearchVerify), Reads: true},
+		Audit:    readSpec(audit.VerbOpsSearchVerify, "opensearch/verification"),
 		Group:    searchGroup,
 		Short:    "Verify the configured native OpenSearch endpoint and list excluded nodes and stuck work",
 		New:      func() searchVerifyInput { return searchVerifyInput{InputMarker: clispec.InputMarker{}} },

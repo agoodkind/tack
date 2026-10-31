@@ -61,7 +61,7 @@ func auditDLQInspectOp(f *cli.Factory) clispec.Operation[auditDLQInspectInput] {
 	return clispec.Operation[auditDLQInspectInput]{
 		Name:     clispec.Name{Canonical: "inspect", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsAuditDLQInspect), Reads: true},
+		Audit:    readSpec(audit.VerbOpsAuditDLQInspect, "audit/dlq/summary"),
 		Group:    auditDLQGroup,
 		Aliases:  nil,
 		Hidden:   false,

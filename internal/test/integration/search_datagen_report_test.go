@@ -118,6 +118,7 @@ func runAuditedCommand(t *testing.T, cfg *config.Config, command ...string) ([]b
 	}
 	t.Cleanup(pool.Close)
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	t.Cleanup(factory.CloseAuditOutbox)
 	registry := clispec.NewRegistry()
 	ops.RegisterCommands(registry, factory)
