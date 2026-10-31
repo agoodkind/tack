@@ -20,7 +20,6 @@ const (
 	pendingFixtureLimit  = 8
 )
 
-// pendingFixtureRecord matches the deployed pending-write payload.
 type pendingFixtureRecord struct {
 	DocumentID  string    `json:"document_id"`
 	Index       string    `json:"index"`

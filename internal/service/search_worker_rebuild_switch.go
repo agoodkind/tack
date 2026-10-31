@@ -7,10 +7,12 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// The final copy check follows the live and copy lease drain.
-// Claims stay paused until the alias switches. RecordMirrorMiss cannot add a copy
-// during this pause; it preserves the abandoned write as a live pending deadline.
-// The next live claim observes that deadline on the new serving index.
+// rebuildSwitch runs the second copy check after pauseClaims drains live and copy
+// leases. pauseClaims blocks claims until the alias switches.
+// During that pause, RecordMirrorMiss stores an abandoned mirror write as a live
+// pending deadline for the replacement index without adding a copy item.
+// After CompleteSwitch, live claims target the replacement index.
+// The next live claim reads the deadline before resending the document.
 func (w *SearchWorker) rebuildSwitch(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) error {
 	if copying, err := w.switchWaitsForCopies(ctx, work, rebuild); copying || err != nil {
 		return err
