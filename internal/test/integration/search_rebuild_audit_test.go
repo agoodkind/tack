@@ -58,6 +58,7 @@ func TestSearchWorkerRecordsStructuralSlices(t *testing.T) {
 			t.Fatalf("the worker events do not include a completed step on %s; completed steps: %v", reference, completed)
 		}
 	}
+	requirePermanentSearchWorkerEvents(t, fixture.stores, events)
 }
 
 func runRolloutUntilStable(t *testing.T, fixture parentEdgeFixture) {
