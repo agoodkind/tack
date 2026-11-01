@@ -113,10 +113,7 @@ func beginMirrorRebuild(t *testing.T, env *migrationEnv) searchdomain.Rebuild {
 	return rebuild
 }
 
-// runRebuildSlicesUntil fails the test when the replacement record is missing or
-// mirrorSwitchDeadline expires.
-// runRebuildSlicesUntil reads the state after every slice.
-// The test observes the retiring state before another slice runs the retire step.
+// Check done before another slice can retire the source index and delete the rebuild record.
 func runRebuildSlicesUntil(t *testing.T, env *migrationEnv, done func(searchdomain.Rebuild) bool) searchdomain.Rebuild {
 	t.Helper()
 	rebuilds := env.Stores.SearchRebuilds(clock.Wall{})

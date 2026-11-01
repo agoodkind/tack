@@ -51,9 +51,6 @@ func TestSearchRebuildMirrorCopyKeepsOwedPagesAcrossGenerations(t *testing.T) {
 	requireReplacementPages(t, run)
 }
 
-// requireReplacementPages fails the test unless the replacement index of run stores one
-// active page for every reader page of the node.
-// Each active page must match the reader page's text, ordinal, revision, and projection.
 func requireReplacementPages(t *testing.T, run mirrorRun) {
 	t.Helper()
 	replacement := *run.env
@@ -63,9 +60,6 @@ func requireReplacementPages(t *testing.T, run mirrorRun) {
 	}
 }
 
-// The helper fails the test if a copy item remains pending at the first observation of the
-// retiring state. This observation immediately follows the slice that switches the public alias.
-// The helper does not run another slice before this check.
 func requireSwitchAfterCopies(t *testing.T, env *migrationEnv, target string) {
 	t.Helper()
 	ctx := integration.WithTestOperation(t, t.Context())
@@ -98,11 +92,6 @@ func requireSwitchAfterCopies(t *testing.T, env *migrationEnv, target string) {
 	}
 }
 
-// requireResendAfterHorizon reads the page writes that the proxy received for nodeID, ordinal,
-// and index. The first write is the abandoned write, and its node revision identifies the document.
-// The helper ignores writes with other revisions of the same ordinal.
-// The helper fails the test unless the proxy received a second write of the same document at or after
-// abandonedAt plus mirrorWriteHorizon minus abandonClockSkew.
 func requireResendAfterHorizon(t *testing.T, proxy *pageDelayProxy, nodeID uuid.UUID, ordinal uint64, index string, abandonedAt time.Time) {
 	t.Helper()
 	revision := ""
