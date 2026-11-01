@@ -51,7 +51,6 @@ func awaitDatagenSearchSessionVerbs(ctx context.Context, f *cli.Factory, orgID u
 	}
 }
 
-// datagenVerbsWithoutRows returns the verbs of report with a zero row count.
 func datagenVerbsWithoutRows(report datagenLedgerVerbsReport) []string {
 	missing := []string{}
 	for _, verb := range report.Verbs {

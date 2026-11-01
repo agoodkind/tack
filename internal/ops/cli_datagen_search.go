@@ -34,9 +34,9 @@ type datagenSearchResult struct {
 	// Search reports the warning case and relevance probe after a verified committed run.
 	// Dry runs and runs with --prepare-only or --verify-cohort do not include this field.
 	Search *datagen.SearchVerification `json:"search,omitempty"`
-	// SessionVerbs reports the ledger rows of the search session verbs in the
-	// organization of a verified committed run after the ledger stores a row
-	// of every verb.
+	// SessionVerbs reports ledger row counts for the run's organization after
+	// every search session verb has a row. Only verified committed runs include
+	// the report.
 	SessionVerbs *datagenLedgerVerbsReport `json:"session_verbs,omitempty"`
 }
 

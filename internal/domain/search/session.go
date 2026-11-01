@@ -75,8 +75,6 @@ const (
 )
 
 // SessionStore persists sessions, visited nodes, and replay records.
-// RecordCleanupFailure records that one cleanup step failed without changing
-// a session record.
 type SessionStore interface {
 	Create(context.Context, Session) (Session, error)
 	Load(context.Context, uuid.UUID) (Session, error)

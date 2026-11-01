@@ -23,7 +23,6 @@ const (
 	retireSliceLimit = 10
 )
 
-// retiringSession creates a session on index that cannot serve another page.
 func retiringSession(t *testing.T, stores *fdbadapter.Stores, index string) searchdomain.Session {
 	t.Helper()
 	session := storedSearchSession(sessionTokens(sessionStoreTokenBytes * 16))
@@ -35,8 +34,6 @@ func retiringSession(t *testing.T, stores *fdbadapter.Stores, index string) sear
 	return session
 }
 
-// cleanupFailureEvents returns the failed cleanup events of sessionID after
-// mark.
 func cleanupFailureEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte, sessionID uuid.UUID, step searchdomain.CleanupStep) []audit.Event {
 	t.Helper()
 	entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), mark, searchAuditPageLimit)

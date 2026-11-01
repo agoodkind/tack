@@ -77,7 +77,7 @@ func appendCleanupFailure(ctx context.Context, tr fdb.Transaction, changes *sess
 }
 
 // recordRetireFailure records a failed cleanup step of index retirement. It
-// logs a recording failure, and the caller returns the original error.
+// logs an error if the audit write fails. The caller returns the original error.
 func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, cause error) {
 	if err := s.sessions.RecordCleanupFailure(ctx, sessionID, step, cause); err != nil {
 		slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))

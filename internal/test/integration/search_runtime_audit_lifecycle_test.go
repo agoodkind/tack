@@ -60,7 +60,7 @@ func TestSearchRuntimeAuditSessionLifecycle(t *testing.T) {
 	requireSearchParents(t, rows, session.ID)
 }
 
-// traverse reads every page of lifecycleQuery as token.
+// traverse reads every page of lifecycleQuery using token to authenticate.
 func (f sessionAuditFixture) traverse(t *testing.T, token string) sessionPages {
 	t.Helper()
 	traversal := sessionPages{pages: nil, stored: nil}
@@ -76,8 +76,6 @@ func (f sessionAuditFixture) traverse(t *testing.T, token string) sessionPages {
 	}
 }
 
-// requireSessionCreate requires one create row on the session target with the
-// complete new value.
 func (f sessionAuditFixture) requireSessionCreate(t *testing.T, rows []audit.Row, session searchdomain.Session, ownerID uuid.UUID) {
 	t.Helper()
 	created := onlyRow(t, sessionChanges(rows, session.ID, audit.VerbSearchSessionCreate, audit.TargetSearchSession), "the session create")
@@ -98,8 +96,6 @@ func (f sessionAuditFixture) requireSessionCreate(t *testing.T, rows []audit.Row
 	}
 }
 
-// requireSessionUpdates requires one update per page with the actual old and
-// new members of that page.
 func requireSessionUpdates(t *testing.T, fixture sessionAuditFixture, rows []audit.Row, traversal sessionPages) {
 	t.Helper()
 	updates := sessionChanges(rows, traversal.stored[0].ID, audit.VerbSearchSessionUpdate, audit.TargetSearchSession)

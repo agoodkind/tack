@@ -45,7 +45,6 @@ const (
 	minimumSliceRecords = 80
 )
 
-// sessionStoreStores opens FoundationDB stores under a new test prefix.
 func sessionStoreStores(t *testing.T) *fdbadapter.Stores {
 	t.Helper()
 	clusterFile := testenv.FoundationDB(t)
@@ -60,7 +59,6 @@ func sessionStoreStores(t *testing.T) *fdbadapter.Stores {
 	return stores
 }
 
-// sessionTokens returns a JSON array with size bytes.
 func sessionTokens(size int) json.RawMessage {
 	count := (size - 1) / sessionStoreTokenBytes
 	return json.RawMessage("[" + strings.Repeat("1,", count-1) + "1]")
@@ -125,8 +123,6 @@ func TestSearchSessionAuditRefusesMissingContext(t *testing.T) {
 	}
 }
 
-// outboxRecordsAfter returns the FoundationDB outbox records after mark and
-// the new tail of the outbox.
 func outboxRecordsAfter(t *testing.T, stores *fdbadapter.Stores, mark []byte) (int, []byte) {
 	t.Helper()
 	count := 0

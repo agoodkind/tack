@@ -13,8 +13,6 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// requireReplayRecords requires one create per page and one delete per page
-// except the last, each with the page result IDs.
 func requireReplayRecords(t *testing.T, rows []audit.Row, traversal sessionPages) {
 	t.Helper()
 	sessionID := traversal.stored[0].ID
@@ -45,7 +43,6 @@ func requireReplayValue(t *testing.T, value json.RawMessage, traversal sessionPa
 	}
 }
 
-// requireVisitedRecords requires one visited create per returned node.
 func requireVisitedRecords(t *testing.T, rows []audit.Row, traversal sessionPages) {
 	t.Helper()
 	sessionID := traversal.stored[0].ID
@@ -69,8 +66,6 @@ func requireVisitedRecords(t *testing.T, rows []audit.Row, traversal sessionPage
 	}
 }
 
-// requirePointInTimeSteps requires the intent and result of the create and
-// delete operations with their observed evidence.
 func requirePointInTimeSteps(t *testing.T, rows []audit.Row, session searchdomain.Session) {
 	t.Helper()
 	created := stepRows(rows, session.ID, audit.VerbSearchPointInTimeCreate, "create")
@@ -98,8 +93,6 @@ func requirePointInTimeSteps(t *testing.T, rows []audit.Row, session searchdomai
 	}
 }
 
-// requireSearchParents requires each change of the session to state a
-// node.search operation as its parent.
 func requireSearchParents(t *testing.T, rows []audit.Row, sessionID uuid.UUID) {
 	t.Helper()
 	reads := map[uuid.UUID]bool{}

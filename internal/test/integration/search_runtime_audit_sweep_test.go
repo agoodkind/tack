@@ -17,14 +17,12 @@ import (
 )
 
 const (
-	// sweepAuditQuery is the included text of the sweep corpus.
 	sweepAuditQuery = "ochre cistern sweep audit"
 	// interruptedSliceKeys stops a cleanup after the replay record and the
 	// first token chunk.
 	interruptedSliceKeys = 2
 )
 
-// sweptSession is one stored session and the replay of its first page.
 type sweptSession struct {
 	session searchdomain.Session
 	page    integration.SearchPage
@@ -43,8 +41,8 @@ func (f sessionAuditFixture) openSwept(t *testing.T, token string) sweptSession 
 	return sweptSession{session: session, page: page, replay: replay}
 }
 
-// sweepAfterExpiry waits past the expiry minute of session and runs a search
-// as token that sweeps it.
+// sweepAfterExpiry waits past the session's expiry minute, then runs a
+// search with the supplied token to sweep the session.
 func (f sessionAuditFixture) sweepAfterExpiry(t *testing.T, token string, session searchdomain.Session) {
 	t.Helper()
 	waitUntilTime(t, session.IdleDeadline.Truncate(time.Minute).Add(time.Minute+sessionAuditMargin))
@@ -83,8 +81,6 @@ func TestSearchRuntimeAuditSweepRemovalValues(t *testing.T) {
 	fixture.requireInterruptedEvents(t, rows, interrupted, sweeper.UserID)
 }
 
-// requireSweptValues requires the session delete to store every old value and
-// the owner under the actor of the sweep.
 func (f sessionAuditFixture) requireSweptValues(t *testing.T, rows []audit.Row, swept sweptSession, actorID, ownerID uuid.UUID) {
 	t.Helper()
 	session := swept.session
@@ -105,8 +101,6 @@ func (f sessionAuditFixture) requireSweptValues(t *testing.T, rows []audit.Row, 
 	f.requireProtectedMember(t, before, "access_keys", encodeJSON(t, session.Query.Access.Keys))
 }
 
-// requireRecordRemovals requires removal values equal to the stored replay and
-// visited records.
 func requireRecordRemovals(t *testing.T, rows []audit.Row, swept sweptSession) {
 	t.Helper()
 	sessionID := swept.session.ID
@@ -138,9 +132,8 @@ func requireRecordRemovals(t *testing.T, rows []audit.Row, swept sweptSession) {
 	}
 }
 
-// requireInterruptedEvents requires the closing update, the token removal of
-// the stopped slice, and the later delete of the header under the sweep actor.
-// The later delete omits query_tokens, because the stopped slice removed them.
+// The later header deletion records the state after the stopped slice
+// removes query_tokens.
 func (f sessionAuditFixture) requireInterruptedEvents(t *testing.T, rows []audit.Row, interrupted sweptSession, sweeperID uuid.UUID) {
 	t.Helper()
 	session := interrupted.session
