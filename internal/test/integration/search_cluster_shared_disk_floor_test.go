@@ -23,12 +23,10 @@ const (
 	floorMemoryBytes int64 = 8 << 30
 	floorDataBytes   int64 = 16 << 30
 	floorBytes       int64 = 1 << 30
-	// floorAbovePercent targets 92 percent usage on the 16 GiB data disk.
-	// About 1.28 GiB remains free, above the 1gb floor, while usage exceeds
-	// the default high watermark of 90 percent.
+	// floorAbovePercent targets free space above the 1gb floor while disk
+	// usage exceeds the default high watermark of 90 percent.
 	floorAbovePercent = 92
-	// floorBelowPercent targets 95 percent usage on the data disk.
-	// About 0.8 GiB remains free, below the floor.
+	// floorBelowPercent targets free space below the 1gb floor.
 	floorBelowPercent   = 95
 	floorDefaultHigh    = 90
 	floorQuietPeriod    = time.Minute
@@ -89,10 +87,10 @@ func TestSearchClusterSharedDiskFloor(t *testing.T) {
 	requireIndexCreated(t, client)
 }
 
-// requireNoCreateIndexBlock reads the index creation block once per second.
-// It fails on any read error, an active block, or test cancellation.
-// It reports the cancellation cause when the test context cancels.
-// It returns only after period expires and at least one read succeeds.
+// requireNoCreateIndexBlock checks the index creation block throughout period.
+// It fails the test if a read fails, the engine sets the block, or the test
+// context cancels. It returns only after period expires with at least one
+// successful read.
 func requireNoCreateIndexBlock(t *testing.T, client *opensearchapi.Client, period time.Duration) {
 	t.Helper()
 	expiry := time.NewTimer(period)
@@ -124,6 +122,7 @@ func requireNoCreateIndexBlock(t *testing.T, client *opensearchapi.Client, perio
 
 // requireIndexCreated requires successful creation of a unique index
 // and registers cleanup to delete it when the test ends.
+// Cleanup reports any delete error with t.Errorf and continues.
 func requireIndexCreated(t *testing.T, client *opensearchapi.Client) {
 	t.Helper()
 	name := floorIndexPrefix + uuid.NewString()
@@ -135,7 +134,9 @@ func requireIndexCreated(t *testing.T, client *opensearchapi.Client) {
 	t.Cleanup(func() {
 		cleanup, stop := context.WithTimeout(context.WithoutCancel(t.Context()), floorRequestBounds)
 		defer stop()
-		_, _ = client.Indices.Delete(cleanup, &opensearchapi.IndicesDeleteReq{Indices: []string{name}})
+		if _, err := client.Indices.Delete(cleanup, &opensearchapi.IndicesDeleteReq{Indices: []string{name}}); err != nil {
+			t.Errorf("delete index %s: %v", name, err)
+		}
 	})
 }
 
