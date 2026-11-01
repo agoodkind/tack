@@ -29,8 +29,6 @@ const (
 	TargetSearchSessionVisited = "search_session_visited"
 )
 
-// searchSessionURIPrefix starts the resource URI of every search session
-// record.
 const searchSessionURIPrefix = "tack:search-session/"
 
 // SearchSessionTarget returns the resource target of one search session

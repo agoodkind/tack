@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	// lifecycleQuery is the included text of the lifecycle corpus.
 	lifecycleQuery = "sable orchard lifecycle audit"
 	// lifecycleNodes fills two pages of 25 results and part of a third.
 	lifecycleNodes = 60

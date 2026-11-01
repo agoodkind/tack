@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	// failureAuditQuery is the included text of the failure corpus.
 	failureAuditQuery = "tawny flume failure audit"
 	// failureAuditResponseBytes bounds one response of the failure test.
 	failureAuditResponseBytes = 16384
@@ -112,8 +111,6 @@ func TestSearchRuntimeAuditCleanupFailureRecorded(t *testing.T) {
 	}
 }
 
-// failedCreateDeletes returns the finished point in time delete steps of
-// operationID on a session other than expiredID.
 func failedCreateDeletes(rows []audit.Row, operationID, expiredID uuid.UUID) []audit.Row {
 	selected := []audit.Row{}
 	for _, row := range rows {

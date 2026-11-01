@@ -38,6 +38,9 @@ func requireReplayValue(t *testing.T, value json.RawMessage, traversal sessionPa
 	if err := json.Unmarshal(value, &replay); err != nil {
 		t.Fatalf("decode replay value %s: %v", value, err)
 	}
+	if replay.Version < 0 || replay.Version >= len(traversal.pages) {
+		t.Fatalf("replay version %d is outside the %d recorded pages", replay.Version, len(traversal.pages))
+	}
 	if !slices.Equal(replay.ResultIDs, traversal.pages[replay.Version].IDs) {
 		t.Fatalf("replay version %d stores %v, want %v", replay.Version, replay.ResultIDs, traversal.pages[replay.Version].IDs)
 	}

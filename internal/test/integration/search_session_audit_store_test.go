@@ -25,8 +25,7 @@ import (
 const (
 	// sessionStoreTimeout bounds each FoundationDB transaction of these tests.
 	sessionStoreTimeout = 5 * time.Second
-	// sessionStoreIdle is the idle timeout of the session store.
-	sessionStoreIdle = time.Minute
+	sessionStoreIdle    = time.Minute
 	// maximumSessionTokens, maximumVisitedIDs, maximumResultIDs, and
 	// maximumCleanupKeys are the source bounds of one session transaction.
 	maximumSessionTokens = 256 << 10
