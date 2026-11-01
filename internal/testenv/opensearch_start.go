@@ -123,6 +123,9 @@ func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings)
 		cancelOnExit(healthContext, cli, name, stopWaiting)
 	}()
 	if err := waitForOpenSearchHealth(healthContext, fixture); err != nil {
+		if errors.Is(err, errOpenSearchCreateIndexBlocked) {
+			return OpenSearchFixture{}, created, err
+		}
 		return OpenSearchFixture{}, created, engineStartFailure(ctx, cli, name, errors.Join(err, context.Cause(healthContext)))
 	}
 	telemetry.L(ctx).InfoContext(ctx, "search.fixture_started", slog.String("container", name),

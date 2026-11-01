@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/service"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // queryFixture is one production graph over real FoundationDB, OpenSearch,
@@ -61,6 +63,9 @@ func newQueryFixture(t *testing.T, options queryOptions) queryFixture {
 	t.Cleanup(func() { deleteNativeIndex(t, client, index) })
 	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: options.Primaries, RoutingShards: 24, Replicas: 0}
 	if err := adapter.EnsureIndex(WithTestOperation(t, t.Context()), index, spec); err != nil {
+		if readinessErr := testenv.CheckOpenSearchDiskReadiness(context.WithoutCancel(t.Context()), testenv.OpenSearch(t)); readinessErr != nil {
+			t.Logf("create-index readiness: %v", readinessErr)
+		}
 		t.Fatalf("create search index: %v", err)
 	}
 	if err := adapter.SetAlias(WithTestOperation(t, t.Context()), search.PublicAlias, index); err != nil {
