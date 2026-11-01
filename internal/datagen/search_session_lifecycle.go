@@ -14,8 +14,8 @@ import (
 const sessionSweepMargin = time.Second
 
 const searchSessionExpiredResponse = "#### Request could not be completed\n\n" +
-	"- Problem: the search cursor expired; start a new search without cursor\n\n" +
-	"Next step: Fix the request and retry once."
+	"- Problem: the search cursor expired\n\n" +
+	"Next step: Start a new search without the `cursor` parameter."
 
 // verifySessionLifecycle runs every search session writer on the target. It
 // traverses one session to completion and opens a second session that it

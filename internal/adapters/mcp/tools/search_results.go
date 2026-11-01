@@ -99,7 +99,7 @@ func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult 
 		noteOutcome(ctx, audit.OutcomeRefused, accessDeniedCode, "the caller cannot search this entry point")
 		return recoverableError("the caller cannot search this entry point")
 	case errors.Is(err, searchdomain.ErrSessionExpired), errors.Is(err, searchdomain.ErrSessionNotFound):
-		return recoverableError("the search cursor expired; start a new search without cursor")
+		return recoverableErrorWithNextStep("the search cursor expired", "Start a new search without the `cursor` parameter.")
 	case errors.Is(err, searchdomain.ErrSessionMismatch), errors.Is(err, searchdomain.ErrSessionChanged):
 		return recoverableError("the search cursor does not match this request or is no longer current; start a new search without cursor")
 	case errors.Is(err, searchdomain.ErrSnapshotLost):
