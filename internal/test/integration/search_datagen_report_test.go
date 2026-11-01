@@ -20,6 +20,10 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
+// sessionVerbCount is the number of search session verbs in the report of ops
+// qa datagen search: three change verbs and two point in time verbs.
+const sessionVerbCount = 5
+
 // relevanceProbeQueries lists the queries that the relevance probe must report in order.
 var relevanceProbeQueries = []string{"restart containers one by one", "rolling Docker restart", "restart containers sequentially"}
 
@@ -30,14 +34,20 @@ var relevanceProbeQueries = []string{"restart containers one by one", "rolling D
 // of the deleted warning node and strict validation to report 0 invalid records.
 func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 	cfg := newCohortEngines(t)
+	cfg.AuditReaderDSN = cfg.DatabaseURL
 	output, err := runDatagenSearchCommand(t, cfg, "--commit")
 	if err != nil {
 		t.Fatalf("execute ops qa datagen search: %v; output=%s", err, output)
 	}
 	var envelope struct {
 		Result struct {
-			Verified bool                        `json:"verified"`
-			Search   *datagen.SearchVerification `json:"search"`
+			Verified     bool                        `json:"verified"`
+			Search       *datagen.SearchVerification `json:"search"`
+			SessionVerbs struct {
+				Verbs []struct {
+					Verb string `json:"verb"`
+				} `json:"verbs"`
+			} `json:"session_verbs"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(output, &envelope); err != nil {
@@ -45,6 +55,10 @@ func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 	}
 	if !envelope.Result.Verified || envelope.Result.Search == nil {
 		t.Fatalf("ops qa datagen search did not report verified=true with a search report: %s", output)
+	}
+	if len(envelope.Result.SessionVerbs.Verbs) != sessionVerbCount || envelope.Result.Search.OrgID == uuid.Nil {
+		t.Fatalf("ops qa datagen search reported organization %s and session verbs %+v, want an organization and %d verbs",
+			envelope.Result.Search.OrgID, envelope.Result.SessionVerbs.Verbs, sessionVerbCount)
 	}
 	warning := envelope.Result.Search.PropertyWarning
 	if warning.NodeID == uuid.Nil || warning.PropertyName == "" || warning.PropertyDefID == uuid.Nil ||

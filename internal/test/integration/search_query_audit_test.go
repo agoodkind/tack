@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,9 +62,49 @@ func requireSearchAuditInvocation(parent context.Context, harness *MCPHarness, r
 	}
 }
 
-// harnessReadEvents returns read events with requestID from the FoundationDB outbox.
+// harnessReadScans stores one harnessReadScan per FoundationDB outbox store.
+var harnessReadScans sync.Map
+
+// harnessReadScan keeps the scan position of one FoundationDB outbox and the
+// read events that it decoded. Each search adds change events to the outbox,
+// and a scan from the start for every search would grow with the outbox.
+type harnessReadScan struct {
+	mutex     sync.Mutex
+	mark      []byte
+	envelopes map[string][]byte
+	reads     map[string][]audit.Event
+}
+
+// harnessReadEvents returns read events with requestID from the FoundationDB
+// outbox. It reads the entries after the last entry that it read.
 func harnessReadEvents(ctx context.Context, harness *MCPHarness, requestID string) ([]audit.Event, error) {
-	return harnessOutboxEvents(ctx, harness, requestID, audit.OperationRead)
+	if harness.outbox == nil {
+		return nil, fmt.Errorf("test harness for %s does not have a FoundationDB outbox reader", requestID)
+	}
+	stored, _ := harnessReadScans.LoadOrStore(harness.outbox, &harnessReadScan{
+		mutex: sync.Mutex{}, mark: nil, envelopes: map[string][]byte{}, reads: map[string][]audit.Event{},
+	})
+	scan, _ := stored.(*harnessReadScan)
+	scan.mutex.Lock()
+	defer scan.mutex.Unlock()
+	for {
+		entries, err := harness.outbox.ReadOutboxFrom(ctx, scan.mark, searchAuditPageSize)
+		if err != nil {
+			return nil, fmt.Errorf("read the FoundationDB outbox: %w", err)
+		}
+		for _, entry := range entries {
+			event, decoded := decodeOutboxEvent(entry.Event, scan.envelopes)
+			if decoded && event.Context.OperationClass == audit.OperationRead {
+				scan.reads[event.Context.RequestID] = append(scan.reads[event.Context.RequestID], event)
+			}
+		}
+		if len(entries) > 0 {
+			scan.mark = entries[len(entries)-1].Mark
+		}
+		if len(entries) < searchAuditPageSize {
+			return slices.Clone(scan.reads[requestID]), nil
+		}
+	}
 }
 
 // harnessOutboxEvents returns events of class with requestID from the
@@ -77,11 +119,6 @@ func harnessOutboxEvents(ctx context.Context, harness *MCPHarness, requestID str
 // accepts. It joins the parts of each multipart event before decoding the
 // event. label identifies the request or tool in errors.
 func harnessOutboxMatching(ctx context.Context, harness *MCPHarness, label string, accepts func(audit.Event) bool) ([]audit.Event, error) {
-	type outboxRecord struct {
-		Message string `json:"audit_message"`
-		EventID string `json:"event_id"`
-		Payload []byte `json:"payload"`
-	}
 	if harness.outbox == nil {
 		return nil, fmt.Errorf("test harness for %s does not have a FoundationDB outbox reader", label)
 	}
@@ -94,29 +131,7 @@ func harnessOutboxMatching(ctx context.Context, harness *MCPHarness, label strin
 			return nil, fmt.Errorf("read the FoundationDB outbox: %w", err)
 		}
 		for _, entry := range entries {
-			var record outboxRecord
-			if json.Unmarshal(entry.Event, &record) != nil {
-				continue
-			}
-			var event audit.Event
-			switch record.Message {
-			case "":
-				if json.Unmarshal(entry.Event, &event) != nil {
-					continue
-				}
-			case "event_part":
-				envelopes[record.EventID] = append(envelopes[record.EventID], record.Payload...)
-				continue
-			default:
-				var envelope struct {
-					Event audit.Event `json:"event"`
-				}
-				if json.Unmarshal(envelopes[record.EventID], &envelope) != nil {
-					continue
-				}
-				event = envelope.Event
-			}
-			if accepts(event) {
+			if event, decoded := decodeOutboxEvent(entry.Event, envelopes); decoded && accepts(event) {
 				events = append(events, event)
 			}
 		}
@@ -124,5 +139,34 @@ func harnessOutboxMatching(ctx context.Context, harness *MCPHarness, label strin
 			return events, nil
 		}
 		mark = entries[len(entries)-1].Mark
+	}
+}
+
+// decodeOutboxEvent decodes one FoundationDB outbox record. It adds the
+// payload of an event part to envelopes and reports false. A manifest record
+// returns the event that its parts form.
+func decodeOutboxEvent(entry []byte, envelopes map[string][]byte) (audit.Event, bool) {
+	var record struct {
+		Message string `json:"audit_message"`
+		EventID string `json:"event_id"`
+		Payload []byte `json:"payload"`
+	}
+	var event audit.Event
+	if json.Unmarshal(entry, &record) != nil {
+		return event, false
+	}
+	switch record.Message {
+	case "":
+		return event, json.Unmarshal(entry, &event) == nil
+	case "event_part":
+		envelopes[record.EventID] = append(envelopes[record.EventID], record.Payload...)
+		return event, false
+	default:
+		var envelope struct {
+			Event audit.Event `json:"event"`
+		}
+		decoded := json.Unmarshal(envelopes[record.EventID], &envelope) == nil
+		delete(envelopes, record.EventID)
+		return envelope.Event, decoded
 	}
 }

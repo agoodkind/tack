@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	searchdomain "goodkind.io/tack/internal/domain/search"
@@ -44,6 +45,7 @@ func queryService(t *testing.T, fixture queryFixture, responseBytes int, idle, a
 		Ranker: ranker, Sessions: sessions, Expired: sessions,
 		Summaries: fixture.Stores.NodeSummaries(policies), Access: policies,
 		Versions: fixture.Stores.SearchRollouts(clock.Wall{}, policies), Index: fixture.Stores, Generations: fixture.Stores,
+		Audit: audit.NewAppendOutbox(fixture.Stores.OpsOutbox),
 	}, clock.Wall{}, settings)
 }
 
