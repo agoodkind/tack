@@ -56,7 +56,9 @@ type HostSummary struct {
 
 // SummarizeHost reads a sampler JSON Lines file and summarizes the samples inside window
 // for the host and for the guest with guestID. It counts and skips samples that carry an
-// error.
+// error. It returns an error that identifies the sample time when a sample inside window
+// omits a required measurement, has an invalid pressure or load value, or has a cumulative
+// counter that decreased.
 func SummarizeHost(
 	ctx context.Context,
 	path string,
@@ -103,17 +105,24 @@ func scanSampler(
 			accumulator.summary.FailedSamples++
 			continue
 		}
-		sample, parseErr := parseSample(line, guestID)
-		if parseErr != nil {
-			return nil, parseErr
+		addErr := addSamplerLine(accumulator, line, guestID)
+		if addErr != nil {
+			return nil, wrapError("sample "+line.Time.Format(time.RFC3339), addErr)
 		}
-		accumulator.add(sample)
 	}
 	scanErr := scanner.Err()
 	if scanErr != nil {
 		return nil, wrapError("scan sampler file "+path, scanErr)
 	}
 	return accumulator, nil
+}
+
+func addSamplerLine(accumulator *hostAccumulator, line samplerLine, guestID string) error {
+	sample, err := parseSample(line, guestID)
+	if err != nil {
+		return err
+	}
+	return accumulator.add(sample)
 }
 
 // closeFile closes file and returns readErr together with any close error.

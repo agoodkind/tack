@@ -2,6 +2,7 @@ package resourcesummary
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -16,7 +17,8 @@ type samplerLine struct {
 }
 
 type samplerMeminfo struct {
-	MemAvailable int64 `json:"MemAvailable"`
+	// MemAvailable is nil when the sample omits the field.
+	MemAvailable *int64 `json:"MemAvailable"`
 }
 
 // samplerCPUDisk keys guests and guest pressure by guest ID.
@@ -66,11 +68,14 @@ func parseSample(line samplerLine, guestID string) (hostSample, error) {
 	guest, guestFound := line.CPUDisk.Guests[guestID]
 	guestPressure, pressureFound := line.CPUDisk.Pressure[guestID]
 	if !guestFound || !pressureFound {
-		return hostSample{}, fmt.Errorf("sample %s has no guest %s", line.Time, guestID)
+		return hostSample{}, fmt.Errorf("guest %s is missing", guestID)
+	}
+	if line.Meminfo.MemAvailable == nil {
+		return hostSample{}, errors.New("meminfo_kib.MemAvailable is missing")
 	}
 	usage, err := guest.CPU.UsageUsec.Int64()
 	if err != nil {
-		return hostSample{}, wrapError("parse usage_usec at "+line.Time.String(), err)
+		return hostSample{}, wrapError("parse usage_usec", err)
 	}
 	ioStat, err := parseIOStat(guest.IO)
 	if err != nil {
@@ -82,24 +87,25 @@ func parseSample(line samplerLine, guestID string) (hostSample, error) {
 	}
 	var sample hostSample
 	sample.time = line.Time
-	sample.memAvailableGiB = float64(line.Meminfo.MemAvailable) / kibibytesPerGibibyte
+	sample.memAvailableGiB = float64(*line.Meminfo.MemAvailable) / kibibytesPerGibibyte
 	sample.loadOneMinute = load
 	sample.guestUsageMicroseconds = usage
 	sample.guestIOStat = ioStat
 	pressureSources := []struct {
+		name    string
 		lines   []string
 		reading *pressureReading
 	}{
-		{lines: strings.Split(line.Pressure, "\n"), reading: &sample.memoryPressure},
-		{lines: line.CPUDisk.Host.CPUPressure, reading: &sample.cpuPressure},
-		{lines: line.CPUDisk.Host.IOPressure, reading: &sample.ioPressure},
-		{lines: guestPressure.CPU, reading: &sample.guestCPUPressure},
-		{lines: guestPressure.IO, reading: &sample.guestIOPressure},
+		{"host memory", strings.Split(line.Pressure, "\n"), &sample.memoryPressure},
+		{"host CPU", line.CPUDisk.Host.CPUPressure, &sample.cpuPressure},
+		{"host IO", line.CPUDisk.Host.IOPressure, &sample.ioPressure},
+		{"guest CPU", guestPressure.CPU, &sample.guestCPUPressure},
+		{"guest IO", guestPressure.IO, &sample.guestIOPressure},
 	}
 	for _, source := range pressureSources {
 		reading, pressureErr := parsePressure(source.lines)
 		if pressureErr != nil {
-			return hostSample{}, pressureErr
+			return hostSample{}, wrapError(source.name+" pressure", pressureErr)
 		}
 		*source.reading = reading
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"slices"
@@ -61,9 +62,24 @@ func SummarizeRun(ctx context.Context, path string) (RunSummary, error) {
 	if err != nil {
 		return RunSummary{}, wrapError("decode run result in "+path, err)
 	}
+	nodes, err := summarizeNodes(result.Samples)
+	if err != nil {
+		return RunSummary{}, err
+	}
+	slog.InfoContext(ctx, "resource_summary.run_read",
+		slog.String("path", path), slog.Int("samples", len(result.Samples)),
+		slog.Int("nodes", len(nodes)))
+	return RunSummary{Samples: len(result.Samples), Nodes: nodes}, nil
+}
+
+func summarizeNodes(samples []runSample) ([]NodeSummary, error) {
 	byName := map[string]*NodeSummary{}
-	for _, sample := range result.Samples {
+	for _, sample := range samples {
 		for _, node := range sample.Nodes {
+			err := checkNodeTotals(node)
+			if err != nil {
+				return nil, err
+			}
 			summary, found := byName[node.Name]
 			if !found {
 				summary = newNodeSummary(node)
@@ -79,10 +95,21 @@ func SummarizeRun(ctx context.Context, path string) (RunSummary, error) {
 	slices.SortFunc(nodes, func(left NodeSummary, right NodeSummary) int {
 		return strings.Compare(left.Name, right.Name)
 	})
-	slog.InfoContext(ctx, "resource_summary.run_read",
-		slog.String("path", path), slog.Int("samples", len(result.Samples)),
-		slog.Int("nodes", len(nodes)))
-	return RunSummary{Samples: len(result.Samples), Nodes: nodes}, nil
+	return nodes, nil
+}
+
+// checkNodeTotals rejects a reading that cannot produce a fraction. A missing total decodes
+// as zero.
+func checkNodeTotals(node datagen.SearchMixedNodeResources) error {
+	if node.HeapMaxBytes <= 0 {
+		return fmt.Errorf("node %s has heap_max_bytes %d, want a positive value",
+			node.Name, node.HeapMaxBytes)
+	}
+	if node.MemoryTotalBytes <= 0 {
+		return fmt.Errorf("node %s has memory_total_bytes %d, want a positive value",
+			node.Name, node.MemoryTotalBytes)
+	}
+	return nil
 }
 
 // newNodeSummary seeds the maximum and minimum fields from the first reading and sets

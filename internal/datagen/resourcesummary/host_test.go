@@ -59,7 +59,8 @@ func TestSummarizeHostFixture(t *testing.T) {
 // TestSummarizeHostRejectsIncompletePressure checks the fixture line at 00:02:00Z. Its host IO
 // pressure input has a some line without a full line.
 func TestSummarizeHostRejectsIncompletePressure(t *testing.T) {
-	const wantError = `find full line in ["some avg10=2.50 avg60=0.00 avg300=0.00 total=60"]: ` +
+	const wantError = `sample 2026-01-01T00:02:00Z: host IO pressure: ` +
+		`find full line in ["some avg10=2.50 avg60=0.00 avg300=0.00 total=60"]: ` +
 		`pressure line is missing`
 	windowStart := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	window := resourcesummary.Window{Start: windowStart, End: windowStart.Add(2 * time.Minute)}

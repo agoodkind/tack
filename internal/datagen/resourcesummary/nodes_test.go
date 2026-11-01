@@ -61,3 +61,48 @@ func TestSummarizeRunFixture(t *testing.T) {
 		t.Errorf("summary = %+v, want %+v", got, want)
 	}
 }
+
+// TestSummarizeRunRejectsInvalidTotals changes one total in the run log fixture for each case
+// and checks the exact error from SummarizeRun.
+func TestSummarizeRunRejectsInvalidTotals(t *testing.T) {
+	cases := []struct {
+		name      string
+		change    func(string) string
+		wantError string
+	}{
+		{
+			name:      "heap total zero",
+			change:    replaceOnce(`"heap_max_bytes": 4294967296`, `"heap_max_bytes": 0`),
+			wantError: `node node-b has heap_max_bytes 0, want a positive value`,
+		},
+		{
+			name:      "heap total missing",
+			change:    replaceOnce(`, "heap_max_bytes": 4294967296`, ""),
+			wantError: `node node-b has heap_max_bytes 0, want a positive value`,
+		},
+		{
+			name:      "memory total zero",
+			change:    replaceOnce(`"memory_total_bytes": 8589934592`, `"memory_total_bytes": 0`),
+			wantError: `node node-b has memory_total_bytes 0, want a positive value`,
+		},
+		{
+			name:      "memory total missing",
+			change:    replaceOnce(`, "memory_total_bytes": 8589934592`, ""),
+			wantError: `node node-b has memory_total_bytes 0, want a positive value`,
+		},
+	}
+	for _, scenario := range cases {
+		t.Run(scenario.name, func(t *testing.T) {
+			path := writeChangedFixture(t, runLogFixture, scenario.change)
+
+			got, err := resourcesummary.SummarizeRun(t.Context(), path)
+
+			if err == nil {
+				t.Fatalf("summary = %+v, want error %q", got, scenario.wantError)
+			}
+			if err.Error() != scenario.wantError {
+				t.Errorf("error = %q, want %q", err.Error(), scenario.wantError)
+			}
+		})
+	}
+}
