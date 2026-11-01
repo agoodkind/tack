@@ -34,9 +34,6 @@ func NewSearchSessionStore(db fdb.Database, source clock.Clock, idleTimeout time
 	return &SearchSessionStore{db: db, clock: source, idleTimeout: idleTimeout}
 }
 
-// Create writes the session header and query token chunks in one FoundationDB transaction.
-// It sets the expiry key, the index presence key, and the version presence key in that
-// transaction. changes.append writes the change event to the outbox in the same transaction.
 // Create refuses a session when the authority no longer writes the session's access version.
 func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Session) (created searchdomain.Session, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.create")(&err)

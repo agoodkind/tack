@@ -73,8 +73,7 @@ func TestSearchRuntimeAuditSweepRemovalValues(t *testing.T) {
 	fixture.sweepAfterExpiry(t, sweeper.Token, interrupted.session)
 
 	rows := fixture.waitForRows(t, fixture.first.OrgID, func(current []audit.Row) bool {
-		return len(sessionChanges(current, swept.session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession)) == 1 &&
-			len(sessionChanges(current, interrupted.session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession)) == 1
+		return sweepEvidenceArrived(t, current, swept, interrupted)
 	})
 	fixture.requireSweptValues(t, rows, swept, sweeper.UserID, owner.UserID)
 	requireRecordRemovals(t, rows, swept)
@@ -115,6 +114,16 @@ func requireRecordRemovals(t *testing.T, rows []audit.Row, swept sweptSession) {
 	if !slices.Equal(replay.ResultIDs, swept.replay.ResultIDs) || replay.Complete != swept.replay.Complete {
 		t.Fatalf("replay removal = %+v, want %+v", replay, swept.replay)
 	}
+	visited := removedVisitedNodes(t, rows, sessionID)
+	for _, nodeID := range swept.page.IDs {
+		if !visited[nodeID] {
+			t.Fatalf("session %s does not record the removal of visited node %s", sessionID, nodeID)
+		}
+	}
+}
+
+func removedVisitedNodes(t *testing.T, rows []audit.Row, sessionID uuid.UUID) map[uuid.UUID]bool {
+	t.Helper()
 	visited := map[uuid.UUID]bool{}
 	for _, row := range sessionChanges(rows, sessionID, audit.VerbSearchSessionDelete, audit.TargetSearchSessionVisited) {
 		var value struct {
@@ -125,11 +134,31 @@ func requireRecordRemovals(t *testing.T, rows []audit.Row, swept sweptSession) {
 		}
 		visited[value.NodeID] = true
 	}
-	for _, nodeID := range swept.page.IDs {
-		if !visited[nodeID] {
-			t.Fatalf("session %s does not record the removal of visited node %s", sessionID, nodeID)
+	return visited
+}
+
+func sweepEvidenceArrived(t *testing.T, rows []audit.Row, swept, interrupted sweptSession) bool {
+	t.Helper()
+	for _, session := range []searchdomain.Session{swept.session, interrupted.session} {
+		if len(sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession)) != 1 ||
+			len(sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSessionReplay)) != 1 {
+			return false
 		}
 	}
+	visited := removedVisitedNodes(t, rows, swept.session.ID)
+	for _, nodeID := range swept.page.IDs {
+		if !visited[nodeID] {
+			return false
+		}
+	}
+	closed, tokensRemoved := false, false
+	for _, update := range sessionChanges(rows, interrupted.session.ID, audit.VerbSearchSessionUpdate, audit.TargetSearchSession) {
+		before, after := deltaMembers(t, update.Delta.Before), deltaMembers(t, update.Delta.After)
+		closed = closed || string(after["closing"]) == "true"
+		_, found := before["query_tokens"]
+		tokensRemoved = tokensRemoved || found
+	}
+	return closed && tokensRemoved
 }
 
 // The later header deletion records the state after the stopped slice

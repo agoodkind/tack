@@ -21,6 +21,26 @@ func snapshotResults(rows []audit.Row, verb audit.Verb, outcome audit.Outcome) [
 	return selected
 }
 
+func snapshotIntents(rows []audit.Row, result audit.Row) []audit.Row {
+	intents := []audit.Row{}
+	for _, row := range rows {
+		if row.Action == result.Action && row.Context.Phase == audit.PhaseIntent &&
+			row.Context.OperationID == result.Context.OperationID {
+			intents = append(intents, row)
+		}
+	}
+	return intents
+}
+
+func snapshotResultsHaveIntents(rows, results []audit.Row) bool {
+	for _, result := range results {
+		if len(snapshotIntents(rows, result)) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func requireInterruptedSnapshotRows(t *testing.T, fixture failureFixture, rows []audit.Row, verb audit.Verb) {
 	t.Helper()
 	results := snapshotResults(rows, verb, audit.OutcomeIncomplete)
@@ -54,14 +74,7 @@ func requireInterruptedSnapshotRows(t *testing.T, fixture failureFixture, rows [
 // intent in the permanent ledger, including actor, target, operation and time.
 func requireSnapshotIdentity(t *testing.T, fixture failureFixture, rows []audit.Row, result audit.Row) {
 	t.Helper()
-	intents := []audit.Row{}
-	for _, row := range rows {
-		if row.Action == result.Action && row.Context.Phase == audit.PhaseIntent &&
-			row.Context.OperationID == result.Context.OperationID {
-			intents = append(intents, row)
-		}
-	}
-	intent := onlyRow(t, intents, "the original point in time intent")
+	intent := onlyRow(t, snapshotIntents(rows, result), "the original point in time intent")
 	if result.ActorID != fixture.Workspaces[0].Actors[0].UserID || result.ActorID != intent.ActorID ||
 		result.Context.OperationID == uuid.Nil || result.Context.ParentOperationID != intent.Context.ParentOperationID ||
 		result.Context.Target == nil || !bytes.Equal(encodeJSON(t, result.Context.Target), encodeJSON(t, intent.Context.Target)) ||

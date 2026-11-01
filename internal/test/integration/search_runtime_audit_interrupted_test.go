@@ -65,7 +65,8 @@ func TestSearchRuntimeAuditInterruptedSnapshot(t *testing.T) {
 				}
 				release()
 				rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(rows []audit.Row) bool {
-					return len(snapshotResults(rows, verb, audit.OutcomeIncomplete)) == 2
+					results := snapshotResults(rows, verb, audit.OutcomeIncomplete)
+					return len(results) == 2 && snapshotResultsHaveIntents(rows, results)
 				})
 				requireInterruptedSnapshotRows(t, fixture, rows, verb)
 			})
