@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -75,6 +76,7 @@ func TestSearchRuntimeAuditInterruptedSnapshot(t *testing.T) {
 // TestSearchRuntimeAuditDelayedSnapshotResult pauses real FoundationDB for
 // twelve seconds after OpenSearch creates a point in time. The step write
 // ends at five seconds; the operation result must survive the longer stall.
+// The failed search must then record deletion of its known point in time.
 func TestSearchRuntimeAuditDelayedSnapshotResult(t *testing.T) {
 	const stall = 12 * time.Second
 	fixture := newFailureFixture(t)
@@ -108,7 +110,8 @@ func TestSearchRuntimeAuditDelayedSnapshotResult(t *testing.T) {
 		t.Fatal("the search did not finish after FoundationDB resumed")
 	}
 	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(rows []audit.Row) bool {
-		return len(snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete)) == 1
+		return len(snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete)) == 1 &&
+			len(snapshotResults(rows, audit.VerbSearchPointInTimeDelete, audit.OutcomeCompleted)) == 2
 	})
 	result := onlyRow(t, snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete), "the delayed operation result")
 	if result.EntityID == uuid.Nil || result.Error == nil || result.Error.Code != "step_unfinished" || result.Context.Target.Kind != audit.TargetKindResource {
@@ -118,4 +121,13 @@ func TestSearchRuntimeAuditDelayedSnapshotResult(t *testing.T) {
 		t.Fatalf("the timed out step reported completion: %s", describeRows(finished))
 	}
 	requireSnapshotIdentity(t, fixture, rows, result)
+	deleted := finishedStep(t, stepRows(rows, result.EntityID, audit.VerbSearchPointInTimeDelete, "delete"))
+	var evidence struct {
+		PITID string `json:"pit_id"`
+	}
+	if err := json.Unmarshal(deleted.Extra, &evidence); err != nil || evidence.PITID != observed.id {
+		t.Fatalf("the audited cleanup does not identify the known point in time %s: %s; error=%v", observed.id, deleted.Extra, err)
+	}
+	requireSnapshotIdentity(t, fixture, rows, deleted)
+	requirePITsClosed(t, fixture.QueryFixture, []string{observed.id})
 }

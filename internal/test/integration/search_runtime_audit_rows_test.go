@@ -88,8 +88,6 @@ func memberReference(t *testing.T, members map[string]json.RawMessage, member st
 	return reference.PIIRef
 }
 
-// requireProtectedMember checks that member references an unredacted
-// audit.pii value equal to want.
 func (f sessionAuditFixture) requireProtectedMember(t *testing.T, members map[string]json.RawMessage, member string, want []byte) {
 	t.Helper()
 	reference := memberReference(t, members, member)

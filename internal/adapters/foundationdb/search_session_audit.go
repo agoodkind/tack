@@ -100,7 +100,6 @@ func (a *sessionAudit) recordReplayDelete(sessionID uuid.UUID, version uint64, r
 	return a.record(sessionReplayTarget(sessionID, version), encoded, nil)
 }
 
-// recordVisitedCreate records a new visited record.
 func (a *sessionAudit) recordVisitedCreate(sessionID, nodeID uuid.UUID) error {
 	encoded, err := encodeSessionValue(sessionVisitedValue{SessionID: sessionID, NodeID: nodeID})
 	if err != nil {

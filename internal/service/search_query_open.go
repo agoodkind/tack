@@ -65,7 +65,8 @@ func (s *SearchQueryService) openSnapshot(ctx context.Context, session searchdom
 	}
 	if openErr == nil {
 		slog.ErrorContext(ctx, "search.snapshot.step_failed", slog.String("err", recordErr.Error()), slog.String("session_id", session.ID.String()))
-		return none, errors.Join(searchdomain.ErrEngineUnavailable, recordErr)
+		closeErr := s.closeSnapshot(ctx, session, snapshot)
+		return none, errors.Join(searchdomain.ErrEngineUnavailable, recordErr, closeErr)
 	}
 	if errors.Is(openErr, searchdomain.ErrSnapshotPartial) {
 		if closeErr := s.closeSnapshot(ctx, session, snapshot); closeErr != nil {

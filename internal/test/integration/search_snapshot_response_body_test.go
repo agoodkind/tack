@@ -39,8 +39,9 @@ func (body delayedSnapshotBody) Read(buffer []byte) (int, error) {
 	}
 }
 
-// TestSearchSnapshotInterruptedResponseBody deletes a real PIT, flushes its
-// successful HTTP headers, and interrupts the client before its body arrives.
+// TestSearchSnapshotInterruptedResponseBody checks a real PIT delete after
+// cancellation, client timeout, body truncation or a complete backend error.
+// Each case verifies the engine state independently.
 func TestSearchSnapshotInterruptedResponseBody(t *testing.T) {
 	for _, interruption := range []string{"cancel", "client_timeout", "truncated_body", "backend_error", "security_backend_error"} {
 		t.Run(interruption, func(t *testing.T) {

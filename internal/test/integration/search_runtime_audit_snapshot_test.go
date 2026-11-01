@@ -88,7 +88,6 @@ func failPointInTimeShards(response *http.Response) error {
 	return nil
 }
 
-// partialDeletes returns the finished point in time delete steps.
 func partialDeletes(rows []audit.Row) []audit.Row {
 	selected := []audit.Row{}
 	for _, row := range rows {

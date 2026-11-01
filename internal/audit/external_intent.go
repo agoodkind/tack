@@ -9,8 +9,8 @@ import (
 )
 
 // ExternalIntent builds the pending format 2 intent event of one external
-// operation on target in orgID. It keeps the actor, operation ID, parent
-// operation ID, and start time of operation and uses a new event ID.
+// operation on target in orgID. It copies the actor, operation ID, parent
+// operation ID and start time from operation and uses a new event ID.
 func ExternalIntent(operation Event, verb Verb, target Target, orgID uuid.UUID) Event {
 	eventTarget := target
 	intent := operation
