@@ -35,6 +35,7 @@ var relevanceProbeQueries = []string{"restart containers one by one", "rolling D
 func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 	cfg := newCohortEngines(t)
 	cfg.AuditReaderDSN = cfg.DatabaseURL
+	startPublicLedgerOn(t, &publicServer{clusterFile: cfg.FDBClusterFile}, startRuntimeAuditStack(t))
 	output, err := runDatagenSearchCommand(t, cfg, "--commit")
 	if err != nil {
 		t.Fatalf("execute ops qa datagen search: %v; output=%s", err, output)
@@ -46,6 +47,7 @@ func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 			SessionVerbs struct {
 				Verbs []struct {
 					Verb string `json:"verb"`
+					Rows int64  `json:"rows"`
 				} `json:"verbs"`
 			} `json:"session_verbs"`
 		} `json:"result"`
@@ -59,6 +61,11 @@ func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 	if len(envelope.Result.SessionVerbs.Verbs) != sessionVerbCount || envelope.Result.Search.OrgID == uuid.Nil {
 		t.Fatalf("ops qa datagen search reported organization %s and session verbs %+v, want an organization and %d verbs",
 			envelope.Result.Search.OrgID, envelope.Result.SessionVerbs.Verbs, sessionVerbCount)
+	}
+	for _, verb := range envelope.Result.SessionVerbs.Verbs {
+		if verb.Rows == 0 {
+			t.Fatalf("ops qa datagen search reported zero ledger rows of verb %s: %s", verb.Verb, output)
+		}
 	}
 	warning := envelope.Result.Search.PropertyWarning
 	if warning.NodeID == uuid.Nil || warning.PropertyName == "" || warning.PropertyDefID == uuid.Nil ||
