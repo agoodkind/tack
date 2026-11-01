@@ -76,6 +76,24 @@ func changeTampers(t *testing.T, changeID uuid.UUID) map[string]exportTamper {
 	}
 }
 
+// ownerTampers returns edits that replace or remove the owner in the target of
+// the event eventID.
+func ownerTampers(t *testing.T, eventID uuid.UUID) map[string]exportTamper {
+	t.Helper()
+	owner := func(ownerID uuid.UUID) exportTamper {
+		return exportTamper{eventID: eventID, failure: "hash mismatch", mutate: func(row *audit.Row) {
+			if row.Context.Target == nil {
+				t.Fatalf("exported row %s has no target", eventID)
+			}
+			row.Context.Target.OwnerID = ownerID
+		}}
+	}
+	return map[string]exportTamper{
+		"altered owner id": owner(uuid.Must(uuid.NewV7())),
+		"removed owner id": owner(uuid.Nil),
+	}
+}
+
 // tamperExportedRow applies mutate to the exported row with ID eventID and
 // returns the rows with that row encoded again.
 func tamperExportedRow(t *testing.T, rows []byte, eventID uuid.UUID, mutate func(*audit.Row)) []byte {

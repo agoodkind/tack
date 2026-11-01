@@ -46,6 +46,9 @@ func validateTarget(target Target) error {
 	default:
 		return fmt.Errorf("target kind %q is unsupported", target.Kind)
 	}
+	if target.OwnerID != uuid.Nil && target.Kind != TargetKindResource {
+		return errors.New("only a resource target can state an owner")
+	}
 	return nil
 }
 
