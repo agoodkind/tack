@@ -76,7 +76,7 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 	if err := ctx.Err(); err != nil {
 		return none, snapshotFailure(ctx, target, "create a point in time", err)
 	}
-	created, err := r.adapter.api.PointInTime.Create(ctx, &opensearchapi.CreatePITReq{
+	created, err := r.adapter.snapshotAPI.PointInTime.Create(ctx, &opensearchapi.CreatePITReq{
 		Indices: []string{target}, Header: nil,
 		Params: &opensearchapi.CreatePITParams{KeepAlive: r.settings.KeepAlive},
 	})
