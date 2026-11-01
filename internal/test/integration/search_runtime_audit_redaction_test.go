@@ -14,14 +14,13 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// redactionAuditQuery is the included text of the redaction corpus.
 const redactionAuditQuery = "dun causeway redaction audit"
 
 // TestSearchRuntimeAuditOwnerRedactionOnSessionTarget opens a session as owner
 // A, and a search by user B sweeps it. The delete row must state the session
 // in EntityID and Target.ID, A in Target.OwnerID, and B as actor. audit.pii
-// must store each value with subject A. Redaction for B must leave the values
-// of A in place. Redaction for A must clear them. The export must verify and
+// must store each value with subject A. Redaction for B must keep the values
+// of A unchanged. Redaction for A must clear them. The export must verify and
 // must omit the raw tokens, sort values, and access keys. The test does not
 // require the export to omit query text, because the node.search selection
 // stores it as approved.

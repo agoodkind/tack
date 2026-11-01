@@ -80,7 +80,6 @@ func sessionVisitedTarget(sessionID, nodeID uuid.UUID) audit.Target {
 	return sessionChildTarget(sessionID, audit.TargetSearchSessionVisited, sessionVisitedURIPart+nodeID.String())
 }
 
-// recordReplayCreate records a new replay record with its complete value.
 func (a *sessionAudit) recordReplayCreate(sessionID uuid.UUID, version uint64, replay searchReplayRecord) error {
 	encoded, err := encodeSessionValue(sessionReplayValue{Version: version, ResultIDs: replay.ResultIDs, Complete: replay.Complete})
 	if err != nil {
@@ -89,7 +88,6 @@ func (a *sessionAudit) recordReplayCreate(sessionID uuid.UUID, version uint64, r
 	return a.record(sessionReplayTarget(sessionID, version), nil, encoded)
 }
 
-// recordReplayDelete records a removed replay record with its complete value.
 func (a *sessionAudit) recordReplayDelete(sessionID uuid.UUID, version uint64, replay searchReplayRecord) error {
 	encoded, err := encodeSessionValue(sessionReplayValue{Version: version, ResultIDs: replay.ResultIDs, Complete: replay.Complete})
 	if err != nil {
@@ -115,8 +113,8 @@ func (a *sessionAudit) recordVisitedDelete(sessionID, nodeID uuid.UUID) error {
 	return a.record(sessionVisitedTarget(sessionID, nodeID), encoded, nil)
 }
 
-// encodeSessionValue encodes one audit value. The transaction boundary logs
-// the error.
+// encodeSessionValue marshals one audit value to JSON and returns a sessionStepError on failure.
+// transactSession logs the error through sessionFailure.
 func encodeSessionValue[Value sessionAuditValue](value Value) (json.RawMessage, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {

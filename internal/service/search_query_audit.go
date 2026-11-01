@@ -140,10 +140,12 @@ func (s *SearchQueryService) runEncodedStep(
 	return nil
 }
 
-// closeSnapshot deletes snapshot under one audited step. It records a point
-// in time that OpenSearch no longer recognizes as a completed step with
-// already_closed set, and it returns nil for that point in time. A snapshot
-// without an ID does not have a point in time to delete.
+// closeSnapshot returns nil without recording a step when snapshot.PITID is empty.
+// Otherwise, it deletes the point in time in one audited step. It completes the step with
+// already_closed true when Ranker.Close returns searchdomain.ErrSnapshotLost for HTTP 404.
+// A successful delete completes the step with already_closed false and does not establish
+// that the point in time existed. closeSnapshot returns nil after recording either completed
+// result. It returns any other Close error.
 func (s *SearchQueryService) closeSnapshot(ctx context.Context, session searchdomain.Session, snapshot searchdomain.Snapshot) error {
 	if snapshot.PITID == "" {
 		return nil

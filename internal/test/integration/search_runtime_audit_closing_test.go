@@ -13,7 +13,6 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// closingAuditQuery is the included text of the closing corpus.
 const closingAuditQuery = "umber sluice closing audit"
 
 // TestSearchRuntimeAuditExpiredContinuationClosing continues a session with an

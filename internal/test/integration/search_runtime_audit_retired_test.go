@@ -18,7 +18,6 @@ import (
 // retiredAuditQuery is the included text of the retirement corpus.
 const retiredAuditQuery = "ashen weir retired audit"
 
-// retirementExtra is the evidence of a worker session change.
 type retirementExtra struct {
 	RebuildID        string    `json:"rebuild_id"`
 	SourceIndex      string    `json:"source_index"`

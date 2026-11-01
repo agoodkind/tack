@@ -97,9 +97,12 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 	return searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: tokens}, nil
 }
 
-// Close deletes the point in time. It returns
-// [searchdomain.ErrSnapshotLost] for a point in time that OpenSearch no
-// longer recognizes.
+// Close deletes the point in time and returns nil on success. It returns nil without sending
+// a request when snapshot.PITID is empty. It logs and returns ID parsing and context cancellation
+// errors. Close returns an error that wraps [searchdomain.ErrSnapshotLost] only when OpenSearch
+// answers the delete with HTTP 404. Other responses do not establish that the point in time
+// is missing. For other delete errors, snapshotEffectFailure preserves known refusal causes
+// and also wraps [searchdomain.ErrSnapshotUncertain] when the error does not establish a refusal.
 func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot) error {
 	if snapshot.PITID == "" {
 		return nil

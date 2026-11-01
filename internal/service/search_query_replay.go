@@ -97,7 +97,8 @@ func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.U
 	session, err := s.ports.Sessions.Load(ctx, sessionID)
 	if err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
-		// Cleanup does not change records or record a failure for an absent session.
+		// If the session does not exist, the sweep stops for that session and does not record
+		// a cleanup failure.
 		if !errors.Is(err, searchdomain.ErrSessionNotFound) {
 			s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
 		}

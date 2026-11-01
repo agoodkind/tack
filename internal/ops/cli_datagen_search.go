@@ -52,7 +52,7 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 		Long: "Defaults to a dry run that validates the QA or local target. " +
 			"Pass --commit to verify a fixture when public search is enabled. " +
 			"A verified committed run reports the property warning case and the target rank for each relevance probe query. " +
-			"A verified committed run also needs AUDIT_READER_DSN and waits for the ledger rows of the search session verbs. " +
+			"A verified committed run also needs AUDIT_READER_DSN and waits until every search session verb has at least one ledger row in the run's organization. " +
 			"Pass --prepare-only --commit with --seed and --corpus to export fixture IDs " +
 			"without search requests; public search may remain disabled. " +
 			"Pass --verify-cohort --commit with a positive --seed to prepare a cohort from the embedded corpus. " +

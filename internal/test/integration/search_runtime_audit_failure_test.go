@@ -154,7 +154,7 @@ func requireNoChangeRows(t *testing.T, rows []audit.Row, operationID uuid.UUID) 
 	t.Helper()
 	for _, row := range rows {
 		if row.Context.OperationID == operationID && row.Context.Phase == audit.PhaseChange {
-			t.Fatalf("the failing operation committed change %s on %+v", row.Action, row.Context.Target)
+			t.Fatalf("the operation must not commit changes, but it recorded change %s on %+v", row.Action, row.Context.Target)
 		}
 	}
 }

@@ -95,10 +95,12 @@ func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) op
 	}
 }
 
-// predictClientConfig returns the settings from ClientConfig after disabling
-// the per-attempt timeout and setting EnableRetryOnTimeout to false. The
-// caller's deadline bounds the one predict attempt. The client still retries
-// the statuses in retryStatuses, including the 429 circuit breaker rejection.
+// predictClientConfig returns ClientConfig settings with RequestTimeout set to zero and
+// EnableRetryOnTimeout set to false. The caller's deadline bounds the predict call.
+// With MaxRetries set to zero, the client makes one attempt and does not retry any status.
+// With a positive MaxRetries, the client retries responses with statuses in retryStatuses
+// up to MaxRetries times and waits retryBackoff between attempts. A timeout does not trigger
+// a retry.
 func (c Config) predictClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
 	settings := c.ClientConfig(observer)
 	settings.RequestTimeout = 0

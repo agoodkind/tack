@@ -65,7 +65,9 @@ func (f sessionAuditFixture) putCorpus(t *testing.T, query string, count int) {
 	f.drain(t)
 }
 
-// searchAs calls tack_search through the MCP route with token.
+// searchAs calls tack_search through the MCP driver with token as the caller's bearer credential.
+// The audit ledger attributes the read to the user who owns token. searchAs returns the parsed
+// integration.SearchPage and wraps tool call errors with the query text.
 func (f sessionAuditFixture) searchAs(t *testing.T, token, query, cursor string) (integration.SearchPage, error) {
 	t.Helper()
 	result, err := f.driver.Call(t.Context(), token, "tack_search", datagen.ToolArguments{
