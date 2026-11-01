@@ -35,8 +35,8 @@ type datagenSearchResult struct {
 	// Dry runs and runs with --prepare-only or --verify-cohort do not include this field.
 	Search *datagen.SearchVerification `json:"search,omitempty"`
 	// SessionVerbs reports the ledger rows of the search session verbs in the
-	// organization of a verified committed run. The relay delivers the rows of
-	// this run after the report can read them.
+	// organization of a verified committed run after the ledger stores a row
+	// of every verb.
 	SessionVerbs *datagenLedgerVerbsReport `json:"session_verbs,omitempty"`
 }
 
@@ -52,6 +52,7 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 		Long: "Defaults to a dry run that validates the QA or local target. " +
 			"Pass --commit to verify a fixture when public search is enabled. " +
 			"A verified committed run reports the property warning case and the target rank for each relevance probe query. " +
+			"A verified committed run also needs AUDIT_READER_DSN and waits for the ledger rows of the search session verbs. " +
 			"Pass --prepare-only --commit with --seed and --corpus to export fixture IDs " +
 			"without search requests; public search may remain disabled. " +
 			"Pass --verify-cohort --commit with a positive --seed to prepare a cohort from the embedded corpus. " +
@@ -147,7 +148,7 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 			return fmt.Errorf("qa datagen search: %w", err)
 		}
 		result.Search = &verification
-		sessionVerbs, err := readDatagenSearchSessionVerbs(ctx, factory, verification.OrgID)
+		sessionVerbs, err := awaitDatagenSearchSessionVerbs(ctx, factory, verification.OrgID)
 		if err != nil {
 			return fmt.Errorf("qa datagen search: %w", err)
 		}
