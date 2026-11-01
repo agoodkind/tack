@@ -106,7 +106,6 @@ func (f sessionAuditFixture) loseSnapshot(t *testing.T, session searchdomain.Ses
 	}
 }
 
-// ledgerRows returns every ledger row of orgID.
 func (f sessionAuditFixture) ledgerRows(t *testing.T, orgID uuid.UUID) []audit.Row {
 	t.Helper()
 	filter := audit.QueryFilter{OrgID: orgID, Oldest: f.ledger.since, Latest: clock.Now().Add(time.Hour), Limit: audit.MaxQueryPageLimit}
@@ -125,7 +124,6 @@ func (f sessionAuditFixture) ledgerRows(t *testing.T, orgID uuid.UUID) []audit.R
 	}
 }
 
-// waitForRows reads the rows of orgID until ready accepts them.
 func (f sessionAuditFixture) waitForRows(t *testing.T, orgID uuid.UUID, ready func([]audit.Row) bool) []audit.Row {
 	t.Helper()
 	deadline := clock.Now().Add(publicDeliveryTimeout)

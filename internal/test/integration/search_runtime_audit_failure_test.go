@@ -127,7 +127,6 @@ func failedCreateDeletes(rows []audit.Row, operationID, expiredID uuid.UUID) []a
 	return selected
 }
 
-// cleanupFailures returns the failed result rows of step on sessionID.
 func cleanupFailures(rows []audit.Row, sessionID uuid.UUID, step searchdomain.CleanupStep) []audit.Row {
 	selected := []audit.Row{}
 	for _, row := range rows {
@@ -151,7 +150,6 @@ func requireCleanupFailureRow(t *testing.T, row audit.Row, verb audit.Verb, owne
 	}
 }
 
-// requireNoChangeRows requires the failing operation to commit no change.
 func requireNoChangeRows(t *testing.T, rows []audit.Row, operationID uuid.UUID) {
 	t.Helper()
 	for _, row := range rows {

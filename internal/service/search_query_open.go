@@ -45,8 +45,8 @@ func (s *SearchQueryService) open(ctx context.Context, request SearchRequest, au
 
 // openSnapshot creates the point in time of session under one audited step.
 // It deletes a partial point in time under its own audited step. It returns
-// [searchdomain.ErrEngineUnavailable] when Ranker.Open succeeds or does not
-// run and an audit write fails.
+// [searchdomain.ErrEngineUnavailable] for an audit write failure after
+// Ranker.Open succeeds or before it runs.
 func (s *SearchQueryService) openSnapshot(ctx context.Context, session searchdomain.Session) (searchdomain.Snapshot, error) {
 	var none, snapshot searchdomain.Snapshot
 	var openErr error

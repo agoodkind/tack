@@ -30,8 +30,7 @@ type ExpiredSessionLister interface {
 }
 
 // SearchQueryPorts are the production boundaries of public ranked search.
-// Versions reads the access version that serves new sessions. Audit saves the
-// intent and result events of each point in time operation.
+// Versions reads the access version that serves new sessions.
 type SearchQueryPorts struct {
 	Ranker      searchdomain.Ranker
 	Sessions    searchdomain.SessionStore

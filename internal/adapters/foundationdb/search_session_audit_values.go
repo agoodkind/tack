@@ -99,8 +99,8 @@ func protectedSessionMembers(state sessionState) (map[string]json.RawMessage, er
 	return members, nil
 }
 
-// protectedTokens returns stored as a JSON value. Stored bytes that do not
-// form valid JSON become a JSON string, because a protected value must be
+// protectedTokens returns the stored bytes as a JSON value. It encodes bytes
+// that do not form valid JSON as a JSON string. Protected values require
 // valid JSON.
 func protectedTokens(stored []byte) (json.RawMessage, error) {
 	if json.Valid(stored) {

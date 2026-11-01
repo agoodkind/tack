@@ -37,7 +37,6 @@ func onlyRow(t *testing.T, rows []audit.Row, description string) audit.Row {
 	return rows[0]
 }
 
-// stepRows returns the rows of verb on the external step of sessionID.
 func stepRows(rows []audit.Row, sessionID uuid.UUID, verb audit.Verb, action string) []audit.Row {
 	reference := "opensearch/point-in-time/" + sessionID.String() + "/" + action
 	selected := []audit.Row{}
@@ -50,7 +49,6 @@ func stepRows(rows []audit.Row, sessionID uuid.UUID, verb audit.Verb, action str
 	return selected
 }
 
-// finishedStep returns the terminal step row in rows.
 func finishedStep(t *testing.T, rows []audit.Row) audit.Row {
 	t.Helper()
 	finished := []audit.Row{}
@@ -62,7 +60,6 @@ func finishedStep(t *testing.T, rows []audit.Row) audit.Row {
 	return onlyRow(t, finished, "the finished point in time step")
 }
 
-// refusedReads returns the node.search rows with the refused outcome.
 func refusedReads(rows []audit.Row) []audit.Row {
 	refused := []audit.Row{}
 	for _, row := range rows {
@@ -82,7 +79,6 @@ func deltaMembers(t *testing.T, value json.RawMessage) map[string]json.RawMessag
 	return members
 }
 
-// memberReference returns the protected reference of member.
 func memberReference(t *testing.T, members map[string]json.RawMessage, member string) uuid.UUID {
 	t.Helper()
 	var reference audit.ProtectedReference
@@ -92,8 +88,8 @@ func memberReference(t *testing.T, members map[string]json.RawMessage, member st
 	return reference.PIIRef
 }
 
-// requireProtectedMember requires member to reference an unredacted audit.pii
-// value equal to want.
+// requireProtectedMember checks that member references an unredacted
+// audit.pii value equal to want.
 func (f sessionAuditFixture) requireProtectedMember(t *testing.T, members map[string]json.RawMessage, member string, want []byte) {
 	t.Helper()
 	reference := memberReference(t, members, member)

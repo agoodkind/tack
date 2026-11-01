@@ -20,8 +20,8 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
-// sessionVerbCount is the number of search session verbs in the report of ops
-// qa datagen search: three change verbs and two point in time verbs.
+// sessionVerbCount counts the verbs in the ops qa datagen search report.
+// The report includes three session change verbs and two point in time verbs.
 const sessionVerbCount = 5
 
 // relevanceProbeQueries lists the queries that the relevance probe must report in order.

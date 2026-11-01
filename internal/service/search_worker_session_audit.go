@@ -16,9 +16,6 @@ type retirementEvidence struct {
 	initiationEvidence
 }
 
-// retirementContext attaches a new worker operation to ctx for the session
-// changes of one retirement slice. The operation uses the worker actor, and
-// its parent is the operation that began the replacement.
 func (w *SearchWorker) retirementContext(ctx context.Context, rebuild searchdomain.Rebuild) (context.Context, error) {
 	operation, err := audit.NewMutationOperation(w.ports.Audit.Actor, audit.SourceSystem, "")
 	if err != nil {

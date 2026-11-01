@@ -78,7 +78,6 @@ func (f sessionAuditFixture) requireClosingEvents(t *testing.T, session searchdo
 	}
 }
 
-// closingUpdates returns the session updates that change closing.
 func closingUpdates(t *testing.T, rows []audit.Row, sessionID uuid.UUID) []audit.Row {
 	t.Helper()
 	selected := []audit.Row{}

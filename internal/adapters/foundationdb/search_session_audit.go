@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	// sessionReplayURIPart and sessionVisitedURIPart follow the session URI in
-	// the URI of a replay record and a visited record.
+	// Each replay or visited record URI uses the session URI followed by
+	// sessionReplayURIPart or sessionVisitedURIPart.
 	sessionReplayURIPart  = "/replay/"
 	sessionVisitedURIPart = "/visited/"
 )
@@ -37,9 +37,9 @@ type sessionVisitedValue struct {
 	NodeID    uuid.UUID `json:"node_id"`
 }
 
-// sessionAudit records the changes of one session writer. The writer learns
-// the organization inside its transaction and calls bind after it reads the
-// session header.
+// sessionAudit records changes for one session writer. The writer reads the
+// session header inside its transaction, then calls bind with that header to
+// set the event scope.
 type sessionAudit struct {
 	*mutationAudit
 }

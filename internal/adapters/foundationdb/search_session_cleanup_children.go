@@ -45,7 +45,6 @@ func (a *sessionAudit) clearChildren(tr fdb.Transaction, sessionID uuid.UUID, ch
 	return clearSessionTokens(tr, sessionID)
 }
 
-// recordChildDelete records the removal of one replay or visited record.
 func (a *sessionAudit) recordChildDelete(sessionID uuid.UUID, part string, identity tuple.TupleElement, stored []byte) error {
 	if part == sessionVisitedPart {
 		text, _ := identity.(string)

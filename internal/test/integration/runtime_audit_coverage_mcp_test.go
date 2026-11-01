@@ -123,8 +123,6 @@ func addMCPCases(cases map[string]coverageCase) {
 	addProtocolCases(cases)
 }
 
-// requireSearchSessionRow requires one search.session_create row on a session
-// target for the request of the case when the environment includes OpenSearch.
 func requireSearchSessionRow(t *testing.T, env *coverageEnv, rows []audit.Row) {
 	t.Helper()
 	if !env.searchEnabled {

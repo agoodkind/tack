@@ -71,9 +71,9 @@ type closedSnapshotEvidence struct {
 	AlreadyClosed bool `json:"already_closed"`
 }
 
-// runSnapshotStep saves the intent of operation on the session target and one
-// external step with planned, then runs effect and saves the observed
-// evidence and result. effect does not run when an intent cannot be saved.
+// runSnapshotStep records the operation intent and planned step evidence
+// before running effect. It then records observed evidence and the result.
+// An intent write failure prevents the effect.
 func (s *SearchQueryService) runSnapshotStep(
 	ctx context.Context,
 	session searchdomain.Session,
@@ -87,8 +87,6 @@ func (s *SearchQueryService) runSnapshotStep(
 	})
 }
 
-// runEncodedStep is runSnapshotStep with an effect that returns encoded
-// evidence.
 func (s *SearchQueryService) runEncodedStep(
 	ctx context.Context,
 	session searchdomain.Session,
@@ -161,8 +159,8 @@ func (s *SearchQueryService) closeSnapshot(ctx context.Context, session searchdo
 	})
 }
 
-// recordCleanupFailure records one failed cleanup step and logs a failure to
-// record it. The search result does not depend on the cleanup.
+// recordCleanupFailure records one failed cleanup step. It logs an error if
+// the audit write fails. The search result does not depend on cleanup.
 func (s *SearchQueryService) recordCleanupFailure(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, cause error) {
 	if err := s.ports.Sessions.RecordCleanupFailure(ctx, sessionID, step, cause); err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))

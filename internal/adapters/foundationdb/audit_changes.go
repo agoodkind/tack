@@ -115,8 +115,6 @@ func (m *mutationAudit) record(target audit.Target, before, after []byte) error 
 	return nil
 }
 
-// recordProtected adds a change for target as record does and attaches the
-// protected values of the references in before and after.
 func (m *mutationAudit) recordProtected(target audit.Target, before, after []byte, protected []audit.ProtectedValue) error {
 	position := len(m.changes)
 	if err := m.record(target, before, after); err != nil {
