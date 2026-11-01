@@ -19,6 +19,14 @@ const openSearchCreateIndexBlock = "cluster.blocks.create_index"
 
 var errOpenSearchCreateIndexBlocked = errors.New("OpenSearch fixture blocks index creation")
 
+type openSearchFilesystemCounters struct {
+	Nodes map[string]struct {
+		FS struct {
+			Total map[string]*int64 `json:"total"`
+		} `json:"fs"`
+	} `json:"nodes"`
+}
+
 // CheckOpenSearchDiskReadiness records only block settings, watermarks and
 // filesystem counters. A blocked fixture also reports disk-monitor messages.
 func CheckOpenSearchDiskReadiness(ctx context.Context, fixture OpenSearchFixture) error {
@@ -67,6 +75,14 @@ func openSearchDiskReadiness(ctx context.Context, client *opensearch.Client, fix
 	if len(blocked) == 0 {
 		return diskReadinessFailure(ctx, errors.New("the readiness response omitted cluster.blocks.create_index"))
 	}
+	var blockCause error
+	if string(blocked) == `"true"` || string(blocked) == "true" {
+		blockCause = errOpenSearchCreateIndexBlocked
+	}
+	failFilesystem := func(cause error) error {
+		return diskReadinessFailure(ctx, fmt.Errorf("effective %s=%s; settings=%s; filesystem measurement failed: %w",
+			openSearchCreateIndexBlock, blocked, settings.RawBody(), errors.Join(blockCause, cause)))
+	}
 	var filesystem json.RawMessage
 	response, err := opensearch.Execute(ctx, client, http.MethodGet, &opensearchapi.NodesStatsReq{
 		Metric: []string{"fs"}, Params: &opensearchapi.NodesStatsParams{
@@ -74,13 +90,27 @@ func openSearchDiskReadiness(ctx context.Context, client *opensearch.Client, fix
 		},
 	}, &filesystem)
 	if err != nil {
-		return diskReadinessFailure(ctx, fmt.Errorf("read the create-index readiness filesystem counters: %w", err))
+		return failFilesystem(fmt.Errorf("read the create-index readiness filesystem counters: %w", err))
 	}
 	if response == nil {
-		return diskReadinessFailure(ctx, errors.New("the create-index readiness filesystem request did not return a response"))
+		return failFilesystem(errors.New("the create-index readiness filesystem request did not return a response"))
 	}
 	if response.IsError() {
-		return diskReadinessFailure(ctx, fmt.Errorf("read the create-index readiness filesystem counters: HTTP %d", response.StatusCode))
+		return failFilesystem(fmt.Errorf("read the create-index readiness filesystem counters: HTTP %d", response.StatusCode))
+	}
+	var counters openSearchFilesystemCounters
+	if err := json.Unmarshal(filesystem, &counters); err != nil {
+		return failFilesystem(fmt.Errorf("decode filesystem counters: %w", err))
+	}
+	if len(counters.Nodes) == 0 {
+		return failFilesystem(errors.New("the filesystem response did not include any nodes"))
+	}
+	for nodeID, node := range counters.Nodes {
+		for _, member := range []string{"total_in_bytes", "free_in_bytes", "available_in_bytes"} {
+			if node.FS.Total[member] == nil {
+				return failFilesystem(fmt.Errorf("node %s did not report filesystem counter %s", nodeID, member))
+			}
+		}
 	}
 	telemetry.L(ctx).InfoContext(ctx, "search.fixture_disk_readiness", slog.String("create_index_block", string(blocked)),
 		slog.String("settings", string(settings.RawBody())), slog.String("filesystem", string(filesystem)))
@@ -107,6 +137,9 @@ func filteredOpenSearchDiskLogs(ctx context.Context, fixture OpenSearchFixture) 
 		if strings.Contains(line, "DiskThresholdMonitor") {
 			selected = append(selected, line)
 		}
+	}
+	if len(selected) == 0 {
+		return "the last " + engineLogLines + " engine log lines do not include DiskThresholdMonitor messages"
 	}
 	return strings.Join(selected, "\n")
 }
