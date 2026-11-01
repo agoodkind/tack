@@ -21,9 +21,11 @@ const (
 	// snapshotStepFailedCode and snapshotStepFailedMessage are the fixed
 	// failure fields of a point in time step. The event does not store the
 	// raw engine error.
-	snapshotStepFailedCode    = "point_in_time_failed"
-	snapshotStepFailedMessage = "OpenSearch did not complete the point in time operation"
-	// snapshotWriteTimeout limits one audit write of a point in time operation.
+	snapshotStepFailedCode       = "point_in_time_failed"
+	snapshotStepFailedMessage    = "OpenSearch did not complete the point in time operation"
+	snapshotStepUncertainCode    = "point_in_time_uncertain"
+	snapshotStepUncertainMessage = "OpenSearch did not confirm the point in time result"
+	// snapshotWriteTimeout limits the result write of a point in time step.
 	// It equals the session transaction limit.
 	snapshotWriteTimeout = 5 * time.Second
 )
@@ -60,8 +62,8 @@ type snapshotEvidence struct {
 }
 
 // closedSnapshotEvidence is the observed evidence of a delete step.
-// AlreadyClosed reports that OpenSearch no longer recognized the point in
-// time.
+// AlreadyClosed reports an explicit missing point in time response from
+// OpenSearch. An idempotent success does not establish prior existence.
 type closedSnapshotEvidence struct {
 	snapshotEvidence
 	AlreadyClosed bool `json:"already_closed"`
@@ -110,7 +112,7 @@ func (s *SearchQueryService) runEncodedStep(
 		Reference: snapshotReferencePrefix + session.ID.String() + "/" + operation.action,
 		ID:        uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
-	err = audit.RunExternal(ctx, boundedOutbox{outbox: s.ports.Audit}, intent, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+	err = audit.RunExternal(ctx, s.ports.Audit, intent, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 		step := audit.ExternalStep(target, encoded)
 		details := audit.OutcomeDetails{
 			Outcome: audit.OutcomeFailed, FailureCode: snapshotStepFailedCode, FailureMessage: snapshotStepFailedMessage, CommittedSteps: nil,
@@ -121,8 +123,12 @@ func (s *SearchQueryService) runEncodedStep(
 		observed, effectErr := effect(ctx)
 		if effectErr == nil {
 			details = audit.OutcomeDetails{Outcome: audit.OutcomeCompleted, FailureCode: "", FailureMessage: "", CommittedSteps: nil}
+		} else if errors.Is(effectErr, searchdomain.ErrSnapshotUncertain) {
+			details = audit.OutcomeDetails{Outcome: audit.OutcomeIncomplete, FailureCode: snapshotStepUncertainCode, FailureMessage: snapshotStepUncertainMessage, CommittedSteps: nil}
 		}
-		if finishErr := steps.FinishStep(ctx, audit.FinishedStep(step, details, observed)); finishErr != nil {
+		writeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), snapshotWriteTimeout)
+		defer cancel()
+		if finishErr := steps.FinishStep(writeContext, audit.FinishedStep(step, details, observed)); finishErr != nil {
 			slog.ErrorContext(ctx, "search.snapshot.step_failed", slog.String("err", finishErr.Error()))
 			return details, errors.Join(effectErr, fmt.Errorf("record the point in time step result: %w", finishErr))
 		}
@@ -130,24 +136,6 @@ func (s *SearchQueryService) runEncodedStep(
 	})
 	if err != nil {
 		return snapshotStepError{err: err}
-	}
-	return nil
-}
-
-// boundedOutbox writes each audit event of a point in time operation under a
-// context that ignores request cancellation and ends after
-// snapshotWriteTimeout. A stalled outbox write fails within the limit of a
-// session transaction and does not wait for the request budget.
-type boundedOutbox struct {
-	outbox audit.OutboxWriter
-}
-
-// WriteOutbox writes event to the wrapped outbox.
-func (o boundedOutbox) WriteOutbox(ctx context.Context, event audit.Event) error {
-	writeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), snapshotWriteTimeout)
-	defer cancel()
-	if err := o.outbox.WriteOutbox(writeContext, event); err != nil {
-		return snapshotStepFailure(ctx, "write the point in time event", err)
 	}
 	return nil
 }

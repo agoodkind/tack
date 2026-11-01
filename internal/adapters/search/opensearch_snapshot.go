@@ -77,7 +77,7 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 		Params: &opensearchapi.CreatePITParams{KeepAlive: r.settings.KeepAlive},
 	})
 	if err != nil {
-		return none, snapshotFailure(ctx, target, "create a point in time", engineCause(ctx, created.Inspect().Response, err))
+		return none, snapshotEffectFailure(ctx, target, "create a point in time", created.Inspect().Response, err)
 	}
 	if !created.PITID.IsSet() || created.Shards.Failed > 0 {
 		partial := searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: nil}
@@ -110,7 +110,18 @@ func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot)
 	if deleted != nil && deleted.StatusCode == http.StatusNotFound {
 		return queryStepError{operation: "delete a point in time on " + snapshot.Index, err: searchdomain.ErrSnapshotLost}
 	}
-	return snapshotFailure(ctx, snapshot.Index, "delete a point in time", engineCause(ctx, deleted, err))
+	return snapshotEffectFailure(ctx, snapshot.Index, "delete a point in time", deleted, err)
+}
+
+// snapshotEffectFailure preserves an uncertain effect separately from a known
+// failure before a point in time request. An engine response confirms the
+// result even when the request context subsequently ends.
+func snapshotEffectFailure(ctx context.Context, index, operation string, response *opensearch.Response, err error) error {
+	cause := engineCause(ctx, response, err)
+	if response == nil && (ctx.Err() != nil || errors.Is(err, context.Canceled) || engineTimedOut(ctx, err)) {
+		cause = errors.Join(searchdomain.ErrSnapshotUncertain, cause)
+	}
+	return snapshotFailure(ctx, index, operation, cause)
 }
 
 func snapshotFailure(ctx context.Context, index, operation string, err error) error {

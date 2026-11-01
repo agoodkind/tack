@@ -3,11 +3,17 @@
 package integration
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
 	"goodkind.io/tack/internal/service"
 )
+
+// MCPHandler returns the production MCP route of the configured harness.
+func MCPHandler(harness *MCPHarness) http.Handler {
+	return harness.handler
+}
 
 // QueryService builds the production search service over the fixture's stores
 // and adapter with the wall clock and the given session deadlines.
