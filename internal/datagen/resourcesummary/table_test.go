@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	percentScale  = 100
-	bytesPerGiB   = 1 << 30
-	tableHeader   = "| Measurement | Value |\n|---|---|\n"
-	nodeHeader    = "| Node | Readings | cpu_percent max | process_cpu_percent max | " +
+	percentScale = 100
+	bytesPerGiB  = 1 << 30
+	tableHeader  = "| Measurement | Value |\n|---|---|\n"
+	nodeHeader   = "| Node | Readings | cpu_percent max | process_cpu_percent max | " +
 		"heap_used max | heap fraction | memory used fraction max | disk_available min | " +
 		"disk_total |\n|---|---|---|---|---|---|---|---|---|\n"
 )

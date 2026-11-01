@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	minimumSamples   = 2
-	guestUsageKey    = "usage_usec"
+	minimumSamples = 2
+	guestUsageKey  = "usage_usec"
 )
 
 type hostAccumulator struct {
