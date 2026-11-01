@@ -1,15 +1,8 @@
 package integration_test
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
-	"net/http"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -41,41 +34,7 @@ const (
 	absentSweepRequestTimeout = "40s"
 	// absentSweepHoldTimeout limits the wait for the open delete request.
 	absentSweepHoldTimeout = 30 * time.Second
-	// sweepFailedMessage is the error record of a failed expiry sweep.
-	sweepFailedMessage = "search.session.sweep_failed"
-	// sweepSkippedMessage is the debug record of a session that another
-	// sweep deleted.
-	sweepSkippedMessage = "search.session.sweep_skipped"
 )
-
-// sweepLogRecord is one JSON log record of the search service.
-type sweepLogRecord struct {
-	Level   string `json:"level"`
-	Message string `json:"msg"`
-	Err     string `json:"err"`
-}
-
-// lockedLog is a log destination that concurrent searches share.
-type lockedLog struct {
-	mutex  sync.Mutex
-	buffer bytes.Buffer
-}
-
-func (l *lockedLog) Write(record []byte) (int, error) {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-	written, err := l.buffer.Write(record)
-	if err != nil {
-		return written, fmt.Errorf("write a log record: %w", err)
-	}
-	return written, nil
-}
-
-func (l *lockedLog) contents() []byte {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-	return bytes.Clone(l.buffer.Bytes())
-}
 
 // searchOutcome is the page or the failure of one tack_search call.
 type searchOutcome struct {
@@ -83,41 +42,15 @@ type searchOutcome struct {
 	err  error
 }
 
-// armDelete starts keeping the first point in time delete request open.
-func (proxy *predictHoldProxy) armDelete() {
-	proxy.mutex.Lock()
-	defer proxy.mutex.Unlock()
-	proxy.deleteArmed = true
-}
-
-// keepsOpen reports whether the proxy keeps request open until release.
-func (proxy *predictHoldProxy) keepsOpen(request *http.Request) bool {
-	if request.Method == http.MethodDelete && strings.HasSuffix(request.URL.Path, pitDeletePath) {
-		return proxy.holdDelete()
-	}
-	return strings.HasPrefix(request.URL.Path, predictPathPrefix) && proxy.hold(proxy.matches(request))
-}
-
-// holdDelete reports whether the proxy keeps a point in time delete request
-// open. Only the first one after armDelete stays open.
-func (proxy *predictHoldProxy) holdDelete() bool {
-	proxy.mutex.Lock()
-	defer proxy.mutex.Unlock()
-	if !proxy.deleteArmed || proxy.holding {
-		return false
-	}
-	proxy.holding = true
-	close(proxy.held)
-	return true
-}
-
 // TestSearchSweepSkipsSessionAnotherSweepDeleted opens two sessions through
-// tack_search and waits past their expiry minute. The proxy keeps the delete
-// request of search X open while its sweep closes the first listed session.
-// Search Y then lists the same sessions and deletes both. After release, the
-// sweep of X loads the second session, which no longer exists. Both searches
-// must return results, both sessions must be gone, and the sweep of X must
-// log one debug skip record and no error record.
+// tack_search and waits past their expiry minute. The proxy keeps search X's
+// delete request open while its sweep closes the first listed session.
+// Search Y then lists the same sessions and deletes both. After the proxy
+// releases the delete request, search X's sweep loads the second session.
+// The second session no longer exists. The test requires both searches to
+// return results and verifies that both sessions do not exist. It requires
+// search X's sweep to log exactly one Debug skip record. It rejects every
+// ERROR record with a message that starts with the "search." prefix.
 func TestSearchSweepSkipsSessionAnotherSweepDeleted(t *testing.T) {
 	t.Setenv("OPENSEARCH_SESSION_IDLE_TIMEOUT", absentSweepIdle.String())
 	t.Setenv("OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT", absentSweepAbsolute.String())
@@ -141,12 +74,9 @@ func TestSearchSweepSkipsSessionAnotherSweepDeleted(t *testing.T) {
 	latest := expired[len(expired)-1].IdleDeadline
 	waitForTime(t, latest.Truncate(time.Minute).Add(time.Minute+absentSweepMargin))
 
-	logged := &lockedLog{mutex: sync.Mutex{}, buffer: bytes.Buffer{}}
-	previous := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(previous) })
-	slog.SetDefault(slog.New(slog.NewJSONHandler(logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	logged, restoreLog := captureSweepLog(t)
 	first, second := interleaveSweeps(t, harness, proxy)
-	slog.SetDefault(previous)
+	restoreLog()
 
 	for name, outcome := range map[string]searchOutcome{"X": first, "Y": second} {
 		if outcome.err != nil || len(outcome.page.IDs) == 0 {
@@ -189,32 +119,4 @@ func interleaveSweeps(t *testing.T, harness *integration.MCPHarness, proxy *pred
 	page, err := integration.TrySearch(harness, absentSweepQuery, "")
 	proxy.release()
 	return <-searched, searchOutcome{page: page, err: err}
-}
-
-// requireSweepSkip requires logged to contain one debug record named
-// search.session.sweep_skipped and no error record named
-// search.session.sweep_failed.
-func requireSweepSkip(t *testing.T, logged []byte) {
-	t.Helper()
-	skipped := 0
-	decoder := json.NewDecoder(bytes.NewReader(logged))
-	for {
-		var record sweepLogRecord
-		err := decoder.Decode(&record)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			t.Fatalf("decode a search log record: %v", err)
-		}
-		if record.Level == slog.LevelError.String() && record.Message == sweepFailedMessage {
-			t.Errorf("the sweep logged %s %s with error %q", record.Level, record.Message, record.Err)
-		}
-		if record.Level == slog.LevelDebug.String() && record.Message == sweepSkippedMessage {
-			skipped++
-		}
-	}
-	if skipped != 1 {
-		t.Errorf("the sweeps logged %d %s records, want 1", skipped, sweepSkippedMessage)
-	}
 }

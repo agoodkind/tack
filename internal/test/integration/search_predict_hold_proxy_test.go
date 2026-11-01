@@ -112,8 +112,8 @@ func (proxy *predictHoldProxy) arm() {
 	proxy.armed = true
 }
 
-// release forwards the model predict request that the proxy keeps open. A
-// second call does nothing.
+// release forwards the request that the proxy keeps open. A second call does
+// nothing.
 func (proxy *predictHoldProxy) release() {
 	proxy.mutex.Lock()
 	defer proxy.mutex.Unlock()
