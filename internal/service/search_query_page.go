@@ -44,7 +44,7 @@ func ResultBytes(summary node.Summary) int {
 // advance reads at most MaxBatches raw batches after the session position. It authorizes each new
 // node from current FoundationDB data and commits the consumed position before returning.
 // Within MaxBatches, it reads one more batch under the same PIT for a full page with pending false.
-// An empty batch completes the session without a cursor; Ranker.Close deletes the PIT after commit.
+// An empty batch completes the session without a cursor; closeSnapshot deletes the PIT after commit.
 // If the extra batch has hits, page.position stays at the last consumed hit's sort. The next page
 // returns those hits once in order. It skips the extra read when pending is true.
 func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.Session, filter searchdomain.AccessFilter) (SearchPage, error) {
@@ -88,7 +88,7 @@ func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.S
 		return SearchPage{}, queryFailure(ctx, "commit search page", session.ID, err)
 	}
 	if complete {
-		if closeErr := s.ports.Ranker.Close(ctx, snapshot); closeErr != nil {
+		if closeErr := s.closeSnapshot(ctx, session, snapshot); closeErr != nil {
 			telemetry.L(ctx).ErrorContext(ctx, "search.snapshot.close_failed", slog.String("err", closeErr.Error()), slog.String("session_id", session.ID.String()))
 		}
 	}

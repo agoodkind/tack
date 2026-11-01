@@ -9,6 +9,7 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 	searchadapter "goodkind.io/tack/internal/adapters/search"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/service"
@@ -45,6 +46,7 @@ func buildSearchQuery(ctx context.Context, cfg *config.Config, stores *fdbadapte
 		Ranker: ranker, Sessions: sessions, Expired: sessions,
 		Summaries: stores.NodeSummaries(policies), Access: fdbadapter.NewSearchQueryAccess(policies),
 		Versions: stores.SearchRollouts(source, policies), Index: stores, Generations: stores,
+		Audit: audit.NewAppendOutbox(stores.OpsOutbox),
 	}, source, settings)
 	telemetry.L(ctx).InfoContext(ctx, "search.public.enabled", slog.Int("max_results", settings.MaxResults),
 		slog.Int("max_batches", settings.MaxBatches), slog.Duration("idle_timeout", settings.IdleTimeout))

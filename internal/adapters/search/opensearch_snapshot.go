@@ -40,8 +40,10 @@ func (a *Adapter) Ranker(settings RankerSettings) *QueryRanker {
 }
 
 // Open resolves the public alias, verifies the physical index and pinned
-// model, computes the query tokens once, and creates one point in time. It
-// deletes a point in time that OpenSearch created with failed shards.
+// model, computes the query tokens once, and creates one point in time. For a
+// point in time that OpenSearch created with failed shards or without an ID,
+// it returns the partial snapshot with [searchdomain.ErrSnapshotPartial]. The
+// caller deletes that snapshot.
 func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searchdomain.Snapshot, error) {
 	var none searchdomain.Snapshot
 	target, err := r.adapter.AliasTarget(ctx, PublicAlias)
@@ -79,16 +81,16 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 	}
 	if !created.PITID.IsSet() || created.Shards.Failed > 0 {
 		partial := searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: nil}
-		closeErr := r.Close(ctx, partial)
-		return none, snapshotFailure(ctx, target, "create a point in time", errors.Join(
-			fmt.Errorf("OpenSearch returned an empty ID or %d failed shards", created.Shards.Failed), closeErr))
+		return partial, snapshotFailure(ctx, target, "create a point in time",
+			fmt.Errorf("OpenSearch returned an empty ID or %d failed shards: %w", created.Shards.Failed, searchdomain.ErrSnapshotPartial))
 	}
 	telemetry.L(ctx).DebugContext(ctx, "search.snapshot.opened", slog.String("index", target), slog.Int("token_bytes", len(tokens)))
 	return searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: tokens}, nil
 }
 
-// Close deletes the point in time. A point in time OpenSearch no longer
-// recognizes is already closed.
+// Close deletes the point in time. It returns
+// [searchdomain.ErrSnapshotLost] for a point in time that OpenSearch no
+// longer recognizes.
 func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot) error {
 	if snapshot.PITID == "" {
 		return nil
@@ -106,7 +108,7 @@ func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot)
 		deleted = response.Inspect().Response
 	}
 	if deleted != nil && deleted.StatusCode == http.StatusNotFound {
-		return nil
+		return queryStepError{operation: "delete a point in time on " + snapshot.Index, err: searchdomain.ErrSnapshotLost}
 	}
 	return snapshotFailure(ctx, snapshot.Index, "delete a point in time", engineCause(ctx, deleted, err))
 }

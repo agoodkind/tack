@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -58,11 +59,12 @@ func (s *SearchQueryService) replay(ctx context.Context, session searchdomain.Se
 // closeSession closes the point in time and marks the session closing. The
 // expiry sweep deletes its records.
 func (s *SearchQueryService) closeSession(ctx context.Context, session searchdomain.Session) {
-	if err := s.ports.Ranker.Close(ctx, session.Snapshot); err != nil {
+	if err := s.closeSnapshot(ctx, session, session.Snapshot); err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.snapshot.close_failed", slog.String("err", err.Error()), slog.String("session_id", session.ID.String()))
 	}
 	if err := s.ports.Sessions.BeginCleanup(ctx, session.ID); err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.close_failed", slog.String("err", err.Error()), slog.String("session_id", session.ID.String()))
+		s.recordCleanupFailure(ctx, session.ID, searchdomain.CleanupClose, err)
 	}
 }
 
@@ -95,6 +97,10 @@ func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.U
 	session, err := s.ports.Sessions.Load(ctx, sessionID)
 	if err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
+		// An absent session changes no record and records no failure.
+		if !errors.Is(err, searchdomain.ErrSessionNotFound) {
+			s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
+		}
 		return
 	}
 	if !session.Closing {
@@ -104,6 +110,7 @@ func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.U
 		done, err := s.ports.Sessions.CleanupSlice(ctx, sessionID, cleanupSliceKeys)
 		if err != nil {
 			telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
+			s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
 			return
 		}
 		if done {

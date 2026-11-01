@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/domain/node"
@@ -29,7 +30,8 @@ type ExpiredSessionLister interface {
 }
 
 // SearchQueryPorts are the production boundaries of public ranked search.
-// Versions reads the access version that serves new sessions.
+// Versions reads the access version that serves new sessions. Audit saves the
+// intent and result events of each point in time operation.
 type SearchQueryPorts struct {
 	Ranker      searchdomain.Ranker
 	Sessions    searchdomain.SessionStore
@@ -39,6 +41,7 @@ type SearchQueryPorts struct {
 	Versions    searchdomain.AccessStateReader
 	Index       searchdomain.ServingIndexReader
 	Generations searchdomain.GenerationReader
+	Audit       audit.OutboxWriter
 }
 
 // SearchRequest is one authenticated search call. A zero SessionID opens a
@@ -133,33 +136,6 @@ func (s *SearchQueryService) callerAccess(ctx context.Context, request SearchReq
 		return searchdomain.AccessFilter{}, queryFailure(ctx, "compile caller access", request.SessionID, err)
 	}
 	return filter, nil
-}
-
-func (s *SearchQueryService) open(ctx context.Context, request SearchRequest, authority uuid.UUID, query searchdomain.Query) (SearchPage, error) {
-	index, err := s.ports.Index.ServingSearchIndex(ctx)
-	if err != nil {
-		return SearchPage{}, queryFailure(ctx, "read serving search index", uuid.Nil, err)
-	}
-	query.Index = index
-	filter := query.Access
-	snapshot, err := s.ports.Ranker.Open(ctx, query)
-	if err != nil {
-		return SearchPage{}, queryFailure(ctx, "open search snapshot", uuid.Nil, err)
-	}
-	now := s.clock.Now().UTC()
-	session := searchdomain.Session{
-		ID: uuid.Must(uuid.NewV7()), PrincipalID: request.PrincipalID, AuthorityID: authority,
-		EntryPointID: request.EntryPointID,
-		Binding:      searchdomain.SessionBinding(request.PrincipalID, authority, request.EntryPointID, query),
-		Query:        query, Snapshot: snapshot, Sort: nil, Version: 0, CreatedAt: now,
-		IdleDeadline: now.Add(s.settings.IdleTimeout), AbsoluteDeadline: now.Add(s.settings.AbsoluteTimeout),
-		Complete: false, Closing: false,
-	}
-	created, err := s.ports.Sessions.Create(ctx, session)
-	if err != nil {
-		return SearchPage{}, queryFailure(ctx, "create search session", session.ID, errors.Join(err, s.ports.Ranker.Close(ctx, snapshot)))
-	}
-	return s.advance(ctx, created, filter)
 }
 
 func (s *SearchQueryService) continueSession(ctx context.Context, request SearchRequest, session searchdomain.Session, authority uuid.UUID, current searchdomain.Query) (SearchPage, error) {
