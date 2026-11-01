@@ -11,7 +11,8 @@ const samplerFixture = "testdata/sampler.jsonl"
 
 // TestSummarizeHostFixture checks every host and guest figure on hand-written sampler lines.
 // The fixture has one line before and one line after the window, with readings of 99 that a
-// window error would expose, and one failed line inside the window.
+// window error would expose, and one failed line inside the window. A later line at 00:02:00Z
+// falls outside this window.
 func TestSummarizeHostFixture(t *testing.T) {
 	windowStart := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	window := resourcesummary.Window{Start: windowStart, End: windowStart.Add(time.Minute)}
@@ -52,5 +53,23 @@ func TestSummarizeHostFixture(t *testing.T) {
 		if figure.got != figure.want {
 			t.Errorf("%s = %v, want %v", figure.name, figure.got, figure.want)
 		}
+	}
+}
+
+// TestSummarizeHostRejectsIncompletePressure checks the fixture line at 00:02:00Z. Its host IO
+// pressure input has a some line without a full line.
+func TestSummarizeHostRejectsIncompletePressure(t *testing.T) {
+	const wantError = `find full line in ["some avg10=2.50 avg60=0.00 avg300=0.00 total=60"]: ` +
+		`pressure line is missing`
+	windowStart := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	window := resourcesummary.Window{Start: windowStart, End: windowStart.Add(2 * time.Minute)}
+
+	got, err := resourcesummary.SummarizeHost(t.Context(), samplerFixture, window, searchGuestID)
+
+	if err == nil {
+		t.Fatalf("summary = %+v, want error %q", got, wantError)
+	}
+	if err.Error() != wantError {
+		t.Errorf("error = %q, want %q", err.Error(), wantError)
 	}
 }

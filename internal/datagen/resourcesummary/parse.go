@@ -19,6 +19,8 @@ const (
 	int64Bits         = 64
 )
 
+var errPressureLineMissing = errors.New("pressure line is missing")
+
 type pressureReading struct {
 	some float64
 	full float64
@@ -30,7 +32,7 @@ type ioBytes struct {
 }
 
 // parsePressure reads the avg10 value of the some and full lines in Linux pressure stall
-// information format.
+// information format. It returns an error unless lines contains both kinds.
 func parsePressure(lines []string) (pressureReading, error) {
 	reading := pressureReading{some: 0, full: 0}
 	if len(lines) == 0 {
@@ -40,6 +42,7 @@ func parsePressure(lines []string) (pressureReading, error) {
 		pressureSomeKind: &reading.some,
 		pressureFullKind: &reading.full,
 	}
+	seenKinds := map[string]bool{}
 	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) < pressureFieldsMin {
@@ -58,6 +61,13 @@ func parsePressure(lines []string) (pressureReading, error) {
 			return reading, fmt.Errorf("pressure line %q has an unknown kind", line)
 		}
 		*target = avg10
+		seenKinds[fields[0]] = true
+	}
+	for kind := range targets {
+		if !seenKinds[kind] {
+			step := fmt.Sprintf("find %s line in %q", kind, lines)
+			return reading, wrapError(step, errPressureLineMissing)
+		}
 	}
 	return reading, nil
 }
