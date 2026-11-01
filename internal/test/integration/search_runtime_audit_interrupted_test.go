@@ -75,9 +75,10 @@ func TestSearchRuntimeAuditInterruptedSnapshot(t *testing.T) {
 }
 
 // TestSearchRuntimeAuditDelayedSnapshotResult pauses real FoundationDB for
-// twelve seconds after OpenSearch creates a point in time. The step write
-// ends at five seconds; the operation result must survive the longer stall.
-// The failed search must then record deletion of its known point in time.
+// twelve seconds after OpenSearch creates a point in time. The step result
+// write times out after five seconds. The enclosing operation must record
+// an incomplete result after FoundationDB resumes. The failed search must
+// then record deletion of its known point in time.
 func TestSearchRuntimeAuditDelayedSnapshotResult(t *testing.T) {
 	const stall = 12 * time.Second
 	fixture := newFailureFixture(t)
@@ -111,15 +112,33 @@ func TestSearchRuntimeAuditDelayedSnapshotResult(t *testing.T) {
 		t.Fatal("the search did not finish after FoundationDB resumed")
 	}
 	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(rows []audit.Row) bool {
-		return len(snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete)) == 1 &&
-			len(snapshotResults(rows, audit.VerbSearchPointInTimeDelete, audit.OutcomeCompleted)) == 2
+		incompleteCreates := snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete)
+		completedCreates := snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeCompleted)
+		completedDeletes := snapshotResults(rows, audit.VerbSearchPointInTimeDelete, audit.OutcomeCompleted)
+		return len(incompleteCreates) == 1 && len(completedDeletes) == 2 &&
+			snapshotResultsHaveIntents(rows, incompleteCreates) &&
+			snapshotResultsHaveIntents(rows, completedCreates) &&
+			snapshotResultsHaveIntents(rows, completedDeletes)
 	})
 	result := onlyRow(t, snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete), "the delayed operation result")
 	if result.EntityID == uuid.Nil || result.Error == nil || result.Error.Code != "step_unfinished" || result.Context.Target.Kind != audit.TargetKindResource {
 		t.Fatalf("the delayed result lost the session target or unfinished step: %+v", result)
 	}
-	if finished := snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeCompleted); len(finished) != 0 {
-		t.Fatalf("the timed out step reported completion: %s", describeRows(finished))
+	for _, finished := range snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeCompleted) {
+		// FoundationDB can commit the step result write after the write times out.
+		// A completed external step row may appear. The enclosing operation must
+		// remain incomplete.
+		if finished.Context.Target == nil || finished.Context.Target.Kind != audit.TargetKindExternal {
+			t.Fatalf("the incomplete resource operation recorded a completed create result: %s", describeRows([]audit.Row{finished}))
+		}
+		requireSnapshotIdentity(t, fixture, rows, finished)
+		var created struct {
+			PITID string `json:"pit_id"`
+		}
+		if err := json.Unmarshal(finished.Extra, &created); err != nil || created.PITID != observed.id ||
+			finished.Context.ParentOperationID != result.Context.OperationID {
+			t.Fatalf("the completed create step does not match the incomplete operation or observed point in time %s: %+v", observed.id, finished)
+		}
 	}
 	requireSnapshotIdentity(t, fixture, rows, result)
 	var deleteOperations []audit.Row

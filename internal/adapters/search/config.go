@@ -115,8 +115,8 @@ func (c Config) predictClientConfig(observer opensearchtransport.ConnectionObser
 // applied create makes a second point in time that the audit record does not
 // show.
 //
-// Open returns an error after a timeout or HTTP 5xx response, and the caller
-// records the outcome as uncertain.
+// When a create fails without proof that the engine refused it, Open
+// returns an error and the caller records the outcome as uncertain.
 func (c Config) snapshotClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
 	settings := c.ClientConfig(observer)
 	settings.DisableRetry = true
