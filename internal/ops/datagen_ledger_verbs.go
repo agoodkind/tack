@@ -105,9 +105,7 @@ func readDatagenVerbPresence(ctx context.Context, f *cli.Factory, orgID uuid.UUI
 	report := datagenLedgerVerbsReport{
 		Command: command, ReadAt: clock.Now().UTC().Format(time.RFC3339Nano), Verbs: nil,
 	}
-	if strings.TrimSpace(f.Cfg.AuditReaderDSN) == "" {
-		err := errors.New("the ledger verb report needs AUDIT_READER_DSN")
-		slog.ErrorContext(ctx, "qa.datagen.ledger_verbs_config_missing", slog.String("err", err.Error()))
+	if err := requireDatagenLedgerReader(ctx, f); err != nil {
 		return report, err
 	}
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
@@ -130,4 +128,13 @@ func readDatagenVerbPresence(ctx context.Context, f *cli.Factory, orgID uuid.UUI
 		report.Verbs = append(report.Verbs, entry)
 	}
 	return report, nil
+}
+
+func requireDatagenLedgerReader(ctx context.Context, factory *cli.Factory) error {
+	if strings.TrimSpace(factory.Cfg.AuditReaderDSN) != "" {
+		return nil
+	}
+	err := errors.New("the ledger verb report needs AUDIT_READER_DSN")
+	slog.ErrorContext(ctx, "qa.datagen.ledger_verbs_config_missing", slog.String("err", err.Error()))
+	return err
 }

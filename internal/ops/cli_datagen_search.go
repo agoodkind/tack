@@ -142,6 +142,9 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 			runError = errCohortNotVerified
 		}
 	default:
+		if err := requireDatagenLedgerReader(ctx, factory); err != nil {
+			return fmt.Errorf("qa datagen search: %w", err)
+		}
 		verification, err := datagen.VerifySearch(ctx, factory.Cfg)
 		if err != nil {
 			slog.ErrorContext(ctx, "qa.datagen.search_failed", slog.String("err", err.Error()))
