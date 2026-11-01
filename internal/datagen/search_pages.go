@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -18,9 +19,11 @@ type searchPage struct {
 	ResponseBytes int
 }
 
-// searchLimits are the public per-response bounds a traversal enforces.
+// searchLimits are the public per-response bounds a traversal enforces and
+// the idle timeout of a search session.
 type searchLimits struct {
 	MaxResults, MaxResponseBytes int
+	IdleTimeout                  time.Duration
 }
 
 // callSearch calls tack_search with token under entryReference. It uses

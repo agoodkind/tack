@@ -34,6 +34,10 @@ type datagenSearchResult struct {
 	// Search reports the warning case and relevance probe after a verified committed run.
 	// Dry runs and runs with --prepare-only or --verify-cohort do not include this field.
 	Search *datagen.SearchVerification `json:"search,omitempty"`
+	// SessionVerbs reports the ledger rows of the search session verbs in the
+	// organization of a verified committed run. The relay delivers the rows of
+	// this run after the report can read them.
+	SessionVerbs *datagenLedgerVerbsReport `json:"session_verbs,omitempty"`
 }
 
 var errCohortNotVerified = errors.New("at least one manifest case did not pass")
@@ -117,7 +121,7 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 	}
 	result := datagenSearchResult{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.qa.datagen.search",
-		DryRun: !input.Commit, Verified: false, Manifest: nil, Cohort: nil, Search: nil,
+		DryRun: !input.Commit, Verified: false, Manifest: nil, Cohort: nil, Search: nil, SessionVerbs: nil,
 	}
 	var runError error
 	switch {
@@ -143,6 +147,11 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 			return fmt.Errorf("qa datagen search: %w", err)
 		}
 		result.Search = &verification
+		sessionVerbs, err := readDatagenSearchSessionVerbs(ctx, factory, verification.OrgID)
+		if err != nil {
+			return fmt.Errorf("qa datagen search: %w", err)
+		}
+		result.SessionVerbs = &sessionVerbs
 		if endpoints != nil {
 			client := &http.Client{Timeout: datagenSearchTwoProcessTimeout}
 			if err := datagen.VerifySearchTwoProcess(ctx, factory.Cfg, endpoints, client); err != nil {
