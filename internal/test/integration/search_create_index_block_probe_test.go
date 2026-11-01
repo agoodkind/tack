@@ -38,9 +38,12 @@ func TestSearchCreateIndexBlockProbe(t *testing.T) {
 	}
 	t.Logf("engine filesystem: %s", filesystem)
 	t.Cleanup(func() { waitForCreateIndexBlock(t, client, false) })
-	for _, setting := range []string{"cluster.routing.allocation.disk.watermark.low", "cluster.routing.allocation.disk.watermark.high", "cluster.routing.allocation.disk.watermark.flood_stage", "cluster.info.update.interval"} {
-		t.Cleanup(func() { putSearchSetting(t, client, "persistent", setting, "null") })
-	}
+	// Cleanup clears all three watermark overrides and the info interval
+	// override in one request. OpenSearch rejects updates that mix percentage
+	// watermarks with the byte values from the node defaults.
+	t.Cleanup(func() {
+		clearPersistentSettings(t, client, watermarkLowKey, watermarkHighKey, watermarkFloodKey, "cluster.info.update.interval")
+	})
 	settings := `{"persistent":{"cluster.routing.allocation.disk.watermark.low":"0%","cluster.routing.allocation.disk.watermark.high":"0%","cluster.routing.allocation.disk.watermark.flood_stage":"100%","cluster.info.update.interval":"10s"}}`
 	if _, err := client.Cluster.PutSettings(ctx, &opensearchapi.ClusterPutSettingsReq{BodyReader: strings.NewReader(settings)}); err != nil {
 		t.Fatalf("set the probe watermarks: %v", err)
