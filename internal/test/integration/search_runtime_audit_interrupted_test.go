@@ -121,13 +121,26 @@ func TestSearchRuntimeAuditDelayedSnapshotResult(t *testing.T) {
 		t.Fatalf("the timed out step reported completion: %s", describeRows(finished))
 	}
 	requireSnapshotIdentity(t, fixture, rows, result)
+	var deleteOperations []audit.Row
+	for _, deleted := range snapshotResults(rows, audit.VerbSearchPointInTimeDelete, audit.OutcomeCompleted) {
+		requireSnapshotIdentity(t, fixture, rows, deleted)
+		if deleted.Context.Target.Kind == audit.TargetKindResource {
+			deleteOperations = append(deleteOperations, deleted)
+		}
+	}
+	operation := onlyRow(t, deleteOperations, "the completed delete operation")
 	deleted := finishedStep(t, stepRows(rows, result.EntityID, audit.VerbSearchPointInTimeDelete, "delete"))
+	if operation.EntityID != result.EntityID || operation.Context.Target.ID != result.EntityID ||
+		operation.Context.Target.OwnerID != fixture.Workspaces[0].Actors[0].UserID ||
+		deleted.Context.Target.Kind != audit.TargetKindExternal || deleted.Outcome != audit.OutcomeCompleted ||
+		deleted.Context.ParentOperationID != operation.Context.OperationID {
+		t.Fatalf("the completed cleanup lost its original session owner or operation relationship: operation=%+v step=%+v", operation, deleted)
+	}
 	var evidence struct {
 		PITID string `json:"pit_id"`
 	}
 	if err := json.Unmarshal(deleted.Extra, &evidence); err != nil || evidence.PITID != observed.id {
 		t.Fatalf("the audited cleanup does not identify the known point in time %s: %s; error=%v", observed.id, deleted.Extra, err)
 	}
-	requireSnapshotIdentity(t, fixture, rows, deleted)
 	requirePITsClosed(t, fixture.QueryFixture, []string{observed.id})
 }
