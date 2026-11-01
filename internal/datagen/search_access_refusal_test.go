@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
@@ -52,7 +53,7 @@ func TestRefusedRejectsNonAuthorizationToolError(t *testing.T) {
 	ctx := t.Context()
 	t.Setenv("DATABASE_URL", testenv.Ledger(t))
 	t.Setenv("FDB_CLUSTER_FILE", testenv.FoundationDB(t))
-	configureUncontactedSearch(t)
+	cursorKey := configureUncontactedSearch(t)
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("load config: %v", err)
@@ -95,6 +96,13 @@ func TestRefusedRejectsNonAuthorizationToolError(t *testing.T) {
 	}
 	if err := run.refused(ctx, member, workspace.Slug, malformedSearchCursor); err == nil {
 		t.Fatalf("refused accepted the tool error %q as an authorization refusal", invalidCursorProblem)
+	}
+	if err := run.requireExpiredSession(ctx, accessPhrase, malformedSearchCursor); err == nil {
+		t.Fatal("expiry verification accepted a malformed cursor")
+	}
+	missingCursor := tools.NewSearchCursorCodec(cursorKey).Encode(uuid.New(), 0)
+	if err := run.requireExpiredSession(ctx, accessPhrase, missingCursor); err != nil {
+		t.Fatalf("expiry verification rejected an absent session: %v", err)
 	}
 	requireUnknownBearerRejected(t, run, identities.BogusToken, workspace.Slug)
 	requireNoOrganizationRefusal(t, cfg, run, workspace)
@@ -148,7 +156,7 @@ func requireNoOrganizationRefusal(t *testing.T, cfg *config.Config, run searchRu
 
 // configureUncontactedSearch enables public search on uncontactedSearchEndpoint
 // with a generated CA and cursor key.
-func configureUncontactedSearch(t *testing.T) {
+func configureUncontactedSearch(t *testing.T) []byte {
 	t.Helper()
 	caPath := filepath.Join(t.TempDir(), "opensearch-ca.pem")
 	if err := os.WriteFile(caPath, generatedCA(t), 0o600); err != nil {
@@ -168,6 +176,7 @@ func configureUncontactedSearch(t *testing.T) {
 	for name, value := range settings {
 		t.Setenv(name, value)
 	}
+	return cursorKey
 }
 
 // generatedCA returns one self-signed CA certificate in PEM form.

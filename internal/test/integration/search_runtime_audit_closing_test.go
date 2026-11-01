@@ -51,9 +51,8 @@ func TestSearchRuntimeAuditLostSnapshotClosing(t *testing.T) {
 	fixture.requireClosingEvents(t, session)
 }
 
-// requireClosingEvents requires one closing change with its old and new value,
-// one refused read, and the completed idempotent delete that OpenSearch
-// confirms with HTTP 200 even when the point in time is absent.
+// OpenSearch confirms an idempotent delete with HTTP 200 even when the point
+// in time is absent.
 func (f sessionAuditFixture) requireClosingEvents(t *testing.T, session searchdomain.Session) {
 	t.Helper()
 	sessionID := session.ID

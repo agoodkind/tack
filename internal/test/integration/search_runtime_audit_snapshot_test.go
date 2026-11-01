@@ -141,7 +141,6 @@ func TestSearchRuntimeAuditCorruptHeaderSweepRecorded(t *testing.T) {
 	}
 }
 
-// sessionHeaderKey returns the raw FoundationDB key of the header of sessionID.
 func sessionHeaderKey(t *testing.T, fixture failureFixture, sessionID uuid.UUID) fdb.Key {
 	t.Helper()
 	keys := readStateKeys(t, parentEdgeFixture{cfg: fixture.Config})

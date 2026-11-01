@@ -68,8 +68,7 @@ func (a *sessionAudit) recordChildDelete(sessionID uuid.UUID, part string, ident
 	return a.recordReplayDelete(sessionID, version, replay)
 }
 
-// replayKeyVersion returns the version in a replay key. The tuple decoder
-// returns int64 for a value that fits and uint64 otherwise.
+// The tuple decoder returns int64 for a value that fits and uint64 otherwise.
 func replayKeyVersion(identity tuple.TupleElement) (uint64, error) {
 	version, err := strconv.ParseUint(fmt.Sprint(identity), 10, 64)
 	if err != nil {

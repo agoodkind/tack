@@ -62,12 +62,11 @@ func requireSearchAuditInvocation(parent context.Context, harness *MCPHarness, r
 	}
 }
 
-// harnessReadScans stores one harnessReadScan per FoundationDB outbox store.
 var harnessReadScans sync.Map
 
-// harnessReadScan keeps the scan position of one FoundationDB outbox and the
-// read events that it decoded. Each search adds change events to the outbox,
-// and a scan from the start for every search would grow with the outbox.
+// harnessReadScan records the FoundationDB outbox scan position and decoded
+// read events. Each search adds change events to the outbox. Reading from the
+// start for every search increases the scan work as the outbox grows.
 type harnessReadScan struct {
 	mutex     sync.Mutex
 	mark      []byte
@@ -142,9 +141,8 @@ func harnessOutboxMatching(ctx context.Context, harness *MCPHarness, label strin
 	}
 }
 
-// decodeOutboxEvent decodes one FoundationDB outbox record. It adds the
-// payload of an event part to envelopes and reports false. A manifest record
-// returns the event that its parts form.
+// Event parts append their payloads to envelopes. A manifest decodes the
+// complete event from those payloads.
 func decodeOutboxEvent(entry []byte, envelopes map[string][]byte) (audit.Event, bool) {
 	var record struct {
 		Message string `json:"audit_message"`

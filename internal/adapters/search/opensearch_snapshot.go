@@ -41,9 +41,10 @@ func (a *Adapter) Ranker(settings RankerSettings) *QueryRanker {
 
 // Open resolves the public alias, verifies the physical index and pinned
 // model, computes the query tokens once, and creates one point in time. For a
-// point in time that OpenSearch created with failed shards or without an ID,
-// it returns the partial snapshot with [searchdomain.ErrSnapshotPartial]. The
-// caller deletes that snapshot.
+// response with failed shards or without an ID, it returns the partial
+// snapshot with [searchdomain.ErrSnapshotPartial]. The caller deletes a
+// partial snapshot with a usable ID. A missing ID also returns
+// [searchdomain.ErrSnapshotUncertain].
 func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searchdomain.Snapshot, error) {
 	var none searchdomain.Snapshot
 	target, err := r.adapter.AliasTarget(ctx, PublicAlias)
@@ -125,7 +126,8 @@ func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot)
 }
 
 // snapshotEffectFailure preserves known refusals and marks other errors
-// uncertain. A complete error response does not confirm cleanup of effects.
+// uncertain. A complete error response does not establish whether the
+// operation took effect.
 func snapshotEffectFailure(ctx context.Context, index, operation string, response *opensearch.Response, err error) error {
 	cause := engineCause(ctx, response, err)
 	if !snapshotEffectRefused(response, err) {

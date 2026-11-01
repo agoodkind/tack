@@ -20,9 +20,9 @@ const maxSessionCleanupKeys = 100
 const expirySessionIDPosition = 3
 
 // BeginCleanup marks the session as closing, clears its version presence
-// entry, and records the change in one transaction. A closing session accepts
-// no page commit. BeginCleanup returns nil for an absent or already closing
-// session, and it records nothing for those sessions.
+// entry, and records the change in one transaction. A closing session does
+// not accept a page commit. BeginCleanup returns nil for an absent or already
+// closing session and does not record changes for those sessions.
 func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.begin_cleanup")(&err)
 	changes, err := beginSessionAudit(ctx, "mark search session closing", sessionID)

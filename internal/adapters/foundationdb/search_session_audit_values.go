@@ -10,7 +10,6 @@ import (
 )
 
 const (
-	// These members store a protected reference in a session delta.
 	sessionMemberText       = "text"
 	sessionMemberTokens     = "query_tokens"
 	sessionMemberSort       = "sort"
@@ -21,11 +20,9 @@ const (
 	sessionSideNew = "new"
 )
 
-// sessionProtectedMembers lists every protected member in a fixed order.
+// This order determines the order of protected values in the event.
 var sessionProtectedMembers = []string{sessionMemberText, sessionMemberTokens, sessionMemberSort, sessionMemberAccessKeys}
 
-// sessionIdentityMembers lists the plain members of every session update
-// delta.
 var sessionIdentityMembers = []string{"id", "principal_id", "authority_id", "entry_point_id"}
 
 // sessionPlainValue is the part of a session audit value that the ledger row
@@ -121,7 +118,6 @@ func (a *sessionAudit) protect(members map[string]json.RawMessage, side, member 
 	return audit.ProtectedValue{Ref: reference, SubjectID: subject, Value: value}, nil
 }
 
-// protectAll adds a reference for each member of values to members.
 func (a *sessionAudit) protectAll(members, values map[string]json.RawMessage, side string, subject uuid.UUID) ([]audit.ProtectedValue, error) {
 	protected := make([]audit.ProtectedValue, 0, len(values))
 	for _, member := range sessionProtectedMembers {
@@ -138,7 +134,6 @@ func (a *sessionAudit) protectAll(members, values map[string]json.RawMessage, si
 	return protected, nil
 }
 
-// completeSessionDelta returns the plain and protected members of state.
 func (a *sessionAudit) completeSessionDelta(state sessionState, side string) (json.RawMessage, []audit.ProtectedValue, error) {
 	members, err := plainSessionMembers(state.record)
 	if err != nil {
