@@ -8,7 +8,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// recordSessionCreate records a new session with its complete value.
 func (a *sessionAudit) recordSessionCreate(state sessionState) error {
 	after, protected, err := a.completeSessionDelta(state, sessionSideNew)
 	if err != nil {

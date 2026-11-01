@@ -41,10 +41,11 @@ func (a *Adapter) Ranker(settings RankerSettings) *QueryRanker {
 
 // Open resolves the public alias, verifies the physical index and pinned
 // model, computes the query tokens once, and creates one point in time. For a
-// response with failed shards or without an ID, it returns the partial
-// snapshot with [searchdomain.ErrSnapshotPartial]. The caller deletes a
+// successful HTTP response with failed shards or without an ID, it returns a
+// partial snapshot with [searchdomain.ErrSnapshotPartial]. The caller deletes a
 // partial snapshot with a usable ID. A missing ID also returns
-// [searchdomain.ErrSnapshotUncertain].
+// [searchdomain.ErrSnapshotUncertain]. Open handles parsed HTTP error
+// responses through the effect-failure path.
 func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searchdomain.Snapshot, error) {
 	var none searchdomain.Snapshot
 	target, err := r.adapter.AliasTarget(ctx, PublicAlias)

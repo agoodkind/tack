@@ -14,10 +14,8 @@ const (
 	sessionMemberTokens     = "query_tokens"
 	sessionMemberSort       = "sort"
 	sessionMemberAccessKeys = "access_keys"
-	// sessionSideOld and sessionSideNew separate the references of the old
-	// and new value of one protected member.
-	sessionSideOld = "old"
-	sessionSideNew = "new"
+	sessionSideOld          = "old"
+	sessionSideNew          = "new"
 )
 
 // This order determines the order of protected values in the event.

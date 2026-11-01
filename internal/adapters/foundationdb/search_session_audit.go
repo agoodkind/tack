@@ -24,14 +24,12 @@ type sessionState struct {
 	tokens json.RawMessage
 }
 
-// sessionReplayValue is the audit value of one replay record.
 type sessionReplayValue struct {
 	Version   uint64      `json:"version"`
 	ResultIDs []uuid.UUID `json:"result_ids"`
 	Complete  bool        `json:"complete"`
 }
 
-// sessionVisitedValue is the audit value of one visited record.
 type sessionVisitedValue struct {
 	SessionID uuid.UUID `json:"session_id"`
 	NodeID    uuid.UUID `json:"node_id"`

@@ -8,8 +8,6 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// retirementEvidence identifies the index replacement that retires sessions
-// and the operator who began it.
 type retirementEvidence struct {
 	RebuildID   string `json:"rebuild_id"`
 	SourceIndex string `json:"source_index"`

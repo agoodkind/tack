@@ -10,8 +10,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// requirePartialSnapshotRecords checks committed-step evidence and the real
-// PIT identity for the partial create before its completed cleanup.
 func requirePartialSnapshotRecords(t *testing.T, fixture failureFixture, rows []audit.Row, identifier string) {
 	t.Helper()
 	results := snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomePartiallyCompleted)
