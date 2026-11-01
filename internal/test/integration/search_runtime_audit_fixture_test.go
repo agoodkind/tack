@@ -16,6 +16,7 @@ import (
 	"goodkind.io/tack/internal/datagen"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/test/integration"
+	"goodkind.io/tack/internal/testenv"
 )
 
 const (
@@ -86,12 +87,22 @@ func (f sessionAuditFixture) mustSearch(t *testing.T, token, query, cursor strin
 }
 
 // loseSnapshot deletes the point in time of session through the OpenSearch
-// adapter. A later delete of that point in time returns HTTP 404.
+// adapter. OpenSearch confirms a later idempotent delete with HTTP 200.
 func (f sessionAuditFixture) loseSnapshot(t *testing.T, session searchdomain.Session) {
 	t.Helper()
 	ranker := f.adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
 	if err := ranker.Close(t.Context(), session.Snapshot); err != nil {
 		t.Fatalf("delete the point in time of session %s: %v", session.ID, err)
+	}
+	client := integration.OpenSearchClient(t, testenv.OpenSearchWithMemory(t, cohortEngineMemoryBytes))
+	listed, err := client.PointInTime.GetAll(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("list points in time after deleting the snapshot of session %s: %v", session.ID, err)
+	}
+	for _, pointInTime := range listed.PITs {
+		if pointInTime.PITID.String() == session.Snapshot.PITID {
+			t.Fatalf("the lost-snapshot fixture left the point in time of session %s open", session.ID)
+		}
 	}
 }
 

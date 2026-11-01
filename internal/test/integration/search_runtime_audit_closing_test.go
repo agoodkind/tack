@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
+	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
 // closingAuditQuery is the included text of the closing corpus.
@@ -18,7 +19,7 @@ const closingAuditQuery = "umber sluice closing audit"
 // TestSearchRuntimeAuditExpiredContinuationClosing continues a session with an
 // expired cursor after OpenSearch lost its point in time. The ledger must
 // store the closing change, the refused node.search event, and a completed
-// point in time delete with already_closed set.
+// idempotent point in time delete with the original point in time ID.
 func TestSearchRuntimeAuditExpiredContinuationClosing(t *testing.T) {
 	setShortSessions(t)
 	fixture := newSessionAuditFixture(t)
@@ -31,7 +32,7 @@ func TestSearchRuntimeAuditExpiredContinuationClosing(t *testing.T) {
 	if _, err := fixture.searchAs(t, owner.Token, closingAuditQuery, page.Cursor); err == nil || !strings.Contains(err.Error(), expiredCursorText) {
 		t.Fatalf("expired continuation returned %v, want an error containing %q", err, expiredCursorText)
 	}
-	fixture.requireClosingEvents(t, session.ID)
+	fixture.requireClosingEvents(t, session)
 }
 
 // TestSearchRuntimeAuditLostSnapshotClosing continues a session after
@@ -47,13 +48,15 @@ func TestSearchRuntimeAuditLostSnapshotClosing(t *testing.T) {
 	if _, err := fixture.searchAs(t, owner.Token, closingAuditQuery, page.Cursor); err == nil || !strings.Contains(err.Error(), snapshotEndedText) {
 		t.Fatalf("continuation after the lost point in time returned %v, want an error containing %q", err, snapshotEndedText)
 	}
-	fixture.requireClosingEvents(t, session.ID)
+	fixture.requireClosingEvents(t, session)
 }
 
 // requireClosingEvents requires one closing change with its old and new value,
-// one refused read, and a completed delete step with already_closed set.
-func (f sessionAuditFixture) requireClosingEvents(t *testing.T, sessionID uuid.UUID) {
+// one refused read, and the completed idempotent delete that OpenSearch
+// confirms with HTTP 200 even when the point in time is absent.
+func (f sessionAuditFixture) requireClosingEvents(t *testing.T, session searchdomain.Session) {
 	t.Helper()
+	sessionID := session.ID
 	rows := f.waitForRows(t, f.first.OrgID, func(current []audit.Row) bool {
 		return len(refusedReads(current)) == 1 &&
 			len(stepRows(current, sessionID, audit.VerbSearchPointInTimeDelete, "delete")) == 2 &&
@@ -67,10 +70,11 @@ func (f sessionAuditFixture) requireClosingEvents(t *testing.T, sessionID uuid.U
 	}
 	step := finishedStep(t, stepRows(rows, sessionID, audit.VerbSearchPointInTimeDelete, "delete"))
 	var observed struct {
-		AlreadyClosed bool `json:"already_closed"`
+		PITID         string `json:"pit_id"`
+		AlreadyClosed bool   `json:"already_closed"`
 	}
-	if err := json.Unmarshal(step.Extra, &observed); err != nil || !observed.AlreadyClosed || step.Outcome != audit.OutcomeCompleted {
-		t.Fatalf("delete step = %s with outcome %s: %v, want a completed step with already_closed", step.Extra, step.Outcome, err)
+	if err := json.Unmarshal(step.Extra, &observed); err != nil || observed.AlreadyClosed || observed.PITID != session.Snapshot.PITID || step.Outcome != audit.OutcomeCompleted {
+		t.Fatalf("delete step = %s with outcome %s: %v, want the completed idempotent delete of %s", step.Extra, step.Outcome, err, session.Snapshot.PITID)
 	}
 }
 

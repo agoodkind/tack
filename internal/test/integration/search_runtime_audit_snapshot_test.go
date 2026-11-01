@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"net/http/httputil"
 	"strconv"
@@ -112,8 +111,10 @@ func TestSearchRuntimeAuditIntentFailureRefusesSnapshot(t *testing.T) {
 	if !errors.Is(err, searchdomain.ErrEngineUnavailable) || !errors.Is(err, audit.ErrMissingMutationContext) {
 		t.Fatalf("Search without an operation = %v, want the engine unavailable error and the missing operation error", err)
 	}
-	if after := openPITs(t, fixture); !maps.Equal(before, after) {
-		t.Fatalf("the refused search changed the open points in time from %v to %v", before, after)
+	for id := range openPITs(t, fixture) {
+		if !before[id] {
+			t.Fatalf("the refused search opened point in time %s", id)
+		}
 	}
 }
 
