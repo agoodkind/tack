@@ -41,7 +41,7 @@ func waitForOpenSearchHealth(ctx context.Context, fixture OpenSearchFixture) err
 		case err != nil:
 			lastFailure = err.Error()
 		case response.StatusCode == http.StatusOK:
-			return openSearchDiskReadiness(ctx, client, fixture)
+			return nil
 		default:
 			lastFailure = fmt.Sprintf("status %d", response.StatusCode)
 		}
