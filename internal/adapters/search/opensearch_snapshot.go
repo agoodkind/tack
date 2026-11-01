@@ -44,8 +44,7 @@ func (a *Adapter) Ranker(settings RankerSettings) *QueryRanker {
 // successful HTTP response with failed shards or without an ID, it returns a
 // partial snapshot with [searchdomain.ErrSnapshotPartial]. The caller deletes a
 // partial snapshot with a usable ID. A missing ID also returns
-// [searchdomain.ErrSnapshotUncertain]. Open handles parsed HTTP error
-// responses through the effect-failure path.
+// [searchdomain.ErrSnapshotUncertain].
 func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searchdomain.Snapshot, error) {
 	var none searchdomain.Snapshot
 	target, err := r.adapter.AliasTarget(ctx, PublicAlias)
