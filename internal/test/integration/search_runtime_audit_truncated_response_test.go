@@ -16,6 +16,19 @@ import (
 // operation and step records after a real delete response ends early while
 // the public MCP caller's context remains live.
 func TestSearchRuntimeAuditTruncatedSnapshotResult(t *testing.T) {
+	requireUnconfirmedSnapshotResult(t, truncateSnapshotResponse)
+}
+
+func TestSearchRuntimeAuditBackendErrorSnapshotResult(t *testing.T) {
+	requireUnconfirmedSnapshotResult(t, replaceSnapshotResponseWithError)
+}
+
+func TestSearchRuntimeAuditSecurityErrorSnapshotResult(t *testing.T) {
+	requireUnconfirmedSnapshotResult(t, replaceSnapshotResponseWithSecurityError)
+}
+
+func requireUnconfirmedSnapshotResult(t *testing.T, replace func(*http.Response) (snapshotResponse, error)) {
+	t.Helper()
 	fixture := newFailureFixture(t)
 	t.Setenv("OPENSEARCH_MAX_RETRIES", "0")
 	harness, capture := newCaptureHarness(t, fixture.QueryFixture, false)
@@ -28,7 +41,7 @@ func TestSearchRuntimeAuditTruncatedSnapshotResult(t *testing.T) {
 		if response.Request.Method != http.MethodDelete || !strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
 			return capture.record(response)
 		}
-		observed, err := truncateSnapshotResponse(response)
+		observed, err := replace(response)
 		if err != nil {
 			return err
 		}
@@ -41,7 +54,7 @@ func TestSearchRuntimeAuditTruncatedSnapshotResult(t *testing.T) {
 		t.Fatalf("the MCP continuation returned HTTP %d with error %v: %s", result.status, result.err, result.text)
 	}
 	if ctx.Err() != nil {
-		t.Fatalf("the truncated response ended the caller's context: %v", ctx.Err())
+		t.Fatalf("the unconfirmed response ended the caller's context: %v", ctx.Err())
 	}
 	observed := waitSnapshotResponse(t, responses)
 	requirePITsClosed(t, fixture.QueryFixture, []string{observed.id})

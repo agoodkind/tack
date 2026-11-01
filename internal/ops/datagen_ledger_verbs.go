@@ -62,8 +62,8 @@ var datagenSearchSettingsVerbs = []string{
 }
 
 // datagenSearchSessionVerbs lists the audit verbs of search session records
-// and points in time. ops qa datagen search runs the searches that record
-// them in the tenant organization of the run.
+// and points in time. ops qa datagen search runs searches that record events
+// with these verbs in the run's tenant organization.
 var datagenSearchSessionVerbs = []string{
 	string(audit.VerbSearchSessionCreate),
 	string(audit.VerbSearchSessionUpdate),

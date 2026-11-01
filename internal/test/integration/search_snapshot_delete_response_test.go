@@ -46,8 +46,8 @@ func TestSearchSnapshotDeleteAlreadyClosedResponse(t *testing.T) {
 	snapshot := searchdomain.Snapshot{PITID: created.PITID.String(), Index: index}
 	refusal := ranker.Close(ctx, searchdomain.Snapshot{PITID: "!", Index: index})
 	var backendError *opensearch.StructError
-	if !errors.As(refusal, &backendError) || backendError.Status != http.StatusInternalServerError || backendError.Err.Type != "security_exception" || errors.Is(refusal, searchdomain.ErrSnapshotUncertain) {
-		t.Fatalf("the explicit backend refusal returned %v, want the known HTTP 500 security exception", refusal)
+	if !errors.As(refusal, &backendError) || backendError.Status != http.StatusInternalServerError || backendError.Err.Type != "security_exception" || !errors.Is(refusal, searchdomain.ErrSnapshotUncertain) {
+		t.Fatalf("the backend exception returned %v, want the parsed HTTP 500 security exception with an uncertain effect", refusal)
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()

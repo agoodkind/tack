@@ -42,7 +42,7 @@ func (body delayedSnapshotBody) Read(buffer []byte) (int, error) {
 // TestSearchSnapshotInterruptedResponseBody deletes a real PIT, flushes its
 // successful HTTP headers, and interrupts the client before its body arrives.
 func TestSearchSnapshotInterruptedResponseBody(t *testing.T) {
-	for _, interruption := range []string{"cancel", "client_timeout", "truncated_body"} {
+	for _, interruption := range []string{"cancel", "client_timeout", "truncated_body", "backend_error", "security_backend_error"} {
 		t.Run(interruption, func(t *testing.T) {
 			engine := testenv.OpenSearch(t)
 			client := integration.OpenSearchClient(t, engine)
@@ -68,6 +68,14 @@ func TestSearchSnapshotInterruptedResponseBody(t *testing.T) {
 			proxy.engine.ModifyResponse = func(response *http.Response) error {
 				if response.Request.Method != http.MethodDelete {
 					return nil
+				}
+				if interruption == "security_backend_error" {
+					_, err := replaceSnapshotResponseWithSecurityError(response)
+					return err
+				}
+				if interruption == "backend_error" {
+					_, err := replaceSnapshotResponseWithError(response)
+					return err
 				}
 				if interruption == "truncated_body" {
 					_, err := truncateSnapshotResponse(response)
@@ -126,8 +134,20 @@ func TestSearchSnapshotInterruptedResponseBody(t *testing.T) {
 			select {
 			case err := <-done:
 				t.Logf("interrupted response: read_body=%t unexpected_eof=%t uncertain=%t parent_error=%v error=%v", errors.Is(err, opensearch.ErrReadBody), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, searchdomain.ErrSnapshotUncertain), ctx.Err(), err)
-				if !errors.Is(err, opensearch.ErrReadBody) || !errors.Is(err, searchdomain.ErrSnapshotUncertain) {
-					t.Fatalf("the applied delete with an unread response returned %v, want an uncertain effect and a body-read failure", err)
+				if !errors.Is(err, searchdomain.ErrSnapshotUncertain) {
+					t.Fatalf("the applied delete with an unconfirmed result returned %v, want an uncertain effect", err)
+				}
+				if interruption == "backend_error" || interruption == "security_backend_error" {
+					var backendError *opensearch.StructError
+					expectedType := "exception"
+					if interruption == "security_backend_error" {
+						expectedType = "security_exception"
+					}
+					if !errors.As(err, &backendError) || backendError.Status != http.StatusInternalServerError || backendError.Err.Type != expectedType {
+						t.Fatalf("the complete backend error response returned %v, want its parsed HTTP 500 exception", err)
+					}
+				} else if !errors.Is(err, opensearch.ErrReadBody) {
+					t.Fatalf("the unread response returned %v, want a body-read failure", err)
 				}
 				if interruption == "truncated_body" && !errors.Is(err, io.ErrUnexpectedEOF) {
 					t.Fatalf("the truncated response returned %v, want an unexpected end of its body", err)

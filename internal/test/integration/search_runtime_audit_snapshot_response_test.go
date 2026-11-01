@@ -103,6 +103,31 @@ func truncateSnapshotResponse(response *http.Response) (snapshotResponse, error)
 	return observed, nil
 }
 
+// replaceSnapshotResponseWithError simulates a complete but unconfirmed
+// backend result after the real engine applies the effect.
+func replaceSnapshotResponseWithError(response *http.Response) (snapshotResponse, error) {
+	const payload = `{"error":{"type":"exception","reason":"point in time result unavailable"},"status":500}`
+	return replaceSnapshotErrorResponse(response, payload)
+}
+
+func replaceSnapshotResponseWithSecurityError(response *http.Response) (snapshotResponse, error) {
+	const payload = `{"error":{"type":"security_exception","reason":"Unexpected exception indices:data/read/point_in_time/delete"},"status":500}`
+	return replaceSnapshotErrorResponse(response, payload)
+}
+
+func replaceSnapshotErrorResponse(response *http.Response, payload string) (snapshotResponse, error) {
+	observed, err := readSnapshotResponse(response)
+	if err != nil {
+		return snapshotResponse{}, err
+	}
+	response.StatusCode = http.StatusInternalServerError
+	response.Body = io.NopCloser(strings.NewReader(payload))
+	response.ContentLength = int64(len(payload))
+	response.Header.Set("Content-Length", strconv.Itoa(len(payload)))
+	response.Header.Set("Content-Type", "application/json")
+	return observed, nil
+}
+
 func waitSnapshotResponse(t *testing.T, responses <-chan snapshotResponse) snapshotResponse {
 	t.Helper()
 	select {
