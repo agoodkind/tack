@@ -41,7 +41,8 @@ func TestSearchRuntimeAuditPartialPointInTimeDeleted(t *testing.T) {
 		t.Fatalf("tack_search with a partial point in time returned %v, want an error containing %q", err, unexpectedErrorText)
 	}
 	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(current []audit.Row) bool {
-		return len(partialDeletes(current)) == 1
+		return len(partialDeletes(current)) == 1 &&
+			len(snapshotResults(current, audit.VerbSearchPointInTimeCreate, audit.OutcomePartiallyCompleted)) == 2
 	})
 	step := onlyRow(t, partialDeletes(rows), "the partial point in time delete")
 	var observed struct {
@@ -53,6 +54,7 @@ func TestSearchRuntimeAuditPartialPointInTimeDeleted(t *testing.T) {
 	}
 	requireDeleteSent(t, capture, []string{observed.PITID})
 	requirePITsClosed(t, fixture.QueryFixture, []string{observed.PITID})
+	requirePartialSnapshotRecords(t, fixture, rows, observed.PITID)
 }
 
 // failPointInTimeShards sets the failed shard count of a point in time create

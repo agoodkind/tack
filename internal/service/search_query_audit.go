@@ -25,6 +25,8 @@ const (
 	snapshotStepFailedMessage    = "OpenSearch did not complete the point in time operation"
 	snapshotStepUncertainCode    = "point_in_time_uncertain"
 	snapshotStepUncertainMessage = "OpenSearch did not confirm the point in time result"
+	snapshotStepPartialCode      = "point_in_time_partial"
+	snapshotStepPartialMessage   = "OpenSearch created a partial point in time"
 	// snapshotWriteTimeout limits the result write of a point in time step.
 	// It equals the session transaction limit.
 	snapshotWriteTimeout = 5 * time.Second
@@ -80,11 +82,8 @@ func (s *SearchQueryService) runSnapshotStep(
 	effect func(context.Context) (snapshotEvidence, error),
 ) error {
 	return s.runEncodedStep(ctx, session, operation, planned, func(ctx context.Context) (json.RawMessage, error) {
-		observed, err := effect(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return encodeEvidence(ctx, observed)
+		observed, effectErr := effect(ctx)
+		return encodeEvidence(ctx, observed, effectErr)
 	})
 }
 
@@ -101,7 +100,7 @@ func (s *SearchQueryService) runEncodedStep(
 	if err != nil {
 		return snapshotStepFailure(ctx, "read the audit operation", err)
 	}
-	encoded, err := encodeEvidence(ctx, planned)
+	encoded, err := encodeEvidence(ctx, planned, nil)
 	if err != nil {
 		return err
 	}
@@ -121,10 +120,13 @@ func (s *SearchQueryService) runEncodedStep(
 			return details, snapshotStepFailure(ctx, "record the point in time step", beginErr)
 		}
 		observed, effectErr := effect(ctx)
-		if effectErr == nil {
+		switch {
+		case effectErr == nil:
 			details = audit.OutcomeDetails{Outcome: audit.OutcomeCompleted, FailureCode: "", FailureMessage: "", CommittedSteps: nil}
-		} else if errors.Is(effectErr, searchdomain.ErrSnapshotUncertain) {
+		case errors.Is(effectErr, searchdomain.ErrSnapshotUncertain):
 			details = audit.OutcomeDetails{Outcome: audit.OutcomeIncomplete, FailureCode: snapshotStepUncertainCode, FailureMessage: snapshotStepUncertainMessage, CommittedSteps: nil}
+		case errors.Is(effectErr, searchdomain.ErrSnapshotPartial):
+			details = audit.OutcomeDetails{Outcome: audit.OutcomePartiallyCompleted, FailureCode: snapshotStepPartialCode, FailureMessage: snapshotStepPartialMessage, CommittedSteps: []string{target.Reference}}
 		}
 		writeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), snapshotWriteTimeout)
 		defer cancel()
@@ -155,7 +157,7 @@ func (s *SearchQueryService) closeSnapshot(ctx context.Context, session searchdo
 		if closeErr != nil && !alreadyClosed {
 			return nil, snapshotStepError{err: closeErr}
 		}
-		return encodeEvidence(ctx, closedSnapshotEvidence{snapshotEvidence: planned, AlreadyClosed: alreadyClosed})
+		return encodeEvidence(ctx, closedSnapshotEvidence{snapshotEvidence: planned, AlreadyClosed: alreadyClosed}, nil)
 	})
 }
 
@@ -171,12 +173,12 @@ type snapshotEvidenceValue interface {
 	snapshotEvidence | closedSnapshotEvidence
 }
 
-func encodeEvidence[Evidence snapshotEvidenceValue](ctx context.Context, evidence Evidence) (json.RawMessage, error) {
+func encodeEvidence[Evidence snapshotEvidenceValue](ctx context.Context, evidence Evidence, effectErr error) (json.RawMessage, error) {
 	encoded, err := json.Marshal(evidence)
 	if err != nil {
-		return nil, snapshotStepFailure(ctx, "encode the point in time evidence", err)
+		return nil, snapshotStepFailure(ctx, "encode the point in time evidence", errors.Join(effectErr, err))
 	}
-	return encoded, nil
+	return encoded, effectErr
 }
 
 func snapshotStepFailure(ctx context.Context, operation string, err error) error {

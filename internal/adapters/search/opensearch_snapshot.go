@@ -79,13 +79,18 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 		Indices: []string{target}, Header: nil,
 		Params: &opensearchapi.CreatePITParams{KeepAlive: r.settings.KeepAlive},
 	})
-	if err != nil {
-		return none, snapshotEffectFailure(ctx, target, "create a point in time", created.Inspect().Response, err)
-	}
-	if !created.PITID.IsSet() || created.Shards.Failed > 0 {
+	response := created.Inspect().Response
+	if response != nil && !response.IsError() && (!created.PITID.IsSet() || created.Shards.Failed > 0) {
 		partial := searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: nil}
+		cause := errors.Join(searchdomain.ErrSnapshotPartial, err)
+		if !created.PITID.IsSet() {
+			cause = errors.Join(cause, searchdomain.ErrSnapshotUncertain)
+		}
 		return partial, snapshotFailure(ctx, target, "create a point in time",
-			fmt.Errorf("OpenSearch returned an empty ID or %d failed shards: %w", created.Shards.Failed, searchdomain.ErrSnapshotPartial))
+			fmt.Errorf("OpenSearch returned an empty ID or %d failed shards: %w", created.Shards.Failed, cause))
+	}
+	if err != nil {
+		return none, snapshotEffectFailure(ctx, target, "create a point in time", response, err)
 	}
 	telemetry.L(ctx).DebugContext(ctx, "search.snapshot.opened", slog.String("index", target), slog.Int("token_bytes", len(tokens)))
 	return searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: tokens}, nil
