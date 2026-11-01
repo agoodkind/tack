@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -40,6 +41,26 @@ func TestSearchSnapshotDeleteAlreadyClosedResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create point in time on %s: %v", index, err)
 	}
+	ranker := adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 65536, BatchSize: 100})
+	snapshot := searchdomain.Snapshot{PITID: created.PITID.String(), Index: index}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := ranker.Close(canceled, snapshot); !errors.Is(err, context.Canceled) || errors.Is(err, searchdomain.ErrSnapshotUncertain) {
+		t.Fatalf("close under an already canceled context returned %v, want a known cancellation before the effect", err)
+	}
+	listed, err := client.PointInTime.GetAll(ctx, nil)
+	if err != nil {
+		t.Fatalf("list points in time after cancellation before the effect: %v", err)
+	}
+	open := false
+	for _, pit := range listed.PITs {
+		if pit.PITID == created.PITID {
+			open = true
+		}
+	}
+	if !open {
+		t.Fatal("cancellation before the delete request did not preserve the open point in time")
+	}
 	for attempt := range 2 {
 		deleted, err := client.PointInTime.Delete(ctx, &opensearchapi.DeletePITReq{
 			Body: &opensearchapi.DeletePITBody{PITID: []opensearchapi.PITID{created.PITID}},
@@ -62,8 +83,7 @@ func TestSearchSnapshotDeleteAlreadyClosedResponse(t *testing.T) {
 			}
 		}
 	}
-	ranker := adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 65536, BatchSize: 100})
-	if err := ranker.Close(ctx, searchdomain.Snapshot{PITID: created.PITID.String(), Index: index}); err != nil {
+	if err := ranker.Close(ctx, snapshot); err != nil {
 		t.Fatalf("close the absent point in time through the production adapter: %v", err)
 	}
 }

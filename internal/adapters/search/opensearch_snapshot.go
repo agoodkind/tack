@@ -72,6 +72,9 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 	if err != nil {
 		return none, queryStepError{operation: "open search snapshot on " + target, err: err}
 	}
+	if err := ctx.Err(); err != nil {
+		return none, snapshotFailure(ctx, target, "create a point in time", err)
+	}
 	created, err := r.adapter.api.PointInTime.Create(ctx, &opensearchapi.CreatePITReq{
 		Indices: []string{target}, Header: nil,
 		Params: &opensearchapi.CreatePITParams{KeepAlive: r.settings.KeepAlive},
@@ -98,6 +101,9 @@ func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot)
 	id, err := opensearchapi.ParsePITID(snapshot.PITID)
 	if err != nil {
 		return snapshotFailure(ctx, snapshot.Index, "parse a point in time", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return snapshotFailure(ctx, snapshot.Index, "delete a point in time", err)
 	}
 	response, err := r.adapter.api.PointInTime.Delete(ctx, &opensearchapi.DeletePITReq{Body: &opensearchapi.DeletePITBody{PITID: []opensearchapi.PITID{id}}})
 	if err == nil {
