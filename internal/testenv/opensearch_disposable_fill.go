@@ -31,15 +31,16 @@ func (e *DisposableEngine) DataUsage(t *testing.T) (int64, int64) {
 	return size, used
 }
 
-// FillData writes a filler file until the data path is at least percent
-// used, and returns the size and used bytes after the write.
+// FillData appends to the filler file when disk usage falls below percent.
+// It preserves existing filler data when a later call requests more usage.
+// It returns the data filesystem's size and used bytes after the operation.
 func (e *DisposableEngine) FillData(t *testing.T, percent int64) (int64, int64) {
 	t.Helper()
 	size, used := e.DataUsage(t)
 	missing := size*percent/100 - used
 	if missing > 0 {
 		chunks := (missing + fillChunkBytes - 1) / fillChunkBytes
-		e.run(t, "dd", "if=/dev/zero", "of="+openSearchFillerPath,
+		e.run(t, "dd", "if=/dev/zero", "of="+openSearchFillerPath, "oflag=append", "conv=notrunc",
 			"bs="+strconv.Itoa(fillChunkBytes), "count="+strconv.FormatInt(chunks, 10))
 	}
 	return e.DataUsage(t)

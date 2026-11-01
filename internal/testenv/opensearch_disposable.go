@@ -20,7 +20,7 @@ const (
 	// openSearchMLDiskThreshold is the least free disk space at which ML
 	// Commons still loads and runs the search model. Configs sets the same
 	// value on every Tack search member.
-	openSearchMLDiskThreshold = "plugins.ml_commons.disk_free_space_threshold=1gb"
+	openSearchMLDiskThreshold = openSearchFreeSpaceKey + "=" + openSearchFreeSpaceFloor
 	// openSearchInfoInterval is the minimum cluster.info.update.interval of
 	// OpenSearch 3.8.0. The disk threshold monitor reads disk use at that
 	// interval.
@@ -58,6 +58,9 @@ func openSearchHostConfig(holder string, settings openSearchEngineSettings) *con
 type DisposableOpenSearchOptions struct {
 	MemoryBytes int64
 	DataBytes   int64
+	// SharedDiskPolicy applies the shared engine's disk settings when true.
+	// When false, the engine uses the default percentage watermarks.
+	SharedDiskPolicy bool `exhaustruct:"optional"`
 }
 
 // DisposableEngine is one engine that belongs to one test. Its data path is
@@ -102,9 +105,13 @@ func DisposableOpenSearch(t *testing.T, options DisposableOpenSearchOptions) *Di
 	if err != nil {
 		t.Fatalf("create the disposable OpenSearch data disk: %v", err)
 	}
+	nodeSettings := []string{openSearchInfoInterval, openSearchMLDiskThreshold}
+	if options.SharedDiskPolicy {
+		nodeSettings = append([]string{openSearchInfoInterval}, openSearchFreeSpaceSettings()...)
+	}
 	fixture, created, err = provisionOpenSearch(ctx, openSearchEngineSettings{
 		memoryBytes: options.MemoryBytes, dataVolume: disk.dataVolume,
-		nodeSettings: []string{openSearchInfoInterval, openSearchMLDiskThreshold},
+		nodeSettings: nodeSettings,
 	})
 	if err != nil {
 		t.Fatalf("start disposable OpenSearch: %v", err)
