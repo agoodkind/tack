@@ -62,7 +62,21 @@ type PageCommit struct {
 	Complete  bool
 }
 
+// CleanupStep identifies the session cleanup step that failed. Its value is
+// the failure code of the audit event.
+type CleanupStep string
+
+const (
+	// CleanupClose is the step that marks a session closing.
+	CleanupClose CleanupStep = "session_close_failed"
+	// CleanupDelete is the step that loads a session for deletion or deletes
+	// its records.
+	CleanupDelete CleanupStep = "session_delete_failed"
+)
+
 // SessionStore persists sessions, visited nodes, and replay records.
+// RecordCleanupFailure records that one cleanup step failed without changing
+// a session record.
 type SessionStore interface {
 	Create(context.Context, Session) (Session, error)
 	Load(context.Context, uuid.UUID) (Session, error)
@@ -71,6 +85,7 @@ type SessionStore interface {
 	CommitPage(context.Context, uuid.UUID, uint64, PageCommit) (Session, error)
 	BeginCleanup(context.Context, uuid.UUID) error
 	CleanupSlice(context.Context, uuid.UUID, int) (bool, error)
+	RecordCleanupFailure(context.Context, uuid.UUID, CleanupStep, error) error
 }
 
 // RankingVersion identifies the scoring formula that encodeRankRequest uses

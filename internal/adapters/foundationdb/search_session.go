@@ -34,16 +34,23 @@ func NewSearchSessionStore(db fdb.Database, source clock.Clock, idleTimeout time
 	return &SearchSessionStore{db: db, clock: source, idleTimeout: idleTimeout}
 }
 
-// Create stores the session header, the chunked query tokens, and the expiry,
-// presence, and version presence keys in one transaction. It refuses a
-// session under an access version that the authority no longer writes.
+// Create stores the session header, the chunked query tokens, the expiry,
+// presence, and version presence keys, and the change event in one
+// transaction. It refuses a session under an access version that the
+// authority no longer writes.
 func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Session) (created searchdomain.Session, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.create")(&err)
 	if session.ID == uuid.Nil || session.Version != 0 || len(session.Snapshot.QueryTokens) == 0 || session.Snapshot.PITID == "" {
 		return searchdomain.Session{}, sessionFailure(ctx, "create search session", session.ID, errors.New("session identity, snapshot, and tokens are required"))
 	}
 	record := sessionRecordFor(session)
+	changes, err := beginSessionAudit(ctx, "create search session", session.ID)
+	if err != nil {
+		return searchdomain.Session{}, err
+	}
 	err = transactSession(ctx, s.db, s.clock, "create search session", session.ID, func(tr fdb.Transaction) error {
+		changes.startAttempt()
+		changes.bind(record)
 		var existing searchSessionRecord
 		found, readErr := readSessionValue(tr, searchSessionKey(session.ID), &existing)
 		if readErr != nil {
@@ -66,11 +73,15 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 		tr.Set(fdb.Key(searchSessionExpiryKey(session.ID, session.IdleDeadline)), nil)
 		tr.Set(fdb.Key(searchSessionPresenceKey(session.Query.Index, session.ID)), nil)
 		tr.Set(fdb.Key(searchSessionVersionKey(session.AuthorityID, session.Query.Access.Version, session.AbsoluteDeadline, session.ID)), nil)
-		return nil
+		if recordErr := changes.recordSessionCreate(sessionState{record: record, tokens: session.Snapshot.QueryTokens}); recordErr != nil {
+			return recordErr
+		}
+		return changes.append(ctx, tr)
 	})
 	if err != nil {
 		return searchdomain.Session{}, err
 	}
+	changes.finish(ctx)
 	telemetry.L(ctx).InfoContext(ctx, "search.session.created", slog.String("session_id", session.ID.String()),
 		slog.String("index", session.Query.Index), slog.Int("token_bytes", record.TokenBytes))
 	return session, nil

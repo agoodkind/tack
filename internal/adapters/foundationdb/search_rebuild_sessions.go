@@ -7,6 +7,7 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
+	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -86,9 +87,13 @@ func (s *SearchRebuildStore) retireSession(ctx context.Context, index string, se
 		return true, nil
 	}
 	if err := s.sessions.BeginCleanup(ctx, sessionID); err != nil {
+		s.recordRetireFailure(ctx, sessionID, searchdomain.CleanupClose, err)
 		return true, err
 	}
 	deleted, err := s.sessions.CleanupSlice(ctx, sessionID, maxSessionCleanupKeys)
+	if err != nil {
+		s.recordRetireFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
+	}
 	return !deleted, err
 }
 

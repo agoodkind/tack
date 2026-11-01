@@ -60,54 +60,108 @@ func (s *SearchSessionStore) HasVisited(ctx context.Context, sessionID uuid.UUID
 }
 
 // CommitPage stores the consumed sort position, replacement point-in-time
-// ID, visited IDs, replay record, and completion in one transaction. It
-// renews only the idle deadline. A concurrent commit for the same version
-// returns [searchdomain.ErrSessionChanged].
+// ID, visited IDs, replay record, completion, and the change events of each
+// changed record in one transaction. It renews only the idle deadline. A
+// concurrent commit for the same version returns
+// [searchdomain.ErrSessionChanged].
 func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID, version uint64, commit searchdomain.PageCommit) (committed searchdomain.Session, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.commit")(&err)
 	if len(commit.Visited) > maxSessionVisitedIDs || len(commit.ResultIDs) > maxSessionResultIDs ||
 		len(commit.Sort)+len(commit.PITID) > maxSessionPositionBytes || commit.PITID == "" {
 		return searchdomain.Session{}, sessionFailure(ctx, "commit search page", sessionID, errors.New("the page exceeds its visited, result, or position bounds"))
 	}
+	changes, err := beginSessionAudit(ctx, "commit search page", sessionID)
+	if err != nil {
+		return searchdomain.Session{}, err
+	}
 	var record searchSessionRecord
 	err = transactSession(ctx, s.db, s.clock, "commit search page", sessionID, func(tr fdb.Transaction) error {
-		found, readErr := readSessionValue(tr, searchSessionKey(sessionID), &record)
+		changes.startAttempt()
+		// Each attempt decodes into a new record. The sort value of an earlier
+		// attempt must not replace an absent stored sort value.
+		var stored searchSessionRecord
+		found, readErr := readSessionValue(tr, searchSessionKey(sessionID), &stored)
 		switch {
 		case readErr != nil:
 			return readErr
 		case !found:
 			return searchdomain.ErrSessionNotFound
-		case record.Version != version:
+		case stored.Version != version:
 			return searchdomain.ErrSessionChanged
-		case record.Closing || !s.clock.Now().Before(record.IdleDeadline) || !s.clock.Now().Before(record.AbsoluteDeadline):
+		case stored.Closing || !s.clock.Now().Before(stored.IdleDeadline) || !s.clock.Now().Before(stored.AbsoluteDeadline):
 			return searchdomain.ErrSessionExpired
 		}
-		for _, nodeID := range commit.Visited {
-			tr.Set(fdb.Key(searchSessionVisitedKey(sessionID, nodeID)), []byte{1})
+		changes.bind(stored)
+		var applyErr error
+		record, applyErr = s.applyPageCommit(tr, changes, stored, version, commit)
+		if applyErr != nil {
+			return applyErr
 		}
-		replay := searchReplayRecord{ResultIDs: commit.ResultIDs, Complete: commit.Complete}
-		if writeErr := writeSessionValue(tr, searchSessionReplayKey(sessionID, version), replay, maxSessionHeaderBytes); writeErr != nil {
-			return writeErr
-		}
-		if version > 0 {
-			tr.Clear(fdb.Key(searchSessionReplayKey(sessionID, version-1)))
-		}
-		tr.Clear(fdb.Key(searchSessionExpiryKey(sessionID, record.IdleDeadline)))
-		record.IdleDeadline = s.clock.Now().Add(s.idleTimeout)
-		if record.IdleDeadline.After(record.AbsoluteDeadline) {
-			record.IdleDeadline = record.AbsoluteDeadline
-		}
-		tr.Set(fdb.Key(searchSessionExpiryKey(sessionID, record.IdleDeadline)), nil)
-		if commit.Complete {
-			clearSessionVersion(tr, record)
-		}
-		record.Sort, record.PITID, record.Complete, record.Version = commit.Sort, commit.PITID, commit.Complete, version+1
-		return writeSessionValue(tr, searchSessionKey(sessionID), record, maxSessionHeaderBytes)
+		return changes.append(ctx, tr)
 	})
 	if err != nil {
 		return searchdomain.Session{}, err
 	}
+	changes.finish(ctx)
 	telemetry.L(ctx).DebugContext(ctx, "search.session.page_committed", slog.String("session_id", sessionID.String()),
 		slog.Uint64("version", record.Version), slog.Int("results", len(commit.ResultIDs)), slog.Bool("complete", commit.Complete))
 	return record.session(nil)
+}
+
+// applyPageCommit writes one page commit in tr, records its changes, and
+// returns the new header. The caller filters commit.Visited at this session
+// version. Each visited record in commit.Visited is new.
+func (s *SearchSessionStore) applyPageCommit(tr fdb.Transaction, changes *sessionAudit, stored searchSessionRecord, version uint64, commit searchdomain.PageCommit) (searchSessionRecord, error) {
+	sessionID := stored.ID
+	for _, nodeID := range commit.Visited {
+		tr.Set(fdb.Key(searchSessionVisitedKey(sessionID, nodeID)), []byte{1})
+		if err := changes.recordVisitedCreate(sessionID, nodeID); err != nil {
+			return stored, err
+		}
+	}
+	replay := searchReplayRecord{ResultIDs: commit.ResultIDs, Complete: commit.Complete}
+	if err := writeSessionValue(tr, searchSessionReplayKey(sessionID, version), replay, maxSessionHeaderBytes); err != nil {
+		return stored, err
+	}
+	if err := changes.recordReplayCreate(sessionID, version, replay); err != nil {
+		return stored, err
+	}
+	if err := clearPreviousReplay(tr, changes, sessionID, version); err != nil {
+		return stored, err
+	}
+	record := stored
+	tr.Clear(fdb.Key(searchSessionExpiryKey(sessionID, record.IdleDeadline)))
+	record.IdleDeadline = s.clock.Now().Add(s.idleTimeout)
+	if record.IdleDeadline.After(record.AbsoluteDeadline) {
+		record.IdleDeadline = record.AbsoluteDeadline
+	}
+	tr.Set(fdb.Key(searchSessionExpiryKey(sessionID, record.IdleDeadline)), nil)
+	if commit.Complete {
+		clearSessionVersion(tr, record)
+	}
+	record.Sort, record.PITID, record.Complete, record.Version = commit.Sort, commit.PITID, commit.Complete, version+1
+	if err := writeSessionValue(tr, searchSessionKey(sessionID), record, maxSessionHeaderBytes); err != nil {
+		return stored, err
+	}
+	previous, current := sessionState{record: stored, tokens: nil}, sessionState{record: record, tokens: nil}
+	return record, changes.recordSessionUpdate(previous, current)
+}
+
+// clearPreviousReplay reads the replay record of the previous version, clears
+// it, and records its removal.
+func clearPreviousReplay(tr fdb.Transaction, changes *sessionAudit, sessionID uuid.UUID, version uint64) error {
+	if version == 0 {
+		return nil
+	}
+	previousVersion := version - 1
+	var previous searchReplayRecord
+	found, err := readSessionValue(tr, searchSessionReplayKey(sessionID, previousVersion), &previous)
+	if err != nil {
+		return err
+	}
+	tr.Clear(fdb.Key(searchSessionReplayKey(sessionID, previousVersion)))
+	if !found {
+		return nil
+	}
+	return changes.recordReplayDelete(sessionID, previousVersion, previous)
 }
