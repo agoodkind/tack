@@ -72,6 +72,11 @@ func retryBackoff(attempt int) time.Duration {
 func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
 	discoverNodesOnStart := false
 	pass := c.Password
+	// Config.MaxRetries accepts 0 for one attempt per request. The official client
+	// treats MaxRetries of 0 as its default of six retries and resends requests that time out.
+	// A retry can repeat a point in time create or delete after the first attempt
+	// already took effect. DisableRetry limits the client to one attempt.
+	retriesDisabled := c.MaxRetries == 0
 	return opensearch.Config{
 		Addresses:             []string{c.Endpoint},
 		Username:              c.Username,
@@ -80,6 +85,7 @@ func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) op
 		RequestTimeout:        c.RequestTimeout,
 		RetryOnStatus:         retryStatuses,
 		MaxRetries:            c.MaxRetries,
+		DisableRetry:          retriesDisabled,
 		RetryBackoff:          retryBackoff,
 		RetryBudget:           -1,
 		EnableRetryOnTimeout:  true,
