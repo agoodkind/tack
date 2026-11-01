@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
@@ -22,7 +23,20 @@ const (
 	// raw engine error.
 	snapshotStepFailedCode    = "point_in_time_failed"
 	snapshotStepFailedMessage = "OpenSearch did not complete the point in time operation"
+	// snapshotWriteTimeout limits one audit write of a point in time operation.
+	// It equals the session transaction limit.
+	snapshotWriteTimeout = 5 * time.Second
 )
+
+// snapshotStepError is a failed point in time effect. It keeps the text of
+// err. queryFailure and the callers of closeSnapshot classify and log the
+// failure once, and an expected refusal stays below the error level.
+type snapshotStepError struct {
+	err error
+}
+
+func (e snapshotStepError) Error() string { return e.err.Error() }
+func (e snapshotStepError) Unwrap() error { return e.err }
 
 // snapshotOperation is one point in time operation. Its action ends the
 // external reference, because one request can create and delete the same
@@ -96,7 +110,7 @@ func (s *SearchQueryService) runEncodedStep(
 		Reference: snapshotReferencePrefix + session.ID.String() + "/" + operation.action,
 		ID:        uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
-	err = audit.RunExternal(ctx, s.ports.Audit, intent, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+	err = audit.RunExternal(ctx, boundedOutbox{outbox: s.ports.Audit}, intent, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 		step := audit.ExternalStep(target, encoded)
 		details := audit.OutcomeDetails{
 			Outcome: audit.OutcomeFailed, FailureCode: snapshotStepFailedCode, FailureMessage: snapshotStepFailedMessage, CommittedSteps: nil,
@@ -115,7 +129,25 @@ func (s *SearchQueryService) runEncodedStep(
 		return details, effectErr
 	})
 	if err != nil {
-		return snapshotStepFailure(ctx, "run the point in time step", err)
+		return snapshotStepError{err: err}
+	}
+	return nil
+}
+
+// boundedOutbox writes each audit event of a point in time operation under a
+// context that ignores request cancellation and ends after
+// snapshotWriteTimeout. A stalled outbox write fails within the limit of a
+// session transaction and does not wait for the request budget.
+type boundedOutbox struct {
+	outbox audit.OutboxWriter
+}
+
+// WriteOutbox writes event to the wrapped outbox.
+func (o boundedOutbox) WriteOutbox(ctx context.Context, event audit.Event) error {
+	writeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), snapshotWriteTimeout)
+	defer cancel()
+	if err := o.outbox.WriteOutbox(writeContext, event); err != nil {
+		return snapshotStepFailure(ctx, "write the point in time event", err)
 	}
 	return nil
 }
@@ -133,7 +165,7 @@ func (s *SearchQueryService) closeSnapshot(ctx context.Context, session searchdo
 		closeErr := s.ports.Ranker.Close(ctx, snapshot)
 		alreadyClosed := errors.Is(closeErr, searchdomain.ErrSnapshotLost)
 		if closeErr != nil && !alreadyClosed {
-			return nil, snapshotStepFailure(ctx, "delete the point in time", closeErr)
+			return nil, snapshotStepError{err: closeErr}
 		}
 		return encodeEvidence(ctx, closedSnapshotEvidence{snapshotEvidence: planned, AlreadyClosed: alreadyClosed})
 	})

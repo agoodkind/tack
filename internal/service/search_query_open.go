@@ -55,7 +55,7 @@ func (s *SearchQueryService) openSnapshot(ctx context.Context, session searchdom
 		observed := planned
 		snapshot, openErr = s.ports.Ranker.Open(ctx, session.Query)
 		if openErr != nil {
-			return observed, snapshotStepFailure(ctx, "open the point in time", openErr)
+			return observed, snapshotStepError{err: openErr}
 		}
 		observed.PITID = snapshot.PITID
 		return observed, nil
