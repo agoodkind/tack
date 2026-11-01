@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -91,8 +92,14 @@ func (s *SearchQueryService) sweepExpired(ctx context.Context) {
 	}
 }
 
+// deleteSession closes one expired session and deletes its records. A
+// session that another sweep already deleted counts as finished cleanup.
 func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.UUID) {
 	session, err := s.ports.Sessions.Load(ctx, sessionID)
+	if errors.Is(err, searchdomain.ErrSessionNotFound) {
+		telemetry.L(ctx).DebugContext(ctx, "search.session.sweep_skipped", slog.String("session_id", sessionID.String()))
+		return
+	}
 	if err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
 		return

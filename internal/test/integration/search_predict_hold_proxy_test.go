@@ -30,24 +30,26 @@ const pointInTimePathSuffix = "/_search/point_in_time"
 // the first one open until release. When marker is not empty, it keeps open
 // only the first predict request with marker in its body. After arm, it
 // closes pitCreated once it has forwarded the response of the first point in
-// time create request.
+// time create request. After armDelete, it keeps the first point in time
+// delete request open until release.
 type predictHoldProxy struct {
-	engine     *httputil.ReverseProxy
-	marker     string
-	held       chan struct{}
-	released   chan struct{}
-	pitCreated chan struct{}
-	mutex      sync.Mutex
-	armed      bool
-	holding    bool
-	pitSeen    bool
-	predicts   int
+	engine      *httputil.ReverseProxy
+	marker      string
+	held        chan struct{}
+	released    chan struct{}
+	pitCreated  chan struct{}
+	mutex       sync.Mutex
+	armed       bool
+	deleteArmed bool
+	holding     bool
+	pitSeen     bool
+	predicts    int
 }
 
-// ServeHTTP keeps the first matching model predict request after arm open
-// until release or until the client abandons it, then forwards every request.
+// ServeHTTP keeps the armed request open until release or until the client
+// abandons it, then forwards every request.
 func (proxy *predictHoldProxy) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	if strings.HasPrefix(request.URL.Path, predictPathPrefix) && proxy.hold(proxy.matches(request)) {
+	if proxy.keepsOpen(request) {
 		select {
 		case <-proxy.released:
 		case <-request.Context().Done():
@@ -164,7 +166,7 @@ func startPredictHoldProxy(t *testing.T, engineEndpoint, engineCAPEM, marker str
 			Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12}},
 		},
 		marker: marker, held: make(chan struct{}), released: make(chan struct{}), pitCreated: make(chan struct{}),
-		mutex: sync.Mutex{}, armed: false, holding: false, pitSeen: false, predicts: 0,
+		mutex: sync.Mutex{}, armed: false, deleteArmed: false, holding: false, pitSeen: false, predicts: 0,
 	}
 	listener, err := net.Listen("tcp6", "[::1]:0")
 	if err != nil {
