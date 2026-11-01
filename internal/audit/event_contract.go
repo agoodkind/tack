@@ -83,6 +83,9 @@ type Target struct {
 	ID           uuid.UUID `json:"id,omitzero"`
 	SourceID     uuid.UUID `json:"source_id,omitzero"`
 	TargetID     uuid.UUID `json:"target_id,omitzero"`
+	// OwnerID identifies the person who owns the protected values of this
+	// target when that person differs from ID. JSON encoding omits a zero value.
+	OwnerID uuid.UUID `json:"owner_id,omitzero" exhaustruct:"optional"`
 }
 
 // ReadEvidence records a finished read's result count, payload format, and
