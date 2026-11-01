@@ -141,8 +141,8 @@ func harnessOutboxMatching(ctx context.Context, harness *MCPHarness, label strin
 	}
 }
 
-// Event parts append their payloads to envelopes. A manifest decodes the
-// complete event from those payloads.
+// decodeOutboxEvent appends part payloads to envelopes and decodes their
+// complete event when it reads the manifest.
 func decodeOutboxEvent(entry []byte, envelopes map[string][]byte) (audit.Event, bool) {
 	var record struct {
 		Message string `json:"audit_message"`
