@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 
 	"goodkind.io/tack/internal/adapters/search"
@@ -43,6 +44,11 @@ func TestSearchSnapshotDeleteAlreadyClosedResponse(t *testing.T) {
 	}
 	ranker := adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 65536, BatchSize: 100})
 	snapshot := searchdomain.Snapshot{PITID: created.PITID.String(), Index: index}
+	refusal := ranker.Close(ctx, searchdomain.Snapshot{PITID: "!", Index: index})
+	var backendError *opensearch.StructError
+	if !errors.As(refusal, &backendError) || backendError.Status != http.StatusInternalServerError || backendError.Err.Type != "security_exception" || errors.Is(refusal, searchdomain.ErrSnapshotUncertain) {
+		t.Fatalf("the explicit backend refusal returned %v, want the known HTTP 500 security exception", refusal)
+	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	if err := ranker.Close(canceled, snapshot); !errors.Is(err, context.Canceled) || errors.Is(err, searchdomain.ErrSnapshotUncertain) {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -70,6 +71,8 @@ func readSnapshotResponse(response *http.Response) (snapshotResponse, error) {
 		return snapshotResponse{}, fmt.Errorf("close the point in time response: %w", closeErr)
 	}
 	response.Body = io.NopCloser(bytes.NewReader(payload))
+	response.ContentLength = int64(len(payload))
+	response.Header.Set("Content-Length", strconv.Itoa(len(payload)))
 	var decoded struct {
 		PITID string `json:"pit_id"`
 		PITs  []struct {
@@ -87,6 +90,17 @@ func readSnapshotResponse(response *http.Response) (snapshotResponse, error) {
 		return snapshotResponse{}, fmt.Errorf("the point in time response omits its ID: %s", payload)
 	}
 	return snapshotResponse{id: identifier, status: response.StatusCode}, nil
+}
+
+// truncateSnapshotResponse forwards the real response without its final byte
+// while preserving the declared full body length.
+func truncateSnapshotResponse(response *http.Response) (snapshotResponse, error) {
+	observed, err := readSnapshotResponse(response)
+	if err != nil {
+		return snapshotResponse{}, err
+	}
+	response.Body = io.NopCloser(io.LimitReader(response.Body, response.ContentLength-1))
+	return observed, nil
 }
 
 func waitSnapshotResponse(t *testing.T, responses <-chan snapshotResponse) snapshotResponse {

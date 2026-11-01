@@ -42,7 +42,7 @@ func (body delayedSnapshotBody) Read(buffer []byte) (int, error) {
 // TestSearchSnapshotInterruptedResponseBody deletes a real PIT, flushes its
 // successful HTTP headers, and interrupts the client before its body arrives.
 func TestSearchSnapshotInterruptedResponseBody(t *testing.T) {
-	for _, interruption := range []string{"cancel", "client_timeout"} {
+	for _, interruption := range []string{"cancel", "client_timeout", "truncated_body"} {
 		t.Run(interruption, func(t *testing.T) {
 			engine := testenv.OpenSearch(t)
 			client := integration.OpenSearchClient(t, engine)
@@ -68,6 +68,10 @@ func TestSearchSnapshotInterruptedResponseBody(t *testing.T) {
 			proxy.engine.ModifyResponse = func(response *http.Response) error {
 				if response.Request.Method != http.MethodDelete {
 					return nil
+				}
+				if interruption == "truncated_body" {
+					_, err := truncateSnapshotResponse(response)
+					return err
 				}
 				if _, err := readSnapshotResponse(response); err != nil {
 					return err
@@ -121,15 +125,18 @@ func TestSearchSnapshotInterruptedResponseBody(t *testing.T) {
 			}
 			select {
 			case err := <-done:
-				t.Logf("interrupted response: read_body=%t uncertain=%t error=%v", errors.Is(err, opensearch.ErrReadBody), errors.Is(err, searchdomain.ErrSnapshotUncertain), err)
+				t.Logf("interrupted response: read_body=%t unexpected_eof=%t uncertain=%t parent_error=%v error=%v", errors.Is(err, opensearch.ErrReadBody), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, searchdomain.ErrSnapshotUncertain), ctx.Err(), err)
 				if !errors.Is(err, opensearch.ErrReadBody) || !errors.Is(err, searchdomain.ErrSnapshotUncertain) {
 					t.Fatalf("the applied delete with an unread response returned %v, want an uncertain effect and a body-read failure", err)
+				}
+				if interruption == "truncated_body" && !errors.Is(err, io.ErrUnexpectedEOF) {
+					t.Fatalf("the truncated response returned %v, want an unexpected end of its body", err)
 				}
 			case <-time.After(sessionTimeoutHoldLimit):
 				t.Fatal("the interrupted response did not finish")
 			}
-			if interruption == "client_timeout" && ctx.Err() != nil {
-				t.Fatalf("the client timeout ended the parent context: %v", ctx.Err())
+			if interruption != "cancel" && ctx.Err() != nil {
+				t.Fatalf("the %s case ended the parent context: %v", interruption, ctx.Err())
 			}
 		})
 	}

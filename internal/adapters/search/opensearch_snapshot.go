@@ -119,12 +119,12 @@ func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot)
 	return snapshotEffectFailure(ctx, snapshot.Index, "delete a point in time", deleted, err)
 }
 
-// snapshotEffectFailure preserves an uncertain effect separately from a known
-// failure before a point in time request. An engine response confirms the
-// result even when the request context subsequently ends.
+// snapshotEffectFailure marks a missing usable API response as uncertain.
+// The API helper discards responses after transport, body-read and decode
+// failures. Known failures before the effect do not call this helper.
 func snapshotEffectFailure(ctx context.Context, index, operation string, response *opensearch.Response, err error) error {
 	cause := engineCause(ctx, response, err)
-	if response == nil && (ctx.Err() != nil || errors.Is(err, context.Canceled) || engineTimedOut(ctx, err)) {
+	if response == nil {
 		cause = errors.Join(searchdomain.ErrSnapshotUncertain, cause)
 	}
 	return snapshotFailure(ctx, index, operation, cause)
