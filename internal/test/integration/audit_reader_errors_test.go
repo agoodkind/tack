@@ -57,7 +57,6 @@ type readerErrorDSN struct {
 	forbidden []string
 }
 
-// readerMalformedCase is the test case for a malformed DSN.
 var readerMalformedCase = readerErrorDSN{
 	name: "malformed", dsn: readerMalformedDSN, required: readerFixedMessage, forbidden: []string{readerErrorSecret, readerParseErrorText},
 }
