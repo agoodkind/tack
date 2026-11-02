@@ -2,11 +2,15 @@ package foundationdb
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -59,20 +63,25 @@ func (s *SearchRebuildStore) RetireIndexSessions(ctx context.Context, index stri
 	return remaining, nil
 }
 
-// retireSession deletes one bounded slice of a session that can serve no
-// further page. A presence entry without a session header is removed
-// directly. It reports whether the session still exists afterward.
+// retireSession deletes one bounded slice of a session that cannot serve
+// another page. It directly removes a presence entry without a session
+// header. It reports whether the session still exists afterward.
+// When it cannot read or decode the session, it records a failed cleanup
+// event through recordSessionLoadFailure and leaves the session and its
+// presence entry in place.
 func (s *SearchRebuildStore) retireSession(ctx context.Context, index string, sessionID uuid.UUID, now time.Time) (bool, error) {
 	var record searchSessionRecord
-	var found bool
+	var found, headerAbsent bool
 	var restoreEpoch int64
 	err := transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
 		var readErr error
+		headerAbsent = false
 		found, readErr = readSessionValue(tr, searchSessionKey(sessionID), &record)
 		if readErr != nil {
 			return readErr
 		}
 		if !found {
+			headerAbsent = true
 			tr.Clear(fdb.Key(searchSessionPresenceKey(index, sessionID)))
 			return nil
 		}
@@ -80,14 +89,19 @@ func (s *SearchRebuildStore) retireSession(ctx context.Context, index string, se
 		return readErr
 	})
 	if err != nil {
-		return true, searchStorageError(ctx, "search.rebuild.session_read_failed", "read session "+sessionID.String(), uuid.Nil, err)
+		failure := searchStorageError(ctx, "search.rebuild.session_read_failed", "read session "+sessionID.String(), uuid.Nil, err)
+		if headerAbsent {
+			return true, failure
+		}
+		return true, s.recordSessionLoadFailure(ctx, sessionID, failure)
 	}
 	if !found {
 		return false, nil
 	}
 	session, err := record.session(nil)
 	if err != nil {
-		return true, searchStorageError(ctx, "search.rebuild.session_read_failed", "decode session "+sessionID.String(), uuid.Nil, err)
+		failure := searchStorageError(ctx, "search.rebuild.session_read_failed", "decode session "+sessionID.String(), uuid.Nil, err)
+		return true, s.recordSessionLoadFailure(ctx, sessionID, failure)
 	}
 	if session.Continuable(now, restoreEpoch) {
 		return true, nil
@@ -110,6 +124,22 @@ func (s *SearchRebuildStore) retireSession(ctx context.Context, index string, se
 		return true, err
 	}
 	return !deleted, nil
+}
+
+// recordSessionLoadFailure calls RecordCleanupFailure with CleanupDelete,
+// the step the search sweep records for the same failure. It returns cause
+// when the event commits. When the event does not commit, it logs the
+// recording error and returns an error that matches audit.ErrEventNotRecorded
+// and contains cause and the recording error. Each call writes a new event,
+// so each retirement slice that fails on a session adds one event.
+func (s *SearchRebuildStore) recordSessionLoadFailure(ctx context.Context, sessionID uuid.UUID, cause error) error {
+	err := s.sessions.RecordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, cause)
+	if err == nil {
+		return cause
+	}
+	slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
+	return errors.Join(audit.ErrEventNotRecorded, cause,
+		fmt.Errorf("record the failed cleanup step %s of search session %s: %w", searchdomain.CleanupDelete, sessionID, err))
 }
 
 // RetiredSince returns when the first page of index was retired.
