@@ -2,11 +2,9 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -22,6 +20,8 @@ const (
 	auditEventURIPrefix = "tack:audit-event/"
 	// auditEventPartURISegment is the URI segment before a part index.
 	auditEventPartURISegment = "/part/"
+	// auditEventInvalidURI is the fixed target URI for a malformed event ID.
+	auditEventInvalidURI = "tack:audit-event/invalid"
 )
 
 // auditManifestPartsInput stores the flag values that the audit event records as safe input.
@@ -72,39 +72,6 @@ func auditResourceTarget(uri string) audit.Target {
 	}
 }
 
-// parseAuditManifestUUID parses one flag value as a UUID.
-func parseAuditManifestUUID(ctx context.Context, flag, value string) (uuid.UUID, error) {
-	id, err := uuid.Parse(strings.TrimSpace(value))
-	if err != nil {
-		slog.ErrorContext(ctx, "audit.manifest_parts_bad_flag", slog.String("flag", flag), slog.String("err", err.Error()))
-		return uuid.Nil, fmt.Errorf("%s: %s must be a UUID: %w", auditManifestPartsCommand, flag, err)
-	}
-	return id, nil
-}
-
-// auditManifestPartsSpec declares the typed read. SafeInput returns the input unchanged. The input contains only --org and --event-id.
-func auditManifestPartsSpec() audit.Spec {
-	return audit.Spec{
-		Verb: string(audit.VerbAuditRead), Reads: true, Class: audit.OperationRead,
-		Targets:   auditManifestPartsTargets,
-		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },
-	}
-}
-
-// auditManifestPartsTargets decodes the input and returns the audited event target.
-func auditManifestPartsTargets(ctx context.Context, input json.RawMessage) ([]audit.Target, error) {
-	var in auditManifestPartsInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		slog.ErrorContext(ctx, "audit.manifest_parts_input_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("%s: decode the command input: %w", auditManifestPartsCommand, err)
-	}
-	eventID, err := parseAuditManifestUUID(ctx, "--event-id", in.EventID)
-	if err != nil {
-		return nil, err
-	}
-	return []audit.Target{auditResourceTarget(auditEventURI(eventID))}, nil
-}
-
 // auditManifestPartsOp declares the command in the ops audit group.
 func auditManifestPartsOp(f *cli.Factory) clispec.Operation[auditManifestPartsInput] {
 	return clispec.Operation[auditManifestPartsInput]{
@@ -131,7 +98,7 @@ func auditManifestPartsOp(f *cli.Factory) clispec.Operation[auditManifestPartsIn
 	}
 }
 
-// runAuditManifestParts reads parts through the audit_reader role and writes the result without payloads.
+// runAuditManifestParts reads and writes manifest part indexes and digests without loading payloads.
 func runAuditManifestParts(ctx context.Context, f *cli.Factory, in auditManifestPartsInput, sink clispec.ResultSink) error {
 	orgID, err := parseAuditManifestUUID(ctx, "--org", in.Org)
 	if err != nil {
@@ -143,11 +110,12 @@ func runAuditManifestParts(ctx context.Context, f *cli.Factory, in auditManifest
 	}
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.manifest_parts_reader_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("%s: open the ledger reader: %w", auditManifestPartsCommand, err)
+		// Omit the reader error, which can contain text from AUDIT_READER_DSN.
+		slog.ErrorContext(ctx, "audit.manifest_parts_reader_failed", slog.String("err", "the ledger reader did not open"))
+		return fmt.Errorf("%s: open the ledger reader: check AUDIT_READER_DSN", auditManifestPartsCommand)
 	}
 	defer reader.Close()
-	parts, err := reader.ManifestParts(ctx, orgID, eventID)
+	parts, err := reader.ManifestPartDigests(ctx, orgID, eventID)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.manifest_parts_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
 		return fmt.Errorf("%s %s: %w", auditManifestPartsCommand, eventID, err)

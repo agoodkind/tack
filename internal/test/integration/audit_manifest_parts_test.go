@@ -7,25 +7,38 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
+	"goodkind.io/tack/internal/testenv"
 )
 
-// manifestUnreachableReaderDSN is a reader DSN with a port that refuses connections.
-const manifestUnreachableReaderDSN = "postgres://nobody@[::1]:1/tack?connect_timeout=1"
+const (
+	// manifestUnreachableReaderDSN identifies an unreachable audit reader.
+	manifestUnreachableReaderDSN = "postgres://nobody@[::1]:1/tack?connect_timeout=1"
+	// manifestDSNSecret is the password text in the malformed reader DSN.
+	manifestDSNSecret = "manifest-parts-secret-text"
+	// manifestMalformedReaderDSN is a reader DSN that does not parse.
+	manifestMalformedReaderDSN = "postgres://nobody:" + manifestDSNSecret + "@[::1:1/tack"
+	// manifestMalformedFlag is a flag value that does not parse as a UUID.
+	manifestMalformedFlag = "manifest-parts-raw-flag-text"
+	// manifestInvalidTargetURI is the fixed audit target for a malformed event ID.
+	manifestInvalidTargetURI = "tack:audit-event/invalid"
+)
 
-// manifestPartEntry represents one decoded part entry.
+// manifestPartEntry represents one part in the command report.
 type manifestPartEntry struct {
 	Index  uint32 `json:"index"`
 	Digest string `json:"digest"`
 }
 
-// manifestPartsReport represents the decoded command result.
+// manifestPartsReport represents the command report.
 type manifestPartsReport struct {
 	Command   string              `json:"command"`
 	OrgID     uuid.UUID           `json:"org_id"`
@@ -34,77 +47,92 @@ type manifestPartsReport struct {
 	Parts     []manifestPartEntry `json:"parts"`
 }
 
-// manifestReadRun represents the audit evidence required for one executed run.
+// manifestReadRun contains the audit evidence required for one executed run.
 type manifestReadRun struct {
-	orgID         uuid.UUID
-	eventID       uuid.UUID
-	outcome       audit.Outcome
-	payloadSHA256 string
-	targetCount   uint64
+	orgInput        string
+	eventInput      string
+	targetURI       string
+	outcome         audit.Outcome
+	errorCode       string
+	messageContains string
+	forbidden       string
+	payloadSHA256   string
+	partURIs        []string
 }
 
-// manifestCommandRun records stdout, stderr, and the error from one command run.
+// manifestRunOptions contains the reader DSN, lifecycle pool, and operator for one command run.
+type manifestRunOptions struct {
+	readerDSN  string
+	lifecycle  *pgxpool.Pool
+	operatorID uuid.UUID
+}
+
+// manifestCommandRun contains the standard output, standard error, and error from one command run.
 type manifestCommandRun struct {
 	stdout string
 	stderr string
 	err    error
 }
 
-// TestAuditManifestPartsReportsStoredParts checks command results and audit records through the rendered ops command tree. It uses the audit_reader role and the production read lifecycle with a running relay and audit consumer.
+// TestAuditManifestPartsReportsStoredParts runs the command through the rendered ops tree and checks the reported parts and audit evidence. It checks read failures and recording refusals.
 func TestAuditManifestPartsReportsStoredParts(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
-	readerDSN := ledger.cfg.AuditReaderDSN
-	operatorID, orgID, otherOrgID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	orgID, otherOrgID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	storedEvent, storedParts := storeManifestRead(t, ledger, orgID)
+	operator := manifestRunOptions{
+		readerDSN: ledger.cfg.AuditReaderDSN, lifecycle: rolePool(t, testenv.Ledger(t), "audit_operator"), operatorID: uuid.Must(uuid.NewV7()),
+	}
 
 	// Run without --execute and with an empty reader DSN.
-	dry := runManifestParts(t, ledger, "", operatorID, "--org", orgID.String(), "--event-id", storedEvent.String())
+	dryOptions := operator
+	dryOptions.readerDSN = ""
+	dry := runManifestParts(t, ledger, dryOptions, manifestArgs(orgID.String(), storedEvent.String())...)
 	if dry.err != nil || !strings.Contains(dry.stderr, "would run: audit.read") || strings.Contains(dry.stdout, "part_count") {
 		t.Fatalf("dry run = %+v, want no error, a plan on stderr, and no result", dry)
 	}
 
-	// Check stored parts, an event without parts, and the stored event with another org.
-	storedRun := requireManifestRead(t, ledger, readerDSN, operatorID, orgID, storedEvent, storedParts)
+	// Check stored parts, an event without parts, and another org.
 	emptyEvent := uuid.Must(uuid.NewV7())
-	emptyRun := requireManifestRead(t, ledger, readerDSN, operatorID, orgID, emptyEvent, nil)
-	otherOrgRun := requireManifestRead(t, ledger, readerDSN, operatorID, otherOrgID, storedEvent, nil)
-
-	// Run with an unreachable reader.
-	failedEvent := uuid.Must(uuid.NewV7())
-	failed := runManifestParts(t, ledger, manifestUnreachableReaderDSN, operatorID, "--org", orgID.String(), "--event-id", failedEvent.String(), "--execute")
-	if failed.err == nil || strings.Contains(failed.stdout, "part_count") {
-		t.Fatalf("run with an unreachable reader = %+v, want an error and no result", failed)
+	runs := []manifestReadRun{
+		requireManifestRead(t, ledger, operator, orgID, storedEvent, storedParts),
+		requireManifestRead(t, ledger, operator, orgID, emptyEvent, nil),
+		requireManifestRead(t, ledger, operator, otherOrgID, storedEvent, nil),
 	}
-	failedRun := manifestReadRun{orgID: orgID, eventID: failedEvent, outcome: audit.OutcomeFailed, payloadSHA256: "", targetCount: 0}
-
-	// Check the audit.read rows for the executed runs.
-	requireStoredAuditReads(t, ledger, operatorID, []manifestReadRun{storedRun, emptyRun, otherOrgRun, failedRun})
+	// Check the audit rows and failing reads.
+	runs = append(runs, requireManifestFailures(t, ledger, operator, orgID)...)
+	requireStoredAuditReads(t, ledger, operator.operatorID, runs)
+	requireManifestRecordingRefusals(t, ledger, operator, orgID, storedEvent)
 }
 
-// runManifestParts runs the command through the rendered ops tree as operatorID with readerDSN and args.
-func runManifestParts(t *testing.T, ledger *nodeAuditLedger, readerDSN string, operatorID uuid.UUID, args ...string) manifestCommandRun {
+// manifestArgs returns the flags for one command run.
+func manifestArgs(org, event string, extra ...string) []string {
+	return append([]string{"--org", org, "--event-id", event}, extra...)
+}
+
+// runManifestParts runs the command through the rendered ops tree.
+func runManifestParts(t *testing.T, ledger *nodeAuditLedger, options manifestRunOptions, args ...string) manifestCommandRun {
 	t.Helper()
 	cfg := *ledger.cfg
-	cfg.AuditReaderDSN = readerDSN
+	cfg.AuditReaderDSN = options.readerDSN
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	factory := cli.System(&cfg)
 	factory.Out, factory.Err = stdout, stderr
 	factory.SetAuditOutbox(audit.NewPoolOutbox(ledger.admin))
-	factory.SetAuditReads(audit.NewPoolReadLifecycle(ledger.admin))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(options.lifecycle))
 	root := nodeAuditCommandRoot(factory)
 	root.SetContext(t.Context())
 	root.SetArgs(slices.Concat([]string{
-		"--output", "json", "--operator-id", operatorID.String(), "--operator-email", "manifest-parts@example.test",
+		"--output", "json", "--operator-id", options.operatorID.String(), "--operator-email", "manifest-parts@example.test",
 		"ops", "audit", "manifest-parts",
 	}, args))
 	err := root.Execute()
 	return manifestCommandRun{stdout: stdout.String(), stderr: stderr.String(), err: err}
 }
 
-// requireManifestRead runs the command successfully and checks the result and payload omission. It returns the expected audit evidence.
-func requireManifestRead(t *testing.T, ledger *nodeAuditLedger, readerDSN string, operatorID, orgID, eventID uuid.UUID, parts []audit.ManifestPart) manifestReadRun {
+// requireManifestRead runs a successful command and compares each printed digest with the digest of the separately read payload. It checks that the output omits payloads and returns the expected audit evidence.
+func requireManifestRead(t *testing.T, ledger *nodeAuditLedger, options manifestRunOptions, orgID, eventID uuid.UUID, parts []audit.ManifestPart) manifestReadRun {
 	t.Helper()
-	run := runManifestParts(t, ledger, readerDSN, operatorID, "--org", orgID.String(), "--event-id", eventID.String(), "--execute")
+	run := runManifestParts(t, ledger, options, manifestArgs(orgID.String(), eventID.String(), "--execute")...)
 	if run.err != nil {
 		t.Fatalf("ops audit manifest-parts for event %s = %+v, want no error", eventID, run)
 	}
@@ -119,9 +147,11 @@ func requireManifestRead(t *testing.T, ledger *nodeAuditLedger, readerDSN string
 		t.Fatalf("decode the command result: %v\n%s", err, run.stdout)
 	}
 	want := make([]manifestPartEntry, 0, len(parts))
+	partURIs := make([]string, 0, len(parts))
 	for _, part := range parts {
 		digest := sha256.Sum256(part.Payload)
 		want = append(want, manifestPartEntry{Index: part.Index, Digest: hex.EncodeToString(digest[:])})
+		partURIs = append(partURIs, "tack:audit-event/"+eventID.String()+"/part/"+strconv.FormatUint(uint64(part.Index), 10))
 		if strings.Contains(run.stdout, string(part.Payload)) || strings.Contains(run.stdout, base64.StdEncoding.EncodeToString(part.Payload)) {
 			t.Fatalf("stdout contains the payload bytes of part %d:\n%s", part.Index, run.stdout)
 		}
@@ -139,7 +169,8 @@ func requireManifestRead(t *testing.T, ledger *nodeAuditLedger, readerDSN string
 	}
 	digest := sha256.Sum256(compact.Bytes())
 	return manifestReadRun{
-		orgID: orgID, eventID: eventID, outcome: audit.OutcomeCompleted,
-		payloadSHA256: hex.EncodeToString(digest[:]), targetCount: uint64(len(want)),
+		orgInput: orgID.String(), eventInput: eventID.String(), targetURI: "tack:audit-event/" + eventID.String(),
+		outcome: audit.OutcomeCompleted, errorCode: "", messageContains: "", forbidden: "",
+		payloadSHA256: hex.EncodeToString(digest[:]), partURIs: partURIs,
 	}
 }
