@@ -40,7 +40,7 @@ var errRetireAttemptFenced = errors.New("recovery already resolved this retireme
 // the record. The transaction result does not identify which removed it.
 // This error does not wrap errRetireAttemptFenced or
 // audit.ErrEventNotRecorded.
-var errRetireClearAbsent = errors.New("the retirement attempt record is absent after an uncertain clear; this clear or recovery removed it")
+var errRetireClearAbsent = errors.New("the retirement attempt record is absent after a retried clear; this clear or recovery removed it")
 
 // errRetireRebuildEnded is returned by beginRetireAttempt when the replacement
 // record is absent or retires another index. The attempt save reads the

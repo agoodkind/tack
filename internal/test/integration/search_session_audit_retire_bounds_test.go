@@ -20,7 +20,7 @@ import (
 const (
 	retireClearReady     = "search.session.retire_clear_ready"
 	retireClearAbsent    = "search.session.retire_clear_absent"
-	retireClearAbsentErr = "the retirement attempt record is absent after an uncertain clear; this clear or recovery removed it"
+	retireClearAbsentErr = "the retirement attempt record is absent after a retried clear; this clear or recovery removed it"
 	retireFinishCalls    = 4
 	byteLimitRecords     = 13
 	byteLimitFirstPass   = 12
@@ -101,7 +101,7 @@ func TestSearchSessionAuditRetireRecoveryByteLimit(t *testing.T) {
 	}
 }
 
-func attemptRecordValues(t *testing.T) [][]byte {
+func attemptRecordValues(t *testing.T, want int) [][]byte {
 	t.Helper()
 	prefix := append(bytes.Clone(fdbadapter.TestPrefixRange()), tuple.Tuple{retireAttemptFamily}.Pack()...)
 	keyRange, err := fdb.PrefixRange(prefix)
@@ -118,8 +118,8 @@ func attemptRecordValues(t *testing.T) [][]byte {
 	for _, item := range items {
 		values = append(values, item.Value)
 	}
-	if len(values) != retireLeaseRecordSize {
-		t.Fatalf("found %d attempt records, want %d", len(values), retireLeaseRecordSize)
+	if len(values) != want {
+		t.Fatalf("found %d attempt records, want %d", len(values), want)
 	}
 	return values
 }
