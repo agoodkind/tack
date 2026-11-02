@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/auditrelay"
@@ -43,8 +44,8 @@ var errRelayCrashed = errors.New("relay crashed after the configured record coun
 // startWorkers starts one relay and one audit consumer per app instance on
 // topic. The consumers share one Kafka group. When crashAfter is positive, it
 // waits for the first relay to publish a record before starting the remaining
-// relays.
-func (run *scalingRun) startWorkers(t *testing.T, topic string) {
+// relays. It returns the group.
+func (run *scalingRun) startWorkers(t *testing.T, topic string) string {
 	t.Helper()
 	group := "tack-scaling-test-" + uuid.NewString()[:8]
 	for range run.result.instances {
@@ -58,6 +59,25 @@ func (run *scalingRun) startWorkers(t *testing.T, topic string) {
 	for range run.result.instances - first {
 		run.openRelay(t, topic, nil).Start(t.Context())
 	}
+	return group
+}
+
+// waitForConsumed waits until both outboxes are empty and group has consumed
+// every record of topic. The relay can publish more records while an outbox has
+// entries. A pause in the consumer leaves the ledger count unchanged while
+// records remain in the topic.
+func (run *scalingRun) waitForConsumed(t *testing.T, admin *pgxpool.Pool, topic, group string) {
+	t.Helper()
+	ledgerDSN := testenv.Ledger(t)
+	reader, err := audit.NewReader(t.Context(), ledgerDSN)
+	if err != nil {
+		t.Fatalf("Opening the audit reader failed; the scaling run requires committed consumer offsets: %v", err)
+	}
+	defer reader.Close()
+	brokers := testenv.Kafka(t)
+	waitFor(t, "consumption of every scaling record", func() bool {
+		return run.outboxEntries(t) == 0 && outboxRecordCount(t, admin) == 0 && topicConsumed(t, reader, brokers, topic, group)
+	})
 }
 
 // startCrashingRelay starts a relay that cancels its context after crashAfter
