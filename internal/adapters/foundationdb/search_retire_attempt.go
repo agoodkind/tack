@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -16,31 +15,41 @@ import (
 )
 
 const (
-	retireAttemptSaveOperation    = "save search session retirement attempt"
-	retireAttemptFailureOperation = "record search session retirement failure"
-	retireAttemptClearOperation   = "clear search session retirement attempt"
-	// retireAttemptLease is the time recoverRetireAttempts treats a saved attempt
-	// as active. It equals searchTransactionTimeout plus twice
-	// audit.ExternalResultDeadline. retireStep and recordRetireFailure apply those
-	// limits to the attempt save, cleanup step, and result write. The configured
-	// search worker lease cannot extend those limits. A clock difference between
-	// processes can start recovery early. Recovery can then save an incomplete
-	// event while the attempt owner can still save its failed event under a
-	// different event ID.
-	retireAttemptLease = searchTransactionTimeout + 2*audit.ExternalResultDeadline
+	retireAttemptSaveOperation = "save search session retirement attempt"
+	// retireAttemptLease is how long recoverRetireAttempts treats a saved
+	// attempt as active. It equals twice searchTransactionTimeout plus three
+	// times audit.ExternalResultDeadline. These limits cover the attempt save,
+	// cleanup, result write, failure code save, and recorder call. The configured
+	// search worker lease cannot extend them. A clock difference between processes
+	// can start recovery early. Recovery can then save an incomplete event while
+	// the attempt owner can still save its failed event under a different event ID.
+	retireAttemptLease = 2*searchTransactionTimeout + 3*audit.ExternalResultDeadline
 )
 
-// errRetireAttemptFenced indicates that recovery cleared the attempt record
-// and saved an incomplete event. beginCleanup, cleanupSlice, and
-// clearRetireAttempt return it when the attempt record is absent. It wraps
-// audit.ErrEventNotRecorded because the attempt owner did not save the result.
-var errRetireAttemptFenced = fmt.Errorf("%w: recovery already resolved this retirement attempt", audit.ErrEventNotRecorded)
+// errRetireAttemptFenced is returned by beginCleanup, cleanupSlice, and
+// clearRetireAttempt when the attempt record is absent. Recovery normally
+// clears the record and saves an incomplete event. A clear that retries after
+// its own commit applied can also find the record absent. This error does not
+// wrap audit.ErrEventNotRecorded because the store did not fail to save
+// evidence.
+var errRetireAttemptFenced = errors.New("recovery already resolved this retirement attempt")
+
+// errRetireRebuildEnded is returned by beginRetireAttempt when the replacement
+// record is absent or retires another index. The attempt save reads the
+// replacement key, and that read conflicts with FinishRebuild.
+var errRetireRebuildEnded = errors.New("the index replacement of this retirement attempt has ended")
+
+// errRetireAttemptsRemain is returned by FinishRebuild when an attempt record
+// for the deleted index exists. The read conflicts with a late attempt save.
+var errRetireAttemptsRemain = errors.New("retirement attempt records remain for the deleted index")
 
 // retireAttemptRecord stores one attempt's lease deadline and encoded failure
 // event.
 type retireAttemptRecord struct {
-	Deadline time.Time       `json:"deadline"`
-	Event    json.RawMessage `json:"event"`
+	Deadline         time.Time       `json:"deadline"`
+	Event            json.RawMessage `json:"event"`
+	CleanupFailure   string          `json:"cleanup_failure,omitempty"`
+	RecordingFailure string          `json:"recording_failure,omitempty"`
 }
 
 // retireAttempt identifies one saved retirement cleanup attempt by its
@@ -119,12 +128,21 @@ func (s *SearchRebuildStore) beginRetireAttempt(ctx context.Context, index strin
 	if err != nil {
 		return retireAttempt{}, sessionFailure(ctx, retireAttemptSaveOperation, sessionID, err)
 	}
-	encoded, err := json.Marshal(retireAttemptRecord{Deadline: s.work.clock.Now().Add(retireAttemptLease), Event: encodedEvent})
+	encoded, err := json.Marshal(retireAttemptRecord{
+		Deadline: s.work.clock.Now().Add(retireAttemptLease), Event: encodedEvent, CleanupFailure: "", RecordingFailure: "",
+	})
 	if err != nil {
 		return retireAttempt{}, sessionFailure(ctx, retireAttemptSaveOperation, sessionID, err)
 	}
 	attempt := retireAttempt{key: fdb.Key(searchRetireAttemptKey(index, sessionID, step, event.EventID)), sessionID: sessionID, event: event}
 	err = transactSession(ctx, s.db, s.work.clock, retireAttemptSaveOperation, sessionID, func(tr fdb.Transaction) error {
+		rebuild, found, readErr := readRebuild(ctx, tr)
+		if readErr != nil {
+			return readErr
+		}
+		if !found || rebuild.SourceIndex != index {
+			return errRetireRebuildEnded
+		}
 		tr.Set(attempt.key, encoded)
 		return nil
 	})
@@ -133,65 +151,4 @@ func (s *SearchRebuildStore) beginRetireAttempt(ctx context.Context, index strin
 	}
 	slog.DebugContext(ctx, "search.session.retire_attempt_saved", slog.String("session_id", sessionID.String()), slog.String("step", string(step)))
 	return attempt, nil
-}
-
-// recordRetireFailure clears the attempt record and writes the failure event
-// to the outbox in one transaction. It ignores cancellation of ctx and ends
-// after audit.ExternalResultDeadline. It writes the failure event even if
-// recovery already saved an incomplete event. The failure event records the
-// definite result under a different event ID. If recording succeeds, it returns
-// cause unchanged. If recording fails, it logs the recording error, retains the
-// attempt record for recoverRetireAttempts, and returns an error joining cause
-// and the recording error.
-func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, attempt retireAttempt, step searchdomain.CleanupStep, cause error) error {
-	sessionID := attempt.sessionID
-	slog.ErrorContext(ctx, "search.session.cleanup_failed", slog.String("err", cause.Error()),
-		slog.String("session_id", sessionID.String()), slog.String("step", string(step)))
-	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), audit.ExternalResultDeadline)
-	defer cancel()
-	encoded, err := audit.EncodeEvent(retireResultEvent(attempt.event, s.work.clock.Now(), cause), nil)
-	if err == nil {
-		err = transactSession(recordContext, s.db, s.work.clock, retireAttemptFailureOperation, sessionID, func(tr fdb.Transaction) error {
-			// This read makes the failure event transaction conflict with a recovery
-			// that clears the attempt record. The transaction writes the failure
-			// event whether or not the record exists.
-			if _, readErr := tr.Get(attempt.key).Get(); readErr != nil {
-				return sessionStepError{operation: "read retirement attempt", err: readErr}
-			}
-			tr.Clear(attempt.key)
-			return NewOutboxWriter(tr).WriteEncodedEvent(recordContext, encoded)
-		})
-	}
-	if err == nil {
-		return cause
-	}
-	slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
-	return errors.Join(
-		fmt.Errorf("search session %s cleanup step %s failed: %w", sessionID, step, cause),
-		fmt.Errorf("record the failed cleanup step %s of search session %s: %w", step, sessionID, err),
-	)
-}
-
-// clearRetireAttempt reads and clears the attempt record in one transaction
-// after the cleanup step commits its change events in a separate transaction.
-// It returns errRetireAttemptFenced if the record is absent. If the clear
-// fails, recoverRetireAttempts later saves an incomplete event for the attempt.
-func (s *SearchRebuildStore) clearRetireAttempt(ctx context.Context, attempt retireAttempt) error {
-	clearContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), audit.ExternalResultDeadline)
-	defer cancel()
-	return transactSession(clearContext, s.db, s.work.clock, retireAttemptClearOperation, attempt.sessionID, func(tr fdb.Transaction) error {
-		if fenceErr := requireRetireFence(tr, attempt.key); fenceErr != nil {
-			return fenceErr
-		}
-		tr.Clear(attempt.key)
-		return nil
-	})
-}
-
-func attemptCompletion(event audit.Event, now time.Time) time.Time {
-	completed := now.UTC()
-	if completed.Before(event.Context.StartedAt) {
-		return event.Context.StartedAt
-	}
-	return completed
 }

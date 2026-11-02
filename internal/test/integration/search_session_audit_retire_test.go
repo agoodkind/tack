@@ -34,6 +34,19 @@ func retiringSession(t *testing.T, stores *fdbadapter.Stores, index string) sear
 	return session
 }
 
+func beginRetiringRebuild(t *testing.T, stores *fdbadapter.Stores, index string) {
+	t.Helper()
+	ctx := integration.WithTestOperation(t, t.Context())
+	if err := stores.InitializeSearchIndex(ctx, index); err != nil {
+		t.Fatalf("record serving index %s: %v", index, err)
+	}
+	if _, err := stores.SearchRebuilds(clock.Wall{}).BeginRebuild(ctx, searchdomain.BeginRebuild{
+		Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 8, Replicas: 0, Restored: false, Reason: "retirement audit test",
+	}); err != nil {
+		t.Fatalf("begin the replacement of index %s: %v", index, err)
+	}
+}
+
 func cleanupFailureEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte, sessionID uuid.UUID, step searchdomain.CleanupStep) []audit.Event {
 	t.Helper()
 	entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), mark, searchAuditPageLimit)
@@ -59,8 +72,6 @@ func cleanupFailureEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte, 
 // RetireIndexSessions must return each error and record one failed result
 // event with the organization and owner of the session.
 func TestSearchSessionAuditRetireFailuresRecorded(t *testing.T) {
-	stores := sessionStoreStores(t)
-	rebuilds := stores.SearchRebuilds(clock.Wall{})
 	cases := []struct {
 		index   string
 		closing bool
@@ -71,25 +82,30 @@ func TestSearchSessionAuditRetireFailuresRecorded(t *testing.T) {
 		{index: "node-pages-delete-failure", closing: true, step: searchdomain.CleanupDelete, verb: audit.VerbSearchSessionDelete},
 	}
 	for _, current := range cases {
-		session := retiringSession(t, stores, current.index)
-		if current.closing {
-			store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
-			if err := store.BeginCleanup(integration.WithTestOperation(t, t.Context()), session.ID); err != nil {
-				t.Fatalf("close session %s: %v", session.ID, err)
+		t.Run(current.index, func(t *testing.T) {
+			stores := sessionStoreStores(t)
+			rebuilds := stores.SearchRebuilds(clock.Wall{})
+			beginRetiringRebuild(t, stores, current.index)
+			session := retiringSession(t, stores, current.index)
+			if current.closing {
+				store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
+				if err := store.BeginCleanup(integration.WithTestOperation(t, t.Context()), session.ID); err != nil {
+					t.Fatalf("close session %s: %v", session.ID, err)
+				}
 			}
-		}
-		mark := searchOutboxTail(t, stores)
-		_, err := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), current.index, retireSliceLimit)
-		requireChangeEventFailure(t, "RetireIndexSessions of "+current.index, err)
-		events := cleanupFailureEvents(t, stores, mark, session.ID, current.step)
-		if len(events) != 1 {
-			t.Fatalf("session %s has %d %s events, want 1", session.ID, len(events), current.step)
-		}
-		event := events[0]
-		if event.Verb != string(current.verb) || event.Outcome != audit.OutcomeFailed || event.Context.OrgID != session.AuthorityID ||
-			event.Context.Target == nil || event.Context.Target.OwnerID != session.PrincipalID {
-			t.Fatalf("cleanup failure event = %+v, target %+v, want %s in organization %s with owner %s",
-				event, event.Context.Target, current.verb, session.AuthorityID, session.PrincipalID)
-		}
+			mark := searchOutboxTail(t, stores)
+			_, err := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), current.index, retireSliceLimit)
+			requireChangeEventFailure(t, "RetireIndexSessions of "+current.index, err)
+			events := cleanupFailureEvents(t, stores, mark, session.ID, current.step)
+			if len(events) != 1 {
+				t.Fatalf("session %s has %d %s events, want 1", session.ID, len(events), current.step)
+			}
+			event := events[0]
+			if event.Verb != string(current.verb) || event.Outcome != audit.OutcomeFailed || event.Context.OrgID != session.AuthorityID ||
+				event.Context.Target == nil || event.Context.Target.OwnerID != session.PrincipalID {
+				t.Fatalf("cleanup failure event = %+v, target %+v, want %s in organization %s with owner %s",
+					event, event.Context.Target, current.verb, session.AuthorityID, session.PrincipalID)
+			}
+		})
 	}
 }

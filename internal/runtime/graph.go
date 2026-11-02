@@ -93,7 +93,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		pool.Close()
 		return nil, err
 	}
-	search, err := buildSearchRuntime(ctx, cfg, fdbStores, source)
+	search, err := buildSearchRuntime(ctx, cfg, fdbStores, source, auditRuntimeDeps.Recorder)
 	if err != nil {
 		slog.ErrorContext(ctx, "server.search_failed", slog.String("err", err.Error()))
 		auditRuntimeDeps.Close()

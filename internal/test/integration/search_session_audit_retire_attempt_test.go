@@ -30,6 +30,7 @@ func TestSearchSessionAuditRetireLateOwnerSavesFailure(t *testing.T) {
 	stores := sessionStoreStores(t)
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
 	index := "node-pages-late-owner"
+	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
 	mark := searchOutboxTail(t, stores)
 	lateContext := withFutureOperation(t, t.Context())
@@ -76,6 +77,7 @@ func TestSearchSessionAuditRetireLateEffectIsFenced(t *testing.T) {
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
 	store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
 	index := "node-pages-late-effect"
+	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
 	mark := searchOutboxTail(t, stores)
 	lateContext := integration.WithTestOperation(t, t.Context())
@@ -93,8 +95,8 @@ func TestSearchSessionAuditRetireLateEffectIsFenced(t *testing.T) {
 
 	remaining, err := rebuilds.RetireIndexSessions(lateContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
-	if err == nil || !remaining || !strings.Contains(err.Error(), retireAttemptFenced) {
-		t.Fatalf("RetireIndexSessions of %s with a late effect = %t, %v, want remaining work and text %q", index, remaining, err, retireAttemptFenced)
+	if err == nil || !remaining || !strings.Contains(err.Error(), retireAttemptFenced) || errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf("RetireIndexSessions of %s with a late effect = %t, %v, want remaining work and only the fence text %q", index, remaining, err, retireAttemptFenced)
 	}
 	recovered := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved))
 	if len(recovered) != 1 || recovered[0].Context.OperationID != operation.Context.OperationID {
@@ -129,6 +131,7 @@ func TestSearchSessionAuditRetireClearReportsLostOwnership(t *testing.T) {
 	stores := sessionStoreStores(t)
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
 	index := "node-pages-lost-clear"
+	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
 	mark := searchOutboxTail(t, stores)
 	ownerContext := integration.WithTestOperation(t, t.Context())
@@ -147,8 +150,8 @@ func TestSearchSessionAuditRetireClearReportsLostOwnership(t *testing.T) {
 
 	remaining, err := rebuilds.RetireIndexSessions(ownerContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
-	if !errors.Is(err, audit.ErrEventNotRecorded) || !remaining {
-		t.Fatalf("RetireIndexSessions of %s with a lost clear = %t, %v, want remaining work and %v", index, remaining, err, audit.ErrEventNotRecorded)
+	if err == nil || !remaining || !strings.Contains(err.Error(), retireAttemptFenced) || errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf("RetireIndexSessions of %s with a lost clear = %t, %v, want remaining work and only the fence text %q", index, remaining, err, retireAttemptFenced)
 	}
 	recovered := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved))
 	if len(recovered) != 1 || recovered[0].Context.OperationID != operation.Context.OperationID {

@@ -57,7 +57,18 @@ func (s *SearchRebuildStore) FinishRebuild(ctx context.Context, work searchdomai
 	if read.State == searchdomain.RebuildFailed {
 		deleted = read.TargetIndex
 	}
+	attempts, err := fdb.PrefixRange(searchRetireAttemptPrefix(deleted))
+	if err != nil {
+		return searchStorageError(ctx, "search.rebuild.finish_failed", "create retirement attempt range of index "+deleted, uuid.Nil, err)
+	}
 	err = s.rebuildStep(ctx, work, read, func(tr fdb.Transaction, record searchWorkRecord) error {
+		remaining, readErr := tr.GetRange(attempts, fdb.RangeOptions{Limit: 1}).GetSliceWithError()
+		if readErr != nil {
+			return searchReadFailure(ctx, "read retirement attempts of index "+deleted, readErr)
+		}
+		if len(remaining) != 0 {
+			return errRetireAttemptsRemain
+		}
 		tr.Clear(fdb.Key(searchRebuildKey()))
 		tr.Clear(fdb.Key(searchRetiredSinceKey(deleted)))
 		clearSearchWork(tr, work, record)

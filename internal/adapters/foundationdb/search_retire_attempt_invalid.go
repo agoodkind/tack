@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
@@ -16,22 +18,24 @@ const (
 	retireAttemptInvalidCode    = "cleanup_attempt_invalid"
 	retireAttemptInvalidMessage = "the search session cleanup attempt record could not be read"
 	// retireAttemptRetainedName is the name used to derive the retained event ID.
-	retireAttemptRetainedName = "retained"
+	retireAttemptRetainedName = "retained:"
 	retireInvalidDigestField  = "invalid_attempt_sha256"
 	retireInvalidRecordField  = "invalid_attempt_record"
+	retireInvalidKeyField     = "invalid_attempt_key"
+	retireInvalidIndexField   = "invalid_attempt_chunk_index"
+	retireInvalidCountField   = "invalid_attempt_chunk_count"
+	retireInvalidChunkBytes   = 48 << 10
 )
 
-// invalidRetireEvents returns two events for an unreadable attempt record.
-// The first is an incomplete event that records the recovering operation on
-// ctx, the system organization, and the session and step from the record key.
-// The record does not supply the original identity, and the event does not
-// record an original actor or time. Its evidence stores the SHA-256 digest of
-// the stored value and omits the stored bytes. The ledger row for this event
-// never stores those bytes.
-// The second event does not specify an outcome and stores the bytes in its
-// evidence. The audit consumer refuses this event and retains it in
-// audit.events_dlq for repair.
-func invalidRetireEvents(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, eventID uuid.UUID, stored []byte) (recoveredAttempt, error) {
+// invalidRetireEvents returns events for an unreadable attempt record. The
+// first event records an incomplete outcome, the recovering operation on ctx,
+// the system organization, and the session and step from the record key. The
+// record does not supply the original identity, and the event does not record
+// an original actor or time. Its evidence stores the SHA-256 digest of the
+// stored value and omits the stored bytes. The remaining events omit an outcome
+// and store the key and value bytes in chunks. The audit consumer refuses those
+// events and retains them in audit.events_dlq for repair.
+func invalidRetireEvents(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, eventID uuid.UUID, item fdb.KeyValue) (recoveredAttempt, error) {
 	var none recoveredAttempt
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
@@ -44,30 +48,64 @@ func invalidRetireEvents(ctx context.Context, sessionID uuid.UUID, step searchdo
 	if err != nil {
 		return none, sessionStepError{operation: "build the invalid attempt event", err: err}
 	}
-	retained := event
-	retained.EventID = uuid.NewSHA1(eventID, []byte(retireAttemptRetainedName))
-	retained.Outcome, retained.Error = "", nil
-	if retained.Extra, err = addEvidenceField(operation.Extra, retireInvalidRecordField, stored); err != nil {
+	digest := sha256.Sum256(item.Value)
+	digestText := hex.EncodeToString(digest[:])
+	retained, err := retainedAttemptEvents(event, operation.Extra, eventID, digestText, item)
+	if err != nil {
 		return none, err
 	}
-	retainedJSON, err := audit.MarshalEvent(retained)
-	if err != nil {
-		return none, sessionStepError{operation: "encode the retained attempt event", err: err}
-	}
-	digest := sha256.Sum256(stored)
 	event.EventID = uuid.NewSHA1(eventID, []byte(retireAttemptIncompleteName))
-	if event.Extra, err = addEvidenceField(operation.Extra, retireInvalidDigestField, hex.EncodeToString(digest[:])); err != nil {
+	if event.Extra, err = addEvidenceField(operation.Extra, retireInvalidDigestField, digestText); err != nil {
 		return none, err
 	}
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
 		return none, sessionStepError{operation: "encode the invalid attempt event", err: err}
 	}
-	return recoveredAttempt{active: false, encoded: encoded, retained: retainedJSON}, nil
+	return recoveredAttempt{active: false, encoded: encoded, retained: retained}, nil
+}
+
+// retainedAttemptEvents splits the stored value into chunks and returns an
+// event for each chunk. Each event stays below FoundationDB's 100,000 byte
+// value limit after base64 encoding. Each event records the chunk index, chunk
+// count, SHA-256 digest of the whole value, and record key. Each event ID
+// derives from eventID and the chunk index.
+func retainedAttemptEvents(event audit.Event, extra json.RawMessage, eventID uuid.UUID, digest string, item fdb.KeyValue) ([]json.RawMessage, error) {
+	chunkCount := max(1, (len(item.Value)+retireInvalidChunkBytes-1)/retireInvalidChunkBytes)
+	retained := make([]json.RawMessage, 0, chunkCount)
+	for chunkIndex := range chunkCount {
+		start := chunkIndex * retireInvalidChunkBytes
+		chunk := item.Value[start:min(start+retireInvalidChunkBytes, len(item.Value))]
+		fields, err := addEvidenceField(extra, retireInvalidRecordField, chunk)
+		if err == nil {
+			fields, err = addEvidenceField(fields, retireInvalidKeyField, []byte(item.Key))
+		}
+		if err == nil {
+			fields, err = addEvidenceField(fields, retireInvalidDigestField, digest)
+		}
+		if err == nil {
+			fields, err = addEvidenceField(fields, retireInvalidIndexField, chunkIndex)
+		}
+		if err == nil {
+			fields, err = addEvidenceField(fields, retireInvalidCountField, chunkCount)
+		}
+		if err != nil {
+			return nil, err
+		}
+		chunkEvent := event
+		chunkEvent.EventID = uuid.NewSHA1(eventID, []byte(retireAttemptRetainedName+strconv.Itoa(chunkIndex)))
+		chunkEvent.Outcome, chunkEvent.Error, chunkEvent.Extra = "", nil, fields
+		encoded, err := audit.MarshalEvent(chunkEvent)
+		if err != nil {
+			return nil, sessionStepError{operation: "encode the retained attempt event", err: err}
+		}
+		retained = append(retained, encoded)
+	}
+	return retained, nil
 }
 
 // addEvidenceField returns extra with value added under name.
-func addEvidenceField[Value string | []byte](extra json.RawMessage, name string, value Value) (json.RawMessage, error) {
+func addEvidenceField[Value string | []byte | int](extra json.RawMessage, name string, value Value) (json.RawMessage, error) {
 	fields := map[string]json.RawMessage{}
 	if len(extra) != 0 {
 		if err := json.Unmarshal(extra, &fields); err != nil {

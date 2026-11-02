@@ -5,16 +5,24 @@ package integration_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log"
 	"log/slog"
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
+	"github.com/google/uuid"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auditrelay"
+	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/test/integration"
+	"goodkind.io/tack/internal/testenv"
 )
 
 const (
@@ -74,7 +82,7 @@ func installRetirePauseGate(t *testing.T, container, sessionID, pauseMessage str
 }
 
 func (h *retireLogHooks) observe(record slog.Record) {
-	matched := false
+	matched := h.sessionID == ""
 	record.Attrs(func(attr slog.Attr) bool {
 		matched = matched || (attr.Key == "session_id" && attr.Value.String() == h.sessionID)
 		return true
@@ -100,23 +108,75 @@ func (h *retireLogHooks) requireFinished(t *testing.T) {
 	}
 }
 
-func retireAttemptRawKey(t *testing.T) fdb.Key {
+func outboxPlainEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte) []audit.Event {
 	t.Helper()
-	prefix := append(bytes.Clone(fdbadapter.TestPrefixRange()), tuple.Tuple{retireAttemptFamily}.Pack()...)
+	entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), mark, searchAuditPageLimit)
+	if err != nil {
+		t.Fatalf("read the outbox: %v", err)
+	}
+	events := make([]audit.Event, 0, len(entries))
+	for _, entry := range entries {
+		var event audit.Event
+		if err := json.Unmarshal(entry.Event, &event); err != nil {
+			t.Fatalf("decode outbox entry %s: %v", entry.Event, err)
+		}
+		events = append(events, event)
+	}
+	return events
+}
+
+func startRetireRelay(t *testing.T, stack runtimeAuditStack) {
+	t.Helper()
+	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
+		Brokers: []string{testenv.Kafka(t)}, Topic: stack.topic, YugabyteDSN: testenv.Ledger(t),
+		FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: integration.StoreTransactionTimeout,
+		PollInterval: 100 * time.Millisecond, BatchSize: 64,
+	})
+	if err != nil {
+		t.Fatalf("open the audit relay: %v", err)
+	}
+	opened.Relay.Start(t.Context())
+	t.Cleanup(opened.Pool.Close)
+	t.Cleanup(func() {
+		if err := opened.Relay.Close(); err != nil {
+			t.Errorf("close the audit relay: %v", err)
+		}
+	})
+}
+
+func retireFamilyItem(t *testing.T, family string) fdb.KeyValue {
+	t.Helper()
+	prefix := append(bytes.Clone(fdbadapter.TestPrefixRange()), tuple.Tuple{family}.Pack()...)
 	keyRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
-		t.Fatalf("create the retirement attempt range: %v", err)
+		t.Fatalf("create the range of family %s: %v", family, err)
 	}
 	transaction := pendingFixtureTransaction(t)
 	defer transaction.Cancel()
 	items, err := transaction.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
 	if err != nil {
-		t.Fatalf("read the retirement attempts: %v", err)
+		t.Fatalf("read family %s: %v", family, err)
 	}
 	if len(items) != 1 {
-		t.Fatalf("found %d retirement attempt records, want 1", len(items))
+		t.Fatalf("found %d records of family %s, want 1", len(items), family)
 	}
-	return items[0].Key
+	return items[0]
+}
+
+func retireFamilyKey(t *testing.T, family string) fdb.Key {
+	t.Helper()
+	return retireFamilyItem(t, family).Key
+}
+
+func retireFamilyValue(t *testing.T, family string) []byte {
+	t.Helper()
+	return retireFamilyItem(t, family).Value
+}
+
+func retireAttemptKey(t *testing.T, index string) fdb.Key {
+	t.Helper()
+	elements := tuple.Tuple{retireAttemptFamily, index, uuid.NewString(), string(searchdomain.CleanupClose), uuid.NewString()}
+	return fdb.Key(append(bytes.Clone(fdbadapter.TestPrefixRange()), elements.Pack()...))
 }
 
 type retireLogHandler struct {
