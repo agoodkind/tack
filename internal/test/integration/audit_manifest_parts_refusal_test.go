@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"strings"
@@ -68,20 +69,22 @@ func requireManifestRecordingRefusals(t *testing.T, ledger *nodeAuditLedger, ope
 	t.Helper()
 	admission := operator
 	admission.operatorID = uuid.Must(uuid.NewV7())
+	allowAdmission := readTestSQL(t, "search_read_allow_admission.sql")
 	if _, err := ledger.admin.Exec(t.Context(), readTestSQL(t, "search_read_deny_admission.sql")); err != nil {
 		t.Fatalf("deny the operator read admission: %v", err)
 	}
+	t.Cleanup(func() {
+		if _, err := ledger.admin.Exec(context.WithoutCancel(t.Context()), allowAdmission); err != nil {
+			t.Errorf("restore the operator read admission: %v", err)
+		}
+	})
 	admission.lifecycle = rolePool(t, testenv.Ledger(t), "audit_operator")
 	refused := runManifestParts(t, ledger, admission, manifestArgs(orgID.String(), eventID.String(), "--execute")...)
-	refusedEvents := readOutboxEvents(t, ledger.admin, audit.VerbAuditRead, admission.operatorID)
-	if _, err := ledger.admin.Exec(t.Context(), readTestSQL(t, "search_read_allow_admission.sql")); err != nil {
+	if _, err := ledger.admin.Exec(t.Context(), allowAdmission); err != nil {
 		t.Fatalf("restore the operator read admission: %v", err)
 	}
 	if !errors.Is(refused.err, audit.ErrReadNotAdmitted) || !strings.Contains(refused.err.Error(), "ops_read_begin") || refused.stdout != "" {
 		t.Fatalf("admission refusal = %+v, want a refused admission and no result", refused)
-	}
-	if len(refusedEvents) != 0 {
-		t.Fatalf("refused admission recorded read events: %+v", refusedEvents)
 	}
 
 	if _, err := ledger.admin.Exec(t.Context(), readTestSQL(t, "runtime_audit_public_finalize_denied.sql")); err != nil {
@@ -99,4 +102,8 @@ func requireManifestRecordingRefusals(t *testing.T, ledger *nodeAuditLedger, ope
 		orgInput: orgID.String(), eventInput: eventID.String(), targetURI: "tack:audit-event/" + eventID.String(),
 		outcome: audit.OutcomeIncomplete, errorCode: "", messageContains: "", forbidden: nil, payloadSHA256: "", partURIs: nil,
 	}})
+	lagLedger := *ledger
+	lagLedger.admin = ledgerAdminPool(t)
+	lagLedger.waitForNoLag(t)
+	requireStoredAuditReads(t, ledger, admission.operatorID, nil)
 }
