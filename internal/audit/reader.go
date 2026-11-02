@@ -30,7 +30,7 @@ func NewReader(ctx context.Context, dsn string) (*Reader, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		// Omit the pgx parse error; malformed input can expose part of a password.
-		return nil, errors.New("audit: the reader connection string does not parse; check AUDIT_READER_DSN")
+		return nil, errors.New("audit: the reader connection string does not parse")
 	}
 	cfg.ConnConfig.Tracer = &telemetry.QueryTracer{}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)

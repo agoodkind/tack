@@ -30,9 +30,8 @@ type operatorReadRow struct {
 	Code    string
 }
 
-// lastChangeRun is one `audit last-change` process: its stdout, its stderr,
-// its text log, and its exit error.
-type lastChangeRun struct {
+// builtAuditRun contains the standard output, standard error, text log, and exit error from one built server process.
+type builtAuditRun struct {
 	stdout string
 	stderr string
 	log    string
@@ -41,7 +40,7 @@ type lastChangeRun struct {
 
 // output returns the captured stdout, stderr, and text log for a failure
 // message.
-func (run lastChangeRun) output() string {
+func (run builtAuditRun) output() string {
 	return "stdout:\n" + run.stdout + "\nstderr:\n" + run.stderr + "\nlog:\n" + run.log
 }
 
@@ -49,20 +48,22 @@ func (run lastChangeRun) output() string {
 // reader DSN, directly or through a secret file reference.
 var readerDSNVariables = []string{"AUDIT_READER_DSN", "AUDIT_READER_DSN_FILE"}
 
-// lastChangeCommand runs `audit last-change` for nodeID through the built
-// server as operatorID. It removes every reader DSN variable that the test
-// process inherits and sets AUDIT_READER_DSN only when readerDSN is not
-// empty. The command logs its error to the text log, and LOG_DISABLE_STDOUT
-// keeps log lines out of stdout.
-func lastChangeCommand(t *testing.T, readerDSN string, operatorID, orgID, nodeID uuid.UUID, oldest, latest time.Time) lastChangeRun {
+// lastChangeCommand runs audit last-change for nodeID as operatorID through builtAuditCommand.
+func lastChangeCommand(t *testing.T, readerDSN string, operatorID, orgID, nodeID uuid.UUID, oldest, latest time.Time) builtAuditRun {
+	t.Helper()
+	return builtAuditCommand(t, readerDSN,
+		"--execute", "--operator-id", operatorID.String(), "--operator-email", "last-change@example.test",
+		"--output", "json", "audit", "last-change", "--org", orgID.String(), "--entity-id", nodeID.String(),
+		"--oldest", oldest.UTC().Format(time.RFC3339), "--latest", latest.UTC().Format(time.RFC3339))
+}
+
+// builtAuditCommand runs args through the built server. It removes inherited reader DSN variables and sets AUDIT_READER_DSN only when readerDSN is not empty. The command logs its error to the text log, and LOG_DISABLE_STDOUT keeps log lines out of standard output.
+func builtAuditCommand(t *testing.T, readerDSN string, args ...string) builtAuditRun {
 	t.Helper()
 	ledgerDSN := testenv.Ledger(t)
 	logs := t.TempDir()
 	textLog := filepath.Join(logs, "tack.log")
-	process := exec.CommandContext(t.Context(), buildMigrateServer(t),
-		"--execute", "--operator-id", operatorID.String(), "--operator-email", "last-change@example.test",
-		"--output", "json", "audit", "last-change", "--org", orgID.String(), "--entity-id", nodeID.String(),
-		"--oldest", oldest.UTC().Format(time.RFC3339), "--latest", latest.UTC().Format(time.RFC3339))
+	process := exec.CommandContext(t.Context(), buildMigrateServer(t), args...)
 	environment := make([]string, 0, len(os.Environ())+8)
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
@@ -83,9 +84,9 @@ func lastChangeCommand(t *testing.T, readerDSN string, operatorID, orgID, nodeID
 	err := process.Run()
 	logged, readErr := os.ReadFile(textLog)
 	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
-		t.Fatalf("read the audit last-change log %s: %v", textLog, readErr)
+		t.Fatalf("read the command log %s: %v", textLog, readErr)
 	}
-	return lastChangeRun{stdout: stdout.String(), stderr: stderr.String(), log: string(logged), err: err}
+	return builtAuditRun{stdout: stdout.String(), stderr: stderr.String(), log: string(logged), err: err}
 }
 
 // runLastChange runs `audit last-change` for issueID through the built server

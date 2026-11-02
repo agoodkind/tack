@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -23,8 +24,10 @@ const (
 	readerErrorSecret = "parts@secret"
 	// readerMalformedDSN is a connection string that pgx cannot parse.
 	readerMalformedDSN = "postgres://nobody:manifest@" + readerErrorSecret + "@[::1:1/tack"
-	// readerFixedMessage is the fixed error text that tells the operator to check AUDIT_READER_DSN.
-	readerFixedMessage = "check AUDIT_READER_DSN"
+	// readerParseFailure is the exact text audit.NewReader returns when pgx cannot parse a connection string. The text omits every setting because the restore drill builds its own connection string.
+	readerParseFailure = "audit: the reader connection string does not parse"
+	// readerFixedMessage is the text a caller returns after it reads AUDIT_READER_DSN and wraps readerParseFailure with the variable name.
+	readerFixedMessage = "AUDIT_READER_DSN: " + readerParseFailure
 	// readerParseErrorText is the raw pgx parse error text.
 	readerParseErrorText = "cannot parse"
 	// readerConnectSecret is the password in the connection strings that pgx can parse.
@@ -50,6 +53,34 @@ type readerErrorDSN struct {
 	forbidden []string
 }
 
+// readerMalformedCase is the test case for a malformed DSN.
+var readerMalformedCase = readerErrorDSN{
+	name: "malformed", dsn: readerMalformedDSN, required: readerFixedMessage, forbidden: []string{readerErrorSecret, readerParseErrorText},
+}
+
+// TestAuditExportReaderErrorOmitsConnectionString checks that audit.NewReader returns exactly readerParseFailure for a malformed DSN. It then runs audit export through the built server with the malformed AUDIT_READER_DSN and checks standard output, standard error, the text log, and stored audit rows for forbidden text. It also requires the log and stored failure to contain readerFixedMessage.
+func TestAuditExportReaderErrorOmitsConnectionString(t *testing.T) {
+	if _, err := audit.NewReader(t.Context(), readerMalformedDSN); err == nil || err.Error() != readerParseFailure {
+		t.Fatalf("audit.NewReader with the malformed DSN returned %v, want %q", err, readerParseFailure)
+	}
+	ledger := startNodeAuditLedger(t)
+	operatorID, now := uuid.Must(uuid.NewV7()), clock.Now().UTC()
+	run := builtAuditCommand(t, readerMalformedDSN,
+		"--execute", "--operator-id", operatorID.String(), "--operator-email", readerErrorOperatorKey, "--output", "json",
+		"audit", "export", "--org", uuid.Must(uuid.NewV7()).String(), "--oldest", now.Add(-time.Hour).Format(time.RFC3339),
+		"--latest", now.Add(time.Hour).Format(time.RFC3339), "--out", filepath.Join(t.TempDir(), "bundle"))
+	if run.err == nil || !strings.Contains(run.log, readerFixedMessage) {
+		t.Fatalf("audit export error = %v, want a failure and a log with %q\n%s", run.err, readerFixedMessage, run.output())
+	}
+	for _, forbidden := range readerMalformedCase.forbidden {
+		if strings.Contains(run.output(), forbidden) {
+			t.Fatalf("audit export exposed %q in output or logs:\n%s", forbidden, run.output())
+		}
+	}
+	command := readerErrorCommand{args: []string{"audit", "export"}, rows: 2, storesFail: true}
+	requireReaderErrorRows(t, ledger, readerMalformedCase, operatorID, command, run.output())
+}
+
 // TestAuditReaderErrorsOmitConnectionStrings runs ops audit consumer-offsets, ops audit dlq inspect, and ops audit dlq replay through the rendered ops tree with a malformed DSN, a refused port, and a refused login. It checks the returned errors, standard output, standard error, logs, and stored audit rows for forbidden text.
 func TestAuditReaderErrorsOmitConnectionStrings(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
@@ -59,7 +90,7 @@ func TestAuditReaderErrorsOmitConnectionStrings(t *testing.T) {
 	}
 	parsed.User = url.UserPassword("nobody", readerConnectSecret)
 	dsns := []readerErrorDSN{
-		{name: "malformed", dsn: readerMalformedDSN, required: readerFixedMessage, forbidden: []string{readerErrorSecret, readerParseErrorText}},
+		readerMalformedCase,
 		{name: "refused port", dsn: readerRefusedPortDSN, required: "", forbidden: []string{readerConnectSecret}},
 		{name: "refused login", dsn: parsed.String(), required: "", forbidden: []string{readerConnectSecret}},
 	}
