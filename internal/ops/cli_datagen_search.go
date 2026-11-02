@@ -53,6 +53,7 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 			"Pass --commit to verify a fixture when public search is enabled. " +
 			"A verified committed run reports the property warning case and the target rank for each relevance probe query. " +
 			"A verified committed run also needs AUDIT_READER_DSN and waits until every search session verb has at least one ledger row in the run's organization. " +
+			"A verified committed run fails unless the ledger stores a completed delete of the abandoned session header. " +
 			"Pass --prepare-only --commit with --seed and --corpus to export fixture IDs " +
 			"without search requests; public search may remain disabled. " +
 			"Pass --verify-cohort --commit with a positive --seed to prepare a cohort from the embedded corpus. " +
@@ -156,6 +157,9 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 			return fmt.Errorf("qa datagen search: %w", err)
 		}
 		result.SessionVerbs = &sessionVerbs
+		if err := AwaitDatagenSessionHeaderDelete(ctx, factory, verification.OrgID, verification.AbandonedSessionID); err != nil {
+			return fmt.Errorf("qa datagen search: %w", err)
+		}
 		if endpoints != nil {
 			client := &http.Client{Timeout: datagenSearchTwoProcessTimeout}
 			if err := datagen.VerifySearchTwoProcess(ctx, factory.Cfg, endpoints, client); err != nil {
