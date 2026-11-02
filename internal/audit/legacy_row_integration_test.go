@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // TestLegacyRowReadsAsUnrecordedAndStillVerifies is the whole point of the
@@ -26,7 +27,7 @@ func TestLegacyRowReadsAsUnrecordedAndStillVerifies(t *testing.T) {
 		t.Fatalf("write legacy row: %v", err)
 	}
 
-	stored, err := (&Reader{pool: pool}).GetByID(ctx, written.EventID)
+	stored, err := openTestReader(t, pool).GetByID(ctx, written.EventID)
 	if err != nil {
 		t.Fatalf("read the legacy row back: %v", err)
 	}
@@ -50,6 +51,16 @@ func TestLegacyRowReadsAsUnrecordedAndStillVerifies(t *testing.T) {
 	if !matches {
 		t.Fatalf("the legacy row does not verify: %s", reason)
 	}
+}
+
+func openTestReader(t *testing.T, pool *pgxpool.Pool) *Reader {
+	t.Helper()
+	reader, err := NewReader(t.Context(), pool.Config().ConnString())
+	if err != nil {
+		t.Fatalf("open the reader: %v", err)
+	}
+	t.Cleanup(reader.Close)
+	return reader
 }
 
 // TestLegacyRowExtendsTheChainItJoins pins that the fabricated row is a real
@@ -80,7 +91,7 @@ func TestLegacyRowExtendsTheChainItJoins(t *testing.T) {
 		t.Fatalf("sequences = %d then %d, want consecutive rows on one chain", first.Seq, second.Seq)
 	}
 
-	reader := &Reader{pool: pool}
+	reader := openTestReader(t, pool)
 	firstRow, err := reader.GetByID(ctx, first.EventID)
 	if err != nil {
 		t.Fatalf("read the first row: %v", err)
