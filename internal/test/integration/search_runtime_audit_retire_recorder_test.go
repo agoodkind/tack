@@ -62,7 +62,11 @@ func TestSearchRuntimeAuditRetiredSessionRecorderEvidence(t *testing.T) {
 			paused = true
 		},
 	})
+	deadline := clock.Now().Add(replacementDeadline)
 	for !paused {
+		if clock.Now().After(deadline) {
+			t.Fatalf("the search worker did not save a close attempt for session %s within %s", session.ID, replacementDeadline)
+		}
 		if _, err := fixture.worker.RunSlice(t.Context()); err != nil {
 			t.Logf("the search worker slice failed: %v", err)
 		}

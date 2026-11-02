@@ -49,19 +49,21 @@ func TestSearchCreateIndexBlockProbe(t *testing.T) {
 		t.Fatalf("set the probe watermarks: %v", err)
 	}
 	waitForCreateIndexBlock(t, client, true)
+	blockedContext, cancelBlocked := context.WithTimeout(t.Context(), time.Minute)
+	defer cancelBlocked()
 	var health json.RawMessage
-	response, err = opensearch.Execute(ctx, client.Client, http.MethodGet, &opensearchapi.ClusterHealthReq{}, &health)
+	response, err = opensearch.Execute(blockedContext, client.Client, http.MethodGet, &opensearchapi.ClusterHealthReq{}, &health)
 	if err != nil || response == nil || response.StatusCode != http.StatusOK {
 		t.Fatalf("read the blocked cluster's health: %v", err)
 	}
 	t.Logf("blocked engine health: HTTP %d %s", response.StatusCode, health)
-	_, err = client.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: "tack-block-probe-" + uuid.NewString()})
+	_, err = client.Indices.Create(blockedContext, opensearchapi.IndicesCreateReq{Index: "tack-block-probe-" + uuid.NewString()})
 	var blocked *opensearch.StructError
 	if !errors.As(err, &blocked) || blocked.Status != http.StatusForbidden || blocked.Err.Type != "index_create_block_exception" || !strings.Contains(blocked.Err.Reason, "FORBIDDEN/10/cluster create-index blocked (api)") {
 		t.Fatalf("create index under the automatic block returned %v", err)
 	}
 	t.Logf("automatic refusal: %v", err)
-	readinessErr := testenv.CheckOpenSearchDiskReadiness(ctx, engine)
+	readinessErr := testenv.CheckOpenSearchDiskReadiness(blockedContext, engine)
 	if readinessErr == nil || !strings.Contains(readinessErr.Error(), "OpenSearch fixture blocks index creation") ||
 		!strings.Contains(readinessErr.Error(), "Putting index create block on cluster") {
 		t.Fatalf("the blocked engine passed readiness or omitted the monitor evidence: %v", readinessErr)

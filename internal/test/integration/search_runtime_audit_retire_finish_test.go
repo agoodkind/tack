@@ -103,7 +103,11 @@ func TestSearchRuntimeAuditRetireFinishRefusesLateAttempt(t *testing.T) {
 		},
 	})
 	var sliceErr error
+	deadline := clock.Now().Add(replacementDeadline)
 	for !saved {
+		if clock.Now().After(deadline) {
+			t.Fatalf("the search worker did not delete index %s within %s", source, replacementDeadline)
+		}
 		_, sliceErr = fixture.worker.RunSlice(t.Context())
 	}
 	hooks.requireFinished(t)
