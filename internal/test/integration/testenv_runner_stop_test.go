@@ -18,7 +18,6 @@ const (
 	stoppedRunnerEnginePrefix     = "/tack-testenv-foundationdb-"
 	stoppedRunnerStartLimit       = 10 * time.Minute
 	stoppedRunnerPollInterval     = 2 * time.Second
-	stoppedRunnerStopSeconds      = 150
 )
 
 // TestStoppedRunnerChild starts one engine and waits inside the runner that
@@ -63,8 +62,7 @@ func TestRunnerEndRemovesItsEngines(t *testing.T) {
 	t.Run("docker stop", func(t *testing.T) {
 		child := startSecondRunner(t, cli, runner)
 		waitForRunningEngine(t, cli, child)
-		seconds := stoppedRunnerStopSeconds
-		if _, err := cli.ContainerStop(t.Context(), child, client.ContainerStopOptions{Timeout: &seconds}); err != nil {
+		if _, err := cli.ContainerStop(t.Context(), child, client.ContainerStopOptions{}); err != nil {
 			t.Fatalf("stop runner %s: %v", child, err)
 		}
 		requireOnlyChildRemoved(t, cli, runner, child, bystander)
@@ -100,9 +98,9 @@ func requireOnlyChildRemoved(t *testing.T, cli *client.Client, runner, child, by
 	}
 }
 
-// startSecondRunner starts a container from runner's image, mounts, and
-// environment that runs TestStoppedRunnerChild. It removes that container and
-// the containers with its runner label when the test ends.
+// startSecondRunner starts a container from runner's image, mounts, environment,
+// and configured stop timeout that runs TestStoppedRunnerChild. It removes that
+// container and the containers with its runner label when the test ends.
 func startSecondRunner(t *testing.T, cli *client.Client, runner string) string {
 	t.Helper()
 	ctx := t.Context()
@@ -118,9 +116,10 @@ func startSecondRunner(t *testing.T, cli *client.Client, runner string) string {
 			Cmd: []string{
 				"test", "-count=1", "-timeout", "15m", "-run", "^TestStoppedRunnerChild$", "./internal/test/integration",
 			},
-			Env:        append(source.Config.Env, stoppedRunnerChildEnvironment+"=1"),
-			Volumes:    source.Config.Volumes,
-			WorkingDir: source.Config.WorkingDir,
+			Env:         append(source.Config.Env, stoppedRunnerChildEnvironment+"=1"),
+			Volumes:     source.Config.Volumes,
+			WorkingDir:  source.Config.WorkingDir,
+			StopTimeout: source.Config.StopTimeout,
 		},
 		HostConfig: &container.HostConfig{Binds: source.HostConfig.Binds, Mounts: source.HostConfig.Mounts},
 	})

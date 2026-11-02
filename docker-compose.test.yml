@@ -23,6 +23,9 @@ services:
       dockerfile: Dockerfile.test
       args:
         FDB_VERSION: ${FDB_VERSION:-7.4.6}
+    # The grace period exceeds testenv's signal release limit of two minutes,
+    # which gives `docker stop` time to let the test binary remove its engines.
+    stop_grace_period: 150s
     volumes:
       # Source bind-mount: edits on the host are visible without a rebuild.
       - .:${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
