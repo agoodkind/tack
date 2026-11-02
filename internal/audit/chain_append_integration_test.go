@@ -209,7 +209,7 @@ func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
 		t.Fatalf("append failed event: %v", err)
 	}
 
-	reader := &Reader{pool: &readerPool{unsanitized: pool}}
+	reader := openTestReader(t, pool)
 	row, err := reader.GetByID(ctx, in.EventID)
 	if err != nil {
 		t.Fatalf("read back: %v", err)

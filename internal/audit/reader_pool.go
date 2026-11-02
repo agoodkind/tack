@@ -12,7 +12,6 @@ import (
 // readerConnectFailure is the fixed text for a failed reader connection.
 const readerConnectFailure = "audit: the reader did not connect"
 
-// readerPool sanitizes errors returned by Reader queries and scans.
 type readerPool struct {
 	unsanitized *pgxpool.Pool
 }

@@ -42,14 +42,12 @@ const (
 	readerErrorOperatorKey = "reader-errors@example.test"
 )
 
-// readerErrorCommand specifies the arguments, expected audit row count, and whether the rows must record the failure for one command.
 type readerErrorCommand struct {
 	args       []string
 	rows       int
 	storesFail bool
 }
 
-// readerErrorDSN specifies the name, connection string, required error text, and forbidden text for one test case.
 type readerErrorDSN struct {
 	name      string
 	dsn       string
