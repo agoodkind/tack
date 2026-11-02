@@ -16,7 +16,6 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestAuditReaderKeepsEngineErrorMatching uses a real ledger to check that Reader.GetByID returns pgx.ErrNoRows for an unknown event, Reader.Query returns pgconn.PgError with the server message for a login without audit read access, and Reader.Query and Reader.OperatorOutboxRemainder return the fixed connection failure text and a SQLSTATE without the password for a refused login.
 func TestAuditReaderKeepsEngineErrorMatching(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	if _, err := ledger.reader.GetByID(t.Context(), uuid.Must(uuid.NewV7())); !errors.Is(err, pgx.ErrNoRows) {
