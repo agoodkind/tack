@@ -74,7 +74,7 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	insertNotarization(t, pool, orgID, roguePriv, rogue, "rogue-guest", since.Add(3*time.Second), false)
 	insertNotarization(t, pool, otherOrgID, roguePriv, rogue, "rogue-guest", since.Add(2*time.Second), false)
 
-	reader := &Reader{pool: pool}
+	reader := &Reader{pool: &readerPool{unsanitized: pool}}
 	set, err := ParseSignerSet(issued)
 	if err != nil {
 		t.Fatalf("parse: %v", err)

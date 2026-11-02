@@ -19,7 +19,7 @@ import (
 // by construction: the role's grants block any DML, and the policies in
 // migrations/002_audit.sql block UPDATE/DELETE for everyone.
 type Reader struct {
-	pool *pgxpool.Pool
+	pool *readerPool
 }
 
 // NewReader opens a pool against the audit_reader DSN.
@@ -27,16 +27,16 @@ func NewReader(ctx context.Context, dsn string) (*Reader, error) {
 	if dsn == "" {
 		return nil, errors.New("audit: AUDIT_READER_DSN required")
 	}
-	cfg, err := pgxpool.ParseConfig(dsn)
+	cfg, err := parseReaderDSN(dsn)
 	if err != nil {
-		// Omit the pgx parse error; malformed input can expose part of a password.
-		return nil, errors.New("audit: the reader connection string does not parse")
+		return nil, err
 	}
 	cfg.ConnConfig.Tracer = &telemetry.QueryTracer{}
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	opened, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("audit reader pool open: %w", err)
+		return nil, fmt.Errorf("audit reader pool open: %w", sanitizeReaderError(err))
 	}
+	pool := &readerPool{unsanitized: opened}
 	// Connect lazily. A failed ping logs a deferred warning but still returns
 	// the reader; the pool connects on first query.
 	if err := pool.Ping(ctx); err != nil {
@@ -129,7 +129,7 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 
 	q, args := buildAuditQuery(f)
 
-	rows, err := r.pool.Query(ctx, q, args...)
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, q, args...))
 	if err != nil {
 		return nil, fmt.Errorf("audit query: %w", err)
 	}
@@ -157,7 +157,7 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 	if r == nil || r.pool == nil {
 		return nil, errors.New("audit reader not configured")
 	}
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
 		SELECT org_id, event_time, event_id, seq, shard,
 		       actor_id, actor_kind, action, outcome, entity_kind, entity_id,
 		       context, delta, error, extra, pii_ref, prev_hash, row_hash, hash_version,
@@ -165,7 +165,7 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 		FROM audit.events
 		WHERE event_id = $1
 		LIMIT 1
-	`, eventID)
+	`, eventID))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.get_query_failed",
 			slog.String("event_id", eventID.String()), slog.String("err", err.Error()))

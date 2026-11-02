@@ -30,10 +30,14 @@ const (
 	readerFixedMessage = "AUDIT_READER_DSN: " + readerParseFailure
 	// readerParseErrorText is the raw pgx parse error text.
 	readerParseErrorText = "cannot parse"
+	// readerConnectFailure is the fixed text for a failed reader connection.
+	readerConnectFailure = "audit: the reader did not connect"
 	// readerConnectSecret is the password in the connection strings that pgx can parse.
 	readerConnectSecret = "reader-connect-secret"
 	// readerRefusedPortDSN is a valid connection string with a port that refuses connections.
 	readerRefusedPortDSN = "postgres://nobody:" + readerConnectSecret + "@[::1]:1/tack?connect_timeout=1"
+	// readerSlashPasswordDSN is a connection string with a slash in the password that pgx parses without an error.
+	readerSlashPasswordDSN = "postgres://nobody:1/" + readerConnectSecret + "@[::1]:1/tack"
 	// readerErrorOperatorKey is the operator email used for the test runs.
 	readerErrorOperatorKey = "reader-errors@example.test"
 )
@@ -81,7 +85,7 @@ func TestAuditExportReaderErrorOmitsConnectionString(t *testing.T) {
 	requireReaderErrorRows(t, ledger, readerMalformedCase, operatorID, command, run.output())
 }
 
-// TestAuditReaderErrorsOmitConnectionStrings runs ops audit consumer-offsets, ops audit dlq inspect, and ops audit dlq replay through the rendered ops tree with a malformed DSN, a refused port, and a refused login. It checks the returned errors, standard output, standard error, logs, and stored audit rows for forbidden text.
+// TestAuditReaderErrorsOmitConnectionStrings runs ops audit consumer-offsets, ops audit dlq inspect, and ops audit dlq replay through the rendered ops tree with a malformed DSN, a slash in the password, a refused port, and a refused login. It checks returned errors, standard output, standard error, logs, and stored audit rows for forbidden text.
 func TestAuditReaderErrorsOmitConnectionStrings(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	parsed, err := url.Parse(testenv.Ledger(t))
@@ -91,8 +95,9 @@ func TestAuditReaderErrorsOmitConnectionStrings(t *testing.T) {
 	parsed.User = url.UserPassword("nobody", readerConnectSecret)
 	dsns := []readerErrorDSN{
 		readerMalformedCase,
-		{name: "refused port", dsn: readerRefusedPortDSN, required: "", forbidden: []string{readerConnectSecret}},
-		{name: "refused login", dsn: parsed.String(), required: "", forbidden: []string{readerConnectSecret}},
+		{name: "slash in the password", dsn: readerSlashPasswordDSN, required: readerConnectFailure, forbidden: []string{readerConnectSecret}},
+		{name: "refused port", dsn: readerRefusedPortDSN, required: readerConnectFailure, forbidden: []string{readerConnectSecret}},
+		{name: "refused login", dsn: parsed.String(), required: readerConnectFailure, forbidden: []string{readerConnectSecret}},
 	}
 	commands := []readerErrorCommand{
 		{args: []string{"ops", "audit", "consumer-offsets"}, rows: 1, storesFail: false},

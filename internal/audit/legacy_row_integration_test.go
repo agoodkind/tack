@@ -26,7 +26,7 @@ func TestLegacyRowReadsAsUnrecordedAndStillVerifies(t *testing.T) {
 		t.Fatalf("write legacy row: %v", err)
 	}
 
-	stored, err := (&Reader{pool: pool}).GetByID(ctx, written.EventID)
+	stored, err := (&Reader{pool: &readerPool{unsanitized: pool}}).GetByID(ctx, written.EventID)
 	if err != nil {
 		t.Fatalf("read the legacy row back: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestLegacyRowExtendsTheChainItJoins(t *testing.T) {
 		t.Fatalf("sequences = %d then %d, want consecutive rows on one chain", first.Seq, second.Seq)
 	}
 
-	reader := &Reader{pool: pool}
+	reader := &Reader{pool: &readerPool{unsanitized: pool}}
 	firstRow, err := reader.GetByID(ctx, first.EventID)
 	if err != nil {
 		t.Fatalf("read the first row: %v", err)
