@@ -63,7 +63,8 @@ func (a *Adapter) verifyModel(ctx context.Context, modelID string) error {
 	}
 	if len(mismatches) > 0 {
 		wrapped := fmt.Errorf("OpenSearch model %s does not match the pin: %w", modelID, errors.Join(mismatches...))
-		telemetry.L(ctx).ErrorContext(ctx, "search.model.pin_mismatch", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
+		telemetry.L(ctx).ErrorContext(ctx, "search.model.pin_mismatch", slog.String("err", wrapped.Error()), slog.String("model_id", modelID),
+			slog.String("model_state", model.State), slog.Int64("model_last_updated_ms", model.LastUpdated))
 		return loggedModelError{err: wrapped}
 	}
 	return nil
