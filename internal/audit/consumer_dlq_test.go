@@ -69,7 +69,7 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	// The schema guard of migration 019 refuses this statement from any role
 	// except tack_migrator.
 	testenv.ExecAsRole(t, pool, migration.MigratorRole, partitionDDL)
-	reader := &Reader{pool: pool}
+	reader := openTestReader(t, pool)
 	letters, err := reader.ListDeadLetters(ctx, 10)
 	if err != nil {
 		t.Fatalf("list dead letters: %v", err)

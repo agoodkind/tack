@@ -75,7 +75,7 @@ func sleepBackupAlarmGrace(ctx context.Context, grace time.Duration) {
 func openBackupAlarmLedger(ctx context.Context, cfg *config.Config) (backupAlarmLedger, error) {
 	reader, err := audit.NewReader(ctx, cfg.AuditReaderDSN)
 	if err != nil {
-		wrapped := fmt.Errorf("open the ledger reader: %w", err)
+		wrapped := fmt.Errorf("open the ledger reader from AUDIT_READER_DSN: %w", err)
 		telemetry.L(ctx).WarnContext(ctx, "backup.staleness.ledger_open_failed",
 			slog.String("err", wrapped.Error()))
 		return nil, wrapped
