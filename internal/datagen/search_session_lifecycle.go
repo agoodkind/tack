@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,6 +43,7 @@ func (r searchRun) verifySessionLifecycle(ctx context.Context, cursors *tools.Se
 	if err != nil {
 		return uuid.Nil, loggedError(ctx, "qa datagen: decode the cursor of the abandoned session", err)
 	}
+	slog.InfoContext(ctx, "qa.datagen.session_abandoned", slog.String("session_id", sessionID.String()))
 	expiry := clock.Now().Add(r.limits.IdleTimeout).Truncate(time.Minute).Add(time.Minute + sessionSweepMargin)
 	if err := waitForSessionExpiry(ctx, expiry); err != nil {
 		return uuid.Nil, err
