@@ -23,10 +23,12 @@ const (
 	scanRestartLease          = 5 * time.Minute
 )
 
-// TestSearchRebuildScanCursorSurvivesReopenedStores checks that a rebuild
-// resumes from its saved cursor after stores reopen and the first claim expires.
-// It also checks that the expired claim cannot schedule copies and that the
-// copy queue returns one claim for each written node.
+// TestSearchRebuildScanCursorSurvivesReopenedStores stops a rebuild after its
+// first scan step without yielding the claim. After the claim expires and the
+// stores reopen, a new SearchWorker finishes the scan from the saved cursor.
+// The test checks that the stopped owner cannot schedule copies after the lease
+// expires or after a new owner claims the work. It checks that the copy queue
+// returns one claim for each written node.
 func TestSearchRebuildScanCursorSurvivesReopenedStores(t *testing.T) {
 	stores := newIdleClaimStores(t)
 	newIdleClaimWorkStore(t, stores)
@@ -40,14 +42,11 @@ func TestSearchRebuildScanCursorSurvivesReopenedStores(t *testing.T) {
 	if current.ID != stopped.ID || current.ScanCursor != stopped.ScanCursor || current.ScanComplete {
 		t.Fatalf("rebuild on reopened stores = %+v, want rebuild %s at cursor %q", current, stopped.ID, stopped.ScanCursor)
 	}
-	ctx := integration.WithTestOperation(t, t.Context())
-	if pending, err := rebuilds.CopiesPending(ctx); err != nil || !pending {
+	if pending, err := rebuilds.CopiesPending(integration.WithTestOperation(t, t.Context())); err != nil || !pending {
 		t.Fatalf("copies pending on reopened stores = %t, error %v, want the first scan step's copies", pending, err)
 	}
-	if err := stores.SearchRebuilds(clock.Wall{}).CopyNextNodes(ctx, stoppedWork, stopped); !errors.Is(err, searchdomain.ErrWorkChanged) {
-		t.Fatalf("copy scheduling by the stopped owner returned %v, want %v", err, searchdomain.ErrWorkChanged)
-	}
-	if steps := finishScanRestart(t, reopened, current); steps != scanRestartStepsAfterStop {
+	requireStoppedOwnerRefused(t, stores, stoppedWork, stopped)
+	if steps := finishScanRestart(t, reopened, stores, stoppedWork, stopped); steps != scanRestartStepsAfterStop {
 		t.Fatalf("the scan took %d steps after the stop, want %d from the saved cursor", steps, scanRestartStepsAfterStop)
 	}
 	requireEveryNodeCopiedOnce(t, reopened, current.TargetIndex, nodes)
@@ -116,28 +115,42 @@ func reopenScanRestartStores(t *testing.T) *fdbadapter.Stores {
 	return reopened
 }
 
-// finishScanRestart claims rebuild work, schedules copies until the scan
-// completes, and returns the number of scheduling steps.
-func finishScanRestart(t *testing.T, stores *fdbadapter.Stores, current searchdomain.Rebuild) int {
+// finishScanRestart claims rebuild work and runs SearchWorker.Process until
+// the scan completes. After the first claim, it checks that the stopped owner
+// cannot schedule copies. It returns the number of scan steps.
+func finishScanRestart(t *testing.T, stores, stoppedStores *fdbadapter.Stores, stoppedWork searchdomain.Work, stopped searchdomain.Rebuild) int {
 	t.Helper()
 	ctx := integration.WithTestOperation(t, t.Context())
-	work, claimed, err := stores.SearchWork(clock.Wall{}).Claim(ctx, searchdomain.WorkClassRebuild, "restarted-owner", scanRestartLease)
-	if err != nil || !claimed {
-		t.Fatalf("claim replacement work on reopened stores: claimed %t, error %v", claimed, err)
-	}
+	worker := newScanRestartWorker(t, stores)
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
 	steps := 0
-	for !current.ScanComplete {
+	for !currentIdleClaimRebuild(t, rebuilds).ScanComplete {
 		if steps > scanRestartStepsAfterStop {
 			t.Fatalf("the scan did not finish within %d steps after the stop", steps)
 		}
-		if err := rebuilds.CopyNextNodes(ctx, work, current); err != nil {
+		work, claimed, err := stores.SearchWork(clock.Wall{}).Claim(ctx, searchdomain.WorkClassRebuild, "restarted-owner", scanRestartLease)
+		if err != nil || !claimed {
+			t.Fatalf("claim replacement work on reopened stores: claimed %t, error %v", claimed, err)
+		}
+		if steps == 0 {
+			requireStoppedOwnerRefused(t, stoppedStores, stoppedWork, stopped)
+		}
+		if err := worker.Process(ctx, work); err != nil {
 			t.Fatalf("run copy scheduling step %d after the stop: %v", steps+1, err)
 		}
 		steps++
-		current = currentIdleClaimRebuild(t, rebuilds)
 	}
 	return steps
+}
+
+// requireStoppedOwnerRefused checks that the stopped owner's copy scheduling
+// attempt returns searchdomain.ErrWorkChanged.
+func requireStoppedOwnerRefused(t *testing.T, stores *fdbadapter.Stores, work searchdomain.Work, stopped searchdomain.Rebuild) {
+	t.Helper()
+	err := stores.SearchRebuilds(clock.Wall{}).CopyNextNodes(integration.WithTestOperation(t, t.Context()), work, stopped)
+	if !errors.Is(err, searchdomain.ErrWorkChanged) {
+		t.Fatalf("copy scheduling by the stopped owner returned %v, want %v", err, searchdomain.ErrWorkChanged)
+	}
 }
 
 // requireEveryNodeCopiedOnce claims available copy work and checks that each
