@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
@@ -45,8 +46,11 @@ func ResultBytes(summary node.Summary) int {
 // node from current FoundationDB data and commits the consumed position before returning.
 // Within MaxBatches, it reads one more batch under the same PIT for a full page with pending false.
 // An empty batch completes the session without a cursor; closeSnapshot deletes the PIT after commit.
-// If the extra batch has hits, page.position stays at the last consumed hit's sort. The next page
-// returns those hits once in order. It skips the extra read when pending is true.
+// If the extra batch has hits, page.position stays at the last consumed hit's sort, and the next page
+// returns those hits once in order. advance skips the extra read when pending is true. If closeSnapshot
+// returns an error matching audit.ErrEventNotRecorded, advance returns an empty page and an error
+// wrapping searchdomain.ErrEngineUnavailable and the close error. The page commit remains saved, and a
+// retry with the same cursor replays the committed page.
 func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.Session, filter searchdomain.AccessFilter) (SearchPage, error) {
 	page := pageState{
 		results: nil, resultIDs: nil, visited: nil, seen: map[uuid.UUID]bool{},
@@ -90,6 +94,10 @@ func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.S
 	if complete {
 		if closeErr := s.closeSnapshot(ctx, session, snapshot); closeErr != nil {
 			telemetry.L(ctx).ErrorContext(ctx, "search.snapshot.close_failed", slog.String("err", closeErr.Error()), slog.String("session_id", session.ID.String()))
+			if errors.Is(closeErr, audit.ErrEventNotRecorded) {
+				failure := queryFailure(ctx, "close search snapshot", session.ID, errors.Join(searchdomain.ErrEngineUnavailable, closeErr))
+				return SearchPage{}, failure
+			}
 		}
 	}
 	telemetry.L(ctx).InfoContext(ctx, "search.page.returned", slog.String("session_id", session.ID.String()),

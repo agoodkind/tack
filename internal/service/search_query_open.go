@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -43,10 +44,12 @@ func (s *SearchQueryService) open(ctx context.Context, request SearchRequest, au
 	return s.advance(ctx, created, filter)
 }
 
-// openSnapshot creates the point in time of session under one audited step.
-// It deletes a partial point in time under its own audited step. It returns
-// [searchdomain.ErrEngineUnavailable] for an audit write failure after
-// Ranker.Open succeeds or before it runs.
+// openSnapshot creates the session point in time under an audited step. It
+// deletes a partial point in time under a separate audited step. It returns
+// searchdomain.ErrEngineUnavailable for an audit write failure before Ranker.Open
+// runs or after it succeeds. If the partial point in time close error matches
+// audit.ErrEventNotRecorded, it joins the create step error,
+// searchdomain.ErrEngineUnavailable, and the close error.
 func (s *SearchQueryService) openSnapshot(ctx context.Context, session searchdomain.Session) (searchdomain.Snapshot, error) {
 	var none, snapshot searchdomain.Snapshot
 	var openErr error
@@ -71,6 +74,10 @@ func (s *SearchQueryService) openSnapshot(ctx context.Context, session searchdom
 	if errors.Is(openErr, searchdomain.ErrSnapshotPartial) {
 		if closeErr := s.closeSnapshot(ctx, session, snapshot); closeErr != nil {
 			telemetry.L(ctx).ErrorContext(ctx, "search.snapshot.close_failed", slog.String("err", closeErr.Error()), slog.String("session_id", session.ID.String()))
+			if errors.Is(closeErr, audit.ErrEventNotRecorded) {
+				failure := errors.Join(recordErr, searchdomain.ErrEngineUnavailable, closeErr)
+				return none, failure
+			}
 		}
 	}
 	return none, recordErr
