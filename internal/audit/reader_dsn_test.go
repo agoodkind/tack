@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -16,11 +17,11 @@ import (
 )
 
 const (
-	readerDSNTestSecret    = "reader-connect-secret"
-	readerDSNSlashPassword = "postgres://nobody:1/" + readerDSNTestSecret + "@[::1]:1/tack"
-	readerDSNTestTimeout   = 10 * time.Second
-	readerDSNParseTimeout  = 2 * time.Second
-	readerDSNParseFailure  = "audit: the reader connection string does not parse"
+	readerDSNTestSecret     = "reader-connect-secret"
+	readerDSNSecretDatabase = "postgres://[::1]:1/" + readerDSNTestSecret + "@x"
+	readerDSNTestTimeout    = 10 * time.Second
+	readerDSNParseTimeout   = 2 * time.Second
+	readerDSNParseFailure   = "audit: the reader connection string does not parse"
 	// readerConnectFailureText is the fixed text for a failed reader connection.
 	readerConnectFailureText = "audit: the reader did not connect"
 )
@@ -32,7 +33,7 @@ func TestNewReaderReturnsParseErrorOnlyWhenPgxCannotParse(t *testing.T) {
 		refused bool
 	}{
 		{dsn: "postgres://nobody:manifest@parts@secret@[::1:1/tack", refused: true},
-		{dsn: readerDSNSlashPassword, refused: false},
+		{dsn: readerDSNSecretDatabase, refused: false},
 		{dsn: "postgres://h:5432/db?application_name=a@b", refused: false},
 		{dsn: "postgres://h/db?application_name=a@b", refused: false},
 		{dsn: "postgres://u:p@h/db?application_name=a@b", refused: false},
@@ -52,7 +53,7 @@ func TestNewReaderReturnsParseErrorOnlyWhenPgxCannotParse(t *testing.T) {
 	}
 }
 
-// requireReaderConnectFailure fails the test unless err contains the fixed connection failure text, omits the password, and matches pgconn.ConnectError.
+// requireReaderConnectFailure checks the connection failure text, secret omission, and pgconn.ConnectError matching.
 func requireReaderConnectFailure(t *testing.T, path string, err error) {
 	t.Helper()
 	if err == nil || !strings.Contains(err.Error(), readerConnectFailureText) {
@@ -60,7 +61,7 @@ func requireReaderConnectFailure(t *testing.T, path string, err error) {
 		return
 	}
 	if strings.Contains(err.Error(), readerDSNTestSecret) {
-		t.Errorf("%s error %q contains the password", path, err)
+		t.Errorf("%s error %q contains %q", path, err, readerDSNTestSecret)
 	}
 	var connectError *pgconn.ConnectError
 	if !errors.As(err, &connectError) {
@@ -77,7 +78,7 @@ func openUnconnectableReader(t *testing.T) (context.Context, *audit.Reader, *byt
 	previousLogger := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(previousLogger) })
-	reader, err := audit.NewReader(ctx, readerDSNSlashPassword)
+	reader, err := audit.NewReader(ctx, readerDSNSecretDatabase)
 	if err != nil {
 		t.Fatalf("audit.NewReader error = %v, want nil", err)
 	}
@@ -85,7 +86,7 @@ func openUnconnectableReader(t *testing.T) (context.Context, *audit.Reader, *byt
 	return ctx, reader, logs
 }
 
-// TestReaderReadsOmitConnectionStringFromConnectError checks that Reader.Query and Reader.OperatorOutboxRemainder return errors and write logs containing the fixed connection failure text without the password when pgx parses a malformed connection string.
+// TestReaderReadsOmitConnectionStringFromConnectError checks that Reader.Query and Reader.OperatorOutboxRemainder omit the connection secret from errors and logs.
 func TestReaderReadsOmitConnectionStringFromConnectError(t *testing.T) {
 	ctx, reader, logs := openUnconnectableReader(t)
 	now := time.Now()
@@ -97,20 +98,19 @@ func TestReaderReadsOmitConnectionStringFromConnectError(t *testing.T) {
 	_, remainderErr := reader.OperatorOutboxRemainder(ctx)
 	requireReaderConnectFailure(t, "Reader.OperatorOutboxRemainder", remainderErr)
 	if strings.Contains(logs.String(), readerDSNTestSecret) {
-		t.Errorf("the logs contain the password:\n%s", logs.String())
+		t.Errorf("the logs contain %q:\n%s", readerDSNTestSecret, logs.String())
 	}
 	if !strings.Contains(logs.String(), readerConnectFailureText) {
 		t.Errorf("the logs omit %q:\n%s", readerConnectFailureText, logs.String())
 	}
 }
 
-// TestReaderKeepsContextErrorMatching checks that errors.Is matches context.Canceled when Reader.OperatorOutboxRemainder uses a canceled context.
-func TestReaderKeepsContextErrorMatching(t *testing.T) {
+// TestReaderKeepsConnectionRefusedMatching checks that a sanitized connection error matches syscall.ECONNREFUSED.
+func TestReaderKeepsConnectionRefusedMatching(t *testing.T) {
 	ctx, reader, _ := openUnconnectableReader(t)
-	canceled, cancel := context.WithCancel(ctx)
-	cancel()
-	_, err := reader.OperatorOutboxRemainder(canceled)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("Reader.OperatorOutboxRemainder error = %v, want context.Canceled", err)
+	_, err := reader.OperatorOutboxRemainder(ctx)
+	requireReaderConnectFailure(t, "Reader.OperatorOutboxRemainder", err)
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Fatalf("Reader.OperatorOutboxRemainder error = %v, want syscall.ECONNREFUSED", err)
 	}
 }
