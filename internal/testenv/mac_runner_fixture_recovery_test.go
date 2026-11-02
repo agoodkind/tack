@@ -42,6 +42,9 @@ func macRecoverOuterFixture(t *testing.T, docker *client.Client, directory strin
 	if err := json.Unmarshal(contents, &expected); err != nil {
 		t.Fatal(err)
 	}
+	if expected.Config == nil || expected.Config.Labels["com.docker.compose.project"] == "" || expected.Config.Labels["io.goodkind.tack.mac-runner.root"] == "" {
+		t.Fatal("refuse outer fixture recovery without recorded ownership labels")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	current, err := docker.ContainerInspect(ctx, expected.ID, client.ContainerInspectOptions{})

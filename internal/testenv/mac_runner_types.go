@@ -21,7 +21,6 @@ type MacTestResult struct {
 	RunnerID          string
 }
 
-// macRunnerPreparation stores inputs and source evidence for one invocation.
 type macRunnerPreparation struct {
 	name           string
 	options        MacTestOptions
