@@ -9,7 +9,6 @@ import (
 // errReaderDSNParse is the fixed error audit.NewReader returns when it refuses a connection string.
 var errReaderDSNParse = errors.New("audit: the reader connection string does not parse")
 
-// parseReaderDSN parses a connection string with pgxpool.ParseConfig and returns errReaderDSNParse if parsing fails.
 func parseReaderDSN(dsn string) (*pgxpool.Config, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
