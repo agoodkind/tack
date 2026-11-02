@@ -43,7 +43,7 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 	record := sessionRecordFor(session)
 	changes, err := beginSessionAudit(ctx, "create search session", session.ID)
 	if err != nil {
-		return searchdomain.Session{}, err
+		return searchdomain.Session{}, sessionRecordingFailure(ctx, session.ID, err)
 	}
 	err = transactSession(ctx, s.db, s.clock, "create search session", session.ID, func(tr fdb.Transaction) error {
 		changes.startAttempt()
@@ -71,9 +71,9 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 		tr.Set(fdb.Key(searchSessionPresenceKey(session.Query.Index, session.ID)), nil)
 		tr.Set(fdb.Key(searchSessionVersionKey(session.AuthorityID, session.Query.Access.Version, session.AbsoluteDeadline, session.ID)), nil)
 		if recordErr := changes.recordSessionCreate(sessionState{record: record, tokens: session.Snapshot.QueryTokens}); recordErr != nil {
-			return recordErr
+			return sessionRecordingFailure(ctx, session.ID, recordErr)
 		}
-		return changes.append(ctx, tr)
+		return sessionRecordingFailure(ctx, session.ID, changes.append(ctx, tr))
 	})
 	if err != nil {
 		return searchdomain.Session{}, err

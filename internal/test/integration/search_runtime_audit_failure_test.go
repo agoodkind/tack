@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -85,6 +86,9 @@ func TestSearchRuntimeAuditCleanupFailureRecorded(t *testing.T) {
 	}
 	_, err = searcher.Search(failing, request)
 	requireChangeEventFailure(t, "Search under the failing operation", err)
+	if !errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf("Search returned error %v; want a match for %v", err, audit.ErrEventNotRecorded)
+	}
 
 	store := fixture.Stores.SearchSessions(clock.Wall{}, failureAuditIdle)
 	after, err := store.Load(integration.WithTestOperation(t, t.Context()), expired.ID)

@@ -15,11 +15,11 @@ const retireAttemptClearOperation = "clear search session retirement attempt"
 // clearRetireAttempt reads and clears the attempt record in one transaction
 // after the cleanup step commits its change events in a separate transaction.
 // If the first transaction attempt finds the record absent, it returns
-// errRetireAttemptFenced. If a retry finds the record absent, it logs at
-// Info and returns errRetireClearAbsent. If the clear fails, it returns the
-// error without audit.ErrEventNotRecorded. The step already committed every
-// required event. recoverRetireAttempts later saves an incomplete event for
-// the attempt.
+// errRetireAttemptFenced. If a retry finds the record absent, it logs at Info
+// and returns an error that wraps errRetireClearAbsent and states the session
+// ID. If the clear fails, it returns the error without audit.ErrEventNotRecorded
+// because the step already committed every required event.
+// recoverRetireAttempts later saves an incomplete event for the attempt.
 func (s *SearchRebuildStore) clearRetireAttempt(ctx context.Context, attempt retireAttempt) error {
 	clearContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), audit.ExternalResultDeadline)
 	defer cancel()
@@ -50,7 +50,7 @@ func (s *SearchRebuildStore) clearRetireAttempt(ctx context.Context, attempt ret
 	}
 	if absentOnRetry {
 		slog.InfoContext(ctx, "search.session.retire_clear_absent", slog.String("session_id", sessionID))
-		return errRetireClearAbsent
+		return sessionStepError{operation: retireAttemptClearOperation + " for session " + sessionID, err: errRetireClearAbsent}
 	}
 	return nil
 }
