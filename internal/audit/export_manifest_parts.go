@@ -34,11 +34,11 @@ type manifestPartSource interface {
 // ManifestParts reads one event's read manifest parts for one organization
 // in index order.
 func (r *Reader) ManifestParts(ctx context.Context, orgID, eventID uuid.UUID) ([]ManifestPart, error) {
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
 		SELECT part_index, digest, payload FROM audit.event_parts
 		 WHERE org_id = $1 AND event_id = $2
 		 ORDER BY part_index ASC
-	`, orgID, eventID)
+	`, orgID, eventID))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.reader.manifest_query_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read audit event %s manifest parts: %w", eventID, err)

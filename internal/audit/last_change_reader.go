@@ -125,9 +125,9 @@ func (r *Reader) checkNodeHistoryFilter(filter NodeHistoryFilter) error {
 
 // nodeHistoryPage reads at most limit rows that precede position.
 func (r *Reader) nodeHistoryPage(ctx context.Context, filter NodeHistoryFilter, position historyPosition, limit int) ([]Row, error) {
-	rows, err := r.pool.Query(ctx, nodeHistoryPageStatement,
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, nodeHistoryPageStatement,
 		filter.OrgID, filter.NodeID, filter.NodeID.String(), filter.Oldest,
-		position.eventTime, position.seq, position.eventID, limit)
+		position.eventTime, position.seq, position.eventID, limit))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.node_history.query_failed", slog.String("node_id", filter.NodeID.String()), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("query the history of node %s: %w", filter.NodeID, err)

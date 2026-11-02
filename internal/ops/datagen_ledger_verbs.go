@@ -111,7 +111,7 @@ func readDatagenVerbPresence(ctx context.Context, f *cli.Factory, orgID uuid.UUI
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 	if err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.ledger_verbs_reader_failed", slog.String("err", err.Error()))
-		return report, fmt.Errorf("open the ledger reader: %w", err)
+		return report, fmt.Errorf("open the ledger reader from AUDIT_READER_DSN: %w", err)
 	}
 	defer reader.Close()
 	presence, err := reader.VerbPresence(ctx, orgID, verbs)
