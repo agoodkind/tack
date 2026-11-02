@@ -47,10 +47,12 @@ func ResultBytes(summary node.Summary) int {
 // Within MaxBatches, it reads one more batch under the same PIT for a full page with pending false.
 // An empty batch completes the session without a cursor; closeSnapshot deletes the PIT after commit.
 // If the extra batch has hits, page.position stays at the last consumed hit's sort, and the next page
-// returns those hits once in order. advance skips the extra read when pending is true. If closeSnapshot
-// returns an error matching audit.ErrEventNotRecorded, advance returns an empty page and an error
-// wrapping searchdomain.ErrEngineUnavailable and the close error. The page commit remains saved, and a
-// retry with the same cursor replays the committed page.
+// returns those hits once in order. advance skips the extra read when pending is true.
+// If closeSnapshot returns an error matching audit.ErrEventNotRecorded, advance
+// returns an empty page and an error wrapping searchdomain.ErrEngineUnavailable
+// and the close error. The page commit remains saved. When the search continued
+// a session, a retry with the same cursor replays the committed page. The final
+// page of a new search does not have a cursor for a retry.
 func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.Session, filter searchdomain.AccessFilter) (SearchPage, error) {
 	page := pageState{
 		results: nil, resultIDs: nil, visited: nil, seen: map[uuid.UUID]bool{},
@@ -103,21 +105,6 @@ func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.S
 	telemetry.L(ctx).InfoContext(ctx, "search.page.returned", slog.String("session_id", session.ID.String()),
 		slog.Uint64("version", committed.Version), slog.Int("results", len(page.results)), slog.Bool("complete", complete))
 	return SearchPage{SessionID: session.ID, NextVersion: committed.Version, Results: page.results, Complete: complete}, nil
-}
-
-// readBatch reads one raw batch at position. If the snapshot is lost, it
-// closes the session and joins any closeSession error with the read failure.
-func (s *SearchQueryService) readBatch(ctx context.Context, session searchdomain.Session, snapshot searchdomain.Snapshot, position json.RawMessage) (searchdomain.RankBatch, error) {
-	raw, err := s.ports.Ranker.Read(ctx, session.Query, snapshot, position)
-	if err != nil {
-		var closeErr error
-		if errors.Is(err, searchdomain.ErrSnapshotLost) {
-			closeErr = s.closeSession(ctx, session)
-		}
-		failure := errors.Join(queryFailure(ctx, "read ranked batch", session.ID, err), closeErr)
-		return searchdomain.RankBatch{}, failure
-	}
-	return raw, nil
 }
 
 // consumeBatch adds the accepted nodes of one raw batch to the page. It

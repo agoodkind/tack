@@ -109,7 +109,8 @@ func (s *SearchQueryService) Search(ctx context.Context, request SearchRequest) 
 			return SearchPage{}, compileErr
 		}
 		page, openErr := s.open(ctx, request, authority, searchdomain.Query{Text: text, Index: "", NodeType: request.NodeType, Access: filter, Generation: restoreEpoch})
-		// Return an empty page if the sweep cannot record required audit evidence.
+		// If sweepExpired fails, withhold the page and session created by open.
+		// The session expires later, and a later sweep removes it.
 		if sweepErr := s.sweepExpired(ctx); sweepErr != nil {
 			failure := queryFailure(ctx, "sweep expired search sessions", uuid.Nil, errors.Join(openErr, sweepErr))
 			return SearchPage{}, failure

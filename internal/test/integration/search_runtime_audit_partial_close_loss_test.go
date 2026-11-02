@@ -19,9 +19,9 @@ import (
 func TestSearchRuntimeAuditPartialSnapshotCloseRecordingLossRefusesPage(t *testing.T) {
 	fixture := newFailureFixture(t)
 	harness, capture := newCaptureHarness(t, fixture.QueryFixture, false)
-	before := cleanupLossOpenPITs(t, fixture)
+	before := listOpenPITs(t, fixture)
 	t.Cleanup(func() {
-		for _, identifier := range cleanupLossAddedPITs(cleanupLossOpenPITs(t, fixture), before) {
+		for _, identifier := range addedPITs(listOpenPITs(t, fixture), before) {
 			deleteObservedSnapshot(t, fixture, identifier)
 		}
 	})

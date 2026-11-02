@@ -3,7 +3,6 @@
 package integration_test
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -87,9 +86,9 @@ func runCleanupLoss(t *testing.T, scenario cleanupLossScenario) {
 	}
 	fixture := newFailureFixture(t)
 	harness, capture := newCaptureHarness(t, fixture.QueryFixture, false)
-	before := cleanupLossOpenPITs(t, fixture)
+	before := listOpenPITs(t, fixture)
 	t.Cleanup(func() {
-		for _, identifier := range cleanupLossAddedPITs(cleanupLossOpenPITs(t, fixture), before) {
+		for _, identifier := range addedPITs(listOpenPITs(t, fixture), before) {
 			deleteObservedSnapshot(t, fixture, identifier)
 		}
 	})
@@ -184,28 +183,4 @@ func cleanupLossReads(rows []audit.Row, outcome audit.Outcome) []audit.Row {
 		}
 	}
 	return selected
-}
-
-func cleanupLossOpenPITs(t *testing.T, fixture failureFixture) []string {
-	t.Helper()
-	ctx := integration.WithTestOperation(t, context.WithoutCancel(t.Context()))
-	listed, err := fixture.Client.PointInTime.GetAll(ctx, nil)
-	if err != nil {
-		t.Fatalf("list open points in time: %v", err)
-	}
-	identifiers := make([]string, 0, len(listed.PITs))
-	for _, pit := range listed.PITs {
-		identifiers = append(identifiers, pit.PITID.String())
-	}
-	return identifiers
-}
-
-func cleanupLossAddedPITs(current, before []string) []string {
-	added := []string{}
-	for _, identifier := range current {
-		if !slices.Contains(before, identifier) {
-			added = append(added, identifier)
-		}
-	}
-	return added
 }
