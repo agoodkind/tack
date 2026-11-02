@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -95,18 +96,25 @@ func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
 // setContainerPaused pauses or resumes the named container.
 func setContainerPaused(t *testing.T, container string, paused bool) {
 	t.Helper()
+	ctx := context.WithoutCancel(integration.WithTestOperation(t, t.Context()))
+	if err := changeContainerPause(ctx, container, paused); err != nil {
+		t.Fatalf("set container %s paused %t: %v", container, paused, err)
+	}
+}
+
+// changeContainerPause pauses or resumes a container and returns any Docker
+// error. Callers outside the test goroutine use it because they cannot call
+// t.Fatalf.
+func changeContainerPause(ctx context.Context, container string, paused bool) error {
 	docker, err := client.New(client.FromEnv)
 	if err != nil {
-		t.Fatalf("open docker client: %v", err)
+		return fmt.Errorf("open docker client: %w", err)
 	}
 	defer func() { _ = docker.Close() }()
-	ctx := context.WithoutCancel(integration.WithTestOperation(t, t.Context()))
 	if paused {
 		_, err = docker.ContainerPause(ctx, container, client.ContainerPauseOptions{})
 	} else {
 		_, err = docker.ContainerUnpause(ctx, container, client.ContainerUnpauseOptions{})
 	}
-	if err != nil {
-		t.Fatalf("set container %s paused %t: %v", container, paused, err)
-	}
+	return err
 }
