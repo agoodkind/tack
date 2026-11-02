@@ -88,7 +88,13 @@ func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.S
 	}
 	committed, err := s.ports.Sessions.CommitPage(ctx, session.ID, session.Version, commit)
 	if errors.Is(err, searchdomain.ErrSessionChanged) {
-		return s.replay(ctx, session, session.Version, filter)
+		replayed, replayErr := s.replay(ctx, session, session.Version, filter)
+		// Preserve the uncertain mark when replay after a session version change fails.
+		if replayErr != nil && errors.Is(err, searchdomain.ErrCommitUncertain) {
+			failure := queryFailure(ctx, "read replay", session.ID, errors.Join(replayErr, searchdomain.ErrCommitUncertain))
+			return replayed, failure
+		}
+		return replayed, replayErr
 	}
 	if err != nil {
 		return SearchPage{}, queryFailure(ctx, "commit search page", session.ID, err)

@@ -27,6 +27,9 @@ var (
 	// ErrEngineUnavailable means OpenSearch kept rejecting query inference
 	// with its memory circuit breaker after every bounded retry.
 	ErrEngineUnavailable = errors.New("search engine is temporarily unavailable")
+	// ErrCommitUncertain indicates that a session write ended without confirming
+	// whether its FoundationDB commit applied.
+	ErrCommitUncertain = errors.New("search session commit is uncertain")
 )
 
 // Query is one normalized search bound to a physical index, caller access,

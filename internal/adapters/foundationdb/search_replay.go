@@ -97,7 +97,11 @@ func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID
 		if applyErr != nil {
 			return applyErr
 		}
-		return sessionRecordingFailure(ctx, sessionID, changes.append(ctx, tr))
+		if appendErr := changes.append(ctx, tr); appendErr != nil {
+			return sessionRecordingFailure(ctx, sessionID, appendErr)
+		}
+		slog.DebugContext(ctx, "search.session.page_commit_ready", slog.String("session_id", sessionID.String()))
+		return nil
 	})
 	if err != nil {
 		return searchdomain.Session{}, err

@@ -73,7 +73,11 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 		if recordErr := changes.recordSessionCreate(sessionState{record: record, tokens: session.Snapshot.QueryTokens}); recordErr != nil {
 			return sessionRecordingFailure(ctx, session.ID, recordErr)
 		}
-		return sessionRecordingFailure(ctx, session.ID, changes.append(ctx, tr))
+		if appendErr := changes.append(ctx, tr); appendErr != nil {
+			return sessionRecordingFailure(ctx, session.ID, appendErr)
+		}
+		slog.DebugContext(ctx, "search.session.create_commit_ready", slog.String("session_id", session.ID.String()))
+		return nil
 	})
 	if err != nil {
 		return searchdomain.Session{}, err

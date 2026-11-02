@@ -18,6 +18,11 @@ import (
 // searchCursorParam is the optional continuation argument.
 const searchCursorParam = "cursor"
 
+const (
+	searchCommitUncertainCode    = "search_commit_uncertain"
+	searchCommitUncertainMessage = "the search could not confirm whether its session write committed"
+)
+
 // runSearch resolves the workspace entry point, reads the caller's
 // organization memberships, runs one ranked page, and renders the bounded
 // result list.
@@ -92,6 +97,10 @@ func resolveSearchNodeType(resolver *Resolver, input string) (string, bool) {
 
 // searchFailureResult returns an explicit error for every failed call.
 func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult {
+	// First outcome wins; uncertain is incomplete; retain record failure and text.
+	if errors.Is(err, searchdomain.ErrCommitUncertain) && !errors.Is(err, audit.ErrEventNotRecorded) {
+		noteOutcome(ctx, audit.OutcomeIncomplete, searchCommitUncertainCode, searchCommitUncertainMessage)
+	}
 	switch {
 	// Check recording failures first because their errors can also match other cases.
 	case errors.Is(err, audit.ErrEventNotRecorded):
