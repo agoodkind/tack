@@ -49,15 +49,7 @@ func TestAuditLastChangeIgnoresUpdateRefusedForNonMember(t *testing.T) {
 	requireField(t, report, "/name", audit.LastChangeKnown, rename, audit.LastChangeSet)
 }
 
-// TestAuditLastChangeRefusesWithoutAuditReaderRole runs `audit last-change`
-// through the built server three times as different operators: without
-// AUDIT_READER_DSN, with a login that inherits only the application role, and
-// with a login that inherits audit_reader. The first two runs must exit with
-// an error, log the error that states the missing setting or the permission
-// refusal, and not print a report. The audit_reader run must print a report. The
-// clispec choke-point records an audit host read before the read runs, as it
-// does for `audit query` and `audit get`. The ledger must contain exactly one
-// audit.read row with the ok outcome for each operator.
+// TestAuditLastChangeRefusesWithoutAuditReaderRole runs audit last-change through the built server as different operators with AUDIT_READER_DSN absent, a login that inherits only the application role, a malformed AUDIT_READER_DSN, and a login that inherits audit_reader. The failing runs exit with an error, log the missing setting, permission refusal, or fixed reader message, and do not print a report. The audit_reader run prints a report. The clispec choke-point records an audit host read before the read runs, as it does for audit query and audit get. The ledger must contain exactly one audit.read row with the ok outcome for each operator.
 func TestAuditLastChangeRefusesWithoutAuditReaderRole(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	orgID, nodeID, now := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), clock.Now()
@@ -69,6 +61,7 @@ func TestAuditLastChangeRefusesWithoutAuditReaderRole(t *testing.T) {
 		{name: "without AUDIT_READER_DSN", readerDSN: "", refusal: "AUDIT_READER_DSN required"},
 		{name: "with the application role", readerDSN: ledgerLoginDSN(t, ledger, lastChangeAppRole), refusal: "permission denied"},
 		{name: "with audit_reader", readerDSN: ledger.cfg.AuditReaderDSN, refusal: ""},
+		{name: "with a malformed reader DSN", readerDSN: readerMalformedDSN, refusal: readerFixedMessage},
 	}
 	for _, current := range cases {
 		operatorID := uuid.Must(uuid.NewV7())
@@ -78,6 +71,9 @@ func TestAuditLastChangeRefusesWithoutAuditReaderRole(t *testing.T) {
 		if (run.err == nil) != succeeds || printed != succeeds || !strings.Contains(run.log, current.refusal) {
 			t.Fatalf("%s: error = %v, printed a report = %t, want success %t and a log with %q\n%s",
 				current.name, run.err, printed, succeeds, current.refusal, run.output())
+		}
+		if strings.Contains(run.output(), readerErrorSecret) || strings.Contains(run.output(), readerParseErrorText) {
+			t.Fatalf("%s: the command exposed the reader connection string\n%s", current.name, run.output())
 		}
 		want := operatorReadRow{Action: string(audit.VerbAuditRead), Outcome: string(audit.OutcomeOK), Code: ""}
 		rows := waitForOperatorRows(t, ledger, operatorID, 1, run.output())
