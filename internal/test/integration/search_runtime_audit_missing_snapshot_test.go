@@ -45,7 +45,8 @@ func TestSearchRuntimeAuditMissingSnapshotIdentity(t *testing.T) {
 	t.Cleanup(func() { deleteObservedSnapshot(t, fixture, observed.id) })
 	requirePITOpen(t, fixture.QueryFixture, []string{observed.id})
 	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(rows []audit.Row) bool {
-		return len(snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete)) == 2
+		results := snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete)
+		return len(results) == 2 && snapshotResultsHaveIntents(rows, results)
 	})
 	requireInterruptedSnapshotRows(t, fixture, rows, audit.VerbSearchPointInTimeCreate)
 	for _, row := range snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete) {
