@@ -33,8 +33,12 @@ const (
 // session target with ownerID. Its fixed code and message exclude the raw
 // error. Its ID derives from the operation base in changes, so repeated
 // writes use the same event ID.
-// The method ignores cancellation of ctx and ends after
-// audit.ExternalResultDeadline. It returns cause when the event commits or
+// recordWriteUncertain ignores cancellation of ctx.
+// audit.ExternalResultDeadline limits the whole write to 30 seconds.
+// searchTransactionTimeout limits each transaction attempt to 5 seconds.
+// transactSession does not retry FoundationDB timeout error 1031.
+// One stalled attempt ends the write before audit.ExternalResultDeadline.
+// It returns cause when the event commits or
 // when cause does not wrap commitUncertainError. If the event cannot commit,
 // it returns an error joining audit.ErrEventNotRecorded, cause, and the write
 // error.

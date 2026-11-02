@@ -21,23 +21,29 @@ const (
 	sessionWriteUncertainMessage = "the search session write ended without a confirmed commit result"
 	searchUnavailableCode        = "search_unavailable"
 	auditRecordingFailedCode     = "audit_recording_failed"
+	shortQueryDeadline           = "3s"
+	shortQueryAdmissionWait      = "1s"
 )
 
-// TestSearchRuntimeAuditCommitUncertainReadOutcome runs tack_search four times
-// with a real engine and the real outbox. In the first case, a log hook
-// pauses the test FoundationDB container before the session create transaction
-// reads, and the transaction ends without a commit. In the second and third
-// cases, the hook pauses the container after the session create transaction or
-// the page commit transaction prepares its writes. The commit then times out
-// with error 1031. In these three cases, a second hook resumes the container
-// at the storage failure log. In the fourth case, the hook pauses the
-// container after the session create transaction prepares its writes and
-// keeps it paused until the incomplete session write event cannot commit.
-// Each search must return the fixed unavailable text and an empty page.
-// The read row must store the failed outcome with code search_unavailable in
-// the first three cases and audit_recording_failed in the fourth case.
+// TestSearchRuntimeAuditCommitUncertainReadOutcome runs tack_search five times
+// with a real engine and the real outbox. In the first case, a log hook pauses
+// the test FoundationDB container before the session create transaction reads.
+// The transaction ends without a commit. In the second and third cases, the
+// hook pauses the container after the session create transaction or page commit
+// transaction prepares its writes. The commit times out with FoundationDB
+// error 1031. In these three cases, a second hook resumes the container at the
+// storage failure log.
+//
+// In the fourth and fifth cases, the hook pauses the container after the
+// session create transaction or page commit transaction prepares its writes.
+// The hook keeps the container paused until the incomplete session write event
+// cannot commit.
+//
+// Each search must return the fixed unavailable text and an empty page. The
+// read row must record a failed outcome with code search_unavailable in the
+// first three cases and audit_recording_failed in the fourth and fifth cases.
 // The second and third cases must each store one incomplete session write
-// event. The event must use the operation ID and actor that the write read
+// event. The event must record the operation ID and actor that the write read
 // from its context, the read operation as its parent, and the session target
 // with the owner. The first case must not store an incomplete session write
 // event.
@@ -65,6 +71,7 @@ func TestSearchRuntimeAuditCommitUncertainReadOutcome(t *testing.T) {
 		{name: "create commit", pause: sessionCreateCommitReady, resume: retireStorageFailed, code: searchUnavailableCode, verb: audit.VerbSearchSessionCreate, requireAbsent: false},
 		{name: "page commit", pause: sessionPageCommitReady, resume: retireStorageFailed, code: searchUnavailableCode, verb: audit.VerbSearchSessionUpdate, requireAbsent: false},
 		{name: "recording loss", pause: sessionCreateCommitReady, resume: sessionRecordingFailedLog, code: auditRecordingFailedCode, verb: "", requireAbsent: false},
+		{name: "page recording loss", pause: sessionPageCommitReady, resume: sessionRecordingFailedLog, code: auditRecordingFailedCode, verb: "", requireAbsent: false},
 	}
 	seen := map[uuid.UUID]bool{}
 	withoutCommit := []uuid.UUID{}
@@ -105,6 +112,45 @@ func TestSearchRuntimeAuditCommitUncertainReadOutcome(t *testing.T) {
 			t.Fatalf("stored %d incomplete session write events for operation %s; want 0", len(events), operationID)
 		}
 	}
+}
+
+// TestSearchRuntimeAuditCommitUncertainEventAfterRequestDeadline sets
+// OPENSEARCH_QUERY_DEADLINE to 3 seconds and runs tack_search once. A log hook
+// pauses the test FoundationDB container after the session create transaction
+// prepares its writes. The commit times out when the request deadline ends.
+// A second hook resumes the container at the storage failure log.
+//
+// The test requires one incomplete session write event with the write's
+// operation ID, actor, parent, and target. TACK-629 owns the response, and this
+// test does not check the read row code or response text.
+func TestSearchRuntimeAuditCommitUncertainEventAfterRequestDeadline(t *testing.T) {
+	t.Setenv("OPENSEARCH_QUERY_DEADLINE", shortQueryDeadline)
+	t.Setenv("OPENSEARCH_QUERY_ADMISSION_WAIT", shortQueryAdmissionWait)
+	fixture := newFailureFixture(t)
+	harness, _ := newCaptureHarness(t, fixture.QueryFixture, false)
+	before := listOpenPITs(t, fixture)
+	t.Cleanup(func() {
+		for _, identifier := range addedPITs(listOpenPITs(t, fixture), before) {
+			deleteObservedSnapshot(t, fixture, identifier)
+		}
+	})
+	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
+	hooks := installRetireLogHooks(t, "", map[string]func(){
+		sessionCreateCommitReady: func() { setContainerPaused(t, container, true) },
+		retireStorageFailed:      func() { setContainerPaused(t, container, false) },
+	})
+	write := installSessionWriteCapture(sessionCreateCommitReady)
+	_, err := integration.TrySearch(harness, failureAuditQuery, "")
+	t.Logf("search result after request deadline: %v", err)
+	hooks.requireFinished(t)
+	seen := map[uuid.UUID]bool{}
+	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(found []audit.Row) bool {
+		reads := unseenSearchReads(found, seen)
+		return len(reads) == 1 && len(writeUncertainEvents(found, reads[0].Context.OperationID)) == 1
+	})
+	read := onlyRow(t, unseenSearchReads(rows, seen), "the tack_search read row")
+	event := onlyRow(t, writeUncertainEvents(rows, read.Context.OperationID), "the incomplete session write event")
+	requireWriteUncertainEvent(t, event, read, write, audit.VerbSearchSessionCreate, fixture.Workspaces[0].Actors[0].UserID)
 }
 
 func requireWriteUncertainEvent(t *testing.T, event, read audit.Row, write *sessionWriteCapture, verb audit.Verb, actorID uuid.UUID) {
