@@ -159,10 +159,11 @@ jobs:
       - name: run the OpenSearch-backed tests
         run: make test-search-host-group GROUP=${{ matrix.group }}
 
-  # G5A and G5B split the search tests that G1 to G4 and G6 do not select by
-  # test name. The G5A job limit allows 75 minutes of go test, 20 minutes for
-  # the SDK contract step, and 15 minutes for setup. The G5B job limit allows
-  # 75 minutes of go test and 15 minutes for setup.
+  # G5A, G5B, and G5C split the search tests that G1 to G4 and G6 do
+  # not select by test name.
+  # The G5A job limit allows 75 minutes for go test, 20 minutes for
+  # the SDK contract step, and 15 minutes for setup. The G5B and G5C
+  # job limits each allow 75 minutes for go test and 15 minutes for setup.
   search-g5:
     name: search integration tests (OpenSearch ${{ matrix.group }})
     runs-on: ubuntu-latest
@@ -174,6 +175,8 @@ jobs:
           - group: G5A
             timeout_minutes: 110
           - group: G5B
+            timeout_minutes: 90
+          - group: G5C
             timeout_minutes: 90
     steps:
       - uses: actions/checkout@v7
@@ -206,8 +209,8 @@ jobs:
       - name: run the OpenSearch-backed tests
         run: make test-search-host-group GROUP=${{ matrix.group }}
 
-  # The ruleset requires the check name search integration tests (OpenSearch
-  # G5). This job passes only when G5A and G5B both pass.
+  # The ruleset requires the check name search integration tests
+  # (OpenSearch G5). This job passes only when G5A, G5B, and G5C all pass.
   search-g5-required:
     name: search integration tests (OpenSearch G5)
     needs: search-g5
@@ -215,5 +218,5 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: require G5A and G5B to pass
+      - name: require G5A, G5B, and G5C to pass
         run: test "${{ needs.search-g5.result }}" = success
