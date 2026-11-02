@@ -72,7 +72,7 @@ func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID
 	}
 	changes, err := beginSessionAudit(ctx, "commit search page", sessionID)
 	if err != nil {
-		return searchdomain.Session{}, err
+		return searchdomain.Session{}, sessionRecordingFailure(ctx, sessionID, err)
 	}
 	var record searchSessionRecord
 	err = transactSession(ctx, s.db, s.clock, "commit search page", sessionID, func(tr fdb.Transaction) error {
@@ -93,11 +93,11 @@ func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID
 		}
 		changes.bind(stored)
 		var applyErr error
-		record, applyErr = s.applyPageCommit(tr, changes, stored, version, commit)
+		record, applyErr = s.applyPageCommit(ctx, tr, changes, stored, version, commit)
 		if applyErr != nil {
 			return applyErr
 		}
-		return changes.append(ctx, tr)
+		return sessionRecordingFailure(ctx, sessionID, changes.append(ctx, tr))
 	})
 	if err != nil {
 		return searchdomain.Session{}, err
@@ -111,12 +111,12 @@ func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID
 // applyPageCommit writes one page commit in tr, records its changes, and
 // returns the new header. The caller filters commit.Visited at this session
 // version. Each visited record in commit.Visited is new.
-func (s *SearchSessionStore) applyPageCommit(tr fdb.Transaction, changes *sessionAudit, stored searchSessionRecord, version uint64, commit searchdomain.PageCommit) (searchSessionRecord, error) {
+func (s *SearchSessionStore) applyPageCommit(ctx context.Context, tr fdb.Transaction, changes *sessionAudit, stored searchSessionRecord, version uint64, commit searchdomain.PageCommit) (searchSessionRecord, error) {
 	sessionID := stored.ID
 	for _, nodeID := range commit.Visited {
 		tr.Set(fdb.Key(searchSessionVisitedKey(sessionID, nodeID)), []byte{1})
 		if err := changes.recordVisitedCreate(sessionID, nodeID); err != nil {
-			return stored, err
+			return stored, sessionRecordingFailure(ctx, sessionID, err)
 		}
 	}
 	replay := searchReplayRecord{ResultIDs: commit.ResultIDs, Complete: commit.Complete}
@@ -124,9 +124,9 @@ func (s *SearchSessionStore) applyPageCommit(tr fdb.Transaction, changes *sessio
 		return stored, err
 	}
 	if err := changes.recordReplayCreate(sessionID, version, replay); err != nil {
-		return stored, err
+		return stored, sessionRecordingFailure(ctx, sessionID, err)
 	}
-	if err := clearPreviousReplay(tr, changes, sessionID, version); err != nil {
+	if err := clearPreviousReplay(ctx, tr, changes, sessionID, version); err != nil {
 		return stored, err
 	}
 	record := stored
@@ -144,12 +144,12 @@ func (s *SearchSessionStore) applyPageCommit(tr fdb.Transaction, changes *sessio
 		return stored, err
 	}
 	previous, current := sessionState{record: stored, tokens: nil}, sessionState{record: record, tokens: nil}
-	return record, changes.recordSessionUpdate(previous, current)
+	return record, sessionRecordingFailure(ctx, sessionID, changes.recordSessionUpdate(previous, current))
 }
 
 // clearPreviousReplay reads the replay record of the previous version, clears
 // it, and records its removal.
-func clearPreviousReplay(tr fdb.Transaction, changes *sessionAudit, sessionID uuid.UUID, version uint64) error {
+func clearPreviousReplay(ctx context.Context, tr fdb.Transaction, changes *sessionAudit, sessionID uuid.UUID, version uint64) error {
 	if version == 0 {
 		return nil
 	}
@@ -163,5 +163,5 @@ func clearPreviousReplay(tr fdb.Transaction, changes *sessionAudit, sessionID uu
 	if !found {
 		return nil
 	}
-	return changes.recordReplayDelete(sessionID, previousVersion, previous)
+	return sessionRecordingFailure(ctx, sessionID, changes.recordReplayDelete(sessionID, previousVersion, previous))
 }

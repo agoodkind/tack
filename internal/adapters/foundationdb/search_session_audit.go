@@ -3,6 +3,8 @@ package foundationdb
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -51,6 +53,20 @@ func beginSessionAudit(ctx context.Context, operation string, sessionID uuid.UUI
 		return nil, sessionFailure(ctx, operation, sessionID, err)
 	}
 	return &sessionAudit{mutationAudit: changes}, nil
+}
+
+// sessionRecordingFailure handles a search session writer's failure to build
+// or save a required change event. If err is not nil, it logs err and the
+// session ID at Error and returns err joined with audit.ErrEventNotRecorded.
+// [errors.Is] and [errors.As] can find every error in err's chain, including a
+// FoundationDB error that transactSession retries. If err is nil, the function
+// returns nil without logging.
+func sessionRecordingFailure(ctx context.Context, sessionID uuid.UUID, err error) error {
+	if err == nil {
+		return nil
+	}
+	slog.ErrorContext(ctx, "search.session.recording_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
+	return errors.Join(audit.ErrEventNotRecorded, err)
 }
 
 // bind scopes the events of this writer to the organization and workspace of

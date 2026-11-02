@@ -83,7 +83,7 @@ func (s *SearchQueryService) runSnapshotStep(
 ) error {
 	return s.runEncodedStep(ctx, session, operation, planned, func(ctx context.Context) (json.RawMessage, error) {
 		observed, effectErr := effect(ctx)
-		return encodeEvidence(ctx, observed, effectErr)
+		return encodeEvidence(ctx, session.ID, observed, effectErr)
 	})
 }
 
@@ -96,9 +96,9 @@ func (s *SearchQueryService) runEncodedStep(
 ) error {
 	mutation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
-		return snapshotStepFailure(ctx, "read the audit operation", err)
+		return errors.Join(audit.ErrEventNotRecorded, snapshotStepFailure(ctx, session.ID, "read the audit operation", err))
 	}
-	encoded, err := encodeEvidence(ctx, planned, nil)
+	encoded, err := encodeEvidence(ctx, session.ID, planned, nil)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (s *SearchQueryService) runEncodedStep(
 			Outcome: audit.OutcomeFailed, FailureCode: snapshotStepFailedCode, FailureMessage: snapshotStepFailedMessage, CommittedSteps: nil,
 		}
 		if beginErr := steps.BeginStep(ctx, step); beginErr != nil {
-			return details, snapshotStepFailure(ctx, "record the point in time step", beginErr)
+			return details, snapshotStepFailure(ctx, session.ID, "record the point in time step", beginErr)
 		}
 		observed, effectErr := effect(ctx)
 		switch {
@@ -130,7 +130,7 @@ func (s *SearchQueryService) runEncodedStep(
 		defer cancel()
 		if finishErr := steps.FinishStep(writeContext, audit.FinishedStep(step, details, observed)); finishErr != nil {
 			slog.ErrorContext(ctx, "search.snapshot.step_failed", slog.String("err", finishErr.Error()))
-			return details, errors.Join(effectErr, fmt.Errorf("record the point in time step result: %w", finishErr))
+			return details, errors.Join(effectErr, fmt.Errorf("record the point in time step result of session %s: %w", session.ID, finishErr))
 		}
 		return details, effectErr
 	})
@@ -151,7 +151,7 @@ func (s *SearchQueryService) closeSnapshot(ctx context.Context, session searchdo
 		if closeErr != nil && !alreadyClosed {
 			return nil, snapshotStepError{err: closeErr}
 		}
-		return encodeEvidence(ctx, closedSnapshotEvidence{snapshotEvidence: planned, AlreadyClosed: alreadyClosed}, nil)
+		return encodeEvidence(ctx, session.ID, closedSnapshotEvidence{snapshotEvidence: planned, AlreadyClosed: alreadyClosed}, nil)
 	})
 }
 
@@ -174,16 +174,16 @@ type snapshotEvidenceValue interface {
 	snapshotEvidence | closedSnapshotEvidence
 }
 
-func encodeEvidence[Evidence snapshotEvidenceValue](ctx context.Context, evidence Evidence, effectErr error) (json.RawMessage, error) {
+func encodeEvidence[Evidence snapshotEvidenceValue](ctx context.Context, sessionID uuid.UUID, evidence Evidence, effectErr error) (json.RawMessage, error) {
 	encoded, err := json.Marshal(evidence)
 	if err != nil {
-		return nil, snapshotStepFailure(ctx, "encode the point in time evidence", errors.Join(effectErr, err))
+		return nil, snapshotStepFailure(ctx, sessionID, "encode the point in time evidence", errors.Join(effectErr, err))
 	}
 	return encoded, effectErr
 }
 
-func snapshotStepFailure(ctx context.Context, operation string, err error) error {
-	wrapped := fmt.Errorf("search snapshot step: %s: %w", operation, err)
-	slog.ErrorContext(ctx, "search.snapshot.step_failed", slog.String("err", wrapped.Error()))
+func snapshotStepFailure(ctx context.Context, sessionID uuid.UUID, operation string, err error) error {
+	wrapped := fmt.Errorf("search snapshot step for session %s: %s: %w", sessionID, operation, err)
+	slog.ErrorContext(ctx, "search.snapshot.step_failed", slog.String("err", wrapped.Error()), slog.String("session_id", sessionID.String()))
 	return wrapped
 }
