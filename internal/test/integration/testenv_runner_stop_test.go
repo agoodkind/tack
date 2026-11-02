@@ -101,9 +101,11 @@ func requireOnlyChildRemoved(t *testing.T, cli *client.Client, runner, child, by
 	}
 }
 
-// startSecondRunner starts a container from runner's image, mounts, environment,
-// and configured stop timeout that runs TestStoppedRunnerChild. It removes that
-// container and the containers with its runner label when the test ends.
+// startSecondRunner starts a container from runner's image, environment, and
+// configured stop timeout that runs TestStoppedRunnerChild. The container shares
+// runner's mounts, which keeps it from creating an anonymous volume. It removes
+// that container and the containers with its runner label when the test ends and
+// keeps every volume.
 func startSecondRunner(t *testing.T, cli *client.Client, runner string) string {
 	t.Helper()
 	ctx := t.Context()
@@ -120,11 +122,10 @@ func startSecondRunner(t *testing.T, cli *client.Client, runner string) string {
 				"test", "-count=1", "-timeout", "15m", "-run", "^TestStoppedRunnerChild$", "./internal/test/integration",
 			},
 			Env:         append(source.Config.Env, stoppedRunnerChildEnvironment+"=1"),
-			Volumes:     source.Config.Volumes,
 			WorkingDir:  source.Config.WorkingDir,
 			StopTimeout: source.Config.StopTimeout,
 		},
-		HostConfig: &container.HostConfig{Binds: source.HostConfig.Binds, Mounts: source.HostConfig.Mounts},
+		HostConfig: &container.HostConfig{VolumesFrom: []string{runner}},
 	})
 	if err != nil {
 		t.Fatalf("create second runner: %v", err)
@@ -133,7 +134,7 @@ func startSecondRunner(t *testing.T, cli *client.Client, runner string) string {
 	t.Cleanup(func() {
 		cleanupContext := context.WithoutCancel(ctx)
 		for _, name := range append(labeledContainers(cleanupContext, t, cli, child), child) {
-			_, _ = cli.ContainerRemove(cleanupContext, name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+			_, _ = cli.ContainerRemove(cleanupContext, name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: false})
 		}
 	})
 	if _, err := cli.ContainerStart(ctx, child, client.ContainerStartOptions{}); err != nil {
