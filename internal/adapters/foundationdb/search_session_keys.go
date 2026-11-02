@@ -22,7 +22,7 @@ import (
 //	(search_session_expiry, minute, bucket, sessionID) -> nil
 //	(search_session_present, index, bucket, sessionID) -> nil
 //	(search_session_version, authorityID, accessVersion, absoluteMinute, bucket, sessionID) -> nil
-//	(search_retire_attempt, index, sessionID, step, eventID) -> deadline and pending audit event JSON
+//	(search_retire_attempt, index, sessionID, step, eventID) -> JSON containing the attempt lease deadline and encoded failure event
 //
 // The search_session_version family stores one entry for each session that
 // can still read OpenSearch under that access version.
