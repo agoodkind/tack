@@ -59,7 +59,7 @@ func TestSearchSessionAuditRetireLeaseRunsFromFirstObservation(t *testing.T) {
 	if err != nil || !remaining {
 		t.Fatalf("RetireIndexSessions of %s at first observation = %t, %v, want remaining work", index, remaining, err)
 	}
-	observed := attemptRecordValues(t)
+	observed := attemptRecordValues(t, retireLeaseRecordSize)
 	for _, value := range observed {
 		var record struct {
 			ObservedAt time.Time `json:"observed_at"`
@@ -72,7 +72,7 @@ func TestSearchSessionAuditRetireLeaseRunsFromFirstObservation(t *testing.T) {
 	if err != nil || !remaining {
 		t.Fatalf("RetireIndexSessions of %s during the lease = %t, %v, want remaining work", index, remaining, err)
 	}
-	for position, value := range attemptRecordValues(t) {
+	for position, value := range attemptRecordValues(t, retireLeaseRecordSize) {
 		if !bytes.Equal(value, observed[position]) {
 			t.Fatalf("attempt record %d changed during the lease from %s to %s", position, observed[position], value)
 		}
