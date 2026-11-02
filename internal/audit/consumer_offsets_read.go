@@ -33,11 +33,11 @@ func (r *Reader) ConsumerOffsets(ctx context.Context) ([]ConsumerOffset, error) 
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
 	}
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
 		SELECT consumer_group, topic, partition, "offset", updated_at
 		  FROM audit.consumer_offsets
 		 ORDER BY consumer_group, topic, partition
-	`)
+	`))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer_offsets.read_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read consumer offsets: %w", err)

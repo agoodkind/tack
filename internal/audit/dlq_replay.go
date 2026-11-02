@@ -18,12 +18,12 @@ func (r *Reader) ListDeadLetters(ctx context.Context, limit int) ([]DeadLetter, 
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
 	}
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
 		SELECT topic, partition, "offset", received_at, payload, error, attempt_count, last_attempt_at
 		  FROM audit.events_dlq
 		 ORDER BY attempt_count ASC, received_at ASC, topic ASC, partition ASC, "offset" ASC
 		 LIMIT $1
-	`, limit)
+	`, limit))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.dlq.list_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("list dead letters: %w", err)
@@ -51,12 +51,12 @@ func (r *Reader) SummarizeDeadLetters(ctx context.Context) ([]DeadLetterSummary,
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
 	}
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
 		SELECT error, count(*), min(received_at), max(received_at)
 		  FROM audit.events_dlq
 		 GROUP BY error
 		 ORDER BY count(*) DESC, error ASC
-	`)
+	`))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.dlq.summary_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("summarize dead letters: %w", err)

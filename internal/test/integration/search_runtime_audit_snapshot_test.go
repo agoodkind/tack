@@ -41,8 +41,8 @@ func TestSearchRuntimeAuditPartialPointInTimeDeleted(t *testing.T) {
 		t.Fatalf("tack_search with a partial point in time returned %v, want an error containing %q", err, unexpectedErrorText)
 	}
 	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(current []audit.Row) bool {
-		return len(partialDeletes(current)) == 1 &&
-			len(snapshotResults(current, audit.VerbSearchPointInTimeCreate, audit.OutcomePartiallyCompleted)) == 2
+		results := snapshotResults(current, audit.VerbSearchPointInTimeCreate, audit.OutcomePartiallyCompleted)
+		return len(partialDeletes(current)) == 1 && len(results) == 2 && snapshotResultsHaveIntents(current, results)
 	})
 	step := onlyRow(t, partialDeletes(rows), "the partial point in time delete")
 	var observed struct {

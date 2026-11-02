@@ -59,7 +59,8 @@ func requireUnconfirmedSnapshotResult(t *testing.T, replace func(*http.Response)
 	observed := waitSnapshotResponse(t, responses)
 	requirePITsClosed(t, fixture.QueryFixture, []string{observed.id})
 	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(rows []audit.Row) bool {
-		return len(snapshotResults(rows, audit.VerbSearchPointInTimeDelete, audit.OutcomeIncomplete)) == 2
+		results := snapshotResults(rows, audit.VerbSearchPointInTimeDelete, audit.OutcomeIncomplete)
+		return len(results) == 2 && snapshotResultsHaveIntents(rows, results)
 	})
 	requireInterruptedSnapshotRows(t, fixture, rows, audit.VerbSearchPointInTimeDelete)
 	for _, row := range snapshotResults(rows, audit.VerbSearchPointInTimeDelete, audit.OutcomeIncomplete) {

@@ -33,7 +33,8 @@ func TestSearchRuntimeAuditCanceledBeforeSnapshot(t *testing.T) {
 		t.Fatal("the search did not finish after cancellation before its effect")
 	}
 	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(rows []audit.Row) bool {
-		return len(snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeFailed)) == 2
+		results := snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeFailed)
+		return len(results) == 2 && snapshotResultsHaveIntents(rows, results)
 	})
 	for _, result := range snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeFailed) {
 		if result.Error == nil || result.Error.Code != "point_in_time_failed" {

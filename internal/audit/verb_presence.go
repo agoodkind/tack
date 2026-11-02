@@ -24,8 +24,8 @@ func (r *Reader) VerbPresence(ctx context.Context, orgID uuid.UUID, verbs []stri
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
 	}
-	rows, err := r.pool.Query(ctx, `SELECT action, count(event_id), max(event_time)
-		FROM audit.events WHERE org_id = $1 AND action = ANY($2) GROUP BY action`, orgID, verbs)
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `SELECT action, count(event_id), max(event_time)
+		FROM audit.events WHERE org_id = $1 AND action = ANY($2) GROUP BY action`, orgID, verbs))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.verb_presence.query_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read the presence of %d verbs: %w", len(verbs), err)
