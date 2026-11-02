@@ -100,7 +100,11 @@ func (w *SearchWorker) rebuildVerify(ctx context.Context, work searchdomain.Work
 // block. An earlier attempt that deleted the index and then failed to record
 // the finish leaves the index missing.
 func (w *SearchWorker) rebuildRetire(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) error {
-	remaining, err := w.ports.Rebuilds.RetireIndexSessions(ctx, rebuild.SourceIndex, searchBatchLimit)
+	retirement, err := w.retirementContext(ctx, rebuild)
+	if err != nil {
+		return w.settle(ctx, work, "attach the retirement operation of index "+rebuild.SourceIndex, err)
+	}
+	remaining, err := w.ports.Rebuilds.RetireIndexSessions(retirement, rebuild.SourceIndex, searchBatchLimit)
 	if err != nil {
 		return w.settle(ctx, work, "retire sessions of index "+rebuild.SourceIndex, err)
 	}

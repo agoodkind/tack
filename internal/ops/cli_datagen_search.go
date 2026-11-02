@@ -34,6 +34,10 @@ type datagenSearchResult struct {
 	// Search reports the warning case and relevance probe after a verified committed run.
 	// Dry runs and runs with --prepare-only or --verify-cohort do not include this field.
 	Search *datagen.SearchVerification `json:"search,omitempty"`
+	// SessionVerbs reports ledger row counts for the run's organization after
+	// every search session verb has a row. Only verified committed runs include
+	// the report.
+	SessionVerbs *datagenLedgerVerbsReport `json:"session_verbs,omitempty"`
 }
 
 var errCohortNotVerified = errors.New("at least one manifest case did not pass")
@@ -48,6 +52,7 @@ func datagenSearchOp(f *cli.Factory) clispec.Operation[datagenSearchInput] {
 		Long: "Defaults to a dry run that validates the QA or local target. " +
 			"Pass --commit to verify a fixture when public search is enabled. " +
 			"A verified committed run reports the property warning case and the target rank for each relevance probe query. " +
+			"A verified committed run also needs AUDIT_READER_DSN and waits until every search session verb has at least one ledger row in the run's organization. " +
 			"Pass --prepare-only --commit with --seed and --corpus to export fixture IDs " +
 			"without search requests; public search may remain disabled. " +
 			"Pass --verify-cohort --commit with a positive --seed to prepare a cohort from the embedded corpus. " +
@@ -117,7 +122,7 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 	}
 	result := datagenSearchResult{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.qa.datagen.search",
-		DryRun: !input.Commit, Verified: false, Manifest: nil, Cohort: nil, Search: nil,
+		DryRun: !input.Commit, Verified: false, Manifest: nil, Cohort: nil, Search: nil, SessionVerbs: nil,
 	}
 	var runError error
 	switch {
@@ -137,12 +142,20 @@ func runDatagenSearch(ctx context.Context, factory *cli.Factory, input datagenSe
 			runError = errCohortNotVerified
 		}
 	default:
+		if err := requireDatagenLedgerReader(ctx, factory); err != nil {
+			return fmt.Errorf("qa datagen search: %w", err)
+		}
 		verification, err := datagen.VerifySearch(ctx, factory.Cfg)
 		if err != nil {
 			slog.ErrorContext(ctx, "qa.datagen.search_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("qa datagen search: %w", err)
 		}
 		result.Search = &verification
+		sessionVerbs, err := awaitDatagenSearchSessionVerbs(ctx, factory, verification.OrgID)
+		if err != nil {
+			return fmt.Errorf("qa datagen search: %w", err)
+		}
+		result.SessionVerbs = &sessionVerbs
 		if endpoints != nil {
 			client := &http.Client{Timeout: datagenSearchTwoProcessTimeout}
 			if err := datagen.VerifySearchTwoProcess(ctx, factory.Cfg, endpoints, client); err != nil {

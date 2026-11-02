@@ -45,8 +45,14 @@ func successText(body, instruction string) *mcp.CallToolResult {
 	}
 }
 
+const defaultRecoverableNextStep = "Fix the request and retry once."
+
 func recoverableError(instruction string) *mcp.CallToolResult {
-	text := fmt.Sprintf("#### Request could not be completed\n\n- Problem: %s\n\nNext step: Fix the request and retry once.", instruction)
+	return recoverableErrorWithNextStep(instruction, defaultRecoverableNextStep)
+}
+
+func recoverableErrorWithNextStep(problem, nextStep string) *mcp.CallToolResult {
+	text := fmt.Sprintf("#### Request could not be completed\n\n- Problem: %s\n\nNext step: %s", problem, nextStep)
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: text}},

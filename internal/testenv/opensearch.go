@@ -73,8 +73,11 @@ func OpenSearchWithMemory(t T, memoryBytes int64) OpenSearchFixture {
 		defer cancel()
 		engine.fixture, _, engine.err = provisionOpenSearch(ctx, openSearchEngineSettings{
 			memoryBytes: memoryBytes, dataVolume: "",
-			nodeSettings: []string{"search.max_open_pit_context=" + OpenSearchPointInTimeLimit},
+			nodeSettings: sharedOpenSearchNodeSettings(),
 		})
+		if engine.err == nil {
+			engine.err = CheckOpenSearchDiskReadiness(ctx, engine.fixture)
+		}
 	})
 	if engine.err != nil {
 		_, _ = fmt.Fprintf(t.Output(), "testenv: %v\n", engine.err)
