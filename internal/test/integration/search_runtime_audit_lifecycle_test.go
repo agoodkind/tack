@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	// lifecycleQuery is the included text of the lifecycle corpus.
 	lifecycleQuery = "sable orchard lifecycle audit"
 	// lifecycleNodes fills two pages of 25 results and part of a third.
 	lifecycleNodes = 60
@@ -49,8 +48,7 @@ func TestSearchRuntimeAuditSessionLifecycle(t *testing.T) {
 		t.Fatalf("the traversal returned %d pages, want at least %d", pageCount, lifecyclePages)
 	}
 	rows := fixture.waitForRows(t, fixture.first.OrgID, func(current []audit.Row) bool {
-		return len(stepRows(current, session.ID, audit.VerbSearchPointInTimeDelete, "delete")) == 2 &&
-			len(sessionChanges(current, session.ID, audit.VerbSearchSessionUpdate, audit.TargetSearchSession)) == pageCount
+		return lifecycleEvidencePresent(t, current, traversal)
 	})
 	fixture.requireSessionCreate(t, rows, session, owner.UserID)
 	requireSessionUpdates(t, fixture, rows, traversal)

@@ -51,8 +51,6 @@ func recoverableError(instruction string) *mcp.CallToolResult {
 	return recoverableErrorWithNextStep(instruction, defaultRecoverableNextStep)
 }
 
-// recoverableErrorWithNextStep formats a recoverable tool error with the given problem and
-// next step.
 func recoverableErrorWithNextStep(problem, nextStep string) *mcp.CallToolResult {
 	text := fmt.Sprintf("#### Request could not be completed\n\n- Problem: %s\n\nNext step: %s", problem, nextStep)
 	return &mcp.CallToolResult{

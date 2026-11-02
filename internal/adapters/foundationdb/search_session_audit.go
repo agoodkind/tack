@@ -104,7 +104,6 @@ func (a *sessionAudit) recordVisitedCreate(sessionID, nodeID uuid.UUID) error {
 	return a.record(sessionVisitedTarget(sessionID, nodeID), nil, encoded)
 }
 
-// recordVisitedDelete records a removed visited record.
 func (a *sessionAudit) recordVisitedDelete(sessionID, nodeID uuid.UUID) error {
 	encoded, err := encodeSessionValue(sessionVisitedValue{SessionID: sessionID, NodeID: nodeID})
 	if err != nil {

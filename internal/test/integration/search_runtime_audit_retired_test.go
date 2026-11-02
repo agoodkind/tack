@@ -15,7 +15,6 @@ import (
 	appruntime "goodkind.io/tack/internal/runtime"
 )
 
-// retiredAuditQuery is the included text of the retirement corpus.
 const retiredAuditQuery = "ashen weir retired audit"
 
 type retirementExtra struct {

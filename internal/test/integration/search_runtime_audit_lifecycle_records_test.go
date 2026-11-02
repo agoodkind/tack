@@ -38,14 +38,16 @@ func requireReplayValue(t *testing.T, value json.RawMessage, traversal sessionPa
 	if err := json.Unmarshal(value, &replay); err != nil {
 		t.Fatalf("decode replay value %s: %v", value, err)
 	}
+	if replay.Version < 0 || replay.Version >= len(traversal.pages) {
+		t.Fatalf("replay version %d is outside the %d recorded pages", replay.Version, len(traversal.pages))
+	}
 	if !slices.Equal(replay.ResultIDs, traversal.pages[replay.Version].IDs) {
 		t.Fatalf("replay version %d stores %v, want %v", replay.Version, replay.ResultIDs, traversal.pages[replay.Version].IDs)
 	}
 }
 
-func requireVisitedRecords(t *testing.T, rows []audit.Row, traversal sessionPages) {
+func visitedCounts(t *testing.T, rows []audit.Row, sessionID uuid.UUID) map[uuid.UUID]int {
 	t.Helper()
-	sessionID := traversal.stored[0].ID
 	recorded := map[uuid.UUID]int{}
 	for _, row := range sessionChanges(rows, sessionID, audit.VerbSearchSessionCreate, audit.TargetSearchSessionVisited) {
 		var visited struct {
@@ -57,6 +59,13 @@ func requireVisitedRecords(t *testing.T, rows []audit.Row, traversal sessionPage
 		}
 		recorded[visited.NodeID]++
 	}
+	return recorded
+}
+
+func requireVisitedRecords(t *testing.T, rows []audit.Row, traversal sessionPages) {
+	t.Helper()
+	sessionID := traversal.stored[0].ID
+	recorded := visitedCounts(t, rows, sessionID)
 	for _, page := range traversal.pages {
 		for _, nodeID := range page.IDs {
 			if recorded[nodeID] != 1 {
@@ -81,26 +90,36 @@ func requirePointInTimeSteps(t *testing.T, rows []audit.Row, session searchdomai
 		t.Fatalf("delete step evidence = %+v: %v, want an open point in time", observed, err)
 	}
 	for _, verb := range []audit.Verb{audit.VerbSearchPointInTimeCreate, audit.VerbSearchPointInTimeDelete} {
-		phases := map[audit.Phase]int{}
-		for _, row := range rows {
-			if row.Action == string(verb) && row.EntityID == session.ID && row.Context.OperationClass == audit.OperationExternal {
-				phases[row.Context.Phase]++
-			}
-		}
+		phases := pointInTimePhases(rows, session.ID, verb)
 		if phases[audit.PhaseIntent] != 1 || phases[audit.PhaseResult] != 1 {
 			t.Fatalf("%s operation phases = %v, want one intent and one result", verb, phases)
 		}
 	}
 }
 
-func requireSearchParents(t *testing.T, rows []audit.Row, sessionID uuid.UUID) {
-	t.Helper()
+func pointInTimePhases(rows []audit.Row, sessionID uuid.UUID, verb audit.Verb) map[audit.Phase]int {
+	phases := map[audit.Phase]int{}
+	for _, row := range rows {
+		if row.Action == string(verb) && row.EntityID == sessionID && row.Context.OperationClass == audit.OperationExternal {
+			phases[row.Context.Phase]++
+		}
+	}
+	return phases
+}
+
+func searchReadOperations(rows []audit.Row) map[uuid.UUID]bool {
 	reads := map[uuid.UUID]bool{}
 	for _, row := range rows {
 		if row.Action == string(audit.VerbNodeSearch) {
 			reads[row.Context.OperationID] = true
 		}
 	}
+	return reads
+}
+
+func requireSearchParents(t *testing.T, rows []audit.Row, sessionID uuid.UUID) {
+	t.Helper()
+	reads := searchReadOperations(rows)
 	for _, update := range sessionChanges(rows, sessionID, audit.VerbSearchSessionUpdate, audit.TargetSearchSession) {
 		if !reads[update.Context.ParentOperationID] || update.Context.ParentOperationID == update.Context.OperationID {
 			t.Fatalf("update %s states parent %s, want a node.search operation", update.EventID, update.Context.ParentOperationID)

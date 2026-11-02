@@ -49,15 +49,19 @@ func stepRows(rows []audit.Row, sessionID uuid.UUID, verb audit.Verb, action str
 	return selected
 }
 
-func finishedStep(t *testing.T, rows []audit.Row) audit.Row {
-	t.Helper()
+func resultRows(rows []audit.Row) []audit.Row {
 	finished := []audit.Row{}
 	for _, row := range rows {
 		if row.Context.Phase == audit.PhaseResult {
 			finished = append(finished, row)
 		}
 	}
-	return onlyRow(t, finished, "the finished point in time step")
+	return finished
+}
+
+func finishedStep(t *testing.T, rows []audit.Row) audit.Row {
+	t.Helper()
+	return onlyRow(t, resultRows(rows), "the finished point in time step")
 }
 
 func refusedReads(rows []audit.Row) []audit.Row {
