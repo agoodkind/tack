@@ -33,11 +33,9 @@ const (
 	retireSessionDeletedMessage = "search.session.deleted"
 )
 
-// retireLogHooks runs an action once when a log record first contains
-// a listed message and the session ID.
-// installRetireLogHooks replaces the default logger with a text handler
-// on standard error. Cleanup restores the default logger and resumes the
-// shared FoundationDB container if it remains paused.
+// retireLogHooks runs an action once when a log record first contains a listed
+// message and the session ID. installRetireLogHooks replaces the default logger
+// with a text handler on standard error. Cleanup restores the default logger.
 type retireLogHooks struct {
 	sessionID string
 	mutex     sync.Mutex
@@ -50,12 +48,10 @@ func installRetireLogHooks(t *testing.T, sessionID string, actions map[string]fu
 	previous, writer, flags := slog.Default(), log.Writer(), log.Flags()
 	base := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
 	slog.SetDefault(slog.New(retireLogHandler{Handler: base, hooks: hooks}))
-	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
 	t.Cleanup(func() {
 		slog.SetDefault(previous)
 		log.SetOutput(writer)
 		log.SetFlags(flags)
-		resumeContainerIfPaused(t, container)
 	})
 	return hooks
 }

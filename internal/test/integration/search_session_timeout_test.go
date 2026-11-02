@@ -93,6 +93,8 @@ func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
 }
 
 // setContainerPaused pauses or resumes the named container.
+// After a successful pause, it registers a cleanup on t that calls
+// resumeContainerIfPaused for that container.
 func setContainerPaused(t *testing.T, container string, paused bool) {
 	t.Helper()
 	docker, err := client.New(client.FromEnv)
@@ -108,5 +110,8 @@ func setContainerPaused(t *testing.T, container string, paused bool) {
 	}
 	if err != nil {
 		t.Fatalf("set container %s paused %t: %v", container, paused, err)
+	}
+	if paused {
+		t.Cleanup(func() { resumeContainerIfPaused(t, container) })
 	}
 }

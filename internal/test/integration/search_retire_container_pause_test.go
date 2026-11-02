@@ -1,5 +1,3 @@
-//go:build runtimeaudit
-
 package integration_test
 
 import (
@@ -9,9 +7,12 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// resumeContainerIfPaused resumes the container when Docker reports it
-// as paused. A hook may not run its resume action. The container then
-// remains paused, and later tests on the shared engine hang.
+// resumeContainerIfPaused resumes the container when Docker reports it as
+// paused. A test that pauses the container registers this function as a
+// cleanup. A hook may not run its resume action. Without the cleanup,
+// the container remains paused and later tests on the engine hang.
+// The state check prevents an error if the test already resumed the
+// container.
 func resumeContainerIfPaused(t *testing.T, container string) {
 	t.Helper()
 	docker, err := client.New(client.FromEnv)
