@@ -51,12 +51,12 @@ func startStaleRecord(t *testing.T, fixture integration.QueryFixture, modelID st
 // the ML Commons memory breaker rejects it, and the retry must write DEPLOYING.
 // A failed task removes the block, and the next deploy sets it again.
 func holdStaleRecord(ctx context.Context, fixture integration.QueryFixture, modelID string, since time.Time, lag time.Duration) error {
-	failures := 0
 	for ctx.Err() == nil {
-		if err := blockStaleRecord(ctx, fixture, modelID); err != nil {
+		failures, err := blockStaleRecord(ctx, fixture, modelID, since)
+		if err != nil {
 			return ignoreCanceled(ctx, err)
 		}
-		retry, err := awaitBlockedDeploy(ctx, fixture, modelID, since, lag, &failures)
+		retry, err := awaitBlockedDeploy(ctx, fixture, modelID, since, lag, failures)
 		if err != nil {
 			return ignoreCanceled(ctx, err)
 		}
@@ -67,20 +67,27 @@ func holdStaleRecord(ctx context.Context, fixture integration.QueryFixture, mode
 	return nil
 }
 
-func blockStaleRecord(ctx context.Context, fixture integration.QueryFixture, modelID string) error {
+// blockStaleRecord blocks the record after a deploy writes DEPLOYING. It returns
+// the count of failed deploy tasks from before this deploy.
+func blockStaleRecord(ctx context.Context, fixture integration.QueryFixture, modelID string, since time.Time) (int, error) {
 	if err := waitForDeployingRecord(ctx, fixture, modelID); err != nil {
-		return err
+		return 0, err
+	}
+	failures, err := deployTaskCount(ctx, fixture, modelID, since, deployTaskFailedState)
+	if err != nil {
+		return 0, err
 	}
 	if err := writeModelState(ctx, fixture, modelID, staleRecordState); err != nil {
-		return err
+		return 0, err
 	}
-	_, err := modelRecordCall(ctx, fixture, http.MethodPut, modelIndexSettings, modelWriteBlockOn)
-	return err
+	_, err = modelRecordCall(ctx, fixture, http.MethodPut, modelIndexSettings, modelWriteBlockOn)
+	return failures, err
 }
 
-// awaitBlockedDeploy returns true after a deploy task fails and it removes the
-// block. It returns false after it releases the record, or when ctx ends.
-func awaitBlockedDeploy(ctx context.Context, fixture integration.QueryFixture, modelID string, since time.Time, lag time.Duration, failures *int) (bool, error) {
+// awaitBlockedDeploy returns true after a deploy task beyond failures fails and
+// it removes the block. It returns false after it releases the record, or when
+// ctx ends.
+func awaitBlockedDeploy(ctx context.Context, fixture integration.QueryFixture, modelID string, since time.Time, lag time.Duration, failures int) (bool, error) {
 	var completed time.Time
 	for ctx.Err() == nil {
 		if completed.IsZero() {
@@ -95,8 +102,7 @@ func awaitBlockedDeploy(ctx context.Context, fixture integration.QueryFixture, m
 			if err != nil {
 				return false, err
 			}
-			if failed > *failures {
-				*failures = failed
+			if failed > failures {
 				_, err := modelRecordCall(ctx, fixture, http.MethodPut, modelIndexSettings, modelWriteBlockOff)
 				return true, err
 			}
