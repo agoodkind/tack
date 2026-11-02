@@ -25,13 +25,13 @@ func requireManifestFailures(t *testing.T, ledger *nodeAuditLedger, operator man
 		eventInput      string
 		targetURI       string
 		messageContains string
-		forbidden       string
+		forbidden       []string
 	}{
 		{name: "unreachable reader", readerDSN: manifestUnreachableReaderDSN, org: orgID.String(), orgInput: orgID.String()},
-		{name: "malformed org", readerDSN: operator.readerDSN, org: manifestMalformedFlag, orgInput: "", messageContains: "--org", forbidden: manifestMalformedFlag},
-		{name: "malformed event", readerDSN: operator.readerDSN, org: orgID.String(), orgInput: orgID.String(), event: manifestMalformedFlag, eventInput: "", targetURI: manifestInvalidTargetURI, messageContains: "--event-id", forbidden: manifestMalformedFlag},
+		{name: "malformed org", readerDSN: operator.readerDSN, org: manifestMalformedFlag, orgInput: "", messageContains: "--org", forbidden: []string{manifestMalformedFlag}},
+		{name: "malformed event", readerDSN: operator.readerDSN, org: orgID.String(), orgInput: orgID.String(), event: manifestMalformedFlag, eventInput: "", targetURI: manifestInvalidTargetURI, messageContains: "--event-id", forbidden: []string{manifestMalformedFlag}},
 		{name: "application role reader", readerDSN: ledgerLoginDSN(t, ledger, lastChangeAppRole), org: orgID.String(), orgInput: orgID.String(), messageContains: "permission denied"},
-		{name: "malformed reader DSN", readerDSN: manifestMalformedReaderDSN, org: orgID.String(), orgInput: orgID.String(), forbidden: manifestDSNSecret},
+		{name: "malformed reader DSN", readerDSN: manifestMalformedReaderDSN, org: orgID.String(), orgInput: orgID.String(), messageContains: manifestReaderFixedMessage, forbidden: []string{manifestDSNSecret, manifestParseErrorText}},
 	}
 	runs := make([]manifestReadRun, 0, len(cases))
 	for _, current := range cases {
@@ -50,8 +50,10 @@ func requireManifestFailures(t *testing.T, ledger *nodeAuditLedger, operator man
 		if run.err == nil || strings.Contains(run.stdout, "part_count") {
 			t.Fatalf("%s = %+v, want an error and no result", current.name, run)
 		}
-		if current.forbidden != "" && strings.Contains(run.stdout+run.stderr+run.err.Error()+logs.String(), current.forbidden) {
-			t.Fatalf("%s printed or logged the text %q: %+v\nlogs:\n%s", current.name, current.forbidden, run, logs.String())
+		for _, forbidden := range current.forbidden {
+			if strings.Contains(run.stdout+run.stderr+run.err.Error()+logs.String(), forbidden) {
+				t.Fatalf("%s printed or logged the text %q: %+v\nlogs:\n%s", current.name, forbidden, run, logs.String())
+			}
 		}
 		runs = append(runs, manifestReadRun{
 			orgInput: current.orgInput, eventInput: eventInput, targetURI: targetURI, outcome: audit.OutcomeFailed, errorCode: "read_failed",
@@ -71,13 +73,16 @@ func requireManifestRecordingRefusals(t *testing.T, ledger *nodeAuditLedger, ope
 	}
 	admission.lifecycle = rolePool(t, testenv.Ledger(t), "audit_operator")
 	refused := runManifestParts(t, ledger, admission, manifestArgs(orgID.String(), eventID.String(), "--execute")...)
+	refusedEvents := readOutboxEvents(t, ledger.admin, audit.VerbAuditRead, admission.operatorID)
 	if _, err := ledger.admin.Exec(t.Context(), readTestSQL(t, "search_read_allow_admission.sql")); err != nil {
 		t.Fatalf("restore the operator read admission: %v", err)
 	}
 	if !errors.Is(refused.err, audit.ErrReadNotAdmitted) || !strings.Contains(refused.err.Error(), "ops_read_begin") || refused.stdout != "" {
 		t.Fatalf("admission refusal = %+v, want a refused admission and no result", refused)
 	}
-	requireStoredAuditReads(t, ledger, admission.operatorID, nil)
+	if len(refusedEvents) != 0 {
+		t.Fatalf("refused admission recorded read events: %+v", refusedEvents)
+	}
 
 	if _, err := ledger.admin.Exec(t.Context(), readTestSQL(t, "runtime_audit_public_finalize_denied.sql")); err != nil {
 		t.Fatalf("configure the finalization-denied role: %v", err)
@@ -92,6 +97,6 @@ func requireManifestRecordingRefusals(t *testing.T, ledger *nodeAuditLedger, ope
 	recoverSearchRead(t, ledger.admin, finalization.operatorID)
 	requireStoredAuditReads(t, ledger, finalization.operatorID, []manifestReadRun{{
 		orgInput: orgID.String(), eventInput: eventID.String(), targetURI: "tack:audit-event/" + eventID.String(),
-		outcome: audit.OutcomeIncomplete, errorCode: "", messageContains: "", forbidden: "", payloadSHA256: "", partURIs: nil,
+		outcome: audit.OutcomeIncomplete, errorCode: "", messageContains: "", forbidden: nil, payloadSHA256: "", partURIs: nil,
 	}})
 }

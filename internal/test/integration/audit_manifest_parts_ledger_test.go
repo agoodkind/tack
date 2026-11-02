@@ -82,8 +82,10 @@ func manifestRowMatches(t *testing.T, row audit.Row, run manifestReadRun) bool {
 			!strings.Contains(row.Error.Message, run.messageContains) {
 			return false
 		}
-		if run.forbidden != "" && (strings.Contains(row.Error.Message, run.forbidden) || strings.Contains(string(row.Extra), run.forbidden)) {
-			t.Fatalf("row %s stores the text %q: error %+v, extra %s", row.EventID, run.forbidden, row.Error, row.Extra)
+		for _, forbidden := range run.forbidden {
+			if strings.Contains(row.Error.Message, forbidden) || strings.Contains(string(row.Extra), forbidden) {
+				t.Fatalf("row %s stores the text %q: error %+v, extra %s", row.EventID, forbidden, row.Error, row.Extra)
+			}
 		}
 		return true
 	}

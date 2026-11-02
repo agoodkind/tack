@@ -22,10 +22,14 @@ import (
 const (
 	// manifestUnreachableReaderDSN identifies an unreachable audit reader.
 	manifestUnreachableReaderDSN = "postgres://nobody@[::1]:1/tack?connect_timeout=1"
-	// manifestDSNSecret is the password text in the malformed reader DSN.
-	manifestDSNSecret = "manifest-parts-secret-text"
-	// manifestMalformedReaderDSN is a reader DSN that does not parse.
-	manifestMalformedReaderDSN = "postgres://nobody:" + manifestDSNSecret + "@[::1:1/tack"
+	// manifestDSNSecret is the password text that pgx v5.11.0 does not mask in its parse error.
+	manifestDSNSecret = "parts@secret"
+	// manifestMalformedReaderDSN is a malformed AUDIT_READER_DSN with @ characters in its password.
+	manifestMalformedReaderDSN = "postgres://nobody:manifest@" + manifestDSNSecret + "@[::1:1/tack"
+	// manifestReaderFixedMessage is the fixed text "check AUDIT_READER_DSN" in the stored failure message.
+	manifestReaderFixedMessage = "check AUDIT_READER_DSN"
+	// manifestParseErrorText is the text "cannot parse" from the raw parse error.
+	manifestParseErrorText = "cannot parse"
 	// manifestMalformedFlag is a flag value that does not parse as a UUID.
 	manifestMalformedFlag = "manifest-parts-raw-flag-text"
 	// manifestInvalidTargetURI is the fixed audit target for a malformed event ID.
@@ -55,7 +59,7 @@ type manifestReadRun struct {
 	outcome         audit.Outcome
 	errorCode       string
 	messageContains string
-	forbidden       string
+	forbidden       []string
 	payloadSHA256   string
 	partURIs        []string
 }
@@ -170,7 +174,7 @@ func requireManifestRead(t *testing.T, ledger *nodeAuditLedger, options manifest
 	digest := sha256.Sum256(compact.Bytes())
 	return manifestReadRun{
 		orgInput: orgID.String(), eventInput: eventID.String(), targetURI: "tack:audit-event/" + eventID.String(),
-		outcome: audit.OutcomeCompleted, errorCode: "", messageContains: "", forbidden: "",
+		outcome: audit.OutcomeCompleted, errorCode: "", messageContains: "", forbidden: nil,
 		payloadSHA256: hex.EncodeToString(digest[:]), partURIs: partURIs,
 	}
 }
