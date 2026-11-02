@@ -178,8 +178,9 @@ test-search:
 # Final validation runs the search suite in fixed groups G1 to G6 in Step 9
 # and the repeated tail in groups T1 to T3 in Step 10.
 # Each G limit uses the slowest complete CI measurement times 1.5,
-# rounded up to 5 minutes. G5C uses 75 minutes because its first complete
-# CI measurement does not exist yet.
+# rounded up to 5 minutes.
+# G5B and G5C keep a 75 minute limit, shorter than the 90 minutes the formula
+# gives for their measured times.
 # Each T limit is three times the slowest single CI run times 1.5.
 # G5A selects search tests with a letter from A through M immediately
 # after TestSearch. G5C selects tests that start with TestSearchRuntimeAudit
