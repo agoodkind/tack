@@ -120,7 +120,7 @@ func auditDLQReader(ctx context.Context, f *cli.Factory) (*audit.Reader, error) 
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.dlq.reader_open_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("open the ledger reader for the dead-letter table: %w", err)
+		return nil, fmt.Errorf("open the ledger reader for the dead-letter table from AUDIT_READER_DSN: %w", err)
 	}
 	return reader, nil
 }
