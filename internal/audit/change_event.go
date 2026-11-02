@@ -31,9 +31,9 @@ const (
 
 const searchSessionURIPrefix = "tack:search-session/"
 
-// SearchSessionTarget returns the resource target of one search session
-// record. Target.ID contains sessionID. ownerID identifies the person who owns the
-// protected values of the session, and [uuid.Nil] omits the owner.
+// SearchSessionTarget returns the resource target of one search session record.
+// Target.ID contains sessionID. ownerID identifies the person who owns the protected
+// values of the session. [uuid.Nil] does not set an owner.
 func SearchSessionTarget(sessionID, ownerID uuid.UUID) Target {
 	return Target{
 		Kind: TargetKindResource, NodeType: TargetSearchSession, Reference: "", Name: "",
