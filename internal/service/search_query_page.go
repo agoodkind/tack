@@ -53,6 +53,9 @@ func ResultBytes(summary node.Summary) int {
 // and the close error. The page commit remains saved. When the search continued
 // a session, a retry with the same cursor replays the committed page. The final
 // page of a new search does not have a cursor for a retry.
+// If the CommitPage error matches audit.ErrEventNotRecorded, advance returns
+// an empty page and that error without replaying, even if the error also
+// matches searchdomain.ErrSessionChanged.
 func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.Session, filter searchdomain.AccessFilter) (SearchPage, error) {
 	page := pageState{
 		results: nil, resultIDs: nil, visited: nil, seen: map[uuid.UUID]bool{},
@@ -87,14 +90,8 @@ func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.S
 		Sort: page.position, PITID: snapshot.PITID, Visited: page.visited, ResultIDs: page.resultIDs, Complete: complete,
 	}
 	committed, err := s.ports.Sessions.CommitPage(ctx, session.ID, session.Version, commit)
-	if errors.Is(err, searchdomain.ErrSessionChanged) {
-		replayed, replayErr := s.replay(ctx, session, session.Version, filter)
-		// Preserve the uncertain mark when replay after a session version change fails.
-		if replayErr != nil && errors.Is(err, searchdomain.ErrCommitUncertain) {
-			failure := queryFailure(ctx, "read replay", session.ID, errors.Join(replayErr, searchdomain.ErrCommitUncertain))
-			return replayed, failure
-		}
-		return replayed, replayErr
+	if errors.Is(err, searchdomain.ErrSessionChanged) && !errors.Is(err, audit.ErrEventNotRecorded) {
+		return s.replay(ctx, session, session.Version, filter)
 	}
 	if err != nil {
 		return SearchPage{}, queryFailure(ctx, "commit search page", session.ID, err)

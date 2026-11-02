@@ -128,14 +128,11 @@ func retireAttemptEnded(ctx context.Context, operation string, sessionID uuid.UU
 }
 
 // commitUncertainError marks a session transaction failure after a submitted
-// commit that could have applied. It preserves the text of err and matches
-// searchdomain.ErrCommitUncertain.
+// commit that could have applied. It preserves the text of err.
 type commitUncertainError struct{ err error }
 
 func (e commitUncertainError) Error() string { return e.err.Error() }
-func (e commitUncertainError) Unwrap() []error {
-	return []error{e.err, searchdomain.ErrCommitUncertain}
-}
+func (e commitUncertainError) Unwrap() error { return e.err }
 
 // commitMayHaveApplied reports whether a commit error leaves the commit result
 // unknown. It returns false for a nil error and for FoundationDB errors 1020

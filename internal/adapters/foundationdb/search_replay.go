@@ -8,6 +8,7 @@ import (
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -64,6 +65,10 @@ func (s *SearchSessionStore) HasVisited(ctx context.Context, sessionID uuid.UUID
 // changed record in one transaction. It renews only the idle deadline. A
 // concurrent commit for the same version returns
 // [searchdomain.ErrSessionChanged].
+// If the transaction ends after a commit that may have applied, CommitPage
+// also commits an incomplete session write event, even if a retry finds a
+// changed session version. If the event cannot commit, the returned error
+// matches audit.ErrEventNotRecorded.
 func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID, version uint64, commit searchdomain.PageCommit) (committed searchdomain.Session, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.commit")(&err)
 	if len(commit.Visited) > maxSessionVisitedIDs || len(commit.ResultIDs) > maxSessionResultIDs ||
@@ -75,6 +80,7 @@ func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID
 		return searchdomain.Session{}, sessionRecordingFailure(ctx, sessionID, err)
 	}
 	var record searchSessionRecord
+	var ownerID uuid.UUID
 	err = transactSession(ctx, s.db, s.clock, "commit search page", sessionID, func(tr fdb.Transaction) error {
 		changes.startAttempt()
 		// Each attempt decodes into a new record. The sort value of an earlier
@@ -92,6 +98,7 @@ func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID
 			return searchdomain.ErrSessionExpired
 		}
 		changes.bind(stored)
+		ownerID = stored.PrincipalID
 		var applyErr error
 		record, applyErr = s.applyPageCommit(ctx, tr, changes, stored, version, commit)
 		if applyErr != nil {
@@ -104,7 +111,7 @@ func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID
 		return nil
 	})
 	if err != nil {
-		return searchdomain.Session{}, err
+		return searchdomain.Session{}, s.recordWriteUncertain(ctx, changes, sessionID, ownerID, audit.VerbSearchSessionUpdate, err)
 	}
 	changes.finish(ctx)
 	telemetry.L(ctx).DebugContext(ctx, "search.session.page_committed", slog.String("session_id", sessionID.String()),
