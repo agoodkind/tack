@@ -42,8 +42,8 @@ ENV CGO_ENABLED=1
 
 # `docker compose run` forwards SIGTERM to the main process, and `docker stop`
 # sends it too. The go command exits on SIGTERM, and the kernel then kills the
-# test binary before testenv removes the engines. The go command keeps running on
-# SIGINT. dumb-init sends each signal to the whole process group and sends SIGINT
-# in place of SIGTERM. The test binary then removes its engines and exits, and
-# the go command exits after it.
+# test binary before testenv removes the engines. After the first test binary
+# starts, the go command keeps running on SIGINT. dumb-init sends each signal to
+# the whole process group and sends SIGINT in place of SIGTERM. The test binary
+# then removes its engines and exits, and the go command exits after it.
 ENTRYPOINT ["/usr/bin/dumb-init", "--rewrite", "15:2", "--", "/usr/local/go/bin/go"]
