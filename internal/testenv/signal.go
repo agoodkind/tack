@@ -16,9 +16,7 @@ const signalReleaseTimeout = 2 * time.Minute
 
 // releaseOnSignal installs a handler that removes this process's engines on
 // SIGINT or SIGTERM, restores default handling, and sends the same signal to
-// this process again. The process then ends with that signal. The test runner
-// image starts the process with SIGTERM blocked. The second SIGTERM stays
-// pending in that case, and SIGKILL ends the process.
+// this process again. The process then ends with that signal.
 func releaseOnSignal(ctx context.Context) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, unix.SIGINT, unix.SIGTERM)
@@ -36,7 +34,6 @@ func releaseOnSignal(ctx context.Context) {
 		signal.Reset(received)
 		if number, isSignal := received.(unix.Signal); isSignal {
 			_ = unix.Kill(os.Getpid(), number)
-			_ = unix.Kill(os.Getpid(), unix.SIGKILL)
 		}
 	}()
 }

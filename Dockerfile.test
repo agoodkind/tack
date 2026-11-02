@@ -14,7 +14,7 @@ ARG FDB_VERSION
 # build platform so Apple Silicon and amd64 hosts both work.
 RUN set -eux \
     && apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates tini \
+    && apt-get install -y --no-install-recommends curl ca-certificates dumb-init \
     && case "$(dpkg --print-architecture)" in \
          amd64)  fdb_arch=amd64 ;; \
          arm64)  fdb_arch=aarch64 ;; \
@@ -41,9 +41,9 @@ RUN go mod download
 ENV CGO_ENABLED=1
 
 # `docker compose run` forwards SIGTERM to the main process, and `docker stop`
-# sends it too. The go command has no SIGTERM handler. When it exits as the main
-# process, the kernel kills the test binary before testenv removes the engines.
-# tini -g sends each signal to the whole process group. The blocked signal leaves
-# the go command waiting for the test binary, and the handler in testenv unblocks
-# SIGTERM in the test binary.
-ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/bin/env", "--block-signal=TERM", "/usr/local/go/bin/go"]
+# sends it too. The go command exits on SIGTERM, and the kernel then kills the
+# test binary before testenv removes the engines. The go command keeps running on
+# SIGINT. dumb-init sends each signal to the whole process group and sends SIGINT
+# in place of SIGTERM. The test binary then removes its engines and exits, and
+# the go command exits after it.
+ENTRYPOINT ["/usr/bin/dumb-init", "--rewrite", "15:2", "--", "/usr/local/go/bin/go"]
