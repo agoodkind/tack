@@ -23,15 +23,6 @@ services:
       dockerfile: Dockerfile.test
       args:
         FDB_VERSION: ${FDB_VERSION:-7.4.6}
-    # `docker stop` sends SIGINT to the init process, and init sends it to the
-    # whole process group because TINI_KILL_PROCESS_GROUP is set. `go test` keeps
-    # waiting for the test binary, and the binary removes its engines before it
-    # exits. SIGTERM ends `go test` at once and the kernel kills the binary before
-    # that removal finishes. The grace period exceeds testenv's signal release
-    # limit of two minutes.
-    init: true
-    stop_signal: SIGINT
-    stop_grace_period: 150s
     volumes:
       # Source bind-mount: edits on the host are visible without a rebuild.
       - .:${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
@@ -47,7 +38,6 @@ services:
       - /tmp/tack-test
     environment:
       TMPDIR: /tmp/tack-test
-      TINI_KILL_PROCESS_GROUP: "1"
       # "1" runs the OpenSearch-backed search tests. `make test-search` sets it.
       TACK_SEARCH_INTEGRATION: ${TACK_SEARCH_INTEGRATION:-}
       TACK_TEST_SOURCE_REVISION: ${TACK_TEST_SOURCE_REVISION:-}

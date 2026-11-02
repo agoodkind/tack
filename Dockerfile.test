@@ -14,7 +14,7 @@ ARG FDB_VERSION
 # build platform so Apple Silicon and amd64 hosts both work.
 RUN set -eux \
     && apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends curl ca-certificates tini \
     && case "$(dpkg --print-architecture)" in \
          amd64)  fdb_arch=amd64 ;; \
          arm64)  fdb_arch=aarch64 ;; \
@@ -40,4 +40,10 @@ RUN go mod download
 # arguments.
 ENV CGO_ENABLED=1
 
-ENTRYPOINT ["/usr/local/go/bin/go"]
+# `docker compose run` forwards SIGTERM to the main process, and `docker stop`
+# sends it too. The go command has no SIGTERM handler. When it exits as the main
+# process, the kernel kills the test binary before testenv removes the engines.
+# tini -g sends each signal to the whole process group. The blocked signal leaves
+# the go command waiting for the test binary, and the handler in testenv unblocks
+# SIGTERM in the test binary.
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/bin/env", "--block-signal=TERM", "/usr/local/go/bin/go"]

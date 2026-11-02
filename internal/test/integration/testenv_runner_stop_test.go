@@ -18,25 +18,26 @@ const (
 	stoppedRunnerEnginePrefix     = "/tack-testenv-foundationdb-"
 	stoppedRunnerStartLimit       = 10 * time.Minute
 	stoppedRunnerPollInterval     = 2 * time.Second
+	stoppedRunnerStopSeconds      = 150
 )
 
 // TestStoppedRunnerChild starts one engine and waits inside the runner that
-// TestRunnerStopRemovesItsEngines starts.
+// TestRunnerEndRemovesItsEngines starts.
 func TestStoppedRunnerChild(t *testing.T) {
 	if os.Getenv(stoppedRunnerChildEnvironment) == "" {
-		t.Skip("TestRunnerStopRemovesItsEngines starts this test in its own runner")
+		t.Skip("TestRunnerEndRemovesItsEngines starts this test in its own runner")
 	}
 	_ = testenv.FoundationDB(t)
 	<-t.Context().Done()
 }
 
-// TestRunnerStopRemovesItsEngines starts a test process in a second runner that
-// copies this runner's Compose settings, and stops that runner with its
-// configured stop signal. The engine with that runner's label must be gone when
-// the stop returns, and this test's own engine must keep running.
-func TestRunnerStopRemovesItsEngines(t *testing.T) {
-	ctx := t.Context()
-	runner, err := testenv.RunnerContainer(ctx)
+// TestRunnerEndRemovesItsEngines starts a test process in a second runner from
+// this runner's image and ends that runner. One case sends SIGTERM through
+// ContainerKill, as `docker compose run` does when it forwards a signal, and one
+// case stops the runner. The engine with the second runner's label must be gone
+// when that runner stops. This test's own engine and runner must keep running.
+func TestRunnerEndRemovesItsEngines(t *testing.T) {
+	runner, err := testenv.RunnerContainer(t.Context())
 	if err != nil {
 		t.Fatalf("identify the runner container: %v", err)
 	}
@@ -49,28 +50,59 @@ func TestRunnerStopRemovesItsEngines(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = cli.Close() })
 	bystander := testenv.FoundationDBContainer(testenv.FoundationDB(t))
-	child := startSecondRunner(t, cli, runner)
-	waitForRunningEngine(t, cli, child)
 
-	if _, err := cli.ContainerStop(ctx, child, client.ContainerStopOptions{}); err != nil {
-		t.Fatalf("stop runner %s: %v", child, err)
-	}
+	t.Run("forwarded SIGTERM", func(t *testing.T) {
+		child := startSecondRunner(t, cli, runner)
+		waitForRunningEngine(t, cli, child)
+		if _, err := cli.ContainerKill(t.Context(), child, client.ContainerKillOptions{Signal: "TERM"}); err != nil {
+			t.Fatalf("send SIGTERM to runner %s: %v", child, err)
+		}
+		waitForRunnerExit(t, cli, child)
+		requireOnlyChildRemoved(t, cli, runner, child, bystander)
+	})
+	t.Run("docker stop", func(t *testing.T) {
+		child := startSecondRunner(t, cli, runner)
+		waitForRunningEngine(t, cli, child)
+		seconds := stoppedRunnerStopSeconds
+		if _, err := cli.ContainerStop(t.Context(), child, client.ContainerStopOptions{Timeout: &seconds}); err != nil {
+			t.Fatalf("stop runner %s: %v", child, err)
+		}
+		requireOnlyChildRemoved(t, cli, runner, child, bystander)
+	})
+}
 
-	if names := labeledContainers(ctx, t, cli, child); len(names) != 0 {
-		t.Errorf("stopping runner %s left its containers: %v", child, names)
-	}
-	inspected, err := cli.ContainerInspect(ctx, bystander, client.ContainerInspectOptions{Size: false})
-	if err != nil {
-		t.Fatalf("inspect this test's engine %s: %v", bystander, err)
-	}
-	if !inspected.Container.State.Running {
-		t.Errorf("this test's engine %s stopped when runner %s stopped", bystander, child)
+// waitForRunnerExit waits until the container child stops.
+func waitForRunnerExit(t *testing.T, cli *client.Client, child string) {
+	t.Helper()
+	waited := cli.ContainerWait(t.Context(), child, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	select {
+	case <-waited.Result:
+	case err := <-waited.Error:
+		t.Fatalf("wait for runner %s: %v", child, err)
 	}
 }
 
-// startSecondRunner starts a container with the Compose settings of runner that
-// runs TestStoppedRunnerChild. It removes that container and the containers with
-// its runner label when the test ends.
+// requireOnlyChildRemoved requires that containers with child's runner label are
+// gone and that the engine bystander and the container runner still run.
+func requireOnlyChildRemoved(t *testing.T, cli *client.Client, runner, child, bystander string) {
+	t.Helper()
+	if names := labeledContainers(t.Context(), t, cli, child); len(names) != 0 {
+		t.Errorf("ending runner %s left its containers: %v", child, names)
+	}
+	for _, name := range []string{bystander, runner} {
+		inspected, err := cli.ContainerInspect(t.Context(), name, client.ContainerInspectOptions{Size: false})
+		if err != nil {
+			t.Fatalf("inspect container %s of this test: %v", name, err)
+		}
+		if !inspected.Container.State.Running {
+			t.Errorf("container %s of this test stopped when runner %s ended", name, child)
+		}
+	}
+}
+
+// startSecondRunner starts a container from runner's image, mounts, and
+// environment that runs TestStoppedRunnerChild. It removes that container and
+// the containers with its runner label when the test ends.
 func startSecondRunner(t *testing.T, cli *client.Client, runner string) string {
 	t.Helper()
 	ctx := t.Context()
@@ -86,17 +118,11 @@ func startSecondRunner(t *testing.T, cli *client.Client, runner string) string {
 			Cmd: []string{
 				"test", "-count=1", "-timeout", "15m", "-run", "^TestStoppedRunnerChild$", "./internal/test/integration",
 			},
-			Env:         append(source.Config.Env, stoppedRunnerChildEnvironment+"=1"),
-			Volumes:     source.Config.Volumes,
-			WorkingDir:  source.Config.WorkingDir,
-			StopSignal:  source.Config.StopSignal,
-			StopTimeout: source.Config.StopTimeout,
+			Env:        append(source.Config.Env, stoppedRunnerChildEnvironment+"=1"),
+			Volumes:    source.Config.Volumes,
+			WorkingDir: source.Config.WorkingDir,
 		},
-		HostConfig: &container.HostConfig{
-			Binds:  source.HostConfig.Binds,
-			Mounts: source.HostConfig.Mounts,
-			Init:   source.HostConfig.Init,
-		},
+		HostConfig: &container.HostConfig{Binds: source.HostConfig.Binds, Mounts: source.HostConfig.Mounts},
 	})
 	if err != nil {
 		t.Fatalf("create second runner: %v", err)
