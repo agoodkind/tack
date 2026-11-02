@@ -100,17 +100,18 @@ func partialDeletes(rows []audit.Row) []audit.Row {
 	return selected
 }
 
-// TestSearchRuntimeAuditIntentFailureRefusesSnapshot searches without an audit
-// operation. The intent of the point in time create cannot save. The search
-// must return the engine unavailable error and must not open a point in time.
-func TestSearchRuntimeAuditIntentFailureRefusesSnapshot(t *testing.T) {
+// TestSearchRuntimeAuditMissingOperationRefusesSnapshot checks that a search
+// without an audit operation returns an error that matches the engine
+// unavailable error, the missing operation error, and
+// audit.ErrEventNotRecorded. The search must not open a point in time.
+func TestSearchRuntimeAuditMissingOperationRefusesSnapshot(t *testing.T) {
 	fixture := integration.NewQueryFixture(t)
 	searcher := integration.QueryService(t, fixture, failureAuditResponseBytes, failureAuditIdle, failureAuditAbsolute)
 	request := integration.ServiceRequest(t, fixture, failureAuditQuery)
 	before := openPITs(t, fixture)
 	_, err := searcher.Search(t.Context(), request)
-	if !errors.Is(err, searchdomain.ErrEngineUnavailable) || !errors.Is(err, audit.ErrMissingMutationContext) {
-		t.Fatalf("Search without an operation = %v, want the engine unavailable error and the missing operation error", err)
+	if !errors.Is(err, searchdomain.ErrEngineUnavailable) || !errors.Is(err, audit.ErrMissingMutationContext) || !errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf("Search returned error %v; want matches for the engine unavailable error, the missing operation error, and audit.ErrEventNotRecorded", err)
 	}
 	for id := range openPITs(t, fixture) {
 		if !before[id] {
