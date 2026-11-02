@@ -49,7 +49,15 @@ func TestAuditLastChangeIgnoresUpdateRefusedForNonMember(t *testing.T) {
 	requireField(t, report, "/name", audit.LastChangeKnown, rename, audit.LastChangeSet)
 }
 
-// TestAuditLastChangeRefusesWithoutAuditReaderRole runs audit last-change through the built server as different operators with AUDIT_READER_DSN absent, a login that inherits only the application role, a malformed AUDIT_READER_DSN, and a login that inherits audit_reader. The failing runs exit with an error, log the missing setting, permission refusal, or fixed reader message, and do not print a report. The audit_reader run prints a report. The clispec choke-point records an audit host read before the read runs, as it does for audit query and audit get. The ledger must contain exactly one audit.read row with the ok outcome for each operator.
+// TestAuditLastChangeRefusesWithoutAuditReaderRole runs audit last-change
+// through the built server as different operators with AUDIT_READER_DSN
+// absent, a login that inherits only the application role, a malformed
+// AUDIT_READER_DSN, and a login that inherits audit_reader. The failing runs
+// exit with an error, log the missing setting, permission refusal, or fixed
+// reader message, and do not print a report. The audit_reader run prints a
+// report. The clispec choke-point records an audit host read before the read
+// runs, as it does for audit query and audit get. The ledger must contain
+// exactly one audit.read row with the ok outcome for each operator.
 func TestAuditLastChangeRefusesWithoutAuditReaderRole(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	orgID, nodeID, now := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), clock.Now()
