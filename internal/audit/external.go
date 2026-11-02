@@ -20,6 +20,18 @@ const ExternalResultDeadline = 30 * time.Second
 // event and did not call the run function.
 var ErrExternalIntentNotSaved = errors.New("audit external: RunExternal did not save the intent event")
 
+// ErrEventNotRecorded identifies a failure to validate or save a required
+// audit event.
+var ErrEventNotRecorded = errors.New("audit: a required event was not saved")
+
+// notRecordedError preserves the original error and identifies a failure to
+// validate or save a required audit event.
+type notRecordedError struct{ err error }
+
+func (e notRecordedError) Error() string { return e.err.Error() }
+
+func (e notRecordedError) Unwrap() []error { return []error{ErrEventNotRecorded, e.err} }
+
 // RunExternal saves the intent event in outbox before calling run to change
 // another system. The run function records each step through StepRecorder
 // and returns the observed outcome. RunExternal then saves a result event
@@ -132,5 +144,5 @@ func externalFailure(ctx context.Context, action string, eventID uuid.UUID, err 
 	wrapped := fmt.Errorf("%s %s: %w", action, eventID, err)
 	slog.ErrorContext(ctx, "audit.external.record_failed",
 		slog.String("action", action), slog.String("event_id", eventID.String()), slog.String("err", wrapped.Error()))
-	return wrapped
+	return notRecordedError{err: wrapped}
 }

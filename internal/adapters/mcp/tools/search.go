@@ -68,6 +68,17 @@ func RegisterSearch(s *mcpserver.MCPServer, nodes NodeTypeBinding, binding Searc
 // search_unavailable failure for the request's audit events.
 func searchUnavailable(ctx context.Context) *mcpmcp.CallToolResult {
 	noteOutcome(ctx, audit.OutcomeFailed, "search_unavailable", "the search backend could not answer the request")
+	return searchUnavailableResult()
+}
+
+// searchRecordingFailed records a failed read outcome with the code
+// audit_recording_failed and returns the temporary unavailable response.
+func searchRecordingFailed(ctx context.Context) *mcpmcp.CallToolResult {
+	noteOutcome(ctx, audit.OutcomeFailed, "audit_recording_failed", "the search could not save required audit evidence")
+	return searchUnavailableResult()
+}
+
+func searchUnavailableResult() *mcpmcp.CallToolResult {
 	return &mcpmcp.CallToolResult{
 		IsError: true,
 		Content: []mcpmcp.Content{mcpmcp.TextContent{Type: "text", Text: searchUnavailableText}},

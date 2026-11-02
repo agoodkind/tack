@@ -97,15 +97,17 @@ func (s *SearchQueryService) advance(ctx context.Context, session searchdomain.S
 	return SearchPage{SessionID: session.ID, NextVersion: committed.Version, Results: page.results, Complete: complete}, nil
 }
 
-// readBatch reads one raw batch at position. It calls closeSession before returning an error
-// when OpenSearch no longer recognizes the point in time (searchdomain.ErrSnapshotLost).
+// readBatch reads one raw batch at position. If the snapshot is lost, it
+// closes the session and joins any closeSession error with the read failure.
 func (s *SearchQueryService) readBatch(ctx context.Context, session searchdomain.Session, snapshot searchdomain.Snapshot, position json.RawMessage) (searchdomain.RankBatch, error) {
 	raw, err := s.ports.Ranker.Read(ctx, session.Query, snapshot, position)
 	if err != nil {
+		var closeErr error
 		if errors.Is(err, searchdomain.ErrSnapshotLost) {
-			s.closeSession(ctx, session)
+			closeErr = s.closeSession(ctx, session)
 		}
-		return searchdomain.RankBatch{}, queryFailure(ctx, "read ranked batch", session.ID, err)
+		failure := errors.Join(queryFailure(ctx, "read ranked batch", session.ID, err), closeErr)
+		return searchdomain.RankBatch{}, failure
 	}
 	return raw, nil
 }

@@ -155,12 +155,19 @@ func (s *SearchQueryService) closeSnapshot(ctx context.Context, session searchdo
 	})
 }
 
-// recordCleanupFailure records one failed cleanup step. It logs an error if
-// the audit write fails. The search result does not depend on cleanup.
-func (s *SearchQueryService) recordCleanupFailure(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, cause error) {
+// recordCleanupFailure records one failed cleanup step. If the audit save
+// fails, it logs the failure and returns an error containing
+// searchdomain.ErrEngineUnavailable, audit.ErrEventNotRecorded, the cleanup
+// error, and the save error.
+func (s *SearchQueryService) recordCleanupFailure(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, cause error) error {
 	if err := s.ports.Sessions.RecordCleanupFailure(ctx, sessionID, step, cause); err != nil {
-		telemetry.L(ctx).ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
+		wrapped := errors.Join(searchdomain.ErrEngineUnavailable, audit.ErrEventNotRecorded,
+			fmt.Errorf("search session %s cleanup step %s failed: %w", sessionID, step, cause),
+			fmt.Errorf("record the failed cleanup step %s of search session %s: %w", step, sessionID, err))
+		telemetry.L(ctx).ErrorContext(ctx, "search.session.audit_failed", slog.String("err", wrapped.Error()), slog.String("session_id", sessionID.String()))
+		return wrapped
 	}
+	return nil
 }
 
 type snapshotEvidenceValue interface {

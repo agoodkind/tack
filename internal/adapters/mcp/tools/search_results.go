@@ -93,6 +93,11 @@ func resolveSearchNodeType(resolver *Resolver, input string) (string, bool) {
 // searchFailureResult returns an explicit error for every failed call.
 func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult {
 	switch {
+	// Check recording failures first because their errors can also match other cases.
+	case errors.Is(err, audit.ErrEventNotRecorded):
+		return searchRecordingFailed(ctx)
+	case errors.Is(err, searchdomain.ErrEngineUnavailable):
+		return searchUnavailable(ctx)
 	case errors.Is(err, searchdomain.ErrInvalidQuery):
 		return recoverableError("query is invalid: " + err.Error())
 	case errors.Is(err, searchaccess.ErrAccessDenied):
@@ -106,8 +111,6 @@ func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult 
 		return recoverableError("the search snapshot ended; start a new search without cursor")
 	case errors.Is(err, searchdomain.ErrNoServingIndex):
 		return recoverableError("no search index is provisioned")
-	case errors.Is(err, searchdomain.ErrEngineUnavailable):
-		return searchUnavailable(ctx)
 	default:
 		return unexpectedError(ctx, err)
 	}
