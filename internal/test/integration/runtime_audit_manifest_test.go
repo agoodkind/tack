@@ -60,12 +60,20 @@ func (stack runtimeAuditStack) deliverEncoded(t *testing.T, event audit.Event, t
 	pipeline.startRelay(t, nil)
 }
 
-// requireExportTamperRejected exports a bundle and edits one exported row
-// for each tamper case. The cases remove, reorder, or alter the manifest
-// parts of the read event readID, and alter the target or the delta of the
-// change event changeID. Verification of each edited bundle must fail and
-// must report the expected failure for the edited row.
+// requireExportTamperRejected requires verification to reject exports that
+// remove, reorder, or alter the manifest parts of the read event readID, or
+// alter the target or the delta of the change event changeID.
 func (stack runtimeAuditStack) requireExportTamperRejected(t *testing.T, orgID uuid.UUID, oldest, latest time.Time, readID, changeID uuid.UUID) {
+	t.Helper()
+	tampers := manifestTampers(t, readID)
+	maps.Copy(tampers, changeTampers(t, changeID))
+	stack.requireTampersRejected(t, orgID, oldest, latest, tampers)
+}
+
+// requireTampersRejected exports a bundle and edits one exported row for each
+// case in tampers. Verification of each edited bundle must fail and must report
+// the expected failure for the edited row.
+func (stack runtimeAuditStack) requireTampersRejected(t *testing.T, orgID uuid.UUID, oldest, latest time.Time, tampers map[string]exportTamper) {
 	t.Helper()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -85,8 +93,6 @@ func (stack runtimeAuditStack) requireExportTamperRejected(t *testing.T, orgID u
 	if err != nil {
 		t.Fatalf("read the exported rows: %v", err)
 	}
-	tampers := manifestTampers(t, readID)
-	maps.Copy(tampers, changeTampers(t, changeID))
 	for name, tamper := range tampers {
 		tampered := tamperExportedRow(t, original, tamper.eventID, tamper.mutate)
 		if err := os.WriteFile(eventsPath, tampered, 0o600); err != nil {

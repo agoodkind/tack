@@ -162,7 +162,7 @@ func openAuditReader(ctx context.Context, f *cli.Factory, command string) (*audi
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.reader_open_failed", slog.String("command", command), slog.String("err", err.Error()))
-		return nil, fmt.Errorf("%s: reader: %w", command, err)
+		return nil, fmt.Errorf("%s: reader from AUDIT_READER_DSN: %w", command, err)
 	}
 	return reader, nil
 }

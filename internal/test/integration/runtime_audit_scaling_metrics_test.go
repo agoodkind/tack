@@ -85,8 +85,9 @@ func rawIDOf(text string) (string, error) {
 }
 
 // measure counts FoundationDB entries and YugabyteDB rows plus parts before
-// starting audit workers. It times recovery until the FoundationDB outbox
-// empties and the ledger count stabilizes. It then records ledger events,
+// starting audit workers. It times recovery until both outboxes are empty, the
+// consumer group has consumed every record, and the ledger count stabilizes. It
+// then records ledger events,
 // broker records, lease takeovers, and database, broker, and FoundationDB byte
 // measurements. Each lease acquisition after the first is a takeover. The
 // YugabyteDB audit table sizes are differences from the sizes that
@@ -98,11 +99,8 @@ func (run *scalingRun) measure(t *testing.T) {
 	run.result.yugabyteBacklog = outboxRecordCount(t, admin)
 	topic := "audit.scaling-test-" + uuid.NewString()[:8]
 	started := clock.Now()
-	run.startWorkers(t, topic)
-	deadline := scalingDeadline()
-	for run.outboxEntries(t) > 0 && clock.Now().Before(deadline) {
-		time.Sleep(100 * time.Millisecond)
-	}
+	group := run.startWorkers(t, topic)
+	run.waitForConsumed(t, admin, topic, group)
 	run.result.ledgerEvents, run.result.databaseBytes = run.waitForLedger(t, admin)
 	run.result.recovery = clock.Since(started)
 	run.result.brokerBytes = topicBytes(t, topic)

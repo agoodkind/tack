@@ -93,21 +93,24 @@ func resolveSearchNodeType(resolver *Resolver, input string) (string, bool) {
 // searchFailureResult returns an explicit error for every failed call.
 func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult {
 	switch {
+	// Check recording failures first because their errors can also match other cases.
+	case errors.Is(err, audit.ErrEventNotRecorded):
+		return searchRecordingFailed(ctx)
+	case errors.Is(err, searchdomain.ErrEngineUnavailable):
+		return searchUnavailable(ctx)
 	case errors.Is(err, searchdomain.ErrInvalidQuery):
 		return recoverableError("query is invalid: " + err.Error())
 	case errors.Is(err, searchaccess.ErrAccessDenied):
 		noteOutcome(ctx, audit.OutcomeRefused, accessDeniedCode, "the caller cannot search this entry point")
 		return recoverableError("the caller cannot search this entry point")
 	case errors.Is(err, searchdomain.ErrSessionExpired), errors.Is(err, searchdomain.ErrSessionNotFound):
-		return recoverableError("the search cursor expired; start a new search without cursor")
+		return recoverableErrorWithNextStep("the search cursor expired", "Start a new search without the `cursor` parameter.")
 	case errors.Is(err, searchdomain.ErrSessionMismatch), errors.Is(err, searchdomain.ErrSessionChanged):
 		return recoverableError("the search cursor does not match this request or is no longer current; start a new search without cursor")
 	case errors.Is(err, searchdomain.ErrSnapshotLost):
 		return recoverableError("the search snapshot ended; start a new search without cursor")
 	case errors.Is(err, searchdomain.ErrNoServingIndex):
 		return recoverableError("no search index is provisioned")
-	case errors.Is(err, searchdomain.ErrEngineUnavailable):
-		return searchUnavailable(ctx)
 	default:
 		return unexpectedError(ctx, err)
 	}

@@ -255,6 +255,20 @@ const (
 	// VerbSearchModelRepair records a model repair step that deploys a
 	// stuck serving model again.
 	VerbSearchModelRepair Verb = "search.model_repair"
+	// VerbSearchSessionCreate records a new search session, replay, or
+	// visited record.
+	VerbSearchSessionCreate Verb = "search.session_create"
+	// VerbSearchSessionUpdate records a changed search session record.
+	VerbSearchSessionUpdate Verb = "search.session_update"
+	// VerbSearchSessionDelete records a removed search session, replay, or
+	// visited record.
+	VerbSearchSessionDelete Verb = "search.session_delete"
+	// VerbSearchPointInTimeCreate records the creation of the OpenSearch point
+	// in time of one search session.
+	VerbSearchPointInTimeCreate Verb = "search.point_in_time_create"
+	// VerbSearchPointInTimeDelete records the deletion of the OpenSearch point
+	// in time of one search session.
+	VerbSearchPointInTimeDelete Verb = "search.point_in_time_delete"
 	// VerbAuditPartitionMaintain records one audit partition maintenance run
 	// of the audit-consumer.
 	VerbAuditPartitionMaintain Verb = "audit.partition_maintain"
@@ -267,29 +281,32 @@ const (
 // synchronously with the operation they describe. Operator commands declare
 // their class in Spec.
 var stateChangeVerbs = map[Verb]bool{
-	VerbNodeCreate:         true,
-	VerbNodeUpdate:         true,
-	VerbNodeDelete:         true,
-	VerbRelationshipAdd:    true,
-	VerbRelationshipRemove: true,
-	VerbRelationshipUpdate: true,
-	VerbNodeTypeDelete:     true,
-	VerbPropertyDefCreate:  true,
-	VerbPropertyDefUpdate:  true,
-	VerbPropertyDefDelete:  true,
-	VerbNodeTypeCreate:     true,
-	VerbNodeTypeUpdate:     true,
-	VerbSequenceCreate:     true,
-	VerbSequenceUpdate:     true,
-	VerbOrgMemberAdd:       true,
-	VerbOrgMemberRemove:    true,
-	VerbOrgMemberRoleSet:   true,
-	VerbUserCreate:         true,
-	VerbAuthLoginSucceeded: true,
-	VerbAuthLoginFailed:    true,
-	VerbAuthTokenCreate:    true,
-	VerbAuthTokenRevoke:    true,
-	VerbAuditPIIRedacted:   true,
+	VerbNodeCreate:          true,
+	VerbNodeUpdate:          true,
+	VerbNodeDelete:          true,
+	VerbRelationshipAdd:     true,
+	VerbRelationshipRemove:  true,
+	VerbRelationshipUpdate:  true,
+	VerbNodeTypeDelete:      true,
+	VerbPropertyDefCreate:   true,
+	VerbPropertyDefUpdate:   true,
+	VerbPropertyDefDelete:   true,
+	VerbNodeTypeCreate:      true,
+	VerbNodeTypeUpdate:      true,
+	VerbSequenceCreate:      true,
+	VerbSequenceUpdate:      true,
+	VerbOrgMemberAdd:        true,
+	VerbOrgMemberRemove:     true,
+	VerbOrgMemberRoleSet:    true,
+	VerbUserCreate:          true,
+	VerbAuthLoginSucceeded:  true,
+	VerbAuthLoginFailed:     true,
+	VerbAuthTokenCreate:     true,
+	VerbAuthTokenRevoke:     true,
+	VerbAuditPIIRedacted:    true,
+	VerbSearchSessionCreate: true,
+	VerbSearchSessionUpdate: true,
+	VerbSearchSessionDelete: true,
 }
 
 func IsRead(v Verb) bool { return !stateChangeVerbs[v] }

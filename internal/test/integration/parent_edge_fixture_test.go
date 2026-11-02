@@ -87,6 +87,11 @@ func newParentEdgeFixture(t *testing.T) parentEdgeFixture {
 // the configured OpenSearch engine. It returns the worker and its adapter.
 func newParentEdgeWorker(t *testing.T, cfg *config.Config, stores *fdbadapter.Stores) (*service.SearchWorker, *search.Adapter) {
 	t.Helper()
+	return newParentEdgeWorkerWith(t, cfg, stores, stores.SearchRebuilds(clock.Wall{}))
+}
+
+func newParentEdgeWorkerWith(t *testing.T, cfg *config.Config, stores *fdbadapter.Stores, rebuilds *fdbadapter.SearchRebuildStore) (*service.SearchWorker, *search.Adapter) {
+	t.Helper()
 	settings, err := config.LoadSearchWorkerSettings(integration.WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatalf("load search worker settings: %v", err)
@@ -109,7 +114,7 @@ func newParentEdgeWorker(t *testing.T, cfg *config.Config, stores *fdbadapter.St
 		Store: stores.SearchWork(clock.Wall{}), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,
 		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
-		Rebuilds: stores.SearchRebuilds(clock.Wall{}), Replacer: adapter, Audit: appruntime.SearchWorkerAudit(stores),
+		Rebuilds: rebuilds, Replacer: adapter, Audit: appruntime.SearchWorkerAudit(stores),
 	}, clock.Wall{}, settings, 0)
 	if err != nil {
 		t.Fatalf("create search worker: %v", err)

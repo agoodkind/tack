@@ -119,8 +119,25 @@ func addMCPCases(cases map[string]coverageCase) {
 		cases["mcp tool tack_set_"+setter+"_state"] = toolCase("tack_set_"+setter+"_state", audit.VerbNodeUpdate, audit.OutcomeCompleted,
 			func(t *testing.T, env *coverageEnv) map[string]any { return env.fixture(t).stateArguments(setter) })
 	}
-	cases["mcp tool tack_search"] = coverageCase{run: runSearchCase, verb: audit.VerbNodeSearch, outcome: audit.OutcomeCompleted, check: nil}
+	cases["mcp tool tack_search"] = coverageCase{run: runSearchCase, verb: audit.VerbNodeSearch, outcome: audit.OutcomeCompleted, check: requireSearchSessionRow}
 	addProtocolCases(cases)
+}
+
+func requireSearchSessionRow(t *testing.T, env *coverageEnv, rows []audit.Row) {
+	t.Helper()
+	if !env.searchEnabled {
+		return
+	}
+	env.ledger.requestRows(t, env.server.orgID, rows[0].Context.RequestID, func(current []audit.Row) bool {
+		sessions := 0
+		for _, row := range current {
+			target := row.Context.Target
+			if row.Action == string(audit.VerbSearchSessionCreate) && target != nil && target.NodeType == audit.TargetSearchSession {
+				sessions++
+			}
+		}
+		return sessions == 1
+	})
 }
 
 // runSearchCase invokes tack_search and validates its tool result. It expects

@@ -10,13 +10,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// contentSlice writes pages of one revision. It reads, registers, writes,
-// and checkpoints each page before it reads the next page. Once the slice
-// spends its page, byte, or time budget, it yields before another remote
-// write. When the page of a pending write remains absent, the slice ends
-// with an uncounted release and the store's minimum retry delay. After the
-// final page it refreshes the serving index in a separate resumable phase.
+// A missed mirror write must not delay the serving cursor.
+// CompletePage commits the serving checkpoint and owed copy work together.
+// Claim verification needs the original Mirror. Clear it only in the request copy.
+// After a new mirror failure, later pages in the slice skip the mirror because
+// the queued copy includes the missed page and all later pages.
+// Cancellation or claim loss can prevent checkpointing after the serving write.
+// Preserve the original mirror deadline before settling that failure.
 func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work, budget *sliceBudget) error {
+	mirrorSkipped := false
 	for work.Phase != searchdomain.PhaseRefresh {
 		if budget.spent() {
 			return w.yield(ctx, work)
@@ -38,11 +40,19 @@ func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work,
 		if err != nil {
 			return w.settle(ctx, work, "register search page", err)
 		}
+		putIntent := intent
+		if mirrorSkipped || intent.MirrorMissed != nil {
+			putIntent.Work.Mirror = ""
+		}
 		operationContext, cancel := context.WithTimeout(ctx, w.settings.OperationTimeout)
-		written, err := w.ports.Writer.Put(operationContext, intent)
+		written, err := w.ports.Writer.Put(operationContext, putIntent)
 		timedOut := errors.Is(operationContext.Err(), context.DeadlineExceeded)
+		abandoned := operationContext.Err() != nil
 		cancel()
 		budget.record(1, written)
+		if missed := w.mirrorMiss(ctx, intent, err, abandoned); missed != nil {
+			intent.MirrorMissed, err, mirrorSkipped = missed, nil, true
+		}
 		if errors.Is(err, searchdomain.ErrPageWritePending) {
 			return w.awaitPendingWrite(ctx, work, intent)
 		}
@@ -54,6 +64,7 @@ func (w *SearchWorker) contentSlice(ctx context.Context, work searchdomain.Work,
 		}
 		w.logStoredPendingWrite(ctx, work, intent)
 		if err := w.ports.Store.CompletePage(ctx, intent, page.NextCursor, page.Done); err != nil {
+			w.keepMirrorMiss(ctx, intent)
 			return w.settle(ctx, work, "checkpoint search page", err)
 		}
 		work.Cursor = page.NextCursor

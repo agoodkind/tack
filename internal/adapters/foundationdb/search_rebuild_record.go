@@ -93,14 +93,14 @@ func readClaimScope(ctx context.Context, tr fdb.Transaction) (claimScope, error)
 	return claimScope{serving: string(serving), rebuild: rebuild, rebuilding: rebuilding}, nil
 }
 
-// targets returns the index a claim of class writes and the replacement
-// index it also writes. A copy item writes only the replacement target and
-// is claimable only while the replacement accepts copies.
+// targets returns the index that a claim of class writes and the replacement index
+// that the claim also writes. A copy item writes only the replacement index.
+// A copy item qualifies for a claim when the replacement record exists
+// and Rebuild.Mirror() returns a non-empty index.
+// Rebuild.Mirror() returns a non-empty index in the copying, verifying, and switching states.
 func (s claimScope) targets(class searchdomain.WorkClass) (string, string, bool) {
 	if class == searchdomain.WorkClassCopy {
-		accepting := s.rebuilding &&
-			(s.rebuild.State == searchdomain.RebuildCopying || s.rebuild.State == searchdomain.RebuildVerifying)
-		if !accepting {
+		if !s.rebuilding || s.rebuild.Mirror() == "" {
 			return "", "", false
 		}
 		return s.rebuild.TargetIndex, "", true

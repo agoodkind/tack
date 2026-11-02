@@ -14,8 +14,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Adapter owns Tack's official OpenSearch clients. One client sends every
-// request except the query predict. A second client sends the query predict.
+// Adapter owns three official OpenSearch clients. The main client sends every
+// request except the query predict and point in time creation. A second client
+// sends the query predict. A third client creates points in time.
 type Adapter struct {
 	client *opensearch.Client
 	api    *opensearchapi.Client
@@ -23,7 +24,10 @@ type Adapter struct {
 	// timeout. It does not retry after a timeout. A retry after a timeout repeats
 	// model work that OpenSearch is still computing.
 	predictClient *opensearch.Client
-	observer      *endpointObserver
+	// snapshotAPI sends each point in time create request once with RequestTimeout.
+	// It does not retry after a timeout or an HTTP error response.
+	snapshotAPI *opensearchapi.Client
+	observer    *endpointObserver
 }
 
 // New constructs the official client after validating native settings.
@@ -48,12 +52,18 @@ func New(ctx context.Context, cfg Config) (*Adapter, error) {
 		telemetry.L(ctx).ErrorContext(ctx, "search.client.create_failed", slog.String("err", wrapped.Error()))
 		return nil, wrapped
 	}
-	return &Adapter{client: api.Client, api: api, predictClient: predictClient, observer: observer}, nil
+	snapshotAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: cfg.snapshotClientConfig(observer)})
+	if err != nil {
+		wrapped := fmt.Errorf("create OpenSearch snapshot client: %w", errors.Join(err, api.Client.Close(), predictClient.Close()))
+		telemetry.L(ctx).ErrorContext(ctx, "search.client.create_failed", slog.String("err", wrapped.Error()))
+		return nil, wrapped
+	}
+	return &Adapter{client: api.Client, api: api, predictClient: predictClient, snapshotAPI: snapshotAPI, observer: observer}, nil
 }
 
-// Close stops the transport resources of both official clients.
+// Close stops the transport resources of all three official clients.
 func (a *Adapter) Close(ctx context.Context) error {
-	if err := errors.Join(a.client.Close(), a.predictClient.Close()); err != nil {
+	if err := errors.Join(a.client.Close(), a.predictClient.Close(), a.snapshotAPI.Client.Close()); err != nil {
 		wrapped := fmt.Errorf("close OpenSearch client: %w", err)
 		telemetry.L(ctx).ErrorContext(ctx, "search.client.close_failed", slog.String("err", wrapped.Error()))
 		return wrapped

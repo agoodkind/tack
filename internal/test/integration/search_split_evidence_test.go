@@ -5,14 +5,12 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 	"goodkind.io/tack/internal/adapters/search"
-	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
@@ -77,7 +75,7 @@ func TestSearchSplitRecoversFromStepFailures(t *testing.T) {
 	})
 	requireGreen(t, fixture.Client, split.TargetIndex)
 	setIndexBlock(t, fixture.Client, split.TargetIndex, writeBlockSetting, true)
-	requireMirrorRefused(t, fixture, queued, split.TargetIndex)
+	requireServingAfterMirrorRefusal(t, fixture, queued, split.TargetIndex)
 	failReplayValidationSwitch(t, fixture, split, queued, steady, "sienna split")
 	requireServing(t, fixture, split.TargetIndex, source)
 	if settings, err := fixture.Adapter.IndexSettings(WithTestOperation(t, t.Context()), split.TargetIndex); err != nil || settings.Primaries != 2 {
@@ -86,21 +84,6 @@ func TestSearchSplitRecoversFromStepFailures(t *testing.T) {
 	drainSearchWork(t, fixture.Worker, 2000)
 	requireCurrentPages(t, fixture, split.TargetIndex, []uuid.UUID{steady, during, queued})
 	requireSearchFinds(t, fixture, "sienna split", steady, during, queued)
-}
-
-// requireMirrorRefused claims the one pending live item and requires the
-// production worker to fail it on the write to target. The worker registers
-// the page of nodeID before the write. Verification then compares that page
-// and waits for the replay instead of switching.
-func requireMirrorRefused(t *testing.T, fixture queryFixture, nodeID uuid.UUID, target string) {
-	t.Helper()
-	work, claimed, err := fixture.Stores.SearchWork(clock.Wall{}).Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "split-fault-test", faultLease)
-	if err != nil || !claimed || work.NodeID != nodeID {
-		t.Fatalf("claim live work = node %s, claimed %t, error %v, want a non-empty claim of node %s", work.NodeID, claimed, err, nodeID)
-	}
-	if err := fixture.Worker.Process(WithTestOperation(t, t.Context()), work); err == nil || !strings.Contains(err.Error(), "to "+target) {
-		t.Fatalf("live work of node %s returned %v, want a refused write to %s", nodeID, err, target)
-	}
 }
 
 // requireSplitRejected requires the split check to reject each primary

@@ -72,8 +72,15 @@ func addDatagenCommandCases(cases map[string]coverageCase) {
 			commandCase(verb, audit.OutcomeOK, func(*testing.T, *coverageEnv) commandInput {
 				return commandInput{args: command, outbox: nil, configure: localTarget}
 			}),
-			commandCase(verb, audit.OutcomeOK, func(*testing.T, *coverageEnv) commandInput {
-				return commandInput{args: slices.Concat(command, committed), outbox: nil, configure: localTarget}
+			commandCase(verb, audit.OutcomeOK, func(t *testing.T, _ *coverageEnv) commandInput {
+				ledger := testenv.Ledger(t)
+				return commandInput{
+					args: slices.Concat(command, committed), outbox: nil,
+					configure: func(cfg *config.Config) {
+						localTarget(cfg)
+						cfg.AuditReaderDSN = ledger
+					},
+				}
 			}),
 		)
 	}
