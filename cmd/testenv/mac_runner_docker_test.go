@@ -3,11 +3,8 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,76 +18,53 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-const macRunnerChild = "TACK_MAC_RUNNER_COMMAND_CHILD"
+const (
+	macCommandReadyLimit = 60 * time.Second
+	macCommandExitLimit  = 6 * time.Minute
+)
 
-func TestMacRunnerCommandChild(t *testing.T) {
-	encoded := os.Getenv(macRunnerChild)
-	if encoded == "" {
-		return
-	}
-	var options testenv.MacTestOptions
-	if err := json.Unmarshal([]byte(encoded), &options); err != nil {
-		t.Fatal(err)
-	}
-	arguments := []string{"run-mac", "--root", options.Root, "--image", options.Image, "--evidence-dir", options.EvidenceDirectory, "--"}
-	arguments = append(arguments, options.TestArguments...)
-	os.Exit(run(arguments))
-}
-
+// TestMacRunnerCommandSignals runs the run-mac command in this process and sends
+// each signal to this process after the fixture reports readiness. The command
+// must return status 130 and leave complete evidence and cleanup.
 func TestMacRunnerCommandSignals(t *testing.T) {
-	for _, signal := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
-		t.Run(strconv.Itoa(int(signal)), func(t *testing.T) {
+	for _, delivered := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
+		t.Run(strconv.Itoa(int(delivered)), func(t *testing.T) {
 			options, docker := macCommandFixture(t)
 			options.TestArguments = []string{"-run=^TestMacRunnerSignal$", "-count=1", "-timeout=3m", "-tags=macrunnerfixture,runtimeaudit"}
-			command := macCommandStart(t, options)
-			macCommandReady(t, command, options.EvidenceDirectory)
-			if err := command.Process.Signal(signal); err != nil {
+			finished := macCommandStart(options)
+			macCommandReady(t, finished, options.EvidenceDirectory)
+			if err := syscall.Kill(os.Getpid(), delivered); err != nil {
 				t.Fatal(err)
 			}
-			macCommandExit(t, command, 130)
+			macCommandExit(t, finished, 130)
 			macCommandEvidence(t, docker, options.EvidenceDirectory, 130, true)
 		})
 	}
 }
 
+// TestMacRunnerCommandNonzero runs the run-mac command with a failing fixture
+// test. The command must return the test's status.
 func TestMacRunnerCommandNonzero(t *testing.T) {
 	options, docker := macCommandFixture(t)
 	options.TestArguments = []string{"-run=^TestMacRunnerFailure$", "-count=1", "-timeout=45s", "-tags=macrunnerfixture,runtimeaudit"}
-	command := macCommandStart(t, options)
-	macCommandExit(t, command, 1)
+	finished := macCommandStart(options)
+	macCommandExit(t, finished, 1)
 	macCommandEvidence(t, docker, options.EvidenceDirectory, 1, false)
 }
 
-func macCommandStart(t *testing.T, options testenv.MacTestOptions) *exec.Cmd {
-	t.Helper()
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := json.Marshal(options)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
-	t.Cleanup(cancel)
-	command := exec.CommandContext(ctx, executable, "-test.run=^TestMacRunnerCommandChild$")
-	command.Env = append(os.Environ(), macRunnerChild+"="+string(encoded))
-	command.Stdout, command.Stderr = os.Stdout, os.Stderr
-	if err := command.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if command.ProcessState == nil {
-			_ = command.Process.Signal(syscall.SIGTERM)
-			_ = command.Wait()
-		}
-	})
-	return command
+// macCommandStart runs the run-mac command in a goroutine and returns the channel
+// that receives its exit status.
+func macCommandStart(options testenv.MacTestOptions) <-chan int {
+	arguments := []string{"run-mac", "--root", options.Root, "--image", options.Image, "--evidence-dir", options.EvidenceDirectory, "--"}
+	arguments = append(arguments, options.TestArguments...)
+	finished := make(chan int, 1)
+	go func() { finished <- run(arguments) }()
+	return finished
 }
 
-func macCommandReady(t *testing.T, command *exec.Cmd, directory string) {
+func macCommandReady(t *testing.T, finished <-chan int, directory string) {
 	t.Helper()
-	timer := time.NewTimer(60 * time.Second)
+	timer := time.NewTimer(macCommandReadyLimit)
 	defer timer.Stop()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -101,18 +75,25 @@ func macCommandReady(t *testing.T, command *exec.Cmd, directory string) {
 			if err == nil && strings.Contains(string(contents), "MAC_RUNNER_SIGNAL_READY") {
 				return
 			}
+		case code := <-finished:
+			t.Fatalf("public command returned %d before the fixture reported readiness", code)
 		case <-timer.C:
-			t.Fatalf("public command process %d did not report actual fixture readiness", command.Process.Pid)
+			t.Fatal("public command did not report actual fixture readiness")
 		}
 	}
 }
 
-func macCommandExit(t *testing.T, command *exec.Cmd, expected int) {
+func macCommandExit(t *testing.T, finished <-chan int, expected int) {
 	t.Helper()
-	err := command.Wait()
-	var exitError *exec.ExitError
-	if !errors.As(err, &exitError) || exitError.ExitCode() != expected {
-		t.Fatalf("public command status: expected=%d error=%v", expected, err)
+	timer := time.NewTimer(macCommandExitLimit)
+	defer timer.Stop()
+	select {
+	case code := <-finished:
+		if code != expected {
+			t.Fatalf("public command status: got=%d expected=%d", code, expected)
+		}
+	case <-timer.C:
+		t.Fatalf("public command did not return within %s", macCommandExitLimit)
 	}
 }
 

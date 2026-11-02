@@ -4,9 +4,9 @@ package testenv_test
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"os"
-	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -16,11 +16,35 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
-func TestMacRunnerDockerFixtureCommandSignals(t *testing.T) {
-	for _, signal := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
-		t.Run(strconv.Itoa(int(signal)), func(t *testing.T) {
+// macRequireStopTimeout reads the accepted runner's inspection from the evidence
+// and requires the stop timeout from stop_grace_period.
+func macRequireStopTimeout(t *testing.T, evidence string) {
+	t.Helper()
+	contents, err := os.ReadFile(filepath.Join(evidence, "outer-created.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inspection container.InspectResponse
+	if err := json.Unmarshal(contents, &inspection); err != nil {
+		t.Fatal(err)
+	}
+	expected := int(macStopGrace / time.Second)
+	if inspection.Config == nil || inspection.Config.StopTimeout == nil || *inspection.Config.StopTimeout != expected {
+		t.Errorf("runner did not apply stop timeout %d: %+v", expected, inspection.Config)
+	}
+}
+
+// TestMacRunnerDockerFixtureSignals runs testenv.RunMacTests under the signal
+// context that cmd/testenv uses, and sends each signal to this process after the
+// fixture reports readiness. The run must exit with status 130, remove every
+// resource it owns, and keep the baseline marker and the cache contents.
+func TestMacRunnerDockerFixtureSignals(t *testing.T) {
+	for _, delivered := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
+		t.Run(strconv.Itoa(int(delivered)), func(t *testing.T) {
 			options, docker, project := macOwnershipFixture(t, "Wait")
 			marker, err := docker.ContainerCreate(t.Context(), client.ContainerCreateOptions{
 				Name: project + "-baseline-marker", Config: &container.Config{Image: options.Image, Labels: map[string]string{"tack.mac-runner-fixture": project}},
@@ -37,35 +61,27 @@ func TestMacRunnerDockerFixtureCommandSignals(t *testing.T) {
 					t.Error(err)
 				}
 			})
-			binary, err := filepath.Abs("../../dist/testenv")
-			if err != nil {
-				t.Fatal(err)
-			}
-			arguments := []string{"run-mac", "--root", options.Root, "--image", options.Image, "--evidence-dir", options.EvidenceDirectory, "--"}
-			arguments = append(arguments, options.TestArguments...)
 			bounded, cancel := context.WithTimeout(t.Context(), 8*time.Minute)
 			defer cancel()
-			command := exec.CommandContext(bounded, binary, arguments...)
-			command.Env, command.Stdout, command.Stderr = os.Environ(), os.Stdout, os.Stderr
-			if err := command.Start(); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				if command.ProcessState == nil {
-					_ = command.Process.Signal(syscall.SIGTERM)
-					_ = command.Wait()
-				}
-			})
+			signaled, stop := signal.NotifyContext(bounded, os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			finished := make(chan testenv.MacTestResult, 1)
+			go func() {
+				result, runErr := testenv.RunMacTests(signaled, options)
+				t.Logf("interrupted run error: %v", runErr)
+				finished <- result
+			}()
 			macOwnershipReady(t, options.EvidenceDirectory)
-			if err := command.Process.Signal(signal); err != nil {
+			if err := syscall.Kill(os.Getpid(), delivered); err != nil {
 				t.Fatal(err)
 			}
-			var exitError *exec.ExitError
-			if err := command.Wait(); !errors.As(err, &exitError) || exitError.ExitCode() != 130 {
-				t.Errorf("public ownership command signal %s: %v", signal.String(), err)
+			result := <-finished
+			if result.ExitCode != 130 {
+				t.Errorf("signal %s produced exit code %d, want 130", delivered.String(), result.ExitCode)
 			}
 			summary := macOwnershipEvidence(t, options.EvidenceDirectory)
 			macRequireOwnedAbsent(t, docker, summary)
+			macRequireStopTimeout(t, options.EvidenceDirectory)
 			if !summary.FullCleanup || summary.ExitCode != 130 {
 				t.Errorf("signal evidence did not prove complete fixture cleanup: %+v", summary)
 			}
