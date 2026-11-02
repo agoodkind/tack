@@ -26,10 +26,11 @@ const (
 	sweepProofRefusalWait = 5 * time.Second
 )
 
-// TestSearchRuntimeAuditSweepProofRequiresHeaderDelete checks that the
-// proof rejects a replay removal row and a failed delete row after a sweep
-// fails event validation. It also checks that the proof accepts a completed
-// header delete after a later search sweeps the session.
+// TestSearchRuntimeAuditSweepProofRequiresHeaderDelete checks the proof
+// using an audit_reader login. After a sweep fails event validation, the
+// test checks that the proof rejects a replay removal row and a failed
+// delete row. After a later search sweeps the session, the test checks
+// that the proof accepts a completed header delete.
 func TestSearchRuntimeAuditSweepProofRequiresHeaderDelete(t *testing.T) {
 	fixture := newFailureFixture(t)
 	searcher := integration.QueryService(t, fixture.QueryFixture, failureAuditResponseBytes, sweepProofIdle, sweepProofAbsolute)
@@ -62,7 +63,7 @@ func TestSearchRuntimeAuditSweepProofRequiresHeaderDelete(t *testing.T) {
 			len(sessionChanges(current, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSessionReplay)) == 1
 	})
 	cfg := *fixture.Config
-	cfg.AuditReaderDSN = testenv.Ledger(t)
+	cfg.AuditReaderDSN = roleLoginDSN(t, fixture.audited.ledger.stack.admin, testenv.Ledger(t), auditReaderRole)
 	factory := cli.System(&cfg)
 	refusal, cancel := context.WithTimeout(t.Context(), sweepProofRefusalWait)
 	defer cancel()
