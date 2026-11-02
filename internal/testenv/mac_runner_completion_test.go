@@ -167,6 +167,7 @@ func macWaitFixtureReady(t *testing.T, directory string) string {
 		case <-ticker.C:
 			contents, err := os.ReadFile(filepath.Join(directory, "runtime.log"))
 			if err != nil || !strings.Contains(string(contents), "MAC_RUNNER_SIGNAL_READY") {
+				macRequireRunnerActive(t, directory)
 				continue
 			}
 			identity, err := os.ReadFile(filepath.Join(directory, "outer-id.txt"))

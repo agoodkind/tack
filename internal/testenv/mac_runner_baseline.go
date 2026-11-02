@@ -18,8 +18,11 @@ func (execution *macRunnerExecution) snapshot(ctx context.Context) error {
 	}
 	for _, item := range containers.Items {
 		execution.baseline.Containers[item.ID] = true
-		if item.Labels[macRunnerProjectLabel] == execution.prepared.project.Name && item.Labels[macRunnerServiceLabel] == "tests" {
-			return fmt.Errorf("refuse existing tests-service container %s for project %s", item.ID, execution.prepared.project.Name)
+		if item.Labels[macRunnerProjectLabel] == execution.prepared.project.Name {
+			if item.Labels[macRunnerServiceLabel] == "tests" {
+				return fmt.Errorf("refuse existing tests-service container %s for project %s", item.ID, execution.prepared.project.Name)
+			}
+			execution.projectContainers[item.ID] = true
 		}
 		if slices.Contains(item.Names, "/"+execution.name) {
 			return fmt.Errorf("refuse existing generated container name %s", execution.name)

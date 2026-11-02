@@ -17,6 +17,7 @@ func executeMacRunner(ctx, caller context.Context, prepared *macRunnerPreparatio
 	execution.baseline = macRunnerBaseline{Containers: make(map[string]bool), Networks: make(map[string]bool), Volumes: make(map[string]bool)}
 	execution.preserved = macRunnerBaseline{Containers: make(map[string]bool), Networks: make(map[string]bool), Volumes: make(map[string]bool)}
 	execution.anonymousVolumes, execution.cacheVolumes = make(map[string]bool), make(map[string]bool)
+	execution.projectContainers = make(map[string]bool)
 	execution.temporaryVolumes = make(map[string]macRunnerTemporaryVolume)
 	execution.fixtures = newMacRunnerFixtures()
 	execution.startedAt = clock.Now().UTC()

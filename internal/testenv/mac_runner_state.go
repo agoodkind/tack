@@ -53,6 +53,8 @@ type macRunnerExecution struct {
 	temporaryVolumes       map[string]macRunnerTemporaryVolume
 	anonymousVolumes       map[string]bool
 	cacheVolumes           map[string]bool
+	projectContainers      map[string]bool
+	removedElsewhere       []string
 	imageEnvironment       []string
 	refused                []macRunnerRefusal
 	stages                 []macRunnerStage

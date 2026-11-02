@@ -19,6 +19,15 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
+// macRequireRunnerActive fails the test when the runner wrote its final result
+// before the fixture reported readiness.
+func macRequireRunnerActive(t *testing.T, directory string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(directory, "result.json")); err == nil {
+		t.Fatalf("the runner ended before the fixture reported readiness; read the result in %s", directory)
+	}
+}
+
 func macOwnershipReady(t *testing.T, directory string) string {
 	t.Helper()
 	bounded, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
@@ -30,6 +39,7 @@ func macOwnershipReady(t *testing.T, directory string) string {
 		case <-ticker.C:
 			contents, err := os.ReadFile(filepath.Join(directory, "runtime.log"))
 			if err != nil || !strings.Contains(string(contents), "MAC_RUNNER_SIGNAL_READY") {
+				macRequireRunnerActive(t, directory)
 				continue
 			}
 			identity, err := os.ReadFile(filepath.Join(directory, "outer-id.txt"))

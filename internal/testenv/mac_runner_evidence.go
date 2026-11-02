@@ -29,6 +29,7 @@ type macRunnerSummary struct {
 	Wait                   *macRunnerWaitEvidence              `json:"wait,omitempty"`
 	Preserved              macRunnerBaseline                   `json:"preserved"`
 	Baseline               macRunnerBaseline                   `json:"baseline"`
+	RemovedElsewhere       []string                            `json:"baseline_removed_elsewhere"`
 	Operations             []macRunnerOperation                `json:"operations"`
 	UnknownResources       []string                            `json:"unknown_resources"`
 	CleanupComplete        bool                                `json:"outer_cleanup_complete"`
@@ -98,6 +99,7 @@ func (execution *macRunnerExecution) summarize(code int, interrupted bool, err e
 		AttachComplete: false, FinalLogsComplete: false, EventsComplete: false, Error: "",
 		Stages: execution.stages, CreatedIDs: execution.createdIDs,
 		AnonymousVolumes: execution.anonymousVolumes, Preserved: execution.preserved, Baseline: execution.baseline,
+		RemovedElsewhere: execution.removedElsewhere,
 		TemporaryVolumes: execution.temporaryVolumes, Wait: execution.waitEvidence,
 		Operations: execution.operations, CleanupComplete: false,
 		UnknownResources: execution.unknownResources,
