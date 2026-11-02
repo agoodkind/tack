@@ -3,19 +3,21 @@
 package integration_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"strings"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/auditrelay"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/test/integration"
@@ -25,23 +27,33 @@ import (
 const (
 	retireAttemptInvalid = "cleanup_attempt_invalid"
 	invalidAttemptValue  = "{"
-	outcomeRequiredText  = "outcome required"
+	oversizedRecordBytes = 90000
+	invalidRecordCount   = 3
 )
 
-// TestSearchSessionAuditRetireInvalidAttemptRecord pauses FoundationDB before
-// the failure event write and replaces the remaining attempt record value with
-// invalid JSON. It requires the next RetireIndexSessions call to finish
-// retirement and delete the session. It checks for one incomplete event with
-// the call's actor and operation ID, the system organization, and only the
-// SHA-256 digest of the stored value in its evidence. It then runs the
-// production relay and audit consumer and requires one audit.events_dlq row
-// containing the stored value.
+type invalidAttemptEvidence struct {
+	Digest string `json:"invalid_attempt_sha256"`
+	Record []byte `json:"invalid_attempt_record"`
+	Key    []byte `json:"invalid_attempt_key"`
+	Index  int    `json:"invalid_attempt_chunk_index"`
+	Count  int    `json:"invalid_attempt_chunk_count"`
+}
+
+// TestSearchSessionAuditRetireInvalidAttemptRecord stores a record with a far
+// deadline, a record of 90,000 invalid bytes, and a record with a malformed
+// key. One RetireIndexSessions call must finish retirement and delete the
+// session. The test requires one incomplete event per record with the call's
+// actor and operation ID, the system organization, and only a digest in its
+// evidence. It then runs the production relay and audit consumer and requires
+// audit.events_dlq rows that reassemble every stored value and contain the
+// malformed key.
 func TestSearchSessionAuditRetireInvalidAttemptRecord(t *testing.T) {
 	stores := sessionStoreStores(t)
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
 	store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
 	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
 	index := "node-pages-invalid-attempt"
+	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
 	mark := searchOutboxTail(t, stores)
 	gate := installRetirePauseGate(t, container, session.ID.String(), retireCleanupFailedMessage)
@@ -49,7 +61,12 @@ func TestSearchSessionAuditRetireInvalidAttemptRecord(t *testing.T) {
 		t.Fatalf("RetireIndexSessions of %s returned %v, want an error matching %v", index, err, audit.ErrEventNotRecorded)
 	}
 	gate.requireFinished(t)
-	integration.ReplaceRawValue(t, retireAttemptRawKey(t), []byte(invalidAttemptValue))
+	farDeadline := farDeadlineRecord(t, retireFamilyValue(t, retireAttemptFamily))
+	integration.ReplaceRawValue(t, retireFamilyKey(t, retireAttemptFamily), farDeadline)
+	oversized := bytes.Repeat([]byte("x"), oversizedRecordBytes)
+	integration.ReplaceRawValue(t, retireAttemptKey(t, index), oversized)
+	malformedKey := fdb.Key(append(bytes.Clone(fdbadapter.TestPrefixRange()), tuple.Tuple{retireAttemptFamily, index, "malformed"}.Pack()...))
+	integration.ReplaceRawValue(t, malformedKey, []byte(invalidAttemptValue))
 
 	retryContext := integration.WithTestOperation(t, t.Context())
 	operation, err := audit.RequireMutationContext(retryContext)
@@ -58,79 +75,109 @@ func TestSearchSessionAuditRetireInvalidAttemptRecord(t *testing.T) {
 	}
 	remaining, err := rebuilds.RetireIndexSessions(retryContext, index, retireSliceLimit)
 	if err != nil || remaining {
-		t.Fatalf("RetireIndexSessions of %s with an invalid attempt record = %t, %v, want a finished retirement", index, remaining, err)
+		t.Fatalf("RetireIndexSessions of %s with invalid attempt records = %t, %v, want a finished retirement", index, remaining, err)
 	}
 	if _, err := store.Load(t.Context(), session.ID); !errors.Is(err, searchdomain.ErrSessionNotFound) {
 		t.Fatalf("load session %s after retirement = %v, want %v", session.ID, err, searchdomain.ErrSessionNotFound)
 	}
-	events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireAttemptInvalid))
-	if len(events) != 1 {
-		t.Fatalf("session %s has %d invalid attempt events, want 1", session.ID, len(events))
+	events := invalidAttemptEvents(t, stores, mark)
+	if len(events) != invalidRecordCount {
+		t.Fatalf("index %s has %d invalid attempt events, want %d", index, len(events), invalidRecordCount)
 	}
-	event := events[0]
-	if event.Actor.ID != integration.TestActorID || event.Context.OperationID != operation.Context.OperationID ||
-		event.Outcome != audit.OutcomeIncomplete || event.Context.OrgID != audit.SystemOrgID() || event.Verb != string(audit.VerbSearchSessionUpdate) {
-		t.Fatalf("invalid attempt event = %+v, want an incomplete session update by actor %s under operation %s", event, integration.TestActorID, operation.Context.OperationID)
+	expected := map[string][]byte{digestOf(farDeadline): farDeadline, digestOf(oversized): oversized, digestOf([]byte(invalidAttemptValue)): []byte(invalidAttemptValue)}
+	for _, event := range events {
+		var evidence invalidAttemptEvidence
+		if err := json.Unmarshal(event.Extra, &evidence); err != nil || evidence.Record != nil || expected[evidence.Digest] == nil {
+			t.Fatalf("invalid attempt evidence = %s, %v, want only a known digest", event.Extra, err)
+		}
+		if event.Actor.ID != integration.TestActorID || event.Context.OperationID != operation.Context.OperationID ||
+			event.Outcome != audit.OutcomeIncomplete || event.Context.OrgID != audit.SystemOrgID() {
+			t.Fatalf("invalid attempt event = %+v, want an incomplete event by actor %s under operation %s", event, integration.TestActorID, operation.Context.OperationID)
+		}
 	}
-	var evidence struct {
-		Digest string `json:"invalid_attempt_sha256"`
-		Record []byte `json:"invalid_attempt_record"`
-	}
-	digest := sha256.Sum256([]byte(invalidAttemptValue))
-	if err := json.Unmarshal(event.Extra, &evidence); err != nil || evidence.Digest != hex.EncodeToString(digest[:]) || evidence.Record != nil {
-		t.Fatalf("invalid attempt evidence = %s, %v, want only the digest of %q", event.Extra, err, invalidAttemptValue)
-	}
-
-	retainedID := retainedAttemptEvent(t, stores, mark, session.ID)
+	retainedIDs := retainedAttemptEvents(t, stores, mark)
 	stack := startRuntimeAuditStack(t)
 	startRetireRelay(t, stack)
-	letter := stack.waitForEventDeadLetters(t, []uuid.UUID{retainedID})[retainedID]
-	if !strings.Contains(letter.Error, outcomeRequiredText) {
-		t.Fatalf("dead letter error of event %s = %q, want text %q", retainedID, letter.Error, outcomeRequiredText)
-	}
-	var retained audit.Event
-	if err := json.Unmarshal(letter.Payload, &retained); err != nil {
-		t.Fatalf("decode the dead letter of event %s: %v", retainedID, err)
-	}
-	if err := json.Unmarshal(retained.Extra, &evidence); err != nil || string(evidence.Record) != invalidAttemptValue {
-		t.Fatalf("dead letter evidence = %s, %v, want the stored value %q", retained.Extra, err, invalidAttemptValue)
-	}
+	letters := stack.waitForEventDeadLetters(t, retainedIDs)
+	requireRetainedRecords(t, letters, expected, malformedKey)
 }
 
-func retainedAttemptEvent(t *testing.T, stores *fdbadapter.Stores, mark []byte, sessionID uuid.UUID) uuid.UUID {
+func digestOf(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
+}
+
+func requireRetainedRecords(t *testing.T, letters map[uuid.UUID]audit.DeadLetter, expected map[string][]byte, malformedKey fdb.Key) {
 	t.Helper()
-	entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), mark, searchAuditPageLimit)
-	if err != nil {
-		t.Fatalf("read the outbox: %v", err)
-	}
-	for _, entry := range entries {
+	chunks := map[string][]invalidAttemptEvidence{}
+	for eventID, letter := range letters {
 		var event audit.Event
-		if err := json.Unmarshal(entry.Event, &event); err != nil {
-			t.Fatalf("decode outbox entry %s: %v", entry.Event, err)
+		if err := json.Unmarshal(letter.Payload, &event); err != nil {
+			t.Fatalf("decode the dead letter of event %s: %v", eventID, err)
 		}
-		if event.Entity.ID == sessionID && event.Outcome == "" {
-			return event.EventID
+		var evidence invalidAttemptEvidence
+		if err := json.Unmarshal(event.Extra, &evidence); err != nil {
+			t.Fatalf("decode the dead letter evidence of event %s: %v", eventID, err)
+		}
+		chunks[evidence.Digest] = append(chunks[evidence.Digest], evidence)
+	}
+	keySeen := false
+	for digest, value := range expected {
+		parts := chunks[digest]
+		slices.SortFunc(parts, func(left, right invalidAttemptEvidence) int { return left.Index - right.Index })
+		rebuilt := []byte{}
+		for position, part := range parts {
+			if part.Index != position || part.Count != len(parts) {
+				t.Fatalf("retained chunk %d of %d has index %d and count %d", position, len(parts), part.Index, part.Count)
+			}
+			rebuilt = append(rebuilt, part.Record...)
+			keySeen = keySeen || bytes.Equal(part.Key, malformedKey)
+		}
+		if !bytes.Equal(rebuilt, value) {
+			t.Fatalf("retained record with digest %s has %d bytes, want %d equal bytes", digest, len(rebuilt), len(value))
 		}
 	}
-	t.Fatalf("the outbox does not contain the retained attempt event of session %s", sessionID)
-	return uuid.Nil
+	if !keySeen {
+		t.Fatalf("the retained events do not contain the malformed key %x", malformedKey)
+	}
 }
 
-func startRetireRelay(t *testing.T, stack runtimeAuditStack) {
+func farDeadlineRecord(t *testing.T, stored []byte) []byte {
 	t.Helper()
-	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
-		Brokers: []string{testenv.Kafka(t)}, Topic: stack.topic, YugabyteDSN: testenv.Ledger(t),
-		FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: integration.StoreTransactionTimeout,
-		PollInterval: 100 * time.Millisecond, BatchSize: 64,
-	})
-	if err != nil {
-		t.Fatalf("open the audit relay: %v", err)
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(stored, &fields); err != nil {
+		t.Fatalf("decode the attempt record: %v", err)
 	}
-	opened.Relay.Start(t.Context())
-	t.Cleanup(opened.Pool.Close)
-	t.Cleanup(func() {
-		if err := opened.Relay.Close(); err != nil {
-			t.Errorf("close the audit relay: %v", err)
+	deadline, err := json.Marshal(clock.Now().Add(24 * time.Hour).UTC())
+	if err != nil {
+		t.Fatalf("encode the far deadline: %v", err)
+	}
+	fields["deadline"] = deadline
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("encode the attempt record: %v", err)
+	}
+	return encoded
+}
+
+func invalidAttemptEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte) []audit.Event {
+	t.Helper()
+	selected := []audit.Event{}
+	for _, event := range outboxPlainEvents(t, stores, mark) {
+		if event.Error != nil && event.Error.Code == retireAttemptInvalid {
+			selected = append(selected, event)
 		}
-	})
+	}
+	return selected
+}
+
+func retainedAttemptEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte) []uuid.UUID {
+	t.Helper()
+	selected := []uuid.UUID{}
+	for _, event := range outboxPlainEvents(t, stores, mark) {
+		if event.Outcome == "" && event.EventID != uuid.Nil {
+			selected = append(selected, event.EventID)
+		}
+	}
+	return selected
 }

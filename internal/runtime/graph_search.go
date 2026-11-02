@@ -43,7 +43,7 @@ type searchRuntime struct {
 // buildSearchRuntime constructs the content reader, policy set, work store,
 // access store, adapter, and workers on the graph's clock. It returns an
 // empty runtime when no search endpoint is configured.
-func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadapter.Stores, source clock.Clock) (searchRuntime, error) {
+func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadapter.Stores, source clock.Clock, recorder audit.Recorder) (searchRuntime, error) {
 	empty := searchRuntime{adapter: nil, workers: nil, idleTime: 0, retention: nil, repair: nil}
 	if cfg.SearchEndpoint == "" {
 		return empty, nil
@@ -78,7 +78,7 @@ func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadap
 	}
 	policies := stores.SearchPolicySet()
 	rollouts := stores.SearchRollouts(source, policies)
-	rebuilds := stores.SearchRebuilds(source)
+	rebuilds := stores.SearchRebuilds(source).WithFailureRecorder(recorder)
 	ports := service.SearchWorkerPorts{
 		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),
 		Access: stores.SearchAccess(policies), Writer: adapter,

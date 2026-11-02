@@ -3,6 +3,7 @@
 package integration_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -52,6 +53,10 @@ func TestSearchRuntimeAuditRetiredSessionLostResult(t *testing.T) {
 	closed := closingUpdates(t, rows, session.ID)[0]
 	requireRetirementRow(t, lost, workerID, rebuild, source)
 	requireRetirementRow(t, closed, workerID, rebuild, source)
+	var evidence retireFailureEvidence
+	if err := json.Unmarshal(lost.Extra, &evidence); err != nil || evidence.Cleanup != transactionTimedOutCode || evidence.Recording != transactionTimedOutCode {
+		t.Fatalf("lost attempt evidence = %s, %v, want cleanup and recording code %q", lost.Extra, err, transactionTimedOutCode)
+	}
 	if lost.Context.OperationID == closed.Context.OperationID || !lost.Context.StartedAt.Before(closed.Context.StartedAt) ||
 		!lost.EventTime.Before(closed.EventTime) {
 		t.Fatalf("lost attempt %s started at %s with event time %s; the successful retry %s started at %s with event time %s; want an earlier separate operation",
