@@ -24,8 +24,8 @@ func (r *Reader) SearchSessionHeaderDeletes(ctx context.Context, orgID, sessionI
 		return 0, errors.New("audit reader not configured")
 	}
 	var count int64
-	err := r.pool.QueryRow(ctx, searchSessionHeaderDeletesSQL, orgID, TargetKindResource, sessionID,
-		string(VerbSearchSessionDelete), string(OutcomeCompleted), string(PhaseChange), TargetSearchSession).Scan(&count)
+	err := r.pool.Scan(r.pool.unsanitized.QueryRow(ctx, searchSessionHeaderDeletesSQL, orgID, TargetKindResource, sessionID,
+		string(VerbSearchSessionDelete), string(OutcomeCompleted), string(PhaseChange), TargetSearchSession).Scan(&count))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.search_session_header_deletes.query_failed", slog.String("session_id", sessionID.String()), slog.String("err", err.Error()))
 		return 0, fmt.Errorf("count the header deletes of search session %s: %w", sessionID, err)
