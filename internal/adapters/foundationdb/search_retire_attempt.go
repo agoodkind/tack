@@ -130,7 +130,7 @@ func (s *SearchRebuildStore) beginRetireAttempt(ctx context.Context, index strin
 		return retireAttempt{}, err
 	}
 	changes.bind(record)
-	event, err := cleanupFailureEvent(ctx, changes, audit.SearchSessionTarget(sessionID, record.PrincipalID), step)
+	event, err := cleanupFailureEvent(ctx, changes, audit.SearchSessionTarget(sessionID, record.PrincipalID), step, nil)
 	if err != nil {
 		return retireAttempt{}, err
 	}

@@ -57,9 +57,7 @@ func (s *SearchSessionStore) beginCleanup(ctx context.Context, sessionID uuid.UU
 		if appendErr := changes.append(ctx, tr); appendErr != nil {
 			return appendErr
 		}
-		if fence != nil {
-			slog.DebugContext(ctx, "search.session.retire_commit_ready", slog.String("session_id", sessionID.String()))
-		}
+		slog.DebugContext(ctx, "search.session.close_commit_ready", slog.String("session_id", sessionID.String()))
 		return nil
 	})
 	if err != nil {
