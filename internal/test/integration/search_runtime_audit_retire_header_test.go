@@ -22,7 +22,6 @@ func TestSearchRuntimeAuditRetireCorruptHeaderKeepsReplacement(t *testing.T) {
 	t.Setenv("OPENSEARCH_QUERY_MAX_RESULTS", openSessionResults)
 	fixture := newParentEdgeFixture(t)
 	source := servingIndex(t, fixture)
-	t.Cleanup(func() { _ = fixture.adapter.DeleteIndex(context.WithoutCancel(t.Context()), source) })
 	putRetiringCorpus(t, fixture)
 	session := sessionOfCursor(t, fixture, searchPageOf(t, fixture, openSessionQuery, "").cursor)
 	beginReplacement(t, fixture)
