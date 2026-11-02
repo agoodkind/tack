@@ -18,6 +18,7 @@ import (
 )
 
 type cleanupLossScenario struct {
+	continuation     bool
 	corruptHeader    bool
 	pauseOnDelete    bool
 	incompleteDelete bool
@@ -64,10 +65,26 @@ func TestSearchRuntimeAuditSnapshotCloseRecordingLossRefusesPage(t *testing.T) {
 	})
 }
 
+// TestSearchRuntimeAuditCompletedPageCloseRecordingLossRefusesPage checks that
+// search refuses the final page when recording the point in time delete result
+// fails, records the failure, and replays the committed page on retry.
+func TestSearchRuntimeAuditCompletedPageCloseRecordingLossRefusesPage(t *testing.T) {
+	runCleanupLoss(t, cleanupLossScenario{
+		continuation:     true,
+		pauseOnDelete:    true,
+		incompleteDelete: true,
+		resumeWhen:       func(string) func(slog.Record) bool { return cleanupLossStepLog },
+		failureHas:       []string{"record external step result"},
+		failureAny:       []string{"FoundationDB error code 1031", "context deadline exceeded"},
+	})
+}
+
 func runCleanupLoss(t *testing.T, scenario cleanupLossScenario) {
 	t.Helper()
-	t.Setenv("OPENSEARCH_SESSION_IDLE_TIMEOUT", sessionAuditIdle)
-	t.Setenv("OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT", sessionAuditAbsolute)
+	if !scenario.continuation {
+		t.Setenv("OPENSEARCH_SESSION_IDLE_TIMEOUT", sessionAuditIdle)
+		t.Setenv("OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT", sessionAuditAbsolute)
+	}
 	fixture := newFailureFixture(t)
 	harness, capture := newCaptureHarness(t, fixture.QueryFixture, false)
 	before := cleanupLossOpenPITs(t, fixture)
@@ -81,7 +98,12 @@ func runCleanupLoss(t *testing.T, scenario cleanupLossScenario) {
 		t.Fatal("the first search did not return a cursor")
 	}
 	expired := integration.CursorSession(t, fixture.QueryFixture, opened.Cursor)
-	waitUntilTime(t, expired.IdleDeadline.Truncate(time.Minute).Add(time.Minute+sessionAuditMargin))
+	cursor := ""
+	if scenario.continuation {
+		cursor = opened.Cursor
+	} else {
+		waitUntilTime(t, expired.IdleDeadline.Truncate(time.Minute).Add(time.Minute+sessionAuditMargin))
+	}
 	if scenario.corruptHeader {
 		integration.ReplaceRawValue(t, sessionHeaderKey(t, fixture, expired.ID), []byte("{"))
 	}
@@ -95,34 +117,13 @@ func runCleanupLoss(t *testing.T, scenario cleanupLossScenario) {
 	}
 	gate.install()
 
-	page, err := integration.TrySearch(harness, failureAuditQuery, "")
+	page, err := integration.TrySearch(harness, failureAuditQuery, cursor)
 
-	for name, signal := range map[string]chan struct{}{"pause": gate.pausedSeen, "resume": gate.resumeSeen} {
-		select {
-		case <-signal:
-		default:
-			t.Fatalf("the gate did not signal %s", name)
-		}
-	}
-	if err == nil || err.Error() != sessionTimeoutUnavailableText {
-		t.Fatalf("search returned error %v; expected text %q", err, sessionTimeoutUnavailableText)
-	}
-	if len(page.IDs) != 0 || page.Cursor != "" {
-		t.Fatalf("search returned %d results and cursor %q; expected an empty page", len(page.IDs), page.Cursor)
-	}
-	failure := gate.failureText()
-	for _, want := range scenario.failureHas {
-		if !strings.Contains(failure, want) {
-			t.Fatalf("the logged error %q did not contain the expected cause %q", failure, want)
-		}
-	}
-	if len(scenario.failureAny) > 0 && !slices.ContainsFunc(scenario.failureAny, func(want string) bool { return strings.Contains(failure, want) }) {
-		t.Fatalf("the logged error %q did not contain the expected cause %q", failure, strings.Join(scenario.failureAny, " or "))
-	}
+	requireCleanupLossRefusal(t, gate, page, err, scenario.failureHas, scenario.failureAny)
 	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(current []audit.Row) bool {
 		failed := cleanupLossReads(current, audit.OutcomeFailed)
 		return len(failed) == 1 && len(cleanupLossReads(current, audit.OutcomeCompleted)) == 1 &&
-			cleanupLossSessionCreated(current, failed[0].Context.OperationID) &&
+			(scenario.continuation || cleanupLossSessionCreated(current, failed[0].Context.OperationID)) &&
 			(!scenario.incompleteDelete || len(cleanupLossIncompleteDeletes(current, expired.ID)) == 1)
 	})
 	refused := cleanupLossReads(rows, audit.OutcomeFailed)[0]
@@ -135,6 +136,12 @@ func runCleanupLoss(t *testing.T, scenario cleanupLossScenario) {
 		incomplete := cleanupLossIncompleteDeletes(rows, expired.ID)[0]
 		if incomplete.ActorID != refused.ActorID || incomplete.Error == nil || incomplete.Error.Code != "step_unfinished" {
 			t.Fatalf("the incomplete point in time delete event did not preserve the actor or the step_unfinished code: %+v", incomplete)
+		}
+	}
+	if scenario.continuation {
+		replayed, replayErr := integration.TrySearch(harness, failureAuditQuery, cursor)
+		if replayErr != nil || len(replayed.IDs) == 0 {
+			t.Fatalf("retry with the same cursor did not replay the committed page: error %v, result count %d", replayErr, len(replayed.IDs))
 		}
 	}
 }
