@@ -130,7 +130,7 @@ func (s *SearchQueryService) runEncodedStep(
 		defer cancel()
 		if finishErr := steps.FinishStep(writeContext, audit.FinishedStep(step, details, observed)); finishErr != nil {
 			slog.ErrorContext(ctx, "search.snapshot.step_failed", slog.String("err", finishErr.Error()))
-			return details, errors.Join(effectErr, fmt.Errorf("record the point in time step result of session %s: %w", session.ID, finishErr))
+			return details, errors.Join(effectErr, fmt.Errorf("record the result of the point in time step for session %s: %w", session.ID, finishErr))
 		}
 		return details, effectErr
 	})
