@@ -47,7 +47,10 @@ func (a *Adapter) Ranker(settings RankerSettings) *QueryRanker {
 // [searchdomain.ErrSnapshotUncertain].
 func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searchdomain.Snapshot, error) {
 	var none searchdomain.Snapshot
+	timing := newSnapshotTiming()
+	defer timing.log(ctx, query.Index)
 	target, err := r.adapter.AliasTarget(ctx, PublicAlias)
+	timing.mark(&timing.alias)
 	if err != nil {
 		return none, snapshotFailure(ctx, query.Index, "resolve the public alias", err)
 	}
@@ -56,6 +59,7 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 			fmt.Errorf("alias %s selects %q, and FoundationDB records %q", PublicAlias, target, query.Index))
 	}
 	info, err := r.adapter.IndexInfo(ctx, target)
+	timing.mark(&timing.mapping)
 	if err != nil {
 		return none, snapshotFailure(ctx, target, "read the index mapping", err)
 	}
@@ -63,6 +67,7 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 		return none, snapshotFailure(ctx, target, "verify the index mapping", errors.New("the mapping does not record the pinned model and tokenizer"))
 	}
 	model, err := r.adapter.getModel(ctx, info.ModelID)
+	timing.mark(&timing.model)
 	if err != nil {
 		return none, snapshotFailure(ctx, target, "read the pinned model", err)
 	}
@@ -70,6 +75,7 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 		return none, snapshotFailure(ctx, target, "verify the pinned model", cause)
 	}
 	tokens, err := r.adapter.predictQueryTokens(ctx, info.ModelID, query.Text, r.settings.TokenBytes)
+	timing.mark(&timing.predict)
 	if err != nil {
 		return none, queryStepError{operation: "open search snapshot on " + target, err: err}
 	}
@@ -80,6 +86,7 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 		Indices: []string{target}, Header: nil,
 		Params: &opensearchapi.CreatePITParams{KeepAlive: r.settings.KeepAlive},
 	})
+	timing.mark(&timing.pointInTime)
 	response := created.Inspect().Response
 	if response != nil && !response.IsError() && (!created.PITID.IsSet() || created.Shards.Failed > 0) {
 		partial := searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: nil}

@@ -208,7 +208,7 @@ The measurements come from these OpenSearch CI jobs:
 | G3 | `^TestSearch(Split|Restore|Rebuild)` | 20 | 1122.4 s (110765693590) | 45m |
 | G4 | `^TestSearchCluster`, skipping `^TestSearchClusterModelRepair` | 6 | 955.4 s on the Mac runner | 25m |
 | G5A | `^TestSearch[A-M]`, skipping the G1 to G4 and G6 tests | 85 | 2862.2 s (123145940911) | 75m |
-| G5B | `^TestSearch($|[^A-M])`, skipping the G1 to G4, G5C, and G6 tests | 116 (117 listed; `TestSearchSDKCompatibility` skips in the group run) | G5B has not had a complete measurement since the split. The 98 G5B tests that CI job 125385668666 started took 2246 s before the job timed out; 16 tests did not start. | 75m |
+| G5B | `^TestSearch($|[^A-M])`, skipping the G1 to G4, G5C, and G6 tests | 117 (118 listed; `TestSearchSDKCompatibility` skips in the group run) | G5B has not had a complete measurement since the split. The 98 G5B tests that CI job 125385668666 started took 2246 s before the job timed out; 16 tests did not start. | 75m |
 | G5C | `^TestSearch(RuntimeAudit|SessionAudit)` | 67 | 71.2 minutes in CI run 41495702932; 53.1 minutes in CI run 41494394942. | 75m |
 | G6 | `^TestSearchClusterModelRepair` | 1 | 129.67 s on the Mac runner (2026-10-02, head 650f19ac) | 5m |
 

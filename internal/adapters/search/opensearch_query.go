@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
+	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
 )
@@ -52,7 +53,10 @@ func (r *QueryRanker) Read(ctx context.Context, query searchdomain.Query, snapsh
 		Params: &opensearchapi.SearchParams{AllowPartialSearchResults: &partial},
 	}
 	var decoded rankResponse
+	started := clock.Now()
 	response, err := opensearch.Execute(ctx, r.adapter.client, http.MethodPost, request, &decoded)
+	telemetry.L(ctx).DebugContext(ctx, "search.query.batch_read", slog.String("index", snapshot.Index),
+		slog.Int64("duration_ms", clock.Since(started).Milliseconds()), slog.Int("hits", len(decoded.Hits.Hits)))
 	if err != nil {
 		return none, rankFailure(ctx, snapshot.Index, fmt.Errorf("send search request: %w", engineCause(ctx, response, err)))
 	}
