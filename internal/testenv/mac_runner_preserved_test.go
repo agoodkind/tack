@@ -18,9 +18,9 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// macBaselineRemoval runs the signal fixture and removes a baseline container
-// with labels after the fixture reports readiness. It cancels the run and returns
-// the container ID, the run error, and the evidence directory.
+// macBaselineRemoval starts the signal fixture, removes a baseline container
+// after fixture readiness, and cancels the run. It returns the container ID,
+// run error, and evidence directory.
 func macBaselineRemoval(t *testing.T, labels func(project string) map[string]string) (string, error, string) {
 	t.Helper()
 	options, docker, project := macDockerFixture(t)
@@ -59,9 +59,9 @@ func macBaselineRemoval(t *testing.T, labels func(project string) map[string]str
 	return marker.ID, runErr, options.EvidenceDirectory
 }
 
-// TestMacRunnerDockerBaselineRemovedElsewhere removes a baseline container
-// outside the runner's project. The run must record the removal without failing
-// on it.
+// TestMacRunnerDockerBaselineRemovedElsewhere checks that the result records
+// a baseline container removed outside the project and that the removal does
+// not produce a disappeared identity error.
 func TestMacRunnerDockerBaselineRemovedElsewhere(t *testing.T) {
 	id, runErr, directory := macBaselineRemoval(t, func(project string) map[string]string {
 		return map[string]string{"tack.mac-runner-fixture": project}
@@ -84,8 +84,8 @@ func TestMacRunnerDockerBaselineRemovedElsewhere(t *testing.T) {
 	}
 }
 
-// TestMacRunnerDockerBaselineRemovedInProject removes a baseline container in the
-// runner's project. The run must fail and identify that container.
+// TestMacRunnerDockerBaselineRemovedInProject checks that removing a baseline
+// container in the project produces an error identifying the container.
 func TestMacRunnerDockerBaselineRemovedInProject(t *testing.T) {
 	id, runErr, _ := macBaselineRemoval(t, func(project string) map[string]string {
 		return map[string]string{"tack.mac-runner-fixture": project, "com.docker.compose.project": project, "com.docker.compose.service": "other"}

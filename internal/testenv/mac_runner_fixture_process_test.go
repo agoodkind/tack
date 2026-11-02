@@ -19,8 +19,7 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// macRequireRunnerActive fails the test when the runner wrote its final result
-// before the fixture reported readiness.
+// macRequireRunnerActive fails the test if result.json exists in directory.
 func macRequireRunnerActive(t *testing.T, directory string) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(directory, "result.json")); err == nil {
