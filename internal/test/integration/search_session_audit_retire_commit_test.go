@@ -109,11 +109,11 @@ func TestSearchSessionAuditRetireCommitConflictIsDefinite(t *testing.T) {
 	}
 }
 
-// TestSearchSessionAuditRetireFailedClearIsNotRecorded pauses FoundationDB
-// after the delete step commits. The clear fails. The test requires the call
-// to return audit.ErrEventNotRecorded and report remaining work. A later call
-// during the lease must also report remaining work.
-func TestSearchSessionAuditRetireFailedClearIsNotRecorded(t *testing.T) {
+// TestSearchSessionAuditRetireFailedClearIsReported pauses FoundationDB
+// after the delete step commits. The clear fails. The test requires an
+// error without audit.ErrEventNotRecorded and a report of remaining work.
+// A later call during the lease must also report remaining work.
+func TestSearchSessionAuditRetireFailedClearIsReported(t *testing.T) {
 	stores := sessionStoreStores(t)
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
 	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
@@ -127,8 +127,8 @@ func TestSearchSessionAuditRetireFailedClearIsNotRecorded(t *testing.T) {
 
 	remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
 	hooks.requireFinished(t)
-	if !remaining || !errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf("RetireIndexSessions of %s with a failed clear = %t, %v, want remaining work and %v", index, remaining, err, audit.ErrEventNotRecorded)
+	if !remaining || err == nil || errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf("RetireIndexSessions of %s with a failed clear = %t, %v, want remaining work and an error without %v", index, remaining, err, audit.ErrEventNotRecorded)
 	}
 	remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
 	if err != nil || !remaining {

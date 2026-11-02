@@ -25,8 +25,8 @@ const (
 	unclassifiedFailureCode  = "unclassified"
 	retireResultNotSaved     = "cleanup_result_not_saved"
 	retireCodesFailedMessage = "search.session.retire_codes_failed"
-	// retireAttemptWait exceeds the 100 second retirement attempt lease.
-	retireAttemptWait = 101 * time.Second
+	// retireAttemptWait exceeds the 140 second retirement attempt lease.
+	retireAttemptWait = 141 * time.Second
 )
 
 type retireFailureEvidence struct {

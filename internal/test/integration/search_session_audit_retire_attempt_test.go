@@ -123,13 +123,14 @@ func TestSearchSessionAuditRetireLateEffectIsFenced(t *testing.T) {
 	}
 }
 
-// TestSearchSessionAuditRetireClearReportsLostOwnership checks recovery after
-// a log hook pauses RetireIndexSessions after its delete step commits and
-// before it clears the attempt record. The hook waits until the attempt lease
-// expires. A second call recovers the attempt. The test checks that the first
-// call returns audit.ErrEventNotRecorded and reports remaining work. It also
-// checks that the first operation has one delete change event and one
-// incomplete event, and that a third call finishes retirement.
+// TestSearchSessionAuditRetireClearReportsLostOwnership uses a log hook
+// to pause RetireIndexSessions after its delete step commits and before it
+// clears the attempt record. The hook waits for the attempt lease to
+// expire. A second call recovers the attempt. The first clear attempt
+// finds the record absent. The first call must return
+// errRetireAttemptFenced without audit.ErrEventNotRecorded and report
+// remaining work. The first operation must have one delete change event
+// and one incomplete event. A third call must finish retirement.
 func TestSearchSessionAuditRetireClearReportsLostOwnership(t *testing.T) {
 	stores := sessionStoreStores(t)
 	rebuilds := stores.SearchRebuilds(clock.Wall{})

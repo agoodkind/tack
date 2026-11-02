@@ -16,23 +16,31 @@ import (
 
 const (
 	retireAttemptSaveOperation = "save search session retirement attempt"
-	// retireAttemptLease is how long recoverRetireAttempts treats a saved
-	// attempt as active. It equals twice searchTransactionTimeout plus three
-	// times audit.ExternalResultDeadline. These limits cover the attempt save,
-	// cleanup, result write, failure code save, and recorder call. The configured
-	// search worker lease cannot extend them. A clock difference between processes
-	// can start recovery early. Recovery can then save an incomplete event while
-	// the attempt owner can still save its failed event under a different event ID.
-	retireAttemptLease = 2*searchTransactionTimeout + 3*audit.ExternalResultDeadline
+	// retireAttemptLease covers the time limits for saving the attempt,
+	// cleanup, writing the result, saving the failure code, the recorder
+	// call, and spill. It adds one audit.ExternalResultDeadline as a
+	// margin. The configured search worker lease cannot extend these
+	// limits. recoverRetireAttempts applies this lease to the saved deadline
+	// and to the first observation of an attempt. A writer clock that runs
+	// behind can start recovery early. Recovery can then save an incomplete
+	// event while the attempt owner can still save its failed event under a
+	// different event ID.
+	retireAttemptLease = 2*searchTransactionTimeout + 4*audit.ExternalResultDeadline + audit.SpillTimeout
 )
 
-// errRetireAttemptFenced is returned by beginCleanup, cleanupSlice, and
-// clearRetireAttempt when the attempt record is absent. Recovery normally
-// clears the record and saves an incomplete event. A clear that retries after
-// its own commit applied can also find the record absent. This error does not
-// wrap audit.ErrEventNotRecorded because the store did not fail to save
+// errRetireAttemptFenced marks an absent attempt record. beginCleanup,
+// cleanupSlice, and clearRetireAttempt return it in that case. Recovery
+// normally clears the record and saves an incomplete event. This error
+// does not wrap audit.ErrEventNotRecorded. The store did not fail to save
 // evidence.
 var errRetireAttemptFenced = errors.New("recovery already resolved this retirement attempt")
+
+// errRetireClearAbsent indicates that clearRetireAttempt found the
+// attempt record absent on retry. Its earlier commit or recovery removed
+// the record. The transaction result does not identify which removed it.
+// This error does not wrap errRetireAttemptFenced or
+// audit.ErrEventNotRecorded.
+var errRetireClearAbsent = errors.New("the retirement attempt record is absent after an uncertain clear; this clear or recovery removed it")
 
 // errRetireRebuildEnded is returned by beginRetireAttempt when the replacement
 // record is absent or retires another index. The attempt save reads the
@@ -43,10 +51,12 @@ var errRetireRebuildEnded = errors.New("the index replacement of this retirement
 // for the deleted index exists. The read conflicts with a late attempt save.
 var errRetireAttemptsRemain = errors.New("retirement attempt records remain for the deleted index")
 
-// retireAttemptRecord stores one attempt's lease deadline and encoded failure
-// event.
+// retireAttemptRecord stores one attempt's lease deadline from the writer
+// clock, the recovery time of the first observation, the encoded failure
+// event, and the safe failure codes.
 type retireAttemptRecord struct {
 	Deadline         time.Time       `json:"deadline"`
+	ObservedAt       time.Time       `json:"observed_at,omitzero"`
 	Event            json.RawMessage `json:"event"`
 	CleanupFailure   string          `json:"cleanup_failure,omitempty"`
 	RecordingFailure string          `json:"recording_failure,omitempty"`
@@ -129,7 +139,7 @@ func (s *SearchRebuildStore) beginRetireAttempt(ctx context.Context, index strin
 		return retireAttempt{}, sessionFailure(ctx, retireAttemptSaveOperation, sessionID, err)
 	}
 	encoded, err := json.Marshal(retireAttemptRecord{
-		Deadline: s.work.clock.Now().Add(retireAttemptLease), Event: encodedEvent, CleanupFailure: "", RecordingFailure: "",
+		Deadline: s.work.clock.Now().Add(retireAttemptLease), ObservedAt: time.Time{}, Event: encodedEvent, CleanupFailure: "", RecordingFailure: "",
 	})
 	if err != nil {
 		return retireAttempt{}, sessionFailure(ctx, retireAttemptSaveOperation, sessionID, err)

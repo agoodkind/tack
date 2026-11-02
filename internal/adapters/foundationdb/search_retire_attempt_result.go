@@ -18,7 +18,6 @@ import (
 const (
 	retireAttemptFailureOperation = "record search session retirement failure"
 	retireAttemptCodesOperation   = "save search session retirement failure codes"
-	retireAttemptClearOperation   = "clear search session retirement attempt"
 	retireFailureUnclassified     = "unclassified"
 	retireFailureDatabasePrefix   = "foundationdb_"
 	retireFailureDeadline         = "context_deadline_exceeded"
@@ -30,14 +29,17 @@ const (
 	retireAttemptCodesName = "failure-codes"
 )
 
-// recordRetireFailure clears the attempt record and writes the failure event
-// to the outbox in one transaction. It ignores cancellation of ctx and ends
-// after audit.ExternalResultDeadline. It writes the failure event even if
-// recovery already saved an incomplete event. The failure event records the
-// definite result under a different event ID. If recording succeeds, it returns
-// cause unchanged. If recording fails, it logs the recording error, retains the
-// attempt record for recoverRetireAttempts, and returns an error joining cause
-// and the recording error.
+// recordRetireFailure clears the attempt record and writes the failure
+// event to the outbox in one transaction. It ignores ctx cancellation and
+// ends after audit.ExternalResultDeadline. It writes the failure event even
+// if recovery already saved an incomplete event. The failure event records
+// the definite result under a different event ID. A successful write returns
+// cause unchanged. A failed write logs the recording error and returns an
+// error containing cause and the recording error. That error matches
+// audit.ErrEventNotRecorded if the failure code save succeeds or the recorder
+// does not accept the event. It does not match audit.ErrEventNotRecorded if
+// the failure code save does not save codes and the recorder accepts the
+// event.
 func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, attempt retireAttempt, step searchdomain.CleanupStep, cause error) error {
 	sessionID := attempt.sessionID
 	slog.ErrorContext(ctx, "search.session.cleanup_failed", slog.String("err", cause.Error()),
@@ -55,7 +57,11 @@ func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, attempt re
 				return sessionStepError{operation: "read retirement attempt", err: readErr}
 			}
 			tr.Clear(attempt.key)
-			return NewOutboxWriter(tr).WriteEncodedEvent(recordContext, encoded)
+			if writeErr := NewOutboxWriter(tr).WriteEncodedEvent(recordContext, encoded); writeErr != nil {
+				return writeErr
+			}
+			slog.DebugContext(ctx, "search.session.retire_failure_commit_ready", slog.String("session_id", sessionID.String()))
+			return nil
 		})
 	}
 	if err == nil {
@@ -168,25 +174,4 @@ func retireFailureCode(err error) string {
 		return code + retireFailureUncertainSuffix
 	}
 	return code
-}
-
-// clearRetireAttempt reads and clears the attempt record in one transaction
-// after the cleanup step commits its change events in a separate transaction.
-// It returns errRetireAttemptFenced if the record is absent. If the clear
-// fails, recoverRetireAttempts later saves an incomplete event for the attempt.
-func (s *SearchRebuildStore) clearRetireAttempt(ctx context.Context, attempt retireAttempt) error {
-	clearContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), audit.ExternalResultDeadline)
-	defer cancel()
-	err := transactSession(clearContext, s.db, s.work.clock, retireAttemptClearOperation, attempt.sessionID, func(tr fdb.Transaction) error {
-		if fenceErr := requireRetireFence(tr, attempt.key); fenceErr != nil {
-			return fenceErr
-		}
-		tr.Clear(attempt.key)
-		return nil
-	})
-	if err == nil || errors.Is(err, errRetireAttemptFenced) {
-		return err
-	}
-	slog.ErrorContext(ctx, "search.session.retire_clear_failed", slog.String("err", err.Error()), slog.String("session_id", attempt.sessionID.String()))
-	return errors.Join(audit.ErrEventNotRecorded, err)
 }

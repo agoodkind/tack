@@ -19,7 +19,7 @@ func (b *BufferedRecorder) overflowed(ctx context.Context, ev Event) error {
 		telemetry.IncAuditDropped(ev.Verb, "overflow_marshal")
 		return err
 	}
-	spillCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), spillTimeout)
+	spillCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), SpillTimeout)
 	defer cancel()
 	if err := b.overflow.Append(spillCtx, payload); err != nil {
 		telemetry.IncAuditDropped(ev.Verb, "overflow")

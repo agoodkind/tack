@@ -62,7 +62,7 @@ func invalidRetireEvents(ctx context.Context, sessionID uuid.UUID, step searchdo
 	if err != nil {
 		return none, sessionStepError{operation: "encode the invalid attempt event", err: err}
 	}
-	return recoveredAttempt{active: false, encoded: encoded, retained: retained}, nil
+	return recoveredAttempt{active: false, observed: nil, encoded: encoded, retained: retained}, nil
 }
 
 // retainedAttemptEvents splits the stored value into chunks and returns an
