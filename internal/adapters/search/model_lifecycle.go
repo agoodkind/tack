@@ -135,6 +135,7 @@ func (a *Adapter) waitDeploy(ctx context.Context, modelID, taskID string) error 
 	if deployedID != modelID {
 		return fmt.Errorf("deploy OpenSearch model %s: task %s returned model %s", modelID, taskID, deployedID)
 	}
+	telemetry.L(ctx).DebugContext(ctx, "search.model.deploy_task_completed", slog.String("model_id", modelID), slog.String("task_id", taskID))
 	return nil
 }
 
