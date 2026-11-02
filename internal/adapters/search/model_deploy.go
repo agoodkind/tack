@@ -20,8 +20,6 @@ const (
 	// breakerOpenText is the ML Commons message of a rejection by an open
 	// memory circuit breaker.
 	breakerOpenText = "Circuit Breaker is open"
-	// deployedRecordInterval spaces the reads of the model record.
-	deployedRecordInterval = time.Second
 )
 
 // modelTaskFailedError reports an ML Commons task that ended in a failed
@@ -74,40 +72,6 @@ func (a *Adapter) deployModel(ctx context.Context, modelID string) error {
 			wrapped := fmt.Errorf("deploy OpenSearch model %s while the memory circuit breaker stayed open for %s: %w", modelID, deployBreakerWindow, err)
 			telemetry.L(ctx).ErrorContext(ctx, "search.model.deploy_breaker_timeout", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
 			return loggedModelError{err: wrapped}
-		case <-wait.C:
-		}
-	}
-}
-
-// waitDeployedRecord reads the record of modelID until its state is DEPLOYED
-// or modelTaskWait ends. ML Commons marks a deploy task COMPLETED before
-// it writes DEPLOYED to the model record, and its sync-up job can write
-// DEPLOY_FAILED to the record while a slow deploy runs. A read directly after
-// the task can return that earlier state. After this wait, the caller verifies
-// the record and rejects any state other than DEPLOYED.
-func (a *Adapter) waitDeployedRecord(ctx context.Context, modelID string) error {
-	window := time.NewTimer(modelTaskWait)
-	defer window.Stop()
-	for reads := 1; ; reads++ {
-		model, err := a.getModel(ctx, modelID)
-		if err != nil {
-			return err
-		}
-		if model.State == deployedModelState {
-			telemetry.L(ctx).DebugContext(ctx, "search.model.deployed_record_read", slog.String("model_id", modelID), slog.Int("reads", reads))
-			return nil
-		}
-		wait := time.NewTimer(deployedRecordInterval)
-		select {
-		case <-ctx.Done():
-			wait.Stop()
-			wrapped := fmt.Errorf("wait for the record of OpenSearch model %s: %w", modelID, ctx.Err())
-			telemetry.L(ctx).ErrorContext(ctx, "search.model.deployed_record_canceled", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
-			return loggedModelError{err: wrapped}
-		case <-window.C:
-			wait.Stop()
-			telemetry.L(ctx).InfoContext(ctx, "search.model.deployed_record_wait_ended", slog.String("model_id", modelID), slog.String("state", model.State))
-			return nil
 		case <-wait.C:
 		}
 	}
