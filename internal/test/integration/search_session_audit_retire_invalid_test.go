@@ -45,8 +45,8 @@ func TestSearchSessionAuditRetireInvalidAttemptRecord(t *testing.T) {
 	session := retiringSession(t, stores, index)
 	mark := searchOutboxTail(t, stores)
 	gate := installRetirePauseGate(t, container, session.ID.String(), retireCleanupFailedMessage)
-	if _, err := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), index, retireSliceLimit); err == nil {
-		t.Fatalf("RetireIndexSessions of %s under the failing operation returned no error", index)
+	if _, err := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), index, retireSliceLimit); !errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf("RetireIndexSessions of %s returned %v, want an error matching %v", index, err, audit.ErrEventNotRecorded)
 	}
 	gate.requireFinished(t)
 	integration.ReplaceRawValue(t, retireAttemptRawKey(t), []byte(invalidAttemptValue))

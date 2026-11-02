@@ -139,10 +139,11 @@ func (s *SearchRebuildStore) beginRetireAttempt(ctx context.Context, index strin
 // to the outbox in one transaction. It ignores cancellation of ctx and ends
 // after audit.ExternalResultDeadline. It writes the failure event even if
 // recovery already saved an incomplete event. The failure event records the
-// definite result under a different event ID. If recording succeeds, it returns
-// cause unchanged. If recording fails, it logs the recording error, retains the
-// attempt record for recoverRetireAttempts, and returns an error joining cause
-// and the recording error.
+// definite result under a different event ID.
+// If recording succeeds, it returns cause unchanged. If recording fails, it
+// logs the recording error, retains the attempt record for
+// recoverRetireAttempts, and returns an error joining audit.ErrEventNotRecorded,
+// cause, and the recording error.
 func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, attempt retireAttempt, step searchdomain.CleanupStep, cause error) error {
 	sessionID := attempt.sessionID
 	slog.ErrorContext(ctx, "search.session.cleanup_failed", slog.String("err", cause.Error()),
@@ -167,6 +168,7 @@ func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, attempt re
 	}
 	slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
 	return errors.Join(
+		audit.ErrEventNotRecorded,
 		fmt.Errorf("search session %s cleanup step %s failed: %w", sessionID, step, cause),
 		fmt.Errorf("record the failed cleanup step %s of search session %s: %w", step, sessionID, err),
 	)

@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -81,6 +82,9 @@ func TestSearchSessionAuditRetireFailuresRecorded(t *testing.T) {
 		mark := searchOutboxTail(t, stores)
 		_, err := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), current.index, retireSliceLimit)
 		requireChangeEventFailure(t, "RetireIndexSessions of "+current.index, err)
+		if errors.Is(err, audit.ErrEventNotRecorded) {
+			t.Fatalf("RetireIndexSessions of %s returned %v, which must not match %v because the failure event was saved", current.index, err, audit.ErrEventNotRecorded)
+		}
 		events := cleanupFailureEvents(t, stores, mark, session.ID, current.step)
 		if len(events) != 1 {
 			t.Fatalf("session %s has %d %s events, want 1", session.ID, len(events), current.step)

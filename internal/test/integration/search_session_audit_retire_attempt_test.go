@@ -52,6 +52,9 @@ func TestSearchSessionAuditRetireLateOwnerSavesFailure(t *testing.T) {
 	if strings.Contains(err.Error(), cleanupRecordingFailure) {
 		t.Fatalf("RetireIndexSessions of %s error = %v, want a saved failure event", index, err)
 	}
+	if errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf("RetireIndexSessions of %s returned %v, which must not match %v because the failure event was saved", index, err, audit.ErrEventNotRecorded)
+	}
 	failed := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupClose)
 	recovered := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved))
 	if len(failed) != 1 || len(recovered) != 1 {
@@ -93,7 +96,7 @@ func TestSearchSessionAuditRetireLateEffectIsFenced(t *testing.T) {
 
 	remaining, err := rebuilds.RetireIndexSessions(lateContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
-	if err == nil || !remaining || !strings.Contains(err.Error(), retireAttemptFenced) {
+	if !errors.Is(err, audit.ErrEventNotRecorded) || !remaining || !strings.Contains(err.Error(), retireAttemptFenced) {
 		t.Fatalf("RetireIndexSessions of %s with a late effect = %t, %v, want remaining work and text %q", index, remaining, err, retireAttemptFenced)
 	}
 	recovered := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved))

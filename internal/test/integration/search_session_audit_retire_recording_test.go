@@ -3,10 +3,13 @@
 package integration_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
@@ -18,6 +21,7 @@ import (
 const (
 	cleanupRecordingFailure = "record the failed cleanup step"
 	transactionTimedOutText = "FoundationDB error code 1031"
+	transactionTimedOutCode = 1031
 	retireResultNotSaved    = "cleanup_result_not_saved"
 	// retireAttemptWait exceeds the 65 second retirement attempt lease.
 	retireAttemptWait = 66 * time.Second
@@ -70,6 +74,10 @@ func TestSearchSessionAuditRetireRecoversLostFailureEvent(t *testing.T) {
 				t.Fatalf("RetireIndexSessions of %s error = %v, want text %q", current.index, err, want)
 			}
 		}
+		timedOut := fdb.Error{Code: transactionTimedOutCode}
+		if !errors.Is(err, audit.ErrEventNotRecorded) || !errors.Is(err, timedOut) {
+			t.Fatalf("RetireIndexSessions of %s returned %v, want an error matching %v and %v", current.index, err, audit.ErrEventNotRecorded, timedOut)
+		}
 		stored, err := store.Load(t.Context(), session.ID)
 		if err != nil || stored.Closing != current.closing {
 			t.Fatalf("session %s after the lost failure event = %+v, %v, want closing %t", session.ID, stored, err, current.closing)
@@ -103,5 +111,39 @@ func TestSearchSessionAuditRetireRecoversLostFailureEvent(t *testing.T) {
 			t.Fatalf("recovered attempt event = %+v, target %+v, want %s by actor %s under operation %s started at %s",
 				event, event.Context.Target, current.verb, integration.TestActorID, operation.Context.OperationID, operation.Context.StartedAt)
 		}
+	}
+}
+
+// TestSearchSessionAuditRetireLostRecordingKeepsCauses checks that
+// RetireIndexSessions reports remaining work and returns an error matching
+// audit.ErrEventNotRecorded, context.Canceled, and the FoundationDB timeout
+// when the failure event write fails. The test also checks that the outbox
+// does not contain a failed close event for the session.
+func TestSearchSessionAuditRetireLostRecordingKeepsCauses(t *testing.T) {
+	stores := sessionStoreStores(t)
+	rebuilds := stores.SearchRebuilds(clock.Wall{})
+	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
+	index := "node-pages-lost-recording"
+	session := retiringSession(t, stores, index)
+	mark := searchOutboxTail(t, stores)
+	retireContext, cancel := context.WithCancel(integration.WithTestOperation(t, t.Context()))
+	defer cancel()
+	gate := installRetirePauseGate(t, container, session.ID.String(), retireAttemptSavedMessage)
+	pause := gate.pending[retireAttemptSavedMessage]
+	gate.pending[retireAttemptSavedMessage] = func() {
+		pause()
+		cancel()
+	}
+
+	remaining, err := rebuilds.RetireIndexSessions(retireContext, index, retireSliceLimit)
+	gate.requireFinished(t)
+	wanted := []error{audit.ErrEventNotRecorded, context.Canceled, fdb.Error{Code: transactionTimedOutCode}}
+	for _, want := range wanted {
+		if !remaining || !errors.Is(err, want) {
+			t.Fatalf("RetireIndexSessions of %s with a lost failure event = %t, %v, want remaining work and errors matching %v", index, remaining, err, wanted)
+		}
+	}
+	if events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupClose); len(events) != 0 {
+		t.Fatalf("outbox contains %d failed close events for session %s", len(events), session.ID)
 	}
 }
