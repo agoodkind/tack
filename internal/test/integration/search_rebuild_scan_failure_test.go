@@ -92,10 +92,15 @@ func openScanFailureDatabase(t *testing.T) fdb.Database {
 	return database
 }
 
-func claimScanWork(t *testing.T, stores *fdbadapter.Stores) searchdomain.Work {
+func claimScanRebuildWork(t *testing.T, stores *fdbadapter.Stores) (searchdomain.Work, bool, error) {
 	t.Helper()
 	ctx := integration.WithTestOperation(t, t.Context())
-	work, claimed, err := stores.SearchWork(clock.Wall{}).Claim(ctx, searchdomain.WorkClassRebuild, "scan-failure-owner", scanRestartLease)
+	return stores.SearchWork(clock.Wall{}).Claim(ctx, searchdomain.WorkClassRebuild, "scan-failure-owner", scanRestartLease)
+}
+
+func claimScanWork(t *testing.T, stores *fdbadapter.Stores) searchdomain.Work {
+	t.Helper()
+	work, claimed, err := claimScanRebuildWork(t, stores)
 	if err != nil || !claimed {
 		t.Fatalf("claim replacement work: claimed %t, error %v", claimed, err)
 	}
@@ -107,7 +112,7 @@ func runScanStepAfterRetryDelay(t *testing.T, stores *fdbadapter.Stores, worker 
 	ctx := integration.WithTestOperation(t, t.Context())
 	deadline := clock.Now().Add(scanFailureRetryLimit)
 	for clock.Now().Before(deadline) {
-		work, claimed, err := stores.SearchWork(clock.Wall{}).Claim(ctx, searchdomain.WorkClassRebuild, "scan-failure-owner", scanRestartLease)
+		work, claimed, err := claimScanRebuildWork(t, stores)
 		if err != nil {
 			t.Fatalf("claim replacement work after the failure: %v", err)
 		}
