@@ -12,7 +12,7 @@ import (
 // readerConnectFailure is the fixed text for a failed reader connection.
 const readerConnectFailure = "audit: the reader did not connect"
 
-// readerPool stores a Reader's pool in unsanitized. Each Reader method must pass every result from unsanitized through Rows or Scan.
+// readerPool sanitizes errors returned by Reader queries and scans.
 type readerPool struct {
 	unsanitized *pgxpool.Pool
 }
@@ -25,23 +25,14 @@ func (p *readerPool) Ping(ctx context.Context) error {
 	return sanitizeReaderError(p.unsanitized.Ping(ctx))
 }
 
-// Rows passes the error from pgxpool.Pool.Query through sanitizeReaderError. The returned rows also pass the error from Err through sanitizeReaderError.
+// Rows returns rows without wrapping them and sanitizes the query error; pgx.Rows.Err cannot return a pgconn.ConnectError after Query acquires a connection.
 func (p *readerPool) Rows(rows pgx.Rows, err error) (pgx.Rows, error) {
-	return readerRows{Rows: rows}, sanitizeReaderError(err)
+	return rows, sanitizeReaderError(err)
 }
 
 // Scan passes the error from pgx.Row.Scan through sanitizeReaderError. pgxpool.Pool.QueryRow reports a failed connection attempt through that Scan call.
 func (p *readerPool) Scan(err error) error {
 	return sanitizeReaderError(err)
-}
-
-// readerRows passes the error from pgx.Rows.Err through sanitizeReaderError. It does not wrap Scan because pgx returns a deferred pgconn.ConnectError from Scan only when a caller ignores the Query error.
-type readerRows struct {
-	pgx.Rows
-}
-
-func (r readerRows) Err() error {
-	return sanitizeReaderError(r.Rows.Err())
 }
 
 // readerConnectError represents a failed reader connection. Error prints only the fixed text and SQLSTATE. Unwrap returns the original error for [errors.Is] and [errors.As].
