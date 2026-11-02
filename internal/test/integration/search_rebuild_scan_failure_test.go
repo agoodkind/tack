@@ -19,7 +19,7 @@ import (
 const (
 	scanFailureNodeFamily = "node_instance"
 	scanFailureOrg        = "~"
-	scanFailureOperation  = "schedule replacement copies"
+	scanFailureReason     = "node record key has 3 tuple values"
 	scanFailureRetryLimit = 30 * time.Second
 	scanFailureRetryPause = 200 * time.Millisecond
 )
@@ -43,8 +43,8 @@ func TestSearchRebuildScanResumesAfterFailedRead(t *testing.T) {
 	}
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
 	before := currentIdleClaimRebuild(t, rebuilds)
-	if err := worker.Process(ctx, claimScanWork(t, stores)); err == nil || !strings.Contains(err.Error(), scanFailureOperation) {
-		t.Fatalf("scan step over the malformed key returned %v, want an error from %q", err, scanFailureOperation)
+	if err := worker.Process(ctx, claimScanWork(t, stores)); err == nil || !strings.Contains(err.Error(), scanFailureReason) {
+		t.Fatalf("scan step over the malformed key returned %v, want an error with %q", err, scanFailureReason)
 	}
 	after := currentIdleClaimRebuild(t, rebuilds)
 	if after.State != searchdomain.RebuildCopying || after.ScanComplete || after.ScanCursor != before.ScanCursor {
@@ -105,8 +105,8 @@ func claimScanWork(t *testing.T, stores *fdbadapter.Stores) searchdomain.Work {
 func runScanStepAfterRetryDelay(t *testing.T, stores *fdbadapter.Stores, worker *service.SearchWorker) {
 	t.Helper()
 	ctx := integration.WithTestOperation(t, t.Context())
-	deadline := time.Now().Add(scanFailureRetryLimit)
-	for time.Now().Before(deadline) {
+	deadline := clock.Now().Add(scanFailureRetryLimit)
+	for clock.Now().Before(deadline) {
 		work, claimed, err := stores.SearchWork(clock.Wall{}).Claim(ctx, searchdomain.WorkClassRebuild, "scan-failure-owner", scanRestartLease)
 		if err != nil {
 			t.Fatalf("claim replacement work after the failure: %v", err)
