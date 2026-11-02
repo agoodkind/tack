@@ -23,7 +23,11 @@ const expirySessionIDPosition = 3
 // entry, and records the change in one transaction. A closing session does
 // not accept a page commit. BeginCleanup returns nil for an absent or already
 // closing session and does not record changes for those sessions.
-func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UUID) (err error) {
+func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UUID) error {
+	return s.beginCleanup(ctx, sessionID, nil)
+}
+
+func (s *SearchSessionStore) beginCleanup(ctx context.Context, sessionID uuid.UUID, fence fdb.Key) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.begin_cleanup")(&err)
 	changes, err := beginSessionAudit(ctx, "mark search session closing", sessionID)
 	if err != nil {
@@ -31,6 +35,9 @@ func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UU
 	}
 	err = transactSession(ctx, s.db, s.clock, "mark search session closing", sessionID, func(tr fdb.Transaction) error {
 		changes.startAttempt()
+		if fenceErr := requireRetireFence(tr, fence); fenceErr != nil {
+			return fenceErr
+		}
 		var stored searchSessionRecord
 		found, readErr := readSessionValue(tr, searchSessionKey(sessionID), &stored)
 		if readErr != nil || !found || stored.Closing {
@@ -61,7 +68,11 @@ func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UU
 // query token chunk deletes every chunk. A slice that reads fewer than limit
 // child records also deletes the header and the expiry, presence, and version
 // presence keys. It reports whether the session is gone.
-func (s *SearchSessionStore) CleanupSlice(ctx context.Context, sessionID uuid.UUID, limit int) (done bool, err error) {
+func (s *SearchSessionStore) CleanupSlice(ctx context.Context, sessionID uuid.UUID, limit int) (bool, error) {
+	return s.cleanupSlice(ctx, sessionID, limit, nil)
+}
+
+func (s *SearchSessionStore) cleanupSlice(ctx context.Context, sessionID uuid.UUID, limit int, fence fdb.Key) (done bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.cleanup")(&err)
 	if limit < 1 || limit > maxSessionCleanupKeys {
 		return false, sessionFailure(ctx, "clean up search session", sessionID, fmt.Errorf("limit %d is outside 1 to %d", limit, maxSessionCleanupKeys))
@@ -73,6 +84,9 @@ func (s *SearchSessionStore) CleanupSlice(ctx context.Context, sessionID uuid.UU
 	err = transactSession(ctx, s.db, s.clock, "clean up search session", sessionID, func(tr fdb.Transaction) error {
 		done = false
 		changes.startAttempt()
+		if fenceErr := requireRetireFence(tr, fence); fenceErr != nil {
+			return fenceErr
+		}
 		var record searchSessionRecord
 		found, readErr := readSessionValue(tr, searchSessionKey(sessionID), &record)
 		if readErr != nil {
