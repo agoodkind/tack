@@ -1,0 +1,45 @@
+diff --git a/postgresql/resource_postgresql_role.go b/postgresql/resource_postgresql_role.go
+index 38bfb9e..390d86a 100644
+--- a/postgresql/resource_postgresql_role.go
++++ b/postgresql/resource_postgresql_role.go
+@@ -47,7 +47,7 @@ func resourcePostgreSQLRole() *schema.Resource {
+ 	return &schema.Resource{
+ 		Create: PGResourceFunc(resourcePostgreSQLRoleCreate),
+ 		Read:   PGResourceFunc(resourcePostgreSQLRoleRead),
+-		Update: PGResourceFunc(resourcePostgreSQLRoleUpdate),
++		Update: resourcePostgreSQLRoleUpdateWithPartialState,
+ 		Delete: PGResourceFunc(resourcePostgreSQLRoleDelete),
+ 		Exists: PGResourceExistsFunc(resourcePostgreSQLRoleExists),
+ 		Importer: &schema.ResourceImporter{
+@@ -668,7 +668,21 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
+ 	return rolePassword, nil
+ }
+ 
++func resourcePostgreSQLRoleUpdateWithPartialState(d *schema.ResourceData, meta any) error {
++	d.Partial(true)
++
++	return PGResourceFunc(resourcePostgreSQLRoleUpdate)(d, meta)
++}
++
+ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) error {
++	priorID := d.Id()
++	committed := false
++	defer func() {
++		if !committed {
++			d.SetId(priorID)
++		}
++	}()
++
+ 	txn, err := startTransaction(db.client, "")
+ 	if err != nil {
+ 		return err
+@@ -753,6 +767,9 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
+ 		return fmt.Errorf("could not commit transaction: %w", err)
+ 	}
+ 
++	committed = true
++	d.Partial(false)
++
+ 	return resourcePostgreSQLRoleReadImpl(db, d)
+ }
+ 
