@@ -20,8 +20,11 @@ const (
 	stoppedRunnerPollInterval     = 2 * time.Second
 )
 
-// TestStoppedRunnerChild starts one engine and waits inside the runner that
-// TestRunnerEndRemovesItsEngines starts.
+// TestStoppedRunnerChild is the test process that
+// TestRunnerEndRemovesItsEngines starts in a second runner. It starts one engine
+// and waits until that runner ends. TestRunnerEndRemovesItsEngines makes every
+// assertion. This test skips when the variable that the parent test sets is
+// absent.
 func TestStoppedRunnerChild(t *testing.T) {
 	if os.Getenv(stoppedRunnerChildEnvironment) == "" {
 		t.Skip("TestRunnerEndRemovesItsEngines starts this test in its own runner")
@@ -143,25 +146,37 @@ func startSecondRunner(t *testing.T, cli *client.Client, runner string) string {
 // label runs.
 func waitForRunningEngine(t *testing.T, cli *client.Client, child string) {
 	t.Helper()
-	deadline := time.Now().Add(stoppedRunnerStartLimit)
+	ctx, cancel := context.WithTimeout(t.Context(), stoppedRunnerStartLimit)
+	defer cancel()
+	ticker := time.NewTicker(stoppedRunnerPollInterval)
+	defer ticker.Stop()
 	for {
-		for _, name := range labeledContainers(t.Context(), t, cli, child) {
+		for _, name := range listRunnerContainers(ctx, t, cli, child, false) {
 			if strings.HasPrefix(name, stoppedRunnerEnginePrefix) {
 				return
 			}
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("runner %s did not start an engine within %s", child, stoppedRunnerStartLimit)
+		select {
+		case <-ctx.Done():
+			t.Fatalf("runner %s did not start a running engine within %s: %v", child, stoppedRunnerStartLimit, ctx.Err())
+		case <-ticker.C:
 		}
-		time.Sleep(stoppedRunnerPollInterval)
 	}
 }
 
-// labeledContainers returns the names of containers with child's runner label.
+// labeledContainers returns the names of containers in any state with child's
+// runner label.
 func labeledContainers(ctx context.Context, t *testing.T, cli *client.Client, child string) []string {
 	t.Helper()
+	return listRunnerContainers(ctx, t, cli, child, true)
+}
+
+// listRunnerContainers returns the names of containers with child's runner
+// label. It lists only running containers unless all is true.
+func listRunnerContainers(ctx context.Context, t *testing.T, cli *client.Client, child string, all bool) []string {
+	t.Helper()
 	labeled := client.Filters{}.Add("label", stoppedRunnerLabel+"="+child)
-	listed, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: labeled})
+	listed, err := cli.ContainerList(ctx, client.ContainerListOptions{All: all, Filters: labeled})
 	if err != nil {
 		t.Fatalf("list containers of runner %s: %v", child, err)
 	}
