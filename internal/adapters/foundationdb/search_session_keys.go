@@ -1,11 +1,14 @@
 package foundationdb
 
 import (
+	"fmt"
 	hashfnv "hash/fnv"
 	"time"
 
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 	"github.com/google/uuid"
+	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
 // These constants define the durable query session key families. Session
@@ -19,6 +22,7 @@ import (
 //	(search_session_expiry, minute, bucket, sessionID) -> nil
 //	(search_session_present, index, bucket, sessionID) -> nil
 //	(search_session_version, authorityID, accessVersion, absoluteMinute, bucket, sessionID) -> nil
+//	(search_retire_attempt, index, sessionID, step, eventID) -> deadline and pending audit event JSON
 //
 // The search_session_version family stores one entry for each session that
 // can still read OpenSearch under that access version.
@@ -28,13 +32,15 @@ const (
 	keySearchSessionExpiry  = "search_session_expiry"
 	keySearchSessionPresent = "search_session_present"
 	keySearchSessionVersion = "search_session_version"
+	keySearchRetireAttempt  = "search_retire_attempt"
 )
 
 const (
-	searchSessionBuckets = 32
-	sessionTokenPart     = "token"
-	sessionVisitedPart   = "visited"
-	sessionReplayPart    = "replay"
+	retireAttemptKeyElements = 5
+	searchSessionBuckets     = 32
+	sessionTokenPart         = "token"
+	sessionVisitedPart       = "visited"
+	sessionReplayPart        = "replay"
 )
 
 func searchSessionBucket(sessionID uuid.UUID) int {
@@ -86,6 +92,39 @@ func searchSessionExpiryRange(end time.Time) (begin, until []byte) {
 
 func searchSessionPresenceKey(index string, sessionID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keySearchSessionPresent, index, searchSessionBucket(sessionID), sessionID.String()}.Pack())
+}
+
+func searchRetireAttemptKey(index string, sessionID uuid.UUID, step searchdomain.CleanupStep, eventID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchRetireAttempt, index, sessionID.String(), string(step), eventID.String()}.Pack())
+}
+
+func searchRetireAttemptPrefix(index string) []byte {
+	return withPrefix(tuple.Tuple{keySearchRetireAttempt, index}.Pack())
+}
+
+func parseRetireAttemptKey(key fdb.Key) (uuid.UUID, searchdomain.CleanupStep, uuid.UUID, error) {
+	values, err := tuple.Unpack(stripPrefix(key))
+	if err != nil {
+		return uuid.Nil, "", uuid.Nil, sessionStepError{operation: "unpack retirement attempt key", err: err}
+	}
+	if len(values) != retireAttemptKeyElements {
+		return uuid.Nil, "", uuid.Nil, fmt.Errorf("retirement attempt key has %d elements, want %d", len(values), retireAttemptKeyElements)
+	}
+	sessionText, sessionOK := values[2].(string)
+	stepText, stepOK := values[3].(string)
+	eventText, eventOK := values[4].(string)
+	if !sessionOK || !stepOK || !eventOK {
+		return uuid.Nil, "", uuid.Nil, fmt.Errorf("retirement attempt key %x does not end with text values", key)
+	}
+	sessionID, err := uuid.Parse(sessionText)
+	if err != nil {
+		return uuid.Nil, "", uuid.Nil, sessionStepError{operation: "parse retirement attempt session ID", err: err}
+	}
+	eventID, err := uuid.Parse(eventText)
+	if err != nil {
+		return uuid.Nil, "", uuid.Nil, sessionStepError{operation: "parse retirement attempt event ID", err: err}
+	}
+	return sessionID, searchdomain.CleanupStep(stepText), eventID, nil
 }
 
 // searchSessionVersionKey orders one session's version presence entry by

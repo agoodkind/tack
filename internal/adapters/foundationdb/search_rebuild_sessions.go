@@ -11,13 +11,19 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RetireIndexSessions deletes, in bounded slices, the sessions that read
-// index and can serve no further page. A continuable session stays until
-// its idle or absolute deadline passes. It reports whether a session of index
-// remains after this slice: a continuable session, a partly deleted session,
-// or a presence entry beyond the slice limit.
+// RetireIndexSessions recovers expired retirement attempt records for index,
+// then deletes bounded slices of sessions that read index and cannot serve
+// another page. It retains a continuable session until its idle or absolute
+// deadline passes. It reports whether an active attempt, more attempt records,
+// a continuable or partly deleted session, or a presence entry beyond the slice
+// limit leaves work for another call. An active attempt can delay index
+// deletion by up to retireAttemptLease.
 func (s *SearchRebuildStore) RetireIndexSessions(ctx context.Context, index string, limit int) (remaining bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.retire_sessions")(&err)
+	attemptsRemain, err := s.recoverRetireAttempts(ctx, index, limit)
+	if err != nil {
+		return true, err
+	}
 	var sessionIDs []uuid.UUID
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
 		keyRange, rangeErr := fdb.PrefixRange(searchSessionPresencePrefix(index))
@@ -42,7 +48,7 @@ func (s *SearchRebuildStore) RetireIndexSessions(ctx context.Context, index stri
 		return false, searchStorageError(ctx, "search.rebuild.sessions_failed", "read sessions of index "+index, uuid.Nil, err)
 	}
 	now := s.work.clock.Now()
-	remaining = len(sessionIDs) == limit
+	remaining = attemptsRemain || len(sessionIDs) == limit
 	for _, sessionID := range sessionIDs {
 		kept, retireErr := s.retireSession(ctx, index, sessionID, now)
 		if retireErr != nil {
@@ -86,15 +92,24 @@ func (s *SearchRebuildStore) retireSession(ctx context.Context, index string, se
 	if session.Continuable(now, restoreEpoch) {
 		return true, nil
 	}
-	if err := s.sessions.BeginCleanup(ctx, sessionID); err != nil {
-		s.recordRetireFailure(ctx, sessionID, searchdomain.CleanupClose, err)
+	if !record.Closing {
+		err := s.retireStep(ctx, index, sessionID, record, searchdomain.CleanupClose, func(stepContext context.Context, fence fdb.Key) error {
+			return s.sessions.beginCleanup(stepContext, sessionID, fence)
+		})
+		if err != nil {
+			return true, err
+		}
+	}
+	deleted := false
+	err = s.retireStep(ctx, index, sessionID, record, searchdomain.CleanupDelete, func(stepContext context.Context, fence fdb.Key) error {
+		var sliceErr error
+		deleted, sliceErr = s.sessions.cleanupSlice(stepContext, sessionID, maxSessionCleanupKeys, fence)
+		return sliceErr
+	})
+	if err != nil {
 		return true, err
 	}
-	deleted, err := s.sessions.CleanupSlice(ctx, sessionID, maxSessionCleanupKeys)
-	if err != nil {
-		s.recordRetireFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
-	}
-	return !deleted, err
+	return !deleted, nil
 }
 
 // RetiredSince returns when the first page of index was retired.

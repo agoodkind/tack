@@ -56,18 +56,10 @@ func (s *SearchSessionStore) RecordCleanupFailure(ctx context.Context, sessionID
 // appendCleanupFailure writes the failure event of step to the outbox in tr.
 // Its event ID stays the same across transaction attempts.
 func appendCleanupFailure(ctx context.Context, tr fdb.Transaction, changes *sessionAudit, target audit.Target, step searchdomain.CleanupStep) error {
-	verb := audit.VerbSearchSessionDelete
-	if step == searchdomain.CleanupClose {
-		verb = audit.VerbSearchSessionUpdate
-	}
-	event, err := audit.ChangeFailureEvent(changes.operation, target, verb, audit.OutcomeDetails{
-		Outcome: audit.OutcomeFailed, FailureCode: string(step), FailureMessage: cleanupFailureMessage, CommittedSteps: nil,
-	})
+	event, err := cleanupFailureEvent(ctx, changes, target, step)
 	if err != nil {
-		slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", target.ID.String()))
-		return fmt.Errorf("build the cleanup failure event of session %s: %w", target.ID, err)
+		return err
 	}
-	event.EventID = uuid.NewSHA1(changes.base, []byte("failure:"+string(step)))
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
 		slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", target.ID.String()))
@@ -76,10 +68,21 @@ func appendCleanupFailure(ctx context.Context, tr fdb.Transaction, changes *sess
 	return NewOutboxWriter(tr).WriteEncodedEvent(ctx, encoded)
 }
 
-// recordRetireFailure records a failed cleanup step of index retirement. It
-// logs an error if the audit write fails. The caller returns the original error.
-func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, cause error) {
-	if err := s.sessions.RecordCleanupFailure(ctx, sessionID, step, cause); err != nil {
-		slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
+func cleanupFailureEvent(ctx context.Context, changes *sessionAudit, target audit.Target, step searchdomain.CleanupStep) (audit.Event, error) {
+	event, err := audit.ChangeFailureEvent(changes.operation, target, cleanupVerb(step), audit.OutcomeDetails{
+		Outcome: audit.OutcomeFailed, FailureCode: string(step), FailureMessage: cleanupFailureMessage, CommittedSteps: nil,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", target.ID.String()))
+		return audit.Event{}, fmt.Errorf("build the cleanup failure event of session %s: %w", target.ID, err)
 	}
+	event.EventID = uuid.NewSHA1(changes.base, []byte("failure:"+string(step)))
+	return event, nil
+}
+
+func cleanupVerb(step searchdomain.CleanupStep) audit.Verb {
+	if step == searchdomain.CleanupClose {
+		return audit.VerbSearchSessionUpdate
+	}
+	return audit.VerbSearchSessionDelete
 }
