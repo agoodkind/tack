@@ -26,8 +26,9 @@ const (
 // read directly after the task can return either earlier state. Every other
 // state is final for this task and ends the wait. A poll that status 429 rejects
 // or that exceeds its request timeout does not end the wait, as in
-// waitModelTask. After this wait, the caller verifies the record and rejects any
-// state other than DEPLOYED.
+// waitModelTask. It returns an error when modelTaskWait ends. After a final
+// state, the caller verifies the record and rejects any state other than
+// DEPLOYED.
 func (a *Adapter) waitDeployedRecord(ctx context.Context, modelID string) error {
 	window := time.NewTimer(modelTaskWait)
 	defer window.Stop()
@@ -53,8 +54,9 @@ func (a *Adapter) waitDeployedRecord(ctx context.Context, modelID string) error 
 			return loggedModelError{err: wrapped}
 		case <-window.C:
 			wait.Stop()
-			telemetry.L(ctx).InfoContext(ctx, "search.model.deployed_record_wait_ended", slog.String("model_id", modelID), slog.String("state", state))
-			return nil
+			wrapped := fmt.Errorf("OpenSearch model %s record stayed in a waiting state for %s; last state %q", modelID, modelTaskWait, state)
+			telemetry.L(ctx).ErrorContext(ctx, "search.model.deployed_record_timeout", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
+			return loggedModelError{err: wrapped}
 		case <-wait.C:
 		}
 	}
@@ -75,7 +77,7 @@ func (a *Adapter) pollRecordState(ctx context.Context, modelID string) (string, 
 		return "", false, nil
 	}
 	if err := checkMLResponse(ctx, response, err); err != nil {
-		wrapped := fmt.Errorf("read OpenSearch model %s: %w", modelID, err)
+		wrapped := fmt.Errorf("read OpenSearch model %s: %w", modelID, engineCause(ctx, response, err))
 		if !isLoggedModelError(err) {
 			telemetry.L(ctx).ErrorContext(ctx, "search.model.read_failed", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
 		}

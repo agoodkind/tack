@@ -17,6 +17,9 @@ const (
 	deployedRecordState = "DEPLOYED"
 	// staleRecordForever keeps the stale state until the test ends.
 	staleRecordForever = 24 * time.Hour
+	// recordTimeoutText appears in the Provision error when the record stays in
+	// DEPLOYING or DEPLOY_FAILED. A sync-up write can leave either state.
+	recordTimeoutText = "stayed in a waiting state"
 )
 
 // TestSearchModelRecordLagAfterDeploy undeploys the pinned model and deploys it
@@ -47,7 +50,7 @@ func TestSearchModelRecordLagAfterDeploy(t *testing.T) {
 
 // TestSearchModelRecordStaysFailedAfterDeploy keeps the write block until the
 // test ends. The record stays in DEPLOY_FAILED after the deploy task completes,
-// and Provision must return the state mismatch.
+// and Provision must return the record timeout.
 func TestSearchModelRecordStaysFailedAfterDeploy(t *testing.T) {
 	fixture, modelID := undeployedRecordFixture(t)
 	startStaleRecord(t, fixture, modelID, staleRecordForever)
@@ -56,8 +59,8 @@ func TestSearchModelRecordStaysFailedAfterDeploy(t *testing.T) {
 	if err == nil {
 		t.Fatal("provision accepted a model record that stayed in DEPLOY_FAILED")
 	}
-	if !strings.Contains(err.Error(), staleRecordState) {
-		t.Fatalf("provision error %q does not report state %s", err, staleRecordState)
+	if !strings.Contains(err.Error(), recordTimeoutText) {
+		t.Fatalf("provision error %q does not report the record timeout %q", err, recordTimeoutText)
 	}
 }
 

@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,18 +9,19 @@ import (
 	"testing"
 	"time"
 
-	opensearch "github.com/opensearch-project/opensearch-go/v5"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
-	staleRecordInterval = 100 * time.Millisecond
-	deployingRecord     = "DEPLOYING"
-	modelIndexSettings  = "/.plugins-ml-model/_settings"
-	modelWriteBlockOn   = `{"index":{"blocks":{"write":true}}}`
-	modelWriteBlockOff  = `{"index":{"blocks":{"write":null}}}`
-	modelRecordCleanup  = time.Minute
+	staleRecordInterval      = 100 * time.Millisecond
+	deployingRecord          = "DEPLOYING"
+	deployTaskCompletedState = "COMPLETED"
+	deployTaskFailedState    = "FAILED"
+	modelIndexSettings       = "/.plugins-ml-model/_settings"
+	modelWriteBlockOn        = `{"index":{"blocks":{"write":true}}}`
+	modelWriteBlockOff       = `{"index":{"blocks":{"write":null}}}`
+	modelRecordCleanup       = time.Minute
 )
 
 // startStaleRecord waits for the deploy to write DEPLOYING, writes DEPLOY_FAILED,
@@ -47,36 +47,69 @@ func startStaleRecord(t *testing.T, fixture integration.QueryFixture, modelID st
 	})
 }
 
+// holdStaleRecord blocks the record for one deploy. A deploy task can fail when
+// the ML Commons memory breaker rejects it, and the retry must write DEPLOYING.
+// A failed task removes the block, and the next deploy sets it again.
 func holdStaleRecord(ctx context.Context, fixture integration.QueryFixture, modelID string, since time.Time, lag time.Duration) error {
+	failures := 0
+	for ctx.Err() == nil {
+		if err := blockStaleRecord(ctx, fixture, modelID); err != nil {
+			return ignoreCanceled(ctx, err)
+		}
+		retry, err := awaitBlockedDeploy(ctx, fixture, modelID, since, lag, &failures)
+		if err != nil {
+			return ignoreCanceled(ctx, err)
+		}
+		if !retry {
+			return nil
+		}
+	}
+	return nil
+}
+
+func blockStaleRecord(ctx context.Context, fixture integration.QueryFixture, modelID string) error {
 	if err := waitForDeployingRecord(ctx, fixture, modelID); err != nil {
-		return ignoreCanceled(ctx, err)
+		return err
 	}
 	if err := writeModelState(ctx, fixture, modelID, staleRecordState); err != nil {
-		return ignoreCanceled(ctx, err)
+		return err
 	}
-	if _, err := modelRecordCall(ctx, fixture, http.MethodPut, modelIndexSettings, modelWriteBlockOn); err != nil {
-		return ignoreCanceled(ctx, err)
-	}
+	_, err := modelRecordCall(ctx, fixture, http.MethodPut, modelIndexSettings, modelWriteBlockOn)
+	return err
+}
+
+// awaitBlockedDeploy returns true after a deploy task fails and it removes the
+// block. It returns false after it releases the record, or when ctx ends.
+func awaitBlockedDeploy(ctx context.Context, fixture integration.QueryFixture, modelID string, since time.Time, lag time.Duration, failures *int) (bool, error) {
 	var completed time.Time
 	for ctx.Err() == nil {
 		if completed.IsZero() {
-			finished, err := deployTaskCompleted(ctx, fixture, modelID, since)
+			finished, err := deployTaskCount(ctx, fixture, modelID, since, deployTaskCompletedState)
 			if err != nil {
-				return ignoreCanceled(ctx, err)
+				return false, err
 			}
-			if finished {
+			if finished > 0 {
 				completed = clock.Now()
+			}
+			failed, err := deployTaskCount(ctx, fixture, modelID, since, deployTaskFailedState)
+			if err != nil {
+				return false, err
+			}
+			if failed > *failures {
+				*failures = failed
+				_, err := modelRecordCall(ctx, fixture, http.MethodPut, modelIndexSettings, modelWriteBlockOff)
+				return true, err
 			}
 		}
 		if !completed.IsZero() && clock.Now().Sub(completed) >= lag {
 			if _, err := modelRecordCall(ctx, fixture, http.MethodPut, modelIndexSettings, modelWriteBlockOff); err != nil {
-				return ignoreCanceled(ctx, err)
+				return false, err
 			}
-			return ignoreCanceled(ctx, writeModelState(ctx, fixture, modelID, deployedRecordState))
+			return false, writeModelState(ctx, fixture, modelID, deployedRecordState)
 		}
 		time.Sleep(staleRecordInterval)
 	}
-	return nil
+	return false, nil
 }
 
 func waitForDeployingRecord(ctx context.Context, fixture integration.QueryFixture, modelID string) error {
@@ -106,66 +139,4 @@ func ignoreCanceled(ctx context.Context, err error) error {
 		return nil
 	}
 	return err
-}
-
-// modelRecordRequest is one JSON request to the engine.
-type modelRecordRequest struct {
-	path string
-	body string
-}
-
-func (request modelRecordRequest) GetRequest(method string) (*http.Request, error) {
-	result, err := http.NewRequestWithContext(context.Background(), method, request.path, bytes.NewReader([]byte(request.body)))
-	if err != nil {
-		return nil, fmt.Errorf("build request for %s: %w", request.path, err)
-	}
-	result.Header.Set("Content-Type", "application/json")
-	return result, nil
-}
-
-// modelRecordCall sends one request and repeats it while the engine answers with
-// status 429, which the heap use of a model deploy can cause.
-func modelRecordCall(ctx context.Context, fixture integration.QueryFixture, method, path, body string) (json.RawMessage, error) {
-	for {
-		var raw json.RawMessage
-		response, err := opensearch.Execute(ctx, fixture.Client.Client, method, modelRecordRequest{path: path, body: body}, &raw)
-		if err != nil {
-			return nil, fmt.Errorf("%s %s: %w", method, path, err)
-		}
-		if response.StatusCode == http.StatusTooManyRequests && ctx.Err() == nil {
-			time.Sleep(staleRecordInterval)
-			continue
-		}
-		if response.IsError() {
-			return nil, fmt.Errorf("%s %s: %w", method, path, opensearch.ParseError(response))
-		}
-		return raw, nil
-	}
-}
-
-func writeModelState(ctx context.Context, fixture integration.QueryFixture, modelID, state string) error {
-	path := "/.plugins-ml-model/_update/" + url.PathEscape(modelID) + "?retry_on_conflict=10"
-	_, err := modelRecordCall(ctx, fixture, http.MethodPost, path, fmt.Sprintf(`{"doc":{"model_state":%q}}`, state))
-	return err
-}
-
-func deployTaskCompleted(ctx context.Context, fixture integration.QueryFixture, modelID string, since time.Time) (bool, error) {
-	body := fmt.Sprintf(`{"size":0,"track_total_hits":true,"query":{"bool":{"filter":[`+
-		`{"term":{"model_id":%q}},{"term":{"task_type":"DEPLOY_MODEL"}},{"term":{"state":"COMPLETED"}},`+
-		`{"range":{"create_time":{"gte":%d}}}]}}}`, modelID, since.UnixMilli())
-	raw, err := modelRecordCall(ctx, fixture, http.MethodPost, "/_plugins/_ml/tasks/_search", body)
-	if err != nil {
-		return false, err
-	}
-	var result struct {
-		Hits struct {
-			Total struct {
-				Value int `json:"value"`
-			} `json:"total"`
-		} `json:"hits"`
-	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return false, fmt.Errorf("decode deploy tasks of model %s: %w", modelID, err)
-	}
-	return result.Hits.Total.Value > 0, nil
 }
