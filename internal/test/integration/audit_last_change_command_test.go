@@ -30,7 +30,8 @@ type operatorReadRow struct {
 	Code    string
 }
 
-// builtAuditRun contains the standard output, standard error, text log, and exit error from one built server process.
+// builtAuditRun contains the standard output, standard error, text log, and
+// exit error from one built server process.
 type builtAuditRun struct {
 	stdout string
 	stderr string
@@ -48,7 +49,8 @@ func (run builtAuditRun) output() string {
 // reader DSN, directly or through a secret file reference.
 var readerDSNVariables = []string{"AUDIT_READER_DSN", "AUDIT_READER_DSN_FILE"}
 
-// lastChangeCommand runs audit last-change for nodeID as operatorID through builtAuditCommand.
+// lastChangeCommand runs audit last-change for nodeID as operatorID through
+// builtAuditCommand.
 func lastChangeCommand(t *testing.T, readerDSN string, operatorID, orgID, nodeID uuid.UUID, oldest, latest time.Time) builtAuditRun {
 	t.Helper()
 	return builtAuditCommand(t, readerDSN,
@@ -57,7 +59,10 @@ func lastChangeCommand(t *testing.T, readerDSN string, operatorID, orgID, nodeID
 		"--oldest", oldest.UTC().Format(time.RFC3339), "--latest", latest.UTC().Format(time.RFC3339))
 }
 
-// builtAuditCommand runs args through the built server. It removes inherited reader DSN variables and sets AUDIT_READER_DSN only when readerDSN is not empty. The command logs its error to the text log, and LOG_DISABLE_STDOUT keeps log lines out of standard output.
+// builtAuditCommand runs args through the built server. It removes inherited
+// reader DSN variables and sets AUDIT_READER_DSN only when readerDSN is not
+// empty. The command logs its error to the text log, and LOG_DISABLE_STDOUT
+// keeps log lines out of standard output.
 func builtAuditCommand(t *testing.T, readerDSN string, args ...string) builtAuditRun {
 	t.Helper()
 	ledgerDSN := testenv.Ledger(t)

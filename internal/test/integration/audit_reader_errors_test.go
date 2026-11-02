@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"log/slog"
 	"net/url"
 	"path/filepath"
@@ -20,23 +19,30 @@ import (
 )
 
 const (
-	// readerErrorSecret is the password text that pgx does not mask in the malformed DSN.
+	// readerErrorSecret is the password text that pgx does not mask in the
+	// malformed DSN.
 	readerErrorSecret = "parts@secret"
 	// readerMalformedDSN is a connection string that pgx cannot parse.
 	readerMalformedDSN = "postgres://nobody:manifest@" + readerErrorSecret + "@[::1:1/tack"
-	// readerParseFailure is the exact text audit.NewReader returns when pgx cannot parse a connection string. The text omits every setting because the restore drill builds its own connection string.
+	// readerParseFailure is the exact text audit.NewReader returns when pgx
+	// cannot parse a connection string. The text omits every setting because
+	// the restore drill builds its own connection string.
 	readerParseFailure = "audit: the reader connection string does not parse"
-	// readerFixedMessage is the text a caller returns after it reads AUDIT_READER_DSN and wraps readerParseFailure with the variable name.
+	// readerFixedMessage is the text a caller returns after it reads
+	// AUDIT_READER_DSN and wraps readerParseFailure with the variable name.
 	readerFixedMessage = "AUDIT_READER_DSN: " + readerParseFailure
 	// readerParseErrorText is the raw pgx parse error text.
 	readerParseErrorText = "cannot parse"
 	// readerConnectFailure is the fixed text for a failed reader connection.
 	readerConnectFailure = "audit: the reader did not connect"
-	// readerConnectSecret is the password in the connection strings that pgx can parse.
+	// readerConnectSecret is the password in the connection strings that pgx
+	// can parse.
 	readerConnectSecret = "reader-connect-secret"
-	// readerRefusedPortDSN is a valid connection string with a port that refuses connections.
+	// readerRefusedPortDSN is a valid connection string with a port that
+	// refuses connections.
 	readerRefusedPortDSN = "postgres://nobody:" + readerConnectSecret + "@[::1]:1/tack?connect_timeout=1"
-	// readerSlashPasswordDSN is a connection string with a slash in the password that pgx parses without an error.
+	// readerSlashPasswordDSN is a connection string with a slash in the
+	// password that pgx parses without an error.
 	readerSlashPasswordDSN = "postgres://nobody:1/" + readerConnectSecret + "@[::1]:1/tack"
 	// readerErrorOperatorKey is the operator email used for the test runs.
 	readerErrorOperatorKey = "reader-errors@example.test"
@@ -59,7 +65,12 @@ var readerMalformedCase = readerErrorDSN{
 	name: "malformed", dsn: readerMalformedDSN, required: readerFixedMessage, forbidden: []string{readerErrorSecret, readerParseErrorText},
 }
 
-// TestAuditExportReaderErrorOmitsConnectionString checks that audit.NewReader returns exactly readerParseFailure for a malformed DSN. It then runs audit export through the built server with the malformed AUDIT_READER_DSN and checks standard output, standard error, the text log, and stored audit rows for forbidden text. It also requires the log and stored failure to contain readerFixedMessage.
+// TestAuditExportReaderErrorOmitsConnectionString checks that audit.NewReader
+// returns exactly readerParseFailure for a malformed DSN. It then runs audit
+// export through the built server with the malformed AUDIT_READER_DSN and
+// checks standard output, standard error, the text log, and stored audit rows
+// for forbidden text. It also requires the log and stored failure to contain
+// readerFixedMessage.
 func TestAuditExportReaderErrorOmitsConnectionString(t *testing.T) {
 	if _, err := audit.NewReader(t.Context(), readerMalformedDSN); err == nil || err.Error() != readerParseFailure {
 		t.Fatalf("audit.NewReader with the malformed DSN returned %v, want %q", err, readerParseFailure)
@@ -82,7 +93,11 @@ func TestAuditExportReaderErrorOmitsConnectionString(t *testing.T) {
 	requireReaderErrorRows(t, ledger, readerMalformedCase, operatorID, command, run.output())
 }
 
-// TestAuditReaderErrorsOmitConnectionStrings runs ops audit consumer-offsets, ops audit dlq inspect, and ops audit dlq replay through the rendered ops tree with a malformed DSN, a slash in the password, a refused port, and a refused login. It checks returned errors, standard output, standard error, logs, and stored audit rows for forbidden text.
+// TestAuditReaderErrorsOmitConnectionStrings runs ops audit consumer-offsets,
+// ops audit dlq inspect, and ops audit dlq replay through the rendered ops tree
+// with a malformed DSN, a slash in the password, a refused port, and a refused
+// login. It checks returned errors, standard output, standard error, logs, and
+// stored audit rows for forbidden text.
 func TestAuditReaderErrorsOmitConnectionStrings(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	parsed, err := url.Parse(testenv.Ledger(t))
@@ -110,7 +125,8 @@ func TestAuditReaderErrorsOmitConnectionStrings(t *testing.T) {
 	}
 }
 
-// runReaderErrorCommand runs one command through the rendered ops tree, checks its error, output, and logs, and returns their combined text.
+// runReaderErrorCommand runs one command through the rendered ops tree, checks
+// its error, output, and logs, and returns their combined text.
 func runReaderErrorCommand(t *testing.T, ledger *nodeAuditLedger, current readerErrorDSN, operatorID uuid.UUID, command readerErrorCommand) string {
 	t.Helper()
 	cfg := *ledger.cfg
@@ -142,52 +158,4 @@ func runReaderErrorCommand(t *testing.T, ledger *nodeAuditLedger, current reader
 		t.Fatalf("%v with the %s DSN returned %q, want %q", command.args, current.name, runErr, current.required)
 	}
 	return combined
-}
-
-// requireReaderErrorRows polls the ledger until it finds the expected rows for the operator and checks their text.
-func requireReaderErrorRows(t *testing.T, ledger *nodeAuditLedger, current readerErrorDSN, operatorID uuid.UUID, command readerErrorCommand, output string) {
-	t.Helper()
-	now := clock.Now()
-	filter := audit.QueryFilter{
-		OrgID: audit.SystemOrgID(), Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour),
-		Action: "", ActorID: operatorID, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: command.rows + 1,
-	}
-	deadline := clock.Now().Add(nodeAuditDeadline)
-	for {
-		rows, err := ledger.reader.Query(t.Context(), filter)
-		if err != nil {
-			t.Fatalf("query the rows of operator %s: %v", operatorID, err)
-		}
-		if len(rows) >= command.rows {
-			requireReaderErrorRowText(t, current, command, rows)
-			return
-		}
-		if clock.Now().After(deadline) {
-			t.Fatalf("%v with the %s DSN stored %d rows after %s, want %d\n%s", command.args, current.name, len(rows), nodeAuditDeadline, command.rows, output)
-		}
-		time.Sleep(nodeAuditPollInterval)
-	}
-}
-
-// requireReaderErrorRowText fails the test if a row contains forbidden text or does not record a required failure.
-func requireReaderErrorRowText(t *testing.T, current readerErrorDSN, command readerErrorCommand, rows []audit.Row) {
-	t.Helper()
-	failureStored := false
-	for _, row := range rows {
-		encoded, err := json.Marshal(row)
-		if err != nil {
-			t.Fatalf("encode row %s: %v", row.EventID, err)
-		}
-		for _, forbidden := range current.forbidden {
-			if strings.Contains(string(encoded), forbidden) {
-				t.Fatalf("%v with the %s DSN stored %q in row %s:\n%s", command.args, current.name, forbidden, row.EventID, encoded)
-			}
-		}
-		if row.Error != nil && strings.Contains(row.Error.Message, current.required) {
-			failureStored = true
-		}
-	}
-	if command.storesFail && !failureStored {
-		t.Fatalf("%v with the %s DSN stored rows %+v, want a failure that contains %q", command.args, current.name, rows, current.required)
-	}
 }

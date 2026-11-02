@@ -11,7 +11,8 @@ var errReaderDSNParse = errors.New("audit: the reader connection string does not
 func parseReaderDSN(dsn string) (*pgxpool.Config, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		// Omit the pgx parse error because malformed input can expose part of a password.
+		// Omit the pgx parse error because malformed input can expose part of a
+		// password.
 		return nil, errReaderDSNParse
 	}
 	return cfg, nil

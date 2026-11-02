@@ -22,11 +22,14 @@ const (
 	readerDSNTestTimeout    = 10 * time.Second
 	readerDSNParseTimeout   = 2 * time.Second
 	readerDSNParseFailure   = "audit: the reader connection string does not parse"
-	// readerConnectFailureText is the fixed text for a failed reader connection.
+	// readerConnectFailureText is the fixed text for a failed reader
+	// connection.
 	readerConnectFailureText = "audit: the reader did not connect"
 )
 
-// TestNewReaderReturnsParseErrorOnlyWhenPgxCannotParse checks that audit.NewReader returns the fixed parse error only when pgx cannot parse the connection string.
+// TestNewReaderReturnsParseErrorOnlyWhenPgxCannotParse checks that
+// audit.NewReader returns the fixed parse error only when pgx cannot parse the
+// connection string.
 func TestNewReaderReturnsParseErrorOnlyWhenPgxCannotParse(t *testing.T) {
 	cases := []struct {
 		dsn     string
@@ -53,7 +56,8 @@ func TestNewReaderReturnsParseErrorOnlyWhenPgxCannotParse(t *testing.T) {
 	}
 }
 
-// requireReaderConnectFailure checks the connection failure text, secret omission, and pgconn.ConnectError matching.
+// requireReaderConnectFailure checks the connection failure text, secret
+// omission, and pgconn.ConnectError matching.
 func requireReaderConnectFailure(t *testing.T, path string, err error) {
 	t.Helper()
 	if err == nil || !strings.Contains(err.Error(), readerConnectFailureText) {
@@ -69,7 +73,8 @@ func requireReaderConnectFailure(t *testing.T, path string, err error) {
 	}
 }
 
-// openUnconnectableReader opens a reader that cannot connect and returns its context, the reader, and a buffer containing its logs.
+// openUnconnectableReader opens a reader that cannot connect and returns its
+// context, the reader, and a buffer containing its logs.
 func openUnconnectableReader(t *testing.T) (context.Context, *audit.Reader, *bytes.Buffer) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), readerDSNTestTimeout)
@@ -86,7 +91,9 @@ func openUnconnectableReader(t *testing.T) (context.Context, *audit.Reader, *byt
 	return ctx, reader, logs
 }
 
-// TestReaderReadsOmitConnectionStringFromConnectError checks that Reader.Query and Reader.OperatorOutboxRemainder omit the connection secret from errors and logs.
+// TestReaderReadsOmitConnectionStringFromConnectError checks that Reader.Query
+// and Reader.OperatorOutboxRemainder omit the connection secret from errors and
+// logs.
 func TestReaderReadsOmitConnectionStringFromConnectError(t *testing.T) {
 	ctx, reader, logs := openUnconnectableReader(t)
 	now := time.Now()
@@ -105,7 +112,8 @@ func TestReaderReadsOmitConnectionStringFromConnectError(t *testing.T) {
 	}
 }
 
-// TestReaderKeepsConnectionRefusedMatching checks that a sanitized connection error matches syscall.ECONNREFUSED.
+// TestReaderKeepsConnectionRefusedMatching checks that a sanitized connection
+// error matches syscall.ECONNREFUSED.
 func TestReaderKeepsConnectionRefusedMatching(t *testing.T) {
 	ctx, reader, _ := openUnconnectableReader(t)
 	_, err := reader.OperatorOutboxRemainder(ctx)
