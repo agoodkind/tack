@@ -56,11 +56,6 @@ func TestSearchRuntimeAuditRetiredSessionRecorderEvidence(t *testing.T) {
 
 	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
 	paused := false
-	t.Cleanup(func() {
-		if paused {
-			setContainerPaused(t, container, false)
-		}
-	})
 	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
 		retireAttemptSavedMessage: func() {
 			setContainerPaused(t, container, true)

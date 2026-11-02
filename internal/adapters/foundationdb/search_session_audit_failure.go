@@ -22,11 +22,15 @@ const (
 	cleanupFailureMessage = "the search session cleanup step failed"
 )
 
-// RecordCleanupFailure commits one failed database change result event for
-// step under the operation on ctx. It ignores the cancellation of ctx and
-// ends after [audit.ExternalResultDeadline]. The event uses the organization
-// and owner of the stored session. When the header is absent or cannot
-// decode, the event uses the system organization and omits the owner.
+// RecordCleanupFailure commits one database change result event for step
+// under the operation on ctx. The event has the failed outcome. The step
+// could have committed when cause wraps commitUncertainError. In that
+// case, the event has the incomplete outcome and the
+// cleanup_result_uncertain code. The method ignores cancellation of ctx
+// and ends after [audit.ExternalResultDeadline]. The event uses the
+// organization and owner of the stored session. If the header is absent
+// or cannot decode, the event uses the system organization and omits
+// the owner.
 func (s *SearchSessionStore) RecordCleanupFailure(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, cause error) error {
 	slog.ErrorContext(ctx, "search.session.cleanup_failed", slog.String("err", cause.Error()),
 		slog.String("session_id", sessionID.String()), slog.String("step", string(step)))
@@ -49,14 +53,14 @@ func (s *SearchSessionStore) RecordCleanupFailure(ctx context.Context, sessionID
 			changes.bind(record)
 			target = audit.SearchSessionTarget(sessionID, record.PrincipalID)
 		}
-		return appendCleanupFailure(recordContext, tr, changes, target, step)
+		return appendCleanupFailure(recordContext, tr, changes, target, step, cause)
 	})
 }
 
 // appendCleanupFailure writes the failure event of step to the outbox in tr.
 // Its event ID stays the same across transaction attempts.
-func appendCleanupFailure(ctx context.Context, tr fdb.Transaction, changes *sessionAudit, target audit.Target, step searchdomain.CleanupStep) error {
-	event, err := cleanupFailureEvent(ctx, changes, target, step)
+func appendCleanupFailure(ctx context.Context, tr fdb.Transaction, changes *sessionAudit, target audit.Target, step searchdomain.CleanupStep, cause error) error {
+	event, err := cleanupFailureEvent(ctx, changes, target, step, cause)
 	if err != nil {
 		return err
 	}
@@ -68,10 +72,20 @@ func appendCleanupFailure(ctx context.Context, tr fdb.Transaction, changes *sess
 	return NewOutboxWriter(tr).WriteEncodedEvent(ctx, encoded)
 }
 
-func cleanupFailureEvent(ctx context.Context, changes *sessionAudit, target audit.Target, step searchdomain.CleanupStep) (audit.Event, error) {
-	event, err := audit.ChangeFailureEvent(changes.operation, target, cleanupVerb(step), audit.OutcomeDetails{
+// cleanupFailureEvent builds the result event for step. It sets the
+// failed outcome, step as the code, and cleanupFailureMessage. When
+// cause wraps commitUncertainError, it sets the incomplete outcome,
+// retireResultUncertainCode, and retireResultUncertainMessage. The
+// event ID derives from the operation base and step.
+func cleanupFailureEvent(ctx context.Context, changes *sessionAudit, target audit.Target, step searchdomain.CleanupStep, cause error) (audit.Event, error) {
+	details := audit.OutcomeDetails{
 		Outcome: audit.OutcomeFailed, FailureCode: string(step), FailureMessage: cleanupFailureMessage, CommittedSteps: nil,
-	})
+	}
+	var uncertain commitUncertainError
+	if errors.As(cause, &uncertain) {
+		details.Outcome, details.FailureCode, details.FailureMessage = audit.OutcomeIncomplete, retireResultUncertainCode, retireResultUncertainMessage
+	}
+	event, err := audit.ChangeFailureEvent(changes.operation, target, cleanupVerb(step), details)
 	if err != nil {
 		slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", target.ID.String()))
 		return audit.Event{}, fmt.Errorf("build the cleanup failure event of session %s: %w", target.ID, err)

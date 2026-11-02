@@ -18,7 +18,7 @@ import (
 const (
 	retireCommitSettle      = 6 * time.Second
 	retireResultUncertain   = "cleanup_result_uncertain"
-	retireCommitReady       = "search.session.retire_commit_ready"
+	retireCommitReady       = "search.session.close_commit_ready"
 	retireStorageFailed     = "search.session.storage_failed"
 	retireRebuildEnded      = "the index replacement of this retirement attempt has ended"
 	invalidHeaderValue      = "{"

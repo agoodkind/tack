@@ -33,9 +33,11 @@ const (
 	retireSessionDeletedMessage = "search.session.deleted"
 )
 
-// retireLogHooks runs an action once when a log record first contains a listed
-// message and the session ID. installRetireLogHooks replaces the default logger
-// with a text handler on standard error. Cleanup restores the default logger.
+// retireLogHooks runs an action once when a log record first contains
+// a listed message and the session ID.
+// installRetireLogHooks replaces the default logger with a text handler
+// on standard error. Cleanup restores the default logger and resumes the
+// shared FoundationDB container if it remains paused.
 type retireLogHooks struct {
 	sessionID string
 	mutex     sync.Mutex
@@ -48,36 +50,24 @@ func installRetireLogHooks(t *testing.T, sessionID string, actions map[string]fu
 	previous, writer, flags := slog.Default(), log.Writer(), log.Flags()
 	base := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
 	slog.SetDefault(slog.New(retireLogHandler{Handler: base, hooks: hooks}))
+	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
 	t.Cleanup(func() {
 		slog.SetDefault(previous)
 		log.SetOutput(writer)
 		log.SetFlags(flags)
+		resumeContainerIfPaused(t, container)
 	})
 	return hooks
 }
 
 // installRetirePauseGate pauses container at the first log record with
 // pauseMessage and the session ID. It resumes container at the first audit
-// failure log record with the session ID. Cleanup resumes container if the test
-// ends while it remains paused.
+// failure log record with the session ID.
 func installRetirePauseGate(t *testing.T, container, sessionID, pauseMessage string) *retireLogHooks {
 	t.Helper()
-	resumed := false
-	paused := false
-	t.Cleanup(func() {
-		if paused && !resumed {
-			setContainerPaused(t, container, false)
-		}
-	})
 	return installRetireLogHooks(t, sessionID, map[string]func(){
-		pauseMessage: func() {
-			setContainerPaused(t, container, true)
-			paused = true
-		},
-		retireAuditFailedMessage: func() {
-			setContainerPaused(t, container, false)
-			resumed = true
-		},
+		pauseMessage:             func() { setContainerPaused(t, container, true) },
+		retireAuditFailedMessage: func() { setContainerPaused(t, container, false) },
 	})
 }
 
