@@ -20,6 +20,9 @@ import (
 
 const macImage = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
+// macStopGrace is the stop_grace_period in testdata/mac-runner-compose.yml.
+const macStopGrace = 150 * time.Second
+
 type macInvocation struct {
 	Root     string                         `json:"root"`
 	Project  string                         `json:"project"`
@@ -122,6 +125,9 @@ func TestMacRunnerPreparation(t *testing.T) {
 	}
 	if invocation.Service.Image != macImage || invocation.Service.WorkingDir != options.Root || invocation.Service.Build != nil {
 		t.Fatalf("unexpected runner identity: %+v", invocation.Service)
+	}
+	if invocation.Service.StopGracePeriod == nil || time.Duration(*invocation.Service.StopGracePeriod) != macStopGrace {
+		t.Fatalf("runner did not keep the configured stop grace period: %+v", invocation.Service.StopGracePeriod)
 	}
 	if *invocation.Service.Environment["TACK_TEST_SOURCE_REVISION"] != head.Hash().String() || *invocation.Service.Environment["TACK_SEARCH_CLUSTER"] != "1" {
 		t.Fatalf("unexpected test environment: %+v", invocation.Service.Environment)

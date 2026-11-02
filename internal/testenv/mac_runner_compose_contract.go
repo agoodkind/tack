@@ -27,7 +27,7 @@ func validateMacRunnerCompose(contents []byte) error {
 		return errors.New("require a tests service")
 	}
 	for field := range service {
-		if !slices.Contains([]string{"build", "volumes", "environment", "working_dir", "profiles", "networks"}, field) {
+		if !slices.Contains([]string{"build", "volumes", "environment", "working_dir", "profiles", "networks", "stop_grace_period"}, field) {
 			return fmt.Errorf("unsupported tests service field %s", field)
 		}
 	}

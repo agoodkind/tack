@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
@@ -92,17 +93,21 @@ func (execution *macRunnerExecution) stopRunner(ctx context.Context, inspection 
 	if !inspection.State.Running {
 		return nil
 	}
-	seconds := 10
-	_, stopErr := macObserve(ctx, func(observation context.Context) (client.ContainerStopResult, error) {
-		return execution.rawClient.ContainerStop(observation, inspection.ID, client.ContainerStopOptions{Timeout: &seconds})
-	})
+	grace := execution.prepared.stopGrace()
+	seconds := int(grace / time.Second)
+	stopping, cancel := context.WithTimeout(ctx, grace+macRunnerObservation)
+	defer cancel()
+	_, stopErr := execution.rawClient.ContainerStop(stopping, inspection.ID, client.ContainerStopOptions{Timeout: &seconds})
 	execution.operation("container stop", inspection.ID, stopErr)
 	final, inspectErr := execution.inspect(ctx, inspection.ID)
 	if inspectErr != nil {
 		return macRunnerErrors("inspect stopped runner", stopErr, inspectErr)
 	}
 	if final.State == nil || final.State.Running {
-		return macRunnerErrors("stop runner", stopErr, fmt.Errorf("runner %s did not stop within 10 seconds", inspection.ID))
+		return macRunnerErrors("stop runner", stopErr, fmt.Errorf("runner %s did not stop within %s", inspection.ID, grace))
 	}
-	return stopErr
+	if stopErr != nil {
+		return macRunnerFailure("stop runner "+inspection.ID, stopErr)
+	}
+	return nil
 }

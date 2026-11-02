@@ -34,6 +34,7 @@ func (execution *macRunnerExecution) request() client.ContainerCreateOptions {
 			Image: service.Image, Entrypoint: slices.Clone([]string(service.Entrypoint)),
 			Cmd: slices.Clone([]string(service.Command)), WorkingDir: service.WorkingDir,
 			Env: environment, Labels: maps.Clone(execution.labels), AttachStdout: true, AttachStderr: true,
+			StopTimeout: execution.prepared.stopTimeout(),
 		},
 		HostConfig: &container.HostConfig{Mounts: mounts, NetworkMode: container.NetworkMode(execution.prepared.project.Networks["default"].Name)},
 		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{

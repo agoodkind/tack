@@ -37,6 +37,9 @@ func (execution *macRunnerExecution) verify(inspection container.InspectResponse
 	if !slices.Equal(configuration.Entrypoint, request.Config.Entrypoint) || !slices.Equal(configuration.Cmd, request.Config.Cmd) || configuration.WorkingDir != request.Config.WorkingDir {
 		return errors.New("runner inspection does not match the exact Go command, entrypoint and working directory")
 	}
+	if !macRunnerSameStopTimeout(configuration.StopTimeout, request.Config.StopTimeout) {
+		return errors.New("runner inspection does not match the configured stop grace period")
+	}
 	actualEnvironment := slices.Clone(configuration.Env)
 	slices.Sort(actualEnvironment)
 	if !slices.Equal(actualEnvironment, execution.expectedEnvironment()) {

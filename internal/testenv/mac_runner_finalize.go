@@ -13,7 +13,7 @@ import (
 )
 
 func (execution *macRunnerExecution) finalize(ctx context.Context, primary error) error {
-	cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute+execution.prepared.stopGrace())
 	defer cancel()
 	var failures []error
 	if execution.acceptedID != "" {
