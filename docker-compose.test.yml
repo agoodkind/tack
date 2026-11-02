@@ -49,6 +49,32 @@ services:
     working_dir: ${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
     profiles: ["runner"]
 
+  # The PostgreSQL provider overlay tests run here. This image builds the
+  # patched provider and installs OpenTofu, which the normal runner does not.
+  # `make test-postgresql-overlay` runs it.
+  pgoverlay-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.pgoverlay-test
+      args:
+        TOFU_VERSION: ${TOFU_VERSION:-1.13.2}
+    volumes:
+      - .:${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
+      - /var/run/docker.sock:/var/run/docker.sock
+      - pgoverlay-go-cache:/root/.cache/go-build
+      - pgoverlay-go-mod:/go/pkg/mod
+      - /tmp/tack-test
+    environment:
+      TMPDIR: /tmp/tack-test
+    working_dir: ${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
+    profiles: ["pgoverlay-runner"]
+
 volumes:
   tack-test-go-cache:
   tack-test-go-mod:
+  # These caches have fixed names because each overlay test run uses its own
+  # Compose project, and a project-scoped volume would not outlive the run.
+  pgoverlay-go-cache:
+    name: tack-pgoverlay-go-cache
+  pgoverlay-go-mod:
+    name: tack-pgoverlay-go-mod

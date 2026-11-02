@@ -84,6 +84,53 @@ TEST_RUNTIME_AUDIT_ARGS := -tags integration,runtimeaudit -count=1 -timeout 40m 
 	-run '^TestRuntimeAudit(Coverage|CoverageWaitsForTargetEvent|TopLevelCoverage|Scaling|MixedVersionRollout)$$' ./internal/test/integration/...
 test-runtime-audit-host test-runtime-audit: TEST_ARGS = $(TEST_RUNTIME_AUDIT_ARGS)
 
+# These targets run the patched PostgreSQL provider from postgresql-overlay
+# through OpenTofu against a local PostgreSQL server and the local YugabyteDB
+# engine that internal/testenv starts. test-postgresql-overlay runs in the test
+# runner. The runner image builds the provider and installs the pinned OpenTofu
+# for the runner architecture. macOS needs this route because only a container
+# can connect to the engines' bridge addresses.
+# test-postgresql-overlay-host runs on the current Linux host. It builds the
+# provider with make build. TOFU is the path of an OpenTofu executable that
+# reports the exact version in TOFU_VERSION. CI installs that version with
+# opentofu/setup-opentofu.
+TOFU_VERSION ?= 1.13.2
+PG_OVERLAY_TEST_ARGS := -tags pgoverlay -count=1 -timeout 30m -v ./internal/test/pgoverlay/...
+
+# Each run uses its own Compose project named after the make process. The EXIT
+# trap runs down for that project alone after a pass, a failure, or an
+# interrupt, and removes its network, containers, and image. No other Compose
+# project is affected. The recipe exits with the test status, or with 1 when
+# the tests passed and down failed.
+PG_OVERLAY_COMPOSE = TACK_TEST_ROOT=$(CURDIR) docker compose -p "$$project" -f docker-compose.test.yml --profile pgoverlay-runner
+
+.PHONY: test-postgresql-overlay
+test-postgresql-overlay:
+	project="tack-pgoverlay-$$$$"; \
+	status=0; \
+	cleanup() { \
+	    trap - EXIT INT TERM; \
+	    if ! $(PG_OVERLAY_COMPOSE) down --remove-orphans --rmi local; then \
+	        echo "compose down failed for project $$project" >&2; \
+	        if [ "$$status" -eq 0 ]; then status=1; fi; \
+	    fi; \
+	    exit "$$status"; \
+	}; \
+	trap cleanup EXIT; \
+	trap 'status=130; exit 130' INT TERM; \
+	{ $(PG_OVERLAY_COMPOSE) build pgoverlay-tests && \
+	  $(PG_OVERLAY_COMPOSE) run --rm pgoverlay-tests test $(PG_OVERLAY_TEST_ARGS); } || status=$$?; \
+	exit "$$status"
+
+.PHONY: test-postgresql-overlay-host
+test-postgresql-overlay-host:
+	$(if $(TOFU),,$(error TOFU must be the path of the OpenTofu executable))
+	$(MAKE) -C postgresql-overlay build
+	TACK_PG_OVERLAY_PROVIDER="$(CURDIR)/postgresql-overlay/dist/terraform-provider-postgresql" \
+	TACK_PG_OVERLAY_TOFU="$(TOFU)" \
+	TACK_PG_OVERLAY_TOFU_VERSION="$(TOFU_VERSION)" \
+	    go test $(PG_OVERLAY_TEST_ARGS)
+
 # The security files must come from Configs with synthetic credentials.
 .PHONY: test-service-secrets
 test-service-secrets:
