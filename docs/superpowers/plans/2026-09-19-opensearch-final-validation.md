@@ -185,7 +185,7 @@ For each failure, rerun the smallest exact test until it fails consistently. Tra
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 
-Run the suite as eight fixed groups. Set each group limit to its slowest complete CI measurement times 1.5, rounded up to 5 minutes. Use 45 minutes for G3 because the Makefile sets that limit and the table measurement predates it. Use 75 minutes for G5B and G5C because neither group has a complete CI measurement since the split.
+Run the suite as eight fixed groups. Set each group limit to its slowest complete CI measurement times 1.5, rounded up to 5 minutes. Use 45 minutes for G3 because the Makefile sets that limit and the table measurement predates it. Use 75 minutes for G5B because it does not have a complete CI measurement since the split. Use the Makefile limit of 75 minutes for G5C; the slower of its two complete CI runs took 71.2 minutes.
 
 The measurements come from these OpenSearch CI jobs:
 
@@ -208,8 +208,8 @@ The measurements come from these OpenSearch CI jobs:
 | G3 | `^TestSearch(Split|Restore|Rebuild)` | 20 | 1122.4 s (110765693590) | 45m |
 | G4 | `^TestSearchCluster`, skipping `^TestSearchClusterModelRepair` | 6 | 955.4 s on the Mac runner | 25m |
 | G5A | `^TestSearch[A-M]`, skipping the G1 to G4 and G6 tests | 85 | 2862.2 s (123145940911) | 75m |
-| G5B | `^TestSearch($|[^A-M])`, skipping the G1 to G4, G5C, and G6 tests | 114 (115 listed; `TestSearchSDKCompatibility` skips in the group run) | G5B has not had a complete measurement since the split. The 98 G5B tests that CI job 125385668666 started took 2246 s before the job timed out; 16 tests did not start. | 75m |
-| G5C | `^TestSearch(RuntimeAudit|SessionAudit)` | 69 | G5C does not have a complete measurement. The 45 G5C tests that finished in CI job 125385668666 took 2236 s; the job interrupted one test, and 14 tests did not start. | 75m |
+| G5B | `^TestSearch($|[^A-M])`, skipping the G1 to G4, G5C, and G6 tests | 116 (117 listed; `TestSearchSDKCompatibility` skips in the group run) | G5B has not had a complete measurement since the split. The 98 G5B tests that CI job 125385668666 started took 2246 s before the job timed out; 16 tests did not start. | 75m |
+| G5C | `^TestSearch(RuntimeAudit|SessionAudit)` | 67 | 71.2 minutes in CI run 41495702932; 53.1 minutes in CI run 41494394942. | 75m |
 | G6 | `^TestSearchClusterModelRepair` | 1 | 129.67 s on the Mac runner (2026-10-02, head 650f19ac) | 5m |
 
 G5A selects search tests with a name that continues after `TestSearch` with a letter from A through M. G5C selects search tests with a name that starts with `TestSearchRuntimeAudit` or `TestSearchSessionAudit`. G5B selects every other search test. Together, these groups select every search test that G1 to G4 and G6 do not select. A new search test runs in G5A, G5B, or G5C according to its name unless a change assigns it to another group.

@@ -23,12 +23,12 @@ const (
 	datagenSweepAbsolute    = "2m"
 )
 
-// TestSearchRuntimeAuditDatagenFailsWhenSweepFails runs ops qa datagen
+// TestSearchSweepProofDatagenFailsWhenSweepFails runs ops qa datagen
 // search through Cobra with real engines. After the run abandons its
 // session, the test replaces every stored session header with invalid
 // JSON, causing every later sweep of those sessions to fail. The test
 // checks that the command returns the abandoned session sweep error.
-func TestSearchRuntimeAuditDatagenFailsWhenSweepFails(t *testing.T) {
+func TestSearchSweepProofDatagenFailsWhenSweepFails(t *testing.T) {
 	err := runDatagenSearchWithDamagedSessions(t, func(key fdb.Key) {
 		integration.ReplaceRawValue(t, key, []byte(invalidHeaderValue))
 	})
@@ -37,13 +37,13 @@ func TestSearchRuntimeAuditDatagenFailsWhenSweepFails(t *testing.T) {
 	}
 }
 
-// TestSearchRuntimeAuditDatagenFailsWithoutHeaderDelete runs ops qa
+// TestSearchSweepProofDatagenFailsWithoutHeaderDelete runs ops qa
 // datagen search through Cobra with real engines. After the run abandons
 // its session, the test clears every stored session header without an
 // audit event. The expired-session response and session verb report
 // still pass. The test checks that the command returns an error for the
 // missing completed header delete.
-func TestSearchRuntimeAuditDatagenFailsWithoutHeaderDelete(t *testing.T) {
+func TestSearchSweepProofDatagenFailsWithoutHeaderDelete(t *testing.T) {
 	err := runDatagenSearchWithDamagedSessions(t, func(key fdb.Key) { clearAttemptRecord(t, key) })
 	if err == nil || !strings.Contains(err.Error(), datagenDeleteMissing) {
 		t.Fatalf("ops qa datagen search without a header delete returned %v, want text %q", err, datagenDeleteMissing)
