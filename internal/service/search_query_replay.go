@@ -109,16 +109,17 @@ func (s *SearchQueryService) sweepExpired(ctx context.Context) error {
 	return nil
 }
 
+// deleteSession closes one expired session and deletes its records. A
+// session that no longer exists counts as finished cleanup.
 func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.UUID) error {
 	session, err := s.ports.Sessions.Load(ctx, sessionID)
+	if errors.Is(err, searchdomain.ErrSessionNotFound) {
+		telemetry.L(ctx).DebugContext(ctx, "search.session.sweep_skipped", slog.String("session_id", sessionID.String()))
+		return nil
+	}
 	if err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
-		// If the session does not exist, the sweep stops for that session and does not record
-		// a cleanup failure.
-		if !errors.Is(err, searchdomain.ErrSessionNotFound) {
-			return s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
-		}
-		return nil
+		return s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
 	}
 	if !session.Closing {
 		if closeErr := s.closeSession(ctx, session); closeErr != nil {
