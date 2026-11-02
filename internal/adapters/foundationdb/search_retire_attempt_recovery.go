@@ -33,18 +33,14 @@ const (
 	retireRecoveryValueBytes = 1 << 20
 )
 
-// errRetireDeadlineInvalid marks a record invalid when its deadline is later
-// than its saved event's occurrence time plus retireAttemptLease and
-// searchTransactionTimeout. The writer computes the deadline immediately
-// after the event. The comparison uses only values in the record and does not
-// compare clocks between processes.
-var errRetireDeadlineInvalid = errors.New("the retirement attempt deadline is later than its saved event allows")
-
-// recoveredAttempt reports the recovery result for one attempt record. It
-// reports whether the record is active and contains the encoded incomplete
-// event. For an unreadable record, it also contains the retained events as JSON.
+// recoveredAttempt reports the recovery result for one attempt record.
+// It reports whether the record is active and contains the value to store
+// for a first observation. For an expired record, it contains the encoded
+// incomplete event. For an unreadable record, it also contains the retained
+// events as JSON.
 type recoveredAttempt struct {
 	active   bool
+	observed []byte
 	encoded  audit.EncodedEvent
 	retained []json.RawMessage
 }
@@ -79,6 +75,10 @@ func (s *SearchRebuildStore) recoverRetireAttempts(ctx context.Context, index st
 			}
 			if attempt.active {
 				remain = true
+				if attempt.observed != nil {
+					tr.Set(item.Key, attempt.observed)
+					valueBytes += len(attempt.observed)
+				}
 				continue
 			}
 			valueBytes += len(item.Value)
@@ -105,10 +105,10 @@ func (s *SearchRebuildStore) recoverRetireAttempts(ctx context.Context, index st
 }
 
 // recoveredRetireEvent returns the event for one attempt record or reports
-// that the record is still active. A future deadline marks a record as active.
-// If decoding, validation, or encoding fails, it logs the record and returns
-// the events from invalidRetireEvents. An invalid record does not stop index
-// retirement.
+// that the record is still active. observeRetireAttempt decides whether
+// the record is active. If decoding, validation, or encoding fails, the
+// function logs the record and returns the events from invalidRetireEvents.
+// An invalid record does not stop index retirement.
 func recoveredRetireEvent(ctx context.Context, item fdb.KeyValue, now time.Time) (recoveredAttempt, error) {
 	var attempt recoveredAttempt
 	sessionID, step, eventID, err := parseRetireAttemptKey(item.Key)
@@ -122,11 +122,10 @@ func recoveredRetireEvent(ctx context.Context, item fdb.KeyValue, now time.Time)
 	if readErr == nil {
 		readErr = json.Unmarshal(record.Event, &event)
 	}
-	if readErr == nil && record.Deadline.After(event.OccurredAt.Add(retireAttemptLease+searchTransactionTimeout)) {
-		readErr = errRetireDeadlineInvalid
+	if readErr == nil {
+		attempt.active, attempt.observed, readErr = observeRetireAttempt(record, now)
 	}
-	if readErr == nil && record.Deadline.After(now) {
-		attempt.active = true
+	if readErr == nil && attempt.active {
 		return attempt, nil
 	}
 	if readErr == nil {

@@ -10,7 +10,6 @@ import (
 	"errors"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
@@ -21,14 +20,13 @@ import (
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/test/integration"
-	"goodkind.io/tack/internal/testenv"
 )
 
 const (
 	retireAttemptInvalid = "cleanup_attempt_invalid"
 	invalidAttemptValue  = "{"
 	oversizedRecordBytes = 90000
-	invalidRecordCount   = 3
+	invalidRecordCount   = 2
 )
 
 type invalidAttemptEvidence struct {
@@ -39,30 +37,22 @@ type invalidAttemptEvidence struct {
 	Count  int    `json:"invalid_attempt_chunk_count"`
 }
 
-// TestSearchSessionAuditRetireInvalidAttemptRecord stores a record with a far
-// deadline, a record of 90,000 invalid bytes, and a record with a malformed
-// key. One RetireIndexSessions call must finish retirement and delete the
-// session. The test requires one incomplete event per record with the call's
-// actor and operation ID, the system organization, and only a digest in its
-// evidence. It then runs the production relay and audit consumer and requires
+// TestSearchSessionAuditRetireInvalidAttemptRecord stores one record with
+// 90,000 invalid bytes and another with a malformed key. One
+// RetireIndexSessions call must finish retirement and delete the session.
+// Each record must produce an incomplete event with the call's actor and
+// operation ID, the system organization, and only a digest in its evidence.
+// The test then runs the production relay and audit consumer. It requires
 // audit.events_dlq rows that reassemble every stored value and contain the
 // malformed key.
 func TestSearchSessionAuditRetireInvalidAttemptRecord(t *testing.T) {
 	stores := sessionStoreStores(t)
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
 	store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
-	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
 	index := "node-pages-invalid-attempt"
 	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
 	mark := searchOutboxTail(t, stores)
-	gate := installRetirePauseGate(t, container, session.ID.String(), retireCleanupFailedMessage)
-	if _, err := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), index, retireSliceLimit); err == nil {
-		t.Fatalf("RetireIndexSessions of %s under the failing operation returned no error", index)
-	}
-	gate.requireFinished(t)
-	farDeadline := farDeadlineRecord(t, retireFamilyValue(t, retireAttemptFamily))
-	integration.ReplaceRawValue(t, retireFamilyKey(t, retireAttemptFamily), farDeadline)
 	oversized := bytes.Repeat([]byte("x"), oversizedRecordBytes)
 	integration.ReplaceRawValue(t, retireAttemptKey(t, index), oversized)
 	malformedKey := fdb.Key(append(bytes.Clone(fdbadapter.TestPrefixRange()), tuple.Tuple{retireAttemptFamily, index, "malformed"}.Pack()...))
@@ -84,7 +74,7 @@ func TestSearchSessionAuditRetireInvalidAttemptRecord(t *testing.T) {
 	if len(events) != invalidRecordCount {
 		t.Fatalf("index %s has %d invalid attempt events, want %d", index, len(events), invalidRecordCount)
 	}
-	expected := map[string][]byte{digestOf(farDeadline): farDeadline, digestOf(oversized): oversized, digestOf([]byte(invalidAttemptValue)): []byte(invalidAttemptValue)}
+	expected := map[string][]byte{digestOf(oversized): oversized, digestOf([]byte(invalidAttemptValue)): []byte(invalidAttemptValue)}
 	for _, event := range events {
 		var evidence invalidAttemptEvidence
 		if err := json.Unmarshal(event.Extra, &evidence); err != nil || evidence.Record != nil || expected[evidence.Digest] == nil {
@@ -140,24 +130,6 @@ func requireRetainedRecords(t *testing.T, letters map[uuid.UUID]audit.DeadLetter
 	if !keySeen {
 		t.Fatalf("the retained events do not contain the malformed key %x", malformedKey)
 	}
-}
-
-func farDeadlineRecord(t *testing.T, stored []byte) []byte {
-	t.Helper()
-	fields := map[string]json.RawMessage{}
-	if err := json.Unmarshal(stored, &fields); err != nil {
-		t.Fatalf("decode the attempt record: %v", err)
-	}
-	deadline, err := json.Marshal(clock.Now().Add(24 * time.Hour).UTC())
-	if err != nil {
-		t.Fatalf("encode the far deadline: %v", err)
-	}
-	fields["deadline"] = deadline
-	encoded, err := json.Marshal(fields)
-	if err != nil {
-		t.Fatalf("encode the attempt record: %v", err)
-	}
-	return encoded
 }
 
 func invalidAttemptEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte) []audit.Event {

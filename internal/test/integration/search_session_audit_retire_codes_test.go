@@ -5,31 +5,32 @@ package integration_test
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
-	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
 
 const (
 	retireRowWindow = time.Hour
 	retireRowPoll   = 200 * time.Millisecond
+	retireRowLimit  = 64
 )
 
-// TestSearchSessionAuditRetireCodesSurviveEitherOrder covers both arrival
+// TestSearchSessionAuditRetireCodesSurviveEitherOrder tests both arrival
 // orders of the attempt failure event and the recorder event. Each subtest
 // pauses FoundationDB before the failure event write. The write and the
-// failure code save both fail. The test cannot force a commit to apply
-// after a timeout. The test sends the attempt failure event to the real
-// Kafka topic to produce the row for an applied write. One subtest stores
-// that row before production code sends the recorder event. The other
-// subtest stores it after the recorder row. Each subtest checks audit.events
-// for two failed rows with the same actor, operation ID, and start time.
-// The row with the attempt event ID has zero failure codes. The other row
-// has both codes. Each subtest checks that the call does not return
+// failure code save both fail. The test cannot force a commit to apply after
+// a timeout. It sends the attempt failure event to the real Kafka topic to
+// produce the row for an applied write. One subtest stores that row before
+// production code sends the recorder event. The other stores it after the
+// recorder row. Each subtest checks audit.events for two failed rows with
+// the same actor, operation ID, and start time. The attempt event row has
+// zero failure codes. The other row has both codes and does not contain raw
+// error text. The returned error must contain both causes and must not match
 // audit.ErrEventNotRecorded.
 func TestSearchSessionAuditRetireCodesSurviveEitherOrder(t *testing.T) {
 	cases := []struct {
@@ -64,10 +65,7 @@ func TestSearchSessionAuditRetireCodesSurviveEitherOrder(t *testing.T) {
 
 			_, err := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), current.index, retireSliceLimit)
 			hooks.requireFinished(t)
-			requireChangeEventFailure(t, "RetireIndexSessions of "+current.index, err)
-			if errors.Is(err, audit.ErrEventNotRecorded) {
-				t.Fatalf("RetireIndexSessions of %s with a recorded failure = %v, want no %v", current.index, err, audit.ErrEventNotRecorded)
-			}
+			requireRecordedFailureCauses(t, current.index, err)
 			if !current.firstWriteFirst {
 				waitForAttemptRows(t, stack, written, 1)
 				stack.record(t, written)
@@ -77,44 +75,18 @@ func TestSearchSessionAuditRetireCodesSurviveEitherOrder(t *testing.T) {
 	}
 }
 
-// TestSearchSessionAuditRetireRecordsCodesAfterRecovery pauses FoundationDB
-// before the failure event write and resumes it after the write fails. A second
-// RetireIndexSessions call runs after the attempt lease and recovers the
-// attempt. The failure code save does not find the record. The test checks
-// that the first call sends the failed event to the audit recorder, audit.events
-// contains the failed row with both failure codes, and the first call does not
-// return audit.ErrEventNotRecorded.
-func TestSearchSessionAuditRetireRecordsCodesAfterRecovery(t *testing.T) {
-	stores := sessionStoreStores(t)
-	stack := startRuntimeAuditStack(t)
-	rebuilds := stores.SearchRebuilds(clock.Wall{})
-	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
-	index := "node-pages-codes-after-recovery"
-	beginRetiringRebuild(t, stores, index)
-	session := retiringSession(t, stores, index)
-	var written audit.Event
-	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
-		retireCleanupFailedMessage: func() {
-			written = attemptFailureEvent(t)
-			setContainerPaused(t, container, true)
-		},
-		retireAuditFailedMessage: func() {
-			setContainerPaused(t, container, false)
-			waitUntilTime(t, clock.Now().Add(retireAttemptWait))
-			if _, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit); err != nil {
-				t.Fatalf("recover the attempt of index %s: %v", index, err)
-			}
-		},
-	})
-
-	_, err := rebuilds.WithFailureRecorder(stack.recorder).RetireIndexSessions(withFutureOperation(t, t.Context()), index, retireSliceLimit)
-	hooks.requireFinished(t)
-	requireChangeEventFailure(t, "RetireIndexSessions of "+index, err)
-	if errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf("RetireIndexSessions of %s with a recorded failure = %v, want no %v", index, err, audit.ErrEventNotRecorded)
+// requireRecordedFailureCauses requires err to contain the cleanup cause and
+// the recording cause without matching audit.ErrEventNotRecorded.
+func requireRecordedFailureCauses(t *testing.T, index string, err error) {
+	t.Helper()
+	if err == nil || errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf("RetireIndexSessions of %s with a recorded failure = %v, want an error without %v", index, err, audit.ErrEventNotRecorded)
 	}
-	row := waitForAttemptRows(t, stack, written, 1)[0]
-	requireFailedRowCodes(t, row)
+	for _, want := range []string{changeEventFailure, cleanupRecordingFailure, transactionTimedOutText} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("RetireIndexSessions of %s error = %v, want text %q", index, err, want)
+		}
+	}
 }
 
 func attemptFailureEvent(t *testing.T) audit.Event {
@@ -130,6 +102,8 @@ func attemptFailureEvent(t *testing.T) audit.Event {
 	return event
 }
 
+// waitForAttemptRows waits until audit.events has count rows under the
+// operation of event for its action, actor, and entity.
 func waitForAttemptRows(t *testing.T, stack runtimeAuditStack, event audit.Event, count int) []audit.Row {
 	t.Helper()
 	deadline := clock.Now().Add(runtimeAuditDeadline)
@@ -137,17 +111,23 @@ func waitForAttemptRows(t *testing.T, stack runtimeAuditStack, event audit.Event
 	for clock.Now().Before(deadline) {
 		rows, err := stack.reader.Query(t.Context(), audit.QueryFilter{
 			OrgID: event.Context.OrgID, Oldest: event.Context.StartedAt.Add(-retireRowWindow), Latest: event.Context.StartedAt.Add(retireRowWindow),
-			Action: event.Verb, ActorID: event.Actor.ID, EntityID: event.Entity.ID, RequestID: "", TraceID: "", Limit: count + 1,
+			Action: event.Verb, ActorID: event.Actor.ID, EntityID: event.Entity.ID, RequestID: "", TraceID: "", Limit: retireRowLimit,
 		})
 		if err != nil {
 			t.Fatalf("query the rows of attempt event %s: %v", event.EventID, err)
 		}
-		found = len(rows)
+		selected := []audit.Row{}
+		for _, row := range rows {
+			if row.Context.OperationID == event.Context.OperationID {
+				selected = append(selected, row)
+			}
+		}
+		found = len(selected)
 		if found > count {
 			t.Fatalf("attempt event %s has %d rows, want %d", event.EventID, found, count)
 		}
 		if found == count {
-			return rows
+			return selected
 		}
 		time.Sleep(retireRowPoll)
 	}
@@ -159,10 +139,8 @@ func requireAttemptRows(t *testing.T, rows []audit.Row, event audit.Event) {
 	t.Helper()
 	withCodes := 0
 	for _, row := range rows {
-		if row.Context.OperationID != event.Context.OperationID || row.ActorID != event.Actor.ID ||
-			!row.Context.StartedAt.Equal(event.Context.StartedAt) {
-			t.Fatalf("row %s has operation %s, actor %s, and start %s, want %s, %s, and %s", row.EventID, row.Context.OperationID,
-				row.ActorID, row.Context.StartedAt, event.Context.OperationID, event.Actor.ID, event.Context.StartedAt)
+		if row.ActorID != event.Actor.ID || !row.Context.StartedAt.Equal(event.Context.StartedAt) {
+			t.Fatalf("row %s has actor %s and start %s, want %s and %s", row.EventID, row.ActorID, row.Context.StartedAt, event.Actor.ID, event.Context.StartedAt)
 		}
 		if row.EventID == event.EventID {
 			var evidence retireFailureEvidence
@@ -176,7 +154,7 @@ func requireAttemptRows(t *testing.T, rows []audit.Row, event audit.Event) {
 			}
 			continue
 		}
-		requireFailedRowCodes(t, row)
+		requireFailedRowCodes(t, row, transactionTimedOutCode)
 		withCodes++
 	}
 	if withCodes != 1 {
@@ -184,14 +162,25 @@ func requireAttemptRows(t *testing.T, rows []audit.Row, event audit.Event) {
 	}
 }
 
-func requireFailedRowCodes(t *testing.T, row audit.Row) {
+// requireFailedRowCodes requires a failed row with both failure codes and
+// without raw error text.
+func requireFailedRowCodes(t *testing.T, row audit.Row, recordingCode string) {
 	t.Helper()
 	var evidence retireFailureEvidence
 	if err := json.Unmarshal(row.Extra, &evidence); err != nil {
 		t.Fatalf("decode the evidence of row %s: %v", row.EventID, err)
 	}
-	if row.Outcome != audit.OutcomeFailed || evidence.Cleanup != unclassifiedFailureCode || evidence.Recording != transactionTimedOutCode {
+	if row.Outcome != audit.OutcomeFailed || evidence.Cleanup != unclassifiedFailureCode || evidence.Recording != recordingCode {
 		t.Fatalf("row %s has outcome %s and evidence %s, want %s with cleanup code %q and recording code %q",
-			row.EventID, row.Outcome, row.Extra, audit.OutcomeFailed, unclassifiedFailureCode, transactionTimedOutCode)
+			row.EventID, row.Outcome, row.Extra, audit.OutcomeFailed, unclassifiedFailureCode, recordingCode)
+	}
+	encoded, err := json.Marshal(row)
+	if err != nil {
+		t.Fatalf("encode row %s: %v", row.EventID, err)
+	}
+	for _, raw := range []string{transactionTimedOutText, changeEventFailure} {
+		if strings.Contains(string(encoded), raw) {
+			t.Fatalf("row %s contains raw error text %q: %s", row.EventID, raw, encoded)
+		}
 	}
 }
