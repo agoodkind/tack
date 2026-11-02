@@ -185,7 +185,21 @@ For each failure, rerun the smallest exact test until it fails consistently. Tra
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 
-Run the suite as eight fixed groups. Set each group limit to its slowest complete CI measurement times 1.5, rounded up to 5 minutes; use 45 minutes for G3 because the Makefile sets that limit and the table measurement predates it, and use 75 minutes for G5B and G5C because neither group has a complete CI measurement since the split. The measurements come from the OpenSearch CI jobs 110765693590, 109857411134, 117516233280, 123145940911, 123131420136, 123132129545, 123110954409, 123140740521, 123142813381, 123071806333, and the completed groups of 110045603547.
+Run the suite as eight fixed groups. Set each group limit to its slowest complete CI measurement times 1.5, rounded up to 5 minutes. Use 45 minutes for G3 because the Makefile sets that limit and the table measurement predates it. Use 75 minutes for G5B and G5C because neither group has a complete CI measurement since the split.
+
+The measurements come from these OpenSearch CI jobs:
+
+- 110765693590
+- 109857411134
+- 117516233280
+- 123145940911
+- 123131420136
+- 123132129545
+- 123110954409
+- 123140740521
+- 123142813381
+- 123071806333
+- The completed groups of 110045603547
 
 | Group | Selection | Tests | Slowest measurement | Limit |
 | --- | --- | --- | --- | --- |
