@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -114,6 +115,51 @@ func TestSearchSessionAuditRetireLateEffectIsFenced(t *testing.T) {
 	remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
 	if err != nil || remaining {
 		t.Fatalf("RetireIndexSessions of %s after the fenced effect = %t, %v, want a finished retirement", index, remaining, err)
+	}
+}
+
+// TestSearchSessionAuditRetireClearReportsLostOwnership checks recovery after
+// a log hook pauses RetireIndexSessions after its delete step commits and
+// before it clears the attempt record. The hook waits until the attempt lease
+// expires. A second call recovers the attempt. The test checks that the first
+// call returns audit.ErrEventNotRecorded and reports remaining work. It also
+// checks that the first operation has one delete change event and one
+// incomplete event, and that a third call finishes retirement.
+func TestSearchSessionAuditRetireClearReportsLostOwnership(t *testing.T) {
+	stores := sessionStoreStores(t)
+	rebuilds := stores.SearchRebuilds(clock.Wall{})
+	index := "node-pages-lost-clear"
+	session := retiringSession(t, stores, index)
+	mark := searchOutboxTail(t, stores)
+	ownerContext := integration.WithTestOperation(t, t.Context())
+	operation, err := audit.RequireMutationContext(ownerContext)
+	if err != nil {
+		t.Fatalf("read the owner operation: %v", err)
+	}
+	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
+		retireSessionDeletedMessage: func() {
+			waitUntilTime(t, clock.Now().Add(retireAttemptWait))
+			if _, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit); err != nil {
+				t.Fatalf("recover the attempt of index %s: %v", index, err)
+			}
+		},
+	})
+
+	remaining, err := rebuilds.RetireIndexSessions(ownerContext, index, retireSliceLimit)
+	hooks.requireFinished(t)
+	if !errors.Is(err, audit.ErrEventNotRecorded) || !remaining {
+		t.Fatalf("RetireIndexSessions of %s with a lost clear = %t, %v, want remaining work and %v", index, remaining, err, audit.ErrEventNotRecorded)
+	}
+	recovered := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved))
+	if len(recovered) != 1 || recovered[0].Context.OperationID != operation.Context.OperationID {
+		t.Fatalf("session %s recovered events = %+v, want 1 under operation %s", session.ID, recovered, operation.Context.OperationID)
+	}
+	if count := sessionChangeEvents(t, stores, mark, session, operation.Context.OperationID, audit.VerbSearchSessionDelete); count != 1 {
+		t.Fatalf("session %s has %d delete change events under operation %s, want 1", session.ID, count, operation.Context.OperationID)
+	}
+	remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
+	if err != nil || remaining {
+		t.Fatalf("RetireIndexSessions of %s after the lost clear = %t, %v, want a finished retirement", index, remaining, err)
 	}
 }
 

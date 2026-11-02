@@ -3,6 +3,7 @@ package foundationdb
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -17,9 +18,11 @@ const (
 	// retireResultNotSavedCode identifies an incomplete event for an attempt that
 	// did not save its result. The event does not establish whether the cleanup
 	// step committed.
-	retireResultNotSavedCode    = "cleanup_result_not_saved"
-	retireResultNotSavedMessage = "the search session cleanup step did not save its result"
-	retireAttemptIncompleteName = "incomplete"
+	retireResultNotSavedCode     = "cleanup_result_not_saved"
+	retireResultNotSavedMessage  = "the search session cleanup step did not save its result"
+	retireAttemptIncompleteName  = "incomplete"
+	retireResultUncertainCode    = "cleanup_result_uncertain"
+	retireResultUncertainMessage = "the search session cleanup step ended without a confirmed commit result"
 )
 
 // recoveredAttempt reports the recovery result for one attempt record. It
@@ -105,6 +108,21 @@ func recoveredRetireEvent(ctx context.Context, item fdb.KeyValue, now time.Time)
 	}
 	slog.ErrorContext(ctx, "search.session.retire_attempt_invalid", slog.String("err", readErr.Error()), slog.String("session_id", sessionID.String()))
 	return invalidRetireEvents(ctx, sessionID, step, eventID, item.Value)
+}
+
+// retireResultEvent sets the occurrence and completion times of an attempt
+// failure event. When cause wraps commitUncertainError, it sets the incomplete
+// outcome and retireResultUncertainCode because the cleanup step could have
+// committed. A failed outcome means the step did not commit.
+func retireResultEvent(event audit.Event, now time.Time, cause error) audit.Event {
+	completed := attemptCompletion(event, now)
+	event.OccurredAt, event.Context.CompletedAt = completed, completed
+	var uncertain commitUncertainError
+	if errors.As(cause, &uncertain) {
+		event.Outcome = audit.OutcomeIncomplete
+		event.Error = &audit.EventError{Code: retireResultUncertainCode, Message: retireResultUncertainMessage}
+	}
+	return event
 }
 
 // incompleteRetireEvent decodes an attempt event and returns an encoded event

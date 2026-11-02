@@ -30,11 +30,11 @@ const (
 	retireAttemptLease = searchTransactionTimeout + 2*audit.ExternalResultDeadline
 )
 
-// errRetireAttemptFenced signals that beginCleanup or cleanupSlice found
-// the attempt record absent after recovery cleared it and saved the
-// attempt's incomplete event. The transaction does not commit a session
-// change.
-var errRetireAttemptFenced = errors.New("recovery already resolved this retirement attempt")
+// errRetireAttemptFenced indicates that recovery cleared the attempt record
+// and saved an incomplete event. beginCleanup, cleanupSlice, and
+// clearRetireAttempt return it when the attempt record is absent. It wraps
+// audit.ErrEventNotRecorded because the attempt owner did not save the result.
+var errRetireAttemptFenced = fmt.Errorf("%w: recovery already resolved this retirement attempt", audit.ErrEventNotRecorded)
 
 // retireAttemptRecord stores one attempt's lease deadline and encoded failure
 // event.
@@ -149,10 +149,7 @@ func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, attempt re
 		slog.String("session_id", sessionID.String()), slog.String("step", string(step)))
 	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), audit.ExternalResultDeadline)
 	defer cancel()
-	event := attempt.event
-	now := attemptCompletion(event, s.work.clock.Now())
-	event.OccurredAt, event.Context.CompletedAt = now, now
-	encoded, err := audit.EncodeEvent(event, nil)
+	encoded, err := audit.EncodeEvent(retireResultEvent(attempt.event, s.work.clock.Now(), cause), nil)
 	if err == nil {
 		err = transactSession(recordContext, s.db, s.work.clock, retireAttemptFailureOperation, sessionID, func(tr fdb.Transaction) error {
 			// This read makes the failure event transaction conflict with a recovery
@@ -175,14 +172,17 @@ func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, attempt re
 	)
 }
 
-// clearRetireAttempt removes the attempt record after the cleanup step commits.
-// The cleanup step commits its change events in its own transaction. If the
-// clear fails, recoverRetireAttempts later saves an incomplete event for the
-// attempt.
+// clearRetireAttempt reads and clears the attempt record in one transaction
+// after the cleanup step commits its change events in a separate transaction.
+// It returns errRetireAttemptFenced if the record is absent. If the clear
+// fails, recoverRetireAttempts later saves an incomplete event for the attempt.
 func (s *SearchRebuildStore) clearRetireAttempt(ctx context.Context, attempt retireAttempt) error {
 	clearContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), audit.ExternalResultDeadline)
 	defer cancel()
 	return transactSession(clearContext, s.db, s.work.clock, retireAttemptClearOperation, attempt.sessionID, func(tr fdb.Transaction) error {
+		if fenceErr := requireRetireFence(tr, attempt.key); fenceErr != nil {
+			return fenceErr
+		}
 		tr.Clear(attempt.key)
 		return nil
 	})

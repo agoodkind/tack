@@ -19,6 +19,8 @@ import (
 // one session transaction failure log lists.
 const maxRecordedRetryCodes = 8
 
+const transactionTooOld = 1007
+
 // sessionAttempts records the attempts of one session transaction for its
 // failure log.
 type sessionAttempts struct {
@@ -80,9 +82,10 @@ func transactSession(ctx context.Context, db fdb.Database, source clock.Clock, o
 	}
 	defer transaction.Cancel()
 	attempts := newSessionAttempts(source)
+	uncertain := false
 	for {
 		if err := ctx.Err(); err != nil {
-			return sessionFailure(ctx, operation, sessionID, err, attempts.attributes()...)
+			return sessionFailure(ctx, operation, sessionID, markCommitUncertain(err, uncertain), attempts.attributes()...)
 		}
 		attempts.begin()
 		timeout := searchTransactionTimeout
@@ -90,27 +93,57 @@ func transactSession(ctx context.Context, db fdb.Database, source clock.Clock, o
 			timeout = max(time.Millisecond, min(timeout, deadline.Sub(source.Now())))
 		}
 		if err := transaction.Options().SetTimeout(max(int64(timeout/time.Millisecond), 1)); err != nil {
-			return sessionFailure(ctx, operation, sessionID, err, attempts.attributes()...)
+			return sessionFailure(ctx, operation, sessionID, markCommitUncertain(err, uncertain), attempts.attributes()...)
 		}
 		err := apply(transaction)
 		if err == nil {
 			err = transaction.Commit().Get()
+			uncertain = uncertain || commitMayHaveApplied(err)
 		}
 		if err == nil {
 			return nil
 		}
 		if isSessionOutcome(err) {
-			return sessionStepError{operation: operation + " for session " + sessionID.String(), err: err}
+			return sessionStepError{operation: operation + " for session " + sessionID.String(), err: markCommitUncertain(err, uncertain)}
 		}
 		var databaseError fdb.Error
 		if !errors.As(err, &databaseError) {
-			return sessionFailure(ctx, operation, sessionID, err, attempts.attributes()...)
+			return sessionFailure(ctx, operation, sessionID, markCommitUncertain(err, uncertain), attempts.attributes()...)
 		}
 		if retryError := transaction.OnError(databaseError).Get(); retryError != nil {
-			return sessionFailure(ctx, operation, sessionID, retryError, attempts.attributes()...)
+			return sessionFailure(ctx, operation, sessionID, markCommitUncertain(retryError, uncertain), attempts.attributes()...)
 		}
 		attempts.retried(databaseError.Code)
 	}
+}
+
+// commitUncertainError marks a session transaction failure after a submitted
+// commit that could have applied. It preserves the text of err.
+type commitUncertainError struct{ err error }
+
+func (e commitUncertainError) Error() string { return e.err.Error() }
+func (e commitUncertainError) Unwrap() error { return e.err }
+
+// commitMayHaveApplied reports whether a commit error leaves the commit result
+// unknown. It returns false for a nil error and for FoundationDB errors 1020
+// and 1007, which indicate that the commit did not apply. It returns true for
+// every other error.
+func commitMayHaveApplied(err error) bool {
+	var databaseError fdb.Error
+	if err == nil {
+		return false
+	}
+	if !errors.As(err, &databaseError) {
+		return true
+	}
+	return databaseError.Code != transactionNotCommitted && databaseError.Code != transactionTooOld
+}
+
+func markCommitUncertain(err error, uncertain bool) error {
+	if uncertain {
+		return commitUncertainError{err: err}
+	}
+	return err
 }
 
 // searchTimeoutError is a public search read that ended with FoundationDB
