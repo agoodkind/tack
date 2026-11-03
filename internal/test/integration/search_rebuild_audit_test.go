@@ -128,7 +128,7 @@ func searchWorkerEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte) []
 			if err := json.Unmarshal(entry.Event, &event); err != nil {
 				t.Fatalf("decoding outbox entry %s failed: %v", entry.Event, err)
 			}
-			if event.Actor.ID == workerID {
+			if event.Actor.ID == workerID && event.Context.OperationClass == audit.OperationExternal {
 				events = append(events, event)
 			}
 		}

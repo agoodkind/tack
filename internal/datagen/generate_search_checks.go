@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/google/uuid"
+	"goodkind.io/tack/internal/adapters/mcp/tools"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/runtime"
@@ -16,10 +18,14 @@ const searchVerificationScale = "small"
 // returns its fixed unavailable response.
 var errPublicSearchDisabled = errors.New("public search is disabled; set OPENSEARCH_PUBLIC_ENABLED=true in this environment")
 
-// SearchVerification reports the verified property warning case and relevance probe.
+// SearchVerification reports the verified organization, property warning
+// case, and relevance probe. AbandonedSessionID identifies the session
+// that the run abandoned and a sweep must delete.
 type SearchVerification struct {
-	PropertyWarning SearchWarningCase    `json:"property_warning"`
-	Relevance       SearchRelevanceProbe `json:"relevance"`
+	OrgID              uuid.UUID            `json:"org_id"`
+	PropertyWarning    SearchWarningCase    `json:"property_warning"`
+	Relevance          SearchRelevanceProbe `json:"relevance"`
+	AbandonedSessionID uuid.UUID            `json:"abandoned_session_id"`
 }
 
 // VerifySearch runs VerifySearchWithSeed with the current Unix time in
@@ -45,6 +51,10 @@ func VerifySearchWithSeed(ctx context.Context, cfg *config.Config, seed int64) (
 	if err != nil {
 		return report, loggedError(ctx, "qa datagen: load search settings", err)
 	}
+	cursorKey, err := limits.CursorKeyBytes()
+	if err != nil {
+		return report, loggedError(ctx, "qa datagen: decode search cursor key", err)
+	}
 	phrases, err := loadSearchPhrases(ctx)
 	if err != nil {
 		return report, err
@@ -69,13 +79,14 @@ func VerifySearchWithSeed(ctx context.Context, cfg *config.Config, seed int64) (
 	}
 	defer closeMembers()
 	workspace := identities.Workspaces[0]
+	report.OrgID = workspace.OrgID
 	fixture, err := newSearchFixture(ctx, stores, members, workspace)
 	if err != nil {
 		return report, err
 	}
 	run := searchRun{
 		driver: NewDriver(graph, false, seed), token: workspace.Actors[0].Token, entry: workspace.Slug,
-		limits:  searchLimits{MaxResults: limits.MaxResults, MaxResponseBytes: limits.MaxResponseBytes},
+		limits:  searchLimits{MaxResults: limits.MaxResults, MaxResponseBytes: limits.MaxResponseBytes, IdleTimeout: limits.IdleTimeout},
 		fixture: fixture, phrases: phrases, pages: graph,
 	}
 	if err := run.verify(ctx, workspace); err != nil {
@@ -85,6 +96,9 @@ func VerifySearchWithSeed(ctx context.Context, cfg *config.Config, seed int64) (
 		return report, err
 	}
 	if report.Relevance, err = run.probeRelevance(ctx); err != nil {
+		return report, err
+	}
+	if report.AbandonedSessionID, err = run.verifySessionLifecycle(ctx, tools.NewSearchCursorCodec(cursorKey)); err != nil {
 		return report, err
 	}
 	if err := run.verifyAccess(ctx, cfg, seed, workspace); err != nil {

@@ -175,15 +175,22 @@ test-search:
 	TACK_TEST_SOURCE_REVISION="$(shell git rev-parse HEAD)" TACK_SEARCH_INTEGRATION=1 $(TEST_RUNNER) run --rm tests \
 	    test $(TEST_SEARCH_ARGS)
 
-# Final validation runs the search suite as fixed groups (Step 9, G1 to G6) and
-# the repeated tail as three groups (Step 10, T1 to T3). Each G limit is the
-# slowest complete CI measurement times 1.5, rounded up to 5 minutes; each T
-# limit is three times the slowest single CI run times 1.5. G5A selects the
-# search tests with a name that continues after TestSearch with a letter from A
-# through M, and G5B selects every other search test. Together they select every
-# search test that G1 to G4 and G6 do not select, and a new search test runs in
-# G5A or G5B by its name. G4 and G6 need TACK_SEARCH_CLUSTER=1. CI runs G1, G3,
-# G5A, and G5B; G2, G4, and G6 run on the Mac runner.
+# Final validation runs the search suite in fixed groups G1 to G6 in Step 9
+# and the repeated tail in groups T1 to T3 in Step 10.
+# Each G limit uses the slowest complete CI measurement times 1.5,
+# rounded up to 5 minutes.
+# G5B and G5C keep a 75 minute limit, shorter than the 90 minutes the formula
+# gives for their measured times.
+# Each T limit is three times the slowest single CI run times 1.5.
+# G5A selects search tests with a letter from A through M immediately
+# after TestSearch. G5C selects tests that start with TestSearchRuntimeAudit
+# or TestSearchSessionAudit. G5B selects every other search test.
+# Together, G5A, G5B, and G5C select every search test that G1 to G4
+# and G6 do not select. Each new search test runs in G5A, G5B, or G5C
+# according to its name.
+# G4 and G6 require TACK_SEARCH_CLUSTER=1. CI runs G1, G3, G5A, G5B,
+# and G5C. The Mac runner runs G2, G4, and G6.
+SEARCH_G5C_TESTS := ^TestSearch(RuntimeAudit|SessionAudit)
 SEARCH_SKIP_G5 := ^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$$
 SEARCH_T2_TESTS := TestSearchRebuildExcludesOrphanNodes|TestSearchRebuildStepFitsLease|TestSearchRebuildFailsAfterPauseLimit|TestSearchRebuildDuringChanges|TestSearchRestoreRejectsCursors|TestSearchSplitDuringChanges|TestSearchSplitWithoutModel
 SEARCH_T3_TESTS := TestSearchAccessDependentsSurviveEdit|TestSearchAccessUpdatesOlderActiveRevision|TestSearchAccessVersionWithoutRebuild|TestSearchAccessMembershipQueryOnly|TestSearchAccessResourceRefresh|TestSearchAccessRolloutRecovery|TestSearchAccessOnlyUpdateWithoutModel|TestSearchCursorAcrossProcesses|TestSearchCursorExactSortValues|TestSearchCursorOnePredictionPerSession|TestSearchCursorReplayAndConcurrency|TestSearchAccessChangeKeepsPendingContent|TestSearchCursorActualOSProcesses|TestSearchFiltersForbiddenPagesBeforeRanking|TestSearchFinalCheckRejectsCorruptIndexedAccess|TestSearchRevokedAccessRejectsLaterResultsAndReplay|TestSearchDelayedWriter|TestSearchRuntimeIndexesThroughGraph
@@ -192,12 +199,13 @@ SEARCH_G2_ARGS := -count=1 -timeout 30m -run '^TestSearchActualOSProcessThroughp
 SEARCH_G3_ARGS := -count=1 -timeout 45m -run '^TestSearch(Split|Restore|Rebuild)'
 SEARCH_G4_ARGS := -count=1 -timeout 25m -run '^TestSearchCluster' -skip '^TestSearchClusterModelRepair'
 SEARCH_G5A_ARGS := -count=1 -timeout 75m -tags runtimeaudit -run '^TestSearch[A-M]' -skip '$(SEARCH_SKIP_G5)'
-SEARCH_G5B_ARGS := -count=1 -timeout 75m -tags runtimeaudit -run '^TestSearch($$|[^A-M])' -skip '$(SEARCH_SKIP_G5)'
+SEARCH_G5B_ARGS := -count=1 -timeout 75m -tags runtimeaudit -run '^TestSearch($$|[^A-M])' -skip '$(SEARCH_SKIP_G5)|$(SEARCH_G5C_TESTS)'
+SEARCH_G5C_ARGS := -count=1 -timeout 75m -tags runtimeaudit -run '$(SEARCH_G5C_TESTS)'
 SEARCH_G6_ARGS := -count=1 -timeout 5m -run '^TestSearchClusterModelRepair'
 SEARCH_T1_ARGS := -count=3 -timeout 180m -run '^TestSearchContinuationTraversesDuplicateHeavyCorpus$$'
 SEARCH_T2_ARGS := -count=3 -timeout 85m -run '^($(SEARCH_T2_TESTS))$$'
 SEARCH_T3_ARGS := -count=3 -timeout 50m -run '^($(SEARCH_T3_TESTS))$$'
-SEARCH_GROUP_ARGS = $(or $(SEARCH_$(GROUP)_ARGS),$(error GROUP must be one of G1 G2 G3 G4 G5A G5B G6 T1 T2 T3))
+SEARCH_GROUP_ARGS = $(or $(SEARCH_$(GROUP)_ARGS),$(error GROUP must be one of G1 G2 G3 G4 G5A G5B G5C G6 T1 T2 T3))
 
 .PHONY: test-search-host-group
 test-search-host-group:

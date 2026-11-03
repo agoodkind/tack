@@ -59,7 +59,7 @@ func readAuditConsumerOffsets(ctx context.Context, f *cli.Factory) (auditConsume
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer_offsets.reader_failed", slog.String("err", err.Error()))
-		return report, fmt.Errorf("open the ledger reader: %w", err)
+		return report, fmt.Errorf("open the ledger reader from AUDIT_READER_DSN: %w", err)
 	}
 	defer reader.Close()
 	offsets, err := reader.ConsumerOffsets(ctx)

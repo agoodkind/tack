@@ -93,7 +93,7 @@ func VerifySearchCohort(ctx context.Context, cfg *config.Config, seed int64) (Se
 	}
 	session := cohortSession{
 		driver: NewDriver(graph, false, seed), titles: titles, token: workspace.Actors[0].Token, entry: workspace.Slug,
-		limits: searchLimits{MaxResults: limits.MaxResults, MaxResponseBytes: limits.MaxResponseBytes},
+		limits: searchLimits{MaxResults: limits.MaxResults, MaxResponseBytes: limits.MaxResponseBytes, IdleTimeout: limits.IdleTimeout},
 	}
 	verification, err = session.verify(ctx, manifest.Cases)
 	return manifest, verification, err

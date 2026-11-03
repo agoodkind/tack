@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -22,11 +23,11 @@ const (
 	// point in time create request to arrive at the proxy.
 	sessionTimeoutHoldLimit = time.Minute
 	// sessionTimeoutPause is how long FoundationDB stays paused after the
-	// proxy forwards the point in time create response. The session create
-	// transaction starts right after that response and times out after its
-	// 5 s limit. The expired-session sweep then starts a transaction with
-	// another 5 s limit. The test resumes FoundationDB before that second
-	// limit ends.
+	// proxy forwards the point in time create response. The point in time
+	// step result or the session create transaction starts right after that
+	// response and times out after its 5 s limit. Both return the unavailable
+	// text. The expired-session sweep then starts a transaction with another
+	// 5 s limit. The test resumes FoundationDB before that second limit ends.
 	sessionTimeoutPause = 7500 * time.Millisecond
 	// sessionTimeoutRecovery bounds how long a new search may keep failing
 	// after FoundationDB resumes.
@@ -36,9 +37,10 @@ const (
 // TestSearchSessionTimeoutReturnsUnavailable pauses the FoundationDB
 // container while the proxy keeps the predict request of a new search open,
 // after the search has finished its earlier FoundationDB reads. The proxy
-// then forwards the predict request, and the session create transaction
-// times out with FoundationDB error 1031. tack_search must return the
-// unavailable text. After FoundationDB resumes, a new search must succeed.
+// then forwards the predict request, and the point in time step result or the
+// session create transaction times out with FoundationDB error 1031.
+// tack_search must return the unavailable text. After FoundationDB resumes, a
+// new search must succeed.
 func TestSearchSessionTimeoutReturnsUnavailable(t *testing.T) {
 	fixture := integration.NewQueryFixture(t)
 	harness, proxy := newPredictHoldHarness(t, fixture)
@@ -92,20 +94,32 @@ func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
 }
 
 // setContainerPaused pauses or resumes the named container.
+// After a successful pause, it registers a cleanup on t that calls
+// resumeContainerIfPaused for that container.
 func setContainerPaused(t *testing.T, container string, paused bool) {
 	t.Helper()
+	ctx := context.WithoutCancel(integration.WithTestOperation(t, t.Context()))
+	if err := changeContainerPause(ctx, container, paused); err != nil {
+		t.Fatalf("set container %s paused %t: %v", container, paused, err)
+	}
+	if paused {
+		t.Cleanup(func() { resumeContainerIfPaused(t, container) })
+	}
+}
+
+// changeContainerPause pauses or resumes a container and returns any Docker
+// error. Callers outside the test goroutine use it because they cannot call
+// t.Fatalf.
+func changeContainerPause(ctx context.Context, container string, paused bool) error {
 	docker, err := client.New(client.FromEnv)
 	if err != nil {
-		t.Fatalf("open docker client: %v", err)
+		return fmt.Errorf("open docker client: %w", err)
 	}
 	defer func() { _ = docker.Close() }()
-	ctx := context.WithoutCancel(integration.WithTestOperation(t, t.Context()))
 	if paused {
 		_, err = docker.ContainerPause(ctx, container, client.ContainerPauseOptions{})
 	} else {
 		_, err = docker.ContainerUnpause(ctx, container, client.ContainerUnpauseOptions{})
 	}
-	if err != nil {
-		t.Fatalf("set container %s paused %t: %v", container, paused, err)
-	}
+	return err
 }
