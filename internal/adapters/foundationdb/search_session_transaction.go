@@ -137,15 +137,6 @@ type commitUncertainError struct{ err error }
 func (e commitUncertainError) Error() string { return e.err.Error() }
 func (e commitUncertainError) Unwrap() error { return e.err }
 
-// sessionNotStartedError marks a session transaction that returned without an
-// attempt because its context had ended. It preserves the text of err.
-type sessionNotStartedError struct{ err error }
-
-func (e sessionNotStartedError) Error() string { return e.err.Error() }
-func (e sessionNotStartedError) Unwrap() []error {
-	return []error{e.err, searchdomain.ErrSessionStepNotStarted}
-}
-
 // commitMayHaveApplied reports whether a commit error leaves the commit result
 // unknown. It returns false for a nil error and for FoundationDB errors 1020
 // and 1007, which indicate that the commit did not apply. It returns true for

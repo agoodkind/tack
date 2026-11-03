@@ -144,8 +144,14 @@ func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.U
 			return nil
 		}
 	}
-	for range sweepSliceLimit {
+	for slice := range sweepSliceLimit {
 		done, err := s.ports.Sessions.CleanupSlice(ctx, sessionID, cleanupSliceKeys)
+		if slice > 0 && errors.Is(err, searchdomain.ErrSessionStepNotStarted) {
+			// An earlier slice committed delete effects. Do not record a failed outcome
+			// when this slice made no attempt after the context ended; a later sweep
+			// continues the delete.
+			return nil
+		}
 		if err != nil {
 			telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
 			return s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)

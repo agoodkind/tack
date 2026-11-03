@@ -27,6 +27,15 @@ const (
 	cleanupNotStartedMessage = "the request deadline or cancellation ended the request before the cleanup step started"
 )
 
+// sessionNotStartedError marks a session transaction that returned without an
+// attempt because its context had ended. It preserves the text of err.
+type sessionNotStartedError struct{ err error }
+
+func (e sessionNotStartedError) Error() string { return e.err.Error() }
+func (e sessionNotStartedError) Unwrap() []error {
+	return []error{e.err, searchdomain.ErrSessionStepNotStarted}
+}
+
 // RecordCleanupFailure commits one database change result event for step
 // under the operation on ctx. The event has the failed outcome. The step
 // could have committed when cause wraps commitUncertainError. In that
@@ -88,8 +97,7 @@ func cleanupFailureEvent(ctx context.Context, changes *sessionAudit, target audi
 	details := audit.OutcomeDetails{
 		Outcome: audit.OutcomeFailed, FailureCode: string(step), FailureMessage: cleanupFailureMessage, CommittedSteps: nil,
 	}
-	var notStarted sessionNotStartedError
-	if errors.As(cause, &notStarted) {
+	if errors.Is(cause, searchdomain.ErrSessionStepNotStarted) {
 		details.FailureCode, details.FailureMessage = cleanupNotStartedCode, cleanupNotStartedMessage
 	}
 	var uncertain commitUncertainError
