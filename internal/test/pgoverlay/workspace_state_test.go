@@ -12,6 +12,7 @@ import (
 type roleState struct {
 	ID         string
 	Name       string
+	OID        int64
 	Version    string
 	ValidUntil string
 }
@@ -29,6 +30,7 @@ func (space *workspace) stateValues(t *testing.T) roleState {
 					Values struct {
 						ID         string `json:"id"`
 						Name       string `json:"name"`
+						OID        int64  `json:"role_oid"`
 						Version    string `json:"password_wo_version"`
 						ValidUntil string `json:"valid_until"`
 					} `json:"values"`
@@ -44,7 +46,30 @@ func (space *workspace) stateValues(t *testing.T) roleState {
 		t.Fatalf("state has %d resources, and the test expects 1", len(resources))
 	}
 	values := resources[0].Values
-	return roleState{ID: values.ID, Name: values.Name, Version: values.Version, ValidUntil: values.ValidUntil}
+	return roleState{
+		ID: values.ID, Name: values.Name, OID: values.OID,
+		Version: values.Version, ValidUntil: values.ValidUntil,
+	}
+}
+
+// stateResourceCount returns the number of resources that tofu records in state.
+func (space *workspace) stateResourceCount(t *testing.T) int {
+	t.Helper()
+	output, code := space.run(t, nil, "show", "-json")
+	if code != 0 {
+		t.Fatalf("tofu show exited %d", code)
+	}
+	var document struct {
+		Values struct {
+			RootModule struct {
+				Resources []json.RawMessage `json:"resources"`
+			} `json:"root_module"`
+		} `json:"values"`
+	}
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("read the state document: %v", err)
+	}
+	return len(document.Values.RootModule.Resources)
 }
 
 func (space *workspace) requireNoSecrets(t *testing.T, secrets ...string) {

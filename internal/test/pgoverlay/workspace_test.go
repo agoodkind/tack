@@ -46,9 +46,18 @@ variable "role_password" {
 variable "role_password_version" { type = string }
 variable "valid_until" { type = string }
 variable "expected_version" { type = string }
+variable "role_lock_mode" {
+  type    = string
+  default = null
+}
+variable "role_memberships" {
+  type    = list(string)
+  default = null
+}
 
 provider "postgresql" {
   expected_version = var.expected_version
+  role_lock_mode   = var.role_lock_mode
   host             = var.host
   port             = var.port
   database         = var.database
@@ -63,6 +72,7 @@ resource "postgresql_role" "app" {
   password_wo         = var.role_password
   password_wo_version = var.role_password_version
   valid_until         = var.valid_until
+  roles               = var.role_memberships
 }
 `
 
@@ -81,6 +91,12 @@ type workspace struct {
 	host       testenv.OpenTofuHost
 	target     databaseTarget
 	transcript strings.Builder
+	// lockMode is the provider role_lock_mode value. An empty value leaves the
+	// attribute unset, and the provider default applies.
+	lockMode string
+	// memberships is a JSON list for the role roles attribute. An empty value
+	// leaves the attribute unset.
+	memberships string
 }
 
 func newWorkspace(t *testing.T, target databaseTarget) *workspace {
@@ -121,6 +137,28 @@ func (space *workspace) requireVersion(t *testing.T) {
 
 func (space *workspace) run(t *testing.T, variables map[string]string, args ...string) (string, int) {
 	t.Helper()
+	environment, command := space.tofuCommand(variables, args)
+	output, code := space.host.Run(t, environment, command...)
+	space.transcript.WriteString(output)
+	return output, code
+}
+
+// start runs tofu in the container without waiting for it to end.
+func (space *workspace) start(t *testing.T, variables map[string]string, args ...string) *testenv.TofuProcess {
+	t.Helper()
+	environment, command := space.tofuCommand(variables, args)
+	return space.host.Start(t, environment, command...)
+}
+
+// wait returns the output and exit code of a process that start returned.
+func (space *workspace) wait(t *testing.T, process *testenv.TofuProcess) (string, int) {
+	t.Helper()
+	output, code := process.Wait(t)
+	space.transcript.WriteString(output)
+	return output, code
+}
+
+func (space *workspace) tofuCommand(variables map[string]string, args []string) ([]string, []string) {
 	environment := []string{
 		"HOME=" + space.host.Directory,
 		"TF_CLI_CONFIG_FILE=" + space.cliConfigPath(),
@@ -131,13 +169,11 @@ func (space *workspace) run(t *testing.T, variables map[string]string, args ...s
 		environment = append(environment, "TF_VAR_"+name+"="+value)
 	}
 	command := append([]string{"tofu", "-chdir=" + space.host.Directory}, args...)
-	output, code := space.host.Run(t, environment, command...)
-	space.transcript.WriteString(output)
-	return output, code
+	return environment, command
 }
 
 func (space *workspace) roleVariables(role, password, version, validUntil string) map[string]string {
-	return map[string]string{
+	variables := map[string]string{
 		"host":                  space.target.host,
 		"port":                  space.target.port,
 		"database":              space.target.database,
@@ -149,4 +185,11 @@ func (space *workspace) roleVariables(role, password, version, validUntil string
 		"valid_until":           validUntil,
 		"expected_version":      space.target.expectedVersion,
 	}
+	if space.lockMode != "" {
+		variables["role_lock_mode"] = space.lockMode
+	}
+	if space.memberships != "" {
+		variables["role_memberships"] = space.memberships
+	}
+	return variables
 }
