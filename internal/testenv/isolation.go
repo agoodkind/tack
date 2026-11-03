@@ -127,6 +127,7 @@ func CreateStoppedRunDecoy(ctx context.Context) (string, error) {
 	}
 	self, err := cli.ContainerInspect(ctx, runner, client.ContainerInspectOptions{Size: false})
 	if err != nil {
+		slog.ErrorContext(ctx, "testenv.decoy.runner_inspect_failed", slog.String("container", runner), slog.String("err", err.Error()))
 		return "", fmt.Errorf("inspect runner container %s: %w", runner, err)
 	}
 	name, err := generatedEngineName(ctx, "decoy")
@@ -145,6 +146,7 @@ func CreateStoppedRunDecoy(ctx context.Context) (string, error) {
 		Name:   name,
 	})
 	if err != nil {
+		slog.ErrorContext(ctx, "testenv.decoy.create_failed", slog.String("container", name), slog.String("err", err.Error()))
 		return "", fmt.Errorf("create decoy container %s: %w", name, err)
 	}
 	return name, nil
@@ -162,6 +164,7 @@ func StoppedRunDecoyExists(ctx context.Context, name string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
+		slog.ErrorContext(ctx, "testenv.decoy.inspect_failed", slog.String("container", name), slog.String("err", err.Error()))
 		return false, fmt.Errorf("inspect decoy container %s: %w", name, err)
 	}
 	return true, nil
