@@ -17,12 +17,14 @@ import (
 const (
 	// sweepSessionLimit bounds the expired sessions one new search cleans up.
 	sweepSessionLimit = 2
-	// sweepCandidateWindow limits the oldest expired sessions eligible for a
-	// sweep. Each process runs four searches at once by default. QA runs two
-	// processes. If eight sweeps each select two sessions from 64, the expected
-	// result is about 14.4 distinct sessions across 16 selections. One read loads
-	// about 4.3 KiB of keys and does not commit. Sweeping stops if 64 or more
-	// undeletable keys fill the window.
+	// sweepCandidateWindow limits the oldest expired sessions eligible for a sweep.
+	// Each process runs four searches at once by default. QA runs two processes.
+	// Eight sweeps selecting two sessions each from 64 select about 14.4 distinct
+	// sessions across 16 selections on average. One read loads about 4.3 KiB of keys
+	// and does not commit. By calculation, the backlog stops falling at about 32
+	// undeletable keys in a full window. A full window of 64 undeletable keys with
+	// valid session IDs stops sweeping. One malformed key in the window stops all
+	// sweeping because the read fails.
 	sweepCandidateWindow = 64
 	// sweepSliceLimit bounds the cleanup slices one expired session receives
 	// per sweep.
