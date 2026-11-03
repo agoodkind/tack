@@ -45,7 +45,7 @@ func queryService(t *testing.T, fixture queryFixture, responseBytes int, idle, a
 		Ranker: ranker, Sessions: sessions, Expired: sessions,
 		Summaries: fixture.Stores.NodeSummaries(policies), Access: policies,
 		Versions: fixture.Stores.SearchRollouts(clock.Wall{}, policies), Index: fixture.Stores, Generations: fixture.Stores,
-		Audit: audit.NewAppendOutbox(fixture.Stores.OpsOutbox),
+		Audit: audit.NewBatchAppendOutbox(fixture.Stores.OpsOutbox),
 	}, clock.Wall{}, settings)
 }
 

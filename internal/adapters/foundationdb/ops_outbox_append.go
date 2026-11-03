@@ -37,13 +37,44 @@ func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err
 		slog.ErrorContext(ctx, "ops_outbox.append_pack_failed", slog.String("err", packErr.Error()))
 		return fmt.Errorf("ops outbox append key: %w", packErr)
 	}
+	return commitOutboxEntries(ctx, s.db, func(tr fdb.Transaction) error {
+		tr.SetVersionstampedKey(key, event)
+		return nil
+	})
+}
 
+// AppendBatch writes events to the outbox through one OutboxWriter in one
+// transaction in slice order. All events share one commit version and have
+// increasing user versions. AppendBatch returns after the transaction commits.
+func (s *OpsOutboxStore) AppendBatch(ctx context.Context, events []json.RawMessage) (err error) {
+	defer telemetry.FDBOp(ctx, "store.ops_outbox.append_batch")(&err)
+	if len(events) == 0 {
+		err := errors.New("outbox batch append did not receive any events")
+		slog.ErrorContext(ctx, "ops_outbox.append_batch_empty", slog.String("err", err.Error()))
+		return err
+	}
+	return commitOutboxEntries(ctx, s.db, func(tr fdb.Transaction) error {
+		writer := NewOutboxWriter(tr)
+		for _, event := range events {
+			if err := writer.WriteEventJSON(ctx, event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// commitOutboxEntries runs apply in a transaction and commits it. It retries
+// retryable FoundationDB errors and runs apply again on each attempt. The
+// context deadline sets the transaction timeout, and the end of the context
+// cancels the transaction.
+func commitOutboxEntries(ctx context.Context, db fdb.Database, apply func(fdb.Transaction) error) error {
 	// A mutation with no result cannot go through db.Transact here: that
 	// binding's closure must return an empty interface, and the repo's
 	// staticcheck rule refuses a new one. The retry loop below is what
 	// db.Transact does internally, spelled out. The mutation is re-applied on
 	// every pass because OnError resets the transaction.
-	transaction, transactionErr := s.db.CreateTransaction()
+	transaction, transactionErr := db.CreateTransaction()
 	if transactionErr != nil {
 		slog.ErrorContext(ctx, "ops_outbox.append_transaction_failed",
 			slog.String("err", transactionErr.Error()))
@@ -89,7 +120,10 @@ func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err
 		}
 	}
 	for {
-		transaction.SetVersionstampedKey(key, event)
+		if applyErr := apply(transaction); applyErr != nil {
+			slog.ErrorContext(ctx, "ops_outbox.append_apply_failed", slog.String("err", applyErr.Error()))
+			return fmt.Errorf("prepare ops outbox entries: %w", applyErr)
+		}
 		commitErr := transaction.Commit().Get()
 		if commitErr == nil {
 			return nil

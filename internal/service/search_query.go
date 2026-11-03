@@ -40,7 +40,7 @@ type SearchQueryPorts struct {
 	Versions    searchdomain.AccessStateReader
 	Index       searchdomain.ServingIndexReader
 	Generations searchdomain.GenerationReader
-	Audit       audit.OutboxWriter
+	Audit       audit.BatchOutboxWriter
 }
 
 // SearchRequest is one authenticated search call. A zero SessionID opens a
