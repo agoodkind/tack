@@ -10,4 +10,7 @@ var (
 	ErrInvalidArgument    = errors.New("invalid argument")
 	ErrFailedPrecondition = errors.New("failed precondition")
 	ErrUnauthenticated    = errors.New("unauthenticated")
+	// ErrStorageTimeout indicates that a storage read exceeded its transaction
+	// timeout. A later attempt can succeed.
+	ErrStorageTimeout = errors.New("storage read timed out")
 )

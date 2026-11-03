@@ -12,7 +12,8 @@ import (
 )
 
 // ListBySources reads relationships for all sources in one read transaction.
-// It starts one range read per source before waiting for any results.
+// It starts one range read per source before waiting for results.
+// It wraps FoundationDB error 1031 with domain.ErrStorageTimeout.
 func (s *RelationshipStore) ListBySources(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -43,7 +44,7 @@ func (s *RelationshipStore) ListBySources(
 			return nil, sourcesReadError{sourceCount: len(sourceIDs), err: readErr}
 		}
 		if retryErr := transaction.OnError(databaseError).Get(); retryErr != nil {
-			return nil, sourcesReadError{sourceCount: len(sourceIDs), err: retryErr}
+			return nil, sourcesReadError{sourceCount: len(sourceIDs), err: classifyStorageTimeout(retryErr)}
 		}
 	}
 }

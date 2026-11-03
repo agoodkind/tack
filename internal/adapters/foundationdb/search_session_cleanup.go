@@ -68,10 +68,11 @@ func (s *SearchSessionStore) beginCleanup(ctx context.Context, sessionID uuid.UU
 }
 
 // CleanupSlice deletes at most limit child records of a closing session and
-// records each removed value in the same transaction. A slice that reads a
-// query token chunk deletes every chunk. A slice that reads fewer than limit
-// child records also deletes the header and the expiry, presence, and version
-// presence keys. It reports whether the session is gone.
+// records each removed value in the same transaction. If the slice reads a query
+// token chunk, it deletes every chunk. If it reads fewer than limit child
+// records, it also deletes the header and the expiry, presence, and version
+// presence keys. It reports whether the session is gone. It logs
+// search.session.deleted only when this call removes the header.
 func (s *SearchSessionStore) CleanupSlice(ctx context.Context, sessionID uuid.UUID, limit int) (bool, error) {
 	return s.cleanupSlice(ctx, sessionID, limit, nil)
 }
@@ -85,8 +86,9 @@ func (s *SearchSessionStore) cleanupSlice(ctx context.Context, sessionID uuid.UU
 	if err != nil {
 		return false, err
 	}
+	removed := false
 	err = transactSession(ctx, s.db, s.clock, "clean up search session", sessionID, func(tr fdb.Transaction) error {
-		done = false
+		done, removed = false, false
 		changes.startAttempt()
 		if fenceErr := requireRetireFence(tr, fence); fenceErr != nil {
 			return fenceErr
@@ -129,7 +131,7 @@ func (s *SearchSessionStore) cleanupSlice(ctx context.Context, sessionID uuid.UU
 		tr.Clear(fdb.Key(searchSessionPresenceKey(record.Index, sessionID)))
 		clearSessionVersion(tr, record)
 		tr.Clear(fdb.Key(searchSessionKey(sessionID)))
-		done = true
+		done, removed = true, true
 		if recordErr := changes.recordSessionDelete(state); recordErr != nil {
 			return recordErr
 		}
@@ -139,14 +141,16 @@ func (s *SearchSessionStore) cleanupSlice(ctx context.Context, sessionID uuid.UU
 		return false, err
 	}
 	changes.finish(ctx)
-	if done {
+	if removed {
 		telemetry.L(ctx).InfoContext(ctx, "search.session.deleted", slog.String("session_id", sessionID.String()))
 	}
 	return done, nil
 }
 
-// ExpiredSessions returns at most limit session IDs. Each returned session
-// has an expiry key in a minute bucket earlier than the current minute.
+// ExpiredSessions returns at most limit session IDs with expiry keys in
+// minute buckets earlier than the current minute. It starts with the oldest
+// minute bucket. Within a minute it orders results by bucket and session ID
+// rather than age.
 func (s *SearchSessionStore) ExpiredSessions(ctx context.Context, limit int) (sessionIDs []uuid.UUID, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.expired")(&err)
 	begin, end := searchSessionExpiryRange(s.clock.Now())

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/domain"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/searchaccess"
 	"goodkind.io/tack/internal/service"
@@ -68,11 +69,11 @@ func runSearch(ctx context.Context, request mcpmcp.CallToolRequest, nodes NodeTy
 	}
 	views, err := searchResultViews(ctx, nodes.Reader, page.Results)
 	if err != nil {
-		return unexpectedError(ctx, err)
+		return searchFailureResult(ctx, err)
 	}
 	rc := newRenderCtxWithTypes(ctx, nodes.Reader, nodes.Users, resolver.typeIndex)
 	if err := rc.loadAssignees(nodes.Relationships, slices.Collect(maps.Values(views))...); err != nil {
-		return classifyError(ctx, err)
+		return searchFailureResult(ctx, err)
 	}
 	return successText(renderSearchPage(rc, page, views, binding.Cursors), "")
 }
@@ -96,7 +97,7 @@ func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult 
 	// Check recording failures first because their errors can also match other cases.
 	case errors.Is(err, audit.ErrEventNotRecorded):
 		return searchRecordingFailed(ctx)
-	case errors.Is(err, searchdomain.ErrEngineUnavailable):
+	case errors.Is(err, searchdomain.ErrEngineUnavailable), errors.Is(err, domain.ErrStorageTimeout):
 		return searchUnavailable(ctx)
 	case errors.Is(err, searchdomain.ErrInvalidQuery):
 		return recoverableError("query is invalid: " + err.Error())

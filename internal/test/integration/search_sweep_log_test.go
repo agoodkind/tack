@@ -22,6 +22,8 @@ const (
 	// sweepSkippedMessage is the debug record of a session that no longer
 	// exists.
 	sweepSkippedMessage = "search.session.sweep_skipped"
+	// sessionDeletedMessage is the record of a removed session header.
+	sessionDeletedMessage = "search.session.deleted"
 )
 
 // sweepLogRecord is one JSON log record of the search service.
@@ -77,11 +79,13 @@ func captureSweepLog(t *testing.T) (*lockedLog, func()) {
 }
 
 // requireSweepSkip requires the captured JSON log records to contain exactly
-// one Debug record with the message search.session.sweep_skipped. It rejects
-// every ERROR record with a message that starts with the "search." prefix.
-func requireSweepSkip(t *testing.T, logged []byte) {
+// one Debug record with the message search.session.sweep_skipped. It also
+// requires exactly deleted records with the message search.session.deleted. It
+// rejects every ERROR record with a message that starts with the "search."
+// prefix.
+func requireSweepSkip(t *testing.T, logged []byte, deleted int) {
 	t.Helper()
-	skipped := 0
+	skipped, found := 0, 0
 	decoder := json.NewDecoder(bytes.NewReader(logged))
 	for {
 		var record sweepLogRecord
@@ -98,8 +102,14 @@ func requireSweepSkip(t *testing.T, logged []byte) {
 		if record.Level == slog.LevelDebug.String() && record.Message == sweepSkippedMessage {
 			skipped++
 		}
+		if record.Message == sessionDeletedMessage {
+			found++
+		}
 	}
 	if skipped != 1 {
 		t.Errorf("the sweeps logged %d %s records, want 1", skipped, sweepSkippedMessage)
+	}
+	if found != deleted {
+		t.Errorf("the sweeps logged %d %s records, want %d", found, sessionDeletedMessage, deleted)
 	}
 }
