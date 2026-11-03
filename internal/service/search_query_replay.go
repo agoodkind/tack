@@ -150,6 +150,7 @@ func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.U
 			// An earlier slice committed delete effects. Do not record a failed outcome
 			// when this slice made no attempt after the context ended; a later sweep
 			// continues the delete.
+			telemetry.L(ctx).InfoContext(ctx, "search.session.sweep_stopped", slog.String("session_id", sessionID.String()), slog.String("reason", err.Error()))
 			return nil
 		}
 		if err != nil {

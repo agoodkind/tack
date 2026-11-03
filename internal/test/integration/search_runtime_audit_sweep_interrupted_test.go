@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
+	"goodkind.io/tack/internal/service"
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
@@ -18,6 +20,8 @@ import (
 const (
 	// sweepCleanupOperation is the log record of one committed cleanup slice.
 	sweepCleanupOperation = "store.search_session.cleanup"
+	// sweepBeginCleanupOperation identifies the log record for a completed BeginCleanup call.
+	sweepBeginCleanupOperation = "store.search_session.begin_cleanup"
 	// sweepCloseFailedMessage is the log record of a failed close step.
 	sweepCloseFailedMessage = "search.session.close_failed"
 	// sweepExtraVisited exceeds the 100 child records of one sweep slice.
@@ -52,14 +56,7 @@ func TestSearchRuntimeAuditSweepLaterSliceAfterContextEnd(t *testing.T) {
 	}
 	waitUntilTime(t, committed.IdleDeadline.Truncate(time.Minute).Add(time.Minute+sessionAuditMargin))
 
-	sweeping, cancel := context.WithCancel(integration.WithTestOperation(t, t.Context()))
-	defer cancel()
-	hooks := installRetireLogHooks(t, "", map[string]func(){sweepCleanupOperation: cancel})
-	page, err := searcher.Search(sweeping, request)
-	hooks.requireFinished(t)
-	if err != nil || len(page.Results) == 0 {
-		t.Fatalf("the search with the ended sweep returned %d results and error %v", len(page.Results), err)
-	}
+	searchThroughEndedSweep(t, searcher, request, map[string]func(){sweepStoppedMessage: func() {}}, sweepCleanupOperation)
 	after, err := store.Load(ctx, session.ID)
 	if err != nil || !after.Closing {
 		t.Fatalf("session %s after the ended sweep = %+v, %v, want a closing session", session.ID, after, err)
@@ -76,6 +73,41 @@ func TestSearchRuntimeAuditSweepLaterSliceAfterContextEnd(t *testing.T) {
 			t.Fatalf("session %s has %d %s rows, want 0", session.ID, len(failed), code)
 		}
 	}
+}
+
+// TestSearchRuntimeAuditSweepFirstSliceAfterContextEnd checks the search result
+// and audit record when cancellation prevents the first cleanup attempt.
+func TestSearchRuntimeAuditSweepFirstSliceAfterContextEnd(t *testing.T) {
+	fixture := newFailureFixture(t)
+	searcher := integration.QueryService(t, fixture.QueryFixture, failureAuditResponseBytes, failureAuditIdle, failureAuditAbsolute)
+	request := integration.ServiceRequest(t, fixture.QueryFixture, failureAuditQuery)
+	expired := fixture.openExpired(t, searcher, request)
+
+	operationID := searchThroughEndedSweep(t, searcher, request, map[string]func(){}, sweepBeginCleanupOperation)
+	store := fixture.Stores.SearchSessions(clock.Wall{}, failureAuditIdle)
+	after, err := store.Load(integration.WithTestOperation(t, t.Context()), expired.ID)
+	if err != nil || !after.Closing {
+		t.Fatalf("session %s after the ended sweep = %+v, %v, want a closing session", expired.ID, after, err)
+	}
+	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(current []audit.Row) bool {
+		return len(cleanupFailures(current, expired.ID, cleanupNotStarted)) == 1
+	})
+	row := onlyRow(t, cleanupFailures(rows, expired.ID, cleanupNotStarted), "the not started delete")
+	requireCleanupFailureRow(t, row, audit.VerbSearchSessionDelete, expired.PrincipalID, operationID)
+}
+
+func searchThroughEndedSweep(t *testing.T, searcher *service.SearchQueryService, request service.SearchRequest, actions map[string]func(), cancelAt string) uuid.UUID {
+	t.Helper()
+	sweeping, cancel := context.WithCancel(integration.WithTestOperation(t, t.Context()))
+	defer cancel()
+	actions[cancelAt] = cancel
+	hooks := installRetireLogHooks(t, "", actions)
+	page, err := searcher.Search(sweeping, request)
+	hooks.requireFinished(t)
+	if err != nil || len(page.Results) == 0 {
+		t.Fatalf("the search with the ended sweep returned %d results and error %v", len(page.Results), err)
+	}
+	return operationIDOf(t, sweeping)
 }
 
 // TestSearchRuntimeAuditNotStartedCloseRecordingLossRefusesPage checks that
