@@ -71,15 +71,18 @@ migrate:
 seed:
 	go run $(GO_BUILD_FLAGS) $(CMD) seed
 
-# Tests run inside the test runner image (docker-compose.test.yml), which
-# mounts the Docker socket and the source tree at the tree's host path.
-# The runner and daemon use the same path for each source file in a bind mount.
+# Tests run inside the test runner image from docker-compose.test.yml.
+# The image mounts the Docker socket and the source tree at the tree's host
+# path. The runner and daemon use the same path for each source file in a
+# bind mount.
+#
 # A test that needs FoundationDB, the ledger, or the object store starts it
 # through internal/testenv. Each test binary has its own engine containers.
 # TestMain and the SIGINT and SIGTERM handler remove that binary's engines.
-# A later test binary's first engine start or `make test-env-down` removes
-# engines left after SIGKILL or a test timeout panic. Only `go test -short`
-# skips tests that need these stores.
+# A watcher process removes them when the binary ends in any other way,
+# including a test timeout panic. After SIGKILL ends the whole runner, a
+# later test binary's first engine start or make test-env-down removes the
+# remaining engines. Only go test -short skips tests that need these stores.
 TEST_RUNNER := TACK_TEST_ROOT=$(CURDIR) docker compose -f docker-compose.test.yml --profile runner
 
 # The ops, postgres adapter, and audit packages. The audit package carries the

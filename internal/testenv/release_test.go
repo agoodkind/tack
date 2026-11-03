@@ -17,6 +17,7 @@ import (
 	"github.com/moby/moby/client"
 	"golang.org/x/sys/unix"
 
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -30,6 +31,10 @@ const (
 	// engineChildLifetime bounds how long TestEngineChild waits for the parent
 	// test to stop it.
 	engineChildLifetime = 10 * time.Minute
+	// engineRemovalLimit bounds the wait for a run watcher to remove an engine.
+	engineRemovalLimit = time.Minute
+	// enginePollInterval separates the checks for a removed engine.
+	enginePollInterval = time.Second
 )
 
 // engineChild records a child test process and the name of the engine container
@@ -52,10 +57,13 @@ func TestEngineChild(t *testing.T) {
 	t.Error("the parent test did not stop this process")
 }
 
-// TestReleaseKeepsEnginesOfRunningProcesses starts two children with separate
-// FoundationDB engines and checks that SIGTERM removes only the first engine.
-// It checks that SIGKILL leaves the second engine until a third child's first
-// engine start removes it. It then checks that SIGINT removes the third engine.
+// TestReleaseKeepsEnginesOfRunningProcesses starts two children with
+// separate FoundationDB engines and checks that SIGTERM removes only the
+// first engine. It checks that the run watcher removes the second engine
+// after SIGKILL ends the second child. It checks that SIGKILL to the
+// process group of a third child leaves the third engine until a fourth
+// child starts its first engine. It then checks that SIGINT removes the
+// fourth engine.
 func TestReleaseKeepsEnginesOfRunningProcesses(t *testing.T) {
 	testenv.RequireDocker(t)
 	first := startEngineChild(t)
@@ -64,12 +72,15 @@ func TestReleaseKeepsEnginesOfRunningProcesses(t *testing.T) {
 	requireEngine(t, first, false)
 	requireEngine(t, second, true)
 	stopEngineChild(t, second, unix.SIGKILL)
-	requireEngine(t, second, true)
+	waitForEngineRemoved(t, second)
 	third := startEngineChild(t)
-	requireEngine(t, second, false)
+	killEngineChildGroup(t, third)
 	requireEngine(t, third, true)
-	stopEngineChild(t, third, unix.SIGINT)
+	fourth := startEngineChild(t)
 	requireEngine(t, third, false)
+	requireEngine(t, fourth, true)
+	stopEngineChild(t, fourth, unix.SIGINT)
+	requireEngine(t, fourth, false)
 }
 
 // startEngineChild starts this test binary as a child that runs TestEngineChild
@@ -80,6 +91,7 @@ func startEngineChild(t *testing.T) engineChild {
 	command := exec.CommandContext(context.WithoutCancel(t.Context()), os.Args[0], "-test.run=^TestEngineChild$", "-test.v")
 	command.Env = append(os.Environ(), engineChildVariable+"=1")
 	command.Stderr = os.Stderr
+	command.SysProcAttr = &unix.SysProcAttr{Setpgid: true}
 	output, err := command.StdoutPipe()
 	if err != nil {
 		t.Fatalf("connect to the engine child output: %v", err)
@@ -124,9 +136,45 @@ func stopEngineChild(t *testing.T, child engineChild, stop unix.Signal) {
 	_ = child.command.Wait()
 }
 
+// killEngineChildGroup sends SIGKILL to the child and its run watcher and
+// waits for the child to exit.
+func killEngineChildGroup(t *testing.T, child engineChild) {
+	t.Helper()
+	if err := unix.Kill(-child.command.Process.Pid, unix.SIGKILL); err != nil {
+		t.Fatalf("send SIGKILL to the process group of engine child %d: %v", child.command.Process.Pid, err)
+	}
+	_ = child.command.Wait()
+}
+
+// waitForEngineRemoved waits until Docker removes the child's engine
+// container.
+func waitForEngineRemoved(t *testing.T, child engineChild) {
+	t.Helper()
+	deadline := clock.Now().Add(engineRemovalLimit)
+	for clock.Now().Before(deadline) {
+		if !engineExists(t, child) {
+			return
+		}
+		time.Sleep(enginePollInterval)
+	}
+	t.Fatalf("engine %s of child %d still exists after %s", child.container, child.command.Process.Pid, engineRemovalLimit)
+}
+
 // requireEngine fails the test unless the child's engine container exists
 // exactly when present is true.
 func requireEngine(t *testing.T, child engineChild, present bool) {
+	t.Helper()
+	exists := engineExists(t, child)
+	if exists && !present {
+		t.Fatalf("engine %s of child %d still exists", child.container, child.command.Process.Pid)
+	}
+	if !exists && present {
+		t.Fatalf("engine %s of child %d is gone", child.container, child.command.Process.Pid)
+	}
+}
+
+// engineExists reports whether the child's engine container exists.
+func engineExists(t *testing.T, child engineChild) bool {
 	t.Helper()
 	cli, err := client.New(client.WithHost(client.DefaultDockerHost))
 	if err != nil {
@@ -134,12 +182,11 @@ func requireEngine(t *testing.T, child engineChild, present bool) {
 	}
 	defer func() { _ = cli.Close() }()
 	_, err = cli.ContainerInspect(t.Context(), child.container, client.ContainerInspectOptions{Size: false})
-	switch {
-	case err == nil && !present:
-		t.Fatalf("engine %s of child %d still exists", child.container, child.command.Process.Pid)
-	case cerrdefs.IsNotFound(err) && present:
-		t.Fatalf("engine %s of child %d is gone", child.container, child.command.Process.Pid)
-	case err != nil && !cerrdefs.IsNotFound(err):
+	if cerrdefs.IsNotFound(err) {
+		return false
+	}
+	if err != nil {
 		t.Fatalf("inspect engine %s: %v", child.container, err)
 	}
+	return true
 }

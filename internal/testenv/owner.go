@@ -51,6 +51,9 @@ var (
 	}
 	// testProcessPrepared runs preparation once per test binary.
 	testProcessPrepared sync.Once
+	// errWatcherStart stores the error from testProcessPrepared when it fails
+	// to start the run watcher.
+	errWatcherStart error
 )
 
 // currentOwner looks up this process's identity on the first call and
@@ -87,10 +90,12 @@ func knownOwner() (processOwner, bool) {
 	return ownerState.owner, ownerState.owner.run != ""
 }
 
-// prepareCreate returns this process's identity before each testenv function
-// creates a container or network. In a test binary, the first call installs a
-// handler that removes this process's engines on SIGINT or SIGTERM. That call
-// also removes containers and networks of test processes that have exited.
+// prepareCreate returns this process's identity before each testenv
+// function creates a container or network. In a test binary, the first
+// call installs a handler that removes this process's engines on SIGINT
+// or SIGTERM. The first call also starts a watcher process that removes
+// those engines when this process ends. It also removes the containers
+// and networks of test processes that have exited.
 func prepareCreate(ctx context.Context, cli *client.Client) (processOwner, error) {
 	owner, err := currentOwner(ctx, cli)
 	if err != nil {
@@ -99,8 +104,12 @@ func prepareCreate(ctx context.Context, cli *client.Client) (processOwner, error
 	if !owner.operator {
 		testProcessPrepared.Do(func() {
 			releaseOnSignal(ctx)
+			errWatcherStart = startRunWatcher(ctx, owner.run)
 			_, _ = removeEngines(ctx, cli, owner, ownerExited)
 		})
+		if errWatcherStart != nil {
+			return processOwner{}, errWatcherStart
+		}
 	}
 	return owner, nil
 }
