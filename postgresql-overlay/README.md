@@ -17,7 +17,7 @@ provider "postgresql" {
 
 The `role_lock_mode` provider setting accepts `advisory` (the default) and `external`. Any other value fails validation.
 
-In `advisory` mode, `postgresql_role` create, update, and delete take PostgreSQL advisory locks. YugabyteDB does not accept those locks. A role update on YugabyteDB fails and leaves the prior password version in state. `TestYugabyteAdvisoryLockFailure` covers this behavior.
+In `advisory` mode, `postgresql_role` update and delete take PostgreSQL advisory locks, and create takes none. YugabyteDB does not accept those locks. A role update on YugabyteDB fails and leaves the prior password version in state. `TestYugabyteAdvisoryLockFailure` covers this behavior.
 
 In `external` mode, `postgresql_role` create, update, and delete take no database lock. The provider serializes those writes inside its own process. Before adopting this mode, run the provider with parallelism 1, serialize all provider instances, and hold real host and backend locks.
 
