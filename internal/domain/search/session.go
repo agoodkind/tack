@@ -22,6 +22,9 @@ var (
 	ErrSessionNotFound = errors.New("search session was not found")
 	// ErrSessionMismatch means the request no longer matches the session binding.
 	ErrSessionMismatch = errors.New("search request does not match its session")
+	// ErrSessionStepNotStarted matches a cleanup step that made no transaction attempt
+	// because its request context had ended.
+	ErrSessionStepNotStarted = errors.New("search session step did not start")
 )
 
 // Session is the durable continuation state of one search. FoundationDB
@@ -62,8 +65,9 @@ type PageCommit struct {
 	Complete  bool
 }
 
-// CleanupStep identifies the session cleanup step that failed. Its value is
-// the failure code of the audit event.
+// CleanupStep identifies the failed session cleanup step and supplies the
+// default audit failure code. The session store uses another code when a
+// step makes no transaction attempt or a commit has an uncertain result.
 type CleanupStep string
 
 const (

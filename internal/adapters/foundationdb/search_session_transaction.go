@@ -87,6 +87,9 @@ func transactSession(ctx context.Context, db fdb.Database, source clock.Clock, o
 	uncertain := false
 	for {
 		if err := ctx.Err(); err != nil {
+			if attempts.count == 0 {
+				err = sessionNotStartedError{err: err}
+			}
 			return sessionFailure(ctx, operation, sessionID, markCommitUncertain(err, uncertain), attempts.attributes()...)
 		}
 		attempts.begin()
