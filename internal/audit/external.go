@@ -57,7 +57,18 @@ func RunExternal(
 	if err := writeOnce(ctx, outbox, intent); err != nil {
 		return intentFailure(ctx, intent, err)
 	}
-	steps := newStepRecorder(outbox, intent)
+	return finishExternal(ctx, outbox, intent, newStepRecorder(outbox, intent), run)
+}
+
+// finishExternal calls run and saves the operation result for the attempt.
+// It returns the run error joined with any error from saving the result.
+func finishExternal(
+	ctx context.Context,
+	outbox OutboxWriter,
+	intent Event,
+	steps *stepRecorder,
+	run func(context.Context, StepRecorder) (OutcomeDetails, error),
+) error {
 	details, runErr := run(ctx, steps)
 	result := externalResult(intent, steps.summary(), details, runErr)
 	if err := recordExternalResult(ctx, outbox, result); err != nil {

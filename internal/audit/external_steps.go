@@ -76,8 +76,21 @@ func (r *stepRecorder) BeginStep(ctx context.Context, step Event) error {
 	if step.Context.Target == nil {
 		return externalFailure(ctx, "record external step", r.parent.EventID, errors.New("step requires a target"))
 	}
-	key := targetKey(*step.Context.Target)
 	now := clock.Now().UTC()
+	event, err := r.intentEvent(step, now)
+	if err != nil {
+		return externalFailure(ctx, "record external step", event.EventID, err)
+	}
+	if err := writeOnce(ctx, r.outbox, event); err != nil {
+		return externalFailure(ctx, "record external step", event.EventID, err)
+	}
+	r.noteBegun(*step.Context.Target, now)
+	return nil
+}
+
+// intentEvent builds and validates the pending intent event for step at now.
+// The step must have a target.
+func (r *stepRecorder) intentEvent(step Event, now time.Time) (Event, error) {
 	event := r.stepEvent(step, now, now)
 	event.EventID = StepIntentEventID(r.parent.Context.OperationID, *step.Context.Target)
 	event.Context.Phase = PhaseIntent
@@ -85,20 +98,20 @@ func (r *stepRecorder) BeginStep(ctx context.Context, step Event) error {
 	event.Context.CommittedSteps = nil
 	event.Outcome = OutcomePending
 	event.Error = nil
-	if err := ValidateEvent(event); err != nil {
-		return externalFailure(ctx, "record external step", event.EventID, err)
-	}
-	if err := writeOnce(ctx, r.outbox, event); err != nil {
-		return externalFailure(ctx, "record external step", event.EventID, err)
-	}
+	return event, ValidateEvent(event)
+}
+
+// noteBegun records that the step for target began at startedAt in this
+// attempt.
+func (r *stepRecorder) noteBegun(target Target, startedAt time.Time) {
+	key := targetKey(target)
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if _, begun := r.started[key]; !begun {
 		r.order = append(r.order, key)
-		r.labels[key] = targetLabel(*step.Context.Target)
-		r.started[key] = now
+		r.labels[key] = targetLabel(target)
+		r.started[key] = startedAt
 	}
-	return nil
 }
 
 // FinishStep saves the terminal result of a step that BeginStep saved in

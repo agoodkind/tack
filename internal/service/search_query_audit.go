@@ -109,13 +109,10 @@ func (s *SearchQueryService) runEncodedStep(
 		Reference: snapshotReferencePrefix + session.ID.String() + "/" + operation.action,
 		ID:        uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
-	err = audit.RunExternal(ctx, s.ports.Audit, intent, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-		step := audit.ExternalStep(target, encoded)
+	step := audit.ExternalStep(target, encoded)
+	err = audit.RunExternalStep(ctx, s.ports.Audit, intent, step, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 		details := audit.OutcomeDetails{
 			Outcome: audit.OutcomeFailed, FailureCode: snapshotStepFailedCode, FailureMessage: snapshotStepFailedMessage, CommittedSteps: nil,
-		}
-		if beginErr := steps.BeginStep(ctx, step); beginErr != nil {
-			return details, snapshotStepFailure(ctx, session.ID, "record the point in time step", beginErr)
 		}
 		observed, effectErr := effect(ctx)
 		switch {
