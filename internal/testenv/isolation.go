@@ -99,19 +99,20 @@ func requireIsolatedNetwork(ctx context.Context, cli *client.Client) error {
 	return nil
 }
 
-const (
-	// decoyNeverRunner is the runner ID that a decoy records. No container has it.
-	decoyNeverRunner = "0000000000000000000000000000000000000000000000000000000000000000"
-	// decoyNeverProcess is the process ID that a decoy records.
-	decoyNeverProcess = "999999"
-)
+// decoyNeverProcess is the process ID that a decoy records. No process in the
+// runner container has it.
+const decoyNeverProcess = "999999"
 
 // CreateStoppedRunDecoy creates a container that is not running. It has this
-// process's run label, and [Release] and the signal handler remove it. Its
-// runner and process labels name a runner container and a process that do not
-// exist. An ordinary startup sweep of another process removes such a
-// container. The decoy uses the image of the container that runs this process
-// and never starts.
+// process's run, runner, and host labels and the Compose project labels of the
+// isolated run, and [Release] or the project cleanup removes it. Its process
+// label is a process that does not exist. A startup sweep in this runner
+// container classifies the decoy as left by an exited process, and the
+// function fails when [ownerExited] does not classify it that way. A sweep in
+// another runner container sees that this runner still runs and keeps the
+// decoy. The function creates the decoy before the first startup check of this
+// process. A startup check that sweeps removes the decoy. The decoy uses the
+// image of the container that runs this process and never starts.
 func CreateStoppedRunDecoy(ctx context.Context) (string, error) {
 	cli, err := dockerClient(ctx)
 	if err != nil {
@@ -134,13 +135,19 @@ func CreateStoppedRunDecoy(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	owner, err := prepareCreate(ctx, cli)
+	owner, err := currentOwner(ctx, cli)
 	if err != nil {
 		return "", err
 	}
 	labels := isolationLabels(ownerLabels(owner))
-	labels[runnerLabel] = decoyNeverRunner
 	labels[processLabel] = decoyNeverProcess
+	exited, err := ownerExited(ctx, cli, owner, labels)
+	if err != nil {
+		return "", err
+	}
+	if !exited {
+		return "", fmt.Errorf("process %s runs in this container, and a decoy needs a process that has exited", decoyNeverProcess)
+	}
 	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{Image: self.Container.Config.Image, Labels: labels},
 		Name:   name,
