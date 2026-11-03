@@ -57,7 +57,7 @@ func (r searchRun) verifySessionLifecycle(ctx context.Context, cursors *tools.Se
 }
 
 // sweepAbandonedSession runs one new search and requires the session
-// header to be absent afterward. Each new search sweeps at most four
+// header to be absent afterward. Each new search sweeps at most two
 // expired sessions. Sessions from earlier searches in the run can use
 // that limit first.
 func (r searchRun) sweepAbandonedSession(ctx context.Context, query string, sessionID uuid.UUID) error {
