@@ -3,23 +3,24 @@
 package pgoverlay_test
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"goodkind.io/tack/internal/testenv"
 )
 
 const (
 	providerSource = "tack.invalid/overlay/postgresql"
-	fileMode       = 0o600
+
+	// providerDirectory is where Dockerfile.pgoverlay-test installs the built
+	// provider in the runner container.
+	providerDirectory = "/opt/overlay"
 
 	// configurationText declares one login role with a write-only password and
-	// a password version. Every credential arrives through a sensitive variable.
+	// a password version. Every credential arrives through a sensitive and
+	// ephemeral variable.
 	configurationText = `
 terraform {
   required_providers {
@@ -48,12 +49,12 @@ variable "expected_version" { type = string }
 
 provider "postgresql" {
   expected_version = var.expected_version
-  host     = var.host
-  port     = var.port
-  database = var.database
-  username = var.admin_user
-  password = var.admin_password
-  sslmode  = "disable"
+  host             = var.host
+  port             = var.port
+  database         = var.database
+  username         = var.admin_user
+  password         = var.admin_password
+  sslmode          = "disable"
 }
 
 resource "postgresql_role" "app" {
@@ -74,31 +75,30 @@ resource "postgresql_role" "app" {
 `
 )
 
-// workspace is one OpenTofu working directory that uses the built provider.
+// workspace is one OpenTofu working directory inside the runner container. The
+// runner image contains the built provider and the pinned OpenTofu.
 type workspace struct {
-	directory  string
-	cliConfig  string
-	tofu       string
+	host       testenv.OpenTofuHost
 	target     databaseTarget
-	transcript bytes.Buffer
+	transcript strings.Builder
 }
 
 func newWorkspace(t *testing.T, target databaseTarget) *workspace {
 	t.Helper()
-	provider := requireVariable(t, providerVariable)
-	tofu := requireVariable(t, tofuVariable)
-	directory := t.TempDir()
-	cliConfig := filepath.Join(directory, "tofu.rc")
-	text := fmt.Sprintf(cliConfigFormat, providerSource, filepath.Dir(provider))
-	if err := os.WriteFile(cliConfig, []byte(text), fileMode); err != nil {
-		t.Fatalf("write the OpenTofu CLI configuration: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(directory, "main.tf"), []byte(configurationText), fileMode); err != nil {
-		t.Fatalf("write the OpenTofu configuration: %v", err)
-	}
-	space := &workspace{directory: directory, cliConfig: cliConfig, tofu: tofu, target: target}
+	host := testenv.StartOpenTofuHost(t)
+	space := &workspace{host: host, target: target}
+	host.WriteFile(t, space.cliConfigPath(), fmt.Appendf(nil, cliConfigFormat, providerSource, providerDirectory))
+	host.WriteFile(t, host.Directory+"/main.tf", []byte(configurationText))
 	space.requireVersion(t)
 	return space
+}
+
+func (space *workspace) cliConfigPath() string {
+	return space.host.Directory + "/tofu.rc"
+}
+
+func (space *workspace) stateFilePath() string {
+	return space.host.Directory + "/terraform.tfstate"
 }
 
 func (space *workspace) requireVersion(t *testing.T) {
@@ -119,32 +119,22 @@ func (space *workspace) requireVersion(t *testing.T) {
 	}
 }
 
-// run starts tofu in the workspace and returns its output and exit code.
+// run runs tofu in the container and returns its output and exit code.
 func (space *workspace) run(t *testing.T, variables map[string]string, args ...string) (string, int) {
 	t.Helper()
-	command := exec.CommandContext(t.Context(), space.tofu, append([]string{"-chdir=" + space.directory}, args...)...)
-	command.Env = []string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + space.directory,
-		"TF_CLI_CONFIG_FILE=" + space.cliConfig,
+	environment := []string{
+		"HOME=" + space.host.Directory,
+		"TF_CLI_CONFIG_FILE=" + space.cliConfigPath(),
 		"TF_IN_AUTOMATION=1",
 		"TF_INPUT=0",
 	}
 	for name, value := range variables {
-		command.Env = append(command.Env, "TF_VAR_"+name+"="+value)
+		environment = append(environment, "TF_VAR_"+name+"="+value)
 	}
-	var output bytes.Buffer
-	command.Stdout, command.Stderr = &output, &output
-	err := command.Run()
-	space.transcript.Write(output.Bytes())
-	var exitError *exec.ExitError
-	if errors.As(err, &exitError) {
-		return output.String(), exitError.ExitCode()
-	}
-	if err != nil {
-		t.Fatalf("start tofu: %v", err)
-	}
-	return output.String(), 0
+	command := append([]string{"tofu", "-chdir=" + space.host.Directory}, args...)
+	output, code := space.host.Run(t, environment, command...)
+	space.transcript.WriteString(output)
+	return output, code
 }
 
 // roleVariables returns the variable values for one role configuration.
@@ -203,29 +193,15 @@ func (space *workspace) stateValues(t *testing.T) roleState {
 	return roleState{ID: values.ID, Name: values.Name, Version: values.Version, ValidUntil: values.ValidUntil}
 }
 
-// requireNoSecrets fails when a secret appears in any command output or in a
-// file under the workspace.
+// requireNoSecrets fails when a secret appears in any command output or in the
+// state file.
 func (space *workspace) requireNoSecrets(t *testing.T, secrets ...string) {
 	t.Helper()
-	found := []string{space.transcript.String()}
-	walkErr := filepath.WalkDir(space.directory, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
-			return err
-		}
-		contents, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-		found = append(found, string(contents))
-		return nil
-	})
-	if walkErr != nil {
-		t.Fatalf("read the workspace files: %v", walkErr)
-	}
+	found := []string{space.transcript.String(), string(space.host.ReadFile(t, space.stateFilePath()))}
 	for _, text := range found {
 		for _, secret := range secrets {
 			if strings.Contains(text, secret) {
-				t.Fatalf("a generated credential appears in a command output or workspace file")
+				t.Fatalf("a generated credential appears in a command output or the state file")
 			}
 		}
 	}

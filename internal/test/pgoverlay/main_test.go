@@ -1,7 +1,7 @@
 //go:build pgoverlay
 
-// Package pgoverlay_test runs the patched PostgreSQL provider through the
-// OpenTofu command line against a local PostgreSQL server and the local
+// Package pgoverlay_test runs the built patched PostgreSQL provider through
+// OpenTofu in a container, against a local PostgreSQL server and the local
 // YugabyteDB engine that internal/testenv starts.
 package pgoverlay_test
 
@@ -15,14 +15,8 @@ import (
 )
 
 const (
-	// providerVariable is the environment variable with the path of the built
-	// terraform-provider-postgresql file.
-	providerVariable = "TACK_PG_OVERLAY_PROVIDER"
-	// tofuVariable is the environment variable with the path of the OpenTofu
-	// executable.
-	tofuVariable = "TACK_PG_OVERLAY_TOFU"
 	// tofuVersionVariable is the environment variable with the OpenTofu version
-	// that the executable must report.
+	// that the runner image installs.
 	tofuVersionVariable = "TACK_PG_OVERLAY_TOFU_VERSION"
 )
 

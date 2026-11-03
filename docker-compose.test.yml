@@ -52,12 +52,11 @@ services:
   # The PostgreSQL provider overlay tests run here. This image builds the
   # patched provider and installs OpenTofu, which the normal runner does not.
   # `make test-postgresql-overlay` runs it.
+  # The tests run OpenTofu in this container through the Docker SDK.
   pgoverlay-tests:
     build:
       context: .
       dockerfile: Dockerfile.pgoverlay-test
-      args:
-        TOFU_VERSION: ${TOFU_VERSION:-1.13.2}
     volumes:
       - .:${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
       - /var/run/docker.sock:/var/run/docker.sock

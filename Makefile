@@ -84,17 +84,14 @@ TEST_RUNTIME_AUDIT_ARGS := -tags integration,runtimeaudit -count=1 -timeout 40m 
 	-run '^TestRuntimeAudit(Coverage|CoverageWaitsForTargetEvent|TopLevelCoverage|Scaling|MixedVersionRollout)$$' ./internal/test/integration/...
 test-runtime-audit-host test-runtime-audit: TEST_ARGS = $(TEST_RUNTIME_AUDIT_ARGS)
 
-# These targets run the patched PostgreSQL provider from postgresql-overlay
-# through OpenTofu against a local PostgreSQL server and the local YugabyteDB
-# engine that internal/testenv starts. test-postgresql-overlay runs in the test
-# runner. The runner image builds the provider and installs the pinned OpenTofu
-# for the runner architecture. macOS needs this route because only a container
-# can connect to the engines' bridge addresses.
-# test-postgresql-overlay-host runs on the current Linux host. It builds the
-# provider with make build. TOFU is the path of an OpenTofu executable that
-# reports the exact version in TOFU_VERSION. CI installs that version with
-# opentofu/setup-opentofu.
-TOFU_VERSION ?= 1.13.2
+# test-postgresql-overlay runs the patched PostgreSQL provider from
+# postgresql-overlay through OpenTofu against a local PostgreSQL server and the
+# local YugabyteDB engine that internal/testenv starts. The Compose service
+# pgoverlay-tests builds an image with the provider and the pinned OpenTofu for
+# the runner architecture. The tests run in that service and run OpenTofu in
+# the same container through the Docker SDK. macOS needs
+# this route because only a container can connect to the engines' bridge
+# addresses. CI runs the same target.
 PG_OVERLAY_TEST_ARGS := -tags pgoverlay -count=1 -timeout 30m -v ./internal/test/pgoverlay/...
 
 # Each run uses its own Compose project named after the make process. The EXIT
@@ -121,15 +118,6 @@ test-postgresql-overlay:
 	{ $(PG_OVERLAY_COMPOSE) build pgoverlay-tests && \
 	  $(PG_OVERLAY_COMPOSE) run --rm pgoverlay-tests test $(PG_OVERLAY_TEST_ARGS); } || status=$$?; \
 	exit "$$status"
-
-.PHONY: test-postgresql-overlay-host
-test-postgresql-overlay-host:
-	$(if $(TOFU),,$(error TOFU must be the path of the OpenTofu executable))
-	$(MAKE) -C postgresql-overlay build
-	TACK_PG_OVERLAY_PROVIDER="$(CURDIR)/postgresql-overlay/dist/terraform-provider-postgresql" \
-	TACK_PG_OVERLAY_TOFU="$(TOFU)" \
-	TACK_PG_OVERLAY_TOFU_VERSION="$(TOFU_VERSION)" \
-	    go test $(PG_OVERLAY_TEST_ARGS)
 
 # The security files must come from Configs with synthetic credentials.
 .PHONY: test-service-secrets
