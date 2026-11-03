@@ -32,10 +32,12 @@ const exclusionPollInterval = time.Second
 // searchVerifyReport is the exclusion and stuck work listing that ops search
 // verify writes.
 type searchVerifyReport struct {
-	ExcludedNodes  int                     `json:"excluded_nodes"`
-	Exclusions     []searchVerifyExclusion `json:"exclusions"`
-	StuckWorkItems int                     `json:"stuck_work_items"`
-	StuckWork      []searchVerifyStuckWork `json:"stuck_work"`
+	ExcludedNodes            int                     `json:"excluded_nodes"`
+	Exclusions               []searchVerifyExclusion `json:"exclusions"`
+	StuckWorkItems           int                     `json:"stuck_work_items"`
+	StuckWork                []searchVerifyStuckWork `json:"stuck_work"`
+	ExpiredSessions          int                     `json:"expired_sessions"`
+	ExpiredSessionsTruncated bool                    `json:"expired_sessions_truncated"`
 }
 
 type searchVerifyExclusion struct {
@@ -127,7 +129,10 @@ func searchVerifyFailureState(t *testing.T, cfg *config.Config, commandError err
 	if err != nil {
 		t.Fatalf("open stores to compare verify failure evidence: %v", err)
 	}
-	report := searchVerifyReport{ExcludedNodes: 0, Exclusions: nil, StuckWorkItems: 0, StuckWork: nil}
+	report := searchVerifyReport{
+		ExcludedNodes: 0, Exclusions: nil, StuckWorkItems: 0, StuckWork: nil,
+		ExpiredSessions: 0, ExpiredSessionsTruncated: false,
+	}
 	cursor := ""
 	for {
 		page, err := stores.SearchExclusions(t.Context(), cursor)

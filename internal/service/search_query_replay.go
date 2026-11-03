@@ -14,7 +14,7 @@ import (
 
 const (
 	// sweepSessionLimit bounds the expired sessions one new search cleans up.
-	sweepSessionLimit = 4
+	sweepSessionLimit = 2
 	// sweepSliceLimit bounds the cleanup slices one expired session receives
 	// per sweep.
 	sweepSliceLimit = 4
@@ -99,7 +99,7 @@ func (s *SearchQueryService) refuseExpired(ctx context.Context, session searchdo
 	return refusal
 }
 
-// sweepExpired closes and deletes up to four expired sessions. It stops and
+// sweepExpired closes and deletes up to two expired sessions. It stops and
 // returns the first error from deleteSession. If ExpiredSessions fails, it
 // logs the error and returns nil without running cleanup. When ctx ends, it
 // returns nil before the next session, and a later search sweeps that session.
