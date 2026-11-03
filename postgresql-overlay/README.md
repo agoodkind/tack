@@ -13,10 +13,24 @@ provider "postgresql" {
 }
 ```
 
-## Handle role update failures
+## Set `role_lock_mode`
 
-A `postgresql_role` update on YugabyteDB fails because the provider takes an advisory lock before the update and YugabyteDB does not accept the lock. Role creation works with the `expected_version` setting. The patch does not remove or replace the lock.
+The `role_lock_mode` provider setting accepts `advisory` (the default) and `external`. Any other value fails validation.
 
-A failed update leaves the prior password version in state, and the next plan requests the update again.
+In `advisory` mode, `postgresql_role` create, update, and delete take PostgreSQL advisory locks. YugabyteDB does not accept those locks. A role update on YugabyteDB fails and leaves the prior password version in state. `TestYugabyteAdvisoryLockFailure` covers this behavior.
 
-`make test-postgresql-overlay` covers this behavior in `TestYugabyteAdvisoryLockFailure`.
+In `external` mode, `postgresql_role` create, update, and delete take no database lock. The provider serializes those writes inside its own process. Before adopting this mode, run the provider with parallelism 1, serialize all provider instances, and hold real host and backend locks.
+
+External mode changes these behaviors:
+
+| Behavior | Detail |
+|---|---|
+| Memberships | The resource does not read, grant, or revoke memberships. A configured `roles` attribute fails with an error, and an omitted `roles` attribute leaves existing memberships in place. Use `postgresql_grant_role` for grants. |
+| Identity | The `role_oid` attribute records the database OID of the role on create, import, and read. The provider finds the role by that OID after a rename. |
+| Replaced role | When the recorded OID no longer exists and another role has the managed name, the provider fails with a role identity conflict and does not adopt the other role. |
+| State without an OID | The provider reads the role by name and records the OID. Refresh the state before the first rename, because an update cannot persist the OID. |
+| Failed update | The update keeps the prior password version in state. YugabyteDB DDL that finished before the failure stays in effect. The next refresh follows the OID to the actual role name. |
+
+## Know the remaining advisory locks
+
+External mode applies only to `postgresql_role`. The `postgresql_database`, `postgresql_default_privileges`, and `postgresql_grant` resources still take advisory locks on the role or database, and they fail on YugabyteDB.
