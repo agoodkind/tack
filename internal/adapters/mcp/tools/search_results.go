@@ -73,7 +73,7 @@ func runSearch(ctx context.Context, request mcpmcp.CallToolRequest, nodes NodeTy
 	}
 	rc := newRenderCtxWithTypes(ctx, nodes.Reader, nodes.Users, resolver.typeIndex)
 	if err := rc.loadAssignees(nodes.Relationships, slices.Collect(maps.Values(views))...); err != nil {
-		return classifyError(ctx, err)
+		return searchFailureResult(ctx, err)
 	}
 	return successText(renderSearchPage(rc, page, views, binding.Cursors), "")
 }
