@@ -60,7 +60,7 @@ func (m *searchMixed) inspect(ctx context.Context, tenant int, nodeIDs []uuid.UU
 			tally.deleted++
 			continue
 		}
-		resolved, err := m.stores.Views.Resolve(ctx, nodeID)
+		resolved, err := m.resolveResult(ctx, nodeID)
 		if errors.Is(err, domain.ErrNotFound) {
 			// A deletion after the server's read can remove the resolve record
 			// before this check reads it.
