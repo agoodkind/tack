@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"log/slog"
+	"math/big"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
@@ -15,6 +17,13 @@ import (
 const (
 	// sweepSessionLimit bounds the expired sessions one new search cleans up.
 	sweepSessionLimit = 2
+	// sweepCandidateWindow limits the oldest expired sessions eligible for a
+	// sweep. Each process runs four searches at once by default. QA runs two
+	// processes. If eight sweeps each select two sessions from 64, the expected
+	// result is about 14.4 distinct sessions across 16 selections. One read loads
+	// about 4.3 KiB of keys and does not commit. Sweeping stops if 64 or more
+	// undeletable keys fill the window.
+	sweepCandidateWindow = 64
 	// sweepSliceLimit bounds the cleanup slices one expired session receives
 	// per sweep.
 	sweepSliceLimit = 4
@@ -99,19 +108,21 @@ func (s *SearchQueryService) refuseExpired(ctx context.Context, session searchdo
 	return refusal
 }
 
-// sweepExpired closes and deletes up to two expired sessions. It stops and
-// returns the first error from deleteSession. If ExpiredSessions fails, it
-// logs the error and returns nil without running cleanup. When ctx ends, it
-// returns nil before the next session, and a later search sweeps that session.
+// sweepExpired reads up to sweepCandidateWindow of the oldest expired sessions.
+// It chooses up to sweepSessionLimit sessions at random and closes and deletes
+// them. It stops and returns the first deleteSession error. If ExpiredSessions
+// fails, it logs the error and returns nil without cleanup. If ctx ends, it
+// returns nil before the next session. A later search sweeps that session.
 func (s *SearchQueryService) sweepExpired(ctx context.Context) error {
-	expired, err := s.ports.Expired.ExpiredSessions(ctx, sweepSessionLimit)
+	expired, err := s.ports.Expired.ExpiredSessions(ctx, sweepCandidateWindow)
 	if err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()))
 		return nil
 	}
-	for position, sessionID := range expired {
+	chosen := chooseSweepSessions(ctx, expired)
+	for position, sessionID := range chosen {
 		if err := ctx.Err(); err != nil {
-			telemetry.L(ctx).InfoContext(ctx, "search.session.sweep_stopped", slog.Int("remaining", len(expired)-position), slog.String("reason", err.Error()))
+			telemetry.L(ctx).InfoContext(ctx, "search.session.sweep_stopped", slog.Int("remaining", len(chosen)-position), slog.String("reason", err.Error()))
 			return nil
 		}
 		if err := s.deleteSession(ctx, sessionID); err != nil {
@@ -119,6 +130,20 @@ func (s *SearchQueryService) sweepExpired(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func chooseSweepSessions(ctx context.Context, candidates []uuid.UUID) []uuid.UUID {
+	chosen := min(sweepSessionLimit, len(candidates))
+	for position := range chosen {
+		offset, err := rand.Int(rand.Reader, big.NewInt(int64(len(candidates)-position)))
+		if err != nil {
+			telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()))
+			return nil
+		}
+		pick := position + int(offset.Int64())
+		candidates[position], candidates[pick] = candidates[pick], candidates[position]
+	}
+	return candidates[:chosen]
 }
 
 // deleteSession closes one expired session and deletes its records. A

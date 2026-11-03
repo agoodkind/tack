@@ -89,7 +89,7 @@ func TestSearchSweepSkipsSessionAnotherSweepDeleted(t *testing.T) {
 			t.Errorf("expired session %s remains after both sweeps: %v", session.ID, err)
 		}
 	}
-	requireSweepSkip(t, logged.contents())
+	requireSweepSkip(t, logged.contents(), absentSweepSessions)
 }
 
 // interleaveSweeps arms the proxy and starts search X. It waits until the

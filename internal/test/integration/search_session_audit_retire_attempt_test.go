@@ -144,7 +144,7 @@ func TestSearchSessionAuditRetireClearReportsLostOwnership(t *testing.T) {
 		t.Fatalf("read the owner operation: %v", err)
 	}
 	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
-		retireSessionDeletedMessage: func() {
+		sessionDeletedMessage: func() {
 			waitUntilTime(t, clock.Now().Add(retireAttemptWait))
 			if _, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit); err != nil {
 				t.Fatalf("recover the attempt of index %s: %v", index, err)

@@ -26,11 +26,10 @@ import (
 )
 
 const (
-	retireAttemptFamily         = "search_retire_attempt"
-	retireCleanupFailedMessage  = "search.session.cleanup_failed"
-	retireAuditFailedMessage    = "search.session.audit_failed"
-	retireAttemptSavedMessage   = "search.session.retire_attempt_saved"
-	retireSessionDeletedMessage = "search.session.deleted"
+	retireAttemptFamily        = "search_retire_attempt"
+	retireCleanupFailedMessage = "search.session.cleanup_failed"
+	retireAuditFailedMessage   = "search.session.audit_failed"
+	retireAttemptSavedMessage  = "search.session.retire_attempt_saved"
 )
 
 // retireLogHooks runs an action once when a log record first contains a listed

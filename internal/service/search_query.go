@@ -25,6 +25,7 @@ type QueryAccessPolicy interface {
 }
 
 // ExpiredSessionLister lists sessions past their idle deadline for cleanup.
+// It returns the oldest expiry minutes first.
 type ExpiredSessionLister interface {
 	ExpiredSessions(context.Context, int) ([]uuid.UUID, error)
 }

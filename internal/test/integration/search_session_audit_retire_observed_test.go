@@ -115,7 +115,7 @@ func TestSearchSessionAuditRetireClearRemovesObservedRecord(t *testing.T) {
 	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
 	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
-		retireSessionDeletedMessage: func() {
+		sessionDeletedMessage: func() {
 			remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
 			if err != nil || !remaining {
 				t.Fatalf("RetireIndexSessions of %s with an active attempt = %t, %v, want remaining work", index, remaining, err)
