@@ -185,16 +185,30 @@ For each failure, rerun the smallest exact test until it fails consistently. Tra
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 
-Run the suite as eight fixed groups, with each group limit set to its slowest complete CI measurement multiplied by 1.5 and rounded up to the next 5 minutes. G5B and G5C keep a 75 minute limit, although the formula gives 90 minutes for their measurements. The measurements come from the OpenSearch CI jobs 110765693590, 109857411134, 117516233280, 123145940911, 123131420136, 123132129545, 123110954409, 123140740521, 123142813381, 123071806333, and the completed groups of 110045603547.
+Run the suite as eight fixed groups. Set each group limit to its slowest complete CI measurement times 1.5, rounded up to 5 minutes. Use 45 minutes for G3 because the Makefile sets that limit and the table measurement predates it. G5B and G5C keep a 75 minute limit, although the formula gives 90 minutes for their measurements.
+
+The measurements come from these OpenSearch CI jobs:
+
+- 110765693590
+- 109857411134
+- 117516233280
+- 123145940911
+- 123131420136
+- 123132129545
+- 123110954409
+- 123140740521
+- 123142813381
+- 123071806333
+- The completed groups of 110045603547
 
 | Group | Selection | Tests | Slowest measurement | Limit |
 | --- | --- | --- | --- | --- |
 | G1 | `^TestSearchContinuationTraversesDuplicateHeavyCorpus$` | 1 | 2388.1 s (110045603547) | 60m |
 | G2 | `^TestSearchActualOSProcessThroughput$` | 1 | 1062.7 s (110045603547) | 30m |
-| G3 | `^TestSearch(Split|Restore|Rebuild)` | 7 | 1122.4 s (110765693590) | 30m |
-| G4 | `^TestSearchCluster`, skipping `^TestSearchClusterModelRepair` | 3 | 955.4 s on the Mac runner | 25m |
-| G5A | `^TestSearch[A-M]`, skipping the G1 to G4 and G6 tests | 74 | 2862.2 s (123145940911) | 75m |
-| G5B | `^TestSearch($|[^A-M])`, skipping the G1 to G4, G5C, and G6 tests | 116 (117 listed; `TestSearchSDKCompatibility` skips in the group run) | 59:47 job time; 59:21 `go test` step time in CI run 41510801397. | 75m |
+| G3 | `^TestSearch(Split|Restore|Rebuild)` | 20 | 1122.4 s (110765693590) | 45m |
+| G4 | `^TestSearchCluster`, skipping `^TestSearchClusterModelRepair` | 6 | 955.4 s on the Mac runner | 25m |
+| G5A | `^TestSearch[A-M]`, skipping the G1 to G4 and G6 tests | 85 | 2862.2 s (123145940911) | 75m |
+| G5B | `^TestSearch($|[^A-M])`, skipping the G1 to G4, G5C, and G6 tests | 117 (118 listed; `TestSearchSDKCompatibility` skips in the group run) | 59:47 job time; 59:21 `go test` step time in CI run 41510801397. | 75m |
 | G5C | `^TestSearch(RuntimeAudit|SessionAudit)` | 67 | 58:06 job time; 57:44 `go test` step time in CI run 41510801397, after two tests moved to G5B. | 75m |
 | G6 | `^TestSearchClusterModelRepair` | 1 | 129.67 s on the Mac runner (2026-10-02, head 650f19ac) | 5m |
 
@@ -215,7 +229,7 @@ uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
     --evidence-dir "/private/tmp/tack-search-g2-$(date +%Y%m%d-%H%M%S)"
 TACK_SEARCH_CLUSTER=1 uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
     --root "$PWD" --image "sha256:<local-runner-image-id>" \
-    --run '^TestSearchCluster(ProxyEndpoint|EngineOutage|ScaleOut)$' --count 1 --timeout 25m \
+    --run '^TestSearchCluster(ProxyEndpoint|EngineOutage|ScaleOut|DiskFloodStage|ProxyServerError|SharedDiskFloor)$' --count 1 --timeout 25m \
     --evidence-dir "/private/tmp/tack-search-g4-$(date +%Y%m%d-%H%M%S)"
 TACK_SEARCH_CLUSTER=1 uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
     --root "$PWD" --image "sha256:<local-runner-image-id>" \
