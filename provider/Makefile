@@ -11,16 +11,19 @@ RELEASE_BINS := terraform-provider-tack:. terraform-provider-postgresql:../postg
 
 GO_MK_MODULES := go-build.mk go-release.mk
 
-# make release fetches and patches the overlay source and builds both binaries in
-# a Go workspace. Every other goal (build, test, lint) leaves the overlay source
-# out, and a standalone build of this module needs no network access to it. The
-# release writes go.work, and Go reads that file for every later goal. A goal
-# other than release removes the file when it lists the overlay source.
+# The compile stages of make release fetch and patch the overlay source and build
+# both binaries in a Go workspace. The workspace file lives in .make and only the
+# release recipe reads it through GOWORK. The helper targets below run with
+# GOWORK=off. Every other goal, and any go.work file that a developer keeps in
+# this directory, stays unchanged. The tag, package, and publish stages compile
+# nothing and need no workspace.
 ifneq ($(filter release,$(MAKECMDGOALS)),)
-GO_MK_GENERATE      := postgresql-overlay-source
-GO_MK_WORKSPACE_USE := . ../postgresql-overlay ../postgresql-overlay/src
-else
-$(if $(shell grep -s -F '../postgresql-overlay/src' go.work),$(shell rm -f go.work go.work.sum))
+ifeq ($(filter tag package publish,$(RELEASE_STAGE)),)
+RELEASE_WORKSPACE := $(CURDIR)/.make/release.work
+GO_MK_GENERATE    := postgresql-overlay-source
+release: export GOWORK := $(RELEASE_WORKSPACE)
+go-mk-bin go-mk-workspace postgresql-overlay-source: export GOWORK := off
+endif
 endif
 
 include bootstrap.mk
@@ -28,3 +31,6 @@ include bootstrap.mk
 .PHONY: postgresql-overlay-source
 postgresql-overlay-source:
 	$(MAKE) -C ../postgresql-overlay postgresql-source
+	mkdir -p .make
+	rm -f "$(RELEASE_WORKSPACE)" "$(RELEASE_WORKSPACE).sum"
+	GOWORK="$(RELEASE_WORKSPACE)" go work init "$(CURDIR)" "$(abspath ../postgresql-overlay)" "$(abspath ../postgresql-overlay/src)"
