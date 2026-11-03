@@ -54,6 +54,10 @@ variable "role_memberships" {
   type    = list(string)
   default = null
 }
+variable "role_statement_timeout" {
+  type    = number
+  default = null
+}
 
 provider "postgresql" {
   expected_version = var.expected_version
@@ -73,6 +77,7 @@ resource "postgresql_role" "app" {
   password_wo_version = var.role_password_version
   valid_until         = var.valid_until
   roles               = var.role_memberships
+  statement_timeout   = var.role_statement_timeout
 }
 `
 
@@ -97,6 +102,9 @@ type workspace struct {
 	// memberships is a JSON list for the role roles attribute. An empty value
 	// leaves the attribute unset.
 	memberships string
+	// statementTimeout is the role statement_timeout attribute in milliseconds.
+	// An empty value leaves the attribute unset.
+	statementTimeout string
 }
 
 func newWorkspace(t *testing.T, target databaseTarget) *workspace {
@@ -190,6 +198,9 @@ func (space *workspace) roleVariables(role, password, version, validUntil string
 	}
 	if space.memberships != "" {
 		variables["role_memberships"] = space.memberships
+	}
+	if space.statementTimeout != "" {
+		variables["role_statement_timeout"] = space.statementTimeout
 	}
 	return variables
 }
