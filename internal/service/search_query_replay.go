@@ -94,14 +94,19 @@ func (s *SearchQueryService) refuseExpired(ctx context.Context, session searchdo
 
 // sweepExpired closes and deletes up to four expired sessions. It stops and
 // returns the first error from deleteSession. If ExpiredSessions fails, it
-// logs the error and returns nil without running cleanup.
+// logs the error and returns nil without running cleanup. When ctx ends, it
+// returns nil before the next session, and a later search sweeps that session.
 func (s *SearchQueryService) sweepExpired(ctx context.Context) error {
 	expired, err := s.ports.Expired.ExpiredSessions(ctx, sweepSessionLimit)
 	if err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()))
 		return nil
 	}
-	for _, sessionID := range expired {
+	for position, sessionID := range expired {
+		if err := ctx.Err(); err != nil {
+			telemetry.L(ctx).InfoContext(ctx, "search.session.sweep_stopped", slog.Int("remaining", len(expired)-position), slog.String("reason", err.Error()))
+			return nil
+		}
 		if err := s.deleteSession(ctx, sessionID); err != nil {
 			return err
 		}

@@ -20,6 +20,11 @@ const (
 	// cleanupFailureMessage is the fixed message of a cleanup failure event.
 	// The event does not store the raw database error.
 	cleanupFailureMessage = "the search session cleanup step failed"
+	// cleanupNotStartedCode and cleanupNotStartedMessage are the fixed failure
+	// fields of a close or delete step that returned without a transaction
+	// attempt.
+	cleanupNotStartedCode    = "session_cleanup_not_started"
+	cleanupNotStartedMessage = "the request deadline or cancellation ended the request before the cleanup step started"
 )
 
 // RecordCleanupFailure commits one database change result event for step
@@ -75,11 +80,17 @@ func appendCleanupFailure(ctx context.Context, tr fdb.Transaction, changes *sess
 // cleanupFailureEvent builds the result event for step. It sets the
 // failed outcome, step as the code, and cleanupFailureMessage. When
 // cause wraps commitUncertainError, it sets the incomplete outcome,
-// retireResultUncertainCode, and retireResultUncertainMessage. The
-// event ID derives from the operation base and step.
+// retireResultUncertainCode, and retireResultUncertainMessage. When cause
+// wraps sessionNotStartedError, it sets cleanupNotStartedCode and
+// cleanupNotStartedMessage. The event ID derives from the operation base
+// and step.
 func cleanupFailureEvent(ctx context.Context, changes *sessionAudit, target audit.Target, step searchdomain.CleanupStep, cause error) (audit.Event, error) {
 	details := audit.OutcomeDetails{
 		Outcome: audit.OutcomeFailed, FailureCode: string(step), FailureMessage: cleanupFailureMessage, CommittedSteps: nil,
+	}
+	var notStarted sessionNotStartedError
+	if errors.As(cause, &notStarted) {
+		details.FailureCode, details.FailureMessage = cleanupNotStartedCode, cleanupNotStartedMessage
 	}
 	var uncertain commitUncertainError
 	if errors.As(cause, &uncertain) {
