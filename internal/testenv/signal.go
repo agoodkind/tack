@@ -11,8 +11,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// signalReleaseTimeout bounds cleanup of this process's engines after a signal.
-const signalReleaseTimeout = 2 * time.Minute
+// engineReleaseTimeout limits one removal of a test process's engines
+// after a signal or after the process ends.
+const engineReleaseTimeout = 2 * time.Minute
 
 // releaseOnSignal installs a handler that removes this process's engines on
 // SIGINT or SIGTERM, restores default handling, and sends the same signal to
@@ -27,7 +28,7 @@ func releaseOnSignal(ctx context.Context) {
 			}
 		}()
 		received := <-signals
-		releaseContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), signalReleaseTimeout)
+		releaseContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), engineReleaseTimeout)
 		defer cancel()
 		slog.InfoContext(releaseContext, "testenv.signal.received", slog.String("signal", received.String()))
 		_ = Release(releaseContext)
