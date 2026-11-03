@@ -12,7 +12,7 @@ func engineNetwork(spec engineSpec) string {
 	if spec.attachNetwork != "" {
 		return spec.attachNetwork
 	}
-	return networkName
+	return activeNetwork()
 }
 
 // engineNetworking returns the host and networking configuration of spec's

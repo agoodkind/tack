@@ -91,7 +91,7 @@ func StartEmptyLedger(t *testing.T, containerName string) EmptyLedgerNode {
 		DSN:           dsn.String(),
 		Address:       started.address,
 		MasterAddress: net.JoinHostPort(started.address, ledgerMasterPort),
-		Network:       networkName,
+		Network:       activeNetwork(),
 	}
 }
 
