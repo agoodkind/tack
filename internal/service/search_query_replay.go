@@ -63,6 +63,13 @@ func (s *SearchQueryService) replay(ctx context.Context, session searchdomain.Se
 // result records step_unfinished. It logs other point in time close errors.
 // The expiry sweep deletes the session records.
 func (s *SearchQueryService) closeSession(ctx context.Context, session searchdomain.Session) error {
+	_, err := s.closeSessionStep(ctx, session)
+	return err
+}
+
+// closeSessionStep closes the point in time, marks the session closing, and
+// reports whether BeginCleanup started a transaction attempt.
+func (s *SearchQueryService) closeSessionStep(ctx context.Context, session searchdomain.Session) (bool, error) {
 	var snapshotRecordErr error
 	if err := s.closeSnapshot(ctx, session, session.Snapshot); err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.snapshot.close_failed", slog.String("err", err.Error()), slog.String("session_id", session.ID.String()))
@@ -73,9 +80,9 @@ func (s *SearchQueryService) closeSession(ctx context.Context, session searchdom
 	if err := s.ports.Sessions.BeginCleanup(ctx, session.ID); err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.close_failed", slog.String("err", err.Error()), slog.String("session_id", session.ID.String()))
 		failure := errors.Join(snapshotRecordErr, s.recordCleanupFailure(ctx, session.ID, searchdomain.CleanupClose, err))
-		return failure
+		return !errors.Is(err, searchdomain.ErrSessionStepNotStarted), failure
 	}
-	return snapshotRecordErr
+	return true, snapshotRecordErr
 }
 
 // refuseExpired rejects continuations when a session is closing or has passed
@@ -127,8 +134,14 @@ func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.U
 		return s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
 	}
 	if !session.Closing {
-		if closeErr := s.closeSession(ctx, session); closeErr != nil {
+		started, closeErr := s.closeSessionStep(ctx, session)
+		if closeErr != nil {
 			return closeErr
+		}
+		if !started {
+			// deleteSession skips CleanupSlice because the close row already
+			// records that cleanup did not start.
+			return nil
 		}
 	}
 	for range sweepSliceLimit {

@@ -21,9 +21,9 @@ const (
 	sweepStopRequestTimeout = "40s"
 	// sweepStoppedMessage is the record of a sweep that stops before a session.
 	sweepStoppedMessage = "search.session.sweep_stopped"
-	// sweepStopNotStartedRows counts the close and delete rows of the session
-	// that the deadline interrupts.
-	sweepStopNotStartedRows = 2
+	// sweepStopNotStartedRows counts the close row for the session interrupted
+	// by the deadline.
+	sweepStopNotStartedRows = 1
 )
 
 // TestSearchRuntimeAuditSweepStopsAfterRequestDeadline checks that a sweep does
@@ -77,13 +77,9 @@ func TestSearchRuntimeAuditSweepStopsAfterRequestDeadline(t *testing.T) {
 		if len(cleanupFailures(rows, session.ID, searchdomain.CleanupClose))+len(cleanupFailures(rows, session.ID, searchdomain.CleanupDelete)) != 0 {
 			t.Fatalf("session %s has failed cleanup rows for steps that did not start", session.ID)
 		}
-		notStarted := cleanupFailures(rows, session.ID, cleanupNotStarted)
-		if count := len(notStarted); count != 0 && count != sweepStopNotStartedRows {
-			t.Fatalf("session %s has %d not started rows, want 0 or %d", session.ID, count, sweepStopNotStartedRows)
-		}
-		for _, row := range notStarted {
-			if row.Outcome != audit.OutcomeFailed || row.Error.Message == "" {
-				t.Fatalf("the not started row of session %s = %+v, want the failed outcome and a message", session.ID, row)
+		for _, row := range cleanupFailures(rows, session.ID, cleanupNotStarted) {
+			if row.Outcome != audit.OutcomeFailed || row.Action != string(audit.VerbSearchSessionUpdate) || row.Error.Message == "" {
+				t.Fatalf("the not started row of session %s = %+v, want the failed outcome, the update action, and a message", session.ID, row)
 			}
 		}
 	}

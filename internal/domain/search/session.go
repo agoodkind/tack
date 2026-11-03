@@ -22,6 +22,9 @@ var (
 	ErrSessionNotFound = errors.New("search session was not found")
 	// ErrSessionMismatch means the request no longer matches the session binding.
 	ErrSessionMismatch = errors.New("search request does not match its session")
+	// ErrSessionStepNotStarted matches a cleanup step that made no transaction attempt
+	// because its request context had ended.
+	ErrSessionStepNotStarted = errors.New("search session step did not start")
 )
 
 // Session is the durable continuation state of one search. FoundationDB

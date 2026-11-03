@@ -142,7 +142,9 @@ func (e commitUncertainError) Unwrap() error { return e.err }
 type sessionNotStartedError struct{ err error }
 
 func (e sessionNotStartedError) Error() string { return e.err.Error() }
-func (e sessionNotStartedError) Unwrap() error { return e.err }
+func (e sessionNotStartedError) Unwrap() []error {
+	return []error{e.err, searchdomain.ErrSessionStepNotStarted}
+}
 
 // commitMayHaveApplied reports whether a commit error leaves the commit result
 // unknown. It returns false for a nil error and for FoundationDB errors 1020
