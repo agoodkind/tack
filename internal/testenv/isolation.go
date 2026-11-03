@@ -59,8 +59,6 @@ func IsolateRun(network, project string) error {
 	return nil
 }
 
-// isolationLabels adds the Compose project labels to labels when IsolateRun
-// applies to this process, and returns labels.
 func isolationLabels(labels map[string]string) map[string]string {
 	isolation.Lock()
 	defer isolation.Unlock()
