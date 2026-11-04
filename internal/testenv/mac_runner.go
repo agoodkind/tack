@@ -2,8 +2,6 @@ package testenv
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -75,11 +73,11 @@ func prepareMacRunner(ctx context.Context, options MacTestOptions) (*macRunnerPr
 	if err := prepared.loadCompose(ctx); err != nil {
 		return nil, err
 	}
-	var suffix [12]byte
-	if _, err := rand.Read(suffix[:]); err != nil {
+	suffix, err := randomHex(ctx, 12)
+	if err != nil {
 		return nil, macRunnerFailure("generate runner identity", err)
 	}
-	prepared.name = "tack-mac-runner-" + hex.EncodeToString(suffix[:])
+	prepared.name = "tack-mac-runner-" + suffix
 	prepared.options.EvidenceDirectory, err = createMacRunnerEvidence(root, options.EvidenceDirectory)
 	if err != nil {
 		return nil, err
