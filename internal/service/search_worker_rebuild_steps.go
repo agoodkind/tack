@@ -78,33 +78,6 @@ func (w *SearchWorker) splitSource(ctx context.Context, work searchdomain.Work, 
 	})
 }
 
-// rebuildSwitch pauses claims, waits for earlier leases, refreshes the
-// target, and switches the public alias to the target in one atomic alias
-// request. After an uncertain alias result, the step reads the alias.
-func (w *SearchWorker) rebuildSwitch(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) error {
-	if paused, err := w.pauseClaims(ctx, work, rebuild); !paused || err != nil {
-		return err
-	}
-	if err := w.engineStep(ctx, func(operation context.Context) error {
-		return w.ports.Writer.Refresh(operation, rebuild.TargetIndex)
-	}); err != nil {
-		return w.settleEngine(ctx, work, "refresh replacement index "+rebuild.TargetIndex, err)
-	}
-	switch err := w.waitGreen(ctx, work, rebuild.TargetIndex); {
-	case errors.Is(err, searchdomain.ErrIndexNotReady):
-		return w.targetNotGreen(ctx, work, rebuild, err)
-	case err != nil:
-		return w.settleEngine(ctx, work, "wait for green replacement index "+rebuild.TargetIndex, err)
-	}
-	if err := w.recordAliasSwitch(ctx, rebuild, func(ctx context.Context) error { return w.moveAlias(ctx, rebuild) }); err != nil {
-		return w.settleEngine(ctx, work, "switch public alias to "+rebuild.TargetIndex, err)
-	}
-	if err := w.ports.Rebuilds.CompleteSwitch(ctx, work, rebuild); err != nil {
-		return w.settle(ctx, work, "record switched index "+rebuild.TargetIndex, err)
-	}
-	return w.yield(ctx, work)
-}
-
 // moveAlias switches the alias when it still selects the source. An alias
 // that already selects the target needs no request. Any third target is a
 // coordination error.

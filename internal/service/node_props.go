@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -22,13 +23,43 @@ func (s *NodeService) validateCreateProps(
 	return s.checkDeclaredProps(ctx, orgID, nt, "create", props)
 }
 
+// validateUpdateProps refuses caller values for scope_id and sequence and
+// checks the declared names of the set properties. A parent_id value stays
+// allowed because Update turns it into a parent change.
 func (s *NodeService) validateUpdateProps(
 	ctx context.Context,
 	orgID uuid.UUID,
 	nt *node.NodeType,
 	props map[string]json.RawMessage,
 ) error {
+	if err := refuseManagedProps(ctx, nt, "update", props, "parent_id"); err != nil {
+		return err
+	}
 	return s.checkDeclaredProps(ctx, orgID, nt, "update", setUpdateProps(props))
+}
+
+// refuseManagedProps returns an error that wraps domain.ErrInvalidArgument
+// when props contains a property that node.IsManagedProperty reports, other
+// than the names in allowed. The node service writes those properties itself.
+func refuseManagedProps(
+	ctx context.Context,
+	nt *node.NodeType,
+	operation string,
+	props map[string]json.RawMessage,
+	allowed ...string,
+) error {
+	names := make([]string, 0, len(props))
+	for name := range props {
+		if node.IsManagedProperty(name) && !slices.Contains(allowed, name) {
+			names = append(names, "properties."+name)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	slices.Sort(names)
+	refused := fmt.Errorf("the node service sets %s, and a request cannot set them: %w", strings.Join(names, ", "), domain.ErrInvalidArgument)
+	return loggedPropertyCheckError(ctx, nt, operation, refused)
 }
 
 // checkDeclaredProps interprets props with the organization schema and

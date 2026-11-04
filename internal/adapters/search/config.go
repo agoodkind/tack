@@ -72,6 +72,11 @@ func retryBackoff(attempt int) time.Duration {
 func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
 	discoverNodesOnStart := false
 	pass := c.Password
+	// Config.MaxRetries accepts 0 for one attempt per request. The official client
+	// treats MaxRetries of 0 as its default of six retries and resends requests that time out.
+	// A retry can repeat a point in time create or delete after the first attempt
+	// already took effect. DisableRetry limits the client to one attempt.
+	retriesDisabled := c.MaxRetries == 0
 	return opensearch.Config{
 		Addresses:             []string{c.Endpoint},
 		Username:              c.Username,
@@ -80,6 +85,7 @@ func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) op
 		RequestTimeout:        c.RequestTimeout,
 		RetryOnStatus:         retryStatuses,
 		MaxRetries:            c.MaxRetries,
+		DisableRetry:          retriesDisabled,
 		RetryBackoff:          retryBackoff,
 		RetryBudget:           -1,
 		EnableRetryOnTimeout:  true,
@@ -89,13 +95,30 @@ func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) op
 	}
 }
 
-// predictClientConfig returns the settings from ClientConfig after disabling
-// the per-attempt timeout and setting EnableRetryOnTimeout to false. The
-// caller's deadline bounds the one predict attempt. The client still retries
-// the statuses in retryStatuses, including the 429 circuit breaker rejection.
+// predictClientConfig returns ClientConfig settings with RequestTimeout set to zero and
+// EnableRetryOnTimeout set to false. The caller's deadline bounds the predict call.
+// With MaxRetries set to zero, the client makes one attempt and does not retry any status.
+// With a positive MaxRetries, the client retries responses with statuses in retryStatuses
+// up to MaxRetries times and waits retryBackoff between attempts. A timeout does not trigger
+// a retry.
 func (c Config) predictClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
 	settings := c.ClientConfig(observer)
 	settings.RequestTimeout = 0
 	settings.EnableRetryOnTimeout = false
+	return settings
+}
+
+// snapshotClientConfig limits the client to one attempt with the same
+// RequestTimeout.
+//
+// Point in time creation does not accept an idempotency key. Retrying an
+// applied create makes a second point in time that the audit record does not
+// show.
+//
+// When a create fails without proof that the engine refused it, Open
+// returns an error and the caller records the outcome as uncertain.
+func (c Config) snapshotClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
+	settings := c.ClientConfig(observer)
+	settings.DisableRetry = true
 	return settings
 }

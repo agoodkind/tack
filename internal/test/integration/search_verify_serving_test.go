@@ -75,6 +75,7 @@ func runOpsSearchVerify(t *testing.T, cfg *config.Config) (string, error) {
 	}
 	defer pool.Close()
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := searchCommandRoot(factory)
 	root.SetArgs([]string{
 		"--execute", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",

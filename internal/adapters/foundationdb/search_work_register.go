@@ -20,10 +20,10 @@ import (
 // registered the same ordinal of this revision under another projection. The worker then
 // schedules a new revision, and cleanup retires every issued ID of the older revision.
 // While the node's access record tracks page access, the same transaction records the page's
-// access there. Register also checks the pending write in that transaction and returns it in
-// intent.Pending when the document and target or mirror index match and the deadline has not
-// passed. It clears other records in that transaction and logs matching expired records after
-// commit.
+// access there.
+// Register adopts and selects pending deadlines in this transaction.
+// intent.Pending applies to work.Target. intent.MirrorMissed applies to work.Mirror
+// and retains the later live or copy deadline.
 func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, page node.ContentPage) (intent searchdomain.WriteIntent, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.register")(&err)
 	if pageErr := searchdomain.ValidatePage(work, page); pageErr != nil {
@@ -36,6 +36,7 @@ func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, 
 	documentID := searchdomain.DocumentID(work.OrgID, work.NodeID, page.Revision, page.ProjectionVersion, page.Ordinal)
 	now := s.clock.Now()
 	var pending pendingWriteCheck
+	var mirrorHeld *searchdomain.PendingWrite
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
 		access, err := s.verifyPage(ctx, tr, work, page, revision)
 		if err != nil {
@@ -56,7 +57,13 @@ func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, 
 		if err := stagePropertyWarnings(ctx, tr, work, page, revision); err != nil {
 			return err
 		}
+		if err := adoptPendingWrite(ctx, tr, work); err != nil {
+			return err
+		}
 		if pending, err = checkPendingWrite(ctx, tr, now, work, documentID); err != nil {
+			return err
+		}
+		if mirrorHeld, err = heldMirrorWrite(ctx, tr, now, work, documentID); err != nil {
 			return err
 		}
 		tr.Set(fdb.Key(searchIssuedKey(work.OrgID, work.NodeID, revision, page.Ordinal, page.ProjectionVersion)), []byte(documentID))
@@ -69,7 +76,7 @@ func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, 
 		return intent, searchStorageError(ctx, "search.work.register_failed", "register page intent", work.NodeID, err)
 	}
 	logExpiredPendingWrite(ctx, now, work, pending.expired)
-	return searchdomain.WriteIntent{Work: work, Page: page, DocumentID: documentID, Pending: pending.held}, nil
+	return searchdomain.WriteIntent{Work: work, Page: page, DocumentID: documentID, Pending: pending.held, MirrorMissed: mirrorHeld}, nil
 }
 
 // requireOneProjection returns ErrContentChanged when an issued ID of the

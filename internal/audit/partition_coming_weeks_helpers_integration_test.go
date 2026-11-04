@@ -90,7 +90,7 @@ func requireChainVerifies(t *testing.T, fixture *partmanTestDatabase, orgID uuid
 		t.Fatalf("generate export key: %v", err)
 	}
 	directory := t.TempDir()
-	manifest, err := Export(ctx, &Reader{pool: fixture.pool}, privateKey, "ed25519:partition-test", QueryFilter{
+	manifest, err := Export(ctx, openTestReader(t, fixture.pool), privateKey, "ed25519:partition-test", QueryFilter{
 		OrgID: orgID, Oldest: time.Unix(0, 0).UTC(), Latest: time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC),
 		Action: "", ActorID: uuid.Nil, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: 0,
 	}, directory)

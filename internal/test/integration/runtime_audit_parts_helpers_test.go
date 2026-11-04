@@ -129,24 +129,7 @@ func (p partsPipeline) deliverUntilStopped(t *testing.T, eventID uuid.UUID, reco
 func (p partsPipeline) waitForConsumed(t *testing.T) {
 	t.Helper()
 	waitFor(t, "consumption of every record", func() bool {
-		marks, err := audit.TopicHighWaterMarks(t.Context(), []string{p.brokers}, p.topic)
-		if err != nil {
-			t.Fatalf("read the high-water marks of %s: %v", p.topic, err)
-		}
-		offsets, err := p.reader.ConsumerOffsets(t.Context())
-		if err != nil {
-			t.Fatalf("read the consumer offsets: %v", err)
-		}
-		var produced, consumed int64
-		for _, mark := range marks {
-			produced += mark
-		}
-		for _, offset := range offsets {
-			if offset.Group == p.group && offset.Topic == p.topic {
-				consumed += offset.Offset
-			}
-		}
-		return produced > 0 && produced == consumed
+		return topicConsumed(t, p.reader, p.brokers, p.topic, p.group)
 	})
 }
 

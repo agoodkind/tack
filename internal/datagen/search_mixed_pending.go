@@ -96,9 +96,14 @@ func (m *searchMixed) pickVictims(first, second searchPage) (uuid.UUID, uuid.UUI
 }
 
 func (m *searchMixed) indexed(ctx context.Context, nodeID uuid.UUID) (bool, error) {
-	texts, err := m.pages.SearchPageText(ctx, nodeID)
+	indexed := false
+	err := retryTimedOutRead(ctx, nodeID, func() error {
+		texts, readErr := m.pages.SearchPageText(ctx, nodeID)
+		indexed = len(texts) > 0
+		return readErr
+	})
 	if err != nil {
 		return false, loggedError(ctx, "qa datagen search-mixed: the command could not read the serving index pages for issue "+nodeID.String(), err)
 	}
-	return len(texts) > 0, nil
+	return indexed, nil
 }

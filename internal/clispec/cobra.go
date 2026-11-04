@@ -101,6 +101,9 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 		for _, apply := range applies {
 			apply(&in)
 		}
+		if op.auditSpec().Class == audit.OperationRead {
+			return runReadOperation(cmd.Context(), f, op, in)
+		}
 		if !f.Execute() && op.DryRun != nil {
 			err := RunAudited(cmd.Context(), dryRunDestination(f, f.Out), op.auditSpec(), f.OperatorIdentitySource(), f.DeployCommit(), false, f.AuditOutbox(), f.AuditInfrastructureProbe(),
 				func(context.Context) error { return nil })

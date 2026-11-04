@@ -72,6 +72,9 @@ func (g *Generator) generateIssues(
 	if err := g.generateNestedIssue(ctx, workspace, projectIdentifier, existing, firstIssue); err != nil {
 		return err
 	}
+	if err := g.probeManagedPropertiesRefused(ctx, workspace, projectIdentifier, projectReference, firstIssue); err != nil {
+		return err
+	}
 	if err := g.generateDeletedIssue(
 		ctx,
 		workspace,

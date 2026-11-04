@@ -44,7 +44,7 @@ func (s *ViewStore) Get(ctx context.Context, nodeID uuid.UUID) (view *node.NodeV
 		return tr.Get(fdb.Key(nodeViewKey(resolve.OrgID, resolve.NodeType, nodeID))).Get()
 	})
 	if err != nil {
-		return nil, fmt.Errorf("view get: %w", err)
+		return nil, fmt.Errorf("view get: %w", classifyStorageTimeout(err))
 	}
 	b, ok := val.([]byte)
 	if !ok || len(b) == 0 {

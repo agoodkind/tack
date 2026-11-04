@@ -28,8 +28,18 @@ type ProtectedReference struct {
 // protectedReferenceKey is the JSON key for a protected value reference.
 const protectedReferenceKey = "pii_ref"
 
+// protectedSubject returns OwnerID when the target states an owner and ID
+// otherwise.
+func protectedSubject(target Target) uuid.UUID {
+	if target.OwnerID != uuid.Nil {
+		return target.OwnerID
+	}
+	return target.ID
+}
+
 // validateProtected requires exactly one Protected value per delta reference,
-// valid JSON for each value, and SubjectID equal to Context.Target.ID.
+// valid JSON for each value, and SubjectID equal to the protectedSubject of
+// Context.Target.
 func validateProtected(event Event) error {
 	references := map[uuid.UUID]bool{}
 	if event.Delta != nil {
@@ -50,8 +60,8 @@ func validateProtected(event Event) error {
 	}
 	for _, value := range event.Protected {
 		switch {
-		case value.SubjectID != event.Context.Target.ID:
-			return fmt.Errorf("protected value %s subject %s does not match target %s", value.Ref, value.SubjectID, event.Context.Target.ID)
+		case value.SubjectID != protectedSubject(*event.Context.Target):
+			return fmt.Errorf("protected value %s subject %s does not match target subject %s", value.Ref, value.SubjectID, protectedSubject(*event.Context.Target))
 		case !references[value.Ref]:
 			return fmt.Errorf("protected value %s does not have a reference in the delta", value.Ref)
 		case !json.Valid(value.Value):

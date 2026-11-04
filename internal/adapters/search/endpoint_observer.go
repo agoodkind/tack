@@ -102,16 +102,15 @@ func (o *endpointObserver) OnAddressRewrite(event opensearchtransport.AddressRew
 	o.record(event.RewrittenURL)
 }
 
-// Endpoints returns, in sorted order, every endpoint that either client's
-// connection pool metrics list or their shared observer events report.
-// An observer event can report an endpoint before a client sends a request
-// to it.
+// Endpoints returns, in sorted order, every endpoint that any of the three
+// clients' connection pool metrics list or their shared observer events report.
+// An observer event can report an endpoint before a client sends a request to it.
 func (a *Adapter) Endpoints(ctx context.Context) ([]string, error) {
 	endpoints := map[string]struct{}{}
 	for _, endpoint := range a.observer.snapshot() {
 		endpoints[endpoint] = struct{}{}
 	}
-	for _, client := range []*opensearch.Client{a.client, a.predictClient} {
+	for _, client := range []*opensearch.Client{a.client, a.predictClient, a.snapshotAPI.Client} {
 		if err := addPoolEndpoints(ctx, client, endpoints); err != nil {
 			return nil, err
 		}

@@ -125,7 +125,7 @@ func moveRolloutNode(t *testing.T, fixture rolloutFixture, nodeID, to uuid.UUID)
 		t.Fatalf("cannot encode property value: %v", err)
 	}
 	if _, err := rolloutNodeService(fixture).Update(rolloutContext(t), service.UpdateInput{
-		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target, "scope_id": target},
+		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target}, ScopeID: to,
 	}); err != nil {
 		t.Fatalf("cannot move node %s under entry node %s: %v", nodeID, to, err)
 	}

@@ -58,6 +58,7 @@ func TestSearchWorkerRecordsStructuralSlices(t *testing.T) {
 			t.Fatalf("the worker events do not include a completed step on %s; completed steps: %v", reference, completed)
 		}
 	}
+	requirePermanentSearchWorkerEvents(t, fixture.stores, events)
 }
 
 func runRolloutUntilStable(t *testing.T, fixture parentEdgeFixture) {
@@ -127,7 +128,7 @@ func searchWorkerEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte) []
 			if err := json.Unmarshal(entry.Event, &event); err != nil {
 				t.Fatalf("decoding outbox entry %s failed: %v", entry.Event, err)
 			}
-			if event.Actor.ID == workerID {
+			if event.Actor.ID == workerID && event.Context.OperationClass == audit.OperationExternal {
 				events = append(events, event)
 			}
 		}

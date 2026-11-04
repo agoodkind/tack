@@ -121,6 +121,7 @@ func (m *searchMixed) editIssue(callContext context.Context, index int, node *se
 	_, err := m.driver(index).Call(callContext, tenant.token(), "tack_update_issue", m.issueArguments(tenant, node.id.String(), "", marker))
 	if err != nil {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_edit_failed", err)
+		m.forgetAbsent(callContext, node)
 		return
 	}
 	committed, err := m.committedAt(callContext, node.id)
@@ -138,14 +139,31 @@ func (m *searchMixed) editIssue(callContext context.Context, index int, node *se
 func (m *searchMixed) deleteIssue(callContext context.Context, index int, node *searchMixedNode) {
 	if err := m.deleteNode(callContext, index, node.tenant, node.id); err != nil {
 		m.writeFailed(callContext, "qa.datagen.search_mixed_delete_failed", err)
+		m.forgetAbsent(callContext, node)
 		return
 	}
+	m.recordDeleted(node)
+}
+
+func (m *searchMixed) recordDeleted(node *searchMixedNode) {
 	m.nodeMutex.Lock()
 	m.nodes = slices.DeleteFunc(m.nodes, func(candidate *searchMixedNode) bool { return candidate == node })
 	marker := node.marker
 	m.nodeMutex.Unlock()
 	m.stats.count(&m.stats.deletes)
 	m.trackDeletion(node, marker)
+}
+
+// forgetAbsent checks for a committed deletion after a failed write.
+func (m *searchMixed) forgetAbsent(ctx context.Context, node *searchMixedNode) {
+	view, err := m.stores.Views.Get(ctx, node.id)
+	if err != nil {
+		slog.ErrorContext(ctx, "qa.datagen.search_mixed_node_unread", slog.String("node_id", node.id.String()), slog.String("err", err.Error()))
+		return
+	}
+	if view == nil {
+		m.recordDeleted(node)
+	}
 }
 
 // deleteNode deletes one issue of one tenant through a public call and records its ID.

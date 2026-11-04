@@ -14,7 +14,8 @@ import (
 // or Protected, and cannot use the unauthenticated actor kind.
 // Format 2 events require an outcome, evidence for their operation class,
 // and exactly one valid JSON Protected value per delta reference with
-// SubjectID equal to Context.Target.ID.
+// SubjectID equal to Context.Target.OwnerID when the target states an owner
+// and to Context.Target.ID otherwise.
 func ValidateEvent(event Event) error {
 	return validateEventContract(event, true)
 }

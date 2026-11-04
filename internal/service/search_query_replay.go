@@ -2,9 +2,13 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"errors"
 	"log/slog"
+	"math/big"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/domain/node"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/telemetry"
@@ -12,7 +16,16 @@ import (
 
 const (
 	// sweepSessionLimit bounds the expired sessions one new search cleans up.
-	sweepSessionLimit = 4
+	sweepSessionLimit = 2
+	// sweepCandidateWindow limits the oldest expired sessions eligible for a sweep.
+	// Each process runs four searches at once by default. QA runs two processes.
+	// Eight sweeps selecting two sessions each from 64 select about 14.4 distinct
+	// sessions across 16 selections on average. One read loads about 4.3 KiB of keys
+	// and does not commit. By calculation, the backlog stops falling at about 32
+	// undeletable keys in a full window. A full window of 64 undeletable keys with
+	// valid session IDs stops sweeping. One malformed key in the window stops all
+	// sweeping because the read fails.
+	sweepCandidateWindow = 64
 	// sweepSliceLimit bounds the cleanup slices one expired session receives
 	// per sweep.
 	sweepSliceLimit = 4
@@ -55,59 +68,125 @@ func (s *SearchQueryService) replay(ctx context.Context, session searchdomain.Se
 	return SearchPage{SessionID: session.ID, NextVersion: version + 1, Results: results, Complete: commit.Complete}, nil
 }
 
-// closeSession closes the point in time and marks the session closing. The
-// expiry sweep deletes its records.
-func (s *SearchQueryService) closeSession(ctx context.Context, session searchdomain.Session) {
-	if err := s.ports.Ranker.Close(ctx, session.Snapshot); err != nil {
+// closeSession closes the point in time and marks the session closing. It
+// returns an error if an audit event for the close or cleanup failure cannot
+// be recorded. This includes a failed step result write when the operation
+// result records step_unfinished. It logs other point in time close errors.
+// The expiry sweep deletes the session records.
+func (s *SearchQueryService) closeSession(ctx context.Context, session searchdomain.Session) error {
+	_, err := s.closeSessionStep(ctx, session)
+	return err
+}
+
+// closeSessionStep closes the point in time, marks the session closing, and
+// reports whether BeginCleanup started a transaction attempt.
+func (s *SearchQueryService) closeSessionStep(ctx context.Context, session searchdomain.Session) (bool, error) {
+	var snapshotRecordErr error
+	if err := s.closeSnapshot(ctx, session, session.Snapshot); err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.snapshot.close_failed", slog.String("err", err.Error()), slog.String("session_id", session.ID.String()))
+		if errors.Is(err, audit.ErrEventNotRecorded) {
+			snapshotRecordErr = errors.Join(searchdomain.ErrEngineUnavailable, err)
+		}
 	}
 	if err := s.ports.Sessions.BeginCleanup(ctx, session.ID); err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.close_failed", slog.String("err", err.Error()), slog.String("session_id", session.ID.String()))
+		failure := errors.Join(snapshotRecordErr, s.recordCleanupFailure(ctx, session.ID, searchdomain.CleanupClose, err))
+		return !errors.Is(err, searchdomain.ErrSessionStepNotStarted), failure
 	}
+	return true, snapshotRecordErr
 }
 
-// refuseExpired rejects continuations when sessions are closing or past idle or absolute deadlines.
-// Unless the session is closing, it deletes the point in time and marks the session closing.
-// It returns searchdomain.ErrSessionExpired; queryFailure logs and wraps the error.
-// The expiry sweep later deletes the session records.
+// refuseExpired rejects continuations when a session is closing or has passed
+// an idle or absolute deadline. Unless the session is closing, it closes the
+// point in time and marks the session closing. It returns
+// searchdomain.ErrSessionExpired joined with any closeSession error. The
+// expiry sweep later deletes the session records.
 func (s *SearchQueryService) refuseExpired(ctx context.Context, session searchdomain.Session) error {
+	var closeErr error
 	if !session.Closing {
-		s.closeSession(ctx, session)
+		closeErr = s.closeSession(ctx, session)
 	}
-	return queryFailure(ctx, "verify search session", session.ID, searchdomain.ErrSessionExpired)
+	refusal := errors.Join(queryFailure(ctx, "verify search session", session.ID, searchdomain.ErrSessionExpired), closeErr)
+	return refusal
 }
 
-// sweepExpired closes and deletes a bounded number of expired sessions. It
-// logs each failure and returns nothing, and the public response does not
-// depend on the sweep.
-func (s *SearchQueryService) sweepExpired(ctx context.Context) {
-	expired, err := s.ports.Expired.ExpiredSessions(ctx, sweepSessionLimit)
+// sweepExpired reads up to sweepCandidateWindow of the oldest expired sessions.
+// It chooses up to sweepSessionLimit sessions at random and closes and deletes
+// them. It stops and returns the first deleteSession error. If ExpiredSessions
+// fails, it logs the error and returns nil without cleanup. If ctx ends, it
+// returns nil before the next session. A later search sweeps that session.
+func (s *SearchQueryService) sweepExpired(ctx context.Context) error {
+	expired, err := s.ports.Expired.ExpiredSessions(ctx, sweepCandidateWindow)
 	if err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()))
-		return
+		return nil
 	}
-	for _, sessionID := range expired {
-		s.deleteSession(ctx, sessionID)
+	chosen := chooseSweepSessions(ctx, expired)
+	for position, sessionID := range chosen {
+		if err := ctx.Err(); err != nil {
+			telemetry.L(ctx).InfoContext(ctx, "search.session.sweep_stopped", slog.Int("remaining", len(chosen)-position), slog.String("reason", err.Error()))
+			return nil
+		}
+		if err := s.deleteSession(ctx, sessionID); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.UUID) {
+func chooseSweepSessions(ctx context.Context, candidates []uuid.UUID) []uuid.UUID {
+	chosen := min(sweepSessionLimit, len(candidates))
+	for position := range chosen {
+		offset, err := rand.Int(rand.Reader, big.NewInt(int64(len(candidates)-position)))
+		if err != nil {
+			telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()))
+			return nil
+		}
+		pick := position + int(offset.Int64())
+		candidates[position], candidates[pick] = candidates[pick], candidates[position]
+	}
+	return candidates[:chosen]
+}
+
+// deleteSession closes one expired session and deletes its records. A
+// session that no longer exists counts as finished cleanup.
+func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.UUID) error {
 	session, err := s.ports.Sessions.Load(ctx, sessionID)
+	if errors.Is(err, searchdomain.ErrSessionNotFound) {
+		telemetry.L(ctx).DebugContext(ctx, "search.session.sweep_skipped", slog.String("session_id", sessionID.String()))
+		return nil
+	}
 	if err != nil {
 		telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
-		return
+		return s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
 	}
 	if !session.Closing {
-		s.closeSession(ctx, session)
+		started, closeErr := s.closeSessionStep(ctx, session)
+		if closeErr != nil {
+			return closeErr
+		}
+		if !started {
+			// deleteSession skips CleanupSlice because the close row already
+			// records that cleanup did not start.
+			return nil
+		}
 	}
-	for range sweepSliceLimit {
+	for slice := range sweepSliceLimit {
 		done, err := s.ports.Sessions.CleanupSlice(ctx, sessionID, cleanupSliceKeys)
+		if slice > 0 && errors.Is(err, searchdomain.ErrSessionStepNotStarted) {
+			// An earlier slice committed delete effects. Do not record a failed outcome
+			// when this slice made no attempt after the context ended; a later sweep
+			// continues the delete.
+			telemetry.L(ctx).InfoContext(ctx, "search.session.sweep_stopped", slog.String("session_id", sessionID.String()), slog.String("reason", err.Error()))
+			return nil
+		}
 		if err != nil {
 			telemetry.L(ctx).ErrorContext(ctx, "search.session.sweep_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
-			return
+			return s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
 		}
 		if done {
-			return
+			return nil
 		}
 	}
+	return nil
 }

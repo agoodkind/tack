@@ -46,7 +46,7 @@ func (r *Reader) StreamQuery(ctx context.Context, f QueryFilter, visit RowVisito
 	}
 
 	query, args := buildAuditQuery(f)
-	rows, err := r.pool.Query(ctx, query, args...)
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, query, args...))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.stream_query.failed", slog.String("err", err.Error()))
 		return fmt.Errorf("audit stream query: %w", err)

@@ -82,11 +82,12 @@ func (m *searchMixed) moveIssue(ctx context.Context) bool {
 	if pinned == nil {
 		return false
 	}
-	target := json.RawMessage(strconv.Quote(m.changes.destinations[pinned.tenant].projectID.String()))
+	projectID := m.changes.destinations[pinned.tenant].projectID
+	target := json.RawMessage(strconv.Quote(projectID.String()))
 	_, err := m.changes.nodes.Update(ctx, service.UpdateInput{
-		NodeID: pinned.id, Name: nil, Props: map[string]json.RawMessage{"parent_id": target, "scope_id": target},
+		NodeID: pinned.id, Name: nil, Props: map[string]json.RawMessage{"parent_id": target},
 		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-		ActorID:             m.tenants[pinned.tenant].workspace.Actors[0].UserID,
+		ActorID:             m.tenants[pinned.tenant].workspace.Actors[0].UserID, ScopeID: projectID,
 	})
 	if err != nil {
 		m.writeFailed(ctx, "qa.datagen.search_mixed_move_failed", err)

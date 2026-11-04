@@ -34,11 +34,11 @@ func (r *Reader) PIIRefsForActor(ctx context.Context, orgID, actorID uuid.UUID) 
 	if actorID == uuid.Nil {
 		return nil, errors.New("audit pii refs: actor_id required")
 	}
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
 		SELECT DISTINCT pii_ref
 		  FROM audit.events
 		 WHERE org_id = $1 AND actor_id = $2 AND pii_ref IS NOT NULL
-	`, orgID, actorID)
+	`, orgID, actorID))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.pii_refs.query_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("audit pii refs for actor %s in org %s: %w", actorID, orgID, err)

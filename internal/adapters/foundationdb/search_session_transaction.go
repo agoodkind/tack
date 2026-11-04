@@ -19,6 +19,8 @@ import (
 // one session transaction failure log lists.
 const maxRecordedRetryCodes = 8
 
+const transactionTooOld = 1007
+
 // sessionAttempts records the attempts of one session transaction for its
 // failure log.
 type sessionAttempts struct {
@@ -68,11 +70,13 @@ func (a *sessionAttempts) attributes() []slog.Attr {
 	}
 }
 
-// transactSession runs apply and commits it, retrying retryable
-// FoundationDB errors. Each attempt bounds its timeout by the context
-// deadline, measured with source. Expected session outcomes return without
-// an error log. A failure log reports the attempts, the elapsed times, and
-// the retried error codes.
+// transactSession runs apply and commits its changes, retrying retryable
+// FoundationDB errors. Each attempt uses source to measure the time
+// remaining until the context deadline and bounds its timeout by that time.
+// Expected session outcomes return without an error log. The function logs
+// at Info when recovery resolved a retirement attempt or a replacement
+// ended. A failure log reports the attempts, elapsed times, and retried
+// error codes.
 func transactSession(ctx context.Context, db fdb.Database, source clock.Clock, operation string, sessionID uuid.UUID, apply func(fdb.Transaction) error) error {
 	transaction, err := db.CreateTransaction()
 	if err != nil {
@@ -80,9 +84,13 @@ func transactSession(ctx context.Context, db fdb.Database, source clock.Clock, o
 	}
 	defer transaction.Cancel()
 	attempts := newSessionAttempts(source)
+	uncertain := false
 	for {
 		if err := ctx.Err(); err != nil {
-			return sessionFailure(ctx, operation, sessionID, err, attempts.attributes()...)
+			if attempts.count == 0 {
+				err = sessionNotStartedError{err: err}
+			}
+			return sessionFailure(ctx, operation, sessionID, markCommitUncertain(err, uncertain), attempts.attributes()...)
 		}
 		attempts.begin()
 		timeout := searchTransactionTimeout
@@ -90,32 +98,70 @@ func transactSession(ctx context.Context, db fdb.Database, source clock.Clock, o
 			timeout = max(time.Millisecond, min(timeout, deadline.Sub(source.Now())))
 		}
 		if err := transaction.Options().SetTimeout(max(int64(timeout/time.Millisecond), 1)); err != nil {
-			return sessionFailure(ctx, operation, sessionID, err, attempts.attributes()...)
+			return sessionFailure(ctx, operation, sessionID, markCommitUncertain(err, uncertain), attempts.attributes()...)
 		}
 		err := apply(transaction)
 		if err == nil {
 			err = transaction.Commit().Get()
+			uncertain = uncertain || commitMayHaveApplied(err)
 		}
 		if err == nil {
 			return nil
 		}
 		if isSessionOutcome(err) {
-			return sessionStepError{operation: operation + " for session " + sessionID.String(), err: err}
+			return sessionStepError{operation: operation + " for session " + sessionID.String(), err: markCommitUncertain(err, uncertain)}
+		}
+		if errors.Is(err, errRetireAttemptFenced) || errors.Is(err, errRetireRebuildEnded) {
+			return retireAttemptEnded(ctx, operation, sessionID, markCommitUncertain(err, uncertain))
 		}
 		var databaseError fdb.Error
 		if !errors.As(err, &databaseError) {
-			return sessionFailure(ctx, operation, sessionID, err, attempts.attributes()...)
+			return sessionFailure(ctx, operation, sessionID, markCommitUncertain(err, uncertain), attempts.attributes()...)
 		}
 		if retryError := transaction.OnError(databaseError).Get(); retryError != nil {
-			return sessionFailure(ctx, operation, sessionID, retryError, attempts.attributes()...)
+			return sessionFailure(ctx, operation, sessionID, markCommitUncertain(retryError, uncertain), attempts.attributes()...)
 		}
 		attempts.retried(databaseError.Code)
 	}
 }
 
-// searchTimeoutError is a public search read that ended with FoundationDB
-// error 1031 (transaction_timed_out). It keeps the text of err and also wraps
-// [searchdomain.ErrEngineUnavailable].
+func retireAttemptEnded(ctx context.Context, operation string, sessionID uuid.UUID, err error) error {
+	slog.InfoContext(ctx, "search.session.retire_attempt_ended", slog.String("err", err.Error()), slog.String("operation", operation), slog.String("session_id", sessionID.String()))
+	return sessionStepError{operation: operation + " for session " + sessionID.String(), err: err}
+}
+
+// commitUncertainError marks a session transaction failure after a submitted
+// commit that could have applied. It preserves the text of err.
+type commitUncertainError struct{ err error }
+
+func (e commitUncertainError) Error() string { return e.err.Error() }
+func (e commitUncertainError) Unwrap() error { return e.err }
+
+// commitMayHaveApplied reports whether a commit error leaves the commit result
+// unknown. It returns false for a nil error and for FoundationDB errors 1020
+// and 1007, which indicate that the commit did not apply. It returns true for
+// every other error.
+func commitMayHaveApplied(err error) bool {
+	var databaseError fdb.Error
+	if err == nil {
+		return false
+	}
+	if !errors.As(err, &databaseError) {
+		return true
+	}
+	return databaseError.Code != transactionNotCommitted && databaseError.Code != transactionTooOld
+}
+
+func markCommitUncertain(err error, uncertain bool) error {
+	if uncertain {
+		return commitUncertainError{err: err}
+	}
+	return err
+}
+
+// searchTimeoutError represents a public search read or session operation that
+// ended with FoundationDB error 1031 or at its context deadline. It preserves
+// the text of err and wraps [searchdomain.ErrEngineUnavailable].
 type searchTimeoutError struct{ err error }
 
 func (e searchTimeoutError) Error() string { return e.err.Error() }
@@ -125,10 +171,13 @@ func (e searchTimeoutError) Unwrap() []error {
 }
 
 // classifySearchTimeout returns err as a searchTimeoutError when err wraps
-// FoundationDB error 1031 and returns every other err unchanged.
+// FoundationDB error 1031 or [context.DeadlineExceeded]. It returns every other
+// err unchanged. It returns [context.Canceled] unchanged because the caller
+// stopped waiting.
 func classifySearchTimeout(err error) error {
 	var databaseError fdb.Error
-	if errors.As(err, &databaseError) && databaseError.Code == transactionTimedOut {
+	timedOut := errors.As(err, &databaseError) && databaseError.Code == transactionTimedOut
+	if timedOut || errors.Is(err, context.DeadlineExceeded) {
 		return searchTimeoutError{err: err}
 	}
 	return err
@@ -137,7 +186,8 @@ func classifySearchTimeout(err error) error {
 // sessionFailure logs and wraps one session storage failure with the
 // operation name and the session ID. It logs details in the transaction
 // group, which the log omits when details is empty. A failure with
-// FoundationDB error 1031 also wraps [searchdomain.ErrEngineUnavailable].
+// FoundationDB error 1031 or [context.DeadlineExceeded] also wraps
+// [searchdomain.ErrEngineUnavailable].
 func sessionFailure(ctx context.Context, operation string, sessionID uuid.UUID, err error, details ...slog.Attr) error {
 	wrapped := fmt.Errorf("%s for session %s: %w", operation, sessionID, classifySearchTimeout(err))
 	slog.ErrorContext(ctx, "search.session.storage_failed", slog.String("err", wrapped.Error()),

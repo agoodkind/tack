@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
@@ -24,8 +25,11 @@ func (s *SearchQueryService) acquireSearchSlot(ctx context.Context, sessionID uu
 	timer := time.NewTimer(s.settings.AdmissionWait)
 	defer timer.Stop()
 	var cause error
+	started := clock.Now()
 	select {
 	case s.slots <- struct{}{}:
+		slog.DebugContext(ctx, "search.admission.granted", slog.Int64("wait_ms", clock.Since(started).Milliseconds()),
+			slog.String("session_id", sessionID.String()))
 		return s.releaseSearchSlot, nil
 	case <-timer.C:
 		cause = errAdmissionWaitEnded

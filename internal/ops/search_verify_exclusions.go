@@ -9,8 +9,13 @@ import (
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/telemetry"
 )
+
+// searchVerifyExpiredBound limits the expired sessions counted by ops search
+// verify. It bounds the range loaded by one read.
+const searchVerifyExpiredBound = 10000
 
 // searchVerifyOutput lists excluded nodes and property warnings for properties
 // that indexed text omits. It also lists stuck work items with attempt counts
@@ -23,6 +28,11 @@ type searchVerifyOutput struct {
 	Warnings         []searchWarningOutput   `json:"warnings"`
 	StuckWorkItems   int                     `json:"stuck_work_items"`
 	StuckWork        []searchStuckWorkOutput `json:"stuck_work"`
+	// ExpiredSessions counts sessions with expiry keys from an earlier minute.
+	// The count is limited by searchVerifyExpiredBound.
+	ExpiredSessions int `json:"expired_sessions"`
+	// ExpiredSessionsTruncated is true when more sessions exist past the bound.
+	ExpiredSessionsTruncated bool `json:"expired_sessions_truncated"`
 }
 
 // searchWarningOutput reports one property that a node's indexed text omits.
@@ -49,10 +59,11 @@ type searchExclusionOutput struct {
 	ExcludedAt string `json:"excluded_at"`
 }
 
-// reportSearchWorkState writes every exclusion and every work item at or past
-// the attempt limit that FoundationDB records. An excluded node does not fail
-// verification. The returned stuck error lists each work item at or past the
-// limit, and err reports a failed read or write.
+// reportSearchWorkState writes every exclusion and every work item that
+// FoundationDB records at or past the attempt limit. It also writes a
+// bounded count of expired search sessions. An excluded node does not
+// fail verification. The returned stuck error lists each work item at or
+// past the limit. The err return value reports a failed read or write.
 func reportSearchWorkState(ctx context.Context, factory *cli.Factory, sink clispec.ResultSink) (stuck, err error) {
 	env, err := NewEnv(ctx, factory.Cfg)
 	if err != nil {
@@ -63,6 +74,7 @@ func reportSearchWorkState(ctx context.Context, factory *cli.Factory, sink clisp
 		ResultMarker: clispec.ResultMarker{}, ExcludedNodes: 0, Exclusions: []searchExclusionOutput{},
 		PropertyWarnings: 0, Warnings: []searchWarningOutput{},
 		StuckWorkItems: 0, StuckWork: []searchStuckWorkOutput{},
+		ExpiredSessions: 0, ExpiredSessionsTruncated: false,
 	}
 	if err := listSearchExclusions(ctx, env, &output); err != nil {
 		return nil, err
@@ -73,8 +85,12 @@ func reportSearchWorkState(ctx context.Context, factory *cli.Factory, sink clisp
 	if err := listStuckSearchWork(ctx, env, &output); err != nil {
 		return nil, err
 	}
+	if err := countExpiredSessions(ctx, env, &output); err != nil {
+		return nil, err
+	}
 	telemetry.L(ctx).InfoContext(ctx, "search.verify.work_state_listed", slog.Int("excluded_nodes", output.ExcludedNodes),
-		slog.Int("property_warnings", output.PropertyWarnings), slog.Int("stuck_work_items", output.StuckWorkItems))
+		slog.Int("property_warnings", output.PropertyWarnings), slog.Int("stuck_work_items", output.StuckWorkItems),
+		slog.Int("expired_sessions", output.ExpiredSessions), slog.Bool("expired_sessions_truncated", output.ExpiredSessionsTruncated))
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 		return nil, searchVerifyFailure(ctx, "write search work state", err)
 	}
@@ -130,6 +146,18 @@ func listSearchWarnings(ctx context.Context, env *Env, output *searchVerifyOutpu
 		cursor = page.NextCursor
 	}
 	output.PropertyWarnings = len(output.Warnings)
+	return nil
+}
+
+// countExpiredSessions sets the expired session count and truncation fields.
+// It reads one session past the bound to detect truncation.
+func countExpiredSessions(ctx context.Context, env *Env, output *searchVerifyOutput) error {
+	expired, err := env.Stores.SearchSessions(clock.Wall{}, 0).ExpiredSessions(ctx, searchVerifyExpiredBound+1)
+	if err != nil {
+		return searchVerifyFailure(ctx, "count expired search sessions", err)
+	}
+	output.ExpiredSessions = min(len(expired), searchVerifyExpiredBound)
+	output.ExpiredSessionsTruncated = len(expired) > searchVerifyExpiredBound
 	return nil
 }
 

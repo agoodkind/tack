@@ -129,7 +129,7 @@ func moveOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID,
 		t.Fatalf("node %s has type %s and parent_id %s, want type %s under %s", nodeID, current.NodeType, current.Props["parent_id"], kind.TypeKey, from)
 	}
 	if _, err := fixtureNodeService(t, fixture).Update(WithTestOperation(t, t.Context()), service.UpdateInput{
-		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": mustJSON(to.String()), "scope_id": mustJSON(to.String())},
+		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": mustJSON(to.String())}, ScopeID: to,
 	}); err != nil {
 		t.Fatalf("move node %s from %s to %s: %v", nodeID, from, to, err)
 	}

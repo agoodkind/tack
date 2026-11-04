@@ -20,6 +20,10 @@ import (
 	"goodkind.io/tack/internal/test/integration"
 )
 
+// sessionVerbCount counts the verbs in the ops qa datagen search report.
+// The report includes three session change verbs and two point in time verbs.
+const sessionVerbCount = 5
+
 // relevanceProbeQueries lists the queries that the relevance probe must report in order.
 var relevanceProbeQueries = []string{"restart containers one by one", "rolling Docker restart", "restart containers sequentially"}
 
@@ -30,14 +34,22 @@ var relevanceProbeQueries = []string{"restart containers one by one", "rolling D
 // of the deleted warning node and strict validation to report 0 invalid records.
 func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 	cfg := newCohortEngines(t)
+	cfg.AuditReaderDSN = cfg.DatabaseURL
+	startPublicLedgerOn(t, &publicServer{clusterFile: cfg.FDBClusterFile}, startRuntimeAuditStack(t))
 	output, err := runDatagenSearchCommand(t, cfg, "--commit")
 	if err != nil {
 		t.Fatalf("execute ops qa datagen search: %v; output=%s", err, output)
 	}
 	var envelope struct {
 		Result struct {
-			Verified bool                        `json:"verified"`
-			Search   *datagen.SearchVerification `json:"search"`
+			Verified     bool                        `json:"verified"`
+			Search       *datagen.SearchVerification `json:"search"`
+			SessionVerbs struct {
+				Verbs []struct {
+					Verb string `json:"verb"`
+					Rows int64  `json:"rows"`
+				} `json:"verbs"`
+			} `json:"session_verbs"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(output, &envelope); err != nil {
@@ -45,6 +57,15 @@ func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 	}
 	if !envelope.Result.Verified || envelope.Result.Search == nil {
 		t.Fatalf("ops qa datagen search did not report verified=true with a search report: %s", output)
+	}
+	if len(envelope.Result.SessionVerbs.Verbs) != sessionVerbCount || envelope.Result.Search.OrgID == uuid.Nil {
+		t.Fatalf("ops qa datagen search reported organization %s and session verbs %+v, want an organization and %d verbs",
+			envelope.Result.Search.OrgID, envelope.Result.SessionVerbs.Verbs, sessionVerbCount)
+	}
+	for _, verb := range envelope.Result.SessionVerbs.Verbs {
+		if verb.Rows == 0 {
+			t.Fatalf("ops qa datagen search reported zero ledger rows of verb %s: %s", verb.Verb, output)
+		}
 	}
 	warning := envelope.Result.Search.PropertyWarning
 	if warning.NodeID == uuid.Nil || warning.PropertyName == "" || warning.PropertyDefID == uuid.Nil ||
@@ -118,6 +139,7 @@ func runAuditedCommand(t *testing.T, cfg *config.Config, command ...string) ([]b
 	}
 	t.Cleanup(pool.Close)
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	t.Cleanup(factory.CloseAuditOutbox)
 	registry := clispec.NewRegistry()
 	ops.RegisterCommands(registry, factory)

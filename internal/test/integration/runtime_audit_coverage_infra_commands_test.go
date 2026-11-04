@@ -72,8 +72,15 @@ func addDatagenCommandCases(cases map[string]coverageCase) {
 			commandCase(verb, audit.OutcomeOK, func(*testing.T, *coverageEnv) commandInput {
 				return commandInput{args: command, outbox: nil, configure: localTarget}
 			}),
-			commandCase(verb, audit.OutcomeOK, func(*testing.T, *coverageEnv) commandInput {
-				return commandInput{args: slices.Concat(command, committed), outbox: nil, configure: localTarget}
+			commandCase(verb, audit.OutcomeOK, func(t *testing.T, _ *coverageEnv) commandInput {
+				ledger := testenv.Ledger(t)
+				return commandInput{
+					args: slices.Concat(command, committed), outbox: nil,
+					configure: func(cfg *config.Config) {
+						localTarget(cfg)
+						cfg.AuditReaderDSN = ledger
+					},
+				}
 			}),
 		)
 	}
@@ -101,8 +108,8 @@ func addInfrastructureCommandCases(cases map[string]coverageCase) {
 		return commandInput{args: []string{"ops", "search", "reindex"}, outbox: nil, configure: nil}
 	})
 	cases["command ops search verify"] = searchCommandCase(
-		failingCommandCase(audit.VerbOpsSearchVerify, audit.OutcomeOK, fixedCommand("ops", "search", "verify")),
-		commandCase(audit.VerbOpsSearchVerify, audit.OutcomeOK, fixedCommand("ops", "search", "verify")),
+		failingCommandCase(audit.VerbOpsSearchVerify, audit.OutcomeFailed, fixedCommand("ops", "search", "verify")),
+		commandCase(audit.VerbOpsSearchVerify, audit.OutcomeCompleted, fixedCommand("ops", "search", "verify")),
 	)
 	cases["command ops deploy verify"] = coverageCase{
 		run: func(t *testing.T, env *coverageEnv) coverageEvidence {

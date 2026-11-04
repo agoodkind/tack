@@ -29,13 +29,22 @@ func addAuditCommandCases(cases map[string]coverageCase) {
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{args: []string{"ops", "audit", "consumer-offsets"}, configure: reader(t, env), outbox: nil}
 		})
-	cases["command ops audit dlq inspect"] = commandCase(audit.VerbOpsAuditDLQInspect, audit.OutcomeOK,
+	cases["command ops audit dlq inspect"] = commandCase(audit.VerbOpsAuditDLQInspect, audit.OutcomeCompleted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{args: []string{"ops", "audit", "dlq", "inspect"}, configure: reader(t, env), outbox: nil}
 		})
 	cases["command ops audit dlq replay"] = commandCase(audit.VerbOpsAuditDLQReplay, audit.OutcomeOK,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{args: []string{"ops", "audit", "dlq", "replay", "--limit", "1"}, configure: reader(t, env), outbox: nil}
+		})
+	cases["command ops audit manifest-parts"] = commandCase(audit.VerbAuditRead, audit.OutcomeCompleted,
+		func(t *testing.T, env *coverageEnv) commandInput {
+			return commandInput{
+				args: []string{
+					"ops", "audit", "manifest-parts", "--org", uuid.Must(uuid.NewV7()).String(), "--event-id", uuid.Must(uuid.NewV7()).String(),
+				},
+				configure: reader(t, env), outbox: nil,
+			}
 		})
 	cases["command ops audit prove-schema-guard"] = commandCase(audit.VerbOpsAuditSchemaGuardProof, audit.OutcomeOK,
 		fixedCommand("ops", "audit", "prove-schema-guard"))

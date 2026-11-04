@@ -85,8 +85,7 @@ func TestSearchSettingsReportsEffectivePointInTimeLimit(t *testing.T) {
 
 // requireSearchSettings runs ops search settings as a new operator and
 // requires the result to contain exactly the fields of want with the values
-// of want. It then requires the outbox to hold one ok row of the settings
-// verb for that operator, with an operation ID.
+// of want. It then requires one final read with the exact result digest.
 func requireSearchSettings(t *testing.T, cfg *config.Config, want searchSettingsReport) {
 	t.Helper()
 	pool, err := pgxpool.New(integration.WithTestOperation(t, t.Context()), testenv.Ledger(t))
@@ -96,7 +95,7 @@ func requireSearchSettings(t *testing.T, cfg *config.Config, want searchSettings
 	defer pool.Close()
 	operatorID := uuid.Must(uuid.NewV7())
 	raw := runSearchSettingsCommand(t, cfg, pool, operatorID)
-	requireSearchSettingsAudit(t, pool, operatorID)
+	requireSearchSettingsAudit(t, pool, operatorID, raw)
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatalf("decode ops search settings fields %s: %v", raw, err)
@@ -122,20 +121,25 @@ func requireSearchSettings(t *testing.T, cfg *config.Config, want searchSettings
 	}
 }
 
-// requireSearchSettingsAudit reads the outbox rows of the settings verb for
-// operatorID through the real SQL outbox. The read choke-point writes one
-// row with the ok outcome before the read runs. The test requires exactly
-// that one row, a non-nil operation ID in Extra.op_id, and the operator
-// identity that the command received.
-func requireSearchSettingsAudit(t *testing.T, pool *pgxpool.Pool, operatorID uuid.UUID) {
+// requireSearchSettingsAudit requires final read evidence for the printed settings.
+func requireSearchSettingsAudit(t *testing.T, pool *pgxpool.Pool, operatorID uuid.UUID, payload []byte) {
 	t.Helper()
-	events := outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql", string(audit.VerbOpsSearchSettings), operatorID.String())
+	events := readOutboxEvents(t, pool, audit.VerbOpsSearchSettings, operatorID)
 	if len(events) != 1 {
 		t.Fatalf("ops search settings outbox rows for operator %s = %d, want 1: %+v", operatorID, len(events), events)
 	}
 	event := events[0]
-	if event.Outcome != audit.OutcomeOK {
-		t.Fatalf("ops search settings audit outcome = %q, want %q", event.Outcome, audit.OutcomeOK)
+	if event.Outcome != audit.OutcomeCompleted || event.Context.AuditFormatVersion != audit.AuditFormatComplete ||
+		event.Context.OperationClass != audit.OperationRead || event.Context.CompletedAt.IsZero() {
+		t.Fatalf("ops search settings did not finalize a completed read: %+v", event)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, payload); err != nil {
+		t.Fatalf("compact settings payload: %v", err)
+	}
+	if evidence := event.Context.Read; evidence == nil || evidence.Count != 1 ||
+		evidence.PayloadSHA256 != payloadDigest(compact.Bytes()) || evidence.PayloadFormat != "application/json" {
+		t.Fatalf("ops search settings read evidence = %+v, want the exact settings digest and one resource", evidence)
 	}
 	if operationID := decodeCommandExtra(t, event).OpID; operationID == uuid.Nil {
 		t.Fatalf("ops search settings audit row %s has no Extra.op_id", event.EventID)
@@ -159,6 +163,7 @@ func runSearchSettingsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Po
 	var output bytes.Buffer
 	factory.Out = &output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := integration.SearchCommandRoot(factory)
 	root.SetArgs([]string{
 		"--execute", "--output", "json", "--operator-id", operatorID.String(),

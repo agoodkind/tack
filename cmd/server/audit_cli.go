@@ -108,7 +108,7 @@ func runAuditExport(f *cli.Factory) func(context.Context, auditExportInput, clis
 		reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.export_reader_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("audit export: reader: %w", err)
+			return fmt.Errorf("audit export: reader from AUDIT_READER_DSN: %w", err)
 		}
 		defer reader.Close()
 		priv, keyID, err := loadAuditKey(f.Cfg.AuditSigningKeyPath)

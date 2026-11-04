@@ -13,6 +13,13 @@ var (
 	// ErrSnapshotLost means OpenSearch no longer recognizes the point in time.
 	// The caller must start a new search.
 	ErrSnapshotLost = errors.New("search snapshot is no longer available")
+	// ErrSnapshotPartial means OpenSearch created a point in time with failed
+	// shards or without an ID. Ranker.Open returns that snapshot with this
+	// error, and the caller closes it.
+	ErrSnapshotPartial = errors.New("search snapshot is partial")
+	// ErrSnapshotUncertain means the engine request ended without confirming
+	// whether OpenSearch created or deleted the point in time.
+	ErrSnapshotUncertain = errors.New("search snapshot effect is uncertain")
 	// ErrInvalidQuery means Tack rejected the query text or filters before
 	// inference, rejected the token weights that inference returned, or
 	// rejected a session record above its byte bound.

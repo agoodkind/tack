@@ -51,11 +51,11 @@ func (r *Reader) VerifySigners(ctx context.Context, check SignerCheck) (*SignerR
 		RejectedUnknownSigner: 0, SignatureFailed: 0, UnknownSigners: []UnknownSigner{},
 		UnverifiedAcknowledged: check.AcknowledgeUnverified,
 	}
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
 		SELECT org_id, notarized_at, merkle_root, signature, signing_key, signing_host
 		  FROM audit.notarizations
 		 WHERE notarized_at >= $1
-	`, check.Since)
+	`, check.Since))
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.signers.scan_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("scan audit.notarizations since %s: %w", check.Since.Format(time.RFC3339), err)

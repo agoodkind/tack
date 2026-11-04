@@ -39,6 +39,7 @@ type WorkLeases interface {
 type ContentCheckpoints interface {
 	Register(context.Context, Work, node.ContentPage) (WriteIntent, error)
 	CompletePage(context.Context, WriteIntent, string, bool) error
+	RecordMirrorMiss(context.Context, WriteIntent) error
 	CompleteRefresh(context.Context, Work) error
 	Restart(context.Context, Work) error
 }
