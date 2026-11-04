@@ -105,6 +105,11 @@ func MacRunnerOwnershipFixture(t *testing.T, mode string) {
 		}
 	}
 	fmt.Println("MAC_RUNNER_SIGNAL_READY")
+	macRunnerFinishFixture(ctx, t, mode)
+}
+
+func macRunnerFinishFixture(ctx context.Context, t *testing.T, mode string) {
+	t.Helper()
 	switch mode {
 	case "killed":
 		if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
