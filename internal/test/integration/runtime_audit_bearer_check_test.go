@@ -18,7 +18,7 @@ const (
 	// database error.
 	hideTokensStatement = "ALTER TABLE public.api_tokens RENAME TO api_tokens_check_test"
 	// restoreTokensStatement restores the token table name.
-	restoreTokensStatement = "ALTER TABLE public.api_tokens_check_test RENAME TO api_tokens"
+	restoreTokensStatement = "ALTER TABLE IF EXISTS public.api_tokens_check_test RENAME TO api_tokens"
 )
 
 // TestRuntimeAuditBearerCheckFailure builds a public server that does not

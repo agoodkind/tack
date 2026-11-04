@@ -19,13 +19,14 @@ const (
 	// then fail with a database error.
 	hideMembershipsStatement = "ALTER TABLE public.org_members RENAME TO org_members_lookup_test"
 	// restoreMembershipsStatement restores the membership table name.
-	restoreMembershipsStatement = "ALTER TABLE public.org_members_lookup_test RENAME TO org_members"
+	restoreMembershipsStatement = "ALTER TABLE IF EXISTS public.org_members_lookup_test RENAME TO org_members"
 )
 
-// hideLedgerTable runs the hide statement on the ledger.
-// It returns a function that runs the restore statement.
-// If the test ends before that function runs, cleanup runs the restore
-// statement.
+// hideLedgerTable runs the hide statement on the ledger and returns a
+// function that runs the restore statement. Cleanup also runs the restore
+// statement unless that function succeeded. It marks the table hidden before
+// running the hide statement because the statement can apply and still report
+// a connection error. The restore statements use IF EXISTS for that case.
 func hideLedgerTable(t *testing.T, hide, restore string) func() {
 	t.Helper()
 	admin, err := pgxpool.New(t.Context(), testenv.Ledger(t))
@@ -33,7 +34,7 @@ func hideLedgerTable(t *testing.T, hide, restore string) func() {
 		t.Fatalf("pgxpool.New failed for the administrator pool: %v", err)
 	}
 	t.Cleanup(admin.Close)
-	hidden := false
+	hidden := true
 	t.Cleanup(func() {
 		if !hidden {
 			return
@@ -45,7 +46,6 @@ func hideLedgerTable(t *testing.T, hide, restore string) func() {
 	if _, err := admin.Exec(t.Context(), hide); err != nil {
 		t.Fatalf("run %q: %v", hide, err)
 	}
-	hidden = true
 	return func() {
 		t.Helper()
 		if _, err := admin.Exec(t.Context(), restore); err != nil {
