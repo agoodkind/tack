@@ -115,13 +115,14 @@ func TestSearchRuntimeAuditCommitUncertainReadOutcome(t *testing.T) {
 }
 
 // TestSearchRuntimeAuditCommitUncertainEventAfterRequestDeadline sets
-// OPENSEARCH_QUERY_DEADLINE to 3 seconds and runs tack_search once. A log hook
-// pauses the test FoundationDB container after the session create transaction
-// prepares its writes. The commit times out when the request deadline ends. A
-// second hook resumes the container at the storage failure log. The test
-// requires the temporarily unavailable response. It also requires one
+// OPENSEARCH_QUERY_DEADLINE to 3 seconds and runs tack_search once.
+// A log hook pauses the test FoundationDB container after the session create
+// transaction prepares its writes. The commit times out when the request
+// deadline ends. A second hook resumes the container at the storage failure
+// log. The test requires a temporarily unavailable response. It requires one
 // incomplete session write event with the operation ID, actor, parent, and
-// target of the write.
+// target of the write. The test does not check the read row code because the
+// code depends on timing.
 func TestSearchRuntimeAuditCommitUncertainEventAfterRequestDeadline(t *testing.T) {
 	t.Setenv("OPENSEARCH_QUERY_DEADLINE", shortQueryDeadline)
 	t.Setenv("OPENSEARCH_QUERY_ADMISSION_WAIT", shortQueryAdmissionWait)

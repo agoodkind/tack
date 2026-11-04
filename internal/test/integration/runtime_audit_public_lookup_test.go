@@ -22,8 +22,10 @@ const (
 	restoreMembershipsStatement = "ALTER TABLE public.org_members_lookup_test RENAME TO org_members"
 )
 
-// hideLedgerTable runs hide on the ledger and returns a function that runs
-// restore. Cleanup runs restore when the test ends before that function runs.
+// hideLedgerTable runs the hide statement on the ledger.
+// It returns a function that runs the restore statement.
+// If the test ends before that function runs, cleanup runs the restore
+// statement.
 func hideLedgerTable(t *testing.T, hide, restore string) func() {
 	t.Helper()
 	admin, err := pgxpool.New(t.Context(), testenv.Ledger(t))
