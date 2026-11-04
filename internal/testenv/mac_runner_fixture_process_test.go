@@ -131,34 +131,40 @@ func macIndependentOwner(t *testing.T, docker *client.Client, options testenv.Ma
 // watcher. The test requires exit status 1. It requires the outer runner to
 // remove every recorded resource and report complete cleanup.
 func TestMacRunnerDockerFixtureKilledProcess(t *testing.T) {
-	options, docker, _ := macOwnershipFixture(t, "Killed")
-	result, err := testenv.RunMacTests(t.Context(), options)
-	if err != nil || result.ExitCode != 1 {
-		t.Errorf("killed test binary: result=%+v error=%v", result, err)
+	macRequireEndedBinaryCleanup(t, "Killed")
+}
+
+// TestMacRunnerDockerFixtureTerminatedProcess runs a fixture test binary that
+// creates its resources and then sends SIGTERM to itself. It requires the
+// runtime log to show that releaseOnSignal received the signal.
+func TestMacRunnerDockerFixtureTerminatedProcess(t *testing.T) {
+	evidence := macRequireEndedBinaryCleanup(t, "Terminated")
+	contents, err := os.ReadFile(filepath.Join(evidence, "runtime.log"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	summary := macOwnershipEvidence(t, options.EvidenceDirectory)
-	macRequireOwnedAbsent(t, docker, summary)
-	if !summary.Attribution || !summary.Cleanup || !summary.FullCleanup {
-		t.Errorf("killed test binary did not finish cleanup: %+v", summary)
+	if !strings.Contains(string(contents), "testenv.signal.received") {
+		t.Errorf("the runtime log in %s lacks testenv.signal.received", evidence)
 	}
 }
 
-// TestMacRunnerDockerFixtureTerminatedProcess runs testenv.RunMacTests with a
-// fixture test binary. The binary creates its resources, then sends SIGTERM
-// to itself. Its releaseOnSignal handler removes its engines. The test requires
-// exit status 1, engine logs, and complete attribution. It also requires the
-// outer runner to report complete cleanup.
-func TestMacRunnerDockerFixtureTerminatedProcess(t *testing.T) {
-	options, docker, _ := macOwnershipFixture(t, "Terminated")
+// macRequireEndedBinaryCleanup runs testenv.RunMacTests with a fixture mode
+// that ends the test binary early. It requires exit status 1, the absence of
+// every recorded resource, and complete cleanup. It returns the evidence
+// directory.
+func macRequireEndedBinaryCleanup(t *testing.T, mode string) string {
+	t.Helper()
+	options, docker, _ := macOwnershipFixture(t, mode)
 	result, err := testenv.RunMacTests(t.Context(), options)
 	if err != nil || result.ExitCode != 1 {
-		t.Errorf("terminated test binary: result=%+v error=%v", result, err)
+		t.Errorf("%s test binary: result=%+v error=%v", mode, result, err)
 	}
 	summary := macOwnershipEvidence(t, options.EvidenceDirectory)
 	macRequireOwnedAbsent(t, docker, summary)
 	if !summary.Attribution || !summary.Cleanup || !summary.FullCleanup {
-		t.Errorf("terminated test binary did not finish cleanup: %+v", summary)
+		t.Errorf("%s test binary did not finish cleanup: %+v", mode, summary)
 	}
+	return options.EvidenceDirectory
 }
 
 func TestMacRunnerDockerFixtureOtherProcess(t *testing.T) {
