@@ -110,6 +110,11 @@ func MacRunnerOwnershipFixture(t *testing.T, mode string) {
 		if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
 			t.Fatal(err)
 		}
+	case "terminated":
+		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(4 * time.Minute)
 	case "release":
 		time.Sleep(time.Second)
 		if err := Release(context.WithoutCancel(ctx)); err != nil {

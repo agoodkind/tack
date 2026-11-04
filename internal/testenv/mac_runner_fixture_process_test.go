@@ -143,6 +143,24 @@ func TestMacRunnerDockerFixtureKilledProcess(t *testing.T) {
 	}
 }
 
+// TestMacRunnerDockerFixtureTerminatedProcess runs testenv.RunMacTests with a
+// fixture test binary. The binary creates its resources, then sends SIGTERM
+// to itself. Its releaseOnSignal handler removes its engines. The test requires
+// exit status 1, engine logs, and complete attribution. It also requires the
+// outer runner to report complete cleanup.
+func TestMacRunnerDockerFixtureTerminatedProcess(t *testing.T) {
+	options, docker, _ := macOwnershipFixture(t, "Terminated")
+	result, err := testenv.RunMacTests(t.Context(), options)
+	if err != nil || result.ExitCode != 1 {
+		t.Errorf("terminated test binary: result=%+v error=%v", result, err)
+	}
+	summary := macOwnershipEvidence(t, options.EvidenceDirectory)
+	macRequireOwnedAbsent(t, docker, summary)
+	if !summary.Attribution || !summary.Cleanup || !summary.FullCleanup {
+		t.Errorf("terminated test binary did not finish cleanup: %+v", summary)
+	}
+}
+
 func TestMacRunnerDockerFixtureOtherProcess(t *testing.T) {
 	options, docker, project := macOwnershipFixture(t, "Release")
 	independent := macIndependentOwner(t, docker, options, project)
