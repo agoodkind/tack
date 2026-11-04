@@ -8,10 +8,10 @@ import (
 	"goodkind.io/tack/internal/searchaccess"
 )
 
-// SearchQueryAccess resolves entry point authority and compiles caller
-// access for public search with policies. A failure with FoundationDB error
-// 1031 also wraps [searchdomain.ErrEngineUnavailable]. Every other failure
-// returns unchanged.
+// SearchQueryAccess resolves entry point authority and compiles caller access
+// for public search with policies. A failure with FoundationDB error 1031 or
+// [context.DeadlineExceeded] also wraps [searchdomain.ErrEngineUnavailable].
+// Every other failure returns unchanged.
 type SearchQueryAccess struct {
 	policies *searchaccess.PolicySet
 }

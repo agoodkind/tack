@@ -49,8 +49,8 @@ func (s *SearchAccessRolloutStore) Current(ctx context.Context, authorityID uuid
 }
 
 // ActiveAccessVersion returns the version that serves new sessions of
-// authorityID. A failure with FoundationDB error 1031 also wraps
-// [searchdomain.ErrEngineUnavailable].
+// authorityID. It also wraps [searchdomain.ErrEngineUnavailable] when the error
+// is FoundationDB error 1031 or [context.DeadlineExceeded].
 func (s *SearchAccessRolloutStore) ActiveAccessVersion(ctx context.Context, authorityID uuid.UUID) (string, error) {
 	rollout, err := s.Current(ctx, authorityID)
 	if err != nil {

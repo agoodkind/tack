@@ -159,9 +159,9 @@ func markCommitUncertain(err error, uncertain bool) error {
 	return err
 }
 
-// searchTimeoutError is a public search read that ended with FoundationDB
-// error 1031 (transaction_timed_out). It keeps the text of err and also wraps
-// [searchdomain.ErrEngineUnavailable].
+// searchTimeoutError represents a public search read or session operation that
+// ended with FoundationDB error 1031 or at its context deadline. It preserves
+// the text of err and wraps [searchdomain.ErrEngineUnavailable].
 type searchTimeoutError struct{ err error }
 
 func (e searchTimeoutError) Error() string { return e.err.Error() }
@@ -171,10 +171,13 @@ func (e searchTimeoutError) Unwrap() []error {
 }
 
 // classifySearchTimeout returns err as a searchTimeoutError when err wraps
-// FoundationDB error 1031 and returns every other err unchanged.
+// FoundationDB error 1031 or [context.DeadlineExceeded]. It returns every other
+// err unchanged. It returns [context.Canceled] unchanged because the caller
+// stopped waiting.
 func classifySearchTimeout(err error) error {
 	var databaseError fdb.Error
-	if errors.As(err, &databaseError) && databaseError.Code == transactionTimedOut {
+	timedOut := errors.As(err, &databaseError) && databaseError.Code == transactionTimedOut
+	if timedOut || errors.Is(err, context.DeadlineExceeded) {
 		return searchTimeoutError{err: err}
 	}
 	return err
@@ -183,7 +186,8 @@ func classifySearchTimeout(err error) error {
 // sessionFailure logs and wraps one session storage failure with the
 // operation name and the session ID. It logs details in the transaction
 // group, which the log omits when details is empty. A failure with
-// FoundationDB error 1031 also wraps [searchdomain.ErrEngineUnavailable].
+// FoundationDB error 1031 or [context.DeadlineExceeded] also wraps
+// [searchdomain.ErrEngineUnavailable].
 func sessionFailure(ctx context.Context, operation string, sessionID uuid.UUID, err error, details ...slog.Attr) error {
 	wrapped := fmt.Errorf("%s for session %s: %w", operation, sessionID, classifySearchTimeout(err))
 	slog.ErrorContext(ctx, "search.session.storage_failed", slog.String("err", wrapped.Error()),

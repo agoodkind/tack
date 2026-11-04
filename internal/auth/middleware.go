@@ -50,13 +50,14 @@ func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (co
 	return ctx, uuid.Nil
 }
 
-// Bearer returns HTTP middleware that requires a valid API token.
-// On success injects the user ID into the request context.
-// On failure returns 401 with a JSON body.
-// It records the auth event with recorder, the audit recorder of the runtime
-// graph that serves the request. When recorder refuses the event, it
-// returns 503 with a JSON body and does not call next. A nil recorder refuses
-// every event.
+// Bearer returns HTTP middleware that requires a valid API token. On success
+// it injects the user ID into the request context. A missing or refused token
+// receives HTTP 401 with a JSON body. When the token check cannot answer, the
+// middleware returns HTTP 503 with a JSON body and does not call next. It
+// records the auth event with recorder. The recorder is the audit recorder of
+// the runtime graph that serves the request. When recorder refuses the event,
+// the middleware returns HTTP 503 with a JSON body and does not call next. A
+// nil recorder refuses every event.
 func Bearer(tokens TokenValidator, orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.Handler {
 	recorder = wiredRecorder(recorder)
 	return func(next http.Handler) http.Handler {
@@ -78,7 +79,7 @@ func Bearer(tokens TokenValidator, orgs OrgLister, recorder audit.Recorder) func
 				}
 				noteRejection(r.Context(), RejectionBearerCheckFailed)
 				telemetry.L(r.Context()).Error("token validate", "err", err)
-				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+				authUnavailable(w)
 				return
 			}
 
@@ -143,18 +144,27 @@ func extractBearer(r *http.Request) string {
 	return strings.TrimPrefix(v, "Bearer ")
 }
 
-func unauthorized(w http.ResponseWriter, msg string) {
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
+	w.WriteHeader(status)
 	_, _ = w.Write([]byte(`{"error":"` + msg + `"}`))
+}
+
+func unauthorized(w http.ResponseWriter, msg string) {
+	writeJSONError(w, http.StatusUnauthorized, msg)
+}
+
+// authUnavailable returns HTTP 503 with a JSON body when the token check
+// cannot answer. For example, the server may be unable to connect to the
+// ledger.
+func authUnavailable(w http.ResponseWriter) {
+	writeJSONError(w, http.StatusServiceUnavailable, "authentication unavailable")
 }
 
 // auditUnavailable answers 503 with a JSON body when the audit recorder did
 // not accept the auth event of an authenticated request.
 func auditUnavailable(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusServiceUnavailable)
-	_, _ = w.Write([]byte(`{"error":"audit recording unavailable"}`))
+	writeJSONError(w, http.StatusServiceUnavailable, "audit recording unavailable")
 }
 
 func withAuthenticatedUser(ctx context.Context, userID uuid.UUID) context.Context {
