@@ -15,6 +15,7 @@ func TestMacOwnershipShared(t *testing.T)      { testenv.MacRunnerOwnershipFixtu
 func TestMacOwnershipWait(t *testing.T)        { testenv.MacRunnerOwnershipFixture(t, "wait") }
 func TestMacOwnershipMutation(t *testing.T)    { testenv.MacRunnerOwnershipFixture(t, "mutation") }
 func TestMacOwnershipIndependent(t *testing.T) { testenv.MacRunnerOwnershipFixture(t, "independent") }
+func TestMacOwnershipKilled(t *testing.T)      { testenv.MacRunnerOwnershipFixture(t, "killed") }
 
 func TestMacOwnershipMissingAdmission(t *testing.T) {
 	testenv.MacRunnerOwnershipFixture(t, "missing-admission")

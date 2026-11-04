@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -105,6 +106,10 @@ func MacRunnerOwnershipFixture(t *testing.T, mode string) {
 	}
 	fmt.Println("MAC_RUNNER_SIGNAL_READY")
 	switch mode {
+	case "killed":
+		if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
+			t.Fatal(err)
+		}
 	case "release":
 		time.Sleep(time.Second)
 		if err := Release(context.WithoutCancel(ctx)); err != nil {

@@ -124,6 +124,25 @@ func macIndependentOwner(t *testing.T, docker *client.Client, options testenv.Ma
 	return inspection.Container.ID
 }
 
+// TestMacRunnerDockerFixtureKilledProcess runs testenv.RunMacTests with a
+// fixture test binary. The binary creates its engines, cluster, proxy,
+// network, and anonymous volume. It then sends SIGKILL to itself without
+// running cleanup. A verified native Mac runner does not start the run
+// watcher. The test requires exit status 1. It requires the outer runner to
+// remove every recorded resource and report complete cleanup.
+func TestMacRunnerDockerFixtureKilledProcess(t *testing.T) {
+	options, docker, _ := macOwnershipFixture(t, "Killed")
+	result, err := testenv.RunMacTests(t.Context(), options)
+	if err != nil || result.ExitCode != 1 {
+		t.Errorf("killed test binary: result=%+v error=%v", result, err)
+	}
+	summary := macOwnershipEvidence(t, options.EvidenceDirectory)
+	macRequireOwnedAbsent(t, docker, summary)
+	if !summary.Attribution || !summary.Cleanup || !summary.FullCleanup {
+		t.Errorf("killed test binary did not finish cleanup: %+v", summary)
+	}
+}
+
 func TestMacRunnerDockerFixtureOtherProcess(t *testing.T) {
 	options, docker, project := macOwnershipFixture(t, "Release")
 	independent := macIndependentOwner(t, docker, options, project)
