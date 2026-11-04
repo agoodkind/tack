@@ -117,12 +117,11 @@ func TestSearchRuntimeAuditCommitUncertainReadOutcome(t *testing.T) {
 // TestSearchRuntimeAuditCommitUncertainEventAfterRequestDeadline sets
 // OPENSEARCH_QUERY_DEADLINE to 3 seconds and runs tack_search once. A log hook
 // pauses the test FoundationDB container after the session create transaction
-// prepares its writes. The commit times out when the request deadline ends.
-// A second hook resumes the container at the storage failure log.
-//
-// The test requires one incomplete session write event with the write's
-// operation ID, actor, parent, and target. TACK-629 owns the response, and this
-// test does not check the read row code or response text.
+// prepares its writes. The commit times out when the request deadline ends. A
+// second hook resumes the container at the storage failure log. The test
+// requires the temporarily unavailable response. It also requires one
+// incomplete session write event with the operation ID, actor, parent, and
+// target of the write.
 func TestSearchRuntimeAuditCommitUncertainEventAfterRequestDeadline(t *testing.T) {
 	t.Setenv("OPENSEARCH_QUERY_DEADLINE", shortQueryDeadline)
 	t.Setenv("OPENSEARCH_QUERY_ADMISSION_WAIT", shortQueryAdmissionWait)
@@ -141,8 +140,10 @@ func TestSearchRuntimeAuditCommitUncertainEventAfterRequestDeadline(t *testing.T
 	})
 	write := installSessionWriteCapture(sessionCreateCommitReady)
 	_, err := integration.TrySearch(harness, failureAuditQuery, "")
-	t.Logf("search result after request deadline: %v", err)
 	hooks.requireFinished(t)
+	if err == nil || err.Error() != sessionTimeoutUnavailableText {
+		t.Fatalf("tack_search returned error %v; want text %q", err, sessionTimeoutUnavailableText)
+	}
 	seen := map[uuid.UUID]bool{}
 	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(found []audit.Row) bool {
 		reads := unseenSearchReads(found, seen)

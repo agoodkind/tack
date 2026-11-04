@@ -22,6 +22,37 @@ const (
 	restoreMembershipsStatement = "ALTER TABLE public.org_members_lookup_test RENAME TO org_members"
 )
 
+// hideLedgerTable runs hide on the ledger and returns a function that runs
+// restore. Cleanup runs restore when the test ends before that function runs.
+func hideLedgerTable(t *testing.T, hide, restore string) func() {
+	t.Helper()
+	admin, err := pgxpool.New(t.Context(), testenv.Ledger(t))
+	if err != nil {
+		t.Fatalf("pgxpool.New failed for the administrator pool: %v", err)
+	}
+	t.Cleanup(admin.Close)
+	hidden := false
+	t.Cleanup(func() {
+		if !hidden {
+			return
+		}
+		if _, err := admin.Exec(context.WithoutCancel(t.Context()), restore); err != nil {
+			t.Errorf("run %q: %v", restore, err)
+		}
+	})
+	if _, err := admin.Exec(t.Context(), hide); err != nil {
+		t.Fatalf("run %q: %v", hide, err)
+	}
+	hidden = true
+	return func() {
+		t.Helper()
+		if _, err := admin.Exec(t.Context(), restore); err != nil {
+			t.Fatalf("run %q: %v", restore, err)
+		}
+		hidden = false
+	}
+}
+
 // TestRuntimeAuditOrganizationLookupFailure builds a public server that does
 // not cache memberships. It sends one ping, which stores the caller's token in
 // the token cache. It then renames the membership table and calls
@@ -36,30 +67,10 @@ func TestRuntimeAuditOrganizationLookupFailure(t *testing.T) {
 	if warm := server.rpc(t, newRequestID(t, "lookup-warm"), "ping", map[string]any{}); warm.status != http.StatusOK {
 		t.Fatalf("ping status = %d, want 200: %s", warm.status, warm.body)
 	}
-	admin, err := pgxpool.New(t.Context(), testenv.Ledger(t))
-	if err != nil {
-		t.Fatalf("pgxpool.New failed for the administrator pool: %v", err)
-	}
-	t.Cleanup(admin.Close)
-	hidden := false
-	t.Cleanup(func() {
-		if !hidden {
-			return
-		}
-		if _, err := admin.Exec(context.WithoutCancel(t.Context()), restoreMembershipsStatement); err != nil {
-			t.Errorf("restore the membership table: %v", err)
-		}
-	})
-	if _, err := admin.Exec(t.Context(), hideMembershipsStatement); err != nil {
-		t.Fatalf("rename the membership table: %v", err)
-	}
-	hidden = true
+	restoreMemberships := hideLedgerTable(t, hideMembershipsStatement, restoreMembershipsStatement)
 	requestID := newRequestID(t, "lookup-failure")
 	response := server.rpc(t, requestID, "tools/call", map[string]any{"name": "tack_list_workspaces", "arguments": map[string]any{}})
-	if _, err := admin.Exec(t.Context(), restoreMembershipsStatement); err != nil {
-		t.Fatalf("restore the membership table: %v", err)
-	}
-	hidden = false
+	restoreMemberships()
 	if response.status != http.StatusServiceUnavailable || string(response.body) != organizationUnavailableResponse {
 		t.Fatalf("response = %d %s, want 503 %s", response.status, response.body, organizationUnavailableResponse)
 	}
