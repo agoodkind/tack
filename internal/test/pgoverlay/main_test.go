@@ -42,12 +42,22 @@ func runTests(m *testing.M) int {
 		slog.Error("pgoverlay.isolate_failed", slog.String("err", err.Error()))
 		return 1
 	}
+	if err := testenv.IsolateRun(os.Getenv(networkVariable)+"-replacement", os.Getenv(projectVariable)+"-replacement"); err == nil {
+		slog.Error("pgoverlay.repeated_isolation_accepted")
+		return 1
+	}
 	decoy, err := testenv.CreateStoppedRunDecoy(ctx)
 	if err != nil {
 		slog.Error("pgoverlay.decoy_failed", slog.String("err", err.Error()))
 		return 1
 	}
-	code := m.Run()
+	code := 0
+	if err := checkDecoyProject(ctx, decoy, os.Getenv(projectVariable)); err != nil {
+		slog.Error("pgoverlay.project_changed", slog.String("err", err.Error()))
+		code = 1
+	} else {
+		code = m.Run()
+	}
 	failures := []error{checkDecoy(ctx, decoy), testenv.RemoveStoppedRunDecoy(ctx, decoy), testenv.Release(ctx)}
 	for _, err := range failures {
 		if err != nil {

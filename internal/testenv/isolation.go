@@ -44,7 +44,7 @@ const (
 // their Compose project label, which the caller's cleanup selects by. [Release]
 // removes this process's engines through their run label and never creates,
 // labels, or removes the network.
-// IsolateRun fails after this process has started an engine.
+// IsolateRun fails after a successful configuration or after this process starts an engine.
 func IsolateRun(network, project string) error {
 	if network == "" || project == "" {
 		return errors.New("an isolated run needs the names of an existing Docker network and its Compose project")
@@ -54,6 +54,9 @@ func IsolateRun(network, project string) error {
 	}
 	isolation.Lock()
 	defer isolation.Unlock()
+	if isolation.network != "" {
+		return errors.New("IsolateRun has already configured this process")
+	}
 	isolation.network = network
 	isolation.project = project
 	return nil
