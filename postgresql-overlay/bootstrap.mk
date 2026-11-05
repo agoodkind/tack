@@ -27,19 +27,7 @@ GO_MK_BOOTSTRAP_URL := $(GO_MK_BOOTSTRAP_BASE_URL)/$(GO_MK_API_REPO)/$(GO_MK_API
 # It never removes an existing helper, so a warm checkout stays usable when the
 # network is gone, and only a cold offline start fails here.
 #
-# This is a consumer-committed fetch, so it cannot be hardened later the way
-# a fetched file can: any future change here needs another consumer PR, which
-# is exactly the round this task exists to end. The curl flags below give it
-# the same treatment provision() in go-mk-bootstrap.sh got. --speed-limit/
-# --speed-time abort a stalled connection by lack of progress rather than
-# elapsed time (a stall dies in ~3s instead of riding --max-time out), and
-# --retry-max-time caps the retry cascade at two attempts instead of leaving
-# it unbounded (curl treats a speed-limit or max-time abort as a retriable
-# transient error, so uncapped retries would cost roughly 4x --max-time).
-# --connect-timeout is 5, not tighter, for the same reason provision()'s is:
-# connect time (DNS, TCP, TLS setup) has nothing to do with stall detection,
-# and this is the very first network call a cold consumer makes, so it must
-# not fail a slow-but-working link before retrying has a chance to help.
+# Limit stalled downloads and retries while allowing time for connection setup.
 define _go_mk_get_bootstrap
 	if [ -n "$(GO_MK_DEV_DIR)" ] && [ -f "$(GO_MK_DEV_DIR)/scripts/go-mk-bootstrap.sh" ]; then \
 		mkdir -p .make/scripts; \
@@ -108,23 +96,7 @@ endif
 # helper, which owns every asset install, never sees it, and the two halves
 # disagree about what the user asked for.
 #
-# That split has already produced three distinct bugs here, so forward the
-# whole set rather than adding names one at a time as each is found:
-#
-#   GO_MK_DEV_DIR       this file takes its dev branch while the helper
-#                       downloads upstream over the developer's own checkout,
-#                       so they build and lint against main believing they
-#                       are testing local edits
-#   GO_MK_SKIP_FETCH    this file honors it while the helper fetches anyway,
-#                       so an air-gapped or pre-vendored build fails at parse
-#                       time, the exact case the flag exists to serve
-#   GO_MK_CODELOAD_BASE the redirect is silently ineffective and the helper
-#                       reaches real codeload while appearing redirected, so
-#                       a test written that way passes against production
-#   GO_MK_API_REPO      the helper falls back to its own defaults and fetches
-#   GO_MK_API_REF       the wrong repository or ref's assets
-#
-# Adding a GO_MK_* variable that the helper reads means adding it here too.
+# Forward every helper input, including Makefile and command-line values.
 GO_MK_PROVISION := $(shell GO_MK_API_REPO="$(GO_MK_API_REPO)" GO_MK_API_REF="$(GO_MK_API_REF)" GO_MK_MODULES="$(GO_MK_MODULES)" GO_MK_CODELOAD_BASE="$(GO_MK_CODELOAD_BASE)" GO_MK_DEV_DIR="$(GO_MK_DEV_DIR)" GO_MK_SKIP_FETCH="$(GO_MK_SKIP_FETCH)" bash "$(GO_MK_BOOTSTRAP)" >&2 && printf ok)
 $(if $(filter ok,$(GO_MK_PROVISION)),,$(error go-makefile failed to provision its assets))
 
