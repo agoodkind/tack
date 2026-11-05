@@ -47,7 +47,7 @@ func StartOpenTofuHost(t T) OpenTofuHost {
 	return OpenTofuHost{name: runner, Directory: path.Join("/tmp", "tack-tofu-"+suffix)}
 }
 
-// Run runs command in the container with the KEY=VALUE entries of environment
+// Run runs the command in the container with the KEY=VALUE entries in environment
 // and returns the combined output and the exit code.
 func (host OpenTofuHost) Run(t T, environment []string, command ...string) (string, int) {
 	t.Helper()
