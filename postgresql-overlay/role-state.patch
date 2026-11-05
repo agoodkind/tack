@@ -371,10 +371,10 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..acb7a61b1f9973ad2f2fc4173e2c6666
  	}
 diff --git a/postgresql/role_external.go b/postgresql/role_external.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..d491a3965d044a72b1caba3e1b58b319144f8984
+index 0000000000000000000000000000000000000000..29f7312f85b0f0e49675c38abca32894b64424f8
 --- /dev/null
 +++ b/postgresql/role_external.go
-@@ -0,0 +1,311 @@
+@@ -0,0 +1,315 @@
 +package postgresql
 +
 +import (
@@ -505,6 +505,10 @@ index 0000000000000000000000000000000000000000..d491a3965d044a72b1caba3e1b58b319
 +		return err
 +	}
 +	if raw.IsNull() || !raw.IsKnown() || raw.GetAttr(rolePasswordWOVersionAttr).IsNull() {
++		return nil
++	}
++	password := raw.GetAttr(rolePasswordWOAttr)
++	if password.IsKnown() && (password.IsNull() || password.AsString() == "") {
 +		return nil
 +	}
 +	name, ok := diff.GetOk(roleNameAttr)
