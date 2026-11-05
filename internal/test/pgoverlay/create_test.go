@@ -5,8 +5,6 @@ package pgoverlay_test
 import (
 	"strings"
 	"testing"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // outOfRangeStatementTimeout exceeds the largest value that the engines accept
@@ -123,7 +121,7 @@ func TestYugabyteExternalDeleteKeepsRestrictedAdminMemberships(t *testing.T) {
 	s.target.createRole(t, s.role, s.password("1"))
 	s.target.grantMembership(t, administrator, s.role)
 	t.Cleanup(func() {
-		s.target.execute(t, "REVOKE "+pgx.Identifier{administrator}.Sanitize()+" FROM "+pgx.Identifier{s.role}.Sanitize())
+		s.target.dropRole(t, s.role)
 		s.target.dropRole(t, administrator)
 	})
 	if !s.target.isMember(t, s.role, administrator) || s.target.isMember(t, administrator, s.role) {
