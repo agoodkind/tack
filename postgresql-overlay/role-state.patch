@@ -58,7 +58,7 @@ index 778778bebf73da11c8f5dc7485a55d993b26cc5d..0763c0c76398deba7c7f7066d1d0a00f
  		GCPIAMImpersonateServiceAccount: d.Get("gcp_iam_impersonate_service_account").(string),
  	}
 diff --git a/postgresql/resource_postgresql_role.go b/postgresql/resource_postgresql_role.go
-index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f877c500323 100644
+index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e423087991d03 100644
 --- a/postgresql/resource_postgresql_role.go
 +++ b/postgresql/resource_postgresql_role.go
 @@ -47,14 +47,20 @@ func resourcePostgreSQLRole() *schema.Resource {
@@ -109,7 +109,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f87
  			}
  
  		case roleValidUntilAttr:
-@@ -350,36 +366,66 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
+@@ -350,36 +366,65 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
  		return fmt.Errorf("error creating role %s: %w", roleName, err)
  	}
  
@@ -156,7 +156,6 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f87
  	return resourcePostgreSQLRoleReadImpl(db, d)
  }
  
-+// finishRoleCreate applies the settings that follow CREATE ROLE and commits.
 +func finishRoleCreate(txn *sql.Tx, d *schema.ResourceData, external bool) error {
 +	if !external {
 +		if err := grantRoles(txn, d); err != nil {
@@ -195,7 +194,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f87
  	roleName := d.Get(roleNameAttr).(string)
  
  	txn, err := startTransaction(db.client, "")
-@@ -423,6 +469,10 @@ func resourcePostgreSQLRoleDelete(db *DBConnection, d *schema.ResourceData) erro
+@@ -423,6 +468,10 @@ func resourcePostgreSQLRoleDelete(db *DBConnection, d *schema.ResourceData) erro
  }
  
  func resourcePostgreSQLRoleExists(db *DBConnection, d *schema.ResourceData) (bool, error) {
@@ -206,7 +205,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f87
  	var roleName string
  	err := db.QueryRow("SELECT rolname FROM pg_catalog.pg_roles WHERE rolname=$1", d.Id()).Scan(&roleName)
  	switch {
-@@ -442,13 +492,30 @@ func resourcePostgreSQLRoleRead(db *DBConnection, d *schema.ResourceData) error
+@@ -442,13 +491,30 @@ func resourcePostgreSQLRoleRead(db *DBConnection, d *schema.ResourceData) error
  func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) error {
  	var roleSuperuser, roleInherit, roleCreateRole, roleCreateDB, roleCanLogin, roleReplication, roleBypassRLS bool
  	var roleConnLimit int
@@ -238,7 +237,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f87
  		"rolsuper",
  		"rolinherit",
  		"rolcreaterole",
-@@ -462,6 +529,7 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+@@ -462,6 +528,7 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
  	values := []any{
  		&roleRoles,
  		&roleName,
@@ -246,7 +245,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f87
  		&roleSuperuser,
  		&roleInherit,
  		&roleCreateRole,
-@@ -485,21 +553,23 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+@@ -485,21 +552,23 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
  	roleSQL := fmt.Sprintf(`SELECT ARRAY(
  			SELECT pg_get_userbyid(roleid) FROM pg_catalog.pg_auth_members members WHERE member = pg_roles.oid
  		), %s
@@ -273,7 +272,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f87
  	d.Set(roleNameAttr, roleName)
  	d.Set(roleConnLimitAttr, roleConnLimit)
  	d.Set(roleCreateDBAttr, roleCreateDB)
-@@ -513,7 +583,9 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+@@ -513,7 +582,9 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
  	d.Set(roleValidUntilAttr, roleValidUntil)
  	d.Set(roleReplicationAttr, roleReplication)
  	d.Set(roleBypassRLSAttr, roleBypassRLS)
@@ -284,7 +283,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f87
  	d.Set(roleSearchPathAttr, readSearchPath(roleConfig))
  	d.Set(roleAssumeRoleAttr, readAssumeRole(roleConfig))
  
-@@ -668,7 +740,25 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
+@@ -668,7 +739,25 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
  	return rolePassword, nil
  }
  
@@ -310,7 +309,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f87
  	txn, err := startTransaction(db.client, "")
  	if err != nil {
  		return err
-@@ -753,7 +843,13 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
+@@ -753,7 +842,13 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
  		return fmt.Errorf("could not commit transaction: %w", err)
  	}
  
@@ -336,10 +335,10 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f87
  	}
 diff --git a/postgresql/role_external.go b/postgresql/role_external.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..5e86df424bd5ce4e8d5c7be5b36cca0bdaf620a8
+index 0000000000000000000000000000000000000000..5632d835d3666ad7e978f2b653a3bc95dea2ffbe
 --- /dev/null
 +++ b/postgresql/role_external.go
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,292 @@
 +package postgresql
 +
 +import (
@@ -371,7 +370,6 @@ index 0000000000000000000000000000000000000000..5e86df424bd5ce4e8d5c7be5b36cca0b
 +	return c.RoleLockMode == roleLockModeExternal
 +}
 +
-+// managedRole is the database role that a resource state identifies.
 +type managedRole struct {
 +	oid   int64
 +	name  string
@@ -445,10 +443,7 @@ index 0000000000000000000000000000000000000000..5e86df424bd5ce4e8d5c7be5b36cca0b
 +	return role.found, nil
 +}
 +
-+// rejectConfiguredRoles fails when the resource configuration sets the roles
-+// attribute, including an empty set. A null or omitted roles attribute passes.
-+// The raw configuration separates a configured value from state that an earlier
-+// provider mode recorded.
++// Raw configuration distinguishes an explicitly configured set from earlier state.
 +func rejectConfiguredRoles(rawConfig cty.Value) error {
 +	if rawConfig.IsNull() || !rawConfig.Type().IsObjectType() || !rawConfig.Type().HasAttribute(roleRolesAttr) {
 +		return nil
@@ -471,8 +466,6 @@ index 0000000000000000000000000000000000000000..5e86df424bd5ce4e8d5c7be5b36cca0b
 +	return rejectConfiguredRoles(diff.GetRawConfig())
 +}
 +
-+// captureCreatedRole reads the OID of a role that CREATE ROLE made in the open
-+// transaction.
 +func captureCreatedRole(txn *sql.Tx, name string) (managedRole, error) {
 +	oid, found, err := lookupRoleOIDByName(txn, name)
 +	if err != nil {
@@ -484,9 +477,7 @@ index 0000000000000000000000000000000000000000..5e86df424bd5ce4e8d5c7be5b36cca0b
 +	return managedRole{oid: oid, name: name, found: true}, nil
 +}
 +
-+// failExternalRoleWrite finishes the failed transaction, reads the original role
-+// OID through the connection pool, and keeps the resource ID at the actual role
-+// name. It returns the original error, joined with any readback error.
++// Preserve the captured identity until readback confirms the role is absent.
 +func failExternalRoleWrite(db *DBConnection, d *schema.ResourceData, txn *sql.Tx, role managedRole, writeErr error) error {
 +	d.SetId(role.name)
 +	if err := d.Set(roleOIDAttr, int(role.oid)); err != nil {
@@ -535,8 +526,6 @@ index 0000000000000000000000000000000000000000..5e86df424bd5ce4e8d5c7be5b36cca0b
 +	return nil
 +}
 +
-+// setExternalRoleName renames the role from its current database name. It does
-+// nothing when the role already has the requested name.
 +func setExternalRoleName(txn *sql.Tx, d *schema.ResourceData, role managedRole) error {
 +	requested := d.Get(roleNameAttr).(string)
 +	if requested == "" {
