@@ -1,5 +1,5 @@
 diff --git a/postgresql/config.go b/postgresql/config.go
-index 9ee42db..91cff1e 100644
+index 9ee42db7cdf4b6eeb081318a44a24608a05f5b85..91cff1e53bda46b15202a9bc231ea10e136276dc 100644
 --- a/postgresql/config.go
 +++ b/postgresql/config.go
 @@ -184,6 +184,7 @@ type Config struct {
@@ -32,7 +32,7 @@ index 9ee42db..91cff1e 100644
  
  	return conn, nil
 diff --git a/postgresql/provider.go b/postgresql/provider.go
-index 778778b..0763c0c 100644
+index 778778bebf73da11c8f5dc7485a55d993b26cc5d..0763c0c76398deba7c7f7066d1d0a00f818693fa 100644
 --- a/postgresql/provider.go
 +++ b/postgresql/provider.go
 @@ -199,6 +199,13 @@ func Provider() *schema.Provider {
@@ -58,7 +58,7 @@ index 778778b..0763c0c 100644
  		GCPIAMImpersonateServiceAccount: d.Get("gcp_iam_impersonate_service_account").(string),
  	}
 diff --git a/postgresql/resource_postgresql_role.go b/postgresql/resource_postgresql_role.go
-index 38bfb9e..4bfb945 100644
+index 38bfb9e90cdc588304323a2740e236b0fbbf466d..b2fe69fb638ef07cd3c91593807f1f877c500323 100644
 --- a/postgresql/resource_postgresql_role.go
 +++ b/postgresql/resource_postgresql_role.go
 @@ -47,14 +47,20 @@ func resourcePostgreSQLRole() *schema.Resource {
@@ -109,7 +109,7 @@ index 38bfb9e..4bfb945 100644
  			}
  
  		case roleValidUntilAttr:
-@@ -350,36 +366,62 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
+@@ -350,36 +366,66 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
  		return fmt.Errorf("error creating role %s: %w", roleName, err)
  	}
  
@@ -120,6 +120,10 @@ index 38bfb9e..4bfb945 100644
 +		created, err = captureCreatedRole(txn, roleName)
 +		if err != nil {
 +			return err
++		}
++		d.SetId(created.name)
++		if err := d.Set(roleOIDAttr, int(created.oid)); err != nil {
++			return failExternalRoleWrite(db, d, txn, created, fmt.Errorf("record created role OID: %w", err))
 +		}
  	}
  
@@ -191,7 +195,7 @@ index 38bfb9e..4bfb945 100644
  	roleName := d.Get(roleNameAttr).(string)
  
  	txn, err := startTransaction(db.client, "")
-@@ -423,6 +465,10 @@ func resourcePostgreSQLRoleDelete(db *DBConnection, d *schema.ResourceData) erro
+@@ -423,6 +469,10 @@ func resourcePostgreSQLRoleDelete(db *DBConnection, d *schema.ResourceData) erro
  }
  
  func resourcePostgreSQLRoleExists(db *DBConnection, d *schema.ResourceData) (bool, error) {
@@ -202,7 +206,7 @@ index 38bfb9e..4bfb945 100644
  	var roleName string
  	err := db.QueryRow("SELECT rolname FROM pg_catalog.pg_roles WHERE rolname=$1", d.Id()).Scan(&roleName)
  	switch {
-@@ -442,13 +488,30 @@ func resourcePostgreSQLRoleRead(db *DBConnection, d *schema.ResourceData) error
+@@ -442,13 +492,30 @@ func resourcePostgreSQLRoleRead(db *DBConnection, d *schema.ResourceData) error
  func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) error {
  	var roleSuperuser, roleInherit, roleCreateRole, roleCreateDB, roleCanLogin, roleReplication, roleBypassRLS bool
  	var roleConnLimit int
@@ -234,7 +238,7 @@ index 38bfb9e..4bfb945 100644
  		"rolsuper",
  		"rolinherit",
  		"rolcreaterole",
-@@ -462,6 +525,7 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+@@ -462,6 +529,7 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
  	values := []any{
  		&roleRoles,
  		&roleName,
@@ -242,7 +246,7 @@ index 38bfb9e..4bfb945 100644
  		&roleSuperuser,
  		&roleInherit,
  		&roleCreateRole,
-@@ -485,21 +549,23 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+@@ -485,21 +553,23 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
  	roleSQL := fmt.Sprintf(`SELECT ARRAY(
  			SELECT pg_get_userbyid(roleid) FROM pg_catalog.pg_auth_members members WHERE member = pg_roles.oid
  		), %s
@@ -269,7 +273,7 @@ index 38bfb9e..4bfb945 100644
  	d.Set(roleNameAttr, roleName)
  	d.Set(roleConnLimitAttr, roleConnLimit)
  	d.Set(roleCreateDBAttr, roleCreateDB)
-@@ -513,7 +579,9 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+@@ -513,7 +583,9 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
  	d.Set(roleValidUntilAttr, roleValidUntil)
  	d.Set(roleReplicationAttr, roleReplication)
  	d.Set(roleBypassRLSAttr, roleBypassRLS)
@@ -280,7 +284,7 @@ index 38bfb9e..4bfb945 100644
  	d.Set(roleSearchPathAttr, readSearchPath(roleConfig))
  	d.Set(roleAssumeRoleAttr, readAssumeRole(roleConfig))
  
-@@ -668,7 +736,25 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
+@@ -668,7 +740,25 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
  	return rolePassword, nil
  }
  
@@ -306,10 +310,11 @@ index 38bfb9e..4bfb945 100644
  	txn, err := startTransaction(db.client, "")
  	if err != nil {
  		return err
-@@ -753,6 +839,12 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
+@@ -753,7 +843,13 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
  		return fmt.Errorf("could not commit transaction: %w", err)
  	}
  
+-	return resourcePostgreSQLRoleReadImpl(db, d)
 +	committed = true
 +	if err := resourcePostgreSQLRoleReadImpl(db, d); err != nil {
 +		return err
@@ -317,9 +322,9 @@ index 38bfb9e..4bfb945 100644
 +	d.Partial(false)
 +	return nil
 +
--	return resourcePostgreSQLRoleReadImpl(db, d)
  }
  
+ func setRoleName(txn *sql.Tx, d *schema.ResourceData) error {
 @@ -805,7 +825,7 @@ func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
  		return nil
  	}
@@ -331,10 +336,10 @@ index 38bfb9e..4bfb945 100644
  	}
 diff --git a/postgresql/role_external.go b/postgresql/role_external.go
 new file mode 100644
-index 0000000..a0fe1a1
+index 0000000000000000000000000000000000000000..5e86df424bd5ce4e8d5c7be5b36cca0bdaf620a8
 --- /dev/null
 +++ b/postgresql/role_external.go
-@@ -0,0 +1,300 @@
+@@ -0,0 +1,302 @@
 +package postgresql
 +
 +import (
@@ -483,6 +488,10 @@ index 0000000..a0fe1a1
 +// OID through the connection pool, and keeps the resource ID at the actual role
 +// name. It returns the original error, joined with any readback error.
 +func failExternalRoleWrite(db *DBConnection, d *schema.ResourceData, txn *sql.Tx, role managedRole, writeErr error) error {
++	d.SetId(role.name)
++	if err := d.Set(roleOIDAttr, int(role.oid)); err != nil {
++		writeErr = errors.Join(writeErr, fmt.Errorf("record role OID %d: %w", role.oid, err))
++	}
 +	if rollbackErr := txn.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
 +		return errors.Join(writeErr, fmt.Errorf("could not roll back the failed transaction: %w", rollbackErr))
 +	}
@@ -492,7 +501,8 @@ index 0000000..a0fe1a1
 +	}
 +	if found {
 +		d.SetId(name)
-+		_ = d.Set(roleOIDAttr, int(role.oid))
++	} else {
++		d.SetId("")
 +	}
 +	return writeErr
 +}
@@ -577,8 +587,11 @@ index 0000000..a0fe1a1
 +		return failExternalRoleWrite(db, d, txn, role, fmt.Errorf("could not commit transaction: %w", err))
 +	}
 +
++	if err := resourcePostgreSQLRoleReadImpl(db, d); err != nil {
++		return err
++	}
 +	d.Partial(false)
-+	return resourcePostgreSQLRoleReadImpl(db, d)
++	return nil
 +}
 +
 +func resourcePostgreSQLRoleDeleteExternal(db *DBConnection, d *schema.ResourceData) error {
@@ -613,19 +626,13 @@ index 0000000..a0fe1a1
 +
 +func dropExternalRole(db *DBConnection, txn *sql.Tx, d *schema.ResourceData, roleName string) error {
 +	if !d.Get(roleSkipReassignOwnedAttr).(bool) {
-+		err := withRolesGranted(txn, []string{roleName}, func() error {
-+			currentUser := db.client.config.getDatabaseUsername()
-+			reassign := fmt.Sprintf("REASSIGN OWNED BY %s TO %s", pq.QuoteIdentifier(roleName), pq.QuoteIdentifier(currentUser))
-+			if _, err := txn.Exec(reassign); err != nil {
-+				return fmt.Errorf("could not reassign owned by role %s to %s: %w", roleName, currentUser, err)
-+			}
-+			if _, err := txn.Exec(fmt.Sprintf("DROP OWNED BY %s", pq.QuoteIdentifier(roleName))); err != nil {
-+				return fmt.Errorf("could not drop owned by role %s: %w", roleName, err)
-+			}
-+			return nil
-+		})
-+		if err != nil {
-+			return err
++		currentUser := db.client.config.getDatabaseUsername()
++		reassign := fmt.Sprintf("REASSIGN OWNED BY %s TO %s", pq.QuoteIdentifier(roleName), pq.QuoteIdentifier(currentUser))
++		if _, err := txn.Exec(reassign); err != nil {
++			return fmt.Errorf("could not reassign owned by role %s to %s: %w", roleName, currentUser, err)
++		}
++		if _, err := txn.Exec(fmt.Sprintf("DROP OWNED BY %s", pq.QuoteIdentifier(roleName))); err != nil {
++			return fmt.Errorf("could not drop owned by role %s: %w", roleName, err)
 +		}
 +	}
 +	if !d.Get(roleSkipDropRoleAttr).(bool) {
