@@ -51,16 +51,19 @@ type macRunnerFixtureEvidence struct {
 }
 
 type macRunnerObservedCreate struct {
-	Event     events.Message
-	Container *container.InspectResponse
-	Network   *network.Inspect
-	Volume    *volume.Volume
-	Error     string
+	Event     events.Message             `json:"event"`
+	Container *container.InspectResponse `json:"container"`
+	Network   *network.Inspect           `json:"network"`
+	Volume    *volume.Volume             `json:"volume"`
+	Error     string                     `json:"error"`
 }
 
 type macRunnerEventSnapshot struct {
 	sync.Mutex
-	creates []macRunnerObservedCreate
+	creates     []macRunnerObservedCreate
+	bytes       int
+	runnerID    string
+	inspections int
 }
 
 func (snapshot *macRunnerEventSnapshot) copy() []macRunnerObservedCreate {

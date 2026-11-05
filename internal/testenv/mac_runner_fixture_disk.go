@@ -79,22 +79,15 @@ func macRunnerDiskVolume(helper macRunnerFixture, diskVolume volume.Volume) bool
 }
 
 func (execution *macRunnerExecution) diskHelper(fixture macRunnerFixture) bool {
-	_, proven := execution.fixtures.NamedVolumes[fixture.Name+"-image"]
-	if proven && execution.fixtures.Volumes[fixture.Name+"-image"] {
-		return true
-	}
-	for _, point := range fixture.Volumes {
-		if strings.HasPrefix(fixture.Name, dataDiskPrefix) && point.Name == fixture.Name+"-image" && point.Target == dataDiskMount {
-			_, candidate := execution.fixtures.Volumes[point.Name]
-			return candidate
-		}
-	}
-	return false
+	return strings.HasPrefix(fixture.Name, dataDiskPrefix)
 }
 
 func (execution *macRunnerExecution) cleanupDiskHelper(ctx context.Context, id string) error {
 	helper := execution.fixtures.Containers[id]
 	imageName, dataName := helper.Name+"-image", helper.Name+"-data"
+	if err := execution.inventoryDiskHelper(ctx, id); err != nil {
+		return err
+	}
 	for _, name := range []string{imageName, dataName} {
 		if proven, candidate := execution.fixtures.Volumes[name]; candidate && !proven {
 			return fmt.Errorf("preserve disk helper %s with unproven volume %s", id, name)
@@ -122,6 +115,12 @@ func (execution *macRunnerExecution) cleanupDiskHelper(ctx context.Context, id s
 	}
 	if inspection.Config == nil || !maps.Equal(inspection.Config.Labels, helper.Labels) {
 		return fmt.Errorf("preserve disk helper %s after ownership changed", id)
+	}
+	_, err = macObserve(ctx, func(observation context.Context) (client.VolumeInspectResult, error) {
+		return execution.defaultClient.VolumeInspect(observation, dataName, client.VolumeInspectOptions{})
+	})
+	if !errdefs.IsNotFound(err) {
+		return macRunnerAbsence("disk volume", dataName, err)
 	}
 	if _, err := detachDataDiskDevices(ctx, execution.defaultClient, helper.Name, dataDiskMount+"/"+dataDiskFileName); err != nil {
 		return err

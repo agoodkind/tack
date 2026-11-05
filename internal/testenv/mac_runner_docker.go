@@ -44,6 +44,9 @@ func (execution *macRunnerExecution) connect(ctx context.Context) error {
 		return errors.New("local inspection and raw sockets identify different Docker daemons")
 	}
 	execution.hostDaemon, execution.rawDaemon = standard, raw
+	if err := execution.connectEvents(filepath.Join(home, ".docker/run/docker.sock"), standard.APIVersion); err != nil {
+		return err
+	}
 	image, err := macObserve(ctx, func(observation context.Context) (client.ImageInspectResult, error) {
 		return execution.defaultClient.ImageInspect(observation, execution.prepared.options.Image)
 	})

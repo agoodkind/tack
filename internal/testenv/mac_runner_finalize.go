@@ -36,15 +36,19 @@ func (execution *macRunnerExecution) finalize(ctx context.Context, primary error
 		execution.status("final-logs.exit", logErr)
 		failures = append(failures, execution.stage("final log retrieval", logErr))
 	}
+	failures = append(failures, execution.finishEvents())
 	var attributionErr, fixtureCleanupErr error
 	if execution.defaultClient != nil && execution.baselineReady {
 		attributionErr = execution.stage("fixture attribution", execution.attributeFixtures(cleanupContext))
-		fixtureCleanupErr = execution.stage("fixture cleanup", execution.cleanupFixtures(cleanupContext))
+		if execution.observerError != nil {
+			fixtureCleanupErr = execution.stage("fixture cleanup", errors.New("preserve inner fixtures after event evidence failure"))
+		} else {
+			fixtureCleanupErr = execution.stage("fixture cleanup", execution.cleanupFixtures(cleanupContext))
+		}
 		cleanupErr := execution.cleanup(cleanupContext)
 		execution.status("cleanup.exit", cleanupErr)
 		failures = append(failures, execution.stage("outer cleanup", cleanupErr))
 	}
-	failures = append(failures, execution.finishEvents())
 	failures = append(failures, execution.finalizeFixtureEvidence(cleanupContext, attributionErr, fixtureCleanupErr))
 	sourceErr := execution.prepared.verifySources()
 	if !execution.prepared.sourceCaptured {
@@ -52,10 +56,13 @@ func (execution *macRunnerExecution) finalize(ctx context.Context, primary error
 	}
 	execution.status("source-hash-verification.exit", sourceErr)
 	failures = append(failures, execution.stage("source verification", sourceErr))
-	for _, docker := range []*client.Client{execution.defaultClient, execution.rawClient} {
+	for _, docker := range []*client.Client{execution.defaultClient, execution.rawClient, execution.eventClient} {
 		if docker != nil {
 			failures = append(failures, docker.Close())
 		}
+	}
+	if execution.eventTransport != nil {
+		execution.eventTransport.CloseIdleConnections()
 	}
 	primaryCode := 1
 	if primary == nil && execution.runtimeExit != nil {

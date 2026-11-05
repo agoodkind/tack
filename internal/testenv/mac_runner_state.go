@@ -2,6 +2,7 @@ package testenv
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
@@ -39,6 +40,8 @@ type macRunnerExecution struct {
 	prepared               *macRunnerPreparation
 	defaultClient          *client.Client
 	rawClient              *client.Client
+	eventClient            *client.Client
+	eventTransport         *http.Transport
 	hostDaemon             macRunnerDaemon
 	rawDaemon              macRunnerDaemon
 	name                   string

@@ -78,6 +78,9 @@ func (execution *macRunnerExecution) runnerTemporaryVolume(inspection container.
 		if err := execution.temporaryVolume(point); err != nil {
 			return "", err
 		}
+		if !macRunnerAnonymousMount(inspection, point) {
+			return "", errors.New("runner temporary mount lacks anonymous volume proof")
+		}
 		name = point.Name
 	}
 	if name == "" {

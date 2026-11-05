@@ -10,6 +10,9 @@ import (
 
 func (execution *macRunnerExecution) recordCreatedRunner(id string) {
 	execution.createdIDs = append(execution.createdIDs, id)
+	execution.eventSnapshot.Lock()
+	execution.eventSnapshot.runnerID = id
+	execution.eventSnapshot.Unlock()
 	execution.temporaryVolumes[id] = macRunnerTemporaryVolume{
 		Name: "", IdentityError: "temporary volume identity has not been observed", Absent: false,
 	}

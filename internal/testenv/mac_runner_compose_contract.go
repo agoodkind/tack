@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 
 	"go.yaml.in/yaml/v3"
@@ -21,6 +22,13 @@ func validateMacRunnerCompose(contents []byte) error {
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&document); err != nil {
 		return macRunnerFailure("parse supported Compose configuration", err)
+	}
+	var trailing yaml.Node
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return macRunnerFailure("parse additional Compose document", err)
+		}
+		return errors.New("multiple Compose documents are unsupported")
 	}
 	service, present := document.Services["tests"]
 	if !present {

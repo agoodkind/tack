@@ -100,8 +100,6 @@ func (execution *macRunnerExecution) verifyMount(point container.MountPoint) err
 		if err := execution.temporaryVolume(point); err != nil {
 			return err
 		}
-		execution.anonymousVolumes[point.Name] = true
-		execution.write("anonymous-volume.txt", macRunnerIdentities(execution.anonymousVolumes))
 		return nil
 	}
 	return fmt.Errorf("runner mount %s has unexpected type or identity", point.Destination)

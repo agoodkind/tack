@@ -11,6 +11,18 @@ import (
 )
 
 func TestMacRunnerRejectsUnsupportedNestedCompose(t *testing.T) {
+	t.Run("multiple documents", func(t *testing.T) {
+		options, _ := macFixture(t)
+		compose := macRead(t, options.Root, "docker-compose.test.yml")
+		macWrite(t, options.Root, "docker-compose.test.yml", compose+"\n---\nservices:\n  tests:\n    privileged: true\n")
+		result, err := testenv.RunMacTests(t.Context(), options)
+		if err == nil || !strings.Contains(err.Error(), "multiple Compose documents are unsupported") || result.ExitCode != 1 {
+			t.Fatalf("multiple Compose documents: result=%+v error=%v", result, err)
+		}
+		if _, err := os.Lstat(options.EvidenceDirectory); !os.IsNotExist(err) {
+			t.Fatalf("multiple Compose documents created evidence: %v", err)
+		}
+	})
 	t.Run("aliased bind options", func(t *testing.T) {
 		options, _ := macFixture(t)
 		compose := macRead(t, options.Root, "docker-compose.test.yml")

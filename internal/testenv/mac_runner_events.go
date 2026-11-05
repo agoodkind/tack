@@ -8,8 +8,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/client"
 )
+
+const macRunnerEventEvidenceLimit = 16 << 20
 
 var errMacRunnerStreamTimeout = errors.New("stream completion exceeded 10 seconds")
 
@@ -26,7 +29,7 @@ func (execution *macRunnerExecution) observeEvents(ctx context.Context) error {
 	observation, cancel := context.WithCancel(ctx)
 	execution.eventCancel = cancel
 	timer := time.AfterFunc(macRunnerObservation, cancel)
-	stream := execution.defaultClient.Events(observation, client.EventsListOptions{
+	stream := execution.eventClient.Events(observation, client.EventsListOptions{
 		Since: execution.startedAt.Format(time.RFC3339Nano), Filters: client.Filters{}.Add("type", "container", "network", "volume"),
 	})
 	timer.Stop()
@@ -54,17 +57,34 @@ func (execution *macRunnerExecution) observeEvents(ctx context.Context) error {
 }
 
 func (execution *macRunnerExecution) recordEvents(ctx context.Context, stream client.EventsResult) error {
-	encoder := json.NewEncoder(execution.eventsFile)
+	var evidenceBytes int
 	for {
 		select {
 		case event, open := <-stream.Messages:
 			if !open {
 				return errors.New("container event messages closed unexpectedly")
 			}
-			if err := encoder.Encode(event); err != nil {
+			if err := execution.recordFixtureCreate(ctx, event); err != nil {
+				return err
+			}
+			execution.eventSnapshot.Lock()
+			runnerID := execution.eventSnapshot.runnerID
+			execution.eventSnapshot.Unlock()
+			if event.Actor.Attributes[macRunnerLabel] != execution.name && (runnerID == "" || event.Actor.Attributes[runnerLabel] != runnerID) {
+				continue
+			}
+			evidence := events.Message{Type: event.Type, Action: event.Action, Actor: events.Actor{ID: event.Actor.ID, Attributes: map[string]string{"name": event.Actor.Attributes["name"], runnerLabel: event.Actor.Attributes[runnerLabel]}}, Time: event.Time, TimeNano: event.TimeNano}
+			encoded, err := json.Marshal(evidence)
+			if err != nil {
+				return macRunnerFailure("encode container event", err)
+			}
+			if evidenceBytes+len(encoded)+1 > macRunnerEventEvidenceLimit {
+				return errors.New("container event evidence exceeds 16 MiB")
+			}
+			evidenceBytes += len(encoded) + 1
+			if _, err := execution.eventsFile.Write(append(encoded, '\n')); err != nil {
 				return macRunnerFailure("write container event", err)
 			}
-			execution.recordFixtureCreate(ctx, event)
 		case err := <-stream.Err:
 			if ctx.Err() != nil && errors.Is(err, context.Canceled) {
 				return nil

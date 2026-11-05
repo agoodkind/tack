@@ -65,8 +65,8 @@ does not establish that a particular image build passed.
 
    Get the immutable image ID with
    `docker image inspect tack-tests:latest --format '{{.Id}}'` and replace the
-   placeholder. The native runner requires a new absolute evidence path outside
-   the checkout and does not build or pull an image.
+   placeholder. Choose a new absolute evidence path outside the checkout. The
+   native runner does not build or pull an image.
 
 3. Save the complete output and terminal exit code. Record the compiled source,
    image digests and architecture, server PIDs, fixture identities, and cleanup
