@@ -43,7 +43,7 @@ func runTests(m *testing.M) int {
 		return 1
 	}
 	if err := testenv.IsolateRun(os.Getenv(networkVariable)+"-replacement", os.Getenv(projectVariable)+"-replacement"); err == nil {
-		slog.Error("pgoverlay.repeated_isolation_accepted")
+		slog.Error("pgoverlay.repeated_isolation_accepted", slog.String("err", "second configuration did not return an error"))
 		return 1
 	}
 	decoy, err := testenv.CreateStoppedRunDecoy(ctx)
