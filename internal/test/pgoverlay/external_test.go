@@ -78,7 +78,10 @@ func TestYugabyteExternalRejectsRoleMemberships(t *testing.T) {
 // in external mode while a membership that the test granted stays in place.
 func TestYugabyteExternalPasswordRotation(t *testing.T) {
 	s := externalScenario(t)
+	s.firstPassword = randomText(t, `first-\quote'-`)
+	s.secondPassword = randomText(t, `second-\quote'-`)
 	s.requireApplied(t, "1", infinity)
+	s.requireLogin(t, "1", true)
 	oid := s.target.roleOID(t, s.role)
 	s.requireStateOID(t, oid)
 	sentinel := randomText(t, "sentinel_")

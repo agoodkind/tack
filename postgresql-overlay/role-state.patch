@@ -324,6 +324,16 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  }
  
  func setRoleName(txn *sql.Tx, d *schema.ResourceData) error {
+@@ -781,7 +876,7 @@ func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
+ 
+-	// Early exit if password WO and version are set, and version has not changed
++	// Reapply the write-only password after a role rename.
+ 	if _, ok := getWO(d, rolePasswordWOAttr); ok {
+-		if !d.HasChange(rolePasswordWOVersionAttr) {
++		if !d.HasChange(rolePasswordWOVersionAttr) && !d.HasChange(roleNameAttr) {
+ 			return nil
+ 		}
+ 	} else {
 @@ -805,7 +825,7 @@ func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
  		return nil
  	}
