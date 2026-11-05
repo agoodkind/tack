@@ -16,8 +16,7 @@ type TofuProcess struct {
 	err      error
 }
 
-// Start runs command in the container like Run, without waiting for it to end.
-// The test must call Wait on the returned process.
+// Start runs command asynchronously. The test must call Wait on the returned process.
 func (host OpenTofuHost) Start(t T, environment []string, command ...string) *TofuProcess {
 	t.Helper()
 	process := &TofuProcess{finished: make(chan struct{}), output: "", code: 0, err: nil}

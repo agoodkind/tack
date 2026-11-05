@@ -1,10 +1,10 @@
 # Use the patched PostgreSQL provider with YugabyteDB
 
-This module builds the cyrilgdn PostgreSQL provider from a pinned release with a patch that preserves `postgresql_role` state after a failed update. YugabyteDB 2024.2 requires `expected_version`. YugabyteDB rejects the advisory lock that the provider requests during role updates.
+This module builds the cyrilgdn PostgreSQL provider from a pinned release with a patch that keeps `postgresql_role` state accurate when an update fails. Configure the provider before managing roles on YugabyteDB 2024.2.
 
 Run the provider with parallelism 1, serialize all provider instances, and hold real host and backend locks when using external mode.
 
-## Set `expected_version`
+## Configure the provider
 
 The provider reads the engine version string to detect capabilities. It cannot parse the YugabyteDB string, and the first resource operation fails during detection. Set the PostgreSQL version that YugabyteDB 2024.2 is compatible with, which makes the provider skip detection:
 
