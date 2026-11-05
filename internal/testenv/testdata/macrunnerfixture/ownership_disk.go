@@ -4,6 +4,8 @@ package testenv
 
 import (
 	"context"
+	"os"
+	"syscall"
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
@@ -11,12 +13,17 @@ import (
 	"github.com/moby/moby/client"
 )
 
-func macRunnerDiskFixture(t *testing.T, ctx context.Context, docker *client.Client, image string) {
+func macRunnerDiskFixture(t *testing.T, ctx context.Context, docker *client.Client, image, mode string) {
 	t.Helper()
 	const sizeBytes = 32 << 20
 	disk, err := createOpenSearchDataDisk(ctx, docker, sizeBytes)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if mode == "disk-killed" {
+		if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
+			t.Fatal(err)
+		}
 	}
 	owner, err := prepareCreate(ctx, docker)
 	if err != nil {

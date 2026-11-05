@@ -36,8 +36,8 @@ func MacRunnerOwnershipFixture(t *testing.T, mode string) {
 		t.Fatal(err)
 	}
 	image := inspection.Container.Image
-	if mode == "disk" {
-		macRunnerDiskFixture(t, ctx, docker, image)
+	if mode == "disk" || mode == "disk-killed" {
+		macRunnerDiskFixture(t, ctx, docker, image, mode)
 	}
 	t.Logf("MAC_SELF_MOUNTS mounts=%+v requests=%+v", inspection.Container.Mounts, inspection.Container.HostConfig.Mounts)
 	macRunnerChangeAdmission(t, mode)
