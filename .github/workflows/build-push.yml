@@ -50,10 +50,14 @@ jobs:
       - name: checkout
         uses: actions/checkout@v7
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - name: verify native runner
         env:
           IMAGE_ARCH: ${{ matrix.arch }}
-        run: bash scripts/verify-native-image-runner.sh
+        run: go run ./cmd/ci-image verify-native-runner
 
       - name: derive build metadata
         id: meta
@@ -87,10 +91,6 @@ jobs:
             DIRTY=false
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
 
       - name: export immutable digest
         env:

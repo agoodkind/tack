@@ -12,8 +12,9 @@ import (
 type operation string
 
 const (
-	digestOperation operation = "digest"
-	tagsOperation   operation = "tags"
+	digestOperation             operation = "digest"
+	tagsOperation               operation = "tags"
+	verifyNativeRunnerOperation operation = "verify-native-runner"
 )
 
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
@@ -126,13 +127,15 @@ func writeFile(path, content string) error {
 func main() {
 	var err error
 	if len(os.Args) != 2 {
-		err = fmt.Errorf("usage: ci-image digest|tags")
+		err = fmt.Errorf("usage: ci-image digest|tags|verify-native-runner")
 	} else {
 		switch operation(os.Args[1]) {
 		case digestOperation:
 			err = writeDigest()
 		case tagsOperation:
 			err = writeTags()
+		case verifyNativeRunnerOperation:
+			err = verifyNativeRunner()
 		default:
 			err = fmt.Errorf("unknown operation: %s", os.Args[1])
 		}
