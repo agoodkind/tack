@@ -10,8 +10,9 @@
 //
 // A test that needs a store calls [Ledger], [PostgreSQL], [FoundationDB],
 // [OpenSearch], or [ObjectStore]. When the Docker daemon does not answer,
-// the test fails with the reason. A `go test -short` run skips it. An OpenSearch test also skips
-// unless [SearchIntegrationVariable] is "1". cmd/testenv runs the same helpers
+// the test fails with the reason. A `go test -short` run skips it.
+// OpenSearch tests require [SearchIntegrationVariable] to be "1".
+// cmd/testenv runs the same helpers
 // for an operator. Its `down` subcommand removes operator engines and the
 // engines of test processes that have exited, and keeps the engines of test
 // processes that still run.

@@ -119,7 +119,6 @@ func (space *workspace) requireVersion(t *testing.T) {
 	}
 }
 
-// run runs tofu in the container and returns its output and exit code.
 func (space *workspace) run(t *testing.T, variables map[string]string, args ...string) (string, int) {
 	t.Helper()
 	environment := []string{
@@ -137,7 +136,6 @@ func (space *workspace) run(t *testing.T, variables map[string]string, args ...s
 	return output, code
 }
 
-// roleVariables returns the variable values for one role configuration.
 func (space *workspace) roleVariables(role, password, version, validUntil string) map[string]string {
 	return map[string]string{
 		"host":                  space.target.host,
@@ -161,7 +159,6 @@ type roleState struct {
 	ValidUntil string
 }
 
-// stateValues returns the role attributes that tofu records in state.
 func (space *workspace) stateValues(t *testing.T) roleState {
 	t.Helper()
 	output, code := space.run(t, nil, "show", "-json")
