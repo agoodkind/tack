@@ -1,6 +1,11 @@
 package testenv
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"runtime/debug"
+)
 
 // TofuProcess is a command that runs in the runner container while the test
 // continues. Wait returns its output and exit code after the command ends.
@@ -26,6 +31,12 @@ func (host OpenTofuHost) Start(t T, environment []string, command ...string) *To
 		defer close(process.finished)
 		defer cancel()
 		defer func() { _ = cli.Close() }()
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				process.err = fmt.Errorf("asynchronous OpenTofu command panicked:\n%s", debug.Stack())
+				slog.ErrorContext(ctx, "testenv.tofu.start_panicked", slog.Any("err", process.err))
+			}
+		}()
 
 		process.output, process.code, process.err = execInContainerWithEnv(ctx, cli, host.name, command, environment)
 	}()
