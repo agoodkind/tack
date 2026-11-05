@@ -11,6 +11,8 @@ import (
 func TestMacOwnershipAll(t *testing.T)         { testenv.MacRunnerOwnershipFixture(t, "all") }
 func TestMacOwnershipDisk(t *testing.T)        { testenv.MacRunnerOwnershipFixture(t, "disk") }
 func TestMacOwnershipDiskKilled(t *testing.T)  { testenv.MacRunnerOwnershipFixture(t, "disk-killed") }
+func TestMacOwnershipDiskImageKilled(t *testing.T) { testenv.MacRunnerOwnershipFixture(t, "disk-image-killed") }
+func TestMacOwnershipPartialOwner(t *testing.T) { testenv.MacRunnerOwnershipFixture(t, "partial-owner") }
 func TestMacOwnershipRelease(t *testing.T)     { testenv.MacRunnerOwnershipFixture(t, "release") }
 func TestMacOwnershipUnknown(t *testing.T)     { testenv.MacRunnerOwnershipFixture(t, "unknown") }
 func TestMacOwnershipShared(t *testing.T)      { testenv.MacRunnerOwnershipFixture(t, "shared") }

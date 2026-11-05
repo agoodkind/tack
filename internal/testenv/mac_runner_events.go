@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/client"
 )
 
@@ -64,17 +63,17 @@ func (execution *macRunnerExecution) recordEvents(ctx context.Context, stream cl
 			if !open {
 				return errors.New("container event messages closed unexpectedly")
 			}
-			if err := execution.recordFixtureCreate(ctx, event); err != nil {
+			candidate, err := execution.recordFixtureCreate(ctx, event)
+			if err != nil {
 				return err
 			}
 			execution.eventSnapshot.Lock()
 			runnerID := execution.eventSnapshot.runnerID
 			execution.eventSnapshot.Unlock()
-			if event.Actor.Attributes[macRunnerLabel] != execution.name && (runnerID == "" || event.Actor.Attributes[runnerLabel] != runnerID) {
+			if !candidate && event.Actor.Attributes[macRunnerLabel] != execution.name && (runnerID == "" || event.Actor.Attributes[runnerLabel] != runnerID) {
 				continue
 			}
-			evidence := events.Message{Type: event.Type, Action: event.Action, Actor: events.Actor{ID: event.Actor.ID, Attributes: map[string]string{"name": event.Actor.Attributes["name"], runnerLabel: event.Actor.Attributes[runnerLabel]}}, Time: event.Time, TimeNano: event.TimeNano}
-			encoded, err := json.Marshal(evidence)
+			encoded, err := json.Marshal(event)
 			if err != nil {
 				return macRunnerFailure("encode container event", err)
 			}

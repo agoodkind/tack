@@ -36,7 +36,7 @@ func MacRunnerOwnershipFixture(t *testing.T, mode string) {
 		t.Fatal(err)
 	}
 	image := inspection.Container.Image
-	if mode == "disk" || mode == "disk-killed" {
+	if mode == "disk" || mode == "disk-killed" || mode == "disk-image-killed" {
 		macRunnerDiskFixture(t, ctx, docker, image, mode)
 	}
 	t.Logf("MAC_SELF_MOUNTS mounts=%+v requests=%+v", inspection.Container.Mounts, inspection.Container.HostConfig.Mounts)
@@ -47,6 +47,10 @@ func MacRunnerOwnershipFixture(t *testing.T, mode string) {
 	}
 	if mode != "independent" && !owner.native {
 		t.Fatal("native runner identity did not verify")
+	}
+	if mode == "partial-owner" {
+		macRunnerPartialOwnerFixture(t, ctx, docker, image, owner)
+		return
 	}
 	ordinary, err := startEngine(ctx, docker, engineSpec{kind: "ownership", image: image, entrypoint: []string{"/bin/sleep"}, cmd: []string{"240"}})
 	if err != nil {

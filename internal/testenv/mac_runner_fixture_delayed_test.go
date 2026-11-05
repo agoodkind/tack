@@ -133,9 +133,11 @@ func macDelayDiskEvent(ctx context.Context, source io.ReadCloser, destination *i
 
 type macFixtureDiskEvents struct {
 	sync.Mutex
-	project  string
-	runnerID string
-	dataName string
+	project           string
+	runnerID          string
+	dataName          string
+	imageBeforeHelper bool
+	docker            *client.Client
 }
 
 func (matcher *macFixtureDiskEvents) matchesCreate(line []byte) bool {
@@ -158,6 +160,12 @@ func (matcher *macFixtureDiskEvents) matchesCreate(line []byte) bool {
 	if event.Type == "container" && matcher.runnerID != "" && event.Actor.Attributes["io.goodkind.tack.testenv.runner"] == matcher.runnerID && strings.HasPrefix(event.Actor.Attributes["name"], "tack-testenv-opensearch-disk-") {
 		matcher.dataName = event.Actor.Attributes["name"] + "-data"
 	}
+	if matcher.imageBeforeHelper && event.Type == "volume" && matcher.runnerID != "" && strings.HasPrefix(event.Actor.ID, "tack-testenv-opensearch-disk-") && strings.HasSuffix(event.Actor.ID, "-image") {
+		inspection, err := matcher.docker.VolumeInspect(context.Background(), event.Actor.ID, client.VolumeInspectOptions{})
+		if err == nil && inspection.Volume.Labels["io.goodkind.tack.testenv.runner"] == matcher.runnerID {
+			matcher.dataName = event.Actor.ID
+		}
+	}
 	return event.Type == "volume" && matcher.dataName != "" && event.Actor.ID == matcher.dataName
 }
 
@@ -165,4 +173,10 @@ func (matcher *macFixtureDiskEvents) matchesInspection(path string) bool {
 	matcher.Lock()
 	defer matcher.Unlock()
 	return matcher.dataName != "" && strings.HasSuffix(path, "/volumes/"+matcher.dataName)
+}
+
+func (matcher *macFixtureDiskEvents) matchesInventory(path string) bool {
+	matcher.Lock()
+	defer matcher.Unlock()
+	return matcher.dataName != "" && strings.HasSuffix(path, "/volumes")
 }

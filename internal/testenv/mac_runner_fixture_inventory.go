@@ -32,12 +32,13 @@ func (execution *macRunnerExecution) attributeFixtures(ctx context.Context) erro
 		}
 		if observed.Container != nil {
 			execution.attributeContainer(*observed.Container, true, logs[observed.Event.Actor.Attributes["name"]])
-		} else if execution.fixtureOwner(observed.Event.Actor.Attributes) && !execution.baseline.Containers[id] {
+		} else if (execution.fixtureOwner(observed.Event.Actor.Attributes) || (observed.Event.Actor.Attributes[runnerLabel] == "" && logs[observed.Event.Actor.Attributes["name"]])) && !execution.baseline.Containers[id] {
 			failures = append(failures, fmt.Errorf("fixture %s create inspection failed: %s", id, observed.Error))
 		}
 	}
 	failures = append(failures, execution.inventoryFixtureContainers(ctx, containerCreates, logs))
 	execution.attributeDiskVolumes(creates)
+	failures = append(failures, execution.inventoryFixtureDiskVolumes(ctx))
 	for id, fixture := range execution.fixtures.Containers {
 		if execution.diskHelper(fixture) {
 			failures = append(failures, execution.inventoryDiskHelper(ctx, id))
@@ -55,6 +56,59 @@ func (execution *macRunnerExecution) attributeFixtures(ctx context.Context) erro
 		}
 	}
 	return macRunnerErrors("attribute inner fixtures", failures...)
+}
+
+func (execution *macRunnerExecution) inventoryFixtureDiskVolumes(ctx context.Context) error {
+	filters := client.Filters{}.Add("label", managedLabel+"=true").Add("label", runnerLabel+"="+execution.acceptedID)
+	volumes, err := macObserve(ctx, func(observation context.Context) (client.VolumeListResult, error) {
+		return execution.defaultClient.VolumeList(observation, client.VolumeListOptions{Filters: filters})
+	})
+	if err != nil {
+		return macRunnerFailure("inventory runner disk volumes", err)
+	}
+	if len(volumes.Warnings) != 0 || len(volumes.Items) > macRunnerInspectionLimit {
+		return macRunnerFailure("validate runner volume inventory", fmt.Errorf("inventory is incomplete or exceeds %d entries: %v", macRunnerInspectionLimit, volumes.Warnings))
+	}
+	var failures []error
+	for _, item := range volumes.Items {
+		if !strings.HasPrefix(item.Name, dataDiskPrefix) || (!strings.HasSuffix(item.Name, "-image") && !strings.HasSuffix(item.Name, "-data")) || execution.baseline.Volumes[item.Name] || execution.cacheVolumes[item.Name] {
+			continue
+		}
+		inspection, inspectErr := macObserve(ctx, func(observation context.Context) (client.VolumeInspectResult, error) {
+			return execution.defaultClient.VolumeInspect(observation, item.Name, client.VolumeInspectOptions{})
+		})
+		if errdefs.IsNotFound(inspectErr) {
+			continue
+		}
+		if inspectErr != nil {
+			execution.fixtures.Volumes[item.Name] = false
+			execution.preserveFixture("volume", item.Name, "disk volume inspection failed: "+inspectErr.Error(), true)
+			failures = append(failures, macRunnerFailure("inspect runner disk volume "+item.Name, inspectErr))
+			continue
+		}
+		volume := inspection.Volume
+		if volume.Name != item.Name || !execution.fixtureOwner(volume.Labels) {
+			execution.fixtures.Volumes[item.Name] = false
+			execution.preserveFixture("volume", item.Name, "disk volume ownership changed", true)
+			continue
+		}
+		if _, recorded := execution.fixtures.NamedVolumes[item.Name]; recorded {
+			if verifyErr := execution.verifyDiskVolume(ctx, item.Name); verifyErr != nil {
+				execution.fixtures.Volumes[item.Name] = false
+				execution.preserveFixture("volume", item.Name, verifyErr.Error(), true)
+				failures = append(failures, verifyErr)
+				continue
+			}
+		}
+		if _, recorded := execution.fixtures.Volumes[item.Name]; !recorded {
+			execution.fixtures.Volumes[item.Name] = false
+			execution.preserveFixture("volume", item.Name, "disk volume lacks matching helper ownership", true)
+		}
+		var observed macRunnerObservedCreate
+		observed.Volume = &volume
+		execution.attributeDiskVolumes([]macRunnerObservedCreate{observed})
+	}
+	return macRunnerErrors("inventory runner disk volumes", failures...)
 }
 
 func (execution *macRunnerExecution) inventoryFixtureContainers(ctx context.Context, containerCreates, logs map[string]bool) error {

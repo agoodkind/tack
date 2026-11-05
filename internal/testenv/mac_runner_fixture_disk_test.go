@@ -3,9 +3,14 @@
 package testenv_test
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/client"
 
 	"goodkind.io/tack/internal/testenv"
@@ -51,6 +56,34 @@ func macRequireDiskCleanup(t *testing.T, mode string, exitCode int) {
 		}
 		if _, err := docker.VolumeInspect(t.Context(), name, client.VolumeInspectOptions{}); !errdefs.IsNotFound(err) {
 			t.Errorf("owned disk volume remains %s: %v", name, err)
+		}
+	}
+	if mode == "Disk" {
+		contents, err := os.ReadFile(filepath.Join(options.EvidenceDirectory, "events.jsonl"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		volumeCreates := make(map[string]bool)
+		containerAttributes := false
+		for _, line := range strings.Split(string(contents), "\n") {
+			var event events.Message
+			if json.Unmarshal([]byte(line), &event) != nil || event.Action != events.ActionCreate {
+				continue
+			}
+			if event.Type == events.VolumeEventType && event.Actor.Attributes["driver"] == "local" {
+				volumeCreates[event.Actor.ID] = true
+			}
+			if event.Type == events.ContainerEventType && event.Actor.Attributes["io.goodkind.tack.testenv.runner"] == summary.RunnerID && event.Actor.Attributes["image"] != "" {
+				containerAttributes = true
+			}
+		}
+		for name := range summary.Fixtures.NamedVolumes {
+			if !volumeCreates[name] {
+				t.Errorf("raw disk creation event with driver missing for %s", name)
+			}
+		}
+		if !containerAttributes {
+			t.Error("raw container creation event lacks its image attribute")
 		}
 	}
 }
