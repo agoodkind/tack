@@ -5,6 +5,8 @@ package pgoverlay_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // outOfRangeStatementTimeout exceeds the largest value that the engines accept
@@ -17,8 +19,8 @@ func (s *scenario) failingCreate(t *testing.T) {
 	t.Helper()
 	s.space.statementTimeout = outOfRangeStatementTimeout
 	output, code := s.apply(t, "1", infinity)
-	if code == exitSuccess {
-		t.Fatalf("the create succeeded with an out-of-range statement_timeout and the test expects a failure:\n%s", output)
+	if code == exitSuccess || !strings.Contains(output, "could not set statement_timeout "+outOfRangeStatementTimeout) {
+		t.Fatalf("the create exited %d; the test expects the statement_timeout database error:\n%s", code, output)
 	}
 	s.space.statementTimeout = ""
 }
@@ -111,4 +113,39 @@ func TestYugabyteExternalRejectsEmptyRoles(t *testing.T) {
 	if code != exitFailure || !strings.Contains(output, "roles is not supported") {
 		t.Fatalf("plan exited %d and the test expects the roles diagnostic:\n%s", code, output)
 	}
+}
+
+func TestYugabyteExternalDeleteKeepsRestrictedAdminMemberships(t *testing.T) {
+	s := externalScenario(t)
+	administrator := randomText(t, "limited_")
+	password := randomText(t, "limited_password_")
+	s.target.createRole(t, administrator, password)
+	s.target.createRole(t, s.role, s.password("1"))
+	s.target.grantMembership(t, administrator, s.role)
+	t.Cleanup(func() {
+		s.target.execute(t, "REVOKE "+pgx.Identifier{administrator}.Sanitize()+" FROM "+pgx.Identifier{s.role}.Sanitize())
+		s.target.dropRole(t, administrator)
+	})
+	if !s.target.isMember(t, s.role, administrator) || s.target.isMember(t, administrator, s.role) {
+		t.Fatal("the test memberships do not match the restricted administrator setup")
+	}
+
+	s.space.target.adminUser = administrator
+	s.space.target.adminPassword = password
+	variables := s.space.roleVariables(s.role, s.password("1"), "1", infinity)
+	output, code := s.space.run(t, variables, "import", "-no-color", "-input=false", "postgresql_role.app", s.role)
+	if code != exitSuccess {
+		t.Fatalf("import as the restricted administrator exited %d:\n%s", code, output)
+	}
+	output, code = s.space.run(t, variables, "destroy", "-auto-approve", "-no-color", "-input=false")
+	if code == exitSuccess || !strings.Contains(output, "could not reassign owned") {
+		t.Fatalf("destroy exited %d; the test expects an ownership reassignment error:\n%s", code, output)
+	}
+	if !s.target.isMember(t, s.role, administrator) || s.target.isMember(t, administrator, s.role) {
+		t.Fatal("the failed delete changed the administrator memberships")
+	}
+	if !s.target.roleExists(t, s.role) {
+		t.Fatal("the failed delete removed the managed role")
+	}
+	s.space.requireNoSecrets(t, append(s.secrets(), password)...)
 }
