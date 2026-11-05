@@ -21,6 +21,8 @@ func postgresqlScenario(t *testing.T) *scenario {
 // and requires a working new password and an empty repeat plan.
 func TestPostgreSQLPasswordUpdate(t *testing.T) {
 	s := postgresqlScenario(t)
+	s.firstPassword = randomText(t, `first-\quote'-`)
+	s.secondPassword = randomText(t, `second-\quote'-`)
 	s.requireApplied(t, "1", infinity)
 	s.requireLogin(t, "1", true)
 	s.requireApplied(t, "2", infinity)

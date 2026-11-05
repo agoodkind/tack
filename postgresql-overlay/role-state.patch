@@ -11,6 +11,15 @@ index 38bfb9e..390d86a 100644
  		Delete: PGResourceFunc(resourcePostgreSQLRoleDelete),
  		Exists: PGResourceExistsFunc(resourcePostgreSQLRoleExists),
  		Importer: &schema.ResourceImporter{
+@@ -296,7 +296,7 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
+ 					createOpts = append(createOpts, "UNENCRYPTED")
+ 				}
+ 				createOpts = append(createOpts,
+-					fmt.Sprintf("%s '%s'", opt.sqlKey, pqQuoteLiteral(val)))
++					fmt.Sprintf("%s %s", opt.sqlKey, pq.QuoteLiteral(val)))
+ 			}
+ 
+ 		case roleValidUntilAttr:
 @@ -668,7 +668,21 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
  	return rolePassword, nil
  }
@@ -47,3 +56,12 @@ index 38bfb9e..390d86a 100644
 -	return resourcePostgreSQLRoleReadImpl(db, d)
  }
  
+@@ -805,7 +825,7 @@ func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
+ 		return nil
+ 	}
+ 
+-	sql := fmt.Sprintf("ALTER ROLE %s PASSWORD '%s'", pq.QuoteIdentifier(roleName), pqQuoteLiteral(password))
++	sql := fmt.Sprintf("ALTER ROLE %s PASSWORD %s", pq.QuoteIdentifier(roleName), pq.QuoteLiteral(password))
+ 	if _, err := txn.Exec(sql); err != nil {
+ 		return fmt.Errorf("error updating role password: %w", err)
+ 	}
