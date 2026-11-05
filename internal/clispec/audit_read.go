@@ -17,12 +17,10 @@ import (
 // bytes the command prints.
 type OperatorRead func(ctx context.Context) (audit.OperatorReadOutput, error)
 
-// RunAuditedRead records an operator read with f's read lifecycle store.
-// It returns the payload after the store saves the final event. Each read
-// gets a new operation ID.
-//
-// Infrastructure creation operations may use the bootstrap fallback after an
-// admission failure. Other reads return the admission error without reading.
+// RunAuditedRead gives each read a new operation ID. Ordinary reads require
+// admission and a saved final event before returning the payload. Operations
+// that set CreatesAuditInfrastructure may use the first-time setup fallback
+// after admission fails and the infrastructure probe confirms it is needed.
 func RunAuditedRead(
 	ctx context.Context,
 	f *cli.Factory,
