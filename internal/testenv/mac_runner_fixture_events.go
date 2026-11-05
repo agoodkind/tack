@@ -73,7 +73,7 @@ func (execution *macRunnerExecution) recordFixtureCreate(ctx context.Context, ev
 		return false, nil
 	}
 	observed.Event.Actor.Attributes = map[string]string{
-		"name": event.Actor.Attributes["name"], runnerLabel: event.Actor.Attributes[runnerLabel], managedLabel: event.Actor.Attributes[managedLabel],
+		"name": event.Actor.Attributes["name"], runnerLabel: event.Actor.Attributes[runnerLabel], managedLabel: event.Actor.Attributes[managedLabel], hostLabel: event.Actor.Attributes[hostLabel],
 	}
 	encoded, err := json.Marshal(observed)
 	if err != nil {

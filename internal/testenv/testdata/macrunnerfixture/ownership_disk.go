@@ -82,3 +82,22 @@ func macRunnerPartialOwnerFixture(t *testing.T, ctx context.Context, docker *cli
 	fmt.Printf("MAC_PARTIAL_OWNER_ID=%s PID=%d\n", created.ID, os.Getpid())
 	time.Sleep(4 * time.Minute)
 }
+
+func macRunnerUnloggedFixture(t *testing.T, ctx context.Context, docker *client.Client, image string, owner processOwner) {
+	t.Helper()
+	name, err := generatedEngineName(ctx, "unlogged")
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := ownerLabels(owner)
+	delete(labels, runnerLabel)
+	labels["tack.mac-runner-unlogged"] = "true"
+	_, err = docker.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name: name, Config: &container.Config{Image: image, Entrypoint: []string{"/bin/sleep"}, Cmd: []string{"240"}, Labels: labels},
+		HostConfig: &container.HostConfig{Mounts: []mount.Mount{{Type: mount.TypeVolume, Target: "/fixture-volume"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(4 * time.Minute)
+}

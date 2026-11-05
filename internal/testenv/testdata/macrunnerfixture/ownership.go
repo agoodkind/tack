@@ -52,6 +52,10 @@ func MacRunnerOwnershipFixture(t *testing.T, mode string) {
 		macRunnerPartialOwnerFixture(t, ctx, docker, image, owner)
 		return
 	}
+	if mode == "unlogged-create" {
+		macRunnerUnloggedFixture(t, ctx, docker, image, owner)
+		return
+	}
 	ordinary, err := startEngine(ctx, docker, engineSpec{kind: "ownership", image: image, entrypoint: []string{"/bin/sleep"}, cmd: []string{"240"}})
 	if err != nil {
 		t.Fatal(err)

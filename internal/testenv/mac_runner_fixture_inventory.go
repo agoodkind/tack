@@ -32,8 +32,10 @@ func (execution *macRunnerExecution) attributeFixtures(ctx context.Context) erro
 		}
 		if observed.Container != nil {
 			execution.attributeContainer(*observed.Container, true, logs[observed.Event.Actor.Attributes["name"]])
-		} else if (execution.fixtureOwner(observed.Event.Actor.Attributes) || (observed.Event.Actor.Attributes[runnerLabel] == "" && logs[observed.Event.Actor.Attributes["name"]])) && !execution.baseline.Containers[id] {
-			failures = append(failures, fmt.Errorf("fixture %s create inspection failed: %s", id, observed.Error))
+		} else if !execution.baseline.Containers[id] && execution.candidateFixture("container", id, observed.Event.Actor.Attributes) {
+			reason := "create inspection failed: " + observed.Error
+			execution.preserveFixture("container", id, reason, true)
+			failures = append(failures, fmt.Errorf("fixture %s %s", id, reason))
 		}
 	}
 	failures = append(failures, execution.inventoryFixtureContainers(ctx, containerCreates, logs))
