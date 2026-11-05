@@ -67,19 +67,41 @@ func TestVerifyNativeRunnerOutputFailure(t *testing.T) {
 	default:
 		t.Skipf("host machine %q does not match an accepted native runner pair", machine)
 	}
-	path := filepath.Join(t.TempDir(), "stdout")
-	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	output, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := output.Close(); err != nil {
-			t.Error(err)
+	t.Run("read-only file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "stdout")
+		if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+			t.Fatal(err)
 		}
+		output, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := output.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+		assertOutputFailure(t, architecture, output)
 	})
+	t.Run("closed pipe", func(t *testing.T) {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := reader.Close(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := writer.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+		assertOutputFailure(t, architecture, writer)
+	})
+}
+
+func assertOutputFailure(t *testing.T, architecture string, output *os.File) {
+	t.Helper()
 	command := exec.CommandContext(t.Context(), commandPath, "verify-native-runner")
 	command.Env = []string{"IMAGE_ARCH=" + architecture}
 	command.Stdout = output
@@ -87,6 +109,8 @@ func TestVerifyNativeRunnerOutputFailure(t *testing.T) {
 	command.Stderr = &stderr
 	if err := command.Run(); err == nil {
 		t.Fatal("expected output write failure")
+	} else if exitError, ok := err.(*exec.ExitError); !ok || exitError.ExitCode() != 1 {
+		t.Fatalf("expected exit status 1, got %v", err)
 	}
 	if !strings.Contains(stderr.String(), "write native runner output") {
 		t.Fatalf("stderr = %q", stderr.String())
