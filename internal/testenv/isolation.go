@@ -12,8 +12,8 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// isolation stores the network that an isolated run uses. The zero value keeps
-// the shared network and the startup sweep of exited test processes.
+// isolation stores the network that an isolated run uses. The zero value selects
+// the shared network and enables the startup sweep of exited test processes.
 var isolation struct {
 	sync.Mutex
 	network string

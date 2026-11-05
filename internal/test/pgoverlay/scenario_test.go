@@ -61,7 +61,6 @@ func (s *scenario) password(version string) string {
 	return s.secondPassword
 }
 
-// apply runs tofu apply for a password version and valid-until value.
 func (s *scenario) apply(t *testing.T, version, validUntil string) (string, int) {
 	t.Helper()
 	return s.applyRole(t, s.role, version, validUntil)

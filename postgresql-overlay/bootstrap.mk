@@ -61,15 +61,7 @@ endef
 GO_MK_BOOTSTRAP_FETCHED := 1
 
 ifeq ($(strip $(GO_MK_SKIP_FETCH)),1)
-# Test for a non-empty regular file, not merely an existing path. $(wildcard)
-# reports any name that exists, including a zero-byte file, and bash exits 0 on
-# an empty script, so GO_MK_PROVISION would come back `ok` and the parse would
-# continue with no engine provisioned at all. That is reachable: the fetch path
-# below writes a temp file and renames it, but an interrupted earlier run, a
-# full disk, or a hand-created placeholder all leave an empty helper that this
-# guard is the only thing standing in front of. -s matches the same test the
-# fetch path uses on the cached helper, so both paths agree on what counts as
-# present.
+# Reject empty helpers because bash treats an empty script as successful.
 GO_MK_BOOTSTRAP_PRESENT := $(shell test -s "$(GO_MK_BOOTSTRAP)" && printf yes)
 $(if $(GO_MK_BOOTSTRAP_PRESENT),,$(error go-makefile expected a non-empty $(GO_MK_BOOTSTRAP); rerun without GO_MK_SKIP_FETCH))
 else
