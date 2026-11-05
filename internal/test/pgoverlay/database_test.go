@@ -81,7 +81,10 @@ func (target databaseTarget) loginError(t *testing.T, role, password string) err
 	if err != nil {
 		return err
 	}
-	return connection.Close(ctx)
+	if err := connection.Close(ctx); err != nil {
+		t.Fatalf("close login connection: %v", err)
+	}
+	return nil
 }
 
 // dropRole removes a role the test created. The provider cannot drop it on

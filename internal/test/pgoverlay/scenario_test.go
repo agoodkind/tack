@@ -5,8 +5,11 @@ package pgoverlay_test
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
@@ -101,8 +104,11 @@ func (s *scenario) requireLogin(t *testing.T, version string, works bool) {
 	if works && err != nil {
 		t.Fatalf("a login with password version %s failed: %v", version, err)
 	}
-	if !works && err == nil {
-		t.Fatalf("a login with password version %s succeeded and the test expects a refusal", version)
+	if !works {
+		var databaseError *pgconn.PgError
+		if !errors.As(err, &databaseError) || databaseError.Code != "28P01" {
+			t.Fatalf("a login with password version %s returned %v; the test expects invalid password SQLSTATE 28P01", version, err)
+		}
 	}
 }
 

@@ -33,13 +33,17 @@ index 38bfb9e..390d86a 100644
  	txn, err := startTransaction(db.client, "")
  	if err != nil {
  		return err
-@@ -753,6 +767,9 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
+@@ -753,6 +767,12 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
  		return fmt.Errorf("could not commit transaction: %w", err)
  	}
  
 +	committed = true
++	if err := resourcePostgreSQLRoleReadImpl(db, d); err != nil {
++		return err
++	}
 +	d.Partial(false)
++	return nil
 +
- 	return resourcePostgreSQLRoleReadImpl(db, d)
+-	return resourcePostgreSQLRoleReadImpl(db, d)
  }
  
