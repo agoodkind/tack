@@ -126,8 +126,18 @@ func TestTagsCommand(t *testing.T) {
 	if err := runCommand(t, "tags", environment); err == nil {
 		t.Fatal("expected filesystem failure")
 	}
+	environment["IMAGE_TAG_FILE"] = filepath.Join(t.TempDir(), "tags")
 	delete(environment, "BRANCH_NAME")
-	if err := runCommand(t, "tags", environment); err == nil {
+	command := exec.CommandContext(t.Context(), commandPath, "tags")
+	command.Env = []string{}
+	for key, value := range environment {
+		command.Env = append(command.Env, key+"="+value)
+	}
+	output, err := command.CombinedOutput()
+	if err == nil {
 		t.Fatal("expected missing input failure")
+	}
+	if !strings.Contains(string(output), "BRANCH_NAME: required environment variable is unset") {
+		t.Fatalf("missing input error = %q", output)
 	}
 }
