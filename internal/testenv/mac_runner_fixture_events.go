@@ -39,7 +39,7 @@ func (execution *macRunnerExecution) recordFixtureCreate(ctx context.Context, ev
 		if err != nil {
 			observed.Error = err.Error()
 		} else {
-			if inspection.Config == nil || inspection.Config.Labels[managedLabel] != "true" || (inspection.Config.Labels[runnerLabel] != "" && inspection.Config.Labels[runnerLabel] != runnerID) {
+			if !macRunnerMatchesObservedContainer(inspection, runnerID) {
 				return false, nil
 			}
 			observed.Container = macRunnerCompactContainer(inspection)
@@ -87,6 +87,14 @@ func (execution *macRunnerExecution) recordFixtureCreate(ctx context.Context, ev
 	execution.eventSnapshot.bytes += len(encoded)
 	execution.eventSnapshot.creates = append(execution.eventSnapshot.creates, observed)
 	return true, nil
+}
+
+func macRunnerMatchesObservedContainer(inspection container.InspectResponse, runnerID string) bool {
+	if inspection.Config == nil || inspection.Config.Labels[managedLabel] != "true" {
+		return false
+	}
+	label := inspection.Config.Labels[runnerLabel]
+	return label == "" || label == runnerID
 }
 
 func macRunnerCompactContainer(inspection container.InspectResponse) *container.InspectResponse {
