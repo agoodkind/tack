@@ -2,7 +2,10 @@
 
 package pgoverlay_test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPostgreSQLAdvisoryReadFailureAfterCommit(t *testing.T) {
 	s := postgresqlScenario(t)
@@ -14,8 +17,8 @@ func TestPostgreSQLAdvisoryReadFailureAfterCommit(t *testing.T) {
 
 	output, code := s.applyRole(t, renamed, "2", infinity)
 	proxy.recover(t)
-	if code == exitSuccess {
-		t.Fatalf("the update succeeded after the proxy denied the final read:\n%s", output)
+	if code == exitSuccess || !strings.Contains(output, "error reading ROLE") {
+		t.Fatalf("the update exited %d; the test expects a final role read error:\n%s", code, output)
 	}
 	if !s.target.roleExists(t, renamed) || s.target.roleExists(t, s.role) {
 		t.Fatal("the database did not retain exactly the renamed role")
