@@ -107,6 +107,7 @@ func TestAuditManifestPayloadVerification(t *testing.T) {
 	})
 	failedRuns = append(failedRuns, requireInvalidManifestIdentities(t, ledger, admin, operator)...)
 	failedRuns = append(failedRuns, requireHistoricalManifestAbsence(t, ledger, operator))
+	failedRuns = append(failedRuns, requireManifestDeclarationCases(t, ledger, admin, operator)...)
 	requireStoredAuditReads(t, ledger, operator.operatorID, append([]manifestReadRun{{
 		orgInput: orgID.String(), eventInput: eventID.String(), targetURI: "tack:audit-event/" + eventID.String(),
 		outcome: audit.OutcomeCompleted, errorCode: "", messageContains: "", forbidden: nil,

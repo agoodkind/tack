@@ -1,10 +1,8 @@
 package audit
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -28,7 +26,7 @@ func (r *Reader) VerifyManifest(ctx context.Context, orgID, eventID uuid.UUID) (
 	if err != nil {
 		return result, fmt.Errorf("cannot read manifest evidence for event %s", eventID)
 	}
-	var raw []byte
+	var declaration manifestDeclaration
 	if !rows.Next() {
 		rows.Close()
 		if rows.Err() != nil {
@@ -36,7 +34,7 @@ func (r *Reader) VerifyManifest(ctx context.Context, orgID, eventID uuid.UUID) (
 		}
 		return result, fmt.Errorf("event %s was not found in the requested organization", eventID)
 	}
-	if err := rows.Scan(&raw); err != nil {
+	if err := rows.Scan(&declaration.raw, &declaration.format, &declaration.class, &declaration.phase, &declaration.outcome); err != nil {
 		rows.Close()
 		return result, fmt.Errorf("cannot decode manifest evidence for event %s", eventID)
 	}
@@ -49,23 +47,9 @@ func (r *Reader) VerifyManifest(ctx context.Context, orgID, eventID uuid.UUID) (
 	if err != nil {
 		return result, fmt.Errorf("cannot read manifest evidence for event %s", eventID)
 	}
-	var read *ReadEvidence
-	if len(raw) > EventPartMaxBytes {
-		return result, fmt.Errorf("event %s declares oversized read evidence", eventID)
-	}
-	if raw == nil {
-		return result, fmt.Errorf("event %s did not record read evidence; manifest verification is unavailable", eventID)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&read); err != nil || read == nil || !decoderAtEnd(decoder) {
-		return result, fmt.Errorf("event %s does not declare valid read evidence", eventID)
-	}
-	if read.Count == 0 && read.ManifestParts == 0 && read.ManifestSHA256 == "" {
-		return result, fmt.Errorf("event %s did not record a manifest declaration; manifest verification is unavailable", eventID)
-	}
-	if validateReadEvidence(*read) != nil {
-		return result, fmt.Errorf("event %s declares invalid read evidence", eventID)
+	read, err := declaration.readEvidence(eventID)
+	if err != nil {
+		return result, err
 	}
 	rows, err = r.pool.Rows(r.pool.unsanitized.Query(ctx, readStatement("manifest_payloads"), orgID, eventID, EventPartMaxBytes+1))
 	if err != nil {
