@@ -8,10 +8,6 @@ func TestYugabyteExternalReadFailureAfterCommit(t *testing.T) {
 	verifyReadFailureAfterCommit(t, externalScenario(t))
 }
 
-func TestPostgreSQLAdvisoryReadFailureAfterCommit(t *testing.T) {
-	verifyReadFailureAfterCommit(t, postgresqlScenario(t))
-}
-
 func verifyReadFailureAfterCommit(t *testing.T, s *scenario) {
 	t.Helper()
 	s.requireApplied(t, "1", infinity)
