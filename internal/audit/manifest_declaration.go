@@ -47,8 +47,8 @@ func (d manifestDeclaration) readEvidence(eventID uuid.UUID) (*ReadEvidence, err
 		if (event.Context.OperationClass == OperationRead || read != nil) && validateClassEvidence(event) != nil {
 			return nil, fmt.Errorf("event %s declares invalid read evidence", eventID)
 		}
-	} else if read != nil && validateReadEvidence(*read) != nil {
-		return nil, fmt.Errorf("event %s declares invalid read evidence", eventID)
+	} else if read != nil {
+		return nil, fmt.Errorf("event %s declares invalid read evidence for its audit format", eventID)
 	}
 	if read == nil {
 		return nil, fmt.Errorf("event %s did not record read evidence; manifest verification is unavailable", eventID)

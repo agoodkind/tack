@@ -74,6 +74,8 @@ func TestAuditManifestPayloadVerification(t *testing.T) {
 		{name: "incomplete evidence", fixture: "manifest_test_invalid_read_evidence.sql", message: "invalid read evidence"},
 		{name: "invalid response fingerprint", fixture: "manifest_test_invalid_payload_digest.sql", message: "invalid read evidence"},
 		{name: "oversized payload", fixture: "manifest_test_oversized_part.sql", message: "exceeds the size limit"},
+		{name: "legacy format with read evidence", fixture: "manifest_test_legacy_read.sql", message: "invalid read evidence for its audit format"},
+		{name: "string audit format", fixture: "manifest_test_string_format.sql", message: "invalid audit format"},
 	}
 	admin := ledgerAdminPool(t)
 	failedRuns := make([]manifestReadRun, 0, len(cases)+1)
