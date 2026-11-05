@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -54,7 +53,7 @@ func writeDigest() error {
 		slog.Error("digest.directory_failed", slog.String("path", directory), slog.Any("error", err))
 		return fmt.Errorf("create digest directory %s: %w", directory, err)
 	}
-	if err := writeFile(filepath.Join(directory, architecture+".digest"), value+"\n"); err != nil {
+	if err := writeFile(directory+string(os.PathSeparator)+architecture+".digest", value+"\n"); err != nil {
 		return err
 	}
 	return nil

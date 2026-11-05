@@ -141,3 +141,31 @@ func TestTagsCommand(t *testing.T) {
 		t.Fatalf("missing input error = %q", output)
 	}
 }
+
+func TestDigestDirectoryWithSymlinkParent(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	child := filepath.Join(real, "child")
+	if err := os.MkdirAll(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(child, link); err != nil {
+		t.Fatal(err)
+	}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	environment := map[string]string{"IMAGE_ARCH": "amd64", "IMAGE_DIGEST": digest, "DIGEST_DIRECTORY": link + "/.."}
+	if err := runCommand(t, "digest", environment); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(real, "amd64.digest"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != digest+"\n" {
+		t.Fatalf("digest = %q", content)
+	}
+	if _, err := os.Stat(filepath.Join(root, "amd64.digest")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected digest at cleaned path: %v", err)
+	}
+}
