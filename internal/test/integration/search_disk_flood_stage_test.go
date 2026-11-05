@@ -52,6 +52,7 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 		MemoryBytes: floodStageMemoryBytes, DataBytes: floodStageDataBytes,
 	})
 	fixture, _ := newClusterQueryFixture(t, engine.Fixture)
+	ConfigureSearchMaintenance(t, engine.Fixture)
 	requireDiskSettings(t, fixture)
 	nodeA := createFloodProject(t, fixture, "FLDA", floodStageOldText)
 	drainSearchWork(t, fixture.Worker, 500)
