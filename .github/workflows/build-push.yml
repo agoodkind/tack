@@ -88,12 +88,16 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - name: export immutable digest
         env:
           IMAGE_ARCH: ${{ matrix.arch }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           DIGEST_DIRECTORY: ${{ runner.temp }}/digests
-        run: bash scripts/image-digest.sh
+        run: go run ./cmd/ci-image digest
 
       - name: upload immutable digest
         uses: actions/upload-artifact@v7
@@ -128,6 +132,10 @@ jobs:
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: bash scripts/image-build-metadata.sh
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - name: docker tags
         env:
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
@@ -135,7 +143,7 @@ jobs:
           IMAGE_NAME: ${{ matrix.image }}
           COMMIT_SHORT: ${{ steps.meta.outputs.short }}
           IMAGE_TAG_FILE: ${{ runner.temp }}/image-tags
-        run: bash scripts/image-tags.sh
+        run: go run ./cmd/ci-image tags
 
       - name: download immutable digests
         uses: actions/download-artifact@v8
