@@ -117,7 +117,11 @@ func (target databaseTarget) createRole(t *testing.T, role, password string) {
 		literal := strings.ReplaceAll(password, "'", "''")
 		statement += " LOGIN PASSWORD '" + literal + "'"
 	}
-	target.execute(t, statement)
+	target.withAdmin(t, func(ctx context.Context, connection *pgx.Conn) {
+		if _, err := connection.Exec(ctx, statement); err != nil {
+			t.Fatalf("create role %s: %v", role, err)
+		}
+	})
 }
 
 // grantMembership makes member a member of parent.
