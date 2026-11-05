@@ -169,3 +169,31 @@ func TestDigestDirectoryWithSymlinkParent(t *testing.T) {
 		t.Fatalf("unexpected digest at cleaned path: %v", err)
 	}
 }
+
+func TestFileFailureReportsOnce(t *testing.T) {
+	root := t.TempDir()
+	blocked := filepath.Join(root, "file")
+	if err := os.WriteFile(blocked, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, operation, path, context string
+		environment                    []string
+	}{
+		{"directory", "digest", blocked, "create digest directory", []string{"IMAGE_ARCH=amd64", "IMAGE_DIGEST=sha256:" + strings.Repeat("a", 64), "DIGEST_DIRECTORY=" + blocked}},
+		{"open", "tags", root, "open image file", []string{"REGISTRY=registry", "IMAGE_OWNER=owner", "IMAGE_NAME=image", "COMMIT_SHORT=abc", "GITHUB_SHA=abcdef", "GITHUB_REF_TYPE=branch", "BRANCH_NAME=main", "IMAGE_TAG_FILE=" + root}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := exec.CommandContext(t.Context(), commandPath, test.operation)
+			command.Env = test.environment
+			output, err := command.CombinedOutput()
+			if err == nil {
+				t.Fatal("expected file failure")
+			}
+			message := string(output)
+			if strings.Count(message, "ERROR ") != 1 || !strings.Contains(message, "ci-image.failed") || !strings.Contains(message, test.context) || !strings.Contains(message, test.path) {
+				t.Fatalf("unexpected error output: %s", message)
+			}
+		})
+	}
+}

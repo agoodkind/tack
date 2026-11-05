@@ -50,8 +50,7 @@ func writeDigest() error {
 		return err
 	}
 	if err := os.MkdirAll(directory, 0o777); err != nil {
-		slog.Error("digest.directory_failed", slog.String("path", directory), slog.Any("error", err))
-		return fmt.Errorf("create digest directory %s: %w", directory, err)
+		return &os.PathError{Op: "create digest directory", Path: directory, Err: err}
 	}
 	if err := writeFile(directory+string(os.PathSeparator)+architecture+".digest", value+"\n"); err != nil {
 		return err
@@ -109,19 +108,17 @@ func writeTags() error {
 func writeFile(path, content string) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
-		slog.Error("image_file.open_failed", slog.String("path", path), slog.Any("error", err))
-		return fmt.Errorf("open image file %s: %w", path, err)
+		return &os.PathError{Op: "open image file", Path: path, Err: err}
 	}
 	if _, err := file.WriteString(content); err != nil {
+		writeErr := &os.PathError{Op: "write image file", Path: path, Err: err}
 		if closeErr := file.Close(); closeErr != nil {
 			slog.Error("image_file.close_failed", slog.String("path", path), slog.Any("error", closeErr))
 		}
-		slog.Error("image_file.write_failed", slog.String("path", path), slog.Any("error", err))
-		return fmt.Errorf("write image file %s: %w", path, err)
+		return writeErr
 	}
 	if err := file.Close(); err != nil {
-		slog.Error("image_file.close_failed", slog.String("path", path), slog.Any("error", err))
-		return fmt.Errorf("close image file %s: %w", path, err)
+		return &os.PathError{Op: "close image file", Path: path, Err: err}
 	}
 	return nil
 }
