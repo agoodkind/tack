@@ -61,7 +61,7 @@ func RunAuditedRead(
 	if err == nil {
 		return payload, nil
 	}
-	if !errors.Is(err, audit.ErrReadNotAdmitted) {
+	if !errors.Is(err, audit.ErrReadNotAdmitted) || !spec.CreatesAuditInfrastructure {
 		return nil, loggedAuditError(ctx, "record read access", err)
 	}
 	return readBeforeReadLifecycle(runContext, f, spec, principal, operationID, read, err)
