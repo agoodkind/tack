@@ -5,7 +5,15 @@ package pgoverlay_test
 import "testing"
 
 func TestYugabyteExternalReadFailureAfterCommit(t *testing.T) {
-	s := externalScenario(t)
+	verifyReadFailureAfterCommit(t, externalScenario(t))
+}
+
+func TestPostgreSQLAdvisoryReadFailureAfterCommit(t *testing.T) {
+	verifyReadFailureAfterCommit(t, postgresqlScenario(t))
+}
+
+func verifyReadFailureAfterCommit(t *testing.T, s *scenario) {
+	t.Helper()
 	s.requireApplied(t, "1", infinity)
 	oid := s.target.roleOID(t, s.role)
 	renamed := randomText(t, "renamed_")
