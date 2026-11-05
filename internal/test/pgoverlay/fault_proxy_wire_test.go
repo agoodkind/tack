@@ -62,8 +62,10 @@ func (proxy *faultProxy) forwardServer(backend, client net.Conn, session *faultS
 		session.mutex.Unlock()
 		if fire {
 			proxy.mutex.Lock()
-			proxy.blocked = true
-			proxy.fired = true
+			if !proxy.fired {
+				proxy.blocked = true
+				proxy.fired = true
+			}
 			proxy.mutex.Unlock()
 		}
 		if _, err := client.Write(message); err != nil {
