@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/api/types/volume"
 	"github.com/moby/moby/client"
 )
@@ -14,6 +15,9 @@ import (
 func (execution *macRunnerExecution) attributeDiskVolumes(creates []macRunnerObservedCreate) {
 	for _, observed := range creates {
 		if observed.Volume == nil {
+			if observed.Event.Type == events.VolumeEventType && observed.Error != "" {
+				execution.preserveFailedDiskCreate(observed)
+			}
 			continue
 		}
 		volume := *observed.Volume
@@ -40,6 +44,24 @@ func (execution *macRunnerExecution) attributeDiskVolumes(creates []macRunnerObs
 	}
 }
 
+func (execution *macRunnerExecution) preserveFailedDiskCreate(observed macRunnerObservedCreate) {
+	name := observed.Event.Actor.ID
+	if execution.baseline.Volumes[name] || execution.cacheVolumes[name] || execution.fixtures.Volumes[name] {
+		return
+	}
+	for _, helper := range execution.fixtures.Containers {
+		if !strings.HasPrefix(helper.Name, dataDiskPrefix) || (name != helper.Name+"-image" && name != helper.Name+"-data") {
+			continue
+		}
+		for _, point := range helper.Volumes {
+			if point.Name == helper.Name+"-image" && point.Target == dataDiskMount {
+				execution.fixtures.Volumes[name] = false
+				execution.preserveFixture("volume", name, "disk create inspection failed: "+observed.Error, true)
+			}
+		}
+	}
+}
+
 func macRunnerDiskVolume(helper macRunnerFixture, diskVolume volume.Volume) bool {
 	if !strings.HasPrefix(helper.Name, dataDiskPrefix) || diskVolume.Driver != "local" {
 		return false
@@ -58,14 +80,25 @@ func macRunnerDiskVolume(helper macRunnerFixture, diskVolume volume.Volume) bool
 
 func (execution *macRunnerExecution) diskHelper(fixture macRunnerFixture) bool {
 	_, proven := execution.fixtures.NamedVolumes[fixture.Name+"-image"]
-	return proven && execution.fixtures.Volumes[fixture.Name+"-image"]
+	if proven && execution.fixtures.Volumes[fixture.Name+"-image"] {
+		return true
+	}
+	for _, point := range fixture.Volumes {
+		if strings.HasPrefix(fixture.Name, dataDiskPrefix) && point.Name == fixture.Name+"-image" && point.Target == dataDiskMount {
+			_, candidate := execution.fixtures.Volumes[point.Name]
+			return candidate
+		}
+	}
+	return false
 }
 
 func (execution *macRunnerExecution) cleanupDiskHelper(ctx context.Context, id string) error {
 	helper := execution.fixtures.Containers[id]
 	imageName, dataName := helper.Name+"-image", helper.Name+"-data"
-	if proven, candidate := execution.fixtures.Volumes[dataName]; candidate && !proven {
-		return fmt.Errorf("preserve disk helper %s with unproven data volume %s", id, dataName)
+	for _, name := range []string{imageName, dataName} {
+		if proven, candidate := execution.fixtures.Volumes[name]; candidate && !proven {
+			return fmt.Errorf("preserve disk helper %s with unproven volume %s", id, name)
+		}
 	}
 	for _, name := range []string{imageName, dataName} {
 		if _, proven := execution.fixtures.NamedVolumes[name]; !proven {
