@@ -68,6 +68,7 @@ func seedRolesInput(t *testing.T, _ *coverageEnv) commandInput {
 		args: []string{"ops", "audit", "seed-roles"}, outbox: pool,
 		configure: func(cfg *config.Config) {
 			cfg.DatabaseURL = node.DSN
+			cfg.AuditOperatorDSN = node.DSN
 			for _, password := range []*string{
 				&cfg.AuditWriterPassword, &cfg.AuditReaderPassword, &cfg.AuditRedactorPassword,
 				&cfg.AuditOperatorPassword, &cfg.AppPassword, &cfg.MigratorPassword,

@@ -84,7 +84,12 @@ func (env *coverageEnv) runCommand(t *testing.T, input commandInput, mode ...str
 	}
 	outbox := env.admin
 	if input.outbox != nil {
-		outbox = input.outbox
+		var err error
+		outbox, err = pgxpool.NewWithConfig(t.Context(), input.outbox.Config())
+		if err != nil {
+			t.Fatalf("opening the command outbox pool failed: %v", err)
+		}
+		t.Cleanup(outbox.Close)
 	}
 	args := input.args
 	operatorID := uuid.Must(uuid.NewV7())
@@ -93,6 +98,9 @@ func (env *coverageEnv) runCommand(t *testing.T, input commandInput, mode ...str
 	factory.Out, factory.Err = &output, &output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(outbox))
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(outbox))
+	if input.outbox != nil {
+		defer factory.CloseAuditOutbox()
+	}
 	registry := clispec.NewRegistry()
 	ops.RegisterCommands(registry, factory)
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}

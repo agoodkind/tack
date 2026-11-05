@@ -65,7 +65,10 @@ func run() int {
 		slog.String("commit", version.Commit()),
 	)
 
-	configureAuditOutbox(f)
+	target, _, findErr := root.Find(os.Args[1:])
+	if findErr != nil || target.CommandPath() != "tack ops audit seed-roles" {
+		configureAuditOutbox(f)
+	}
 	configureAuditInfrastructureProbe(f)
 	defer f.CloseAuditOutbox()
 	ctx, span := telemetry.StartSpan(context.Background(), "cli")
