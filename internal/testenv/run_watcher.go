@@ -71,7 +71,7 @@ func watchRun(run string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), engineReleaseTimeout)
 	defer cancel()
-	if err := removeRun(ctx, processOwner{run: run, host: "", runner: "", operator: false}); err != nil {
+	if err := removeRun(ctx, processOwner{run: run, host: "", runner: "", native: false, operator: false}); err != nil {
 		slog.ErrorContext(ctx, "testenv.watcher.release_failed", slog.String("err", err.Error()))
 		return 1
 	}

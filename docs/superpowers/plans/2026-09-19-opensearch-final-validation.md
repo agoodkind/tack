@@ -223,18 +223,16 @@ make test-search-group GROUP=G3
 make test-search-group GROUP=G5A
 make test-search-group GROUP=G5B
 make test-search-group GROUP=G5C
-uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
-    --root "$PWD" --image "sha256:<local-runner-image-id>" \
-    --run '^TestSearchActualOSProcessThroughput$' --count 1 --timeout 30m \
-    --evidence-dir "/private/tmp/tack-search-g2-$(date +%Y%m%d-%H%M%S)"
-TACK_SEARCH_CLUSTER=1 uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
-    --root "$PWD" --image "sha256:<local-runner-image-id>" \
-    --run '^TestSearchCluster(ProxyEndpoint|EngineOutage|ScaleOut|DiskFloodStage|ProxyServerError|SharedDiskFloor)$' --count 1 --timeout 25m \
-    --evidence-dir "/private/tmp/tack-search-g4-$(date +%Y%m%d-%H%M%S)"
-TACK_SEARCH_CLUSTER=1 uv run --with pydantic --python 3.14 python scripts/test-search-mac.py \
-    --root "$PWD" --image "sha256:<local-runner-image-id>" \
-    --run '^TestSearchClusterModelRepair' --count 1 --timeout 5m \
-    --evidence-dir "/private/tmp/tack-search-g6-$(date +%Y%m%d-%H%M%S)"
+make build BINARY=testenv CMD=./cmd/testenv
+make test-search-group TEST_SEARCH_RUNNER=mac GROUP=G2 \
+    MAC_RUNNER_IMAGE="sha256:<local-runner-image-id>" \
+    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-g2-$(date +%Y%m%d-%H%M%S)"
+TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=G4 \
+    MAC_RUNNER_IMAGE="sha256:<local-runner-image-id>" \
+    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-g4-$(date +%Y%m%d-%H%M%S)"
+TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=G6 \
+    MAC_RUNNER_IMAGE="sha256:<local-runner-image-id>" \
+    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-g6-$(date +%Y%m%d-%H%M%S)"
 make build
 ```
 

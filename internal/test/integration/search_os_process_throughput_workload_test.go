@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -410,52 +409,6 @@ func throughputWorkAge(t *testing.T, cluster string) (int, time.Duration) {
 		oldest = max(oldest, clock.Now().Sub(time.Unix(0, enqueued)))
 	}
 	return len(rows), oldest
-}
-
-func requireThroughputWorkerEvidence(t *testing.T, corpus processThroughputCorpus, servers []*actualSearchServer, offsets []int64) {
-	t.Helper()
-	nodes := make(map[string]bool, len(corpus.workerIDs))
-	for _, id := range corpus.workerIDs {
-		nodes[id.String()] = true
-	}
-	for ordinal, server := range servers {
-		file, err := os.Open(server.logPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := file.Seek(offsets[ordinal], 0); err != nil {
-			file.Close()
-			t.Fatal(err)
-		}
-		scanner := bufio.NewScanner(file)
-		scanner.Buffer(make([]byte, 4096), 1048576)
-		claims := 0
-		for scanner.Scan() {
-			var event struct {
-				Message string `json:"msg"`
-				Class   string `json:"class"`
-				NodeID  string `json:"node_id"`
-				Pages   int    `json:"pages"`
-				Level   string `json:"level"`
-			}
-			if json.Unmarshal(scanner.Bytes(), &event) != nil {
-				continue
-			}
-			if event.Level == "ERROR" && (nodes[event.NodeID] || strings.HasPrefix(event.Message, "search.")) {
-				file.Close()
-				t.Fatalf("production worker pid=%d logged an error for a measured node", server.command.Process.Pid)
-			}
-			if event.Message == "search.worker.slice_completed" && event.Class == "live" && nodes[event.NodeID] && event.Pages > 0 {
-				claims++
-			}
-		}
-		scanError := scanner.Err()
-		closeError := file.Close()
-		if scanError != nil || closeError != nil || claims == 0 {
-			t.Fatalf("production worker pid=%d has no verified measured live slice: scan=%v close=%v", server.command.Process.Pid, scanError, closeError)
-		}
-		t.Logf("throughput production worker pid=%d measured_live_slices=%d", server.command.Process.Pid, claims)
-	}
 }
 
 func recordThroughputResources(t *testing.T, corpus processThroughputCorpus) {

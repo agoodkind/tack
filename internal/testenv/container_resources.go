@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/client"
 	"goodkind.io/tack/internal/clock"
 )
@@ -175,26 +173,4 @@ func requireEvidenceContainer(ctx context.Context, cli *client.Client, name stri
 	err = fmt.Errorf("container %s is neither an engine of this test process nor its runner", name)
 	slog.ErrorContext(ctx, "testenv.resources.unowned", slog.String("err", err.Error()))
 	return err
-}
-
-// selfContainer returns the ID of the container this process runs in, or an
-// empty string on the host. Docker sets a container's hostname to its ID.
-func selfContainer(ctx context.Context, cli *client.Client) (string, error) {
-	hostname, err := os.Hostname()
-	if err != nil {
-		slog.ErrorContext(ctx, "testenv.hostname_failed", slog.String("err", err.Error()))
-		return "", fmt.Errorf("read this host's name: %w", err)
-	}
-	self, err := cli.ContainerInspect(ctx, hostname, client.ContainerInspectOptions{Size: false})
-	if cerrdefs.IsNotFound(err) {
-		return "", nil
-	}
-	if err != nil {
-		slog.ErrorContext(ctx, "testenv.self.inspect_failed", slog.String("err", err.Error()))
-		return "", fmt.Errorf("inspect container %s: %w", hostname, err)
-	}
-	if self.Container.Config == nil || self.Container.Config.Hostname != hostname {
-		return "", nil
-	}
-	return self.Container.ID, nil
 }
