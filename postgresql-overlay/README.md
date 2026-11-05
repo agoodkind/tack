@@ -17,6 +17,6 @@ provider "postgresql" {
 
 A `postgresql_role` update on YugabyteDB fails because the provider takes an advisory lock before the update and YugabyteDB does not accept the lock. Role creation works with the `expected_version` setting. The patch does not remove or replace the lock.
 
-A failed update leaves the prior password version in state. The next plan requests the update again, and the update keeps failing until the provider uses a locking method that YugabyteDB supports and that still serializes concurrent updates of the same role.
+A failed update leaves the prior password version in state, and the next plan requests the update again.
 
 `make test-postgresql-overlay` covers this behavior in `TestYugabyteAdvisoryLockFailure`.

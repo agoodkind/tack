@@ -21,14 +21,8 @@ var isolation struct {
 }
 
 const (
-	// composeProjectLabel, composeServiceLabel, and composeOneOffLabel are the
-	// labels that Compose assigns to a project's containers. An isolated run
-	// gives its engines these labels. Compose down does not remove the engines,
-	// because Compose finds a project's containers by the config-hash label that
-	// the SDK does not set. `make test-postgresql-overlay` selects the engines
-	// by the project and service labels and removes them before the final
-	// Compose down, even when the process that started them cannot run
-	// [Release].
+	// Compose down cannot select SDK-created engines without a config-hash
+	// label. The test cleanup removes them by project and service labels.
 	composeProjectLabel = "com.docker.compose.project"
 	composeServiceLabel = "com.docker.compose.service"
 	composeOneOffLabel  = "com.docker.compose.oneoff"

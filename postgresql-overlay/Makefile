@@ -21,8 +21,7 @@ GO_MK_WORKSPACE_USE := . ./$(PG_PROVIDER_SOURCE)
 
 include bootstrap.mk
 
-# This target is phony. Every build deletes src and recreates it from the
-# pinned revision. A warm checkout never keeps an edited or stale src.
+# Regenerate src on every build to discard stale source edits.
 .PHONY: postgresql-source
 postgresql-source:
 	rm -rf $(PG_PROVIDER_SOURCE)
