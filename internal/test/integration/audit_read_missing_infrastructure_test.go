@@ -61,6 +61,10 @@ func TestAuditReadRefusesMissingInfrastructure(t *testing.T) {
 	if !errors.Is(err, audit.ErrReadNotAdmitted) || output != "" {
 		t.Fatalf("deploy verification output = %q, error = %v; want admission refusal", output, err)
 	}
+	output, err = run("--execute", "ops", "audit", "manifest-parts", "--org", uuid.Must(uuid.NewV7()).String(), "--event-id", uuid.Must(uuid.NewV7()).String(), "--verify-payloads")
+	if !errors.Is(err, audit.ErrReadNotAdmitted) || output != "" {
+		t.Fatalf("manifest verification output = %q, error = %v; want admission refusal", output, err)
+	}
 	output, err = run("ops", "ledger", "audit-bootstrap")
 	if err != nil || !strings.Contains(output, "audit") {
 		t.Fatalf("bootstrap preview output = %q, error = %v", output, err)

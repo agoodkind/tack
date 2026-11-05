@@ -27,8 +27,9 @@ const (
 // auditManifestPartsInput stores the flag values that the audit event records as safe input.
 type auditManifestPartsInput struct {
 	clispec.InputMarker
-	Org     string `json:"org"`
-	EventID string `json:"event_id"`
+	Org            string `json:"org"`
+	EventID        string `json:"event_id"`
+	VerifyPayloads bool   `json:"verify_payloads,omitempty"`
 }
 
 // auditManifestPartsResult represents the command's JSON result.
@@ -59,6 +60,18 @@ func (r auditManifestPartsResult) AuditReadTargets() ([]audit.Target, error) {
 	return targets, nil
 }
 
+type auditManifestVerificationResult struct {
+	clispec.ResultMarker
+	Command      string                     `json:"command"`
+	OrgID        uuid.UUID                  `json:"org_id"`
+	EventID      uuid.UUID                  `json:"event_id"`
+	Verification audit.ManifestVerification `json:"verification"`
+}
+
+func (r auditManifestVerificationResult) AuditReadTargets() ([]audit.Target, error) {
+	return []audit.Target{auditResourceTarget(auditEventURI(r.EventID))}, nil
+}
+
 // auditEventURI returns the resource URI for an audited event.
 func auditEventURI(eventID uuid.UUID) string {
 	return auditEventURIPrefix + eventID.String()
@@ -82,15 +95,16 @@ func auditManifestPartsOp(f *cli.Factory) clispec.Operation[auditManifestPartsIn
 		Aliases:  nil,
 		Hidden:   false,
 		Short:    "Print audit event part indexes and digests.",
-		Long:     "Read part indexes and digests without printing payloads. A part count of 0 applies only to the org in --org and exits successfully. Run the command through the audit-ops service.",
+		Long:     "Read part indexes and digests without printing payloads. A part count of 0 applies only to the org in --org and exits successfully. With --verify-payloads, check each payload and the declared manifest root and count. This check does not verify a signature. Run the command through the audit-ops service.",
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[auditManifestPartsInput]{
 			clispec.StringParam("org", "UUID of the org that owns the audit event.", "", true, func(in *auditManifestPartsInput, v string) { in.Org = v }),
 			clispec.StringParam("event-id", "UUID of the audit event.", "", true, func(in *auditManifestPartsInput, v string) { in.EventID = v }),
+			clispec.BoolParam("verify-payloads", "Verify stored manifest payloads against the event declaration.", false, func(in *auditManifestPartsInput, v bool) { in.VerifyPayloads = v }),
 		},
 		New: func() auditManifestPartsInput {
-			return auditManifestPartsInput{InputMarker: clispec.InputMarker{}, Org: "", EventID: ""}
+			return auditManifestPartsInput{InputMarker: clispec.InputMarker{}, Org: "", EventID: "", VerifyPayloads: false}
 		},
 		Run: func(ctx context.Context, in auditManifestPartsInput, sink clispec.ResultSink) error {
 			return runAuditManifestParts(ctx, f, in, sink)
@@ -115,6 +129,20 @@ func runAuditManifestParts(ctx context.Context, f *cli.Factory, in auditManifest
 		return fmt.Errorf("%s: open the ledger reader: check AUDIT_READER_DSN", auditManifestPartsCommand)
 	}
 	defer reader.Close()
+	if in.VerifyPayloads {
+		verification, err := reader.VerifyManifest(ctx, orgID, eventID)
+		if err != nil {
+			return fmt.Errorf("%s: verify event %s: %w", auditManifestPartsCommand, eventID, err)
+		}
+		result := auditManifestVerificationResult{
+			ResultMarker: clispec.ResultMarker{}, Command: "ops.audit.manifest_parts", OrgID: orgID, EventID: eventID,
+			Verification: verification,
+		}
+		if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
+			return fmt.Errorf("%s: write the verification: %w", auditManifestPartsCommand, err)
+		}
+		return nil
+	}
 	parts, err := reader.ManifestPartDigests(ctx, orgID, eventID)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.manifest_parts_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))

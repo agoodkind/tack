@@ -62,6 +62,7 @@ type manifestReadRun struct {
 	forbidden       []string
 	payloadSHA256   string
 	partURIs        []string
+	verifyPayloads  bool `exhaustruct:"optional"`
 }
 
 // manifestRunOptions contains the reader DSN, lifecycle pool, and operator for one command run.

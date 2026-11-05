@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/auditrelay"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/testenv"
@@ -34,7 +35,8 @@ var recordedLedgerVerbs = []audit.Verb{
 
 type datagenSeedLedgerVerbsOutput struct {
 	Result struct {
-		LedgerVerbs struct {
+		ManifestVerification *audit.ManifestVerification `json:"manifest_verification"`
+		LedgerVerbs          struct {
 			Verbs []struct {
 				Verb          string `json:"verb"`
 				Rows          int64  `json:"rows"`
@@ -79,6 +81,19 @@ func TestDatagenSeedReportsHostOnlyLedgerVerbs(t *testing.T) {
 	}
 	consumer.Start(ctx)
 	t.Cleanup(func() { _ = consumer.Close() })
+	relay, err := auditrelay.Open(ctx, auditrelay.Config{
+		Brokers: []string{brokers}, Topic: cfg.AuditKafkaTopic, YugabyteDSN: adminDSN,
+		FDBClusterFile: cfg.FDBClusterFile, FDBTransactionTimeout: 10 * time.Second,
+		PollInterval: 100 * time.Millisecond, BatchSize: 64,
+	})
+	if err != nil {
+		t.Fatalf("open the audit relay: %v", err)
+	}
+	relay.Relay.Start(ctx)
+	t.Cleanup(func() {
+		_ = relay.Relay.Close()
+		relay.Pool.Close()
+	})
 	for verb, rows := range ledgerVerbRows(t, runDatagenSeedCommit(t, cfg, admin)) {
 		if rows != 0 {
 			t.Fatalf("verb %s rows = %d before any row was recorded, want 0", verb, rows)
@@ -99,6 +114,9 @@ func TestDatagenSeedReportsHostOnlyLedgerVerbs(t *testing.T) {
 func ledgerVerbRows(t *testing.T, output datagenSeedLedgerVerbsOutput) map[string]int64 {
 	t.Helper()
 	rows := map[string]int64{}
+	if output.Result.ManifestVerification == nil || !output.Result.ManifestVerification.PayloadVerified {
+		t.Fatalf("manifest verification = %+v, want verified payloads", output.Result.ManifestVerification)
+	}
 	for _, verb := range output.Result.LedgerVerbs.Verbs {
 		rows[verb.Verb] = verb.Rows
 		if verb.Rows > 0 && verb.LatestEventAt == "" {
@@ -122,6 +140,7 @@ func runDatagenSeedCommit(t *testing.T, cfg *config.Config, pool *pgxpool.Pool) 
 	factory := cli.System(cfg)
 	factory.Out = output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	t.Cleanup(factory.CloseAuditOutbox)
 	root := searchCommandRoot(factory)
 	root.SetContext(t.Context())
