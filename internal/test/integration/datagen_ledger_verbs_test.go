@@ -35,8 +35,13 @@ var recordedLedgerVerbs = []audit.Verb{
 
 type datagenSeedLedgerVerbsOutput struct {
 	Result struct {
-		ManifestVerification *audit.ManifestVerification `json:"manifest_verification"`
-		LedgerVerbs          struct {
+		ManifestVerification *struct {
+			audit.ManifestVerification
+			OrgID     uuid.UUID `json:"org_id"`
+			EventID   uuid.UUID `json:"event_id"`
+			RequestID string    `json:"request_id"`
+		} `json:"manifest_verification"`
+		LedgerVerbs struct {
 			Verbs []struct {
 				Verb          string `json:"verb"`
 				Rows          int64  `json:"rows"`
@@ -94,17 +99,22 @@ func TestDatagenSeedReportsHostOnlyLedgerVerbs(t *testing.T) {
 		_ = relay.Relay.Close()
 		relay.Pool.Close()
 	})
-	for verb, rows := range ledgerVerbRows(t, runDatagenSeedCommit(t, cfg, admin)) {
+	first := runDatagenSeedCommit(t, cfg, admin)
+	for verb, rows := range ledgerVerbRows(t, first) {
 		if rows != 0 {
 			t.Fatalf("verb %s rows = %d before any row was recorded, want 0", verb, rows)
 		}
 	}
 	recordLedgerVerbEvents(t, cfg)
 	waitForLedgerVerbRows(t, cfg)
-	for verb, rows := range ledgerVerbRows(t, runDatagenSeedCommit(t, cfg, admin)) {
+	second := runDatagenSeedCommit(t, cfg, admin)
+	for verb, rows := range ledgerVerbRows(t, second) {
 		if rows < 1 {
 			t.Fatalf("verb %s rows = %d after one row was recorded, want at least 1", verb, rows)
 		}
+	}
+	if first.Result.ManifestVerification.RequestID == second.Result.ManifestVerification.RequestID || first.Result.ManifestVerification.EventID == second.Result.ManifestVerification.EventID {
+		t.Fatal("repeated seeds selected the same read event")
 	}
 }
 
@@ -155,6 +165,19 @@ func runDatagenSeedCommit(t *testing.T, cfg *config.Config, pool *pgxpool.Pool) 
 	var decoded datagenSeedLedgerVerbsOutput
 	if err := json.Unmarshal(output.Bytes(), &decoded); err != nil {
 		t.Fatalf("decode the seed output %q: %v", output.String(), err)
+	}
+	verification := decoded.Result.ManifestVerification
+	if verification == nil || verification.RequestID == "" {
+		t.Fatalf("seed verification = %+v", verification)
+	}
+	reader, err := audit.NewReader(t.Context(), cfg.AuditReaderDSN)
+	if err != nil {
+		t.Fatalf("open audit reader: %v", err)
+	}
+	defer reader.Close()
+	row, err := reader.GetByID(t.Context(), verification.EventID)
+	if err != nil || row.OrgID != verification.OrgID || row.Context.RequestID != verification.RequestID || row.Context.Tool != "tack_describe_workspace" {
+		t.Fatalf("selected seed read does not match its request: row %+v, error %v", row, err)
 	}
 	return decoded
 }

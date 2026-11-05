@@ -71,6 +71,8 @@ func TestAuditManifestPayloadVerification(t *testing.T) {
 		{name: "wrong count", fixture: "manifest_test_wrong_count.sql", message: "declared read identities"},
 		{name: "wrong root", fixture: "manifest_test_wrong_root.sql", message: "manifest digest"},
 		{name: "malformed evidence", fixture: "manifest_test_malformed_evidence.sql", message: "valid read evidence"},
+		{name: "incomplete evidence", fixture: "manifest_test_invalid_read_evidence.sql", message: "invalid read evidence"},
+		{name: "invalid response fingerprint", fixture: "manifest_test_invalid_payload_digest.sql", message: "invalid read evidence"},
 		{name: "oversized payload", fixture: "manifest_test_oversized_part.sql", message: "exceeds the size limit"},
 	}
 	admin := ledgerAdminPool(t)
@@ -103,6 +105,8 @@ func TestAuditManifestPayloadVerification(t *testing.T) {
 		outcome: audit.OutcomeFailed, errorCode: "read_failed", messageContains: "not found",
 		forbidden: nil, payloadSHA256: "", partURIs: nil, verifyPayloads: true,
 	})
+	failedRuns = append(failedRuns, requireInvalidManifestIdentities(t, ledger, admin, operator)...)
+	failedRuns = append(failedRuns, requireHistoricalManifestAbsence(t, ledger, operator))
 	requireStoredAuditReads(t, ledger, operator.operatorID, append([]manifestReadRun{{
 		orgInput: orgID.String(), eventInput: eventID.String(), targetURI: "tack:audit-event/" + eventID.String(),
 		outcome: audit.OutcomeCompleted, errorCode: "", messageContains: "", forbidden: nil,

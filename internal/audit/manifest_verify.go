@@ -53,13 +53,19 @@ func (r *Reader) VerifyManifest(ctx context.Context, orgID, eventID uuid.UUID) (
 	if len(raw) > EventPartMaxBytes {
 		return result, fmt.Errorf("event %s declares oversized read evidence", eventID)
 	}
+	if raw == nil {
+		return result, fmt.Errorf("event %s did not record read evidence; manifest verification is unavailable", eventID)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&read); err != nil || read == nil || !decoderAtEnd(decoder) {
 		return result, fmt.Errorf("event %s does not declare valid read evidence", eventID)
 	}
-	if !isSHA256Hex(read.ManifestSHA256) {
-		return result, fmt.Errorf("event %s does not declare a valid manifest digest", eventID)
+	if read.Count == 0 && read.ManifestParts == 0 && read.ManifestSHA256 == "" {
+		return result, fmt.Errorf("event %s did not record a manifest declaration; manifest verification is unavailable", eventID)
+	}
+	if validateReadEvidence(*read) != nil {
+		return result, fmt.Errorf("event %s declares invalid read evidence", eventID)
 	}
 	rows, err = r.pool.Rows(r.pool.unsanitized.Query(ctx, readStatement("manifest_payloads"), orgID, eventID, EventPartMaxBytes+1))
 	if err != nil {
@@ -72,7 +78,7 @@ func (r *Reader) VerifyManifest(ctx context.Context, orgID, eventID uuid.UUID) (
 		if err := rows.Scan(&part.Index, &part.Digest, &part.Payload); err != nil {
 			return result, fmt.Errorf("cannot decode a manifest part for event %s", eventID)
 		}
-		if violation := validator.add(part); violation != "" {
+		if violation := validator.add(part, true); violation != "" {
 			return result, fmt.Errorf("event %s %s", eventID, violation)
 		}
 	}

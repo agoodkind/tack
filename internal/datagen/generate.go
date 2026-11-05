@@ -7,28 +7,32 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Summary reports the completed generator work.
 type Summary struct {
-	Scale      string
-	Seed       int64
-	DryRun     bool
-	ToolCalls  int64
-	Created    int
-	Reused     int
-	Workspaces int
-	Projects   int
-	Issues     int
+	Scale             string
+	Seed              int64
+	DryRun            bool
+	ToolCalls         int64
+	Created           int
+	Reused            int
+	Workspaces        int
+	Projects          int
+	Issues            int
+	ManifestRequestID string    `exhaustruct:"optional"`
+	ManifestOrgID     uuid.UUID `exhaustruct:"optional"`
 }
 
 // Generator builds the QA corpus through one Driver.
 type Generator struct {
-	driver           *Driver
-	content          *Content
-	identities       Identities
-	scale            Scale
-	seed             int64
+	driver         *Driver
+	content        *Content
+	identities     Identities
+	scale          Scale
+	seed           int64
 	dryRun         bool
 	productionAuth bool
 	redactAuditPII bool

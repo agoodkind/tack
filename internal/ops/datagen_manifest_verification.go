@@ -15,7 +15,6 @@ import (
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/clock"
-	"goodkind.io/tack/internal/datagen"
 )
 
 const (
@@ -23,11 +22,17 @@ const (
 	datagenManifestPoll = time.Second
 )
 
-// verifyDatagenManifest runs the registered command against a generated read.
-func verifyDatagenManifest(ctx context.Context, factory *cli.Factory, scaleName string, seed int64, started time.Time) (*audit.ManifestVerification, error) {
-	scale, err := datagen.ParseScale(scaleName)
-	if err != nil {
-		return nil, err
+type datagenManifestVerificationReport struct {
+	audit.ManifestVerification
+	OrgID     uuid.UUID `json:"org_id"`
+	EventID   uuid.UUID `json:"event_id"`
+	RequestID string    `json:"request_id"`
+}
+
+// verifyDatagenManifest runs the registered command against the selected generated read.
+func verifyDatagenManifest(ctx context.Context, factory *cli.Factory, orgID uuid.UUID, requestID string, started time.Time) (*datagenManifestVerificationReport, error) {
+	if orgID == uuid.Nil || requestID == "" {
+		return nil, fmt.Errorf("the QA seed did not provide a read request identity")
 	}
 	reader, err := audit.NewReader(ctx, factory.Cfg.AuditReaderDSN)
 	if err != nil {
@@ -40,19 +45,16 @@ func verifyDatagenManifest(ctx context.Context, factory *cli.Factory, scaleName 
 	ticker := time.NewTicker(datagenManifestPoll)
 	defer ticker.Stop()
 	for {
-		for _, workspace := range datagen.PlanIdentities(factory.Cfg, seed, scale).Workspaces {
-			page, err := reader.QueryPage(ctx, audit.QueryFilter{
-				OrgID: workspace.OrgID, Oldest: started, Latest: clock.Now().Add(time.Minute),
-				Action: "", ActorID: uuid.Nil, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: datagenCommitOrderRows,
-			}, "")
+		eventID, err := reader.ReadEventByRequest(ctx, orgID, requestID, started, clock.Now().Add(time.Minute))
+		if err != nil {
+			return nil, fmt.Errorf("find a QA read manifest: %w", err)
+		}
+		if eventID != uuid.Nil {
+			verification, err := runDatagenManifestCommand(ctx, factory, orgID, eventID)
 			if err != nil {
-				return nil, fmt.Errorf("find a QA read manifest: %w", err)
+				return nil, err
 			}
-			for _, row := range page.Rows {
-				if row.Context.Read != nil && row.Context.Read.Count > 0 && row.Context.Read.ManifestParts > 0 {
-					return runDatagenManifestCommand(ctx, factory, workspace.OrgID, row.EventID)
-				}
-			}
+			return &datagenManifestVerificationReport{ManifestVerification: *verification, OrgID: orgID, EventID: eventID, RequestID: requestID}, nil
 		}
 		select {
 		case <-ctx.Done():
