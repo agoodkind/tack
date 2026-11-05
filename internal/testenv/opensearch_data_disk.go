@@ -53,7 +53,11 @@ func createOpenSearchDataDisk(ctx context.Context, cli *client.Client, sizeBytes
 	if err != nil {
 		return disk, err
 	}
-	labels := map[string]string{managedLabel: "true"}
+	process, err := prepareCreate(ctx, cli)
+	if err != nil {
+		return disk, err
+	}
+	labels := ownerLabels(process)
 	if _, err := cli.VolumeCreate(ctx, client.VolumeCreateOptions{Name: base + "-image", Labels: labels}); err != nil {
 		return disk, dataDiskFailure(ctx, "create the image volume "+base+"-image", err)
 	}

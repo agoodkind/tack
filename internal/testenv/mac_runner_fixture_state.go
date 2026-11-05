@@ -6,6 +6,7 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/api/types/volume"
 )
 
 type macRunnerFixture struct {
@@ -43,6 +44,7 @@ type macRunnerFixtureEvidence struct {
 	Containers   map[string]macRunnerFixture           `json:"containers"`
 	Networks     map[string]macRunnerFixture           `json:"networks"`
 	Volumes      map[string]bool                       `json:"volume_candidates"`
+	NamedVolumes map[string]volume.Volume              `json:"named_disk_volumes"`
 	Processes    map[string]macRunnerFixtureProcess    `json:"processes"`
 	Preserved    map[string]macRunnerPreservedResource `json:"preserved"`
 	OtherRunners map[string]string                     `json:"other_runners"`
@@ -52,6 +54,7 @@ type macRunnerObservedCreate struct {
 	Event     events.Message
 	Container *container.InspectResponse
 	Network   *network.Inspect
+	Volume    *volume.Volume
 	Error     string
 }
 
@@ -70,6 +73,7 @@ func newMacRunnerFixtures() macRunnerFixtureEvidence {
 	return macRunnerFixtureEvidence{
 		Containers: make(map[string]macRunnerFixture), Networks: make(map[string]macRunnerFixture),
 		Volumes: make(map[string]bool), Processes: make(map[string]macRunnerFixtureProcess),
+		NamedVolumes: make(map[string]volume.Volume),
 		Preserved:    make(map[string]macRunnerPreservedResource),
 		OtherRunners: make(map[string]string),
 	}

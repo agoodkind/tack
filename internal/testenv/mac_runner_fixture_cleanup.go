@@ -19,19 +19,27 @@ func (execution *macRunnerExecution) cleanupFixtures(ctx context.Context) error 
 		return errors.New("preserve inner fixtures until the outer runner has stopped")
 	}
 	var failures []error
-	for name, anonymous := range execution.fixtures.Volumes {
-		if anonymous {
+	for name, proven := range execution.fixtures.Volumes {
+		if proven {
 			failures = append(failures, execution.fixtureVolumeConsumers(ctx, name, false))
 		}
 	}
 	for id := range execution.fixtures.Containers {
+		if execution.diskHelper(execution.fixtures.Containers[id]) {
+			continue
+		}
 		failures = append(failures, execution.removeFixture(ctx, id))
+	}
+	for id, fixture := range execution.fixtures.Containers {
+		if execution.diskHelper(fixture) {
+			failures = append(failures, execution.cleanupDiskHelper(ctx, id))
+		}
 	}
 	for id := range execution.fixtures.Networks {
 		failures = append(failures, execution.removeFixtureNetwork(ctx, id))
 	}
-	for name, anonymous := range execution.fixtures.Volumes {
-		if !anonymous || execution.fixtures.Preserved["volume:"+name].Incomplete {
+	for name, proven := range execution.fixtures.Volumes {
+		if !proven || execution.fixtures.Preserved["volume:"+name].Incomplete {
 			continue
 		}
 		if err := execution.fixtureVolumeConsumers(ctx, name, true); err != nil {
@@ -82,6 +90,10 @@ func (execution *macRunnerExecution) removeFixture(ctx context.Context, id strin
 func (execution *macRunnerExecution) fixtureVolumeConsumers(ctx context.Context, name string, requireEmpty bool) error {
 	if execution.baseline.Volumes[name] || execution.cacheVolumes[name] || !execution.fixtures.Volumes[name] {
 		return fmt.Errorf("refuse baseline, cache or unproven inner volume %s", name)
+	}
+	if err := execution.verifyDiskVolume(ctx, name); err != nil {
+		execution.preserveFixture("volume", name, err.Error(), true)
+		return err
 	}
 	consumers, err := macObserve(ctx, func(observation context.Context) (client.ContainerListResult, error) {
 		return execution.defaultClient.ContainerList(observation, client.ContainerListOptions{All: true, Filters: client.Filters{}.Add("volume", name)})

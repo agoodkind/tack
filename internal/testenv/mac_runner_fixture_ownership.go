@@ -68,8 +68,8 @@ func (execution *macRunnerExecution) attributeContainer(inspection container.Ins
 		}
 		anonymous := macRunnerAnonymousMount(inspection, point)
 		fixture.Volumes = append(fixture.Volumes, macRunnerFixtureVolume{Name: point.Name, Target: point.Destination, Anonymous: anonymous})
-		execution.fixtures.Volumes[point.Name] = anonymous
-		if !anonymous {
+		execution.fixtures.Volumes[point.Name] = anonymous || execution.fixtures.Volumes[point.Name]
+		if !execution.fixtures.Volumes[point.Name] {
 			execution.preserveFixture("volume", point.Name, "fixture uses a new named or unidentified volume", true)
 		}
 	}

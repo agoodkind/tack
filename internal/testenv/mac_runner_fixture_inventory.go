@@ -37,6 +37,7 @@ func (execution *macRunnerExecution) attributeFixtures(ctx context.Context) erro
 		}
 	}
 	failures = append(failures, execution.inventoryFixtureContainers(ctx, containerCreates, logs))
+	execution.attributeDiskVolumes(creates)
 	for _, observed := range creates {
 		if observed.Network != nil {
 			execution.attributeNetwork(*observed.Network, true)

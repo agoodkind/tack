@@ -33,8 +33,8 @@ func (execution *macRunnerExecution) finalizeFixtureEvidence(ctx context.Context
 		fixture.Absent = true
 		execution.fixtures.Networks[id] = fixture
 	}
-	for name, anonymous := range execution.fixtures.Volumes {
-		if !anonymous {
+	for name, proven := range execution.fixtures.Volumes {
+		if !proven {
 			continue
 		}
 		_, err := macObserve(ctx, func(observation context.Context) (client.VolumeInspectResult, error) {

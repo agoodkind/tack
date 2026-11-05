@@ -9,6 +9,7 @@ import (
 )
 
 func TestMacOwnershipAll(t *testing.T)         { testenv.MacRunnerOwnershipFixture(t, "all") }
+func TestMacOwnershipDisk(t *testing.T)        { testenv.MacRunnerOwnershipFixture(t, "disk") }
 func TestMacOwnershipRelease(t *testing.T)     { testenv.MacRunnerOwnershipFixture(t, "release") }
 func TestMacOwnershipUnknown(t *testing.T)     { testenv.MacRunnerOwnershipFixture(t, "unknown") }
 func TestMacOwnershipShared(t *testing.T)      { testenv.MacRunnerOwnershipFixture(t, "shared") }

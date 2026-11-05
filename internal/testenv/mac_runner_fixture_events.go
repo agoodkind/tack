@@ -11,7 +11,7 @@ func (execution *macRunnerExecution) recordFixtureCreate(ctx context.Context, ev
 	if event.Action != events.ActionCreate {
 		return
 	}
-	observed := macRunnerObservedCreate{Event: event, Container: nil, Network: nil, Error: ""}
+	observed := macRunnerObservedCreate{Event: event, Container: nil, Network: nil, Volume: nil, Error: ""}
 	switch string(event.Type) {
 	case string(events.ContainerEventType):
 		inspection, err := execution.inspect(ctx, event.Actor.ID)
@@ -28,6 +28,15 @@ func (execution *macRunnerExecution) recordFixtureCreate(ctx context.Context, ev
 			observed.Error = err.Error()
 		} else {
 			observed.Network = &inspection.Network
+		}
+	case string(events.VolumeEventType):
+		inspection, err := macObserve(ctx, func(observation context.Context) (client.VolumeInspectResult, error) {
+			return execution.defaultClient.VolumeInspect(observation, event.Actor.ID, client.VolumeInspectOptions{})
+		})
+		if err != nil {
+			observed.Error = err.Error()
+		} else {
+			observed.Volume = &inspection.Volume
 		}
 	default:
 		return

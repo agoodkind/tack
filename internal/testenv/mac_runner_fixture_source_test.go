@@ -59,6 +59,7 @@ func macOwnershipFixture(t *testing.T, mode string) (testenv.MacTestOptions, *cl
 	}
 	for source, target := range map[string]string{
 		"testdata/macrunnerfixture/ownership.go":      "internal/testenv/mac_runner_ownership_fixture.go",
+		"testdata/macrunnerfixture/ownership_disk.go": "internal/testenv/mac_runner_disk_fixture.go",
 		"testdata/macrunnerfixture/ownership_test.go": "internal/test/integration/example_test.go",
 	} {
 		contents, err := os.ReadFile(source)

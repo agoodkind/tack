@@ -31,8 +31,9 @@ type macOwnershipSummary struct {
 		Networks map[string]struct {
 			Absent bool `json:"absent"`
 		} `json:"networks"`
-		Volumes   map[string]bool `json:"volume_candidates"`
-		Preserved map[string]struct {
+		Volumes      map[string]bool            `json:"volume_candidates"`
+		NamedVolumes map[string]json.RawMessage `json:"named_disk_volumes"`
+		Preserved    map[string]struct {
 			ID         string `json:"id"`
 			Kind       string `json:"kind"`
 			Incomplete bool   `json:"incomplete"`

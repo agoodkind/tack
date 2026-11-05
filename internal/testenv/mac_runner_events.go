@@ -27,7 +27,7 @@ func (execution *macRunnerExecution) observeEvents(ctx context.Context) error {
 	execution.eventCancel = cancel
 	timer := time.AfterFunc(macRunnerObservation, cancel)
 	stream := execution.defaultClient.Events(observation, client.EventsListOptions{
-		Since: execution.startedAt.Format(time.RFC3339Nano), Filters: client.Filters{}.Add("type", "container", "network"),
+		Since: execution.startedAt.Format(time.RFC3339Nano), Filters: client.Filters{}.Add("type", "container", "network", "volume"),
 	})
 	timer.Stop()
 	if err := observation.Err(); err != nil {
