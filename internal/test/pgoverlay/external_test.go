@@ -114,6 +114,10 @@ func TestYugabyteExternalImport(t *testing.T) {
 		t.Fatalf("import exited %d:\n%s", code, output)
 	}
 	s.requireStateOID(t, oid)
+	s.requireApplied(t, "1", infinity)
+	s.requireLogin(t, "1", true)
+	s.requireStateOID(t, oid)
+	s.requirePlan(t, "1", infinity, exitSuccess)
 	s.requireNoSecrets(t)
 }
 

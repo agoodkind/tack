@@ -10,17 +10,18 @@ import (
 )
 
 type faultProxy struct {
-	listener net.Listener
-	backend  string
-	role     string
-	mode     string
-	mutex    sync.Mutex
-	blocked  bool
-	fired    bool
-	denied   bool
-	closed   bool
-	active   map[net.Conn]struct{}
-	workers  sync.WaitGroup
+	listener       net.Listener
+	backend        string
+	role           string
+	mode           string
+	mutex          sync.Mutex
+	blocked        bool
+	fired          bool
+	denied         bool
+	deniedPassword bool
+	closed         bool
+	active         map[net.Conn]struct{}
+	workers        sync.WaitGroup
 }
 
 type faultSession struct {
@@ -29,6 +30,8 @@ type faultSession struct {
 	createdRole bool
 	captureOID  bool
 	oidRow      bool
+	rename      bool
+	renameDone  bool
 	commit      bool
 	commitDone  bool
 }

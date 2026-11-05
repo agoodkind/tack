@@ -10,11 +10,12 @@ import (
 
 // roleState is the role data that tofu records in state.
 type roleState struct {
-	ID         string
-	Name       string
-	OID        int64
-	Version    string
-	ValidUntil string
+	ID          string
+	Name        string
+	OID         int64
+	Version     string
+	ValidUntil  string
+	AppliedName string
 }
 
 func (space *workspace) stateValues(t *testing.T) roleState {
@@ -28,11 +29,12 @@ func (space *workspace) stateValues(t *testing.T) roleState {
 			RootModule struct {
 				Resources []struct {
 					Values struct {
-						ID         string `json:"id"`
-						Name       string `json:"name"`
-						OID        int64  `json:"role_oid"`
-						Version    string `json:"password_wo_version"`
-						ValidUntil string `json:"valid_until"`
+						ID          string `json:"id"`
+						Name        string `json:"name"`
+						OID         int64  `json:"role_oid"`
+						Version     string `json:"password_wo_version"`
+						ValidUntil  string `json:"valid_until"`
+						AppliedName string `json:"password_wo_applied_name"`
 					} `json:"values"`
 				} `json:"resources"`
 			} `json:"root_module"`
@@ -48,7 +50,7 @@ func (space *workspace) stateValues(t *testing.T) roleState {
 	values := resources[0].Values
 	return roleState{
 		ID: values.ID, Name: values.Name, OID: values.OID,
-		Version: values.Version, ValidUntil: values.ValidUntil,
+		Version: values.Version, ValidUntil: values.ValidUntil, AppliedName: values.AppliedName,
 	}
 }
 

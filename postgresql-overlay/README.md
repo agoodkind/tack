@@ -32,6 +32,7 @@ External mode changes these behaviors:
 | Identity | The `role_oid` attribute records the database OID of the role on create, import, and read. The provider finds the role by that OID after a rename. |
 | Replaced role | When the recorded OID no longer exists and another role has the managed name, the provider fails with a role identity conflict and does not adopt the other role. |
 | State without an OID | The provider locates the role by name when state lacks an OID. Refresh state to record the OID before renaming the role. |
+| Write-only password recovery | The provider records the role name when it applies a write-only password. If state lacks that record, the next apply reapplies the supplied password and records the name. After an interrupted rename, the next apply restores that password without changing its version. |
 | Failed update | The update keeps the prior password version in state. YugabyteDB DDL that finished before the failure stays in effect. The next refresh follows the OID to the actual role name. |
 
 ## Know the remaining advisory locks

@@ -58,10 +58,10 @@ index 778778bebf73da11c8f5dc7485a55d993b26cc5d..0763c0c76398deba7c7f7066d1d0a00f
  		GCPIAMImpersonateServiceAccount: d.Get("gcp_iam_impersonate_service_account").(string),
  	}
 diff --git a/postgresql/resource_postgresql_role.go b/postgresql/resource_postgresql_role.go
-index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e423087991d03 100644
+index 38bfb9e90cdc588304323a2740e236b0fbbf466d..acb7a61b1f9973ad2f2fc4173e2c6666777c709e 100644
 --- a/postgresql/resource_postgresql_role.go
 +++ b/postgresql/resource_postgresql_role.go
-@@ -47,14 +47,20 @@ func resourcePostgreSQLRole() *schema.Resource {
+@@ -47,14 +47,25 @@ func resourcePostgreSQLRole() *schema.Resource {
  	return &schema.Resource{
  		Create: PGResourceFunc(resourcePostgreSQLRoleCreate),
  		Read:   PGResourceFunc(resourcePostgreSQLRoleRead),
@@ -75,6 +75,11 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
 +		CustomizeDiff: customizeRoleDiff,
  
  		Schema: map[string]*schema.Schema{
++			rolePasswordAppliedNameAttr: {
++				Type:        schema.TypeString,
++				Computed:    true,
++				Description: "The role name when the write-only password was last applied.",
++			},
 +			roleOIDAttr: {
 +				Type:        schema.TypeInt,
 +				Computed:    true,
@@ -83,7 +88,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  			roleNameAttr: {
  				Type:        schema.TypeString,
  				Required:    true,
-@@ -198,6 +204,16 @@ func resourcePostgreSQLRole() *schema.Resource {
+@@ -198,6 +209,16 @@ func resourcePostgreSQLRole() *schema.Resource {
  }
  
  func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) error {
@@ -100,7 +105,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  	txn, err := startTransaction(db.client, "")
  	if err != nil {
  		return err
-@@ -296,7 +296,7 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
+@@ -296,7 +317,7 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
  					createOpts = append(createOpts, "UNENCRYPTED")
  				}
  				createOpts = append(createOpts,
@@ -109,7 +114,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  			}
  
  		case roleValidUntilAttr:
-@@ -350,36 +366,65 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
+@@ -350,36 +371,72 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
  		return fmt.Errorf("error creating role %s: %w", roleName, err)
  	}
  
@@ -152,6 +157,13 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
 -	}
 -
  	d.SetId(roleName)
++	if external {
++		if password, ok := getWO(d, rolePasswordWOAttr); ok && password != "" {
++			if err := d.Set(rolePasswordAppliedNameAttr, roleName); err != nil {
++				return fmt.Errorf("record password role name: %w", err)
++			}
++		}
++	}
  
  	return resourcePostgreSQLRoleReadImpl(db, d)
  }
@@ -194,7 +206,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  	roleName := d.Get(roleNameAttr).(string)
  
  	txn, err := startTransaction(db.client, "")
-@@ -423,6 +468,10 @@ func resourcePostgreSQLRoleDelete(db *DBConnection, d *schema.ResourceData) erro
+@@ -423,6 +480,10 @@ func resourcePostgreSQLRoleDelete(db *DBConnection, d *schema.ResourceData) erro
  }
  
  func resourcePostgreSQLRoleExists(db *DBConnection, d *schema.ResourceData) (bool, error) {
@@ -205,7 +217,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  	var roleName string
  	err := db.QueryRow("SELECT rolname FROM pg_catalog.pg_roles WHERE rolname=$1", d.Id()).Scan(&roleName)
  	switch {
-@@ -442,13 +491,30 @@ func resourcePostgreSQLRoleRead(db *DBConnection, d *schema.ResourceData) error
+@@ -442,13 +503,30 @@ func resourcePostgreSQLRoleRead(db *DBConnection, d *schema.ResourceData) error
  func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) error {
  	var roleSuperuser, roleInherit, roleCreateRole, roleCreateDB, roleCanLogin, roleReplication, roleBypassRLS bool
  	var roleConnLimit int
@@ -237,7 +249,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  		"rolsuper",
  		"rolinherit",
  		"rolcreaterole",
-@@ -462,6 +528,7 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+@@ -462,6 +540,7 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
  	values := []any{
  		&roleRoles,
  		&roleName,
@@ -245,7 +257,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  		&roleSuperuser,
  		&roleInherit,
  		&roleCreateRole,
-@@ -485,21 +552,23 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+@@ -485,21 +564,23 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
  	roleSQL := fmt.Sprintf(`SELECT ARRAY(
  			SELECT pg_get_userbyid(roleid) FROM pg_catalog.pg_auth_members members WHERE member = pg_roles.oid
  		), %s
@@ -272,7 +284,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  	d.Set(roleNameAttr, roleName)
  	d.Set(roleConnLimitAttr, roleConnLimit)
  	d.Set(roleCreateDBAttr, roleCreateDB)
-@@ -513,7 +582,9 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+@@ -513,7 +594,9 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
  	d.Set(roleValidUntilAttr, roleValidUntil)
  	d.Set(roleReplicationAttr, roleReplication)
  	d.Set(roleBypassRLSAttr, roleBypassRLS)
@@ -283,7 +295,7 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  	d.Set(roleSearchPathAttr, readSearchPath(roleConfig))
  	d.Set(roleAssumeRoleAttr, readAssumeRole(roleConfig))
  
-@@ -668,7 +739,25 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
+@@ -668,7 +751,25 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
  	return rolePassword, nil
  }
  
@@ -309,7 +321,16 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  	txn, err := startTransaction(db.client, "")
  	if err != nil {
  		return err
-@@ -753,7 +842,13 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
+@@ -684,7 +785,7 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
+ 		return err
+ 	}
+ 
+-	if err := setRolePassword(txn, d); err != nil {
++	if err := setRolePassword(txn, d, false); err != nil {
+ 		return err
+ 	}
+ 
+@@ -753,7 +854,13 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
  		return fmt.Errorf("could not commit transaction: %w", err)
  	}
  
@@ -324,17 +345,22 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  }
  
  func setRoleName(txn *sql.Tx, d *schema.ResourceData) error {
-@@ -781,7 +876,7 @@ func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
+@@ -778,11 +885,11 @@ func setRoleName(txn *sql.Tx, d *schema.ResourceData) error {
+ 	return nil
+ }
+ 
+-func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
++func setRolePassword(txn *sql.Tx, d *schema.ResourceData, force bool) error {
  
 -	// Early exit if password WO and version are set, and version has not changed
 +	// Reapply the write-only password after a role rename.
  	if _, ok := getWO(d, rolePasswordWOAttr); ok {
 -		if !d.HasChange(rolePasswordWOVersionAttr) {
-+		if !d.HasChange(rolePasswordWOVersionAttr) && !d.HasChange(roleNameAttr) {
++		if !force && !d.HasChange(rolePasswordWOVersionAttr) && !d.HasChange(roleNameAttr) {
  			return nil
  		}
  	} else {
-@@ -805,7 +825,7 @@ func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
+@@ -805,7 +912,7 @@ func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
  		return nil
  	}
  
@@ -345,10 +371,10 @@ index 38bfb9e90cdc588304323a2740e236b0fbbf466d..75bfc2fad88b1beb964098d74c8e4230
  	}
 diff --git a/postgresql/role_external.go b/postgresql/role_external.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..5632d835d3666ad7e978f2b653a3bc95dea2ffbe
+index 0000000000000000000000000000000000000000..d491a3965d044a72b1caba3e1b58b319144f8984
 --- /dev/null
 +++ b/postgresql/role_external.go
-@@ -0,0 +1,292 @@
+@@ -0,0 +1,311 @@
 +package postgresql
 +
 +import (
@@ -364,10 +390,11 @@ index 0000000000000000000000000000000000000000..5632d835d3666ad7e978f2b653a3bc95
 +)
 +
 +const (
-+	roleLockModeAttr     = "role_lock_mode"
-+	roleLockModeAdvisory = "advisory"
-+	roleLockModeExternal = "external"
-+	roleOIDAttr          = "role_oid"
++	roleLockModeAttr            = "role_lock_mode"
++	roleLockModeAdvisory        = "advisory"
++	roleLockModeExternal        = "external"
++	roleOIDAttr                 = "role_oid"
++	rolePasswordAppliedNameAttr = "password_wo_applied_name"
 +)
 +
 +// externalRoleWriteMutex serializes postgresql_role create, update, and delete
@@ -473,7 +500,18 @@ index 0000000000000000000000000000000000000000..5632d835d3666ad7e978f2b653a3bc95
 +	if !ok || !client.config.externalRoleLocking() {
 +		return nil
 +	}
-+	return rejectConfiguredRoles(diff.GetRawConfig())
++	raw := diff.GetRawConfig()
++	if err := rejectConfiguredRoles(raw); err != nil {
++		return err
++	}
++	if raw.IsNull() || !raw.IsKnown() || raw.GetAttr(rolePasswordWOVersionAttr).IsNull() {
++		return nil
++	}
++	name, ok := diff.GetOk(roleNameAttr)
++	if !ok || diff.Get(rolePasswordAppliedNameAttr).(string) == name.(string) {
++		return nil
++	}
++	return diff.SetNewComputed(rolePasswordAppliedNameAttr)
 +}
 +
 +func captureCreatedRole(txn *sql.Tx, name string) (managedRole, error) {
@@ -512,8 +550,10 @@ index 0000000000000000000000000000000000000000..5632d835d3666ad7e978f2b653a3bc95
 +	if err := setExternalRoleName(txn, d, role); err != nil {
 +		return err
 +	}
++	priorName, _ := d.GetChange(rolePasswordAppliedNameAttr)
++	forcePassword := priorName.(string) != d.Get(roleNameAttr).(string)
 +	steps := []func() error{
-+		func() error { return setRolePassword(txn, d) },
++		func() error { return setRolePassword(txn, d, forcePassword) },
 +		func() error { return setRoleBypassRLS(db, txn, d) },
 +		func() error { return setRoleConnLimit(txn, d) },
 +		func() error { return setRoleCreateDB(txn, d) },
@@ -588,6 +628,11 @@ index 0000000000000000000000000000000000000000..5632d835d3666ad7e978f2b653a3bc95
 +
 +	if err := resourcePostgreSQLRoleReadImpl(db, d); err != nil {
 +		return err
++	}
++	if _, ok := getWO(d, rolePasswordWOAttr); ok {
++		if err := d.Set(rolePasswordAppliedNameAttr, d.Get(roleNameAttr).(string)); err != nil {
++			return fmt.Errorf("record password role name: %w", err)
++		}
 +	}
 +	d.Partial(false)
 +	return nil

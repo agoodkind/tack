@@ -17,6 +17,9 @@ func (proxy *faultProxy) forwardClient(client, backend net.Conn, session *faultS
 		blocked := proxy.blocked
 		if blocked {
 			proxy.denied = true
+			if (message[0] == 'Q' || message[0] == 'P') && strings.Contains(string(message[5:]), "ALTER ROLE") && strings.Contains(string(message[5:]), "PASSWORD") {
+				proxy.deniedPassword = true
+			}
 		}
 		proxy.mutex.Unlock()
 		if blocked {
@@ -27,6 +30,9 @@ func (proxy *faultProxy) forwardClient(client, backend net.Conn, session *faultS
 			session.mutex.Lock()
 			if strings.Contains(query, proxy.role) && strings.Contains(query, "ALTER ROLE") {
 				session.changedRole = true
+			}
+			if strings.Contains(query, proxy.role) && strings.Contains(query, "ALTER ROLE") && strings.Contains(query, "RENAME TO") {
+				session.rename = true
 			}
 			if strings.Contains(query, proxy.role) && strings.Contains(query, "CREATE ROLE") {
 				session.createdRole = true
@@ -55,10 +61,13 @@ func (proxy *faultProxy) forwardServer(backend, client net.Conn, session *faultS
 		if message[0] == 'D' && session.captureOID {
 			session.oidRow = true
 		}
+		if message[0] == 'C' && session.rename && strings.HasPrefix(string(message[5:]), "ALTER ROLE") {
+			session.renameDone = true
+		}
 		if message[0] == 'C' && session.commit && strings.HasPrefix(string(message[5:]), "COMMIT") {
 			session.commitDone = true
 		}
-		fire := message[0] == 'Z' && ((proxy.mode == "commit" && session.commitDone) || (proxy.mode == "capture" && session.oidRow))
+		fire := message[0] == 'Z' && ((proxy.mode == "commit" && session.commitDone) || (proxy.mode == "capture" && session.oidRow) || (proxy.mode == "rename" && session.renameDone))
 		session.mutex.Unlock()
 		if fire {
 			proxy.mutex.Lock()
