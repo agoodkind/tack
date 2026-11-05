@@ -2,7 +2,10 @@
 
 package pgoverlay_test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestYugabyteExternalReadFailureAfterCommit(t *testing.T) {
 	verifyReadFailureAfterCommit(t, externalScenario(t))
@@ -19,8 +22,8 @@ func verifyReadFailureAfterCommit(t *testing.T, s *scenario) {
 
 	output, code := s.applyRole(t, renamed, "2", infinity)
 	proxy.recover(t)
-	if code == exitSuccess {
-		t.Fatalf("the update succeeded after the proxy denied the final read:\n%s", output)
+	if code == exitSuccess || !strings.Contains(output, "could not read the name of role OID") {
+		t.Fatalf("the update exited %d; the test expects a final role read error:\n%s", code, output)
 	}
 	actual, found := s.target.roleNameByOID(t, oid)
 	if !found || actual != renamed {
