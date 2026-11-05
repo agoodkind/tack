@@ -57,6 +57,10 @@ func TestAuditReadRefusesMissingInfrastructure(t *testing.T) {
 	if !errors.Is(err, audit.ErrReadNotAdmitted) || output != "" {
 		t.Fatalf("ordinary read output = %q, error = %v; want admission refusal", output, err)
 	}
+	output, err = run("--execute", "ops", "deploy", "verify", "--service", "invalid")
+	if !errors.Is(err, audit.ErrReadNotAdmitted) || output != "" {
+		t.Fatalf("deploy verification output = %q, error = %v; want admission refusal", output, err)
+	}
 	output, err = run("ops", "ledger", "audit-bootstrap")
 	if err != nil || !strings.Contains(output, "audit") {
 		t.Fatalf("bootstrap preview output = %q, error = %v", output, err)
