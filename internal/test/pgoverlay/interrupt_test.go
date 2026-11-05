@@ -28,12 +28,16 @@ func TestYugabyteExternalInterruptedRename(t *testing.T) {
 	waitForProvider(t, tofuPID)
 	pacer := startPacer(tofuPID)
 	t.Cleanup(func() {
-		pacer.freeze()
+		if err := pacer.freeze(); err != nil {
+			t.Errorf("read provider processes during cleanup: %v", err)
+		}
 		killTree(t, processTree(t, tofuPID))
 		_, _ = process.Wait(t)
 	})
 	s.target.waitForRoleName(t, oid, renamed, renameWatchTimeout)
-	pacer.freeze()
+	if err := pacer.freeze(); err != nil {
+		t.Fatalf("read provider processes: %v", err)
+	}
 	requireProvidersStopped(t, tofuPID)
 	if state := processState(t, tofuPID); state == "Z" {
 		t.Fatalf("tofu ended before the interruption, and the test expects it to wait for the provider")

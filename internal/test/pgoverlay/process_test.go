@@ -108,7 +108,11 @@ func waitForProvider(t *testing.T, tofuPID int) {
 	t.Helper()
 	deadline := time.Now().Add(processFindTimeout)
 	for time.Now().Before(deadline) {
-		if len(providerPIDs(tofuPID)) > 0 {
+		providers, err := providerPIDs(tofuPID)
+		if err != nil {
+			t.Fatalf("read provider processes: %v", err)
+		}
+		if len(providers) > 0 {
 			return
 		}
 		time.Sleep(processFindPeriod)
@@ -119,10 +123,10 @@ func waitForProvider(t *testing.T, tofuPID int) {
 // providerPIDs returns the provider processes that are children of tofu. Tofu
 // can start more than one provider process during an apply. The pacer reads the
 // list on every cycle.
-func providerPIDs(tofuPID int) []int {
+func providerPIDs(tofuPID int) ([]int, error) {
 	processes, err := readProcesses()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var pids []int
 	for _, info := range processes {
@@ -130,7 +134,7 @@ func providerPIDs(tofuPID int) []int {
 			pids = append(pids, info.pid)
 		}
 	}
-	return pids
+	return pids, nil
 }
 
 func signalAll(pids []int, signal syscall.Signal) {
@@ -147,6 +151,7 @@ type providerPacer struct {
 	tofuPID  int
 	quit     chan struct{}
 	finished chan struct{}
+	err      error
 }
 
 func startPacer(tofuPID int) *providerPacer {
@@ -160,11 +165,20 @@ func (pacer *providerPacer) run() {
 	for {
 		select {
 		case <-pacer.quit:
-			signalAll(providerPIDs(pacer.tofuPID), syscall.SIGSTOP)
+			providers, err := providerPIDs(pacer.tofuPID)
+			if err != nil {
+				pacer.err = err
+				return
+			}
+			signalAll(providers, syscall.SIGSTOP)
 			return
 		default:
 		}
-		providers := providerPIDs(pacer.tofuPID)
+		providers, err := providerPIDs(pacer.tofuPID)
+		if err != nil {
+			pacer.err = err
+			return
+		}
 		signalAll(providers, syscall.SIGCONT)
 		time.Sleep(pacerRunSlice)
 		signalAll(providers, syscall.SIGSTOP)
@@ -173,9 +187,10 @@ func (pacer *providerPacer) run() {
 }
 
 // freeze stops the cycle and returns after the provider processes are stopped.
-func (pacer *providerPacer) freeze() {
+func (pacer *providerPacer) freeze() error {
 	pacer.once.Do(func() { close(pacer.quit) })
 	<-pacer.finished
+	return pacer.err
 }
 
 // requireProvidersStopped requires at least one provider process of tofu, all
@@ -185,7 +200,10 @@ func requireProvidersStopped(t *testing.T, tofuPID int) {
 	t.Helper()
 	deadline := time.Now().Add(stoppedStateTimeout)
 	for {
-		providers := providerPIDs(tofuPID)
+		providers, err := providerPIDs(tofuPID)
+		if err != nil {
+			t.Fatalf("read provider processes: %v", err)
+		}
 		if len(providers) == 0 {
 			t.Fatalf("tofu process %d has no provider process after the rename", tofuPID)
 		}
