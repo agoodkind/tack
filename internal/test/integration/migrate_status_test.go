@@ -8,13 +8,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 	"testing/fstest"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/pressly/goose/v3"
 
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/cli"
+	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/schemastatus"
 	"goodkind.io/tack/migrations"
 )
@@ -29,11 +34,14 @@ const (
 	migrateFutureVersion = 9999
 )
 
-// migrateCommand runs the built server binary against one database.
+// migrateCommand runs the built server binary with a migration target and an audit ledger.
 type migrateCommand struct {
-	binary string
-	logDir string
-	dsn    string
+	binary      string
+	logDir      string
+	dsn         string
+	auditDSN    string
+	service     string
+	lastPayload []byte
 }
 
 // TestMigrateReportsStateAndRefusesGuardedRuns runs the built `migrate`
@@ -41,12 +49,17 @@ type migrateCommand struct {
 // creating the goose table, a refused guard leaves the version unchanged, and
 // --to stops at its target.
 func TestMigrateReportsStateAndRefusesGuardedRuns(t *testing.T) {
-	command := migrateCommand{binary: buildMigrateServer(t), logDir: t.TempDir(), dsn: emptyLedgerDatabase(t)}
+	ledger := startNodeAuditLedger(t)
+	command := migrateCommand{
+		binary: buildMigrateServer(t), logDir: t.TempDir(), dsn: emptyLedgerDatabase(t),
+		auditDSN: ledgerLoginDSN(t, ledger, "audit_operator"), service: "tack-migrate-acceptance-" + uuid.NewString()[:8], lastPayload: nil,
+	}
 	embedded, err := fs.Glob(migrations.FS, "*.sql")
 	if err != nil {
 		t.Fatalf("list the embedded migrations: %v", err)
 	}
 
+	started := clock.Now().UTC()
 	empty := command.status(t)
 	if empty.MigrationTablePresent || empty.AppliedVersion != 0 ||
 		len(empty.Available) != len(embedded) || len(empty.Pending) != len(embedded) {
@@ -54,6 +67,25 @@ func TestMigrateReportsStateAndRefusesGuardedRuns(t *testing.T) {
 	}
 	if migrationTableExists(t, command.dsn) {
 		t.Fatal("the dry run created the goose version table")
+	}
+	stack := runtimeAuditStack{topic: "", admin: ledger.admin, reader: ledger.reader, recorder: nil}
+	row := waitForActorRow(t, stack, string(audit.VerbDatabaseMigrate), cli.ServiceActorID(command.service), started)
+	requireReadRow(t, row, audit.VerbDatabaseMigrate, audit.OutcomeCompleted, "", command.lastPayload)
+	targets := schemastatus.MigrationTargets(empty.Available)
+	manifest := (publicLedger{stack: stack, since: started}).manifestTargets(t, row)
+	if !slices.Equal(manifest, targets) {
+		t.Fatalf("migration status read targets = %+v, want %+v", manifest, targets)
+	}
+	manifestDigest, manifestParts, err := audit.ReadManifestDigest(targets)
+	if err != nil {
+		t.Fatalf("compute the migration status manifest: %v", err)
+	}
+	var targetCount uint64
+	for range targets {
+		targetCount++
+	}
+	if row.Context.Read.Count != targetCount || row.Context.Read.ManifestParts != manifestParts || row.Context.Read.ManifestSHA256 != manifestDigest {
+		t.Fatalf("migration status read evidence = %+v, want %d targets and manifest %s", row.Context.Read, targetCount, manifestDigest)
 	}
 
 	migrateLedgerTo(t, command.dsn, migrateOutboxVersion)
@@ -151,15 +183,14 @@ func buildMigrateServer(t *testing.T) string {
 }
 
 // run runs `migrate` with args in JSON output mode and returns stdout, or
-// stdout and stderr together when the command fails. The audit outbox is the
-// database under test.
+// stdout and stderr together when the command fails. Audit records use a separate ledger.
 func (command migrateCommand) run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	process := exec.CommandContext(t.Context(), command.binary, append([]string{
-		"--operator-service", "tack-migrate-acceptance", "--output", "json", "migrate",
+		"--operator-service", command.service, "--output", "json", "migrate",
 	}, args...)...)
 	process.Env = append(os.Environ(),
-		"DATABASE_URL="+command.dsn, "AUDIT_OPERATOR_DSN="+command.dsn, "LOG_DISABLE_STDOUT=true",
+		"DATABASE_URL="+command.dsn, "AUDIT_OPERATOR_DSN="+command.auditDSN, "LOG_DISABLE_STDOUT=true",
 		"LOG_JSON_FILE="+filepath.Join(command.logDir, "tack.json"),
 		"LOG_TEXT_FILE="+filepath.Join(command.logDir, "tack.log"))
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -172,19 +203,28 @@ func (command migrateCommand) run(t *testing.T, args ...string) (string, error) 
 
 // status runs the dry run and decodes stdout, which must be one JSON
 // document.
-func (command migrateCommand) status(t *testing.T) schemastatus.Status {
+func (command *migrateCommand) status(t *testing.T) schemastatus.Status {
 	t.Helper()
 	output, err := command.run(t)
 	if err != nil {
 		t.Fatalf("migrate dry run: %v\n%s", err, output)
 	}
 	var envelope struct {
-		Result schemastatus.Status `json:"result"`
+		Result json.RawMessage `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(output), &envelope); err != nil {
 		t.Fatalf("decode the dry run output: %v\n%s", err, output)
 	}
-	return envelope.Result
+	var payload bytes.Buffer
+	if err := json.Compact(&payload, envelope.Result); err != nil {
+		t.Fatalf("compact the migration status: %v", err)
+	}
+	command.lastPayload = payload.Bytes()
+	var status schemastatus.Status
+	if err := json.Unmarshal(envelope.Result, &status); err != nil {
+		t.Fatalf("decode the migration status: %v", err)
+	}
+	return status
 }
 
 func migrationTableExists(t *testing.T, dsn string) bool {
