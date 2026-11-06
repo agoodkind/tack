@@ -2,7 +2,6 @@ name: build and push tack images
 
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
     tags: ["v*"]
@@ -130,7 +129,7 @@ jobs:
 
       - name: docker tags
         env:
-          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          BRANCH_NAME: ${{ github.ref_name }}
           IMAGE_OWNER: ${{ github.repository_owner }}
           IMAGE_NAME: ${{ matrix.image }}
           COMMIT_SHORT: ${{ steps.meta.outputs.short }}
