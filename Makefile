@@ -81,7 +81,7 @@ test-store-host-shard: TEST_ARGS = $(error test-store-host-shard requires SHARD=
 endif
 
 TEST_RUNTIME_AUDIT_ARGS := -tags integration,runtimeaudit -count=1 -timeout 40m -v \
-	-run '^TestRuntimeAudit(Coverage|TopLevelCoverage|Scaling|MixedVersionRollout)$$' ./internal/test/integration/...
+	-run '^TestRuntimeAudit(Coverage|CoverageWaitsForTargetEvent|TopLevelCoverage|Scaling|MixedVersionRollout)$$' ./internal/test/integration/...
 test-runtime-audit-host test-runtime-audit: TEST_ARGS = $(TEST_RUNTIME_AUDIT_ARGS)
 
 # The security files must come from Configs with synthetic credentials.
