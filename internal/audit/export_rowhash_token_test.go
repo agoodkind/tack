@@ -131,7 +131,7 @@ func TestVerifyBundleAcceptsEveryTokenIDEncodingTheLedgerWrote(t *testing.T) {
 		currentContext,
 	}
 	if !strings.Contains(string(contexts[2]), `"api_token_id":"00000000-0000-0000-0000-000000000000"`) {
-		t.Fatalf("phase 8 context encoding %s lacks the explicit zero token id", contexts[2])
+		t.Fatalf("legacy context encoding %s does not include the explicit zero token ID", contexts[2])
 	}
 	rows = chainTokenIDTestRows(t, rows, contexts)
 	dir := t.TempDir()
@@ -149,9 +149,9 @@ func TestVerifyBundleAcceptsEveryTokenIDEncodingTheLedgerWrote(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleReportsEditedZeroTokenIDRows proves the explicit zero token
-// id candidate accepts no edit: a phase 8 row with a changed action, and one
-// whose context gained a forged token id, both stay breaks.
+// TestVerifyBundleReportsEditedZeroTokenIDRows verifies that bundle checking
+// rejects edits to rows with an explicit zero token ID. It changes one row's
+// action and adds a forged token ID to another row's context.
 func TestVerifyBundleReportsEditedZeroTokenIDRows(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	rows := []Row{

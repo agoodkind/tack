@@ -16,7 +16,7 @@ import (
 const (
 	// searchLogPrefix defines the "search." message prefix. The sweep test
 	// rejects every ERROR record with a message that starts with this prefix.
-	// The G2 throughput check in TestSearchActualOSProcessThroughput applies
+	// The throughput check in TestSearchActualOSProcessThroughput applies
 	// this rule.
 	searchLogPrefix = "search."
 	// sweepSkippedMessage is the debug record of a session that no longer

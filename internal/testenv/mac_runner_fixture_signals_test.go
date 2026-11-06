@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -43,8 +42,14 @@ func macRequireStopTimeout(t *testing.T, evidence string) {
 // fixture reports readiness. The run must exit with status 130, remove every
 // resource it owns, and keep the baseline marker and the cache contents.
 func TestMacRunnerDockerFixtureSignals(t *testing.T) {
-	for _, delivered := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
-		t.Run(strconv.Itoa(int(delivered)), func(t *testing.T) {
+	for _, signalCase := range []struct {
+		name   string
+		signal syscall.Signal
+	}{
+		{name: "SIGINT", signal: syscall.SIGINT},
+		{name: "SIGTERM", signal: syscall.SIGTERM},
+	} {
+		t.Run(signalCase.name, func(t *testing.T) {
 			options, docker, project := macOwnershipFixture(t, "Wait")
 			marker, err := docker.ContainerCreate(t.Context(), client.ContainerCreateOptions{
 				Name: project + "-baseline-marker", Config: &container.Config{Image: options.Image, Labels: map[string]string{"tack.mac-runner-fixture": project}},
@@ -72,12 +77,12 @@ func TestMacRunnerDockerFixtureSignals(t *testing.T) {
 				finished <- result
 			}()
 			macOwnershipReady(t, options.EvidenceDirectory)
-			if err := syscall.Kill(os.Getpid(), delivered); err != nil {
+			if err := syscall.Kill(os.Getpid(), signalCase.signal); err != nil {
 				t.Fatal(err)
 			}
 			result := <-finished
 			if result.ExitCode != 130 {
-				t.Errorf("signal %s produced exit code %d, want 130", delivered.String(), result.ExitCode)
+				t.Errorf("signal %s produced exit code %d, want 130", signalCase.signal.String(), result.ExitCode)
 			}
 			summary := macOwnershipEvidence(t, options.EvidenceDirectory)
 			macRequireOwnedAbsent(t, docker, summary)

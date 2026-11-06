@@ -13,7 +13,15 @@ TACK-579 and TACK-580 own the correction. Modify [search access traversal](../..
 
 Extend [property-decision tests](../../../internal/test/integration/property_search_decision_test.go), [projection readiness tests](../../../internal/test/integration/search_projection_readiness_test.go), and [permission identifier coverage](../../../internal/test/integration/search_permission_identifier_test.go). Use public boundaries with real dependencies, unfamiliar identifiers, schema-backed scalar text, explicit exclusions, nested nodes, and unchanged tenant checks. Seed an old invalid record through fixture facilities, then prove its valid text remains searchable, its invalid property remains unchanged and unindexed, and diagnostics identify that property. Repair it through the approved boundary and require content refresh and warning removal. Verify that revoked access still withholds the node and failed source reads still retain pending work. Reuse existing fixtures without adding a production schema editor.
 
-Run `make build` and `make test-integration`; run the affected search group through `make test-search-group GROUP=G5`. Expect a missing optional inclusion declaration to preserve valid search behavior without exposing excluded content.
+Run `make build` and `make test-integration`. Run every search feature partition separately:
+
+```sh
+make test-search-group GROUP=features-a-through-m
+make test-search-group GROUP=remaining-features
+make test-search-group GROUP=runtime-and-session-audit
+```
+
+Expect a missing optional inclusion declaration to preserve valid search behavior without exposing excluded content.
 
 ## 2. Correct existing metadata and schedule indexing
 
@@ -28,7 +36,15 @@ Inspect [initial projection writes](../../../internal/adapters/foundationdb/prop
 5. Process affected nodes through bounded work against the serving physical index. Preserve unaffected page documents; retire obsolete affected documents. Access-only corrections must preserve text and embeddings.
 6. Verify interruption recovery, idempotence, metadata readiness, complete page coverage, and read/search consistency. Preserve the separate TACK-582 source-data manifest.
 
-Extend [metadata refresh tests](../../../internal/test/integration/search_metadata_refresh_test.go) and [projection backfill tests](../../../internal/test/integration/search_projection_backfill_test.go). Include a reader cursor and pending indexing work created before an interpreter change while stored definitions remain unchanged. Run `make test-integration` and `make test-search-group GROUP=G5`. Expect explicit rejection of the obsolete cursor and complete convergence under the new projection without losing an explicit exclusion.
+Extend [metadata refresh tests](../../../internal/test/integration/search_metadata_refresh_test.go) and [projection backfill tests](../../../internal/test/integration/search_projection_backfill_test.go). Include a reader cursor and pending indexing work created before an interpreter change while stored definitions remain unchanged. Run `make test-integration` and every search feature partition separately:
+
+```sh
+make test-search-group GROUP=features-a-through-m
+make test-search-group GROUP=remaining-features
+make test-search-group GROUP=runtime-and-session-audit
+```
+
+Expect explicit rejection of the obsolete cursor and complete convergence under the new projection without losing an explicit exclusion.
 
 ## 3. Diagnose and correct semantic retrieval
 
@@ -41,7 +57,15 @@ Inspect [query construction](../../../internal/adapters/search/opensearch_query.
 3. Correct the owning implementation without phrase-specific branches, maintained synonyms, a replacement tokenizer, or weaker acceptance bounds.
 4. Repeat all accepted relevance cases three times and after reindexing. Include the lexical-only control and verify one inference per continued session. Explain any ticket-to-corpus count mismatch before claiming complete relevance coverage.
 
-Run `make build` and `make test-search-group GROUP=G5`. A passing new regression does not complete task 4's full acceptance contract.
+Run `make build` and every search feature partition separately:
+
+```sh
+make test-search-group GROUP=features-a-through-m
+make test-search-group GROUP=remaining-features
+make test-search-group GROUP=runtime-and-session-audit
+```
+
+A passing new regression does not complete task 4's full acceptance contract.
 
 ## 4. Verify every search acceptance section
 
@@ -62,17 +86,34 @@ TACK-544 owns the complete result. Maintain an evidence row per criterion with t
 | Index replacement lifecycle | Prove rebuild during mutations, projection refresh without replacement, access changes, native splits, failure recovery, single replacement, disk reserve, retirement, restore rebuilding, and restored-cursor rejection. |
 | Cluster and capacity | Prove TLS, IPv6, discovery, model readiness/redeployment, two Tack processes, search outage recovery, search-only and mixed workloads, freshness, peak host memory, disk sizing, and separate production measurements. Claim scale-out or failover only after its required topology and failure tests. |
 
-Use the current [test commands](../../../Makefile) and exact test selections instead of obsolete Graphite or retired deployment instructions in old plans. Run these commands separately against disposable local dependencies:
+Use the current [test commands](../../../Makefile) and exact test selections instead of obsolete Graphite or retired deployment instructions in old plans. Run `throughput-with-server-processes`, `cluster-failures-and-recovery`, and `model-repair-enablement` on the Mac runner as required by the [final validation plan](2026-09-19-opensearch-final-validation.md). Supply the required inputs on each Mac command:
+
+- Set `MAC_RUNNER_IMAGE` to an existing immutable local image ID.
+- Set `MAC_RUNNER_EVIDENCE_DIR` to a new absolute directory outside the checkout for that run.
+
+Preserve `TACK_SEARCH_CLUSTER=1` for both cluster groups. Run these commands separately against disposable local dependencies:
 
 ```sh
 make test-integration
-make test-search-group GROUP=G1
-make test-search-group GROUP=G2
-make test-search-group GROUP=G3
-make test-search-group GROUP=G5
+make test-search-group GROUP=continuation-with-duplicate-pages
+make test-search-group TEST_SEARCH_RUNNER=mac GROUP=throughput-with-server-processes
+make test-search-group GROUP=rebuild-split-and-restore
+TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=cluster-failures-and-recovery
+make test-search-group GROUP=features-a-through-m
+make test-search-group GROUP=remaining-features
+make test-search-group GROUP=runtime-and-session-audit
+TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=model-repair-enablement
 ```
 
-Run G4 and G6 with `TACK_SEARCH_CLUSTER=1` where the accepted cluster scenarios require them. Run the T1, T2, and T3 repeated groups after the corresponding correction. A skipped scenario does not supply evidence. Coordinate test resources before destructive test-environment cleanup.
+Run the repeated groups after the corresponding correction:
+
+```sh
+make test-search-group GROUP=repeat-continuation-with-duplicate-pages
+make test-search-group GROUP=repeat-rebuild-split-and-restore
+make test-search-group GROUP=repeat-access-cursors-and-workers
+```
+
+A skipped scenario does not supply evidence. Coordinate test resources before destructive test-environment cleanup.
 
 TACK-574 measures public `ops qa datagen search-load` at the accepted offered rates. TACK-575 measures public `ops qa datagen search-mixed` plus the full accepted import, permission, rebuild, continuation, outage, and catch-up scenarios. Record offered, sent, completed, dropped, and failed requests separately from committed writes. Measure freshness, backlog age, latency percentiles, memory, CPU, and disk.
 
