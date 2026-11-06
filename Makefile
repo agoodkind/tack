@@ -139,7 +139,7 @@ test-integration:
 # FoundationDB client library and a reachable Docker daemon; CI runs this
 # target. test-runtime-audit runs them in the test runner container.
 TEST_RUNTIME_AUDIT_ARGS := -tags integration,runtimeaudit -count=1 -timeout 40m -v \
-	-run '^TestRuntimeAudit(Coverage|TopLevelCoverage|Scaling|MixedVersionRollout)$$' ./internal/test/integration/...
+	-run '^TestRuntimeAudit(Coverage|CoverageWaitsForTargetEvent|TopLevelCoverage|Scaling|MixedVersionRollout)$$' ./internal/test/integration/...
 
 .PHONY: test-runtime-audit-host
 test-runtime-audit-host:
