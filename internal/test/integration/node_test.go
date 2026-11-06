@@ -212,8 +212,14 @@ func TestRelationshipReverseIndex(t *testing.T) {
 	if err := env.NodeSvc.RemoveRelationship(env.Ctx, env.OrgID, issue.ID, "blocked_by", target.ID); err != nil {
 		t.Fatalf("RemoveRelationship: %v", err)
 	}
-	out, _ = env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, issue.ID, "blocked_by")
-	in, _ = env.Stores.Relationships.ListByTarget(env.Ctx, env.OrgID, target.ID, "blocked_by")
+	out, err = env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, issue.ID, "blocked_by")
+	if err != nil {
+		t.Fatalf("ListBySource after removing relationship from %s: %v", issue.ID, err)
+	}
+	in, err = env.Stores.Relationships.ListByTarget(env.Ctx, env.OrgID, target.ID, "blocked_by")
+	if err != nil {
+		t.Fatalf("ListByTarget after removing relationship to %s: %v", target.ID, err)
+	}
 	if len(out) != 0 || len(in) != 0 {
 		t.Fatalf("relationship not fully cleared: forward=%v reverse=%v", out, in)
 	}
@@ -291,8 +297,14 @@ func TestDeleteClearsRelationships(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	out, _ := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, issue.ID, "")
-	in, _ := env.Stores.Relationships.ListByTarget(env.Ctx, env.OrgID, other.ID, "")
+	out, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, issue.ID, "")
+	if err != nil {
+		t.Fatalf("ListBySource after deleting node %s: %v", issue.ID, err)
+	}
+	in, err := env.Stores.Relationships.ListByTarget(env.Ctx, env.OrgID, other.ID, "")
+	if err != nil {
+		t.Fatalf("ListByTarget for surviving node %s after deleting node %s: %v", other.ID, issue.ID, err)
+	}
 	if len(out) != 0 {
 		t.Errorf("forward edges from deleted node should be gone: %v", out)
 	}
