@@ -39,6 +39,9 @@ func removeEngines(ctx context.Context, cli *client.Client, self processOwner, s
 	if err != nil {
 		return 0, err
 	}
+	for _, name := range selection.containers {
+		logFailedEngine(ctx, cli, name)
+	}
 	if err := removeContainersWith(ctx, cli, selection.containers); err != nil {
 		return 0, err
 	}
