@@ -89,7 +89,7 @@ Run tests in QA or Docker containers. Run tests against production only with
 explicit operator authorization. Use `docker-compose.test.yml` for local container
 tests. `make test-unit` and `make test-integration` build and run the test runner
 with their package selections. Tests start required stores through
-`internal/testenv` and remove their owned engines when the test binary exits.
+[internal/testenv](internal/testenv) and remove their owned engines when the test binary exits.
 After an interrupted runner leaves engines behind, `make test-env-down` removes
 engines of exited test processes and preserves engines of running tests.
 
