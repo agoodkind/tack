@@ -1,7 +1,6 @@
 package testenv
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -53,7 +52,7 @@ func engineStartFailure(ctx context.Context, cli *client.Client, name string, ca
 }
 
 // engineLogTail reads the last engineLogLines lines of stdout and stderr of
-// container name.
+// container name, retaining at most clusterLogMaxBytes with a truncation marker.
 func engineLogTail(ctx context.Context, cli *client.Client, name string) (string, error) {
 	readContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), engineLogTimeout)
 	defer cancel()
@@ -66,7 +65,7 @@ func engineLogTail(ctx context.Context, cli *client.Client, name string) (string
 		return "", errors.New("read the log of " + name + ": " + err.Error())
 	}
 	defer func() { _ = stream.Close() }()
-	var output bytes.Buffer
+	output := clusterLogWriter{data: nil, truncated: false}
 	if _, err := stdcopy.StdCopy(&output, &output, stream); err != nil {
 		slog.DebugContext(ctx, "testenv.engine.logs_unreadable", slog.String("container", name), slog.String("reason", err.Error()))
 		return output.String(), errors.New("demultiplex the log of " + name + ": " + err.Error())
