@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 	"goodkind.io/tack/internal/clock"
@@ -80,7 +81,9 @@ func OpenSearchDiagnostics(ctx context.Context, fixture OpenSearchFixture) strin
 func engineState(ctx context.Context, cli *client.Client, name string) (*container.State, error) {
 	inspected, err := cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{Size: false})
 	if err != nil {
-		slog.ErrorContext(ctx, "testenv.engine.inspect_failed", slog.String("err", err.Error()), slog.String("container", name))
+		if !cerrdefs.IsNotFound(err) {
+			slog.ErrorContext(ctx, "testenv.engine.inspect_failed", slog.String("err", err.Error()), slog.String("container", name))
+		}
 		return nil, fmt.Errorf("inspect engine %s: %w", name, err)
 	}
 	if inspected.Container.State == nil {

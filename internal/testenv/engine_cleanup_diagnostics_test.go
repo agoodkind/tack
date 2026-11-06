@@ -3,32 +3,63 @@
 package testenv_test
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"log/slog"
-	"maps"
 	"os"
-	"strconv"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
-	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+	"github.com/twmb/franz-go/pkg/kgo"
+	"golang.org/x/sys/unix"
 
 	"goodkind.io/tack/internal/testenv"
 )
 
-const diagnosticRunLabel = "io.goodkind.tack.testenv.run"
+const (
+	diagnosticChildVariable  = "TACK_TESTENV_RELEASE_DIAGNOSTIC_CHILD"
+	diagnosticParentVariable = "TACK_TESTENV_RELEASE_DIAGNOSTIC_PARENT_KAFKA"
+)
 
-// TestReleaseReportsAbnormalFixtures checks public cleanup with a failed broker,
-// an oversized failure log, a normally completed helper, and a separate owner.
+// TestReleaseReportsAbnormalFixtures runs destructive cleanup in a native child
+// and verifies that the parent broker still answers after the child exits.
 func TestReleaseReportsAbnormalFixtures(t *testing.T) {
-	_ = testenv.Kafka(t)
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	if os.Getenv(diagnosticChildVariable) == "1" {
+		exerciseReleaseDiagnostics(t)
+		return
+	}
+	bootstrap := testenv.Kafka(t)
+	command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestReleaseReportsAbnormalFixtures$", "-test.timeout=2m", "-test.v")
+	command.Env = append(os.Environ(), diagnosticChildVariable+"=1", diagnosticParentVariable+"="+bootstrap)
+	command.Stdout, command.Stderr = t.Output(), t.Output()
+	command.SysProcAttr = &unix.SysProcAttr{Setpgid: true}
+	if err := command.Run(); err != nil {
+		t.Fatalf("run the isolated Release regression: %v", err)
+	}
+	probe, err := kgo.NewClient(kgo.SeedBrokers(bootstrap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if err := probe.Ping(ctx); err != nil {
+		t.Fatalf("parent Kafka fixture stopped answering after child cleanup: %v", err)
+	}
+}
+
+func exerciseReleaseDiagnostics(t *testing.T) {
+	t.Helper()
+	parentBootstrap := os.Getenv(diagnosticParentVariable)
+	if parentBootstrap == "" {
+		t.Fatal("the isolated Release regression requires its parent Kafka bootstrap")
+	}
+	bootstrap := testenv.Kafka(t)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	cli, err := client.New(client.WithHost(client.DefaultDockerHost))
 	if err != nil {
@@ -40,10 +71,11 @@ func TestReleaseReportsAbnormalFixtures(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	broker := diagnosticBroker(t, cli)
-	separate := maps.Clone(broker.Labels)
-	separate[diagnosticRunLabel] += "-separate"
-	unrelated := diagnosticHelper(t, cli, broker.Image, separate, []string{"sleep"}, []string{"300"})
+	broker := diagnosticBroker(t, cli, bootstrap)
+	competing := diagnosticBroker(t, cli, parentBootstrap)
+	if broker.ID == competing.ID {
+		t.Fatal("broker discovery selected one container for distinct parent and child bootstrap addresses")
+	}
 	normal := diagnosticHelper(t, cli, broker.Image, broker.Labels, []string{"printf"}, []string{"normal helper completed\n"})
 	failed := diagnosticHelper(t, cli, broker.Image, broker.Labels, []string{"java"}, []string{"-" + strings.Repeat("x", 32<<10)})
 	waitForDiagnosticExit(t, cli, normal)
@@ -92,83 +124,8 @@ func TestReleaseReportsAbnormalFixtures(t *testing.T) {
 			t.Errorf("Release did not remove selected fixture %s: %v", identifier, err)
 		}
 	}
-	inspection, err = cli.ContainerInspect(ctx, unrelated, client.ContainerInspectOptions{Size: false})
+	inspection, err = cli.ContainerInspect(ctx, competing.ID, client.ContainerInspectOptions{Size: false})
 	if err != nil || inspection.Container.State == nil || !inspection.Container.State.Running {
-		t.Fatalf("Release changed the separate synthetic container %s: %v", unrelated, err)
+		t.Fatalf("Release changed the parent broker %s: %v", competing.ID, err)
 	}
-}
-
-func diagnosticBroker(t *testing.T, cli *client.Client) container.Summary {
-	t.Helper()
-	listed, err := cli.ContainerList(t.Context(), client.ContainerListOptions{
-		All: true, Filters: client.Filters{}.Add("label", "io.goodkind.tack.testenv.process="+strconv.Itoa(os.Getpid())),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range listed.Items {
-		for _, name := range item.Names {
-			if strings.HasPrefix(name, "/tack-testenv-kafka-") && !strings.HasPrefix(name, "/tack-testenv-kafka-address-") {
-				return item
-			}
-		}
-	}
-	t.Fatal("Kafka did not start its broker container")
-	return container.Summary{}
-}
-
-func diagnosticHelper(t *testing.T, cli *client.Client, image string, labels map[string]string, entrypoint, command []string) string {
-	t.Helper()
-	created, err := cli.ContainerCreate(t.Context(), client.ContainerCreateOptions{
-		Config: &container.Config{Image: image, Entrypoint: entrypoint, Cmd: command, Labels: labels},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_, err := cli.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-		if err != nil && !cerrdefs.IsNotFound(err) {
-			t.Error(err)
-		}
-	})
-	if _, err := cli.ContainerStart(t.Context(), created.ID, client.ContainerStartOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	return created.ID
-}
-
-func waitForDiagnosticExit(t *testing.T, cli *client.Client, identifier string) {
-	t.Helper()
-	waiting := cli.ContainerWait(t.Context(), identifier, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
-	select {
-	case <-waiting.Result:
-	case err := <-waiting.Error:
-		t.Fatal(err)
-	case <-t.Context().Done():
-		t.Fatal(t.Context().Err())
-	}
-}
-
-func readCleanupDiagnostics(t *testing.T, output []byte) map[string]string {
-	t.Helper()
-	diagnostics := make(map[string]string)
-	lines := bufio.NewScanner(bytes.NewReader(output))
-	lines.Buffer(make([]byte, 1024), 128<<10)
-	for lines.Scan() {
-		var record struct {
-			Message     string `json:"msg"`
-			Container   string `json:"container"`
-			Diagnostics string `json:"err"`
-		}
-		if err := json.Unmarshal(lines.Bytes(), &record); err != nil {
-			t.Fatal(err)
-		}
-		if record.Message == "testenv.engine.exited" {
-			diagnostics[record.Container] = record.Diagnostics
-		}
-	}
-	if err := lines.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return diagnostics
 }

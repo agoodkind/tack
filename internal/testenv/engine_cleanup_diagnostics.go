@@ -14,17 +14,12 @@ import (
 func logFailedEngine(ctx context.Context, cli *client.Client, name string) {
 	observation, cancel := context.WithTimeout(ctx, engineLogTimeout)
 	defer cancel()
-	inspected, err := cli.ContainerInspect(observation, name, client.ContainerInspectOptions{Size: false})
+	state, err := engineState(observation, cli, name)
 	if cerrdefs.IsNotFound(err) {
 		return
 	}
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.engine.cleanup_observation_failed", slog.String("container", name), slog.String("err", err.Error()))
-		return
-	}
-	state := inspected.Container.State
-	if state == nil {
-		slog.ErrorContext(ctx, "testenv.engine.cleanup_observation_failed", slog.String("container", name), slog.String("err", "Docker did not return the container state"))
 		return
 	}
 	if state.Status != container.StateExited && state.Status != container.StateDead {
