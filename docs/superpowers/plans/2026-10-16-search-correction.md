@@ -86,7 +86,12 @@ TACK-544 owns the complete result. Maintain an evidence row per criterion with t
 | Index replacement lifecycle | Prove rebuild during mutations, projection refresh without replacement, access changes, native splits, failure recovery, single replacement, disk reserve, retirement, restore rebuilding, and restored-cursor rejection. |
 | Cluster and capacity | Prove TLS, IPv6, discovery, model readiness/redeployment, two Tack processes, search outage recovery, search-only and mixed workloads, freshness, peak host memory, disk sizing, and separate production measurements. Claim scale-out or failover only after its required topology and failure tests. |
 
-Use the current [test commands](../../../Makefile) and exact test selections instead of obsolete Graphite or retired deployment instructions in old plans. Run these commands separately against disposable local dependencies:
+Use the current [test commands](../../../Makefile) and exact test selections instead of obsolete Graphite or retired deployment instructions in old plans. Run `throughput-with-server-processes`, `cluster-failures-and-recovery`, and `model-repair-enablement` on the Mac runner as required by the [final validation plan](2026-09-19-opensearch-final-validation.md). Supply the required inputs on each Mac command:
+
+- Set `MAC_RUNNER_IMAGE` to an existing immutable local image ID.
+- Set `MAC_RUNNER_EVIDENCE_DIR` to a new absolute directory outside the checkout for that run.
+
+Preserve `TACK_SEARCH_CLUSTER=1` for both cluster groups. Run these commands separately against disposable local dependencies:
 
 ```sh
 make test-integration
@@ -100,7 +105,7 @@ make test-search-group GROUP=runtime-and-session-audit
 TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=model-repair-enablement
 ```
 
-Run `throughput-with-server-processes`, `cluster-failures-and-recovery`, and `model-repair-enablement` on the Mac runner as required by the [final validation plan](2026-09-19-opensearch-final-validation.md). Preserve `TACK_SEARCH_CLUSTER=1` for both cluster groups. Run the repeated groups after the corresponding correction:
+Run the repeated groups after the corresponding correction:
 
 ```sh
 make test-search-group GROUP=repeat-continuation-with-duplicate-pages
