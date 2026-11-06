@@ -185,7 +185,7 @@ For each failure, rerun the smallest exact test until it fails consistently. Tra
 
 - [ ] **Step 9: Run the complete search suite from a clean test environment.**
 
-Run the suite as eight fixed groups. Set each group limit to its slowest complete CI measurement times 1.5, rounded up to 5 minutes. Use 45 minutes for G3 because the Makefile sets that limit and the table measurement predates it. G5B and G5C keep a 75 minute limit, although the formula gives 90 minutes for their measurements.
+Run the suite as eight fixed groups. Set each group limit to its slowest complete CI measurement times 1.5, rounded up to 5 minutes. Use 45 minutes for `rebuild-split-and-restore` because the Makefile sets that limit and the table measurement predates it. Keep the 75 minute limits for `remaining-features` and `runtime-and-session-audit`, although the formula gives 90 minutes for their measurements.
 
 The measurements come from these OpenSearch CI jobs:
 
@@ -203,49 +203,49 @@ The measurements come from these OpenSearch CI jobs:
 
 | Group | Selection | Tests | Slowest measurement | Limit |
 | --- | --- | --- | --- | --- |
-| G1 | `^TestSearchContinuationTraversesDuplicateHeavyCorpus$` | 1 | 2388.1 s (110045603547) | 60m |
-| G2 | `^TestSearchActualOSProcessThroughput$` | 1 | 1062.7 s (110045603547) | 30m |
-| G3 | `^TestSearch(Split|Restore|Rebuild)` | 20 | 1122.4 s (110765693590) | 45m |
-| G4 | `^TestSearchCluster`, skipping `^TestSearchClusterModelRepair` | 6 | 955.4 s on the Mac runner | 25m |
-| G5A | `^TestSearch[A-M]`, skipping the G1 to G4 and G6 tests | 87 | 2862.2 s (123145940911) | 75m |
-| G5B | `^TestSearch($|[^A-M])`, skipping the G1 to G4, G5C, and G6 tests | 120 (121 listed; `TestSearchSDKCompatibility` skips in the group run) | 59:47 job time; 59:21 `go test` step time in CI run 41510801397. | 75m |
-| G5C | `^TestSearch(RuntimeAudit|SessionAudit)` | 76 | 58:06 job time; 57:44 `go test` step time in CI run 41510801397, after two tests moved to G5B. | 75m |
-| G6 | `^TestSearchClusterModelRepair` | 1 | 129.67 s on the Mac runner (2026-10-02, head 650f19ac) | 5m |
+| continuation-with-duplicate-pages | `^TestSearchContinuationTraversesDuplicateHeavyCorpus$` | 1 | 2388.1 s (110045603547) | 60m |
+| throughput-with-server-processes | `^TestSearchActualOSProcessThroughput$` | 1 | 1062.7 s (110045603547) | 30m |
+| rebuild-split-and-restore | `^TestSearch(Split|Restore|Rebuild)` | 20 | 1122.4 s (110765693590) | 45m |
+| cluster-failures-and-recovery | `^TestSearchCluster`, skipping `^TestSearchClusterModelRepair` | 6 | 955.4 s on the Mac runner | 25m |
+| features-a-through-m | `^TestSearch[A-M]`, skipping `SEARCH_SEPARATE_FEATURE_TESTS` | 87 | 2862.2 s (123145940911) | 75m |
+| remaining-features | `^TestSearch($|[^A-M])`, skipping `SEARCH_SEPARATE_FEATURE_TESTS` and `SEARCH_RUNTIME_AND_SESSION_AUDIT_TESTS` | 120 (121 listed; `TestSearchSDKCompatibility` skips in the group run) | 59:47 job time; 59:21 `go test` step time in CI run 41510801397. | 75m |
+| runtime-and-session-audit | `^TestSearch(RuntimeAudit|SessionAudit)` | 76 | 58:06 job time; 57:44 `go test` step time in CI run 41510801397, after two tests moved to remaining-features. | 75m |
+| model-repair-enablement | `^TestSearchClusterModelRepair` | 1 | 129.67 s on the Mac runner (2026-10-02, head 650f19ac) | 5m |
 
-G5A selects search tests with a name that continues after `TestSearch` with a letter from A through M. G5C selects search tests with a name that starts with `TestSearchRuntimeAudit` or `TestSearchSessionAudit`. G5B selects every other search test. Together, these groups select every search test that G1 to G4 and G6 do not select. A new search test runs in G5A, G5B, or G5C according to its name unless a change assigns it to another group.
+The feature partitions select every search test outside the dedicated continuation, throughput, rebuild, split, restore, cluster recovery, and model repair groups. `features-a-through-m` selects A through M immediately after `TestSearch`. `runtime-and-session-audit` selects names that start with `TestSearchRuntimeAudit` or `TestSearchSessionAudit`. `remaining-features` selects every other feature test. A new search test runs in one feature partition according to its name unless a change assigns it to a dedicated group.
 
-CI runs G1, G3, G5A, G5B, and G5C as parallel jobs and skips the cluster tests. G2, G4, and G6 run only on the Mac runner. Acceptance requires the G2 run and the G4 and G6 runs with `TACK_SEARCH_CLUSTER=1` on the Mac runner, on the head that merges.
+CI runs the continuation group, the rebuild, split, and restore group, and every feature partition as parallel jobs. Run `throughput-with-server-processes`, `cluster-failures-and-recovery`, and `model-repair-enablement` on the Mac runner. Acceptance requires those Mac runs on the head that merges, with `TACK_SEARCH_CLUSTER=1` for both cluster groups.
 
 ```sh
 make test-env-down
-make test-search-group GROUP=G1
-make test-search-group GROUP=G3
-make test-search-group GROUP=G5A
-make test-search-group GROUP=G5B
-make test-search-group GROUP=G5C
+make test-search-group GROUP=continuation-with-duplicate-pages
+make test-search-group GROUP=rebuild-split-and-restore
+make test-search-group GROUP=features-a-through-m
+make test-search-group GROUP=remaining-features
+make test-search-group GROUP=runtime-and-session-audit
 make build BINARY=testenv CMD=./cmd/testenv
-make test-search-group TEST_SEARCH_RUNNER=mac GROUP=G2 \
+make test-search-group TEST_SEARCH_RUNNER=mac GROUP=throughput-with-server-processes \
     MAC_RUNNER_IMAGE="sha256:<local-runner-image-id>" \
-    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-g2-$(date +%Y%m%d-%H%M%S)"
-TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=G4 \
+    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-throughput-with-server-processes-$(date +%Y%m%d-%H%M%S)"
+TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=cluster-failures-and-recovery \
     MAC_RUNNER_IMAGE="sha256:<local-runner-image-id>" \
-    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-g4-$(date +%Y%m%d-%H%M%S)"
-TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=G6 \
+    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-cluster-failures-and-recovery-$(date +%Y%m%d-%H%M%S)"
+TACK_SEARCH_CLUSTER=1 make test-search-group TEST_SEARCH_RUNNER=mac GROUP=model-repair-enablement \
     MAC_RUNNER_IMAGE="sha256:<local-runner-image-id>" \
-    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-g6-$(date +%Y%m%d-%H%M%S)"
+    MAC_RUNNER_EVIDENCE_DIR="/private/tmp/tack-search-model-repair-enablement-$(date +%Y%m%d-%H%M%S)"
 make build
 ```
 
-Before the first group run, confirm group membership against the compiled package. `go test -list` ignores `-skip`. Build the lists with the `runtimeaudit` tag, which the G5A, G5B, and G5C runs use. Pass `-run '^TestSearch'` with `-list` because a listing without `-run` starts the Mailpit containers in `TestMain`. Derive G5A and G5B from their selection lists with the G5 skip expression, remove the G5C names from G5B, and derive G5C from its selection list.
+Before the first group run, confirm group membership against the compiled package. `go test -list` ignores `-skip`. Build the lists with the `runtimeaudit` tag, which the feature partitions use. Pass `-run '^TestSearch'` with `-list` because a listing without `-run` starts the Mailpit containers in `TestMain`. Apply `SEARCH_SEPARATE_FEATURE_TESTS` to both alphabetical feature lists, remove `SEARCH_RUNTIME_AND_SESSION_AUDIT_TESTS` from the remaining-feature list, and select the runtime and session audit tests separately.
 
 ```sh
 go test -tags=runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch' | grep '^TestSearch' | sort > all.txt
-go test -tags=runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch(ContinuationTraversesDuplicateHeavyCorpus|ActualOSProcessThroughput)$|^TestSearch(Split|Restore|Rebuild|Cluster)' | grep '^TestSearch' | sort > g1-g4.txt
-go test -tags=runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch[A-M]' | grep '^TestSearch' | grep -v -E '^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$' | sort > g5a.txt
-go test -tags=runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch($|[^A-M])' | grep '^TestSearch' | grep -v -E '^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$|^TestSearch(RuntimeAudit|SessionAudit)' | sort > g5b.txt
-go test -tags=runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch(RuntimeAudit|SessionAudit)' | grep '^TestSearch' | sort > g5c.txt
-sort g1-g4.txt g5a.txt g5b.txt g5c.txt | uniq -d
-sort g1-g4.txt g5a.txt g5b.txt g5c.txt | diff - all.txt
+go test -tags=runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch(ContinuationTraversesDuplicateHeavyCorpus|ActualOSProcessThroughput)$|^TestSearch(Split|Restore|Rebuild|Cluster)' | grep '^TestSearch' | sort > dedicated-behavior-tests.txt
+go test -tags=runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch[A-M]' | grep '^TestSearch' | grep -v -E '^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$' | sort > features-a-through-m.txt
+go test -tags=runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch($|[^A-M])' | grep '^TestSearch' | grep -v -E '^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$|^TestSearch(RuntimeAudit|SessionAudit)' | sort > remaining-features.txt
+go test -tags=runtimeaudit ./internal/test/integration -run '^TestSearch' -list '^TestSearch(RuntimeAudit|SessionAudit)' | grep '^TestSearch' | sort > runtime-and-session-audit.txt
+sort dedicated-behavior-tests.txt features-a-through-m.txt remaining-features.txt runtime-and-session-audit.txt | uniq -d
+sort dedicated-behavior-tests.txt features-a-through-m.txt remaining-features.txt runtime-and-session-audit.txt | diff - all.txt
 ```
 
 Require an empty duplicate list and an empty difference: every search test runs in exactly one group.
@@ -258,16 +258,16 @@ Run the same 26 tests as three groups, each with count 3. These limits are deriv
 
 | Group | Tests | Slowest single CI run | Limit |
 | --- | --- | --- | --- |
-| T1 | `TestSearchContinuationTraversesDuplicateHeavyCorpus` | 2388.1 s (110045603547) | 180m |
-| T2 | The seven `TestSearchRebuild`, `TestSearchRestore`, and `TestSearchSplit` tail tests | 1122.4 s (110765693590) | 85m |
-| T3 | The 18 remaining tail tests | 632.7 s (110765693590) | 50m |
+| repeat-continuation-with-duplicate-pages | `TestSearchContinuationTraversesDuplicateHeavyCorpus` | 2388.1 s (110045603547) | 180m |
+| repeat-rebuild-split-and-restore | The seven `TestSearchRebuild`, `TestSearchRestore`, and `TestSearchSplit` tail tests | 1122.4 s (110765693590) | 85m |
+| repeat-access-cursors-and-workers | The 18 remaining tail tests | 632.7 s (110765693590) | 50m |
 
-The Makefile variables `SEARCH_T2_TESTS` and `SEARCH_T3_TESTS` list the exact T2 and T3 tests.
+Use `SEARCH_REPEAT_REPLACEMENT_TESTS` and `SEARCH_REPEAT_ACCESS_CURSOR_WORKER_TESTS` for the exact repeated replacement and access, cursor, and worker selections.
 
 ```sh
-make test-search-group GROUP=T1
-make test-search-group GROUP=T2
-make test-search-group GROUP=T3
+make test-search-group GROUP=repeat-continuation-with-duplicate-pages
+make test-search-group GROUP=repeat-rebuild-split-and-restore
+make test-search-group GROUP=repeat-access-cursors-and-workers
 make test-env-down
 ```
 

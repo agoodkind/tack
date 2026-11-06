@@ -112,20 +112,20 @@ test-store-host:
 	go test $(TEST_STORE_ARGS)
 
 # The CI integration jobs run the store-backed tests in three shards on
-# separate hosts. Shard integration-a runs the integration tests with names
-# that start with Test and a letter from A through L. Shard integration-b runs
-# every other integration test, and shard packages runs the other store
-# packages.
+# separate hosts. integration-a-through-l selects names with A through L
+# immediately after Test. remaining-integration-tests selects names with a
+# character outside A through L immediately after Test. other-store-packages
+# selects the other store packages.
 .PHONY: test-store-host-shard
 test-store-host-shard:
-ifeq ($(SHARD),integration-a)
+ifeq ($(SHARD),integration-a-through-l)
 	go test $(TEST_STORE_FLAGS) -run '^Test[A-L]' ./internal/test/integration/...
-else ifeq ($(SHARD),integration-b)
+else ifeq ($(SHARD),remaining-integration-tests)
 	go test $(TEST_STORE_FLAGS) -run '^Test[^A-L]' ./internal/test/integration/...
-else ifeq ($(SHARD),packages)
+else ifeq ($(SHARD),other-store-packages)
 	go test $(TEST_STORE_FLAGS) $(TEST_STORE_OTHER_PACKAGES)
 else
-	$(error test-store-host-shard requires SHARD=integration-a, SHARD=integration-b, or SHARD=packages)
+	$(error test-store-host-shard requires SHARD=integration-a-through-l, SHARD=remaining-integration-tests, or SHARD=other-store-packages)
 endif
 
 .PHONY: test-integration
@@ -178,37 +178,38 @@ test-search:
 	TACK_TEST_SOURCE_REVISION="$(shell git rev-parse HEAD)" TACK_SEARCH_INTEGRATION=1 $(TEST_RUNNER) run --rm tests \
 	    test $(TEST_SEARCH_ARGS)
 
-# Final validation runs the search suite in fixed groups G1 to G6 in Step 9
-# and the repeated tail in groups T1 to T3 in Step 10.
-# Each G limit uses the slowest complete CI measurement times 1.5,
+# Final validation runs the complete search suite in Step 9 and repeats the
+# concurrency and replacement tests in Step 10.
+# Each complete-suite limit uses the slowest complete CI measurement times 1.5,
 # rounded up to 5 minutes.
-# G5B and G5C keep a 75 minute limit, shorter than the 90 minutes the formula
-# gives for their measured times.
-# Each T limit is three times the slowest single CI run times 1.5.
-# G5A selects search tests with a letter from A through M immediately
-# after TestSearch. G5C selects tests that start with TestSearchRuntimeAudit
-# or TestSearchSessionAudit. G5B selects every other search test.
-# Together, G5A, G5B, and G5C select every search test that G1 to G4
-# and G6 do not select. Each new search test runs in G5A, G5B, or G5C
-# according to its name.
-# G4 and G6 require TACK_SEARCH_CLUSTER=1. CI runs G1, G3, G5A, G5B,
-# and G5C. The Mac runner runs G2, G4, and G6.
-SEARCH_G5C_TESTS := ^TestSearch(RuntimeAudit|SessionAudit)
-SEARCH_SKIP_G5 := ^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$$
-SEARCH_T2_TESTS := TestSearchRebuildExcludesOrphanNodes|TestSearchRebuildStepFitsLease|TestSearchRebuildFailsAfterPauseLimit|TestSearchRebuildDuringChanges|TestSearchRestoreRejectsCursors|TestSearchSplitDuringChanges|TestSearchSplitWithoutModel
-SEARCH_T3_TESTS := TestSearchAccessDependentsSurviveEdit|TestSearchAccessUpdatesOlderActiveRevision|TestSearchAccessVersionWithoutRebuild|TestSearchAccessMembershipQueryOnly|TestSearchAccessResourceRefresh|TestSearchAccessRolloutRecovery|TestSearchAccessOnlyUpdateWithoutModel|TestSearchCursorAcrossProcesses|TestSearchCursorExactSortValues|TestSearchCursorOnePredictionPerSession|TestSearchCursorReplayAndConcurrency|TestSearchAccessChangeKeepsPendingContent|TestSearchCursorActualOSProcesses|TestSearchFiltersForbiddenPagesBeforeRanking|TestSearchFinalCheckRejectsCorruptIndexedAccess|TestSearchRevokedAccessRejectsLaterResultsAndReplay|TestSearchDelayedWriter|TestSearchRuntimeIndexesThroughGraph
-SEARCH_G1_ARGS := -count=1 -timeout 60m -run '^TestSearchContinuationTraversesDuplicateHeavyCorpus$$'
-SEARCH_G2_ARGS := -count=1 -timeout 30m -run '^TestSearchActualOSProcessThroughput$$'
-SEARCH_G3_ARGS := -count=1 -timeout 45m -run '^TestSearch(Split|Restore|Rebuild)'
-SEARCH_G4_ARGS := -count=1 -timeout 25m -run '^TestSearchCluster' -skip '^TestSearchClusterModelRepair'
-SEARCH_G5A_ARGS := -count=1 -timeout 75m -tags runtimeaudit -run '^TestSearch[A-M]' -skip '$(SEARCH_SKIP_G5)'
-SEARCH_G5B_ARGS := -count=1 -timeout 75m -tags runtimeaudit -run '^TestSearch($$|[^A-M])' -skip '$(SEARCH_SKIP_G5)|$(SEARCH_G5C_TESTS)'
-SEARCH_G5C_ARGS := -count=1 -timeout 75m -tags runtimeaudit -run '$(SEARCH_G5C_TESTS)'
-SEARCH_G6_ARGS := -count=1 -timeout 5m -run '^TestSearchClusterModelRepair'
-SEARCH_T1_ARGS := -count=3 -timeout 180m -run '^TestSearchContinuationTraversesDuplicateHeavyCorpus$$'
-SEARCH_T2_ARGS := -count=3 -timeout 85m -run '^($(SEARCH_T2_TESTS))$$'
-SEARCH_T3_ARGS := -count=3 -timeout 50m -run '^($(SEARCH_T3_TESTS))$$'
-SEARCH_GROUP_ARGS = $(or $(SEARCH_$(GROUP)_ARGS),$(error GROUP must be one of G1 G2 G3 G4 G5A G5B G5C G6 T1 T2 T3))
+# remaining-features and runtime-and-session-audit keep a 75 minute limit,
+# shorter than the 90 minutes the formula gives for their measured times.
+# Each repeated-group limit is three times the slowest single CI run times 1.5.
+# features-a-through-m selects A through M immediately after TestSearch.
+# runtime-and-session-audit selects TestSearchRuntimeAudit and
+# TestSearchSessionAudit. remaining-features selects every other feature test.
+# SEARCH_SEPARATE_FEATURE_TESTS excludes the dedicated behavior groups from
+# the alphabetical feature partitions. Each new search test runs in one
+# feature partition according to its name unless a dedicated group selects it.
+# cluster-failures-and-recovery and model-repair-enablement require
+# TACK_SEARCH_CLUSTER=1. The Mac runner runs those groups and
+# throughput-with-server-processes. CI runs the other complete-suite groups.
+SEARCH_RUNTIME_AND_SESSION_AUDIT_TESTS := ^TestSearch(RuntimeAudit|SessionAudit)
+SEARCH_SEPARATE_FEATURE_TESTS := ^(TestSearchContinuationTraversesDuplicateHeavyCorpus|TestSearchActualOSProcessThroughput|TestSearchSplit.*|TestSearchRestore.*|TestSearchRebuild.*|TestSearchCluster.*)$$
+SEARCH_REPEAT_REPLACEMENT_TESTS := TestSearchRebuildExcludesOrphanNodes|TestSearchRebuildStepFitsLease|TestSearchRebuildFailsAfterPauseLimit|TestSearchRebuildDuringChanges|TestSearchRestoreRejectsCursors|TestSearchSplitDuringChanges|TestSearchSplitWithoutModel
+SEARCH_REPEAT_ACCESS_CURSOR_WORKER_TESTS := TestSearchAccessDependentsSurviveEdit|TestSearchAccessUpdatesOlderActiveRevision|TestSearchAccessVersionWithoutRebuild|TestSearchAccessMembershipQueryOnly|TestSearchAccessResourceRefresh|TestSearchAccessRolloutRecovery|TestSearchAccessOnlyUpdateWithoutModel|TestSearchCursorAcrossProcesses|TestSearchCursorExactSortValues|TestSearchCursorOnePredictionPerSession|TestSearchCursorReplayAndConcurrency|TestSearchAccessChangeKeepsPendingContent|TestSearchCursorActualOSProcesses|TestSearchFiltersForbiddenPagesBeforeRanking|TestSearchFinalCheckRejectsCorruptIndexedAccess|TestSearchRevokedAccessRejectsLaterResultsAndReplay|TestSearchDelayedWriter|TestSearchRuntimeIndexesThroughGraph
+SEARCH_continuation-with-duplicate-pages_ARGS := -count=1 -timeout 60m -run '^TestSearchContinuationTraversesDuplicateHeavyCorpus$$'
+SEARCH_throughput-with-server-processes_ARGS := -count=1 -timeout 30m -run '^TestSearchActualOSProcessThroughput$$'
+SEARCH_rebuild-split-and-restore_ARGS := -count=1 -timeout 45m -run '^TestSearch(Split|Restore|Rebuild)'
+SEARCH_cluster-failures-and-recovery_ARGS := -count=1 -timeout 25m -run '^TestSearchCluster' -skip '^TestSearchClusterModelRepair'
+SEARCH_features-a-through-m_ARGS := -count=1 -timeout 75m -tags runtimeaudit -run '^TestSearch[A-M]' -skip '$(SEARCH_SEPARATE_FEATURE_TESTS)'
+SEARCH_remaining-features_ARGS := -count=1 -timeout 75m -tags runtimeaudit -run '^TestSearch($$|[^A-M])' -skip '$(SEARCH_SEPARATE_FEATURE_TESTS)|$(SEARCH_RUNTIME_AND_SESSION_AUDIT_TESTS)'
+SEARCH_runtime-and-session-audit_ARGS := -count=1 -timeout 75m -tags runtimeaudit -run '$(SEARCH_RUNTIME_AND_SESSION_AUDIT_TESTS)'
+SEARCH_model-repair-enablement_ARGS := -count=1 -timeout 5m -run '^TestSearchClusterModelRepair'
+SEARCH_repeat-continuation-with-duplicate-pages_ARGS := -count=3 -timeout 180m -run '^TestSearchContinuationTraversesDuplicateHeavyCorpus$$'
+SEARCH_repeat-rebuild-split-and-restore_ARGS := -count=3 -timeout 85m -run '^($(SEARCH_REPEAT_REPLACEMENT_TESTS))$$'
+SEARCH_repeat-access-cursors-and-workers_ARGS := -count=3 -timeout 50m -run '^($(SEARCH_REPEAT_ACCESS_CURSOR_WORKER_TESTS))$$'
+SEARCH_GROUP_ARGS = $(or $(SEARCH_$(GROUP)_ARGS),$(error GROUP must be one of continuation-with-duplicate-pages throughput-with-server-processes rebuild-split-and-restore cluster-failures-and-recovery features-a-through-m remaining-features runtime-and-session-audit model-repair-enablement repeat-continuation-with-duplicate-pages repeat-rebuild-split-and-restore repeat-access-cursors-and-workers))
 TEST_SEARCH_RUNNER ?= compose
 
 .PHONY: test-search-host-group

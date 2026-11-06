@@ -230,7 +230,7 @@ A lexical-only control must miss at least one non-overlapping pair that the comb
 - Run one bulk import alongside ordinary edits and sustained queries. Continue measurements after the import stops until the oldest pending search work is processed.
 - Include lexical and semantic query variation, large and small documents, principals from several tenants, index maintenance, and an isolated search outage in the workload.
 - Count offered and completed searches separately from ingestion operations.
-- Reuse the session and update machinery of `make test-search-host-group GROUP=G2` for reads of 140 unchanged nodes and updates to separate nodes.
+- Reuse the session and update machinery of `make test-search-host-group GROUP=throughput-with-server-processes` for reads of 140 unchanged nodes and updates to separate nodes.
 - The QA hypervisor `suburban` provides these resources.
   - Usable memory: 31.31 GiB
   - Logical CPUs: eight
