@@ -17,18 +17,10 @@ import (
 // bytes the command prints.
 type OperatorRead func(ctx context.Context) (audit.OperatorReadOutput, error)
 
-// RunAuditedRead records an operator read with f's read lifecycle store.
-// It returns the payload after the store saves the final event. Each read
-// gets a new operation ID.
-//
-// If the store does not admit the read, RunAuditedRead checks the audit
-// infrastructure. It runs the read without a record only if the probe confirms
-// that public.ops_outbox or tack_audit_operator does not exist. If the outbox
-// and login exist but audit_operator cannot execute the read functions, it
-// writes a format 0 read event before running the read. It returns the admission
-// error if the probe fails or if the required infrastructure exists. It also
-// returns the admission error without running the probe if authentication
-// fails, unless spec creates the audit infrastructure.
+// RunAuditedRead gives each read a new operation ID. Ordinary reads require
+// admission and a saved final event before returning the payload. Operations
+// that set CreatesAuditInfrastructure may use the first-time setup fallback
+// after admission fails and the infrastructure probe confirms it is needed.
 func RunAuditedRead(
 	ctx context.Context,
 	f *cli.Factory,
@@ -61,7 +53,7 @@ func RunAuditedRead(
 	if err == nil {
 		return payload, nil
 	}
-	if !errors.Is(err, audit.ErrReadNotAdmitted) {
+	if !errors.Is(err, audit.ErrReadNotAdmitted) || !spec.CreatesAuditInfrastructure {
 		return nil, loggedAuditError(ctx, "record read access", err)
 	}
 	return readBeforeReadLifecycle(runContext, f, spec, principal, operationID, read, err)
@@ -79,7 +71,7 @@ func readBeforeReadLifecycle(
 	admissionErr error,
 ) ([]byte, error) {
 	probe := f.AuditInfrastructureProbe()
-	if (isAuthenticationFailure(admissionErr) && !spec.CreatesAuditInfrastructure) || probe == nil {
+	if probe == nil {
 		return nil, loggedAuditError(ctx, "record read access", admissionErr)
 	}
 	infrastructure, probeErr := probe(ctx)

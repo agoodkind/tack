@@ -80,7 +80,7 @@ func provisionKafka(ctx context.Context) (string, error) {
 }
 
 // kafkaEnvironment is the docker-compose.yml broker configuration with the
-// test broker's advertised address, cluster ID, and a bounded heap.
+// test broker's advertised address and cluster ID.
 func kafkaEnvironment(bootstrap, clusterID string) []string {
 	return []string{
 		"KAFKA_PROCESS_ROLES=broker,controller",
@@ -97,7 +97,6 @@ func kafkaEnvironment(bootstrap, clusterID string) []string {
 		"KAFKA_DEFAULT_REPLICATION_FACTOR=1",
 		"KAFKA_MIN_INSYNC_REPLICAS=1",
 		"KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE=false",
-		"KAFKA_HEAP_OPTS=-Xms256m -Xmx512m",
 		"CLUSTER_ID=" + clusterID,
 	}
 }

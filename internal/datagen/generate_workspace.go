@@ -3,6 +3,9 @@ package datagen
 import (
 	"context"
 	"fmt"
+
+	"github.com/google/uuid"
+	"goodkind.io/tack/internal/telemetry"
 )
 
 func (g *Generator) generateWorkspace(
@@ -11,7 +14,7 @@ func (g *Generator) generateWorkspace(
 	workspace WorkspaceIdentity,
 ) error {
 	actor := workspace.Actors[workspaceIndex%len(workspace.Actors)]
-	if err := g.exerciseWorkspaceReads(ctx, actor, workspace); err != nil {
+	if err := g.exerciseWorkspaceReads(ctx, actor, workspace, workspaceIndex == 0); err != nil {
 		return err
 	}
 	labels, err := g.generateLabels(ctx, actor, workspace, workspaceIndex)
@@ -70,6 +73,7 @@ func (g *Generator) exerciseWorkspaceReads(
 	ctx context.Context,
 	actor Actor,
 	workspace WorkspaceIdentity,
+	firstWorkspace bool,
 ) error {
 	calls := []struct {
 		name string
@@ -81,7 +85,13 @@ func (g *Generator) exerciseWorkspaceReads(
 		{name: "tack_list_property_defs", args: ToolArguments{WorkspaceReference: workspace.Slug}},
 	}
 	for _, call := range calls {
-		if _, err := g.driver.Call(ctx, actor.Token, call.name, call.args); err != nil {
+		requestContext := ctx
+		if firstWorkspace && call.name == "tack_describe_workspace" && !g.dryRun {
+			g.summary.ManifestRequestID = uuid.Must(uuid.NewV7()).String()
+			g.summary.ManifestOrgID = workspace.OrgID
+			requestContext = telemetry.WithRequestMetadata(ctx, g.summary.ManifestRequestID)
+		}
+		if _, err := g.driver.Call(requestContext, actor.Token, call.name, call.args); err != nil {
 			return loggedError(ctx, "qa datagen: "+call.name, err)
 		}
 	}

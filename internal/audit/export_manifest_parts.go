@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -91,38 +92,72 @@ func manifestViolation(row Row) string {
 		}
 		return ""
 	}
-	root := sha256.New()
-	var expected uint32
+	validator := newManifestValidator()
 	for _, part := range row.ManifestParts {
-		if part.Index != expected {
-			return fmt.Sprintf("does not provide read manifest part %d in index order", expected)
+		if violation := validator.add(part, false); violation != "" {
+			return violation
 		}
-		if len(part.Payload) > EventPartMaxBytes || sha256Hex(part.Payload) != part.Digest {
-			return fmt.Sprintf("has read manifest part %d with a payload that exceeds the size limit or does not match its digest", part.Index)
-		}
-		if !validManifestPayload(part.Payload) {
-			return fmt.Sprintf("has read manifest part %d that does not decode as a valid list of read targets", part.Index)
-		}
-		_, _ = root.Write(part.Payload)
-		expected++
 	}
-	if expected != read.ManifestParts {
-		return fmt.Sprintf("has %d of %d read manifest parts", expected, read.ManifestParts)
+	return validator.finish(read, false)
+}
+
+type manifestValidator struct {
+	root       hash.Hash
+	parts      uint32
+	identities uint64
+}
+
+func newManifestValidator() *manifestValidator {
+	return &manifestValidator{root: sha256.New(), parts: 0, identities: 0}
+}
+
+func (v *manifestValidator) add(part ManifestPart, validateIdentities bool) string {
+	if part.Index != v.parts {
+		return fmt.Sprintf("does not provide read manifest part %d in index order", v.parts)
 	}
-	if hex.EncodeToString(root.Sum(nil)) != read.ManifestSHA256 {
+	if len(part.Payload) > EventPartMaxBytes || sha256Hex(part.Payload) != part.Digest {
+		return fmt.Sprintf("has read manifest part %d with a payload that exceeds the size limit or does not match its digest", part.Index)
+	}
+	count := manifestPayloadCount(part.Payload, validateIdentities)
+	if count == 0 {
+		return fmt.Sprintf("has read manifest part %d that does not decode as a valid list of read targets", part.Index)
+	}
+	_, _ = v.root.Write(part.Payload)
+	v.parts++
+	v.identities += count
+	return ""
+}
+
+func (v *manifestValidator) finish(read *ReadEvidence, checkCount bool) string {
+	if v.parts != read.ManifestParts {
+		return fmt.Sprintf("has %d of %d read manifest parts", v.parts, read.ManifestParts)
+	}
+	if hex.EncodeToString(v.root.Sum(nil)) != read.ManifestSHA256 {
 		return "has read manifest parts that do not match the manifest digest"
+	}
+	if checkCount && v.identities != read.Count {
+		return fmt.Sprintf("has %d of %d declared read identities", v.identities, read.Count)
 	}
 	return ""
 }
 
-// validManifestPayload checks that the payload decodes as a nonempty list
-// of read targets within the entry limit and without unknown fields.
-func validManifestPayload(payload []byte) bool {
+// manifestPayloadCount counts a valid, nonempty list of read targets.
+func manifestPayloadCount(payload []byte, validateIdentities bool) uint64 {
 	var targets []Target
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&targets) != nil || len(targets) == 0 || len(targets) > ReadManifestMaxEntries {
-		return false
+		return 0
 	}
-	return decoderAtEnd(decoder)
+	if !decoderAtEnd(decoder) {
+		return 0
+	}
+	var count uint64
+	for _, target := range targets {
+		if validateIdentities && validateTarget(target) != nil {
+			return 0
+		}
+		count++
+	}
+	return count
 }

@@ -51,15 +51,16 @@ func requireRowsMatchRuns(t *testing.T, ledger *nodeAuditLedger, rows []audit.Ro
 	for _, row := range rows {
 		var extra struct {
 			Input struct {
-				Org     string `json:"org"`
-				EventID string `json:"event_id"`
+				Org            string `json:"org"`
+				EventID        string `json:"event_id"`
+				VerifyPayloads bool   `json:"verify_payloads"`
 			} `json:"input"`
 		}
 		if err := json.Unmarshal(row.Extra, &extra); err != nil {
 			t.Fatalf("decode the extra of row %s: %v\n%s", row.EventID, err, row.Extra)
 		}
 		position := slices.IndexFunc(remaining, func(run manifestReadRun) bool {
-			return run.orgInput == extra.Input.Org && run.eventInput == extra.Input.EventID && manifestRowMatches(t, row, run)
+			return run.orgInput == extra.Input.Org && run.eventInput == extra.Input.EventID && run.verifyPayloads == extra.Input.VerifyPayloads && manifestRowMatches(t, row, run)
 		})
 		if position < 0 {
 			t.Fatalf("row %s does not match a remaining run: %+v context %+v error %+v, runs %+v", row.EventID, extra.Input, row.Context, row.Error, remaining)

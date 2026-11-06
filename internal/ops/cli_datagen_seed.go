@@ -48,6 +48,8 @@ type datagenSeedResult struct {
 	// commit versions for the generated organizations after a committed seed.
 	// It is nil after a dry run.
 	CommitOrder *datagenCommitOrderReport `json:"commit_order,omitempty"`
+	// ManifestVerification reports the generated read manifest verification.
+	ManifestVerification *datagenManifestVerificationReport `json:"manifest_verification,omitempty"`
 }
 
 func datagenSeedOp(f *cli.Factory) clispec.Operation[datagenSeedInput] {
@@ -91,6 +93,7 @@ func runDatagenSeed(
 			return err
 		}
 	}
+	started := clock.Now().UTC()
 	summary, err := datagen.RunSeed(ctx, factory.Cfg, datagen.SeedRunOptions{
 		Scale: input.Scale, Seed: int64(input.Seed), Commit: input.Commit,
 		RedactAuditPII: input.RedactAuditPII,
@@ -102,6 +105,7 @@ func runDatagenSeed(
 	var remainders *auditConsumerOffsetsReport
 	var ledgerVerbs, searchAccessVerbs, searchSettingsVerbs *datagenLedgerVerbsReport
 	var commitOrder *datagenCommitOrderReport
+	var manifestVerification *datagenManifestVerificationReport
 	if input.Commit {
 		report, readErr := readAuditConsumerOffsets(ctx, factory)
 		if readErr != nil {
@@ -128,6 +132,10 @@ func runDatagenSeed(
 			return fmt.Errorf("qa datagen seed: %w", orderErr)
 		}
 		commitOrder = &order
+		manifestVerification, err = verifyDatagenManifest(ctx, factory, summary.ManifestOrgID, summary.ManifestRequestID, started)
+		if err != nil {
+			return fmt.Errorf("qa datagen seed: %w", err)
+		}
 	}
 	return clispec.WriteJSONValue(ctx, sink, datagenSeedResult{
 		ResultMarker: clispec.ResultMarker{},
@@ -147,5 +155,6 @@ func runDatagenSeed(
 		SearchAccessVerbs:    searchAccessVerbs,
 		SearchSettingsVerbs:  searchSettingsVerbs,
 		CommitOrder:          commitOrder,
+		ManifestVerification: manifestVerification,
 	})
 }

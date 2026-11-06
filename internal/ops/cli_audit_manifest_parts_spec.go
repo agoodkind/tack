@@ -34,7 +34,7 @@ func canonicalAuditUUID(value string) string {
 
 // decodeAuditManifestInput decodes the encoded command input.
 func decodeAuditManifestInput(input json.RawMessage) (auditManifestPartsInput, error) {
-	in := auditManifestPartsInput{InputMarker: clispec.InputMarker{}, Org: "", EventID: ""}
+	in := auditManifestPartsInput{InputMarker: clispec.InputMarker{}, Org: "", EventID: "", VerifyPayloads: false}
 	if err := json.Unmarshal(input, &in); err != nil {
 		slog.Error("audit.manifest_parts_input_failed", slog.String("err", err.Error()))
 		return in, fmt.Errorf("%s: decode the command input: %w", auditManifestPartsCommand, err)
@@ -49,7 +49,7 @@ func auditManifestPartsSafeInput(input json.RawMessage) (json.RawMessage, error)
 		return nil, err
 	}
 	safe, err := json.Marshal(auditManifestPartsInput{
-		InputMarker: clispec.InputMarker{}, Org: canonicalAuditUUID(in.Org), EventID: canonicalAuditUUID(in.EventID),
+		InputMarker: clispec.InputMarker{}, Org: canonicalAuditUUID(in.Org), EventID: canonicalAuditUUID(in.EventID), VerifyPayloads: in.VerifyPayloads,
 	})
 	if err != nil {
 		slog.Error("audit.manifest_parts_input_failed", slog.String("err", err.Error()))

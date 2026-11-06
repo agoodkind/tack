@@ -65,7 +65,7 @@ func requireManifestFailures(t *testing.T, ledger *nodeAuditLedger, operator man
 }
 
 // requireManifestRecordingRefusals checks refused admission and finalization. Neither run prints a result. Refused admission does not create a row. Recovery saves an incomplete row for refused finalization.
-func requireManifestRecordingRefusals(t *testing.T, ledger *nodeAuditLedger, operator manifestRunOptions, orgID, eventID uuid.UUID) {
+func requireManifestRecordingRefusals(t *testing.T, ledger *nodeAuditLedger, operator manifestRunOptions, orgID, eventID uuid.UUID, extra ...string) {
 	t.Helper()
 	admission := operator
 	admission.operatorID = uuid.Must(uuid.NewV7())
@@ -79,7 +79,7 @@ func requireManifestRecordingRefusals(t *testing.T, ledger *nodeAuditLedger, ope
 		}
 	})
 	admission.lifecycle = rolePool(t, testenv.Ledger(t), "audit_operator")
-	refused := runManifestParts(t, ledger, admission, manifestArgs(orgID.String(), eventID.String(), "--execute")...)
+	refused := runManifestParts(t, ledger, admission, manifestArgs(orgID.String(), eventID.String(), append([]string{"--execute"}, extra...)...)...)
 	if _, err := ledger.admin.Exec(t.Context(), allowAdmission); err != nil {
 		t.Fatalf("restore the operator read admission: %v", err)
 	}
@@ -93,14 +93,14 @@ func requireManifestRecordingRefusals(t *testing.T, ledger *nodeAuditLedger, ope
 	finalization := operator
 	finalization.operatorID = uuid.Must(uuid.NewV7())
 	finalization.lifecycle = rolePool(t, testenv.Ledger(t), finalizeDeniedRole)
-	withheld := runManifestParts(t, ledger, finalization, manifestArgs(orgID.String(), eventID.String(), "--execute")...)
+	withheld := runManifestParts(t, ledger, finalization, manifestArgs(orgID.String(), eventID.String(), append([]string{"--execute"}, extra...)...)...)
 	if withheld.err == nil || !strings.Contains(withheld.err.Error(), "finalize audit read") || withheld.stdout != "" {
 		t.Fatalf("finalization refusal = %+v, want a finalization error and no result", withheld)
 	}
 	recoverSearchRead(t, ledger.admin, finalization.operatorID)
 	requireStoredAuditReads(t, ledger, finalization.operatorID, []manifestReadRun{{
 		orgInput: orgID.String(), eventInput: eventID.String(), targetURI: "tack:audit-event/" + eventID.String(),
-		outcome: audit.OutcomeIncomplete, errorCode: "", messageContains: "", forbidden: nil, payloadSHA256: "", partURIs: nil,
+		outcome: audit.OutcomeIncomplete, errorCode: "", messageContains: "", forbidden: nil, payloadSHA256: "", partURIs: nil, verifyPayloads: len(extra) > 0,
 	}})
 	lagLedger := *ledger
 	lagLedger.admin = ledgerAdminPool(t)
