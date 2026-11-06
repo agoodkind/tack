@@ -98,9 +98,9 @@ PG_OVERLAY_TEST_ARGS := -tags pgoverlay -count=1 -timeout 30m -v ./internal/test
 # trap runs after a pass, a failure, or an interrupt. It stops the run container
 # with down, removes the test engines that have the project and service labels
 # of this run, then runs down again to remove the network and image. Compose
-# does not treat the engines as orphans, and the trap removes them by label. No
-# other Compose project is affected. The recipe exits with the test status, or
-# with 1 when the tests passed and a cleanup step failed.
+# does not treat the engines as orphans, and the trap removes them by label.
+# Cleanup does not affect other Compose projects. The recipe exits with the test
+# status, or with 1 when the tests passed and a cleanup step failed.
 PG_OVERLAY_COMPOSE = TACK_TEST_ROOT=$(CURDIR) docker compose -p "$$project" -f docker-compose.test.yml --profile pgoverlay-runner
 
 # The Go caches are external volumes that every run shares and no run removes.

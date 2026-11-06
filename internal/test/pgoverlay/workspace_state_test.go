@@ -47,8 +47,6 @@ func (space *workspace) stateValues(t *testing.T) roleState {
 	return roleState{ID: values.ID, Name: values.Name, Version: values.Version, ValidUntil: values.ValidUntil}
 }
 
-// requireNoSecrets fails when a secret appears in any command output or in the
-// state file.
 func (space *workspace) requireNoSecrets(t *testing.T, secrets ...string) {
 	t.Helper()
 	found := []string{space.transcript.String(), string(space.host.ReadFile(t, space.stateFilePath()))}
