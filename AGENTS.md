@@ -87,23 +87,17 @@ Find current state here; do not memorize or copy it into this file.
 
 Run tests in QA or Docker containers. Run tests against production only with
 explicit operator authorization. Use `docker-compose.test.yml` for local container
-tests. Two tiers:
+tests. `make test-unit` and `make test-integration` build and run the test runner
+with their package selections. Tests start required stores through
+`internal/testenv` and remove their owned engines when the test binary exits.
+After an interrupted runner leaves engines behind, `make test-env-down` removes
+engines of exited test processes and preserves engines of running tests.
 
-- **Unit:** `make test-unit` builds the runner image and runs
-  `./internal/ops/...` with `--no-deps`, so no database starts.
-- **Integration:** `make test-integration` brings up single-node FoundationDB
-  and YugabyteDB, then runs `./internal/test/integration/...` inside a sibling
-  container on the same Docker network. `make test-fdb-down` tears the stack
-  down; it otherwise stays up between runs.
-
-Tests reach FoundationDB by its Docker DNS name, not a host port, because Docker
-Desktop on macOS drops FDB's connect-packet exchange through its TCP port
-forwarder. For the same reason the test stack is single-node and not the
-IPv6-only NDP-proxied bridge production runs; the suite exercises the storage
-layer, not the v6-only contract. The integration suite is gated by
-`TACK_INTEGRATION` inside the runner, so a host-side `make test` skips it. The
-runner reads its database and audit DSNs from the environment;
-`docker-compose.test.yml` is the source of truth for the variables it needs.
+Tests connect to FoundationDB on the Docker network because Docker Desktop on
+macOS drops FoundationDB's connect-packet exchange through its TCP port
+forwarder. Local FoundationDB tests use a single node rather than the production
+IPv6-only bridge. `make test` excludes the integration package, which CI runs
+separately through `make test-store-host-shard`.
 
 ## Architecture (binding)
 
