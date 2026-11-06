@@ -31,7 +31,7 @@ External mode changes these behaviors:
 | Memberships | The resource reads memberships but does not reconcile them or issue membership grants or revocations. Deletion runs ownership reassignment with the administrator permissions and fails if those permissions are insufficient. A configured `roles` attribute fails with an error, and an omitted `roles` attribute leaves existing memberships in place. Use `postgresql_grant_role` for grants. |
 | Identity | The `role_oid` attribute records the database OID of the role on create, import, and read. The provider finds the role by that OID after a rename. |
 | Replaced role | When the recorded OID no longer exists and another role has the managed name, the provider fails with a role identity conflict and does not adopt the other role. |
-| State without an OID | The provider locates the role by name when state lacks an OID. Refresh state to record the OID before renaming the role. |
+| State without an OID | The provider locates the role by name when state lacks an OID. Before the first rename, refresh state if it still lacks an OID and a successful read or update has not recorded one since migration to external mode. |
 | Write-only password recovery | The provider records the role name when it applies a write-only password. If state lacks that record and the supplied password is nonempty, the next apply reapplies the password and records the name. The provider treats an empty password as absent. After an interrupted rename, the next apply restores that password without changing its version. |
 | Failed update | The update keeps the prior password version in state. YugabyteDB DDL that finished before the failure stays in effect. The next refresh follows the OID to the actual role name. |
 
