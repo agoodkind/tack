@@ -115,7 +115,12 @@ func testSeedRolesOutcomes(t *testing.T) {
 		t.Fatalf("opening the ledger pool failed: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	cfg := &config.Config{DatabaseURL: node.DSN}
+	commandPool, err := pgxpool.New(t.Context(), node.DSN)
+	if err != nil {
+		t.Fatalf("opening the command pool failed: %v", err)
+	}
+	t.Cleanup(commandPool.Close)
+	cfg := &config.Config{DatabaseURL: node.DSN, AuditOperatorDSN: node.DSN}
 	passwords := []*string{
 		&cfg.AuditWriterPassword, &cfg.AuditReaderPassword, &cfg.AuditRedactorPassword,
 		&cfg.AuditOperatorPassword, &cfg.AppPassword, &cfg.MigratorPassword,
@@ -124,7 +129,7 @@ func testSeedRolesOutcomes(t *testing.T) {
 		*password = "role-secret-" + uuid.NewString()
 	}
 	operatorID := uuid.Must(uuid.NewV7())
-	if output, err := runOpsCommand(t, cfg, pool, "--execute", "--operator-id", operatorID.String(),
+	if output, err := runOpsCommand(t, cfg, commandPool, "--execute", "--operator-id", operatorID.String(),
 		"--operator-email", outcomeOperatorEmail, "ops", "audit", "seed-roles"); err != nil {
 		t.Fatalf("seed-roles failed: %v\n%s", err, output)
 	}

@@ -2,11 +2,15 @@ package ops_test
 
 import (
 	"bytes"
+	_ "embed"
+	"errors"
 	"maps"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -14,7 +18,12 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
+	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/testenv"
 )
+
+//go:embed testdata/audit_gate_roles.sql
+var gateRoleStateQuery string
 
 const (
 	// closedOutboxDSN connects to a loopback port with no listener. Every
@@ -35,27 +44,30 @@ const (
 
 // TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure runs every
 // audited command in the rendered ops tree with --execute through the real
-// choke-point and the real operator outbox, pointed at a port with no
-// listener. Each command stops at its first record. A read stops with
+// choke-point and the real operator outbox. Most commands use an outbox
+// pointed at a port with no listener. Seed-roles authenticates to an empty
+// disposable ledger. That ledger does not have an operator outbox. Each
+// command stops at its first record. A read stops with
 // "record read access", a mutating command with "record command intent", and
 // a command that declares CreatesAuditInfrastructure stops at the unwired
 // infrastructure probe. Only ops provision and ops ledger audit-bootstrap may
 // stop at the probe: any other command that ran before its record existed
 // would act unrecorded.
 func TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure(t *testing.T) {
-	outboxPool, err := pgxpool.New(t.Context(), closedOutboxDSN)
-	if err != nil {
-		t.Fatalf("open the operator outbox pool: %v", err)
-	}
-	t.Cleanup(outboxPool.Close)
-	outbox := audit.NewPoolOutbox(outboxPool)
+	node := testenv.StartEmptyLedger(t, "tack-test-audit-gate-"+uuid.NewString()[:8])
+	cfg := &config.Config{DatabaseURL: node.DSN, AuditOperatorDSN: node.DSN, AuditOperatorPassword: uuid.NewString()}
 
 	creators := map[string]string{}
 	for _, path := range auditedCommandPaths(t) {
-		factory := &cli.Factory{Cfg: nil, In: nil, Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+		outboxPool, err := pgxpool.New(t.Context(), closedOutboxDSN)
+		if err != nil {
+			t.Fatalf("open the operator outbox pool: %v", err)
+		}
+		factory := &cli.Factory{Cfg: cfg, In: nil, Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+		t.Cleanup(factory.CloseAuditOutbox)
 		root := executeGateRoot(t, factory)
 		factory.SetOperatorIdentitySource(cli.FlagOperatorSource{Factory: factory})
-		factory.SetAuditOutbox(outbox)
+		factory.SetAuditOutbox(audit.NewPoolOutbox(outboxPool))
 		leaf, _, err := root.Find(path)
 		if err != nil {
 			t.Fatalf("find %v: %v", path, err)
@@ -68,6 +80,12 @@ func TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure(t *testing.T) {
 		message := ""
 		if runErr != nil {
 			message = runErr.Error()
+		}
+		if strings.Join(path, " ") == "ops audit seed-roles" {
+			var postgresError *pgconn.PgError
+			if !errors.As(runErr, &postgresError) || postgresError.Code != "42P01" {
+				t.Errorf("seed-roles did not reach the missing outbox table: %v", runErr)
+			}
 		}
 		switch {
 		case strings.Contains(message, unwiredProbeError):
@@ -84,6 +102,23 @@ func TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure(t *testing.T) {
 	}
 	if !maps.Equal(creators, want) {
 		t.Fatalf("commands that create the audit infrastructure = %v, want %v", creators, want)
+	}
+	ledger, err := pgxpool.New(t.Context(), node.DSN)
+	if err != nil {
+		t.Fatalf("open the disposable ledger: %v", err)
+	}
+	t.Cleanup(ledger.Close)
+	roles := []string{"tack_audit_writer", "tack_audit_reader", "tack_audit_redactor", "tack_audit_operator", "tack_app", "tack_migrator"}
+	rows, err := ledger.Query(t.Context(), gateRoleStateQuery, roles, []string{})
+	if err != nil {
+		t.Fatalf("read the disposable login roles: %v", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		t.Fatal("seed-roles changed a login role without recording intent")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read the disposable login roles: %v", err)
 	}
 }
 

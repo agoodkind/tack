@@ -30,6 +30,12 @@ func auditSeedRolesCommand(f *cli.Factory) *cobra.Command {
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return runAuditSeedRolesRecorded(ctx, f.Cfg, steps)
 		})
+	cmd.PreRunE = func(cmd *cobra.Command, _ []string) error {
+		if !f.Execute() {
+			return nil
+		}
+		return prepareSeedRolesAuditOutbox(cmd.Context(), f)
+	}
 	return cmd
 }
 

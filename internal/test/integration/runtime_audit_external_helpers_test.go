@@ -99,7 +99,8 @@ func runOpsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ..
 	var output bytes.Buffer
 	factory.Out = &output
 	factory.Err = &output
-	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	originalOutbox := audit.NewPoolOutbox(pool)
+	factory.SetAuditOutbox(originalOutbox)
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	registry := clispec.NewRegistry()
 	ops.RegisterCommands(registry, factory)
@@ -111,5 +112,8 @@ func runOpsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ..
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
 	root.SetArgs(args)
 	err := root.ExecuteContext(t.Context())
+	if factory.AuditOutbox() != originalOutbox {
+		factory.CloseAuditOutbox()
+	}
 	return output.String(), err
 }
