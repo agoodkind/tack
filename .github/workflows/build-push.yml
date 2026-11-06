@@ -49,10 +49,14 @@ jobs:
       - name: checkout
         uses: actions/checkout@v7
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - name: verify native runner
         env:
           IMAGE_ARCH: ${{ matrix.arch }}
-        run: bash scripts/verify-native-image-runner.sh
+        run: go run ./cmd/ci-image verify-native-runner
 
       - name: derive build metadata
         id: meta
@@ -92,7 +96,7 @@ jobs:
           IMAGE_ARCH: ${{ matrix.arch }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           DIGEST_DIRECTORY: ${{ runner.temp }}/digests
-        run: bash scripts/image-digest.sh
+        run: go run ./cmd/ci-image digest
 
       - name: upload immutable digest
         uses: actions/upload-artifact@v7
@@ -127,6 +131,10 @@ jobs:
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: bash scripts/image-build-metadata.sh
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - name: docker tags
         env:
           BRANCH_NAME: ${{ github.ref_name }}
@@ -134,7 +142,7 @@ jobs:
           IMAGE_NAME: ${{ matrix.image }}
           COMMIT_SHORT: ${{ steps.meta.outputs.short }}
           IMAGE_TAG_FILE: ${{ runner.temp }}/image-tags
-        run: bash scripts/image-tags.sh
+        run: go run ./cmd/ci-image tags
 
       - name: download immutable digests
         uses: actions/download-artifact@v8
