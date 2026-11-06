@@ -85,8 +85,9 @@ Find current state here; do not memorize or copy it into this file.
 
 ## Local testing
 
-Tests run in containers through `docker-compose.test.yml`, never against QA or
-prod. Two tiers:
+Run tests in QA or Docker containers. Run tests against production only with
+explicit operator authorization. Use `docker-compose.test.yml` for local container
+tests. Two tiers:
 
 - **Unit:** `make test-unit` builds the runner image and runs
   `./internal/ops/...` with `--no-deps`, so no database starts.
