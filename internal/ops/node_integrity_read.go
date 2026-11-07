@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -35,25 +36,36 @@ func readNodeIntegrityDocument[Document nodeIntegrityDocument](ctx context.Conte
 }
 
 func decodeNodeIntegrityDocument[Document nodeIntegrityDocument](ctx context.Context, path string, document *Document) error {
-	file, err := os.Open(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		wrapped := fmt.Errorf("open node integrity document %q: %w", path, err)
 		slog.ErrorContext(ctx, "repair.manifest.open_failed", slog.String("err", wrapped.Error()), slog.String("path", path))
 		return wrapped
 	}
-	defer func() { _ = file.Close() }()
-	decoder := json.NewDecoder(file)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(document); err != nil {
+	if err := decodeStrictJSON(ctx, content, document); err != nil {
 		wrapped := fmt.Errorf("decode node integrity document %q: %w", path, err)
 		slog.ErrorContext(ctx, "repair.manifest.decode_failed", slog.String("err", wrapped.Error()), slog.String("path", path))
 		return wrapped
 	}
+	return nil
+}
+
+type strictJSONTarget interface {
+	NodeIntegrityRequest | NodeIntegrityManifest | AuditPartRestoreManifest
+}
+
+func decodeStrictJSON[Target strictJSONTarget](ctx context.Context, content []byte, target *Target) error {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		slog.ErrorContext(ctx, "repair.strict_json.decode_failed", slog.String("err", err.Error()))
+		return fmt.Errorf("decode JSON: %w", err)
+	}
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		wrapped := fmt.Errorf("node integrity document %q has data after its first JSON value", path)
-		slog.ErrorContext(ctx, "repair.manifest.decode_failed", slog.String("err", wrapped.Error()), slog.String("path", path))
-		return wrapped
+		trailingErr := errors.New("data after its first JSON value")
+		slog.ErrorContext(ctx, "repair.strict_json.trailing_data", slog.String("err", trailingErr.Error()))
+		return trailingErr
 	}
 	return nil
 }

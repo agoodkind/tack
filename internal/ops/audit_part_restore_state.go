@@ -3,8 +3,6 @@ package ops
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,11 +12,44 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
+const auditPartRefusedCode = "restore_refused"
+
 var errAuditPartRestoreRefused = errors.New("the part restore preconditions do not hold")
+
+type auditPartRestoreIdentity struct {
+	OrgID         uuid.UUID `json:"org_id"`
+	TargetEventID uuid.UUID `json:"target_event_id"`
+	SourceEventID uuid.UUID `json:"source_event_id"`
+	PartIndex     int64     `json:"part_index"`
+	RootDigest    string    `json:"root_digest"`
+}
+
+func (auditPartRestoreIdentity) isStepEvidence() {}
+
+func (m AuditPartRestoreManifest) identity() auditPartRestoreIdentity {
+	return auditPartRestoreIdentity{
+		OrgID: m.OrgID, TargetEventID: m.TargetEventID, SourceEventID: m.SourceEventID,
+		PartIndex: m.PartIndex, RootDigest: m.ManifestSHA256,
+	}
+}
 
 type auditPartRestoreState struct {
 	Target  audit.Row
 	Present bool
+	Payload []byte
+}
+
+func outcomeFor(err error) audit.OutcomeDetails {
+	switch {
+	case err == nil:
+		return commandOutcome(audit.OutcomeCompleted, "", nil)
+	case errors.Is(err, errAuditPartRestoreManifest):
+		return commandOutcome(audit.OutcomeRefused, invalidInputCode, err)
+	case errors.Is(err, errAuditPartRestoreRefused):
+		return commandOutcome(audit.OutcomeRefused, auditPartRefusedCode, err)
+	default:
+		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err)
+	}
 }
 
 func refusePartRestore(ctx context.Context, reason string) error {
@@ -29,6 +60,12 @@ func refuseWith(ctx context.Context, sentinel error, reason string) error {
 	err := fmt.Errorf("%w: %s", sentinel, reason)
 	slog.ErrorContext(ctx, "audit_part_restore.refused", slog.String("err", err.Error()))
 	return err
+}
+
+func partRestoreFailure(ctx context.Context, step string, err error) error {
+	wrapped := fmt.Errorf("%s: %w", step, err)
+	slog.ErrorContext(ctx, "audit_part_restore.step_failed", slog.String("err", wrapped.Error()))
+	return wrapped
 }
 
 func inspectAuditPartRestore(ctx context.Context, reader *audit.Reader, m AuditPartRestoreManifest) (auditPartRestoreState, error) {
@@ -54,27 +91,23 @@ func inspectAuditPartRestore(ctx context.Context, reader *audit.Reader, m AuditP
 		return auditPartRestoreState{}, partRestoreFailure(ctx, "read the part digests of event "+m.TargetEventID.String(), err)
 	}
 	if len(digests) == 0 {
-		return auditPartRestoreState{Target: target, Present: false}, nil
+		return missingPartState(ctx, reader, m, target)
 	}
-	if len(digests) != 1 || digests[0].Index != 0 || digests[0].Digest != m.PartDigest {
+	if len(digests) != 1 || digests[0].Index != 0 || digests[0].Digest != m.ManifestSHA256 {
 		return auditPartRestoreState{}, refusePartRestore(ctx, fmt.Sprintf("event %s stores %d parts that differ from the frozen part", m.TargetEventID, len(digests)))
 	}
-	return auditPartRestoreState{Target: target, Present: true}, nil
+	return auditPartRestoreState{Target: target, Present: true, Payload: nil}, nil
 }
 
-func readSourcePartPayload(ctx context.Context, reader *audit.Reader, m AuditPartRestoreManifest) ([]byte, error) {
+func missingPartState(ctx context.Context, reader *audit.Reader, m AuditPartRestoreManifest, target audit.Row) (auditPartRestoreState, error) {
 	parts, err := reader.ManifestParts(ctx, m.OrgID, m.SourceEventID)
 	if err != nil {
-		return nil, partRestoreFailure(ctx, "read the source part of event "+m.SourceEventID.String(), err)
+		return auditPartRestoreState{}, partRestoreFailure(ctx, "read the source part of event "+m.SourceEventID.String(), err)
 	}
 	if len(parts) != 1 || parts[0].Index != 0 {
-		return nil, refusePartRestore(ctx, fmt.Sprintf("source event %s stores %d parts, want part 0 only", m.SourceEventID, len(parts)))
+		return auditPartRestoreState{}, refusePartRestore(ctx, fmt.Sprintf("source event %s stores %d parts, want part 0 only", m.SourceEventID, len(parts)))
 	}
-	digest := sha256.Sum256(parts[0].Payload)
-	if hex.EncodeToString(digest[:]) != m.ManifestSHA256 {
-		return nil, refusePartRestore(ctx, fmt.Sprintf("source event %s part 0 does not hash to the frozen root", m.SourceEventID))
-	}
-	return parts[0].Payload, nil
+	return auditPartRestoreState{Target: target, Present: false, Payload: parts[0].Payload}, nil
 }
 
 func checkVerification(m AuditPartRestoreManifest, verification audit.ManifestVerification) error {

@@ -3,17 +3,16 @@ package ops
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"regexp"
 
 	"github.com/google/uuid"
+
+	"goodkind.io/tack/internal/audit"
 )
 
 const (
@@ -36,7 +35,6 @@ type AuditPartRestoreManifest struct {
 	SourceEventID     uuid.UUID `json:"source_event_id"`
 	PartIndex         int64     `json:"part_index"`
 	ManifestSHA256    string    `json:"manifest_sha256"`
-	PartDigest        string    `json:"part_digest"`
 	DeclaredParts     uint32    `json:"declared_parts"`
 	IdentityCount     uint64    `json:"identity_count"`
 	TargetSeq         int64     `json:"target_seq"`
@@ -46,6 +44,12 @@ type AuditPartRestoreManifest struct {
 	SourceSeq         int64     `json:"source_seq"`
 	SourceShard       int16     `json:"source_shard"`
 	SourceRowHash     []byte    `json:"source_row_hash"`
+}
+
+var auditPartRestoreRequiredMembers = []string{
+	"schema_version", "ticket", "org_id", "target_event_id", "source_event_id", "part_index", "manifest_sha256",
+	"declared_parts", "identity_count", "target_seq", "target_shard", "target_hash_version",
+	"target_row_hash", "source_seq", "source_shard", "source_row_hash",
 }
 
 func readAuditPartRestoreManifest(ctx context.Context, repairDir, path, wantDigest string) (AuditPartRestoreManifest, string, error) {
@@ -61,8 +65,7 @@ func readAuditPartRestoreManifest(ctx context.Context, repairDir, path, wantDige
 		slog.ErrorContext(ctx, "audit_part_restore.manifest_read_failed", slog.String("path", path), slog.String("err", err.Error()))
 		return AuditPartRestoreManifest{}, "", fmt.Errorf("read part restore manifest %q: %w", path, err)
 	}
-	sum := sha256.Sum256(content)
-	fileDigest := hex.EncodeToString(sum[:])
+	fileDigest := audit.SHA256Hex(content)
 	if fileDigest != wantDigest {
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx,
 			fmt.Sprintf("manifest file digest %s does not equal --manifest-sha256 %s", fileDigest, wantDigest))
@@ -71,25 +74,13 @@ func readAuditPartRestoreManifest(ctx context.Context, repairDir, path, wantDige
 		return AuditPartRestoreManifest{}, "", err
 	}
 	var manifest AuditPartRestoreManifest
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&manifest); err != nil {
-		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, "decode: "+err.Error())
-	}
-	var trailing json.RawMessage
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, "data after the first JSON value")
+	if err := decodeStrictJSON(ctx, content, &manifest); err != nil {
+		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
 	if err := manifest.validate(); err != nil {
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
 	return manifest, fileDigest, nil
-}
-
-var auditPartRestoreRequiredMembers = []string{
-	"schema_version", "ticket", "org_id", "target_event_id", "source_event_id", "part_index", "manifest_sha256",
-	"part_digest", "declared_parts", "identity_count", "target_seq", "target_shard", "target_hash_version",
-	"target_row_hash", "source_seq", "source_shard", "source_row_hash",
 }
 
 func requireManifestMembers(ctx context.Context, content []byte) error {
@@ -118,8 +109,8 @@ func (m AuditPartRestoreManifest) validate() error {
 		return errors.New("target_event_id and source_event_id must differ")
 	case m.PartIndex != 0:
 		return fmt.Errorf("part_index %d is not 0", m.PartIndex)
-	case !sha256HexPattern.MatchString(m.ManifestSHA256) || m.PartDigest != m.ManifestSHA256:
-		return errors.New("manifest_sha256 must be 64 lowercase hex digits and equal part_digest")
+	case !sha256HexPattern.MatchString(m.ManifestSHA256):
+		return errors.New("manifest_sha256 must be 64 lowercase hex digits")
 	case m.DeclaredParts != 1 || m.IdentityCount == 0:
 		return errors.New("declared_parts must be 1 and identity_count must be positive")
 	case m.TargetSeq <= 0 || m.SourceSeq <= 0:

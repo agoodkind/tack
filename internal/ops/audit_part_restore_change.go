@@ -5,8 +5,6 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"log/slog"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -42,11 +40,8 @@ func auditPartTarget(eventID uuid.UUID, partIndex int64) audit.Target {
 	return target
 }
 
-func auditPartChangeEventID(manifestFileDigest string, m AuditPartRestoreManifest) uuid.UUID {
-	return uuid.NewSHA1(auditPartRestoreNamespace, []byte(manifestFileDigest+"/"+auditPartTarget(m.TargetEventID, m.PartIndex).URI))
-}
-
-func buildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manifestFileDigest string, payload []byte) (audit.EncodedEvent, error) {
+// BuildAuditPartChange PLACEHOLDER.
+func BuildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manifestFileDigest string, payload []byte) (audit.EncodedEvent, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "read the operation of the part restore", err)
@@ -57,18 +52,13 @@ func buildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manif
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "encode the part provenance", err)
 	}
 	operation.Extra = provenance
-	changeID := auditPartChangeEventID(manifestFileDigest, m)
 	target := auditPartTarget(m.TargetEventID, m.PartIndex)
-	payloadValue, err := json.Marshal(base64.StdEncoding.EncodeToString(payload))
-	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "encode the restored part payload", err)
-	}
+	changeID := uuid.NewSHA1(auditPartRestoreNamespace, []byte(manifestFileDigest+"/"+target.URI))
 	payloadRef := uuid.NewSHA1(auditPartRestoreNamespace, []byte(changeID.String()+"/payload"))
-	record := auditPartRecord{
-		OrgID: m.OrgID, EventID: m.TargetEventID, PartIndex: m.PartIndex, Digest: m.PartDigest,
+	after, err := json.Marshal(auditPartRecord{
+		OrgID: m.OrgID, EventID: m.TargetEventID, PartIndex: m.PartIndex, Digest: m.ManifestSHA256,
 		Payload: audit.ProtectedReference{PIIRef: payloadRef},
-	}
-	after, err := json.Marshal(record)
+	})
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "encode the restored part record", err)
 	}
@@ -76,7 +66,8 @@ func buildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manif
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "build the part change", err)
 	}
-	change.Protected = []audit.ProtectedValue{{Ref: payloadRef, SubjectID: target.ID, Value: payloadValue}}
+	protectedValue := json.RawMessage(`"` + base64.StdEncoding.EncodeToString(payload) + `"`)
+	change.Protected = []audit.ProtectedValue{{Ref: payloadRef, SubjectID: target.ID, Value: protectedValue}}
 	event, err := audit.ChangeEvent(operation, change, clock.Now())
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "build the part change event", err)
@@ -88,26 +79,19 @@ func buildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manif
 	return encoded, nil
 }
 
-func callAuditPartRestore(ctx context.Context, pool *pgxpool.Pool, m AuditPartRestoreManifest, encoded audit.EncodedEvent) (int64, error) {
+func callAuditPartRestore(ctx context.Context, pool *pgxpool.Pool, m AuditPartRestoreManifest, encoded audit.EncodedEvent) error {
 	header, parts, err := encoded.HeaderAndParts()
 	if err != nil {
-		return 0, partRestoreFailure(ctx, "read the change event messages", err)
+		return partRestoreFailure(ctx, "read the change event messages", err)
 	}
-	var inserted int64
-	err = pool.QueryRow(ctx, auditPartRestoreStatement,
-		m.OrgID, m.TargetEventID, m.SourceEventID, m.PartIndex, m.ManifestSHA256,
+	_, err = pool.Exec(ctx, auditPartRestoreStatement,
+		m.OrgID, m.TargetEventID, m.SourceEventID, m.ManifestSHA256,
 		m.TargetRowHash, m.TargetSeq, m.TargetShard,
 		m.SourceRowHash, m.SourceSeq, m.SourceShard,
 		encoded.EventID, header, parts,
-	).Scan(&inserted)
+	)
 	if err != nil {
-		return 0, partRestoreFailure(ctx, fmt.Sprintf("restore part %d of event %s", m.PartIndex, m.TargetEventID), err)
+		return partRestoreFailure(ctx, "restore the part of event "+m.TargetEventID.String(), err)
 	}
-	return inserted, nil
-}
-
-func partRestoreFailure(ctx context.Context, step string, err error) error {
-	wrapped := fmt.Errorf("%s: %w", step, err)
-	slog.ErrorContext(ctx, "audit_part_restore.step_failed", slog.String("err", wrapped.Error()))
-	return wrapped
+	return nil
 }

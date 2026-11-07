@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"goodkind.io/tack/internal/audit"
@@ -18,12 +17,8 @@ type auditPartRestoreFlags struct {
 }
 
 type auditPartRestoreInput struct {
-	ManifestFileSHA256 string    `json:"manifest_file_sha256"`
-	OrgID              uuid.UUID `json:"org_id"`
-	TargetEventID      uuid.UUID `json:"target_event_id"`
-	SourceEventID      uuid.UUID `json:"source_event_id"`
-	PartIndex          int64     `json:"part_index"`
-	RootDigest         string    `json:"root_digest"`
+	auditPartRestoreIdentity
+	ManifestFileSHA256 string `json:"manifest_file_sha256"`
 }
 
 func (auditPartRestoreInput) isCommandInput() {}
@@ -58,23 +53,46 @@ func auditPartRestoreCobra(f *cli.Factory) *cobra.Command {
 	cmd.Flags().StringVar(&flags.ManifestSHA256, "manifest-sha256", "", "Set --manifest-sha256 to the SHA-256 of the manifest file.")
 	_ = cmd.MarkFlagRequired("manifest")
 	_ = cmd.MarkFlagRequired("manifest-sha256")
+	var request *auditPartRestoreRequest
+	cmd.PreRunE = func(*cobra.Command, []string) error {
+		request = nil
+		return nil
+	}
+	load := func(ctx context.Context) (auditPartRestoreRequest, error) {
+		if request != nil {
+			return *request, nil
+		}
+		manifest, fileDigest, err := readAuditPartRestoreManifest(ctx, f.Cfg.RepairDir, flags.Manifest, flags.ManifestSHA256)
+		if err != nil {
+			return auditPartRestoreRequest{}, err
+		}
+		request = &auditPartRestoreRequest{manifest: manifest, fileDigest: fileDigest}
+		return *request, nil
+	}
 	input := func() (json.RawMessage, error) {
-		manifest, fileDigest, err := readAuditPartRestoreManifest(cmd.Context(), f.Cfg.RepairDir, flags.Manifest, flags.ManifestSHA256)
+		loaded, err := load(cmd.Context())
 		if err != nil {
 			return nil, err
 		}
 		return encodeCommandInput(auditPartRestoreInput{
-			ManifestFileSHA256: fileDigest, OrgID: manifest.OrgID, TargetEventID: manifest.TargetEventID,
-			SourceEventID: manifest.SourceEventID, PartIndex: manifest.PartIndex, RootDigest: manifest.ManifestSHA256,
+			auditPartRestoreIdentity: loaded.manifest.identity(), ManifestFileSHA256: loaded.fileDigest,
 		})
 	}
 	spec := auditPartRestoreSpec()
 	clispec.AttachExternalPreview(cmd, f, spec, input,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-			return runAuditPartRestore(ctx, f, flags, clispec.NewCLISink(f), steps)
+			loaded, err := load(ctx)
+			if err != nil {
+				return outcomeFor(err), err
+			}
+			return runAuditPartRestore(ctx, f, loaded, clispec.NewCLISink(f), steps)
 		},
 		recordedSearchPreview(f, spec, input, func(ctx context.Context, sink clispec.ResultSink) error {
-			return previewAuditPartRestore(ctx, f, flags, sink)
+			loaded, err := load(ctx)
+			if err != nil {
+				return err
+			}
+			return previewAuditPartRestore(ctx, f, loaded, sink)
 		}))
 	return cmd
 }
