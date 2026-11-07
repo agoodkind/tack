@@ -12,6 +12,7 @@ import (
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
@@ -132,7 +133,17 @@ func (p *partRestorePipeline) requireSafeInput(t *testing.T, intent audit.Row) {
 	}
 }
 
-func (p *partRestorePipeline) requireChangeRecord(t *testing.T, intent audit.Row, changes int) {
+func requireRowsCorrelation(t *testing.T, requestID, traceID string, rows ...audit.Row) {
+	t.Helper()
+	for _, row := range rows {
+		if row.Context.RequestID == "" || row.Context.TraceID == "" || row.Context.RequestID != requestID || row.Context.TraceID != traceID {
+			t.Fatalf("row %s %s stores request ID %q and trace ID %q, want the command _meta request ID %q and trace ID %q",
+				row.EventID, row.Action, row.Context.RequestID, row.Context.TraceID, requestID, traceID)
+		}
+	}
+}
+
+func (p *partRestorePipeline) requireChangeRecord(t *testing.T, intent audit.Row, changes int) audit.Row {
 	t.Helper()
 	rows := p.rowsByVerb(t, p.org, audit.VerbAuditEventPartCreate, changes)
 	if len(rows) != changes {
@@ -171,7 +182,7 @@ func (p *partRestorePipeline) requireChangeRecord(t *testing.T, intent audit.Row
 	if err := json.Unmarshal(change.Extra, &provenance); err != nil || provenance.SourceEventID != p.source.String() || provenance.ManifestFileSHA256 != p.fileDigest {
 		t.Fatalf("change provenance = %s, error %v, want source %s and manifest digest %s", change.Extra, err, p.source, p.fileDigest)
 	}
-	t.Logf("operation request ID %q and trace ID %q", intent.Context.RequestID, intent.Context.TraceID)
+	return change
 }
 
 func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
@@ -220,15 +231,22 @@ func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
 		t.Fatalf("export verdict after the repair = %v, want a clean chain", err)
 	}
 
-	intent, _ := pipeline.requireOperationRecords(t, 1)
-	pipeline.requireChangeRecord(t, intent, 1)
+	requestID, traceID := integration.CommandCorrelation(t, run.stdout)
+	intent, result := pipeline.requireOperationRecords(t, 1)
+	change := pipeline.requireChangeRecord(t, intent, 1)
+	requireRowsCorrelation(t, requestID, traceID, intent, result, change)
 
 	again := pipeline.run(t, true)
 	if again.err != nil || again.status(t) != partRestorePresentStatus {
 		t.Fatalf("rerun = %+v, want status already_present", again)
 	}
-	intent, _ = pipeline.requireOperationRecords(t, 2)
-	pipeline.requireChangeRecord(t, intent, 1)
+	againRequestID, againTraceID := integration.CommandCorrelation(t, again.stdout)
+	if againRequestID == requestID || againTraceID == traceID {
+		t.Fatalf("rerun reused request ID %s or trace ID %s", againRequestID, againTraceID)
+	}
+	intent, result = pipeline.requireOperationRecords(t, 2)
+	change = pipeline.requireChangeRecord(t, intent, 1)
+	requireRowsCorrelation(t, requestID, traceID, intent, result, change)
 }
 
 func TestAuditPartRestoreRerunAfterUnseenCommit(t *testing.T) {
