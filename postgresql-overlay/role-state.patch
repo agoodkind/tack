@@ -1,8 +1,67 @@
+diff --git a/postgresql/config.go b/postgresql/config.go
+index 9ee42db7cdf4b6eeb081318a44a24608a05f5b85..91cff1e53bda46b15202a9bc231ea10e136276dc 100644
+--- a/postgresql/config.go
++++ b/postgresql/config.go
+@@ -184,6 +184,7 @@ type Config struct {
+ 	ConnectTimeoutSec               int
+ 	MaxConns                        int
+ 	ExpectedVersion                 semver.Version
++	RoleLockMode                    string
+ 	SSLClientCert                   *ClientCertificateConfig
+ 	SSLRootCertPath                 string
+ 	GCPIAMImpersonateServiceAccount string
+@@ -288,7 +289,10 @@ func (c *Client) Connect() (*DBConnection, error) {
+ 	defer dbRegistryLock.Unlock()
+ 
+ 	dsn := c.config.connStr(c.databaseName)
+-	conn, found := dbRegistry[dsn]
++	// Each role lock mode has its own entry. A cached connection keeps the Client
++	// that created it, and that Client decides the lock mode of role writes.
++	registryKey := dsn + "\x00" + roleLockModeAttr + "=" + c.config.RoleLockMode
++	conn, found := dbRegistry[registryKey]
+ 	if !found {
+ 
+ 		var db *sql.DB
+@@ -331,7 +335,7 @@ func (c *Client) Connect() (*DBConnection, error) {
+ 			c,
+ 			*version,
+ 		}
+-		dbRegistry[dsn] = conn
++		dbRegistry[registryKey] = conn
+ 	}
+ 
+ 	return conn, nil
+diff --git a/postgresql/provider.go b/postgresql/provider.go
+index 778778bebf73da11c8f5dc7485a55d993b26cc5d..0763c0c76398deba7c7f7066d1d0a00f818693fa 100644
+--- a/postgresql/provider.go
++++ b/postgresql/provider.go
+@@ -199,6 +199,13 @@ func Provider() *schema.Provider {
+ 				Description:  "Specify the expected version of PostgreSQL.",
+ 				ValidateFunc: validateExpectedVersion,
+ 			},
++			roleLockModeAttr: {
++				Type:         schema.TypeString,
++				Optional:     true,
++				Default:      roleLockModeAdvisory,
++				Description:  "How postgresql_role writes lock the role. advisory takes PostgreSQL advisory locks in update and delete. external takes no database lock in create, update, and delete and requires the caller to serialize writes to the same roles.",
++				ValidateFunc: validation.StringInSlice([]string{roleLockModeAdvisory, roleLockModeExternal}, false),
++			},
+ 		},
+ 
+ 		ResourcesMap: map[string]*schema.Resource{
+@@ -384,6 +391,7 @@ func providerConfigure(d *schema.ResourceData) (any, error) {
+ 		ConnectTimeoutSec:               d.Get("connect_timeout").(int),
+ 		MaxConns:                        d.Get("max_connections").(int),
+ 		ExpectedVersion:                 version,
++		RoleLockMode:                    d.Get(roleLockModeAttr).(string),
+ 		SSLRootCertPath:                 d.Get("sslrootcert").(string),
+ 		GCPIAMImpersonateServiceAccount: d.Get("gcp_iam_impersonate_service_account").(string),
+ 	}
 diff --git a/postgresql/resource_postgresql_role.go b/postgresql/resource_postgresql_role.go
-index 38bfb9e..390d86a 100644
+index 38bfb9e90cdc588304323a2740e236b0fbbf466d..acb7a61b1f9973ad2f2fc4173e2c6666777c709e 100644
 --- a/postgresql/resource_postgresql_role.go
 +++ b/postgresql/resource_postgresql_role.go
-@@ -47,7 +47,7 @@ func resourcePostgreSQLRole() *schema.Resource {
+@@ -47,14 +47,25 @@ func resourcePostgreSQLRole() *schema.Resource {
  	return &schema.Resource{
  		Create: PGResourceFunc(resourcePostgreSQLRoleCreate),
  		Read:   PGResourceFunc(resourcePostgreSQLRoleRead),
@@ -11,7 +70,42 @@ index 38bfb9e..390d86a 100644
  		Delete: PGResourceFunc(resourcePostgreSQLRoleDelete),
  		Exists: PGResourceExistsFunc(resourcePostgreSQLRoleExists),
  		Importer: &schema.ResourceImporter{
-@@ -296,7 +296,7 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
+ 			StateContext: schema.ImportStatePassthroughContext,
+ 		},
++		CustomizeDiff: customizeRoleDiff,
+ 
+ 		Schema: map[string]*schema.Schema{
++			rolePasswordAppliedNameAttr: {
++				Type:        schema.TypeString,
++				Computed:    true,
++				Description: "The role name when the write-only password was last applied.",
++			},
++			roleOIDAttr: {
++				Type:        schema.TypeInt,
++				Computed:    true,
++				Description: "The OID of the role in the database. The provider records it and does not accept it as input.",
++			},
+ 			roleNameAttr: {
+ 				Type:        schema.TypeString,
+ 				Required:    true,
+@@ -198,6 +209,16 @@ func resourcePostgreSQLRole() *schema.Resource {
+ }
+ 
+ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) error {
++	external := db.client.config.externalRoleLocking()
++	if external {
++		externalRoleWriteMutex.Lock()
++		defer externalRoleWriteMutex.Unlock()
++
++		if err := rejectConfiguredRoles(d.GetRawConfig()); err != nil {
++			return err
++		}
++	}
++
+ 	txn, err := startTransaction(db.client, "")
+ 	if err != nil {
+ 		return err
+@@ -296,7 +317,7 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
  					createOpts = append(createOpts, "UNENCRYPTED")
  				}
  				createOpts = append(createOpts,
@@ -20,7 +114,188 @@ index 38bfb9e..390d86a 100644
  			}
  
  		case roleValidUntilAttr:
-@@ -668,7 +668,21 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
+@@ -350,36 +371,72 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
+ 		return fmt.Errorf("error creating role %s: %w", roleName, err)
+ 	}
+ 
+-	if err = grantRoles(txn, d); err != nil {
+-		return err
++	var created managedRole
++	if external {
++		created, err = captureCreatedRole(txn, roleName)
++		if err != nil {
++			return err
++		}
++		d.SetId(created.name)
++		if err := d.Set(roleOIDAttr, int(created.oid)); err != nil {
++			return failExternalRoleWrite(db, d, txn, created, fmt.Errorf("record created role OID: %w", err))
++		}
+ 	}
+ 
+-	if err = alterSearchPath(txn, d); err != nil {
++	if err = finishRoleCreate(txn, d, external); err != nil {
++		if external {
++			return failExternalRoleWrite(db, d, txn, created, err)
++		}
+ 		return err
+ 	}
+ 
+-	if err = setStatementTimeout(txn, d); err != nil {
+-		return err
+-	}
+-
+-	if err = setIdleInTransactionSessionTimeout(txn, d); err != nil {
+-		return err
+-	}
+-
+-	if err = setAssumeRole(txn, d); err != nil {
+-		return err
+-	}
+-
+-	if err = txn.Commit(); err != nil {
+-		return fmt.Errorf("could not commit transaction: %w", err)
+-	}
+-
+ 	d.SetId(roleName)
++	if external {
++		if password, ok := getWO(d, rolePasswordWOAttr); ok && password != "" {
++			if err := d.Set(rolePasswordAppliedNameAttr, roleName); err != nil {
++				return fmt.Errorf("record password role name: %w", err)
++			}
++		}
++	}
+ 
+ 	return resourcePostgreSQLRoleReadImpl(db, d)
+ }
+ 
++func finishRoleCreate(txn *sql.Tx, d *schema.ResourceData, external bool) error {
++	if !external {
++		if err := grantRoles(txn, d); err != nil {
++			return err
++		}
++	}
++
++	if err := alterSearchPath(txn, d); err != nil {
++		return err
++	}
++
++	if err := setStatementTimeout(txn, d); err != nil {
++		return err
++	}
++
++	if err := setIdleInTransactionSessionTimeout(txn, d); err != nil {
++		return err
++	}
++
++	if err := setAssumeRole(txn, d); err != nil {
++		return err
++	}
++
++	if err := txn.Commit(); err != nil {
++		return fmt.Errorf("could not commit transaction: %w", err)
++	}
++
++	return nil
++}
++
+ func resourcePostgreSQLRoleDelete(db *DBConnection, d *schema.ResourceData) error {
++	if db.client.config.externalRoleLocking() {
++		return resourcePostgreSQLRoleDeleteExternal(db, d)
++	}
++
+ 	roleName := d.Get(roleNameAttr).(string)
+ 
+ 	txn, err := startTransaction(db.client, "")
+@@ -423,6 +480,10 @@ func resourcePostgreSQLRoleDelete(db *DBConnection, d *schema.ResourceData) erro
+ }
+ 
+ func resourcePostgreSQLRoleExists(db *DBConnection, d *schema.ResourceData) (bool, error) {
++	if db.client.config.externalRoleLocking() {
++		return resourcePostgreSQLRoleExistsExternal(db, d)
++	}
++
+ 	var roleName string
+ 	err := db.QueryRow("SELECT rolname FROM pg_catalog.pg_roles WHERE rolname=$1", d.Id()).Scan(&roleName)
+ 	switch {
+@@ -442,13 +503,30 @@ func resourcePostgreSQLRoleRead(db *DBConnection, d *schema.ResourceData) error
+ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) error {
+ 	var roleSuperuser, roleInherit, roleCreateRole, roleCreateDB, roleCanLogin, roleReplication, roleBypassRLS bool
+ 	var roleConnLimit int
++	var roleOID int64
+ 	var roleName, roleValidUntil string
+ 	var roleRoles, roleConfig pq.ByteaArray
+ 
+-	roleID := d.Id()
++	external := db.client.config.externalRoleLocking()
++	roleFilter := "rolname=$1"
++	var roleKey any = d.Id()
++	if external {
++		managed, err := resolveManagedRole(db, d)
++		if err != nil {
++			return err
++		}
++		if !managed.found {
++			log.Printf("[WARN] PostgreSQL ROLE (%s) with OID %d not found", managed.name, managed.oid)
++			d.SetId("")
++			return nil
++		}
++		roleFilter = "oid=$1"
++		roleKey = managed.oid
++	}
+ 
+ 	columns := []string{
+ 		"rolname",
++		"oid::bigint",
+ 		"rolsuper",
+ 		"rolinherit",
+ 		"rolcreaterole",
+@@ -462,6 +540,7 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+ 	values := []any{
+ 		&roleRoles,
+ 		&roleName,
++		&roleOID,
+ 		&roleSuperuser,
+ 		&roleInherit,
+ 		&roleCreateRole,
+@@ -485,21 +564,23 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+ 	roleSQL := fmt.Sprintf(`SELECT ARRAY(
+ 			SELECT pg_get_userbyid(roleid) FROM pg_catalog.pg_auth_members members WHERE member = pg_roles.oid
+ 		), %s
+-		FROM pg_catalog.pg_roles WHERE rolname=$1`,
++		FROM pg_catalog.pg_roles WHERE %s`,
+ 		// select columns
+ 		strings.Join(columns, ", "),
++		roleFilter,
+ 	)
+-	err := db.QueryRow(roleSQL, roleID).Scan(values...)
++	err := db.QueryRow(roleSQL, roleKey).Scan(values...)
+ 
+ 	switch {
+ 	case err == sql.ErrNoRows:
+-		log.Printf("[WARN] PostgreSQL ROLE (%s) not found", roleID)
++		log.Printf("[WARN] PostgreSQL ROLE (%v) not found", roleKey)
+ 		d.SetId("")
+ 		return nil
+ 	case err != nil:
+ 		return fmt.Errorf("error reading ROLE: %w", err)
+ 	}
+ 
++	d.Set(roleOIDAttr, int(roleOID))
+ 	d.Set(roleNameAttr, roleName)
+ 	d.Set(roleConnLimitAttr, roleConnLimit)
+ 	d.Set(roleCreateDBAttr, roleCreateDB)
+@@ -513,7 +594,9 @@ func resourcePostgreSQLRoleReadImpl(db *DBConnection, d *schema.ResourceData) er
+ 	d.Set(roleValidUntilAttr, roleValidUntil)
+ 	d.Set(roleReplicationAttr, roleReplication)
+ 	d.Set(roleBypassRLSAttr, roleBypassRLS)
+-	d.Set(roleRolesAttr, pgArrayToSet(roleRoles))
++	if !external {
++		d.Set(roleRolesAttr, pgArrayToSet(roleRoles))
++	}
+ 	d.Set(roleSearchPathAttr, readSearchPath(roleConfig))
+ 	d.Set(roleAssumeRoleAttr, readAssumeRole(roleConfig))
+ 
+@@ -668,7 +751,25 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
  	return rolePassword, nil
  }
  
@@ -31,6 +306,10 @@ index 38bfb9e..390d86a 100644
 +}
 +
  func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) error {
++	if db.client.config.externalRoleLocking() {
++		return resourcePostgreSQLRoleUpdateExternal(db, d)
++	}
++
 +	priorID := d.Id()
 +	committed := false
 +	defer func() {
@@ -42,10 +321,20 @@ index 38bfb9e..390d86a 100644
  	txn, err := startTransaction(db.client, "")
  	if err != nil {
  		return err
-@@ -753,6 +767,12 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
+@@ -684,7 +785,7 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
+ 		return err
+ 	}
+ 
+-	if err := setRolePassword(txn, d); err != nil {
++	if err := setRolePassword(txn, d, false); err != nil {
+ 		return err
+ 	}
+ 
+@@ -753,7 +854,13 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
  		return fmt.Errorf("could not commit transaction: %w", err)
  	}
  
+-	return resourcePostgreSQLRoleReadImpl(db, d)
 +	committed = true
 +	if err := resourcePostgreSQLRoleReadImpl(db, d); err != nil {
 +		return err
@@ -53,10 +342,25 @@ index 38bfb9e..390d86a 100644
 +	d.Partial(false)
 +	return nil
 +
--	return resourcePostgreSQLRoleReadImpl(db, d)
  }
  
-@@ -805,7 +825,7 @@ func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
+ func setRoleName(txn *sql.Tx, d *schema.ResourceData) error {
+@@ -778,11 +885,11 @@ func setRoleName(txn *sql.Tx, d *schema.ResourceData) error {
+ 	return nil
+ }
+ 
+-func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
++func setRolePassword(txn *sql.Tx, d *schema.ResourceData, force bool) error {
+ 
+-	// Early exit if password WO and version are set, and version has not changed
++	// Reapply the write-only password after a role rename.
+ 	if _, ok := getWO(d, rolePasswordWOAttr); ok {
+-		if !d.HasChange(rolePasswordWOVersionAttr) {
++		if !force && !d.HasChange(rolePasswordWOVersionAttr) && !d.HasChange(roleNameAttr) {
+ 			return nil
+ 		}
+ 	} else {
+@@ -805,7 +912,7 @@ func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
  		return nil
  	}
  
@@ -65,3 +369,324 @@ index 38bfb9e..390d86a 100644
  	if _, err := txn.Exec(sql); err != nil {
  		return fmt.Errorf("error updating role password: %w", err)
  	}
+diff --git a/postgresql/role_external.go b/postgresql/role_external.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..29f7312f85b0f0e49675c38abca32894b64424f8
+--- /dev/null
++++ b/postgresql/role_external.go
+@@ -0,0 +1,315 @@
++package postgresql
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"sync"
++
++	"github.com/hashicorp/go-cty/cty"
++	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
++	"github.com/lib/pq"
++)
++
++const (
++	roleLockModeAttr            = "role_lock_mode"
++	roleLockModeAdvisory        = "advisory"
++	roleLockModeExternal        = "external"
++	roleOIDAttr                 = "role_oid"
++	rolePasswordAppliedNameAttr = "password_wo_applied_name"
++)
++
++// externalRoleWriteMutex serializes postgresql_role create, update, and delete
++// calls inside this provider process when role_lock_mode is external. The
++// deployment controller must serialize provider instances and hold the real
++// host and backend locks.
++var externalRoleWriteMutex sync.Mutex
++
++func (c *Config) externalRoleLocking() bool {
++	return c.RoleLockMode == roleLockModeExternal
++}
++
++type managedRole struct {
++	oid   int64
++	name  string
++	found bool
++}
++
++func lookupRoleNameByOID(db QueryAble, oid int64) (string, bool, error) {
++	var name string
++	err := db.QueryRow("SELECT rolname FROM pg_catalog.pg_roles WHERE oid = $1", oid).Scan(&name)
++	switch {
++	case errors.Is(err, sql.ErrNoRows):
++		return "", false, nil
++	case err != nil:
++		return "", false, fmt.Errorf("could not read the name of role OID %d: %w", oid, err)
++	}
++	return name, true, nil
++}
++
++func lookupRoleOIDByName(db QueryAble, name string) (int64, bool, error) {
++	var oid int64
++	err := db.QueryRow("SELECT oid::bigint FROM pg_catalog.pg_roles WHERE rolname = $1", name).Scan(&oid)
++	switch {
++	case errors.Is(err, sql.ErrNoRows):
++		return 0, false, nil
++	case err != nil:
++		return 0, false, fmt.Errorf("could not read the OID of role %s: %w", name, err)
++	}
++	return oid, true, nil
++}
++
++// resolveManagedRole finds the role that the resource state identifies. It looks
++// up the stored role_oid before the name. A renamed role is found under its
++// current name, and a different role that has the old name is never adopted.
++func resolveManagedRole(db QueryAble, d *schema.ResourceData) (managedRole, error) {
++	storedOID := int64(d.Get(roleOIDAttr).(int))
++	if storedOID == 0 {
++		oid, found, err := lookupRoleOIDByName(db, d.Id())
++		if err != nil {
++			return managedRole{}, err
++		}
++		return managedRole{oid: oid, name: d.Id(), found: found}, nil
++	}
++
++	name, found, err := lookupRoleNameByOID(db, storedOID)
++	if err != nil {
++		return managedRole{}, err
++	}
++	if found {
++		return managedRole{oid: storedOID, name: name, found: true}, nil
++	}
++
++	otherOID, nameTaken, err := lookupRoleOIDByName(db, d.Id())
++	if err != nil {
++		return managedRole{}, err
++	}
++	if nameTaken {
++		return managedRole{}, fmt.Errorf(
++			"role identity conflict: the role with OID %d no longer exists, and a different role with OID %d has the name %s; "+
++				"remove the resource from state or restore the original role before applying",
++			storedOID, otherOID, d.Id(),
++		)
++	}
++	return managedRole{oid: storedOID, name: d.Id(), found: false}, nil
++}
++
++func resourcePostgreSQLRoleExistsExternal(db *DBConnection, d *schema.ResourceData) (bool, error) {
++	role, err := resolveManagedRole(db, d)
++	if err != nil {
++		return false, err
++	}
++	return role.found, nil
++}
++
++// Raw configuration distinguishes an explicitly configured set from earlier state.
++func rejectConfiguredRoles(rawConfig cty.Value) error {
++	if rawConfig.IsNull() || !rawConfig.Type().IsObjectType() || !rawConfig.Type().HasAttribute(roleRolesAttr) {
++		return nil
++	}
++	if rawConfig.GetAttr(roleRolesAttr).IsNull() {
++		return nil
++	}
++	return fmt.Errorf(
++		"%s is not supported when %s is %q: the role resource does not reconcile memberships in this mode; "+
++			"remove %s from the postgresql_role resource and manage grants with postgresql_grant_role",
++		roleRolesAttr, roleLockModeAttr, roleLockModeExternal, roleRolesAttr,
++	)
++}
++
++func customizeRoleDiff(_ context.Context, diff *schema.ResourceDiff, meta any) error {
++	client, ok := meta.(*Client)
++	if !ok || !client.config.externalRoleLocking() {
++		return nil
++	}
++	raw := diff.GetRawConfig()
++	if err := rejectConfiguredRoles(raw); err != nil {
++		return err
++	}
++	if raw.IsNull() || !raw.IsKnown() || raw.GetAttr(rolePasswordWOVersionAttr).IsNull() {
++		return nil
++	}
++	password := raw.GetAttr(rolePasswordWOAttr)
++	if password.IsKnown() && (password.IsNull() || password.AsString() == "") {
++		return nil
++	}
++	name, ok := diff.GetOk(roleNameAttr)
++	if !ok || diff.Get(rolePasswordAppliedNameAttr).(string) == name.(string) {
++		return nil
++	}
++	return diff.SetNewComputed(rolePasswordAppliedNameAttr)
++}
++
++func captureCreatedRole(txn *sql.Tx, name string) (managedRole, error) {
++	oid, found, err := lookupRoleOIDByName(txn, name)
++	if err != nil {
++		return managedRole{}, err
++	}
++	if !found {
++		return managedRole{}, fmt.Errorf("role %s is not visible after CREATE ROLE", name)
++	}
++	return managedRole{oid: oid, name: name, found: true}, nil
++}
++
++// Preserve the captured identity until readback confirms the role is absent.
++func failExternalRoleWrite(db *DBConnection, d *schema.ResourceData, txn *sql.Tx, role managedRole, writeErr error) error {
++	d.SetId(role.name)
++	if err := d.Set(roleOIDAttr, int(role.oid)); err != nil {
++		writeErr = errors.Join(writeErr, fmt.Errorf("record role OID %d: %w", role.oid, err))
++	}
++	if rollbackErr := txn.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
++		return errors.Join(writeErr, fmt.Errorf("could not roll back the failed transaction: %w", rollbackErr))
++	}
++	name, found, readErr := lookupRoleNameByOID(db, role.oid)
++	if readErr != nil {
++		return errors.Join(writeErr, fmt.Errorf("could not read role OID %d after the failed write: %w", role.oid, readErr))
++	}
++	if found {
++		d.SetId(name)
++	} else {
++		d.SetId("")
++	}
++	return writeErr
++}
++
++func externalRoleStatements(db *DBConnection, txn *sql.Tx, d *schema.ResourceData, role managedRole) error {
++	if err := setExternalRoleName(txn, d, role); err != nil {
++		return err
++	}
++	priorName, _ := d.GetChange(rolePasswordAppliedNameAttr)
++	forcePassword := priorName.(string) != d.Get(roleNameAttr).(string)
++	steps := []func() error{
++		func() error { return setRolePassword(txn, d, forcePassword) },
++		func() error { return setRoleBypassRLS(db, txn, d) },
++		func() error { return setRoleConnLimit(txn, d) },
++		func() error { return setRoleCreateDB(txn, d) },
++		func() error { return setRoleCreateRole(txn, d) },
++		func() error { return setRoleInherit(txn, d) },
++		func() error { return setRoleLogin(txn, d) },
++		func() error { return setRoleReplication(txn, d) },
++		func() error { return setRoleSuperuser(txn, d) },
++		func() error { return setRoleValidUntil(txn, d) },
++		func() error { return alterSearchPath(txn, d) },
++		func() error { return setStatementTimeout(txn, d) },
++		func() error { return setIdleInTransactionSessionTimeout(txn, d) },
++		func() error { return setAssumeRole(txn, d) },
++	}
++	for _, step := range steps {
++		if err := step(); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++func setExternalRoleName(txn *sql.Tx, d *schema.ResourceData, role managedRole) error {
++	requested := d.Get(roleNameAttr).(string)
++	if requested == "" {
++		return errors.New("error setting role name to an empty string")
++	}
++	if requested == role.name {
++		return nil
++	}
++	rename := fmt.Sprintf("ALTER ROLE %s RENAME TO %s", pq.QuoteIdentifier(role.name), pq.QuoteIdentifier(requested))
++	if _, err := txn.Exec(rename); err != nil {
++		return fmt.Errorf("error updating role NAME: %w", err)
++	}
++	d.SetId(requested)
++	return nil
++}
++
++func resourcePostgreSQLRoleUpdateExternal(db *DBConnection, d *schema.ResourceData) error {
++	externalRoleWriteMutex.Lock()
++	defer externalRoleWriteMutex.Unlock()
++
++	if err := rejectConfiguredRoles(d.GetRawConfig()); err != nil {
++		return err
++	}
++	role, err := resolveManagedRole(db, d)
++	if err != nil {
++		return err
++	}
++	if !role.found {
++		return fmt.Errorf("role OID %d (%s) does not exist; refresh the state before applying", role.oid, d.Id())
++	}
++	if d.Get(roleOIDAttr).(int) == 0 && d.Get(roleNameAttr).(string) != role.name {
++		return fmt.Errorf(
++			"the state of role %s has no %s; run a refresh to record the role identity before renaming the role",
++			role.name, roleOIDAttr,
++		)
++	}
++
++	txn, err := startTransaction(db.client, "")
++	if err != nil {
++		return err
++	}
++	defer deferredRollback(txn)
++
++	if err := externalRoleStatements(db, txn, d, role); err != nil {
++		return failExternalRoleWrite(db, d, txn, role, err)
++	}
++	if err := txn.Commit(); err != nil {
++		return failExternalRoleWrite(db, d, txn, role, fmt.Errorf("could not commit transaction: %w", err))
++	}
++
++	if err := resourcePostgreSQLRoleReadImpl(db, d); err != nil {
++		return err
++	}
++	if _, ok := getWO(d, rolePasswordWOAttr); ok {
++		if err := d.Set(rolePasswordAppliedNameAttr, d.Get(roleNameAttr).(string)); err != nil {
++			return fmt.Errorf("record password role name: %w", err)
++		}
++	}
++	d.Partial(false)
++	return nil
++}
++
++func resourcePostgreSQLRoleDeleteExternal(db *DBConnection, d *schema.ResourceData) error {
++	externalRoleWriteMutex.Lock()
++	defer externalRoleWriteMutex.Unlock()
++
++	role, err := resolveManagedRole(db, d)
++	if err != nil {
++		return err
++	}
++	if !role.found {
++		d.SetId("")
++		return nil
++	}
++
++	txn, err := startTransaction(db.client, "")
++	if err != nil {
++		return err
++	}
++	defer deferredRollback(txn)
++
++	if err := dropExternalRole(db, txn, d, role.name); err != nil {
++		return failExternalRoleWrite(db, d, txn, role, err)
++	}
++	if err := txn.Commit(); err != nil {
++		return failExternalRoleWrite(db, d, txn, role, fmt.Errorf("error committing schema: %w", err))
++	}
++
++	d.SetId("")
++	return nil
++}
++
++func dropExternalRole(db *DBConnection, txn *sql.Tx, d *schema.ResourceData, roleName string) error {
++	if !d.Get(roleSkipReassignOwnedAttr).(bool) {
++		currentUser := db.client.config.getDatabaseUsername()
++		reassign := fmt.Sprintf("REASSIGN OWNED BY %s TO %s", pq.QuoteIdentifier(roleName), pq.QuoteIdentifier(currentUser))
++		if _, err := txn.Exec(reassign); err != nil {
++			return fmt.Errorf("could not reassign owned by role %s to %s: %w", roleName, currentUser, err)
++		}
++		if _, err := txn.Exec(fmt.Sprintf("DROP OWNED BY %s", pq.QuoteIdentifier(roleName))); err != nil {
++			return fmt.Errorf("could not drop owned by role %s: %w", roleName, err)
++		}
++	}
++	if !d.Get(roleSkipDropRoleAttr).(bool) {
++		if _, err := txn.Exec(fmt.Sprintf("DROP ROLE %s", pq.QuoteIdentifier(roleName))); err != nil {
++			return fmt.Errorf("could not delete role %s: %w", roleName, err)
++		}
++	}
++	return nil
++}
