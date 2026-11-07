@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -9,10 +10,9 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/response"
 	"goodkind.io/tack/internal/telemetry"
 )
-
-const commandHeaderMarker = "#meta "
 
 // CommandContext returns the test context with the request ID and sampled span context that the server root command attaches to each command.
 func CommandContext(t *testing.T) context.Context {
@@ -27,7 +27,7 @@ func CommandContext(t *testing.T) context.Context {
 	return telemetry.WithRequestMetadata(oteltrace.ContextWithSpanContext(t.Context(), spanContext), uuid.NewString())
 }
 
-// RequireCommandCorrelation requires each event to store the request ID and trace ID from the trace header line of the command output.
+// RequireCommandCorrelation requires each event to store the request ID and trace ID from the _meta object of the JSON command output.
 func RequireCommandCorrelation(t *testing.T, output string, events []audit.Event) {
 	t.Helper()
 	requestID, traceID := CommandCorrelation(t, output)
@@ -42,24 +42,15 @@ func RequireCommandCorrelation(t *testing.T, output string, events []audit.Event
 	}
 }
 
-// CommandCorrelation returns the request ID and trace ID from the trace header line of the command output.
+// CommandCorrelation returns the request ID and trace ID from the _meta object of the JSON command output.
 func CommandCorrelation(t *testing.T, output string) (string, string) {
 	t.Helper()
-	fields := map[string]string{}
-	for line := range strings.Lines(output) {
-		header, found := strings.CutPrefix(strings.TrimSpace(line), commandHeaderMarker)
-		if !found {
-			continue
-		}
-		for field := range strings.FieldsSeq(header) {
-			key, value, _ := strings.Cut(field, "=")
-			fields[key] = value
-		}
-		break
+	var document response.JSONDocument
+	if err := json.NewDecoder(strings.NewReader(output)).Decode(&document); err != nil {
+		t.Fatalf("decode the JSON command output: %v\n%s", err, output)
 	}
-	requestID, traceID := fields["request_id"], fields["trace_id"]
-	if requestID == "" || traceID == "" {
-		t.Fatalf("command output does not report a request ID and a trace ID:\n%s", output)
+	if document.Meta.RequestID == "" || document.Meta.TraceID == "" {
+		t.Fatalf("command _meta = %+v, want a request ID and a trace ID\n%s", document.Meta, output)
 	}
-	return requestID, traceID
+	return document.Meta.RequestID, document.Meta.TraceID
 }

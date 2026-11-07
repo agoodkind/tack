@@ -98,7 +98,7 @@ func actAsCreateCase() coverageCase {
 		run: func(t *testing.T, env *coverageEnv) coverageEvidence {
 			input := commandInput{args: []string{
 				"ops", "act-as", "create", "--user", env.userEmail(t), "--reason", "coverage", "--parent", env.fixture(t).nodes["project"].String(),
-				"--node-type", "issue", "--name", "Coverage act-as " + uuid.NewString()[:8],
+				"--node-type", "issue", "--name", "Coverage act-as " + uuid.NewString()[:8], "--output", "json",
 			}, configure: nil, outbox: nil, correlated: true}
 			operatorID, output, err := env.commandWith(t, input)
 			if err != nil {
