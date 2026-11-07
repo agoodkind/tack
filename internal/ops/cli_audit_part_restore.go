@@ -96,9 +96,12 @@ func auditPartRestoreCobra(f *cli.Factory) *cobra.Command {
 		recordedSearchPreview(f, spec, input, func(ctx context.Context, sink clispec.ResultSink) error {
 			loaded, err := load(ctx)
 			if err != nil {
-				return err
+				return previewFailure(err)
 			}
-			return previewAuditPartRestore(ctx, f, loaded, sink)
+			if err := previewAuditPartRestore(ctx, f, loaded, sink); err != nil {
+				return previewFailure(err)
+			}
+			return nil
 		}))
 	return cmd
 }

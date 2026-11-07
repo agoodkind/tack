@@ -126,6 +126,9 @@ func (p *partRestorePipeline) requireStepRecords(t *testing.T, intent audit.Row)
 			identity.SourceEventID != manifest.SourceEventID || identity.PartIndex != manifest.PartIndex || identity.RootDigest != manifest.ManifestSHA256 {
 			t.Fatalf("step row %s = target %+v, extra %s, want the part target and the manifest identities", row.EventID, row.Context.Target, row.Extra)
 		}
+		if row.Context.Phase == audit.PhaseResult {
+			p.requireObservedEvidence(t, row)
+		}
 	}
 }
 

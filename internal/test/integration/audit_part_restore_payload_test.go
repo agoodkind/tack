@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"goodkind.io/tack/internal/audit"
 )
 
 func (p *partRestorePipeline) requireProtectedPayload(t *testing.T, reference uuid.UUID) {
@@ -32,6 +34,22 @@ func (p *partRestorePipeline) requireProtectedPayload(t *testing.T, reference uu
 	if !bytes.Equal(reconstructed, parts[0].Payload) || subjectID != p.target || orgID != p.org {
 		t.Fatalf("protected payload: %d bytes equal %v, subject %s, org %s, want the stored part of %s in org %s",
 			len(reconstructed), bytes.Equal(reconstructed, parts[0].Payload), subjectID, orgID, p.target, p.org)
+	}
+}
+
+func (p *partRestorePipeline) requireObservedEvidence(t *testing.T, row audit.Row) {
+	t.Helper()
+	var observed struct {
+		PartDigest    string `json:"part_digest"`
+		PayloadBytes  int    `json:"payload_bytes"`
+		TargetSeq     int64  `json:"target_seq"`
+		TargetShard   int16  `json:"target_shard"`
+		TargetRowHash []byte `json:"target_row_hash"`
+	}
+	manifest := p.manifest
+	if err := json.Unmarshal(row.Extra, &observed); err != nil || observed.PartDigest != manifest.ManifestSHA256 || observed.PayloadBytes != len(p.payload) ||
+		observed.TargetSeq != manifest.TargetSeq || observed.TargetShard != manifest.TargetShard || !bytes.Equal(observed.TargetRowHash, manifest.TargetRowHash) {
+		t.Fatalf("step result evidence = %s, error %v, want the stored part digest, %d payload bytes, and the unchanged target seq, shard, and row hash", row.Extra, err, len(p.payload))
 	}
 }
 

@@ -16,6 +16,10 @@ const ReadFinalizeDeadline = 30 * time.Second
 
 const readFailedCode = "read_failed"
 
+type operatorReadOutcome interface {
+	ReadOutcome() OutcomeDetails
+}
+
 // ErrReadNotAdmitted reports that RecordOperatorRead did not save the
 // admission and did not run the read.
 var ErrReadNotAdmitted = errors.New("audit read: RecordOperatorRead did not save the read admission")
@@ -80,6 +84,12 @@ func operatorReadCompletion(token ReadToken, template Event, output OperatorRead
 	if readErr != nil {
 		final.Outcome = OutcomeFailed
 		final.Error = &EventError{Code: readFailedCode, Message: readErr.Error()}
+		var carrier operatorReadOutcome
+		if errors.As(readErr, &carrier) {
+			details := carrier.ReadOutcome()
+			final.Outcome = details.Outcome
+			final.Error = &EventError{Code: details.FailureCode, Message: details.FailureMessage}
+		}
 		final.Context.Read = nil
 		targets = nil
 	} else {

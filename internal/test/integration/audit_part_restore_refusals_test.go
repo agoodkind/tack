@@ -85,6 +85,13 @@ func storedStateRefusals() []partRestoreRefusal {
 			fragment: "does not hash to the declared root",
 		},
 		{
+			name: "only the source belongs to another organization",
+			prepare: func(t *testing.T, f partRestoreRawFixture) {
+				mustExec(t, f.admin, `UPDATE audit.events SET org_id = $3 WHERE org_id = $1 AND event_id = $2`, f.org, f.source, uuid.Must(uuid.NewV7()))
+			},
+			fragment: partRestoreSourceFragment,
+		},
+		{
 			name: "source declares another root",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
 				mustExec(t, f.admin, partRestoreRootStatement, f.org, f.source, "00"+f.call.root[2:])

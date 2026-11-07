@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -120,29 +121,48 @@ func restoreAuditPart(ctx context.Context, f *cli.Factory, loaded auditPartResto
 	return recordedStep(ctx, steps, audit.ExternalStep(auditPartTarget(m.TargetEventID, m.PartIndex), planned),
 		func(ctx context.Context) error { return callAuditPartRestore(ctx, pool, m, encoded) },
 		func(ctx context.Context) (json.RawMessage, error) {
-			if err := verifyRestoredAuditPart(ctx, loaded.reader, m, loaded.state); err != nil {
+			observed, err := observeRestoredAuditPart(ctx, loaded.reader, m, loaded.state)
+			if err != nil {
 				return nil, err
 			}
-			return planned, nil
+			return encodeEvidence(ctx, observed)
 		})
 }
 
-func verifyRestoredAuditPart(ctx context.Context, reader *audit.Reader, m AuditPartRestoreManifest, before auditPartRestoreState) error {
+type auditPartRestoreObserved struct {
+	auditPartRestoreIdentity
+	PartDigest    string `json:"part_digest"`
+	PayloadBytes  int    `json:"payload_bytes"`
+	TargetSeq     int64  `json:"target_seq"`
+	TargetShard   int16  `json:"target_shard"`
+	TargetRowHash []byte `json:"target_row_hash"`
+}
+
+func (auditPartRestoreObserved) isStepEvidence() {}
+
+func observeRestoredAuditPart(ctx context.Context, reader *audit.Reader, m AuditPartRestoreManifest, before auditPartRestoreState) (auditPartRestoreObserved, error) {
 	verification, err := reader.VerifyManifest(ctx, m.OrgID, m.TargetEventID)
 	if err != nil {
-		return partRestoreFailure(ctx, "verify the restored event "+m.TargetEventID.String(), err)
+		return auditPartRestoreObserved{}, partRestoreFailure(ctx, "verify the restored event "+m.TargetEventID.String(), err)
 	}
 	if err := checkVerification(m, verification); err != nil {
-		return partRestoreFailure(ctx, "check the restored event "+m.TargetEventID.String(), err)
+		return auditPartRestoreObserved{}, partRestoreFailure(ctx, "check the restored event "+m.TargetEventID.String(), err)
+	}
+	parts, err := reader.ManifestParts(ctx, m.OrgID, m.TargetEventID)
+	if err != nil || len(parts) != 1 {
+		return auditPartRestoreObserved{}, partRestoreFailure(ctx, "read the restored part of event "+m.TargetEventID.String(), errors.Join(err, errAuditPartRestoreRefused))
 	}
 	after, err := reader.GetByID(ctx, m.TargetEventID)
 	if err != nil {
-		return partRestoreFailure(ctx, "read the restored event "+m.TargetEventID.String(), err)
+		return auditPartRestoreObserved{}, partRestoreFailure(ctx, "read the restored event "+m.TargetEventID.String(), err)
 	}
 	if !sameLedgerRow(before.Target, *after) {
-		return partRestoreFailure(ctx, "compare the ledger row of event "+m.TargetEventID.String(), errAuditPartRestoreRefused)
+		return auditPartRestoreObserved{}, partRestoreFailure(ctx, "compare the ledger row of event "+m.TargetEventID.String(), errAuditPartRestoreRefused)
 	}
-	return nil
+	return auditPartRestoreObserved{
+		auditPartRestoreIdentity: m.identity(), PartDigest: parts[0].Digest, PayloadBytes: len(parts[0].Payload),
+		TargetSeq: after.Seq, TargetShard: after.Shard, TargetRowHash: after.RowHash,
+	}, nil
 }
 
 func writeAuditPartResult(ctx context.Context, sink clispec.ResultSink, result auditPartRestoreResult) error {

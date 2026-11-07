@@ -53,7 +53,7 @@ func recordedStep(
 	details := commandOutcome(audit.OutcomeCompleted, "", nil)
 	var evidence json.RawMessage
 	if effectErr != nil {
-		details = commandOutcome(audit.OutcomeFailed, commandFailedCode, effectErr)
+		details = outcomeFor(effectErr)
 	} else {
 		observed, err := observe(ctx)
 		if err != nil {

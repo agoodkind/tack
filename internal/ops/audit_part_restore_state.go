@@ -52,6 +52,21 @@ func outcomeFor(err error) audit.OutcomeDetails {
 	}
 }
 
+type auditPartRestoreOutcomeError struct {
+	details audit.OutcomeDetails
+	cause   error
+}
+
+func (e auditPartRestoreOutcomeError) Error() string { return e.cause.Error() }
+
+func (e auditPartRestoreOutcomeError) Unwrap() error { return e.cause }
+
+func (e auditPartRestoreOutcomeError) ReadOutcome() audit.OutcomeDetails { return e.details }
+
+func previewFailure(err error) error {
+	return auditPartRestoreOutcomeError{details: outcomeFor(err), cause: err}
+}
+
 func refusePartRestore(ctx context.Context, reason string) error {
 	return refuseWith(ctx, errAuditPartRestoreRefused, reason)
 }

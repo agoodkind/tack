@@ -5,9 +5,11 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strconv"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
@@ -16,6 +18,8 @@ import (
 
 //go:embed audit_part_restore.sql
 var auditPartRestoreStatement string
+
+const auditPartRestoreSQLState = "TK620"
 
 var auditPartRestoreNamespace = uuid.NewSHA1(uuid.NameSpaceURL, []byte("tack:audit-part-restore"))
 
@@ -97,6 +101,10 @@ func callAuditPartRestore(ctx context.Context, pool *pgxpool.Pool, m AuditPartRe
 		m.SourceRowHash, m.SourceSeq, m.SourceShard,
 		encoded.EventID, header, parts,
 	)
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == auditPartRestoreSQLState {
+		return refusePartRestore(ctx, "the restore function refused: "+postgresError.Message)
+	}
 	if err != nil {
 		return partRestoreFailure(ctx, "restore the part of event "+m.TargetEventID.String(), err)
 	}
