@@ -21,7 +21,7 @@ const partRestoreInvalidManifestText = "the part restore manifest is not valid"
 
 var partRestoreMandatoryMembers = []string{
 	"schema_version", "ticket", "org_id", "target_event_id", "source_event_id", "part_index", "manifest_sha256",
-	"part_digest", "declared_parts", "identity_count", "target_seq", "target_shard", "target_hash_version",
+	"declared_parts", "identity_count", "target_seq", "target_shard", "target_hash_version",
 	"target_row_hash", "source_seq", "source_shard", "source_row_hash",
 }
 
@@ -31,7 +31,7 @@ func syntheticPartRestoreManifest(t *testing.T) ops.AuditPartRestoreManifest {
 	rootText := hex.EncodeToString(root[:])
 	return ops.AuditPartRestoreManifest{
 		SchemaVersion: 1, Ticket: "TACK-620", OrgID: uuid.Must(uuid.NewV7()), TargetEventID: uuid.Must(uuid.NewV7()),
-		SourceEventID: uuid.Must(uuid.NewV7()), PartIndex: 0, ManifestSHA256: rootText, PartDigest: rootText,
+		SourceEventID: uuid.Must(uuid.NewV7()), PartIndex: 0, ManifestSHA256: rootText,
 		DeclaredParts: 1, IdentityCount: partRestoreIdentityCount, TargetSeq: 3, TargetShard: 0, TargetHashVersion: 3,
 		TargetRowHash: randomBytes(t, partRestoreHashBytes), SourceSeq: 4, SourceShard: 0, SourceRowHash: randomBytes(t, partRestoreHashBytes),
 	}

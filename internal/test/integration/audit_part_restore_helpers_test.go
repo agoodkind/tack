@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -25,18 +24,14 @@ const (
 )
 
 type partRestoreCall struct {
-	org, event, source uuid.UUID
-	partIndex          int64
-	root               string
-	rowHash            []byte
-	seq                int64
-	shard              int16
-	sourceRowHash      []byte
-	sourceSeq          int64
-	sourceShard        int16
-	changeID           uuid.UUID
-	header             []byte
-	parts              [][]byte
+	org, event, source     uuid.UUID
+	root                   string
+	rowHash, sourceRowHash []byte
+	seq, sourceSeq         int64
+	shard, sourceShard     int16
+	changeID               uuid.UUID
+	header                 []byte
+	parts                  [][]byte
 }
 
 type partRestoreRawFixture struct {
@@ -57,13 +52,17 @@ func randomBytes(t *testing.T, size int) []byte {
 	return buffer
 }
 
-func (f partRestoreRawFixture) insertEvent(t *testing.T, org, event uuid.UUID, root string, seq int64, hash []byte) {
+func mustExec(t *testing.T, pool *pgxpool.Pool, statement string, arguments ...any) {
 	t.Helper()
-	_, err := f.admin.Exec(t.Context(), readTestSQL(t, "part_restore_event_insert.sql"),
-		org, int16(partRestoreFixtureShard), event, seq, uuid.Must(uuid.NewV7()), root, randomBytes(t, partRestoreHashBytes), hash)
-	if err != nil {
-		t.Fatalf("insert synthetic event %s: %v", event, err)
+	if _, err := pool.Exec(t.Context(), statement, arguments...); err != nil {
+		t.Fatalf("run %q: %v", statement, err)
 	}
+}
+
+func (f partRestoreRawFixture) insertEvent(t *testing.T, event uuid.UUID, root string, seq int64, hash []byte) {
+	t.Helper()
+	mustExec(t, f.admin, readTestSQL(t, "part_restore_event_insert.sql"),
+		f.org, int16(partRestoreFixtureShard), event, seq, uuid.Must(uuid.NewV7()), root, randomBytes(t, partRestoreHashBytes), hash)
 }
 
 func newPartRestoreRawFixture(t *testing.T, admin *pgxpool.Pool) partRestoreRawFixture {
@@ -75,30 +74,30 @@ func newPartRestoreRawFixture(t *testing.T, admin *pgxpool.Pool) partRestoreRawF
 		admin: admin, org: uuid.Must(uuid.NewV7()), target: uuid.Must(uuid.NewV7()), source: uuid.Must(uuid.NewV7()), payload: payload,
 	}
 	targetHash, sourceHash := randomBytes(t, partRestoreHashBytes), randomBytes(t, partRestoreHashBytes)
-	fixture.insertEvent(t, fixture.org, fixture.target, root, partRestoreTargetSeq, targetHash)
-	fixture.insertEvent(t, fixture.org, fixture.source, root, partRestoreSourceSeq, sourceHash)
-	if _, err := admin.Exec(t.Context(), readTestSQL(t, "part_restore_part_insert.sql"), fixture.org, fixture.source, root, payload); err != nil {
-		t.Fatalf("insert the synthetic source part: %v", err)
-	}
+	fixture.insertEvent(t, fixture.target, root, partRestoreTargetSeq, targetHash)
+	fixture.insertEvent(t, fixture.source, root, partRestoreSourceSeq, sourceHash)
+	mustExec(t, admin, readTestSQL(t, "part_restore_part_insert.sql"), fixture.org, fixture.source, root, payload)
 	fixture.call = partRestoreCall{
-		org: fixture.org, event: fixture.target, source: fixture.source, partIndex: 0, root: root,
+		org: fixture.org, event: fixture.target, source: fixture.source, root: root,
 		rowHash: targetHash, seq: partRestoreTargetSeq, shard: partRestoreFixtureShard,
 		sourceRowHash: sourceHash, sourceSeq: partRestoreSourceSeq, sourceShard: partRestoreFixtureShard,
 		changeID: uuid.Must(uuid.NewV7()), header: []byte(`{"synthetic":"change event"}`), parts: [][]byte{},
 	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec(context.WithoutCancel(t.Context()), `DELETE FROM public.ops_outbox WHERE event_id = $1`, fixture.call.changeID)
-	})
+	t.Cleanup(func() { cleanupPartRestoreOutbox(t, admin, fixture.call.changeID) })
 	return fixture
 }
 
-func (c partRestoreCall) run(t *testing.T, pool *pgxpool.Pool) (int64, error) {
+func cleanupPartRestoreOutbox(t *testing.T, admin *pgxpool.Pool, changeID uuid.UUID) {
 	t.Helper()
-	var inserted int64
-	err := pool.QueryRow(t.Context(), readTestSQL(t, "part_restore_call.sql"),
-		c.org, c.event, c.source, c.partIndex, c.root, c.rowHash, c.seq, c.shard,
-		c.sourceRowHash, c.sourceSeq, c.sourceShard, c.changeID, c.header, c.parts).Scan(&inserted)
-	return inserted, err
+	_, _ = admin.Exec(context.WithoutCancel(t.Context()), `DELETE FROM public.ops_outbox WHERE event_id = $1`, changeID)
+}
+
+func (c partRestoreCall) run(t *testing.T, pool *pgxpool.Pool) error {
+	t.Helper()
+	_, err := pool.Exec(t.Context(), readTestSQL(t, "part_restore_call.sql"),
+		c.org, c.event, c.source, c.root, c.rowHash, c.seq, c.shard,
+		c.sourceRowHash, c.sourceSeq, c.sourceShard, c.changeID, c.header, c.parts)
+	return err
 }
 
 func requirePartRestoreRefusal(t *testing.T, err error, fragment string) {
@@ -130,21 +129,4 @@ func readPartRestoreCounts(t *testing.T, admin *pgxpool.Pool, changeID uuid.UUID
 		t.Fatalf("count the ledger rows: %v", err)
 	}
 	return counts
-}
-
-func partRestoreLoginDSN(t *testing.T, admin *pgxpool.Pool, adminDSN, memberOf string) string {
-	t.Helper()
-	login := "tack_test_part_restore_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
-	password := hex.EncodeToString(randomBytes(t, 16))
-	statement := "CREATE ROLE " + login + " LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '" + password + "' IN ROLE " + memberOf
-	if _, err := admin.Exec(t.Context(), statement); err != nil {
-		t.Fatalf("create %s: %v", login, err)
-	}
-	t.Cleanup(func() { _, _ = admin.Exec(context.WithoutCancel(t.Context()), "DROP ROLE IF EXISTS "+login) })
-	parsed, err := url.Parse(adminDSN)
-	if err != nil {
-		t.Fatalf("parse the admin DSN: %v", err)
-	}
-	parsed.User = url.UserPassword(login, password)
-	return parsed.String()
 }
