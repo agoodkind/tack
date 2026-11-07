@@ -46,16 +46,16 @@ func auditPartRestoreCobra(f *cli.Factory) *cobra.Command {
 	flags := auditPartRestoreFlags{Manifest: "", ManifestSHA256: ""}
 	cmd := &cobra.Command{
 		Use:   "restore-manifest-part",
-		Short: "Restore the one missing read manifest part of an audit event from a verified source event",
-		Long: "Reads the frozen manifest file inside TACK_REPAIR_DIR, checks its SHA-256 against --manifest-sha256, " +
-			"verifies the source event's manifest payload, and checks the pinned row hash, seq, and shard of both events. " +
-			"A dry run prints the plan. With --execute, the command calls audit.restore_missing_manifest_part, which " +
-			"inserts the part and writes the change event in one transaction. A rerun reports already_present. " +
-			"Run it through the audit-ops service.",
+		Short: "Restore a missing audit event read manifest part from a verified source event",
+		Long: "Run this command through the audit-ops service. It reads the frozen manifest file and checks its " +
+			"SHA-256 against --manifest-sha256. It verifies the source event's manifest payload and checks the " +
+			"pinned row hash, sequence, and shard of both events. Without --execute, it prints the plan and does " +
+			"not change anything. With --execute, it copies the verified part and records the change in one " +
+			"transaction. The transaction saves both changes or neither change. A rerun reports already_present.",
 		Args: cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&flags.Manifest, "manifest", "", "Absolute path of the frozen manifest file inside TACK_REPAIR_DIR.")
-	cmd.Flags().StringVar(&flags.ManifestSHA256, "manifest-sha256", "", "SHA-256 of the manifest file.")
+	cmd.Flags().StringVar(&flags.Manifest, "manifest", "", "Set --manifest to the absolute path of the frozen manifest file inside TACK_REPAIR_DIR.")
+	cmd.Flags().StringVar(&flags.ManifestSHA256, "manifest-sha256", "", "Set --manifest-sha256 to the SHA-256 of the manifest file.")
 	_ = cmd.MarkFlagRequired("manifest")
 	_ = cmd.MarkFlagRequired("manifest-sha256")
 	input := func() (json.RawMessage, error) {
