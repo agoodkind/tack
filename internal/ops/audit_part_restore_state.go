@@ -106,7 +106,7 @@ func inspectAuditPartRestore(ctx context.Context, reader *audit.Reader, m AuditP
 	}
 	digests, err := reader.ManifestPartDigests(ctx, m.OrgID, m.TargetEventID)
 	if err != nil {
-		return auditPartRestoreState{}, partRestoreFailure(ctx, "read the part digests of event "+m.TargetEventID.String(), err)
+		return auditPartRestoreState{}, partRestoreFailure(ctx, "cannot read the part digests of event "+m.TargetEventID.String(), err)
 	}
 	if len(digests) == 0 {
 		return missingPartState(ctx, reader, m, target)
@@ -120,7 +120,7 @@ func inspectAuditPartRestore(ctx context.Context, reader *audit.Reader, m AuditP
 func missingPartState(ctx context.Context, reader *audit.Reader, m AuditPartRestoreManifest, target audit.Row) (auditPartRestoreState, error) {
 	parts, err := reader.ManifestParts(ctx, m.OrgID, m.SourceEventID)
 	if err != nil {
-		return auditPartRestoreState{}, partRestoreFailure(ctx, "read the source part of event "+m.SourceEventID.String(), err)
+		return auditPartRestoreState{}, partRestoreFailure(ctx, "cannot read the source part of event "+m.SourceEventID.String(), err)
 	}
 	if len(parts) != 1 || parts[0].Index != 0 {
 		return auditPartRestoreState{}, refusePartRestore(ctx, fmt.Sprintf("source event %s stores %d parts, want part 0 only", m.SourceEventID, len(parts)))

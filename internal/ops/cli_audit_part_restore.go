@@ -26,7 +26,7 @@ func auditPartRestoreSpec() audit.Spec {
 		Targets: func(ctx context.Context, input json.RawMessage) ([]audit.Target, error) {
 			var decoded auditPartRestoreFlags
 			if err := json.Unmarshal(input, &decoded); err != nil {
-				return nil, partRestoreFailure(ctx, "decode part restore input", err)
+				return nil, partRestoreFailure(ctx, "cannot decode part restore input", err)
 			}
 			return []audit.Target{auditPartRestoreOperationTarget(decoded.TargetEventID)}, nil
 		},

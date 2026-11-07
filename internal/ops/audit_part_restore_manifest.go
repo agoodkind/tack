@@ -61,7 +61,7 @@ func readAuditPartRestoreManifest(ctx context.Context, repairDir, path, wantDige
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, fmt.Sprintf("read part restore manifest %q: %v", path, err))
+		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, fmt.Sprintf("cannot read part restore manifest %q: %v", path, err))
 	}
 	fileDigest := audit.SHA256Hex(content)
 	if fileDigest != wantDigest {
@@ -84,7 +84,7 @@ func readAuditPartRestoreManifest(ctx context.Context, repairDir, path, wantDige
 func requireManifestMembers(ctx context.Context, content []byte) error {
 	var members map[string]json.RawMessage
 	if err := json.Unmarshal(content, &members); err != nil {
-		return manifestRefused(ctx, "decode members: "+err.Error())
+		return manifestRefused(ctx, "cannot decode members: "+err.Error())
 	}
 	for _, name := range auditPartRestoreRequiredMembers {
 		raw, found := members[name]

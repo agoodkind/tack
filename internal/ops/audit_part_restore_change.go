@@ -55,12 +55,12 @@ func auditPartTarget(eventID uuid.UUID, partIndex int64) audit.Target {
 func BuildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manifestFileDigest string, payload []byte) (audit.EncodedEvent, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "read the operation of the part restore", err)
+		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot read the part restore operation", err)
 	}
 	operation.Context.OrgID = m.OrgID
 	provenance, err := json.Marshal(auditPartProvenance{SourceEventID: m.SourceEventID, ManifestFileSHA256: manifestFileDigest})
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "encode the part provenance", err)
+		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot encode the part provenance", err)
 	}
 	operation.Extra = provenance
 	target := auditPartTarget(m.TargetEventID, m.PartIndex)
@@ -71,21 +71,21 @@ func BuildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manif
 		Payload: audit.ProtectedReference{PIIRef: payloadRef},
 	})
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "encode the restored part record", err)
+		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot encode the restored part record", err)
 	}
 	change, err := audit.NewChange(changeID, target, nil, after)
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "build the part change", err)
+		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot build the part change", err)
 	}
 	protectedValue := json.RawMessage(`"` + base64.StdEncoding.EncodeToString(payload) + `"`)
 	change.Protected = []audit.ProtectedValue{{Ref: payloadRef, SubjectID: target.ID, Value: protectedValue}}
 	event, err := audit.ChangeEvent(operation, change, clock.Now())
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "build the part change event", err)
+		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot build the part change event", err)
 	}
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "encode the part change event", err)
+		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot encode the part change event", err)
 	}
 	return encoded, nil
 }
@@ -93,7 +93,7 @@ func BuildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manif
 func callAuditPartRestore(ctx context.Context, pool *pgxpool.Pool, m AuditPartRestoreManifest, encoded audit.EncodedEvent) error {
 	header, parts, err := encoded.HeaderAndParts()
 	if err != nil {
-		return partRestoreFailure(ctx, "read the change event messages", err)
+		return partRestoreFailure(ctx, "cannot read the change event messages", err)
 	}
 	_, err = pool.Exec(ctx, auditPartRestoreStatement,
 		m.OrgID, m.TargetEventID, m.SourceEventID, m.ManifestSHA256,
@@ -106,7 +106,7 @@ func callAuditPartRestore(ctx context.Context, pool *pgxpool.Pool, m AuditPartRe
 		return refusePartRestore(ctx, "the restore function refused: "+postgresError.Message)
 	}
 	if err != nil {
-		return partRestoreFailure(ctx, "restore the part of event "+m.TargetEventID.String(), err)
+		return partRestoreFailure(ctx, "cannot restore the part of event "+m.TargetEventID.String(), err)
 	}
 	return nil
 }

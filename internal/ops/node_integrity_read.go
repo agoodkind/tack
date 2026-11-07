@@ -59,11 +59,11 @@ func decodeStrictJSON[Target strictJSONTarget](ctx context.Context, content []by
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		slog.ErrorContext(ctx, "repair.strict_json.decode_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("decode JSON: %w", err)
+		return fmt.Errorf("cannot decode JSON: %w", err)
 	}
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		trailingErr := errors.New("data after its first JSON value")
+		trailingErr := errors.New("data follows the first JSON value")
 		slog.ErrorContext(ctx, "repair.strict_json.trailing_data", slog.String("err", trailingErr.Error()))
 		return trailingErr
 	}
