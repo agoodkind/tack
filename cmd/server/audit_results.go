@@ -1,7 +1,6 @@
 package main
 
 import (
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,20 +39,25 @@ var (
 func (r auditQueryResult) AuditReadTargets() ([]audit.Target, error) {
 	targets := make([]audit.Target, 0, len(r.Rows))
 	for _, row := range r.Rows {
-		targets = append(targets, audit.ResourceTarget(audit.EventURIPrefix+row.EventID.String()))
+		targets = append(targets, audit.EventTarget(row.EventID))
 	}
 	return targets, nil
 }
 
 func (r auditGetResult) AuditReadTargets() ([]audit.Target, error) {
-	return []audit.Target{audit.ResourceTarget(audit.EventURIPrefix + r.Row.EventID.String())}, nil
+	return []audit.Target{audit.EventTarget(r.Row.EventID)}, nil
 }
 
 func (r auditLastChangeResult) AuditReadTargets() ([]audit.Target, error) {
 	targets := make([]audit.Target, 0, len(r.Fields)+len(r.Relationships))
-	for _, entry := range slices.Concat(r.Fields, r.Relationships) {
+	for _, entry := range r.Fields {
 		if entry.Change != nil {
-			targets = append(targets, audit.ResourceTarget(audit.EventURIPrefix+entry.Change.EventID.String()))
+			targets = append(targets, audit.EventTarget(entry.Change.EventID))
+		}
+	}
+	for _, entry := range r.Relationships {
+		if entry.Change != nil {
+			targets = append(targets, audit.EventTarget(entry.Change.EventID))
 		}
 	}
 	return targets, nil

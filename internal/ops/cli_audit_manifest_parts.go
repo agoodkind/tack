@@ -65,7 +65,7 @@ type auditManifestVerificationResult struct {
 }
 
 func (r auditManifestVerificationResult) AuditReadTargets() ([]audit.Target, error) {
-	return []audit.Target{audit.ResourceTarget(audit.EventURIPrefix + r.EventID.String())}, nil
+	return []audit.Target{audit.EventTarget(r.EventID)}, nil
 }
 
 // auditManifestPartsOp declares the command in the ops audit group.

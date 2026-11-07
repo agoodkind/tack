@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/domain/node"
@@ -47,7 +46,7 @@ func inspectReadOp(f *cli.Factory) clispec.Operation[inspectReadInput] {
 	return clispec.Operation[inspectReadInput]{
 		Name:     clispec.Name{Canonical: "read", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    nodeReadSpec(audit.VerbOpsInspectRead),
+		Audit:    inspectReadSpec(),
 		Group:    inspectGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -108,7 +107,7 @@ func inspectFindOp(f *cli.Factory) clispec.Operation[inspectFindInput] {
 	return clispec.Operation[inspectFindInput]{
 		Name:     clispec.Name{Canonical: "find", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    orgReadSpec(audit.VerbOpsInspectFind),
+		Audit:    inspectFindSpec(),
 		Group:    inspectGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -179,7 +178,7 @@ func inspectQueryOp(f *cli.Factory) clispec.Operation[inspectQueryInput] {
 	return clispec.Operation[inspectQueryInput]{
 		Name:     clispec.Name{Canonical: "query", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    orgReadSpec(audit.VerbOpsInspectQuery),
+		Audit:    inspectQuerySpec(),
 		Group:    inspectGroup,
 		Aliases:  nil,
 		Hidden:   false,

@@ -15,9 +15,8 @@ import (
 )
 
 const (
-	userTargetPrefix   = "tack:user/"
-	apiAccessURIPrefix = "tack:api_token/"
-	memberRelation     = "org_member"
+	userTargetPrefix = "tack:user/"
+	memberRelation   = "org_member"
 )
 
 // changeOperation reads the audit mutation operation from ctx and sets its verb
@@ -48,7 +47,7 @@ func UserTarget(userID uuid.UUID) audit.Target {
 func TokenTarget(tokenID uuid.UUID, label string) audit.Target {
 	return audit.Target{
 		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: label,
-		URI: apiAccessURIPrefix + tokenID.String(), RelationType: "",
+		URI: audit.APIAccessURIPrefix + tokenID.String(), RelationType: "",
 		ID: tokenID, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
 }

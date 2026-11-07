@@ -66,7 +66,7 @@ func repairPreviewOp(f *cli.Factory) clispec.Operation[repairPreviewInput] {
 	return clispec.Operation[repairPreviewInput]{
 		Name:     clispec.Name{Canonical: "preview", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    nodeReadSpec(audit.VerbOpsRepairPreview),
+		Audit:    repairPreviewSpec(),
 		Group:    repairGroup,
 		Aliases:  nil,
 		Hidden:   false,

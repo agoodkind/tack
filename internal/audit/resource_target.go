@@ -16,9 +16,8 @@ const (
 	NodeURIPrefix = "tack:node/"
 	// OrgURIPrefix is the prefix of the resource URI for one organization.
 	OrgURIPrefix = "tack:org/"
-	// AuthRecordURIPrefix is the prefix of the resource URI for one API token
-	// record.
-	AuthRecordURIPrefix = "tack:api-token/"
+	// APIAccessURIPrefix placeholder.
+	APIAccessURIPrefix = "tack:api_token/"
 	// InvalidURISegment is the URI segment that replaces an identifier that is
 	// not a UUID.
 	InvalidURISegment = "invalid"
@@ -30,6 +29,16 @@ func ResourceTarget(uri string) Target {
 		Kind: TargetKindResource, NodeType: "", Reference: "", Name: "", URI: uri,
 		RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
+}
+
+// NodeTarget placeholder.
+func NodeTarget(nodeID uuid.UUID) Target {
+	return ResourceTarget(NodeURIPrefix + nodeID.String())
+}
+
+// EventTarget placeholder.
+func EventTarget(eventID uuid.UUID) Target {
+	return ResourceTarget(EventURIPrefix + eventID.String())
 }
 
 // CanonicalUUID returns the canonical form of value, or an empty string when
