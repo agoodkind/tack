@@ -35,7 +35,7 @@ func testCommandReferenceRepair(t *testing.T) {
 	cfg := &config.Config{
 		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: 5 * time.Second,
 	}
-	output, err := runOpsCommandIn(integration.CommandContext(t), cfg, pool, "--execute", "--output", "json", "--operator-id", operatorID.String(),
+	output, err := runOpsCommandIn(testenv.CommandContext(t), cfg, pool, "--execute", "--output", "json", "--operator-id", operatorID.String(),
 		"--operator-email", outcomeOperatorEmail, "ops", "repair", "reference-uniqueness", "--keep", "oldest")
 	if err != nil {
 		t.Fatalf("reference-uniqueness failed: %v\n%s", err, output)

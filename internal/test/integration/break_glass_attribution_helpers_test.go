@@ -15,6 +15,7 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/testenv"
 )
 
 const (
@@ -76,7 +77,7 @@ func runOpsDBSQL(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ...s
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := searchCommandRoot(factory)
-	root.SetContext(CommandContext(t))
+	root.SetContext(testenv.CommandContext(t))
 	root.SetArgs(args)
 	err := root.Execute()
 	return output.String(), err
