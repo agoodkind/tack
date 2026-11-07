@@ -13,6 +13,12 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
+func topLevelRead(verb audit.Verb, args func(t *testing.T, env *topLevelEnv) []string) topLevelCase {
+	current := topLevelCommand(verb, audit.OutcomeCompleted, args)
+	current.finalRead = true
+	return current
+}
+
 func topLevelCommand(verb audit.Verb, outcome audit.Outcome, args func(t *testing.T, env *topLevelEnv) []string) topLevelCase {
 	return topLevelCase{
 		run: func(t *testing.T, env *topLevelEnv) uuid.UUID {
@@ -80,8 +86,8 @@ func topLevelCases() map[string]topLevelCase {
 		"command tack audit gen-key":      topLevelCommand(audit.VerbAuditKeyGenerate, audit.OutcomeOK, keyArgs("audit", "gen-key")),
 		"command tack gen-audit-key":      topLevelCommand(audit.VerbAuditKeyGenerate, audit.OutcomeOK, keyArgs("gen-audit-key")),
 		"command tack audit signers":      topLevelCommand(audit.VerbAuditSignersVerified, audit.OutcomeOK, signersArgs),
-		"command tack audit query":        topLevelCommand(audit.VerbAuditRead, audit.OutcomeOK, queryArgs),
-		"command tack audit get":          topLevelCommand(audit.VerbAuditRead, audit.OutcomeOK, getArgs),
+		"command tack audit query":        topLevelRead(audit.VerbAuditRead, queryArgs),
+		"command tack audit get":          topLevelRead(audit.VerbAuditRead, getArgs),
 		"command tack audit last-change":  topLevelCommand(audit.VerbAuditRead, audit.OutcomeOK, lastChangeArgs),
 		"command tack audit redact-actor": topLevelCommand(audit.VerbAuditPIIRedacted, audit.OutcomeOK, redactArgs),
 	}
