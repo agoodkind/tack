@@ -17,6 +17,7 @@ import (
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
 	"goodkind.io/tack/internal/adapters/postgres"
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
@@ -58,10 +59,12 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 			"--property", "slug", "--value", strconv.Quote(env.server.workspace),
 		}, configure: nil, outbox: nil}
 	}), audit.VerbOpsInspectQuery, audit.OutcomeCompleted, func(_ *testing.T, env *coverageEnv) readExpectation {
+		workspaceID := node.WorkspaceID(env.server.orgID, env.server.workspace)
 		return readExpectation{
 			target: uriTarget(audit.OrgURIPrefix + env.server.orgID.String()),
 			input:  fmt.Sprintf(`{"OrgID":%q,"NodeType":"workspace","Property":"slug","Value":"","Limit":50}`, env.server.orgID.String()),
-			items:  nil, contains: true, itemPrefix: audit.NodeURIPrefix, absent: []string{env.server.workspace}, skipItems: false,
+			items:  []string{audit.NodeURIPrefix + workspaceID.String()}, contains: true, itemPrefix: audit.NodeURIPrefix,
+			absent: []string{env.server.workspace}, skipItems: false,
 		}
 	})
 	cases["command ops verify node"] = withReadCheck(commandCase(audit.VerbOpsVerifyNode, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
