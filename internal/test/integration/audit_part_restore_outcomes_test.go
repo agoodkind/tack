@@ -20,8 +20,11 @@ func (p *partRestorePipeline) installStaleInjection(t *testing.T) {
 	mustExec(t, p.ledger.admin, readTestSQL(t, "part_restore_stale_trigger.sql"))
 	t.Cleanup(func() {
 		cleanup := context.WithoutCancel(t.Context())
-		_, _ = p.ledger.admin.Exec(cleanup, readTestSQL(t, "part_restore_stale_drop.sql"))
-		_, _ = p.ledger.admin.Exec(cleanup, readTestSQL(t, "part_restore_stale_drop_function.sql"))
+		for _, name := range []string{"part_restore_stale_drop.sql", "part_restore_stale_drop_function.sql"} {
+			if _, err := p.ledger.admin.Exec(cleanup, readTestSQL(t, name)); err != nil {
+				t.Errorf("run %s: %v", name, err)
+			}
+		}
 	})
 }
 

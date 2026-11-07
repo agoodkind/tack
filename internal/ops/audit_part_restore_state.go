@@ -64,6 +64,9 @@ func (e auditPartRestoreOutcomeError) Unwrap() error { return e.cause }
 func (e auditPartRestoreOutcomeError) ReadOutcome() audit.OutcomeDetails { return e.details }
 
 func previewFailure(err error) error {
+	if !errors.Is(err, errAuditPartRestoreManifest) && !errors.Is(err, errAuditPartRestoreRefused) {
+		return err
+	}
 	return auditPartRestoreOutcomeError{details: outcomeFor(err), cause: err}
 }
 
