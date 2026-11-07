@@ -60,7 +60,7 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		return output.String()
 	}
 
-	// get: one row.
+	// audit get: the command returns exactly one row for a stored event.
 	var got auditGetResult
 	decodeCommandOutput(t, run("audit", "get", "--event-id", eventA1.String(), "--execute"), &got)
 	if got.Row.EventID != eventA1 || got.Row.OrgID != orgA || got.Row.PIIRef == nil {
