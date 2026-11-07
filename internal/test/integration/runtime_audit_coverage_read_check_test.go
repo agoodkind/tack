@@ -63,6 +63,9 @@ func requireReadExpectation(t *testing.T, env *coverageEnv, row audit.Row, want 
 		}
 	}
 	if want.skipItems {
+		if row.Context.Read != nil {
+			t.Fatalf("failed read event %s stores read evidence %+v, want none", row.EventID, row.Context.Read)
+		}
 		return
 	}
 	listed := env.ledger.manifestTargets(t, row)
