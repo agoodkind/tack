@@ -40,7 +40,14 @@ func auditPartTarget(eventID uuid.UUID, partIndex int64) audit.Target {
 	return target
 }
 
-// BuildAuditPartChange PLACEHOLDER.
+// BuildAuditPartChange builds and encodes the change event that records the
+// restore of one manifest part. It derives the event ID from the manifest file
+// digest and the part target. A rerun with the same manifest produces the same
+// event ID. The new value of the change records the organization, target event,
+// part index, and manifest digest. The change stores the payload as a protected
+// value with the target event as its subject. The event extra records the source
+// event ID and the manifest file digest. BuildAuditPartChange requires the
+// mutation context of the running command.
 func BuildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manifestFileDigest string, payload []byte) (audit.EncodedEvent, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
