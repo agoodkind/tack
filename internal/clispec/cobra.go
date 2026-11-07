@@ -56,9 +56,13 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 	}
 	for _, h := range reg.handwritten {
 		cmd := h.Build(f)
-		if h.Group != nil {
+		switch {
+		case h.Lifetime.isBackfill():
+			cmd.Use = BackfillNamePrefix + cmd.Use
+			ensure(backfills.under(h.Group)).AddCommand(cmd)
+		case h.Group != nil:
 			ensure(h.Group).AddCommand(cmd)
-		} else {
+		default:
 			tops = append(tops, cmd)
 		}
 	}

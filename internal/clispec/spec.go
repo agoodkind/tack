@@ -102,10 +102,13 @@ type Registry struct {
 
 // HandwrittenCommand wraps a constructor so a bespoke command lives in the
 // same registry as the spec operations. Group attaches it under a parent; a
-// nil Group renders it at the top level.
+// nil Group renders it at the top level. A Lifetime with a ticket makes the
+// command a backfill: it renders under the backfill group of its parent with
+// the once- prefix, like an Operation with the same Lifetime.
 type HandwrittenCommand struct {
-	Group *Group
-	Build func(f *cli.Factory) *cobra.Command
+	Group    *Group
+	Lifetime Lifetime `exhaustruct:"optional"`
+	Build    func(f *cli.Factory) *cobra.Command
 }
 
 // NewRegistry returns an empty registry.

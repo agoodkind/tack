@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"strings"
+	"time"
 
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
@@ -81,6 +82,11 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, nodeIntegrityBackfillOp(f))
 	clispec.Register(reg, auditPartitionNamesBackfillOp(f))
 	clispec.Register(reg, killtestSchemaBackfillOp(f))
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group:    auditOpsGroup,
+		Lifetime: clispec.Lifetime{Ticket: "TACK-620", RemoveBy: time.Date(2026, 12, 7, 0, 0, 0, 0, time.UTC)},
+		Build:    auditPartRestoreCobra,
+	})
 	registerBatchOps(reg, f)
 	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: backupCommand})
 }

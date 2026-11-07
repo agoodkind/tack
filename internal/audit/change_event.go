@@ -27,6 +27,9 @@ const (
 	// TargetSearchSessionVisited is the Target.NodeType value of a resource
 	// target for one search session visited record.
 	TargetSearchSessionVisited = "search_session_visited"
+	// TargetAuditEventPart is the Target.NodeType value of a resource target
+	// for one audit.event_parts row.
+	TargetAuditEventPart = "audit_event_part"
 )
 
 const searchSessionURIPrefix = "tack:search-session/"
@@ -120,6 +123,8 @@ func changeVerb(change Change) Verb {
 		return pickVerb(created, deleted, VerbSequenceCreate, VerbSequenceUpdate, VerbSequenceUpdate)
 	}
 	switch change.Target.NodeType {
+	case TargetAuditEventPart:
+		return VerbAuditEventPartCreate
 	case TargetNodeTypeDefinition:
 		return pickVerb(created, deleted, VerbNodeTypeCreate, VerbNodeTypeUpdate, VerbNodeTypeDelete)
 	case TargetNodeTypePropertyDefinition:
