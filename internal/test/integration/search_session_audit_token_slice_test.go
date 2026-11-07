@@ -9,14 +9,13 @@ import (
 	"testing"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	searchdomain "goodkind.io/tack/internal/domain/search"
 	"goodkind.io/tack/internal/test/integration"
 )
 
 const (
-	boundaryTokenBytes   = 2*(16<<10) + 1024
+	boundaryTokenBytes   = 2*sessionTokenChunkBound + 1024
 	boundaryTokenChunks  = 3
 	boundaryVisitedIDs   = 5
 	boundaryRetireLimit  = 100
@@ -24,42 +23,34 @@ const (
 )
 
 type tokenBoundary struct {
-	name    string
-	replays int
-	limit   int
+	name   string
+	offset int
 }
+
+var tokenBoundaries = []tokenBoundary{{name: "inside-tokens", offset: -1}, {name: "at-last-token", offset: 0}, {name: "after-tokens", offset: 1}}
 
 // TestSearchSessionAuditSliceKeepsTokenValue runs CleanupSlice with limits
 // that end inside, at the end of, and after the query token chunks.
 func TestSearchSessionAuditSliceKeepsTokenValue(t *testing.T) {
-	for _, boundary := range []tokenBoundary{
-		{name: "inside-tokens", replays: 1, limit: 2},
-		{name: "at-last-token", replays: 1, limit: 1 + boundaryTokenChunks},
-		{name: "after-tokens", replays: 1, limit: 3 + boundaryTokenChunks},
-	} {
+	for _, boundary := range tokenBoundaries {
 		t.Run(boundary.name, func(t *testing.T) {
 			stores := sessionStoreStores(t)
 			store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
 			session := storedSearchSession(sessionTokens(boundaryTokenBytes))
-			mark := closingBoundarySession(t, stores, session, boundary.replays)
+			replays := 1
+			limit := replays + boundaryTokenChunks + boundary.offset
+			mark := closingBoundarySession(t, stores, session, replays)
 			observations := observeSessionTransactions(t)
 			ctx := integration.WithTestOperation(t, t.Context())
-			if done, err := store.CleanupSlice(ctx, session.ID, boundary.limit); err != nil || done {
-				t.Fatalf("CleanupSlice of session %s at limit %d = %t, %v, want a partly deleted session", session.ID, boundary.limit, done, err)
+			if done, err := store.CleanupSlice(ctx, session.ID, limit); err != nil || done {
+				t.Fatalf("CleanupSlice of session %s at limit %d = %t, %v, want a partly deleted session", session.ID, limit, done, err)
 			}
 			observations.requireBounded(t, boundary.name, cleanupSliceOperation, session.ID, 1)
 			requireTokenRemoval(t, stores, mark, session)
-			for range boundaryFinishSlices {
-				done, err := store.CleanupSlice(ctx, session.ID, boundary.limit)
-				if err != nil {
-					t.Fatalf("CleanupSlice of session %s after the token slice: %v", session.ID, err)
-				}
-				if done {
-					requireTokenRemoval(t, stores, mark, session)
-					return
-				}
-			}
-			t.Fatalf("session %s remains after %d more slices", session.ID, boundaryFinishSlices)
+			finishSlices(t, "session "+session.ID.String(), boundaryFinishSlices, func() (bool, error) {
+				return store.CleanupSlice(ctx, session.ID, limit)
+			})
+			requireTokenRemoval(t, stores, mark, session)
 		})
 	}
 }
@@ -68,11 +59,7 @@ func TestSearchSessionAuditSliceKeepsTokenValue(t *testing.T) {
 // attempt and then retires slices that end inside, at the end of, and after
 // the query token chunks.
 func TestSearchSessionAuditRetireSliceKeepsTokenValue(t *testing.T) {
-	for _, boundary := range []tokenBoundary{
-		{name: "inside-tokens", replays: boundaryRetireLimit - boundaryTokenChunks + 1, limit: boundaryRetireLimit},
-		{name: "at-last-token", replays: boundaryRetireLimit - boundaryTokenChunks, limit: boundaryRetireLimit},
-		{name: "after-tokens", replays: boundaryRetireLimit - boundaryTokenChunks - 1, limit: boundaryRetireLimit},
-	} {
+	for _, boundary := range tokenBoundaries {
 		t.Run(boundary.name, func(t *testing.T) {
 			stores := sessionStoreStores(t)
 			rebuilds := stores.SearchRebuilds(clock.Wall{})
@@ -80,7 +67,7 @@ func TestSearchSessionAuditRetireSliceKeepsTokenValue(t *testing.T) {
 			beginRetiringRebuild(t, stores, index)
 			session := storedSearchSession(sessionTokens(boundaryTokenBytes))
 			session.Query.Index, session.Query.Generation = index, retiredGeneration
-			mark := closingBoundarySession(t, stores, session, boundary.replays)
+			mark := closingBoundarySession(t, stores, session, boundaryRetireLimit-boundaryTokenChunks-boundary.offset)
 			observations := observeSessionTransactions(t)
 			requireStaleDeleteFenced(t, stores, index, session)
 			observations.requireBounded(t, boundary.name+" fenced", cleanupSliceOperation, session.ID, 0)
@@ -90,19 +77,27 @@ func TestSearchSessionAuditRetireSliceKeepsTokenValue(t *testing.T) {
 			}
 			observations.requireBounded(t, boundary.name, cleanupSliceOperation, session.ID, 1)
 			requireTokenRemoval(t, stores, mark, session)
-			for range boundaryFinishSlices {
-				remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
-				if err != nil {
-					t.Fatalf("RetireIndexSessions of %s after the token slice: %v", index, err)
-				}
-				if !remaining {
-					requireTokenRemoval(t, stores, mark, session)
-					return
-				}
-			}
-			t.Fatalf("index %s reports remaining work after %d more calls", index, boundaryFinishSlices)
+			finishSlices(t, "index "+index, boundaryFinishSlices, func() (bool, error) {
+				remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
+				return !remaining, err
+			})
+			requireTokenRemoval(t, stores, mark, session)
 		})
 	}
+}
+
+func finishSlices(t *testing.T, label string, maxSlices int, slice func() (bool, error)) {
+	t.Helper()
+	for range maxSlices {
+		done, err := slice()
+		if err != nil {
+			t.Fatalf("%s: cleanup slice: %v", label, err)
+		}
+		if done {
+			return
+		}
+	}
+	t.Fatalf("%s: cleanup remains after %d more slices", label, maxSlices)
 }
 
 // TestSearchSessionAuditSliceRefusesTokenMismatch stores a header with a
@@ -174,33 +169,5 @@ func requireTokenRemoval(t *testing.T, stores *fdbadapter.Stores, mark []byte, s
 	}
 	if len(removed) != 1 || !bytes.Equal(removed[0], created[0]) {
 		t.Fatalf("session %s recorded %d removed token values, want 1 equal to the %d bytes Create stored", session.ID, len(removed), len(created[0]))
-	}
-}
-
-func requireStaleDeleteFenced(t *testing.T, stores *fdbadapter.Stores, index string, session searchdomain.Session) {
-	t.Helper()
-	rebuilds := stores.SearchRebuilds(clock.Wall{})
-	mark := searchOutboxTail(t, stores)
-	staleContext := integration.WithTestOperation(t, t.Context())
-	operation, err := audit.RequireMutationContext(staleContext)
-	if err != nil {
-		t.Fatalf("read the stale attempt operation: %v", err)
-	}
-	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
-		retireAttemptSavedMessage: func() {
-			waitUntilTime(t, clock.Now().Add(retireAttemptWait))
-			_, recoverErr := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), index, retireSliceLimit)
-			requireChangeEventFailure(t, "RetireIndexSessions recovery of "+index, recoverErr)
-		},
-	})
-	remaining, err := rebuilds.RetireIndexSessions(staleContext, index, retireSliceLimit)
-	hooks.requireFinished(t)
-	if err == nil || !remaining || !strings.Contains(err.Error(), retireAttemptFenced) {
-		t.Fatalf("RetireIndexSessions of %s with a stale delete attempt = %t, %v, want remaining work and the fence text %q", index, remaining, err, retireAttemptFenced)
-	}
-	for _, verb := range []audit.Verb{audit.VerbSearchSessionUpdate, audit.VerbSearchSessionDelete} {
-		if count := sessionChangeEvents(t, stores, mark, session, operation.Context.OperationID, verb); count != 0 {
-			t.Fatalf("the fenced operation %s wrote %d %s change events for session %s, want 0", operation.Context.OperationID, count, verb, session.ID)
-		}
 	}
 }

@@ -59,15 +59,9 @@ func TestSearchSessionAuditFitsTransactionLimits(t *testing.T) {
 	if sliced, _ := outboxRecordsAfter(t, stores, mark); sliced < minimumSliceRecords {
 		t.Fatalf("BeginCleanup and CleanupSlice wrote %d outbox records, want at least %d", sliced, minimumSliceRecords)
 	}
-	for {
-		done, err := store.CleanupSlice(ctx, session.ID, maximumCleanupKeys)
-		if err != nil {
-			t.Fatalf("CleanupSlice after the first slice: %v", err)
-		}
-		if done {
-			break
-		}
-	}
+	finishSlices(t, "session "+session.ID.String(), 2*maximumVisitedIDs/maximumCleanupKeys+1, func() (bool, error) {
+		return store.CleanupSlice(ctx, session.ID, maximumCleanupKeys)
+	})
 	requireWorstCaseRetirement(t, stores, observations)
 }
 
@@ -90,16 +84,10 @@ func requireWorstCaseRetirement(t *testing.T, stores *fdbadapter.Stores, observa
 	}
 	observations.requireBounded(t, "retirement", beginCleanupOperation, session.ID, 1)
 	observations.requireBounded(t, "retirement", cleanupSliceOperation, session.ID, 1)
-	for range boundaryFinishSlices {
-		remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), worstCaseRetireIndex, retireSliceLimit)
-		if err != nil {
-			t.Fatalf("RetireIndexSessions of %s after the first slice: %v", worstCaseRetireIndex, err)
-		}
-		if !remaining {
-			return
-		}
-	}
-	t.Fatalf("index %s reports remaining work after %d more calls", worstCaseRetireIndex, boundaryFinishSlices)
+	finishSlices(t, "index "+worstCaseRetireIndex, boundaryFinishSlices, func() (bool, error) {
+		remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), worstCaseRetireIndex, retireSliceLimit)
+		return !remaining, err
+	})
 }
 
 func worstCaseSession() searchdomain.Session {

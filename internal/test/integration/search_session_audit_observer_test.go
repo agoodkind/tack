@@ -59,18 +59,16 @@ func (o *sessionObservations) requireBounded(t *testing.T, label, operation stri
 	o.mutex.Lock()
 	committed := o.committed
 	o.committed = nil
+	matched := []observedTransaction{}
 	for _, transaction := range committed {
-		if transaction.operation != operation || transaction.sessionID != sessionID {
+		if transaction.operation == operation && transaction.sessionID == sessionID {
+			matched = append(matched, transaction)
+		} else {
 			o.committed = append(o.committed, transaction)
 		}
 	}
 	o.mutex.Unlock()
-	matched := []observedTransaction{}
-	for _, transaction := range committed {
-		if transaction.operation != operation || transaction.sessionID != sessionID {
-			continue
-		}
-		matched = append(matched, transaction)
+	for _, transaction := range matched {
 		t.Logf("%s: %s committed %d bytes with %d reads", label, operation, transaction.bytes, transaction.reads)
 		if transaction.reads < 1 || transaction.reads > sessionTransactionReadLimit || transaction.bytes >= sessionTransactionByteLimit {
 			t.Fatalf("%s: %s committed %d bytes with %d reads, want 1 to %d reads and fewer than %d bytes",
@@ -85,26 +83,17 @@ func (o *sessionObservations) requireBounded(t *testing.T, label, operation stri
 
 func familyRecords(t *testing.T, family string, sessionID uuid.UUID, parts ...string) []fdb.KeyValue {
 	t.Helper()
-	prefix := bytes.Clone(fdbadapter.TestPrefixRange())
-	keyRange, err := fdb.PrefixRange(append(bytes.Clone(prefix), tuple.Tuple{family}.Pack()...))
-	if err != nil {
-		t.Fatalf("create the %s range: %v", family, err)
-	}
-	transaction := pendingFixtureTransaction(t)
-	defer transaction.Cancel()
-	items, err := transaction.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
-	if err != nil {
-		t.Fatalf("read the %s records: %v", family, err)
-	}
+	prefix := activeTestPrefix(t)
+	keyRange := prefixKeyRange(t, append(bytes.Clone(prefix), tuple.Tuple{family}.Pack()...))
 	matched := []fdb.KeyValue{}
-	for _, item := range items {
+	for _, item := range readTestKeys(t, pendingFixtureDatabase(t), keyRange) {
 		unpacked, err := tuple.Unpack(item.Key[len(prefix):])
-		if err != nil || len(unpacked) < 3+len(parts) || unpacked[2] != sessionID.String() {
+		if err != nil || len(unpacked) < sessionChildPartPosition+len(parts) || unpacked[sessionKeyLayouts[family].session] != sessionID.String() {
 			continue
 		}
 		related := true
 		for position, part := range parts {
-			related = related && unpacked[3+position] == part
+			related = related && unpacked[sessionChildPartPosition+position] == part
 		}
 		if related {
 			matched = append(matched, item)
@@ -119,15 +108,15 @@ func addReplayRecords(t *testing.T, sessionID uuid.UUID, count int) {
 	if len(replays) != 1 {
 		t.Fatalf("session %s has %d replay records, want 1", sessionID, len(replays))
 	}
-	prefix := fdbadapter.TestPrefixRange()
+	prefix := activeTestPrefix(t)
 	unpacked, err := tuple.Unpack(replays[0].Key[len(prefix):])
 	if err != nil {
 		t.Fatalf("decode the replay key of session %s: %v", sessionID, err)
 	}
 	_, err = pendingFixtureDatabase(t).Transact(func(tr fdb.Transaction) (any, error) {
 		for version := 1; version <= count; version++ {
-			key := tuple.Tuple{unpacked[0], unpacked[1], unpacked[2], unpacked[3], version}.Pack()
-			tr.Set(fdb.Key(append(bytes.Clone(prefix), key...)), replays[0].Value)
+			key := append(tuple.Tuple{}, unpacked[:sessionChildPartPosition+1]...)
+			tr.Set(fdb.Key(append(bytes.Clone(prefix), append(key, version).Pack()...)), replays[0].Value)
 		}
 		return nil, nil
 	})
@@ -138,28 +127,15 @@ func addReplayRecords(t *testing.T, sessionID uuid.UUID, count int) {
 
 func sessionTokenValues(t *testing.T, stores *fdbadapter.Stores, mark []byte, sessionID uuid.UUID) (created, removed []json.RawMessage) {
 	t.Helper()
-	for {
-		entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), mark, searchAuditPageLimit)
-		if err != nil {
-			t.Fatalf("read the outbox: %v", err)
+	for _, event := range outboxPlainEvents(t, stores, mark) {
+		target := event.Context.Target
+		if event.Delta == nil || target == nil || target.NodeType != audit.TargetSearchSession || !strings.Contains(target.URI, sessionID.String()) {
+			continue
 		}
-		if len(entries) == 0 {
-			return created, removed
-		}
-		for _, entry := range entries {
-			var event audit.Event
-			if err := json.Unmarshal(entry.Event, &event); err != nil {
-				t.Fatalf("decode outbox entry %s: %v", entry.Event, err)
-			}
-			target := event.Context.Target
-			if event.Delta == nil || target == nil || target.NodeType != audit.TargetSearchSession || !strings.Contains(target.URI, sessionID.String()) {
-				continue
-			}
-			created = append(created, protectedMember(t, event, event.Delta.After)...)
-			removed = append(removed, protectedMember(t, event, event.Delta.Before)...)
-		}
-		mark = entries[len(entries)-1].Mark
+		created = append(created, protectedMember(t, event, event.Delta.After)...)
+		removed = append(removed, protectedMember(t, event, event.Delta.Before)...)
 	}
+	return created, removed
 }
 
 func protectedMember(t *testing.T, event audit.Event, record json.RawMessage) []json.RawMessage {
