@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/test/integration"
 )
 
@@ -84,31 +83,13 @@ func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
 
 func TestAuditPartRestoreRerunAfterUnseenCommit(t *testing.T) {
 	pipeline := startPartRestorePipeline(t)
-	actor := audit.Actor{
-		Type: audit.ActorOperator, ID: pipeline.operatorID, Email: "", Name: "", SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
-	}
-	operation, err := audit.NewMutationOperation(actor, audit.SourceSystem, "")
-	if err != nil {
-		t.Fatalf("build the operation: %v", err)
-	}
-	mutationContext, err := audit.WithMutationContext(t.Context(), operation)
-	if err != nil {
-		t.Fatalf("attach the operation: %v", err)
-	}
-	encoded, err := ops.BuildAuditPartChange(mutationContext, pipeline.manifest, pipeline.fileDigest, pipeline.payload)
-	if err != nil {
-		t.Fatalf("build the change event with the production builder: %v", err)
-	}
-	header, parts, err := encoded.HeaderAndParts()
-	if err != nil {
-		t.Fatalf("split the change event: %v", err)
-	}
+	changeID, header, parts := buildRestoreChange(t, pipeline.manifest, pipeline.fileDigest, pipeline.payload, pipeline.operatorID)
 	manifest := pipeline.manifest
 	call := partRestoreCall{
 		org: manifest.OrgID, event: manifest.TargetEventID, source: manifest.SourceEventID, root: manifest.ManifestSHA256,
 		rowHash: manifest.TargetRowHash, seq: manifest.TargetSeq, shard: manifest.TargetShard,
 		sourceRowHash: manifest.SourceRowHash, sourceSeq: manifest.SourceSeq, sourceShard: manifest.SourceShard,
-		changeID: encoded.EventID, header: header, parts: parts,
+		changeID: changeID, header: header, parts: parts,
 	}
 	if err := call.run(t, pipeline.operatorPool); err != nil {
 		t.Fatalf("restore call = %v, want no error", err)

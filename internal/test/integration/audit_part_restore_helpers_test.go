@@ -12,6 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/ops"
 )
 
 const (
@@ -67,7 +70,41 @@ func (f partRestoreRawFixture) insertEvent(t *testing.T, event uuid.UUID, root s
 
 func newPartRestoreRawFixture(t *testing.T, admin *pgxpool.Pool) partRestoreRawFixture {
 	t.Helper()
-	payload := []byte(partRestorePayloadPrefix + uuid.NewString())
+	return newPartRestoreRawFixtureWithPayload(t, admin, []byte(partRestorePayloadPrefix+uuid.NewString()))
+}
+
+func buildRestoreChange(t *testing.T, manifest ops.AuditPartRestoreManifest, fileDigest string, payload []byte, actorID uuid.UUID) (uuid.UUID, []byte, [][]byte) {
+	t.Helper()
+	return buildRestoreChangeWithTool(t, manifest, fileDigest, payload, actorID, "")
+}
+
+func buildRestoreChangeWithTool(t *testing.T, manifest ops.AuditPartRestoreManifest, fileDigest string, payload []byte, actorID uuid.UUID, tool string) (uuid.UUID, []byte, [][]byte) {
+	t.Helper()
+	actor := audit.Actor{
+		Type: audit.ActorOperator, ID: actorID, Email: "", Name: "", SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+	}
+	operation, err := audit.NewMutationOperation(actor, audit.SourceSystem, tool)
+	if err != nil {
+		t.Fatalf("build the operation: %v", err)
+	}
+	operation.Context.RequestID, operation.Context.TraceID = uuid.NewString(), audit.SHA256Hex([]byte(uuid.NewString()))[:32]
+	mutationContext, err := audit.WithMutationContext(t.Context(), operation)
+	if err != nil {
+		t.Fatalf("attach the operation: %v", err)
+	}
+	encoded, err := ops.BuildAuditPartChange(mutationContext, manifest, fileDigest, payload)
+	if err != nil {
+		t.Fatalf("build the change event with the production builder: %v", err)
+	}
+	header, parts, err := encoded.HeaderAndParts()
+	if err != nil {
+		t.Fatalf("split the change event: %v", err)
+	}
+	return encoded.EventID, header, parts
+}
+
+func newPartRestoreRawFixtureWithPayload(t *testing.T, admin *pgxpool.Pool, payload []byte) partRestoreRawFixture {
+	t.Helper()
 	digest := sha256.Sum256(payload)
 	root := hex.EncodeToString(digest[:])
 	fixture := partRestoreRawFixture{
@@ -77,11 +114,18 @@ func newPartRestoreRawFixture(t *testing.T, admin *pgxpool.Pool) partRestoreRawF
 	fixture.insertEvent(t, fixture.target, root, partRestoreTargetSeq, targetHash)
 	fixture.insertEvent(t, fixture.source, root, partRestoreSourceSeq, sourceHash)
 	mustExec(t, admin, readTestSQL(t, "part_restore_part_insert.sql"), fixture.org, fixture.source, root, payload)
+	manifest := ops.AuditPartRestoreManifest{
+		SchemaVersion: 1, Ticket: "TACK-620", OrgID: fixture.org, TargetEventID: fixture.target, SourceEventID: fixture.source,
+		PartIndex: 0, ManifestSHA256: root, DeclaredParts: 1, IdentityCount: partRestoreIdentityCount,
+		TargetSeq: partRestoreTargetSeq, TargetShard: partRestoreFixtureShard, TargetHashVersion: 1, TargetRowHash: targetHash,
+		SourceSeq: partRestoreSourceSeq, SourceShard: partRestoreFixtureShard, SourceRowHash: sourceHash,
+	}
+	changeID, header, parts := buildRestoreChange(t, manifest, audit.SHA256Hex([]byte("fixture manifest file")), payload, uuid.Must(uuid.NewV7()))
 	fixture.call = partRestoreCall{
 		org: fixture.org, event: fixture.target, source: fixture.source, root: root,
 		rowHash: targetHash, seq: partRestoreTargetSeq, shard: partRestoreFixtureShard,
 		sourceRowHash: sourceHash, sourceSeq: partRestoreSourceSeq, sourceShard: partRestoreFixtureShard,
-		changeID: uuid.Must(uuid.NewV7()), header: []byte(`{"synthetic":"change event"}`), parts: [][]byte{},
+		changeID: changeID, header: header, parts: parts,
 	}
 	t.Cleanup(func() { cleanupPartRestoreOutbox(t, admin, fixture.call.changeID) })
 	return fixture
@@ -89,7 +133,9 @@ func newPartRestoreRawFixture(t *testing.T, admin *pgxpool.Pool) partRestoreRawF
 
 func cleanupPartRestoreOutbox(t *testing.T, admin *pgxpool.Pool, changeID uuid.UUID) {
 	t.Helper()
-	_, _ = admin.Exec(context.WithoutCancel(t.Context()), `DELETE FROM public.ops_outbox WHERE event_id = $1`, changeID)
+	if _, err := admin.Exec(context.WithoutCancel(t.Context()), readTestSQL(t, "part_restore_outbox_delete.sql"), changeID); err != nil {
+		t.Errorf("delete the fixture outbox row: %v", err)
+	}
 }
 
 func (c partRestoreCall) run(t *testing.T, pool *pgxpool.Pool) error {
