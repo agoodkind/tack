@@ -1,8 +1,9 @@
+//go:build runtimeaudit
+
 package foundationdb
 
 import (
 	"fmt"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -60,9 +61,7 @@ func applySession(tr fdb.Transaction, apply func(fdb.Transaction) error) error {
 	}
 	size, err := tr.GetApproximateSize().Get()
 	if err != nil {
-		wrapped := fmt.Errorf("read the approximate size of the session transaction: %w", err)
-		slog.Error("search.session.size_read_failed", slog.String("err", wrapped.Error()))
-		return wrapped
+		return fmt.Errorf("read the approximate size of the session transaction: %w", err)
 	}
 	observer.mutex.Lock()
 	defer observer.mutex.Unlock()
