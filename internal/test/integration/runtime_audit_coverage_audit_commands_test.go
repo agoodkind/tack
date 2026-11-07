@@ -25,7 +25,7 @@ func addAuditCommandCases(cases map[string]coverageCase) {
 			cfg.AuditReaderDSN, cfg.AuditKafkaBrokers, cfg.AuditKafkaTopic = ledger, brokers, topic
 		}
 	}
-	cases["command ops audit consumer-offsets"] = commandCase(audit.VerbOpsAuditConsumerOffsets, audit.OutcomeOK,
+	cases["command ops audit consumer-offsets"] = readCommandCase(audit.VerbOpsAuditConsumerOffsets, audit.OutcomeCompleted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{args: []string{"ops", "audit", "consumer-offsets"}, configure: reader(t, env), outbox: nil}
 		})
@@ -85,7 +85,7 @@ func addAuthCommandCases(cases map[string]coverageCase) {
 	cases["command ops auth token-create"] = commandCase(audit.VerbOpsAuthTokenCreate, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{"ops", "auth", "token-create", "--email", env.userEmail(t), "--label", "coverage"}, configure: nil, outbox: nil}
 	})
-	cases["command ops auth token-list"] = commandCase(audit.VerbOpsAuthTokenList, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
+	cases["command ops auth token-list"] = readCommandCase(audit.VerbOpsAuthTokenList, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{"ops", "auth", "token-list", "--email", env.userEmail(t)}, configure: nil, outbox: nil}
 	})
 	cases["command ops auth token-revoke"] = commandCase(audit.VerbOpsAuthTokenRevoke, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {

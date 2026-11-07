@@ -117,6 +117,12 @@ func manifestArgs(org, event string, extra ...string) []string {
 // runManifestParts runs the command through the rendered ops tree.
 func runManifestParts(t *testing.T, ledger *nodeAuditLedger, options manifestRunOptions, args ...string) manifestCommandRun {
 	t.Helper()
+	return runOpsTreeCommand(t, ledger, options, []string{"ops", "audit", "manifest-parts"}, args...)
+}
+
+// runOpsTreeCommand runs command with args through the rendered ops tree as options.operatorID.
+func runOpsTreeCommand(t *testing.T, ledger *nodeAuditLedger, options manifestRunOptions, command []string, args ...string) manifestCommandRun {
+	t.Helper()
 	cfg := *ledger.cfg
 	cfg.AuditReaderDSN = options.readerDSN
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -128,8 +134,7 @@ func runManifestParts(t *testing.T, ledger *nodeAuditLedger, options manifestRun
 	root.SetContext(t.Context())
 	root.SetArgs(slices.Concat([]string{
 		"--output", "json", "--operator-id", options.operatorID.String(), "--operator-email", "manifest-parts@example.test",
-		"ops", "audit", "manifest-parts",
-	}, args))
+	}, command, args))
 	err := root.Execute()
 	return manifestCommandRun{stdout: stdout.String(), stderr: stderr.String(), err: err}
 }

@@ -56,7 +56,7 @@ func TestAuditQueryAndGetRecordReadLifecycle(t *testing.T) {
 	if err := json.Unmarshal(getOutput.Result, &got); err != nil || got.Row.EventID != storedEvent {
 		t.Fatalf("audit get result = %+v with error %v, want event %s\n%s", got, err, storedEvent, getRun.output())
 	}
-	requireCompletedReadRow(t, awaitReadLifecycleRow(t, ledger, getOperator),
+	requireCompletedReadRow(t, awaitReadLifecycleRow(t, ledger, getOperator, audit.VerbAuditRead),
 		readLifecycleEventPrefix+storedEvent.String(), getOutput.Result, []string{readLifecycleEventPrefix + storedEvent.String()})
 
 	queryArgs := append([]string{"audit", "query", "--org", orgID.String()}, window...)
@@ -80,19 +80,19 @@ func TestAuditQueryAndGetRecordReadLifecycle(t *testing.T) {
 	if !foundStored || queried.RowCount != len(returned) {
 		t.Fatalf("audit query returned %d rows %v, want the stored event %s\n%s", queried.RowCount, returned, storedEvent, queryRun.output())
 	}
-	requireCompletedReadRow(t, awaitReadLifecycleRow(t, ledger, queryOperator),
+	requireCompletedReadRow(t, awaitReadLifecycleRow(t, ledger, queryOperator, audit.VerbAuditRead),
 		readLifecycleOrgPrefix+orgID.String(), queryOutput.Result, returned)
 
 	missingEvent := uuid.Must(uuid.NewV7())
 	missingOperator, missingRun := runReadLifecycleCommand(t, ledger, "audit", "get", "--event-id", missingEvent.String())
 	requireFailedReadRun(t, missingRun)
-	requireFailedReadRow(t, awaitReadLifecycleRow(t, ledger, missingOperator),
+	requireFailedReadRow(t, awaitReadLifecycleRow(t, ledger, missingOperator, audit.VerbAuditRead),
 		readLifecycleEventPrefix+missingEvent.String(), "no event with id")
 
 	badOrgArgs := append([]string{"audit", "query", "--org", readLifecycleBadOrgFlag}, window...)
 	badOperator, badRun := runReadLifecycleCommand(t, ledger, badOrgArgs...)
 	requireFailedReadRun(t, badRun)
-	failedRow := awaitReadLifecycleRow(t, ledger, badOperator)
+	failedRow := awaitReadLifecycleRow(t, ledger, badOperator, audit.VerbAuditRead)
 	requireFailedReadRow(t, failedRow, readLifecycleInvalidOrg, "--org")
 	if strings.Contains(string(failedRow.Extra), readLifecycleBadOrgFlag) {
 		t.Fatalf("row %s stores the malformed flag value: %s", failedRow.EventID, failedRow.Extra)
@@ -117,12 +117,12 @@ func decodeReadLifecycleOutput(t *testing.T, run builtAuditRun) readLifecycleOut
 	return output
 }
 
-func awaitReadLifecycleRow(t *testing.T, ledger *nodeAuditLedger, operatorID uuid.UUID) audit.Row {
+func awaitReadLifecycleRow(t *testing.T, ledger *nodeAuditLedger, operatorID uuid.UUID, verb audit.Verb) audit.Row {
 	t.Helper()
 	now := clock.Now()
 	filter := audit.QueryFilter{
 		OrgID: audit.SystemOrgID(), Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour),
-		Action: string(audit.VerbAuditRead), ActorID: operatorID, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: 2,
+		Action: string(verb), ActorID: operatorID, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: 2,
 	}
 	deadline := clock.Now().Add(nodeAuditDeadline)
 	for {
@@ -145,8 +145,9 @@ func awaitReadLifecycleRow(t *testing.T, ledger *nodeAuditLedger, operatorID uui
 
 func requireReadRowShape(t *testing.T, row audit.Row, outcome audit.Outcome, targetURI string) {
 	t.Helper()
+	target := row.Context.Target
 	if row.Outcome != outcome || row.Context.OperationClass != audit.OperationRead || row.Context.Phase != audit.PhaseRead ||
-		row.Context.Target == nil || row.Context.Target.URI != targetURI {
+		target == nil || (target.URI != targetURI && target.Reference != targetURI) {
 		t.Fatalf("row %s = outcome %q class %q phase %q target %+v, want %q read read %q",
 			row.EventID, row.Outcome, row.Context.OperationClass, row.Context.Phase, row.Context.Target, outcome, targetURI)
 	}

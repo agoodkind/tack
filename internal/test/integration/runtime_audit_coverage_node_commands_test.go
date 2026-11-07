@@ -28,29 +28,29 @@ const coverageLegacyProperty = "coverage_legacy_note"
 // addNodeCommandCases adds node inspection, validation, repair, creation, and
 // batch command cases with their expected audit verbs and outcomes.
 func addNodeCommandCases(cases map[string]coverageCase) {
-	cases["command ops inspect read"] = commandCase(audit.VerbOpsInspectRead, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
+	cases["command ops inspect read"] = readCommandCase(audit.VerbOpsInspectRead, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{"ops", "inspect", "read", "--node", env.fixture(t).nodes["issue"].String()}, configure: nil, outbox: nil}
 	})
-	cases["command ops inspect find"] = commandCase(audit.VerbOpsInspectFind, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
+	cases["command ops inspect find"] = readCommandCase(audit.VerbOpsInspectFind, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{"ops", "inspect", "find", "--org", env.server.orgID.String(), "--type", "issue"}, configure: nil, outbox: nil}
 	})
-	cases["command ops inspect query"] = commandCase(audit.VerbOpsInspectQuery, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
+	cases["command ops inspect query"] = readCommandCase(audit.VerbOpsInspectQuery, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{
 			"ops", "inspect", "query", "--org", env.server.orgID.String(), "--type", "workspace",
 			"--property", "slug", "--value", strconv.Quote(env.server.workspace),
 		}, configure: nil, outbox: nil}
 	})
-	cases["command ops verify node"] = commandCase(audit.VerbOpsVerifyNode, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
+	cases["command ops verify node"] = readCommandCase(audit.VerbOpsVerifyNode, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{"ops", "verify", "node", "--node", env.fixture(t).nodes["issue"].String()}, configure: nil, outbox: nil}
 	})
-	cases["command ops repair classes"] = commandCase(audit.VerbOpsRepairClasses, audit.OutcomeOK, fixedCommand("ops", "repair", "classes"))
-	cases["command ops validate node"] = commandCase(audit.VerbOpsValidateNode, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
+	cases["command ops repair classes"] = readCommandCase(audit.VerbOpsRepairClasses, audit.OutcomeCompleted, fixedCommand("ops", "repair", "classes"))
+	cases["command ops validate node"] = readCommandCase(audit.VerbOpsValidateNode, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		nodeID, profile := env.legacyRepair(t)
 		return commandInput{args: []string{
 			"ops", "validate", "node", "--node", nodeID.String(), "--class", string(ops.RepairClassPropsTransform), "--profile", profile,
 		}, configure: nil, outbox: nil}
 	})
-	cases["command ops repair preview"] = commandCase(audit.VerbOpsRepairPreview, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
+	cases["command ops repair preview"] = readCommandCase(audit.VerbOpsRepairPreview, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		nodeID, profile := env.legacyRepair(t)
 		return commandInput{args: []string{
 			"ops", "repair", "preview", "--node", nodeID.String(), "--class", string(ops.RepairClassPropsTransform), "--profile", profile,
@@ -68,7 +68,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	cases["command ops act-as create"] = actAsCreateCase()
 	cases["command ops batch backfill.default_children"] = commandCase(audit.VerbOpsBackfillDefaultChildren, audit.OutcomeOK,
 		fixedCommand("ops", "batch", "backfill.default_children"))
-	cases["command ops batch reference.duplicates"] = commandCase(audit.VerbOpsReferenceDuplicates, audit.OutcomeOK,
+	cases["command ops batch reference.duplicates"] = readCommandCase(audit.VerbOpsReferenceDuplicates, audit.OutcomeCompleted,
 		fixedCommand("ops", "batch", "reference.duplicates"))
 	cases["command ops batch reindex"] = commandCase(audit.VerbOpsReindex, audit.OutcomeOK, fixedCommand("ops", "batch", "reindex"))
 	cases["command ops verify strict-validation"] = strictValidationCase()

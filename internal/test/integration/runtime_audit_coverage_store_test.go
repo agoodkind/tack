@@ -105,7 +105,7 @@ func storeExcludeInput(t *testing.T, env *coverageEnv) commandInput {
 // addStoreCommandCases adds FoundationDB store command cases with their
 // expected audit verbs and outcomes.
 func addStoreCommandCases(cases map[string]coverageCase) {
-	cases["command ops store status"] = commandCase(audit.VerbOpsStoreStatus, audit.OutcomeOK,
+	cases["command ops store status"] = readCommandCase(audit.VerbOpsStoreStatus, audit.OutcomeCompleted,
 		storeCommand(sharedCluster, func(string, *testing.T) []string { return []string{"ops", "store", "status"} }))
 	cases["command ops store set-redundancy"] = commandCase(audit.VerbOpsStoreSetRedundancy, audit.OutcomeOK,
 		storeCommand(migratableCluster, func(string, *testing.T) []string {
