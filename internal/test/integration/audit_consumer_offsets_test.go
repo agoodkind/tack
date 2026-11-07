@@ -117,6 +117,7 @@ func consumerOffsetsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool
 	factory := cli.System(cfg)
 	factory.Out = output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	t.Cleanup(factory.CloseAuditOutbox)
 	return func() (consumerOffsetsOutput, error) {
 		output.Reset()
