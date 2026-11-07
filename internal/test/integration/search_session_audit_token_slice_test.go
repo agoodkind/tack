@@ -29,8 +29,8 @@ type tokenBoundary struct {
 
 var tokenBoundaries = []tokenBoundary{{name: "inside-tokens", offset: -1}, {name: "at-last-token", offset: 0}, {name: "after-tokens", offset: 1}}
 
-// TestSearchSessionAuditSliceKeepsTokenValue runs CleanupSlice with limits
-// that end inside, at the end of, and after the query token chunks.
+// TestSearchSessionAuditSliceKeepsTokenValue runs CleanupSlice with limits that
+// end inside, at the end of, and after the query token chunks.
 func TestSearchSessionAuditSliceKeepsTokenValue(t *testing.T) {
 	for _, boundary := range tokenBoundaries {
 		t.Run(boundary.name, func(t *testing.T) {
@@ -55,9 +55,9 @@ func TestSearchSessionAuditSliceKeepsTokenValue(t *testing.T) {
 	}
 }
 
-// TestSearchSessionAuditRetireSliceKeepsTokenValue fences a stale delete
-// attempt and then retires slices that end inside, at the end of, and after
-// the query token chunks.
+// TestSearchSessionAuditRetireSliceKeepsTokenValue checks that the retirement
+// fence refuses a stale delete attempt, then retires slices that end inside, at
+// the end of, and after the query token chunks.
 func TestSearchSessionAuditRetireSliceKeepsTokenValue(t *testing.T) {
 	for _, boundary := range tokenBoundaries {
 		t.Run(boundary.name, func(t *testing.T) {
@@ -100,9 +100,9 @@ func finishSlices(t *testing.T, label string, maxSlices int, slice func() (bool,
 	t.Fatalf("%s: cleanup remains after %d more slices", label, maxSlices)
 }
 
-// TestSearchSessionAuditSliceRefusesTokenMismatch stores a header with a
-// token chunk count or byte count that differs from the stored chunks and
-// requires CleanupSlice to refuse the slice.
+// TestSearchSessionAuditSliceRefusesTokenMismatch stores a header with a token
+// chunk count or byte count that differs from the stored chunks and requires
+// CleanupSlice to refuse the slice.
 func TestSearchSessionAuditSliceRefusesTokenMismatch(t *testing.T) {
 	for _, member := range []string{"token_chunks", "token_bytes"} {
 		t.Run(member, func(t *testing.T) {

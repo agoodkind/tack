@@ -24,8 +24,9 @@ const (
 )
 
 // TestSearchSessionAuditFitsTransactionLimits runs each session writer at its
-// source bounds. Each writer must commit its records and change events inside
-// the FoundationDB transaction limits, and the outbox must store the events.
+// source bounds. It requires each writer to commit its records and change
+// events within the FoundationDB transaction limits and the outbox to store
+// the events.
 func TestSearchSessionAuditFitsTransactionLimits(t *testing.T) {
 	stores := sessionStoreStores(t)
 	store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)

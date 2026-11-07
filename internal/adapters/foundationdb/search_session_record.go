@@ -21,9 +21,11 @@ const (
 	maxSessionVisitedIDs = 400
 	// maxSessionResultIDs bounds the result IDs one replay record stores.
 	maxSessionResultIDs = 25
-	// maxSessionTokenChunks bounds the stored query-token chunks of one session.
+	// maxSessionTokenChunks is the maximum number of stored query token chunks
+	// for one session.
 	maxSessionTokenChunks = 16
-	// maxSessionTokenBytes bounds the stored query-token bytes of one session.
+	// maxSessionTokenBytes is the maximum number of stored query token bytes
+	// for one session.
 	maxSessionTokenBytes = maxSessionTokenChunks * sessionTokenChunkBytes
 )
 
