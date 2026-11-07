@@ -38,16 +38,13 @@ func runReadOperation[I Input](ctx context.Context, f *cli.Factory, op Operation
 		}
 		return captured.output(captured.targets), nil
 	})
-	if audit.IsReadVerdict(err) {
-		if replayErr := captured.replay(ctx, NewCLISink(f)); replayErr != nil {
-			return replayErr
-		}
+	if err != nil && !audit.IsReadVerdict(err) {
 		return err
 	}
-	if err != nil {
-		return err
+	if replayErr := captured.replay(ctx, NewCLISink(f)); replayErr != nil {
+		return replayErr
 	}
-	return captured.replay(ctx, NewCLISink(f))
+	return err
 }
 
 type operationReadSink struct {

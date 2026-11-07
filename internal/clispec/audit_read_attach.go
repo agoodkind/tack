@@ -57,16 +57,13 @@ func attachRead(
 			return printReadDryRun(withDryRunOutput(ctx, dryRunDestination(f, cmd.OutOrStdout())), f, spec, encoded)
 		}
 		payload, err := RunAuditedRead(ctx, f, spec, encoded, read)
-		if audit.IsReadVerdict(err) {
-			if writeErr := write(ctx, payload); writeErr != nil {
-				return writeErr
-			}
+		if err != nil && !audit.IsReadVerdict(err) {
 			return err
 		}
-		if err != nil {
-			return err
+		if writeErr := write(ctx, payload); writeErr != nil {
+			return writeErr
 		}
-		return write(ctx, payload)
+		return err
 	}
 }
 
