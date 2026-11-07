@@ -59,7 +59,9 @@ func TestAuditOperatorReadStoresCLIRequestIdentity(t *testing.T) {
 	ledger.requireChainVerifies(t, audit.SystemOrgID())
 }
 
-// TestAuditOperatorFailedReadStoresCLIRequestIdentity checks the request ID and trace ID on a failed operator read row.
+// TestAuditOperatorFailedReadStoresCLIRequestIdentity makes an operator read
+// fail and checks that its permanent ledger row stores the same request ID and
+// trace ID that the command logged.
 func TestAuditOperatorFailedReadStoresCLIRequestIdentity(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	operatorID, orgID, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
