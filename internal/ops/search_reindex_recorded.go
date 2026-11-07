@@ -82,7 +82,7 @@ func runSearchReindexRecorded(
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 	var begun searchdomain.Rebuild
-	step := audit.ExternalStep(externalTarget("opensearch/index/"+plan.serving+"/replacement"), plannedJSON)
+	step := audit.ExternalStep(audit.ExternalTarget("opensearch/index/"+plan.serving+"/replacement"), plannedJSON)
 	details, err := recordedStep(ctx, steps, step,
 		func(ctx context.Context) error {
 			rebuild, beginErr := env.Stores.SearchRebuilds(opsClockSource{}).BeginRebuild(ctx, plan.request)

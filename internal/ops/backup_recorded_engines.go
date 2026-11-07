@@ -45,7 +45,7 @@ func runBackupFDBContinuousInitRecorded(ctx context.Context, cfg *config.Config,
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
-	step := audit.ExternalStep(externalTarget("fdb/continuous-backup/"+cfg.BackupS3BucketMain), evidence)
+	step := audit.ExternalStep(audit.ExternalTarget("fdb/continuous-backup/"+cfg.BackupS3BucketMain), evidence)
 	return recordedStep(ctx, steps, step,
 		func(ctx context.Context) error { return RunBackupFDBContinuousInit(ctx, cfg) },
 		func(context.Context) (json.RawMessage, error) { return evidence, nil })
@@ -63,7 +63,7 @@ func runBackupYBPITRInitRecorded(ctx context.Context, cfg *config.Config, steps 
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
-	step := audit.ExternalStep(externalTarget("yugabyte/snapshot-schedule/"+filter), evidence)
+	step := audit.ExternalStep(audit.ExternalTarget("yugabyte/snapshot-schedule/"+filter), evidence)
 	return recordedStep(ctx, steps, step,
 		func(ctx context.Context) error { return RunBackupYBPITRInit(ctx, cfg) },
 		func(context.Context) (json.RawMessage, error) { return evidence, nil })

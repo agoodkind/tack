@@ -65,7 +65,7 @@ func runBackupYBArchiveNodeRecorded(ctx context.Context, cfg *config.Config, run
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
-	step := audit.ExternalStep(externalTarget("s3/"+planned.Bucket+"/"+target.prefix), plannedJSON)
+	step := audit.ExternalStep(audit.ExternalTarget("s3/"+planned.Bucket+"/"+target.prefix), plannedJSON)
 	if target.complete {
 		return recordedStep(ctx, steps, step,
 			func(context.Context) error { return nil },

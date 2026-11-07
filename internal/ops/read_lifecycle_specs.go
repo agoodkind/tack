@@ -14,7 +14,7 @@ const repairManifestTarget = "repair/manifest"
 // singletonReadSpec returns the read definition for a command that reads one
 // fixed external resource and does not record input.
 func singletonReadSpec(verb audit.Verb, reference string) audit.Spec {
-	target := externalTarget(reference)
+	target := audit.ExternalTarget(reference)
 	return audit.Spec{
 		Verb: string(verb), Reads: true, Class: audit.OperationRead,
 		Targets: func(context.Context, json.RawMessage) ([]audit.Target, error) {
@@ -60,7 +60,7 @@ func repairPreviewSpec() audit.Spec {
 	return clispec.InputReadSpec(audit.VerbOpsRepairPreview,
 		func(in repairPreviewInput) audit.Target {
 			if audit.CanonicalUUID(in.NodeID) == "" && strings.TrimSpace(in.Manifest) != "" {
-				return externalTarget(repairManifestTarget)
+				return audit.ExternalTarget(repairManifestTarget)
 			}
 			return nodeInputTarget(in.NodeID)
 		},

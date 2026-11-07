@@ -19,11 +19,8 @@ func (v *ReadVerdictError) Unwrap() error {
 	return v.Err
 }
 
-// AsReadVerdict placeholder.
-func AsReadVerdict(err error) (*ReadVerdictError, bool) {
+// IsReadVerdict placeholder.
+func IsReadVerdict(err error) bool {
 	var verdict *ReadVerdictError
-	if errors.As(err, &verdict) {
-		return verdict, true
-	}
-	return nil, false
+	return errors.As(err, &verdict)
 }

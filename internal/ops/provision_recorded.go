@@ -119,7 +119,7 @@ func provisionStateStep(
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 	var state string
-	return recordedStep(ctx, steps, audit.ExternalStep(externalTarget(reference), plannedJSON),
+	return recordedStep(ctx, steps, audit.ExternalStep(audit.ExternalTarget(reference), plannedJSON),
 		func(ctx context.Context) error {
 			observed, effectErr := effect(ctx)
 			state = observed

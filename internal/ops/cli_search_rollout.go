@@ -64,7 +64,7 @@ func searchRolloutSpec() audit.Spec {
 			if err := json.Unmarshal(input, &decoded); err != nil {
 				return nil, searchRolloutFailure(ctx, "decode access rollout input", err)
 			}
-			return []audit.Target{externalTarget(searchdomain.AccessRolloutTargetReference(decoded.Authority))}, nil
+			return []audit.Target{audit.ExternalTarget(searchdomain.AccessRolloutTargetReference(decoded.Authority))}, nil
 		},
 		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },
 	}

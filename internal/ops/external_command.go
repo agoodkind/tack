@@ -17,10 +17,6 @@ const (
 	commandFailedCode = "step_failed"
 )
 
-func externalTarget(reference string) audit.Target {
-	return audit.ExternalTarget(reference)
-}
-
 // commandOutcome returns outcome with code and the text of cause.
 // If cause is nil, commandOutcome leaves the failure code and message empty.
 func commandOutcome(outcome audit.Outcome, code string, cause error) audit.OutcomeDetails {

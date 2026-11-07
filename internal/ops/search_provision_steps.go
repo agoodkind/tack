@@ -137,5 +137,5 @@ func searchStep[Evidence stepEvidence](
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
-	return recordedStep(ctx, steps, audit.ExternalStep(externalTarget(reference), plannedJSON), effect, observe)
+	return recordedStep(ctx, steps, audit.ExternalStep(audit.ExternalTarget(reference), plannedJSON), effect, observe)
 }

@@ -69,7 +69,7 @@ func runBackupYBSnapshotExportRecorded(ctx context.Context, cfg *config.Config, 
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
-	step := audit.ExternalStep(externalTarget("s3/"+bucket+"/"+ybSnapshotRootPrefix), plannedJSON)
+	step := audit.ExternalStep(audit.ExternalTarget("s3/"+bucket+"/"+ybSnapshotRootPrefix), plannedJSON)
 	details, runErr := recordedStep(ctx, steps, step,
 		func(ctx context.Context) error { return RunBackupYBSnapshotExport(ctx, cfg) },
 		func(ctx context.Context) (json.RawMessage, error) {
@@ -151,7 +151,7 @@ func runBackupRestoreDrillRecorded(ctx context.Context, cfg *config.Config, opts
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
-	step := audit.ExternalStep(externalTarget("backup/restore-drill/"+cfg.BackupS3BucketMain), evidence)
+	step := audit.ExternalStep(audit.ExternalTarget("backup/restore-drill/"+cfg.BackupS3BucketMain), evidence)
 	details, runErr := recordedStep(ctx, steps, step,
 		func(ctx context.Context) error { return RunBackupRestoreDrill(ctx, cfg, opts) },
 		func(context.Context) (json.RawMessage, error) { return evidence, nil })

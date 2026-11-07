@@ -36,7 +36,7 @@ func retentionStep(ctx context.Context, steps audit.StepRecorder, evidence reten
 	if err != nil {
 		return err
 	}
-	step := audit.ExternalStep(externalTarget("s3/"+evidence.Bucket+"/"+evidence.Target), encoded)
+	step := audit.ExternalStep(audit.ExternalTarget("s3/"+evidence.Bucket+"/"+evidence.Target), encoded)
 	if err := steps.BeginStep(ctx, step); err != nil {
 		slog.ErrorContext(ctx, "backup.retention.step_intent_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("record retention step intent: %w", err)

@@ -46,7 +46,7 @@ func deployVerifySpec() audit.Spec {
 	return audit.Spec{
 		Verb: string(audit.VerbOpsDeployVerify), Reads: true, Class: audit.OperationRead,
 		Targets: func(context.Context, json.RawMessage) ([]audit.Target, error) {
-			return []audit.Target{externalTarget(deployReference)}, nil
+			return []audit.Target{audit.ExternalTarget(deployReference)}, nil
 		},
 		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },
 	}
@@ -94,7 +94,7 @@ func deployVerifyCommand(f *cli.Factory) *cobra.Command {
 func replicaTargets(replicas []serviceReplica) []audit.Target {
 	targets := make([]audit.Target, 0, len(replicas))
 	for _, replica := range replicas {
-		targets = append(targets, externalTarget(deployContainerReference+strings.TrimPrefix(replica.Container, "/")))
+		targets = append(targets, audit.ExternalTarget(deployContainerReference+strings.TrimPrefix(replica.Container, "/")))
 	}
 	return targets
 }

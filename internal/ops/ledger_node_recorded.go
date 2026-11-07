@@ -52,7 +52,7 @@ func runLedgerNodePrepareRecorded(ctx context.Context, cfg *config.Config, sink 
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 	applied := planned
-	details, err := recordedStep(ctx, steps, audit.ExternalStep(externalTarget(ledgerNodeConfigTarget), plannedJSON),
+	details, err := recordedStep(ctx, steps, audit.ExternalStep(audit.ExternalTarget(ledgerNodeConfigTarget), plannedJSON),
 		func(ctx context.Context) error {
 			result, applyErr := applyLedgerNodePrepare(ctx, docker, plan)
 			applied = result
@@ -90,7 +90,7 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 				return audit.OperatorReadOutput{}, fmt.Errorf("%s: encode the result: %w", ledgerNodePrepareLabel, err)
 			}
 			return audit.OperatorReadOutput{
-				Payload: encoded, Format: ledgerNodeJSONFormat, Targets: []audit.Target{externalTarget(ledgerNodeConfigTarget)},
+				Payload: encoded, Format: ledgerNodeJSONFormat, Targets: []audit.Target{audit.ExternalTarget(ledgerNodeConfigTarget)},
 			}, nil
 		})
 	if err != nil {
@@ -141,7 +141,7 @@ func runLedgerNodeWaitRecorded(
 		},
 	}
 	var took time.Duration
-	details, err := recordedStep(ctx, steps, audit.ExternalStep(externalTarget(ledgerNodeTarget+"/health"), plannedJSON),
+	details, err := recordedStep(ctx, steps, audit.ExternalStep(audit.ExternalTarget(ledgerNodeTarget+"/health"), plannedJSON),
 		func(ctx context.Context) error {
 			waited, waitErr := awaitLedgerNode(ctx, watch, stall, poll)
 			if waitErr != nil {
