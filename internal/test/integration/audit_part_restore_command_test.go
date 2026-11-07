@@ -65,6 +65,7 @@ func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
 	pipeline.requireNoPayloadText(t, run.stdout+run.stderr)
 	intent, result := pipeline.requireOperationRecords(t, 1)
 	pipeline.requireNoPayloadText(t, string(intent.Extra)+string(result.Extra))
+	pipeline.requireStepRecords(t, intent)
 	change := pipeline.requireChangeRecord(t, intent, 1)
 	requireRowsCorrelation(t, requestID, traceID, intent, result, change)
 

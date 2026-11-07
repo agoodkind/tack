@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -132,14 +131,24 @@ func (p *partRestorePipeline) writeManifest(t *testing.T, manifest ops.AuditPart
 	if err != nil {
 		t.Fatalf("encode the manifest: %v", err)
 	}
-	p.manifestPath = filepath.Join(p.repairDir, "manifest-"+uuid.NewString()+".json")
-	if err := os.WriteFile(p.manifestPath, content, 0o600); err != nil {
-		t.Fatalf("write the manifest: %v", err)
-	}
-	p.fileDigest = audit.SHA256Hex(content)
+	p.manifestPath, p.fileDigest = p.writeManifestFile(t, content)
 }
 
-func (p *partRestorePipeline) run(t *testing.T, execute bool, extra ...string) partRestoreRun {
+func (p *partRestorePipeline) writeManifestFile(t *testing.T, content []byte) (string, string) {
+	t.Helper()
+	path := filepath.Join(p.repairDir, "manifest-"+uuid.NewString()+".json")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("write the manifest: %v", err)
+	}
+	return path, audit.SHA256Hex(content)
+}
+
+func (p *partRestorePipeline) run(t *testing.T, execute bool) partRestoreRun {
+	t.Helper()
+	return p.runManifest(t, execute, p.manifestPath, p.fileDigest)
+}
+
+func (p *partRestorePipeline) runManifest(t *testing.T, execute bool, manifestPath, manifestDigest string) partRestoreRun {
 	t.Helper()
 	cfg := *p.ledger.cfg
 	cfg.RepairDir, cfg.AuditOperatorDSN = p.repairDir, p.operatorDSN
@@ -152,12 +161,12 @@ func (p *partRestorePipeline) run(t *testing.T, execute bool, extra ...string) p
 	root.SetContext(testenv.CommandContext(t))
 	arguments := []string{
 		"--output", "json", "--operator-id", p.operatorID.String(), "--operator-email", "part-restore@example.test",
-		"ops", "audit", "backfill", "once-restore-manifest-part", "--manifest", p.manifestPath, "--manifest-sha256", p.fileDigest,
+		"ops", "audit", "backfill", "once-restore-manifest-part", "--manifest", manifestPath, "--manifest-sha256", manifestDigest,
 	}
 	if execute {
 		arguments = append([]string{"--execute"}, arguments...)
 	}
-	root.SetArgs(slices.Concat(arguments, extra))
+	root.SetArgs(arguments)
 	err := root.Execute()
 	return partRestoreRun{stdout: stdout.String(), stderr: stderr.String(), err: err}
 }

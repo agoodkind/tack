@@ -11,27 +11,20 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
+const auditPartRestoreCommandURI = "tack:command/" + string(audit.VerbOpsBackfillRestoreManifestPart)
+
 type auditPartRestoreFlags struct {
-	Manifest       string
-	ManifestSHA256 string
+	Manifest       string `json:"manifest"`
+	ManifestSHA256 string `json:"manifest_sha256"`
 }
 
-type auditPartRestoreInput struct {
-	auditPartRestoreIdentity
-	ManifestFileSHA256 string `json:"manifest_file_sha256"`
-}
-
-func (auditPartRestoreInput) isCommandInput() {}
+func (auditPartRestoreFlags) isCommandInput() {}
 
 func auditPartRestoreSpec() audit.Spec {
 	return audit.Spec{
 		Verb: string(audit.VerbOpsBackfillRestoreManifestPart), Mutates: true, Class: audit.OperationExternal,
-		Targets: func(ctx context.Context, input json.RawMessage) ([]audit.Target, error) {
-			var decoded auditPartRestoreInput
-			if err := json.Unmarshal(input, &decoded); err != nil {
-				return nil, partRestoreFailure(ctx, "decode part restore input", err)
-			}
-			return []audit.Target{auditPartTarget(decoded.TargetEventID, decoded.PartIndex)}, nil
+		Targets: func(context.Context, json.RawMessage) ([]audit.Target, error) {
+			return []audit.Target{auditResourceTarget(auditPartRestoreCommandURI)}, nil
 		},
 		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },
 	}
@@ -69,15 +62,7 @@ func auditPartRestoreCobra(f *cli.Factory) *cobra.Command {
 		request = &auditPartRestoreRequest{manifest: manifest, fileDigest: fileDigest}
 		return *request, nil
 	}
-	input := func() (json.RawMessage, error) {
-		loaded, err := load(cmd.Context())
-		if err != nil {
-			return nil, err
-		}
-		return encodeCommandInput(auditPartRestoreInput{
-			auditPartRestoreIdentity: loaded.manifest.identity(), ManifestFileSHA256: loaded.fileDigest,
-		})
-	}
+	input := func() (json.RawMessage, error) { return encodeCommandInput(flags) }
 	spec := auditPartRestoreSpec()
 	clispec.AttachExternalPreview(cmd, f, spec, input,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {

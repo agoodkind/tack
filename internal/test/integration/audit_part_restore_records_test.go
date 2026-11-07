@@ -1,11 +1,8 @@
 package integration_test
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +11,8 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 )
+
+const partRestoreCommandURI = "tack:command/" + string(audit.VerbOpsBackfillRestoreManifestPart)
 
 func (p *partRestorePipeline) partCount(t *testing.T) int {
 	t.Helper()
@@ -24,17 +23,23 @@ func (p *partRestorePipeline) partCount(t *testing.T) int {
 	return len(parts)
 }
 
+func (p *partRestorePipeline) queryRows(t *testing.T, org uuid.UUID, verb audit.Verb) []audit.Row {
+	t.Helper()
+	rows, err := p.ledger.reader.Query(t.Context(), audit.QueryFilter{
+		OrgID: org, Oldest: time.Unix(0, 0).UTC(), Latest: clock.Now().Add(time.Hour), Action: string(verb),
+		ActorID: p.operatorID, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: partRestoreQueryLimit,
+	})
+	if err != nil {
+		t.Fatalf("query %s rows: %v", verb, err)
+	}
+	return rows
+}
+
 func (p *partRestorePipeline) waitRows(t *testing.T, org uuid.UUID, verb audit.Verb, ready func([]audit.Row) bool) []audit.Row {
 	t.Helper()
 	deadline := clock.Now().Add(nodeAuditDeadline)
 	for {
-		rows, err := p.ledger.reader.Query(t.Context(), audit.QueryFilter{
-			OrgID: org, Oldest: time.Unix(0, 0).UTC(), Latest: clock.Now().Add(time.Hour), Action: string(verb),
-			ActorID: p.operatorID, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: partRestoreQueryLimit,
-		})
-		if err != nil {
-			t.Fatalf("query %s rows: %v", verb, err)
-		}
+		rows := p.queryRows(t, org, verb)
 		if ready(rows) {
 			return rows
 		}
@@ -68,8 +73,8 @@ func (p *partRestorePipeline) requireOperationRecords(t *testing.T, operations i
 	intent, result = intents[0], results[0]
 	for _, row := range []audit.Row{intent, result} {
 		if row.Context.OperationClass != audit.OperationExternal || row.Context.AuditFormatVersion != audit.AuditFormatComplete ||
-			row.ActorID != p.operatorID || row.Context.Target == nil || row.Context.Target.URI != p.partURI() ||
-			row.Context.Target.Kind != audit.TargetKindResource || row.Context.Target.NodeType != audit.TargetAuditEventPart {
+			row.ActorID != p.operatorID || row.Context.Target == nil || row.Context.Target.URI != partRestoreCommandURI ||
+			row.Context.Target.Kind != audit.TargetKindResource {
 			t.Fatalf("operation row %s = class %q, actor %s, target %+v", row.EventID, row.Context.OperationClass, row.ActorID, row.Context.Target)
 		}
 	}
@@ -87,21 +92,41 @@ func (p *partRestorePipeline) requireSafeInput(t *testing.T, intent audit.Row) {
 	t.Helper()
 	var extra struct {
 		Input struct {
-			ManifestFileSHA256 string    `json:"manifest_file_sha256"`
-			OrgID              uuid.UUID `json:"org_id"`
-			TargetEventID      uuid.UUID `json:"target_event_id"`
-			SourceEventID      uuid.UUID `json:"source_event_id"`
-			PartIndex          int64     `json:"part_index"`
-			RootDigest         string    `json:"root_digest"`
+			Manifest       string `json:"manifest"`
+			ManifestSHA256 string `json:"manifest_sha256"`
 		} `json:"input"`
 	}
 	if err := json.Unmarshal(intent.Extra, &extra); err != nil {
 		t.Fatalf("decode the intent extra %s: %v", intent.Extra, err)
 	}
-	input, manifest := extra.Input, p.manifest
-	if input.ManifestFileSHA256 != p.fileDigest || input.OrgID != manifest.OrgID || input.TargetEventID != manifest.TargetEventID ||
-		input.SourceEventID != manifest.SourceEventID || input.PartIndex != manifest.PartIndex || input.RootDigest != manifest.ManifestSHA256 {
-		t.Fatalf("intent input = %+v, want the manifest identities and digests", input)
+	if extra.Input.Manifest != p.manifestPath || extra.Input.ManifestSHA256 != p.fileDigest {
+		t.Fatalf("intent input = %+v, want the manifest path %s and digest %s", extra.Input, p.manifestPath, p.fileDigest)
+	}
+}
+
+func (p *partRestorePipeline) requireStepRecords(t *testing.T, intent audit.Row) {
+	t.Helper()
+	isStep := func(row audit.Row) bool { return row.Context.ParentOperationID == intent.Context.OperationID }
+	rows := p.waitRows(t, audit.SystemOrgID(), audit.VerbOpsBackfillRestoreManifestPart, func(rows []audit.Row) bool {
+		return len(slices.DeleteFunc(slices.Clone(rows), func(row audit.Row) bool { return !isStep(row) })) >= 2
+	})
+	for _, row := range rows {
+		if !isStep(row) {
+			continue
+		}
+		var identity struct {
+			OrgID         uuid.UUID `json:"org_id"`
+			TargetEventID uuid.UUID `json:"target_event_id"`
+			SourceEventID uuid.UUID `json:"source_event_id"`
+			PartIndex     int64     `json:"part_index"`
+			RootDigest    string    `json:"root_digest"`
+		}
+		manifest := p.manifest
+		if row.Context.Target == nil || row.Context.Target.URI != p.partURI() || row.Context.Target.NodeType != audit.TargetAuditEventPart ||
+			json.Unmarshal(row.Extra, &identity) != nil || identity.OrgID != manifest.OrgID || identity.TargetEventID != manifest.TargetEventID ||
+			identity.SourceEventID != manifest.SourceEventID || identity.PartIndex != manifest.PartIndex || identity.RootDigest != manifest.ManifestSHA256 {
+			t.Fatalf("step row %s = target %+v, extra %s, want the part target and the manifest identities", row.EventID, row.Context.Target, row.Extra)
+		}
 	}
 }
 
@@ -154,36 +179,4 @@ func (p *partRestorePipeline) requireChangeRecord(t *testing.T, intent audit.Row
 	}
 	p.requireProtectedPayload(t, after.Payload.PIIRef)
 	return change
-}
-
-func (p *partRestorePipeline) requireProtectedPayload(t *testing.T, reference uuid.UUID) {
-	t.Helper()
-	var stored []byte
-	var subjectID, orgID uuid.UUID
-	if err := p.ledger.admin.QueryRow(t.Context(), readTestSQL(t, "part_restore_protected_payload.sql"), reference).Scan(&stored, &subjectID, &orgID); err != nil {
-		t.Fatalf("read the protected payload %s: %v", reference, err)
-	}
-	var encoded string
-	if err := json.Unmarshal(stored, &encoded); err != nil {
-		t.Fatalf("decode the protected payload value: %v", err)
-	}
-	reconstructed, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		t.Fatalf("decode the base64 payload: %v", err)
-	}
-	parts, err := p.ledger.reader.ManifestParts(t.Context(), p.org, p.target)
-	if err != nil || len(parts) != 1 {
-		t.Fatalf("read the restored part: %d parts, %v", len(parts), err)
-	}
-	if !bytes.Equal(reconstructed, parts[0].Payload) || subjectID != p.target || orgID != p.org {
-		t.Fatalf("protected payload: %d bytes equal %v, subject %s, org %s, want the stored part of %s in org %s",
-			len(reconstructed), bytes.Equal(reconstructed, parts[0].Payload), subjectID, orgID, p.target, p.org)
-	}
-}
-
-func (p *partRestorePipeline) requireNoPayloadText(t *testing.T, text string) {
-	t.Helper()
-	if strings.Contains(text, string(p.payload)) || strings.Contains(text, base64.StdEncoding.EncodeToString(p.payload)) {
-		t.Fatal("text contains payload bytes")
-	}
 }

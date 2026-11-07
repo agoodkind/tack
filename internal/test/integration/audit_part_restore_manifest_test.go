@@ -1,23 +1,22 @@
 package integration_test
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
-	"goodkind.io/tack/internal/cli"
-	"goodkind.io/tack/internal/config"
+	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/ops"
 )
 
-const partRestoreInvalidManifestText = "the part restore manifest is not valid"
+const (
+	partRestoreInvalidInputCode = "input_invalid"
+	partRestoreRefusedCode      = "restore_refused"
+)
 
 var partRestoreMandatoryMembers = []string{
 	"schema_version", "ticket", "org_id", "target_event_id", "source_event_id", "part_index", "manifest_sha256",
@@ -41,93 +40,96 @@ func partRestoreManifestMembers(t *testing.T, manifest ops.AuditPartRestoreManif
 	t.Helper()
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
-		t.Fatalf("encode the synthetic manifest: %v", err)
+		t.Fatalf("encode the manifest: %v", err)
 	}
 	members := map[string]json.RawMessage{}
 	if err := json.Unmarshal(encoded, &members); err != nil {
-		t.Fatalf("decode the synthetic manifest members: %v", err)
+		t.Fatalf("decode the manifest members: %v", err)
 	}
 	return members
 }
 
-func runPartRestoreManifestOnly(t *testing.T, members map[string]json.RawMessage, execute bool) error {
+func (p *partRestorePipeline) resultOfManifest(t *testing.T, manifestDigest string) audit.Row {
+	t.Helper()
+	var operationID uuid.UUID
+	rows := p.waitRows(t, audit.SystemOrgID(), audit.VerbOpsBackfillRestoreManifestPart, func(rows []audit.Row) bool {
+		for _, intent := range operationRows(rows, audit.PhaseIntent) {
+			var extra struct {
+				Input struct {
+					ManifestSHA256 string `json:"manifest_sha256"`
+				} `json:"input"`
+			}
+			if json.Unmarshal(intent.Extra, &extra) == nil && extra.Input.ManifestSHA256 == manifestDigest {
+				operationID = intent.Context.OperationID
+			}
+		}
+		for _, result := range operationRows(rows, audit.PhaseResult) {
+			if result.Context.OperationID == operationID && operationID != uuid.Nil {
+				return true
+			}
+		}
+		return false
+	})
+	for _, result := range operationRows(rows, audit.PhaseResult) {
+		if result.Context.OperationID == operationID {
+			return result
+		}
+	}
+	t.Fatalf("no result row for manifest %s", manifestDigest)
+	return audit.Row{}
+}
+
+func (p *partRestorePipeline) requireManifestRefused(t *testing.T, members map[string]json.RawMessage, code, fragment string) {
 	t.Helper()
 	content, err := json.Marshal(members)
 	if err != nil {
 		t.Fatalf("encode the manifest members: %v", err)
 	}
-	directory := t.TempDir()
-	path := filepath.Join(directory, "manifest.json")
-	if err := os.WriteFile(path, content, 0o600); err != nil {
-		t.Fatalf("write the manifest: %v", err)
+	path, digest := p.writeManifestFile(t, content)
+	run := p.runManifest(t, true, path, digest)
+	if run.err == nil {
+		t.Fatalf("the command accepted the manifest, want a refusal with code %s", code)
 	}
-	digest := sha256.Sum256(content)
-	cfg := &config.Config{RepairDir: directory, AuditReaderDSN: manifestUnreachableReaderDSN, AuditOperatorDSN: manifestUnreachableReaderDSN}
-	factory := cli.System(cfg)
-	factory.Out, factory.Err = &bytes.Buffer{}, &bytes.Buffer{}
-	root := nodeAuditCommandRoot(factory)
-	root.SetContext(t.Context())
-	arguments := []string{
-		"--output", "json", "--operator-id", uuid.NewString(), "--operator-email", "manifest-members@example.test",
-		"ops", "audit", "backfill", "once-restore-manifest-part", "--manifest", path, "--manifest-sha256", hex.EncodeToString(digest[:]),
+	result := p.resultOfManifest(t, digest)
+	if result.Outcome != audit.OutcomeRefused || result.Error == nil || result.Error.Code != code || !strings.Contains(result.Error.Message, fragment) {
+		t.Fatalf("result outcome %q, error %+v, want refused with code %s containing %q", result.Outcome, result.Error, code, fragment)
 	}
-	if execute {
-		arguments = append([]string{"--execute"}, arguments...)
+	if parts := p.partCount(t); parts != 0 {
+		t.Fatalf("the refused command left %d part rows, want 0", parts)
 	}
-	root.SetArgs(arguments)
-	return root.Execute()
-}
-
-func requirePartRestoreManifestRefused(t *testing.T, members map[string]json.RawMessage, fragment string) {
-	t.Helper()
-	for _, execute := range []bool{false, true} {
-		err := runPartRestoreManifestOnly(t, members, execute)
-		if err == nil || !strings.Contains(err.Error(), partRestoreInvalidManifestText) || !strings.Contains(err.Error(), fragment) {
-			t.Fatalf("manifest run (execute %v) = %v, want a refusal containing %q before any database call", execute, err, fragment)
-		}
+	if changes := p.queryRows(t, p.org, audit.VerbAuditEventPartCreate); len(changes) != 0 {
+		t.Fatalf("the refused command recorded %d change events, want 0", len(changes))
 	}
 }
 
-func TestAuditPartRestoreManifestRefusesOmittedAndNullMembers(t *testing.T) {
+func TestAuditPartRestoreManifestMembers(t *testing.T) {
+	pipeline := startPartRestorePipeline(t)
 	for _, name := range partRestoreMandatoryMembers {
 		t.Run(name+" omitted", func(t *testing.T) {
-			members := partRestoreManifestMembers(t, syntheticPartRestoreManifest(t))
+			members := partRestoreManifestMembers(t, pipeline.manifest)
 			delete(members, name)
-			requirePartRestoreManifestRefused(t, members, name)
+			pipeline.requireManifestRefused(t, members, partRestoreInvalidInputCode, name)
 		})
 		t.Run(name+" null", func(t *testing.T) {
-			members := partRestoreManifestMembers(t, syntheticPartRestoreManifest(t))
+			members := partRestoreManifestMembers(t, pipeline.manifest)
 			members[name] = json.RawMessage("null")
-			requirePartRestoreManifestRefused(t, members, name)
+			pipeline.requireManifestRefused(t, members, partRestoreInvalidInputCode, name)
 		})
 	}
-}
-
-func TestAuditPartRestoreManifestRefusesNonPositiveValues(t *testing.T) {
-	cases := map[string]string{
-		"target_seq": "0", "source_seq": "0", "target_hash_version": "0",
-	}
-	for name, value := range cases {
-		t.Run(name, func(t *testing.T) {
-			members := partRestoreManifestMembers(t, syntheticPartRestoreManifest(t))
-			members[name] = json.RawMessage(value)
-			requirePartRestoreManifestRefused(t, members, name)
+	for _, name := range []string{"target_seq", "source_seq", "target_hash_version"} {
+		t.Run(name+" zero", func(t *testing.T) {
+			members := partRestoreManifestMembers(t, pipeline.manifest)
+			members[name] = json.RawMessage("0")
+			pipeline.requireManifestRefused(t, members, partRestoreInvalidInputCode, name)
 		})
 	}
-}
-
-func TestAuditPartRestoreManifestAcceptsExplicitZeroes(t *testing.T) {
-	members := partRestoreManifestMembers(t, syntheticPartRestoreManifest(t))
-	for _, name := range []string{"part_index", "target_shard", "source_shard"} {
-		if string(members[name]) != "0" {
-			t.Fatalf("synthetic member %s = %s, want an explicit 0", name, members[name])
+	t.Run("explicit zero part index and shards", func(t *testing.T) {
+		members := partRestoreManifestMembers(t, syntheticPartRestoreManifest(t))
+		for _, name := range []string{"part_index", "target_shard", "source_shard"} {
+			if string(members[name]) != "0" {
+				t.Fatalf("synthetic member %s = %s, want an explicit 0", name, members[name])
+			}
 		}
-	}
-	err := runPartRestoreManifestOnly(t, members, true)
-	if err == nil || !strings.Contains(err.Error(), "outbox is nil") {
-		t.Fatalf("a manifest with explicit zero part_index and shards stopped with %v, want the missing audit outbox that follows manifest validation", err)
-	}
-	if strings.Contains(err.Error(), partRestoreInvalidManifestText) {
-		t.Fatalf("a manifest with explicit zero part_index and shards was refused: %v", err)
-	}
+		pipeline.requireManifestRefused(t, members, partRestoreRefusedCode, "verify the source event")
+	})
 }

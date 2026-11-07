@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"regexp"
 
@@ -55,15 +54,14 @@ var auditPartRestoreRequiredMembers = []string{
 func readAuditPartRestoreManifest(ctx context.Context, repairDir, path, wantDigest string) (AuditPartRestoreManifest, string, error) {
 	directory, err := openRepairDirectory(ctx, repairDir)
 	if err != nil {
-		return AuditPartRestoreManifest{}, "", err
+		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
 	if err := directory.require(ctx, "manifest", path); err != nil {
-		return AuditPartRestoreManifest{}, "", err
+		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit_part_restore.manifest_read_failed", slog.String("path", path), slog.String("err", err.Error()))
-		return AuditPartRestoreManifest{}, "", fmt.Errorf("read part restore manifest %q: %w", path, err)
+		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, fmt.Sprintf("read part restore manifest %q: %v", path, err))
 	}
 	fileDigest := audit.SHA256Hex(content)
 	if fileDigest != wantDigest {
