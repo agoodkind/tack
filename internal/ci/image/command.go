@@ -57,7 +57,6 @@ func NewCommand() *cobra.Command {
 	return root
 }
 
-// fileOperation creates a subcommand for an operation that writes files.
 func fileOperation(name, short string, run func() error) *cobra.Command {
 	return &cobra.Command{
 		Use:   name,
