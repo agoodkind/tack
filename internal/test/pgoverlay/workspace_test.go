@@ -96,9 +96,7 @@ type workspace struct {
 	host       testenv.OpenTofuHost
 	target     databaseTarget
 	transcript strings.Builder
-	// lockMode is the provider role_lock_mode value. An empty value leaves the
-	// attribute unset, and the provider default applies.
-	lockMode string
+	lockMode   string
 	// memberships is a JSON list for the role roles attribute. An empty value
 	// leaves the attribute unset.
 	memberships string
