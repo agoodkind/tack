@@ -1,6 +1,7 @@
 package integration
 
 import (
+	_ "embed"
 	"net"
 	"slices"
 	"testing"
@@ -20,6 +21,9 @@ const (
 	// 3, 3, 3 wait, the 3 and 3 wait, and the green 3, 3, 3 wait.
 	clusterBootstrapWaitRows = 5
 )
+
+//go:embed testdata/ledger_bootstrap_manifest_count.sql
+var clusterManifestCountQuery string
 
 // requireServedByYB1 requires a connection through pool to be served by the
 // node at yb1Address, read with inet_server_addr().
@@ -56,12 +60,12 @@ func requireClusterOutboxRows(t *testing.T, admin *pgxpool.Pool) {
 	if len(bootstraps) != clusterAuditBootstrapRows {
 		t.Fatalf("outbox audit-bootstrap rows = %d, want %d", len(bootstraps), clusterAuditBootstrapRows)
 	}
-	waits := clusterOutboxEvents(t, admin, audit.VerbOpsLedgerBootstrapWait)
-	if len(waits) != clusterBootstrapWaitRows {
-		t.Fatalf("outbox bootstrap-wait rows = %d, want %d", len(waits), clusterBootstrapWaitRows)
+	var manifests int
+	if err := admin.QueryRow(t.Context(), clusterManifestCountQuery).Scan(&manifests); err != nil {
+		t.Fatalf("count the read manifests in the outbox: %v", err)
 	}
-	for _, event := range waits {
-		outboxOpID(t, event)
+	if manifests != clusterBootstrapWaitRows {
+		t.Fatalf("outbox read manifests = %d, want %d bootstrap-wait reads", manifests, clusterBootstrapWaitRows)
 	}
 }
 
