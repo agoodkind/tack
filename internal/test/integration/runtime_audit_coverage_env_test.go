@@ -18,6 +18,7 @@ import (
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/config"
 	"goodkind.io/tack/internal/ops"
+	"goodkind.io/tack/internal/test/integration"
 )
 
 // coverageDeliveryTimeout limits how long waitForRows polls the audit ledger
@@ -112,7 +113,11 @@ func (env *coverageEnv) runCommand(t *testing.T, input commandInput, mode ...str
 	root.SetArgs(slices.Concat(mode, []string{
 		"--operator-id", operatorID.String(), "--operator-email", "coverage@example.test", "--operator-name", "Coverage Test",
 	}, args))
-	err := root.ExecuteContext(t.Context())
+	ctx := t.Context()
+	if input.correlated {
+		ctx = integration.CommandContext(t)
+	}
+	err := root.ExecuteContext(ctx)
 	return operatorID, output.String(), err
 }
 

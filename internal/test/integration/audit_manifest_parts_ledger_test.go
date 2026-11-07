@@ -19,29 +19,7 @@ import (
 // requireStoredAuditReads polls the ledger until the operator has one audit.read row per run. It fails when the operator has more rows or the deadline passes.
 func requireStoredAuditReads(t *testing.T, ledger *nodeAuditLedger, operatorID uuid.UUID, runs []manifestReadRun) {
 	t.Helper()
-	now := clock.Now()
-	filter := audit.QueryFilter{
-		OrgID: audit.SystemOrgID(), Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour),
-		Action: string(audit.VerbAuditRead), ActorID: operatorID, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: len(runs) + 1,
-	}
-	deadline := clock.Now().Add(nodeAuditDeadline)
-	for {
-		rows, err := ledger.reader.Query(t.Context(), filter)
-		if err != nil {
-			t.Fatalf("query the audit.read rows of operator %s: %v", operatorID, err)
-		}
-		if len(rows) > len(runs) {
-			t.Fatalf("ledger has %d audit.read rows for operator %s, want %d", len(rows), operatorID, len(runs))
-		}
-		if len(rows) == len(runs) {
-			requireRowsMatchRuns(t, ledger, rows, runs)
-			return
-		}
-		if clock.Now().After(deadline) {
-			t.Fatalf("ledger has %d audit.read rows for operator %s after %s, want %d", len(rows), operatorID, nodeAuditDeadline, len(runs))
-		}
-		time.Sleep(nodeAuditPollInterval)
-	}
+	requireRowsMatchRuns(t, ledger, operatorAuditReadRows(t, ledger, operatorID, len(runs)), runs)
 }
 
 // requireRowsMatchRuns matches each row to a run by safe input and evidence. It checks the returned identities.

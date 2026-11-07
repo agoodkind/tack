@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/response"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -43,41 +44,6 @@ type referenceRepairExtra struct {
 	CounterKey   string `json:"counter_key,omitempty"`
 	CounterValue int64  `json:"counter_value,omitempty"`
 	TemplateName string `json:"template,omitempty"`
-}
-
-// recordReferenceRepair writes one ledger event per rename, per counter seed,
-// and per reference key the run applied. Event identity is derived from the
-// fact itself, so a second run over unchanged state adds nothing.
-func recordReferenceRepair(
-	ctx context.Context,
-	outbox audit.OutboxWriter,
-	principal audit.OperatorPrincipal,
-	report RepairReferenceReport,
-	occurredAt time.Time,
-) error {
-	idempotent, ok := outbox.(audit.IdempotentOutboxWriter)
-	if !ok {
-		err := fmt.Errorf("audit outbox does not support idempotent repair writes")
-		telemetry.L(ctx).ErrorContext(ctx, "repair.reference_uniqueness.outbox_invalid",
-			slog.String("err", err.Error()))
-		return err
-	}
-	events, err := referenceRepairEvents(ctx, principal, report, occurredAt)
-	if err != nil {
-		return err
-	}
-	for _, event := range events {
-		if _, writeErr := idempotent.WriteOutboxIfAbsent(ctx, event); writeErr != nil {
-			wrapped := fmt.Errorf("record repaired %s: %w", event.Entity.Identifier, writeErr)
-			telemetry.L(ctx).ErrorContext(ctx, "repair.reference_uniqueness.record_failed",
-				slog.String("event_id", event.EventID.String()),
-				slog.String("err", wrapped.Error()))
-			return wrapped
-		}
-	}
-	telemetry.L(ctx).InfoContext(ctx, "repair.reference_uniqueness.recorded",
-		slog.Int("events", len(events)))
-	return nil
 }
 
 // referenceRepairEvents builds every event the run owes the ledger.
@@ -194,18 +160,20 @@ func referenceRepairEvent(
 			slog.String("err", wrapped.Error()))
 		return audit.Event{}, wrapped
 	}
+	correlation := response.FromContext(ctx)
 	return audit.Event{
 		Verb:    string(verb),
 		EventID: uuid.NewSHA1(referenceRepairAuditNamespace, []byte(idempotencyKey)),
 		Actor: audit.Actor{
 			Type: principal.ActorType(), ID: principal.ID,
 			Email: principal.Email, Name: principal.Name,
-			SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+			SessionID: "", IP: "", UserAgent: "", RequestID: correlation.RequestID, APITokenLabel: "",
 		},
 		Entity: entity,
 		Context: audit.EventContext{
 			OrgID: orgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
+			RequestID: correlation.RequestID, TraceID: correlation.TraceID,
+			Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
 		},
 		Delta: nil, Outcome: audit.OutcomeOK, Error: nil,
 		IdempotencyKey: idempotencyKey, OccurredAt: occurredAt.UTC(), Extra: encoded,

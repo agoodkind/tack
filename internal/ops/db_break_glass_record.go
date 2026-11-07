@@ -10,6 +10,7 @@ import (
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/response"
 )
 
 // dbBreakGlassExtra is the payload the ledger rows store beyond the
@@ -46,16 +47,18 @@ func recordDBBreakGlass(
 		slog.ErrorContext(ctx, "db.break_glass.extra_encode_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("encode the break-glass record: %w", err)
 	}
+	correlation := response.FromContext(ctx)
 	event := audit.Event{
 		Verb: string(audit.VerbOpsDBBreakGlass), EventID: uuid.Must(uuid.NewV7()),
 		Actor: audit.Actor{
 			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
-			SessionID: principal.SessionID, IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+			SessionID: principal.SessionID, IP: "", UserAgent: "", RequestID: correlation.RequestID, APITokenLabel: "",
 		},
 		Entity: audit.Entity{Type: "database", NodeType: "", ID: extra.AttemptID, Identifier: "", Name: extra.CommandTag},
 		Context: audit.EventContext{
 			OrgID: audit.SystemOrgID(), WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: extra.Reason,
+			RequestID: correlation.RequestID, TraceID: correlation.TraceID,
+			Source: audit.SourceSystem, Tool: "", RPC: "", Reason: extra.Reason,
 		},
 		Delta: nil, Outcome: outcome, Error: nil, IdempotencyKey: "",
 		OccurredAt: clock.Now().UTC(), Extra: encoded,

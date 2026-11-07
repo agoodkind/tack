@@ -35,12 +35,20 @@ func testCommandReferenceRepair(t *testing.T) {
 	cfg := &config.Config{
 		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: 5 * time.Second,
 	}
-	if output, err := runOpsCommand(t, cfg, pool, "--execute", "--operator-id", operatorID.String(),
-		"--operator-email", outcomeOperatorEmail, "ops", "repair", "reference-uniqueness", "--keep", "oldest"); err != nil {
+	output, err := runOpsCommandIn(integration.CommandContext(t), cfg, pool, "--execute", "--output", "json", "--operator-id", operatorID.String(),
+		"--operator-email", outcomeOperatorEmail, "ops", "repair", "reference-uniqueness", "--keep", "oldest")
+	if err != nil {
 		t.Fatalf("reference-uniqueness failed: %v\n%s", err, output)
 	}
-	commandID := commandOperationID(t, outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql",
-		string(audit.VerbOpsRepairReferenceUniqueness), operatorID.String()))
+	repairEvents := outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql",
+		string(audit.VerbOpsRepairReferenceUniqueness), operatorID.String())
+	renameEvents := outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql",
+		string(audit.VerbNodeReferenceRename), operatorID.String())
+	if len(renameEvents) == 0 {
+		t.Fatalf("the repair did not record a %s event for operator %s", audit.VerbNodeReferenceRename, operatorID)
+	}
+	integration.RequireCommandCorrelation(t, output, append(repairEvents, renameEvents...))
+	commandID := commandOperationID(t, repairEvents)
 	renumbered := second
 	if first.String() > second.String() {
 		renumbered = first

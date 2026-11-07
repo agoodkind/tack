@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -64,12 +65,7 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	})
 	cases["command ops repair reference-uniqueness"] = commandCase(audit.VerbOpsRepairReferenceUniqueness, audit.OutcomeOK,
 		fixedCommand("ops", "repair", "reference-uniqueness", "--keep", "oldest"))
-	cases["command ops act-as create"] = commandCase(audit.VerbOpsActAsCreate, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
-		return commandInput{args: []string{
-			"ops", "act-as", "create", "--user", env.userEmail(t), "--reason", "coverage", "--parent", env.fixture(t).nodes["project"].String(),
-			"--node-type", "issue", "--name", "Coverage act-as " + uuid.NewString()[:8],
-		}, configure: nil, outbox: nil}
-	})
+	cases["command ops act-as create"] = actAsCreateCase()
 	cases["command ops batch backfill.default_children"] = commandCase(audit.VerbOpsBackfillDefaultChildren, audit.OutcomeOK,
 		fixedCommand("ops", "batch", "backfill.default_children"))
 	cases["command ops batch reference.duplicates"] = commandCase(audit.VerbOpsReferenceDuplicates, audit.OutcomeOK,
@@ -94,6 +90,33 @@ func strictValidationCase() coverageCase {
 			return operatorEvidence(operatorID)
 		},
 		verb: audit.VerbOpsStrictValidation, outcome: audit.OutcomeCompleted, check: nil,
+	}
+}
+
+func actAsCreateCase() coverageCase {
+	return coverageCase{
+		run: func(t *testing.T, env *coverageEnv) coverageEvidence {
+			input := commandInput{args: []string{
+				"ops", "act-as", "create", "--user", env.userEmail(t), "--reason", "coverage", "--parent", env.fixture(t).nodes["project"].String(),
+				"--node-type", "issue", "--name", "Coverage act-as " + uuid.NewString()[:8], "--output", "json",
+			}, configure: nil, outbox: nil, correlated: true}
+			operatorID, output, err := env.commandWith(t, input)
+			if err != nil {
+				t.Fatalf("ops act-as create failed: %v\n%s", err, output)
+			}
+			requestID, traceID := integration.CommandCorrelation(t, output)
+			isGrant := func(row audit.Row) bool { return row.Action == string(audit.VerbOpsActAsGrant) }
+			rows := env.ledger.requestRows(t, env.server.orgID, requestID, func(rows []audit.Row) bool {
+				return slices.ContainsFunc(rows, isGrant)
+			})
+			grant := rows[slices.IndexFunc(rows, isGrant)]
+			if grant.ActorID != operatorID || grant.Context.TraceID != traceID {
+				t.Fatalf("grant row %s actor %s and trace ID %q, want actor %s and trace ID %s",
+					grant.EventID, grant.ActorID, grant.Context.TraceID, operatorID, traceID)
+			}
+			return operatorEvidence(operatorID)
+		},
+		verb: audit.VerbOpsActAsCreate, outcome: audit.OutcomeOK, check: nil,
 	}
 }
 

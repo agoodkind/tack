@@ -45,7 +45,7 @@ func TestOpsDBSQLRecordsAgentAttribution(t *testing.T) {
 	}
 	since := ledgerNow(t, pool)
 	output, err := runOpsDBSQL(t, breakGlassConfig(ledgerDSN, mail), pool,
-		"--execute", "--operator-service", attributionService, "--operator-session", attributionSession,
+		"--execute", "--output", "json", "--operator-service", attributionService, "--operator-session", attributionSession,
 		"--operator-id", operatorID.String(), "--operator-email", attributionEmail,
 		"ops", "db", "sql", "--statement", "select 1", "--reason", attributionReason)
 	if err != nil {
@@ -65,6 +65,7 @@ func TestOpsDBSQLRecordsAgentAttribution(t *testing.T) {
 
 	events := opsoutbox.Events(t, pool, opsoutbox.Filter{Since: since})
 	eventIDs := requireOutboxAttribution(t, events, operatorID)
+	RequireCommandCorrelation(t, output, events)
 	startAuditPipeline(t, brokers, ledgerDSN, pool)
 	for _, row := range waitForLedgerEvents(t, pool, eventIDs) {
 		if row.ActorKind != actorKindService || row.ActorID != cli.ServiceActorID(attributionService) {
