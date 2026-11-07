@@ -40,3 +40,8 @@ trace.*.xml
 /bin/
 /dist/
 /.make/
+/postgresql-overlay/src/
+/postgresql-overlay/go.work
+/postgresql-overlay/go.work.sum
+/postgresql-overlay/dist/
+/postgresql-overlay/.make/

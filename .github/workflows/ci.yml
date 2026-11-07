@@ -52,6 +52,21 @@ jobs:
       working_directory: provider
       go_version_file: provider/go.mod
 
+  # The overlay job builds an image that fetches the pinned PostgreSQL provider
+  # source, applies the patch, builds the provider through go-makefile, and
+  # installs the pinned OpenTofu after a SHA-256 check. The tests run OpenTofu
+  # in containers from that image against local PostgreSQL and YugabyteDB
+  # engines that internal/testenv starts.
+  postgresql-overlay:
+    name: postgresql provider overlay
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: build the provider and run the overlay tests
+        run: make test-postgresql-overlay
+
   # The store-backed tests run in three shards on separate hosts. Each shard
   # runs one test-store-host-shard selection in the Makefile.
   integration-shard:

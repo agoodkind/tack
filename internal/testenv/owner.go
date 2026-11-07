@@ -112,6 +112,8 @@ func prepareCreate(ctx context.Context, cli *client.Client) (processOwner, error
 			releaseOnSignal(ctx)
 			if !owner.native {
 				errWatcherStart = startRunWatcher(ctx, owner.run)
+			}
+			if !owner.native && !isolated() {
 				_, _ = removeEngines(ctx, cli, owner, ownerExited)
 			}
 		})
