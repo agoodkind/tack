@@ -30,6 +30,21 @@ func CommandContext(t *testing.T) context.Context {
 // RequireCommandCorrelation requires each event to store the request ID and trace ID from the trace header line of the command output.
 func RequireCommandCorrelation(t *testing.T, output string, events []audit.Event) {
 	t.Helper()
+	requestID, traceID := CommandCorrelation(t, output)
+	if len(events) == 0 {
+		t.Fatalf("command with request ID %s does not have any audit events", requestID)
+	}
+	for _, event := range events {
+		if event.Actor.RequestID != requestID || event.Context.RequestID != requestID || event.Context.TraceID != traceID {
+			t.Fatalf("event %s %s request IDs %q and %q and trace ID %q, want request ID %s and trace ID %s",
+				event.EventID, event.Verb, event.Actor.RequestID, event.Context.RequestID, event.Context.TraceID, requestID, traceID)
+		}
+	}
+}
+
+// CommandCorrelation returns the request ID and trace ID from the trace header line of the command output.
+func CommandCorrelation(t *testing.T, output string) (string, string) {
+	t.Helper()
 	fields := map[string]string{}
 	for line := range strings.Lines(output) {
 		header, found := strings.CutPrefix(strings.TrimSpace(line), commandHeaderMarker)
@@ -46,13 +61,5 @@ func RequireCommandCorrelation(t *testing.T, output string, events []audit.Event
 	if requestID == "" || traceID == "" {
 		t.Fatalf("command output does not report a request ID and a trace ID:\n%s", output)
 	}
-	if len(events) == 0 {
-		t.Fatalf("command with request ID %s does not have any audit events", requestID)
-	}
-	for _, event := range events {
-		if event.Actor.RequestID != requestID || event.Context.RequestID != requestID || event.Context.TraceID != traceID {
-			t.Fatalf("event %s %s request IDs %q and %q and trace ID %q, want request ID %s and trace ID %s",
-				event.EventID, event.Verb, event.Actor.RequestID, event.Context.RequestID, event.Context.TraceID, requestID, traceID)
-		}
-	}
+	return requestID, traceID
 }

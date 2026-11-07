@@ -14,9 +14,10 @@ import (
 // commandInput supplies command arguments and optional overrides for the server
 // configuration and audit database pool.
 type commandInput struct {
-	args      []string
-	configure func(*config.Config)
-	outbox    *pgxpool.Pool
+	args       []string
+	configure  func(*config.Config)
+	outbox     *pgxpool.Pool
+	correlated bool `exhaustruct:"optional"`
 }
 
 // commandCase creates an executable command case with an expected audit verb
