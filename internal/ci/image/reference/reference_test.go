@@ -1,43 +1,22 @@
-package main_test
+package reference_test
 
 import (
-	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"goodkind.io/tack/internal/ci/image/imagetest"
 )
 
-var commandPath string
-
 func TestMain(m *testing.M) {
-	directory, err := os.MkdirTemp("", "ci-image-test-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	commandPath = filepath.Join(directory, "ci-image")
-	build := exec.CommandContext(context.Background(), "go", "build", "-buildvcs=false", "-o", commandPath, ".")
-	build.Stdout = os.Stdout
-	build.Stderr = os.Stderr
-	if err := build.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.RemoveAll(directory)
-		os.Exit(1)
-	}
-	result := m.Run()
-	if err := os.RemoveAll(directory); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	os.Exit(result)
+	os.Exit(imagetest.RunTests(m))
 }
 
 func runCommand(t *testing.T, operation string, environment map[string]string) error {
 	t.Helper()
-	command := exec.CommandContext(t.Context(), commandPath, operation)
+	command := exec.CommandContext(t.Context(), imagetest.Path(), operation)
 	command.Env = []string{}
 	for key, value := range environment {
 		command.Env = append(command.Env, key+"="+value)
@@ -128,7 +107,7 @@ func TestTagsCommand(t *testing.T) {
 	}
 	environment["IMAGE_TAG_FILE"] = filepath.Join(t.TempDir(), "tags")
 	delete(environment, "BRANCH_NAME")
-	command := exec.CommandContext(t.Context(), commandPath, "tags")
+	command := exec.CommandContext(t.Context(), imagetest.Path(), "tags")
 	command.Env = []string{}
 	for key, value := range environment {
 		command.Env = append(command.Env, key+"="+value)
@@ -184,7 +163,7 @@ func TestFileFailureReportsOnce(t *testing.T) {
 		{"open", "tags", root, "open image file", []string{"REGISTRY=registry", "IMAGE_OWNER=owner", "IMAGE_NAME=image", "COMMIT_SHORT=abc", "GITHUB_SHA=abcdef", "GITHUB_REF_TYPE=branch", "BRANCH_NAME=main", "IMAGE_TAG_FILE=" + root}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			command := exec.CommandContext(t.Context(), commandPath, test.operation)
+			command := exec.CommandContext(t.Context(), imagetest.Path(), test.operation)
 			command.Env = test.environment
 			output, err := command.CombinedOutput()
 			if err == nil {

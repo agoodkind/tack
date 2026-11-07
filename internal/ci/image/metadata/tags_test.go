@@ -1,4 +1,4 @@
-package main_test
+package metadata_test
 
 import (
 	"os"

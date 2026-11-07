@@ -56,13 +56,13 @@ jobs:
       - name: verify native runner
         env:
           IMAGE_ARCH: ${{ matrix.arch }}
-        run: go run ./cmd/ci-image verify-native-runner
+        run: go run ./cmd/ci/image verify-native-runner
 
       - name: derive build metadata
         id: meta
         env:
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-        run: go run ./cmd/ci-image metadata
+        run: go run ./cmd/ci/image metadata
 
       - name: login to ghcr
         uses: docker/login-action@v4
@@ -96,7 +96,7 @@ jobs:
           IMAGE_ARCH: ${{ matrix.arch }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           DIGEST_DIRECTORY: ${{ runner.temp }}/digests
-        run: go run ./cmd/ci-image digest
+        run: go run ./cmd/ci/image digest
 
       - name: upload immutable digest
         uses: actions/upload-artifact@v7
@@ -133,7 +133,7 @@ jobs:
         id: meta
         env:
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-        run: go run ./cmd/ci-image metadata
+        run: go run ./cmd/ci/image metadata
 
       - name: docker tags
         env:
@@ -142,7 +142,7 @@ jobs:
           IMAGE_NAME: ${{ matrix.image }}
           COMMIT_SHORT: ${{ steps.meta.outputs.short }}
           IMAGE_TAG_FILE: ${{ runner.temp }}/image-tags
-        run: go run ./cmd/ci-image tags
+        run: go run ./cmd/ci/image tags
 
       - name: download immutable digests
         uses: actions/download-artifact@v8

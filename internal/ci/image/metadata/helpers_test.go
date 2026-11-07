@@ -1,4 +1,4 @@
-package main_test
+package metadata_test
 
 import (
 	"os"
@@ -12,7 +12,13 @@ import (
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
+
+	"goodkind.io/tack/internal/ci/image/imagetest"
 )
+
+func TestMain(m *testing.M) {
+	os.Exit(imagetest.RunTests(m))
+}
 
 var metadataTimePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`)
 
@@ -79,7 +85,7 @@ func runMetadata(t *testing.T, directory string, environment map[string]string) 
 
 func metadataCommand(t *testing.T, directory string, environment map[string]string) *exec.Cmd {
 	t.Helper()
-	command := exec.CommandContext(t.Context(), commandPath, "metadata")
+	command := exec.CommandContext(t.Context(), imagetest.Path(), "metadata")
 	command.Dir = directory
 	command.Env = []string{
 		"HOME=" + os.Getenv("HOME"),
