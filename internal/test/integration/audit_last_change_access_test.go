@@ -50,14 +50,16 @@ func TestAuditLastChangeIgnoresUpdateRefusedForNonMember(t *testing.T) {
 }
 
 // TestAuditLastChangeRefusesWithoutAuditReaderRole runs audit last-change
-// through the built server as different operators with AUDIT_READER_DSN
-// absent, a login that inherits only the application role, a malformed
-// AUDIT_READER_DSN, and a login that inherits audit_reader. The failing runs
-// exit with an error, log the missing setting, permission refusal, or fixed
-// reader message, and do not print a report. The audit_reader run prints a
-// report. The ledger must contain exactly one final audit.read row of the read
-// class for each operator: completed for the audit_reader run, and failed with
-// the read_failed code and no read evidence for each refusal.
+// through the built server as four operators: one without AUDIT_READER_DSN,
+// one with a login that inherits only the application role, one with a
+// malformed AUDIT_READER_DSN, and one with a login that inherits audit_reader.
+// The test checks that the first three runs exit with an error, log the missing
+// setting, permission refusal, or fixed reader message, and do not print output.
+// The audit_reader run prints a report. Each operator has a single final
+// audit.read row of the read class in audit.events. The audit_reader row has
+// outcome completed. Each refused run has outcome failed, code read_failed,
+// and does not include read evidence. No run exposes the reader connection
+// string.
 func TestAuditLastChangeRefusesWithoutAuditReaderRole(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	orgID, nodeID, now := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), clock.Now()
