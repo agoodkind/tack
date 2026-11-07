@@ -145,7 +145,7 @@ func manifestPartWriter(ctx context.Context, tx pgx.Tx) func(event Event, partIn
 			INSERT INTO audit.event_parts (org_id, event_id, part_index, digest, payload)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (org_id, event_id, part_index) DO NOTHING
-		`, event.Context.OrgID, event.EventID, partIndex, sha256Hex(payload), payload); err != nil {
+		`, event.Context.OrgID, event.EventID, partIndex, SHA256Hex(payload), payload); err != nil {
 			slog.ErrorContext(ctx, "audit.consumer.manifest_store_failed", slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
 			return fmt.Errorf("%w: audit event %s read manifest part %d: %w", errManifestPartStore, event.EventID, partIndex, err)
 		}

@@ -65,14 +65,14 @@ func EncodeEvent(event Event, readTargets []Target) (EncodedEvent, error) {
 		slog.Error("audit.event_parts.encode_failed", slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
 		return EncodedEvent{}, fmt.Errorf("encode audit event %s: %w", event.EventID, err)
 	}
-	transportDigest := sha256Hex(envelope)
+	transportDigest := SHA256Hex(envelope)
 	parts := make([]EventPart, 0, len(envelope)/EventPartMaxBytes+1)
 	var count uint32
 	for start := 0; start < len(envelope); start += EventPartMaxBytes {
 		payload := envelope[start:min(start+EventPartMaxBytes, len(envelope))]
 		parts = append(parts, EventPart{
 			EventID: event.EventID, Index: count, Count: 0,
-			Digest: sha256Hex(payload), TransportDigest: transportDigest, Payload: payload,
+			Digest: SHA256Hex(payload), TransportDigest: transportDigest, Payload: payload,
 		})
 		count++
 	}
@@ -121,8 +121,8 @@ func checkReadManifest(event Event, targets []Target) error {
 	return nil
 }
 
-// sha256Hex returns the lowercase hexadecimal SHA-256 digest of payload.
-func sha256Hex(payload []byte) string {
+// SHA256Hex returns the lowercase hexadecimal SHA-256 digest of payload.
+func SHA256Hex(payload []byte) string {
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:])
 }

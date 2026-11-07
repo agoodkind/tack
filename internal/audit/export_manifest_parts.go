@@ -115,7 +115,7 @@ func (v *manifestValidator) add(part ManifestPart, validateIdentities bool) stri
 	if part.Index != v.parts {
 		return fmt.Sprintf("does not provide read manifest part %d in index order", v.parts)
 	}
-	if len(part.Payload) > EventPartMaxBytes || sha256Hex(part.Payload) != part.Digest {
+	if len(part.Payload) > EventPartMaxBytes || SHA256Hex(part.Payload) != part.Digest {
 		return fmt.Sprintf("has read manifest part %d with a payload that exceeds the size limit or does not match its digest", part.Index)
 	}
 	count := manifestPayloadCount(part.Payload, validateIdentities)

@@ -90,7 +90,7 @@ func (r *assemblyPartReader) load() error {
 	if !found {
 		return r.invalidPart(fmt.Sprintf("received %d of %d parts", r.next, r.manifest.PartCount))
 	}
-	if len(payload) > EventPartMaxBytes || sha256Hex(payload) != digest {
+	if len(payload) > EventPartMaxBytes || SHA256Hex(payload) != digest {
 		return r.invalidPart(fmt.Sprintf("part %d has an invalid size or does not match its digest", r.next))
 	}
 	_, _ = r.hasher.Write(payload)

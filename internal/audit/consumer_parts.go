@@ -98,7 +98,7 @@ func storeAssembly(ctx context.Context, tx pgx.Tx, message transportMessage) err
 // bytes for an existing index.
 func storeAssemblyPart(ctx context.Context, tx pgx.Tx, message transportMessage) error {
 	part := partFromMessage(message)
-	if part.Index >= part.Count || len(part.Payload) > EventPartMaxBytes || sha256Hex(part.Payload) != part.Digest {
+	if part.Index >= part.Count || len(part.Payload) > EventPartMaxBytes || SHA256Hex(part.Payload) != part.Digest {
 		return rejectTransport(ctx, part.EventID, fmt.Sprintf("has part %d with an invalid index, size, or payload digest", part.Index))
 	}
 	tag, err := tx.Exec(ctx, `

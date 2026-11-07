@@ -56,13 +56,10 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 	}
 	for _, h := range reg.handwritten {
 		cmd := h.Build(f)
-		switch {
-		case h.Lifetime.isBackfill():
-			cmd.Use = BackfillNamePrefix + cmd.Use
-			ensure(backfills.under(h.Group)).AddCommand(cmd)
-		case h.Group != nil:
-			ensure(h.Group).AddCommand(cmd)
-		default:
+		cmd.Use = h.Lifetime.terminalName(cmd.Use)
+		if g := h.Lifetime.renderParent(backfills, h.Group); g != nil {
+			ensure(g).AddCommand(cmd)
+		} else {
 			tops = append(tops, cmd)
 		}
 	}
@@ -181,7 +178,9 @@ func registerFlag[I Input](cmd *cobra.Command, param Param[I]) func(in *I) {
 	case kindString:
 		holder := new(string)
 		cmd.Flags().StringVar(holder, param.Flag, param.DefaultStr, param.Description)
-		markRequired(cmd, param)
+		if param.Required {
+			_ = cmd.MarkFlagRequired(param.Flag)
+		}
 		bind := param.bindString
 		return func(in *I) { bind(in, *holder) }
 	case kindInt:
@@ -196,11 +195,5 @@ func registerFlag[I Input](cmd *cobra.Command, param Param[I]) func(in *I) {
 		return func(in *I) { bind(in, *holder) }
 	default:
 		return func(in *I) {}
-	}
-}
-
-func markRequired[I Input](cmd *cobra.Command, param Param[I]) {
-	if param.Required {
-		_ = cmd.MarkFlagRequired(param.Flag)
 	}
 }

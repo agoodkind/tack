@@ -100,7 +100,7 @@ func operatorReadCompletion(token ReadToken, template Event, output OperatorRead
 
 func operatorReadEvidence(output OperatorReadOutput) (ReadEvidence, error) {
 	evidence := ReadEvidence{
-		Count: uint64(len(output.Targets)), PayloadSHA256: sha256Hex(output.Payload), PayloadFormat: output.Format,
+		Count: uint64(len(output.Targets)), PayloadSHA256: SHA256Hex(output.Payload), PayloadFormat: output.Format,
 		ManifestSHA256: "", ManifestParts: 0,
 	}
 	if len(output.Targets) == 0 {

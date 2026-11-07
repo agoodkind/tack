@@ -28,10 +28,21 @@ func (l Lifetime) isBackfill() bool {
 // terminalName is the command word cobra renders: the canonical CLI name,
 // prefixed for a backfill.
 func (op Operation[I]) terminalName() string {
-	if op.Lifetime.isBackfill() {
-		return BackfillNamePrefix + op.Name.CLI()
+	return op.Lifetime.terminalName(op.Name.CLI())
+}
+
+func (l Lifetime) terminalName(name string) string {
+	if l.isBackfill() {
+		return BackfillNamePrefix + name
 	}
-	return op.Name.CLI()
+	return name
+}
+
+func (l Lifetime) renderParent(backfills backfillGroups, parent *Group) *Group {
+	if l.isBackfill() {
+		return backfills.under(parent)
+	}
+	return parent
 }
 
 // backfillGroups holds one rendered `backfill` group per parent group, so
@@ -55,8 +66,5 @@ func (b backfillGroups) under(parent *Group) *Group {
 // renderParent returns the group a command attaches to: its own group for a
 // product command, or the backfill group under that group for a backfill.
 func (op Operation[I]) renderParent(backfills backfillGroups) *Group {
-	if op.Lifetime.isBackfill() {
-		return backfills.under(op.Group)
-	}
-	return op.Group
+	return op.Lifetime.renderParent(backfills, op.Group)
 }
