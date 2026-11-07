@@ -76,7 +76,7 @@ func writeMetadata() error {
 		if err != nil {
 			return err
 		}
-		err = printMetadataMessage("HEAD has no exact tag; build metadata uses branch %s\n", tag)
+		err = printMetadataMessage("HEAD does not have an exact tag. Build metadata uses branch %s\n", tag)
 	}
 	if err != nil {
 		return err

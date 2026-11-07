@@ -61,10 +61,9 @@ func configuredAbbreviation(repository *git.Repository, root string) (int, error
 	return length, nil
 }
 
-// parseAbbreviation validates one core.abbrev value as Git does. An empty value
-// selects the full hash. The library stores a key without a value as an empty
-// value. The command treats both spellings as the full hash, although Git
-// rejects the key without a value.
+// The go-git parser stores an empty assignment and a key without "=" as an
+// empty value. Both forms select the full hash here. Git rejects a key
+// without "=".
 func parseAbbreviation(value, root string) (int, error) {
 	switch strings.ToLower(value) {
 	case automaticAbbreviation:
