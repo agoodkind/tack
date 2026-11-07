@@ -107,14 +107,9 @@ func (s *SearchSessionStore) cleanupSlice(ctx context.Context, sessionID uuid.UU
 			return errors.New("the session is not closing")
 		}
 		changes.bind(record)
-		keyRange, rangeErr := fdb.PrefixRange(searchSessionChildPrefix(sessionID))
+		children, rangeErr := readSliceChildren(tr, record, limit)
 		if rangeErr != nil {
-			return sessionStepError{operation: "create child range", err: rangeErr}
-		}
-		countSessionRead(tr)
-		children, rangeErr := tr.GetRange(keyRange, fdb.RangeOptions{Limit: limit + maxSessionTokenChunks}).GetSliceWithError()
-		if rangeErr != nil {
-			return sessionStepError{operation: "read child records", err: rangeErr}
+			return rangeErr
 		}
 		tokens, cleared, clearErr := changes.clearChildren(tr, record, children, limit)
 		if clearErr != nil {
