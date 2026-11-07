@@ -99,10 +99,17 @@ func requireClusterLedgerRows(t *testing.T, admin *pgxpool.Pool) {
 	if !slices.Equal(bootstrapOutcomes, wantOutcomes) {
 		t.Fatalf("audit-bootstrap outcomes = %v, want %v", bootstrapOutcomes, wantOutcomes)
 	}
+	var waitOutcomes []string
 	for _, row := range bootstrapRowsOfVerb(observed, audit.VerbOpsLedgerBootstrapWait) {
 		requireBootstrapOpID(t, audit.VerbOpsLedgerBootstrapWait, row)
-		if row.Outcome != string(audit.OutcomeOK) {
-			t.Fatalf("bootstrap-wait row outcome = %s, want %s", row.Outcome, audit.OutcomeOK)
-		}
+		waitOutcomes = append(waitOutcomes, row.Outcome)
+	}
+	slices.Sort(waitOutcomes)
+	wantWaitOutcomes := []string{
+		string(audit.OutcomeCompleted), string(audit.OutcomeCompleted), string(audit.OutcomeCompleted),
+		string(audit.OutcomeFailed), string(audit.OutcomeFailed),
+	}
+	if !slices.Equal(waitOutcomes, wantWaitOutcomes) {
+		t.Fatalf("bootstrap-wait outcomes = %v, want %v", waitOutcomes, wantWaitOutcomes)
 	}
 }

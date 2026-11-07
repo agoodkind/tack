@@ -3,12 +3,8 @@ package integration_test
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,19 +24,7 @@ func TestAuditVerifyRecordsTheVerdictAfterTheReport(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	orgID := uuid.Must(uuid.NewV7())
 	storeManifestRead(t, ledger, orgID)
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate the signing key: %v", err)
-	}
-	keyID := audit.KeyIdentifier(public)
-	encodedKey, err := x509.MarshalPKCS8PrivateKey(private)
-	if err != nil {
-		t.Fatalf("encode the signing key: %v", err)
-	}
-	keyPath := filepath.Join(t.TempDir(), "audit-signing.pem")
-	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encodedKey}), 0o600); err != nil {
-		t.Fatalf("write the signing key: %v", err)
-	}
+	keyPath, keyID, private := writeVerdictSigningKey(t)
 	bundle := t.TempDir()
 	now := clock.Now()
 	if _, err := audit.Export(t.Context(), ledger.reader, private, keyID, audit.QueryFilter{

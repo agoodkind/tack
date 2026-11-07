@@ -66,4 +66,17 @@ func TestRestoreVersionPrintsTheBytesOfTheAnswerAfterTheFinalEvent(t *testing.T)
 	}
 	requireFailedReadRow(t, awaitReadLifecycleRow(t, ledger, refusedOperator.operatorID, audit.VerbOpsBackupFDBRestoreVersion),
 		referenceTarget("backup/restore-version"), "oldest recorded reading")
+
+	if _, err := ledger.admin.Exec(t.Context(), readTestSQL(t, "runtime_audit_public_finalize_denied.sql")); err != nil {
+		t.Fatalf("configure the finalization-denied role: %v", err)
+	}
+	deniedOperator := operator
+	deniedOperator.operatorID = uuid.Must(uuid.NewV7())
+	deniedOperator.lifecycle = rolePool(t, testenv.Ledger(t), finalizeDeniedRole)
+	denied := runOpsTreeCommand(t, &configured, deniedOperator, []string{"ops", "backup", "restore-version"},
+		"--at", moment.Format(time.RFC3339), "--execute")
+	if denied.err == nil || !strings.Contains(denied.err.Error(), "finalize audit read") || denied.stdout != "" {
+		t.Fatalf("restore-version with a denied finalization = %+v, want a finalization error and no output", denied)
+	}
+	recoverSearchRead(t, ledger.admin, deniedOperator.operatorID)
 }

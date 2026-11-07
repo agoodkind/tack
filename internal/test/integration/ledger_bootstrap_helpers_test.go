@@ -144,6 +144,7 @@ func bootstrapCommandRunner(t *testing.T, cfg *config.Config, operator *pgxpool.
 		var output bytes.Buffer
 		factory.Out = &output
 		factory.SetAuditOutbox(outbox)
+		factory.SetAuditReads(audit.NewPoolReadLifecycle(operator))
 		factory.SetAuditInfrastructureProbe(probe)
 		root := searchCommandRoot(factory)
 		root.SetContext(t.Context())
