@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -95,6 +96,10 @@ func objectStoreClient(bucket testenv.ObjectStoreBucket) *s3.Client {
 
 func runOpsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ...string) (string, error) {
 	t.Helper()
+	return runOpsCommandIn(t.Context(), cfg, pool, args...)
+}
+
+func runOpsCommandIn(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, args ...string) (string, error) {
 	factory := cli.System(cfg)
 	var output bytes.Buffer
 	factory.Out = &output
@@ -111,7 +116,7 @@ func runOpsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ..
 	}
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
 	root.SetArgs(args)
-	err := root.ExecuteContext(t.Context())
+	err := root.ExecuteContext(ctx)
 	if factory.AuditOutbox() != originalOutbox {
 		factory.CloseAuditOutbox()
 	}

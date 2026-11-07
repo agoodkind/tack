@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/response"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -211,18 +212,30 @@ func TestReferenceRepairSecondRunRecordsNothingNew(t *testing.T) {
 	first := time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC)
 	second := first.Add(time.Hour)
 
+	firstContext, secondContext := testenv.CommandContext(t), testenv.CommandContext(t)
 	if err := recordReferenceRepair(
-		context.Background(), outbox, principal, repairAuditTestReport(orgID), first,
+		firstContext, outbox, principal, repairAuditTestReport(orgID), first,
 	); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
 	if err := recordReferenceRepair(
-		context.Background(), outbox, principal, repairAuditTestReport(orgID), second,
+		secondContext, outbox, principal, repairAuditTestReport(orgID), second,
 	); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
-	if events := repairAuditRecordedEvents(t, outbox, orgID); len(events) != 3 {
+	events := repairAuditRecordedEvents(t, outbox, orgID)
+	if len(events) != 3 {
 		t.Fatalf("events = %d after two runs, want 3", len(events))
+	}
+	firstRun, secondRun := response.FromContext(firstContext), response.FromContext(secondContext)
+	if firstRun.RequestID == secondRun.RequestID || firstRun.TraceID == secondRun.TraceID {
+		t.Fatalf("the two runs share request ID %s or trace ID %s, want different IDs", firstRun.RequestID, firstRun.TraceID)
+	}
+	for _, event := range events {
+		if event.Context.RequestID != firstRun.RequestID || event.Context.TraceID != firstRun.TraceID {
+			t.Fatalf("%s request ID %q and trace ID %q, want the first run's request ID %s and trace ID %s",
+				event.Verb, event.Context.RequestID, event.Context.TraceID, firstRun.RequestID, firstRun.TraceID)
+		}
 	}
 }
 
