@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,11 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/response"
+)
+
+const (
+	failedCommandMessage   = "cli.failed"
+	manifestReadFailedCode = "read_failed"
 )
 
 // TestAuditOperatorReadStoresCLIRequestIdentity checks that the permanent
@@ -51,6 +57,49 @@ func TestAuditOperatorReadStoresCLIRequestIdentity(t *testing.T) {
 			row.EventID, eventContext.OperationID, extra.OpID, eventContext.Target, row.Outcome, targetURI, audit.OutcomeCompleted)
 	}
 	ledger.requireChainVerifies(t, audit.SystemOrgID())
+}
+
+// TestAuditOperatorFailedReadStoresCLIRequestIdentity checks the request ID and trace ID on a failed operator read row.
+func TestAuditOperatorFailedReadStoresCLIRequestIdentity(t *testing.T) {
+	ledger := startNodeAuditLedger(t)
+	operatorID, orgID, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	run := builtAuditCommand(t, manifestUnreachableReaderDSN,
+		"--execute", "--operator-id", operatorID.String(), "--operator-email", "request-identity@example.test",
+		"--output", "json", "ops", "audit", "manifest-parts", "--org", orgID.String(), "--event-id", eventID.String())
+	if run.err == nil {
+		t.Fatalf("ops audit manifest-parts with an unreachable reader succeeded, want a failed read\n%s", run.output())
+	}
+	requestID, traceID := failedCommandCorrelation(t, run)
+	row := operatorAuditReadRows(t, ledger, operatorID, 1)[0]
+	eventContext := row.Context
+	if eventContext.RequestID != requestID || eventContext.TraceID != traceID {
+		t.Fatalf("row %s request ID %q and trace ID %q, want the failed command request ID %q and trace ID %q",
+			row.EventID, eventContext.RequestID, eventContext.TraceID, requestID, traceID)
+	}
+	targetURI := "tack:audit-event/" + eventID.String()
+	if row.Outcome != audit.OutcomeFailed || row.Error == nil || row.Error.Code != manifestReadFailedCode ||
+		eventContext.Target == nil || eventContext.Target.URI != targetURI {
+		t.Fatalf("row %s outcome %q, error %+v, target %+v, want outcome %q with code %s and target %s",
+			row.EventID, row.Outcome, row.Error, eventContext.Target, audit.OutcomeFailed, manifestReadFailedCode, targetURI)
+	}
+}
+
+func failedCommandCorrelation(t *testing.T, run builtAuditRun) (string, string) {
+	t.Helper()
+	fields := map[string]string{}
+	for line := range strings.Lines(run.log) {
+		if !strings.Contains(line, " "+failedCommandMessage+" ") {
+			continue
+		}
+		for field := range strings.FieldsSeq(line) {
+			key, value, _ := strings.Cut(field, "=")
+			fields[key] = value
+		}
+	}
+	if fields["request_id"] == "" || fields["trace_id"] == "" {
+		t.Fatalf("the %s log line does not report a request ID and a trace ID\n%s", failedCommandMessage, run.output())
+	}
+	return fields["request_id"], fields["trace_id"]
 }
 
 func operatorAuditReadRows(t *testing.T, ledger *nodeAuditLedger, operatorID uuid.UUID, want int) []audit.Row {
