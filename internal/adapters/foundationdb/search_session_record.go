@@ -21,6 +21,12 @@ const (
 	maxSessionVisitedIDs = 400
 	// maxSessionResultIDs bounds the result IDs one replay record stores.
 	maxSessionResultIDs = 25
+	// maxSessionTokenChunks is the maximum number of stored query token chunks
+	// for one session.
+	maxSessionTokenChunks = 16
+	// maxSessionTokenBytes is the maximum number of stored query token bytes
+	// for one session.
+	maxSessionTokenBytes = maxSessionTokenChunks * sessionTokenChunkBytes
 )
 
 // searchSessionRecord is the bounded session header. Query tokens are stored
@@ -96,6 +102,7 @@ type sessionValue interface {
 }
 
 func readSessionValue[Value sessionValue](tr fdb.ReadTransaction, key []byte, value *Value) (bool, error) {
+	countSessionRead(tr)
 	encoded, err := tr.Get(fdb.Key(key)).Get()
 	if err != nil {
 		return false, sessionStepError{operation: "read search session value", err: err}

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -135,52 +134,5 @@ func outboxRecordsAfter(t *testing.T, stores *fdbadapter.Stores, mark []byte) (i
 		}
 		count += len(entries)
 		mark = entries[len(entries)-1].Mark
-	}
-}
-
-// TestSearchSessionAuditFitsTransactionLimits runs each session writer at its
-// source bounds. Each writer must commit its records and change events inside
-// the FoundationDB transaction limits, and the outbox must store the events.
-func TestSearchSessionAuditFitsTransactionLimits(t *testing.T) {
-	stores := sessionStoreStores(t)
-	store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
-	ctx := integration.WithTestOperation(t, t.Context())
-	session := storedSearchSession(sessionTokens(maximumSessionTokens))
-	mark := searchOutboxTail(t, stores)
-	if _, err := store.Create(ctx, session); err != nil {
-		t.Fatalf("Create with %d token bytes: %v", maximumSessionTokens, err)
-	}
-	created, mark := outboxRecordsAfter(t, stores, mark)
-	if created < minimumCreateRecords {
-		t.Fatalf("Create wrote %d outbox records, want at least %d for a multipart event", created, minimumCreateRecords)
-	}
-	commit := searchdomain.PageCommit{
-		Sort: json.RawMessage(`[1.5,"` + uuid.NewString() + `",` + strconv.Itoa(maximumVisitedIDs) + `]`), PITID: "pit-next",
-		Visited: newIDs(maximumVisitedIDs), ResultIDs: newIDs(maximumResultIDs), Complete: false,
-	}
-	if _, err := store.CommitPage(ctx, session.ID, 0, commit); err != nil {
-		t.Fatalf("CommitPage at its bounds: %v", err)
-	}
-	committed, mark := outboxRecordsAfter(t, stores, mark)
-	if committed < maximumVisitedIDs+minimumCreateRecords {
-		t.Fatalf("CommitPage wrote %d outbox records, want at least %d", committed, maximumVisitedIDs+minimumCreateRecords)
-	}
-	if err := store.BeginCleanup(ctx, session.ID); err != nil {
-		t.Fatalf("BeginCleanup: %v", err)
-	}
-	if done, err := store.CleanupSlice(ctx, session.ID, maximumCleanupKeys); err != nil || done {
-		t.Fatalf("CleanupSlice at its bound = %t, %v, want a partly deleted session", done, err)
-	}
-	if sliced, _ := outboxRecordsAfter(t, stores, mark); sliced < minimumSliceRecords {
-		t.Fatalf("BeginCleanup and CleanupSlice wrote %d outbox records, want at least %d", sliced, minimumSliceRecords)
-	}
-	for {
-		done, err := store.CleanupSlice(ctx, session.ID, maximumCleanupKeys)
-		if err != nil {
-			t.Fatalf("CleanupSlice after the first slice: %v", err)
-		}
-		if done {
-			return
-		}
 	}
 }

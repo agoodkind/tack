@@ -67,12 +67,13 @@ func (s *SearchSessionStore) beginCleanup(ctx context.Context, sessionID uuid.UU
 	return nil
 }
 
-// CleanupSlice deletes at most limit child records of a closing session and
-// records each removed value in the same transaction. If the slice reads a query
-// token chunk, it deletes every chunk. If it reads fewer than limit child
-// records, it also deletes the header and the expiry, presence, and version
-// presence keys. It reports whether the session is gone. It logs
-// search.session.deleted only when this call removes the header.
+// CleanupSlice deletes up to limit child records of a closing session in key
+// order and records each removed value in the same transaction. If a query
+// token run starts within the first limit records, it also deletes the rest of
+// that run. If it deletes fewer than limit child records, it also deletes the
+// header and the expiry, presence, and version presence keys. It reports
+// whether the session is gone and logs search.session.deleted only when this
+// call removes the header.
 func (s *SearchSessionStore) CleanupSlice(ctx context.Context, sessionID uuid.UUID, limit int) (bool, error) {
 	return s.cleanupSlice(ctx, sessionID, limit, nil)
 }
@@ -106,20 +107,16 @@ func (s *SearchSessionStore) cleanupSlice(ctx context.Context, sessionID uuid.UU
 			return errors.New("the session is not closing")
 		}
 		changes.bind(record)
-		keyRange, rangeErr := fdb.PrefixRange(searchSessionChildPrefix(sessionID))
+		children, rangeErr := readSliceChildren(tr, record, limit)
 		if rangeErr != nil {
-			return sessionStepError{operation: "create child range", err: rangeErr}
+			return rangeErr
 		}
-		children, rangeErr := tr.GetRange(keyRange, fdb.RangeOptions{Limit: limit}).GetSliceWithError()
-		if rangeErr != nil {
-			return sessionStepError{operation: "read child records", err: rangeErr}
-		}
-		tokens, clearErr := changes.clearChildren(tr, sessionID, children)
+		tokens, cleared, clearErr := changes.clearChildren(tr, record, children, limit)
 		if clearErr != nil {
 			return clearErr
 		}
 		state := sessionState{record: record, tokens: tokens}
-		if len(children) == limit {
+		if cleared >= limit {
 			if len(tokens) > 0 {
 				if recordErr := changes.recordSessionUpdate(state, sessionState{record: record, tokens: nil}); recordErr != nil {
 					return recordErr
