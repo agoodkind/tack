@@ -133,6 +133,7 @@ func runOpsTreeCommand(t *testing.T, ledger *nodeAuditLedger, options manifestRu
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(options.lifecycle))
 	root := nodeAuditCommandRoot(factory)
 	root.SetContext(t.Context())
+	root.SetOut(stdout)
 	root.SetArgs(slices.Concat([]string{
 		"--output", "json", "--operator-id", options.operatorID.String(), "--operator-email", "manifest-parts@example.test",
 	}, command, args))

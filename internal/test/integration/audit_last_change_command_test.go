@@ -65,6 +65,12 @@ func lastChangeCommand(t *testing.T, readerDSN string, operatorID, orgID, nodeID
 // keeps log lines out of standard output.
 func builtAuditCommand(t *testing.T, readerDSN string, args ...string) builtAuditRun {
 	t.Helper()
+	return builtAuditCommandAs(t, testenv.Ledger(t), readerDSN, args...)
+}
+
+// builtAuditCommandAs runs builtAuditCommand with operatorDSN as AUDIT_OPERATOR_DSN.
+func builtAuditCommandAs(t *testing.T, operatorDSN, readerDSN string, args ...string) builtAuditRun {
+	t.Helper()
 	ledgerDSN := testenv.Ledger(t)
 	logs := t.TempDir()
 	textLog := filepath.Join(logs, "tack.log")
@@ -78,7 +84,7 @@ func builtAuditCommand(t *testing.T, readerDSN string, args ...string) builtAudi
 	}
 	environment = append(environment,
 		"DATABASE_URL="+ledgerDSN, "FDB_CLUSTER_FILE="+testenv.FoundationDB(t), "ENV=development",
-		"AUDIT_OPERATOR_DSN="+ledgerDSN, "LOG_DISABLE_STDOUT=true",
+		"AUDIT_OPERATOR_DSN="+operatorDSN, "LOG_DISABLE_STDOUT=true",
 		"LOG_JSON_FILE="+filepath.Join(logs, "tack.json"), "LOG_TEXT_FILE="+textLog)
 	if readerDSN != "" {
 		environment = append(environment, "AUDIT_READER_DSN="+readerDSN)

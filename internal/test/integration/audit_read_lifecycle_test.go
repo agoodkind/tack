@@ -166,6 +166,20 @@ func requireReadRowShape(t *testing.T, row audit.Row, outcome audit.Outcome, wan
 func requireCompletedReadRow(t *testing.T, row audit.Row, want readRowTarget, result json.RawMessage, itemURIs []string) {
 	t.Helper()
 	requireReadRowShape(t, row, audit.OutcomeCompleted, want)
+	requireReadEvidence(t, row, result, itemURIs)
+}
+
+func requireVerdictReadRow(t *testing.T, row audit.Row, want readRowTarget, result json.RawMessage, itemURIs []string, messagePart string) {
+	t.Helper()
+	requireReadRowShape(t, row, audit.OutcomeFailed, want)
+	requireReadEvidence(t, row, result, itemURIs)
+	if row.Error == nil || row.Error.Code != "check_failed" || !strings.Contains(row.Error.Message, messagePart) {
+		t.Fatalf("row %s error %+v, want check_failed containing %q", row.EventID, row.Error, messagePart)
+	}
+}
+
+func requireReadEvidence(t *testing.T, row audit.Row, result json.RawMessage, itemURIs []string) {
+	t.Helper()
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, result); err != nil {
 		t.Fatalf("compact the command result: %v", err)

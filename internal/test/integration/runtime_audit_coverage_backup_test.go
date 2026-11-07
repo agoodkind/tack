@@ -87,11 +87,11 @@ func addBackupCommandCases(cases map[string]coverageCase) {
 		backupCommand("ops", "backup", "yb-snapshot-export"))
 	cases["command ops backup restore-drill"] = commandCase(audit.VerbOpsBackupRestoreDrill, audit.OutcomeCompleted, restoreDrillInput)
 	cases["command ops backup restore-drill"+caseVariantSeparator+"fdb-leg-skipped"] = skippedLegDrillCase()
-	cases["command ops backup restore-version"] = commandCase(audit.VerbOpsBackupFDBRestoreVersion, audit.OutcomeOK,
+	cases["command ops backup restore-version"] = withReadCheck(commandCase(audit.VerbOpsBackupFDBRestoreVersion, audit.OutcomeCompleted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			env.writeVersionLog(t)
 			return backupCommand("ops", "backup", "restore-version", "--at", time.Now().UTC().Format(time.RFC3339))(t, env)
-		})
+		}), audit.VerbOpsBackupFDBRestoreVersion, audit.OutcomeCompleted)
 	cases["command ops backup yb-archive-node"] = commandCase(audit.VerbOpsBackupYBArchiveNode, audit.OutcomeCompleted,
 		backupCommand("ops", "backup", "yb-archive-node"))
 	cases["command ops backup staleness-check"] = failingCommandCase(audit.VerbOpsBackupStalenessCheck, audit.OutcomeCompleted,
@@ -145,6 +145,11 @@ func addLedgerCommandCases(cases map[string]coverageCase) {
 	cases["command ops ledger node-prepare"] = commandCase(audit.VerbOpsLedgerNodePrepare, audit.OutcomeCompleted, backupCommand("ops", "ledger", "node-prepare"))
 	cases["command ops ledger node-wait"] = commandCase(audit.VerbOpsLedgerNodeWait, audit.OutcomeCompleted,
 		backupCommand("ops", "ledger", "node-wait", "--stall", "3m", "--poll", "2s"))
-	cases["command ops ledger bootstrap-wait"] = commandCase(audit.VerbOpsLedgerBootstrapWait, audit.OutcomeOK,
-		backupCommand("ops", "ledger", "bootstrap-wait", "--masters", "1", "--tablet-servers", "1"))
+	cases["command ops ledger bootstrap-wait"] = withReadCheck(commandCase(audit.VerbOpsLedgerBootstrapWait, audit.OutcomeCompleted,
+		backupCommand("ops", "ledger", "bootstrap-wait", "--masters", "1", "--tablet-servers", "1")),
+		audit.VerbOpsLedgerBootstrapWait, audit.OutcomeCompleted)
+	cases["command ops ledger bootstrap-wait"+caseVariantSeparator+"deadline"] = withReadCheck(
+		failingCommandCase(audit.VerbOpsLedgerBootstrapWait, audit.OutcomeFailed,
+			backupCommand("ops", "ledger", "bootstrap-wait", "--masters", "1", "--tablet-servers", "9", "--deadline", "6s", "--poll", "2s")),
+		audit.VerbOpsLedgerBootstrapWait, audit.OutcomeFailed)
 }
