@@ -27,8 +27,8 @@ const (
 	// TargetSearchSessionVisited is the Target.NodeType value of a resource
 	// target for one search session visited record.
 	TargetSearchSessionVisited = "search_session_visited"
-	// TargetAuditEventPart is the Target.NodeType value of a resource target
-	// for one audit.event_parts row.
+	// TargetAuditEventPart is the Target.NodeType value for a resource target
+	// that identifies one audit.event_parts row.
 	TargetAuditEventPart = "audit_event_part"
 )
 

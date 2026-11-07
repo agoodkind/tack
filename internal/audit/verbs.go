@@ -174,9 +174,9 @@ const (
 	// audit.events child with a name outside events_pYYYY_MM_DD.
 	VerbOpsBackfillAuditPartitionNames Verb = "ops.backfill_audit_partition_names"
 	// VerbOpsBackfillRestoreManifestPart records the one-time restore of one
-	// missing read manifest part from a verified source event (TACK-620).
+	// missing read manifest part from a verified source event for TACK-620.
 	VerbOpsBackfillRestoreManifestPart Verb = "ops.backfill_restore_manifest_part"
-	// VerbAuditEventPartCreate records the insert of one audit.event_parts row.
+	// VerbAuditEventPartCreate records the insertion of one audit.event_parts row.
 	VerbAuditEventPartCreate Verb = "audit.event_part_create"
 	// VerbOpsBackfillDropKilltestSchema records the one-time killtest schema drop
 	// from the ledger database in the ops audit ledger.

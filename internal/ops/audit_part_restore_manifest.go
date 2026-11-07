@@ -26,7 +26,8 @@ var errAuditPartRestoreManifest = errors.New("the part restore manifest is not v
 
 var sha256HexPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-// AuditPartRestoreManifest is the frozen request of the TACK-620 part restore.
+// AuditPartRestoreManifest is the frozen request that the one-time TACK-620
+// part restore command reads, decodes, and validates.
 type AuditPartRestoreManifest struct {
 	SchemaVersion     int       `json:"schema_version"`
 	Ticket            string    `json:"ticket"`
