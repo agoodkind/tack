@@ -21,6 +21,7 @@ const (
 	retireClearReady     = "search.session.retire_clear_ready"
 	retireClearAbsent    = "search.session.retire_clear_absent"
 	retireClearAbsentErr = "the retirement attempt record is absent after a retried clear; this clear or recovery removed it"
+	retireClearOperation = "clear search session retirement attempt"
 	retireFinishCalls    = 4
 	byteLimitRecords     = 13
 	byteLimitFirstPass   = 12
@@ -50,9 +51,13 @@ func TestSearchSessionAuditRetireClearRetryFindsRecordAbsent(t *testing.T) {
 		retireClearReady:  func() { clearAttemptRecord(t, retireFamilyKey(t, retireAttemptFamily)) },
 		retireClearAbsent: func() {},
 	})
+	observations := observeSessionTransactions(t)
 
 	remaining, err := rebuilds.RetireIndexSessions(ownerContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
+	if cleared := observations.requireBounded(t, "retried clear", retireClearOperation, session.ID, 1); cleared[0].reads != 1 {
+		t.Fatalf("the retried clear of session %s reports %d reads, want the 1 read of its committed attempt", session.ID, cleared[0].reads)
+	}
 	if !remaining || err == nil || !strings.Contains(err.Error(), retireClearAbsentErr) ||
 		strings.Contains(err.Error(), retireAttemptFenced) || errors.Is(err, audit.ErrEventNotRecorded) {
 		t.Fatalf("RetireIndexSessions of %s with an absent record on retry = %t, %v, want remaining work and only the text %q", index, remaining, err, retireClearAbsentErr)

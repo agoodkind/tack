@@ -111,6 +111,7 @@ func (s *SearchSessionStore) cleanupSlice(ctx context.Context, sessionID uuid.UU
 		if rangeErr != nil {
 			return sessionStepError{operation: "create child range", err: rangeErr}
 		}
+		countSessionRead(tr)
 		children, rangeErr := tr.GetRange(keyRange, fdb.RangeOptions{Limit: limit + maxSessionTokenChunks}).GetSliceWithError()
 		if rangeErr != nil {
 			return sessionStepError{operation: "read child records", err: rangeErr}

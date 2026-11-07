@@ -97,6 +97,7 @@ type sessionValue interface {
 }
 
 func readSessionValue[Value sessionValue](tr fdb.ReadTransaction, key []byte, value *Value) (bool, error) {
+	countSessionRead(tr)
 	encoded, err := tr.Get(fdb.Key(key)).Get()
 	if err != nil {
 		return false, sessionStepError{operation: "read search session value", err: err}

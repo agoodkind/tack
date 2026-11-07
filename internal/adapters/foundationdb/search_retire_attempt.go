@@ -111,6 +111,7 @@ func requireRetireFence(tr fdb.Transaction, fence fdb.Key) error {
 	if fence == nil {
 		return nil
 	}
+	countSessionRead(tr)
 	stored, err := tr.Get(fence).Get()
 	if err != nil {
 		return sessionStepError{operation: "read retirement attempt", err: err}
