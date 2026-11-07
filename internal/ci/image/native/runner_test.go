@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package main_test
+package native_test
 
 import (
 	"bytes"
@@ -11,7 +11,13 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"goodkind.io/tack/internal/ci/image/imagetest"
 )
+
+func TestMain(m *testing.M) {
+	os.Exit(imagetest.RunTests(m))
+}
 
 func TestVerifyNativeRunnerCommand(t *testing.T) {
 	var info unix.Utsname
@@ -35,7 +41,7 @@ func TestVerifyNativeRunnerCommand(t *testing.T) {
 		{"arm64", "arm64", machine, matching == "arm64"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			command := exec.CommandContext(t.Context(), commandPath, "verify-native-runner")
+			command := exec.CommandContext(t.Context(), imagetest.Path(), "verify-native-runner")
 			command.Env = []string{}
 			if test.name != "missing" {
 				command.Env = append(command.Env, "IMAGE_ARCH="+test.architecture)
@@ -102,7 +108,7 @@ func TestVerifyNativeRunnerOutputFailure(t *testing.T) {
 
 func assertOutputFailure(t *testing.T, architecture string, output *os.File) {
 	t.Helper()
-	command := exec.CommandContext(t.Context(), commandPath, "verify-native-runner")
+	command := exec.CommandContext(t.Context(), imagetest.Path(), "verify-native-runner")
 	command.Env = []string{"IMAGE_ARCH=" + architecture}
 	command.Stdout = output
 	var stderr bytes.Buffer
