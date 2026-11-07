@@ -113,11 +113,7 @@ func (env *coverageEnv) runCommand(t *testing.T, input commandInput, mode ...str
 	root.SetArgs(slices.Concat(mode, []string{
 		"--operator-id", operatorID.String(), "--operator-email", "coverage@example.test", "--operator-name", "Coverage Test",
 	}, args))
-	ctx := t.Context()
-	if input.correlated {
-		ctx = testenv.CommandContext(t)
-	}
-	err := root.ExecuteContext(ctx)
+	err := root.ExecuteContext(testenv.CommandContext(t))
 	return operatorID, output.String(), err
 }
 

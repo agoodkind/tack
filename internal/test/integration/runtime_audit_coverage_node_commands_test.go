@@ -99,7 +99,7 @@ func actAsCreateCase() coverageCase {
 			input := commandInput{args: []string{
 				"ops", "act-as", "create", "--user", env.userEmail(t), "--reason", "coverage", "--parent", env.fixture(t).nodes["project"].String(),
 				"--node-type", "issue", "--name", "Coverage act-as " + uuid.NewString()[:8], "--output", "json",
-			}, configure: nil, outbox: nil, correlated: true}
+			}, configure: nil, outbox: nil}
 			operatorID, output, err := env.commandWith(t, input)
 			if err != nil {
 				t.Fatalf("ops act-as create failed: %v\n%s", err, output)
