@@ -15,6 +15,7 @@ const (
 	digestOperation             operation = "digest"
 	tagsOperation               operation = "tags"
 	verifyNativeRunnerOperation operation = "verify-native-runner"
+	metadataOperation           operation = "metadata"
 )
 
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
@@ -127,7 +128,7 @@ func writeFile(path, content string) error {
 func main() {
 	var err error
 	if len(os.Args) != 2 {
-		err = fmt.Errorf("usage: ci-image digest|tags|verify-native-runner")
+		err = fmt.Errorf("usage: ci-image digest|tags|verify-native-runner|metadata")
 	} else {
 		switch operation(os.Args[1]) {
 		case digestOperation:
@@ -136,6 +137,8 @@ func main() {
 			err = writeTags()
 		case verifyNativeRunnerOperation:
 			err = verifyNativeRunner()
+		case metadataOperation:
+			err = writeMetadata()
 		default:
 			err = fmt.Errorf("unknown operation: %s", os.Args[1])
 		}
