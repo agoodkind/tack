@@ -35,10 +35,11 @@ const (
 // startup sweep of other test processes' engines. The network must exist and
 // must already include this process's runner container, as the network of the
 // Compose project that runs the tests does. The engines also record project as
-// their Compose project label, which the caller's cleanup selects by. [Release]
-// removes this process's engines through their run label and never creates,
-// labels, or removes the network.
-// IsolateRun fails after a successful configuration or after this process starts an engine.
+// their Compose project label, and project cleanup selects the engines by that
+// label. [Release] removes this process's engines through their run label and
+// never creates, labels, or removes the network.
+// IsolateRun fails after a successful configuration or after this process starts
+// an engine.
 func IsolateRun(network, project string) error {
 	if network == "" || project == "" {
 		return errors.New("an isolated run needs the names of an existing Docker network and its Compose project")
