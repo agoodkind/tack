@@ -47,7 +47,7 @@ func auditConsumerOffsetsOp(f *cli.Factory) clispec.Operation[noInput] {
 	return clispec.Operation[noInput]{
 		Name:     clispec.Name{Canonical: "consumer-offsets", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsAuditConsumerOffsets), Reads: true},
+		Audit:    singletonReadSpec(audit.VerbOpsAuditConsumerOffsets, "audit/consumer-offsets"),
 		Group:    auditOpsGroup,
 		Aliases:  nil,
 		Hidden:   false,

@@ -16,7 +16,7 @@ func init() {
 	Register(Operation{
 		Name:        "reference.duplicates",
 		Lifetime:    clispec.Permanent,
-		Audit:       audit.Spec{Verb: string(audit.VerbOpsReferenceDuplicates), Reads: true},
+		Audit:       singletonReadSpec(audit.VerbOpsReferenceDuplicates, "reference/duplicates"),
 		Description: "Report every case where two nodes render the same reference for one template their org declared. Read-only.",
 		Run:         runReferenceDuplicates,
 	})

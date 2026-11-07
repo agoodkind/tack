@@ -23,15 +23,6 @@ func parseAuditManifestUUID(ctx context.Context, flag, value string) (uuid.UUID,
 	return id, nil
 }
 
-// canonicalAuditUUID returns the canonical form of a UUID. It returns an empty string when the value does not parse.
-func canonicalAuditUUID(value string) string {
-	id, err := uuid.Parse(strings.TrimSpace(value))
-	if err != nil {
-		return ""
-	}
-	return id.String()
-}
-
 // decodeAuditManifestInput decodes the encoded command input.
 func decodeAuditManifestInput(input json.RawMessage) (auditManifestPartsInput, error) {
 	in := auditManifestPartsInput{InputMarker: clispec.InputMarker{}, Org: "", EventID: "", VerifyPayloads: false}
@@ -49,7 +40,7 @@ func auditManifestPartsSafeInput(input json.RawMessage) (json.RawMessage, error)
 		return nil, err
 	}
 	safe, err := json.Marshal(auditManifestPartsInput{
-		InputMarker: clispec.InputMarker{}, Org: canonicalAuditUUID(in.Org), EventID: canonicalAuditUUID(in.EventID), VerifyPayloads: in.VerifyPayloads,
+		InputMarker: clispec.InputMarker{}, Org: audit.CanonicalUUID(in.Org), EventID: audit.CanonicalUUID(in.EventID), VerifyPayloads: in.VerifyPayloads,
 	})
 	if err != nil {
 		slog.Error("audit.manifest_parts_input_failed", slog.String("err", err.Error()))
@@ -73,9 +64,5 @@ func auditManifestPartsTargets(_ context.Context, input json.RawMessage) ([]audi
 	if err != nil {
 		return nil, err
 	}
-	eventID := canonicalAuditUUID(in.EventID)
-	if eventID == "" {
-		return []audit.Target{auditResourceTarget(auditEventInvalidURI)}, nil
-	}
-	return []audit.Target{auditResourceTarget(auditEventURIPrefix + eventID)}, nil
+	return []audit.Target{audit.ResourceTarget(audit.ResourceURI(audit.EventURIPrefix, in.EventID))}, nil
 }

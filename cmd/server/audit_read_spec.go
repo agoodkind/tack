@@ -5,21 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
-
-	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clispec"
 )
 
 const (
-	auditEventURIPrefix = "tack:audit-event/"
-	auditOrgURIPrefix   = "tack:audit-org/"
-	auditInvalidSegment = "invalid"
-	auditQueryCommand   = "audit query"
-	auditGetCommand     = "audit get"
+	auditQueryCommand = "audit query"
+	auditGetCommand   = "audit get"
+
+	auditLastChangeCommand = "audit last-change"
 )
 
 func auditQuerySpec() audit.Spec {
@@ -36,21 +32,6 @@ func auditGetSpec() audit.Spec {
 	}
 }
 
-func auditResourceTarget(uri string) audit.Target {
-	return audit.Target{
-		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: "", URI: uri,
-		RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
-	}
-}
-
-func canonicalAuditUUID(value string) string {
-	id, err := uuid.Parse(strings.TrimSpace(value))
-	if err != nil {
-		return ""
-	}
-	return id.String()
-}
-
 func canonicalAuditTime(value string) string {
 	parsed, err := time.Parse(time.RFC3339, value)
 	if err != nil {
@@ -59,15 +40,38 @@ func canonicalAuditTime(value string) string {
 	return parsed.Format(time.RFC3339)
 }
 
-func auditResourceURI(prefix, value string) string {
-	id := canonicalAuditUUID(value)
-	if id == "" {
-		return prefix + auditInvalidSegment
+func auditLastChangeSpec() audit.Spec {
+	return audit.Spec{
+		Verb: string(audit.VerbAuditRead), Reads: true, Class: audit.OperationRead,
+		Targets: auditLastChangeTargets, SafeInput: auditLastChangeSafeInput,
 	}
-	return prefix + id
 }
 
-func decodeAuditReadInput[Input auditQueryInput | auditGetInput](command string, encoded json.RawMessage) (Input, error) {
+func auditLastChangeTargets(_ context.Context, encoded json.RawMessage) ([]audit.Target, error) {
+	change, err := decodeAuditReadInput[auditLastChangeInput](auditLastChangeCommand, encoded)
+	if err != nil {
+		return nil, err
+	}
+	return []audit.Target{audit.ResourceTarget(audit.ResourceURI(audit.NodeURIPrefix, change.EntityID))}, nil
+}
+
+func auditLastChangeSafeInput(encoded json.RawMessage) (json.RawMessage, error) {
+	change, err := decodeAuditReadInput[auditLastChangeInput](auditLastChangeCommand, encoded)
+	if err != nil {
+		return nil, err
+	}
+	safe, err := json.Marshal(auditLastChangeInput{
+		InputMarker: clispec.InputMarker{}, Org: audit.CanonicalUUID(change.Org), EntityID: audit.CanonicalUUID(change.EntityID),
+		Oldest: canonicalAuditTime(change.Oldest), Latest: canonicalAuditTime(change.Latest), Path: change.Path, Cursor: "",
+	})
+	if err != nil {
+		slog.Error("audit.read_input_failed", slog.String("command", auditLastChangeCommand), slog.String("err", err.Error()))
+		return nil, fmt.Errorf("%s: encode the safe input: %w", auditLastChangeCommand, err)
+	}
+	return safe, nil
+}
+
+func decodeAuditReadInput[Input auditQueryInput | auditGetInput | auditLastChangeInput](command string, encoded json.RawMessage) (Input, error) {
 	var decoded Input
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		slog.Error("audit.read_input_failed", slog.String("command", command), slog.String("err", err.Error()))
@@ -81,7 +85,7 @@ func auditQueryTargets(_ context.Context, encoded json.RawMessage) ([]audit.Targ
 	if err != nil {
 		return nil, err
 	}
-	return []audit.Target{auditResourceTarget(auditResourceURI(auditOrgURIPrefix, query.Org))}, nil
+	return []audit.Target{audit.ResourceTarget(audit.ResourceURI(audit.AuditOrgURIPrefix, query.Org))}, nil
 }
 
 func auditQuerySafeInput(encoded json.RawMessage) (json.RawMessage, error) {
@@ -90,9 +94,9 @@ func auditQuerySafeInput(encoded json.RawMessage) (json.RawMessage, error) {
 		return nil, err
 	}
 	safe, err := json.Marshal(auditQueryInput{
-		InputMarker: clispec.InputMarker{}, Org: canonicalAuditUUID(query.Org), Oldest: canonicalAuditTime(query.Oldest),
-		Latest: canonicalAuditTime(query.Latest), Action: query.Action, ActorID: canonicalAuditUUID(query.ActorID),
-		EntityID: canonicalAuditUUID(query.EntityID), RequestID: query.RequestID, TraceID: query.TraceID,
+		InputMarker: clispec.InputMarker{}, Org: audit.CanonicalUUID(query.Org), Oldest: canonicalAuditTime(query.Oldest),
+		Latest: canonicalAuditTime(query.Latest), Action: query.Action, ActorID: audit.CanonicalUUID(query.ActorID),
+		EntityID: audit.CanonicalUUID(query.EntityID), RequestID: query.RequestID, TraceID: query.TraceID,
 		Limit: query.Limit, Cursor: "",
 	})
 	if err != nil {
@@ -107,7 +111,7 @@ func auditGetTargets(_ context.Context, encoded json.RawMessage) ([]audit.Target
 	if err != nil {
 		return nil, err
 	}
-	return []audit.Target{auditResourceTarget(auditResourceURI(auditEventURIPrefix, get.EventID))}, nil
+	return []audit.Target{audit.ResourceTarget(audit.ResourceURI(audit.EventURIPrefix, get.EventID))}, nil
 }
 
 func auditGetSafeInput(encoded json.RawMessage) (json.RawMessage, error) {
@@ -115,7 +119,7 @@ func auditGetSafeInput(encoded json.RawMessage) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	safe, err := json.Marshal(auditGetInput{InputMarker: clispec.InputMarker{}, EventID: canonicalAuditUUID(get.EventID)})
+	safe, err := json.Marshal(auditGetInput{InputMarker: clispec.InputMarker{}, EventID: audit.CanonicalUUID(get.EventID)})
 	if err != nil {
 		slog.Error("audit.read_input_failed", slog.String("command", auditGetCommand), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("%s: encode the safe input: %w", auditGetCommand, err)

@@ -23,9 +23,10 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 		Short: "Manage production datastore backups",
 		Long:  "Subcommands initialize an object-store bucket and recovery schedules, export snapshots, and drill restores.",
 	}
-	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackup), Reads: true}, func(ctx context.Context) error {
-		return fmt.Errorf("ops backup requires a subcommand (%s); the bare command deliberately runs nothing", strings.Join(backupSubcommandNames(cmd), ", "))
-	})
+	clispec.AttachRead(cmd, f, singletonReadSpec(audit.VerbOpsBackup, "backup"), emptyCommandInput,
+		func(context.Context) (audit.OperatorReadOutput, error) {
+			return audit.OperatorReadOutput{}, fmt.Errorf("ops backup requires a subcommand (%s); the bare command deliberately runs nothing", strings.Join(backupSubcommandNames(cmd), ", "))
+		})
 	cmd.AddCommand(
 		backupLeaf(f, "buckets-init", "Idempotently create the SeaweedFS S3 backup bucket", audit.VerbOpsBackupBucketsInit, runBackupBucketsInitRecorded),
 		backupLeaf(f, "yb-pitr-init", "Create the YugabyteDB point-in-time-recovery snapshot schedule", audit.VerbOpsBackupYBPITRInit, runBackupYBPITRInitRecorded),

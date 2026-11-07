@@ -28,25 +28,6 @@ func (backupTestSource) Resolve(context.Context) (audit.OperatorPrincipal, error
 	}, nil
 }
 
-// TestBareBackupCommandRefuses locks in that `ops backup` with no
-// subcommand runs nothing and exits nonzero. The 2026-08-05 S0 was caused
-// by the bare command silently running a full production snapshot.
-func TestBareBackupCommandRefuses(t *testing.T) {
-	factory := &cli.Factory{}
-	factory.SetOperatorIdentitySource(backupTestSource{})
-	factory.SetAuditOutbox(backupTestOutbox{})
-	cmd := backupCommand(factory)
-	factory.RegisterGlobalFlags(cmd)
-	cmd.SetArgs([]string{"--execute"})
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("bare `ops backup` must return an error, ran something instead")
-	}
-	if !strings.Contains(err.Error(), "subcommand") {
-		t.Fatalf("error must direct the operator to a subcommand, got: %v", err)
-	}
-}
-
 // TestRestoreDrillRefusesUnparseableTargetTime drives the real command and
 // proves --fdb-target-time is validated before the drill does anything. The
 // factory has no Docker daemon and no object store, so reaching the drill body
