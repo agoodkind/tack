@@ -51,8 +51,6 @@ func TestYugabyteExternalRenameThenFailure(t *testing.T) {
 	s.requireConvergedAfterRename(t, oid, renamed)
 }
 
-// requireConvergedAfterRename requires one role with the original OID under the
-// new name, matching state, a working new password, and an empty plan.
 func (s *scenario) requireConvergedAfterRename(t *testing.T, oid int64, renamed string) {
 	t.Helper()
 	if name, found := s.target.roleNameByOID(t, oid); !found || name != renamed {
