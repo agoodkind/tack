@@ -30,6 +30,23 @@ type auditGetResult struct {
 	Row                  audit.Row `json:"row"`
 }
 
+var (
+	_ clispec.ReadResult = (*auditQueryResult)(nil)
+	_ clispec.ReadResult = (*auditGetResult)(nil)
+)
+
+func (r auditQueryResult) AuditReadTargets() ([]audit.Target, error) {
+	targets := make([]audit.Target, 0, len(r.Rows))
+	for _, row := range r.Rows {
+		targets = append(targets, auditResourceTarget(auditEventURIPrefix+row.EventID.String()))
+	}
+	return targets, nil
+}
+
+func (r auditGetResult) AuditReadTargets() ([]audit.Target, error) {
+	return []audit.Target{auditResourceTarget(auditEventURIPrefix + r.Row.EventID.String())}, nil
+}
+
 // auditRedactActorResult is the `audit redact-actor` output for a plan and
 // for an applied run.
 type auditRedactActorResult struct {

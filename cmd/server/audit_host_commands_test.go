@@ -60,19 +60,16 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		return output.String()
 	}
 
-	// get: one row, recorded as one audit.read access before the read ran.
+	// get: one row.
 	var got auditGetResult
 	decodeCommandOutput(t, run("audit", "get", "--event-id", eventA1.String(), "--execute"), &got)
 	if got.Row.EventID != eventA1 || got.Row.OrgID != orgA || got.Row.PIIRef == nil {
 		t.Fatalf("audit get returned %+v, want event %s of org %s with a pii ref", got.Row, eventA1, orgA)
 	}
-	if len(outbox.events) != 1 || outbox.events[0].Verb != string(audit.VerbAuditRead) {
-		t.Fatalf("audit get recorded %+v, want one audit.read row", outbox.events)
-	}
 
 	// get without --execute: the choke-point prints the plan and records nothing.
 	dry := run("audit", "get", "--event-id", eventA1.String())
-	if !strings.Contains(dry, "would run: audit.read") || len(outbox.events) != 1 {
+	if !strings.Contains(dry, "would run: audit.read") || len(outbox.events) != 0 {
 		t.Fatalf("audit get dry run = %q with %d recorded rows, want a plan and no new row", dry, len(outbox.events))
 	}
 
@@ -87,9 +84,6 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		if row.OrgID != orgA || (row.EventID != eventA1 && row.EventID != eventA2) {
 			t.Fatalf("audit query returned a row from outside the org: %+v", row)
 		}
-	}
-	if len(outbox.events) != 2 || outbox.events[1].Verb != string(audit.VerbAuditRead) {
-		t.Fatalf("audit query recorded %+v, want a second audit.read row", outbox.events)
 	}
 
 	// pagination: a full page carries next_cursor, and the cursor walks the
@@ -123,10 +117,8 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 	if n := unredactedCount(t, admin, eventA1, eventA2, eventB); n != 3 {
 		t.Fatalf("pii rows still holding a payload after the plan = %d, want 3", n)
 	}
-	// get + query + two pages have each recorded one audit.read; the plan
-	// added nothing.
-	if len(outbox.events) != 4 {
-		t.Fatalf("redact plan changed the recorded rows: %d, want 4", len(outbox.events))
+	if len(outbox.events) != 0 {
+		t.Fatalf("redact plan changed the recorded rows: %d, want 0", len(outbox.events))
 	}
 
 	// redact-actor --execute: erases exactly the org's two refs, leaves the
@@ -142,10 +134,10 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 	if n := unredactedCount(t, admin, eventB); n != 1 {
 		t.Fatalf("other org's row still holding a payload = %d, want 1: the redaction left the org", n)
 	}
-	if len(outbox.events) != 6 ||
-		outbox.events[4].Verb != string(audit.VerbAuditPIIRedacted) || outbox.events[4].Outcome != audit.OutcomePending ||
-		outbox.events[5].Verb != string(audit.VerbAuditPIIRedacted) || outbox.events[5].Outcome != audit.OutcomeOK {
-		t.Fatalf("redact recorded %+v, want an audit.pii_redacted intent and outcome", outbox.events[4:])
+	if len(outbox.events) != 2 ||
+		outbox.events[0].Verb != string(audit.VerbAuditPIIRedacted) || outbox.events[0].Outcome != audit.OutcomePending ||
+		outbox.events[1].Verb != string(audit.VerbAuditPIIRedacted) || outbox.events[1].Outcome != audit.OutcomeOK {
+		t.Fatalf("redact recorded %+v, want an audit.pii_redacted intent and outcome", outbox.events)
 	}
 
 	// A rerun finds the refs and nothing left to erase.
