@@ -30,7 +30,7 @@ func TestAuditOperatorReadStoresCLIRequestIdentity(t *testing.T) {
 		t.Fatalf("command _meta = %+v, want a request ID and a trace ID\n%s", document.Meta, run.output())
 	}
 
-	row := operatorAuditReadRow(t, ledger, operatorID)
+	row := operatorAuditReadRows(t, ledger, operatorID, 1)[0]
 	var extra struct {
 		OpID uuid.UUID `json:"op_id"`
 	}
@@ -48,18 +48,15 @@ func TestAuditOperatorReadStoresCLIRequestIdentity(t *testing.T) {
 		t.Fatalf("row %s operation %s (extra op %s), target %+v, outcome %q, want one operation with target %s and outcome %q",
 			row.EventID, eventContext.OperationID, extra.OpID, eventContext.Target, row.Outcome, targetURI, audit.OutcomeCompleted)
 	}
-	correlated := correlatedRows(t, ledger, document.Meta)
-	if len(correlated) != 1 || correlated[0].EventID != row.EventID || correlated[0].Context.OperationID != eventContext.OperationID {
-		t.Fatalf("rows for request %s and trace %s = %+v, want only row %s", document.Meta.RequestID, document.Meta.TraceID, correlated, row.EventID)
-	}
+	ledger.requireChainVerifies(t, audit.SystemOrgID())
 }
 
-func operatorAuditReadRow(t *testing.T, ledger *nodeAuditLedger, operatorID uuid.UUID) audit.Row {
+func operatorAuditReadRows(t *testing.T, ledger *nodeAuditLedger, operatorID uuid.UUID, want int) []audit.Row {
 	t.Helper()
 	now := clock.Now()
 	filter := audit.QueryFilter{
 		OrgID: audit.SystemOrgID(), Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour),
-		Action: string(audit.VerbAuditRead), ActorID: operatorID, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: 2,
+		Action: string(audit.VerbAuditRead), ActorID: operatorID, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: want + 1,
 	}
 	deadline := clock.Now().Add(nodeAuditDeadline)
 	for {
@@ -67,28 +64,15 @@ func operatorAuditReadRow(t *testing.T, ledger *nodeAuditLedger, operatorID uuid
 		if err != nil {
 			t.Fatalf("query the audit.read rows of operator %s: %v", operatorID, err)
 		}
-		if len(rows) > 1 {
-			t.Fatalf("ledger has %d audit.read rows for operator %s, want 1", len(rows), operatorID)
+		if len(rows) > want {
+			t.Fatalf("ledger has %d audit.read rows for operator %s, want %d", len(rows), operatorID, want)
 		}
-		if len(rows) == 1 {
-			return rows[0]
+		if len(rows) == want {
+			return rows
 		}
 		if clock.Now().After(deadline) {
-			t.Fatalf("ledger does not have an audit.read row for operator %s after %s", operatorID, nodeAuditDeadline)
+			t.Fatalf("ledger has %d audit.read rows for operator %s after %s, want %d", len(rows), operatorID, nodeAuditDeadline, want)
 		}
 		time.Sleep(nodeAuditPollInterval)
 	}
-}
-
-func correlatedRows(t *testing.T, ledger *nodeAuditLedger, meta response.Metadata) []audit.Row {
-	t.Helper()
-	now := clock.Now()
-	rows, err := ledger.reader.Query(t.Context(), audit.QueryFilter{
-		OrgID: audit.SystemOrgID(), Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour), Action: "",
-		ActorID: uuid.Nil, EntityID: uuid.Nil, RequestID: meta.RequestID, TraceID: meta.TraceID, Limit: 2,
-	})
-	if err != nil {
-		t.Fatalf("query the rows of request %s and trace %s: %v", meta.RequestID, meta.TraceID, err)
-	}
-	return rows
 }
