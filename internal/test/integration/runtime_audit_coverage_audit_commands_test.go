@@ -25,10 +25,10 @@ func addAuditCommandCases(cases map[string]coverageCase) {
 			cfg.AuditReaderDSN, cfg.AuditKafkaBrokers, cfg.AuditKafkaTopic = ledger, brokers, topic
 		}
 	}
-	cases["command ops audit consumer-offsets"] = readCommandCase(audit.VerbOpsAuditConsumerOffsets, audit.OutcomeCompleted,
+	cases["command ops audit consumer-offsets"] = withReadCheck(commandCase(audit.VerbOpsAuditConsumerOffsets, audit.OutcomeCompleted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{args: []string{"ops", "audit", "consumer-offsets"}, configure: reader(t, env), outbox: nil}
-		})
+		}), audit.VerbOpsAuditConsumerOffsets, audit.OutcomeCompleted)
 	cases["command ops audit dlq inspect"] = commandCase(audit.VerbOpsAuditDLQInspect, audit.OutcomeCompleted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{args: []string{"ops", "audit", "dlq", "inspect"}, configure: reader(t, env), outbox: nil}
@@ -85,9 +85,9 @@ func addAuthCommandCases(cases map[string]coverageCase) {
 	cases["command ops auth token-create"] = commandCase(audit.VerbOpsAuthTokenCreate, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{"ops", "auth", "token-create", "--email", env.userEmail(t), "--label", "coverage"}, configure: nil, outbox: nil}
 	})
-	cases["command ops auth token-list"] = readCommandCase(audit.VerbOpsAuthTokenList, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
+	cases["command ops auth token-list"] = withReadCheck(commandCase(audit.VerbOpsAuthTokenList, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{"ops", "auth", "token-list", "--email", env.userEmail(t)}, configure: nil, outbox: nil}
-	})
+	}), audit.VerbOpsAuthTokenList, audit.OutcomeCompleted)
 	cases["command ops auth token-revoke"] = commandCase(audit.VerbOpsAuthTokenRevoke, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
 		if _, output, err := env.command(t, nil, "ops", "auth", "token-create", "--email", env.userEmail(t), "--label", "coverage-revoke"); err != nil {
 			t.Fatalf("Token creation failed; the revocation case requires an existing token: %v\n%s", err, output)
