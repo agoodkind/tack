@@ -12,6 +12,7 @@ import (
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/response"
 )
 
 func operationTarget(ctx context.Context, spec audit.Spec, input json.RawMessage) (audit.Target, json.RawMessage, error) {
@@ -56,18 +57,20 @@ func newCompleteOperatorEvent(
 	}
 	now := clock.Now().UTC()
 	eventTarget := target
+	correlation := response.FromContext(ctx)
 	return audit.Event{
 		Verb: spec.Verb, EventID: uuid.Must(uuid.NewV7()),
 		Actor: audit.Actor{
 			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
-			SessionID: principal.SessionID, IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+			SessionID: principal.SessionID, IP: "", UserAgent: "", RequestID: correlation.RequestID, APITokenLabel: "",
 		},
 		Entity: audit.Entity{
 			Type: target.Kind, NodeType: target.NodeType, ID: target.ID, Identifier: target.Reference, Name: target.Name,
 		},
 		Context: audit.EventContext{
 			OrgID: audit.SystemOrgID(), WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
+			RequestID: correlation.RequestID, TraceID: correlation.TraceID,
+			Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
 			AuditFormatVersion: audit.AuditFormatComplete, OperationClass: spec.Class, Phase: phase,
 			OperationID: operationID, ParentOperationID: uuid.Nil, StartedAt: now, CompletedAt: time.Time{},
 			Target: &eventTarget, Read: nil, CommittedSteps: nil,

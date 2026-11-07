@@ -10,6 +10,7 @@ import (
 
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/response"
 )
 
 // newOperatorEvent builds the event a command records. Extra stores the op
@@ -34,6 +35,7 @@ func newOperatorEvent(
 	if err != nil {
 		return audit.Event{}, loggedAuditError(ctx, "encode operator event extra", err)
 	}
+	correlation := response.FromContext(ctx)
 	return audit.Event{
 		Verb:    spec.Verb,
 		EventID: uuid.Must(uuid.NewV7()),
@@ -45,7 +47,7 @@ func newOperatorEvent(
 			SessionID:     principal.SessionID,
 			IP:            "",
 			UserAgent:     "",
-			RequestID:     "",
+			RequestID:     correlation.RequestID,
 			APITokenLabel: "",
 		},
 		Entity: audit.Entity{
@@ -60,8 +62,8 @@ func newOperatorEvent(
 			WorkspaceID: uuid.Nil,
 			ScopeID:     uuid.Nil,
 			ParentID:    uuid.Nil,
-			RequestID:   "",
-			TraceID:     "",
+			RequestID:   correlation.RequestID,
+			TraceID:     correlation.TraceID,
 			Source:      audit.SourceSystem,
 			Tool:        "",
 			RPC:         "",
