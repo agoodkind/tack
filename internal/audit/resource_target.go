@@ -7,17 +7,20 @@ import (
 )
 
 const (
-	// EventURIPrefix starts the resource URI of one audit event.
+	// EventURIPrefix is the prefix of the resource URI for one audit event.
 	EventURIPrefix = "tack:audit-event/"
-	// AuditOrgURIPrefix starts the resource URI of the ledger rows of one org.
+	// AuditOrgURIPrefix is the prefix of the resource URI for the ledger rows
+	// of one organization.
 	AuditOrgURIPrefix = "tack:audit-org/"
-	// NodeURIPrefix starts the resource URI of one node.
+	// NodeURIPrefix is the prefix of the resource URI for one node.
 	NodeURIPrefix = "tack:node/"
-	// OrgURIPrefix starts the resource URI of one org.
+	// OrgURIPrefix is the prefix of the resource URI for one organization.
 	OrgURIPrefix = "tack:org/"
-	// AuthRecordURIPrefix starts the resource URI of one API token record.
+	// AuthRecordURIPrefix is the prefix of the resource URI for one API token
+	// record.
 	AuthRecordURIPrefix = "tack:api-token/"
-	// InvalidURISegment replaces an identifier that is not a UUID.
+	// InvalidURISegment is the URI segment that replaces an identifier that is
+	// not a UUID.
 	InvalidURISegment = "invalid"
 )
 
@@ -29,7 +32,8 @@ func ResourceTarget(uri string) Target {
 	}
 }
 
-// CanonicalUUID returns the canonical form of value, or an empty string when value is not a UUID.
+// CanonicalUUID returns the canonical form of value, or an empty string when
+// value is not a UUID.
 func CanonicalUUID(value string) string {
 	id, err := uuid.Parse(strings.TrimSpace(value))
 	if err != nil {
@@ -38,7 +42,8 @@ func CanonicalUUID(value string) string {
 	return id.String()
 }
 
-// ResourceURI returns prefix followed by the canonical form of value, or by InvalidURISegment when value is not a UUID.
+// ResourceURI returns prefix followed by the canonical form of value. When value
+// is not a UUID, it returns prefix followed by InvalidURISegment.
 func ResourceURI(prefix, value string) string {
 	id := CanonicalUUID(value)
 	if id == "" {

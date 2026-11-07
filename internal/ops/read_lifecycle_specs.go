@@ -57,7 +57,8 @@ func encodeReadSafeInput[Safe nodeReadSafeInput | orgReadSafeInput](verb audit.V
 	return encoded, nil
 }
 
-// singletonReadSpec returns the read definition of a command that reads one fixed external resource and records no input.
+// singletonReadSpec returns the read definition for a command that reads one
+// fixed external resource and does not record input.
 func singletonReadSpec(verb audit.Verb, reference string) audit.Spec {
 	target := externalTarget(reference)
 	return audit.Spec{
@@ -69,8 +70,9 @@ func singletonReadSpec(verb audit.Verb, reference string) audit.Spec {
 	}
 }
 
-// nodeReadSpec returns the read definition of a command that reads one node.
-// A command that reads a repair manifest instead of one node targets the manifest reference.
+// nodeReadSpec returns the read definition for a command that reads one node.
+// When the command reads a repair manifest instead, the definition targets the
+// manifest reference.
 func nodeReadSpec(verb audit.Verb) audit.Spec {
 	return audit.Spec{
 		Verb: string(verb), Reads: true, Class: audit.OperationRead,
@@ -94,7 +96,8 @@ func nodeReadSpec(verb audit.Verb) audit.Spec {
 	}
 }
 
-// orgReadSpec returns the read definition of a command that lists the node views of one org.
+// orgReadSpec returns the read definition for a command that lists the node
+// views of one organization.
 func orgReadSpec(verb audit.Verb) audit.Spec {
 	return audit.Spec{
 		Verb: string(verb), Reads: true, Class: audit.OperationRead,

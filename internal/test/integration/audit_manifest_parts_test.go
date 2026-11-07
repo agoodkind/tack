@@ -120,7 +120,8 @@ func runManifestParts(t *testing.T, ledger *nodeAuditLedger, options manifestRun
 	return runOpsTreeCommand(t, ledger, options, []string{"ops", "audit", "manifest-parts"}, args...)
 }
 
-// runOpsTreeCommand runs command with args through the rendered ops tree as options.operatorID.
+// runOpsTreeCommand runs one ops command through the full ops command tree in
+// integration tests.
 func runOpsTreeCommand(t *testing.T, ledger *nodeAuditLedger, options manifestRunOptions, command []string, args ...string) manifestCommandRun {
 	t.Helper()
 	cfg := *ledger.cfg
