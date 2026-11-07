@@ -25,7 +25,6 @@ import (
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clock"
 	"goodkind.io/tack/internal/ops"
-	"goodkind.io/tack/internal/test/integration"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -182,7 +181,7 @@ func (p *partRestorePipeline) run(t *testing.T, execute bool, extra ...string) p
 	factory.SetAuditOutbox(audit.NewPoolOutbox(p.ledger.admin))
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(p.lifecycle))
 	root := nodeAuditCommandRoot(factory)
-	root.SetContext(integration.CommandContext(t))
+	root.SetContext(testenv.CommandContext(t))
 	arguments := []string{
 		"--output", "json", "--operator-id", p.operatorID.String(), "--operator-email", "part-restore@example.test",
 		"ops", "audit", "backfill", "once-restore-manifest-part", "--manifest", p.manifestPath, "--manifest-sha256", p.fileDigest,
