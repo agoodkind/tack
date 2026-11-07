@@ -36,7 +36,7 @@ func auditSignersOp(f *cli.Factory) clispec.Operation[auditSignersInput] {
 	return clispec.Operation[auditSignersInput]{
 		Name:     clispec.Name{Canonical: "signers", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbAuditSignersVerified), Reads: true},
+		Audit:    auditSignersSpec(),
 		Group:    auditGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -112,7 +112,7 @@ func runAuditSigners(f *cli.Factory) func(context.Context, auditSignersInput, cl
 		// a script or a release gate that reads nothing else.
 		if verdictErr := report.Err(); verdictErr != nil {
 			slog.ErrorContext(ctx, "audit.signers_rejected", slog.String("err", verdictErr.Error()))
-			return fmt.Errorf("audit signers: %w", verdictErr)
+			return &audit.ReadVerdictError{Err: fmt.Errorf("audit signers: %w", verdictErr)}
 		}
 		return nil
 	}

@@ -32,6 +32,14 @@ func ResourceTarget(uri string) Target {
 	}
 }
 
+// ExternalTarget returns the external target for reference.
+func ExternalTarget(reference string) Target {
+	return Target{
+		Kind: TargetKindExternal, NodeType: "", Reference: reference, Name: "", URI: "",
+		RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
+	}
+}
+
 // NodeTarget returns the resource target for the node with nodeID.
 func NodeTarget(nodeID uuid.UUID) Target {
 	return ResourceTarget(NodeURIPrefix + nodeID.String())

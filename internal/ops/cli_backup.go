@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"goodkind.io/tack/internal/clispec"
 	"goodkind.io/tack/internal/config"
 )
+
+const restoreVersionPayloadFormat = "text/plain; charset=utf-8"
 
 // backupCommand builds the `ops backup` subtree. The subcommands initialize
 // object-store bucket and recovery schedules, export snapshots, and drill
@@ -155,17 +158,22 @@ func backupFDBRestoreVersionCommand(f *cli.Factory) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&at, "at", "",
 		"the moment to restore to, as RFC 3339 (2026-08-30T01:07:23Z) or 2026/08/30.01:07:23+0000 (default: now)")
-	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupFDBRestoreVersion), Reads: true}, func(ctx context.Context) error {
-		want := opsNow().UTC()
-		if at != "" {
-			parsed, err := parseFDBTargetTime(at)
-			if err != nil {
-				return err
+	clispec.AttachRawRead(cmd, f, singletonReadSpec(audit.VerbOpsBackupFDBRestoreVersion, "backup/restore-version"), emptyCommandInput,
+		func(ctx context.Context) (audit.OperatorReadOutput, error) {
+			want := opsNow().UTC()
+			if at != "" {
+				parsed, err := parseFDBTargetTime(at)
+				if err != nil {
+					return audit.OperatorReadOutput{}, err
+				}
+				want = parsed
 			}
-			want = parsed
-		}
-		return RunBackupFDBRestoreVersion(ctx, f.Cfg, want, cmd.OutOrStdout())
-	})
+			var answer bytes.Buffer
+			if err := RunBackupFDBRestoreVersion(ctx, f.Cfg, want, &answer); err != nil {
+				return audit.OperatorReadOutput{}, err
+			}
+			return audit.OperatorReadOutput{Payload: answer.Bytes(), Format: restoreVersionPayloadFormat, Targets: nil}, nil
+		})
 	return cmd
 }
 

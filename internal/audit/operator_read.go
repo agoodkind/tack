@@ -63,6 +63,9 @@ func RecordOperatorRead(
 	if err := store.FinalizeRead(finalizeContext, completion); err != nil {
 		return nil, operatorReadFailure(ctx, "finalize audit read", template, errors.Join(err, renewErr))
 	}
+	if _, isVerdict := AsReadVerdict(readErr); isVerdict {
+		return output.Payload, readErr
+	}
 	if readErr != nil {
 		return nil, readErr
 	}
@@ -77,7 +80,8 @@ func operatorReadCompletion(token ReadToken, template Event, output OperatorRead
 	}
 	final.OccurredAt = template.OccurredAt
 	targets := output.Targets
-	if readErr != nil {
+	_, isVerdict := AsReadVerdict(readErr)
+	if readErr != nil && !isVerdict {
 		final.Outcome = OutcomeFailed
 		final.Error = &EventError{Code: readFailedCode, Message: readErr.Error()}
 		final.Context.Read = nil
@@ -89,6 +93,10 @@ func operatorReadCompletion(token ReadToken, template Event, output OperatorRead
 		}
 		final.Outcome = OutcomeCompleted
 		final.Error = nil
+		if isVerdict {
+			final.Outcome = OutcomeFailed
+			final.Error = &EventError{Code: readVerdictCode, Message: readErr.Error()}
+		}
 		final.Context.Read = &evidence
 	}
 	encoded, err := EncodeEvent(final, targets)

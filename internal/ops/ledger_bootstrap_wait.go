@@ -60,7 +60,7 @@ func ledgerBootstrapWaitOp(f *cli.Factory) clispec.Operation[ledgerBootstrapWait
 	return clispec.Operation[ledgerBootstrapWaitInput]{
 		Name:     clispec.Name{Canonical: "bootstrap-wait", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsLedgerBootstrapWait), Reads: true},
+		Audit:    readSpec(audit.VerbOpsLedgerBootstrapWait, "ledger/bootstrap-wait"),
 		Group:    ledgerGroup,
 		Aliases:  nil,
 		Hidden:   false,

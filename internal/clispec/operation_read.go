@@ -31,10 +31,19 @@ func runReadOperation[I Input](ctx context.Context, f *cli.Factory, op Operation
 	recordingFactory.SetAuditInfrastructureProbe(nil)
 	_, err = RunAuditedRead(ctx, &recordingFactory, spec, input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
 		if err := run(ctx, in, captured); err != nil {
+			if _, isVerdict := audit.AsReadVerdict(err); isVerdict {
+				return captured.output(captured.targets), err
+			}
 			return audit.OperatorReadOutput{}, err
 		}
 		return captured.output(captured.targets), nil
 	})
+	if _, isVerdict := audit.AsReadVerdict(err); isVerdict {
+		if replayErr := captured.replay(ctx, NewCLISink(f)); replayErr != nil {
+			return replayErr
+		}
+		return err
+	}
 	if err != nil {
 		return err
 	}

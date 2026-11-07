@@ -26,7 +26,7 @@ func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
 	return clispec.Operation[auditVerifyInput]{
 		Name:     clispec.Name{Canonical: "verify", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbAuditVerify), Reads: true},
+		Audit:    auditVerifySpec(),
 		Group:    auditGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -94,7 +94,7 @@ func runAuditVerify(f *cli.Factory) func(context.Context, auditVerifyInput, clis
 			slog.ErrorContext(ctx, "audit.verify_rejected",
 				slog.String("bundle", report.BundleDir),
 				slog.String("err", verdictErr.Error()))
-			return fmt.Errorf("audit verify: %w", verdictErr)
+			return &audit.ReadVerdictError{Err: fmt.Errorf("audit verify: %w", verdictErr)}
 		}
 		return nil
 	}

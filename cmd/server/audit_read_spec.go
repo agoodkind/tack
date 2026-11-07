@@ -40,6 +40,25 @@ func auditGetSpec() audit.Spec {
 		})
 }
 
+func auditSignersSpec() audit.Spec {
+	return clispec.InputReadSpec(audit.VerbAuditSignersVerified,
+		func(auditSignersInput) audit.Target { return audit.ExternalTarget("audit/notarizations") },
+		func(in auditSignersInput) auditSignersInput {
+			return auditSignersInput{
+				InputMarker: clispec.InputMarker{}, Since: canonicalAuditTime(in.Since), Signers: "", Pub: "",
+				AllowUnverified: in.AllowUnverified,
+			}
+		})
+}
+
+func auditVerifySpec() audit.Spec {
+	return clispec.InputReadSpec(audit.VerbAuditVerify,
+		func(auditVerifyInput) audit.Target { return audit.ExternalTarget("audit/verify-bundle") },
+		func(auditVerifyInput) auditVerifyInput {
+			return auditVerifyInput{InputMarker: clispec.InputMarker{}, Bundle: "", Pub: "", Signers: ""}
+		})
+}
+
 func auditLastChangeSpec() audit.Spec {
 	return clispec.InputReadSpec(audit.VerbAuditRead,
 		func(in auditLastChangeInput) audit.Target {

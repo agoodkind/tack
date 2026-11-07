@@ -17,6 +17,29 @@ import (
 // --execute, RunE validates the target and operator and prints the dry-run
 // preamble without calling read.
 func AttachRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func() (json.RawMessage, error), read OperatorRead) {
+	attachRead(cmd, f, spec, input, read, func(ctx context.Context, payload []byte) error {
+		return NewCLISink(f).WriteText(ctx, string(payload))
+	})
+}
+
+// AttachRawRead placeholder.
+func AttachRawRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func() (json.RawMessage, error), read OperatorRead) {
+	attachRead(cmd, f, spec, input, read, func(ctx context.Context, payload []byte) error {
+		if _, err := cmd.OutOrStdout().Write(payload); err != nil {
+			return loggedAuditError(ctx, "write command output", err)
+		}
+		return nil
+	})
+}
+
+func attachRead(
+	cmd *cobra.Command,
+	f *cli.Factory,
+	spec audit.Spec,
+	input func() (json.RawMessage, error),
+	read OperatorRead,
+	write func(context.Context, []byte) error,
+) {
 	if cmd.Annotations == nil {
 		cmd.Annotations = make(map[string]string)
 	}
@@ -35,7 +58,7 @@ func AttachRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func(
 		if err != nil {
 			return err
 		}
-		return NewCLISink(f).WriteText(ctx, string(payload))
+		return write(ctx, payload)
 	}
 }
 
