@@ -97,11 +97,8 @@ type workspace struct {
 	target     databaseTarget
 	transcript strings.Builder
 	lockMode   string
-	// memberships is a JSON list for the role roles attribute. An empty value
-	// leaves the attribute unset.
-	memberships string
-	// statementTimeout is the role statement_timeout attribute in milliseconds.
-	// An empty value leaves the attribute unset.
+	// Encode membership values as a JSON array.
+	memberships      string
 	statementTimeout string
 }
 

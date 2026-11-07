@@ -99,7 +99,8 @@ func (pacer *providerPacer) run() {
 	}
 }
 
-// freeze stops the cycle and returns after the provider processes are stopped.
+// freeze waits for the pacing loop to end. Call requireProvidersStopped
+// to verify that the provider processes have stopped.
 func (pacer *providerPacer) freeze() error {
 	pacer.once.Do(func() { close(pacer.quit) })
 	<-pacer.finished
