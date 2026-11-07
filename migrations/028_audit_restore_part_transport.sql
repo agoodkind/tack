@@ -18,6 +18,7 @@ DECLARE
     part_position INTEGER;
     integer_key TEXT;
     version_text TEXT;
+    raw_texts TEXT[] := ARRAY[]::TEXT[];
     shard_input BYTEA;
     shard_crc BIGINT;
     expected_shard INTEGER;
@@ -69,6 +70,7 @@ BEGIN
             FOR part_position IN 1 .. part_total LOOP
                 part_text := convert_from(p_change_parts[part_position], 'UTF8');
                 part_message := part_text::JSONB;
+                raw_texts := raw_texts || part_text;
                 IF EXISTS (SELECT 1 FROM jsonb_object_keys(part_message) AS k WHERE k <> ALL (transport_keys)) THEN
                     RAISE EXCEPTION 'restore refused: change part % has a field that the consumer does not decode', part_position - 1
                         USING ERRCODE = 'TK620';
@@ -124,6 +126,8 @@ BEGIN
             END IF;
             change_event := envelope_json -> 'event';
             version_text := envelope_text;
+            raw_texts := raw_texts || envelope_text;
+            PERFORM public.audit_part_restore_check_keys(raw_texts);
         END IF;
 
         IF change_event IS NULL OR jsonb_typeof(change_event) <> 'object' THEN

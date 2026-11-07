@@ -10,6 +10,7 @@ import (
 const (
 	partRestoreLargeToolBytes = 70000
 	partRestoreSizeLimit      = 65536
+	repeatedKeyFragment       = "repeats a JSON object key"
 	commitVersionFragment     = "commit_version that is not a string"
 	partRestoreOtherDigest    = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 )
@@ -41,6 +42,22 @@ func repackagedEnvelope(name, fragment string, chunk int, rewrite func(envelope 
 	return partRestoreMutation{name: name, fragment: fragment, edit: func(t *testing.T, e *changeEncoding, _ string) {
 		t.Helper()
 		e.repackage(t, rewrite(e.envelope(t)), chunk)
+	}}
+}
+
+func replaceFirst(from, to string) func(envelope []byte) []byte {
+	return func(envelope []byte) []byte {
+		return bytes.Replace(envelope, []byte(from), []byte(to), 1)
+	}
+}
+
+func rawPartReplace(name, fragment, from, to string) partRestoreMutation {
+	return partRestoreMutation{name: name, fragment: fragment, edit: func(t *testing.T, e *changeEncoding, _ string) {
+		t.Helper()
+		if !bytes.Contains(e.parts[0], []byte(from)) {
+			t.Fatalf("part 0 does not contain %s", from)
+		}
+		e.parts[0] = bytes.Replace(e.parts[0], []byte(from), []byte(to), 1)
 	}}
 }
 
@@ -101,6 +118,10 @@ func transportMutations() []partRestoreMutation {
 		partSet("part decimal format version", integerFragment, 0, "format_version", "1.0"),
 		partSet("second part decimal index", integerFragment, 1, "part_index", "1.0"),
 		decimalShard(),
+		rawPartReplace("part repeats format version, decimal last", repeatedKeyFragment, `"format_version":1,`, `"format_version":1,"format_version":1.0,`),
+		rawPartReplace("part repeats format version, decimal first", repeatedKeyFragment, `"format_version":1,`, `"format_version":1.0,"format_version":1,`),
+		repackagedEnvelope("envelope repeats audit format version", repeatedKeyFragment, partRestoreChunkBytes, replaceFirst(`"audit_format_version":2`, `"audit_format_version":2.0,"audit_format_version":2`)),
+		repackagedEnvelope("envelope repeats actor email", repeatedKeyFragment, partRestoreChunkBytes, replaceFirst(`"actor":{`, `"actor":{"email":7,"email":"a@b.test",`)),
 		headerSet("manifest commit version type", commitVersionFragment, "commit_version", "7"),
 		partSet("part commit version type", commitVersionFragment, 0, "commit_version", "7"),
 		partSet("part digest", "does not match its digest", 0, "part_digest", `"`+partRestoreOtherDigest+`"`),

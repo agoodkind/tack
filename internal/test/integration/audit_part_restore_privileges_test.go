@@ -14,7 +14,7 @@ import (
 
 const (
 	partRestorePreviousMigration = 26
-	partRestoreMigration         = 30
+	partRestoreMigration         = 31
 	partRestoreRestrictedTables  = 4
 )
 
@@ -62,7 +62,7 @@ func requireHelperPrivileges(t *testing.T, pool *pgxpool.Pool) {
 		}
 		seen = append(seen, name)
 	}
-	want := []string{"audit_part_restore_check_shape", "audit_part_restore_check_transport", "audit_part_restore_check_values"}
+	want := []string{"audit_part_restore_check_keys", "audit_part_restore_check_shape", "audit_part_restore_check_transport", "audit_part_restore_check_values"}
 	if rows.Err() != nil || !slices.Equal(seen, want) {
 		t.Fatalf("helper functions = %v, error %v, want %v", seen, rows.Err(), want)
 	}
@@ -112,7 +112,7 @@ func TestAuditPartRestoreOperatorCannotTouchTables(t *testing.T) {
 	_, err := operator.Exec(t.Context(), readTestSQL(t, "part_restore_part_insert.sql"),
 		fixture.org, fixture.target, fixture.call.root, fixture.payload)
 	requirePGCode(t, err, "42501")
-	helperCalls := []string{"part_restore_call_shape.sql", "part_restore_call_transport.sql", "part_restore_call_values.sql"}
+	helperCalls := []string{"part_restore_call_keys.sql", "part_restore_call_shape.sql", "part_restore_call_transport.sql", "part_restore_call_values.sql"}
 	for _, name := range append([]string{"part_restore_count_event_parts.sql", "part_restore_count_events.sql"}, helperCalls...) {
 		_, err := operator.Exec(t.Context(), readTestSQL(t, name))
 		requirePGCode(t, err, "42501")
