@@ -18,16 +18,16 @@ import (
 
 type auditQueryInput struct {
 	clispec.InputMarker `exhaustruct:"optional"`
-	Org                 string
-	Oldest              string
-	Latest              string
-	Action              string
-	ActorID             string
-	EntityID            string
-	RequestID           string
-	TraceID             string
-	Limit               int
-	Cursor              string
+	Org                 string `json:"org"`
+	Oldest              string `json:"oldest"`
+	Latest              string `json:"latest"`
+	Action              string `json:"action"`
+	ActorID             string `json:"actor_id"`
+	EntityID            string `json:"entity_id"`
+	RequestID           string `json:"request_id"`
+	TraceID             string `json:"trace_id"`
+	Limit               int    `json:"limit"`
+	Cursor              string `json:"cursor,omitempty"`
 }
 
 // auditQueryOp declares `audit query`: the ledger rows of one org over a
@@ -37,7 +37,7 @@ func auditQueryOp(f *cli.Factory) clispec.Operation[auditQueryInput] {
 	return clispec.Operation[auditQueryInput]{
 		Name:     clispec.Name{Canonical: "query", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbAuditRead), Reads: true},
+		Audit:    auditQuerySpec(),
 		Group:    auditGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -113,7 +113,7 @@ func runAuditQuery(f *cli.Factory) func(context.Context, auditQueryInput, clispe
 
 type auditGetInput struct {
 	clispec.InputMarker `exhaustruct:"optional"`
-	EventID             string
+	EventID             string `json:"event_id"`
 }
 
 // auditGetOp declares `audit get`: one ledger row by event id, read through
@@ -122,7 +122,7 @@ func auditGetOp(f *cli.Factory) clispec.Operation[auditGetInput] {
 	return clispec.Operation[auditGetInput]{
 		Name:     clispec.Name{Canonical: "get", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbAuditRead), Reads: true},
+		Audit:    auditGetSpec(),
 		Group:    auditGroup,
 		Aliases:  nil,
 		Hidden:   false,

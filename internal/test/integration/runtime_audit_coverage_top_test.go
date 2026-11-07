@@ -21,6 +21,7 @@ type topLevelCase struct {
 	run     func(t *testing.T, env *topLevelEnv) uuid.UUID
 	verb    audit.Verb
 	outcome audit.Outcome
+	finalRead bool `exhaustruct:"optional"`
 }
 
 const serveStartedLog = "starting server"
@@ -59,6 +60,10 @@ func TestRuntimeAuditTopLevelCoverage(t *testing.T) {
 		if current, found := cases[key]; found {
 			t.Run(key, func(t *testing.T) {
 				operatorID := current.run(t, env)
+					if current.finalRead {
+						env.requireFinalReadEvent(t, operatorID, current.verb, current.outcome)
+						return
+					}
 				requireOutboxEvent(t, coverageEvidence{
 					orgID: audit.SystemOrgID(), requestID: "", actorID: operatorID, outcome: "", outbox: env.admin,
 					body: nil, targetID: uuid.Nil,
