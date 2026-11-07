@@ -65,6 +65,7 @@ func TestOpsDBSQLRecordsAgentAttribution(t *testing.T) {
 
 	events := opsoutbox.Events(t, pool, opsoutbox.Filter{Since: since})
 	eventIDs := requireOutboxAttribution(t, events, operatorID)
+	RequireCommandCorrelation(t, output, events)
 	startAuditPipeline(t, brokers, ledgerDSN, pool)
 	for _, row := range waitForLedgerEvents(t, pool, eventIDs) {
 		if row.ActorKind != actorKindService || row.ActorID != cli.ServiceActorID(attributionService) {

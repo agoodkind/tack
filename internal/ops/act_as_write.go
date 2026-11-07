@@ -17,6 +17,7 @@ import (
 	"goodkind.io/tack/internal/auditintent"
 	"goodkind.io/tack/internal/auth"
 	"goodkind.io/tack/internal/clock"
+	"goodkind.io/tack/internal/response"
 	"goodkind.io/tack/internal/service"
 )
 
@@ -33,16 +34,18 @@ func recordActAsGrant(ctx context.Context, outbox audit.OutboxWriter, principal 
 		slog.ErrorContext(ctx, "act_as.grant_event_id_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("generate the act-as grant event id: %w", err)
 	}
+	correlation := response.FromContext(ctx)
 	event := audit.Event{
 		Verb: string(audit.VerbOpsActAsGrant), EventID: eventID,
 		Actor: audit.Actor{
 			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
-			SessionID: principal.SessionID, IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+			SessionID: principal.SessionID, IP: "", UserAgent: "", RequestID: correlation.RequestID, APITokenLabel: "",
 		},
 		Entity: audit.Entity{Type: "user", NodeType: "", ID: grant.TargetUserID, Identifier: grant.TargetEmail, Name: ""},
 		Context: audit.EventContext{
 			OrgID: grant.OrgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: grant.ParentID,
-			RequestID: "", TraceID: "", Source: audit.SourceOperator, Tool: actAsTool, RPC: "", Reason: grant.Reason,
+			RequestID: correlation.RequestID, TraceID: correlation.TraceID,
+			Source: audit.SourceOperator, Tool: actAsTool, RPC: "", Reason: grant.Reason,
 		},
 		Delta: nil, Outcome: audit.OutcomeOK, Error: nil, IdempotencyKey: "",
 		OccurredAt: clock.Now().UTC(), Extra: encoded,

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/response"
 	"goodkind.io/tack/internal/telemetry"
 )
 
@@ -194,18 +195,20 @@ func referenceRepairEvent(
 			slog.String("err", wrapped.Error()))
 		return audit.Event{}, wrapped
 	}
+	correlation := response.FromContext(ctx)
 	return audit.Event{
 		Verb:    string(verb),
 		EventID: uuid.NewSHA1(referenceRepairAuditNamespace, []byte(idempotencyKey)),
 		Actor: audit.Actor{
 			Type: principal.ActorType(), ID: principal.ID,
 			Email: principal.Email, Name: principal.Name,
-			SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+			SessionID: "", IP: "", UserAgent: "", RequestID: correlation.RequestID, APITokenLabel: "",
 		},
 		Entity: entity,
 		Context: audit.EventContext{
 			OrgID: orgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
+			RequestID: correlation.RequestID, TraceID: correlation.TraceID,
+			Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
 		},
 		Delta: nil, Outcome: audit.OutcomeOK, Error: nil,
 		IdempotencyKey: idempotencyKey, OccurredAt: occurredAt.UTC(), Extra: encoded,
