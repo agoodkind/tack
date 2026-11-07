@@ -10,6 +10,7 @@ import (
 const (
 	partRestoreLargeToolBytes = 70000
 	partRestoreSizeLimit      = 65536
+	commitVersionFragment     = "commit_version that is not a string"
 	partRestoreOtherDigest    = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 )
 
@@ -40,6 +41,19 @@ func repackagedEnvelope(name, fragment string, chunk int, rewrite func(envelope 
 	return partRestoreMutation{name: name, fragment: fragment, edit: func(t *testing.T, e *changeEncoding, _ string) {
 		t.Helper()
 		e.repackage(t, rewrite(e.envelope(t)), chunk)
+	}}
+}
+
+func decimalShard() partRestoreMutation {
+	return partRestoreMutation{name: "decimal shard", fragment: integerFragment, edit: func(t *testing.T, e *changeEncoding, _ string) {
+		t.Helper()
+		var members map[string]json.RawMessage
+		if err := json.Unmarshal(e.header, &members); err != nil {
+			t.Fatalf("decode the manifest: %v", err)
+		}
+		shard := json.RawMessage(string(members["shard"]) + ".0")
+		e.editHeader(t, "shard", shard)
+		e.editEveryPart(t, "shard", shard)
 	}}
 }
 
@@ -82,6 +96,13 @@ func transportMutations() []partRestoreMutation {
 		partSet("second part index skipped", "change part 1 is not the part at that index", 1, "part_index", "5"),
 		partDrop("part payload omitted", "does not have a payload", 0, "payload"),
 		partSet("part payload not base64", "does not decode", 0, "payload", `"not base64!"`),
+		headerSet("manifest decimal format version", integerFragment, "format_version", "1.0"),
+		headerAndPartsSet("decimal part count", integerFragment, "part_count", "2.0"),
+		partSet("part decimal format version", integerFragment, 0, "format_version", "1.0"),
+		partSet("second part decimal index", integerFragment, 1, "part_index", "1.0"),
+		decimalShard(),
+		headerSet("manifest commit version type", commitVersionFragment, "commit_version", "7"),
+		partSet("part commit version type", commitVersionFragment, 0, "commit_version", "7"),
 		partSet("part digest", "does not match its digest", 0, "part_digest", `"`+partRestoreOtherDigest+`"`),
 		repackagedEnvelope("part larger than the size limit", "larger than the part size limit", 2*partRestoreSizeLimit, func(envelope []byte) []byte { return envelope }),
 		repackagedEnvelope("read target listed", envelopeFragment, partRestoreChunkBytes, appendTarget),

@@ -14,7 +14,7 @@ import (
 
 const (
 	partRestorePreviousMigration = 26
-	partRestoreMigration         = 27
+	partRestoreMigration         = 30
 	partRestoreRestrictedTables  = 4
 )
 
@@ -39,6 +39,32 @@ func requireOperatorTablePrivileges(t *testing.T, pool *pgxpool.Pool) {
 	}
 	if rows.Err() != nil || seen != partRestoreRestrictedTables {
 		t.Fatalf("table privilege rows = %d, error %v, want %d", seen, rows.Err(), partRestoreRestrictedTables)
+	}
+}
+
+func requireHelperPrivileges(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	rows, err := pool.Query(t.Context(), readTestSQL(t, "part_restore_helper_catalog.sql"))
+	if err != nil {
+		t.Fatalf("read the helper function catalog entries: %v", err)
+	}
+	defer rows.Close()
+	seen := []string{}
+	for rows.Next() {
+		var name, owner string
+		var executors []string
+		var operatorExecutes bool
+		if err := rows.Scan(&name, &owner, &executors, &operatorExecutes); err != nil {
+			t.Fatalf("scan a helper catalog entry: %v", err)
+		}
+		if owner != "audit_writer" || !slices.Equal(executors, []string{"audit_writer"}) || operatorExecutes {
+			t.Fatalf("helper %s: owner %s, executors %v, audit_operator executes %v, want owner and only executor audit_writer", name, owner, executors, operatorExecutes)
+		}
+		seen = append(seen, name)
+	}
+	want := []string{"audit_part_restore_check_shape", "audit_part_restore_check_transport", "audit_part_restore_check_values"}
+	if rows.Err() != nil || !slices.Equal(seen, want) {
+		t.Fatalf("helper functions = %v, error %v, want %v", seen, rows.Err(), want)
 	}
 }
 
@@ -69,6 +95,7 @@ func TestAuditPartRestoreMigrationGrantsOnlyExecute(t *testing.T) {
 		!slices.Contains(config, "search_path=pg_catalog, audit, public") {
 		t.Fatalf("function: security definer %v, owner %s, config %v, executors %v, has ACL %v", securityDefiner, owner, config, executors, hasACL)
 	}
+	requireHelperPrivileges(t, pool)
 	var writerSelectsEvents, writerExecutesOutbox bool
 	if err := pool.QueryRow(t.Context(), readTestSQL(t, "part_restore_writer_privileges.sql")).Scan(&writerSelectsEvents, &writerExecutesOutbox); err != nil {
 		t.Fatalf("read the audit_writer privileges: %v", err)
@@ -85,7 +112,8 @@ func TestAuditPartRestoreOperatorCannotTouchTables(t *testing.T) {
 	_, err := operator.Exec(t.Context(), readTestSQL(t, "part_restore_part_insert.sql"),
 		fixture.org, fixture.target, fixture.call.root, fixture.payload)
 	requirePGCode(t, err, "42501")
-	for _, name := range []string{"part_restore_count_event_parts.sql", "part_restore_count_events.sql"} {
+	helperCalls := []string{"part_restore_call_shape.sql", "part_restore_call_transport.sql", "part_restore_call_values.sql"}
+	for _, name := range append([]string{"part_restore_count_event_parts.sql", "part_restore_count_events.sql"}, helperCalls...) {
 		_, err := operator.Exec(t.Context(), readTestSQL(t, name))
 		requirePGCode(t, err, "42501")
 	}

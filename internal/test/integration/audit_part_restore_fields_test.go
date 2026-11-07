@@ -17,6 +17,7 @@ type partRestoreMutation struct {
 	name     string
 	fragment string
 	edit     func(t *testing.T, encoding *changeEncoding, other string)
+	nilID    bool
 }
 
 type partRestoreWrites struct {
@@ -70,6 +71,9 @@ func (p *partRestorePipeline) requireRefusedChange(t *testing.T, tool string, mu
 	t.Helper()
 	changeID, encoding := p.builtChange(t, tool)
 	mutation.edit(t, &encoding, uuid.NewString())
+	if mutation.nilID {
+		changeID = uuid.Nil
+	}
 	call := p.restoreCall(changeID, &encoding)
 	requirePartRestoreRefusal(t, call.run(t, p.operatorPool), mutation.fragment)
 	if after := p.writes(t, changeID); after != (partRestoreWrites{parts: 0, outbox: 0}) {
@@ -160,7 +164,7 @@ func changeEventMutations() []partRestoreMutation {
 
 func TestAuditPartRestoreRefusesEveryChangeEventField(t *testing.T) {
 	pipeline := startPartRestorePipeline(t)
-	for _, current := range changeEventMutations() {
+	for _, current := range append(append(changeEventMutations(), wrongTypeMutations()...), contractGapMutations()...) {
 		t.Run(current.name, func(t *testing.T) {
 			pipeline.requireRefusedChange(t, "", current)
 		})
