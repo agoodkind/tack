@@ -44,6 +44,10 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 	if session.ID == uuid.Nil || session.Version != 0 || len(session.Snapshot.QueryTokens) == 0 || session.Snapshot.PITID == "" {
 		return searchdomain.Session{}, sessionFailure(ctx, "create search session", session.ID, errors.New("session identity, snapshot, and tokens are required"))
 	}
+	if len(session.Snapshot.QueryTokens) > maxSessionTokenChunks*sessionTokenChunkBytes {
+		return searchdomain.Session{}, sessionFailure(ctx, "create search session", session.ID, fmt.Errorf("query tokens contain %d bytes, above the %d-byte bound: %w",
+			len(session.Snapshot.QueryTokens), maxSessionTokenChunks*sessionTokenChunkBytes, searchdomain.ErrInvalidQuery))
+	}
 	record := sessionRecordFor(session)
 	changes, err := beginSessionAudit(ctx, "create search session", session.ID)
 	if err != nil {

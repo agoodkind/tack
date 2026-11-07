@@ -3,6 +3,7 @@ package foundationdb
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -18,31 +19,49 @@ const (
 	childIdentityPosition = 4
 )
 
-// clearChildren clears the replay and visited records in children and records
-// each removed value. When children contains a token chunk, it reads and
-// clears every chunk of the session and returns the stored token bytes as one
-// value.
-func (a *sessionAudit) clearChildren(tr fdb.Transaction, sessionID uuid.UUID, children []fdb.KeyValue) (json.RawMessage, error) {
-	tokensFound := false
+// clearChildren clears children in key order and records each removed replay
+// and visited value. After it clears limit records, it continues only through
+// the remaining chunks of a query token run that started before that point.
+// It clears the token chunks only when they match the chunk count and byte
+// count of record. It returns the cleared token bytes as one value and the
+// number of cleared records.
+func (a *sessionAudit) clearChildren(tr fdb.Transaction, record searchSessionRecord, children []fdb.KeyValue, limit int) (json.RawMessage, int, error) {
+	var tokens []byte
+	var tokenKeys []fdb.Key
+	contiguous := true
+	cleared := 0
 	for _, child := range children {
 		unpacked, err := tuple.Unpack(stripPrefix(child.Key))
 		if err != nil || len(unpacked) <= childIdentityPosition {
-			return nil, fmt.Errorf("decode child key %x of session %s", child.Key, sessionID)
+			return nil, 0, fmt.Errorf("decode child key %x of session %s", child.Key, record.ID)
 		}
 		part, _ := unpacked[childPartPosition].(string)
+		if cleared >= limit && (part != sessionTokenPart || len(tokenKeys) == 0) {
+			break
+		}
+		cleared++
 		if part == sessionTokenPart {
-			tokensFound = true
+			chunk, isChunk := unpacked[childIdentityPosition].(int64)
+			contiguous = contiguous && isChunk && chunk == int64(len(tokenKeys))
+			tokenKeys = append(tokenKeys, child.Key)
+			tokens = append(tokens, child.Value...)
 			continue
 		}
-		if err := a.recordChildDelete(sessionID, part, unpacked[childIdentityPosition], child.Value); err != nil {
-			return nil, err
+		if err := a.recordChildDelete(record.ID, part, unpacked[childIdentityPosition], child.Value); err != nil {
+			return nil, 0, err
 		}
 		tr.Clear(child.Key)
 	}
-	if !tokensFound {
-		return nil, nil
+	if len(tokenKeys) > 0 && (!contiguous || len(tokenKeys) != record.TokenChunks || len(tokens) != record.TokenBytes) {
+		err := fmt.Errorf("session %s has %d token chunks of %d bytes, contiguous from chunk 0 %t, but its header records %d chunks of %d bytes",
+			record.ID, len(tokenKeys), len(tokens), contiguous, record.TokenChunks, record.TokenBytes)
+		slog.Error("search.session.token_chunks_invalid", slog.String("err", err.Error()), slog.String("session_id", record.ID.String()))
+		return nil, 0, err
 	}
-	return clearSessionTokens(tr, sessionID)
+	for _, key := range tokenKeys {
+		tr.Clear(key)
+	}
+	return tokens, cleared, nil
 }
 
 func (a *sessionAudit) recordChildDelete(sessionID uuid.UUID, part string, identity tuple.TupleElement, stored []byte) error {
@@ -75,23 +94,4 @@ func replayKeyVersion(identity tuple.TupleElement) (uint64, error) {
 		return 0, sessionStepError{operation: "decode replay key version", err: err}
 	}
 	return version, nil
-}
-
-// clearSessionTokens reads and clears every token chunk of the session in one
-// range. The session header bounds the chunk count.
-func clearSessionTokens(tr fdb.Transaction, sessionID uuid.UUID) (json.RawMessage, error) {
-	keyRange, err := fdb.PrefixRange(searchSessionPartPrefix(sessionID, sessionTokenPart))
-	if err != nil {
-		return nil, sessionStepError{operation: "create token range", err: err}
-	}
-	chunks, err := tr.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
-	if err != nil {
-		return nil, sessionStepError{operation: "read query tokens", err: err}
-	}
-	var tokens []byte
-	for _, chunk := range chunks {
-		tokens = append(tokens, chunk.Value...)
-	}
-	tr.ClearRange(keyRange)
-	return tokens, nil
 }

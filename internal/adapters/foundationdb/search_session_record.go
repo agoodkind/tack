@@ -20,7 +20,8 @@ const (
 	// maxSessionVisitedIDs bounds the visited IDs one page commit writes.
 	maxSessionVisitedIDs = 400
 	// maxSessionResultIDs bounds the result IDs one replay record stores.
-	maxSessionResultIDs = 25
+	maxSessionResultIDs   = 25
+	maxSessionTokenChunks = 16
 )
 
 // searchSessionRecord is the bounded session header. Query tokens are stored
