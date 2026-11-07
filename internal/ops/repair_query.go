@@ -13,7 +13,7 @@ func init() {
 	Register(Operation{
 		Name:        "repair.query",
 		Lifetime:    clispec.Permanent,
-		Audit:       audit.Spec{Verb: string(audit.VerbOpsInspectQuery), Reads: true},
+		Audit:       singletonReadSpec(audit.VerbOpsInspectQuery, "repair/query"),
 		Description: "Query all core record families for TACK_REPAIR_NODE_ID and print a deterministic raw inspection report.",
 		Run:         runRepairQuery,
 	})

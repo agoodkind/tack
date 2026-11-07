@@ -14,7 +14,7 @@ func init() {
 	Register(Operation{
 		Name:        "repair.read",
 		Lifetime:    clispec.Permanent,
-		Audit:       audit.Spec{Verb: string(audit.VerbOpsInspectRead), Reads: true},
+		Audit:       singletonReadSpec(audit.VerbOpsInspectRead, "repair/read"),
 		Description: "Read one node by UUID from TACK_REPAIR_NODE_ID and print a deterministic inspection summary.",
 		Run:         runRepairRead,
 	})

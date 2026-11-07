@@ -134,9 +134,10 @@ func generate(ctx context.Context, deployCommit string) ([]fixture, error) {
 		func(context.Context) error { return nil }); err != nil {
 		return nil, err
 	}
-	read := audit.Spec{Verb: string(audit.VerbOpsDeployVerify), Reads: true}
-	if err := clispec.RunAudited(ctx, io.Discard, read, source, deployCommit, true, outbox, nil,
-		func(context.Context) error { return nil }); err != nil {
+	read := outbox.events[len(outbox.events)-1]
+	read.Verb = string(audit.VerbOpsDeployVerify)
+	read.EventID = uuid.Must(uuid.NewV7())
+	if err := outbox.WriteOutbox(ctx, read); err != nil {
 		return nil, err
 	}
 	for _, ev := range outbox.events {
