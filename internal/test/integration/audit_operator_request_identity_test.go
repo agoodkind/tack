@@ -12,7 +12,9 @@ import (
 	"goodkind.io/tack/internal/response"
 )
 
-// TestAuditOperatorReadStoresCLIRequestIdentity checks that the ledger row of an operator read stores the request ID and trace ID of the CLI response.
+// TestAuditOperatorReadStoresCLIRequestIdentity checks that the permanent
+// ledger row for an operator read stores the same request ID and trace ID
+// as the CLI response.
 func TestAuditOperatorReadStoresCLIRequestIdentity(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	operatorID, orgID, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())

@@ -14,7 +14,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// CommandContext returns the test context with the request ID and sampled span context that the server root command attaches to each command.
+// CommandContext returns the test context with the request ID and sampled span
+// context that the server root command attaches to each command.
 func CommandContext(t *testing.T) context.Context {
 	t.Helper()
 	traceSource, spanSource := uuid.New(), uuid.New()
@@ -27,7 +28,8 @@ func CommandContext(t *testing.T) context.Context {
 	return telemetry.WithRequestMetadata(oteltrace.ContextWithSpanContext(t.Context(), spanContext), uuid.NewString())
 }
 
-// RequireCommandCorrelation requires each event to store the request ID and trace ID from the _meta object of the JSON command output.
+// RequireCommandCorrelation requires each event to store the request ID and
+// trace ID from the _meta object of the JSON command output.
 func RequireCommandCorrelation(t *testing.T, output string, events []audit.Event) {
 	t.Helper()
 	requestID, traceID := CommandCorrelation(t, output)
@@ -42,7 +44,8 @@ func RequireCommandCorrelation(t *testing.T, output string, events []audit.Event
 	}
 }
 
-// CommandCorrelation returns the request ID and trace ID from the _meta object of the JSON command output.
+// CommandCorrelation returns the request ID and trace ID from the _meta object
+// of the JSON command output.
 func CommandCorrelation(t *testing.T, output string) (string, string) {
 	t.Helper()
 	var document response.JSONDocument
