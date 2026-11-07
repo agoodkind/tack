@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -40,7 +41,7 @@ func TestRunAuditedUnresolvableIdentityAbortsInBothModes(t *testing.T) {
 			outbox := &auditTestOutbox{}
 			err := runAudited(
 				context.Background(),
-				audit.Spec{Verb: "ops.test", Reads: true},
+				audit.Spec{Verb: "ops.test", Mutates: true},
 				auditTestSource{err: errors.New("identity unavailable")},
 				"",
 				execute,
@@ -90,11 +91,12 @@ func TestRunAuditedDryRunRunsNothingAndRecordsNothing(t *testing.T) {
 	}
 }
 
-func TestRunAuditedReadWriteFailureNeverRuns(t *testing.T) {
-	outbox := &auditTestOutbox{writeErrors: []error{errors.New("outbox write failed")}}
+func TestRunAuditedRefusesAReadSpec(t *testing.T) {
+	outbox := &auditTestOutbox{}
 	runCount := 0
-	err := runAudited(
+	err := RunAudited(
 		context.Background(),
+		io.Discard,
 		audit.Spec{Verb: "ops.inspect", Reads: true},
 		testOperatorSource(),
 		"",
@@ -106,14 +108,11 @@ func TestRunAuditedReadWriteFailureNeverRuns(t *testing.T) {
 			return nil
 		},
 	)
-	if err == nil {
-		t.Fatal("runAudited succeeded after access-event failure")
+	if err == nil || !strings.Contains(err.Error(), "read lifecycle") {
+		t.Fatalf("runAudited error = %v, want a refusal that mentions the read lifecycle", err)
 	}
-	if runCount != 0 {
-		t.Fatalf("run count = %d, want 0", runCount)
-	}
-	if len(outbox.events) != 0 {
-		t.Fatalf("outbox events = %d, want 0", len(outbox.events))
+	if runCount != 0 || len(outbox.events) != 0 {
+		t.Fatalf("run count = %d, outbox events = %d, want 0 and 0", runCount, len(outbox.events))
 	}
 }
 
@@ -124,7 +123,7 @@ func TestRunAuditedReadWriteFailureNeverRuns(t *testing.T) {
 func TestRunAuditedNilOutboxNeverRuns(t *testing.T) {
 	for _, spec := range []audit.Spec{
 		{Verb: "ops.test", Mutates: true},
-		{Verb: "ops.inspect", Reads: true},
+		{Verb: "ops.inspect", Mutates: true},
 	} {
 		t.Run(spec.Verb, func(t *testing.T) {
 			runCount := 0
