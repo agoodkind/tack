@@ -11,7 +11,6 @@ import (
 const (
 	partRestoreTargetFragment = "target event does not match"
 	partRestoreSourceFragment = "source event does not match"
-	partRestoreRootStatement  = `UPDATE audit.events SET context = jsonb_set(context, '{read,manifest_sha256}', to_jsonb($3::text)) WHERE org_id = $1 AND event_id = $2`
 )
 
 type partRestoreRefusal struct {
@@ -73,35 +72,35 @@ func storedStateRefusals() []partRestoreRefusal {
 		{
 			name: "source payload was altered",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, `UPDATE audit.event_parts SET payload = $3 WHERE org_id = $1 AND event_id = $2`, f.org, f.source, []byte("altered payload"))
+				mustExec(t, f.admin, readTestSQL(t, "part_restore_update_part_payload.sql"), f.org, f.source, []byte("altered payload"))
 			},
 			fragment: "does not hash to the declared root",
 		},
 		{
 			name: "source digest differs",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, `UPDATE audit.event_parts SET digest = $3 WHERE org_id = $1 AND event_id = $2`, f.org, f.source, "00"+f.call.root[2:])
+				mustExec(t, f.admin, readTestSQL(t, "part_restore_update_part_digest.sql"), f.org, f.source, "00"+f.call.root[2:])
 			},
 			fragment: "does not hash to the declared root",
 		},
 		{
 			name: "only the source belongs to another organization",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, `UPDATE audit.events SET org_id = $3 WHERE org_id = $1 AND event_id = $2`, f.org, f.source, uuid.Must(uuid.NewV7()))
+				mustExec(t, f.admin, readTestSQL(t, "part_restore_update_event_org.sql"), f.org, f.source, uuid.Must(uuid.NewV7()))
 			},
 			fragment: partRestoreSourceFragment,
 		},
 		{
 			name: "source declares another root",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, partRestoreRootStatement, f.org, f.source, "00"+f.call.root[2:])
+				mustExec(t, f.admin, readTestSQL(t, "part_restore_update_event_root.sql"), f.org, f.source, "00"+f.call.root[2:])
 			},
 			fragment: partRestoreSourceFragment,
 		},
 		{
 			name: "source declares two parts",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, `UPDATE audit.events SET context = jsonb_set(context, '{read,manifest_parts}', '2'::jsonb) WHERE org_id = $1 AND event_id = $2`, f.org, f.source)
+				mustExec(t, f.admin, readTestSQL(t, "part_restore_update_event_parts.sql"), f.org, f.source)
 			},
 			fragment: partRestoreSourceFragment,
 		},
@@ -141,7 +140,7 @@ func TestAuditPartRestoreDuplicateChangeEventRollsBackPart(t *testing.T) {
 	admin := ledgerAdminPool(t)
 	operator := rolePool(t, testenv.Ledger(t), "audit_operator")
 	fixture := newPartRestoreRawFixture(t, admin)
-	mustExec(t, admin, `INSERT INTO public.ops_outbox (event_id, event) VALUES ($1, '{"synthetic":"duplicate"}'::jsonb)`, fixture.call.changeID)
+	mustExec(t, admin, readTestSQL(t, "part_restore_outbox_duplicate.sql"), fixture.call.changeID)
 	before := readPartRestoreCounts(t, admin, fixture.call.changeID)
 	requirePGCode(t, fixture.call.run(t, operator), "23505")
 	if after := readPartRestoreCounts(t, admin, fixture.call.changeID); after != before {

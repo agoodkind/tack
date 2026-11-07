@@ -70,8 +70,7 @@ func TestAuditPartRestoreMigrationGrantsOnlyExecute(t *testing.T) {
 		t.Fatalf("function: security definer %v, owner %s, config %v, executors %v, has ACL %v", securityDefiner, owner, config, executors, hasACL)
 	}
 	var writerSelectsEvents, writerExecutesOutbox bool
-	if err := pool.QueryRow(t.Context(), `SELECT has_table_privilege('audit_writer', 'audit.events', 'SELECT'),
-		has_function_privilege('audit_writer', 'public.ops_outbox_write_encoded(uuid, jsonb, bytea[])', 'EXECUTE')`).Scan(&writerSelectsEvents, &writerExecutesOutbox); err != nil {
+	if err := pool.QueryRow(t.Context(), readTestSQL(t, "part_restore_writer_privileges.sql")).Scan(&writerSelectsEvents, &writerExecutesOutbox); err != nil {
 		t.Fatalf("read the audit_writer privileges: %v", err)
 	}
 	if !writerSelectsEvents || !writerExecutesOutbox {
@@ -86,8 +85,8 @@ func TestAuditPartRestoreOperatorCannotTouchTables(t *testing.T) {
 	_, err := operator.Exec(t.Context(), readTestSQL(t, "part_restore_part_insert.sql"),
 		fixture.org, fixture.target, fixture.call.root, fixture.payload)
 	requirePGCode(t, err, "42501")
-	for _, table := range []string{"audit.event_parts", "audit.events"} {
-		_, err := operator.Exec(t.Context(), "SELECT count(*) FROM "+table)
+	for _, name := range []string{"part_restore_count_event_parts.sql", "part_restore_count_events.sql"} {
+		_, err := operator.Exec(t.Context(), readTestSQL(t, name))
 		requirePGCode(t, err, "42501")
 	}
 }
@@ -109,7 +108,7 @@ func TestAuditPartRestoreWritesOnePartAndOneOutboxRow(t *testing.T) {
 	}
 	var digest string
 	var payload []byte
-	if err := admin.QueryRow(t.Context(), `SELECT digest, payload FROM audit.event_parts WHERE org_id = $1 AND event_id = $2 AND part_index = 0`,
+	if err := admin.QueryRow(t.Context(), readTestSQL(t, "part_restore_stored_part.sql"),
 		fixture.org, fixture.target).Scan(&digest, &payload); err != nil || digest != fixture.call.root || !bytes.Equal(payload, fixture.payload) {
 		t.Fatalf("restored part = %q, %d bytes, error %v, want the source part", digest, len(payload), err)
 	}
