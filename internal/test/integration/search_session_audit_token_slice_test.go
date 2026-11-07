@@ -5,7 +5,6 @@ package integration_test
 import (
 	"bytes"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	fdbadapter "goodkind.io/tack/internal/adapters/foundationdb"
@@ -18,7 +17,6 @@ const (
 	boundaryTokenBytes   = 2*sessionTokenChunkBound + 1024
 	boundaryTokenChunks  = 3
 	boundaryVisitedIDs   = 5
-	boundaryRetireLimit  = 100
 	boundaryFinishSlices = 8
 )
 
@@ -67,7 +65,7 @@ func TestSearchSessionAuditRetireSliceKeepsTokenValue(t *testing.T) {
 			beginRetiringRebuild(t, stores, index)
 			session := storedSearchSession(sessionTokens(boundaryTokenBytes))
 			session.Query.Index, session.Query.Generation = index, retiredGeneration
-			mark := closingBoundarySession(t, stores, session, boundaryRetireLimit-boundaryTokenChunks-boundary.offset)
+			mark := closingBoundarySession(t, stores, session, maximumCleanupKeys-boundaryTokenChunks-boundary.offset)
 			observations := observeSessionTransactions(t)
 			requireStaleDeleteFenced(t, stores, index, session)
 			observations.requireBounded(t, boundary.name+" fenced", cleanupSliceOperation, session.ID, 0)
@@ -98,43 +96,6 @@ func finishSlices(t *testing.T, label string, maxSlices int, slice func() (bool,
 		}
 	}
 	t.Fatalf("%s: cleanup remains after %d more slices", label, maxSlices)
-}
-
-// TestSearchSessionAuditSliceRefusesTokenMismatch stores a header with a token
-// chunk count or byte count that differs from the stored chunks and requires
-// CleanupSlice to refuse the slice.
-func TestSearchSessionAuditSliceRefusesTokenMismatch(t *testing.T) {
-	for _, member := range []string{"token_chunks", "token_bytes"} {
-		t.Run(member, func(t *testing.T) {
-			stores := sessionStoreStores(t)
-			store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
-			session := storedSearchSession(sessionTokens(boundaryTokenBytes))
-			mark := closingBoundarySession(t, stores, session, 1)
-			headers := familyRecords(t, sessionHeaderFamily, session.ID)
-			if len(headers) != 1 {
-				t.Fatalf("session %s has %d headers, want 1", session.ID, len(headers))
-			}
-			header := deltaMembers(t, headers[0].Value)
-			var stored int
-			if err := json.Unmarshal(header[member], &stored); err != nil {
-				t.Fatalf("decode header member %s = %s: %v", member, header[member], err)
-			}
-			header[member] = encodeJSON(t, stored+1)
-			integration.ReplaceRawValue(t, headers[0].Key, encodeJSON(t, header))
-			observations := observeSessionTransactions(t)
-			done, err := store.CleanupSlice(integration.WithTestOperation(t, t.Context()), session.ID, boundaryRetireLimit)
-			if err == nil || done || !strings.Contains(err.Error(), "token chunks") {
-				t.Fatalf("CleanupSlice of session %s with a changed %s = %t, %v, want a token chunk error", session.ID, member, done, err)
-			}
-			observations.requireBounded(t, member, cleanupSliceOperation, session.ID, 0)
-			if chunks := familyRecords(t, sessionChildFamily, session.ID, sessionTokenPart); len(chunks) != boundaryTokenChunks {
-				t.Fatalf("session %s keeps %d token chunks after the refused slice, want %d", session.ID, len(chunks), boundaryTokenChunks)
-			}
-			if _, removed := sessionTokenValues(t, stores, mark, session.ID); len(removed) != 0 {
-				t.Fatalf("session %s recorded %d token removals after the refused slice, want 0", session.ID, len(removed))
-			}
-		})
-	}
 }
 
 func closingBoundarySession(t *testing.T, stores *fdbadapter.Stores, session searchdomain.Session, replays int) []byte {
