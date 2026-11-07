@@ -22,7 +22,6 @@ const (
 	sqlAuditMemberRole    = 15
 	sqlAuditAdminRole     = 20
 	sqlAuditTokenLabel    = "runtime audit"
-	sqlAuditTokenURI      = "tack:api_token/"
 	sqlAuditFailureCode   = "not_found"
 	sqlAuditMemberChanged = "/role"
 )
@@ -155,8 +154,8 @@ func requireTokenTarget(t *testing.T, row audit.Row, tokenID uuid.UUID) {
 	t.Helper()
 	target := row.Context.Target
 	if target == nil || target.Kind != audit.TargetKindResource || target.ID != tokenID ||
-		target.URI != sqlAuditTokenURI+tokenID.String() || target.Name != sqlAuditTokenLabel {
-		t.Fatalf("token target = %+v, want audit.TargetKindResource with ID %s, URI sqlAuditTokenURI+tokenID.String(), and Name sqlAuditTokenLabel", target, tokenID)
+		target.URI != audit.APIAccessURIPrefix+tokenID.String() || target.Name != sqlAuditTokenLabel {
+		t.Fatalf("token target = %+v, want audit.TargetKindResource with ID %s, URI audit.APIAccessURIPrefix+tokenID.String(), and Name sqlAuditTokenLabel", target, tokenID)
 	}
 }
 

@@ -39,7 +39,12 @@ func (r repairVerifyResult) AuditReadTargets() ([]audit.Target, error) {
 }
 
 func (r repairValidateResult) AuditReadTargets() ([]audit.Target, error) {
-	return []audit.Target{nodeInputTarget(r.NodeID)}, nil
+	nodeID, err := uuid.Parse(r.NodeID)
+	if err != nil {
+		slog.Error("ops.validate_target_failed", slog.String("err", err.Error()))
+		return nil, fmt.Errorf("ops validate node: the result node ID is not a UUID: %w", err)
+	}
+	return []audit.Target{audit.NodeTarget(nodeID)}, nil
 }
 
 func (r previewOutput) AuditReadTargets() ([]audit.Target, error) {

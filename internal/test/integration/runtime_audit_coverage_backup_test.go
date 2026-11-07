@@ -81,7 +81,7 @@ func addBackupCommandCases(cases map[string]coverageCase) {
 	cases["command ops backup retention"] = commandCase(audit.VerbOpsBackupRetention, audit.OutcomeCompleted,
 		backupCommand("ops", "backup", "retention"))
 	cases["command ops backup"] = withReadCheck(failingCommandCase(audit.VerbOpsBackup, audit.OutcomeFailed, fixedCommand("ops", "backup")),
-		audit.VerbOpsBackup, audit.OutcomeFailed)
+		audit.VerbOpsBackup, audit.OutcomeFailed, failedReadExpectation("backup"))
 	cases["command ops backup yb-pitr-init"] = commandCase(audit.VerbOpsBackupYBPITRInit, audit.OutcomeCompleted, backupCommand("ops", "backup", "yb-pitr-init"))
 	cases["command ops backup yb-snapshot-export"] = commandCase(audit.VerbOpsBackupYBSnapshotExport, audit.OutcomeCompleted,
 		backupCommand("ops", "backup", "yb-snapshot-export"))

@@ -28,7 +28,7 @@ func addAuditCommandCases(cases map[string]coverageCase) {
 	cases["command ops audit consumer-offsets"] = withReadCheck(commandCase(audit.VerbOpsAuditConsumerOffsets, audit.OutcomeCompleted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{args: []string{"ops", "audit", "consumer-offsets"}, configure: reader(t, env), outbox: nil}
-		}), audit.VerbOpsAuditConsumerOffsets, audit.OutcomeCompleted)
+		}), audit.VerbOpsAuditConsumerOffsets, audit.OutcomeCompleted, fixedReadExpectation("audit/consumer-offsets"))
 	cases["command ops audit dlq inspect"] = commandCase(audit.VerbOpsAuditDLQInspect, audit.OutcomeCompleted,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			return commandInput{args: []string{"ops", "audit", "dlq", "inspect"}, configure: reader(t, env), outbox: nil}
@@ -86,8 +86,24 @@ func addAuthCommandCases(cases map[string]coverageCase) {
 		return commandInput{args: []string{"ops", "auth", "token-create", "--email", env.userEmail(t), "--label", "coverage"}, configure: nil, outbox: nil}
 	})
 	cases["command ops auth token-list"] = withReadCheck(commandCase(audit.VerbOpsAuthTokenList, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
+		if _, output, err := env.command(t, nil, "ops", "auth", "token-create", "--email", env.userEmail(t), "--label", "coverage-list"); err != nil {
+			t.Fatalf("Token creation failed; the listing case requires an existing token: %v\n%s", err, output)
+		}
 		return commandInput{args: []string{"ops", "auth", "token-list", "--email", env.userEmail(t)}, configure: nil, outbox: nil}
-	}), audit.VerbOpsAuthTokenList, audit.OutcomeCompleted)
+	}), audit.VerbOpsAuthTokenList, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) readExpectation {
+		tokens, err := postgres.NewTokenRepo(env.admin).List(t.Context(), env.server.userID)
+		if err != nil || len(tokens) == 0 {
+			t.Fatalf("Token lookup failed or returned an empty list; the test requires at least one token for user %s: %d %v", env.server.userID, len(tokens), err)
+		}
+		uris := make([]string, 0, len(tokens))
+		for _, stored := range tokens {
+			uris = append(uris, audit.APIAccessURIPrefix+stored.ID.String())
+		}
+		return readExpectation{
+			target: referenceTarget("auth/token-list"), input: "", items: uris, contains: false, itemPrefix: "",
+			absent: []string{env.userEmail(t)}, skipItems: false,
+		}
+	})
 	cases["command ops auth token-revoke"] = commandCase(audit.VerbOpsAuthTokenRevoke, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
 		if _, output, err := env.command(t, nil, "ops", "auth", "token-create", "--email", env.userEmail(t), "--label", "coverage-revoke"); err != nil {
 			t.Fatalf("Token creation failed; the revocation case requires an existing token: %v\n%s", err, output)

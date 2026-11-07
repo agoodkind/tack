@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,38 +26,71 @@ import (
 // and remove through a repair profile.
 const coverageLegacyProperty = "coverage_legacy_note"
 
+func nodeReadExpectation(nodeID uuid.UUID, inputFormat string) readExpectation {
+	nodeURI := audit.NodeURIPrefix + nodeID.String()
+	return readExpectation{
+		target: uriTarget(nodeURI), input: fmt.Sprintf(inputFormat, nodeID.String()), items: []string{nodeURI},
+		contains: false, itemPrefix: "", absent: nil, skipItems: false,
+	}
+}
+
 // addNodeCommandCases adds node inspection, validation, repair, creation, and
 // batch command cases with their expected audit verbs and outcomes.
 func addNodeCommandCases(cases map[string]coverageCase) {
 	cases["command ops inspect read"] = withReadCheck(commandCase(audit.VerbOpsInspectRead, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{"ops", "inspect", "read", "--node", env.fixture(t).nodes["issue"].String()}, configure: nil, outbox: nil}
-	}), audit.VerbOpsInspectRead, audit.OutcomeCompleted)
+	}), audit.VerbOpsInspectRead, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) readExpectation {
+		return nodeReadExpectation(env.fixture(t).nodes["issue"], `{"NodeID":%q,"Records":false}`)
+	})
 	cases["command ops inspect find"] = withReadCheck(commandCase(audit.VerbOpsInspectFind, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{"ops", "inspect", "find", "--org", env.server.orgID.String(), "--type", "issue"}, configure: nil, outbox: nil}
-	}), audit.VerbOpsInspectFind, audit.OutcomeCompleted)
+	}), audit.VerbOpsInspectFind, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) readExpectation {
+		return readExpectation{
+			target: uriTarget(audit.OrgURIPrefix + env.server.orgID.String()),
+			input:  fmt.Sprintf(`{"OrgID":%q,"NodeType":"issue","Limit":50}`, env.server.orgID.String()),
+			items:  []string{audit.NodeURIPrefix + env.fixture(t).nodes["issue"].String()}, contains: true, itemPrefix: audit.NodeURIPrefix,
+			absent: nil, skipItems: false,
+		}
+	})
 	cases["command ops inspect query"] = withReadCheck(commandCase(audit.VerbOpsInspectQuery, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{
 			"ops", "inspect", "query", "--org", env.server.orgID.String(), "--type", "workspace",
 			"--property", "slug", "--value", strconv.Quote(env.server.workspace),
 		}, configure: nil, outbox: nil}
-	}), audit.VerbOpsInspectQuery, audit.OutcomeCompleted)
+	}), audit.VerbOpsInspectQuery, audit.OutcomeCompleted, func(_ *testing.T, env *coverageEnv) readExpectation {
+		return readExpectation{
+			target: uriTarget(audit.OrgURIPrefix + env.server.orgID.String()),
+			input:  fmt.Sprintf(`{"OrgID":%q,"NodeType":"workspace","Property":"slug","Value":"","Limit":50}`, env.server.orgID.String()),
+			items:  nil, contains: true, itemPrefix: audit.NodeURIPrefix, absent: []string{env.server.workspace}, skipItems: false,
+		}
+	})
 	cases["command ops verify node"] = withReadCheck(commandCase(audit.VerbOpsVerifyNode, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: []string{"ops", "verify", "node", "--node", env.fixture(t).nodes["issue"].String()}, configure: nil, outbox: nil}
-	}), audit.VerbOpsVerifyNode, audit.OutcomeCompleted)
+	}), audit.VerbOpsVerifyNode, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) readExpectation {
+		return nodeReadExpectation(env.fixture(t).nodes["issue"], `{"NodeID":%q,"Class":"","Profile":"","Records":false}`)
+	})
 	cases["command ops repair classes"] = withReadCheck(commandCase(audit.VerbOpsRepairClasses, audit.OutcomeCompleted,
-		fixedCommand("ops", "repair", "classes")), audit.VerbOpsRepairClasses, audit.OutcomeCompleted)
+		fixedCommand("ops", "repair", "classes")), audit.VerbOpsRepairClasses, audit.OutcomeCompleted, fixedReadExpectation("repair/classes"))
+	var validatedNode uuid.UUID
 	cases["command ops validate node"] = withReadCheck(commandCase(audit.VerbOpsValidateNode, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		nodeID, profile := env.legacyRepair(t)
+		validatedNode = nodeID
 		return commandInput{args: []string{
 			"ops", "validate", "node", "--node", nodeID.String(), "--class", string(ops.RepairClassPropsTransform), "--profile", profile,
 		}, configure: nil, outbox: nil}
-	}), audit.VerbOpsValidateNode, audit.OutcomeCompleted)
+	}), audit.VerbOpsValidateNode, audit.OutcomeCompleted, func(*testing.T, *coverageEnv) readExpectation {
+		return nodeReadExpectation(validatedNode, `{"NodeID":%q,"Class":"props_transform","Profile":""}`)
+	})
+	var previewedNode uuid.UUID
 	cases["command ops repair preview"] = withReadCheck(commandCase(audit.VerbOpsRepairPreview, audit.OutcomeCompleted, func(t *testing.T, env *coverageEnv) commandInput {
 		nodeID, profile := env.legacyRepair(t)
+		previewedNode = nodeID
 		return commandInput{args: []string{
 			"ops", "repair", "preview", "--node", nodeID.String(), "--class", string(ops.RepairClassPropsTransform), "--profile", profile,
 		}, configure: nil, outbox: nil}
-	}), audit.VerbOpsRepairPreview, audit.OutcomeCompleted)
+	}), audit.VerbOpsRepairPreview, audit.OutcomeCompleted, func(*testing.T, *coverageEnv) readExpectation {
+		return nodeReadExpectation(previewedNode, `{"NodeID":%q,"Class":"props_transform","Profile":"","Manifest":""}`)
+	})
 	cases["command ops repair apply"] = commandCase(audit.VerbOpsRepairApply, audit.OutcomeOK, func(t *testing.T, env *coverageEnv) commandInput {
 		nodeID, profile := env.legacyRepair(t)
 		return commandInput{args: []string{
@@ -70,7 +104,8 @@ func addNodeCommandCases(cases map[string]coverageCase) {
 	cases["command ops batch backfill.default_children"] = commandCase(audit.VerbOpsBackfillDefaultChildren, audit.OutcomeOK,
 		fixedCommand("ops", "batch", "backfill.default_children"))
 	cases["command ops batch reference.duplicates"] = withReadCheck(commandCase(audit.VerbOpsReferenceDuplicates, audit.OutcomeCompleted,
-		fixedCommand("ops", "batch", "reference.duplicates")), audit.VerbOpsReferenceDuplicates, audit.OutcomeCompleted)
+		fixedCommand("ops", "batch", "reference.duplicates")), audit.VerbOpsReferenceDuplicates, audit.OutcomeCompleted,
+		fixedReadExpectation("reference/duplicates"))
 	cases["command ops batch reindex"] = commandCase(audit.VerbOpsReindex, audit.OutcomeOK, fixedCommand("ops", "batch", "reindex"))
 	cases["command ops verify strict-validation"] = strictValidationCase()
 }

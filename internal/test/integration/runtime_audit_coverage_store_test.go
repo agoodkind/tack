@@ -107,7 +107,7 @@ func storeExcludeInput(t *testing.T, env *coverageEnv) commandInput {
 func addStoreCommandCases(cases map[string]coverageCase) {
 	cases["command ops store status"] = withReadCheck(commandCase(audit.VerbOpsStoreStatus, audit.OutcomeCompleted,
 		storeCommand(sharedCluster, func(string, *testing.T) []string { return []string{"ops", "store", "status"} })),
-		audit.VerbOpsStoreStatus, audit.OutcomeCompleted)
+		audit.VerbOpsStoreStatus, audit.OutcomeCompleted, fixedReadExpectation("store/status"))
 	cases["command ops store set-redundancy"] = commandCase(audit.VerbOpsStoreSetRedundancy, audit.OutcomeOK,
 		storeCommand(migratableCluster, func(string, *testing.T) []string {
 			return []string{"ops", "store", "set-redundancy", "--mode", "single"}
