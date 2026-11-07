@@ -10,8 +10,6 @@ import (
 )
 
 const (
-	// apiAccessURIPrefix starts the resource URI of an API token target.
-	apiAccessURIPrefix = "tack:api_token/"
 	// userTargetPrefix starts the resource URI of a user target.
 	userTargetPrefix = "tack:user/"
 )
@@ -20,7 +18,7 @@ const (
 func tokenTarget(tokenID uuid.UUID, label string) audit.Target {
 	return audit.Target{
 		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: label,
-		URI: apiAccessURIPrefix + tokenID.String(), RelationType: "", ID: tokenID, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		URI: audit.APIAccessURIPrefix + tokenID.String(), RelationType: "", ID: tokenID, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
 }
 

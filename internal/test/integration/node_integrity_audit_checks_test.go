@@ -84,6 +84,7 @@ func (l *nodeAuditLedger) waitForNoLag(t *testing.T) {
 	factory := cli.System(l.cfg)
 	factory.Out = output
 	factory.SetAuditOutbox(audit.NewPoolOutbox(l.admin))
+	factory.SetAuditReads(audit.NewPoolReadLifecycle(l.admin))
 	t.Cleanup(factory.CloseAuditOutbox)
 	deadline := clock.Now().Add(nodeAuditDeadline)
 	for {

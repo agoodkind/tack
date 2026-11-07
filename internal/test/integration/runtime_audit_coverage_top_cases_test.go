@@ -88,7 +88,7 @@ func topLevelCases() map[string]topLevelCase {
 		"command tack audit signers":      topLevelCommand(audit.VerbAuditSignersVerified, audit.OutcomeOK, signersArgs),
 		"command tack audit query":        topLevelRead(audit.VerbAuditRead, queryArgs),
 		"command tack audit get":          topLevelRead(audit.VerbAuditRead, getArgs),
-		"command tack audit last-change":  topLevelCommand(audit.VerbAuditRead, audit.OutcomeOK, lastChangeArgs),
+		"command tack audit last-change":  topLevelRead(audit.VerbAuditRead, lastChangeArgs),
 		"command tack audit redact-actor": topLevelCommand(audit.VerbAuditPIIRedacted, audit.OutcomeOK, redactArgs),
 	}
 }

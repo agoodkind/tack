@@ -50,14 +50,16 @@ func TestAuditLastChangeIgnoresUpdateRefusedForNonMember(t *testing.T) {
 }
 
 // TestAuditLastChangeRefusesWithoutAuditReaderRole runs audit last-change
-// through the built server as different operators with AUDIT_READER_DSN
-// absent, a login that inherits only the application role, a malformed
-// AUDIT_READER_DSN, and a login that inherits audit_reader. The failing runs
-// exit with an error, log the missing setting, permission refusal, or fixed
-// reader message, and do not print a report. The audit_reader run prints a
-// report. The clispec choke-point records an audit host read before the read
-// runs, as it does for audit query and audit get. The ledger must contain
-// exactly one audit.read row with the ok outcome for each operator.
+// through the built server as four operators: one without AUDIT_READER_DSN,
+// one with a login that inherits only the application role, one with a
+// malformed AUDIT_READER_DSN, and one with a login that inherits audit_reader.
+// The test checks that the first three runs exit with an error, log the missing
+// setting, permission refusal, or fixed reader message, and do not print output.
+// The audit_reader run prints a report. Each operator has a single final
+// audit.read row of the read class in audit.events. The audit_reader row has
+// outcome completed. Each refused run has outcome failed, code read_failed,
+// and does not include read evidence. No run exposes the reader connection
+// string.
 func TestAuditLastChangeRefusesWithoutAuditReaderRole(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	orgID, nodeID, now := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), clock.Now()
@@ -83,10 +85,15 @@ func TestAuditLastChangeRefusesWithoutAuditReaderRole(t *testing.T) {
 		if strings.Contains(run.output(), readerErrorSecret) || strings.Contains(run.output(), readerParseErrorText) {
 			t.Fatalf("%s: the command exposed the reader connection string\n%s", current.name, run.output())
 		}
-		want := operatorReadRow{Action: string(audit.VerbAuditRead), Outcome: string(audit.OutcomeOK), Code: ""}
-		rows := waitForOperatorRows(t, ledger, operatorID, 1, run.output())
-		if len(rows) != 1 || rows[0] != want {
-			t.Fatalf("%s: ledger rows of operator %s = %+v, want only %+v\n%s", current.name, operatorID, rows, want, run.output())
+		row := awaitReadLifecycleRow(t, ledger, operatorID, audit.VerbAuditRead)
+		target := uriTarget(audit.NodeURIPrefix + nodeID.String())
+		if succeeds {
+			requireReadRowShape(t, row, audit.OutcomeCompleted, target)
+		} else {
+			if run.stdout != "" {
+				t.Fatalf("%s: stdout = %q, want no output from a refused read\n%s", current.name, run.stdout, run.output())
+			}
+			requireFailedReadRow(t, row, target, "")
 		}
 	}
 }

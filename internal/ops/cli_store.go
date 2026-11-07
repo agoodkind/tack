@@ -38,7 +38,7 @@ func storeStatusOp(f *cli.Factory) clispec.Operation[noInput] {
 	return clispec.Operation[noInput]{
 		Name:     clispec.Name{Canonical: "status", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsStoreStatus), Reads: true},
+		Audit:    singletonReadSpec(audit.VerbOpsStoreStatus, "store/status"),
 		Group:    storeGroup,
 		Aliases:  nil,
 		Hidden:   false,

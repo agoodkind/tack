@@ -16,12 +16,8 @@ import (
 const (
 	// auditManifestPartsCommand identifies the command in errors and logs.
 	auditManifestPartsCommand = "ops audit manifest-parts"
-	// auditEventURIPrefix is the URI prefix for an audited event target.
-	auditEventURIPrefix = "tack:audit-event/"
 	// auditEventPartURISegment is the URI segment before a part index.
 	auditEventPartURISegment = "/part/"
-	// auditEventInvalidURI is the fixed target URI for a malformed event ID.
-	auditEventInvalidURI = "tack:audit-event/invalid"
 )
 
 // auditManifestPartsInput stores the flag values that the audit event records as safe input.
@@ -54,8 +50,8 @@ type auditManifestPartEntry struct {
 func (r auditManifestPartsResult) AuditReadTargets() ([]audit.Target, error) {
 	targets := make([]audit.Target, 0, len(r.Parts))
 	for _, part := range r.Parts {
-		uri := auditEventURI(r.EventID) + auditEventPartURISegment + strconv.FormatUint(uint64(part.Index), 10)
-		targets = append(targets, auditResourceTarget(uri))
+		uri := audit.EventURIPrefix + r.EventID.String() + auditEventPartURISegment + strconv.FormatUint(uint64(part.Index), 10)
+		targets = append(targets, audit.ResourceTarget(uri))
 	}
 	return targets, nil
 }
@@ -69,20 +65,7 @@ type auditManifestVerificationResult struct {
 }
 
 func (r auditManifestVerificationResult) AuditReadTargets() ([]audit.Target, error) {
-	return []audit.Target{auditResourceTarget(auditEventURI(r.EventID))}, nil
-}
-
-// auditEventURI returns the resource URI for an audited event.
-func auditEventURI(eventID uuid.UUID) string {
-	return auditEventURIPrefix + eventID.String()
-}
-
-// auditResourceTarget returns a resource target for a URI.
-func auditResourceTarget(uri string) audit.Target {
-	return audit.Target{
-		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: "", URI: uri,
-		RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
-	}
+	return []audit.Target{audit.EventTarget(r.EventID)}, nil
 }
 
 // auditManifestPartsOp declares the command in the ops audit group.

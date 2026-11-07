@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/clispec"
 )
@@ -47,7 +46,7 @@ func verifyNodeOp(f *cli.Factory) clispec.Operation[verifyNodeInput] {
 	return clispec.Operation[verifyNodeInput]{
 		Name:     clispec.Name{Canonical: "node", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsVerifyNode), Reads: true},
+		Audit:    verifyNodeSpec(),
 		Group:    verifyGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -151,7 +150,7 @@ func validateNodeOp(f *cli.Factory) clispec.Operation[validateNodeInput] {
 	return clispec.Operation[validateNodeInput]{
 		Name:     clispec.Name{Canonical: "node", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsValidateNode), Reads: true},
+		Audit:    validateNodeSpec(),
 		Group:    validateGroup,
 		Aliases:  nil,
 		Hidden:   false,

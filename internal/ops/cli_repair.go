@@ -30,7 +30,7 @@ func repairClassesOp(f *cli.Factory) clispec.Operation[noInput] {
 	return clispec.Operation[noInput]{
 		Name:     clispec.Name{Canonical: "classes", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsRepairClasses), Reads: true},
+		Audit:    singletonReadSpec(audit.VerbOpsRepairClasses, "repair/classes"),
 		Group:    repairGroup,
 		Aliases:  nil,
 		Hidden:   false,
@@ -66,7 +66,7 @@ func repairPreviewOp(f *cli.Factory) clispec.Operation[repairPreviewInput] {
 	return clispec.Operation[repairPreviewInput]{
 		Name:     clispec.Name{Canonical: "preview", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsRepairPreview), Reads: true},
+		Audit:    repairPreviewSpec(),
 		Group:    repairGroup,
 		Aliases:  nil,
 		Hidden:   false,

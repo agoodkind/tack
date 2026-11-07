@@ -17,12 +17,12 @@ import (
 
 type auditLastChangeInput struct {
 	clispec.InputMarker `exhaustruct:"optional"`
-	Org                 string
-	EntityID            string
-	Oldest              string
-	Latest              string
-	Path                string
-	Cursor              string
+	Org                 string `json:"org"`
+	EntityID            string `json:"entity_id"`
+	Oldest              string `json:"oldest"`
+	Latest              string `json:"latest"`
+	Path                string `json:"path"`
+	Cursor              string `json:"cursor,omitempty"`
 }
 
 // auditLastChangeResult is the `audit last-change` output for one node.
@@ -54,7 +54,7 @@ func auditLastChangeOp(f *cli.Factory) clispec.Operation[auditLastChangeInput] {
 	return clispec.Operation[auditLastChangeInput]{
 		Name:     clispec.Name{Canonical: "last-change", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbAuditRead), Reads: true},
+		Audit:    auditLastChangeSpec(),
 		Group:    auditGroup,
 		Aliases:  nil,
 		Hidden:   false,

@@ -69,7 +69,7 @@ func authTokenListOp(f *cli.Factory) clispec.Operation[authTokenListInput] {
 	return clispec.Operation[authTokenListInput]{
 		Name:     clispec.Name{Canonical: "token-list", CLIOverride: ""},
 		Lifetime: clispec.Permanent,
-		Audit:    audit.Spec{Verb: string(audit.VerbOpsAuthTokenList), Reads: true},
+		Audit:    singletonReadSpec(audit.VerbOpsAuthTokenList, "auth/token-list"),
 		Group:    authOpsGroup,
 		Aliases:  nil,
 		Hidden:   false,
