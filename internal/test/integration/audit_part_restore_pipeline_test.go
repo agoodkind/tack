@@ -88,7 +88,11 @@ func storeOnePartRead(t *testing.T, ledger *nodeAuditLedger, org uuid.UUID, targ
 
 func startPartRestorePipeline(t *testing.T) *partRestorePipeline {
 	t.Helper()
-	ledger := startNodeAuditLedger(t)
+	return newPartRestorePipeline(t, startNodeAuditLedger(t))
+}
+
+func newPartRestorePipeline(t *testing.T, ledger *nodeAuditLedger) *partRestorePipeline {
+	t.Helper()
 	org := uuid.Must(uuid.NewV7())
 	targets := partRestoreTargets()
 	targetID := storeOnePartRead(t, ledger, org, targets)

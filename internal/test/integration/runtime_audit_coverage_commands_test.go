@@ -103,4 +103,5 @@ func addCommandCases(cases map[string]coverageCase) {
 	addLedgerCommandCases(cases)
 	addStoreCommandCases(cases)
 	addRepairBackfillCases(cases)
+	addPartRestoreCoverageCases(cases)
 }
