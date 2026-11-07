@@ -22,7 +22,9 @@ func AttachRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func(
 	})
 }
 
-// AttachRawRead placeholder.
+// AttachRawRead works like AttachRead. After the final read event commits, it
+// writes the returned payload bytes unchanged to the command output without the
+// trace header or JSON envelope.
 func AttachRawRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func() (json.RawMessage, error), read OperatorRead) {
 	attachRead(cmd, f, spec, input, read, func(ctx context.Context, payload []byte) error {
 		if _, err := cmd.OutOrStdout().Write(payload); err != nil {
