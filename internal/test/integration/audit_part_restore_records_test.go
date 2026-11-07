@@ -12,8 +12,6 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-const partRestoreCommandURI = "tack:command/" + string(audit.VerbOpsBackfillRestoreManifestPart)
-
 func (p *partRestorePipeline) partCount(t *testing.T) int {
 	t.Helper()
 	parts, err := p.ledger.reader.ManifestPartDigests(t.Context(), p.org, p.target)
@@ -73,8 +71,8 @@ func (p *partRestorePipeline) requireOperationRecords(t *testing.T, operations i
 	intent, result = intents[0], results[0]
 	for _, row := range []audit.Row{intent, result} {
 		if row.Context.OperationClass != audit.OperationExternal || row.Context.AuditFormatVersion != audit.AuditFormatComplete ||
-			row.ActorID != p.operatorID || row.Context.Target == nil || row.Context.Target.URI != partRestoreCommandURI ||
-			row.Context.Target.Kind != audit.TargetKindResource {
+			row.ActorID != p.operatorID || row.Context.Target == nil || row.Context.Target.URI != p.partURI() ||
+			row.Context.Target.Kind != audit.TargetKindResource || row.Context.Target.NodeType != audit.TargetAuditEventPart {
 			t.Fatalf("operation row %s = class %q, actor %s, target %+v", row.EventID, row.Context.OperationClass, row.ActorID, row.Context.Target)
 		}
 	}
@@ -94,13 +92,14 @@ func (p *partRestorePipeline) requireSafeInput(t *testing.T, intent audit.Row) {
 		Input struct {
 			Manifest       string `json:"manifest"`
 			ManifestSHA256 string `json:"manifest_sha256"`
+			TargetEventID  string `json:"target_event_id"`
 		} `json:"input"`
 	}
 	if err := json.Unmarshal(intent.Extra, &extra); err != nil {
 		t.Fatalf("decode the intent extra %s: %v", intent.Extra, err)
 	}
-	if extra.Input.Manifest != p.manifestPath || extra.Input.ManifestSHA256 != p.fileDigest {
-		t.Fatalf("intent input = %+v, want the manifest path %s and digest %s", extra.Input, p.manifestPath, p.fileDigest)
+	if extra.Input.Manifest != p.manifestPath || extra.Input.ManifestSHA256 != p.fileDigest || extra.Input.TargetEventID != p.target.String() {
+		t.Fatalf("intent input = %+v, want the manifest path %s, digest %s, and target %s", extra.Input, p.manifestPath, p.fileDigest, p.target)
 	}
 }
 

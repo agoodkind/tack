@@ -145,10 +145,10 @@ func (p *partRestorePipeline) writeManifestFile(t *testing.T, content []byte) (s
 
 func (p *partRestorePipeline) run(t *testing.T, execute bool) partRestoreRun {
 	t.Helper()
-	return p.runManifest(t, execute, p.manifestPath, p.fileDigest)
+	return p.runManifest(t, execute, p.manifestPath, p.fileDigest, p.target.String())
 }
 
-func (p *partRestorePipeline) runManifest(t *testing.T, execute bool, manifestPath, manifestDigest string) partRestoreRun {
+func (p *partRestorePipeline) runManifest(t *testing.T, execute bool, manifestPath, manifestDigest, targetFlag string) partRestoreRun {
 	t.Helper()
 	cfg := *p.ledger.cfg
 	cfg.RepairDir, cfg.AuditOperatorDSN = p.repairDir, p.operatorDSN
@@ -162,6 +162,7 @@ func (p *partRestorePipeline) runManifest(t *testing.T, execute bool, manifestPa
 	arguments := []string{
 		"--output", "json", "--operator-id", p.operatorID.String(), "--operator-email", "part-restore@example.test",
 		"ops", "audit", "backfill", "once-restore-manifest-part", "--manifest", manifestPath, "--manifest-sha256", manifestDigest,
+		"--target-event-id", targetFlag,
 	}
 	if execute {
 		arguments = append([]string{"--execute"}, arguments...)

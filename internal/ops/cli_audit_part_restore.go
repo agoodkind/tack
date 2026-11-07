@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"goodkind.io/tack/internal/audit"
@@ -11,11 +12,10 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-const auditPartRestoreCommandURI = "tack:command/" + string(audit.VerbOpsBackfillRestoreManifestPart)
-
 type auditPartRestoreFlags struct {
 	Manifest       string `json:"manifest"`
 	ManifestSHA256 string `json:"manifest_sha256"`
+	TargetEventID  string `json:"target_event_id"`
 }
 
 func (auditPartRestoreFlags) isCommandInput() {}
@@ -23,15 +23,27 @@ func (auditPartRestoreFlags) isCommandInput() {}
 func auditPartRestoreSpec() audit.Spec {
 	return audit.Spec{
 		Verb: string(audit.VerbOpsBackfillRestoreManifestPart), Mutates: true, Class: audit.OperationExternal,
-		Targets: func(context.Context, json.RawMessage) ([]audit.Target, error) {
-			return []audit.Target{auditResourceTarget(auditPartRestoreCommandURI)}, nil
+		Targets: func(ctx context.Context, input json.RawMessage) ([]audit.Target, error) {
+			var decoded auditPartRestoreFlags
+			if err := json.Unmarshal(input, &decoded); err != nil {
+				return nil, partRestoreFailure(ctx, "decode part restore input", err)
+			}
+			return []audit.Target{auditPartRestoreOperationTarget(decoded.TargetEventID)}, nil
 		},
 		SafeInput: func(input json.RawMessage) (json.RawMessage, error) { return input, nil },
 	}
 }
 
+func auditPartRestoreOperationTarget(targetFlag string) audit.Target {
+	targetID, err := uuid.Parse(targetFlag)
+	if err != nil {
+		return auditResourceTarget(auditEventInvalidURI)
+	}
+	return auditPartTarget(targetID, 0)
+}
+
 func auditPartRestoreCobra(f *cli.Factory) *cobra.Command {
-	flags := auditPartRestoreFlags{Manifest: "", ManifestSHA256: ""}
+	flags := auditPartRestoreFlags{Manifest: "", ManifestSHA256: "", TargetEventID: ""}
 	cmd := &cobra.Command{
 		Use:   "restore-manifest-part",
 		Short: "Restore a missing audit event read manifest part from a verified source event",
@@ -44,8 +56,10 @@ func auditPartRestoreCobra(f *cli.Factory) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&flags.Manifest, "manifest", "", "Set --manifest to the absolute path of the frozen manifest file inside TACK_REPAIR_DIR.")
 	cmd.Flags().StringVar(&flags.ManifestSHA256, "manifest-sha256", "", "Set --manifest-sha256 to the SHA-256 of the manifest file.")
+	cmd.Flags().StringVar(&flags.TargetEventID, "target-event-id", "", "Set --target-event-id to the ID of the audit event that is missing the manifest part the command restores.")
 	_ = cmd.MarkFlagRequired("manifest")
 	_ = cmd.MarkFlagRequired("manifest-sha256")
+	_ = cmd.MarkFlagRequired("target-event-id")
 	var request *auditPartRestoreRequest
 	cmd.PreRunE = func(*cobra.Command, []string) error {
 		request = nil
@@ -55,9 +69,16 @@ func auditPartRestoreCobra(f *cli.Factory) *cobra.Command {
 		if request != nil {
 			return *request, nil
 		}
+		targetID, err := uuid.Parse(flags.TargetEventID)
+		if err != nil {
+			return auditPartRestoreRequest{}, manifestRefused(ctx, "--target-event-id is not a UUID")
+		}
 		manifest, fileDigest, err := readAuditPartRestoreManifest(ctx, f.Cfg.RepairDir, flags.Manifest, flags.ManifestSHA256)
 		if err != nil {
 			return auditPartRestoreRequest{}, err
+		}
+		if manifest.TargetEventID != targetID {
+			return auditPartRestoreRequest{}, manifestRefused(ctx, "manifest target_event_id differs from --target-event-id")
 		}
 		request = &auditPartRestoreRequest{manifest: manifest, fileDigest: fileDigest}
 		return *request, nil
