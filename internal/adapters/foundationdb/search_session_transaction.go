@@ -83,6 +83,7 @@ func transactSession(ctx context.Context, db fdb.Database, source clock.Clock, o
 		return sessionFailure(ctx, operation, sessionID, err)
 	}
 	defer transaction.Cancel()
+	defer forgetSession(transaction)
 	attempts := newSessionAttempts(source)
 	uncertain := false
 	for {
@@ -100,11 +101,12 @@ func transactSession(ctx context.Context, db fdb.Database, source clock.Clock, o
 		if err := transaction.Options().SetTimeout(max(int64(timeout/time.Millisecond), 1)); err != nil {
 			return sessionFailure(ctx, operation, sessionID, markCommitUncertain(err, uncertain), attempts.attributes()...)
 		}
-		err := apply(transaction)
+		err := applySession(transaction, apply)
 		if err == nil {
 			err = transaction.Commit().Get()
 			uncertain = uncertain || commitMayHaveApplied(err)
 		}
+		reportSession(transaction, operation, sessionID, err)
 		if err == nil {
 			return nil
 		}

@@ -103,6 +103,7 @@ type searchRecordValue interface {
 // readSearchRecord decodes the JSON record at key. It reports false when the
 // key is absent.
 func readSearchRecord[Record searchRecordValue](ctx context.Context, tr fdb.Transaction, key []byte, record *Record) (bool, error) {
+	countSessionRead(tr)
 	encoded, err := tr.Get(fdb.Key(key)).Get()
 	if err != nil {
 		return false, searchReadFailure(ctx, "read search record", err)

@@ -1,9 +1,7 @@
 package foundationdb
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -43,6 +41,10 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 	defer telemetry.FDBOp(ctx, "store.search_session.create")(&err)
 	if session.ID == uuid.Nil || session.Version != 0 || len(session.Snapshot.QueryTokens) == 0 || session.Snapshot.PITID == "" {
 		return searchdomain.Session{}, sessionFailure(ctx, "create search session", session.ID, errors.New("session identity, snapshot, and tokens are required"))
+	}
+	if len(session.Snapshot.QueryTokens) > maxSessionTokenBytes {
+		return searchdomain.Session{}, sessionFailure(ctx, "create search session", session.ID, fmt.Errorf("query tokens contain %d bytes, above the %d-byte bound: %w",
+			len(session.Snapshot.QueryTokens), maxSessionTokenBytes, searchdomain.ErrInvalidQuery))
 	}
 	record := sessionRecordFor(session)
 	changes, err := beginSessionAudit(ctx, "create search session", session.ID)
@@ -98,9 +100,9 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 func (s *SearchSessionStore) Load(ctx context.Context, sessionID uuid.UUID) (loaded searchdomain.Session, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.load")(&err)
 	var record searchSessionRecord
-	var tokens bytes.Buffer
+	var tokens []byte
 	err = transactSession(ctx, s.db, s.clock, "load search session", sessionID, func(tr fdb.Transaction) error {
-		tokens.Reset()
+		tokens = nil
 		found, readErr := readSessionValue(tr, searchSessionKey(sessionID), &record)
 		if readErr != nil {
 			return readErr
@@ -119,26 +121,14 @@ func (s *SearchSessionStore) Load(ctx context.Context, sessionID uuid.UUID) (loa
 		if rangeErr != nil {
 			return sessionStepError{operation: "read query tokens", err: rangeErr}
 		}
-		if len(chunks) != record.TokenChunks {
-			return fmt.Errorf("session has %d token chunks, want %d", len(chunks), record.TokenChunks)
-		}
-		for _, chunk := range chunks {
-			tokens.Write(chunk.Value)
-		}
-		return nil
+		var assembleErr error
+		tokens, assembleErr = assembleSessionTokens(record, chunks)
+		return assembleErr
 	})
 	if err != nil {
 		return searchdomain.Session{}, err
 	}
-	var queryTokens json.RawMessage
-	if !record.Closing {
-		if tokens.Len() != record.TokenBytes {
-			return searchdomain.Session{}, sessionFailure(ctx, "load search session", sessionID,
-				fmt.Errorf("query tokens contain %d bytes, want %d", tokens.Len(), record.TokenBytes))
-		}
-		queryTokens = tokens.Bytes()
-	}
-	session, err := record.session(queryTokens)
+	session, err := record.session(tokens)
 	if err != nil {
 		return searchdomain.Session{}, sessionFailure(ctx, "decode search session", sessionID, err)
 	}
