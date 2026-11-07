@@ -95,7 +95,7 @@ func startEngine(ctx context.Context, cli *client.Client, spec engineSpec) (engi
 			Cmd:         spec.cmd,
 			Env:         spec.env,
 			Healthcheck: spec.healthcheck,
-			Labels:      ownerLabels(owner),
+			Labels:      isolationLabels(ownerLabels(owner)),
 		},
 		HostConfig:       hostConfig,
 		NetworkingConfig: networking,

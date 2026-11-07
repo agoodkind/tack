@@ -49,6 +49,48 @@ services:
     working_dir: ${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
     profiles: ["runner"]
 
+  # The PostgreSQL provider overlay tests run here. This image builds the
+  # patched provider and installs OpenTofu, which the normal runner does not.
+  # `make test-postgresql-overlay` runs it.
+  # The tests run OpenTofu in this container through the Docker SDK.
+  pgoverlay-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.pgoverlay-test
+    volumes:
+      - .:${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
+      - /var/run/docker.sock:/var/run/docker.sock
+      - pgoverlay-go-cache:/root/.cache/go-build
+      - pgoverlay-go-mod:/go/pkg/mod
+      - /tmp/tack-test
+    environment:
+      TMPDIR: /tmp/tack-test
+      # The engines of the run join the project network below, which Compose
+      # creates for this project and removes with `down`.
+      TACK_PG_OVERLAY_NETWORK: ${COMPOSE_PROJECT_NAME:?run this service through make test-postgresql-overlay}_pgoverlay
+      TACK_PG_OVERLAY_PROJECT: ${COMPOSE_PROJECT_NAME}
+    networks:
+      - pgoverlay
+    working_dir: ${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
+    profiles: ["pgoverlay-runner"]
+
+networks:
+  # IPv4 only, like the shared testenv network: the engine images need an IPv4
+  # address, and the daemon's default network options can leave it out.
+  pgoverlay:
+    enable_ipv4: true
+    enable_ipv6: false
+
 volumes:
   tack-test-go-cache:
   tack-test-go-mod:
+  # Each overlay test run uses its own Compose project, and these caches
+  # outlive every run. They are external, so Compose neither labels them with a
+  # project nor warns about a project mismatch, and `down` never removes them.
+  # `make test-postgresql-overlay` creates them when they are missing.
+  pgoverlay-go-cache:
+    name: tack-pgoverlay-go-cache
+    external: true
+  pgoverlay-go-mod:
+    name: tack-pgoverlay-go-mod
+    external: true

@@ -22,8 +22,14 @@ const maxCopiedFileSize = 1 << 16
 // execInContainer runs command inside a running container through the Docker
 // SDK and returns its combined output and exit code.
 func execInContainer(ctx context.Context, cli *client.Client, containerName string, command []string) (string, int, error) {
+	return execInContainerWithEnv(ctx, cli, containerName, command, nil)
+}
+
+// execInContainerWithEnv runs command like execInContainer with the KEY=VALUE
+// entries of environment added to the command's environment.
+func execInContainerWithEnv(ctx context.Context, cli *client.Client, containerName string, command, environment []string) (string, int, error) {
 	created, err := cli.ExecCreate(ctx, containerName, client.ExecCreateOptions{
-		Cmd: command, AttachStdout: true, AttachStderr: true,
+		Cmd: command, Env: environment, AttachStdout: true, AttachStderr: true,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.exec.create_failed", slog.String("err", err.Error()))

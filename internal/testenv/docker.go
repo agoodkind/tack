@@ -53,6 +53,9 @@ func pingDocker(ctx context.Context) (string, error) {
 
 // ensureNetwork creates the engines' bridge network unless it exists.
 func ensureNetwork(ctx context.Context, cli *client.Client) error {
+	if isolated() {
+		return requireIsolatedNetwork(ctx, cli)
+	}
 	_, err := cli.NetworkInspect(ctx, networkName, client.NetworkInspectOptions{Scope: "", Verbose: false})
 	if err == nil {
 		return nil
@@ -82,7 +85,7 @@ func ensureNetwork(ctx context.Context, cli *client.Client) error {
 // joinNetworkWhenContainerized attaches the container this process runs in to
 // the engines' network, so engine addresses on that network are reachable.
 func joinNetworkWhenContainerized(ctx context.Context, cli *client.Client) error {
-	_, err := joinWhenContainerized(ctx, cli, networkName)
+	_, err := joinWhenContainerized(ctx, cli, activeNetwork())
 	return err
 }
 
@@ -149,7 +152,7 @@ func addressOn(inspected container.InspectResponse, target string) (string, erro
 
 // containerAddress returns a container's IP address on the engines' network.
 func containerAddress(ctx context.Context, cli *client.Client, containerName string) (string, error) {
-	return containerAddressOn(ctx, cli, containerName, networkName)
+	return containerAddressOn(ctx, cli, containerName, activeNetwork())
 }
 
 // containerAddressOn returns a container's IP address on target. For a

@@ -1,0 +1,67 @@
+diff --git a/postgresql/resource_postgresql_role.go b/postgresql/resource_postgresql_role.go
+index 38bfb9e..390d86a 100644
+--- a/postgresql/resource_postgresql_role.go
++++ b/postgresql/resource_postgresql_role.go
+@@ -47,7 +47,7 @@ func resourcePostgreSQLRole() *schema.Resource {
+ 	return &schema.Resource{
+ 		Create: PGResourceFunc(resourcePostgreSQLRoleCreate),
+ 		Read:   PGResourceFunc(resourcePostgreSQLRoleRead),
+-		Update: PGResourceFunc(resourcePostgreSQLRoleUpdate),
++		Update: resourcePostgreSQLRoleUpdateWithPartialState,
+ 		Delete: PGResourceFunc(resourcePostgreSQLRoleDelete),
+ 		Exists: PGResourceExistsFunc(resourcePostgreSQLRoleExists),
+ 		Importer: &schema.ResourceImporter{
+@@ -296,7 +296,7 @@ func resourcePostgreSQLRoleCreate(db *DBConnection, d *schema.ResourceData) erro
+ 					createOpts = append(createOpts, "UNENCRYPTED")
+ 				}
+ 				createOpts = append(createOpts,
+-					fmt.Sprintf("%s '%s'", opt.sqlKey, pqQuoteLiteral(val)))
++					fmt.Sprintf("%s %s", opt.sqlKey, pq.QuoteLiteral(val)))
+ 			}
+ 
+ 		case roleValidUntilAttr:
+@@ -668,7 +668,21 @@ func readRolePassword(db *DBConnection, d *schema.ResourceData, roleCanLogin boo
+ 	return rolePassword, nil
+ }
+ 
++func resourcePostgreSQLRoleUpdateWithPartialState(d *schema.ResourceData, meta any) error {
++	d.Partial(true)
++
++	return PGResourceFunc(resourcePostgreSQLRoleUpdate)(d, meta)
++}
++
+ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) error {
++	priorID := d.Id()
++	committed := false
++	defer func() {
++		if !committed {
++			d.SetId(priorID)
++		}
++	}()
++
+ 	txn, err := startTransaction(db.client, "")
+ 	if err != nil {
+ 		return err
+@@ -753,6 +767,12 @@ func resourcePostgreSQLRoleUpdate(db *DBConnection, d *schema.ResourceData) erro
+ 		return fmt.Errorf("could not commit transaction: %w", err)
+ 	}
+ 
++	committed = true
++	if err := resourcePostgreSQLRoleReadImpl(db, d); err != nil {
++		return err
++	}
++	d.Partial(false)
++	return nil
++
+-	return resourcePostgreSQLRoleReadImpl(db, d)
+ }
+ 
+@@ -805,7 +825,7 @@ func setRolePassword(txn *sql.Tx, d *schema.ResourceData) error {
+ 		return nil
+ 	}
+ 
+-	sql := fmt.Sprintf("ALTER ROLE %s PASSWORD '%s'", pq.QuoteIdentifier(roleName), pqQuoteLiteral(password))
++	sql := fmt.Sprintf("ALTER ROLE %s PASSWORD %s", pq.QuoteIdentifier(roleName), pq.QuoteLiteral(password))
+ 	if _, err := txn.Exec(sql); err != nil {
+ 		return fmt.Errorf("error updating role password: %w", err)
+ 	}
