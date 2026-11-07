@@ -67,6 +67,9 @@ func readAuditPartRestoreManifest(ctx context.Context, repairDir, path, wantDige
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx,
 			fmt.Sprintf("manifest file digest %s does not equal --manifest-sha256 %s", fileDigest, wantDigest))
 	}
+	if err := requireManifestMembers(ctx, content); err != nil {
+		return AuditPartRestoreManifest{}, "", err
+	}
 	var manifest AuditPartRestoreManifest
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
@@ -81,6 +84,26 @@ func readAuditPartRestoreManifest(ctx context.Context, repairDir, path, wantDige
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
 	return manifest, fileDigest, nil
+}
+
+var auditPartRestoreRequiredMembers = []string{
+	"schema_version", "ticket", "org_id", "target_event_id", "source_event_id", "part_index", "manifest_sha256",
+	"part_digest", "declared_parts", "identity_count", "target_seq", "target_shard", "target_hash_version",
+	"target_row_hash", "source_seq", "source_shard", "source_row_hash",
+}
+
+func requireManifestMembers(ctx context.Context, content []byte) error {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(content, &members); err != nil {
+		return manifestRefused(ctx, "decode members: "+err.Error())
+	}
+	for _, name := range auditPartRestoreRequiredMembers {
+		raw, found := members[name]
+		if !found || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return manifestRefused(ctx, "member "+name+" is missing or null")
+		}
+	}
+	return nil
 }
 
 func (m AuditPartRestoreManifest) validate() error {
@@ -99,6 +122,10 @@ func (m AuditPartRestoreManifest) validate() error {
 		return errors.New("manifest_sha256 must be 64 lowercase hex digits and equal part_digest")
 	case m.DeclaredParts != 1 || m.IdentityCount == 0:
 		return errors.New("declared_parts must be 1 and identity_count must be positive")
+	case m.TargetSeq <= 0 || m.SourceSeq <= 0:
+		return errors.New("target_seq and source_seq must be greater than 0")
+	case m.TargetHashVersion <= 0:
+		return errors.New("target_hash_version must be greater than 0")
 	case len(m.TargetRowHash) == 0 || len(m.SourceRowHash) == 0:
 		return errors.New("target_row_hash and source_row_hash must be set")
 	case m.TargetShard < 0 || m.TargetShard >= auditPartRestoreShardCount || m.SourceShard < 0 || m.SourceShard >= auditPartRestoreShardCount:

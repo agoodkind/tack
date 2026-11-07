@@ -3,6 +3,8 @@ package ops
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -58,6 +60,21 @@ func inspectAuditPartRestore(ctx context.Context, reader *audit.Reader, m AuditP
 		return auditPartRestoreState{}, refusePartRestore(ctx, fmt.Sprintf("event %s stores %d parts that differ from the frozen part", m.TargetEventID, len(digests)))
 	}
 	return auditPartRestoreState{Target: target, Present: true}, nil
+}
+
+func readSourcePartPayload(ctx context.Context, reader *audit.Reader, m AuditPartRestoreManifest) ([]byte, error) {
+	parts, err := reader.ManifestParts(ctx, m.OrgID, m.SourceEventID)
+	if err != nil {
+		return nil, partRestoreFailure(ctx, "read the source part of event "+m.SourceEventID.String(), err)
+	}
+	if len(parts) != 1 || parts[0].Index != 0 {
+		return nil, refusePartRestore(ctx, fmt.Sprintf("source event %s stores %d parts, want part 0 only", m.SourceEventID, len(parts)))
+	}
+	digest := sha256.Sum256(parts[0].Payload)
+	if hex.EncodeToString(digest[:]) != m.ManifestSHA256 {
+		return nil, refusePartRestore(ctx, fmt.Sprintf("source event %s part 0 does not hash to the frozen root", m.SourceEventID))
+	}
+	return parts[0].Payload, nil
 }
 
 func checkVerification(m AuditPartRestoreManifest, verification audit.ManifestVerification) error {

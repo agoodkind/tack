@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -21,10 +22,11 @@ var auditPartRestoreStatement string
 var auditPartRestoreNamespace = uuid.NewSHA1(uuid.NameSpaceURL, []byte("tack:audit-part-restore"))
 
 type auditPartRecord struct {
-	OrgID     uuid.UUID `json:"org_id"`
-	EventID   uuid.UUID `json:"event_id"`
-	PartIndex int64     `json:"part_index"`
-	Digest    string    `json:"digest"`
+	OrgID     uuid.UUID                `json:"org_id"`
+	EventID   uuid.UUID                `json:"event_id"`
+	PartIndex int64                    `json:"part_index"`
+	Digest    string                   `json:"digest"`
+	Payload   audit.ProtectedReference `json:"payload"`
 }
 
 type auditPartProvenance struct {
@@ -36,6 +38,7 @@ func auditPartTarget(eventID uuid.UUID, partIndex int64) audit.Target {
 	uri := auditEventURI(eventID) + auditEventPartURISegment + strconv.FormatInt(partIndex, 10)
 	target := auditResourceTarget(uri)
 	target.NodeType = audit.TargetAuditEventPart
+	target.ID = eventID
 	return target
 }
 
@@ -43,7 +46,7 @@ func auditPartChangeEventID(manifestFileDigest string, m AuditPartRestoreManifes
 	return uuid.NewSHA1(auditPartRestoreNamespace, []byte(manifestFileDigest+"/"+auditPartTarget(m.TargetEventID, m.PartIndex).URI))
 }
 
-func buildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manifestFileDigest string) (audit.EncodedEvent, error) {
+func buildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manifestFileDigest string, payload []byte) (audit.EncodedEvent, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "read the operation of the part restore", err)
@@ -54,15 +57,26 @@ func buildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manif
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "encode the part provenance", err)
 	}
 	operation.Extra = provenance
-	record := auditPartRecord{OrgID: m.OrgID, EventID: m.TargetEventID, PartIndex: m.PartIndex, Digest: m.PartDigest}
+	changeID := auditPartChangeEventID(manifestFileDigest, m)
+	target := auditPartTarget(m.TargetEventID, m.PartIndex)
+	payloadValue, err := json.Marshal(base64.StdEncoding.EncodeToString(payload))
+	if err != nil {
+		return audit.EncodedEvent{}, partRestoreFailure(ctx, "encode the restored part payload", err)
+	}
+	payloadRef := uuid.NewSHA1(auditPartRestoreNamespace, []byte(changeID.String()+"/payload"))
+	record := auditPartRecord{
+		OrgID: m.OrgID, EventID: m.TargetEventID, PartIndex: m.PartIndex, Digest: m.PartDigest,
+		Payload: audit.ProtectedReference{PIIRef: payloadRef},
+	}
 	after, err := json.Marshal(record)
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "encode the restored part record", err)
 	}
-	change, err := audit.NewChange(auditPartChangeEventID(manifestFileDigest, m), auditPartTarget(m.TargetEventID, m.PartIndex), nil, after)
+	change, err := audit.NewChange(changeID, target, nil, after)
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "build the part change", err)
 	}
+	change.Protected = []audit.ProtectedValue{{Ref: payloadRef, SubjectID: target.ID, Value: payloadValue}}
 	event, err := audit.ChangeEvent(operation, change, clock.Now())
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "build the part change event", err)

@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -182,7 +183,52 @@ func (p *partRestorePipeline) requireChangeRecord(t *testing.T, intent audit.Row
 	if err := json.Unmarshal(change.Extra, &provenance); err != nil || provenance.SourceEventID != p.source.String() || provenance.ManifestFileSHA256 != p.fileDigest {
 		t.Fatalf("change provenance = %s, error %v, want source %s and manifest digest %s", change.Extra, err, p.source, p.fileDigest)
 	}
+	p.requireProtectedPayload(t, change)
 	return change
+}
+
+func (p *partRestorePipeline) requireProtectedPayload(t *testing.T, change audit.Row) {
+	t.Helper()
+	var after struct {
+		Payload struct {
+			PIIRef uuid.UUID `json:"pii_ref"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(change.Delta.After, &after); err != nil || after.Payload.PIIRef == uuid.Nil {
+		t.Fatalf("change After = %s, error %v, want a payload pii_ref", change.Delta.After, err)
+	}
+	var stored []byte
+	var subjectID, orgID uuid.UUID
+	if err := p.ledger.admin.QueryRow(t.Context(), readTestSQL(t, "part_restore_protected_payload.sql"), after.Payload.PIIRef).Scan(&stored, &subjectID, &orgID); err != nil {
+		t.Fatalf("read the protected payload %s: %v", after.Payload.PIIRef, err)
+	}
+	var encoded string
+	if err := json.Unmarshal(stored, &encoded); err != nil {
+		t.Fatalf("decode the protected payload value: %v", err)
+	}
+	reconstructed, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode the base64 payload: %v", err)
+	}
+	parts, err := p.ledger.reader.ManifestParts(t.Context(), p.org, p.target)
+	if err != nil || len(parts) != 1 {
+		t.Fatalf("read the restored part: %d parts, %v", len(parts), err)
+	}
+	if !bytes.Equal(reconstructed, parts[0].Payload) || subjectID != p.target || orgID != p.org {
+		t.Fatalf("protected payload: %d bytes equal %v, subject %s, org %s, want the stored part of %s in org %s",
+			len(reconstructed), bytes.Equal(reconstructed, parts[0].Payload), subjectID, orgID, p.target, p.org)
+	}
+}
+
+func (p *partRestorePipeline) requireNoPayloadText(t *testing.T, text string) {
+	t.Helper()
+	parts, err := p.ledger.reader.ManifestParts(t.Context(), p.org, p.target)
+	if err != nil || len(parts) != 1 {
+		t.Fatalf("read the restored part: %d parts, %v", len(parts), err)
+	}
+	if strings.Contains(text, string(parts[0].Payload)) || strings.Contains(text, base64.StdEncoding.EncodeToString(parts[0].Payload)) {
+		t.Fatal("text contains payload bytes")
+	}
 }
 
 func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
@@ -232,7 +278,9 @@ func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
 	}
 
 	requestID, traceID := integration.CommandCorrelation(t, run.stdout)
+	pipeline.requireNoPayloadText(t, run.stdout+run.stderr)
 	intent, result := pipeline.requireOperationRecords(t, 1)
+	pipeline.requireNoPayloadText(t, string(intent.Extra)+string(result.Extra))
 	change := pipeline.requireChangeRecord(t, intent, 1)
 	requireRowsCorrelation(t, requestID, traceID, intent, result, change)
 

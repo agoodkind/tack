@@ -130,7 +130,14 @@ func restoreAuditPart(
 	ctx context.Context, f *cli.Factory, reader *audit.Reader, m AuditPartRestoreManifest, fileDigest string,
 	state auditPartRestoreState, steps audit.StepRecorder,
 ) (audit.OutcomeDetails, error) {
-	encoded, err := buildAuditPartChange(ctx, m, fileDigest)
+	payload, err := readSourcePartPayload(ctx, reader, m)
+	if errors.Is(err, errAuditPartRestoreRefused) {
+		return commandOutcome(audit.OutcomeRefused, auditPartRefusedCode, err), err
+	}
+	if err != nil {
+		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
+	}
+	encoded, err := buildAuditPartChange(ctx, m, fileDigest, payload)
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
