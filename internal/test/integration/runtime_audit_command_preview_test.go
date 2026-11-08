@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"goodkind.io/tack/internal/audit"
 	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/internal/response"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -78,13 +76,5 @@ func printedPayload(t *testing.T, printed []byte) []byte {
 	if start < 0 {
 		t.Fatalf("the dry run did not print a JSON document:\n%s", printed)
 	}
-	var document response.JSONDocument
-	if err := json.Unmarshal(printed[start:], &document); err != nil {
-		t.Fatalf("decoding the dry run document %q failed: %v", printed, err)
-	}
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, document.Result); err != nil {
-		t.Fatalf("compacting the dry run result %s failed: %v", document.Result, err)
-	}
-	return compact.Bytes()
+	return bytes.Clone(printed[start:])
 }

@@ -1,32 +1,28 @@
 package integration_test
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"goodkind.io/tack/internal/audit"
 )
 
-func requireVerdictReadRow(t *testing.T, row audit.Row, want readRowTarget, result json.RawMessage, itemURIs []string, messagePart string) {
+func requireVerdictReadRow(t *testing.T, row audit.Row, want readRowTarget, printed printedOutput, itemURIs []string, messagePart string) {
 	t.Helper()
 	requireReadRowShape(t, row, audit.OutcomeFailed, want)
-	requireReadEvidence(t, row, result, itemURIs)
+	requireReadEvidence(t, row, printed, itemURIs)
 	if row.Error == nil || row.Error.Code != "check_failed" || !strings.Contains(row.Error.Message, messagePart) {
 		t.Fatalf("row %s error %+v, want check_failed containing %q", row.EventID, row.Error, messagePart)
 	}
 }
 
-func requireReadEvidence(t *testing.T, row audit.Row, result json.RawMessage, itemURIs []string) {
+type printedOutput []byte
+
+func requireReadEvidence(t *testing.T, row audit.Row, printed printedOutput, itemURIs []string) {
 	t.Helper()
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, result); err != nil {
-		t.Fatalf("compact the command result: %v", err)
-	}
-	fingerprint := sha256.Sum256(compact.Bytes())
+	fingerprint := sha256.Sum256(printed)
 	manifestDigest, manifestParts := expectedManifestEvidence(t, itemURIs)
 	read := row.Context.Read
 	if read == nil || read.PayloadSHA256 != hex.EncodeToString(fingerprint[:]) || read.PayloadFormat != readLifecycleJSONFormat ||

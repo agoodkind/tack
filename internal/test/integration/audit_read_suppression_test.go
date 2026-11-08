@@ -76,7 +76,7 @@ func TestAuditSignersRecordsTheVerdictAfterTheReport(t *testing.T) {
 	}
 	output := decodeReadLifecycleOutput(t, run)
 	requireVerdictReadRow(t, awaitReadLifecycleRow(t, ledger, operatorID, audit.VerbAuditSignersVerified),
-		referenceTarget(readSuppressionNotarizationRef), output.Result, nil, "audit signers")
+		referenceTarget(readSuppressionNotarizationRef), output.Printed, nil, "audit signers")
 }
 
 func TestAttachReadWritesTheReportOfAVerdictAfterTheFinalEvent(t *testing.T) {

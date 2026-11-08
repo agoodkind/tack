@@ -42,7 +42,7 @@ func TestAuditVerifyRecordsTheVerdictAfterTheReport(t *testing.T) {
 		}
 		output := decodeReadLifecycleOutput(t, run)
 		requireCompletedReadRow(t, awaitReadLifecycleRow(t, ledger, operatorID, audit.VerbAuditVerify),
-			referenceTarget(readVerdictBundleRef), output.Result, nil)
+			referenceTarget(readVerdictBundleRef), output.Printed, nil)
 	})
 
 	t.Run("a failed check prints the report and keeps the exit code", func(t *testing.T) {
@@ -58,7 +58,7 @@ func TestAuditVerifyRecordsTheVerdictAfterTheReport(t *testing.T) {
 		}
 		output := decodeReadLifecycleOutput(t, run)
 		requireVerdictReadRow(t, awaitReadLifecycleRow(t, ledger, operatorID, audit.VerbAuditVerify),
-			referenceTarget(readVerdictBundleRef), output.Result, nil, "audit verify")
+			referenceTarget(readVerdictBundleRef), output.Printed, nil, "audit verify")
 	})
 
 	t.Run("a finalization failure suppresses the report", func(t *testing.T) {

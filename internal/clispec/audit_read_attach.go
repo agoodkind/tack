@@ -17,8 +17,23 @@ import (
 // --execute, RunE validates the target and operator and prints the dry-run
 // preamble without calling read.
 func AttachRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func() (json.RawMessage, error), read OperatorRead) {
-	attachRead(cmd, f, spec, input, read, func(ctx context.Context, payload []byte) error {
-		return NewCLISink(f).WriteText(ctx, string(payload))
+	rendered := func(ctx context.Context) (audit.OperatorReadOutput, error) {
+		output, readErr := read(ctx)
+		if readErr != nil && !audit.IsReadVerdict(readErr) {
+			return output, readErr
+		}
+		captured := &captureSink{writes: nil}
+		if err := captured.WriteText(ctx, string(output.Payload)); err != nil {
+			return audit.OperatorReadOutput{}, err
+		}
+		textOutput, renderErr := captured.rendered(ctx, f, output.Targets)
+		if renderErr != nil {
+			return audit.OperatorReadOutput{}, renderErr
+		}
+		return textOutput, readErr
+	}
+	attachRead(cmd, f, spec, input, rendered, func(ctx context.Context, payload []byte) error {
+		return writeRendered(ctx, f, payload)
 	})
 }
 

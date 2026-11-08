@@ -94,8 +94,8 @@ func requireSearchSettings(t *testing.T, cfg *config.Config, want searchSettings
 	}
 	defer pool.Close()
 	operatorID := uuid.Must(uuid.NewV7())
-	raw := runSearchSettingsCommand(t, cfg, pool, operatorID)
-	requireSearchSettingsAudit(t, pool, operatorID, raw)
+	raw, printed := runSearchSettingsCommand(t, cfg, pool, operatorID)
+	requireSearchSettingsAudit(t, pool, operatorID, printed)
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatalf("decode ops search settings fields %s: %v", raw, err)
@@ -133,12 +133,8 @@ func requireSearchSettingsAudit(t *testing.T, pool *pgxpool.Pool, operatorID uui
 		event.Context.OperationClass != audit.OperationRead || event.Context.CompletedAt.IsZero() {
 		t.Fatalf("ops search settings did not finalize a completed read: %+v", event)
 	}
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, payload); err != nil {
-		t.Fatalf("compact settings payload: %v", err)
-	}
 	if evidence := event.Context.Read; evidence == nil || evidence.Count != 1 ||
-		evidence.PayloadSHA256 != payloadDigest(compact.Bytes()) || evidence.PayloadFormat != "application/json" {
+		evidence.PayloadSHA256 != payloadDigest(payload) || evidence.PayloadFormat != "application/json" {
 		t.Fatalf("ops search settings read evidence = %+v, want the exact settings digest and one resource", evidence)
 	}
 	if operationID := decodeCommandExtra(t, event).OpID; operationID == uuid.Nil {
@@ -157,7 +153,7 @@ const searchSettingsOperatorEmail = "operator@example.com"
 // runSearchSettingsCommand runs ops search settings as operatorID through the
 // rendered Cobra tree with the real SQL outbox on pool and returns the result
 // payload.
-func runSearchSettingsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, operatorID uuid.UUID) json.RawMessage {
+func runSearchSettingsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, operatorID uuid.UUID) (json.RawMessage, []byte) {
 	t.Helper()
 	factory := cli.System(cfg)
 	var output bytes.Buffer
@@ -179,5 +175,5 @@ func runSearchSettingsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Po
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatalf("decode ops search settings output %q: %v", output.String(), err)
 	}
-	return document.Result
+	return document.Result, bytes.Clone(output.Bytes())
 }

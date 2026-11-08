@@ -18,7 +18,8 @@ const (
 )
 
 type readLifecycleOutput struct {
-	Result json.RawMessage `json:"result"`
+	Result  json.RawMessage `json:"result"`
+	Printed printedOutput   `json:"-"`
 }
 
 type readLifecycleQueryResult struct {
@@ -51,7 +52,7 @@ func TestAuditQueryAndGetRecordReadLifecycle(t *testing.T) {
 		t.Fatalf("audit get result = %+v with error %v, want event %s\n%s", got, err, storedEvent, getRun.output())
 	}
 	requireCompletedReadRow(t, awaitReadLifecycleRow(t, ledger, getOperator, audit.VerbAuditRead),
-		uriTarget(audit.EventURIPrefix+storedEvent.String()), getOutput.Result, []string{audit.EventURIPrefix + storedEvent.String()})
+		uriTarget(audit.EventURIPrefix+storedEvent.String()), getOutput.Printed, []string{audit.EventURIPrefix + storedEvent.String()})
 
 	queryArgs := append([]string{"audit", "query", "--org", orgID.String()}, window...)
 	queryOperator, queryRun := runReadLifecycleCommand(t, ledger, queryArgs...)
@@ -75,7 +76,7 @@ func TestAuditQueryAndGetRecordReadLifecycle(t *testing.T) {
 		t.Fatalf("audit query returned %d rows %v, want the stored event %s\n%s", queried.RowCount, returned, storedEvent, queryRun.output())
 	}
 	requireCompletedReadRow(t, awaitReadLifecycleRow(t, ledger, queryOperator, audit.VerbAuditRead),
-		uriTarget(audit.AuditOrgURIPrefix+orgID.String()), queryOutput.Result, returned)
+		uriTarget(audit.AuditOrgURIPrefix+orgID.String()), queryOutput.Printed, returned)
 
 	missingEvent := uuid.Must(uuid.NewV7())
 	missingOperator, missingRun := runReadLifecycleCommand(t, ledger, "audit", "get", "--event-id", missingEvent.String())
@@ -108,6 +109,7 @@ func decodeReadLifecycleOutput(t *testing.T, run builtAuditRun) readLifecycleOut
 	if err := json.Unmarshal([]byte(run.stdout), &output); err != nil {
 		t.Fatalf("decode the command output: %v\n%s", err, run.output())
 	}
+	output.Printed = printedOutput(run.stdout)
 	return output
 }
 
@@ -160,10 +162,10 @@ func requireReadRowShape(t *testing.T, row audit.Row, outcome audit.Outcome, wan
 	}
 }
 
-func requireCompletedReadRow(t *testing.T, row audit.Row, want readRowTarget, result json.RawMessage, itemURIs []string) {
+func requireCompletedReadRow(t *testing.T, row audit.Row, want readRowTarget, printed printedOutput, itemURIs []string) {
 	t.Helper()
 	requireReadRowShape(t, row, audit.OutcomeCompleted, want)
-	requireReadEvidence(t, row, result, itemURIs)
+	requireReadEvidence(t, row, printed, itemURIs)
 }
 
 func requireFailedReadRun(t *testing.T, run builtAuditRun) {

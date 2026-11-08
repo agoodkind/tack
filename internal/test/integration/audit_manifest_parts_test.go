@@ -175,11 +175,7 @@ func requireManifestRead(t *testing.T, ledger *nodeAuditLedger, options manifest
 		report.PartCount != len(want) || report.Parts == nil || !slices.Equal(report.Parts, want) {
 		t.Fatalf("result = %+v, want event %s of org %s with parts %+v", report, eventID, orgID, want)
 	}
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, envelope.Result); err != nil {
-		t.Fatalf("compact the command result: %v\n%s", err, run.stdout)
-	}
-	digest := sha256.Sum256(compact.Bytes())
+	digest := sha256.Sum256([]byte(run.stdout))
 	return manifestReadRun{
 		orgInput: orgID.String(), eventInput: eventID.String(), targetURI: "tack:audit-event/" + eventID.String(),
 		outcome: audit.OutcomeCompleted, errorCode: "", messageContains: "", forbidden: nil,

@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -32,12 +31,8 @@ func TestOperatorReadCommandsRecordReadLifecycle(t *testing.T) {
 		if classes.err != nil {
 			t.Fatalf("ops repair classes failed: %+v", classes)
 		}
-		var output readLifecycleOutput
-		if err := json.Unmarshal([]byte(classes.stdout), &output); err != nil {
-			t.Fatalf("decode the ops repair classes output: %v\n%s", err, classes.stdout)
-		}
 		requireCompletedReadRow(t, awaitReadLifecycleRow(t, ledger, operator.operatorID, audit.VerbOpsRepairClasses),
-			referenceTarget(readCommandsClassesRef), output.Result, nil)
+			referenceTarget(readCommandsClassesRef), printedOutput(classes.stdout), nil)
 	})
 
 	t.Run("ops backup without a subcommand", func(t *testing.T) {
@@ -62,7 +57,7 @@ func TestOperatorReadCommandsRecordReadLifecycle(t *testing.T) {
 		}
 		output := decodeReadLifecycleOutput(t, run)
 		requireCompletedReadRow(t, awaitReadLifecycleRow(t, ledger, operatorID, audit.VerbAuditRead),
-			uriTarget(audit.NodeURIPrefix+entityID.String()), output.Result, nil)
+			uriTarget(audit.NodeURIPrefix+entityID.String()), output.Printed, nil)
 	})
 
 	t.Run("audit last-change with a malformed entity", func(t *testing.T) {

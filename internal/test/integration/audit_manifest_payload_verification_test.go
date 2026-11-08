@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -49,11 +48,7 @@ func TestAuditManifestPayloadVerification(t *testing.T) {
 			t.Fatal("verification output contains a manifest payload")
 		}
 	}
-	var compact bytes.Buffer
-	if err := json.Compact(&compact, envelope.Result); err != nil {
-		t.Fatalf("compact command result: %v", err)
-	}
-	digest := sha256.Sum256(compact.Bytes())
+	digest := sha256.Sum256([]byte(run.stdout))
 	requireStoredAuditReads(t, ledger, operator.operatorID, []manifestReadRun{{
 		orgInput: orgID.String(), eventInput: eventID.String(), targetURI: "tack:audit-event/" + eventID.String(),
 		outcome: audit.OutcomeCompleted, errorCode: "", messageContains: "", forbidden: nil,
