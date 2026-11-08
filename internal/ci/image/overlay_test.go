@@ -164,7 +164,7 @@ func TestOverlayDriftCheckAgainstRegistryImages(t *testing.T) {
 			decoy := []v1.Layer{imagetest.Layer(t, regular(fdbPath, decoyText), regular(ybPath, decoyText))}
 
 			pushPlatforms(t, host+"/foundationdb/foundationdb:1.2.3", test.fdb(t), decoy)
-			pushPlatforms(t, host+"/yugabytedb/yugabyte:test", test.yb(t), decoy)
+			pushPlatforms(t, host+"/"+pinnedYugabyteImage, test.yb(t), decoy)
 
 			root := writeRepository(t)
 			if test.edit != nil {

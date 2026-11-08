@@ -22,6 +22,8 @@ const (
 	validPatch   = "--- x.upstream\n+++ x\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"
 	fdbPath      = "var/fdb/scripts/fdb.bash"
 	ybPath       = "home/yugabyte/bin/yugabyted"
+
+	pinnedYugabyteImage = "yugabytedb/yugabyte:2024.2.8.0-b85"
 )
 
 func regular(name, content string) imagetest.Entry {
@@ -63,8 +65,8 @@ func writeFile(t *testing.T, path, content string) {
 	writeTestFile(t, path, content)
 }
 
-// writeRepository writes the Makefile, Compose file, and vendored files
-// that the check reads.
+// writeRepository writes the Makefile and vendored overlay files that the
+// check reads.
 func writeRepository(t *testing.T) string {
 	t.Helper()
 
@@ -73,11 +75,6 @@ func writeRepository(t *testing.T) string {
 	recorded := hex.EncodeToString(sum[:]) + "\n"
 
 	writeFile(t, filepath.Join(root, "Makefile"), "FDB_VERSION ?= 1.2.3\n")
-	writeFile(
-		t,
-		filepath.Join(root, "docker-compose.yml"),
-		"x-yugabyte-image: &yugabyte_image yugabytedb/yugabyte:test\n",
-	)
 
 	for _, overlay := range []string{"fdb-overlay/fdb.bash", "yugabyte-overlay/yugabyted"} {
 		writeFile(t, filepath.Join(root, overlay), overlayText)

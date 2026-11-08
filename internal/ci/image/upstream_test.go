@@ -11,10 +11,7 @@ import (
 	"goodkind.io/tack/internal/ci/image/imagetest"
 )
 
-const (
-	pinnedCompose = "x-yugabyte-image: &yugabyte_image yugabytedb/yugabyte:2024.test\n"
-	imagePrinted  = "Upstream Yugabyte image is"
-)
+const imagePrinted = "Upstream Yugabyte image is"
 
 func upstreamYugabyteCommand(ctx context.Context) *exec.Cmd {
 	return exec.CommandContext(ctx, "./ci-image", "upstream-yugabyte")
@@ -32,13 +29,15 @@ func runUpstream(t *testing.T, directory string, environment ...string) (string,
 	return string(output), err
 }
 
-// TestUpstreamYugabyteAppendsResolvedImage checks that the command prints
-// the Compose image and appends it to the existing GitHub output file.
-func TestUpstreamYugabyteAppendsResolvedImage(t *testing.T) {
+// TestUpstreamYugabyteAppendsPinnedImage checks the output and append.
+//
+// The test runs upstream-yugabyte in a temporary directory without a
+// Compose file. It checks that the command prints the pinned image and
+// appends yugabyte_image=<image> to GITHUB_OUTPUT after existing content.
+func TestUpstreamYugabyteAppendsPinnedImage(t *testing.T) {
 	directory := t.TempDir()
 	outputFile := filepath.Join(directory, "github-output")
 
-	writeFile(t, filepath.Join(directory, "docker-compose.yml"), pinnedCompose)
 	writeFile(t, outputFile, "existing=value\n")
 
 	output, err := runUpstream(t, directory, "GITHUB_OUTPUT="+outputFile)
@@ -51,102 +50,55 @@ func TestUpstreamYugabyteAppendsResolvedImage(t *testing.T) {
 		t.Fatalf("read output file: %v", err)
 	}
 
-	if string(content) != "existing=value\nyugabyte_image=yugabytedb/yugabyte:2024.test\n" {
+	if string(content) != "existing=value\nyugabyte_image="+pinnedYugabyteImage+"\n" {
 		t.Fatalf("output file = %q", content)
 	}
 
-	if !strings.Contains(output, "yugabytedb/yugabyte:2024.test") {
+	if !strings.Contains(output, pinnedYugabyteImage) {
 		t.Fatalf("console output = %s", output)
 	}
 }
 
-type upstreamRefusal struct {
-	name         string
-	compose      string
-	writeCompose bool
-	setOutput    bool
-	wantCause    string
-}
+// TestUpstreamYugabyteRefusesMissingOutputWithoutAppending checks refusal
+// when the command environment omits GITHUB_OUTPUT.
+//
+// The test sets GITHUB_OUTPUT in the test process and omits it from the
+// command environment. It checks that the command fails with one
+// ci-image.failed event reporting the unset variable and does not print
+// the image. It also checks that the command creates neither the local
+// output file nor the file identified by the test process variable.
+func TestUpstreamYugabyteRefusesMissingOutputWithoutAppending(t *testing.T) {
+	directory := t.TempDir()
+	outputFile := filepath.Join(directory, "github-output")
+	parentOutput := filepath.Join(t.TempDir(), "parent-github-output")
 
-func upstreamRefusals() []upstreamRefusal {
-	return []upstreamRefusal{
-		{
-			name:         "unset output file",
-			compose:      pinnedCompose,
-			writeCompose: true,
-			setOutput:    false,
-			wantCause:    "GITHUB_OUTPUT: required environment variable is unset",
-		},
-		{
-			name:         "image outside the pinned repository",
-			compose:      "x-yugabyte-image: &yugabyte_image other/image:1\n",
-			writeCompose: true,
-			setOutput:    true,
-			wantCause:    "invalid or missing x-yugabyte-image value in docker-compose.yml",
-		},
-		{
-			name:         "malformed Compose file",
-			compose:      "x-yugabyte-image: [unclosed\n",
-			writeCompose: true,
-			setOutput:    true,
-			wantCause:    "parse Compose file docker-compose.yml",
-		},
-		{
-			name:         "missing Compose file",
-			compose:      "",
-			writeCompose: false,
-			setOutput:    true,
-			wantCause:    "no such file or directory",
-		},
+	t.Setenv("GITHUB_OUTPUT", parentOutput)
+
+	output, err := runUpstream(t, directory)
+	if err == nil {
+		t.Fatalf("expected failure, output = %s", output)
 	}
-}
 
-// TestUpstreamYugabyteRefusesBadInputWithoutAppending checks that invalid
-// input fails without printing the image or creating an output file.
-func TestUpstreamYugabyteRefusesBadInputWithoutAppending(t *testing.T) {
-	for _, test := range upstreamRefusals() {
-		t.Run(test.name, func(t *testing.T) {
-			directory := t.TempDir()
-			outputFile := filepath.Join(directory, "github-output")
-			parentOutput := filepath.Join(t.TempDir(), "parent-github-output")
+	if strings.Count(output, "ci-image.failed") != 1 {
+		t.Fatalf("expected one ci-image.failed boundary event, output = %s", output)
+	}
 
-			t.Setenv("GITHUB_OUTPUT", parentOutput)
+	wantCause := "GITHUB_OUTPUT: required environment variable is unset"
+	if !strings.Contains(output, wantCause) {
+		t.Fatalf("output does not contain the cause %q: %s", wantCause, output)
+	}
 
-			if test.writeCompose {
-				writeFile(t, filepath.Join(directory, "docker-compose.yml"), test.compose)
-			}
+	if strings.Contains(output, imagePrinted) {
+		t.Fatalf("command printed the image after a refusal: %s", output)
+	}
 
-			var environment []string
-			if test.setOutput {
-				environment = append(environment, "GITHUB_OUTPUT="+outputFile)
-			}
+	_, statErr := os.Stat(outputFile)
+	if !os.IsNotExist(statErr) {
+		t.Fatalf("output file exists after a refused command: %v", statErr)
+	}
 
-			output, err := runUpstream(t, directory, environment...)
-			if err == nil {
-				t.Fatalf("expected failure, output = %s", output)
-			}
-
-			if strings.Count(output, "ci-image.failed") != 1 {
-				t.Fatalf("expected one ci-image.failed boundary event, output = %s", output)
-			}
-
-			if !strings.Contains(output, test.wantCause) {
-				t.Fatalf("output does not contain the cause %q: %s", test.wantCause, output)
-			}
-
-			if strings.Contains(output, imagePrinted) {
-				t.Fatalf("command printed the image after a refusal: %s", output)
-			}
-
-			_, statErr := os.Stat(outputFile)
-			if !os.IsNotExist(statErr) {
-				t.Fatalf("output file exists after a refused command: %v", statErr)
-			}
-
-			_, statErr = os.Stat(parentOutput)
-			if !os.IsNotExist(statErr) {
-				t.Fatalf("inherited GITHUB_OUTPUT file exists after a refused command: %v", statErr)
-			}
-		})
+	_, statErr = os.Stat(parentOutput)
+	if !os.IsNotExist(statErr) {
+		t.Fatalf("inherited GITHUB_OUTPUT file exists after a refused command: %v", statErr)
 	}
 }
