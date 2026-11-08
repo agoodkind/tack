@@ -5,6 +5,7 @@ package compose
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -40,6 +41,8 @@ func YugabyteImage(path string) (string, error) {
 
 	err = yaml.Unmarshal(content, &parsed)
 	if err != nil {
+		slog.Error("compose.parse_failed", slog.String("path", path), slog.Any("error", err))
+
 		return "", fmt.Errorf("parse Compose file %s: %w", path, err)
 	}
 

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	"goodkind.io/tack/internal/ci/image/compose"
@@ -39,6 +40,12 @@ func entries() ([]entry, error) {
 
 	yugabyteImage, err := compose.YugabyteImage(composePath)
 	if err != nil {
+		slog.Error(
+			"overlay.compose_image_failed",
+			slog.String("path", composePath),
+			slog.Any("error", err),
+		)
+
 		return nil, fmt.Errorf("read pinned Yugabyte image from %s: %w", composePath, err)
 	}
 
