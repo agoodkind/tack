@@ -135,10 +135,10 @@ func checkEntry(ctx context.Context, registry string, item entry) ([]string, err
 		return problems, nil
 	}
 
-	upstream, err := upstreamFile(ctx, registry, item)
+	upstreamContent, err := upstreamFile(ctx, registry, item)
 	if err != nil {
 		return nil, &extractError{item: item, err: err}
 	}
 
-	return verify(item, upstream)
+	return verify(item, upstreamContent)
 }
