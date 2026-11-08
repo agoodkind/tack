@@ -41,22 +41,61 @@ func TestUpstreamYugabyteAppendsResolvedImage(t *testing.T) {
 }
 
 func TestUpstreamYugabyteRefusesBadInputWithoutAppending(t *testing.T) {
-	directory := t.TempDir()
-	writeFile(t, filepath.Join(directory, "docker-compose.yml"), "x-yugabyte-image: &yugabyte_image other/image:1\n")
-	outputFile := filepath.Join(directory, "github-output")
-	for name, environment := range map[string][]string{
-		"unset output file":  {},
-		"unpinned Compose":   {"GITHUB_OUTPUT=" + outputFile},
-		"unreadable Compose": {"GITHUB_OUTPUT=" + outputFile},
+	for _, test := range []struct {
+		name         string
+		compose      string
+		writeCompose bool
+		setOutput    bool
+		wantCause    string
+	}{
+		{
+			name:         "unset output file",
+			compose:      "x-yugabyte-image: &yugabyte_image yugabytedb/yugabyte:2024.test\n",
+			writeCompose: true,
+			wantCause:    "GITHUB_OUTPUT: required environment variable is unset",
+		},
+		{
+			name:         "image outside the pinned repository",
+			compose:      "x-yugabyte-image: &yugabyte_image other/image:1\n",
+			writeCompose: true,
+			setOutput:    true,
+			wantCause:    "invalid or missing x-yugabyte-image value in docker-compose.yml",
+		},
+		{
+			name:         "malformed Compose file",
+			compose:      "x-yugabyte-image: [unclosed\n",
+			writeCompose: true,
+			setOutput:    true,
+			wantCause:    "parse Compose file docker-compose.yml",
+		},
+		{
+			name:      "missing Compose file",
+			setOutput: true,
+			wantCause: "no such file or directory",
+		},
 	} {
-		t.Run(name, func(t *testing.T) {
-			target := directory
-			if name == "unreadable Compose" {
-				target = t.TempDir()
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			if test.writeCompose {
+				writeFile(t, filepath.Join(directory, "docker-compose.yml"), test.compose)
 			}
-			output, err := runUpstream(t, target, environment...)
-			if err == nil || strings.Count(output, "ci-image.failed") != 1 {
-				t.Fatalf("expected one failure, err = %v, output = %s", err, output)
+			outputFile := filepath.Join(directory, "github-output")
+			var environment []string
+			if test.setOutput {
+				environment = append(environment, "GITHUB_OUTPUT="+outputFile)
+			}
+			output, err := runUpstream(t, directory, environment...)
+			if err == nil {
+				t.Fatalf("expected failure, output = %s", output)
+			}
+			if strings.Count(output, "ci-image.failed") != 1 {
+				t.Fatalf("expected one ci-image.failed boundary event, output = %s", output)
+			}
+			if !strings.Contains(output, test.wantCause) {
+				t.Fatalf("output does not contain the cause %q: %s", test.wantCause, output)
+			}
+			if strings.Contains(output, "Upstream Yugabyte image is") {
+				t.Fatalf("command printed the image after a refusal: %s", output)
 			}
 			if _, statErr := os.Stat(outputFile); !os.IsNotExist(statErr) {
 				t.Fatalf("output file exists after a refused command: %v", statErr)
