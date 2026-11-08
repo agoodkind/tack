@@ -195,10 +195,10 @@ jobs:
       matrix:
         include:
           - group: features-a-through-m
-            description: Search features A through M
+            description: Search permissions, pagination, and concurrent updates
             timeout_minutes: 110
           - group: remaining-features
-            description: Other search feature tests
+            description: Search queries, indexing, relationships, and session cleanup
             timeout_minutes: 90
           - group: runtime-and-session-audit
             description: Search runtime and session audit recording
