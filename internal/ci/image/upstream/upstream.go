@@ -5,7 +5,6 @@ package upstream
 import (
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 
 	"goodkind.io/tack/internal/ci/image/compose"
@@ -35,12 +34,6 @@ func Write(stdout io.Writer) error {
 
 	image, err := compose.YugabyteImage(composeFile)
 	if err != nil {
-		slog.Error(
-			"upstream.compose_image_failed",
-			slog.String("path", composeFile),
-			slog.Any("error", err),
-		)
-
 		return fmt.Errorf("read pinned Yugabyte image from %s: %w", composeFile, err)
 	}
 
