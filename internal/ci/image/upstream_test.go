@@ -1,6 +1,7 @@
 package image_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,11 +16,14 @@ const (
 	imagePrinted  = "Upstream Yugabyte image is"
 )
 
+func upstreamYugabyteCommand(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "./ci-image", "upstream-yugabyte")
+}
+
 func runUpstream(t *testing.T, directory string, environment ...string) (string, error) {
 	t.Helper()
 
-	command := exec.CommandContext(t.Context(), imagetest.Path(), "upstream-yugabyte")
-	command.Dir = directory
+	command := imagetest.Prepare(t, directory, upstreamYugabyteCommand)
 	// A nil Env inherits the parent environment, including GITHUB_OUTPUT on CI.
 	// A non-nil Env uses the listed variables, even when the slice is empty.
 	command.Env = append([]string{}, environment...)

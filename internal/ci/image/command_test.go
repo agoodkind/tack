@@ -2,7 +2,6 @@ package image_test
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,10 +19,14 @@ func TestMain(m *testing.M) {
 	os.Exit(imagetest.RunTests(m))
 }
 
-func runWithArguments(t *testing.T, environment []string, arguments ...string) (string, error) {
+func runBuiltCommand(
+	t *testing.T,
+	environment []string,
+	build imagetest.Command,
+) (string, error) {
 	t.Helper()
 
-	command := exec.CommandContext(t.Context(), imagetest.Path(), arguments...)
+	command := imagetest.Prepare(t, t.TempDir(), build)
 	command.Env = environment
 	output, err := command.CombinedOutput()
 
@@ -33,15 +36,15 @@ func runWithArguments(t *testing.T, environment []string, arguments ...string) (
 // TestHelpSucceedsWithoutOperationEnvironment checks that help succeeds
 // without operation environment variables or a failure log.
 func TestHelpSucceedsWithoutOperationEnvironment(t *testing.T) {
-	for _, arguments := range [][]string{
-		{helpFlag},
-		{"digest", helpFlag},
-		{"tags", helpFlag},
-		{"verify-native-runner", helpFlag},
-		{"metadata", helpFlag},
+	for _, test := range []commandCase{
+		{helpFlag, rootHelpCommand},
+		{"digest " + helpFlag, digestHelpCommand},
+		{"tags " + helpFlag, tagsHelpCommand},
+		{"verify-native-runner " + helpFlag, verifyNativeRunnerHelpCommand},
+		{"metadata " + helpFlag, metadataHelpCommand},
 	} {
-		t.Run(strings.Join(arguments, " "), func(t *testing.T) {
-			output, err := runWithArguments(t, []string{}, arguments...)
+		t.Run(test.name, func(t *testing.T) {
+			output, err := runBuiltCommand(t, []string{}, test.build)
 			if err != nil {
 				t.Fatalf("err = %v, output = %s", err, output)
 			}
@@ -63,16 +66,13 @@ func TestInvalidArgumentsFailOnceWithoutWritingFiles(t *testing.T) {
 		"DIGEST_DIRECTORY=" + directory,
 	}
 
-	for _, test := range []struct {
-		name      string
-		arguments []string
-	}{
-		{"missing operation", nil},
-		{"unknown operation", []string{unknownOperation}},
-		{"extra argument", []string{"digest", "extra"}},
+	for _, test := range []commandCase{
+		{"missing operation", missingOperationCommand},
+		{"unknown operation", unknownOperationCommand},
+		{"extra argument", extraArgumentCommand},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			output, err := runWithArguments(t, environment, test.arguments...)
+			output, err := runBuiltCommand(t, environment, test.build)
 			if err == nil {
 				t.Fatalf("expected failure, output = %s", output)
 			}

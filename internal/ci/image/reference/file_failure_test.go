@@ -1,7 +1,6 @@
 package reference_test
 
 import (
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,17 +20,23 @@ func TestFileFailureReportsOnce(t *testing.T) {
 	tagList = append(tagList, "BRANCH_NAME="+mainBranch)
 
 	for _, test := range []struct {
-		name, operation, path, context string
-		environment                    []string
+		name, path, context string
+		newCommand          imagetest.Command
+		environment         []string
 	}{
 		{
-			"directory", "digest", blocked, "create digest directory",
+			"directory", blocked, "create digest directory",
+			digestCommand,
 			environmentList(digestEnvironment(amd64Architecture, digest, blocked)),
 		},
-		{"open", "tags", root, "open image file", tagList},
+		{
+			"open", root, "open image file",
+			tagsCommand,
+			tagList,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			command := exec.CommandContext(t.Context(), imagetest.Path(), test.operation)
+			command := imagetest.Prepare(t, t.TempDir(), test.newCommand)
 			command.Env = test.environment
 
 			output, err := command.CombinedOutput()

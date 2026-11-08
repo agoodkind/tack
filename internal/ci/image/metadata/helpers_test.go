@@ -1,6 +1,7 @@
 package metadata_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,10 +94,13 @@ func runMetadata(t *testing.T, directory string, environment map[string]string) 
 	return string(output), err
 }
 
+func metadataBuild(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "./ci-image", "metadata")
+}
+
 func metadataCommand(t *testing.T, directory string, environment map[string]string) *exec.Cmd {
 	t.Helper()
-	command := exec.CommandContext(t.Context(), imagetest.Path(), "metadata")
-	command.Dir = directory
+	command := imagetest.Prepare(t, directory, metadataBuild)
 	command.Env = []string{
 		"HOME=" + os.Getenv("HOME"),
 		"XDG_CONFIG_HOME=" + os.Getenv("XDG_CONFIG_HOME"),

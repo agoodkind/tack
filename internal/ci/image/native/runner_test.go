@@ -4,6 +4,7 @@ package native_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -24,6 +25,10 @@ const (
 // TestMain builds the image command once and runs the package tests against it.
 func TestMain(m *testing.M) {
 	os.Exit(imagetest.RunTests(m))
+}
+
+func verifyNativeRunnerCommand(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "./ci-image", "verify-native-runner")
 }
 
 func machineType(t *testing.T) string {
@@ -66,7 +71,7 @@ func TestVerifyNativeRunnerCommand(t *testing.T) {
 		{arm64Architecture, arm64Architecture, machine, matching == arm64Architecture},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			command := exec.CommandContext(t.Context(), imagetest.Path(), "verify-native-runner")
+			command := imagetest.Prepare(t, t.TempDir(), verifyNativeRunnerCommand)
 			command.Env = []string{}
 
 			if test.name != "missing" {
@@ -145,7 +150,7 @@ func TestVerifyNativeRunnerOutputFailure(t *testing.T) {
 func assertOutputFailure(t *testing.T, architecture string, output *os.File) {
 	t.Helper()
 
-	command := exec.CommandContext(t.Context(), imagetest.Path(), "verify-native-runner")
+	command := imagetest.Prepare(t, t.TempDir(), verifyNativeRunnerCommand)
 	command.Env = []string{"IMAGE_ARCH=" + architecture}
 	command.Stdout = output
 

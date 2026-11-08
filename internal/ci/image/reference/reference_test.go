@@ -2,7 +2,6 @@ package reference_test
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,7 +16,7 @@ func TestDigestCommand(t *testing.T) {
 		t.Run(architecture, func(t *testing.T) {
 			directory := filepath.Join(t.TempDir(), "new")
 
-			err := runCommand(t, "digest", digestEnvironment(architecture, valid, directory))
+			err := runCommand(t, digestCommand, digestEnvironment(architecture, valid, directory))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -42,14 +41,14 @@ func TestDigestCommand(t *testing.T) {
 				writeFile(t, directory, fileContent)
 			}
 
-			err := runCommand(t, "digest", digestEnvironment(test.architecture, test.digest, directory))
+			err := runCommand(t, digestCommand, digestEnvironment(test.architecture, test.digest, directory))
 			if err == nil {
 				t.Fatal("expected failure")
 			}
 		})
 	}
 
-	err := runCommand(t, "digest", map[string]string{})
+	err := runCommand(t, digestCommand, map[string]string{})
 	if err == nil {
 		t.Fatal("expected missing input failure")
 	}
@@ -89,7 +88,7 @@ func TestTagsCommand(t *testing.T) {
 				environment["BRANCH_NAME"] = test.branch
 			}
 
-			err := runCommand(t, "tags", environment)
+			err := runCommand(t, tagsCommand, environment)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -104,7 +103,7 @@ func TestTagsCommand(t *testing.T) {
 	environment := tagEnvironment(branchRefType, t.TempDir())
 	environment["BRANCH_NAME"] = mainBranch
 
-	err := runCommand(t, "tags", environment)
+	err := runCommand(t, tagsCommand, environment)
 	if err == nil {
 		t.Fatal("expected filesystem failure")
 	}
@@ -112,7 +111,7 @@ func TestTagsCommand(t *testing.T) {
 	environment["IMAGE_TAG_FILE"] = filepath.Join(t.TempDir(), "tags")
 	delete(environment, "BRANCH_NAME")
 
-	command := exec.CommandContext(t.Context(), imagetest.Path(), "tags")
+	command := imagetest.Prepare(t, t.TempDir(), tagsCommand)
 	command.Env = environmentList(environment)
 
 	output, err := command.CombinedOutput()
@@ -144,7 +143,7 @@ func TestDigestDirectoryWithSymlinkParent(t *testing.T) {
 
 	digest := "sha256:" + strings.Repeat("a", 64)
 
-	err = runCommand(t, "digest", digestEnvironment(amd64Architecture, digest, link+"/.."))
+	err = runCommand(t, digestCommand, digestEnvironment(amd64Architecture, digest, link+"/.."))
 	if err != nil {
 		t.Fatal(err)
 	}

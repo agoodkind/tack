@@ -1,6 +1,7 @@
 package reference_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,17 +35,25 @@ func environmentList(environment map[string]string) []string {
 	return list
 }
 
-func runCommand(t *testing.T, operation string, environment map[string]string) error {
+func digestCommand(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "./ci-image", "digest")
+}
+
+func tagsCommand(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "./ci-image", "tags")
+}
+
+func runCommand(t *testing.T, build imagetest.Command, environment map[string]string) error {
 	t.Helper()
 
-	command := exec.CommandContext(t.Context(), imagetest.Path(), operation)
+	command := imagetest.Prepare(t, t.TempDir(), build)
 	command.Env = environmentList(environment)
 
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Logf("command output: %s", output)
 
-		return fmt.Errorf("run %s: %w", operation, err)
+		return fmt.Errorf("run %s: %w", command.String(), err)
 	}
 
 	return nil

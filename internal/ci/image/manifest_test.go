@@ -18,7 +18,7 @@ import (
 func TestManifestPublishesEveryChildUnderEveryTag(t *testing.T) {
 	fixture := newManifestFixture(t)
 
-	output, err := runWithArguments(t, fixture.environment(), "manifest")
+	output, err := runBuiltCommand(t, fixture.environment(), manifestCommand)
 	if err != nil {
 		t.Fatalf("err = %v, output = %s", err, output)
 	}
@@ -104,7 +104,7 @@ func TestManifestRefusesBadInputBeforePublishing(t *testing.T) {
 			fixture := newManifestFixture(t)
 			environment := test.mutate(fixture, fixture.environment())
 
-			output, err := runWithArguments(t, environment, "manifest")
+			output, err := runBuiltCommand(t, environment, manifestCommand)
 			if err == nil {
 				t.Fatalf("expected failure, output = %s", output)
 			}

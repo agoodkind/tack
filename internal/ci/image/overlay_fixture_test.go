@@ -2,6 +2,7 @@ package image_test
 
 import (
 	"archive/tar"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -87,11 +88,14 @@ func writeRepository(t *testing.T) string {
 	return root
 }
 
+func overlayDriftCommand(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "./ci-image", "overlay-drift")
+}
+
 func runOverlayCheck(t *testing.T, root, host string) (string, error) {
 	t.Helper()
 
-	command := exec.CommandContext(t.Context(), imagetest.Path(), "overlay-drift")
-	command.Dir = root
+	command := imagetest.Prepare(t, root, overlayDriftCommand)
 	command.Env = []string{"UPSTREAM_REGISTRY=" + host}
 
 	output, err := command.CombinedOutput()
