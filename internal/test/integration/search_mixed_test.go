@@ -19,6 +19,7 @@ import (
 	"goodkind.io/tack/internal/ops"
 	appruntime "goodkind.io/tack/internal/runtime"
 	"goodkind.io/tack/internal/test/integration"
+	"goodkind.io/tack/internal/testenv"
 )
 
 type searchMixedOutput struct {
@@ -122,7 +123,7 @@ func TestSearchMixedWorkload(t *testing.T) {
 	requireSearchMixedSamples(t, output, envelope)
 	requireSearchMixedFoundationDB(t, output, envelope)
 	requireSearchMixedCorpusIndex(t, output, result.CorpusIndex)
-	requireSearchMixedReindexAudit(t, result.Rebuild.TargetIndex)
+	requireSearchMixedReindexAudit(t, result.Rebuild.TargetIndex, output)
 }
 
 func requireSearchMixedSamples(t *testing.T, output []byte, envelope searchMixedOutput) {
@@ -194,6 +195,6 @@ func runSearchMixedCommandAs(t *testing.T, cfg *config.Config, operatorID string
 	root.SetArgs(append([]string{
 		"--execute", "--output", "json", "--operator-id", operatorID, "--operator-email", "operator@example.com", "--operator-name", "Search Test", "ops", "qa", "datagen", "search-mixed",
 	}, flags...))
-	err = root.ExecuteContext(t.Context())
+	err = root.ExecuteContext(testenv.CommandContext(t))
 	return output.Bytes(), err
 }
