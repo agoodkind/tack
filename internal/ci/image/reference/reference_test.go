@@ -126,8 +126,8 @@ func TestTagsCommand(t *testing.T) {
 
 func TestDigestDirectoryWithSymlinkParent(t *testing.T) {
 	root := t.TempDir()
-	real := filepath.Join(root, "real")
-	child := filepath.Join(real, "child")
+	realDirectory := filepath.Join(root, "real")
+	child := filepath.Join(realDirectory, "child")
 
 	err := os.MkdirAll(child, 0o700)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestDigestDirectoryWithSymlinkParent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	content := readFile(t, filepath.Join(real, "amd64.digest"))
+	content := readFile(t, filepath.Join(realDirectory, "amd64.digest"))
 	if content != digest+"\n" {
 		t.Fatalf("digest = %q", content)
 	}
