@@ -37,11 +37,19 @@ func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 	cfg := newCohortEngines(t)
 	cfg.AuditReaderDSN = cfg.DatabaseURL
 	ledger := startPublicLedgerOn(t, &publicServer{clusterFile: cfg.FDBClusterFile}, startRuntimeAuditStack(t))
-	output, err := runDatagenSearchCommand(t, cfg, "--commit")
+	for _, format := range []string{cli.FormatJSON, cli.FormatText} {
+		t.Run(format, func(t *testing.T) { verifyDatagenSearchReportFormat(t, cfg, ledger, format) })
+	}
+}
+
+func verifyDatagenSearchReportFormat(t *testing.T, cfg *config.Config, ledger publicLedger, format string) {
+	t.Helper()
+	output, err := runDatagenSearchCommand(t, cfg, "--commit", "--output", format)
 	if err != nil {
 		t.Fatalf("execute ops qa datagen search: %v; output=%s", err, output)
 	}
-	requireDatagenSearchReportEvidence(t, ledger, output)
+	requireDatagenSearchReportEvidence(t, ledger, output, format)
+	document := printedDatagenDocument(t, output, format)
 	var envelope struct {
 		Result struct {
 			Verified     bool                        `json:"verified"`
@@ -54,7 +62,7 @@ func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 			} `json:"session_verbs"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal(output, &envelope); err != nil {
+	if err := json.Unmarshal(document.Result, &envelope.Result); err != nil {
 		t.Fatalf("decode ops qa datagen search result: %v; output=%s", err, output)
 	}
 	if !envelope.Result.Verified || envelope.Result.Search == nil {

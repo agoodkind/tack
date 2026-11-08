@@ -9,15 +9,11 @@ import (
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
-	"goodkind.io/tack/internal/response"
 )
 
-func requireDatagenSearchReportEvidence(t *testing.T, ledger publicLedger, output []byte) {
+func requireDatagenSearchReportEvidence(t *testing.T, ledger publicLedger, output []byte, format string) {
 	t.Helper()
-	var document response.JSONDocument
-	if err := json.Unmarshal(output, &document); err != nil {
-		t.Fatalf("decode the public search report: %v", err)
-	}
+	document := printedDatagenDocument(t, output, format)
 	var result struct {
 		SessionVerbs json.RawMessage `json:"session_verbs"`
 		Search       struct {
@@ -61,7 +57,7 @@ func requireDatagenSearchReportEvidence(t *testing.T, ledger publicLedger, outpu
 			row.Context.TraceID != document.Meta.TraceID || row.Context.RequestID != document.Meta.RequestID {
 			t.Fatalf("session report did not preserve its selection and initiating command: %+v, extra=%+v", row, extra)
 		}
-		payload := compactDatagenReport(t, result.SessionVerbs)
+		payload := result.SessionVerbs
 		requireReadRow(t, row, audit.VerbAuditRead, audit.OutcomeCompleted, "", payload)
 		targets := expectedDatagenVerbTargets(t, row, extra, payload)
 		digest, parts, err := audit.ReadManifestDigest(targets)

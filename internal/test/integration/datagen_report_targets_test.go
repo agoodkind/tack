@@ -112,6 +112,9 @@ func requireDatagenCommittedChanges(t *testing.T, fixture datagenReportFixture, 
 		t.Fatalf("open generated product records: %v", err)
 	}
 	for _, row := range rows {
+		if row.Context.Phase != audit.PhaseChange {
+			continue
+		}
 		if row.Context.OperationClass != audit.OperationDatabaseChange || row.Outcome != audit.OutcomeCompleted || row.Delta == nil {
 			t.Fatalf("committed mutation lost its actual outcome: %+v", row)
 		}

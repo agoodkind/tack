@@ -3,7 +3,6 @@ package ops
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/url"
 	"time"
@@ -17,6 +16,7 @@ import (
 
 type datagenReport interface {
 	datagenLedgerVerbsReport | datagenCommitOrderReport | auditConsumerOffsetsReport | datagenManifestVerificationReport
+	reportResult() (clispec.Result, string, error)
 }
 
 // datagenReportSelection stores safe inputs for report selection.
@@ -52,9 +52,9 @@ func recordDatagenReport[Report datagenReport](
 	_, err = clispec.RunAuditedRead(ctx, factory, spec, input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
 		value, targets, err := read(ctx)
 		if err != nil {
-			return audit.OperatorReadOutput{}, err
+			return audit.OperatorReadOutput{}, datagenReportFailure(ctx, selection.Report, err)
 		}
-		payload, err := json.Marshal(value)
+		payload, err := renderDatagenReport(ctx, factory, value)
 		if err != nil {
 			return audit.OperatorReadOutput{}, datagenReportFailure(ctx, selection.Report, err)
 		}
@@ -68,7 +68,7 @@ func recordDatagenReport[Report datagenReport](
 }
 
 func datagenReportFailure(ctx context.Context, report string, err error) error {
-	wrapped := fmt.Errorf("record generated data report %s: %w", report, err)
+	wrapped := datagenReportError{report: report, cause: err}
 	slog.ErrorContext(ctx, "qa.datagen.report_failed", slog.String("report", report), slog.String("err", wrapped.Error()))
 	return wrapped
 }

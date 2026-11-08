@@ -41,6 +41,7 @@ type datagenCommitOrderReport struct {
 func readDatagenCommitOrder(ctx context.Context, f *cli.Factory, scaleName string, seed int64, now time.Time) (datagenCommitOrderReport, error) {
 	scale, err := datagen.ParseScale(scaleName)
 	if err != nil {
+		slog.ErrorContext(ctx, "qa.datagen.commit_order_scale_failed", slog.String("err", err.Error()))
 		return datagenCommitOrderReport{}, fmt.Errorf("read the commit order: %w", err)
 	}
 	orgIDs := []uuid.UUID{}

@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	"goodkind.io/tack/internal/audit"
+	"goodkind.io/tack/internal/cli"
 	"goodkind.io/tack/internal/config"
-	"goodkind.io/tack/internal/response"
 	"goodkind.io/tack/internal/testenv"
 )
 
@@ -40,18 +40,22 @@ func newDatagenReportFixture(t *testing.T) datagenReportFixture {
 // evidence against its returned payload, aggregate identities, and selection.
 func TestDatagenReportAudit(t *testing.T) {
 	fixture := newDatagenReportFixture(t)
+	for _, format := range []string{cli.FormatJSON, cli.FormatText} {
+		t.Run(format, func(t *testing.T) { runDatagenReportAudit(t, fixture, format) })
+	}
+}
+
+func runDatagenReportAudit(t *testing.T, fixture datagenReportFixture, format string) {
+	t.Helper()
 	operatorID := uuid.Must(uuid.NewV7())
 	seed := time.Now().UnixNano()
 	root, output := searchReadCommand(t, fixture.config, fixture.pipeline.admin, operatorID,
-		"ops", "qa", "datagen", "seed", "--commit", "--seed", strconv.FormatInt(seed, 10))
+		"ops", "qa", "datagen", "seed", "--commit", "--seed", strconv.FormatInt(seed, 10), "--output", format)
 	ctx := testenv.CommandContext(t)
 	if err := root.ExecuteContext(ctx); err != nil {
 		t.Fatalf("run the seed report command: %v\n%s", err, output.String())
 	}
-	var document response.JSONDocument
-	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
-		t.Fatalf("decode the seed response: %v", err)
-	}
+	document := printedDatagenDocument(t, output.Bytes(), format)
 	var result map[string]json.RawMessage
 	if err := json.Unmarshal(document.Result, &result); err != nil {
 		t.Fatalf("decode the seed reports: %v", err)
@@ -64,7 +68,7 @@ func TestDatagenReportAudit(t *testing.T) {
 		"ops.qa.datagen.commit_order":          "commit_order",
 		"ops.qa.datagen.manifest_verification": "manifest_verification",
 	}
-	checked := 0
+	seen := map[string]bool{}
 	for _, row := range rows {
 		var extra datagenReportExtra
 		if err := json.Unmarshal(row.Extra, &extra); err != nil {
@@ -72,14 +76,22 @@ func TestDatagenReportAudit(t *testing.T) {
 		}
 		field, found := fields[extra.Input.Report]
 		if !found {
+			if extra.Input.Report != "" {
+				t.Fatalf("unexpected permanent report %s", extra.Input.Report)
+			}
 			continue
 		}
-		payload := compactDatagenReport(t, result[field])
+		if seen[extra.Input.Report] {
+			t.Fatalf("duplicate permanent report %s", extra.Input.Report)
+		}
+		payload := result[field]
 		requireDatagenReportEvidence(t, fixture, row, extra, payload, operatorID, parent, document.Meta, seed)
-		checked++
+		seen[extra.Input.Report] = true
 	}
-	if checked != len(fields) {
-		t.Fatalf("permanent report events = %d, want %d", checked, len(fields))
+	for report := range fields {
+		if !seen[report] {
+			t.Fatalf("the permanent ledger omitted report %s", report)
+		}
 	}
 	requireDatagenCommittedChanges(t, fixture, seed)
 }
@@ -112,17 +124,4 @@ func (fixture datagenReportFixture) operatorRows(t *testing.T, operatorID uuid.U
 func describeDatagenRows(rows []audit.Row) string {
 	encoded, _ := json.Marshal(rows)
 	return string(encoded)
-}
-
-func compactDatagenReport(t *testing.T, payload json.RawMessage) []byte {
-	t.Helper()
-	var value json.RawMessage
-	if err := json.Unmarshal(payload, &value); err != nil {
-		t.Fatalf("decode the printed report: %v", err)
-	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("encode the printed report: %v", err)
-	}
-	return encoded
 }
