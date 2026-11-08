@@ -1,0 +1,4 @@
+# staticcheck-extra: generated_at=2026-11-08T23:31:17Z
+internal/tackprovider/provider.go:46:1: doc_structure: add an introduction, explanation, and example or layout	# staticcheck-extra:first_added=2026-11-08T23:31:17Z last_seen=2026-11-08T23:31:17Z
+internal/tackprovider/schema_apply.go:146:1: doc_structure: add an introduction, explanation, and example or layout	# staticcheck-extra:first_added=2026-11-08T23:31:17Z last_seen=2026-11-08T23:31:17Z
+internal/tackprovider/schema_plan.go:14:1: doc_structure: add an introduction, explanation, and example or layout	# staticcheck-extra:first_added=2026-11-08T23:31:17Z last_seen=2026-11-08T23:31:17Z
