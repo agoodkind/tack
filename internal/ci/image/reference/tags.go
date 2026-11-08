@@ -18,6 +18,7 @@ type tagInputs struct {
 // among branch builds, only main includes latest.
 func WriteTags() error {
 	var input tagInputs
+
 	for _, item := range []struct {
 		key   string
 		value *string
@@ -33,29 +34,36 @@ func WriteTags() error {
 		if err != nil {
 			return &os.PathError{Op: "read image tag input", Path: item.key, Err: err}
 		}
+
 		*item.value = value
 	}
+
 	base := input.registry + "/" + input.owner + "/" + input.image
 	references := []string{base + ":" + input.shortCommit, base + ":" + input.commit}
+
 	if input.refType == "tag" {
 		name, err := environment.Required("GITHUB_REF_NAME")
 		if err != nil {
 			return &os.PathError{Op: "read image tag ref name", Path: "GITHUB_REF_NAME", Err: err}
 		}
+
 		references = append(references, base+":"+strings.ReplaceAll(name, "/", "-"), base+":latest")
 	} else {
 		name, err := environment.Required("BRANCH_NAME")
 		if err != nil {
 			return &os.PathError{Op: "read image tag branch name", Path: "BRANCH_NAME", Err: err}
 		}
+
 		references = append(references, base+":"+strings.ReplaceAll(name, "/", "-"))
 		if name == "main" {
 			references = append(references, base+":latest")
 		}
 	}
+
 	path, err := environment.Required("IMAGE_TAG_FILE")
 	if err != nil {
 		return &os.PathError{Op: "read image tag file", Path: "IMAGE_TAG_FILE", Err: err}
 	}
+
 	return writeFile(path, strings.Join(references, "\n")+"\n")
 }
