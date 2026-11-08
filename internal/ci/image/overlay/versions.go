@@ -8,10 +8,7 @@ import (
 	"regexp"
 )
 
-const (
-	makefilePath = "Makefile"
-	composePath  = "docker-compose.yml"
-)
+const makefilePath = "Makefile"
 
 var (
 	fdbVersionPattern = regexp.MustCompile(`(?m)^FDB_VERSION[ \t]*\?=[ \t]*(\S+)`)

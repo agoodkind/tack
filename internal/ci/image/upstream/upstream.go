@@ -5,24 +5,27 @@ package upstream
 import (
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 
-	"goodkind.io/tack/internal/ci/image/compose"
 	"goodkind.io/tack/internal/ci/image/environment"
 )
 
-const (
-	composeFile        = "docker-compose.yml"
-	outputFilePermBits = 0o666
-)
+// YugabyteImage is the pinned upstream Yugabyte image.
+//
+// The upstream-yugabyte command prints YugabyteImage, and the overlay drift
+// check reads it. docker-compose.yml declares the same image. Keep both
+// values equal when changing either one.
+//
+//	YugabyteImage = "yugabytedb/yugabyte:2024.2.8.0-b85"
+const YugabyteImage = "yugabytedb/yugabyte:2024.2.8.0-b85"
+
+const outputFilePermBits = 0o666
 
 // Write prints the pinned Yugabyte image and appends it to the workflow
 // output file.
 //
-// Write reads the image from docker-compose.yml and requires GITHUB_OUTPUT
-// to identify the output file. It appends the output only after the print
-// succeeds.
+// Write uses YugabyteImage and requires GITHUB_OUTPUT to identify the
+// output file. It appends the output only after the print succeeds.
 //
 // For the image yugabytedb/yugabyte:2024.2.8.0-b85, Write appends:
 //
@@ -33,18 +36,7 @@ func Write(stdout io.Writer) error {
 		return &os.PathError{Op: "read output environment variable", Path: "GITHUB_OUTPUT", Err: err}
 	}
 
-	image, err := compose.YugabyteImage(composeFile)
-	if err != nil {
-		slog.Error(
-			"upstream.compose_image_failed",
-			slog.String("path", composeFile),
-			slog.Any("error", err),
-		)
-
-		return fmt.Errorf("read pinned Yugabyte image from %s: %w", composeFile, err)
-	}
-
-	_, err = fmt.Fprintf(stdout, "Upstream Yugabyte image is %s\n", image)
+	_, err = fmt.Fprintf(stdout, "Upstream Yugabyte image is %s\n", YugabyteImage)
 	if err != nil {
 		return &os.PathError{Op: "write upstream image message", Path: "stdout", Err: err}
 	}
@@ -54,7 +46,7 @@ func Write(stdout io.Writer) error {
 		return &os.PathError{Op: "open upstream image output file", Path: outputPath, Err: err}
 	}
 
-	_, err = file.WriteString("yugabyte_image=" + image + "\n")
+	_, err = file.WriteString("yugabyte_image=" + YugabyteImage + "\n")
 	if err != nil {
 		writeErr := &os.PathError{Op: "write upstream image output file", Path: outputPath, Err: err}
 		_ = file.Close()

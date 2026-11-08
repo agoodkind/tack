@@ -1,14 +1,14 @@
 // Package overlay checks vendored container overlays against pinned
 // upstream images and patches.
 //
-// Each overlay replaces one file in a pinned upstream image (see
-// docker-compose.yml). The check reads the upstream file from the
-// linux/amd64 image, compares its sha256 with the recorded value, applies
-// the committed patch, and compares the result with the committed overlay.
-// The upstream hash replaces the upstream file itself because the upstream
-// yugabyted file is large and its default constants trip secret scanners
-// (TACK-302). The tags come from FDB_VERSION in the Makefile and the
-// x-yugabyte-image anchor in docker-compose.yml.
+// Each overlay replaces one file in a pinned upstream image. The check
+// reads the upstream file from the linux/amd64 image, compares its sha256
+// with the recorded value, applies the committed patch, and compares the
+// result with the committed overlay. The check uses the upstream hash in
+// place of the upstream file because the upstream yugabyted file is large
+// and its default constants trip secret scanners (TACK-302). The check reads
+// FDB_VERSION from the Makefile for the FDB tag and uses
+// upstream.YugabyteImage for the Yugabyte image.
 package overlay
 
 import (
@@ -16,10 +16,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 
-	"goodkind.io/tack/internal/ci/image/compose"
+	"goodkind.io/tack/internal/ci/image/upstream"
 )
 
 // registryVariable optionally sets the registry host that serves the
@@ -38,17 +37,6 @@ func entries() ([]entry, error) {
 		return nil, err
 	}
 
-	yugabyteImage, err := compose.YugabyteImage(composePath)
-	if err != nil {
-		slog.Error(
-			"overlay.compose_image_failed",
-			slog.String("path", composePath),
-			slog.Any("error", err),
-		)
-
-		return nil, fmt.Errorf("read pinned Yugabyte image from %s: %w", composePath, err)
-	}
-
 	return []entry{
 		{
 			image:     "foundationdb/foundationdb:" + version,
@@ -58,7 +46,7 @@ func entries() ([]entry, error) {
 			patch:     "fdb-overlay/fdb.bash.patch",
 		},
 		{
-			image:     yugabyteImage,
+			image:     upstream.YugabyteImage,
 			imagePath: "/home/yugabyte/bin/yugabyted",
 			overlay:   "yugabyte-overlay/yugabyted",
 			shaFile:   "yugabyte-overlay/yugabyted.upstream.sha256",
