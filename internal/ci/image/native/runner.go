@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	"goodkind.io/tack/internal/ci/image/environment"
@@ -16,8 +17,12 @@ var (
 	errRunnerMismatch          = errors.New("does not match runner")
 )
 
-// Verify compares IMAGE_ARCH with the runner machine type and writes the
-// machine type to stdout when they match.
+// Verify checks IMAGE_ARCH against the runner machine type.
+//
+// It accepts amd64 on x86_64 and arm64 on aarch64. On a match, it writes
+// the machine type to stdout. For example:
+//
+//	Native image runner: x86_64
 func Verify(stdout io.Writer) error {
 	architecture, err := environment.Required("IMAGE_ARCH")
 	if err != nil {
@@ -25,6 +30,12 @@ func Verify(stdout io.Writer) error {
 	}
 
 	if architecture != "amd64" && architecture != "arm64" {
+		slog.Error(
+			"native.architecture_rejected",
+			slog.String("architecture", architecture),
+			slog.Any("error", errUnsupportedArchitecture),
+		)
+
 		return fmt.Errorf("%w: %s", errUnsupportedArchitecture, architecture)
 	}
 

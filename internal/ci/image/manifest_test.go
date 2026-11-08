@@ -89,10 +89,10 @@ func TestManifestRefusesBadInputBeforePublishing(t *testing.T) {
 		}},
 		{"empty token", func(_ manifestFixture, environment []string) []string {
 			kept := slices.DeleteFunc(environment, func(item string) bool {
-				return strings.HasPrefix(item, tokenPrefix)
+				return strings.HasPrefix(item, githubAuthKey)
 			})
 
-			return append(kept, tokenPrefix)
+			return append(kept, githubAuthKey)
 		}},
 		{"missing actor", func(_ manifestFixture, environment []string) []string {
 			return slices.DeleteFunc(environment, func(item string) bool {

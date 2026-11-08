@@ -20,7 +20,7 @@ const (
 	unknownPlatform = "unknown"
 	testFileMode    = 0o600
 	testDirMode     = 0o750
-	tokenPrefix     = "GITHUB_TOKEN="
+	githubAuthKey   = "GITHUB_TOKEN="
 	actorPrefix     = "GITHUB_ACTOR="
 )
 
@@ -120,6 +120,6 @@ func (fixture manifestFixture) environment() []string {
 	return []string{
 		"REGISTRY=" + fixture.host, "IMAGE_OWNER=" + manifestOwner, "IMAGE_NAME=" + manifestImage,
 		"IMAGE_TAG_FILE=" + fixture.tagFile, "DIGEST_DIRECTORY=" + fixture.digestDir,
-		actorPrefix + "builder", tokenPrefix + "test-token",
+		actorPrefix + "builder", githubAuthKey + "test-token",
 	}
 }

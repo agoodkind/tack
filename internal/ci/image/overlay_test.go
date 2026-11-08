@@ -14,7 +14,7 @@ import (
 
 const (
 	decoyText      = "decoy\n"
-	passedText     = "Overlay drift check passed"
+	successText    = "Overlay drift check passed"
 	oversizedBytes = 17 << 20
 )
 
@@ -28,7 +28,7 @@ type overlayScenario struct {
 }
 
 func passing(name string, fdb, yb func(t *testing.T) []v1.Layer) overlayScenario {
-	return overlayScenario{name: name, fdb: fdb, yb: yb, edit: nil, want: passedText, failed: false}
+	return overlayScenario{name: name, fdb: fdb, yb: yb, edit: nil, want: successText, failed: false}
 }
 
 func failing(

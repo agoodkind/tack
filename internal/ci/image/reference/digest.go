@@ -2,6 +2,7 @@ package reference
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
 
@@ -34,8 +35,12 @@ func IsDigest(value string) bool {
 	return digestPattern.MatchString(value)
 }
 
-// WriteDigest validates the architecture and SHA256 digest, then writes
-// the digest to DIGEST_DIRECTORY in a file named after IMAGE_ARCH.
+// WriteDigest writes IMAGE_DIGEST to a file in DIGEST_DIRECTORY.
+//
+// It validates IMAGE_ARCH and the SHA256 digest, then writes the digest
+// followed by a newline. For IMAGE_ARCH=amd64, the file path is:
+//
+//	DIGEST_DIRECTORY/amd64.digest
 func WriteDigest() error {
 	architecture, err := environment.Required("IMAGE_ARCH")
 	if err != nil {
@@ -43,6 +48,12 @@ func WriteDigest() error {
 	}
 
 	if architecture != "amd64" && architecture != "arm64" {
+		slog.Error(
+			"reference.architecture_rejected",
+			slog.String("architecture", architecture),
+			slog.Any("error", errUnsupportedArchitecture),
+		)
+
 		return fmt.Errorf("%w: %s", errUnsupportedArchitecture, architecture)
 	}
 

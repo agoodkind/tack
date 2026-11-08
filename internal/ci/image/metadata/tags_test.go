@@ -60,7 +60,8 @@ func TestMetadataCommandRejectsDanglingTag(t *testing.T) {
 	repository, root := newRepository(t)
 	lightweightTag(t, repository, "dangling", plumbing.NewHash(strings.Repeat("ab", 20)))
 	outputPath := filepath.Join(t.TempDir(), "output")
-	expectFailure(t, root, map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: mainBranch}, "read Git tag dangling")
+	environment := map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: mainBranch}
+	expectFailure(t, root, environment, "read Git tag dangling")
 }
 
 func TestMetadataCommandCheckoutKinds(t *testing.T) {

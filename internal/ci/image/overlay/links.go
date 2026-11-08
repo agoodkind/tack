@@ -51,9 +51,9 @@ func resolve(links map[string]link, target string) (string, error) {
 		part := pending[0]
 		pending = pending[1:]
 
-		switch {
-		case part == emptyComponent || part == currentComponent:
-		case part == parentComponent:
+		switch part {
+		case emptyComponent, currentComponent:
+		case parentComponent:
 			if current == rootPath {
 				return "", resolveError(target, hops, errLinkEscapesRoot)
 			}

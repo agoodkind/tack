@@ -49,6 +49,7 @@ func commitFile(t *testing.T, repository *git.Repository, name string) plumbing.
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	return hash
 }
 

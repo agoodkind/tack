@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 }
 
 func environmentList(environment map[string]string) []string {
-	list := []string{}
+	list := make([]string, 0, len(environment))
 	for key, value := range environment {
 		list = append(list, key+"="+value)
 	}

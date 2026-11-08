@@ -101,10 +101,12 @@ func classifyTag(
 		if err != nil {
 			return none, false, &os.PathError{Op: "read Git tag " + name + " target", Path: root, Err: err}
 		}
+
 		nested, isTag := next.(*object.Tag)
 		if !isTag {
 			return candidate, next.Type() == plumbing.CommitObject && next.ID() == head, nil
 		}
+
 		outer = nested
 	}
 }

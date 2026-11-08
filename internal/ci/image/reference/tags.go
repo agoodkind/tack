@@ -12,10 +12,18 @@ type tagInputs struct {
 	registry, owner, image, shortCommit, commit, refType string
 }
 
-// WriteTags writes one image reference per line to IMAGE_TAG_FILE. Every build
-// includes the short and full commit tags. A tag build also includes its
-// reference name and latest. A branch build also includes its branch name;
-// among branch builds, only main includes latest.
+// WriteTags writes one image reference per line to IMAGE_TAG_FILE.
+//
+// Every build includes the short and full commit tags. A tag build also
+// includes its reference name and latest. A branch build also includes
+// its branch name; among branch builds, only main includes latest.
+//
+// A main branch build produces this layout:
+//
+//	<registry>/<owner>/<image>:<short commit>
+//	<registry>/<owner>/<image>:<full commit>
+//	<registry>/<owner>/<image>:main
+//	<registry>/<owner>/<image>:latest
 func WriteTags() error {
 	var input tagInputs
 

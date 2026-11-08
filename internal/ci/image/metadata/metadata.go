@@ -18,9 +18,18 @@ const (
 	metadataOutputFilePermBits = 0o666
 )
 
-// Write writes the selected tag or branch to stdout, then appends build
-// metadata to GITHUB_OUTPUT. It returns an error without writing
-// GITHUB_OUTPUT if the stdout write fails.
+// Write appends build metadata to the file named by GITHUB_OUTPUT.
+//
+// It reads the Git checkout in the working directory and prints the
+// selected exact tag at HEAD or the BRANCH_NAME value to stdout. It
+// returns an error without writing the file if the stdout write fails.
+//
+// The appended output has this layout:
+//
+//	commit=<full commit>
+//	short=<short commit>
+//	build_time=<UTC build time>
+//	tag=<tag or branch>
 func Write(stdout io.Writer) error {
 	outputPath, err := environment.Required("GITHUB_OUTPUT")
 	if err != nil {
@@ -104,13 +113,19 @@ func appendFile(path, content string) error {
 	if err != nil {
 		return &os.PathError{Op: "open metadata output file", Path: path, Err: err}
 	}
-	if _, err := file.WriteString(content); err != nil {
+
+	_, err = file.WriteString(content)
+	if err != nil {
 		writeErr := &os.PathError{Op: "write metadata output file", Path: path, Err: err}
 		_ = file.Close()
+
 		return writeErr
 	}
-	if err := file.Close(); err != nil {
+
+	err = file.Close()
+	if err != nil {
 		return &os.PathError{Op: "close metadata output file", Path: path, Err: err}
 	}
+
 	return nil
 }

@@ -11,8 +11,12 @@ import (
 // environment variable.
 var ErrUnset = errors.New("required environment variable is unset")
 
-// Required returns the value of an environment variable, including an empty
-// value. It returns [ErrUnset] if the process does not define the variable.
+// Required returns the value of an environment variable, including an
+// empty value.
+//
+// It returns [ErrUnset] if the process does not define the variable.
+//
+//	value, err := environment.Required("IMAGE_ARCH")
 func Required(key string) (string, error) {
 	value, present := os.LookupEnv(key)
 	if !present {

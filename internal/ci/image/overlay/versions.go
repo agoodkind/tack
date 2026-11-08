@@ -3,6 +3,7 @@ package overlay
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
 )
@@ -25,6 +26,12 @@ func fdbVersion() (string, error) {
 
 	match := fdbVersionPattern.FindSubmatch(content)
 	if match == nil {
+		slog.Error(
+			"overlay.fdb_version_missing",
+			slog.String("path", makefilePath),
+			slog.Any("error", errNoFDBVersion),
+		)
+
 		return "", fmt.Errorf("%w in %s", errNoFDBVersion, makefilePath)
 	}
 
