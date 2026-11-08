@@ -52,11 +52,11 @@ func recordDatagenReport[Report datagenReport](
 	_, err = clispec.RunAuditedRead(ctx, factory, spec, input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
 		value, targets, err := read(ctx)
 		if err != nil {
-			return audit.OperatorReadOutput{}, datagenReportFailure(ctx, selection.Report, err)
+			return audit.OperatorReadOutput{}, datagenReportError{report: selection.Report, cause: err}
 		}
 		payload, err := renderDatagenReport(ctx, factory, value)
 		if err != nil {
-			return audit.OperatorReadOutput{}, datagenReportFailure(ctx, selection.Report, err)
+			return audit.OperatorReadOutput{}, datagenReportError{report: selection.Report, cause: err}
 		}
 		report = value
 		return audit.OperatorReadOutput{Payload: payload, Format: "application/json", Targets: targets}, nil
