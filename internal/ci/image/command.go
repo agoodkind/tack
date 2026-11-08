@@ -41,6 +41,16 @@ func newOperationError(operation string, err error) error {
 }
 
 // NewCommand returns the ci-image command and its subcommands.
+//
+// The command runs image build operations through these subcommands:
+//
+//   - digest writes the image digest file.
+//   - tags writes the image tag file.
+//   - verify-native-runner checks the runner machine type against IMAGE_ARCH and prints it.
+//   - metadata appends build metadata to GITHUB_OUTPUT and prints the selected tag or branch.
+//   - upstream-yugabyte appends the pinned upstream Yugabyte image to GITHUB_OUTPUT and prints it.
+//   - manifest publishes one multi-platform index for the native image digests under every tag.
+//   - overlay-drift checks each vendored overlay against its pinned upstream image and patch.
 func NewCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           commandName,

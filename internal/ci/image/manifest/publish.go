@@ -9,10 +9,14 @@ import (
 )
 
 // Publish combines the amd64 and arm64 source images into one OCI index.
-// It validates the inputs and reads both sources before writing the index
-// under each tag from IMAGE_TAG_FILE.
-// For example, the function reads amd64.digest and arm64.digest from
-// DIGEST_DIRECTORY and writes the index under each nonempty tag file line.
+//
+// Publish validates the inputs and reads both sources before writing the
+// index under each nonempty tag from IMAGE_TAG_FILE.
+//
+// DIGEST_DIRECTORY contains these source digest files:
+//
+//	amd64.digest
+//	arm64.digest
 func Publish(ctx context.Context) error {
 	input, err := readInputs()
 	if err != nil {

@@ -60,10 +60,14 @@ func entries() ([]entry, error) {
 }
 
 // Check verifies the committed overlays and writes progress and drift messages to log.
-// It compares each upstream file hash with its recorded hash and compares the
-// patched upstream file with the overlay. It returns an error if a check fails.
-// On success, it writes: Overlay drift check passed: each upstream sha256 matches
-// its recorded value, and each patched upstream file matches its overlay.
+//
+// Check compares each upstream file hash with its recorded hash and compares
+// the patched upstream file with the overlay. It returns an error if a check
+// fails.
+//
+// On success, Check writes:
+//
+//	Overlay drift check passed: each upstream sha256 matches its recorded value, and each patched upstream file matches its overlay.
 func Check(ctx context.Context, log io.Writer) error {
 	list, err := entries()
 	if err != nil {

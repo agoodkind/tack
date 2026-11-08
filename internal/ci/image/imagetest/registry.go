@@ -20,8 +20,13 @@ import (
 )
 
 // StartRegistry starts a local OCI registry for a test and returns its address.
-// It closes the server when the test finishes.
-// The returned address has the form 127.0.0.1:<port>, without http://.
+//
+// The test closes the server during cleanup. The returned address omits
+// the http:// prefix.
+//
+// The address has this form:
+//
+//	127.0.0.1:<port>
 func StartRegistry(t *testing.T) string {
 	t.Helper()
 	server := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
@@ -38,6 +43,14 @@ type Entry struct {
 }
 
 // Layer builds an image layer from archive entries.
+//
+// Layer writes each entry to a tar archive and fails the test if it cannot
+// write the archive or build the layer. Regular file entries use Content
+// as their file contents.
+//
+// A regular file entry can use these fields:
+//
+//	Entry{Name: "example.txt", Type: tar.TypeReg, Content: "example"}
 func Layer(t *testing.T, entries ...Entry) v1.Layer {
 	t.Helper()
 	var buffer bytes.Buffer
@@ -70,6 +83,13 @@ func Layer(t *testing.T, entries ...Entry) v1.Layer {
 }
 
 // Image builds an image from layers for the specified platform.
+//
+// Image sets the image operating system and architecture from platform,
+// then appends the layers. It fails the test if either operation fails.
+//
+// A platform can specify:
+//
+//	v1.Platform{OS: "linux", Architecture: "amd64"}
 func Image(t *testing.T, platform v1.Platform, layers ...v1.Layer) v1.Image {
 	t.Helper()
 	base, err := mutate.ConfigFile(empty.Image, &v1.ConfigFile{OS: platform.OS, Architecture: platform.Architecture})
@@ -83,7 +103,14 @@ func Image(t *testing.T, platform v1.Platform, layers ...v1.Layer) v1.Image {
 	return image
 }
 
-// PushIndex writes an OCI index with the addenda as children to the tag and returns the index.
+// PushIndex writes an OCI index to a tag and returns the index.
+//
+// PushIndex appends the addenda as children of an empty OCI index. It fails
+// the test if it cannot parse the tag or write the index.
+//
+// It constructs the index with:
+//
+//	mutate.AppendManifests(mutate.IndexMediaType(empty.Index, types.OCIImageIndex), addenda...)
 func PushIndex(t *testing.T, tag string, addenda ...mutate.IndexAddendum) v1.ImageIndex {
 	t.Helper()
 	index := mutate.AppendManifests(mutate.IndexMediaType(empty.Index, types.OCIImageIndex), addenda...)

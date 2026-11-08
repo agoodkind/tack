@@ -18,10 +18,14 @@ type stack struct {
 }
 
 // YugabyteImage returns the x-yugabyte-image value from a Compose file.
-// It requires the value to start with yugabytedb/yugabyte: and contain
-// a nonempty tag without whitespace.
-// For example, x-yugabyte-image: yugabytedb/yugabyte:2024.2.8.0-b85
-// returns yugabytedb/yugabyte:2024.2.8.0-b85.
+//
+// The value must start with yugabytedb/yugabyte: and contain a nonempty
+// tag without whitespace. YugabyteImage returns an error if the file
+// cannot be read or parsed, or if the value is invalid.
+//
+// For example, this Compose line returns yugabytedb/yugabyte:2024.2.8.0-b85:
+//
+//	x-yugabyte-image: yugabytedb/yugabyte:2024.2.8.0-b85
 func YugabyteImage(path string) (string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {

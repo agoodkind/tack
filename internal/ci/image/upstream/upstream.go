@@ -17,10 +17,14 @@ const (
 )
 
 // Write prints the pinned Yugabyte image and appends it to the workflow output file.
-// It reads the image from docker-compose.yml and requires GITHUB_OUTPUT to
-// identify the output file. It appends the output only after the print succeeds.
-// For the image yugabytedb/yugabyte:2024.2.8.0-b85, it appends
-// yugabyte_image=yugabytedb/yugabyte:2024.2.8.0-b85.
+//
+// Write reads the image from docker-compose.yml and requires GITHUB_OUTPUT
+// to identify the output file. It appends the output only after the print
+// succeeds.
+//
+// For the image yugabytedb/yugabyte:2024.2.8.0-b85, Write appends:
+//
+//	yugabyte_image=yugabytedb/yugabyte:2024.2.8.0-b85
 func Write(stdout io.Writer) error {
 	outputPath, err := environment.Required("GITHUB_OUTPUT")
 	if err != nil {
