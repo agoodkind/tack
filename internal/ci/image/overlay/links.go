@@ -8,7 +8,8 @@ import (
 	"strings"
 )
 
-// maxLinkHops bounds link resolution so a link cycle fails instead of looping.
+// maxLinkHops bounds link resolution so a link cycle fails instead of
+// looping.
 const maxLinkHops = 40
 
 const (
@@ -38,41 +39,61 @@ func splitPath(value string) []string {
 	return strings.Split(value, "/")
 }
 
-// resolve follows links in every component of target and returns the final absolute image path.
-// It rejects a link that leaves the image root and a chain longer than maxLinkHops.
+// resolve follows links in every component of target and returns the final
+// absolute image path. It rejects a link that leaves the image root and a
+// chain longer than maxLinkHops.
 func resolve(links map[string]link, target string) (string, error) {
 	pending := splitPath(normalize(target))
 	current := rootPath
 	hops := 0
+
 	for len(pending) > 0 {
 		part := pending[0]
 		pending = pending[1:]
-		if part == emptyComponent || part == currentComponent {
-			continue
-		}
-		if part == parentComponent {
+
+		switch {
+		case part == emptyComponent || part == currentComponent:
+		case part == parentComponent:
 			if current == rootPath {
-				slog.Error("overlay.link_escapes_root", slog.String("path", target), slog.Any("error", errLinkEscapesRoot))
-				return "", fmt.Errorf("resolve %s: %w", target, errLinkEscapesRoot)
+				return "", resolveError(target, hops, errLinkEscapesRoot)
 			}
+
 			current = path.Dir(current)
-			continue
+		default:
+			next := path.Join(current, part)
+
+			found, isLink := links[next]
+			if !isLink {
+				current = next
+
+				break
+			}
+
+			hops++
+
+			if hops > maxLinkHops {
+				return "", resolveError(target, hops, errLinkCycle)
+			}
+
+			if found.hard || strings.HasPrefix(found.target, rootPath) {
+				current = rootPath
+			}
+
+			pending = append(splitPath(found.target), pending...)
 		}
-		next := path.Join(current, part)
-		found, isLink := links[next]
-		if !isLink {
-			current = next
-			continue
-		}
-		hops++
-		if hops > maxLinkHops {
-			slog.Error("overlay.link_cycle", slog.String("path", target), slog.Int("hops", hops), slog.Any("error", errLinkCycle))
-			return "", fmt.Errorf("resolve %s: %w", target, errLinkCycle)
-		}
-		if found.hard || strings.HasPrefix(found.target, rootPath) {
-			current = rootPath
-		}
-		pending = append(splitPath(found.target), pending...)
 	}
+
 	return current, nil
+}
+
+// resolveError logs and wraps a link resolution failure for target.
+func resolveError(target string, hops int, cause error) error {
+	slog.Error(
+		"overlay.link_resolution_failed",
+		slog.String("path", target),
+		slog.Int("hops", hops),
+		slog.Any("error", cause),
+	)
+
+	return fmt.Errorf("resolve %s: %w", target, cause)
 }
