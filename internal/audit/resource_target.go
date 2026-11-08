@@ -37,18 +37,34 @@ func ResourceTarget(uri string) Target {
 	}
 }
 
-// NodeTarget returns the resource target for the node with nodeID.
+// NodeTarget returns a resource audit target for nodeID.
+//
+// The target URI appends the string form of nodeID to NodeURIPrefix.
+// ResourceTarget sets the kind to TargetKindResource and leaves the
+// remaining fields empty or zero UUIDs.
+//
+//	target := NodeTarget(nodeID)
 func NodeTarget(nodeID uuid.UUID) Target {
 	return ResourceTarget(NodeURIPrefix + nodeID.String())
 }
 
-// EventTarget returns the resource target for the audit event with eventID.
+// EventTarget returns a resource audit target for eventID.
+//
+// The target URI appends the string form of eventID to EventURIPrefix.
+// ResourceTarget sets the kind to TargetKindResource and leaves the
+// remaining fields empty or zero UUIDs.
+//
+//	target := EventTarget(eventID)
 func EventTarget(eventID uuid.UUID) Target {
 	return ResourceTarget(EventURIPrefix + eventID.String())
 }
 
-// CanonicalUUID returns the canonical form of value, or an empty string when
-// value is not a UUID.
+// CanonicalUUID returns the canonical UUID string for value.
+//
+// CanonicalUUID trims surrounding whitespace before parsing value. It
+// returns an empty string when parsing fails.
+//
+//	id := CanonicalUUID(value)
 func CanonicalUUID(value string) string {
 	id, err := uuid.Parse(strings.TrimSpace(value))
 	if err != nil {
@@ -57,8 +73,12 @@ func CanonicalUUID(value string) string {
 	return id.String()
 }
 
-// ResourceURI returns prefix followed by the canonical form of value. When value
-// is not a UUID, it returns prefix followed by InvalidURISegment.
+// ResourceURI returns a resource URI for prefix and value.
+//
+// ResourceURI appends the canonical UUID form of value to prefix. When
+// value is not a UUID, ResourceURI appends InvalidURISegment instead.
+//
+//	uri := ResourceURI(prefix, value)
 func ResourceURI(prefix, value string) string {
 	id := CanonicalUUID(value)
 	if id == "" {

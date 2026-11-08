@@ -159,10 +159,20 @@ func (b *BufferedRecorder) recordThrough(ctx context.Context, ev Event) error {
 	return nil
 }
 
-// Close stops taking events into the queue, delivers the queued and retained
-// events within closeDeliveryTimeout, then closes inner when it supports
-// closing. Record calls inner.Record directly for each event recorded after
-// Close.
+// Close stops the buffered recorder's flusher and closes inner if supported.
+//
+// Close stops queue admission and waits for the flusher to drain queued
+// and retained events. The flusher retries delivery until it succeeds or
+// closeDeliveryTimeout expires. It logs and counts any events still
+// undelivered after the deadline.
+//
+// After Close stops queue admission, Record sends ordinary read-class
+// events directly to inner. Record also uses inner for calls waiting for
+// queue room when Close stops admission. Each Close call waits for the
+// flusher and calls inner.Close if inner supports it. Close wraps and
+// returns an error from inner.Close; it does not return delivery errors.
+//
+//	err := b.Close()
 func (b *BufferedRecorder) Close() error {
 	b.closeOnce.Do(func() {
 		b.stopping.Lock()
