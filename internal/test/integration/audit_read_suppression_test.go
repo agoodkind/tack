@@ -112,6 +112,9 @@ func TestAttachReadWritesTheReportOfAVerdictAfterTheFinalEvent(t *testing.T) {
 	if row.Error == nil || row.Error.Code != "check_failed" || row.Context.Read == nil {
 		t.Fatalf("row %s error %+v read %+v, want check_failed with read evidence", row.EventID, row.Error, row.Context.Read)
 	}
+	if row.Context.Read.PayloadSHA256 != payloadDigest(printed.Bytes()) {
+		t.Fatalf("row %s fingerprint %s does not match the SHA-256 of the printed bytes %q", row.EventID, row.Context.Read.PayloadSHA256, printed.String())
+	}
 }
 
 func TestAuditReadAdmissionDenialSuppressesTheReport(t *testing.T) {
