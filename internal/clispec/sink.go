@@ -1,7 +1,6 @@
 package clispec
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -82,20 +81,14 @@ func NewCLISink(f *cli.Factory) *CLISink {
 // WriteJSON renders a JSON payload. In json mode it is the envelope payload; in
 // text mode it is indented JSON under the trace header.
 func (s *CLISink) WriteJSON(ctx context.Context, payload json.RawMessage) error {
+	body, err := RenderJSON(ctx, s.f.OutputFormat(), payload)
+	if err != nil {
+		return err
+	}
 	if s.f.OutputFormat() == cli.FormatJSON {
-		body, err := response.Marshal(ctx, payload)
-		if err != nil {
-			slog.ErrorContext(ctx, "clispec.envelope_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("clispec: envelope: %w", err)
-		}
 		return s.writeRaw(ctx, body)
 	}
-	var buf bytes.Buffer
-	if err := json.Indent(&buf, payload, "", "  "); err != nil {
-		slog.ErrorContext(ctx, "clispec.indent_failed", slog.String("err", err.Error()))
-		return fmt.Errorf("clispec: indent: %w", err)
-	}
-	return s.writeText(ctx, buf.String())
+	return s.writeText(ctx, string(body))
 }
 
 // WriteText renders a human line. In json mode the line becomes the envelope's
