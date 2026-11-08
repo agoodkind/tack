@@ -30,13 +30,9 @@ const passedMessage = "Overlay drift check passed: each upstream sha256 matches 
 
 var errDrift = errors.New("overlay drift check failed; see diagnostics above and TACK-302")
 
-// entries returns the overlays that the check covers.
-func entries() ([]entry, error) {
-	version, err := fdbVersion()
-	if err != nil {
-		return nil, err
-	}
-
+// entries returns the overlays that the check covers for the given FDB
+// version.
+func entries(version string) []entry {
 	return []entry{
 		{
 			image:     "foundationdb/foundationdb:" + version,
@@ -52,7 +48,7 @@ func entries() ([]entry, error) {
 			shaFile:   "yugabyte-overlay/yugabyted.upstream.sha256",
 			patch:     "yugabyte-overlay/yugabyted.patch",
 		},
-	}, nil
+	}
 }
 
 // Check verifies the committed overlays and writes progress and drift
@@ -67,11 +63,12 @@ func entries() ([]entry, error) {
 //	Overlay drift check passed: each upstream sha256 matches its recorded
 //	value, and each patched upstream file matches its overlay.
 func Check(ctx context.Context, log io.Writer) error {
-	list, err := entries()
+	version, err := fdbVersion()
 	if err != nil {
 		return err
 	}
 
+	list := entries(version)
 	registry := os.Getenv(registryVariable)
 	failed := false
 
