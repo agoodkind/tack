@@ -44,6 +44,28 @@ type Entry struct {
 	Linkname string
 }
 
+// FixtureLayer wraps a v1.Layer returned by Layer.
+//
+// The embedded interface exposes all v1.Layer methods while Layer returns
+// a concrete type.
+//
+//	layer := imagetest.Layer(t, entries...)
+//	digest, err := layer.Digest()
+type FixtureLayer struct {
+	v1.Layer
+}
+
+// FixtureImage wraps a v1.Image returned by Image.
+//
+// The embedded interface exposes all v1.Image methods while Image returns
+// a concrete type.
+//
+//	image := imagetest.Image(t, platform, layers...)
+//	digest, err := image.Digest()
+type FixtureImage struct {
+	v1.Image
+}
+
 // Layer builds an image layer from archive entries.
 //
 // Layer writes each entry to a tar archive and fails the test if it cannot
@@ -53,7 +75,7 @@ type Entry struct {
 // A regular file entry can use these fields:
 //
 //	Entry{Name: "example.txt", Type: tar.TypeReg, Content: "example"}
-func Layer(t *testing.T, entries ...Entry) v1.Layer {
+func Layer(t *testing.T, entries ...Entry) FixtureLayer {
 	t.Helper()
 
 	var buffer bytes.Buffer
@@ -98,7 +120,7 @@ func Layer(t *testing.T, entries ...Entry) v1.Layer {
 		t.Fatalf("build layer: %v", err)
 	}
 
-	return layer
+	return FixtureLayer{Layer: layer}
 }
 
 // Image builds an image from layers for the specified platform.
@@ -109,7 +131,7 @@ func Layer(t *testing.T, entries ...Entry) v1.Layer {
 // A platform can specify:
 //
 //	v1.Platform{OS: "linux", Architecture: "amd64"}
-func Image(t *testing.T, platform v1.Platform, layers ...v1.Layer) v1.Image {
+func Image(t *testing.T, platform v1.Platform, layers ...v1.Layer) FixtureImage {
 	t.Helper()
 
 	configuration := &v1.ConfigFile{OS: platform.OS, Architecture: platform.Architecture}
@@ -124,7 +146,7 @@ func Image(t *testing.T, platform v1.Platform, layers ...v1.Layer) v1.Image {
 		t.Fatalf("append layers: %v", err)
 	}
 
-	return image
+	return FixtureImage{Image: image}
 }
 
 // PushedIndex stores the digest and parsed manifest of an index

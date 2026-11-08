@@ -14,8 +14,15 @@ const commandPackage = "goodkind.io/tack/cmd/ci/image"
 
 var commandPath string
 
-// RunTests builds the image command, runs the calling package's tests,
-// and removes the build directory. It returns the exit code for TestMain.
+// RunTests builds the image command and runs the calling package's tests.
+//
+// It builds the command in a temporary directory, calls m.Run, and removes
+// the directory. It returns the test exit code, or 1 if the build or
+// cleanup fails. Tests can use Path to run the command.
+//
+//	func TestMain(m *testing.M) {
+//		os.Exit(imagetest.RunTests(m))
+//	}
 func RunTests(m *testing.M) int {
 	directory, err := os.MkdirTemp("", "ci-image-test-")
 	if err != nil {
