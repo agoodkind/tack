@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
 )
+
+var errPatchFileCount = errors.New("patch must change exactly one file")
 
 // entry identifies one vendored overlay and the upstream file it replaces.
 type entry struct {
@@ -69,7 +72,8 @@ func applyPatch(patchPath string, upstream []byte) ([]byte, error) {
 		return nil, &os.PathError{Op: "close patch", Path: patchPath, Err: closeErr}
 	}
 	if len(files) != 1 {
-		return nil, fmt.Errorf("patch %s changes %d files, expected exactly one", patchPath, len(files))
+		slog.Error("overlay.patch_file_count", slog.String("path", patchPath), slog.Int("files", len(files)), slog.Any("error", errPatchFileCount))
+		return nil, fmt.Errorf("patch %s changes %d files: %w", patchPath, len(files), errPatchFileCount)
 	}
 	var result bytes.Buffer
 	if err := gitdiff.Apply(&result, bytes.NewReader(upstream), files[0]); err != nil {

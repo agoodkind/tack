@@ -22,9 +22,7 @@ import (
 // StartRegistry starts a local OCI registry for a test and returns its address.
 //
 // The test closes the server during cleanup. The returned address omits
-// the http:// prefix.
-//
-// The address has this form:
+// the http:// prefix. One example address is:
 //
 //	127.0.0.1:<port>
 func StartRegistry(t *testing.T) string {
