@@ -3,12 +3,20 @@ package overlay
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"path"
 	"strings"
 )
 
 // maxLinkHops bounds link resolution so a link cycle fails instead of looping.
 const maxLinkHops = 40
+
+const (
+	rootPath         = "/"
+	emptyComponent   = ""
+	currentComponent = "."
+	parentComponent  = ".."
+)
 
 var (
 	errLinkEscapesRoot = errors.New("link escapes the image root")
@@ -34,16 +42,17 @@ func splitPath(value string) []string {
 // It rejects a link that leaves the image root and a chain longer than maxLinkHops.
 func resolve(links map[string]link, target string) (string, error) {
 	pending := splitPath(normalize(target))
-	current := "/"
+	current := rootPath
 	hops := 0
 	for len(pending) > 0 {
 		part := pending[0]
 		pending = pending[1:]
-		switch part {
-		case "", ".":
+		if part == emptyComponent || part == currentComponent {
 			continue
-		case "..":
-			if current == "/" {
+		}
+		if part == parentComponent {
+			if current == rootPath {
+				slog.Error("overlay.link_escapes_root", slog.String("path", target), slog.Any("error", errLinkEscapesRoot))
 				return "", fmt.Errorf("resolve %s: %w", target, errLinkEscapesRoot)
 			}
 			current = path.Dir(current)
@@ -57,10 +66,11 @@ func resolve(links map[string]link, target string) (string, error) {
 		}
 		hops++
 		if hops > maxLinkHops {
+			slog.Error("overlay.link_cycle", slog.String("path", target), slog.Int("hops", hops), slog.Any("error", errLinkCycle))
 			return "", fmt.Errorf("resolve %s: %w", target, errLinkCycle)
 		}
-		if found.hard || strings.HasPrefix(found.target, "/") {
-			current = "/"
+		if found.hard || strings.HasPrefix(found.target, rootPath) {
+			current = rootPath
 		}
 		pending = append(splitPath(found.target), pending...)
 	}

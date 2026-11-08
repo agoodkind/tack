@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -47,7 +48,8 @@ func readFile(ctx context.Context, image v1.Image, imagePath string) ([]byte, er
 		}
 	}
 	if !result.found {
-		return nil, fmt.Errorf("%s: %w", resolved, errNotRegular)
+		slog.Error("overlay.file_missing", slog.String("path", resolved), slog.Any("error", errNotRegular))
+		return nil, fmt.Errorf("read image file %s: %w", resolved, errNotRegular)
 	}
 	return result.content, nil
 }
@@ -61,7 +63,8 @@ func walk(ctx context.Context, image v1.Image, wanted string) (scan, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			_ = stream.Close()
-			return scan{}, fmt.Errorf("read image archive: %w", err)
+			slog.Error("overlay.archive_interrupted", slog.String("path", wanted), slog.Any("error", err))
+			return scan{}, fmt.Errorf("read image archive for %s: %w", wanted, err)
 		}
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
@@ -69,7 +72,8 @@ func walk(ctx context.Context, image v1.Image, wanted string) (scan, error) {
 		}
 		if err != nil {
 			_ = stream.Close()
-			return scan{}, fmt.Errorf("read image archive: %w", err)
+			slog.Error("overlay.archive_read_failed", slog.String("path", wanted), slog.Any("error", err))
+			return scan{}, fmt.Errorf("read image archive for %s: %w", wanted, err)
 		}
 		entry := normalize(header.Name)
 		switch header.Typeflag {
@@ -87,7 +91,8 @@ func walk(ctx context.Context, image v1.Image, wanted string) (scan, error) {
 		}
 	}
 	if err := stream.Close(); err != nil {
-		return scan{}, fmt.Errorf("close image archive: %w", err)
+		slog.Error("overlay.archive_close_failed", slog.String("path", wanted), slog.Any("error", err))
+		return scan{}, fmt.Errorf("close image archive for %s: %w", wanted, err)
 	}
 	return result, nil
 }
@@ -95,11 +100,13 @@ func walk(ctx context.Context, image v1.Image, wanted string) (scan, error) {
 // keepFile stores the regular file content when it is within the size limit.
 func keepFile(result *scan, reader io.Reader, header *tar.Header, entry string) error {
 	if header.Size > maxFileBytes {
-		return fmt.Errorf("%s: %w", entry, errTooLarge)
+		slog.Error("overlay.file_too_large", slog.String("path", entry), slog.Int64("size", header.Size), slog.Any("error", errTooLarge))
+		return fmt.Errorf("read image file %s: %w", entry, errTooLarge)
 	}
 	content, err := io.ReadAll(io.LimitReader(reader, maxFileBytes))
 	if err != nil {
-		return fmt.Errorf("read %s: %w", entry, err)
+		slog.Error("overlay.file_read_failed", slog.String("path", entry), slog.Any("error", err))
+		return fmt.Errorf("read image file %s: %w", entry, err)
 	}
 	result.content = content
 	result.found = true
