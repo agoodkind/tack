@@ -66,13 +66,13 @@ func TestRuntimeAuditSQLMembershipConflictRetry(t *testing.T) {
 	}
 	changes, failures := 0, 0
 	for _, event := range sqlOutboxEvents(t, admin, operation.Context.OperationID) {
-		switch event.Context.Phase {
-		case audit.PhaseChange:
+		phase := event.Context.Phase
+		if phase == audit.PhaseChange {
 			changes++
 			if event.Verb != string(audit.VerbOrgMemberRoleSet) {
 				t.Fatalf("change event verb = %s, want %s", event.Verb, audit.VerbOrgMemberRoleSet)
 			}
-		case audit.PhaseResult:
+		} else if phase == audit.PhaseResult {
 			failures++
 		}
 	}
