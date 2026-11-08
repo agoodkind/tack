@@ -37,7 +37,7 @@ func auditPartRestoreSpec() audit.Spec {
 func auditPartRestoreOperationTarget(targetFlag string) audit.Target {
 	targetID, err := uuid.Parse(targetFlag)
 	if err != nil {
-		return auditResourceTarget(auditEventInvalidURI)
+		return audit.ResourceTarget(audit.EventURIPrefix + audit.InvalidURISegment)
 	}
 	return auditPartTarget(targetID, 0)
 }

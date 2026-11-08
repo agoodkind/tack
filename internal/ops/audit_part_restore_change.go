@@ -37,8 +37,8 @@ type auditPartProvenance struct {
 }
 
 func auditPartTarget(eventID uuid.UUID, partIndex int64) audit.Target {
-	uri := auditEventURI(eventID) + auditEventPartURISegment + strconv.FormatInt(partIndex, 10)
-	target := auditResourceTarget(uri)
+	uri := audit.EventURIPrefix + eventID.String() + auditEventPartURISegment + strconv.FormatInt(partIndex, 10)
+	target := audit.ResourceTarget(uri)
 	target.NodeType = audit.TargetAuditEventPart
 	target.ID = eventID
 	return target
