@@ -70,7 +70,7 @@ func RunTests(m *testing.M) int {
 // RunTests builds the executable before it runs the tests. Path returns
 // an empty string before RunTests starts.
 //
-// Tests can pass the path to exec.CommandContext:
+// Tests can pass the path to [exec.CommandContext]:
 //
 //	command := exec.CommandContext(t.Context(), imagetest.Path(), arguments...)
 func Path() string {

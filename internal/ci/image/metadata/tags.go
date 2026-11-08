@@ -88,14 +88,17 @@ func classifyTag(
 	if reference.Hash() == head {
 		return exactTag{name: name, priority: lightweightTagPriority, date: 0}, true, nil
 	}
+
 	target, err := repository.Object(plumbing.AnyObject, reference.Hash())
 	if err != nil {
 		return none, false, &os.PathError{Op: "read Git tag " + name, Path: root, Err: err}
 	}
+
 	outer, annotated := target.(*object.Tag)
 	if !annotated {
 		return none, false, nil
 	}
+
 	candidate := exactTag{name: name, priority: annotatedTagPriority, date: outer.Tagger.When.Unix()}
 	for {
 		next, err := outer.Object()
