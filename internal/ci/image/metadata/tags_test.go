@@ -53,14 +53,15 @@ func TestMetadataCommandLongTagChain(t *testing.T) {
 		}
 		target = reference.Hash()
 	}
-	checkMetadata(t, root, head.Hash(), "main", outermost)
+	checkMetadata(t, root, head.Hash(), mainBranch, outermost)
 }
 
 func TestMetadataCommandRejectsDanglingTag(t *testing.T) {
 	repository, root := newRepository(t)
 	lightweightTag(t, repository, "dangling", plumbing.NewHash(strings.Repeat("ab", 20)))
 	outputPath := filepath.Join(t.TempDir(), "output")
-	expectFailure(t, root, map[string]string{"GITHUB_OUTPUT": outputPath, "BRANCH_NAME": "main"}, "read Git tag dangling")
+	environment := map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: mainBranch}
+	expectFailure(t, root, environment, "read Git tag dangling")
 }
 
 func TestMetadataCommandCheckoutKinds(t *testing.T) {
@@ -73,7 +74,7 @@ func TestMetadataCommandCheckoutKinds(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, ".git", "shallow"), []byte(head.Hash().String()+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		checkMetadata(t, root, head.Hash(), "main", "main")
+		checkMetadata(t, root, head.Hash(), mainBranch, mainBranch)
 		if err := os.Remove(filepath.Join(root, ".git", "shallow")); err != nil {
 			t.Fatal(err)
 		}
@@ -96,6 +97,6 @@ func TestMetadataCommandCheckoutKinds(t *testing.T) {
 			}
 		}
 		lightweightTag(t, repository, "linked-tag", head.Hash())
-		checkMetadata(t, linked, head.Hash(), "main", "linked-tag")
+		checkMetadata(t, linked, head.Hash(), mainBranch, "linked-tag")
 	})
 }

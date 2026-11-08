@@ -13,8 +13,8 @@ import (
 	"github.com/go-git/go-git/v6/plumbing/object"
 )
 
-// storeCommit encodes a root commit with the given message and the shared tree. It
-// writes the commit to the repository only when store is true.
+// storeCommit encodes a root commit with the given message and the shared
+// tree. It writes the commit to the repository only when store is true.
 func storeCommit(t *testing.T, repository *git.Repository, tree plumbing.Hash, message string, store bool) plumbing.Hash {
 	t.Helper()
 	when := time.Unix(1_700_000_000, 0).UTC()
@@ -85,7 +85,7 @@ func TestMetadataCommandExtendsAmbiguousAbbreviation(t *testing.T) {
 func shortCommit(t *testing.T, root string) string {
 	t.Helper()
 	outputPath := filepath.Join(t.TempDir(), "output")
-	if output, err := runMetadata(t, root, map[string]string{"GITHUB_OUTPUT": outputPath, "BRANCH_NAME": "main"}); err != nil {
+	if output, err := runMetadata(t, root, map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: mainBranch}); err != nil {
 		t.Fatalf("metadata failed: %v: %s", err, output)
 	}
 	content, err := os.ReadFile(outputPath)
@@ -131,7 +131,7 @@ func TestMetadataCommandCoreAbbreviation(t *testing.T) {
 			_, root := newRepository(t)
 			configureAbbreviation(t, root, test.global, test.local)
 			outputPath := filepath.Join(t.TempDir(), "output")
-			expectFailure(t, root, map[string]string{"GITHUB_OUTPUT": outputPath, "BRANCH_NAME": "main"}, test.message)
+			expectFailure(t, root, map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: mainBranch}, test.message)
 		})
 	}
 }

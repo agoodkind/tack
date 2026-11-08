@@ -1,7 +1,9 @@
-// Package compose reads pinned image references from the Compose stack file.
+// Package compose reads pinned image references from the Compose stack
+// file.
 package compose
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,8 +12,11 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// YugabyteImagePrefix is the repository that the pinned Yugabyte image must use.
+// YugabyteImagePrefix is the repository that the pinned Yugabyte image
+// must use.
 const YugabyteImagePrefix = "yugabytedb/yugabyte:"
+
+var errInvalidImage = errors.New("invalid or missing x-yugabyte-image value")
 
 type stack struct {
 	YugabyteImage string `yaml:"x-yugabyte-image"`
@@ -31,15 +36,22 @@ func YugabyteImage(path string) (string, error) {
 	if err != nil {
 		return "", &os.PathError{Op: "read Compose file", Path: path, Err: err}
 	}
+
 	var parsed stack
-	if err := yaml.Unmarshal(content, &parsed); err != nil {
+
+	err = yaml.Unmarshal(content, &parsed)
+	if err != nil {
 		slog.Error("compose.parse_failed", slog.String("path", path), slog.Any("error", err))
+
 		return "", fmt.Errorf("parse Compose file %s: %w", path, err)
 	}
-	if !strings.HasPrefix(parsed.YugabyteImage, YugabyteImagePrefix) ||
-		len(parsed.YugabyteImage) == len(YugabyteImagePrefix) ||
-		strings.ContainsAny(parsed.YugabyteImage, " \t\r\n") {
-		return "", fmt.Errorf("invalid or missing x-yugabyte-image value in %s", path)
+
+	image := parsed.YugabyteImage
+	if !strings.HasPrefix(image, YugabyteImagePrefix) ||
+		len(image) == len(YugabyteImagePrefix) ||
+		strings.ContainsAny(image, " \t\r\n") {
+		return "", fmt.Errorf("%w in %s", errInvalidImage, path)
 	}
-	return parsed.YugabyteImage, nil
+
+	return image, nil
 }
