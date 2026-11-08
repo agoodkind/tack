@@ -1,7 +1,9 @@
-# The ledger's engine image, declared once. The yugabyte service runs it, and
-# tack-ops receives it as TACK_BACKUP_YB_IMAGE so the backup tooling and the
-# restore drill's throwaway engine run the same version the cluster runs. See
-# the pin comment on the yugabyte service before changing the tag.
+# The yugabyte service runs this ledger engine image. tack-ops receives it
+# as TACK_BACKUP_YB_IMAGE for the backup tooling and the restore drill's
+# temporary engine. Both use the version the cluster runs.
+# YugabyteImage in internal/ci/image/upstream/upstream.go declares the same
+# image. Keep both values equal when changing either one.
+# Read the pin comment on the yugabyte service before changing the tag.
 x-yugabyte-image: &yugabyte_image yugabytedb/yugabyte:2024.2.8.0-b85
 
 # The search client environment of the app service. Compose interpolates

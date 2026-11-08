@@ -11,12 +11,17 @@ import (
 	"goodkind.io/tack/internal/ci/image/manifest"
 	"goodkind.io/tack/internal/ci/image/metadata"
 	"goodkind.io/tack/internal/ci/image/native"
+	"goodkind.io/tack/internal/ci/image/overlay"
 	"goodkind.io/tack/internal/ci/image/reference"
+	"goodkind.io/tack/internal/ci/image/upstream"
 )
 
 const commandName = "ci-image"
 
-var errUsage = errors.New("usage: ci-image digest|tags|verify-native-runner|metadata|manifest")
+var errUsage = errors.New(
+	"usage: ci-image digest|tags|verify-native-runner|metadata|" +
+		"upstream-yugabyte|manifest|overlay-drift",
+)
 
 // operationError prefixes an error with the operation name and exposes
 // the original error through Unwrap.
@@ -76,12 +81,22 @@ func NewCommand() *cobra.Command {
 			"Append build metadata to GITHUB_OUTPUT and print the selected tag or branch",
 			metadata.Write,
 		),
+		outputOperation(
+			"upstream-yugabyte",
+			"Append the pinned upstream Yugabyte image to GITHUB_OUTPUT and print it",
+			upstream.Write,
+		),
 		contextOperation(
 			"manifest",
 			"Publish one multi-platform index for the native image digests under every tag",
 			func(ctx context.Context, _ io.Writer) error {
 				return manifest.Publish(ctx)
 			},
+		),
+		contextOperation(
+			"overlay-drift",
+			"Check each vendored overlay against its pinned upstream image and patch",
+			overlay.Check,
 		),
 	)
 
