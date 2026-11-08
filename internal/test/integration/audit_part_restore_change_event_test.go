@@ -46,10 +46,19 @@ func TestAuditPartRestoreRefusesUnrelatedChangeEvents(t *testing.T) {
 			fixture := newPartRestoreRawFixture(t, admin)
 			call := fixture.call
 			current.mutate(&call)
-			before := readPartRestoreCounts(t, admin, call.changeID)
+			changeIDs := []uuid.UUID{fixture.call.changeID, call.changeID}
+			before := []partRestoreCounts{}
+
+			for _, changeID := range changeIDs {
+				before = append(before, readPartRestoreCounts(t, admin, changeID))
+			}
+
 			requirePartRestoreRefusal(t, call.run(t, operator), current.fragment)
-			if after := readPartRestoreCounts(t, admin, call.changeID); after != before {
-				t.Fatalf("counts after a refusal = %+v, want %+v (no part row and no outbox row)", after, before)
+
+			for index, changeID := range changeIDs {
+				if after := readPartRestoreCounts(t, admin, changeID); after != before[index] {
+					t.Fatalf("counts for change ID %s after a refusal = %+v, want %+v (no part row and no outbox row)", changeID, after, before[index])
+				}
 			}
 		})
 	}

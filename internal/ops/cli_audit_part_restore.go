@@ -60,15 +60,7 @@ func auditPartRestoreCobra(f *cli.Factory) *cobra.Command {
 	_ = cmd.MarkFlagRequired("manifest")
 	_ = cmd.MarkFlagRequired("manifest-sha256")
 	_ = cmd.MarkFlagRequired("target-event-id")
-	var request *auditPartRestoreRequest
-	cmd.PreRunE = func(*cobra.Command, []string) error {
-		request = nil
-		return nil
-	}
 	load := func(ctx context.Context) (auditPartRestoreRequest, error) {
-		if request != nil {
-			return *request, nil
-		}
 		targetID, err := uuid.Parse(flags.TargetEventID)
 		if err != nil {
 			return auditPartRestoreRequest{}, manifestRefused(ctx, "--target-event-id is not a UUID")
@@ -80,8 +72,8 @@ func auditPartRestoreCobra(f *cli.Factory) *cobra.Command {
 		if manifest.TargetEventID != targetID {
 			return auditPartRestoreRequest{}, manifestRefused(ctx, "manifest target_event_id differs from --target-event-id")
 		}
-		request = &auditPartRestoreRequest{manifest: manifest, fileDigest: fileDigest}
-		return *request, nil
+
+		return auditPartRestoreRequest{manifest: manifest, fileDigest: fileDigest}, nil
 	}
 	input := func() (json.RawMessage, error) { return encodeCommandInput(flags) }
 	spec := auditPartRestoreSpec()

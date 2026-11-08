@@ -68,7 +68,8 @@ func (p *partRestorePipeline) requireOperationRecords(t *testing.T, operations i
 	if len(intents) != operations || len(results) != operations {
 		t.Fatalf("operation rows = %d intents and %d results, want %d of each", len(intents), len(results), operations)
 	}
-	intent, result = intents[0], results[0]
+
+	intent, result = intents[operations-1], results[operations-1]
 	for _, row := range []audit.Row{intent, result} {
 		if row.Context.OperationClass != audit.OperationExternal || row.Context.AuditFormatVersion != audit.AuditFormatComplete ||
 			row.ActorID != p.operatorID || row.Context.Target == nil || row.Context.Target.URI != p.partURI() ||

@@ -76,9 +76,10 @@ func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
 	if againRequestID == requestID || againTraceID == traceID {
 		t.Fatalf("rerun reused request ID %s or trace ID %s", againRequestID, againTraceID)
 	}
+
+	pipeline.requireChangeRecord(t, intent, 1)
 	intent, result = pipeline.requireOperationRecords(t, 2)
-	change = pipeline.requireChangeRecord(t, intent, 1)
-	requireRowsCorrelation(t, requestID, traceID, intent, result, change)
+	requireRowsCorrelation(t, againRequestID, againTraceID, intent, result)
 }
 
 func TestAuditPartRestoreRerunAfterUnseenCommit(t *testing.T) {

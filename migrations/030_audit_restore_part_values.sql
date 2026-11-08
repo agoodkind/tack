@@ -17,7 +17,7 @@ DECLARE
     part_uri CONSTANT TEXT := 'tack:audit-event/' || p_event::TEXT || '/part/0';
     nil_uuid CONSTANT TEXT := '00000000-0000-0000-0000-000000000000';
     uuid_pattern CONSTANT TEXT := '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
-    time_pattern CONSTANT TEXT := '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$';
+    time_pattern CONSTANT TEXT := '^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$';
 BEGIN
     BEGIN
         IF change_event ->> 'event_id' IS DISTINCT FROM p_change_event_id::TEXT THEN

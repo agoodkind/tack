@@ -27,6 +27,7 @@ const (
 )
 
 const (
+	validTimeFragment    = "valid occurrence, start, or completion time"
 	nilEventIDFragment   = "change event ID is nil"
 	integerFragment      = "is not written as an integer"
 	selectionFragment    = "includes read evidence or a selection"
@@ -40,6 +41,9 @@ func contractGapMutations() []partRestoreMutation {
 	return []partRestoreMutation{
 		nilEvent,
 		headerSet("decimal context.audit_format_version", integerFragment, "context.audit_format_version", decimalFormatVersion),
+		headerSet("impossible calendar date", "does not decode", "occurred_at", `"2026-02-30T00:00:00Z"`),
+		headerSet("hour 24", validTimeFragment, "occurred_at", `"2026-01-01T24:00:00Z"`),
+		headerSet("second 60", validTimeFragment, "occurred_at", `"2026-01-01T23:59:60Z"`),
 		headerSet("selection with an unknown member", selectionFragment, "context.selection", `{"unknown":1}`),
 		headerSet("selection with a known member", selectionFragment, "context.selection", `{"reference":"issue"}`),
 	}
