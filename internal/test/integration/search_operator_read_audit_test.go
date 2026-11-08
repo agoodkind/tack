@@ -45,7 +45,7 @@ func TestSearchOperatorReadsFinalizeBeforeOutput(t *testing.T) {
 		payload := printedPayload(t, output.Bytes())
 		targets := []audit.Target{externalReference(current.reference)}
 		if current.command == "verify" {
-			targets = searchVerifyPayloadTargets(t, payload)
+			targets = searchVerifyPayloadTargets(t, printedResult(t, payload))
 			for _, uri := range wantDiagnosticURIs {
 				if !slices.ContainsFunc(targets, func(target audit.Target) bool { return target.URI == uri }) {
 					t.Fatalf("verify omitted diagnostic %s from %+v", uri, targets)
