@@ -39,36 +39,63 @@ func requiredValue(key string) (string, error) {
 	return value, nil
 }
 
+// environmentInputs contains the required environment values for the manifest
+// command: registry, owner, image name, tag file, digest directory, actor, and token.
+type environmentInputs struct {
+	registry        string
+	owner           string
+	image           string
+	tagFile         string
+	digestDirectory string
+	actor           string
+	token           string
+}
+
+// readEnvironment reads required values in a fixed order and returns an error
+// for the first missing or empty value.
+func readEnvironment() (environmentInputs, error) {
+	var values environmentInputs
+	for _, field := range []struct {
+		key    string
+		target *string
+	}{
+		{"REGISTRY", &values.registry},
+		{"IMAGE_OWNER", &values.owner},
+		{"IMAGE_NAME", &values.image},
+		{"IMAGE_TAG_FILE", &values.tagFile},
+		{"DIGEST_DIRECTORY", &values.digestDirectory},
+		{"GITHUB_ACTOR", &values.actor},
+		{"GITHUB_TOKEN", &values.token},
+	} {
+		value, err := requiredValue(field.key)
+		if err != nil {
+			return environmentInputs{}, err
+		}
+		*field.target = value
+	}
+	return values, nil
+}
+
 // readInputs validates every input before the command contacts a registry.
 func readInputs() (inputs, error) {
-	var result inputs
-	values := make(map[string]string)
-	for _, key := range []string{
-		"REGISTRY", "IMAGE_OWNER", "IMAGE_NAME", "IMAGE_TAG_FILE",
-		"DIGEST_DIRECTORY", "GITHUB_ACTOR", "GITHUB_TOKEN",
-	} {
-		value, err := requiredValue(key)
-		if err != nil {
-			return result, err
-		}
-		values[key] = value
-	}
-	tags, err := readTags(values["IMAGE_TAG_FILE"])
+	values, err := readEnvironment()
 	if err != nil {
-		return result, err
+		return inputs{}, err
 	}
-	repository := values["REGISTRY"] + "/" + values["IMAGE_OWNER"] + "/" + values["IMAGE_NAME"]
-	sources, err := readSources(repository, values["DIGEST_DIRECTORY"])
+	tags, err := readTags(values.tagFile)
 	if err != nil {
-		return result, err
+		return inputs{}, err
 	}
-	result.tags = tags
-	result.sources = sources
-	result.auth = authn.FromConfig(authn.AuthConfig{
-		Username: values["GITHUB_ACTOR"],
-		Password: values["GITHUB_TOKEN"],
-	})
-	return result, nil
+	repository := values.registry + "/" + values.owner + "/" + values.image
+	sources, err := readSources(repository, values.digestDirectory)
+	if err != nil {
+		return inputs{}, err
+	}
+	return inputs{
+		sources: sources,
+		tags:    tags,
+		auth:    authn.FromConfig(authn.AuthConfig{Username: values.actor, Password: values.token}),
+	}, nil
 }
 
 // readTags parses each non-empty line of the tag file as an image tag reference.
