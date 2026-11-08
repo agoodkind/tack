@@ -34,6 +34,12 @@ func changeOperation(ctx context.Context, verb audit.Verb, orgID uuid.UUID) (aud
 }
 
 // UserTarget returns a resource audit target for userID.
+//
+// The target uses userID as its ID and appends its string form to
+// userTargetPrefix for the URI. The other target fields are empty or
+// zero UUIDs.
+//
+//	target := UserTarget(userID)
 func UserTarget(userID uuid.UUID) audit.Target {
 	return audit.Target{
 		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: "",

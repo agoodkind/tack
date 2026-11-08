@@ -104,8 +104,18 @@ func NewBufferedRecorder(ctx context.Context, inner Recorder, overflow OutboxApp
 	return b
 }
 
+// Record records an audit event or queues it for delivery.
+//
 // Record queues read-class events except auth.token_used. It records
-// auth.token_used and non-read-class events before returning.
+// auth.token_used in the outbox when configured and otherwise calls the
+// inner recorder. It calls the inner recorder for non-read-class events.
+// After Close, it calls the inner recorder for other read-class events.
+//
+// When the queue is full, Record appends the event to the outbox if
+// configured. Without an outbox, it waits for room or returns an error
+// if retained events prevent admission, the wait expires, or ctx ends.
+//
+//	err := b.Record(ctx, event)
 func (b *BufferedRecorder) Record(ctx context.Context, event Event) error {
 	if !IsRead(Verb(event.Verb)) {
 		return b.recordThrough(ctx, event)

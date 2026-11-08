@@ -24,7 +24,12 @@ const (
 	InvalidURISegment = "invalid"
 )
 
-// ResourceTarget returns the resource target for uri.
+// ResourceTarget returns a resource audit target for uri.
+//
+// The target stores uri as its URI and sets its kind to
+// TargetKindResource. The other fields are empty or zero UUIDs.
+//
+//	target := ResourceTarget(uri)
 func ResourceTarget(uri string) Target {
 	return Target{
 		Kind: TargetKindResource, NodeType: "", Reference: "", Name: "", URI: uri,
