@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 
 	"goodkind.io/tack/internal/ci/image/imagetest"
+	"goodkind.io/tack/internal/ci/image/upstream"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 	fdbPath      = "var/fdb/scripts/fdb.bash"
 	ybPath       = "home/yugabyte/bin/yugabyted"
 
-	pinnedYugabyteImage = "yugabytedb/yugabyte:2024.2.8.0-b85"
+	pinnedYugabyteImage = upstream.YugabyteImage
 )
 
 func regular(name, content string) imagetest.Entry {
