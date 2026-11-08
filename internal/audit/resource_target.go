@@ -43,7 +43,7 @@ func ResourceTarget(uri string) Target {
 
 // NodeTarget returns the resource target for the node with nodeID.
 //
-// The URI contains nodeID. ResourceTarget leaves the UUID fields at uuid.Nil.
+// The URI contains nodeID. ResourceTarget leaves the UUID fields at [uuid.Nil].
 //
 // Layout:
 //
@@ -54,7 +54,7 @@ func NodeTarget(nodeID uuid.UUID) Target {
 
 // EventTarget returns the resource target for the audit event with eventID.
 //
-// The URI contains eventID. ResourceTarget leaves the UUID fields at uuid.Nil.
+// The URI contains eventID. ResourceTarget leaves the UUID fields at [uuid.Nil].
 //
 // Layout:
 //
