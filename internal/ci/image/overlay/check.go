@@ -73,12 +73,13 @@ func Check(ctx context.Context, log io.Writer) error {
 	if err != nil {
 		return err
 	}
+	registry := os.Getenv(registryVariable)
 	failed := false
 	for _, item := range list {
 		if err := writeLine(log, fmt.Sprintf("==> %s  (from %s:%s)", item.overlay, item.image, item.imagePath)); err != nil {
 			return err
 		}
-		problems, err := checkEntry(ctx, item)
+		problems, err := checkEntry(ctx, registry, item)
 		var extraction *extractError
 		if errors.As(err, &extraction) {
 			problems = []string{extraction.Error()}
@@ -105,8 +106,9 @@ func writeLine(log io.Writer, message string) error {
 	return nil
 }
 
-// checkEntry returns the failure messages for one entry.
-func checkEntry(ctx context.Context, item entry) ([]string, error) {
+// checkEntry returns failure messages for one entry. The caller reads registry
+// once from UPSTREAM_REGISTRY. An empty registry selects Docker Hub.
+func checkEntry(ctx context.Context, registry string, item entry) ([]string, error) {
 	var problems []string
 	for _, file := range item.vendoredFiles() {
 		if _, err := os.Stat(file); err != nil {
@@ -116,7 +118,7 @@ func checkEntry(ctx context.Context, item entry) ([]string, error) {
 	if len(problems) > 0 {
 		return problems, nil
 	}
-	upstream, err := upstreamFile(ctx, item)
+	upstream, err := upstreamFile(ctx, registry, item)
 	if err != nil {
 		return nil, &extractError{item: item, err: err}
 	}
@@ -137,10 +139,10 @@ func (e *extractError) Unwrap() error {
 	return e.err
 }
 
-// upstreamFile reads the pinned file from the linux/amd64 image with anonymous access.
-func upstreamFile(ctx context.Context, item entry) ([]byte, error) {
+// upstreamFile reads the pinned file from the linux/amd64 image with anonymous
+// access. A nonempty registry prefixes the image name with that host.
+func upstreamFile(ctx context.Context, registry string, item entry) ([]byte, error) {
 	address := item.image
-	registry := os.Getenv(registryVariable)
 	if registry != "" {
 		address = registry + "/" + item.image
 	}
