@@ -22,7 +22,9 @@ import (
 // stores the newest event time, and this request is the only token use.
 func TestRuntimeAuditTokenUseDurableBeforeSuccess(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
+
 	t.Setenv("ENV", "production")
+
 	cfg := publicConfig(t)
 	cfg.AuditKafkaBrokers, cfg.AuditKafkaTopic = testenv.Kafka(t), stack.topic
 	cfg.AuditWriterDSN, cfg.AuditAllowUnrecorded = "", false
@@ -30,12 +32,14 @@ func TestRuntimeAuditTokenUseDurableBeforeSuccess(t *testing.T) {
 	server := buildPublicServer(t, cfg, nil)
 
 	requestID := newRequestID(t, "token-use")
+
 	response := server.rpc(t, requestID, "tools/list", map[string]any{})
 	if response.status != 200 {
 		t.Fatalf("tools/list status = %d, want 200: %s", response.status, response.body)
 	}
 
 	tokenID := fixtureTokenID(t, server)
+
 	stored := outboxTokenUsed(t, server, requestID)
 	if stored.Actor.ID != server.userID || stored.Context.APITokenID != tokenID {
 		t.Fatalf("outbox auth.token_used actor = %s, token = %s, want %s and %s",
@@ -45,12 +49,16 @@ func TestRuntimeAuditTokenUseDurableBeforeSuccess(t *testing.T) {
 	ledger := startPublicLedgerOn(t, server, stack)
 	rows := ledger.requestRows(t, server.orgID, requestID, hasAuthAndOther)
 	row := requireTokenUsedRow(t, rows, server.userID)
+
 	requireTokenUsedRowFields(t, row, server.userID, tokenID, requestID)
+
 	for _, other := range rows {
-		if other.Action != string(audit.VerbAuthTokenUsed) && other.Context.OperationID != row.Context.OperationID {
+		if other.Action != string(audit.VerbAuthTokenUsed) &&
+			other.Context.OperationID != row.Context.OperationID {
 			t.Fatalf("%s row operation ID = %s, want the auth.token_used operation ID %s",
 				other.Action, other.Context.OperationID, row.Context.OperationID)
 		}
 	}
+
 	requireLastUsed(t, tokenID, row.EventTime)
 }
