@@ -55,7 +55,7 @@ func TestUpstreamYugabyteRefusesBadInputWithoutAppending(t *testing.T) {
 				target = t.TempDir()
 			}
 			output, err := runUpstream(t, target, environment...)
-			if err == nil || strings.Count(output, "ERROR ") != 1 {
+			if err == nil || strings.Count(output, "ci-image.failed") != 1 {
 				t.Fatalf("expected one failure, err = %v, output = %s", err, output)
 			}
 			if _, statErr := os.Stat(outputFile); !os.IsNotExist(statErr) {

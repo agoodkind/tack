@@ -3,12 +3,16 @@ package manifest
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
-// Publish combines the amd64 and arm64 source images into one OCI index and writes it under every tag.
-// It validates every input and reads every source before it writes any tag.
+// Publish combines the amd64 and arm64 source images into one OCI index.
+// It validates the inputs and reads both sources before writing the index
+// under each tag from IMAGE_TAG_FILE.
+// For example, the function reads amd64.digest and arm64.digest from
+// DIGEST_DIRECTORY and writes the index under each nonempty tag file line.
 func Publish(ctx context.Context) error {
 	input, err := readInputs()
 	if err != nil {
@@ -21,6 +25,7 @@ func Publish(ctx context.Context) error {
 	}
 	for _, tag := range input.tags {
 		if err := remote.WriteIndex(tag, index, options...); err != nil {
+			slog.Error("manifest.index_write_failed", slog.String("tag", tag.String()), slog.Any("error", err))
 			return fmt.Errorf("write image index %s: %w", tag, err)
 		}
 	}

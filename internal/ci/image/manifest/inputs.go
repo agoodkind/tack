@@ -4,6 +4,7 @@ package manifest
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -84,6 +85,7 @@ func readTags(path string) ([]name.Tag, error) {
 		}
 		tag, err := name.NewTag(line, name.StrictValidation)
 		if err != nil {
+			slog.Error("manifest.tag_parse_failed", slog.String("tag", line), slog.Any("error", err))
 			return nil, fmt.Errorf("parse image tag %q: %w", line, err)
 		}
 		tags = append(tags, tag)
@@ -109,6 +111,7 @@ func readSources(repository, directory string) ([]name.Digest, error) {
 		}
 		source, err := name.NewDigest(repository+"@"+digest, name.StrictValidation)
 		if err != nil {
+			slog.Error("manifest.source_parse_failed", slog.String("architecture", architecture), slog.String("digest", digest), slog.Any("error", err))
 			return nil, fmt.Errorf("parse %s image source: %w", architecture, err)
 		}
 		sources = append(sources, source)

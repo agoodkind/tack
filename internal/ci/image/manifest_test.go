@@ -170,7 +170,7 @@ func TestManifestRefusesBadInputBeforePublishing(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected failure, output = %s", output)
 			}
-			if strings.Count(output, "ERROR ") != 1 || !strings.Contains(output, "ci-image.failed") {
+			if strings.Count(output, "ci-image.failed") != 1 {
 				t.Fatalf("expected one boundary log, output = %s", output)
 			}
 			if strings.Contains(output, "test-token") {

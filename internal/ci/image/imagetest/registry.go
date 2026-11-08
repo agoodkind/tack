@@ -19,7 +19,9 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/types"
 )
 
-// StartRegistry runs an in-process OCI registry on a local listener and returns its host and port.
+// StartRegistry starts a local OCI registry for a test and returns its address.
+// It closes the server when the test finishes.
+// The returned address has the form 127.0.0.1:<port>, without http://.
 func StartRegistry(t *testing.T) string {
 	t.Helper()
 	server := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))

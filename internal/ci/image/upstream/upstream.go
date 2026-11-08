@@ -4,6 +4,7 @@ package upstream
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	"goodkind.io/tack/internal/ci/image/compose"
@@ -15,17 +16,20 @@ const (
 	outputFilePermBits = 0o666
 )
 
-// Write requires GITHUB_OUTPUT and prints the pinned Yugabyte image from
-// docker-compose.yml. After the print succeeds, it appends
-// yugabyte_image=<image> to the file specified by GITHUB_OUTPUT.
+// Write prints the pinned Yugabyte image and appends it to the workflow output file.
+// It reads the image from docker-compose.yml and requires GITHUB_OUTPUT to
+// identify the output file. It appends the output only after the print succeeds.
+// For the image yugabytedb/yugabyte:2024.2.8.0-b85, it appends
+// yugabyte_image=yugabytedb/yugabyte:2024.2.8.0-b85.
 func Write(stdout io.Writer) error {
 	outputPath, err := environment.Required("GITHUB_OUTPUT")
 	if err != nil {
-		return &os.PathError{Op: "read upstream image output file", Path: "GITHUB_OUTPUT", Err: err}
+		return &os.PathError{Op: "read output environment variable", Path: "GITHUB_OUTPUT", Err: err}
 	}
 	image, err := compose.YugabyteImage(composeFile)
 	if err != nil {
-		return fmt.Errorf("read pinned Yugabyte image: %w", err)
+		slog.Error("upstream.compose_image_failed", slog.String("path", composeFile), slog.Any("error", err))
+		return fmt.Errorf("read pinned Yugabyte image from %s: %w", composeFile, err)
 	}
 	if _, err := fmt.Fprintf(stdout, "Upstream Yugabyte image is %s\n", image); err != nil {
 		return &os.PathError{Op: "write upstream image message", Path: "stdout", Err: err}

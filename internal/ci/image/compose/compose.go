@@ -3,6 +3,7 @@ package compose
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -16,7 +17,11 @@ type stack struct {
 	YugabyteImage string `yaml:"x-yugabyte-image"`
 }
 
-// YugabyteImage returns the literal x-yugabyte-image value from the Compose file at path.
+// YugabyteImage returns the x-yugabyte-image value from a Compose file.
+// It requires the value to start with yugabytedb/yugabyte: and contain
+// a nonempty tag without whitespace.
+// For example, x-yugabyte-image: yugabytedb/yugabyte:2024.2.8.0-b85
+// returns yugabytedb/yugabyte:2024.2.8.0-b85.
 func YugabyteImage(path string) (string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -24,6 +29,7 @@ func YugabyteImage(path string) (string, error) {
 	}
 	var parsed stack
 	if err := yaml.Unmarshal(content, &parsed); err != nil {
+		slog.Error("compose.parse_failed", slog.String("path", path), slog.Any("error", err))
 		return "", fmt.Errorf("parse Compose file %s: %w", path, err)
 	}
 	if !strings.HasPrefix(parsed.YugabyteImage, YugabyteImagePrefix) ||
