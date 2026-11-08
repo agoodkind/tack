@@ -112,7 +112,7 @@ func TestAuditReaderErrorsOmitConnectionStrings(t *testing.T) {
 		{name: "refused login", dsn: parsed.String(), required: readerConnectFailure, forbidden: []string{readerConnectSecret}},
 	}
 	commands := []readerErrorCommand{
-		{args: []string{"ops", "audit", "consumer-offsets"}, rows: 1, storesFail: false},
+		{args: []string{"ops", "audit", "consumer-offsets"}, rows: 1, storesFail: true},
 		{args: []string{"ops", "audit", "dlq", "inspect"}, rows: 1, storesFail: true},
 		{args: []string{"ops", "audit", "dlq", "replay", "--limit", "1"}, rows: 2, storesFail: true},
 	}
