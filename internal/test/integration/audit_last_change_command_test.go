@@ -68,7 +68,8 @@ func builtAuditCommand(t *testing.T, readerDSN string, args ...string) builtAudi
 	return builtAuditCommandAs(t, testenv.Ledger(t), readerDSN, args...)
 }
 
-// builtAuditCommandAs runs builtAuditCommand with operatorDSN as AUDIT_OPERATOR_DSN.
+// builtAuditCommandAs runs args through the built server with operatorDSN as
+// AUDIT_OPERATOR_DSN.
 func builtAuditCommandAs(t *testing.T, operatorDSN, readerDSN string, args ...string) builtAuditRun {
 	t.Helper()
 	ledgerDSN := testenv.Ledger(t)
