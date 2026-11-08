@@ -14,7 +14,9 @@ func runUpstream(t *testing.T, directory string, environment ...string) (string,
 	t.Helper()
 	command := exec.CommandContext(t.Context(), imagetest.Path(), "upstream-yugabyte")
 	command.Dir = directory
-	command.Env = environment
+	// A nil Env inherits the parent environment, including GITHUB_OUTPUT on CI.
+	// A non-nil Env uses the listed variables, even when the slice is empty.
+	command.Env = append([]string{}, environment...)
 	output, err := command.CombinedOutput()
 	return string(output), err
 }
@@ -80,6 +82,8 @@ func TestUpstreamYugabyteRefusesBadInputWithoutAppending(t *testing.T) {
 				writeFile(t, filepath.Join(directory, "docker-compose.yml"), test.compose)
 			}
 			outputFile := filepath.Join(directory, "github-output")
+			parentOutput := filepath.Join(t.TempDir(), "parent-github-output")
+			t.Setenv("GITHUB_OUTPUT", parentOutput)
 			var environment []string
 			if test.setOutput {
 				environment = append(environment, "GITHUB_OUTPUT="+outputFile)
@@ -99,6 +103,9 @@ func TestUpstreamYugabyteRefusesBadInputWithoutAppending(t *testing.T) {
 			}
 			if _, statErr := os.Stat(outputFile); !os.IsNotExist(statErr) {
 				t.Fatalf("output file exists after a refused command: %v", statErr)
+			}
+			if _, statErr := os.Stat(parentOutput); !os.IsNotExist(statErr) {
+				t.Fatalf("inherited GITHUB_OUTPUT file exists after a refused command: %v", statErr)
 			}
 		})
 	}
