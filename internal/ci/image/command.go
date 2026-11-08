@@ -2,11 +2,13 @@
 package image
 
 import (
+	"context"
 	"errors"
 	"io"
 
 	"github.com/spf13/cobra"
 
+	"goodkind.io/tack/internal/ci/image/manifest"
 	"goodkind.io/tack/internal/ci/image/metadata"
 	"goodkind.io/tack/internal/ci/image/native"
 	"goodkind.io/tack/internal/ci/image/reference"
@@ -15,7 +17,7 @@ import (
 const commandName = "ci-image"
 
 var errUsage = errors.New(
-	"usage: ci-image digest|tags|verify-native-runner|metadata",
+	"usage: ci-image digest|tags|verify-native-runner|metadata|manifest",
 )
 
 // operationError prefixes an error with the operation name and exposes
@@ -76,6 +78,13 @@ func NewCommand() *cobra.Command {
 			"Append build metadata to GITHUB_OUTPUT and print the selected tag or branch",
 			metadata.Write,
 		),
+		contextOperation(
+			"manifest",
+			"Publish one multi-platform index for the native image digests under every tag",
+			func(ctx context.Context, _ io.Writer) error {
+				return manifest.Publish(ctx)
+			},
+		),
 	)
 
 	return root
@@ -88,6 +97,22 @@ func fileOperation(name, short string, run func() error) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			return newOperationError(name, run())
+		},
+	}
+}
+
+// contextOperation creates a subcommand for an operation that uses the
+// command context and writes progress to stderr.
+func contextOperation(
+	name, short string,
+	run func(context.Context, io.Writer) error,
+) *cobra.Command {
+	return &cobra.Command{
+		Use:   name,
+		Short: short,
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return newOperationError(name, run(command.Context(), command.ErrOrStderr()))
 		},
 	}
 }

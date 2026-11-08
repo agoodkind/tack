@@ -37,6 +37,10 @@ func metadataHelpCommand(ctx context.Context) *exec.Cmd {
 	return exec.CommandContext(ctx, "./ci-image", "metadata", helpFlag)
 }
 
+func manifestCommand(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "./ci-image", "manifest")
+}
+
 func missingOperationCommand(ctx context.Context) *exec.Cmd {
 	return exec.CommandContext(ctx, "./ci-image")
 }
