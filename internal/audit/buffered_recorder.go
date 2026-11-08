@@ -59,8 +59,20 @@ type BufferedRecorder struct {
 	overflowing atomic.Bool
 }
 
-// NewBufferedRecorder starts the flusher. ctx's values, not its cancellation,
-// reach the flusher's own contexts. overflow may be nil.
+// NewBufferedRecorder creates a buffered recorder and starts its flusher.
+//
+// A zero or negative Capacity, BatchSize, or FlushInterval uses the package
+// default for that field.
+//
+// The flusher uses the values from ctx. Canceling ctx does not stop it.
+// The caller must call Close to stop the flusher and handle its error.
+//
+// When the queue is full, Record appends the event to the outbox if
+// overflow is set. If overflow is nil, Record waits for room or returns
+// an error.
+//
+//	recorder := NewBufferedRecorder(ctx, inner, nil, BufferedConfig{})
+//	err := recorder.Close()
 func NewBufferedRecorder(ctx context.Context, inner Recorder, overflow OutboxAppender, cfg BufferedConfig) *BufferedRecorder {
 	if cfg.Capacity <= 0 {
 		cfg.Capacity = defaultBufferedCapacity
@@ -69,6 +81,7 @@ func NewBufferedRecorder(ctx context.Context, inner Recorder, overflow OutboxApp
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = defaultBufferedBatchSize
 	}
+
 	if cfg.FlushInterval <= 0 {
 		cfg.FlushInterval = defaultBufferedFlushInterval
 	}
@@ -159,39 +172,6 @@ func (b *BufferedRecorder) recordThrough(ctx context.Context, ev Event) error {
 
 		return fmt.Errorf("record %s through buffer: %w", ev.Verb, err)
 	}
-	return nil
-}
 
-// Close stops the buffered recorder's flusher and closes inner if supported.
-//
-// Close stops queue admission and waits for the flusher to drain queued
-// and retained events. The flusher retries delivery until it succeeds or
-// closeDeliveryTimeout expires. It logs and counts any events still
-// undelivered after the deadline.
-//
-// After Close stops queue admission, Record sends ordinary read-class
-// events directly to inner. Record also uses inner for calls waiting for
-// queue room when Close stops admission. Each Close call waits for the
-// flusher and calls inner.Close if inner supports it. Close wraps and
-// returns an error from inner.Close; it does not return delivery errors.
-//
-//	err := b.Close()
-func (b *BufferedRecorder) Close() error {
-	b.closeOnce.Do(func() {
-		b.stopping.Lock()
-		b.closed = true
-		close(b.done)
-		b.stopping.Unlock()
-	})
-	<-b.drained
-	switch recorder := b.inner.(type) {
-	case interface{ Close() error }:
-		if err := recorder.Close(); err != nil {
-			slog.Error("audit.buffer.inner_close_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("close buffered inner: %w", err)
-		}
-	case interface{ Close() }:
-		recorder.Close()
-	}
 	return nil
 }

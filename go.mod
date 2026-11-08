@@ -11,7 +11,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.11
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.5
 	github.com/aws/smithy-go v1.28.6
-	github.com/bluekeyes/go-gitdiff v0.8.1
 	github.com/brianvoe/gofakeit/v7 v7.18.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/compose-spec/compose-go/v2 v2.16.2
