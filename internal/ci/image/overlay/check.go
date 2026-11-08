@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	"goodkind.io/tack/internal/ci/image/upstream"
@@ -84,6 +85,12 @@ func Check(ctx context.Context, log io.Writer) error {
 
 		extraction, isExtraction := errors.AsType[*extractError](err)
 		if isExtraction {
+			missing, isPath := errors.AsType[*os.PathError](err)
+			if isPath && errors.Is(missing.Err, errNotRegular) {
+				slog.Error("overlay.file_missing",
+					slog.String("path", missing.Path), slog.Any("error", errNotRegular))
+			}
+
 			problems = []string{extraction.Error()}
 		} else if err != nil {
 			return err

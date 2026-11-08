@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -55,13 +56,7 @@ func readFile(ctx context.Context, image v1.Image, imagePath string) ([]byte, er
 	}
 
 	if !result.found {
-		slog.Error(
-			"overlay.file_missing",
-			slog.String("path", resolved),
-			slog.Any("error", errNotRegular),
-		)
-
-		return nil, fmt.Errorf("read image file %s: %w", resolved, errNotRegular)
+		return nil, &os.PathError{Op: "read image file", Path: resolved, Err: errNotRegular}
 	}
 
 	return result.content, nil
