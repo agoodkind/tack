@@ -12,6 +12,11 @@ var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
 const digestDirectoryPermBits = 0o777
 
+// IsDigest reports whether value is a lowercase sha256 image digest.
+func IsDigest(value string) bool {
+	return digestPattern.MatchString(value)
+}
+
 // WriteDigest validates the architecture and SHA256 digest, then writes the digest to DIGEST_DIRECTORY in a file named after IMAGE_ARCH.
 func WriteDigest() error {
 	architecture, err := environment.Required("IMAGE_ARCH")
