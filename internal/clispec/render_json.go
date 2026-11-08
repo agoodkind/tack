@@ -18,7 +18,10 @@ import (
 //
 // Example:
 //
-//	body, err := RenderJSON(ctx, cli.FormatJSON, payload)
+//	payload := json.RawMessage(`{"count":2}`)
+//	body, err := RenderJSON(ctx, cli.FormatText, payload)
+//
+// On success, string(body) equals "{\n  \"count\": 2\n}".
 func RenderJSON(ctx context.Context, format string, payload json.RawMessage) ([]byte, error) {
 	if format == cli.FormatJSON {
 		body, err := response.Marshal(ctx, payload)
