@@ -37,11 +37,11 @@ type inputs struct {
 func requiredValue(key string) (string, error) {
 	value, err := environment.Required(key)
 	if err != nil {
-		return "", &os.PathError{Op: "read manifest input", Path: key, Err: err}
+		return "", &environmentError{key: key, err: err}
 	}
 
 	if value == "" {
-		return "", &os.PathError{Op: "read manifest input", Path: key, Err: errEmptyInput}
+		return "", &environmentError{key: key, err: errEmptyInput}
 	}
 
 	return value, nil
