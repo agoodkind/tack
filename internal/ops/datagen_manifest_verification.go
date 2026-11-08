@@ -31,6 +31,26 @@ type datagenManifestVerificationReport struct {
 
 // verifyDatagenManifest runs the registered command against the selected generated read.
 func verifyDatagenManifest(ctx context.Context, factory *cli.Factory, orgID uuid.UUID, requestID string, started time.Time) (*datagenManifestVerificationReport, error) {
+	selection := datagenReportSelection{
+		Report: "ops.qa.datagen.manifest_verification", OrgIDs: []uuid.UUID{orgID}, RequestID: requestID,
+		Oldest: started, Latest: clock.Now().Add(datagenManifestWait + time.Minute),
+		Wait: datagenManifestWait.String(), Poll: datagenManifestPoll.String(),
+	}
+	report, err := recordDatagenReport(ctx, factory, datagenVerbReportSpec(orgID), selection,
+		func(ctx context.Context) (datagenManifestVerificationReport, []audit.Target, error) {
+			verified, err := pollDatagenManifest(ctx, factory, orgID, requestID, started, selection.Latest)
+			if err != nil {
+				return datagenManifestVerificationReport{}, nil, err
+			}
+			return *verified, []audit.Target{audit.EventTarget(verified.EventID)}, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+	return &report, nil
+}
+
+func pollDatagenManifest(ctx context.Context, factory *cli.Factory, orgID uuid.UUID, requestID string, started, latest time.Time) (*datagenManifestVerificationReport, error) {
 	if orgID == uuid.Nil || requestID == "" {
 		return nil, fmt.Errorf("the QA seed did not provide a read request identity")
 	}
@@ -45,7 +65,7 @@ func verifyDatagenManifest(ctx context.Context, factory *cli.Factory, orgID uuid
 	ticker := time.NewTicker(datagenManifestPoll)
 	defer ticker.Stop()
 	for {
-		eventID, err := reader.ReadEventByRequest(ctx, orgID, requestID, started, clock.Now().Add(time.Minute))
+		eventID, err := reader.ReadEventByRequest(ctx, orgID, requestID, started, latest)
 		if err != nil {
 			return nil, fmt.Errorf("find a QA read manifest: %w", err)
 		}

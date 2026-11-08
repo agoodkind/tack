@@ -107,7 +107,7 @@ func runDatagenSeed(
 	var commitOrder *datagenCommitOrderReport
 	var manifestVerification *datagenManifestVerificationReport
 	if input.Commit {
-		report, readErr := readAuditConsumerOffsets(ctx, factory)
+		report, readErr := readDatagenConsumerOffsets(ctx, factory)
 		if readErr != nil {
 			return fmt.Errorf("qa datagen seed: %w", readErr)
 		}

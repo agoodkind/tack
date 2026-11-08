@@ -24,6 +24,13 @@ const (
 // the ledger stores at least one row of every verb. It returns an error that
 // lists the verbs without rows after datagenSessionRowsWait.
 func awaitDatagenSearchSessionVerbs(ctx context.Context, f *cli.Factory, orgID uuid.UUID) (datagenLedgerVerbsReport, error) {
+	return recordDatagenVerbReport(ctx, f, orgID, "ops.qa.datagen.search_session_verbs", datagenSearchSessionVerbs, true,
+		func(ctx context.Context) (datagenLedgerVerbsReport, error) {
+			return pollDatagenSearchSessionVerbs(ctx, f, orgID)
+		})
+}
+
+func pollDatagenSearchSessionVerbs(ctx context.Context, f *cli.Factory, orgID uuid.UUID) (datagenLedgerVerbsReport, error) {
 	deadline := clock.Now().Add(datagenSessionRowsWait)
 	for {
 		report, err := readDatagenSearchSessionVerbs(ctx, f, orgID)

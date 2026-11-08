@@ -42,6 +42,7 @@ func addDatagenCommandCases(cases map[string]coverageCase) {
 			},
 		}
 	})
+	cases["command ops qa datagen seed"] = withDatagenReportCoverage(cases["command ops qa datagen seed"], false)
 	cases["command ops qa datagen soak"] = commandCase(audit.VerbOpsDatagenSoak, audit.OutcomeOK, func(*testing.T, *coverageEnv) commandInput {
 		return commandInput{
 			args: []string{"ops", "qa", "datagen", "soak", "--duration", "1s", "--max-ops", "1", "--commit"}, outbox: nil, configure: localTarget,
@@ -83,6 +84,9 @@ func addDatagenCommandCases(cases map[string]coverageCase) {
 				}
 			}),
 		)
+		if name == "search" {
+			cases["command ops qa datagen "+name] = withDatagenReportCoverage(cases["command ops qa datagen "+name], true)
+		}
 	}
 }
 

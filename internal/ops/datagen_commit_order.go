@@ -39,6 +39,32 @@ type datagenCommitOrderReport struct {
 // commit version, and distinct commit versions that appear in multiple node
 // rows.
 func readDatagenCommitOrder(ctx context.Context, f *cli.Factory, scaleName string, seed int64, now time.Time) (datagenCommitOrderReport, error) {
+	scale, err := datagen.ParseScale(scaleName)
+	if err != nil {
+		return datagenCommitOrderReport{}, fmt.Errorf("read the commit order: %w", err)
+	}
+	orgIDs := []uuid.UUID{}
+	seen := map[uuid.UUID]bool{}
+	for _, workspace := range datagen.PlanIdentities(f.Cfg, seed, scale).Workspaces {
+		if !seen[workspace.OrgID] {
+			orgIDs = append(orgIDs, workspace.OrgID)
+			seen[workspace.OrgID] = true
+		}
+	}
+	selection := datagenReportSelection{
+		Report: "ops.qa.datagen.commit_order", OrgIDs: orgIDs,
+		Oldest: now.Add(-datagenCommitOrderWindow), Latest: now.Add(time.Minute),
+		LimitPerOrg: datagenCommitOrderRows, EntityKind: "node",
+	}
+	target := externalTarget("audit/datagen/commit-order")
+	return recordDatagenReport(ctx, f, readSpec(audit.VerbAuditRead, target.Reference), selection,
+		func(ctx context.Context) (datagenCommitOrderReport, []audit.Target, error) {
+			report, err := readDatagenCommitOrderRows(ctx, f, orgIDs, now)
+			return report, []audit.Target{target}, err
+		})
+}
+
+func readDatagenCommitOrderRows(ctx context.Context, f *cli.Factory, orgIDs []uuid.UUID, now time.Time) (datagenCommitOrderReport, error) {
 	report := datagenCommitOrderReport{
 		Command: "ops.qa.datagen.commit_order", ReadAt: now.Format(time.RFC3339Nano), NodeRows: 0, CommitVersions: 0, Duplicates: 0,
 	}
@@ -47,10 +73,6 @@ func readDatagenCommitOrder(ctx context.Context, f *cli.Factory, scaleName strin
 		slog.ErrorContext(ctx, "qa.datagen.commit_order_config_missing", slog.String("err", err.Error()))
 		return report, err
 	}
-	scale, err := datagen.ParseScale(scaleName)
-	if err != nil {
-		return report, fmt.Errorf("read the commit order: %w", err)
-	}
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 	if err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.commit_order_reader_failed", slog.String("err", err.Error()))
@@ -58,18 +80,13 @@ func readDatagenCommitOrder(ctx context.Context, f *cli.Factory, scaleName strin
 	}
 	defer reader.Close()
 	seen := map[string]int{}
-	read := map[uuid.UUID]bool{}
-	for _, workspace := range datagen.PlanIdentities(f.Cfg, seed, scale).Workspaces {
-		if read[workspace.OrgID] {
-			continue
-		}
-		read[workspace.OrgID] = true
+	for _, orgID := range orgIDs {
 		page, err := reader.QueryPage(ctx, audit.QueryFilter{
-			OrgID: workspace.OrgID, Oldest: now.Add(-datagenCommitOrderWindow), Latest: now.Add(time.Minute),
+			OrgID: orgID, Oldest: now.Add(-datagenCommitOrderWindow), Latest: now.Add(time.Minute),
 			Action: "", ActorID: uuid.Nil, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: datagenCommitOrderRows,
 		}, "")
 		if err != nil {
-			wrapped := fmt.Errorf("read the ledger rows of organization %s: %w", workspace.OrgID, err)
+			wrapped := fmt.Errorf("read the ledger rows of organization %s: %w", orgID, err)
 			slog.ErrorContext(ctx, "qa.datagen.commit_order_failed", slog.String("err", wrapped.Error()))
 			return report, wrapped
 		}

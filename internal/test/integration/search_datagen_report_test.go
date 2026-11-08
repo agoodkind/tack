@@ -18,6 +18,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 	"goodkind.io/tack/internal/ops"
 	"goodkind.io/tack/internal/test/integration"
+	"goodkind.io/tack/internal/testenv"
 )
 
 // sessionVerbCount counts the verbs in the ops qa datagen search report.
@@ -35,11 +36,12 @@ var relevanceProbeQueries = []string{"restart containers one by one", "rolling D
 func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 	cfg := newCohortEngines(t)
 	cfg.AuditReaderDSN = cfg.DatabaseURL
-	startPublicLedgerOn(t, &publicServer{clusterFile: cfg.FDBClusterFile}, startRuntimeAuditStack(t))
+	ledger := startPublicLedgerOn(t, &publicServer{clusterFile: cfg.FDBClusterFile}, startRuntimeAuditStack(t))
 	output, err := runDatagenSearchCommand(t, cfg, "--commit")
 	if err != nil {
 		t.Fatalf("execute ops qa datagen search: %v; output=%s", err, output)
 	}
+	requireDatagenSearchReportEvidence(t, ledger, output)
 	var envelope struct {
 		Result struct {
 			Verified     bool                        `json:"verified"`
@@ -152,6 +154,6 @@ func runAuditedCommand(t *testing.T, cfg *config.Config, command ...string) ([]b
 	root.SetArgs(append([]string{
 		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30", "--operator-email", "operator@example.com", "--operator-name", "Search Test",
 	}, command...))
-	err = root.ExecuteContext(t.Context())
+	err = root.ExecuteContext(testenv.CommandContext(t))
 	return output.Bytes(), err
 }

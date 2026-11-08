@@ -58,6 +58,7 @@ func newCompleteOperatorEvent(
 	now := clock.Now().UTC()
 	eventTarget := target
 	correlation := response.FromContext(ctx)
+	parentOperationID, _ := audit.OpIDFromContext(ctx)
 	return audit.Event{
 		Verb: spec.Verb, EventID: uuid.Must(uuid.NewV7()),
 		Actor: audit.Actor{
@@ -72,7 +73,7 @@ func newCompleteOperatorEvent(
 			RequestID: correlation.RequestID, TraceID: correlation.TraceID,
 			Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
 			AuditFormatVersion: audit.AuditFormatComplete, OperationClass: spec.Class, Phase: phase,
-			OperationID: operationID, ParentOperationID: uuid.Nil, StartedAt: now, CompletedAt: time.Time{},
+			OperationID: operationID, ParentOperationID: parentOperationID, StartedAt: now, CompletedAt: time.Time{},
 			Target: &eventTarget, Read: nil, CommittedSteps: nil,
 		},
 		Delta: nil, Outcome: "", Error: nil, IdempotencyKey: "", OccurredAt: now, Extra: extra,

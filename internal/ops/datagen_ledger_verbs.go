@@ -73,9 +73,9 @@ var datagenSearchSessionVerbs = []string{
 }
 
 // readDatagenLedgerVerbs reads the presence of each host-only ledger verb
-// through AUDIT_READER_DSN. It records nothing of its own.
+// through AUDIT_READER_DSN after admitting the report read.
 func readDatagenLedgerVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
-	return readDatagenVerbPresence(ctx, f, audit.SystemOrgID(), "ops.qa.datagen.ledger_verbs", datagenLedgerVerbs)
+	return readRecordedDatagenVerbPresence(ctx, f, "ops.qa.datagen.ledger_verbs", datagenLedgerVerbs)
 }
 
 // readDatagenSearchSessionVerbs reads the presence of each search session
@@ -86,17 +86,22 @@ func readDatagenSearchSessionVerbs(ctx context.Context, f *cli.Factory, orgID uu
 }
 
 // readDatagenSearchAccessVerbs reads the presence of each access rollout
-// and rollback verb through AUDIT_READER_DSN. It does not record events
-// of its own.
+// and rollback verb through AUDIT_READER_DSN after admitting the report read.
 func readDatagenSearchAccessVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
-	return readDatagenVerbPresence(ctx, f, audit.SystemOrgID(), "ops.qa.datagen.search_access_verbs", datagenSearchAccessVerbs)
+	return readRecordedDatagenVerbPresence(ctx, f, "ops.qa.datagen.search_access_verbs", datagenSearchAccessVerbs)
 }
 
 // readDatagenSearchSettingsVerbs reads the presence of the ops search
-// settings verb through AUDIT_READER_DSN. It does not record events of its
-// own.
+// settings verb through AUDIT_READER_DSN after admitting the report read.
 func readDatagenSearchSettingsVerbs(ctx context.Context, f *cli.Factory) (datagenLedgerVerbsReport, error) {
-	return readDatagenVerbPresence(ctx, f, audit.SystemOrgID(), "ops.qa.datagen.search_settings_verbs", datagenSearchSettingsVerbs)
+	return readRecordedDatagenVerbPresence(ctx, f, "ops.qa.datagen.search_settings_verbs", datagenSearchSettingsVerbs)
+}
+
+func readRecordedDatagenVerbPresence(ctx context.Context, f *cli.Factory, command string, verbs []string) (datagenLedgerVerbsReport, error) {
+	return recordDatagenVerbReport(ctx, f, audit.SystemOrgID(), command, verbs, false,
+		func(ctx context.Context) (datagenLedgerVerbsReport, error) {
+			return readDatagenVerbPresence(ctx, f, audit.SystemOrgID(), command, verbs)
+		})
 }
 
 // readDatagenVerbPresence reads the row count and newest event time of
