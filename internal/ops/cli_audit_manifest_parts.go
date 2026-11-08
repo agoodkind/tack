@@ -47,6 +47,13 @@ type auditManifestPartEntry struct {
 }
 
 // AuditReadTargets returns one read target for each returned part.
+//
+// The target order matches Parts. Each URI includes EventID and the part's
+// decimal Index.
+//
+// Layout:
+//
+//	tack:audit-event/<EventID>/part/<Index>
 func (r auditManifestPartsResult) AuditReadTargets() ([]audit.Target, error) {
 	targets := make([]audit.Target, 0, len(r.Parts))
 	for _, part := range r.Parts {

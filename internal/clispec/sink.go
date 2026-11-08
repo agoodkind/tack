@@ -45,6 +45,15 @@ type ResultSink interface {
 }
 
 // WriteJSONValue marshals a typed result and writes it through the sink.
+//
+// The function also calls AuditReadTargets when value implements ReadResult
+// and the sink collects read identities. Serialization or target-collection
+// errors prevent the sink write.
+//
+// Layout:
+//
+//	JSON payload:    json.Marshal(value)
+//	Read identities: value.AuditReadTargets() for a collecting read sink
 func WriteJSONValue(ctx context.Context, sink ResultSink, value Result) error {
 	body, err := json.Marshal(value)
 	if err != nil {
@@ -74,12 +83,27 @@ type CLISink struct {
 }
 
 // NewCLISink builds a sink that writes through f.
+//
+// The sink reads the selected output format from f when it writes. It adds
+// available metadata before its first text result.
+//
+// Example:
+//
+//	sink := NewCLISink(factory)
+//	err := sink.WriteJSON(ctx, json.RawMessage(`{"count":2}`))
 func NewCLISink(f *cli.Factory) *CLISink {
 	return &CLISink{f: f, wrote: false}
 }
 
-// WriteJSON renders a JSON payload. In json mode it is the envelope payload; in
-// text mode it is indented JSON under the trace header.
+// WriteJSON writes a JSON value in the selected CLI output format.
+//
+// JSON mode wraps the value with response metadata. Text mode indents the
+// value and adds available metadata before the first text result.
+//
+// Layout:
+//
+//	JSON: {"_meta": {...}, "result": <payload>}
+//	Text: #meta ... followed by indented <payload>
 func (s *CLISink) WriteJSON(ctx context.Context, payload json.RawMessage) error {
 	body, err := RenderJSON(ctx, s.f.OutputFormat(), payload)
 	if err != nil {
@@ -91,8 +115,16 @@ func (s *CLISink) WriteJSON(ctx context.Context, payload json.RawMessage) error 
 	return s.writeText(ctx, string(body))
 }
 
-// WriteText renders a human line. In json mode the line becomes the envelope's
-// result string so json output stays valid JSON.
+// WriteText writes a string in the selected CLI output format.
+//
+// JSON mode encodes body as the envelope's result string. Text mode writes
+// body with available metadata before the first result and ensures a final
+// newline.
+//
+// Layout:
+//
+//	JSON result: "<body>"
+//	Text body:   body
 func (s *CLISink) WriteText(ctx context.Context, body string) error {
 	if s.f.OutputFormat() == cli.FormatJSON {
 		quoted, err := json.Marshal(body)
