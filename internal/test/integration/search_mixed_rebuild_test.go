@@ -25,17 +25,40 @@ const searchMixedOperatorID = "019dd226-440e-729a-a442-281aaf73ca30"
 func requireSearchMixedReindexAudit(t *testing.T, targetIndex string) {
 	t.Helper()
 	pool := ledgerAdminPool(t)
+	commands := opsoutbox.Events(t, pool, opsoutbox.Filter{
+		Verb: audit.VerbOpsDatagenSoak, Path: []string{"actor", "id"}, Value: searchMixedOperatorID,
+	})
+	var completed []audit.Event
+	for _, command := range commands {
+		if command.Outcome == audit.OutcomeOK {
+			completed = append(completed, command)
+		}
+	}
+	if len(completed) != 1 {
+		t.Fatalf("qa datagen search-mixed: the enclosing command recorded %d successful outcomes instead of 1", len(completed))
+	}
+	var enclosing struct {
+		OperationID uuid.UUID `json:"op_id"`
+	}
+	if err := json.Unmarshal(completed[0].Extra, &enclosing); err != nil || enclosing.OperationID == uuid.Nil {
+		t.Fatalf("qa datagen search-mixed: the successful enclosing command did not record its operation ID: %v", err)
+	}
 	events := opsoutbox.Events(t, pool, opsoutbox.Filter{
 		Verb: audit.VerbOpsSearchReindex, Path: []string{"actor", "id"}, Value: searchMixedOperatorID,
 	})
-	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
+	intents := eventsInPhase(events, audit.PhaseIntent, enclosing.OperationID)
 	if len(intents) != 1 {
 		t.Fatalf("qa datagen search-mixed: the reindex operation recorded %d intent events instead of 1", len(intents))
 	}
 	operationID := intents[0].Context.OperationID
+	if operationID == uuid.Nil || operationID == enclosing.OperationID {
+		t.Fatalf("qa datagen search-mixed: reindex operation %s must differ from enclosing operation %s", operationID, enclosing.OperationID)
+	}
+	stepIntents := eventsInPhase(events, audit.PhaseIntent, operationID)
 	stepResults := eventsInPhase(events, audit.PhaseResult, operationID)
-	if len(stepResults) != 1 || stepResults[0].Outcome != audit.OutcomeCompleted {
-		t.Fatalf("qa datagen search-mixed: reindex operation %s did not record exactly one completed step result; the test found %d step results", operationID, len(stepResults))
+	if len(events) != 4 || len(stepIntents) != 1 || len(stepResults) != 1 || stepResults[0].Outcome != audit.OutcomeCompleted ||
+		stepResults[0].Context.OperationID != stepIntents[0].Context.OperationID {
+		t.Fatalf("qa datagen search-mixed: reindex operation %s recorded %d events with %d step intents and %d step results instead of one completed step", operationID, len(events), len(stepIntents), len(stepResults))
 	}
 	var evidence struct {
 		TargetIndex string `json:"target_index"`
@@ -43,7 +66,12 @@ func requireSearchMixedReindexAudit(t *testing.T, targetIndex string) {
 	if err := json.Unmarshal(stepResults[0].Extra, &evidence); err != nil || evidence.TargetIndex != targetIndex {
 		t.Fatalf("qa datagen search-mixed: the reindex step evidence did not decode to the expected target index (recorded=%q, expected=%q, decode error=%v)", evidence.TargetIndex, targetIndex, err)
 	}
-	requireCompletedResult(t, eventsOfOperation(events, operationID), operationID)
+	results := eventsInPhase(events, audit.PhaseResult, enclosing.OperationID)
+	if len(results) != 1 || results[0].Context.OperationID != operationID || results[0].Outcome != audit.OutcomeCompleted {
+		t.Fatalf("qa datagen search-mixed: reindex operation %s recorded %d results instead of one completed result under enclosing operation %s", operationID, len(results), enclosing.OperationID)
+	}
+	t.Logf("reindex operation=%s parent=%s intent=%s result=%s step=%s target_index=%s outcome=%s",
+		operationID, enclosing.OperationID, intents[0].EventID, results[0].EventID, stepResults[0].Context.OperationID, evidence.TargetIndex, results[0].Outcome)
 }
 
 func deleteSearchMixedIndex(t *testing.T, cfg *config.Config, index string) {

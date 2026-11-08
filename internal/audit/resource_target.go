@@ -43,7 +43,7 @@ func ResourceTarget(uri string) Target {
 
 // NodeTarget returns the resource target for the node with nodeID.
 //
-// The URI contains nodeID. ResourceTarget leaves the UUID fields at [uuid.Nil].
+// The URI contains nodeID. ResourceTarget sets the UUID fields to [uuid.Nil].
 //
 // Layout:
 //
@@ -54,7 +54,7 @@ func NodeTarget(nodeID uuid.UUID) Target {
 
 // EventTarget returns the resource target for the audit event with eventID.
 //
-// The URI contains eventID. ResourceTarget leaves the UUID fields at [uuid.Nil].
+// The URI contains eventID. ResourceTarget sets the UUID fields to [uuid.Nil].
 //
 // Layout:
 //
@@ -84,8 +84,8 @@ func CanonicalUUID(value string) string {
 // ResourceURI returns prefix followed by the canonical form of value. When value
 // is not a UUID, it returns prefix followed by InvalidURISegment.
 //
-// CanonicalUUID validates the identifier. The function preserves prefix and
-// substitutes the fixed invalid segment for malformed identifiers.
+// Audit reads select their target before the command validates identifiers.
+// The invalid segment lets those reads record malformed input refusals.
 //
 // Example:
 //
