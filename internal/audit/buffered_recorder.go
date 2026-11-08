@@ -1,8 +1,6 @@
-// buffered_recorder.go takes read-class audit events off the request path: a
-// request hands its event to an in-process queue and answers, and a flusher
-// delivers the queue in batches (TACK-506). State-change events keep their
-// synchronous path, because a write must not answer before its ledger row is
-// on its way.
+// buffered_recorder.go queues read-class audit events for a flusher to deliver
+// in batches (TACK-506). The recorder stores auth.token_used before returning.
+// It also records state-change events synchronously before the request returns.
 
 package audit
 
@@ -36,11 +34,9 @@ const (
 	batchFlushTimeout = 30 * time.Second
 )
 
-// BufferedRecorder queues read-class events and delivers them in batches
-// through inner. The flusher retains each event that inner did not accept and
-// delivers it again later. Record appends an event that finds the queue full
-// to overflow, the durable outbox the relay drains, and returns an error when
-// that append fails. With no overflow configured the request waits for room.
+// BufferedRecorder queues read-class events except auth.token_used, which it
+// records before returning. When the queue is full, it appends events to the
+// outbox if configured and otherwise waits for room.
 type BufferedRecorder struct {
 	inner         Recorder
 	overflow      OutboxAppender
@@ -106,11 +102,14 @@ func NewBufferedRecorder(ctx context.Context, inner Recorder, overflow OutboxApp
 	return b
 }
 
-// Record queues a read-class event and returns at once, and records any other
-// event through inner before returning.
+// Record queues read-class events except auth.token_used. It records
+// auth.token_used and non-read-class events before returning.
 func (b *BufferedRecorder) Record(ctx context.Context, ev Event) error {
 	if !IsRead(Verb(ev.Verb)) {
 		return b.recordThrough(ctx, ev)
+	}
+	if needsDurableAdmission(Verb(ev.Verb)) {
+		return b.recordDurably(ctx, ev)
 	}
 	b.stopping.RLock()
 	if b.closed {
