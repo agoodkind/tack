@@ -97,35 +97,46 @@ func NewBufferedRecorder(ctx context.Context, inner Recorder, overflow OutboxApp
 			}
 			close(b.drained)
 		}()
+
 		b.run(flusherCtx)
 	}()
+
 	return b
 }
 
 // Record queues read-class events except auth.token_used. It records
 // auth.token_used and non-read-class events before returning.
-func (b *BufferedRecorder) Record(ctx context.Context, ev Event) error {
-	if !IsRead(Verb(ev.Verb)) {
-		return b.recordThrough(ctx, ev)
+func (b *BufferedRecorder) Record(ctx context.Context, event Event) error {
+	if !IsRead(Verb(event.Verb)) {
+		return b.recordThrough(ctx, event)
 	}
-	if needsDurableAdmission(Verb(ev.Verb)) {
-		return b.recordDurably(ctx, ev)
+
+	if needsDurableAdmission(Verb(event.Verb)) {
+		return b.recordDurably(ctx, event)
 	}
+
 	b.stopping.RLock()
+
 	if b.closed {
 		b.stopping.RUnlock()
-		return b.recordThrough(ctx, ev)
+
+		return b.recordThrough(ctx, event)
 	}
-	if b.room.tryAdmit(ev) {
+
+	if b.room.tryAdmit(event) {
 		b.stopping.RUnlock()
 		b.noteRoom(ctx)
+
 		return nil
 	}
+
 	b.stopping.RUnlock()
+
 	if b.overflow == nil {
-		return b.waitForRoom(ctx, ev)
+		return b.waitForRoom(ctx, event)
 	}
-	return b.overflowed(ctx, ev)
+
+	return b.overflowed(ctx, event)
 }
 
 // recordThrough hands one event to inner on the caller's own path.

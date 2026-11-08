@@ -31,7 +31,9 @@ const (
 // api_tokens.last_used must equal the event time.
 func TestRuntimeAuditTokenUseSurvivesBrokerOutage(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
+
 	t.Setenv("ENV", "production")
+
 	cfg := publicConfig(t)
 	cfg.AuditKafkaBrokers, cfg.AuditKafkaTopic = testenv.Kafka(t), stack.topic
 	cfg.AuditWriterDSN, cfg.AuditAllowUnrecorded = "", false
@@ -39,6 +41,7 @@ func TestRuntimeAuditTokenUseSurvivesBrokerOutage(t *testing.T) {
 	server := buildPublicServer(t, cfg, nil)
 
 	requestID := newRequestID(t, "token-use-outage")
+
 	response := server.rpc(t, requestID, "tools/list", map[string]any{})
 	if response.status != 200 {
 		t.Fatalf("tools/list status = %d, want 200: %s", response.status, response.body)
@@ -48,23 +51,29 @@ func TestRuntimeAuditTokenUseSurvivesBrokerOutage(t *testing.T) {
 		Brokers: []string{tokenUseUnreachableBroker}, Topic: stack.topic, YugabyteDSN: testenv.Ledger(t),
 		FDBClusterFile: server.clusterFile, FDBTransactionTimeout: tokenUseOutboxTimeout,
 		PollInterval: tokenUseRelayPoll, BatchSize: tokenUseRelayBatch,
+		LeaseDuration: 0, AfterProduce: nil, AfterLeaseAcquired: nil,
 	})
 	if err != nil {
 		t.Fatalf("auditrelay.Open failed for the unreachable broker: %v", err)
 	}
+
 	outage.Relay.Start(t.Context())
 	time.Sleep(tokenUseOutageWait)
 	outboxTokenUsed(t, server, requestID)
 	requireNoLedgerTokenUsed(t, stack.reader, server.orgID, requestID)
-	if err := outage.Relay.Close(); err != nil {
+
+	err = outage.Relay.Close()
+	if err != nil {
 		t.Fatalf("closing the outage relay failed: %v", err)
 	}
+
 	outage.Pool.Close()
 
 	ledger := startPublicLedgerOn(t, server, stack)
 	rows := ledger.requestRows(t, server.orgID, requestID, hasAuthAndOther)
 	row := requireTokenUsedRow(t, rows, server.userID)
 	tokenID := fixtureTokenID(t, server)
+
 	requireTokenUsedRowFields(t, row, server.userID, tokenID, requestID)
 	requireLastUsed(t, tokenID, row.EventTime)
 }
@@ -73,6 +82,7 @@ func TestRuntimeAuditTokenUseSurvivesBrokerOutage(t *testing.T) {
 // auth.token_used row for requestID.
 func requireNoLedgerTokenUsed(t *testing.T, reader *audit.Reader, orgID uuid.UUID, requestID string) {
 	t.Helper()
+
 	rows := tokenUsedRows(t, reader, orgID, requestID)
 	if len(rows) != 0 {
 		t.Fatalf("ledger has %d auth.token_used rows for request %s, want 0", len(rows), requestID)
