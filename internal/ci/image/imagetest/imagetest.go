@@ -66,7 +66,13 @@ func RunTests(m *testing.M) int {
 	return result
 }
 
-// Path returns the path to the image command built by RunTests.
+// Path returns the filesystem path of the ci-image executable.
+// RunTests builds the executable before it runs the tests. Path returns
+// an empty string before RunTests starts.
+//
+// Tests can pass the path to exec.CommandContext:
+//
+//	command := exec.CommandContext(t.Context(), imagetest.Path(), arguments...)
 func Path() string {
 	return commandPath
 }

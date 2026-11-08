@@ -63,6 +63,7 @@ func newRepository(t *testing.T) (*git.Repository, string) {
 		t.Fatal(err)
 	}
 	commitFile(t, repository, "first")
+
 	return repository, root
 }
 

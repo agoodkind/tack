@@ -83,6 +83,7 @@ func classifyTag(
 	head plumbing.Hash,
 ) (exactTag, bool, error) {
 	var none exactTag
+
 	name := reference.Name().Short()
 	if reference.Hash() == head {
 		return exactTag{name: name, priority: lightweightTagPriority, date: 0}, true, nil

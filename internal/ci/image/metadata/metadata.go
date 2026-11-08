@@ -102,9 +102,11 @@ func Write(stdout io.Writer) error {
 }
 
 func printMetadataMessage(stdout io.Writer, format, tag string) error {
-	if _, err := fmt.Fprintf(stdout, format, tag); err != nil {
+	_, err := fmt.Fprintf(stdout, format, tag)
+	if err != nil {
 		return &os.PathError{Op: "write build metadata message", Path: "stdout", Err: err}
 	}
+
 	return nil
 }
 
