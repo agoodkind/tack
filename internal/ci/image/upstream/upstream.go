@@ -15,8 +15,9 @@ const (
 	outputFilePermBits = 0o666
 )
 
-// Write prints the pinned Yugabyte image, then appends yugabyte_image=<image> to GITHUB_OUTPUT.
-// It does not append when the Compose file is invalid or the console write fails.
+// Write requires GITHUB_OUTPUT and prints the pinned Yugabyte image from
+// docker-compose.yml. After the print succeeds, it appends
+// yugabyte_image=<image> to the file specified by GITHUB_OUTPUT.
 func Write(stdout io.Writer) error {
 	outputPath, err := environment.Required("GITHUB_OUTPUT")
 	if err != nil {

@@ -12,7 +12,6 @@ var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
 const digestDirectoryPermBits = 0o777
 
-// IsDigest reports whether value is a lowercase sha256 image digest.
 func IsDigest(value string) bool {
 	return digestPattern.MatchString(value)
 }

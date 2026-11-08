@@ -13,7 +13,6 @@ const (
 
 var fdbVersionPattern = regexp.MustCompile(`(?m)^FDB_VERSION[ \t]*\?=[ \t]*(\S+)`)
 
-// fdbVersion returns the first FDB_VERSION assignment from the Makefile.
 func fdbVersion() (string, error) {
 	content, err := os.ReadFile(makefilePath)
 	if err != nil {
