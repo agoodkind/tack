@@ -62,14 +62,17 @@ func TestManifestPublishesEveryChildUnderEveryTag(t *testing.T) {
 func TestManifestRefusesBadInputBeforePublishing(t *testing.T) {
 	for _, test := range []struct {
 		name   string
-		mutate func(fixture manifestFixture, environment []string) []string
+		mutate func(t *testing.T, fixture manifestFixture, environment []string) []string
 	}{
-		{"uppercase digest", func(fixture manifestFixture, environment []string) []string {
+		{"uppercase digest", func(t *testing.T, fixture manifestFixture, environment []string) []string {
+			t.Helper()
 			writeDigest(t, fixture, "arm64", "sha256:"+strings.Repeat("A", 64))
 
 			return environment
 		}},
-		{"missing digest file", func(fixture manifestFixture, environment []string) []string {
+		{"missing digest file", func(t *testing.T, fixture manifestFixture, environment []string) []string {
+			t.Helper()
+
 			err := os.Remove(filepath.Join(fixture.digestDir, "arm64.digest"))
 			if err != nil {
 				t.Fatalf("remove digest: %v", err)
@@ -77,24 +80,26 @@ func TestManifestRefusesBadInputBeforePublishing(t *testing.T) {
 
 			return environment
 		}},
-		{"absent source image", func(fixture manifestFixture, environment []string) []string {
+		{"absent source image", func(t *testing.T, fixture manifestFixture, environment []string) []string {
+			t.Helper()
 			writeDigest(t, fixture, "arm64", "sha256:"+strings.Repeat("b", 64))
 
 			return environment
 		}},
-		{"empty tag file", func(fixture manifestFixture, environment []string) []string {
+		{"empty tag file", func(t *testing.T, fixture manifestFixture, environment []string) []string {
+			t.Helper()
 			writeTestFile(t, fixture.tagFile, "\n\n")
 
 			return environment
 		}},
-		{"empty token", func(_ manifestFixture, environment []string) []string {
+		{"empty token", func(_ *testing.T, _ manifestFixture, environment []string) []string {
 			kept := slices.DeleteFunc(environment, func(item string) bool {
 				return strings.HasPrefix(item, githubAuthKey)
 			})
 
 			return append(kept, githubAuthKey)
 		}},
-		{"missing actor", func(_ manifestFixture, environment []string) []string {
+		{"missing actor", func(_ *testing.T, _ manifestFixture, environment []string) []string {
 			return slices.DeleteFunc(environment, func(item string) bool {
 				return strings.HasPrefix(item, actorPrefix)
 			})
@@ -102,7 +107,7 @@ func TestManifestRefusesBadInputBeforePublishing(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newManifestFixture(t)
-			environment := test.mutate(fixture, fixture.environment())
+			environment := test.mutate(t, fixture, fixture.environment())
 
 			output, err := runBuiltCommand(t, environment, manifestCommand)
 			if err == nil {
