@@ -1,7 +1,7 @@
 package ops
 
-// datagenReportError preserves the cause for errors.Is without recording
-// database messages in either the report event or the enclosing command.
+// datagenReportError omits the underlying cause text from its own error string.
+// Unwrap returns the cause for errors.Is matching.
 type datagenReportError struct {
 	report string
 	cause  error

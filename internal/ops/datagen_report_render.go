@@ -18,8 +18,7 @@ const (
 	datagenSessionVerbCommand  datagenVerbReportCommand = "ops.qa.datagen.search_session_verbs"
 )
 
-// renderDatagenReport extracts the report field from the actual result type
-// after the same renderer that CLISink uses applies the selected format.
+// The audit fingerprint must match the printed report field byte for byte.
 func renderDatagenReport[Report datagenReport](ctx context.Context, factory *cli.Factory, report Report) ([]byte, error) {
 	result, field, err := report.reportResult()
 	if err != nil {
