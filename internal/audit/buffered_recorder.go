@@ -65,6 +65,7 @@ func NewBufferedRecorder(ctx context.Context, inner Recorder, overflow OutboxApp
 	if cfg.Capacity <= 0 {
 		cfg.Capacity = defaultBufferedCapacity
 	}
+
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = defaultBufferedBatchSize
 	}
@@ -95,6 +96,7 @@ func NewBufferedRecorder(ctx context.Context, inner Recorder, overflow OutboxApp
 			if r := recover(); r != nil {
 				slog.Error("audit.buffer.flusher_panicked", slog.Any("err", r))
 			}
+
 			close(b.drained)
 		}()
 
@@ -154,6 +156,7 @@ func (b *BufferedRecorder) recordThrough(ctx context.Context, ev Event) error {
 	if err := b.inner.Record(ctx, ev); err != nil {
 		slog.ErrorContext(ctx, "audit.buffer.record_failed",
 			slog.String("verb", ev.Verb), slog.String("err", err.Error()))
+
 		return fmt.Errorf("record %s through buffer: %w", ev.Verb, err)
 	}
 	return nil
