@@ -11,9 +11,14 @@ import (
 	"goodkind.io/tack/internal/response"
 )
 
-// RenderJSON renders the JSON envelope in JSON mode or the indented payload
-// in text mode. CLISink adds the metadata header when writing text. Callers
-// can inspect rendered fields before CLISink writes the same representation.
+// RenderJSON prepares JSON for the selected CLI output format.
+//
+// JSON mode returns the response envelope. Text mode returns the indented
+// payload. CLISink adds the metadata header when writing that text.
+//
+// Example:
+//
+//	body, err := RenderJSON(ctx, cli.FormatJSON, payload)
 func RenderJSON(ctx context.Context, format string, payload json.RawMessage) ([]byte, error) {
 	if format == cli.FormatJSON {
 		body, err := response.Marshal(ctx, payload)
