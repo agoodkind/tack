@@ -24,13 +24,25 @@ type rejectionNote struct {
 }
 
 // WithRejectionNote returns a context with an empty rejection note.
-// The Bearer and DevBearer middleware store the rejection reason in that note when they reject a request.
+//
+// Bearer and DevBearer store token-check rejection reasons in that note. The
+// note permits later inspection through RejectionReason.
+//
+// Reading a new note returns an empty reason and false:
+//
+//	ctx = WithRejectionNote(ctx)
+//	reason, rejected := RejectionReason(ctx)
 func WithRejectionNote(ctx context.Context) context.Context {
 	return context.WithValue(ctx, rejectionKey{}, &rejectionNote{mu: sync.Mutex{}, reason: ""})
 }
 
 // RejectionReason returns the authentication rejection reason from ctx.
-// It returns false when ctx does not contain a rejection reason.
+//
+// It locks an existing note's mutex while reading that note.
+//
+// The return values distinguish these states:
+//   - An absent or empty note returns an empty reason and false.
+//   - A note with a token-check rejection returns that reason and true.
 func RejectionReason(ctx context.Context) (string, bool) {
 	note, _ := ctx.Value(rejectionKey{}).(*rejectionNote)
 	if note == nil {

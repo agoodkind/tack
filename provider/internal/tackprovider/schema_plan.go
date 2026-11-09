@@ -12,8 +12,19 @@ import (
 )
 
 // ModifyPlan sets computed values from migration status and rejects invalid
-// versions. It uses refreshed state for an installation already in state and
-// reads live status without --execute for a new installation.
+// versions.
+//
+// It uses refreshed state when the installation target matches the plan.
+// Otherwise, it reads live status without --execute when the provider has
+// configured the resource.
+//
+// After reading status and validating the target, the plan assigns the
+// target to AppliedVersion. When the target differs from the applied
+// version, the plan also marks Pending as unknown and lists the pending
+// migrations in a warning. For that case, the assignments use this layout:
+//
+//	planned.AppliedVersion = types.Int64Value(target)
+//	planned.Pending = types.ListUnknown(migrationObjectType)
 func (r *schemaResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	if req.Plan.Raw.IsNull() {
 		return

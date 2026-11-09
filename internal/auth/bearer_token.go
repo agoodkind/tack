@@ -15,9 +15,14 @@ const bearerTokenBytes = 32
 // recognisable in a scanner's output.
 const bearerTokenPrefix = "tack_"
 
-// NewBearerToken returns a fresh random bearer value. Only its SHA-256 hash is
-// ever stored, so the caller must hand the value to the person it is issued
-// to and then forget it.
+// NewBearerToken returns a fresh random bearer value.
+//
+// The database stores only its SHA-256 hash. The caller must give the value
+// to the token recipient and then discard its copy.
+//
+// Each generated value has these parts:
+//   - The tack_ prefix identifies a Tack bearer value.
+//   - The suffix encodes 32 random bytes as unpadded, URL-safe Base64.
 func NewBearerToken() (string, error) {
 	raw := make([]byte, bearerTokenBytes)
 	if _, err := rand.Read(raw); err != nil {

@@ -43,8 +43,13 @@ type providerData struct {
 	operatorFlags []string
 }
 
-// New returns the Tack provider factory and supplies version to OpenTofu as the
-// provider version.
+// New returns the Tack provider factory.
+//
+// The factory supplies version to OpenTofu as the provider version.
+//
+// The provider server accepts the factory directly:
+//
+//	providerserver.Serve(context.Background(), tackprovider.New(version.Version), options)
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
 		return &tackProvider{version: version}

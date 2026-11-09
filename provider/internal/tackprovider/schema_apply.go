@@ -116,9 +116,16 @@ func (r *schemaResource) apply(
 	return model, true
 }
 
-// Read sets version to the live applied version. It keeps the resource in
-// state if status is unreadable and removes it if the goose migration table
-// does not exist.
+// Read refreshes the installation's migration state.
+//
+// A successful read sets version to the live applied version. Read keeps the
+// resource in state if status is unreadable and removes it if the goose
+// migration table does not exist.
+//
+// A successful refresh uses this layout for the version attributes:
+//
+//	version         = status.AppliedVersion
+//	applied_version = status.AppliedVersion
 func (r *schemaResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state schemaModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -143,7 +150,16 @@ func (r *schemaResource) Read(ctx context.Context, req resource.ReadRequest, res
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 }
 
-// Delete removes the resource from state and does not revert migrations.
+// Delete removes the resource from OpenTofu state.
+//
+// The method does not revert migrations and adds a warning to the response.
+//
+// Removing and restoring schema management uses this sequence:
+//
+//  1. Remove the tack_schema resource block from the configuration.
+//  2. Apply the configuration change.
+//  3. Restore the tack_schema resource block with its unchanged version.
+//  4. Import the same installation to manage that database version again.
 func (r *schemaResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var state schemaModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)

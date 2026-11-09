@@ -12,18 +12,24 @@ import (
 )
 
 // CachedMembers caches each user's org set for a short lifetime. Cached
-// membership lookups do not read the ledger, and every instance observes
-// membership changes after the cached entry expires. Failed reads do not populate the
-// cache; checks behind the middleware still reject access on read errors.
-// CachedMembers does not provide write methods.
+// membership lookups do not read the ledger. Each instance reads current
+// memberships on its next lookup after expiry. Failed reads do not populate
+// the cache. Handlers after the middleware reject access on membership read
+// errors. CachedMembers does not provide write methods.
 type CachedMembers struct {
 	inner    org.MemberRepository
 	cache    *entryCache[[]uuid.UUID]
 	lifetime time.Duration
 }
 
-// NewCachedMembers wraps inner. A lifetime of zero or less returns a wrapper
-// that caches nothing.
+// NewCachedMembers wraps inner.
+//
+// A lifetime of zero or less disables caching. A size of zero or less
+// selects an entry limit of one.
+//
+// The membership-cache tests configure a one-minute lifetime and 16 entries:
+//
+//	cached := NewCachedMembers(store, time.Minute, 16)
 func NewCachedMembers(inner org.MemberRepository, lifetime time.Duration, size int) *CachedMembers {
 	if size <= 0 {
 		size = 1
@@ -31,8 +37,14 @@ func NewCachedMembers(inner org.MemberRepository, lifetime time.Duration, size i
 	return &CachedMembers{inner: inner, cache: newEntryCache[[]uuid.UUID](size), lifetime: lifetime}
 }
 
-// ListOrgIDsForUser answers from the cache when it can, and asks inner
-// otherwise. Callers get their own copy of the set.
+// ListOrgIDsForUser returns cached organizations when the entry is valid.
+//
+// Otherwise, it reads inner. Callers receive a copy separate from the cache.
+// A failed read does not populate the cache.
+//
+// The return values distinguish these outcomes:
+//   - A successful read returns the user's organization IDs and a nil error.
+//   - A failed read returns a nil slice and an error that includes userID.
 func (c *CachedMembers) ListOrgIDsForUser(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
 	now := clock.Now()
 	key := userID.String()
@@ -62,7 +74,15 @@ func (c *CachedMembers) prime(userID uuid.UUID, orgIDs []uuid.UUID, now time.Tim
 	c.cache.put(userID.String(), copyOrgIDs(orgIDs), now.Add(c.lifetime))
 }
 
-// ListMembers reads through inner; org rosters are not cached.
+// ListMembers reads the underlying repository without caching organization
+// rosters.
+//
+// A successful read returns the repository's roster. A failed read returns a
+// nil slice and wraps the repository error with orgID using %w.
+//
+// Callers can use the organization ID from a resolved workspace:
+//
+//	roster, err := members.ListMembers(ctx, ws.OrgID)
 func (c *CachedMembers) ListMembers(ctx context.Context, orgID uuid.UUID) ([]*org.Member, error) {
 	members, err := c.inner.ListMembers(ctx, orgID)
 	if err != nil {
