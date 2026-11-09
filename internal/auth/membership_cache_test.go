@@ -29,9 +29,9 @@ func (c *countingMembers) ListMembers(context.Context, uuid.UUID) ([]*org.Member
 	return nil, nil
 }
 
-// TestCachedMembersReadsOncePerLifetime checks that repeated lookups within
-// the cache lifetime return the same organizations without reading the store
-// again.
+// TestCachedMembersReadsOncePerLifetime checks TACK-505. Repeated lookups
+// within the cache lifetime return the same organizations and call the
+// substitute store once.
 func TestCachedMembersReadsOncePerLifetime(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())

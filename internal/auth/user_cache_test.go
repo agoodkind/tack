@@ -47,12 +47,12 @@ func namedUser(name string) *user.User {
 }
 
 // TestCachedUsersReadsOncePerLifetime checks that repeated user lookups
-// within the cache lifetime return the creator's display name without
-// reading the store again.
+// within the cache lifetime return the creator's display name and call the
+// substitute store once.
 //
 // A production check on 2026-09-19 found that each tool call rendering
 // "Created by" read the users table. This test checks repeated lookups
-// within the cache lifetime against that baseline.
+// against that historical baseline; it does not repeat the production check.
 func TestCachedUsersReadsOncePerLifetime(t *testing.T) {
 	creator := namedUser("creator")
 	store := &countingUsers{records: map[uuid.UUID]*user.User{creator.ID: creator}}
@@ -106,8 +106,9 @@ func TestCachedUsersSeesAChangeAfterTheLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedUsersNeverCachesAMiss checks that GetByID retries an unknown ID
-// and returns a user that the store created after the failed lookup.
+// TestCachedUsersNeverCachesAMiss checks that GetByID first rejects an
+// unknown ID and then accepts a lookup after the substitute store creates
+// the user.
 func TestCachedUsersNeverCachesAMiss(t *testing.T) {
 	store := &countingUsers{records: map[uuid.UUID]*user.User{}}
 	cached := NewCachedUsers(store, time.Minute, 16)

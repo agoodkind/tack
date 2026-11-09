@@ -6,13 +6,16 @@ import (
 )
 
 const (
-	// RejectionMissingAuthorization is the rejection reason when a request does not include a bearer token.
+	// RejectionMissingAuthorization is the reason for a missing bearer value,
+	// including an empty value or a header without the Bearer prefix.
 	RejectionMissingAuthorization = "missing_authorization"
-	// RejectionBearerRefused is the rejection reason when the token store rejects a bearer value.
+	// RejectionBearerRefused is the reason for a token validator refusal.
 	RejectionBearerRefused = "bearer_refused"
-	// RejectionBearerCheckFailed is the rejection reason when a bearer check fails before returning a result.
+	// RejectionBearerCheckFailed is the reason when a token check cannot
+	// determine validity.
 	RejectionBearerCheckFailed = "bearer_check_failed"
-	// RejectionDevIdentityInvalid is the rejection reason when a development Authorization value is not a UUID.
+	// RejectionDevIdentityInvalid is the reason when a development bearer
+	// value does not parse as a UUID.
 	RejectionDevIdentityInvalid = "dev_identity_not_uuid"
 )
 

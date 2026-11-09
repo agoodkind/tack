@@ -14,21 +14,22 @@ import (
 	"goodkind.io/tack/internal/domain/token"
 )
 
-// CachedTokenValidator caches accepted tokens for a short lifetime. A cache
-// hit avoids a database read. Cache keys use the token's SHA-256 hash and do
-// not store the bearer value. The validator rejects a cached token at its
-// own expiry even if the cache entry has not expired. It does not cache
-// refusals. A token created after a refusal can pass the next lookup.
-// Revocation in another process takes effect at each instance's next lookup
-// after the cache entry expires.
+// CachedTokenValidator caches accepted tokens for a short lifetime under
+// TACK-504. A cache hit avoids a database read. Cache keys use the token's
+// SHA-256 hash and do not store the bearer value. The validator rejects a
+// cached token at its own expiry even if the cache entry has not expired.
+// It does not cache refusals. A token created after a refusal can pass the
+// next lookup. Revocation in another process takes effect at each instance's
+// next lookup after the cache entry expires.
 type CachedTokenValidator struct {
 	inner    TokenValidator
 	cache    *entryCache[*token.Token]
 	lifetime time.Duration
-	// members stores the organization set from a combined token and membership
-	// read when inner supports it. With a positive membership cache lifetime,
-	// the next membership lookup in the request uses this set. A cold request
-	// then needs one database read for token and membership validation.
+	// members stores organizations from a combined token and membership read
+	// when inner supports it. The membership cache needs a positive lifetime.
+	// The next membership lookup reuses this set while the entry remains
+	// unexpired and the cache retains it. That request then needs one database
+	// read for token and membership validation.
 	members *CachedMembers `exhaustruct:"optional"`
 }
 
@@ -113,8 +114,7 @@ func (c *CachedTokenValidator) Validate(ctx context.Context, raw string) (*token
 }
 
 // lookup asks inner for the token. It reads the user's organizations in the
-// same call when inner implements TokenOrgsValidator and members has a
-// cache.
+// same call when inner implements TokenOrgsValidator and members is not nil.
 func (c *CachedTokenValidator) lookup(ctx context.Context, raw string, now time.Time) (*token.Token, error) {
 	withOrgs, ok := c.inner.(TokenOrgsValidator)
 	if !ok || c.members == nil {

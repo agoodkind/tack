@@ -58,9 +58,9 @@ func membershipSeenByNext(t *testing.T, middleware func(http.Handler) http.Handl
 	return seen, attached
 }
 
-// TestBearerAttachesTheMembershipItReadOnce checks that the middleware reads
-// memberships once and stores them in the next handler's request context.
-// The MCP handler reuses this set instead of reading memberships again.
+// TestBearerAttachesTheMembershipItReadOnce checks TACK-503. The middleware
+// reads memberships once and stores them in the next handler's request
+// context.
 func TestBearerAttachesTheMembershipItReadOnce(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgs := []uuid.UUID{uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())}
@@ -80,10 +80,8 @@ func TestBearerAttachesTheMembershipItReadOnce(t *testing.T) {
 	}
 }
 
-// TestBearerAttachesNothingWhenTheReadFails checks that the middleware calls
-// the next handler without attaching memberships after a failed read. The
-// MCP handler must then read memberships itself and reject the request if
-// that read fails.
+// TestBearerAttachesNothingWhenTheReadFails checks that the middleware
+// calls the next handler without attaching memberships after a failed read.
 func TestBearerAttachesNothingWhenTheReadFails(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	lister := &countingOrgs{orgs: nil, err: errors.New("membership store down")}

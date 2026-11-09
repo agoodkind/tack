@@ -13,9 +13,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// wiredRecorder returns recorder, or the unwired recorder when the caller
-// passed nil. The unwired recorder refuses and logs every auth event, and the
-// middleware then refuses each request.
+// wiredRecorder returns recorder, or an unwired recorder when the caller
+// passes nil. The unwired recorder logs and rejects every auth event. The
+// middleware rejects an otherwise accepted request when recording fails.
 func wiredRecorder(recorder audit.Recorder) audit.Recorder {
 	if recorder == nil {
 		return audit.UnwiredRecorder{}
@@ -40,9 +40,9 @@ func hashBearer(raw string) string {
 
 // emitAuthAudit adds request fields to ev and validates it before calling
 // rec.Record. It logs validation failures and still attempts to record the
-// event for the audit-consumer to store in the dead-letter table for repair.
-// If rec.Record fails, emitAuthAudit returns an error and the middleware
-// refuses the request.
+// event. With Kafka recording, the audit-consumer stores invalid events in
+// the dead-letter table for repair. If rec.Record fails, emitAuthAudit
+// returns an error and the middleware rejects the request.
 func emitAuthAudit(ctx context.Context, rec audit.Recorder, r *http.Request, ev audit.Event) error {
 	ev.Actor.IP = clientIP(r)
 	ev.Actor.UserAgent = r.UserAgent()

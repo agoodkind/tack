@@ -77,8 +77,9 @@ func (c *CachedMembers) ListOrgIDsForUser(
 	return orgIDs, nil
 }
 
-// prime stores organizations from a combined token and membership read. The
-// next membership lookup in that request can use this cached set.
+// prime stores organizations from a combined token and membership read
+// when the cache lifetime is positive. A later membership lookup can reuse
+// the set while the entry remains unexpired and the cache retains it.
 func (c *CachedMembers) prime(userID uuid.UUID, orgIDs []uuid.UUID, now time.Time) {
 	if c.lifetime <= 0 {
 		return

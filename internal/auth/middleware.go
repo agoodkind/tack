@@ -21,17 +21,19 @@ type TokenValidator interface {
 }
 
 // OrgLister returns a user's organizations. Auth events use the actor's
-// organization when the actor belongs to exactly one organization.
+// organization when the actor has exactly one membership (TACK-461).
 type OrgLister interface {
 	ListOrgIDsForUser(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 }
 
-// attachMembership reads the actor's organizations once and attaches them to
-// the context for later handlers. It returns the sole organization for the
-// auth event, or [uuid.Nil] for zero or multiple organizations. The auth
-// event uses the system organization for [uuid.Nil]. A failed lookup does
-// not attach memberships or fail the request and returns [uuid.Nil]. The MCP
-// handler then reads memberships itself and rejects the request on failure.
+// attachMembership reads the actor's organizations once and attaches them
+// to the request context. It returns the sole organization for the auth
+// event, or [uuid.Nil] for zero or multiple organizations. The auth event
+// uses the system organization for uuid.Nil. A nil orgs skips the lookup.
+// A failed lookup does not attach memberships or fail the request and
+// returns uuid.Nil. Under TACK-503, the MCP handler reuses attached
+// memberships or reads them itself and rejects the request if that read
+// fails.
 func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (context.Context, uuid.UUID) {
 	if orgs == nil {
 		return ctx, uuid.Nil
@@ -134,7 +136,8 @@ func Bearer(
 // without reading the token table.
 //
 // The runtime selects it only when ENV=development. Like Bearer, it returns
-// HTTP 503 when the recorder rejects the auth event.
+// HTTP 503 when the recorder rejects the auth event. UUID parsing does not
+// check whether the user exists.
 //
 // Its request handling distinguishes these conditions:
 //   - A missing bearer value causes HTTP 401.
@@ -207,8 +210,8 @@ func authUnavailable(w http.ResponseWriter) {
 	writeJSONError(w, http.StatusServiceUnavailable, "authentication unavailable")
 }
 
-// auditUnavailable answers 503 with a JSON body when the audit recorder did
-// not accept the auth event of an authenticated request.
+// auditUnavailable returns HTTP 503 with a JSON body when the audit
+// recorder rejects the auth event of an authenticated request.
 func auditUnavailable(w http.ResponseWriter) {
 	writeJSONError(w, http.StatusServiceUnavailable, "audit recording unavailable")
 }

@@ -43,9 +43,9 @@ func liveToken(expiresAt *time.Time) *token.Token {
 	}
 }
 
-// TestCachedTokenValidatorAsksOncePerLifetime checks that a second lookup
-// within the cache lifetime does not read the store again and returns the
-// same token and user IDs.
+// TestCachedTokenValidatorAsksOncePerLifetime checks TACK-504. A second
+// lookup within the cache lifetime does not read the substitute store again
+// and returns the same token and user IDs.
 func TestCachedTokenValidatorAsksOncePerLifetime(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{"tack_a": liveToken(nil)}}
 	cached := NewCachedTokenValidator(store, time.Minute, 16)
@@ -155,7 +155,9 @@ func TestCachedTokenValidatorStaysBounded(t *testing.T) {
 }
 
 // TestBearerRefusesAWrappedUnauthenticated checks that Bearer returns HTTP
-// 401 when CachedTokenValidator refuses an unknown token.
+// 401 when CachedTokenValidator refuses an unknown token. The substitute
+// store returns domain.ErrUnauthenticated directly; this test does not
+// exercise a wrapped error.
 func TestBearerRefusesAWrappedUnauthenticated(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{}}
 	cached := NewCachedTokenValidator(store, time.Minute, 16)

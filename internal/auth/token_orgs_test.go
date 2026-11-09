@@ -41,13 +41,14 @@ func (s *tokenOrgsStore) ValidateWithOrgs(
 	return &copied, append([]uuid.UUID(nil), s.orgIDs...), nil
 }
 
-// TestColdRequestCostsOneLedgerRead checks that a cold request makes one
-// combined token and membership lookup. The membership cache reuses that
-// result, and the auth event records the actor's sole organization.
+// TestColdRequestCostsOneLedgerRead checks criterion 12 of backup
+// acceptance. A cold request makes one combined token and membership lookup
+// through substitute stores. The membership cache reuses that result, and
+// the auth event records the actor's sole organization.
 //
-// QA measured two ledger reads for a first request: one token lookup and one
-// membership lookup. This test checks the combined lookup against that
-// baseline.
+// Historical QA measurements counted two ledger reads for a first request:
+// one token lookup and one membership lookup. This test checks the combined
+// lookup against that baseline; it does not repeat the QA measurement.
 func TestColdRequestCostsOneLedgerRead(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
@@ -78,9 +79,8 @@ func TestColdRequestCostsOneLedgerRead(t *testing.T) {
 	}
 }
 
-// TestColdRefusalCachesNoMembership checks that a refused token does not
-// populate the membership cache when the combined lookup cannot find its
-// user.
+// TestColdRefusalCachesNoMembership checks that a refused combined lookup
+// returns HTTP 401 and does not populate the membership cache.
 func TestColdRefusalCachesNoMembership(t *testing.T) {
 	store := &tokenOrgsStore{record: liveToken(nil), orgIDs: nil}
 	members := &countingMembers{orgs: map[uuid.UUID][]uuid.UUID{}}

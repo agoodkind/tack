@@ -74,9 +74,8 @@ func (f fixedValidator) Validate(context.Context, string) (*token.Token, error) 
 }
 
 // driveAuth sends one authenticated request to the middleware that build
-// creates with recorder. When it returns, it includes the response status.
-// It returns the recorded auth.token_used event for HTTP 200 and an empty
-// event for any other status.
+// creates with recorder. It returns the response status and the recorded
+// auth.token_used event for HTTP 200, or an empty event for another status.
 func driveAuth(t *testing.T, build func(audit.Recorder) func(http.Handler) http.Handler, bearer string) (audit.Event, int) {
 	t.Helper()
 	recorder := &captureRecorder{}
@@ -122,8 +121,8 @@ func devBearerFor(orgs OrgLister) func(audit.Recorder) func(http.Handler) http.H
 	}
 }
 
-// TestDevBearerStampsSoleOrg checks that an auth event records the actor's
-// organization when the actor belongs to exactly one organization.
+// TestDevBearerStampsSoleOrg checks TACK-461. The auth event records the
+// actor's ID and sole organization.
 func TestDevBearerStampsSoleOrg(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
@@ -175,8 +174,8 @@ func TestDevBearerUsesSystemOrgForAmbiguousOrgs(t *testing.T) {
 }
 
 // TestDevBearerLookupFailureNeverFailsAuth checks that a membership lookup
-// error produces a token_used event in the system org and the request still
-// succeeds.
+// error produces an auth.token_used event in the system organization and
+// permits the next handler to return HTTP 200.
 func TestDevBearerLookupFailureNeverFailsAuth(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	ev, status := driveAuth(
@@ -196,9 +195,8 @@ func TestDevBearerLookupFailureNeverFailsAuth(t *testing.T) {
 	}
 }
 
-// TestBearerStampsSoleOrg checks that Bearer records the actor's sole
-// organization and the accepted token ID in the auth event. The
-// audit-consumer uses that ID to update the token's last-use time.
+// TestBearerStampsSoleOrg checks TACK-502. Bearer records the actor's sole
+// organization and the accepted token ID in the auth event.
 func TestBearerStampsSoleOrg(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
