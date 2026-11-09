@@ -15,7 +15,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// TokenValidator provides the token check that the middleware requires.
+// TokenValidator is the minimal token validation interface for [Bearer].
+// Successful validation must return a non-nil token.
 type TokenValidator interface {
 	Validate(ctx context.Context, raw string) (*token.Token, error)
 }
