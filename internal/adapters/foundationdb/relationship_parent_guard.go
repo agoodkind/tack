@@ -21,7 +21,7 @@ import (
 // for every node type, even when another child_of edge remains, and allows
 // removal of other child_of edges. When the source node stores a parent_id
 // value that is not a UUID string, the guard refuses removal of every
-// existing child_of edge. When parent_id is absent or parses as uuid.Nil,
+// existing child_of edge. When parent_id is absent or parses as [uuid.Nil],
 // the guard refuses removal if node.HierarchyParent returns an error for the
 // source type and the other remaining child_of target, if any. Each refusal
 // returns an error that matches domain.ErrFailedPrecondition. When two

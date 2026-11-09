@@ -91,7 +91,8 @@ func clearReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID) error {
 //
 // It reads the reference claim in a transaction and parses the owner UUID.
 //
-//   - LookupReference returns uuid.Nil without an error for a missing claim.
+//   - LookupReference returns [uuid.Nil] without an error for a missing
+//     claim.
 func (s *NodeStore) LookupReference(ctx context.Context, orgID uuid.UUID, templateName, encoded string) (nodeID uuid.UUID, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.lookup_reference")(&err)
 	transaction, err := s.db.CreateTransaction()

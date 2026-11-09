@@ -148,14 +148,14 @@ const (
 	// (search_error, class, orgID, nodeID) -> last failure message
 	// (search_attempt, class, orgID, nodeID) -> counted failures of the class
 	//   since its last finished item
-	// (search_pending_write, class, orgID, nodeID, documentID, index) -> pending page write
+	// (search_pending_write, class, orgID, nodeID, documentID, index) ->
+	// pending page write
 	//   record JSON
 	// (search_exclusion, orgID, nodeID) -> exclusion record JSON of a node
 	//   that search does not index
 	// (search_scan, orgID) -> rescan generation counter
 	// (search_projection, orgID) stores the 32-byte sum of definition
-	//   projection hashes. Releases without a projection state record
-	//   read this legacy digest.
+	//   projection hashes.
 	// (search_projection_state, orgID) stores the active projection
 	//   state as JSON: renderer, format, digest, and activation.
 	// (search_projection_sweep) stores the newest writer's sweep
