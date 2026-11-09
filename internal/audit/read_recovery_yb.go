@@ -9,7 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// expiredRead contains a read that ops_read_expired selected after its lease expired.
+// expiredRead contains a read that ops_read_expired selected after its lease
+// expired.
 type expiredRead struct {
 	eventID       uuid.UUID
 	generation    uint64
@@ -19,8 +20,13 @@ type expiredRead struct {
 }
 
 // RecoverExpired uses ops_read_recover to save an incomplete event for each
-// read with an expired lease in bucket. The database function checks the generation
-// and lease deadline, then increments the generation and saves the event in one transaction.
+// read with an expired lease in bucket.
+//
+// The database function checks the generation and lease deadline before it
+// increments the generation and saves the event in one transaction.
+//
+//   - A changed candidate does not count as a recovered read.
+//   - An error returns the number of reads already recovered and the error.
 func (l *PoolReadLifecycle) RecoverExpired(ctx context.Context, bucket uint16, limit int) (int, error) {
 	candidates, err := l.expiredReads(ctx, bucket, limit)
 	if err != nil {
@@ -92,9 +98,14 @@ func (l *PoolReadLifecycle) recoverOne(ctx context.Context, expired expiredRead)
 	return saved, nil
 }
 
-// CleanupPublished uses ops_read_cleanup to delete up to limit receipts in bucket
-// after ReadReceiptRetention has elapsed since publication.
-// It returns the number of receipts it deletes.
+// CleanupPublished uses ops_read_cleanup to delete up to limit receipts in
+// bucket after ReadReceiptRetention has elapsed since publication.
+//
+// The method returns the number of deleted receipts. The database selects
+// eligible receipts in publication-time order.
+//
+//   - A receipt without a publication time remains in storage.
+//   - A receipt newer than the retention threshold remains in storage.
 func (l *PoolReadLifecycle) CleanupPublished(ctx context.Context, bucket uint16, limit int) (int, error) {
 	var deleted int
 	err := l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {

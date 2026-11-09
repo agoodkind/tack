@@ -10,11 +10,13 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// readRetryInterval is the wait between two attempts to save an admission or a final event.
+// readRetryInterval controls the wait between attempts to save an admission
+// or final event.
 const readRetryInterval = 250 * time.Millisecond
 
-// admitRead saves the admission and retries a failed attempt with the same
-// identity until ReadAdmissionRetryWindow passes or ctx ends.
+// admitRead saves the admission and retries failures with the same identity
+// until ReadAdmissionRetryWindow passes or ctx ends. It does not retry
+// ErrReadAdmissionExpired or ErrReadOwnerLost.
 func admitRead(ctx context.Context, store ReadLifecycle, admission ReadAdmission) (ReadToken, error) {
 	if err := ValidateReadAdmission(admission); err != nil {
 		return ReadToken{}, notRecorded(ctx, admission.Token, err)
@@ -33,9 +35,10 @@ func admitRead(ctx context.Context, store ReadLifecycle, admission ReadAdmission
 	}
 }
 
-// finalizeRead saves the final event and retries failed attempts with the same bytes
-// while ctx allows another attempt. It does not retry ErrReadOwnerLost or ErrReadIdentityChanged.
-// The store uses the digest to confirm an earlier commit if its result is uncertain.
+// finalizeRead saves the final event and retries failures with the same bytes
+// while ctx allows another attempt. It does not retry ErrReadOwnerLost or
+// ErrReadIdentityChanged. The store uses the digest to confirm an earlier
+// commit after an uncertain result.
 func finalizeRead(ctx context.Context, store ReadLifecycle, completion ReadCompletion) error {
 	for {
 		err := store.FinalizeRead(ctx, completion)
@@ -71,9 +74,9 @@ func waitToRetry(ctx context.Context, deadline time.Time) bool {
 	}
 }
 
-// readCompletion builds the final event from the admission template and prepared result.
-// It computes the transport digest of the event and its targets.
-// It includes the returned identities only when the read completes successfully.
+// readCompletion builds the final event from the admission template and
+// prepared result. It computes the transport digest of the event and targets.
+// It includes returned identities only when the read completes successfully.
 func readCompletion(token ReadToken, template Event, prepared preparedRead) (ReadCompletion, error) {
 	final := template
 	final.Outcome = prepared.outcome.Outcome

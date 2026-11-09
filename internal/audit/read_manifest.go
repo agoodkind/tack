@@ -8,9 +8,14 @@ import (
 	"log/slog"
 )
 
-// ReadManifestDigest returns the lowercase hexadecimal SHA-256 digest of
-// the manifest array bytes concatenated in order, plus the array count.
-// An empty target list produces the digest of zero bytes and a count of zero.
+// ReadManifestDigest returns the lowercase hexadecimal SHA-256 digest of the
+// manifest array bytes concatenated in order, plus the array count.
+//
+// The manifest partitions targets into JSON arrays before hashing. The digest
+// therefore depends on both target order and array boundaries.
+//
+//   - An empty target list produces the digest of zero bytes and zero arrays.
+//   - A target that cannot fit in one array returns an error.
 func ReadManifestDigest(targets []Target) (string, uint32, error) {
 	parts, err := readManifestParts(targets)
 	if err != nil {
@@ -47,7 +52,7 @@ func readManifestParts(targets []Target) ([][]byte, error) {
 
 // manifestBuilder groups read targets in order into JSON arrays within
 // ReadManifestMaxEntries and EventPartMaxBytes. It passes each finished array
-// to emit and keeps at most one unfinished array.
+// to emit and stores at most one unfinished array.
 type manifestBuilder struct {
 	current      []Target
 	currentBytes int

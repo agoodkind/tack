@@ -26,7 +26,8 @@ const (
 	// ReadReceiptRetention is the time a receipt remains after publication
 	// before cleanup may delete it.
 	ReadReceiptRetention = time.Hour
-	// ReadCleanupBatch limits the number of published receipts each cleanup call deletes.
+	// ReadCleanupBatch limits how many published receipts each cleanup call
+	// deletes.
 	ReadCleanupBatch = 256
 	// ReadFirstGeneration is the generation of a new owner.
 	ReadFirstGeneration uint64 = 1
@@ -39,7 +40,8 @@ var (
 	ErrReadOwnerLost = errors.New("audit read: the token does not own the pending read")
 	// ErrReadAdmissionExpired reports an admission retry after its deadline.
 	ErrReadAdmissionExpired = errors.New("audit read: the admission retry deadline passed")
-	// ErrReadIdentityChanged reports a final event that changes fields that must match the template.
+	// ErrReadIdentityChanged reports that a final event changes fields that must
+	// match the admission template.
 	ErrReadIdentityChanged = errors.New("audit read: the final event changes fields that must match the admission template")
 )
 
@@ -56,8 +58,8 @@ type ReadAdmission struct {
 	Template Event
 }
 
-// ReadCompletion contains the owner token, final event, ordered targets, and digest.
-// EncodeEvent computes the transport digest from the event and targets.
+// ReadCompletion contains the owner token, final event, ordered targets, and
+// digest. EncodeEvent computes the transport digest from the event and targets.
 type ReadCompletion struct {
 	Token   ReadToken
 	Event   Event
@@ -81,20 +83,39 @@ type ReadLifecycle interface {
 	CleanupPublished(ctx context.Context, bucket uint16, limit int) (int, error)
 }
 
-// ReadBucket returns the first SHA-256 byte of the event ID modulo
+// ReadBucket returns the first SHA-256 byte of eventID modulo
 // ReadRecoveryBuckets.
+//
+// The function hashes the UUID bytes. Equal event IDs select the same bucket
+// without consulting stored read state.
+//
+//	bucket := ReadBucket(eventID)
+//	recovered, err := store.RecoverExpired(ctx, bucket, ReadRecoveryScanLimit)
 func ReadBucket(eventID uuid.UUID) uint16 {
 	digest := sha256.Sum256(eventID[:])
 	return uint16(digest[0]) % ReadRecoveryBuckets
 }
 
 // NewReadOwner returns a random owner ID for one admission.
+//
+// The function uses uuid.New to generate the identifier independently of the
+// event ID. The admission token stores both identifiers.
+//
+//	token.Owner = NewReadOwner()
 func NewReadOwner() uuid.UUID {
 	return uuid.New()
 }
 
-// ValidateReadAdmission checks that the template is a format 2 read event
-// with the token's event ID, an owner, an organization, an operation, and a start time.
+// ValidateReadAdmission checks that the template uses format 2 and the read
+// operation class and phase. It requires matching token and template event
+// IDs, a token owner, an organization, an operation ID, a start time, and a
+// target.
+//
+// Validation returns an error for the first failed condition. It does not
+// write pending state.
+//
+//   - A nil event ID or owner fails token validation.
+//   - A missing target fails template validation even when the IDs match.
 func ValidateReadAdmission(admission ReadAdmission) error {
 	template := admission.Template
 	eventContext := template.Context
@@ -116,8 +137,13 @@ func ValidateReadAdmission(admission ReadAdmission) error {
 }
 
 // CheckReadCompletion checks the final event against the admission template,
-// encodes it with its targets, and checks that the transport digest matches.
-// It rejects an incomplete outcome because only recovery saves that outcome.
+// encodes it with its targets, and checks the transport digest.
+//
+// The function rejects an incomplete outcome because only recovery saves that
+// outcome. It validates the final event before encoding it.
+//
+//   - An identity change returns an error that wraps ErrReadIdentityChanged.
+//   - A digest mismatch returns an error instead of the encoded event.
 func CheckReadCompletion(template Event, completion ReadCompletion) (EncodedEvent, error) {
 	final := completion.Event
 	if !sameReadIdentity(template, final) {
@@ -141,8 +167,8 @@ func CheckReadCompletion(template Event, completion ReadCompletion) (EncodedEven
 	return encoded, nil
 }
 
-// sameReadIdentity checks that finalization preserves the actor, event identity,
-// operation context, and start time.
+// sameReadIdentity checks that finalization preserves the actor, event
+// identity, operation context, and start time.
 func sameReadIdentity(template, final Event) bool {
 	templateContext, finalContext := template.Context, final.Context
 	return template.EventID == final.EventID && template.Verb == final.Verb && template.Actor == final.Actor &&
@@ -155,6 +181,12 @@ func sameReadIdentity(template, final Event) bool {
 
 // ConfirmsReadCommit reports whether a terminal receipt confirms an earlier
 // finalization by the same owner with the same digest.
+//
+// An incomplete receipt does not confirm finalization. The check compares the
+// receipt owner and digest with completion without comparing generations.
+//
+//   - A matching owner and digest with OutcomeCompleted confirms the commit.
+//   - A matching owner and digest with OutcomeIncomplete does not confirm it.
 func ConfirmsReadCommit(receiptOwner uuid.UUID, receiptDigest string, receiptOutcome Outcome, completion ReadCompletion) bool {
 	return receiptOwner == completion.Token.Owner && receiptDigest == completion.Digest &&
 		receiptOutcome != OutcomeIncomplete

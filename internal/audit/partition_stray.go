@@ -8,8 +8,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// pg_partman parses every child name of audit.events as a date. One child
-// named outside events_pYYYY_MM_DD fails every maintenance run (TACK-551).
+// pg_partman parses each child name of audit.events as a date. A child name
+// outside events_pYYYY_MM_DD causes every maintenance run to fail (TACK-551).
 const strayChildrenQuery = `
 	SELECT c.relname FROM pg_inherits i
 	JOIN pg_class c ON c.oid = i.inhrelid

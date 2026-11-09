@@ -6,12 +6,16 @@ import (
 	"log/slog"
 )
 
-// ExecuteReadGroup saves one admission for each organization in the response.
-// It runs read once and saves one final event for each admission before returning the payload.
-// Each event records the same payload digest and content type. Each event includes only
-// its organization's targets from ReadResult.OrgTargets and counts those targets.
-// If any admission or finalization fails, or recovery replaces any owner,
-// ExecuteReadGroup returns an error that wraps ErrReadNotRecorded without a payload.
+// ExecuteReadGroup saves an admission for each organization in the response,
+// runs read once, and saves a final event for each admission before returning
+// the payload.
+//
+// Each event records the same payload digest and content type. It includes
+// only its organization's ReadResult.OrgTargets and counts those targets.
+//
+//   - A failed admission or finalization withholds the payload and returns an
+//     error that wraps ErrReadNotRecorded.
+//   - Recovery that replaces any owner causes the same recording failure.
 func ExecuteReadGroup[T ReadValue](
 	ctx context.Context,
 	store ReadLifecycle,
@@ -25,8 +29,9 @@ func ExecuteReadGroup[T ReadValue](
 		})
 }
 
-// executeReads saves each admission, runs read once, and saves one final event per admission.
-// It renews each lease while read runs. selectTargets returns the targets and count for each event.
+// executeReads saves each admission, runs read once, and saves a final event
+// per admission. It renews each lease while read runs. selectTargets returns
+// the targets and count for each event.
 func executeReads[T ReadValue](
 	ctx context.Context,
 	store ReadLifecycle,

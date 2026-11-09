@@ -9,7 +9,8 @@ import (
 
 type readCollectorKey struct{}
 
-// readCollector stores the returned identities and the first reported outcome of one request.
+// readCollector stores the identities that one request returns and its first
+// reported outcome.
 type readCollector struct {
 	mu        sync.Mutex
 	targets   []Target
@@ -24,16 +25,23 @@ type orgTarget struct {
 	target Target
 }
 
-// CollectedRead contains the identities that one request returned, in insertion
-// order and grouped by organization, and the first reported outcome.
+// CollectedRead contains the identities that one request returned and its
+// first reported outcome. Targets preserves insertion order, and OrgTargets
+// groups the identities by organization.
 type CollectedRead struct {
 	Targets    []Target
 	OrgTargets map[uuid.UUID][]Target
 	Outcome    OutcomeDetails
 }
 
-// WithReadCollector returns a context with an empty collector for the identities
-// and outcome of one public read.
+// WithReadCollector returns a context with an empty collector for one public
+// read's identities and outcome.
+//
+// AddReadTargets and NoteReadOutcome use the returned context. Each invocation
+// of WithReadCollector creates a separate collector.
+//
+//	readContext := WithReadCollector(ctx)
+//	collected := ReadCollected(readContext)
 func WithReadCollector(ctx context.Context) context.Context {
 	return context.WithValue(ctx, readCollectorKey{}, &readCollector{
 		mu: sync.Mutex{}, targets: nil, byOrg: map[uuid.UUID][]Target{}, seen: map[Target]struct{}{},
@@ -41,15 +49,28 @@ func WithReadCollector(ctx context.Context) context.Context {
 	})
 }
 
-// HasReadCollector reports whether ctx has a read collector. The request
-// recorder attaches one to every request that it records as a read.
+// HasReadCollector reports whether ctx contains a read collector.
+//
+// The request recorder attaches a collector before invoking a read handler.
+// A nil collector does not count as an attached collector.
+//
+//	readContext := WithReadCollector(ctx)
+//	present := HasReadCollector(readContext)
 func HasReadCollector(ctx context.Context) bool {
 	collector, _ := ctx.Value(readCollectorKey{}).(*readCollector)
 	return collector != nil
 }
 
-// AddReadTargets appends each target of orgID that the collector in ctx does not
-// already contain. It does not add targets when ctx does not have a collector.
+// AddReadTargets appends targets that the collector in ctx has not recorded
+// for orgID. It does not add targets when ctx lacks a collector.
+//
+// The collector preserves insertion order. Its organization groups remove
+// duplicates within each organization, and its combined list removes duplicate
+// targets across organizations.
+//
+//	readContext := WithReadCollector(ctx)
+//	AddReadTargets(readContext, organizationID, target)
+//	collected := ReadCollected(readContext)
 func AddReadTargets(ctx context.Context, orgID uuid.UUID, targets ...Target) {
 	collector, _ := ctx.Value(readCollectorKey{}).(*readCollector)
 	if collector == nil {
@@ -70,8 +91,15 @@ func AddReadTargets(ctx context.Context, orgID uuid.UUID, targets ...Target) {
 	}
 }
 
-// NoteReadOutcome stores outcome in the collector in ctx if the collector does not already have an outcome.
-// It does not record an outcome when ctx does not have a collector.
+// NoteReadOutcome stores outcome, code, and message when the collector in ctx
+// has not recorded a nonempty outcome.
+//
+// The function does not record an outcome when ctx lacks a collector.
+// A previously recorded nonempty outcome takes precedence over later calls.
+//
+//	readContext := WithReadCollector(ctx)
+//	NoteReadOutcome(readContext, OutcomeFailed, "read_failed", "the read failed")
+//	collected := ReadCollected(readContext)
 func NoteReadOutcome(ctx context.Context, outcome Outcome, code, message string) {
 	collector, _ := ctx.Value(readCollectorKey{}).(*readCollector)
 	if collector == nil {
@@ -85,8 +113,16 @@ func NoteReadOutcome(ctx context.Context, outcome Outcome, code, message string)
 	collector.outcome = OutcomeDetails{Outcome: outcome, FailureCode: code, FailureMessage: message, CommittedSteps: nil}
 }
 
-// ReadCollected returns the identities and the first reported outcome from the collector in ctx.
-// It returns a zero outcome if ctx does not have a collector or the collector has not recorded an outcome.
+// ReadCollected returns the identities and first reported outcome from the
+// collector in ctx.
+//
+// The result contains copies of the target slices and organization map.
+// The outcome remains zero when ctx lacks a collector or the collector has
+// not recorded an outcome.
+//
+//	readContext := WithReadCollector(ctx)
+//	AddReadTargets(readContext, organizationID, target)
+//	collected := ReadCollected(readContext)
 func ReadCollected(ctx context.Context) CollectedRead {
 	collector, _ := ctx.Value(readCollectorKey{}).(*readCollector)
 	if collector == nil {
@@ -102,6 +138,12 @@ func ReadCollected(ctx context.Context) CollectedRead {
 }
 
 // NoOutcome returns empty outcome details.
+//
+// The result leaves Outcome, FailureCode, and FailureMessage empty and sets
+// CommittedSteps to nil.
+//
+//	outcome := NoOutcome()
+//	result.Outcome = outcome
 func NoOutcome() OutcomeDetails {
 	return OutcomeDetails{Outcome: "", FailureCode: "", FailureMessage: "", CommittedSteps: nil}
 }
