@@ -9,12 +9,15 @@ import (
 	"strings"
 )
 
-// KeyIdentifier is the one name a signing key has everywhere: the notarizer
-// stamps it on every audit.notarizations row, the export writes it into the
-// manifest, and the valid signer set lists it. It is the first eight bytes of
-// the SHA-256 of the raw Ed25519 public key, in hex, under the "ed25519:"
-// prefix. One derivation, so a key measured on a host is the same string the
-// ledger holds for it (TACK-437).
+// KeyIdentifier returns the shared identifier for an Ed25519 signing key.
+//
+// The notarizer stores this identifier in audit.notarizations, exports store
+// it in the manifest, and the valid signer set uses it. TACK-437 established
+// this shared derivation to match a key checked on a host with audit rows.
+//
+//   - The identifier starts with ed25519:.
+//   - Its suffix encodes the first eight bytes of the raw public key's SHA-256
+//     hash in hexadecimal.
 func KeyIdentifier(pub ed25519.PublicKey) string {
 	digest := sha256.Sum256(pub)
 	return keyIdentifierPrefix + hex.EncodeToString(digest[:keyIdentifierBytes])
@@ -25,24 +28,29 @@ const (
 	keyIdentifierBytes  = 8
 )
 
-// keyIdentifierShape is what a well-formed identifier looks like; a set entry
-// that does not match is a typo, and a typo in an allowlist is a silent hole.
+// keyIdentifierShape checks the identifier format. A malformed signer-set
+// entry could otherwise fail to match silently.
 var keyIdentifierShape = regexp.MustCompile(`^ed25519:[0-9a-f]{16}$`)
 
-// SignerSet is the set of signing-key identifiers an environment accepts. A
-// notarization or an export manifest signed under any other identifier is
-// rejected by verification and reported, so a leaked key is contained by
-// removing its identifier from the set (TACK-437). The set is configured per
-// environment through AUDIT_VALID_SIGNERS; an empty value is no set at all,
-// which verification treats as unconfigured rather than as an empty allowlist.
+// SignerSet contains the signing-key identifiers that an environment accepts.
+// Verification reports and rejects notarizations or export manifests under
+// other identifiers. Removing a leaked key's identifier excludes that key
+// from the accepted set (TACK-437).
+//
+// AUDIT_VALID_SIGNERS configures the set per environment. An empty value
+// leaves verification unconfigured; it does not configure an empty allowlist.
 type SignerSet struct {
 	ordered []string
 	members map[string]bool
 }
 
-// ParseSignerSet reads a comma-separated list of identifiers. Whitespace
-// around an entry is ignored; an entry of the wrong shape is an error rather
-// than a silently unmatched member.
+// ParseSignerSet reads a comma-separated list of signing-key identifiers.
+//
+// The parser trims whitespace around each entry and rejects malformed entries
+// instead of accepting entries that cannot match a signer.
+//
+//   - Empty entries do not add members.
+//   - Duplicate entries keep their first position.
 func ParseSignerSet(raw string) (SignerSet, error) {
 	set := SignerSet{ordered: nil, members: map[string]bool{}}
 	for entry := range strings.SplitSeq(raw, ",") {
@@ -63,13 +71,26 @@ func ParseSignerSet(raw string) (SignerSet, error) {
 	return set, nil
 }
 
-// Configured reports whether the set names at least one signer.
+// Configured reports whether the set contains at least one signer.
+//
+// VerifySigners checks configuration before checking the local public key.
+//
+//   - VerifySigners returns [ErrNoSignerSet] for an empty set after confirming
+//     that its reader and pool are nonnil.
 func (s SignerSet) Configured() bool { return len(s.ordered) > 0 }
 
-// Allows reports whether the identifier is in the set.
+// Allows reports whether id belongs to the set.
+//
+// The method checks membership using the exact identifier string.
+//
+//   - An absent identifier returns false.
 func (s SignerSet) Allows(id string) bool { return s.members[id] }
 
-// Identifiers returns the members in the order they were listed.
+// Identifiers returns the members in their input order.
+//
+// The method copies the stored slice before returning it.
+//
+//   - Changing the returned slice does not change the set's order.
 func (s SignerSet) Identifiers() []string {
 	out := make([]string, len(s.ordered))
 	copy(out, s.ordered)

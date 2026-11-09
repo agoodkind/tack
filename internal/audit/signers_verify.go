@@ -14,23 +14,27 @@ import (
 	"github.com/google/uuid"
 )
 
-// SignerCheck is what one verification run needs beyond the reader.
+// SignerCheck supplies the inputs for a signer verification run.
 type SignerCheck struct {
 	Set      SignerSet
 	LocalPub ed25519.PublicKey
 	Since    time.Time
-	// AcknowledgeUnverified accepts rows under allowed identifiers this host
-	// holds no key for, which is a rotation overlap or a second signing guest.
+	// AcknowledgeUnverified accepts rows with allowed identifiers when this
+	// host lacks their keys, as during key rotation or with a second signing
+	// guest.
 	AcknowledgeUnverified bool
 }
 
-// VerifySigners reads every notarization written at or after Since and checks
-// each against the set. A row whose signing_key is outside the set is
-// rejected and reported under its identifier and the hosts it claimed. A row
-// whose identifier is the local key's is also checked cryptographically; a
-// row under another allowed identifier is counted as unverified here and
-// fails the report unless acknowledged. The rows stream through the reader
-// role, so the scan reads the ledger and writes nothing.
+// VerifySigners reads notarizations at or after check.Since and checks their
+// signing identifiers against check.Set.
+//
+// The query uses the ledger reader and does not write audit rows. The report
+// includes rejected identifiers and their claimed hosts.
+//
+//   - An identifier outside the set causes rejection.
+//   - A row with the local identifier must pass signature verification.
+//   - A row with another allowed identifier counts as unverified here and
+//     fails the report unless check.AcknowledgeUnverified accepts it.
 func (r *Reader) VerifySigners(ctx context.Context, check SignerCheck) (*SignerReport, error) {
 	if r == nil || r.pool == nil {
 		return nil, errors.New("audit reader not configured")
@@ -102,8 +106,9 @@ func (r *Reader) VerifySigners(ctx context.Context, check SignerCheck) (*SignerR
 	return report, nil
 }
 
-// noteUnknownSigner folds one rejected row into the per-identifier summary:
-// the row count, the earliest and latest sighting, and every host claimed.
+// noteUnknownSigner adds a rejected row to its identifier's summary. The
+// summary counts rows, tracks the earliest and latest times, and lists every
+// claimed host.
 func noteUnknownSigner(unknown map[string]*UnknownSigner, signingKey, signingHost string, at time.Time) {
 	entry, seen := unknown[signingKey]
 	if !seen {
@@ -124,8 +129,8 @@ func noteUnknownSigner(unknown map[string]*UnknownSigner, signingKey, signingHos
 	}
 }
 
-// summarizeUnknownSigners orders the summaries by first sighting and logs
-// each at error level, one line per identifier rather than one per row.
+// summarizeUnknownSigners sorts summaries by first sighting and logs one Error
+// line per identifier.
 func summarizeUnknownSigners(ctx context.Context, unknown map[string]*UnknownSigner) []UnknownSigner {
 	out := make([]UnknownSigner, 0, len(unknown))
 	for _, entry := range unknown {

@@ -13,9 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// insertNotarization writes one notarization row the way the notarizer does,
-// signed by whichever key the test hands it, so a forged row from a key the
-// environment never issued looks exactly like a real one.
+// insertNotarization signs a notarization row with the supplied test key and
+// writes it in the notarizer's row format. The format also permits a forged
+// row from a key that the environment did not issue.
 func insertNotarization(t *testing.T, pool *pgxpool.Pool, orgID uuid.UUID, priv ed25519.PrivateKey, signingKey, host string, at time.Time, tamper bool) {
 	t.Helper()
 	root := make([]byte, 32)
@@ -35,11 +35,11 @@ func insertNotarization(t *testing.T, pool *pgxpool.Pool, orgID uuid.UUID, priv 
 	}
 }
 
-// TestVerifySignersRejectsAKeyOutsideTheSet is TACK-437's acceptance against
-// the engine: a row signed by the environment's key is accepted and its
-// signature verified, a row signed by a key nobody issued is rejected and
-// reported under its identifier and claimed host, and a row that forges the
-// accepted identifier over a bad signature fails the signature check.
+// TestVerifySignersRejectsAKeyOutsideTheSet checks TACK-437 against the
+// database. The test accepts and verifies a row signed by the issued key.
+// It rejects a row signed by an unissued key and reports its identifier and
+// claimed host. It also rejects a bad signature that claims the accepted
+// identifier.
 func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	dsn := integrationDSN(t)
 	ctx := context.Background()
@@ -64,13 +64,13 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	}
 	issued := KeyIdentifier(issuedPub)
 	rogue := KeyIdentifier(roguePub)
-	// The column holds microseconds, so the times the report hands back are
-	// compared at that precision.
+	// The column stores microsecond precision. The test compares returned times
+	// at that precision.
 	since := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
 	insertNotarization(t, pool, orgID, issuedPriv, issued, "tack-qa-owner", since.Add(time.Second), false)
-	// The rogue rows land under two orgs and are inserted newest first, so
-	// the scan reaches them out of time order and the span must come from
-	// their times, not from the order the engine returns them in.
+	// The test inserts rogue rows for two organizations, newest first. The
+	// summary must use row times for its earliest and latest values regardless
+	// of the database's scan order.
 	insertNotarization(t, pool, orgID, roguePriv, rogue, "rogue-guest", since.Add(3*time.Second), false)
 	insertNotarization(t, pool, otherOrgID, roguePriv, rogue, "rogue-guest", since.Add(2*time.Second), false)
 
@@ -101,8 +101,8 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 		t.Fatalf("verdict = %v, want a rejection naming %s", verdict, rogue)
 	}
 
-	// The identifier alone is not proof: a row that claims the accepted key
-	// over a signature that key never made fails the signature check.
+	// A row that claims the accepted identifier fails verification when that
+	// key did not create its signature.
 	insertNotarization(t, pool, orgID, roguePriv, issued, "rogue-guest", since.Add(4*time.Second), false)
 	report, err = reader.VerifySigners(ctx, SignerCheck{Set: set, LocalPub: issuedPub, Since: since, AcknowledgeUnverified: false})
 	if err != nil {
@@ -112,9 +112,9 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 		t.Fatalf("report = %+v, want the forged-identifier row counted as a signature failure", *report)
 	}
 
-	// Once the rogue identifier is admitted to the set its rows are no longer
-	// rejected, but this host holds no key for them, so they fail the report
-	// as unverified until the operator acknowledges that.
+	// Adding the rogue identifier to the set stops membership rejection for
+	// its rows. This host lacks their key and reports them as unverified until
+	// the operator acknowledges them.
 	both, err := ParseSignerSet(issued + "," + rogue)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -133,8 +133,8 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	// The forged-identifier row still fails on its signature even when the
-	// unverified rows are acknowledged.
+	// Acknowledging unverified rows does not clear the forged row's signature
+	// failure.
 	if verdict := acknowledged.Err(); verdict == nil || strings.Contains(verdict.Error(), "allow-unverified") || !strings.Contains(verdict.Error(), "signature") {
 		t.Fatalf("verdict = %v, want only the signature failure left", verdict)
 	}
@@ -145,9 +145,9 @@ func TestVerifySignersRejectsAKeyOutsideTheSet(t *testing.T) {
 	if _, err := reader.VerifySigners(ctx, SignerCheck{Set: set, LocalPub: nil, Since: since, AcknowledgeUnverified: false}); err == nil {
 		t.Fatal("verification ran without a local key")
 	}
-	// A local key the set does not list would leave every allowed row
-	// unverifiable, and an acknowledgement would then clear them all having
-	// verified nothing, so that run is refused before the scan.
+	// Verification refuses a local key outside the set before scanning rows.
+	// Otherwise, every allowed row could remain unverified, and acknowledgement
+	// could accept the report without verifying a signature.
 	rogueOnly, err := ParseSignerSet(rogue)
 	if err != nil {
 		t.Fatalf("parse: %v", err)

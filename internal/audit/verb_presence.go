@@ -17,9 +17,12 @@ type VerbPresence struct {
 	Latest *time.Time
 }
 
-// VerbPresence reads, through the ledger reader, the row count and newest
-// event_time of each verb in orgID. Every requested verb appears in the
-// result, in the requested order, with Rows 0 when the ledger has none.
+// VerbPresence reads the row count and newest event_time for each requested
+// verb in orgID through the ledger reader.
+//
+// The result follows the requested order and includes every requested verb.
+//
+//   - A verb without matching rows has Rows 0 and Latest nil.
 func (r *Reader) VerbPresence(ctx context.Context, orgID uuid.UUID, verbs []string) ([]VerbPresence, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")

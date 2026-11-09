@@ -2,19 +2,21 @@ package audit
 
 import "strings"
 
-// Verb is the stable identifier of what happened. New verbs must be added
-// here and to ToolVerb (when MCP-triggerable).
+// Verb is the stable identifier for an audit operation. Add each new verb to
+// the declarations and make [ToolVerb] recognize it when an MCP tool can
+// trigger it.
 //
-// Two tests guard the list from opposite sides. coverage_test.go fails when
-// a listed MCP tool resolves to no verb. verb_emitter_test.go fails when a
-// declared verb is recorded nowhere, which is the direction that catches a
-// verb whose emitter was never written; mcp.session_start and
-// mcp.session_end were removed because the transport is stateless and no
-// session boundary exists to record (TACK-340).
+// The coverage tests check that listed MCP tools resolve to verbs. The emitter
+// test checks that declared verbs have non-test identifier references or tool
+// routing entries. These checks examine opposite directions and do not prove
+// that an operation records at runtime.
+//
+// TACK-340 removed mcp.session_start and mcp.session_end because the stateless
+// transport did not define session boundaries to record.
 type Verb string
 
 const (
-	// State changes are written synchronously, and they must not be dropped.
+	// State changes require synchronous recording without dropping events.
 	VerbNodeCreate         Verb = "node.create"
 	VerbNodeUpdate         Verb = "node.update"
 	VerbNodeDelete         Verb = "node.delete"
@@ -43,7 +45,7 @@ const (
 	// VerbUserCreate records creation of an authenticated user.
 	VerbUserCreate Verb = "user.create"
 
-	// Auth covers every breath, including failures.
+	// Authentication events include successes and failures.
 	VerbAuthLoginSucceeded Verb = "auth.login_succeeded"
 	VerbAuthLoginFailed    Verb = "auth.login_failed"
 	VerbAuthTokenCreate    Verb = "auth.token_create"
@@ -51,7 +53,8 @@ const (
 	VerbAuthTokenUsed      Verb = "auth.token_used"
 	VerbAuthTokenRejected  Verb = "auth.token_rejected"
 
-	// Reads are batched via WAL for hot-path tolerance.
+	// Read events can wait in a memory queue for batch delivery. The queue does
+	// not provide a durable write-ahead log.
 	VerbNodeRead          Verb = "node.read"
 	VerbNodeList          Verb = "node.list"
 	VerbNodeSearch        Verb = "node.search"
@@ -64,14 +67,14 @@ const (
 	VerbAuditRead         Verb = "audit.read"
 	VerbAuditExport       Verb = "audit.export"
 
-	// VerbMCPToolInvoked and the two below it record the transport itself
-	// rather than the domain change a call made, so every request leaves a
-	// row even when its tool maps to no semantic verb.
+	// VerbMCPToolInvoked, VerbMCPResourceRead, and VerbMCPPromptInvoked record
+	// transport requests independently of domain changes. They support recording
+	// requests even when a tool does not map to a domain verb.
 	VerbMCPToolInvoked   Verb = "mcp.tool_invoked"
 	VerbMCPResourceRead  Verb = "mcp.resource_read"
 	VerbMCPPromptInvoked Verb = "mcp.prompt_invoked"
 
-	// Audit-of-audit.
+	// These verbs identify operations on the audit system itself.
 	VerbAuditDropped       Verb = "audit.dropped"
 	VerbAuditNotarized     Verb = "audit.notarized"
 	VerbAuditPIIRedacted   Verb = "audit.pii_redacted"
@@ -136,9 +139,9 @@ const (
 	// VerbOpsAuditSchemaGuardProof records the intent and outcome of a CREATE TABLE
 	// probe against the audit schema using an engine superuser login.
 	VerbOpsAuditSchemaGuardProof Verb = "ops.audit_schema_guard_proof"
-	// VerbOpsDBBreakGlass records an operator running one SQL statement
-	// against the production database through the audited command, the only
-	// sanctioned path once the raw one is closed (TACK-327).
+	// VerbOpsDBBreakGlass records an operator running one SQL statement against
+	// the production database through the audited command. TACK-327 established
+	// this as the sanctioned path after closing raw SQL access.
 	VerbOpsDBBreakGlass Verb = "ops.db_break_glass"
 	// VerbOpsAuthTokenCreate records an operator minting an API token for an
 	// existing user.
@@ -150,13 +153,14 @@ const (
 	// VerbOpsActAsCreate records the operator command that creates one node
 	// as a named user (TACK-424).
 	VerbOpsActAsCreate Verb = "ops.act_as_create"
-	// VerbOpsActAsGrant records the grant under which an operator acted as a
-	// user: the user, the org, the reason, and the grant id the user's own
-	// row carries (TACK-424).
+	// VerbOpsActAsGrant records the user, organization, reason, and grant ID for
+	// an operator acting as a user. The user's own audit row records the grant
+	// ID too (TACK-424).
 	VerbOpsActAsGrant Verb = "ops.act_as_grant"
 	// VerbOpsBackfillDefaultChildren records default child backfills.
 	VerbOpsBackfillDefaultChildren Verb = "ops.backfill_default_children"
-	// VerbOpsBackfillSearchProjections records the one-time explicit metadata rollout.
+	// VerbOpsBackfillSearchProjections records the one-time explicit metadata
+	// rollout.
 	VerbOpsBackfillSearchProjections Verb = "ops.backfill_search_projections"
 	// VerbOpsBackfillFixedDefinitions records each run of the
 	// ops backfill once-fixed-definitions command.
@@ -199,8 +203,8 @@ const (
 	VerbOpsBackupFDBContinuousInit Verb = "ops.backup_fdb_continuous_init"
 	// VerbOpsBackupStalenessCheck records a backup staleness report.
 	VerbOpsBackupStalenessCheck Verb = "ops.backup_staleness_check"
-	// VerbOpsBackupFDBRestoreVersion records an operator converting a moment
-	// into the FoundationDB version a restore names.
+	// VerbOpsBackupFDBRestoreVersion records an operator converting a time to
+	// the FoundationDB version for a restore.
 	VerbOpsBackupFDBRestoreVersion Verb = "ops.backup_fdb_restore_version"
 	// VerbOpsDeployVerify records a check that the rolled containers run the
 	// deployed images.
@@ -230,9 +234,8 @@ const (
 	// that create the operator outbox on an empty ledger before any other
 	// operator command can record.
 	VerbOpsLedgerAuditBootstrap Verb = "ops.ledger_audit_bootstrap"
-	// VerbOpsLedgerBootstrapWait records a deploy waiting until a ledger that
-	// is being bootstrapped lists the expected masters, tablet servers, and
-	// replicas.
+	// VerbOpsLedgerBootstrapWait records a deploy waiting for the ledger to list
+	// the expected masters, tablet servers, and replicas during bootstrap.
 	VerbOpsLedgerBootstrapWait Verb = "ops.ledger_bootstrap_wait"
 	// VerbOpsStoreStatus records an operator reading the product store's own
 	// cluster status (TACK-408).
@@ -277,9 +280,9 @@ const (
 	VerbNodeSubtreeDeleteResume Verb = "node.subtree_delete_resume"
 )
 
-// stateChangeVerbs is the set of application events that must be persisted
-// synchronously with the operation they describe. Operator commands declare
-// their class in Spec.
+// stateChangeVerbs classifies application events that require synchronous
+// recording with their operations. Operator commands declare their class in
+// [Spec].
 var stateChangeVerbs = map[Verb]bool{
 	VerbNodeCreate:          true,
 	VerbNodeUpdate:          true,
@@ -311,15 +314,14 @@ var stateChangeVerbs = map[Verb]bool{
 
 func IsRead(v Verb) bool { return !stateChangeVerbs[v] }
 
-// staticToolVerb maps MCP tool names whose names are fixed at build time to
-// their verb. Per-NodeType tools (tack_create_<slug>, tack_list_<plural>,
-// etc.) are resolved in ToolVerb by prefix.
+// staticToolVerb maps fixed MCP tool names to audit verbs. [ToolVerb] matches
+// per-NodeType tools by prefix, including tack_create_<slug> and
+// tack_list_<plural>.
 //
-// Every entry resolves to a non-empty verb so the MCP wrapper unconditionally
-// records one event per tool call. State-change verbs are staged by the
-// service and committed inside the FoundationDB transaction that makes the
-// change (TACK-173); the wrapper records those only when no transaction
-// committed the staged row, and records every read-class verb itself.
+// Each map entry returns a nonempty verb. TACK-173 established staging
+// state-change evidence for commit in the same FoundationDB transaction as
+// the change. The wrapper records a state-change event when a transaction did
+// not commit staged evidence, and records read-class events itself.
 var staticToolVerb = map[string]Verb{
 	"tack_list_workspaces":     VerbWorkspaceList,
 	"tack_list_members":        VerbMembersList,
@@ -332,8 +334,9 @@ var staticToolVerb = map[string]Verb{
 	"tack_getting_started":     VerbMCPPromptInvoked,
 }
 
-// perTypePrefixVerb maps a tool name prefix (computed from NodeType slug)
-// to the right verb. Order matters: longer prefixes first.
+// perTypePrefixVerb maps prefixes from NodeType slugs to audit verbs.
+// ToolVerb returns the first matching entry. When prefixes overlap, list
+// longer prefixes first. The current prefixes do not overlap.
 var perTypePrefixVerb = []struct {
 	Prefix string
 	Verb   Verb
@@ -347,11 +350,14 @@ var perTypePrefixVerb = []struct {
 	{"tack_delete_", VerbNodeDelete},          // tack_delete_<slug>
 }
 
-// ToolVerb returns the verb for a registered MCP tool name, plus a bool
-// indicating whether the tool is covered (true) or unknown (false).
+// ToolVerb returns the audit verb for a recognized MCP tool name and reports
+// whether it recognizes the name.
 //
-// A returned empty Verb with covered=true means the tool's audit event is
-// emitted by a lower layer; the MCP wrapper must skip it.
+// A match returns a nonempty verb and true. A name that does not match a
+// static entry or known prefix returns an empty verb and false.
+//
+//   - tack_create_issue matches the create prefix and returns VerbNodeCreate.
+//   - tack_unknown does not match and returns false.
 func ToolVerb(toolName string) (Verb, bool) {
 	if v, ok := staticToolVerb[toolName]; ok {
 		return v, true

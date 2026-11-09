@@ -41,9 +41,9 @@ func TestParseSignerSetRefusesAMalformedEntry(t *testing.T) {
 	}
 }
 
-// TestKeyIdentifierIsTheOneTheNotarizerStamps pins that the identifier a
-// loaded signing key carries is the same derivation the set lists and the
-// export manifest names, so a key measured on a host matches the ledger.
+// TestKeyIdentifierIsTheOneTheNotarizerStamps checks that a loaded signing
+// key uses the same identifier derivation as the signer set and export
+// manifest. This shared derivation matches a host key with audit rows.
 func TestKeyIdentifierIsTheOneTheNotarizerStamps(t *testing.T) {
 	t.Parallel()
 	keyPath := writeTempSigningKey(t)
@@ -63,10 +63,10 @@ func TestKeyIdentifierIsTheOneTheNotarizerStamps(t *testing.T) {
 	}
 }
 
-// TestVerifyBundleRejectsASignerOutsideTheSet exports a real bundle, verifies
-// it against a set that names its signer, then against one that does not:
-// the signature is valid both times and only the second run fails, naming
-// the signer.
+// TestVerifyBundleRejectsASignerOutsideTheSet exports a bundle and verifies
+// it against a set that includes its signer, then a set that excludes it.
+// Both runs verify the signature. Only the second run rejects the signer
+// and includes its identifier in the error.
 func TestVerifyBundleRejectsASignerOutsideTheSet(t *testing.T) {
 	t.Parallel()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -120,10 +120,10 @@ func TestVerifyBundleRejectsASignerOutsideTheSet(t *testing.T) {
 		t.Fatalf("with no set the bundle must be reported, not judged: configured %v err %v", unconfigured.SignerSetConfigured, unconfigured.Err())
 	}
 
-	// The set is judged on the key that verified, never on the manifest's
-	// own claim: a manifest naming an allowed signer while signed by the
-	// verifying key is caught as a mismatch, and one signed by a leaked key
-	// that names an allowed signer never reaches "allowed" at all.
+	// Verification checks set membership using the key that verified the
+	// signature. A different signer identifier in the manifest causes a mismatch
+	// even when that identifier belongs to the set. An allowed claim also cannot
+	// make an excluded signing key pass membership verification.
 	claimDir := t.TempDir()
 	if _, err := Export(context.Background(), exportTestRows(t, orgID, 2, nil), priv, "ed25519:0000000000000000", filter, claimDir); err != nil {
 		t.Fatalf("export with a false signer claim: %v", err)

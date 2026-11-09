@@ -20,13 +20,22 @@ type AppendOutbox struct {
 	appender OutboxAppender
 }
 
-// NewAppendOutbox creates an AppendOutbox that writes events through appender.
+// NewAppendOutbox creates an [AppendOutbox] that writes through appender.
+//
+// Construction stores appender without appending an event.
+//
+//   - A nil appender makes WriteOutbox return an error.
 func NewAppendOutbox(appender OutboxAppender) AppendOutbox {
 	return AppendOutbox{appender: appender}
 }
 
-// WriteOutbox encodes event and appends it as a single outbox record.
-// It rejects events that exceed the record size limit.
+// WriteOutbox encodes event and appends it as one outbox record.
+//
+// The method returns an error when the event exceeds the record size limit.
+//
+//   - An encoding failure prevents the append.
+//   - An absent appender prevents the append.
+//   - An append failure returns an error.
 func (o AppendOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	if o.appender == nil {
 		return serviceRunFailure(ctx, "append the audit event", event.EventID, errors.New("the outbox appender is nil"))
@@ -51,12 +60,20 @@ type RecorderOutbox struct {
 	recorder Recorder
 }
 
-// NewRecorderOutbox creates a RecorderOutbox that writes events through recorder.
+// NewRecorderOutbox creates a [RecorderOutbox] that writes through recorder.
+//
+// Construction stores recorder without recording an event.
+//
+//   - A nil recorder makes WriteOutbox return an error.
 func NewRecorderOutbox(recorder Recorder) RecorderOutbox {
 	return RecorderOutbox{recorder: recorder}
 }
 
-// WriteOutbox records event through the configured Recorder.
+// WriteOutbox records event through the configured [Recorder].
+//
+// The method returns an error when the recorder is nil or recording fails.
+//
+//   - A successful recording returns nil.
 func (o RecorderOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	if o.recorder == nil {
 		return serviceRunFailure(ctx, "record the audit event", event.EventID, errors.New("the recorder is nil"))
@@ -68,6 +85,10 @@ func (o RecorderOutbox) WriteOutbox(ctx context.Context, event Event) error {
 }
 
 // ServiceActor creates a service actor with the supplied ID and name.
+//
+// The actor uses ActorService as its type.
+//
+//   - The actor starts with empty email and session fields.
 func ServiceActor(id uuid.UUID, name string) Actor {
 	return Actor{
 		Type: ActorService, ID: id, Email: "", Name: name, SessionID: "",
@@ -75,9 +96,14 @@ func ServiceActor(id uuid.UUID, name string) Actor {
 	}
 }
 
-// RunServiceExternal records an in-process service job as an external operation
-// on target. Each run uses a new UUIDv7 operation ID, actor, and the system
-// organization.
+// RunServiceExternal records an in-process service job as an external
+// operation on target.
+//
+// Each run uses a new UUIDv7 operation ID and the system organization. The run
+// uses the supplied actor.
+//
+//   - The intent uses the system source and external operation class.
+//   - [RunExternal] records the operation around run.
 func RunServiceExternal(
 	ctx context.Context,
 	outbox OutboxWriter,
@@ -104,8 +130,12 @@ func RunServiceExternal(
 }
 
 // RunServiceStep records a service job as an external operation with one step.
-// It records planned evidence before calling effect and records the result
-// afterward. It calls observe only after effect succeeds.
+//
+// The function records planned evidence before it calls effect and records
+// the result afterward. It calls observe only after effect succeeds.
+//
+//   - A failure to begin the step prevents effect.
+//   - An effect or observation failure produces a failed step result.
 func RunServiceStep(
 	ctx context.Context,
 	outbox OutboxWriter,

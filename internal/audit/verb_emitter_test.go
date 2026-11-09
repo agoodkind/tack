@@ -10,15 +10,13 @@ import (
 	"testing"
 )
 
-// unemittedVerbs names every declared verb that nothing records yet, and says
-// why. A verb may sit here only while the feature that would emit it is
-// unbuilt, and every entry names the ticket that will build it.
+// unemittedVerbs lists declared verbs without production references and gives
+// their reasons. Each exemption must identify the ticket for its unbuilt
+// feature. A missing emitter or a later emitter removal fails the reference
+// test unless the map supplies a reason (TACK-340).
 //
-// This map is the escape hatch, so it is deliberately awkward: a verb added to
-// verbs.go with no emitter fails TestEveryDeclaredVerbHasAnEmitter until
-// someone writes a reason here, and a verb whose emitter is later deleted
-// fails the same way. Silence about a missing emitter is the thing this file
-// exists to prevent (TACK-340).
+// These exemptions affect the static reference test. They do not waive the
+// runtime audit completeness contract.
 var unemittedVerbs = map[Verb]string{
 	VerbAuthLoginSucceeded: "there is no login endpoint; bearer auth emits auth.token_used instead; TACK-340",
 	VerbAuditNotarized:     "the notarizer writes its own table row and records no ledger event; TACK-340",
@@ -26,22 +24,18 @@ var unemittedVerbs = map[Verb]string{
 	VerbAuditDropped:       "a recorder that cannot record cannot record its own failure; TACK-320 owns the outage log",
 }
 
-// TestEveryDeclaredVerbHasAnEmitter walks the repository and fails when a
-// declared verb is recorded nowhere.
+// TestEveryDeclaredVerbHasAnEmitter checks declared verbs for production
+// identifier references or tool routing entries, except explicit exemptions.
 //
-// The tool-to-verb test in coverage_test.go checks the other direction: that a
-// registered tool resolves to a verb. Neither direction implies the other, and
-// only this one catches a verb whose emitter was never written, which is how
-// the TACK-340 audit found eleven verbs that nothing emitted and one whose
-// ticket recorded it as shipped when it had never been wired.
+// The tool coverage test checks listed tools for verb mappings. This test
+// checks the reverse direction. The TACK-340 audit reported eleven verbs
+// without emitters and one feature marked shipped without an emitter.
 //
-// What this test does not catch, stated so nobody reads more into a pass than
-// it earns: an emitter that exists and is never called still names its verb
-// here, so this stays green. Two other gates cover that half. The deadcode
-// lint fails an unreachable function, which is what an orphaned emitter
-// becomes, and each emitter's own test drives the handler rather than the
-// helper, so a handler that stops recording fails there. All three were
-// checked by mutation rather than assumed.
+// A reference does not prove that an emitter runs or records an event. The
+// original validation account reports that deadcode rejected unreachable
+// functions and handler-level emitter tests detected missing recording. It
+// also reports mutation checks of all three checks. This static test alone
+// cannot establish those checks or complete runtime audit coverage.
 func TestEveryDeclaredVerbHasAnEmitter(t *testing.T) {
 	declared := declaredVerbs(t)
 	if len(declared) < 50 {
@@ -65,9 +59,9 @@ func TestEveryDeclaredVerbHasAnEmitter(t *testing.T) {
 	}
 }
 
-// TestUnemittedVerbsAreAllDeclared keeps the escape hatch honest in the other
-// direction: an entry for a verb that no longer exists is a stale exemption
-// that would silently cover a future verb of the same name.
+// TestUnemittedVerbsAreAllDeclared rejects exemptions for verbs that the
+// declarations do not contain. A stale exemption could otherwise exempt a
+// future verb with the same value.
 func TestUnemittedVerbsAreAllDeclared(t *testing.T) {
 	declared := declaredVerbs(t)
 	values := make(map[Verb]bool, len(declared))
@@ -84,9 +78,8 @@ func TestUnemittedVerbsAreAllDeclared(t *testing.T) {
 	}
 }
 
-// declaredVerbs parses verbs.go and returns constant name to verb value for
-// every declared Verb. Parsing rather than scanning text means a renamed or
-// reformatted constant is still found.
+// declaredVerbs parses the verb declarations and maps constant names to verb
+// values. Parsing preserves detection after renaming or reformatting.
 func declaredVerbs(t *testing.T) map[string]Verb {
 	t.Helper()
 	fileSet := token.NewFileSet()
@@ -117,17 +110,16 @@ func declaredVerbs(t *testing.T) map[string]Verb {
 	return declared
 }
 
-// verbNamesReferencedOutsideDeclarations returns every verb constant name used
-// anywhere that is not its own declaration.
+// verbNamesReferencedOutsideDeclarations returns verb constant identifiers
+// from non-test Go files outside the declaration file and from tool routing
+// maps inside it.
 //
-// Two sources count as recording the verb. A reference in non-test code
-// outside this package's verbs.go is an emitter or a path to one. A reference
-// inside verbs.go that is not a declaration is a map entry, which is how the
-// MCP tool verbs reach the wrapper that records them; that wrapper is the
-// emitter for all of them, so the map entry is the honest evidence.
+// The test treats those references as evidence of an emitter. Tool routing
+// entries select verbs for the MCP wrapper. Other identifier references do
+// not prove that production executes an emitter.
 //
-// Test files are excluded deliberately: a verb that only appears in a test is
-// a verb nothing in production records, which is exactly the case to catch.
+// The helper excludes tests because a test-only reference does not establish
+// production recording.
 func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 	t.Helper()
 	referenced := map[string]bool{}
@@ -139,8 +131,8 @@ func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 			return err
 		}
 		if entry.IsDir() {
-			// .testenv holds engine data directories an engine's own user owns,
-			// so walking into them fails with permission denied.
+			// Engine users own the data directories under .testenv. Entering those
+			// directories can fail with permission denied.
 			switch entry.Name() {
 			case ".git", ".testenv", "node_modules":
 				return filepath.SkipDir
@@ -164,22 +156,20 @@ func verbNamesReferencedOutsideDeclarations(t *testing.T) map[string]bool {
 	return referenced
 }
 
-// toolRoutingMaps are the variables in verbs.go whose entries put a verb on a
-// path that records it: ToolVerb reads both, and the MCP wrapper records
-// whatever they return.
+// toolRoutingMaps selects the maps that [ToolVerb] reads to choose verbs for
+// the MCP wrapper.
 //
-// stateChangeVerbs is deliberately not here. It classifies a verb as
-// synchronous rather than routing it anywhere, so counting its entries would
-// mark five verbs as emitted that nothing emits. The first run of this test
-// did exactly that, which is the whole argument for keeping the two kinds of
-// map apart.
+// stateChangeVerbs only classifies synchronous recording. Its entries do not
+// select verbs for tools. The original test account reports that counting
+// that map marked five verbs as emitted without emitters. The helper excludes
+// it to distinguish classification from tool routing.
 var toolRoutingMaps = map[string]bool{
 	"staticToolVerb":    true,
 	"perTypePrefixVerb": true,
 }
 
-// collectVerbMapEntries records verb names that verbs.go routes to the MCP
-// wrapper, which is their emitter.
+// collectVerbMapEntries collects identifiers from the maps that select audit
+// verbs for the MCP wrapper.
 func collectVerbMapEntries(t *testing.T, referenced map[string]bool) {
 	t.Helper()
 	fileSet := token.NewFileSet()
@@ -214,21 +204,19 @@ func collectVerbMapEntries(t *testing.T, referenced map[string]bool) {
 	}
 }
 
-// verbIdentifiers returns the Verb-prefixed identifiers a file actually uses.
+// verbIdentifiers returns Verb-prefixed Go identifiers from a parsed file.
 //
-// It parses rather than scans text. A textual scan was the first version and
-// it was wrong in a way that mattered: a verb named in a comment or a string
-// counted as emitted, so a verb could be documented into coverage it did not
-// have. Parsing sees identifiers only, so prose about a verb no longer stands
-// in for code that records it.
+// The first version scanned text and counted verb names in comments or
+// strings as emitter references. Parsing excludes those prose occurrences
+// from the reference check.
 func verbIdentifiers(t *testing.T, path string) []string {
 	t.Helper()
 	fileSet := token.NewFileSet()
 	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
 	if err != nil {
-		// A file the compiler accepts must parse here too, so a failure means
-		// this test is walking something it should not, and skipping it would
-		// silently shrink the search.
+		// A file that the compiler accepts must parse here. A failure can indicate
+		// that this test selected an unintended file. The test fails instead of
+		// skipping the file and reducing its search.
 		t.Fatalf("parse %s: %v", path, err)
 	}
 	var names []string

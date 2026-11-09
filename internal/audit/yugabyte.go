@@ -16,21 +16,29 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// YBRecorder is the production audit Recorder. It writes synchronously to
-// audit.events and atomically advances audit.chain_heads inside one
-// Yugabyte transaction. The write path is hash-chained per (org, shard) and
-// uses the audit_writer_app role exclusively, so even an SQL injection in
-// the application layer cannot mutate or delete audit rows.
+// YBRecorder writes audit events synchronously to YugabyteDB. One transaction
+// appends to audit.events and advances audit.chain_heads for the event's
+// organization and shard.
 //
-// The recorder is dual-track with telemetry: every Record call emits
-// structured slog and bumps an expvar counter alongside the database write.
+// The caller supplies the connection's DSN. The audit_writer role's grants
+// and row-level security policies permit appends without permitting changes
+// to existing audit rows. The constructor does not enforce the login name.
+//
+// Successful writes increment the audit counter and emit structured slog
+// output. Failed writes increment a dropped-event counter on the failure
+// paths that Record handles.
 type YBRecorder struct {
 	pool *pgxpool.Pool
 }
 
-// NewYBRecorder opens a pool against the audit_writer DSN. The DSN must
-// authenticate as a member of the audit_writer base role; the migration's
-// RLS policies block writes from any other identity.
+// NewYBRecorder opens and pings a pool using dsn.
+//
+// The DSN must authenticate with audit_writer membership. The ledger's
+// role grants and row-level security policies control permitted writes; this
+// constructor does not validate role membership.
+//
+//   - An empty DSN returns an error.
+//   - A failed ping closes the pool before returning the error.
 func NewYBRecorder(ctx context.Context, dsn string) (*YBRecorder, error) {
 	if dsn == "" {
 		return nil, errors.New("audit: AUDIT_WRITER_DSN required")
@@ -51,27 +59,34 @@ func NewYBRecorder(ctx context.Context, dsn string) (*YBRecorder, error) {
 	return &YBRecorder{pool: pool}, nil
 }
 
-// Close releases the underlying pool. Idempotent.
+// Close releases the underlying pool.
+//
+// The method accepts a nil recorder or pool.
+//
+//   - Repeated calls are safe.
 func (r *YBRecorder) Close() {
 	if r != nil && r.pool != nil {
 		r.pool.Close()
 	}
 }
 
-// Record writes one audit event synchronously inside a Yugabyte transaction.
-// It appends to audit.events and advances audit.chain_heads through the shared
-// compare-and-swap helper, retrying when a concurrent writer (another app
-// replica) advances the same (org, shard) head. Any final failure increments
-// the dropped counter and returns the error to the caller.
+// Record writes one audit event in a YugabyteDB transaction and advances its
+// organization and shard chain head with the shared compare-and-swap helper.
 //
-// What the caller does with that error is the caller's decision. Product state
-// changes made through the MCP tools no longer depend on it: their row is
-// written into the FoundationDB outbox inside the transaction that makes the
-// change and relayed to the ledger afterwards (TACK-173), so a change and its
-// record commit together. This recorder stays the direct path for everything
-// else. Before TACK-173 the MCP wrapper recorded after the handler returned
-// and logged a failure at Warn, which is how the 2026-07-06 gap left eight
-// issue creations in the store with no row here (TACK-335).
+// Concurrent writers, including another replica, can advance the same head.
+// Record retries retryable chain errors. Marshal failures and final chain
+// failures increment a dropped-event counter and return an error. The audit
+// completeness contract requires callers to refuse unaudited operations.
+//
+// TACK-173 introduced recording product state changes in the FoundationDB
+// outbox within the transaction that changes product data, followed by relay
+// delivery. This recorder supplies a direct YugabyteDB write path. The
+// original TACK-335 incident account reports that the earlier MCP wrapper
+// recorded after handler completion and logged failures at Warn. It attributes
+// eight issue creations without audit rows on 2026-07-06 to that ordering.
+//
+//   - A previously projected event returns nil without another append.
+//   - A successful append commits its event and chain head together.
 func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 	ctx, span := telemetry.StartSpan(ctx, "audit.record",
 		trace.WithSpanKind(trace.SpanKindInternal),
@@ -141,11 +156,11 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 	return nil
 }
 
-// recordOnce runs one attempt of the audit write: open a transaction, write the
-// actor PII row, append the event and advance the chain head, then commit. The
-// PII split keeps actor PII in audit.pii under a fresh pii_ref so GDPR erasure
-// never breaks the hash chain, which covers the reference rather than the
-// payload.
+// recordOnce opens a transaction, writes actor personally identifiable
+// information (PII), appends the event, advances the chain head, and commits.
+// The transaction stores PII separately in audit.pii under a fresh pii_ref.
+// The hash covers that reference rather than the PII payload. GDPR erasure
+// can remove the payload without breaking the hash chain.
 func (r *YBRecorder) recordOnce(ctx context.Context, ev Event, shard int16, contextJSON, deltaJSON []byte) (chainAppendResult, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -179,8 +194,8 @@ func (r *YBRecorder) recordOnce(ctx context.Context, ev Event, shard int16, cont
 	return res, nil
 }
 
-// hasPII reports whether actor carries any field worth splitting into
-// audit.pii. Empty strings imply nothing to redact later.
+// hasPII reports whether the actor has a nonempty field for audit.pii.
+// Empty fields do not require later redaction.
 func hasPII(a Actor) bool {
 	return a.Email != "" || a.Name != "" || a.IP != "" || a.UserAgent != "" || a.APITokenLabel != ""
 }

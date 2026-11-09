@@ -8,12 +8,11 @@ import (
 	"testing"
 )
 
-// TestSpillKeepsAnEventTheBrokerRefused is TACK-336's producer half. An event
-// the broker refuses used to be dropped with a log line; the 2026-07-06 gap
-// left eight issue creations in the store with no ledger row that way. Here
-// the refused event lands in the outbox, decodes back to the same event with
-// its id and time intact, and the caller is told nothing went wrong, because
-// nothing did: the event is durable.
+// TestSpillKeepsAnEventTheBrokerRefused checks the producer behavior from
+// TACK-336. The original incident account reports that refused events only
+// produced log entries on 2026-07-06, leaving eight issue creations without
+// audit rows. The test checks that the outbox stores a refused event, decoding
+// preserves its ID and time, and the caller receives nil after storage.
 func TestSpillKeepsAnEventTheBrokerRefused(t *testing.T) {
 	cluster := newFakeCluster(t)
 	stop := refuseProduce(cluster)
@@ -38,10 +37,10 @@ func TestSpillKeepsAnEventTheBrokerRefused(t *testing.T) {
 	}
 }
 
-// TestSpillLogsOnceForAnOutageNotOncePerEvent is TACK-320. Twenty refused
-// events during one outage cost one Error line when it began and one Info
-// line when it ended, with the count carried on the second, rather than
-// twenty Error lines that bury whatever else went wrong that hour.
+// TestSpillLogsOnceForAnOutageNotOncePerEvent checks TACK-320. Twenty refused
+// events during one outage produce one Error line at the start and one Info
+// line at recovery. The recovery line includes the count instead of logging
+// an Error for each event.
 func TestSpillLogsOnceForAnOutageNotOncePerEvent(t *testing.T) {
 	cluster := newFakeCluster(t)
 	logs := captureLogs(t)
@@ -81,10 +80,9 @@ func TestSpillLogsOnceForAnOutageNotOncePerEvent(t *testing.T) {
 	}
 }
 
-// TestSpillFailureIsReportedAsLoss pins the one case that is a real loss: the
-// broker refused and the outbox could not take the event either. That returns
-// an error naming both failures, because there is nowhere left to put the
-// event and the caller must know it is gone.
+// TestSpillFailureIsReportedAsLoss checks an event that both the broker and
+// outbox reject. The recorder returns an error with both failures because
+// neither path stored the event.
 func TestSpillFailureIsReportedAsLoss(t *testing.T) {
 	cluster := newFakeCluster(t)
 	stop := refuseProduce(cluster)
@@ -100,9 +98,9 @@ func TestSpillFailureIsReportedAsLoss(t *testing.T) {
 	}
 }
 
-// TestSpillIsNotUsedWhileTheBrokerAnswers pins that the spill is a fallback
-// and not a second copy: a healthy broker takes every event and the outbox
-// stays empty, so the relay never redelivers what already arrived.
+// TestSpillIsNotUsedWhileTheBrokerAnswers checks that a healthy broker records
+// the event without an outbox copy. The relay cannot redeliver that event
+// from the empty outbox.
 func TestSpillIsNotUsedWhileTheBrokerAnswers(t *testing.T) {
 	cluster := newFakeCluster(t)
 	outbox := &memoryOutbox{}
@@ -116,12 +114,11 @@ func TestSpillIsNotUsedWhileTheBrokerAnswers(t *testing.T) {
 	}
 }
 
-// TestSpillSurvivesTheRequestContextExpiring pins the review finding on the
-// first version: the spill ran on the request context, and the primary may
-// have failed precisely because that context expired, so the fallback failed
-// the same way after the product write had committed. Here the request is
-// already cancelled when the primary refuses, and the outbox must still be
-// handed a live context.
+// TestSpillSurvivesTheRequestContextExpiring checks the first version's
+// review finding. That version reused request cancellation for the spill.
+// A primary failure after request expiration also failed the spill after the
+// product write committed. This test cancels the request before primary
+// rejection and checks that the outbox receives a live context.
 func TestSpillSurvivesTheRequestContextExpiring(t *testing.T) {
 	cluster := newFakeCluster(t)
 	stop := refuseProduce(cluster)
