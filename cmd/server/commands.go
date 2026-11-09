@@ -135,6 +135,7 @@ func configureAuditOutbox(f *cli.Factory) {
 			"audit.operator_outbox.config_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 

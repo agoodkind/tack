@@ -109,6 +109,7 @@ func clearReadPrefix(t *testing.T, clusterFile string, prefix []byte) {
 			Begin: fdb.Key(prefix),
 			End:   fdb.Key(end),
 		})
+
 		return nil, nil
 	}); err != nil {
 		t.Logf("cleanup: clear the test prefix: %v", err)

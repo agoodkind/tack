@@ -62,6 +62,7 @@ func (r *Reader) VerifyManifest(
 
 	if rows.Next() {
 		rows.Close()
+
 		return result, fmt.Errorf(
 			"event %s has multiple declarations in the requested organization",
 			eventID,

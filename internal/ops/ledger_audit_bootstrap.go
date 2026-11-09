@@ -79,6 +79,7 @@ func readLedgerAuditPresence(ctx context.Context, databaseURL string) (ledgerAud
 			"ops.ledger.audit_bootstrap.connect_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return ledgerAuditPresence{}, fmt.Errorf(
 			"connect to read the ledger audit infrastructure: %w",
 			err,
@@ -104,6 +105,7 @@ func readLedgerAuditPresence(ctx context.Context, databaseURL string) (ledgerAud
 			"ops.ledger.audit_bootstrap.read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return ledgerAuditPresence{}, fmt.Errorf("read the ledger audit infrastructure: %w", err)
 	}
 
@@ -172,6 +174,7 @@ func writeLedgerAuditBootstrapLine(
 			"ops.ledger.audit_bootstrap.write_result_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("%s: write result: %w", ledgerAuditBootstrapCommand, err)
 	}
 

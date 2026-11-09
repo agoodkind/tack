@@ -23,6 +23,7 @@ type snapshotTiming struct {
 // newSnapshotTiming starts timing one QueryRanker.Open call.
 func newSnapshotTiming() *snapshotTiming {
 	now := clock.Now()
+
 	return &snapshotTiming{
 		started:     now,
 		previous:    now,

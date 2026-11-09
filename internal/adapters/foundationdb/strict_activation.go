@@ -117,6 +117,7 @@ func (s *NodeStore) StrictScanPage(
 			slog.Int("limit", limit),
 			slog.String("err", domain.ErrInvalidArgument.Error()),
 		)
+
 		return nil, "", fmt.Errorf(
 			"strict scan limit must be between 1 and %d: %w",
 			maxStrictScanNodes,

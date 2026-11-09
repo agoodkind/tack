@@ -28,6 +28,7 @@ func (transport *macRunnerEventTransport) RoundTrip(request *http.Request) (*htt
 			"testenv.run_mac.event_request_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("request Docker events: %w", err)
 	}
 

@@ -47,6 +47,7 @@ func TestSearchClusterProxyServerError(t *testing.T) {
 						response.Status,
 						response.OriginStatus,
 					)
+
 					return nil
 				}
 			}

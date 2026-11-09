@@ -60,6 +60,7 @@ func (r *Reader) ManifestParts(
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read audit event %s manifest parts: %w", eventID, err)
 	}
 	defer rows.Close()
@@ -74,6 +75,7 @@ func (r *Reader) ManifestParts(
 				slog.String("event_id", eventID.String()),
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("scan audit event %s manifest parts: %w", eventID, err)
 		}
 
@@ -87,6 +89,7 @@ func (r *Reader) ManifestParts(
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read audit event %s manifest part rows: %w", eventID, err)
 	}
 
@@ -113,6 +116,7 @@ func attachManifestParts(ctx context.Context, source RowSource, row *Row) error 
 			slog.String("event_id", row.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("export audit event %s manifest parts: %w", row.EventID, err)
 	}
 

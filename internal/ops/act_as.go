@@ -208,6 +208,7 @@ func resolveActAsTarget(
 			slog.String("email", email),
 			slog.String("err", err.Error()),
 		)
+
 		return none, fmt.Errorf("look up user %q: %w", email, err)
 	}
 
@@ -219,6 +220,7 @@ func resolveActAsTarget(
 			slog.String("parent", input.ParentID),
 			slog.String("err", err.Error()),
 		)
+
 		return none, fmt.Errorf("--parent must be a UUID: %w", err)
 	}
 
@@ -230,6 +232,7 @@ func resolveActAsTarget(
 			slog.String("parent_id", parentID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return none, fmt.Errorf("resolve parent %s: %w", parentID, err)
 	}
 
@@ -246,6 +249,7 @@ func resolveActAsTarget(
 			slog.String("user_id", target.ID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return none, fmt.Errorf("list orgs for user %s: %w", email, err)
 	}
 

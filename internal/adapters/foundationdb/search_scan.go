@@ -27,6 +27,7 @@ func (s *NodeContentStore) ScanSearch(
 	defer telemetry.FDBOp(ctx, "store.search_content.scan")(&err)
 	if limit <= 0 || limit > maxSearchScanNodes {
 		err := fmt.Errorf("search scan limit must be between 1 and %d", maxSearchScanNodes)
+
 		return scan, contentFailure(
 			ctx,
 			"search.scan.limit_invalid",
@@ -110,6 +111,7 @@ func searchScanBegin(
 	if bytes.Compare(lastKey, keyRange.Begin.FDBKey()) < 0 ||
 		bytes.Compare(lastKey, keyRange.End.FDBKey()) >= 0 {
 		rangeErr := errors.New("cursor key is outside the organization node range")
+
 		return fdb.KeySelector{}, contentFailure(
 			ctx,
 			"search.scan.cursor_invalid",
@@ -152,6 +154,7 @@ func decodeSearchScan(
 
 		if len(values) < 4 {
 			err := fmt.Errorf("node record key has %d tuple values", len(values))
+
 			return searchdomain.ScanResult{}, contentFailure(
 				ctx,
 				"search.scan.key_invalid",
@@ -164,6 +167,7 @@ func decodeSearchScan(
 		nodeIDText, ok := values[3].(string)
 		if !ok {
 			err := fmt.Errorf("node record key has no node identifier")
+
 			return searchdomain.ScanResult{}, contentFailure(
 				ctx,
 				"search.scan.identity_invalid",

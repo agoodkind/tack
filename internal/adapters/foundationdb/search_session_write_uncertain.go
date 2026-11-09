@@ -108,6 +108,7 @@ func appendWriteUncertain(
 			slog.String("err", err.Error()),
 			slog.String("session_id", sessionID.String()),
 		)
+
 		return fmt.Errorf("build the uncertain write event of session %s: %w", sessionID, err)
 	}
 
@@ -120,6 +121,7 @@ func appendWriteUncertain(
 			slog.String("err", err.Error()),
 			slog.String("session_id", sessionID.String()),
 		)
+
 		return fmt.Errorf("encode the uncertain write event of session %s: %w", sessionID, err)
 	}
 

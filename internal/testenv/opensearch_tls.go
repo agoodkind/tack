@@ -128,5 +128,6 @@ func certificateError(ctx context.Context, err error) error {
 		"search.fixture_certificate_failed",
 		slog.String("err", err.Error()),
 	)
+
 	return err
 }

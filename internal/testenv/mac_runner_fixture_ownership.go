@@ -84,6 +84,7 @@ func (execution *macRunnerExecution) attributeContainer(
 				"managed container lacks exact invocation attribution",
 				true,
 			)
+
 			return
 		}
 

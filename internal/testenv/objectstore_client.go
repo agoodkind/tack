@@ -115,6 +115,7 @@ func waitForObjectStore(
 				"testenv.objectstore.not_ready",
 				slog.String("err", lastErr.Error()),
 			)
+
 			return ObjectStoreBucket{}, fmt.Errorf(
 				"the test object store stored nothing before the deadline: %w",
 				lastErr,
@@ -171,6 +172,7 @@ func objectStoreAccess(
 	var identities objectStoreConfig
 	if err := json.Unmarshal(contents, &identities); err != nil {
 		slog.ErrorContext(ctx, "testenv.objectstore.config_failed", slog.String("err", err.Error()))
+
 		return ObjectStoreBucket{}, fmt.Errorf(
 			"parse %s in %s: %w",
 			objectStoreConfigPath,

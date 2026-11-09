@@ -48,6 +48,7 @@ func readStatement(name string) string {
 			slog.String("name", name),
 			slog.String("err", err.Error()),
 		)
+
 		return ""
 	}
 

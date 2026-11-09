@@ -159,6 +159,7 @@ func completeRankedCursor(t *testing.T, fixture queryFixture, query, cursor stri
 				query,
 				len(tokens),
 			)
+
 			return
 		}
 

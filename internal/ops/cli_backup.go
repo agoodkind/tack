@@ -219,6 +219,7 @@ func backupStalenessCheckCommand(f *cli.Factory) *cobra.Command {
 				cmd.OutOrStdout(),
 				steps,
 			)
+
 			return clispec.CheckOutcome{Details: details, Verdict: stale}, err
 		},
 	)

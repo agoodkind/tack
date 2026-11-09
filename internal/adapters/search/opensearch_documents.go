@@ -162,6 +162,7 @@ func encodeGuarded[Body pageDocument | retiredDocument](
 			IfPrimaryTerm:   nil,
 			RetryOnConflict: 0,
 		}
+
 		return encodeBulkLines(ctx, bulkCreateHeader{Create: target}, body)
 	}
 

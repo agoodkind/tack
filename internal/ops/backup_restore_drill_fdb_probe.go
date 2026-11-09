@@ -70,6 +70,7 @@ func readFDBRestore(
 		probeTimeout,
 		func(probeCtx context.Context) fdbRestoreReading {
 			exitCode, done, err := watch.Finished(probeCtx)
+
 			return fdbRestoreReading{
 				exitCode:  exitCode,
 				done:      done,
@@ -96,6 +97,7 @@ func readFDBRestore(
 		probeTimeout,
 		func(probeCtx context.Context) fdbRestoreReading {
 			status, err := watch.Status(probeCtx)
+
 			return fdbRestoreReading{
 				exitCode:  0,
 				done:      false,
@@ -152,6 +154,7 @@ func runFDBRestoreProbe(
 	case <-probeCtx.Done():
 		if ctx.Err() != nil {
 			err := fmt.Errorf("the probe was cancelled: %w", ctx.Err())
+
 			return fdbRestoreReading{
 				exitCode:  0,
 				done:      false,

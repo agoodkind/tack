@@ -33,6 +33,7 @@ func (s *PropertyDefStore) Replace(
 			slog.String("err", err.Error()),
 			slog.String("property_definition_id", before.ID.String()),
 		)
+
 		return false, fmt.Errorf("marshal expected property def %s: %w", before.ID, err)
 	}
 
@@ -44,6 +45,7 @@ func (s *PropertyDefStore) Replace(
 			slog.String("err", err.Error()),
 			slog.String("property_definition_id", after.ID.String()),
 		)
+
 		return false, fmt.Errorf("marshal replacement property def %s: %w", after.ID, err)
 	}
 

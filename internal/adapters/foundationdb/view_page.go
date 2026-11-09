@@ -34,6 +34,7 @@ func (s *ViewStore) ListPage(
 			"store.view.list_page_failed",
 			slog.String("err", "limit must be positive"),
 		)
+
 		return node.Page{}, fmt.Errorf(
 			"list page %s: limit must be positive: %w",
 			q.NodeType,
@@ -47,6 +48,7 @@ func (s *ViewStore) ListPage(
 			"store.view.list_page_failed",
 			slog.String("err", "relation scans are not paged"),
 		)
+
 		return node.Page{}, fmt.Errorf(
 			"list page %s: relation scans are not paged: %w",
 			q.NodeType,
@@ -141,6 +143,7 @@ func (s *ViewStore) pageBegin(
 			encodePropertyValue(q.ByProperty.Value),
 			lastID,
 		)
+
 		return fdb.FirstGreaterThan(fdb.Key(key)), nil
 	}
 

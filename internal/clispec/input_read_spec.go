@@ -29,6 +29,7 @@ func InputReadSpec[Typed Input](
 				slog.String("verb", string(verb)),
 				slog.String("err", err.Error()),
 			)
+
 			return decoded, fmt.Errorf("%s: decode the command input: %w", verb, err)
 		}
 
@@ -60,6 +61,7 @@ func InputReadSpec[Typed Input](
 					slog.String("verb", string(verb)),
 					slog.String("err", err.Error()),
 				)
+
 				return nil, fmt.Errorf("%s: encode the safe input: %w", verb, err)
 			}
 

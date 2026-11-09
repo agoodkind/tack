@@ -79,6 +79,7 @@ func (proxy *pacingProxy) ServeHTTP(writer http.ResponseWriter, request *http.Re
 			"the client abandoned the paced bulk request",
 			http.StatusServiceUnavailable,
 		)
+
 		return
 	case <-timer.C:
 	}

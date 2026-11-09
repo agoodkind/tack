@@ -137,8 +137,10 @@ func requireBoundedSession(
 		distinct[id] = true
 	}
 
-	if header.Version != commits || counts[sessionHeaderFamily] != 1 || counts[sessionTokenPart] != header.TokenChunks ||
-		counts[sessionVisitedPart] != len(distinct) || counts[sessionReplayPart] != 1 ||
+	if header.Version != commits || counts[sessionHeaderFamily] != 1 ||
+		counts[sessionTokenPart] != header.TokenChunks ||
+		counts[sessionVisitedPart] != len(distinct) ||
+		counts[sessionReplayPart] != 1 ||
 		counts[sessionExpiryFamily] != 1 ||
 		counts[sessionPresentFamily] > 1 ||
 		counts[sessionVersionFamily] > 1 {

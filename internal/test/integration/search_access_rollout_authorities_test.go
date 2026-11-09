@@ -80,6 +80,7 @@ func TestSearchAccessRolloutTwoAuthorities(t *testing.T) {
 				fixture,
 				first.OrgID,
 			), currentAccessRollout(t, fixture, other.OrgID)
+
 			return firstState.Activated() && otherState.Phase == searchdomain.AccessStable
 		},
 	)

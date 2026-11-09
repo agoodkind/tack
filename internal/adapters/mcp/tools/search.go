@@ -95,6 +95,7 @@ func searchUnavailable(ctx context.Context) *mcpmcp.CallToolResult {
 		"search_unavailable",
 		"the search backend could not answer the request",
 	)
+
 	return searchUnavailableResult()
 }
 
@@ -107,6 +108,7 @@ func searchRecordingFailed(ctx context.Context) *mcpmcp.CallToolResult {
 		"audit_recording_failed",
 		"the search could not save required audit evidence",
 	)
+
 	return searchUnavailableResult()
 }
 

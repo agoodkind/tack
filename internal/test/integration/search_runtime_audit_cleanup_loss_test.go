@@ -158,7 +158,8 @@ func runCleanupLoss(t *testing.T, scenario cleanupLossScenario) {
 	)
 	refused := cleanupLossReads(rows, audit.OutcomeFailed)[0]
 	first := cleanupLossReads(rows, audit.OutcomeCompleted)[0]
-	if refused.ActorID != fixture.Workspaces[0].Actors[0].UserID || refused.ActorID != first.ActorID ||
+	if refused.ActorID != fixture.Workspaces[0].Actors[0].UserID ||
+		refused.ActorID != first.ActorID ||
 		refused.Context.OperationID == first.Context.OperationID ||
 		refused.Error == nil ||
 		refused.Error.Code != "audit_recording_failed" {

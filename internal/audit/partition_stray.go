@@ -27,6 +27,7 @@ func (s *pgPartitionStore) StrayChildren(ctx context.Context) ([]string, error) 
 			"audit.partition.stray_query_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("stray child query: %w", err)
 	}
 	defer rows.Close()
@@ -40,6 +41,7 @@ func (s *pgPartitionStore) StrayChildren(ctx context.Context) ([]string, error) 
 				"audit.partition.stray_query_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("stray child scan: %w", err)
 		}
 
@@ -52,6 +54,7 @@ func (s *pgPartitionStore) StrayChildren(ctx context.Context) ([]string, error) 
 			"audit.partition.stray_query_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("stray child rows: %w", err)
 	}
 
@@ -65,6 +68,7 @@ func (m *PartitionManager) reportStrayChildren(ctx context.Context) {
 			"audit.partition.stray_check_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 

@@ -53,6 +53,7 @@ func (r *Reader) VerbPresence(
 				"audit.verb_presence.scan_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("scan a verb presence row: %w", err)
 		}
 

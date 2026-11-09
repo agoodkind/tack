@@ -51,6 +51,7 @@ func (r *Reader) SearchSessionHeaderDeletes(
 			slog.String("session_id", sessionID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return 0, fmt.Errorf("count the header deletes of search session %s: %w", sessionID, err)
 	}
 

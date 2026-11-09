@@ -82,6 +82,7 @@ func runLedgerBootstrapWait(
 			"ops.ledger.bootstrap_wait.write_result_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("%s: write result: %w", ledgerBootstrapCommandLabel, err)
 	}
 

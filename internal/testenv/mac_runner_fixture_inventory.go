@@ -297,6 +297,7 @@ func (execution *macRunnerExecution) attributeNetwork(inspection network.Inspect
 			"managed network lacks exact invocation attribution",
 			true,
 		)
+
 		return
 	}
 

@@ -34,6 +34,7 @@ func (l *PoolReadLifecycle) onCheckedConnection(
 			"audit.read_lifecycle.acquire_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("acquire a ledger connection: %w", err)
 	}
 	defer pooled.Release()
@@ -71,6 +72,7 @@ func sessionRoleVerified(ctx context.Context, connection *pgx.Conn) bool {
 			"audit.read_lifecycle.session_role_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return false
 	}
 

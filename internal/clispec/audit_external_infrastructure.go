@@ -56,6 +56,7 @@ func runExternalCreatingAuditInfrastructure(
 			"cli.audit_infrastructure_probe_failed",
 			slog.String("err", probeErr.Error()),
 		)
+
 		return fmt.Errorf("probe the audit infrastructure: %w", errors.Join(probeErr, intentErr))
 	}
 

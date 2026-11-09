@@ -250,7 +250,8 @@ func requireReadRow(
 	}
 
 	eventContext := row.Context
-	if eventContext.AuditFormatVersion != audit.AuditFormatComplete || eventContext.OperationClass != audit.OperationRead ||
+	if eventContext.AuditFormatVersion != audit.AuditFormatComplete ||
+		eventContext.OperationClass != audit.OperationRead ||
 		eventContext.Phase != audit.PhaseRead ||
 		eventContext.OperationID == uuid.Nil {
 		t.Fatalf(

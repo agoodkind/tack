@@ -51,6 +51,7 @@ func readChainHead(
 		return chainHeadState{LastSeq: 0, LastHash: []byte{}, Exists: false}, nil
 	case err != nil:
 		slog.ErrorContext(ctx, "audit.chain.head_read_failed", slog.String("err", err.Error()))
+
 		return chainHeadState{
 			LastSeq:  0,
 			LastHash: nil,

@@ -89,6 +89,7 @@ func PreviewBackupRetention(
 			"backup.retention.preview_write_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("write retention preview: %w", err)
 	}
 

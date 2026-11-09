@@ -189,6 +189,7 @@ func RunServiceStep(
 					"audit.service_run.step_failed",
 					slog.String("err", err.Error()),
 				)
+
 				return failedServiceStep(err), fmt.Errorf("record the step: %w", err)
 			}
 
@@ -214,6 +215,7 @@ func RunServiceStep(
 					"audit.service_run.step_failed",
 					slog.String("err", err.Error()),
 				)
+
 				return details, errors.Join(runErr, fmt.Errorf("record the step result: %w", err))
 			}
 

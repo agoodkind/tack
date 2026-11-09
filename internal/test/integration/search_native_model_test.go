@@ -202,6 +202,7 @@ func redeployNativeModel(
 		select {
 		case <-deadline.Done():
 			wait.Stop()
+
 			return fmt.Errorf(
 				"redeployed model %s rejected every prediction for %s: %w",
 				model.ID,

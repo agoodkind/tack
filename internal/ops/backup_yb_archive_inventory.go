@@ -192,6 +192,7 @@ func readYBArchivedFiles(
 				"backup.yb_archive.inventory_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil, err
 		}
 

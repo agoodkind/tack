@@ -272,10 +272,10 @@ func TestSearchSessionAuditRetireRecoversLostFailureEvent(t *testing.T) {
 					)
 				}
 				event := events[0]
-				if event.Actor.ID != integration.TestActorID || event.Context.OperationID != operation.Context.OperationID ||
-					!event.Context.StartedAt.Equal(
-						operation.Context.StartedAt,
-					) || event.Verb != string(current.verb) ||
+				if event.Actor.ID != integration.TestActorID ||
+					event.Context.OperationID != operation.Context.OperationID ||
+					!event.Context.StartedAt.Equal(operation.Context.StartedAt) ||
+					event.Verb != string(current.verb) ||
 					event.Outcome != audit.OutcomeIncomplete ||
 					event.Context.OrgID != session.AuthorityID ||
 					event.Context.Target == nil ||

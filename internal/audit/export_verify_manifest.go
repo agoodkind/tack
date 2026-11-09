@@ -31,6 +31,7 @@ func readExportManifest(dir string) (ExportManifest, error) {
 			slog.String("dir", dir),
 			slog.String("err", err.Error()),
 		)
+
 		return mf, fmt.Errorf("verify manifest: %w", err)
 	}
 
@@ -42,6 +43,7 @@ func readExportManifest(dir string) (ExportManifest, error) {
 			slog.String("dir", dir),
 			slog.String("err", err.Error()),
 		)
+
 		return mf, fmt.Errorf("verify manifest: %w", err)
 	}
 
@@ -67,6 +69,7 @@ func readExportManifest(dir string) (ExportManifest, error) {
 			slog.String("dir", dir),
 			slog.String("err", err.Error()),
 		)
+
 		return mf, fmt.Errorf("verify manifest parse: %w", err)
 	}
 

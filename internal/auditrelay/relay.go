@@ -76,6 +76,7 @@ func (s foundationDBOutbox) HoldRelayLease(ctx context.Context) (bool, error) {
 			"audit_consumer.relay_lease_hold_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return false, fmt.Errorf("acquire or renew the FoundationDB relay lease: %w", err)
 	}
 
@@ -89,6 +90,7 @@ func (s foundationDBOutbox) ReleaseRelayLease(ctx context.Context) error {
 			"audit_consumer.relay_lease_release_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("release the FoundationDB relay lease: %w", err)
 	}
 
@@ -107,6 +109,7 @@ func (s foundationDBOutbox) ReadOutboxFrom(
 			"audit_consumer.relay_fdb_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read FoundationDB relay outbox: %w", err)
 	}
 
@@ -132,6 +135,7 @@ func (s foundationDBOutbox) ClearThrough(ctx context.Context, mark []byte) error
 			"audit_consumer.relay_fdb_clear_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("clear FoundationDB relay outbox: %w", err)
 	}
 
@@ -149,6 +153,7 @@ func (s foundationDBOutbox) ClearThroughPublished(
 			"audit_consumer.relay_fdb_clear_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("clear FoundationDB relay outbox and mark reads published: %w", err)
 	}
 
@@ -166,6 +171,7 @@ func Open(ctx context.Context, cfg Config) (Opened, error) {
 			"audit_consumer.relay_yugabyte_pool_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return none, fmt.Errorf("new relay Yugabyte pool: %w", err)
 	}
 

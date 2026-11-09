@@ -103,6 +103,7 @@ func checkFile(path string, today time.Time) ([]string, error) {
 			slog.String("path", path),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 

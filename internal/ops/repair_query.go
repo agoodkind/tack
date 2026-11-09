@@ -43,6 +43,7 @@ func runRepairQuery(ctx context.Context, env *Env) error {
 			result.Warnings,
 			"indexed property checks skipped because no canonical node payload was selected",
 		)
+
 		return writeRepairOutput(result)
 	}
 

@@ -66,6 +66,7 @@ func (c summaryReadCounter) Handle(ctx context.Context, record slog.Record) erro
 			"test.summary_counter.forward_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("forward log record %q: %w", record.Message, err)
 	}
 

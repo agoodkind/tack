@@ -97,6 +97,7 @@ func waitForPostgreSQL(ctx context.Context, dsn string) error {
 				"testenv.postgresql.not_ready",
 				slog.String("err", lastErr.Error()),
 			)
+
 			return fmt.Errorf(
 				"the test PostgreSQL server did not answer before the deadline: %w",
 				lastErr,

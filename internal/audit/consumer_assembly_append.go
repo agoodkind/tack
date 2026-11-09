@@ -56,6 +56,7 @@ func (c *Consumer) appendAssembledEvent(ctx context.Context, tx pgx.Tx, event Ev
 			"audit.consumer.savepoint_release_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("release savepoint for audit event %s: %w", event.EventID, err)
 	}
 
@@ -95,6 +96,7 @@ func finishAssembly(
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("finish audit event %s assembly: %w", eventID, err)
 	}
 

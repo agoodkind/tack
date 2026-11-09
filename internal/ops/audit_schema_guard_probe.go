@@ -123,6 +123,7 @@ func removeSchemaGuardProbe(ctx context.Context, pool *pgxpool.Pool) (bool, erro
 		&rolePresent,
 	); err != nil {
 		slog.ErrorContext(ctx, "schema_guard.probe_read_failed", slog.String("err", err.Error()))
+
 		return false, fmt.Errorf(
 			"check for %s and role %s: %w",
 			schemaGuardProbeTable,
@@ -138,6 +139,7 @@ func removeSchemaGuardProbe(ctx context.Context, pool *pgxpool.Pool) (bool, erro
 	connection, err := pool.Acquire(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "schema_guard.acquire_failed", slog.String("err", err.Error()))
+
 		return tablePresent, fmt.Errorf(
 			"acquire a connection to remove the schema guard probe: %w",
 			err,

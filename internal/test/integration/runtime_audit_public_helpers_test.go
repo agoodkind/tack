@@ -183,6 +183,7 @@ func (server *publicServer) rpc(
 	params map[string]any,
 ) publicResponse {
 	t.Helper()
+
 	return server.send(
 		t,
 		http.MethodPost,

@@ -68,6 +68,7 @@ func mailpitSelected(ctx context.Context, tests []string) bool {
 			"testenv.mailpit.selection_unknown",
 			slog.String("reason", "no test.run flag"),
 		)
+
 		return true
 	}
 

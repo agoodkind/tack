@@ -78,7 +78,8 @@ func testArchiveNodeRuns(t *testing.T) {
 				prefix + archiveNodeObjects[0],
 				prefix + archiveNodeObjects[1],
 			}
-			if planned.Bucket != cfg.BackupS3BucketMain || planned.RunID != archiveRunID || planned.SnapshotID != archiveSnapshotID ||
+			if planned.Bucket != cfg.BackupS3BucketMain || planned.RunID != archiveRunID ||
+				planned.SnapshotID != archiveSnapshotID ||
 				planned.Node != archiveNodeContainer ||
 				planned.KeyPrefix != prefix ||
 				!slices.Equal(planned.Artifacts, wantArtifacts) {

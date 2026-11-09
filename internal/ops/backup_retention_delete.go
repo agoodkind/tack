@@ -57,6 +57,7 @@ func deleteRetentionPrefix(
 				slog.String("run_id", run),
 				slog.String("err", err.Error()),
 			)
+
 			return deleted, fmt.Errorf("list expired ledger run %s: %w", run, err)
 		}
 

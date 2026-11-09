@@ -162,6 +162,7 @@ func (r *QueryRanker) searchError(
 			slog.String("index", snapshot.Index),
 			slog.String("reason", parsed.Error()),
 		)
+
 		return queryStepError{
 			operation: "read search snapshot on " + snapshot.Index,
 			err:       searchdomain.ErrSnapshotLost,

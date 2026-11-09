@@ -77,6 +77,7 @@ func (a *Adapter) NodePageText(
 			response.TimedOut,
 			response.Shards.Failed,
 		)
+
 		return nil, engineFailure(
 			ctx,
 			"search.page_text.read_incomplete",
@@ -88,6 +89,7 @@ func (a *Adapter) NodePageText(
 
 	if len(response.Hits.Hits) > nodePageTextLimit {
 		excess := fmt.Errorf("node has more than %d active pages", nodePageTextLimit)
+
 		return nil, engineFailure(
 			ctx,
 			"search.page_text.too_many_pages",

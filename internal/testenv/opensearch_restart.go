@@ -55,6 +55,7 @@ func StopOpenSearch(ctx context.Context, fixture OpenSearchFixture) (OpenSearchS
 			slog.String("err", err.Error()),
 			slog.String("container", fixture.Container),
 		)
+
 		return stop, fmt.Errorf("stop engine %s: %w", fixture.Container, err)
 	}
 

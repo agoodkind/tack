@@ -38,6 +38,7 @@ func (r *Relay) deleteRow(ctx context.Context, row OutboxRow) error {
 			slog.String("event_id", row.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("delete delivered outbox row %s: %w", row.EventID, err)
 	}
 
@@ -82,6 +83,7 @@ func recordPublishedReads(ctx context.Context, raw []byte) []PublishedRead {
 			"audit.relay.read_receipt_decode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil
 	}
 
@@ -100,6 +102,7 @@ func recordPublishedReads(ctx context.Context, raw []byte) []PublishedRead {
 			"audit.relay.read_receipt_decode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil
 	}
 

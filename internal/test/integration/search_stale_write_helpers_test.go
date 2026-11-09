@@ -109,6 +109,7 @@ func staleAccess(work searchdomain.Work, accessKey string) searchdomain.AccessIn
 		Keys:       []string{accessKey},
 		Generation: work.Generation,
 	}
+
 	return searchdomain.AccessIntent{Work: work, Documents: staleIssuedDocuments(), Access: access}
 }
 

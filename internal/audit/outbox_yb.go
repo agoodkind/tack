@@ -225,6 +225,7 @@ func readOutboxRows(
 				"audit.outbox.manifest_decode_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("decode ops outbox manifest %s: %w", row.EventID, err)
 		}
 
@@ -236,6 +237,7 @@ func readOutboxRows(
 				"audit.outbox.event_decode_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("decode ops outbox event: %w", err)
 		}
 

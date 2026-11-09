@@ -193,6 +193,7 @@ func TestAppendFDBRestorablePointBoundsTheRecord(t *testing.T) {
 // nanoseconds.
 func widestFDBRestorablePoint(i int) fdbRestorablePoint {
 	base := time.Date(2026, 9, 18, 4, 0, 0, 999999999, time.UTC)
+
 	return fdbRestorablePoint{
 		Version: math.MinInt64 + int64(i),
 		At:      base.Add(time.Duration(i) * time.Minute),

@@ -142,6 +142,7 @@ func ChangeFailureEvent(
 			slog.String("event_id", event.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return Event{}, fmt.Errorf("build the change failure event %s: %w", event.EventID, err)
 	}
 
@@ -220,5 +221,6 @@ func changeEventFailure(change Change, err error) error {
 		slog.String("event_id", change.EventID.String()),
 		slog.String("err", err.Error()),
 	)
+
 	return fmt.Errorf("build the change event %s: %w", change.EventID, err)
 }

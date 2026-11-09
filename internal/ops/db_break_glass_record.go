@@ -49,6 +49,7 @@ func recordDBBreakGlass(
 			"db.break_glass.extra_encode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("encode the break-glass record: %w", err)
 	}
 

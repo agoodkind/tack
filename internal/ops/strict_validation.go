@@ -247,5 +247,6 @@ func strictFailure(ctx context.Context, operation string, err error) error {
 		slog.String("operation", operation),
 		slog.String("err", err.Error()),
 	)
+
 	return fmt.Errorf("%s: %w", operation, err)
 }

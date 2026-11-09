@@ -66,6 +66,7 @@ func NewChange(eventID uuid.UUID, target Target, before, after json.RawMessage) 
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return Change{}, err
 	}
 
@@ -176,5 +177,6 @@ func mutationEventFailure(operation string, err error) error {
 		slog.String("operation", operation),
 		slog.String("err", err.Error()),
 	)
+
 	return fmt.Errorf("%s: %w", operation, err)
 }

@@ -70,6 +70,7 @@ func (r *OrgMemberRepo) AddMember(ctx context.Context, m *org.Member) error {
 			slog.String("user_id", m.UserID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("add org member %s: %w", m.UserID, err)
 	}
 
@@ -126,6 +127,7 @@ func (r *OrgMemberRepo) RemoveMember(ctx context.Context, orgID, userID uuid.UUI
 			slog.String("user_id", userID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("remove org member %s: %w", userID, err)
 	}
 

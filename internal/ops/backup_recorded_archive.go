@@ -116,6 +116,7 @@ func runBackupYBArchiveNodeRecorded(
 			"backup.yb_archive.observe_failed",
 			slog.String("err", listErr.Error()),
 		)
+
 		return details, errors.Join(runErr, listErr)
 	}
 

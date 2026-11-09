@@ -107,6 +107,7 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 			slog.String("node_id", id.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("create node: %w", err)
 	}
 

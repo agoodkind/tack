@@ -47,6 +47,7 @@ func runChangeTx(ctx context.Context, pool *pgxpool.Pool, work func(pgx.Tx) erro
 		select {
 		case <-ctx.Done():
 			timer.Stop()
+
 			return errors.Join(
 				err,
 				fmt.Errorf("wait to retry the change transaction: %w", ctx.Err()),

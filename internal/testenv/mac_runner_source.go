@@ -73,6 +73,7 @@ func createMacRunnerEvidence(root, directory string) (string, error) {
 
 func macRunnerWithin(parent, path string) bool {
 	relative, err := filepath.Rel(parent, path)
+
 	return err == nil && relative != ".." &&
 		!strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
@@ -170,5 +171,6 @@ func macRunnerFailure(operation string, err error) error {
 		slog.String("operation", operation),
 		slog.String("err", err.Error()),
 	)
+
 	return fmt.Errorf("%s: %w", operation, err)
 }

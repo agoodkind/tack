@@ -55,6 +55,7 @@ func storeTransportMessage(
 			slog.String("event_id", message.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("mark audit event %s assembly ready: %w", message.EventID, err)
 	}
 
@@ -86,6 +87,7 @@ func completedTransport(ctx context.Context, tx pgx.Tx, message transportMessage
 			slog.String("event_id", message.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return false, fmt.Errorf(
 			"read audit event %s completed transport: %w",
 			message.EventID,
@@ -138,6 +140,7 @@ func storeAssembly(ctx context.Context, tx pgx.Tx, message transportMessage) err
 			slog.String("event_id", message.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("store audit event %s assembly: %w", message.EventID, err)
 	}
 
@@ -161,6 +164,7 @@ func storeAssembly(ctx context.Context, tx pgx.Tx, message transportMessage) err
 			slog.String("event_id", message.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("read audit event %s assembly: %w", message.EventID, err)
 	}
 
@@ -210,6 +214,7 @@ func storeAssemblyPart(ctx context.Context, tx pgx.Tx, message transportMessage)
 			slog.String("event_id", part.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("store audit event %s part %d: %w", part.EventID, part.Index, err)
 	}
 
@@ -236,6 +241,7 @@ func storeAssemblyPart(ctx context.Context, tx pgx.Tx, message transportMessage)
 			slog.String("event_id", part.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("read audit event %s part %d: %w", part.EventID, part.Index, err)
 	}
 
@@ -275,6 +281,7 @@ func storeAssemblyHeader(
 			slog.String("event_id", message.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("store audit event %s manifest: %w", message.EventID, err)
 	}
 
@@ -290,6 +297,7 @@ func rejectTransport(ctx context.Context, eventID uuid.UUID, reason string) erro
 		slog.String("event_id", eventID.String()),
 		slog.String("err", reason),
 	)
+
 	return fmt.Errorf("%w: audit event %s %s", errMalformedPayload, eventID, reason)
 }
 

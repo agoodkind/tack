@@ -159,6 +159,7 @@ func (c *OpenSearchCluster) StopMember(t T, member string) {
 					slog.String("err", err.Error()),
 					slog.String("container", member),
 				)
+
 				return fmt.Errorf("stop OpenSearch member %s: %w", member, err)
 			}
 
@@ -187,6 +188,7 @@ func (c *OpenSearchCluster) StartMember(t T, member string) {
 					slog.String("err", err.Error()),
 					slog.String("container", member),
 				)
+
 				return fmt.Errorf("start OpenSearch member %s: %w", member, err)
 			}
 
@@ -239,6 +241,7 @@ func (c *OpenSearchCluster) MemberLogTail(ctx context.Context, member string) (s
 			slog.String("member", member),
 			slog.String("reason", err.Error()),
 		)
+
 		return "", fmt.Errorf("read logs for member %s: %w", member, err)
 	}
 
@@ -254,6 +257,7 @@ func (c *OpenSearchCluster) MemberLogTail(ctx context.Context, member string) (s
 			slog.String("member", member),
 			slog.String("reason", err.Error()),
 		)
+
 		return output.String(), fmt.Errorf("read bounded logs for member %s: %w", member, err)
 	}
 

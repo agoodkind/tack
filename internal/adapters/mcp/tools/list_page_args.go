@@ -47,6 +47,7 @@ func pageArgs(args argMap) (int, string, error) {
 
 	if limit < 1 || limit > maxListLimit {
 		slog.Warn("mcp.list.limit_invalid", slog.Int("limit", limit))
+
 		return 0, "", fmt.Errorf(
 			"limit must be between 1 and %d: %w",
 			maxListLimit,

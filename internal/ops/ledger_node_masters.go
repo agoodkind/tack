@@ -96,6 +96,7 @@ func savedLedgerMasters(ctx context.Context, conf []byte) ([]string, error) {
 			"ops.ledger.node_prepare.config_unreadable",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf(
 			"saved launcher config %s is not a string: %w",
 			ledgerLauncherMastersKey,
@@ -133,6 +134,7 @@ func rewriteLedgerMasters(ctx context.Context, conf []byte, masters []string) ([
 			"ops.ledger.node_prepare.config_unwritable",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("encode master list: %w", err)
 	}
 
@@ -144,6 +146,7 @@ func rewriteLedgerMasters(ctx context.Context, conf []byte, masters []string) ([
 			"ops.ledger.node_prepare.config_unwritable",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("encode saved launcher config: %w", err)
 	}
 
@@ -160,6 +163,7 @@ func decodeLauncherConfig(ctx context.Context, conf []byte) (map[string]json.Raw
 			"ops.ledger.node_prepare.config_unreadable",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("parse saved launcher config: %w", err)
 	}
 

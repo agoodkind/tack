@@ -151,6 +151,7 @@ func awaitBlockedDeploy(
 					modelIndexSettings,
 					modelWriteBlockOff,
 				)
+
 				return true, err
 			}
 		}

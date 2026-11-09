@@ -31,6 +31,7 @@ func WriteEncodedOutboxTx(ctx context.Context, tx pgx.Tx, encoded EncodedEvent) 
 			slog.String("event_id", encoded.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf(
 			"write ops outbox event %s with %d parts: %w",
 			encoded.EventID,
@@ -111,6 +112,7 @@ func outboxPartMessages(
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read ops outbox event %s parts: %w", eventID, err)
 	}
 
@@ -122,6 +124,7 @@ func outboxPartMessages(
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("scan ops outbox event %s parts: %w", eventID, err)
 	}
 

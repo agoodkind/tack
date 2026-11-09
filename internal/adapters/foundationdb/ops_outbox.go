@@ -55,6 +55,7 @@ func (s *OpsOutboxStore) ReadOutboxFrom(
 			"ops_outbox.read_prefix_failed",
 			slog.String("err", rangeErr.Error()),
 		)
+
 		return nil, fmt.Errorf("ops outbox prefix range: %w", rangeErr)
 	}
 

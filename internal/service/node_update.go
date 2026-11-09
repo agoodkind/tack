@@ -51,6 +51,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 			slog.String("node_id", in.NodeID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read node %s for its update: %w", in.NodeID, err)
 	}
 
@@ -139,6 +140,7 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 			slog.String("node_id", in.NodeID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("update node: %w", err)
 	}
 
@@ -155,6 +157,7 @@ func (s *NodeService) committedView(ctx context.Context, nodeID uuid.UUID) (*nod
 			slog.String("err", err.Error()),
 			slog.String("node_id", nodeID.String()),
 		)
+
 		return nil, fmt.Errorf("read node %s after its mutation: %w", nodeID, err)
 	}
 

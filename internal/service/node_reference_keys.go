@@ -39,6 +39,7 @@ func (s *NodeService) scopeRefsFor(
 				"node.reference.get_scope_failed",
 				slog.String("err", getErr.Error()),
 			)
+
 			return nil, fmt.Errorf("get scope node %s: %w", currentID, getErr)
 		}
 
@@ -90,6 +91,7 @@ func directScopeReference(
 	var reference string
 	if err := json.Unmarshal(current.Props[propertyName], &reference); err != nil {
 		slog.ErrorContext(ctx, "node.reference.decode_failed", slog.String("err", err.Error()))
+
 		return "", fmt.Errorf(
 			"decode reference property %q for node %s: %w",
 			propertyName,
@@ -144,6 +146,7 @@ func (s *NodeService) referenceKeysFor(
 				"node.reference.render_failed",
 				slog.String("err", renderErr.Error()),
 			)
+
 			return nil, fmt.Errorf(
 				"render reference template %q for node type %q: %w",
 				template.Name,

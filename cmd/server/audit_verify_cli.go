@@ -136,6 +136,7 @@ func runAuditVerify(
 				"audit.verify_render_failed",
 				slog.String("err", writeErr.Error()),
 			)
+
 			return fmt.Errorf("audit verify: render report: %w", writeErr)
 		}
 

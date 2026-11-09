@@ -89,8 +89,10 @@ func requirePermanentSearchWorkerEvents(
 func requirePermanentWorkerRow(t *testing.T, row audit.Row, original audit.Event) {
 	t.Helper()
 	workerID := cli.ServiceActorID(appruntime.SearchWorkerService)
-	if row.ActorID != workerID || row.ActorKind != searchWorkerServiceActorKind || row.OrgID != audit.SystemOrgID() ||
-		row.Action != original.Verb || row.Outcome != original.Outcome ||
+	if row.ActorID != workerID || row.ActorKind != searchWorkerServiceActorKind ||
+		row.OrgID != audit.SystemOrgID() ||
+		row.Action != original.Verb ||
+		row.Outcome != original.Outcome ||
 		row.Seq <= 0 ||
 		len(row.RowHash) != sha256.Size {
 		t.Fatalf(
@@ -105,9 +107,14 @@ func requirePermanentWorkerRow(t *testing.T, row audit.Row, original audit.Event
 	}
 
 	actual, expected := row.Context, original.Context
-	if actual.AuditFormatVersion != audit.AuditFormatComplete || actual.OperationClass != audit.OperationExternal || actual.Source != audit.SourceSystem ||
-		actual.OperationID != expected.OperationID || actual.ParentOperationID != expected.ParentOperationID || actual.Phase != expected.Phase ||
-		actual.Target == nil || expected.Target == nil ||
+	if actual.AuditFormatVersion != audit.AuditFormatComplete ||
+		actual.OperationClass != audit.OperationExternal ||
+		actual.Source != audit.SourceSystem ||
+		actual.OperationID != expected.OperationID ||
+		actual.ParentOperationID != expected.ParentOperationID ||
+		actual.Phase != expected.Phase ||
+		actual.Target == nil ||
+		expected.Target == nil ||
 		*actual.Target != *expected.Target ||
 		!actual.StartedAt.Equal(expected.StartedAt) ||
 		!actual.CompletedAt.Equal(expected.CompletedAt) ||

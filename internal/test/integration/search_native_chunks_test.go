@@ -129,7 +129,9 @@ func requireNativeChunkMapping(t *testing.T, client *opensearchapi.Client, index
 	}
 
 	parameters := chunking[0].Parameters
-	if parameters.CharLimit == nil || *parameters.CharLimit != 160 || parameters.OverlapRate == nil || *parameters.OverlapRate != 0 ||
+	if parameters.CharLimit == nil || *parameters.CharLimit != 160 ||
+		parameters.OverlapRate == nil ||
+		*parameters.OverlapRate != 0 ||
 		parameters.MaxChunkLimit == nil ||
 		*parameters.MaxChunkLimit != -1 {
 		t.Fatalf(

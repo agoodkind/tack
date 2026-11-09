@@ -115,6 +115,7 @@ func requireUnlistableCommandLogsStopCommand(t *testing.T, binary, logs string) 
 		t.Log(
 			"skipping the unlistable LOG_COMMAND_DIR check because root can list a directory with mode 0300",
 		)
+
 		return
 	}
 

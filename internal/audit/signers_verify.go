@@ -80,6 +80,7 @@ func (r *Reader) VerifySigners(ctx context.Context, check SignerCheck) (*SignerR
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.signers.scan_failed", slog.String("err", err.Error()))
+
 		return nil, fmt.Errorf(
 			"scan audit.notarizations since %s: %w",
 			check.Since.Format(time.RFC3339),

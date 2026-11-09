@@ -87,6 +87,7 @@ func (r *rankingRun) trace(t *testing.T, probe rankingProbe, page rankingPage) {
 // with the and operator.
 func rankingLexicalClause(t *testing.T, query string) json.RawMessage {
 	t.Helper()
+
 	return encodeTrace(
 		t,
 		traceMatch{

@@ -181,6 +181,7 @@ func (f MailpitFixture) request(ctx context.Context, method, path string) ([]byt
 			"testenv.mailpit.response_unreadable",
 			slog.String("reason", err.Error()),
 		)
+
 		return nil, errors.New(
 			"read Mailpit response to " + method + " " + path + ": " + err.Error(),
 		)

@@ -65,6 +65,7 @@ func writeMacRunnerJSON[T macRunnerEvidenceValue](
 			execution.evidenceErrors,
 			fmt.Errorf("encode evidence %s: %w", name, err),
 		)
+
 		return
 	}
 

@@ -134,6 +134,7 @@ func (s *SearchQueryService) advance(
 					session.ID,
 					errors.Join(searchdomain.ErrEngineUnavailable, closeErr),
 				)
+
 				return SearchPage{}, failure
 			}
 		}

@@ -179,6 +179,7 @@ func toolResultEvent(
 			slog.String("tool", toolName),
 			slog.String("err", err.Error()),
 		)
+
 		return audit.Event{}, fmt.Errorf("read the audit operation of tool %s: %w", toolName, err)
 	}
 

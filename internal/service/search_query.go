@@ -165,6 +165,7 @@ func (s *SearchQueryService) Search(
 				uuid.Nil,
 				errors.Join(openErr, sweepErr),
 			)
+
 			return SearchPage{}, failure
 		}
 
@@ -288,6 +289,7 @@ func queryFailure(ctx context.Context, operation string, sessionID uuid.UUID, er
 				slog.String("reason", wrapped.Error()),
 				slog.String("session_id", sessionID.String()),
 			)
+
 			return wrapped
 		}
 	}

@@ -60,6 +60,7 @@ func recordedStep(
 ) (audit.OutcomeDetails, error) {
 	if err := steps.BeginStep(ctx, step); err != nil {
 		slog.ErrorContext(ctx, "ops.step_record_failed", slog.String("err", err.Error()))
+
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), fmt.Errorf(
 			"record the step: %w",
 			err,

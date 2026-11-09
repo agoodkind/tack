@@ -157,6 +157,7 @@ func commitOutboxEntries(
 				"ops_outbox.append_apply_failed",
 				slog.String("err", applyErr.Error()),
 			)
+
 			return fmt.Errorf("prepare ops outbox entries: %w", applyErr)
 		}
 
@@ -172,6 +173,7 @@ func commitOutboxEntries(
 				"ops_outbox.append_failed",
 				slog.String("err", commitErr.Error()),
 			)
+
 			return fmt.Errorf("append ops outbox event: %w", commitErr)
 		}
 

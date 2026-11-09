@@ -49,6 +49,7 @@ func (c *Consumer) completeAssemblies(ctx context.Context) {
 			"audit.consumer.assembly_scan_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 
@@ -59,6 +60,7 @@ func (c *Consumer) completeAssemblies(ctx context.Context) {
 			"audit.consumer.assembly_scan_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 
@@ -117,6 +119,7 @@ func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.U
 				slog.String("event_id", eventID.String()),
 				slog.String("err", err.Error()),
 			)
+
 			return
 		}
 	}
@@ -158,6 +161,7 @@ func (c *Consumer) completeAssembly(ctx context.Context, eventID uuid.UUID) erro
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("read audit event %s assembly: %w", eventID, err)
 	}
 
@@ -214,6 +218,7 @@ func (c *Consumer) alertWaitingAssemblies(ctx context.Context) {
 			"audit.consumer.assembly_alert_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 

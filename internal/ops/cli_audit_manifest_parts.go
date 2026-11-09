@@ -151,6 +151,7 @@ func runAuditManifestParts(
 			"audit.manifest_parts_reader_failed",
 			slog.String("err", "the ledger reader did not open"),
 		)
+
 		return fmt.Errorf(
 			"%s: open the ledger reader: check AUDIT_READER_DSN",
 			auditManifestPartsCommand,
@@ -185,6 +186,7 @@ func runAuditManifestParts(
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("%s %s: %w", auditManifestPartsCommand, eventID, err)
 	}
 
@@ -213,6 +215,7 @@ func runAuditManifestParts(
 			"audit.manifest_parts_report_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("%s: write the result: %w", auditManifestPartsCommand, err)
 	}
 

@@ -99,6 +99,7 @@ func (refused *retryRefusedError) Unwrap() error { return refused.err }
 // least one attempt conflicted (1020).
 func (refused *retryRefusedError) conflictTimedOut() bool {
 	var databaseErr fdb.Error
+
 	return refused.attempts.conflicted && errors.As(refused.err, &databaseErr) &&
 		databaseErr.Code == transactionTimedOut
 }

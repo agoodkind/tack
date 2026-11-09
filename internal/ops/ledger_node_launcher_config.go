@@ -97,6 +97,7 @@ func firstTarFile(ctx context.Context, stream io.Reader) (launcherConfigFile, er
 				"ops.ledger.node_prepare.read_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return none, fmt.Errorf("read archive: %w", err)
 		}
 
@@ -111,6 +112,7 @@ func firstTarFile(ctx context.Context, stream io.Reader) (launcherConfigFile, er
 				"ops.ledger.node_prepare.read_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return none, fmt.Errorf("read archive entry %s: %w", header.Name, err)
 		}
 
@@ -148,6 +150,7 @@ func writeLauncherConfig(
 			"ops.ledger.node_prepare.write_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("write %s into %s: %w", ledgerLauncherConfigName, containerName, err)
 	}
 
@@ -189,6 +192,7 @@ func launcherConfigArchive(
 			"ops.ledger.node_prepare.write_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("pack %s: %w", ledgerLauncherConfigName, err)
 	}
 

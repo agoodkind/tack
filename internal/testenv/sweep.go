@@ -81,6 +81,7 @@ func removeEngines(
 			"testenv.sweep.network_remove_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return len(selection.containers), err
 	}
 

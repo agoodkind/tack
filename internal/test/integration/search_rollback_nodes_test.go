@@ -105,6 +105,7 @@ func rolloutEntryPoint(
 					datagen.SearchItem{Title: workspace.Slug, NodeType: typeKey},
 					view.ID,
 				)
+
 				return view.ID
 			}
 		}

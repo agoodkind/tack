@@ -121,7 +121,8 @@ func verifySeedRolesPermanentLedger(
 		}
 
 		assertRoleSecretsAbsent(t, encoded, secrets...)
-		if row.ActorID != event.Actor.ID || row.Action != event.Verb || row.Context.Phase != event.Context.Phase ||
+		if row.ActorID != event.Actor.ID || row.Action != event.Verb ||
+			row.Context.Phase != event.Context.Phase ||
 			row.Outcome != event.Outcome ||
 			row.Context.OperationID != event.Context.OperationID {
 			t.Fatalf(

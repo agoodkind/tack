@@ -27,9 +27,9 @@ func requirePartialSnapshotRecords(
 	}
 	var operation, step *audit.Row
 	for _, row := range results {
-		if row.Error == nil || row.Error.Code != "point_in_time_partial" || row.Error.Message != "OpenSearch created a partial point in time" || len(
-			row.Context.CommittedSteps,
-		) != 1 ||
+		if row.Error == nil || row.Error.Code != "point_in_time_partial" ||
+			row.Error.Message != "OpenSearch created a partial point in time" ||
+			len(row.Context.CommittedSteps) != 1 ||
 			!strings.HasPrefix(row.Context.CommittedSteps[0], "opensearch/point-in-time/") ||
 			!strings.HasSuffix(row.Context.CommittedSteps[0], "/create") {
 			t.Fatalf("the partial create lost its committed effect: %+v", row)
@@ -56,7 +56,8 @@ func requirePartialSnapshotRecords(
 			operation = &row
 		}
 	}
-	if operation == nil || step == nil || step.Context.ParentOperationID != operation.Context.OperationID ||
+	if operation == nil || step == nil ||
+		step.Context.ParentOperationID != operation.Context.OperationID ||
 		operation.Context.CommittedSteps[0] != step.Context.Target.Reference ||
 		!strings.Contains(step.Context.Target.Reference, operation.EntityID.String()) {
 		t.Fatalf(

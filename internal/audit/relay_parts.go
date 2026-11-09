@@ -31,6 +31,7 @@ func (r *Relay) produceRow(ctx context.Context, row OutboxRow) (bool, error) {
 				slog.String("event_id", row.EventID.String()),
 				slog.String("err", err.Error()),
 			)
+
 			return false, fmt.Errorf("produce event %s: %w", row.EventID, err)
 		}
 
@@ -89,6 +90,7 @@ func (r *Relay) produceEvent(ctx context.Context, entry RelayOutboxEntry) (uuid.
 			"audit.relay.foundationdb_decode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return uuid.Nil, fmt.Errorf("decode FoundationDB outbox event: %w", err)
 	}
 
@@ -103,6 +105,7 @@ func (r *Relay) produceEvent(ctx context.Context, entry RelayOutboxEntry) (uuid.
 			slog.String("event_id", event.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return uuid.Nil, fmt.Errorf("produce event %s: %w", event.EventID, err)
 	}
 
@@ -123,6 +126,7 @@ func (r *Relay) produceMessage(ctx context.Context, key, value []byte) error {
 			"audit.relay.message_produce_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("publish audit transport message: %w", err)
 	}
 

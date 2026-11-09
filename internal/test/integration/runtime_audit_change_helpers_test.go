@@ -118,7 +118,8 @@ func requireRelationshipEvent(
 ) {
 	t.Helper()
 	target := event.Context.Target
-	if target == nil || target.Kind != audit.TargetKindRelationship || target.SourceID != sourceID ||
+	if target == nil || target.Kind != audit.TargetKindRelationship ||
+		target.SourceID != sourceID ||
 		target.RelationType != relationType ||
 		target.TargetID != targetID {
 		t.Fatalf(

@@ -101,6 +101,7 @@ func createLedgerClusterNetwork(
 				"testenv.ledger_cluster.network_create_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return "", netip.Prefix{}, fmt.Errorf("create network %s on %s: %w", name, subnet, err)
 		}
 	}
@@ -184,6 +185,7 @@ func removeLedgerClusterNetwork(
 			"testenv.ledger_cluster.network_remove_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return err
 	}
 

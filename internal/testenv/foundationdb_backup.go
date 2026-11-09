@@ -188,6 +188,7 @@ func startFDBBackupAgent(ctx context.Context, cli *client.Client, name string) e
 			"testenv.snapshot.agent_create_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("create snapshot agent in %s: %w", name, err)
 	}
 
@@ -198,6 +199,7 @@ func startFDBBackupAgent(ctx context.Context, cli *client.Client, name string) e
 			"testenv.snapshot.agent_start_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("start snapshot agent in %s: %w", name, err)
 	}
 

@@ -357,8 +357,10 @@ func requireServingAfterMirrorRefusal(
 		"split-fault-test",
 		faultLease,
 	)
-	if err != nil || !claimed || copyWork.NodeID != nodeID || copyWork.OrgID != work.OrgID || copyWork.Target != target ||
-		copyWork.Generation != work.Generation || copyWork.Revision != work.Revision ||
+	if err != nil || !claimed || copyWork.NodeID != nodeID || copyWork.OrgID != work.OrgID ||
+		copyWork.Target != target ||
+		copyWork.Generation != work.Generation ||
+		copyWork.Revision != work.Revision ||
 		copyWork.Ordinal != 0 ||
 		copyWork.Phase != searchdomain.PhasePages {
 		t.Fatalf(

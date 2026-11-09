@@ -38,7 +38,8 @@ func TestDropKilltestSchemaDropsTheSchemaOnce(t *testing.T) {
 	}
 
 	marker := ops.KilltestSchemaTable{Name: "marker", Rows: 3}
-	if !planned.DryRun || !planned.Result.Exists || planned.Result.Owner != "yugabyte" || planned.Result.Dropped ||
+	if !planned.DryRun || !planned.Result.Exists || planned.Result.Owner != "yugabyte" ||
+		planned.Result.Dropped ||
 		len(planned.Result.Tables) != 1 ||
 		planned.Result.Tables[0] != marker {
 		t.Fatalf(

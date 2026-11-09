@@ -40,6 +40,7 @@ func OpenSearchResourceEvidence(ctx context.Context, name string) (string, error
 			"testenv.search.evidence_inspect_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return "", fmt.Errorf("inspect search evidence container: %w", err)
 	}
 

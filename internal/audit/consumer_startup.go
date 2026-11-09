@@ -47,6 +47,7 @@ func pingYugabyteUntilReady(ctx context.Context, pool *pgxpool.Pool) error {
 				"audit.consumer.yugabyte_ping_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return fmt.Errorf("audit consumer yugabyte ping: %w", err)
 		}
 
@@ -64,6 +65,7 @@ func pingYugabyteUntilReady(ctx context.Context, pool *pgxpool.Pool) error {
 				"audit.consumer.yugabyte_ping_failed",
 				slog.String("err", ctx.Err().Error()),
 			)
+
 			return fmt.Errorf("audit consumer yugabyte ping: %w", ctx.Err())
 		case <-time.After(wait):
 		}

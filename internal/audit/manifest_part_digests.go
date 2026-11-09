@@ -30,6 +30,7 @@ func (r *Reader) ManifestPartDigests(
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read audit event %s manifest part digests: %w", eventID, err)
 	}
 	defer rows.Close()
@@ -44,6 +45,7 @@ func (r *Reader) ManifestPartDigests(
 				slog.String("event_id", eventID.String()),
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("scan audit event %s manifest part digests: %w", eventID, err)
 		}
 
@@ -57,6 +59,7 @@ func (r *Reader) ManifestPartDigests(
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read audit event %s manifest part digest rows: %w", eventID, err)
 	}
 

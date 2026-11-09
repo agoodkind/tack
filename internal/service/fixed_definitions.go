@@ -281,5 +281,6 @@ func fixedDefinitionFailure(ctx context.Context, operation string, err error) er
 		"metadata.fixed_definition.correction_failed",
 		slog.String("err", err.Error()),
 	)
+
 	return fmt.Errorf("correct fixed definitions: %s: %w", operation, err)
 }

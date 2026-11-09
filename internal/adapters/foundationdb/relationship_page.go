@@ -27,6 +27,7 @@ func (s *RelationshipStore) EdgesFrom(
 	limit int,
 ) (page node.IDPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.edges_from")(&err)
+
 	return s.edgePage(
 		ctx,
 		relationshipPrefixBySource(orgID, sourceID, relationType),
@@ -47,6 +48,7 @@ func (s *RelationshipStore) EdgesTo(
 	limit int,
 ) (page node.IDPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.edges_to")(&err)
+
 	return s.edgePage(
 		ctx,
 		relationshipReversePrefixByTarget(orgID, targetID, relationType),

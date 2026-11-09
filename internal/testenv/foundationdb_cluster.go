@@ -207,6 +207,7 @@ func waitForHealthyCluster(
 					"testenv.foundationdb_cluster.status_unreadable",
 					slog.String("err", err.Error()),
 				)
+
 				return fmt.Errorf("parse the status json of %s: %w", containerName, err)
 			}
 

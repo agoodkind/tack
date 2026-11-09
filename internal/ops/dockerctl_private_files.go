@@ -88,5 +88,6 @@ func privateOneShotError(ctx context.Context, operation string, cause error) err
 		slog.String("operation", operation),
 		slog.String("err", cause.Error()),
 	)
+
 	return fmt.Errorf("%s: %w", operation, cause)
 }

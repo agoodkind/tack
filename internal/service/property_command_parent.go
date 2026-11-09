@@ -77,5 +77,6 @@ func invalidParentReference(ctx context.Context, nt *node.NodeType, reason strin
 		slog.String("node_type", nt.TypeKey),
 		slog.String("reason", reason),
 	)
+
 	return fmt.Errorf("%s: %w", reason, domain.ErrInvalidArgument)
 }

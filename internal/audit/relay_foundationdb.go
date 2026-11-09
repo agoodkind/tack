@@ -97,6 +97,7 @@ func (r *Relay) drainFoundationDB(ctx context.Context, mark []byte) []byte {
 			"audit.relay.foundationdb_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return mark
 	}
 

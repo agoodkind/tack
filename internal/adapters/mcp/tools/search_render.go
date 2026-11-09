@@ -26,6 +26,7 @@ func searchResultViews(
 				slog.String("node_id", result.ID.String()),
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("read search result node %s: %w", result.ID, err)
 		}
 

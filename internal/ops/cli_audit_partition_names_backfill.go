@@ -57,6 +57,7 @@ func runAuditPartitionNamesCommand(
 			"audit_partition_names.connect_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("connect to the ledger: %w", err)
 	}
 	defer pool.Close()
@@ -77,6 +78,7 @@ func runAuditPartitionNamesCommand(
 			"audit_partition_names.report_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("write the audit partition names result: %w", err)
 	}
 

@@ -44,6 +44,7 @@ func (m *PartitionManager) maintain(ctx context.Context) error {
 				"audit.partition.maintain_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return fmt.Errorf("maintain the audit partitions: %w", err)
 		}
 
@@ -106,6 +107,7 @@ func (m *PartitionManager) headroomEvidence(ctx context.Context, moment string) 
 			slog.String("moment", moment),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read the audit partition headroom %s maintenance: %w", moment, err)
 	}
 

@@ -322,6 +322,7 @@ func seededReferenceKey(
 
 func referenceTestNode(orgID uuid.UUID) *node.Node {
 	now := clock.Now().UTC()
+
 	return &node.Node{
 		ID:        uuid.New(),
 		OrgID:     orgID,

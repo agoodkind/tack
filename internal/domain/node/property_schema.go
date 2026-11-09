@@ -42,6 +42,7 @@ func (s Schema) Interpret(typeKey string, props map[string]json.RawMessage) Prop
 			result.Failures,
 			ReadFailure{Subject: "node type " + typeKey, Reason: "the schema does not contain it"},
 		)
+
 		return result
 	}
 

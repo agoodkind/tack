@@ -26,6 +26,7 @@ func DecodeCursor(cursor string) (uuid.UUID, error) {
 			slog.String("cursor", cursor),
 			slog.String("err", err.Error()),
 		)
+
 		return uuid.Nil, fmt.Errorf("decode cursor %q: %w", cursor, domain.ErrInvalidArgument)
 	}
 
@@ -36,6 +37,7 @@ func DecodeCursor(cursor string) (uuid.UUID, error) {
 			slog.String("cursor", cursor),
 			slog.String("err", err.Error()),
 		)
+
 		return uuid.Nil, fmt.Errorf("decode cursor %q: %w", cursor, domain.ErrInvalidArgument)
 	}
 

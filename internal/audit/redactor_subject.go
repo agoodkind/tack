@@ -31,6 +31,7 @@ func (r *Redactor) PIIRefsForSubject(
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.pii.subject_refs_failed", slog.String("err", err.Error()))
+
 		return nil, fmt.Errorf(
 			"read audit.pii references for subject %s in org %s: %w",
 			subjectID,
@@ -49,6 +50,7 @@ func (r *Redactor) PIIRefsForSubject(
 				"audit.pii.subject_ref_scan_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("scan audit.pii reference for subject %s: %w", subjectID, err)
 		}
 
@@ -61,6 +63,7 @@ func (r *Redactor) PIIRefsForSubject(
 			"audit.pii.subject_refs_rows_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read audit.pii reference rows for subject %s: %w", subjectID, err)
 	}
 

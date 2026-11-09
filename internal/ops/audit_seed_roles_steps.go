@@ -86,6 +86,7 @@ func finishRoleStep(
 			"audit.seed_roles.step_record_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("audit seed-roles: record the result for role %s: %w", role.login, err)
 	}
 

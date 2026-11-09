@@ -252,6 +252,7 @@ func unknownProjectionEntry(
 				entry.PropertyDefID,
 				err,
 			)
+
 			return projectionFailure(ctx, "search.projection.scan_failed", wrapped)
 		}
 

@@ -94,7 +94,8 @@ func (f sessionAuditFixture) requireSessionCreate(
 		"the session create",
 	)
 	target := created.Context.Target
-	if target.Kind != audit.TargetKindResource || target.ID != session.ID || target.OwnerID != ownerID ||
+	if target.Kind != audit.TargetKindResource || target.ID != session.ID ||
+		target.OwnerID != ownerID ||
 		target.URI != "tack:search-session/"+session.ID.String() ||
 		target.Reference != "" ||
 		created.EntityID != session.ID {

@@ -45,6 +45,7 @@ func checkZeroTokenIDRowHash(row Row) (bool, string, error) {
 			slog.String("event_id", row.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return false, "", fmt.Errorf(
 			"verify row %s context with zero token id: %w",
 			row.EventID,
@@ -60,6 +61,7 @@ func checkZeroTokenIDRowHash(row Row) (bool, string, error) {
 			slog.String("event_id", row.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return false, "", fmt.Errorf("verify hash row %s with zero token id: %w", row.EventID, err)
 	}
 

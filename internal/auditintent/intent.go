@@ -139,6 +139,7 @@ func OperationID(ctx context.Context) (uuid.UUID, error) {
 			slog.String("tool", current.tool),
 			slog.String("err", err.Error()),
 		)
+
 		return uuid.Nil, fmt.Errorf("create the operation ID of tool %s: %w", current.tool, err)
 	}
 

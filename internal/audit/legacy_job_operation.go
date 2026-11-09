@@ -77,6 +77,7 @@ func LegacyJobOperation(
 				"audit.legacy_job_operation.decode_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return Event{}, fmt.Errorf(
 				"decode the audit template of subtree delete job %s: %w",
 				jobID,

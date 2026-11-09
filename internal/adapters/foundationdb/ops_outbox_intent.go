@@ -46,6 +46,7 @@ func encodedRecords(ctx context.Context, encoded audit.EncodedEvent) ([][]byte, 
 			slog.String("event_id", encoded.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf(
 			"encode the ops outbox records of event %s: %w",
 			encoded.EventID,

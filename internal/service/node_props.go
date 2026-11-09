@@ -193,6 +193,7 @@ func loggedPropertyCheckError(
 			slog.String("node_type", nt.TypeKey),
 			slog.String("err", wrapped.Error()),
 		)
+
 		return wrapped
 	}
 

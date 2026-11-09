@@ -111,6 +111,7 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) (audit.Recorder
 	yb, err := audit.NewYBRecorder(ctx, cfg.AuditWriterDSN)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.writer_setup_failed", slog.String("err", err.Error()))
+
 		return nil, fmt.Errorf(
 			"runtime: audit writer unavailable, refusing to serve unrecorded: %w",
 			err,
@@ -139,6 +140,7 @@ func buildKafkaRecorder(
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.kafka_setup_failed", slog.String("err", err.Error()))
+
 		return nil, fmt.Errorf(
 			"runtime: audit producer unavailable, refusing to serve unrecorded: %w",
 			err,
@@ -147,6 +149,7 @@ func buildKafkaRecorder(
 
 	if err := waitForBrokers(ctx, cfg, kafkaRec); err != nil {
 		_ = kafkaRec.CloseContext(ctx)
+
 		return nil, fmt.Errorf(
 			"runtime: audit brokers unreachable, refusing to serve unrecorded: %w",
 			err,

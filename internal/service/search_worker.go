@@ -162,6 +162,7 @@ func (w *SearchWorker) claimNext(ctx context.Context) (searchdomain.Work, bool, 
 				"search.worker.index_pending",
 				slog.String("class", string(class)),
 			)
+
 			return none, false, nil
 		default:
 			wrapped := fmt.Errorf("claim %s search work: %w", class, err)

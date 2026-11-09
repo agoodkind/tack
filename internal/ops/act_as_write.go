@@ -138,6 +138,7 @@ func createAsUser(
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "act_as.create_failed", slog.String("err", err.Error()))
+
 		return actAsCreated{
 			nodeID:       uuid.Nil,
 			rowCommitted: false,

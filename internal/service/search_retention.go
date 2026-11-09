@@ -115,6 +115,7 @@ func (r *SearchRetention) Check(ctx context.Context) error {
 			slog.String("index", serving),
 			slog.String("reason", reason),
 		)
+
 		return nil
 	}
 

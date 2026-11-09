@@ -73,6 +73,7 @@ func EncodeEvent(event Event, readTargets []Target) (EncodedEvent, error) {
 			slog.String("event_id", event.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return EncodedEvent{}, fmt.Errorf("encode audit event %s: %w", event.EventID, err)
 	}
 

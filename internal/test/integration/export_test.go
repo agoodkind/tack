@@ -230,6 +230,7 @@ func UndeployNativeModel(
 // stores and adapter with pageBytes as the page bound.
 func NewSearchWorker(t *testing.T, fixture QueryFixture, pageBytes int) *service.SearchWorker {
 	t.Helper()
+
 	return newSearchWorker(
 		t,
 		fixture.Stores,

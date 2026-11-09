@@ -30,7 +30,9 @@ func configuredAbbreviation(repository *git.Repository, root string) (int, error
 	if err != nil {
 		return 0, &os.PathError{Op: "load Git configuration reader", Path: root, Err: err}
 	}
+
 	length := 0
+
 	for _, scope := range []config.Scope{config.SystemScope, config.GlobalScope, config.LocalScope} {
 		var settings *config.Config
 		if scope == config.LocalScope {
@@ -42,15 +44,19 @@ func configuredAbbreviation(repository *git.Repository, root string) (int, error
 				settings, err = storer.Config()
 			}
 		}
+
 		if err != nil {
 			return 0, &os.PathError{Op: "read Git configuration", Path: root, Err: err}
 		}
+
 		if settings.Raw == nil {
 			continue
 		}
+
 		if err := rejectUnsupportedIncludes(settings.Raw, root); err != nil {
 			return 0, err
 		}
+
 		for _, configured := range settings.Raw.Section("core").OptionAll("abbrev") {
 			length, err = parseAbbreviation(configured, root)
 			if err != nil {
@@ -58,6 +64,7 @@ func configuredAbbreviation(repository *git.Repository, root string) (int, error
 			}
 		}
 	}
+
 	return length, nil
 }
 
@@ -71,10 +78,12 @@ func parseAbbreviation(value, root string) (int, error) {
 	case "", "no", "false", "off":
 		return len(plumbing.ZeroHash.String()), nil
 	}
+
 	length, err := strconv.Atoi(value)
 	if err != nil {
 		return 0, &os.PathError{Op: "parse core.abbrev " + value, Path: root, Err: err}
 	}
+
 	if length < minimumConfiguredAbbreviation {
 		return 0, &os.PathError{
 			Op:   "read core.abbrev " + value,
@@ -82,6 +91,7 @@ func parseAbbreviation(value, root string) (int, error) {
 			Err:  errAbbreviationBelowMinimum,
 		}
 	}
+
 	return length, nil
 }
 
@@ -94,6 +104,7 @@ func abbreviateCommit(repository *git.Repository, root, commit string) (string, 
 	if err != nil {
 		return "", &os.PathError{Op: "list Git objects", Path: root, Err: err}
 	}
+
 	var hashes []string
 	err = objects.ForEach(func(object plumbing.EncodedObject) error {
 		hashes = append(hashes, object.Hash().String())
@@ -102,24 +113,30 @@ func abbreviateCommit(repository *git.Repository, root, commit string) (string, 
 	if err != nil {
 		return "", &os.PathError{Op: "read Git objects", Path: root, Err: err}
 	}
+
 	length, err := configuredAbbreviation(repository, root)
 	if err != nil {
 		return "", err
 	}
+
 	if length == 0 {
 		length = max((bits.Len(uint(len(hashes)))+1)/2, minimumShortCommitLength)
 	}
+
 	for ; length < len(commit); length++ {
 		prefix := commit[:length]
 		matches := 0
+
 		for _, hash := range hashes {
 			if strings.HasPrefix(hash, prefix) {
 				matches++
 			}
 		}
+
 		if matches <= 1 {
 			break
 		}
 	}
+
 	return commit[:min(length, len(commit))], nil
 }

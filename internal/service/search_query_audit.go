@@ -183,6 +183,7 @@ func (s *SearchQueryService) runEncodedStep(
 					"search.snapshot.step_failed",
 					slog.String("err", finishErr.Error()),
 				)
+
 				return details, errors.Join(
 					effectErr,
 					fmt.Errorf(

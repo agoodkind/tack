@@ -26,6 +26,7 @@ func logFailedEngine(ctx context.Context, cli *client.Client, name string) {
 			slog.String("container", name),
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 

@@ -177,6 +177,7 @@ func AttachAudit(
 	cmd.Annotations[AuditClassAnnotation] = string(spec.Class)
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		defer applyHangupPolicy(cmd.Context(), spec, f.Execute())()
+
 		return RunAudited(
 			cmd.Context(),
 			dryRunDestination(f, cmd.OutOrStdout()),

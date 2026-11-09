@@ -154,6 +154,7 @@ func recoveredRetireEvent(
 			slog.String("err", err.Error()),
 			slog.String("session_id", sessionID.String()),
 		)
+
 		return invalidRetireEvents(
 			ctx,
 			uuid.Nil,

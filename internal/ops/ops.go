@@ -189,6 +189,7 @@ func runOperation(
 			slog.String("op", op.Name),
 			slog.String("err", err.Error()),
 		)
+
 		return err
 	}
 

@@ -158,7 +158,8 @@ func TestRuntimeAuditReadSelection(t *testing.T) {
 		"not_found",
 		path.body,
 	)
-	if pathRow.Context.HTTPMethod != http.MethodGet || pathRow.Context.RequestPath != "/unknown-route/item_1" ||
+	if pathRow.Context.HTTPMethod != http.MethodGet ||
+		pathRow.Context.RequestPath != "/unknown-route/item_1" ||
 		pathRow.Context.Target == nil ||
 		pathRow.Context.Target.URI != "/" ||
 		pathRow.Context.Selection != nil {

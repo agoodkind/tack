@@ -152,6 +152,7 @@ func (capture *searchCapture) ServeHTTP(writer http.ResponseWriter, request *htt
 				"encode profiled search body: "+err.Error(),
 				http.StatusInternalServerError,
 			)
+
 			return
 		}
 	}

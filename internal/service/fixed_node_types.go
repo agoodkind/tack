@@ -221,5 +221,6 @@ func fixedNodeTypeFailure(ctx context.Context, operation string, err error) erro
 		"metadata.fixed_node_type.correction_failed",
 		slog.String("err", err.Error()),
 	)
+
 	return fmt.Errorf("correct fixed node types: %s: %w", operation, err)
 }

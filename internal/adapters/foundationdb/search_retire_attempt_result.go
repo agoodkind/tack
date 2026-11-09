@@ -248,6 +248,7 @@ func (s *SearchRebuildStore) saveRetireFailureCodes(
 			slog.String("err", err.Error()),
 			slog.String("session_id", attempt.sessionID.String()),
 		)
+
 		return false
 	}
 

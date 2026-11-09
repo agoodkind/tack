@@ -122,6 +122,7 @@ func encodeSubtreeDeleteEvidence(
 			"node.subtree_delete.evidence_encode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("encode subtree delete evidence of job %s: %w", evidence.JobID, err)
 	}
 

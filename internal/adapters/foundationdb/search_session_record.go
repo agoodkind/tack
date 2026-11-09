@@ -173,6 +173,7 @@ func writeSessionValue[Value sessionValue](
 			len(encoded),
 			limit,
 		)
+
 		return sessionStepError{operation: operation, err: searchdomain.ErrInvalidQuery}
 	}
 

@@ -232,6 +232,7 @@ func entryPoint(t *testing.T, fixture queryFixture, workspace datagen.WorkspaceI
 					datagen.SearchItem{Title: workspace.Slug, NodeType: kind.TypeKey},
 					view.ID,
 				)
+
 				return view.ID
 			}
 		}

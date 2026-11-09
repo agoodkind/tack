@@ -117,6 +117,7 @@ func (r *Reader) ReadNodeHistory(
 					slog.String("event_id", row.EventID.String()),
 					slog.String("err", err.Error()),
 				)
+
 				return result, fmt.Errorf(
 					"read the history of node %s: row %s: %w",
 					filter.NodeID,
@@ -179,6 +180,7 @@ func (r *Reader) nodeHistoryPage(
 			slog.String("node_id", filter.NodeID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("query the history of node %s: %w", filter.NodeID, err)
 	}
 	defer rows.Close()
@@ -200,6 +202,7 @@ func (r *Reader) nodeHistoryPage(
 			slog.String("node_id", filter.NodeID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read the history rows of node %s: %w", filter.NodeID, err)
 	}
 

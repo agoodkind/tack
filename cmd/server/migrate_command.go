@@ -190,6 +190,7 @@ func readMigrationStatus(
 	body, err := json.Marshal(status)
 	if err != nil {
 		slog.ErrorContext(ctx, "migrate.status_encode_failed", slog.String("err", err.Error()))
+
 		return audit.OperatorReadOutput{}, fmt.Errorf(
 			"encode the migration state at version %d: %w",
 			status.AppliedVersion,

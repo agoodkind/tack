@@ -25,6 +25,7 @@ func previewRepairManifest(
 			"repair.preview_manifest_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return RepairManifestPreviewOutput{}, fmt.Errorf("repair preview: %w", err)
 	}
 

@@ -104,6 +104,7 @@ func engineLogTail(ctx context.Context, cli *client.Client, name string) (string
 			slog.String("container", name),
 			slog.String("reason", err.Error()),
 		)
+
 		return "", errors.New("read the log of " + name + ": " + err.Error())
 	}
 
@@ -116,6 +117,7 @@ func engineLogTail(ctx context.Context, cli *client.Client, name string) (string
 			slog.String("container", name),
 			slog.String("reason", err.Error()),
 		)
+
 		return output.String(), errors.New("demultiplex the log of " + name + ": " + err.Error())
 	}
 

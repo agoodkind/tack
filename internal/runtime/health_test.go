@@ -190,6 +190,7 @@ func clearRecorderPrefix(t *testing.T, clusterFile string, prefix []byte) {
 			Begin: fdb.Key(prefix),
 			End:   fdb.Key(end),
 		})
+
 		return nil, nil
 	}); err != nil {
 		t.Logf("cleanup could not delete the test keys: %v", err)

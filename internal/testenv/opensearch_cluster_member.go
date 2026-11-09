@@ -102,6 +102,7 @@ func startClusterContainer(ctx context.Context, cli *client.Client, spec cluster
 			slog.String("err", err.Error()),
 			slog.String("container", spec.name),
 		)
+
 		return fmt.Errorf("create container %s from %s: %w", spec.name, spec.image, err)
 	}
 
@@ -127,6 +128,7 @@ func startClusterContainer(ctx context.Context, cli *client.Client, spec cluster
 			slog.String("err", err.Error()),
 			slog.String("container", spec.name),
 		)
+
 		return fmt.Errorf("start container %s: %w", spec.name, err)
 	}
 
@@ -195,6 +197,7 @@ func (c *OpenSearchCluster) startMember(
 // for a health request that bypasses the proxy.
 func (c *OpenSearchCluster) memberFixture(member string) OpenSearchFixture {
 	pass := c.Fixture.Password
+
 	return OpenSearchFixture{
 		Endpoint:  c.MemberEndpoint(member),
 		CA:        c.Fixture.CA,

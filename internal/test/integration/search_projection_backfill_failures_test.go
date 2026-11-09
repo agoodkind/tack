@@ -43,6 +43,7 @@ func TestSearchProjectionBackfillRejectsInvalidManifests(t *testing.T) {
 					PropertyDefID: def.ID,
 					Search:        projection,
 				}
+
 				return projectionEntries(t, entry, entry)
 			},
 			"duplicate",
@@ -254,6 +255,7 @@ func projectionTestPrincipal() audit.OperatorPrincipal {
 // command gate attaches.
 func projectionOperatorContext(t *testing.T) context.Context {
 	t.Helper()
+
 	return audit.WithOpID(
 		audit.WithOperatorPrincipal(WithTestOperation(t, t.Context()), projectionTestPrincipal()),
 		uuid.Must(uuid.NewV7()),

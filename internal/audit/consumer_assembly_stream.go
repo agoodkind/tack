@@ -199,6 +199,7 @@ func manifestPartWriter(
 				slog.String("event_id", event.EventID.String()),
 				slog.String("err", err.Error()),
 			)
+
 			return fmt.Errorf(
 				"%w: audit event %s read manifest part %d: %w",
 				errManifestPartStore,

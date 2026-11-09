@@ -33,6 +33,7 @@ func (s *NodeService) DeleteStatus(ctx context.Context, jobID uuid.UUID) (Delete
 			slog.String("err", err.Error()),
 			slog.String("job_id", jobID.String()),
 		)
+
 		return none, fmt.Errorf("read delete job %s: %w", jobID, err)
 	}
 
@@ -71,6 +72,7 @@ func (s *NodeService) ResumeSubtreeDeletes(
 				"node.subtree_delete.resume_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return finished, fmt.Errorf("list subtree delete jobs after %s: %w", after, err)
 		}
 
@@ -113,6 +115,7 @@ func (s *NodeService) resumeJob(
 				slog.String("err", err.Error()),
 				slog.String("job_id", job.ID.String()),
 			)
+
 			return false, fmt.Errorf("clear finished delete job %s: %w", job.ID, err)
 		}
 

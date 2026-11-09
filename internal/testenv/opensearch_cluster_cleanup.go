@@ -18,6 +18,7 @@ func (c *OpenSearchCluster) Close(ctx context.Context) error {
 			slog.String("cluster", c.name),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("remove OpenSearch cluster %s: %w", c.name, err)
 	}
 

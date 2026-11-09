@@ -245,8 +245,10 @@ func referenceTarget(reference string) readRowTarget {
 func requireReadRowShape(t *testing.T, row audit.Row, outcome audit.Outcome, want readRowTarget) {
 	t.Helper()
 	target := row.Context.Target
-	if row.Outcome != outcome || row.Context.OperationClass != audit.OperationRead || row.Context.Phase != audit.PhaseRead ||
-		target == nil || target.URI != want.uri ||
+	if row.Outcome != outcome || row.Context.OperationClass != audit.OperationRead ||
+		row.Context.Phase != audit.PhaseRead ||
+		target == nil ||
+		target.URI != want.uri ||
 		target.Reference != want.reference {
 		t.Fatalf(
 			"row %s = outcome %q class %q phase %q target %+v, want %q read read %+v",

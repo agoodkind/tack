@@ -41,6 +41,7 @@ func unmarshalHistoryCursor(ctx context.Context, cursor string) (historyPosition
 			slog.String("part", "encoding"),
 			slog.String("err", err.Error()),
 		)
+
 		return position, fmt.Errorf("decode the history cursor: %w", err)
 	}
 
@@ -52,6 +53,7 @@ func unmarshalHistoryCursor(ctx context.Context, cursor string) (historyPosition
 			slog.String("part", "shape"),
 			slog.String("err", errHistoryCursor.Error()),
 		)
+
 		return position, errHistoryCursor
 	}
 
@@ -63,6 +65,7 @@ func unmarshalHistoryCursor(ctx context.Context, cursor string) (historyPosition
 			slog.String("part", "time"),
 			slog.String("err", err.Error()),
 		)
+
 		return position, fmt.Errorf("history cursor time: %w", err)
 	}
 
@@ -74,6 +77,7 @@ func unmarshalHistoryCursor(ctx context.Context, cursor string) (historyPosition
 			slog.String("part", "seq"),
 			slog.String("err", err.Error()),
 		)
+
 		return position, fmt.Errorf("history cursor seq: %w", err)
 	}
 
@@ -85,6 +89,7 @@ func unmarshalHistoryCursor(ctx context.Context, cursor string) (historyPosition
 			slog.String("part", "event_id"),
 			slog.String("err", err.Error()),
 		)
+
 		return position, fmt.Errorf("history cursor event id: %w", err)
 	}
 

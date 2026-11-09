@@ -149,6 +149,7 @@ func CreateStoppedRunDecoy(ctx context.Context) (string, error) {
 			slog.String("container", runner),
 			slog.String("err", err.Error()),
 		)
+
 		return "", fmt.Errorf("inspect runner container %s: %w", runner, err)
 	}
 
@@ -190,6 +191,7 @@ func CreateStoppedRunDecoy(ctx context.Context) (string, error) {
 			slog.String("container", name),
 			slog.String("err", err.Error()),
 		)
+
 		return "", fmt.Errorf("create decoy container %s: %w", name, err)
 	}
 
@@ -216,6 +218,7 @@ func StoppedRunDecoyExists(ctx context.Context, name string) (bool, error) {
 			slog.String("container", name),
 			slog.String("err", err.Error()),
 		)
+
 		return false, fmt.Errorf("inspect decoy container %s: %w", name, err)
 	}
 

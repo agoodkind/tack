@@ -112,6 +112,7 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 					"ops.ledger.node_prepare.encode_failed",
 					slog.String("err", err.Error()),
 				)
+
 				return audit.OperatorReadOutput{}, fmt.Errorf(
 					"%s: encode the result: %w",
 					ledgerNodePrepareLabel,
@@ -132,6 +133,7 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 			"ops.ledger.node_prepare.preview_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("%s: %w", ledgerNodePrepareLabel, err)
 	}
 
@@ -141,6 +143,7 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 			"ops.ledger.node_prepare.write_result_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("%s: write result: %w", ledgerNodePrepareLabel, err)
 	}
 
@@ -206,6 +209,7 @@ func runLedgerNodeWaitRecorded(
 					"ops.ledger.node_wait.failed",
 					slog.String("err", waitErr.Error()),
 				)
+
 				return fmt.Errorf("%s: %w", command, waitErr)
 			}
 
@@ -232,6 +236,7 @@ func runLedgerNodeWaitRecorded(
 			"ops.ledger.node_wait.write_result_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return details, fmt.Errorf("%s: write result: %w", command, err)
 	}
 

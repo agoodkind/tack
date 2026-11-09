@@ -92,6 +92,7 @@ func (r *rankingRun) waitIndexed(t *testing.T, nodes []uuid.UUID) {
 				indexed,
 				clock.Since(started).Milliseconds(),
 			)
+
 			return
 		}
 
@@ -148,6 +149,7 @@ func (r *rankingRun) waitRebuild(t *testing.T, done func(searchdomain.Rebuild, b
 				current.State,
 				clock.Since(started).Milliseconds(),
 			)
+
 			return
 		}
 

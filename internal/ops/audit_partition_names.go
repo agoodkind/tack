@@ -57,6 +57,7 @@ func RunAuditPartitionNamesBackfill(
 			"audit_partition_names.acquire_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return result, fmt.Errorf("acquire a ledger connection: %w", err)
 	}
 	defer conn.Release()
@@ -66,6 +67,7 @@ func RunAuditPartitionNamesBackfill(
 			"audit_partition_names.timezone_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return result, fmt.Errorf("set the session time zone to UTC: %w", err)
 	}
 
@@ -230,6 +232,7 @@ func renameAuditPartition(ctx context.Context, conn *pgx.Conn, rename AuditParti
 			"audit_partition_names.key_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("read the primary key of %s: %w", rename.From, err)
 	}
 
@@ -258,6 +261,7 @@ func renameAuditPartition(ctx context.Context, conn *pgx.Conn, rename AuditParti
 				slog.String("err", err.Error()),
 				slog.String("from", rename.From),
 			)
+
 			return fmt.Errorf("rename %s to %s: %w", rename.From, rename.To, err)
 		}
 	}

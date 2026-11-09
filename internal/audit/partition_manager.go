@@ -117,6 +117,7 @@ func (m *PartitionManager) runOnce(ctx context.Context) {
 			"audit.partition.headroom_query_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 

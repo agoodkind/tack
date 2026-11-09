@@ -96,12 +96,12 @@ func requireSnapshotIdentity(
 ) {
 	t.Helper()
 	intent := onlyRow(t, snapshotIntents(rows, result), "the original point in time intent")
-	if result.ActorID != fixture.Workspaces[0].Actors[0].UserID || result.ActorID != intent.ActorID ||
-		result.Context.OperationID == uuid.Nil || result.Context.ParentOperationID != intent.Context.ParentOperationID ||
-		result.Context.Target == nil || !bytes.Equal(
-		encodeJSON(t, result.Context.Target),
-		encodeJSON(t, intent.Context.Target),
-	) ||
+	if result.ActorID != fixture.Workspaces[0].Actors[0].UserID ||
+		result.ActorID != intent.ActorID ||
+		result.Context.OperationID == uuid.Nil ||
+		result.Context.ParentOperationID != intent.Context.ParentOperationID ||
+		result.Context.Target == nil ||
+		!bytes.Equal(encodeJSON(t, result.Context.Target), encodeJSON(t, intent.Context.Target)) ||
 		result.Context.StartedAt.IsZero() ||
 		!result.Context.StartedAt.Equal(intent.Context.StartedAt) ||
 		result.Context.CompletedAt.Before(result.Context.StartedAt) {

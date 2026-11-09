@@ -69,6 +69,7 @@ func (s *SearchRebuildStore) clearRetireAttempt(ctx context.Context, attempt ret
 			slog.String("err", err.Error()),
 			slog.String("session_id", sessionID),
 		)
+
 		return err
 	}
 
@@ -78,6 +79,7 @@ func (s *SearchRebuildStore) clearRetireAttempt(ctx context.Context, attempt ret
 			"search.session.retire_clear_absent",
 			slog.String("session_id", sessionID),
 		)
+
 		return sessionStepError{
 			operation: retireAttemptClearOperation + " for session " + sessionID,
 			err:       errRetireClearAbsent,

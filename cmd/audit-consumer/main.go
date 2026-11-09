@@ -63,6 +63,7 @@ func newAuditConsumer(
 				"audit_consumer.hostname_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("read the hostname for the signing host: %w", err)
 		}
 

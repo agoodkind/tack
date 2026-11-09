@@ -128,6 +128,7 @@ func (s storeSchemaSource) Schema(ctx context.Context, orgID uuid.UUID) (node.Sc
 			slog.String("org_id", orgID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return schema, fmt.Errorf("list the node types of organization %s: %w", orgID, err)
 	}
 
@@ -143,6 +144,7 @@ func (s storeSchemaSource) Schema(ctx context.Context, orgID uuid.UUID) (node.Sc
 			slog.String("org_id", orgID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return schema, fmt.Errorf(
 			"list the property definitions of organization %s: %w",
 			orgID,

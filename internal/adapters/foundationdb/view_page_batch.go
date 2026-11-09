@@ -41,6 +41,7 @@ func (s *ViewStore) readPageBatch(
 			"store.view.list_page_transaction_failed",
 			slog.String("err", transactionErr.Error()),
 		)
+
 		return nil, nil, fmt.Errorf(
 			"create list page %s transaction: %w",
 			q.NodeType,
@@ -66,6 +67,7 @@ func (s *ViewStore) readPageBatch(
 				"store.view.list_page_retry_failed",
 				slog.String("err", retryErr.Error()),
 			)
+
 			return nil, nil, fmt.Errorf("retry list page %s batch: %w", q.NodeType, retryErr)
 		}
 	}
@@ -115,6 +117,7 @@ func decodePageEntry(
 				"store.view.list_page_decode_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return pageEntry{}, fmt.Errorf("decode view %x: %w", kv.Key, err)
 		}
 
@@ -128,6 +131,7 @@ func decodePageEntry(
 			"store.view.list_page_decode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return pageEntry{}, fmt.Errorf("decode property index key %x: %w", kv.Key, err)
 	}
 
@@ -147,6 +151,7 @@ func decodePageEntry(
 			"store.view.list_page_decode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return pageEntry{}, fmt.Errorf("decode node id %q: %w", nodeIDText, err)
 	}
 
@@ -157,6 +162,7 @@ func decodePageEntry(
 			"store.view.list_page_decode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return pageEntry{}, fmt.Errorf("read view %s: %w", nodeID, err)
 	}
 
@@ -171,6 +177,7 @@ func decodePageEntry(
 			"store.view.list_page_decode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return pageEntry{}, fmt.Errorf("decode view %s: %w", nodeID, err)
 	}
 

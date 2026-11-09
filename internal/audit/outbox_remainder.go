@@ -35,6 +35,7 @@ func (r *Reader) OperatorOutboxRemainder(ctx context.Context) (OutboxRemainder, 
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.ops_outbox.remainder_failed", slog.String("err", err.Error()))
+
 		return OutboxRemainder{
 			Rows:   0,
 			Oldest: nil,

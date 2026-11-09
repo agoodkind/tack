@@ -136,6 +136,7 @@ func runSearchRolloutRecorded(
 			"check candidate version "+in.Candidate,
 			errUnknownCandidate,
 		)
+
 		return commandOutcome(audit.OutcomeRefused, invalidInputCode, wrapped), wrapped
 	}
 
@@ -147,6 +148,7 @@ func runSearchRolloutRecorded(
 			"read access rollout of authority "+authorityID.String(),
 			err,
 		)
+
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, wrapped), wrapped
 	}
 
@@ -156,6 +158,7 @@ func runSearchRolloutRecorded(
 			rolloutInProgressCode,
 			searchdomain.ErrRolloutInProgress,
 		)
+
 		return refused, writeSearchRolloutResult(ctx, sink, rollouts, current, false)
 	}
 

@@ -87,6 +87,7 @@ func (r *UserRepo) Create(ctx context.Context, u *user.User) (*user.User, error)
 			slog.String("user_id", u.ID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("create user %s: %w", u.ID, err)
 	}
 

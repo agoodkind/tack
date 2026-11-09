@@ -188,6 +188,7 @@ func writeClusterFile(ctx context.Context, containerName string, contents []byte
 			"testenv.foundationdb.cluster_file_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return "", fmt.Errorf("create %s: %w", directory, err)
 	}
 
@@ -199,6 +200,7 @@ func writeClusterFile(ctx context.Context, containerName string, contents []byte
 			"testenv.foundationdb.cluster_file_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 

@@ -31,6 +31,7 @@ func changeOperation(ctx context.Context, verb audit.Verb, orgID uuid.UUID) (aud
 			slog.String("verb", string(verb)),
 			slog.String("err", err.Error()),
 		)
+
 		return audit.Event{}, fmt.Errorf("record %s in org %s: %w", verb, orgID, err)
 	}
 

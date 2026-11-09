@@ -69,6 +69,7 @@ func staleLedgerNodeFlags(
 			"ops.ledger.node_prepare.flag_file_absent",
 			slog.String("path", ledgerTserverFlagFile),
 		)
+
 		return nil, nil
 	}
 
@@ -79,6 +80,7 @@ func staleLedgerNodeFlags(
 			"ops.ledger.node_prepare.varz_unreachable",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read the tablet server's flags: %w", err)
 	}
 
@@ -118,6 +120,7 @@ func runningTserverFlags(ctx context.Context, body []byte) (map[string]string, e
 			"ops.ledger.node_prepare.varz_unparseable",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("unmarshal tablet server flags: %w", err)
 	}
 

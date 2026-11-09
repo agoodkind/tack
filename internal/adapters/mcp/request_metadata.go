@@ -26,6 +26,7 @@ func readMCPRequestMetadata(r *http.Request) (tools.MCPRequestMetadata, error) {
 			"mcp.request_body_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return metadata, fmt.Errorf("read mcp request body: %w", err)
 	}
 

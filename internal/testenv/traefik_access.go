@@ -74,6 +74,7 @@ func (c *OpenSearchCluster) proxyResponses(t T) []ProxyResponse {
 					"testenv.proxy.access_read_failed",
 					slog.String("err", err.Error()),
 				)
+
 				return fmt.Errorf("read proxy search access log: %w", err)
 			}
 
@@ -86,6 +87,7 @@ func (c *OpenSearchCluster) proxyResponses(t T) []ProxyResponse {
 					"testenv.proxy.access_archive_failed",
 					slog.String("err", err.Error()),
 				)
+
 				return fmt.Errorf("read proxy access archive: %w", err)
 			}
 
@@ -118,6 +120,7 @@ func (c *OpenSearchCluster) proxyResponses(t T) []ProxyResponse {
 						"testenv.proxy.access_stream_failed",
 						slog.String("err", err.Error()),
 					)
+
 					return fmt.Errorf("read proxy access record: %w", err)
 				}
 
@@ -128,6 +131,7 @@ func (c *OpenSearchCluster) proxyResponses(t T) []ProxyResponse {
 						"testenv.proxy.access_decode_failed",
 						slog.String("err", err.Error()),
 					)
+
 					return fmt.Errorf("decode proxy access record: %w", err)
 				}
 

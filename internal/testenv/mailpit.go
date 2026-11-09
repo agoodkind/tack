@@ -236,6 +236,7 @@ func writeMailpitClientFiles(
 			"testenv.mailpit.client_files_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return "", fmt.Errorf("create %s: %w", directory, err)
 	}
 
@@ -254,6 +255,7 @@ func writeMailpitClientFiles(
 				"testenv.mailpit.client_files_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return "", fmt.Errorf("write %s: %w", path, err)
 		}
 	}

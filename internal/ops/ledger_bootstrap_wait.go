@@ -125,6 +125,7 @@ func ledgerBootstrapWaitOp(f *cli.Factory) clispec.Operation[ledgerBootstrapWait
 					"ops.ledger.bootstrap_wait.failed",
 					slog.String("err", err.Error()),
 				)
+
 				return fmt.Errorf("%s: %w", ledgerBootstrapCommandLabel, err)
 			}
 

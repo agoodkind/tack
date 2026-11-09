@@ -262,6 +262,7 @@ func auditGetOp(f *cli.Factory) clispec.Operation[auditGetInput] {
 					slog.String("event_id", eventID.String()),
 					slog.String("err", err.Error()),
 				)
+
 				return fmt.Errorf("audit get %s: %w", eventID, err)
 			}
 
@@ -284,6 +285,7 @@ func openAuditReader(ctx context.Context, f *cli.Factory, command string) (*audi
 			slog.String("command", command),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("%s: reader from AUDIT_READER_DSN: %w", command, err)
 	}
 
@@ -300,6 +302,7 @@ func parseAuditUUID(ctx context.Context, command, flag, value string) (uuid.UUID
 			slog.String("flag", flag),
 			slog.String("err", err.Error()),
 		)
+
 		return uuid.Nil, fmt.Errorf("%s: %s must be a UUID: %w", command, flag, err)
 	}
 
@@ -329,6 +332,7 @@ func parseAuditWindow(
 			slog.String("flag", "--oldest"),
 			slog.String("err", err.Error()),
 		)
+
 		return time.Time{}, time.Time{}, fmt.Errorf(
 			"%s: --oldest must be RFC3339: %w",
 			command,
@@ -345,6 +349,7 @@ func parseAuditWindow(
 			slog.String("flag", "--latest"),
 			slog.String("err", err.Error()),
 		)
+
 		return time.Time{}, time.Time{}, fmt.Errorf(
 			"%s: --latest must be RFC3339: %w",
 			command,
@@ -360,6 +365,7 @@ func parseAuditWindow(
 			slog.String("flag", "--latest"),
 			slog.String("err", "latest is not after oldest"),
 		)
+
 		return time.Time{}, time.Time{}, fmt.Errorf("%s: --latest must be after --oldest", command)
 	}
 

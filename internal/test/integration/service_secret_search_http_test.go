@@ -177,6 +177,7 @@ func logSecretSearchTaskFailures(t *testing.T, engine testenv.OpenSearchFixture)
 			"ML task diagnostics returned status %d and could not be decoded",
 			response.StatusCode,
 		)
+
 		return
 	}
 

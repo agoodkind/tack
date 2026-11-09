@@ -91,6 +91,7 @@ func (execution *macRunnerExecution) prepareNetwork(ctx context.Context) error {
 	execution.operation("network create", created.ID, createErr)
 	if createErr != nil {
 		recoveryErr := execution.recoverNetwork(context.WithoutCancel(ctx), configuration.Name)
+
 		return macRunnerErrors(
 			"recover default network creation",
 			macRunnerFailure("create default network "+configuration.Name, createErr),
@@ -136,6 +137,7 @@ func (execution *macRunnerExecution) recoverNetwork(ctx context.Context, name st
 
 	if len(matches) > 1 {
 		execution.unknownResources = append(execution.unknownResources, matches...)
+
 		return errors.New(
 			"multiple networks match partial default-network ownership; preserve unknown networks",
 		)

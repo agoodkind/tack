@@ -36,6 +36,7 @@ func (w *hierarchyWalk) step(ancestors map[OrgNode]AncestorState) {
 				fmt.Sprintf("ancestor %s is missing or belongs to another organization", w.current),
 			),
 		)
+
 		return
 	case state.Type == nil:
 		w.fail(newHierarchyDefect(fmt.Sprintf("node type %q is missing", state.TypeKey)))

@@ -85,6 +85,7 @@ func (capture *responseCapture) readResult(ctx context.Context) audit.ReadResult
 					"mcp.audit_request.encode_failed",
 					slog.String("err", err.Error()),
 				)
+
 				return fmt.Errorf("write captured response body: %w", err)
 			}
 

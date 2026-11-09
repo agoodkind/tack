@@ -284,5 +284,6 @@ func exportEdgeChanged(ctx context.Context, entry NodeIntegrityEntry, edge Repai
 		edge.SourceID,
 		edge.TargetID,
 	)
+
 	return repairExportRefused(ctx, entry, reason, domain.ErrConflict)
 }

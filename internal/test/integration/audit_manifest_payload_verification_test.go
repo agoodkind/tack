@@ -49,7 +49,8 @@ func TestAuditManifestPayloadVerification(t *testing.T) {
 	}
 
 	verification := report.Verification
-	if !verification.PayloadVerified || verification.DeclaredCount != readTargetCount || verification.IdentityCount != readTargetCount ||
+	if !verification.PayloadVerified || verification.DeclaredCount != readTargetCount ||
+		verification.IdentityCount != readTargetCount ||
 		verification.PartCount != uint32(len(parts)) ||
 		verification.DeclaredParts != uint32(len(parts)) ||
 		verification.DeclaredDigest == "" ||

@@ -13,9 +13,12 @@ import (
 
 func requireSearchReadLedgerIdentity(t *testing.T, row audit.Row, event audit.Event) {
 	t.Helper()
-	if row.ActorID != event.Actor.ID || row.Context.AuditFormatVersion != event.Context.AuditFormatVersion ||
-		row.Context.OperationClass != event.Context.OperationClass || row.Context.Phase != event.Context.Phase ||
-		row.Context.OperationID != event.Context.OperationID || row.Context.Target == nil ||
+	if row.ActorID != event.Actor.ID ||
+		row.Context.AuditFormatVersion != event.Context.AuditFormatVersion ||
+		row.Context.OperationClass != event.Context.OperationClass ||
+		row.Context.Phase != event.Context.Phase ||
+		row.Context.OperationID != event.Context.OperationID ||
+		row.Context.Target == nil ||
 		*row.Context.Target != *event.Context.Target ||
 		!row.Context.StartedAt.Equal(event.Context.StartedAt) ||
 		!row.Context.CompletedAt.Equal(event.Context.CompletedAt) {
@@ -68,12 +71,14 @@ func requireSearchReadEvent(
 		t.Fatalf("%s recorded an invalid final event: %v", verb, err)
 	}
 
-	if event.Actor.Type != audit.ActorService || event.Actor.ID != actorID || event.Actor.SessionID != searchReadSession ||
-		event.Context.AuditFormatVersion != audit.AuditFormatComplete || event.Context.OperationClass != audit.OperationRead ||
-		event.Context.Phase != audit.PhaseRead || event.Context.OperationID == uuid.Nil ||
-		event.Context.StartedAt.IsZero() || event.Context.CompletedAt.Before(
-		event.Context.StartedAt,
-	) ||
+	if event.Actor.Type != audit.ActorService || event.Actor.ID != actorID ||
+		event.Actor.SessionID != searchReadSession ||
+		event.Context.AuditFormatVersion != audit.AuditFormatComplete ||
+		event.Context.OperationClass != audit.OperationRead ||
+		event.Context.Phase != audit.PhaseRead ||
+		event.Context.OperationID == uuid.Nil ||
+		event.Context.StartedAt.IsZero() ||
+		event.Context.CompletedAt.Before(event.Context.StartedAt) ||
 		!event.OccurredAt.Equal(event.Context.StartedAt) ||
 		event.Context.Target == nil ||
 		event.Context.Target.Reference != reference {

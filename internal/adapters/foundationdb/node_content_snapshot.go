@@ -59,6 +59,7 @@ func (s *NodeContentStore) readSnapshot(
 
 		if retryErr := transaction.OnError(databaseError).Get(); retryErr != nil {
 			transaction.Cancel()
+
 			return nodeContentSnapshot{}, searchReadFailure(
 				ctx,
 				"retry content read transaction",

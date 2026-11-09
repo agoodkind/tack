@@ -185,6 +185,7 @@ func clearRolloutPrefix(t *testing.T, cluster string, prefix []byte) {
 			Begin: fdb.Key(prefix),
 			End:   fdb.Key(end),
 		})
+
 		return nil, nil
 	}); err != nil {
 		t.Errorf("cannot clear test prefix: %v", err)

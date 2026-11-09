@@ -231,6 +231,7 @@ func clusterMLResponse(
 			response.StatusCode,
 			opensearch.ParseError(response),
 		)
+
 		return nil, response.StatusCode
 	}
 

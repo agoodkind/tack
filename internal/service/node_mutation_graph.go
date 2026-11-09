@@ -28,6 +28,7 @@ func (s *NodeService) readMutationSnapshot(
 			slog.String("err", err.Error()),
 			slog.String("node_id", nodeID.String()),
 		)
+
 		return snapshot, schema, fmt.Errorf(
 			"read the mutation snapshot of node %s: %w",
 			nodeID,

@@ -81,7 +81,8 @@ func TestRuntimeAuditGeneratedPreviewRecordsRead(t *testing.T) {
 		t.Fatalf("the dry run read event is not valid: %v", err)
 	}
 
-	if eventContext.OperationClass != audit.OperationRead || event.Outcome != audit.OutcomeCompleted ||
+	if eventContext.OperationClass != audit.OperationRead ||
+		event.Outcome != audit.OutcomeCompleted ||
 		eventContext.Target == nil ||
 		eventContext.Target.URI != previewCommandTarget {
 		t.Fatalf(

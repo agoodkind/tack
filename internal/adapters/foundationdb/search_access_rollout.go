@@ -95,6 +95,7 @@ func (s *SearchAccessRolloutStore) Begin(
 			"candidate version %q is not a registered policy, or the authority is empty",
 			request.CandidateVersion,
 		)
+
 		return rollout, searchStorageError(
 			ctx,
 			"search.rollout.begin_invalid",
@@ -141,7 +142,8 @@ func (s *SearchAccessRolloutStore) Begin(
 			begun.Phase, begun.ScanCursor, begun.VerifyCursor, begun.RetireCursor = string(
 				searchdomain.AccessBackfill,
 			), "", "", ""
-			begun.ScanComplete, begun.AffectedPass, begun.Generation, begun.PermissionEventVersion = false, false, generation, event
+			begun.ScanComplete, begun.AffectedPass,
+				begun.Generation, begun.PermissionEventVersion = false, false, generation, event
 			begun.InitiatedOperationID, begun.InitiatedActorID = request.Initiation.OperationID, request.Initiation.ActorID
 			if writeErr := writeSearchRecord(
 				ctx,

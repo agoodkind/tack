@@ -117,6 +117,7 @@ func appendCleanupFailure(
 			slog.String("err", err.Error()),
 			slog.String("session_id", target.ID.String()),
 		)
+
 		return fmt.Errorf("encode the cleanup failure event of session %s: %w", target.ID, err)
 	}
 
@@ -160,6 +161,7 @@ func cleanupFailureEvent(
 			slog.String("err", err.Error()),
 			slog.String("session_id", target.ID.String()),
 		)
+
 		return audit.Event{}, fmt.Errorf(
 			"build the cleanup failure event of session %s: %w",
 			target.ID,

@@ -36,6 +36,7 @@ func (recorder *RequestRecorder) Health(next http.Handler) http.Handler {
 					http.MethodGet+", "+http.MethodHead,
 					healthMethodNotAllowedBody,
 				)
+
 				return
 			}
 

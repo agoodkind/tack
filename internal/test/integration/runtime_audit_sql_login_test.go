@@ -41,6 +41,7 @@ func changeOnlyPool(t *testing.T, admin *pgxpool.Pool) *pgxpool.Pool {
 // connects to. Test cleanup drops the login.
 func changeOnlyDSN(t *testing.T, admin *pgxpool.Pool) string {
 	t.Helper()
+
 	return templateLoginDSN(
 		t,
 		admin,

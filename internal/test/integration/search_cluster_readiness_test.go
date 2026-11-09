@@ -118,6 +118,7 @@ func requireClusterPredictors(
 					modelID,
 					&capturedPartialDeployment,
 				)
+
 				return fmt.Errorf(
 					"predictor profile has %d nodes, want IDs %v: %s",
 					len(profile.Nodes),
@@ -136,6 +137,7 @@ func requireClusterPredictors(
 						modelID,
 						&capturedPartialDeployment,
 					)
+
 					return fmt.Errorf(
 						"predictor id=%s has placement %+v, exists=%t",
 						id,
@@ -154,6 +156,7 @@ func requireClusterPredictors(
 						modelID,
 						&capturedPartialDeployment,
 					)
+
 					return fmt.Errorf(
 						"predictor id=%s workers=%v targets=%v, want actual IDs %v",
 						id,

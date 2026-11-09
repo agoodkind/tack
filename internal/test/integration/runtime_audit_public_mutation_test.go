@@ -162,6 +162,7 @@ func TestRuntimeAuditPublicMutationResults(t *testing.T) {
 // at least one other event.
 func hasAuthAndOther(rows []audit.Row) bool {
 	isAuth := func(row audit.Row) bool { return row.Action == string(audit.VerbAuthTokenUsed) }
+
 	return slices.ContainsFunc(rows, isAuth) &&
 		slices.ContainsFunc(rows, func(row audit.Row) bool { return !isAuth(row) })
 }

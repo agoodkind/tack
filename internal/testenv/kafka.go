@@ -146,6 +146,7 @@ func waitForKafka(ctx context.Context, bootstrap string) error {
 		slog.DebugContext(ctx, "testenv.kafka.probe", slog.String("err", lastErr.Error()))
 		if !sleepOrDone(ctx) {
 			slog.ErrorContext(ctx, "testenv.kafka.not_ready", slog.String("err", lastErr.Error()))
+
 			return fmt.Errorf(
 				"the test kafka broker at %s answered no metadata request before the deadline: %w",
 				bootstrap,

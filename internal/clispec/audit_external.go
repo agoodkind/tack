@@ -121,6 +121,7 @@ func RunAuditedExternal(
 			slog.String("operation", spec.Verb),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("%s: %w", spec.Verb, err)
 	}
 

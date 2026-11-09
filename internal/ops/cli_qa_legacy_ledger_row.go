@@ -152,6 +152,7 @@ func runDatagenLegacyLedgerRow(
 			"qa.legacy_ledger_row.target_rejected",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("validate the legacy ledger row target: %w", err)
 	}
 
@@ -184,6 +185,7 @@ func runDatagenLegacyLedgerRow(
 			"qa.legacy_ledger_row.writer_pool_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("open the ledger writer pool for the legacy ledger row: %w", err)
 	}
 	defer writer.Close()
@@ -244,6 +246,7 @@ func parseOptionalNodeID(ctx context.Context, value string) (uuid.UUID, error) {
 			"qa.legacy_ledger_row.bad_delete_node",
 			slog.String("err", err.Error()),
 		)
+
 		return uuid.Nil, fmt.Errorf("legacy ledger row: --delete-node must be a UUID: %w", err)
 	}
 
@@ -261,6 +264,7 @@ func writeLegacyLedgerRowReport(
 			"qa.legacy_ledger_row.report_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("write the legacy ledger row report: %w", err)
 	}
 

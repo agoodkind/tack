@@ -195,6 +195,7 @@ func newChange(
 			slog.String("target_id", target.ID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return audit.Change{}, fmt.Errorf("build audit change for target %s: %w", target.ID, err)
 	}
 

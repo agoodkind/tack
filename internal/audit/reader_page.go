@@ -74,6 +74,7 @@ func MarshalQueryCursor(eventTime time.Time, seq int64) string {
 		seq,
 		10,
 	)
+
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
@@ -89,6 +90,7 @@ func UnmarshalQueryCursor(ctx context.Context, cursor string) (time.Time, int64,
 			slog.String("part", "encoding"),
 			slog.String("err", err.Error()),
 		)
+
 		return time.Time{}, 0, fmt.Errorf("decode cursor: %w", err)
 	}
 
@@ -106,6 +108,7 @@ func UnmarshalQueryCursor(ctx context.Context, cursor string) (time.Time, int64,
 			slog.String("part", "time"),
 			slog.String("err", err.Error()),
 		)
+
 		return time.Time{}, 0, fmt.Errorf("cursor time: %w", err)
 	}
 
@@ -117,6 +120,7 @@ func UnmarshalQueryCursor(ctx context.Context, cursor string) (time.Time, int64,
 			slog.String("part", "seq"),
 			slog.String("err", err.Error()),
 		)
+
 		return time.Time{}, 0, fmt.Errorf("cursor seq: %w", err)
 	}
 

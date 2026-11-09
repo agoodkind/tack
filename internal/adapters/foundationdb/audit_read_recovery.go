@@ -260,6 +260,7 @@ func transactAuditRead(
 			"audit.read_lifecycle.transaction_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("create audit read transaction: %w", err)
 	}
 	defer transaction.Cancel()
@@ -283,6 +284,7 @@ func transactAuditRead(
 				"audit.read_lifecycle.timeout_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return fmt.Errorf("set audit read transaction timeout: %w", err)
 		}
 
@@ -308,6 +310,7 @@ func transactAuditRead(
 				"audit.read_lifecycle.retry_failed",
 				slog.String("err", retryErr.Error()),
 			)
+
 			return fmt.Errorf("retry audit read transaction: %w", retryErr)
 		}
 	}

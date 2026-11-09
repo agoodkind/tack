@@ -61,6 +61,7 @@ func clearIdleClaimPrefix(t *testing.T, cluster string, prefix []byte) {
 			Begin: fdb.Key(prefix),
 			End:   fdb.Key(end),
 		})
+
 		return nil, nil
 	}); err != nil {
 		t.Logf("cleanup: clear the test prefix: %v", err)

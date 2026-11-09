@@ -45,6 +45,7 @@ func writeReferenceKeys(
 		existing, err := tr.Get(forwardKey).Get()
 		if err != nil {
 			slog.Error("node.reference.read_failed", slog.String("err", err.Error()))
+
 			return fmt.Errorf(
 				"read reference %q for template %q: %w",
 				key.Encoded,
@@ -65,6 +66,7 @@ func writeReferenceKeys(
 		ownerID, err := uuid.Parse(string(existing))
 		if err != nil {
 			slog.Error("node.reference.owner_invalid", slog.String("err", err.Error()))
+
 			return fmt.Errorf(
 				"parse holder for reference %q and template %q: %w",
 				key.Encoded,
@@ -152,6 +154,7 @@ func (s *NodeStore) LookupReference(
 	transaction, err := s.db.CreateTransaction()
 	if err != nil {
 		slog.ErrorContext(ctx, "node.reference.transaction_failed", slog.String("err", err.Error()))
+
 		return uuid.Nil, fmt.Errorf(
 			"create lookup transaction for reference %q and template %q: %w",
 			encoded,
@@ -163,6 +166,7 @@ func (s *NodeStore) LookupReference(
 	owner, err := transaction.Get(fdb.Key(nodeReferenceKey(orgID, templateName, encoded))).Get()
 	if err != nil {
 		slog.ErrorContext(ctx, "node.reference.lookup_failed", slog.String("err", err.Error()))
+
 		return uuid.Nil, fmt.Errorf(
 			"lookup reference %q for template %q: %w",
 			encoded,
@@ -178,6 +182,7 @@ func (s *NodeStore) LookupReference(
 	nodeID, err = uuid.Parse(string(owner))
 	if err != nil {
 		slog.ErrorContext(ctx, "node.reference.owner_invalid", slog.String("err", err.Error()))
+
 		return uuid.Nil, fmt.Errorf(
 			"parse holder for reference %q and template %q: %w",
 			encoded,

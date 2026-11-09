@@ -130,6 +130,7 @@ func runManifestParts(
 	args ...string,
 ) manifestCommandRun {
 	t.Helper()
+
 	return runOpsTreeCommand(
 		t,
 		ledger,
@@ -235,7 +236,8 @@ func requireManifestRead(
 		t.Fatalf("stdout contains a payload field:\n%s", run.stdout)
 	}
 
-	if report.Command != "ops.audit.manifest_parts" || report.OrgID != orgID || report.EventID != eventID ||
+	if report.Command != "ops.audit.manifest_parts" || report.OrgID != orgID ||
+		report.EventID != eventID ||
 		report.PartCount != len(want) ||
 		report.Parts == nil ||
 		!slices.Equal(report.Parts, want) {

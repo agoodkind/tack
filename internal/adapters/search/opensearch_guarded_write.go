@@ -190,6 +190,7 @@ func planGuardedWrite(
 				index,
 				searchdomain.ErrPageWritePending,
 			)
+
 			return guardedPlan{
 				operations: operations,
 				positions:  append(positions, position),

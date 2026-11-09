@@ -247,6 +247,7 @@ func scanBundleRows(
 			slog.String("dir", dir),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("verify jsonl: %w", err)
 	}
 
@@ -333,6 +334,7 @@ func scanBundleRows(
 			slog.String("dir", dir),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("verify drain %s: %w", eventsName, err)
 	}
 

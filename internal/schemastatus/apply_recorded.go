@@ -105,6 +105,7 @@ func ApplyRecorded(
 			"schemastatus.evidence_encode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return 0, failedOutcome(audit.OutcomeFailed, migrationFailedCode, err), fmt.Errorf(
 			"encode the migration range evidence: %w",
 			err,
@@ -114,6 +115,7 @@ func ApplyRecorded(
 	step := audit.ExternalStep(rangeTarget(before.AppliedVersion, target), evidence)
 	if err := steps.BeginStep(ctx, step); err != nil {
 		slog.ErrorContext(ctx, "schemastatus.step_record_failed", slog.String("err", err.Error()))
+
 		return 0, failedOutcome(audit.OutcomeFailed, migrationFailedCode, err), fmt.Errorf(
 			"record the migration range: %w",
 			err,
@@ -144,11 +146,13 @@ func ApplyRecorded(
 			"schemastatus.evidence_encode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return 0, details, fmt.Errorf("encode the migration result evidence: %w", err)
 	}
 
 	if err := steps.FinishStep(ctx, audit.FinishedStep(step, details, result)); err != nil {
 		slog.ErrorContext(ctx, "schemastatus.step_record_failed", slog.String("err", err.Error()))
+
 		return 0, details, errors.Join(
 			migrateErr,
 			fmt.Errorf("record the migration result: %w", err),

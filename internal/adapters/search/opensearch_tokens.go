@@ -130,6 +130,7 @@ func validateTokenWeights(raw json.RawMessage, maxBytes int) error {
 			len(raw),
 			maxBytes,
 		)
+
 		return queryStepError{operation: operation, err: searchdomain.ErrInvalidQuery}
 	}
 
@@ -178,6 +179,7 @@ const breakerExceptionType = "circuit_breaking_exception"
 // the circuit breaker exception type.
 func breakerRejected(status int, parsed error) bool {
 	var structured *opensearch.StructError
+
 	return status == http.StatusTooManyRequests && errors.As(parsed, &structured) &&
 		structured.Err.Type == breakerExceptionType
 }

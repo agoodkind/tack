@@ -177,7 +177,8 @@ func CheckReadCompletion(template Event, completion ReadCompletion) (EncodedEven
 func sameReadIdentity(template, final Event) bool {
 	templateContext, finalContext := template.Context, final.Context
 
-	return template.EventID == final.EventID && template.Verb == final.Verb && template.Actor == final.Actor &&
+	return template.EventID == final.EventID && template.Verb == final.Verb &&
+		template.Actor == final.Actor &&
 		templateContext.OrgID == finalContext.OrgID &&
 		templateContext.OperationID == finalContext.OperationID &&
 		templateContext.ParentOperationID == finalContext.ParentOperationID &&

@@ -179,6 +179,7 @@ func (s *SearchQueryService) sweepExpired(ctx context.Context) error {
 			"search.session.sweep_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil
 	}
 
@@ -191,6 +192,7 @@ func (s *SearchQueryService) sweepExpired(ctx context.Context) error {
 				slog.Int("remaining", len(chosen)-position),
 				slog.String("reason", err.Error()),
 			)
+
 			return nil
 		}
 
@@ -212,6 +214,7 @@ func chooseSweepSessions(ctx context.Context, candidates []uuid.UUID) []uuid.UUI
 				"search.session.sweep_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil
 		}
 
@@ -232,6 +235,7 @@ func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.U
 			"search.session.sweep_skipped",
 			slog.String("session_id", sessionID.String()),
 		)
+
 		return nil
 	}
 
@@ -242,6 +246,7 @@ func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.U
 			slog.String("err", err.Error()),
 			slog.String("session_id", sessionID.String()),
 		)
+
 		return s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
 	}
 
@@ -270,6 +275,7 @@ func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.U
 				slog.String("session_id", sessionID.String()),
 				slog.String("reason", err.Error()),
 			)
+
 			return nil
 		}
 
@@ -280,6 +286,7 @@ func (s *SearchQueryService) deleteSession(ctx context.Context, sessionID uuid.U
 				slog.String("err", err.Error()),
 				slog.String("session_id", sessionID.String()),
 			)
+
 			return s.recordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, err)
 		}
 

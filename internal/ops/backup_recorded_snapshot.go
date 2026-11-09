@@ -103,6 +103,7 @@ func runBackupYBSnapshotExportRecorded(
 			"backup.yb_snapshot.observe_failed",
 			slog.String("err", listErr.Error()),
 		)
+
 		return details, errors.Join(runErr, listErr)
 	}
 

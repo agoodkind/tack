@@ -297,6 +297,7 @@ func cleanupYBPriorExportSnapshots(ctx context.Context, cli *client.Client, cfg 
 			"backup.yb_snapshot.cleanup_list_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 
@@ -311,6 +312,7 @@ func cleanupYBPriorExportSnapshots(ctx context.Context, cli *client.Client, cfg 
 			"backup.yb_snapshot.cleanup_list_snapshots_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 
@@ -543,6 +545,7 @@ func cleanupYBOrphanSnapshots(
 			"backup.yb_snapshot.cleanup_schedules_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 

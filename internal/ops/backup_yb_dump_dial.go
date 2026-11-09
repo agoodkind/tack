@@ -27,10 +27,12 @@ func ybDumpDial(cfg *config.Config, address string) (host string, extraHosts []s
 	if !cfg.LedgerTLSEnabled {
 		return address, nil
 	}
+
 	name, ok := ledgerNodeNames(cfg)[address]
 	if !ok {
 		return address, nil
 	}
+
 	return name, []string{name + ":" + address}
 }
 
@@ -39,6 +41,7 @@ func ybDumpDial(cfg *config.Config, address string) (host string, extraHosts []s
 // separator are skipped rather than made into a node.
 func ledgerNodeNames(cfg *config.Config) map[string]string {
 	names := map[string]string{}
+
 	for entry := range strings.SplitSeq(cfg.LedgerNodeHosts, ",") {
 		name, address, found := strings.Cut(strings.TrimSpace(entry), "=")
 		name = strings.TrimSpace(name)
@@ -46,7 +49,9 @@ func ledgerNodeNames(cfg *config.Config) map[string]string {
 		if !found || name == "" || address == "" {
 			continue
 		}
+
 		names[address] = name
 	}
+
 	return names
 }

@@ -104,6 +104,7 @@ func checkLegacyRowHash(row Row) (bool, string, error) {
 				slog.String("event_id", row.EventID.String()),
 				slog.String("err", err.Error()),
 			)
+
 			return false, "", fmt.Errorf("verify hash row %s: %w", row.EventID, err)
 		}
 
@@ -135,6 +136,7 @@ func ComputeRowHash(row Row) ([]byte, error) {
 			slog.String("event_id", row.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("verify hash row %s: %w", row.EventID, err)
 	}
 
@@ -158,6 +160,7 @@ func rowHashInputFor(row Row) (rowHashInput, error) {
 			slog.String("event_id", row.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return rowHashInput{}, fmt.Errorf("verify row %s context: %w", row.EventID, err)
 	}
 
@@ -168,6 +171,7 @@ func rowHashInputFor(row Row) (rowHashInput, error) {
 			slog.String("event_id", row.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return rowHashInput{}, fmt.Errorf("verify row %s delta: %w", row.EventID, err)
 	}
 

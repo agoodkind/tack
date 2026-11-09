@@ -107,6 +107,7 @@ func ledgerClusterCountsFromBody(ctx context.Context, body []byte) (ledgerCluste
 			"ops.ledger.node_wait.health_unparseable",
 			slog.String("err", err.Error()),
 		)
+
 		return ledgerClusterCounts{}, fmt.Errorf("unmarshal master health check: %w", err)
 	}
 

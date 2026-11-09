@@ -147,6 +147,7 @@ func appendChainRow(
 				"audit.chain.error_marshal_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return chainAppendResult{}, fmt.Errorf("event error marshal: %w", err)
 		}
 

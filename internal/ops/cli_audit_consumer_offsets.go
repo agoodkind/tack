@@ -80,6 +80,7 @@ func readAuditConsumerOffsets(
 			"audit.consumer_offsets.reader_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return report, fmt.Errorf("open the ledger reader from AUDIT_READER_DSN: %w", err)
 	}
 	defer reader.Close()
@@ -175,6 +176,7 @@ func countFoundationDBOutbox(ctx context.Context, f *cli.Factory) (int, error) {
 			"audit.consumer_offsets.environment_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return 0, fmt.Errorf("open the FoundationDB outbox: %w", err)
 	}
 	defer env.Close()
@@ -189,6 +191,7 @@ func countFoundationDBOutbox(ctx context.Context, f *cli.Factory) (int, error) {
 				"audit.consumer_offsets.outbox_read_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return total, fmt.Errorf("count the FoundationDB operator outbox: %w", err)
 		}
 

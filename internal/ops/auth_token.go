@@ -169,6 +169,7 @@ func failIssue(
 			"auth.token.create_committed_despite_error",
 			slog.String("token_id", tokenID.String()),
 		)
+
 		return fmt.Errorf(
 			"issue token %s: creation returned an error; cleanup revoked the token: %w",
 			tokenID,

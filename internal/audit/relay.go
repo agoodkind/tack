@@ -91,6 +91,7 @@ func NewRelay(cfg RelayConfig) (*Relay, error) {
 			"audit.relay.recorder_missing",
 			slog.String("err", errRelayRecorderRequired.Error()),
 		)
+
 		return nil, fmt.Errorf("new audit relay: %w", errRelayRecorderRequired)
 	}
 
@@ -99,6 +100,7 @@ func NewRelay(cfg RelayConfig) (*Relay, error) {
 			"audit.relay.yugabyte_missing",
 			slog.String("err", errRelayYugabyteRequired.Error()),
 		)
+
 		return nil, fmt.Errorf("new audit relay: %w", errRelayYugabyteRequired)
 	}
 

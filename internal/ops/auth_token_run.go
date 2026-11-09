@@ -192,6 +192,7 @@ func runAuthTokenRevoke(
 			"auth.token.id_invalid",
 			slog.String("err", "--id is not a token id"),
 		)
+
 		return errors.New(
 			"--id is not a token id; pass the id from token-list or token-create, never the bearer value",
 		)

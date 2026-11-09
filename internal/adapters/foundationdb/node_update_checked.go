@@ -55,6 +55,7 @@ func (s *NodeStore) UpdateAtomicFrom(
 	referenceKeys []node.ReferenceKey,
 ) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.update_atomic_from")(&err)
+
 	return s.updateAtomic(
 		ctx,
 		&readDigest,

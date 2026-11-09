@@ -167,6 +167,7 @@ func runNodeReadTransaction(
 
 		if retryErr := transaction.OnError(databaseErr).Get(); retryErr != nil {
 			transaction.Cancel()
+
 			return nodeOperationFailure(
 				ctx,
 				operation,

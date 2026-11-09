@@ -105,6 +105,7 @@ func createOpenSearchDataDisk(
 	if err != nil {
 		// losetup may have attached a device before the output read failed.
 		_, detachErr := detachDataDiskDevices(ctx, cli, base, file)
+
 		return disk, dataDiskFailure(
 			ctx,
 			"attach "+file+" to a loop device",

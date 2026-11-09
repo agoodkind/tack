@@ -216,8 +216,10 @@ func requireCleanupFailureRow(
 ) {
 	t.Helper()
 	eventContext := row.Context
-	if row.Outcome != audit.OutcomeFailed || eventContext.OperationClass != audit.OperationDatabaseChange ||
-		eventContext.Phase != audit.PhaseResult || eventContext.OperationID != operationID ||
+	if row.Outcome != audit.OutcomeFailed ||
+		eventContext.OperationClass != audit.OperationDatabaseChange ||
+		eventContext.Phase != audit.PhaseResult ||
+		eventContext.OperationID != operationID ||
 		eventContext.Target.OwnerID != ownerID ||
 		row.Action != string(verb) {
 		t.Fatalf("cleanup failure row = %+v, context %+v", row, eventContext)

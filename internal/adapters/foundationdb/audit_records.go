@@ -220,9 +220,11 @@ func readRelationshipValues(
 		value, err := future.Get()
 		if err != nil {
 			relationship := relationships[position]
+
 			return nil, searchReadFailure(
 				ctx,
-				"read relationship "+relationship.SourceID.String()+" "+relationship.RelationType+" "+relationship.TargetID.String(),
+				"read relationship "+relationship.SourceID.String()+" "+
+					relationship.RelationType+" "+relationship.TargetID.String(),
 				err,
 			)
 		}

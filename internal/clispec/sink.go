@@ -62,6 +62,7 @@ func WriteJSONValue(ctx context.Context, sink ResultSink, value Result) error {
 					"clispec.read_targets_failed",
 					slog.String("err", err.Error()),
 				)
+
 				return fmt.Errorf("clispec: collect read targets: %w", err)
 			}
 

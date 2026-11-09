@@ -52,6 +52,7 @@ func (c *CachedUsers) GetByID(ctx context.Context, id uuid.UUID) (*user.User, er
 			slog.String("user_id", id.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("get user %s: %w", id, err)
 	}
 

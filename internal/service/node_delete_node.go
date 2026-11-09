@@ -74,6 +74,7 @@ func (s *NodeService) deleteNode(
 			slog.String("err", err.Error()),
 			slog.String("node_id", snapshot.Node.ID.String()),
 		)
+
 		return none, fmt.Errorf("delete node %s: %w", snapshot.Node.ID, err)
 	}
 

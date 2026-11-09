@@ -20,6 +20,7 @@ func TestRunExternalMarksUnsavedIntent(t *testing.T) {
 		intent,
 		func(context.Context, audit.StepRecorder) (audit.OutcomeDetails, error) {
 			ran = true
+
 			return audit.OutcomeDetails{
 				Outcome:        audit.OutcomeCompleted,
 				FailureCode:    "",

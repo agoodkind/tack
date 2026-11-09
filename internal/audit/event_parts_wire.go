@@ -70,6 +70,7 @@ func encodeTransportMessage(message transportMessage) ([]byte, error) {
 			slog.String("event_id", message.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf(
 			"encode audit transport message for event %s: %w",
 			message.EventID,

@@ -62,7 +62,8 @@ func (h *MCPHarness) SequenceChanges(
 		h,
 		"sequence counter "+counterKey,
 		func(event audit.Event) bool {
-			return event.Entity.NodeType == audit.TargetSequenceCounter && event.Entity.Name == counterKey &&
+			return event.Entity.NodeType == audit.TargetSequenceCounter &&
+				event.Entity.Name == counterKey &&
 				event.Context.OrgID == h.orgID &&
 				event.Context.Phase == audit.PhaseChange
 		},

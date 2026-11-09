@@ -120,6 +120,7 @@ func runAuditSigners(
 				"audit.signers_no_set",
 				slog.String("err", audit.ErrNoSignerSet.Error()),
 			)
+
 			return fmt.Errorf("audit signers: %w", audit.ErrNoSignerSet)
 		}
 
@@ -157,6 +158,7 @@ func runAuditSigners(
 				"audit.signers_render_failed",
 				slog.String("err", writeErr.Error()),
 			)
+
 			return fmt.Errorf("audit signers: render report: %w", writeErr)
 		}
 
@@ -213,6 +215,7 @@ func auditLocalPublicKey(
 			"audit.signers_no_key",
 			slog.String("err", audit.ErrNoLocalKey.Error()),
 		)
+
 		return nil, fmt.Errorf("audit signers: %w", audit.ErrNoLocalKey)
 	}
 

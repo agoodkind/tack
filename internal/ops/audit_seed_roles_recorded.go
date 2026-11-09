@@ -91,6 +91,7 @@ func queryRoleStates(ctx context.Context, pool *pgxpool.Pool) (map[string]roleSt
 			"audit.seed_roles.state_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("audit seed-roles: read the login roles: %w", err)
 	}
 
@@ -111,6 +112,7 @@ func queryRoleStates(ctx context.Context, pool *pgxpool.Pool) (map[string]roleSt
 				"audit.seed_roles.state_read_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("audit seed-roles: scan a login role: %w", err)
 		}
 
@@ -123,6 +125,7 @@ func queryRoleStates(ctx context.Context, pool *pgxpool.Pool) (map[string]roleSt
 			"audit.seed_roles.state_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("audit seed-roles: scan the login roles: %w", err)
 	}
 
@@ -145,6 +148,7 @@ func runAuditSeedRolesRecorded(
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.QueryTracer{})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.seed_roles.pool_open_failed", slog.String("err", err.Error()))
+
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), fmt.Errorf(
 			"audit seed-roles: open admin pool: %w",
 			err,
@@ -177,6 +181,7 @@ func runAuditSeedRolesRecorded(
 				"audit.seed_roles.step_record_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), fmt.Errorf(
 				"audit seed-roles: record role %s: %w",
 				role.login,

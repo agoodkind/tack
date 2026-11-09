@@ -45,6 +45,7 @@ func (s *NodeDeleteStore) DeleteSubtreeStep(
 					Moved:   job.Moved,
 					Done:    true,
 				}
+
 				return nil
 			}
 

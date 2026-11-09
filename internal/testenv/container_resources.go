@@ -72,6 +72,7 @@ func ContainerResourceLimits(ctx context.Context, name string) (string, error) {
 			slog.String("container", name),
 			slog.String("err", err.Error()),
 		)
+
 		return "", fmt.Errorf("inspect resource container %s: %w", name, err)
 	}
 
@@ -141,6 +142,7 @@ func ContainerCPU(ctx context.Context, name string) (ContainerCPUSample, error) 
 			slog.String("container", name),
 			slog.String("err", err.Error()),
 		)
+
 		return empty, err
 	}
 

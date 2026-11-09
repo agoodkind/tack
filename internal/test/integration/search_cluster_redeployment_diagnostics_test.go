@@ -53,6 +53,7 @@ func captureClusterPartialDeployment(
 			response.StatusCode,
 			opensearch.ParseError(response),
 		)
+
 		return
 	}
 

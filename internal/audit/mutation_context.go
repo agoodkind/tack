@@ -30,6 +30,7 @@ func WithMutationContext(ctx context.Context, operation Event) (context.Context,
 			"audit.mutation_context.encode_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return ctx, fmt.Errorf(
 			"encode the audit operation %s: %w",
 			operation.Context.OperationID,
@@ -129,6 +130,7 @@ func findMutationContext(ctx context.Context) (Event, bool, error) {
 				"audit.mutation_context.decode_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return operation, false, fmt.Errorf("decode the attached audit operation: %w", err)
 		}
 
@@ -180,6 +182,7 @@ func slotOperation(ctx context.Context) (Event, error) {
 			"audit.mutation_context.slot_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return Event{}, fmt.Errorf("create the audit slot operation ID: %w", err)
 	}
 

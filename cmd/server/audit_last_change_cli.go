@@ -157,6 +157,7 @@ func runAuditLastChange(
 					slog.String("path", path),
 					slog.String("err", err.Error()),
 				)
+
 				return fmt.Errorf("%s: --path: %w", command, err)
 			}
 		}
@@ -181,6 +182,7 @@ func runAuditLastChange(
 				slog.String("entity_id", entityID.String()),
 				slog.String("err", err.Error()),
 			)
+
 			return fmt.Errorf("%s %s: %w", command, entityID, err)
 		}
 

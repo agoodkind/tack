@@ -166,6 +166,7 @@ func (s IndexSpec) problems() []error {
 				s.RoutingShards,
 			),
 		)
+
 		return problems
 	}
 

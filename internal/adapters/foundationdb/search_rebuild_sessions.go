@@ -155,6 +155,7 @@ func (s *SearchRebuildStore) retireSession(
 			uuid.Nil,
 			err,
 		)
+
 		return true, s.recordSessionLoadFailure(ctx, sessionID, failure)
 	}
 

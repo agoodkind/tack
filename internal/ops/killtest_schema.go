@@ -80,6 +80,7 @@ func RunDropKilltestSchema(
 			"killtest_schema.absent",
 			slog.String("session_role", result.SessionRole),
 		)
+
 		return result, nil
 	}
 
@@ -111,6 +112,7 @@ func RunDropKilltestSchema(
 
 	if _, err := pool.Exec(ctx, dropKilltestSchemaStatement); err != nil {
 		slog.ErrorContext(ctx, "killtest_schema.drop_failed", slog.String("err", err.Error()))
+
 		return result, fmt.Errorf(
 			"run %q as %s: %w",
 			dropKilltestSchemaStatement,
@@ -148,6 +150,7 @@ func killtestSchemaTables(ctx context.Context, pool *pgxpool.Pool) ([]KilltestSc
 				slog.String("err", err.Error()),
 				slog.String("table", name),
 			)
+
 			return nil, fmt.Errorf("count the rows of %s.%s: %w", killtestSchema, name, err)
 		}
 
@@ -171,6 +174,7 @@ func killtestSchemaStrings(
 			"killtest_schema.catalog_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read the catalog for the %s schema: %w", killtestSchema, err)
 	}
 
@@ -181,6 +185,7 @@ func killtestSchemaStrings(
 			"killtest_schema.catalog_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read the catalog for the %s schema: %w", killtestSchema, err)
 	}
 

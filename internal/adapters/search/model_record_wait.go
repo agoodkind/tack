@@ -52,6 +52,7 @@ func (a *Adapter) waitDeployedRecord(ctx context.Context, modelID string) error 
 				slog.String("state", state),
 				slog.Int("reads", reads),
 			)
+
 			return nil
 		}
 
@@ -121,6 +122,7 @@ func (a *Adapter) pollRecordState(ctx context.Context, modelID string) (string, 
 			slog.String("model_id", modelID),
 			slog.String("reason", err.Error()),
 		)
+
 		return "", false, nil
 	}
 

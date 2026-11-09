@@ -91,6 +91,7 @@ func clearOpsOutboxTestPrefix(t *testing.T, db fdb.Database, prefix []byte) {
 			Begin: fdb.Key(prefix),
 			End:   fdb.Key(end),
 		})
+
 		return nil, nil
 	})
 	if err != nil {

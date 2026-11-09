@@ -50,6 +50,7 @@ func (r *Reader) ConsumerOffsets(ctx context.Context) ([]ConsumerOffset, error) 
 			"audit.consumer_offsets.read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read consumer offsets: %w", err)
 	}
 	defer rows.Close()
@@ -69,6 +70,7 @@ func (r *Reader) ConsumerOffsets(ctx context.Context) ([]ConsumerOffset, error) 
 				"audit.consumer_offsets.scan_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("scan consumer offset: %w", err)
 		}
 
@@ -81,6 +83,7 @@ func (r *Reader) ConsumerOffsets(ctx context.Context) ([]ConsumerOffset, error) 
 			"audit.consumer_offsets.rows_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("read consumer offset rows: %w", err)
 	}
 
@@ -104,6 +107,7 @@ func TopicHighWaterMarks(
 			"audit.consumer_offsets.kafka_client_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("open kafka client for topic %s: %w", topic, err)
 	}
 	defer client.Close()

@@ -134,6 +134,7 @@ func loginIsSuperuser(ctx context.Context, connConfig *pgx.ConnConfig) (bool, er
 			"postgres.migrate.login_read_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return false, fmt.Errorf("read the migration login: %w", err)
 	}
 

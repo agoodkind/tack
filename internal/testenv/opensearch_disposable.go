@@ -170,6 +170,7 @@ func removeDisposableOpenSearch(
 			disk.helper,
 			err,
 		)
+
 		return
 	}
 

@@ -49,6 +49,7 @@ func retentionStep(
 			"backup.retention.step_intent_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("record retention step intent: %w", err)
 	}
 

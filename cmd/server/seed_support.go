@@ -94,6 +94,7 @@ func findSeedNode(
 			"id",
 			existing[0].ID,
 		)
+
 		return existing[0].ID, nil
 	}
 
@@ -154,6 +155,7 @@ func createSeedNode(
 				"seed.encode_parent_failed",
 				slog.String("err", marshalErr.Error()),
 			)
+
 			return fmt.Errorf("seed: encode parent_id: %w", marshalErr)
 		}
 
@@ -214,6 +216,7 @@ func createSeedNode(
 			slog.String("type", typeKey),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("seed: create node of type %s: %w", typeKey, err)
 	}
 

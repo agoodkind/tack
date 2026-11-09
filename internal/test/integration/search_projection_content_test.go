@@ -250,7 +250,8 @@ func requireDiagnostic(
 	want expectedDiagnostic,
 ) {
 	t.Helper()
-	if diagnostic.NodeID != nodeID || diagnostic.Revision == "" || diagnostic.ProjectionVersion == "" ||
+	if diagnostic.NodeID != nodeID || diagnostic.Revision == "" ||
+		diagnostic.ProjectionVersion == "" ||
 		diagnostic.Reason != want.reason ||
 		diagnostic.PropertyDefID != want.definitionID ||
 		strings.Contains(diagnostic.Message, "amber") ||

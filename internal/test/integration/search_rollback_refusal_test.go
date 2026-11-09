@@ -49,6 +49,7 @@ func newRefusingWorker(t *testing.T, fixture rolloutFixture) refusingWorker {
 				"the test refuses this request to read multiple documents",
 				http.StatusServiceUnavailable,
 			)
+
 			return
 		}
 

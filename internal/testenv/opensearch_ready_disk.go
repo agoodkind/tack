@@ -248,5 +248,6 @@ func diskReadinessFailure(ctx context.Context, err error) error {
 		"search.fixture_disk_readiness_failed",
 		slog.String("err", err.Error()),
 	)
+
 	return err
 }

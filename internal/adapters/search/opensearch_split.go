@@ -266,6 +266,7 @@ func (a *Adapter) SetWriteBlock(ctx context.Context, index string, blocked bool)
 			slog.String("index", index),
 			slog.Bool("blocked", blocked),
 		)
+
 		return searchdomain.ErrIndexNotFound
 	}
 
