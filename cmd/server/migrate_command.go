@@ -109,7 +109,9 @@ func printMigrationStatus(ctx context.Context, f *cli.Factory, input json.RawMes
 		slog.ErrorContext(ctx, "migrate.status_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("migrate: read the migration state: %w", err)
 	}
-	if _, err := f.Out.Write(payload); err != nil {
+
+	_, err = f.Out.Write(payload)
+	if err != nil {
 		slog.ErrorContext(ctx, "migrate.status_output_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("migrate: write the migration state: %w", err)
 	}
@@ -120,10 +122,13 @@ func printMigrationStatus(ctx context.Context, f *cli.Factory, input json.RawMes
 // migration status in the requested output format.
 func renderMigrationStatus(ctx context.Context, f *cli.Factory, body []byte, jsonOutput bool) ([]byte, error) {
 	var buffer bytes.Buffer
+
 	view := *f
 	view.Out = &buffer
 	sink := clispec.NewCLISink(&view)
+
 	var err error
+
 	if jsonOutput {
 		err = sink.WriteJSON(ctx, body)
 	} else {
