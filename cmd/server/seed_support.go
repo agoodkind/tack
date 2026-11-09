@@ -34,8 +34,8 @@ func userIDForEmail(email string) uuid.UUID {
 // ensureNode returns an existing node ID from the organization-scoped
 // node_by_property index for typeKey and slug without further writes, or
 // creates the node. lookupOrgID selects the organization for the lookup and
-// matches parentID for a workspace. An organization node can use [uuid.Nil] as
-// parentID and uses its own ID as orgID. Its lookupOrgID comes from an
+// matches parentID for a workspace. An organization node can use [uuid.Nil]
+// as parentID and uses its own ID as orgID. Its lookupOrgID comes from an
 // existing user membership or [uuid.Nil] when the user does not have one.
 // CreateAtomic records the node change and, when parentID is not [uuid.Nil],
 // the parent relationship change in the create transaction.
@@ -94,9 +94,12 @@ func encodeSeedSlug(ctx context.Context, slug string) (json.RawMessage, error) {
 	return slugRaw, nil
 }
 
-// createSeedNode writes the node's ID, typeKey, slug, name, view, and slug
-// index entry in one CreateAtomic transaction. When parentID is not
-// [uuid.Nil], it also writes the child_of relationship in that transaction.
+// createSeedNode writes these records in one CreateAtomic transaction:
+//
+//   - It writes the node with its ID, typeKey, slug, and name.
+//   - It writes the materialized view.
+//   - It writes the slug index entry.
+//   - It writes the child_of relationship when parentID is not [uuid.Nil].
 func createSeedNode(ctx context.Context, s *fdbadapter.Stores, id uuid.UUID, typeKey, slug, name string, parentID uuid.UUID) error {
 	slugRaw, err := encodeSeedSlug(ctx, slug)
 	if err != nil {

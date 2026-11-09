@@ -82,17 +82,28 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 	return nil
 }
 
-// ShardCount is the number of load-distribution shards an org's ledger writes
-// spread across. Each (org, shard) pair is its own hash chain in
-// audit.chain_heads, so the count sets how many parallel chains an org can
-// carry. It is tunable, not a permanent lock: the shard is stored on every
-// audit.events row and verification enumerates the existing (org, shard) heads,
-// so old chains stay closed and valid after a change. The shard column is
-// int16 and the Kafka key encodes two bytes, both well past this value, and
-// the Kafka partition count is decoupled because the consumer recomputes the
-// shard from the payload. The count must be a power of two, because shardOf
-// masks a checksum with ShardCount - 1. Changing it is forward-only and
-// follows docs/runbooks/audit/shards.md (TACK-306).
+// ShardCount sets the number of parallel hash chains for each org.
+// The ledger assigns each write to a shard with shardOf(actor, eventID).
+// Each (org, shard) pair has its own hash chain in audit.chain_heads.
+//
+// The count can change for future writes. Every audit.events row stores
+// its shard. Verification checks each stored (org, shard) chain after a
+// count change rather than assigning old rows to new shards. Existing chains
+// remain valid after the change. The change does not rewrite old rows.
+//
+// The storage and assignment constraints are:
+//
+//   - The shard column uses int16, with capacity beyond the current count.
+//   - The Kafka key encodes the shard in two bytes, also beyond this count.
+//   - The Kafka partition count is independent of ShardCount. The consumer
+//     recomputes the shard from the event payload.
+//   - ShardCount must be a power of two. shardOf masks a checksum with
+//     ShardCount - 1.
+//
+// Follow the forward-only count-change procedure in
+// [docs/runbooks/audit/shards.md] (TACK-306).
+//
+// [docs/runbooks/audit/shards.md]: ../../docs/runbooks/audit/shards.md
 const ShardCount = 256
 
 // shardMask turns a checksum into a shard in [0, ShardCount).

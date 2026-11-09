@@ -16,10 +16,21 @@ import (
 	"goodkind.io/tack/internal/version"
 )
 
-// runServer builds the shared runtime graph and serves its MCP, health,
-// diagnostics, and unmatched-path handlers until SIGINT, SIGTERM, or a
-// listener failure. The bare command and serve subcommand use this function,
-// which returns fatal errors to the caller.
+// runServer builds the shared runtime graph. The bare command and the
+// serve subcommand call runServer, which returns fatal errors to the caller.
+//
+// The server serves these handlers:
+//
+//   - It serves MCP requests.
+//   - It serves health checks.
+//   - It serves diagnostics.
+//   - It handles unmatched paths.
+//
+// The server stops under these conditions:
+//
+//   - SIGINT requests shutdown.
+//   - SIGTERM requests shutdown.
+//   - A listener failure returns an error to the caller.
 func runServer(ctx context.Context, cfg *config.Config) error {
 	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {

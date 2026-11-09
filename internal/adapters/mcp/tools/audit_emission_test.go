@@ -67,12 +67,15 @@ func resourceReadEvent(t *testing.T, recorder *audit.MemoryRecorder) audit.Event
 
 // TestResourceReadRecordsTheRead checks that reading the getting-started
 // resource records an mcp.resource_read event with the recorder from the
-// request context. The test invokes the registered resource handler and
-// checks the actor and resource identity.
+// request context.
 //
 // Before TACK-340, the resource handler ignored its context and did not emit
 // mcp.resource_read. This regression preserves the requirement to record
-// that resource read.
+// that resource read. The test uses the registered resource handler to check
+// the event:
+//
+//   - It checks the actor identity.
+//   - It checks the resource identity.
 func TestResourceReadRecordsTheRead(t *testing.T) {
 	recorder := audit.NewMemoryRecorder()
 	actorID := uuid.New()
@@ -87,13 +90,18 @@ func TestResourceReadRecordsTheRead(t *testing.T) {
 	}
 }
 
-// TestResourceReadCarriesTheReadersSoleOrg checks organization selection for
-// a resource read that does not resolve a workspace. One membership records
-// that organization. Zero or two memberships record the nil organization.
+// TestResourceReadCarriesTheReadersSoleOrg checks the organization
+// identifier in the event for a resource read that does not resolve a
+// workspace.
 //
-// Before TACK-477, resource reads did not resolve a workspace or assign the
-// reader's sole organization to the event. Those events used the nil
-// organization even when the reader belonged to exactly one organization.
+// Before TACK-477, resource reads did not assign the reader's sole
+// organization to the event. The event recorded the nil organization even
+// when the reader belonged to exactly one organization. The test checks
+// these membership cases:
+//
+//   - With zero memberships, the event records the nil organization.
+//   - With one membership, the event records that organization.
+//   - With two memberships, the event records the nil organization.
 func TestResourceReadCarriesTheReadersSoleOrg(t *testing.T) {
 	orgID := uuid.New()
 	cases := map[string]struct {

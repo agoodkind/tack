@@ -26,8 +26,13 @@ type emptyInput struct {
 }
 
 // buildRoot builds the Cobra command tree. The bare command starts the
-// server. One registry renders serve, migrate, seed, audit operations, and
-// ops maintenance subcommands.
+// server. One registry renders these subcommands:
+//
+//   - serve starts the server.
+//   - migrate runs migrations.
+//   - seed creates seed data.
+//   - audit provides audit operations.
+//   - ops provides maintenance operations.
 func buildRoot(f *cli.Factory) *cobra.Command {
 	serve := serveOp(f)
 	root := &cobra.Command{

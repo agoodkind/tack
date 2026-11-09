@@ -19,8 +19,7 @@ import (
 // fields they need into concrete types without using any.
 type argMap map[string]json.RawMessage
 
-// bindArgs decodes tool request arguments into argMap. Handlers can read raw
-// JSON fields and decode concrete values without using any.
+// bindArgs binds tool request arguments to argMap.
 func bindArgs(req mcpmcp.CallToolRequest) (argMap, error) {
 	var m argMap
 	if err := req.BindArguments(&m); err != nil {
@@ -31,10 +30,16 @@ func bindArgs(req mcpmcp.CallToolRequest) (argMap, error) {
 	return m, nil
 }
 
-// requireString returns a string and true only for a nonempty JSON string in
-// argMap. Missing values, other types, and empty strings return false.
-// Callers use that result to return recoverableError before using a required
-// value.
+// requireString returns a string and true for a nonempty JSON string in
+// argMap. It returns an empty string and false in these cases:
+//
+//   - argMap omits the key.
+//   - The input has zero bytes.
+//   - The input is not a JSON string.
+//   - The input decodes to an empty string.
+//
+// Callers return recoverableError after a failed check, before using the
+// required value.
 func requireString(args argMap, name string) (string, bool) {
 	raw, ok := args[name]
 	if !ok || len(raw) == 0 {
@@ -65,19 +70,17 @@ func optionalString(args argMap, name string) string {
 	return s
 }
 
-// parseProps decodes properties into map[string]json.RawMessage. It accepts
-// an object directly or decodes JSON inside a string recursively. The string
-// branch preserves properties when clients encode the inner JSON as a
-// string.
+// parseProps decodes properties into map[string]json.RawMessage.
 //
-// Nil or empty input, JSON null, and an empty encoded string return nil.
-// Invalid JSON and unsupported shapes return an error that the caller must
-// handle at the input boundary.
+// It returns nil for nil or empty input, JSON null, or an empty encoded
+// string. It returns an error for invalid JSON or an unsupported shape.
+// The caller must handle that error at the input boundary.
 //
-// The accepted property forms include:
+// parseProps accepts these forms:
 //
 //   - A JSON object decodes directly into the property map.
-//   - A JSON string decodes its contents as another properties payload.
+//   - A JSON string decodes its contents recursively as another properties
+//     payload.
 //
 // TACK-161 added support for clients, including Claude Code through certain
 // SDK paths, that encoded inner JSON as a string. Earlier tack_create_*

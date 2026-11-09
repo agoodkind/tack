@@ -40,11 +40,13 @@ func stampAuditNodeResolve(ctx context.Context, resolve *node.NodeResolve) {
 	stampAuditOrg(ctx, resolve.OrgID)
 }
 
-// requireEntryPointArg resolves the entry point reference that get, update,
-// and delete require when b.Resolver exists. Missing input returns the
-// missing-argument message. stampAuditNodeInEntryPoint compares the resolved
-// workspace with the target node. A nil resolver returns without a workspace
-// or error.
+// requireEntryPointArg resolves the entry point reference that get,
+// update, and delete require when b.Resolver exists. It returns the
+// missing-argument message when the input is missing. When the resolver is
+// nil, requireEntryPointArg returns without a workspace or an error.
+//
+// stampAuditNodeInEntryPoint compares the resolved workspace with the
+// target node and refuses a target outside that workspace.
 func requireEntryPointArg(ctx context.Context, args argMap, b NodeTypeBinding) (*node.NodeView, string, error) {
 	if b.Resolver == nil {
 		return nil, "", nil
