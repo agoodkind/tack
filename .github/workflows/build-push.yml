@@ -106,7 +106,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # The matrix job names equal the required status check names in the main ruleset.
+  # The recorded main ruleset required these matrix job names as status checks.
   build:
     needs: [overlay-drift, build-native]
     runs-on: ubuntu-24.04

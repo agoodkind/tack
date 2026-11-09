@@ -1,5 +1,5 @@
-# ggshield config for the tack repo. Ignore vendored upstream files that carry
-# public default constants and trip generic secret detectors.
+# Ignore vendored upstream files with public default constants that
+# trigger generic secret detectors in this repository's ggshield configuration.
 version: 2
 
 secret:

@@ -1,31 +1,31 @@
-# binaries
+# Ignore compiled binaries.
 /server
 /tack
 /mcp-client
 
-# build cache
+# Ignore the build cache.
 /dist/
 
-# runtime-fetched make includes
+# Ignore Make includes that the build downloads at runtime.
 .make/
 
-# env files
+# Ignore local environment files.
 .env
 .env.*
 !.env.example
 
-# secrets
+# Ignore local secrets.
 .secrets/
 
-# macOS
+# Ignore macOS metadata.
 .DS_Store
 
-# editor
+# Ignore editor files.
 .idea/
 .vscode/
 *.swp
 
-# Python
+# Ignore Python cache files.
 __pycache__/
 *.pyc
 .test-fdb/

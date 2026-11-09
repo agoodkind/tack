@@ -5,8 +5,8 @@ on:
   push:
     branches: [main]
 
-# A new commit on a pull request cancels the run for its previous commit. A
-# push to main runs in a group keyed by its commit and cancels no other run.
+# A new pull request commit cancels the previous commit's run. Each main push
+# uses its own commit as the concurrency group key and does not cancel other runs.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -32,14 +32,17 @@ jobs:
           -o /tmp/fdb-clients.deb
         sudo dpkg -i /tmp/fdb-clients.deb
         rm /tmp/fdb-clients.deb
-      # The Test job takes 13 to 15 minutes. Its go test limit is 20 minutes
-      # for each package (GO_TEST_TARGETS in the Makefile). The last package
-      # starts about 5 minutes into the job, and a hung test prints its
-      # timeout report before this limit ends the job.
+      # The table compares recorded Test runs with configured limits:
+      # | Timing | Duration | Purpose |
+      # | --- | --- | --- |
+      # | Recorded Test job | 13 to 15 minutes | Historical job duration. |
+      # | Recorded last package start | About 5 minutes after job start | Historical start time. |
+      # | GO_TEST_TARGETS | 20 minutes per package | Limit each package's go test run. |
+      # | Job timeout | 30 minutes | Allow hung tests to print timeout reports before the job ends. |
       timeout_minutes: 30
 
-  # The provider job runs shared go-makefile _ci.yml with working_directory:
-  # provider. Go excludes this nested module from ./... in the root go job.
+  # The provider job runs the shared go-makefile _ci.yml workflow with
+  # working_directory: provider. The root job's ./... excludes this nested Go module.
   provider:
     uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
     permissions:
@@ -99,9 +102,9 @@ jobs:
           sudo dpkg -i /tmp/fdb-clients.deb
           rm /tmp/fdb-clients.deb
 
-      # The tests start FoundationDB and the ledger themselves through
-      # internal/testenv and reach them at their bridge addresses from the
-      # host.
+      # The tests start FoundationDB and the ledger
+      # through internal/testenv. The host connects to
+      # both engines at their bridge network addresses.
       - name: run the store-backed tests
         run: make test-store-host-shard SHARD=${{ matrix.shard }}
 
@@ -117,9 +120,9 @@ jobs:
       - name: require every store-backed shard to pass
         run: test "${{ needs.integration-shard.result }}" = success
 
-  # The long runtime audit suites run separately from the shared Test and
-  # store-backed jobs. The job limit allows 40 minutes for go test and
-  # 10 minutes for setup.
+  # Run the long runtime audit suites separately from shared Test and store-backed jobs.
+  # - Allow 40 minutes for go test.
+  # - Allow 10 minutes for setup.
   runtime-audit:
     name: runtime audit coverage
     runs-on: ubuntu-latest
@@ -143,10 +146,15 @@ jobs:
       - name: run the runtime audit coverage tests
         run: make test-runtime-audit-host
 
-  # Each job limit allows the go test limit of its search group in the Makefile
-  # plus 15 minutes for setup. Continuation allows 60 minutes of go test;
-  # rebuild, split, and restore allow 45. Throughput and cluster failure tests
-  # run only on the Mac runner.
+  # Feature partitions select tests by name outside the dedicated groups.
+  # The table lists each job's test, SDK contract, and setup allocations:
+  # | Group | go test | SDK contract | Setup |
+  # | --- | --- | --- | --- |
+  # | Continuation | 60 minutes | Not applicable | 15 minutes |
+  # | Rebuild, split, and restore | 45 minutes | Not applicable | 15 minutes |
+  # | Features A through M | 75 minutes | 20 minutes | 15 minutes |
+  # | Other feature jobs | 75 minutes | Not applicable | 15 minutes |
+  # Only the Mac runner runs throughput and cluster failure tests.
   search:
     name: ${{ matrix.description }}
     runs-on: ubuntu-latest
