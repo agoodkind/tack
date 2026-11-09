@@ -159,7 +159,7 @@ Load server configuration from environment variables through `caarlos0/env`. Do 
 
 Use `log/slog`. Initialize the global logger with `telemetry.Setup` and obtain the context logger with `telemetry.L(ctx)` in handlers. Log significant entity lifecycle events, background jobs, authentication failures, startup, and shutdown. Use named `slog.Attr` fields rather than positional fields and use `noun.verb` messages such as `issue.created` or `worker.started`. Use only these logging levels: `Info` for normal events, `Debug` for trace details, and `Error` for actual failures.
 
-Limit each file to 200 lines and split it by responsibility when necessary. Use one conversion file per entity. Separate bulk operations from basic create, read, update, and delete operations. Prefer responsibility-based filenames; reserve `utils.go` and `helpers.go` for genuinely shared code.
+Limit each file to 200 lines, excluding comment-only lines, and split it by responsibility when necessary. Use one conversion file per entity. Separate bulk operations from basic create, read, update, and delete operations. Prefer responsibility-based filenames; reserve `utils.go` and `helpers.go` for genuinely shared code.
 
 Use complete domain terms, such as `workspaceID` rather than `wsID`. Include context and the relevant identifier in every error, as in `fmt.Errorf("get issue %s: %w", id, err)`. Add a `// Package X` comment to every package and document every exported type and non-obvious field.
 
