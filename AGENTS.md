@@ -154,7 +154,7 @@ Do not invoke command-line tools through `os/exec` or add shell scripts to Tack 
 
 Record every `./server ops` command through the shared `clispec` audit entry point. Do not weaken or bypass recording for a command. Keep operator identity replaceable through `audit.OperatorIdentitySource` and follow the [operator identity contract](docs/reference/audit/operator-identity.md).
 
-Add `ops qa datagen` coverage in the same change for every new node type, property type, relationship shape, audit verb, or user-visible code path. Run the generator in a one-shot `app` container that can connect to FoundationDB. Supply its required audit credentials to that command without adding reader connections to the running application. Require `TACK_DATAGEN_ALLOW_TARGET` to be exactly `qa` or `local` for writes. Set it on QA and leave it empty in production. Keep dry run as the default without requiring the write marker.
+Add `ops qa datagen` coverage in the same change for every new or changed node type, property type, relationship shape, audit verb, or user-visible code path.
 
 Declare `Lifetime: clispec.Lifetime{Ticket: "TACK-nnn", RemoveBy: time.Date(...)}` for every one-time command. Register it under `backfill` with the `once-` prefix and require `make build` to fail after its removal day. Declare `clispec.Permanent` for every other command. Keep seed sample-data reads inside `internal/service`.
 

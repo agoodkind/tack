@@ -62,7 +62,19 @@ The executor must supply:
 
 Writers must derive actual changes inside their committing transactions. Persistent jobs must derive stable change IDs from the enclosing operation, persistent step, and record identity. Transaction retries must reuse their allocated event IDs. Event context distinguishes intent, result, change, and read phases and records the parent operation and completion time when applicable.
 
-Terminal outcomes distinguish completed, refused, failed, partially completed, and incomplete work. Failed means that the operation did not commit effects. Partial completion identifies committed steps. Incomplete means that available evidence cannot establish a terminal result. Recording must preserve operation failure and recording failure separately. If response rendering or transport fails after a mutation commits, the executor must preserve the change event and record a separate result event under the same operation ID. The result must identify the failure, the partial outcome, and the committed database step.
+Terminal outcomes must distinguish the operation's result.
+
+Outcome meanings:
+
+| Outcome | Meaning |
+| --- | --- |
+| Completed | The executor completed the operation. |
+| Refused | The executor refused the operation. |
+| Failed | The operation failed without committing effects. |
+| Partially completed | The operation committed identified steps but did not complete. |
+| Incomplete | Available evidence cannot establish a terminal result. |
+
+Recording must preserve operation failure and recording failure separately. If response rendering or transport fails after a mutation commits, the executor must preserve the change event and record a separate result event under the same operation ID. The result must identify the failure, the partial outcome, and the committed database step.
 
 ## Authentication and early refusals
 

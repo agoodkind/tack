@@ -114,8 +114,13 @@ Storage placement criteria:
 Production observations must establish the required owner, app, and three data
 guest roles. The owner requirement excludes serving traffic. The data guests
 must provide the ledger, product store, and broker roles as their distribution
-work completes. Evidence must establish active alarms, active timers, advancing
-exports, full replication, and active pruning from the running system.
+work completes. Evidence from the running system must establish each condition:
+
+- Alarms are active.
+- Timers are active.
+- Exports are advancing.
+- Replication is complete.
+- Pruning is active.
 
 An approved ledger migration requires the following order:
 

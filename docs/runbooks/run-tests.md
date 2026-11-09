@@ -37,16 +37,14 @@ processes.
 
 ## Exercise a changed user path on QA
 
-Add generator coverage in the same change when a node type, property type,
-relationship shape, audit verb, or user-visible operation changes. Run the
-generator in a one-shot `app` container for its FoundationDB connection. Supply
+Run the generator in a one-shot `app` container for its FoundationDB connection. Supply
 the generator's audit credentials to that command, including `AUDIT_READER_DSN`
 for the committed seed's ledger checks. Do not add ledger reader credentials
 to the running application.
 
 1. Confirm the QA or local target and its credentials. Set
    `TACK_DATAGEN_ALLOW_TARGET` to exactly `qa` or `local` for writes. Leave the
-   production marker empty.
+   production marker empty. The generator refuses production writes.
 2. Supply the actual operator identity on each command with `--operator-id`,
    `--operator-email`, and `--operator-name`. Agent commands also require
    `--operator-service` and `--operator-session`. A one-shot container does not

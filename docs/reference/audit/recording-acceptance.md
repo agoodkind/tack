@@ -8,7 +8,27 @@ Acceptance must use the existing Go harness and real temporary dependencies thro
 
 1. Acceptance tests must create, edit, replace, move, and delete records. The tests must compare permanent evidence with source and committed values, including relationships and removals.
 2. Acceptance tests must run seed, repair, backfill, account, token, and membership operations. The tests must establish that event failure prevents the corresponding transaction from committing.
-3. Acceptance tests must run gets, lists, searches, prompts, protocol, health, diagnostic, operator, and provider reads. The tests must verify actor, selection, complete targets, exact payload digest, and outcome. Recording failure must prevent result release.
+3. Acceptance tests must run each read class:
+
+   - The tests must run gets.
+   - The tests must run lists.
+   - The tests must run searches.
+   - The tests must run prompt reads.
+   - The tests must run protocol reads.
+   - The tests must run health reads.
+   - The tests must run diagnostic reads.
+   - The tests must run operator reads.
+   - The tests must run provider reads.
+
+   The tests must verify each required part of the evidence:
+
+   - The tests must verify the actor.
+   - The tests must verify the selection.
+   - The tests must verify the complete targets.
+   - The tests must verify the exact digest of the returned payload.
+   - The tests must verify the outcome.
+
+   Recording failure must prevent result release.
 4. Acceptance tests must exercise failed authentication, malformed input, denied access, absent targets, and backend errors. The tests must verify safe typed reasons and verified versus unauthenticated identity.
 5. Acceptance tests must race finalization and recovery in two processes. The tests must resume the stale owner and require one terminal event plus refusal of the stale response. The tests must check admission retry expiry and published-receipt cleanup.
 6. Acceptance tests must interrupt delivery after Kafka acknowledgment and before queue deletion. The tests must require permanent deduplication after restart and digest-based confirmation after uncertain finalization commits. On disposable QA, the tests must exercise the application recorder during a broker outage and restore Kafka. The tests must compare the spilled event IDs and original times with the permanent rows after relay delivery. The tests must reconcile the recovery count with the events stored during that outage.

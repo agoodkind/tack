@@ -22,7 +22,14 @@ Normal migrations use the nonsuperuser migration owner. The audit and partman sc
 
 `PartitionManager` runs inside the audit consumer. It runs once at startup and then on its configured interval, which defaults to 24 hours. Startup maintenance attempts to restore future coverage after downtime before the first scheduled tick. Scheduling does not require pg_cron or a database restart. Each consumer runs its passes in sequence. Separate consumer replicas start separate workers.
 
-Each pass checks for unexpected child names, attempts maintenance, and reads actual headroom. It updates the gauge when the headroom query succeeds, including after a maintenance failure. It counts successful and failed maintenance attempts separately. It reports maintenance failures, query failures, low headroom, and unexpected child names separately. A failure does not terminate the consumer; later passes retry.
+Each pass checks for unexpected child names, attempts maintenance, and reads actual headroom. It updates the gauge when the headroom query succeeds, including after a maintenance failure. It counts successful and failed maintenance attempts separately. It reports each condition separately:
+
+- The manager reports maintenance failures.
+- The manager reports headroom query failures.
+- The manager reports low headroom.
+- The manager reports unexpected child names.
+
+A failure does not terminate the consumer; later passes retry.
 
 The manager shares the consumer pool and does not close it. Shutdown stops the worker. Repeated shutdown calls do not close its stop channel again.
 

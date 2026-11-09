@@ -46,9 +46,14 @@ use its numeric start version for `--expire-before-version`. Native expiration
 must also receive the source cluster file and the UTC cutoff in `--restorable-after-timestamp`.
 
 The native guard must preserve a complete snapshot and required preceding
-mutation data at the boundary. Selection must refuse failed conversion, missing
-snapshot evidence, unknown active identity, and unsupported restoration evidence.
-It must not substitute displayed snapshot times, relative-day arguments,
+mutation data at the boundary. Selection must refuse each condition:
+
+- Conversion failed.
+- Snapshot evidence is missing.
+- The active identity is unknown.
+- Restoration evidence is unsupported.
+
+Selection must not substitute displayed snapshot times, relative-day arguments,
 padding, or `--force`.
 
 Sessions entirely inside the window remain intact. Active sessions survive.

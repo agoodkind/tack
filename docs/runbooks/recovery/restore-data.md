@@ -91,12 +91,18 @@ through every recovery. A recovery target must never write the live cluster's
    alteration. It inspects every diagnostic afterward; an exit status alone
    cannot establish successful application.
 5. Reject role-application failures other than SQLSTATE `42710` with the exact
-   message `role "..." already exists`. Permit that diagnostic only for an
-   engine-created role or the target bootstrap user. The engine creates
-   `postgres`, `yugabyte`,
-   `yb_db_admin`, `yb_extension`, `yb_fdw`, and its bootstrap user before the
-   restore. The current classifier accepts duplicate-role diagnostics beyond
-   that set and does not enforce this restriction.
+   message `role "..." already exists`. Permit that diagnostic only for these
+   roles that the engine creates before restore:
+
+   - Permit `postgres`.
+   - Permit `yugabyte`.
+   - Permit `yb_db_admin`.
+   - Permit `yb_extension`.
+   - Permit `yb_fdw`.
+
+   Also permit that exact diagnostic for the target bootstrap user, which the
+   engine creates before restore. The current classifier accepts duplicate-role
+   diagnostics beyond the permitted roles and does not enforce this restriction.
    SQLSTATE classes `00`, `01`, and `02` do not indicate failed statements.
    Other diagnostics, including unclassified diagnostics, must stop recovery.
 6. Require schema application to stop on its first error. The existing drill

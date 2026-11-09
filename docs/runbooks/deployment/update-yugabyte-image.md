@@ -20,9 +20,13 @@ does not authorize a database engine upgrade.
    the reviewed Compose configuration. Confirm that the restore drill receives
    the refreshed overlay path. Preserve the existing secret-scanner allowlists
    for the vendored launcher.
-4. Deploy the reviewed Configs and Tack revisions to QA. Verify startup on the
-   IPv6-only network, database access after a container recreation, ledger
-   replication, and a backup restore drill with the matching engine and overlay.
+4. Deploy the reviewed Configs and Tack revisions to QA. Verify each result:
+
+   - Startup succeeds on the IPv6-only network.
+   - Database access succeeds after a container recreation.
+   - The ledger replicates.
+   - A backup restore drill succeeds with the matching engine and overlay.
+
    Record revisions, image digests, audited command results, and restored-ledger
    verification.
 5. Require the applicable audit and integration checks and accepted QA evidence

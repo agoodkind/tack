@@ -1,7 +1,6 @@
 # Node integrity requirements
 
 FoundationDB stores the authoritative nodes, properties, type definitions and relationships. OpenSearch stores bounded pages of searchable text and opaque permission keys. Search must not interpret the business meaning of an issue, status, progress report or other product-specific value. These requirements apply to public tools, services, imports, operator commands, repair jobs and storage transactions.
-
 ## Type definitions and validation
 
 N1 (TACK-580). A single interpreter must derive these rules from stored metadata:
@@ -49,7 +48,6 @@ Validation evidence:
 | --- | --- |
 | Valid create and update | Creation applies declared defaults. A partial update preserves unrelated stored values. Legitimate scope properties remain valid on comments, activities, states and projects. |
 | Rejected write | For each undeclared name, wrong JSON type, label substituted for an option key, invalid reference and removal of a required property, the entire stored result matches its initial state. |
-
 ## Scope, containment and deletion
 
 N3 (TACK-579). `scope_id` identifies the container that supplies the reference and numbering scope. `parent_id` identifies the direct containment parent. Exactly one `child_of` edge must identify that parent when the node requires one. Other relationship types allow additional associations. The type hierarchy permits several possible parent types without cycles. A node has one canonical direct parent, even if older records contain two direct edges.
@@ -58,7 +56,14 @@ For example, TACK-568 can keep project TACK as its scope while epic TACK-567 ser
 
 N4 (TACK-584). UUIDs and printed references must select parents under the same rules. The mutation must check existence, organization, scope and the proposed ancestor chain. It must refuse self-parenting and deeper cycles. Each transaction attempt must reread the source and current parent. It must recompute changes or reject stale preparation, including changes to an ancestor or a competing deletion. Concurrent successful moves must leave one property and one matching edge.
 
-Relationship removal must not remove the only canonical parent edge while `parent_id` still selects it, even if older metadata omits that type pairing. Deletion must find intended children from their canonical records, including children with a missing edge. It must apply the declared cascade or move the child to a permitted surviving parent. It must refuse deletion before creating an orphan if the records cannot support either action. It must preserve other relationship types. A move must update the child, view, parent index, matching edges, audit evidence and desired search work together.
+Relationship removal must not remove the only canonical parent edge while `parent_id` still selects it, even if older metadata omits that type pairing. Deletion must find intended children from their canonical records, including children with a missing edge. It must apply the declared cascade or move the child to a permitted surviving parent. It must refuse deletion before creating an orphan if the records cannot support either action. It must preserve other relationship types. A move must update these records together:
+
+- Update the child.
+- Update the view.
+- Update the parent index.
+- Update the matching edges.
+- Update the audit evidence.
+- Update the desired search work.
 
 The containment tests must enter through public operations against real FoundationDB. Each case requires a complete valid graph or a clear refusal with unchanged records.
 
@@ -69,7 +74,6 @@ Containment evidence:
 | Parent selection | UUID and printed references apply the same constraints. Unfamiliar types and valid nesting succeed. Self-parenting and deeper cycles fail. |
 | Concurrent moves or a move during deletion | Repeated concurrent public calls produce consistent primary records, views and relationships regardless of scheduling order. |
 | Sole-edge removal or inconsistent stored parents | Removal and deletion respect the canonical parent property even when older properties and edges disagree. The resulting records do not orphan a child. |
-
 ## Search content and authorization
 
 N5 (TACK-580). Search must include readable, schema-defined text by default. It must use the generic text conversion and bounded page reader, including declared representations for structured values and labels. An explicit exclusion still applies. The FoundationDB `Indexed` property controls secondary lookup. It does not select searchable text. A missing optional projection must not invalidate a property or halt a rebuild. Search must not index arbitrary JSON or reference targets merely because they exist.
@@ -103,7 +107,6 @@ Retrieval observations:
 | Continue, then replay | Continuation returned 25 further distinct results. Replay returned the same page. |
 
 N9 (TACK-574 and TACK-575). Performance acceptance must measure search-only workloads and simultaneous searches and writes independently of activation. It must record environment-specific performance and recovery evidence against the [search acceptance criteria](../search/2026-09-19-search-acceptance.md).
-
 ## Audit evidence
 
 N7 (TACK-583). For ordinary edits, workflow references, removals, parent changes, repairs and fixed metadata corrections, the mutation must compute the changed field identifiers and actual old and new values from the committed transaction. It must distinguish an explicit removal from an omitted input. Audit evidence must include these details:
@@ -133,7 +136,6 @@ Historical audit outcomes:
 | `unrecorded` | 2,189 |
 
 The export does not establish 4,038 successful writes. These rows cannot reconstruct the missing values or their edit times.
-
 ## Source repair and release
 
 N6 (TACK-582). Each supported repair requires a command-boundary regression on disposable QA using real FoundationDB and audit dependencies. The integration suite must run the actual command against synthetic test fixtures. QA execution requires reviewed mappings. Private production exports remain outside the repository. Work must be bounded and retry-safe under a reviewed [frozen manifest](2026-10-16-node-backfill.md#frozen-manifests). Design approval and a successful QA run do not authorize production writes. Production requires separate approval for the exact manifest frozen from its current records.
