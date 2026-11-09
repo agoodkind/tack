@@ -10,8 +10,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// outboxClearRange validates mark and returns the key range from the start of
-// the operator outbox through mark.
+// outboxClearRange validates mark and returns the key range from the start
+// of the operator outbox through mark.
 func outboxClearRange(ctx context.Context, mark []byte) (fdb.KeyRange, error) {
 	if err := checkOutboxMark(ctx, mark); err != nil {
 		return fdb.KeyRange{}, err
@@ -23,9 +23,13 @@ func outboxClearRange(ctx context.Context, mark []byte) (fdb.KeyRange, error) {
 	return fdb.KeyRange{Begin: fdb.Key(opsOutboxPrefix()), End: fdb.Key(end)}, nil
 }
 
-// ClearThroughPublished deletes every outbox entry up to and including mark
-// and marks matching read receipts as published in the same transaction.
-// The relay calls ClearThroughPublished after the broker acknowledges those entries.
+// ClearThroughPublished deletes outbox entries up to and including mark and
+// marks matching read receipts as published in the same transaction.
+//
+// The relay calls ClearThroughPublished after the broker acknowledges those
+// entries.
+//
+//   - An empty mark returns without deleting entries or updating receipts.
 func (s *OpsOutboxStore) ClearThroughPublished(ctx context.Context, mark []byte, reads []audit.PublishedRead) (err error) {
 	defer telemetry.FDBOp(ctx, "store.ops_outbox.clear_through_published")(&err)
 	if len(mark) == 0 {

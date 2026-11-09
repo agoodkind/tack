@@ -13,13 +13,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RepairEvidenceRequest specifies which node records a repair reads.
+// RepairEvidenceRequest selects the node records that a repair reads.
 type RepairEvidenceRequest struct {
 	NodeID uuid.UUID
-	// ParentID selects the first node in the ancestor chain.
-	// [uuid.Nil] uses the repaired node's current parent_id.
+	// ParentID selects the first node in the ancestor chain. A value of
+	// [uuid.Nil] selects the repaired node's current parent_id.
 	ParentID uuid.UUID
-	// Related specifies additional node IDs to read, such as targets of new edges.
+	// Related selects additional node IDs to read, such as targets of new
+	// edges.
 	Related []uuid.UUID
 }
 
@@ -35,14 +36,16 @@ type RepairNodeRecord struct {
 	ParentID uuid.UUID
 }
 
-// RepairEdgeRecord identifies a stored relationship to or from the repaired node.
+// RepairEdgeRecord identifies a stored relationship to or from the repaired
+// node.
 type RepairEdgeRecord struct {
 	SourceID     uuid.UUID
 	RelationType string
 	TargetID     uuid.UUID
 }
 
-// RepairEvidence contains the source state that a repair reads in one transaction.
+// RepairEvidence contains the source state that a repair reads in one
+// transaction.
 type RepairEvidence struct {
 	Node     RepairNodeRecord
 	Outgoing []RepairEdgeRecord
@@ -55,16 +58,22 @@ type RepairEvidence struct {
 	// Cycle reports whether the ancestor traversal encounters a repeated node
 	// or the repaired node.
 	Cycle bool
-	// MetadataEpoch records the metadata epoch counter for the node's organization.
+	// MetadataEpoch records the metadata epoch counter for the node's
+	// organization.
 	MetadataEpoch int64
 }
 
-// RepairEvidence reads the node's resolution, exact primary record, parent_id,
-// edges in both directions, organization metadata epoch, and parent_id ancestor
-// chain in one read transaction. It also reads primary records for edge ends,
-// requested related nodes, and ancestors within that transaction.
-// It returns an error that wraps [domain.ErrFailedPrecondition] if the edges
-// in either direction exceed one page.
+// RepairEvidence reads the node's resolution, exact primary record,
+// parent_id, edges in both directions, organization metadata epoch, and
+// parent_id ancestor chain in one read transaction.
+//
+// It also reads primary records for edge ends, requested related nodes, and
+// ancestors within that transaction.
+//
+//   - Edges in either direction that exceed one page cause an error that
+//     wraps [domain.ErrFailedPrecondition].
+//   - A repeated ancestor or the repaired node ends the chain and sets
+//     Cycle.
 func (s *RepairStore) RepairEvidence(ctx context.Context, request RepairEvidenceRequest) (evidence RepairEvidence, err error) {
 	defer telemetry.FDBOp(ctx, "store.repair.evidence")(&err)
 	err = runNodeReadTransaction(ctx, s.db, "read repair evidence of node "+request.NodeID.String(), func(tr fdb.Transaction) error {

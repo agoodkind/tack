@@ -13,14 +13,20 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// BeginAccess records the compiled access of one access work item before any page update.
-// When access differs, BeginAccess calls recordCompiledAccess to skip or schedule page rewrites.
-// If tracking confirms that every issued page stores the access, it marks only dependents pending
-// and starts the dependents phase. Otherwise, it marks every current page and dependent pending
-// and restarts the pages phase at the first issued document.
-// When pages are pending, the pages phase continues at the checkpoint.
-// When only dependents are pending, the dependents phase starts.
-// When neither phase is pending, the work finishes.
+// BeginAccess records the compiled access of one access work item before any
+// page update.
+//
+// When access differs, it calls recordCompiledAccess. If tracking confirms
+// that every issued page stores the access, it marks only dependents pending
+// and starts the dependents phase. Otherwise, it marks every current page
+// and dependent pending and restarts the pages phase at the first issued
+// document.
+//
+//   - When access matches and pages are pending, the pages phase continues
+//     at the checkpoint.
+//   - When access matches and only dependents are pending, the dependents
+//     phase starts.
+//   - When access matches and neither phase is pending, the work finishes.
 func (s *SearchWorkStore) BeginAccess(ctx context.Context, work searchdomain.Work, compiled node.SearchAccess) (plan searchdomain.AccessPlan, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.begin_access")(&err)
 	plan = searchdomain.AccessPlan{Work: work, Finished: false}
@@ -59,8 +65,14 @@ func (s *SearchWorkStore) BeginAccess(ctx context.Context, work searchdomain.Wor
 }
 
 // CompleteAccess checkpoints the accepted prefix of one access-only batch.
-// After the last page it clears the pending-pages mark. Pending dependents
-// then start the dependents phase. Otherwise the work finishes.
+//
+// After the last page, it clears the pending-pages mark. Pending dependents
+// then start the dependents phase. Otherwise, the work finishes.
+//
+//   - CompleteAccess returns searchdomain.ErrWorkChanged before
+//     checkpointing when sameAccess finds different Versions or Keys in the
+//     stored access and checkpoint.Access. A change to Generation alone
+//     does not cause that refusal.
 func (s *SearchWorkStore) CompleteAccess(ctx context.Context, work searchdomain.Work, checkpoint searchdomain.AccessCheckpoint) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.complete_access")(&err)
 	next := work
@@ -108,13 +120,14 @@ func writeAccessProgress(ctx context.Context, tr fdb.Transaction, work searchdom
 }
 
 // sameAccess compares write versions and keys and ignores the generation.
-// The generation orders writes and identifies no access decision.
+// The generation orders writes and does not define an access decision.
 func sameAccess(recorded, compiled node.SearchAccess) bool {
 	return slices.Equal(recorded.Versions, compiled.Versions) && slices.Equal(recorded.Keys, compiled.Keys)
 }
 
 // accessRecordFor returns the recorded access state of one node. For a node
-// without a record, it returns the stable policy version with no keys.
+// without a record, it returns the stable policy version with an empty key
+// list.
 func accessRecordFor(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) (searchAccessRecord, error) {
 	var record searchAccessRecord
 	found, err := readSearchRecord(ctx, tr, searchAccessKey(orgID, nodeID), &record)
@@ -129,8 +142,8 @@ func accessRecordFor(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid
 
 // scheduleAccessRepair marks the node's existing access record as having
 // pending pages and schedules access work at a new generation. That access
-// work rewrites every page of the node. A plain access schedule updates no
-// page when the recorded access already equals the compiled access.
+// work rewrites every page of the node. A plain access schedule does not
+// update pages when the recorded access already equals the compiled access.
 func scheduleAccessRepair(ctx context.Context, tr fdb.Transaction, now time.Time, orgID, nodeID uuid.UUID) error {
 	var state searchAccessRecord
 	found, err := readSearchRecord(ctx, tr, searchAccessKey(orgID, nodeID), &state)

@@ -12,8 +12,10 @@ import (
 )
 
 // ListBySources reads relationships for all sources in one read transaction.
+//
 // It starts one range read per source before waiting for results.
-// It wraps FoundationDB error 1031 with domain.ErrStorageTimeout.
+//
+//   - FoundationDB error 1031 also matches domain.ErrStorageTimeout.
 func (s *RelationshipStore) ListBySources(
 	ctx context.Context,
 	orgID uuid.UUID,
@@ -89,10 +91,10 @@ func (e sourceRangeError) Error() string {
 
 func (e sourceRangeError) Unwrap() error { return e.err }
 
-// sourcesReadError adds the source count to the error message.
-// ListBySources returns a sourcesReadError for each failure that ends
-// the call. Unwrap returns the original error.
-// ListBySources does not log the failure. The caller logs the failure.
+// sourcesReadError adds the source count to the error message. ListBySources
+// returns a sourcesReadError for each failure that ends the call. Unwrap
+// returns the original error. ListBySources defers telemetry.FDBOp, which
+// reports the failed operation.
 type sourcesReadError struct {
 	sourceCount int
 	err         error

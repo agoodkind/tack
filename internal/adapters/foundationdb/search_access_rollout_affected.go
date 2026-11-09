@@ -157,6 +157,11 @@ func clearRolloutAffected(ctx context.Context, tr fdb.Transaction, authorityID u
 
 // AffectedNodes reads the recording counter and at most 257 affected set
 // entries for the current rollout generation of authorityID.
+//
+// It reads the rollout generation, counter, and entries in one transaction.
+//
+//   - Recorded counts recording operations, including repeated writes for
+//     the same node. Nodes lists distinct affected entries.
 func (s *SearchAccessRolloutStore) AffectedNodes(ctx context.Context, authorityID uuid.UUID) (affected searchdomain.AffectedNodes, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.affected_nodes")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

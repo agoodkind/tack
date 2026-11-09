@@ -10,8 +10,8 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// rolloutRepair specifies the action a stale node needs before
-// verification can pass. A larger value takes precedence for a node.
+// rolloutRepair selects the action a stale node needs before verification
+// can pass. A larger value takes precedence for a node.
 type rolloutRepair uint8
 
 const (

@@ -28,9 +28,10 @@ type searchRolloutRecord struct {
 	AffectedPass           bool      `json:"affected_pass,omitempty"`
 	Generation             int64     `json:"generation"`
 	PermissionEventVersion int64     `json:"permission_event_version"`
-	// InitiatedOperationID and InitiatedActorID identify the operation that
-	// began the current rollout. A record without a rollout, or one that a
-	// release before this field wrote, stores neither.
+	// InitiatedOperationID and InitiatedActorID identify the operation and
+	// actor that began the current rollout. A record without a rollout does not
+	// store either ID. Earlier releases wrote records before these fields
+	// existed.
 	InitiatedOperationID uuid.UUID `json:"initiated_operation_id,omitzero" exhaustruct:"optional"`
 	InitiatedActorID     uuid.UUID `json:"initiated_actor_id,omitzero" exhaustruct:"optional"`
 }
@@ -93,7 +94,7 @@ func requireWrittenVersion(ctx context.Context, tr fdb.Transaction, authorityID 
 }
 
 // addPermissionEvent increments the authority's permission event counter
-// with an atomic add. The add reads no key and adds no read conflict.
+// with an atomic add. The add does not read a key or add a read conflict.
 func addPermissionEvent(tr fdb.Transaction, authorityID uuid.UUID) {
 	var one [8]byte
 	binary.LittleEndian.PutUint64(one[:], 1)

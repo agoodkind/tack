@@ -14,28 +14,36 @@ import (
 )
 
 // PropertyDefStore implements node.PropertyDefRepository using FoundationDB.
-// When searchWork is true, a definition write requests a search rescan
-// stamped by the clock.
+// When searchWork is true, a definition change that alters rendering inputs
+// requests a search rescan with a timestamp from the clock.
 type PropertyDefStore struct {
 	db         fdb.Database
 	clock      clock.Clock
 	searchWork bool
 }
 
-// NewPropertyDefStore creates the property definition store. It requests no
-// search rescan until [Stores.EnableSearchWork] runs.
+// NewPropertyDefStore creates the property definition store.
+//
+// The store does not request search rescans until [Stores.EnableSearchWork]
+// runs.
+//
+//   - The store uses source to timestamp the rescans it requests.
 func NewPropertyDefStore(db fdb.Database, source clock.Clock) *PropertyDefStore {
 	return &PropertyDefStore{db: db, clock: source, searchWork: false}
 }
 
-// Set stores def and its name index entry. It increments the organization's
-// metadata epoch when the stored record changes, and it updates the
-// projection digest when the definition's identity, name, or declaration
-// changes. When search work is enabled, that declaration change also
-// requests a content rescan. Set accepts a new definition without a search
-// declaration when node.EffectiveSearchProjection returns a projection for
-// it. If that call returns an error, Set refuses the definition and does not
-// store it. Set also accepts a nil declaration on an existing record.
+// Set stores def and its name index entry.
+//
+// It increments the organization's metadata epoch when the stored record
+// changes. It updates projection digests when rendering inputs, including
+// the definition identity, name, or declaration, change. When search work is
+// enabled, the rendering input change also requests a content rescan.
+//
+//   - A new definition without a search declaration requires a successful
+//     node.EffectiveSearchProjection call. An error from that call prevents
+//     storage.
+//   - An existing record may use a nil declaration.
+//   - A UUID reference definition must set Indexed.
 func (s *PropertyDefStore) Set(ctx context.Context, def *node.PropertyDef) (err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.set")(&err)
 	if def.Type == node.PropertyTypeUUID && def.ReferenceTargetTypeKey != "" && !def.Indexed {
@@ -88,7 +96,12 @@ func (e undeclaredDefinitionError) Error() string {
 		e.definition.Name, e.definition.ID, e.definition.OrgID, node.ErrInvalidSearchProjection)
 }
 
-// Unwrap lets callers match node.ErrInvalidSearchProjection.
+// Unwrap returns node.ErrInvalidSearchProjection.
+//
+// Set refuses a new definition without Search when
+// node.EffectiveSearchProjection fails.
+//
+//   - errors.Is matches node.ErrInvalidSearchProjection through this error.
 func (e undeclaredDefinitionError) Unwrap() error { return node.ErrInvalidSearchProjection }
 
 // unindexedReferenceError reports the rejection of a UUID reference
@@ -103,7 +116,11 @@ func (e unindexedReferenceError) Error() string {
 		e.definition.Name, e.definition.ID, e.definition.OrgID, e.definition.ReferenceTargetTypeKey, domain.ErrInvalidArgument)
 }
 
-// Unwrap lets callers match domain.ErrInvalidArgument.
+// Unwrap returns domain.ErrInvalidArgument.
+//
+// Set refuses UUID reference definitions that do not set Indexed.
+//
+//   - errors.Is matches domain.ErrInvalidArgument through this error.
 func (e unindexedReferenceError) Unwrap() error { return domain.ErrInvalidArgument }
 
 func (s *PropertyDefStore) Get(ctx context.Context, orgID, defID uuid.UUID) (def *node.PropertyDef, err error) {
@@ -186,20 +203,16 @@ func (s *PropertyDefStore) Delete(ctx context.Context, orgID, defID uuid.UUID) (
 	return nil
 }
 
-// encodePropertyValue encodes a raw JSON property value as FDB tuple bytes for
-// use in the secondary index. The encoding must sort the way the caller expects
-// range scans to iterate. This is a minimal implementation: numbers encode as
-// float64 IEEE (round-trip safe for JSON numbers), strings/bools/null as their
-// native tuple types, arrays/objects as their JSON string representation
-// (lexicographic sort, useful for equality scans).
+// encodePropertyValue returns raw JSON bytes for secondary index values. It
+// returns nil for empty input. Index writes and equality lookups must use
+// identical JSON bytes. Numeric range scans require an encoding that sorts
+// numbers in numeric order; this helper does not provide typed tuple
+// encoding.
 func encodePropertyValue(raw json.RawMessage) []byte {
 	if len(raw) == 0 {
 		return nil
 	}
-	// Use the raw bytes directly: JSON's canonical encoding for primitives
-	// (numbers, strings, bools, null) sorts correctly for equality scans.
-	// For range scans across numeric properties, callers should prefer
-	// typed encoding via a PropertyDef-aware helper; this default works
-	// for the common equality filter case.
+	// The helper uses the supplied JSON bytes for numbers, strings, booleans,
+	// null, arrays, and objects without normalization.
 	return []byte(raw)
 }

@@ -12,29 +12,39 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// outboxEntriesPerTransaction is the number of distinct two-byte user versions.
+// outboxEntriesPerTransaction is the number of distinct two-byte user
+// versions.
 const outboxEntriesPerTransaction = math.MaxUint16 + 1
 
-// OutboxWriter assigns increasing user versions to outbox entries in write order.
-// Every outbox write in one transaction attempt must share this writer.
-// FoundationDB replaces the earlier entry without an error if two entries
-// in that transaction use the same user version. The relay reads entries
-// in user version order.
+// OutboxWriter assigns increasing user versions to outbox entries in write
+// order. Every outbox write in one transaction attempt must share this
+// writer. FoundationDB replaces the earlier entry without an error if two
+// entries in that transaction use the same user version. The relay reads
+// entries in user version order.
 type OutboxWriter struct {
 	tr      fdb.Transaction
 	next    uint16
 	written int
 }
 
-// NewOutboxWriter creates a writer for tr with the next user version at zero.
-// Callers create a new writer inside each transaction attempt, including retries.
+// NewOutboxWriter creates a writer for tr with the next user version at
+// zero.
+//
+// Callers create a new writer inside each transaction attempt, including
+// retries.
+//
+//   - The writer starts with a written entry count of zero.
 func NewOutboxWriter(tr fdb.Transaction) *OutboxWriter {
 	return &OutboxWriter{tr: tr, next: 0, written: 0}
 }
 
 // WriteEncodedEvent writes the records of encoded to the outbox.
-// It writes plain event JSON or, for a multipart event, parts followed
-// by the manifest message.
+//
+// It writes plain event JSON or, for a multipart event, parts followed by
+// the manifest message.
+//
+//   - The writer rejects records that would exceed the transaction entry
+//     limit.
 func (w *OutboxWriter) WriteEncodedEvent(ctx context.Context, encoded audit.EncodedEvent) error {
 	records, err := encodedRecords(ctx, encoded)
 	if err != nil {
@@ -44,13 +54,19 @@ func (w *OutboxWriter) WriteEncodedEvent(ctx context.Context, encoded audit.Enco
 }
 
 // WriteEventJSON writes one plain event JSON as one outbox entry.
+//
+// It assigns the entry the next user version from this transaction's writer.
+//
+//   - The writer logs and rejects a write that would exceed the transaction
+//     entry limit.
 func (w *OutboxWriter) WriteEventJSON(ctx context.Context, event json.RawMessage) error {
 	return w.write(ctx, [][]byte{event})
 }
 
-// write logs and rejects a write that would exceed outboxEntriesPerTransaction.
-// It stores each value as one versionstamped entry with the next user version.
-// FoundationDB fills each key's transaction version at commit.
+// write logs and rejects a write that would exceed
+// outboxEntriesPerTransaction. It stores each value as one versionstamped
+// entry with the next user version. FoundationDB fills each key's
+// transaction version at commit.
 func (w *OutboxWriter) write(ctx context.Context, values [][]byte) error {
 	if w.written+len(values) > outboxEntriesPerTransaction {
 		err := fmt.Errorf("ops outbox transaction would contain %d entries, more than %d", w.written+len(values), outboxEntriesPerTransaction)

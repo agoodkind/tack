@@ -16,7 +16,14 @@ import (
 
 const projectionPageSize = 100
 
-// ScanProjections reads one bounded page of property definitions in key order.
+// ScanProjections reads one bounded page of property definitions in key
+// order.
+//
+// The scan starts after cursor and returns a continuation cursor when
+// another page exists.
+//
+//   - An empty cursor starts at the first definition.
+//   - Each page contains at most 100 definitions.
 func (s *PropertyDefStore) ScanProjections(ctx context.Context, cursor string) (defs []*node.PropertyDef, next string, err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.scan_projections")(&err)
 	logger := telemetry.L(ctx)
@@ -84,7 +91,15 @@ func (s *PropertyDefStore) ScanProjections(ctx context.Context, cursor string) (
 	return defs, next, nil
 }
 
-// SetProjectionIfNil atomically applies one declaration or accepts an equal one.
+// SetProjectionIfNil atomically applies one declaration or accepts an equal
+// one.
+//
+// It stores the definition, name index entry, and audit intent when the
+// current declaration is nil. An equal existing declaration returns false
+// without a write.
+//
+//   - A missing definition, changed identity, or conflicting declaration
+//     returns an error.
 func (s *PropertyDefStore) SetProjectionIfNil(ctx context.Context, definition *node.PropertyDef, projection node.SearchProjection) (changed bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.set_projection")(&err)
 	logger := telemetry.L(ctx)
@@ -140,9 +155,10 @@ func (s *PropertyDefStore) SetProjectionIfNil(ctx context.Context, definition *n
 
 // setProjectionInTransaction stores projection on one definition without a
 // declaration. It writes the definition record, its property-name index
-// entry, and the audit intent. It changes no projection digest and schedules
-// no search work because the initial rollout runs before the first
-// FoundationDB rebuild, and that rebuild reads the completed declarations.
+// entry, and the audit intent. It does not change projection digests or
+// schedule search work. The initial TACK-542 rollout required callers to
+// apply these declarations before the first FoundationDB rebuild. That
+// rebuild reads the completed declarations.
 func setProjectionInTransaction(ctx context.Context, tr fdb.Transaction, definition *node.PropertyDef, projection node.SearchProjection, changes *mutationAudit) (changed bool, err error) {
 	logger := telemetry.L(ctx)
 	reported := false

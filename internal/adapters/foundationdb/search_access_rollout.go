@@ -27,13 +27,21 @@ var (
 	_ searchdomain.AccessStateReader  = (*SearchAccessRolloutStore)(nil)
 )
 
-// NewSearchAccessRolloutStore creates the rollout store. work verifies
-// claims and supplies the injected clock.
+// NewSearchAccessRolloutStore creates the rollout store.
+//
+// The work store verifies claims and supplies the injected clock.
+//
+//   - Begin checks candidate versions against policies before starting a
+//     rollout.
 func NewSearchAccessRolloutStore(db fdb.Database, work *SearchWorkStore, policies *searchaccess.PolicySet) *SearchAccessRolloutStore {
 	return &SearchAccessRolloutStore{db: db, work: work, policies: policies}
 }
 
 // Current returns the rollout state of authorityID.
+//
+// It reads the stored record in one FoundationDB transaction.
+//
+//   - An authority without a rollout record uses the stable policy version.
 func (s *SearchAccessRolloutStore) Current(ctx context.Context, authorityID uuid.UUID) (rollout searchdomain.AccessRollout, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.current")(&err)
 	var record searchRolloutRecord
@@ -49,8 +57,12 @@ func (s *SearchAccessRolloutStore) Current(ctx context.Context, authorityID uuid
 }
 
 // ActiveAccessVersion returns the version that serves new sessions of
-// authorityID. It also wraps [searchdomain.ErrEngineUnavailable] when the error
-// is FoundationDB error 1031 or [context.DeadlineExceeded].
+// authorityID.
+//
+// It reads the current rollout and classifies failures before returning.
+//
+//   - FoundationDB error 1031 or [context.DeadlineExceeded] also matches
+//     [searchdomain.ErrEngineUnavailable].
 func (s *SearchAccessRolloutStore) ActiveAccessVersion(ctx context.Context, authorityID uuid.UUID) (string, error) {
 	rollout, err := s.Current(ctx, authorityID)
 	if err != nil {
@@ -59,9 +71,14 @@ func (s *SearchAccessRolloutStore) ActiveAccessVersion(ctx context.Context, auth
 	return rollout.ActiveVersion, nil
 }
 
-// Begin starts one candidate version for a stable authority. In one
-// transaction it records both write versions, the permission event
-// boundary, and the backfill phase, and schedules the rollout work item.
+// Begin starts one candidate version for a stable authority.
+//
+// It records both write versions, the permission event boundary, and the
+// backfill phase and schedules the rollout work item in one transaction.
+//
+//   - A changed expected generation or an active rollout returns
+//     searchdomain.ErrRolloutInProgress.
+//   - The candidate must differ from the active version.
 func (s *SearchAccessRolloutStore) Begin(ctx context.Context, request searchdomain.BeginAccessRollout) (rollout searchdomain.AccessRollout, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.begin")(&err)
 	if request.AuthorityID == uuid.Nil || !s.policies.Supports(request.CandidateVersion) {
@@ -129,7 +146,12 @@ func scheduleRolloutWork(ctx context.Context, tr fdb.Transaction, work *SearchWo
 }
 
 // Wait releases the rollout claim for the retry delay without recording a
-// failure. The rollout waits for pending page work or open sessions.
+// failure.
+//
+// The rollout waits for pending page work or open sessions.
+//
+//   - The claim retains its generation, target, and mirror while its owner
+//     becomes empty.
 func (s *SearchAccessRolloutStore) Wait(ctx context.Context, work searchdomain.Work) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.wait")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

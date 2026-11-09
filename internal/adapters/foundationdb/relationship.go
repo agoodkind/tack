@@ -13,10 +13,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RelationshipStore implements node.RelationshipRepository using FoundationDB.
-// When searchWork is true, each relationship write schedules search access
-// work and stamps it with a time from the clock. When writeFence is set,
-// Add and Remove run the fence for the source node.
+// RelationshipStore implements node.RelationshipRepository using
+// FoundationDB. When searchWork is true, each relationship write schedules
+// search access work and stamps it with a time from the clock. When
+// writeFence is set, Add and Remove run the fence for the source node.
 type RelationshipStore struct {
 	db         fdb.Database
 	clock      clock.Clock
@@ -24,14 +24,24 @@ type RelationshipStore struct {
 	writeFence mutationFence
 }
 
-// NewRelationshipStore creates the relationship store. It schedules no
-// search work until [Stores.EnableSearchWork] runs.
+// NewRelationshipStore creates the relationship store.
+//
+// The store does not schedule search work until [Stores.EnableSearchWork]
+// runs.
+//
+//   - The store uses source for search work timestamps.
+//   - The store checks node mutation fences with fenceNodeMutation.
 func NewRelationshipStore(db fdb.Database, source clock.Clock) *RelationshipStore {
 	return &RelationshipStore{db: db, clock: source, searchWork: false, writeFence: fenceNodeMutation}
 }
 
-// Add writes rel. When its encoded value differs from the stored value, the same
-// transaction writes a change event with the old and new values.
+// Add writes rel.
+//
+// When its encoded value differs from the stored value, the same transaction
+// writes a change event with the old and new values.
+//
+//   - The source node's write fence and strict relationship checks run
+//     before the write.
 func (s *RelationshipStore) Add(ctx context.Context, rel *node.Relationship) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.add")(&err)
 	return s.add(ctx, rel, false)
@@ -82,9 +92,18 @@ func (s *RelationshipStore) add(ctx context.Context, rel *node.Relationship, mem
 	return nil
 }
 
-// Remove clears one edge. It refuses to clear the source node's only
-// hierarchy parent edge and returns an error that wraps domain.ErrFailedPrecondition.
-// The same transaction writes a change event when the relationship exists.
+// Remove clears one edge and records a change event in the same transaction
+// when the relationship exists.
+//
+// The parent guard refuses removal of a required hierarchy parent with an
+// error that wraps domain.ErrFailedPrecondition. A nonzero stored parent_id
+// protects its child_of target even when another parent edge remains.
+//
+//   - A malformed stored parent_id prevents removal of every existing
+//     child_of edge.
+//   - With an absent or zero parent_id, the guard calls node.HierarchyParent
+//     with the source type and remaining child_of target, if any. An error
+//     from that call prevents removal.
 func (s *RelationshipStore) Remove(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.remove")(&err)
 	changes, err := beginMutationAudit(ctx, orgID)
@@ -154,8 +173,14 @@ func (s *RelationshipStore) ListBySource(ctx context.Context, orgID, sourceID uu
 	return decodeRelationships(kvs), nil
 }
 
-// ListByTarget reads the reverse keys of targetID, which store empty values,
-// and then reads the forward value of each relationship.
+// ListByTarget reads relationships that target targetID.
+//
+// It reads reverse keys, which store empty values, and then reads each
+// relationship's forward value in the same read transaction.
+//
+//   - An invalid reverse key or source ID does not contribute a result.
+//   - An empty forward value or a failed forward read or decode does not
+//     contribute a result.
 func (s *RelationshipStore) ListByTarget(ctx context.Context, orgID, targetID uuid.UUID, relationType string) (rels []*node.Relationship, err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.list_by_target")(&err)
 	revPR, err := fdb.PrefixRange(relationshipReversePrefixByTarget(orgID, targetID, relationType))
@@ -173,9 +198,10 @@ func (s *RelationshipStore) ListByTarget(ctx context.Context, orgID, targetID uu
 	return rels, nil
 }
 
-// readRelationshipsByTarget reads reverse keys in revPR and their forward values inside tr.
-// It skips a relationship if it cannot decode the key or parse its source ID.
-// It also skips a relationship if the forward value is empty or it cannot read or decode it.
+// readRelationshipsByTarget reads reverse keys in revPR and their forward
+// values inside tr. It skips a relationship if it cannot decode the key or
+// parse its source ID. It also skips a relationship if the forward value is
+// empty or it cannot read or decode it.
 func readRelationshipsByTarget(ctx context.Context, tr fdb.Transaction, revPR fdb.KeyRange, orgID, targetID uuid.UUID) ([]*node.Relationship, error) {
 	revKVs, err := tr.GetRange(revPR, fdb.RangeOptions{}).GetSliceWithError()
 	if err != nil {

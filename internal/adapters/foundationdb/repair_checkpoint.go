@@ -17,18 +17,28 @@ func repairCheckpointKey(repairID string) []byte {
 	return withPrefix(tuple.Tuple{keyRepairCheckpoint, repairID}.Pack())
 }
 
-// RepairStore reads repair evidence and manages checkpoints for reviewed repairs.
+// RepairStore reads repair evidence and manages checkpoints for reviewed
+// repairs.
 type RepairStore struct {
 	db fdb.Database
 }
 
 // Repairs returns a repair store that uses the shared database connection.
+//
+// The store reads repair evidence and manages checkpoints for reviewed
+// repairs.
+//
+//   - RepairCheckpoint reads a saved repair phase.
+//   - AdvanceRepairCheckpoint checks the expected phase before writing.
 func (s *Stores) Repairs() *RepairStore {
 	return &RepairStore{db: s.db}
 }
 
 // RepairCheckpoint reads the checkpoint for repairID.
-// It returns nil if the checkpoint does not exist.
+//
+// It decodes the stored checkpoint in one read transaction.
+//
+//   - It returns nil when the checkpoint does not exist.
 func (s *RepairStore) RepairCheckpoint(ctx context.Context, repairID string) (checkpoint *node.RepairCheckpoint, err error) {
 	defer telemetry.FDBOp(ctx, "store.repair_checkpoint.get")(&err)
 	err = runNodeReadTransaction(ctx, s.db, "read repair checkpoint "+repairID, func(tr fdb.Transaction) error {
@@ -42,11 +52,15 @@ func (s *RepairStore) RepairCheckpoint(ctx context.Context, repairID string) (ch
 	return checkpoint, nil
 }
 
-// AdvanceRepairCheckpoint writes next if the stored phase equals previous,
-// the node ID and source digest match next, and next.Phase ranks higher.
-// An empty previous requires that the checkpoint does not exist.
-// If any check fails, it returns an error that wraps [domain.ErrConflict]
-// and does not write the checkpoint.
+// AdvanceRepairCheckpoint writes next when the stored phase equals previous,
+// the node ID and source digest match next, and next.Phase ranks higher than
+// the stored phase.
+//
+// An empty previous requires that the checkpoint does not exist. A failed
+// check returns an error that wraps [domain.ErrConflict] without writing the
+// checkpoint.
+//
+//   - An unknown next.Phase returns a conflict.
 func (s *RepairStore) AdvanceRepairCheckpoint(ctx context.Context, previous node.RepairPhase, next node.RepairCheckpoint) (err error) {
 	defer telemetry.FDBOp(ctx, "store.repair_checkpoint.advance")(&err)
 	return runNodeMutation(ctx, s.db, "advance repair checkpoint "+next.RepairID, func(tr fdb.Transaction) error {

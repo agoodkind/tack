@@ -10,7 +10,8 @@ import (
 )
 
 // RepairExportRecord contains a node's resolution, primary, and view records
-// and the stored forward value for each relationship key to or from the node.
+// and the stored forward value for each relationship key to or from the
+// node.
 type RepairExportRecord struct {
 	Found         bool
 	Resolve       json.RawMessage
@@ -30,8 +31,12 @@ type RepairExportEdge struct {
 
 // RepairExport reads nodeID's resolution, primary, and view records and the
 // stored forward value for every relationship key to or from the node in one
-// read transaction. It returns an error if the edges in either direction
-// exceed one page.
+// read transaction.
+//
+// It returns an error if the edges in either direction exceed one page.
+//
+//   - A missing forward relationship value produces an edge with a nil
+//     Value.
 func (s *RepairStore) RepairExport(ctx context.Context, nodeID uuid.UUID) (record RepairExportRecord, err error) {
 	defer telemetry.FDBOp(ctx, "store.repair.export")(&err)
 	err = runNodeReadTransaction(ctx, s.db, "read repair export of node "+nodeID.String(), func(tr fdb.Transaction) error {

@@ -16,15 +16,25 @@ import (
 // maxRelationshipPage bounds one relationship page.
 const maxRelationshipPage = 100
 
-// EdgesFrom reads at most limit relationships of relationType from sourceID
-// after cursor and returns their target node IDs in key order.
+// EdgesFrom returns target node IDs for relationType relationships from
+// sourceID in key order.
+//
+// It reads at most limit relationships after cursor.
+//
+//   - An empty cursor starts at the first relationship.
+//   - A limit outside 1 through 100 returns an error.
 func (s *RelationshipStore) EdgesFrom(ctx context.Context, orgID, sourceID uuid.UUID, relationType, cursor string, limit int) (page node.IDPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.edges_from")(&err)
 	return s.edgePage(ctx, relationshipPrefixBySource(orgID, sourceID, relationType), sourceID, cursor, limit)
 }
 
-// EdgesTo reads at most limit relationships of relationType to targetID
-// after cursor and returns their source node IDs in key order.
+// EdgesTo returns source node IDs for relationType relationships to targetID
+// in key order.
+//
+// It reads at most limit relationships after cursor.
+//
+//   - An empty cursor starts at the first relationship.
+//   - A limit outside 1 through 100 returns an error.
 func (s *RelationshipStore) EdgesTo(ctx context.Context, orgID, targetID uuid.UUID, relationType, cursor string, limit int) (page node.IDPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.edges_to")(&err)
 	return s.edgePage(ctx, relationshipReversePrefixByTarget(orgID, targetID, relationType), targetID, cursor, limit)
