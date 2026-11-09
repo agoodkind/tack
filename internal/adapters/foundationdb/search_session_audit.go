@@ -58,9 +58,9 @@ func beginSessionAudit(ctx context.Context, operation string, sessionID uuid.UUI
 // sessionRecordingFailure handles a search session writer's failure to build
 // or save a required change event. If err is not nil, it logs err and the
 // session ID at Error and returns err joined with audit.ErrEventNotRecorded.
-// [errors.Is] and [errors.As] can find every error in err's chain, including a
-// FoundationDB error that transactSession retries. If err is nil, the function
-// returns nil without logging.
+// [errors.Is] and [errors.As] can find every error in err's chain, including
+// a FoundationDB error that transactSession retries. If err is nil, the
+// function returns nil without logging.
 func sessionRecordingFailure(ctx context.Context, sessionID uuid.UUID, err error) error {
 	if err == nil {
 		return nil
@@ -70,8 +70,8 @@ func sessionRecordingFailure(ctx context.Context, sessionID uuid.UUID, err error
 }
 
 // bind scopes the events of this writer to the organization and workspace of
-// record. The scope of the request belongs to the caller. A swept session can
-// belong to another workspace.
+// record. The scope of the request belongs to the caller. A swept session
+// can belong to another workspace.
 func (a *sessionAudit) bind(record searchSessionRecord) {
 	a.operation.Context.OrgID = record.AuthorityID
 	a.operation.Context.WorkspaceID = record.EntryPointID
@@ -128,8 +128,9 @@ func (a *sessionAudit) recordVisitedDelete(sessionID, nodeID uuid.UUID) error {
 	return a.record(sessionVisitedTarget(sessionID, nodeID), encoded, nil)
 }
 
-// encodeSessionValue marshals one audit value to JSON and returns a sessionStepError on failure.
-// transactSession logs the error through sessionFailure.
+// encodeSessionValue marshals one audit value to JSON and returns a
+// sessionStepError on failure. transactSession logs the error through
+// sessionFailure.
 func encodeSessionValue[Value sessionAuditValue](value Value) (json.RawMessage, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {

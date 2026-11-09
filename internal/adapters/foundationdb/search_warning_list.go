@@ -16,8 +16,13 @@ import (
 const maxWarningPage = 100
 
 // SearchWarnings reads at most maxWarningPage verified property warnings
-// across all organizations after cursor. An empty cursor starts at the first
-// warning.
+// across all organizations after cursor.
+//
+// An empty cursor starts at the first warning. The result uses the last
+// examined key to continue in FoundationDB key order.
+//
+//   - An additional warning produces a next cursor.
+//   - The last page returns Done as true and an empty next cursor.
 func (s *Stores) SearchWarnings(ctx context.Context, cursor string) (page searchdomain.WarningPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_warning.list")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

@@ -19,29 +19,30 @@ const (
 	// sessionWriteUncertainCode is the failure code for an event that records a
 	// session write without a confirmed commit result.
 	sessionWriteUncertainCode = "session_write_uncertain"
-	// sessionWriteUncertainMessage is the fixed message for an incomplete session
-	// write event. The event does not store the raw database error.
+	// sessionWriteUncertainMessage is the fixed message for an incomplete
+	// session write event. The event does not store the raw database error.
 	sessionWriteUncertainMessage = "the search session write ended without a confirmed commit result"
-	// sessionWriteUncertainEventName is the name used to derive the event ID from
-	// the operation base.
+	// sessionWriteUncertainEventName supplies the input for deriving the event
+	// ID from the operation base.
 	sessionWriteUncertainEventName = "write_uncertain"
 )
 
-// recordWriteUncertain commits an incomplete database change result event
-// in a separate transaction when cause wraps commitUncertainError.
-// The event uses the operation and organization from changes, verb, and the
-// session target with ownerID. Its fixed code and message exclude the raw
-// error. Its ID derives from the operation base in changes, so repeated
-// writes use the same event ID.
+// recordWriteUncertain commits an incomplete database change result event in
+// a separate transaction when cause wraps commitUncertainError. The event
+// uses the operation and organization from changes, verb, and the session
+// target with ownerID. Its fixed code and message exclude the raw error. Its
+// ID derives from the operation base in changes. Repeated writes use the
+// same event ID.
+//
 // recordWriteUncertain ignores cancellation of ctx.
 // audit.ExternalResultDeadline limits the whole write to 30 seconds.
 // searchTransactionTimeout limits each transaction attempt to 5 seconds.
-// transactSession does not retry FoundationDB timeout error 1031.
-// One stalled attempt ends the write before audit.ExternalResultDeadline.
-// It returns cause when the event commits or
-// when cause does not wrap commitUncertainError. If the event cannot commit,
-// it returns an error joining audit.ErrEventNotRecorded, cause, and the write
-// error.
+// transactSession does not retry FoundationDB timeout error 1031. One
+// stalled attempt ends the write before audit.ExternalResultDeadline.
+//
+// It returns cause when the event commits or when cause does not wrap
+// commitUncertainError. If the event cannot commit, it returns an error
+// joining audit.ErrEventNotRecorded, cause, and the write error.
 func (s *SearchSessionStore) recordWriteUncertain(ctx context.Context, changes *sessionAudit, sessionID, ownerID uuid.UUID, verb audit.Verb, cause error) error {
 	var uncertain commitUncertainError
 	if !errors.As(cause, &uncertain) {
@@ -59,9 +60,9 @@ func (s *SearchSessionStore) recordWriteUncertain(ctx context.Context, changes *
 	return cause
 }
 
-// appendWriteUncertain writes an incomplete session write event for the session
-// target with ownerID to the outbox in tr. The event ID stays the same across
-// transaction attempts.
+// appendWriteUncertain writes an incomplete session write event for the
+// session target with ownerID to the outbox in tr. The event ID stays the
+// same across transaction attempts.
 func appendWriteUncertain(ctx context.Context, tr fdb.Transaction, changes *sessionAudit, sessionID, ownerID uuid.UUID, verb audit.Verb) error {
 	details := audit.OutcomeDetails{
 		Outcome: audit.OutcomeIncomplete, FailureCode: sessionWriteUncertainCode, FailureMessage: sessionWriteUncertainMessage, CommittedSteps: nil,

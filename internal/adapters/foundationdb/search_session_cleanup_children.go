@@ -13,21 +13,22 @@ import (
 
 const (
 	// childPartPosition and childIdentityPosition are the tuple positions of
-	// the part and its identity in a child key:
-	// (family, bucket, session, part, identity).
+	// the part and its identity in a child key: (family, bucket, session, part,
+	// identity).
 	childPartPosition     = 3
 	childIdentityPosition = 4
 )
 
-// errSessionTokensInvalid marks stored query token chunks that do not match the
-// chunk count and byte count in the session header.
+// errSessionTokensInvalid marks stored query token chunks that do not match
+// the chunk count and byte count in the session header.
 var errSessionTokensInvalid = errors.New("the stored query token chunks do not match the session header")
 
-// clearChildren clears children in key order and records each removed replay and
-// visited value. After limit records, it continues only through the remaining
-// chunks of a query token run that started before that point. It clears token
-// chunks only when they match the chunk count and byte count of record. It
-// returns the cleared token bytes as one value and the number of cleared records.
+// clearChildren clears children in key order and records each removed replay
+// and visited value. After limit records, it continues only through the
+// remaining chunks of a query token run that started before that point. It
+// clears token chunks only when they match the chunk count and byte count of
+// record. It returns the cleared token bytes as one value and the number of
+// cleared records.
 func (a *sessionAudit) clearChildren(tr fdb.Transaction, record searchSessionRecord, children []fdb.KeyValue, limit int) (json.RawMessage, int, error) {
 	var tokenChunks []fdb.KeyValue
 	cleared := 0
@@ -64,8 +65,9 @@ func (a *sessionAudit) clearChildren(tr fdb.Transaction, record searchSessionRec
 }
 
 // assembleSessionTokens joins chunks into the stored query tokens of record.
-// It returns errSessionTokensInvalid unless the chunks start at chunk 0, have
-// no gaps, and match the chunk count and byte count of record.
+// It returns errSessionTokensInvalid unless the chunks start at chunk 0,
+// form a continuous sequence, and match the chunk count and byte count of
+// record.
 func assembleSessionTokens(record searchSessionRecord, chunks []fdb.KeyValue) ([]byte, error) {
 	tokens := make([]byte, 0, min(max(record.TokenBytes, 0), maxSessionTokenBytes))
 	contiguous := true
@@ -84,8 +86,9 @@ func assembleSessionTokens(record searchSessionRecord, chunks []fdb.KeyValue) ([
 
 // readSliceChildren reads at most limit plus the token chunk count of record
 // child records in one range read. A query token run that starts within the
-// first limit records ends within that read. It returns errSessionTokensInvalid
-// when record states a chunk count outside 0 to maxSessionTokenChunks.
+// first limit records ends within that read. It returns
+// errSessionTokensInvalid when record states a chunk count outside 0 to
+// maxSessionTokenChunks.
 func readSliceChildren(tr fdb.Transaction, record searchSessionRecord, limit int) ([]fdb.KeyValue, error) {
 	if record.TokenChunks < 0 || record.TokenChunks > maxSessionTokenChunks {
 		operation := fmt.Sprintf("session %s header records %d token chunks, outside 0 to %d", record.ID, record.TokenChunks, maxSessionTokenChunks)
@@ -126,7 +129,8 @@ func (a *sessionAudit) recordChildDelete(sessionID uuid.UUID, part string, ident
 	return a.recordReplayDelete(sessionID, version, replay)
 }
 
-// The tuple decoder returns int64 for a value that fits and uint64 otherwise.
+// The tuple decoder returns int64 for a value that fits and uint64
+// otherwise.
 func replayKeyVersion(identity tuple.TupleElement) (uint64, error) {
 	version, err := strconv.ParseUint(fmt.Sprint(identity), 10, 64)
 	if err != nil {

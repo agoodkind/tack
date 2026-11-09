@@ -25,18 +25,28 @@ type SearchSessionStore struct {
 
 var _ searchdomain.SessionStore = (*SearchSessionStore)(nil)
 
-// NewSearchSessionStore creates the FoundationDB session adapter. Each page
-// commit reads the clock inside its transaction. It sets the idle deadline
-// to idleTimeout after that time or to the absolute deadline, whichever is
-// earlier.
+// NewSearchSessionStore creates the FoundationDB session adapter.
+//
+// Each page commit reads the clock inside its transaction. It sets the idle
+// deadline to idleTimeout after that time or to the absolute deadline,
+// whichever is earlier.
+//
+//   - Replay does not renew either deadline.
 func NewSearchSessionStore(db fdb.Database, source clock.Clock, idleTimeout time.Duration) *SearchSessionStore {
 	return &SearchSessionStore{db: db, clock: source, idleTimeout: idleTimeout}
 }
 
-// Create refuses a session when the authority no longer writes the session's access version.
-// If the create transaction ends after a commit that may have applied, Create
-// also commits an incomplete session write event. If that event cannot commit,
-// the returned error matches audit.ErrEventNotRecorded.
+// Create refuses a session when the authority no longer writes the session's
+// access version.
+//
+// An uncertain create commit also requires an incomplete session write
+// event. If that event cannot commit, the returned error matches
+// audit.ErrEventNotRecorded.
+//
+//   - The create transaction saves the header and query token chunks
+//     together.
+//   - It also saves expiry, index presence, and access version presence
+//     entries.
 func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Session) (created searchdomain.Session, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.create")(&err)
 	if session.ID == uuid.Nil || session.Version != 0 || len(session.Snapshot.QueryTokens) == 0 || session.Snapshot.PITID == "" {
@@ -94,9 +104,14 @@ func (s *SearchSessionStore) Create(ctx context.Context, session searchdomain.Se
 	return session, nil
 }
 
-// Load reads the session header and reassembles its query tokens. For a
-// closing session, it returns the header without query tokens, because
+// Load reads the session header and reassembles its query tokens.
+//
+// A closing session returns its header without query tokens because
 // CleanupSlice deletes the token chunks before the header.
+//
+//   - An absent header returns [searchdomain.ErrSessionNotFound].
+//   - An open session requires token chunks that match the header's chunk
+//     and byte counts.
 func (s *SearchSessionStore) Load(ctx context.Context, sessionID uuid.UUID) (loaded searchdomain.Session, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.load")(&err)
 	var record searchSessionRecord

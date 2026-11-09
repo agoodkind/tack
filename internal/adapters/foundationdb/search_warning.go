@@ -80,9 +80,11 @@ func writeWarningValue[V node.PropertyDiagnostic | stagedWarningVersion](ctx con
 }
 
 // promotePropertyWarnings replaces the node's verified warnings with the
-// staged warnings for the claimed work class after indexing completes. It
-// preserves the verified set if the staged revision or projection differs,
-// or if the verified revision is newer. It then clears the staged set.
+// staged warnings for the claimed work class after indexing completes. A
+// staged revision or projection mismatch preserves both sets. A newer
+// verified revision preserves the verified set. With a matching staged
+// revision and projection, the function clears the staged set after checking
+// the verified revision.
 func promotePropertyWarnings(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, revision int64, projection string) error {
 	class := string(work.Class)
 	encoded, err := tr.Get(fdb.Key(stagedWarningVersionKey(class, work.OrgID, work.NodeID))).Get()

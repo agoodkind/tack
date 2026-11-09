@@ -15,8 +15,8 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// maxRecordedRetryCodes bounds the retried FoundationDB error codes that
-// one session transaction failure log lists.
+// maxRecordedRetryCodes bounds the retried FoundationDB error codes that one
+// session transaction failure log lists.
 const maxRecordedRetryCodes = 8
 
 const transactionTooOld = 1007
@@ -139,10 +139,10 @@ type commitUncertainError struct{ err error }
 func (e commitUncertainError) Error() string { return e.err.Error() }
 func (e commitUncertainError) Unwrap() error { return e.err }
 
-// commitMayHaveApplied reports whether a commit error leaves the commit result
-// unknown. It returns false for a nil error and for FoundationDB errors 1020
-// and 1007, which indicate that the commit did not apply. It returns true for
-// every other error.
+// commitMayHaveApplied reports whether a commit error leaves the commit
+// result unknown. It returns false for a nil error and for FoundationDB
+// errors 1020 and 1007, which indicate that the commit did not apply. It
+// returns true for every other error.
 func commitMayHaveApplied(err error) bool {
 	var databaseError fdb.Error
 	if err == nil {
@@ -161,9 +161,9 @@ func markCommitUncertain(err error, uncertain bool) error {
 	return err
 }
 
-// searchTimeoutError represents a public search read or session operation that
-// ended with FoundationDB error 1031 or at its context deadline. It preserves
-// the text of err and wraps [searchdomain.ErrEngineUnavailable].
+// searchTimeoutError represents a public search read or session operation
+// that ended with FoundationDB error 1031 or at its context deadline. It
+// preserves the text of err and wraps [searchdomain.ErrEngineUnavailable].
 type searchTimeoutError struct{ err error }
 
 func (e searchTimeoutError) Error() string { return e.err.Error() }
@@ -173,9 +173,9 @@ func (e searchTimeoutError) Unwrap() []error {
 }
 
 // classifySearchTimeout returns err as a searchTimeoutError when err wraps
-// FoundationDB error 1031 or [context.DeadlineExceeded]. It returns every other
-// err unchanged. It returns [context.Canceled] unchanged because the caller
-// stopped waiting.
+// FoundationDB error 1031 or [context.DeadlineExceeded]. It returns every
+// other err unchanged. It returns [context.Canceled] unchanged because the
+// caller stopped waiting.
 func classifySearchTimeout(err error) error {
 	var databaseError fdb.Error
 	timedOut := errors.As(err, &databaseError) && databaseError.Code == transactionTimedOut

@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	// recordCleanupFailureOperation is the operation label of the failure
-	// event transaction.
+	// recordCleanupFailureOperation is the operation label of the failure event
+	// transaction.
 	recordCleanupFailureOperation = "record search session cleanup failure"
 	// cleanupFailureMessage is the fixed message of a cleanup failure event.
 	// The event does not store the raw database error.
@@ -27,8 +27,8 @@ const (
 	cleanupNotStartedMessage = "the request deadline or cancellation ended the request before the cleanup step started"
 )
 
-// sessionNotStartedError marks a session transaction that returned without an
-// attempt because its context had ended. It preserves the text of err.
+// sessionNotStartedError marks a session transaction that returned without
+// an attempt because its context had ended. It preserves the text of err.
 type sessionNotStartedError struct{ err error }
 
 func (e sessionNotStartedError) Error() string { return e.err.Error() }
@@ -37,14 +37,16 @@ func (e sessionNotStartedError) Unwrap() []error {
 }
 
 // RecordCleanupFailure commits one database change result event for step
-// under the operation on ctx. The event has the failed outcome. The step
-// could have committed when cause wraps commitUncertainError. In that
-// case, the event has the incomplete outcome and the
-// cleanup_result_uncertain code. The method ignores cancellation of ctx
-// and ends after [audit.ExternalResultDeadline]. The event uses the
-// organization and owner of the stored session. If the header is absent
-// or cannot decode, the event uses the system organization and omits
-// the owner.
+// under the operation on ctx.
+//
+// It ignores cancellation of ctx and ends after
+// [audit.ExternalResultDeadline]. The stored session supplies the
+// organization and owner. An absent or undecodable header uses the system
+// organization and omits the owner.
+//
+//   - A definite failure uses the failed outcome.
+//   - A cause that wraps commitUncertainError uses the incomplete outcome
+//     and cleanup_result_uncertain because the step could have committed.
 func (s *SearchSessionStore) RecordCleanupFailure(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, cause error) error {
 	slog.ErrorContext(ctx, "search.session.cleanup_failed", slog.String("err", cause.Error()),
 		slog.String("session_id", sessionID.String()), slog.String("step", string(step)))
@@ -86,13 +88,13 @@ func appendCleanupFailure(ctx context.Context, tr fdb.Transaction, changes *sess
 	return NewOutboxWriter(tr).WriteEncodedEvent(ctx, encoded)
 }
 
-// cleanupFailureEvent builds the result event for step. It sets the
-// failed outcome, step as the code, and cleanupFailureMessage. When
-// cause wraps commitUncertainError, it sets the incomplete outcome,
+// cleanupFailureEvent builds the result event for step. It sets the failed
+// outcome, step as the code, and cleanupFailureMessage. When cause wraps
+// commitUncertainError, it sets the incomplete outcome,
 // retireResultUncertainCode, and retireResultUncertainMessage. When cause
 // wraps sessionNotStartedError, it sets cleanupNotStartedCode and
-// cleanupNotStartedMessage. The event ID derives from the operation base
-// and step.
+// cleanupNotStartedMessage. The event ID derives from the operation base and
+// step.
 func cleanupFailureEvent(ctx context.Context, changes *sessionAudit, target audit.Target, step searchdomain.CleanupStep, cause error) (audit.Event, error) {
 	details := audit.OutcomeDetails{
 		Outcome: audit.OutcomeFailed, FailureCode: string(step), FailureMessage: cleanupFailureMessage, CommittedSteps: nil,

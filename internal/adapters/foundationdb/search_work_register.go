@@ -12,18 +12,23 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Register verifies one page against the claim and the stored checkpoint and records its
-// document ID before the OpenSearch write. The verification checks the desired generation,
-// owner, lease, serving index, revision, projection version, access generation, write versions,
-// and ordinal. Each registration writes a new issued key that includes the projection version
-// and never replaces an issued ID. Register returns ErrContentChanged when an earlier owner
-// registered the same ordinal of this revision under another projection. The worker then
-// schedules a new revision, and cleanup retires every issued ID of the older revision.
-// While the node's access record tracks page access, the same transaction records the page's
-// access there.
-// Register adopts and selects pending deadlines in this transaction.
-// intent.Pending applies to work.Target. intent.MirrorMissed applies to work.Mirror
-// and retains the later live or copy deadline.
+// Register verifies one page against the claim and stored checkpoint and
+// records its document ID before the OpenSearch write.
+//
+// The verification checks the desired generation, owner, lease, serving
+// index, revision, projection version, access generation, write versions,
+// and ordinal. Each registration writes an issued key that includes the
+// projection version and never replaces an issued ID. While the access
+// record tracks page access, the same transaction records the page's access
+// there. It also adopts and selects pending deadlines.
+//
+//   - If an earlier owner registered this revision and ordinal under another
+//     projection, Register returns ErrContentChanged. The worker then
+//     schedules a new revision, and cleanup retires every issued ID of the
+//     older revision.
+//   - intent.Pending applies to work.Target.
+//   - intent.MirrorMissed applies to work.Mirror and retains the later live
+//     or copy deadline.
 func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, page node.ContentPage) (intent searchdomain.WriteIntent, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.register")(&err)
 	if pageErr := searchdomain.ValidatePage(work, page); pageErr != nil {
@@ -102,8 +107,8 @@ func requireOneProjection(ctx context.Context, tr fdb.Transaction, work searchdo
 	return nil
 }
 
-// verifyPage requires page to be the next page of the claimed revision and returns the node's
-// access record.
+// verifyPage requires page to be the next page of the claimed revision and
+// returns the node's access record.
 func (s *SearchWorkStore) verifyPage(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, page node.ContentPage, revision int64) (searchAccessRecord, error) {
 	var access searchAccessRecord
 	record, err := s.verifyClaim(ctx, tr, work)

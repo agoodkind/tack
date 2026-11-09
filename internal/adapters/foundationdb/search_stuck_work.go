@@ -16,10 +16,16 @@ import (
 // maxAttemptPage bounds the attempt counts one listing read examines.
 const maxAttemptPage = 100
 
-// SearchStuckWork reads one page of at most maxAttemptPage attempt counts of
-// every work class after cursor. The page lists each work item with a count
-// at or past searchFailureLimit, and the last failure message of that item.
-// An empty cursor starts at the first count.
+// SearchStuckWork reads one page of at most maxAttemptPage attempt counts
+// across every work class after cursor.
+//
+// The result lists each work item with a count at or past searchFailureLimit
+// and its last failure message. An empty cursor starts at the first count.
+//
+//   - Counts below the failure limit consume page entries without producing
+//     results.
+//   - An additional count produces a next cursor even if the result list is
+//     empty.
 func (s *Stores) SearchStuckWork(ctx context.Context, cursor string) (page searchdomain.StuckWorkPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_attempt.list")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

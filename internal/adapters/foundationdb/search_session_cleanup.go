@@ -20,9 +20,14 @@ const maxSessionCleanupKeys = 100
 const expirySessionIDPosition = 3
 
 // BeginCleanup marks the session as closing, clears its version presence
-// entry, and records the change in one transaction. A closing session does
-// not accept a page commit. BeginCleanup returns nil for an absent or already
-// closing session and does not record changes for those sessions.
+// entry, and records the change in one transaction.
+//
+// A closing session does not accept a page commit. BeginCleanup returns nil
+// for an absent or already closing session and does not record changes for
+// those sessions.
+//
+//   - Closing preserves the header for later cleanup slices.
+//   - CleanupSlice removes the child records before removing that header.
 func (s *SearchSessionStore) BeginCleanup(ctx context.Context, sessionID uuid.UUID) error {
 	return s.beginCleanup(ctx, sessionID, nil)
 }
@@ -67,13 +72,16 @@ func (s *SearchSessionStore) beginCleanup(ctx context.Context, sessionID uuid.UU
 	return nil
 }
 
-// CleanupSlice deletes up to limit child records of a closing session in key
-// order and records each removed value in the same transaction. If a query
-// token run starts within the first limit records, it also deletes the rest of
-// that run. If it deletes fewer than limit child records, it also deletes the
-// header and the expiry, presence, and version presence keys. It reports
-// whether the session is gone and logs search.session.deleted only when this
-// call removes the header.
+// CleanupSlice deletes child records of a closing session in key order and
+// records each removed value in the same transaction.
+//
+// It normally deletes up to limit children. It also deletes the rest of a
+// query token run that starts within the first limit records. The result
+// reports whether the session is gone.
+//
+//   - A slice that deletes fewer than limit children also removes the header
+//     and the expiry, presence, and version presence keys.
+//   - The call logs search.session.deleted only when it removes the header.
 func (s *SearchSessionStore) CleanupSlice(ctx context.Context, sessionID uuid.UUID, limit int) (bool, error) {
 	return s.cleanupSlice(ctx, sessionID, limit, nil)
 }
@@ -145,9 +153,13 @@ func (s *SearchSessionStore) cleanupSlice(ctx context.Context, sessionID uuid.UU
 }
 
 // ExpiredSessions returns at most limit session IDs with expiry keys in
-// minute buckets earlier than the current minute. It starts with the oldest
-// minute bucket. Within a minute it orders results by bucket and session ID
-// rather than age.
+// minute buckets earlier than the current minute.
+//
+// It starts with the oldest minute bucket. Within a minute, it orders
+// results by bucket and session ID rather than age.
+//
+//   - If an expiry key contains an invalid session ID, ExpiredSessions
+//     returns an error. It does not return any IDs from that read.
 func (s *SearchSessionStore) ExpiredSessions(ctx context.Context, limit int) (sessionIDs []uuid.UUID, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.expired")(&err)
 	begin, end := searchSessionExpiryRange(s.clock.Now())

@@ -68,9 +68,10 @@ func plainSessionMembers(record searchSessionRecord) (map[string]json.RawMessage
 	return members, nil
 }
 
-// protectedSessionMembers returns the raw JSON value of each protected member
-// of state. Text and access keys always exist. Sort exists after the first
-// committed position, and query_tokens exists when state.tokens is not empty.
+// protectedSessionMembers returns the raw JSON value of each protected
+// member of state. Text and access keys always exist. Sort exists after the
+// first committed position, and query_tokens exists when state.tokens is not
+// empty.
 func protectedSessionMembers(state sessionState) (map[string]json.RawMessage, error) {
 	text, err := encodeSessionValue(state.record.Text)
 	if err != nil {

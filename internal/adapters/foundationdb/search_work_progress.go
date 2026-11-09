@@ -9,9 +9,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// CompletePage commits the page checkpoint and any owed replacement copy
-// in one FoundationDB transaction. A mirror failure does not prevent progress
-// after the target index accepts the page.
+// CompletePage commits the page checkpoint and any owed replacement copy in
+// one FoundationDB transaction.
+//
+// A mirror failure does not prevent progress after the target index accepts
+// the page. The transaction schedules the owed copy before saving the
+// checkpoint.
+//
+//   - A final page changes the work phase to refresh.
+//   - Another page keeps the pages phase and increments the next ordinal.
 func (s *SearchWorkStore) CompletePage(ctx context.Context, intent searchdomain.WriteIntent, cursor string, done bool) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.complete_page")(&err)
 	work := intent.Work
@@ -51,9 +57,14 @@ func (s *SearchWorkStore) CompletePage(ctx context.Context, intent searchdomain.
 }
 
 // CompleteRefresh finishes content work after the worker refreshes the
-// claimed index, and schedules retirement of every older revision. It clears
-// the node's exclusion. A replacement copy finishes without scheduling
-// retirement. Live work schedules cleanup for older revisions.
+// claimed index.
+//
+// It clears the node's exclusion. Live work schedules cleanup to retire
+// every older revision. A replacement copy finishes without scheduling
+// retirement.
+//
+//   - Work outside the refresh phase returns [searchdomain.ErrWorkChanged].
+//   - An obsolete projection restarts work before completion.
 func (s *SearchWorkStore) CompleteRefresh(ctx context.Context, work searchdomain.Work) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.complete_refresh")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -99,8 +110,15 @@ func (s *SearchWorkStore) CompleteRefresh(ctx context.Context, work searchdomain
 	return nil
 }
 
-// Restart schedules a new content revision when the projected text changed
+// Restart schedules a new content revision when the projected text changes
 // under a continuation cursor.
+//
+// The transaction verifies the current claim and clears it before scheduling
+// the content change. The new revision replaces work tied to the previous
+// text.
+//
+//   - Content scheduling increments the node generation.
+//   - The new live work begins without the previous content checkpoint.
 func (s *SearchWorkStore) Restart(ctx context.Context, work searchdomain.Work) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.restart")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -117,7 +135,14 @@ func (s *SearchWorkStore) Restart(ctx context.Context, work searchdomain.Work) (
 	return nil
 }
 
-// Yield releases a claim while leaving its durable work and checkpoint pending.
+// Yield releases a claim while leaving its durable work and checkpoint
+// pending.
+//
+// The transaction verifies the claim before clearing its key. Yield does not
+// record a failure or delay the next claim.
+//
+//   - A later owner can resume from the saved checkpoint.
+//   - A changed claim returns [searchdomain.ErrWorkChanged].
 func (s *SearchWorkStore) Yield(ctx context.Context, work searchdomain.Work) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.yield")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -134,9 +159,13 @@ func (s *SearchWorkStore) Yield(ctx context.Context, work searchdomain.Work) (er
 }
 
 // Release records one failure and delays the next claim of the same work.
-// The work stays pending in every class. Release logs the work item once
-// when a counted failure sets its attempt count to searchFailureLimit. The
-// item keeps retrying.
+//
+// The work stays pending in every class and keeps retrying. Release logs the
+// work item once when a counted failure sets its attempt count to
+// searchFailureLimit.
+//
+//   - A counted failure contributes to the attempt count.
+//   - An uncounted failure preserves the attempt count.
 func (s *SearchWorkStore) Release(ctx context.Context, work searchdomain.Work, failure searchdomain.Failure) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.release")(&err)
 	var outcome failureOutcome

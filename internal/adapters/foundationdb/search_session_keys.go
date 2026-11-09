@@ -127,8 +127,8 @@ func parseRetireAttemptKey(key fdb.Key) (uuid.UUID, searchdomain.CleanupStep, uu
 	return sessionID, searchdomain.CleanupStep(stepText), eventID, nil
 }
 
-// searchSessionVersionKey orders one session's version presence entry by
-// the minute of its absolute deadline.
+// searchSessionVersionKey orders one session's version presence entry by the
+// minute of its absolute deadline.
 func searchSessionVersionKey(authorityID uuid.UUID, version string, absolute time.Time, sessionID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{
 		keySearchSessionVersion, authorityID.String(), version, searchSessionMinute(absolute),
@@ -136,8 +136,8 @@ func searchSessionVersionKey(authorityID uuid.UUID, version string, absolute tim
 	}.Pack())
 }
 
-// searchSessionVersionPrefix returns the key prefix of every version presence
-// entry of one authority and access version.
+// searchSessionVersionPrefix returns the key prefix of every version
+// presence entry of one authority and access version.
 func searchSessionVersionPrefix(authorityID uuid.UUID, version string) []byte {
 	return withPrefix(tuple.Tuple{keySearchSessionVersion, authorityID.String(), version}.Pack())
 }

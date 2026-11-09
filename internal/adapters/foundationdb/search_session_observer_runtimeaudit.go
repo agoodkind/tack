@@ -24,9 +24,15 @@ type sessionObserver struct {
 
 var activeSessionObserver atomic.Pointer[sessionObserver]
 
-// SetSessionObserver sets a test function that receives the approximate size
-// of each committed session transaction and its counts of session value, search
-// record, retirement fence, and child range reads. A nil function clears it.
+// SetSessionObserver sets a test function that receives measurements for
+// each committed session transaction.
+//
+// The function receives the approximate transaction size and the count of
+// session value, search record, retirement fence, and child range reads. A
+// nil function clears the observer.
+//
+//   - A successful tracked transaction reports its measurements once.
+//   - A failed transaction removes its observation without reporting it.
 func SetSessionObserver(report func(operation string, sessionID uuid.UUID, bytes int64, reads int)) {
 	if report == nil {
 		activeSessionObserver.Store(nil)
@@ -91,6 +97,13 @@ func forgetSession(tr fdb.Transaction) {
 
 // PendingSessionObservations returns the number of session transactions that
 // the test observer tracks and has not yet reported or removed.
+//
+// The count includes observations until reportSession or forgetSession
+// removes them. The function reads the count under the observer's mutex.
+//
+//   - An unset observer returns zero.
+//   - After SetSessionObserver installs a replacement, this count excludes
+//     transactions that only the previous observer tracked.
 func PendingSessionObservations() int {
 	observer := activeSessionObserver.Load()
 	if observer == nil {

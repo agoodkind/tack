@@ -11,10 +11,10 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// writeSearchWork writes record for class together with its class-age
-// entry. A rewrite of a previous record stores the earlier of the two
-// enqueue times. It clears the previous class-age entry and writes the
-// class-age entry at the stored enqueue time.
+// writeSearchWork writes record for class together with its class-age entry.
+// A rewrite of a previous record stores the earlier of the two enqueue
+// times. It clears the previous class-age entry and writes the class-age
+// entry at the stored enqueue time.
 func writeSearchWork(ctx context.Context, tr fdb.Transaction, class searchdomain.WorkClass, record searchWorkRecord, previous *searchWorkRecord) error {
 	bucket := searchBucket(record.OrgID, record.NodeID)
 	if previous != nil {
@@ -32,8 +32,8 @@ func removeSearchWork(tr fdb.Transaction, class searchdomain.WorkClass, record s
 	tr.Clear(fdb.Key(searchAgeKey(string(class), bucket, record.EnqueuedAt, record.OrgID, record.NodeID)))
 }
 
-// dropSearchWork clears a work item that a claim scan cannot claim.
-// The scan rejects the item when the class lacks a target in the current claim scope
+// dropSearchWork clears a work item that a claim scan cannot claim. The scan
+// rejects the item when the class lacks a target in the current claim scope
 // or the record generation differs from the desired generation.
 func dropSearchWork(tr fdb.Transaction, class searchdomain.WorkClass, record searchWorkRecord) {
 	removeSearchWork(tr, class, record)

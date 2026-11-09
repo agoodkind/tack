@@ -24,25 +24,34 @@ const searchRetryDelay = 5 * time.Second
 type SearchWorkStore struct {
 	db    fdb.Database
 	clock clock.Clock
-	// rotation advances for each Claim that finds pending buckets and
-	// selects its starting position among the oldest ClaimBucketChoices
-	// buckets. Workers sharing the store use the same counter for
-	// consecutive and concurrent claims.
+	// rotation advances for each Claim that finds pending buckets and selects
+	// its starting position among the oldest ClaimBucketChoices buckets.
+	// Workers sharing the store use the same counter for consecutive and
+	// concurrent claims.
 	rotation atomic.Int64
 }
 
-// NewSearchWorkStore creates the FoundationDB search work adapter and
-// starts the claim rotation counter at the injected clock's current time
+// NewSearchWorkStore creates the FoundationDB search work adapter.
+//
+// It starts the claim rotation counter at the injected clock's current time
 // in Unix nanoseconds. The clock also sets and checks claim leases.
+//
+//   - Stores maintain separate rotation counters.
+//   - Workers that share a store also share its counter.
 func NewSearchWorkStore(db fdb.Database, source clock.Clock) *SearchWorkStore {
 	store := &SearchWorkStore{db: db, clock: source, rotation: atomic.Int64{}}
 	store.rotation.Store(source.Now().UnixNano())
 	return store
 }
 
-// InitializeSearchIndex records the serving physical index that every claim
-// targets. Recording the same index again succeeds. The operation refuses
-// to replace a different recorded index.
+// InitializeSearchIndex records the serving physical index.
+//
+// Recording the same index again succeeds. The operation refuses to replace
+// a different recorded index. Ordinary claims use the serving index, while
+// replacement copy claims write only the replacement index.
+//
+//   - An empty index name fails validation.
+//   - An absent serving-index record permits the supplied index.
 func (s *Stores) InitializeSearchIndex(ctx context.Context, index string) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.initialize_index")(&err)
 	if index == "" {
@@ -67,16 +76,17 @@ func (s *Stores) InitializeSearchIndex(ctx context.Context, index string) (err e
 }
 
 // Claim leases one item of the requested class. A rescan claim first runs
-// one bounded step of the projection sweep. One read finds pending buckets
-// and each bucket's first age key. The store rotation selects the first
-// bucket among the ClaimBucketChoices buckets with the oldest first items.
-// Claim tries the rest of those buckets in rotation order, then the
-// remaining buckets oldest first. Within each bucket, it claims the oldest
-// claimable item.
+// one bounded step of the projection sweep.
 //
-// Claim returns false and a nil error when the pending buckets do not
-// contain a claimable item. The store.search_work.claim operation records
-// an empty claim as a success.
+// One read finds pending buckets and each bucket's first age key. Within
+// each bucket, Claim selects the oldest claimable item. It returns false and
+// a nil error when the pending buckets do not contain a claimable item. The
+// store.search_work.claim operation records an empty claim as a success.
+//
+//   - Rotation selects the first bucket among the ClaimBucketChoices buckets
+//     with the oldest first items.
+//   - Claim tries the rest of those buckets in rotation order.
+//   - It then tries the remaining buckets oldest first.
 func (s *SearchWorkStore) Claim(ctx context.Context, class searchdomain.WorkClass, owner string, lease time.Duration) (work searchdomain.Work, claimed bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.claim")(&err)
 	var none searchdomain.Work
@@ -135,12 +145,12 @@ func (s *SearchWorkStore) claimFirstItem(
 }
 
 // pendingBuckets returns each bucket of class that has an age key and the
-// part of its first age key after the bucket prefix.
-// It first calls [classHasAgeKey] in the same transaction. If the class
-// does not have an age key, it returns an empty list without probing buckets.
-// Otherwise, it issues one key selector per bucket across all 256 buckets.
-// Every read in the transaction uses a snapshot read. Snapshot reads do not
-// add read conflict ranges.
+// part of its first age key after the bucket prefix. It first calls
+// [classHasAgeKey] in the same transaction. If the class does not have an
+// age key, it returns an empty list without probing buckets. Otherwise, it
+// issues one key selector per bucket across all 256 buckets. Every read in
+// the transaction uses a snapshot read. Snapshot reads do not add read
+// conflict ranges.
 func (s *SearchWorkStore) pendingBuckets(ctx context.Context, class searchdomain.WorkClass) ([]pendingBucket, error) {
 	pending := make([]pendingBucket, 0, searchWorkBuckets)
 	err := transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

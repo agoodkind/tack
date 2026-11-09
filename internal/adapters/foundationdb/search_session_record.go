@@ -29,8 +29,8 @@ const (
 	maxSessionTokenBytes = maxSessionTokenChunks * sessionTokenChunkBytes
 )
 
-// searchSessionRecord is the bounded session header. Query tokens are stored
-// in separate chunk keys.
+// searchSessionRecord stores the bounded session header. Separate chunk keys
+// store its query tokens.
 type searchSessionRecord struct {
 	ID               uuid.UUID       `json:"id"`
 	PrincipalID      uuid.UUID       `json:"principal_id"`
