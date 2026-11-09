@@ -35,10 +35,19 @@ test's engine topology and workload. They do not measure production disk
 headroom.
 
 A background-traffic estimate separates deployment and measurement operations
-from the remaining workload. Its rate uses the remaining record or ledger
-count and the corresponding observation duration. A separate busy interval
-measures user activity. Neither interval alone establishes the installation's
-future traffic rate.
+from the remaining workload. The estimate and the busy interval measure
+different activity.
+
+Traffic measurement inputs:
+
+| Quantity | Measurement and qualification |
+| --- | --- |
+| Remaining workload count | The count includes the remaining records or ledger events after subtracting records or ledger events attributable to deployment and measurement operations. |
+| Observation duration | The duration corresponds to the remaining workload count. |
+| Background-traffic rate | The rate equals the remaining record or ledger count divided by its corresponding observation duration. |
+| Busy interval | A separate interval measures user activity. |
+
+Neither interval alone establishes the installation's future traffic rate.
 
 ## Distinguish records from events
 

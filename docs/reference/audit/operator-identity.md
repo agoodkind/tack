@@ -71,7 +71,20 @@ Credential inputs must use environment variables or secret-file references. Logs
 
 `ops auth token-create` matches an active user's email after trimming whitespace and preserving its case. `ops auth token-list` and `ops auth token-revoke` can resolve inactive holders. Issuance and revocation use the holder's sole organization when the holder has exactly one membership. With zero or multiple memberships, they use the reserved system organization.
 
-`token-create` selects a token ID before insertion, stores only the hash of the bearer value, and returns the bearer once in the successful command result. Each executed create or revoke attempt that passes identity and audit validation gets a new operation ID. After saving intent and running the command, the handler attempts to record its result even if the command failed. A failed outbox write returns a recording error. Revocation requires the token ID. If `--id` contains an invalid value, the command rejects it without echoing the input.
+`token-create` selects a token ID before insertion, stores only the hash of the bearer value, and returns the bearer once in the successful command result.
+
+The handler records executed create and revoke attempts under these conditions.
+
+Token operation recording:
+
+| Condition | Handler behavior |
+| --- | --- |
+| An executed attempt passes identity and audit validation. | The handler assigns a new operation ID. |
+| The handler saves intent. | The handler runs the command. |
+| The command succeeds or fails. | The handler attempts to record the result. |
+| An outbox write fails. | The handler returns a recording error. |
+
+Revocation requires the token ID. If `--id` contains an invalid value, the command rejects it without echoing the input.
 
 The command uses recorded revocation for both recovery cases. Each revocation gets a 30-second deadline independent of request cancellation.
 

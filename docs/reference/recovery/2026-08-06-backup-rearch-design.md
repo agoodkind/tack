@@ -9,9 +9,10 @@ hypervisor do not provide protection against hypervisor loss.
 
 Loss of one guest must not lose acknowledged data or stop the service beyond
 the accepted recovery bounds. Backup artifacts must survive guest and hypervisor
-loss in off-host object storage. Backup capture must use engine-native snapshots,
-advance automatically, and pass scheduled restoration checks. Stateful services
-must distribute replicas across separate guests.
+loss in off-host object storage. Backup capture must use engine-native snapshots.
+The latest restorable point must advance automatically. Backups must pass
+scheduled restoration checks. Stateful services must distribute replicas across
+separate guests.
 
 Backup orchestration and rehearsals must use a non-serving guest. Database
 snapshot creation may remain on a serving node because it links existing files;

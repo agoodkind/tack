@@ -43,7 +43,20 @@ Execution reports `applied`, `unchanged`, `conflicted`, `unresolved` and `failed
 
 ## Interpreting the captured inventory
 
-The October 16 inventory and the final repair list measured different populations. The inventory read 5,090 views across 11 registered types in the main organization. It compared 454 suspect primary records with their views. Every property map matched. Three parent UUIDs lacked primary, view and resolution records. Search reported 450 exclusions. Of these, 443 concerned the hierarchy and seven concerned undeclared properties. Search reported zero stuck items. The inventory classified 2,909 distinct records. Classes overlapped. Each captured record included the evidence, intended action, source hash, review reasons and an explicit marker that disabled execution. TACK-582 preserves the inventory and all 178 parent mappings. Its classifications alone could not authorize execution.
+The October 16 inventory and the final repair list measured different populations. The inventory measured records in the main organization.
+
+Inventory measurements:
+
+| Measurement | Result and scope |
+| --- | --- |
+| Views read | The inventory read 5,090 views across 11 registered types. |
+| Primary records compared with views | The inventory compared 454 suspect primary records. Every property map matched. |
+| Missing parent records | Three parent UUIDs lacked primary, view and resolution records. |
+| Search exclusions | Search reported 450 exclusions: 443 concerned the hierarchy and seven concerned undeclared properties. |
+| Stuck search items | Search reported zero stuck items. |
+| Classified records | The inventory classified 2,909 distinct records. Classes overlapped. |
+
+Each captured record included the evidence, intended action, source hash, review reasons and an explicit marker that disabled execution. TACK-582 preserves the inventory and all 178 parent mappings. Its classifications alone could not authorize execution.
 
 The captured classifications support comparison with the protected production exports. The exports remained outside the repository.
 
