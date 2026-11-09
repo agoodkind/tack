@@ -40,6 +40,12 @@ type Status struct {
 }
 
 // Highest returns the highest embedded migration version.
+//
+// Available stores migrations in version order. Highest reads that ordered
+// slice as follows:
+//
+//   - An empty slice returns zero.
+//   - A nonempty slice returns the last migration's Version.
 func (s Status) Highest() int64 {
 	if len(s.Available) == 0 {
 		return 0
@@ -47,7 +53,14 @@ func (s Status) Highest() int64 {
 	return s.Available[len(s.Available)-1].Version
 }
 
-// Summary returns the migration state as short text lines.
+// Summary returns migration state as short text lines.
+//
+// The summary includes the applied version, highest embedded version, and image
+// commit. It formats table presence and pending files as follows:
+//
+//   - The migration table appears as present or absent.
+//   - Pending migrations appear as comma-separated file names.
+//   - An empty pending list appears as none.
 func (s Status) Summary() string {
 	table := "absent"
 	if s.MigrationTablePresent {
@@ -66,8 +79,15 @@ func (s Status) Summary() string {
 		table, s.AppliedVersion, s.Highest(), pending, s.ImageCommit)
 }
 
-// Available returns the embedded migrations in version order with the SHA-256
-// hash of each file's contents.
+// Available returns embedded migrations in version order with the SHA-256 hash
+// of each file's contents.
+//
+// The function reads SQL files from migrationsFS and builds each Migration with
+// the following information:
+//
+//   - Version uses the file name's numeric component.
+//   - Name records the file name.
+//   - SHA256 records the content hash as hexadecimal text.
 func Available(ctx context.Context, migrationsFS fs.FS) ([]Migration, error) {
 	names, err := fs.Glob(migrationsFS, migrationGlob)
 	if err != nil {
@@ -99,10 +119,16 @@ func Available(ctx context.Context, migrationsFS fs.FS) ([]Migration, error) {
 	return available, nil
 }
 
-// Read reports the migration state of the database at dsn in one read-only
-// transaction. It uses to_regclass to check whether the goose version table
-// exists and considers only rows with is_applied when reading the highest
-// applied version.
+// Read reports migration state for the database at dsn in one read-only
+// transaction.
+//
+// The function checks table existence with to_regclass and reads the highest
+// version only from rows with is_applied. It combines that state with the
+// embedded migrations:
+//
+//   - An absent goose version table gives an applied version of zero.
+//   - Pending contains migrations above the applied version.
+//   - ImageCommit records the running image's commit.
 func Read(ctx context.Context, dsn string, migrationsFS fs.FS) (Status, error) {
 	available, err := Available(ctx, migrationsFS)
 	if err != nil {

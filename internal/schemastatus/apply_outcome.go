@@ -32,8 +32,14 @@ func rangeTarget(fromVersion, toVersion int64) audit.Target {
 	}
 }
 
-// MigrationTargets returns one external target per migration, in the order of
-// migrations.
+// MigrationTargets returns one external audit target per migration in input
+// order.
+//
+// Each target identifies one file within the database migration state:
+//
+//   - Reference combines database/migrations with the migration's Name.
+//   - Kind is audit.TargetKindExternal.
+//   - The target does not specify node or relationship IDs.
 func MigrationTargets(migrations []Migration) []audit.Target {
 	targets := make([]audit.Target, 0, len(migrations))
 	for _, migration := range migrations {
@@ -46,9 +52,9 @@ func MigrationTargets(migrations []Migration) []audit.Target {
 	return targets
 }
 
-// observedOutcome returns the run outcome based on the final applied version.
-// CommittedSteps lists the file names of planned migrations at or below that
-// version.
+// observedOutcome returns the run outcome from the final applied version.
+// For a partially completed run, CommittedSteps records the file names of
+// planned migrations at or below that version.
 func observedOutcome(planned []Migration, applied, target int64, migrateErr error) audit.OutcomeDetails {
 	if applied == target {
 		return completedOutcome()

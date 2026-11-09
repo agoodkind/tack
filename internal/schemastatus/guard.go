@@ -16,9 +16,17 @@ type Guard struct {
 	To int64
 }
 
-// Target returns the target migration version for guard and status. It
-// returns an error when the database state or target version prevents the
-// run.
+// Target returns the target migration version for guard and status.
+//
+// The function returns an error when the database state or target version
+// prevents the run. It checks the following conditions:
+//
+//   - The image must embed at least one migration.
+//   - A nonzero ExpectFrom must match the applied version.
+//   - A zero To selects the highest embedded version unless the database is
+//     already above that version.
+//   - A nonzero To must be at least the applied version and at most the highest
+//     embedded version.
 func Target(ctx context.Context, status Status, guard Guard) (int64, error) {
 	highest := status.Highest()
 	if highest == 0 {

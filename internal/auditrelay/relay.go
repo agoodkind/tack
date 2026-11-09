@@ -114,8 +114,15 @@ func (s foundationDBOutbox) ClearThroughPublished(ctx context.Context, mark []by
 	return nil
 }
 
-// Open builds the relay from cfg. Tests and cmd/audit-consumer use this
-// function.
+// Open builds the relay from cfg for tests and the audit-consumer command.
+//
+// Open opens the YugabyteDB pool before initializing the optional FoundationDB
+// reader and Kafka recorder. Setup failures release resources that Open already
+// created:
+//
+//   - A FoundationDB setup error closes the pool.
+//   - A Kafka recorder setup error closes the pool.
+//   - A relay setup error closes the pool and recorder.
 func Open(ctx context.Context, cfg Config) (Opened, error) {
 	none := Opened{Relay: nil, Pool: nil, Recorder: nil}
 	pool, err := pgxpool.New(ctx, cfg.YugabyteDSN)
