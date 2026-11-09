@@ -1,4 +1,4 @@
-package main_test
+package metadata_test
 
 import (
 	"os"
@@ -11,17 +11,17 @@ func TestMetadataCommandFailures(t *testing.T) {
 	_, root := newRepository(t)
 	outputPath := filepath.Join(t.TempDir(), "output")
 	t.Run("missing output variable", func(t *testing.T) {
-		expectFailure(t, root, map[string]string{"BRANCH_NAME": "main"}, "GITHUB_OUTPUT: required environment variable is unset")
+		expectFailure(t, root, map[string]string{branchNameKey: mainBranch}, "GITHUB_OUTPUT: required environment variable is unset")
 	})
 	t.Run("missing branch without tag", func(t *testing.T) {
 		expectFailure(t, root, map[string]string{"GITHUB_OUTPUT": outputPath}, "BRANCH_NAME: required environment variable is unset")
 	})
 	t.Run("not a repository", func(t *testing.T) {
-		expectFailure(t, t.TempDir(), map[string]string{"GITHUB_OUTPUT": outputPath, "BRANCH_NAME": "main"}, "open Git checkout")
+		expectFailure(t, t.TempDir(), map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: mainBranch}, "open Git checkout")
 	})
 	t.Run("unwritable output", func(t *testing.T) {
 		directoryPath := t.TempDir()
-		output, err := runMetadata(t, root, map[string]string{"GITHUB_OUTPUT": directoryPath, "BRANCH_NAME": "main"})
+		output, err := runMetadata(t, root, map[string]string{"GITHUB_OUTPUT": directoryPath, branchNameKey: mainBranch})
 		if err == nil || !strings.Contains(output, "open metadata output file") || !strings.Contains(output, directoryPath) {
 			t.Fatalf("err = %v, output = %s", err, output)
 		}
@@ -40,7 +40,7 @@ func TestMetadataCommandStopsWhenStandardOutputFails(t *testing.T) {
 	}
 	defer func() { _ = stdout.Close() }()
 	outputPath := filepath.Join(t.TempDir(), "output")
-	command := metadataCommand(t, root, map[string]string{"GITHUB_OUTPUT": outputPath, "BRANCH_NAME": "main"})
+	command := metadataCommand(t, root, map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: mainBranch})
 	command.Stdout = stdout
 	var standardError strings.Builder
 	command.Stderr = &standardError
@@ -66,7 +66,7 @@ func TestMetadataCommandRejectsConfigurationIncludes(t *testing.T) {
 				}
 				appendText(t, path, test.section)
 				outputPath := filepath.Join(t.TempDir(), "output")
-				expectFailure(t, root, map[string]string{"GITHUB_OUTPUT": outputPath, "BRANCH_NAME": "main"},
+				expectFailure(t, root, map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: mainBranch},
 					"include and includeIf directives are not supported")
 			})
 		}

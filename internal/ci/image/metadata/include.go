@@ -1,4 +1,4 @@
-package main
+package metadata
 
 import (
 	"errors"
@@ -23,15 +23,16 @@ const (
 	containerRunnerTemp         = "/github/runner_temp"
 )
 
-// checkoutCredentialFile matches the file name actions/checkout generates for its
-// HTTP authentication header.
+// checkoutCredentialFile matches the file name actions/checkout generates
+// for its HTTP authentication header.
 var checkoutCredentialFile = regexp.MustCompile(
 	`^git-credentials-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.config$`)
 
-// rejectUnsupportedIncludes fails when the configuration contains an include other
-// than the credential references that actions/checkout writes for this checkout.
-// Those references must share one generated file name and point at the runner
-// temporary directory. This command never opens an included file.
+// rejectUnsupportedIncludes fails when the configuration contains an
+// include other than the credential references that actions/checkout
+// writes for this checkout. Those references must share one generated file
+// name and point at the runner temporary directory. This command never
+// opens an included file.
 func rejectUnsupportedIncludes(raw *format.Config, root string) error {
 	for _, section := range raw.Sections {
 		switch {
@@ -60,9 +61,10 @@ func unsupportedInclude(root string) error {
 	return &os.PathError{Op: unsupportedIncludeOperation, Path: root, Err: errUnsupportedInclude}
 }
 
-// checkoutCredentialReference returns the generated file name when the subsection
-// is one of the includeIf entries actions/checkout writes for this checkout, on the
-// host or in a container, for the checkout or its linked worktrees.
+// checkoutCredentialReference returns the generated file name when the
+// subsection is one of the includeIf entries actions/checkout writes for
+// this checkout, on the host or in a container, for the checkout or its
+// linked worktrees.
 func checkoutCredentialReference(subsection *format.Subsection, root string) (string, bool) {
 	paths := subsection.Options.GetAll("path")
 	if len(subsection.Options) != 1 || len(paths) != 1 {

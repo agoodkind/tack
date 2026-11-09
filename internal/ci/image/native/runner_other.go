@@ -1,12 +1,8 @@
 //go:build !linux && !darwin
 
-package main
+package native
 
 import "fmt"
-
-func handleBrokenPipe() func() {
-	return func() {}
-}
 
 func readRunnerMachine() (string, error) {
 	return "", fmt.Errorf("native runner verification supports Linux and Darwin only")

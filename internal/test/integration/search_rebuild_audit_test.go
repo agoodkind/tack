@@ -82,11 +82,11 @@ func completedStepTargets(t *testing.T, events []audit.Event) map[string]bool {
 	t.Helper()
 	completed := map[string]bool{}
 	for _, event := range events {
-		switch audit.Verb(event.Verb) {
-		case audit.VerbSearchIndexStructure, audit.VerbSearchAccessRolloutPhase:
-		default:
+		verb := audit.Verb(event.Verb)
+		if verb != audit.VerbSearchIndexStructure && verb != audit.VerbSearchAccessRolloutPhase {
 			t.Fatalf("worker event %s uses verb %s; the test allows only the structural verbs", event.EventID, event.Verb)
 		}
+
 		eventContext := event.Context
 		if eventContext.Phase == audit.PhaseResult && eventContext.ParentOperationID != uuid.Nil &&
 			event.Outcome == audit.OutcomeCompleted && eventContext.Target != nil {

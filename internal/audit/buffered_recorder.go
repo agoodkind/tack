@@ -1,8 +1,6 @@
-// buffered_recorder.go takes read-class audit events off the request path: a
-// request hands its event to an in-process queue and answers, and a flusher
-// delivers the queue in batches (TACK-506). State-change events keep their
-// synchronous path, because a write must not answer before its ledger row is
-// on its way.
+// buffered_recorder.go queues read-class audit events for a flusher to deliver
+// in batches (TACK-506). The recorder stores auth.token_used before returning.
+// It also records state-change events synchronously before the request returns.
 
 package audit
 
@@ -36,11 +34,9 @@ const (
 	batchFlushTimeout = 30 * time.Second
 )
 
-// BufferedRecorder queues read-class events and delivers them in batches
-// through inner. The flusher retains each event that inner did not accept and
-// delivers it again later. Record appends an event that finds the queue full
-// to overflow, the durable outbox the relay drains, and returns an error when
-// that append fails. With no overflow configured the request waits for room.
+// BufferedRecorder queues read-class events except auth.token_used, which it
+// records before returning. When the queue is full, it appends events to the
+// outbox if configured and otherwise waits for room.
 type BufferedRecorder struct {
 	inner         Recorder
 	overflow      OutboxAppender
@@ -63,15 +59,29 @@ type BufferedRecorder struct {
 	overflowing atomic.Bool
 }
 
-// NewBufferedRecorder starts the flusher. ctx's values, not its cancellation,
-// reach the flusher's own contexts. overflow may be nil.
+// NewBufferedRecorder creates a buffered recorder and starts its flusher.
+//
+// A zero or negative Capacity, BatchSize, or FlushInterval uses the package
+// default for that field.
+//
+// The flusher uses the values from ctx. Canceling ctx does not stop it.
+// The caller must call Close to stop the flusher and handle its error.
+//
+// When the queue is full, Record appends the event to the outbox if
+// overflow is set. If overflow is nil, Record waits for room or returns
+// an error.
+//
+//	recorder := NewBufferedRecorder(ctx, inner, nil, BufferedConfig{})
+//	err := recorder.Close()
 func NewBufferedRecorder(ctx context.Context, inner Recorder, overflow OutboxAppender, cfg BufferedConfig) *BufferedRecorder {
 	if cfg.Capacity <= 0 {
 		cfg.Capacity = defaultBufferedCapacity
 	}
+
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = defaultBufferedBatchSize
 	}
+
 	if cfg.FlushInterval <= 0 {
 		cfg.FlushInterval = defaultBufferedFlushInterval
 	}
@@ -99,34 +109,59 @@ func NewBufferedRecorder(ctx context.Context, inner Recorder, overflow OutboxApp
 			if r := recover(); r != nil {
 				slog.Error("audit.buffer.flusher_panicked", slog.Any("err", r))
 			}
+
 			close(b.drained)
 		}()
+
 		b.run(flusherCtx)
 	}()
+
 	return b
 }
 
-// Record queues a read-class event and returns at once, and records any other
-// event through inner before returning.
-func (b *BufferedRecorder) Record(ctx context.Context, ev Event) error {
-	if !IsRead(Verb(ev.Verb)) {
-		return b.recordThrough(ctx, ev)
+// Record records an audit event or queues it for delivery.
+//
+// Record queues read-class events except auth.token_used. It records
+// auth.token_used in the outbox when configured and otherwise calls the
+// inner recorder. It calls the inner recorder for non-read-class events.
+// After Close, it calls the inner recorder for other read-class events.
+//
+// When the queue is full, Record appends the event to the outbox if
+// configured. Without an outbox, it waits for room or returns an error
+// if retained events prevent admission, the wait expires, or ctx ends.
+//
+//	err := b.Record(ctx, event)
+func (b *BufferedRecorder) Record(ctx context.Context, event Event) error {
+	if !IsRead(Verb(event.Verb)) {
+		return b.recordThrough(ctx, event)
 	}
+
+	if needsDurableAdmission(Verb(event.Verb)) {
+		return b.recordDurably(ctx, event)
+	}
+
 	b.stopping.RLock()
+
 	if b.closed {
 		b.stopping.RUnlock()
-		return b.recordThrough(ctx, ev)
+
+		return b.recordThrough(ctx, event)
 	}
-	if b.room.tryAdmit(ev) {
+
+	if b.room.tryAdmit(event) {
 		b.stopping.RUnlock()
 		b.noteRoom(ctx)
+
 		return nil
 	}
+
 	b.stopping.RUnlock()
+
 	if b.overflow == nil {
-		return b.waitForRoom(ctx, ev)
+		return b.waitForRoom(ctx, event)
 	}
-	return b.overflowed(ctx, ev)
+
+	return b.overflowed(ctx, event)
 }
 
 // recordThrough hands one event to inner on the caller's own path.
@@ -134,31 +169,9 @@ func (b *BufferedRecorder) recordThrough(ctx context.Context, ev Event) error {
 	if err := b.inner.Record(ctx, ev); err != nil {
 		slog.ErrorContext(ctx, "audit.buffer.record_failed",
 			slog.String("verb", ev.Verb), slog.String("err", err.Error()))
+
 		return fmt.Errorf("record %s through buffer: %w", ev.Verb, err)
 	}
-	return nil
-}
 
-// Close stops taking events into the queue, delivers the queued and retained
-// events within closeDeliveryTimeout, then closes inner when it supports
-// closing. Record calls inner.Record directly for each event recorded after
-// Close.
-func (b *BufferedRecorder) Close() error {
-	b.closeOnce.Do(func() {
-		b.stopping.Lock()
-		b.closed = true
-		close(b.done)
-		b.stopping.Unlock()
-	})
-	<-b.drained
-	switch recorder := b.inner.(type) {
-	case interface{ Close() error }:
-		if err := recorder.Close(); err != nil {
-			slog.Error("audit.buffer.inner_close_failed", slog.String("err", err.Error()))
-			return fmt.Errorf("close buffered inner: %w", err)
-		}
-	case interface{ Close() }:
-		recorder.Close()
-	}
 	return nil
 }

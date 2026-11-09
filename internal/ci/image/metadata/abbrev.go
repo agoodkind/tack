@@ -1,4 +1,4 @@
-package main
+package metadata
 
 import (
 	"errors"
@@ -20,11 +20,11 @@ const (
 
 var errAbbreviationBelowMinimum = errors.New("below the minimum of 4")
 
-// configuredAbbreviation returns the minimum short ID length from core.abbrev.
-// Git applies system, global and local configuration in that order and the last
-// definition wins. Git rejects an invalid value even when a later value replaces
-// it. The command validates every value the same way. The result is zero for an
-// unset or "auto" value.
+// configuredAbbreviation returns the minimum short ID length from
+// core.abbrev. Git applies system, global and local configuration in that
+// order and the last definition wins. Git rejects an invalid value even
+// when a later value replaces it. The command validates every value the
+// same way. The result is zero for an unset or "auto" value.
 func configuredAbbreviation(repository *git.Repository, root string) (int, error) {
 	source, err := plugin.Get(plugin.ConfigLoader())
 	if err != nil {
@@ -85,9 +85,10 @@ func parseAbbreviation(value, root string) (int, error) {
 	return length, nil
 }
 
-// abbreviateCommit returns the shortest unique prefix that is at least as long as
-// core.abbrev. Without core.abbrev, the minimum derives from the count of stored
-// objects, where Git estimates that count from pack indexes.
+// abbreviateCommit returns the shortest unique prefix that is at least as
+// long as core.abbrev. Without core.abbrev, the minimum derives from the
+// count of stored objects, where Git estimates that count from pack
+// indexes.
 func abbreviateCommit(repository *git.Repository, root, commit string) (string, error) {
 	objects, err := repository.Storer.IterEncodedObjects(plumbing.AnyObject)
 	if err != nil {

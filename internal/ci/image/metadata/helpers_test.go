@@ -1,6 +1,7 @@
-package main_test
+package metadata_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,19 @@ import (
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
+
+	"goodkind.io/tack/internal/ci/image/imagetest"
 )
+
+const (
+	branchNameKey = "BRANCH_NAME"
+	mainBranch    = "main"
+)
+
+// TestMain builds the image command once and runs the package tests against it.
+func TestMain(m *testing.M) {
+	os.Exit(imagetest.RunTests(m))
+}
 
 var metadataTimePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`)
 
@@ -37,6 +50,7 @@ func commitFile(t *testing.T, repository *git.Repository, name string) plumbing.
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	return hash
 }
 
@@ -50,6 +64,7 @@ func newRepository(t *testing.T) (*git.Repository, string) {
 		t.Fatal(err)
 	}
 	commitFile(t, repository, "first")
+
 	return repository, root
 }
 
@@ -68,27 +83,34 @@ func annotatedTag(t *testing.T, repository *git.Repository, name string, target 
 	}
 }
 
-// runMetadata runs the built command with system Git configuration disabled and the
-// test's temporary home directory.
+// runMetadata runs the built command with system Git configuration
+// disabled and the test's temporary home directory.
 func runMetadata(t *testing.T, directory string, environment map[string]string) (string, error) {
 	t.Helper()
+
 	command := metadataCommand(t, directory, environment)
 	output, err := command.CombinedOutput()
+
 	return string(output), err
+}
+
+func metadataBuild(ctx context.Context) *exec.Cmd {
+	return exec.CommandContext(ctx, "./ci-image", "metadata")
 }
 
 func metadataCommand(t *testing.T, directory string, environment map[string]string) *exec.Cmd {
 	t.Helper()
-	command := exec.CommandContext(t.Context(), commandPath, "metadata")
-	command.Dir = directory
+	command := imagetest.Prepare(t, directory, metadataBuild)
 	command.Env = []string{
 		"HOME=" + os.Getenv("HOME"),
 		"XDG_CONFIG_HOME=" + os.Getenv("XDG_CONFIG_HOME"),
 		"GIT_CONFIG_NOSYSTEM=1",
 	}
+
 	for key, value := range environment {
 		command.Env = append(command.Env, key+"="+value)
 	}
+
 	return command
 }
 
@@ -141,6 +163,7 @@ func readOutputs(t *testing.T, content string) map[string]string {
 	if got := strings.Join(order, ","); got != "commit,short,build_time,tag" {
 		t.Fatalf("line order = %s", got)
 	}
+
 	return outputs
 }
 
@@ -151,7 +174,7 @@ func checkMetadata(t *testing.T, directory string, head plumbing.Hash, branch, w
 	if err := os.WriteFile(outputPath, []byte(earlier), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if output, err := runMetadata(t, directory, map[string]string{"GITHUB_OUTPUT": outputPath, "BRANCH_NAME": branch}); err != nil {
+	if output, err := runMetadata(t, directory, map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: branch}); err != nil {
 		t.Fatalf("metadata failed: %v: %s", err, output)
 	}
 	content, err := os.ReadFile(outputPath)
