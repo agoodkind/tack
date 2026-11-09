@@ -107,7 +107,9 @@ func requirePermanentWorkerRow(t *testing.T, row audit.Row, original audit.Event
 	}
 
 	actual, expected := row.Context, original.Context
-	if actual.AuditFormatVersion != audit.AuditFormatComplete || actual.OperationClass != audit.OperationExternal || actual.Source != audit.SourceSystem ||
+	if actual.AuditFormatVersion != audit.AuditFormatComplete ||
+		actual.OperationClass != audit.OperationExternal ||
+		actual.Source != audit.SourceSystem ||
 		actual.OperationID != expected.OperationID ||
 		actual.ParentOperationID != expected.ParentOperationID ||
 		actual.Phase != expected.Phase ||

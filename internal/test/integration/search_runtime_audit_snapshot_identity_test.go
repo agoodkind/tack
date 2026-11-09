@@ -96,7 +96,8 @@ func requireSnapshotIdentity(
 ) {
 	t.Helper()
 	intent := onlyRow(t, snapshotIntents(rows, result), "the original point in time intent")
-	if result.ActorID != fixture.Workspaces[0].Actors[0].UserID || result.ActorID != intent.ActorID ||
+	if result.ActorID != fixture.Workspaces[0].Actors[0].UserID ||
+		result.ActorID != intent.ActorID ||
 		result.Context.OperationID == uuid.Nil ||
 		result.Context.ParentOperationID != intent.Context.ParentOperationID ||
 		result.Context.Target == nil ||

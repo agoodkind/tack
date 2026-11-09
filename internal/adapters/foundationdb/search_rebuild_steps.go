@@ -200,7 +200,8 @@ func (s *SearchRebuildStore) rebuildStep(
 
 // sameRebuild reports whether two reads observed the same replacement step.
 func sameRebuild(left, right searchdomain.Rebuild) bool {
-	return left.ID == right.ID && left.State == right.State && left.Generation == right.Generation &&
+	return left.ID == right.ID && left.State == right.State &&
+		left.Generation == right.Generation &&
 		left.ScanCursor == right.ScanCursor &&
 		left.VerifyCursor == right.VerifyCursor &&
 		left.ScanComplete == right.ScanComplete &&

@@ -13,7 +13,8 @@ import (
 
 func requireSearchReadLedgerIdentity(t *testing.T, row audit.Row, event audit.Event) {
 	t.Helper()
-	if row.ActorID != event.Actor.ID || row.Context.AuditFormatVersion != event.Context.AuditFormatVersion ||
+	if row.ActorID != event.Actor.ID ||
+		row.Context.AuditFormatVersion != event.Context.AuditFormatVersion ||
 		row.Context.OperationClass != event.Context.OperationClass ||
 		row.Context.Phase != event.Context.Phase ||
 		row.Context.OperationID != event.Context.OperationID ||
@@ -70,8 +71,11 @@ func requireSearchReadEvent(
 		t.Fatalf("%s recorded an invalid final event: %v", verb, err)
 	}
 
-	if event.Actor.Type != audit.ActorService || event.Actor.ID != actorID || event.Actor.SessionID != searchReadSession ||
-		event.Context.AuditFormatVersion != audit.AuditFormatComplete || event.Context.OperationClass != audit.OperationRead ||
+	if event.Actor.Type != audit.ActorService ||
+		event.Actor.ID != actorID ||
+		event.Actor.SessionID != searchReadSession ||
+		event.Context.AuditFormatVersion != audit.AuditFormatComplete ||
+		event.Context.OperationClass != audit.OperationRead ||
 		event.Context.Phase != audit.PhaseRead ||
 		event.Context.OperationID == uuid.Nil ||
 		event.Context.StartedAt.IsZero() ||
