@@ -5,7 +5,18 @@ Use public QA reproduction and current source evidence to choose a correction. A
 ## Reproduce the defect
 
 1. Preserve the failing public request, expected content, exact deployment and model configuration, and plausible distractors. Reproduce the same content shape on QA before selecting a fix.
-2. Capture indexed text, projection identity, sparse fields, inference output, structured access and type filters, lexical boosts, and rank traces. Identify the failed production operation from those observations. Do not add phrase-specific branches, maintained synonyms, a replacement tokenizer, or weaker rank bounds.
+2. Capture each form of evidence:
+
+   - Indexed text.
+   - Projection identity.
+   - Sparse fields.
+   - Inference output.
+   - Structured access filters.
+   - Structured type filters.
+   - Lexical boosts.
+   - Rank traces.
+
+   Identify the failed production operation from those observations. Do not add phrase-specific branches, maintained synonyms, a replacement tokenizer, or weaker rank bounds.
 3. For missing content, compare explicit declarations and supported defaults. Verify generic hierarchy and separate project scope. Preserve valid content beside invalid, undeclared, or inapplicable properties. Keep warnings distinct from authorization exclusions and operational errors.
 
 ## Correct metadata and source data safely

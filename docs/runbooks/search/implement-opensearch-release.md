@@ -7,8 +7,28 @@ Use this procedure for a reviewed search release. An infrastructure apply, appli
 1. Record reviewed Tack and Configs commits, required checks, signed commit verification, image digests, exact targets, current ownership, deployment locks, and migration compatibility. Follow the active protected pull-request contract. Do not bypass rules, rewrite shared history, or treat a merged change as a deployment.
 2. Require the local [acceptance test procedure](run-acceptance-tests.md) on the implementation revision. Correct failures at their owning layer and repeat affected tests without weakening accepted limits. Record unrun criteria as unverified.
 3. Review the current Configs OpenTofu changes. The [release module](https://github.com/agoodkind/configs/blob/main/opentofu/modules/tack-release/main.tf) updates images in an existing installation and runs audited checks. It does not install a missing stack, apply migrations, or create credentials. Confirm a reviewed procedure for every prerequisite that an image-only release cannot supply.
-4. Compare proposed guest IDs, IPv6 addresses, MAC addresses, Docker subnets, bridges, storage pools, and host assignments with current inventory before saving an infrastructure plan. For a new QA guest, check the [Configs guest declaration](https://github.com/agoodkind/configs/blob/main/opentofu/modules/suburban/tack-qa/main.tf) for its gateway, DNS, Debian template, unprivileged nesting, storage discard, and `prevent_destroy` setting. Stop on collisions or replacement of an unrelated data guest. An initial one-guest release must not reserve additional production guests. Review the exact saved plan, targets, secret references, and commands before applying authorized changes.
-5. Preserve existing Meilisearch volumes without reading them. Their deletion requires an exact inventory, a concrete deletion plan, and separate authorization. Require FoundationDB-only rebuild inputs and verify the absence of active Meilisearch configuration or dependencies separately from application source.
+4. Compare proposed infrastructure values with current inventory before saving a plan. Check each value:
+
+   - Guest IDs.
+   - IPv6 addresses.
+   - MAC addresses.
+   - Docker subnets.
+   - Bridges.
+   - Storage pools.
+   - Host assignments.
+
+   Stop on collisions or replacement of an unrelated data guest. An initial one-guest release must not reserve additional production guests.
+5. For a new QA guest, check the [Configs guest declaration](https://github.com/agoodkind/configs/blob/main/opentofu/modules/suburban/tack-qa/main.tf) for each setting:
+
+   - Gateway.
+   - DNS.
+   - Debian template.
+   - Unprivileged nesting.
+   - Storage discard.
+   - `prevent_destroy`.
+
+6. Review the exact saved plan, targets, secret references, and commands before applying authorized changes.
+7. Preserve existing Meilisearch volumes without reading them. Their deletion requires an exact inventory, a concrete deletion plan, and separate authorization. Require FoundationDB-only rebuild inputs and verify the absence of active Meilisearch configuration or dependencies separately from application source.
 
 ## Apply an image-only release
 
@@ -32,7 +52,12 @@ Use this procedure for a reviewed search release. An infrastructure apply, appli
 3. Review and commit the QA `OPENSEARCH_PUBLIC_ENABLED` activation through Configs. Deploy the exact validated revision and configuration. Record running app and audit-consumer digests and the search image separately.
 4. Run public relevance, final-page, edit, shorter-value, deletion, pre-ranking permission, final FoundationDB authorization, replay, and complete-continuation checks. Run guarded datagen and inspect permanent audit evidence. A successful health check or verification command does not replace these observations.
 5. Stop the QA search guest during source writes. Require committed source mutations, explicit public outage, and pending durable work. Restart the guest. Allow five minutes for engine and model readiness, then require the public query to return the node committed during the outage within ten seconds, without another edit or rebuild. Preserve the first public error and distinguish it from later diagnostics.
-6. Measure search-only and mixed workloads under every accepted offered rate. Apply the capacity criteria already linked in the QA prerequisites, including declared inputs, the search-only baseline at the same offered rate, stopping conditions, and an explicit record of missing product thresholds.
+6. Measure search-only and mixed workloads under every accepted offered rate. Apply the capacity criteria already linked in the QA prerequisites:
+
+   - Declare the workload inputs.
+   - Compare each mixed workload with the search-only baseline at the same offered rate.
+   - Apply the stopping conditions.
+   - Record missing product thresholds explicitly.
 
    Preserve the inputs and measurements for each workload.
 
@@ -40,7 +65,12 @@ Use this procedure for a reviewed search release. An infrastructure apply, appli
 
    | Category | Required evidence |
    | --- | --- |
-   | Scenarios | Bulk import, permission changes, rebuilding, a two-process continuation, outage, and catch-up. |
+   | Bulk import | Measure bulk import. |
+   | Permission changes | Measure permission changes. |
+   | Rebuilding | Measure rebuilding. |
+   | Two-process continuation | Measure a continuation between two processes under load. |
+   | Outage | Measure an isolated outage. |
+   | Catch-up | Measure catch-up after the outage. |
    | Results | Latency, errors, committed writes, freshness, and work age. |
    | Resources and stopping | Host and guest memory, CPU, disk, and stop telemetry. |
 7. Alternate requests between two actual Tack processes. Require exact continuation, replay, current permission checks, and cleanup without sticky routing. Record the independent two-process throughput comparison and its machine limits. A single OpenSearch guest does not establish node failover.

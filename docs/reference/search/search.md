@@ -81,7 +81,14 @@ Verification and indexing distinguish these conditions:
 - Operational failures retain pending work.
 - Stuck-work reporting fails verification after its attempt limit. The report includes kind, ID, attempts, and last error.
 
-`ops search verify` does not establish semantic relevance, complete traversal, outage recovery, capacity, deployed revision, or complete acceptance.
+`ops search verify` cannot prove these results:
+
+- Semantic relevance.
+- Complete traversal.
+- Outage recovery.
+- Capacity.
+- Deployed revision.
+- Complete acceptance.
 
 ### Reindexing
 

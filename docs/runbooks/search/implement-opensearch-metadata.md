@@ -5,7 +5,20 @@ The one-time `ops backfill once-search-projections` command fills missing declar
 ## Prepare the manifest
 
 1. Validate the selected QA environment and audited operator identity. Inventory current property definitions and preserve intentional exclusions. Metadata readiness accepts supported defaults. An absent optional declaration alone does not make valid content unreadable.
-2. Create one reviewed JSON array in organization-ID and definition-ID order. Include each definition that lacks a declaration. Each entry supplies `org_id`, `property_def_id`, and a validated `search` rule. The command reads incrementally and rejects duplicate IDs, unknown definitions, cross-organization identities, malformed rules, omitted missing definitions, and conflicting existing declarations.
+2. Create one reviewed JSON array in organization-ID and definition-ID order. Include each definition that lacks a declaration. Each entry must supply these fields:
+
+   - `org_id`.
+   - `property_def_id`.
+   - A validated `search` rule.
+
+   The command reads incrementally and rejects each invalid condition:
+
+   - Duplicate IDs.
+   - Unknown definitions.
+   - Cross-organization identities.
+   - Malformed rules.
+   - Omitted missing definitions.
+   - Conflicting existing declarations.
 3. Review the complete manifest before execution. Preserve source identities and explicit exclusions. Do not infer a decision from property names or `Indexed`.
 
 Use complete stored UUIDs in place of the abbreviated IDs in this example. The entry selects scalar text at order 10.

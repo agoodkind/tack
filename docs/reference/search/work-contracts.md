@@ -92,7 +92,26 @@ Search writes also update the target during copying, verification, and switching
 
 After an uncertain response, it reads the alias. The old target allows a retry, the new target allows completion, and any third target signals an error.
 
-Failed splits restore source writes, preserve the source alias, delete failed targets, and resume claims. The coordinator pauses new claims, waits for earlier leases to expire, blocks source writes, splits the readable source, clears the target's inherited write block, and waits for green. It restores source writes, resumes claims, and verifies the target before switching the alias. Repeated steps inspect engine and FoundationDB state. A pause limit prevents unavailable targets from pausing claims indefinitely.
+The coordinator performs a native split in this order:
+
+1. It pauses new claims.
+2. It waits for earlier leases to expire.
+3. It blocks source writes.
+4. It splits the readable source.
+5. It clears the target's inherited write block.
+6. It waits for green.
+7. It restores source writes.
+8. It resumes claims.
+9. It verifies the target before switching the alias.
+
+If a split fails, the coordinator performs these recovery operations:
+
+1. It restores source writes.
+2. It preserves the source alias.
+3. It deletes failed targets.
+4. It resumes claims.
+
+Repeated steps inspect engine and FoundationDB state. A pause limit prevents unavailable targets from pausing claims indefinitely.
 
 New sessions use the new serving index. Existing sessions retain the old physical index until expiry. The current worker waits for session cleanup, blocks writes, and deletes the old index. It does not revoke write permissions or disable automatic recreation. Both safeguards remain prerequisites for [accepted retirement](2026-09-19-search-acceptance.md#index-replacement-lifecycle). The environment permits at most one serving, one replacement, and one retiring index.
 

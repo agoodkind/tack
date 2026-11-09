@@ -144,7 +144,7 @@ Before running the host inventory commands below, install the Go toolchain selec
 
 The aggregate `TACK_SEARCH_CLUSTER=1 make test-search` target supplies revision and integration opt-in with a 90-minute timeout. Its host equivalent, `TACK_SEARCH_CLUSTER=1 make test-search-host`, also needs the FoundationDB client library. Neither aggregate replaces the required groups and their limits.
 
-The throughput test requires a Mac run and a separate QA two-process measurement. Each must show improvement for indexing and public search, with baseline spread, p95, backlog, CPU count, memory, and cgroup limits. Hosted CI measurements did not establish that improvement. Neither this test nor ordinary soak measures search capacity.
+Run the throughput test on Mac and take a separate QA two-process measurement under the [process throughput criteria](../../reference/search/cluster-capacity-criteria.md#process-throughput).
 
 Before independent member stops and after each restart, verify deployed predictors on every eligible member and matching cached worker and target identities. Preserve the first public error even when a later request succeeds.
 

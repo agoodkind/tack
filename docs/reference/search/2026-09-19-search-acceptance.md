@@ -6,8 +6,51 @@ Search releases must pass these criteria through public operations with real Fou
 
 - The acceptance test must record the exact Tack and Configs revisions, dirty files, image digests and architecture, model and tokenizer checksums, index settings, shard counts, byte and work bounds, fixture identities, corpus, workload, commands, exit codes, observations, and artifacts. The acceptance test must distinguish provisioning, deployment, public activation, behavior acceptance, capacity, and cleanup.
 - Acceptance requires QA acceptance before production. Local tests, source inspection, private helper calls, mocks, recorded responses, engine traces, and profiles do not establish deployed acceptance. Traces and profiles can support evidence from public operations. Public fixtures must use the real bearer-token lookup and organization membership. The acceptance test must keep raw fixture credentials in memory, store only token hashes, use isolated test data, and clean up identities and data when the fixture ends. The acceptance test must use an ephemeral CA and server certificate for the disposable TLS fixture. The acceptance test must test both JSON and SSE responses with audit recording active.
-- The acceptance test must exercise the production official stable client against the pinned OpenSearch 3.8.0 engine. The acceptance test must cover typed creation, settings, split, bulk indexing and partial updates, write blocking, refresh, point-in-time creation and deletion, search construction, alias changes, index and document reads, deletion, metrics, routing, and close. The acceptance test must preserve replacement point-in-time IDs and exact sort JSON. The acceptance test must exercise concrete ML Commons requests through the official execution and error decoder. The acceptance test must prove that OpenSearch rejects `version` and `version_type` on a bulk update. The acceptance test must call the registered provision and verify operations against the real TLS fixture. The acceptance test must vary model, mapping, alias, and topology expectations independently and require a concrete mismatch for each. The acceptance test must reject custom HTTP transport, route selection, connection pools, error decoding, and application retry loops.
-- Acceptance requires complete permanent audit evidence for public search, operator commands, sessions, indexing, model repair, and replacement work. The acceptance test must inspect verified actors, initiating identities, complete targets, original time, committed order, outcomes, field and relationship changes, read manifests, returned counts, selection criteria, and fingerprints. The acceptance test must exercise authorization refusals, admission and finalization failures, partial work, interruptions, and recovery. The operation must withhold results or effects when required recording fails. Acceptance requires `runtime audit coverage` and applicable integration checks before merge. The acceptance test must verify accepted behavior on QA before release.
+
+The acceptance test must exercise the production official stable client against the pinned OpenSearch 3.8.0 engine. It must cover each operation:
+
+- Typed creation.
+- Settings.
+- Split.
+- Bulk indexing.
+- Partial updates.
+- Write blocking.
+- Refresh.
+- Point-in-time creation.
+- Point-in-time deletion.
+- Search construction.
+- Alias changes.
+- Index reads.
+- Document reads.
+- Deletion.
+- Metrics.
+- Routing.
+- Close.
+
+The acceptance test must preserve replacement point-in-time IDs and exact sort JSON. It must exercise concrete ML Commons requests through the official execution and error decoder. It must prove that OpenSearch rejects `version` and `version_type` on a bulk update. It must call the registered provision and verify operations against the real TLS fixture. It must vary model, mapping, alias, and topology expectations independently and require a concrete mismatch for each. It must reject custom HTTP transport, route selection, connection pools, error decoding, and application retry loops.
+
+Acceptance requires complete permanent audit evidence for each operation class:
+
+- Public search.
+- Operator commands.
+- Sessions.
+- Indexing.
+- Model repair.
+- Replacement work.
+
+The acceptance test must inspect every required audit field:
+
+- Verified actors and initiating identities.
+- Complete targets.
+- Original time and committed order.
+- Outcomes.
+- Old and new field and relationship values, including removals.
+- Read manifests.
+- Returned counts.
+- Selection criteria.
+- Fingerprints.
+
+The acceptance test must exercise authorization refusals, admission and finalization failures, partial work, interruptions, and recovery. The operation must withhold results or effects when required recording fails. Acceptance requires `runtime audit coverage` and applicable integration checks before merge. The acceptance test must verify accepted behavior on QA before release.
 
 ## Build and lint gates
 
@@ -66,7 +109,6 @@ Opaque cohort populations:
 
 The 31 eligible continuation nodes include one node with repeated matching text across multiple reader pages. Traversing the cohort takes at least two responses even with 25 nodes per page. The test must use the actual stored IDs and expected case IDs. A fixture manifest establishes preparation only.
 
-
 ## Complete page processing
 
 - The acceptance test must use the real reader with a small byte bound. Acceptance requires indexing before the final read and continuation until explicit completion. The acceptance test must change page counts between reads without changing configuration. The acceptance test must reject changed, missing, or corrupt revisions before combining pages.
@@ -86,7 +128,6 @@ Native chunk bounds:
 
 The acceptance test must repeat proof after a model, semantic mapping, or bound change. The implementation must not reproduce OpenSearch tokenizer logic.
 
-
 Before storage-limit removal, the acceptance test must cover each size case while keeping page and work bounds fixed.
 
 Required size cases:
@@ -98,7 +139,6 @@ Required size cases:
 | 3 | 8 MiB. |
 | 4 | Over 100 MB. |
 | 5 | Larger than worker memory. |
-
 
 ## Authorization and input validation
 
@@ -117,7 +157,6 @@ Required size cases:
 - Before shipping a policy, the acceptance test must use a corpus dominated by forbidden matches and prove that the engine filters them before ranking. Post-search filtering alone fails acceptance. The acceptance test must corrupt indexed keys separately to prove the final source check.
 
 ## Distinct results and continuation
-
 
 The distinct-results test must exercise the required traversal population and batch limit.
 

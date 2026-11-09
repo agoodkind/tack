@@ -1,10 +1,22 @@
 # Search cluster and capacity criteria
 
-Search releases must pass these criteria through public operations with real FoundationDB, OpenSearch, the deployed model, and authentication. Storage expansion must repeat them at larger node sizes. A criterion without observed evidence remains unverified. The [evidence and environment requirements](2026-09-19-search-acceptance.md#evidence-and-environment) apply to these criteria. QA acceptance must precede production. Production tests require explicit operator authorization.
+The [evidence and environment requirements](2026-09-19-search-acceptance.md#evidence-and-environment) apply to these criteria. QA acceptance must precede production. Production tests require explicit operator authorization.
 
 ## Cluster and capacity
 
-- The acceptance test must verify the actual initial QA and production topology against reviewed configuration. Acceptance requires one combined-role guest each, the OpenSearch 3.8.0, verified REST and transport TLS, IPv6-only access, least-privilege application credentials, zero replicas, QA single-node discovery (`discovery.type: single-node`), and normal production discovery. Configuration alone does not prove those live facts.
+The acceptance test must verify the actual initial QA and production topology against reviewed configuration. Acceptance requires each live condition:
+
+- QA uses one combined-role guest.
+- Production uses one combined-role guest.
+- The engine runs OpenSearch 3.8.0.
+- REST and transport TLS pass verification.
+- Access uses IPv6 only.
+- Application credentials grant the least required privileges.
+- Indexes use zero replicas.
+- QA uses single-node discovery (`discovery.type: single-node`).
+- Production uses normal discovery.
+
+Configuration alone does not prove those live facts.
 
 The accepted initial topology requires the specified resources per model guest.
 
@@ -121,3 +133,26 @@ Disk measurements:
 | Primary-index bytes | After rebuilding. |
 
 Initial disk capacity must satisfy `(non-index bytes + 3 * primary-index bytes) / 0.85` for serving, replacement, and retiring generations without replicas. The test must recalculate per-node disk before adding replicas. Model download size and one successful query do not establish disk capacity.
+
+## Process throughput
+
+Process throughput acceptance requires independent measurements in both environments:
+
+- A Mac run of the throughput test.
+- A separate QA two-process measurement.
+
+Each measurement must demonstrate both improvements:
+
+- Indexing throughput improves.
+- Public search throughput improves.
+
+Each measurement must record every comparison and machine limit:
+
+- Baseline spread.
+- p95 latency.
+- Backlog.
+- CPU count.
+- Memory.
+- Cgroup limits.
+
+Hosted CI measurements did not establish either improvement. Neither the throughput test nor ordinary soak measures search capacity.
