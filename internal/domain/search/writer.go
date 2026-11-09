@@ -17,6 +17,11 @@ import (
 const MaxPageBytes = 4096
 
 // DocumentID returns a stable identifier for one revision-bound search page.
+//
+// The identifier encodes the organization, node, revision, projection, and
+// page ordinal with length prefixes.
+//
+//   - Different page ordinals produce different identifiers.
 func DocumentID(orgID, nodeID uuid.UUID, revision, projection string, ordinal uint64) string {
 	var identity bytes.Buffer
 	writeIdentityPart(&identity, orgID[:])
@@ -36,8 +41,13 @@ func writeIdentityPart(destination *bytes.Buffer, value []byte) {
 	destination.Write(value)
 }
 
-// ValidatePageText rejects an active page without page_text or with text
-// above the byte bound, before any engine request.
+// ValidatePageText checks text for an active search page.
+//
+// Callers validate page_text before any engine request.
+//
+//   - Empty text returns an error.
+//   - Text above MaxPageBytes returns an error.
+//   - Invalid UTF-8 returns an error.
 func ValidatePageText(text string) error {
 	if text == "" {
 		return errors.New("an active search page requires page_text")
@@ -48,9 +58,14 @@ func ValidatePageText(text string) error {
 	return nil
 }
 
-// ValidatePage checks document invariants before a write intent is registered.
-// Live work and replacement copy work write pages. Every other class returns
+// ValidatePage checks document invariants before callers register a write
+// intent.
+//
+// Live work and replacement copy work can write pages. Other classes return
 // ErrWorkChanged.
+//
+//   - A missing target or nonpositive generation returns ErrWorkChanged.
+//   - Page text and access values must pass their validation checks.
 func ValidatePage(work Work, page node.ContentPage) error {
 	writesPages := work.Class == WorkClassLive || work.Class == WorkClassCopy
 	if !writesPages || work.Target == "" || work.Generation <= 0 {
@@ -71,7 +86,14 @@ func ValidatePage(work Work, page node.ContentPage) error {
 	return ValidateAccess(page.Access)
 }
 
-// ValidateAccess rejects empty, unsorted, or duplicate opaque access values.
+// ValidateAccess checks opaque access values.
+//
+// The checks apply to both the version list and the key list.
+//
+//   - An empty list returns an error.
+//   - An empty entry returns an error.
+//   - Unsorted values return an error.
+//   - Duplicate values return an error.
 func ValidateAccess(access node.SearchAccess) error {
 	if len(access.Versions) == 0 || len(access.Keys) == 0 {
 		return errors.New("search access versions and keys must not be empty")
