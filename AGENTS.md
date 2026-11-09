@@ -16,10 +16,11 @@ Source references:
 | Authentication and audit SQL schema | [Migrations](migrations/) |
 | Server environment variables | [Configuration](internal/config/config.go) |
 | Container services and mounts | [Compose stack](docker-compose.yml) |
-| Operator commands | Run `./server ops help` and read [ops](internal/ops/) for implementation details. |
-| Guest and network declarations | Read the Configs [OpenTofu roots and modules](https://github.com/agoodkind/configs/tree/main/opentofu). |
-| Roadmap and ticket state | Query TACK issues through the MCP tools. |
-| Cross-session context | Read the session memory handoff. Verify mutable claims against current sources. |
+
+- Run `./server ops help` and read [ops](internal/ops/) for implementation details.
+- Read the Configs [OpenTofu roots and modules](https://github.com/agoodkind/configs/tree/main/opentofu) for guest and network declarations.
+- Query TACK issues through the MCP tools.
+- Read the session memory handoff. Verify mutable claims against current sources.
 
 ## Repository ownership and deployment
 
