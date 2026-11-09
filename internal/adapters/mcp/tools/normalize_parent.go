@@ -98,7 +98,7 @@ func appendParentType(types []*node.NodeType, seen map[string]struct{}, parentTy
 
 // verifyParentCandidate checks that id resolves in orgID and has a node
 // type in parentTypes. It checks scope membership when scopeID differs
-// from uuid.Nil and id. It returns errParentTypeRefused for a node type
+// from [uuid.Nil] and id. It returns errParentTypeRefused for a node type
 // outside parentTypes.
 func verifyParentCandidate(ctx context.Context, b NodeTypeBinding, parentTypes []*node.NodeType, orgID, scopeID, id uuid.UUID) error {
 	resolve, err := b.Reader.Resolve(ctx, id)
