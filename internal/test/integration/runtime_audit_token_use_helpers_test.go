@@ -21,12 +21,12 @@ const (
 	tokenUseOutboxTimeout = 5 * time.Second
 	// tokenUseOutboxReadLimit is the most outbox entries one read returns.
 	tokenUseOutboxReadLimit = 500
-	// apiAccessTargetPrefix starts the resource URI of the API token target.
+	// apiAccessTargetPrefix is the resource URI prefix for an API token target.
 	apiAccessTargetPrefix = "tack:api_token/"
 	// actorFixtureLabel is the label datagen stores with each actor token.
 	actorFixtureLabel = "qa-datagen"
-	// tokenUseProjectionWait is how long the test waits for the last-use
-	// projection.
+	// tokenUseProjectionWait limits the wait for the audit consumer to update
+	// the token's last use time.
 	tokenUseProjectionWait = 30 * time.Second
 )
 

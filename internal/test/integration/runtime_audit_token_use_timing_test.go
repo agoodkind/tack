@@ -65,7 +65,8 @@ func TestRuntimeAuditTokenUseRequestPath(t *testing.T) {
 }
 
 // countedRPC sends one authenticated tools/list request and returns its
-// latency and the ledger and broker round trips completed before the response.
+// latency and counts of ledger queries and synchronous broker produces that
+// start before the response returns.
 func countedRPC(t *testing.T, server *publicServer, requestID string) (time.Duration, telemetry.RequestPathCounts) {
 	t.Helper()
 
