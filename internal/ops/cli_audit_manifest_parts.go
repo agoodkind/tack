@@ -47,6 +47,11 @@ type auditManifestPartEntry struct {
 }
 
 // AuditReadTargets returns one read target for each returned part.
+//
+// Each resource target URI combines EventID and the part's Index. The
+// method returns targets in the order of Parts and returns a nil error.
+//
+//	targets, err := r.AuditReadTargets()
 func (r auditManifestPartsResult) AuditReadTargets() ([]audit.Target, error) {
 	targets := make([]audit.Target, 0, len(r.Parts))
 	for _, part := range r.Parts {

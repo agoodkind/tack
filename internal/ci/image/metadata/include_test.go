@@ -20,8 +20,9 @@ func credentialFile(directory, identifier string) string {
 	return directory + "/git-credentials-" + identifier + ".config"
 }
 
-// generatedIncludes writes the entries that actions/checkout adds for the host and
-// the container, each for the checkout and for its linked worktrees.
+// generatedIncludes writes the entries that actions/checkout adds for the
+// host and the container, each for the checkout and for its linked
+// worktrees.
 func generatedIncludes(root, runnerTemp, hostID, containerID string) string {
 	hostGit := root + "/.git"
 	containerGit := "/github/workspace/.git"
@@ -45,7 +46,7 @@ func runWithLocalConfiguration(t *testing.T, configuration func(root, runnerTemp
 	outputPath := filepath.Join(t.TempDir(), "output")
 	environment := map[string]string{
 		"GITHUB_OUTPUT":    outputPath,
-		"BRANCH_NAME":      "main",
+		branchNameKey:      mainBranch,
 		"RUNNER_TEMP":      runnerTemp,
 		"GITHUB_WORKSPACE": root,
 	}

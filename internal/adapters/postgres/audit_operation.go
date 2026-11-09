@@ -34,6 +34,12 @@ func changeOperation(ctx context.Context, verb audit.Verb, orgID uuid.UUID) (aud
 }
 
 // UserTarget returns a resource audit target for userID.
+//
+// The target uses userID as its ID and appends its string form to
+// userTargetPrefix for the URI. The other target fields are empty or
+// zero UUIDs.
+//
+//	target := UserTarget(userID)
 func UserTarget(userID uuid.UUID) audit.Target {
 	return audit.Target{
 		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: "",
@@ -42,8 +48,12 @@ func UserTarget(userID uuid.UUID) audit.Target {
 	}
 }
 
-// TokenTarget returns a resource audit target for tokenID with label as its
-// name.
+// TokenTarget returns a resource audit target for tokenID.
+//
+// The target uses tokenID as its ID and label as its name. Its URI
+// appends the string form of tokenID to audit.APIAccessURIPrefix.
+//
+//	target := TokenTarget(tokenID, label)
 func TokenTarget(tokenID uuid.UUID, label string) audit.Target {
 	return audit.Target{
 		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: label,
@@ -52,9 +62,13 @@ func TokenTarget(tokenID uuid.UUID, label string) audit.Target {
 	}
 }
 
-// MemberTarget returns a relationship audit target from orgID to userID, using
-// memberID as the membership row ID. Failure events can use [uuid.Nil] for
-// memberID when the row does not exist.
+// MemberTarget returns a relationship audit target from orgID to userID.
+//
+// The target uses memberID as the membership row ID. Failure events can
+// use [uuid.Nil] for memberID when the row does not exist. The target
+// uses memberRelation as its relationship type.
+//
+//	target := MemberTarget(memberID, orgID, userID)
 func MemberTarget(memberID, orgID, userID uuid.UUID) audit.Target {
 	return audit.Target{
 		Kind: audit.TargetKindRelationship, NodeType: "", Reference: "", Name: "",
