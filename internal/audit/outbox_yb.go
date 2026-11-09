@@ -22,24 +22,33 @@ type OutboxRow struct {
 	EventID uuid.UUID
 	// Event is the audit event awaiting relay delivery.
 	Event Event
-	// Messages contains part messages in part_index order followed by the manifest
-	// message for a multipart row. Event remains zero when Messages contains these records.
+	// Messages stores multipart messages in part_index order, followed by the
+	// manifest. Event retains its zero value when Messages stores these records.
 	Messages [][]byte `exhaustruct:"optional"`
 }
 
 // PoolOutbox reads and deletes operator-command events in the YugabyteDB
-// outbox. An operator command writes its event into that table inside the same
-// transaction as its own work, and the relay drains what this type returns.
+// outbox. WriteOutboxTx records an event in the transaction for the command's
+// work. WriteOutbox commits independently. The relay processes returned rows.
 type PoolOutbox struct {
 	pool *pgxpool.Pool
 }
 
-// NewPoolOutbox returns a YugabyteDB outbox accessor over pool.
+// NewPoolOutbox constructs a YugabyteDB outbox accessor using pool.
+//
+// The accessor uses the supplied pool directly without creating another pool.
+//
+//   - Closing the accessor also closes the supplied pool.
 func NewPoolOutbox(pool *pgxpool.Pool) *PoolOutbox {
 	return &PoolOutbox{pool: pool}
 }
 
-// Close releases the YugabyteDB pool used by the outbox.
+// Close closes the YugabyteDB pool that the outbox uses.
+//
+// The method checks both the receiver and pool before closing the pool.
+//
+//   - A nil receiver does not close a pool.
+//   - A receiver with a nil pool does not close a pool.
 func (o *PoolOutbox) Close() {
 	if o != nil && o.pool != nil {
 		o.pool.Close()
@@ -47,14 +56,14 @@ func (o *PoolOutbox) Close() {
 }
 
 // WriteOutbox writes event to the YugabyteDB operator outbox on its own
-// connection, committing by itself.
+// connection and commits independently of the caller's transaction.
 //
-// It is deliberately outside any caller's transaction, despite what this
-// type's own comment says about a command writing its event alongside its
-// work. That coupling is what WriteOutboxTx offers, and only a command that
-// already owns a transaction can take it. The choke-point uses this method,
-// because it records an intent before the command runs and an outcome after,
-// and neither row may be rolled back by whatever happens in between.
+// WriteOutboxTx records an event alongside the command's work when the caller
+// already owns a transaction. The shared command audit recorder uses
+// WriteOutbox to prevent a command rollback from undoing its audit records.
+//
+//   - The recorder writes intent before the command runs.
+//   - The recorder writes the outcome after the command runs.
 func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	eventJSON, err := marshalOutboxEvent(ctx, event)
 	if err != nil {
@@ -70,16 +79,17 @@ func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	return nil
 }
 
-// WriteOutboxIfAbsent writes event unless an event with its identity already
-// exists. It returns true when it inserted a row.
+// WriteOutboxIfAbsent writes event unless the outbox already stores that
+// event identity.
 //
-// The insert carries no ON CONFLICT clause on purpose. Postgres resolves a
-// conflict target by reading the conflicting row, so that clause needs SELECT
-// on the table, and an operator command holds INSERT and nothing else exactly
-// so it cannot read pending events. The primary key reports the duplicate
-// through SQLSTATE 23505 instead, which needs no read: reconstruction stayed
-// idempotent while the command kept the narrowest grant it can run with
-// (TACK-450).
+// The insert intentionally omits ON CONFLICT. PostgreSQL reads the conflicting
+// row to resolve a conflict target, which requires SELECT. Operator commands
+// have only INSERT and cannot read pending events. The primary key reports a
+// duplicate as SQLSTATE 23505 without requiring a read. TACK-450 preserved
+// idempotent reconstruction under this minimum grant.
+//
+//   - A new event identity returns true after a successful insert.
+//   - A duplicate event identity returns false without an error.
 func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool, error) {
 	eventJSON, err := marshalOutboxEvent(ctx, event)
 	if err != nil {
@@ -106,14 +116,20 @@ func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool
 	return true, nil
 }
 
-// isOutboxDuplicate reports whether err is the primary key rejecting an event
-// identity the outbox already holds.
+// isOutboxDuplicate reports whether err indicates that the outbox already
+// stores an event identity.
 func isOutboxDuplicate(err error) bool {
 	var postgresError *pgconn.PgError
 	return errors.As(err, &postgresError) && postgresError.Code == uniqueViolationSQLState
 }
 
 // WriteOutboxTx writes event to the YugabyteDB operator outbox in tx.
+//
+// The caller controls the transaction. The event size determines the stored
+// representation.
+//
+//   - An event that fits one record uses a plain outbox row.
+//   - A larger event uses an encoded header and ordered parts.
 func (o *PoolOutbox) WriteOutboxTx(ctx context.Context, tx pgx.Tx, event Event) error {
 	eventJSON, err := marshalOutboxEvent(ctx, event)
 	if err != nil {
@@ -138,10 +154,14 @@ func marshalOutboxEvent(ctx context.Context, event Event) ([]byte, error) {
 	return eventJSON, nil
 }
 
-// ReadBatch reads up to limit events in creation order. The event id breaks
-// ties: now() is stable within a transaction, so two rows can share a
-// creation time, and without the tie-break the drain order would vary between
-// runs over the same data.
+// ReadBatch reads up to limit events in creation order.
+//
+// The event ID determines the order of rows with equal creation times.
+// now() stays constant within a transaction, and rows can share a creation
+// time. Without the event ID comparison, repeated reads of unchanged data
+// could return different orders.
+//
+//   - Rows with equal created_at values sort by event_id.
 func (o *PoolOutbox) ReadBatch(ctx context.Context, limit int) ([]OutboxRow, error) {
 	var batch []OutboxRow
 	err := pgx.BeginTxFunc(ctx, o.pool, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {

@@ -23,15 +23,24 @@ type partitionMaintenanceEvidence struct {
 	HeadroomAfter  *int `json:"headroom_weeks_after,omitempty"`
 }
 
-// RecordRuns configures the manager to record each maintenance run as a service
-// operation with one step, using outbox and actor. It returns the manager.
+// RecordRuns configures recording for each maintenance run as a service
+// operation using outbox and actor. It returns the manager.
+//
+// The manager uses the configured writer and actor when it runs maintenance.
+//
+//   - Each recorded run uses one step in the service operation.
 func (m *PartitionManager) RecordRuns(outbox OutboxWriter, actor Actor) *PartitionManager {
 	m.recording = &partitionRecording{outbox: outbox, actor: actor}
 	return m
 }
 
-// RecordPartitionRuns configures the consumer to record partition maintenance
-// through outbox using actor. Call it before Start.
+// RecordPartitionRuns configures consumer partition-maintenance recording
+// using outbox and actor.
+//
+// Call RecordPartitionRuns before Start to configure the partition manager
+// before the consumer starts it.
+//
+//   - Startup maintenance uses the configured writer and actor.
 func (c *Consumer) RecordPartitionRuns(outbox OutboxWriter, actor Actor) {
 	c.partitions.RecordRuns(outbox, actor)
 }

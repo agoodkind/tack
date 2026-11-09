@@ -7,13 +7,18 @@ import (
 	"log/slog"
 )
 
-// RunMaintenance calls audit.run_partition_maintenance on one pooled
-// connection and resets search_path on that connection before it returns to
-// the pool. The function declares SET search_path = pg_catalog, partman,
-// audit, and the session keeps that search path after the call returns. The
-// consumer runs batch transactions on the same pool. On a connection with
-// that search path, an unqualified reference to a table in the public schema
-// fails with SQLSTATE 42P01.
+// RunMaintenance calls audit.run_partition_maintenance using one pooled
+// connection and resets search_path before releasing the connection.
+//
+// The function declares SET search_path = pg_catalog, partman, audit. The
+// consumer runs batch transactions using the same pool.
+//
+// The original implementation rationale assumes that the session retains
+// this search path after the function returns. Under that assumed path, an
+// unqualified reference to a public-schema table fails with SQLSTATE 42P01.
+//
+//   - A successful reset restores search_path before connection release.
+//   - A reset failure closes the connection before release.
 func (s *pgPartitionStore) RunMaintenance(ctx context.Context) error {
 	connection, err := s.pool.Acquire(ctx)
 	if err != nil {
@@ -30,8 +35,8 @@ func (s *pgPartitionStore) RunMaintenance(ctx context.Context) error {
 	}
 	if _, err := connection.Exec(ctx, `RESET search_path`); err != nil {
 		slog.ErrorContext(ctx, "audit.partition.search_path_reset_failed", slog.String("err", err.Error()))
-		/* The pool destroys a closed connection on release, and a batch
-		   transaction never receives the maintenance search path. */
+		// The pool destroys a closed connection on release. A later batch transaction
+		// cannot use that connection's maintenance search path.
 		_ = connection.Conn().Close(context.WithoutCancel(ctx))
 		return errors.Join(maintenanceErr, fmt.Errorf("reset search_path after partition maintenance: %w", err))
 	}

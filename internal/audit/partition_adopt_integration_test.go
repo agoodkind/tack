@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestPartmanAdoptionPreservesLedgerAndMaintainsHeadroom proves migration 004
-// adopts the pre-existing ledger without moving rows and gives audit_writer the
-// narrow maintenance capability used by the production worker.
+// TestPartmanAdoptionPreservesLedgerAndMaintainsHeadroom checks that migration
+// 004 adopts the existing ledger without relocating rows. It also checks the
+// limited audit_writer maintenance capability that the production worker uses.
 func TestPartmanAdoptionPreservesLedgerAndMaintainsHeadroom(t *testing.T) {
 	fixture := newPartmanTestDatabase(t)
 	fixture.migrateTo(t, 3)

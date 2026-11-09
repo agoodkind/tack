@@ -60,11 +60,11 @@ func TestPartitionMigrationRefusesStrayChildName(t *testing.T) {
 }
 
 // TestPartitionMaintenanceCreatesComingWeeksPastFarChild drops the current
-// week and the two weeks after it, then attaches a 2031 child with one
-// chained event. Before migration 17, maintenance creates none of the three
-// weeks and a current-week write fails. After it, maintenance called from an
-// America/Los_Angeles session creates every week under its Monday UTC name,
-// recreates a dropped week, and the chain still verifies.
+// week and the next two weeks, then attaches a 2031 partition with one chained
+// event. Before migration 17, maintenance does not create any of the missing
+// weeks, and a current-week write fails. After migration 17, maintenance from
+// an America/Los_Angeles session creates the weeks with Monday UTC names,
+// recreates a subsequently dropped week, and preserves the verified chain.
 func TestPartitionMaintenanceCreatesComingWeeksPastFarChild(t *testing.T) {
 	fixture := newPartmanTestDatabase(t)
 	fixture.migrateTo(t, comingWeeksMigration-1)

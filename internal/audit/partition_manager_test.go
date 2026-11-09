@@ -41,8 +41,8 @@ func (f *fakeStore) runCount() int {
 	return f.runs
 }
 
-// TestPartitionManagerRunsOnceOnStart verifies boot catch-up: Start triggers one
-// maintenance run before any tick fires.
+// TestPartitionManagerRunsOnceOnStart checks that Start triggers startup
+// maintenance before the first timer tick.
 func TestPartitionManagerRunsOnceOnStart(t *testing.T) {
 	store := &fakeStore{headroom: 12}
 	pm := NewPartitionManager(store, time.Hour)
@@ -61,7 +61,7 @@ func TestPartitionManagerRunsOnceOnStart(t *testing.T) {
 	}
 }
 
-// TestPartitionManagerCloseIdempotent verifies Close can be called twice safely.
+// TestPartitionManagerCloseIdempotent checks that two Close calls succeed.
 func TestPartitionManagerCloseIdempotent(t *testing.T) {
 	pm := NewPartitionManager(&fakeStore{headroom: 12}, time.Hour)
 	pm.Start(context.Background())
@@ -74,7 +74,7 @@ func TestPartitionManagerCloseIdempotent(t *testing.T) {
 }
 
 // TestPartitionMaintenanceMeetsTheAlertFloor runs maintenance on a migrated
-// ledger and checks that the headroom it leaves does not trip the alert.
+// ledger and checks that the resulting headroom meets the alert floor.
 func TestPartitionMaintenanceMeetsTheAlertFloor(t *testing.T) {
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, testenv.Ledger(t))
@@ -96,8 +96,8 @@ func TestPartitionMaintenanceMeetsTheAlertFloor(t *testing.T) {
 	}
 }
 
-// TestPartitionManagerRunErrorDoesNotPanic verifies a maintenance failure is
-// swallowed (logged) and the worker keeps running.
+// TestPartitionManagerRunErrorDoesNotPanic checks that the worker continues
+// after a maintenance failure. The worker logs the failure.
 func TestPartitionManagerRunErrorDoesNotPanic(t *testing.T) {
 	store := &fakeStore{runErr: errors.New("boom"), headroom: 0}
 	pm := NewPartitionManager(store, time.Hour)

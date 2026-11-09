@@ -10,8 +10,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// WriteEncodedOutboxTx calls public.ops_outbox_write_encoded inside the caller's
-// transaction with the event ID, plain event or manifest, and ordered part messages.
+// WriteEncodedOutboxTx calls public.ops_outbox_write_encoded inside the
+// caller's transaction.
+//
+// The caller controls the commit or rollback. The function receives the
+// encoded event as these arguments:
+//
+//   - The event ID identifies the outbox row.
+//   - A plain event or manifest supplies the header.
+//   - Ordered messages supply the event parts.
 func WriteEncodedOutboxTx(ctx context.Context, tx pgx.Tx, encoded EncodedEvent) error {
 	event, parts, err := encoded.HeaderAndParts()
 	if err != nil {
@@ -80,13 +87,23 @@ func outboxPartMessages(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, heade
 }
 
 // Delete removes an event's parts and outbox row in one transaction.
-// The relay runs Delete after the broker accepts every record for the row.
+//
+// The relay deletes a delivered row only after the broker accepts every record
+// for that row. It calls Delete when the outbox does not support publication
+// acknowledgments or claimed batches.
+//
+//   - Delete removes the row without acknowledging read receipts.
 func (o *PoolOutbox) Delete(ctx context.Context, eventID uuid.UUID) error {
 	return o.DeletePublished(ctx, eventID, nil)
 }
 
-// DeletePublished deletes an event's parts and outbox row and marks the read
-// receipts in reads as published in the same transaction.
+// DeletePublished deletes an event's parts and outbox row and marks the
+// read receipts in reads as published in the same transaction.
+//
+// The method deletes parts before deleting the event row, then acknowledges
+// the read receipts.
+//
+//   - A deletion error prevents receipt acknowledgment.
 func (o *PoolOutbox) DeletePublished(ctx context.Context, eventID uuid.UUID, reads []PublishedRead) error {
 	err := pgx.BeginFunc(ctx, o.pool, func(tx pgx.Tx) error {
 		return deletePublishedTx(ctx, tx, eventID, reads)

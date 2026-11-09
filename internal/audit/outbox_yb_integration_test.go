@@ -26,11 +26,10 @@ func TestOutboxReadBatchAndDelete(t *testing.T) {
 		outboxTestEvent("second"),
 		outboxTestEvent("third"),
 	}
-	// Dated far enough in the past that no real row can predate them. The DSN
-	// points at a shared database, so a row left behind by another test would
-	// otherwise sort ahead of these and the limited read below would return
-	// it instead, failing this test for a reason that has nothing to do with
-	// the outbox.
+	// The test dates its rows in 2000 and assumes that real rows have later
+	// creation times. The DSN selects a shared database. An older row left by
+	// another test would sort before these rows and displace one in the limited
+	// read, failing this test independently of the outbox behavior.
 	createdAt := []time.Time{
 		time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2000, time.January, 1, 0, 0, 1, 0, time.UTC),
@@ -57,10 +56,10 @@ func TestOutboxReadBatchAndDelete(t *testing.T) {
 		}
 	}
 
-	// The three rows carry the oldest created_at values in the table, so a
-	// limited read returns exactly the first two of them in that order. Every
-	// later assertion filters to this test's own ids, because the shared
-	// database may hold rows another test is writing.
+	// The limited read expects the first two test rows in creation order under
+	// the assumption that these three rows have the oldest created_at values.
+	// Later assertions select only this test's event IDs because other tests may
+	// write rows to the shared database.
 	outbox := NewPoolOutbox(pool)
 	batch, err := outbox.ReadBatch(ctx, 2)
 	if err != nil {
@@ -101,12 +100,12 @@ func TestOutboxReadBatchAndDelete(t *testing.T) {
 	}
 }
 
-// outboxReadLimit covers this test's rows plus whatever a concurrent test on
-// the same shared database left behind.
+// outboxReadLimit allows space for this test's rows and rows that concurrent
+// tests leave in the shared database.
 const outboxReadLimit = 1000
 
-// readOwnOutboxRows drains a generous batch and keeps only the rows this test
-// wrote, in the order the reader returned them.
+// readOwnOutboxRows reads a large batch and selects only this test's rows
+// without changing the reader's order.
 func readOwnOutboxRows(
 	ctx context.Context,
 	t *testing.T,

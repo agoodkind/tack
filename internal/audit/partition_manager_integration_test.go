@@ -24,7 +24,8 @@ func TestPartitionManagerHealsFutureWeek(t *testing.T) {
 	ctx := context.Background()
 	target := time.Now().UTC().AddDate(0, 0, 7*20)
 
-	// Extend this isolated fixture until the target is its maintenance frontier.
+	// The isolated fixture extends maintenance coverage until the target becomes
+	// the latest partition that maintenance creates.
 	if _, err := pool.Exec(ctx, `
 		UPDATE partman.part_config
 		SET premake = round(

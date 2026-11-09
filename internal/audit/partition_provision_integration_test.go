@@ -19,19 +19,21 @@ import (
 	"goodkind.io/tack/migrations"
 )
 
-// One maintenance pass leaves two or three future weeks. Measured on
-// 2026-10-05 00:17 UTC, a Monday: two. Measured on 2026-10-02, a Friday:
-// three.
+// One maintenance pass leaves two or three future weeks. Historical
+// measurements recorded these results:
+//
+//   - The Monday measurement on 2026-10-05 at 00:17 UTC recorded two weeks.
+//   - The Friday measurement on 2026-10-02 recorded three weeks.
 const maxHeadroomWeeks = partitionHeadroomAlertFloor + 1
 
 var partmanChildName = regexp.MustCompile(`^events_p[0-9]{4}_[0-9]{2}_[0-9]{2}$`)
 
 // TestFreshProvisionMaintainsWeeklyPartitions applies every migration to an
-// empty ledger through postgres.Migrate, the call ops provision makes, and
-// runs one partition-manager pass as an audit_writer login, the role the
-// audit consumer uses. The pass must succeed, leave every week through the
-// last premade one partitioned under pg_partman names, and report the
-// headroom pg_partman produces, with no manual SQL.
+// empty ledger using migration.Migrate, the function ops provision calls. It
+// runs one partition-manager pass as an audit_writer login, matching the audit
+// consumer's role. The pass must succeed and create every week through the
+// last premade week under pg_partman names. The test checks pg_partman's
+// headroom without manual SQL.
 func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 	fixture := newPartmanTestDatabase(t)
 	ctx := context.Background()

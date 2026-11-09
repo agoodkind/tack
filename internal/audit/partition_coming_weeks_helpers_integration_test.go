@@ -26,8 +26,8 @@ func attachFarChild(t *testing.T, fixture *partmanTestDatabase, name string) {
 	}
 }
 
-// appendFarChildEvent appends one chained event inside the far child through
-// the production chain writer and returns its organization.
+// appendFarChildEvent appends one chained event in the distant partition using
+// the production chain writer and returns its organization ID.
 func appendFarChildEvent(t *testing.T, fixture *partmanTestDatabase) uuid.UUID {
 	t.Helper()
 	orgID := uuid.Must(uuid.NewV7())
@@ -39,8 +39,8 @@ func appendFarChildEvent(t *testing.T, fixture *partmanTestDatabase) uuid.UUID {
 	return orgID
 }
 
-// runPartitionMaintenance calls the function the audit consumer runs on boot
-// and daily.
+// runPartitionMaintenance calls the audit consumer's startup and daily
+// maintenance function.
 func runPartitionMaintenance(ctx context.Context, fixture *partmanTestDatabase) error {
 	if _, err := fixture.pool.Exec(ctx, `SELECT audit.run_partition_maintenance()`); err != nil {
 		return fmt.Errorf("run audit partition maintenance: %w", err)

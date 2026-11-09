@@ -18,13 +18,16 @@ const claimOutboxStatement = `
 	   FOR UPDATE SKIP LOCKED
 `
 
-// ClaimBatch locks up to limit outbox rows and calls publish in creation order.
-// After each successful call, it deletes the row and its parts and acknowledges
-// matching read receipts in the claim transaction.  A publish error stops the
-// batch. The transaction commits earlier deletions and leaves the failing row
-// and remaining rows for retry. ClaimBatch returns the committed row count and
-// wraps the publish error.  A transaction error returns zero. A later claim can
-// publish records that Kafka already accepted before the transaction failed.
+// ClaimBatch locks up to limit outbox rows and calls publish in creation
+// order. After each successful call, it deletes the row and its parts and
+// acknowledges matching read receipts in the claim transaction.
+//
+// A publish error stops the batch. The transaction commits earlier deletions
+// and retains the failing and remaining rows for retry. A later claim can
+// publish records that Kafka accepted before a transaction failure.
+//
+//   - A publish error returns the committed row count and a wrapped error.
+//   - A transaction error returns zero.
 func (o *PoolOutbox) ClaimBatch(ctx context.Context, limit int, publish func(context.Context, OutboxRow) error) (int, error) {
 	published := 0
 	var publishErr error

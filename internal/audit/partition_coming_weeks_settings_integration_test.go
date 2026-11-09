@@ -13,9 +13,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// runPartitionMaintenanceIn opens a new session with TimeZone set to
-// timeZone and calls audit.run_partition_maintenance from it. It fails unless
-// the session reports that zone before the call.
+// runPartitionMaintenanceIn opens a session with TimeZone set to timeZone and
+// calls audit.run_partition_maintenance in that session. It fails unless the
+// session reports the requested zone before the call.
 func runPartitionMaintenanceIn(ctx context.Context, fixture *partmanTestDatabase, timeZone string) error {
 	config, err := pgx.ParseConfig(fixture.dsn)
 	if err != nil {
@@ -40,9 +40,10 @@ func runPartitionMaintenanceIn(ctx context.Context, fixture *partmanTestDatabase
 	return nil
 }
 
-// requireMaintenanceSettings requires the migration owner to own
-// audit.run_partition_maintenance as SECURITY DEFINER with its search path
-// and a UTC TimeZone, and audit_writer to have EXECUTE on it.
+// requireMaintenanceSettings checks that the migration owner owns
+// audit.run_partition_maintenance. The function must use SECURITY DEFINER with
+// its search path and a UTC TimeZone. audit_writer must have EXECUTE
+// permission.
 func requireMaintenanceSettings(t *testing.T, fixture *partmanTestDatabase) {
 	t.Helper()
 	var owner string
@@ -68,9 +69,8 @@ func requireMaintenanceSettings(t *testing.T, fixture *partmanTestDatabase) {
 	}
 }
 
-// requireUTCWeekNames requires each moment's week to have a child named
-// events_p plus the date of its Monday in UTC, bounded from that Monday at
-// 00:00 UTC.
+// requireUTCWeekNames checks that each moment's partition uses events_p plus
+// its Monday UTC date. The partition must start that Monday at 00:00 UTC.
 func requireUTCWeekNames(t *testing.T, fixture *partmanTestDatabase, moments []time.Time) {
 	t.Helper()
 	for _, moment := range moments {

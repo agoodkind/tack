@@ -45,8 +45,8 @@ func latestMigrationVersion(t *testing.T) int64 {
 	return latest
 }
 
-// auditWriterPool opens a pool on the fixture database as a throwaway LOGIN
-// role that inherits only audit_writer.
+// auditWriterPool opens the fixture database using a temporary LOGIN role
+// that inherits only audit_writer.
 func auditWriterPool(t *testing.T, fixture *partmanTestDatabase) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
