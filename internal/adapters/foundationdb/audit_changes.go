@@ -14,10 +14,14 @@ import (
 )
 
 // AppendChanges builds one format 2 change event per audit.Change using
-// operation. It encodes each event with audit.EncodeEvent and writes the
-// events to the outbox in tr with one OutboxWriter. Callers run
-// AppendChanges once per transaction attempt after making their changes and
-// do not write other outbox entries in that attempt.
+// operation.
+//
+// It encodes each event with audit.EncodeEvent and writes the events to the
+// outbox in tr with one OutboxWriter. Callers run AppendChanges once per
+// transaction attempt after making their changes and do not write other
+// outbox entries in that attempt.
+//
+//	err := AppendChanges(ctx, tr, operation, []audit.Change{change})
 func AppendChanges(ctx context.Context, tr fdb.Transaction, operation audit.Event, changes []audit.Change) error {
 	if len(changes) == 0 {
 		return nil

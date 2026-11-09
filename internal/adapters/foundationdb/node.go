@@ -27,13 +27,23 @@ type NodeStore struct {
 	sequenceLocks *sequenceLockSet
 }
 
-// NewNodeStore creates the node store. It does not schedule search work
-// until [Stores.EnableSearchWork] runs.
+// NewNodeStore creates the node store.
+//
+// It does not schedule search work until [Stores.EnableSearchWork] runs.
+//
+//	searchWork: false
+//	writeFence: fenceNodeMutation
 func NewNodeStore(db fdb.Database, source clock.Clock) *NodeStore {
 	return &NodeStore{db: db, clock: source, searchWork: false, writeFence: fenceNodeMutation, sequenceLocks: newSequenceLockSet()}
 }
 
 // Get resolves the node by ID using its global resolution record.
+//
+// The resolution record supplies the node type for reading the primary node
+// record. Get returns nil when that record identifies another organization.
+//
+//	node_resolve: nodeID identifies the resolution record.
+//	node_instance: orgID, resolved node type, and nodeID identify the node.
 func (s *NodeStore) Get(ctx context.Context, orgID, nodeID uuid.UUID) (n *node.Node, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.get")(&err)
 	var encoded []byte
@@ -72,8 +82,13 @@ func (s *NodeStore) Get(ctx context.Context, orgID, nodeID uuid.UUID) (n *node.N
 	return &current, nil
 }
 
-// Set stores a node and its view. When search work is enabled, the same
-// transaction also schedules search work for the node.
+// Set stores a node and, when view is non-nil, its view.
+//
+// When search work is enabled, the same transaction also schedules search
+// work for the node.
+//
+//	Node records: primary node, resolution, and optional materialized view.
+//	Search work: scheduled only when searchWork is true.
 func (s *NodeStore) Set(ctx context.Context, current *node.Node, view *node.NodeView) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set")(&err)
 	changes, err := beginMutationAudit(ctx, current.OrgID)

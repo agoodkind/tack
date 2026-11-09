@@ -38,10 +38,14 @@ func auditReadCleanupKey(bucket uint16, published time.Time, eventID uuid.UUID) 
 }
 
 // FinalizeRead saves the final event in the outbox, saves its digest in a
-// terminal receipt, and removes pending state in one transaction. If pending
-// state does not exist, a receipt from the same owner with the same digest
-// confirms an earlier commit. Finalization does not recreate missing pending
-// state.
+// terminal receipt, and removes pending state in one transaction.
+//
+// If pending state does not exist, a receipt from the same owner with the
+// same digest confirms an earlier commit. Finalization does not recreate
+// missing pending state.
+//
+//	Pending read: event, terminal receipt, and pending state removal.
+//	Committed retry: receipt owner and digest confirmation.
 func (s *AuditReadStore) FinalizeRead(ctx context.Context, completion audit.ReadCompletion) error {
 	token := completion.Token
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
@@ -93,6 +97,14 @@ func confirmFinalized(tr fdb.Transaction, completion audit.ReadCompletion) error
 
 // AcknowledgePublished marks matching receipts as published and schedules
 // their cleanup in one transaction.
+//
+// The acknowledgment must match the receipt digest. A published matching
+// receipt retains its original publication time after a retry.
+//
+//  - The transaction records the time for an unpublished matching receipt.
+//    It also schedules cleanup.
+//  - A published matching receipt does not change.
+//  - A different digest returns an error.
 func (s *AuditReadStore) AcknowledgePublished(ctx context.Context, reads []audit.PublishedRead) error {
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
 		return acknowledgeReads(tr, s.clock.Now(), reads)

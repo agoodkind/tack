@@ -31,8 +31,12 @@ type NameIndexPage struct {
 }
 
 // BackfillNameIndex reads one page of node types of every organization after
-// cursor and finds the node types without a type-key index entry. When write
-// is true, the same transaction writes each missing entry.
+// cursor and finds the node types without a type-key index entry.
+//
+// When write is true, the same transaction writes each missing entry.
+//
+//	write == false: count missing type-key index entries.
+//	write == true: count and write missing type-key index entries.
 func (s *NodeTypeStore) BackfillNameIndex(ctx context.Context, cursor string, write bool) (page NameIndexPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.backfill_name_index")(&err)
 	return backfillNameIndexPage(ctx, s.db, keyNodeTypeDef, cursor, write, func(orgID, typeID uuid.UUID, encoded []byte) ([]byte, error) {
@@ -49,8 +53,12 @@ func (s *NodeTypeStore) BackfillNameIndex(ctx context.Context, cursor string, wr
 
 // BackfillNameIndex reads one page of property definitions of every
 // organization after cursor and finds the definitions without a
-// property-name index entry. When write is true, the same transaction writes
-// each missing entry.
+// property-name index entry.
+//
+// When write is true, the same transaction writes each missing entry.
+//
+//	write == false: count missing property-name index entries.
+//	write == true: count and write missing property-name index entries.
 func (s *PropertyDefStore) BackfillNameIndex(ctx context.Context, cursor string, write bool) (page NameIndexPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.backfill_name_index")(&err)
 	return backfillNameIndexPage(ctx, s.db, keyPropertyDef, cursor, write, func(orgID, definitionID uuid.UUID, encoded []byte) ([]byte, error) {

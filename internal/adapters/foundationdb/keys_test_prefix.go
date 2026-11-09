@@ -22,6 +22,9 @@ var testPrefix []byte
 // that a range read returns before calling tuple.Unpack.
 //
 // SetTestPrefix is for test code only. Production code must not invoke it.
+//
+//	SetTestPrefix(prefix)
+//	defer SetTestPrefix(nil)
 func SetTestPrefix(prefix []byte) {
 	testPrefix = prefix
 }
@@ -53,10 +56,15 @@ func stripPrefix(key []byte) []byte {
 	return key
 }
 
-// TestPrefixRange returns the active test prefix. Tests use this prefix to
-// clear the keys they wrote during a run. It returns nil when the test
-// prefix does not exist, including in production. Production calls do not
-// change any keys.
+// TestPrefixRange returns the active test prefix.
+//
+// Tests use this prefix to clear the keys they wrote during a run. It
+// returns nil when the test prefix does not exist, including in production.
+// Production calls do not change any keys.
+//
+//	SetTestPrefix(prefix)
+//	active := TestPrefixRange() // active contains prefix.
+//	SetTestPrefix(nil)
 func TestPrefixRange() []byte {
 	if testPrefix == nil {
 		return nil

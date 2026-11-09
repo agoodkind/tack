@@ -13,14 +13,26 @@ import (
 
 // NewInspectStore returns a read-only inspector using the shared
 // FoundationDB connection.
+//
+// The inspector groups one node's records by family in a
+// NodeInspectionReport.
+//
+//	inspector := NewInspectStore(database)
+//	report, err := inspector.QueryNodeRecords(ctx, nodeID)
 func NewInspectStore(db fdb.Database) *InspectStore {
 	return &InspectStore{db: db}
 }
 
 // QueryNodeRecords returns resolution, node, view, and property index
-// records that match nodeID. It scans and filters families without a prefix
-// for nodeID. It reads relationship records only in organizations that those
-// records identify.
+// records that match nodeID.
+//
+// It scans and filters families without a prefix for nodeID. It reads
+// relationship records only in organizations that those records identify.
+//
+//  - Resolve contains the global resolution result.
+//  - NodeInstances, NodeViews, and PropertyIndexRows contain matching rows.
+//  - Relationships contain forward rows with nodeID as the source.
+//  - RelationshipReverseRows contain reverse rows with nodeID as the target.
 func (s *InspectStore) QueryNodeRecords(_ context.Context, nodeID uuid.UUID) (report *NodeInspectionReport, err error) {
 	report = &NodeInspectionReport{
 		NodeID:                  nodeID,

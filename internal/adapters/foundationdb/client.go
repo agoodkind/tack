@@ -16,6 +16,9 @@ import (
 // timeout after a retryable error. Zero and negative values do not set the
 // option (TACK-408). The returned database applies the timeout to every
 // transaction it creates.
+//
+//  - A positive transactionTimeout sets the database transaction timeout.
+//  - A zero or negative transactionTimeout leaves that option unset.
 func Open(clusterFile string, transactionTimeout time.Duration) (fdb.Database, error) {
 	if err := fdb.APIVersion(740); err != nil {
 		return fdb.Database{}, fmt.Errorf("fdb api version: %w", err)

@@ -26,8 +26,12 @@ type AuditReadStore struct {
 }
 
 // AuditReads returns the read lifecycle store on the shared FoundationDB
-// connection. The injected clock supplies admission, lease, and retention
-// times.
+// connection.
+//
+// The injected clock supplies admission, lease, and retention times.
+//
+//	store := stores.AuditReads(source)
+//	token, err := store.BeginRead(ctx, admission)
 func (s *Stores) AuditReads(source clock.Clock) *AuditReadStore {
 	return &AuditReadStore{db: s.db, clock: source}
 }
@@ -61,9 +65,13 @@ func auditReadDueRange(family string, bucket uint16, limit time.Time) fdb.KeyRan
 }
 
 // BeginRead saves pending state with generation one, an admission deadline,
-// and a lease before the caller reads data. A retry by the same owner with
-// the same template at or before the admission deadline returns the saved
-// token.
+// and a lease before the caller reads data.
+//
+// A retry by the same owner with the same template at or before the
+// admission deadline returns the saved token.
+//
+//	New admission: generation one, admission deadline, lease deadline.
+//	Matching retry: saved generation and admission deadline.
 func (s *AuditReadStore) BeginRead(ctx context.Context, admission audit.ReadAdmission) (audit.ReadToken, error) {
 	eventID := admission.Token.EventID
 	if err := audit.ValidateReadAdmission(admission); err != nil {
@@ -126,6 +134,12 @@ func retriedAdmission(pending auditReadPending, owner uuid.UUID, template []byte
 
 // RenewRead updates the lease deadline and its expiry key only when the
 // token's owner and generation match the pending read.
+//
+// The transaction removes the old expiry key before saving the renewed
+// pending record and its new expiry key.
+//
+//	Old lease: clear the expiry key.
+//	New lease: save the pending record and expiry key.
 func (s *AuditReadStore) RenewRead(ctx context.Context, token audit.ReadToken) error {
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
 		pending, err := ownedPending(tr, token)

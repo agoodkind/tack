@@ -18,10 +18,15 @@ import (
 // key or property name.
 const maxIndexedMatches = 2
 
-// TypeByKey reads the node type of orgID that uses typeKey. It performs one
-// bounded range read of the type-key index and, for one match, one point
-// read. It returns nil when the index does not match a node type and an
-// error when several do.
+// TypeByKey reads the node type of orgID that uses typeKey.
+//
+// It performs one bounded range read of the type-key index and, for one
+// match, one point read. It returns nil when the index does not match a node
+// type and an error when several do.
+//
+//  - An empty index result returns nil.
+//  - One index match requires a point read of the node type.
+//  - Several index matches return an error.
 func (s *NodeTypeStore) TypeByKey(ctx context.Context, orgID uuid.UUID, typeKey string) (out *node.NodeType, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.by_key")(&err)
 	var encoded []byte

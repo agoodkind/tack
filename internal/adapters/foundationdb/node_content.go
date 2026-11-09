@@ -30,15 +30,25 @@ type NodeContentStore struct {
 }
 
 // NewNodeContentStore creates the node content reader.
+//
+// The reader uses the supplied FoundationDB connection and search access
+// policies.
+//
+//	reader := NewNodeContentStore(database, policies)
+//	page, err := reader.Content(ctx, request)
 func NewNodeContentStore(db fdb.Database, policies *searchaccess.PolicySet) *NodeContentStore {
 	return &NodeContentStore{db: db, policies: policies}
 }
 
-// Content returns one bounded UTF-8 page of the node's current revision. It
-// returns ErrContentChanged when the request or cursor belongs to another
+// Content returns one bounded UTF-8 page of the node's current revision.
+//
+// It returns ErrContentChanged when the request or cursor belongs to another
 // revision or projection. It returns ErrWorkChanged when the requested
 // search generation or access versions differ from the stored ones. It
 // returns ErrNotFound after deletion.
+//
+//	NextCursor: continuation for a nonfinal page.
+//	Done: true when the page ends at the end of the rendered text.
 func (s *NodeContentStore) Content(ctx context.Context, request searchdomain.ContentRequest) (page node.ContentPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_content.read")(&err)
 	snapshot, err := s.readSnapshot(ctx, request.NodeID)

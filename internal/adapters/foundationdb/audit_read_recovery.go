@@ -17,11 +17,15 @@ import (
 )
 
 // RecoverExpired saves an incomplete event and a terminal receipt for up to
-// limit expired pending reads in bucket. Each read uses a separate
-// transaction that rechecks pending state and the indexed lease deadline and
-// saves the receipt with an incremented generation. A stale owner then
-// receives ErrReadOwnerLost from renewal and finalization. Recovery does not
-// rerun the read.
+// limit expired pending reads in bucket.
+//
+// Each read uses a separate transaction that rechecks pending state and the
+// indexed lease deadline and saves the receipt with an incremented
+// generation. A stale owner then receives ErrReadOwnerLost from renewal and
+// finalization. Recovery does not rerun the read.
+//
+//	Expired read: incomplete event and terminal receipt.
+//	Receipt generation: pending generation + 1.
 func (s *AuditReadStore) RecoverExpired(ctx context.Context, bucket uint16, limit int) (int, error) {
 	if bucket >= audit.ReadRecoveryBuckets {
 		return 0, auditReadFailure(ctx, "recover audit reads", uuid.Nil, fmt.Errorf("bucket %d is out of range", bucket))
@@ -98,6 +102,13 @@ func (s *AuditReadStore) recoverOne(ctx context.Context, bucket uint16, deadline
 
 // CleanupPublished deletes up to limit published receipts in bucket after
 // audit.ReadReceiptRetention has elapsed since publication.
+//
+// The transaction checks each due cleanup key against the receipt's
+// publication time before deleting the receipt.
+//
+//  - The transaction deletes a matching published receipt.
+//  - A different publication time prevents receipt deletion.
+//  - The transaction clears every scanned cleanup key.
 func (s *AuditReadStore) CleanupPublished(ctx context.Context, bucket uint16, limit int) (int, error) {
 	if bucket >= audit.ReadRecoveryBuckets {
 		return 0, auditReadFailure(ctx, "clean up audit read receipts", uuid.Nil, fmt.Errorf("bucket %d is out of range", bucket))
