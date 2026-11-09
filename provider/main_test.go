@@ -15,11 +15,13 @@ var foundationDBPackages = []string{
 }
 
 // TestProviderDependsOnNeitherFoundationDBNorCgo loads the provider and its
-// dependencies with golang.org/x/tools/go/packages using the server build
-// settings: cgo enabled and the fdb build tag. It fails if a dependency is a
-// FoundationDB package or a package outside the standard library uses cgo. It
-// detects cgo through compiled Go files that cgo processing writes to the
-// build cache outside the package directory.
+// dependencies with golang.org/x/tools/go/packages using cgo and the fdb
+// build tag, as the server build does. cgo lets Go call C. The test fails if
+// a dependency is a FoundationDB package or a package outside the standard
+// library uses cgo.
+//
+// It treats a compiled Go file outside the package directory as evidence of
+// cgo processing.
 func TestProviderDependsOnNeitherFoundationDBNorCgo(t *testing.T) {
 	loaded, err := packages.Load(&packages.Config{
 		Context:    t.Context(),

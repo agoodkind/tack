@@ -41,8 +41,9 @@ func statusArgv(target schemaTarget, operatorFlags []string) []string {
 }
 
 // applyArgv returns migrate --execute with --to version and --expect-from
-// expectFrom. The command applies migrations through version and refuses to
-// run unless the database is at expectFrom.
+// expectFrom. The command applies migrations through version. When
+// expectFrom is nonzero, it refuses to run unless the database is at
+// expectFrom.
 func applyArgv(target schemaTarget, operatorFlags []string, version int64, expectFrom int64) []string {
 	return append(statusArgv(target, operatorFlags),
 		"--execute",

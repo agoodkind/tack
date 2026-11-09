@@ -11,11 +11,12 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
-// TestSchemaDriftRepair imports and adopts at TACK_ACC_VERSION without a resource
-// change, then plans the higher TACK_ACC_TARGET_VERSION without applying it. The
-// apply plan must still report the starting applied_version; apply must set it
-// to the target without changing image_commit. The next plans must be empty,
-// including the plan before a final apply.
+// TestSchemaDriftRepair imports and adopts at TACK_ACC_VERSION without a
+// resource change, then plans the higher TACK_ACC_TARGET_VERSION without
+// applying it. The prior state in the apply plan must still report the
+// starting applied_version. Apply must set it to the target without changing
+// image_commit. The next plans must be empty, including the plan before a
+// final apply.
 func TestSchemaDriftRepair(t *testing.T) {
 	environment := newAcceptanceEnvironment(t)
 	applied := environment.appliedVersion

@@ -12,15 +12,15 @@ import (
 const (
 	missingInstallDir = "/nonexistent/tack-provider-acceptance"
 
-	// inaccessibleVMID is 999999999, a VMID the acceptance token cannot use.
-	// Every Proxmox API request for this VMID fails.
+	// inaccessibleVMID selects VMID 999999999 for the acceptance case that
+	// expects a guest access error.
 	inaccessibleVMID = 999999999
 )
 
-// TestSchemaDiagnosticsOmitToken plans a new tack_schema with a missing guest
-// install directory and with a guest the token cannot use. Each plan must fail
-// with the expected diagnostic. The diagnostic text must not contain the token
-// secret.
+// TestSchemaDiagnosticsOmitToken plans a new tack_schema with a missing
+// guest install directory and with a guest that the provider cannot access.
+// Each plan must fail with the expected diagnostic. The diagnostic text
+// must not contain the token secret.
 func TestSchemaDiagnosticsOmitToken(t *testing.T) {
 	environment := newAcceptanceEnvironment(t)
 	missingDirectory := environment

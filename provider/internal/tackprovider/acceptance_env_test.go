@@ -32,9 +32,12 @@ const (
 	schemaAddress = "tack_schema.qa"
 )
 
-// acceptanceProviderConfig declares the OpenTofu variables and the tack provider
-// block, with every value supplied through a variable. The api_token variable is
-// sensitive. The configuration text does not contain the token value.
+// acceptanceProviderConfig declares OpenTofu variables and configures the
+// tack provider. Variables supply connection settings and the operator
+// email. The provider uses literal values for insecure and the operator
+// name. The api_token variable marks the token as sensitive. The provider
+// block reads the token from that variable; the configuration text does not
+// contain the token value.
 const acceptanceProviderConfig = `
 terraform {
   required_providers {
@@ -123,8 +126,8 @@ func (environment acceptanceEnvironment) importID() string {
 	return fmt.Sprintf("%s/%d:%s", environment.node, environment.vmid, environment.installDir)
 }
 
-// secret returns the part of the acceptanceEnvironment API token after the first
-// =. Credential checks search for this value.
+// secret returns the part of the acceptanceEnvironment API token after the
+// first =. Credential checks search for this value.
 func (environment acceptanceEnvironment) secret() string {
 	_, secret, _ := strings.Cut(environment.token, "=")
 	return secret

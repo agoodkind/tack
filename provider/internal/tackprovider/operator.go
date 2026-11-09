@@ -9,8 +9,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// operatorNamespace is the version 5 UUID namespace that the configs repository
-// uses for deploy_operator_id in ansible/inventory/group_vars/tack_all.yml.
+// operatorNamespace supplies the version 5 UUID namespace for operator IDs.
+// The configs tack-release module uses the same namespace and lowercased
+// email.
 var operatorNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000004")
 
 type operatorModel struct {
@@ -46,8 +47,8 @@ func operatorBlock() schema.SingleNestedBlock {
 	}
 }
 
-// operatorFlags returns operator identity flags in the format that the configs
-// variable tack_ops_identity_flags renders.
+// operatorFlags returns identity flags for Tack commands. It includes
+// service and session flags for an agent or a name flag for a person.
 func operatorFlags(model *operatorModel) ([]string, error) {
 	if model == nil {
 		return nil, errors.New("the provider configuration requires the operator block")

@@ -11,12 +11,12 @@ RELEASE_BINS := terraform-provider-tack:. terraform-provider-postgresql:../postg
 
 GO_MK_MODULES := go-build.mk go-release.mk
 
-# The compile stages of make release fetch and patch the overlay source and build
-# both binaries in a Go workspace. The workspace file lives in .make and only the
-# release recipe reads it through GOWORK. The helper targets below run with
-# GOWORK=off. Every other goal, and any go.work file that a developer keeps in
-# this directory, stays unchanged. The tag, package, and publish stages compile
-# nothing and need no workspace.
+# The compile stages of make release fetch and patch the overlay source and
+# build both binaries in a Go workspace. The release recipe selects the
+# workspace file in .make through GOWORK. The helper targets below run with
+# GOWORK=off. Every other goal, and any go.work file that a developer keeps
+# in this directory, stays unchanged. The tag, package, and publish stages
+# do not compile code and do not require a workspace.
 ifneq ($(filter release,$(MAKECMDGOALS)),)
 ifeq ($(filter tag package publish,$(RELEASE_STAGE)),)
 RELEASE_WORKSPACE := $(CURDIR)/.make/release.work
