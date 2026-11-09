@@ -63,8 +63,10 @@ func searchIssuedOrdinalPrefix(orgID, nodeID uuid.UUID, revision int64, ordinal 
 }
 
 // searchIssuedKey identifies one registered page by revision, ordinal, and
-// projection version. Two owners that register the same ordinal of one
-// revision under different projections record two document IDs.
+// projection version. Different projections produce distinct keys and
+// document IDs for the same revision and ordinal. Register refuses a
+// competing projection for an already registered ordinal and requires a new
+// revision.
 func searchIssuedKey(orgID, nodeID uuid.UUID, revision int64, ordinal uint64, projection string) []byte {
 	return withPrefix(tuple.Tuple{keySearchIssued, orgID.String(), nodeID.String(), revision, ordinal, projection}.Pack())
 }

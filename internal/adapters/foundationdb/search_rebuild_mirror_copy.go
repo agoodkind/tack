@@ -10,13 +10,19 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RecordMirrorMiss preserves an unexpired mirror deadline without requiring the
-// original claim. A changed revision, absent live work, or different replacement
-// ends the copy obligation.
-// During paused Switching, save the deadline as live pending state without adding
-// copy work after the final drain. Later live claims observe that deadline whether
-// the replacement remains a mirror or becomes the serving index.
-// Outside that pause, the pending copy retains the deadline.
+// RecordMirrorMiss preserves an unexpired mirror deadline without requiring
+// the original claim. A changed revision, absent live work, or different
+// replacement ends the copy obligation.
+//
+// During paused Switching, the transaction saves the deadline as live
+// pending state without adding copy work after the final drain. Later live
+// claims observe that deadline whether the replacement remains a mirror or
+// becomes the serving index. Outside that pause, pending copy work retains
+// the deadline.
+//
+//   - A nil mirror miss or expired deadline returns without writing.
+//   - A surviving obligation uses the node's current generation after claim
+//     loss.
 func (s *SearchWorkStore) RecordMirrorMiss(ctx context.Context, intent searchdomain.WriteIntent) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.record_mirror_miss")(&err)
 	now := s.clock.Now()
@@ -43,8 +49,9 @@ func (s *SearchWorkStore) RecordMirrorMiss(ctx context.Context, intent searchdom
 	return nil
 }
 
-// An expired claim can still owe a mirror write at the current node revision.
-// Use the current generation when preserving that obligation after claim loss.
+// owedMirrorCopy preserves a mirror write obligation at the current node
+// revision even after the original claim expires. It uses the current
+// generation after claim loss.
 func owedMirrorCopy(ctx context.Context, tr fdb.Transaction, intent searchdomain.WriteIntent, revision int64) (searchdomain.WriteIntent, claimScope, bool, error) {
 	work := intent.Work
 	var scope claimScope
@@ -70,10 +77,12 @@ func owedMirrorCopy(ctx context.Context, tr fdb.Transaction, intent searchdomain
 	return intent, scope, true, nil
 }
 
-// Commit owed replacement work in the serving checkpoint transaction.
-// Preserve an existing copy that starts at the missed page or an earlier page.
-// Save every unexpired document/index deadline even when that copy already exists.
-// A new copy starts with the cursor before the missed page.
+// scheduleMirrorCopy records owed replacement work in the serving checkpoint
+// transaction. It preserves an existing copy that starts at the missed page
+// or an earlier page.
+//
+// Every unexpired document and index deadline remains even when a covering
+// copy exists. A new copy starts with the cursor before the missed page.
 func scheduleMirrorCopy(ctx context.Context, tr fdb.Transaction, now time.Time, intent searchdomain.WriteIntent, revision int64) error {
 	work, missed := intent.Work, *intent.MirrorMissed
 	if now.Before(missed.Deadline) {
@@ -106,13 +115,14 @@ func scheduleMirrorCopy(ctx context.Context, tr fdb.Transaction, now time.Time, 
 	})
 }
 
-// copyCovers returns false when the copy record has a different generation or
-// revision from the requested values. For a matching copy record, it returns true
-// with any checkpoint read error. It returns true when the checkpoint is missing
-// or has a different generation or revision from the copy record. Otherwise, it
-// returns whether the checkpoint ordinal is at or before the missed ordinal.
-// readProgress restarts copy work at ordinal zero when the checkpoint is missing
-// or has a different generation from the copy record.
+// copyCovers returns false when the copy record has a different generation
+// or revision from the requested values. For a matching copy record, it
+// returns true with any checkpoint read error. It returns true when the
+// checkpoint is missing or has a different generation or revision from the
+// copy record. Otherwise, it returns whether the checkpoint ordinal is at or
+// before the missed ordinal. readProgress restarts copy work at ordinal zero
+// when the checkpoint is missing or has a different generation from the copy
+// record.
 func copyCovers(ctx context.Context, tr fdb.Transaction, existing searchWorkRecord, generation, revision int64, ordinal uint64) (bool, error) {
 	if existing.Generation != generation || existing.Revision != revision {
 		return false, nil

@@ -12,23 +12,27 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Rollback restores the version other than the candidate in one FoundationDB
-// transaction. It requires a rollout in backfill or verifying that still
-// writes both versions. It sets the restored version as active and
-// candidate, records the old candidate as previous, and selects only the
-// restored version for writes. It enters verifying, clears the cursors,
-// clears the collection key and the old generation's affected set and
-// counter, increments the generation, and schedules rollout work at that
-// generation. Worker steps from the old generation fail their claim check. A
-// repeated rollback returns the stored state without writes when the stored
-// rollout is verifying, uses the restored version as both active and
-// candidate, writes only that version, records a previous version, and has a
+// Rollback restores the noncandidate write version in one FoundationDB
+// transaction. It requires backfill or verifying with the candidate and
+// exactly one other write version. The restored version becomes active and
+// candidate, the old candidate becomes previous, and only the restored
+// version receives writes.
+//
+// Rollback enters verifying, clears all cursors, stops collection, clears
+// the old generation's affected set and counter, increments the rollout
+// generation, and schedules work at that generation. Old worker steps fail
+// claim verification. A repeated rollback returns the stored state without
+// writes when verifying uses the restored version as active and candidate,
+// writes only that version, records a previous version, and has a stored
 // generation equal to ExpectedGeneration or ExpectedGeneration plus one.
-// Otherwise, it returns [searchdomain.ErrNoRolloutInProgress] for a stable
-// authority. It returns [searchdomain.ErrRetirementStarted] if retirement
-// has started or the write versions do not contain the candidate and exactly
-// one other version. It returns [searchdomain.ErrRolloutChanged] if the
-// stored generation differs from ExpectedGeneration.
+//
+//   - A stable authority returns [searchdomain.ErrNoRolloutInProgress].
+//   - Retirement or an invalid pair of write versions returns
+//     [searchdomain.ErrRetirementStarted].
+//   - A different stored generation returns [searchdomain.ErrRolloutChanged]
+//     after the eligibility checks.
+//   - A new rollback records request.Initiation as its initiating operation
+//     and actor.
 func (s *SearchAccessRolloutStore) Rollback(ctx context.Context, request searchdomain.RollbackAccessRollout) (rollout searchdomain.AccessRollout, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.rollback")(&err)
 	if request.AuthorityID == uuid.Nil {

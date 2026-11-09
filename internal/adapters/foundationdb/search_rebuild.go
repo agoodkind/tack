@@ -27,23 +27,38 @@ type SearchRebuildStore struct {
 
 var _ searchdomain.RebuildStore = (*SearchRebuildStore)(nil)
 
-// NewSearchRebuildStore creates the replacement store. work verifies claims
-// and supplies the injected clock. sessions deletes the sessions of a
-// retiring index.
+// NewSearchRebuildStore creates the index replacement store.
+//
+// work verifies claims and supplies the injected clock. sessions deletes
+// sessions of a retiring index.
+//
+//   - The constructor leaves the external failure recorder nil.
 func NewSearchRebuildStore(db fdb.Database, work *SearchWorkStore, sessions *SearchSessionStore) *SearchRebuildStore {
 	return &SearchRebuildStore{db: db, work: work, sessions: sessions, recorder: nil}
 }
 
-// WithFailureRecorder returns a copy of the store that sends retirement
-// failure evidence to recorder when FoundationDB refuses the failed event and
-// the failure codes. A nil recorder disables this path.
+// WithFailureRecorder returns a copy of the store with recorder for
+// retirement failure evidence.
+//
+// The store uses recorder when FoundationDB cannot save the failed event and
+// its failure codes. A nil recorder disables this recording path.
+//
+//   - The recording call ignores caller cancellation and uses
+//     audit.ExternalResultDeadline.
+//   - The failure event includes both cleanup and recording failure codes.
 func (s *SearchRebuildStore) WithFailureRecorder(recorder audit.Recorder) *SearchRebuildStore {
 	withRecorder := *s
 	withRecorder.recorder = recorder
 	return &withRecorder
 }
 
-// CurrentRebuild returns the one replacement and whether it exists.
+// CurrentRebuild returns the stored index replacement and whether it exists.
+//
+// The function reads the environment's single replacement record in one
+// transaction.
+//
+//   - An absent record returns a zero Rebuild value, false, and nil.
+//   - A failed read returns found as false with a storage error.
 func (s *SearchRebuildStore) CurrentRebuild(ctx context.Context) (rebuild searchdomain.Rebuild, found bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.current")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -58,9 +73,17 @@ func (s *SearchRebuildStore) CurrentRebuild(ctx context.Context) (rebuild search
 }
 
 // BeginRebuild records one replacement of the serving index and schedules
-// its rebuild work item in the same transaction. The stored record refuses
-// every other replacement until the old index is retired. A restored
-// replacement also increments the restore epoch, which every session binds.
+// rebuild work in the same transaction.
+//
+// The stored replacement refuses another replacement until completion
+// removes its record after retirement or failure cleanup. A restored
+// replacement increments the restore epoch that every session records.
+//
+//   - The replacement starts in RebuildCreating with a new UUIDv7 and a
+//     separate rebuild generation.
+//   - The record preserves request.Initiation for later operation and actor
+//     evidence.
+//   - A missing serving index returns [searchdomain.ErrNoServingIndex].
 func (s *SearchRebuildStore) BeginRebuild(ctx context.Context, request searchdomain.BeginRebuild) (rebuild searchdomain.Rebuild, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.begin")(&err)
 	if err := request.Validate(); err != nil {
@@ -127,8 +150,12 @@ func rebuildConflict(err error, found bool) error {
 }
 
 // WaitRebuild releases the rebuild claim for the retry delay without
-// recording a failure. The replacement waits for leases, copies, pending
-// page work, or sessions.
+// recording a failure.
+//
+// The replacement waits for leases, copies, pending page work, or sessions.
+//
+//   - The released claim retains its generation, target, and mirror.
+//   - The next eligible claim waits until the new LeaseUntil.
 func (s *SearchRebuildStore) WaitRebuild(ctx context.Context, work searchdomain.Work) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.wait")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

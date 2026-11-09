@@ -7,9 +7,16 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// adoptPendingWrite reads the exact per-node key written by deployed releases.
-// The transaction preserves its document/index identity before clearing that key.
-// A qualified record with a later original deadline already preserves the wait.
+// adoptPendingWrite reads the per-node key that deployed releases wrote. Its
+// tuple contains (search_pending_write, class, orgID, nodeID). The
+// transaction preserves its document and index identity before clearing that
+// key.
+//
+// Register and recordPendingWrite still adopt this representation before
+// using qualified document and index keys. heldMirrorWrite adopts its copy
+// state before comparing mirror deadlines. clearPendingWrites clears both
+// representations when work ends. A qualified record with a later original
+// deadline preserves the wait and remains unchanged during adoption.
 func adoptPendingWrite(ctx context.Context, tr fdb.Transaction, work searchdomain.Work) error {
 	legacyKey := searchPendingWritePrefix(work.Class, work.OrgID, work.NodeID)
 	var legacy searchPendingWriteRecord
@@ -24,8 +31,9 @@ func adoptPendingWrite(ctx context.Context, tr fdb.Transaction, work searchdomai
 	return nil
 }
 
-// storePendingWrite preserves the later original record for one document and index.
-// Different identities use different keys and do not replace one another.
+// storePendingWrite preserves the original record with the later deadline
+// for one document and index. Different identities use separate keys and do
+// not replace one another.
 func storePendingWrite(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, pending searchdomain.PendingWrite) error {
 	key := searchPendingWriteKey(work.Class, work.OrgID, work.NodeID, pending.DocumentID, pending.Index)
 	var existing searchPendingWriteRecord

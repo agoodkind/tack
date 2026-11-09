@@ -12,7 +12,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// accessTypeDeclaration defines the node type fields the access policy reads.
+// accessTypeDeclaration selects TypeKey, Features, CanLiveUnder, and
+// CanContain for access change comparisons.
 type accessTypeDeclaration struct {
 	TypeKey      string        `json:"type_key"`
 	Features     node.Features `json:"features"`

@@ -15,20 +15,26 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// legacyRenderer is the renderer version for an organization without a
-// projection state record. Earlier releases wrote the organization's pages
-// without recording a renderer version.
+// legacyRenderer supplies the renderer version when an organization does not
+// have a projection state record. Earlier releases wrote the organization's
+// pages without recording a renderer version.
+//
+// readProjectionState still selects this default for absent records. Live
+// and copy claims wait for activation when the default differs from the
+// writer's projection.
 const legacyRenderer = 0
 
-// legacyFormat is the projection format of an organization without a
-// projection state record. Its digest is the sum at searchProjectionKey.
+// legacyFormat supplies the projection format when an organization does not
+// have a projection state record. updateProjectionDigest maintains the
+// legacy definition sum at searchProjectionKey. readProjectionState does not
+// load that sum into its default state.
 const legacyFormat = 1
 
 // searchProjectionState records one organization's active projection.
-// Renderer identifies the text its pages use. Digest stores the hex sum
-// of every property definition's and node type's contributions under
-// Format. Activation records the rescan generation that activated the
-// state. Each activation produces a new projection identity.
+// Renderer selects the page text format. Digest stores the hexadecimal sum
+// of property definition and node type contributions under Format.
+// Activation records the rescan generation that activated the state. Each
+// activation produces a new projection identity.
 type searchProjectionState struct {
 	Renderer   int    `json:"renderer"`
 	Format     int    `json:"format"`
@@ -113,6 +119,12 @@ func (e inactiveProjectionError) Error() string {
 }
 
 // Unwrap returns [node.ErrContentChanged].
+//
+// The error reports that this writer does not produce the organization's
+// active renderer and format.
+//
+//   - [errors.Is] matches node.ErrContentChanged for
+//     inactiveProjectionError.
 func (e inactiveProjectionError) Unwrap() error { return node.ErrContentChanged }
 
 // requireActiveProjection returns [node.ErrContentChanged] unless projection

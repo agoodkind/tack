@@ -70,7 +70,8 @@ func definitionProjectionChange(ctx context.Context, old, next *node.PropertyDef
 }
 
 // affectedPropertyNames returns the distinct old and new names of one
-// definition write. A node with a value under either name emits changed text.
+// definition write. A content rescan selects nodes with values under either
+// name.
 func affectedPropertyNames(old, next *node.PropertyDef) []string {
 	names := make([]string, 0, 2)
 	for _, definition := range []*node.PropertyDef{old, next} {

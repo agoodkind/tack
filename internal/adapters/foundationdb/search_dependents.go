@@ -10,10 +10,15 @@ import (
 )
 
 // ScheduleDependents schedules access work for one bounded page of
-// dependents in one transaction and checkpoints the page cursor. For a
-// deleted node the page lists recorded counterparts, and the transaction
-// clears each scheduled counterpart record. The last page clears the
-// pending-dependents mark, or finishes the deleted node's access class.
+// dependents and checkpoints its cursor in one transaction.
+//
+// For a deleted node, the page lists recorded counterparts, and the
+// transaction clears each scheduled counterpart record. The final page
+// clears the pending dependents flag or finishes the deleted node's access
+// class.
+//
+//   - An unfinished page selects PhaseDependents and saves NextCursor.
+//   - A finished page for an existing node also clears its access work item.
 func (s *SearchWorkStore) ScheduleDependents(ctx context.Context, work searchdomain.Work, page node.IDPage) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.schedule_dependents")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

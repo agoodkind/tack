@@ -12,10 +12,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// searchPendingWriteRecord stores one abandoned page write.
-// The key includes the work class, organization, node, document ID, and index.
-// The key does not include the generation.
-// Claims of newer generations of the same document read the same record.
+// searchPendingWriteRecord stores one abandoned page write. The key includes
+// the work class, organization, node, document ID, and index. The key does
+// not include the generation. Claims of newer generations of the same
+// document read the same record.
 type searchPendingWriteRecord struct {
 	DocumentID  string    `json:"document_id"`
 	Index       string    `json:"index"`
@@ -25,7 +25,8 @@ type searchPendingWriteRecord struct {
 	Deadline    time.Time `json:"deadline"`
 }
 
-// pendingWriteCheck contains the pending write found during page registration.
+// pendingWriteCheck contains the pending write found during page
+// registration.
 type pendingWriteCheck struct {
 	// held is the matching document and index record while its deadline has
 	// not passed.
@@ -39,13 +40,14 @@ func searchPendingWritePrefix(class searchdomain.WorkClass, orgID, nodeID uuid.U
 	return withPrefix(tuple.Tuple{keySearchPendingWrite, string(class), orgID.String(), nodeID.String()}.Pack())
 }
 
-// searchPendingWriteKey identifies one document's request to one physical index.
+// searchPendingWriteKey identifies one document's request to one physical
+// index.
 func searchPendingWriteKey(class searchdomain.WorkClass, orgID, nodeID uuid.UUID, documentID, index string) []byte {
 	return withPrefix(tuple.Tuple{keySearchPendingWrite, string(class), orgID.String(), nodeID.String(), documentID, index}.Pack())
 }
 
-// recordPendingWrite adopts deployed per-node state before preserving pending.
-// It retains the later original deadline for the same document and index.
+// recordPendingWrite adopts older per-node state before saving pending. It
+// retains the later original deadline for the same document and index.
 func recordPendingWrite(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, pending searchdomain.PendingWrite) error {
 	if err := adoptPendingWrite(ctx, tr, work); err != nil {
 		return err
@@ -53,21 +55,23 @@ func recordPendingWrite(ctx context.Context, tr fdb.Transaction, work searchdoma
 	return storePendingWrite(ctx, tr, work, pending)
 }
 
-// clearPendingWrite clears only the completed document/index identity.
+// clearPendingWrite clears only the completed document and index identity.
 func clearPendingWrite(tr fdb.Transaction, class searchdomain.WorkClass, orgID, nodeID uuid.UUID, documentID, index string) {
 	tr.Clear(fdb.Key(searchPendingWriteKey(class, orgID, nodeID, documentID, index)))
 }
 
-// Clear both deployed and document/index keys when their owning work is removed.
+// clearPendingWrites clears older per-node keys and qualified document and
+// index keys when their owning work ends.
 func clearPendingWrites(tr fdb.Transaction, class searchdomain.WorkClass, orgID, nodeID uuid.UUID) {
 	prefix := searchPendingWritePrefix(class, orgID, nodeID)
 	end := append(append([]byte(nil), prefix...), 0xFF)
 	tr.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
 }
 
-// checkPendingWrite reads only documentID in work.Target. It returns the record
-// as held before its deadline and otherwise clears and returns it as expired.
-// It does not read or clear deadlines for another document or physical index.
+// checkPendingWrite reads only documentID in work.Target. It returns the
+// record as held before its deadline and otherwise clears and returns it as
+// expired. It does not read or clear deadlines for another document or
+// physical index.
 func checkPendingWrite(ctx context.Context, tr fdb.Transaction, now time.Time, work searchdomain.Work, documentID string) (pendingWriteCheck, error) {
 	none := pendingWriteCheck{held: nil, expired: nil}
 	var record searchPendingWriteRecord
@@ -83,8 +87,10 @@ func checkPendingWrite(ctx context.Context, tr fdb.Transaction, now time.Time, w
 	return pendingWriteCheck{held: nil, expired: &pending}, nil
 }
 
-// heldMirrorWrite adopts deployed copy state and reads the live and copy deadlines for
-// documentID in work.Mirror. It returns the later unexpired original record.
+// heldMirrorWrite adopts older copy state and reads live and copy deadlines
+// for documentID in work.Mirror. It returns the original record with the
+// later unexpired deadline.
+//
 // A resumed live claim writes the serving target and schedules the owed copy
 // without clearing the live deadline merely because the target differs.
 func heldMirrorWrite(ctx context.Context, tr fdb.Transaction, now time.Time, work searchdomain.Work, documentID string) (*searchdomain.PendingWrite, error) {

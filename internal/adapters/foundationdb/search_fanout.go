@@ -10,11 +10,12 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// scheduleDeletedFanout records each counterpart of a deleted node with one
-// blind write and puts one access work item of the deleted node in the
-// dependents phase. The work item schedules access work for the recorded
-// counterparts in bounded slices. A delete without counterparts records no
-// access work.
+// scheduleDeletedFanout records each eligible counterpart of a deleted node
+// with one blind write. One access work item for the deleted node starts in
+// the dependents phase and schedules counterparts in bounded batches.
+//
+// The function skips the deleted node itself and the nil UUID. A deletion
+// without eligible counterparts does not schedule access work.
 func scheduleDeletedFanout(ctx context.Context, tr fdb.Transaction, deletion searchWorkRecord, counterparts []uuid.UUID) error {
 	recorded := 0
 	for _, counterpartID := range counterparts {
@@ -76,9 +77,10 @@ func (s *SearchAccessStateStore) readDeletedFanout(ctx context.Context, work sea
 	return page, nil
 }
 
-// finishDeletedClass clears the finished work class of a deleted node. The
-// cleanup and access classes of a deleted node finish independently. The
-// class that finishes last clears every remaining search key of the node.
+// finishDeletedClass clears one finished work class of a deleted node.
+// Cleanup and access finish independently. After both classes finish, the
+// final class clears the remaining generation, revision, access, warning,
+// counterpart, and node work records.
 func finishDeletedClass(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, record searchWorkRecord) error {
 	clearSearchWork(tr, work, record)
 	other := searchdomain.WorkClassAccess
@@ -92,8 +94,9 @@ func finishDeletedClass(ctx context.Context, tr fdb.Transaction, work searchdoma
 	return clearDeletedSearchState(ctx, tr, work)
 }
 
-// clearDeletedSearchState removes every search key of a deleted node after
-// its documents are retired and its counterparts are scheduled.
+// clearDeletedSearchState removes generation, revision, access, warning,
+// counterpart, and node work records after document retirement and
+// counterpart scheduling.
 func clearDeletedSearchState(ctx context.Context, tr fdb.Transaction, work searchdomain.Work) error {
 	tr.Clear(fdb.Key(searchGenerationKey(work.OrgID, work.NodeID)))
 	tr.Clear(fdb.Key(searchRevisionKey(work.OrgID, work.NodeID)))

@@ -17,9 +17,14 @@ import (
 // maxExclusionPage bounds the exclusions one listing read returns.
 const maxExclusionPage = 100
 
-// SearchExclusions reads one page of at most maxExclusionPage exclusions of
-// every organization after cursor. An empty cursor starts at the first
-// exclusion.
+// SearchExclusions reads one page of at most maxExclusionPage exclusions
+// across organizations after cursor.
+//
+// An empty cursor starts at the first exclusion. The query reads one extra
+// record to detect another page.
+//
+//   - A nonfinal page encodes the last returned key as NextCursor.
+//   - A final page sets Done and leaves NextCursor empty.
 func (s *Stores) SearchExclusions(ctx context.Context, cursor string) (page searchdomain.ExclusionPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_exclusion.list")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

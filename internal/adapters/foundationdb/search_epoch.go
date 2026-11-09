@@ -11,12 +11,19 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// MetadataEpoch returns the metadata epoch values for the organizations in
-// orgIDs as one string. The string lists each organization ID with its
-// decimal epoch in organization ID order. It issues every epoch read in one
-// transaction before it waits for any read. A stored property definition or
-// node type change from the metadata stores changes the result. The one-time
-// projection backfill leaves the epoch unchanged.
+// MetadataEpoch returns the metadata epoch values for orgIDs as one string.
+// Each entry contains an organization ID and its decimal epoch in
+// organization ID order.
+//
+// The transaction issues every epoch read before waiting for any read. A
+// property definition or node type change through the metadata stores
+// changes the result. The one-time projection backfill leaves epochs
+// unchanged.
+//
+//   - Duplicate organization IDs contribute one entry.
+//   - Each entry separates the organization ID and epoch with an equals sign
+//     and ends with a semicolon.
+//   - An absent epoch counter contributes zero.
 func (s *ViewStore) MetadataEpoch(ctx context.Context, orgIDs []uuid.UUID) (epoch string, err error) {
 	defer telemetry.FDBOp(ctx, "store.view.metadata_epoch")(&err)
 	sorted := slices.Clone(orgIDs)

@@ -14,13 +14,18 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// maxRebuildScanNodes bounds the nodes one copy scheduling step reads.
+// maxRebuildScanNodes bounds the nodes one copy scheduling step processes.
+// The range read requests one extra node to detect another page.
 const maxRebuildScanNodes = 100
 
 // CopyNextNodes reads the next bounded page of primary node records across
-// every organization. In the same transaction, it schedules one copy item for
-// each node without pending live work. The final page marks the scan
-// complete.
+// organizations.
+//
+// The same transaction schedules one copy item for each node without pending
+// live work. The final page marks the scan complete.
+//
+//   - Only an unfinished RebuildCopying scan can schedule the page.
+//   - A nonfinal page saves the last processed key as ScanCursor.
 func (s *SearchRebuildStore) CopyNextNodes(ctx context.Context, work searchdomain.Work, read searchdomain.Rebuild) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.copy_nodes")(&err)
 	err = s.rebuildStep(ctx, work, read, func(tr fdb.Transaction, _ searchWorkRecord) error {
@@ -97,13 +102,13 @@ func nodeInstanceIdentity(ctx context.Context, key fdb.Key) (uuid.UUID, uuid.UUI
 	return orgID, nodeID, nil
 }
 
-// scheduleCopy skips nodes with pending live work.
-// Every live claim during copying writes the replacement index as its mirror.
-// A live claim uses scheduleMirrorCopy to schedule its own copy when the replacement
-// index misses a page that the serving index accepted.
-// Verification schedules a copy for any page that live work wrote before mirroring
-// began. A node that search never indexed receives its first revision here with
-// the write versions of its authority.
+// scheduleCopy skips nodes with pending live work. Live claims during
+// copying also write the replacement as their mirror. A missed replacement
+// write after serving acceptance schedules copy through scheduleMirrorCopy.
+//
+// Verification schedules copies for missing pages, including pages that live
+// work wrote before mirroring began. A previously unindexed node receives
+// its first revision and the write versions of its authority here.
 func scheduleCopy(ctx context.Context, tr fdb.Transaction, now time.Time, orgID, nodeID uuid.UUID) error {
 	if _, livePending, err := readSearchWork(ctx, tr, searchdomain.WorkClassLive, orgID, nodeID); err != nil || livePending {
 		return err
@@ -142,7 +147,12 @@ func scheduleCopy(ctx context.Context, tr fdb.Transaction, now time.Time, orgID,
 	}, previous)
 }
 
-// CopiesPending reports whether any copy item remains.
+// CopiesPending reports whether any copy work remains.
+//
+// The function queries the work store for pending copy buckets.
+//
+//   - A leased copy still counts as pending.
+//   - A failed bucket read returns false and its error.
 func (s *SearchRebuildStore) CopiesPending(ctx context.Context) (bool, error) {
 	pending, err := s.work.pendingBuckets(ctx, searchdomain.WorkClassCopy)
 	if err != nil {

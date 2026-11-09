@@ -10,22 +10,33 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// SearchAccessStateStore compiles current access with the write versions
-// recorded for each node.
+// SearchAccessStateStore compiles current access using the authority
+// rollout's write versions and reads recorded access for dependent queries.
 type SearchAccessStateStore struct {
 	db       fdb.Database
 	policies *searchaccess.PolicySet
 }
 
-// NewSearchAccessStateStore creates the FoundationDB access-state adapter.
+// NewSearchAccessStateStore creates the FoundationDB access state adapter.
+//
+// The adapter uses db to read rollout and recorded access state. It uses
+// policies for access compilation and dependent queries.
+//
+//   - Compile supplies each work item's generation to the policy compiler.
 func NewSearchAccessStateStore(db fdb.Database, policies *searchaccess.PolicySet) *SearchAccessStateStore {
 	return &SearchAccessStateStore{db: db, policies: policies}
 }
 
 // Compile compiles the node's access at the work generation with the write
-// versions of the node's authority rollout. The work store compares it with
-// the recorded access. A rollout that adds or removes a write version
-// changes the compiled access. Access work then updates every page.
+// versions of its authority rollout.
+//
+// The work store compares compiled versions and keys with recorded access. A
+// rollout that adds or removes a write version changes compiled access.
+// Access work rewrites every page unless tracking confirms that all issued
+// pages already store that access.
+//
+//   - Compilation merges opaque keys from every write version.
+//   - Compilation sorts and removes duplicate versions and keys.
 func (s *SearchAccessStateStore) Compile(ctx context.Context, work searchdomain.Work) (access node.SearchAccess, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_access.compile")(&err)
 	var rollout searchRolloutRecord
@@ -44,11 +55,15 @@ func (s *SearchAccessStateStore) Compile(ctx context.Context, work searchdomain.
 	return access, nil
 }
 
-// Dependents reads one bounded page of the nodes that need access work
-// after the work node changed. For a deleted node, Dependents reads the
-// recorded counterparts of that node. For any other node, Dependents reads
-// the policy dependents under every recorded write version after the work
-// cursor.
+// Dependents reads one bounded page of nodes that need access work after the
+// work node changes.
+//
+// A deleted node uses recorded counterparts. Other nodes use policy
+// dependents under the recorded write versions after the work cursor.
+//
+//   - A policy cursor records both the version position and the compiler
+//     cursor.
+//   - Deleted node queries start at the first remaining counterpart record.
 func (s *SearchAccessStateStore) Dependents(ctx context.Context, work searchdomain.Work, limit int) (node.IDPage, error) {
 	if work.Deleted {
 		return s.readDeletedFanout(ctx, work, limit)

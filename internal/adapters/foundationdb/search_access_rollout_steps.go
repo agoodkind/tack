@@ -11,9 +11,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// CompleteScan schedules access work for one bounded page of the
-// authority's nodes and checkpoints the backfill or retirement scan in the
-// same transaction. The final page starts verification.
+// CompleteScan schedules access work for one bounded page of the authority's
+// nodes and checkpoints backfill or retirement in the same transaction.
+//
+// The final backfill page enters verifying and starts affected node
+// collection. The final retirement page marks the scan complete and clears
+// the verification cursor.
+//
+//   - An unfinished backfill page updates ScanCursor.
+//   - An unfinished retirement page updates RetireCursor.
 func (s *SearchAccessRolloutStore) CompleteScan(ctx context.Context, work searchdomain.Work, read searchdomain.AccessRollout, scan searchdomain.ScanResult) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.complete_scan")(&err)
 	err = s.rolloutStep(ctx, work, read, func(tr fdb.Transaction, record *searchRolloutRecord, _ searchWorkRecord) error {
@@ -43,10 +49,14 @@ func (s *SearchAccessRolloutStore) CompleteScan(ctx context.Context, work search
 	return nil
 }
 
-// BeginRetire starts removing the previous version after activation. The
-// same transaction rereads the previous version's session presence. A
-// session that opened under that version after the worker's check blocks
-// retirement.
+// BeginRetire starts removing the previous version after activation.
+//
+// The transaction rereads the previous version's session presence. A session
+// that opened under that version after the worker's check blocks retirement.
+//
+//   - Retirement writes only the active version.
+//   - Retirement resets the scan and verification cursors and records the
+//     current permission event boundary.
 func (s *SearchAccessRolloutStore) BeginRetire(ctx context.Context, work searchdomain.Work, read searchdomain.AccessRollout) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.begin_retire")(&err)
 	err = s.rolloutStep(ctx, work, read, func(tr fdb.Transaction, record *searchRolloutRecord, _ searchWorkRecord) error {

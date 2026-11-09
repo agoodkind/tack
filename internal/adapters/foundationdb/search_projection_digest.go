@@ -12,9 +12,9 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// searchProjectionFormat identifies the fields that each contribution
-// hashes for the digest in a projection state record. A change to those
-// fields requires a larger value.
+// searchProjectionFormat selects the fields that each contribution hashes
+// for a projection state's digest. A change to those fields requires a
+// larger format value.
 const searchProjectionFormat = 2
 
 const (
@@ -22,9 +22,9 @@ const (
 	contributionType       = "type"
 )
 
-// definitionContributionInput defines the definition fields that a
-// projection contribution hashes: ID, Name, Type, Options,
-// AppliesToFeatures, ReferenceTargetTypeKey, and Search.
+// definitionContributionInput includes Kind, ID, Name, Type, Options,
+// AppliesToFeatures, ReferenceTargetTypeKey, and Search in a definition's
+// projection hash.
 type definitionContributionInput struct {
 	Kind                   string                 `json:"kind"`
 	ID                     uuid.UUID              `json:"id"`
@@ -36,8 +36,8 @@ type definitionContributionInput struct {
 	Search                 *node.SearchProjection `json:"search"`
 }
 
-// typeContributionInput defines the node type fields that a projection
-// contribution hashes: ID, TypeKey, and Features.
+// typeContributionInput includes Kind, ID, TypeKey, and Features in a node
+// type's projection hash.
 type typeContributionInput struct {
 	Kind     string    `json:"kind"`
 	ID       uuid.UUID `json:"id"`

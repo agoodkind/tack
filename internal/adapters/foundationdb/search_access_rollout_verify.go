@@ -15,8 +15,13 @@ import (
 )
 
 // VerifyDocuments reads at most limit issued documents after the
-// verification cursor and reports whether the batch is the last one. During
-// the affected pass, it reads pages of the first nodes in the affected set.
+// verification cursor and reports whether the batch is the last one.
+//
+// During the affected pass, it reads pages of the first nodes in the
+// affected set.
+//
+//   - The full pass reads across the authority's issued document keys.
+//   - A nonempty verification cursor excludes the previously read key.
 func (s *SearchAccessRolloutStore) VerifyDocuments(ctx context.Context, work searchdomain.Work, read searchdomain.AccessRollout, limit int) (documents []searchdomain.RolloutDocument, done bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.verify_documents")(&err)
 	if limit < 1 || limit > maxSearchDocumentBatch {
@@ -82,12 +87,17 @@ func decodeRolloutDocument(ctx context.Context, item fdb.KeyValue) (searchdomain
 }
 
 // CompleteVerify checks one batch against the exact write versions and each
-// node's recorded access generation. A stale page keeps the cursor and
-// schedules repair unless page work is pending. Before activation, the last
-// batch of the full pass starts the affected pass. During retirement, the
-// last batch compares the permission event boundary and repeats verification
-// or completes the rollout. In the affected pass, it calls completeAffected
-// and logs progress.
+// node's recorded access generation. A stale page preserves the cursor and
+// schedules repair unless page work already exists.
+//
+// Before activation, the final full batch starts the affected pass. During
+// retirement, the final batch compares the permission event boundary and
+// repeats verification or completes the rollout. The affected pass calls
+// completeAffected and logs progress.
+//
+//   - A changed retirement boundary updates the boundary and clears
+//     VerifyCursor.
+//   - Completed retirement clears the rollout work item.
 func (s *SearchAccessRolloutStore) CompleteVerify(ctx context.Context, work searchdomain.Work, read searchdomain.AccessRollout, documents []searchdomain.RolloutDocument, states map[string]searchdomain.DocumentAccess, done bool) (step searchdomain.RolloutStep, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rollout.complete_verify")(&err)
 	step = searchdomain.RolloutContinue

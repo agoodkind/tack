@@ -28,15 +28,27 @@ var _ searchdomain.ModelRepairStore = (*SearchModelRepairStore)(nil)
 
 // SearchModelRepairs constructs the model repair store on the shared
 // connection.
+//
+// The store uses one environment key for model repair claims across Tack
+// processes.
+//
+//   - Each call returns a new adapter with s.db.
 func (s *Stores) SearchModelRepairs() *SearchModelRepairStore {
 	return &SearchModelRepairStore{db: s.db}
 }
 
 // ClaimModelRepair counts one attempt for request.ModelID in one
-// transaction. A stored record for another model is deleted, and the claim
-// starts a new episode. The claim is refused when the episode already has
-// request.MaxAttempts attempts or when the previous attempt is younger than
-// request.Spacing.
+// transaction.
+//
+// A record for another model starts a new episode and the granted claim
+// replaces it. An existing episode refuses a claim when its attempt count
+// equals or exceeds request.MaxAttempts or before request.Spacing elapses
+// after the last attempt.
+//
+//   - A new episode starts at request.Now with one attempt.
+//   - A continuing episode preserves EpisodeStarted and updates LastAttempt.
+//   - A model change records the old model ID in Replaced without saving
+//     that model's record in Previous.
 func (s *SearchModelRepairStore) ClaimModelRepair(ctx context.Context, request searchdomain.ModelRepairRequest) (claim searchdomain.ModelRepairClaim, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_model_repair.claim")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -72,8 +84,15 @@ func (s *SearchModelRepairStore) ClaimModelRepair(ctx context.Context, request s
 	return claim, nil
 }
 
-// ReleaseModelRepair restores the record that claim replaced. It changes
-// nothing when another claim changed the record after claim.
+// ReleaseModelRepair restores claim.Previous when claim.PreviousFound is
+// true. Otherwise, it deletes the current record.
+//
+// The function changes the record only when it still equals claim.Record. A
+// claim for a different model does not retain the replaced model's record
+// for restoration.
+//
+//   - Equality requires the same model ID, episode start, attempt count, and
+//     last attempt time.
 func (s *SearchModelRepairStore) ReleaseModelRepair(ctx context.Context, claim searchdomain.ModelRepairClaim) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_model_repair.release")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -94,10 +113,14 @@ func (s *SearchModelRepairStore) ReleaseModelRepair(ctx context.Context, claim s
 	return nil
 }
 
-// UncountModelRepair removes the attempt that claim counted and keeps the
-// episode start and claim time. It changes nothing and reports false when
-// the stored record differs from claim.Record in model ID, episode start,
-// attempt count, or claim time.
+// UncountModelRepair removes the attempt that claim counted and preserves
+// the episode start and claim time.
+//
+// The function does not change the record and reports false when its model
+// ID, episode start, attempt count, or claim time differs from claim.Record.
+//
+//   - An absent record also returns false.
+//   - A record with fewer than one attempt also returns false.
 func (s *SearchModelRepairStore) UncountModelRepair(ctx context.Context, claim searchdomain.ModelRepairClaim) (uncounted bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_model_repair.uncount")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -117,8 +140,11 @@ func (s *SearchModelRepairStore) UncountModelRepair(ctx context.Context, claim s
 	return uncounted, nil
 }
 
-// ResetModelRepair deletes the record and returns it. It reports false when
-// no record exists.
+// ResetModelRepair deletes the model repair record and returns it.
+//
+// The function reports false when the record does not exist.
+//
+//   - A returned record uses UTC for EpisodeStarted and LastAttempt.
 func (s *SearchModelRepairStore) ResetModelRepair(ctx context.Context) (record searchdomain.ModelRepairRecord, found bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_model_repair.reset")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
