@@ -15,7 +15,8 @@ const (
 
 var errSearchLoadPanic = errors.New("qa datagen search-load: request panicked")
 
-// SearchLoadLatency reports latency bounds and percentiles for successful search requests.
+// SearchLoadLatency reports latency bounds and percentiles for successful
+// search requests.
 type SearchLoadLatency struct {
 	Min time.Duration
 	P50 time.Duration

@@ -14,8 +14,10 @@ import (
 )
 
 const (
-	// searchAgeFamily is the FoundationDB key family for pending search work.
-	// Each key uses (search_age, class, bucket, enqueuedUnixNano, orgID, nodeID).
+	// searchAgeFamily identifies the FoundationDB key family for pending search
+	// work. Each key uses this tuple:
+	//
+	// 	(search_age, class, bucket, enqueuedUnixNano, orgID, nodeID)
 	searchAgeFamily      = "search_age"
 	searchAgeKeyElements = 6
 	searchAgeBucket      = 2
@@ -26,14 +28,15 @@ const (
 
 var errSearchAgeKey = errors.New("pending search work key has an unexpected layout")
 
-// searchMixedBacklog reads the enqueue time of the oldest pending search work of each class.
+// searchMixedBacklog reads each pending search work class's oldest enqueue
+// time.
 type searchMixedBacklog struct {
 	db      fdb.Database
 	timeout time.Duration
 }
 
-// searchClassBacklog records one reading of a class's age keys: the oldest enqueue time, the count
-// of nonempty buckets, and the work record state for the oldest age key.
+// searchClassBacklog records a class's oldest enqueue time, nonempty bucket
+// count, and work record state for the oldest age key.
 type searchClassBacklog struct {
 	oldest          time.Time
 	nonemptyBuckets int
@@ -48,8 +51,9 @@ func newSearchMixedBacklog(ctx context.Context, cfg *config.Config) (*searchMixe
 	return &searchMixedBacklog{db: db, timeout: cfg.FDBTransactionTimeout}, nil
 }
 
-// pending returns pending search work keyed by class, omitting classes without age keys.
-// It uses snapshot reads in one transaction and retries retryable FoundationDB errors.
+// pending returns pending search work by class and omits classes without age
+// keys. It uses snapshot reads in one transaction and retries retryable
+// FoundationDB errors.
 func (b *searchMixedBacklog) pending(ctx context.Context) (map[searchdomain.WorkClass]searchClassBacklog, error) {
 	transaction, err := b.db.CreateTransaction()
 	if err != nil {
@@ -89,9 +93,10 @@ func readPendingSearchWork(ctx context.Context, snapshot fdb.Snapshot) (map[sear
 	return pending, nil
 }
 
-// readClassSearchWork reads each nonempty bucket's first age key for one class.
-// It counts those buckets, selects the oldest key, and reads the state of that key's work record.
-// If the class does not have age keys, it returns a backlog with nonemptyBuckets equal to zero.
+// readClassSearchWork reads the first age key in each nonempty bucket of one
+// class. It counts those buckets, selects the oldest key, and reads that key's
+// work record state. A class without age keys returns a backlog with
+// nonemptyBuckets equal to zero.
 func readClassSearchWork(
 	ctx context.Context, snapshot fdb.Snapshot, prefix []byte, class searchdomain.WorkClass,
 ) (searchClassBacklog, error) {

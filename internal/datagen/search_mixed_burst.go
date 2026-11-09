@@ -11,14 +11,15 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// searchMixedCreateWorkers limits concurrent public issue creation calls during setup and the
-// ingestion burst.
+// searchMixedCreateWorkers limits concurrent public issue creation calls
+// during setup and the ingestion burst.
 const searchMixedCreateWorkers = 8
 
 var errSearchMixedCreatePanic = errors.New("qa datagen search-mixed: create call panicked")
 
-// runCreates calls create once for each integer from zero up to count, excluding count.
-// It uses at most searchMixedCreateWorkers concurrent workers and returns every failure.
+// runCreates calls create once for each integer from zero up to count,
+// excluding count. It uses at most searchMixedCreateWorkers concurrent workers
+// and returns every failure.
 func (m *searchMixed) runCreates(ctx context.Context, count int, create func(context.Context, int) error) []error {
 	numbers := make(chan int)
 	var failureMutex sync.Mutex
@@ -61,7 +62,8 @@ func (m *searchMixed) runCreates(ctx context.Context, count int, create func(con
 	return failures
 }
 
-// burst creates the planned burst issues back to back in alternating tenants.
+// burst creates the planned burst issues concurrently and alternates tenant
+// selection by issue number.
 func (m *searchMixed) burst(ctx context.Context, windowStarted time.Time) {
 	planned := m.options.BurstWrites
 	started := clock.Now()

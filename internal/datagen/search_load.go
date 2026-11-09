@@ -25,8 +25,9 @@ type SearchLoadSummary struct {
 	Elapsed         time.Duration
 	Latency         SearchLoadLatency
 	PointInTime     SearchLoadPointInTime
-	// Stopped is true when the schedule context ended before the schedule started or dropped
-	// every planned request.
+	// Stopped is true when the schedule context ends before the loop attempts
+	// every planned request. A request attempt either starts a call or counts as
+	// dropped when all concurrency slots are busy.
 	Stopped bool `exhaustruct:"optional"`
 }
 
@@ -40,6 +41,15 @@ type searchLoad struct {
 }
 
 // RunSearchLoad sends first-page tack_search requests only when Commit is true.
+//
+// The schedule context controls request start times. Calls use callContext,
+// and the function waits for active calls before returning the summary.
+//
+// Commit selects the operation:
+//
+//   - A false Commit returns planned counts without opening drivers or stores.
+//   - A true Commit validates the target, opens drivers, prepares queries, and
+//     samples open point-in-time contexts during the request schedule.
 func RunSearchLoad(
 	scheduleContext context.Context,
 	callContext context.Context,

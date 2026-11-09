@@ -7,9 +7,9 @@ import (
 	"goodkind.io/tack/internal/runtime"
 )
 
-// searchLoadDrivers returns one remote driver per endpoint, or builds a new
-// runtime graph and returns one in-process driver when Endpoints is empty. The
-// returned function closes that graph.
+// searchLoadDrivers returns one remote driver per endpoint. When Endpoints
+// is empty, it builds a runtime graph and returns one in-process driver with
+// a function that closes that graph.
 func searchLoadDrivers(ctx context.Context, cfg *config.Config, options SearchLoadOptions) ([]*Driver, func(), error) {
 	if len(options.Endpoints) == 0 {
 		graph, err := runtime.BuildGraph(ctx, cfg)

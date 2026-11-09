@@ -15,7 +15,7 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// SearchMixedOptions configures search load, issue writes, and the workload phases.
+// SearchMixedOptions configures search load, issue writes, and workload phases.
 type SearchMixedOptions struct {
 	Seed        int64
 	Rate        int
@@ -24,28 +24,31 @@ type SearchMixedOptions struct {
 	Concurrency int
 	Commit      bool
 	BurstWrites int
-	// CatchUp limits the wait for pending search work after writes end when positive.
-	// When CatchUp is zero, the wait ends when that work finishes or the schedule context ends.
+	// CatchUp limits the wait for pending search work after writes end when its
+	// value is positive. A zero value waits until the work finishes or the schedule
+	// context ends.
 	CatchUp   time.Duration
 	Endpoints []string
 	Client      *http.Client
 	Rebuild     SearchMixedRebuild
-	// MetadataWrites is the requested number of property definition changes that enable search
-	// for previously excluded values.
+	// MetadataWrites counts requested property definition changes that enable
+	// search for previously excluded values.
 	MetadataWrites int
 	// Moves is the requested number of issue moves to projects in other workspaces.
 	Moves int
-	// ProbeAfterCatchUp, when true, skips every probe pass that starts before drain starts.
-	// It defaults to false, and the ops command never sets it. Tests use it to keep markers
-	// unsettled until catch-up ends.
+	// ProbeAfterCatchUp skips probe passes that start before drain starts when
+	// true. The default is false, and the ops command never sets it. Tests use it
+	// to keep markers unsettled until catch-up ends.
 	ProbeAfterCatchUp bool `exhaustruct:"optional"`
 }
 
 // SearchMixedRebuild starts one full index rebuild with the audited operation
-// that ops search reindex --mode full --execute uses. It returns the target index.
+// that ops search reindex --mode full --execute uses. It returns the target
+// index.
 type SearchMixedRebuild func(context.Context) (string, error)
 
-// SearchMixedSummary reports the measurements and correctness checks of one workload run.
+// SearchMixedSummary reports one workload run's measurements and correctness
+// checks.
 type SearchMixedSummary struct {
 	Search            SearchLoadSummary
 	PlannedWrites     int
@@ -56,8 +59,8 @@ type SearchMixedSummary struct {
 	WriteElapsed      time.Duration
 	Freshness         SearchMixedFreshness
 	MarkersNotFound   int
-	// MarkersUnsearched counts pending markers that the final probe pass did not search without
-	// an error, including markers that the pass did not attempt.
+	// MarkersUnsearched counts pending markers that the final probe pass did not
+	// search successfully, including markers that the pass did not attempt.
 	MarkersUnsearched int
 	DeletedReturned   int
 	DeletesUnverified int
@@ -72,18 +75,22 @@ type SearchMixedSummary struct {
 	CatchUp           SearchMixedCatchUp
 	Samples           []SearchMixedSample
 	Changes           SearchMixedChanges
-	// Measured is true after the measured window ends, including when a workload phase fails.
+	// Measured is true after the measured window ends, including when a workload
+	// phase fails.
 	Measured bool
-	// Stopped is true when the schedule context ended before setup or the probe drain finished.
+	// Stopped is true when the schedule context ends before setup or the probe
+	// drain finishes.
 	Stopped bool `exhaustruct:"optional"`
-	// SkippedPhases lists the workload phases that did not start because the schedule context ended.
+	// SkippedPhases lists workload phases that did not start because the schedule
+	// context ended.
 	SkippedPhases []string `exhaustruct:"optional"`
-	// CorpusIndex lists the setup waits that finished before the measured window, in wait order.
+	// CorpusIndex lists setup waits that finished before the measured window, in
+	// wait order.
 	CorpusIndex []SearchMixedCorpusWait `exhaustruct:"optional"`
 }
 
-// SearchMixedFreshness reports the time between an issue's update time in FoundationDB and the
-// first search that returns the issue for its marker word.
+// SearchMixedFreshness reports the time from an issue's FoundationDB update
+// time to the first search that returns the issue for its marker word.
 type SearchMixedFreshness struct {
 	P50 time.Duration
 	P95 time.Duration
@@ -102,7 +109,8 @@ type searchMixed struct {
 	readWord   string
 	victimWord string
 	limits     searchLimits
-	// sessionIdle is the IdleTimeout that config.LoadSearchQuerySettings reads for the app server.
+	// sessionIdle stores the app server's IdleTimeout from
+	// [config.LoadSearchQuerySettings].
 	sessionIdle time.Duration
 	stores     *fdbadapter.Stores
 	pages      storedPageReader
@@ -120,9 +128,11 @@ type searchMixed struct {
 	probeMutex sync.Mutex            `exhaustruct:"optional"`
 	markers    []searchMixedMarker   `exhaustruct:"optional"`
 	deletions  []searchMixedDeletion `exhaustruct:"optional"`
-	// drainStarted is true after drain starts. The next probe pass to start is the final pass.
+	// drainStarted becomes true after drain starts. The next probe pass that
+	// starts is the final pass.
 	drainStarted bool `exhaustruct:"optional"`
-	// finalPassDone is true after the final probe pass finishes. That pass starts after drain starts.
+	// finalPassDone becomes true after the final probe pass finishes. That pass
+	// starts after drain starts.
 	finalPassDone bool `exhaustruct:"optional"`
 	nodeMutex  sync.Mutex         `exhaustruct:"optional"`
 	nodes      []*searchMixedNode `exhaustruct:"optional"`
@@ -133,9 +143,18 @@ type searchMixed struct {
 	moveChecks []searchMixedCheck `exhaustruct:"optional"`
 }
 
-// RunSearchMixed measures search during concurrent public issue writes and the workload phases.
-// When scheduleContext ends while setup waits for search to return the corpus, RunSearchMixed
-// returns an unmeasured summary with Stopped set and a nil error.
+// RunSearchMixed measures search during concurrent public issue writes and
+// workload phases.
+//
+// If scheduleContext ends while setup waits for search to return the corpus,
+// RunSearchMixed returns an unmeasured summary with Stopped true and a nil
+// error.
+//
+// Commit controls setup and measurement:
+//
+//   - A false Commit returns an unmeasured summary with planned counts.
+//   - A true Commit validates the target and requires public search before
+//     creating the workload and running its measured window.
 func RunSearchMixed(
 	scheduleContext context.Context,
 	callContext context.Context,

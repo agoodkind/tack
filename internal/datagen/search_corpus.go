@@ -18,7 +18,7 @@ const (
 	searchFillerRepeats = 300
 )
 
-// searchCorpus is the node identity of every verification case.
+// searchCorpus stores the node IDs for every verification case.
 type searchCorpus struct {
 	semantic     map[string]uuid.UUID
 	finalPage    uuid.UUID

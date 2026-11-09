@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-// unmeasuredSearchMixedSummary returns the planned counts of a run that did not start the
-// measured window.
+// unmeasuredSearchMixedSummary returns planned counts for a run that did not
+// start the measured window.
 func unmeasuredSearchMixedSummary(options SearchMixedOptions, dryRun bool, plannedSearches, plannedWrites int) SearchMixedSummary {
 	searches := (&searchLoadStats{}).summary(dryRun, plannedSearches, 0, 0, 0, 0)
 	summary := (&searchMixedStats{}).summary(searches, plannedWrites, 0)
@@ -37,8 +37,9 @@ func validateSearchMixedOptions(options SearchMixedOptions) error {
 	return nil
 }
 
-// validateSearchMixedChanges rejects negative MetadataWrites and Moves values. It also rejects
-// MetadataWrites+Moves above plannedWrites. Each change replaces one scheduled write.
+// validateSearchMixedChanges rejects negative MetadataWrites or Moves values
+// and a combined count above plannedWrites. Each change replaces one scheduled
+// write.
 func validateSearchMixedChanges(options SearchMixedOptions, plannedWrites int) error {
 	if options.MetadataWrites < 0 || options.Moves < 0 {
 		return errors.New("qa datagen search-mixed: metadata writes and moves must not be negative")

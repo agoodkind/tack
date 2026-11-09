@@ -26,7 +26,7 @@ type semanticPair struct {
 	Text  string `json:"text"`
 }
 
-// searchPhrases is the fixed search fixture text.
+// searchPhrases stores the fixed search fixture text.
 type searchPhrases struct {
 	Semantic          []semanticPair `json:"semantic"`
 	Distractors       []string       `json:"distractors"`
@@ -51,9 +51,9 @@ func loadSearchPhrases(ctx context.Context) (searchPhrases, error) {
 	return phrases, nil
 }
 
-// searchFixture is one generated opaque node type under one entry node. The
-// type and both property names are UUID-derived. Search behavior depends
-// only on their stored declarations.
+// searchFixture uses one generated node type under one entry node. The type
+// and both property names derive from UUIDs and do not encode product meaning.
+// Search behavior depends only on their stored declarations.
 type searchFixture struct {
 	stores      *fdbadapter.Stores
 	members     org.MemberRepository
@@ -66,8 +66,8 @@ type searchFixture struct {
 	titles      *SearchTitles
 }
 
-// opaqueKey returns a lowercase identifier with a label prefix and no
-// product meaning.
+// opaqueKey returns a label prefix followed by lowercase UUID characters. The
+// generated suffix does not encode product meaning.
 func opaqueKey(label string) string {
 	return label + strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", "")[20:]
 }
@@ -88,8 +88,9 @@ func openSearchFixtureStores(ctx context.Context, cfg *config.Config, purpose st
 	return stores, postgres.NewOrgMemberRepo(pool), pool.Close, nil
 }
 
-// newSearchFixture stores one included and one excluded definition and one
-// node type that lives under the workspace entry node type.
+// newSearchFixture stores one included property definition, one excluded
+// property definition, and a node type that permits the workspace entry node
+// type as its parent.
 func newSearchFixture(ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository, workspace WorkspaceIdentity) (searchFixture, error) {
 	return newSearchFixtureWithManifest(ctx, stores, members, workspace, nil)
 }

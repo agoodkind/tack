@@ -16,27 +16,31 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// searchLoadPointInTimeInterval sets the time between point-in-time samples during a run.
+// searchLoadPointInTimeInterval sets the interval between point-in-time
+// samples during a run.
 const searchLoadPointInTimeInterval = 5 * time.Second
 
-// searchLoadIndexMetrics restricts each index statistics request to the search metric group.
+// searchLoadIndexMetrics restricts index statistics requests to the search
+// metric group.
 var searchLoadIndexMetrics = []string{"search"}
 
-// SearchLoadPointInTime reports samples of open point-in-time contexts across all shard copies
-// of the index that the node-pages alias selects. Each sample reads point_in_time_current from
-// the total section of the search statistics. Tack opens one point in time per search session.
+// SearchLoadPointInTime reports samples of open point-in-time contexts across
+// all shard copies of the index that the node-pages alias selects. Each sample
+// reads point_in_time_current from the total search statistics section. Tack
+// opens one point in time per search session.
 type SearchLoadPointInTime struct {
-	// Peak is the largest open context count among successful index statistics reads.
+	// Peak is the largest open context count from successful index statistics
+	// reads.
 	Peak int
 	// Answered counts successful index statistics reads.
 	Answered int
 	Samples  []SearchLoadPointInTimeSample
 }
 
-// SearchLoadPointInTimeSample records one index statistics read. Unavailable is true when the
-// request fails, OpenSearch returns an HTTP error status, or the alias does not select exactly
-// one index. Status records the HTTP response status, or zero when the request did not receive
-// a response.
+// SearchLoadPointInTimeSample records one index statistics read. Unavailable
+// is true when the request fails, OpenSearch returns an HTTP error status, or
+// the alias does not select exactly one index. Status records the HTTP response
+// status and remains zero if the request does not receive a response.
 type SearchLoadPointInTimeSample struct {
 	Offset      time.Duration
 	Index       string
@@ -62,7 +66,8 @@ type searchLoadSearchStat struct {
 	PointInTimeCurrent int `json:"point_in_time_current"`
 }
 
-// searchLoadPointsInTime reads index statistics with the runtime OpenSearch credential.
+// searchLoadPointsInTime reads index statistics with the runtime OpenSearch
+// credential.
 type searchLoadPointsInTime struct {
 	client  *opensearch.Client
 	stop    chan struct{}
@@ -81,9 +86,9 @@ func newSearchLoadPointsInTime(ctx context.Context, cfg *config.Config) (*search
 	return &searchLoadPointsInTime{client: client, stop: make(chan struct{}), done: make(chan struct{})}, nil
 }
 
-// newSearchStatisticsClient creates an OpenSearch client with the configured search endpoint,
-// CA certificate, runtime username and password, request timeout, and retry count. Each error
-// message starts with the command name that the caller passes.
+// newSearchStatisticsClient creates an OpenSearch client with the configured
+// endpoint, CA certificate, runtime username and password, request timeout, and
+// retry count. Each error message starts with the caller's command name.
 func newSearchStatisticsClient(ctx context.Context, cfg *config.Config, command string) (*opensearch.Client, error) {
 	certificate, err := config.LoadSearchCA(ctx, cfg.SearchCA)
 	if err != nil {
@@ -103,8 +108,8 @@ func newSearchStatisticsClient(ctx context.Context, cfg *config.Config, command 
 	return client, nil
 }
 
-// start records the first sample, then records one sample at each interval until finish stops
-// sampling.
+// start records the first sample, then samples at each interval until finish
+// stops sampling.
 func (p *searchLoadPointsInTime) start(ctx context.Context) {
 	p.started = clock.Now()
 	p.record(ctx)
@@ -128,7 +133,8 @@ func (p *searchLoadPointsInTime) start(ctx context.Context) {
 	}()
 }
 
-// finish stops interval sampling, records the last sample, and returns the report.
+// finish stops interval sampling, records the last sample, and returns the
+// report.
 func (p *searchLoadPointsInTime) finish(ctx context.Context) SearchLoadPointInTime {
 	close(p.stop)
 	<-p.done
@@ -152,7 +158,8 @@ func (p *searchLoadPointsInTime) close(ctx context.Context) {
 	}
 }
 
-// record reads one sample and logs the first unavailable sample of the run at Error level.
+// record reads one sample and logs the run's first unavailable sample at
+// Error level.
 func (p *searchLoadPointsInTime) record(ctx context.Context) {
 	sample := p.read(ctx)
 	p.mutex.Lock()

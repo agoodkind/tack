@@ -11,35 +11,44 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// searchMixedCorpusStall is the longest time that a corpus wait accepts without a decrease in
-// the number of corpus issues that search omits. On QA, two search workers wrote one page about
-// every 1.5 seconds while they indexed the 222 setup issues. Two minutes lets about 78 pages of
-// other search work finish before a corpus group must show progress.
+// searchMixedCorpusStall limits how long a corpus wait accepts an unchanged
+// or increasing count of issues that search omits.
+//
+// A QA observation recorded these indexing measurements:
+//
+//   - Two search workers wrote about one page every 1.5 seconds.
+//   - The setup corpus contained 222 issues.
+//
+// That historical rate allowed about 78 pages of other search work during the
+// two-minute wait before a corpus group had to show progress.
 const searchMixedCorpusStall = 2 * time.Minute
 
-// Corpus groups that setup waits for, in wait order.
+// These constants identify corpus groups in the order that setup waits for
+// them.
 const (
 	searchMixedReadGroup        = "read"
 	searchMixedForeignReadGroup = "foreign_read"
 	searchMixedVictimGroup      = "victims"
 )
 
-// SearchMixedCorpusWait reports one setup wait for search to return every issue of a corpus group.
+// SearchMixedCorpusWait reports one setup wait for search to return every
+// issue in a corpus group.
 type SearchMixedCorpusWait struct {
 	// Group is read, foreign_read, or victims.
 	Group  string
 	Tenant int
 	Nodes  int
 	Checks int
-	// Unavailable counts the unavailable responses that the checks of the wait repeated.
+	// Unavailable counts unavailable responses that the wait's checks retried.
 	Unavailable int
-	// Elapsed is the time from the end of the last setup create to the end of the first check
-	// that returned every issue of the group. Setup waits for one group at a time in wait order.
+	// Elapsed measures time from the last setup create to the end of the first
+	// check that returned every issue in the group. Setup waits for one group at a
+	// time in wait order.
 	Elapsed time.Duration
 }
 
-// searchMixedCorpusIndex collects the completed corpus waits of one run. Only the setup goroutine
-// writes it, and RunSearchMixed reads it after setup returns.
+// searchMixedCorpusIndex collects one run's completed corpus waits. Only the
+// setup goroutine writes it. [RunSearchMixed] reads it after setup returns.
 type searchMixedCorpusIndex struct {
 	waits []SearchMixedCorpusWait `exhaustruct:"optional"`
 }
@@ -52,15 +61,15 @@ func (c *searchMixedCorpusIndex) snapshot() []SearchMixedCorpusWait {
 	return slices.Clone(c.waits)
 }
 
-// corpusCheck returns the corpus issues that one complete search traversal omits and the number
-// of unavailable responses that the traversal repeated.
+// corpusCheck returns the corpus issues that a complete search traversal
+// omits and the count of unavailable responses that it retried.
 type corpusCheck func(context.Context) ([]uuid.UUID, int, error)
 
-// corpusMissing returns a corpus check that traverses every search page for word as run.
-// The check returns the nodes in nodes that the traversal omits and the number of unavailable
-// responses it repeated. Each page uses retryUnavailable with a deadline of
-// searchConvergenceDeadline after that page's first request starts.
-// Retries stop when stopContext ends.
+// corpusMissing returns a check that traverses every search page for word as
+// run. The check returns omitted nodes from nodes and the count of unavailable
+// responses that it retried. Each page uses retryUnavailable with a deadline
+// of searchConvergenceDeadline after that page's first request starts. Retries
+// stop when stopContext ends.
 func corpusMissing(stopContext context.Context, run searchRun, word string, nodes []uuid.UUID) corpusCheck {
 	identities := run.identities()
 	return func(ctx context.Context) ([]uuid.UUID, int, error) {
@@ -78,13 +87,16 @@ func corpusMissing(stopContext context.Context, run searchRun, word string, node
 	}
 }
 
-// awaitCorpus repeats check with callContext until search returns every node in nodes, and
-// returns the number of checks and the unavailable responses that the checks repeated. It fails
-// when the number of omitted nodes does not decrease for searchMixedCorpusStall. A check that
-// repeated an unavailable response restarts that period, because search did not report an
-// omitted count while it was unavailable. awaitCorpus fails at once when a check returns the
-// unavailable response at its retry deadline. It returns errSearchMixedSetupStopped when
-// stopContext ends between checks or while a check repeats an unavailable response.
+// awaitCorpus repeats check with callContext until search returns every node
+// in nodes. It returns the check count and the number of unavailable responses
+// that the checks retried.
+//
+// The wait fails if the omitted count does not decrease for
+// searchMixedCorpusStall. A check that retried an unavailable response restarts
+// the period because search did not report an omitted count during that
+// response. An unavailable response at the retry deadline fails the wait
+// immediately. If stopContext ends between checks or during unavailable
+// response retries, awaitCorpus returns errSearchMixedSetupStopped.
 func awaitCorpus(stopContext, callContext context.Context, description string, nodes []uuid.UUID, check corpusCheck) (int, int, error) {
 	latest, fewest, progressed := nodes, len(nodes), clock.Now()
 	unavailable := 0
@@ -122,8 +134,8 @@ func awaitCorpus(stopContext, callContext context.Context, description string, n
 	}
 }
 
-// corpusStalled reports the first node and the number of nodes that the latest successful check
-// omitted. It adds checkErr when the last check failed.
+// corpusStalled reports the first node and the count of nodes that the latest
+// successful check omitted. It adds checkErr when the last check failed.
 func corpusStalled(ctx context.Context, description string, absent []uuid.UUID, total int, checkErr error) error {
 	stalled := fmt.Errorf("search omitted %d of %d corpus nodes and the omitted count did not decrease for %s; the first missing node is %s",
 		len(absent), total, searchMixedCorpusStall, absent[0])

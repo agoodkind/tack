@@ -10,14 +10,16 @@ import (
 )
 
 const (
-	// searchMixedStatusKey is the special key that returns the FoundationDB status document.
+	// searchMixedStatusKey selects the FoundationDB status document through a
+	// special key.
 	searchMixedStatusKey = "\xff\xff/status/json"
-	// searchMixedStatusTimeout is the longest time that one status read can add to a sample.
+	// searchMixedStatusTimeout limits the time that one status read can add to a
+	// sample.
 	searchMixedStatusTimeout = 1500 * time.Millisecond
 )
 
-// SearchMixedFoundationDB is one reading of FoundationDB cluster health from the status
-// document.
+// SearchMixedFoundationDB records one reading of cluster health from the
+// FoundationDB status document.
 type SearchMixedFoundationDB struct {
 	PerformanceLimitedBy                   string  `json:"performance_limited_by"`
 	WorstQueueBytesStorageServer           int64   `json:"worst_queue_bytes_storage_server"`
@@ -25,8 +27,8 @@ type SearchMixedFoundationDB struct {
 	WorstDurabilityLagStorageServerSeconds float64 `json:"worst_durability_lag_storage_server_seconds"`
 	TransactionsPerSecondLimit             float64 `json:"transactions_per_second_limit"`
 	ReleasedTransactionsPerSecond          float64 `json:"released_transactions_per_second"`
-	// TransactionStartSeconds, ReadSeconds, and CommitSeconds are nil when the status document
-	// does not include the latency probe.
+	// TransactionStartSeconds, ReadSeconds, and CommitSeconds are nil when the
+	// status document does not include the latency probe.
 	TransactionStartSeconds *float64 `json:"transaction_start_seconds"`
 	ReadSeconds             *float64 `json:"read_seconds"`
 	CommitSeconds           *float64 `json:"commit_seconds"`
@@ -76,13 +78,14 @@ type searchMixedStatusDisk struct {
 	Busy float64 `json:"busy"`
 }
 
-// searchMixedFoundationDBStatus reads cluster health from the FoundationDB status document.
+// searchMixedFoundationDBStatus reads cluster health from the FoundationDB
+// status document.
 type searchMixedFoundationDBStatus struct {
 	db fdb.Database
 }
 
-// read returns the cluster health values of the current status document. The read fails when
-// it takes longer than searchMixedStatusTimeout.
+// read returns cluster health values from the current status document. The
+// read fails when it takes longer than searchMixedStatusTimeout.
 func (s *searchMixedFoundationDBStatus) read(ctx context.Context) (*SearchMixedFoundationDB, error) {
 	transaction, err := s.db.CreateTransaction()
 	if err != nil {

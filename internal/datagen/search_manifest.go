@@ -74,10 +74,17 @@ type searchManifestSource struct {
 	Text       string `json:"text"`
 }
 
-// PrepareSearchManifest writes a bounded fixture under an existing seed workspace.
-// It permits disabled public search, records search work for the prepared
-// nodes, and starts no worker.
-// A nil `corpus` selects the embedded approved corpus.
+// PrepareSearchManifest writes a bounded fixture under an existing seed
+// workspace. It permits disabled public search and records search work for the
+// prepared nodes without starting a worker.
+//
+// A nil corpus selects the embedded approved corpus. The function checks the
+// SHA-256 digest of embedded or supplied bytes before decoding the corpus.
+//
+// The returned manifest includes these verification cases:
+//
+//   - Semantic queries identify expected ranked targets.
+//   - Continuation and final-page queries identify exact expected nodes.
 func PrepareSearchManifest(ctx context.Context, cfg *config.Config, seed int64, corpus []byte) (SearchManifest, error) {
 	if err := ValidateTarget(cfg); err != nil {
 		return SearchManifest{}, err

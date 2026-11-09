@@ -9,32 +9,32 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// errSearchMixedSetupStopped reports that the schedule context ended while setup waited for
-// search to return the corpus.
+// errSearchMixedSetupStopped reports that the schedule context ended during
+// the setup wait for search to return the corpus.
 var errSearchMixedSetupStopped = errors.New("qa datagen search-mixed: the schedule context ended during setup")
 
 const (
-	// searchMixedReadNodes is the number of unchanged issues that the paginated sessions of the
-	// first tenant read.
+	// searchMixedReadNodes counts the unchanged issues that the first tenant's
+	// paginated sessions read.
 	searchMixedReadNodes = 140
-	// searchMixedForeignReadNodes is the number of issues with the same read word in the second
-	// tenant.
+	// searchMixedForeignReadNodes counts second-tenant issues with the same read
+	// word.
 	searchMixedForeignReadNodes = 10
 	// searchMixedVictimSpare is the number of victim issues beyond two full pages.
 	searchMixedVictimSpare = 10
 	searchMixedVictimPages = 2
 )
 
-// searchMixedCorpus stores the IDs of issues that setup creates before measurement starts.
+// searchMixedCorpus stores issue IDs that setup creates before measurement.
 type searchMixedCorpus struct {
 	read        []uuid.UUID
 	foreignRead []uuid.UUID
 	victims     []uuid.UUID
 }
 
-// createCorpus creates the read issues of both tenants and the victim issues of the first
-// tenant through public calls, then waits until search returns each of them. It records each
-// completed wait in the corpus index of the run.
+// createCorpus creates both tenants' read issues and the first tenant's victim
+// issues through public calls, then waits until search returns each issue. It
+// records every completed wait in the run's corpus index.
 func (m *searchMixed) createCorpus(stopContext, ctx context.Context) error {
 	read, err := m.createIssues(ctx, 0, searchMixedReadNodes, func(number int) string {
 		return fmt.Sprintf("Read corpus %s issue %d", m.readWord, number)
@@ -92,7 +92,8 @@ func (m *searchMixed) searchRun(tenant, actor, driver int) searchRun {
 }
 
 // createIssues creates count issues in a tenant project through public calls.
-// It uses at most searchMixedCreateWorkers concurrent workers and returns IDs in input order.
+// It uses at most searchMixedCreateWorkers concurrent workers and returns IDs
+// in input order.
 func (m *searchMixed) createIssues(ctx context.Context, tenant, count int, description func(int) string) ([]uuid.UUID, error) {
 	created := make([]uuid.UUID, count)
 	failures := m.runCreates(ctx, count, func(ctx context.Context, number int) error {
@@ -106,7 +107,8 @@ func (m *searchMixed) createIssues(ctx context.Context, tenant, count int, descr
 	return created, nil
 }
 
-// createIssue uses number to select a driver and creates one issue in a tenant project.
+// createIssue uses number to select a driver and creates one issue in a tenant
+// project.
 func (m *searchMixed) createIssue(ctx context.Context, tenant, number int, text string) (uuid.UUID, error) {
 	properties := newProperties()
 	properties.setString("description", text)

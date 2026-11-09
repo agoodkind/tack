@@ -14,16 +14,18 @@ const (
 	searchMixedMarkerLabel   = "k"
 )
 
-// searchMixedMarker records a written issue marker that the prober has not yet found.
+// searchMixedMarker records a written issue marker that the prober has not
+// found.
 type searchMixedMarker struct {
 	node      *searchMixedNode
 	marker    string
 	committed time.Time
-	// searchedAfterCatchUp is true after the final probe pass searches this marker without an error.
+	// searchedAfterCatchUp becomes true after the final probe pass searches this
+	// marker without an error.
 	searchedAfterCatchUp bool `exhaustruct:"optional"`
 }
 
-// searchMixedDeletion records a deleted issue that the prober has not yet verified.
+// searchMixedDeletion records a deleted issue that the prober has not verified.
 type searchMixedDeletion struct {
 	node   *searchMixedNode
 	marker string
@@ -41,8 +43,8 @@ func (m *searchMixed) trackDeletion(node *searchMixedNode, marker string) {
 	m.deletions = append(m.deletions, searchMixedDeletion{node: node, marker: marker})
 }
 
-// drainWaiting returns true while any marker, deletion, metadata, or move check remains pending
-// and the final probe pass has not finished.
+// drainWaiting returns true while a marker, deletion, metadata, or move check
+// remains pending and the final probe pass has not finished.
 func (m *searchMixed) drainWaiting() bool {
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
@@ -50,11 +52,12 @@ func (m *searchMixed) drainWaiting() bool {
 	return pending && !m.finalPassDone
 }
 
-// drain sets drainStarted after the command completes or skips the catch-up wait.
-// The next probe pass to start is the final pass. drain waits until all probe checks settle,
-// the final pass finishes, or scheduleContext ends. --max-wall-time, SIGINT, SIGTERM, or the end
-// of the parent context can end scheduleContext.
-// drain then calls stopProbes to cancel probing and waits for proberDone.
+// drain sets drainStarted after the command completes or skips the catch-up
+// wait. The next probe pass that starts is the final pass. drain waits until
+// all probe checks settle, the final pass finishes, or scheduleContext ends.
+// The --max-wall-time limit, SIGINT, SIGTERM, or parent context termination can
+// end scheduleContext. drain then calls stopProbes to cancel probing and waits
+// for proberDone.
 func (m *searchMixed) drain(scheduleContext context.Context, stopProbes context.CancelFunc, proberDone <-chan struct{}) {
 	m.probeMutex.Lock()
 	m.drainStarted = true
@@ -107,14 +110,15 @@ func (m *searchMixed) probe(ctx context.Context, done chan<- struct{}) {
 	}
 }
 
-// startProbePass returns true when drain has started, identifying this pass as the final pass.
+// startProbePass returns true after drain starts and identifies the pass as
+// the final pass.
 func (m *searchMixed) startProbePass() bool {
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
 	return m.drainStarted
 }
 
-// finishProbePass records that the final probe pass finished when afterCatchUp is true.
+// finishProbePass records final-pass completion when afterCatchUp is true.
 func (m *searchMixed) finishProbePass(afterCatchUp bool) {
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
@@ -123,11 +127,14 @@ func (m *searchMixed) finishProbePass(afterCatchUp bool) {
 	}
 }
 
-// abandonProbes counts the pending checks when the prober stops.
-// It counts each pending marker in markersNotFound if the final pass searched it without an
-// error, or in markersUnsearched otherwise. It counts pending deletions in deletesUnverified,
-// metadata checks in metadataNotFound, and move checks in movesUnverified.
-// It then clears the pending lists.
+// abandonProbes counts pending checks when the prober stops and clears the
+// pending lists. It selects counters as follows:
+//
+//   - A marker that the final pass searched without an error increments
+//     markersNotFound; any other marker increments markersUnsearched.
+//   - A pending deletion increments deletesUnverified.
+//   - A pending metadata check increments metadataNotFound.
+//   - A pending move check increments movesUnverified.
 func (m *searchMixed) abandonProbes() {
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
@@ -150,12 +157,13 @@ func (m *searchMixed) abandonProbes() {
 	m.markers, m.deletions, m.metadataChecks, m.moveChecks = nil, nil, nil, nil
 }
 
-// probeMarkers searches each pending marker with a separate public tack_search query under
-// the marker's tenant, one search at a time. The "and" lexical operator scores a page only
-// when the page contains every query term.
-// When the first result page contains the issue's node ID, probeMarkers records the freshness
-// lag and removes the marker. When afterCatchUp is true, it sets searchedAfterCatchUp for each
-// remaining marker that it searched without an error.
+// probeMarkers searches each pending marker with a separate public tack_search
+// query under its tenant, one search at a time. The "and" lexical operator
+// scores a page only when it contains every query term.
+//
+// If the first result page contains the issue's node ID, probeMarkers records
+// the freshness lag and removes the marker. When afterCatchUp is true, it sets
+// searchedAfterCatchUp for remaining markers that it searched without an error.
 func (m *searchMixed) probeMarkers(ctx context.Context, tick int, afterCatchUp bool) {
 	m.probeMutex.Lock()
 	pending := slices.Clone(m.markers)

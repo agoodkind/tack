@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	// searchMixedMetadataLabel is the prefix of each excluded property definition name.
+	// searchMixedMetadataLabel prefixes each excluded property definition name.
 	searchMixedMetadataLabel = "pm"
-	// searchMixedDestinationLabel is the prefix of each destination project identifier.
+	// searchMixedDestinationLabel prefixes each destination project identifier.
 	searchMixedDestinationLabel = "d"
 )
 
@@ -27,37 +27,40 @@ const (
 	searchMixedMoveChange
 )
 
-// searchMixedChanges stores the state of metadata changes and moves for one run.
+// searchMixedChanges stores one run's metadata change and move state.
 type searchMixedChanges struct {
-	// definitions stores property definitions in change order for the first tenant's organization.
-	// Setup excludes their values from search.
+	// definitions stores property definitions in change order for the first
+	// tenant's organization. Setup excludes their values from search.
 	definitions []*node.PropertyDef
-	// changed counts the definitions that metadata changes have used. Only the write loop goroutine
-	// reads and writes it.
+	// changed counts definitions that metadata changes have used. Only the write
+	// loop goroutine reads and writes it.
 	changed int
 	// destinations stores one destination project per tenant in tenant order.
 	destinations []searchMixedDestination
-	// nodes is the service.NodeService that moves issues.
+	// nodes uses [service.NodeService] to move issues.
 	nodes *service.NodeService
 }
 
-// searchMixedDestination identifies a project in a second workspace of one tenant's organization.
+// searchMixedDestination identifies a project in a second workspace within
+// one tenant's organization.
 type searchMixedDestination struct {
 	entry     string
 	projectID uuid.UUID
 }
 
-// searchMixedCheck tracks a committed metadata change or move that the prober has not verified.
-// marker is the property value for a metadata change or the issue marker for a move.
+// searchMixedCheck tracks a committed metadata change or move that the prober
+// has not verified. marker stores the property value for a metadata change or
+// the issue marker for a move.
 type searchMixedCheck struct {
 	node   *searchMixedNode
 	marker string
 }
 
-// prepareChanges returns immediately when both requested counts are 0. Otherwise, it enables
-// search work on the FoundationDB stores and stores one text property definition per metadata
-// change in the first tenant's organization with Search.Include set to false. For requested
-// moves, it builds the node service and creates one destination project per tenant.
+// prepareChanges returns immediately when both requested counts are zero.
+// Otherwise, it enables FoundationDB search work and stores one text property
+// definition per metadata change in the first tenant's organization, with
+// Search.Include false. Requested moves build the node service and create one
+// destination project per tenant.
 func (m *searchMixed) prepareChanges(ctx context.Context, identities Identities) error {
 	if m.options.MetadataWrites == 0 && m.options.Moves == 0 {
 		return nil
@@ -91,10 +94,10 @@ func (m *searchMixed) prepareChanges(ctx context.Context, identities Identities)
 	return nil
 }
 
-// createDestination finds another workspace in the tenant's organization and records its entry
-// node's title. It creates a project through a public tack_create_project call and records the
-// project's title. It returns the workspace slug and project ID, or an error if the organization
-// has one workspace.
+// createDestination finds another workspace in the tenant's organization and
+// records its entry node's title. It calls public tack_create_project and
+// records the project's title. It returns the workspace slug and project ID,
+// or an error if the organization does not have another workspace.
 func (m *searchMixed) createDestination(
 	ctx context.Context, index int, identities Identities, tenant *searchMixedTenant,
 ) (searchMixedDestination, error) {
@@ -133,9 +136,10 @@ func (m *searchMixed) createDestination(
 }
 
 // searchMixedChangeSlots assigns metadata changes and moves to write indexes.
-// For total = metadata+moves, position p uses write index (2p+1)*planned/(2*total).
-// While both kinds remain, even positions use metadata changes and odd positions use moves.
-// After one kind runs out, every remaining position uses the other kind.
+// For total = metadata+moves, position p uses write index
+// (2p+1)*planned/(2*total). While both kinds remain, even positions use
+// metadata changes and odd positions use moves. After one kind runs out,
+// remaining positions use the other kind.
 func searchMixedChangeSlots(planned, metadata, moves int) map[int]searchMixedChangeKind {
 	total := metadata + moves
 	slots := make(map[int]searchMixedChangeKind, total)
@@ -152,7 +156,8 @@ func searchMixedChangeSlots(planned, metadata, moves int) map[int]searchMixedCha
 	return slots
 }
 
-// writeChange runs one metadata change or move. It returns false if an issue is not available.
+// writeChange runs one metadata change or move. It returns false when an
+// issue is not available.
 func (m *searchMixed) writeChange(ctx context.Context, kind searchMixedChangeKind) bool {
 	if kind == searchMixedMetadataChange {
 		return m.changeMetadata(ctx)
@@ -160,10 +165,11 @@ func (m *searchMixed) writeChange(ctx context.Context, kind searchMixedChangeKin
 	return m.moveIssue(ctx)
 }
 
-// pinNode locks the node mutex and selects the first node that match accepts and the prober
-// has already found for its marker. If it cannot find one, it selects the first matching node.
-// It removes that node from selection for later edits, deletes, metadata changes, and moves.
-// It returns the node and its current marker, or nil and "" if it cannot find a matching node.
+// pinNode locks the node mutex and selects the first matching node that the
+// prober has already found for its marker. If it cannot find one, it selects
+// the first matching node. It removes that node from selection for later
+// edits, deletes, metadata changes, and moves. It returns the node and its
+// current marker, or nil and an empty string without a match.
 func (m *searchMixed) pinNode(match func(*searchMixedNode) bool) (*searchMixedNode, string) {
 	m.nodeMutex.Lock()
 	defer m.nodeMutex.Unlock()
