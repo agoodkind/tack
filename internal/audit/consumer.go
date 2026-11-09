@@ -89,8 +89,14 @@ type processedSummary struct {
 	commitOffset int64
 }
 
-// NewConsumer opens every external connection and prepares the embedded
-// notarizer. The returned Consumer is ready for Start. Callers must Close.
+// NewConsumer prepares a Consumer for Start.
+//
+// It opens every external connection and prepares the embedded notarizer.
+//
+// Callers manage the returned Consumer as follows:
+//
+//  1. Call Start to run the consumer.
+//  2. Call Close to release its resources.
 func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	cfg = applyConsumerDefaults(cfg)
 	if len(cfg.Brokers) == 0 {
@@ -203,8 +209,14 @@ func applyConsumerDefaults(cfg ConsumerConfig) ConsumerConfig {
 	return cfg
 }
 
-// Start runs the poll loop and the embedded notarizer until ctx is canceled
-// or Close is called.
+// Start runs the consumer poll loop.
+//
+// It also runs the embedded notarizer.
+//
+// Either condition stops the poll loop:
+//
+//  - ctx.Done() closes after cancellation or a deadline.
+//  - The caller calls Close.
 func (c *Consumer) Start(ctx context.Context) {
 	if c.notarizer != nil {
 		c.notarizer.Start(ctx)
@@ -225,8 +237,15 @@ func (c *Consumer) Start(ctx context.Context) {
 	}()
 }
 
-// Close signals the loop to stop, drains in-flight work, and releases every
-// underlying resource. Idempotent.
+// Close drains in-flight work and releases every underlying resource.
+//
+// Only the first call signals the consumer loop to stop. Each call waits for
+// the loop to stop before closing resources.
+//
+// Close releases resources in this order:
+//
+//  1. Close the embedded notarizer and partition manager when present.
+//  2. Close the Kafka client and YugabyteDB pool.
 func (c *Consumer) Close() error {
 	c.once.Do(func() { close(c.stop) })
 	<-c.stopped
