@@ -6,4 +6,3 @@ An infrastructure apply, application deployment, public activation, source-data 
 2. Add healthy members to the stable endpoint and verify each backend accepts requests. Deploy the model without fixed node IDs and verify every eligible predictor. Set one replica only after enough data nodes exist, wait for green, and record the physical generation's replica count.
 3. Use native split only for a permitted primary-count increase within reserved routing shards. Require unchanged sparse fields and rerun relevance and continuation.
 4. With at least three members and one replica, stop each member independently while search and indexing run. Require endpoint, primary-shard, and local inference availability before claiming failover or added capacity.
-

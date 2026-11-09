@@ -82,4 +82,3 @@ An `unchanged` result means the entry had already completed and this run did not
 - Search checks.
 
 A second preview must not propose repeated changes or duplicate comments. A successful exit alone cannot establish that every entry completed.
-

@@ -11,4 +11,3 @@ Use the Configs-managed installation and backup settings. Confirm the alarm reci
    only one copy can let another copy restore the remembered fault.
 3. Run the check and inspect both its verdict and the mail outcome. Do not
    remove backup artifacts or version-to-time records while resetting alarms.
-

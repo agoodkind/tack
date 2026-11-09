@@ -181,4 +181,3 @@ A retry addresses the same document. Permission changes preserve IDs. Mapping me
 - Replicas.
 
 The mapping version must be nonempty, primary and routing counts must be positive, and replicas must be nonnegative.
-

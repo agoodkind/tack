@@ -114,4 +114,3 @@ Text projections use affected-content refresh. Permission versions use access-on
 - Primary bytes.
 
 Engine capacity failures leave work pending.
-
