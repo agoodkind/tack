@@ -1,22 +1,53 @@
 # MCP output and search operations
 
-Generated MCP collection tools accept `limit` and `cursor`. The default limit is 25 rows. Valid limits range from 1 through 100. Responses print `Next cursor` when another page exists. List cursors resume after a node ID. Ranked search uses durable session cursors.
+Generated MCP collection tools accept `limit` and `cursor`. Collection limits define the default and valid range.
+
+Collection limits:
+
+| Subject | Limit |
+| --- | --- |
+| Default | 25 rows. |
+| Valid range | 1 through 100 rows. |
+
+Responses print `Next cursor` when another page exists. List cursors resume after a node ID. Ranked search uses durable session cursors.
 
 ## Collection and write output
 
 The FoundationDB paged reader returns a page of views and a continuation cursor. Its opaque cursor encodes the last node UUID with URL-safe base64. An invalid cursor fails validation. The reader supports type and property-value scans in node-ID order. It requires a positive limit, applies property and creation-time filters, skips missing views while advancing, and rejects relation scans through this method. Bounded range reads do not impose a total collection cap.
 
-Create, update, and reference-set tools return short confirmations with a 1,024-byte acceptance limit. Confirmations identify nodes and changed fields without repeating full values. The renderer shows up to four change lines and shortens the displayed name at a Unicode boundary after at most 120 bytes of name text. A `More` line reports omitted changes and identifies the generated get tool for the full node.
+Create, update, and reference-set tools return short confirmations. Confirmations identify nodes and changed fields without repeating full values. Confirmation acceptance and rendering use separate limits.
+
+Confirmation limits:
+
+| Subject | Limit |
+| --- | --- |
+| Acceptance | 1,024 bytes. |
+| Change lines | Up to four. |
+| Displayed name | At most 120 bytes of name text, shortened at a Unicode boundary. |
+
+A `More` line reports omitted changes and identifies the generated get tool for the full node.
 
 Workspace descriptions summarize direct children by metadata type. The description reads one page of up to 100 direct children per type. A trailing plus indicates additional children. Collection output prints a node name once when that name supplies its displayed identity.
 
-Successful MCP text uses a 32 KiB cap plus its truncation notice. Paged rendering reserves room for continuation. A truncated single-node response omits part of the node. `TestGetIssueCapsHugeDescription` creates an issue through `tack_create_issue` with a multiline description just under 60 KiB, within FoundationDB's 100,000-byte value limit. It passes the returned ID to `tack_get_issue` and requires the response to end with the truncation notice and use at most 32 KiB plus the notice's byte length.
+Successful MCP text uses a 32 KiB cap plus its truncation notice. Paged rendering reserves room for continuation. A truncated single-node response omits part of the node. `TestGetIssueCapsHugeDescription` checks truncation across public tools and the storage boundary.
+
+Truncation test sizes:
+
+| Subject | Size |
+| --- | --- |
+| Multiline issue description from `tack_create_issue` | Just under 60 KiB. |
+| FoundationDB value limit | 100,000 bytes. |
+| Maximum `tack_get_issue` response | 32 KiB plus the notice's byte length. |
+
+The test creates the issue within FoundationDB's value limit. It passes the returned ID to `tack_get_issue` and requires the response to end with the truncation notice.
 
 ## Operator commands
 
 Every command uses shared operator identity, execution gating, audit recording, and result output. This reference does not authorize live operations.
 
 The following commands operate on search.
+
+Search commands:
 
 | Command | Operation |
 | --- | --- |

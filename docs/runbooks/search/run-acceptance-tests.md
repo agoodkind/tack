@@ -5,7 +5,14 @@ Use disposable FoundationDB, YugabyteDB, and OpenSearch services for local accep
 ## Prepare the runner
 
 1. Use a Docker daemon with an `arm64` or `amd64` architecture. The runner installs the matching FoundationDB client. The SQL fixture selects its YugabyteDB platform from the daemon architecture and requires SQL health before use. Do not force an amd64 fixture on an arm64 daemon.
-2. Reserve resources before starting a test binary. Ordinary search fixtures allocate 8 GiB for OpenSearch. The three-member fixture allocates 24 GiB plus runner and database resources. Run heavy groups serially and keep throughput measurements separate from other fixtures, builds, and database probes.
+2. Reserve resources before starting a test binary. The OpenSearch memory allocations differ between ordinary and three-member fixtures. Run heavy groups serially and keep throughput measurements separate from other fixtures, builds, and database probes.
+
+   OpenSearch memory allocations:
+
+   | Ordinary fixture | Three-member fixture |
+   | --- | --- |
+   | 8 GiB. | 24 GiB plus runner and database resources. |
+
 3. Record revision and dirty files. The runner mounts the working tree. A revision alone does not identify uncommitted source. Set the runner inputs and build its image.
 
    ```sh
@@ -26,7 +33,9 @@ Use disposable FoundationDB, YugabyteDB, and OpenSearch services for local accep
 
 ## Run a focused behavior
 
-1. Select the public behavior. Each expression must produce the stated observations.
+1. Select the public behavior. The process tests require a 40-character revision and build actual server processes against a fresh unprefixed FoundationDB fixture. Two in-process handlers do not satisfy that check. Each expression must produce the stated observations.
+
+   Behavior expressions:
 
    | Expression | Required observation |
    | --- | --- |
@@ -53,8 +62,6 @@ Use disposable FoundationDB, YugabyteDB, and OpenSearch services for local accep
 
 3. Save complete output and terminal exit code. Record compiled source, server PIDs, image identities, fixture identities, measurements, and cleanup. Preserve the first public error. Diagnostics collected afterward do not establish its cause.
 
-The process tests require a 40-character revision and build actual server processes against a fresh unprefixed FoundationDB fixture. Two in-process handlers do not satisfy that check.
-
 ## Run every required group
 
 Before running the host inventory commands below, install the Go toolchain selected by [go.mod](../../../go.mod), a C compiler for cgo, and the host architecture's FoundationDB client headers and library compatible with [the test image](../../../Dockerfile.test). Enable cgo and make the library available to the host linker and loader. Building the container installs its client only inside the image.
@@ -72,7 +79,15 @@ Before running the host inventory commands below, install the Go toolchain selec
    ```
 
 2. Compare group membership with the compiled search test inventory from the current [Makefile](../../../Makefile). Require an empty duplicate list and an exact union with all search tests.
-3. Run `make test-integration` and then run the search groups in dependency order, starting with the native client, model, mapping, and chunks. Continue with metadata, readers, and work. Next test stale writers and retirement, followed by ranking, permissions, and continuation. Test replacement, runtime, and refresh before public datagen and cluster checks. Correct a reproduced failure at its owning implementation before repeating the affected groups. Preserve accepted assertions and bounds.
+3. Run `make test-integration`, then run the search groups in dependency order. Correct a reproduced failure at its owning implementation before repeating the affected groups. Preserve accepted assertions and bounds.
+
+   1. Test the native client, model, mapping, and chunks.
+   2. Test metadata, readers, and work.
+   3. Test stale writers and retirement.
+   4. Test ranking, permissions, and continuation.
+   5. Test replacement, runtime, and refresh.
+   6. Test public datagen and cluster behavior.
+
 4. Run the complete groups below. The current target sets each selection and timeout. A group with a skipped required scenario does not supply acceptance evidence. The ordinary group budget uses 1.5 times the slowest complete CI measurement, rounded up to five minutes. The Makefile sets the replacement group to 45 minutes and the remaining feature and audit groups to 75 minutes.
 
    Each group uses the indicated runner and time limit.
@@ -108,17 +123,16 @@ Before running the host inventory commands below, install the Go toolchain selec
    make build
    ```
 
-5. Run the repeated concurrency and replacement tail after the corresponding correction. Require three complete runs of all 26 tests, for 78 executions. Record actual durations against the limits below. The limits are estimates from three times the slowest single run and a factor of 1.5. The Makefile sets `SEARCH_REPEAT_REPLACEMENT_TESTS` and `SEARCH_REPEAT_ACCESS_CURSOR_WORKER_TESTS` for the repeated replacement and access, cursor, and worker groups.
-
-   Each repeated group selects the corresponding tests and time limit.
+5. Run the repeated concurrency and replacement tail after the corresponding correction. Require every group to complete the runs in the table. Record actual durations against the limits below. The limits are estimates from three times the slowest single run and a factor of 1.5. The Makefile sets `SEARCH_REPEAT_REPLACEMENT_TESTS` and `SEARCH_REPEAT_ACCESS_CURSOR_WORKER_TESTS` for the repeated replacement and access, cursor, and worker groups. Each repeated group selects the corresponding tests and time limit.
 
    Repeated groups:
 
-   | Group | Tests per run | Limit |
-   | --- | ---: | --- |
-   | Continuation | 1 | 180m |
-   | Replacement | 7 | 85m |
-   | Access, cursor, and worker | 18 | 50m |
+   | Group | Tests per run | Runs | Executions | Limit |
+   | --- | ---: | ---: | ---: | --- |
+   | Continuation | 1 | 3 | 3 | 180m |
+   | Replacement | 7 | 3 | 21 | 85m |
+   | Access, cursor, and worker | 18 | 3 | 54 | 50m |
+   | All groups | 26 | 3 | 78 | Each group's limit applies. |
 
    ```sh
    make test-search-group GROUP=repeat-continuation-with-duplicate-pages
@@ -163,7 +177,14 @@ TACK_TEST_ROOT="$PWD" docker compose -f docker-compose.test.yml --profile runner
        --corpus /manifests/search_semantic_corpus.json > search-manifest.json
    ```
 
-4. Read `result.manifest`. Verify actual stored IDs, opaque types, projections, expected case IDs, and cohort counts of 162, 31, and one. Preserve partial output after an error. Preparation does not establish relevance, continuation, final-page behavior, or capacity.
+4. Read `result.manifest`. Verify actual stored IDs, opaque types, projections, and expected case IDs. Verify each cohort's count. Preserve partial output after an error. Preparation does not establish relevance, continuation, final-page behavior, or capacity.
+
+   QA cohort counts:
+
+   | Semantic nodes | Continuation nodes | Final-page nodes |
+   | ---: | ---: | ---: |
+   | 162 | 31 | 1 |
+
 5. After public search activates, supply `AUDIT_READER_DSN` to the ordinary committed verification command. Run the guarded public checks and inspect the permanent ledger for the session verbs and completed deletion of the abandoned session header.
 6. Exercise the datagen driver's cancellation and dry-run paths. Check its request IDs and attempted-call count. Verify that authenticated JSON-RPC calls use the session headers and that JSON and SSE responses stay within the byte limit.
 7. Shorten a searchable value. Require the old term to disappear and the new term to appear. Delete the node and require it to disappear from results. Verify that searching for explicitly excluded text does not return the node containing it.

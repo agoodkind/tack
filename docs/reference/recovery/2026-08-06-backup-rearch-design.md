@@ -26,11 +26,7 @@ subcommands, and the command exits nonzero through the audited CLI entry point.
 
 Configs prepares each guest and declares its IPv6 address, stable MAC address,
 Docker IPv6 /96, neighbor-discovery proxy prefix, secrets, and schedules.
-One designated guest runs initialization, migrations, and seeding. Select one
-environment per operation and validate changes on QA before production.
-Production applies, deployments, and destruction require explicit operator
-authorization. Configuration must enter Configs before application; hand-edited
-live configuration constitutes drift.
+One designated guest runs initialization, migrations, and seeding. Each operator must select one environment per operation and validate changes on QA before production. Production applies, deployments, and destruction require explicit operator authorization. Configuration must enter Configs before application; hand-edited live configuration constitutes drift.
 
 The current Configs [production workspace](https://github.com/agoodkind/configs/tree/main/opentofu/vault/tack-prod)
 and [QA workspace](https://github.com/agoodkind/configs/tree/main/opentofu/suburban/tack-qa)
@@ -44,22 +40,30 @@ reservations. A past capacity reading cannot establish current free capacity.
 Destruction of a sandbox guest requires explicit confirmation of that exact
 guest; a capacity shortfall does not authorize deletion.
 
-Storage placement must protect ledger latency. The accepted layout assigns
-ledger roots, product data, and app guests to NVMe. Object storage, rehearsal
-scratch, export staging, and hypervisor guest backups use the SATA SSD. Broker
-placement on the slower tier depends on removing synchronous broker work from
-the request path. Unthrottled bulk writes on the ledger pool can delay log sync
-and trigger leader elections. Live hypervisor readings must establish actual
-placement.
+Storage placement must protect ledger latency. The accepted layout assigns storage tiers by workload.
+
+Storage assignments:
+
+| Workload | Required tier |
+| --- | --- |
+| Ledger roots, product data, and app guests | NVMe. |
+| Object storage, rehearsal scratch, export staging, and hypervisor guest backups | SATA SSD. |
+
+Broker placement on the slower tier depends on removing synchronous broker work from the request path. Unthrottled bulk writes on the ledger pool can delay log sync and trigger leader elections. Live hypervisor readings must establish actual placement.
 
 ## YugabyteDB nodes
 
-Each of the three data guests must run a YugabyteDB node for authentication and
-audit, a FoundationDB process for product data, and a Kafka broker for audit
-events. YugabyteDB must keep three copies of every row.
-Separate locations let the engine distinguish fault domains. App and operator
-connection strings must list all three nodes. Callers must handle a query that fails during node
-loss. A multi-host connection string does not retry an already failed query.
+Each of the three data guests must run these services.
+
+Required services per data guest:
+
+| Service | Purpose |
+| --- | --- |
+| YugabyteDB node | Authentication and audit. |
+| FoundationDB process | Product data. |
+| Kafka broker | Audit events. |
+
+YugabyteDB must keep three copies of every row. Separate locations let the engine distinguish fault domains. App and operator connection strings must list all three nodes. Callers must handle a query that fails during node loss. A multi-host connection string does not retry an already failed query.
 
 Each node must advertise and listen on its permanent name. Its own name must
 resolve inside its container to an address it can bind. Peer names must resolve
@@ -88,10 +92,7 @@ replication before retirement. A rename requires retirement and rejoin
 while surviving nodes preserve the data; a single-node installation does not
 provide that rolling rename procedure.
 
-The IPv6-only bridge must remain IPv6-only. YugabyteDB image changes require a
-matching overlay refresh and QA verification before production. Read the
-[image-update procedure](../../runbooks/deployment/update-yugabyte-image.md)
-before an image change.
+The IPv6-only bridge must remain IPv6-only. YugabyteDB image changes require a matching overlay refresh and QA verification before production. The operator must follow the [image-update procedure](../../runbooks/deployment/update-yugabyte-image.md) for an image change.
 
 ## FoundationDB clients and agents
 
@@ -110,12 +111,17 @@ on the same continuous session, with one agent per data guest for survival.
 
 ## Broker and app requirements
 
-The distributed broker contract requires three copies of the audit and
-consumer-position topics, a two-live-copy minimum, and a routable advertised
-address per broker. Kafka clients use bootstrap addresses to discover advertised
-addresses; replacing only a bootstrap address cannot repair an unreachable
-advertised listener. QA must prove the membership change for the deployed
-metadata format. Online reassignment of both topics must limit bandwidth.
+The distributed broker contract sets replication and address requirements.
+
+Broker requirements:
+
+| Subject | Requirement |
+| --- | --- |
+| Audit and consumer-position topics | Three copies of each topic. |
+| Live copies | A two-live-copy minimum. |
+| Each broker | A routable advertised address. |
+
+Kafka clients use bootstrap addresses to discover advertised addresses; replacing only a bootstrap address cannot repair an unreachable advertised listener. QA must prove the membership change for the deployed metadata format. Online reassignment of both topics must limit bandwidth.
 
 The current Kafka producer requires acknowledgments from every in-sync replica.
 That setting differs from a promise that every configured replica remains

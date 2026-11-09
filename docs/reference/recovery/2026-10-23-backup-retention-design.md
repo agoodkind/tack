@@ -59,11 +59,16 @@ FoundationDB action before effects.
 
 ## Credentials and native execution
 
-Tack Go must run the pinned engine tools through Docker SDK containers rather
-than a host shell. Each native container must receive a private credential file
-before its process starts. The directory mode must equal `0700`; the file mode
-must equal `0600`. The native URL must omit both credentials and identify the
-private account file instead.
+Tack Go must run the pinned engine tools through Docker SDK containers rather than a host shell. Each native container must receive a private credential file before its process starts. The directory and file must use private permissions.
+
+Required permissions:
+
+| Object | Mode |
+| --- | --- |
+| Directory | `0700`. |
+| Private credential file | `0600`. |
+
+The native URL must omit both credentials and identify the private account file instead.
 
 Docker command and environment metadata must omit both secret values. Native
 tracing and persistent Docker output logs must remain disabled. The command must
@@ -92,8 +97,9 @@ service identity, and failure reporting. The deployed image must pass
 `ops backup retention --help` before timer activation. QA cleanup validation must precede
 production activation. Configuration alone does not prove an active timer.
 
-Acceptance requires real-dependency checks through the existing container
-harness. Required outcomes:
+Acceptance requires real-dependency checks through the existing container harness. The checks must establish the retention outcomes.
+
+Required outcomes:
 
 | Check | Required outcome |
 | --- | --- |
@@ -107,7 +113,7 @@ harness. Required outcomes:
 | Closed-session deletion | The verified survivor still restores. |
 | Concurrent restore and cancellation | Operations serialize and release the lock after native cleanup. |
 | Audit | Permanent records contain actual intent, steps, and terminal outcome. |
-| Native container metadata | Secrets remain absent; private permissions, disabled logs, and file cleanup pass. |
+| Native container metadata | Metadata does not contain secrets; private permissions, disabled logs, and file cleanup pass. |
 
 Test resources must end with their test. A failed native guard must never become
 a forced deletion. A source inspection or a passing unrelated test cannot
