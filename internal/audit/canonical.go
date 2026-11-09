@@ -12,11 +12,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// canonicalJSON returns a deterministic byte representation of v suitable
-// for hashing. Object keys are sorted; numbers, strings, bools, null are
-// emitted via encoding/json's default rules. This is a minimal, dependency-
-// free approximation of RFC 8785 (JCS) sufficient for our hash chain: two
-// callers with the same logical value always produce the same bytes.
+// canonicalJSON returns deterministic bytes for hashing v. It sorts object
+// keys and uses encoding/json to encode numbers, strings, booleans, and null.
+// It approximates RFC 8785 (JCS, the JSON Canonicalization Scheme) without an
+// extra dependency. Matching logical values produce matching hash inputs.
 func canonicalJSON(v any) ([]byte, error) {
 	raw, err := json.Marshal(v)
 	if err != nil {
@@ -107,17 +106,17 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 // [docs/runbooks/audit/shards.md]: ../../docs/runbooks/audit/shards.md
 const ShardCount = 256
 
-// shardMask turns a checksum into a shard in [0, ShardCount).
+// shardMask limits each checksum to a shard in [0, ShardCount).
 const shardMask = ShardCount - 1
 
-// The mask is only a modulus when ShardCount is a power of two; any other
-// value fails to compile here (index out of range on a one-element array).
+// The mask computes a modulus only when ShardCount is a power of two.
+// Other values index beyond the one-element array and fail compilation.
 var _ = [1]struct{}{}[ShardCount&shardMask]
 
-// shardOf returns the load-distribution shard for a (actor, event) pair, in
-// [0, ShardCount). The shard is a per-event bucket, not a logical key: it
-// spreads writes across parallel per-(org, shard) hash chains and Kafka
-// partitions, away from a hot actor or event id.
+// shardOf returns a shard in [0, ShardCount) for an actor and event ID pair.
+// The per-event shard distributes writes among parallel (org, shard) hash
+// chains and Kafka partitions, including writes for a frequently used actor
+// or event ID. It does not represent the event's logical identity.
 func shardOf(actor, eventID uuid.UUID) int16 {
 	var buf [32]byte
 	copy(buf[0:16], actor[:])
@@ -125,9 +124,9 @@ func shardOf(actor, eventID uuid.UUID) int16 {
 	return int16(crc32.ChecksumIEEE(buf[:]) & shardMask)
 }
 
-// hashRow returns sha256(prevHash || canonical(payload)). prevHash is the
-// chain head before this row; an empty slice is used for the very first row
-// per (org, shard).
+// hashRow hashes prevHash, the eight-byte big-endian canonical payload length,
+// and the canonical payload with SHA-256. prevHash contains the previous chain
+// head. The first row in each (org, shard) chain uses an empty slice.
 func hashRow(prevHash []byte, payload any) ([]byte, error) {
 	canonical, err := canonicalJSON(payload)
 	if err != nil {
@@ -135,8 +134,8 @@ func hashRow(prevHash []byte, payload any) ([]byte, error) {
 	}
 	h := sha256.New()
 	h.Write(prevHash)
-	// Length prefix prevents collision between (prev || X) and (prev || Y)
-	// where X and Y differ only in where the boundary is read.
+	// The length prefix distinguishes (prev || X) from (prev || Y) when a
+	// different boundary would otherwise produce the same concatenated bytes.
 	var lp [8]byte
 	binary.BigEndian.PutUint64(lp[:], uint64(len(canonical)))
 	h.Write(lp[:])

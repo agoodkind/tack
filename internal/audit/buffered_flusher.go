@@ -1,9 +1,8 @@
-// buffered_flusher.go is the buffered recorder's flusher goroutine. It
-// delivers queued read-class events in batches with the inner recorder and
-// retains every event that neither the primary nor the spill accepted. It
-// delivers the retained events again after a bounded backoff with the same
-// event IDs. The consumer's event-ID claim prevents a duplicate ledger row
-// when a retry delivers an event twice (TACK-583).
+// The flusher goroutine submits queued read-class events to the inner
+// recorder in batches. It retains events that both the primary and the spill
+// refuse and retries them after a bounded wait with the same event IDs.
+// The consumer claims each event ID to prevent duplicate ledger rows after
+// redelivery (TACK-583).
 
 package audit
 
@@ -26,8 +25,8 @@ const (
 	retryBackoffMaxDoublings = 16
 )
 
-// run is the flusher: it delivers a batch when it is full or when the
-// interval passes, and drains the queue when Close asks it to stop.
+// run submits a batch when it fills or the flush interval expires.
+// It drains the queue when Close stops the flusher.
 func (b *BufferedRecorder) run(ctx context.Context) {
 	ticker := time.NewTicker(b.flushInterval)
 	defer ticker.Stop()

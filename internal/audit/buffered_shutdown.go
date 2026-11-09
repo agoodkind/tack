@@ -1,6 +1,6 @@
-// buffered_shutdown.go delivers the buffered recorder's remaining events when
-// Close stops the flusher. It retries the retained events until a shutdown
-// deadline and counts each event it could not deliver by then (TACK-583).
+// Close stops the flusher and attempts delivery of the remaining events.
+// Shutdown retries retained events until the deadline and counts events it
+// cannot deliver by then (TACK-583).
 
 package audit
 
@@ -52,9 +52,9 @@ func (b *BufferedRecorder) Close() error {
 	return nil
 }
 
-// drain takes everything queued at stop time and delivers it with the
-// retained events. Close locks the stop lock while it signals. Record cannot
-// add an event to the queue after Close releases that lock.
+// drain collects the events queued at stop time and delivers them with the
+// retained events. Close signals while locking stopping. Record cannot add an
+// event to the queue after Close releases that lock.
 func (b *BufferedRecorder) drain(ctx context.Context, batch []Event) {
 	for {
 		select {

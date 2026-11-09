@@ -1,6 +1,6 @@
-// buffered_recorder.go queues read-class audit events for a flusher to deliver
-// in batches (TACK-506). The recorder stores auth.token_used before returning.
-// It also records state-change events synchronously before the request returns.
+// The buffered recorder queues read-class audit events for batch delivery
+// (TACK-506). It records auth.token_used before returning and records
+// state-change events synchronously before the request returns.
 
 package audit
 
@@ -13,15 +13,16 @@ import (
 	"time"
 )
 
-// BufferedConfig sizes the buffered recorder. A zero field takes its default.
+// BufferedConfig sizes the buffered recorder. Each zero or negative field
+// uses its package default.
 type BufferedConfig struct {
 	// Capacity is how many read-class events the queue and the retained
 	// undelivered events can contain together before an arriving event
 	// overflows.
 	Capacity int
-	// BatchSize is the most events one flush delivers.
+	// BatchSize limits the number of events in each delivery chunk.
 	BatchSize int
-	// FlushInterval is the longest a queued event waits before a flush.
+	// FlushInterval sets how often the flusher checks for pending events.
 	FlushInterval time.Duration
 }
 
@@ -29,8 +30,8 @@ const (
 	defaultBufferedCapacity      = 8192
 	defaultBufferedBatchSize     = 256
 	defaultBufferedFlushInterval = 200 * time.Millisecond
-	// batchFlushTimeout bounds one flush, produce and spill together, so a
-	// stuck backend cannot hold the flusher forever.
+	// batchFlushTimeout limits each delivery chunk, including production and
+	// spill, to bound the flusher's wait for the backend.
 	batchFlushTimeout = 30 * time.Second
 )
 
@@ -164,7 +165,7 @@ func (b *BufferedRecorder) Record(ctx context.Context, event Event) error {
 	return b.overflowed(ctx, event)
 }
 
-// recordThrough hands one event to inner on the caller's own path.
+// recordThrough calls inner.Record for one event before returning.
 func (b *BufferedRecorder) recordThrough(ctx context.Context, ev Event) error {
 	if err := b.inner.Record(ctx, ev); err != nil {
 		slog.ErrorContext(ctx, "audit.buffer.record_failed",

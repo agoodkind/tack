@@ -49,10 +49,11 @@ func TestHashRowChainsPreviousHash(t *testing.T) {
 	}
 }
 
-// The shard of a fixed pair is pinned to the value the ledger already holds
-// for it: a change to the hash, the mask, or ShardCount moves rows onto new
-// chains, which is the forward-only procedure in
-// docs/runbooks/audit/shards.md, never an accident.
+// TestShardOfPinnedAndBucketed checks the stored shard of a fixed pair.
+// Changing the hash, mask, or ShardCount requires an explicit forward-only
+// change to future shard assignments under [shard-count requirements].
+//
+// [shard-count requirements]: ../../docs/runbooks/audit/shards.md
 func TestShardOfPinnedAndBucketed(t *testing.T) {
 	a := uuid.MustParse("019dd220-440e-729a-a442-281aaf73ca30")
 	e := uuid.MustParse("019dd221-440e-729a-a442-281aaf73ca30")
@@ -75,12 +76,11 @@ func TestShardOfPinnedAndBucketed(t *testing.T) {
 	}
 }
 
-// TestHashRowVersion3HashesStoredPrecision pins the TACK-445 contract: the
-// version 3 hash covers the timestamp at the microsecond precision the
-// database stores, so an event hashed with a nanosecond OccurredAt and the
-// same event re-read at stored precision produce the same digest. Version 2
-// is shown precision-sensitive on the same pair, which is exactly why its
-// rows can only be recomputed by searching the lost nanosecond remainder.
+// TestHashRowVersion3HashesStoredPrecision checks TACK-445. Version 3 hashes
+// timestamps at the database's microsecond precision. A nanosecond OccurredAt
+// and its stored-precision value must produce the same digest. Version 2
+// produces different digests for this pair; verification of those rows must
+// search the lost nanosecond remainder.
 func TestHashRowVersion3HashesStoredPrecision(t *testing.T) {
 	base := rowHashInput{
 		Event: Event{
@@ -178,11 +178,10 @@ func TestHashRowVersion2CoversOutcome(t *testing.T) {
 	}
 }
 
-// TestHashRowVersion1MatchesLegacyMapPayload proves the version 1 digest did
-// not change when the payload moved from a map to a struct. The map below is
-// the exact payload the writer built before that refactor, field for field.
-// Without this, the stored-digest test only pins the new code against itself
-// and every historical row could silently stop verifying.
+// TestHashRowVersion1MatchesLegacyMapPayload checks that replacing the version
+// 1 map payload with a struct preserves its digest. The map reproduces every
+// field from the earlier writer. This comparison checks compatibility with
+// historical rows independently of the fixed digest for the current code.
 func TestHashRowVersion1MatchesLegacyMapPayload(t *testing.T) {
 	occurred := time.Date(2026, 8, 8, 12, 0, 0, 123456789, time.UTC)
 	orgID := uuid.MustParse("019dd225-440e-729a-a442-281aaf73ca30")

@@ -13,20 +13,19 @@ import (
 
 // chainHeadState is the state of one (org, shard) hash chain before an append.
 type chainHeadState struct {
-	// LastSeq is the sequence of the newest row on the chain, zero when the
-	// chain has no rows yet.
+	// LastSeq contains the newest row's sequence. It equals zero before the
+	// chain contains any rows.
 	LastSeq int64
-	// LastHash is that row's hash, which the next row hashes on top of. It is
-	// an empty slice for the first row of a chain.
+	// LastHash contains the newest row's hash for the next row's hash input.
+	// The first row of a chain uses an empty slice.
 	LastHash []byte
-	// Exists reports whether audit.chain_heads already holds this chain, which
-	// decides whether advancing it is an update or an insert.
+	// Exists reports whether audit.chain_heads already stores this chain.
+	// The writer updates an existing head and inserts a missing head.
 	Exists bool
 }
 
-// readChainHead reads the head of one (org, shard) chain inside tx. Every
-// writer reaches the chain through this and writeChainHead, so a change to the
-// chain protocol reaches all of them together.
+// readChainHead reads one (org, shard) chain head inside tx. Writers use this
+// function and writeChainHead for the shared chain protocol.
 func readChainHead(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, shard int16) (chainHeadState, error) {
 	head := chainHeadState{LastSeq: 0, LastHash: []byte{}, Exists: true}
 	err := tx.QueryRow(ctx, `
@@ -46,10 +45,9 @@ func readChainHead(ctx context.Context, tx pgx.Tx, orgID uuid.UUID, shard int16)
 	return head, nil
 }
 
-// writeChainHead advances the chain to seq and rowHash with a compare-and-swap
-// against the head the caller read. It returns errChainConflict when another
-// writer advanced the same chain in between, which the caller retries in a
-// fresh transaction.
+// writeChainHead advances the chain to seq and rowHash only if its head still
+// matches the head the caller read. It returns errChainConflict after another
+// writer advances that chain. The caller retries in a fresh transaction.
 func writeChainHead(
 	ctx context.Context,
 	tx pgx.Tx,

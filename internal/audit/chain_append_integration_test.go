@@ -17,9 +17,9 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// chainTestPool opens a pool on the test ledger. The tests below validate the
-// cutover's concurrency and idempotency guarantees against a real
-// Postgres-compatible engine (YugabyteDB).
+// chainTestPool opens a pool on the test ledger. These tests check the
+// cutover's concurrency and idempotency guarantees against YugabyteDB, a real
+// PostgreSQL-compatible engine.
 func chainTestPool(t *testing.T) (*pgxpool.Pool, uuid.UUID) {
 	t.Helper()
 	pool, err := pgxpool.New(context.Background(), testenv.Ledger(t))
@@ -36,9 +36,9 @@ func chainTestPool(t *testing.T) (*pgxpool.Pool, uuid.UUID) {
 	return pool, orgID
 }
 
-// chainTestEvent builds a chain input the way YBRecorder.Record and the
-// consumer do: the stored context and delta are the event's own typed fields
-// marshalled to JSON, never a hand-written literal.
+// chainTestEvent builds an input for appendChainRow as YBRecorder.Record and
+// the consumer do. It marshals the event's typed context to JSON and uses
+// JSON null for the absent delta.
 func chainTestEvent(t *testing.T, orgID uuid.UUID, shard int16) chainAppendInput {
 	t.Helper()
 	ev := Event{
@@ -64,8 +64,8 @@ func chainTestEvent(t *testing.T, orgID uuid.UUID, shard int16) chainAppendInput
 	}
 }
 
-// appendWithRetry mirrors the consumer/YBRecorder retry loop: a fresh
-// transaction per attempt, retrying on a head conflict or serialization error.
+// appendWithRetry uses a fresh transaction for each attempt, as the consumer
+// and YBRecorder do. It retries head conflicts and serialization errors.
 func appendWithRetry(ctx context.Context, pool *pgxpool.Pool, in chainAppendInput) error {
 	var lastErr error
 	for attempt := 0; attempt < 64; attempt++ {
@@ -95,9 +95,10 @@ func appendWithRetry(ctx context.Context, pool *pgxpool.Pool, in chainAppendInpu
 	return lastErr
 }
 
-// TestAppendChainRowConcurrent is the core cutover criterion: many writers
-// advancing the same (org, shard) chain at once produce one unbroken sequence
-// with no forked or duplicate seq, and every prev_hash links the prior row.
+// TestAppendChainRowConcurrent checks the cutover's concurrent-write
+// criterion. Writers that advance the same (org, shard) chain must produce an
+// unbroken sequence without forks or duplicate seq values. Each prev_hash
+// must match the prior row's row_hash.
 func TestAppendChainRowConcurrent(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()
@@ -163,28 +164,26 @@ func TestAppendChainRowConcurrent(t *testing.T) {
 	}
 }
 
-// TestAppendChainRowHashRecomputableFromStoredRow is the TACK-445 acceptance:
-// an event written with a nanosecond OccurredAt must verify from what the
-// database actually stored. The event goes through the real writer and the
-// real column, then through Export and VerifyBundle exactly as the operator
-// runs them, so every hash input comes from the read-back row and none from
-// the original event. A hash that covers anything the column truncates, or an
-// export mapping that drops a hashed field, fails here.
+// TestAppendChainRowHashRecomputableFromStoredRow checks TACK-445 by writing
+// an event with a nanosecond OccurredAt to the real database column. Export
+// and VerifyBundle use the stored rows, as they do for an operator. The
+// original event does not supply verification inputs. The test rejects a
+// hash that depends on truncated data or an export that omits a hashed field.
 func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()
 	const shard int16 = 11
 	in := chainTestEvent(t, orgID, shard)
-	// A deterministic remainder, so the round trip always exercises truncation
-	// and the recomputation is reproducible run to run.
+	// The fixed remainder exercises timestamp truncation on every run and makes
+	// the recomputation reproducible.
 	in.Event.OccurredAt = in.Event.OccurredAt.Truncate(time.Microsecond).Add(789 * time.Nanosecond)
 
 	if err := appendWithRetry(ctx, pool, in); err != nil {
 		t.Fatalf("append: %v", err)
 	}
-	// A second event on the same chain carries a delta, an error, and a
-	// correlation id, so every typed payload the row decodes is exercised
-	// through the real column, not only the nil and empty shapes.
+	// The second event uses the same chain and includes a delta, an error, and a
+	// correlation ID. The database stores and decodes these typed payloads in
+	// addition to the first event's nil and empty values.
 	failed := chainTestEvent(t, orgID, shard)
 	failed.Event.Verb = string(VerbNodeUpdate)
 	failed.Event.Outcome = OutcomeError
@@ -262,13 +261,11 @@ func TestAppendChainRowHashRecomputableFromStoredRow(t *testing.T) {
 	}
 }
 
-// TestAppendChainRowRejectsRederivedEvent is the identity contract: one event
-// id is one ledger row, whatever time the producer stamps on it. The ledger's
-// own unique index carries event_time because the table is partitioned on it,
-// so it only catches a redelivery repeating the same instant. A producer that
-// re-derives an event keeps the identity and stamps a fresh time, which is
-// what the ledger reconstruction does on every run: before the identity claim
-// it wrote its whole history a second time (TACK-451).
+// TestAppendChainRowRejectsRederivedEvent checks that one event ID identifies
+// one ledger row regardless of its timestamp. The partitioned ledger's unique
+// index includes event_time and detects duplicates only at the same instant.
+// Reconstruction preserves IDs and assigns new times on each run. Before the
+// identity claim, reconstruction inserted its history twice (TACK-451).
 func TestAppendChainRowRejectsRederivedEvent(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()
@@ -300,8 +297,8 @@ func TestAppendChainRowRejectsRederivedEvent(t *testing.T) {
 	}
 }
 
-// TestAppendChainRowIdempotent confirms a redelivered event (same event_id and
-// event_time) is rejected and never advances the chain a second time.
+// TestAppendChainRowIdempotent checks that the writer rejects redelivery with
+// the same event_id and event_time without advancing the chain again.
 func TestAppendChainRowIdempotent(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()

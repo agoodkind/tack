@@ -18,7 +18,7 @@ import (
 // The caller must roll back the transaction and retry the whole batch.
 var errChainConflict = errors.New("audit chain head advanced concurrently")
 
-// chainAppendInput carries the fields appendChainRow writes for one event.
+// chainAppendInput contains the fields appendChainRow writes for one event.
 type chainAppendInput struct {
 	Event       Event
 	EventID     uuid.UUID
@@ -35,15 +35,14 @@ type chainAppendResult struct {
 	RowHash  []byte
 }
 
-// claimEventIdentity records that this event id is being projected and reports
-// whether the claim was this caller's. It runs in the append's transaction, so
-// a rolled back append releases the claim with it.
+// claimEventIdentity records the event ID for projection and reports whether
+// this call claimed it. The claim shares the append transaction, and rolling
+// back that transaction releases the claim.
 //
-// The ledger's own unique index has to carry event_time, because the table is
-// partitioned on it, so it only catches a redelivery that repeats the same
-// instant. A producer that re-derives an event keeps the identity and stamps a
-// new time, and the ledger took it as a second row: the ledger reconstruction
-// wrote its whole history twice that way (TACK-451). One identity is one row.
+// The partitioned ledger's unique index includes event_time and rejects a
+// duplicate only at the same instant. Reconstruction preserves event IDs but
+// assigns new times. Before the identity claim, reconstruction inserted its
+// history twice (TACK-451). Each event ID must produce only one ledger row.
 func claimEventIdentity(ctx context.Context, tx pgx.Tx, eventID uuid.UUID) (bool, error) {
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO audit.projected_events (event_id)
@@ -58,15 +57,14 @@ func claimEventIdentity(ctx context.Context, tx pgx.Tx, eventID uuid.UUID) (bool
 	return tag.RowsAffected() == 1, nil
 }
 
-// appendChainRow inserts one event into audit.events and advances its
-// (org, shard) head in audit.chain_heads with a compare-and-swap. The head
-// write only succeeds when last_seq still equals the value this call read, so
-// two writers on the same chain cannot both claim the same seq. The loser sees
-// zero rows affected (read-committed) or a serialization failure (repeatable
-// read), both of which the caller retries.
+// appendChainRow inserts an event into audit.events and advances its
+// (org, shard) head in audit.chain_heads. The head update compares last_seq
+// with the value this call read. Concurrent writers cannot both assign the
+// same seq. A conflicting update affects zero rows under read committed or
+// raises a serialization error under repeatable read. The caller retries both.
 //
-// It returns errAlreadyProjected when the event's identity is already in the
-// ledger, and errChainConflict when the head moved underneath it.
+// The function returns errAlreadyProjected for an existing ledger event ID
+// and errChainConflict when another writer advances the head first.
 func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainAppendResult, error) {
 	// The function validates each event before claiming its identity. The
 	// consumer stores rejected events in the dead-letter table. Only format 0
@@ -103,11 +101,10 @@ func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainA
 		return chainAppendResult{}, fmt.Errorf("chain hash: %w", err)
 	}
 
-	// An action that carried no error stores SQL NULL, not the JSON literal
-	// null. The column is nullable and a reader asking "which events failed"
-	// filters on IS NULL, which a JSON null silently defeats. The row hash is
-	// computed above from the event itself, so how the column stores an absent
-	// error does not touch the chain.
+	// An action without an error stores SQL NULL. The nullable column permits
+	// IS NULL checks for absent errors; a JSON null does not satisfy those checks.
+	// hashRowForEvent hashes the typed event before column encoding. The column's
+	// representation of an absent error does not change that hash.
 	var errorJSON []byte
 	if in.Event.Error != nil {
 		encoded, err := json.Marshal(in.Event.Error)
@@ -130,9 +127,9 @@ func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainA
 		)
 		ON CONFLICT (event_id, event_time) DO NOTHING
 	`,
-		// event_time is truncated to microseconds before binding so the stored
-		// value is byte-identical to the value the version 3 hash covered, by
-		// construction rather than by trusting the driver's rounding.
+		// The insert truncates event_time to microseconds before binding it.
+		// The stored value matches the version 3 hash input without relying on the
+		// driver's rounding.
 		in.Event.Context.OrgID, in.Shard, in.Event.OccurredAt.UTC().Truncate(time.Microsecond), in.EventID, seq,
 		in.Event.Actor.ID, actorKindCode(in.Event.Actor.Type), in.Event.Verb, in.Event.Outcome,
 		in.Event.Entity.Type, in.Event.Entity.ID,
@@ -161,9 +158,9 @@ func nullableJSON(value json.RawMessage) []byte {
 	return value
 }
 
-// isRetryableChainErr reports whether a failed chain append should be retried
-// in a fresh transaction. It covers the explicit head-conflict sentinel and the
-// Postgres serialization and deadlock codes a concurrent writer can raise.
+// isRetryableChainErr reports whether a fresh transaction should retry an
+// append. It accepts errChainConflict and the PostgreSQL serialization and
+// deadlock error codes that concurrent writers can return.
 func isRetryableChainErr(err error) bool {
 	if errors.Is(err, errChainConflict) {
 		return true

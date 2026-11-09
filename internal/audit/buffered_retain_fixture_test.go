@@ -45,8 +45,8 @@ func (o *failingOutbox) setFail(err error) {
 	o.fail = err
 }
 
-// refuseProduces makes the fake broker answer every produce with a
-// non-retriable error until the returned function runs.
+// refuseProduces makes the fake broker refuse every produce with an error
+// that does not permit retries until the returned function runs.
 func refuseProduces(cluster *kfake.Cluster) func() {
 	var mu sync.Mutex
 	active := true
@@ -137,8 +137,8 @@ func consumeEventIDs(t *testing.T, cluster *kfake.Cluster, want int) map[uuid.UU
 	return counts
 }
 
-// syncedLogs is the default logger's destination during the test. The test
-// polls it for the flusher's log lines.
+// syncedLogs receives the default logger's output during the test.
+// The test polls it for the flusher's log lines.
 type syncedLogs struct {
 	mu  sync.Mutex
 	buf bytes.Buffer

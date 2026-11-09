@@ -12,10 +12,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// gatedRecorder holds every delivery until release is called, then hands it
-// to the real recorder behind it. It is what a slow broker looks like to the
-// flusher, without holding the fake broker itself, whose held connection
-// would also hold the test's own consumer.
+// gatedRecorder blocks each delivery until release runs, then calls the real
+// inner recorder. It simulates a slow broker for the flusher without blocking
+// the fake broker connection that the test consumer also needs.
 type gatedRecorder struct {
 	inner *SpillRecorder
 	gate  chan struct{}
@@ -48,9 +47,9 @@ func newBufferedForTest(t *testing.T, cluster *kfake.Cluster, outbox *memoryOutb
 	return buffered
 }
 
-// TestBufferedRecordAnswersReadsBeforeTheBroker is criterion 12's produce
-// half: a read-class event costs the request no synchronous produce, and a
-// state change still costs exactly one.
+// TestBufferedRecordAnswersReadsBeforeTheBroker checks the produce part of
+// criterion 12. A read-class event does not synchronously produce a record
+// on the request path. A state-change event produces exactly one.
 func TestBufferedRecordAnswersReadsBeforeTheBroker(t *testing.T) {
 	cluster := newFakeCluster(t)
 	outbox := &memoryOutbox{}
@@ -80,8 +79,8 @@ func TestBufferedRecordAnswersReadsBeforeTheBroker(t *testing.T) {
 	}
 }
 
-// TestBufferedFlushSpillsWhatTheBrokerRefuses pins that a refused batch is
-// not a lost batch: every event lands in the outbox for the relay.
+// TestBufferedFlushSpillsWhatTheBrokerRefuses checks that the outbox stores
+// every event in a broker-refused batch for the relay.
 func TestBufferedFlushSpillsWhatTheBrokerRefuses(t *testing.T) {
 	cluster := newFakeCluster(t)
 	stop := refuseProduce(cluster)
@@ -100,8 +99,8 @@ func TestBufferedFlushSpillsWhatTheBrokerRefuses(t *testing.T) {
 	})
 }
 
-// TestBufferedCloseDrainsTheQueue pins the shutdown contract: what was queued
-// when Close ran is on the broker when Close returns.
+// TestBufferedCloseDrainsTheQueue checks that the broker stores every queued
+// event before Close returns successfully in this test.
 func TestBufferedCloseDrainsTheQueue(t *testing.T) {
 	cluster := newFakeCluster(t)
 	outbox := &memoryOutbox{}
@@ -122,9 +121,9 @@ func TestBufferedCloseDrainsTheQueue(t *testing.T) {
 	}
 }
 
-// TestBufferedOverflowGoesToTheOutbox pins that a full queue behind a stalled
-// broker never blocks the request and never drops the event: the event goes
-// to the outbox at once.
+// TestBufferedOverflowGoesToTheOutbox checks overflow behind a stalled broker.
+// The overflowing Record must return within one second and append the event
+// to the outbox without waiting for broker recovery.
 func TestBufferedOverflowGoesToTheOutbox(t *testing.T) {
 	cluster := newFakeCluster(t)
 	outbox := &memoryOutbox{}
@@ -132,8 +131,8 @@ func TestBufferedOverflowGoesToTheOutbox(t *testing.T) {
 	buffered := NewBufferedRecorder(context.Background(), gated, outbox, BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: time.Hour})
 	t.Cleanup(func() { gated.release(); _ = buffered.Close() })
 
-	// The flusher takes the first event and waits on the held delivery; the
-	// second fills the queue; the third has nowhere to go but the outbox.
+	// The flusher takes the first event and blocks in delivery. The second event
+	// fills the queue. The third event must append to the outbox.
 	first := makeEvent("held-first")
 	if err := buffered.Record(context.Background(), first); err != nil {
 		t.Fatalf("record first: %v", err)
@@ -164,7 +163,7 @@ func TestBufferedOverflowGoesToTheOutbox(t *testing.T) {
 		t.Fatalf("outbox holds event %s, want the overflowed %s", stored.EventID, overflow.EventID)
 	}
 
-	// Once delivery is released, the two held events reach the broker.
+	// The broker accepts the two pending events after release runs.
 	gated.release()
 	if records := consumeRecords(t, cluster.ListenAddrs(), testKafkaTopic, 2); len(records) != 2 {
 		t.Fatalf("broker holds %d records after release, want 2", len(records))

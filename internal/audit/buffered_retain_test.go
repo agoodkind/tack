@@ -11,10 +11,10 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// TestBufferedRetainsUndeliveredEventsUntilRecovery is TACK-583. The test
-// retains a read-class event when the broker refuses production and the
-// outbox append fails. It requires the flusher to retain the event, count it
-// against queue capacity, and deliver it exactly once after broker recovery.
+// TestBufferedRetainsUndeliveredEventsUntilRecovery checks TACK-583.
+// The broker refuses production, and the outbox append fails. The flusher must
+// retain the read-class event, count it against queue capacity, and deliver it
+// exactly once after broker recovery.
 func TestBufferedRetainsUndeliveredEventsUntilRecovery(t *testing.T) {
 	logs := captureSyncedLogs(t)
 	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(1, retainTopic))
@@ -62,13 +62,13 @@ func TestBufferedRetainsUndeliveredEventsUntilRecovery(t *testing.T) {
 	}
 }
 
-// TestBufferedRetainLogStatesTheRecordError is TACK-583: when the inner
-// recorder records one event at a time, the retained-event log states the
-// error that the inner recorder returned for each event and that event's ID.
+// TestBufferedRetainLogStatesTheRecordError checks TACK-583 for an inner
+// recorder that records one event at a time. The retained-event log must state
+// each event's ID and the error the inner recorder returned for that event.
 func TestBufferedRetainLogStatesTheRecordError(t *testing.T) {
 	logs := captureSyncedLogs(t)
-	// The test does not call Close: the unwired recorder refuses every
-	// retry, and Close would retry for the whole close deadline.
+	// The test does not call Close. UnwiredRecorder refuses every retry, and
+	// Close would retry until its deadline.
 	buffered := audit.NewBufferedRecorder(context.Background(), audit.UnwiredRecorder{}, nil,
 		audit.BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: 20 * time.Millisecond})
 

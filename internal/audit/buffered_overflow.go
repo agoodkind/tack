@@ -1,5 +1,5 @@
-// buffered_overflow.go appends a read-class event that finds the buffered
-// recorder's queue full to the durable outbox (TACK-506).
+// The buffered recorder appends read-class events to the durable outbox when
+// the queue fills (TACK-506).
 
 package audit
 
@@ -21,14 +21,13 @@ type outboxAppendFailure struct {
 }
 
 var (
-	// overflowFailure is the report of an append for an event that found
-	// the queue full.
+	// overflowFailure supplies reporting fields for an append after the queue
+	// fills.
 	overflowFailure = outboxAppendFailure{
 		logEvent: "audit.buffer.overflow_failed", marshalStage: "overflow_marshal",
 		appendStage: "overflow", appendError: "audit overflow to outbox",
 	}
-	// durableFailure is the report of an append for an event that needs
-	// durable admission.
+	// durableFailure supplies reporting fields for durable admission appends.
 	durableFailure = outboxAppendFailure{
 		logEvent: "audit.durable_admission.failed", marshalStage: "durable_admission_marshal",
 		appendStage: "durable_admission", appendError: "audit durable admission to outbox",

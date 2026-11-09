@@ -11,9 +11,11 @@ import (
 )
 
 const (
-	// TargetNodeTypeDefinition is the Target.NodeType value for a node type definition record.
+	// TargetNodeTypeDefinition specifies Target.NodeType for a node type
+	// definition record.
 	TargetNodeTypeDefinition = "node_type"
-	// TargetNodeTypePropertyDefinition is the Target.NodeType value for a property definition record.
+	// TargetNodeTypePropertyDefinition specifies Target.NodeType for a property
+	// definition record.
 	TargetNodeTypePropertyDefinition = "property_def"
 	// TargetSequenceCounter is the Target.NodeType value of a resource target
 	// for one FoundationDB sequence counter.
@@ -31,9 +33,16 @@ const (
 
 const searchSessionURIPrefix = "tack:search-session/"
 
-// SearchSessionTarget returns the resource target of one search session record.
-// Target.ID contains sessionID. ownerID identifies the person who owns the protected
-// values of the session. [uuid.Nil] does not set an owner.
+// SearchSessionTarget returns the resource target for one search session.
+//
+// Target.ID contains sessionID. ownerID identifies the person who owns the
+// session's protected values. [uuid.Nil] does not set an owner.
+//
+// The target identifies the session as follows:
+//
+//   - Kind uses TargetKindResource.
+//   - NodeType uses TargetSearchSession.
+//   - URI combines the search session prefix with sessionID.
 func SearchSessionTarget(sessionID, ownerID uuid.UUID) Target {
 	return Target{
 		Kind: TargetKindResource, NodeType: TargetSearchSession, Reference: "", Name: "",
@@ -42,12 +51,18 @@ func SearchSessionTarget(sessionID, ownerID uuid.UUID) Target {
 	}
 }
 
-// ChangeEvent builds one format 2 change event for change as part of operation.
+// ChangeEvent builds one format 2 change event for change within operation.
 // It copies the actor, context, and extra fields from operation.
-// It uses the event ID and target from change and sets Outcome to OutcomeCompleted.
-// Delta records the complete old and new values.
 //
-// ChangeEvent returns an error if change or the resulting event fails validation.
+// ChangeEvent uses the event ID and target from change and sets Outcome to
+// OutcomeCompleted. Delta records the complete old and new values. The
+// function returns an error if change or the resulting event fails validation.
+//
+// The resulting context records the change phase:
+//
+//   - OperationClass uses OperationDatabaseChange.
+//   - Phase uses PhaseChange.
+//   - CompletedAt uses completedAt in UTC.
 func ChangeEvent(operation Event, change Change, completedAt time.Time) (Event, error) {
 	if err := ValidateChange(change); err != nil {
 		return Event{}, changeEventFailure(change, err)
@@ -75,11 +90,18 @@ func ChangeEvent(operation Event, change Change, completedAt time.Time) (Event, 
 	return event, nil
 }
 
-// ChangeFailureEvent builds one format 2 database change result event for an
-// operation on target that did not commit its change. The event uses the
-// system organization when operation does not state an organization.
+// ChangeFailureEvent builds a format 2 database change result event for an
+// operation on target that did not commit its change.
 //
-// ChangeFailureEvent returns an error if the event fails validation.
+// The event uses the system organization when operation does not specify an
+// organization. The function returns an error if the event fails validation.
+//
+// The result records the supplied outcome details:
+//
+//   - CommittedSteps records details.CommittedSteps.
+//   - Outcome records details.Outcome.
+//   - An outcome other than OutcomeCompleted records FailureCode and
+//     FailureMessage in Error.
 func ChangeFailureEvent(operation Event, target Target, verb Verb, details OutcomeDetails) (Event, error) {
 	completedAt := clock.Now().UTC()
 	if completedAt.Before(operation.Context.StartedAt) {
@@ -116,7 +138,7 @@ func changeVerb(change Change) Verb {
 		return pickVerb(created, deleted, VerbRelationshipAdd, VerbRelationshipUpdate, VerbRelationshipRemove)
 	}
 	if change.Target.Kind == TargetKindResource && change.Target.NodeType == TargetSequenceCounter {
-		// The store never deletes a sequence counter.
+		// The store does not delete sequence counters.
 		return pickVerb(created, deleted, VerbSequenceCreate, VerbSequenceUpdate, VerbSequenceUpdate)
 	}
 	switch change.Target.NodeType {
