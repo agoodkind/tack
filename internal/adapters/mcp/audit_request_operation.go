@@ -13,17 +13,19 @@ import (
 
 const (
 	mcpRoute = "/mcp"
-	// maxOperationNameBytes limits the byte length of tool and prompt names in read events.
+	// maxOperationNameBytes limits the byte length of tool and prompt names in
+	// read events.
 	maxOperationNameBytes = 128
 	// mcpMethodToolsCall is the JSON-RPC method that calls a tool.
 	mcpMethodToolsCall = "tools/call"
-	// workspaceListTool is the tool that lists the workspaces of every member organization.
+	// workspaceListTool is the tool that lists the workspaces of every member
+	// organization.
 	workspaceListTool = "tack_list_workspaces"
 )
 
-// mcpMethod specifies the audit verb and organization source for one MCP method.
-// metadata marks a method with a response that the server builds from the node
-// types and property definitions of every member organization.
+// mcpMethod specifies the audit verb and organization source for one MCP
+// method. metadata marks a method with a response that the server builds
+// from the node types and property definitions of every member organization.
 type mcpMethod struct {
 	verb          audit.Verb
 	organizations orgSource
@@ -44,8 +46,12 @@ var mcpMethods = map[string]mcpMethod{
 	"resources/read":            {verb: audit.VerbMCPResourceRead, organizations: orgCaller, metadata: true},
 }
 
-// RecordedMethods returns the MCP JSON-RPC methods that the request recorder
-// records, sorted by name.
+// RecordedMethods returns recorded MCP JSON-RPC methods in name order.
+//
+// The result includes methods from mcpMethods and the tools/call method.
+//
+//   - ping uses the protocol read operation.
+//   - tools/call uses the operation of the requested tool.
 func RecordedMethods() []string {
 	methods := make([]string, 0, len(mcpMethods)+1)
 	for method := range mcpMethods {
@@ -56,11 +62,11 @@ func RecordedMethods() []string {
 	return methods
 }
 
-// requestOperation identifies the operation of one HTTP request.
-// Its route, method, and tool fields contain a route pattern, a known method name,
-// and a checked tool or prompt name. The recorder reads arguments only to derive
-// the organization and does not store them. selection contains the normalized
-// arguments of a read tool call or prompt.
+// requestOperation identifies one HTTP request. Its route, method, and tool
+// fields contain a route pattern, a known method, and a checked tool or
+// prompt name. The recorder uses raw arguments to derive the organization.
+// Read tools and prompts also normalize arguments into selection, which the
+// recorder stores in read event templates.
 type requestOperation struct {
 	verb          audit.Verb
 	route         string
@@ -81,9 +87,11 @@ func routeOperation(verb audit.Verb, route string) requestOperation {
 	}
 }
 
-// mcpOperation reads the JSON-RPC method and tool or prompt name, then restores the request body.
-// It returns an operation with audit.VerbMCPRequestRejected if the body does not decode
-// as one JSON-RPC request. If reading the body fails, it supplies an empty body to the MCP server.
+// mcpOperation reads the JSON-RPC method and tool or prompt name, then
+// restores the request body. It returns an operation with
+// audit.VerbMCPRequestRejected if the body does not decode as one JSON-RPC
+// request. If reading the body fails, it supplies an empty body to the MCP
+// server.
 func mcpOperation(request *http.Request) requestOperation {
 	operation := routeOperation(audit.VerbMCPRequestRejected, mcpRoute)
 	operation.source = audit.SourceMCP
@@ -123,9 +131,10 @@ func mcpOperation(request *http.Request) requestOperation {
 	return operation
 }
 
-// toolOperation returns the operation for a tool call and marks tools that change state as mutations.
-// The workspace list tool uses every member organization. Other read tools use the
-// organization of the workspace or node that their arguments identify.
+// toolOperation returns the operation for a tool call and marks tools that
+// change state as mutations. The workspace list tool uses every member
+// organization. Other read tools use the organization of the workspace or
+// node that their arguments identify.
 func toolOperation(operation requestOperation, tool string, arguments json.RawMessage) requestOperation {
 	operation.method, operation.tool = mcpMethodToolsCall, tool
 	verb, covered := audit.ToolVerb(tool)
@@ -145,7 +154,8 @@ func toolOperation(operation requestOperation, tool string, arguments json.RawMe
 }
 
 // checkedName returns name when it contains only lowercase letters, digits,
-// and underscores within maxOperationNameBytes. It returns an empty string otherwise.
+// and underscores within maxOperationNameBytes. It returns an empty string
+// otherwise.
 func checkedName(name string) string {
 	if name == "" || len(name) > maxOperationNameBytes {
 		return ""

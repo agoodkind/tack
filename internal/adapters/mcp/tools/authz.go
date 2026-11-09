@@ -11,10 +11,9 @@ import (
 	"goodkind.io/tack/internal/domain"
 )
 
-// authorization is the per-call record that a membership check passed. The
-// tool wrapper installs one before the handler runs and refuses any successful
-// result whose handler never set it, so a handler that skips every membership
-// check cannot return data.
+// authorization records a successful membership check for one call. The tool
+// wrapper creates the record before running the handler and refuses a
+// successful result when the handler did not mark authorization.
 type authorization struct {
 	granted bool
 }
@@ -25,8 +24,8 @@ func withAuthorization(ctx context.Context) context.Context {
 	return context.WithValue(ctx, authorizationKey{}, &authorization{granted: false})
 }
 
-// markAuthorized records that the caller's membership in the org behind the
-// data this call returns has been checked.
+// markAuthorized records a successful membership check for the organization
+// of the data that the call returns.
 func markAuthorized(ctx context.Context) {
 	state, ok := ctx.Value(authorizationKey{}).(*authorization)
 	if ok {
@@ -39,9 +38,9 @@ func isAuthorized(ctx context.Context) bool {
 	return ok && state.granted
 }
 
-// callerOrgIDs returns the orgs the caller belongs to: the membership set the
-// request attached, or a fresh lookup when a caller outside the HTTP handler
-// attached none.
+// callerOrgIDs returns the membership set from the request context. It
+// queries the membership repository when the context does not contain that
+// set.
 func (r *Resolver) callerOrgIDs(ctx context.Context) ([]uuid.UUID, error) {
 	if orgIDs, ok := auth.OrgMembership(ctx); ok {
 		return orgIDs, nil
@@ -59,9 +58,9 @@ func (r *Resolver) callerOrgIDs(ctx context.Context) ([]uuid.UUID, error) {
 	return orgIDs, nil
 }
 
-// requireMembership refuses with not-found unless the caller belongs to orgID,
-// and marks the call authorized when the caller does. Not-found rather than
-// permission denied, so a caller cannot tell a foreign node from a missing one.
+// requireMembership returns not-found unless the caller belongs to orgID. A
+// successful check marks the call authorized. The public error does not
+// distinguish a foreign node from an absent node.
 func (r *Resolver) requireMembership(ctx context.Context, orgID uuid.UUID, kind, input string) error {
 	orgIDs, err := r.callerOrgIDs(ctx)
 	if err != nil {

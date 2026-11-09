@@ -22,9 +22,9 @@ const (
 	jsonRPCInternalError  = -32603
 )
 
-// responseCapture buffers the status, headers, and body that a handler writes.
-// RequestRecorder saves the final read events before writing the buffered response.
-// responseCapture does not implement [http.Flusher].
+// responseCapture buffers the status, headers, and body that a handler
+// writes. RequestRecorder saves the final read events before writing the
+// buffered response. responseCapture does not implement [http.Flusher].
 type responseCapture struct {
 	audit.ReadValueMarker
 
@@ -51,9 +51,10 @@ func (capture *responseCapture) Write(payload []byte) (int, error) {
 
 func (capture *responseCapture) WriteHeader(status int) { capture.status = status }
 
-// readResult returns the buffered response and the targets that the handler collected.
-// It first uses the outcome that a tool recorded in ctx. If that outcome is empty, it checks the
-// response body for a JSON-RPC error, then checks the HTTP status if the outcome is still empty.
+// readResult returns the buffered response and the targets that the handler
+// collected. It first uses the outcome that a tool recorded in ctx. If that
+// outcome is empty, it checks the response body for a JSON-RPC error, then
+// checks the HTTP status if the outcome remains empty.
 func (capture *responseCapture) readResult(ctx context.Context) audit.ReadResult[*responseCapture] {
 	collected := audit.ReadCollected(ctx)
 	outcome := collected.Outcome
@@ -92,7 +93,8 @@ func (capture *responseCapture) release(writer http.ResponseWriter, payload []by
 	_, _ = writer.Write(payload)
 }
 
-// statusOutcome returns an audit outcome for HTTP error statuses and an empty outcome for other statuses.
+// statusOutcome returns an audit outcome for HTTP error statuses and an
+// empty outcome for other statuses.
 func statusOutcome(status int) audit.OutcomeDetails {
 	switch {
 	case status < http.StatusBadRequest:
@@ -116,8 +118,8 @@ func statusOutcome(status int) audit.OutcomeDetails {
 	}
 }
 
-// jsonRPCOutcome returns an audit outcome when a JSON response body contains a JSON-RPC error.
-// It returns an empty outcome otherwise.
+// jsonRPCOutcome returns an audit outcome when a JSON response body contains
+// a JSON-RPC error. It returns an empty outcome otherwise.
 func jsonRPCOutcome(contentType string, body []byte) audit.OutcomeDetails {
 	if !strings.HasPrefix(contentType, "application/json") {
 		return audit.NoOutcome()

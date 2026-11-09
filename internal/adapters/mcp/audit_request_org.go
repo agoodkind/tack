@@ -14,36 +14,41 @@ import (
 	"goodkind.io/tack/internal/domain"
 )
 
-// orgSource selects how the recorder derives the organizations of an authenticated read.
+// orgSource selects how the recorder derives the organizations of an
+// authenticated read.
 type orgSource int
 
 const (
 	// orgSystem marks an operation that does not read tenant data.
 	orgSystem orgSource = iota
-	// orgCaller marks an operation with a response that includes data from every member organization.
+	// orgCaller marks an operation with a response that includes data from
+	// every member organization.
 	orgCaller
-	// orgArguments marks an operation with arguments that identify one workspace or node.
+	// orgArguments marks an operation with arguments that identify one
+	// workspace or node.
 	orgArguments
 )
 
 const (
 	// nodeIDArgument is the tool argument that identifies a node.
 	nodeIDArgument = "node_id"
-	// nodeTypeTargetType and propertyDefTargetType are the node types of metadata targets.
+	// nodeTypeTargetType and propertyDefTargetType are the node types of
+	// metadata targets.
 	nodeTypeTargetType    = "node_type"
 	propertyDefTargetType = "property_def"
 )
 
 type metadataTargetsKey struct{}
 
-// withMetadataTargets marks ctx. The MCP handler then adds the node types and
-// property definitions of the tool server that answers the request.
+// withMetadataTargets marks ctx. The MCP handler then adds the node types
+// and property definitions of the tool server that answers the request.
 func withMetadataTargets(ctx context.Context) context.Context {
 	return context.WithValue(ctx, metadataTargetsKey{}, true)
 }
 
-// addMetadataTargets adds every node type and property definition of server to
-// the read identities when the request recorder marked ctx with withMetadataTargets.
+// addMetadataTargets adds every node type and property definition of server
+// to the read identities when the request recorder marked ctx with
+// withMetadataTargets.
 func addMetadataTargets(ctx context.Context, server *cachedServer) {
 	if marked, _ := ctx.Value(metadataTargetsKey{}).(bool); !marked {
 		return
@@ -64,12 +69,13 @@ func metadataTarget(nodeType string, id uuid.UUID) audit.Target {
 	}
 }
 
-// requestOrganizations returns the organizations of an authenticated read before the read runs.
-// An operation that does not read tenant data uses the system organization.
-// An operation with data from every member organization uses each member organization.
-// A tool call uses the organization of the workspace or node that its arguments identify.
-// It uses the system organization if the arguments do not identify a workspace or node
-// that the caller can read.
+// requestOrganizations derives the organizations of an authenticated read.
+// It can read memberships, metadata, and target records before the recorder
+// admits the read. Operations without tenant data use the system
+// organization. Operations with data from every member organization use each
+// member organization. A tool call uses the organization of the workspace or
+// node that its arguments identify. Unresolved or inaccessible arguments use
+// the system organization.
 func (h *Handler) requestOrganizations(ctx context.Context, operation requestOperation) ([]uuid.UUID, error) {
 	if operation.organizations == orgSystem {
 		return []uuid.UUID{audit.SystemOrgID()}, nil
@@ -101,9 +107,10 @@ func (h *Handler) requestOrganizations(ctx context.Context, operation requestOpe
 	return []uuid.UUID{orgID}, nil
 }
 
-// argumentOrganization returns the organization of the workspace or node that arguments identify.
-// It returns the system organization when arguments do not identify either, or the resolver
-// cannot find the workspace or node among the caller's organizations.
+// argumentOrganization returns the organization of the workspace or node
+// that arguments identify. It returns the system organization when arguments
+// do not identify either, or the resolver cannot find the workspace or node
+// among the caller's organizations.
 func (h *Handler) argumentOrganization(ctx context.Context, server *cachedServer, arguments json.RawMessage) (uuid.UUID, error) {
 	values := map[string]json.RawMessage{}
 	if len(arguments) != 0 {
@@ -138,14 +145,15 @@ func (h *Handler) argumentOrganization(ctx context.Context, server *cachedServer
 	return view.OrgID, nil
 }
 
-// targetMissing reports whether err means that the caller cannot read the named
-// workspace or node, as distinct from a failed read.
+// targetMissing reports whether err means that the caller cannot read the
+// named workspace or node, as distinct from a failed read.
 func targetMissing(err error) bool {
 	return errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrInvalidArgument)
 }
 
-// unresolvedOrganization returns the system organization when the caller cannot
-// read target. It returns a wrapped error when the read of target failed.
+// unresolvedOrganization returns the system organization when the caller
+// cannot read target. It returns a wrapped error when the read of target
+// failed.
 func unresolvedOrganization(ctx context.Context, target string, cause error) (uuid.UUID, error) {
 	if targetMissing(cause) {
 		return audit.SystemOrgID(), nil
@@ -153,7 +161,8 @@ func unresolvedOrganization(ctx context.Context, target string, cause error) (uu
 	return uuid.Nil, organizationReadFailure(ctx, target, cause)
 }
 
-// organizationReadFailure logs and wraps a failed read of the organization of target.
+// organizationReadFailure logs and wraps a failed read of the organization
+// of target.
 func organizationReadFailure(ctx context.Context, target string, err error) error {
 	slog.ErrorContext(ctx, "mcp.audit_request.organization_read_failed", slog.String("err", err.Error()))
 	return fmt.Errorf("read the organization of %s: %w", target, err)

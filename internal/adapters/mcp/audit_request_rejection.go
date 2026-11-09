@@ -8,11 +8,14 @@ import (
 )
 
 const (
-	// mcpMethodNotAllowedBody is the response body for a GET request to the MCP endpoint.
+	// mcpMethodNotAllowedBody is the response body for a GET request to the MCP
+	// endpoint.
 	mcpMethodNotAllowedBody = "method not allowed: this endpoint requires POST\n"
-	// healthMethodNotAllowedBody is the response body when a health check request does not use GET or HEAD.
+	// healthMethodNotAllowedBody is the response body when a health check
+	// request does not use GET or HEAD.
 	healthMethodNotAllowedBody = "method not allowed: the health check accepts GET and HEAD\n"
-	// organizationUnavailableBody is the response body when the server cannot read the organization of a request.
+	// organizationUnavailableBody is the response body when the server cannot
+	// read the organization of a request.
 	organizationUnavailableBody = `{"error":"organization unavailable"}`
 )
 
@@ -23,8 +26,8 @@ func methodNotAllowed(writer http.ResponseWriter, allow, body string) {
 	_, _ = writer.Write([]byte(body))
 }
 
-// organizationUnavailable returns the 503 response for a request when the server
-// cannot read the organization of the request.
+// organizationUnavailable returns the 503 response for a request when the
+// server cannot read the organization of the request.
 func organizationUnavailable() *responseCapture {
 	capture := newResponseCapture()
 	capture.Header().Set("Content-Type", "application/json")

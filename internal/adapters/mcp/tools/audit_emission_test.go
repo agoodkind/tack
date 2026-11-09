@@ -16,9 +16,9 @@ import (
 // gettingStartedURI is the resource URI that tools.RegisterResources serves.
 const gettingStartedURI = "tack://getting-started"
 
-// readGettingStarted registers the resources for resolver on a new MCP server
-// and reads the getting-started resource through the JSON-RPC surface with
-// ctx. It fails the test unless the read returns one resource.
+// readGettingStarted registers the resources for resolver on a new MCP
+// server and reads the getting-started resource through the JSON-RPC surface
+// with ctx. It fails the test unless the read returns one resource.
 func readGettingStarted(t *testing.T, ctx context.Context, resolver *tools.Resolver) {
 	t.Helper()
 	server := mcpserver.NewMCPServer("tack", "0.2.0")
@@ -65,10 +65,14 @@ func resourceReadEvent(t *testing.T, recorder *audit.MemoryRecorder) audit.Event
 	return found[0]
 }
 
-// TestResourceReadRecordsTheRead pins that reading the getting-started
-// resource records an mcp.resource_read event with the recorder on the
-// request context. The handler used to take a context and ignore it, and no
-// code emitted mcp.resource_read (TACK-340).
+// TestResourceReadRecordsTheRead checks that reading the getting-started
+// resource records an mcp.resource_read event with the recorder from the
+// request context. The test invokes the registered resource handler and
+// checks the actor and resource identity.
+//
+// Before TACK-340, the resource handler ignored its context and did not emit
+// mcp.resource_read. This regression preserves the requirement to record
+// that resource read.
 func TestResourceReadRecordsTheRead(t *testing.T) {
 	recorder := audit.NewMemoryRecorder()
 	actorID := uuid.New()
@@ -83,10 +87,13 @@ func TestResourceReadRecordsTheRead(t *testing.T) {
 	}
 }
 
-// TestResourceReadCarriesTheReadersSoleOrg is TACK-477. A resource read does
-// not resolve a workspace, and the event used to carry the nil org. A reader
-// with exactly one org gets that org, and a reader with zero or two orgs gets
-// the nil org.
+// TestResourceReadCarriesTheReadersSoleOrg checks organization selection for
+// a resource read that does not resolve a workspace. One membership records
+// that organization. Zero or two memberships record the nil organization.
+//
+// Before TACK-477, resource reads did not resolve a workspace or assign the
+// reader's sole organization to the event. Those events used the nil
+// organization even when the reader belonged to exactly one organization.
 func TestResourceReadCarriesTheReadersSoleOrg(t *testing.T) {
 	orgID := uuid.New()
 	cases := map[string]struct {
@@ -100,9 +107,9 @@ func TestResourceReadCarriesTheReadersSoleOrg(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			recorder := audit.NewMemoryRecorder()
-			// The request attaches its membership as the auth middleware does.
-			// The resolver reads the membership from the context and does not
-			// query the membership repository.
+			// The request attaches its membership as the auth middleware does. The
+			// resolver reads the membership from the context and does not query the
+			// membership repository.
 			ctx := auth.WithOrgMembership(auth.WithUser(t.Context(), uuid.New()), tc.orgs)
 			ctx = tools.WithAuditRecorder(ctx, recorder)
 

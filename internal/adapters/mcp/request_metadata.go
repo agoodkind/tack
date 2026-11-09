@@ -11,8 +11,8 @@ import (
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 )
 
-// readMCPRequestMetadata reads the JSON-RPC id and the session id off the
-// request and rewinds the body so the MCP server can read it again.
+// readMCPRequestMetadata reads the JSON-RPC request ID and session ID from
+// the request. It restores the body for the MCP server to read again.
 func readMCPRequestMetadata(r *http.Request) (tools.MCPRequestMetadata, error) {
 	metadata := tools.MCPRequestMetadata{RequestID: "", SessionID: r.Header.Get("Mcp-Session-Id")}
 	if r.Body == nil {

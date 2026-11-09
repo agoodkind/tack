@@ -9,19 +9,22 @@ import (
 )
 
 const (
-	// maxRequestPathBytes limits the byte length of request paths in read events.
+	// maxRequestPathBytes limits the byte length of request paths in read
+	// events.
 	maxRequestPathBytes = 256
 	// maxHTTPMethodBytes limits the byte length of HTTP methods in read events.
 	maxHTTPMethodBytes = 16
-	// requestPathPunctuation lists the characters other than letters and
-	// digits that a recorded request path can contain.
+	// requestPathPunctuation lists the characters other than letters and digits
+	// that a recorded request path can contain.
 	requestPathPunctuation = "/-_.~"
 )
 
-// readSelection returns the normalized arguments of a read. The node_id
-// string becomes Reference. Every other argument with a checked name becomes
-// a compact JSON value in Criteria. It returns nil when arguments do not
-// decode as a JSON object or do not contain a checked argument.
+// readSelection returns the normalized arguments of a read. A node_id string
+// becomes Reference after trimming surrounding space. A null node_id leaves
+// Reference empty and does not enter Criteria. Other node_id values become
+// compact JSON in Criteria, as do other arguments with checked names. The
+// function returns nil when arguments do not decode as a JSON object or
+// neither Reference nor Criteria contains a value.
 func readSelection(arguments json.RawMessage) *audit.ReadSelection {
 	values := map[string]json.RawMessage{}
 	if len(arguments) == 0 || json.Unmarshal(arguments, &values) != nil {

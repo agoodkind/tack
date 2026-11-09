@@ -15,10 +15,11 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// collectMetadata reads the node types and property definitions of every
-// org the user belongs to, deduplicated by slug and name, for the per-user
-// server build. Any failed read returns an error. The handler then answers
-// with an explicit error and publishes no server from partial metadata.
+// collectMetadata reads the node types and property definitions for every
+// member organization. It deduplicates node types by slug and property
+// definitions by name for the per-user server. Any failed read returns an
+// error. The handler answers with an explicit error and does not publish a
+// server with partial metadata.
 func (h *Handler) collectMetadata(ctx context.Context, orgIDs []uuid.UUID) ([]*node.NodeType, []*node.PropertyDef, error) {
 	var nodeTypes []*node.NodeType
 	seen := make(map[string]struct{})
@@ -56,8 +57,8 @@ func metadataReadFailure(ctx context.Context, operation string, err error) error
 	return wrapped
 }
 
-// metadataUnavailable answers a request with an explicit error instead of a
-// tool server built from empty metadata. err was already logged.
+// metadataUnavailable answers the request with an explicit error when
+// metadata collection fails. metadataReadFailure has already logged err.
 func metadataUnavailable(w http.ResponseWriter, span trace.Span, err error) {
 	span.RecordError(err)
 	span.SetStatus(codes.Error, "metadata_unavailable")

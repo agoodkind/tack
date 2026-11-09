@@ -11,8 +11,9 @@ import (
 	"goodkind.io/tack/internal/auth"
 )
 
-// rpcError sends one JSON-RPC request to server and returns the message of
-// its protocol error, or an empty string when the response has none.
+// rpcError sends one JSON-RPC request to server and returns its protocol
+// error message. It returns an empty string when the response does not
+// contain a protocol error.
 func rpcError(t *testing.T, server *mcpserver.MCPServer, method string, params map[string]any) string {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
@@ -38,11 +39,13 @@ func rpcError(t *testing.T, server *mcpserver.MCPServer, method string, params m
 	return response.Error.Message
 }
 
-// TestRequestsWithoutAuditRecorderFail is TACK-583: a state-changing tool
-// call and a resource read on a context without an audit recorder fail with
-// a protocol error that states the recorder is missing. The tool handler
-// does not run, because the relationship store here is nil and a call to it
-// would panic.
+// TestRequestsWithoutAuditRecorderFail checks that a state-changing tool
+// call and a resource read fail when the context does not contain an audit
+// recorder. Each protocol error identifies the missing recorder. The tool
+// handler does not run; calling its nil relationship store would panic.
+//
+// TACK-583 added this regression with the requirement to refuse these
+// operations when the request context does not contain an audit recorder.
 func TestRequestsWithoutAuditRecorderFail(t *testing.T) {
 	server := mcpserver.NewMCPServer("tack", "0.2.0")
 	resolver := tools.NewResolver(nil, nil, nil, nil)

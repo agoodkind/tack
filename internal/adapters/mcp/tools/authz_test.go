@@ -15,8 +15,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// authzFixture is one caller in org A facing a workspace and project of org A
-// and a foreign project of org B.
+// authzFixture gives one caller membership in organization A, a workspace
+// and project in organization A, and a foreign project in organization B.
 type authzFixture struct {
 	orgA, orgB         uuid.UUID
 	workspaceID        uuid.UUID
@@ -26,7 +26,7 @@ type authzFixture struct {
 	server             *mcpserver.MCPServer
 	relationships      *fakeRelationships
 	projectType        *node.NodeType
-	// recorder is the audit sink that ctx attaches to every tool call.
+	// recorder records the audit events for every tool call through ctx.
 	recorder audit.Recorder
 }
 
@@ -72,9 +72,9 @@ func newAuthzFixture(t *testing.T) *authzFixture {
 	repo := &fakeNodeRepo{scopeChildren: map[string][]*node.Node{
 		"workspace:slug:\"main\"": {{ID: f.workspaceID, OrgID: f.orgA, NodeType: "workspace", Props: map[string]json.RawMessage{"slug": mustRaw(t, "main")}}},
 	}}
-	// The fake relationships store a cross-org edge that a dual-org member
-	// could have created. A tool response may include the foreign node's UUID
-	// but must not reveal its name or properties.
+	// The fake relationship connects nodes in different organizations, as a
+	// member of both organizations could create. A tool response may include
+	// the foreign node's UUID but must not reveal its name or properties.
 	f.relationships.edges = []*node.Relationship{{
 		OrgID: f.orgA, SourceID: f.projectA, RelationType: "watches", TargetID: f.projectB,
 		CreatedBy: uuid.New(), CreatedAt: time.Time{},
@@ -95,8 +95,8 @@ func (f *authzFixture) ctx() context.Context {
 	return WithAuditRecorder(auth.WithUser(context.Background(), uuid.New()), f.recorder)
 }
 
-// callTool drives the registered tool through the real JSON-RPC surface, so
-// the strict-args and fail-closed wrappers run exactly as they do in the app.
+// callTool invokes a registered tool through JSON-RPC. The registered
+// wrappers check argument keys and refuse unchecked successful results.
 func (f *authzFixture) callTool(t *testing.T, name string, args map[string]string) (bool, string) {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{
@@ -135,10 +135,13 @@ func (f *authzFixture) callTool(t *testing.T, name string, args map[string]strin
 	return decoded.Result.IsError, text
 }
 
-// TestUUIDPathRefusesForeignOrg pins part 1 of the membership gate: every
-// tool family that accepts a raw UUID refuses one from an org the caller is
-// not a member of, and serves the caller's own org. Reverting the membership
-// check in resolveMemberNodeID fails this test.
+// TestUUIDPathRefusesForeignOrg checks that each listed tool rejects a raw
+// UUID from an organization outside the caller's membership. Removing the
+// membership check in resolveMemberNodeID breaks the refusal assertion.
+//
+// The original membership gate grouped foreign UUID refusals as part 1.
+// TestUUIDPathServesOwnOrg supplies the successful-call control for the
+// caller's own organization.
 func TestUUIDPathRefusesForeignOrg(t *testing.T) {
 	f := newAuthzFixture(t)
 	cases := []struct {
@@ -171,9 +174,9 @@ func TestUUIDPathRefusesForeignOrg(t *testing.T) {
 	}
 }
 
-// TestUUIDPathServesOwnOrg is the control: the same calls succeed on a node
-// of the caller's own org, so the refusals above are the membership check and
-// not a broken fixture.
+// TestUUIDPathServesOwnOrg checks that get, property, and relationship reads
+// succeed for the caller's organization. These control calls distinguish
+// membership refusals from fixture failures.
 func TestUUIDPathServesOwnOrg(t *testing.T) {
 	f := newAuthzFixture(t)
 	for _, testCase := range []struct {
@@ -193,8 +196,12 @@ func TestUUIDPathServesOwnOrg(t *testing.T) {
 	}
 }
 
-// TestGetRequiresWorkspaceReference pins part 3: the get schema requires the
-// entry point reference and the handler refuses a call without one.
+// TestGetRequiresWorkspaceReference checks that get, update, and delete
+// schemas require the entry point reference. It also checks that get refuses
+// a call without that reference.
+//
+// The original membership gate grouped this required entry point check as
+// part 3.
 func TestGetRequiresWorkspaceReference(t *testing.T) {
 	f := newAuthzFixture(t)
 	tool := getTool(f.projectType, "project", "workspace_reference", f.resolver)
@@ -215,10 +222,12 @@ func TestGetRequiresWorkspaceReference(t *testing.T) {
 	}
 }
 
-// TestWrapperRefusesUnauthorizedResult pins part 2: a handler that returns
-// data without any membership check is refused by the wrapper with permission
-// denied, and the refusal lands in the audit ledger. Marking the call
-// authorized is the removal check: the same handler then passes.
+// TestWrapperRefusesUnauthorizedResult checks that the wrapper refuses an
+// unchecked successful handler with permission denied and records the
+// refusal in MemoryRecorder. A handler that marks authorization succeeds as
+// the control.
+//
+// The original membership gate grouped this wrapper check as part 2.
 func TestWrapperRefusesUnauthorizedResult(t *testing.T) {
 	recorder := audit.NewMemoryRecorder()
 
@@ -264,9 +273,10 @@ func TestWrapperRefusesUnauthorizedResult(t *testing.T) {
 	}
 }
 
-// TestRelationshipListHidesForeignEndpointIdentity pins that a cross-org edge
-// renders its foreign endpoint as a bare UUID for a caller who is not a
-// member of the endpoint's org.
+// TestRelationshipListHidesForeignEndpointIdentity checks that a
+// relationship response includes a foreign endpoint's UUID without its name
+// or identifier when the caller does not belong to that endpoint's
+// organization.
 func TestRelationshipListHidesForeignEndpointIdentity(t *testing.T) {
 	f := newAuthzFixture(t)
 	isError, text := f.callTool(t, "tack_list_relationships", map[string]string{
@@ -283,10 +293,11 @@ func TestRelationshipListHidesForeignEndpointIdentity(t *testing.T) {
 	}
 }
 
-// TestMutationGuardRefusesWithoutAuthorization pins the pre-write guard's
-// primitive: a context that never passed a membership check reads as
-// unauthorized, including a context with no authorization slot at all, so a
-// mutating handler refuses before its write instead of after it.
+// TestMutationGuardRefusesWithoutAuthorization checks that isAuthorized
+// returns false for a bare context or an unmarked authorization record. It
+// returns true after markAuthorized. The update and delete handlers use this
+// state before writing; this test checks the state without invoking those
+// handlers.
 func TestMutationGuardRefusesWithoutAuthorization(t *testing.T) {
 	if isAuthorized(context.Background()) {
 		t.Fatal("a bare context read as authorized")
@@ -301,10 +312,10 @@ func TestMutationGuardRefusesWithoutAuthorization(t *testing.T) {
 	}
 }
 
-// TestMembershipComesFromRequestContextWhenAttached pins that the resolvers
-// read the per-request membership set: with the context naming only org B,
-// the same caller is refused on an org A node even though the members
-// repository would allow it.
+// TestMembershipComesFromRequestContextWhenAttached checks that
+// ResolveNodeID uses attached membership. A context with only organization B
+// refuses a node in organization A even though the membership repository
+// permits organization A.
 func TestMembershipComesFromRequestContextWhenAttached(t *testing.T) {
 	f := newAuthzFixture(t)
 	ctx := auth.WithOrgMembership(auth.WithUser(context.Background(), uuid.New()), []uuid.UUID{f.orgB})

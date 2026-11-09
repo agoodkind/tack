@@ -13,13 +13,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// recordingUnavailableBody is the response body when the server cannot save a read event.
+// recordingUnavailableBody is the response body when the server cannot save
+// a read event.
 const recordingUnavailableBody = `{"error":"audit recording unavailable"}`
 
-// requestRead contains the identity and timing of the read events for one request.
-// The recorder saves one event for each organization in orgIDs. httpMethod and
-// requestPath contain the checked HTTP method and request path. selection
-// contains the normalized arguments that an authenticated read supplied.
+// requestRead contains the identity and timing of the read events for one
+// request. The recorder saves one event for each organization in orgIDs.
+// httpMethod and requestPath contain the checked HTTP method and request
+// path. selection contains the normalized arguments that an authenticated
+// read supplied.
 type requestRead struct {
 	operation   requestOperation
 	operationID uuid.UUID
@@ -33,8 +35,8 @@ type requestRead struct {
 	selection   *audit.ReadSelection
 }
 
-// newRequestRead creates a requestRead with a new operation ID, the unauthenticated actor,
-// and the system organization.
+// newRequestRead creates a requestRead with a new operation ID, the
+// unauthenticated actor, and the system organization.
 func newRequestRead(ctx context.Context, request *http.Request, operation requestOperation) requestRead {
 	operationID := uuid.Must(uuid.NewV7())
 	return requestRead{
@@ -46,9 +48,9 @@ func newRequestRead(ctx context.Context, request *http.Request, operation reques
 }
 
 // admissions returns one read admission for each organization of the read.
-// Each admission uses the same operation ID, actor, and start time.
-// Each target identifies the route and operation. The event templates do not include
-// request headers, credentials, or the request body.
+// Each admission uses the same operation ID, actor, and start time. Each
+// target identifies the route and operation. The event templates do not
+// include request headers, credentials, or the request body.
 func (read requestRead) admissions() []audit.ReadAdmission {
 	operation := read.operation
 	name := string(operation.verb)
@@ -78,7 +80,8 @@ func (read requestRead) admissions() []audit.ReadAdmission {
 	return admissions
 }
 
-// serveRead buffers the response from next and saves the final read events before writing the response.
+// serveRead buffers the response from next and saves the final read events
+// before writing the response.
 func (recorder *RequestRecorder) serveRead(writer http.ResponseWriter, request *http.Request, read requestRead, next http.Handler) {
 	request = request.WithContext(audit.WithReadCollector(request.Context()))
 	recorder.release(writer, request, read, func(readRequest *http.Request) audit.ReadResult[*responseCapture] {
@@ -88,11 +91,12 @@ func (recorder *RequestRecorder) serveRead(writer http.ResponseWriter, request *
 	})
 }
 
-// release saves the read admissions, runs produce, saves the final events, and writes the captured response.
-// For one organization, it records every returned target in one event.
-// For several organizations, it records each organization's targets in a separate event.
-// If saving an admission or final event fails, or the captured response is nil,
-// release discards the captured response and returns 503.
+// release saves the read admissions, runs produce, saves the final events,
+// and writes the captured response. For one organization, it records every
+// returned target in one event. For several organizations, it records each
+// organization's targets in a separate event. If saving an admission or
+// final event fails, or the captured response is nil, release discards the
+// captured response and returns 503.
 func (recorder *RequestRecorder) release(
 	writer http.ResponseWriter,
 	request *http.Request,

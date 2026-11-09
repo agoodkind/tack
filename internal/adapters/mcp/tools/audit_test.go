@@ -35,11 +35,13 @@ func TestStampAuditNodeInEntryPointPopulatesWorkspace(t *testing.T) {
 	}
 }
 
-// TestResolveTypedNodeIDSequenceStampsOrg pins the audit stamping on the
-// point-read sequence path: the resolution stamps the holder's org. It stamps
-// no workspace, because the uniqueness index maps a reference straight to its
-// holder and no scope walk identifies one; the earlier workspace stamp was a
-// byproduct of the removed property-scan fallback.
+// TestResolveTypedNodeIDSequenceStampsOrg checks organization stamping
+// during sequence reference resolution. The uniqueness index identifies the
+// holder directly without a scope walk, and the resolution does not stamp a
+// workspace.
+//
+// The earlier property-scan fallback resolved a scope and also stamped the
+// workspace. Removing that fallback removed the incidental workspace stamp.
 func TestResolveTypedNodeIDSequenceStampsOrg(t *testing.T) {
 	orgID := uuid.New()
 	workspaceID := uuid.New()

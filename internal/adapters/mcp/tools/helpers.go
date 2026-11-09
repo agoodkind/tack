@@ -15,15 +15,12 @@ import (
 	"goodkind.io/tack/internal/auth"
 )
 
-// argMap is the typed shape every Tack tool handler reads its arguments
-// through. mcp-go decodes the request arguments into a generic map of raw
-// JSON values so each handler can pull out exactly the fields it needs with
-// concrete types instead of going through any.
+// argMap stores tool arguments as raw JSON values. Handlers decode the
+// fields they need into concrete types without using any.
 type argMap map[string]json.RawMessage
 
-// bindArgs decodes the tool request arguments into argMap. The conversion
-// from mcp-go's untyped request body to our typed map happens here, and
-// only here, so handler code never touches any.
+// bindArgs decodes tool request arguments into argMap. Handlers can read raw
+// JSON fields and decode concrete values without using any.
 func bindArgs(req mcpmcp.CallToolRequest) (argMap, error) {
 	var m argMap
 	if err := req.BindArguments(&m); err != nil {
@@ -34,11 +31,10 @@ func bindArgs(req mcpmcp.CallToolRequest) (argMap, error) {
 	return m, nil
 }
 
-// requireString reads a required string argument from argMap. The returned
-// ok==true only when the value is a non-empty string. Any other shape
-// (missing, wrong type, empty string) returns ok==false so the caller can
-// short-circuit with recoverableError. Centralised so tools cannot silently
-// fall through with an empty string after a failed assertion.
+// requireString returns a string and true only for a nonempty JSON string in
+// argMap. Missing values, other types, and empty strings return false.
+// Callers use that result to return recoverableError before using a required
+// value.
 func requireString(args argMap, name string) (string, bool) {
 	raw, ok := args[name]
 	if !ok || len(raw) == 0 {
@@ -54,9 +50,9 @@ func requireString(args argMap, name string) (string, bool) {
 	return s, true
 }
 
-// optionalString reads an optional string argument from argMap. Returns ""
-// when the key is absent or the value is not a JSON string. Used for filter
-// fields where empty means "no filter".
+// optionalString returns a string from argMap or an empty string when argMap
+// omits the key or the value is not a JSON string. Filter fields use an
+// empty string to omit a filter.
 func optionalString(args argMap, name string) string {
 	raw, ok := args[name]
 	if !ok || len(raw) == 0 {
@@ -69,20 +65,25 @@ func optionalString(args argMap, name string) string {
 	return s
 }
 
-// parseProps coerces a properties payload into map[string]json.RawMessage.
-// Tolerates two shapes the MCP transport produces.
+// parseProps decodes properties into map[string]json.RawMessage. It accepts
+// an object directly or decodes JSON inside a string recursively. The string
+// branch preserves properties when clients encode the inner JSON as a
+// string.
 //
-// Shape 1: object. The right wire form. raw decodes directly into the
-// returned map.
+// Nil or empty input, JSON null, and an empty encoded string return nil.
+// Invalid JSON and unsupported shapes return an error that the caller must
+// handle at the input boundary.
 //
-// Shape 2: string. Some clients (notably Claude Code via certain SDK
-// paths) stringify the inner JSON before sending. Without this branch, the
-// server silently dropped every property in tack_create_*. See TACK-161
-// and TACK-165.
+// The accepted property forms include:
 //
-// Returns nil for nil or empty input. Returns an error only when raw is a
-// string that is not valid JSON. An unparseable shape is the caller's bug
-// to fix at the boundary, not something to swallow.
+//   - A JSON object decodes directly into the property map.
+//   - A JSON string decodes its contents as another properties payload.
+//
+// TACK-161 added support for clients, including Claude Code through certain
+// SDK paths, that encoded inner JSON as a string. Earlier tack_create_*
+// handlers silently omitted the supplied properties for that form. TACK-165
+// preserved encoded-string compatibility and added recursive decoding for
+// double-encoded strings.
 func parseProps(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -109,15 +110,15 @@ func mustUser(ctx context.Context) (uuid.UUID, error) {
 	return id, nil
 }
 
-// registerTool registers an MCP tool with the server, wrapping its handler
-// in wrapToolHandler so every call lands one structured pair of events plus
-// counter bumps. Use this in place of s.AddTool everywhere in the
-// internal/adapters/mcp/tools package.
+// registerTool registers an MCP tool through wrapToolHandler. Use
+// registerTool instead of direct AddTool calls in this package. The wrapper
+// logs tool calls and updates counters after checking required recorders. A
+// missing required recorder refuses the call before those logging and
+// counter operations.
 //
-// The wrapper enforces strict top-level argument keys before dispatch: any
-// key not declared in tool.InputSchema.Properties causes a recoverableError.
-// Nested keys inside properties are validated separately by the service
-// layer (ValidateNodeProps).
+// The registration wrapper rejects top-level keys absent from
+// tool.InputSchema.Properties with recoverableError. The service validates
+// nested property keys through ValidateNodeProps.
 func registerTool(s *mcpserver.MCPServer, tool mcpmcp.Tool, h mcpserver.ToolHandlerFunc) {
 	allowed := allowedArgNames(tool.InputSchema)
 	strict := func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
@@ -129,9 +130,8 @@ func registerTool(s *mcpserver.MCPServer, tool mcpmcp.Tool, h mcpserver.ToolHand
 	s.AddTool(tool, wrapToolHandler(tool.Name, strict))
 }
 
-// allowedArgNames returns the set of top-level argument keys declared in
-// the tool's input schema. The set is built once at registration time and
-// captured by the strict-args wrapper.
+// allowedArgNames returns the top-level keys from the tool's input schema.
+// Registration computes the set once, and the argument wrapper reuses it.
 func allowedArgNames(s mcpmcp.ToolInputSchema) map[string]struct{} {
 	allowed := make(map[string]struct{}, len(s.Properties))
 	for name := range s.Properties {
@@ -140,9 +140,9 @@ func allowedArgNames(s mcpmcp.ToolInputSchema) map[string]struct{} {
 	return allowed
 }
 
-// rejectUnknownArgs returns an error if the request carries any top-level
-// argument key not in allowed. Returns nil when the request has no
-// arguments or every key is declared.
+// rejectUnknownArgs returns an error for top-level argument keys outside
+// allowed. It returns nil when arguments are absent or every key belongs to
+// allowed.
 func rejectUnknownArgs(req mcpmcp.CallToolRequest, toolName string, allowed map[string]struct{}) error {
 	var args map[string]json.RawMessage
 	if err := req.BindArguments(&args); err != nil {

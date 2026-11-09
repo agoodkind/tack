@@ -25,8 +25,8 @@ import (
 const serverCacheTTL = 60 * time.Second
 
 // MetadataEpochReader returns the metadata epoch values for the specified
-// organizations as one string. Two reads for the same organizations return
-// equal strings only when no organization's epoch changed between them.
+// organizations as one string. Reads of the same organization set return
+// equal strings only when each organization's epoch remains unchanged.
 type MetadataEpochReader interface {
 	MetadataEpoch(ctx context.Context, orgIDs []uuid.UUID) (string, error)
 }
@@ -41,8 +41,8 @@ type cachedServer struct {
 	epoch        string
 }
 
-// Handler is the MCP HTTP entry point. It caches a per-user MCP server that
-// knows about the user's accessible NodeTypes.
+// Handler serves MCP HTTP requests and caches a server for each user. Each
+// server uses the node types available to that user.
 type Handler struct {
 	nodeSvc            *service.NodeService
 	nodes              node.NodeRepository
@@ -61,7 +61,7 @@ type Handler struct {
 	cache map[uuid.UUID]*cachedServer
 }
 
-// Deps bundles the dependencies for the MCP handler.
+// Deps supplies the dependencies for the MCP handler.
 type Deps struct {
 	NodeSvc            *service.NodeService
 	Nodes              node.NodeRepository
@@ -73,11 +73,11 @@ type Deps struct {
 	Members            org.MemberRepository
 	Users              user.Repository
 	// Search runs ranked search for tack_search. A binding without a runner
-	// keeps the fixed unavailable response.
+	// returns the fixed unavailable response.
 	Search tools.SearchBinding
-	// Epochs reads the metadata epochs that decide whether a cached tool
-	// server still matches stored metadata. With a nil reader, the cache
-	// checks only the server lifetime.
+	// Epochs reads the metadata epochs that decide whether a cached tool server
+	// still matches stored metadata. With a nil reader, the cache checks only
+	// the server lifetime.
 	Epochs MetadataEpochReader
 	// AuditRecorder is the audit recorder of the runtime graph that owns this
 	// handler. The tool wrapper and the resource handlers record their events
@@ -130,21 +130,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
-	// One context chain carries the JSON-RPC id, the session id, and the
-	// membership set into the MCP server. A create's idempotency key reads
-	// the first two, so a context rebuilt without them lets a retried create
-	// write a second node (TACK-476).
+	// The request context stores the JSON-RPC request ID, session ID, and
+	// membership set. Create idempotency uses the request ID when a session ID
+	// exists, the arguments do not supply a nonempty string for
+	// idempotency_key, and explicit operation metadata does not supply an ID.
+	// Preserve these values when deriving the handler context.
+	//
+	// Before TACK-476, ServeHTTP rebuilt the request context from a context
+	// without the parsed transport identity. That discarded the identity that
+	// create idempotency needs to recognize a retried create and reuse its
+	// node.
 	ctx = tools.WithMCPRequestMetadata(ctx, metadata)
 	ctx = tools.WithAuditRecorder(ctx, h.recorder)
 	span.SetAttributes(attribute.String("enduser.id", userID.String()))
 
-	// The membership set is on every request, cache hit or not. The
-	// resolvers refuse any node outside it, and the tool wrapper refuses any
-	// result that never passed a membership check. The auth middleware
-	// attaches the set it read for the auth event, so a request normally
-	// costs one membership read (TACK-503); when the middleware's read
-	// failed and attached nothing, the lookup runs here and a failure fails
-	// the request closed instead of serving with an empty set.
+	// Every request obtains membership, including requests that reuse a cached
+	// server. The handler reuses membership from authentication or queries
+	// membership when the context does not contain it. A failed lookup refuses
+	// the request. callerOrgIDs uses attached membership for node checks;
+	// Workspace and WorkspacesForUser query the repository directly. The tool
+	// wrapper refuses successful results when the handler did not mark
+	// authorization.
+	//
+	// TACK-503 removed the MCP handler's repeated membership query when
+	// authentication had already attached its membership result. Before that
+	// change, the handler queried membership again even after the
+	// authentication lookup.
 	orgIDs, attached := auth.OrgMembership(ctx)
 	if !attached {
 		orgIDs, err = h.members.ListOrgIDsForUser(ctx, userID)
