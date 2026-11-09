@@ -4,11 +4,14 @@
 
 - [Tack design requirements](../README.md#design-requirements)
 - [Tack project contract](../AGENTS.md)
+- [Find current sources](runbooks/find-current-sources.md)
 - [Run tests](runbooks/run-tests.md)
 
 ## Audit
 
 - [Complete audit recording](reference/audit/2026-10-21-audit-completeness-design.md)
+- [Audit recording lifecycle and formats](reference/audit/recording-lifecycle.md)
+- [Audit recording acceptance requirements](reference/audit/recording-acceptance.md)
 - [Operator identity and audit recording](reference/audit/operator-identity.md)
 - [Audit scale requirements](reference/audit/horizontal-design.md)
 - [How audit delivery uses Kafka](explanation/audit/audit-kafka-cutover.md)
@@ -21,6 +24,7 @@
 - [Backup and resilience acceptance criteria](reference/recovery/2026-08-08-backup-rearch-acceptance.md)
 - [Backup retention contract](reference/recovery/2026-10-23-backup-retention-design.md)
 - [Check backup age](runbooks/recovery/check-backup-age.md)
+- [Repeat a backup alarm deliberately](runbooks/recovery/repeat-backup-alarm.md)
 - [Expire old backups](runbooks/recovery/expire-backups.md)
 - [Prepare a data restore](runbooks/recovery/restore-data.md)
 - [Verify backup restores](runbooks/recovery/verify-restores.md)
@@ -31,12 +35,17 @@
 
 - [How search uses source data and indexed pages](explanation/search/search-design.md)
 - [Search contracts](reference/search/2026-09-19-search-design.md)
+- [Search content contracts](reference/search/content-contracts.md)
+- [Search work contracts](reference/search/work-contracts.md)
 - [MCP output and search operations](reference/search/search.md)
 - [Search acceptance criteria](reference/search/2026-09-19-search-acceptance.md)
+- [Search cluster and capacity criteria](reference/search/cluster-capacity-criteria.md)
 - [Run search acceptance tests](runbooks/search/run-acceptance-tests.md)
 - [Apply missing search projection declarations](runbooks/search/implement-opensearch-metadata.md)
+- [Verify search projection corrections after activation](runbooks/search/verify-projection-corrections.md)
 - [Validate a search correction](runbooks/search/implement-search-correction.md)
 - [Release and validate search](runbooks/search/implement-opensearch-release.md)
+- [Add production search capacity](runbooks/search/add-production-capacity.md)
 
 ## Nodes
 
@@ -44,6 +53,7 @@
 - [Reference uniqueness requirements](reference/nodes/2026-08-05-node-reference-uniqueness-design.md)
 - [Node integrity requirements](reference/nodes/2026-10-16-node-integrity.md)
 - [Node repair manifests and reviewed mappings](reference/nodes/2026-10-16-node-backfill.md)
+- [Frozen node repair manifests](reference/nodes/repair-manifests.md)
 - [Activate strict node validation](runbooks/nodes/activate-strict-validation.md)
 
 ## Deployment
