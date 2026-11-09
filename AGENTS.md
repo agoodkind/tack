@@ -4,27 +4,22 @@ Design Tack as a production project management platform for many tenants and hor
 
 ## Contract and current sources
 
-Keep durable rules and settled decisions in this contract. Read code and configuration for current keys, schemas, environment variables, services, and hosts. Correct descriptive claims when verified sources contradict them. Correct implementation defects without weakening a binding rule.
-
-Use the owning source when checking current values.
-
-Source references:
-
-| Subject | Required source |
-| --- | --- |
-| FoundationDB key families | [Key definitions](internal/adapters/foundationdb/keys.go) |
-| Authentication and audit SQL schema | [Migrations](migrations/) |
-| Server environment variables | [Configuration](internal/config/config.go) |
-| Container services and mounts | [Compose stack](docker-compose.yml) |
-
-- Run `./server ops help` and read [ops](internal/ops/) for implementation details.
-- Read the Configs [OpenTofu roots and modules](https://github.com/agoodkind/configs/tree/main/opentofu) for guest and network declarations.
-- Query TACK issues through the MCP tools.
-- Read the session memory handoff. Verify mutable claims against current sources.
+Keep durable rules and settled decisions in this contract. Correct descriptive claims when verified sources contradict them. Correct implementation defects without weakening a binding rule. Follow [Find current sources](docs/runbooks/find-current-sources.md) when checking current values.
 
 ## Repository ownership and deployment
 
-The Configs repository owns Proxmox, Linux containers (LXCs), host networking, the rendered environment, secret files, audit signing keys, the FoundationDB cluster directory, and the SeaweedFS object-store LXC. Tack owns application code, the Compose stack, container overlays, and `./server ops` inside the guest.
+- Keep Proxmox in Configs.
+- Keep Linux containers (LXCs) in Configs.
+- Keep host networking in Configs.
+- Keep the rendered environment in Configs.
+- Keep secret files in Configs.
+- Keep audit signing keys in Configs.
+- Keep the FoundationDB cluster directory in Configs.
+- Keep the SeaweedFS object-store LXC in Configs.
+- Keep application code inside the guest in Tack.
+- Keep the Compose stack inside the guest in Tack.
+- Keep container overlays inside the guest in Tack.
+- Keep `./server ops` inside the guest in Tack.
 
 Commit configuration changes to Configs before applying them. Do not edit live host configuration by hand. Treat a live value that lacks a Configs declaration as configuration drift and an incident.
 
@@ -138,7 +133,14 @@ Complete the provisioning runbook's direct initial seed procedure when an enviro
 
 Keep normal provisioning and migration credentials on the nonsuperuser `tack_migrator` role that owns the schema. Use the engine superuser only for a from-empty bootstrap, supply that credential only for the run, and keep it out of the rendered environment file. Permit database writes only through a migration or reviewed ops command. Preserve the audit and partman schema guard.
 
-Keep ledger reader and redactor connections out of the running application and MCP tools. Use the host commands `audit query`, `audit get`, `audit export`, and `audit redact-actor` with their reader or redactor connections. Run audit queue commands through `audit-ops`, which has the ledger reader and broker connection. Use `tack-ops` for the recorded `ops db sql` diagnostic command. Require its reason, delivered alarm mail, recorded intent, and single statement in a read-only session. Do not use the app's `tack_app` login to read the ledger.
+Keep ledger reader and redactor connections out of the running application and MCP tools. Use these host commands with their reader or redactor connections:
+
+- Use `audit query`.
+- Use `audit get`.
+- Use `audit export`.
+- Use `audit redact-actor`.
+
+Run audit queue commands through `audit-ops`, which has the ledger reader and broker connection. Use `tack-ops` for the recorded `ops db sql` diagnostic command. Require its reason, delivered alarm mail, recorded intent, and single statement in a read-only session. Do not use the app's `tack_app` login to read the ledger.
 
 ## Recovery
 
@@ -158,7 +160,23 @@ Declare `Lifetime: clispec.Lifetime{Ticket: "TACK-nnn", RemoveBy: time.Date(...)
 
 Load server configuration from environment variables through `caarlos0/env`. Do not add TOML, YAML, JSON, or another file-based configuration loader. Preserve existing secret-file references without introducing a configuration format.
 
-Use `log/slog`. Initialize the global logger with `telemetry.Setup` and obtain the context logger with `telemetry.L(ctx)` in handlers. Log significant entity lifecycle events, background jobs, authentication failures, startup, and shutdown. Use named `slog.Attr` fields rather than positional fields and use `noun.verb` messages such as `issue.created` or `worker.started`. Use only these logging levels: `Info` for normal events, `Debug` for trace details, and `Error` for actual failures.
+Use `log/slog`. Initialize the global logger with `telemetry.Setup` and obtain the context logger with `telemetry.L(ctx)` in handlers. Log these significant events:
+
+- Log entity lifecycle events.
+- Log background jobs.
+- Log authentication failures.
+- Log startup.
+- Log shutdown.
+
+Use named `slog.Attr` fields rather than positional fields and use `noun.verb` messages such as `issue.created` or `worker.started`. Use only the level required by the event condition.
+
+Logging levels:
+
+| Level | Required condition |
+| --- | --- |
+| `Info` | Use for normal events. |
+| `Debug` | Use for trace details. |
+| `Error` | Use for actual failures. |
 
 Limit each file to 200 lines, excluding comment-only lines, and split it by responsibility when necessary. Use one conversion file per entity. Separate bulk operations from basic create, read, update, and delete operations. Prefer responsibility-based filenames; reserve `utils.go` and `helpers.go` for genuinely shared code.
 

@@ -34,8 +34,31 @@ After the maintenance SQL commits, the worker can still fail to reset the connec
 
 ## Evidence required for changes
 
-QA must validate adoption against both an existing layout where the last partition no longer covers the current week and a fresh environment. Acceptance must establish that registration preserves existing data, avoids range overlap, creates current and future coverage, and retains disabled history deletion. A real writer-role maintenance run must succeed through the privilege wrapper.
+QA must validate adoption against both an existing layout where the last partition no longer covers the current week and a fresh environment. Acceptance must establish each registration result:
 
-Regression coverage must exercise startup catch-up, recurring execution, failed maintenance, headroom observations, low-headroom alerts, unexpected child names, and shutdown. A real database test must remove future coverage in its disposable fixture, run production maintenance, and prove that events in the current week and the newly covered future week can commit. A helper-only or stub-only check cannot establish that database behavior.
+- Registration preserves existing data.
+- Registration avoids range overlap.
+- Registration creates current and future coverage.
+- Registration retains disabled history deletion.
 
-Deployment acceptance requires evidence from the installed environment. Check pg_partman registration, disabled retention, current and future partition bounds, worker headroom, and a successful audited product operation.
+A real writer-role maintenance run must succeed through the privilege wrapper.
+
+Regression coverage must exercise each worker condition:
+
+- Startup catch-up.
+- Recurring execution.
+- Failed maintenance.
+- Headroom observations.
+- Low-headroom alerts.
+- Unexpected child names.
+- Shutdown.
+
+A real database test must remove future coverage in its disposable fixture, run production maintenance, and prove that events in the current week and the newly covered future week can commit. A helper-only or stub-only check cannot establish that database behavior.
+
+Deployment acceptance requires evidence from the installed environment for each check:
+
+- pg_partman registration.
+- Disabled retention.
+- Current and future partition bounds.
+- Worker headroom.
+- A successful audited product operation.

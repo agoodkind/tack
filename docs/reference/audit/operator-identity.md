@@ -12,6 +12,8 @@ Human principals use the `operator` actor kind. Service principals use `service`
 
 The selector first rejects a nonempty `--operator-session` without `--operator-service`. It then selects an identity source.
 
+Identity source selection:
+
 | Source | Selection and identity |
 | --- | --- |
 | Git configuration | When the service name and operator ID are both empty after trimming whitespace, `GitConfigOperatorSource` reads `user.name` and `user.email` from Git configuration files. It derives a stable UUIDv5 from the lowercase email and the permanent operator namespace. Supplying only `--operator-email` or `--operator-name` still selects this source. |
@@ -88,30 +90,36 @@ Revocation requires the token ID. If `--id` contains an invalid value, the comma
 
 The command uses recorded revocation for both recovery cases. Each revocation gets a 30-second deadline independent of request cancellation.
 
+Token recovery:
+
 | Failure | Recovery and operator action |
 | --- | --- |
-| The insert reports an error. | The command tries to revoke the preselected ID. Successful revocation confirms removal. A missing token confirms absence. Any other revocation error leaves the state unknown. Run `ops auth token-list --email <holder-email> --execute`. Without `--execute`, the preview does not list tokens or establish absence. If the ID appears, run `ops auth token-revoke --id <id> --execute`. |
-| The command cannot display the bearer after issuance. | The command tries to withdraw the issued token. If withdrawal succeeds, it reports removal. If withdrawal fails, it reports the token ID for manual revocation with `ops auth token-revoke --id <id> --execute`. |
+| The insert reports an error. | The command tries to revoke the preselected ID. Successful revocation confirms removal. A missing token confirms absence. Any other revocation error leaves the state unknown. The operator must run `ops auth token-list --email <holder-email> --execute`. Without `--execute`, the preview does not list tokens or establish absence. If the ID appears, the operator must run `ops auth token-revoke --id <id> --execute`. |
+| The command cannot display the bearer after issuance. | The command tries to withdraw the issued token. If withdrawal succeeds, it reports removal. If withdrawal fails, the command reports the token ID, and the operator must revoke it with `ops auth token-revoke --id <id> --execute`. |
 
 ## Additional identity mechanisms
 
 The current selector does not implement OpenID Connect. A future source must use `audit.OperatorIdentitySource` and verify a signed identity token before resolving the operator. Production policy can require that verified source instead of locally asserted identities.
 
-The provider and command must support these inputs:
+The provider and command must support the following inputs.
+
+Identity inputs:
 
 | Input | Requirement |
 | --- | --- |
-| Token | Accept `--operator-token` or a short-lived token that `tack login` caches after device authorization under RFC 8628. Do not obtain the token from an environment variable. |
-| Provider | Configure the issuer URL and allowed audience (client ID). Discover the signing keys through the issuer's `/.well-known/openid-configuration` document. |
-| Authorization | Require a configured claim, such as a `groups` claim that includes `tack-operators`. |
+| Token | The command must accept `--operator-token` or a short-lived token that `tack login` caches after device authorization under RFC 8628. The command must not obtain the token from an environment variable. |
+| Provider | The provider configuration must specify the issuer URL and allowed audience (client ID). The source must discover the signing keys through the issuer's `/.well-known/openid-configuration` document. |
+| Authorization | The source must require a configured claim, such as a `groups` claim that includes `tack-operators`. |
 
-The source must perform these checks and identity mappings:
+The source must perform the following checks and identity mappings.
+
+Identity checks and mappings:
 
 | Check or field | Requirement |
 | --- | --- |
-| Signature | Verify an RS256 or ES256 signature against the provider's cached published keys. |
-| Claims | Check issuer, audience and operator authorization. Check expiry, not-before time and issued-at time with the permitted clock difference. |
-| Principal | Derive the stable UUIDv5 from issuer and subject. Require verified email and use the `name` claim for the display name. |
-| Provenance | Record `oidc` as the source and preserve the verified issuer, subject and session. |
+| Signature | The source must verify an RS256 or ES256 signature against the provider's cached published keys. |
+| Claims | The source must check issuer, audience and operator authorization. The source must check expiry, not-before time and issued-at time with the permitted clock difference. |
+| Principal | The source must derive the stable UUIDv5 from issuer and subject. The source must require verified email and use the `name` claim for the display name. |
+| Provenance | The source must record `oidc` as the source and preserve the verified issuer, subject and session. |
 
 Under this design, automation must authenticate with a workload identity and record the `service` actor kind. It uses client credentials or a SPIFFE identity with mutual TLS. A human OpenID Connect token cannot serve as the automation credential. Per-command authorization remains a separate requirement from identity verification.

@@ -18,13 +18,25 @@ The Kafka client connects lazily. Before serving traffic, the application pings 
 
 With Kafka configured and the FoundationDB outbox available, the application supplies MCP and authentication handlers with a recorder that preserves the event ID and original time. When a single event enters `SpillRecorder.Record`, Kafka is the first destination. Kafka success completes the call without writing a FoundationDB copy. If Kafka refuses the event, the recorder tries to append it to the FoundationDB outbox for the relay. A successful append returns success. Failure to serialize or append returns the primary and fallback errors. The append has a ten-second deadline independent of request cancellation.
 
-The Kafka producer logs its first broker refusal at warning level and later refusals at debug level. It logs recovery after a successful single publication or a published batch without broker refusals. The spill recorder logs the first successful outbox append in an outage at error level and later appends at debug level. It logs each failed append at error level. For a single event, the next successful Kafka publication ends the spill outage and logs the total spilled.
+The Kafka producer and spill recorder log different conditions during an outage.
+
+Recorder logging:
+
+| Recorder | Condition | Log level and content |
+| --- | --- | --- |
+| Kafka producer | First broker refusal | Warning |
+| Kafka producer | Later broker refusals | Debug |
+| Kafka producer | Successful single publication or published batch without broker refusals | Info; recovery |
+| Spill recorder | First successful outbox append in an outage | Error |
+| Spill recorder | Later successful appends in that outage | Debug |
+| Spill recorder | Each failed append | Error |
+| Spill recorder | Next successful single-event Kafka publication during an open spill outage | Info; ends the outage and reports the total spilled |
 
 A buffer wraps this recorder. For `auth.token_used`, it bypasses the memory queue and tries to append the event to the configured durable outbox. Without an outbox, it calls the inner recorder synchronously. It returns any recording error to the caller. For other read-class verbs, it can return after admitting an event to memory, before its batch publishes to Kafka. When the buffer is full, it tries the configured FoundationDB outbox directly. The flusher retains events the backend returns for retry. Admission to this buffer cannot satisfy the durable finalization requirement for a user-data read.
 
 For a batch, the Kafka producer skips each event it cannot serialize and counts it as dropped. It publishes only the events it encoded. If Kafka refuses any encoded event, the spill recorder tries to append each refused event to the outbox and returns the events it could not store. A refusal keeps an existing spill outage open, even if Kafka accepted other events. Only a successful outbox append starts a new spill outage. A batch in which every append fails does not start one.
 
-An empty refusal list clears an open spill outage and logs the count. The Kafka producer can return that list without publishing when every event fails to serialize. The batch recovery log alone cannot establish a successful publication or a permanent ledger row.
+When the refusal list is empty, the spill recorder clears an open spill outage and logs the count. The Kafka producer can return that list without publishing when every event fails to serialize. The batch recovery log alone cannot establish a successful publication or a permanent ledger row.
 
 Without configured Kafka brokers, the runtime can select a synchronous YugabyteDB recorder. It does not install `SpillRecorder` on that path. If neither backend is configured, the runtime refuses startup unless `AUDIT_ALLOW_UNRECORDED` selects a recorder that discards events. Direct application ledger writes and unrecorded operation violate the production recording contract.
 
@@ -58,6 +70,8 @@ The consumer checks the stored payload before it counts an attempt or removes th
 
 Replay handling depends on the received record and the state of the original dead-letter row.
 
+Replay handling:
+
 | Received record | Consumer behavior |
 | --- | --- |
 | Malformed replay header | The consumer logs a warning and processes the record as a fresh delivery. |
@@ -73,7 +87,19 @@ Large events use bounded transport parts and a manifest. The consumer commits re
 
 Transactional outboxes retain evidence when Kafka cannot accept it. A broker outage must not permit a product change without its required local audit evidence or a read without finalization. Unavailable durable recording requires refusal. Stopping the audit profile and accepting lost audit events is not a valid recovery method.
 
-Permanent ledger completion requires inspecting the canonical event, complete manifests, chain continuity, and outcome. Broker acknowledgment, a drained group offset, a healthy container, and a merged pull request each prove narrower facts.
+Permanent ledger completion requires inspection of:
+
+- The canonical event.
+- Complete manifests.
+- Chain continuity.
+- The outcome.
+
+Each of these observations proves a narrower fact than permanent ledger completion:
+
+- Broker acknowledgment.
+- A drained group offset.
+- A healthy container.
+- A merged pull request.
 
 ## Deployment boundaries
 
@@ -83,6 +109,6 @@ Configs owns infrastructure, rendered environment, credentials, and the reviewed
 
 The consumer retries its YugabyteDB connection while initial migrations and audit-role preparation make the ledger available. After connection succeeds, it ensures the configured Kafka topic. Producer and consumer configuration must select the same topic. For a fresh topic the consumer requests the 256 partitions specified by its implementation with broker-default replication and the configured retention. It preserves the partition count of an existing topic.
 
-The consumer requests `AUDIT_CONSUMER_TOPIC_RETENTION` (one year by default) for an existing topic. A rejected retention update logs an error and leaves the consumer running with the broker's effective setting. Topic creation and a healthy consumer do not prove the requested retention or replication.
+The consumer requests `AUDIT_CONSUMER_TOPIC_RETENTION` (one year by default) for an existing topic. If the broker rejects the retention update, the consumer logs an error and continues with the broker's effective setting. Topic creation and a healthy consumer do not prove the requested retention or replication.
 
 Kafka requires a stable configured cluster identity for its persistent metadata. A container recreation must retain that identity. Separate environments require separate cluster identities rather than reuse of another environment's metadata identity.
