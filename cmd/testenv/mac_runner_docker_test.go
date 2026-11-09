@@ -25,7 +25,7 @@ const (
 
 // TestMacRunnerCommandSignals runs the run-mac command in this process and sends
 // each signal to this process after the fixture reports readiness. The command
-// must return status 130 and leave complete evidence and cleanup.
+// must return status 130, complete evidence collection, and remove its resources.
 func TestMacRunnerCommandSignals(t *testing.T) {
 	for _, delivered := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
 		t.Run(strconv.Itoa(int(delivered)), func(t *testing.T) {

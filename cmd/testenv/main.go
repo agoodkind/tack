@@ -1,5 +1,6 @@
-// Command testenv is a developer tool that starts the engines internal/testenv
-// gives tests, for use outside a test binary, and removes them again.
+// Command testenv starts and removes temporary local engines for developers.
+// It uses test engine helpers outside test binaries, separately from
+// `./server ops`, and does not access an environment's stores.
 //
 //	testenv ledger        start a YugabyteDB ledger, migrate it, print its DSN
 //	testenv foundationdb  start a single-node FoundationDB, print its cluster file
@@ -19,10 +20,13 @@
 //	testenv down          remove operator engines and engines of exited tests
 //	testenv run-mac --root ROOT --image ID --evidence-dir DIR -- GO_TEST_FLAGS
 //
-// An engine the tool starts keeps running after it exits, for the operator to
-// use, until `testenv down` removes it. A shared directory stays until the
-// operator deletes it. The tool is not an `./server ops`
-// command: it touches no environment's stores, only throwaway local engines.
+// After successful operator provisioning, engines keep running until
+// `testenv down` removes them. Shared directories remain until the operator
+// deletes them.
+//
+// If a step fails, Release attempts cleanup of recorded directories and
+// process-owned engines. run-mac finalization separately attempts cleanup of
+// runner containers and temporary volumes.
 package main
 
 import (
@@ -34,7 +38,7 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// subcommand names one of the tool's commands.
+// subcommand identifies one of the tool's commands.
 type subcommand string
 
 const (
