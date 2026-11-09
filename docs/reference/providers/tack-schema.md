@@ -8,8 +8,13 @@ The resource does not provision the guest or the complete stack.
 ## Resource identity and state
 
 The resource identifies an installation as `<node>/<vmid>:<install_dir>`.
-Import records `node`, `vmid`, and `install_dir`; refresh reads the live migration
-version. The provider reports unreadable status as an error and preserves state.
+Import records these fields:
+
+- `node`
+- `vmid`
+- `install_dir`
+
+Refresh reads the live migration version. The provider reports unreadable status as an error and preserves state.
 If the Goose migration table does not exist, the provider removes the resource
 from state. Delete only removes the resource from state and does not revert migrations.
 

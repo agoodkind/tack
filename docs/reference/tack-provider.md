@@ -9,22 +9,36 @@ This contract governs the broader provider migration in
 A provider is the OpenTofu plugin that reads and changes a managed object. The
 deployment must reuse existing providers for supported state and extend those
 providers when a general capability is missing. New Tack resources must cover
-behavior specific to Tack, such as release-related schema changes, audit policy,
-and coordinated search index replacement.
+behavior specific to Tack. Examples include:
+
+- Release-related schema changes.
+- Audit policy.
+- Coordinated search index replacement.
 
 Configs uses [Proxmox container resources](https://github.com/bpg/terraform-provider-proxmox/blob/main/docs/resources/virtual_environment_container.md)
 and [pveguest resources](https://github.com/agoodkind/terraform-provider-pveguest/blob/main/README.md)
 for infrastructure and guest configuration. The [shared guest module](https://github.com/agoodkind/configs/blob/main/opentofu/modules/base/main.tf)
-combines package, file, and service resources. The reuse rule also applies to
-containers, databases, Kafka, search, object storage, proxies, certificates, and
-schedules.
+combines package, file, and service resources. The reuse rule also applies to:
+
+- Containers.
+- Databases.
+- Kafka.
+- Search.
+- Object storage.
+- Proxies.
+- Certificates.
+- Schedules.
 
 Configs defines the combined deployment, while Tack supplies application-specific
 resources. Those resources use the existing Proxmox guest API when they need
 guest execution. This transport does not require a new guest agent or management
 service, and a complete plan includes changes from every participating provider.
-A Tack provider must not duplicate guest, package, file, or service resources for
-capabilities that existing providers support.
+A Tack provider must not duplicate these resource capabilities when existing providers support them:
+
+- Guest resources.
+- Package resources.
+- File resources.
+- Service resources.
 
 Docker packages use the existing guest resource. This excerpt omits guest creation
 and the remaining Docker configuration:
@@ -42,11 +56,16 @@ The [shared provider contract](https://github.com/agoodkind/configs/blob/main/do
 Each resource group requires its own dependency and acceptance evidence before adoption. Implementing a provider does not establish that an application root declares, imports, or deploys its resources.
 
 QA verification must precede production adoption under the applicable production authorization.
-Existing owners continue managing guest files, runtime secret provisioning, and shared infrastructure until their separate migrations complete.
+Existing owners continue managing each area until its separate migration completes:
+
+- Guest files.
+- Runtime secret provisioning.
+- Shared infrastructure.
 
 ## Deployment coverage
 
 <a id="general-provider-requirements"></a>
+<a id="service-requirements"></a>
 
 Declared state and general resource lifecycles must satisfy the
 [deployment state and provider lifecycle requirements](providers/deployment-state.md).
@@ -63,8 +82,14 @@ invocation does not substitute for the object's state.
 Refresh must use authenticated interfaces and distinguish an absent object from
 an object that a service failure or permission refusal prevents it from reading.
 An unreadable object must produce an error without removing its recorded resource.
-Refresh and planning must not initialize or repair stores, rotate credentials,
-restart services, or otherwise change managed deployment state.
+Refresh and planning must not perform any of these operations:
+
+- Initialize or repair stores.
+- Rotate credentials.
+- Restart services.
+- Otherwise change managed deployment state.
+
+Plans and structured settings must satisfy these requirements:
 
 - A plan must show the before and after values for changed nonsecret settings.
 - A plan must show required restarts.
@@ -89,8 +114,14 @@ do not satisfy planning for the objects they change.
 Generated values may remain
 [unknown before creation](https://opentofu.org/docs/language/expressions/references/#values-not-yet-known),
 but plans must show that uncertainty and reject changes when they cannot check a
-required condition. State, plans, logs, and diagnostics must not contain secret
-values. Plans explain credential updates through references and rotation versions.
+required condition. Secret values must not appear in:
+
+- State.
+- Plans.
+- Logs.
+- Diagnostics.
+
+Plans explain credential updates through references and rotation versions.
 
 ## Apply, removal, and recovery
 
@@ -111,21 +142,6 @@ identify every affected object and dataset.
 - Backup retention must follow the affected resource's declared lifecycle.
 - Volume deletion must follow the affected resource's declared lifecycle.
 
-## Service requirements
-
-Database layout, replication, and backup behavior must satisfy the
-[backup design](recovery/2026-08-06-backup-rearch-design.md) and its
-[acceptance requirements](recovery/2026-08-08-backup-rearch-acceptance.md).
-The data-tier migration's sequence and operator confirmations do not define how
-providers adopt existing resources.
-
-Search resources must satisfy the
-[search design](search/2026-09-19-search-design.md) and its
-[acceptance requirements](search/2026-09-19-search-acceptance.md).
-General search resources must not independently switch aliases or delete indexes
-that Tack's coordinated replacement lifecycle owns. Search activation requires
-separate evidence and does not block adoption of unrelated application resources.
-
 ## Adoption and acceptance
 
 - [Import](https://opentofu.org/docs/cli/commands/import/) must read existing objects and compare them with their declarations before a provider becomes their writer.
@@ -136,18 +152,17 @@ separate evidence and does not block adoption of unrelated application resources
 
 Every deployment field and setup step requires its own evidence record.
 
-Required evidence:
+Each record must include:
 
-| Record item | Requirement |
-| --- | --- |
-| Owning provider | The record must identify the owning provider. |
-| Live reader | The record must identify the live reader. |
-| Planned changes | The record must identify the planned changes. |
-| Apply behavior | The record must identify the apply behavior. |
-| Removal behavior | The record must identify the removal behavior. |
-| Acceptance evidence | The record must include acceptance evidence. |
+- Owning provider.
+- Live reader.
+- Planned changes.
+- Apply behavior.
+- Removal behavior.
+- Acceptance evidence.
 
-- Every provider release must satisfy these requirements before its resources replace an existing deployment step.
+Every provider release must satisfy these requirements before its resources replace an existing deployment step.
+
 - Acceptance must use real provider interfaces on disposable systems with the deployed engines.
 - Acceptance must cover reused resources.
 - Acceptance must cover extended resources.
