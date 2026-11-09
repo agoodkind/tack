@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 
@@ -244,12 +245,21 @@ func startOpenSearchAddress(ctx context.Context, cli *client.Client) (engine, er
 		ctx,
 		cli,
 		engineSpec{
-			kind:       "opensearch-address",
-			image:      openSearchImage,
-			platform:   nil,
-			entrypoint: []string{"sleep"},
-			cmd:        []string{openSearchHolderSeconds},
-			env:        nil,
+			kind:          "opensearch-address",
+			image:         openSearchImage,
+			platform:      nil,
+			entrypoint:    []string{engineSleepCommand},
+			cmd:           []string{openSearchHolderSeconds},
+			env:           nil,
+			files:         nil,
+			networkOf:     "",
+			name:          "",
+			healthcheck:   nil,
+			attachNetwork: "",
+			ipv4Address:   netip.Addr{},
+			extraHosts:    nil,
+			privileged:    false,
+			tmpfs:         nil,
 		},
 	)
 }

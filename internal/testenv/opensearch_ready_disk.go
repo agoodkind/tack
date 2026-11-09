@@ -200,11 +200,9 @@ func readOpenSearchDiskSettings(
 			Params: &opensearchapi.ClusterGetSettingsParams{
 				FlatSettings:    new(true),
 				IncludeDefaults: new(true),
-				DebugParams: opensearchapi.DebugParams{
-					FilterPath: []string{
-						"*.cluster*create_index*",
-						"*.cluster*watermark*",
-					},
+				FilterPath: []string{
+					"*.cluster*create_index*",
+					"*.cluster*watermark*",
 				},
 			},
 		},
@@ -218,16 +216,13 @@ func readOpenSearchDiskSettings(
 	}
 
 	if settings == nil {
-		return nil, nil, diskReadinessFailure(
-			ctx,
-			errors.New("the create-index readiness settings request did not return a response"),
-		)
+		return nil, nil, diskReadinessFailure(ctx, errDiskReadinessResponseMissing)
 	}
 
 	if settings.IsError() {
 		return nil, nil, diskReadinessFailure(
 			ctx,
-			fmt.Errorf("read the create-index readiness settings: HTTP %d", settings.StatusCode),
+			&diskReadinessStatusError{statusCode: settings.StatusCode},
 		)
 	}
 
@@ -249,10 +244,7 @@ func readOpenSearchDiskSettings(
 	}
 
 	if len(blocked) == 0 {
-		return nil, nil, diskReadinessFailure(
-			ctx,
-			errors.New("the readiness response omitted cluster.blocks.create_index"),
-		)
+		return nil, nil, diskReadinessFailure(ctx, errDiskReadinessBlockMissing)
 	}
 
 	return settings.RawBody(), blocked, nil

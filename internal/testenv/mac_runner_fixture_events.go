@@ -215,7 +215,7 @@ func (execution *macRunnerExecution) appendFixtureCreate(
 	execution.eventSnapshot.Lock()
 	defer execution.eventSnapshot.Unlock()
 	if execution.eventSnapshot.bytes+len(encoded) > macRunnerCreateEvidenceLimit {
-		return false, errors.New("fixture creation evidence exceeds 16 MiB")
+		return false, errFixtureCreateEvidenceLimit
 	}
 
 	execution.eventSnapshot.bytes += len(encoded)

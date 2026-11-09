@@ -19,6 +19,8 @@ import (
 // label and the engine's testenv.engine.started log line.
 const processLabel = managedLabel + ".process"
 
+const engineSleepCommand = "sleep"
+
 // engineSpec describes one engine container.
 type engineSpec struct {
 	// kind names the engine in the container name.

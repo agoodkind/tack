@@ -135,7 +135,7 @@ func provisionMailpit(ctx context.Context) (MailpitFixture, error) {
 			kind:       "mailpit-address",
 			image:      mailpitImage,
 			platform:   nil,
-			entrypoint: []string{"sleep"},
+			entrypoint: []string{engineSleepCommand},
 			cmd:        []string{mailpitHolderSeconds},
 			env:        nil,
 		},

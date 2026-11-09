@@ -40,7 +40,7 @@ func startDataDiskHelper(
 		client.ContainerCreateOptions{
 			Config: &container.Config{
 				Image:      dataDiskImage,
-				Entrypoint: []string{"sleep"},
+				Entrypoint: []string{engineSleepCommand},
 				Cmd:        []string{openSearchHolderSeconds},
 				Labels:     ownerLabels(owner),
 			},
