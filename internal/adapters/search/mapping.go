@@ -104,9 +104,9 @@ type indexSettingsBody struct {
 //
 // Validate joins every failed check into one error.
 //
-//	1. Check the registered model and pinned tokenizer.
-//	2. Require a mapping version and valid shard counts.
-//	3. Check routing divisibility for primaries and approved split targets.
+//  1. Check the registered model and pinned tokenizer.
+//  2. Require a mapping version and valid shard counts.
+//  3. Check routing divisibility for primaries and approved split targets.
 func (s IndexSpec) Validate(ctx context.Context) error {
 	problems := s.problems()
 	if len(problems) == 0 {

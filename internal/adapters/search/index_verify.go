@@ -23,9 +23,9 @@ const generatedSemanticField = "page_text_semantic_info"
 // does not read the model registration; [Adapter.VerifyModel] checks that
 // record.
 //
-//	1. Validate spec and build the expected mapping.
-//	2. Compare stored mapping fields and metadata.
-//	3. Compare primary, routing, and replica counts.
+//  1. Validate spec and build the expected mapping.
+//  2. Compare stored mapping fields and metadata.
+//  3. Compare primary, routing, and replica counts.
 func (a *Adapter) VerifyIndex(ctx context.Context, index string, spec IndexSpec) error {
 	if err := spec.Validate(ctx); err != nil {
 		wrapped := fmt.Errorf("verify OpenSearch index %s: %w", index, err)

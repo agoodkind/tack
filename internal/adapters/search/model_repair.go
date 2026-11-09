@@ -43,9 +43,9 @@ type taskCountResult struct {
 // ModelDeployment counts deploy tasks in CREATED or RUNNING when their
 // update time exceeds now minus modelTaskWait.
 //
-//	1. Read the model ID from index metadata.
-//	2. Read the model record.
-//	3. Count deploy tasks updated after now minus modelTaskWait.
+//  1. Read the model ID from index metadata.
+//  2. Read the model record.
+//  3. Count deploy tasks updated after now minus modelTaskWait.
 func (a *Adapter) ModelDeployment(ctx context.Context, index string, now time.Time) (searchdomain.ModelDeployment, error) {
 	var none searchdomain.ModelDeployment
 	info, err := a.IndexInfo(ctx, index)
@@ -74,8 +74,8 @@ func (a *Adapter) ModelDeployment(ctx context.Context, index string, now time.Ti
 //
 // StartModelDeploy returns the task ID without waiting for the deploy to end.
 //
-//	1. Submit the model deploy request.
-//	2. Require a nonempty task ID.
+//  1. Submit the model deploy request.
+//  2. Require a nonempty task ID.
 func (a *Adapter) StartModelDeploy(ctx context.Context, modelID string) (string, error) {
 	return a.startDeploy(ctx, modelID)
 }
@@ -85,8 +85,8 @@ func (a *Adapter) StartModelDeploy(ctx context.Context, modelID string) (string,
 // WaitModelDeploy returns an error when the task ends in a state other than
 // COMPLETED or returns another model ID.
 //
-//	1. Wait for taskID to complete.
-//	2. Compare the returned model ID with modelID.
+//  1. Wait for taskID to complete.
+//  2. Compare the returned model ID with modelID.
 func (a *Adapter) WaitModelDeploy(ctx context.Context, modelID, taskID string) error {
 	return a.waitDeploy(ctx, modelID, taskID)
 }

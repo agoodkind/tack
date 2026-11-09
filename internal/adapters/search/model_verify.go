@@ -34,8 +34,8 @@ func (a *Adapter) getModel(ctx context.Context, modelID string) (registeredModel
 //
 // VerifyModel requires a deployed model and an eligible worker that runs it.
 //
-//	1. Compare the model record with the pin.
-//	2. Check live worker placement.
+//  1. Compare the model record with the pin.
+//  2. Check live worker placement.
 func (a *Adapter) VerifyModel(ctx context.Context, modelID string) error {
 	if err := a.verifyModel(ctx, modelID); err != nil {
 		wrapped := fmt.Errorf("verify OpenSearch model %s: %w", modelID, err)

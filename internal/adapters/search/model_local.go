@@ -81,9 +81,9 @@ type connectorSearchResult struct {
 // without a connector and ML Commons does not list any connectors. Every
 // completed model read includes the model ID and bundle SHA-256.
 //
-//	1. Read the model document.
-//	2. Read up to 100 connectors and the total connector count.
-//	3. Check the model function and reject connector use.
+//  1. Read the model document.
+//  2. Read up to 100 connectors and the total connector count.
+//  3. Check the model function and reject connector use.
 func (a *Adapter) LocalModel(ctx context.Context, modelID string) (LocalModel, error) {
 	model, err := a.readLocalModel(ctx, modelID)
 	if err != nil {

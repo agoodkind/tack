@@ -34,8 +34,8 @@ type Adapter struct {
 //
 // If client creation fails, New closes clients that it already created.
 //
-//	1. Validate the endpoint, credentials, timeout, retries, and CA.
-//	2. Create the main, predict, and point in time clients.
+//  1. Validate the endpoint, credentials, timeout, retries, and CA.
+//  2. Create the main, predict, and point in time clients.
 func New(ctx context.Context, cfg Config) (*Adapter, error) {
 	if err := cfg.Validate(ctx); err != nil {
 		wrapped := fmt.Errorf("create OpenSearch client: %w", err)
@@ -70,9 +70,9 @@ func New(ctx context.Context, cfg Config) (*Adapter, error) {
 //
 // Close joins client errors and logs the combined failure.
 //
-//	1. Close the main client.
-//	2. Close the predict client.
-//	3. Close the point in time client.
+//  1. Close the main client.
+//  2. Close the predict client.
+//  3. Close the point in time client.
 func (a *Adapter) Close(ctx context.Context) error {
 	if err := errors.Join(a.client.Close(), a.predictClient.Close(), a.snapshotAPI.Client.Close()); err != nil {
 		wrapped := fmt.Errorf("close OpenSearch client: %w", err)
@@ -86,9 +86,9 @@ func (a *Adapter) Close(ctx context.Context) error {
 //
 // CreateIndex validates spec before requesting index creation.
 //
-//	1. Validate the model and shard settings.
-//	2. Encode the mapping and shard settings.
-//	3. Ask OpenSearch to create index.
+//  1. Validate the model and shard settings.
+//  2. Encode the mapping and shard settings.
+//  3. Ask OpenSearch to create index.
 func (a *Adapter) CreateIndex(ctx context.Context, index string, spec IndexSpec) error {
 	if err := spec.Validate(ctx); err != nil {
 		wrapped := fmt.Errorf("validate OpenSearch index %q: %w", index, err)
@@ -129,8 +129,8 @@ func (a *Adapter) CreateIndex(ctx context.Context, index string, spec IndexSpec)
 //
 // SetReplicas rejects a negative count before sending a settings request.
 //
-//	1. Require a nonnegative replica count.
-//	2. Update number_of_replicas for index.
+//  1. Require a nonnegative replica count.
+//  2. Update number_of_replicas for index.
 func (a *Adapter) SetReplicas(ctx context.Context, index string, replicas int) error {
 	if replicas < 0 {
 		wrapped := errors.New("OpenSearch replicas must be nonnegative")
@@ -161,9 +161,9 @@ func (a *Adapter) SetReplicas(ctx context.Context, index string, replicas int) e
 //
 // IndexInfo rejects a response that does not include index.
 //
-//	1. Read mapping_version.
-//	2. Read model_id.
-//	3. Read tokenizer_sha256.
+//  1. Read mapping_version.
+//  2. Read model_id.
+//  3. Read tokenizer_sha256.
 func (a *Adapter) IndexInfo(ctx context.Context, index string) (IndexInfo, error) {
 	response, err := a.api.Indices.GetMapping(ctx, &opensearchapi.IndicesGetMappingReq{Indices: []string{index}})
 	if err != nil {
@@ -203,8 +203,8 @@ func (a *Adapter) IndexInfo(ctx context.Context, index string) (IndexInfo, error
 // Ping returns an error for an HTTP error response and closes the response
 // body.
 //
-//	1. Send GET to the endpoint root.
-//	2. Check the HTTP response status.
+//  1. Send GET to the endpoint root.
+//  2. Check the HTTP response status.
 func (a *Adapter) Ping(ctx context.Context) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
 	if err != nil {

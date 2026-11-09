@@ -14,9 +14,9 @@ import (
 // Mapping records the mapping version, model ID, and tokenizer digest in
 // metadata.
 //
-//	1. Build scalar, access, and semantic properties.
-//	2. Set dynamic mapping to strict.
-//	3. Add the model and version metadata.
+//  1. Build scalar, access, and semantic properties.
+//  2. Set dynamic mapping to strict.
+//  3. Add the model and version metadata.
 func (s IndexSpec) Mapping(ctx context.Context) (mappingDef, error) {
 	properties, err := mappingProperties(ctx, s.Model)
 	if err != nil {

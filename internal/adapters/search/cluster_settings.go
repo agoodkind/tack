@@ -27,9 +27,9 @@ type ClusterSettingValues struct {
 //
 // OpenSearch omits the default when a cluster override exists.
 //
-//	1. Prefer a transient value.
-//	2. Otherwise, use a persistent value.
-//	3. Otherwise, use the default.
+//  1. Prefer a transient value.
+//  2. Otherwise, use a persistent value.
+//  3. Otherwise, use the default.
 func (values ClusterSettingValues) Effective() string {
 	if values.Transient != "" {
 		return values.Transient
@@ -80,8 +80,8 @@ func (sections clusterSettingsSections) values(setting string, selectValue func(
 //
 // Explicit nested filter paths match the nested OpenSearch response.
 //
-//	1. Read persistent, transient, and default values for both settings.
-//	2. Require an effective value for each setting.
+//  1. Read persistent, transient, and default values for both settings.
+//  2. Require an effective value for each setting.
 func (a *Adapter) Settings(ctx context.Context) (ClusterSettings, error) {
 	includeDefaults := true
 	response, err := a.api.Cluster.GetSettings(ctx, &opensearchapi.ClusterGetSettingsReq{

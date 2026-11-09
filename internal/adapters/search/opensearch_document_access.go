@@ -36,8 +36,8 @@ type documentAccessSource struct {
 // The multi-get read uses current document state without an index refresh. A
 // missing document returns Found as false.
 //
-//	1. Read each document's retirement flag.
-//	2. Read its access versions and generation.
+//  1. Read each document's retirement flag.
+//  2. Read its access versions and generation.
 func (a *Adapter) DocumentAccess(ctx context.Context, index string, ids []string) (map[string]searchdomain.DocumentAccess, error) {
 	states := make(map[string]searchdomain.DocumentAccess, len(ids))
 	if len(ids) == 0 {

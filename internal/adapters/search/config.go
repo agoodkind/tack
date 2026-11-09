@@ -31,9 +31,9 @@ type Config struct {
 //
 // Validate returns an error at the first failed check.
 //
-//	1. Require an HTTPS endpoint and credentials.
-//	2. Require a positive timeout and nonnegative retry count.
-//	3. Require a valid CA certificate.
+//  1. Require an HTTPS endpoint and credentials.
+//  2. Require a positive timeout and nonnegative retry count.
+//  3. Require a valid CA certificate.
 func (c Config) Validate(ctx context.Context) error {
 	parsed, err := url.Parse(c.Endpoint)
 	if err != nil {
@@ -77,9 +77,9 @@ func retryBackoff(attempt int) time.Duration {
 // discover other cluster members because the environment's proxy selects the
 // OpenSearch node.
 //
-//	1. Apply the configured credentials, CA, timeout, and retry count.
-//	2. Disable retries when MaxRetries is zero.
-//	3. Disable node discovery.
+//  1. Apply the configured credentials, CA, timeout, and retry count.
+//  2. Disable retries when MaxRetries is zero.
+//  3. Disable node discovery.
 func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
 	discoverNodesOnStart := false
 	pass := c.Password

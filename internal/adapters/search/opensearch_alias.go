@@ -37,8 +37,8 @@ type aliasBinding struct {
 //
 // PublicAliasTarget rejects an alias that does not select exactly one index.
 //
-//	1. Resolve PublicAlias.
-//	2. Return its single physical index.
+//  1. Resolve PublicAlias.
+//  2. Return its single physical index.
 func (a *Adapter) PublicAliasTarget(ctx context.Context) (string, error) {
 	return a.AliasTarget(ctx, PublicAlias)
 }
@@ -48,8 +48,8 @@ func (a *Adapter) PublicAliasTarget(ctx context.Context) (string, error) {
 // OpenSearch applies the removal and addition atomically in one typed alias
 // request. The caller must read the alias after an uncertain result.
 //
-//	1. Remove the public alias from from.
-//	2. Add the public alias to to as the write index.
+//  1. Remove the public alias from from.
+//  2. Add the public alias with to as its write index.
 func (a *Adapter) SwitchPublicAlias(ctx context.Context, from, to string) error {
 	remove := aliasBinding{Index: from, Alias: PublicAlias, IsWriteIndex: false}
 	add := aliasBinding{Index: to, Alias: PublicAlias, IsWriteIndex: true}
@@ -73,8 +73,8 @@ func (a *Adapter) SwitchPublicAlias(ctx context.Context, from, to string) error 
 //
 // DeleteIndex accepts an index that does not exist.
 //
-//	1. Request deletion with IgnoreUnavailable enabled.
-//	2. Log successful completion.
+//  1. Request deletion with IgnoreUnavailable enabled.
+//  2. Log successful completion.
 func (a *Adapter) DeleteIndex(ctx context.Context, index string) error {
 	ignoreMissing := true
 	_, err := a.api.Indices.Delete(ctx, &opensearchapi.IndicesDeleteReq{
@@ -96,8 +96,8 @@ type retiredCount struct {
 //
 // IndexRetention returns an error when index does not have storage statistics.
 //
-//	1. Count documents with retired set to true.
-//	2. Read the primary shards' store size.
+//  1. Count documents with retired set to true.
+//  2. Read the primary shards' store size.
 func (a *Adapter) IndexRetention(ctx context.Context, index string) (searchdomain.RetentionStats, error) {
 	var none searchdomain.RetentionStats
 	body, err := json.Marshal(retiredCount{Query: booleanTermClause{Term: map[string]bool{"retired": true}}})
