@@ -1,6 +1,5 @@
-// export_publish_test.go covers how an export becomes the bundle in a
-// directory: what a publish that cannot finish leaves behind, and that either
-// order two publishes can land in leaves a bundle that verifies.
+// These tests check that a failed publication preserves the existing bundle and
+// that either publication order of two exports produces a bundle that verifies.
 
 package audit
 
@@ -18,17 +17,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestAFailedPublishLeavesThePublishedBundleIntact pins the one window a
-// publish still has. Publishing used to clear the published manifest before
-// either of its two renames ran, so a rename that failed, or a crash before the
-// second one, destroyed the signed manifest of a bundle that was whole a moment
-// earlier and left nothing that could be verified.
+// TestAFailedPublishLeavesThePublishedBundleIntact checks publication failure
+// after an existing bundle succeeds. Earlier publication code deleted the
+// published manifest before either of two renames. A failed rename or a crash
+// before the second rename then destroyed the signed manifest of a complete
+// bundle.
 //
-// The failure is induced where the export writes the manifest it is about to
-// publish: the running export's rows file names its export id, so the test can
-// derive the staged manifest path and block it with a directory, which no write
-// can replace. What that stands in for is any failure of the publish, the crash
-// included.
+// The test derives the staged manifest path from the running export's rows
+// filename and creates a directory at that path. The manifest write cannot
+// replace that directory. This checks preservation after a publication write
+// failure; it does not simulate a process crash.
 func TestAFailedPublishLeavesThePublishedBundleIntact(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
@@ -79,17 +77,15 @@ func TestAFailedPublishLeavesThePublishedBundleIntact(t *testing.T) {
 	assertDirectoryHoldsOnlyItsBundle(t, dir)
 }
 
-// TestEitherPublicationOrderLeavesAVerifyingBundle is the finding this file's
-// naming exists to remove. Two exports into one directory used to publish two
-// files each, so the renames could interleave and leave one run's rows beside
-// the other run's manifest; the digest check caught that pair, but a check that
-// catches a wrong pair is weaker than a directory in which the wrong pair
-// cannot exist.
+// TestEitherPublicationOrderLeavesAVerifyingBundle checks both orders of two
+// manifest publications. Earlier exports each published two files, and
+// interleaved renames could pair one export's rows with the other's manifest.
+// The digest check detected that invalid pair, but publication did not prevent
+// it.
 //
-// Both rows files sit in the directory at once, under the names their own
-// manifests carry, and each publication order is applied through the production
-// publish. Whichever manifest lands second is the bundle, and both outcomes
-// verify, because a manifest can only name the rows it was signed for.
+// The test places both rows files in one directory under their export-specific
+// names and uses the production publication function in each order. The last
+// manifest selects its own signed rows, and both resulting bundles must verify.
 func TestEitherPublicationOrderLeavesAVerifyingBundle(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)

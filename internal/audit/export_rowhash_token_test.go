@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// contextBeforeTokenID is EventContext as the writer marshalled it before
-// f48a5a6 (TACK-502) added the token id.
+// contextBeforeTokenID reproduces the EventContext encoding before f48a5a6
+// (TACK-502) added the token ID.
 type contextBeforeTokenID struct {
 	OrgID       uuid.UUID `json:"org_id"`
 	WorkspaceID uuid.UUID `json:"workspace_id,omitempty"`
@@ -24,9 +24,9 @@ type contextBeforeTokenID struct {
 	Reason      string    `json:"reason,omitempty"`
 }
 
-// contextWithOmitemptyTokenID is EventContext as the writer marshalled it from
-// f48a5a6 until TACK-514: omitempty on an array never omits, so a zero token
-// id was written as an explicit zero UUID.
+// contextWithOmitemptyTokenID reproduces the EventContext encoding from f48a5a6
+// until TACK-514. omitempty does not omit a zero UUID array, and the writer
+// encoded a zero token ID explicitly.
 type contextWithOmitemptyTokenID struct {
 	contextBeforeTokenID
 
@@ -41,8 +41,8 @@ func contextBeforeTokenIDFrom(context EventContext) contextBeforeTokenID {
 	}
 }
 
-// chainTokenIDTestRows builds one chain of rows, each hashed from the context
-// bytes its writer produced, and links every row to its predecessor.
+// chainTokenIDTestRows builds one chain using each row's original context
+// encoding for its hash. Each row links to its predecessor.
 func chainTokenIDTestRows(t *testing.T, rows []Row, contexts [][]byte) []Row {
 	t.Helper()
 	var prev []byte
@@ -91,7 +91,8 @@ func tokenIDTestRow(orgID uuid.UUID, action string, version int16, tokenID uuid.
 	}
 }
 
-// tokenIDTestContext is every context encoding the ledger's writers used.
+// tokenIDTestContext permits each context encoding that the ledger writers
+// used.
 type tokenIDTestContext interface {
 	contextBeforeTokenID | contextWithOmitemptyTokenID | EventContext
 }
@@ -105,10 +106,10 @@ func marshalTokenIDTestContext[C tokenIDTestContext](t *testing.T, context C) []
 	return encoded
 }
 
-// TestVerifyBundleAcceptsEveryTokenIDEncodingTheLedgerWrote pins TACK-514: one
-// chain holds rows hashed without the token id key (before TACK-502), with an
-// explicit zero token id (f48a5a6 until TACK-514), with a real token id, and
-// as the writer encodes a context today. Every row must verify.
+// TestVerifyBundleAcceptsEveryTokenIDEncodingTheLedgerWrote checks TACK-514
+// compatibility within one chain. The rows use the context encoding before
+// TACK-502, the explicit zero token ID from f48a5a6 until TACK-514, a real
+// token ID, and the current encoding. Every row must verify.
 func TestVerifyBundleAcceptsEveryTokenIDEncodingTheLedgerWrote(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	tokenID := uuid.Must(uuid.NewV7())

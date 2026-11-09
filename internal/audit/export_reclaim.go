@@ -1,6 +1,6 @@
-// export_reclaim.go frees the rows of exports that were superseded or that died
-// before they could publish. A bundle is a manifest and the rows it names, so
-// the rule is exact: anything else this exporter wrote is reclaimable.
+// Export cleanup removes superseded rows and files that interrupted exports
+// abandoned. A bundle consists of a manifest and its selected rows file.
+// Cleanup can remove other exporter-owned files after excluding active exports.
 
 package audit
 
@@ -16,67 +16,57 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// exportActivityLockFile is the beacon an export holds, shared, for as long as
-// it is writing into a bundle directory, and that the reclaim takes
-// exclusively.
+// exportActivityLockFile identifies the file that coordinates active exports
+// with cleanup. An export acquires a shared lock while writing into a bundle
+// directory. Cleanup requires an exclusive lock.
 //
-// The reclaim needs it because "no manifest names this file" is true of two
-// different files: the rows of an export that is finished, and the rows of an
-// export that is still streaming into them. Deleting the second breaks a bundle
-// that was about to be published, and no property of the file itself separates
-// the two. Holding an exclusive lock is what separates them, because it can
-// only be taken when no export is writing, and the kernel drops the shared side
-// when a process dies, so the rows a killed export abandoned become reclaimable
-// the moment it stops running. That is the same rule an age cutoff only
-// guesses at.
+// A manifest can omit both abandoned rows and rows that an active export still
+// writes. Deleting active rows would prevent publication. File contents and age
+// cannot establish that the writer has stopped. The exclusive lock excludes
+// active writers, and the kernel releases a dead process's shared lock. Cleanup
+// can then reclaim its abandoned rows without an age cutoff.
 //
-// Nothing about publishing depends on this. Exports never contend for it, since
-// a shared lock admits any number of them; it says only that one is running.
+// Shared locks admit concurrent exports and do not serialize their
+// publications. They indicate that exports remain active.
 //
-// Readers deliberately do not take it. VerifyBundle is an offline check run
-// against copies of a bundle: on another host, out of object storage, off
-// read-only media, by an auditor holding read access and nothing more. Taking
-// the beacon means creating and locking a file inside the bundle directory, so
-// a verification that depended on it would either fail where it is most needed
-// or carry on unlocked, which is no guarantee at all.
+// [VerifyBundle] does not acquire this lock. Offline verification must work on
+// another host, on copies from object storage, on read-only media, and with an
+// auditor's read-only access. Acquiring the lock requires creating and locking
+// a file in the bundle directory. Requiring that write would prevent those
+// checks; silently omitting a required lock would not provide a guarantee.
 //
-// What a reader gives up by not holding it is one window: between reading the
-// manifest and opening the rows it names, a reclaim can free those rows, and the
-// verify fails to start. It cannot do worse than that. Once the rows are open
-// the descriptor keeps them readable to their end, so a scan already running is
-// unaffected by an unlink, and a verify either reports on the whole file it
-// opened or reports that it could not open one.
+// Cleanup can delete selected rows between the verifier's manifest read and its
+// rows-file open. The open then fails. After a successful open, the file
+// descriptor permits the verifier to finish reading even if cleanup unlinks the
+// file. The verifier reports on the file it opened or reports the open failure.
 //
-// What a reader would cost by holding it is unbounded. The shared side admits
-// any number of holders, so a verify would not delay an export's writes; the
-// side it blocks is the exclusive one, which only the reclaim takes. A
-// ledger-sized verify runs for minutes, and a scheduled verification that
-// overlaps the next would suppress the reclaim for as long as it kept running.
-// The reclaim is the only thing that frees superseded and abandoned rows files,
-// and each of those is the size of a ledger export.
+// A verifier's shared lock would not delay export writes, but it would delay
+// cleanup's exclusive lock. Verification of a ledger-sized bundle can take
+// minutes. Overlapping scheduled verifications could prevent cleanup
+// indefinitely. Cleanup alone removes superseded and abandoned rows files, and
+// each file can occupy the size of a ledger export.
 //
-// Retrying inside the verifier is not the middle ground it looks like. A report
-// names the export id it is about, so a verify that quietly re-read after losing
-// its rows would return a clean verdict about a different export than the one it
-// was asked about. Failing loudly and letting the operator run it again is the
-// only outcome that keeps the report true about its subject.
+// The report identifies its export ID. An internal retry that rereads a
+// replacement manifest could verify a different export. The verifier returns
+// the open failure, and the operator can run verification again for an explicit
+// new report.
 const exportActivityLockFile = ".export.lock"
 
-// exportActivityRetry is how often an export retries the shared beacon while a
-// reclaim holds it exclusively. A reclaim is a directory listing and a few
-// unlinks, so the wait is bounded by that rather than by any export's length.
+// exportActivityRetry sets the interval between shared-lock attempts while
+// cleanup owns the exclusive lock. Cleanup lists the directory and removes
+// eligible files; it does not wait for a full export.
 const exportActivityRetry = 5 * time.Millisecond
 
-// exportActivity is one export's declaration that it is writing into a bundle
-// directory. A failure to take the beacon is not a failure of the export: it
-// means this filesystem cannot report activity, in which case no reclaim can
-// take the exclusive side either and nothing is removed anywhere.
+// exportActivity records whether an export acquired the directory's shared
+// activity lock. The export can continue after a lock error. Cleanup skips
+// deletion if it cannot acquire its exclusive lock.
 type exportActivity struct {
 	lock *flock.Flock
 	held bool
 }
 
-// beginExportActivity marks the directory as having an export in flight.
+// beginExportActivity attempts to acquire a shared activity lock for the bundle
+// directory.
 func beginExportActivity(ctx context.Context, dir string) *exportActivity {
 	lock := flock.New(filepath.Join(dir, exportActivityLockFile))
 	held, err := lock.TryRLockContext(ctx, exportActivityRetry)
@@ -87,8 +77,8 @@ func beginExportActivity(ctx context.Context, dir string) *exportActivity {
 	return &exportActivity{lock: lock, held: held}
 }
 
-// end releases the beacon. It is safe to call more than once, because the
-// export releases it before reclaiming and again on the way out.
+// end releases the shared activity lock once. The export invokes end before
+// cleanup and again when it returns.
 func (a *exportActivity) end() {
 	if !a.held {
 		return
@@ -97,19 +87,19 @@ func (a *exportActivity) end() {
 	_ = a.lock.Unlock()
 }
 
-// reclaimAbandonedExportFiles removes every file this exporter wrote into dir
-// that the published manifest does not name.
+// reclaimAbandonedExportFiles removes exporter-owned files from dir when the
+// published manifest does not select them and the activity lock permits
+// cleanup.
 //
-// It is best effort by design and reports through the log rather than the
-// caller: the bundle this export published is already complete and correct, and
-// failing an export because stale rows from an earlier one could not be freed
-// would turn a housekeeping problem into a lost compliance export.
+// Cleanup logs failures without returning them to the export caller.
+// Publication has already completed; a failure to delete older rows must not
+// invalidate that completed compliance export.
 func reclaimAbandonedExportFiles(ctx context.Context, dir string) {
 	lock := flock.New(filepath.Join(dir, exportActivityLockFile))
 	held, err := lock.TryLock()
 	if err != nil || !held {
-		// Another export is writing, so its rows are not abandoned and this
-		// directory is not settled. That export reclaims when it finishes.
+		// Cleanup cannot establish exclusive access while another export writes or lock
+		// acquisition fails. A completing export attempts cleanup again.
 		slog.DebugContext(ctx, "audit.export.reclaim_deferred", slog.String("dir", dir))
 		return
 	}
@@ -144,18 +134,17 @@ func reclaimAbandonedExportFiles(ctx context.Context, dir string) {
 	}
 }
 
-// publishedEventsFileName is the rows file the directory's published manifest
-// names, and whether the reclaim may run at all.
+// publishedEventsFileName returns the rows filename from the published manifest
+// and whether cleanup may proceed.
 //
-// A directory with no manifest holds no bundle, so nothing in it is named and
-// everything this exporter wrote there is reclaimable. A manifest that is
-// present but cannot be read or resolved is the opposite case: it may still be
-// repairable by hand, and the rows it describes are the evidence that would
-// make that repair worth anything, so nothing is removed.
+// A directory without a manifest lacks a published bundle, and its
+// exporter-owned files qualify for cleanup. If reading the manifest or
+// resolving its rows filename fails, cleanup preserves the files. An operator
+// may need those rows to repair the manifest.
 func publishedEventsFileName(ctx context.Context, dir string) (string, bool) {
-	// The absence is checked before the read rather than recovered from it,
-	// because a first export into an empty directory is the ordinary case and
-	// the manifest read reports a miss as a failure.
+	// Check for an absent manifest before reading it. The first export commonly
+	// starts in an empty directory, and the manifest reader logs a missing file as
+	// an error.
 	if _, err := os.Stat(filepath.Join(dir, exportManifestFile)); errors.Is(err, fs.ErrNotExist) {
 		return "", true
 	}

@@ -1,6 +1,6 @@
-// export_reclaim_test.go covers what a reader sees when a reclaim frees the
-// rows it was about to read. Readers do not hold the export beacon, so that
-// window is real and the decision not to hold it depends on what happens in it.
+// These tests check verification after cleanup deletes the selected rows file.
+// Readers do not acquire the export activity lock, and deletion can occur
+// before a reader opens the file.
 
 package audit
 
@@ -15,17 +15,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestAVerifyWhoseRowsWereReclaimedFailsRatherThanPassing pins the outcome the
-// reader-locking decision rests on. Readers take no lock, so a verify can lose
-// its rows between reading the manifest and opening them, and the whole case for
-// not locking is that this failure is loud. It has to stay loud.
+// TestAVerifyWhoseRowsWereReclaimedFailsRatherThanPassing checks that
+// verification reports a missing rows file. Readers do not acquire the activity
+// lock, and cleanup can delete rows between the manifest read and the file
+// open. This lock policy requires an explicit open failure.
 //
-// The regression that would make it quiet is treating an absent rows file as an
-// empty one. The zero-row bundle is where that goes unnoticed: the manifest
-// declares no rows, the digest of nothing matches, the signature is valid, and
-// the report comes back clean for a bundle whose rows are not there. A bundle
-// that declares rows would also trip the count comparison, so on its own it
-// cannot show that the open is what refused.
+// Treating a missing file as empty could incorrectly accept a zero-row bundle:
+// the declared count, empty-file digest, and signature would agree. A nonempty
+// bundle would also fail the count check and would not isolate the missing-file
+// check. The test covers both sizes.
 func TestAVerifyWhoseRowsWereReclaimedFailsRatherThanPassing(t *testing.T) {
 	sizes := []struct {
 		name string
@@ -51,8 +49,8 @@ func TestAVerifyWhoseRowsWereReclaimedFailsRatherThanPassing(t *testing.T) {
 				t.Fatalf("row count = %d, want %d", manifest.RowCount, size.rows)
 			}
 
-			// Exactly what a reclaim does to the rows of a bundle it supersedes,
-			// applied in the window a reader does not hold.
+			// Delete the selected rows as cleanup does after another export supersedes the
+			// bundle. This reproduces deletion before the reader opens the rows.
 			if err := os.Remove(filepath.Join(dir, manifest.EventsFile)); err != nil {
 				t.Fatalf("free the rows the manifest names: %v", err)
 			}

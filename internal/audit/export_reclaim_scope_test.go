@@ -1,6 +1,5 @@
-// export_reclaim_scope_test.go covers which files a later export is allowed to
-// free: every file this exporter wrote that no manifest names, and nothing an
-// operator left beside the bundle.
+// These tests check that export cleanup removes unselected exporter-owned files
+// and preserves files that an operator placed beside the bundle.
 
 package audit
 
@@ -16,15 +15,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestAnExportReclaimsTheRowsNoManifestNames pins the reclaim rule. A process
-// killed mid-export leaves a rows file behind, and naming those files per
-// export means no later run overwrites one, so without a reclaim they
-// accumulate a ledger-sized file per interruption.
+// TestAnExportReclaimsTheRowsNoManifestNames checks cleanup of abandoned and
+// superseded rows. A process killed during export can leave a rows file. Each
+// export uses a distinct filename, and later writes do not overwrite that
+// abandoned file. Without cleanup, every interruption can add another
+// ledger-sized file.
 //
-// The rule is exact rather than a guess about age: a bundle is a manifest and
-// the rows it names, so every other file this exporter wrote is free. The
-// superseded rows of the directory's previous bundle are covered by the same
-// rule and are freed by the same pass.
+// Cleanup selects files by exporter ownership and the current manifest, without
+// an age cutoff. The same pass removes the previous bundle's superseded rows.
 func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
@@ -33,9 +31,8 @@ func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 
-	// Everything an interrupted export can leave: a rows file named for the
-	// export that abandoned it, the staged rows name earlier revisions wrote,
-	// and a staged manifest.
+	// An interrupted export can leave an export-specific rows file or a staged
+	// manifest. Earlier revisions also wrote a staged rows filename.
 	abandoned := []string{
 		exportEventsFileName(uuid.Must(uuid.NewV7())),
 		legacyExportEventsFile + "." + uuid.Must(uuid.NewV7()).String() + stagedSuffix,
@@ -61,8 +58,8 @@ func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
 		t.Fatalf("the export reclaimed the rows its own manifest names: %v", statErr)
 	}
 
-	// A second export supersedes the first, so the first's rows stop being named
-	// and the same rule frees them.
+	// The second export replaces the first manifest. Cleanup must remove the first
+	// export's rows after the manifest stops selecting them.
 	secondManifest, err := Export(context.Background(), exportTestRows(t, orgID, 25, nil),
 		privateKey, "ed25519:test", exportTestFilter(orgID), dir)
 	if err != nil {
@@ -84,20 +81,18 @@ func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
 	assertDirectoryHoldsOnlyItsBundle(t, dir)
 }
 
-// TestTheReclaimSparesFilesThisExporterDidNotWrite pins the limit of the
-// reclaim rule. A bundle directory is somewhere an operator also works, and the
-// reclaim unlinks without asking, so what counts as this exporter's file has to
-// be the names it actually produces rather than the shape those names have.
+// TestTheReclaimSparesFilesThisExporterDidNotWrite checks that cleanup
+// recognizes the exact filenames the exporter produces. Operators also use
+// bundle directories, and cleanup deletes eligible files without confirmation.
 //
-// Every name in the operator group used to be reclaimed: the rule was a prefix
-// and a suffix with anything at all between them, so a file an auditor left
-// beside the bundle was deleted by the next export purely for being called
-// something of that form. Each name here is one an export cannot have written,
-// because this exporter puts the id of the export into every name it writes and
-// renders it one way.
+// An earlier predicate accepted any text between a prefix and suffix. It
+// deleted every filename in the operator group, including auditor files that
+// only resembled export output. The exporter inserts its export ID using one
+// canonical spelling; the operator examples do not match that output.
 //
-// The exporter group is the control. Without it a predicate that simply stopped
-// reclaiming anything would pass this test while breaking the reclaim.
+// The exporter group checks that cleanup still deletes genuine export files. A
+// predicate that never selected a file would otherwise pass the preservation
+// assertions.
 func TestTheReclaimSparesFilesThisExporterDidNotWrite(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
