@@ -119,8 +119,8 @@ func Tool(ctx context.Context) string {
 // The slot type determines the result:
 //
 //   - A slot from WithSlot returns the supplied actor UUID.
-//   - A slot from WithOperation returns uuid.Nil.
-//   - A context without a slot returns uuid.Nil.
+//   - A slot from WithOperation returns [uuid.Nil].
+//   - A context without a slot returns [uuid.Nil].
 func Actor(ctx context.Context) uuid.UUID {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {
@@ -137,8 +137,8 @@ func Actor(ctx context.Context) uuid.UUID {
 //
 //   - It returns an existing ID without creating another ID.
 //   - It creates and stores a UUIDv7 when the slot does not have an ID.
-//   - It returns uuid.Nil and an error if ID creation fails.
-//   - It returns uuid.Nil without an error when ctx does not have a slot.
+//   - It returns [uuid.Nil] and an error if ID creation fails.
+//   - It returns [uuid.Nil] without an error when ctx does not have a slot.
 func OperationID(ctx context.Context) (uuid.UUID, error) {
 	current, _ := ctx.Value(slotKey{}).(*slot)
 	if current == nil {
