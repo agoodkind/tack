@@ -246,10 +246,7 @@ func retentionFDBWindows(
 	windows := make(map[string]fdbRestorableVersions, len(markers))
 	for _, name := range fdbBackupNames(markers) {
 		if _, err := time.Parse("20060102T150405Z", name); err != nil {
-			return nil, fmt.Errorf(
-				"FoundationDB backup marker %q is not a timestamp run identifier",
-				name,
-			)
+			return nil, &fdbBackupMarkerError{marker: name}
 		}
 
 		window, err := retentionFDBWindow(ctx, cfg, name)
@@ -262,10 +259,7 @@ func retentionFDBWindows(
 
 	if activeName != "" {
 		if _, exists := windows[activeName]; !exists {
-			return nil, fmt.Errorf(
-				"active FoundationDB backup %q does not have a discovered marker",
-				activeName,
-			)
+			return nil, &fdbActiveBackupMarkerError{name: activeName}
 		}
 	}
 

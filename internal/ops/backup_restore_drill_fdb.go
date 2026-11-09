@@ -13,6 +13,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
+const fdbScratchClusterFileWait = 30 * time.Second
+
 // restoreDrillFDB restores the FoundationDB continuous backup from the object
 // store into a throwaway standalone cluster and asserts the keyspace is
 // non-empty. The scratch cluster uses its own data and a loopback-free
@@ -241,7 +243,7 @@ func bootScratchFDB(
 
 func waitFDBDrillRestore(
 	ctx context.Context,
-	r *restoreDrillCtx,
+	drill *restoreDrillCtx,
 	name string,
 	logger *slog.Logger,
 ) error {
@@ -249,10 +251,10 @@ func waitFDBDrillRestore(
 		ctx,
 		fdbRestoreWatch{
 			Finished: func(pollCtx context.Context) (int, bool, error) {
-				return fdbRestoreExitCode(pollCtx, r, name)
+				return fdbRestoreExitCode(pollCtx, drill, name)
 			},
 			Status: func(pollCtx context.Context) (string, error) {
-				return fdbRestoreStatusText(pollCtx, r, name)
+				return fdbRestoreStatusText(pollCtx, drill, name)
 			},
 		},
 		fdbDrillRestoreStallWindow,
@@ -263,7 +265,7 @@ func waitFDBDrillRestore(
 		wrapped := fmt.Errorf(
 			"%w; the restore's last output was: %s",
 			err,
-			fdbRestoreLogTail(ctx, r, name),
+			fdbRestoreLogTail(ctx, drill, name),
 		)
 		logger.ErrorContext(
 			ctx,
@@ -275,12 +277,11 @@ func waitFDBDrillRestore(
 	}
 
 	if exitCode != 0 {
-		wrapped := fmt.Errorf(
-			"fdbrestore exited %d after %s: %s",
-			exitCode,
-			progress.summary(),
-			fdbRestoreLogTail(ctx, r, name),
-		)
+		wrapped := &fdbRestoreExitError{
+			exitCode: exitCode,
+			progress: progress.summary(),
+			logTail:  fdbRestoreLogTail(ctx, drill, name),
+		}
 		logger.ErrorContext(
 			ctx,
 			"backup.restore_drill.fdb.failed",
@@ -350,7 +351,7 @@ func initializeScratchFDB(
 		ctx,
 		drill,
 		name,
-		30*time.Second,
+		fdbScratchClusterFileWait,
 		nil,
 		[]string{"test", "-f", "/var/fdb/fdb.cluster"},
 	); err != nil {

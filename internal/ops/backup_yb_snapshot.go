@@ -920,16 +920,14 @@ func ybSnapshotState(listOutput, snapshotID string) ybSnapshotStatus {
 
 func checkYBExportConfig(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
-		err := fmt.Errorf(
-			"yb-snapshot-export: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required",
-		)
+		err := errYBBackupSettingsMissing
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
 
 		return err
 	}
 
 	if cfg.MigratorPassword == "" {
-		err := fmt.Errorf("yb-snapshot-export: TACK_MIGRATOR_PASSWORD is required")
+		err := errYBMigratorPasswordMissing
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
 
 		return err

@@ -134,7 +134,7 @@ func retentionObjectIdentifiers(
 	identifiers := make([]s3types.ObjectIdentifier, 0, len(contents))
 	for _, object := range contents {
 		if object.Key == nil || !strings.HasPrefix(*object.Key, prefix) {
-			return nil, fmt.Errorf("retention refuses object outside ledger prefix %s", prefix)
+			return nil, &retentionPrefixError{prefix: prefix}
 		}
 
 		identifiers = append(identifiers, s3types.ObjectIdentifier{Key: object.Key})

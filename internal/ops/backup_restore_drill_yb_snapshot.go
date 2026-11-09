@@ -159,11 +159,10 @@ func importYBSnapshotMetadata(
 	}
 
 	if importRes.ExitCode != 0 {
-		wrapped := fmt.Errorf(
-			"import_snapshot exited %d: %s",
-			importRes.ExitCode,
-			strings.TrimSpace(importRes.Stderr),
-		)
+		wrapped := &ybSnapshotImportExitError{
+			exitCode: importRes.ExitCode,
+			stderr:   strings.TrimSpace(importRes.Stderr),
+		}
 		logger.ErrorContext(
 			ctx,
 			"backup.restore_drill.yb.failed",
@@ -176,11 +175,12 @@ func importYBSnapshotMetadata(
 	remaps, err := parseYBSnapshotMapping(importRes.Stdout)
 	if err != nil {
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", err.Error()))
+
 		return nil, "", err
 	}
 
 	if len(remaps) == 0 {
-		wrapped := fmt.Errorf("import_snapshot produced no tablet mapping")
+		wrapped := errYBTabletMappingMissing
 		logger.ErrorContext(
 			ctx,
 			"backup.restore_drill.yb.failed",
