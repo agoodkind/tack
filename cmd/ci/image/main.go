@@ -9,7 +9,8 @@ import (
 )
 
 func main() {
-	if err := image.NewCommand().Execute(); err != nil {
+	err := image.NewCommand().Execute()
+	if err != nil {
 		slog.Error("ci-image.failed", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
