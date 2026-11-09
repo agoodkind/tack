@@ -73,7 +73,7 @@ func gettingStartedHandler(
 // to refuse reads when required audit recording fails.
 //
 // The helper preserves an existing scope. Without an organization in that
-// scope, it uses the reader's sole organization or uuid.Nil for zero or
+// scope, it uses the reader's sole organization or [uuid.Nil] for zero or
 // several memberships. TACK-477 added that selection after resource reads
 // omitted the organization, following the auth-event rule from TACK-461.
 func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) error {
@@ -130,8 +130,8 @@ func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) err
 	return nil
 }
 
-// readerSoleOrg returns the reader's sole organization or uuid.Nil for any
-// other membership count. It also returns uuid.Nil when the resolver or
+// readerSoleOrg returns the reader's sole organization or [uuid.Nil] for any
+// other membership count. It also returns [uuid.Nil] when the resolver or
 // membership repository is missing, or when the lookup fails. A lookup
 // failure logs a warning.
 func readerSoleOrg(ctx context.Context, resolver *Resolver) uuid.UUID {

@@ -1,8 +1,8 @@
 // Package tools builds MCP tools with typed schemas and response structures.
 // The pinned mcp-go API declares ToolArgumentsSchema.Properties as
 // map[string]any. CallToolParams declares Arguments as any and RawArguments
-// as json.RawMessage. BindArguments decodes nonempty RawArguments first.
-// Otherwise it decodes json.RawMessage in Arguments, or marshals other
+// as [json.RawMessage]. BindArguments decodes nonempty RawArguments first.
+// Otherwise it decodes [json.RawMessage] in Arguments, or marshals other
 // Arguments values before decoding them. GetArguments provides access to
 // Arguments as map[string]any for compatibility and returns nil for other
 // types. Tack's schema builder creates property maps, and its argument

@@ -101,7 +101,8 @@ func (e undeclaredDefinitionError) Error() string {
 // Set refuses a new definition without Search when
 // node.EffectiveSearchProjection fails.
 //
-//   - errors.Is matches node.ErrInvalidSearchProjection through this error.
+//   - [errors.Is] matches node.ErrInvalidSearchProjection through this
+//     error.
 func (e undeclaredDefinitionError) Unwrap() error { return node.ErrInvalidSearchProjection }
 
 // unindexedReferenceError reports the rejection of a UUID reference
@@ -120,7 +121,7 @@ func (e unindexedReferenceError) Error() string {
 //
 // Set refuses UUID reference definitions that do not set Indexed.
 //
-//   - errors.Is matches domain.ErrInvalidArgument through this error.
+//   - [errors.Is] matches domain.ErrInvalidArgument through this error.
 func (e unindexedReferenceError) Unwrap() error { return domain.ErrInvalidArgument }
 
 func (s *PropertyDefStore) Get(ctx context.Context, orgID, defID uuid.UUID) (def *node.PropertyDef, err error) {
