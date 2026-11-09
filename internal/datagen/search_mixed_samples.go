@@ -13,14 +13,16 @@ import (
 
 const (
 	searchMixedSampleInterval = 2 * time.Second
-	// searchMixedNoRebuild is the sample state when FoundationDB does not record an index rebuild.
+	// searchMixedNoRebuild is the sample state when FoundationDB does not record an
+	// index rebuild.
 	searchMixedNoRebuild = "none"
-	// searchMixedRebuildFinished is the sample state after the rebuild record disappears.
+	// searchMixedRebuildFinished is the sample state after the rebuild record
+	// disappears.
 	searchMixedRebuildFinished = "finished"
 )
 
-// searchMixedCatchUpClasses returns the live, access, and cleanup classes.
-// It also returns the rescan class when metadata is true.
+// searchMixedCatchUpClasses returns the live, access, and cleanup classes. It
+// also returns the rescan class when metadata is true.
 func searchMixedCatchUpClasses(metadata bool) []searchdomain.WorkClass {
 	classes := []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup}
 	if metadata {
@@ -85,8 +87,8 @@ func (m *searchMixed) recordSample(ctx context.Context, windowStarted time.Time)
 	})
 }
 
-// rebuildProgress records the latest rebuild state and the elapsed time when a sample first
-// reports a retiring or finished rebuild.
+// rebuildProgress records the latest rebuild state and the elapsed time when a
+// sample first reports a retiring or finished rebuild.
 func rebuildProgress(rebuild SearchMixedRebuildResult, sample SearchMixedSample) SearchMixedRebuildResult {
 	if !rebuild.Requested || sample.Offset < rebuild.Started || sample.RebuildState == "" {
 		return rebuild
@@ -114,9 +116,10 @@ func (m *searchMixed) rebuildState(ctx context.Context) (string, error) {
 	return string(rebuild.State), nil
 }
 
-// catchUp waits for workers to finish live, access, and cleanup work with an enqueue time
-// at or before writesEnded. It also waits for rescan work when MetadataWrites is positive.
-// The wait ends when ctx ends or a positive CatchUp expires.
+// catchUp waits for workers to finish live, access, and cleanup work with an
+// enqueue time at or before writesEnded. It also waits for rescan work when
+// MetadataWrites is positive. The wait ends when ctx ends or a positive CatchUp
+// expires.
 func (m *searchMixed) catchUp(ctx context.Context, writesEnded time.Time) {
 	deadline := clock.Now().Add(m.options.CatchUp)
 	bounded := m.options.CatchUp > 0
@@ -150,8 +153,8 @@ func caughtUp(pending map[searchdomain.WorkClass]searchClassBacklog, writesEnded
 	return true
 }
 
-// searchMixedWorkClasses returns one entry per class that has age keys,
-// in searchdomain.ScheduledWorkClasses order.
+// searchMixedWorkClasses returns one entry per class that has age keys, in
+// searchdomain.ScheduledWorkClasses order.
 func searchMixedWorkClasses(pending map[searchdomain.WorkClass]searchClassBacklog) []SearchMixedWorkClass {
 	classes := make([]SearchMixedWorkClass, 0, len(pending))
 	for _, class := range searchdomain.ScheduledWorkClasses() {

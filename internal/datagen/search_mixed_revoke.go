@@ -20,7 +20,8 @@ const (
 	revokedRoundCalls = 3
 )
 
-// revokedSearchOutcome is the server's answer to one search call after membership removal.
+// revokedSearchOutcome is the server's answer to one search call after
+// membership removal.
 type revokedSearchOutcome int
 
 const (
@@ -34,9 +35,10 @@ const (
 
 var errSearchMixedNoContinuation = errors.New("qa datagen search-mixed: the member session did not return a continuation cursor")
 
-// checkRevocation opens a read word session as a member of the first tenant and reads two pages.
-// It removes the membership and retries the continuation, second page replay, and new search
-// to check whether the server refuses them. It then restores the membership with its original role.
+// checkRevocation opens a read word session as a member of the first tenant and
+// reads two pages. It removes the membership and retries continuation,
+// second-page replay, and a new search to check refusal. It then restores
+// membership with the original role.
 func (m *searchMixed) checkRevocation(ctx context.Context) error {
 	workspace := m.tenants[0].workspace
 	actor := workspace.Actors[revokedActorIndex]
@@ -68,10 +70,10 @@ func (m *searchMixed) checkRevocation(ctx context.Context) error {
 	return checkErr
 }
 
-// revokedCursors stores the session cursors of the revocation check. continuation is the latest
-// cursor that the session returned, and it is empty after the session completes. replay is the
-// cursor that produced the latest committed page, because the session keeps a replay record for
-// that page only.
+// revokedCursors stores the session cursors for the revocation check.
+// continuation stores the latest returned cursor and becomes empty when the
+// session completes. replay stores the cursor that produced the latest
+// committed page. The session retains a replay record for only that page.
 type revokedCursors struct {
 	continuation string
 	replay       string
@@ -83,8 +85,8 @@ type revokedCall struct {
 	cursor string
 }
 
-// kinds returns the continuation, the replay, and the new search of one round. It omits the
-// continuation after the session completes.
+// kinds returns the continuation, the replay, and the new search of one round.
+// It omits the continuation after the session completes.
 func (c revokedCursors) kinds() []string {
 	kinds := make([]string, 0, revokedRoundCalls)
 	if c.continuation != "" {
@@ -93,7 +95,8 @@ func (c revokedCursors) kinds() []string {
 	return append(kinds, revokedCursorReplay, revokedCursorNewSearch)
 }
 
-// call returns the search of kind with its current cursor. A new search has no cursor.
+// call returns the search of kind with its current cursor. A new search does
+// not use a cursor.
 func (c revokedCursors) call(kind string) revokedCall {
 	cursor := ""
 	if kind == revokedCursorContinuation {
@@ -105,14 +108,17 @@ func (c revokedCursors) call(kind string) revokedCall {
 	return revokedCall{kind: kind, cursor: cursor}
 }
 
-// awaitRefusal retries the continuation, the replay, and a new search until the server refuses
-// every call of a round or the time since membership removal exceeds the cache lifetime plus the
-// convergence deadline. It allows pages from requests that start within the cache lifetime after
-// membership removal. It counts issues from requests that start after that lifetime. An
-// unavailable call counts as unavailable, not as a page, and keeps the round from counting as
-// refused. An answered continuation advances the session. Its cursor becomes the replay cursor
-// for the next call, including the replay of the same round, and the cursor it returned becomes
-// the continuation cursor.
+// awaitRefusal retries continuation, replay, and a new search until the server
+// refuses every call in a round or the cache lifetime plus the convergence
+// deadline expires after membership removal.
+//
+// Requests that start within the cache lifetime may return pages. The check
+// counts issues from requests that start after that lifetime. An unavailable
+// response increments the unavailable count and prevents a refused round.
+//
+// An answered continuation advances the session. Its input cursor becomes the
+// replay cursor, including for replay in the same round. The returned cursor
+// becomes the continuation cursor.
 func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSession, cursors revokedCursors, removed time.Time) (SearchMixedRevocation, error) {
 	lifetime := m.cfg.AuthMembershipCacheLifetime
 	deadline := removed.Add(lifetime + searchConvergenceDeadline)
@@ -160,9 +166,9 @@ func (m *searchMixed) awaitRefusal(ctx context.Context, session searchMixedSessi
 }
 
 // revokedSearch uses driver number to request call from session and resolve
-// results for its tenant. It classifies the response as a page, an authorization
-// refusal, or search unavailability. It reports every other error with the
-// call's position in the round.
+// results for its tenant. It classifies the response as a page, an
+// authorization refusal, or search unavailability. It reports every other error
+// with the call's position in the round.
 func (m *searchMixed) revokedSearch(ctx context.Context, session searchMixedSession, number, position int, call revokedCall) (revokedSearchOutcome, searchPage, error) {
 	driver := m.driver(number)
 	page, err := callSearch(ctx, driver, m.identities(session.tenant, driver), session.token, session.entry, session.query, call.cursor)

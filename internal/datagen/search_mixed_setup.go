@@ -10,13 +10,14 @@ import (
 	"goodkind.io/tack/internal/runtime"
 )
 
-// searchMixedMinimumTenants is the number of organizations that the tenant isolation checks need.
+// searchMixedMinimumTenants is the number of organizations that the tenant
+// isolation checks need.
 const searchMixedMinimumTenants = 2
 
-// newSearchMixed opens the stores and readers, bootstraps the tenants, builds one driver per
-// endpoint, creates the tenant projects and the search corpus, and builds the search loads.
-// The corpus index waits end when stopContext ends and record each completed wait in corpusIndex.
-// Every call uses ctx.
+// newSearchMixed opens stores and readers, bootstraps tenants, builds one
+// driver per endpoint, creates tenant projects and the search corpus, and
+// builds search loads. The corpus index waits end when stopContext ends and
+// record completed waits in corpusIndex. Every call uses ctx.
 func newSearchMixed(
 	stopContext, ctx context.Context, cfg *config.Config, options SearchMixedOptions, plannedSearches int,
 	corpusIndex *searchMixedCorpusIndex,
@@ -112,8 +113,8 @@ func (m *searchMixed) prepare(stopContext, ctx context.Context, plannedSearches 
 	return m.newSearchMixedLoads(ctx, plannedSearches)
 }
 
-// searchMixedDrivers returns one remote driver per endpoint. It returns one in-process driver
-// when the run does not specify endpoints.
+// searchMixedDrivers returns one remote driver per endpoint. It returns one
+// in-process driver when the run does not specify endpoints.
 func searchMixedDrivers(ctx context.Context, graph *runtime.Graph, options SearchMixedOptions) ([]*Driver, error) {
 	if len(options.Endpoints) == 0 {
 		return []*Driver{NewDriver(graph, false, options.Seed)}, nil

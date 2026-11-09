@@ -23,15 +23,21 @@ var (
 	errSearchMixedPanic      = errors.New("qa datagen search-mixed: a workload goroutine panicked")
 )
 
-// run starts sampling, searches, workload phases, and scheduled writes.
-// After the searches, phases, and writes finish, it waits for search work to finish
-// unless its schedule context has ended. Freshness probes search for markers during this wait.
-// It then waits until all probe checks settle, the next pass that starts after drain starts
-// finishes, or its schedule context ends. drain then cancels probing and waits for the prober.
-// If a workload phase returns an error or panics, run cancels its schedule context.
-// The cancellation stops search loads and scheduled writes.
-// run skips the catch-up wait, and drain ends its probe wait at the next poll.
-// run calls drain to cancel the probe context and wait for the prober, then closes stopSampler and waits for the sampler, then returns the summary and the joined phase and panic errors.
+// run starts sampling, searches, workload phases, and scheduled writes. After
+// searches, phases, and writes finish, it waits for search work unless the
+// schedule context has ended. Freshness probes search for markers during that
+// wait.
+//
+// drain waits until all checks settle, the first pass that starts after drain
+// begins finishes, or the schedule context ends. It then cancels probing and
+// waits for the prober.
+//
+// A workload phase error or panic cancels the schedule context. Cancellation
+// stops search loads and scheduled writes, skips catch-up, and ends drain's
+// probe wait at its next poll.
+//
+// After drain returns, run closes stopSampler and waits for the sampler. It
+// returns the summary and joined phase and panic errors.
 func (m *searchMixed) run(parentSchedule, callContext context.Context, plannedWrites int) (SearchMixedSummary, error) {
 	scheduleContext, stopSchedule := context.WithCancel(parentSchedule)
 	defer stopSchedule()

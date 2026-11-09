@@ -15,13 +15,14 @@ import (
 const (
 	// searchMixedRetryLimit bounds the retries of one phase read.
 	searchMixedRetryLimit = time.Minute
-	// foundationDBTimedOut is the FoundationDB error code of a read that
-	// outlasts its transaction timeout.
+	// foundationDBTimedOut is the FoundationDB error code of a read that outlasts
+	// its transaction timeout.
 	foundationDBTimedOut = 1031
 )
 
-// retryTimedOutRead repeats read of nodeID after a FoundationDB timeout until
-// searchMixedRetryLimit ends or ctx ends. It returns every other error at once.
+// retryTimedOutRead retries read after a FoundationDB timeout until
+// searchMixedRetryLimit expires or ctx ends. It returns other errors without
+// retrying and uses nodeID in retry logs.
 func retryTimedOutRead(ctx context.Context, nodeID uuid.UUID, read func() error) error {
 	deadline := clock.Now().Add(searchMixedRetryLimit)
 	for {

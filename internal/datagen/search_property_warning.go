@@ -13,18 +13,21 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// warningSearchOrder places the warning property after the included and excluded properties.
+// warningSearchOrder places the warning property after the included and
+// excluded properties.
 const warningSearchOrder = 2
 
-// warningPhrases stores the warning node name and the valid and invalid text from the fixture JSON.
+// warningPhrases stores the warning node name and the valid and invalid text
+// from the fixture JSON.
 type warningPhrases struct {
 	Name    string `json:"name"`
 	Valid   string `json:"valid"`
 	Invalid string `json:"invalid"`
 }
 
-// SearchWarningCase reports the verified warning for a node value with an inapplicable
-// property. The verification deletes the node after it verifies the warning.
+// SearchWarningCase reports the verified warning for a node value with an
+// inapplicable property. The verification deletes the node after it verifies
+// the warning.
 type SearchWarningCase struct {
 	NodeID        uuid.UUID `json:"node_id"`
 	PropertyName  string    `json:"property_name"`
@@ -33,11 +36,14 @@ type SearchWarningCase struct {
 	Revision      string    `json:"revision"`
 }
 
-// verifyPropertyWarning makes a stored property inapplicable and checks that the serving
-// index omits its text and FoundationDB lists its warning. It also checks that tack_search
-// returns the node for its name and valid property text. It then deletes the node, which
-// strict validation rejects while it stores the inapplicable property, and returns the
-// warning case. When a check fails, it still deletes the node and returns both errors.
+// verifyPropertyWarning makes a stored property inapplicable and checks that
+// the serving index omits its text and FoundationDB lists its warning. It also
+// checks that tack_search returns the node for its name and valid property
+// text.
+//
+// The check then deletes the node and returns the warning case. Strict
+// validation rejects the node while it stores the inapplicable property. When
+// observation fails, the check attempts deletion and returns both errors.
 func (r searchRun) verifyPropertyWarning(ctx context.Context) (SearchWarningCase, error) {
 	phrases := r.phrases.Warning
 	definition := searchDefinition(r.fixture.orgID, opaqueKey("p"), true, warningSearchOrder)
@@ -62,8 +68,9 @@ func (r searchRun) verifyPropertyWarning(ctx context.Context) (SearchWarningCase
 	return warningCase, nil
 }
 
-// observeWarning restricts the definition to a feature that the node type lacks and checks
-// the serving index, the warning listing, and the node's remaining search text.
+// observeWarning restricts the definition to a feature that the node type lacks
+// and checks the serving index, the warning listing, and the node's remaining
+// search text.
 func (r searchRun) observeWarning(ctx context.Context, nodeID uuid.UUID, definition *node.PropertyDef) (SearchWarningCase, error) {
 	phrases := r.phrases.Warning
 	if err := r.eventually(ctx, "find property text before restricting the property to a feature", func(ctx context.Context) error {
@@ -109,9 +116,10 @@ func (r searchRun) observeWarning(ctx context.Context, nodeID uuid.UUID, definit
 	}, nil
 }
 
-// listedWarning searches the warning listing for the node and property and requires
-// inapplicable_property and the expected definition ID. It returns an error if the
-// listing does not contain the warning or either value differs from the expected value.
+// listedWarning searches the warning listing for the node and property and
+// requires inapplicable_property and the expected definition ID. It returns an
+// error if the listing does not contain the warning or either value differs
+// from the expected value.
 func (r searchRun) listedWarning(ctx context.Context, nodeID uuid.UUID, definition *node.PropertyDef) (node.PropertyDiagnostic, error) {
 	cursor := ""
 	for {

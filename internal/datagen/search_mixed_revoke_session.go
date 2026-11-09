@@ -2,9 +2,9 @@ package datagen
 
 import "context"
 
-// openRevokedSession reads the first two pages of the member search session.
-// It returns the count of unavailable responses encountered while retrying those page requests,
-// even when a request fails or a page does not return a continuation cursor.
+// openRevokedSession reads the first two pages of the member search session. It
+// returns the count of unavailable responses during retries, including when a
+// request fails or either page omits a continuation cursor.
 func (m *searchMixed) openRevokedSession(ctx context.Context, session searchMixedSession) (searchPage, searchPage, int, error) {
 	tally := searchMixedTally{}
 	first, err := m.page(ctx, session, 0, "", &tally)

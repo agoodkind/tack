@@ -9,8 +9,14 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// Verify returns an error for each correctness check that the run failed. It returns nil when
-// every check passed.
+// Verify returns the errors for failed correctness checks, or nil when every
+// check passes.
+//
+// Verify logs joined failures with ctx. The stopReason argument explains a
+// stopped run in the returned error.
+//
+//   - Deleted results and session violations fail verification.
+//   - A failed rebuild also fails verification.
 func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error {
 	failures := make([]error, 0)
 	add := func(failed bool, format string, value int) {
@@ -30,12 +36,15 @@ func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error
 	if s.Rebuild.FinalState == string(searchdomain.RebuildFailed) {
 		failures = append(failures, errors.New("the index rebuild failed"))
 	}
-	// Verify skips these checks for a dry run. For every other stopped run, it reports the stop
-	// reason, whether the run stopped during setup or during the measured window.
-	// For measured runs that finish, Verify rejects incomplete catch-up, markers that search
-	// did not return, and deletions that the prober could not verify.
-	// For every measured run, stopped or finished, Verify also rejects markers that the final
-	// probe pass did not search successfully.
+	// Verify reports stopReason for a stopped run outside dry-run mode, whether
+	// setup or the measured window stopped.
+	//
+	// For a measured run that finishes, Verify rejects incomplete catch-up, markers
+	// that search did not return, and deletions that probing could not verify. It
+	// also checks metadata changes and moves.
+	//
+	// For every measured run, Verify rejects markers that the final probe pass did
+	// not search successfully.
 	if s.Stopped && !s.Search.DryRun {
 		failures = append(failures, fmt.Errorf("run stopped with reason %s; the measured window did not run or did not finish", stopReason))
 	} else if s.Measured {
@@ -60,8 +69,8 @@ func (s SearchMixedSummary) Verify(ctx context.Context, stopReason string) error
 }
 
 // SearchMixedChanges reports planned and committed metadata changes and moves.
-// It also reports counts for active page text checks before metadata changes and metadata
-// and move checks still pending when probing stops.
+// It also reports counts for active page text checks before metadata changes
+// and metadata and move checks still pending when probing stops.
 type SearchMixedChanges struct {
 	MetadataPlanned  int
 	MetadataChanges  int
@@ -69,20 +78,23 @@ type SearchMixedChanges struct {
 	MovesPlanned     int
 	Moves            int
 	MovesUnverified  int
-	// MetadataAbsentBefore counts checks that read at least one active page from the serving
-	// index before the metadata change and do not find the excluded property value in any page text.
+	// MetadataAbsentBefore counts checks that read at least one active page from
+	// the serving index before the metadata change and do not find the excluded
+	// property value in any page text.
 	MetadataAbsentBefore int
-	// MetadataPresentBefore counts checks that find the excluded property value in active page
-	// text from the serving index before the metadata change.
+	// MetadataPresentBefore counts checks that find the excluded property value in
+	// active page text from the serving index before the metadata change.
 	MetadataPresentBefore int
-	// MetadataUncheckedBefore counts checks that fail to read active pages from the serving
-	// index or find that the issue does not have any active pages before the metadata change.
+	// MetadataUncheckedBefore counts checks that fail to read active pages from the
+	// serving index or find that the issue does not have any active pages before
+	// the metadata change.
 	MetadataUncheckedBefore int
 }
 
-// failures returns errors when the run commits fewer metadata changes or moves than planned,
-// when active page text contains an excluded value before its metadata change, or when a
-// metadata or move check remains pending when probing stops.
+// failures returns errors when the run commits fewer metadata changes or moves
+// than planned, when active page text contains an excluded value before its
+// metadata change, or when a metadata or move check remains pending when
+// probing stops.
 func (c SearchMixedChanges) failures() []error {
 	failures := make([]error, 0)
 	if c.MetadataChanges < c.MetadataPlanned {

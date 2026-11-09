@@ -20,7 +20,8 @@ type searchMixedNode struct {
 	metadata map[string]string
 }
 
-// newSearchMixedMarker returns a marker word: k followed by 12 random hexadecimal characters.
+// newSearchMixedMarker returns a marker word: k followed by 12 random
+// hexadecimal characters.
 func newSearchMixedMarker() string {
 	return opaqueKey(searchMixedMarkerLabel)
 }
@@ -63,7 +64,8 @@ func (m *searchMixed) writeFailed(ctx context.Context, event string, err error) 
 	m.stats.count(&m.stats.writeErrors)
 }
 
-// committedAt reads the update time that FoundationDB stores for nodeID after a write.
+// committedAt reads the update time that FoundationDB stores for nodeID after a
+// write.
 func (m *searchMixed) committedAt(ctx context.Context, nodeID uuid.UUID) (time.Time, error) {
 	view, err := m.stores.Views.Get(ctx, nodeID)
 	if err != nil {
@@ -166,7 +168,8 @@ func (m *searchMixed) forgetAbsent(ctx context.Context, node *searchMixedNode) {
 	}
 }
 
-// deleteNode deletes one issue of one tenant through a public call and records its ID.
+// deleteNode deletes one issue of one tenant through a public call and records
+// its ID.
 func (m *searchMixed) deleteNode(ctx context.Context, index, tenant int, nodeID uuid.UUID) error {
 	owner := m.tenants[tenant]
 	_, err := m.driver(index).Call(ctx, owner.token(), "tack_delete_issue", ToolArguments{
@@ -185,7 +188,8 @@ func (m *searchMixed) deleteNode(ctx context.Context, index, tenant int, nodeID 
 	return nil
 }
 
-// deletedBefore reports whether a public delete of nodeID returned before moment.
+// deletedBefore reports whether a public delete of nodeID returned before
+// moment.
 func (m *searchMixed) deletedBefore(nodeID uuid.UUID, moment time.Time) bool {
 	m.nodeMutex.Lock()
 	defer m.nodeMutex.Unlock()

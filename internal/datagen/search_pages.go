@@ -19,8 +19,8 @@ type searchPage struct {
 	ResponseBytes int
 }
 
-// searchLimits are the public per-response bounds a traversal enforces and
-// the idle timeout of a search session.
+// searchLimits stores the public per-response bounds that traversal enforces
+// and the search session idle timeout.
 type searchLimits struct {
 	MaxResults, MaxResponseBytes int
 	IdleTimeout                  time.Duration
@@ -69,7 +69,8 @@ func traverseSearch(ctx context.Context, driver *Driver, identities SearchIdenti
 	})
 }
 
-// traversePages is traverseSearch with request as the page request for each cursor.
+// traversePages traverses results with request as the page request for each
+// cursor. It applies the same checks as traverseSearch.
 func traversePages(query string, limits searchLimits, request func(cursor string) (searchPage, error)) ([]uuid.UUID, error) {
 	seen := make(map[uuid.UUID]struct{})
 	cursors := make(map[string]struct{})

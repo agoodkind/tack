@@ -36,8 +36,8 @@ func (m *searchMixed) titleFixture(tenant int) searchFixture {
 	}
 }
 
-// identities resolves results with driver using the tenant's token, entry,
-// and organization.
+// identities resolves results with driver using the tenant's token, entry, and
+// organization.
 func (m *searchMixed) identities(tenant int, driver *Driver) SearchIdentities {
 	owner := m.tenants[tenant]
 	return m.titleFixture(tenant).identities(driver, owner.token(), owner.entry())

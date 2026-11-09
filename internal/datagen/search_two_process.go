@@ -25,6 +25,14 @@ const (
 // VerifySearchTwoProcess resolves search results to node IDs and checks
 // continuation, replay, and membership revocation across two remote Tack
 // processes in an isolated organization.
+//
+// The target must allow data generation and public search. The check creates
+// its corpus and compares a single-endpoint traversal with alternating
+// endpoints before replay and revocation checks.
+//
+//   - Alternating endpoints must preserve result order.
+//   - Replaying a continuation must preserve IDs and the next cursor.
+//   - Both endpoints must refuse the removed member before restoration.
 func VerifySearchTwoProcess(ctx context.Context, cfg *config.Config, endpoints []string, client *http.Client) error {
 	if len(endpoints) != twoProcessEndpointCount {
 		return loggedError(ctx, "qa datagen: verify two-process search", fmt.Errorf("got %d endpoints, want %d", len(endpoints), twoProcessEndpointCount))

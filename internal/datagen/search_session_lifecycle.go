@@ -13,20 +13,19 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// sessionSweepMargin follows the end of the expiry minute of the abandoned
-// session before the search that sweeps it.
+// sessionSweepMargin adds a delay after the abandoned session's expiry minute
+// before the search that sweeps it.
 const sessionSweepMargin = time.Second
 
 const searchSessionExpiredResponse = "#### Request could not be completed\n\n" +
 	"- Problem: the search cursor expired\n\n" +
 	"Next step: Start a new search without the `cursor` parameter."
 
-// verifySessionLifecycle runs every search session writer on the target.
-// It traverses one session to completion and abandons a second session.
-// After the abandoned session's expiry minute, it runs new searches until
-// a sweep removes the header. It requires the cursor to return the same
-// expired-session response for expired and absent sessions. It returns
-// the abandoned session ID for the caller to check the ledger.
+// verifySessionLifecycle exercises search session writes on the target. It
+// completes one session and abandons another. After the abandoned session's
+// expiry minute, it repeats new searches until a sweep removes the header. It
+// requires the expired-session response for the abandoned cursor after removal
+// and returns the session ID for a ledger check.
 func (r searchRun) verifySessionLifecycle(ctx context.Context, cursors *tools.SearchCursorCodec) (uuid.UUID, error) {
 	query := r.phrases.Continuation
 	if _, err := traverseSearch(ctx, r.driver, r.identities(), r.token, r.entry, query, r.limits); err != nil {
@@ -56,10 +55,10 @@ func (r searchRun) verifySessionLifecycle(ctx context.Context, cursors *tools.Se
 	return sessionID, r.requireExpiredSession(ctx, query, abandoned.Cursor)
 }
 
-// sweepAbandonedSession runs one new search and requires the session
-// header to be absent afterward. Each new search sweeps at most two
-// expired sessions. Sessions from earlier searches in the run can use
-// that limit first.
+// sweepAbandonedSession completes a new search and requires the abandoned
+// session header to be absent afterward. Each new search sweeps at most two
+// expired sessions. Earlier searches in the run may have created sessions that
+// use that limit first.
 func (r searchRun) sweepAbandonedSession(ctx context.Context, query string, sessionID uuid.UUID) error {
 	if _, err := traverseSearch(ctx, r.driver, r.identities(), r.token, r.entry, query, r.limits); err != nil {
 		return err

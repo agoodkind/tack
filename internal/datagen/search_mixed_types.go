@@ -2,8 +2,8 @@ package datagen
 
 import "time"
 
-// SearchMixedBurst reports the ingestion burst that creates issues back to back during the
-// search load.
+// SearchMixedBurst reports the ingestion burst that creates issues
+// consecutively during the search load.
 type SearchMixedBurst struct {
 	Planned int
 	Created int
@@ -12,19 +12,20 @@ type SearchMixedBurst struct {
 	Elapsed time.Duration
 }
 
-// SearchMixedSessions reports search sessions that alternate pages between endpoints.
+// SearchMixedSessions reports search sessions that alternate pages between
+// endpoints.
 type SearchMixedSessions struct {
 	Checks               int `json:"checks"`
 	Pages                int `json:"pages"`
 	Replays              int `json:"replays"`
 	Endpoints            int `json:"endpoints"`
-	// Unavailable counts the unavailable responses that the session checks repeated.
-	// A first page that stays unavailable after searchConvergenceDeadline also counts as a
-	// continuation error.
+	// Unavailable counts the unavailable responses that the session checks
+	// repeated. A first page that stays unavailable after searchConvergenceDeadline
+	// also counts as a continuation error.
 	Unavailable          int `json:"unavailable"`
-	// ExpiredDuringOutage counts continued pages that still returned the unavailable response
-	// when the session idle timeout prevented another retry. Session checks do not count
-	// these pages as continuation errors.
+	// ExpiredDuringOutage counts continued pages that still returned the
+	// unavailable response when the session idle timeout prevented another retry.
+	// Session checks do not count these pages as continuation errors.
 	ExpiredDuringOutage  int `json:"expired_during_outage"`
 	ContinuationErrors   int `json:"continuation_errors"`
 	MissingCorpusIssues  int `json:"missing_corpus_issues"`
@@ -33,17 +34,19 @@ type SearchMixedSessions struct {
 	DeletedNodesReturned int `json:"deleted_nodes_returned"`
 }
 
-// SearchMixedPending reports deletion checks and whether deletion work remained pending.
+// SearchMixedPending reports deletion checks and whether deletion work remained
+// pending.
 type SearchMixedPending struct {
 	Checks          int `json:"checks"`
 	PendingObserved int `json:"pending_observed"`
-	// Unavailable counts the unavailable responses that the deletion check repeated, including
-	// the responses of a check that failed.
+	// Unavailable counts the unavailable responses that the deletion check
+	// repeated, including the responses of a check that failed.
 	Unavailable          int `json:"unavailable"`
 	DeletedNodesReturned int `json:"deleted_nodes_returned"`
 }
 
-// SearchMixedRevocation reports search checks after the run removes a member from an organization.
+// SearchMixedRevocation reports search checks after the run removes a member
+// from an organization.
 type SearchMixedRevocation struct {
 	Checks                    int
 	PagesWithinCacheLifetime  int
@@ -63,58 +66,63 @@ type SearchMixedRebuildResult struct {
 	FinalState  string
 }
 
-// SearchMixedCatchUp reports the wait for search work still pending after writes and phases end.
+// SearchMixedCatchUp reports the wait for search work still pending after
+// writes and phases end.
 type SearchMixedCatchUp struct {
 	Completed bool
 	Elapsed   time.Duration
-	// DrainedAfter is the time from the end of writes to the first reading without pending work
-	// with an enqueue time at or before the end of writes. It is zero when Completed is false.
+	// DrainedAfter measures the time from the end of writes to the first read that
+	// does not find pending work enqueued at or before the end of writes. It is
+	// zero when Completed is false.
 	DrainedAfter time.Duration
 }
 
-// SearchMixedSample is one reading of pending search work, the rebuild state, the OpenSearch
-// nodes, and the FoundationDB cluster health.
+// SearchMixedSample is one reading of pending search work, the rebuild state,
+// the OpenSearch nodes, and the FoundationDB cluster health.
 type SearchMixedSample struct {
 	Offset            time.Duration
 	OldestPendingWork time.Duration
 	OldestClass       string
-	// WorkClasses lists classes that have age keys and omits classes without age keys.
-	// It is nil when the pending work read fails.
+	// WorkClasses lists classes that have age keys and omits classes without age
+	// keys. It is nil when the pending work read fails.
 	WorkClasses       []SearchMixedWorkClass
 	RebuildState      string
 	Nodes             []SearchMixedNodeResources
 	Error             string
-	// FoundationDB is nil when the status read fails. FoundationDBError is the read failure.
+	// FoundationDB is nil when the status read fails. FoundationDBError is the read
+	// failure.
 	FoundationDB      *SearchMixedFoundationDB
 	FoundationDBError string
 }
 
-// SearchMixedWorkClass reports one class's count of buckets with age keys
-// and the work record state for its oldest age key in one sample.
+// SearchMixedWorkClass reports one class's count of buckets with age keys and
+// the work record state for its oldest age key in one sample.
 type SearchMixedWorkClass struct {
 	Class string `json:"class"`
 	// NonemptyBuckets counts the class's buckets that contain at least one age key.
 	NonemptyBuckets int `json:"nonempty_buckets"`
-	// OldestRecord reports the work record state for the class's oldest age key:
-	// live, missing, or superseded.
+	// OldestRecord reports whether the class's oldest age key has a live, missing,
+	// or superseded work record.
 	OldestRecord SearchMixedOldestRecord `json:"oldest_record"`
 }
 
-// SearchMixedOldestRecord is the state of the work record with the same class, bucket,
-// organization, and node as an age key.
+// SearchMixedOldestRecord is the state of the work record with the same class,
+// bucket, organization, and node as an age key.
 type SearchMixedOldestRecord string
 
 const (
-	// SearchMixedOldestRecordLive means the work record exists and stores the age key's enqueue time.
+	// SearchMixedOldestRecordLive means the work record exists and stores the age
+	// key's enqueue time.
 	SearchMixedOldestRecordLive SearchMixedOldestRecord = "live"
 	// SearchMixedOldestRecordMissing means the work record does not exist.
 	SearchMixedOldestRecordMissing SearchMixedOldestRecord = "missing"
-	// SearchMixedOldestRecordSuperseded means the work record exists
-	// and stores a different enqueue time than the age key.
+	// SearchMixedOldestRecordSuperseded means the work record exists and stores a
+	// different enqueue time than the age key.
 	SearchMixedOldestRecordSuperseded SearchMixedOldestRecord = "superseded"
 )
 
-// SearchMixedNodeResources is one OpenSearch node reading from the node statistics API.
+// SearchMixedNodeResources is one OpenSearch node reading from the node
+// statistics API.
 type SearchMixedNodeResources struct {
 	Name               string `json:"name"`
 	CPUPercent         int    `json:"cpu_percent"`

@@ -13,7 +13,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// searchMixedNodeMetrics limits each OpenSearch request to these statistics groups.
+// searchMixedNodeMetrics limits each OpenSearch request to these statistics
+// groups.
 var searchMixedNodeMetrics = []string{"os", "process", "jvm", "fs"}
 
 type searchMixedNodeStats struct {
@@ -64,8 +65,8 @@ type searchMixedDiskStat struct {
 	Available int64 `json:"available_in_bytes"`
 }
 
-// searchMixedResources reads OpenSearch node statistics with the configured search endpoint,
-// CA, and credentials.
+// searchMixedResources reads OpenSearch node statistics with the configured
+// search endpoint, certificate authority (CA), and credentials.
 type searchMixedResources struct {
 	client *opensearch.Client
 }

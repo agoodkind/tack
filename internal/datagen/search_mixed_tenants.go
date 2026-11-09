@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// searchMixedScale selects the identity scale for bootstrapping two organizations.
-// The workload uses the first workspace of each organization.
+// searchMixedScale selects the identity scale for bootstrapping two
+// organizations. The workload uses the first workspace of each organization.
 const searchMixedScale = "medium"
 
 type searchMixedTenant struct {
@@ -59,8 +59,8 @@ func (m *searchMixed) createProjects(ctx context.Context) error {
 	return nil
 }
 
-// newSearchMixedLoads splits the offered rate and concurrency across the tenants. Every load
-// records into one shared statistics object.
+// newSearchMixedLoads splits the offered rate and concurrency across the
+// tenants. Every load records into one shared statistics object.
 func (m *searchMixed) newSearchMixedLoads(ctx context.Context, plannedSearches int) error {
 	count := len(m.tenants)
 	for index, tenant := range m.tenants {
