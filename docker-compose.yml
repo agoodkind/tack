@@ -189,7 +189,7 @@ services:
     # address lookup and tries each result. Earlier notes recorded that
     # the PR had remained open since July 2024 without progress. Keep
     # the local overlay until upstream supplies the fix. Refresh the overlay
-    # on each image change using [YugabyteDB on the IPv6-only bridge](AGENTS.md#yugabytedb-on-the-ipv6-only-bridge).
+    # on each image change using [Update the YugabyteDB image](docs/runbooks/deployment/update-yugabyte-image.md).
     # The x-yugabyte-image anchor sets the tag.
     image: *yugabyte_image
     entrypoint: ["/sbin/tini", "--", "/usr/bin/env", "bash", "/opt/tack/yugabyte-entrypoint.sh"]
