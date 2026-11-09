@@ -126,8 +126,7 @@ func (environment acceptanceEnvironment) importID() string {
 	return fmt.Sprintf("%s/%d:%s", environment.node, environment.vmid, environment.installDir)
 }
 
-// secret returns the part of the acceptanceEnvironment API token after the
-// first =. Credential checks search for this value.
+// Credential checks use this value to detect API token exposure.
 func (environment acceptanceEnvironment) secret() string {
 	_, secret, _ := strings.Cut(environment.token, "=")
 	return secret
