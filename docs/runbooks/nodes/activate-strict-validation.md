@@ -18,7 +18,7 @@ Activation applies to every organization in the FoundationDB cluster. It makes o
    | `OPERATOR_NAME` | `--operator-name` |
    | `OPERATOR_SESSION` | `--operator-session` |
 
-3. On each guest running `app`, preview image verification and inspect the printed identity. The example checks both services. On an app-only guest append `--service app` to both verification commands.
+3. On each guest running `app`, preview image verification and inspect the printed identity. The example checks both services. On an app-only guest, append `--service app` to the preview command in step 3 and the execution command in step 4.
 
    ```bash
    docker compose run --rm -T tack-ops \

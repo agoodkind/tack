@@ -56,7 +56,11 @@ not the production signing key.
 
 A consistent restored hash chain does not prove that the backup contains every
 source row. Losing the newest rows can leave the remaining chain consistent.
-Source counts or a known write sequence provide separate completeness evidence.
+Either of these checks provides separate evidence of backup completeness:
+
+- Source counts provide a basis for comparison.
+- A known write sequence provides a basis for comparison.
+
 Recovery must preserve `audit.chain_heads`, the per-organization and per-shard
 values that subsequent audit writes use to continue each chain.
 

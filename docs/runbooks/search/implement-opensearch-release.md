@@ -32,7 +32,7 @@ Use this procedure for a reviewed search release. An infrastructure apply, appli
 3. Review and commit the QA `OPENSEARCH_PUBLIC_ENABLED` activation through Configs. Deploy the exact validated revision and configuration. Record running app and audit-consumer digests and the search image separately.
 4. Run public relevance, final-page, edit, shorter-value, deletion, pre-ranking permission, final FoundationDB authorization, replay, and complete-continuation checks. Run guarded datagen and inspect permanent audit evidence. A successful health check or verification command does not replace these observations.
 5. Stop the QA search guest during source writes. Require committed source mutations, explicit public outage, and pending durable work. Restart the guest. Allow five minutes for engine and model readiness, then require the public query to return the node committed during the outage within ten seconds, without another edit or rebuild. Preserve the first public error and distinguish it from later diagnostics.
-6. Measure search-only and mixed workloads under every accepted offered rate. Apply documented product thresholds and the QA stop conditions.
+6. Measure search-only and mixed workloads under every accepted offered rate. Apply the capacity criteria already linked in the QA prerequisites, including declared inputs, the search-only baseline at the same offered rate, stopping conditions, and an explicit record of missing product thresholds.
 
    Preserve the inputs and measurements for each workload.
 
@@ -40,9 +40,7 @@ Use this procedure for a reviewed search release. An infrastructure apply, appli
 
    | Category | Required evidence |
    | --- | --- |
-   | Inputs | Workload inputs. |
    | Scenarios | Bulk import, permission changes, rebuilding, a two-process continuation, outage, and catch-up. |
-   | Comparison | Baseline variation. |
    | Results | Latency, errors, committed writes, freshness, and work age. |
    | Resources and stopping | Host and guest memory, CPU, disk, and stop telemetry. |
 7. Alternate requests between two actual Tack processes. Require exact continuation, replay, current permission checks, and cleanup without sticky routing. Record the independent two-process throughput comparison and its machine limits. A single OpenSearch guest does not establish node failover.

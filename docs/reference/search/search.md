@@ -27,7 +27,12 @@ Confirmation limits:
 
 A `More` line reports omitted changes and identifies the generated get tool for the full node.
 
-Workspace descriptions summarize direct children by metadata type. The description reads one page of up to 100 direct children per type. A trailing plus indicates additional children. Collection output prints a node name once when that name supplies its displayed identity.
+Workspace descriptions summarize direct children by metadata type.
+
+- The description reads one page of up to 100 direct children per type.
+- A trailing plus indicates additional children.
+
+Collection output prints a node name once when that name supplies its displayed identity.
 
 Successful MCP text uses a 32 KiB cap plus its truncation notice. Paged rendering reserves room for continuation. A truncated single-node response omits part of the node. `TestGetIssueCapsHugeDescription` checks truncation across public tools and the storage boundary.
 
@@ -45,20 +50,69 @@ The test creates the issue within FoundationDB's value limit. It passes the retu
 
 Every command uses shared operator identity, execution gating, audit recording, and result output. This reference does not authorize live operations.
 
-The following commands operate on search.
+### Provisioning
 
-Search commands:
+`ops search provision` validates metadata and topology, provisions the model, and reconciles an empty index and alias. Retrying identical input must be idempotent. The command does not rebuild nodes or enable public search.
 
-| Command | Operation |
-| --- | --- |
-| `ops search provision` | The command validates metadata and topology, provisions the model, and reconciles an empty index and alias. Retrying identical input must be idempotent. It does not rebuild nodes or enable public search. |
-| `ops search verify` | The command checks endpoint, server, model and local predictor placement, mapping, topology, alias, and health. It reports exclusions, property warnings, stuck work, and expired-session counts. |
-| `ops search reindex` | Preview reports a current or planned replacement. Execution begins or resumes full rebuilding or native split with the requested primary count. The result identifies the replacement and its current state. `--restored` requires full rebuilding and invalidates existing cursors. |
-| `ops backfill once-search-projections` | The expiring command applies a reviewed [initial projection manifest](../../runbooks/search/implement-opensearch-metadata.md). |
-| `ops qa datagen search` | The guarded command verifies public behavior with opaque metadata. Preparation exports stored IDs. Cohort verification checks manifest cases. Committed verification also waits for permanent session audit rows and abandoned-header deletion. |
-| `ops qa datagen search-load` | The guarded command measures public first-page search at an offered rate and distinguishes sent, completed, dropped, and failed requests. |
-| `ops qa datagen search-mixed` | The guarded command measures search alongside mutations and maintenance. Full acceptance still requires every declared workload scenario. |
+### Verification
 
-Readiness accepts valid declarations or supported defaults. It refuses malformed declarations and definitions that lack both. Property warnings do not fail verification or exclude otherwise valid nodes. Authorization exclusions report unresolved access. Operational failures retain pending work. Stuck-work reporting fails verification after its attempt limit and includes kind, ID, attempts, and last error.
+`ops search verify` checks these targets:
+
+- The command checks the endpoint.
+- The command checks the server.
+- The command checks the model and local predictor placement.
+- The command checks the mapping.
+- The command checks the topology.
+- The command checks the alias.
+- The command checks health.
+
+The command reports these counts:
+
+- The command reports exclusion counts.
+- The command reports property-warning counts.
+- The command reports stuck-work counts.
+- The command reports expired-session counts.
+
+Verification and indexing distinguish these conditions:
+
+- Readiness accepts valid declarations or supported defaults. It refuses malformed declarations and definitions that lack both.
+- Property warnings do not fail verification or exclude otherwise valid nodes.
+- Authorization exclusions report unresolved access.
+- Operational failures retain pending work.
+- Stuck-work reporting fails verification after its attempt limit. The report includes kind, ID, attempts, and last error.
 
 `ops search verify` does not establish semantic relevance, complete traversal, outage recovery, capacity, deployed revision, or complete acceptance.
+
+### Reindexing
+
+`ops search reindex` distinguishes these outcomes:
+
+- Preview reports a current or planned replacement.
+- Execution begins or resumes full rebuilding or native split with the requested primary count.
+- The result identifies the replacement and its current state.
+- `--restored` requires full rebuilding and invalidates existing cursors.
+
+### Initial projection backfill
+
+The expiring `ops backfill once-search-projections` command applies a reviewed [initial projection manifest](../../runbooks/search/implement-opensearch-metadata.md).
+
+### Public behavior acceptance
+
+The guarded `ops qa datagen search` command verifies public behavior with opaque metadata. Its modes have separate requirements:
+
+- Preparation exports stored IDs.
+- Cohort verification checks manifest cases.
+- Committed verification also waits for permanent session audit rows and abandoned-header deletion.
+
+### Search load
+
+The guarded `ops qa datagen search-load` command measures public first-page search at an offered rate. It distinguishes these request outcomes:
+
+- The command counts sent requests.
+- The command counts completed requests.
+- The command counts dropped requests.
+- The command counts failed requests.
+
+### Mixed load
+
+The guarded `ops qa datagen search-mixed` command measures search alongside mutations and maintenance. Full acceptance still requires every declared workload scenario.
