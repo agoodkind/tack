@@ -53,8 +53,8 @@ func auditPartRestoreCobra(factory *cli.Factory) *cobra.Command {
 		Long: "Run this command through the audit-ops service. It reads the frozen manifest file and checks its " +
 			"SHA-256 against --manifest-sha256. It verifies the source event's manifest payload and checks the " +
 			"pinned row hash, sequence, and shard of both events. Without --execute, it prints the plan and does " +
-			"not change anything. With --execute, it copies the verified part and records the change in one " +
-			"transaction. The transaction saves both changes or neither change. A rerun reports already_present.",
+			"not change anything. With --execute, it copies the verified part and records the change. " +
+			"It saves both changes or neither change. A rerun reports already_present.",
 		Args: cobra.NoArgs,
 	}
 	cmd.Flags().StringVar(&flags.Manifest,
