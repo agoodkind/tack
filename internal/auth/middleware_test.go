@@ -74,9 +74,9 @@ func (f fixedValidator) Validate(context.Context, string) (*token.Token, error) 
 }
 
 // driveAuth sends one authenticated request to the middleware that build
-// creates with recorder. It returns the recorded auth.token_used event and
-// response status after HTTP 200, or an empty event and the status
-// otherwise.
+// creates with recorder. When it returns, it includes the response status.
+// It returns the recorded auth.token_used event for HTTP 200 and an empty
+// event for any other status.
 func driveAuth(t *testing.T, build func(audit.Recorder) func(http.Handler) http.Handler, bearer string) (audit.Event, int) {
 	t.Helper()
 	recorder := &captureRecorder{}
