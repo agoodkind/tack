@@ -14,7 +14,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// sequenceTargetPrefix starts the URI of every sequence counter audit target.
+// sequenceTargetPrefix starts the URI of every sequence counter audit
+// target.
 const sequenceTargetPrefix = "tack:sequence/"
 
 // sequenceRecord is the recorded old or new state of one sequence counter.
@@ -49,9 +50,9 @@ func sequenceTarget(uri, name string) audit.Target {
 }
 
 // writeAuditedSequence reads the counter at key in tr and applies change.
-// When change reports a new value, it writes the value and records one change
-// event with the old and new values in tr. It returns the stored value and
-// whether the counter changed.
+// When change reports a new value, it writes the value and records one
+// change event with the old and new values in tr. It returns the stored
+// value and whether the counter changed.
 func writeAuditedSequence(
 	ctx context.Context, tr fdb.Transaction, changes *mutationAudit, key fdb.Key, target audit.Target, change sequenceChange,
 ) (int64, bool, error) {

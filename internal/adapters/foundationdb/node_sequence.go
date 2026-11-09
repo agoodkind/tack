@@ -13,9 +13,13 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// AllocateSequence atomically increments and returns the next sequence number.
-// The transaction also writes one change event with the old and new counter
-// values. It refuses to change the counter when ctx lacks a mutation operation.
+// AllocateSequence increments a sequence counter and returns the new value
+// in one transaction.
+//
+// The transaction writes a change event with the old and new counter values.
+// AllocateSequence refuses the change when ctx lacks a mutation operation.
+//
+//   - orgID, scopeNodeID, and nodeType select the counter.
 func (s *NodeStore) AllocateSequence(ctx context.Context, orgID, scopeNodeID uuid.UUID, nodeType string) (seq int64, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.allocate_sequence")(&err)
 	key := fdb.Key(sequenceKey(orgID, scopeNodeID, nodeType))
@@ -32,10 +36,14 @@ func (s *NodeStore) AllocateSequence(ctx context.Context, orgID, scopeNodeID uui
 	return seq, nil
 }
 
-// AllocateSequenceByKey atomically increments the sequence stored under
-// counterKey and returns the incremented value. The transaction also writes
-// one change event with the old and new counter values. It refuses to change
-// the counter when ctx lacks a mutation operation.
+// AllocateSequenceByKey increments the counter at counterKey and returns the
+// new value in one transaction.
+//
+// The transaction writes a change event with the old and new counter values.
+// AllocateSequenceByKey refuses the change when ctx lacks a mutation
+// operation.
+//
+//   - orgID and counterKey select the counter.
 func (s *NodeStore) AllocateSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string) (seq int64, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.allocate_sequence_by_key")(&err)
 	seq, _, err = s.writeSequenceWithAudit(ctx, orgID, "node.allocate_sequence_by_key",
@@ -51,10 +59,13 @@ func (s *NodeStore) AllocateSequenceByKey(ctx context.Context, orgID uuid.UUID, 
 	return seq, nil
 }
 
-// SeedSequenceByKey raises counterKey to value without lowering it. When the
-// counter changes, the transaction also writes one change event with the old
-// and new counter values. It refuses to change the counter when ctx lacks a
+// SeedSequenceByKey raises counterKey to value without lowering it.
+//
+// When the counter changes, the transaction writes a change event with the
+// old and new values. SeedSequenceByKey refuses the change when ctx lacks a
 // mutation operation.
+//
+//   - It does not change a counter already at or above value.
 func (s *NodeStore) SeedSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string, value int64) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.seed_sequence_by_key")(&err)
 	_, _, err = s.writeSequenceWithAudit(ctx, orgID, "node.seed_sequence_by_key",
@@ -71,6 +82,10 @@ func (s *NodeStore) SeedSequenceByKey(ctx context.Context, orgID uuid.UUID, coun
 }
 
 // PeekSequenceByKey reads counterKey without changing it.
+//
+// It reads the stored bytes in one read transaction, then decodes them.
+//
+//   - It returns zero when the counter has fewer than eight stored bytes.
 func (s *NodeStore) PeekSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string) (value int64, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.peek_sequence_by_key")(&err)
 	var raw []byte
@@ -101,11 +116,14 @@ func (s *NodeStore) PeekSequenceByKey(ctx context.Context, orgID uuid.UUID, coun
 	return decoded, nil
 }
 
-// RaiseSequenceByKey raises counterKey to value without lowering it and
-// reports whether the counter changed. When the counter changes, the
-// transaction also writes one change event with the old and new counter
-// values. It refuses to change the counter when ctx lacks a mutation
-// operation.
+// RaiseSequenceByKey raises counterKey to value without lowering it.
+//
+// It reports whether the counter changed. When the counter changes, the same
+// transaction writes a change event with the old and new values.
+// RaiseSequenceByKey refuses the change when ctx lacks a mutation operation.
+//
+//   - It returns false without a change when the counter is already at or
+//     above value.
 func (s *NodeStore) RaiseSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string, value int64) (raised bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.raise_sequence_by_key")(&err)
 	_, raised, err = s.writeSequenceWithAudit(ctx, orgID, "node.raise_sequence_by_key",
@@ -122,12 +140,12 @@ func (s *NodeStore) RaiseSequenceByKey(ctx context.Context, orgID uuid.UUID, cou
 }
 
 // writeSequenceWithAudit reads the mutation operation from ctx, then applies
-// change to the counter at key in one committed transaction with its change
-// event. It waits for the counter lock of key before it creates the first
-// transaction and frees the lock after the last transaction ends. When a
-// transaction times out after a conflict, runSequenceTransactions runs a new
-// one. Every attempt clears the changes of the earlier attempt. The committed
-// attempt writes the only change event.
+// change to the counter at key in one transaction with its change event. It
+// acquires the counter lock before creating the first transaction and
+// releases the lock after the last transaction ends. When a transaction
+// times out after a conflict, runSequenceTransactions starts a new one.
+// Every attempt clears earlier recorded changes. Only a committed attempt
+// stores its change event.
 func (s *NodeStore) writeSequenceWithAudit(
 	ctx context.Context, orgID uuid.UUID, operation string, key fdb.Key, target audit.Target, change sequenceChange,
 ) (int64, bool, error) {

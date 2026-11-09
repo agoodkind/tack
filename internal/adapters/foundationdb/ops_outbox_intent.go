@@ -19,7 +19,8 @@ func marshalOpsOutboxVersionstampedKey() (fdb.Key, error) {
 	return marshalOpsOutboxEntryKey(0)
 }
 
-// marshalOpsOutboxEntryKey packs a versionstamped outbox key with the given user version.
+// marshalOpsOutboxEntryKey packs a versionstamped outbox key with the given
+// user version.
 func marshalOpsOutboxEntryKey(userVersion uint16) (fdb.Key, error) {
 	key, err := tuple.Tuple{keyOpsOutbox, tuple.IncompleteVersionstamp(userVersion)}.PackWithVersionstamp(testPrefix)
 	if err != nil {
@@ -29,8 +30,8 @@ func marshalOpsOutboxEntryKey(userVersion uint16) (fdb.Key, error) {
 	return fdb.Key(key), nil
 }
 
-// encodedRecords returns the event's outbox records and wraps a Records error
-// with the event ID.
+// encodedRecords returns the event's outbox records and wraps a Records
+// error with the event ID.
 func encodedRecords(ctx context.Context, encoded audit.EncodedEvent) ([][]byte, error) {
 	records, err := encoded.Records()
 	if err != nil {
@@ -40,8 +41,9 @@ func encodedRecords(ctx context.Context, encoded audit.EncodedEvent) ([][]byte, 
 	return records, nil
 }
 
-// commitStagedIntent marks the request slot as committed after the transaction
-// commits its change events. The MCP wrapper does not record the change again.
+// commitStagedIntent marks the request slot as committed after the
+// transaction commits its change events. The MCP wrapper does not record the
+// change again.
 func commitStagedIntent(ctx context.Context) {
 	auditintent.Commit(ctx)
 }

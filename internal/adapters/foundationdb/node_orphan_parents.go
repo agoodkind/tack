@@ -88,8 +88,8 @@ func (s *NodeDeleteStore) readParentEdges(ctx context.Context, candidate orphanC
 // pageParentTargets returns every child_of target in items, including
 // additional parent targets. pageParentTargets reports whether any target is
 // an existing node other than the candidate. The caller passes every target
-// to extraParentEdges, which reports edges that do not target the candidate's
-// parent_id.
+// to extraParentEdges, which reports edges that do not target the
+// candidate's parent_id.
 func pageParentTargets(ctx context.Context, tr fdb.Transaction, candidate orphanCandidate, items []fdb.KeyValue) ([]uuid.UUID, bool, error) {
 	targetIDs := make([]uuid.UUID, 0, len(items))
 	for _, item := range items {
@@ -111,9 +111,10 @@ func pageParentTargets(ctx context.Context, tr fdb.Transaction, candidate orphan
 	return targetIDs, false, nil
 }
 
-// extraParentEdges returns the child_of edges of the candidate that do not
-// target its parent_id. A candidate without a child_of edge to its parent_id
-// returns none, and its edges stay: the scan keeps its only parent edges.
+// extraParentEdges returns child_of edges that do not target the candidate's
+// parent_id. It does not return any edges when the candidate lacks a
+// parent_id or a child_of edge to that parent_id. The scan preserves the
+// candidate's parent edges in either case.
 func extraParentEdges(candidate orphanCandidate, targets []uuid.UUID) []ParentEdge {
 	hasParentEdge := false
 	for _, target := range targets {

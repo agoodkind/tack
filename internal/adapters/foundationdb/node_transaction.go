@@ -12,9 +12,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// nodeOperationFailure logs err as node.transaction_failed with operation and
-// details, and returns err prefixed with operation. It returns err unchanged
-// when err was already logged.
+// nodeOperationFailure logs an error as node.transaction_failed with
+// operation and details, then returns an error prefixed with operation. It
+// returns err unchanged when an earlier operation already logged it.
 func nodeOperationFailure(ctx context.Context, operation string, err error, details ...slog.Attr) error {
 	if searchFailureWasLogged(err) {
 		return err
@@ -77,17 +77,18 @@ func runNodeAttempts(ctx context.Context, database fdb.Database, operation strin
 	}
 }
 
-// transactionTimedOut identifies the FoundationDB error transaction_timed_out.
+// transactionTimedOut identifies the FoundationDB error
+// transaction_timed_out.
 const transactionTimedOut = 1031
 
-// retryFailure calls nodeOperationFailure to log the refused retry as
-// node.transaction_failed with slog and return an error prefixed with operation.
-// The error wraps retryErr. If retryErr wraps transactionTimedOut (1031),
-// the error also wraps domain.ErrConflict and includes the text
-// "transaction contention: the retries exceeded the transaction timeout",
-// and the log record adds the attempt count, the time since the transaction
-// was created, and the attempt error codes from attempts. Otherwise, the
-// error includes the text "retry transaction".
+// retryFailure calls nodeOperationFailure to log a refused retry as
+// node.transaction_failed with slog and return an error prefixed with
+// operation. The error wraps retryErr. If retryErr wraps transactionTimedOut
+// (1031), the error also wraps domain.ErrConflict and includes the text
+// "transaction contention: the retries exceeded the transaction timeout".
+// The timeout log adds the attempt count, elapsed time since transaction
+// creation, and attempt error codes from attempts. Otherwise, the error
+// includes the text "retry transaction".
 func retryFailure(ctx context.Context, operation string, retryErr error, attempts *transactionAttempts) error {
 	var databaseErr fdb.Error
 	if errors.As(retryErr, &databaseErr) && databaseErr.Code == transactionTimedOut {

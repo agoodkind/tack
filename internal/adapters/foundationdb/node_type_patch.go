@@ -16,11 +16,10 @@ type rawField struct {
 	value json.RawMessage
 }
 
-// patchedNodeType returns stored with each top-level field that differs
-// between before and after replaced by the field from after. It copies the
-// bytes of every other stored field in stored order. It removes a changed
-// field that after omits and appends, in after's order, a changed field that
-// stored does not contain.
+// patchedNodeType updates stored with the top-level field changes between
+// before and after. It copies every unchanged stored field's bytes in stored
+// order. It removes changed fields that after omits. It appends changed
+// fields that stored lacks in the order that after supplies them.
 func patchedNodeType(ctx context.Context, stored, before, after []byte) ([]byte, error) {
 	storedFields, err := orderedFields(ctx, "stored", stored)
 	if err != nil {
@@ -63,9 +62,9 @@ func patchedNodeType(ctx context.Context, stored, before, after []byte) ([]byte,
 	return joinedFields(ctx, written)
 }
 
-// orderedFields decodes the top-level fields of the record in document order.
-// It copies the exact bytes of each field value from document. A failure
-// message includes role.
+// orderedFields decodes the record's top-level fields in document order. It
+// copies each field value's exact bytes from document. A failure message
+// includes role.
 func orderedFields(ctx context.Context, role string, document []byte) ([]rawField, error) {
 	decoder := json.NewDecoder(bytes.NewReader(document))
 	opening, err := decoder.Token()

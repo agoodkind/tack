@@ -13,7 +13,12 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// SetReferenceKeys replaces the rendered references owned by a node.
+// SetReferenceKeys replaces the rendered references that a node owns.
+//
+// It clears the previous claims and writes the replacement claims in one
+// transaction. The same transaction records changes to the references.
+//
+//   - A claim that another node owns causes an error.
 func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUID, keys []node.ReferenceKey) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.set_reference_keys")(&err)
 	changes, err := beginMutationAudit(ctx, orgID)
@@ -51,7 +56,14 @@ func (s *NodeStore) SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUI
 	return nil
 }
 
-// EnsurePropertyIndex writes secondary-index entries for the selected properties.
+// EnsurePropertyIndex writes secondary index entries for selected
+// properties.
+//
+// It checks the node's write fence before writing the entries in one
+// transaction.
+//
+//   - A selected property contributes an entry only when its value is
+//     present and nonempty.
 func (s *NodeStore) EnsurePropertyIndex(ctx context.Context, current *node.Node, indexedProps []string) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.ensure_property_index")(&err)
 	err = runNodeMutation(ctx, s.db, "node.ensure_property_index", func(tr fdb.Transaction) error {
@@ -67,7 +79,12 @@ func (s *NodeStore) EnsurePropertyIndex(ctx context.Context, current *node.Node,
 	return nil
 }
 
-// ListByProperty scans a secondary index and reads the matching node records.
+// ListByProperty reads nodes that match a property value in a secondary
+// index.
+//
+// It scans the index and reads the node records in one read transaction.
+//
+//   - A missing node record does not contribute a result.
 func (s *NodeStore) ListByProperty(ctx context.Context, orgID uuid.UUID, nodeType, propName string, value json.RawMessage) (nodes []*node.Node, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.list_by_property")(&err)
 	keyRange, err := fdb.PrefixRange(nodeByPropertyValuePrefix(orgID, nodeType, propName, encodePropertyValue(value)))

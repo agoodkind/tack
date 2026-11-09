@@ -26,16 +26,23 @@ type NodeSummaryStore struct {
 
 var _ searchdomain.SummaryReader = (*NodeSummaryStore)(nil)
 
-// NewNodeSummaryStore creates the node summary reader.
+// NewNodeSummaryStore creates a reader for current node summaries.
+//
+// The reader uses db for node data and policies to compile access keys.
+//
+//   - The returned reader implements searchdomain.SummaryReader.
 func NewNodeSummaryStore(db fdb.Database, policies *searchaccess.PolicySet) *NodeSummaryStore {
 	return &NodeSummaryStore{db: db, policies: policies}
 }
 
-// Summaries returns one result per requested ID in input order. One read
-// transaction reads every view and compiles every node's current access keys
-// from its current ancestry. It returns a deleted result for a node without a
-// resolve record or view. A node with a hierarchy defect is found with no
-// access keys, and no caller key permits it. A failed read returns an error.
+// Summaries returns one result per requested ID in input order.
+//
+// One read transaction reads the views and compiles current access keys from
+// each node's current ancestry. A missing resolve record or view produces a
+// deleted result. A read failure returns an error for the batch.
+//
+//   - Summaries returns a found result without access keys for a node with a
+//     hierarchy defect. Caller keys cannot grant access to that result.
 func (s *NodeSummaryStore) Summaries(ctx context.Context, nodeIDs []uuid.UUID, maxNameBytes int) (results []node.SummaryResult, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_summary.read")(&err)
 	if len(nodeIDs) > maxSummaryBatch || maxNameBytes < 1 {
@@ -81,10 +88,9 @@ func (s *NodeSummaryStore) Summaries(ctx context.Context, nodeIDs []uuid.UUID, m
 	return results, nil
 }
 
-// readSummaryViews issues every resolve read before it waits on any of them.
-// It then waits on each resolve read in order and issues that node's view
-// read after the resolve record decodes. It waits on the view reads after it
-// has issued all of them.
+// readSummaryViews issues every resolve read before waiting for any of them.
+// It waits for each resolve read in order, decodes the record, and issues
+// that node's view read. It waits for view reads after issuing all of them.
 func readSummaryViews(tr fdb.Transaction, nodeIDs []uuid.UUID, views []*node.NodeView) error {
 	resolves := make([]fdb.FutureByteSlice, len(nodeIDs))
 	for position, nodeID := range nodeIDs {

@@ -9,10 +9,11 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// checkMutationResult validates result against schema inside tr. For a new
-// node, it checks every property. For a stored node, it checks only the
-// properties that plan sets or removes. If result is invalid, it returns an
-// error that wraps domain.ErrInvalidArgument.
+// checkMutationResult validates result against schema inside tr. It checks
+// every property of a new node. For a stored node, it checks only properties
+// that plan sets or removes. A schema read failure returns an error that
+// wraps node.ErrSchemaRead. An invalid checked property that ordinaryIssue
+// rejects returns an error that wraps domain.ErrInvalidArgument.
 func checkMutationResult(
 	ctx context.Context, tr fdb.Transaction, plan node.MutationPlan, source mutationSource, result *node.Node, schema node.Schema,
 ) error {
@@ -41,12 +42,14 @@ func checkMutationResult(
 	return nil
 }
 
-// ordinaryIssue reports whether a write rejects issue before strict
-// validation becomes active. checkParentChain and childOfChanges check the
-// parent of an ordinary write. The parent rules of node.PropertyIssueParent
-// apply only under strict validation. If a managed property's stored
-// definition does not apply to that property, the property passes until
-// every environment stores the corrected definition.
+// ordinaryIssue reports whether an ordinary write rejects issue before
+// strict validation becomes active. checkParentChain and childOfChanges
+// check the parent of an ordinary write. The node.PropertyIssueParent rules
+// apply only during strict validation. An ordinary write accepts a managed
+// property when its stored definition does not apply to it.
+//
+// Retain this exception until every environment stores the corrected
+// definition.
 func ordinaryIssue(issue node.PropertyIssue) bool {
 	switch issue.Code {
 	case node.PropertyIssueParent:

@@ -29,9 +29,9 @@ func TestOpsOutboxReadAndClear(t *testing.T) {
 
 	store := NewOpsOutboxStore(db)
 	ctx := context.Background()
-	// Written through the production Append rather than a test-only writer,
-	// so the commit-order and clear-through proof below covers the path the
-	// producer spill uses.
+	// The test uses production Append to write the events. The commit ordering
+	// and deletion assertions exercise the append operation that a producer
+	// uses after a broker refusal.
 	for _, event := range []string{`{"verb":"first"}`, `{"verb":"second"}`} {
 		if err := store.Append(ctx, json.RawMessage(event)); err != nil {
 			t.Fatalf("append %s: %v", event, err)

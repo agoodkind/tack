@@ -32,8 +32,8 @@ func outboxCommitVersion(ctx context.Context, key []byte) (string, error) {
 	return hex.EncodeToString(encoded), nil
 }
 
-// outboxCommitVersionFailure wraps err with the decoding operation, logs
-// the wrapped error, and returns it.
+// outboxCommitVersionFailure wraps err with the decoding operation, logs the
+// wrapped error, and returns it.
 func outboxCommitVersionFailure(ctx context.Context, err error) error {
 	wrapped := fmt.Errorf("decode the commit version of an ops outbox key: %w", err)
 	slog.ErrorContext(ctx, "ops_outbox.commit_version_failed", slog.String("err", wrapped.Error()))

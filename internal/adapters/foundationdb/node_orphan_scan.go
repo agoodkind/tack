@@ -12,12 +12,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// orphanScanPageSize bounds the resolution records that one orphan scan
-// transaction reads.
+// orphanScanPageSize limits the resolution records that one orphan scan page
+// includes. The transaction reads one additional record to detect a
+// following page.
 const orphanScanPageSize = 100
 
-// OrphanNode identifies one node of a type that lists CanLiveUnder types and
-// has no child_of edge to another existing node of its organization.
+// OrphanNode identifies a node with a type that lists CanLiveUnder types.
+// The node does not have a child_of edge to another existing node in its
+// organization.
 type OrphanNode struct {
 	ID       uuid.UUID `json:"id"`
 	OrgID    uuid.UUID `json:"org_id"`
@@ -34,8 +36,8 @@ type ParentEdge struct {
 }
 
 // OrphanPage reports one page of the orphan scan. Scanned counts the
-// resolution records the page read. Next is the cursor of the following
-// page, or empty after the last page.
+// resolution records that the page includes. Next stores the cursor for the
+// following page and contains an empty string after the last page.
 type OrphanPage struct {
 	Scanned          int
 	Orphans          []OrphanNode
@@ -49,12 +51,16 @@ type orphanCandidate struct {
 	parentID uuid.UUID
 }
 
-// ScanOrphans reads one page of node resolution records of every
-// organization after cursor. It returns the nodes without a hierarchy parent
-// and the child_of edges that do not target the parent_id of a node with a
-// hierarchy parent. One read transaction reads the page, the node types, and
-// the parent_id of each node. Each candidate then reads its child_of edges in
-// bounded pages, one read transaction per page.
+// ScanOrphans reads a page of node resolution records across organizations
+// after cursor.
+//
+// One read transaction reads the page, node types, and each candidate's
+// parent_id. Each candidate's child_of scan uses bounded pages with one read
+// transaction per page.
+//
+//   - Orphans contains nodes without a hierarchy parent.
+//   - ExtraParentEdges contains edges that do not target parent_id on nodes
+//     that have a hierarchy parent.
 func (s *NodeDeleteStore) ScanOrphans(ctx context.Context, cursor string) (page OrphanPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.orphan_scan")(&err)
 	var candidates []orphanCandidate
@@ -82,9 +88,10 @@ func (s *NodeDeleteStore) ScanOrphans(ctx context.Context, cursor string) (page 
 	return page, nil
 }
 
-// readOrphanCandidates reads up to orphanScanPageSize resolution records
-// after cursor and returns the nodes of a type that lists CanLiveUnder types,
-// with the parent_id of each.
+// readOrphanCandidates requests up to orphanScanPageSize + 1 resolution
+// records after cursor to detect a following page. It includes at most
+// orphanScanPageSize records in the page and returns the nodes of types that
+// list CanLiveUnder types, with the parent_id of each.
 func readOrphanCandidates(ctx context.Context, tr fdb.Transaction, cursor string) (OrphanPage, []orphanCandidate, error) {
 	keyRange, err := fdb.PrefixRange(withPrefix(tuple.Tuple{keyNodeResolve}.Pack()))
 	if err != nil {

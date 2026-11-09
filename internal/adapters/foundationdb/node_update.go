@@ -14,10 +14,13 @@ import (
 )
 
 // UpdateAtomic stores a node and reconciles its indexes and relationships in
-// one transaction. When search work is enabled, the same transaction also
-// schedules search work for the node and the endpoints of each changed
-// relationship. The transaction writes one change event for the node when its
-// stored value changes and one for each changed relationship.
+// one transaction.
+//
+// When search work is enabled, the same transaction schedules work for the
+// node and each changed relationship's endpoints.
+//
+//   - A changed node value produces one change event.
+//   - Each changed relationship produces one change event.
 func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage, indexedProps []string, referenceKeys []node.ReferenceKey, relationshipChanges ...node.RelationshipChanges) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.update_atomic")(&err)
 	return s.updateAtomic(ctx, nil, current, view, oldProps, indexedProps, referenceKeys, relationshipChanges)
@@ -25,8 +28,8 @@ func (s *NodeStore) UpdateAtomic(ctx context.Context, current *node.Node, view *
 
 // updateAtomic performs the UpdateAtomic write. When readDigest is not nil,
 // updateAtomic compares it with the stored record digest inside the write
-// transaction. If the digests differ, updateAtomic returns an error that wraps
-// domain.ErrConflict and does not write any changes.
+// transaction. If the digests differ, updateAtomic returns an error that
+// wraps domain.ErrConflict and does not write any changes.
 func (s *NodeStore) updateAtomic(
 	ctx context.Context, readDigest *node.Digest, current *node.Node, view *node.NodeView, oldProps map[string]json.RawMessage,
 	indexedProps []string, referenceKeys []node.ReferenceKey, relationshipChanges []node.RelationshipChanges,
@@ -100,8 +103,9 @@ func reconcilePropertyIndexes(tr fdb.Transaction, current *node.Node, oldProps m
 	}
 }
 
-// writeNodeRecords writes the node and resolution records of current inside tr.
-// It writes the view record when view is not nil and returns the encoded node record.
+// writeNodeRecords writes current's node and resolution records inside tr.
+// It writes the view record when view is not nil and returns the encoded
+// node record.
 func writeNodeRecords(ctx context.Context, tr fdb.Transaction, current *node.Node, view *node.NodeView) ([]byte, error) {
 	encodedNode, err := json.Marshal(current)
 	if err != nil {

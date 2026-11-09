@@ -13,10 +13,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// claimReferenceKeys claims keys for a node that holds no prior claims, such
-// as a fresh create. It skips the reverse-index read entirely when the type
-// declares no reference keys, keeping the hot create path free of the extra
-// range read.
+// claimReferenceKeys claims keys for a node without prior claims, such as a
+// new node. It skips the reverse index range read when keys is empty,
+// including types that do not declare reference keys.
 func claimReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID, keys []node.ReferenceKey) error {
 	if len(keys) == 0 {
 		return nil
@@ -69,9 +68,9 @@ func clearReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID) error {
 	for _, ownedKey := range ownedKeys {
 		fields, unpackErr := tuple.Unpack(stripPrefix(ownedKey.Key))
 		if unpackErr != nil || len(fields) != 4 {
-			// A malformed reverse entry cannot name its forward key. Clearing
-			// the range anyway would orphan that forward claim, blocking the
-			// reference forever, so fail the transaction instead.
+			// A malformed reverse entry cannot identify its forward key. Clearing the
+			// reverse range would leave that forward claim in place and block reuse
+			// of the reference. Return an error to stop the transaction.
 			err := fmt.Errorf("reverse reference entry for node %s is malformed: %s", nodeID, ownedKey.Key)
 			slog.Error("node.reference.reverse_entry_malformed", slog.String("err", err.Error()))
 			return err
@@ -88,7 +87,11 @@ func clearReferenceKeys(tr fdb.Transaction, orgID, nodeID uuid.UUID) error {
 	return nil
 }
 
-// LookupReference returns the node owning a rendered reference.
+// LookupReference returns the node that owns a rendered reference.
+//
+// It reads the reference claim in a transaction and parses the owner UUID.
+//
+//   - LookupReference returns uuid.Nil without an error for a missing claim.
 func (s *NodeStore) LookupReference(ctx context.Context, orgID uuid.UUID, templateName, encoded string) (nodeID uuid.UUID, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.lookup_reference")(&err)
 	transaction, err := s.db.CreateTransaction()

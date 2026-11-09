@@ -11,9 +11,10 @@ import (
 	"goodkind.io/tack/internal/searchaccess"
 )
 
-// summaryHierarchy reads hierarchy state inside the one read transaction of
-// a summary batch. It issues the reads of one level before it waits on any
-// of them and reads each node type once per organization and type key.
+// summaryHierarchy reads hierarchy state inside a summary batch's read
+// transaction. It issues each level's resolve reads before waiting for any
+// of them, and then issues view reads before waiting for any view. It caches
+// each node type by organization and type key.
 type summaryHierarchy struct {
 	tr    fdb.Transaction
 	kinds map[orgTypeKey]*node.NodeType
@@ -30,8 +31,12 @@ func newSummaryHierarchy(tr fdb.Transaction) *summaryHierarchy {
 	return &summaryHierarchy{tr: tr, kinds: map[orgTypeKey]*node.NodeType{}}
 }
 
-// Ancestors reads each node's resolve record and view, its node type, and,
-// below an entry point, every child_of target.
+// Ancestors reads hierarchy state for each requested node.
+//
+// It reads resolve records, views, and node types inside the summary batch's
+// transaction. It reads every child_of target below an entry point.
+//
+//   - An entry point does not require a child_of read.
 func (h *summaryHierarchy) Ancestors(ctx context.Context, nodes []searchaccess.OrgNode) (map[searchaccess.OrgNode]searchaccess.AncestorState, error) {
 	ids := make([]uuid.UUID, len(nodes))
 	for position, key := range nodes {
@@ -89,8 +94,9 @@ func (h *summaryHierarchy) Ancestors(ctx context.Context, nodes []searchaccess.O
 	return states, nil
 }
 
-// nodeType returns the node type of orgID that uses typeKey, or nil when no
-// node type uses it. It returns an error when several node types use it.
+// nodeType returns the node type in orgID that uses typeKey. It returns nil
+// when the organization does not contain a node type with that key. It
+// returns an error when several node types use the key.
 func (h *summaryHierarchy) nodeType(ctx context.Context, orgID uuid.UUID, typeKey string) (*node.NodeType, error) {
 	cacheKey := orgTypeKey{orgID: orgID, typeKey: typeKey}
 	if kind, read := h.kinds[cacheKey]; read {

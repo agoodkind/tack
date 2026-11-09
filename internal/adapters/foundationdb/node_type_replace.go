@@ -17,8 +17,12 @@ import (
 // nodeTypePageSize limits the number of node types in each ScanTypes page.
 const nodeTypePageSize = 100
 
-// ScanTypes reads one bounded page of node types across all organizations in
-// key order. It returns an empty next cursor for the last page.
+// ScanTypes reads a bounded page of node types across organizations in key
+// order.
+//
+// It starts after cursor and returns the cursor for the following page.
+//
+//   - The last page returns an empty next cursor.
 func (s *NodeTypeStore) ScanTypes(ctx context.Context, cursor string) (types []*node.NodeType, next string, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.scan")(&err)
 	keyRange, err := fdb.PrefixRange(withPrefix(tuple.Tuple{keyNodeTypeDef}.Pack()))
@@ -64,14 +68,14 @@ func (s *NodeTypeStore) ScanTypes(ctx context.Context, cursor string) (types []*
 	return types, next, nil
 }
 
-// Replace decodes and re-encodes the stored node type before comparing it
-// with before. If the values match, Replace stores the stored record with
-// each top-level field that differs between before and after taken from
-// after, and returns true. Replace copies every other stored field with its
-// stored bytes in stored order. The same transaction updates the type-key index and metadata
-// epoch and writes one change event with the stored and replacement records
-// when they differ. If the stored node type does not match before, Replace
-// does not write and returns false.
+// Replace compares the decoded and re-encoded stored node type with before.
+//
+// If they match, it applies the top-level field changes between before and
+// after and returns true. It preserves every other stored field's bytes and
+// order. The same transaction updates the type key index and metadata epoch
+// and writes a change event when the stored and replacement records differ.
+//
+//   - A mismatch returns false without writing changes.
 func (s *NodeTypeStore) Replace(ctx context.Context, before, after *node.NodeType) (replaced bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.replace")(&err)
 	expected, err := json.Marshal(before)

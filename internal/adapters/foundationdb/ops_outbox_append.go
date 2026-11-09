@@ -12,19 +12,17 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Append writes one audit event to the outbox under a versionstamped key, in a
-// transaction of its own, and returns once it is committed.
+// Append writes one audit event under a versionstamped outbox key in its own
+// transaction and returns after the transaction commits.
 //
-// This is the writer half of the outbox. The reader and the relay that drains
-// it existed first, and until this function nothing in production wrote to the
-// range they polled, so the relay had only ever drained an empty outbox. The
-// versionstamp orders entries by commit, which is the order the relay delivers
-// them in.
+// The versionstamp orders entries by commit for relay delivery. A caller
+// that needs its data change and event to commit together appends within
+// that caller's transaction instead. Append supports a producer that needs
+// to store an event after the broker refuses it.
 //
-// A caller with a transaction of its own, such as an operator command that
-// wants the event committed with the change it describes, appends inside that
-// transaction instead; this method exists for the path that has no transaction
-// to join, which is a producer spilling an event its broker refused.
+//   - The original TACK-336 change added this writer after the reader and
+//     relay already existed. Its rationale reported an empty production
+//     outbox because production did not yet write entries to that range.
 func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err error) {
 	defer telemetry.FDBOp(ctx, "store.ops_outbox.append")(&err)
 	if len(event) == 0 {
@@ -43,9 +41,12 @@ func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err
 	})
 }
 
-// AppendBatch writes events to the outbox through one OutboxWriter in one
-// transaction in slice order. All events share one commit version and have
-// increasing user versions. AppendBatch returns after the transaction commits.
+// AppendBatch commits events through one OutboxWriter in one transaction.
+//
+// The writer preserves slice order. Every event shares the transaction's
+// commit version, and increasing user versions order entries within it.
+//
+//   - AppendBatch returns after the transaction commits.
 func (s *OpsOutboxStore) AppendBatch(ctx context.Context, events []json.RawMessage) (err error) {
 	defer telemetry.FDBOp(ctx, "store.ops_outbox.append_batch")(&err)
 	if len(events) == 0 {
@@ -69,11 +70,10 @@ func (s *OpsOutboxStore) AppendBatch(ctx context.Context, events []json.RawMessa
 // context deadline sets the transaction timeout, and the end of the context
 // cancels the transaction.
 func commitOutboxEntries(ctx context.Context, db fdb.Database, apply func(fdb.Transaction) error) error {
-	// A mutation with no result cannot go through db.Transact here: that
-	// binding's closure must return an empty interface, and the repo's
-	// staticcheck rule refuses a new one. The retry loop below is what
-	// db.Transact does internally, spelled out. The mutation is re-applied on
-	// every pass because OnError resets the transaction.
+	// Transact requires a callback that returns an empty interface. The
+	// repository's staticcheck rule rejects new empty interfaces. This mutation
+	// uses an explicit transaction retry loop instead. Each retry reapplies the
+	// mutation because OnError resets the transaction.
 	transaction, transactionErr := db.CreateTransaction()
 	if transactionErr != nil {
 		slog.ErrorContext(ctx, "ops_outbox.append_transaction_failed",
@@ -81,11 +81,10 @@ func commitOutboxEntries(ctx context.Context, db fdb.Database, apply func(fdb.Tr
 		return fmt.Errorf("create ops outbox append transaction: %w", transactionErr)
 	}
 	defer transaction.Cancel()
-	// A blocked Commit or OnError wait does not watch the context on its
-	// own, so a watcher cancels the transaction the moment the context ends
-	// and the blocked Get returns with a cancellation error. That covers a
-	// context with no deadline, which the timeout option below cannot.
-	// Cancel is idempotent, so the deferred one after commit is harmless.
+	// Commit and OnError waits do not monitor ctx. The watcher cancels the
+	// transaction when ctx ends, including a context without a deadline.
+	// Cancellation unblocks a waiting Get with an error. Cancel permits
+	// repeated calls, including the deferred call after a successful commit.
 	watchDone := make(chan struct{})
 	defer close(watchDone)
 	go func() {
@@ -102,17 +101,16 @@ func commitOutboxEntries(ctx context.Context, db fdb.Database, apply func(fdb.Tr
 		case <-watchDone:
 		}
 	}()
-	// The caller's deadline also becomes the transaction's own timeout, so a
-	// commit blocked on an unreachable cluster fails inside the caller's
-	// budget rather than FoundationDB's, and the retry loop stops when the
-	// context is done rather than after the next OnError backoff. Without
-	// both, a request that lost Kafka and then hit a retryable
-	// FoundationDB error could sit here past its budget.
+	// The caller's deadline sets the transaction timeout. This bounds a commit
+	// waiting for an unavailable cluster by the caller's remaining time. The
+	// retry loop checks ctx before OnError, and the watcher cancels a blocked
+	// wait when ctx ends. A Kafka failure followed by a retryable FoundationDB
+	// error must not extend the call beyond its deadline.
 	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
 		budget := max(deadline.Sub(clock.Now()).Milliseconds(), 1)
 		if optionErr := transaction.Options().SetTimeout(budget); optionErr != nil {
-			// Refusing is right here: proceeding would run on FoundationDB's
-			// default timeout while the caller believes its budget holds.
+			// Return an error if the timeout option fails. Continuing would use
+			// FoundationDB's default timeout instead of the caller's remaining time.
 			slog.ErrorContext(ctx, "ops_outbox.append_timeout_option_failed",
 				slog.Int64("budget_ms", budget),
 				slog.String("err", optionErr.Error()))

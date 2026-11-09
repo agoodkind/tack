@@ -11,26 +11,33 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// NodeTypeStore implements node.TypeRepository using FoundationDB. When
-// searchWork is true, a node type write requests a search rescan stamped by
-// the clock.
+// NodeTypeStore implements node.TypeRepository with FoundationDB. When
+// searchWork is true, relevant node type changes request a search rescan
+// using the store's clock.
 type NodeTypeStore struct {
 	db         fdb.Database
 	clock      clock.Clock
 	searchWork bool
 }
 
-// NewNodeTypeStore creates the node type store. It requests no search
-// rescan until [Stores.EnableSearchWork] runs.
+// NewNodeTypeStore creates a node type store.
+//
+// The store does not request search rescans until Stores.EnableSearchWork
+// enables them.
+//
+//   - db stores node types.
+//   - source supplies the clock.
 func NewNodeTypeStore(db fdb.Database, source clock.Clock) *NodeTypeStore {
 	return &NodeTypeStore{db: db, clock: source, searchWork: false}
 }
 
-// Set stores nt and its type-key index entry. It increments the
-// organization's metadata epoch when the stored record changes. When search
-// work is enabled and the type key, features, or hierarchy declaration
-// changed, Set also requests an access rescan. If the stored record changes, the
-// transaction also writes its change event.
+// Set stores nt and its type key index entry.
+//
+// It increments the organization's metadata epoch when the stored record
+// changes. The same transaction writes a change event for a changed record.
+//
+//   - With search work enabled, a change to the type key, features, or
+//     hierarchy declaration requests an access rescan.
 func (s *NodeTypeStore) Set(ctx context.Context, nt *node.NodeType) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.set")(&err)
 	b, err := json.Marshal(nt)
@@ -111,8 +118,11 @@ func (s *NodeTypeStore) List(ctx context.Context, orgID uuid.UUID) (types []*nod
 	return types, nil
 }
 
-// Delete removes one node type record and its type-key index entry. If the record exists,
-// the same transaction writes a change event for the deletion.
+// Delete removes a node type record and its type key index entry.
+//
+// The same transaction writes a change event when the record exists.
+//
+//   - A missing record does not produce a deletion change event.
 func (s *NodeTypeStore) Delete(ctx context.Context, orgID, typeID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node_type.delete")(&err)
 	changes, err := beginMutationAudit(ctx, orgID)

@@ -12,35 +12,44 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// OpsOutboxStore reads and clears operator-command audit events in
-// FoundationDB. A command appends its event inside the same transaction as
-// the change it makes, so the change and its ledger record commit together;
-// the relay in the audit-consumer drains what this store returns.
+// OpsOutboxStore reads and clears audit outbox entries in FoundationDB. A
+// command appends its change event in the same transaction as its data
+// change. The change and outbox event commit together. The relay in the
+// audit-consumer reads and publishes the entries before clearing them.
 type OpsOutboxStore struct {
 	db fdb.Database
 }
 
-// NewOpsOutboxStore returns an operator-command audit outbox store over db.
+// NewOpsOutboxStore creates an operator command audit outbox store.
+//
+// The returned store uses db for outbox operations.
+//
+//   - ReadOutboxFrom reads committed entries.
+//   - ClearThrough deletes delivered entries.
 func NewOpsOutboxStore(db fdb.Database) *OpsOutboxStore {
 	return &OpsOutboxStore{db: db}
 }
 
-// OutboxEntry is one operator-command audit event waiting for relay delivery.
+// OutboxEntry is one operator-command audit event waiting for relay
+// delivery.
 type OutboxEntry struct {
-	// Mark is the raw versionstamped key. It orders entries by commit and
-	// names the point a later ClearThrough deletes up to.
+	// Mark stores the raw versionstamped key. It orders entries by commit and
+	// sets the inclusive endpoint for a later ClearThrough call.
 	Mark []byte
-	// Event is the audit event JSON payload. This package does not decode it,
-	// because the audit package owns the event shape and importing it here
-	// would invert the dependency.
+	// Event stores the audit event JSON payload. This store copies the payload
+	// without decoding it. The audit package decodes its event format during
+	// relay publication.
 	Event json.RawMessage
-	// CommitVersion is the versionstamp in Mark as 24 hexadecimal
-	// characters. Its lexical order is the commit order of the entries.
+	// CommitVersion is the versionstamp in Mark as 24 hexadecimal characters.
+	// Its lexical order is the commit order of the entries.
 	CommitVersion string
 }
 
-// ReadOutboxFrom reads up to limit events committed after mark, in commit
-// order. A nil mark starts at the beginning of the outbox.
+// ReadOutboxFrom reads up to limit events after mark in commit order.
+//
+// It validates a nonempty mark before reading the outbox range.
+//
+//   - A nil mark starts at the beginning of the outbox.
 func (s *OpsOutboxStore) ReadOutboxFrom(
 	ctx context.Context,
 	mark []byte,
@@ -62,10 +71,9 @@ func (s *OpsOutboxStore) ReadOutboxFrom(
 	}
 	readRange := fdb.SelectorRange{Begin: begin, End: fdb.FirstGreaterOrEqual(outboxRange.End)}
 
-	// db.ReadTransact is unavailable here for the same reason ClearThrough
-	// avoids db.Transact: its closure must return an empty interface, and the
-	// repo's staticcheck rule refuses a new one. This is that retry loop
-	// spelled out, over a read transaction.
+	// ReadTransact requires a callback that returns an empty interface. The
+	// repository's staticcheck rule rejects new empty interfaces. This read
+	// uses an explicit transaction retry loop instead.
 	transaction, transactionErr := s.db.CreateTransaction()
 	if transactionErr != nil {
 		slog.ErrorContext(ctx, "ops_outbox.read_transaction_failed",
@@ -112,25 +120,27 @@ func outboxEntries(ctx context.Context, keyValues []fdb.KeyValue) ([]OutboxEntry
 	return entries, nil
 }
 
-// ClearThrough deletes every outbox entry up to and including mark. The relay
-// calls it only after the broker has acknowledged those events, so deletion
-// is what marks them delivered; no separate high-water-mark key exists to
-// drift out of step with the data.
+// ClearThrough deletes every outbox entry up to and including mark.
+//
+// The relay clears entries after the broker acknowledges them. Deletion
+// marks delivery without a separate key for the last delivered entry.
+//
+//   - ClearThrough does not delete entries when mark is empty.
 func (s *OpsOutboxStore) ClearThrough(ctx context.Context, mark []byte) (err error) {
 	defer telemetry.FDBOp(ctx, "store.ops_outbox.clear_through")(&err)
 	if len(mark) == 0 {
 		return nil
 	}
-	// A mark that is not an outbox key would make the cleared range run past
-	// the outbox and destroy unrelated key families. The relay's mark comes
-	// from a previous read, so a bad one means corrupted state, and refusing
-	// costs one undelivered batch while proceeding costs other people's data.
+	// A mark outside the outbox family can extend the clear range into
+	// unrelated key families and delete product data. The relay obtains its
+	// mark from an outbox read. Reject an invalid mark and preserve the batch
+	// for later delivery.
 	if err := checkOutboxMark(ctx, mark); err != nil {
 		return err
 	}
 
-	// Strinc gives the first key after mark, which makes the exclusive end of
-	// the cleared range include mark itself.
+	// Strinc returns the first key outside the range with mark as its prefix.
+	// This exclusive endpoint includes mark in the cleared range.
 	end, endErr := fdb.Strinc(mark)
 	if endErr != nil {
 		slog.ErrorContext(ctx, "ops_outbox.clear_end_failed", slog.String("err", endErr.Error()))
@@ -138,10 +148,9 @@ func (s *OpsOutboxStore) ClearThrough(ctx context.Context, mark []byte) (err err
 	}
 	clearRange := fdb.KeyRange{Begin: fdb.Key(opsOutboxPrefix()), End: fdb.Key(end)}
 
-	// A mutation with no result cannot go through db.Transact here: that
-	// binding's closure must return an empty interface, and the repo's
-	// staticcheck rule refuses a new one. The retry loop below is what
-	// db.Transact does internally, spelled out.
+	// Transact requires a callback that returns an empty interface. The
+	// repository's staticcheck rule rejects new empty interfaces. This mutation
+	// uses an explicit transaction retry loop instead.
 	transaction, transactionErr := s.db.CreateTransaction()
 	if transactionErr != nil {
 		slog.ErrorContext(ctx, "ops_outbox.clear_transaction_failed",
@@ -168,10 +177,9 @@ func (s *OpsOutboxStore) ClearThrough(ctx context.Context, mark []byte) (err err
 	}
 }
 
-// checkOutboxMark rejects a mark that does not lie inside the outbox key
-// family. Both callers use the mark to bound a range, and ClearThrough
-// deletes that range, so an out-of-family mark is the difference between
-// clearing delivered events and deleting product data.
+// checkOutboxMark rejects marks outside the outbox key family. The read and
+// clear operations use marks as range bounds. Rejecting an invalid mark
+// prevents ClearThrough from deleting product data outside the outbox.
 func checkOutboxMark(ctx context.Context, mark []byte) error {
 	if bytes.HasPrefix(mark, opsOutboxPrefix()) {
 		return nil
