@@ -12,9 +12,9 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// fakeReader is a tiny in-memory NodeReader that lets render_test assert
-// cross-reference resolution without standing up FDB. Only Get is used by the
-// renderer; the other methods panic to make accidental calls obvious.
+// fakeReader implements NodeReader in memory for tests of reference
+// rendering without FoundationDB. The renderer calls only Get. The other
+// methods panic on a test call.
 type fakeReader struct {
 	views map[uuid.UUID]*node.NodeView
 }
@@ -60,9 +60,11 @@ func mustRaw(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
-// TestRenderNodeIdentifierPreferred asserts that an issue under a project
-// renders with a "<PROJECT>-<seq>" identifier and pretty-printed scope and
-// parent fields, with the raw UUID at the bottom for round-tripping.
+// TestRenderNodeIdentifierPreferred checks that the response for an issue
+// under a project contains a "<PROJECT>-<seq>" identifier, the issue name,
+// readable scope and parent fields, and the raw issue UUID for later
+// requests. renderNode puts the identifier and name in the heading.
+// nodeFields appends the raw UUID after the other fields.
 func TestRenderNodeIdentifierPreferred(t *testing.T) {
 	now := time.Date(2026, 4, 28, 5, 30, 0, 0, time.UTC)
 	orgID := uuid.New()
@@ -133,20 +135,20 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 	})
 	out := renderNode(rc, issue)
 
-	mustContain(t, out, "TACK-65")                          // identifier in header
-	mustContain(t, out, "Fix the resolver bug")             // name in header
-	mustContain(t, out, "- Scope:")                         // resolved scope label
-	mustContain(t, out, "`TACK` (`project`)")               // resolved scope value
-	mustContain(t, out, "- Parent:")                        // resolved parent label
-	mustContain(t, out, "`TACK-12` (`epic`)")               // resolved parent identifier
-	mustContain(t, out, "- State:")                         // resolved state label
-	mustContain(t, out, "`in-progress` (`state`)")          // resolved state value
-	mustContain(t, out, "- Priority: high")                 // scalar prop
-	mustContain(t, out, "- Created:")                       // audit field
-	mustContain(t, out, "by alex")                          // resolved user
-	mustContain(t, out, "- Raw id: `"+issueID.String()+"`") // raw id at bottom
+	mustContain(t, out, "TACK-65")                          // Match the ID.
+	mustContain(t, out, "Fix the resolver bug")             // Check the name.
+	mustContain(t, out, "- Scope:")                         // Check Scope.
+	mustContain(t, out, "`TACK` (`project`)")               // Check the scope.
+	mustContain(t, out, "- Parent:")                        // Check Parent.
+	mustContain(t, out, "`TACK-12` (`epic`)")               // Check the parent.
+	mustContain(t, out, "- State:")                         // Check State.
+	mustContain(t, out, "`in-progress` (`state`)")          // Check the state.
+	mustContain(t, out, "- Priority: high")                 // Check priority.
+	mustContain(t, out, "- Created:")                       // Check Created.
+	mustContain(t, out, "by alex")                          // Match user name.
+	mustContain(t, out, "- Raw id: `"+issueID.String()+"`") // Match raw UUID.
 
-	// No raw UUIDs for cross-references should appear in the body.
+	// The body must not contain raw UUIDs for cross-references.
 	for _, raw := range []string{projectID.String(), epicID.String(), stateID.String()} {
 		if strings.Contains(out, raw) {
 			t.Errorf("rendered output should not contain raw cross-ref UUID %s; got:\n%s", raw, out)
@@ -154,7 +156,7 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 	}
 }
 
-// TestRenderListUsesIdentifiers asserts that a list of issues prints
+// TestRenderListUsesIdentifiers checks that a list of issues prints
 // identifiers and resolved state names rather than raw UUIDs.
 func TestRenderListUsesIdentifiers(t *testing.T) {
 	orgID := uuid.New()

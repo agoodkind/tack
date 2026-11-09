@@ -14,8 +14,10 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// A scope reference held by two nodes under the same parent is reported as
-// ambiguous with both candidates, not as not found (TACK-476).
+// TestResolveScopeReportsAmbiguousReferenceWithCandidates checks that two
+// nodes with one scope reference under one parent produce an
+// ambiguous-reference error with both candidate IDs (TACK-476). It rejects
+// not-found errors.
 func TestResolveScopeReportsAmbiguousReferenceWithCandidates(t *testing.T) {
 	orgID := uuid.New()
 	workspaceID := uuid.New()

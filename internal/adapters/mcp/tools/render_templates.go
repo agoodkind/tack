@@ -35,8 +35,8 @@ type collectionTemplateData struct {
 	Count   int
 	Noun    string
 	Items   []markdownItem
-	// NextCursor resumes a paged list; empty on the last page and for
-	// collections that are not paged.
+	// NextCursor resumes a paged list. It is empty on the last page and for
+	// collections without pagination.
 	NextCursor string `exhaustruct:"optional"`
 }
 

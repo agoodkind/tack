@@ -9,7 +9,7 @@ import (
 )
 
 // canonicalJSON returns equal comparison text for equal JSON values.
-// It returns false when it cannot parse a value.
+// It returns false when a parsing operation rejects a value.
 func canonicalJSON(raw json.RawMessage) (string, bool) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
@@ -86,8 +86,8 @@ func canonicalJSONArray(raw []byte) (string, bool) {
 	return "[" + strings.Join(parts, ",") + "]", true
 }
 
-// sameJSON compares canonical values and compares the original bytes instead
-// when either value cannot be canonicalized.
+// sameJSON compares canonical values. It compares the original bytes when
+// either value cannot produce canonical comparison text.
 func sameJSON(left, right json.RawMessage) bool {
 	leftCanonical, leftOK := canonicalJSON(left)
 	rightCanonical, rightOK := canonicalJSON(right)
@@ -102,7 +102,8 @@ func isAbsentJSON(raw json.RawMessage) bool {
 	return len(trimmed) == 0 || string(trimmed) == "null"
 }
 
-// scalarOrCompactJSON returns scalar text or compact JSON for an object or array.
+// scalarOrCompactJSON returns scalar text or compact JSON for an object or
+// array.
 func scalarOrCompactJSON(raw json.RawMessage) string {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {

@@ -25,10 +25,10 @@ func renderNode(rc *renderCtx, view *node.NodeView) string {
 	return executeMarkdownTemplate("node.md.tmpl", nodeTemplateData{Heading: heading, Fields: fields})
 }
 
-// renderDeletedNode renders the delete confirmation. result counts the
-// deleted nodes, the root included once it is gone, and the children moved
-// to the root's parent, and states whether the delete job finished within the
-// request.
+// renderDeletedNode renders the delete confirmation. result counts deleted
+// nodes, including the root after deletion, and children that the job moved
+// to the root's parent. Its state indicates whether the delete job finished
+// during the request.
 func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time, result service.DeleteResult) string {
 	ident := identifierFor(view, rc)
 	nodeType := strings.ToLower(view.NodeType)

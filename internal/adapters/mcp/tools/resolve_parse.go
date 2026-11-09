@@ -6,7 +6,15 @@ import (
 	"strings"
 )
 
-// ParseNodeIdentifier splits "ENG-42" into ("ENG", 42).
+// ParseNodeIdentifier splits a sequence reference into its project reference
+// and positive sequence number.
+//
+// It splits at the last hyphen and rejects a missing project reference, a
+// missing sequence, or a sequence that is not a positive integer.
+//
+// The documented example produces these values:
+//
+//   - "ENG-42" returns "ENG" and 42.
 func ParseNodeIdentifier(identifier string) (projectReference string, seqID int, err error) {
 	idx := strings.LastIndex(identifier, "-")
 	if idx <= 0 || idx == len(identifier)-1 {

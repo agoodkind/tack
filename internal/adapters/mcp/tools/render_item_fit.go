@@ -9,8 +9,9 @@ import (
 const (
 	truncatedTitleSuffix = "…`"
 	truncatedValueSuffix = "…"
-	// shortenedFieldFloorBytes sets the minimum number of bytes to keep before
-	// shortenMarkdownValue adjusts to a character boundary and adds its suffix.
+	// shortenedFieldFloorBytes sets the minimum retained byte count before
+	// shortenMarkdownValue adjusts to a UTF-8 character boundary and adds its
+	// suffix.
 	shortenedFieldFloorBytes = 16
 )
 

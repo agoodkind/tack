@@ -56,10 +56,10 @@ func (r *Resolver) resolveScopedNodeReference(ctx context.Context, nt *node.Node
 	return r.resolveScopedReference(ctx, nt, propName, input)
 }
 
-// resolveScopedReference resolves "<scope reference>::<value>" to the one node
-// of type nt under that scope with propName equal to value. The scope is the
-// first level of the scope chain of nt, or the entry point when nt lives
-// directly under it.
+// resolveScopedReference resolves "<scope reference>::<value>" to the unique
+// node of type nt under that scope with a case-insensitive propName match
+// for value. It uses the first scope chain level, or the entry point when nt
+// lives directly under it.
 func (r *Resolver) resolveScopedReference(ctx context.Context, nt *node.NodeType, propName, input string) (uuid.UUID, error) {
 	scopeIdent, localRef, ok := strings.Cut(input, scopedNodeRefSeparator)
 	if !ok {
