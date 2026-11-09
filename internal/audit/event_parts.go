@@ -122,6 +122,13 @@ func checkReadManifest(event Event, targets []Target) error {
 }
 
 // SHA256Hex returns the lowercase hexadecimal SHA-256 digest of payload.
+//
+// It hashes the exact bytes without decoding or normalizing them. The result
+// contains 64 hexadecimal characters.
+//
+// An input of []byte("abc") produces this digest:
+//
+//	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 func SHA256Hex(payload []byte) string {
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:])
