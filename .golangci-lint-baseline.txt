@@ -1,4 +1,10 @@
-# golangci-lint: generated_at=2026-11-09T02:22:18Z
+# golangci-lint: generated_at=2026-11-09T13:10:04Z
+internal/adapters/foundationdb/inspect_query.go:111:1: 111-133 lines are duplicate of `internal/adapters/foundationdb/inspect_query.go:87-109` (dupl)	# golangci-lint:first_added=2026-11-09T13:10:04Z last_seen=2026-11-09T13:10:04Z
+internal/adapters/foundationdb/inspect_query.go:87:1: 87-109 lines are duplicate of `internal/adapters/foundationdb/inspect_query.go:111-133` (dupl)	# golangci-lint:first_added=2026-11-09T13:10:04Z last_seen=2026-11-09T13:10:04Z
+internal/ops/cli_audit_partition_names_backfill.go:22:1: 22-42 lines are duplicate of `internal/ops/cli_orphan_node_backfill.go:23-43` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-09T13:10:04Z
+internal/ops/cli_orphan_node_backfill.go:23:1: 23-43 lines are duplicate of `internal/ops/cli_audit_partition_names_backfill.go:22-42` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-09T13:10:04Z
+internal/ops/cli_store.go:128:1: 128-156 lines are duplicate of `internal/ops/cli_store.go:62-90` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-09T13:10:04Z
+internal/ops/cli_store.go:62:1: 62-90 lines are duplicate of `internal/ops/cli_store.go:128-156` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-09T13:10:04Z
 cmd/audit-consumer/main.go:69:2: missing whitespace below this line (after-block) (wsl_v5)	# golangci-lint:first_added=2026-11-09T02:22:18Z last_seen=2026-11-09T02:22:18Z
 cmd/audit-consumer/main.go:86:3: missing whitespace above this line (too many lines above return) (wsl_v5)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-09T02:22:18Z
 cmd/audit-consumer/main.go:211:2: missing whitespace above this line (too many statements above range) (wsl_v5)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-09T02:22:18Z
@@ -5196,9 +5202,7 @@ internal/adapters/foundationdb/inspect_query.go:20:1: godoc line is too long (78
 internal/adapters/foundationdb/inspect_query.go:21:109: named return "err" with type "error" must not be referenced or used by a naked return (nonamedreturns)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/inspect_query.go:21:79: named return "report" with type "*NodeInspectionReport" must not be referenced or used by a naked return (nonamedreturns)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/inspect_query.go:31:34: parameter name 'tr' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
-internal/adapters/foundationdb/inspect_query.go:72:1: 72-94 lines are duplicate of `internal/adapters/foundationdb/inspect_query.go:96-118` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/inspect_query.go:91:1: The line is 125 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
-internal/adapters/foundationdb/inspect_query.go:96:1: 96-118 lines are duplicate of `internal/adapters/foundationdb/inspect_query.go:72-94` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/keys.go:92:1: Comment should end in a period (godot)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/keys.go:127:2: godoc line is too long (85 > 77) (godoclint)	# golangci-lint:first_added=2026-11-08T07:43:11Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/keys_nodes.go:25:1: The line is 124 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
@@ -5527,7 +5531,6 @@ internal/adapters/foundationdb/node_type.go:44:73: parameter name 'tr' is too sh
 internal/adapters/foundationdb/node_type.go:32:1: godoc line is too long (78 > 77) (godoclint)	# golangci-lint:first_added=2026-11-08T07:43:11Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/node_type.go:34:50: parameter name 'nt' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/node_type.go:36:2: variable name 'b' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
-internal/adapters/foundationdb/node_type.go:64:1: 64-144 lines are duplicate of `internal/adapters/foundationdb/property.go:109-187` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/node_type.go:64:1: exported: exported method NodeTypeStore.Get should have comment or be unexported (revive)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/node_type.go:64:25: symbol should have a godoc ("Get") (godoclint)	# golangci-lint:first_added=2026-11-08T07:43:11Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/node_type.go:85:1: exported: exported method NodeTypeStore.List should have comment or be unexported (revive)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-11-08T08:05:30Z
@@ -5610,7 +5613,6 @@ internal/adapters/foundationdb/ping_test.go:15:5: avoid inline error handling us
 internal/adapters/foundationdb/ping_test.go:1:9: package should be `foundationdb_test` instead of `foundationdb` (testpackage)	# golangci-lint:first_added=2026-11-08T08:05:30Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/property.go:103:1: The line is 121 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/property.go:39:77: named return "err" with type "error" must not be referenced or used by a naked return (nonamedreturns)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
-internal/adapters/foundationdb/property.go:109:1: 109-187 lines are duplicate of `internal/adapters/foundationdb/node_type.go:64-144` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/property.go:109:1: exported: exported method PropertyDefStore.Get should have comment or be unexported (revive)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/property.go:109:28: symbol should have a godoc ("Get") (godoclint)	# golangci-lint:first_added=2026-11-08T07:43:11Z last_seen=2026-11-08T08:05:30Z
 internal/adapters/foundationdb/property.go:74:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
@@ -9308,9 +9310,7 @@ internal/cli/operator_git_test.go:36:6: symbol should have a godoc ("TestGitConf
 internal/cli/operator_git_test.go:48:6: symbol should have a godoc ("TestGitConfigOperatorSourceHonorsGlobalOverride") (godoclint)	# golangci-lint:first_added=2026-11-08T07:43:11Z last_seen=2026-11-08T08:05:30Z
 internal/cli/operator_git_test.go:66:6: symbol should have a godoc ("TestGitConfigOperatorSourceUsesStableID") (godoclint)	# golangci-lint:first_added=2026-11-08T07:43:11Z last_seen=2026-11-08T08:05:30Z
 internal/cli/operator_gitconfig_test.go:83:5: avoid inline error handling using `if err := ...; err != nil`; use plain assignment `err := ...` (noinlineerr)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
-internal/cli/operator_gitconfig_test.go:13:1: 13-39 lines are duplicate of `internal/cli/operator_gitconfig_test.go:43-69` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/cli/operator_gitconfig_test.go:1:9: package should be `cli_test` instead of `cli` (testpackage)	# golangci-lint:first_added=2026-11-08T08:05:30Z last_seen=2026-11-08T08:05:30Z
-internal/cli/operator_gitconfig_test.go:43:1: 43-69 lines are duplicate of `internal/cli/operator_gitconfig_test.go:13-39` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/cli/operator_service.go:39:10: do not define dynamic errors, use wrapped static errors instead: "errors.New(\"operator service source has no factory\")" (err113)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/cli/operator_service.go:49:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/cli/operator_service.go:45:10: do not define dynamic errors, use wrapped static errors instead: "errors.New(\"operator-service is required for service identity\")" (err113)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
@@ -11268,7 +11268,6 @@ internal/ops/cli_audit_manifest_parts_spec.go:54:9: audit.Spec is missing fields
 internal/ops/cli_audit_manifest_parts_spec.go:61:1: The line is 124 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_audit_manifest_parts_spec.go:61:1: godoc line is too long (121 > 77) (godoclint)	# golangci-lint:first_added=2026-11-08T07:43:11Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_audit_partition_names_backfill.go:16:2: there must be an empty line separating embedded fields from regular fields (embeddedstructfieldcheck)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
-internal/ops/cli_audit_partition_names_backfill.go:22:1: 22-42 lines are duplicate of `internal/ops/cli_orphan_node_backfill.go:23-43` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_audit_partition_names_backfill.go:22:36: parameter name 'f' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_audit_partition_names_backfill.go:23:9: clispec.Operation is missing fields Aliases, Hidden, Examples, Args, Params (exhaustruct_v5)	# golangci-lint:first_added=2026-11-08T07:31:29Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_audit_partition_names_backfill.go:26:13: audit.Spec is missing fields Atomic, Reads, CreatesAuditInfrastructure, Class, Targets, SafeInput (exhaustruct_v5)	# golangci-lint:first_added=2026-11-08T07:31:29Z last_seen=2026-11-08T08:05:30Z
@@ -11391,7 +11390,6 @@ internal/ops/cli_node_integrity_backfill.go:70:1: The line is 150 characters lon
 internal/ops/cli_node_integrity_backfill.go:73:61: do not define dynamic errors, use wrapped static errors instead: "errors.New(\"pass exactly one of --request and --manifest\")" (err113)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_node_integrity_backfill.go:77:4: do not define dynamic errors, use wrapped static errors instead: "errors.New(\"--request only freezes a manifest; review the frozen manifest and execute it with --manifest\")" (err113)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_orphan_node_backfill.go:17:2: there must be an empty line separating embedded fields from regular fields (embeddedstructfieldcheck)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
-internal/ops/cli_orphan_node_backfill.go:23:1: 23-43 lines are duplicate of `internal/ops/cli_audit_partition_names_backfill.go:22-42` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_orphan_node_backfill.go:23:27: parameter name 'f' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_orphan_node_backfill.go:24:9: clispec.Operation is missing fields Aliases, Hidden, Examples, Args, Params (exhaustruct_v5)	# golangci-lint:first_added=2026-11-08T07:31:29Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_orphan_node_backfill.go:27:13: audit.Spec is missing fields Atomic, Reads, CreatesAuditInfrastructure, Class, Targets, SafeInput (exhaustruct_v5)	# golangci-lint:first_added=2026-11-08T07:31:29Z last_seen=2026-11-08T08:05:30Z
@@ -11492,13 +11490,11 @@ internal/ops/cli_search_settings.go:56:87: named return "runErr" with type "erro
 internal/ops/cli_search_settings.go:80:5: avoid inline error handling using `if err := ...; err != nil`; use plain assignment `err := ...` (noinlineerr)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_search_settings.go:91:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_store.go:115:1: The line is 124 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
-internal/ops/cli_store.go:128:1: 128-156 lines are duplicate of `internal/ops/cli_store.go:62-90` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_store.go:93:29: parameter name 'f' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_store.go:94:9: clispec.Operation is missing field DryRun (exhaustruct_v5)	# golangci-lint:first_added=2026-11-08T07:31:29Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_store.go:97:13: audit.Spec is missing fields Atomic, Reads, CreatesAuditInfrastructure, Class, Targets, SafeInput (exhaustruct_v5)	# golangci-lint:first_added=2026-11-08T07:31:29Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_store.go:32:2: there must be an empty line separating embedded fields from regular fields (embeddedstructfieldcheck)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_store.go:39:37: string `status` has 4 occurrences, but such constant `retentionFDBStatus` already exists (goconst)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
-internal/ops/cli_store.go:62:1: 62-90 lines are duplicate of `internal/ops/cli_store.go:128-156` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_strict_validation.go:24:2: there must be an empty line separating embedded fields from regular fields (embeddedstructfieldcheck)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_strict_validation.go:28:25: parameter name 'f' is too short for the scope of its usage (varnamelen)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/ops/cli_strict_validation.go:32:13: audit.Spec is missing fields Atomic, Reads, CreatesAuditInfrastructure, Class, Targets, SafeInput (exhaustruct_v5)	# golangci-lint:first_added=2026-11-08T07:31:29Z last_seen=2026-11-08T08:05:30Z
@@ -12452,10 +12448,9 @@ internal/runtime/health_test.go:55:6: symbol should have a godoc ("TestHealthzRe
 internal/runtime/health_test.go:70:6: symbol should have a godoc ("TestHealthzStartsHangingProbesConcurrently") (godoclint)	# golangci-lint:first_added=2026-11-08T07:43:11Z last_seen=2026-11-08T08:05:30Z
 internal/schemastatus/apply_outcome.go:85:2: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/schemastatus/apply_outcome.go:40:29: audit.Target is missing field OwnerID (exhaustruct_v5)	# golangci-lint:first_added=2026-11-08T07:31:29Z last_seen=2026-11-08T08:05:30Z
-internal/schemastatus/apply_outcome.go:64:11: do not define dynamic errors, use wrapped static errors instead: "fmt.Errorf(\"the database is at migration version %d after the run, not the target version %d\", applied, target)" (err113)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
+internal/schemastatus/apply_outcome.go:81:35: do not define dynamic errors, use wrapped static errors instead: "fmt.Errorf(\n\t\"the database is at migration version %d after the run, not the target version %d\", applied, target)" (err113)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/schemastatus/apply_outcome.go:64:1: The line is 121 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/schemastatus/apply_outcome.go:74:1: The line is 147 characters long, which exceeds the maximum of 120 characters. (lll)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
-internal/schemastatus/apply_outcome.go:81:35: do not define dynamic errors, use wrapped static errors instead: "fmt.Errorf(\n\t\"the database is at migration version %d after the run, not the target version %d\", applied, target)" (err113)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/schemastatus/apply_recorded.go:96:3: return with no blank line before (nlreturn)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/schemastatus/apply_recorded.go:94:5: avoid inline error handling using `if err := ...; err != nil`; use plain assignment `err := ...` (noinlineerr)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/schemastatus/apply_recorded.go:31:9: audit.Target is missing field OwnerID (exhaustruct_v5)	# golangci-lint:first_added=2026-11-08T07:31:29Z last_seen=2026-11-08T08:05:30Z
@@ -14206,7 +14201,6 @@ internal/test/integration/reference_duplicates_test.go:94:3: string `parent_id` 
 internal/test/integration/reference_duplicates_test.go:95:3: string `scope_id` has 10 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/test/integration/reference_duplicates_test.go:96:3: string `sequence` has 10 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/test/integration/reference_duplicates_test.go:98:14: node.Node is missing fields CreatedBy, UpdatedBy (exhaustruct_v5)	# golangci-lint:first_added=2026-11-08T07:31:29Z last_seen=2026-11-08T08:05:30Z
-internal/test/integration/reference_repair_helpers_test.go:18:1: 18-51 lines are duplicate of `internal/test/integration/reference_scope_repair_test.go:158-191` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/test/integration/reference_repair_helpers_test.go:1:9: package should be `integration_test` instead of `integration` (testpackage)	# golangci-lint:first_added=2026-11-08T08:05:30Z last_seen=2026-11-08T08:05:30Z
 internal/test/integration/reference_repair_helpers_test.go:22:3: string `parent_id` has 16 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/test/integration/reference_repair_helpers_test.go:23:3: string `scope_id` has 10 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
@@ -14236,7 +14230,6 @@ internal/test/integration/reference_repair_test.go:85:6: symbol should have a go
 internal/test/integration/reference_scope_repair_test.go:64:5: avoid inline error handling using `if err := ...; err != nil`; use plain assignment `err := ...` (noinlineerr)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/test/integration/reference_scope_repair_test.go:155:2: writeNodeWithSplitScope - typeKey always receives "issue" (unparam)	# golangci-lint:first_added=2026-11-08T08:05:30Z last_seen=2026-11-08T08:05:30Z
 internal/test/integration/reference_scope_repair_test.go:157:2: writeNodeWithSplitScope - sequence always receives 1 (unparam)	# golangci-lint:first_added=2026-11-08T08:05:30Z last_seen=2026-11-08T08:05:30Z
-internal/test/integration/reference_scope_repair_test.go:158:1: 158-191 lines are duplicate of `internal/test/integration/reference_repair_helpers_test.go:18-51` (dupl)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/test/integration/reference_scope_repair_test.go:15:1: godoc line is too long (78 > 77) (godoclint)	# golangci-lint:first_added=2026-11-08T07:43:11Z last_seen=2026-11-08T08:05:30Z
 internal/test/integration/reference_scope_repair_test.go:162:3: string `parent_id` has 16 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
 internal/test/integration/reference_scope_repair_test.go:163:3: string `scope_id` has 10 occurrences, make it a constant (goconst)	# golangci-lint:first_added=2026-11-08T07:40:03Z last_seen=2026-11-08T08:05:30Z
@@ -18507,12 +18500,10 @@ internal/adapters/foundationdb/view.go:140:15: node.NodeStreamResult is missing 
 internal/adapters/mcp/server.go:68:10: mcp.Handler is missing field mu (exhaustruct)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
 internal/adapters/mcp/tools/audit.go:15:1: cognitive complexity 43 of func `RegisterAudit` is high (> 30) (gocognit)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
 internal/adapters/mcp/tools/audit.go:25:6: tools.schemaField is missing fields Desc, Enum (exhaustruct)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
-internal/adapters/mcp/tools/audit.go:57:5: error is not nil (line 55) but it returns nil (nilerr)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
 internal/adapters/mcp/tools/audit.go:61:5: error is not nil (line 59) but it returns nil (nilerr)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
 internal/adapters/mcp/tools/audit.go:70:14: audit.QueryFilter is missing fields ActorID, EntityID (exhaustruct)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
 internal/adapters/mcp/tools/audit.go:79:1: `if v != ""` has complex nested blocks (complexity: 5) (nestif)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
 internal/adapters/mcp/tools/audit_register.go:18:29: tools.schemaField is missing fields Desc, Enum (exhaustruct)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
-internal/adapters/mcp/tools/audit_register.go:33:5: error is not nil (line 31) but it returns nil (nilerr)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
 internal/adapters/mcp/tools/audit_register.go:65:5: error is not nil (line 63) but it returns nil (nilerr)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
 internal/adapters/mcp/tools/audit_render.go:21:35: integer-format: fmt.Sprintf can be replaced with faster strconv.FormatInt (perfsprint)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
 internal/adapters/mcp/tools/audit_render.go:34:36: integer-format: fmt.Sprintf can be replaced with faster strconv.Itoa (perfsprint)	# golangci-lint:first_added=2026-05-05T02:18:49Z last_seen=2026-05-06T06:14:44Z
