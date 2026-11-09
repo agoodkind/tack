@@ -14,20 +14,24 @@ import (
 )
 
 const (
-	// toolResultRoute is the resource URI of a tool result without a resolved target.
+	// toolResultRoute is the resource URI for a tool result without a
+	// resolved target.
 	toolResultRoute = "/mcp"
-	// unchangedReason is the reason of a successful tool result without a committed change.
+	// unchangedReason marks a successful tool result without a committed
+	// change.
 	unchangedReason = "no_change"
-	// committedChangeStep is the committed step of a tool result that failed after its change committed.
+	// committedChangeStep identifies a database change that committed
+	// before an unsuccessful tool result.
 	committedChangeStep = "database_change"
 )
 
-// recordToolResult records the result of one state-changing tool call outside
-// a read collector. The request recorder records every other tool call as a
-// read. When a FoundationDB writer committed change events and the call
-// succeeded, recordToolResult records nothing more. Otherwise it records one
-// format 2 database change result event with the operation ID, target, and
-// outcome of the call.
+// recordToolResult attempts to record a state-changing tool call's result
+// outside a read collector. The request recorder handles other calls as
+// reads. If a FoundationDB writer committed change events and the call
+// succeeded, this function does not record another event. Otherwise, it
+// attempts to build and record one format 2 database change result event
+// with the operation ID, target, and outcome. It logs errors from event
+// construction and recording.
 func recordToolResult(ctx context.Context, recorder audit.Recorder, toolName string, result *mcpmcp.CallToolResult, runErr error, refused bool) {
 	committed := auditintent.Committed(ctx)
 	outcome, reason, noted := toolResultOutcome(ctx, refused, runErr, result)
@@ -54,7 +58,7 @@ func recordToolResult(ctx context.Context, recorder audit.Recorder, toolName str
 }
 
 // toolResultOutcome returns the outcome of one tool call, the reason for a
-// successful result without a change, and the target that the handler stored.
+// successful result without a change, and the target the handler stored.
 func toolResultOutcome(ctx context.Context, refused bool, runErr error, result *mcpmcp.CallToolResult) (audit.OutcomeDetails, string, *audit.Target) {
 	noted, reason, target := toolNoteResult(ctx)
 	switch {

@@ -8,8 +8,9 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// toolNote stores the outcome, reason, and target that one tool call reports
-// for its audit result event. The first reported outcome wins.
+// toolNote stores one tool call's outcome, reason, and target in its
+// request context for a result event. It preserves the first nonempty
+// outcome.
 type toolNote struct {
 	mu      sync.Mutex
 	outcome audit.OutcomeDetails
@@ -19,8 +20,8 @@ type toolNote struct {
 
 type toolNoteKey struct{}
 
-// idempotentMatchReason is the result reason of a create that matched an
-// earlier create with the same idempotency key and wrote nothing.
+// idempotentMatchReason marks a create that matched an earlier create
+// with the same idempotency key and did not write a change.
 const idempotentMatchReason = "idempotent_match"
 
 // withToolNote attaches an empty note for one tool call.
@@ -31,8 +32,8 @@ func withToolNote(ctx context.Context) context.Context {
 }
 
 // noteToolResult stores outcome, reason, and target in the note on ctx.
-// It keeps an outcome that the call already stored and replaces the target
-// only when target is not nil.
+// It preserves an existing nonempty outcome and its reason. It replaces
+// the target only when target is not nil.
 func noteToolResult(ctx context.Context, outcome audit.OutcomeDetails, reason string, target *audit.Target) {
 	note, _ := ctx.Value(toolNoteKey{}).(*toolNote)
 	if note == nil {
@@ -50,7 +51,8 @@ func noteToolResult(ctx context.Context, outcome audit.OutcomeDetails, reason st
 	}
 }
 
-// noteToolTarget sets the target in the note on ctx without changing the stored outcome.
+// noteToolTarget sets the target in the note on ctx without changing
+// the stored outcome.
 func noteToolTarget(ctx context.Context, target audit.Target) {
 	note, _ := ctx.Value(toolNoteKey{}).(*toolNote)
 	if note == nil {
@@ -61,7 +63,8 @@ func noteToolTarget(ctx context.Context, target audit.Target) {
 	note.target = &target
 }
 
-// toolNoteResult returns the outcome, reason, and target that the call stored.
+// toolNoteResult returns the outcome, reason, and target that the call
+// stored.
 func toolNoteResult(ctx context.Context) (audit.OutcomeDetails, string, *audit.Target) {
 	note, _ := ctx.Value(toolNoteKey{}).(*toolNote)
 	if note == nil {
@@ -72,8 +75,8 @@ func toolNoteResult(ctx context.Context) (audit.OutcomeDetails, string, *audit.T
 	return note.outcome, note.reason, note.target
 }
 
-// noteOutcome stores an unsuccessful outcome for the request's read event and
-// for the tool call's result event.
+// noteOutcome stores an unsuccessful outcome in the request's read
+// collector and tool note for later audit recording.
 func noteOutcome(ctx context.Context, outcome audit.Outcome, code, message string) {
 	audit.NoteReadOutcome(ctx, outcome, code, message)
 	noteToolResult(ctx, audit.OutcomeDetails{

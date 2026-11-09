@@ -12,25 +12,31 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// nodeTypeSummary is the per-NodeType payload returned by tack_describe_*.
-// Mirrors the small subset of NodeType the MCP layer needs for command names,
-// human names, features, and declared reference contracts without exposing the full NodeType struct, which
-// includes org-internal fields like ID.
+// nodeTypeSummary supplies the node type metadata that tack_describe_*
+// renders for command names, human names, features, and declared reference
+// contracts. It omits organization-internal NodeType fields such as ID.
 type nodeTypeSummary struct {
 	Slug       string
 	PluralSlug string
 	Name       string
 	Features   []string
 	Reference  node.ReferenceConfig
-	// ChildCount is the number of direct children of this type under the
-	// described workspace, read one page deep. ChildCountMore is true when
-	// more than ChildCount exist.
+	// ChildCount counts direct children of this type under the workspace
+	// in the first page. ChildCountMore reports whether another page exists.
 	ChildCount     int
 	ChildCountMore bool
 }
 
-// RegisterWorkspace registers tack_list_workspaces and tack_describe_workspace
-// using only generic primitives.
+// RegisterWorkspace registers workspace listing and description tools.
+//
+// The handlers use generic node reads and reference metadata.
+//
+//   - tack_list_workspaces lists workspaces in the caller's member
+//     organizations.
+//   - The entry point slug selects the tack_describe_* tool name. A slug of
+//     workspace registers tack_describe_workspace.
+//   - A description reads one page of direct children per node type. The
+//     renderer adds a plus sign when another page exists.
 func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver *Resolver, nodeTypes []*node.NodeType) {
 	registerTool(s,
 		mcpmcp.Tool{
@@ -112,6 +118,11 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 }
 
 // RegisterMembers registers tack_list_members.
+//
+// The handler resolves the workspace and lists members of its organization.
+//
+//   - A failed or empty user lookup excludes that member from the result.
+//   - A user without a display name appears under the user's email address.
 func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users user.Repository, resolver *Resolver) {
 	registerTool(s,
 		mcpmcp.Tool{
