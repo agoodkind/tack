@@ -11,16 +11,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// cascadeCountText is the field of the tack_delete_project output that
-// reports how many nodes the delete removed.
+// cascadeCountText identifies the tack_delete_project output field that reports
+// the number of deleted nodes.
 const cascadeCountText = "Deleted nodes: "
 
-// movedCountText is the field of the tack_delete_cycle output that reports
-// one issue moved to the project.
+// movedCountText identifies the tack_delete_cycle output field that reports one
+// issue moving to the project.
 const movedCountText = "Moved nodes: 1"
 
-// notFoundText is part of the error that a get tool returns for a missing
-// node.
+// notFoundText matches part of a get tool's error for a missing node.
 const notFoundText = "not found"
 
 const (
@@ -38,13 +37,20 @@ type CascadeDeleteEvidence struct {
 	InitialState  string
 }
 
-// CascadeProbeResult includes the probe and any interrupted-run cleanup deletion.
+// CascadeProbeResult includes the probe deletion and any deletion that removes
+// a project from an interrupted run.
 type CascadeProbeResult struct {
 	Deletes []CascadeDeleteEvidence
 }
 
-// VerifyCascadeDelete creates and deletes the QA probe through authenticated MCP.
-// Public reads must confirm the root and probe descendants are absent.
+// VerifyCascadeDelete creates and deletes the QA probe through authenticated
+// MCP requests.
+//
+// Public reads must confirm that the root and probe descendants do not exist.
+// The method counts the probe's requests in the generator's driver.
+//
+//   - A missing first workspace or actor skips the probe.
+//   - A dry run plans requests without checking that nodes no longer exist.
 func (g *Generator) VerifyCascadeDelete(ctx context.Context) (CascadeProbeResult, error) {
 	probe := *g
 	probe.driver = NewDriver(g.driver.graph, g.dryRun, g.seed)
@@ -59,13 +65,14 @@ func (g *Generator) VerifyCascadeDelete(ctx context.Context) (CascadeProbeResult
 	return result, err
 }
 
-// probeCascadeDelete creates a project with an issue and a comment under the
-// issue in the first workspace, runs probeCycleMove in the project, then
-// deletes the project through tack_delete_project. The delete output must
-// report the deleted node count, and tack_get_issue and tack_get_comment must
-// report both issues and the comment missing.
-// A project that an interrupted earlier run left behind is deleted first. A
-// dry run plans the calls and skips the checks.
+// probeCascadeDelete creates a project, an issue, and a comment under that
+// issue in the first workspace. It runs probeCycleMove in the project, then
+// deletes the project through tack_delete_project.
+//
+// The delete output must report the deleted node count. tack_get_issue must
+// report both issues missing, and tack_get_comment must report the comment
+// missing. The helper first deletes any probe project that an interrupted run
+// left behind. A dry run plans the calls and skips these checks.
 func (g *Generator) probeCascadeDelete(ctx context.Context, proof *CascadeProbeResult) error {
 	if len(g.identities.Workspaces) == 0 || len(g.identities.Workspaces[0].Actors) == 0 {
 		slog.InfoContext(ctx, "qa.datagen.cascade_probe_skipped", slog.String("reason", "the scale generates no actor"))
@@ -122,11 +129,13 @@ func (g *Generator) probeCascadeDelete(ctx context.Context, proof *CascadeProbeR
 	return g.requireCascadeGone(ctx, token, workspace.Slug, identifier, deleted, project.RawID(), []string{issue.RawID(), moved}, comment.RawID())
 }
 
-// probeCycleMove creates a cycle in the probe project and an issue with the
-// cycle as its parent, then deletes the cycle through tack_delete_cycle. The
-// delete must move the issue to the project: the output must report one
-// moved node, and tack_get_issue must still return the issue. It returns
-// the issue's raw id. A dry run plans the calls and skips the checks.
+// probeCycleMove creates a cycle in the probe project and an issue with that
+// cycle as its parent. It deletes the cycle through tack_delete_cycle. The
+// delete must assign the project as the issue's parent, report one moved node,
+// and leave the issue readable through tack_get_issue.
+//
+// The helper returns the issue's raw ID. A dry run plans the calls and skips
+// the checks.
 func (g *Generator) probeCycleMove(ctx context.Context, token, workspaceReference, identifier string) (string, error) {
 	cycle, err := g.driver.Call(ctx, token, "tack_create_cycle", ToolArguments{
 		WorkspaceReference: workspaceReference, ProjectReference: identifier, Name: "QA cascade delete cycle",
@@ -161,8 +170,8 @@ func (g *Generator) probeCycleMove(ctx context.Context, token, workspaceReferenc
 	return issue.RawID(), nil
 }
 
-// deleteResidualCascadeProject deletes the probe project named name when an
-// interrupted earlier run left it in the workspace.
+// deleteResidualCascadeProject deletes the probe project with the supplied name
+// when an interrupted run left that project in the workspace.
 func (g *Generator) deleteResidualCascadeProject(ctx context.Context, token, workspaceReference, name string, proof *CascadeProbeResult) error {
 	existing, err := g.driver.Call(ctx, token, "tack_list_projects", scopeArgs(workspaceReference, ""))
 	if err != nil {
@@ -203,9 +212,9 @@ func recordCascadeDelete(ctx context.Context, proof *CascadeProbeResult, deleted
 	return nil
 }
 
-// requireCascadeGone polls public reads until a running deletion has removed
-// the root and every probe child. After a finished deletion, the first public
-// read must already return them as absent.
+// requireCascadeGone polls public reads until a running deletion removes the
+// root and every probe child. After a finished deletion, the first public read
+// must already report that each node does not exist.
 func (g *Generator) requireCascadeGone(ctx context.Context, token, workspaceReference, identifier string, deleted Result, projectID string, issueIDs []string, commentID string) error {
 	background := strings.Contains(deleted.Text(), "- Delete state: running")
 	if !background && !strings.Contains(deleted.Text(), "- Delete state: finished") {

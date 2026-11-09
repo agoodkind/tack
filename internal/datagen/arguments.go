@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// ToolArguments is the fully enumerated argument object sent to tools/call.
+// ToolArguments declares the complete argument object for tools/call.
 type ToolArguments struct {
 	WorkspaceReference string         `json:"workspace_reference,omitempty"`
 	ProjectReference   string         `json:"project_reference,omitempty"`
@@ -25,7 +25,7 @@ type ToolArguments struct {
 	Cursor             string         `json:"cursor,omitempty"              exhaustruct:"optional"`
 }
 
-// NodeProperties is a typed raw-JSON property object.
+// NodeProperties maps property names to raw JSON values.
 type NodeProperties map[string]json.RawMessage
 
 func newProperties() NodeProperties {

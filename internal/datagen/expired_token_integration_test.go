@@ -19,11 +19,14 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestExpireTokenRunsAsTheAppLogin pins the QA failure of 2026-09-18: after
-// migration 015 took UPDATE on api_tokens away from app_auth, the generator's
-// expired-token step failed with permission denied and every soak stopped at
-// bootstrap. The step now runs as a login holding only app_auth, stores a
-// token already past its expiry, and the real validator refuses it.
+// TestExpireTokenRunsAsTheAppLogin reproduces the QA failure of 2026-09-18. The
+// original incident account recorded that migration 015 removed UPDATE on
+// api_tokens from app_auth. The expired-token step then failed with permission
+// denied, and every soak stopped during bootstrap.
+//
+// The test runs the step as a login that inherits only app_auth. It checks that
+// the step stores a token with a past expiry and that the real validator
+// rejects the token.
 func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
@@ -70,8 +73,8 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 	}
 }
 
-// withTestMutation creates a mutation operation for a service actor, attaches
-// it to ctx, and returns the resulting context.
+// withTestMutation creates a mutation operation for a service actor and returns
+// a context with that operation attached.
 func withTestMutation(t *testing.T, ctx context.Context) context.Context {
 	t.Helper()
 	operation, err := audit.NewMutationOperation(audit.Actor{
@@ -88,8 +91,8 @@ func withTestMutation(t *testing.T, ctx context.Context) context.Context {
 	return attached
 }
 
-// appLoginDSN creates a throwaway login that inherits app_auth and nothing
-// else and returns the DSN rewritten to connect as it.
+// appLoginDSN creates a temporary login that inherits only app_auth. It returns
+// the DSN with that login's credentials.
 func appLoginDSN(ctx context.Context, t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
 	t.Helper()
 	suffix := make([]byte, 4)

@@ -100,7 +100,13 @@ func responsePayload(
 	return payload, nil
 }
 
-// Text returns all text content in order.
+// Text returns every nonempty Text field in content order.
+//
+// The method joins those fields with newlines. It does not filter content items
+// by Type.
+//
+//   - Text fields "first", "", and "last" produce "first\nlast".
+//   - Empty content produces an empty string.
 func (r Result) Text() string {
 	parts := make([]string, 0, len(r.Content))
 	for _, content := range r.Content {
@@ -112,6 +118,12 @@ func (r Result) Text() string {
 }
 
 // RawID reads the rendered Raw id field from a node result.
+//
+// The method extracts the text between the first matching marker and its
+// closing backtick. It returns an empty string when either delimiter is absent.
+//
+//   - The text "Raw id: `node-123`" produces "node-123".
+//   - The text "Raw id: `first` Raw id: `second`" produces "first".
 func (r Result) RawID() string {
 	const marker = "Raw id: `"
 	text := r.Text()
@@ -128,8 +140,12 @@ func (r Result) RawID() string {
 }
 
 // ReferenceForName reads a list item's printed reference for an exact name.
-// The server omits the Name field when the name is the printed title, so a
-// title equal to the name is its own reference.
+//
+// The server omits the Name field when the name is the printed title. A
+// matching title therefore supplies its own reference.
+//
+//   - A matching Name line uses the preceding line as its reference.
+//   - A list without either match returns an empty string.
 func (r Result) ReferenceForName(name string) string {
 	lines := strings.Split(r.Text(), "\n")
 	target := "  - Name: " + name

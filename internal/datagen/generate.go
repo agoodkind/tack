@@ -37,15 +37,17 @@ type Generator struct {
 	productionAuth bool
 	redactAuditPII bool
 	redactActor    ActorRedactor
-	// probeNodeID is the first generated node's raw id, kept for the
-	// cross-org isolation probe.
+	// probeNodeID stores the first generated node's raw ID for the check that an
+	// actor from another organization cannot read it.
 	probeNodeID string
 	summary     Summary
 }
 
-// GeneratorOptions controls environment-dependent corpus probes. RedactActor
-// is the host redaction path the opt-in PII step runs through; nil means the
-// environment carries no reader and redactor DSN and the step is skipped.
+// GeneratorOptions controls corpus probes that depend on the environment.
+// RedactActor supplies the host redaction function for the optional PII step,
+// which removes personal information from audit records. The configured
+// constructor returns nil when either the reader or redactor DSN is absent; the
+// generator skips redaction when RedactActor is nil.
 type GeneratorOptions struct {
 	DryRun         bool
 	ProductionAuth bool
@@ -54,6 +56,11 @@ type GeneratorOptions struct {
 }
 
 // NewGenerator constructs a deterministic corpus generator.
+//
+// The constructor registers token identities before returning the generator.
+//
+//   - The initial summary counts the supplied workspaces.
+//   - Created, reused, project, issue, and tool-call counts start at zero.
 func NewGenerator(
 	driver *Driver,
 	content *Content,
@@ -90,13 +97,17 @@ func registerIdentityTokens(driver *Driver, identities Identities) {
 	}
 }
 
-// Run generates all requested tenants and exercises negative authentication.
+// Run generates every requested tenant and checks rejected authentication.
+//
+// The method returns the summary after the corpus, isolation, deletion, and
+// optional redaction probes succeed.
+//
+//   - An operation error returns an empty summary and stops further work.
+//   - A successful run sets ToolCalls to the driver's request count.
 func (g *Generator) Run(ctx context.Context) (Summary, error) {
-	// The orientation resource is read first because that is what its own
-	// description tells clients to do, so a generator that read it later would
-	// not model a real session. It runs ahead of the rejected-token probes
-	// too: those are tool calls, so leaving them first would have made the
-	// ordering claim false while reading as if it held.
+	// Run reads the orientation resource before any tool call, including rejected
+	// token probes. The resource tells clients to read it first. Reading it after
+	// those probes would not model that session order.
 	if err := g.readGettingStartedResource(ctx); err != nil {
 		return Summary{}, err
 	}
@@ -178,12 +189,12 @@ type authProbe struct {
 }
 
 // readGettingStartedResource reads the one MCP resource the server exposes, as
-// the first workspace's first actor.
+// the first actor of the first workspace.
 //
-// This is the generator's only resource traffic, and it exists so a testbed run
-// produces an mcp.resource_read row. A generator that exercises every tool and
-// no resource leaves that verb with no way to appear on a testbed at all, which
-// is how it went unnoticed that nothing emitted it (TACK-340).
+// This call supplies the generator's only resource traffic for
+// mcp.resource_read. The original TACK-340 account recorded that tool-only
+// traffic could not expose the absent resource emitter. The helper skips the
+// read when the first workspace or its first actor does not exist.
 func (g *Generator) readGettingStartedResource(ctx context.Context) error {
 	if len(g.identities.Workspaces) == 0 || len(g.identities.Workspaces[0].Actors) == 0 {
 		slog.InfoContext(ctx, "qa.datagen.resource_read_skipped",

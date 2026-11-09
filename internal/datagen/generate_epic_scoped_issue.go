@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// generateEpicScopedIssue creates or reuses a seed issue and lists the epic's issues
-// when epicReference is nonempty.
+// generateEpicScopedIssue creates or reuses a seed issue and lists the epic's
+// issues when epicReference is nonempty.
 func (g *Generator) generateEpicScopedIssue(
 	ctx context.Context,
 	actor Actor,

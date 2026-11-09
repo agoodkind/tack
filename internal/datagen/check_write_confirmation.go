@@ -15,10 +15,10 @@ const (
 	stateIDKey                = "state_id"
 )
 
-// updateIssueAndCheckConfirmation updates the issue state and QA properties.
-// It checks the state change and true checkbox, then repeats the update and
-// checks that state_id, qa_checkbox, and qa_text report Unchanged.
-// Dry runs send one update without checking its confirmation.
+// updateIssueAndCheckConfirmation updates the issue state and QA properties. It
+// checks the state change and true checkbox, repeats the update, and checks
+// that state_id, qa_checkbox, and qa_text report Unchanged. A dry run sends one
+// update without checking its confirmation.
 func (g *Generator) updateIssueAndCheckConfirmation(
 	ctx context.Context,
 	actor Actor,
@@ -71,8 +71,9 @@ func (g *Generator) updateIssueAndCheckConfirmation(
 	return nil
 }
 
-// knownIssueState returns the issue's Todo or In Progress reference, moving other
-// states to Todo to avoid shortened references in the confirmation check.
+// knownIssueState returns the issue's Todo or In Progress reference. It changes
+// any other state to Todo before checking confirmations that need the full
+// state reference.
 func (g *Generator) knownIssueState(
 	ctx context.Context,
 	actor Actor,

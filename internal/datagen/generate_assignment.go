@@ -9,15 +9,14 @@ import (
 	"goodkind.io/tack/internal/adapters/mcp/tools"
 )
 
-// errAssignmentStillRendered reports that tack_get_issue still showed an
-// assignee after tack_remove_relationship removed the issue's assigned_to
+// errAssignmentStillRendered reports that tack_get_issue still lists an
+// assignee after tack_remove_relationship removes the issue's assigned_to
 // relationship.
 var errAssignmentStillRendered = errors.New("tack_get_issue still lists an assignee after the assignment was removed")
 
-// exerciseAssignmentRemoval removes the issue's assigned_to relationship
-// to the actor, checks that tack_get_issue shows Assignees as "unassigned",
-// then adds the relationship again to assign the issue to the actor.
-// A dry run plans the calls and skips the check.
+// exerciseAssignmentRemoval removes the issue's assigned_to relationship to the
+// actor. It checks that tack_get_issue reports Assignees as "unassigned", then
+// adds the relationship again. A dry run plans the calls and skips the check.
 func (g *Generator) exerciseAssignmentRemoval(
 	ctx context.Context,
 	actor Actor,

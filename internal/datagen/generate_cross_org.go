@@ -6,10 +6,13 @@ import (
 	"log/slog"
 )
 
-// probeCrossOrgIsolation verifies the org membership gate with real traffic:
-// an actor from a different org reads a node of the first org by UUID through
-// the generic UUID-path tools and must be refused. The probe is generic over
-// node types; it uses whatever node the corpus created first.
+// probeCrossOrgIsolation checks the organization membership gate with real
+// requests. An actor from another organization attempts to read the first
+// organization's node by UUID through generic tools. The gate must reject that
+// access. The probe uses the first generated node regardless of its type.
+//
+// The helper accepts any tool error as a refusal. It does not verify that the
+// error reports an authorization failure.
 func (g *Generator) probeCrossOrgIsolation(ctx context.Context) error {
 	foreign := g.foreignWorkspace()
 	if foreign == nil {
@@ -44,8 +47,9 @@ func (g *Generator) probeCrossOrgIsolation(ctx context.Context) error {
 	return nil
 }
 
-// foreignWorkspace returns the first workspace whose org differs from the
-// first workspace's org, or nil when every workspace shares one org.
+// foreignWorkspace returns the first workspace that has an actor and belongs to
+// an organization other than the first workspace's organization. It returns nil
+// when the workspace list is empty or a matching workspace does not exist.
 func (g *Generator) foreignWorkspace() *WorkspaceIdentity {
 	if len(g.identities.Workspaces) == 0 {
 		return nil
