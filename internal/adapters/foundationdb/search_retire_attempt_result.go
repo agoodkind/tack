@@ -24,22 +24,22 @@ const (
 	retireFailureCanceled         = "context_canceled"
 	retireFailureUncertainSuffix  = "_commit_uncertain"
 	retireRecorderMissing         = "the store has no failure recorder"
-	// retireAttemptCodesName is the name used to derive the event ID for the
-	// recorder event that contains the failure codes.
+	// retireAttemptCodesName supplies the input for deriving the recorder event
+	// ID for failure codes.
 	retireAttemptCodesName = "failure-codes"
 )
 
-// recordRetireFailure clears the attempt record and writes the failure
-// event to the outbox in one transaction. It ignores ctx cancellation and
-// ends after audit.ExternalResultDeadline. It writes the failure event even
-// if recovery already saved an incomplete event. The failure event records
-// the definite result under a different event ID. A successful write returns
-// cause unchanged. A failed write logs the recording error and returns an
-// error containing cause and the recording error. That error matches
-// audit.ErrEventNotRecorded if the failure code save succeeds or the recorder
-// does not accept the event. It does not match audit.ErrEventNotRecorded if
-// the failure code save does not save codes and the recorder accepts the
-// event.
+// recordRetireFailure clears the attempt record and writes the failure event
+// to the outbox in one transaction. It ignores ctx cancellation and ends
+// after audit.ExternalResultDeadline. It writes the event even if recovery
+// already saved an incomplete event under a different event ID. The result
+// remains incomplete when cause wraps commitUncertainError. A successful
+// write returns cause unchanged. A failed write logs the recording error and
+// returns an error containing cause and the recording error. That error
+// matches audit.ErrEventNotRecorded if the failure code save succeeds or the
+// recorder does not accept the event. It does not match
+// audit.ErrEventNotRecorded if the failure code save does not save codes and
+// the recorder accepts the event.
 func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, attempt retireAttempt, step searchdomain.CleanupStep, cause error) error {
 	sessionID := attempt.sessionID
 	slog.ErrorContext(ctx, "search.session.cleanup_failed", slog.String("err", cause.Error()),
@@ -78,18 +78,18 @@ func (s *SearchRebuildStore) recordRetireFailure(ctx context.Context, attempt re
 	return errors.Join(audit.ErrEventNotRecorded, joined)
 }
 
-// recordRetireFailureCodes sends both failure codes to the recorder.
-// It derives the event ID from the attempt event ID and
-// retireAttemptCodesName. It uses the failed write time, computed once
-// per failure. A write with an uncertain commit can also store an event
-// without codes under the attempt event ID. The audit consumer's
-// claimEventIdentity stores one row per event ID. The separate event ID
-// permits both rows to remain. One attempt can have up to two failed rows
-// under one operation: one without codes and one with both codes.
-// The recorder call ignores ctx cancellation and ends after
-// audit.ExternalResultDeadline. The function returns whether the recorder
-// accepted the event. If the recorder is nil or fails, it logs both codes
-// at Error.
+// recordRetireFailureCodes sends both failure codes to the recorder. It
+// derives the event ID from the attempt event ID and retireAttemptCodesName.
+// It uses the failed write time, computed once per failure. A write with an
+// uncertain commit can also store an event without codes under the attempt
+// event ID. The audit consumer's claimEventIdentity stores one row per event
+// ID. The separate event ID permits both rows to remain. One attempt can
+// produce up to two rows under one operation: one without codes and one with
+// both codes. Each event uses the cleanup result's outcome. An uncertain
+// cleanup commit gives each event the incomplete outcome. The recorder call
+// ignores ctx cancellation and ends after audit.ExternalResultDeadline. The
+// function returns whether the recorder accepted the event. If the recorder
+// is nil or fails, it logs both codes at Error.
 func (s *SearchRebuildStore) recordRetireFailureCodes(ctx context.Context, attemptSessionID uuid.UUID, event audit.Event, cause, recordingErr error) bool {
 	cleanupCode, recordingCode := retireFailureCode(cause), retireFailureCode(recordingErr)
 	sessionID := attemptSessionID.String()
@@ -117,11 +117,11 @@ func (s *SearchRebuildStore) recordRetireFailureCodes(ctx context.Context, attem
 	return true
 }
 
-// saveRetireFailureCodes saves the cleanup and recording failure codes in the
-// attempt record in one transaction limited by searchTransactionTimeout. It
-// stores codes without raw database error text. It returns true when it saves
-// the codes. It returns false when the record does not exist or the transaction
-// fails. It logs transaction errors.
+// saveRetireFailureCodes saves the cleanup and recording failure codes in
+// the attempt record in one transaction limited by searchTransactionTimeout.
+// It stores codes without raw database error text. It returns true when it
+// saves the codes. It returns false when the record does not exist or the
+// transaction fails. It logs transaction errors.
 func (s *SearchRebuildStore) saveRetireFailureCodes(ctx context.Context, attempt retireAttempt, cause, recordingErr error) bool {
 	codesContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), searchTransactionTimeout)
 	defer cancel()
@@ -155,9 +155,9 @@ func (s *SearchRebuildStore) saveRetireFailureCodes(ctx context.Context, attempt
 	return saved
 }
 
-// retireFailureCode returns a safe code for err: a FoundationDB error number,
-// a context state, or unclassified. It adds a suffix when the commit could
-// have applied.
+// retireFailureCode returns a safe code for err: a FoundationDB error
+// number, a context state, or unclassified. It adds a suffix when the commit
+// could have applied.
 func retireFailureCode(err error) string {
 	code := retireFailureUnclassified
 	var databaseError fdb.Error

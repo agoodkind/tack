@@ -13,9 +13,14 @@ import (
 )
 
 // CompleteRescan schedules the requested work for one bounded batch of
-// scanned nodes in one transaction and checkpoints the scan. A pass with a
-// Stop cursor restarts at the first node after the last node, and the
-// restarted pass ends once it has read Stop.
+// scanned nodes and checkpoints the scan in one transaction.
+//
+// A pass with a Stop cursor restarts at the first node after reading the
+// last node. The restarted pass ends once it has read Stop.
+//
+//   - A first pass without Stop finishes at the last node.
+//   - A wrapped pass finishes at Stop or the last node, whichever it reads
+//     first.
 func (s *SearchWorkStore) CompleteRescan(ctx context.Context, work searchdomain.Work, scan searchdomain.ScanResult) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.complete_rescan")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

@@ -17,38 +17,37 @@ import (
 const (
 	retireAttemptSaveOperation = "save search session retirement attempt"
 	// retireAttemptLease covers the time limits for saving the attempt,
-	// cleanup, writing the result, saving the failure code, the recorder
-	// call, and spill. It adds one audit.ExternalResultDeadline as a
-	// margin. The configured search worker lease cannot extend these
-	// limits. recoverRetireAttempts applies this lease to the saved deadline
-	// and to the first observation of an attempt. A writer clock that runs
-	// behind can start recovery early. Recovery can then save an incomplete
-	// event while the attempt owner can still save its failed event under a
-	// different event ID.
+	// cleanup, writing the result, saving the failure code, the recorder call,
+	// and spill. It adds one audit.ExternalResultDeadline as a margin. The
+	// configured search worker lease cannot extend these limits.
+	// recoverRetireAttempts applies this lease to the saved deadline and to the
+	// first observation of an attempt. A writer clock that runs behind can
+	// start recovery early. Recovery can then save an incomplete event while
+	// the attempt owner can still save its failed event under a different event
+	// ID.
 	retireAttemptLease = 2*searchTransactionTimeout + 4*audit.ExternalResultDeadline + audit.SpillTimeout
 )
 
 // errRetireAttemptFenced marks an absent attempt record. beginCleanup,
 // cleanupSlice, and clearRetireAttempt return it in that case. Recovery
-// normally clears the record and saves an incomplete event. This error
-// does not wrap audit.ErrEventNotRecorded. The store did not fail to save
+// normally clears the record and saves an incomplete event. This error does
+// not wrap audit.ErrEventNotRecorded. The store did not fail to save
 // evidence.
 var errRetireAttemptFenced = errors.New("recovery already resolved this retirement attempt")
 
-// errRetireClearAbsent indicates that clearRetireAttempt found the
-// attempt record absent on retry. Its earlier commit or recovery removed
-// the record. The transaction result does not identify which removed it.
-// This error does not wrap errRetireAttemptFenced or
-// audit.ErrEventNotRecorded.
+// errRetireClearAbsent indicates that clearRetireAttempt found the attempt
+// record absent on retry. Its earlier commit or recovery removed the record.
+// The transaction result does not identify which removed it. This error does
+// not wrap errRetireAttemptFenced or audit.ErrEventNotRecorded.
 var errRetireClearAbsent = errors.New("the retirement attempt record is absent after a retried clear; this clear or recovery removed it")
 
-// errRetireRebuildEnded is returned by beginRetireAttempt when the replacement
+// beginRetireAttempt returns errRetireRebuildEnded when the replacement
 // record is absent or retires another index. The attempt save reads the
 // replacement key, and that read conflicts with FinishRebuild.
 var errRetireRebuildEnded = errors.New("the index replacement of this retirement attempt has ended")
 
-// errRetireAttemptsRemain is returned by FinishRebuild when an attempt record
-// for the deleted index exists. The read conflicts with a late attempt save.
+// FinishRebuild returns errRetireAttemptsRemain when an attempt record
+// exists for the deleted index. The read conflicts with a late attempt save.
 var errRetireAttemptsRemain = errors.New("retirement attempt records remain for the deleted index")
 
 // retireAttemptRecord stores one attempt's lease deadline from the writer
@@ -71,9 +70,9 @@ type retireAttempt struct {
 }
 
 // retireStep saves an attempt record within searchTransactionTimeout, runs
-// effect within audit.ExternalResultDeadline, and resolves the record.
-// If the save fails, retireStep returns the error without running effect.
-// If effect returns errRetireAttemptFenced, retireStep returns that error
+// effect within audit.ExternalResultDeadline, and resolves the record. If
+// the save fails, retireStep returns the error without running effect. If
+// effect returns errRetireAttemptFenced, retireStep returns that error
 // without writing a failed event; recovery's incomplete event remains the
 // evidence of the attempt. For another effect error, retireStep calls
 // recordRetireFailure. If effect succeeds, retireStep calls
@@ -122,9 +121,10 @@ func requireRetireFence(tr fdb.Transaction, fence fdb.Key) error {
 	return nil
 }
 
-// beginRetireAttempt builds the step's failure event from the audit operation
-// on ctx and the session record. Before the cleanup step runs, it saves the
-// event under the index with the original actor, operation ID, and start time.
+// beginRetireAttempt builds the step's failure event from the audit
+// operation on ctx and the session record. Before the cleanup step runs, it
+// saves the event under the index with the original actor, operation ID, and
+// start time.
 func (s *SearchRebuildStore) beginRetireAttempt(ctx context.Context, index string, sessionID uuid.UUID, record searchSessionRecord, step searchdomain.CleanupStep) (retireAttempt, error) {
 	changes, err := beginSessionAudit(ctx, retireAttemptSaveOperation, sessionID)
 	if err != nil {

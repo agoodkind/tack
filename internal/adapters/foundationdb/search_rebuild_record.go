@@ -28,8 +28,7 @@ type searchRebuildRecord struct {
 	PausedAt      time.Time `json:"paused_at"`
 	Generation    int64     `json:"generation"`
 	// InitiatedOperationID and InitiatedActorID identify the operation that
-	// began the replacement. A record that a release before this field
-	// wrote stores neither.
+	// began the replacement. Earlier releases did not write either field.
 	InitiatedOperationID uuid.UUID `json:"initiated_operation_id,omitzero" exhaustruct:"optional"`
 	InitiatedActorID     uuid.UUID `json:"initiated_actor_id,omitzero" exhaustruct:"optional"`
 }
@@ -68,16 +67,17 @@ func readRebuild(ctx context.Context, tr fdb.Transaction) (searchdomain.Rebuild,
 	return record.rebuild(), true, nil
 }
 
-// claimScope is the serving index and replacement state one claim or
-// checkpoint transaction read.
+// claimScope contains the serving index and replacement state that one claim
+// or checkpoint transaction reads.
 type claimScope struct {
 	serving    string
 	rebuild    searchdomain.Rebuild
 	rebuilding bool
 }
 
-// readClaimScope reads the serving index and the replacement state in tr. It
-// returns [searchdomain.ErrNoServingIndex] when no serving index is recorded.
+// readClaimScope reads the serving index and replacement state in tr. It
+// returns [searchdomain.ErrNoServingIndex] when the store does not record a
+// serving index.
 func readClaimScope(ctx context.Context, tr fdb.Transaction) (claimScope, error) {
 	serving, err := tr.Get(fdb.Key(searchIndexKey())).Get()
 	if err != nil {
@@ -93,11 +93,11 @@ func readClaimScope(ctx context.Context, tr fdb.Transaction) (claimScope, error)
 	return claimScope{serving: string(serving), rebuild: rebuild, rebuilding: rebuilding}, nil
 }
 
-// targets returns the index that a claim of class writes and the replacement index
-// that the claim also writes. A copy item writes only the replacement index.
-// A copy item qualifies for a claim when the replacement record exists
-// and Rebuild.Mirror() returns a non-empty index.
-// Rebuild.Mirror() returns a non-empty index in the copying, verifying, and switching states.
+// targets returns the primary index and any replacement index that a claim
+// of class writes. A copy item writes only the replacement index. A copy
+// item qualifies for a claim only when the replacement record exists and
+// Rebuild.Mirror() returns an index. Rebuild.Mirror() returns an index in
+// the copying, verifying, and switching states.
 func (s claimScope) targets(class searchdomain.WorkClass) (string, string, bool) {
 	if class == searchdomain.WorkClassCopy {
 		if !s.rebuilding || s.rebuild.Mirror() == "" {

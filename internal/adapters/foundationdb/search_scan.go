@@ -18,6 +18,12 @@ const maxSearchScanNodes = 100
 
 // ScanSearch returns at most limit node IDs of orgID in FoundationDB key
 // order after cursor.
+//
+// An empty cursor starts at the organization's first node key. A nonempty
+// cursor must decode to a key inside that organization's range.
+//
+//   - A page with additional nodes returns a next cursor.
+//   - The last page returns Done as true and an empty next cursor.
 func (s *NodeContentStore) ScanSearch(ctx context.Context, orgID uuid.UUID, cursor string, limit int) (scan searchdomain.ScanResult, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_content.scan")(&err)
 	if limit <= 0 || limit > maxSearchScanNodes {

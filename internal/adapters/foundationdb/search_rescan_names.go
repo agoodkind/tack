@@ -12,12 +12,12 @@ import (
 
 // nodesWithNames reports which nodes in nodeIDs match the scan's content
 // selection. A node matches if it has a value under one of the scan's
-// property names. It also matches if it has one of the scan's type keys
-// and a value under a definition that applies to one of the scan's
-// features. It does not read when the scan does not request content or
-// selects every node. It first issues every resolution read. It then
-// waits for each resolution read in order and issues the corresponding
-// node read. It waits for node reads after issuing all of them.
+// property names. It also matches if it has one of the scan's type keys and
+// a value under a definition that applies to one of the scan's features. It
+// does not read when the scan does not request content or selects every
+// node. It first issues every resolution read. It then waits for each
+// resolution read in order and issues the corresponding node read. It waits
+// for node reads after issuing all of them.
 func nodesWithNames(ctx context.Context, tr fdb.Transaction, nodeIDs []uuid.UUID, state searchScanRecord) (map[uuid.UUID]bool, error) {
 	affected := make(map[uuid.UUID]bool, len(nodeIDs))
 	if !state.Content || allContent(state) {
@@ -66,9 +66,9 @@ func nodesWithNames(ctx context.Context, tr fdb.Transaction, nodeIDs []uuid.UUID
 	return affected, nil
 }
 
-// nodeSelected reports whether current matches the scan's property names
-// or type changes. For a matching type key, it reads definitions for the
-// node's property names through the property-name index and checks their
+// nodeSelected reports whether current matches the scan's property names or
+// type changes. For a matching type key, it reads definitions for the node's
+// property names through the property-name index and checks their
 // applicability against the scan's changed features.
 func nodeSelected(ctx context.Context, tr fdb.Transaction, current node.Node, state searchScanRecord) (bool, error) {
 	for _, name := range state.Names {

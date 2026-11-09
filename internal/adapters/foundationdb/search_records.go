@@ -49,22 +49,24 @@ type searchProgressRecord struct {
 }
 
 // searchAccessRecord stores the compiled access of the node. Access work
-// records it before it writes that access to any page document.
-// PagesPending is true while some current page document can contain older
-// access. DependentsPending is true while the nodes that derive their access
-// from this node still need access work. Scheduling a newer generation of
-// the pending work leaves both flags unchanged.
+// records it before it writes that access to any page document. PagesPending
+// is true while some current page document can contain older access.
+// DependentsPending is true while the nodes that derive their access from
+// this node still need access work. Scheduling a newer generation of the
+// pending work leaves both flags unchanged.
 type searchAccessRecord struct {
 	Access            node.SearchAccess `json:"access"`
 	PagesPending      bool              `json:"pages_pending"`
 	DependentsPending bool              `json:"dependents_pending"`
-	// PageAccess stores the versions and keys shared by every page registered since record creation
-	// while tracking is on, with the lowest registered generation. It is nil before the first
+	// PageAccess stores the versions and keys common to every page that
+	// Register records since this record's creation while tracking is on. It
+	// uses the lowest registered generation. It is nil before the first
 	// registration and after tracking stops.
 	PageAccess *node.SearchAccess `json:"page_access,omitempty"`
-	// PageAccessTracked starts true for a new record only when the node lacks issued pages.
-	// It stays true until registered pages differ in versions or keys, or access work records
-	// compiled access. Records that predate this field decode it as false.
+	// PageAccessTracked starts true for a new record only when the node lacks
+	// issued pages. It stays true until registered pages differ in versions or
+	// keys, or access work records compiled access. Records that predate this
+	// field decode it as false.
 	PageAccessTracked bool `json:"page_access_tracked,omitempty"`
 }
 
@@ -89,8 +91,8 @@ type searchScanRecord struct {
 	TypeKeys []string `json:"type_keys,omitempty"`
 	Features []string `json:"features,omitempty"`
 	Access   bool     `json:"access"`
-	// Projection records the metadata pass's projection recomputation.
-	// It is nil when the pass does not recompute the projection.
+	// Projection records the metadata pass's projection recomputation. It is
+	// nil when the pass does not recompute the projection.
 	Projection *searchProjectionTarget `json:"projection,omitempty"`
 }
 
@@ -131,7 +133,8 @@ func writeSearchRecord[Record searchRecordValue](ctx context.Context, tr fdb.Tra
 	return nil
 }
 
-// readSearchCounter reads one tuple-encoded counter. An absent key reads zero.
+// readSearchCounter reads one tuple-encoded counter. An absent key reads
+// zero.
 func readSearchCounter(ctx context.Context, tr fdb.Transaction, key []byte) (int64, error) {
 	encoded, err := tr.Get(fdb.Key(key)).Get()
 	if err != nil {

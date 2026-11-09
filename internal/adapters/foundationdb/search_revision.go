@@ -18,9 +18,9 @@ const searchTransactionTimeout = 5 * time.Second
 
 // transactSearch runs apply and commits it, retrying every retryable
 // FoundationDB error. FoundationDB enforces the transaction timeout in wall
-// time. Each attempt reads the wall clock and sets the timeout to the smaller
-// of searchTransactionTimeout and the time left before the context deadline,
-// with a minimum of one millisecond.
+// time. Each attempt reads the wall clock and sets the timeout to the
+// smaller of searchTransactionTimeout and the time left before the context
+// deadline, with a minimum of one millisecond.
 func transactSearch(ctx context.Context, db fdb.Database, apply func(fdb.Transaction) error) error {
 	transaction, err := db.CreateTransaction()
 	if err != nil {
@@ -66,8 +66,9 @@ func searchFailureWasLogged(err error) bool {
 }
 
 // searchReadFailure wraps one failed read inside a search transaction. It
-// logs the failure once unless the error is a FoundationDB error or was
-// already logged. The retry loop retries or logs a FoundationDB error.
+// logs the failure once unless the error is a FoundationDB error or an
+// earlier call already logged it. The retry loop retries or logs a
+// FoundationDB error.
 func searchReadFailure(ctx context.Context, operation string, err error) error {
 	wrapped := fmt.Errorf("%s: %w", operation, err)
 	var databaseError fdb.Error
@@ -79,7 +80,7 @@ func searchReadFailure(ctx context.Context, operation string, err error) error {
 }
 
 // transactionFailure logs and wraps one failure once. It returns expected
-// search outcomes and already logged errors unchanged.
+// search outcomes and errors that an earlier call already logged unchanged.
 func transactionFailure(ctx context.Context, operation string, err error) error {
 	if errors.Is(err, search.ErrWorkChanged) || errors.Is(err, search.ErrNoServingIndex) ||
 		errors.Is(err, node.ErrContentChanged) || errors.Is(err, search.ErrRolloutInProgress) || errors.Is(err, search.ErrRebuildInProgress) {

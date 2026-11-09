@@ -13,14 +13,19 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// maxSearchDocumentBatch limits the issued IDs read by one access or cleanup slice.
+// maxSearchDocumentBatch limits the issued IDs that one access or cleanup
+// slice reads.
 const maxSearchDocumentBatch = 100
 
-// Documents reads at most limit issued documents for work. Cleanup reads every
-// revision older than the work revision, or every revision of a deleted node.
-// Access reads every issued document of the node after the checkpointed
-// document, including documents of older revisions. Access work updates
-// every issued revision. Cleanup later retires the older revisions.
+// Documents reads at most limit issued documents for work.
+//
+// Access work updates every issued revision, and cleanup later retires older
+// revisions. The work class and checkpoint determine the selected range.
+//
+//   - Cleanup reads revisions older than work, or every revision of a
+//     deleted node.
+//   - Access reads every issued document after its checkpoint, including
+//     older revisions.
 func (s *SearchWorkStore) Documents(ctx context.Context, work search.Work, limit int) (batch search.DocumentBatch, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.documents")(&err)
 	if limit < 1 || limit > maxSearchDocumentBatch {
@@ -135,9 +140,14 @@ func decodeIssuedDocument(ctx context.Context, item fdb.KeyValue) (search.Issued
 }
 
 // CompleteRetirement clears the issued ID of each document that OpenSearch
-// retired. The final batch finishes the cleanup. For a deleted node without
-// pending access work, the final batch also clears every remaining search
-// key of the node.
+// retired.
+//
+// The final batch finishes cleanup. For a deleted node without pending
+// access work, it also clears every remaining search key of the node.
+//
+//   - A nonfinal batch retains the cleanup work item.
+//   - An accepted document records the first retirement time for its target
+//     and mirror indexes.
 func (s *SearchWorkStore) CompleteRetirement(ctx context.Context, work search.Work, accepted []search.IssuedDocument, done bool) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.complete_retirement")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {

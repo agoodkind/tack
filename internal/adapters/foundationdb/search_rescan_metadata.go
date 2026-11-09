@@ -13,12 +13,16 @@ import (
 )
 
 // IndexMetadata writes lookup index entries for one bounded page of the
-// organization's property definitions or node types. It checkpoints the
-// metadata pass. Each definition and type write updates these entries.
-// This pass also indexes records that predate the indexes. A pass with a
-// projection target adds each record's contribution to the target's sum.
-// At the end of the pass, it activates the target if the metadata epoch
-// has not changed. Otherwise, it restarts the metadata pass.
+// organization's property definitions or node types and checkpoints the
+// metadata pass.
+//
+// Each definition and type write updates these entries. This pass also
+// indexes records that predate the indexes. A pass with a projection target
+// adds each record's contribution to the target's sum.
+//
+//   - An unchanged metadata epoch at the end of the pass permits target
+//     activation.
+//   - A changed metadata epoch restarts the metadata pass.
 func (s *SearchWorkStore) IndexMetadata(ctx context.Context, work searchdomain.Work) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.index_metadata")(&err)
 	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
@@ -94,8 +98,8 @@ func readMetadataPage(ctx context.Context, tr fdb.Transaction, prefix []byte, cu
 	return items, true, nil
 }
 
-// indexMetadataRecord writes the lookup index entry of one stored record
-// and returns the record's projection contribution.
+// indexMetadataRecord writes the lookup index entry of one stored record and
+// returns the record's projection contribution.
 func indexMetadataRecord(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, phase string, encoded []byte) ([]byte, error) {
 	if phase == scanDefinitions {
 		var definition node.PropertyDef

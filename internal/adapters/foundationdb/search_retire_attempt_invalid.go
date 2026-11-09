@@ -17,7 +17,8 @@ import (
 const (
 	retireAttemptInvalidCode    = "cleanup_attempt_invalid"
 	retireAttemptInvalidMessage = "the search session cleanup attempt record could not be read"
-	// retireAttemptRetainedName is the name used to derive the retained event ID.
+	// retireAttemptRetainedName supplies the prefix for deriving a retained
+	// event ID.
 	retireAttemptRetainedName = "retained:"
 	retireInvalidDigestField  = "invalid_attempt_sha256"
 	retireInvalidRecordField  = "invalid_attempt_record"
@@ -28,13 +29,14 @@ const (
 )
 
 // invalidRetireEvents returns events for an unreadable attempt record. The
-// first event records an incomplete outcome, the recovering operation on ctx,
-// the system organization, and the session and step from the record key. The
-// record does not supply the original identity, and the event does not record
-// an original actor or time. Its evidence stores the SHA-256 digest of the
-// stored value and omits the stored bytes. The remaining events omit an outcome
-// and store the key and value bytes in chunks. The audit consumer refuses those
-// events and retains them in audit.events_dlq for repair.
+// first event records an incomplete outcome, the recovering operation on
+// ctx, the system organization, and the session and step from the record
+// key. The record does not supply the original identity, and the event does
+// not record an original actor or time. Its evidence stores the SHA-256
+// digest of the stored value and omits the stored bytes. The remaining
+// events omit an outcome and store the key and value bytes in chunks. The
+// audit consumer refuses those events and retains them in audit.events_dlq
+// for repair.
 func invalidRetireEvents(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, eventID uuid.UUID, item fdb.KeyValue) (recoveredAttempt, error) {
 	var none recoveredAttempt
 	operation, err := audit.RequireMutationContext(ctx)
@@ -66,10 +68,10 @@ func invalidRetireEvents(ctx context.Context, sessionID uuid.UUID, step searchdo
 }
 
 // retainedAttemptEvents splits the stored value into chunks and returns an
-// event for each chunk. Each event stays below FoundationDB's 100,000 byte
-// value limit after base64 encoding. Each event records the chunk index, chunk
-// count, SHA-256 digest of the whole value, and record key. Each event ID
-// derives from eventID and the chunk index.
+// event for each chunk. Each event stays below FoundationDB's 100,000-byte
+// value limit after base64 encoding. Each event records the chunk index,
+// chunk count, SHA-256 digest of the whole value, and record key. Each event
+// ID derives from eventID and the chunk index.
 func retainedAttemptEvents(event audit.Event, extra json.RawMessage, eventID uuid.UUID, digest string, item fdb.KeyValue) ([]json.RawMessage, error) {
 	chunkCount := max(1, (len(item.Value)+retireInvalidChunkBytes-1)/retireInvalidChunkBytes)
 	retained := make([]json.RawMessage, 0, chunkCount)

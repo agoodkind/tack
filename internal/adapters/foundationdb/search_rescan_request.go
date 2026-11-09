@@ -25,13 +25,13 @@ const (
 // content work for every node.
 const maxRescanNames = 64
 
-// searchRescanRequest selects work for one organization rescan.
-// AllContent selects content work for every node. Names selects content
-// work for nodes with a value under one of the property names. TypeKeys and
-// Features select content work for nodes of those types with a value under
-// a definition that applies to one of those features. Access selects access
-// work for every node. Projection requests digest recomputation during the
-// metadata pass and activation of this writer's renderer and format.
+// searchRescanRequest selects work for one organization rescan. AllContent
+// selects content work for every node. Names selects content work for nodes
+// with a value under one of the property names. TypeKeys and Features select
+// content work for nodes of those types with a value under a definition that
+// applies to one of those features. Access selects access work for every
+// node. Projection requests digest recomputation during the metadata pass
+// and activation of this writer's renderer and format.
 type searchRescanRequest struct {
 	AllContent bool
 	Names      []string
@@ -54,10 +54,10 @@ type searchProjectionTarget struct {
 // requestSearchRescan records a rescan of every node in orgID inside the
 // caller's transaction. The rescan processes bounded pages. A request
 // without projection recomputation keeps the scan cursor. During the node
-// pass, it records the cursor as Stop. After reading the last node, the
-// pass restarts at the first node and ends at Stop. A projection request
-// restarts the metadata pass. The following node pass starts at Stop.
-// The scan reads every node after the latest request.
+// pass, it records the cursor as Stop. After reading the last node, the pass
+// restarts at the first node and ends at Stop. A projection request restarts
+// the metadata pass. The following node pass starts at Stop. The scan reads
+// every node after the latest request.
 func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time, orgID uuid.UUID, request searchRescanRequest) error {
 	generation, err := incrementSearchCounter(ctx, tr, searchScanKey(orgID))
 	if err != nil {
@@ -105,8 +105,8 @@ func requestSearchRescan(ctx context.Context, tr fdb.Transaction, now time.Time,
 	return writeSearchWork(ctx, tr, class, record, previous)
 }
 
-// restartProjectionPass restarts state's metadata pass with a zero sum
-// for this writer's renderer and format.
+// restartProjectionPass restarts state's metadata pass with a zero sum for
+// this writer's renderer and format.
 func restartProjectionPass(state searchScanRecord, epoch int64) searchScanRecord {
 	state.Phase, state.Cursor = scanDefinitions, ""
 	state.Projection = &searchProjectionTarget{

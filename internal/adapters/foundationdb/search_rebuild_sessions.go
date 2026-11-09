@@ -15,13 +15,17 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RetireIndexSessions recovers expired retirement attempt records for index,
-// then deletes bounded slices of sessions that read index and cannot serve
-// another page. It retains a continuable session until its idle or absolute
-// deadline passes. It reports whether an active attempt, more attempt records,
-// a continuable or partly deleted session, or a presence entry beyond the slice
-// limit leaves work for another call. An active attempt can delay index
-// deletion by up to retireAttemptLease.
+// RetireIndexSessions recovers expired retirement attempts for index, then
+// deletes bounded slices of sessions that read index and cannot serve
+// another page.
+//
+// A continuable session remains until its idle or absolute deadline passes.
+// An active attempt can delay index deletion by up to retireAttemptLease.
+// The result reports whether another call may have work.
+//
+//   - An active attempt or additional attempt records require another call.
+//   - A continuable or partly deleted session requires another call.
+//   - A presence entry beyond the slice limit requires another call.
 func (s *SearchRebuildStore) RetireIndexSessions(ctx context.Context, index string, limit int) (remaining bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.retire_sessions")(&err)
 	attemptsRemain, err := s.recoverRetireAttempts(ctx, index, limit)
@@ -65,10 +69,10 @@ func (s *SearchRebuildStore) RetireIndexSessions(ctx context.Context, index stri
 
 // retireSession deletes one bounded slice of a session that cannot serve
 // another page. It directly removes a presence entry without a session
-// header. It reports whether the session still exists afterward.
-// When it cannot read or decode the session, it records a failed cleanup
-// event through recordSessionLoadFailure and leaves the session and its
-// presence entry in place.
+// header. It reports whether the session still exists afterward. When it
+// cannot read or decode the session, it records a failed cleanup event
+// through recordSessionLoadFailure and leaves the session and its presence
+// entry in place.
 func (s *SearchRebuildStore) retireSession(ctx context.Context, index string, sessionID uuid.UUID, now time.Time) (bool, error) {
 	var record searchSessionRecord
 	var found, headerAbsent bool
@@ -129,9 +133,10 @@ func (s *SearchRebuildStore) retireSession(ctx context.Context, index string, se
 // recordSessionLoadFailure calls RecordCleanupFailure with CleanupDelete,
 // the step the search sweep records for the same failure. It returns cause
 // when the event commits. When the event does not commit, it logs the
-// recording error and returns an error that matches audit.ErrEventNotRecorded
-// and contains cause and the recording error. Each call writes a new event,
-// so each retirement slice that fails on a session adds one event.
+// recording error and returns an error that matches
+// audit.ErrEventNotRecorded and contains cause and the recording error. Each
+// call writes a new event. Each retirement slice that fails on a session
+// adds one event.
 func (s *SearchRebuildStore) recordSessionLoadFailure(ctx context.Context, sessionID uuid.UUID, cause error) error {
 	err := s.sessions.RecordCleanupFailure(ctx, sessionID, searchdomain.CleanupDelete, cause)
 	if err == nil {
@@ -142,7 +147,13 @@ func (s *SearchRebuildStore) recordSessionLoadFailure(ctx context.Context, sessi
 		fmt.Errorf("record the failed cleanup step %s of search session %s: %w", searchdomain.CleanupDelete, sessionID, err))
 }
 
-// RetiredSince returns when the first page of index was retired.
+// RetiredSince returns the time when cleanup first retired a page of index.
+//
+// The store reads the saved nanosecond counter and returns its time in UTC.
+// The found result distinguishes an absent record from a recorded time.
+//
+//   - A malformed saved counter returns an error rather than a retirement
+//     time.
 func (s *SearchRebuildStore) RetiredSince(ctx context.Context, index string) (since time.Time, found bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.retired_since")(&err)
 	var encoded []byte
@@ -168,7 +179,7 @@ func (s *SearchRebuildStore) RetiredSince(ctx context.Context, index string) (si
 }
 
 // recordRetiredSince stores now as the first retirement time of index when
-// no earlier time exists.
+// an earlier time does not exist.
 func recordRetiredSince(ctx context.Context, tr fdb.Transaction, index string, now time.Time) error {
 	if index == "" {
 		return nil

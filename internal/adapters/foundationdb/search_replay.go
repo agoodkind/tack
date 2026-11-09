@@ -13,11 +13,18 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// maxSessionPositionBytes bounds the stored sort position and point-in-time ID.
+// maxSessionPositionBytes bounds the stored sort position and point-in-time
+// ID.
 const maxSessionPositionBytes = 8 << 10
 
 // Replay returns the result IDs and completion state that the page at
-// version committed. It neither advances nor renews the session.
+// version committed.
+//
+// It does not advance or renew the session. The replay record does not store
+// the consumed sort position or point-in-time ID.
+//
+//   - A saved replay remains readable after BeginCleanup marks its session
+//     closing, until CleanupSlice deletes that replay record.
 func (s *SearchSessionStore) Replay(ctx context.Context, sessionID uuid.UUID, version uint64) (commit searchdomain.PageCommit, found bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.replay")(&err)
 	var record searchReplayRecord
@@ -32,8 +39,12 @@ func (s *SearchSessionStore) Replay(ctx context.Context, sessionID uuid.UUID, ve
 	return searchdomain.PageCommit{Sort: nil, PITID: "", Visited: nil, ResultIDs: record.ResultIDs, Complete: record.Complete}, true, nil
 }
 
-// HasVisited reports which node IDs the session already consumed, in one
-// bounded read transaction.
+// HasVisited reports which node IDs the session already consumed.
+//
+// It reads the supplied IDs in one bounded transaction. It rejects a request
+// with more than maxSessionVisitedIDs IDs.
+//
+//   - Repeated IDs still count toward the request size limit.
 func (s *SearchSessionStore) HasVisited(ctx context.Context, sessionID uuid.UUID, nodeIDs []uuid.UUID) (visited map[uuid.UUID]bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.visited")(&err)
 	if len(nodeIDs) > maxSessionVisitedIDs {
@@ -61,14 +72,17 @@ func (s *SearchSessionStore) HasVisited(ctx context.Context, sessionID uuid.UUID
 }
 
 // CommitPage stores the consumed sort position, replacement point-in-time
-// ID, visited IDs, replay record, completion, and the change events of each
-// changed record in one transaction. It renews only the idle deadline. A
-// concurrent commit for the same version returns
-// [searchdomain.ErrSessionChanged].
-// If the transaction ends after a commit that may have applied, CommitPage
-// also commits an incomplete session write event, even if a retry finds a
-// changed session version. If the event cannot commit, the returned error
-// matches audit.ErrEventNotRecorded.
+// ID, visited IDs, replay record, completion, and every changed record's
+// change events in one transaction.
+//
+// It renews only the idle deadline. A concurrent commit for the same version
+// returns [searchdomain.ErrSessionChanged]. An uncertain commit also
+// requires an incomplete session write event, even if a retry finds a
+// changed session version.
+//
+//   - A successful page commit increments the session version.
+//   - Failure to commit the incomplete event returns an error that matches
+//     audit.ErrEventNotRecorded.
 func (s *SearchSessionStore) CommitPage(ctx context.Context, sessionID uuid.UUID, version uint64, commit searchdomain.PageCommit) (committed searchdomain.Session, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_session.commit")(&err)
 	if len(commit.Visited) > maxSessionVisitedIDs || len(commit.ResultIDs) > maxSessionResultIDs ||
@@ -158,8 +172,8 @@ func (s *SearchSessionStore) applyPageCommit(ctx context.Context, tr fdb.Transac
 	return record, sessionRecordingFailure(ctx, sessionID, changes.recordSessionUpdate(previous, current))
 }
 
-// clearPreviousReplay reads the replay record of the previous version, clears
-// it, and records its removal.
+// clearPreviousReplay reads the replay record of the previous version,
+// clears it, and records its removal.
 func clearPreviousReplay(ctx context.Context, tr fdb.Transaction, changes *sessionAudit, sessionID uuid.UUID, version uint64) error {
 	if version == 0 {
 		return nil

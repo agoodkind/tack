@@ -16,9 +16,9 @@ import (
 
 const (
 	retireAttemptRecoverOperation = "recover search session retirement attempts"
-	// retireResultNotSavedCode identifies an incomplete event for an attempt that
-	// did not save its result. The event does not establish whether the cleanup
-	// step committed.
+	// retireResultNotSavedCode identifies an incomplete event for an attempt
+	// that did not save its result. The event does not establish whether the
+	// cleanup step committed.
 	retireResultNotSavedCode     = "cleanup_result_not_saved"
 	retireResultNotSavedMessage  = "the search session cleanup step did not save its result"
 	retireAttemptIncompleteName  = "incomplete"
@@ -33,9 +33,9 @@ const (
 	retireRecoveryValueBytes = 1 << 20
 )
 
-// recoveredAttempt reports the recovery result for one attempt record.
-// It reports whether the record is active and contains the value to store
-// for a first observation. For an expired record, it contains the encoded
+// recoveredAttempt reports the recovery result for one attempt record. It
+// reports whether the record is active and contains the value to store for a
+// first observation. For an expired record, it contains the encoded
 // incomplete event. For an unreadable record, it also contains the retained
 // events as JSON.
 type recoveredAttempt struct {
@@ -105,10 +105,10 @@ func (s *SearchRebuildStore) recoverRetireAttempts(ctx context.Context, index st
 }
 
 // recoveredRetireEvent returns the event for one attempt record or reports
-// that the record is still active. observeRetireAttempt decides whether
-// the record is active. If decoding, validation, or encoding fails, the
-// function logs the record and returns the events from invalidRetireEvents.
-// An invalid record does not stop index retirement.
+// that the record is still active. observeRetireAttempt decides whether the
+// record is active. If decoding, validation, or encoding fails, the function
+// logs the record and returns the events from invalidRetireEvents. An
+// invalid record does not stop index retirement.
 func recoveredRetireEvent(ctx context.Context, item fdb.KeyValue, now time.Time) (recoveredAttempt, error) {
 	var attempt recoveredAttempt
 	sessionID, step, eventID, err := parseRetireAttemptKey(item.Key)
@@ -139,9 +139,9 @@ func recoveredRetireEvent(ctx context.Context, item fdb.KeyValue, now time.Time)
 }
 
 // retireResultEvent sets the occurrence and completion times of an attempt
-// failure event. When cause wraps commitUncertainError, it sets the incomplete
-// outcome and retireResultUncertainCode because the cleanup step could have
-// committed. A failed outcome means the step did not commit.
+// failure event. When cause wraps commitUncertainError, it sets the
+// incomplete outcome and retireResultUncertainCode because the cleanup step
+// could have committed. A failed outcome means the step did not commit.
 func retireResultEvent(event audit.Event, now time.Time, cause error) audit.Event {
 	completed := attemptCompletion(event, now)
 	event.OccurredAt, event.Context.CompletedAt = completed, completed
@@ -161,11 +161,11 @@ func attemptCompletion(event audit.Event, now time.Time) time.Time {
 	return completed
 }
 
-// incompleteRetireEvent decodes an attempt event and returns an encoded event
-// with an incomplete outcome and the retireResultNotSavedCode error. It retains
-// the actor, operation ID, start time, and occurrence time and sets the
-// completion time. It derives the new event ID from eventID. A late attempt
-// owner can still save the failed event under the original event ID.
+// incompleteRetireEvent returns an encoded attempt event with an incomplete
+// outcome and the retireResultNotSavedCode error. It retains the actor,
+// operation ID, start time, and occurrence time and sets the completion
+// time. It derives the new event ID from eventID. A late attempt owner can
+// still save the failed event under the original event ID.
 func incompleteRetireEvent(event audit.Event, record retireAttemptRecord, eventID uuid.UUID, now time.Time) (audit.EncodedEvent, error) {
 	event.EventID = uuid.NewSHA1(eventID, []byte(retireAttemptIncompleteName))
 	event.Outcome = audit.OutcomeIncomplete

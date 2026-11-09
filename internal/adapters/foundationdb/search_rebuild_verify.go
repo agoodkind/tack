@@ -15,10 +15,16 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// VerifyRebuildDocuments reads one page of at most limit issued documents
-// after the verification cursor. The page spans every organization, and the
-// limit applies to the whole page. It returns the documents of the current
-// revision of each node with the write versions of its authority.
+// VerifyRebuildDocuments reads at most limit issued document entries after
+// the verification cursor.
+//
+// The page spans every organization, and limit applies to the whole page.
+// The result includes only each node's current revision, with the write
+// versions of its authority.
+//
+//   - An older issued revision consumes a page entry but does not enter the
+//     result.
+//   - An additional entry sets the next cursor for another page.
 func (s *SearchRebuildStore) VerifyRebuildDocuments(ctx context.Context, _ searchdomain.Work, read searchdomain.Rebuild, limit int) (batch searchdomain.RebuildBatch, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.verify_documents")(&err)
 	if limit < 1 || limit > maxSearchDocumentBatch {
@@ -109,12 +115,15 @@ func currentRebuildDocument(ctx context.Context, tr fdb.Transaction, item fdb.Ke
 	return searchdomain.RebuildDocument{OrgID: orgID, NodeID: nodeID, Document: document, Versions: required}, true, nil
 }
 
-// CompleteRebuildVerify checks one verified batch. A node that already has
-// pending work receives no repair. For every other node, a page missing from
-// the target schedules a copy of the node, and a page with other write
-// versions schedules access work that updates every page of the node. The
-// verification then waits at the same cursor. A clean last batch starts the
-// switch. It reports whether the replacement waits.
+// CompleteRebuildVerify checks one verified batch and reports whether the
+// replacement waits.
+//
+// A clean last batch starts the switch. A mismatched batch preserves the
+// cursor while verification waits. A node with pending work does not receive
+// another repair.
+//
+//   - A missing target page schedules a copy of the node.
+//   - Other write versions schedule access work for every page of the node.
 func (s *SearchRebuildStore) CompleteRebuildVerify(ctx context.Context, work searchdomain.Work, read searchdomain.Rebuild, batch searchdomain.RebuildBatch, states map[string]searchdomain.DocumentAccess) (waiting bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.complete_verify")(&err)
 	err = s.rebuildStep(ctx, work, read, func(tr fdb.Transaction, _ searchWorkRecord) error {

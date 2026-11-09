@@ -11,8 +11,13 @@ import (
 )
 
 // AdvanceRebuild replaces the replacement state the worker read with next.
+//
 // The transaction verifies the rebuild claim and requires the stored state
-// to equal read. A worker that read an older step writes nothing.
+// to equal read. A worker that read an older step does not write a
+// replacement record.
+//
+//   - A different stored generation rejects the update.
+//   - A different scan or verification cursor also rejects the update.
 func (s *SearchRebuildStore) AdvanceRebuild(ctx context.Context, work searchdomain.Work, read, next searchdomain.Rebuild) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.advance")(&err)
 	err = s.rebuildStep(ctx, work, read, func(tr fdb.Transaction, _ searchWorkRecord) error {
@@ -27,8 +32,14 @@ func (s *SearchRebuildStore) AdvanceRebuild(ctx context.Context, work searchdoma
 }
 
 // CompleteSwitch records the target as the serving index after the public
-// alias selects it, resumes claims, and starts retiring the source. After
-// this transaction commits, new sessions and new claims use the new index.
+// alias selects it.
+//
+// The transaction requires the switching state, resumes claims, starts
+// retiring the source, and clears the verification cursor. New sessions
+// and new claims use the target after the transaction commits.
+//
+//   - If another worker updates the replacement generation first,
+//     rebuildStep returns ErrWorkChanged for the older read.
 func (s *SearchRebuildStore) CompleteSwitch(ctx context.Context, work searchdomain.Work, read searchdomain.Rebuild) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.complete_switch")(&err)
 	err = s.rebuildStep(ctx, work, read, func(tr fdb.Transaction, _ searchWorkRecord) error {
@@ -48,9 +59,15 @@ func (s *SearchRebuildStore) CompleteSwitch(ctx context.Context, work searchdoma
 	return nil
 }
 
-// FinishRebuild ends the replacement after the retiring or failed index was
-// deleted. It clears the replacement record, the retirement time of the
-// deleted index, and the rebuild work item. Another replacement may begin.
+// FinishRebuild ends the replacement after deletion of the retiring or
+// failed index.
+//
+// It clears the replacement record, the deleted index's retirement time, and
+// the rebuild work item. Another replacement may then begin.
+//
+//   - A failed replacement clears the target index's retirement time.
+//   - A successful replacement clears the source index's retirement time.
+//   - A remaining retirement attempt prevents completion.
 func (s *SearchRebuildStore) FinishRebuild(ctx context.Context, work searchdomain.Work, read searchdomain.Rebuild) (err error) {
 	defer telemetry.FDBOp(ctx, "store.search_rebuild.finish")(&err)
 	deleted := read.SourceIndex

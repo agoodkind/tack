@@ -10,10 +10,11 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// initializeSearchAccess records the authority's current write versions for a node that does
-// not yet have access state. Its keys stay empty until the first access work compiles and
-// records them. Content work compiles keys for these versions when it reads pages.
-// It starts page access tracking only when the node does not have an issued page document.
+// initializeSearchAccess records the authority's current write versions for
+// a node that does not yet have access state. Its keys stay empty until the
+// first access work compiles and records them. Content work compiles keys
+// for these versions when it reads pages. It starts page access tracking
+// only when the node does not have an issued page document.
 func initializeSearchAccess(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) error {
 	var existing searchAccessRecord
 	found, err := readSearchRecord(ctx, tr, searchAccessKey(orgID, nodeID), &existing)
@@ -34,10 +35,10 @@ func initializeSearchAccess(ctx context.Context, tr fdb.Transaction, orgID, node
 	})
 }
 
-// scheduleRelatedSearchWork schedules access work for both endpoints of every
-// changed relationship and records one permission event for each changed
-// authority. The access worker uses the registered policy to compile each
-// endpoint. This code never interprets a relationship type.
+// scheduleRelatedSearchWork schedules access work for both endpoints of
+// every changed relationship and records one permission event for each
+// changed authority. The access worker uses the registered policy to compile
+// each endpoint. This code does not interpret a relationship type.
 func scheduleRelatedSearchWork(ctx context.Context, tr fdb.Transaction, now time.Time, changes []node.RelationshipChanges) error {
 	scheduled := make(map[[2]uuid.UUID]struct{})
 	authorities := make(map[uuid.UUID]struct{})

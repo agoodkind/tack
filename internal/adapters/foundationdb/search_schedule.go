@@ -32,9 +32,9 @@ const (
 type searchRecordPlan uint8
 
 const (
-	// searchRecordRewrite sets the generation of an existing record to the
-	// new generation. It preserves the record's revision and deletion flag
-	// and leaves its checkpoint unchanged.
+	// searchRecordRewrite sets the generation of an existing record to the new
+	// generation. It preserves the record's revision and deletion flag and
+	// leaves its checkpoint unchanged.
 	searchRecordRewrite searchRecordPlan = iota + 1
 	// searchRecordRestart sets the generation and revision of an existing
 	// record to the new values and clears its checkpoint.
@@ -54,10 +54,10 @@ var searchNodeClasses = []searchdomain.WorkClass{
 // rewrites every pending record of the node to that generation. An access
 // change preserves the revision of pending content and cleanup work and
 // leaves the content checkpoint unchanged. A content, exclusion, or repair
-// change starts a new revision. An access change of an excluded node
-// becomes a repair, and a deletion clears the node's exclusion.
-// now is the enqueue time read from the caller's injected clock. It returns
-// the record of the new generation.
+// change starts a new revision. An access change of an excluded node becomes
+// a repair, and a deletion clears the node's exclusion. now is the enqueue
+// time read from the caller's injected clock. It returns the record of the
+// new generation.
 func scheduleSearchChange(ctx context.Context, tr fdb.Transaction, now time.Time, orgID, nodeID uuid.UUID, change searchChange) (searchWorkRecord, error) {
 	change, err := exclusionAdjustedChange(ctx, tr, orgID, nodeID, change)
 	if err != nil {
@@ -97,10 +97,10 @@ func scheduleSearchChange(ctx context.Context, tr fdb.Transaction, now time.Time
 
 // searchRecordPlans maps each change and node work class to its effect. A
 // content change removes a pending replacement copy. The worker that claims
-// the new live work also writes its pages to the replacement index. An access
-// change rewrites the copy at the new generation. An exclusion removes every
-// other work item, and its cleanup retires every page of the node. A repair
-// writes the node's pages and recompiles its access.
+// the new live work also writes its pages to the replacement index. An
+// access change rewrites the copy at the new generation. An exclusion
+// removes every other work item, and its cleanup retires every page of the
+// node. A repair writes the node's pages and recompiles its access.
 var searchRecordPlans = map[searchChange]map[searchdomain.WorkClass]searchRecordPlan{
 	searchChangeContent: {
 		searchdomain.WorkClassLive:    searchRecordPut,
