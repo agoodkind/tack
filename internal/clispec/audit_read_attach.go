@@ -22,14 +22,17 @@ func AttachRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func(
 		if readErr != nil && !audit.IsReadVerdict(readErr) {
 			return output, readErr
 		}
+
 		captured := &captureSink{writes: nil}
 		if err := captured.WriteText(ctx, string(output.Payload)); err != nil {
 			return audit.OperatorReadOutput{}, err
 		}
+
 		textOutput, renderErr := captured.rendered(ctx, f, output.Targets)
 		if renderErr != nil {
 			return audit.OperatorReadOutput{}, renderErr
 		}
+
 		return textOutput, readErr
 	}
 	attachRead(cmd, f, spec, input, rendered, func(ctx context.Context, payload []byte) error {
@@ -46,11 +49,18 @@ func AttachRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func(
 // Example:
 //
 //	AttachRawRead(cmd, f, spec, input, read)
-func AttachRawRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func() (json.RawMessage, error), read OperatorRead) {
+func AttachRawRead(
+	cmd *cobra.Command,
+	f *cli.Factory,
+	spec audit.Spec,
+	input func() (json.RawMessage, error),
+	read OperatorRead,
+) {
 	attachRead(cmd, f, spec, input, read, func(ctx context.Context, payload []byte) error {
 		if _, err := cmd.OutOrStdout().Write(payload); err != nil {
 			return loggedAuditError(ctx, "write command output", err)
 		}
+
 		return nil
 	})
 }
@@ -81,9 +91,11 @@ func attachRead(
 		if err != nil && !audit.IsReadVerdict(err) {
 			return err
 		}
+
 		if writeErr := write(ctx, payload); writeErr != nil {
 			return writeErr
 		}
+
 		return err
 	}
 }

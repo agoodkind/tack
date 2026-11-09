@@ -33,16 +33,19 @@ type Preview func(ctx context.Context, sink ResultSink) ([]audit.Target, error)
 // command sink of f. If the read is not recorded, the output is not written.
 func RunRecordedPreview(ctx context.Context, f *cli.Factory, spec audit.Spec, input json.RawMessage, preview Preview) error {
 	captured := &captureSink{writes: nil}
+
 	payload, err := RunAuditedRead(ctx, f, spec, input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
 		targets, err := preview(ctx, captured)
 		if err != nil {
 			return audit.OperatorReadOutput{}, err
 		}
+
 		return captured.rendered(ctx, f, targets)
 	})
 	if err != nil {
 		return err
 	}
+
 	return writeRendered(ctx, f, payload)
 }
 
@@ -112,22 +115,32 @@ func previewFormat(writes []capturedWrite) string {
 
 // rendered replays captured writes through CLISink and returns the rendered
 // bytes and targets as read output.
-func (s *captureSink) rendered(ctx context.Context, f *cli.Factory, targets []audit.Target) (audit.OperatorReadOutput, error) {
+func (s *captureSink) rendered(
+	ctx context.Context,
+	f *cli.Factory,
+	targets []audit.Target,
+) (audit.OperatorReadOutput, error) {
 	var buffer bytes.Buffer
+
 	view := *f
 	view.Out = &buffer
-	if err := s.replay(ctx, NewCLISink(&view)); err != nil {
+
+	err := s.replay(ctx, NewCLISink(&view))
+	if err != nil {
 		return audit.OperatorReadOutput{}, err
 	}
+
 	return audit.OperatorReadOutput{Payload: buffer.Bytes(), Format: previewFormat(s.writes), Targets: targets}, nil
 }
 
 // writeRendered writes the recorded payload to the command output.
 // It logs and returns any write error.
 func writeRendered(ctx context.Context, f *cli.Factory, payload []byte) error {
-	if _, err := f.Out.Write(payload); err != nil {
+	_, err := f.Out.Write(payload)
+	if err != nil {
 		return loggedAuditError(ctx, "write command output", err)
 	}
+
 	return nil
 }
 

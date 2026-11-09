@@ -13,6 +13,7 @@ func requireVerdictReadRow(t *testing.T, row audit.Row, want readRowTarget, prin
 	t.Helper()
 	requireReadRowShape(t, row, audit.OutcomeFailed, want)
 	requireReadEvidence(t, row, printed, itemURIs)
+
 	if row.Error == nil || row.Error.Code != "check_failed" || !strings.Contains(row.Error.Message, messagePart) {
 		t.Fatalf("row %s error %+v, want check_failed containing %q", row.EventID, row.Error, messagePart)
 	}
@@ -22,8 +23,10 @@ type printedOutput []byte
 
 func requireReadEvidence(t *testing.T, row audit.Row, printed printedOutput, itemURIs []string) {
 	t.Helper()
+
 	fingerprint := sha256.Sum256(printed)
 	manifestDigest, manifestParts := expectedManifestEvidence(t, itemURIs)
+
 	read := row.Context.Read
 	if read == nil || read.PayloadSHA256 != hex.EncodeToString(fingerprint[:]) || read.PayloadFormat != readLifecycleJSONFormat ||
 		read.Count != uint64(len(itemURIs)) || read.ManifestSHA256 != manifestDigest || read.ManifestParts != manifestParts {

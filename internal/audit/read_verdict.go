@@ -45,5 +45,6 @@ func (v *ReadVerdictError) Unwrap() error {
 //	IsReadVerdict(&ReadVerdictError{Err: checkError}) == true
 func IsReadVerdict(err error) bool {
 	var verdict *ReadVerdictError
+
 	return errors.As(err, &verdict)
 }

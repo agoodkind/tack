@@ -60,19 +60,25 @@ func outboxEventsByQuery(t *testing.T, pool *pgxpool.Pool, query string, argumen
 	for _, argument := range arguments {
 		values = append(values, argument)
 	}
+
 	var encoded [][]byte
+
 	var err error
+
 	for range outboxReadAttempts {
 		var rows pgx.Rows
+
 		rows, err = pool.Query(t.Context(), readTestSQL(t, query), values...)
 		if err == nil {
 			encoded, err = pgx.CollectRows(rows, pgx.RowTo[[]byte])
 		}
+
 		var postgresError *pgconn.PgError
 		if err == nil || !errors.As(err, &postgresError) || postgresError.Code != outboxSerializationFailure {
 			break
 		}
 	}
+
 	if err != nil {
 		t.Fatalf("the test could not read the outbox rows from %s: %v", query, err)
 	}

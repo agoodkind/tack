@@ -29,23 +29,29 @@ func runReadOperation[I Input](ctx context.Context, f *cli.Factory, op Operation
 	// Typed runtime reads require lifecycle admission during infrastructure repairs.
 	recordingFactory := *f
 	recordingFactory.SetAuditInfrastructureProbe(nil)
-	payload, err := RunAuditedRead(ctx, &recordingFactory, spec, input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
-		runErr := run(ctx, in, captured)
-		if runErr != nil && !audit.IsReadVerdict(runErr) {
-			return audit.OperatorReadOutput{}, runErr
-		}
-		output, renderErr := captured.rendered(ctx, f, captured.targets)
-		if renderErr != nil {
-			return audit.OperatorReadOutput{}, renderErr
-		}
-		return output, runErr
-	})
+
+	payload, err := RunAuditedRead(ctx, &recordingFactory, spec, input,
+		func(ctx context.Context) (audit.OperatorReadOutput, error) {
+			runErr := run(ctx, in, captured)
+			if runErr != nil && !audit.IsReadVerdict(runErr) {
+				return audit.OperatorReadOutput{}, runErr
+			}
+
+			output, renderErr := captured.rendered(ctx, f, captured.targets)
+			if renderErr != nil {
+				return audit.OperatorReadOutput{}, renderErr
+			}
+
+			return output, runErr
+		})
 	if err != nil && !audit.IsReadVerdict(err) {
 		return err
 	}
+
 	if writeErr := writeRendered(ctx, f, payload); writeErr != nil {
 		return writeErr
 	}
+
 	return err
 }
 

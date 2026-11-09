@@ -39,7 +39,8 @@ func ResourceTarget(uri string) Target {
 
 // ExternalTarget returns the external target for reference.
 //
-// The target uses TargetKindExternal and records the reference without a node ID.
+// The target uses TargetKindExternal and records the reference without
+// a node ID.
 //
 // Example:
 //

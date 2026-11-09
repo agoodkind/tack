@@ -52,6 +52,7 @@ func runLedgerNodePrepareRecorded(ctx context.Context, cfg *config.Config, sink 
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
 	applied := planned
+
 	details, err := recordedStep(ctx, steps, audit.ExternalStep(audit.ExternalTarget(ledgerNodeConfigTarget), plannedJSON),
 		func(ctx context.Context) error {
 			result, applyErr := applyLedgerNodePrepare(ctx, docker, plan)
@@ -90,7 +91,8 @@ func previewLedgerNodePrepare(ctx context.Context, f *cli.Factory, sink clispec.
 				return audit.OperatorReadOutput{}, fmt.Errorf("%s: encode the result: %w", ledgerNodePrepareLabel, err)
 			}
 			return audit.OperatorReadOutput{
-				Payload: encoded, Format: ledgerNodeJSONFormat, Targets: []audit.Target{audit.ExternalTarget(ledgerNodeConfigTarget)},
+				Payload: encoded, Format: ledgerNodeJSONFormat,
+				Targets: []audit.Target{audit.ExternalTarget(ledgerNodeConfigTarget)},
 			}, nil
 		})
 	if err != nil {
@@ -127,7 +129,11 @@ func runLedgerNodeWaitRecorded(
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, wrapped), wrapped
 	}
 	defer func() { _ = docker.Close() }()
-	planned := ledgerNodeWaitEvidence{Container: yugabyteBackupContainer, Stall: stall.String(), Poll: poll.String(), Health: "", WaitedSeconds: 0}
+
+	planned := ledgerNodeWaitEvidence{
+		Container: yugabyteBackupContainer, Stall: stall.String(), Poll: poll.String(),
+		Health: "", WaitedSeconds: 0,
+	}
 	plannedJSON, err := encodeEvidence(ctx, planned)
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
@@ -141,7 +147,9 @@ func runLedgerNodeWaitRecorded(
 		},
 	}
 	var took time.Duration
-	details, err := recordedStep(ctx, steps, audit.ExternalStep(audit.ExternalTarget(ledgerNodeTarget+"/health"), plannedJSON),
+
+	details, err := recordedStep(ctx, steps,
+		audit.ExternalStep(audit.ExternalTarget(ledgerNodeTarget+"/health"), plannedJSON),
 		func(ctx context.Context) error {
 			waited, waitErr := awaitLedgerNode(ctx, watch, stall, poll)
 			if waitErr != nil {
