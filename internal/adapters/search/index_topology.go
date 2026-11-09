@@ -299,12 +299,11 @@ func (a *Adapter) createIndexAlias(ctx context.Context, alias string, index stri
 	}
 
 	if response.Inspect().Response != nil && response.Inspect().Response.IsError() {
-		wrapped := fmt.Errorf(
-			"set OpenSearch alias %s to %s: %s",
-			alias,
-			index,
-			response.Inspect().Response.String(),
-		)
+		wrapped := &aliasRejectedError{
+			alias:    alias,
+			index:    index,
+			response: response.Inspect().Response.String(),
+		}
 		telemetry.L(ctx).ErrorContext(
 			ctx,
 			"search.alias.set_rejected",
@@ -317,11 +316,7 @@ func (a *Adapter) createIndexAlias(ctx context.Context, alias string, index stri
 	}
 
 	if !response.Acknowledged {
-		wrapped := fmt.Errorf(
-			"set OpenSearch alias %s to %s: update was not acknowledged",
-			alias,
-			index,
-		)
+		wrapped := &aliasUnacknowledgedError{alias: alias, index: index}
 		telemetry.L(ctx).ErrorContext(
 			ctx,
 			"search.alias.set_unacknowledged",

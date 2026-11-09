@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"strconv"
 
 	"github.com/google/uuid"
 	"goodkind.io/tack/internal/audit"
@@ -233,7 +234,7 @@ func scopeRepairRecords(
 	canonicalScopeID uuid.UUID,
 ) (*node.Node, *node.NodeView) {
 	newProps := maps.Clone(currentNode.Props)
-	scopeRaw, _ := json.Marshal(canonicalScopeID.String())
+	scopeRaw := json.RawMessage(strconv.Quote(canonicalScopeID.String()))
 	newProps["scope_id"] = scopeRaw
 
 	updatedNode := &node.Node{

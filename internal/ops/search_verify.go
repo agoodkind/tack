@@ -225,11 +225,10 @@ func verifySearchMetadata(
 	}
 
 	if info.MappingVersion != search.MappingVersion {
-		wrapped := fmt.Errorf(
-			"search mapping version %q does not match %q",
-			info.MappingVersion,
-			search.MappingVersion,
-		)
+		wrapped := &searchMappingVersionError{
+			actual:   info.MappingVersion,
+			expected: search.MappingVersion,
+		}
 		logger.ErrorContext(
 			ctx,
 			"search.verify.mapping_mismatch",
@@ -241,11 +240,10 @@ func verifySearchMetadata(
 	}
 
 	if info.TokenizerSHA256 != search.PinnedModel.TokenizerDigest {
-		wrapped := fmt.Errorf(
-			"search mapping tokenizer SHA-256 %q does not match %q",
-			info.TokenizerSHA256,
-			search.PinnedModel.TokenizerDigest,
-		)
+		wrapped := &searchTokenizerDigestError{
+			actual:   info.TokenizerSHA256,
+			expected: search.PinnedModel.TokenizerDigest,
+		}
 		logger.ErrorContext(
 			ctx,
 			"search.verify.tokenizer_mismatch",
@@ -298,15 +296,7 @@ func verifySearchTopology(
 	if settings.Primaries != topology.Primaries ||
 		settings.RoutingShards != topology.RoutingShards ||
 		settings.Replicas != topology.Replicas {
-		wrapped := fmt.Errorf(
-			"search topology %d/%d/%d does not match %d/%d/%d",
-			settings.Primaries,
-			settings.RoutingShards,
-			settings.Replicas,
-			topology.Primaries,
-			topology.RoutingShards,
-			topology.Replicas,
-		)
+		wrapped := &searchTopologyMismatchError{actual: settings, expected: topology}
 		logger.ErrorContext(
 			ctx,
 			"search.verify.topology_mismatch",
