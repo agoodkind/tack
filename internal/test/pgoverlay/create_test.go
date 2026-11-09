@@ -12,7 +12,7 @@ import (
 const outOfRangeStatementTimeout = "99999999999"
 
 // failingCreate applies a create with a statement_timeout value that the engine
-// rejects. The statement that applies statement_timeout runs after CREATE ROLE.
+// rejects. The provider sets statement_timeout after CREATE ROLE.
 func (s *scenario) failingCreate(t *testing.T) {
 	t.Helper()
 	s.space.statementTimeout = outOfRangeStatementTimeout
@@ -23,9 +23,9 @@ func (s *scenario) failingCreate(t *testing.T) {
 	s.space.statementTimeout = ""
 }
 
-// TestYugabyteExternalCreateThenFailure fails a create at a statement after
-// CREATE ROLE. When the engine keeps the new role, state must record its ID and
-// OID. A corrected apply must then converge with one role.
+// TestYugabyteExternalCreateThenFailure fails a create on a statement after
+// CREATE ROLE. When the engine retains the new role, state must record its ID
+// and object identifier (OID). A corrected apply must produce exactly one role.
 func TestYugabyteExternalCreateThenFailure(t *testing.T) {
 	s := externalScenario(t)
 	s.failingCreate(t)
@@ -54,8 +54,9 @@ func TestYugabyteExternalCreateThenFailure(t *testing.T) {
 	s.requireNoSecrets(t)
 }
 
-// TestPostgreSQLFailedCreate fails the same create on PostgreSQL. The create
-// transaction must roll back completely and leave no role and no state.
+// TestPostgreSQLFailedCreate fails the same create on PostgreSQL. The
+// transaction must roll back completely without retaining the role or resource
+// state.
 func TestPostgreSQLFailedCreate(t *testing.T) {
 	s := postgresqlScenario(t)
 	s.failingCreate(t)
@@ -71,10 +72,10 @@ func TestPostgreSQLFailedCreate(t *testing.T) {
 	s.requireNoSecrets(t)
 }
 
-// TestYugabyteExternalKeepsAdvisoryEraMemberships creates a role in advisory
-// mode with a configured membership, then switches the provider to external mode
-// and omits roles. The plan must not fail on the populated state, the apply must
-// keep the membership in the database, and the repeat plan must be empty.
+// TestYugabyteExternalKeepsAdvisoryEraMemberships creates a role with a
+// configured membership in advisory mode, then switches the provider to
+// external mode and omits roles. The plan must accept the populated state. The
+// apply must preserve the database membership. The next plan must be empty.
 func TestYugabyteExternalKeepsAdvisoryEraMemberships(t *testing.T) {
 	s := externalScenario(t)
 	sentinel := randomText(t, "sentinel_")
@@ -102,8 +103,8 @@ func TestYugabyteExternalKeepsAdvisoryEraMemberships(t *testing.T) {
 	s.requireNoSecrets(t)
 }
 
-// TestYugabyteExternalRejectsEmptyRoles configures roles as an empty set. The
-// attribute still claims ownership of memberships.
+// TestYugabyteExternalRejectsEmptyRoles configures roles as an empty set. An
+// explicit empty set still requests membership management.
 func TestYugabyteExternalRejectsEmptyRoles(t *testing.T) {
 	s := externalScenario(t)
 	s.space.memberships = `[]`

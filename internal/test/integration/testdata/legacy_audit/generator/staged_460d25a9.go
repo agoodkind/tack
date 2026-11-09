@@ -11,8 +11,8 @@ import (
 	"goodkind.io/tack/internal/auditintent"
 )
 
-// stagedIntents returns the FoundationDB outbox payloads that a node update
-// staged through StageStateChange and a cascading delete descendant produce.
+// stagedIntents returns FoundationDB outbox payloads for a node update that
+// StageStateChange stages and for a descendant of a cascading delete.
 func stagedIntents(ctx context.Context, orgID, userID uuid.UUID) ([]json.RawMessage, error) {
 	staging := audit.WithScopeBuilder(auditintent.WithSlot(ctx, "tack_update_issue", userID))
 	audit.SetScopeFields(staging, audit.Scope{OrgID: orgID, WorkspaceID: uuid.Must(uuid.NewV7()), ScopeID: uuid.Nil, ParentID: uuid.Nil})

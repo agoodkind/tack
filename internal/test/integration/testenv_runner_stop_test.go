@@ -23,11 +23,10 @@ const (
 	stoppedRunnerGoneStatus       = int64(-1)
 )
 
-// TestStoppedRunnerChild is the test process that
-// TestRunnerEndRemovesItsEngines starts in a second runner. It starts one engine
-// and waits until that runner ends. TestRunnerEndRemovesItsEngines makes every
-// assertion. This test skips when the variable that the parent test sets is
-// absent.
+// TestStoppedRunnerChild runs in the second runner that
+// TestRunnerEndRemovesItsEngines starts. It starts one engine and waits until
+// that runner ends. TestRunnerEndRemovesItsEngines makes every assertion. This
+// test skips when the parent test has not set its environment variable.
 func TestStoppedRunnerChild(t *testing.T) {
 	if os.Getenv(stoppedRunnerChildEnvironment) == "" {
 		t.Skip("TestRunnerEndRemovesItsEngines starts this test in its own runner")
@@ -36,16 +35,15 @@ func TestStoppedRunnerChild(t *testing.T) {
 	<-t.Context().Done()
 }
 
-// TestRunnerEndRemovesItsEngines starts a test process in a second runner
-// from this runner's image. It ends that runner with SIGTERM through
+// TestRunnerEndRemovesItsEngines starts a test process in a second runner from
+// this runner's image. It stops the second runner with SIGTERM through
 // ContainerKill, SIGINT through ContainerKill, docker stop, and a go test
-// timeout panic. docker compose run forwards signals as ContainerKill
-// sends them.
+// timeout panic. docker compose run forwards signals as ContainerKill sends
+// them.
 //
-// The test checks that Docker has removed the containers with the second
-// runner's label when that runner stops. It also checks that this test's
-// engine and runner remain running. The timeout case requires exit
-// status 1.
+// The test checks that Docker removes containers with the second runner's label
+// when that runner stops. It also checks that this test's engine and runner
+// still run. The timeout case requires exit status 1.
 func TestRunnerEndRemovesItsEngines(t *testing.T) {
 	runner, err := testenv.RunnerContainer(t.Context())
 	if err != nil {
@@ -100,9 +98,9 @@ func TestRunnerEndRemovesItsEngines(t *testing.T) {
 	}
 }
 
-// waitForRunnerExit waits until the child container stops and returns its
-// exit status. It returns stoppedRunnerGoneStatus when Docker no longer
-// has the container.
+// waitForRunnerExit waits for the child container to stop and returns its exit
+// status. It returns stoppedRunnerGoneStatus when Docker cannot find the
+// container.
 func waitForRunnerExit(t *testing.T, cli *client.Client, child string) int64 {
 	t.Helper()
 	waited := cli.ContainerWait(t.Context(), child, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
@@ -117,8 +115,8 @@ func waitForRunnerExit(t *testing.T, cli *client.Client, child string) int64 {
 	}
 }
 
-// requireOnlyChildRemoved requires that containers with child's runner label are
-// gone and that the engine bystander and the container runner still run.
+// requireOnlyChildRemoved checks that Docker has removed the containers with
+// child's runner label and that bystander and runner still run.
 func requireOnlyChildRemoved(t *testing.T, cli *client.Client, runner, child, bystander string) {
 	t.Helper()
 	if names := listRunnerContainers(t.Context(), t, cli, child, true); len(names) != 0 {
@@ -135,12 +133,12 @@ func requireOnlyChildRemoved(t *testing.T, cli *client.Client, runner, child, by
 	}
 }
 
-// startSecondRunner starts a container from runner's image, environment,
-// and configured stop timeout. The container runs TestStoppedRunnerChild
-// with the given go test timeout. It shares runner's mounts, which prevents
-// Docker from creating an anonymous volume. Docker removes the container
-// when it exits. Test cleanup removes the container and containers with
-// its runner label and preserves every volume.
+// startSecondRunner starts a container with runner's image, environment, and
+// configured stop timeout. The container runs TestStoppedRunnerChild with the
+// given go test timeout. It shares runner's mounts to prevent Docker from
+// creating an anonymous volume. Docker removes the container when it exits.
+// Test cleanup removes the container and containers with its runner label and
+// preserves every volume.
 func startSecondRunner(t *testing.T, cli *client.Client, runner, timeout string) string {
 	t.Helper()
 	ctx := t.Context()
@@ -178,8 +176,7 @@ func startSecondRunner(t *testing.T, cli *client.Client, runner, timeout string)
 	return child
 }
 
-// waitForRunningEngine waits until a container with child's runner label
-// runs.
+// waitForRunningEngine waits until a container with child's runner label runs.
 func waitForRunningEngine(t *testing.T, cli *client.Client, child string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), stoppedRunnerStartLimit)

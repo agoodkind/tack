@@ -76,10 +76,10 @@ resource "postgresql_role" "advisory" {
 }
 `
 
-// TestYugabyteLockModesStayPerProvider updates two roles through provider
-// instances that share a connection string and differ in role_lock_mode. The
-// external instance must update its role. The advisory instance must keep the
-// advisory lock failure.
+// TestYugabyteLockModesStayPerProvider updates two roles with provider
+// instances that share a connection string and use different role_lock_mode
+// values. The external instance must update its role. The advisory instance
+// must fail to acquire an advisory lock.
 func TestYugabyteLockModesStayPerProvider(t *testing.T) {
 	s := externalScenario(t)
 	advisoryRole := s.role + "_adv"
