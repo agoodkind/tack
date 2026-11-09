@@ -22,7 +22,13 @@ const (
 	arm64Architecture = "arm64"
 )
 
-// TestMain builds the image command once and runs the package tests against it.
+// TestMain calls RunTests to run the native runner tests.
+//
+// RunTests manages the executable for each subprocess in the package:
+//
+//   - It builds the command once before the tests start.
+//   - It removes the build directory after the tests finish.
+//   - It returns the exit code that TestMain passes to [os.Exit].
 func TestMain(m *testing.M) {
 	os.Exit(imagetest.RunTests(m))
 }
@@ -55,8 +61,17 @@ func matchingArchitecture(machine string) string {
 	}
 }
 
-// TestVerifyNativeRunnerCommand checks that the command accepts the matching
-// native architecture and rejects missing, unsupported, or mismatched values.
+// TestVerifyNativeRunnerCommand checks native runner validation and output.
+//
+// Each subprocess uses an isolated environment. The cases check these
+// inputs:
+//
+//   - The command rejects a missing IMAGE_ARCH value.
+//   - The command rejects an unsupported architecture.
+//   - For amd64, the command succeeds only when the host machine type
+//     matches.
+//   - For arm64, the command succeeds only when the host machine type
+//     matches.
 func TestVerifyNativeRunnerCommand(t *testing.T) {
 	machine := machineType(t)
 	matching := matchingArchitecture(machine)
@@ -94,8 +109,13 @@ func TestVerifyNativeRunnerCommand(t *testing.T) {
 	}
 }
 
-// TestVerifyNativeRunnerOutputFailure checks that a failed output write
-// produces an error and exit status 1.
+// TestVerifyNativeRunnerOutputFailure checks standard output failures.
+//
+// Each subprocess must exit with status 1 and report the write failure.
+// Unsupported host machine types skip these cases:
+//
+//   - The command writes to a file descriptor that permits only reads.
+//   - The command writes to a pipe after its reader closes.
 func TestVerifyNativeRunnerOutputFailure(t *testing.T) {
 	machine := machineType(t)
 

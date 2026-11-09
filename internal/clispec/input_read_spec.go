@@ -11,9 +11,16 @@ import (
 
 // InputReadSpec returns a read definition for a command with typed input.
 //
-// The definition decodes the command input before calling target or
-// safe. It uses the target result as the sole operation target and
-// encodes the value returned by safe as the stored input.
+// The definition decodes the command input into the typed value before
+// calling target or safe. It uses the target result as the sole operation
+// target and encodes the value returned by safe as the stored input.
+//
+// The callbacks produce these values:
+//
+//	Targets:   []audit.Target{target(input)}
+//	SafeInput: json.Marshal(safe(input))
+//
+// For example, a caller can create the definition:
 //
 //	spec := InputReadSpec(verb, target, safe)
 func InputReadSpec[Typed Input](verb audit.Verb, target func(Typed) audit.Target, safe func(Typed) Typed) audit.Spec {

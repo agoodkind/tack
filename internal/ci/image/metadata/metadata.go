@@ -20,9 +20,11 @@ const (
 
 // Write appends build metadata to the file named by GITHUB_OUTPUT.
 //
-// It reads the Git checkout in the working directory and prints the
-// selected exact tag at HEAD or the BRANCH_NAME value to stdout. It
-// returns an error without writing the file if the stdout write fails.
+// The function reads the Git checkout in the working directory. It selects
+// an exact tag for HEAD when one exists and otherwise reads BRANCH_NAME. It
+// writes a formatted message containing the selected tag or branch to its
+// stdout [io.Writer] parameter. If that write fails, the function returns an
+// error before appending GITHUB_OUTPUT.
 //
 // The appended output has this layout:
 //

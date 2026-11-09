@@ -22,7 +22,7 @@ const (
 	mainBranch    = "main"
 )
 
-// TestMain builds the image command once and runs the package tests against it.
+// TestMain builds ci-image once and runs the metadata tests against it.
 func TestMain(m *testing.M) {
 	os.Exit(imagetest.RunTests(m))
 }

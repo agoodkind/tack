@@ -37,10 +37,18 @@ func IsDigest(value string) bool {
 
 // WriteDigest writes IMAGE_DIGEST to a file in DIGEST_DIRECTORY.
 //
-// It validates IMAGE_ARCH and the SHA256 digest, then writes the digest
-// followed by a newline. For IMAGE_ARCH=amd64, the file path is:
+// The function reads IMAGE_ARCH and IMAGE_DIGEST and creates
+// DIGEST_DIRECTORY if needed. It accepts amd64 or arm64 and requires sha256:
+// followed by 64 lowercase hexadecimal digits. It validates the architecture
+// and digest before writing the digest followed by a newline.
+//
+// For IMAGE_ARCH=amd64, the file path is:
 //
 //	DIGEST_DIRECTORY/amd64.digest
+//
+// For IMAGE_ARCH=arm64, the file path is:
+//
+//	DIGEST_DIRECTORY/arm64.digest
 func WriteDigest() error {
 	architecture, err := environment.Required("IMAGE_ARCH")
 	if err != nil {

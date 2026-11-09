@@ -14,9 +14,18 @@ type tagInputs struct {
 
 // WriteTags writes one image reference per line to IMAGE_TAG_FILE.
 //
-// Every build includes the short and full commit tags. A tag build also
-// includes its reference name and latest. A branch build also includes
-// its branch name; among branch builds, only main includes latest.
+// The build type controls the tags:
+//
+//   - Every build includes the short and full commit tags.
+//   - A tag build also includes its reference name and latest.
+//   - A branch build also includes its branch name. Among branch builds,
+//     only main includes latest.
+//
+// The function replaces slashes in the reference or branch name with
+// hyphens:
+//
+//	release/v1 -> release-v1
+//	feature/a  -> feature-a
 //
 // A main branch build produces this layout:
 //

@@ -54,8 +54,17 @@ func TestDigestCommand(t *testing.T) {
 	}
 }
 
-// TestTagsCommand checks tag file contents for releases and branches and
-// checks failures for a filesystem error and a missing branch name.
+// TestTagsCommand checks tag output through the image command.
+//
+// The subprocesses check these outcomes:
+//
+//   - The command replaces existing file contents.
+//   - Tag builds and main branch builds include latest.
+//   - The command replaces slashes in reference and branch names with
+//     hyphens.
+//   - The command preserves duplicate tags in order.
+//   - The command fails for an invalid output path.
+//   - The command fails when the branch input is missing.
 func TestTagsCommand(t *testing.T) {
 	for _, test := range []struct{ name, refType, refName, branch, expected string }{
 		{

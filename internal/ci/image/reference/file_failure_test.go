@@ -8,8 +8,13 @@ import (
 	"goodkind.io/tack/internal/ci/image/imagetest"
 )
 
-// TestFileFailureReportsOnce checks that digest and tag file failures each
-// produce one error log with the operation and path.
+// TestFileFailureReportsOnce checks command diagnostics for file failures.
+//
+// Each subprocess must report one boundary error log with the operation
+// context and path. The cases check these failures:
+//
+//   - Digest directory creation fails when a file blocks the directory.
+//   - Tag file creation fails when the destination is a directory.
 func TestFileFailureReportsOnce(t *testing.T) {
 	root := t.TempDir()
 	blocked := filepath.Join(root, "file")

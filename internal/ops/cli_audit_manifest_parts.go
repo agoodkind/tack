@@ -20,7 +20,8 @@ const (
 	auditEventPartURISegment = "/part/"
 )
 
-// auditManifestPartsInput stores the flag values that the audit event records as safe input.
+// auditManifestPartsInput stores the flag values that the audit event
+// records as safe input.
 type auditManifestPartsInput struct {
 	clispec.InputMarker
 	Org            string `json:"org"`
@@ -40,7 +41,8 @@ type auditManifestPartsResult struct {
 
 var _ clispec.ReadResult = (*auditManifestPartsResult)(nil)
 
-// auditManifestPartEntry represents one part index and digest in the JSON result.
+// auditManifestPartEntry represents one part index and digest in the JSON
+// result.
 type auditManifestPartEntry struct {
 	Index  uint32 `json:"index"`
 	Digest string `json:"digest"`
@@ -48,8 +50,14 @@ type auditManifestPartEntry struct {
 
 // AuditReadTargets returns one read target for each returned part.
 //
-// Each resource target URI combines EventID and the part's Index. The
-// method returns targets in the order of Parts and returns a nil error.
+// Each resource target URI combines EventID and the part's decimal Index.
+// The method returns targets in the order of Parts and returns a nil error.
+//
+// Each URI uses this layout:
+//
+//	tack:audit-event/<eventID>/part/<index>
+//
+// For example, a caller can read the targets:
 //
 //	targets, err := r.AuditReadTargets()
 func (r auditManifestPartsResult) AuditReadTargets() ([]audit.Target, error) {
@@ -100,7 +108,8 @@ func auditManifestPartsOp(f *cli.Factory) clispec.Operation[auditManifestPartsIn
 	}
 }
 
-// runAuditManifestParts reads and writes manifest part indexes and digests without loading payloads.
+// runAuditManifestParts reads and writes manifest part indexes and digests
+// without loading payloads.
 func runAuditManifestParts(ctx context.Context, f *cli.Factory, in auditManifestPartsInput, sink clispec.ResultSink) error {
 	orgID, err := parseAuditManifestUUID(ctx, "--org", in.Org)
 	if err != nil {

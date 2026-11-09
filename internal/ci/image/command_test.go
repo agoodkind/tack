@@ -14,7 +14,13 @@ const (
 	unknownOperation = "unknown"
 )
 
-// TestMain builds the image command once and runs the package tests against it.
+// TestMain calls RunTests to run the command tests.
+//
+// RunTests manages the executable for each subprocess in the package:
+//
+//   - It builds the command once before the tests start.
+//   - It removes the build directory after the tests finish.
+//   - It returns the exit code that TestMain passes to [os.Exit].
 func TestMain(m *testing.M) {
 	os.Exit(imagetest.RunTests(m))
 }
@@ -33,8 +39,13 @@ func runBuiltCommand(
 	return string(output), err
 }
 
-// TestHelpSucceedsWithoutOperationEnvironment checks that help succeeds
-// without operation environment variables or a failure log.
+// TestHelpSucceedsWithoutOperationEnvironment checks command help.
+//
+// Each invocation uses an empty environment and must succeed without logging
+// ci-image.failed. The cases request help for these commands:
+//
+//   - The root command supports help.
+//   - Each image operation supports help.
 func TestHelpSucceedsWithoutOperationEnvironment(t *testing.T) {
 	for _, test := range []commandCase{
 		{helpFlag, rootHelpCommand},
@@ -56,8 +67,14 @@ func TestHelpSucceedsWithoutOperationEnvironment(t *testing.T) {
 	}
 }
 
-// TestInvalidArgumentsFailOnceWithoutWritingFiles checks that invalid
-// arguments produce one failure log and do not create a digest directory.
+// TestInvalidArgumentsFailOnceWithoutWritingFiles checks argument rejection.
+//
+// Each case must fail and log one boundary error. The digest directory must
+// remain absent. The cases check these arguments:
+//
+//   - The caller omits the operation.
+//   - The caller requests an unknown operation.
+//   - The caller adds an extra argument for digest.
 func TestInvalidArgumentsFailOnceWithoutWritingFiles(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "digests")
 	environment := []string{
