@@ -16,11 +16,11 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestAuditHostCommandsReadAndRedactWithinOneOrg drives the real `audit get`,
-// `audit query`, and `audit redact-actor` commands through the cobra root
-// against the test ledger, as LOGIN roles that hold exactly the audit_reader
-// and audit_redactor grants, so a query the migration does not allow fails
-// here the way it fails on a host.
+// TestAuditHostCommandsReadAndRedactWithinOneOrg runs audit get, audit query,
+// and audit redact-actor through the Cobra root against the test ledger.
+// Separate LOGIN roles inherit the audit_reader and audit_redactor grants.
+// SQL that these grants reject fails the command here as it does for the
+// matching host role.
 func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 	adminDSN := testenv.Ledger(t)
 	ctx := context.Background()
@@ -60,20 +60,21 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		return output.String()
 	}
 
-	// audit get: the command returns exactly one row for a stored event.
+	// audit get returns exactly one stored event row.
 	var got auditGetResult
 	decodeCommandOutput(t, run("audit", "get", "--event-id", eventA1.String(), "--execute"), &got)
 	if got.Row.EventID != eventA1 || got.Row.OrgID != orgA || got.Row.PIIRef == nil {
 		t.Fatalf("audit get returned %+v, want event %s of org %s with a pii ref", got.Row, eventA1, orgA)
 	}
 
-	// get without --execute: the choke-point prints the plan and records nothing.
+	// audit get without --execute prints the plan and does not add outbox events.
 	dry := run("audit", "get", "--event-id", eventA1.String())
 	if !strings.Contains(dry, "would run: audit.read") || len(outbox.events) != 0 {
 		t.Fatalf("audit get dry run = %q with %d recorded rows, want a plan and no new row", dry, len(outbox.events))
 	}
 
-	// query: the org's rows and nothing from the other org.
+	// audit query returns the selected organization's rows and excludes the
+	// other organization's event.
 	window := []string{"--oldest", time.Now().Add(-time.Hour).UTC().Format(time.RFC3339), "--latest", time.Now().Add(time.Hour).UTC().Format(time.RFC3339)}
 	var queried auditQueryResult
 	decodeCommandOutput(t, run(append([]string{"audit", "query", "--org", orgA.String(), "--actor-id", actor.String(), "--execute"}, window...)...), &queried)
@@ -86,8 +87,8 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		}
 	}
 
-	// pagination: a full page carries next_cursor, and the cursor walks the
-	// remaining rows without overlap or a gap.
+	// A full page returns next_cursor. Requests that use the cursor include
+	// both events without duplicates or omissions.
 	var pageOne auditQueryResult
 	decodeCommandOutput(t, run(append([]string{"audit", "query", "--org", orgA.String(), "--actor-id", actor.String(), "--limit", "1", "--execute"}, window...)...), &pageOne)
 	if pageOne.RowCount != 1 || pageOne.NextCursor == "" {
@@ -107,8 +108,8 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		t.Fatalf("the two pages did not cover both events: %v", seen)
 	}
 
-	// redact-actor without --execute: reports the two org rows, erases nothing,
-	// records nothing.
+	// audit redact-actor without --execute reports the two selected references.
+	// It does not erase their personal information or add outbox events.
 	var planned auditRedactActorResult
 	decodeCommandOutput(t, run("audit", "redact-actor", "--org", orgA.String(), "--actor-id", actor.String()), &planned)
 	if !planned.DryRun || planned.PIIRefCount != 2 || planned.Unredacted != 2 || planned.Redacted != 0 {
@@ -121,8 +122,9 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		t.Fatalf("redact plan changed the recorded rows: %d, want 0", len(outbox.events))
 	}
 
-	// redact-actor --execute: erases exactly the org's two refs, leaves the
-	// other org's ref, and records the intent and outcome pair.
+	// audit redact-actor --execute erases personal information for the selected
+	// organization's two references. It preserves the other organization's
+	// personal information and records the intent and outcome in the outbox.
 	var applied auditRedactActorResult
 	decodeCommandOutput(t, run("audit", "redact-actor", "--org", orgA.String(), "--actor-id", actor.String(), "--execute"), &applied)
 	if applied.DryRun || applied.PIIRefCount != 2 || applied.Unredacted != 2 || applied.Redacted != 2 {
@@ -140,7 +142,7 @@ func TestAuditHostCommandsReadAndRedactWithinOneOrg(t *testing.T) {
 		t.Fatalf("redact recorded %+v, want an audit.pii_redacted intent and outcome", outbox.events)
 	}
 
-	// A rerun finds the refs and nothing left to erase.
+	// Repeated redaction finds both references and does not erase additional data.
 	var rerun auditRedactActorResult
 	decodeCommandOutput(t, run("audit", "redact-actor", "--org", orgA.String(), "--actor-id", actor.String(), "--execute"), &rerun)
 	if rerun.PIIRefCount != 2 || rerun.Unredacted != 0 || rerun.Redacted != 0 {

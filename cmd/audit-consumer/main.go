@@ -1,6 +1,6 @@
-// Package main runs the audit consumer. It tails the Kafka topic the producer
-// writes to, records each event in YugabyteDB audit.events, and runs the
-// embedded notarizer.
+// Package main runs the audit consumer. It reads the producer's Kafka topic
+// and records events in YugabyteDB audit.events. It runs the embedded
+// notarizer when a signing key is configured.
 package main
 
 import (

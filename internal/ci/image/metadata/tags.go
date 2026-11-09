@@ -22,9 +22,15 @@ type exactTag struct {
 	date     int64
 }
 
-// outranks mirrors the selection in git describe: annotated tags beat
-// lightweight tags, newer annotated tags beat older ones, and the first
-// tag by name wins ties.
+// outranks compares exact tag candidates using the priority rules of
+// git describe --tags.
+//
+// The caller visits tags in name order and retains the earlier candidate
+// when this method returns false. The comparison uses these priorities:
+//
+//   - Annotated tags take priority over lightweight tags.
+//   - Newer annotated tags take priority over older annotated tags.
+//   - The first tag by name wins ties.
 func (candidate exactTag) outranks(current exactTag) bool {
 	if candidate.priority != current.priority {
 		return candidate.priority > current.priority

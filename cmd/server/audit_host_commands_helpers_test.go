@@ -25,11 +25,13 @@ func (o *recordingOutbox) WriteOutbox(_ context.Context, event audit.Event) erro
 	return nil
 }
 
-// auditLoginRoleDSN creates a throwaway LOGIN role that inherits exactly one
-// audit base role and returns the admin DSN rewritten to connect as it. The
-// role carries a per-test password, so the test holds whether the database
-// trusts its connections or asks every login for a password, as the compose
-// test database does.
+// auditLoginRoleDSN creates a temporary LOGIN role and returns its connection
+// string. The role inherits exactly one audit base role. The returned admin
+// connection string uses the temporary role's credentials.
+//
+// Each role uses a per-test password for databases that require password
+// authentication, including the test ledger. The credentials also work when
+// the database trusts its connections.
 func auditLoginRoleDSN(t *testing.T, admin *pgxpool.Pool, adminDSN, base string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -58,8 +60,9 @@ func auditLoginRoleDSN(t *testing.T, admin *pgxpool.Pool, adminDSN, base string)
 	return parsed.String()
 }
 
-// recordActorEvent writes one event with actor PII through the production
-// recorder so the row carries a real pii_ref, and returns its event id.
+// recordActorEvent records one event with actor personal information using
+// the production recorder and returns its event ID. The stored row includes
+// a pii_ref for that information.
 func recordActorEvent(t *testing.T, admin *pgxpool.Pool, writerDSN string, orgID, actorID uuid.UUID) uuid.UUID {
 	t.Helper()
 	ctx := context.Background()
@@ -89,8 +92,8 @@ func recordActorEvent(t *testing.T, admin *pgxpool.Pool, writerDSN string, orgID
 	return eventID
 }
 
-// unredactedCount reports how many of the given events' pii rows still hold a
-// payload.
+// unredactedCount counts audit.pii rows with redacted = false for the given
+// event IDs.
 func unredactedCount(t *testing.T, admin *pgxpool.Pool, eventIDs ...uuid.UUID) int {
 	t.Helper()
 	ids := make([]string, 0, len(eventIDs))
@@ -109,9 +112,8 @@ func unredactedCount(t *testing.T, admin *pgxpool.Pool, eventIDs ...uuid.UUID) i
 	return count
 }
 
-// decodeCommandOutput skips the text lines the sink and the dry-run gate print
-// before the JSON body (the trace header, the operator line, the plan line)
-// and decodes the body.
+// decodeCommandOutput skips text before the JSON body and decodes that body.
+// The skipped text can include the trace header, operator line, and plan line.
 func decodeCommandOutput[T auditGetResult | auditQueryResult | auditRedactActorResult](t *testing.T, output string, into *T) {
 	t.Helper()
 	start := strings.Index(output, "{")

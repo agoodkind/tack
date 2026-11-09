@@ -14,12 +14,13 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// auditGroup is the top-level compliance audit ledger family. Every ledger
-// read and redaction is an operator command here, never an MCP tool.
+// auditGroup defines the top-level compliance audit ledger command group.
+// Operators must use host commands for ledger reads and redactions rather
+// than MCP tools.
 var auditGroup = &clispec.Group{Use: "audit", Short: "Compliance audit ledger commands", Long: "", Parent: nil}
 
-// registerAudit adds the audit family plus hidden back-compat aliases for the
-// pre-cobra flat command names (audit-export, audit-verify, gen-audit-key).
+// registerAudit registers the audit commands and hidden aliases for the
+// earlier flat commands: audit-export, audit-verify, and gen-audit-key.
 func registerAudit(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, auditExportOp(f))
 	clispec.Register(reg, auditVerifyOp(f))
@@ -41,11 +42,10 @@ func registerAudit(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, genKeyAlias)
 }
 
-// auditExportAllRows is the --limit that exports the whole range. It is the
-// default because a compliance export is evidence, and a default that stopped
-// at a row count would hand an auditor a bundle that reads as complete while
-// leaving the older rows out. The export streams, so the whole range costs the
-// same memory as one row.
+// auditExportAllRows selects the whole range for --limit and sets the default
+// export limit. A default row cap would omit older evidence from a compliance
+// export. The exporter processes one row at a time and uses a fixed write
+// buffer instead of collecting the complete result in memory.
 const auditExportAllRows = 0
 
 type auditExportInput struct {

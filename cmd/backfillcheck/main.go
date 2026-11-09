@@ -1,9 +1,13 @@
-// Command backfillcheck fails the build when a backfill has outlived its
-// removal day. It parses every non-test Go file under the working directory
-// and checks each Lifetime literal: Ticket must be a string literal, RemoveBy
-// must be a [time.Date] literal with a constant year, month, and day, and
-// that day must not be before today. The Makefile runs it as a prerequisite
-// of build (TACK-512).
+// Command backfillcheck rejects expired backfills during the build. It parses
+// non-test Go files below the working directory, except hidden directories.
+// The Makefile requires backfill-expiry before build (TACK-512).
+//
+// Each Lifetime literal must meet these conditions:
+//
+//   - Ticket must contain a nonempty string literal.
+//   - RemoveBy must call time.Date with a literal year and day and a literal
+//     month or a named month constant.
+//   - The removal deadline must not precede the current UTC time.
 package main
 
 import (
@@ -33,9 +37,13 @@ func main() {
 	os.Exit(code)
 }
 
-// run scans the working directory. It returns 0 when every backfill may stay,
-// 1 when at least one must go or is not declared with literals, and 2 when a
-// file cannot be read.
+// run scans the working directory and reports declaration failures.
+//
+// The return value identifies the check result:
+//
+//   - 0 indicates that every checked declaration passes.
+//   - 1 indicates an expired or invalid declaration.
+//   - 2 indicates a failure to scan or parse a file.
 func run(today time.Time, out io.Writer) int {
 	problems, err := scanTree(today)
 	if err != nil {
@@ -148,9 +156,9 @@ func stringLiteral(expr ast.Expr) (string, bool) {
 	return value, true
 }
 
-// dateLiteral reads a [time.Date] call with a literal year and day and a
-// month written as a literal or as a [time.Month] constant. The removal day is
-// the end of that calendar day in UTC.
+// dateLiteral reads a time.Date call with a literal year and day and a
+// literal month or a named time.Month constant. It returns the removal
+// deadline at 23:59:59 UTC on that calendar day.
 func dateLiteral(expr ast.Expr) (time.Time, bool) {
 	call, ok := expr.(*ast.CallExpr)
 	if !ok || len(call.Args) < 3 || typeName(call.Fun) != "Date" {

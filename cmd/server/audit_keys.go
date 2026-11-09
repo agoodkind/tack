@@ -11,8 +11,8 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// loadAuditKey reads the ed25519 private key and derives its key id. The path
-// is an operator-supplied signing key location.
+// loadAuditKey reads an Ed25519 private key from the operator-supplied
+// signing-key path and derives its key ID.
 func loadAuditKey(path string) (ed25519.PrivateKey, string, error) {
 	if path == "" {
 		return nil, "", fmt.Errorf("AUDIT_SIGNING_KEY_PATH not set")
@@ -39,14 +39,17 @@ func loadAuditKey(path string) (ed25519.PrivateKey, string, error) {
 	if !ok {
 		return nil, "", fmt.Errorf("audit key public half is not ed25519")
 	}
-	// The identifier is the audit package's, so an export manifest names its
-	// signer the way audit.notarizations and the valid signer set do
-	// (TACK-437). Manifests written before this named the key by its first
-	// raw bytes instead; a signer set never lists those.
+	// Export manifests and audit.notarizations use audit.KeyIdentifier for
+	// their signer IDs (TACK-437). Older CLI manifests used the first eight
+	// raw public-key bytes instead of the first eight SHA-256 digest bytes.
+	// ParseSignerSet accepts either identifier's format. With a configured
+	// signer set, bundle verification checks the ID derived from the supplied
+	// public key against that set and rejects a different manifest signer ID.
+	// Without a configured set, verification does not compare those IDs.
 	return priv, audit.KeyIdentifier(pub), nil
 }
 
-// loadAuditPublic reads the ed25519 public key from a private key PEM file.
+// loadAuditPublic derives the Ed25519 public key from a private-key PEM file.
 func loadAuditPublic(path string) (ed25519.PublicKey, error) {
 	priv, _, err := loadAuditKey(path)
 	if err != nil {

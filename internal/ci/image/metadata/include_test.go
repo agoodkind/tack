@@ -20,9 +20,8 @@ func credentialFile(directory, identifier string) string {
 	return directory + "/git-credentials-" + identifier + ".config"
 }
 
-// generatedIncludes writes the entries that actions/checkout adds for the
-// host and the container, each for the checkout and for its linked
-// worktrees.
+// generatedIncludes returns the entries that actions/checkout adds for the
+// host and container. Each set includes the checkout and its linked worktrees.
 func generatedIncludes(root, runnerTemp, hostID, containerID string) string {
 	hostGit := root + "/.git"
 	containerGit := "/github/workspace/.git"

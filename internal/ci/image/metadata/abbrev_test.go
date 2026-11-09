@@ -136,7 +136,7 @@ func TestMetadataCommandCoreAbbreviation(t *testing.T) {
 	}
 }
 
-// emptySetting writes a present core.abbrev key with an empty value.
+// emptySetting requests a present core.abbrev key with an empty value.
 const emptySetting = "<empty>"
 
 func configureAbbreviation(t *testing.T, root, globalSetting, localSetting string) {

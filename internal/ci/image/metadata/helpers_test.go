@@ -114,8 +114,9 @@ func metadataCommand(t *testing.T, directory string, environment map[string]stri
 	return command
 }
 
-// expectFailure runs the command, requires a failure that mentions message, and
-// requires that the command did not create GITHUB_OUTPUT.
+// expectFailure requires a command failure with output that includes message.
+// If the caller sets GITHUB_OUTPUT, the helper also checks that the command
+// did not create the output file.
 func expectFailure(t *testing.T, directory string, environment map[string]string, message string) {
 	t.Helper()
 	output, err := runMetadata(t, directory, environment)

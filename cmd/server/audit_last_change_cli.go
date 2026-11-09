@@ -39,17 +39,23 @@ type auditLastChangeResult struct {
 	NextCursor           string    `json:"next_cursor,omitempty"`
 	HistoryStartInWindow bool      `json:"history_start_in_window"`
 	LegacyRowCount       int       `json:"legacy_row_count"`
-	// LegacyRelationshipEventIDs mirrors
+	// LegacyRelationshipEventIDs copies the event IDs from
 	// [audit.LastChangeReport.LegacyRelationshipEventIDs].
 	LegacyRelationshipEventIDs []uuid.UUID             `json:"legacy_relationship_event_ids"`
 	Fields                     []audit.LastChangeEntry `json:"fields"`
 	Relationships              []audit.LastChangeEntry `json:"relationships"`
 }
 
-// auditLastChangeOp declares `audit last-change`: the latest successful change
-// of each field path and each relationship of one node, derived from the
-// ledger rows of one org over a bounded window. It reads through the
-// audit_reader role and records as audit.read.
+// auditLastChangeOp creates the audit last-change command.
+//
+// The command derives the latest successful changes for one node from ledger
+// rows for one organization within a bounded time window. It uses the
+// audit_reader role and records audit.read.
+//
+// The result reports the latest changes for these parts of the node:
+//
+//   - Fields report changes for each field path.
+//   - Relationships report changes for each relationship.
 func auditLastChangeOp(f *cli.Factory) clispec.Operation[auditLastChangeInput] {
 	return clispec.Operation[auditLastChangeInput]{
 		Name:     clispec.Name{Canonical: "last-change", CLIOverride: ""},
