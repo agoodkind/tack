@@ -25,8 +25,8 @@ type projectionDeclaration struct {
 }
 
 // declarationHash hashes the legacy projection inputs of definition. It
-// returns nil for a nil definition. Releases before projection state
-// records read the legacy digest, which sums these hashes.
+// returns nil for a nil definition. Releases before projection state records
+// read the legacy digest, which sums these hashes.
 func declarationHash(ctx context.Context, definition *node.PropertyDef) ([]byte, error) {
 	if definition == nil {
 		return nil, nil

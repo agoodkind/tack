@@ -13,9 +13,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// CreateAtomic writes a node and its initial indexes and relationships in one
-// transaction. When search work is enabled, the same transaction also
-// schedules search work for the node.
+// CreateAtomic writes a node and its initial indexes and relationships in
+// one transaction.
+//
+// When search work is enabled, the same transaction also schedules search
+// work for the node. The transaction writes these node records:
+//
+//  - It writes the primary record.
+//  - It writes the view record when view is not nil.
+//  - It writes the resolution record.
 func (s *NodeStore) CreateAtomic(ctx context.Context, current *node.Node, view *node.NodeView, relationships []*node.Relationship, indexedProps []string, referenceKeys []node.ReferenceKey, idempotency *node.IdempotencyRecord) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.create_atomic")(&err)
 	changes, err := beginMutationAudit(ctx, current.OrgID)

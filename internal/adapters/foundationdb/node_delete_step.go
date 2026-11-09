@@ -11,18 +11,24 @@ import (
 )
 
 // DeleteSubtreeStep runs one step of a subtree delete job in one
-// transaction. The step examines the last node on the job's stack. When a
-// hierarchy child of that node exists, the step adds the child to the stack.
-// When the node has more edges than one step reads, the step clears one page
-// of them. Otherwise the step deletes the node, writes its ledger event, and
-// removes it from the stack. The step that empties the stack writes the
-// finish time into the job record, and status reads return that record. A
-// finished job or missing job record makes DeleteSubtreeStep report Done.
-// Each step records node and relationship changes with the actor and operation ID
-// from the job's encoded operation. It derives a base event ID from the operation ID
-// and job ID. Each change event ID is a name-based UUID of that base ID, the change
-// kind (create, update, or delete), and the record identity. A retried or resumed step
-// writes the same event IDs.
+// transaction.
+//
+// Each step records node and relationship changes with the actor and
+// operation ID from the job's encoded operation. It derives a base event ID
+// from the operation ID and job ID. Each change event ID is a name-based
+// UUID of that base ID, the change kind (create, update, or delete), and the
+// record identity. Retried or resumed steps use the same event ID for the
+// same change kind and record. The step processes the last node on the job's
+// stack:
+//
+//  - It moves an eligible direct child of the root to the root's parent or
+//    adds a hierarchy child to the stack.
+//  - It clears a page when the node has more edges than one step processes.
+//  - Otherwise it deletes the node and removes it from the stack.
+//  - It writes each change event to the outbox in the same transaction.
+//  - It records the finish time when it empties the stack, and status reads
+//    return that job record.
+//  - It reports Done when the job has finished or does not exist.
 func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID) (progress node.SubtreeDeleteProgress, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_step")(&err)
 	err = runNodeMutation(ctx, s.nodes.db, "subtree delete step of job "+jobID.String(), func(tr fdb.Transaction) error {
@@ -61,8 +67,8 @@ func (s *NodeDeleteStore) DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID
 	return progress, nil
 }
 
-// advance processes the last node on job.Stack and updates job after the step.
-// It records node and relationship changes in changes.
+// advance processes the last node on job.Stack and updates job after the
+// step. It records node and relationship changes in changes.
 func (s *NodeDeleteStore) advance(ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, changes *mutationAudit) error {
 	topID := job.Stack[len(job.Stack)-1]
 	kinds := make(map[string]*node.NodeType)
@@ -104,8 +110,8 @@ func (s *NodeDeleteStore) advance(ctx context.Context, tr fdb.Transaction, job *
 }
 
 // takeChild moves a direct child of the root to the root's parent when
-// moveChild accepts it. Every other child joins the stack and is deleted with
-// its descendants.
+// moveChild accepts it. It adds every other child to the stack for deletion
+// with its descendants.
 func (s *NodeDeleteStore) takeChild(
 	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, child hierarchyNode,
 	kinds map[string]*node.NodeType, changes *mutationAudit,
@@ -126,12 +132,12 @@ func (s *NodeDeleteStore) takeChild(
 	return nil
 }
 
-// findHierarchyChild returns the source of the first edge in edges that is a
-// hierarchy child of top: a child_of edge from a node with top as its
-// hierarchy parent under [node.HierarchyParent]. It also returns every edge
-// before that child with a source that is not a hierarchy child. A node
-// already on the stack is never a child, and the stack never contains one
-// node twice. The returned child has Found false when edges contain no child.
+// findHierarchyChild returns the source of the first child_of edge in edges
+// for which node.HierarchyParent identifies top as the source's parent. It
+// also returns every preceding edge that does not identify a hierarchy
+// child. It excludes sources already on the stack to prevent duplicate stack
+// entries. It returns a child with Found false when it does not find a
+// hierarchy child.
 func findHierarchyChild(
 	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, top hierarchyNode, edges []deleteEdge, kinds map[string]*node.NodeType,
 ) (hierarchyNode, []deleteEdge, error) {

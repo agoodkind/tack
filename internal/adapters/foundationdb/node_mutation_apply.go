@@ -10,11 +10,19 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ApplyMutation creates or updates one node in one transaction. Each attempt
-// rereads the idempotency record, source primary record, metadata epoch,
-// expected graph records, and parent chain before writing. The attempt writes
-// the primary, view, and resolution records, property indexes, reference claims,
-// relationships, search work, and one change event for each changed node or relationship.
+// ApplyMutation creates or updates one node in one transaction.
+//
+// Each attempt checks the idempotency record first and returns an existing
+// receipt when readCreateIdempotency accepts it. Otherwise it rereads the
+// source primary record, metadata epoch, expected graph records, and any
+// requested parent chain before writing. The transaction applies the plan:
+//
+//  - It writes the primary, view, and resolution records.
+//  - It reconciles property indexes and applies reference claims and
+//    relationships.
+//  - It schedules search work when search work is enabled.
+//  - It writes one outbox change event for each changed node or
+//    relationship.
 func (s *NodeStore) ApplyMutation(ctx context.Context, plan node.MutationPlan) (receipt node.MutationReceipt, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.apply_mutation")(&err)
 	changes, err := beginMutationAudit(ctx, plan.OrgID)
@@ -37,9 +45,10 @@ func (s *NodeStore) ApplyMutation(ctx context.Context, plan node.MutationPlan) (
 	return receipt, nil
 }
 
-// applyMutationAttempt returns the receipt without writing when the idempotency
-// record exists. Otherwise, it applies plan inside tr, records node and relationship
-// changes in changes, and returns a receipt for the write.
+// applyMutationAttempt returns an existing receipt without writing when
+// readCreateIdempotency accepts a stored record. Otherwise it applies plan
+// inside tr, records node and relationship changes in changes, and returns a
+// receipt for the write.
 func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction, plan node.MutationPlan, changes *mutationAudit) (node.MutationReceipt, error) {
 	none := node.MutationReceipt{OrgID: plan.OrgID, NodeID: plan.NodeID, SourceDigest: node.Digest{}, ResultDigest: node.Digest{}}
 	existing, err := readCreateIdempotency(ctx, tr, plan)
@@ -112,10 +121,10 @@ func (s *NodeStore) applyMutationAttempt(ctx context.Context, tr fdb.Transaction
 	return receipt, nil
 }
 
-// checkMutationSchema compares the stored metadata epoch with plan and returns
-// the node type schema inside tr. It returns an error that wraps
-// domain.ErrConflict if the epoch differs, or domain.ErrInvalidArgument if the
-// node type does not exist.
+// checkMutationSchema compares the stored metadata epoch with plan and
+// returns the node type schema inside tr. It returns an error that wraps
+// domain.ErrConflict if the epoch differs, or domain.ErrInvalidArgument if
+// the node type does not exist.
 func checkMutationSchema(ctx context.Context, tr fdb.Transaction, plan node.MutationPlan) (node.Schema, error) {
 	empty := node.Schema{OrgID: plan.OrgID, Types: nil, Definitions: nil}
 	epoch, err := readMetadataEpoch(ctx, tr, plan.OrgID)
@@ -140,9 +149,10 @@ func checkMutationSchema(ctx context.Context, tr fdb.Transaction, plan node.Muta
 }
 
 // writeMutation writes the records, property indexes, reference claims,
-// relationships, idempotency record, and search work for result inside tr.
-// It records the node change and each relationship change in changes and
-// returns the node record bytes that it wrote.
+// relationships, and any idempotency record for result inside tr. When
+// search work is enabled, it also schedules search work. It records node and
+// relationship changes in changes and returns the node record bytes that it
+// wrote.
 func (s *NodeStore) writeMutation(
 	ctx context.Context, tr fdb.Transaction, plan node.MutationPlan, source mutationSource, result *node.Node,
 	schema node.Schema, relationshipChanges []node.RelationshipChanges, changes *mutationAudit,

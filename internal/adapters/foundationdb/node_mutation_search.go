@@ -8,11 +8,11 @@ import (
 )
 
 // mutationSearchChange returns searchChangeAccess when result preserves the
-// stored source's name, every changed property has a definition with a
-// search declaration that excludes the property from search text, and schema
-// accepts each changed value in both the stored and the new properties. It
-// returns searchChangeContent for a new node and in every other case. Only
-// content work recomputes the property warnings of a node.
+// stored name, every definition of each changed property excludes it from
+// search text, and schema accepts the old and new changed values. It
+// requires a search declaration for each changed property. It returns
+// searchChangeContent for a new node and in every other case. Only content
+// work recomputes the node's property warnings.
 func mutationSearchChange(source mutationSource, result *node.Node, schema node.Schema) searchChange {
 	if !source.Exists || source.Node.Name != result.Name {
 		return searchChangeContent
@@ -47,8 +47,8 @@ func changedPropertyNames(source, result map[string]json.RawMessage) []string {
 	return changed
 }
 
-// rejectsProperty reports whether schema rejects the value in props of one of
-// names for node type typeKey, or cannot interpret those values.
+// rejectsProperty reports whether schema rejects the value in props of one
+// of names for node type typeKey, or cannot interpret those values.
 func rejectsProperty(schema node.Schema, typeKey string, names []string, props map[string]json.RawMessage) bool {
 	values := make(map[string]json.RawMessage, len(names))
 	for _, name := range names {

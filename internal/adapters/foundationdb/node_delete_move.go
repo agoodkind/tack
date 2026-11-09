@@ -16,14 +16,14 @@ import (
 // parent.
 const parentIDProperty = "parent_id"
 
-// readRootParent reads the child_of edges of rootID inside tr and returns the
-// hierarchy parent that node.HierarchyParent derives from those edges.
-// readRootParent returns [uuid.Nil] when rootID does not have a child_of edge,
-// when rootID has more child_of edges than one page reads, or when the parent
-// is not a node of orgID. readRootParent returns an error that matches
-// node.ErrNoHierarchyParent when the edges target more than one distinct
-// node. The subtree delete does not start when readRootParent returns that
-// error.
+// readRootParent reads the child_of edges of rootID inside tr and returns
+// the hierarchy parent that node.HierarchyParent derives from those edges.
+// readRootParent returns [uuid.Nil] when rootID does not have a child_of
+// edge, when rootID has more child_of edges than one page reads, or when the
+// parent is not a node of orgID. readRootParent returns an error that
+// matches node.ErrNoHierarchyParent when the edges target more than one
+// distinct node. The subtree delete does not start when readRootParent
+// returns that error.
 func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.UUID) (uuid.UUID, error) {
 	edges, err := readDeleteEdges(ctx, tr, orgID, rootID, node.RelChildOf, false)
 	if err != nil || len(edges) == 0 || len(edges) > maxDeleteEdgePage {
@@ -44,18 +44,18 @@ func readRootParent(ctx context.Context, tr fdb.Transaction, orgID, rootID uuid.
 	return parentID, nil
 }
 
-// moveChild moves child, a direct child of the deleted root, to the root's
-// parent when node.LivesUnder places the child's type under the parent's
-// type. It calls the write fence for the child. The move replaces every
-// child_of edge of the child with one child_of edge to the parent, sets the
-// child's parent_id to the parent, moves the parent_id index entry, schedules
-// the search work of a parent change, and records the old and new values of
-// the node and each changed child_of edge in changes.
+// moveChild moves a direct child of the deleted root to the root's parent
+// when node.LivesUnder permits the child's type under the parent's type. It
+// calls the child's write fence and replaces the child's child_of edges with
+// one edge to the parent. It sets parent_id and replaces the parent_id index
+// entry when the old entry exists. When search work is enabled, it schedules
+// the content and relationship access work for the change. It records old
+// and new values for the node and each changed edge in changes.
 //
-// After replacing the child_of edges, moveChild calls checkStrictRecord on
-// the moved child inside the same transaction. If strict validation is active
-// and the moved record is invalid, moveChild returns the refusal error, and
-// the step does not commit. It returns true when it moves the child.
+// After replacing the edges, moveChild calls checkStrictRecord on the child
+// in the same transaction. If strict validation is active and rejects the
+// record, moveChild returns the refusal error and the step does not commit.
+// It returns true when it moves the child.
 func (s *NodeDeleteStore) moveChild(
 	ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, child hierarchyNode,
 	kinds map[string]*node.NodeType, changes *mutationAudit,
@@ -116,8 +116,8 @@ func (s *NodeDeleteStore) moveChild(
 	return true, nil
 }
 
-// parentEdgeChanges removes every child_of edge in edges and adds one
-// child_of edge from childID to the job's root parent.
+// parentEdgeChanges returns changes that remove every child_of edge in edges
+// and add one child_of edge from childID to the job's root parent.
 func parentEdgeChanges(job *node.SubtreeDeleteJob, childID uuid.UUID, edges []deleteEdge, now time.Time) []node.RelationshipChanges {
 	removed := make([]*node.Relationship, 0, len(edges))
 	for _, edge := range edges {
@@ -133,10 +133,10 @@ func parentEdgeChanges(job *node.SubtreeDeleteJob, childID uuid.UUID, edges []de
 	return []node.RelationshipChanges{{Add: []*node.Relationship{added}, Remove: removed}}
 }
 
-// readNodeAndView reads and decodes the node and view records of target.
-// It also returns the encoded node record. If the node record does not exist,
-// it returns nil for both records and the bytes. If only the view record does
-// not exist, it returns nil for the view.
+// readNodeAndView reads and decodes the node and view records of target. It
+// also returns the encoded node record. If the node record does not exist,
+// it returns nil for both records and the bytes. If only the view record
+// does not exist, it returns nil for the view.
 func readNodeAndView(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, target hierarchyNode) (*node.Node, *node.NodeView, []byte, error) {
 	nodeFuture := tr.Get(fdb.Key(nodeInstanceKey(orgID, target.TypeKey, target.ID)))
 	viewFuture := tr.Get(fdb.Key(nodeViewKey(orgID, target.TypeKey, target.ID)))
@@ -165,8 +165,9 @@ func readNodeAndView(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, t
 	return &current, &view, encodedNode, nil
 }
 
-// moveParentIndexEntry replaces the parent_id index entry of current when the
-// old value has one. A type without an indexed parent_id has no entry.
+// moveParentIndexEntry replaces the parent_id index entry of current when
+// the old entry exists. It does not create an entry for a type without an
+// indexed parent_id.
 func moveParentIndexEntry(ctx context.Context, tr fdb.Transaction, current *node.Node, oldValue json.RawMessage) error {
 	if len(oldValue) == 0 {
 		return nil
@@ -185,8 +186,8 @@ func moveParentIndexEntry(ctx context.Context, tr fdb.Transaction, current *node
 	return nil
 }
 
-// setProperty returns props with name set to value. A nil map becomes a new
-// map.
+// setProperty sets name to value in props and returns the map. It creates a
+// map when props is nil.
 func setProperty(props map[string]json.RawMessage, name string, value json.RawMessage) map[string]json.RawMessage {
 	if props == nil {
 		props = make(map[string]json.RawMessage, 1)

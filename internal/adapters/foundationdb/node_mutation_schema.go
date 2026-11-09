@@ -9,8 +9,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// readSchemaSnapshot reads the metadata epoch, property definitions, and node
-// types for orgID inside tr.
+// readSchemaSnapshot reads the metadata epoch, property definitions, and
+// node types for orgID inside tr.
 func readSchemaSnapshot(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID) (node.SchemaSnapshot, error) {
 	empty := node.SchemaSnapshot{Schema: node.Schema{OrgID: orgID, Types: nil, Definitions: nil}, MetadataEpoch: 0}
 	epoch, err := readMetadataEpoch(ctx, tr, orgID)

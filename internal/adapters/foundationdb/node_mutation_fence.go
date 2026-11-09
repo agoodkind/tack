@@ -7,10 +7,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// mutationFence is the write fence hook for the strict validation layer.
-// Each product write transaction attempt calls the fence once for each
-// written node before any write. The fence reports whether strict
-// validation is active.
+// mutationFence checks whether strict validation is active for a product
+// write. Each product write transaction attempt must call the fence once for
+// each written node before writing.
 type mutationFence func(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) (bool, error)
 
 // fenceAttempt calls the write fence of s for nodeID inside tr. It returns

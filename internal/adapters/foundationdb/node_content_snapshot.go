@@ -12,7 +12,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// nodeContentSnapshot stores every value one page read uses. One
+// nodeContentSnapshot stores every value that one page read uses. One
 // FoundationDB transaction reads the values with point reads and bounded
 // index reads. definitions contains only definitions that match the node's
 // property names. nodeType is nil when the organization does not define the

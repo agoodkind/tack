@@ -10,12 +10,16 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// DeleteNode deletes exactly one node and its relationships in one transaction.
+// DeleteNode deletes exactly one node and its relationships in one
+// transaction.
+//
 // Each attempt rereads the source, expected graph records, and relationships
-// from and to the node. It returns an error that wraps
-// domain.ErrFailedPrecondition if the node has a hierarchy child or more than
-// MutationEdgeLimit relationships in one direction. It returns an error that
-// wraps domain.ErrConflict if a relationship differs from the graph expectation.
+// from and to the node. The stored graph can prevent deletion:
+//
+//  - A hierarchy child or more than MutationEdgeLimit relationships in one
+//    direction produces an error that wraps domain.ErrFailedPrecondition.
+//  - A relationship that differs from the graph expectation produces an
+//    error that wraps domain.ErrConflict.
 func (s *NodeStore) DeleteNode(ctx context.Context, plan node.DeletionPlan) (receipt node.MutationReceipt, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.delete_node")(&err)
 	changes, err := beginMutationAudit(ctx, plan.OrgID)
@@ -88,9 +92,9 @@ func (s *NodeStore) deleteNodeAttempt(ctx context.Context, tr fdb.Transaction, p
 	return none, nil
 }
 
-// refuseHierarchyChild returns an error that wraps domain.ErrFailedPrecondition
-// if the source of a child_of edge in incoming has the node to delete as its
-// hierarchy parent.
+// refuseHierarchyChild returns an error that wraps
+// domain.ErrFailedPrecondition if the source of a child_of edge in incoming
+// has the node to delete as its hierarchy parent.
 func refuseHierarchyChild(ctx context.Context, tr fdb.Transaction, plan node.DeletionPlan, incoming []node.RelationshipSnapshot) error {
 	sourceIDs := make([]uuid.UUID, 0, len(incoming))
 	for _, edge := range incoming {
@@ -131,8 +135,8 @@ func outgoingMatches(expected []node.RelationshipExpectation, stored []node.Rela
 	return true
 }
 
-// incomingMatches reports whether expected lists exactly the source, relation
-// type, and digest of each edge in stored.
+// incomingMatches reports whether expected lists exactly the source,
+// relation type, and digest of each edge in stored.
 func incomingMatches(expected []node.IncomingRelationshipExpectation, stored []node.RelationshipSnapshot) bool {
 	if len(expected) != len(stored) {
 		return false

@@ -23,11 +23,11 @@ const (
 )
 
 // TestNodeIntegrityStrictActivationConflictsWithInFlightMutation calls
-// FenceNodeMutation in a mutation transaction while strict validation is
-// inactive. Activation commits before the mutation transaction attempts to
-// commit. The test checks that the mutation commit fails with a conflict and
-// that the retried transaction reads the activation record. It also checks
-// that the retried commit increments the write fence bucket epoch exactly once.
+// FenceNodeMutation while strict validation is inactive. It commits
+// activation before attempting the mutation commit and checks that the
+// mutation commit fails with a conflict. It checks that the retry reads the
+// activation record and increments the write fence bucket epoch exactly
+// once.
 func TestNodeIntegrityStrictActivationConflictsWithInFlightMutation(t *testing.T) {
 	database, err := fdbadapter.Open(testenv.FoundationDB(t), strictTestTransactionTimeout)
 	if err != nil {

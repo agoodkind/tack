@@ -8,10 +8,12 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// advanceMutationCheckpoint advances the repair checkpoint of write inside tr
-// when write is not nil. A completed checkpoint of an applied mutation
-// records the primary digest of encoded as its result digest. A deletion
-// passes a nil encoded and leaves the result digest empty.
+// advanceMutationCheckpoint advances the repair checkpoint of write inside
+// tr when write is not nil. For a completed mutation with nonnil encoded
+// bytes, it sets the result digest to the primary digest of encoded. A
+// deletion passes nil for encoded, and this function leaves the result
+// digest from write.Next unchanged. The repair deletion caller starts with
+// an empty result digest.
 func advanceMutationCheckpoint(ctx context.Context, tr fdb.Transaction, write *node.CheckpointWrite, encoded []byte) error {
 	if write == nil {
 		return nil

@@ -49,10 +49,11 @@ func checkGraphRecords(ctx context.Context, tr fdb.Transaction, orgID, nodeID uu
 }
 
 // checkParentChain follows parent_id from parentID through the records that
-// checkGraphRecords verified. It returns an error that wraps domain.ErrConflict
-// if an ancestor exists in tr but does not appear in records. It stops at a
-// node without parent_id or a missing node. It returns an error that wraps
-// domain.ErrInvalidArgument if the chain includes nodeID or repeats a node.
+// checkGraphRecords verified. It returns an error that wraps
+// domain.ErrConflict if an existing ancestor does not appear in records. It
+// stops at a node without parent_id or a missing ancestor beyond parentID.
+// It returns an error that wraps domain.ErrInvalidArgument if parentID does
+// not exist, the chain includes nodeID, or the chain repeats a node.
 func checkParentChain(ctx context.Context, tr fdb.Transaction, orgID, nodeID, parentID uuid.UUID, records map[uuid.UUID]mutationSource) error {
 	visited := map[uuid.UUID]bool{}
 	for currentID := parentID; currentID != uuid.Nil; {
@@ -109,8 +110,8 @@ func checkMoveScope(ctx context.Context, plan node.MutationPlan, source mutation
 	return mutationRefusal(ctx, plan.NodeID, "the parent chain of "+parentID.String()+" does not contain scope "+scopeID.String(), domain.ErrInvalidArgument)
 }
 
-// mutationRefusal logs a refused mutation of nodeID with reason and returns an
-// error that wraps sentinel.
+// mutationRefusal logs a refused mutation of nodeID with reason and returns
+// an error that wraps sentinel.
 func mutationRefusal(ctx context.Context, nodeID uuid.UUID, reason string, sentinel error) error {
 	wrapped := fmt.Errorf("mutate node %s: %s: %w", nodeID, reason, sentinel)
 	slog.WarnContext(ctx, "node.mutation_refused", slog.String("err", wrapped.Error()), slog.String("node_id", nodeID.String()))

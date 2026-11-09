@@ -11,9 +11,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// mutationSource represents the primary record of one node that a transaction
-// read. Exists is false if the resolution record in the organization or the
-// primary record does not exist.
+// mutationSource represents the primary record of one node that a
+// transaction read. Exists is false if the resolution record in the
+// organization or the primary record does not exist.
 type mutationSource struct {
 	Exists   bool
 	TypeKey  string
@@ -23,6 +23,14 @@ type mutationSource struct {
 
 // ReadMutationSnapshot reads the node, its relationships, and the schema for
 // orgID in one transaction.
+//
+// It returns the node snapshot and schema snapshot from that transaction.
+// The snapshots include these records:
+//
+//  - The node snapshot includes the primary record and incoming and outgoing
+//    relationships.
+//  - The schema snapshot includes the metadata epoch, property definitions,
+//    and node types.
 func (s *NodeStore) ReadMutationSnapshot(ctx context.Context, orgID, nodeID uuid.UUID) (snapshot node.MutationSnapshot, schema node.SchemaSnapshot, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.read_mutation_snapshot")(&err)
 	err = runNodeReadTransaction(ctx, s.db, "read mutation snapshot of node "+nodeID.String(), func(tr fdb.Transaction) error {
@@ -63,9 +71,9 @@ func readNodeSnapshot(ctx context.Context, tr fdb.Transaction, orgID, nodeID uui
 	return snapshot, nil
 }
 
-// storedUUID decodes raw as a JSON string containing a UUID. storedUUID returns
-// [uuid.Nil] when raw is absent, is not a JSON string, or does not contain a
-// UUID.
+// storedUUID decodes raw as a JSON string containing a UUID. storedUUID
+// returns [uuid.Nil] when raw is absent, is not a JSON string, or does not
+// contain a UUID.
 func storedUUID(raw json.RawMessage) uuid.UUID {
 	var text string
 	if json.Unmarshal(raw, &text) != nil {
@@ -78,7 +86,8 @@ func storedUUID(raw json.RawMessage) uuid.UUID {
 	return parsed
 }
 
-// absentNode returns a zero node when the snapshot lacks a primary record.
+// absentNode returns a node with zero values for a snapshot that does not
+// contain a primary record.
 func absentNode() node.Node {
 	return node.Node{
 		ID: uuid.Nil, OrgID: uuid.Nil, NodeType: "", Name: "", Props: nil,
@@ -86,8 +95,8 @@ func absentNode() node.Node {
 	}
 }
 
-// readMutationSource reads the resolution record and primary record of nodeID
-// inside tr.
+// readMutationSource reads the resolution record and primary record of
+// nodeID inside tr.
 func readMutationSource(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) (mutationSource, error) {
 	absent := mutationSource{Exists: false, TypeKey: "", Encoding: nil, Node: absentNode()}
 	resolved, err := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()

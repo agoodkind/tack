@@ -14,11 +14,18 @@ import (
 )
 
 // Delete removes a node and its indexes and relationships in one
-// transaction. When search work is enabled, the same transaction also
-// schedules retirement of the node's pages. It records each node at the
-// other end of a removed relationship with one blind write and no search
-// read, and it schedules one access work item for the deleted node. That
-// work item schedules access work for at most 100 recorded nodes per slice.
+// transaction.
+//
+// When search work is enabled, the transaction schedules retirement of the
+// node's pages and records each other node from a removed relationship. It
+// uses one blind write per recorded node without reading that node's search
+// state. The access work follows these conditions:
+//
+//  - It skips nil IDs and the deleted node's ID.
+//  - It schedules one access work item for the deleted node when it records
+//    at least one other node.
+//  - That item schedules access work for at most 100 recorded nodes per
+//    slice.
 func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.delete")(&err)
 	changes, err := beginMutationAudit(ctx, orgID)
@@ -52,10 +59,12 @@ func (s *NodeStore) Delete(ctx context.Context, orgID, nodeID uuid.UUID) (err er
 }
 
 // clearNode clears the records, indexes, references, and relationships of
-// current inside tr. When search work is enabled, it also schedules the
-// retirement of the node's pages and access work for each node at the other
-// end of a cleared relationship. It reads the stored node record and each
-// stored relationship value inside tr and records each as removed in changes.
+// current inside tr. When search work is enabled, it schedules retirement of
+// the node's pages and access work for the recorded nodes at the other ends
+// of removed relationships. It reads the stored node record and records its
+// removal in changes. clearSourceRelationships and clearTargetRelationships
+// read stored relationship values inside tr and record removals for
+// relationships with decodable keys.
 func (s *NodeStore) clearNode(ctx context.Context, tr fdb.Transaction, current *node.Node, changes *mutationAudit) error {
 	orgID, nodeID := current.OrgID, current.ID
 	encoded, err := tr.Get(fdb.Key(nodeInstanceKey(orgID, current.NodeType, nodeID))).Get()
@@ -94,9 +103,10 @@ func (s *NodeStore) clearNode(ctx context.Context, tr fdb.Transaction, current *
 	return clearReferenceKeys(tr, orgID, nodeID)
 }
 
-// clearSourceRelationships clears every relationship from nodeID, records
-// each stored value as removed in changes, and returns the target of each
-// cleared relationship.
+// clearSourceRelationships clears every relationship from nodeID. For each
+// key with a valid tuple and target UUID, it clears the reverse key, records
+// the stored value as removed in changes, and returns the target. It skips
+// those actions for malformed keys before clearing the entire forward range.
 func clearSourceRelationships(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID, changes *mutationAudit) ([]uuid.UUID, error) {
 	rangeValue, err := fdb.PrefixRange(relationshipPrefixBySource(orgID, nodeID, ""))
 	if err != nil {
@@ -127,9 +137,11 @@ func clearSourceRelationships(ctx context.Context, tr fdb.Transaction, orgID, no
 	return targets, nil
 }
 
-// clearTargetRelationships clears every relationship to nodeID, records each
-// stored value as removed in changes, and returns the source of each cleared
-// relationship.
+// clearTargetRelationships clears every reverse relationship key to nodeID.
+// For each key with a valid tuple and source UUID, it clears the forward
+// key, records its stored value as removed in changes, and returns the
+// source. It skips those actions for malformed keys before clearing the
+// entire reverse range.
 func clearTargetRelationships(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID, changes *mutationAudit) ([]uuid.UUID, error) {
 	rangeValue, err := fdb.PrefixRange(relationshipReversePrefixByTarget(orgID, nodeID, ""))
 	if err != nil {

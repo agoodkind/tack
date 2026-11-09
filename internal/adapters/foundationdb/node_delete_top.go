@@ -9,9 +9,9 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// deleteTop deletes the last node on job.Stack and removes it from the stack.
-// It records deletions of stored nodes and relationships in changes. When the
-// node record does not exist, deleteTop still deletes the
+// deleteTop deletes the last node on job.Stack and removes it from the
+// stack. It records deletions of stored nodes and relationships in changes.
+// When the node record does not exist, deleteTop still deletes the
 // resolution record, the edges, and the references of the node.
 func (s *NodeDeleteStore) deleteTop(ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, top hierarchyNode, changes *mutationAudit) error {
 	encoded, err := tr.Get(fdb.Key(nodeInstanceKey(job.OrgID, top.TypeKey, top.ID))).Get()

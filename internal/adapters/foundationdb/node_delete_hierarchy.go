@@ -9,7 +9,7 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// hierarchyNode is one node of a subtree delete, with its type.
+// hierarchyNode represents one node and its type during a subtree delete.
 type hierarchyNode struct {
 	ID      uuid.UUID
 	TypeKey string
@@ -17,7 +17,8 @@ type hierarchyNode struct {
 	Found   bool
 }
 
-// pendingResolve is one resolution read issued before any read is awaited.
+// pendingResolve stores one resolution read that readHierarchyNodes starts
+// before waiting for any result.
 type pendingResolve struct {
 	nodeID uuid.UUID
 	future fdb.FutureByteSlice
@@ -61,12 +62,13 @@ func readHierarchyNodes(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID
 	return nodes, nil
 }
 
-// hasHierarchyParent reads the child_of edges of source inside tr and reports
-// whether [node.HierarchyParent] identifies parentID as the hierarchy parent
-// of source. The hasHierarchyParent function returns an error when the edge
-// read fails or node.HierarchyParent rejects the stored edges. Every error
-// from node.HierarchyParent matches [node.ErrNoHierarchyParent]. The subtree
-// delete step fails on either error without deleting or moving a node.
+// hasHierarchyParent reads the child_of edges of source inside tr and
+// reports whether [node.HierarchyParent] identifies parentID as the
+// hierarchy parent of source. The hasHierarchyParent function returns an
+// error when the edge read fails or node.HierarchyParent rejects the stored
+// edges. Every error from node.HierarchyParent matches
+// [node.ErrNoHierarchyParent]. The subtree delete step fails on either error
+// without deleting or moving a node.
 func hasHierarchyParent(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, source hierarchyNode, parentID uuid.UUID) (bool, error) {
 	edges, err := readDeleteEdges(ctx, tr, orgID, source.ID, node.RelChildOf, false)
 	if err != nil {

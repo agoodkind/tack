@@ -63,11 +63,11 @@ func mutationResult(plan node.MutationPlan, source mutationSource, now time.Time
 	return result
 }
 
-// childOfChanges sets parent_id on result to the parent from plan and returns
-// the child_of changes that leave exactly one edge to that parent. It returns
-// an error that wraps domain.ErrConflict if a removed edge does not match a
-// digest in plan.Graph.Relationships. If plan does not specify Parent, it
-// preserves the stored parent and edges.
+// childOfChanges sets parent_id on result to the parent from plan and
+// returns the child_of changes that retain exactly one edge to that parent.
+// It returns an error that wraps domain.ErrConflict if a removed edge does
+// not match a digest in plan.Graph.Relationships. If plan does not specify
+// Parent, it preserves the stored parent and edges.
 func childOfChanges(ctx context.Context, tr fdb.Transaction, plan node.MutationPlan, source mutationSource, result *node.Node) (node.RelationshipChanges, error) {
 	changes := node.RelationshipChanges{Add: nil, Remove: nil}
 	if plan.Parent == nil {
@@ -116,8 +116,9 @@ func expectsRelationship(expected []node.RelationshipExpectation, edge node.Rela
 	return false
 }
 
-// planRelationshipChanges returns the relationship changes from plan and sets
-// the organization and source of each added relationship if they are empty.
+// planRelationshipChanges returns the relationship changes from plan and
+// sets the organization and source of each added relationship if they are
+// empty.
 func planRelationshipChanges(plan node.MutationPlan) node.RelationshipChanges {
 	added := make([]*node.Relationship, 0, len(plan.Relationships.Add))
 	for _, relationship := range plan.Relationships.Add {

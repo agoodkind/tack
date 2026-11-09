@@ -9,11 +9,12 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// readCreateIdempotency reads the idempotency record for plan inside tr. It
-// returns the node receipt if the fingerprint matches and the node exists.
-// It returns an error that wraps domain.ErrConflict if the fingerprint differs
-// or the node does not exist. It returns nil if plan does not specify an
-// idempotency record or the key does not have a record.
+// readCreateIdempotency reads the idempotency record for plan inside tr. If
+// both fingerprints are nonempty and differ, it returns an error that wraps
+// domain.ErrConflict. Otherwise it returns the recorded node's receipt when
+// that node exists, or an error that wraps domain.ErrConflict when it does
+// not. It returns nil when plan does not specify an idempotency record or
+// the key does not have a record.
 func readCreateIdempotency(ctx context.Context, tr fdb.Transaction, plan node.MutationPlan) (*node.MutationReceipt, error) {
 	if plan.Idempotency == nil {
 		return nil, nil
@@ -44,7 +45,8 @@ func readCreateIdempotency(ctx context.Context, tr fdb.Transaction, plan node.Mu
 	}, nil
 }
 
-// writeCreateIdempotencyRecord stores the idempotency record for plan inside tr.
+// writeCreateIdempotencyRecord stores the idempotency record for plan inside
+// tr.
 func writeCreateIdempotencyRecord(ctx context.Context, tr fdb.Transaction, plan node.MutationPlan) error {
 	if plan.Idempotency == nil {
 		return nil

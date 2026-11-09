@@ -12,8 +12,9 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// maxDeleteEdgePage bounds the edges of one node that one subtree delete
-// step reads in each direction.
+// maxDeleteEdgePage limits the edges that one subtree delete step processes
+// per node in each direction. readDeleteEdges reads one extra edge to detect
+// a larger set.
 const maxDeleteEdgePage = maxRelationshipPage
 
 // deleteEdge is one relationship of a node in a subtree delete.
@@ -57,7 +58,7 @@ func readDeleteEdges(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid
 	return edges, nil
 }
 
-// decodeDeleteEdge returns the relation type and the other end of one
+// decodeDeleteEdge returns the relation type and counterpart UUID from one
 // forward or reverse relationship key.
 func decodeDeleteEdge(ctx context.Context, key fdb.Key) (string, uuid.UUID, error) {
 	values, err := tuple.Unpack(stripPrefix(key))
@@ -79,8 +80,9 @@ func decodeDeleteEdge(ctx context.Context, key fdb.Key) (string, uuid.UUID, erro
 }
 
 // clearDeleteEdges clears the forward and reverse key of every edge inside
-// tr and records each stored relationship deletion in changes. When search work
-// is enabled, it schedules access work for both ends of every cleared edge.
+// tr and records each stored relationship deletion in changes. When search
+// work is enabled, it schedules access work for both ends of every cleared
+// edge.
 func (s *NodeDeleteStore) clearDeleteEdges(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID, edges []deleteEdge, changes *mutationAudit) error {
 	removed := make([]*node.Relationship, 0, len(edges))
 	for _, edge := range edges {
