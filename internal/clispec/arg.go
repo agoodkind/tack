@@ -8,7 +8,12 @@ type Arg[I Input] struct {
 	bind        func(*I, string)
 }
 
-// StringArg declares a required positional string argument.
+// StringArg defines a required positional string argument.
+//
+// The set function copies the parsed value into the operation input.
+//
+//   - name supplies the usage placeholder.
+//   - description supplies the argument help.
 func StringArg[I Input](name, description string, set func(*I, string)) Arg[I] {
 	return Arg[I]{Name: name, Description: description, bind: set}
 }

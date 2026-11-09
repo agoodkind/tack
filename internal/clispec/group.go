@@ -2,7 +2,7 @@ package clispec
 
 import "github.com/spf13/cobra"
 
-// newGroupCommand builds a parent whose bare invocation prints help.
+// newGroupCommand creates a parent command that prints help when run alone.
 func newGroupCommand(g *Group) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   g.Use,

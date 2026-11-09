@@ -20,16 +20,19 @@ import (
 type ExternalRun func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error)
 
 // RunAuditedExternal records an external operator command with format 2
-// events. When execute is true, it creates a new operation ID and saves the
-// intent before calling run. The intent stores the target and safe input
-// that spec selects from input. The resolved principal identifies the actor,
-// and Extra stores any accountable operator. When execute is false,
-// RunAuditedExternal prints the dry-run preamble without calling run.
+// events. The intent stores the target and safe input that spec selects.
+// The resolved principal identifies the actor, and Extra records any
+// accountable operator.
 //
-// When outbox does not save the intent of a spec that creates the audit
-// infrastructure, RunAuditedExternal checks the infrastructure with probe
-// and can run the command with its events in memory. It writes those events
-// to outbox after the command runs.
+// Execution creates a new operation ID and saves intent before calling run.
+// A dry run prints the preamble without calling run.
+//
+//   - The infrastructure fallback requires CreatesAuditInfrastructure and
+//     an intent write failure. After a successful probe, it runs when the
+//     table or login is missing or the intent error reports an authentication
+//     failure. The command records its events in memory during the fallback.
+//   - After the fallback runs the command, it writes those events to outbox
+//     in order.
 func RunAuditedExternal(
 	ctx context.Context,
 	output io.Writer,
@@ -84,16 +87,24 @@ func RunAuditedExternal(
 	return nil
 }
 
-// AttachExternal sets audit metadata and RunE on a handwritten Cobra command
-// by calling AttachExternalPreview with a nil preview.
+// AttachExternal sets audit metadata and RunE on a handwritten Cobra command.
+//
+// It calls [AttachExternalPreview] without a preview callback.
+//
+//   - RunE encodes input before calling [RunAuditedExternal].
+//   - A dry run prints the preamble without calling run.
 func AttachExternal(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func() (json.RawMessage, error), run ExternalRun) {
 	AttachExternalPreview(cmd, f, spec, input, run, nil)
 }
 
 // AttachExternalPreview sets audit metadata and RunE on a handwritten Cobra
-// command. RunE encodes input and calls RunAuditedExternal. When the operator
-// omits --execute and RunAuditedExternal succeeds, RunE calls preview if
-// preview is not nil.
+// command. RunE encodes input and calls [RunAuditedExternal].
+//
+// When the operator omits --execute, RunE calls a non-nil preview after
+// RunAuditedExternal succeeds.
+//
+//   - --execute selects execution and skips preview.
+//   - An input encoding error prevents the audit gate and preview.
 func AttachExternalPreview(
 	cmd *cobra.Command,
 	f *cli.Factory,

@@ -117,10 +117,9 @@ func TestRunAuditedReadWriteFailureNeverRuns(t *testing.T) {
 	}
 }
 
-// TestRunAuditedNilOutboxNeverRuns pins the wiring, not the logic. Nothing in
-// the gate itself populates the outbox; a caller has to hand one in. If that
-// wiring is ever dropped, every audited command aborts at runtime, and the
-// only thing standing between that regression and a release is this test.
+// TestRunAuditedNilOutboxNeverRuns checks that runAudited returns an outbox
+// error without calling the callback when the caller supplies nil.
+// The caller must supply the outbox; the gate does not create it.
 func TestRunAuditedNilOutboxNeverRuns(t *testing.T) {
 	for _, spec := range []audit.Spec{
 		{Verb: "ops.test", Mutates: true},

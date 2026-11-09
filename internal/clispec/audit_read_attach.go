@@ -11,11 +11,14 @@ import (
 	"goodkind.io/tack/internal/cli"
 )
 
-// AttachRead sets audit metadata and RunE on a handwritten Cobra command that
-// reads state. When the operator passes --execute, RunE encodes input, calls
-// RunAuditedRead with read, and writes the returned payload as text. Without
-// --execute, RunE validates the target and operator and prints the dry-run
-// preamble without calling read.
+// AttachRead sets audit metadata and RunE on a handwritten Cobra command
+// that reads state. RunE encodes input before selecting the execution mode.
+//
+// With --execute, RunE calls [RunAuditedRead] and writes its payload as text.
+//
+//   - Without --execute, RunE validates the target and operator and prints
+//     the dry-run preamble without calling read.
+//   - An input encoding error prevents either mode.
 func AttachRead(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func() (json.RawMessage, error), read OperatorRead) {
 	if cmd.Annotations == nil {
 		cmd.Annotations = make(map[string]string)

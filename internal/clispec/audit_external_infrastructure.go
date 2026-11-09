@@ -9,14 +9,19 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// deferredOutbox keeps the events of an external command in memory while the
-// command creates the audit infrastructure that stores them. Only the
-// first-time setup exception uses it.
+// deferredOutbox stores events in memory while an external command creates
+// their audit storage. Only the fallback for creating audit infrastructure
+// uses it.
 type deferredOutbox struct {
 	events []audit.Event
 }
 
-// WriteOutbox appends event to the deferred events.
+// WriteOutbox appends event to the deferred events in memory.
+//
+// The caller that creates audit infrastructure writes these events to
+// persistent storage after the command runs.
+//
+//   - Events retain their append order.
 func (o *deferredOutbox) WriteOutbox(_ context.Context, event audit.Event) error {
 	o.events = append(o.events, event)
 	return nil

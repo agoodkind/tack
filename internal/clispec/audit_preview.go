@@ -27,10 +27,16 @@ const (
 // sink. It returns the identities of the objects it read, in order.
 type Preview func(ctx context.Context, sink ResultSink) ([]audit.Target, error)
 
-// RunRecordedPreview runs preview through RunAuditedRead with spec. It keeps
-// the preview output in memory until the read lifecycle store saves the final
-// read event with the digest of that output. It then writes the output to the
-// command sink of f. If the read is not recorded, the output is not written.
+// RunRecordedPreview runs preview through [RunAuditedRead] with spec and
+// captures its output in memory. It writes that output to the command sink
+// of f after RunAuditedRead succeeds.
+//
+// The normal read lifecycle saves the final event and output digest before
+// replay. The infrastructure fallback in RunAuditedRead can succeed without
+// that evidence and still permit replay.
+//
+//   - A preview or audit error prevents replay.
+//   - Replay preserves the original writes and their order.
 func RunRecordedPreview(ctx context.Context, f *cli.Factory, spec audit.Spec, input json.RawMessage, preview Preview) error {
 	captured := &captureSink{writes: nil}
 	_, err := RunAuditedRead(ctx, f, spec, input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
@@ -46,11 +52,13 @@ func RunRecordedPreview(ctx context.Context, f *cli.Factory, spec audit.Spec, in
 	return captured.replay(ctx, NewCLISink(f))
 }
 
-// PreviewSpec returns the read definition that records the dry run of the
-// command that spec defines. The definition keeps the verb and the
-// CreatesAuditInfrastructure flag of spec. It uses the targets and safe input
-// of spec when spec declares both. Otherwise, it targets the command
-// resource tack:command/<verb> and records no input.
+// PreviewSpec returns the read definition for the dry run of spec.
+//
+// The definition preserves the verb and CreatesAuditInfrastructure flag.
+//
+//   - When spec provides both Targets and SafeInput, the preview uses both.
+//   - Otherwise, the preview targets tack:command/<verb> and does not
+//     record input.
 func PreviewSpec(spec audit.Spec) audit.Spec {
 	preview := audit.Spec{
 		Verb: spec.Verb, Reads: true, Class: audit.OperationRead,
@@ -75,7 +83,7 @@ func commandTargets(verb string) func(context.Context, json.RawMessage) ([]audit
 	}
 }
 
-// withoutInput selects no input for the audit event.
+// withoutInput does not include input in the audit event.
 func withoutInput(json.RawMessage) (json.RawMessage, error) {
 	return nil, nil
 }
@@ -85,8 +93,8 @@ type capturedWrite struct {
 	isJSON  bool
 }
 
-// captureSink keeps the writes of a preview in order until the read event
-// is saved.
+// captureSink stores preview writes in order until [RunRecordedPreview]
+// replays them after [RunAuditedRead] succeeds.
 type captureSink struct {
 	writes []capturedWrite
 }

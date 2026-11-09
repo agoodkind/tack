@@ -17,10 +17,19 @@ import (
 // bytes the command prints.
 type OperatorRead func(ctx context.Context) (audit.OperatorReadOutput, error)
 
-// RunAuditedRead gives each read a new operation ID. Ordinary reads require
-// admission and a saved final event before returning the payload. Operations
-// that set CreatesAuditInfrastructure may use the first-time setup fallback
-// after admission fails and the infrastructure probe confirms it is needed.
+// RunAuditedRead assigns a new operation ID to an operator read.
+// The normal read lifecycle admits the read and saves its final event before
+// returning the payload.
+//
+// The infrastructure fallback can return data without durable admission and
+// final evidence. This behavior does not satisfy the binding requirement to
+// admit reads durably and finalize their evidence before returning data.
+//
+//   - The fallback requires failed admission and CreatesAuditInfrastructure.
+//   - A missing outbox table or operator login permits an unrecorded read.
+//   - With an existing table and login, a false OperatorReadsExist result
+//     selects a format 0 access event instead of the complete read lifecycle.
+//   - A missing or failed probe prevents the fallback.
 func RunAuditedRead(
 	ctx context.Context,
 	f *cli.Factory,
@@ -59,8 +68,10 @@ func RunAuditedRead(
 	return readBeforeReadLifecycle(runContext, f, spec, principal, operationID, read, err)
 }
 
-// readBeforeReadLifecycle checks the audit infrastructure before running a
-// read that the read lifecycle store did not admit.
+// readBeforeReadLifecycle probes audit infrastructure after admission fails.
+// It can run an unrecorded read when the outbox table or login is missing.
+// With both present, a false OperatorReadsExist result selects a format 0
+// event before the read.
 func readBeforeReadLifecycle(
 	ctx context.Context,
 	f *cli.Factory,
@@ -98,7 +109,8 @@ func readBeforeReadLifecycle(
 	return output.Payload, nil
 }
 
-// recordFormatZeroRead saves a format 0 read event before the command reads state.
+// recordFormatZeroRead saves a format 0 read event before the command
+// reads state.
 func recordFormatZeroRead(
 	ctx context.Context,
 	f *cli.Factory,

@@ -22,9 +22,13 @@ type CheckOutcome struct {
 type ExternalCheck func(ctx context.Context, steps audit.StepRecorder) (CheckOutcome, error)
 
 // AttachExternalCheck sets audit metadata and one RunE handler on a Cobra
-// command. The handler calls RunAuditedExternal and returns the check verdict
-// after the audit gate saves the outcome. The verdict does not change the
-// audit outcome.
+// command. The handler calls [RunAuditedExternal].
+//
+// After the audit gate saves the outcome, RunE returns the check verdict.
+// The verdict does not change the audit outcome.
+//
+//   - An input encoding error prevents the check.
+//   - An audit gate error takes precedence over the check verdict.
 func AttachExternalCheck(cmd *cobra.Command, f *cli.Factory, spec audit.Spec, input func() (json.RawMessage, error), check ExternalCheck) {
 	if cmd.Annotations == nil {
 		cmd.Annotations = make(map[string]string)

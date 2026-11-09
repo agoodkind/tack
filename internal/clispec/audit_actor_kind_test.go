@@ -9,10 +9,9 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// TestRunAuditedRecordsPrincipalActorKind pins that the gate records the actor
-// kind the identity source resolved: a service principal lands as a service
-// actor, and the human sources, which leave Kind at its zero value, still land
-// as operator.
+// TestRunAuditedRecordsPrincipalActorKind checks the resolved actor kind in
+// both audit events. A service principal records a service actor. Human
+// identity sources leave Kind empty, which records an operator actor.
 func TestRunAuditedRecordsPrincipalActorKind(t *testing.T) {
 	cases := []struct {
 		name string

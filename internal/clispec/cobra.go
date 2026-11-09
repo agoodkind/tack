@@ -23,9 +23,13 @@ const AuditClassAnnotation = "audit_class"
 // GroupAnnotation marks a Cobra help-only command group.
 const GroupAnnotation = "clispec_group"
 
-// RenderCobra turns the registry into top-level cobra commands. Operations and
-// handwritten commands attach under their group, and parents are created once
-// per *Group value.
+// RenderCobra renders registry entries as top-level Cobra commands.
+//
+// It creates each parent once per *Group value and adds operations and
+// handwritten commands under their groups.
+//
+//   - Entries without a group become top-level commands.
+//   - Backfills use the backfill group under their operation's group.
 func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 	parents := map[*Group]*cobra.Command{}
 	var tops []*cobra.Command
@@ -65,9 +69,9 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 	return tops
 }
 
-// cobraCommand renders one operation. Flags come from the parameters, the
-// positional placeholders and exact count come from the arguments, and RunE
-// decodes both into a fresh input before calling the work function.
+// cobraCommand renders one operation. Parameters supply flags, and arguments
+// supply positional placeholders and the exact argument count. RunE decodes
+// both into a fresh input before calling the work function.
 func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 	var use strings.Builder
 	use.WriteString(op.terminalName())
@@ -124,6 +128,12 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 }
 
 // AttachAudit adds audit metadata and an audited RunE to a Cobra command.
+//
+// RunE applies the hangup policy and calls [RunAudited] with the factory's
+// operator identity source, deployment value, execution mode, and audit stores.
+//
+//   - AttachAudit records the audit verb and class in Cobra annotations.
+//   - The handler stops hangup notification when execution returns.
 func AttachAudit(
 	cmd *cobra.Command,
 	f *cli.Factory,
@@ -141,8 +151,8 @@ func AttachAudit(
 	}
 }
 
-// longHelp builds the --help body: the author's Long (or Short), then a
-// documented Arguments section so each placeholder is explained in place.
+// longHelp builds the --help body from Long, or Short when Long is empty.
+// It then adds an Arguments section that explains each positional placeholder.
 func (op Operation[I]) longHelp() string {
 	var b strings.Builder
 	switch {
@@ -170,8 +180,8 @@ func (op Operation[I]) longHelp() string {
 	return b.String()
 }
 
-// registerFlag registers one parameter as a flag and returns a closure that
-// copies the parsed value into the input after cobra parses the command line.
+// registerFlag registers one parameter as a flag. It returns a closure that
+// copies the parsed value into the input after Cobra parses the command line.
 func registerFlag[I Input](cmd *cobra.Command, param Param[I]) func(in *I) {
 	switch param.Kind {
 	case kindString:

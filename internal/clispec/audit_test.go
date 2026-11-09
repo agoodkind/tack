@@ -22,10 +22,9 @@ func (s auditTestSource) Resolve(context.Context) (audit.OperatorPrincipal, erro
 	return s.principal, s.err
 }
 
-// auditTestOutbox stands in for the ops_outbox table, including its primary
-// key on event id. Accepting a duplicate id here would hide the real failure:
-// the table rejects the second row, so a pair of rows sharing an id loses the
-// outcome.
+// auditTestOutbox substitutes for ops_outbox and enforces its event ID
+// primary key. Accepting duplicate IDs would conceal a failed outcome write:
+// the table rejects the second row when intent and outcome share an ID.
 type auditTestOutbox struct {
 	events      []audit.Event
 	seen        map[uuid.UUID]bool
@@ -50,7 +49,7 @@ func (o *auditTestOutbox) WriteOutbox(_ context.Context, event audit.Event) erro
 	return nil
 }
 
-// opIDOf reads the correlation id an event carries in Extra.
+// opIDOf reads the operation ID from the event's Extra field.
 func opIDOf(t *testing.T, event audit.Event) uuid.UUID {
 	t.Helper()
 	var extra operatorEventExtra
@@ -117,10 +116,10 @@ func TestRunAuditedMutationRecordsIntentThenOutcome(t *testing.T) {
 	}
 }
 
-// TestRunAuditedMutationOutcomeSurvivesOutboxKey pins that both rows actually
-// land in an outbox that enforces its primary key. Without this the pair can
-// share an event id, the second insert is rejected, and the command reports a
-// failure while the ledger keeps only a pending intent.
+// TestRunAuditedMutationOutcomeSurvivesOutboxKey checks that an outbox with
+// a primary key accepts both intent and outcome. If the rows share an event
+// ID, the second insert fails, the command reports an error, and the ledger
+// retains only the pending intent.
 func TestRunAuditedMutationOutcomeSurvivesOutboxKey(t *testing.T) {
 	outbox := &auditTestOutbox{seen: map[uuid.UUID]bool{}}
 	err := runAudited(
@@ -168,11 +167,10 @@ func TestRunAuditedMutationIntentFailureNeverRuns(t *testing.T) {
 	}
 }
 
-// TestRunAuditedAtomicIsRejectedUntilSupported pins that a command declaring
-// Atomic refuses to run rather than silently falling through to the ordinary
-// outbox path. The verification that an atomic command really did record
-// inside its own transaction lands with the first such command; until then,
-// accepting the flag would hand back a guarantee nothing enforces.
+// TestRunAuditedAtomicIsRejectedUntilSupported checks that Atomic prevents
+// execution instead of using the ordinary outbox path. Add verification of
+// recording inside the transaction with the first atomic command. Until
+// then, the gate cannot enforce the guarantee that Atomic requires.
 func TestRunAuditedAtomicIsRejectedUntilSupported(t *testing.T) {
 	runCount := 0
 	err := runAudited(
