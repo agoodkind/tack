@@ -13,23 +13,23 @@ import (
 )
 
 const (
-	// applyTimeoutSeconds is the time limit in seconds for the container exec API.
+	// applyTimeoutSeconds sets the guest command timeout in seconds.
 	applyTimeoutSeconds = 3600
 
 	// stderrTailBytes limits the number of stderr bytes in a diagnostic.
 	stderrTailBytes = 4096
 )
 
-// schemaTarget identifies the guest and install directory that one tack_schema
-// resource manages.
+// schemaTarget identifies the guest and install directory that one
+// tack_schema resource manages.
 type schemaTarget struct {
 	guest      transport.Guest
 	installDir string
 }
 
-// statusArgv returns migrate --output json for the tack-ops compose service
-// without --execute. The command uses --pull never to prevent image downloads
-// and LOG_DISABLE_STDOUT to keep log lines out of stdout.
+// statusArgv returns migrate --output json for the tack-ops Compose service
+// without --execute. The command uses --pull never to prevent image
+// downloads and LOG_DISABLE_STDOUT to keep log lines out of stdout.
 func statusArgv(target schemaTarget, operatorFlags []string) []string {
 	argv := []string{
 		"env", "-C", target.installDir,
@@ -53,7 +53,8 @@ func applyArgv(target schemaTarget, operatorFlags []string, version int64, expec
 }
 
 // runCommand runs argv in the guest and returns stdout. It adds an error
-// diagnostic if the transport fails or the command exits with a nonzero status.
+// diagnostic if the transport fails or the command exits with a nonzero
+// status.
 func (data *providerData) runCommand(
 	ctx context.Context,
 	target schemaTarget,
@@ -92,7 +93,8 @@ func (data *providerData) runCommand(
 	return result.Stdout, diags
 }
 
-// readStatus runs migrate --output json without --execute and decodes stdout.
+// readStatus runs migrate --output json without --execute and decodes
+// stdout.
 func (data *providerData) readStatus(ctx context.Context, target schemaTarget) (schemaStatus, diag.Diagnostics) {
 	var unread schemaStatus
 	argv := statusArgv(target, data.operatorFlags)

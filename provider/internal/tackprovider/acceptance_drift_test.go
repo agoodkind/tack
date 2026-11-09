@@ -90,8 +90,8 @@ func migrateStep(
 }
 
 // repeatStep returns a step that applies the same configuration again and
-// requires an empty plan before apply. OpenTofu does not call the provider to
-// change a resource when the plan is empty.
+// requires an empty plan before apply. OpenTofu does not call the provider
+// to change a resource when the plan is empty.
 func repeatStep(environment acceptanceEnvironment, version int64) resource.TestStep {
 	return resource.TestStep{
 		Config:          outputConfig,

@@ -21,7 +21,7 @@ var foundationDBPackages = []string{
 // library uses cgo.
 //
 // It treats a compiled Go file outside the package directory as evidence of
-// cgo processing.
+// cgo processing. Go stores those generated files in its build cache.
 func TestProviderDependsOnNeitherFoundationDBNorCgo(t *testing.T) {
 	loaded, err := packages.Load(&packages.Config{
 		Context:    t.Context(),

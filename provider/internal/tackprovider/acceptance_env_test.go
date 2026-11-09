@@ -36,8 +36,8 @@ const (
 // tack provider. Variables supply connection settings and the operator
 // email. The provider uses literal values for insecure and the operator
 // name. The api_token variable marks the token as sensitive. The provider
-// block reads the token from that variable; the configuration text does not
-// contain the token value.
+// block reads the token from that variable. The configuration text does
+// not contain the token value.
 const acceptanceProviderConfig = `
 terraform {
   required_providers {
@@ -126,7 +126,9 @@ func (environment acceptanceEnvironment) importID() string {
 	return fmt.Sprintf("%s/%d:%s", environment.node, environment.vmid, environment.installDir)
 }
 
-// Credential checks use this value to detect API token exposure.
+// secret returns the part of the acceptanceEnvironment API token after
+// the first equals sign. Credential checks use this value to detect API
+// token exposure.
 func (environment acceptanceEnvironment) secret() string {
 	_, secret, _ := strings.Cut(environment.token, "=")
 	return secret

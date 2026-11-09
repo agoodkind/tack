@@ -9,9 +9,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// statusDocumentPath specifies the path to the migrate --output json document
-// for a database at migration 19 with the migrations embedded in Tack commit
-// 986faf12.
+// statusDocumentPath specifies the path to the migrate --output json
+// document for a database at migration 19 with the migrations embedded in
+// Tack commit 986faf12.
 const statusDocumentPath = "testdata/migrate-status.json"
 
 type statusMigration struct {

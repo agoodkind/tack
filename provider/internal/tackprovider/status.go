@@ -15,8 +15,8 @@ import (
 // below this version.
 const guardedVersion = 19
 
-// migration represents one embedded migration file in the status document from
-// migrate --output json.
+// migration represents one embedded migration file in the status document
+// from migrate --output json.
 type migration struct {
 	Version int64  `json:"version"`
 	Name    string `json:"name"`
@@ -35,8 +35,8 @@ type statusEnvelope struct {
 	Result *schemaStatus `json:"result"`
 }
 
-// decodeStatus decodes stdout from migrate --output json and requires exactly
-// one JSON document.
+// decodeStatus decodes stdout from migrate --output json and requires
+// exactly one JSON document.
 func decodeStatus(ctx context.Context, stdout []byte) (schemaStatus, error) {
 	decoder := json.NewDecoder(bytes.NewReader(stdout))
 	var envelope statusEnvelope
@@ -63,9 +63,9 @@ func (status schemaStatus) highest() int64 {
 	return highest
 }
 
-// pendingThrough returns the available migrations above the applied version up
-// to and including target, appending them in the order of status.Available
-// without sorting them.
+// pendingThrough returns the available migrations above the applied
+// version up to and including target. It appends them in the order of
+// status.Available without sorting them.
 func (status schemaStatus) pendingThrough(target int64) []migration {
 	pending := make([]migration, 0, len(status.Available))
 	for _, available := range status.Available {

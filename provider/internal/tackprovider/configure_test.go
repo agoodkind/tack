@@ -41,10 +41,10 @@ var nodeObjectType = types.ObjectType{AttrTypes: map[string]attr.Type{
 	"node_name": types.StringType,
 }}
 
-// TestConfigureDiagnosticsOmitToken calls Configure with an endpoint without an
-// HTTP scheme and with a token that lacks the user, realm, and token ID. Each
-// call must return the expected error without the token secret. The test does
-// not require TF_ACC or a network connection.
+// TestConfigureDiagnosticsOmitToken calls Configure with an endpoint that
+// uses an unsupported scheme and with a token that lacks the user, realm,
+// and token ID. Each call must return the expected error without the token
+// secret. The test does not require TF_ACC or a network connection.
 func TestConfigureDiagnosticsOmitToken(t *testing.T) {
 	cases := []struct {
 		name     string

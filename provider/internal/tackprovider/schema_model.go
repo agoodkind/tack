@@ -51,12 +51,14 @@ func (model schemaModel) sameTarget(other schemaModel) bool {
 	return model.Node.Equal(other.Node) && model.VMID.Equal(other.VMID) && model.InstallDir.Equal(other.InstallDir)
 }
 
-// schemaID formats the resource ID and import ID as `<node>/<vmid>:<install_dir>`.
+// schemaID formats the resource ID and import ID as
+// `<node>/<vmid>:<install_dir>`.
 func schemaID(node string, vmid int64, installDir string) string {
 	return fmt.Sprintf("%s/%d:%s", node, vmid, installDir)
 }
 
-// parseSchemaID splits an import ID in the form `<node>/<vmid>:<install_dir>`.
+// parseSchemaID splits an import ID in the form
+// `<node>/<vmid>:<install_dir>`.
 func parseSchemaID(id string) (string, int64, string, error) {
 	guestPart, installDir, found := strings.Cut(id, ":")
 	if !found || installDir == "" {
@@ -107,9 +109,9 @@ func statusFromModel(ctx context.Context, model schemaModel) (schemaStatus, diag
 // modelFromStatus builds installation state from the live status using the
 // node, vmid, and install_dir values that identity supplies. It sets the
 // version attribute to version. Callers pass the configured target version
-// during planning and apply, and the live applied version during refresh. The
-// pending list contains available migrations above the applied version up to
-// and including version.
+// during planning and apply, and the live applied version during refresh.
+// The pending list contains available migrations above the applied version
+// up to and including version.
 func modelFromStatus(
 	ctx context.Context,
 	identity schemaModel,

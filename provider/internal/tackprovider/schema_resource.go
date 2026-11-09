@@ -19,8 +19,8 @@ import (
 
 var absolutePathPattern = regexp.MustCompile(`^/`)
 
-// schemaResource implements tack_schema, which manages the migration version of
-// one Tack installation's ledger database.
+// schemaResource implements tack_schema, which manages the migration
+// version of one Tack installation's ledger database.
 type schemaResource struct {
 	data *providerData
 }
@@ -130,8 +130,8 @@ func (r *schemaResource) ImportState(ctx context.Context, req resource.ImportSta
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("install_dir"), installDir)...)
 }
 
-// configured reports whether the provider configured this resource. It adds an
-// error diagnostic if the provider did not configure it.
+// configured reports whether the provider configured this resource. It
+// adds an error diagnostic if the provider did not configure it.
 func (r *schemaResource) configured(diags *diag.Diagnostics) bool {
 	if r.data != nil {
 		return true

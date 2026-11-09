@@ -5,8 +5,9 @@ BINARY := terraform-provider-tack
 CMD    := .
 VPKG   := goodkind.io/tack/provider/internal/version
 
-# A release ships the patched PostgreSQL provider from ../postgresql-overlay
-# beside the Tack provider, in one release with one tag.
+# A release ships the patched PostgreSQL provider from the
+# [PostgreSQL overlay](../postgresql-overlay) beside the Tack provider.
+# Both providers use one release and tag.
 RELEASE_BINS := terraform-provider-tack:. terraform-provider-postgresql:../postgresql-overlay
 
 GO_MK_MODULES := go-build.mk go-release.mk

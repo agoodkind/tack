@@ -12,9 +12,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/statecheck"
 )
 
-// secretAbsentFromPlan fails when the JSON plan contains the token secret outside
-// the root variables section. OpenTofu records the test's input variable values
-// in that section; the provider does not write it.
+// secretAbsentFromPlan fails when the JSON plan contains the token secret
+// outside the root variables section. OpenTofu records the test's input
+// variable values in that section. The provider does not write it.
 type secretAbsentFromPlan struct {
 	secret string
 }
@@ -36,8 +36,8 @@ func (check secretAbsentFromPlan) CheckPlan(
 	}
 }
 
-// secretAbsentFromState fails when the JSON state, including outputs, contains
-// the token secret.
+// secretAbsentFromState fails when the JSON state, including outputs,
+// contains the token secret.
 type secretAbsentFromState struct {
 	secret string
 }
@@ -57,9 +57,9 @@ func (check secretAbsentFromState) CheckState(
 	}
 }
 
-// priorAppliedVersion fails unless the prior state of tack_schema.qa in the plan
-// has applied_version equal to version. The plan refreshes before the check, and
-// its prior state contains the live applied version.
+// priorAppliedVersion fails unless the prior state of tack_schema.qa in
+// the plan has applied_version equal to version. The plan refreshes before
+// the check, and its prior state contains the live applied version.
 type priorAppliedVersion struct {
 	version int64
 }
