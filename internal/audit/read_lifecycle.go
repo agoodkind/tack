@@ -98,7 +98,7 @@ func ReadBucket(eventID uuid.UUID) uint16 {
 
 // NewReadOwner returns a random owner ID for one admission.
 //
-// The function uses uuid.New to generate the identifier independently of the
+// The function uses [uuid.New] to generate the identifier independently of the
 // event ID. The admission token stores both identifiers.
 //
 //	token.Owner = NewReadOwner()
