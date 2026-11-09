@@ -15,8 +15,8 @@ const (
 	changeLabelSet       = "Set"
 	changeLabelRemoved   = "Removed"
 	changeLabelUnchanged = "Unchanged"
-	// maxChangeValueBytes limits the text retained for each value in a change line
-	// before shortenText adds an ellipsis.
+	// maxChangeValueBytes limits the text retained for each value in a change
+	// line before shortenText adds an ellipsis.
 	maxChangeValueBytes = 40
 	nameFieldKey        = "name"
 	// emptyStringText represents an empty string as two double quotes
@@ -24,11 +24,12 @@ const (
 	emptyStringText = "`\"\"`"
 )
 
-// builtinReferenceKeys lists the built-in property keys that identify reference targets.
+// builtinReferenceKeys lists the built-in property keys that identify
+// reference targets.
 var builtinReferenceKeys = []string{"parent_id", "scope_id"}
 
-// writeChanges stores the requested fields and the node before and after a write.
-// Before is nil for a create.
+// writeChanges stores the requested fields and the node before and after a
+// write. Before is nil for a create.
 type writeChanges struct {
 	Before        *node.NodeView
 	After         *node.NodeView
@@ -38,8 +39,8 @@ type writeChanges struct {
 	targets       map[uuid.UUID]string `exhaustruct:"optional"`
 }
 
-// fieldChanges stores up to maxChangeLines fields to print and the total count
-// of requested fields.
+// fieldChanges stores up to maxChangeLines fields to print and the total
+// count of requested fields.
 type fieldChanges struct {
 	Shown []markdownField
 	Total int
@@ -60,9 +61,10 @@ func referenceKeysOf(defs []*node.PropertyDef) map[string]struct{} {
 	return keys
 }
 
-// describeFieldChanges sorts requested keys, formats only the first maxChangeLines,
-// and counts all requested keys. It reads each reference target it formats.
-// It includes the name key only on update because create already prints the name.
+// describeFieldChanges sorts requested keys, formats only the first
+// maxChangeLines, and counts all requested keys. It reads each reference
+// target it formats. It includes the name key only on update because create
+// already prints the name.
 func describeFieldChanges(rc *renderCtx, changes writeChanges) fieldChanges {
 	fieldKeys := make([]string, 0, len(changes.Props)+1)
 	if changes.Name != nil && changes.Before != nil {
@@ -101,8 +103,9 @@ func describeFieldChange(rc *renderCtx, changes writeChanges, key string) markdo
 	}
 }
 
-// storedValue reads the name or property value from view and reports its presence.
-// It treats a nil view, a missing property, empty JSON, and JSON null as absent.
+// storedValue reads the name or property value from view and reports its
+// presence. It treats a nil view, a missing property, empty JSON, and JSON
+// null as absent.
 func (changes writeChanges) storedValue(view *node.NodeView, key string) (json.RawMessage, bool) {
 	if view == nil {
 		return nil, false
@@ -117,10 +120,10 @@ func (changes writeChanges) storedValue(view *node.NodeView, key string) (json.R
 	return raw, true
 }
 
-// display prints a reference value as the target reference when the caller may
-// see the target; otherwise, it prints the raw id. It shortens long references
-// from the start to keep the target name visible.
-// It prints an empty string as two double quotes in a Markdown code span.
+// display prints a reference value as the target reference when the caller
+// may see the target. Otherwise, it prints the raw ID. It shortens long
+// references from the start to keep the target name visible. It prints an
+// empty string as two double quotes in a Markdown code span.
 func (changes writeChanges) display(rc *renderCtx, key string, raw json.RawMessage) string {
 	text := scalarOrCompactJSON(raw)
 	_, isReference := changes.ReferenceKeys[key]
@@ -139,9 +142,9 @@ func (changes writeChanges) display(rc *renderCtx, key string, raw json.RawMessa
 	return markdownCodeValue(text)
 }
 
-// referenceText reads each target at most once per confirmation.
-// It uses its own map instead of rc.cache because nodeSummaryInOrg checks
-// organization access, while rc.cache entries from other callers skip that check.
+// referenceText reads each target at most once per confirmation. It uses its
+// own map instead of rc.cache because nodeSummaryInOrg checks organization
+// access, while rc.cache entries from other callers skip that check.
 func (changes writeChanges) referenceText(rc *renderCtx, text string) string {
 	targetID, err := uuid.Parse(text)
 	if err != nil {

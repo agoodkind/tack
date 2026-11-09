@@ -8,9 +8,13 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// RegisterPrompts registers the orientation prompt. It mirrors the
-// tack://getting-started resource so callers who prefer prompts over
-// resources get the same content.
+// RegisterPrompts registers the orientation prompt.
+//
+// The prompt supports clients that use prompts rather than resources.
+// Its registration provides:
+//
+//   - The prompt uses the name tack_getting_started.
+//   - Its content matches the tack://getting-started resource.
 func RegisterPrompts(s *mcpserver.MCPServer, resolver *Resolver, nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) {
 	s.AddPrompt(
 		mcpmcp.Prompt{

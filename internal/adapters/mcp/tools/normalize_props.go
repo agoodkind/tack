@@ -17,8 +17,8 @@ func mustRawString(value string) json.RawMessage {
 	return service.MustRawString(value)
 }
 
-// normalizeCreateProps normalizes create properties and resolves the parent ID.
-// It also returns the property definitions it loaded.
+// normalizeCreateProps normalizes create properties and resolves the parent
+// ID. It also returns the property definitions it loaded.
 func normalizeCreateProps(
 	ctx context.Context,
 	b NodeTypeBinding,

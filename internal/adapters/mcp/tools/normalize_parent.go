@@ -49,13 +49,13 @@ func resolveParentReference(
 	return id, nil
 }
 
-// errParentTypeRefused reports a parent candidate with a node type that is
-// not in the parent types of the child type.
+// errParentTypeRefused indicates that a candidate's node type is not a
+// permitted parent type for the child.
 var errParentTypeRefused = errors.New("the parent node type is not a parent type of the child type")
 
-// refusedParentReference logs and returns the error for a parent_id
-// reference that does not name exactly one permitted parent of childType. It
-// wraps domain.ErrInvalidArgument.
+// refusedParentReference logs and returns an error for a parent_id
+// reference that does not identify exactly one permitted parent of
+// childType. The error wraps domain.ErrInvalidArgument.
 func refusedParentReference(ctx context.Context, childType *node.NodeType, ref string) error {
 	err := fmt.Errorf("properties.parent_id %q: %w", ref, domain.ErrInvalidArgument)
 	slog.WarnContext(ctx, "node.parent_reference_refused", slog.String("node_type", childType.TypeKey), slog.String("err", err.Error()))
@@ -96,9 +96,10 @@ func appendParentType(types []*node.NodeType, seen map[string]struct{}, parentTy
 	return append(types, parentType)
 }
 
-// verifyParentCandidate checks that id resolves in orgID, that its node type
-// is one of parentTypes, and that it belongs to scopeID. It returns
-// errParentTypeRefused for a node type outside parentTypes.
+// verifyParentCandidate checks that id resolves in orgID and has a node
+// type in parentTypes. It checks scope membership when scopeID differs
+// from uuid.Nil and id. It returns errParentTypeRefused for a node type
+// outside parentTypes.
 func verifyParentCandidate(ctx context.Context, b NodeTypeBinding, parentTypes []*node.NodeType, orgID, scopeID, id uuid.UUID) error {
 	resolve, err := b.Reader.Resolve(ctx, id)
 	if err != nil {

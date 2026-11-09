@@ -14,8 +14,16 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// RegisterReferencePropertyTools registers convenience setters for UUID-valued
-// properties that declare a reference target in PropertyDef metadata.
+// RegisterReferencePropertyTools registers setters for UUID properties
+// with reference targets in PropertyDef metadata.
+//
+// The function registers setters only for types that allow updates and
+// do not declare FeatureExcludeFromGenericTools. Each property must meet
+// these conditions:
+//
+//   - Its type is PropertyTypeUUID.
+//   - ReferenceTargetTypeKey identifies a type in the resolver's index.
+//   - PropertyAppliesTo accepts the property for the node type.
 func RegisterReferencePropertyTools(
 	s *mcpserver.MCPServer,
 	b NodeTypeBinding,
@@ -128,10 +136,10 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 			return classifyError(ctx, err), nil
 		}
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
-		// Stamped before the write, like the generic update handler, so a
-		// failed attempt still records which node it targeted. A setter is a
-		// mutation on one named node; leaving the carrier empty here would
-		// record the change against the zero uuid.
+		// Set the audit entity before the write, as the generic update handler
+		// does, to identify the target of a failed setter attempt. The setter
+		// changes one node. Without this entity, toolResultTarget uses the MCP
+		// resource target when the call does not have a separate target note.
 		audit.SetAuditEntity(ctx, audit.Entity{
 			Type:       "node",
 			NodeType:   existing.NodeType,
@@ -143,7 +151,7 @@ func referencePropertyHandler(nt *node.NodeType, def *node.PropertyDef, alias st
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		// Refuse before the write, not only in the response.
+		// Refuse an unauthorized call before the write.
 		if !isAuthorized(ctx) {
 			return permissionDenied(), nil
 		}

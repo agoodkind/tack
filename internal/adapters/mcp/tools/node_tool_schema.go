@@ -34,9 +34,10 @@ func createTool(nt *node.NodeType, slug string, route scopeRoute, epParam string
 	}
 }
 
-// nodeIDSchema is the get, update, and delete input. The entry point
-// reference is required alongside node_id so the handler always checks that
-// the node lies under a workspace the caller can name.
+// nodeIDSchema builds the get, update, and delete input. When
+// entryPointParam is nonempty, it requires the entry point reference with
+// node_id. The handlers check that the node belongs to that workspace
+// and that the caller can access it.
 func nodeIDSchema(entryPointParam string, resolver *Resolver) schema {
 	fields := []schemaField{{Name: "node_id", Type: schemaString}}
 	required := []string{"node_id"}

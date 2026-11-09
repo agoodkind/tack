@@ -90,7 +90,7 @@ func createToolDescription(nt *node.NodeType, route scopeRoute, epParam string, 
 	)
 }
 
-// leafScopeText names the alternative parents for tool descriptions, for
+// leafScopeText formats alternative parents for tool descriptions, for
 // example "an issue or epic".
 func leafScopeText(route scopeRoute, resolver *Resolver) string {
 	names := make([]string, 0, len(route.Leaves))

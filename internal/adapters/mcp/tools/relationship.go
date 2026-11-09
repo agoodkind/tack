@@ -14,9 +14,16 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// RegisterRelationship registers tack_add_relationship / tack_remove_relationship /
-// tack_list_relationships. RelationType is arbitrary; seeds define the
-// conventional strings (assigned_to, labeled_with, child_of, etc.).
+// RegisterRelationship registers tools to add, remove, and list
+// relationships.
+//
+// RelationType accepts custom strings. Built-in conventions include
+// assigned_to, labeled_with, and child_of. AddRelationship refuses
+// child_of because parent_id controls hierarchy. The tools are:
+//
+//   - tack_add_relationship adds a relationship.
+//   - tack_remove_relationship removes a relationship.
+//   - tack_list_relationships lists relationships.
 func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels node.RelationshipRepository, resolver *Resolver) {
 	addRemove := schema{
 		Fields: []schemaField{
@@ -62,8 +69,8 @@ func RegisterRelationship(s *mcpserver.MCPServer, svc *service.NodeService, rels
 	)
 }
 
-// relationshipEndpoints is one resolved add or remove request: the source
-// node, its org, the relation type, and the target.
+// relationshipEndpoints stores the source node, its organization, the
+// relation type, and the target of a resolved add or remove request.
 type relationshipEndpoints struct {
 	orgID    uuid.UUID
 	sourceID uuid.UUID
@@ -71,10 +78,10 @@ type relationshipEndpoints struct {
 	relType  string
 }
 
-// resolveRelationshipEndpoints binds and resolves the shared add/remove
-// arguments. A non-nil result is an early return the handler passes back to
-// the client unchanged. The source must be a node in one of the caller's
-// orgs; the guard before the write reads the mark this resolution set.
+// resolveRelationshipEndpoints binds and resolves add and remove arguments.
+// The handler returns a non-nil result to the client unchanged. The source
+// must belong to one of the caller's organizations. The guard before the
+// write checks the authorization mark that source resolution sets.
 func resolveRelationshipEndpoints(ctx context.Context, resolver *Resolver, req mcpmcp.CallToolRequest) (relationshipEndpoints, *mcpmcp.CallToolResult) {
 	none := relationshipEndpoints{orgID: uuid.Nil, sourceID: uuid.Nil, targetID: uuid.Nil, relType: ""}
 	args, err := bindArgs(req)
@@ -107,7 +114,7 @@ func resolveRelationshipEndpoints(ctx context.Context, resolver *Resolver, req m
 		return none, classifyError(ctx, err)
 	}
 	stampAuditNodeResolve(ctx, resolve)
-	// Refuse before the write, not only in the response.
+	// Refuse an unauthorized call before the write.
 	if !isAuthorized(ctx) {
 		return none, permissionDenied()
 	}

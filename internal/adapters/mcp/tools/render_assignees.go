@@ -15,9 +15,9 @@ const UnassignedText = "unassigned"
 
 // loadAssignees stores target user IDs on rc for views with has_assignees.
 // It groups these views by organization and calls ListBySources once per
-// organization with assigned_to. Each get or list response uses one call.
-// It reads relationships because NodeReader relation scans cannot return
-// user targets.
+// organization with assigned_to. Each get or list handler calls
+// loadAssignees once. It reads relationships because NodeReader relation
+// scans cannot return user targets.
 func (rc *renderCtx) loadAssignees(relationships node.RelationshipBatchLister, views ...*node.NodeView) error {
 	sourcesByOrg := map[uuid.UUID][]uuid.UUID{}
 	for _, view := range views {

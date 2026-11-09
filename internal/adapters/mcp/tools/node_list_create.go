@@ -29,8 +29,8 @@ func listHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserv
 		}
 		q := node.NodeListQuery{OrgID: ws.OrgID, NodeType: nt.TypeKey}
 
-		// Walk the scope route to the deepest container, then narrow via an
-		// indexed property instead of a type-wide view scan.
+		// Resolve the deepest container in the scope route and filter by an
+		// indexed property instead of scanning views for the whole type.
 		target := routeTarget{Scope: ws, Parent: ws, ParentParam: ""}
 		if route.hasLevels() {
 			resolved, early := resolveRouteScope(ctx, b, ws, route, args)
@@ -73,10 +73,10 @@ func listHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpserv
 	}
 }
 
-// parseToolProps converts the properties argument to raw JSON, tolerating
-// payloads sent as a stringified JSON blob (see TACK-161). A parse failure
-// maps to the client-facing error result so the handler returns a nil Go
-// error, per the MCP handler contract.
+// parseToolProps converts the properties argument to raw JSON and accepts
+// JSON inside a string (TACK-161). It returns a client error result for a
+// parse failure. The handler returns that result with a nil Go error,
+// as the MCP handler contract requires.
 func parseToolProps(raw json.RawMessage) (map[string]json.RawMessage, *mcpmcp.CallToolResult) {
 	rawProps, err := parseProps(raw)
 	if err != nil {
@@ -142,8 +142,8 @@ func createHandler(nt *node.NodeType, route scopeRoute, b NodeTypeBinding) mcpse
 		if err != nil {
 			return unexpectedError(ctx, err), nil
 		}
-		// Refuse before the write, not only in the response: an unauthorized
-		// call must not commit anything.
+		// Refuse an unauthorized call before the write. The call must not commit
+		// any change.
 		if !isAuthorized(ctx) {
 			return permissionDenied(), nil
 		}

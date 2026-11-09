@@ -47,8 +47,9 @@ func addUserTargets(ctx context.Context, orgID uuid.UUID, users []*user.User) {
 	}
 }
 
-// noteToolOutcome stores an unsuccessful tool call's outcome for the request's read event.
-// It preserves any outcome that the handler already recorded.
+// noteToolOutcome stores an unsuccessful tool call's outcome for the
+// request's read event. It preserves any outcome that the handler
+// already recorded.
 func noteToolOutcome(ctx context.Context, refused bool, runErr error, result *mcpmcp.CallToolResult) {
 	switch {
 	case refused:

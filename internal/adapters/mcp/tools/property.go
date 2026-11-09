@@ -8,7 +8,14 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// RegisterProperty registers tools for property metadata and raw node props.
+// RegisterProperty registers tools for property metadata and raw node
+// properties.
+//
+// The tools read property definitions for a workspace's organization or
+// the property values of one node. The registrations are:
+//
+//   - tack_list_property_defs lists property definitions.
+//   - tack_get_properties returns raw node properties.
 func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepository, resolver *Resolver) {
 	registerTool(s,
 		mcpmcp.Tool{

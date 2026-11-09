@@ -55,10 +55,10 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 	}
 }
 
-// updateInput omits Properties on purpose. BindArguments cannot reliably
-// preserve a stringified JSON payload through its mapstructure-style decoder
-// across different MCP transports. The handler reads properties straight
-// from the typed argMap and routes through parseProps. See TACK-165.
+// updateInput omits Properties. The handler reads properties from the
+// typed argMap and calls parseProps to accept JSON objects and JSON inside
+// strings. TACK-165 removed Properties from this struct and changed
+// updateHandler to parse the properties argument from req.GetArguments.
 type updateInput struct {
 	NodeID string  `json:"node_id"`
 	Name   *string `json:"name,omitempty"`
@@ -115,7 +115,7 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		// Refuse before the write, not only in the response.
+		// Refuse an unauthorized call before the write.
 		if !isAuthorized(ctx) {
 			return permissionDenied(), nil
 		}
@@ -184,7 +184,7 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 			Identifier: identifierFor(existing, rc),
 			Name:       existing.Name,
 		})
-		// Refuse before the write, not only in the response.
+		// Refuse an unauthorized call before the write.
 		if !isAuthorized(ctx) {
 			return permissionDenied(), nil
 		}

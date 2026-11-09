@@ -13,11 +13,11 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// resolveRelationshipTarget resolves the target side of a relationship. A
-// target that is a node must lie in one of the caller's orgs, like any other
-// node reference. A UUID that names no node is accepted as an opaque target,
-// because relationships such as assigned_to and watches point at user ids,
-// which are not nodes; no data is read through such a target.
+// resolveRelationshipTarget resolves a relationship target. A node target
+// must belong to one of the caller's organizations. The resolver accepts a
+// UUID that does not identify a node as an opaque target, such as a user ID
+// for assigned_to or watches. Users are not nodes. This resolution does not
+// read user data.
 func (r *Resolver) resolveRelationshipTarget(ctx context.Context, input string) (uuid.UUID, error) {
 	id, err := uuid.Parse(input)
 	if err != nil {
