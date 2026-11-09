@@ -38,9 +38,11 @@ func (b *BufferedRecorder) Close() error {
 		b.stopping.Unlock()
 	})
 	<-b.drained
+
 	switch recorder := b.inner.(type) {
 	case interface{ Close() error }:
-		if err := recorder.Close(); err != nil {
+		err := recorder.Close()
+		if err != nil {
 			slog.Error("audit.buffer.inner_close_failed", slog.String("err", err.Error()))
 			return fmt.Errorf("close buffered inner: %w", err)
 		}
