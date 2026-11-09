@@ -28,11 +28,9 @@ func (s cohortSession) missingTargets(ctx context.Context, cases []SearchManifes
 	return missing
 }
 
-// checkCase applies the declared rule of one case.
-// checkCase requires every expected node to rank from 1 through
-// RankLimit for ranked_targets.
-// checkCase requires the complete traversal to return exactly
-// the expected nodes for exact.
+// checkCase applies one case's match rule. For ranked_targets, every expected
+// node must rank from 1 through RankLimit. For exact, the complete traversal
+// must return exactly the expected nodes.
 func (s cohortSession) checkCase(ctx context.Context, testCase SearchManifestCase) SearchCohortCase {
 	result := SearchCohortCase{
 		Query: testCase.Query, NodeType: testCase.NodeType, Match: testCase.Match, RankLimit: testCase.RankLimit,
@@ -85,7 +83,7 @@ func countUnexpected(results, expected []uuid.UUID) int {
 // traverse reads search pages for query and nodeType using only recorded node
 // identities. It rejects unresolved results, duplicate nodes, repeated cursors,
 // and pages above the public result or byte limit. When stopAfter is positive,
-// it stops after a page that brings the node count to at least stopAfter.
+// it stops after a page increases the node count to at least stopAfter.
 func (s cohortSession) traverse(ctx context.Context, query, nodeType string, stopAfter int) ([]uuid.UUID, error) {
 	seen := make(map[uuid.UUID]struct{})
 	cursors := make(map[string]struct{})

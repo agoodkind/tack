@@ -6,7 +6,8 @@ import (
 	"goodkind.io/tack/internal/datagen/resourcesummary"
 )
 
-// hostWant is the set of host and guest values that TACK-544 cites for one window.
+// hostWant stores the host and guest values that TACK-544 cites for one
+// window.
 type hostWant struct {
 	samples            int
 	failedSamples      int
@@ -24,7 +25,7 @@ type hostWant struct {
 	guestWriteMiB      float64
 }
 
-// nodeWant is the set of OpenSearch node values that TACK-544 cites for one run.
+// nodeWant stores the OpenSearch node values that TACK-544 cites for one run.
 type nodeWant struct {
 	name                  string
 	readings              int

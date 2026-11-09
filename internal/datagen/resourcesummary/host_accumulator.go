@@ -56,8 +56,9 @@ func (accumulator *hostAccumulator) add(sample hostSample) error {
 	return nil
 }
 
-// checkCounters compares sample with the previous sample. A cumulative counter that decreased
-// has reset, and the summary does not estimate the activity across a reset.
+// checkCounters compares sample with the previous sample. It rejects a
+// decrease in a cumulative counter as a reset. The summary does not estimate
+// activity across a reset.
 func (accumulator *hostAccumulator) checkCounters(sample hostSample) error {
 	counters := []struct {
 		name     string
@@ -101,6 +102,12 @@ func (accumulator *hostAccumulator) finish() (HostSummary, error) {
 }
 
 // Elapsed returns the time between the first and last samples.
+//
+// It subtracts First from Last without checking the sample count.
+//
+// For example, a zero-value summary returns a zero duration:
+//
+//	elapsed := (HostSummary{}).Elapsed()
 func (summary HostSummary) Elapsed() time.Duration {
 	return summary.Last.Sub(summary.First)
 }

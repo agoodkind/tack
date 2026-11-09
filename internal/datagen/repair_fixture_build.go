@@ -17,8 +17,8 @@ import (
 const repairFixtureIdentifier = "QAREPAIR"
 
 // repairFixtureBuilder creates fixture records in one organization as one
-// actor. Its err field stores the first error, and every method does nothing
-// after an error. Legacy writes use NodeStore.UpdateAtomic,
+// actor. Its err field stores the first error. Mutation methods stop after
+// that error. Legacy writes call NodeStore.UpdateAtomic,
 // RelationshipStore.Add, and RelationshipStore.Remove directly because the
 // checked mutation path rejects the invalid values that the repair corrects.
 type repairFixtureBuilder struct {
@@ -30,7 +30,7 @@ type repairFixtureBuilder struct {
 }
 
 // build creates the workspace, the project with identifier QAREPAIR, the
-// epic, and every repair record in order, then returns their IDs.
+// epic, and every repair record in that order, then returns their IDs.
 func (b *repairFixtureBuilder) build(ctx context.Context) RepairFixture {
 	var fixture RepairFixture
 	workspaceID := b.create(ctx, b.orgID, b.orgID, "workspace", "QA repair workspace", map[string]json.RawMessage{"slug": repairFixtureText("repair")})
@@ -59,8 +59,8 @@ func (b *repairFixtureBuilder) build(ctx context.Context) RepairFixture {
 	return fixture
 }
 
-// create creates one node of typeKey under parentID with scopeID through
-// NodeService.Create and returns its ID.
+// create calls [service.NodeService.Create] to create one node of typeKey
+// under parentID with scopeID and returns its ID.
 func (b *repairFixtureBuilder) create(ctx context.Context, parentID, scopeID uuid.UUID, typeKey, name string, props map[string]json.RawMessage) uuid.UUID {
 	if b.err != nil {
 		return uuid.Nil

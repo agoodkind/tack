@@ -8,8 +8,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// actorRedactorFor returns the host redaction path for the configured reader
-// and redactor DSNs, or nil when either is unset.
+// actorRedactorFor returns a function that redacts an actor using the
+// configured reader and redactor DSNs. It returns nil when either DSN is empty.
 func actorRedactorFor(cfg *config.Config) ActorRedactor {
 	if cfg.AuditReaderDSN == "" || cfg.AuditRedactorDSN == "" {
 		return nil

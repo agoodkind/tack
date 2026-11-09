@@ -1,4 +1,5 @@
-// Package datagen builds deterministic QA data through Tack's MCP request surface.
+// Package datagen builds deterministic QA data through Tack's MCP request
+// surface.
 package datagen
 
 import "fmt"
@@ -11,7 +12,7 @@ const (
 	scaleLarge  scaleName = "large"
 )
 
-// Scale controls the amount of QA data produced.
+// Scale controls how much QA data the generator produces.
 type Scale struct {
 	Name                 string
 	OrgCount             int
@@ -26,7 +27,14 @@ type Scale struct {
 	ActorsPerOrg         int
 }
 
-// ParseScale returns the count plan for a named generator scale.
+// ParseScale returns the count plan for a generator scale.
+//
+// It accepts small, medium, and large. An unknown name returns a zero Scale
+// and an error.
+//
+// For example, this call selects the small plan:
+//
+//	scale, err := ParseScale("small")
 func ParseScale(name string) (Scale, error) {
 	switch scaleName(name) {
 	case scaleSmall:

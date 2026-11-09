@@ -14,7 +14,7 @@ import (
 	"goodkind.io/tack/internal/domain/org"
 )
 
-// verifyReplay resolves the second page of one session twice and requires
+// verifyReplay requests the second page of one session twice and requires
 // both responses to contain the same nonempty list of node IDs.
 func (r searchRun) verifyReplay(ctx context.Context) error {
 	first, err := callSearch(ctx, r.driver, r.identities(), r.token, r.entry, accessPhrase, "")
@@ -39,8 +39,8 @@ func (r searchRun) verifyReplay(ctx context.Context) error {
 }
 
 // verifyRevocation opens a member's search session and removes the membership.
-// It requires the server to refuse a request with the open cursor and a new
-// search, then restores the original role even when the refusal check fails.
+// It requires the server to refuse the open cursor and a new search. It then
+// attempts to restore the original role even when a refusal check fails.
 func (r searchRun) verifyRevocation(ctx context.Context, cfg *config.Config, workspace WorkspaceIdentity) error {
 	actor := workspace.Actors[revokedActorIndex]
 	first, err := callSearch(ctx, r.driver, r.identities(), actor.Token, r.entry, accessPhrase, "")
@@ -74,9 +74,9 @@ func (r searchRun) verifyRevocation(ctx context.Context, cfg *config.Config, wor
 	return refusalErr
 }
 
-// requireRevoked requires the open cursor and a new search to be refused.
-// The application caches membership for a bounded lifetime. Each refusal
-// check repeats until the convergence deadline.
+// requireRevoked requires the server to refuse the open cursor and a new
+// search. The application caches membership for a bounded lifetime. Each
+// refusal check retries until its convergence deadline.
 func (r searchRun) requireRevoked(ctx context.Context, token, cursor string) error {
 	if err := r.eventually(ctx, "refuse revoked member cursor", func(ctx context.Context) error {
 		return r.refused(ctx, token, r.entry, cursor)

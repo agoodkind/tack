@@ -11,18 +11,25 @@ const (
 	// searchAccessDeniedResponse is the tack_search problem text for a caller
 	// that the authoritative search access check refuses.
 	searchAccessDeniedResponse = "the caller cannot search this entry point"
-	// permissionDeniedHeading starts the fail-closed MCP result for a handler
-	// that returned data without a membership check.
+	// permissionDeniedHeading starts the MCP refusal result when a handler
+	// returns data without a membership check.
 	permissionDeniedHeading = "#### Permission denied"
 )
 
-// IsSearchAuthorizationRefusal reports whether one tack_search response under
-// entry is an authorization refusal. statusCode is the HTTP status of the MCP
-// request, or 0 when the request returned an MCP result. toolErrorText is the
-// text of an MCP isError result. HTTP 401 and 403 are refusals. The entry
-// resolver searches only the caller's organizations and reports an entry
-// outside them as not found. Every other tool error, including the outage
-// text and an unexpected server error, is not a refusal.
+// IsSearchAuthorizationRefusal reports whether a tack_search response under
+// entry matches a recognized authorization refusal.
+//
+// statusCode supplies the MCP request's HTTP status, or zero for an MCP result.
+// toolErrorText supplies the text of an MCP isError result. The entry resolver
+// searches only the caller's organizations and reports other entries as not
+// found. The classifier accepts these responses:
+//   - HTTP 401 and 403 indicate refusal.
+//   - Tool text containing the entry's not-found message indicates refusal.
+//   - Tool text containing searchAccessDeniedResponse indicates refusal.
+//   - Tool text starting with permissionDeniedHeading indicates refusal.
+//
+// Other tool errors, including outage text and unexpected server errors, do
+// not indicate refusal.
 func IsSearchAuthorizationRefusal(statusCode int, toolErrorText, entry string) bool {
 	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
 		return true
@@ -40,7 +47,7 @@ func IsSearchAuthorizationRefusal(statusCode int, toolErrorText, entry string) b
 	return strings.HasPrefix(toolErrorText, permissionDeniedHeading)
 }
 
-// isAuthorizationRefusal applies IsSearchAuthorizationRefusal to an error
+// isAuthorizationRefusal applies [IsSearchAuthorizationRefusal] to an error
 // from the datagen driver.
 func isAuthorizationRefusal(err error, entry string) bool {
 	var statusError *httpStatusError

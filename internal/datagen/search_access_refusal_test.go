@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	// searchRefusalSeed is the fixed seed of TestRefusedRejectsNonAuthorizationToolError.
-	// The integration package uses 538_000_001 to 538_000_003.
+	// searchRefusalSeed supplies the fixed seed for
+	// TestRefusedRejectsNonAuthorizationToolError. The integration package uses
+	// 538_000_001 through 538_000_003.
 	searchRefusalSeed = 538_000_004
 	// malformedSearchCursor fails cursor decoding in tack_search before the
 	// search service runs.
@@ -37,8 +38,9 @@ const (
 	// invalidCursorProblem is the tack_search problem text for a cursor that
 	// does not decode.
 	invalidCursorProblem = "cursor is invalid"
-	// uncontactedSearchEndpoint configures public search. No engine listens
-	// here. The malformed cursor fails before any engine request.
+	// uncontactedSearchEndpoint configures public search at an unused endpoint.
+	// The test does not start an engine there. The malformed cursor fails before
+	// an engine request.
 	uncontactedSearchEndpoint = "https://[::1]:9"
 	// memberEntryArgument is the tack_search entry argument that the seeded
 	// workspace metadata advertises to a member.
@@ -128,9 +130,9 @@ func requireUnknownBearerRejected(t *testing.T, run searchRun, token, entry stri
 }
 
 // requireNoOrganizationRefusal removes actor 1 from its only organization.
-// The member schema requires workspace_reference; the schema of a caller with
-// no organization requires _reference. refused must read each name from
-// tools/list, and the caller with no organization must be refused.
+// The member schema requires workspace_reference. A caller without an
+// organization has a schema that requires _reference. refused must read each
+// argument name from tools/list and reject the caller without an organization.
 func requireNoOrganizationRefusal(t *testing.T, cfg *config.Config, run searchRun, workspace WorkspaceIdentity) {
 	t.Helper()
 	ctx := t.Context()

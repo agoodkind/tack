@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	// Both organizations store accessPhrase. Authorization is the only
-	// difference between their results.
+	// Both organizations store accessPhrase. The verification checks whether
+	// authorization separates their matching results.
 	accessPhrase = "umber lantern access ledger"
 	// accessCallerNodes exceeds one public page of 25 nodes. The first page
 	// of the caller organization returns a continuation cursor.
@@ -139,11 +139,10 @@ func (r searchRun) isolated(ctx context.Context, allowed, forbidden []uuid.UUID)
 	return nil
 }
 
-// refused requires one tack_search call to fail with an authorization
-// refusal that isAuthorizationRefusal accepts. The call reads the entry
-// argument name from the caller's tools/list schema first, and any failure of
-// that read fails the check. A result page, any other tool error, or a
-// transport failure also fails the check.
+// refused requires one tack_search call to fail with an authorization refusal
+// that isAuthorizationRefusal accepts. It first reads the entry argument name
+// from the caller's tools/list schema. A schema-read failure, a result page,
+// another tool error, or a transport failure fails the check.
 func (r searchRun) refused(ctx context.Context, token, entry, cursor string) error {
 	argument, err := r.driver.searchEntryArgument(ctx, token)
 	if err != nil {

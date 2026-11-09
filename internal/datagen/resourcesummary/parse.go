@@ -36,8 +36,8 @@ type ioBytes struct {
 	written int64
 }
 
-// parsePressure reads the avg10 value of the some and full lines in Linux pressure stall
-// information format. It returns an error unless lines contains both kinds.
+// parsePressure reads the avg10 values from Linux pressure stall information
+// lines. It returns an error unless lines includes both some and full kinds.
 func parsePressure(lines []string) (pressureReading, error) {
 	reading := pressureReading{some: 0, full: 0}
 	if len(lines) == 0 {
@@ -77,8 +77,8 @@ func parsePressure(lines []string) (pressureReading, error) {
 	return reading, nil
 }
 
-// parseMeasurement parses a pressure or load value and rejects a value that is not finite or
-// is negative. The returned error starts with step.
+// parseMeasurement parses a pressure or load value. It rejects negative
+// values and values that are not finite. The returned error starts with step.
 func parseMeasurement(step string, text string) (float64, error) {
 	value, err := strconv.ParseFloat(text, floatBits)
 	if err != nil {
@@ -90,8 +90,9 @@ func parseMeasurement(step string, text string) (float64, error) {
 	return value, nil
 }
 
-// parseIOStat adds the rbytes and wbytes counters of every device line in a cgroup io.stat
-// reading. It returns an error unless every device line contains both counters.
+// parseIOStat adds the rbytes and wbytes counters from every device line in a
+// cgroup io.stat reading. It returns an error unless every device line
+// includes both counters.
 func parseIOStat(lines []string) (ioBytes, error) {
 	total := ioBytes{read: 0, written: 0}
 	if len(lines) == 0 {
@@ -137,7 +138,8 @@ func parseIOStatLine(line string) (ioBytes, error) {
 	return device, nil
 }
 
-// parseLoad reads the 1-minute load average from the first /proc/loadavg line.
+// parseLoad reads the one-minute load average from the first /proc/loadavg
+// line.
 func parseLoad(lines []string) (float64, error) {
 	if len(lines) == 0 {
 		return 0, errors.New("loadavg reading has no lines")

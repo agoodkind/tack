@@ -1,5 +1,6 @@
-// Package resourcesummary summarizes the CPU, memory, and disk readings that the hypervisor
-// sampler and the search-mixed workload saved during a QA workload window.
+// Package resourcesummary summarizes CPU, memory, and disk readings that the
+// hypervisor sampler and search-mixed workload saved during a QA workload
+// window.
 package resourcesummary
 
 import (
@@ -27,16 +28,17 @@ type Window struct {
 	End   time.Time
 }
 
-// Pressure is the largest avg10 value of the some and full pressure stall lines.
+// Pressure records the largest avg10 values from the some and full pressure
+// stall lines.
 type Pressure struct {
 	SomeAvg10Max float64
 	FullAvg10Max float64
 }
 
-// HostSummary reports the hypervisor and search guest readings inside one window.
+// HostSummary reports hypervisor and search guest readings inside one window.
 type HostSummary struct {
 	Samples int
-	// FailedSamples counts samples inside the window that carry an error.
+	// FailedSamples counts samples inside the window that report an error.
 	FailedSamples      int
 	First              time.Time
 	Last               time.Time
@@ -45,8 +47,8 @@ type HostSummary struct {
 	CPUPressure        Pressure
 	IOPressure         Pressure
 	LoadOneMinuteMax   float64
-	// GuestCPUCores is the guest cgroup CPU time between the first and last samples divided
-	// by the wall time between them.
+	// GuestCPUCores records the guest cgroup CPU time between the first and last
+	// samples divided by the wall time between those samples.
 	GuestCPUCores    float64
 	GuestCPUPressure Pressure
 	GuestIOPressure  Pressure
@@ -54,11 +56,16 @@ type HostSummary struct {
 	GuestWriteMiB    float64
 }
 
-// SummarizeHost reads a sampler JSON Lines file and summarizes the samples inside window
-// for the host and for the guest with guestID. It counts and skips samples that carry an
-// error. It returns an error that identifies the sample time when a sample inside window
-// omits a required measurement, has an invalid pressure or load value, or has a cumulative
-// counter that decreased.
+// SummarizeHost reads a sampler JSON Lines file and summarizes samples inside
+// window for the host and the guest with guestID.
+//
+// It counts and skips samples that report an error. A sample validation error
+// includes the sample time and identifies the invalid measurement.
+//
+// Sample validation rejects these conditions:
+//   - A sample omits a required measurement.
+//   - A pressure or load value fails validation.
+//   - A cumulative counter decreases.
 func SummarizeHost(
 	ctx context.Context,
 	path string,
@@ -137,7 +144,8 @@ func closeFile(file *os.File, readErr error) error {
 	return wrapError("read and close "+file.Name(), errors.Join(readErr, closeErr))
 }
 
-// readError reports the input step that failed and its cause. The caller logs it.
+// readError reports the failed input step and its cause. The caller logs the
+// error.
 type readError struct {
 	step  string
 	cause error

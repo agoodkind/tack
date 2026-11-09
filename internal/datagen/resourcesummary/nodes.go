@@ -19,16 +19,17 @@ const (
 	resultBlockEnd   = "}"
 )
 
-// NodeSummary reports the largest resource readings of one OpenSearch node during a
-// search-mixed run.
+// NodeSummary reports one OpenSearch node's largest CPU and memory readings
+// and smallest disk availability during a search-mixed run.
 type NodeSummary struct {
 	Name                 string
 	Readings             int
 	CPUPercentMax        int
 	ProcessCPUPercentMax int
 	HeapUsedMaxBytes     int64
-	// HeapUsedMaxFraction is the largest heap_used_bytes divided by heap_max_bytes of the
-	// same reading. It can come from a reading other than the one with HeapUsedMaxBytes.
+	// HeapUsedMaxFraction records the largest ratio of heap_used_bytes to
+	// heap_max_bytes within a single reading. Its reading can differ from the
+	// reading that supplies HeapUsedMaxBytes.
 	HeapUsedMaxFraction   float64
 	MemoryUsedMaxFraction float64
 	DiskAvailableMinBytes int64
@@ -36,7 +37,8 @@ type NodeSummary struct {
 	DiskTotalBytes int64
 }
 
-// RunSummary reports the workload samples of one search-mixed run, with nodes sorted by name.
+// RunSummary reports one search-mixed run's workload samples and nodes in
+// name order.
 type RunSummary struct {
 	Samples int
 	Nodes   []NodeSummary
@@ -50,8 +52,15 @@ type runSample struct {
 	Nodes []datagen.SearchMixedNodeResources `json:"opensearch_nodes"`
 }
 
-// SummarizeRun reads the indented search-mixed result that a run log contains between a line
-// that is only "{" and a line that is only "}", and summarizes its OpenSearch node samples.
+// SummarizeRun reads a run log's indented search-mixed result and summarizes
+// its OpenSearch node samples.
+//
+// The result starts with a line containing only "{" and ends with a line
+// containing only "}". The function reads the first complete result block.
+//
+// The summary accounts for samples in these ways:
+//   - A workload sample without node readings still counts as a sample.
+//   - Two samples for the same node produce one node summary.
 func SummarizeRun(ctx context.Context, path string) (RunSummary, error) {
 	block, err := readResultBlock(path)
 	if err != nil {
@@ -98,8 +107,8 @@ func summarizeNodes(samples []runSample) ([]NodeSummary, error) {
 	return nodes, nil
 }
 
-// checkNodeTotals rejects a reading that cannot produce a fraction. A missing total decodes
-// as zero.
+// checkNodeTotals rejects a reading when its heap or memory total is not
+// positive. JSON decoding assigns zero to a missing total.
 func checkNodeTotals(node datagen.SearchMixedNodeResources) error {
 	if node.HeapMaxBytes <= 0 {
 		return fmt.Errorf("node %s has heap_max_bytes %d, want a positive value",
@@ -112,8 +121,9 @@ func checkNodeTotals(node datagen.SearchMixedNodeResources) error {
 	return nil
 }
 
-// newNodeSummary seeds the maximum and minimum fields from the first reading and sets
-// Readings to zero. addNodeReading then applies every reading, including the first.
+// newNodeSummary initializes maximum and minimum fields from the first
+// reading and sets Readings to zero. addNodeReading then applies every
+// reading, including the first.
 func newNodeSummary(node datagen.SearchMixedNodeResources) *NodeSummary {
 	return &NodeSummary{
 		Name:                  node.Name,

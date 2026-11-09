@@ -35,8 +35,8 @@ func (r Result) collectionItems() []collectionItem {
 			continue
 		}
 		if strings.HasPrefix(line, "- ") {
-			// The server omits the Name field when the name is the printed
-			// title, so the title stands in until a Name line overrides it.
+			// The server omits the Name field when the printed title matches the name.
+			// The parser uses the title as the name until a Name line overrides it.
 			reference := trimMarkdownValue(strings.TrimPrefix(line, "- "))
 			items = append(items, collectionItem{Reference: reference, Name: reference, NodeType: ""})
 			current = len(items) - 1

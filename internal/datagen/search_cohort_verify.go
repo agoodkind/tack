@@ -51,9 +51,16 @@ type cohortSession struct {
 	limits searchLimits
 }
 
-// VerifySearchCohort prepares the cohort that PrepareSearchManifest writes
+// VerifySearchCohort prepares the cohort that [PrepareSearchManifest] writes
 // for seed from the embedded corpus and checks every manifest case.
-// VerifySearchCohort requires separate search workers to index the cohort.
+//
+// Separate search workers must index the cohort. The verification waits for
+// expected targets before checking the cases.
+//
+// The returned verification reports these outcomes:
+//   - WaitCompleted reports successful discovery of every expected target
+//     during the wait.
+//   - Case checks still run when the wait expires with missing targets.
 func VerifySearchCohort(ctx context.Context, cfg *config.Config, seed int64) (SearchManifest, SearchCohortVerification, error) {
 	var verification SearchCohortVerification
 	if err := ValidateTarget(cfg); err != nil {
@@ -120,9 +127,8 @@ func (s cohortSession) verify(ctx context.Context, cases []SearchManifestCase) (
 }
 
 // waitForTargets searches every case until each traversal returns every
-// expected node or cohortWaitDeadline passes.
-// missingTargets counts every expected node in a case as missing
-// when the case search fails.
+// expected node or cohortWaitDeadline passes. missingTargets counts every
+// expected node in a case as missing when that case's search fails.
 func (s cohortSession) waitForTargets(ctx context.Context, cases []SearchManifestCase) (time.Duration, bool, error) {
 	started := clock.Now()
 	deadline := started.Add(cohortWaitDeadline)

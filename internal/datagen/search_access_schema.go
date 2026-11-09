@@ -80,10 +80,16 @@ func (d *Driver) searchEntryArgument(ctx context.Context, token string) (string,
 		fmt.Errorf("tools/list did not finish within %d pages", maxToolListPages))
 }
 
-// SearchEntryArgument returns the one required tack_search argument that
-// ends with "_reference". required is the required list of the tack_search
-// input schema that tools/list returned for the caller. It returns an error
-// when no required argument or more than one matches.
+// SearchEntryArgument returns the single required tack_search argument ending
+// with "_reference".
+//
+// required supplies the required list from the caller's tack_search input
+// schema in tools/list. The function returns an error unless exactly one
+// argument matches.
+//
+// For example, a workspace schema can declare this entry argument:
+//
+//	argument, err := SearchEntryArgument([]string{"workspace_reference", "query"})
 func SearchEntryArgument(required []string) (string, error) {
 	found := make([]string, 0, 1)
 	for _, name := range required {

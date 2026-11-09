@@ -18,8 +18,8 @@ const (
 	decimalBase   = 10
 )
 
-// figure compares got with want after rounding got to decimals places, the precision of
-// the posted TACK-544 tables.
+// figure specifies a comparison of got with want after rounding got to
+// decimals places, using the precision of the posted TACK-544 tables.
 type figure struct {
 	name     string
 	got      float64
@@ -27,8 +27,8 @@ type figure struct {
 	decimals int
 }
 
-// TestSavedRunResources summarizes the TACK-544 QA workload windows from saved files and
-// checks every value in the posted tables.
+// TestSavedRunResources summarizes saved files for the TACK-544 QA workload
+// windows and checks every value in the posted tables.
 func TestSavedRunResources(t *testing.T) {
 	samplerDirectory := os.Getenv(samplerDirectoryVariable)
 	runLogDirectory := os.Getenv(runLogDirectoryVariable)

@@ -63,7 +63,8 @@ type hostSample struct {
 	guestIOPressure        pressureReading
 }
 
-// parseSample checks and parses the readings that the summary uses from one sampler line.
+// parseSample checks and parses the readings that the summary uses from one
+// sampler line.
 func parseSample(line samplerLine, guestID string) (hostSample, error) {
 	guest, guestFound := line.CPUDisk.Guests[guestID]
 	guestPressure, pressureFound := line.CPUDisk.Pressure[guestID]
