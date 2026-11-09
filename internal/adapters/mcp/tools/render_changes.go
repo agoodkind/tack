@@ -25,7 +25,7 @@ const (
 )
 
 // builtinReferenceKeys lists the built-in property keys that identify reference targets.
-var builtinReferenceKeys = []string{"parent_id", "scope_id"}
+var builtinReferenceKeys = []string{parentIDPropertyName, "scope_id"}
 
 // writeChanges stores the requested fields and the node before and after a write.
 // Before is nil for a create.

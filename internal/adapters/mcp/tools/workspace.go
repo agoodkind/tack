@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/v2/server"
@@ -120,15 +119,15 @@ func RegisterMembers(
 }
 
 func registerWorkspaceDescription(
-	s *mcpserver.MCPServer,
+	server *mcpserver.MCPServer,
 	reader node.NodeReader,
 	resolver *Resolver,
 	nodeTypes []*node.NodeType,
 ) {
 	registerTool(
-		s,
+		server,
 		mcpmcp.Tool{
-			Name:        fmt.Sprintf("tack_describe_%s", resolver.entryPointSlug),
+			Name:        "tack_describe_" + resolver.entryPointSlug,
 			Description: "Describes a workspace: its node types and a count of direct children per node type.",
 			InputSchema: schema{
 				Fields:   entryPointSchemaFields(resolver),
@@ -146,26 +145,26 @@ func registerWorkspaceDescription(
 				return recoverableError(resolver.entryPointRequiredMessage()), nil
 			}
 
-			ws, err := resolver.Workspace(ctx, entryPointReference)
+			workspace, err := resolver.Workspace(ctx, entryPointReference)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
 
-			parentIDRaw, _ := json.Marshal(ws.ID.String())
+			parentIDRaw, _ := json.Marshal(workspace.ID.String())
 
 			types := make([]nodeTypeSummary, 0, len(nodeTypes))
-			for _, nt := range nodeTypes {
-				if nt.OrgID != ws.OrgID {
+			for _, nodeType := range nodeTypes {
+				if nodeType.OrgID != workspace.OrgID {
 					continue
 				}
 
 				page, err := reader.ListPage(
 					ctx,
 					node.NodeListQuery{
-						OrgID:    ws.OrgID,
-						NodeType: nt.TypeKey,
+						OrgID:    workspace.OrgID,
+						NodeType: nodeType.TypeKey,
 						ByProperty: &node.PropertyMatch{
-							PropName: "parent_id",
+							PropName: parentIDPropertyName,
 							Value:    parentIDRaw,
 						},
 						BySourceRelation: nil,
@@ -184,11 +183,11 @@ func registerWorkspaceDescription(
 				types = append(
 					types,
 					nodeTypeSummary{
-						Slug:           nt.Slug,
-						PluralSlug:     nt.PluralSlug,
-						Name:           nt.Name,
-						Features:       []string(nt.Features),
-						Reference:      nt.Reference,
+						Slug:           nodeType.Slug,
+						PluralSlug:     nodeType.PluralSlug,
+						Name:           nodeType.Name,
+						Features:       []string(nodeType.Features),
+						Reference:      nodeType.Reference,
 						ChildCount:     len(page.Views),
 						ChildCountMore: page.NextCursor != "",
 					},
@@ -197,7 +196,7 @@ func registerWorkspaceDescription(
 
 			rc := newRenderCtxWithTypes(ctx, reader, nil, resolver.typeIndex)
 
-			return successText(renderWorkspaceDescribe(rc, ws, types), ""), nil
+			return successText(renderWorkspaceDescribe(rc, workspace, types), ""), nil
 		},
 	)
 }

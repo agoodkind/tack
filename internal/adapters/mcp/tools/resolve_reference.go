@@ -189,7 +189,7 @@ func (r *Resolver) resolveNodeWithinScope(
 			OrgID:    orgID,
 			NodeType: typeKey,
 			ByProperty: &node.PropertyMatch{
-				PropName: "parent_id",
+				PropName: parentIDPropertyName,
 				Value:    scopeIDRaw,
 			},
 		},

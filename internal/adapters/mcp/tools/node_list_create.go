@@ -95,7 +95,7 @@ func setCreateAuditEntity(ctx context.Context, view *node.NodeView, renderContex
 	audit.SetAuditEntity(
 		ctx,
 		audit.Entity{
-			Type:       "node",
+			Type:       audit.TargetKindNode,
 			NodeType:   view.NodeType,
 			ID:         view.ID,
 			Identifier: identifierFor(view, renderContext),
