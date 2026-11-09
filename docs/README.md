@@ -70,5 +70,7 @@
 ## Providers
 
 - [Tack provider contract](reference/tack-provider.md)
+- [Deployment state and provider lifecycle requirements](reference/providers/deployment-state.md)
+- [tack_schema resource reference](reference/providers/tack-schema.md)
 - [PostgreSQL provider role locking](reference/postgresql-provider-locking.md)
 - [Configure the PostgreSQL provider for YugabyteDB](runbooks/configure-postgresql-provider.md)
