@@ -9,7 +9,8 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// auditUnavailableResponse is the body of the HTTP 503 response for a refused audit event.
+// auditUnavailableResponse is the body of the HTTP 503 response for a refused
+// audit event.
 const auditUnavailableResponse = `{"error":"audit recording unavailable"}`
 
 var (
@@ -36,35 +37,43 @@ var (
 // outcome.
 func TestRuntimeAuditTokenUseRefusedWhenRecordingFails(t *testing.T) {
 	t.Setenv("ENV", "production")
+
 	cfg := publicConfig(t)
 	ledgerDSN := testenv.Ledger(t)
 	admin := ledgerAdminPool(t)
 	cfg.AuditKafkaBrokers, cfg.AuditAllowUnrecorded = "", false
 	cfg.AuditWriterDSN = templateLoginDSN(t, admin, tokenUseBareLoginTemplate, tokenUseLoginDropTemplate)
 	refusing := buildPublicServer(t, cfg, nil)
+
 	reader, err := audit.NewReader(t.Context(), ledgerDSN)
 	if err != nil {
 		t.Fatalf("audit.NewReader failed: %v", err)
 	}
+
 	t.Cleanup(reader.Close)
 
 	refusedID := newRequestID(t, "token-use-refused")
+
 	refused := refusing.rpc(t, refusedID, "tools/list", map[string]any{})
 	if refused.status != http.StatusServiceUnavailable || string(refused.body) != auditUnavailableResponse {
 		t.Fatalf("response = %d %s, want 503 %s", refused.status, refused.body, auditUnavailableResponse)
 	}
+
 	requireNoLedgerTokenUsed(t, reader, refusing.orgID, refusedID)
 
 	cfg.AuditWriterDSN = templateLoginDSN(t, admin, tokenUseWriterLoginTemplate, tokenUseLoginDropTemplate)
 	recovered := buildPublicServer(t, cfg, nil)
 	recoveredID := newRequestID(t, "token-use-recovered")
+
 	response := recovered.rpc(t, recoveredID, "tools/list", map[string]any{})
 	if response.status != http.StatusOK {
 		t.Fatalf("tools/list status with the writer login = %d, want 200: %s", response.status, response.body)
 	}
+
 	rows := tokenUsedRows(t, reader, recovered.orgID, recoveredID)
 	if len(rows) != 1 {
 		t.Fatalf("ledger has %d auth.token_used rows for request %s, want 1", len(rows), recoveredID)
 	}
+
 	requireTokenUsedRowFields(t, rows[0], recovered.userID, fixtureTokenID(t, recovered), recoveredID)
 }

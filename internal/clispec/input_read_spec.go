@@ -9,9 +9,13 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// InputReadSpec returns the read definition for a command with typed input.
-// It decodes the command input into the typed value, takes the one operation
-// target from target, and records the copy that safe returns as the stored input.
+// InputReadSpec returns a read definition for a command with typed input.
+//
+// The definition decodes the command input before calling target or
+// safe. It uses the target result as the sole operation target and
+// encodes the value returned by safe as the stored input.
+//
+//	spec := InputReadSpec(verb, target, safe)
 func InputReadSpec[Typed Input](verb audit.Verb, target func(Typed) audit.Target, safe func(Typed) Typed) audit.Spec {
 	decode := func(encoded json.RawMessage) (Typed, error) {
 		var decoded Typed

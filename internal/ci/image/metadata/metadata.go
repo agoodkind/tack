@@ -18,38 +18,64 @@ const (
 	metadataOutputFilePermBits = 0o666
 )
 
-// Write writes the selected tag or branch to stdout, then appends build metadata to GITHUB_OUTPUT. It returns an error without writing GITHUB_OUTPUT if the stdout write fails.
+// Write appends build metadata to the file named by GITHUB_OUTPUT.
+//
+// It reads the Git checkout in the working directory and prints the
+// selected exact tag at HEAD or the BRANCH_NAME value to stdout. It
+// returns an error without writing the file if the stdout write fails.
+//
+// The appended output has this layout:
+//
+//	commit=<full commit>
+//	short=<short commit>
+//	build_time=<UTC build time>
+//	tag=<tag or branch>
 func Write(stdout io.Writer) error {
 	outputPath, err := environment.Required("GITHUB_OUTPUT")
 	if err != nil {
 		return &os.PathError{Op: "read build metadata output file", Path: "GITHUB_OUTPUT", Err: err}
 	}
+
 	workingDirectory, err := os.Getwd()
 	if err != nil {
 		return &os.PathError{Op: "read working directory", Path: ".", Err: err}
 	}
+
 	repository, err := git.PlainOpen(workingDirectory)
 	if err != nil {
 		return &os.PathError{Op: "open Git checkout", Path: workingDirectory, Err: err}
 	}
+
 	defer func() { _ = repository.Close() }()
+
 	head, err := repository.Head()
 	if err != nil {
 		return &os.PathError{Op: "read Git HEAD", Path: workingDirectory, Err: err}
 	}
-	if _, err := repository.CommitObject(head.Hash()); err != nil {
-		return &os.PathError{Op: "read Git HEAD commit " + head.Hash().String(), Path: workingDirectory, Err: err}
+
+	_, err = repository.CommitObject(head.Hash())
+	if err != nil {
+		return &os.PathError{
+			Op:   "read Git HEAD commit " + head.Hash().String(),
+			Path: workingDirectory,
+			Err:  err,
+		}
 	}
+
 	commit := head.Hash().String()
+
 	shortCommit, err := abbreviateCommit(repository, workingDirectory, commit)
 	if err != nil {
 		return err
 	}
+
 	buildTime := clock.Now().UTC().Format(buildTimeLayout)
+
 	tag, found, err := findExactTag(repository, workingDirectory, head.Hash())
 	if err != nil {
 		return err
 	}
+
 	if found {
 		err = printMetadataMessage(stdout, "Build metadata uses tag %s\n", tag)
 	} else {
@@ -57,19 +83,30 @@ func Write(stdout io.Writer) error {
 		if err != nil {
 			return &os.PathError{Op: "read build metadata branch", Path: "BRANCH_NAME", Err: err}
 		}
-		err = printMetadataMessage(stdout, "HEAD does not have an exact tag. Build metadata uses branch %s\n", tag)
+
+		err = printMetadataMessage(
+			stdout,
+			"HEAD does not have an exact tag. Build metadata uses branch %s\n",
+			tag,
+		)
 	}
+
 	if err != nil {
 		return err
 	}
-	content := "commit=" + commit + "\nshort=" + shortCommit + "\nbuild_time=" + buildTime + "\ntag=" + tag + "\n"
+
+	content := "commit=" + commit + "\nshort=" + shortCommit + "\nbuild_time=" + buildTime +
+		"\ntag=" + tag + "\n"
+
 	return appendFile(outputPath, content)
 }
 
 func printMetadataMessage(stdout io.Writer, format, tag string) error {
-	if _, err := fmt.Fprintf(stdout, format, tag); err != nil {
+	_, err := fmt.Fprintf(stdout, format, tag)
+	if err != nil {
 		return &os.PathError{Op: "write build metadata message", Path: "stdout", Err: err}
 	}
+
 	return nil
 }
 
@@ -78,13 +115,19 @@ func appendFile(path, content string) error {
 	if err != nil {
 		return &os.PathError{Op: "open metadata output file", Path: path, Err: err}
 	}
-	if _, err := file.WriteString(content); err != nil {
+
+	_, err = file.WriteString(content)
+	if err != nil {
 		writeErr := &os.PathError{Op: "write metadata output file", Path: path, Err: err}
 		_ = file.Close()
+
 		return writeErr
 	}
-	if err := file.Close(); err != nil {
+
+	err = file.Close()
+	if err != nil {
 		return &os.PathError{Op: "close metadata output file", Path: path, Err: err}
 	}
+
 	return nil
 }
