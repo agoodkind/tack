@@ -65,10 +65,17 @@ type roleChangeEvidence struct {
 func (roleChangeEvidence) isStepEvidence() {}
 
 func seedRolesPasswordsSet(cfg *config.Config) bool {
-	return !slices.Contains([]string{
-		cfg.AuditWriterPassword, cfg.AuditReaderPassword, cfg.AuditRedactorPassword,
-		cfg.AuditOperatorPassword, cfg.AppPassword, cfg.MigratorPassword,
-	}, "")
+	return !slices.Contains(
+		[]string{
+			cfg.AuditWriterPassword,
+			cfg.AuditReaderPassword,
+			cfg.AuditRedactorPassword,
+			cfg.AuditOperatorPassword,
+			cfg.AppPassword,
+			cfg.MigratorPassword,
+		},
+		"",
+	)
 }
 
 func queryRoleStates(ctx context.Context, pool *pgxpool.Pool) (map[string]roleState, error) {
@@ -76,77 +83,144 @@ func queryRoleStates(ctx context.Context, pool *pgxpool.Pool) (map[string]roleSt
 	for _, role := range seededRoles {
 		logins = append(logins, role.login)
 	}
+
 	rows, err := pool.Query(ctx, seededRoleStateQuery, logins, auditBaseRoles)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.seed_roles.state_read_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.seed_roles.state_read_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("audit seed-roles: read the login roles: %w", err)
 	}
+
 	states := make(map[string]roleState, len(seededRoles))
 	for _, role := range seededRoles {
 		states[role.login] = roleState{Exists: false, Login: false, MemberOf: []string{}}
 	}
+
 	defer rows.Close()
+
 	for rows.Next() {
 		var name string
 		var login bool
 		var memberOf []string
 		if err := rows.Scan(&name, &login, &memberOf); err != nil {
-			slog.ErrorContext(ctx, "audit.seed_roles.state_read_failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.seed_roles.state_read_failed",
+				slog.String("err", err.Error()),
+			)
+
 			return nil, fmt.Errorf("audit seed-roles: scan a login role: %w", err)
 		}
+
 		states[name] = roleState{Exists: true, Login: login, MemberOf: memberOf}
 	}
+
 	if err := rows.Err(); err != nil {
-		slog.ErrorContext(ctx, "audit.seed_roles.state_read_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.seed_roles.state_read_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("audit seed-roles: scan the login roles: %w", err)
 	}
+
 	return states, nil
 }
 
 // runAuditSeedRolesRecorded runs seed-roles with one step per login role. It
 // records the role attributes and audit base role memberships before and
 // after the seed. It refuses before any change when a password is missing.
-func runAuditSeedRolesRecorded(ctx context.Context, cfg *config.Config, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+func runAuditSeedRolesRecorded(
+	ctx context.Context,
+	cfg *config.Config,
+	steps audit.StepRecorder,
+) (audit.OutcomeDetails, error) {
 	if !seedRolesPasswordsSet(cfg) {
 		err := RunAuditSeedRoles(ctx, cfg)
 		return commandOutcome(audit.OutcomeRefused, commandConfigCode, err), err
 	}
+
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.QueryTracer{})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.seed_roles.pool_open_failed", slog.String("err", err.Error()))
-		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), fmt.Errorf("audit seed-roles: open admin pool: %w", err)
+
+		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), fmt.Errorf(
+			"audit seed-roles: open admin pool: %w",
+			err,
+		)
 	}
 	defer pool.Close()
 	before, err := readSeededRoleStates(ctx, pool)
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
+
 	begun := make([]audit.Event, 0, len(seededRoles))
 	for _, role := range seededRoles {
-		evidence := roleChangeEvidence{Role: role.login, BaseRole: role.base, Before: before[role.login], After: nil, PasswordSet: false}
+		evidence := roleChangeEvidence{
+			Role:        role.login,
+			BaseRole:    role.base,
+			Before:      before[role.login],
+			After:       nil,
+			PasswordSet: false,
+		}
 		encoded, err := encodeEvidence(ctx, evidence)
 		if err != nil {
 			return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 		}
+
 		step := audit.ExternalStep(externalTarget("yugabyte/role/"+role.login), encoded)
 		if err := steps.BeginStep(ctx, step); err != nil {
-			slog.ErrorContext(ctx, "audit.seed_roles.step_record_failed", slog.String("err", err.Error()))
-			return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), fmt.Errorf("audit seed-roles: record role %s: %w", role.login, err)
+			slog.ErrorContext(
+				ctx,
+				"audit.seed_roles.step_record_failed",
+				slog.String("err", err.Error()),
+			)
+
+			return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), fmt.Errorf(
+				"audit seed-roles: record role %s: %w",
+				role.login,
+				err,
+			)
 		}
+
 		begun = append(begun, step)
 	}
+
 	runErr := RunAuditSeedRoles(ctx, cfg)
 	after, readErr := readSeededRoleStates(ctx, pool)
 	if readErr != nil {
-		return commandOutcome(audit.OutcomeIncomplete, commandFailedCode, readErr), errors.Join(runErr, readErr)
+		return commandOutcome(audit.OutcomeIncomplete, commandFailedCode, readErr), errors.Join(
+			runErr,
+			readErr,
+		)
 	}
+
 	for index, role := range seededRoles {
-		if err := finishRoleStep(ctx, steps, begun[index], role, before[role.login], after[role.login], runErr); err != nil {
-			return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), errors.Join(runErr, err)
+		if err := finishRoleStep(
+			ctx,
+			steps,
+			begun[index],
+			role,
+			before[role.login],
+			after[role.login],
+			runErr,
+		); err != nil {
+			return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), errors.Join(
+				runErr,
+				err,
+			)
 		}
 	}
+
 	if runErr != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, runErr), runErr
 	}
+
 	return commandOutcome(audit.OutcomeCompleted, "", nil), nil
 }

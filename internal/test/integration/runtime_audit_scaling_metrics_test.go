@@ -35,7 +35,12 @@ func successfulToolText(response publicResponse) (string, error) {
 	}
 	if response.status != http.StatusOK || json.Unmarshal(response.body, &decoded) != nil ||
 		decoded.Result.IsError || len(decoded.Result.Content) == 0 {
-		return "", fmt.Errorf("%w: HTTP status %d; response body %s", errToolFailed, response.status, response.body)
+		return "", fmt.Errorf(
+			"%w: HTTP status %d; response body %s",
+			errToolFailed,
+			response.status,
+			response.body,
+		)
 	}
 	return decoded.Result.Content[0].Text, nil
 }
@@ -43,12 +48,22 @@ func successfulToolText(response publicResponse) (string, error) {
 // call selects an app handler by taking the index modulo the handler count and
 // sends an MCP tool call. It records the request count and response latency,
 // then returns the tool text or a response error.
-func (run *scalingRun) call(t *testing.T, index int, tool string, arguments map[string]any) (string, error) {
+func (run *scalingRun) call(
+	t *testing.T,
+	index int,
+	tool string,
+	arguments map[string]any,
+) (string, error) {
 	t.Helper()
 	server := *run.server
 	server.handler = run.handlers[index%len(run.handlers)]
 	started := clock.Now()
-	response := server.rpc(t, newRequestID(t, "scaling"), "tools/call", map[string]any{"name": tool, "arguments": arguments})
+	response := server.rpc(
+		t,
+		newRequestID(t, "scaling"),
+		"tools/call",
+		map[string]any{"name": tool, "arguments": arguments},
+	)
 	latency := clock.Since(started)
 	run.mu.Lock()
 	run.result.latencies = append(run.result.latencies, latency)
@@ -59,11 +74,20 @@ func (run *scalingRun) call(t *testing.T, index int, tool string, arguments map[
 
 // mustCall returns the tool text from call and fails the test if call returns
 // an error.
-func (run *scalingRun) mustCall(t *testing.T, index int, tool string, arguments map[string]any) string {
+func (run *scalingRun) mustCall(
+	t *testing.T,
+	index int,
+	tool string,
+	arguments map[string]any,
+) string {
 	t.Helper()
 	text, err := run.call(t, index, tool, arguments)
 	if err != nil {
-		t.Fatalf("The scaling workload received an error instead of a successful result from tool %s: %v", tool, err)
+		t.Fatalf(
+			"The scaling workload received an error instead of a successful result from tool %s: %v",
+			tool,
+			err,
+		)
 	}
 	return text
 }
@@ -74,12 +98,20 @@ func rawIDOf(text string) (string, error) {
 	const marker = "- Raw id: `"
 	start := strings.LastIndex(text, marker)
 	if start == -1 {
-		return "", fmt.Errorf("tool result does not contain a Raw id marker with a closing backtick: %w; result %s", errToolFailed, text)
+		return "", fmt.Errorf(
+			"tool result does not contain a Raw id marker with a closing backtick: %w; result %s",
+			errToolFailed,
+			text,
+		)
 	}
 	remainder := text[start+len(marker):]
 	end := strings.IndexByte(remainder, '`')
 	if end == -1 {
-		return "", fmt.Errorf("tool result does not contain a Raw id marker with a closing backtick: %w; result %s", errToolFailed, text)
+		return "", fmt.Errorf(
+			"tool result does not contain a Raw id marker with a closing backtick: %w; result %s",
+			errToolFailed,
+			text,
+		)
 	}
 	return remainder[:end], nil
 }
@@ -109,10 +141,14 @@ func (run *scalingRun) measure(t *testing.T) {
 	after := readLedgerStorage(t, admin)
 	run.result.ledgerIndexBytes = after.indexBytes - run.storageBefore.indexBytes
 	run.result.ledgerTotalBytes = after.totalBytes - run.storageBefore.totalBytes
-	run.result.eventBytes = perUnitGrowth(after.eventTableBytes-run.storageBefore.eventTableBytes,
-		after.events-run.storageBefore.events)
-	run.result.partBytes = perUnitGrowth(after.partTableBytes-run.storageBefore.partTableBytes,
-		after.parts-run.storageBefore.parts)
+	run.result.eventBytes = perUnitGrowth(
+		after.eventTableBytes-run.storageBefore.eventTableBytes,
+		after.events-run.storageBefore.events,
+	)
+	run.result.partBytes = perUnitGrowth(
+		after.partTableBytes-run.storageBefore.partTableBytes,
+		after.parts-run.storageBefore.parts,
+	)
 	run.measureFoundationDB(t)
 }
 
@@ -122,14 +158,20 @@ func (run *scalingRun) outboxEntries(t *testing.T) int {
 	t.Helper()
 	stores, err := fdbadapter.NewStores(run.server.clusterFile, 5*time.Second, nil)
 	if err != nil {
-		t.Fatalf("Opening FoundationDB stores failed; backlog measurement requires the outbox store: %v", err)
+		t.Fatalf(
+			"Opening FoundationDB stores failed; backlog measurement requires the outbox store: %v",
+			err,
+		)
 	}
 	count := 0
 	var mark []byte
 	for {
 		entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), mark, 1000)
 		if err != nil {
-			t.Fatalf("Reading the FoundationDB outbox failed; backlog measurement requires every batch: %v", err)
+			t.Fatalf(
+				"Reading the FoundationDB outbox failed; backlog measurement requires every batch: %v",
+				err,
+			)
 		}
 		if len(entries) == 0 {
 			return count
@@ -148,8 +190,14 @@ func (run *scalingRun) waitForLedger(t *testing.T, admin *pgxpool.Pool) (int64, 
 	var previous, events, size int64
 	deadline := scalingDeadline()
 	for clock.Now().Before(deadline) {
-		if err := admin.QueryRow(t.Context(), query, run.server.orgID).Scan(&events, &size); err != nil {
-			t.Fatalf("Reading the organization's ledger event count and row bytes failed; recovery measurement requires both values: %v", err)
+		if err := admin.QueryRow(t.Context(), query, run.server.orgID).Scan(
+			&events,
+			&size,
+		); err != nil {
+			t.Fatalf(
+				"Reading the organization's ledger event count and row bytes failed; recovery measurement requires both values: %v",
+				err,
+			)
 		}
 		if events > 0 && events == previous {
 			return events, size
@@ -157,6 +205,10 @@ func (run *scalingRun) waitForLedger(t *testing.T, admin *pgxpool.Pool) (int64, 
 		previous = events
 		time.Sleep(time.Second)
 	}
-	t.Fatalf("The ledger event count did not become positive and stable before the deadline for organization %s: %d events", run.server.orgID, events)
+	t.Fatalf(
+		"The ledger event count did not become positive and stable before the deadline for organization %s: %d events",
+		run.server.orgID,
+		events,
+	)
 	return 0, 0
 }

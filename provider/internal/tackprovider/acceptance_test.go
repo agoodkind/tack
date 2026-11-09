@@ -22,12 +22,19 @@ func TestSchemaImportPlanAndRefresh(t *testing.T) {
 		resource.TestCheckResourceAttr(schemaAddress, "pending.#", "0"),
 		resource.TestCheckResourceAttrSet(schemaAddress, "image_commit"),
 	)
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: providerFactories(),
-		Steps: []resource.TestStep{
-			importStep(environment, version),
-			{Config: acceptanceConfig, ConfigVariables: environment.variables(version), PlanOnly: true},
-			{RefreshState: true, Check: checks},
+	resource.Test(
+		t,
+		resource.TestCase{
+			ProtoV6ProviderFactories: providerFactories(),
+			Steps: []resource.TestStep{
+				importStep(environment, version),
+				{
+					Config:          acceptanceConfig,
+					ConfigVariables: environment.variables(version),
+					PlanOnly:        true,
+				},
+				{RefreshState: true, Check: checks},
+			},
 		},
-	})
+	)
 }

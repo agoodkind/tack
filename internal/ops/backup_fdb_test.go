@@ -27,17 +27,21 @@ func TestFDBBackupStartArgsAreContinuousWhenFlagIsFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fdbBackupStartArgs: %v", err)
 	}
+
 	joinedCommand := strings.Join(command, " ")
 	if strings.Contains(joinedCommand, "file:///") || strings.Contains(joinedCommand, " -w ") {
 		t.Fatalf("unexpected local snapshot arguments: %v", command)
 	}
+
 	if !strings.Contains(joinedCommand, "blobstore://") ||
 		!strings.Contains(joinedCommand, "--snapshot-interval 123 -z") {
 		t.Fatalf("missing continuous backup arguments: %v", command)
 	}
+
 	if len(binds) != 1 || binds[0] != "/srv/tack/fdb:/etc/foundationdb:ro" {
 		t.Fatalf("unexpected binds: %v", binds)
 	}
+
 	if extraHosts != nil {
 		t.Fatalf("unexpected extra hosts: %v", extraHosts)
 	}
@@ -56,6 +60,7 @@ func TestFDBBackupActiveFromStatusAcceptsConfiguredDestination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fdbBackupActiveFromStatus: %v", err)
 	}
+
 	if !active {
 		t.Fatal("expected configured active backup")
 	}
@@ -88,26 +93,32 @@ func TestFDBBackupActiveFromStatusRejectsDifferentDestination(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			status := "The backup on tag `default' is in progress to a blobstore URL.\n" +
-				"BackupURL: " + test.backupURL + "\n"
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				status := "The backup on tag `default' is in progress to a blobstore URL.\n" +
+					"BackupURL: " + test.backupURL + "\n"
 
-			active, err := fdbBackupActiveFromStatus(cfg, status)
-			if err == nil {
-				t.Fatal("expected destination mismatch error")
-			}
-			if active {
-				t.Fatal("mismatched backup must not be accepted as active")
-			}
-			if !strings.Contains(err.Error(), "different destination") {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if strings.Contains(err.Error(), test.backupURL) ||
-				strings.Contains(err.Error(), "status-access") ||
-				strings.Contains(err.Error(), "status-secret") {
-				t.Fatalf("error leaked BackupURL credentials: %v", err)
-			}
-		})
+				active, err := fdbBackupActiveFromStatus(cfg, status)
+				if err == nil {
+					t.Fatal("expected destination mismatch error")
+				}
+
+				if active {
+					t.Fatal("mismatched backup must not be accepted as active")
+				}
+
+				if !strings.Contains(err.Error(), "different destination") {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				if strings.Contains(err.Error(), test.backupURL) ||
+					strings.Contains(err.Error(), "status-access") ||
+					strings.Contains(err.Error(), "status-secret") {
+					t.Fatalf("error leaked BackupURL credentials: %v", err)
+				}
+			},
+		)
 	}
 }
 
@@ -123,9 +134,11 @@ func TestRedactSecretMasksS3Credentials(t *testing.T) {
 	if strings.Contains(got, cfg.BackupS3AccessKey) {
 		t.Fatalf("redacted text leaked access key: %q", got)
 	}
+
 	if strings.Contains(got, cfg.BackupS3SecretKey) {
 		t.Fatalf("redacted text leaked secret key: %q", got)
 	}
+
 	want := "blobstore://***REDACTED***:***REDACTED***@seaweedfs-s3:8333/run"
 	if got != want {
 		t.Fatalf("unexpected redacted text: got %q want %q", got, want)

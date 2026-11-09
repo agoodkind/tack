@@ -23,13 +23,16 @@ func bundleRowsFileNames(t *testing.T, dir string) []string {
 	if err != nil {
 		t.Fatalf("read bundle dir: %v", err)
 	}
+
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasPrefix(name, exportEventsPrefix) && strings.HasSuffix(name, exportEventsSuffix) {
+		if strings.HasPrefix(name, exportEventsPrefix) &&
+			strings.HasSuffix(name, exportEventsSuffix) {
 			names = append(names, name)
 		}
 	}
+
 	return names
 }
 
@@ -41,14 +44,17 @@ func publishedBundle(t *testing.T, dir string) (ExportManifest, []byte) {
 	if err != nil {
 		t.Fatalf("read published manifest: %v", err)
 	}
+
 	name, err := bundleEventsFileName(manifest)
 	if err != nil {
 		t.Fatalf("resolve the manifest's events file: %v", err)
 	}
+
 	rows, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
 		t.Fatalf("read the rows the manifest names: %v", err)
 	}
+
 	return manifest, rows
 }
 
@@ -65,16 +71,21 @@ func assertDirectoryHoldsOnlyItsBundle(t *testing.T, dir string) {
 		if nameErr != nil {
 			t.Fatalf("resolve the manifest's events file: %v", nameErr)
 		}
+
 		allowed[name] = true
 	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read bundle dir: %v", err)
 	}
+
 	for _, entry := range entries {
 		if !allowed[entry.Name()] {
-			t.Fatalf("the bundle directory still holds %s, which is not part of the published bundle",
-				entry.Name())
+			t.Fatalf(
+				"the bundle directory still holds %s, which is not part of the published bundle",
+				entry.Name(),
+			)
 		}
 	}
 }
@@ -82,9 +93,14 @@ func assertDirectoryHoldsOnlyItsBundle(t *testing.T, dir string) {
 // exportTestRows streams a correctly chained ledger of the requested size.
 func exportTestRows(t *testing.T, orgID uuid.UUID, rows int, observe func(int)) *ledgerRowStream {
 	t.Helper()
+
 	return &ledgerRowStream{
-		t: t, orgID: orgID, rows: rows, shards: 4,
-		base: time.Now().UTC().Add(-time.Duration(rows) * time.Second), observe: observe,
+		t:       t,
+		orgID:   orgID,
+		rows:    rows,
+		shards:  4,
+		base:    time.Now().UTC().Add(-time.Duration(rows) * time.Second),
+		observe: observe,
 	}
 }
 
@@ -96,6 +112,7 @@ func copyBundleRows(t *testing.T, fromDir, toDir, name string) {
 	if err != nil {
 		t.Fatalf("read rows %s: %v", name, err)
 	}
+
 	if err := os.WriteFile(filepath.Join(toDir, name), body, 0o600); err != nil {
 		t.Fatalf("place rows %s: %v", name, err)
 	}
@@ -111,10 +128,12 @@ func rewriteManifestField(t *testing.T, dir, key string, value *string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var loose map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &loose); err != nil {
 		t.Fatal(err)
 	}
+
 	if value == nil {
 		delete(loose, key)
 	} else {
@@ -122,12 +141,15 @@ func rewriteManifestField(t *testing.T, dir, key string, value *string) {
 		if marshalErr != nil {
 			t.Fatal(marshalErr)
 		}
+
 		loose[key] = encoded
 	}
+
 	edited, err := json.Marshal(loose)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(path, edited, 0o600); err != nil {
 		t.Fatal(err)
 	}

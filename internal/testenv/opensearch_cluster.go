@@ -29,14 +29,18 @@ func (w *clusterLogWriter) Write(chunk []byte) (int, error) {
 	if length >= clusterLogMaxBytes {
 		w.data = append(w.data[:0], chunk[length-clusterLogMaxBytes:]...)
 		w.truncated = true
+
 		return length, nil
 	}
+
 	if len(w.data)+length > clusterLogMaxBytes {
 		drop := len(w.data) + length - clusterLogMaxBytes
 		w.data = append(w.data[:0], w.data[drop:]...)
 		w.truncated = true
 	}
+
 	w.data = append(w.data, chunk...)
+
 	return length, nil
 }
 
@@ -44,6 +48,7 @@ func (w *clusterLogWriter) String() string {
 	if w.truncated {
 		return "[older log bytes omitted]\n" + string(w.data)
 	}
+
 	return string(w.data)
 }
 
@@ -74,7 +79,13 @@ type OpenSearchCluster struct {
 func StartOpenSearchCluster(t T, planned int) *OpenSearchCluster {
 	t.Helper()
 	cluster := &OpenSearchCluster{
-		Fixture:     OpenSearchFixture{Endpoint: "", CA: "", Username: "", Password: "", Container: ""},
+		Fixture: OpenSearchFixture{
+			Endpoint:  "",
+			CA:        "",
+			Username:  "",
+			Password:  "",
+			Container: "",
+		},
 		name:        "",
 		planned:     nil,
 		members:     nil,
@@ -84,7 +95,13 @@ func StartOpenSearchCluster(t T, planned int) *OpenSearchCluster {
 		users:       nil,
 		refusedPath: "",
 	}
-	cluster.run(t, func(ctx context.Context, cli *client.Client) error { return cluster.start(ctx, cli, planned) })
+	cluster.run(
+		t,
+		func(ctx context.Context, cli *client.Client) error {
+			return cluster.start(ctx, cli, planned)
+		},
+	)
+
 	return cluster
 }
 
@@ -93,20 +110,33 @@ func StartOpenSearchCluster(t T, planned int) *OpenSearchCluster {
 func (c *OpenSearchCluster) AddMember(t T) string {
 	t.Helper()
 	member := ""
-	c.run(t, func(ctx context.Context, cli *client.Client) error {
-		joined, err := c.join(ctx, cli)
-		if err != nil {
-			return err
-		}
-		member = joined
-		if err := writeContainerFile(ctx, cli, c.proxy, traefikDynamicPath, c.proxyConfig()); err != nil {
-			return err
-		}
-		if err := c.waitForProxy(ctx); err != nil {
-			return err
-		}
-		return c.waitForClusterSize(ctx)
-	})
+	c.run(
+		t,
+		func(ctx context.Context, cli *client.Client) error {
+			joined, err := c.join(ctx, cli)
+			if err != nil {
+				return err
+			}
+
+			member = joined
+			if err := writeContainerFile(
+				ctx,
+				cli,
+				c.proxy,
+				traefikDynamicPath,
+				c.proxyConfig(),
+			); err != nil {
+				return err
+			}
+
+			if err := c.waitForProxy(ctx); err != nil {
+				return err
+			}
+
+			return c.waitForClusterSize(ctx)
+		},
+	)
+
 	return member
 }
 
@@ -114,32 +144,62 @@ func (c *OpenSearchCluster) AddMember(t T) string {
 // member DOWN.
 func (c *OpenSearchCluster) StopMember(t T, member string) {
 	t.Helper()
-	c.run(t, func(ctx context.Context, cli *client.Client) error {
-		timeout := 0
-		if _, err := cli.ContainerStop(ctx, member, client.ContainerStopOptions{Signal: "", Timeout: &timeout}); err != nil {
-			slog.ErrorContext(ctx, "testenv.cluster.stop_failed", slog.String("err", err.Error()), slog.String("container", member))
-			return fmt.Errorf("stop OpenSearch member %s: %w", member, err)
-		}
-		c.stopped[member] = true
-		return c.waitForProxy(ctx)
-	})
+	c.run(
+		t,
+		func(ctx context.Context, cli *client.Client) error {
+			timeout := 0
+			if _, err := cli.ContainerStop(
+				ctx,
+				member,
+				client.ContainerStopOptions{Signal: "", Timeout: &timeout},
+			); err != nil {
+				slog.ErrorContext(
+					ctx,
+					"testenv.cluster.stop_failed",
+					slog.String("err", err.Error()),
+					slog.String("container", member),
+				)
+
+				return fmt.Errorf("stop OpenSearch member %s: %w", member, err)
+			}
+
+			c.stopped[member] = true
+
+			return c.waitForProxy(ctx)
+		},
+	)
 }
 
 // StartMember starts member's stopped container and waits until the member
 // answers an authenticated health request and the proxy reports it UP.
 func (c *OpenSearchCluster) StartMember(t T, member string) {
 	t.Helper()
-	c.run(t, func(ctx context.Context, cli *client.Client) error {
-		if _, err := cli.ContainerStart(ctx, member, client.ContainerStartOptions{}); err != nil {
-			slog.ErrorContext(ctx, "testenv.cluster.restart_failed", slog.String("err", err.Error()), slog.String("container", member))
-			return fmt.Errorf("start OpenSearch member %s: %w", member, err)
-		}
-		delete(c.stopped, member)
-		if err := waitForOpenSearchHealth(ctx, c.memberFixture(member)); err != nil {
-			return err
-		}
-		return c.waitForProxy(ctx)
-	})
+	c.run(
+		t,
+		func(ctx context.Context, cli *client.Client) error {
+			if _, err := cli.ContainerStart(
+				ctx,
+				member,
+				client.ContainerStartOptions{},
+			); err != nil {
+				slog.ErrorContext(
+					ctx,
+					"testenv.cluster.restart_failed",
+					slog.String("err", err.Error()),
+					slog.String("container", member),
+				)
+
+				return fmt.Errorf("start OpenSearch member %s: %w", member, err)
+			}
+
+			delete(c.stopped, member)
+			if err := waitForOpenSearchHealth(ctx, c.memberFixture(member)); err != nil {
+				return err
+			}
+
+			return c.waitForProxy(ctx)
+		},
+	)
 }
 
 // Members returns the container names of every joined member in join order.
@@ -154,30 +214,53 @@ func (c *OpenSearchCluster) MemberLogTail(ctx context.Context, member string) (s
 	if !slices.Contains(c.members, member) {
 		return "", fmt.Errorf("member %s is not joined to cluster %s", member, c.name)
 	}
+
 	readContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), clusterLogTimeout)
 	defer cancel()
 	cli, err := dockerClient(readContext)
 	if err != nil {
 		return "", err
 	}
+
 	defer func() { _ = cli.Close() }()
-	stream, err := cli.ContainerLogs(readContext, member, client.ContainerLogsOptions{
-		ShowStdout: true, ShowStderr: true, Timestamps: true,
-		Follow: false, Tail: clusterLogLines,
-	})
+	stream, err := cli.ContainerLogs(
+		readContext,
+		member,
+		client.ContainerLogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Timestamps: true,
+			Follow:     false,
+			Tail:       clusterLogLines,
+		},
+	)
 	if err != nil {
-		slog.WarnContext(readContext, "testenv.cluster.logs_unavailable", slog.String("member", member), slog.String("reason", err.Error()))
+		slog.WarnContext(
+			readContext,
+			"testenv.cluster.logs_unavailable",
+			slog.String("member", member),
+			slog.String("reason", err.Error()),
+		)
+
 		return "", fmt.Errorf("read logs for member %s: %w", member, err)
 	}
+
 	defer func() { _ = stream.Close() }()
 	stopClose := context.AfterFunc(readContext, func() { _ = stream.Close() })
 	defer stopClose()
 	var output clusterLogWriter
 	_, err = stdcopy.StdCopy(&output, &output, stream)
 	if err != nil {
-		slog.WarnContext(readContext, "testenv.cluster.logs_unreadable", slog.String("member", member), slog.String("reason", err.Error()))
+		slog.WarnContext(
+			readContext,
+			"testenv.cluster.logs_unreadable",
+			slog.String("member", member),
+			slog.String("reason", err.Error()),
+		)
+
 		return output.String(), fmt.Errorf("read bounded logs for member %s: %w", member, err)
 	}
+
 	return output.String(), nil
 }
 
@@ -199,6 +282,7 @@ func (c *OpenSearchCluster) run(t T, step func(context.Context, *client.Client) 
 		err = step(ctx, cli)
 		_ = cli.Close()
 	}
+
 	if err != nil {
 		_, _ = fmt.Fprintf(t.Output(), "testenv: %v\n", err)
 		t.FailNow()
@@ -210,44 +294,71 @@ func (c *OpenSearchCluster) run(t T, step func(context.Context, *client.Client) 
 // the proxy.
 func (c *OpenSearchCluster) start(ctx context.Context, cli *client.Client, planned int) error {
 	if planned < 1 {
-		return fmt.Errorf("an OpenSearch cluster needs at least one planned member, not %d", planned)
+		return fmt.Errorf(
+			"an OpenSearch cluster needs at least one planned member, not %d",
+			planned,
+		)
 	}
+
 	if err := ensureNetwork(ctx, cli); err != nil {
 		return err
 	}
+
 	if err := joinNetworkWhenContainerized(ctx, cli); err != nil {
 		return err
 	}
+
 	suffix, err := randomHex(ctx, 4)
 	if err != nil {
 		return err
 	}
+
 	c.name = "tack-testenv-search-" + strconv.Itoa(os.Getpid()) + "-" + suffix
+
 	for number := 1; number <= planned; number++ {
 		c.planned = append(c.planned, c.name+"-"+strconv.Itoa(number))
 	}
+
 	c.proxy = c.name + "-proxy"
 	if c.authority, err = newClusterAuthority(ctx); err != nil {
 		return err
 	}
+
 	pass, err := randomHex(ctx, 24)
 	if err != nil {
 		return err
 	}
+
 	if c.users, err = openSearchInternalUsers(ctx, openSearchAdminUser, pass); err != nil {
 		return err
 	}
-	c.Fixture = OpenSearchFixture{Endpoint: c.MemberEndpoint(c.proxy), CA: string(c.authority.pem), Username: openSearchAdminUser, Password: pass, Container: c.proxy}
+
+	c.Fixture = OpenSearchFixture{
+		Endpoint:  c.MemberEndpoint(c.proxy),
+		CA:        string(c.authority.pem),
+		Username:  openSearchAdminUser,
+		Password:  pass,
+		Container: c.proxy,
+	}
 	if _, err := c.join(ctx, cli); err != nil {
 		return err
 	}
+
 	if err := c.startProxy(ctx, cli); err != nil {
 		return err
 	}
+
 	if err := c.waitForProxy(ctx); err != nil {
 		return err
 	}
-	slog.InfoContext(ctx, "testenv.cluster.started", slog.String("cluster", c.name), slog.Int("planned", planned))
+
+	slog.InfoContext(
+		ctx,
+		"testenv.cluster.started",
+		slog.String("cluster", c.name),
+		slog.Int("planned", planned),
+	)
+
 	return waitForOpenSearchHealth(ctx, c.Fixture)
 }
 
@@ -256,12 +367,19 @@ func (c *OpenSearchCluster) start(ctx context.Context, cli *client.Client, plann
 // cluster.
 func (c *OpenSearchCluster) join(ctx context.Context, cli *client.Client) (string, error) {
 	if len(c.members) == len(c.planned) {
-		return "", fmt.Errorf("cluster %s already runs all %d planned members", c.name, len(c.planned))
+		return "", fmt.Errorf(
+			"cluster %s already runs all %d planned members",
+			c.name,
+			len(c.planned),
+		)
 	}
+
 	member := c.planned[len(c.members)]
 	if err := c.startMember(ctx, cli, member); err != nil {
 		return "", err
 	}
+
 	c.members = append(c.members, member)
+
 	return member, waitForOpenSearchHealth(ctx, c.memberFixture(member))
 }

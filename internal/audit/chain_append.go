@@ -45,16 +45,26 @@ type chainAppendResult struct {
 // new time, and the ledger took it as a second row: the ledger reconstruction
 // wrote its whole history twice that way (TACK-451). One identity is one row.
 func claimEventIdentity(ctx context.Context, tx pgx.Tx, eventID uuid.UUID) (bool, error) {
-	tag, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(
+		ctx,
+		`
 		INSERT INTO audit.projected_events (event_id)
 		VALUES ($1)
 		ON CONFLICT (event_id) DO NOTHING
-	`, eventID)
+	`,
+		eventID,
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.chain.identity_claim_failed",
-			slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.chain.identity_claim_failed",
+			slog.String("event_id", eventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return false, fmt.Errorf("claim event identity %s: %w", eventID, err)
 	}
+
 	return tag.RowsAffected() == 1, nil
 }
 
@@ -67,36 +77,56 @@ func claimEventIdentity(ctx context.Context, tx pgx.Tx, eventID uuid.UUID) (bool
 //
 // It returns errAlreadyProjected when the event's identity is already in the
 // ledger, and errChainConflict when the head moved underneath it.
-func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainAppendResult, error) {
+func appendChainRow(
+	ctx context.Context,
+	tx pgx.Tx,
+	in chainAppendInput,
+) (chainAppendResult, error) {
 	// The function validates each event before claiming its identity. The
 	// consumer stores rejected events in the dead-letter table. Only format 0
 	// events without an outcome default to ok.
 	if err := ValidateEvent(in.Event); err != nil {
-		slog.ErrorContext(ctx, "audit.chain.event_invalid",
-			slog.String("event_id", in.EventID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.chain.event_invalid",
+			slog.String("event_id", in.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return chainAppendResult{}, fmt.Errorf("%w: %w", errMalformedPayload, err)
 	}
+
 	if in.Event.Outcome == "" && in.Event.Context.AuditFormatVersion == AuditFormatLegacy {
 		in.Event.Outcome = OutcomeOK
 	}
+
 	claimed, err := claimEventIdentity(ctx, tx, in.EventID)
 	if err != nil {
 		return chainAppendResult{}, err
 	}
+
 	if !claimed {
 		return chainAppendResult{}, errAlreadyProjected
 	}
+
 	head, err := readChainHead(ctx, tx, in.Event.Context.OrgID, in.Shard)
 	if err != nil {
 		return chainAppendResult{}, err
 	}
+
 	lastHash := head.LastHash
 	seq := head.LastSeq + 1
 
 	rowHash, err := hashRowForEvent(rowHashInput{
-		Event: in.Event, EventID: in.EventID, Shard: in.Shard, Seq: seq,
-		PIIRef: in.PIIRef, ContextJSON: in.ContextJSON, DeltaJSON: in.DeltaJSON,
-		LastHash: lastHash, Version: auditHashVersionCurrent,
+		Event:       in.Event,
+		EventID:     in.EventID,
+		Shard:       in.Shard,
+		Seq:         seq,
+		PIIRef:      in.PIIRef,
+		ContextJSON: in.ContextJSON,
+		DeltaJSON:   in.DeltaJSON,
+		LastHash:    lastHash,
+		Version:     auditHashVersionCurrent,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.chain.hash_failed", slog.String("err", err.Error()))
@@ -112,13 +142,21 @@ func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainA
 	if in.Event.Error != nil {
 		encoded, err := json.Marshal(in.Event.Error)
 		if err != nil {
-			slog.ErrorContext(ctx, "audit.chain.error_marshal_failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.chain.error_marshal_failed",
+				slog.String("err", err.Error()),
+			)
+
 			return chainAppendResult{}, fmt.Errorf("event error marshal: %w", err)
 		}
+
 		errorJSON = encoded
 	}
 
-	tag, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(
+		ctx,
+		`
 		INSERT INTO audit.events (
 			org_id, shard, event_time, event_id, seq,
 			actor_id, actor_kind, action, outcome, entity_kind, entity_id,
@@ -133,21 +171,45 @@ func appendChainRow(ctx context.Context, tx pgx.Tx, in chainAppendInput) (chainA
 		// event_time is truncated to microseconds before binding so the stored
 		// value is byte-identical to the value the version 3 hash covered, by
 		// construction rather than by trusting the driver's rounding.
-		in.Event.Context.OrgID, in.Shard, in.Event.OccurredAt.UTC().Truncate(time.Microsecond), in.EventID, seq,
-		in.Event.Actor.ID, actorKindCode(in.Event.Actor.Type), in.Event.Verb, in.Event.Outcome,
-		in.Event.Entity.Type, in.Event.Entity.ID,
-		in.ContextJSON, in.DeltaJSON, piiRefArg(in.PIIRef), lastHash, rowHash,
-		errorJSON, nullableJSON(in.Event.Extra), auditHashVersionCurrent, in.Event.IdempotencyKey,
+		in.Event.Context.OrgID,
+		in.Shard,
+		in.Event.OccurredAt.UTC().Truncate(time.Microsecond),
+		in.EventID,
+		seq,
+		in.Event.Actor.ID,
+		actorKindCode(in.Event.Actor.Type),
+		in.Event.Verb,
+		in.Event.Outcome,
+		in.Event.Entity.Type,
+		in.Event.Entity.ID,
+		in.ContextJSON,
+		in.DeltaJSON,
+		piiRefArg(in.PIIRef),
+		lastHash,
+		rowHash,
+		errorJSON,
+		nullableJSON(in.Event.Extra),
+		auditHashVersionCurrent,
+		in.Event.IdempotencyKey,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.chain.event_insert_failed", slog.String("err", err.Error()))
 		return chainAppendResult{}, fmt.Errorf("event insert: %w", err)
 	}
+
 	if tag.RowsAffected() == 0 {
 		return chainAppendResult{}, errAlreadyProjected
 	}
 
-	if err := writeChainHead(ctx, tx, in.Event.Context.OrgID, in.Shard, head, seq, rowHash); err != nil {
+	if err := writeChainHead(
+		ctx,
+		tx,
+		in.Event.Context.OrgID,
+		in.Shard,
+		head,
+		seq,
+		rowHash,
+	); err != nil {
 		return chainAppendResult{}, err
 	}
 
@@ -158,6 +220,7 @@ func nullableJSON(value json.RawMessage) []byte {
 	if len(value) == 0 {
 		return nil
 	}
+
 	return value
 }
 
@@ -168,9 +231,11 @@ func isRetryableChainErr(err error) bool {
 	if errors.Is(err, errChainConflict) {
 		return true
 	}
+
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		return pgErr.Code == "40001" || pgErr.Code == "40P01"
 	}
+
 	return false
 }

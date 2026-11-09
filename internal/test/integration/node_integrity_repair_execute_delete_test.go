@@ -27,14 +27,23 @@ func TestNodeIntegrityRepairExecuteDeletesAfterVerifiedExport(t *testing.T) {
 	kept := createRepairComment(t, env, issueID, graph.projectID, "Useful comment")
 	exportDir := repairDirectory(t)
 	missingDir := filepath.Join(exportDir, "later")
-	first := commentDeleteEntry("tack-582-delete-smoke", createRepairComment(t, env, issueID, graph.projectID, "Smoke comment"), filepath.Join(exportDir, "smoke.json"))
-	second := commentDeleteEntry("tack-582-delete-later", createRepairComment(t, env, issueID, graph.projectID, "Smoke comment"), filepath.Join(missingDir, "later.json"))
+	first := commentDeleteEntry(
+		"tack-582-delete-smoke",
+		createRepairComment(t, env, issueID, graph.projectID, "Smoke comment"),
+		filepath.Join(exportDir, "smoke.json"),
+	)
+	second := commentDeleteEntry(
+		"tack-582-delete-later",
+		createRepairComment(t, env, issueID, graph.projectID, "Smoke comment"),
+		filepath.Join(missingDir, "later.json"),
+	)
 	manifest := freezeRepairRequest(t, repairRequest(first, second))
 
 	applied, err := executeRepairManifest(t, manifest)
 	if err == nil {
 		t.Fatal("execute with a missing export directory succeeded")
 	}
+
 	requireApplyStatus(t, applied, first.RepairID, ops.RepairApplyApplied)
 	requireApplyStatus(t, applied, second.RepairID, ops.RepairApplyFailed)
 	requireExportFile(t, first.Delete.ExportFile, manifest.Entries[0], issueID)
@@ -46,15 +55,19 @@ func TestNodeIntegrityRepairExecuteDeletesAfterVerifiedExport(t *testing.T) {
 	if err := os.Mkdir(missingDir, 0o700); err != nil {
 		t.Fatalf("create export directory %s: %v", missingDir, err)
 	}
+
 	resumed, err := executeRepairManifest(t, manifest)
 	if err != nil {
 		t.Fatalf("execute after creating the export directory: %v", err)
 	}
+
 	requireApplyStatus(t, resumed, first.RepairID, ops.RepairApplyUnchanged)
 	outcome := requireApplyStatus(t, resumed, second.RepairID, ops.RepairApplyApplied)
-	if len(outcome.Committed) != 2 || outcome.Committed[0] != node.RepairPhaseExported || outcome.Committed[1] != node.RepairPhaseCompleted {
+	if len(outcome.Committed) != 2 || outcome.Committed[0] != node.RepairPhaseExported ||
+		outcome.Committed[1] != node.RepairPhaseCompleted {
 		t.Fatalf("resumed entry committed %v, want exported then completed", outcome.Committed)
 	}
+
 	requireExportFile(t, second.Delete.ExportFile, manifest.Entries[1], issueID)
 	requireRepairNodeAbsent(t, env, second.NodeID)
 	requireRepairNodePresent(t, env, issueID)
@@ -71,14 +84,27 @@ func TestNodeIntegrityRepairExecuteDeletesAfterVerifiedExport(t *testing.T) {
 func TestNodeIntegrityRepairExecuteDeleteStopsChangedSource(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
-	entry := deleteFixtureEntry(t, env, graph, "tack-582-delete-changed", filepath.Join(repairDirectory(t), "changed.json"))
-	childID := createRepairComment(t, env, entry.NodeID, graph.projectID, "Comment under the fixture issue")
+	entry := deleteFixtureEntry(
+		t,
+		env,
+		graph,
+		"tack-582-delete-changed",
+		filepath.Join(repairDirectory(t), "changed.json"),
+	)
+	childID := createRepairComment(
+		t,
+		env,
+		entry.NodeID,
+		graph.projectID,
+		"Comment under the fixture issue",
+	)
 	manifest := freezeRepairRequest(t, repairRequest(entry))
 
 	applied, err := executeRepairManifest(t, manifest)
 	if err == nil {
 		t.Fatal("execute a delete of a node with a hierarchy child succeeded")
 	}
+
 	requireApplyStatus(t, applied, entry.RepairID, ops.RepairApplyFailed)
 	requireCheckpointPhase(t, env, entry.RepairID, node.RepairPhaseExported)
 	requireExportFile(t, entry.Delete.ExportFile, manifest.Entries[0], graph.projectID)
@@ -88,29 +114,57 @@ func TestNodeIntegrityRepairExecuteDeleteStopsChangedSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute after the source changed: %v", err)
 	}
+
 	requireApplyStatus(t, resumed, entry.RepairID, ops.RepairApplyConflicted)
 	requireCheckpointPhase(t, env, entry.RepairID, node.RepairPhaseExported)
 	requireRepairNodePresent(t, env, entry.NodeID)
 	requireRepairNodePresent(t, env, childID)
 }
 
-func commentDeleteEntry(repairID string, commentID uuid.UUID, exportFile string) ops.NodeIntegrityEntry {
+func commentDeleteEntry(
+	repairID string,
+	commentID uuid.UUID,
+	exportFile string,
+) ops.NodeIntegrityEntry {
 	return ops.NodeIntegrityEntry{
-		RepairID: repairID, NodeID: commentID, NodeType: "comment", Status: ops.RepairEntryExecutable,
-		Classes: []string{"test_fixture"},
-		Evidence: []ops.RepairEvidence{{
-			Kind: ops.RepairEvidenceDecision, Reference: "TACK-582 test comment", Summary: "The comment is a post-deploy smoke fixture.",
-		}},
-		Result: ops.RepairResult{}, Delete: &ops.RepairDelete{ExportFile: exportFile},
+		RepairID: repairID,
+		NodeID:   commentID,
+		NodeType: "comment",
+		Status:   ops.RepairEntryExecutable,
+		Classes:  []string{"test_fixture"},
+		Evidence: []ops.RepairEvidence{
+			{
+				Kind:      ops.RepairEvidenceDecision,
+				Reference: "TACK-582 test comment",
+				Summary:   "The comment is a post-deploy smoke fixture.",
+			},
+		},
+		Result: ops.RepairResult{},
+		Delete: &ops.RepairDelete{ExportFile: exportFile},
 	}
 }
 
-func createRepairComment(t *testing.T, env *integration.TestEnv, parentID, projectID uuid.UUID, name string) uuid.UUID {
+func createRepairComment(
+	t *testing.T,
+	env *integration.TestEnv,
+	parentID uuid.UUID,
+	projectID uuid.UUID,
+	name string,
+) uuid.UUID {
 	t.Helper()
-	return createRepairNode(t, env, service.CreateInput{
-		ParentID: parentID, ScopeID: projectID, NodeTypeKey: "comment", Name: name,
-		Props: map[string]json.RawMessage{"description": textValue(name)}, ActorID: uuid.New(),
-	})
+
+	return createRepairNode(
+		t,
+		env,
+		service.CreateInput{
+			ParentID:    parentID,
+			ScopeID:     projectID,
+			NodeTypeKey: "comment",
+			Name:        name,
+			Props:       map[string]json.RawMessage{"description": textValue(name)},
+			ActorID:     uuid.New(),
+		},
+	)
 }
 
 func requireRepairNodeAbsent(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) {
@@ -119,6 +173,7 @@ func requireRepairNodeAbsent(t *testing.T, env *integration.TestEnv, nodeID uuid
 	if err != nil || primary != nil {
 		t.Fatalf("read primary record %s = %+v, %v, want no record", nodeID, primary, err)
 	}
+
 	view, err := env.Stores.Views.Get(env.Ctx, nodeID)
 	if err != nil || view != nil {
 		t.Fatalf("read view %s = %+v, %v, want no view", nodeID, view, err)

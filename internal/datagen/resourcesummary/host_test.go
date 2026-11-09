@@ -26,7 +26,12 @@ func TestSummarizeHostFixture(t *testing.T) {
 		t.Errorf("samples = %d, failed = %d, want 3 and 1", got.Samples, got.FailedSamples)
 	}
 	if !got.First.Equal(windowStart) || got.Elapsed() != time.Minute {
-		t.Errorf("first = %s, elapsed = %s, want %s and 1m0s", got.First, got.Elapsed(), windowStart)
+		t.Errorf(
+			"first = %s, elapsed = %s, want %s and 1m0s",
+			got.First,
+			got.Elapsed(),
+			windowStart,
+		)
 	}
 	figures := []struct {
 		name string

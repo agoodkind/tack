@@ -27,6 +27,7 @@ func TestSchemaDiagnosticsOmitToken(t *testing.T) {
 	missingDirectory.installDir = missingInstallDir
 	inaccessibleGuest := environment
 	inaccessibleGuest.vmid = inaccessibleVMID
+
 	cases := []struct {
 		name        string
 		environment acceptanceEnvironment
@@ -40,33 +41,50 @@ func TestSchemaDiagnosticsOmitToken(t *testing.T) {
 		{
 			name:        "inaccessible guest",
 			environment: inaccessibleGuest,
-			want:        regexp.MustCompile(`Proxmox API request failed|Cannot contact the Tack guest`),
+			want: regexp.MustCompile(
+				`Proxmox API request failed|Cannot contact the Tack guest`,
+			),
 		},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			planFailed := false
-			resource.Test(t, resource.TestCase{
-				ProtoV6ProviderFactories: providerFactories(),
-				ErrorCheck: func(err error) error {
-					if strings.Contains(err.Error(), environment.secret()) {
-						return errors.New("the plan diagnostics contain the API token secret")
-					}
-					if !testCase.want.MatchString(err.Error()) {
-						return err
-					}
-					planFailed = true
-					return nil
-				},
-				Steps: []resource.TestStep{{
-					Config:          acceptanceConfig,
-					ConfigVariables: testCase.environment.variables(environment.appliedVersion),
-					PlanOnly:        true,
-				}},
-			})
-			if !planFailed {
-				t.Fatalf("the plan succeeded, want an error that matches %q", testCase.want)
-			}
-		})
+		t.Run(
+			testCase.name,
+			func(t *testing.T) {
+				planFailed := false
+				resource.Test(
+					t,
+					resource.TestCase{
+						ProtoV6ProviderFactories: providerFactories(),
+						ErrorCheck: func(err error) error {
+							if strings.Contains(err.Error(), environment.secret()) {
+								return errors.New(
+									"the plan diagnostics contain the API token secret",
+								)
+							}
+
+							if !testCase.want.MatchString(err.Error()) {
+								return err
+							}
+
+							planFailed = true
+
+							return nil
+						},
+						Steps: []resource.TestStep{
+							{
+								Config: acceptanceConfig,
+								ConfigVariables: testCase.environment.variables(
+									environment.appliedVersion,
+								),
+								PlanOnly: true,
+							},
+						},
+					},
+				)
+				if !planFailed {
+					t.Fatalf("the plan succeeded, want an error that matches %q", testCase.want)
+				}
+			},
+		)
 	}
 }

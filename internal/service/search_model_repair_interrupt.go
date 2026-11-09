@@ -18,19 +18,42 @@ const modelRepairUncountTimeout = 5 * time.Second
 // toward the cap, and its claim time keeps the spacing. The next check from
 // any process reads the model state and active tasks before another deploy.
 // The record write uses its own bounded context.
-func (r *SearchModelRepair) deployInterrupted(ctx context.Context, claim searchdomain.ModelRepairClaim, taskID string) error {
+func (r *SearchModelRepair) deployInterrupted(
+	ctx context.Context,
+	claim searchdomain.ModelRepairClaim,
+	taskID string,
+) error {
 	record := claim.Record
-	telemetry.L(ctx).InfoContext(ctx, "search.model_repair.deploy_interrupted", slog.String("model_id", record.ModelID),
-		slog.String("task_id", taskID), slog.Int("attempt", record.Attempts))
-	writeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), modelRepairUncountTimeout)
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.model_repair.deploy_interrupted",
+		slog.String("model_id", record.ModelID),
+		slog.String("task_id", taskID),
+		slog.Int("attempt", record.Attempts),
+	)
+	writeContext, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		modelRepairUncountTimeout,
+	)
 	defer cancel()
 	uncounted, err := r.ports.Records.UncountModelRepair(writeContext, claim)
 	if err != nil {
-		return modelRepairFailure(writeContext, "uncount interrupted repair of model "+record.ModelID, err)
+		return modelRepairFailure(
+			writeContext,
+			"uncount interrupted repair of model "+record.ModelID,
+			err,
+		)
 	}
+
 	if !uncounted {
-		telemetry.L(ctx).InfoContext(ctx, "search.model_repair.interrupt_stale", slog.String("model_id", record.ModelID),
-			slog.String("task_id", taskID), slog.Int("attempt", record.Attempts))
+		telemetry.L(ctx).InfoContext(
+			ctx,
+			"search.model_repair.interrupt_stale",
+			slog.String("model_id", record.ModelID),
+			slog.String("task_id", taskID),
+			slog.Int("attempt", record.Attempts),
+		)
 	}
+
 	return nil
 }

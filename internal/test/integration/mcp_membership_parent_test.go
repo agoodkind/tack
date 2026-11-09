@@ -25,6 +25,7 @@ func TestMembershipEdgesAreNotParents(t *testing.T) {
 	issue := harness.CreateIssue(t, "member issue")
 	issueID := harness.rawID(t, "tack_get_issue", issue)
 	containers := make([]string, 0, 3)
+
 	for _, tool := range []string{"tack_create_cycle", "tack_create_module", "tack_create_epic"} {
 		arguments := harness.projectArgs()
 		arguments.Name = "Container " + tool
@@ -32,26 +33,44 @@ func TestMembershipEdgesAreNotParents(t *testing.T) {
 		if rawID == "" {
 			t.Fatalf("%s returned no raw id", tool)
 		}
+
 		containers = append(containers, rawID)
-		harness.Call(t, "tack_add_relationship", relationshipToolArguments(issue, "member_of", rawID))
+		harness.Call(
+			t,
+			"tack_add_relationship",
+			relationshipToolArguments(issue, "member_of", rawID),
+		)
 	}
 
 	stores, err := fdbadapter.NewStores(testenv.FoundationDB(t), testTransactionTimeout, nil)
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
-	if _, err := stores.SearchPolicySet().Index(t.Context(), searchaccess.IndexAccessRequest{
-		Version: searchaccess.StableVersion, OrganizationID: harness.orgID, ResourceID: uuid.MustParse(issueID), Generation: 1,
-	}); err != nil {
+
+	if _, err := stores.SearchPolicySet().Index(
+		t.Context(),
+		searchaccess.IndexAccessRequest{
+			Version:        searchaccess.StableVersion,
+			OrganizationID: harness.orgID,
+			ResourceID:     uuid.MustParse(issueID),
+			Generation:     1,
+		},
+	); err != nil {
 		t.Errorf("search access of issue %s with member_of edges: %v", issueID, err)
 	}
 
-	refusal := harness.CallExpectError(t, "tack_add_relationship", relationshipToolArguments(issue, "child_of", containers[0]))
+	refusal := harness.CallExpectError(
+		t,
+		"tack_add_relationship",
+		relationshipToolArguments(issue, "child_of", containers[0]),
+	)
 	if !strings.Contains(refusal, reservedParentText) {
 		t.Fatalf("child_of add failed with %q, want the reserved relation type error", refusal)
 	}
+
 	parents := harness.outgoingRelationships(t, issue, "child_of")
-	if strings.Contains(parents, containers[0]) || !strings.Contains(parents, "- Target: `"+harness.Project+"`") {
+	if strings.Contains(parents, containers[0]) ||
+		!strings.Contains(parents, "- Target: `"+harness.Project+"`") {
 		t.Fatalf("child_of edges of issue %s after the refused add:\n%s", issue, parents)
 	}
 }

@@ -34,6 +34,7 @@ func protectedSubject(target Target) uuid.UUID {
 	if target.OwnerID != uuid.Nil {
 		return target.OwnerID
 	}
+
 	return target.ID
 }
 
@@ -49,26 +50,44 @@ func validateProtected(event Event) error {
 			return err
 		}
 	}
+
 	if len(references) == 0 && len(event.Protected) == 0 {
 		return nil
 	}
+
 	if event.Context.Target == nil {
 		return errors.New("protected values require a target")
 	}
+
 	if len(references) != len(event.Protected) {
-		return fmt.Errorf("delta has %d protected references for %d protected values", len(references), len(event.Protected))
+		return fmt.Errorf(
+			"delta has %d protected references for %d protected values",
+			len(references),
+			len(event.Protected),
+		)
 	}
+
 	for _, value := range event.Protected {
 		switch {
 		case value.SubjectID != protectedSubject(*event.Context.Target):
-			return fmt.Errorf("protected value %s subject %s does not match target subject %s", value.Ref, value.SubjectID, protectedSubject(*event.Context.Target))
+			return fmt.Errorf(
+				"protected value %s subject %s does not match target subject %s",
+				value.Ref,
+				value.SubjectID,
+				protectedSubject(*event.Context.Target),
+			)
 		case !references[value.Ref]:
-			return fmt.Errorf("protected value %s does not have a reference in the delta", value.Ref)
+			return fmt.Errorf(
+				"protected value %s does not have a reference in the delta",
+				value.Ref,
+			)
 		case !json.Valid(value.Value):
 			return fmt.Errorf("protected value %s is not valid JSON", value.Ref)
 		}
+
 		delete(references, value.Ref)
 	}
+
 	return nil
 }
 
@@ -76,28 +95,35 @@ func validateProtected(event Event) error {
 // Before and After. It rejects nil and repeated references.
 func deltaReferences(delta *Delta) (map[uuid.UUID]bool, error) {
 	references := map[uuid.UUID]bool{}
+
 	for _, record := range []json.RawMessage{delta.Before, delta.After} {
 		if len(record) == 0 {
 			continue
 		}
+
 		var members map[string]json.RawMessage
 		if err := json.Unmarshal(record, &members); err != nil {
 			continue
 		}
+
 		for _, member := range members {
 			ref, found := protectedReference(member)
 			if !found {
 				continue
 			}
+
 			if ref == uuid.Nil {
 				return nil, errors.New("delta has an invalid protected reference")
 			}
+
 			if references[ref] {
 				return nil, fmt.Errorf("delta repeats protected reference %s", ref)
 			}
+
 			references[ref] = true
 		}
 	}
+
 	return references, nil
 }
 
@@ -109,13 +135,16 @@ func protectedReference(member json.RawMessage) (uuid.UUID, bool) {
 	if err := json.Unmarshal(member, &fields); err != nil || len(fields) != 1 {
 		return uuid.Nil, false
 	}
+
 	if _, found := fields[protectedReferenceKey]; !found {
 		return uuid.Nil, false
 	}
+
 	var reference ProtectedReference
 	if err := json.Unmarshal(member, &reference); err != nil {
 		return uuid.Nil, true
 	}
+
 	return reference.PIIRef, true
 }
 
@@ -127,9 +156,11 @@ func writeEventPII(ctx context.Context, tx pgx.Tx, event Event) (uuid.UUID, erro
 	if err != nil {
 		return uuid.Nil, err
 	}
+
 	if err := writeProtectedValues(ctx, tx, event); err != nil {
 		return uuid.Nil, err
 	}
+
 	return piiRef, nil
 }
 
@@ -139,20 +170,49 @@ func writeEventPII(ctx context.Context, tx pgx.Tx, event Event) (uuid.UUID, erro
 // It skips inserts that conflict with existing rows.
 func writeProtectedValues(ctx context.Context, tx pgx.Tx, event Event) error {
 	if err := validateProtected(event); err != nil {
-		slog.ErrorContext(ctx, "audit.protected.invalid",
-			slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("%w: validate protected values for event %s: %w", errMalformedPayload, event.EventID, err)
+		slog.ErrorContext(
+			ctx,
+			"audit.protected.invalid",
+			slog.String("event_id", event.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
+		return fmt.Errorf(
+			"%w: validate protected values for event %s: %w",
+			errMalformedPayload,
+			event.EventID,
+			err,
+		)
 	}
+
 	for _, value := range event.Protected {
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(
+			ctx,
+			`
 			INSERT INTO audit.pii (pii_ref, payload, redacted, subject_id, org_id)
 			VALUES ($1, $2, false, $3, $4)
 			ON CONFLICT DO NOTHING
-		`, value.Ref, []byte(value.Value), value.SubjectID, event.Context.OrgID); err != nil {
-			slog.ErrorContext(ctx, "audit.protected.insert_failed",
-				slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
-			return fmt.Errorf("insert protected value %s of event %s: %w", value.Ref, event.EventID, err)
+		`,
+			value.Ref,
+			[]byte(value.Value),
+			value.SubjectID,
+			event.Context.OrgID,
+		); err != nil {
+			slog.ErrorContext(
+				ctx,
+				"audit.protected.insert_failed",
+				slog.String("event_id", event.EventID.String()),
+				slog.String("err", err.Error()),
+			)
+
+			return fmt.Errorf(
+				"insert protected value %s of event %s: %w",
+				value.Ref,
+				event.EventID,
+				err,
+			)
 		}
 	}
+
 	return nil
 }

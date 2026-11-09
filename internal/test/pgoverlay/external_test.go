@@ -35,7 +35,14 @@ func (s *scenario) requireStateOID(t *testing.T, want int64) {
 func (s *scenario) planRole(t *testing.T, role, version, validUntil string, want int) string {
 	t.Helper()
 	variables := s.space.roleVariables(role, s.password(version), version, validUntil)
-	output, code := s.space.run(t, variables, "plan", "-detailed-exitcode", "-no-color", "-input=false")
+	output, code := s.space.run(
+		t,
+		variables,
+		"plan",
+		"-detailed-exitcode",
+		"-no-color",
+		"-input=false",
+	)
 	if code != want {
 		t.Fatalf("plan exited %d and the test expects %d:\n%s", code, want, output)
 	}
@@ -46,7 +53,15 @@ func (s *scenario) planRole(t *testing.T, role, version, validUntil string, want
 func (s *scenario) refreshOnly(t *testing.T, role, version, validUntil string) {
 	t.Helper()
 	variables := s.space.roleVariables(role, s.password(version), version, validUntil)
-	output, code := s.space.run(t, variables, "apply", "-refresh-only", "-auto-approve", "-no-color", "-input=false")
+	output, code := s.space.run(
+		t,
+		variables,
+		"apply",
+		"-refresh-only",
+		"-auto-approve",
+		"-no-color",
+		"-input=false",
+	)
 	if code != exitSuccess {
 		t.Fatalf("refresh-only apply exited %d:\n%s", code, output)
 	}
@@ -109,7 +124,15 @@ func TestYugabyteExternalImport(t *testing.T) {
 	s.target.createRole(t, s.role, s.password("1"))
 	oid := s.target.roleOID(t, s.role)
 	variables := s.space.roleVariables(s.role, s.password("1"), "1", infinity)
-	output, code := s.space.run(t, variables, "import", "-no-color", "-input=false", "postgresql_role.app", s.role)
+	output, code := s.space.run(
+		t,
+		variables,
+		"import",
+		"-no-color",
+		"-input=false",
+		"postgresql_role.app",
+		s.role,
+	)
 	if code != exitSuccess {
 		t.Fatalf("import exited %d:\n%s", code, output)
 	}
@@ -126,7 +149,14 @@ func TestYugabyteExternalDelete(t *testing.T) {
 	s := externalScenario(t)
 	s.requireApplied(t, "1", infinity)
 	variables := s.space.roleVariables(s.role, s.password("1"), "1", infinity)
-	output, code := s.space.run(t, variables, "destroy", "-auto-approve", "-no-color", "-input=false")
+	output, code := s.space.run(
+		t,
+		variables,
+		"destroy",
+		"-auto-approve",
+		"-no-color",
+		"-input=false",
+	)
 	if code != exitSuccess {
 		t.Fatalf("destroy exited %d:\n%s", code, output)
 	}

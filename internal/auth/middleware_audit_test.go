@@ -13,7 +13,10 @@ import (
 	"goodkind.io/tack/internal/auth"
 )
 
-func devBearerResponse(t *testing.T, middleware func(http.Handler) http.Handler) (int, map[string]string, bool) {
+func devBearerResponse(
+	t *testing.T,
+	middleware func(http.Handler) http.Handler,
+) (int, map[string]string, bool) {
 	t.Helper()
 	var nextRan atomic.Bool
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -27,16 +30,19 @@ func devBearerResponse(t *testing.T, middleware func(http.Handler) http.Handler)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
+
 	req.Header.Set("Authorization", "Bearer "+uuid.Must(uuid.NewV7()).String())
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)
 	}
+
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	var body map[string]string
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode JSON body: %v", err)
 	}
+
 	return resp.StatusCode, body, nextRan.Load()
 }
 
@@ -52,22 +58,35 @@ func TestDevBearerRefusesRequestWhenAuthEventIsNotRecorded(t *testing.T) {
 
 	status, body, nextRan := devBearerResponse(t, refusing)
 	if status != http.StatusServiceUnavailable || body["error"] == "" {
-		t.Fatalf("refusing recorder: status = %d, body = %v, want 503 with a JSON error", status, body)
+		t.Fatalf(
+			"refusing recorder: status = %d, body = %v, want 503 with a JSON error",
+			status,
+			body,
+		)
 	}
+
 	if nextRan {
 		t.Fatal("the next handler ran for a request without a recorded auth event")
 	}
 
 	status, body, nextRan = devBearerResponse(t, served)
 	if status != http.StatusOK || !nextRan || body["status"] != "served" {
-		t.Fatalf("working recorder: status = %d, body = %v, next ran = %v, want the served request", status, body, nextRan)
+		t.Fatalf(
+			"working recorder: status = %d, body = %v, next ran = %v, want the served request",
+			status,
+			body,
+			nextRan,
+		)
 	}
+
 	recorded := 0
+
 	for _, event := range working.Events() {
 		if event.Verb == string(audit.VerbAuthTokenUsed) {
 			recorded++
 		}
 	}
+
 	if recorded != 1 {
 		t.Fatalf("working recorder stored %d auth.token_used events, want 1", recorded)
 	}

@@ -14,8 +14,20 @@ import (
 func TestDeployVerifyAcceptsADockerManifestList(t *testing.T) {
 	fixture := startDeployFixture(t, testenv.ContainerdDocker)
 	requireContainerdImageStore(t, fixture.cli)
-	serverDigest := fixture.registry.pushMultiPlatformList(t, "tack-server", fixture.tag, "server "+fixture.tag, dockerManifestListMediaType)
-	consumerDigest := fixture.registry.pushMultiPlatformList(t, "tack-audit-consumer", fixture.tag, "consumer "+fixture.tag, dockerManifestListMediaType)
+	serverDigest := fixture.registry.pushMultiPlatformList(
+		t,
+		"tack-server",
+		fixture.tag,
+		"server "+fixture.tag,
+		dockerManifestListMediaType,
+	)
+	consumerDigest := fixture.registry.pushMultiPlatformList(
+		t,
+		"tack-audit-consumer",
+		fixture.tag,
+		"consumer "+fixture.tag,
+		dockerManifestListMediaType,
+	)
 	fixture.createContainers(t)
 
 	logDeployImageReads(t, fixture.cli, "tack-app-1")
@@ -24,5 +36,6 @@ func TestDeployVerifyAcceptsADockerManifestList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deploy verify with the pushed manifest list digests: %v\n%s", err, output)
 	}
+
 	t.Logf("manifest list digests accepted: %s", strings.TrimSpace(output))
 }

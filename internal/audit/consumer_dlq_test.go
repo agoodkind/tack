@@ -29,9 +29,19 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	t.Cleanup(func() {
 		purgeOrg(t, pool, orgID)
 		_, _ = pool.Exec(ctx, `DELETE FROM audit.events_dlq WHERE topic = $1`, topic)
-		testenv.ExecAsRole(t, pool, migration.MigratorRole, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
+		testenv.ExecAsRole(
+			t,
+			pool,
+			migration.MigratorRole,
+			`DROP TABLE IF EXISTS `+deadLetterTestPartition,
+		)
 	})
-	testenv.ExecAsRole(t, pool, migration.MigratorRole, `DROP TABLE IF EXISTS `+deadLetterTestPartition)
+	testenv.ExecAsRole(
+		t,
+		pool,
+		migration.MigratorRole,
+		`DROP TABLE IF EXISTS `+deadLetterTestPartition,
+	)
 
 	refused := makeReadEvent(orgID, "refused")
 	refused.OccurredAt = occurredAt
@@ -41,31 +51,60 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 
 	groupID := "tack-audit-projector-test-" + uuid.NewString()[:8]
 	cfg := ConsumerConfig{
-		Brokers: brokers, Topic: topic, GroupID: groupID,
-		BatchSize: 32, PollInterval: 100 * time.Millisecond,
-		YugabyteDSN: writerLoginDSN(t, pool, integrationDSN(t)),
+		Brokers:      brokers,
+		Topic:        topic,
+		GroupID:      groupID,
+		BatchSize:    32,
+		PollInterval: 100 * time.Millisecond,
+		YugabyteDSN:  writerLoginDSN(t, pool, integrationDSN(t)),
 	}
 	runConsumerOnce(t, cfg, orgID, 1)
 
 	rows, _, refusedErr := countDeadLetters(t, pool, topic)
 	if rows != 2 {
-		t.Fatalf("dead letters after the first run = %d, want the refused insert and the malformed payload", rows)
+		t.Fatalf(
+			"dead letters after the first run = %d, want the refused insert and the malformed payload",
+			rows,
+		)
 	}
+
 	if !strings.Contains(refusedErr, "no partition") && !strings.Contains(refusedErr, "malformed") {
-		t.Fatalf("dead-letter error = %q, want the ledger's refusal or the decode failure", refusedErr)
+		t.Fatalf(
+			"dead-letter error = %q, want the ledger's refusal or the decode failure",
+			refusedErr,
+		)
 	}
+
 	var offsetRows int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit.consumer_offsets WHERE consumer_group = $1`, groupID).Scan(&offsetRows); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM audit.consumer_offsets WHERE consumer_group = $1`,
+		groupID,
+	).Scan(
+		&offsetRows,
+	); err != nil {
 		t.Fatalf("offsets: %v", err)
 	}
+
 	if offsetRows != 1 {
-		t.Fatalf("the batch with a refused insert must still commit its offset; offset rows = %d", offsetRows)
+		t.Fatalf(
+			"the batch with a refused insert must still commit its offset; offset rows = %d",
+			offsetRows,
+		)
 	}
 
 	// The cause clears: the week gains a partition. Replay everything.
 	// DDL takes no bind parameters; the bounds are dates this test computed.
 	partitionDDL := `CREATE TABLE ` + deadLetterTestPartition + ` PARTITION OF audit.events FOR VALUES FROM ('` +
-		weekStart.Format("2006-01-02") + `') TO ('` + weekStart.AddDate(0, 0, 7).Format("2006-01-02") + `')`
+		weekStart.Format(
+			"2006-01-02",
+		) + `') TO ('` + weekStart.AddDate(
+		0,
+		0,
+		7,
+	).Format(
+		"2006-01-02",
+	) + `')`
 	// The schema guard of migration 019 refuses this statement from any role
 	// except tack_migrator.
 	testenv.ExecAsRole(t, pool, migration.MigratorRole, partitionDDL)
@@ -74,22 +113,43 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list dead letters: %v", err)
 	}
+
 	for _, letter := range letters {
-		produceRaw(t, brokers, topic, letter.Payload, []kgo.RecordHeader{{Key: dlqReplayHeader, Value: []byte(letter.Key.String())}})
+		produceRaw(
+			t,
+			brokers,
+			topic,
+			letter.Payload,
+			[]kgo.RecordHeader{{Key: dlqReplayHeader, Value: []byte(letter.Key.String())}},
+		)
 	}
+
 	runConsumerOnce(t, cfg, orgID, 2)
 
 	rows, attempts, remainingErr := waitForDeadLetters(t, pool, topic, 1, 1)
 	if rows != 1 {
 		t.Fatalf("dead letters after the replay = %d, want only the malformed payload", rows)
 	}
+
 	if attempts != 1 || !strings.Contains(remainingErr, "malformed") {
-		t.Fatalf("remaining dead letter attempts = %d error = %q, want exactly the replay counted on the malformed payload", attempts, remainingErr)
+		t.Fatalf(
+			"remaining dead letter attempts = %d error = %q, want exactly the replay counted on the malformed payload",
+			attempts,
+			remainingErr,
+		)
 	}
+
 	var landed int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit.events WHERE event_id = $1`, refused.EventID).Scan(&landed); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT count(*) FROM audit.events WHERE event_id = $1`,
+		refused.EventID,
+	).Scan(
+		&landed,
+	); err != nil {
 		t.Fatalf("count the replayed event: %v", err)
 	}
+
 	if landed != 1 {
 		t.Fatalf("the replayed event is in the ledger %d times, want 1", landed)
 	}
@@ -113,22 +173,49 @@ func TestConsumerSurvivesHostileRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	produceRaw(t, brokers, topic, body, []kgo.RecordHeader{{Key: dlqReplayHeader, Value: []byte("not/a/valid/key/at/all")}})
+
+	produceRaw(
+		t,
+		brokers,
+		topic,
+		body,
+		[]kgo.RecordHeader{{Key: dlqReplayHeader, Value: []byte("not/a/valid/key/at/all")}},
+	)
 	produceEvents(t, brokers, topic, []Event{makeReadEvent(orgID, "after")})
 
-	runConsumerOnce(t, ConsumerConfig{
-		Brokers: brokers, Topic: topic, GroupID: "tack-audit-projector-test-" + uuid.NewString()[:8],
-		BatchSize: 8, PollInterval: 100 * time.Millisecond,
-		YugabyteDSN: writerLoginDSN(t, pool, integrationDSN(t)),
-	}, orgID, 2)
+	runConsumerOnce(
+		t,
+		ConsumerConfig{
+			Brokers:      brokers,
+			Topic:        topic,
+			GroupID:      "tack-audit-projector-test-" + uuid.NewString()[:8],
+			BatchSize:    8,
+			PollInterval: 100 * time.Millisecond,
+			YugabyteDSN:  writerLoginDSN(t, pool, integrationDSN(t)),
+		},
+		orgID,
+		2,
+	)
 
 	var rows, payloadBytes int
-	err = pool.QueryRow(ctx, `SELECT count(*), coalesce(max(length(payload)), 0) FROM audit.events_dlq WHERE topic = $1`, topic).Scan(&rows, &payloadBytes)
+	err = pool.QueryRow(
+		ctx,
+		`SELECT count(*), coalesce(max(length(payload)), 0) FROM audit.events_dlq WHERE topic = $1`,
+		topic,
+	).Scan(
+		&rows,
+		&payloadBytes,
+	)
 	if err != nil {
 		t.Fatalf("read the dead letters: %v", err)
 	}
+
 	if rows != 1 || payloadBytes != 0 {
-		t.Fatalf("dead letters = %d with a payload of %d bytes, want the one empty tombstone", rows, payloadBytes)
+		t.Fatalf(
+			"dead letters = %d with a payload of %d bytes, want the one empty tombstone",
+			rows,
+			payloadBytes,
+		)
 	}
 }
 
@@ -147,11 +234,21 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	if _, err := pool.Exec(ctx, "ALTER ROLE "+login+" NOINHERIT"); err != nil {
 		t.Fatalf("take the login's privileges away: %v", err)
 	}
-	produceEvents(t, brokers, topic, []Event{makeReadEvent(orgID, "first"), makeReadEvent(orgID, "second")})
+
+	produceEvents(
+		t,
+		brokers,
+		topic,
+		[]Event{makeReadEvent(orgID, "first"), makeReadEvent(orgID, "second")},
+	)
 
 	cfg := ConsumerConfig{
-		Brokers: brokers, Topic: topic, GroupID: "tack-audit-projector-test-" + uuid.NewString()[:8],
-		BatchSize: 8, PollInterval: 100 * time.Millisecond, YugabyteDSN: dsn,
+		Brokers:      brokers,
+		Topic:        topic,
+		GroupID:      "tack-audit-projector-test-" + uuid.NewString()[:8],
+		BatchSize:    8,
+		PollInterval: 100 * time.Millisecond,
+		YugabyteDSN:  dsn,
 	}
 	// Longer than the two waits below together, so the context never ends
 	// the consumer while the test is still allowed to wait on it.
@@ -161,31 +258,52 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConsumer: %v", err)
 	}
+
 	t.Cleanup(func() { _ = consumer.Close() })
 	failedBefore := consumerErrorCount(t)
 	consumer.Start(runCtx)
 	// The privileges come back only after the consumer has fetched the
 	// batch and failed it, so the test proves the re-fetch and not a first
 	// fetch that happened to come late.
-	waitUntil(t, 20*time.Second, "the consumer never failed a batch", func() bool {
-		return consumerErrorCount(t) > failedBefore
-	})
+	waitUntil(
+		t,
+		20*time.Second,
+		"the consumer never failed a batch",
+		func() bool {
+			return consumerErrorCount(t) > failedBefore
+		},
+	)
 	if got := countRowsForOrg(t, integrationDSN(t), orgID); got != 0 {
 		t.Fatalf("a batch the login could not write landed %d rows", got)
 	}
+
 	if _, err := pool.Exec(ctx, "ALTER ROLE "+login+" INHERIT"); err != nil {
 		t.Fatalf("give the login's privileges back: %v", err)
 	}
-	waitUntil(t, 30*time.Second, "the failed batch was never re-fetched after the fault cleared", func() bool {
-		return countRowsForOrg(t, integrationDSN(t), orgID) >= 2
-	})
+
+	waitUntil(
+		t,
+		30*time.Second,
+		"the failed batch was never re-fetched after the fault cleared",
+		func() bool {
+			return countRowsForOrg(t, integrationDSN(t), orgID) >= 2
+		},
+	)
 	if err := consumer.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
+
 	var committed int64
-	if err := pool.QueryRow(ctx, `SELECT coalesce(max("offset"), -1) FROM audit.consumer_offsets WHERE consumer_group = $1`, cfg.GroupID).Scan(&committed); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT coalesce(max("offset"), -1) FROM audit.consumer_offsets WHERE consumer_group = $1`,
+		cfg.GroupID,
+	).Scan(
+		&committed,
+	); err != nil {
 		t.Fatalf("offsets: %v", err)
 	}
+
 	if committed < 2 {
 		t.Fatalf("committed offset = %d after both records landed, want at least 2", committed)
 	}

@@ -40,36 +40,55 @@ func RepairSequenceScopeIDs(ctx context.Context, env *Env) (int, int, error) {
 	if err != nil {
 		return 0, 0, err
 	}
+
 	totalRepaired, totalSkipped, totalRefused := 0, 0, 0
+
 	for orgID := range orgIDs {
 		nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
 		if err != nil {
-			env.Log.ErrorContext(ctx, "repair.scope_ids: list node types",
+			env.Log.ErrorContext(
+				ctx,
+				"repair.scope_ids: list node types",
 				slog.String("org_id", orgID.String()),
-				slog.String("err", err.Error()))
+				slog.String("err", err.Error()),
+			)
 			continue
 		}
+
 		propertyDefs, err := env.Stores.PropertyDefs.List(ctx, orgID)
 		if err != nil {
-			env.Log.ErrorContext(ctx, "repair.scope_ids: list property defs",
+			env.Log.ErrorContext(
+				ctx,
+				"repair.scope_ids: list property defs",
 				slog.String("org_id", orgID.String()),
-				slog.String("err", err.Error()))
+				slog.String("err", err.Error()),
+			)
 			continue
 		}
+
 		typeIndex := node.BuildTypeIndex(nodeTypes)
 		scopeCache := make(map[uuid.UUID]map[string]string)
+
 		for _, nodeType := range nodeTypes {
 			if nodeType.Reference.Strategy != node.ReferenceScopedSequence {
 				continue
 			}
+
 			repaired, skipped, refused := repairTypeScopeIDs(
-				ctx, env, orgID, nodeType, propertyDefs, typeIndex, scopeCache,
+				ctx,
+				env,
+				orgID,
+				nodeType,
+				propertyDefs,
+				typeIndex,
+				scopeCache,
 			)
 			totalRepaired += repaired
 			totalSkipped += skipped
 			totalRefused += refused
 		}
 	}
+
 	return scopeRepairResult(ctx, env, totalRepaired, totalSkipped, totalRefused)
 }
 
@@ -82,30 +101,41 @@ func repairTypeScopeIDs(
 	typeIndex map[string]*node.NodeType,
 	scopeCache map[uuid.UUID]map[string]string,
 ) (int, int, int) {
-	views, err := env.Stores.Views.List(ctx, node.NodeListQuery{
-		OrgID:    orgID,
-		NodeType: nodeType.TypeKey,
-	})
+	views, err := env.Stores.Views.List(
+		ctx,
+		node.NodeListQuery{
+			OrgID:    orgID,
+			NodeType: nodeType.TypeKey,
+		},
+	)
 	if err != nil {
-		env.Log.ErrorContext(ctx, "repair.scope_ids: list views",
+		env.Log.ErrorContext(
+			ctx,
+			"repair.scope_ids: list views",
 			slog.String("org_id", orgID.String()),
 			slog.String("type", nodeType.TypeKey),
-			slog.String("err", err.Error()))
+			slog.String("err", err.Error()),
+		)
+
 		return 0, 0, 0
 	}
+
 	indexedProps := indexedPropsFor(nodeType, propertyDefs)
 	repaired, skipped, refused := 0, 0, 0
+
 	for _, view := range views {
 		currentNode, readDigest, err := env.Stores.Nodes.GetForUpdate(ctx, orgID, view.ID)
 		if err != nil || currentNode == nil {
 			skipped++
 			continue
 		}
+
 		canonicalScopeID := deriveScopeID(ctx, env, currentNode)
 		if canonicalScopeID == uuid.Nil {
 			skipped++
 			continue
 		}
+
 		if rawUUIDProp(currentNode.Props, "scope_id") == canonicalScopeID {
 			skipped++
 			continue
@@ -143,30 +173,54 @@ func repairTypeScopeIDs(
 		// node holding its old value while nothing holds the new one, which is
 		// the silent collision this repair would otherwise create.
 		referenceKeys, keyErr := referenceKeysForRepairedView(
-			ctx, env, orgID, typeIndex, nodeType, updatedView, scopeCache,
+			ctx,
+			env,
+			orgID,
+			typeIndex,
+			nodeType,
+			updatedView,
+			scopeCache,
 		)
 		if keyErr != nil {
-			env.Log.WarnContext(ctx, "repair.scope_ids: render reference keys",
+			env.Log.WarnContext(
+				ctx,
+				"repair.scope_ids: render reference keys",
 				slog.String("node_id", currentNode.ID.String()),
 				slog.String("type", nodeType.TypeKey),
-				slog.String("err", keyErr.Error()))
+				slog.String("err", keyErr.Error()),
+			)
 			skipped++
 			continue
 		}
-		if err := env.Stores.Nodes.UpdateAtomicFrom(ctx, readDigest, updatedNode, updatedView, oldProps, indexedProps, referenceKeys); err != nil {
-			env.Log.WarnContext(ctx, "repair.scope_ids: update node",
+
+		if err := env.Stores.Nodes.UpdateAtomicFrom(
+			ctx,
+			readDigest,
+			updatedNode,
+			updatedView,
+			oldProps,
+			indexedProps,
+			referenceKeys,
+		); err != nil {
+			env.Log.WarnContext(
+				ctx,
+				"repair.scope_ids: update node",
 				slog.String("node_id", currentNode.ID.String()),
 				slog.String("type", nodeType.TypeKey),
-				slog.String("err", err.Error()))
+				slog.String("err", err.Error()),
+			)
 			if errors.Is(err, domain.ErrConflict) {
 				refused++
 			} else {
 				skipped++
 			}
+
 			continue
 		}
+
 		repaired++
 	}
+
 	return repaired, skipped, refused
 }
 
@@ -174,21 +228,27 @@ func deriveScopeID(ctx context.Context, env *Env, currentNode *node.Node) uuid.U
 	if currentNode == nil {
 		return uuid.Nil
 	}
+
 	parentID := rawUUIDProp(currentNode.Props, "parent_id")
 	for depth := 0; depth < maxRepairParentDepth && parentID != uuid.Nil; depth++ {
 		parentView, err := env.Stores.Views.Get(ctx, parentID)
 		if err != nil || parentView == nil {
 			return uuid.Nil
 		}
+
 		if stringProp(parentView.Props, "identifier") != "" {
 			return parentView.ID
 		}
+
 		parentID = rawUUIDView(parentView, "parent_id")
 	}
+
 	if currentScopeID := rawUUIDProp(currentNode.Props, "scope_id"); currentScopeID != uuid.Nil {
-		if scopeView, err := env.Stores.Views.Get(ctx, currentScopeID); err == nil && scopeView != nil {
+		if scopeView, err := env.Stores.Views.Get(ctx, currentScopeID); err == nil &&
+			scopeView != nil {
 			return currentScopeID
 		}
 	}
+
 	return uuid.Nil
 }

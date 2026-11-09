@@ -57,30 +57,74 @@ func TestSearchSettingsReportsEffectivePointInTimeLimit(t *testing.T) {
 	clearSearchSettings(t, client)
 	node := testenv.OpenSearchPointInTimeLimit
 	heap := searchSettingReport{Defaults: "85", Effective: "85"}
-	requireSearchSettings(t, cfg, searchSettingsReport{
-		Command: "ops.search.settings", Persistent: "", Transient: "", Defaults: node, Effective: node,
-		MLJVMHeapMemoryThreshold: heap,
-	})
+	requireSearchSettings(
+		t,
+		cfg,
+		searchSettingsReport{
+			Command:                  "ops.search.settings",
+			Persistent:               "",
+			Transient:                "",
+			Defaults:                 node,
+			Effective:                node,
+			MLJVMHeapMemoryThreshold: heap,
+		},
+	)
 	putPointInTimeSetting(t, client, "persistent", "2500")
-	requireSearchSettings(t, cfg, searchSettingsReport{
-		Command: "ops.search.settings", Persistent: "2500", Transient: "", Defaults: "", Effective: "2500",
-		MLJVMHeapMemoryThreshold: heap,
-	})
+	requireSearchSettings(
+		t,
+		cfg,
+		searchSettingsReport{
+			Command:                  "ops.search.settings",
+			Persistent:               "2500",
+			Transient:                "",
+			Defaults:                 "",
+			Effective:                "2500",
+			MLJVMHeapMemoryThreshold: heap,
+		},
+	)
 	putPointInTimeSetting(t, client, "transient", "2000")
-	requireSearchSettings(t, cfg, searchSettingsReport{
-		Command: "ops.search.settings", Persistent: "2500", Transient: "2000", Defaults: "", Effective: "2000",
-		MLJVMHeapMemoryThreshold: heap,
-	})
+	requireSearchSettings(
+		t,
+		cfg,
+		searchSettingsReport{
+			Command:                  "ops.search.settings",
+			Persistent:               "2500",
+			Transient:                "2000",
+			Defaults:                 "",
+			Effective:                "2000",
+			MLJVMHeapMemoryThreshold: heap,
+		},
+	)
 	putSearchSetting(t, client, "persistent", "plugins.ml_commons.jvm_heap_memory_threshold", "80")
-	requireSearchSettings(t, cfg, searchSettingsReport{
-		Command: "ops.search.settings", Persistent: "2500", Transient: "2000", Defaults: "", Effective: "2000",
-		MLJVMHeapMemoryThreshold: searchSettingReport{Persistent: "80", Effective: "80"},
-	})
+	requireSearchSettings(
+		t,
+		cfg,
+		searchSettingsReport{
+			Command:                  "ops.search.settings",
+			Persistent:               "2500",
+			Transient:                "2000",
+			Defaults:                 "",
+			Effective:                "2000",
+			MLJVMHeapMemoryThreshold: searchSettingReport{Persistent: "80", Effective: "80"},
+		},
+	)
 	putSearchSetting(t, client, "transient", "plugins.ml_commons.jvm_heap_memory_threshold", "75")
-	requireSearchSettings(t, cfg, searchSettingsReport{
-		Command: "ops.search.settings", Persistent: "2500", Transient: "2000", Defaults: "", Effective: "2000",
-		MLJVMHeapMemoryThreshold: searchSettingReport{Persistent: "80", Transient: "75", Effective: "75"},
-	})
+	requireSearchSettings(
+		t,
+		cfg,
+		searchSettingsReport{
+			Command:    "ops.search.settings",
+			Persistent: "2500",
+			Transient:  "2000",
+			Defaults:   "",
+			Effective:  "2000",
+			MLJVMHeapMemoryThreshold: searchSettingReport{
+				Persistent: "80",
+				Transient:  "75",
+				Effective:  "75",
+			},
+		},
+	)
 }
 
 // requireSearchSettings runs ops search settings as a new operator and
@@ -100,53 +144,92 @@ func requireSearchSettings(t *testing.T, cfg *config.Config, want searchSettings
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatalf("decode ops search settings fields %s: %v", raw, err)
 	}
-	wantFields := []string{"command", "defaults", "effective", "ml_jvm_heap_memory_threshold", "persistent", "transient"}
+
+	wantFields := []string{
+		"command",
+		"defaults",
+		"effective",
+		"ml_jvm_heap_memory_threshold",
+		"persistent",
+		"transient",
+	}
 	if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, wantFields) {
 		t.Fatalf("ops search settings fields = %v, want %v", got, wantFields)
 	}
+
 	var heapFields map[string]json.RawMessage
 	if err := json.Unmarshal(fields["ml_jvm_heap_memory_threshold"], &heapFields); err != nil {
 		t.Fatalf("decode ML heap setting fields: %v", err)
 	}
+
 	wantHeapFields := []string{"defaults", "effective", "persistent", "transient"}
 	if got := slices.Sorted(maps.Keys(heapFields)); !slices.Equal(got, wantHeapFields) {
 		t.Fatalf("ML heap setting fields = %v, want %v", got, wantHeapFields)
 	}
+
 	var got searchSettingsReport
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("decode ops search settings result %s: %v", raw, err)
 	}
+
 	if got != want {
 		t.Fatalf("ops search settings result = %+v, want %+v", got, want)
 	}
 }
 
 // requireSearchSettingsAudit requires final read evidence for the printed settings.
-func requireSearchSettingsAudit(t *testing.T, pool *pgxpool.Pool, operatorID uuid.UUID, payload []byte) {
+func requireSearchSettingsAudit(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	operatorID uuid.UUID,
+	payload []byte,
+) {
 	t.Helper()
 	events := readOutboxEvents(t, pool, audit.VerbOpsSearchSettings, operatorID)
 	if len(events) != 1 {
-		t.Fatalf("ops search settings outbox rows for operator %s = %d, want 1: %+v", operatorID, len(events), events)
+		t.Fatalf(
+			"ops search settings outbox rows for operator %s = %d, want 1: %+v",
+			operatorID,
+			len(events),
+			events,
+		)
 	}
+
 	event := events[0]
-	if event.Outcome != audit.OutcomeCompleted || event.Context.AuditFormatVersion != audit.AuditFormatComplete ||
-		event.Context.OperationClass != audit.OperationRead || event.Context.CompletedAt.IsZero() {
+	if event.Outcome != audit.OutcomeCompleted ||
+		event.Context.AuditFormatVersion != audit.AuditFormatComplete ||
+		event.Context.OperationClass != audit.OperationRead ||
+		event.Context.CompletedAt.IsZero() {
 		t.Fatalf("ops search settings did not finalize a completed read: %+v", event)
 	}
+
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, payload); err != nil {
 		t.Fatalf("compact settings payload: %v", err)
 	}
+
 	if evidence := event.Context.Read; evidence == nil || evidence.Count != 1 ||
-		evidence.PayloadSHA256 != payloadDigest(compact.Bytes()) || evidence.PayloadFormat != "application/json" {
-		t.Fatalf("ops search settings read evidence = %+v, want the exact settings digest and one resource", evidence)
+		evidence.PayloadSHA256 != payloadDigest(
+			compact.Bytes(),
+		) || evidence.PayloadFormat != "application/json" {
+		t.Fatalf(
+			"ops search settings read evidence = %+v, want the exact settings digest and one resource",
+			evidence,
+		)
 	}
+
 	if operationID := decodeCommandExtra(t, event).OpID; operationID == uuid.Nil {
 		t.Fatalf("ops search settings audit row %s has no Extra.op_id", event.EventID)
 	}
+
 	if event.Actor.ID != operatorID || event.Actor.Email != searchSettingsOperatorEmail {
-		t.Fatalf("ops search settings audit actor = %s %q, want %s %q",
-			event.Actor.ID, event.Actor.Email, operatorID, searchSettingsOperatorEmail)
+		t.Fatalf(
+			"ops search settings audit actor = %s %q, want %s %q",
+			event.Actor.ID,
+			event.Actor.Email,
+			operatorID,
+			searchSettingsOperatorEmail,
+		)
 	}
 }
 
@@ -157,7 +240,12 @@ const searchSettingsOperatorEmail = "operator@example.com"
 // runSearchSettingsCommand runs ops search settings as operatorID through the
 // rendered Cobra tree with the real SQL outbox on pool and returns the result
 // payload.
-func runSearchSettingsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, operatorID uuid.UUID) json.RawMessage {
+func runSearchSettingsCommand(
+	t *testing.T,
+	cfg *config.Config,
+	pool *pgxpool.Pool,
+	operatorID uuid.UUID,
+) json.RawMessage {
 	t.Helper()
 	factory := cli.System(cfg)
 	var output bytes.Buffer
@@ -166,18 +254,29 @@ func runSearchSettingsCommand(t *testing.T, cfg *config.Config, pool *pgxpool.Po
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := integration.SearchCommandRoot(factory)
 	root.SetArgs([]string{
-		"--execute", "--output", "json", "--operator-id", operatorID.String(),
-		"--operator-email", searchSettingsOperatorEmail, "--operator-name", "Search Test",
-		"ops", "search", "settings",
+		"--execute",
+		"--output",
+		"json",
+		"--operator-id",
+		operatorID.String(),
+		"--operator-email",
+		searchSettingsOperatorEmail,
+		"--operator-name",
+		"Search Test",
+		"ops",
+		"search",
+		"settings",
 	})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("ops search settings: %v\n%s", err, output.String())
 	}
+
 	var document struct {
 		Result json.RawMessage `json:"result"`
 	}
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatalf("decode ops search settings output %q: %v", output.String(), err)
 	}
+
 	return document.Result
 }

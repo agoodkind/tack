@@ -69,22 +69,44 @@ func replicationStalenessMetric(
 	if observation == ybClusterHealthy {
 		// A failed write is logged by the marker writer and left alone: the
 		// observation is this guest's own and dates the reading either way.
-		_ = writeBackupStatusMarker(ctx,
+		_ = writeBackupStatusMarker(
+			ctx,
 			func(key string, body []byte) error {
 				return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
-			}, name, now, detail)
+			},
+			name,
+			now,
+			detail,
+		)
+
 		return knownBackupStalenessMetric(ctx, name, now, now, threshold, detail)
 	}
+
 	seenAt, seen := lastBackupStalenessSuccess(ctx, cfg, name)
 	if observation == ybClusterUnseen {
-		logger.WarnContext(ctx, "backup.staleness.replication_unseen", slog.String("detail", detail))
-		return unseenClusterStalenessMetric(ctx, cfg, s3Client, now, threshold,
-			detail, seenAt, seen)
+		logger.WarnContext(
+			ctx,
+			"backup.staleness.replication_unseen",
+			slog.String("detail", detail),
+		)
+
+		return unseenClusterStalenessMetric(
+			ctx,
+			cfg,
+			s3Client,
+			now,
+			threshold,
+			detail,
+			seenAt,
+			seen,
+		)
 	}
+
 	logger.WarnContext(ctx, "backup.staleness.replication_unhealthy", slog.String("detail", detail))
 	if !seen {
 		return unknownBackupStalenessMetric(name, threshold, backupStalenessNeverRecorded, detail)
 	}
+
 	return knownBackupStalenessMetric(ctx, name, now, seenAt, threshold, detail)
 }
 
@@ -107,10 +129,12 @@ func unseenClusterStalenessMetric(
 	if !seen {
 		return unknownBackupStalenessMetric(name, threshold, backupStalenessClusterUnseen, detail)
 	}
+
 	metric := knownBackupStalenessMetric(ctx, name, now, seenAt, threshold, detail)
 	if metric.AgeKnown {
 		metric.Unknown = backupStalenessClusterUnseen
 	}
+
 	return metric
 }
 
@@ -124,13 +148,17 @@ func withSharedClusterRecord(
 	s3Client *s3.Client,
 	detail string,
 ) string {
-	marker, found, err := readBackupStatusMarker(ctx,
+	marker, found, err := readBackupStatusMarker(
+		ctx,
 		func(key string) ([]byte, error) {
 			return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
-		}, backupStalenessReplicationName)
+		},
+		backupStalenessReplicationName,
+	)
 	if err != nil || !found {
 		return detail
 	}
+
 	return detail + "; the shared record dates the cluster healthy at " +
 		marker.At.UTC().Format(time.RFC3339)
 }

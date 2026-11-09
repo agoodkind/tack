@@ -21,10 +21,12 @@ func ybNodeArtifactObjects() []string {
 // must publish for the manifest's run.
 func ybNodeArtifactKeys(runID string, node ybSnapshotManifestNode) []string {
 	prefix := ybNodeKeyPrefix(runID, node)
+
 	keys := make([]string, 0, len(ybNodeArtifactObjects()))
 	for _, object := range ybNodeArtifactObjects() {
 		keys = append(keys, prefix+object)
 	}
+
 	return keys
 }
 
@@ -53,17 +55,23 @@ func ybNodeInventoryKey(runID string, node ybSnapshotManifestNode) string {
 // counts as archived only once all of them are present: an archive with no
 // inventory beside it is an archive the restore cannot verify, so it is as
 // incomplete as no archive at all.
-func missingYBNodeArchives(manifest ybSnapshotManifest, exists func(key string) (bool, error)) ([]string, error) {
+func missingYBNodeArchives(
+	manifest ybSnapshotManifest,
+	exists func(key string) (bool, error),
+) ([]string, error) {
 	var missing []string
+
 	for _, node := range manifest.Nodes {
 		complete, err := ybNodeFullyArchived(manifest.RunID, node, exists)
 		if err != nil {
 			return nil, err
 		}
+
 		if !complete {
 			missing = append(missing, node.Name)
 		}
 	}
+
 	return missing, nil
 }
 
@@ -79,9 +87,11 @@ func ybNodeFullyArchived(
 		if err != nil {
 			return false, err
 		}
+
 		if !present {
 			return false, nil
 		}
 	}
+
 	return true, nil
 }

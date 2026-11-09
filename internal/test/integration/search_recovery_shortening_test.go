@@ -31,37 +31,69 @@ func TestSearchRecoveryShorteningRetiresRemovedPages(t *testing.T) {
 		t.Fatalf("original revision indexed %d pages, want several", len(original))
 	}
 
-	writeSearchNode(t, stores, fixture, readerIncludedValue()+" second revision", readerExcludedValue)
+	writeSearchNode(
+		t,
+		stores,
+		fixture,
+		readerIncludedValue()+" second revision",
+		readerExcludedValue,
+	)
 	workStore := stores.SearchWork(source)
-	oldWork, claimed, err := workStore.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "old-owner", settings.Lease)
+	oldWork, claimed, err := workStore.Claim(
+		WithTestOperation(t, t.Context()),
+		searchdomain.WorkClassLive,
+		"old-owner",
+		settings.Lease,
+	)
 	if err != nil || !claimed || oldWork.NodeID != fixture.NodeID {
-		t.Fatalf("claim the second revision = %+v claimed %t err %v, want a non-empty claim of %s", oldWork, claimed, err, fixture.NodeID)
+		t.Fatalf(
+			"claim the second revision = %+v claimed %t err %v, want a non-empty claim of %s",
+			oldWork,
+			claimed,
+			err,
+			fixture.NodeID,
+		)
 	}
+
 	reader := stores.SearchContent(stores.SearchPolicySet())
 	request := searchdomain.ContentRequest{
-		NodeID: fixture.NodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil,
-		MaxBytes: recoveryPageBytes, SearchGeneration: oldWork.Generation,
+		NodeID:           fixture.NodeID,
+		Cursor:           "",
+		ProjectionConfig: "",
+		AccessVersions:   nil,
+		MaxBytes:         recoveryPageBytes,
+		SearchGeneration: oldWork.Generation,
 	}
 	first, err := reader.Content(WithTestOperation(t, t.Context()), request)
 	if err != nil {
 		t.Fatalf("old owner read page 0: %v", err)
 	}
+
 	firstIntent, err := workStore.Register(WithTestOperation(t, t.Context()), oldWork, first)
 	if err != nil {
 		t.Fatalf("old owner register page 0: %v", err)
 	}
+
 	if _, err := adapter.Put(WithTestOperation(t, t.Context()), firstIntent); err != nil {
 		t.Fatalf("old owner write page 0: %v", err)
 	}
-	if err := workStore.CompletePage(WithTestOperation(t, t.Context()), firstIntent, first.NextCursor, first.Done); err != nil {
+
+	if err := workStore.CompletePage(
+		WithTestOperation(t, t.Context()),
+		firstIntent,
+		first.NextCursor,
+		first.Done,
+	); err != nil {
 		t.Fatalf("old owner checkpoint page 0: %v", err)
 	}
+
 	oldWork.Cursor, oldWork.Ordinal, oldWork.Projection = first.NextCursor, first.Ordinal+1, first.ProjectionVersion
 	request.Cursor = first.NextCursor
 	second, err := reader.Content(WithTestOperation(t, t.Context()), request)
 	if err != nil {
 		t.Fatalf("old owner read page 1: %v", err)
 	}
+
 	delayed, err := workStore.Register(WithTestOperation(t, t.Context()), oldWork, second)
 	if err != nil {
 		t.Fatalf("old owner register page 1: %v", err)
@@ -69,23 +101,37 @@ func TestSearchRecoveryShorteningRetiresRemovedPages(t *testing.T) {
 
 	writeSearchNode(t, stores, fixture, shortenedValue, readerExcludedValue)
 	released := searchdomain.Failure{Message: "request delayed", Counted: false}
-	if err := workStore.Release(WithTestOperation(t, t.Context()), oldWork, released); err != nil && !errors.Is(err, searchdomain.ErrWorkChanged) {
+	if err := workStore.Release(WithTestOperation(t, t.Context()), oldWork, released); err != nil &&
+		!errors.Is(err, searchdomain.ErrWorkChanged) {
 		t.Fatalf("release the old owner: %v", err)
 	}
+
 	runSearchWorkerUntilIdle(t, newSearchWorker(t, stores, adapter, source, settings))
 
 	shortened := readSearchPages(t, stores, fixture.NodeID, recoveryPageBytes)
 	if len(shortened) != 1 {
 		t.Fatalf("shortened node has %d pages, want 1", len(shortened))
 	}
-	requireIndexedPages(t, searchNodePages(t, client, index, fixture.NodeID, false), shortened, oldWork.Generation)
+
+	requireIndexedPages(
+		t,
+		searchNodePages(t, client, index, fixture.NodeID, false),
+		shortened,
+		oldWork.Generation,
+	)
+
 	for _, document := range original {
 		requireRetiredDocument(t, client, index, document.ID)
 	}
+
 	requireRetiredDocument(t, client, index, firstIntent.DocumentID)
-	if _, err := adapter.Put(WithTestOperation(t, t.Context()), delayed); !errors.Is(err, searchdomain.ErrObsoleteWrite) {
+	if _, err := adapter.Put(WithTestOperation(t, t.Context()), delayed); !errors.Is(
+		err,
+		searchdomain.ErrObsoleteWrite,
+	) {
 		t.Fatalf("delayed write of removed page 1 = %v, want obsolete write", err)
 	}
+
 	requireRetiredDocument(t, client, index, delayed.DocumentID)
 }
 
@@ -93,15 +139,21 @@ func TestSearchRecoveryShorteningRetiresRemovedPages(t *testing.T) {
 // with no page text and no generated semantic field.
 func requireRetiredDocument(t *testing.T, client *opensearchapi.Client, index, documentID string) {
 	t.Helper()
-	response, err := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.GetReq{Index: index, ID: documentID})
+	response, err := client.Document.Get(
+		WithTestOperation(t, t.Context()),
+		opensearchapi.GetReq{Index: index, ID: documentID},
+	)
 	if err != nil || !response.Found {
 		t.Fatalf("read document %s: found %t err %v", documentID, err == nil && response.Found, err)
 	}
+
 	var source map[string]json.RawMessage
 	if err := json.Unmarshal(response.Source, &source); err != nil {
 		t.Fatalf("decode document %s: %v", documentID, err)
 	}
-	if string(source["retired"]) != "true" || len(source["page_text"]) != 0 || len(source["page_text_semantic_info"]) != 0 {
+
+	if string(source["retired"]) != "true" || len(source["page_text"]) != 0 ||
+		len(source["page_text_semantic_info"]) != 0 {
 		t.Fatalf("document %s is not a retired record without text", documentID)
 	}
 }

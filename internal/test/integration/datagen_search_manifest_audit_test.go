@@ -25,7 +25,9 @@ func requirePreparationAudit(t *testing.T, pool *pgxpool.Pool) {
 		if event.Verb != string(audit.VerbOpsDatagenSearch) {
 			continue
 		}
-		if event.Context.OrgID != audit.SystemOrgID() || event.Entity.Type != "system" || event.Entity.ID != audit.SystemOrgID() || event.Actor.ID != uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca30") {
+		if event.Context.OrgID != audit.SystemOrgID() || event.Entity.Type != "system" || event.Entity.ID != audit.SystemOrgID() || event.Actor.ID != uuid.MustParse(
+			"019dd226-440e-729a-a442-281aaf73ca30",
+		) {
 			t.Fatalf("preparation audit has an unexpected operator or resource: %+v", event)
 		}
 		if eventIDs[row.EventID] || row.EventID != event.EventID {
@@ -55,7 +57,11 @@ func requirePreparationAudit(t *testing.T, pool *pgxpool.Pool) {
 		operations[extra.OperationID] = pair
 	}
 	if len(operations) != 6 || len(eventIDs) != 12 {
-		t.Fatalf("preparation audit has %d operations and %d events, want six and twelve", len(operations), len(eventIDs))
+		t.Fatalf(
+			"preparation audit has %d operations and %d events, want six and twelve",
+			len(operations),
+			len(eventIDs),
+		)
 	}
 	var successful, failed int
 	for identifier, pair := range operations {
@@ -66,7 +72,13 @@ func requirePreparationAudit(t *testing.T, pool *pgxpool.Pool) {
 		failed += pair.failed
 	}
 	if successful != 1 || failed != 5 {
-		t.Fatalf("preparation audit has %d successes and %d refusals, want one and five", successful, failed)
+		t.Fatalf(
+			"preparation audit has %d successes and %d refusals, want one and five",
+			successful,
+			failed,
+		)
 	}
-	t.Log("preparation audit verified six operations with matched pending intents and one OK/five error outcomes")
+	t.Log(
+		"preparation audit verified six operations with matched pending intents and one OK/five error outcomes",
+	)
 }

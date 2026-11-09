@@ -14,6 +14,7 @@ func cleanupOneShot(ctx context.Context, cli *client.Client, identifier string) 
 		awaitBackupContainerRemoval(ctx, cli, identifier)
 		return
 	}
+
 	teardown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	removeContainerForce(teardown, cli, identifier)
@@ -24,12 +25,22 @@ func cleanupOneShot(ctx context.Context, cli *client.Client, identifier string) 
 func awaitBackupContainerRemoval(ctx context.Context, cli *client.Client, name string) {
 	for {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		_, err := cli.ContainerRemove(cleanup, name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		_, err := cli.ContainerRemove(
+			cleanup,
+			name,
+			client.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
+		)
 		cancel()
 		if err == nil || cerrdefs.IsNotFound(err) {
 			return
 		}
-		slog.ErrorContext(context.WithoutCancel(ctx), "backup.container.removal_retry", slog.String("container", name), slog.String("err", err.Error()))
+
+		slog.ErrorContext(
+			context.WithoutCancel(ctx),
+			"backup.container.removal_retry",
+			slog.String("container", name),
+			slog.String("err", err.Error()),
+		)
 		// A failed removal cannot release the shared backup lock safely.
 		timer := time.NewTimer(time.Second)
 		<-timer.C

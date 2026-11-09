@@ -23,10 +23,14 @@ func TestDiscoverNodesSkipsUnresolvableItem(t *testing.T) {
 		}
 		switch payload.Params.Name {
 		case "tack_list_modules":
-			writeDiscoveryListItems(writer, "modules", []collectionItem{
-				{Reference: "Q0101-1", Name: "Existing module"},
-				{Reference: "foreign-reference", Name: "Foreign module"},
-			})
+			writeDiscoveryListItems(
+				writer,
+				"modules",
+				[]collectionItem{
+					{Reference: "Q0101-1", Name: "Existing module"},
+					{Reference: "foreign-reference", Name: "Foreign module"},
+				},
+			)
 		case "tack_get_module":
 			if payload.Params.Arguments.NodeID != "Q0101-1" {
 				writeRerunResult(writer, `module "Foreign module": not found`, true)

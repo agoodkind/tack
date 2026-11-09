@@ -40,17 +40,25 @@ func runRepairCommand(t *testing.T, args ...string) (repairCommandResult, error)
 	t.Helper()
 	var result repairCommandResult
 	err := runBackfillCommand(t, "once-node-integrity", &result, args...)
+
 	return result, err
 }
 
 // runBackfillCommand runs ops backfill command with args through the
 // registered command tree as the repair test operator. It decodes the JSON
 // result into result and returns the command error.
-func runBackfillCommand[Result any](t *testing.T, command string, result *Result, args ...string) error {
+func runBackfillCommand[Result any](
+	t *testing.T,
+	command string,
+	result *Result,
+	args ...string,
+) error {
 	t.Helper()
 	cfg := &config.Config{
-		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: repairTransactionTimeout,
-		RepairDir: repairDirectory(t),
+		DatabaseURL:           testenv.Ledger(t),
+		FDBClusterFile:        testenv.FoundationDB(t),
+		FDBTransactionTimeout: repairTransactionTimeout,
+		RepairDir:             repairDirectory(t),
 	}
 	factory := cli.System(cfg)
 	var output bytes.Buffer
@@ -63,23 +71,39 @@ func runBackfillCommand[Result any](t *testing.T, command string, result *Result
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := repairCommandRoot(factory)
-	root.SetArgs(append([]string{
-		"--output", "json", "--operator-id", repairOperatorID,
-		"--operator-email", "repair@example.com", "--operator-name", "Repair Test",
-		"ops", "backfill", command,
-	}, args...))
+	root.SetArgs(
+		append(
+			[]string{
+				"--output",
+				"json",
+				"--operator-id",
+				repairOperatorID,
+				"--operator-email",
+				"repair@example.com",
+				"--operator-name",
+				"Repair Test",
+				"ops",
+				"backfill",
+				command,
+			},
+			args...,
+		),
+	)
 	runErr := root.Execute()
 	start := bytes.IndexByte(output.Bytes(), '{')
 	if start < 0 {
 		return runErr
 	}
+
 	var document response.JSONDocument
 	if err := json.Unmarshal(output.Bytes()[start:], &document); err != nil {
 		t.Fatalf("decode %s command output %q: %v", command, output.String(), err)
 	}
+
 	if err := json.Unmarshal(document.Result, result); err != nil {
 		t.Fatalf("decode %s command result %s: %v", command, document.Result, err)
 	}
+
 	return runErr
 }
 
@@ -88,23 +112,32 @@ func repairCommandRoot(factory *cli.Factory) *cobra.Command {
 	ops.RegisterCommands(registry, factory)
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
 	factory.RegisterGlobalFlags(root)
+
 	for _, command := range clispec.RenderCobra(registry, factory) {
 		root.AddCommand(command)
 	}
+
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
+
 	return root
 }
 
-func writeRepairDocument[Document ops.NodeIntegrityRequest | ops.NodeIntegrityManifest](t *testing.T, name string, value Document) string {
+func writeRepairDocument[Document ops.NodeIntegrityRequest | ops.NodeIntegrityManifest](
+	t *testing.T,
+	name string,
+	value Document,
+) string {
 	t.Helper()
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		t.Fatalf("encode %s: %v", name, err)
 	}
+
 	path := filepath.Join(repairDirectory(t), name)
 	if err := os.WriteFile(path, encoded, 0o600); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
+
 	return path
 }
 
@@ -127,6 +160,7 @@ func repairDirectory(t *testing.T) string {
 	if directory, found := repairDirectories[t]; found {
 		return directory
 	}
+
 	directory := t.TempDir()
 	repairDirectories[t] = directory
 	t.Cleanup(func() {
@@ -134,6 +168,7 @@ func repairDirectory(t *testing.T) string {
 		defer repairDirectoryLock.Unlock()
 		delete(repairDirectories, t)
 	})
+
 	return directory
 }
 
@@ -144,7 +179,9 @@ func manifestDigest(t *testing.T, manifest ops.NodeIntegrityManifest) string {
 	if err != nil {
 		t.Fatalf("encode manifest: %v", err)
 	}
+
 	sum := sha256.Sum256(encoded)
+
 	return hex.EncodeToString(sum[:])
 }
 
@@ -154,32 +191,50 @@ func freezeRepairRequest(t *testing.T, request ops.NodeIntegrityRequest) ops.Nod
 	if err != nil {
 		t.Fatalf("freeze repair request: %v", err)
 	}
+
 	if result.Manifest == nil || !result.DryRun {
 		t.Fatalf("freeze result = %+v, want a dry run with a manifest", result)
 	}
+
 	return *result.Manifest
 }
 
-func previewRepairManifest(t *testing.T, manifest ops.NodeIntegrityManifest) ops.NodeIntegrityPreview {
+func previewRepairManifest(
+	t *testing.T,
+	manifest ops.NodeIntegrityManifest,
+) ops.NodeIntegrityPreview {
 	t.Helper()
-	result, err := runRepairCommand(t, "--manifest", writeRepairDocument(t, "manifest.json", manifest))
+	result, err := runRepairCommand(
+		t,
+		"--manifest",
+		writeRepairDocument(t, "manifest.json", manifest),
+	)
 	if err != nil {
 		t.Fatalf("preview repair manifest: %v", err)
 	}
+
 	if result.Preview == nil || !result.DryRun {
 		t.Fatalf("preview result = %+v, want a dry run with a preview", result)
 	}
+
 	return *result.Preview
 }
 
-func previewEntry(t *testing.T, preview ops.NodeIntegrityPreview, repairID string) ops.NodeIntegrityEntryPreview {
+func previewEntry(
+	t *testing.T,
+	preview ops.NodeIntegrityPreview,
+	repairID string,
+) ops.NodeIntegrityEntryPreview {
 	t.Helper()
+
 	for _, entry := range preview.Entries {
 		if entry.RepairID == repairID {
 			return entry
 		}
 	}
+
 	t.Fatalf("preview has no entry %s: %+v", repairID, preview.Entries)
+
 	return ops.NodeIntegrityEntryPreview{}
 }
 
@@ -189,19 +244,24 @@ func storedKeyValues(t *testing.T) map[string]string {
 	if err != nil {
 		t.Fatalf("open database to read keys: %v", err)
 	}
+
 	keyRange, err := fdb.PrefixRange(fdbadapter.TestPrefixRange())
 	if err != nil {
 		t.Fatalf("create test prefix range: %v", err)
 	}
+
 	items, err := database.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
 	})
 	if err != nil {
 		t.Fatalf("read test prefix range: %v", err)
 	}
+
 	stored := map[string]string{}
+
 	for _, item := range items.([]fdb.KeyValue) {
 		stored[string(item.Key)] = string(item.Value)
 	}
+
 	return stored
 }

@@ -36,7 +36,9 @@ func ValidateTarget(cfg *config.Config) error {
 	}
 	for _, broker := range strings.Split(cfg.AuditKafkaBrokers, ",") {
 		if err := validateEndpoint(targetEndpoint{
-			name: "AUDIT_KAFKA_BROKERS", value: strings.TrimSpace(broker), kafka: true,
+			name:  "AUDIT_KAFKA_BROKERS",
+			value: strings.TrimSpace(broker),
+			kafka: true,
 		}); err != nil {
 			return err
 		}

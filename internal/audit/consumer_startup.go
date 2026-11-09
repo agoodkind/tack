@@ -33,31 +33,48 @@ const pingYugabyteReadyCapWait = 5 * time.Second
 // error stream.
 func pingYugabyteUntilReady(ctx context.Context, pool *pgxpool.Pool) error {
 	attempts := 0
+
 	for {
 		attempts++
 		err := pool.Ping(ctx)
 		if err == nil {
 			break
 		}
+
 		if ctx.Err() != nil {
-			slog.ErrorContext(ctx, "audit.consumer.yugabyte_ping_failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.consumer.yugabyte_ping_failed",
+				slog.String("err", err.Error()),
+			)
+
 			return fmt.Errorf("audit consumer yugabyte ping: %w", err)
 		}
+
 		wait := min(time.Duration(attempts)*time.Second, pingYugabyteReadyCapWait)
-		slog.WarnContext(ctx, "audit.consumer.yugabyte_not_ready",
+		slog.WarnContext(
+			ctx,
+			"audit.consumer.yugabyte_not_ready",
 			slog.Int("attempt", attempts),
 			slog.String("err", err.Error()),
 		)
 		select {
 		case <-ctx.Done():
-			slog.ErrorContext(ctx, "audit.consumer.yugabyte_ping_failed", slog.String("err", ctx.Err().Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.consumer.yugabyte_ping_failed",
+				slog.String("err", ctx.Err().Error()),
+			)
+
 			return fmt.Errorf("audit consumer yugabyte ping: %w", ctx.Err())
 		case <-time.After(wait):
 		}
 	}
+
 	if attempts > 1 {
 		slog.InfoContext(ctx, "audit.consumer.yugabyte_ready", slog.Int("attempts", attempts))
 	}
+
 	return nil
 }
 
@@ -73,7 +90,12 @@ const retentionConfigKey = "retention.ms"
 // to the configured value, because the topic is the buffer that holds every
 // event the consumer has not yet committed: the broker default of seven days
 // discarded the 2026-07-06 to 07-21 events during a consumer outage (TACK-336).
-func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string, retention time.Duration) error {
+func ensureAuditTopic(
+	ctx context.Context,
+	client *kgo.Client,
+	topic string,
+	retention time.Duration,
+) error {
 	retentionMs := strconv.FormatInt(retention.Milliseconds(), 10)
 	req := kmsg.NewPtrCreateTopicsRequest()
 	reqTopic := kmsg.NewCreateTopicsRequestTopic()
@@ -88,16 +110,21 @@ func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string, ret
 
 	resp, err := req.RequestWith(ctx, client)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.topic_create_request_failed",
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.topic_create_request_failed",
 			slog.String("topic", topic),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("audit consumer create topic %s: %w", topic, err)
 	}
+
 	for _, respTopic := range resp.Topics {
 		if respTopic.ErrorCode == 0 {
 			continue
 		}
+
 		codeErr := kerr.ErrorForCode(respTopic.ErrorCode)
 		if errors.Is(codeErr, kerr.TopicAlreadyExists) {
 			// A broker that refuses the alter (an ACL, an older version)
@@ -105,28 +132,46 @@ func ensureAuditTopic(ctx context.Context, client *kgo.Client, topic string, ret
 			// shorter buffer, not a stopped consumer, so it is logged and
 			// the consumer keeps projecting.
 			if err := setTopicRetention(ctx, client, topic, retentionMs); err != nil {
-				slog.ErrorContext(ctx, "audit.consumer.topic_retention_unchanged",
-					slog.String("topic", topic), slog.String("err", err.Error()))
+				slog.ErrorContext(
+					ctx,
+					"audit.consumer.topic_retention_unchanged",
+					slog.String("topic", topic),
+					slog.String("err", err.Error()),
+				)
 			}
+
 			continue
 		}
-		slog.ErrorContext(ctx, "audit.consumer.topic_create_failed",
+
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.topic_create_failed",
 			slog.String("topic", topic),
 			slog.String("err", codeErr.Error()),
 		)
+
 		return fmt.Errorf("audit consumer create topic %s: %w", topic, codeErr)
 	}
-	slog.InfoContext(ctx, "audit.consumer.topic_ensured",
+
+	slog.InfoContext(
+		ctx,
+		"audit.consumer.topic_ensured",
 		slog.String("topic", topic),
 		slog.Int("partitions", auditTopicPartitions),
 		slog.String("retention", retention.String()),
 	)
+
 	return nil
 }
 
 // setTopicRetention sets retention.ms on an existing topic. It is one
 // incremental alter of one key, so every other topic setting is untouched.
-func setTopicRetention(ctx context.Context, client *kgo.Client, topic string, retentionMs string) error {
+func setTopicRetention(
+	ctx context.Context,
+	client *kgo.Client,
+	topic string,
+	retentionMs string,
+) error {
 	req := kmsg.NewPtrIncrementalAlterConfigsRequest()
 	resource := kmsg.NewIncrementalAlterConfigsRequestResource()
 	resource.ResourceType = kmsg.ConfigResourceTypeTopic
@@ -140,20 +185,38 @@ func setTopicRetention(ctx context.Context, client *kgo.Client, topic string, re
 
 	resp, err := req.RequestWith(ctx, client)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.topic_retention_request_failed",
-			slog.String("topic", topic), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.topic_retention_request_failed",
+			slog.String("topic", topic),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("audit consumer set retention on %s: %w", topic, err)
 	}
+
 	for _, respResource := range resp.Resources {
 		if respResource.ErrorCode == 0 {
 			continue
 		}
+
 		codeErr := kerr.ErrorForCode(respResource.ErrorCode)
-		slog.ErrorContext(ctx, "audit.consumer.topic_retention_failed",
-			slog.String("topic", topic), slog.String("err", codeErr.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.topic_retention_failed",
+			slog.String("topic", topic),
+			slog.String("err", codeErr.Error()),
+		)
+
 		return fmt.Errorf("audit consumer set retention on %s: %w", topic, codeErr)
 	}
-	slog.InfoContext(ctx, "audit.consumer.topic_retention_set",
-		slog.String("topic", topic), slog.String("retention_ms", retentionMs))
+
+	slog.InfoContext(
+		ctx,
+		"audit.consumer.topic_retention_set",
+		slog.String("topic", topic),
+		slog.String("retention_ms", retentionMs),
+	)
+
 	return nil
 }

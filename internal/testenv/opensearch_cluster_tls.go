@@ -38,72 +38,128 @@ type issuedCertificate struct {
 func newClusterAuthority(ctx context.Context) (clusterAuthority, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return clusterAuthority{}, certificateError(ctx, fmt.Errorf("generate cluster CA key: %w", err))
+		return clusterAuthority{}, certificateError(
+			ctx,
+			fmt.Errorf("generate cluster CA key: %w", err),
+		)
 	}
+
 	template, err := certificateTemplate(ctx, "tack-testenv-cluster-ca", nil)
 	if err != nil {
 		return clusterAuthority{}, err
 	}
+
 	template.IsCA, template.BasicConstraintsValid, template.KeyUsage = true, true, x509.KeyUsageCertSign
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
-		return clusterAuthority{}, certificateError(ctx, fmt.Errorf("create cluster CA certificate: %w", err))
+		return clusterAuthority{}, certificateError(
+			ctx,
+			fmt.Errorf("create cluster CA certificate: %w", err),
+		)
 	}
+
 	certificate, err := x509.ParseCertificate(der)
 	if err != nil {
-		return clusterAuthority{}, certificateError(ctx, fmt.Errorf("parse cluster CA certificate: %w", err))
+		return clusterAuthority{}, certificateError(
+			ctx,
+			fmt.Errorf("parse cluster CA certificate: %w", err),
+		)
 	}
-	encoded := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+
+	encoded := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: der,
+	})
+
 	return clusterAuthority{certificate: certificate, key: key, pem: encoded}, nil
 }
 
 // issue signs a server and client certificate for commonName that is valid
 // for every DNS name and IP address in names.
-func (a clusterAuthority) issue(ctx context.Context, commonName string, names []string) (issuedCertificate, error) {
+func (a clusterAuthority) issue(
+	ctx context.Context,
+	commonName string,
+	names []string,
+) (issuedCertificate, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return issuedCertificate{}, certificateError(ctx, fmt.Errorf("generate key for %s: %w", commonName, err))
+		return issuedCertificate{}, certificateError(
+			ctx,
+			fmt.Errorf("generate key for %s: %w", commonName, err),
+		)
 	}
+
 	template, err := certificateTemplate(ctx, commonName, names)
 	if err != nil {
 		return issuedCertificate{}, err
 	}
+
 	template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment
-	template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}
+	template.ExtKeyUsage = []x509.ExtKeyUsage{
+		x509.ExtKeyUsageServerAuth,
+		x509.ExtKeyUsageClientAuth,
+	}
 	der, err := x509.CreateCertificate(rand.Reader, template, a.certificate, &key.PublicKey, a.key)
 	if err != nil {
-		return issuedCertificate{}, certificateError(ctx, fmt.Errorf("sign certificate for %s: %w", commonName, err))
+		return issuedCertificate{}, certificateError(
+			ctx,
+			fmt.Errorf("sign certificate for %s: %w", commonName, err),
+		)
 	}
+
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
-		return issuedCertificate{}, certificateError(ctx, fmt.Errorf("encode key for %s: %w", commonName, err))
+		return issuedCertificate{}, certificateError(
+			ctx,
+			fmt.Errorf("encode key for %s: %w", commonName, err),
+		)
 	}
+
 	return issuedCertificate{
-		certificate: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
-		key:         pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}),
+		certificate: pem.EncodeToMemory(&pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: der,
+		}),
+		key: pem.EncodeToMemory(&pem.Block{
+			Type:  "PRIVATE KEY",
+			Bytes: keyDER,
+		}),
 	}, nil
 }
 
 // certificateTemplate returns a one-day certificate template with a random
 // 128-bit serial number. Each IP literal in names becomes an IP address
 // subject alternative name, and each other entry becomes a DNS name.
-func certificateTemplate(ctx context.Context, commonName string, names []string) (*x509.Certificate, error) {
+func certificateTemplate(
+	ctx context.Context,
+	commonName string,
+	names []string,
+) (*x509.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
 		return nil, certificateError(ctx, fmt.Errorf("generate serial for %s: %w", commonName, err))
 	}
+
 	var dnsNames []string
 	var addresses []net.IP
+
 	for _, name := range names {
 		if address := net.ParseIP(name); address != nil {
 			addresses = append(addresses, address)
 			continue
 		}
+
 		dnsNames = append(dnsNames, name)
 	}
+
 	now := clock.Now()
+
 	return &x509.Certificate{
-		SerialNumber: serial, Subject: pkix.Name{CommonName: commonName}, DNSNames: dnsNames, IPAddresses: addresses,
-		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(24 * time.Hour),
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: commonName},
+		DNSNames:     dnsNames,
+		IPAddresses:  addresses,
+		NotBefore:    now.Add(-time.Minute),
+		NotAfter:     now.Add(24 * time.Hour),
 	}, nil
 }

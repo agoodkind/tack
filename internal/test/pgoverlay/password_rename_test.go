@@ -70,7 +70,10 @@ func TestYugabyteExternalInterruptedRenameUnchangedPassword(t *testing.T) {
 	var databaseError *pgconn.PgError
 	err := s.target.loginError(t, renamed, s.password("1"))
 	if !errors.As(err, &databaseError) || databaseError.Code != "28P01" {
-		t.Fatalf("login after interruption returned %v; expected invalid password SQLSTATE 28P01", err)
+		t.Fatalf(
+			"login after interruption returned %v; expected invalid password SQLSTATE 28P01",
+			err,
+		)
 	}
 	s.planRole(t, renamed, "1", infinity, exitChanges)
 	if output, code := s.applyRole(t, renamed, "1", infinity); code != exitSuccess {

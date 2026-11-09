@@ -30,31 +30,40 @@ type scopeRoute struct {
 func (r *Resolver) ScopeRouteForType(nt *node.NodeType) scopeRoute {
 	parents := make([]*node.NodeType, 0, len(nt.CanLiveUnder))
 	seen := map[string]struct{}{}
+
 	for _, parentKey := range nt.CanLiveUnder {
 		parent := r.typeIndex[parentKey]
 		if parent == nil || parent.Features.Has(node.FeatureIsEntryPoint) {
 			continue
 		}
+
 		if _, ok := seen[parent.TypeKey]; ok {
 			continue
 		}
+
 		seen[parent.TypeKey] = struct{}{}
 		parents = append(parents, parent)
 	}
+
 	if len(parents) <= 1 {
 		return scopeRoute{Chain: r.ScopeChainForType(nt), Leaves: nil}
 	}
+
 	leaves := make([]scopeLeaf, 0, len(parents))
 	for _, parent := range parents {
-		leaves = append(leaves, scopeLeaf{
-			Level: ScopeLevel{
-				TypeKey:   parent.TypeKey,
-				Slug:      strings.ToLower(parent.Slug),
-				ParamName: strings.ToLower(parent.Slug) + referenceParamSuffix,
+		leaves = append(
+			leaves,
+			scopeLeaf{
+				Level: ScopeLevel{
+					TypeKey:   parent.TypeKey,
+					Slug:      strings.ToLower(parent.Slug),
+					ParamName: strings.ToLower(parent.Slug) + referenceParamSuffix,
+				},
+				Chain: r.ScopeChainForType(parent),
 			},
-			Chain: r.ScopeChainForType(parent),
-		})
+		)
 	}
+
 	return scopeRoute{Chain: nil, Leaves: leaves}
 }
 
@@ -69,6 +78,7 @@ func (route scopeRoute) leafParamNames() []string {
 	for _, leaf := range route.Leaves {
 		names = append(names, leaf.Level.ParamName)
 	}
+
 	return names
 }
 
@@ -89,25 +99,31 @@ func (route scopeRoute) schemaFields(resolver *Resolver) []schemaField {
 		for _, level := range route.Chain {
 			fields = append(fields, scopeReferenceFields(level, resolver)...)
 		}
+
 		return fields
 	}
+
 	fields := make([]schemaField, 0, len(route.Leaves)*2)
 	seen := map[string]struct{}{}
+
 	for _, leaf := range route.Leaves {
 		for _, level := range leaf.Chain {
 			if _, ok := seen[level.ParamName]; ok || route.isLeafParam(level.ParamName) {
 				continue
 			}
+
 			seen[level.ParamName] = struct{}{}
 			fields = append(fields, scopeReferenceFields(level, resolver)...)
 		}
 	}
+
 	exactlyOne := " Provide exactly one of " + strings.Join(route.leafParamNames(), ", ") + "."
 	for _, leaf := range route.Leaves {
 		field := scopeReferenceFields(leaf.Level, resolver)[0]
 		field.Desc += exactlyOne
 		fields = append(fields, field)
 	}
+
 	return fields
 }
 
@@ -118,17 +134,21 @@ func (route scopeRoute) requiredParams() []string {
 	if len(route.Leaves) == 0 {
 		return scopeParamNames(route.Chain)
 	}
+
 	counts := map[string]int{}
+
 	for _, leaf := range route.Leaves {
 		for _, level := range leaf.Chain {
 			counts[level.ParamName]++
 		}
 	}
+
 	required := make([]string, 0, len(route.Leaves[0].Chain))
 	for _, level := range route.Leaves[0].Chain {
 		if counts[level.ParamName] == len(route.Leaves) && !route.isLeafParam(level.ParamName) {
 			required = append(required, level.ParamName)
 		}
 	}
+
 	return required
 }

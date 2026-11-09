@@ -23,7 +23,12 @@ func (g *Generator) generateRelationships(
 		{relationType: "labeled_with", target: labels[index%len(labels)]},
 		{relationType: "watches", target: otherActor.UserID.String()},
 	}
-	if err := g.probeParentAddRefused(ctx, actor.Token, issueReference, parentReference); err != nil {
+	if err := g.probeParentAddRefused(
+		ctx,
+		actor.Token,
+		issueReference,
+		parentReference,
+	); err != nil {
 		return err
 	}
 	for _, relationship := range relationships {
@@ -59,7 +64,12 @@ func (g *Generator) generateRelationships(
 		); err != nil {
 			return err
 		}
-		if err := g.probeParentRemovalRefused(ctx, actor.Token, issueReference, parentReference); err != nil {
+		if err := g.probeParentRemovalRefused(
+			ctx,
+			actor.Token,
+			issueReference,
+			parentReference,
+		); err != nil {
 			return err
 		}
 		if err := g.exerciseAssignmentRemoval(ctx, actor, workspace, issueReference); err != nil {
@@ -77,21 +87,20 @@ func (g *Generator) callRelationship(
 	relationType string,
 	target string,
 ) error {
-	_, err := g.driver.Call(ctx, token, toolName, ToolArguments{
-		SourceID:     source,
-		RelationType: relationType,
-		TargetID:     target,
-	})
+	_, err := g.driver.Call(
+		ctx,
+		token,
+		toolName,
+		ToolArguments{
+			SourceID:     source,
+			RelationType: relationType,
+			TargetID:     target,
+		},
+	)
 	if err != nil {
 		return loggedError(
 			ctx,
-			fmt.Sprintf(
-				"qa datagen: %s %s %s %s",
-				toolName,
-				source,
-				relationType,
-				target,
-			),
+			fmt.Sprintf("qa datagen: %s %s %s %s", toolName, source, relationType, target),
 			err,
 		)
 	}

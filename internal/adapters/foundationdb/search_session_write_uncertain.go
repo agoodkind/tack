@@ -42,40 +42,88 @@ const (
 // when cause does not wrap commitUncertainError. If the event cannot commit,
 // it returns an error joining audit.ErrEventNotRecorded, cause, and the write
 // error.
-func (s *SearchSessionStore) recordWriteUncertain(ctx context.Context, changes *sessionAudit, sessionID, ownerID uuid.UUID, verb audit.Verb, cause error) error {
+func (s *SearchSessionStore) recordWriteUncertain(
+	ctx context.Context,
+	changes *sessionAudit,
+	sessionID uuid.UUID,
+	ownerID uuid.UUID,
+	verb audit.Verb,
+	cause error,
+) error {
 	var uncertain commitUncertainError
 	if !errors.As(cause, &uncertain) {
 		return cause
 	}
-	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), audit.ExternalResultDeadline)
+
+	recordContext, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		audit.ExternalResultDeadline,
+	)
 	defer cancel()
-	err := transactSession(recordContext, s.db, s.clock, recordWriteUncertainOperation, sessionID, func(tr fdb.Transaction) error {
-		return appendWriteUncertain(recordContext, tr, changes, sessionID, ownerID, verb)
-	})
+	err := transactSession(
+		recordContext,
+		s.db,
+		s.clock,
+		recordWriteUncertainOperation,
+		sessionID,
+		func(tr fdb.Transaction) error {
+			return appendWriteUncertain(recordContext, tr, changes, sessionID, ownerID, verb)
+		},
+	)
 	if err != nil {
 		joined := errors.Join(cause, err)
 		return sessionRecordingFailure(ctx, sessionID, joined)
 	}
+
 	return cause
 }
 
 // appendWriteUncertain writes an incomplete session write event for the session
 // target with ownerID to the outbox in tr. The event ID stays the same across
 // transaction attempts.
-func appendWriteUncertain(ctx context.Context, tr fdb.Transaction, changes *sessionAudit, sessionID, ownerID uuid.UUID, verb audit.Verb) error {
+func appendWriteUncertain(
+	ctx context.Context,
+	tr fdb.Transaction,
+	changes *sessionAudit,
+	sessionID uuid.UUID,
+	ownerID uuid.UUID,
+	verb audit.Verb,
+) error {
 	details := audit.OutcomeDetails{
-		Outcome: audit.OutcomeIncomplete, FailureCode: sessionWriteUncertainCode, FailureMessage: sessionWriteUncertainMessage, CommittedSteps: nil,
+		Outcome:        audit.OutcomeIncomplete,
+		FailureCode:    sessionWriteUncertainCode,
+		FailureMessage: sessionWriteUncertainMessage,
+		CommittedSteps: nil,
 	}
-	event, err := audit.ChangeFailureEvent(changes.operation, audit.SearchSessionTarget(sessionID, ownerID), verb, details)
+	event, err := audit.ChangeFailureEvent(
+		changes.operation,
+		audit.SearchSessionTarget(sessionID, ownerID),
+		verb,
+		details,
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
+		slog.ErrorContext(
+			ctx,
+			"search.session.audit_failed",
+			slog.String("err", err.Error()),
+			slog.String("session_id", sessionID.String()),
+		)
+
 		return fmt.Errorf("build the uncertain write event of session %s: %w", sessionID, err)
 	}
+
 	event.EventID = uuid.NewSHA1(changes.base, []byte(sessionWriteUncertainEventName))
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
-		slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", sessionID.String()))
+		slog.ErrorContext(
+			ctx,
+			"search.session.audit_failed",
+			slog.String("err", err.Error()),
+			slog.String("session_id", sessionID.String()),
+		)
+
 		return fmt.Errorf("encode the uncertain write event of session %s: %w", sessionID, err)
 	}
+
 	return NewOutboxWriter(tr).WriteEncodedEvent(ctx, encoded)
 }

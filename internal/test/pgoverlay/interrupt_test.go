@@ -40,12 +40,17 @@ func TestYugabyteExternalInterruptedRename(t *testing.T) {
 	}
 	requireProvidersStopped(t, tofuPID)
 	if state := processState(t, tofuPID); state == "Z" {
-		t.Fatalf("tofu ended before the interruption, and the test expects it to wait for the provider")
+		t.Fatalf(
+			"tofu ended before the interruption, and the test expects it to wait for the provider",
+		)
 	}
 	s.target.waitForRoleName(t, oid, renamed, renameWatchTimeout)
 	tree := processTree(t, tofuPID)
 	if signaled := killTree(t, tree); signaled < 2 {
-		t.Fatalf("the interruption signaled %d processes, and the test expects tofu and its provider", signaled)
+		t.Fatalf(
+			"the interruption signaled %d processes, and the test expects tofu and its provider",
+			signaled,
+		)
 	}
 	output, code := s.space.wait(t, process)
 	s.requireInterruptedBeforeStatePersisted(t, output, code, oid)
@@ -62,14 +67,27 @@ func TestYugabyteExternalInterruptedRename(t *testing.T) {
 // output has no completion line, and the state file still records the original
 // role name and password version. A test run that loses the race against a
 // completing apply fails here.
-func (s *scenario) requireInterruptedBeforeStatePersisted(t *testing.T, output string, code int, oid int64) {
+func (s *scenario) requireInterruptedBeforeStatePersisted(
+	t *testing.T,
+	output string,
+	code int,
+	oid int64,
+) {
 	t.Helper()
 	if code == exitSuccess || strings.Contains(output, "Apply complete") {
-		t.Fatalf("the apply completed (exit %d) and the test expects the interruption:\n%s", code, output)
+		t.Fatalf(
+			"the apply completed (exit %d) and the test expects the interruption:\n%s",
+			code,
+			output,
+		)
 	}
 	got := s.space.stateValues(t)
 	if got.Name != s.role || got.ID != s.role || got.Version != "1" || got.OID != oid {
-		t.Fatalf("the state file is %+v after the interruption; the test expects the original name %s, password version 1, and role_oid %d",
-			got, s.role, oid)
+		t.Fatalf(
+			"the state file is %+v after the interruption; the test expects the original name %s, password version 1, and role_oid %d",
+			got,
+			s.role,
+			oid,
+		)
 	}
 }

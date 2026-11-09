@@ -36,6 +36,7 @@ func deputyBackupStalenessConfig(t *testing.T, primary string) *config.Config {
 	cfg.BackupAlarmPrimaryWindowSeconds = 1500
 	cfg.BackupAlarmPrimaryGraceSeconds = 90
 	skipBackupAlarmGrace(t, func() {})
+
 	return cfg
 }
 
@@ -50,6 +51,7 @@ func skipBackupAlarmGrace(t *testing.T, during func()) *int {
 		during()
 	}
 	t.Cleanup(func() { backupAlarmSleepFunc = previous })
+
 	return &waits
 }
 
@@ -57,10 +59,15 @@ func skipBackupAlarmGrace(t *testing.T, during func()) *int {
 // the context ends, the way a pool waiting on a partitioned database does.
 type blockingLedger struct{ blockedFor time.Duration }
 
-func (l *blockingLedger) StreamQuery(ctx context.Context, _ audit.QueryFilter, _ audit.RowVisitor) error {
+func (l *blockingLedger) StreamQuery(
+	ctx context.Context,
+	_ audit.QueryFilter,
+	_ audit.RowVisitor,
+) error {
 	started := time.Now()
 	<-ctx.Done()
 	l.blockedFor = time.Since(started)
+
 	return fmt.Errorf("blocked ledger: %w", ctx.Err())
 }
 
@@ -87,6 +94,7 @@ func installSystemLedger(t *testing.T, rows ...audit.Row) *restoredLedger {
 		return systemLedger{ledger}, nil
 	}
 	t.Cleanup(func() { backupAlarmLedgerOpenFunc = previous })
+
 	return ledger
 }
 
@@ -94,16 +102,17 @@ func installSystemLedger(t *testing.T, rows ...audit.Row) *restoredLedger {
 // system org, the service's derived actor id, and the command's verb.
 func operatorRunRow(service string, action audit.Verb, at time.Time) audit.Row {
 	return audit.Row{
-		OrgID:      audit.SystemOrgID(),
-		EventTime:  at,
-		EventID:    uuid.Must(uuid.NewV7()),
-		Seq:        1,
-		Shard:      0,
-		ActorID:    cli.ServiceActorID(service),
-		ActorKind:  1,
-		Action:     string(action),
-		Outcome:    audit.OutcomeOK,
-		EntityKind: "system", EntityID: audit.SystemOrgID(),
+		OrgID:          audit.SystemOrgID(),
+		EventTime:      at,
+		EventID:        uuid.Must(uuid.NewV7()),
+		Seq:            1,
+		Shard:          0,
+		ActorID:        cli.ServiceActorID(service),
+		ActorKind:      1,
+		Action:         string(action),
+		Outcome:        audit.OutcomeOK,
+		EntityKind:     "system",
+		EntityID:       audit.SystemOrgID(),
 		Context:        audit.EventContext{OrgID: audit.SystemOrgID(), Source: audit.SourceSystem},
 		Delta:          nil,
 		Error:          nil,
@@ -121,18 +130,27 @@ func operatorRunRow(service string, action audit.Verb, at time.Time) audit.Row {
 func runStaleDeputyCheck(t *testing.T, cfg *config.Config) string {
 	t.Helper()
 	var logs bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{
-		AddSource: false, Level: slog.LevelDebug, ReplaceAttr: nil,
-	}))
+	logger := slog.New(
+		slog.NewTextHandler(
+			&logs,
+			&slog.HandlerOptions{
+				AddSource:   false,
+				Level:       slog.LevelDebug,
+				ReplaceAttr: nil,
+			},
+		),
+	)
 	ctx := telemetry.WithLogger(context.Background(), logger)
 	var out bytes.Buffer
 	err := RunBackupStalenessCheck(ctx, cfg, &out)
 	if err == nil {
 		t.Fatal("a stale run must exit nonzero")
 	}
+
 	if !strings.Contains(err.Error(), "past threshold") {
 		t.Fatalf("the returned error must be the staleness verdict: %v", err)
 	}
+
 	return logs.String()
 }
 
@@ -144,23 +162,35 @@ func TestBackupStalenessDeputyDefersWhileThePrimaryRuns(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	installSystemLedger(t,
-		operatorRunRow(primaryService, audit.VerbOpsBackupStalenessCheck, now.Add(-7*time.Minute)))
+	installSystemLedger(
+		t,
+		operatorRunRow(primaryService, audit.VerbOpsBackupStalenessCheck, now.Add(-7*time.Minute)),
+	)
 	cfg := deputyBackupStalenessConfig(t, primaryService)
 
 	for run := 1; run <= 2; run++ {
 		logs := runStaleDeputyCheck(t, cfg)
 		if len(captured.messages) != 0 {
-			t.Fatalf("run %d: a deputy whose primary ran must not mail, sent %d", run, len(captured.messages))
+			t.Fatalf(
+				"run %d: a deputy whose primary ran must not mail, sent %d",
+				run,
+				len(captured.messages),
+			)
 		}
+
 		if _, found := alarmedBackupMetrics(t, cfg); found {
 			t.Fatalf("run %d: a deferred fault must not be recorded", run)
 		}
+
 		if !strings.Contains(logs, "msg=backup.staleness.alarm_deferred") ||
 			!strings.Contains(logs, backupStalenessExportName) ||
 			!strings.Contains(logs, "primary="+primaryService) ||
 			!strings.Contains(logs, "primary_seen_at=2026-09-05T03:53:00") {
-			t.Fatalf("run %d: the deferral must be logged with the metrics, the primary, and its run:\n%s", run, logs)
+			t.Fatalf(
+				"run %d: the deferral must be logged with the metrics, the primary, and its run:\n%s",
+				run,
+				logs,
+			)
 		}
 	}
 }
@@ -173,20 +203,27 @@ func TestBackupStalenessDeputyMailsWhenThePrimaryHasNotRun(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	installSystemLedger(t,
+	installSystemLedger(
+		t,
 		operatorRunRow(deputyService, audit.VerbOpsBackupStalenessCheck, now.Add(-time.Minute)),
-		operatorRunRow(primaryService, audit.VerbOpsBackupRestoreDrill, now.Add(-time.Minute)))
+		operatorRunRow(primaryService, audit.VerbOpsBackupRestoreDrill, now.Add(-time.Minute)),
+	)
 	cfg := deputyBackupStalenessConfig(t, primaryService)
 
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
-		t.Fatalf("with no primary run in the window the deputy must mail once, sent %d", len(captured.messages))
+		t.Fatalf(
+			"with no primary run in the window the deputy must mail once, sent %d",
+			len(captured.messages),
+		)
 	}
+
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") ||
 		!strings.Contains(logs, "primary="+primaryService) ||
 		!strings.Contains(logs, "window=25m0s") {
 		t.Fatalf("the missing primary must be logged with the service and the window:\n%s", logs)
 	}
+
 	if alarmed, found := alarmedBackupMetrics(t, cfg); !found || len(alarmed) != 3 {
 		t.Fatalf("the mailed fault must be recorded, found = %v state = %v", found, alarmed)
 	}
@@ -204,14 +241,17 @@ func TestBackupStalenessDeputyMailsWhenThePrimaryRanTooLongAgo(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	installSystemLedger(t,
-		operatorRunRow(primaryService, audit.VerbOpsBackupStalenessCheck, now.Add(-26*time.Minute)))
+	installSystemLedger(
+		t,
+		operatorRunRow(primaryService, audit.VerbOpsBackupStalenessCheck, now.Add(-26*time.Minute)),
+	)
 	cfg := deputyBackupStalenessConfig(t, primaryService)
 
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf("a primary run outside the window must not defer, sent %d", len(captured.messages))
 	}
+
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") {
 		t.Fatalf("the missing primary must be logged:\n%s", logs)
 	}
@@ -228,13 +268,18 @@ func TestBackupStalenessDeputyMailsWhenTheLedgerCannotBeRead(t *testing.T) {
 
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
-		t.Fatalf("a deputy that cannot read the ledger must mail once, sent %d", len(captured.messages))
+		t.Fatalf(
+			"a deputy that cannot read the ledger must mail once, sent %d",
+			len(captured.messages),
+		)
 	}
+
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") ||
 		!strings.Contains(logs, "err=") ||
 		!strings.Contains(logs, "read the primary's runs from the ledger") {
 		t.Fatalf("the unreadable ledger must be logged with its error:\n%s", logs)
 	}
+
 	if alarmed, found := alarmedBackupMetrics(t, cfg); !found || len(alarmed) != 3 {
 		t.Fatalf("the mailed fault must be recorded, found = %v state = %v", found, alarmed)
 	}
@@ -259,11 +304,19 @@ func TestBackupStalenessDeputyMailsWhenTheLedgerHangs(t *testing.T) {
 
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
-		t.Fatalf("a deputy whose ledger read timed out must mail once, sent %d", len(captured.messages))
+		t.Fatalf(
+			"a deputy whose ledger read timed out must mail once, sent %d",
+			len(captured.messages),
+		)
 	}
+
 	if ledger.blockedFor == 0 || ledger.blockedFor > time.Second {
-		t.Fatalf("the read must be cut off at the query timeout, it blocked for %s", ledger.blockedFor)
+		t.Fatalf(
+			"the read must be cut off at the query timeout, it blocked for %s",
+			ledger.blockedFor,
+		)
 	}
+
 	if !strings.Contains(logs, "msg=backup.staleness.primary_not_seen") ||
 		!strings.Contains(logs, "context deadline exceeded") {
 		t.Fatalf("the timed-out read must be logged as an unreadable ledger:\n%s", logs)
@@ -282,21 +335,36 @@ func TestBackupStalenessDeputyDefersWhenThePrimaryRunLandsDuringGrace(t *testing
 	cfg := deputyBackupStalenessConfig(t, primaryService)
 	// The clock is pinned, so the row lands a second before the deputy's
 	// second read the way a real commit precedes the read that sees it.
-	waits := skipBackupAlarmGrace(t, func() {
-		ledger.rowsByOrg[audit.SystemOrgID()] = append(ledger.rowsByOrg[audit.SystemOrgID()],
-			operatorRunRow(primaryService, audit.VerbOpsBackupStalenessCheck, now.Add(-time.Second)))
-	})
+	waits := skipBackupAlarmGrace(
+		t,
+		func() {
+			ledger.rowsByOrg[audit.SystemOrgID()] = append(
+				ledger.rowsByOrg[audit.SystemOrgID()],
+				operatorRunRow(
+					primaryService,
+					audit.VerbOpsBackupStalenessCheck,
+					now.Add(-time.Second),
+				),
+			)
+		},
+	)
 
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 0 {
-		t.Fatalf("a primary run that landed during the grace period must defer, sent %d", len(captured.messages))
+		t.Fatalf(
+			"a primary run that landed during the grace period must defer, sent %d",
+			len(captured.messages),
+		)
 	}
+
 	if _, found := alarmedBackupMetrics(t, cfg); found {
 		t.Fatal("a deferred fault must not be recorded")
 	}
+
 	if *waits != 1 {
 		t.Fatalf("the deputy must wait out the grace period once, waited %d times", *waits)
 	}
+
 	if !strings.Contains(logs, "msg=backup.staleness.primary_grace") ||
 		!strings.Contains(logs, "seconds=90") ||
 		!strings.Contains(logs, "msg=backup.staleness.alarm_deferred") {
@@ -317,11 +385,16 @@ func TestBackupStalenessDeputyMailsAfterGraceFindsNoPrimaryRun(t *testing.T) {
 
 	logs := runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
-		t.Fatalf("with no primary run after the grace period the deputy must mail once, sent %d", len(captured.messages))
+		t.Fatalf(
+			"with no primary run after the grace period the deputy must mail once, sent %d",
+			len(captured.messages),
+		)
 	}
+
 	if *waits != 1 {
 		t.Fatalf("the deputy must wait out the grace period once, waited %d times", *waits)
 	}
+
 	if !strings.Contains(logs, "msg=backup.staleness.primary_grace") ||
 		!strings.Contains(logs, "msg=backup.staleness.primary_not_seen") {
 		t.Fatalf("the grace wait and the missing primary must both be logged:\n%s", logs)
@@ -335,15 +408,21 @@ func TestBackupStalenessPrimaryIgnoresTheLedger(t *testing.T) {
 	now := time.Date(2026, 9, 5, 4, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	ledger := installSystemLedger(t,
-		operatorRunRow(primaryService, audit.VerbOpsBackupStalenessCheck, now.Add(-time.Minute)))
+	ledger := installSystemLedger(
+		t,
+		operatorRunRow(primaryService, audit.VerbOpsBackupStalenessCheck, now.Add(-time.Minute)),
+	)
 	cfg := deputyBackupStalenessConfig(t, "")
 
 	runStaleDeputyCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf("the primary must mail once, sent %d", len(captured.messages))
 	}
+
 	if ledger.served[audit.SystemOrgID()] != 0 {
-		t.Fatalf("the primary must not read the ledger, read %d rows", ledger.served[audit.SystemOrgID()])
+		t.Fatalf(
+			"the primary must not read the ledger, read %d rows",
+			ledger.served[audit.SystemOrgID()],
+		)
 	}
 }

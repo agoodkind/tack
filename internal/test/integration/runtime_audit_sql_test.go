@@ -35,6 +35,7 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IssueAuthToken error = %v, want nil", err)
 	}
+
 	issueEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
 	issued, err := postgres.NewTokenRepo(stack.admin).GetByID(ctx, issue.Token.ID)
 	if err != nil {
@@ -44,7 +45,12 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 	holderIDs := []uuid.UUID{holder.ID}
 	before := sqlRows(t, stack.admin, holderIDs)
 	failedCtx, failedID := sqlOperatorContext(t.Context(), principal)
-	_, err = ops.IssueAuthToken(failedCtx, changeOnlyPool(t, stack.admin), holder.Email, sqlAuditTokenLabel)
+	_, err = ops.IssueAuthToken(
+		failedCtx,
+		changeOnlyPool(t, stack.admin),
+		holder.Email,
+		sqlAuditTokenLabel,
+	)
 	requireAuditWriteFailure(t, "IssueAuthToken", err)
 	requireSQLUnchanged(t, stack.admin, holderIDs, before, failedID)
 
@@ -54,18 +60,29 @@ func TestRuntimeAuditSQLAtomicChange(t *testing.T) {
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("RemoveMember of a missing membership: err = %v, want domain.ErrNotFound", err)
 	}
-	failureEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, removal.Context.OperationID), audit.PhaseResult)
+
+	failureEvent := onlyEvent(
+		t,
+		sqlOutboxEvents(t, stack.admin, removal.Context.OperationID),
+		audit.PhaseResult,
+	)
 
 	startOutboxRelay(t, stack)
 	issueRow := requireLedgerChange(t, stack, issueEvent)
 	if issueRow.Delta == nil || len(issueRow.Delta.Before) != 0 {
 		t.Fatalf("token creation Delta = %+v, want non-nil Delta with empty Before", issueRow.Delta)
 	}
+
 	requireTokenRecord(t, issueRow.Delta.After, issued)
 	failureRow := requireLedgerChange(t, stack, failureEvent)
 	if failureRow.Outcome != audit.OutcomeFailed || failureRow.Error == nil ||
 		failureRow.Error.Code != sqlAuditFailureCode || failureRow.Delta != nil {
-		t.Fatalf("failure row Outcome = %s, Error = %+v, Delta = %+v; want audit.OutcomeFailed, Error.Code sqlAuditFailureCode, and nil Delta", failureRow.Outcome, failureRow.Error, failureRow.Delta)
+		t.Fatalf(
+			"failure row Outcome = %s, Error = %+v, Delta = %+v; want audit.OutcomeFailed, Error.Code sqlAuditFailureCode, and nil Delta",
+			failureRow.Outcome,
+			failureRow.Error,
+			failureRow.Delta,
+		)
 	}
 }
 
@@ -94,10 +111,17 @@ func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 	identities := bootstrapSQLAuditIdentities(t, add.ctx, dsn, seed)
 	orgID, holderID := identities.Workspaces[0].OrgID, identities.Workspaces[0].Actors[0].UserID
 	demote := newMemberStep(t, principal, sqlAuditMemberRole)
-	member := &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: holderID, Role: demote.role, CreatedAt: time.Time{}}
+	member := &org.Member{
+		ID:        uuid.Nil,
+		OrgID:     orgID,
+		UserID:    holderID,
+		Role:      demote.role,
+		CreatedAt: time.Time{},
+	}
 	if err := members.AddMember(demote.ctx, member); err != nil {
 		t.Fatalf("AddMember with role %d: got error %v, want nil", demote.role, err)
 	}
+
 	replace := newMemberStep(t, principal, sqlAuditAdminRole)
 	bootstrapSQLAuditIdentities(t, replace.ctx, dsn, seed)
 	repeat := newMemberStep(t, principal, sqlAuditAdminRole)
@@ -107,23 +131,42 @@ func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 	if err := members.RemoveMember(removeCtx, orgID, holderID); err != nil {
 		t.Fatalf("RemoveMember error = %v, want nil", err)
 	}
+
 	requireNoMembership(t, members, orgID, holderID)
 
-	addEvent := onlyEvent(t, memberEvents(t, stack.admin, add.operation, holderID), audit.PhaseChange)
-	replaceEvent := onlyEvent(t, memberEvents(t, stack.admin, replace.operation, holderID), audit.PhaseChange)
+	addEvent := onlyEvent(
+		t,
+		memberEvents(t, stack.admin, add.operation, holderID),
+		audit.PhaseChange,
+	)
+	replaceEvent := onlyEvent(
+		t,
+		memberEvents(t, stack.admin, replace.operation, holderID),
+		audit.PhaseChange,
+	)
 	removeEvent := onlyEvent(t, memberEvents(t, stack.admin, remove, holderID), audit.PhaseChange)
 	userEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, holderID), audit.PhaseChange)
-	if repeatEvents := memberEvents(t, stack.admin, repeat.operation, holderID); len(repeatEvents) != 0 {
+	if repeatEvents := memberEvents(t, stack.admin, repeat.operation, holderID); len(
+		repeatEvents,
+	) != 0 {
 		t.Fatalf("membership events for an unchanged role = %d, want 0", len(repeatEvents))
 	}
+
 	holder, err := postgres.NewUserRepo(stack.admin).GetByID(t.Context(), holderID)
 	if err != nil {
 		t.Fatalf("UserRepo.GetByID(%s) error = %v, want nil", holderID, err)
 	}
+
 	startOutboxRelay(t, stack)
 
 	requireUserChange(t, stack, userEvent, holder)
-	want := memberRecord{ID: membership.ID, OrgID: orgID, UserID: holderID, Role: sqlAuditAdminRole, CreatedAt: membership.CreatedAt}
+	want := memberRecord{
+		ID:        membership.ID,
+		OrgID:     orgID,
+		UserID:    holderID,
+		Role:      sqlAuditAdminRole,
+		CreatedAt: membership.CreatedAt,
+	}
 	addRow := requireLedgerChange(t, stack, addEvent)
 	requireMemberTarget(t, addRow, want)
 	requireMemberRecord(t, addRow.Delta.After, want)
@@ -132,9 +175,15 @@ func TestRuntimeAuditMembershipRoleReplacement(t *testing.T) {
 	requireMemberRecord(t, replaceRow.Delta.Before, want)
 	want.Role = sqlAuditAdminRole
 	requireMemberRecord(t, replaceRow.Delta.After, want)
-	if !slices.Equal(replaceRow.Delta.Changed, []string{sqlAuditMemberChanged}) || replaceRow.Action != string(audit.VerbOrgMemberRoleSet) {
-		t.Fatalf("replacement Delta.Changed = %v, Action = %s; want Delta.Changed = [/role] and Action = string(audit.VerbOrgMemberRoleSet)", replaceRow.Delta.Changed, replaceRow.Action)
+	if !slices.Equal(replaceRow.Delta.Changed, []string{sqlAuditMemberChanged}) ||
+		replaceRow.Action != string(audit.VerbOrgMemberRoleSet) {
+		t.Fatalf(
+			"replacement Delta.Changed = %v, Action = %s; want Delta.Changed = [/role] and Action = string(audit.VerbOrgMemberRoleSet)",
+			replaceRow.Delta.Changed,
+			replaceRow.Action,
+		)
 	}
+
 	removeRow := requireLedgerChange(t, stack, removeEvent)
 	requireMemberRecord(t, removeRow.Delta.Before, want)
 	if len(removeRow.Delta.After) != 0 {
@@ -159,38 +208,56 @@ func TestRuntimeAuditTokenMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IssueAuthToken error = %v, want nil", err)
 	}
+
 	issueEvent := onlyEvent(t, sqlOutboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
 	if _, err := tokens.Validate(ctx, issue.Raw); err != nil {
 		t.Fatalf("Validate error = %v, want nil", err)
 	}
+
 	tokenRow, err := tokens.GetByID(ctx, issue.Token.ID)
 	if err != nil || tokenRow.LastUsed != nil {
 		t.Fatalf("token after Validate = %+v, %v; want nil LastUsed and nil error", tokenRow, err)
 	}
+
 	onlyEvent(t, sqlOutboxEvents(t, stack.admin, issue.Token.ID), audit.PhaseChange)
 	if _, err := ops.RevokeAuthToken(ctx, stack.admin, issue.Token.ID); err != nil {
 		t.Fatalf("RevokeAuthToken error = %v, want nil", err)
 	}
+
 	tokenEvents := sqlOutboxEvents(t, stack.admin, issue.Token.ID)
 	if len(tokenEvents) != 2 {
 		t.Fatalf("token events = %d, want 2", len(tokenEvents))
 	}
+
 	startOutboxRelay(t, stack)
 
 	digest := sha256.Sum256([]byte(issue.Raw))
 	secrets := []string{issue.Raw, hex.EncodeToString(digest[:])}
 	issueRow := requireLedgerChange(t, stack, issueEvent)
+
 	revokeRow := requireLedgerChange(t, stack, tokenEvents[1])
 	for _, row := range []audit.Row{issueRow, revokeRow} {
 		requireTokenTarget(t, row, issue.Token.ID)
 		requireNoSecrets(t, row, secrets)
 		if row.Context.OperationID != commandID || row.ActorID != principal.ID {
-			t.Fatalf("event %s OperationID = %s, ActorID = %s; want commandID = %s and principal.ID = %s", row.EventID, row.Context.OperationID, row.ActorID, commandID, principal.ID)
+			t.Fatalf(
+				"event %s OperationID = %s, ActorID = %s; want commandID = %s and principal.ID = %s",
+				row.EventID,
+				row.Context.OperationID,
+				row.ActorID,
+				commandID,
+				principal.ID,
+			)
 		}
 	}
+
 	requireTokenRecord(t, issueRow.Delta.After, tokenRow)
 	requireTokenRecord(t, revokeRow.Delta.Before, tokenRow)
 	if len(revokeRow.Delta.After) != 0 || revokeRow.Action != string(audit.VerbAuthTokenRevoke) {
-		t.Fatalf("revocation row Action = %s, Delta.After = %s; want string(audit.VerbAuthTokenRevoke) and empty Delta.After", revokeRow.Action, revokeRow.Delta.After)
+		t.Fatalf(
+			"revocation row Action = %s, Delta.After = %s; want string(audit.VerbAuthTokenRevoke) and empty Delta.After",
+			revokeRow.Action,
+			revokeRow.Delta.After,
+		)
 	}
 }

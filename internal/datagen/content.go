@@ -42,12 +42,21 @@ var curatedComments = []string{
 }
 
 var curatedLabels = []string{
-	"reliability", "security", "performance", "data-integrity",
-	"observability", "customer-impact", "migration", "developer-experience",
+	"reliability",
+	"security",
+	"performance",
+	"data-integrity",
+	"observability",
+	"customer-impact",
+	"migration",
+	"developer-experience",
 }
 
 var curatedWorkflows = []string{
-	"Ready for review", "Waiting on dependency", "Needs reproduction", "Release verification",
+	"Ready for review",
+	"Waiting on dependency",
+	"Needs reproduction",
+	"Release verification",
 }
 
 // Content produces deterministic text and timestamps from one seed.
@@ -159,5 +168,7 @@ func seededReferenceTime(seed int64) time.Time {
 		offset = -offset
 	}
 	return time.Date(2025, time.January, 1, 12, 0, 0, 0, time.UTC).
-		Add(time.Duration(offset) * 24 * time.Hour)
+		Add(
+			time.Duration(offset) * 24 * time.Hour,
+		)
 }
