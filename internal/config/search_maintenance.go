@@ -8,15 +8,26 @@ import (
 	"github.com/caarlos0/env/v11"
 )
 
-// SearchMaintenanceCredentials authenticates search operator commands. The
-// application configuration does not load these credentials.
+// SearchMaintenanceCredentials supplies authentication for search operator
+// commands. Application configuration does not load these credentials.
 type SearchMaintenanceCredentials struct {
 	Username string `env:"OPENSEARCH_MAINTENANCE_USERNAME"`
 	Password string `env:"OPENSEARCH_MAINTENANCE_PASSWORD"`
 }
 
-// LoadSearchMaintenanceCredentials reads credentials only when an operator
-// command needs them. Production requires a password file reference.
+// LoadSearchMaintenanceCredentials reads separate credentials for search
+// operator commands.
+//
+// LoadSearchMaintenanceCredentials resolves the password reference and rejects
+// empty credentials. Production requires a password file reference.
+//
+// The credentials require these settings:
+//
+//   - OPENSEARCH_MAINTENANCE_USERNAME supplies the username.
+//   - OPENSEARCH_MAINTENANCE_PASSWORD_FILE supplies the production password
+//     path.
+//   - OPENSEARCH_MAINTENANCE_PASSWORD can supply the password outside
+//     production.
 func LoadSearchMaintenanceCredentials() (SearchMaintenanceCredentials, error) {
 	environment, err := secretEnvironment([]string{"OPENSEARCH_MAINTENANCE_PASSWORD"})
 	if err != nil {

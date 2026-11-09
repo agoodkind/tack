@@ -17,7 +17,17 @@ type SearchTopology struct {
 	Replicas      int `env:"OPENSEARCH_REPLICAS,required"`
 }
 
-// LoadSearchTopology reads the topology used by search provision and verify.
+// LoadSearchTopology reads the index topology for search provision and
+// verification.
+//
+// LoadSearchTopology rejects missing or invalid environment values, including
+// routing shards that are not divisible by primary shards.
+//
+// The topology requires these settings:
+//
+//   - OPENSEARCH_SHARDS specifies a positive primary shard count.
+//   - OPENSEARCH_ROUTING_SHARDS specifies a positive routing shard count.
+//   - OPENSEARCH_REPLICAS specifies a nonnegative replica count.
 func LoadSearchTopology(ctx context.Context) (SearchTopology, error) {
 	var topology SearchTopology
 	if err := env.Parse(&topology); err != nil {
@@ -38,7 +48,16 @@ func LoadSearchTopology(ctx context.Context) (SearchTopology, error) {
 	return topology, nil
 }
 
-// LoadSearchCA reads the trusted certificate bundle from its configured path.
+// LoadSearchCA reads the trusted certificate bundle at path.
+//
+// LoadSearchCA treats path as a file path. It does not parse or validate the
+// certificates.
+//
+// The return values distinguish these outcomes:
+//
+//   - A successful read returns the file contents.
+//   - A failed read returns an empty string and the read error with path
+//     context.
 func LoadSearchCA(ctx context.Context, path string) (string, error) {
 	certificate, err := os.ReadFile(path)
 	if err != nil {

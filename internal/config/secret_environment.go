@@ -16,8 +16,8 @@ var serviceSecretNames = []string{
 	"AUDIT_CONSUMER_YUGABYTE_DSN",
 }
 
-// secretEnvironment resolves explicit secret references without changing the
-// process environment. Only the configuration parser receives resolved values.
+// secretEnvironment resolves explicit secret file references without changing
+// the process environment. Configuration loaders parse the returned values.
 func secretEnvironment(names []string) (map[string]string, error) {
 	environment := make(map[string]string)
 	for _, entry := range os.Environ() {

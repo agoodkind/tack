@@ -6,7 +6,8 @@ import (
 	"time"
 )
 
-// unsetForTest removes one variable for the test and restores it after.
+// unsetForTest removes one environment variable during the test and restores
+// its previous state during cleanup.
 func unsetForTest(t *testing.T, name string) {
 	t.Helper()
 	previous, wasSet := os.LookupEnv(name)

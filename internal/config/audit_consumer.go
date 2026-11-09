@@ -39,7 +39,17 @@ type AuditConsumerSettings struct {
 	OTELEndpoint     string `env:"OTEL_EXPORTER_OTLP_ENDPOINT"`
 }
 
-// LoadAuditConsumerSettings resolves consumer configuration and secret references.
+// LoadAuditConsumerSettings reads [AuditConsumerSettings] from environment
+// variables.
+//
+// LoadAuditConsumerSettings resolves service secret file references before
+// parsing and returns an error when either step fails.
+//
+// The loader requires these environment variables:
+//
+//   - AUDIT_CONSUMER_KAFKA_BROKERS supplies the broker list.
+//   - AUDIT_CONSUMER_YUGABYTE_DSN supplies the database connection string.
+//   - ENV supplies the environment name.
 func LoadAuditConsumerSettings() (AuditConsumerSettings, error) {
 	environment, err := secretEnvironment(serviceSecretNames)
 	if err != nil {

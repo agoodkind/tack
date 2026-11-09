@@ -12,8 +12,8 @@ import (
 
 const cursorKeyBytes = 32
 
-// setSearchQueryKeyForTest sets a valid cursor key for the test and clears
-// the cursor key file and absolute timeout variables.
+// setSearchQueryKeyForTest sets a valid cursor key and removes the cursor key
+// file and absolute timeout variables during the test.
 func setSearchQueryKeyForTest(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{"OPENSEARCH_CURSOR_KEY_FILE", "OPENSEARCH_SESSION_ABSOLUTE_TIMEOUT"} {
@@ -25,8 +25,9 @@ func setSearchQueryKeyForTest(t *testing.T) {
 	t.Setenv("OPENSEARCH_CURSOR_KEY", base64.StdEncoding.EncodeToString([]byte(strings.Repeat("k", cursorKeyBytes))))
 }
 
-// TestLoadSearchQuerySettingsReadsIdleTimeout requires LoadSearchQuerySettings to read
-// an override of 90 seconds from OPENSEARCH_SESSION_IDLE_TIMEOUT.
+// TestLoadSearchQuerySettingsReadsIdleTimeout checks that
+// [config.LoadSearchQuerySettings] reads a 90-second
+// OPENSEARCH_SESSION_IDLE_TIMEOUT override.
 func TestLoadSearchQuerySettingsReadsIdleTimeout(t *testing.T) {
 	setSearchQueryKeyForTest(t)
 	t.Setenv("OPENSEARCH_SESSION_IDLE_TIMEOUT", "90s")
@@ -39,9 +40,10 @@ func TestLoadSearchQuerySettingsReadsIdleTimeout(t *testing.T) {
 	}
 }
 
-// TestLoadSearchQuerySettingsRejectsIdleTimeout requires LoadSearchQuerySettings to reject
-// OPENSEARCH_SESSION_IDLE_TIMEOUT values it cannot parse or that are zero, negative, or greater
-// than the absolute timeout.
+// TestLoadSearchQuerySettingsRejectsIdleTimeout checks that
+// [config.LoadSearchQuerySettings] rejects OPENSEARCH_SESSION_IDLE_TIMEOUT
+// values that it cannot parse or that are zero, negative, or greater than the
+// absolute timeout.
 func TestLoadSearchQuerySettingsRejectsIdleTimeout(t *testing.T) {
 	for _, value := range []string{"0s", "-1m", "two minutes", "3h"} {
 		t.Run(value, func(t *testing.T) {

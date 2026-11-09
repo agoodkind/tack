@@ -11,11 +11,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// SearchRetentionSettings are the thresholds that start a full FoundationDB
-// index replacement. Retired page records and their bytes stay in the
-// serving index until a replacement builds a new one. The loader reads each
-// value from the environment or its default and rejects a zero or negative
-// value.
+// SearchRetentionSettings supplies thresholds for a full search index
+// replacement from FoundationDB. Retired page records and their bytes remain in
+// the serving index until replacement. The loader reads environment values or
+// defaults and rejects zero or negative values.
 type SearchRetentionSettings struct {
 	MaxRetiredPages  int64         `env:"OPENSEARCH_MAX_RETIRED_PAGES"        envDefault:"1000000"`
 	MaxRetirementAge time.Duration `env:"OPENSEARCH_MAX_RETIREMENT_AGE"       envDefault:"168h"`
@@ -23,7 +22,17 @@ type SearchRetentionSettings struct {
 	CheckInterval    time.Duration `env:"OPENSEARCH_RETENTION_CHECK_INTERVAL" envDefault:"10m"`
 }
 
-// LoadSearchRetentionSettings parses and validates the retention thresholds.
+// LoadSearchRetentionSettings reads the search retention thresholds.
+//
+// LoadSearchRetentionSettings parses environment values or defaults and rejects
+// nonpositive thresholds or check intervals.
+//
+// The loader validates these settings:
+//
+//   - MaxRetiredPages bounds the retired page count.
+//   - MaxRetirementAge bounds the oldest retirement age.
+//   - MaxIndexBytes bounds index bytes.
+//   - CheckInterval sets the interval between retention checks.
 func LoadSearchRetentionSettings(ctx context.Context) (SearchRetentionSettings, error) {
 	var settings SearchRetentionSettings
 	if err := env.Parse(&settings); err != nil {

@@ -26,18 +26,17 @@ const (
 	searchConcurrencyMaximum  = 256
 )
 
-// SearchQuerySettings contains the bounded environment-backed settings of
-// public ranked search. The cursor key authenticates continuation cursors.
-// Concurrency is the number of searches one process runs at once.
-// AdmissionWait bounds how long a search waits for one of those slots, and
-// it is shorter than RequestDeadline.
+// SearchQuerySettings bounds public ranked search through environment settings.
+// The cursor key authenticates continuation cursors. Concurrency limits
+// simultaneous searches in one process. AdmissionWait bounds the wait for a
+// slot and must remain shorter than RequestDeadline.
 //
-// IdleTimeout sets the session inactivity deadline and the point-in-time keep-alive.
-// Each successful page renews both. OPENSEARCH_SESSION_IDLE_TIMEOUT accepts a Go duration,
-// such as 2m or 90s. The Go default is 2 minutes when the variable is empty. Deployments set
-// the value through the Configs variable tack_search_session_idle_timeout.
-// The value must be positive and must not exceed AbsoluteTimeout.
-// A change takes effect after the app process restarts.
+// IdleTimeout sets the session inactivity deadline and point-in-time
+// keep-alive. Each successful page renews both. OPENSEARCH_SESSION_IDLE_TIMEOUT
+// accepts Go durations such as 2m or 90s. An empty variable uses the two-minute
+// default. The original Configs integration used
+// tack_search_session_idle_timeout. The value must be positive and must not
+// exceed AbsoluteTimeout. Changes take effect after the app restarts.
 type SearchQuerySettings struct {
 	MaxQueryBytes    int           `env:"OPENSEARCH_QUERY_MAX_BYTES"          envDefault:"1024"`
 	MaxResponseBytes int           `env:"OPENSEARCH_RESPONSE_MAX_BYTES"       envDefault:"16384"`
@@ -53,7 +52,16 @@ type SearchQuerySettings struct {
 	CursorKey        string        `env:"OPENSEARCH_CURSOR_KEY,required"`
 }
 
-// LoadSearchQuerySettings parses and validates the public search environment.
+// LoadSearchQuerySettings reads the public ranked search settings.
+//
+// LoadSearchQuerySettings resolves the cursor key's secret reference, parses
+// the environment, and calls [SearchQuerySettings.Validate]. Failures return an
+// empty settings value and an error.
+//
+// The cursor key accepts these sources:
+//
+//   - OPENSEARCH_CURSOR_KEY supplies the key directly.
+//   - OPENSEARCH_CURSOR_KEY_FILE supplies the path to the key.
 func LoadSearchQuerySettings(ctx context.Context) (SearchQuerySettings, error) {
 	environment, err := secretEnvironment([]string{"OPENSEARCH_CURSOR_KEY"})
 	if err != nil {
@@ -73,7 +81,16 @@ func LoadSearchQuerySettings(ctx context.Context) (SearchQuerySettings, error) {
 	return settings, nil
 }
 
-// CursorKeyBytes decodes the standard base64 cursor key.
+// CursorKeyBytes decodes the cursor key in [SearchQuerySettings.CursorKey] from
+// standard base64.
+//
+// SearchQuerySettings.CursorKeyBytes rejects invalid base64 and keys that
+// decode to fewer than 32 bytes.
+//
+// The return values distinguish these outcomes:
+//
+//   - A valid key returns the decoded bytes.
+//   - An invalid or short key returns nil and an error.
 func (s SearchQuerySettings) CursorKeyBytes() ([]byte, error) {
 	decoded, err := base64.StdEncoding.DecodeString(s.CursorKey)
 	if err != nil {
@@ -85,8 +102,16 @@ func (s SearchQuerySettings) CursorKeyBytes() ([]byte, error) {
 	return decoded, nil
 }
 
-// Validate enforces the public request, response, session, batch, result,
-// deadline, and admission limits.
+// Validate checks the public search limits in [SearchQuerySettings].
+//
+// SearchQuerySettings.Validate checks request, response, session, batch,
+// result, deadline, and admission bounds and validates the cursor key. It
+// returns the first error it finds.
+//
+// Validation requires these relationships:
+//
+//   - IdleTimeout must be positive and must not exceed AbsoluteTimeout.
+//   - AdmissionWait must be positive and shorter than RequestDeadline.
 func (s SearchQuerySettings) Validate() error {
 	if s.MaxQueryBytes < 1 || s.MaxQueryBytes > searchQueryByteMaximum {
 		return fmt.Errorf("search query bytes must be between 1 and %d", searchQueryByteMaximum)
@@ -118,8 +143,8 @@ func (s SearchQuerySettings) Validate() error {
 	return nil
 }
 
-// validateAdmission enforces the process search slots and requires the
-// admission wait to end before the search query deadline.
+// validateAdmission checks the process search-slot bounds and requires a
+// positive admission wait shorter than the query deadline.
 func (s SearchQuerySettings) validateAdmission() error {
 	if s.Concurrency < 1 || s.Concurrency > searchConcurrencyMaximum {
 		return fmt.Errorf("search query concurrency must be between 1 and %d", searchConcurrencyMaximum)
