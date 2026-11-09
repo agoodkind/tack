@@ -1,7 +1,5 @@
-// export_manifest_binding_test.go covers the binding between a manifest and the
-// rows it names: the name is inside the signature, so neither repointing a
-// manifest at another export's rows nor adding or stripping its name survives
-// verification.
+// The manifest signature includes its rows filename. These tests check that
+// repointing the filename, adding it, or deleting it fails verification.
 
 package audit
 
@@ -16,12 +14,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature is the reason the
-// events file name has to be signed. Verification opens the file the manifest
-// names, so an unsigned name would let anyone holding a genuine signed manifest
-// present it over a different export's rows and have the pair read as a bundle.
-// The name is inside what the signature covers, so the repointed manifest is
-// refused on the signature, before any question of what the rows contain.
+// TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature checks that the
+// signature includes the rows filename. Without that binding, a genuine
+// manifest could select another export's rows.
+//
+// The verifier reads the selected rows before reporting the signature verdict.
+// The test confirms that it scans the foreign rows and rejects the changed
+// manifest signature.
 func TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -58,11 +57,10 @@ func TestAManifestRepointedAtAnotherExportsRowsFailsItsSignature(t *testing.T) {
 	}
 }
 
-// TestNamingItsOwnRowsIsPartOfWhatAManifestSigns pins the binding in both
-// directions on a bundle nothing else is wrong with. The name added below
-// resolves to the very file the manifest already described, so the rows, the
-// digest, and the row count all still agree; only the signature can fail, and
-// it must, because the name is covered whether it is present or absent.
+// TestNamingItsOwnRowsIsPartOfWhatAManifestSigns checks additions and deletions
+// of EventsFile on otherwise valid bundles. Each changed manifest still selects
+// the original rows, preserving their digest and count. The signature must fail
+// because both the field's presence and its absence affect the signing bytes.
 func TestNamingItsOwnRowsIsPartOfWhatAManifestSigns(t *testing.T) {
 	t.Run("a name added to a manifest that had none", func(t *testing.T) {
 		dir := t.TempDir()
@@ -99,9 +97,9 @@ func TestNamingItsOwnRowsIsPartOfWhatAManifestSigns(t *testing.T) {
 		if err != nil {
 			t.Fatalf("export: %v", err)
 		}
-		// The rows are placed under the name the fallback resolves to as well, so
-		// stripping the name leaves the digest and the count intact and the
-		// signature alone decides.
+		// The test also writes the rows at the legacy fallback path. Deleting
+		// EventsFile preserves the digest and count; only the signature determines
+		// rejection.
 		copyBundleRows(t, dir, dir, manifest.EventsFile)
 		rows, err := os.ReadFile(filepath.Join(dir, manifest.EventsFile))
 		if err != nil {

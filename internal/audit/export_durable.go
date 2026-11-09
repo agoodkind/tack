@@ -1,7 +1,6 @@
-// export_durable.go forces an export's writes to stable storage. A bundle is a
-// compliance artifact, so the order in which its parts become durable is part of
-// the contract rather than a tuning choice: every step that publishes a manifest
-// or frees the rows it replaces runs after the thing it depends on is on disk.
+// Export durability forms part of the compliance contract. Publication and
+// reclamation must follow persistence of the files and directory entries they
+// depend on.
 
 package audit
 
@@ -11,22 +10,16 @@ import (
 	"os"
 )
 
-// syncExportDirectory forces a bundle directory's own entries to stable storage.
+// syncExportDirectory persists a bundle directory's entries to stable storage.
 //
-// Syncing a file persists that file's contents. It says nothing about the
-// directory entry naming it, and a create or a rename is a change to the
-// directory, not to the file. A host that lost power after the rows were synced
-// but before the directory was could come back with the bytes on disk and no
-// name pointing at them, which is indistinguishable from rows that were never
-// written at all.
+// A file sync persists contents without persisting its directory entry. Creates
+// and renames modify that directory. Power loss after a file sync but before a
+// directory sync can leave bytes without a filename, equivalent to missing
+// rows. A read-only directory descriptor suffices for fsync.
 //
-// The directory is opened read-only, which is all fsync needs.
-//
-// Every way this can fail means one thing to the caller: the directory was not
-// made durable, so the steps that depend on it must not run. They therefore
-// share one error, and the cause each one wraps says which part gave way. The
-// log events stay distinct so an operator can tell an unopenable directory from
-// a filesystem that refused the sync.
+// Any open, sync, or close error prevents dependent operations from proceeding.
+// Errors share directory-sync context and wrap their specific cause. Distinct
+// log events distinguish an open failure from a filesystem sync failure.
 func syncExportDirectory(dir string) error {
 	handle, err := os.Open(dir)
 	if err != nil {
@@ -48,13 +41,12 @@ func syncExportDirectory(dir string) error {
 	return nil
 }
 
-// writeSyncedFile writes a file whose contents are on stable storage before it
-// returns.
+// writeSyncedFile writes file contents to stable storage before a successful
+// return.
 //
-// A rename publishes a name, not the bytes behind it. Staging a manifest with an
-// ordinary write and renaming it over the published name can leave a host that
-// lost power holding the new name over contents that never reached the disk,
-// which is a published compliance artifact that is empty or torn.
+// A rename publishes a directory entry without persisting contents. Renaming an
+// unsynced staged manifest can leave an empty or incomplete published
+// compliance artifact after power loss.
 func writeSyncedFile(path string, body []byte, perm os.FileMode) error {
 	handle, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {

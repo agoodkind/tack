@@ -1,7 +1,6 @@
-// export_durable_test.go covers the order an export makes its parts durable in.
-// A power loss cannot be staged in a test, so what is checked here is the order:
-// the export refuses at the durability barrier rather than reaching the steps
-// that publish a manifest over the rows and free the rows it replaces.
+// These tests check export durability ordering without simulating power loss.
+// An export must stop at a failed durability barrier before publishing a
+// manifest or reclaiming the previous bundle's rows.
 
 package audit
 
@@ -17,23 +16,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestAnExportRefusesToPublishRowsItCouldNotMakeDurable pins that the rows are
-// on stable storage before anything acts on them. The two steps that follow the
-// rows write are both irreversible against a file that is not on disk: the
-// manifest is signed over the rows and published, and the rows of the bundle
-// this one replaces are unlinked. A host that lost power in that window came
-// back holding a signed manifest naming rows that were never written, with the
-// rows it superseded already freed.
+// TestAnExportRefusesToPublishRowsItCouldNotMakeDurable checks that row
+// persistence precedes manifest publication and removal of the previous rows.
+// Before the durability fix, power loss in that interval left a signed manifest
+// without its rows after reclamation removed the previous rows.
 //
-// The barrier is induced where it is observable: the bundle directory is renamed
-// away while the last row is still being handed over, so the directory sync that
-// makes the rows' entry durable cannot run. The export must fail there.
-//
-// This is what fails without the fix. The rows write used to flush, close, and
-// return, so the export walked straight on into the publish and failed later at
-// the staged manifest write with "audit export write manifest". Reporting the
-// durability barrier instead is the whole ordering claim: the export stops
-// before it publishes, not while it is publishing.
+// The test renames the directory while the source supplies the last row. The
+// directory sync must fail and stop the export before publication. Earlier code
+// only flushed and closed the rows file, then failed during publication with
+// "audit export write manifest". The assertion requires the earlier directory
+// sync failure.
 func TestAnExportRefusesToPublishRowsItCouldNotMakeDurable(t *testing.T) {
 	parent := t.TempDir()
 	dir := filepath.Join(parent, "bundle")
@@ -63,8 +55,8 @@ func TestAnExportRefusesToPublishRowsItCouldNotMakeDurable(t *testing.T) {
 		t.Fatalf("err = %v, want the export stopped at the durability barrier before publishing", err)
 	}
 
-	// Nothing was published. A manifest here would be one signed over rows whose
-	// directory entry never reached the disk.
+	// The export must not publish a manifest for rows without a durable directory
+	// entry.
 	if _, statErr := os.Stat(filepath.Join(moved, exportManifestFile)); statErr == nil {
 		t.Fatal("the export published a manifest for rows it could not make durable")
 	}
@@ -73,14 +65,12 @@ func TestAnExportRefusesToPublishRowsItCouldNotMakeDurable(t *testing.T) {
 	}
 }
 
-// TestAnExportPublishesRowsAndManifestThatBothSurvive pins that the durability
-// barriers do not cost the export its result. Every barrier the fix adds is a
-// call that can fail on a filesystem that does not support it, and a directory
-// sync that always failed would turn every export into an error while the bundle
-// it wrote sat on disk complete.
+// TestAnExportPublishesRowsAndManifestThatBothSurvive checks a successful
+// export with the durability barriers on the test filesystem. A filesystem that
+// rejects directory sync could fail an otherwise complete export.
 //
-// This runs on whatever filesystem the suite runs on, which is what makes it the
-// check that the barriers are usable there rather than only correct in theory.
+// The test verifies the resulting bundle on that filesystem. It checks that the
+// barriers permit the export; it does not simulate power loss.
 func TestAnExportPublishesRowsAndManifestThatBothSurvive(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())

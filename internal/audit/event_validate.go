@@ -9,13 +9,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// ValidateEvent checks format rules and rejects unsupported versions.
-// Format 0 events cannot set format 2 context fields, terminal outcomes,
-// or Protected, and cannot use the unauthenticated actor kind.
-// Format 2 events require an outcome, evidence for their operation class,
-// and exactly one valid JSON Protected value per delta reference with
-// SubjectID equal to Context.Target.OwnerID when the target states an owner
-// and to Context.Target.ID otherwise.
+// ValidateEvent checks event format rules and rejects unsupported versions.
+//
+// The function validates evidence and protected values for the selected format.
+// Each protected delta reference requires exactly one valid JSON Protected
+// value. Its SubjectID must equal Context.Target.OwnerID when the target states
+// an owner, or Context.Target.ID otherwise.
+//
+//   - Format 0 rejects format 2 context fields, terminal outcomes, Protected,
+//     and the unauthenticated actor kind.
+//   - Format 2 requires an outcome and evidence for the operation class.
 func ValidateEvent(event Event) error {
 	return validateEventContract(event, true)
 }
@@ -49,9 +52,15 @@ func validateEventContract(event Event, pairProtected bool) error {
 	return nil
 }
 
-// ValidateSpec checks an operation definition for a verb, a target
-// extractor, a safe input selector, and a supported class. It rejects read
-// definitions that mutate and change definitions that do not mutate.
+// ValidateSpec checks an operation definition's required fields and class.
+//
+// The function requires a verb, target extractor, safe input selector, and
+// supported class. It rejects inconsistent read and mutation declarations.
+//
+//   - Read definitions cannot set Mutates or Atomic.
+//   - Database change and external definitions require Mutates and cannot set
+//     Reads.
+//   - External definitions cannot set Atomic.
 func ValidateSpec(spec Spec) error {
 	switch {
 	case spec.Verb == "":
@@ -79,9 +88,12 @@ func ValidateSpec(spec Spec) error {
 	return nil
 }
 
-// ValidateChange checks a changed record before a writer records it. It
-// requires an event ID, a valid target, and an old or new value that is
-// valid JSON.
+// ValidateChange checks a changed record before a writer records it.
+//
+// The function requires an event ID, a valid target, and at least one old or
+// new value. Each provided value must contain valid JSON.
+//
+// 	err := ValidateChange(change)
 func ValidateChange(change Change) error {
 	if change.EventID == uuid.Nil {
 		return errors.New("audit change: record change requires an event ID")

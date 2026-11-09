@@ -65,7 +65,11 @@ func encodeTransportMessage(message transportMessage) ([]byte, error) {
 }
 
 // Messages returns JSON part messages in Parts order, followed by Header.
-// The relay publishes the messages in that order.
+//
+// The relay publishes the messages in that order. The method returns an error
+// when it cannot decode the manifest or encode a part.
+//
+// 	messages, err := encoded.Messages()
 func (e EncodedEvent) Messages() ([][]byte, error) {
 	messages, err := e.partMessages()
 	if err != nil {
@@ -94,9 +98,13 @@ func (e EncodedEvent) partMessages() ([][]byte, error) {
 	return messages, nil
 }
 
-// HeaderAndParts returns the outbox header record and ordered part records.
-// For a multipart event, it returns the manifest as the header and the part messages.
-// For a single-record event, it returns plain event JSON as the header and an empty part list.
+// HeaderAndParts returns the outbox header and ordered part records.
+//
+// The method selects the outbox representation from [EncodedEvent.Multipart]. A
+// single-record event must contain exactly one part.
+//
+//   - A multipart event returns its manifest header and part messages.
+//   - A single-record event returns plain event JSON and an empty part list.
 func (e EncodedEvent) HeaderAndParts() ([]byte, [][]byte, error) {
 	if e.Multipart() {
 		parts, err := e.partMessages()
@@ -113,8 +121,8 @@ func (e EncodedEvent) HeaderAndParts() ([]byte, [][]byte, error) {
 	return eventJSON, [][]byte{}, err
 }
 
-// decodeEventEnvelope decodes one event envelope and rejects unknown JSON fields.
-// It requires the payload to end after the envelope, allowing trailing whitespace.
+// decodeEventEnvelope decodes an envelope and rejects unknown JSON fields. The
+// payload must end after the envelope, except for trailing whitespace.
 func decodeEventEnvelope(payload []byte) (eventEnvelope, error) {
 	var envelope eventEnvelope
 	decoder := json.NewDecoder(bytes.NewReader(payload))
@@ -136,8 +144,12 @@ func decoderAtEnd(decoder *json.Decoder) bool {
 }
 
 // Records returns outbox records in publication order.
-// When Multipart returns false, it returns plain event JSON as one record.
-// Otherwise, it returns ordered part messages followed by the manifest message.
+//
+// The method obtains the representation from [EncodedEvent.HeaderAndParts] and
+// appends the header after any part records.
+//
+//   - A single-record event returns one plain event JSON record.
+//   - A multipart event returns ordered parts followed by its manifest.
 func (e EncodedEvent) Records() ([][]byte, error) {
 	header, parts, err := e.HeaderAndParts()
 	if err != nil {
@@ -146,8 +158,12 @@ func (e EncodedEvent) Records() ([][]byte, error) {
 	return append(parts, header), nil
 }
 
-// FitsSingleRecord reports whether eventJSON fits in one plain outbox record
-// at or below the EventPartMaxBytes size limit.
+// FitsSingleRecord reports whether eventJSON fits in one plain outbox record.
+//
+// The function accepts payloads at or below [EventPartMaxBytes], including an
+// empty payload. It checks size rather than JSON validity.
+//
+// 	fits := FitsSingleRecord(eventJSON)
 func FitsSingleRecord(eventJSON []byte) bool {
 	return len(eventJSON) <= EventPartMaxBytes
 }

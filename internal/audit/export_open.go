@@ -1,8 +1,6 @@
-// export_open.go opens the file a manifest names. The manifest is untrusted
-// input until its signature verifies, and the verifier has to read the rows to
-// compute the digest that check is made against, so the open happens before any
-// verdict exists. What the name resolves to is therefore settled here rather
-// than by the name itself.
+// The verifier reads the manifest-selected rows even when the manifest
+// signature fails. It computes row and file digests before returning the
+// complete report. Open-time checks determine the actual entry type.
 
 package audit
 
@@ -13,25 +11,19 @@ import (
 	"syscall"
 )
 
-// openBundleRowsFile opens a bundle's rows for reading and refuses anything that
-// is not a regular file.
+// openBundleRowsFile opens bundle rows and accepts only a regular file.
 //
-// Checking the name cannot do this job. A name that is a plain entry in the
-// bundle directory still resolves to whatever is sitting at that entry, and two
-// kinds of entry attack the verifier: a symbolic link reads a file of the
-// planter's choosing while the digest and the row hashes are computed over it,
-// and a named pipe with no writer parks the verifier inside open(2) with no
-// timeout and no verdict.
+// A plain filename can identify a symbolic link or named pipe. A symbolic link
+// could select an attacker's file for digest and row-hash computation. A named
+// pipe without a writer could block open(2) indefinitely without a verdict.
 //
-// O_NOFOLLOW fails the open with ELOOP when the final path component is a
-// symbolic link, so the link is never traversed and the target is never read.
-// O_NONBLOCK makes the open of a pipe return at once instead of waiting for a
-// writer, which converts the hang into an open that then fails the check below.
-// Neither flag changes how a regular file is read.
+// O_NOFOLLOW rejects a symbolic link in the final component with ELOOP before
+// reading its target. O_NONBLOCK opens a pipe immediately for rejection by the
+// regular-file check. Neither flag changes regular-file reads.
 //
-// The kind is decided from the descriptor that was opened, not from a separate
-// look at the path, so there is no window in which the entry can be swapped
-// between the check and the open.
+// The function checks the opened descriptor rather than checking the path
+// before opening it. Replacing a path between a separate check and open cannot
+// bypass the descriptor's type check.
 func openBundleRowsFile(path string) (*os.File, error) {
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {

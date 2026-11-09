@@ -1,6 +1,5 @@
-// export_manifest_legacy_test.go covers bundles written before the manifest
-// carried an events file name: their format fixes the name, and they still
-// verify.
+// These tests verify older bundles that omit the events filename. Their
+// original format fixes that filename.
 
 package audit
 
@@ -10,11 +9,10 @@ import (
 	"testing"
 )
 
-// TestABundleWrittenBeforeTheNameExistedStillVerifies pins what operators
-// holding older bundles get. Those manifests name no events file, and their
-// format fixed the name instead, so the name is resolved from the format rather
-// than from anything unsigned. An archive that could no longer be verified
-// would be a compliance record that had quietly expired.
+// TestABundleWrittenBeforeTheNameExistedStillVerifies checks verification of
+// older compliance archives. Those manifests omit EventsFile, and the verifier
+// uses their format's fixed filename rather than unsigned input. Continued
+// verification preserves the usefulness of those archived compliance records.
 func TestABundleWrittenBeforeTheNameExistedStillVerifies(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 4)

@@ -29,8 +29,9 @@ type EventPart struct {
 	Payload         []byte
 }
 
-// EncodedEvent contains the event ID, the transport digest, the manifest message
-// in Header, and the ordered parts in Parts. The transport digest does not cover Header.
+// EncodedEvent contains the event ID, transport digest, manifest message in
+// Header, and ordered parts in Parts. The transport digest does not cover
+// Header.
 type EncodedEvent struct {
 	EventID         uuid.UUID
 	TransportDigest string
@@ -46,9 +47,12 @@ type eventEnvelope struct {
 	ReadTargets []Target `json:"read_targets"`
 }
 
-// EncodeEvent validates the event ID and read evidence, marshals the envelope,
-// and splits its bytes into parts within EventPartMaxBytes.
-// It computes the transport digest from the complete envelope.
+// EncodeEvent validates the event ID and read evidence, then encodes the event.
+//
+// The function marshals the envelope and computes its transport digest before
+// splitting the bytes into parts within [EventPartMaxBytes].
+//
+// 	encoded, err := EncodeEvent(event, readTargets)
 func EncodeEvent(event Event, readTargets []Target) (EncodedEvent, error) {
 	if event.EventID == uuid.Nil {
 		return EncodedEvent{}, errors.New("encode audit event: event ID is missing")
@@ -89,9 +93,13 @@ func EncodeEvent(event Event, readTargets []Target) (EncodedEvent, error) {
 	}, nil
 }
 
-// Multipart reports whether outbox and Kafka delivery requires part and
-// manifest messages. It returns false only when the envelope fits in one
-// part and the read target list is empty.
+// Multipart reports whether outbox and Kafka delivery need part and manifest
+// messages.
+//
+// The method returns false only when the envelope fits in one part and the read
+// target list is empty.
+//
+// 	multipart := encoded.Multipart()
 func (e EncodedEvent) Multipart() bool {
 	return !e.single
 }

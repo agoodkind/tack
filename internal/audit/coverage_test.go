@@ -2,15 +2,14 @@ package audit
 
 import "testing"
 
-// expectedTools is the source of truth for the MCP tool surface that the
-// audit layer must cover. New tools added to internal/adapters/mcp/tools/
-// MUST be added here, otherwise the build fails. ToolVerb in turn must know
-// about every entry, otherwise this test fails.
+// expectedTools lists MCP tools that [ToolVerb] must recognize. Add new tools
+// to this list to maintain audit coverage. The test checks listed tools; it
+// does not discover registrations or detect an omitted tool automatically.
 //
-// Per-NodeType tool names are listed using their longest concrete form, so
-// the prefix matcher in ToolVerb is exercised end to end.
+// Each per-NodeType entry uses a long concrete form to exercise prefix
+// matching.
 var expectedTools = []string{
-	// Static.
+	// These entries represent static tools.
 	"tack_list_workspaces",
 	"tack_list_members",
 	"tack_list_property_defs",
@@ -21,7 +20,7 @@ var expectedTools = []string{
 	"tack_search",
 	"tack_getting_started",
 
-	// Per-NodeType (one concrete example for each prefix).
+	// These entries provide one concrete per-NodeType example for each prefix.
 	"tack_describe_workspace",
 	"tack_list_issues",
 	"tack_create_issue",
@@ -39,8 +38,8 @@ func TestToolVerbCoversEveryRegisteredTool(t *testing.T) {
 			continue
 		}
 		if v == "" {
-			// Tools handled by a deeper hook are fine; just confirm we
-			// flagged them as covered, not unknown.
+			// A deeper hook records these tools. The test accepts the recognized tool even
+			// when ToolVerb returns an empty verb.
 			continue
 		}
 	}

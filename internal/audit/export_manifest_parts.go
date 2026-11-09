@@ -32,8 +32,12 @@ type manifestPartSource interface {
 	ManifestParts(ctx context.Context, orgID, eventID uuid.UUID) ([]ManifestPart, error)
 }
 
-// ManifestParts reads one event's read manifest parts for one organization
-// in index order.
+// ManifestParts reads one event's read manifest parts for one organization.
+//
+// The method returns parts in ascending index order. Query and scan errors
+// include the event ID.
+//
+// 	parts, err := reader.ManifestParts(ctx, orgID, eventID)
 func (r *Reader) ManifestParts(ctx context.Context, orgID, eventID uuid.UUID) ([]ManifestPart, error) {
 	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
 		SELECT part_index, digest, payload FROM audit.event_parts
@@ -80,10 +84,10 @@ func attachManifestParts(ctx context.Context, source RowSource, row *Row) error 
 	return nil
 }
 
-// manifestViolation returns the first read manifest failure or an empty
-// string when its checks pass. It checks evidence, part order, count,
-// payloads, and digests. The row hash covers the manifest digest and part
-// count in the context; the payload digest check authenticates that manifest root.
+// manifestViolation returns the first read manifest failure or an empty string
+// when the checks pass. It checks evidence, part order, part count, payloads,
+// and digests. The row hash includes the context's manifest digest and part
+// count. Comparing the payload digest authenticates that manifest digest.
 func manifestViolation(row Row) string {
 	read := row.Context.Read
 	if read == nil || (read.ManifestParts == 0 && read.ManifestSHA256 == "") {
