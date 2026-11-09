@@ -44,10 +44,10 @@ func (r *Resolver) parseSequenceReference(input string, typeKeys []string) (stri
 	return ParseNodeIdentifier(input)
 }
 
-// referenceKeyHolder resolves input through the uniqueness index. A miss is
-// [uuid.Nil] with a nil error, per the LookupReference contract; a non-nil error
-// is a real store failure and is propagated rather than masked as a miss, so
-// an outage surfaces instead of degrading into a scan or a false not-found.
+// referenceKeyHolder looks up input in the uniqueness index.
+// LookupReference returns [uuid.Nil] and a nil error for a missing key.
+// The helper returns store failures without scanning properties or replacing
+// the failure with a not-found result.
 func (r *Resolver) referenceKeyHolder(ctx context.Context, orgID uuid.UUID, typeKeys []string, input string) (uuid.UUID, bool, error) {
 	for _, typeKey := range typeKeys {
 		nodeType := r.typeIndex[typeKey]

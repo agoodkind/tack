@@ -14,9 +14,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// routeTarget pairs the resolved Scope with the create Parent.
-// ParentParam identifies the chosen leaf parameter when the route has leaves.
-// Scope is an ancestor of Parent when the leaf chain has an alternative parent level.
+// routeTarget pairs the resolved Scope with the create Parent. ParentParam
+// identifies the selected leaf parameter for a route with leaves. Scope is
+// an ancestor of Parent when the leaf chain has an alternative parent level.
 type routeTarget struct {
 	Scope       *node.NodeView
 	Parent      *node.NodeView
@@ -28,8 +28,8 @@ func (target routeTarget) hasAlternativeParent() bool {
 	return target.Parent.ID != target.Scope.ID
 }
 
-// refuseParentProperty returns a recoverable error when props contains parent_id
-// and Parent and Scope have different IDs.
+// refuseParentProperty returns a recoverable error when props contains
+// parent_id and Parent and Scope have different IDs.
 func (target routeTarget) refuseParentProperty(props map[string]json.RawMessage) *mcpmcp.CallToolResult {
 	if !target.hasAlternativeParent() {
 		return nil
@@ -49,8 +49,8 @@ func (target routeTarget) createParentID(normalizedParentID uuid.UUID) uuid.UUID
 	return normalizedParentID
 }
 
-// chooseLeaf returns a leaf when exactly one leaf has a nonempty scope reference,
-// or nil otherwise.
+// chooseLeaf returns the leaf with a nonempty scope reference when exactly
+// one exists. It returns nil otherwise.
 func (route scopeRoute) chooseLeaf(args argMap) *scopeLeaf {
 	var chosen *scopeLeaf
 	for i := range route.Leaves {
@@ -65,8 +65,8 @@ func (route scopeRoute) chooseLeaf(args argMap) *scopeLeaf {
 	return chosen
 }
 
-// splitChain returns the chosen leaf's chain without levels that use leaf parameters.
-// It reports whether it skipped any such alternative parent levels.
+// splitChain returns the chosen leaf's chain without levels that use leaf
+// parameters. It reports whether it skipped an alternative parent level.
 func (route scopeRoute) splitChain(chosen *scopeLeaf) ([]ScopeLevel, bool) {
 	upper := make([]ScopeLevel, 0, len(chosen.Chain)+1)
 	hasAlternative := false
@@ -80,9 +80,9 @@ func (route scopeRoute) splitChain(chosen *scopeLeaf) ([]ScopeLevel, bool) {
 	return upper, hasAlternative
 }
 
-// resolveLevels resolves each required scope reference from start in level order.
-// It returns start when levels is empty and a tool error if a reference is missing
-// or resolution fails.
+// resolveLevels resolves each required scope reference from start in level
+// order. It returns start when levels is empty and a tool error when a
+// reference is missing or resolution fails.
 func resolveLevels(
 	ctx context.Context,
 	b NodeTypeBinding,
@@ -118,9 +118,9 @@ func resolveCreateTarget(
 	return resolveRouteScope(ctx, b, ws, route, args)
 }
 
-// resolveRouteScope resolves Scope and Parent and requires exactly one leaf when
-// route has leaves. If the leaf chain has an alternative parent level, it derives
-// Scope from Parent's ancestor at the deepest chain level.
+// resolveRouteScope resolves Scope and Parent. A route with leaves requires
+// exactly one leaf. If its chain has an alternative parent level, the
+// function selects Parent's ancestor at the deepest chain level as Scope.
 func resolveRouteScope(
 	ctx context.Context,
 	b NodeTypeBinding,
@@ -158,7 +158,8 @@ func resolveRouteScope(
 }
 
 // ancestorOfType returns the first parent_id ancestor with level.TypeKey.
-// It returns an error if a read fails or the parent chain ends or cycles without a match.
+// It returns an error when a read fails or the parent chain ends or cycles
+// without a match.
 func (r *Resolver) ancestorOfType(ctx context.Context, start *node.NodeView, level ScopeLevel) (*node.NodeView, error) {
 	visited := map[uuid.UUID]struct{}{start.ID: {}}
 	currentID := uuidProp(start, "parent_id")

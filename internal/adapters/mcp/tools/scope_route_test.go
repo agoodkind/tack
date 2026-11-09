@@ -13,9 +13,8 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// multiParentFixture mirrors the seed shape that exposes the multi-parent
-// route: a comment-like type that declares two allowed parents, both scoped
-// sequence types under one project.
+// multiParentFixture models a comment type with two allowed parent types.
+// Both parent types use scoped sequences under one project.
 type multiParentFixture struct {
 	binding        NodeTypeBinding
 	commentType    *node.NodeType
@@ -103,8 +102,8 @@ func resultText(t *testing.T, result *mcpmcp.CallToolResult) string {
 	return text.Text
 }
 
-// TestScopeRouteSingleParentUnchanged pins that a type with one declared
-// parent keeps the exact chain the tools have always required.
+// TestScopeRouteSingleParentUnchanged checks that a type with one declared
+// parent uses the exact chain that ScopeChainForType returns.
 func TestScopeRouteSingleParentUnchanged(t *testing.T) {
 	fx := newMultiParentFixture(t)
 	route := fx.binding.Resolver.ScopeRouteForType(fx.issueType)
@@ -122,9 +121,9 @@ func TestScopeRouteSingleParentUnchanged(t *testing.T) {
 	}
 }
 
-// TestCreateToolExposesEveryDeclaredParent pins the generated schema for a
-// multi-parent type: one optional reference parameter per declared parent,
-// with the shared upper chain still required and no leaf forced.
+// TestCreateToolExposesEveryDeclaredParent checks that a create schema
+// includes an optional reference for each declared parent. The shared upper
+// scope remains required, and neither leaf parameter is required alone.
 func TestCreateToolExposesEveryDeclaredParent(t *testing.T) {
 	fx := newMultiParentFixture(t)
 	route := fx.binding.Resolver.ScopeRouteForType(fx.commentType)
@@ -153,9 +152,9 @@ func TestCreateToolExposesEveryDeclaredParent(t *testing.T) {
 	}
 }
 
-// TestListCommentsUnderSecondParent drives the generated list handler through
-// the second declared parent and asserts the scope resolves to that parent:
-// only its comments come back.
+// TestListCommentsUnderSecondParent calls the generated list handler with
+// the second declared parent's reference. It checks that the list includes
+// that parent's comment and excludes the first parent's comment.
 func TestListCommentsUnderSecondParent(t *testing.T) {
 	fx := newMultiParentFixture(t)
 	route := fx.binding.Resolver.ScopeRouteForType(fx.commentType)
@@ -178,8 +177,8 @@ func TestListCommentsUnderSecondParent(t *testing.T) {
 	}
 }
 
-// TestListCommentsUnderFirstParent proves the first parent keeps working
-// through the same route.
+// TestListCommentsUnderFirstParent checks that the same route lists only
+// the first parent's comment when the call selects the first parent.
 func TestListCommentsUnderFirstParent(t *testing.T) {
 	fx := newMultiParentFixture(t)
 	route := fx.binding.Resolver.ScopeRouteForType(fx.commentType)
@@ -202,8 +201,8 @@ func TestListCommentsUnderFirstParent(t *testing.T) {
 	}
 }
 
-// TestRouteRequiresExactlyOneParent pins the error contract when the caller
-// provides no leaf reference or more than one.
+// TestRouteRequiresExactlyOneParent checks the error when a call omits all
+// leaf references or supplies more than one.
 func TestRouteRequiresExactlyOneParent(t *testing.T) {
 	fx := newMultiParentFixture(t)
 	route := fx.binding.Resolver.ScopeRouteForType(fx.commentType)

@@ -16,9 +16,14 @@ const (
 	maxParentDepth         = 32
 )
 
-// ResolveTypedNodeID resolves a node reference in the context of one node type.
-// Typed resolution lets get/update/delete accept declared references and scoped
-// references like "CLYDE::In Progress" without widening lookups across all types.
+// ResolveTypedNodeID resolves a reference for one node type.
+//
+// The get, update, and delete tools use the type's declared reference
+// strategy rather than searching every type. A nil type uses ResolveNodeID.
+//
+// For example, a state with a scoped property reference can use:
+//
+//	CLYDE::In Progress
 func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, input string) (uuid.UUID, error) {
 	if id, err := uuid.Parse(input); err == nil {
 		if nt == nil {
@@ -56,10 +61,10 @@ func (r *Resolver) ResolveTypedNodeID(ctx context.Context, nt *node.NodeType, in
 	}
 }
 
-// resolveSequenceNodeID resolves a sequence reference through the uniqueness
-// index alone: one point read per workspace, no property scan. The repair
-// backfilled a reference key for every templated node, so a miss means the
-// reference names nothing, not that the node predates enforcement.
+// resolveSequenceNodeID checks reference keys in each caller workspace's
+// organization and returns the first match. It tries each supplied type's
+// primary template without scanning properties. An index miss returns
+// ErrNotFound; the lookup does not verify whether a node lacks its key.
 func (r *Resolver) resolveSequenceNodeID(ctx context.Context, input string, typeKeys []string) (uuid.UUID, error) {
 	if _, _, err := r.parseSequenceReference(input, typeKeys); err != nil {
 		return uuid.Nil, invalidReferenceError{err: fmt.Errorf("invalid node_id %q: must be a UUID or sequence reference like TACK-65: %w", input, domain.ErrInvalidArgument)}

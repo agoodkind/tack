@@ -42,10 +42,9 @@ func sequenceTemplate() node.ReferenceTemplate {
 	}
 }
 
-// TestResolveSequenceNodeIDMissIsNotFound pins the index as the only path: a
-// reference no node holds resolves to nothing, with no property scan behind
-// it. The repair backfilled keys for every templated node, so a miss means the
-// reference genuinely names nothing.
+// TestResolveSequenceNodeIDMissIsNotFound checks that a missing reference
+// key returns ErrNotFound without a property scan. The test uses an empty
+// index and does not establish whether a repair populated stored keys.
 func TestResolveSequenceNodeIDMissIsNotFound(t *testing.T) {
 	orgID := uuid.New()
 	workspaceID := uuid.New()

@@ -5,18 +5,19 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// nodeNameReferenceProperty selects the node name in a scoped name reference
-// such as "TACK::Sprint 4". The renderer prints this reference for a node of a
-// scoped sequence type without a sequence value, and the typed get, update,
-// and delete tools resolve it.
+// nodeNameReferenceProperty selects the node name in a scoped reference
+// such as "TACK::Sprint 4". The renderer uses this format for a scoped
+// sequence node without a sequence value. Typed get, update, and delete
+// tools resolve the reference.
 const nodeNameReferenceProperty = "name"
 
-// scopedNameIdentifierFor returns "<parent reference>::<name>" for a node
-// without a sequence value. The resolver matches the name among the direct
-// children of a node at the first level of the scope chain. The function
-// returns an empty string when the scope chain of the type has another
-// length, when the parent has another type, when the scope of the node is
-// not its parent, or when the parent has no reference.
+// scopedNameIdentifierFor builds "<parent reference>::<name>" for rendering
+// a node without a sequence value. The resolver matches the name among the
+// direct children of the first scope level. The renderer requires a name,
+// a parent of the first declared parent type, and an entry point as that
+// parent's first declared parent type. It returns an empty string if a read
+// fails, the parent lacks a reference, or a nonempty scope differs from the
+// parent.
 func (rc *renderCtx) scopedNameIdentifierFor(view *node.NodeView, nodeType *node.NodeType) string {
 	if view.Name == "" || !rc.livesOneLevelUnderEntryPoint(nodeType) {
 		return ""
@@ -39,9 +40,9 @@ func (rc *renderCtx) scopedNameIdentifierFor(view *node.NodeView, nodeType *node
 	return parentIdent + scopedNodeRefSeparator + view.Name
 }
 
-// livesOneLevelUnderEntryPoint reports whether the first parent type of
-// nodeType lives directly under the entry point type. The scope chain of such
-// a type has one level.
+// livesOneLevelUnderEntryPoint checks whether the first declared parent
+// type has an entry point as its first declared parent. ScopeChainForType
+// returns one level for this type.
 func (rc *renderCtx) livesOneLevelUnderEntryPoint(nodeType *node.NodeType) bool {
 	if len(nodeType.CanLiveUnder) == 0 {
 		return false

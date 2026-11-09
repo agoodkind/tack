@@ -20,8 +20,7 @@ import (
 const searchCursorParam = "cursor"
 
 // runSearch resolves the workspace entry point, reads the caller's
-// organization memberships, runs one ranked page, and renders the bounded
-// result list.
+// organization memberships, runs one ranked page, and renders its results.
 func runSearch(ctx context.Context, request mcpmcp.CallToolRequest, nodes NodeTypeBinding, binding SearchBinding) *mcpmcp.CallToolResult {
 	resolver := nodes.Resolver
 	args, err := bindArgs(request)
@@ -94,7 +93,8 @@ func resolveSearchNodeType(resolver *Resolver, input string) (string, bool) {
 // searchFailureResult returns an explicit error for every failed call.
 func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult {
 	switch {
-	// Check recording failures first because their errors can also match other cases.
+	// Check recording failures first because their errors can also match
+	// other cases.
 	case errors.Is(err, audit.ErrEventNotRecorded):
 		return searchRecordingFailed(ctx)
 	case errors.Is(err, searchdomain.ErrEngineUnavailable), errors.Is(err, domain.ErrStorageTimeout):

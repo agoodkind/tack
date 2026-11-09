@@ -26,8 +26,10 @@ func searchResultViews(ctx context.Context, reader node.NodeReader, results []no
 	return views, nil
 }
 
-// renderSearchPage renders results in rank order with the ordinary list item
-// layout. Each item fits within its service.ResultBytes budget.
+// renderSearchPage renders available nodes in rank order with the ordinary
+// list-item layout. It asks fitItemToBudget to shorten each item to its
+// service.ResultBytes budget; whole fields and minimum retained lengths can
+// prevent the item from fitting.
 func renderSearchPage(rc *renderCtx, page service.SearchPage, views map[uuid.UUID]*node.NodeView, cursors *SearchCursorCodec) string {
 	items := make([]markdownItem, 0, len(page.Results))
 	for _, result := range page.Results {

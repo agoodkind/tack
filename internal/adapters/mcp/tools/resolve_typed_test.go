@@ -239,8 +239,8 @@ func TestResolveScopeAcceptsSequenceReference(t *testing.T) {
 	project := &node.NodeView{ID: projectID, OrgID: orgID, NodeType: "project", Name: "Clyde", Props: map[string]json.RawMessage{"identifier": mustRaw(t, "CLYDE"), "parent_id": mustRaw(t, workspaceID.String())}}
 	issue := &node.NodeView{ID: issueID, OrgID: orgID, NodeType: "issue", Name: "Reference work", Props: map[string]json.RawMessage{"sequence": mustRaw(t, 157), "scope_id": mustRaw(t, projectID.String()), "parent_id": mustRaw(t, projectID.String())}}
 	reader := &resolverReader{views: map[uuid.UUID]*node.NodeView{workspaceID: workspace, projectID: project, issueID: issue}, workspaces: []*node.NodeView{workspace}}
-	// The uniqueness index is the only sequence-resolution path, so the fake
-	// serves the reference key the repair would have backfilled.
+	// The fixture supplies the reference key that sequence resolution requires.
+	// The resolver does not scan properties for a missing reference key.
 	repo := &sequenceNodeRepo{fakeNodeRepo: &fakeNodeRepo{scopeChildren: map[string][]*node.Node{
 		"project:identifier:\"CLYDE\"": {{ID: projectID, OrgID: orgID, NodeType: "project", Props: map[string]json.RawMessage{"parent_id": mustRaw(t, workspaceID.String())}}},
 	}}, holders: map[string]uuid.UUID{"reference:CLYDE-157": issueID}}

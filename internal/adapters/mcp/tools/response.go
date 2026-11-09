@@ -12,10 +12,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// maxSuccessTextBytes bounds every tool response. List pages stop adding rows
-// before this size so their Next cursor line survives; capText is the final
-// guard for single-node output, where one oversized property would otherwise
-// flood an agent's context.
+// maxSuccessTextBytes limits the text that capText retains before adding
+// the truncation notice. List pages reserve space for their cursor line.
+// successText also applies capText to single-node output when an oversized
+// property exceeds the limit. Error responses do not use capText.
 const maxSuccessTextBytes = 32 * 1024
 
 const truncationNotice = "\n\nOutput truncated at 32 KB. Narrow the request, lower `limit`, or use `cursor`."
@@ -59,8 +59,8 @@ func recoverableErrorWithNextStep(problem, nextStep string) *mcp.CallToolResult 
 	}
 }
 
-// permissionDenied is the fail-closed result the tool wrapper returns when a
-// handler produced data without passing a membership check.
+// permissionDenied returns the error result that the tool wrapper uses
+// when a successful handler has not passed a membership check.
 func permissionDenied() *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		IsError: true,
@@ -77,8 +77,8 @@ func unexpectedError(ctx context.Context, err error) *mcp.CallToolResult {
 	}
 }
 
-// classifyError returns the tool response for err and records its typed
-// refusal code for the request's audit events.
+// classifyError converts err to a tool response and notes its typed refusal
+// code in the request context for audit recording.
 func classifyError(ctx context.Context, err error) *mcp.CallToolResult {
 	noteRefusal(ctx, err)
 	switch {
