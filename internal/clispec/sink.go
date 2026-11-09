@@ -13,9 +13,10 @@ import (
 	"goodkind.io/tack/internal/response"
 )
 
-// Result constrains the typed values an operation emits as JSON. Embedding
-// ResultMarker satisfies it without boilerplate, mirroring Input, so emit never
-// takes a bare any.
+// Result constrains the typed values an operation emits as JSON. A result
+// struct embeds [ResultMarker] to satisfy Result, just as an input struct
+// embeds [InputMarker] to satisfy [Input]. [WriteJSONValue] accepts Result
+// rather than any.
 type Result interface {
 	isClispecResult()
 }
@@ -30,22 +31,34 @@ type readTargetSink interface {
 	addReadTargets([]audit.Target)
 }
 
-// ResultMarker embeds into a result struct to satisfy Result.
+// ResultMarker satisfies [Result] when a result struct embeds it.
 type ResultMarker struct{}
 
 func (ResultMarker) isClispecResult() {}
 
-// ResultSink is how a work function returns output. Both methods carry the
-// run's trace correlation: WriteJSON wraps an encoded payload under result with
-// a _meta block, WriteText prepends one header line with trace_id, span_id, and
-// request_id. The payload is pre-encoded [json.RawMessage], so the sink never
-// takes a bare any.
+// ResultSink accepts output from a work function. WriteJSON accepts an
+// encoded [json.RawMessage] rather than any.
+//
+// [CLISink] implements trace correlation for these methods. Its JSON
+// envelope stores the payload under result and metadata under _meta. Its
+// text output adds a header on the first write when metadata exists,
+// unless the body already starts with #meta. The header includes populated
+// trace_id, span_id, and request_id fields.
 type ResultSink interface {
 	WriteJSON(ctx context.Context, payload json.RawMessage) error
 	WriteText(ctx context.Context, body string) error
 }
 
-// WriteJSONValue marshals a typed result and writes it through the sink.
+// WriteJSONValue encodes a typed result as JSON and writes it to sink.
+//
+// When sink collects read targets and value implements [ReadResult], the
+// function collects the returned identities before writing the JSON. It
+// returns an error if encoding, target collection, or writing fails.
+//
+//   - If AuditReadTargets returns an error, the function does not call
+//     sink.WriteJSON.
+//   - If sink does not collect read targets, the function skips
+//     AuditReadTargets even when value implements ReadResult.
 func WriteJSONValue(ctx context.Context, sink ResultSink, value Result) error {
 	body, err := json.Marshal(value)
 	if err != nil {
@@ -68,19 +81,37 @@ func WriteJSONValue(ctx context.Context, sink ResultSink, value Result) error {
 	return nil
 }
 
-// CLISink writes to the factory's out stream in the operator's chosen format.
+// CLISink writes to the factory output stream in the operator's chosen
+// format.
 type CLISink struct {
 	f     *cli.Factory
 	wrote bool
 }
 
-// NewCLISink builds a sink that writes through f.
+// NewCLISink returns a sink that writes to f.Out.
+//
+// The sink tracks whether output has begun to limit the text header to
+// the first write. It reads the output format from f when rendering output.
+//
+//   - With only request_id=req-1 in ctx, the first text write adds
+//     #meta request_id=req-1 before the body unless the body already
+//     starts with #meta.
+//   - A second text write prints its body without adding another header.
 func NewCLISink(f *cli.Factory) *CLISink {
 	return &CLISink{f: f, wrote: false}
 }
 
-// WriteJSON renders a JSON payload. In json mode it is the envelope payload; in
-// text mode it is indented JSON under the trace header.
+// WriteJSON renders an encoded JSON payload in the selected output format.
+//
+// JSON mode wraps the payload in a metadata envelope. Text mode indents
+// the JSON and uses the text header rules of CLISink.
+//
+// For the payload {"count":2}, text mode prints the following JSON when
+// ctx does not supply correlation metadata:
+//
+//	{
+//	  "count": 2
+//	}
 func (s *CLISink) WriteJSON(ctx context.Context, payload json.RawMessage) error {
 	if s.f.OutputFormat() == cli.FormatJSON {
 		body, err := response.Marshal(ctx, payload)
@@ -98,8 +129,14 @@ func (s *CLISink) WriteJSON(ctx context.Context, payload json.RawMessage) error 
 	return s.writeText(ctx, buf.String())
 }
 
-// WriteText renders a human line. In json mode the line becomes the envelope's
-// result string so json output stays valid JSON.
+// WriteText renders text in the selected output format.
+//
+// JSON mode encodes body as the envelope's result string. Text mode uses
+// the text header rules of CLISink.
+//
+// For example, a caller can write a status line:
+//
+//	return sink.WriteText(ctx, "Ready.")
 func (s *CLISink) WriteText(ctx context.Context, body string) error {
 	if s.f.OutputFormat() == cli.FormatJSON {
 		quoted, err := json.Marshal(body)
@@ -117,7 +154,8 @@ func (s *CLISink) WriteText(ctx context.Context, body string) error {
 	return s.writeText(ctx, body)
 }
 
-// writeText stamps the trace header on the first write only.
+// writeText applies [response.Text] on the first write to add a header
+// when metadata exists and body does not already start with #meta.
 func (s *CLISink) writeText(ctx context.Context, body string) error {
 	out := body
 	if !s.wrote {

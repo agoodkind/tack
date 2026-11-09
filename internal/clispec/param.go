@@ -1,6 +1,6 @@
 package clispec
 
-// paramKind names the value kinds a flag can carry.
+// paramKind identifies the value type of a flag.
 type paramKind uint8
 
 const (
@@ -9,9 +9,9 @@ const (
 	kindBool
 )
 
-// Param declares one flag and the closure that copies the parsed value into
-// the input struct after cobra parses the command line. The bind closures are
-// typed per kind, so no reflection or any-typed plumbing is needed.
+// Param declares a flag and a function that copies its parsed value into
+// the input struct after Cobra parses the command line. Each value type
+// uses its own function signature without reflection or Go's any type.
 type Param[I Input] struct {
 	Kind        paramKind
 	Flag        string
@@ -28,6 +28,15 @@ type Param[I Input] struct {
 }
 
 // StringParam declares a free-text flag.
+//
+// The declaration stores def as the default value and set as the function
+// that assigns the parsed string to the input. The required argument
+// controls whether Cobra requires the flag.
+//
+// For example, an operation can declare a required name:
+//
+//	StringParam("name", "Set the name.", "", true,
+//		func(input *nameInput, value string) { input.Name = value })
 func StringParam[I Input](flag, description, def string, required bool, set func(*I, string)) Param[I] {
 	return Param[I]{
 		Kind: kindString, Flag: flag, Description: description, Required: required,
@@ -37,6 +46,15 @@ func StringParam[I Input](flag, description, def string, required bool, set func
 }
 
 // IntParam declares a whole-number flag.
+//
+// The declaration stores def as the default value and set as the function
+// that assigns the parsed integer to the input. Cobra does not require
+// this flag.
+//
+// For example, an operation can declare a count:
+//
+//	IntParam("count", "Set the count.", 1,
+//		func(input *countInput, value int) { input.Count = value })
 func IntParam[I Input](flag, description string, def int, set func(*I, int)) Param[I] {
 	return Param[I]{
 		Kind: kindInt, Flag: flag, Description: description, Required: false,
@@ -45,7 +63,16 @@ func IntParam[I Input](flag, description string, def int, set func(*I, int)) Par
 	}
 }
 
-// BoolParam declares an on/off flag.
+// BoolParam declares a flag that accepts true or false.
+//
+// The declaration stores def as the default value and set as the function
+// that assigns the parsed Boolean to the input. Cobra does not require
+// this flag.
+//
+// For example, an operation can declare an enabled flag:
+//
+//	BoolParam("enabled", "Enable the operation.", false,
+//		func(input *enabledInput, value bool) { input.Enabled = value })
 func BoolParam[I Input](flag, description string, def bool, set func(*I, bool)) Param[I] {
 	return Param[I]{
 		Kind: kindBool, Flag: flag, Description: description, Required: false,

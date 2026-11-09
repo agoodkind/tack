@@ -1,10 +1,12 @@
-// Package clispec declares each operator command once as one typed value and
-// renders it onto a spf13/cobra command. The declaration carries the name,
-// help text, positional arguments, flags, and one work function; the cobra
-// adapter decodes a request into the typed input and calls that function. A
-// new command is one Operation value with no separate dispatch switch, flag
-// parser, or usage string. The package is terminal-only: it renders no MCP
-// tool and never touches the consumer MCP surface.
+// Package clispec declares each operator command as a typed value and
+// renders it as a Cobra command. The declaration supplies the command
+// identity, help text, positional arguments, flags, and one work function.
+// The Cobra adapter decodes command input and calls the work function.
+//
+// A new typed command uses one [Operation] value without a separate
+// dispatch switch, flag parser, or usage string. The package implements
+// the terminal interface. It does not render MCP tools or modify the
+// consumer MCP interface.
 package clispec
 
 import (
@@ -17,26 +19,33 @@ import (
 	"goodkind.io/tack/internal/cli"
 )
 
-// Input constrains per-operation input structs. Embedding InputMarker
-// satisfies it, so an input struct names its fields and nothing else.
+// Input constrains the input structs for operations. A struct embeds
+// [InputMarker] to satisfy Input without defining its own marker method.
 type Input interface {
 	isClispecInput()
 }
 
-// InputMarker embeds into an input struct to satisfy Input.
+// InputMarker satisfies [Input] when an input struct embeds it.
 type InputMarker struct{}
 
 func (InputMarker) isClispecInput() {}
 
-// Name carries the canonical command identity and derives the terminal verb.
-// CLIOverride lets a command read as a short verb under a parent, for example
-// "read" under "inspect" rather than the dash-spelled canonical.
+// Name stores the canonical command identity and derives the terminal verb.
+// CLIOverride selects a short verb under a parent, such as "read" under
+// "inspect", instead of the canonical name with hyphens.
 type Name struct {
 	Canonical   string
 	CLIOverride string `exhaustruct:"optional"`
 }
 
 // CLI returns the terminal command word.
+//
+// The method uses CLIOverride when it is nonempty. Otherwise, it replaces
+// each underscore in Canonical with a hyphen.
+//
+// For example, a canonical name can define the terminal spelling:
+//
+//	word := (Name{Canonical: "audit_query"}).CLI() // word is "audit-query".
 func (n Name) CLI() string {
 	if n.CLIOverride != "" {
 		return n.CLIOverride
@@ -44,9 +53,9 @@ func (n Name) CLI() string {
 	return strings.ReplaceAll(n.Canonical, "_", "-")
 }
 
-// Group is a parent command that one or more operations attach under.
-// Operations sharing one *Group value render as subcommands of one parent.
-// Parent nests a group under another, so a chain renders as nested parents.
+// Group defines a parent command for one or more operations. Operations
+// that share a *Group value render as subcommands of the same parent.
+// Parent defines the enclosing group for nested commands.
 type Group struct {
 	Use    string
 	Short  string
@@ -54,15 +63,15 @@ type Group struct {
 	Parent *Group `exhaustruct:"optional"`
 }
 
-// Operation is one declared command. I is the input struct both the flags and
-// the work function share. New returns a zeroed input with defaults applied.
-// Run is the single work function; it writes results through the sink and
-// never sees cobra types. Aliases register alternate terminal spellings.
+// Operation declares one command. The flags and work function use the
+// same input struct I. New returns a zeroed input with defaults applied.
+// Run writes results through the sink without using Cobra types. Aliases
+// register alternate terminal spellings.
 type Operation[I Input] struct {
 	Name Name
-	// Lifetime is Permanent for a product command, or names the ticket and
-	// removal day of a backfill. A backfill renders under a backfill group
-	// with the once- prefix, and the build fails after its removal day.
+	// Lifetime uses Permanent for a product command or records the ticket
+	// and removal day for a backfill. A backfill renders under a backfill
+	// group with the once- prefix. The build fails after its removal day.
 	Lifetime Lifetime
 	Group    *Group     `exhaustruct:"optional"`
 	Audit    audit.Spec `exhaustruct:"optional"`
@@ -74,16 +83,20 @@ type Operation[I Input] struct {
 	Args     []Arg[I]   `exhaustruct:"optional"`
 	Params   []Param[I] `exhaustruct:"optional"`
 	New      func() I
-	// DryRun reports planned work after the audit choke-point validates the
-	// operator identity. It must not write state. The choke-point records each
-	// dry run as an operator read and prints the dry-run output only after it
-	// saves the read event.
+	// DryRun reports planned work after audit validation of the operator
+	// identity. It must not write state. A preview that reads state must save
+	// durable admission and final read evidence before printing that state.
+	//
+	// For an operation outside the read class, the preview path passes the
+	// original factory to [RunRecordedPreview]. Its infrastructure fallback
+	// can return output without admission or final read evidence. This
+	// implementation gap does not waive the recording requirement.
 	DryRun func(ctx context.Context, in I, sink ResultSink) error `exhaustruct:"optional"`
 	Run    func(ctx context.Context, in I, sink ResultSink) error
 }
 
-// renderable is the type-erased view of an Operation. The type parameter stays
-// captured in the methods and never escapes as any.
+// renderable provides the non-generic interface to an Operation. Its
+// methods retain the concrete input type without exposing Go's any type.
 type renderable interface {
 	renderParent(backfills backfillGroups) *Group
 	auditSpec() audit.Spec
@@ -92,34 +105,56 @@ type renderable interface {
 
 func (op Operation[I]) auditSpec() audit.Spec { return op.Audit }
 
-// Registry is the ordered list of every command. It holds full operations and
-// hand-written terminal commands that carry their own wiring (such as the
-// server start command, which needs no typed input model).
+// Registry stores ordered operations and handwritten terminal commands.
+// Handwritten commands define their own setup, such as the server start
+// command, which does not need a typed input model.
 type Registry struct {
 	ops         []renderable
 	handwritten []HandwrittenCommand
 }
 
-// HandwrittenCommand wraps a constructor so a bespoke command lives in the
-// same registry as the spec operations. Group attaches it under a parent; a
-// nil Group renders it at the top level.
+// HandwrittenCommand registers a command constructor alongside typed
+// operations. Group selects its parent command. A nil Group renders the
+// command at the top level.
 type HandwrittenCommand struct {
 	Group *Group
 	Build func(f *cli.Factory) *cobra.Command
 }
 
 // NewRegistry returns an empty registry.
+//
+// [Register] adds typed operations, and [Registry.AddHandwritten] adds
+// command constructors.
+//
+//   - RenderCobra returns nil before a caller adds any commands.
+//   - RenderCobra processes typed operations before handwritten commands,
+//     even when a caller adds a handwritten command first.
 func NewRegistry() *Registry {
 	return &Registry{ops: nil, handwritten: nil}
 }
 
-// Register adds one operation. It is a free function because a Go method
-// cannot introduce its own type parameter.
+// Register adds one typed operation to r.
+//
+// Register is a function because a Go method cannot introduce its own
+// type parameter. The registry preserves the operation's insertion order.
+//
+//   - Registering firstOperation before secondOperation renders
+//     firstOperation before secondOperation.
+//   - Adding a handwritten command before registering firstOperation
+//     still renders firstOperation before that handwritten command.
 func Register[I Input](r *Registry, op Operation[I]) {
 	r.ops = append(r.ops, op)
 }
 
-// AddHandwritten adds one bespoke command.
+// AddHandwritten adds one handwritten command to r.
+//
+// The registry preserves insertion order for handwritten commands and
+// renders them after the typed operations.
+//
+//   - Adding firstCommand before secondCommand renders firstCommand
+//     before secondCommand.
+//   - A nil Group renders the command at the top level. A nonnil Group
+//     renders the command under that parent.
 func (r *Registry) AddHandwritten(h HandwrittenCommand) {
 	r.handwritten = append(r.handwritten, h)
 }

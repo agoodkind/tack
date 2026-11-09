@@ -8,7 +8,8 @@ import (
 	"goodkind.io/tack/internal/cli"
 )
 
-// runReadOperation finalizes the read event before printing captured results.
+// runReadOperation finalizes the read event before printing the captured
+// results.
 func runReadOperation[I Input](ctx context.Context, f *cli.Factory, op Operation[I], in I) error {
 	input, err := json.Marshal(in)
 	if err != nil {
@@ -26,7 +27,8 @@ func runReadOperation[I Input](ctx context.Context, f *cli.Factory, op Operation
 		run = op.DryRun
 	}
 	captured := &operationReadSink{captureSink: captureSink{writes: nil}, targets: nil}
-	// Typed runtime reads require lifecycle admission during infrastructure repairs.
+	// Typed runtime reads require lifecycle admission even during
+	// infrastructure repairs.
 	recordingFactory := *f
 	recordingFactory.SetAuditInfrastructureProbe(nil)
 	_, err = RunAuditedRead(ctx, &recordingFactory, spec, input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
