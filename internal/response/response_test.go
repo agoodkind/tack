@@ -10,8 +10,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ctxWithSpan returns a context carrying a valid span context plus a request
-// id, so FromContext resolves non-empty trace_id, span_id, and request_id
+// ctxWithSpan returns a context with a valid span context and request ID.
+// FromContext reads nonempty trace_id, span_id, and request_id values
 // without a configured tracer provider.
 func ctxWithSpan(t *testing.T) context.Context {
 	t.Helper()
@@ -66,7 +66,7 @@ func TestTextPrependsHeaderOnce(t *testing.T) {
 	if !strings.HasPrefix(got, headerMarker+" trace_id=t\nbody") {
 		t.Fatalf("text = %q", got)
 	}
-	// A body already stamped is not stamped again.
+	// Text preserves a body that already starts with the metadata header.
 	if again := meta.Text(got); again != got {
 		t.Fatalf("double stamp: %q", again)
 	}
