@@ -24,10 +24,15 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 }
 
 // Create inserts u and writes its audit change event to the outbox in one
-// transaction. It reads the mutation operation from ctx and records the change
-// in the system organization. It keeps a supplied ID or assigns a UUIDv7 when
-// u.ID is [uuid.Nil]. The event uses protected references for email and display
-// name in After and supplies their JSON values in Protected.
+// transaction.
+//
+// It reads the mutation operation from ctx and records the change in the
+// system organization.
+//
+//   - It preserves a supplied ID or assigns a UUIDv7 when u.ID is
+//     [uuid.Nil].
+//   - The event uses protected references for email and display name in
+//     After and supplies their JSON values in Protected.
 func (r *UserRepo) Create(ctx context.Context, u *user.User) (*user.User, error) {
 	if u.ID == uuid.Nil {
 		u.ID = uuid.Must(uuid.NewV7())
@@ -83,9 +88,14 @@ func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*user.User, error
 	return u, nil
 }
 
-// GetByIDIncludingInactive returns a user whether or not the account is
-// active. Revoking a credential must reach a deactivated holder, because a
-// token keeps authenticating after its user is deactivated.
+// GetByIDIncludingInactive returns a user by ID regardless of whether the
+// account is active.
+//
+// Credential revocation must find a deactivated token owner. Token
+// validation continues to accept the token after its user account becomes
+// inactive.
+//
+//   - A missing user returns [domain.ErrNotFound].
 func (r *UserRepo) GetByIDIncludingInactive(ctx context.Context, id uuid.UUID) (*user.User, error) {
 	const q = `SELECT id, email, display_name, created_at, updated_at FROM users WHERE id = $1`
 	u := &user.User{}
@@ -100,9 +110,14 @@ func (r *UserRepo) GetByIDIncludingInactive(ctx context.Context, id uuid.UUID) (
 	return u, nil
 }
 
-// GetByEmailIncludingInactive returns a user by exact email whether or not
-// the account is active, so a deactivated user's credentials can be listed
-// and revoked.
+// GetByEmailIncludingInactive returns a user by exact email regardless of
+// whether the account is active.
+//
+// Credential management uses this lookup to list and revoke a deactivated
+// user's credentials.
+//
+//   - The method returns [domain.ErrNotFound] when the exact email does not
+//     match a user.
 func (r *UserRepo) GetByEmailIncludingInactive(ctx context.Context, email string) (*user.User, error) {
 	const q = `SELECT id, email, display_name, created_at, updated_at FROM users WHERE email = $1`
 	u := &user.User{}

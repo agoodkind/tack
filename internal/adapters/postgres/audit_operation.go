@@ -25,9 +25,11 @@ const (
 	memberRelation   = "org_member"
 )
 
-// changeOperation reads the audit mutation operation from ctx and sets its verb
-// and organization ID. It returns an error wrapping
-// audit.ErrMissingMutationContext when ctx lacks a valid operation.
+// changeOperation reads the audit mutation operation from ctx and sets its
+// verb and organization ID. A missing operation or an invalid required actor
+// or operation field produces an error wrapping
+// [audit.ErrMissingMutationContext]. The helper also returns
+// operation-decoding errors.
 func changeOperation(ctx context.Context, verb audit.Verb, orgID uuid.UUID) (audit.Event, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
@@ -41,9 +43,9 @@ func changeOperation(ctx context.Context, verb audit.Verb, orgID uuid.UUID) (aud
 
 // UserTarget returns a resource audit target for userID.
 //
-// The target uses userID as its ID and appends its string form to
-// userTargetPrefix for the URI. The other target fields are empty or zero
-// UUIDs.
+// The target uses userID as its ID. Its URI appends the string form of
+// userID to userTargetPrefix. NodeType, Reference, Name, and RelationType
+// contain empty strings. SourceID, TargetID, and OwnerID contain zero UUIDs.
 //
 // The URI has this layout:
 //

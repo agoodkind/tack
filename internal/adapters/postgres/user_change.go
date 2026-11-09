@@ -13,8 +13,8 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// userValue contains the user record for a change delta, with protected
-// references in place of email and display name.
+// userValue stores the user record for an audit change. Email and display
+// name use protected references.
 type userValue struct {
 	ID          uuid.UUID                `json:"id"`
 	Email       audit.ProtectedReference `json:"email"`
@@ -24,8 +24,8 @@ type userValue struct {
 	UpdatedAt   time.Time                `json:"updated_at"`
 }
 
-// newUserValue builds the created user's delta record and protected email
-// and display name values with u.ID as their subject.
+// newUserValue builds the created user's change record and protected email
+// and display name values. Each protected value uses u.ID as its subject.
 func newUserValue(ctx context.Context, u *user.User, isActive bool) (*userValue, []audit.ProtectedValue, error) {
 	email, emailValue, err := protectString(ctx, u.ID, u.Email)
 	if err != nil {

@@ -17,8 +17,9 @@ import (
 	"goodkind.io/tack/internal/domain"
 )
 
-// failureRecordTimeout limits detached failure recording, and the remaining
-// constants supply error codes and a fixed message for failed changes.
+// failureRecordTimeout limits failure recording independently of caller
+// cancellation. The remaining constants supply error codes and a fixed
+// message for failed changes.
 const (
 	failureRecordTimeout   = 30 * time.Second
 	failureCodeNotFound    = "not_found"
@@ -28,9 +29,13 @@ const (
 	failureMessageRollback = "the change transaction rolled back without committing"
 )
 
-// WriteChanges builds each change event with audit.ChangeEvent and sets its
-// verb to operation.Verb. It validates and encodes each event before writing
-// it to the operator outbox in tx, and returns the first error.
+// WriteChanges builds each change event with [audit.ChangeEvent] and sets
+// its verb to operation.Verb.
+//
+// It validates and encodes each event before writing it to the operator
+// outbox in tx.
+//
+//   - It returns the first error.
 func WriteChanges(ctx context.Context, tx pgx.Tx, operation audit.Event, changes []audit.Change) error {
 	completedAt := clock.Now().UTC()
 	for _, change := range changes {
@@ -123,7 +128,8 @@ func changeTx(
 // recordFailure writes a failed result event for target in a separate
 // transaction. It uses [context.WithoutCancel] and failureRecordTimeout to
 // limit the write independently of caller cancellation. The event contains a
-// fixed message and a code derived from cause without the raw database error.
+// fixed message and a code derived from cause without the raw database
+// error.
 func recordFailure(ctx context.Context, pool *pgxpool.Pool, operation audit.Event, target audit.Target, cause error) error {
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failureRecordTimeout)
 	defer cancel()
@@ -139,8 +145,9 @@ func recordFailure(ctx context.Context, pool *pgxpool.Pool, operation audit.Even
 	return nil
 }
 
-// newChange calls audit.NewChange with a new UUIDv7 event ID, target, and the
-// old and new JSON values. It logs and wraps any error with the target ID.
+// newChange calls audit.NewChange with a new UUIDv7 event ID, target, and
+// the old and new JSON values. It logs and wraps any error with the target
+// ID.
 func newChange(ctx context.Context, target audit.Target, before, after json.RawMessage) (audit.Change, error) {
 	change, err := audit.NewChange(uuid.Must(uuid.NewV7()), target, before, after)
 	if err != nil {
@@ -150,8 +157,8 @@ func newChange(ctx context.Context, target audit.Target, before, after json.RawM
 	return change, nil
 }
 
-// changeValue encodes a record as JSON for an audit change and returns nil when
-// value is nil.
+// changeValue encodes a record as JSON for an audit change and returns nil
+// when value is nil.
 func changeValue[Value userValue | tokenValue | memberValue](ctx context.Context, value *Value) (json.RawMessage, error) {
 	if value == nil {
 		return nil, nil

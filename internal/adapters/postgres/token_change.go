@@ -15,7 +15,7 @@ import (
 	"goodkind.io/tack/internal/domain/token"
 )
 
-// tokenValue contains token metadata for an audit change and omits the raw
+// tokenValue stores token metadata for an audit change. It omits the raw
 // token and its hash.
 type tokenValue struct {
 	ID        uuid.UUID  `json:"id"`
@@ -33,21 +33,30 @@ func emptyToken() *token.Token {
 	return &token.Token{ID: uuid.Nil, UserID: uuid.Nil, Label: "", LastUsed: nil, ExpiresAt: nil, CreatedAt: time.Time{}}
 }
 
-// Create stores the SHA-256 hash of raw under a new UUIDv7 ID and writes the
-// creation event in the same transaction. It never stores raw.
+// Create stores the SHA-256 hash of raw under a new UUIDv7 ID.
+//
+// It writes the creation event in the same transaction as the token record.
+//
+//   - It does not store raw.
 func (r *TokenRepo) Create(ctx context.Context, orgID, userID uuid.UUID, raw, label string) (*token.Token, error) {
 	return r.insertToken(ctx, orgID, uuid.Must(uuid.NewV7()), userID, raw, label, nil)
 }
 
-// CreateWithID stores the SHA-256 hash of raw under the caller's chosen ID and
-// writes the creation event in the same transaction. It never stores raw.
+// CreateWithID stores the SHA-256 hash of raw under the caller's chosen ID.
+//
+// It writes the creation event in the same transaction as the token record.
+//
+//   - It does not store raw.
 func (r *TokenRepo) CreateWithID(ctx context.Context, orgID, id, userID uuid.UUID, raw, label string) (*token.Token, error) {
 	return r.insertToken(ctx, orgID, id, userID, raw, label, nil)
 }
 
 // CreateExpiring stores the SHA-256 hash of raw under a new UUIDv7 ID with
-// expiresAt as its expiry and writes the creation event in the same
-// transaction. It never stores raw.
+// expiresAt as its expiry.
+//
+// It writes the creation event in the same transaction as the token record.
+//
+//   - It does not store raw.
 func (r *TokenRepo) CreateExpiring(
 	ctx context.Context,
 	orgID, userID uuid.UUID,
@@ -97,8 +106,11 @@ func (r *TokenRepo) insertToken(
 	return t, nil
 }
 
-// Delete removes a token and records its old value in the same transaction. It
-// returns an error wrapping domain.ErrNotFound when the token does not exist.
+// Delete removes a token and records its old value in the same transaction.
+//
+// The old value contains the token metadata from the deleted row.
+//
+//   - A missing token returns an error wrapping [domain.ErrNotFound].
 func (r *TokenRepo) Delete(ctx context.Context, orgID, id uuid.UUID) error {
 	const q = `
 		DELETE FROM api_tokens WHERE id = $1

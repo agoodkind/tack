@@ -1,5 +1,6 @@
-// Package migration applies goose migrations from a file system to YugabyteDB.
-// It supports applying all pending migrations or stopping at a target version.
+// Package migration applies goose migrations from a file system to
+// YugabyteDB. It can apply all pending migrations or stop at a target
+// version.
 package migration
 
 import (
@@ -14,27 +15,37 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// MigratorRole is the role that migration 018 creates. It owns the audit,
-// partman, and public schemas and is not a superuser.
+// MigratorRole identifies the tack_migrator role that migration 018 creates.
+// The role owns the audit, partman, and public schemas and is not a
+// superuser.
 const MigratorRole = "tack_migrator"
 
-// lastSuperuserMigration creates event triggers, which only a superuser
-// creates (TACK-556).
+// lastSuperuserMigration identifies migration 019, which creates event
+// triggers. Only a superuser can create those triggers (TACK-556).
 const lastSuperuserMigration = 19
 
-// Migrate runs pending goose migrations. Called by the `migrate` subcommand only,
-// never on HTTP server startup (required for safe horizontal scaling).
+// Migrate runs all pending goose migrations.
 //
-// A superuser login applies the migrations after lastSuperuserMigration under
-// the role tack_migrator: the schema guard of migration 019 refuses a change
-// to the audit schema by any other role.
+// The migrate subcommand, ops provision, and ops ledger audit-bootstrap use
+// this migration path. HTTP startup must not run migrations because servers
+// scale horizontally.
+//
+// The migration role depends on the version:
+//
+//   - Migrations through lastSuperuserMigration use the login role.
+//   - A superuser login applies later migrations as tack_migrator. Migration
+//     019 refuses changes to the audit and partman schemas by other roles.
 func Migrate(ctx context.Context, dsn string, migrationsFS fs.FS) error {
 	return MigrateTo(ctx, dsn, migrationsFS, goose.MaxVersion)
 }
 
-// MigrateTo runs pending goose migrations through target. Migrations through
-// lastSuperuserMigration run as the login. Later migrations run as
-// tack_migrator when the login is a superuser.
+// MigrateTo runs pending goose migrations through target.
+//
+// It changes the migration role only when the login is a superuser and
+// target exceeds lastSuperuserMigration.
+//
+//   - Migrations through lastSuperuserMigration use the login role.
+//   - Later migrations use tack_migrator when the login is a superuser.
 func MigrateTo(ctx context.Context, dsn string, migrationsFS fs.FS, target int64) error {
 	connConfig, err := pgx.ParseConfig(dsn)
 	if err != nil {

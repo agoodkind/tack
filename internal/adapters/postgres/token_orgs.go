@@ -13,12 +13,17 @@ import (
 	"goodkind.io/tack/internal/domain/token"
 )
 
-// ValidateWithOrgs looks up a raw Bearer token and the org set of the user
-// who holds it in one statement, so an authenticated request whose caches
-// are cold costs one ledger read rather than two (criterion 12 of the backup
-// acceptance, TACK-504). Returns domain.ErrUnauthenticated if the token is
-// missing or expired. The org set is empty, never nil, for a user with no
-// membership.
+// ValidateWithOrgs reads the token record for the supplied raw Bearer token
+// and its user's organization set in one statement. It selects the record
+// with hashToken(raw).
+//
+// This combined lookup requires one ledger read instead of two for an
+// authenticated request with empty caches, as criterion 12 of the backup
+// acceptance requires (TACK-504).
+//
+//   - A missing or expired token returns [domain.ErrUnauthenticated].
+//   - A successful lookup for a user without memberships returns an empty
+//     organization set instead of nil.
 func (r *TokenRepo) ValidateWithOrgs(ctx context.Context, raw string) (*token.Token, []uuid.UUID, error) {
 	const q = `
 		SELECT t.id, t.user_id, t.label, t.last_used, t.expires_at, t.created_at,

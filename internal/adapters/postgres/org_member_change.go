@@ -40,8 +40,9 @@ func lockMember(ctx context.Context, tx pgx.Tx, orgID, userID uuid.UUID) (*membe
 	return stored, true, nil
 }
 
-// saveMember inserts a membership when previous is nil. Otherwise, it updates
-// the locked membership's role by previous.ID. It returns the stored membership.
+// saveMember inserts a membership when previous is nil. Otherwise, it
+// updates the locked membership's role using previous.ID. It returns the
+// stored membership.
 func saveMember(ctx context.Context, tx pgx.Tx, previous *memberValue, m *org.Member) (*memberValue, error) {
 	const insertQuery = `
 		INSERT INTO org_members (id, org_id, user_id, role)
@@ -63,10 +64,11 @@ func saveMember(ctx context.Context, tx pgx.Tx, previous *memberValue, m *org.Me
 	return stored, nil
 }
 
-// writeMemberChange writes an audit change event with the membership's
-// relationship target and old and new values in tx. It uses
-// audit.VerbOrgMemberRoleSet when both values exist. audit.NewChange computes
-// Changed from the values as sorted JSON pointers.
+// writeMemberChange writes the membership's relationship target and old and
+// new values as an audit change event in tx. It uses
+// [audit.VerbOrgMemberRoleSet] when both values exist. [audit.NewChange]
+// computes Changed as sorted JSON pointers, which identify changed fields in
+// the values.
 func writeMemberChange(ctx context.Context, tx pgx.Tx, operation audit.Event, before, after *memberValue) error {
 	current := after
 	if current == nil {
