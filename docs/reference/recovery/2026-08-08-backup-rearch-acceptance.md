@@ -139,10 +139,15 @@ Expiry does not start a background refresh. A warm cache can conceal database
 reads that a cold request requires. The token lookup and organization lookup
 share one query on a cold request.
 
-The stored token-use time must match a call within the flush interval. When two
-app guests use a token within that interval, storage must retain the later time.
-A read during a ledger-write pause lasting one flush interval must return HTTP
-200 within its normal latency.
+Token-use measurements must check stored timestamps and read latency under the required conditions.
+
+Token-use criteria:
+
+| Measurement | Required result |
+| --- | --- |
+| Stored token-use time | The stored token-use time must match a call within the flush interval. |
+| Token use by two app guests within the same flush interval | Storage must retain the later time. |
+| Read during a ledger-write pause lasting one flush interval | The read must return HTTP 200 within its normal latency. |
 
 A single-hypervisor installation requires backup restoration after hypervisor
 loss. These requirements do not add a second hypervisor for automatic failover.

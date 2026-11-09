@@ -25,8 +25,12 @@ confirmed deletions and uncertain results.
 Native snapshot and mutation dependencies determine the retained restore window.
 File age alone cannot establish whether deletion preserves that window.
 Selection discovers S3 backup markers and reads the active session identity
-and each backup's numeric restorable versions. The preview and audit evidence must include
-`min_version`, `max_version`, and the selected expiration version.
+and each backup's numeric restorable versions. Both preview evidence and audit
+evidence must include:
+
+- `min_version`.
+- `max_version`.
+- The selected expiration version.
 
 The numeric-window read omits `--version-timestamps`. That option converts all
 snapshot versions in one transaction; a large snapshot history can exceed the

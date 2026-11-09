@@ -154,7 +154,27 @@ Initial setup may defer evidence only while required audit infrastructure does n
 
 Permanent history must not expire automatically. Published delivery-receipt cleanup does not delete permanent evidence. Independent operations must distribute without a global application lock. Installation sizing must account for traffic, retention, copies, indexes, replication, backups, and outage backlog without weakening coverage.
 
-Scale evidence must compare identical event mixes under increasing concurrency at one, two, and four application and worker instances. Measurements must include throughput, response latency, backlog, recovery time, writes, broker bytes, and bytes per event, manifest part, and pending receipt with indexes and replicas. Fewer rows alone do not prove proportional scaling.
+Scale evidence must compare identical event mixes under increasing concurrency. Required instance counts:
+
+| Application instances | Worker instances |
+| --- | --- |
+| 1 | 1 |
+| 2 | 2 |
+| 4 | 4 |
+
+Measurements must include:
+
+- Throughput.
+- Response latency.
+- Backlog.
+- Recovery time.
+- Writes.
+- Broker bytes.
+- Bytes per event, including indexes and replicas.
+- Bytes per manifest part, including indexes and replicas.
+- Bytes per pending receipt, including indexes and replicas.
+
+Fewer rows alone do not prove proportional scaling.
 
 ## Acceptance evidence
 

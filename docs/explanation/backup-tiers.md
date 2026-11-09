@@ -69,11 +69,6 @@ perform a restore.
 
 ## Backup age and alarms
 
-The staleness check measures the age of each mechanism's last success. It dates
-ledger protection from the newest complete export, rehearsal protection from the
-last passing drill marker, and replication health from the last fully replicated
-observation. Continuous-backup mode adds the FoundationDB restorable point.
-
 A mechanism that has never recorded success counts as stale. When a probe cannot
 read a mechanism, the checker continues using its last local success timestamp,
 including after its age exceeds the threshold. The report preserves the

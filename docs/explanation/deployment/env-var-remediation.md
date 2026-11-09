@@ -49,8 +49,11 @@ Queue commands run through `audit-ops` on the Docker bridge. The service
 supplies a ledger reader connection, Kafka settings, and the FoundationDB
 cluster file. The commands use a separate operator connection to record
 access under the resolved operator identity. Inspection, offset reports, and replay
-previews require successful audit admission before the read and finalization
-before the command returns the result.
+previews require this sequence:
+
+1. The command obtains successful audit admission.
+2. The command performs the read.
+3. The command finalizes the audit evidence before returning the result.
 
 - `ops audit dlq inspect --execute` reads the dead-letter summary from the ledger.
 - `ops audit consumer-offsets --execute` reads committed offsets and the SQL
