@@ -19,8 +19,8 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// macRequireStopTimeout reads the accepted runner's inspection from the evidence
-// and requires the stop timeout from stop_grace_period.
+// macRequireStopTimeout reads the accepted runner's inspection from the
+// evidence directory and requires its stop timeout to match stop_grace_period.
 func macRequireStopTimeout(t *testing.T, evidence string) {
 	t.Helper()
 	contents, err := os.ReadFile(filepath.Join(evidence, "outer-created.json"))
@@ -37,10 +37,11 @@ func macRequireStopTimeout(t *testing.T, evidence string) {
 	}
 }
 
-// TestMacRunnerDockerFixtureSignals runs testenv.RunMacTests under the signal
-// context that cmd/testenv uses, and sends each signal to this process after the
-// fixture reports readiness. The run must exit with status 130, remove every
-// resource it owns, and keep the baseline marker and the cache contents.
+// TestMacRunnerDockerFixtureSignals runs testenv.RunMacTests with the signal
+// context that cmd/testenv uses. The test sends each signal to this process
+// after the fixture reports readiness. The run must exit with status 130,
+// remove every resource it owns, and keep the baseline marker and cache
+// contents.
 func TestMacRunnerDockerFixtureSignals(t *testing.T) {
 	for _, signalCase := range []struct {
 		name   string

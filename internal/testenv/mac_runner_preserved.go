@@ -48,8 +48,9 @@ func (execution *macRunnerExecution) verifyPreserved(ctx context.Context) error 
 	return macRunnerErrors("verify preserved baseline", failures...)
 }
 
-// comparePreserved records surviving baseline identities and removals outside
-// the project. It returns an error for missing baseline identities in the project.
+// comparePreserved records surviving baseline identities in preserved.
+// It appends missing identities outside project to removedElsewhere and
+// returns an error for missing identities in project.
 func (execution *macRunnerExecution) comparePreserved(kind string, baseline, current, preserved, project map[string]bool) error {
 	removed, err := macRunnerPreserved(kind, baseline, current, preserved, project)
 	execution.removedElsewhere = append(execution.removedElsewhere, removed...)

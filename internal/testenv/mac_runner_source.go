@@ -82,7 +82,8 @@ func macRunnerFileHash(root, path string) ([32]byte, error) {
 	return sha256.Sum256(contents), nil
 }
 
-// verifySources rehashes the historical selected-file manifest.
+// verifySources compares each selected source file's current hash with its
+// hash from source capture.
 func (prepared *macRunnerPreparation) verifySources() error {
 	for _, source := range prepared.source.manifest {
 		digest, err := macRunnerFileHash(prepared.root, source.path)

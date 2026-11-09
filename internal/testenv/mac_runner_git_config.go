@@ -10,7 +10,8 @@ import (
 	"github.com/go-git/go-git/v6/x/plugin"
 )
 
-// macRunnerExcludesFile reads the raw option that the native typed merge omits.
+// macRunnerExcludesFile reads core.excludesFile from raw Git configuration.
+// The go-git configuration merge omits this option.
 func macRunnerExcludesFile(repository *git.Repository, filesystem billy.Filesystem) (string, bool, error) {
 	loader, err := plugin.Get(plugin.ConfigLoader())
 	if err != nil {
