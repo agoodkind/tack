@@ -74,9 +74,9 @@ func TestNewOperatorSourcePrefersServiceFlag(t *testing.T) {
 	}
 }
 
-// TestNewOperatorSourceRecordsServiceOnBehalfOfOperator pins the pairing rule:
-// the service is the actor, and the flag operator is the accountable operator
-// recorded in OnBehalfOf with no act-as grant.
+// TestNewOperatorSourceRecordsServiceOnBehalfOfOperator checks that the
+// service remains the actor and OnBehalfOf identifies the accountable flag
+// operator. The pairing does not use an act-as grant.
 func TestNewOperatorSourceRecordsServiceOnBehalfOfOperator(t *testing.T) {
 	factory := &Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
 	root := &cobra.Command{Use: "tack"}
@@ -112,8 +112,8 @@ func TestNewOperatorSourceRecordsServiceOnBehalfOfOperator(t *testing.T) {
 	}
 }
 
-// TestNewOperatorSourceRefusesOnBehalfOfWithoutSession requires a service
-// acting for a flag operator to name its session.
+// TestNewOperatorSourceRefusesOnBehalfOfWithoutSession checks that the resolver
+// rejects a service acting for a flag operator without a session ID.
 func TestNewOperatorSourceRefusesOnBehalfOfWithoutSession(t *testing.T) {
 	factory := &Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
 	root := &cobra.Command{Use: "tack"}

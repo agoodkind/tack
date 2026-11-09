@@ -61,9 +61,10 @@ func TestNewOperatorSourcePrefersFlags(t *testing.T) {
 	}
 }
 
-// TestFlagOperatorSourceRejectsUnattributableIdentity pins that an operator
-// cannot assert an identity naming nobody. Both of these parse cleanly and
-// would otherwise land in the ledger as an unattributable audit row.
+// TestFlagOperatorSourceRejectsUnattributableIdentity checks that Resolve
+// rejects the nil UUID and a missing email after Cobra accepts those flag
+// values. Neither case supplies the identity required for an attributable
+// audit event.
 func TestFlagOperatorSourceRejectsUnattributableIdentity(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -106,10 +107,9 @@ func TestFlagOperatorSourceRejectsUnattributableIdentity(t *testing.T) {
 	}
 }
 
-// TestNewOperatorSourceReadsFlagsAtResolveTime pins the ordering that matters:
-// the root command is constructed before cobra parses anything, so a source
-// that chose its mechanism at construction would always see empty flags and
-// silently ignore an operator who passed one.
+// TestNewOperatorSourceReadsFlagsAtResolveTime constructs the source before
+// Cobra parses the operator flags, then checks that Resolve uses the parsed
+// identity. Selecting a source during construction would ignore those flags.
 func TestNewOperatorSourceReadsFlagsAtResolveTime(t *testing.T) {
 	factory := &Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
 	root := &cobra.Command{Use: "tack"}

@@ -83,10 +83,9 @@ func TestGitConfigOperatorSourceUsesStableID(t *testing.T) {
 	}
 }
 
-// TestGitConfigQuotedEmailYieldsSameID pins that quoting an email in the git
-// config does not change the operator's identity. The actor id is derived from
-// the email, so a stray pair of quotes would otherwise split one person into
-// two operators in the ledger.
+// TestGitConfigQuotedEmailYieldsSameID checks that quoted and unquoted emails
+// produce the same operator ID. The resolver derives the ID from the email;
+// including surrounding quotes would produce a different ledger identity.
 func TestGitConfigQuotedEmailYieldsSameID(t *testing.T) {
 	plain := resolveGitOperator(t, "[user]\n\tname = Alex\n\temail = alex@goodkind.io\n")
 	quoted := resolveGitOperator(t, "[user]\n\tname = \"Alex\"\n\temail = \"alex@goodkind.io\"\n")
@@ -101,8 +100,8 @@ func TestGitConfigQuotedEmailYieldsSameID(t *testing.T) {
 	}
 }
 
-// TestGitConfigTrailingCommentIsStripped pins that a comment after a value is
-// not folded into the identity.
+// TestGitConfigTrailingCommentIsStripped checks that the resolver excludes a
+// trailing comment from the operator email.
 func TestGitConfigTrailingCommentIsStripped(t *testing.T) {
 	principal := resolveGitOperator(t, "[user]\n\temail = alex@goodkind.io ; work\n")
 	if principal.Email != "alex@goodkind.io" {

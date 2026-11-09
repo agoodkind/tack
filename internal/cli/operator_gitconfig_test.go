@@ -6,10 +6,9 @@ import (
 	"testing"
 )
 
-// TestGitConfigHomeFileWinsOverXDG pins git's own precedence. Git reads both
-// the XDG file and the home file and takes the home file's value, so an
-// operator with an identity in each would otherwise be attributed to the wrong
-// person.
+// TestGitConfigHomeFileWinsOverXDG checks that the resolver reads both files
+// and uses the home file's identity when both files define one. Reversing this
+// precedence could attribute the action to the wrong operator.
 func TestGitConfigHomeFileWinsOverXDG(t *testing.T) {
 	home := t.TempDir()
 	xdg := t.TempDir()
@@ -38,8 +37,9 @@ func TestGitConfigHomeFileWinsOverXDG(t *testing.T) {
 	}
 }
 
-// TestGitConfigXDGSuppliesWhatHomeOmits pins that the two files merge rather
-// than one replacing the other wholesale, which is also what git does.
+// TestGitConfigXDGSuppliesWhatHomeOmits checks that the resolver combines
+// identity fields from both files. The home file overrides its supplied fields
+// and preserves the XDG values for fields that it omits.
 func TestGitConfigXDGSuppliesWhatHomeOmits(t *testing.T) {
 	home := t.TempDir()
 	xdg := t.TempDir()
@@ -68,10 +68,9 @@ func TestGitConfigXDGSuppliesWhatHomeOmits(t *testing.T) {
 	}
 }
 
-// TestGitConfigHomeFallbackIgnoredWhenXDGSet pins that $HOME/.config/git/config
-// is only git's fallback for an unset XDG_CONFIG_HOME. When XDG_CONFIG_HOME is
-// set, a conflicting identity in the fallback file must not be read, or a stale
-// identity there would attribute the action to the wrong person.
+// TestGitConfigHomeFallbackIgnoredWhenXDGSet checks that a nonempty
+// XDG_CONFIG_HOME excludes HOME/.config/git/config. Reading a conflicting
+// identity from that fallback could attribute the action to the wrong operator.
 func TestGitConfigHomeFallbackIgnoredWhenXDGSet(t *testing.T) {
 	home := t.TempDir()
 	xdg := t.TempDir()
