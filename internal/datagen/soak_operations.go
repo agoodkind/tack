@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// soakOperationNames labels the latency of each operation kind, in mix
-// order. The project read stays last.
+// soakOperationNames identifies the latency kind of each operation in mix
+// order. The project read remains last.
 var soakOperationNames = [...]string{
 	"workflow", "issue_churn", "comment_create", "activity_create",
 	"epic_churn", "cycle_churn", "module_churn", "label_churn",

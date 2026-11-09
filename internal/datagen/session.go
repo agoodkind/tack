@@ -101,7 +101,15 @@ func (s *runSession) seedCorpus(
 	return generator.Run(ctx)
 }
 
-// RunSeed executes one seed generator session after the caller applies guardrails.
+// RunSeed runs one seed generator session.
+//
+// The caller must apply guardrails before calling RunSeed.
+//
+// RunSeed performs these steps:
+//
+//  1. RunSeed opens a session with the supplied options.
+//  2. RunSeed runs the seed generator.
+//  3. RunSeed closes the session before returning.
 func RunSeed(
 	ctx context.Context,
 	cfg *config.Config,

@@ -40,12 +40,12 @@ type discoveryDefinition struct {
 	reference string
 }
 
-// resolveCollectionItem returns the raw ID of one listed node. A scoped
-// property node, and a scoped sequence node without a resolvable sequence
-// reference, is looked up by its scoped name "<scope>::<name>". Recovery
-// creates the node only when that lookup finds no node with the name. A
-// project listed by name is skipped, because the MCP tools cannot look up a
-// project by name.
+// resolveCollectionItem returns the raw ID of one listed node. It looks up
+// scoped property nodes by the scoped name "<scope>::<name>". It also uses
+// that name for scoped sequence nodes without a resolvable sequence reference.
+// Recovery creates a node only when the lookup does not find a node with that
+// name. Discovery skips projects listed by name because the MCP tools cannot
+// look up projects by name.
 func resolveCollectionItem(
 	ctx context.Context,
 	driver *Driver,
@@ -74,11 +74,10 @@ func resolveCollectionItem(
 	case soakReferenceScopedSequence:
 		if !isResolvableSequenceReference(item.Reference, scopeReference) {
 			lookupReference := scopedNameReference(item, scopeReference)
-			// The server prints "<scope>::<name>" only for a direct child of
-			// the scope, and the get matches the name among direct children
-			// only. A node listed under another reference can be a nested
-			// node with the same name. Discovery creates a node only after a
-			// lookup of the printed scoped name finds none.
+			// The server prints "<scope>::<name>" only for direct children of the scope.
+			// The get matches names among direct children only. A node with another
+			// reference can be nested and share the same name. Discovery creates a node
+			// only after the lookup of the printed scoped name does not find a node.
 			if lookupReference != item.Reference {
 				recovery = nil
 			}

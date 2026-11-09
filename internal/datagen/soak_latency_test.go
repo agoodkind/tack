@@ -5,8 +5,9 @@ import (
 	"time"
 )
 
-// TestNearestRankPercentiles pins the nearest-rank p50 and p95 of 1 to n
-// milliseconds. A minimum or maximum function fails at least one row.
+// TestNearestRankPercentiles checks the nearest-rank p50 and p95 for samples
+// from 1 to n milliseconds. An implementation that always returns the minimum
+// or maximum fails at least one case.
 func TestNearestRankPercentiles(t *testing.T) {
 	cases := []struct {
 		samples  int

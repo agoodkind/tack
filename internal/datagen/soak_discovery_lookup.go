@@ -9,18 +9,18 @@ import (
 )
 
 const (
-	// toolErrorAmbiguousReference is the text of the tool error that a get
-	// returns when a scoped reference matches several nodes.
+	// toolErrorAmbiguousReference matches the get error when a scoped reference
+	// matches several nodes.
 	toolErrorAmbiguousReference = "matched multiple nodes"
-	// toolErrorNotFound is the text of the tool error that a get returns when
-	// a reference matches no node.
+	// toolErrorNotFound matches the get error when a reference does not match
+	// a node.
 	toolErrorNotFound = ": not found"
 )
 
 // lookupScopedCollectionItem gets a node by its scoped name "<scope>::<name>".
-// It creates the node from recovery only when the get reports that no node
-// with that name exists in the scope. A name that matches several nodes is
-// skipped.
+// Recovery creates the node only when the get reports that the scope does
+// not contain a node with that name. Discovery skips the item when the name
+// matches several nodes.
 func lookupScopedCollectionItem(
 	ctx context.Context,
 	driver *Driver,
@@ -54,8 +54,8 @@ func lookupScopedCollectionItem(
 	return recoverCollectionItem(ctx, driver, singular, item, recovery)
 }
 
-// scopedNameReference returns the listed reference when its scope is the
-// discovery scope, and otherwise the discovery scope joined to the item name.
+// scopedNameReference returns the listed reference when its scope matches
+// the discovery scope. Otherwise, it joins the discovery scope and item name.
 func scopedNameReference(item collectionItem, scopeReference string) string {
 	referenceScope, _, scoped := strings.Cut(item.Reference, "::")
 	if scoped && strings.EqualFold(referenceScope, scopeReference) {
