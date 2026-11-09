@@ -29,7 +29,7 @@ type DeadLetterKey struct {
 // The method separates the topic, decimal partition, and decimal offset with
 // slashes. [parseDeadLetterKey] reads that format.
 //
-// 	value := key.String()
+//	value := key.String()
 func (k DeadLetterKey) String() string {
 	return k.Topic + "/" + strconv.FormatInt(int64(k.Partition), 10) + "/" + strconv.FormatInt(k.Offset, 10)
 }

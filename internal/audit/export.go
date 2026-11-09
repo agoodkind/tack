@@ -47,10 +47,10 @@ type ExportManifest struct {
 // Verification uses the public key. The function returns an [ExportManifest]
 // that the caller can render.
 //
-// 	<dir>/events-<export id>.jsonl   newline-delimited Row records
-// 	<dir>/manifest.json              {export_id, org_id, time_range, row_count,
-// 	                                  events_file, file_sha256, signature,
-// 	                                  signing_key_id}
+//	<dir>/events-<export id>.jsonl   newline-delimited Row records
+//	<dir>/manifest.json              {export_id, org_id, time_range, row_count,
+//	                                  events_file, file_sha256, signature,
+//	                                  signing_key_id}
 //
 // The function writes and releases each row individually while accumulating the
 // row count and file digest. Ledger size does not impose a row limit. A zero

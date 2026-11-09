@@ -30,10 +30,10 @@ const (
 	FeatureHasAssignees            = "has_assignees"              // This feature supports assigned_to relationships.
 	FeatureHasSequenceID           = "has_sequence_id"            // This feature supports a sequence property.
 	FeatureIsContainer             = "is_container"               // This feature allows child nodes.
-	FeatureHasDueDates             = "has_due_dates"              // This feature supports start_date and due_date properties.
+	FeatureHasDueDates             = "has_due_dates"              // It supports start_date and due_date properties.
 	FeatureHasComments             = "has_comments"               // This feature supports child comment nodes.
 	FeatureHasActivity             = "has_activity"               // This feature emits activity nodes on writes.
-	FeatureIsEntryPoint            = "is_entry_point"             // This feature declares a top-level MCP entry point, currently a workspace.
+	FeatureIsEntryPoint            = "is_entry_point"             // It marks top-level MCP entry points; workspace has it.
 	FeatureIsScope                 = "is_scope"                   // This feature defines a FoundationDB key scope level.
 	FeatureExcludeFromGenericTools = "exclude_from_generic_tools" // This feature excludes generic CRUD tool registration.
 )

@@ -36,8 +36,8 @@ type GitConfigOperatorSource struct{}
 // and derives a stable version 5 UUID from the lowercase email while preserving
 // the email's original case in the principal.
 //
-// 	source := GitConfigOperatorSource{}
-// 	principal, err := source.Resolve(ctx)
+//	source := GitConfigOperatorSource{}
+//	principal, err := source.Resolve(ctx)
 func (GitConfigOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrincipal, error) {
 	candidates, err := gitConfigCandidates()
 	if err != nil {
@@ -100,9 +100,9 @@ func readGitConfigIdentity(ctx context.Context, candidates []string) (string, st
 // GIT_CONFIG_GLOBAL selects only that file. Otherwise, the candidates follow
 // this order:
 //
-//   1. Use XDG_CONFIG_HOME/git/config when XDG_CONFIG_HOME is nonempty;
-//      otherwise, use HOME/.config/git/config when HOME is nonempty.
-//   2. Add HOME/.gitconfig when HOME is nonempty.
+//  1. Use XDG_CONFIG_HOME/git/config when XDG_CONFIG_HOME is nonempty;
+//     otherwise, use HOME/.config/git/config when HOME is nonempty.
+//  2. Add HOME/.gitconfig when HOME is nonempty.
 //
 // The caller lets later nonempty fields override earlier fields. Do not also
 // read HOME/.config/git/config when XDG_CONFIG_HOME selects another location;

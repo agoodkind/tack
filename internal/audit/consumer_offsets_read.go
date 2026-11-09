@@ -33,9 +33,9 @@ type ConsumerOffset struct {
 //
 // A batch can produce these durable outcomes:
 //
-//  - A ledger row records the event.
-//  - A dead-letter row preserves a rejected record.
-//  - An assembly stores parts or a manifest before the event completes.
+//   - A ledger row records the event.
+//   - A dead-letter row preserves a rejected record.
+//   - An assembly stores parts or a manifest before the event completes.
 func (r *Reader) ConsumerOffsets(ctx context.Context) ([]ConsumerOffset, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
@@ -73,8 +73,8 @@ func (r *Reader) ConsumerOffsets(ctx context.Context) ([]ConsumerOffset, error) 
 //
 // Errors prevent a partial result:
 //
-//  - A failed metadata request or an unavailable topic returns an error.
-//  - A failed offset request or a partition error returns an error.
+//   - A failed metadata request or an unavailable topic returns an error.
+//   - A failed offset request or a partition error returns an error.
 func TopicHighWaterMarks(ctx context.Context, brokers []string, topic string) (map[int32]int64, error) {
 	client, err := kgo.NewClient(kgo.SeedBrokers(brokers...), kgo.ClientID("tack-audit-consumer-offsets"))
 	if err != nil {

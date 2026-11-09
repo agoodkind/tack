@@ -65,8 +65,8 @@ func newAssemblyPartReader(ctx context.Context, tx pgx.Tx, manifest transportMes
 //
 // Read reports completion or a stored failure as follows:
 //
-//  - It returns [io.EOF] after the last declared part.
-//  - It repeats the first error from loading a part on every later call.
+//   - It returns [io.EOF] after the last declared part.
+//   - It repeats the first error from loading a part on every later call.
 func (r *assemblyPartReader) Read(buffer []byte) (int, error) {
 	for len(r.pending) == 0 {
 		if r.failure != nil {

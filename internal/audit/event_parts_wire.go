@@ -69,7 +69,7 @@ func encodeTransportMessage(message transportMessage) ([]byte, error) {
 // The relay publishes the messages in that order. The method returns an error
 // when it cannot decode the manifest or encode a part.
 //
-// 	messages, err := encoded.Messages()
+//	messages, err := encoded.Messages()
 func (e EncodedEvent) Messages() ([][]byte, error) {
 	messages, err := e.partMessages()
 	if err != nil {
@@ -163,7 +163,7 @@ func (e EncodedEvent) Records() ([][]byte, error) {
 // The function accepts payloads at or below [EventPartMaxBytes], including an
 // empty payload. It checks size rather than JSON validity.
 //
-// 	fits := FitsSingleRecord(eventJSON)
+//	fits := FitsSingleRecord(eventJSON)
 func FitsSingleRecord(eventJSON []byte) bool {
 	return len(eventJSON) <= EventPartMaxBytes
 }

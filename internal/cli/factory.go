@@ -54,8 +54,8 @@ type auditOutboxCloser interface {
 // The caller supplies the server configuration. Tests can replace the streams
 // after construction to capture command output.
 //
-// 	factory := System(cfg)
-// 	factory.Out = &output
+//	factory := System(cfg)
+//	factory.Out = &output
 func System(cfg *config.Config) *Factory {
 	return &Factory{Cfg: cfg, In: os.Stdin, Out: os.Stdout, Err: os.Stderr, output: nil}
 }
@@ -65,8 +65,8 @@ func System(cfg *config.Config) *Factory {
 // Only an explicit JSON selection returns FormatJSON. An unset or other value
 // returns FormatText.
 //
-// 	factory := &Factory{}
-// 	format := factory.OutputFormat() // FormatText
+//	factory := &Factory{}
+//	format := factory.OutputFormat() // FormatText
 func (f *Factory) OutputFormat() string {
 	if f.output != nil && *f.output == FormatJSON {
 		return FormatJSON
@@ -79,7 +79,7 @@ func (f *Factory) OutputFormat() string {
 // The return values follow the flag order below. An unset flag returns an
 // empty string, and this method does not trim whitespace.
 //
-// 	operatorID, email, name := factory.Operator()
+//	operatorID, email, name := factory.Operator()
 func (f *Factory) Operator() (string, string, string) {
 	return stringValue(f.operatorID), stringValue(f.operatorEmail), stringValue(f.operatorName)
 }
@@ -90,8 +90,8 @@ func (f *Factory) Operator() (string, string, string) {
 // operator. This accessor does not trim whitespace or select the identity
 // source.
 //
-// 	serviceName := factory.OperatorService()
-// 	serviceName = strings.TrimSpace(serviceName)
+//	serviceName := factory.OperatorService()
+//	serviceName = strings.TrimSpace(serviceName)
 func (f *Factory) OperatorService() string {
 	return stringValue(f.operatorService)
 }
@@ -101,7 +101,7 @@ func (f *Factory) OperatorService() string {
 // An unset session flag returns an empty string. The identity source validates
 // whether the selected identity permits or requires a session.
 //
-// 	sessionID := strings.TrimSpace(factory.OperatorSession())
+//	sessionID := strings.TrimSpace(factory.OperatorSession())
 func (f *Factory) OperatorSession() string {
 	return stringValue(f.operatorSession)
 }
@@ -111,8 +111,8 @@ func (f *Factory) OperatorSession() string {
 // An unset deployment flag returns an empty string. The accessor preserves
 // whitespace within the supplied commit or branch value.
 //
-// 	factory := &Factory{}
-// 	commit := factory.DeployCommit() // An unset flag returns an empty string.
+//	factory := &Factory{}
+//	commit := factory.DeployCommit() // An unset flag returns an empty string.
 func (f *Factory) DeployCommit() string {
 	return strings.TrimSpace(stringValue(f.deployCommit))
 }
@@ -122,8 +122,8 @@ func (f *Factory) DeployCommit() string {
 // An unset flag returns false. Command execution uses this selection as the
 // action gate.
 //
-// 	factory := &Factory{}
-// 	execute := factory.Execute() // false
+//	factory := &Factory{}
+//	execute := factory.Execute() // false
 func (f *Factory) Execute() bool {
 	return f.execute != nil && *f.execute
 }
@@ -133,7 +133,7 @@ func (f *Factory) Execute() bool {
 // The root command installs the source before executing commands. Identity
 // resolution can then read the flags after Cobra parses them.
 //
-// 	factory.SetOperatorIdentitySource(NewOperatorSource(factory))
+//	factory.SetOperatorIdentitySource(NewOperatorSource(factory))
 func (f *Factory) SetOperatorIdentitySource(source audit.OperatorIdentitySource) {
 	f.operatorSource = source
 }
@@ -143,9 +143,9 @@ func (f *Factory) SetOperatorIdentitySource(source audit.OperatorIdentitySource)
 // The accessor returns nil until setup supplies a source. Calling this method
 // does not resolve an operator or parse flags.
 //
-// 	factory.SetOperatorIdentitySource(NewOperatorSource(factory))
-// 	source := factory.OperatorIdentitySource()
-// 	principal, err := source.Resolve(ctx)
+//	factory.SetOperatorIdentitySource(NewOperatorSource(factory))
+//	source := factory.OperatorIdentitySource()
+//	principal, err := source.Resolve(ctx)
 func (f *Factory) OperatorIdentitySource() audit.OperatorIdentitySource {
 	return f.operatorSource
 }
@@ -155,8 +155,8 @@ func (f *Factory) OperatorIdentitySource() audit.OperatorIdentitySource {
 // If the outbox implements Close, the factory saves that method for
 // CloseAuditOutbox. Otherwise, it clears the previous closer.
 //
-// 	factory.SetAuditOutbox(outbox)
-// 	defer factory.CloseAuditOutbox()
+//	factory.SetAuditOutbox(outbox)
+//	defer factory.CloseAuditOutbox()
 func (f *Factory) SetAuditOutbox(outbox audit.OutboxWriter) {
 	f.auditOutbox = outbox
 	closer, ok := outbox.(auditOutboxCloser)
@@ -172,8 +172,8 @@ func (f *Factory) SetAuditOutbox(outbox audit.OutboxWriter) {
 // The accessor returns nil until setup supplies a writer. Retrieving the
 // writer does not record an audit event.
 //
-// 	factory.SetAuditOutbox(writer)
-// 	outbox := factory.AuditOutbox() // writer
+//	factory.SetAuditOutbox(writer)
+//	outbox := factory.AuditOutbox() // writer
 func (f *Factory) AuditOutbox() audit.OutboxWriter {
 	return f.auditOutbox
 }
@@ -183,8 +183,8 @@ func (f *Factory) AuditOutbox() audit.OutboxWriter {
 // Only commands that create their own audit infrastructure may use this probe
 // to check which recording dependencies already exist.
 //
-// 	factory.SetAuditInfrastructureProbe(probe)
-// 	state, err := factory.AuditInfrastructureProbe()(ctx)
+//	factory.SetAuditInfrastructureProbe(probe)
+//	state, err := factory.AuditInfrastructureProbe()(ctx)
 func (f *Factory) SetAuditInfrastructureProbe(probe audit.InfrastructureProbe) {
 	f.auditInfrastructureProbe = probe
 }
@@ -195,8 +195,8 @@ func (f *Factory) SetAuditInfrastructureProbe(probe audit.InfrastructureProbe) {
 // commands that create their own audit infrastructure. It does not run the
 // probe.
 //
-// 	probe := factory.AuditInfrastructureProbe()
-// 	state, err := probe(ctx)
+//	probe := factory.AuditInfrastructureProbe()
+//	state, err := probe(ctx)
 func (f *Factory) AuditInfrastructureProbe() audit.InfrastructureProbe {
 	return f.auditInfrastructureProbe
 }
@@ -206,7 +206,7 @@ func (f *Factory) AuditInfrastructureProbe() audit.InfrastructureProbe {
 // Command setup supplies the store alongside the audit outbox. This method
 // does not begin or finalize a read.
 //
-// 	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
+//	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 func (f *Factory) SetAuditReads(reads audit.ReadLifecycle) {
 	f.auditReads = reads
 }
@@ -216,8 +216,8 @@ func (f *Factory) SetAuditReads(reads audit.ReadLifecycle) {
 // The accessor returns nil until command setup supplies a store. Retrieving
 // the store does not begin or finalize a read.
 //
-// 	factory.SetAuditReads(store)
-// 	reads := factory.AuditReads() // store
+//	factory.SetAuditReads(store)
+//	reads := factory.AuditReads() // store
 func (f *Factory) AuditReads() audit.ReadLifecycle {
 	return f.auditReads
 }
@@ -227,8 +227,8 @@ func (f *Factory) AuditReads() audit.ReadLifecycle {
 // The method calls the closer that SetAuditOutbox saved. It does not act when
 // the writer lacks Close.
 //
-// 	factory.SetAuditOutbox(outbox)
-// 	defer factory.CloseAuditOutbox()
+//	factory.SetAuditOutbox(outbox)
+//	defer factory.CloseAuditOutbox()
 func (f *Factory) CloseAuditOutbox() {
 	if f.auditOutboxCloser != nil {
 		f.auditOutboxCloser.Close()
@@ -240,9 +240,9 @@ func (f *Factory) CloseAuditOutbox() {
 // The factory saves each flag pointer. Its accessors read the operator's
 // selections after Cobra parses the flags for a command.
 //
-// 	factory.RegisterGlobalFlags(root)
-// 	root.SetArgs(args)
-// 	err := root.Execute()
+//	factory.RegisterGlobalFlags(root)
+//	root.SetArgs(args)
+//	err := root.Execute()
 func (f *Factory) RegisterGlobalFlags(root *cobra.Command) {
 	f.output = root.PersistentFlags().String(
 		"output", FormatText, "output format: text or json")

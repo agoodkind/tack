@@ -16,7 +16,7 @@ import (
 // first. This order prevents repeatedly rejected payloads from excluding other
 // rows on every run.
 //
-// 	letters, err := reader.ListDeadLetters(ctx, limit)
+//	letters, err := reader.ListDeadLetters(ctx, limit)
 func (r *Reader) ListDeadLetters(ctx context.Context, limit int) ([]DeadLetter, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
@@ -54,7 +54,7 @@ func (r *Reader) ListDeadLetters(ctx context.Context, limit int) ([]DeadLetter, 
 // Each result includes the row count and oldest and newest receipt times. The
 // method orders results by descending count, then failure text.
 //
-// 	summaries, err := reader.SummarizeDeadLetters(ctx)
+//	summaries, err := reader.SummarizeDeadLetters(ctx)
 func (r *Reader) SummarizeDeadLetters(ctx context.Context) ([]DeadLetterSummary, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
@@ -97,7 +97,7 @@ func (r *Reader) SummarizeDeadLetters(ctx context.Context) ([]DeadLetterSummary,
 // The consumer remains the ledger's only writer. A decodable payload uses the
 // producer's partition key to select the partition and consumer for its chain.
 //
-// 	err := recorder.Replay(ctx, letter)
+//	err := recorder.Replay(ctx, letter)
 func (k *KafkaRecorder) Replay(ctx context.Context, letter DeadLetter) error {
 	produceCtx, cancel := context.WithTimeout(ctx, k.produceTimeout)
 	defer cancel()

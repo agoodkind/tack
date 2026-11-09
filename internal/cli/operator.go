@@ -24,8 +24,8 @@ type FlagOperatorSource struct {
 // than [uuid.Nil], and a nonempty email. Resolve trims the ID, email, and name
 // before constructing the principal.
 //
-// 	source := FlagOperatorSource{Factory: factory}
-// 	principal, err := source.Resolve(ctx)
+//	source := FlagOperatorSource{Factory: factory}
+//	principal, err := source.Resolve(ctx)
 func (s FlagOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrincipal, error) {
 	if s.Factory == nil {
 		err := fmt.Errorf("operator flag source has no factory")
@@ -72,9 +72,9 @@ func (s FlagOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrincipa
 // selects the service, flag, or Git configuration source after parsing, when
 // the operator's selections are available.
 //
-// 	source := NewOperatorSource(factory)
-// 	err := root.ParseFlags(args)
-// 	principal, resolveErr := source.Resolve(ctx)
+//	source := NewOperatorSource(factory)
+//	err := root.ParseFlags(args)
+//	principal, resolveErr := source.Resolve(ctx)
 func NewOperatorSource(f *Factory) audit.OperatorIdentitySource {
 	return selectingOperatorSource{factory: f}
 }

@@ -25,9 +25,9 @@ var serviceNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000005")
 // use this derivation. The function uses the supplied name without trimming
 // whitespace.
 //
-// 	first := ServiceActorID("tack-app")
-// 	again := ServiceActorID("tack-app")
-// 	same := first == again // true
+//	first := ServiceActorID("tack-app")
+//	again := ServiceActorID("tack-app")
+//	same := first == again // true
 func ServiceActorID(serviceName string) uuid.UUID {
 	return uuid.NewSHA1(serviceNamespace, []byte(serviceName))
 }
@@ -46,8 +46,8 @@ type ServiceOperatorSource struct {
 // The principal uses that name, a stable service ID, and a trimmed session ID;
 // it does not supply an email or accountable operator.
 //
-// 	source := ServiceOperatorSource{Factory: factory}
-// 	principal, err := source.Resolve(ctx)
+//	source := ServiceOperatorSource{Factory: factory}
+//	principal, err := source.Resolve(ctx)
 func (s ServiceOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrincipal, error) {
 	if s.Factory == nil {
 		err := errors.New("operator service source has no factory")

@@ -37,7 +37,7 @@ type manifestPartSource interface {
 // The method returns parts in ascending index order. Query and scan errors
 // include the event ID.
 //
-// 	parts, err := reader.ManifestParts(ctx, orgID, eventID)
+//	parts, err := reader.ManifestParts(ctx, orgID, eventID)
 func (r *Reader) ManifestParts(ctx context.Context, orgID, eventID uuid.UUID) ([]ManifestPart, error) {
 	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
 		SELECT part_index, digest, payload FROM audit.event_parts

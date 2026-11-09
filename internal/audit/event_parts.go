@@ -52,7 +52,7 @@ type eventEnvelope struct {
 // The function marshals the envelope and computes its transport digest before
 // splitting the bytes into parts within [EventPartMaxBytes].
 //
-// 	encoded, err := EncodeEvent(event, readTargets)
+//	encoded, err := EncodeEvent(event, readTargets)
 func EncodeEvent(event Event, readTargets []Target) (EncodedEvent, error) {
 	if event.EventID == uuid.Nil {
 		return EncodedEvent{}, errors.New("encode audit event: event ID is missing")
@@ -99,7 +99,7 @@ func EncodeEvent(event Event, readTargets []Target) (EncodedEvent, error) {
 // The method returns false only when the envelope fits in one part and the read
 // target list is empty.
 //
-// 	multipart := encoded.Multipart()
+//	multipart := encoded.Multipart()
 func (e EncodedEvent) Multipart() bool {
 	return !e.single
 }

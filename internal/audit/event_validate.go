@@ -93,7 +93,7 @@ func ValidateSpec(spec Spec) error {
 // The function requires an event ID, a valid target, and at least one old or
 // new value. Each provided value must contain valid JSON.
 //
-// 	err := ValidateChange(change)
+//	err := ValidateChange(change)
 func ValidateChange(change Change) error {
 	if change.EventID == uuid.Nil {
 		return errors.New("audit change: record change requires an event ID")

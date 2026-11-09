@@ -31,7 +31,7 @@ type Scope struct {
 // update resolved fields through [SetScopeFields], and the wrapper reads the
 // scope after the inner handler returns.
 //
-// 	ctx = WithScopeBuilder(ctx)
+//	ctx = WithScopeBuilder(ctx)
 func WithScopeBuilder(ctx context.Context) context.Context {
 	return context.WithValue(ctx, scopeKey{}, &Scope{
 		OrgID:       uuid.Nil,
@@ -46,7 +46,7 @@ func WithScopeBuilder(ctx context.Context) context.Context {
 // Zero fields preserve existing values. The function returns without an update
 // when ctx does not contain a Scope.
 //
-// 	SetScopeFields(ctx, Scope{OrgID: orgID})
+//	SetScopeFields(ctx, Scope{OrgID: orgID})
 func SetScopeFields(ctx context.Context, s Scope) {
 	cur, _ := ctx.Value(scopeKey{}).(*Scope)
 	if cur == nil {
@@ -71,7 +71,7 @@ func SetScopeFields(ctx context.Context, s Scope) {
 // The function returns a zero Scope when ctx does not contain one. Updates to
 // the returned copy do not change the context value.
 //
-// 	scope := ScopeFromContext(ctx)
+//	scope := ScopeFromContext(ctx)
 func ScopeFromContext(ctx context.Context) Scope {
 	cur, _ := ctx.Value(scopeKey{}).(*Scope)
 	if cur == nil {
@@ -91,7 +91,7 @@ func ScopeFromContext(ctx context.Context) Scope {
 // The handler updates the entity in place because the wrapper cannot inspect
 // the handler's internal state after it returns.
 //
-// 	ctx = WithEntityBuilder(ctx)
+//	ctx = WithEntityBuilder(ctx)
 func WithEntityBuilder(ctx context.Context) context.Context {
 	return context.WithValue(ctx, entityKey{}, &Entity{
 		Type:       "",
@@ -107,7 +107,7 @@ func WithEntityBuilder(ctx context.Context) context.Context {
 // Handlers supply the fields they resolved. Zero fields preserve existing
 // values, and the function returns without an update when ctx lacks an Entity.
 //
-// 	SetAuditEntity(ctx, Entity{ID: entityID})
+//	SetAuditEntity(ctx, Entity{ID: entityID})
 func SetAuditEntity(ctx context.Context, entity Entity) {
 	current, _ := ctx.Value(entityKey{}).(*Entity)
 	if current == nil {
@@ -135,7 +135,7 @@ func SetAuditEntity(ctx context.Context, entity Entity) {
 // The function returns a zero Entity when ctx does not contain one. Updates to
 // the returned copy do not change the context value.
 //
-// 	entity := EntityFromContext(ctx)
+//	entity := EntityFromContext(ctx)
 func EntityFromContext(ctx context.Context) Entity {
 	current, _ := ctx.Value(entityKey{}).(*Entity)
 	if current == nil {
@@ -163,7 +163,7 @@ type CanonicalRecorder struct{ Inner Recorder }
 // The method supplies a UUIDv7 EventID and the current UTC OccurredAt only when
 // those fields are unset. It reports an error from the wrapped recorder.
 //
-// 	err := recorder.Record(ctx, event)
+//	err := recorder.Record(ctx, event)
 func (s CanonicalRecorder) Record(ctx context.Context, ev Event) error {
 	if ev.EventID == uuid.Nil {
 		ev.EventID = uuid.Must(uuid.NewV7())
@@ -187,7 +187,7 @@ func (s CanonicalRecorder) Record(ctx context.Context, ev Event) error {
 // The method accepts both Close() error and Close() implementations. It returns
 // an error from the former and succeeds when the recorder cannot close.
 //
-// 	err := recorder.Close()
+//	err := recorder.Close()
 func (s CanonicalRecorder) Close() error {
 	switch recorder := s.Inner.(type) {
 	case interface{ Close() error }:
