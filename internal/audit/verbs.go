@@ -67,9 +67,10 @@ const (
 	VerbAuditRead         Verb = "audit.read"
 	VerbAuditExport       Verb = "audit.export"
 
-	// VerbMCPToolInvoked, VerbMCPResourceRead, and VerbMCPPromptInvoked record
-	// transport requests independently of domain changes. They support recording
-	// requests even when a tool does not map to a domain verb.
+	// VerbMCPToolInvoked records transport requests, as do VerbMCPResourceRead
+	// and VerbMCPPromptInvoked. These verbs record requests independently of
+	// domain changes and support recording requests even when a tool does not
+	// map to a domain verb.
 	VerbMCPToolInvoked   Verb = "mcp.tool_invoked"
 	VerbMCPResourceRead  Verb = "mcp.resource_read"
 	VerbMCPPromptInvoked Verb = "mcp.prompt_invoked"
