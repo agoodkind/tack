@@ -10,23 +10,23 @@ Acceptance must use the existing Go harness and real temporary dependencies thro
 2. Acceptance tests must run seed, repair, backfill, account, token, and membership operations. The tests must establish that event failure prevents the corresponding transaction from committing.
 3. Acceptance tests must run each read class:
 
-   - The tests must run gets.
-   - The tests must run lists.
-   - The tests must run searches.
-   - The tests must run prompt reads.
-   - The tests must run protocol reads.
-   - The tests must run health reads.
-   - The tests must run diagnostic reads.
-   - The tests must run operator reads.
-   - The tests must run provider reads.
+   - Gets.
+   - Lists.
+   - Searches.
+   - Prompt reads.
+   - Protocol reads.
+   - Health reads.
+   - Diagnostic reads.
+   - Operator reads.
+   - Provider reads.
 
    The tests must verify each required part of the evidence:
 
-   - The tests must verify the actor.
-   - The tests must verify the selection.
-   - The tests must verify the complete targets.
-   - The tests must verify the exact digest of the returned payload.
-   - The tests must verify the outcome.
+   - The actor.
+   - The selection.
+   - The complete targets.
+   - The exact digest of the returned payload.
+   - The outcome.
 
    Recording failure must prevent result release.
 4. Acceptance tests must exercise failed authentication, malformed input, denied access, absent targets, and backend errors. The tests must verify safe typed reasons and verified versus unauthenticated identity.

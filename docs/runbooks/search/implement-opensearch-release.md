@@ -59,18 +59,16 @@ Use this procedure for a reviewed search release. An infrastructure apply, appli
    - Apply the stopping conditions.
    - Record missing product thresholds explicitly.
 
-   Preserve the inputs and measurements for each workload.
+   Measure each workload below and preserve its inputs and measurements.
 
    Workload evidence:
 
    | Category | Required evidence |
    | --- | --- |
-   | Bulk import | Measure bulk import. |
-   | Permission changes | Measure permission changes. |
-   | Rebuilding | Measure rebuilding. |
-   | Two-process continuation | Measure a continuation between two processes under load. |
-   | Outage | Measure an isolated outage. |
-   | Catch-up | Measure catch-up after the outage. |
+   | Workloads | Bulk import, permission changes, and rebuilding. |
+   | Two-process continuation | A continuation between two processes under load. |
+   | Outage | An isolated outage. |
+   | Catch-up | Catch-up after the outage. |
    | Results | Latency, errors, committed writes, freshness, and work age. |
    | Resources and stopping | Host and guest memory, CPU, disk, and stop telemetry. |
 7. Alternate requests between two actual Tack processes. Require exact continuation, replay, current permission checks, and cleanup without sticky routing. Record the independent two-process throughput comparison and its machine limits. A single OpenSearch guest does not establish node failover.

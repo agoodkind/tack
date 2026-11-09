@@ -55,15 +55,9 @@ Only operations that create required audit infrastructure may defer recording wh
 
 For commands that create audit infrastructure, the current dispatcher can run after the outbox rejects intent because of an authentication failure, even when its probe finds both the outbox table and operator login. That branch violates the first-time setup rule.
 
-`ops provision` performs setup in this order:
+`ops provision` must follow the [binding provisioning order](../../../AGENTS.md#tests-and-provisioning) and the [complete provisioning procedure](../../runbooks/deployment/provision-environment.md#run-ordered-provisioning), including its seed requirements and deferred-seed recovery.
 
-1. It checks or initializes FoundationDB.
-2. It applies migrations.
-3. It prepares audit roles.
-4. It starts continuous FoundationDB backup when configured.
-5. It seeds product data when both `SEED_EMAIL` and `SEED_NAME` are set.
-
-An environment that needs initial data but lacks either seed setting requires the direct initial seed procedure. A deferred seed represents an incomplete run. Provisioning must run again after the app starts. Production must not run `configure new` or use `--allow-fdb-init`. An unsuccessful status query does not prove an empty cluster.
+Production must not run `configure new` or use `--allow-fdb-init`. An unsuccessful status query does not prove an empty cluster.
 
 `ops ledger audit-bootstrap` runs migrations and seeds audit login roles on the first ledger node before joining nodes can perform audited waits. It refuses to run if the migration table, operator outbox, or operator login already exists, or if it cannot inspect the ledger. The setup boundary does not authorize general unrecorded reads or writes.
 
