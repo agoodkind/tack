@@ -25,7 +25,6 @@ type entry struct {
 	patch     string
 }
 
-// vendoredFiles returns the committed files needed to check the entry.
 func (item entry) vendoredFiles() []string {
 	return []string{item.overlay, item.shaFile, item.patch}
 }

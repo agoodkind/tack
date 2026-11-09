@@ -86,7 +86,6 @@ func resolve(links map[string]link, target string) (string, error) {
 	return current, nil
 }
 
-// resolveError logs and wraps a link resolution failure for target.
 func resolveError(target string, hops int, cause error) error {
 	slog.Error(
 		"overlay.link_resolution_failed",
