@@ -14,7 +14,7 @@ import (
 // It refuses ambiguous results instead of selecting one event.
 //
 //   - A matching event returns its UUID.
-//   - A request without a matching event returns uuid.Nil and a nil error.
+//   - A request without a matching event returns [uuid.Nil] and a nil error.
 //   - Multiple matching events return an error.
 func (r *Reader) ReadEventByRequest(ctx context.Context, orgID uuid.UUID, requestID string, oldest, latest time.Time) (uuid.UUID, error) {
 	if orgID == uuid.Nil || requestID == "" || oldest.IsZero() || latest.IsZero() {
