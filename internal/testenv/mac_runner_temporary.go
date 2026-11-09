@@ -2,10 +2,16 @@ package testenv
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"github.com/moby/moby/api/types/container"
+)
+
+var errTemporaryVolumeIdentity = errors.New(
+	"cannot prove temporary-volume identity and absence for missing or refused runner",
 )
 
 func (execution *macRunnerExecution) recordCreatedRunner(id string) {
@@ -64,10 +70,14 @@ func (execution *macRunnerExecution) unknownTemporaryVolume(containerID string) 
 		execution.unknownResources = append(execution.unknownResources, resource)
 	}
 
-	return fmt.Errorf(
-		"cannot prove temporary-volume identity and absence for missing or refused runner %s",
-		containerID,
+	wrapped := fmt.Errorf("%w %s", errTemporaryVolumeIdentity, containerID)
+	slog.Error(
+		"testenv.runner.temporary_volume_unknown",
+		slog.String("container_id", containerID),
+		slog.String("err", wrapped.Error()),
 	)
+
+	return wrapped
 }
 
 func (execution *macRunnerExecution) verifyTemporaryVolumes() error {

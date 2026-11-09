@@ -61,6 +61,70 @@ func RegisterWorkspace(
 		},
 	)
 
+	registerWorkspaceDescription(s, reader, resolver, nodeTypes)
+}
+
+// RegisterMembers registers tack_list_members.
+func RegisterMembers(
+	s *mcpserver.MCPServer,
+	members org.MemberRepository,
+	users user.Repository,
+	resolver *Resolver,
+) {
+	registerTool(
+		s,
+		mcpmcp.Tool{
+			Name:        "tack_list_members",
+			Description: "Lists org members for the workspace's org.",
+			InputSchema: schema{
+				Fields:   entryPointSchemaFields(resolver),
+				Required: []string{resolver.EntryPointParamName()},
+			}.toMCP(),
+		},
+		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
+			args, err := bindArgs(req)
+			if err != nil {
+				return recoverableError(err.Error()), nil
+			}
+
+			entryPointReference, ok := resolver.entryPointReference(args)
+			if !ok {
+				return recoverableError(resolver.entryPointRequiredMessage()), nil
+			}
+
+			ws, err := resolver.Workspace(ctx, entryPointReference)
+			if err != nil {
+				return classifyError(ctx, err), nil
+			}
+
+			memberships, err := members.ListMembers(ctx, ws.OrgID)
+			if err != nil {
+				return classifyError(ctx, err), nil
+			}
+
+			usersOut := make([]*user.User, 0, len(memberships))
+			for _, m := range memberships {
+				u, err := users.GetByID(ctx, m.UserID)
+				if err != nil || u == nil {
+					continue
+				}
+
+				usersOut = append(usersOut, u)
+			}
+
+			addUserTargets(ctx, ws.OrgID, usersOut)
+
+			return successText(renderMembers(usersOut), ""), nil
+		},
+	)
+}
+
+func registerWorkspaceDescription(
+	s *mcpserver.MCPServer,
+	reader node.NodeReader,
+	resolver *Resolver,
+	nodeTypes []*node.NodeType,
+) {
 	registerTool(
 		s,
 		mcpmcp.Tool{
@@ -134,61 +198,6 @@ func RegisterWorkspace(
 			rc := newRenderCtxWithTypes(ctx, reader, nil, resolver.typeIndex)
 
 			return successText(renderWorkspaceDescribe(rc, ws, types), ""), nil
-		},
-	)
-}
-
-// RegisterMembers registers tack_list_members.
-func RegisterMembers(
-	s *mcpserver.MCPServer,
-	members org.MemberRepository,
-	users user.Repository,
-	resolver *Resolver,
-) {
-	registerTool(
-		s,
-		mcpmcp.Tool{
-			Name:        "tack_list_members",
-			Description: "Lists org members for the workspace's org.",
-			InputSchema: schema{
-				Fields:   entryPointSchemaFields(resolver),
-				Required: []string{resolver.EntryPointParamName()},
-			}.toMCP(),
-		},
-		func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
-			args, err := bindArgs(req)
-			if err != nil {
-				return recoverableError(err.Error()), nil
-			}
-
-			entryPointReference, ok := resolver.entryPointReference(args)
-			if !ok {
-				return recoverableError(resolver.entryPointRequiredMessage()), nil
-			}
-
-			ws, err := resolver.Workspace(ctx, entryPointReference)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-
-			memberships, err := members.ListMembers(ctx, ws.OrgID)
-			if err != nil {
-				return classifyError(ctx, err), nil
-			}
-
-			usersOut := make([]*user.User, 0, len(memberships))
-			for _, m := range memberships {
-				u, err := users.GetByID(ctx, m.UserID)
-				if err != nil || u == nil {
-					continue
-				}
-
-				usersOut = append(usersOut, u)
-			}
-
-			addUserTargets(ctx, ws.OrgID, usersOut)
-
-			return successText(renderMembers(usersOut), ""), nil
 		},
 	)
 }

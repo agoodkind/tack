@@ -71,13 +71,13 @@ func (s *ViewStore) Resolve(
 	key := fdb.Key(nodeResolveKey(nodeID))
 	var result *node.NodeResolve
 	_, err = s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
-		b := tr.Get(key).MustGet()
-		if len(b) == 0 {
+		encodedResolve := tr.Get(key).MustGet()
+		if len(encodedResolve) == 0 {
 			return nil, domain.ErrNotFound
 		}
 
 		var r node.NodeResolve
-		if err := json.Unmarshal(b, &r); err != nil {
+		if err := json.Unmarshal(encodedResolve, &r); err != nil {
 			return nil, fmt.Errorf("unmarshal resolve: %w", err)
 		}
 

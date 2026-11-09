@@ -113,47 +113,9 @@ func (s *SearchSessionStore) Create(
 				return writeErr
 			}
 
-			tokens := []byte(session.Snapshot.QueryTokens)
+			writeSessionParts(tr, session, record)
 
-			for chunk := range record.TokenChunks {
-				end := min(len(tokens), (chunk+1)*sessionTokenChunkBytes)
-				tr.Set(
-					fdb.Key(searchSessionTokenKey(session.ID, chunk)),
-					tokens[chunk*sessionTokenChunkBytes:end],
-				)
-			}
-
-			tr.Set(fdb.Key(searchSessionExpiryKey(session.ID, session.IdleDeadline)), nil)
-			tr.Set(fdb.Key(searchSessionPresenceKey(session.Query.Index, session.ID)), nil)
-			tr.Set(
-				fdb.Key(
-					searchSessionVersionKey(
-						session.AuthorityID,
-						session.Query.Access.Version,
-						session.AbsoluteDeadline,
-						session.ID,
-					),
-				),
-				nil,
-			)
-			if recordErr := changes.recordSessionCreate(sessionState{
-				record: record,
-				tokens: session.Snapshot.QueryTokens,
-			}); recordErr != nil {
-				return sessionRecordingFailure(ctx, session.ID, recordErr)
-			}
-
-			if appendErr := changes.append(ctx, tr); appendErr != nil {
-				return sessionRecordingFailure(ctx, session.ID, appendErr)
-			}
-
-			slog.DebugContext(
-				ctx,
-				"search.session.create_commit_ready",
-				slog.String("session_id", session.ID.String()),
-			)
-
-			return nil
+			return appendSessionCreation(ctx, tr, session, record, changes)
 		},
 	)
 	if err != nil {

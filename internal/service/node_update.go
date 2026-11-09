@@ -43,20 +43,9 @@ func (s *NodeService) Update(ctx context.Context, in UpdateInput) (*node.NodeVie
 	ctx = telemetry.WithTraceLogger(ctx, slog.String("node_id", in.NodeID.String()))
 	log := telemetry.L(ctx)
 
-	existing, err := s.reader.Get(ctx, in.NodeID)
+	existing, err := s.readNodeForUpdate(ctx, in.NodeID)
 	if err != nil {
-		log.ErrorContext(
-			ctx,
-			"node.update_read_failed",
-			slog.String("node_id", in.NodeID.String()),
-			slog.String("err", err.Error()),
-		)
-
-		return nil, fmt.Errorf("read node %s for its update: %w", in.NodeID, err)
-	}
-
-	if existing == nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
 
 	snapshot, schema, err := s.readMutationSnapshot(ctx, existing.OrgID, in.NodeID)

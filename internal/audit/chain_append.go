@@ -114,44 +114,9 @@ func appendChainRow(
 		return chainAppendResult{}, err
 	}
 
-	lastHash := head.LastHash
-	seq := head.LastSeq + 1
-
-	rowHash, err := hashRowForEvent(rowHashInput{
-		Event:       in.Event,
-		EventID:     in.EventID,
-		Shard:       in.Shard,
-		Seq:         seq,
-		PIIRef:      in.PIIRef,
-		ContextJSON: in.ContextJSON,
-		DeltaJSON:   in.DeltaJSON,
-		LastHash:    lastHash,
-		Version:     auditHashVersionCurrent,
-	})
+	encoded, err := prepareChainRow(ctx, in, head)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.chain.hash_failed", slog.String("err", err.Error()))
-		return chainAppendResult{}, fmt.Errorf("chain hash: %w", err)
-	}
-
-	// An action that carried no error stores SQL NULL, not the JSON literal
-	// null. The column is nullable and a reader asking "which events failed"
-	// filters on IS NULL, which a JSON null silently defeats. The row hash is
-	// computed above from the event itself, so how the column stores an absent
-	// error does not touch the chain.
-	var errorJSON []byte
-	if in.Event.Error != nil {
-		encoded, err := json.Marshal(in.Event.Error)
-		if err != nil {
-			slog.ErrorContext(
-				ctx,
-				"audit.chain.error_marshal_failed",
-				slog.String("err", err.Error()),
-			)
-
-			return chainAppendResult{}, fmt.Errorf("event error marshal: %w", err)
-		}
-
-		errorJSON = encoded
+		return chainAppendResult{}, err
 	}
 
 	tag, err := tx.Exec(
@@ -175,7 +140,7 @@ func appendChainRow(
 		in.Shard,
 		in.Event.OccurredAt.UTC().Truncate(time.Microsecond),
 		in.EventID,
-		seq,
+		encoded.result.Seq,
 		in.Event.Actor.ID,
 		actorKindCode(in.Event.Actor.Type),
 		in.Event.Verb,
@@ -185,9 +150,9 @@ func appendChainRow(
 		in.ContextJSON,
 		in.DeltaJSON,
 		piiRefArg(in.PIIRef),
-		lastHash,
-		rowHash,
-		errorJSON,
+		encoded.result.PrevHash,
+		encoded.result.RowHash,
+		encoded.errorJSON,
 		nullableJSON(in.Event.Extra),
 		auditHashVersionCurrent,
 		in.Event.IdempotencyKey,
@@ -207,13 +172,13 @@ func appendChainRow(
 		in.Event.Context.OrgID,
 		in.Shard,
 		head,
-		seq,
-		rowHash,
+		encoded.result.Seq,
+		encoded.result.RowHash,
 	); err != nil {
 		return chainAppendResult{}, err
 	}
 
-	return chainAppendResult{Seq: seq, PrevHash: lastHash, RowHash: rowHash}, nil
+	return encoded.result, nil
 }
 
 func nullableJSON(value json.RawMessage) []byte {

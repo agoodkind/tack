@@ -134,20 +134,7 @@ func buildSearchRuntime(
 		workers = append(workers, worker)
 	}
 
-	repair := service.NewSearchModelRepair(
-		service.SearchModelRepairPorts{
-			Engine:  adapter,
-			Records: stores.SearchModelRepairs(),
-			Index:   stores,
-			Audit:   SearchModelRepairAudit(stores),
-		},
-		source,
-		repairSettings,
-		service.SearchModelRepairGates{
-			Enabled:      repairSettings.Enabled,
-			PublicSearch: cfg.SearchPublicEnabled,
-		},
-	)
+	repair := newConfiguredModelRepair(cfg, stores, adapter, source, repairSettings)
 
 	return searchRuntime{
 		adapter:   adapter,

@@ -113,40 +113,18 @@ func (s *SearchRebuildStore) BeginRebuild(
 				return searchdomain.ErrNoServingIndex
 			}
 
-			generation, counterErr := incrementSearchCounter(ctx, tr, searchRebuildGenerationKey())
+			generation, counterErr := beginRebuildGeneration(ctx, tr, request.Restored)
 			if counterErr != nil {
 				return counterErr
 			}
 
-			if request.Restored {
-				if _, epochErr := incrementSearchCounter(
-					ctx,
-					tr,
-					searchRestoreEpochKey(),
-				); epochErr != nil {
-					return epochErr
-				}
-			}
-
-			rebuild = searchdomain.Rebuild{
-				ID:            identifier,
-				Mode:          request.Mode,
-				State:         searchdomain.RebuildCreating,
-				SourceIndex:   string(serving),
-				TargetIndex:   replacementIndexPrefix + identifier.String(),
-				ScanCursor:    "",
-				VerifyCursor:  "",
-				Failure:       "",
-				PrimaryShards: request.PrimaryShards,
-				RoutingShards: request.RoutingShards,
-				Replicas:      request.Replicas,
-				ScanComplete:  false,
-				Paused:        false,
-				Restored:      request.Restored,
-				PausedAt:      s.work.clock.Now().UTC(),
-				Generation:    generation,
-				Initiation:    request.Initiation,
-			}
+			rebuild = newRebuildState(
+				identifier,
+				request,
+				serving,
+				generation,
+				s.work.clock.Now().UTC(),
+			)
 			if writeErr := writeSearchRecord(
 				ctx,
 				tr,
