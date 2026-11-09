@@ -19,7 +19,7 @@ import (
 // after making their changes and do not write other outbox entries in that attempt.
 func AppendChanges(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	operation audit.Event,
 	changes []audit.Change,
 ) error {
@@ -27,7 +27,7 @@ func AppendChanges(
 		return nil
 	}
 
-	outbox := NewOutboxWriter(tr)
+	outbox := NewOutboxWriter(transaction)
 	completedAt := clock.Now().UTC()
 
 	for _, change := range changes {
@@ -39,6 +39,7 @@ func AppendChanges(
 				slog.String("event_id", change.EventID.String()),
 				slog.String("err", err.Error()),
 			)
+
 			return fmt.Errorf("append change event %s: %w", change.EventID, err)
 		}
 
@@ -78,6 +79,7 @@ func changeEncodeFailure(step string, change audit.Change, err error) error {
 		slog.String("event_id", change.EventID.String()),
 		slog.String("err", err.Error()),
 	)
+
 	return fmt.Errorf("%s the change event %s: %w", step, change.EventID, err)
 }
 
@@ -144,6 +146,7 @@ func (m *mutationAudit) record(target audit.Target, before, after []byte) error 
 			slog.String("target", targetKey(target)),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("record the change of %s: %w", targetKey(target), err)
 	}
 

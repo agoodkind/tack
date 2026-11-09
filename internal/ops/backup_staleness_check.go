@@ -42,7 +42,9 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 func requireBackupStalenessConfig(ctx context.Context, cfg *config.Config) error {
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
 		err := fmt.Errorf(
-			"staleness-check: object store configuration is incomplete; set TACK_BACKUP_S3_ENDPOINT, TACK_BACKUP_S3_ACCESS_KEY_ID, and TACK_BACKUP_S3_SECRET_ACCESS_KEY",
+			"staleness-check: object store configuration is incomplete; set " +
+				"TACK_BACKUP_S3_ENDPOINT, TACK_BACKUP_S3_ACCESS_KEY_ID, and " +
+				"TACK_BACKUP_S3_SECRET_ACCESS_KEY",
 		)
 		telemetry.L(ctx).ErrorContext(
 			ctx,
@@ -224,7 +226,7 @@ func exportStalenessMetric(
 		)
 	}
 
-	at, err := time.Parse(ybSnapshotRunIDLayout, manifest.RunID)
+	timestamp, err := time.Parse(ybSnapshotRunIDLayout, manifest.RunID)
 	if err != nil {
 		return unknownBackupStalenessMetric(
 			backupStalenessExportName,
@@ -238,7 +240,7 @@ func exportStalenessMetric(
 		ctx,
 		backupStalenessExportName,
 		now,
-		at,
+		timestamp,
 		threshold,
 		"newest complete run "+manifest.RunID,
 	)

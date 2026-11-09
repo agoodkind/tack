@@ -108,6 +108,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			"audit.consumer.yugabyte_pool_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("audit consumer yugabyte pool: %w", err)
 	}
 
@@ -565,6 +566,7 @@ func (c *Consumer) projectBatchOnce(
 			"audit.consumer.offset_upsert_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("offset upsert: %w", err)
 	}
 
@@ -601,6 +603,7 @@ func (c *Consumer) projectRecord(
 	savepoint, err := tx.Begin(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.savepoint_failed", slog.String("err", err.Error()))
+
 		return committedAuthEvent{}, false, fmt.Errorf(
 			"savepoint for offset=%d: %w",
 			rec.Offset,
@@ -616,6 +619,7 @@ func (c *Consumer) projectRecord(
 				"audit.consumer.savepoint_release_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return committedAuthEvent{}, false, fmt.Errorf(
 				"release savepoint for offset=%d: %w",
 				rec.Offset,
@@ -721,13 +725,13 @@ type preparedEvent struct {
 // derived fields. Errors here are treated as malformed-payload signals so
 // the consumer can route the record to the dead-letter table.
 func unmarshalRecord(ctx context.Context, rec *kgo.Record) (preparedEvent, error) {
-	var ev Event
-	if err := json.Unmarshal(rec.Value, &ev); err != nil {
+	var event Event
+	if err := json.Unmarshal(rec.Value, &event); err != nil {
 		slog.WarnContext(ctx, "audit.consumer.malformed_json", slog.String("err", err.Error()))
 		return preparedEvent{}, fmt.Errorf("%w: %w", errMalformedPayload, err)
 	}
 
-	return prepareEvent(ctx, ev)
+	return prepareEvent(ctx, event)
 }
 
 // prepareEvent validates the decoded event, normalizes correlation fields,
@@ -756,6 +760,7 @@ func prepareEvent(ctx context.Context, ev Event) (preparedEvent, error) {
 			"audit.consumer.marshal_context_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return preparedEvent{}, fmt.Errorf("marshal context: %w", err)
 	}
 
@@ -768,6 +773,7 @@ func prepareEvent(ctx context.Context, ev Event) (preparedEvent, error) {
 				"audit.consumer.marshal_delta_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return preparedEvent{}, fmt.Errorf("marshal delta: %w", err)
 		}
 	}

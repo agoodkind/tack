@@ -18,13 +18,13 @@ type MemoryRecorder struct {
 
 func NewMemoryRecorder() *MemoryRecorder { return &MemoryRecorder{} }
 
-func (m *MemoryRecorder) Record(_ context.Context, ev Event) error {
-	if ev.OccurredAt.IsZero() {
-		ev.OccurredAt = clock.Now().UTC()
+func (m *MemoryRecorder) Record(_ context.Context, event Event) error {
+	if event.OccurredAt.IsZero() {
+		event.OccurredAt = clock.Now().UTC()
 	}
 
 	m.mu.Lock()
-	m.events = append(m.events, ev)
+	m.events = append(m.events, event)
 	m.mu.Unlock()
 
 	return nil

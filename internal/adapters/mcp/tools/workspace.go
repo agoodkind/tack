@@ -171,13 +171,13 @@ func RegisterMembers(
 				return classifyError(ctx, err), nil
 			}
 
-			ms, err := members.ListMembers(ctx, ws.OrgID)
+			memberships, err := members.ListMembers(ctx, ws.OrgID)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
 
-			usersOut := make([]*user.User, 0, len(ms))
-			for _, m := range ms {
+			usersOut := make([]*user.User, 0, len(memberships))
+			for _, m := range memberships {
 				u, err := users.GetByID(ctx, m.UserID)
 				if err != nil || u == nil {
 					continue

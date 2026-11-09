@@ -53,13 +53,13 @@ func searchRollbackOp(f *cli.Factory) clispec.Operation[searchRollbackInput] {
 func runSearchRollback(
 	ctx context.Context,
 	f *cli.Factory,
-	in searchRollbackInput,
+	input searchRollbackInput,
 	sink clispec.ResultSink,
 	dryRun bool,
 ) error {
-	authorityID, err := uuid.Parse(in.Authority)
+	authorityID, err := uuid.Parse(input.Authority)
 	if err != nil {
-		return searchRolloutFailure(ctx, "parse authority "+in.Authority, err)
+		return searchRolloutFailure(ctx, "parse authority "+input.Authority, err)
 	}
 
 	env, err := NewEnv(ctx, f.Cfg)

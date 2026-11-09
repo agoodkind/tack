@@ -91,15 +91,15 @@ func runSearch(
 		return searchFailureResult(ctx, err)
 	}
 
-	rc := newRenderCtxWithTypes(ctx, nodes.Reader, nodes.Users, resolver.typeIndex)
-	if err := rc.loadAssignees(
+	renderContext := newRenderCtxWithTypes(ctx, nodes.Reader, nodes.Users, resolver.typeIndex)
+	if err := renderContext.loadAssignees(
 		nodes.Relationships,
 		slices.Collect(maps.Values(views))...,
 	); err != nil {
 		return searchFailureResult(ctx, err)
 	}
 
-	return successText(renderSearchPage(rc, page, views, binding.Cursors), "")
+	return successText(renderSearchPage(renderContext, page, views, binding.Cursors), "")
 }
 
 // resolveSearchNodeType accepts a node type key or slug and returns its key.
@@ -135,6 +135,7 @@ func searchFailureResult(ctx context.Context, err error) *mcpmcp.CallToolResult 
 			accessDeniedCode,
 			"the caller cannot search this entry point",
 		)
+
 		return recoverableError("the caller cannot search this entry point")
 	case errors.Is(err, searchdomain.ErrSessionExpired),
 		errors.Is(err, searchdomain.ErrSessionNotFound):

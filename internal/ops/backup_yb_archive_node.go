@@ -55,7 +55,9 @@ func requireYBArchiveConfig(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
 		err := fmt.Errorf(
-			"yb-archive-node: object store configuration is incomplete; set TACK_BACKUP_S3_ENDPOINT, TACK_BACKUP_S3_ACCESS_KEY_ID, and TACK_BACKUP_S3_SECRET_ACCESS_KEY",
+			"yb-archive-node: object store configuration is incomplete; set " +
+				"TACK_BACKUP_S3_ENDPOINT, TACK_BACKUP_S3_ACCESS_KEY_ID, and " +
+				"TACK_BACKUP_S3_SECRET_ACCESS_KEY",
 		)
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
 
@@ -64,7 +66,8 @@ func requireYBArchiveConfig(ctx context.Context, cfg *config.Config) error {
 
 	if cfg.BackupYBRocksDBDir == "" {
 		err := fmt.Errorf(
-			"yb-archive-node: TACK_BACKUP_YB_ROCKSDB_DIR is empty; set it to the RocksDB directory inside the yugabyte container",
+			"yb-archive-node: TACK_BACKUP_YB_ROCKSDB_DIR is empty; set it to " +
+				"the RocksDB directory inside the yugabyte container",
 		)
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
 

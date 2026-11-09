@@ -171,16 +171,16 @@ func (b *BufferedRecorder) Record(ctx context.Context, event Event) error {
 }
 
 // recordThrough hands one event to inner on the caller's own path.
-func (b *BufferedRecorder) recordThrough(ctx context.Context, ev Event) error {
-	if err := b.inner.Record(ctx, ev); err != nil {
+func (b *BufferedRecorder) recordThrough(ctx context.Context, event Event) error {
+	if err := b.inner.Record(ctx, event); err != nil {
 		slog.ErrorContext(
 			ctx,
 			"audit.buffer.record_failed",
-			slog.String("verb", ev.Verb),
+			slog.String("verb", event.Verb),
 			slog.String("err", err.Error()),
 		)
 
-		return fmt.Errorf("record %s through buffer: %w", ev.Verb, err)
+		return fmt.Errorf("record %s through buffer: %w", event.Verb, err)
 	}
 
 	return nil

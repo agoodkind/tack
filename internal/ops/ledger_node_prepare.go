@@ -158,6 +158,7 @@ func applyLedgerNodePrepare(
 				"ops.ledger.node_prepare.failed",
 				slog.String("err", err.Error()),
 			)
+
 			return result, fmt.Errorf("%s: %w", ledgerNodePrepareLabel, err)
 		}
 
@@ -182,6 +183,7 @@ func applyLedgerNodePrepare(
 			"ops.ledger.node_prepare.stop_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return result, fmt.Errorf(
 			"%s: stop %s after the change: %w",
 			ledgerNodePrepareLabel,
@@ -214,6 +216,7 @@ func writeLedgerNodePrepareResult(
 			"ops.ledger.node_prepare.write_result_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("%s: write result: %w", result.Command, err)
 	}
 
@@ -222,13 +225,13 @@ func writeLedgerNodePrepareResult(
 
 // equalStringSets reports whether two sorted, deduplicated lists contain the
 // same entries.
-func equalStringSets(a, b []string) bool {
-	if len(a) != len(b) {
+func equalStringSets(left, right []string) bool {
+	if len(left) != len(right) {
 		return false
 	}
 
-	for i := range a {
-		if a[i] != b[i] {
+	for i := range left {
+		if left[i] != right[i] {
 			return false
 		}
 	}

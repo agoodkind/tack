@@ -32,7 +32,9 @@ func scopeRepairResult(
 	}
 
 	err := fmt.Errorf(
-		"repair sequence scope IDs: the repair refused %d writes; the operator must run the repair again to read the current records: %w",
+		"repair sequence scope IDs: the repair refused %d writes; the "+
+			"operator must run the repair again to read the current records: "+
+			"%w",
 		refused,
 		domain.ErrConflict,
 	)

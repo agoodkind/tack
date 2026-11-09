@@ -25,13 +25,13 @@ type tokenValue struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-func newTokenValue(t *token.Token) *tokenValue {
+func newTokenValue(apiToken *token.Token) *tokenValue {
 	return &tokenValue{
-		ID:        t.ID,
-		UserID:    t.UserID,
-		Label:     t.Label,
-		ExpiresAt: t.ExpiresAt,
-		CreatedAt: t.CreatedAt,
+		ID:        apiToken.ID,
+		UserID:    apiToken.UserID,
+		Label:     apiToken.Label,
+		ExpiresAt: apiToken.ExpiresAt,
+		CreatedAt: apiToken.CreatedAt,
 	}
 }
 
@@ -143,6 +143,7 @@ func (r *TokenRepo) insertToken(
 			slog.String("token_id", id.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return nil, fmt.Errorf("create token %s: %w", id, err)
 	}
 
@@ -204,6 +205,7 @@ func (r *TokenRepo) Delete(ctx context.Context, orgID, id uuid.UUID) error {
 			slog.String("token_id", id.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("delete token %s: %w", id, err)
 	}
 

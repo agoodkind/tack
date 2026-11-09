@@ -132,7 +132,8 @@ func (s SearchWorkerSettings) Validate() error {
 	if s.WriteCompletionHorizon <= s.OperationTimeout ||
 		s.WriteCompletionHorizon >= s.ReplacementPauseLimit {
 		return errors.New(
-			"search write completion horizon must exceed the operation timeout and must be shorter than the replacement pause limit",
+			"search write completion horizon must exceed the operation " +
+				"timeout and must be shorter than the replacement pause limit",
 		)
 	}
 

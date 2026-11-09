@@ -178,7 +178,7 @@ func fdbDescribeTimestamp(describe string, label string) (time.Time, error) {
 		}
 
 		stamp := trimmed[openIndex+1 : closeIndex]
-		at, err := time.Parse(fdbStatusTimestampLayout, stamp)
+		timestamp, err := time.Parse(fdbStatusTimestampLayout, stamp)
 		if err != nil {
 			return time.Time{}, fmt.Errorf(
 				"fdbbackup describe line %q carries no timestamp;"+
@@ -188,7 +188,7 @@ func fdbDescribeTimestamp(describe string, label string) (time.Time, error) {
 			)
 		}
 
-		return at, nil
+		return timestamp, nil
 	}
 
 	return time.Time{}, fmt.Errorf("fdbbackup describe has no %s line", label)

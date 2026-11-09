@@ -114,13 +114,13 @@ func createHandler(
 			return recoverableError(err.Error()), nil
 		}
 
-		entryPointReference, ok := b.Resolver.entryPointReference(args)
-		if !ok {
+		entryPointReference, isValid := b.Resolver.entryPointReference(args)
+		if !isValid {
 			return recoverableError(b.Resolver.entryPointRequiredMessage()), nil
 		}
 
-		name, ok := requireString(args, "name")
-		if !ok {
+		name, isValid := requireString(args, "name")
+		if !isValid {
 			return recoverableError("name is required"), nil
 		}
 

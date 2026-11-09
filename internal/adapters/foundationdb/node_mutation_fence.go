@@ -43,7 +43,7 @@ func (s *RelationshipStore) fenceAttempt(
 func callFence(
 	ctx context.Context,
 	fence mutationFence,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	orgID uuid.UUID,
 	nodeID uuid.UUID,
 ) (bool, error) {
@@ -51,5 +51,5 @@ func callFence(
 		return false, nil
 	}
 
-	return fence(ctx, tr, orgID, nodeID)
+	return fence(ctx, transaction, orgID, nodeID)
 }

@@ -34,6 +34,7 @@ func (execution *macRunnerExecution) recordTemporaryVolume(
 			IdentityError: err.Error(),
 			Absent:        false,
 		}
+
 		return "", err
 	}
 
@@ -57,15 +58,15 @@ func (execution *macRunnerExecution) cleanupMissingRunner(ctx context.Context, i
 	return execution.removeVolume(ctx, volume.Name)
 }
 
-func (execution *macRunnerExecution) unknownTemporaryVolume(id string) error {
-	resource := "temporary volume for container " + id
+func (execution *macRunnerExecution) unknownTemporaryVolume(containerID string) error {
+	resource := "temporary volume for container " + containerID
 	if !slices.Contains(execution.unknownResources, resource) {
 		execution.unknownResources = append(execution.unknownResources, resource)
 	}
 
 	return fmt.Errorf(
 		"cannot prove temporary-volume identity and absence for missing or refused runner %s",
-		id,
+		containerID,
 	)
 }
 

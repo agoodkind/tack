@@ -81,36 +81,7 @@ func repairPreviewOp(f *cli.Factory) clispec.Operation[repairPreviewInput] {
 		Long:     "",
 		Examples: nil,
 		Args:     nil,
-		Params: []clispec.Param[repairPreviewInput]{
-			clispec.StringParam(
-				"node",
-				"node UUID",
-				"",
-				false,
-				func(in *repairPreviewInput, v string) { in.NodeID = v },
-			),
-			clispec.StringParam(
-				"class",
-				"repair class",
-				string(DefaultRepairClass()),
-				false,
-				func(in *repairPreviewInput, v string) { in.Class = v },
-			),
-			clispec.StringParam(
-				"profile",
-				"repair profile JSON file",
-				"",
-				false,
-				func(in *repairPreviewInput, v string) { in.Profile = v },
-			),
-			clispec.StringParam(
-				"manifest",
-				"repair manifest JSON file",
-				"",
-				false,
-				func(in *repairPreviewInput, v string) { in.Manifest = v },
-			),
-		},
+		Params:   repairPreviewParams(),
 		New: func() repairPreviewInput {
 			return repairPreviewInput{
 				InputMarker: clispec.InputMarker{},
@@ -213,68 +184,8 @@ func repairApplyOp(f *cli.Factory) clispec.Operation[repairApplyInput] {
 		Long:     "",
 		Examples: nil,
 		Args:     nil,
-		Params: []clispec.Param[repairApplyInput]{
-			clispec.StringParam(
-				"node",
-				"node UUID",
-				"",
-				false,
-				func(in *repairApplyInput, v string) { in.NodeID = v },
-			),
-			clispec.StringParam(
-				"actor",
-				"actor UUID",
-				"",
-				true,
-				func(in *repairApplyInput, v string) { in.ActorID = v },
-			),
-			clispec.StringParam(
-				"class",
-				"repair class",
-				string(DefaultRepairClass()),
-				false,
-				func(in *repairApplyInput, v string) { in.Class = v },
-			),
-			clispec.StringParam(
-				"profile",
-				"repair profile JSON file",
-				"",
-				false,
-				func(in *repairApplyInput, v string) { in.Profile = v },
-			),
-			clispec.StringParam(
-				"manifest",
-				"repair manifest JSON file",
-				"",
-				false,
-				func(in *repairApplyInput, v string) { in.Manifest = v },
-			),
-			clispec.StringParam(
-				"confirm",
-				"preview confirmation token",
-				"",
-				false,
-				func(in *repairApplyInput, v string) { in.Confirm = v },
-			),
-			clispec.BoolParam(
-				"yes",
-				"confirm that this command may write",
-				false,
-				func(in *repairApplyInput, v bool) { in.Yes = v },
-			),
-		},
-		New: func() repairApplyInput {
-			return repairApplyInput{
-				InputMarker: clispec.InputMarker{},
-				NodeID:      "",
-				ActorID:     "",
-				Class:       string(DefaultRepairClass()),
-				Profile:     "",
-				Manifest:    "",
-				Confirm:     "",
-				Yes:         false,
-			}
-		},
+		Params:   repairApplyParams(),
+		New:      newRepairApplyInput,
 		Run: func(ctx context.Context, in repairApplyInput, sink clispec.ResultSink) error {
 			if !in.Yes {
 				return errors.New(

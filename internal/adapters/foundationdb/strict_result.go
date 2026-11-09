@@ -21,21 +21,21 @@ func checkStrictRecord(
 
 func checkStrictWrite(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	strict bool,
 	record *node.Node,
 	changesList []node.RelationshipChanges,
 ) error {
-	if err := checkStrictRelationshipAdds(ctx, tr, strict, changesList); err != nil {
+	if err := checkStrictRelationshipAdds(ctx, transaction, strict, changesList); err != nil {
 		return err
 	}
 
-	return checkStrictRecord(ctx, tr, strict, record)
+	return checkStrictRecord(ctx, transaction, strict, record)
 }
 
 func checkStrictMutation(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	strict bool,
 	result *node.Node,
 	parent *node.ParentChange,
@@ -44,7 +44,7 @@ func checkStrictMutation(
 		return nil
 	}
 
-	schema, graph, err := readStrictSchema(ctx, tr, result)
+	schema, graph, err := readStrictSchema(ctx, transaction, result)
 	if err != nil {
 		return err
 	}

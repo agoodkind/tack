@@ -61,35 +61,7 @@ func verifyNodeOp(f *cli.Factory) clispec.Operation[verifyNodeInput] {
 		Long:     "",
 		Examples: nil,
 		Args:     nil,
-		Params: []clispec.Param[verifyNodeInput]{
-			clispec.StringParam(
-				"node",
-				"node UUID",
-				"",
-				true,
-				func(in *verifyNodeInput, v string) { in.NodeID = v },
-			),
-			clispec.StringParam(
-				"class",
-				"optional repair class",
-				"",
-				false,
-				func(in *verifyNodeInput, v string) { in.Class = v },
-			),
-			clispec.StringParam(
-				"profile",
-				"repair profile JSON file",
-				"",
-				false,
-				func(in *verifyNodeInput, v string) { in.Profile = v },
-			),
-			clispec.BoolParam(
-				"records",
-				"include raw inspection rows",
-				false,
-				func(in *verifyNodeInput, v bool) { in.Records = v },
-			),
-		},
+		Params:   verifyNodeParams(),
 		New: func() verifyNodeInput {
 			return verifyNodeInput{
 				InputMarker: clispec.InputMarker{},
@@ -214,29 +186,7 @@ func validateNodeOp(f *cli.Factory) clispec.Operation[validateNodeInput] {
 		Long:     "",
 		Examples: nil,
 		Args:     nil,
-		Params: []clispec.Param[validateNodeInput]{
-			clispec.StringParam(
-				"node",
-				"node UUID",
-				"",
-				true,
-				func(in *validateNodeInput, v string) { in.NodeID = v },
-			),
-			clispec.StringParam(
-				"class",
-				"repair class",
-				string(DefaultRepairClass()),
-				false,
-				func(in *validateNodeInput, v string) { in.Class = v },
-			),
-			clispec.StringParam(
-				"profile",
-				"repair profile JSON file",
-				"",
-				false,
-				func(in *validateNodeInput, v string) { in.Profile = v },
-			),
-		},
+		Params:   validateNodeParams(),
 		New: func() validateNodeInput {
 			return validateNodeInput{
 				InputMarker: clispec.InputMarker{},
@@ -282,6 +232,7 @@ func validateNodeOp(f *cli.Factory) clispec.Operation[validateNodeInput] {
 					"validate.node_preview_failed",
 					slog.String("err", err.Error()),
 				)
+
 				return fmt.Errorf("validate node: preview repair for %s: %w", nodeID, err)
 			}
 

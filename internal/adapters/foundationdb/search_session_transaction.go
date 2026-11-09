@@ -34,6 +34,7 @@ type sessionAttempts struct {
 
 func newSessionAttempts(source clock.Clock) *sessionAttempts {
 	now := source.Now()
+
 	return &sessionAttempts{
 		source:       source,
 		created:      now,
@@ -89,13 +90,13 @@ func (a *sessionAttempts) attributes() []slog.Attr {
 // error codes.
 func transactSession(
 	ctx context.Context,
-	db fdb.Database,
+	database fdb.Database,
 	source clock.Clock,
 	operation string,
 	sessionID uuid.UUID,
 	apply func(fdb.Transaction) error,
 ) error {
-	transaction, err := db.CreateTransaction()
+	transaction, err := database.CreateTransaction()
 	if err != nil {
 		return sessionFailure(ctx, operation, sessionID, err)
 	}
@@ -202,6 +203,7 @@ func retireAttemptEnded(
 		slog.String("operation", operation),
 		slog.String("session_id", sessionID.String()),
 	)
+
 	return sessionStepError{operation: operation + " for session " + sessionID.String(), err: err}
 }
 

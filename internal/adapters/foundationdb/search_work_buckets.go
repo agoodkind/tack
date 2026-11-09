@@ -56,7 +56,7 @@ func claimOrder(pending []pendingBucket, rotation int64) []int {
 // one key.
 func classHasAgeKey(
 	ctx context.Context,
-	tr fdb.Transaction,
+	transaction fdb.Transaction,
 	class searchdomain.WorkClass,
 ) (bool, error) {
 	keyRange, err := fdb.PrefixRange(searchAgeClassPrefix(string(class)))
@@ -64,7 +64,10 @@ func classHasAgeKey(
 		return false, searchReadFailure(ctx, "create search age range of class "+string(class), err)
 	}
 
-	first, err := tr.Snapshot().GetRange(keyRange, fdb.RangeOptions{Limit: 1}).GetSliceWithError()
+	first, err := transaction.Snapshot().GetRange(
+		keyRange,
+		fdb.RangeOptions{Limit: 1},
+	).GetSliceWithError()
 	if err != nil {
 		return false, searchReadFailure(ctx, "probe search age keys of class "+string(class), err)
 	}

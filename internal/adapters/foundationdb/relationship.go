@@ -296,13 +296,13 @@ func readRelationshipsByTarget(
 
 	rs := make([]*node.Relationship, 0, len(revKVs))
 	for _, kv := range revKVs {
-		t, terr := tuple.Unpack(stripPrefix(kv.Key))
-		if terr != nil || len(t) < 5 {
+		keyTuple, terr := tuple.Unpack(stripPrefix(kv.Key))
+		if terr != nil || len(keyTuple) < 5 {
 			continue
 		}
 
-		relType, _ := t[3].(string)
-		sourceStr, _ := t[4].(string)
+		relType, _ := keyTuple[3].(string)
+		sourceStr, _ := keyTuple[4].(string)
 		sourceID, perr := uuid.Parse(sourceStr)
 		if perr != nil {
 			continue
@@ -326,13 +326,13 @@ func readRelationshipsByTarget(
 
 func decodeRelationships(kvs []fdb.KeyValue) []*node.Relationship {
 	rels := make([]*node.Relationship, 0, len(kvs))
-	for _, kv := range kvs {
-		if len(kv.Value) == 0 {
+	for _, keyValue := range kvs {
+		if len(keyValue.Value) == 0 {
 			continue
 		}
 
 		var rel node.Relationship
-		if err := json.Unmarshal(kv.Value, &rel); err != nil {
+		if err := json.Unmarshal(keyValue.Value, &rel); err != nil {
 			continue
 		}
 

@@ -115,7 +115,8 @@ type undeclaredDefinitionError struct {
 
 func (e undeclaredDefinitionError) Error() string {
 	return fmt.Sprintf(
-		"store property definition %q (%s) in org %s: requires a search declaration for a type without a default projection: %v",
+		"store property definition %q (%s) in org %s: requires a search "+
+			"declaration for a type without a default projection: %v",
 		e.definition.Name,
 		e.definition.ID,
 		e.definition.OrgID,

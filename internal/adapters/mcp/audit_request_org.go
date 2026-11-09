@@ -63,7 +63,7 @@ func addMetadataTargets(ctx context.Context, server *cachedServer) {
 }
 
 // metadataTarget returns the node target of one metadata record.
-func metadataTarget(nodeType string, id uuid.UUID) audit.Target {
+func metadataTarget(nodeType string, nodeID uuid.UUID) audit.Target {
 	return audit.Target{
 		Kind:         audit.TargetKindNode,
 		NodeType:     nodeType,
@@ -71,7 +71,7 @@ func metadataTarget(nodeType string, id uuid.UUID) audit.Target {
 		Name:         "",
 		URI:          "",
 		RelationType: "",
-		ID:           id,
+		ID:           nodeID,
 		SourceID:     uuid.Nil,
 		TargetID:     uuid.Nil,
 	}
@@ -101,6 +101,7 @@ func (h *Handler) requestOrganizations(
 				"mcp.audit_request.membership_failed",
 				slog.String("err", err.Error()),
 			)
+
 			return nil, fmt.Errorf("list the organizations of user %s: %w", userID, err)
 		}
 
@@ -202,6 +203,7 @@ func organizationReadFailure(ctx context.Context, target string, err error) erro
 		"mcp.audit_request.organization_read_failed",
 		slog.String("err", err.Error()),
 	)
+
 	return fmt.Errorf("read the organization of %s: %w", target, err)
 }
 

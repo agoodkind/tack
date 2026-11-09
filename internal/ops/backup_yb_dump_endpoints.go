@@ -74,7 +74,8 @@ func runYBDumpOneShot(
 	// (TACK-460).
 	if cfg.LedgerTLSEnabled && ledgerCertsDir(cfg) == "" {
 		err := fmt.Errorf(
-			"ysql %s dump: the ledger encrypts client traffic but TACK_LEDGER_CERTS_DIR is empty, so the node cannot be verified",
+			"ysql %s dump: the ledger encrypts client traffic but "+
+				"TACK_LEDGER_CERTS_DIR is empty, so the node cannot be verified",
 			spec.label,
 		)
 		telemetry.L(ctx).ErrorContext(ctx, spec.failEvent, slog.String("err", err.Error()))

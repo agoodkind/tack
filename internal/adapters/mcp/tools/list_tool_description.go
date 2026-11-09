@@ -8,13 +8,13 @@ import (
 )
 
 func listToolDescription(
-	nt *node.NodeType,
+	nodeType *node.NodeType,
 	plural string,
 	route scopeRoute,
 	epParam string,
 	resolver *Resolver,
 ) string {
-	slug := strings.ToLower(nt.Slug)
+	slug := strings.ToLower(nodeType.Slug)
 	if !route.hasLevels() {
 		return fmt.Sprintf(
 			"Lists %s in a workspace. Pass %s with the workspace reference from tack_list_workspaces. Optional filters apply exact property matches. Use this before tack_get_%s when you need all %s in that workspace.",

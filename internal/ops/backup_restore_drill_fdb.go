@@ -324,7 +324,8 @@ func bootScratchFDB(
 		[]string{
 			"sh",
 			"-c",
-			"mkdir -p /var/fdb/logs; backup_agent -C /var/fdb/fdb.cluster --logdir /var/fdb/logs >/var/fdb/logs/agent.out 2>&1 &",
+			"mkdir -p /var/fdb/logs; backup_agent -C /var/fdb/fdb.cluster " +
+				"--logdir /var/fdb/logs >/var/fdb/logs/agent.out 2>&1 &",
 		},
 	); err != nil {
 		wrapped := fmt.Errorf("start scratch backup_agent: %w", err)
