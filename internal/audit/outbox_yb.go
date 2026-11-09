@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"goodkind.io/tack/internal/adapters/postgres/retry"
 )
 
 // uniqueViolationSQLState is the Postgres code for a rejected duplicate key.
@@ -55,6 +57,8 @@ func (o *PoolOutbox) Close() {
 // already owns a transaction can take it. The choke-point uses this method,
 // because it records an intent before the command runs and an outcome after,
 // and neither row may be rolled back by whatever happens in between.
+// A retry after a database transaction abort uses the same event identity
+// and encoded payload.
 func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	eventJSON, err := marshalOutboxEvent(ctx, event)
 	if err != nil {
@@ -65,7 +69,13 @@ func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 		return o.writeLargeOutbox(ctx, event)
 	}
 
-	if err := o.insertOutboxEvent(ctx, event, eventJSON); err != nil {
+	err = retry.Run(
+		ctx,
+		func(ctx context.Context) error {
+			return o.insertOutboxEvent(ctx, event, eventJSON)
+		},
+	)
+	if err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.write_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write ops outbox event %s: %w", event.EventID, err)
 	}
@@ -197,11 +207,11 @@ func (o *PoolOutbox) ReadBatch(ctx context.Context, limit int) ([]OutboxRow, err
 // appends the manifest.
 func readOutboxRows(
 	ctx context.Context,
-	tx pgx.Tx,
+	transaction pgx.Tx,
 	statement string,
 	limit int,
 ) ([]OutboxRow, error) {
-	rows, err := tx.Query(ctx, statement, limit)
+	rows, err := transaction.Query(ctx, statement, limit)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.read_query_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read ops outbox: %w", err)
@@ -225,7 +235,6 @@ func readOutboxRows(
 				"audit.outbox.manifest_decode_failed",
 				slog.String("err", err.Error()),
 			)
-
 			return nil, fmt.Errorf("decode ops outbox manifest %s: %w", row.EventID, err)
 		}
 
@@ -237,7 +246,6 @@ func readOutboxRows(
 				"audit.outbox.event_decode_failed",
 				slog.String("err", err.Error()),
 			)
-
 			return nil, fmt.Errorf("decode ops outbox event: %w", err)
 		}
 
@@ -256,7 +264,7 @@ func readOutboxRows(
 			continue
 		}
 
-		messages, err := outboxPartMessages(ctx, tx, row.EventID, row.Messages[0])
+		messages, err := outboxPartMessages(ctx, transaction, row.EventID, row.Messages[0])
 		if err != nil {
 			return nil, err
 		}

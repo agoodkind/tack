@@ -7,37 +7,40 @@ import (
 	"log/slog"
 	"slices"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"goodkind.io/tack/internal/adapters/postgres/retry"
 	"goodkind.io/tack/internal/audit"
 )
 
-const (
-	roleStateReadAttempts = 3
-	// serializationFailureSQLState is the SQLSTATE YugabyteDB returned when
-	// it rejected the role-state query's catalog snapshot just after
-	// seed-roles changed roles.
-	serializationFailureSQLState = "40001"
+var errSeededRoleStateUnchanged = errors.New(
+	"seed-roles failed and the role attributes and memberships did not change",
 )
 
 // readSeededRoleStates returns the observed state of each seeded login role.
-// It repeats the call to queryRoleStates only for a PostgreSQL error with
-// SQLSTATE 40001. It returns immediately on success or any other error.
+// It retries a database transaction abort through retry.Run.
 func readSeededRoleStates(ctx context.Context, pool *pgxpool.Pool) (map[string]roleState, error) {
-	var err error
+	var states map[string]roleState
+	err := retry.Run(
+		ctx,
+		func(ctx context.Context) error {
+			var readErr error
+			states, readErr = queryRoleStates(ctx, pool)
 
-	for range roleStateReadAttempts {
-		var states map[string]roleState
-		states, err = queryRoleStates(ctx, pool)
-		var postgresError *pgconn.PgError
-		if err == nil || !errors.As(err, &postgresError) ||
-			postgresError.Code != serializationFailureSQLState {
-			return states, err
-		}
+			return readErr
+		},
+	)
+	if err != nil {
+		slog.ErrorContext(
+			ctx,
+			"audit.seed_roles.state_retry_failed",
+			slog.String("err", err.Error()),
+		)
+
+		return nil, fmt.Errorf("audit seed-roles: read role states after retries: %w", err)
 	}
 
-	return nil, err
+	return states, nil
 }
 
 // finishRoleStep saves the observed role state and marks the step completed
@@ -61,7 +64,7 @@ func finishRoleStep(
 		details = commandOutcome(
 			audit.OutcomeIncomplete,
 			roleChangeUnknownCode,
-			errors.New("seed-roles failed and the role attributes and memberships did not change"),
+			errSeededRoleStateUnchanged,
 		)
 	}
 
@@ -86,7 +89,6 @@ func finishRoleStep(
 			"audit.seed_roles.step_record_failed",
 			slog.String("err", err.Error()),
 		)
-
 		return fmt.Errorf("audit seed-roles: record the result for role %s: %w", role.login, err)
 	}
 
