@@ -7,18 +7,40 @@ import "google/protobuf/struct.proto";
 
 option go_package = "goodkind.io/tack/gen/tack/v1;tackv1";
 
-// Node is the single primary record for every entity in the system. Every
-// concept-specific value (workspace, project, state, assignees, labels,
-// priority, due dates, description) lives in props as JSON-encoded property
-// values keyed by PropertyDef name. Everything that connects nodes together
-// lives in Relationship records, not on the node itself.
+// Node is the single primary record for every entity in the system.
+//
+// Store every concept-specific value in props as a JSON value keyed by
+// PropertyDef name. JSON is a text format for data. This protobuf field
+// represents those values with message fields rather than
+// their JSON text bytes.
+//
+// These values represent the following concepts:
+//
+// - workspace
+// - project
+// - state
+// - assignees
+// - labels
+// - priority
+// - due dates
+// - description
+//
+// Store connections between nodes in Relationship records rather than on
+// Node itself.
 message Node {
   string id         = 1;
   string org_id     = 2;
   string node_type  = 3;
   string name       = 4;
-  // props is a free-form map of PropertyDef name -> JSON value. Filterability
-  // of a given property comes from PropertyDef.indexed, not proto shape.
+
+  // props maps PropertyDef names to arbitrary JSON values in
+  // google.protobuf.Struct.
+  //
+  // A property index stores lookup keys that combine a property value with a
+  // node ID. PropertyDef.indexed controls whether the database maintains
+  // those keys. Filtering does not depend on the protobuf shape. A scan
+  // reads stored records or index entries in order; filters can also compare
+  // property values after a scan.
   google.protobuf.Struct props = 5;
   string created_by = 6;
   string updated_by = 7;
@@ -26,9 +48,19 @@ message Node {
   google.protobuf.Timestamp updated_at = 9;
 }
 
-// Relationship is a generic directed edge between two nodes. The relation_type
-// string carries the semantics: "assigned_to", "labeled_with", "child_of",
-// "watches", "mentioned_in", "reacted_to", "comment_of", etc.
+// Relationship records a generic directed connection from one node to
+// another. The relation_type string specifies the meaning
+// of the relationship.
+//
+// Examples include these relation_type values:
+//
+// - "assigned_to"
+// - "labeled_with"
+// - "child_of"
+// - "watches"
+// - "mentioned_in"
+// - "reacted_to"
+// - "comment_of"
 message Relationship {
   string org_id        = 1;
   string source_id     = 2;
@@ -47,23 +79,42 @@ message EnumOption {
   int32  sort_rank = 4;
 }
 
-// PropertyDef defines a property that can be attached to one or more node types.
-// A PropertyDef applies to a NodeType when applies_to_features is empty (applies
-// to all) or when the NodeType declares any of the listed features.
+// PropertyDef defines a property for one or more node types.
+// A PropertyDef applies to every NodeType when applies_to_features is empty.
+// Otherwise, it applies when the NodeType declares any listed feature.
 message PropertyDef {
   string            id                   = 1;
   string            org_id               = 2;
   string            name                 = 3;
-  string            type                 = 4; // text, number, date, select, multi_select, url, checkbox, timestamp, uuid
+
+  // Use one of these property types:
+  //
+  // - text
+  // - number
+  // - date
+  // - select
+  // - multi_select
+  // - url
+  // - checkbox
+  // - timestamp
+  // - uuid
+  string            type                 = 4;
   repeated string   applies_to_features  = 5;
   bool              indexed              = 6;
   bool              required             = 7;
-  bytes             default_value        = 8; // raw JSON
+
+  // default_value stores raw JSON: bytes that contain the
+  // text of a JSON value.
+  bytes             default_value        = 8;
   repeated EnumOption options             = 9;
 }
 
-// NodeType describes a type in the extensibility hierarchy. NodeType records
-// are themselves nodes stored in the same key space as any other node.
+// NodeType defines types that can extend the node model. Its feature
+// declarations control behavior. Its hierarchy declarations specify which
+// types can contain other types.
+//
+// Store each NodeType record as a node. Use the same database key patterns
+// for these records and other nodes; each key identifies a stored record.
 message NodeType {
   string            id              = 1;
   string            org_id          = 2;
@@ -81,12 +132,6 @@ message NodeType {
   repeated string   can_live_under  = 14;
 }
 
-// ── RPC surface (generic node service) ────────────────────────────────────
-//
-// The RPC layer is intentionally shallow: a handful of node-level operations
-// plus relationship add / remove / list. The frontend / TUI gets a uniform
-// surface regardless of NodeType; concept-specific semantics are expressed
-// through props and relation_type strings.
 
 message CreateNodeRequest {
   string parent_id     = 1;
@@ -114,8 +159,13 @@ message DeleteNodeResponse { bool ok = 1; }
 message ListNodesRequest {
   string org_id       = 1;
   string node_type    = 2;
-  string prop_name    = 3; // optional index selector
-  bytes  prop_value   = 4; // raw JSON
+
+  // prop_name optionally selects a property index. The index uses a property
+  // value to look up matching node IDs.
+  string prop_name    = 3;
+
+  // prop_value stores raw JSON: bytes that contain the text of a JSON value.
+  bytes  prop_value   = 4;
   int32  limit        = 5;
   string cursor       = 6;
 }
@@ -138,11 +188,27 @@ message RemoveRelationshipResponse { bool ok = 1; }
 message ListRelationshipsRequest {
   string org_id        = 1;
   string node_id       = 2;
-  string direction     = 3; // "out" or "in"
-  string relation_type = 4; // optional
+
+  // Use "out" or "in" for direction.
+  string direction     = 3;
+
+  // relation_type is optional.
+  string relation_type = 4;
 }
 message ListRelationshipsResponse { repeated Relationship relationships = 1; }
 
+// NodeService declares a small, generic remote procedure call (RPC) API.
+//
+// The API provides these operations:
+//
+// - Node operations
+// - Relationship addition
+// - Relationship removal
+// - Relationship listing
+//
+// The frontend and terminal user interface (TUI) share the same
+// contract for every NodeType. props and relation_type strings express
+// the meaning of each concept.
 service NodeService {
   rpc CreateNode(CreateNodeRequest) returns (CreateNodeResponse);
   rpc GetNode(GetNodeRequest) returns (GetNodeResponse);

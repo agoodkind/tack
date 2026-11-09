@@ -23,19 +23,40 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Node is the single primary record for every entity in the system. Every
-// concept-specific value (workspace, project, state, assignees, labels,
-// priority, due dates, description) lives in props as JSON-encoded property
-// values keyed by PropertyDef name. Everything that connects nodes together
-// lives in Relationship records, not on the node itself.
+// Node is the single primary record for every entity in the system.
+//
+// Store every concept-specific value in props as a JSON value keyed by
+// PropertyDef name. JSON is a text format for data. This protobuf field
+// represents those values with message fields rather than
+// their JSON text bytes.
+//
+// These values represent the following concepts:
+//
+// - workspace
+// - project
+// - state
+// - assignees
+// - labels
+// - priority
+// - due dates
+// - description
+//
+// Store connections between nodes in Relationship records rather than on
+// Node itself.
 type Node struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Id       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	OrgId    string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
 	NodeType string                 `protobuf:"bytes,3,opt,name=node_type,json=nodeType,proto3" json:"node_type,omitempty"`
 	Name     string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
-	// props is a free-form map of PropertyDef name -> JSON value. Filterability
-	// of a given property comes from PropertyDef.indexed, not proto shape.
+	// props maps PropertyDef names to arbitrary JSON values in
+	// google.protobuf.Struct.
+	//
+	// A property index stores lookup keys that combine a property value with a
+	// node ID. PropertyDef.indexed controls whether the database maintains
+	// those keys. Filtering does not depend on the protobuf shape. A scan
+	// reads stored records or index entries in order; filters can also compare
+	// property values after a scan.
 	Props         *structpb.Struct       `protobuf:"bytes,5,opt,name=props,proto3" json:"props,omitempty"`
 	CreatedBy     string                 `protobuf:"bytes,6,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
 	UpdatedBy     string                 `protobuf:"bytes,7,opt,name=updated_by,json=updatedBy,proto3" json:"updated_by,omitempty"`
@@ -138,9 +159,19 @@ func (x *Node) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// Relationship is a generic directed edge between two nodes. The relation_type
-// string carries the semantics: "assigned_to", "labeled_with", "child_of",
-// "watches", "mentioned_in", "reacted_to", "comment_of", etc.
+// Relationship records a generic directed connection from one node to
+// another. The relation_type string specifies the meaning
+// of the relationship.
+//
+// Examples include these relation_type values:
+//
+// - "assigned_to"
+// - "labeled_with"
+// - "child_of"
+// - "watches"
+// - "mentioned_in"
+// - "reacted_to"
+// - "comment_of"
 type Relationship struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
@@ -302,22 +333,35 @@ func (x *EnumOption) GetSortRank() int32 {
 	return 0
 }
 
-// PropertyDef defines a property that can be attached to one or more node types.
-// A PropertyDef applies to a NodeType when applies_to_features is empty (applies
-// to all) or when the NodeType declares any of the listed features.
+// PropertyDef defines a property for one or more node types.
+// A PropertyDef applies to every NodeType when applies_to_features is empty.
+// Otherwise, it applies when the NodeType declares any listed feature.
 type PropertyDef struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	OrgId             string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	Name              string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Type              string                 `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"` // text, number, date, select, multi_select, url, checkbox, timestamp, uuid
-	AppliesToFeatures []string               `protobuf:"bytes,5,rep,name=applies_to_features,json=appliesToFeatures,proto3" json:"applies_to_features,omitempty"`
-	Indexed           bool                   `protobuf:"varint,6,opt,name=indexed,proto3" json:"indexed,omitempty"`
-	Required          bool                   `protobuf:"varint,7,opt,name=required,proto3" json:"required,omitempty"`
-	DefaultValue      []byte                 `protobuf:"bytes,8,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"` // raw JSON
-	Options           []*EnumOption          `protobuf:"bytes,9,rep,name=options,proto3" json:"options,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	OrgId string                 `protobuf:"bytes,2,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	Name  string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	// Use one of these property types:
+	//
+	// - text
+	// - number
+	// - date
+	// - select
+	// - multi_select
+	// - url
+	// - checkbox
+	// - timestamp
+	// - uuid
+	Type              string   `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`
+	AppliesToFeatures []string `protobuf:"bytes,5,rep,name=applies_to_features,json=appliesToFeatures,proto3" json:"applies_to_features,omitempty"`
+	Indexed           bool     `protobuf:"varint,6,opt,name=indexed,proto3" json:"indexed,omitempty"`
+	Required          bool     `protobuf:"varint,7,opt,name=required,proto3" json:"required,omitempty"`
+	// default_value stores raw JSON: bytes that contain the
+	// text of a JSON value.
+	DefaultValue  []byte        `protobuf:"bytes,8,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
+	Options       []*EnumOption `protobuf:"bytes,9,rep,name=options,proto3" json:"options,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PropertyDef) Reset() {
@@ -413,8 +457,12 @@ func (x *PropertyDef) GetOptions() []*EnumOption {
 	return nil
 }
 
-// NodeType describes a type in the extensibility hierarchy. NodeType records
-// are themselves nodes stored in the same key space as any other node.
+// NodeType defines types that can extend the node model. Its feature
+// declarations control behavior. Its hierarchy declarations specify which
+// types can contain other types.
+//
+// Store each NodeType record as a node. Use the same database key patterns
+// for these records and other nodes; each key identifies a stored record.
 type NodeType struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -964,13 +1012,16 @@ func (x *DeleteNodeResponse) GetOk() bool {
 }
 
 type ListNodesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	NodeType      string                 `protobuf:"bytes,2,opt,name=node_type,json=nodeType,proto3" json:"node_type,omitempty"`
-	PropName      string                 `protobuf:"bytes,3,opt,name=prop_name,json=propName,proto3" json:"prop_name,omitempty"`    // optional index selector
-	PropValue     []byte                 `protobuf:"bytes,4,opt,name=prop_value,json=propValue,proto3" json:"prop_value,omitempty"` // raw JSON
-	Limit         int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
-	Cursor        string                 `protobuf:"bytes,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	OrgId    string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	NodeType string                 `protobuf:"bytes,2,opt,name=node_type,json=nodeType,proto3" json:"node_type,omitempty"`
+	// prop_name optionally selects a property index. The index uses a property
+	// value to look up matching node IDs.
+	PropName string `protobuf:"bytes,3,opt,name=prop_name,json=propName,proto3" json:"prop_name,omitempty"`
+	// prop_value stores raw JSON: bytes that contain the text of a JSON value.
+	PropValue     []byte `protobuf:"bytes,4,opt,name=prop_value,json=propValue,proto3" json:"prop_value,omitempty"`
+	Limit         int32  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	Cursor        string `protobuf:"bytes,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1300,11 +1351,13 @@ func (x *RemoveRelationshipResponse) GetOk() bool {
 }
 
 type ListRelationshipsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrgId         string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	NodeId        string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	Direction     string                 `protobuf:"bytes,3,opt,name=direction,proto3" json:"direction,omitempty"`                           // "out" or "in"
-	RelationType  string                 `protobuf:"bytes,4,opt,name=relation_type,json=relationType,proto3" json:"relation_type,omitempty"` // optional
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	OrgId  string                 `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
+	NodeId string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// Use "out" or "in" for direction.
+	Direction string `protobuf:"bytes,3,opt,name=direction,proto3" json:"direction,omitempty"`
+	// relation_type is optional.
+	RelationType  string `protobuf:"bytes,4,opt,name=relation_type,json=relationType,proto3" json:"relation_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
