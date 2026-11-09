@@ -38,6 +38,7 @@ const (
 func contractGapMutations() []partRestoreMutation {
 	nilEvent := headerSet("nil event ID", nilEventIDFragment, "event_id", nilUUIDValue)
 	nilEvent.nilID = true
+
 	return []partRestoreMutation{
 		nilEvent,
 		headerSet("decimal context.audit_format_version", integerFragment, "context.audit_format_version", decimalFormatVersion),
@@ -54,6 +55,7 @@ func wrongTypeMutations() []partRestoreMutation {
 	for _, path := range strings.Fields(partRestoreStringSet) {
 		mutations = append(mutations, headerSet("number in "+path, wrongTypeFragment, path, wrongScalarValue))
 	}
+
 	for _, path := range strings.Fields(partRestoreContainerSet) {
 		mutations = append(mutations, headerSet("text in "+path, wrongTypeFragment, path, wrongContainerValue))
 	}

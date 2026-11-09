@@ -50,6 +50,7 @@ func pinnedFieldRefusals() []partRestoreRefusal {
 			partRestoreRefusal{name: "target " + field.name + " differs", mutate: field.target, fragment: partRestoreTargetFragment},
 			partRestoreRefusal{name: "source " + field.name + " differs", mutate: field.source, fragment: partRestoreSourceFragment})
 	}
+
 	return refusals
 }
 
@@ -111,7 +112,9 @@ func TestAuditPartRestoreRefusals(t *testing.T) {
 	admin := ledgerAdminPool(t)
 	operator := rolePool(t, testenv.Ledger(t), "audit_operator")
 	otherOrg := uuid.Must(uuid.NewV7())
+
 	cases := append(pinnedFieldRefusals(), storedStateRefusals()...)
+
 	cases = append(cases,
 		partRestoreRefusal{name: "source is the target", mutate: func(c *partRestoreCall) { c.source = c.event }, fragment: "source event is the target"},
 		partRestoreRefusal{name: "target in another org", mutate: func(c *partRestoreCall) { c.org = otherOrg }, fragment: partRestoreTargetFragment},
@@ -123,12 +126,14 @@ func TestAuditPartRestoreRefusals(t *testing.T) {
 			if current.prepare != nil {
 				current.prepare(t, fixture)
 			}
+
 			call := fixture.call
 			if current.mutate != nil {
 				current.mutate(&call)
 			}
 			before := readPartRestoreCounts(t, admin, call.changeID)
 			requirePartRestoreRefusal(t, call.run(t, operator), current.fragment)
+
 			if after := readPartRestoreCounts(t, admin, call.changeID); after != before {
 				t.Fatalf("counts after a refusal = %+v, want %+v", after, before)
 			}

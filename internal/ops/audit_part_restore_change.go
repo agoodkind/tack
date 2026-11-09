@@ -51,29 +51,38 @@ func auditPartTarget(eventID uuid.UUID, partIndex int64) audit.Target {
 // digest and the part target. A rerun with the same manifest produces the same
 // event ID. The new value of the change records the organization, target event,
 // part index, and manifest digest. The change stores the payload as a protected
-// value with the target event as its subject. The event extra records the source
-// event ID and the manifest file digest. BuildAuditPartChange requires the
-// mutation context of the running command.
+// value with the target event as its subject. The event extra records
+// the source event ID and the manifest file digest. BuildAuditPartChange
+// requires the mutation context of the running command.
 //
 // The change target URI uses this layout when the manifest restores part 0:
 //
 //	tack:audit-event/<target_event_id>/part/0
-func BuildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manifestFileDigest string, payload []byte) (audit.EncodedEvent, error) {
+func BuildAuditPartChange(
+	ctx context.Context,
+	manifest AuditPartRestoreManifest,
+	manifestFileDigest string,
+	payload []byte,
+) (audit.EncodedEvent, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot read the part restore operation", err)
 	}
-	operation.Context.OrgID = m.OrgID
-	provenance, err := json.Marshal(auditPartProvenance{SourceEventID: m.SourceEventID, ManifestFileSHA256: manifestFileDigest})
+	operation.Context.OrgID = manifest.OrgID
+
+	provenance, err := json.Marshal(auditPartProvenance{
+		SourceEventID: manifest.SourceEventID, ManifestFileSHA256: manifestFileDigest,
+	})
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot encode the part provenance", err)
 	}
 	operation.Extra = provenance
-	target := auditPartTarget(m.TargetEventID, m.PartIndex)
+	target := auditPartTarget(manifest.TargetEventID, manifest.PartIndex)
 	changeID := uuid.NewSHA1(auditPartRestoreNamespace, []byte(manifestFileDigest+"/"+target.URI))
 	payloadRef := uuid.NewSHA1(auditPartRestoreNamespace, []byte(changeID.String()+"/payload"))
 	after, err := json.Marshal(auditPartRecord{
-		OrgID: m.OrgID, EventID: m.TargetEventID, PartIndex: m.PartIndex, Digest: m.ManifestSHA256,
+		OrgID: manifest.OrgID, EventID: manifest.TargetEventID,
+		PartIndex: manifest.PartIndex, Digest: manifest.ManifestSHA256,
 		Payload: audit.ProtectedReference{PIIRef: payloadRef},
 	})
 	if err != nil {
@@ -96,23 +105,32 @@ func BuildAuditPartChange(ctx context.Context, m AuditPartRestoreManifest, manif
 	return encoded, nil
 }
 
-func callAuditPartRestore(ctx context.Context, pool *pgxpool.Pool, m AuditPartRestoreManifest, encoded audit.EncodedEvent) error {
+func callAuditPartRestore(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	manifest AuditPartRestoreManifest,
+	encoded audit.EncodedEvent,
+) error {
 	header, parts, err := encoded.HeaderAndParts()
 	if err != nil {
 		return partRestoreFailure(ctx, "cannot read the change event messages", err)
 	}
+
 	_, err = pool.Exec(ctx, auditPartRestoreStatement,
-		m.OrgID, m.TargetEventID, m.SourceEventID, m.ManifestSHA256,
-		m.TargetRowHash, m.TargetSeq, m.TargetShard,
-		m.SourceRowHash, m.SourceSeq, m.SourceShard,
+		manifest.OrgID, manifest.TargetEventID, manifest.SourceEventID, manifest.ManifestSHA256,
+		manifest.TargetRowHash, manifest.TargetSeq, manifest.TargetShard,
+		manifest.SourceRowHash, manifest.SourceSeq, manifest.SourceShard,
 		encoded.EventID, header, parts,
 	)
+
 	var postgresError *pgconn.PgError
 	if errors.As(err, &postgresError) && postgresError.Code == auditPartRestoreSQLState {
 		return refusePartRestore(ctx, "the restore function refused: "+postgresError.Message)
 	}
+
 	if err != nil {
-		return partRestoreFailure(ctx, "cannot restore the part of event "+m.TargetEventID.String(), err)
+		return partRestoreFailure(ctx, "cannot restore the part of event "+manifest.TargetEventID.String(), err)
 	}
+
 	return nil
 }

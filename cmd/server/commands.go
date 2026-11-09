@@ -49,7 +49,9 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 
 	reg := clispec.NewRegistry()
 	clispec.Register(reg, serve)
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: nil, Build: migrateCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: nil, Lifetime: clispec.Permanent, Build: migrateCommand,
+	})
 	clispec.Register(reg, seedOp(f))
 	registerAudit(reg, f)
 	ops.RegisterCommands(reg, f)

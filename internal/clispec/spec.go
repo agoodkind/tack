@@ -107,7 +107,7 @@ type Registry struct {
 // once- prefix, like an Operation with that Lifetime.
 type HandwrittenCommand struct {
 	Group    *Group
-	Lifetime Lifetime `exhaustruct:"optional"`
+	Lifetime Lifetime
 	Build    func(f *cli.Factory) *cobra.Command
 }
 

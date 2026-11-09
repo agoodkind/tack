@@ -11,6 +11,8 @@ import (
 	"os"
 )
 
+var errStrictJSONTrailingData = errors.New("data follows the first JSON value")
+
 type nodeIntegrityDocument interface {
 	NodeIntegrityRequest | NodeIntegrityManifest
 }
@@ -42,7 +44,8 @@ func decodeNodeIntegrityDocument[Document nodeIntegrityDocument](ctx context.Con
 		slog.ErrorContext(ctx, "repair.manifest.open_failed", slog.String("err", wrapped.Error()), slog.String("path", path))
 		return wrapped
 	}
-	if err := decodeStrictJSON(ctx, content, document); err != nil {
+	err = decodeStrictJSON(ctx, content, document)
+	if err != nil {
 		wrapped := fmt.Errorf("decode node integrity document %q: %w", path, err)
 		slog.ErrorContext(ctx, "repair.manifest.decode_failed", slog.String("err", wrapped.Error()), slog.String("path", path))
 		return wrapped
@@ -57,13 +60,14 @@ type strictJSONTarget interface {
 func decodeStrictJSON[Target strictJSONTarget](ctx context.Context, content []byte, target *Target) error {
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
+	err := decoder.Decode(target)
+	if err != nil {
 		slog.ErrorContext(ctx, "repair.strict_json.decode_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("cannot decode JSON: %w", err)
 	}
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		trailingErr := errors.New("data follows the first JSON value")
+		trailingErr := errStrictJSONTrailingData
 		slog.ErrorContext(ctx, "repair.strict_json.trailing_data", slog.String("err", trailingErr.Error()))
 		return trailingErr
 	}

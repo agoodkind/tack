@@ -30,7 +30,9 @@ func (p *partRestorePipeline) installStaleInjection(t *testing.T) {
 
 func (p *partRestorePipeline) dryRunRead(t *testing.T, manifestDigest, targetFlag string) audit.Row {
 	t.Helper()
+
 	var found audit.Row
+
 	p.waitRows(t, audit.SystemOrgID(), audit.VerbOpsBackfillRestoreManifestPart, func(rows []audit.Row) bool {
 		for _, row := range rows {
 			var extra struct {
@@ -52,6 +54,7 @@ func (p *partRestorePipeline) dryRunRead(t *testing.T, manifestDigest, targetFla
 
 func (p *partRestorePipeline) requireDryRunRefused(t *testing.T, members map[string]json.RawMessage, targetFlag, code string) {
 	t.Helper()
+
 	content, err := json.Marshal(members)
 	if err != nil {
 		t.Fatalf("encode the manifest members: %v", err)
@@ -98,6 +101,7 @@ func TestAuditPartRestoreGuardRefusalAfterInspectIsRefused(t *testing.T) {
 				return true
 			}
 		}
+
 		return false
 	})
 	for _, row := range steps {
@@ -106,6 +110,7 @@ func TestAuditPartRestoreGuardRefusalAfterInspectIsRefused(t *testing.T) {
 			t.Fatalf("step result outcome %q, error %+v, want refused with code %s", row.Outcome, row.Error, partRestoreRefusedCode)
 		}
 	}
+
 	if changes := pipeline.queryRows(t, pipeline.org, audit.VerbAuditEventPartCreate); len(changes) != 0 {
 		t.Fatalf("the refused command recorded %d change events, want 0", len(changes))
 	}

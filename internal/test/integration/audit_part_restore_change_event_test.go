@@ -40,6 +40,7 @@ func changeEventRefusals() []changeEventRefusal {
 
 func TestAuditPartRestoreRefusesUnrelatedChangeEvents(t *testing.T) {
 	admin := ledgerAdminPool(t)
+
 	operator := rolePool(t, testenv.Ledger(t), "audit_operator")
 	for _, current := range changeEventRefusals() {
 		t.Run(current.name, func(t *testing.T) {

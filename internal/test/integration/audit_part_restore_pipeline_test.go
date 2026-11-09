@@ -45,6 +45,7 @@ type partRestoreRun struct {
 
 func partRestoreTargets() []audit.Target {
 	targets := make([]audit.Target, 0, partRestoreIdentityCount)
+
 	targets = append(targets, readNodeTarget())
 	for len(targets) < partRestoreIdentityCount {
 		targets = append(targets, audit.Target{
@@ -75,7 +76,9 @@ func storeOnePartRead(t *testing.T, ledger *nodeAuditLedger, org uuid.UUID, targ
 	if err != nil {
 		t.Fatalf("begin the outbox write of %s: %v", read.EventID, err)
 	}
+
 	defer func() { _ = transaction.Rollback(t.Context()) }()
+
 	if err := audit.WriteEncodedOutboxTx(t.Context(), transaction, encoded); err != nil {
 		t.Fatalf("write read event %s to the outbox: %v", read.EventID, err)
 	}
@@ -97,10 +100,12 @@ func newPartRestorePipeline(t *testing.T, ledger *nodeAuditLedger) *partRestoreP
 	targets := partRestoreTargets()
 	targetID := storeOnePartRead(t, ledger, org, targets)
 	sourceID := storeOnePartRead(t, ledger, org, targets)
+
 	targetRow, err := ledger.reader.GetByID(t.Context(), targetID)
 	if err != nil {
 		t.Fatalf("read target %s: %v", targetID, err)
 	}
+
 	sourceRow, err := ledger.reader.GetByID(t.Context(), sourceID)
 	if err != nil {
 		t.Fatalf("read source %s: %v", sourceID, err)
@@ -109,6 +114,7 @@ func newPartRestorePipeline(t *testing.T, ledger *nodeAuditLedger) *partRestoreP
 	if err != nil || len(sourceParts) != 1 {
 		t.Fatalf("read the source part: %d parts, %v", len(sourceParts), err)
 	}
+
 	mustExec(t, ledger.admin, readTestSQL(t, "manifest_test_delete_part.sql"), org, targetID)
 	root := targetRow.Context.Read.ManifestSHA256
 	manifest := ops.AuditPartRestoreManifest{
@@ -126,6 +132,7 @@ func newPartRestorePipeline(t *testing.T, ledger *nodeAuditLedger) *partRestoreP
 	pipeline.operatorDSN = roleLoginDSN(t, ledger.admin, ledgerDSN, "audit_operator")
 	pipeline.lifecycle = rolePool(t, ledgerDSN, "audit_operator")
 	pipeline.operatorPool = rolePool(t, ledgerDSN, "audit_operator")
+
 	return pipeline
 }
 
@@ -178,6 +185,7 @@ func (p *partRestorePipeline) runManifest(t *testing.T, execute bool, manifestPa
 
 func (r partRestoreRun) status(t *testing.T) string {
 	t.Helper()
+
 	var envelope struct {
 		Result struct {
 			Status string `json:"status"`

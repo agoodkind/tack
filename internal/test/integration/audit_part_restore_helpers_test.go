@@ -81,6 +81,7 @@ func buildRestoreChangeWithTool(t *testing.T, manifest ops.AuditPartRestoreManif
 	actor := audit.Actor{
 		Type: audit.ActorOperator, ID: actorID, Email: "", Name: "", SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
 	}
+
 	operation, err := audit.NewMutationOperation(actor, audit.SourceSystem, tool)
 	if err != nil {
 		t.Fatalf("build the operation: %v", err)
@@ -98,11 +99,13 @@ func buildRestoreChangeWithTool(t *testing.T, manifest ops.AuditPartRestoreManif
 	if err != nil {
 		t.Fatalf("split the change event: %v", err)
 	}
+
 	return encoded.EventID, header, parts
 }
 
 func newPartRestoreRawFixtureWithPayload(t *testing.T, admin *pgxpool.Pool, payload []byte) partRestoreRawFixture {
 	t.Helper()
+
 	root := audit.SHA256Hex(payload)
 	fixture := partRestoreRawFixture{
 		admin: admin, org: uuid.Must(uuid.NewV7()), target: uuid.Must(uuid.NewV7()), source: uuid.Must(uuid.NewV7()), payload: payload,
@@ -124,12 +127,14 @@ func newPartRestoreRawFixtureWithPayload(t *testing.T, admin *pgxpool.Pool, payl
 		sourceRowHash: sourceHash, sourceSeq: partRestoreSourceSeq, sourceShard: partRestoreFixtureShard,
 		changeID: changeID, header: header, parts: parts,
 	}
+
 	t.Cleanup(func() { cleanupPartRestoreOutbox(t, admin, fixture.call.changeID) })
 	return fixture
 }
 
 func cleanupPartRestoreOutbox(t *testing.T, admin *pgxpool.Pool, changeID uuid.UUID) {
 	t.Helper()
+
 	if _, err := admin.Exec(context.WithoutCancel(t.Context()), readTestSQL(t, "part_restore_outbox_delete.sql"), changeID); err != nil {
 		t.Errorf("delete the fixture outbox row: %v", err)
 	}
@@ -145,6 +150,7 @@ func (c partRestoreCall) run(t *testing.T, pool *pgxpool.Pool) error {
 
 func requirePartRestoreRefusal(t *testing.T, err error, fragment string) {
 	t.Helper()
+
 	var postgresError *pgconn.PgError
 	if !errors.As(err, &postgresError) || postgresError.Code != partRestoreSQLState || !strings.Contains(postgresError.Message, fragment) {
 		t.Fatalf("restore error = %v, want SQLSTATE %s containing %q", err, partRestoreSQLState, fragment)

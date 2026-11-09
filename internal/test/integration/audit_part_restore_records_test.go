@@ -36,6 +36,7 @@ func (p *partRestorePipeline) queryRows(t *testing.T, org uuid.UUID, verb audit.
 func (p *partRestorePipeline) waitRows(t *testing.T, org uuid.UUID, verb audit.Verb, ready func([]audit.Row) bool) []audit.Row {
 	t.Helper()
 	deadline := clock.Now().Add(nodeAuditDeadline)
+
 	for {
 		rows := p.queryRows(t, org, verb)
 		if ready(rows) {
@@ -50,6 +51,7 @@ func (p *partRestorePipeline) waitRows(t *testing.T, org uuid.UUID, verb audit.V
 
 func operationRows(rows []audit.Row, phase audit.Phase) []audit.Row {
 	selected := []audit.Row{}
+
 	for _, row := range rows {
 		if row.Context.Phase == phase && row.Context.ParentOperationID == uuid.Nil {
 			selected = append(selected, row)
@@ -99,6 +101,7 @@ func (p *partRestorePipeline) requireSafeInput(t *testing.T, intent audit.Row) {
 	if err := json.Unmarshal(intent.Extra, &extra); err != nil {
 		t.Fatalf("decode the intent extra %s: %v", intent.Extra, err)
 	}
+
 	if extra.Input.Manifest != p.manifestPath || extra.Input.ManifestSHA256 != p.fileDigest || extra.Input.TargetEventID != p.target.String() {
 		t.Fatalf("intent input = %+v, want the manifest path %s, digest %s, and target %s", extra.Input, p.manifestPath, p.fileDigest, p.target)
 	}
@@ -106,7 +109,9 @@ func (p *partRestorePipeline) requireSafeInput(t *testing.T, intent audit.Row) {
 
 func (p *partRestorePipeline) requireStepRecords(t *testing.T, intent audit.Row) {
 	t.Helper()
+
 	isStep := func(row audit.Row) bool { return row.Context.ParentOperationID == intent.Context.OperationID }
+
 	rows := p.waitRows(t, audit.SystemOrgID(), audit.VerbOpsBackfillRestoreManifestPart, func(rows []audit.Row) bool {
 		return len(slices.DeleteFunc(slices.Clone(rows), func(row audit.Row) bool { return !isStep(row) })) >= 2
 	})
@@ -114,6 +119,7 @@ func (p *partRestorePipeline) requireStepRecords(t *testing.T, intent audit.Row)
 		if !isStep(row) {
 			continue
 		}
+
 		var identity struct {
 			OrgID         uuid.UUID `json:"org_id"`
 			TargetEventID uuid.UUID `json:"target_event_id"`
@@ -135,6 +141,7 @@ func (p *partRestorePipeline) requireStepRecords(t *testing.T, intent audit.Row)
 
 func requireRowsCorrelation(t *testing.T, requestID, traceID string, rows ...audit.Row) {
 	t.Helper()
+
 	for _, row := range rows {
 		if row.Context.RequestID == "" || row.Context.TraceID == "" || row.Context.RequestID != requestID || row.Context.TraceID != traceID {
 			t.Fatalf("row %s %s stores request ID %q and trace ID %q, want the command _meta request ID %q and trace ID %q",
@@ -145,6 +152,7 @@ func requireRowsCorrelation(t *testing.T, requestID, traceID string, rows ...aud
 
 func (p *partRestorePipeline) requireChangeRecord(t *testing.T, intent audit.Row, changes int) audit.Row {
 	t.Helper()
+
 	rows := p.waitRows(t, p.org, audit.VerbAuditEventPartCreate, func(rows []audit.Row) bool { return len(rows) >= changes })
 	if len(rows) != changes {
 		t.Fatalf("ledger has %d %s rows, want %d", len(rows), audit.VerbAuditEventPartCreate, changes)
@@ -180,6 +188,8 @@ func (p *partRestorePipeline) requireChangeRecord(t *testing.T, intent audit.Row
 	if err := json.Unmarshal(change.Extra, &provenance); err != nil || provenance.SourceEventID != p.source || provenance.ManifestFileSHA256 != p.fileDigest {
 		t.Fatalf("change provenance = %s, error %v, want source %s and manifest digest %s", change.Extra, err, p.source, p.fileDigest)
 	}
+
 	p.requireProtectedPayload(t, after.Payload.PIIRef)
+
 	return change
 }

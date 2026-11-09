@@ -26,6 +26,7 @@ func requireOperatorTablePrivileges(t *testing.T, pool *pgxpool.Pool) {
 	}
 	defer rows.Close()
 	seen := 0
+
 	for rows.Next() {
 		var table string
 		var granted bool
@@ -35,6 +36,7 @@ func requireOperatorTablePrivileges(t *testing.T, pool *pgxpool.Pool) {
 		if granted {
 			t.Fatalf("audit_operator has a table privilege on %s, want none", table)
 		}
+
 		seen++
 	}
 	if rows.Err() != nil || seen != partRestoreRestrictedTables {
@@ -100,6 +102,7 @@ func TestAuditPartRestoreMigrationGrantsOnlyExecute(t *testing.T) {
 	if err := pool.QueryRow(t.Context(), readTestSQL(t, "part_restore_writer_privileges.sql")).Scan(&writerSelectsEvents, &writerExecutesOutbox); err != nil {
 		t.Fatalf("read the audit_writer privileges: %v", err)
 	}
+
 	if !writerSelectsEvents || !writerExecutesOutbox {
 		t.Fatalf("audit_writer: SELECT on audit.events %v, EXECUTE on ops_outbox_write_encoded %v, want both", writerSelectsEvents, writerExecutesOutbox)
 	}
@@ -112,6 +115,7 @@ func TestAuditPartRestoreOperatorCannotTouchTables(t *testing.T) {
 	_, err := operator.Exec(t.Context(), readTestSQL(t, "part_restore_part_insert.sql"),
 		fixture.org, fixture.target, fixture.call.root, fixture.payload)
 	requirePGCode(t, err, "42501")
+
 	helperCalls := []string{"part_restore_call_keys.sql", "part_restore_call_shape.sql", "part_restore_call_transport.sql", "part_restore_call_values.sql"}
 	for _, name := range append([]string{"part_restore_count_event_parts.sql", "part_restore_count_events.sql"}, helperCalls...) {
 		_, err := operator.Exec(t.Context(), readTestSQL(t, name))
@@ -123,6 +127,7 @@ func TestAuditPartRestoreWritesOnePartAndOneOutboxRow(t *testing.T) {
 	admin := ledgerAdminPool(t)
 	operator := rolePool(t, testenv.Ledger(t), "audit_operator")
 	fixture := newPartRestoreRawFixture(t, admin)
+
 	before := readPartRestoreCounts(t, admin, fixture.call.changeID)
 	if err := fixture.call.run(t, operator); err != nil {
 		t.Fatalf("restore call = %v, want no error", err)
@@ -134,11 +139,13 @@ func TestAuditPartRestoreWritesOnePartAndOneOutboxRow(t *testing.T) {
 	if after != want {
 		t.Fatalf("counts after the call = %+v, want %+v (one part and one outbox row)", after, want)
 	}
+
 	var digest string
 	var payload []byte
 	if err := admin.QueryRow(t.Context(), readTestSQL(t, "part_restore_stored_part.sql"),
 		fixture.org, fixture.target).Scan(&digest, &payload); err != nil || digest != fixture.call.root || !bytes.Equal(payload, fixture.payload) {
 		t.Fatalf("restored part = %q, %d bytes, error %v, want the source part", digest, len(payload), err)
 	}
+
 	requirePartRestoreRefusal(t, fixture.call.run(t, operator), "already has")
 }

@@ -25,6 +25,7 @@ func (e carriedReadOutcome) ReadOutcome() audit.OutcomeDetails { return e.detail
 func TestOperatorReadRecordsOnlyRefusedCarriedOutcomes(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	store := audit.NewPoolReadLifecycle(rolePool(t, testenv.Ledger(t), "audit_operator"))
+
 	cases := []struct {
 		name     string
 		details  audit.OutcomeDetails
@@ -55,12 +56,14 @@ func TestOperatorReadRecordsOnlyRefusedCarriedOutcomes(t *testing.T) {
 			}
 			template := completeEvent(audit.SystemOrgID(), userActor(), target, audit.OperationRead, audit.PhaseRead, "")
 			template.Context.CompletedAt = time.Time{}
+
 			_, err := audit.RecordOperatorRead(t.Context(), store, template, func(context.Context) (audit.OperatorReadOutput, error) {
 				return audit.OperatorReadOutput{}, carriedReadOutcome{details: current.details}
 			})
 			if err == nil {
 				t.Fatal("RecordOperatorRead returned no error, want the carried read error")
 			}
+
 			row := waitForReadRow(t, ledger, template.EventID)
 			if row.Outcome != current.outcome || row.Error == nil || row.Error.Code != current.wantCode {
 				t.Fatalf("recorded outcome %q, error %+v, want %q with code %q", row.Outcome, row.Error, current.outcome, current.wantCode)
@@ -72,17 +75,20 @@ func TestOperatorReadRecordsOnlyRefusedCarriedOutcomes(t *testing.T) {
 func waitForReadRow(t *testing.T, ledger *nodeAuditLedger, eventID uuid.UUID) *audit.Row {
 	t.Helper()
 	deadline := clock.Now().Add(nodeAuditDeadline)
+
 	for {
 		row, err := ledger.reader.GetByID(t.Context(), eventID)
 		if err == nil {
 			return row
 		}
+
 		if !errors.Is(err, pgx.ErrNoRows) {
 			t.Fatalf("read event %s: %v", eventID, err)
 		}
 		if clock.Now().After(deadline) {
 			t.Fatalf("event %s was not stored after %s", eventID, nodeAuditDeadline)
 		}
+
 		time.Sleep(nodeAuditPollInterval)
 	}
 }

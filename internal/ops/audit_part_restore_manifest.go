@@ -51,31 +51,42 @@ var auditPartRestoreRequiredMembers = []string{
 	"target_row_hash", "source_seq", "source_shard", "source_row_hash",
 }
 
-func readAuditPartRestoreManifest(ctx context.Context, repairDir, path, wantDigest string) (AuditPartRestoreManifest, string, error) {
+func readAuditPartRestoreManifest(
+	ctx context.Context,
+	repairDir, path, wantDigest string,
+) (AuditPartRestoreManifest, string, error) {
 	directory, err := openRepairDirectory(ctx, repairDir)
 	if err != nil {
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
-	if err := directory.require(ctx, "manifest", path); err != nil {
+
+	err = directory.require(ctx, "manifest", path)
+	if err != nil {
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
+
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, fmt.Sprintf("cannot read part restore manifest %q: %v", path, err))
+		return AuditPartRestoreManifest{}, "", manifestRefused(ctx,
+			fmt.Sprintf("cannot read part restore manifest %q: %v", path, err))
 	}
 	fileDigest := audit.SHA256Hex(content)
 	if fileDigest != wantDigest {
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx,
 			fmt.Sprintf("manifest file digest %s does not equal --manifest-sha256 %s", fileDigest, wantDigest))
 	}
-	if err := requireManifestMembers(ctx, content); err != nil {
+	err = requireManifestMembers(ctx, content)
+	if err != nil {
 		return AuditPartRestoreManifest{}, "", err
 	}
+
 	var manifest AuditPartRestoreManifest
-	if err := decodeStrictJSON(ctx, content, &manifest); err != nil {
+	err = decodeStrictJSON(ctx, content, &manifest)
+	if err != nil {
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
-	if err := manifest.validate(); err != nil {
+	err = manifest.validate()
+	if err != nil {
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
 	return manifest, fileDigest, nil
@@ -83,9 +94,11 @@ func readAuditPartRestoreManifest(ctx context.Context, repairDir, path, wantDige
 
 func requireManifestMembers(ctx context.Context, content []byte) error {
 	var members map[string]json.RawMessage
-	if err := json.Unmarshal(content, &members); err != nil {
+	err := json.Unmarshal(content, &members)
+	if err != nil {
 		return manifestRefused(ctx, "cannot decode members: "+err.Error())
 	}
+
 	for _, name := range auditPartRestoreRequiredMembers {
 		raw, found := members[name]
 		if !found || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
@@ -98,28 +111,30 @@ func requireManifestMembers(ctx context.Context, content []byte) error {
 func (m AuditPartRestoreManifest) validate() error {
 	switch {
 	case m.SchemaVersion != auditPartRestoreSchemaVersion:
-		return fmt.Errorf("schema_version %d is not %d", m.SchemaVersion, auditPartRestoreSchemaVersion)
+		return fmt.Errorf("%w %d is not %d", errAuditPartSchemaVersion, m.SchemaVersion, auditPartRestoreSchemaVersion)
 	case m.Ticket != auditPartRestoreTicket:
-		return fmt.Errorf("ticket %q is not %s", m.Ticket, auditPartRestoreTicket)
+		return fmt.Errorf("%w %q is not %s", errAuditPartTicket, m.Ticket, auditPartRestoreTicket)
 	case m.OrgID == uuid.Nil || m.TargetEventID == uuid.Nil || m.SourceEventID == uuid.Nil:
-		return errors.New("org_id, target_event_id, and source_event_id must be set")
+		return errAuditPartMissingIdentities
 	case m.TargetEventID == m.SourceEventID:
-		return errors.New("target_event_id and source_event_id must differ")
+		return errAuditPartSameEvent
 	case m.PartIndex != 0:
-		return fmt.Errorf("part_index %d is not 0", m.PartIndex)
+		return fmt.Errorf("%w %d is not 0", errAuditPartIndex, m.PartIndex)
 	case !sha256HexPattern.MatchString(m.ManifestSHA256):
-		return errors.New("manifest_sha256 must be 64 lowercase hex digits")
+		return errAuditPartManifestDigest
 	case m.DeclaredParts != 1 || m.IdentityCount == 0:
-		return errors.New("declared_parts must be 1 and identity_count must be positive")
+		return errAuditPartManifestCounts
 	case m.TargetSeq <= 0 || m.SourceSeq <= 0:
-		return errors.New("target_seq and source_seq must be greater than 0")
+		return errAuditPartSequences
 	case m.TargetHashVersion <= 0:
-		return errors.New("target_hash_version must be greater than 0")
+		return errAuditPartHashVersion
 	case len(m.TargetRowHash) == 0 || len(m.SourceRowHash) == 0:
-		return errors.New("target_row_hash and source_row_hash must be set")
-	case m.TargetShard < 0 || m.TargetShard >= auditPartRestoreShardCount || m.SourceShard < 0 || m.SourceShard >= auditPartRestoreShardCount:
-		return errors.New("target_shard and source_shard must be in 0..255")
+		return errAuditPartRowHashes
+	case m.TargetShard < 0 || m.TargetShard >= auditPartRestoreShardCount ||
+		m.SourceShard < 0 || m.SourceShard >= auditPartRestoreShardCount:
+		return errAuditPartShards
 	}
+
 	return nil
 }
 

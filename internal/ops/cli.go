@@ -41,7 +41,9 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, repairPreviewOp(f))
 	clispec.Register(reg, repairApplyOp(f))
 	clispec.Register(reg, repairReferenceUniquenessOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: auditOpsGroup, Build: auditSeedRolesCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: auditOpsGroup, Lifetime: clispec.Permanent, Build: auditSeedRolesCommand,
+	})
 	clispec.Register(reg, auditDLQInspectOp(f))
 	clispec.Register(reg, auditDLQReplayOp(f))
 	clispec.Register(reg, auditConsumerOffsetsOp(f))
@@ -59,22 +61,36 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, datagenSearchMixedOp(f))
 	clispec.Register(reg, datagenLegacyLedgerRowOp(f))
 	clispec.Register(reg, datagenRepairOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: provisionCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: opsGroup, Lifetime: clispec.Permanent, Build: provisionCommand,
+	})
 	clispec.Register(reg, ledgerAuditBootstrapOp(f))
 	clispec.Register(reg, ledgerBootstrapWaitOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: ledgerGroup, Build: ledgerNodePrepareCommand})
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: ledgerGroup, Build: ledgerNodeWaitCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: ledgerGroup, Lifetime: clispec.Permanent, Build: ledgerNodePrepareCommand,
+	})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: ledgerGroup, Lifetime: clispec.Permanent, Build: ledgerNodeWaitCommand,
+	})
 	clispec.Register(reg, storeStatusOp(f))
 	clispec.Register(reg, storeSetRedundancyOp(f))
 	clispec.Register(reg, storeSetCoordinatorsOp(f))
 	clispec.Register(reg, storeExcludeOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: deployGroup, Build: deployVerifyCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: deployGroup, Lifetime: clispec.Permanent, Build: deployVerifyCommand,
+	})
 	clispec.Register(reg, searchVerifyOp(f))
 	clispec.Register(reg, searchSettingsOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: searchGroup, Build: searchProvisionCommand})
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: searchGroup, Build: searchRolloutCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: searchGroup, Lifetime: clispec.Permanent, Build: searchProvisionCommand,
+	})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: searchGroup, Lifetime: clispec.Permanent, Build: searchRolloutCommand,
+	})
 	clispec.Register(reg, searchRollbackOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: searchGroup, Build: searchReindexCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: searchGroup, Lifetime: clispec.Permanent, Build: searchReindexCommand,
+	})
 	clispec.Register(reg, searchProjectionBackfillOp(f))
 	clispec.Register(reg, fixedDefinitionsOp(f))
 	clispec.Register(reg, metadataNameBackfillOp(f))
@@ -88,7 +104,9 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 		Build:    auditPartRestoreCobra,
 	})
 	registerBatchOps(reg, f)
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: backupCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: opsGroup, Lifetime: clispec.Permanent, Build: backupCommand,
+	})
 }
 
 // registerBatchOps renders one leaf under `ops batch` per registered batch op,

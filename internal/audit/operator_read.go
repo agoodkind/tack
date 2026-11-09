@@ -84,6 +84,7 @@ func operatorReadCompletion(token ReadToken, template Event, output OperatorRead
 	if readErr != nil {
 		final.Outcome = OutcomeFailed
 		final.Error = &EventError{Code: readFailedCode, Message: readErr.Error()}
+
 		var carrier operatorReadOutcome
 		if errors.As(readErr, &carrier) && carrier.ReadOutcome().Outcome == OutcomeRefused {
 			details := carrier.ReadOutcome()

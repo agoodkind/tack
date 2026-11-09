@@ -34,6 +34,7 @@ type ledgerRowSnapshot struct {
 func waitForOnePartRead(t *testing.T, ledger *nodeAuditLedger, org, eventID uuid.UUID, root string) {
 	t.Helper()
 	deadline := clock.Now().Add(nodeAuditDeadline)
+
 	for {
 		_, rowErr := ledger.reader.GetByID(t.Context(), eventID)
 		parts, partsErr := ledger.reader.ManifestParts(t.Context(), org, eventID)
@@ -98,6 +99,7 @@ func (p *partRestorePipeline) snapshot(t *testing.T) map[uuid.UUID]ledgerRowSnap
 
 func requireSnapshotUnchanged(t *testing.T, before, after map[uuid.UUID]ledgerRowSnapshot) {
 	t.Helper()
+
 	for eventID, was := range before {
 		now, ok := after[eventID]
 		if !ok || was.seq != now.seq || was.hashVersion != now.hashVersion || !bytes.Equal(was.prevHash, now.prevHash) || !bytes.Equal(was.rowHash, now.rowHash) {
@@ -122,20 +124,26 @@ func newShardAppender(p *partRestorePipeline, shard int16) *shardAppender {
 func (a *shardAppender) appendOne() error {
 	for {
 		eventID := uuid.Must(uuid.NewV7())
+
 		var buffer [32]byte
 		copy(buffer[0:16], a.actor.ID[:])
 		copy(buffer[16:32], eventID[:])
+
 		if int16(crc32.ChecksumIEEE(buffer[:])&partRestoreShardMask) != a.shard {
 			continue
 		}
+
 		event := completeEvent(a.pipeline.org, a.actor, syntheticExternalTarget(), audit.OperationExternal, audit.PhaseIntent, audit.OutcomePending)
+
 		event.EventID, event.Context.CompletedAt = eventID, time.Time{}
 		if err := a.outbox.WriteOutbox(context.Background(), event); err != nil {
 			return err
 		}
+
 		a.mutex.Lock()
 		a.appended = append(a.appended, eventID)
 		a.mutex.Unlock()
+
 		return nil
 	}
 }
@@ -153,9 +161,11 @@ func (a *shardAppender) during(t *testing.T) func() {
 	t.Helper()
 	done := make(chan struct{})
 	var group sync.WaitGroup
+
 	group.Add(1)
 	go func() {
 		defer group.Done()
+
 		for {
 			select {
 			case <-done:

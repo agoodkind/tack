@@ -18,6 +18,7 @@ const (
 func headerAndPartsSet(name, fragment, path, value string) partRestoreMutation {
 	return partRestoreMutation{name: name, fragment: fragment, edit: func(t *testing.T, e *changeEncoding, other string) {
 		t.Helper()
+
 		raw := json.RawMessage(strings.ReplaceAll(value, otherToken, other))
 		e.editHeader(t, path, raw)
 		e.editEveryPart(t, path, raw)
@@ -54,6 +55,7 @@ func replaceFirst(from, to string) func(envelope []byte) []byte {
 func rawPartReplace(name, fragment, from, to string) partRestoreMutation {
 	return partRestoreMutation{name: name, fragment: fragment, edit: func(t *testing.T, e *changeEncoding, _ string) {
 		t.Helper()
+
 		if !bytes.Contains(e.parts[0], []byte(from)) {
 			t.Fatalf("part 0 does not contain %s", from)
 		}
@@ -64,6 +66,7 @@ func rawPartReplace(name, fragment, from, to string) partRestoreMutation {
 func decimalShard() partRestoreMutation {
 	return partRestoreMutation{name: "decimal shard", fragment: integerFragment, edit: func(t *testing.T, e *changeEncoding, _ string) {
 		t.Helper()
+
 		var members map[string]json.RawMessage
 		if err := json.Unmarshal(e.header, &members); err != nil {
 			t.Fatalf("decode the manifest: %v", err)
@@ -87,8 +90,10 @@ func transportMutations() []partRestoreMutation {
 	}
 	reorder := func(envelope []byte) []byte {
 		members := bytes.TrimPrefix(bytes.TrimSuffix(envelope, []byte(`,"read_targets":[]}`)), []byte("{"))
+
 		return append(append([]byte(`{"read_targets":[],`), members...), '}')
 	}
+
 	return []partRestoreMutation{
 		headerSet("manifest format version", manifestFragment, "format_version", "2"),
 		headerSet("manifest message kind", manifestFragment, "audit_message", `"event_part"`),
@@ -134,15 +139,18 @@ func transportMutations() []partRestoreMutation {
 func TestAuditPartRestoreRefusesEveryTransportField(t *testing.T) {
 	pipeline := startPartRestorePipeline(t)
 	tool := strings.Repeat("t", partRestoreLargeToolBytes)
+
 	_, built := pipeline.builtChange(t, tool)
 	if len(built.parts) < 2 {
 		t.Fatalf("multipart change event has %d parts, want at least 2", len(built.parts))
 	}
+
 	for _, current := range transportMutations() {
 		t.Run(current.name, func(t *testing.T) {
 			pipeline.requireRefusedChange(t, tool, current)
 		})
 	}
+
 	t.Run("valid multipart change event is projected into the ledger", func(t *testing.T) {
 		pipeline.requireAcceptedChange(t, tool)
 	})

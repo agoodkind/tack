@@ -22,6 +22,7 @@ type changeEncoding struct {
 
 func editRaw(t *testing.T, raw json.RawMessage, path []string, value json.RawMessage) json.RawMessage {
 	t.Helper()
+
 	if len(path) == 0 {
 		return value
 	}
@@ -33,6 +34,7 @@ func editRaw(t *testing.T, raw json.RawMessage, path []string, value json.RawMes
 		items[index] = editRaw(t, items[index], path[1:], value)
 		return marshalRaw(t, items)
 	}
+
 	var members map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &members); err != nil {
 		t.Fatalf("decode the object at %v: %v", path, err)
@@ -71,6 +73,7 @@ func (e *changeEncoding) editPart(t *testing.T, index int, path string, value js
 
 func (e *changeEncoding) editEveryPart(t *testing.T, path string, value json.RawMessage) {
 	t.Helper()
+
 	for index := range e.parts {
 		e.editPart(t, index, path, value)
 	}
@@ -98,8 +101,10 @@ func (e *changeEncoding) envelope(t *testing.T) []byte {
 		if err := json.Unmarshal(part, &message); err != nil {
 			t.Fatalf("decode a change part: %v", err)
 		}
+
 		envelope = append(envelope, message.Payload...)
 	}
+
 	return envelope
 }
 
@@ -107,6 +112,7 @@ func (e *changeEncoding) repackage(t *testing.T, envelope []byte, chunk int) {
 	t.Helper()
 	digest := sha256.Sum256(envelope)
 	digestText := hex.EncodeToString(digest[:])
+
 	pieces := [][]byte{}
 	for start := 0; start < len(envelope); start += chunk {
 		pieces = append(pieces, envelope[start:min(start+chunk, len(envelope))])
@@ -115,10 +121,12 @@ func (e *changeEncoding) repackage(t *testing.T, envelope []byte, chunk int) {
 	template = editRaw(t, template, []string{"part_count"}, json.RawMessage(strconv.Itoa(len(pieces))))
 	e.header = template
 	e.parts = nil
+
 	for index, piece := range pieces {
 		pieceDigest := sha256.Sum256(piece)
 		part := editRaw(t, template, []string{"audit_message"}, json.RawMessage(partRestoreEventPartKind))
 		part = editRaw(t, part, []string{"part_digest"}, quotedJSON(t, hex.EncodeToString(pieceDigest[:])))
+
 		part = editRaw(t, part, []string{"payload"}, quotedJSON(t, base64.StdEncoding.EncodeToString(piece)))
 		if index > 0 {
 			part = editRaw(t, part, []string{"part_index"}, json.RawMessage(strconv.Itoa(index)))

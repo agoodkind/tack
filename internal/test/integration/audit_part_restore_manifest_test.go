@@ -28,6 +28,7 @@ func syntheticPartRestoreManifest(t *testing.T) ops.AuditPartRestoreManifest {
 	t.Helper()
 	root := sha256.Sum256([]byte("synthetic manifest " + uuid.NewString()))
 	rootText := hex.EncodeToString(root[:])
+
 	return ops.AuditPartRestoreManifest{
 		SchemaVersion: 1, Ticket: "TACK-620", OrgID: uuid.Must(uuid.NewV7()), TargetEventID: uuid.Must(uuid.NewV7()),
 		SourceEventID: uuid.Must(uuid.NewV7()), PartIndex: 0, ManifestSHA256: rootText,
@@ -51,6 +52,7 @@ func partRestoreManifestMembers(t *testing.T, manifest ops.AuditPartRestoreManif
 
 func (p *partRestorePipeline) resultOfManifest(t *testing.T, manifestDigest, targetFlag string) audit.Row {
 	t.Helper()
+
 	var operationID uuid.UUID
 	rows := p.waitRows(t, audit.SystemOrgID(), audit.VerbOpsBackfillRestoreManifestPart, func(rows []audit.Row) bool {
 		for _, intent := range operationRows(rows, audit.PhaseIntent) {
@@ -92,6 +94,7 @@ func (p *partRestorePipeline) requireRefusedRun(t *testing.T, members map[string
 		t.Fatalf("encode the manifest members: %v", err)
 	}
 	path, digest := p.writeManifestFile(t, content)
+
 	run := p.runManifest(t, true, path, digest, targetFlag)
 	if run.err == nil {
 		t.Fatalf("the command accepted the manifest, want a refusal with code %s", code)
@@ -100,6 +103,7 @@ func (p *partRestorePipeline) requireRefusedRun(t *testing.T, members map[string
 	if result.Outcome != audit.OutcomeRefused || result.Error == nil || result.Error.Code != code || !strings.Contains(result.Error.Message, fragment) {
 		t.Fatalf("result outcome %q, error %+v, want refused with code %s containing %q", result.Outcome, result.Error, code, fragment)
 	}
+
 	if result.Context.Target == nil || result.Context.Target.URI != wantTargetURI {
 		t.Fatalf("result target = %+v, want %s", result.Context.Target, wantTargetURI)
 	}
@@ -125,6 +129,7 @@ func TestAuditPartRestoreManifestMembers(t *testing.T) {
 			pipeline.requireManifestRefused(t, members, partRestoreInvalidInputCode, name)
 		})
 	}
+
 	for _, name := range []string{"target_seq", "source_seq", "target_hash_version"} {
 		t.Run(name+" zero", func(t *testing.T) {
 			members := partRestoreManifestMembers(t, pipeline.manifest)
@@ -132,6 +137,7 @@ func TestAuditPartRestoreManifestMembers(t *testing.T) {
 			pipeline.requireManifestRefused(t, members, partRestoreInvalidInputCode, name)
 		})
 	}
+
 	t.Run("target flag differs from the manifest", func(t *testing.T) {
 		other := uuid.Must(uuid.NewV7())
 		otherURI := "tack:audit-event/" + other.String() + "/part/0"
@@ -142,12 +148,14 @@ func TestAuditPartRestoreManifestMembers(t *testing.T) {
 	})
 	t.Run("explicit zero part index and shards", func(t *testing.T) {
 		synthetic := syntheticPartRestoreManifest(t)
+
 		members := partRestoreManifestMembers(t, synthetic)
 		for _, name := range []string{"part_index", "target_shard", "source_shard"} {
 			if string(members[name]) != "0" {
 				t.Fatalf("synthetic member %s = %s, want an explicit 0", name, members[name])
 			}
 		}
+
 		syntheticURI := "tack:audit-event/" + synthetic.TargetEventID.String() + "/part/0"
 		pipeline.requireRefusedRun(t, members, synthetic.TargetEventID.String(), syntheticURI, partRestoreRefusedCode, "verify the source event")
 	})

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,6 +38,7 @@ type auditPartRestoreLoaded struct {
 type auditPartRestoreResult struct {
 	clispec.ResultMarker
 	auditPartRestoreIdentity
+
 	Command            string `json:"command"`
 	Status             string `json:"status"`
 	Plan               string `json:"plan,omitempty"`
@@ -52,11 +52,15 @@ func (r auditPartRestoreRequest) result(status, plan string) auditPartRestoreRes
 	}
 }
 
-func loadAuditPartRestore(ctx context.Context, f *cli.Factory, request auditPartRestoreRequest) (auditPartRestoreLoaded, error) {
-	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
+func loadAuditPartRestore(
+	ctx context.Context,
+	factory *cli.Factory,
+	request auditPartRestoreRequest,
+) (auditPartRestoreLoaded, error) {
+	reader, err := audit.NewReader(ctx, factory.Cfg.AuditReaderDSN)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit_part_restore.reader_failed", slog.String("err", "the ledger reader did not open"))
-		return auditPartRestoreLoaded{}, fmt.Errorf("%s: the ledger reader did not open using %s", auditPartRestoreTool, auditPartReaderDSNName)
+		return auditPartRestoreLoaded{}, errAuditPartReaderOpen
 	}
 	state, err := inspectAuditPartRestore(ctx, reader, request.manifest)
 	if err != nil {
@@ -66,8 +70,13 @@ func loadAuditPartRestore(ctx context.Context, f *cli.Factory, request auditPart
 	return auditPartRestoreLoaded{request: request, reader: reader, state: state}, nil
 }
 
-func previewAuditPartRestore(ctx context.Context, f *cli.Factory, request auditPartRestoreRequest, sink clispec.ResultSink) error {
-	loaded, err := loadAuditPartRestore(ctx, f, request)
+func previewAuditPartRestore(
+	ctx context.Context,
+	factory *cli.Factory,
+	request auditPartRestoreRequest,
+	sink clispec.ResultSink,
+) error {
+	loaded, err := loadAuditPartRestore(ctx, factory, request)
 	if err != nil {
 		return err
 	}
@@ -79,8 +88,14 @@ func previewAuditPartRestore(ctx context.Context, f *cli.Factory, request auditP
 	return writeAuditPartResult(ctx, sink, request.result(auditPartStatusPlanned, plan))
 }
 
-func runAuditPartRestore(ctx context.Context, f *cli.Factory, request auditPartRestoreRequest, sink clispec.ResultSink, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-	loaded, err := loadAuditPartRestore(ctx, f, request)
+func runAuditPartRestore(
+	ctx context.Context,
+	factory *cli.Factory,
+	request auditPartRestoreRequest,
+	sink clispec.ResultSink,
+	steps audit.StepRecorder,
+) (audit.OutcomeDetails, error) {
+	loaded, err := loadAuditPartRestore(ctx, factory, request)
 	if err != nil {
 		return outcomeFor(err), err
 	}
@@ -89,7 +104,7 @@ func runAuditPartRestore(ctx context.Context, f *cli.Factory, request auditPartR
 		err := writeAuditPartResult(ctx, sink, request.result(auditPartStatusPresent, ""))
 		return outcomeFor(err), err
 	}
-	details, err := restoreAuditPart(ctx, f, loaded, steps)
+	details, err := restoreAuditPart(ctx, factory, loaded, steps)
 	if err != nil {
 		return details, err
 	}
@@ -97,31 +112,49 @@ func runAuditPartRestore(ctx context.Context, f *cli.Factory, request auditPartR
 	return outcomeFor(err), err
 }
 
-func restoreAuditPart(ctx context.Context, f *cli.Factory, loaded auditPartRestoreLoaded, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-	m := loaded.request.manifest
-	encoded, err := BuildAuditPartChange(ctx, m, loaded.request.fileDigest, loaded.state.Payload)
+func restoreAuditPart(
+	ctx context.Context,
+	factory *cli.Factory,
+	loaded auditPartRestoreLoaded,
+	steps audit.StepRecorder,
+) (audit.OutcomeDetails, error) {
+	manifest := loaded.request.manifest
+
+	encoded, err := BuildAuditPartChange(ctx, manifest, loaded.request.fileDigest, loaded.state.Payload)
 	if err != nil {
 		return outcomeFor(err), err
 	}
-	if f.Cfg.AuditOperatorDSN == "" {
-		err := fmt.Errorf("%s: %s is required", auditPartRestoreTool, auditPartOperatorDSNName)
+
+	if factory.Cfg.AuditOperatorDSN == "" {
+		err := errAuditPartOperatorRequired
+
 		return outcomeFor(err), err
 	}
-	pool, err := pgxpool.New(ctx, f.Cfg.AuditOperatorDSN)
+
+	pool, err := pgxpool.New(ctx, factory.Cfg.AuditOperatorDSN)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit_part_restore.operator_pool_failed", slog.String("err", "the operator pool did not open"))
-		wrapped := fmt.Errorf("%s: the operator pool did not open using %s", auditPartRestoreTool, auditPartOperatorDSNName)
+		slog.ErrorContext(ctx,
+			"audit_part_restore.operator_pool_failed",
+			slog.String("err",
+				"the operator pool did not open"))
+		wrapped := errAuditPartOperatorOpen
+
 		return outcomeFor(wrapped), wrapped
 	}
 	defer pool.Close()
-	planned, err := encodeEvidence(ctx, m.identity())
+	planned, err := encodeEvidence(ctx, manifest.identity())
 	if err != nil {
 		return outcomeFor(err), err
 	}
-	return recordedStep(ctx, steps, audit.ExternalStep(auditPartTarget(m.TargetEventID, m.PartIndex), planned),
-		func(ctx context.Context) error { return callAuditPartRestore(ctx, pool, m, encoded) },
+	return recordedStep(ctx,
+		steps,
+		audit.ExternalStep(auditPartTarget(manifest.TargetEventID,
+			manifest.PartIndex),
+			planned),
+
+		func(ctx context.Context) error { return callAuditPartRestore(ctx, pool, manifest, encoded) },
 		func(ctx context.Context) (json.RawMessage, error) {
-			observed, err := observeRestoredAuditPart(ctx, loaded.reader, m, loaded.state)
+			observed, err := observeRestoredAuditPart(ctx, loaded.reader, manifest, loaded.state)
 			if err != nil {
 				return nil, err
 			}
@@ -131,6 +164,7 @@ func restoreAuditPart(ctx context.Context, f *cli.Factory, loaded auditPartResto
 
 type auditPartRestoreObserved struct {
 	auditPartRestoreIdentity
+
 	PartDigest    string `json:"part_digest"`
 	PayloadBytes  int    `json:"payload_bytes"`
 	TargetSeq     int64  `json:"target_seq"`
@@ -140,33 +174,56 @@ type auditPartRestoreObserved struct {
 
 func (auditPartRestoreObserved) isStepEvidence() {}
 
-func observeRestoredAuditPart(ctx context.Context, reader *audit.Reader, m AuditPartRestoreManifest, before auditPartRestoreState) (auditPartRestoreObserved, error) {
-	verification, err := reader.VerifyManifest(ctx, m.OrgID, m.TargetEventID)
+func observeRestoredAuditPart(
+	ctx context.Context,
+	reader *audit.Reader,
+	manifest AuditPartRestoreManifest,
+	before auditPartRestoreState,
+) (auditPartRestoreObserved, error) {
+	verification, err := reader.VerifyManifest(ctx, manifest.OrgID, manifest.TargetEventID)
 	if err != nil {
-		return auditPartRestoreObserved{}, partRestoreFailure(ctx, "cannot verify the restored event "+m.TargetEventID.String(), err)
+		return auditPartRestoreObserved{},
+			partRestoreFailure(ctx,
+				"cannot verify the restored event "+manifest.TargetEventID.String(),
+				err)
 	}
-	if err := checkVerification(m, verification); err != nil {
-		return auditPartRestoreObserved{}, partRestoreFailure(ctx, "cannot check the restored event "+m.TargetEventID.String(), err)
+	err = checkVerification(manifest, verification)
+	if err != nil {
+		return auditPartRestoreObserved{},
+			partRestoreFailure(ctx,
+				"cannot check the restored event "+manifest.TargetEventID.String(),
+				err)
 	}
-	parts, err := reader.ManifestParts(ctx, m.OrgID, m.TargetEventID)
+	parts, err := reader.ManifestParts(ctx, manifest.OrgID, manifest.TargetEventID)
 	if err != nil || len(parts) != 1 {
-		return auditPartRestoreObserved{}, partRestoreFailure(ctx, "cannot read the restored part of event "+m.TargetEventID.String(), errors.Join(err, errAuditPartRestoreRefused))
+		return auditPartRestoreObserved{},
+			partRestoreFailure(ctx,
+				"cannot read the restored part of event "+manifest.TargetEventID.String(),
+				errors.Join(err,
+					errAuditPartRestoreRefused))
 	}
-	after, err := reader.GetByID(ctx, m.TargetEventID)
+	after, err := reader.GetByID(ctx, manifest.TargetEventID)
 	if err != nil {
-		return auditPartRestoreObserved{}, partRestoreFailure(ctx, "cannot read the restored event "+m.TargetEventID.String(), err)
+		return auditPartRestoreObserved{},
+			partRestoreFailure(ctx,
+				"cannot read the restored event "+manifest.TargetEventID.String(),
+				err)
 	}
 	if !sameLedgerRow(before.Target, *after) {
-		return auditPartRestoreObserved{}, partRestoreFailure(ctx, "the ledger row differs for event "+m.TargetEventID.String(), errAuditPartRestoreRefused)
+		return auditPartRestoreObserved{},
+			partRestoreFailure(ctx,
+				"the ledger row differs for event "+manifest.TargetEventID.String(),
+				errAuditPartRestoreRefused)
 	}
 	return auditPartRestoreObserved{
-		auditPartRestoreIdentity: m.identity(), PartDigest: parts[0].Digest, PayloadBytes: len(parts[0].Payload),
+		auditPartRestoreIdentity: manifest.identity(), PartDigest: parts[0].Digest, PayloadBytes: len(parts[0].Payload),
 		TargetSeq: after.Seq, TargetShard: after.Shard, TargetRowHash: after.RowHash,
 	}, nil
 }
 
 func writeAuditPartResult(ctx context.Context, sink clispec.ResultSink, result auditPartRestoreResult) error {
-	if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
+	err := clispec.WriteJSONValue(ctx, sink, result)
+	if err != nil {
 		return partRestoreFailure(ctx, "cannot write the part restore result", err)
 	}
 	return nil

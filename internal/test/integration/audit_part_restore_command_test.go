@@ -26,6 +26,7 @@ func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
 	if repro.err == nil || !strings.Contains(repro.err.Error(), "0 of 1 read manifest parts") {
 		t.Fatalf("verification before the repair = %+v, want a 0 of 1 parts failure", repro)
 	}
+
 	if err := pipeline.exportVerdict(t); err == nil {
 		t.Fatal("the export of the org verified before the repair, want a failure for the missing part")
 	}
@@ -39,6 +40,7 @@ func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
 
 	stop := appender.during(t)
 	run := pipeline.run(t, true)
+
 	stop()
 	if run.err != nil || run.status(t) != partRestoreRepairedStatus {
 		t.Fatalf("restore run = %+v, want status restored", run)
@@ -72,6 +74,7 @@ func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
 	if again.err != nil || again.status(t) != partRestorePresentStatus {
 		t.Fatalf("rerun = %+v, want status already_present", again)
 	}
+
 	againRequestID, againTraceID := integration.CommandCorrelation(t, again.stdout)
 	if againRequestID == requestID || againTraceID == traceID {
 		t.Fatalf("rerun reused request ID %s or trace ID %s", againRequestID, againTraceID)
@@ -86,6 +89,7 @@ func TestAuditPartRestoreRerunAfterUnseenCommit(t *testing.T) {
 	pipeline := startPartRestorePipeline(t)
 	changeID, header, parts := buildRestoreChange(t, pipeline.manifest, pipeline.fileDigest, pipeline.payload, pipeline.operatorID)
 	manifest := pipeline.manifest
+
 	call := partRestoreCall{
 		org: manifest.OrgID, event: manifest.TargetEventID, source: manifest.SourceEventID, root: manifest.ManifestSHA256,
 		rowHash: manifest.TargetRowHash, seq: manifest.TargetSeq, shard: manifest.TargetShard,
@@ -101,6 +105,7 @@ func TestAuditPartRestoreRerunAfterUnseenCommit(t *testing.T) {
 	if run.err != nil || run.status(t) != partRestorePresentStatus {
 		t.Fatalf("rerun after an unseen commit = %+v, want status already_present", run)
 	}
+
 	pipeline.requireOperationRecords(t, 1)
 	pipeline.ledger.requireChainVerifies(t, pipeline.org)
 }

@@ -41,6 +41,7 @@ func headerDrop(name, fragment, path string) partRestoreMutation {
 func (p *partRestorePipeline) builtChange(t *testing.T, tool string) (uuid.UUID, changeEncoding) {
 	t.Helper()
 	changeID, header, parts := buildRestoreChangeWithTool(t, p.manifest, p.fileDigest, p.payload, p.operatorID, tool)
+
 	encoding := changeEncoding{header: header, parts: nil}
 	for _, part := range parts {
 		encoding.parts = append(encoding.parts, part)
@@ -60,6 +61,7 @@ func (p *partRestorePipeline) restoreCall(changeID uuid.UUID, encoding *changeEn
 
 func (p *partRestorePipeline) writes(t *testing.T, changeID uuid.UUID) partRestoreWrites {
 	t.Helper()
+
 	var counts partRestoreWrites
 	if err := p.ledger.admin.QueryRow(t.Context(), readTestSQL(t, "part_restore_writes.sql"), p.org, p.target, changeID).Scan(&counts.parts, &counts.outbox); err != nil {
 		t.Fatalf("count the part and outbox rows: %v", err)
@@ -71,6 +73,7 @@ func (p *partRestorePipeline) requireRefusedChange(t *testing.T, tool string, mu
 	t.Helper()
 	changeID, encoding := p.builtChange(t, tool)
 	mutation.edit(t, &encoding, uuid.NewString())
+
 	if mutation.nilID {
 		changeID = uuid.Nil
 	}
@@ -84,6 +87,7 @@ func (p *partRestorePipeline) requireRefusedChange(t *testing.T, tool string, mu
 func (p *partRestorePipeline) requireAcceptedChange(t *testing.T, tool string) {
 	t.Helper()
 	changeID, encoding := p.builtChange(t, tool)
+
 	call := p.restoreCall(changeID, &encoding)
 	if err := call.run(t, p.operatorPool); err != nil {
 		t.Fatalf("restore call = %v, want no error", err)
@@ -114,7 +118,9 @@ func changeEventMutations() []partRestoreMutation {
 		entityFragment  = "entity differs from its target"
 		otherUUID       = `"{other}"`
 	)
+
 	otherPayload := `"` + base64.StdEncoding.EncodeToString([]byte("another payload")) + `"`
+
 	return []partRestoreMutation{
 		headerSet("event ID", idFragment, "event_id", otherUUID),
 		headerSet("verb", "verb is not audit.event_part_create", "verb", `"audit.event_part_delete"`),
@@ -169,6 +175,7 @@ func TestAuditPartRestoreRefusesEveryChangeEventField(t *testing.T) {
 			pipeline.requireRefusedChange(t, "", current)
 		})
 	}
+
 	t.Run("valid change event is projected into the ledger", func(t *testing.T) {
 		pipeline.requireAcceptedChange(t, "")
 	})
