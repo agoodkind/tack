@@ -57,9 +57,9 @@ func TestHashRowChainsPreviousHash(t *testing.T) {
 
 // This test checks the shard for a fixed actor and event. Changing the hash,
 // mask, or ShardCount can assign new events to different chains. Follow the
-// [shard-count requirements] when changing the expected values.
+// [shard]-count requirements when changing the expected values.
 //
-// [shard-count requirements]: https://github.com/agoodkind/tack/blob/main/docs/reference/audit/horizontal-design.md#storage-and-delivery
+// [shard]: https://github.com/agoodkind/tack/blob/main/docs/reference/audit/horizontal-design.md#storage-and-delivery
 func TestShardOfPinnedAndBucketed(t *testing.T) {
 	a := uuid.MustParse("019dd220-440e-729a-a442-281aaf73ca30")
 	e := uuid.MustParse("019dd221-440e-729a-a442-281aaf73ca30")

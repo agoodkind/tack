@@ -60,7 +60,7 @@ The consumer commits ledger work and the corresponding SQL consumer offset in on
 
 Each record uses a savepoint in the partition's batch transaction. If the consumer rejects the payload as malformed or the ledger refuses the record's data or constraints, the consumer rolls back to that savepoint. It saves a dead-letter row containing the payload and failure reason for later inspection or replay. It increments the dead-letter counter and can commit the SQL offset with the batch.
 
-A chain conflict or an infrastructure failure, such as a missing privilege, table, or connection, fails the batch. The consumer retries eligible chain conflicts. If a batch still fails, it resets the partition's fetch position to the first record in that batch. Consecutive failures double the delay between polls up to 30 seconds. A successful poll clears the failure count.
+A chain conflict or an infrastructure failure, such as a missing privilege, table, or connection, fails the batch. The consumer retries eligible chain conflicts. If a batch still fails, it resets the partition's fetch position to the first record in that batch. Consecutive failures double the delay between polls up to 30 seconds. A successful poll with records clears the failure count.
 
 Dead-letter rows do not expire automatically. `ops audit dlq inspect` groups rows by failure and logs an error when it finds any rows. Replay selects the fewest previous attempts first and the oldest rows within each attempt count. It republishes the original payload bytes with a header identifying the original row.
 
