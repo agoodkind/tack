@@ -12,8 +12,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// pageBatchSize bounds each FDB range read so one transaction stays well
-// under the 5 second and 10 MB limits.
+// pageBatchSize limits the keys in each FoundationDB range read. The batch
+// limit reduces transaction size and duration against the 5-second and 10 MB
+// transaction limits; a key count alone does not guarantee either bound.
 const pageBatchSize = 256
 
 type pageEntry struct {
@@ -21,8 +22,16 @@ type pageEntry struct {
 	view *node.NodeView
 }
 
-// ListPage reads batches in key order until it has q.Limit matching views
+// ListPage reads batches in key order until it finds q.Limit matching views
 // plus one more, which proves another page exists.
+//
+// It filters candidates before counting them toward the page limit. The next
+// cursor identifies the last returned view rather than the extra matching
+// view.
+//
+//   - A property selector scans the matching property index.
+//   - A query without a property selector scans the view range.
+//   - A relationship selector returns an invalid argument error.
 func (s *ViewStore) ListPage(ctx context.Context, q node.NodeListQuery) (page node.Page, err error) {
 	defer telemetry.FDBOp(ctx, "store.view.list_page")(&err)
 	if q.Limit <= 0 {

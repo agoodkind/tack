@@ -11,16 +11,26 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// AddMemberTarget implements node.MemberTargetAdder. After activation, it
-// accepts a target that does not resolve to a node.
+// AddMemberTarget implements node.MemberTargetAdder and accepts a target
+// that does not resolve to a node after activation.
+//
+// The caller must confirm in org_members that the target is a member of
+// rel.OrgID. Strict validation still requires the source to resolve inside
+// that organization.
+//
+//   - A missing node target qualifies through confirmed organization
+//     membership.
+//   - A target that resolves to a node in another organization fails
+//     validation.
 func (s *RelationshipStore) AddMemberTarget(ctx context.Context, rel *node.Relationship) (err error) {
 	defer telemetry.FDBOp(ctx, "store.relationship.add_member_target")(&err)
 	return s.add(ctx, rel, true)
 }
 
-// checkStrictRelationship rejects every child_of relationship because the
-// parent_id field sets the parent. A caller sets memberTarget only after it
-// confirms in org_members that the target is a member of rel.OrgID.
+// checkStrictRelationship rejects every child_of relationship during strict
+// validation because parent_id sets the parent. A caller sets memberTarget
+// only after it confirms in org_members that the target is a member of
+// rel.OrgID.
 func checkStrictRelationship(ctx context.Context, tr fdb.Transaction, strict bool, rel *node.Relationship, memberTarget bool) error {
 	if !strict {
 		return nil

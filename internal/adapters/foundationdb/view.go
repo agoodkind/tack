@@ -17,9 +17,10 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ViewStore implements node.NodeReader using the node_view materialized records.
-// All reads go through node_view keys; the service layer does not read the
-// primary node_instance records directly.
+// ViewStore implements node.NodeReader with materialized node_view records.
+// Resolution reads node_resolve records, and indexed scans select candidates
+// before fetching views. The service layer must not read primary
+// node_instance records directly.
 type ViewStore struct {
 	db fdb.Database
 }
@@ -28,8 +29,14 @@ func NewViewStore(db fdb.Database) *ViewStore {
 	return &ViewStore{db: db}
 }
 
-// Get resolves the node by ID via the global resolve record, then fetches its
-// materialized view. No org context required from the caller.
+// Get resolves the node ID through the global resolution record, then
+// fetches its materialized view.
+//
+// The caller does not supply organization context. The resolution record
+// supplies the organization and node type for the view key.
+//
+//   - An absent resolution record returns a nil view.
+//   - An absent view record also returns a nil view.
 func (s *ViewStore) Get(ctx context.Context, nodeID uuid.UUID) (view *node.NodeView, err error) {
 	defer telemetry.FDBOp(ctx, "store.view.get")(&err)
 	val, err := s.db.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
@@ -57,7 +64,12 @@ func (s *ViewStore) Get(ctx context.Context, nodeID uuid.UUID) (view *node.NodeV
 	return &v, nil
 }
 
-// Resolve returns the org / type context for any node UUID.
+// Resolve returns the organization and node type for a node UUID.
+//
+// It reads the global node_resolve record. The caller does not need an
+// organization or node type to select that record.
+//
+//   - An absent record returns [domain.ErrNotFound].
 func (s *ViewStore) Resolve(ctx context.Context, nodeID uuid.UUID) (r *node.NodeResolve, err error) {
 	defer telemetry.FDBOp(ctx, "store.view.resolve")(&err)
 	key := fdb.Key(nodeResolveKey(nodeID))
@@ -80,16 +92,22 @@ func (s *ViewStore) Resolve(ctx context.Context, nodeID uuid.UUID) (r *node.Node
 	return result, nil
 }
 
-// List scans the view key space for (OrgID, NodeType) and applies PropFilters
-// in-memory. Primary indexed scans (ByProperty, BySourceRelation, ByTargetRelation)
-// narrow the candidate set before the view fetch.
+// List selects views for OrgID and NodeType and applies PropFilters in
+// memory.
+//
+// A primary indexed scan narrows the candidates before the view fetch. The
+// result also applies creation time filters and stops at a positive limit.
+//
+//   - ByProperty selects the property index first.
+//   - BySourceRelation or ByTargetRelation selects a relationship index.
+//   - A query without those selectors scans the view range.
 func (s *ViewStore) List(ctx context.Context, q node.NodeListQuery) (out []*node.NodeView, err error) {
 	defer telemetry.FDBOp(ctx, "store.view.list")(&err)
 	views, err := s.scanCandidates(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	// Post-scan filters.
+	// The following checks filter the scanned views.
 	out = views[:0]
 	for _, v := range views {
 		if !matchPropFilters(v, q.PropFilters) {
@@ -109,9 +127,13 @@ func (s *ViewStore) List(ctx context.Context, q node.NodeListQuery) (out []*node
 	return out, nil
 }
 
-// Stream is List with a channel. For now it materializes the full list and
-// pumps it on a goroutine; batched/chunked streaming can be layered on later
-// when callers need it.
+// Stream returns List results through a channel from a goroutine.
+//
+// It materializes the full list before sending results. Callers that need
+// batched or chunked streaming require a different implementation.
+//
+//   - A List error becomes a channel result with Err set.
+//   - Context cancellation stops the goroutine while it sends views.
 func (s *ViewStore) Stream(ctx context.Context, q node.NodeListQuery) (<-chan node.NodeStreamResult, error) {
 	ch := make(chan node.NodeStreamResult, 64)
 	go func() {
@@ -150,7 +172,7 @@ func (s *ViewStore) Stream(ctx context.Context, q node.NodeListQuery) (<-chan no
 }
 
 func (s *ViewStore) scanCandidates(_ context.Context, q node.NodeListQuery) ([]*node.NodeView, error) {
-	// Primary scan strategies in order of preference.
+	// The switch selects the first matching primary scan strategy.
 	switch {
 	case q.ByProperty != nil:
 		return s.scanByProperty(q.OrgID, q.NodeType, q.ByProperty.PropName, q.ByProperty.Value)
@@ -159,7 +181,7 @@ func (s *ViewStore) scanCandidates(_ context.Context, q node.NodeListQuery) ([]*
 	case q.ByTargetRelation != nil:
 		return s.scanByRelation(q.OrgID, q.NodeType, q.ByTargetRelation, false)
 	}
-	// Default: full range scan over (orgID, nodeType).
+	// The default scan reads the full range for orgID and nodeType.
 	prefix := nodeViewPrefix(q.OrgID, q.NodeType)
 	pr, err := fdb.PrefixRange(prefix)
 	if err != nil {
@@ -218,10 +240,10 @@ func (s *ViewStore) scanByRelation(orgID uuid.UUID, nodeType string, scan *node.
 	var peerIdx int
 	if fromSource {
 		prefix = relationshipPrefixBySource(orgID, scan.NodeID, scan.RelationType)
-		peerIdx = 4 // targetID
+		peerIdx = 4 // The peer is targetID.
 	} else {
 		prefix = relationshipReversePrefixByTarget(orgID, scan.NodeID, scan.RelationType)
-		peerIdx = 4 // sourceID
+		peerIdx = 4 // The peer is sourceID.
 	}
 	pr, err := fdb.PrefixRange(prefix)
 	if err != nil {
@@ -243,7 +265,7 @@ func (s *ViewStore) scanByRelation(orgID uuid.UUID, nodeType string, scan *node.
 			if perr != nil {
 				continue
 			}
-			// Look up the peer via node_resolve since we don't know its NodeType.
+			// The node_resolve record supplies the peer's NodeType.
 			rb, err := tr.Get(fdb.Key(nodeResolveKey(peerID))).Get()
 			if err != nil || len(rb) == 0 {
 				continue

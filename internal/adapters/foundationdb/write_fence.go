@@ -29,8 +29,8 @@ func fenceNodeMutation(ctx context.Context, tr fdb.Transaction, orgID, nodeID uu
 	return activation.Active, nil
 }
 
-// readStrictActivation reads the activation record in tr. It treats an absent
-// record as inactive.
+// readStrictActivation reads the activation record in tr. It treats an
+// absent record as inactive.
 func readStrictActivation(ctx context.Context, tr fdb.ReadTransaction) (node.StrictActivation, error) {
 	inactive := node.StrictActivation{Active: false, ActivatedAt: time.Time{}, ScanID: uuid.Nil, RecordsValidated: 0}
 	encoded, err := tr.Get(fdb.Key(strictActivationKey())).Get()

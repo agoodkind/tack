@@ -17,6 +17,11 @@ import (
 const maxStrictScanNodes = 100
 
 // StrictActivation reads the strict validation activation record.
+//
+// The record reports whether strict validation is active. An absent record
+// represents inactive validation.
+//
+//   - A stored record returns its activation time and scan identity.
 func (s *NodeStore) StrictActivation(ctx context.Context) (activation node.StrictActivation, err error) {
 	defer telemetry.FDBOp(ctx, "store.strict.activation")(&err)
 	err = runNodeReadTransaction(ctx, s.db, "read strict validation activation", func(tr fdb.Transaction) error {
@@ -28,10 +33,13 @@ func (s *NodeStore) StrictActivation(ctx context.Context) (activation node.Stric
 }
 
 // ActivateStrict compares the current bucket epochs and metadata epochs with
-// evidence in one transaction. It writes the activation record only when all
-// epochs match. If any epoch differs, it does not write the record and returns
-// the changes with [node.ErrStrictEvidenceChanged]. If strict validation is
-// already active, it returns [domain.ErrConflict].
+// evidence in one transaction.
+//
+// It writes the activation record only when all epochs match. A mismatch
+// returns the changes with [node.ErrStrictEvidenceChanged] without writing
+// the record.
+//
+//   - Existing active validation returns [domain.ErrConflict].
 func (s *NodeStore) ActivateStrict(ctx context.Context, evidence node.StrictEvidence, activation node.StrictActivation) (change node.StrictEvidenceChange, err error) {
 	defer telemetry.FDBOp(ctx, "store.strict.activate")(&err)
 	encoded, err := json.Marshal(activation)
@@ -66,9 +74,14 @@ func (s *NodeStore) ActivateStrict(ctx context.Context, evidence node.StrictEvid
 }
 
 // StrictScanPage reads at most limit primary node records across all
-// organizations in key order after cursor. In the same transaction, it reads
-// the graph of each record with readStrictGraph. The next cursor is empty
-// after the last page.
+// organizations in key order after cursor.
+//
+// The same transaction reads each record's graph with readStrictGraph. The
+// next cursor is empty after the last page.
+//
+//   - An additional primary record produces a cursor after the last returned
+//     record.
+//   - Property definitions load once per organization within the page.
 func (s *NodeStore) StrictScanPage(ctx context.Context, cursor string, limit int) (records []node.StrictRecord, next string, err error) {
 	defer telemetry.FDBOp(ctx, "store.strict.scan_page")(&err)
 	if limit <= 0 || limit > maxStrictScanNodes {

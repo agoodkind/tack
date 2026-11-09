@@ -12,8 +12,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// CaptureStrictEvidence reads every write fence bucket epoch and every stored
-// organization metadata epoch in one transaction.
+// CaptureStrictEvidence reads every write fence bucket epoch and every
+// stored organization metadata epoch in one transaction.
+//
+// The result provides the epochs that ActivateStrict compares before
+// activation. Missing bucket values decode as zero.
+//
+//   - Buckets records one epoch for each write fence bucket.
+//   - MetadataEpochs records each stored organization's epoch.
 func (s *NodeStore) CaptureStrictEvidence(ctx context.Context) (evidence node.StrictEvidence, err error) {
 	defer telemetry.FDBOp(ctx, "store.strict.capture_evidence")(&err)
 	err = runNodeReadTransaction(ctx, s.db, "capture strict validation evidence", func(tr fdb.Transaction) error {

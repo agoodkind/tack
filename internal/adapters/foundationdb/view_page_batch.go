@@ -22,13 +22,13 @@ type pageBatch struct {
 	lastKey fdb.Key
 }
 
-// readPageBatch reads one batch of at most pageBatchSize keys and returns the
-// decoded entries plus the last raw key read. For ByProperty scans it reads
-// the view for each index entry; for full scans the value is the view.
+// readPageBatch reads at most pageBatchSize keys and returns the decoded
+// entries and last raw key. A ByProperty scan fetches the view for each
+// index entry. A full scan reads each view from its value.
 //
-// db.ReadTransact is unavailable here: its closure must return an empty
-// interface, and the repo's staticcheck rule refuses a new one. This is that
-// retry loop spelled out, over a read transaction.
+// The db.ReadTransact callback requires an empty interface, which the
+// repository's staticcheck rule refuses in new code. This function
+// implements the retry loop directly over a read transaction.
 func (s *ViewStore) readPageBatch(ctx context.Context, q node.NodeListQuery, keyRange fdb.SelectorRange) ([]pageEntry, fdb.Key, error) {
 	transaction, transactionErr := s.db.CreateTransaction()
 	if transactionErr != nil {
