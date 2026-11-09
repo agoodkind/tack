@@ -12,8 +12,8 @@ const opsSidecarMemLimitBytes = 512 << 20
 
 const verifyScaleRows = 20000
 
-// buildScaleBundle writes a signed bundle of n rows spread across shards, with
-// each shard's rows chained so the link pass has real work to do.
+// buildScaleBundle writes a signed bundle of n rows across shards. Each
+// shard's rows form a chain that exercises link verification.
 func buildScaleBundle(t *testing.T, n int) (string, []byte) {
 	t.Helper()
 	dir := t.TempDir()

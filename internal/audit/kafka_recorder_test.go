@@ -17,7 +17,8 @@ const (
 	testFetchDeadline = 10 * time.Second
 )
 
-// newFakeCluster spins up a single-broker fake Kafka cluster scoped to t.
+// newFakeCluster starts a single-broker fake Kafka cluster for t and closes
+// it during test cleanup.
 func newFakeCluster(t *testing.T) *kfake.Cluster {
 	t.Helper()
 	cluster, err := kfake.NewCluster(

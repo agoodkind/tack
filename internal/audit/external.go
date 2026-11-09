@@ -32,16 +32,22 @@ func (e notRecordedError) Error() string { return e.err.Error() }
 
 func (e notRecordedError) Unwrap() []error { return []error{ErrEventNotRecorded, e.err} }
 
-// RunExternal saves the intent event in outbox before calling run to change
-// another system. The run function records each step through StepRecorder
-// and returns the observed outcome. RunExternal then saves a result event
-// for the attempt with a new event ID. Only partially_completed and incomplete
-// outcomes include committed steps.
+// RunExternal saves an intent before calling run to change another system.
 //
-// When outbox implements IdempotentOutboxWriter, retries with the same intent
-// event ID save the operation intent and each step intent only once. Step
-// intent IDs derive from the parent operation ID and step target.
-// RunExternal returns the run error and joins any error from saving the result.
+// The run function records each step through [StepRecorder] and returns the
+// observed outcome. RunExternal saves a result with a new event ID for each
+// attempt. Only partially_completed and incomplete outcomes list committed
+// steps. RunExternal joins a result-save error with any run error. An outbox
+// that implements [IdempotentOutboxWriter] saves each operation and step
+// intent once across retries with the same intent event ID. Step intent IDs
+// depend on the parent operation ID and step target.
+//
+// A caller can distinguish an unsaved intent from a run failure:
+//
+//	err := RunExternal(ctx, outbox, intent, run)
+//	if errors.Is(err, ErrExternalIntentNotSaved) {
+//		// The external effect did not begin.
+//	}
 func RunExternal(
 	ctx context.Context,
 	outbox OutboxWriter,

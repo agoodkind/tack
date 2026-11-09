@@ -21,8 +21,15 @@ type StepRecorder interface {
 	FinishStep(ctx context.Context, step Event) error
 }
 
-// ExternalStep returns a step event for target with evidence as its Extra.
-// The StepRecorder adds the actor, identity, operation, and time fields.
+// ExternalStep creates a step event for target with evidence in Extra.
+//
+// [StepRecorder] supplies the actor, event identity, operation, and time fields
+// when it records the step.
+//
+// A caller can prepare a step as follows:
+//
+//	step := ExternalStep(target, evidence)
+//	err := recorder.BeginStep(ctx, step)
 func ExternalStep(target Target, evidence json.RawMessage) Event {
 	stepTarget := target
 	var event Event
@@ -31,9 +38,15 @@ func ExternalStep(target Target, evidence json.RawMessage) Event {
 	return event
 }
 
-// FinishedStep returns step with the outcome and error of details and with
-// evidence as its Extra when evidence is not empty. An empty outcome means
-// completed.
+// FinishedStep copies step and applies the outcome and error from details.
+//
+// An empty outcome means completed. Nonempty evidence replaces Extra; empty
+// evidence preserves the step's existing Extra value.
+//
+// A caller can prepare the result as follows:
+//
+//	finished := FinishedStep(step, details, evidence)
+//	err := recorder.FinishStep(ctx, finished)
 func FinishedStep(step Event, details OutcomeDetails, evidence json.RawMessage) Event {
 	finished := step
 	finished.Outcome = details.Outcome
@@ -69,9 +82,19 @@ func newStepRecorder(outbox OutboxWriter, parent Event) *stepRecorder {
 	}
 }
 
-// BeginStep saves a pending step intent. When the outbox implements
-// IdempotentOutboxWriter, repeated calls for the same target and parent
-// operation ID do not write another intent.
+// BeginStep saves a pending step intent.
+//
+// When the outbox implements [IdempotentOutboxWriter], repeated calls for
+// the same target and parent operation ID do not write another intent. The
+// method marks the step as begun after the outbox write succeeds.
+//
+// A caller begins the step before performing its effect:
+//
+//	step := ExternalStep(target, evidence)
+//	if err := recorder.BeginStep(ctx, step); err != nil {
+//		return err
+//	}
+//	// The effect can begin after its intent succeeds.
 func (r *stepRecorder) BeginStep(ctx context.Context, step Event) error {
 	if step.Context.Target == nil {
 		return externalFailure(ctx, "record external step", r.parent.EventID, errors.New("step requires a target"))
@@ -114,8 +137,16 @@ func (r *stepRecorder) noteBegun(target Target, startedAt time.Time) {
 	}
 }
 
-// FinishStep saves the terminal result of a step that BeginStep saved in
-// this attempt.
+// FinishStep saves a terminal result for a step begun in this attempt.
+//
+// This attempt must have recorded the step intent and registered its start.
+// [stepRecorder.BeginStep] and [RunExternalStep] both do this. The method
+// validates and writes the result before marking the step finished.
+//
+// A caller records the observed result after the effect:
+//
+//	finished := FinishedStep(step, details, observedEvidence)
+//	err := recorder.FinishStep(ctx, finished)
 func (r *stepRecorder) FinishStep(ctx context.Context, step Event) error {
 	if step.Context.Target == nil {
 		return externalFailure(ctx, "record external step result", r.parent.EventID, errors.New("step requires a target"))

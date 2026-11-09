@@ -9,23 +9,24 @@ import (
 	"github.com/google/uuid"
 )
 
-// LastChangeStatus states how far the ledger rows establish the latest change
-// of one field path or one relationship.
+// LastChangeStatus records whether the ledger rows establish the latest
+// change of one field path or relationship.
 type LastChangeStatus string
 
 const (
 	// LastChangeKnown means the reported change is the latest evidence for the
 	// entry in the rows read.
 	LastChangeKnown LastChangeStatus = "known"
-	// LastChangeUnknown means a legacy row that cannot name its changed fields
-	// is not older than the latest known change, or no known change exists and
-	// legacy rows exist.
+	// LastChangeUnknown means a legacy row cannot identify its changed fields
+	// and is not older than the latest known change. It also applies when
+	// legacy rows exist without a known change.
 	LastChangeUnknown LastChangeStatus = "unknown"
-	// LastChangeAmbiguousOrder means two or more successful changes cannot be
-	// ordered: at least one of them lacks a FoundationDB commit version.
+	// LastChangeAmbiguousOrder means at least two successful changes lack a
+	// known order because at least one lacks a FoundationDB commit version.
 	LastChangeAmbiguousOrder LastChangeStatus = "ambiguous_order"
-	// LastChangePartial means the rows read do not cover the node's history,
-	// and they do not contain a change of the entry.
+	// LastChangePartial means the read does not establish the latest change.
+	// The read either omits part of the node's history without finding the entry
+	// or stops at its row limit before reading the complete window.
 	LastChangePartial LastChangeStatus = "partial"
 )
 
@@ -87,9 +88,15 @@ type LastChangeReport struct {
 	Relationships              []LastChangeEntry `json:"relationships"`
 }
 
-// ValidateFieldPath accepts one non-empty RFC 6901 JSON pointer, such as
-// /props/state_id. A pointer starts with a slash, and each tilde starts the
-// escape ~0 or ~1.
+// ValidateFieldPath validates one nonempty RFC 6901 JSON pointer.
+//
+// A pointer starts with a slash, and each tilde starts the escape ~0 or ~1.
+// The function returns an error for an invalid prefix or escape.
+//
+// A caller can validate a property path as follows:
+//
+//	fmt.Println(ValidateFieldPath("/props/state_id"))
+//	// Output: <nil>
 func ValidateFieldPath(path string) error {
 	if !strings.HasPrefix(path, "/") {
 		return fmt.Errorf("field path %q must start with /", path)
@@ -105,5 +112,6 @@ func ValidateFieldPath(path string) error {
 	return nil
 }
 
-// errHistoryCursor reports a cursor that MarshalHistoryCursor did not write.
+// errHistoryCursor reports a cursor that does not match the format from
+// marshalHistoryCursor.
 var errHistoryCursor = errors.New("cursor is not a next_cursor from audit last-change")

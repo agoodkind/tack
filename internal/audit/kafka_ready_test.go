@@ -9,10 +9,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
-// TestReadyRefusesWhenAnyPartitionHasNoLeader answers the review finding that
-// one healthy partition is not enough. The producer key hashes an (org, shard)
-// pair across the whole partition space, so an event that lands on a
-// leaderless partition fails while the topic looks healthy from partition 0.
+// TestReadyRefusesWhenAnyPartitionHasNoLeader covers the review finding
+// that one healthy partition does not establish readiness. Organization and
+// shard keys distribute events across all partitions. A leaderless partition
+// fails its assigned events even when partition 0 remains healthy.
 func TestReadyRefusesWhenAnyPartitionHasNoLeader(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
@@ -31,8 +31,9 @@ func TestReadyRefusesWhenAnyPartitionHasNoLeader(t *testing.T) {
 	}
 }
 
-// TestReadyRefusesAPartitionlessTopic covers the empty list, which reports no
-// error code and no leader problem yet accepts nothing.
+// TestReadyRefusesAPartitionlessTopic checks an empty partition list. That
+// list reports neither an error code nor a leader problem, but the topic
+// cannot accept events.
 func TestReadyRefusesAPartitionlessTopic(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
@@ -51,8 +52,9 @@ func TestReadyRefusesAPartitionlessTopic(t *testing.T) {
 	}
 }
 
-// TestReadyAcceptsAFullyLedTopic pins the positive case, so the refusals above
-// are proven to come from the partition state and not from the fake itself.
+// TestReadyAcceptsAFullyLedTopic checks the positive case with the same
+// fake cluster. Successful readiness establishes that the rejection tests
+// fail because of partition state rather than the fixture.
 func TestReadyAcceptsAFullyLedTopic(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
@@ -66,9 +68,9 @@ func TestReadyAcceptsAFullyLedTopic(t *testing.T) {
 	}
 }
 
-// serveMetadata makes the fake cluster answer every metadata request with the
-// given partition state for the audit topic. The broker itself cannot be told
-// to strand a partition, so the state under test is injected at the wire.
+// serveMetadata answers every audit-topic metadata request with the supplied
+// partition state. The fake broker cannot create a leaderless partition
+// directly, and this helper substitutes the protocol response.
 func serveMetadata(cluster *kfake.Cluster, partitions ...kmsg.MetadataResponseTopicPartition) {
 	cluster.ControlKey(kmsg.Metadata.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		cluster.KeepControl()
@@ -97,10 +99,10 @@ func metadataPartition(id int32, leader int32) kmsg.MetadataResponseTopicPartiti
 	return partition
 }
 
-// TestReadyRefusesAPartitionWithNoInSyncReplica covers the produce
-// prerequisite a leader alone does not carry. This producer asks for acks from
-// every in-sync replica, so a partition whose in-sync set is empty rejects each
-// produce while still naming a leader.
+// TestReadyRefusesAPartitionWithNoInSyncReplica checks the in-sync replica
+// requirement in addition to leader existence. The producer requires
+// acknowledgments from all in-sync replicas. An empty in-sync set rejects
+// each produce even when metadata reports a leader.
 func TestReadyRefusesAPartitionWithNoInSyncReplica(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
@@ -122,11 +124,11 @@ func TestReadyRefusesAPartitionWithNoInSyncReplica(t *testing.T) {
 	}
 }
 
-// TestReadyRefusesAPartitionBelowMinInSyncReplicas covers the produce
-// prerequisite that leader and in-sync counts alone do not carry. This
-// producer asks for acks from every in-sync replica, so a partition whose
-// in-sync set is smaller than the topic's own minimum has each produce
-// rejected with NOT_ENOUGH_REPLICAS while metadata still looks healthy.
+// TestReadyRefusesAPartitionBelowMinInSyncReplicas checks the configured
+// minimum in addition to leader and in-sync replica counts. The producer
+// requires acknowledgments from all in-sync replicas. The broker rejects
+// each produce with NOT_ENOUGH_REPLICAS below the topic minimum, even when
+// metadata otherwise appears healthy.
 func TestReadyRefusesAPartitionBelowMinInSyncReplicas(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)
@@ -145,9 +147,9 @@ func TestReadyRefusesAPartitionBelowMinInSyncReplicas(t *testing.T) {
 	}
 }
 
-// TestReadyRefusesAnUnreadableMinInSyncReplicas pins that a configuration the
-// check cannot read is a refusal. Assuming a default would let a server start
-// against a topic whose acks requirement was never verified.
+// TestReadyRefusesAnUnreadableMinInSyncReplicas checks that an unreadable
+// setting fails readiness. Assuming a default would permit startup without
+// verifying the topic's acknowledgment requirement.
 func TestReadyRefusesAnUnreadableMinInSyncReplicas(t *testing.T) {
 	t.Parallel()
 	cluster := newFakeCluster(t)

@@ -12,15 +12,15 @@ import (
 	"path/filepath"
 )
 
-// maxManifestBytes bounds the manifest read. A real manifest is a few hundred
-// bytes of fixed fields; anything larger is not one this exporter wrote, and
-// reading it whole before checking anything would let a foreign bundle spend
-// the verifier's memory on the line before it was rejected.
+// maxManifestBytes limits manifest reads before verification. A typical
+// exporter manifest contains a few hundred bytes of fixed metadata. Reading
+// an entire foreign manifest before checking its size could exhaust the
+// verifier's memory before rejection.
 const maxManifestBytes = 1 << 20
 
-// readExportManifest loads and parses the bundle manifest. Nothing in it is
-// trusted yet: the signature check decides that, and the scan sizes nothing
-// from what the manifest claims.
+// readExportManifest loads and parses the manifest without trusting its
+// contents. Signature verification checks authenticity later. The scan does
+// not size allocations from the manifest's claims.
 func readExportManifest(dir string) (ExportManifest, error) {
 	var mf ExportManifest
 	path := filepath.Join(dir, exportManifestFile)
@@ -41,9 +41,9 @@ func readExportManifest(dir string) (ExportManifest, error) {
 		return mf, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(mfBytes))
-	// A manifest key the type does not declare is rejected, not dropped: the
-	// signature covers only the declared fields, so a dropped key would be a
-	// planted field that verifies.
+	// The decoder rejects keys that ExportManifest does not declare. The
+	// signature covers only declared fields. Ignoring an unknown key would
+	// allow an unsigned field in a manifest that passes verification.
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&mf); err != nil {
 		slog.Error("audit.verify.manifest_parse_failed", slog.String("dir", dir), slog.String("err", err.Error()))
@@ -52,19 +52,18 @@ func readExportManifest(dir string) (ExportManifest, error) {
 	return mf, nil
 }
 
-// manifestSignatureOK reports whether the manifest's signature verifies. A
-// malformed signature, a missing key, or a key of the wrong size is a failed
-// check, not a hard error, so the rest of the report still reaches the caller.
+// manifestSignatureOK reports whether the manifest signature verifies. It
+// returns false for a malformed signature or a missing or incorrectly sized
+// key. The caller can still return the rest of the verification report.
 //
-// The signed bytes are rendered by the same function the export signs, so the
-// set of fields the signature covers cannot drift between the two sides. Adding
-// a field to one and not the other would leave that field unsigned and
-// forgeable, which is exactly what the events file name must never be.
+// Export and verification use exportSignableManifest to render signed bytes.
+// Separate field lists could omit a field from signature protection,
+// including the events filename, which must remain signed and unforgeable.
 func manifestSignatureOK(mf ExportManifest, pub ed25519.PublicKey) bool {
 	manifestForVerify := exportSignableManifest(&mf)
 	sig, err := hex.DecodeString(mf.Signature)
-	// ed25519.Verify panics on a key of the wrong length rather than
-	// returning false, so a malformed key has to be refused here.
+	// ed25519.Verify panics when the public key has the wrong length. This
+	// check rejects that key before verification.
 	if err != nil || len(pub) != ed25519.PublicKeySize {
 		return false
 	}

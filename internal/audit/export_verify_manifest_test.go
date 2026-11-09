@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// chainedExportTestRows builds n rows on one shard whose prev_hash links are
-// intact, so a verifier failure on them can only come from the manifest.
+// chainedExportTestRows builds n rows on one shard with intact prev_hash
+// links. The fixture isolates manifest failures from chain failures.
 func chainedExportTestRows(t *testing.T, n int) []Row {
 	t.Helper()
 	now := time.Now().UTC()
@@ -43,12 +43,11 @@ func chainedExportTestRows(t *testing.T, n int) []Row {
 	return rows
 }
 
-// TestVerifyBundleSurvivesAManifestClaimingMoreRowsThanCanExist is TACK-469's
-// core case. The verifier sized its link slice from the manifest's row count
-// before anything about the manifest was trusted, so a bundle claiming an
-// absurd count made it allocate for the claim on the line before it would have
-// rejected the bundle. Offline inspection of a foreign bundle is exactly what
-// VerifyBundle exists for, so a hostile manifest is its normal input.
+// TestVerifyBundleSurvivesAManifestClaimingMoreRowsThanCanExist covers the
+// core TACK-469 regression. The old verifier allocated its link slice from
+// the untrusted manifest row count before rejecting the bundle. A huge count
+// could trigger excessive allocation. VerifyBundle supports offline
+// inspection of foreign bundles and must handle hostile manifests.
 func TestVerifyBundleSurvivesAManifestClaimingMoreRowsThanCanExist(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 3)
@@ -74,11 +73,10 @@ func TestVerifyBundleSurvivesAManifestClaimingMoreRowsThanCanExist(t *testing.T)
 	}
 }
 
-// TestVerifyBundleRejectsAManifestWhoseCountDisagreesWithItsFile pins the
-// count check on its own. The manifest here is validly signed and its digest
-// matches, which is the shape a truncating exporter produces when it signs
-// whatever count it stopped at; only the row count is wrong, and that alone
-// has to fail the bundle.
+// TestVerifyBundleRejectsAManifestWhoseCountDisagreesWithItsFile isolates
+// the row-count check. The manifest has a valid signature and matching file
+// digest and row hashes. A truncating exporter could sign a count that does
+// not match its file. That mismatch alone must fail verification.
 func TestVerifyBundleRejectsAManifestWhoseCountDisagreesWithItsFile(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 3)
@@ -101,8 +99,8 @@ func TestVerifyBundleRejectsAManifestWhoseCountDisagreesWithItsFile(t *testing.T
 	}
 }
 
-// rewriteManifestRowCount edits the row count in place, leaving the signature
-// as it was, which is what a tampered or corrupt manifest looks like.
+// rewriteManifestRowCount changes the count and preserves the original
+// signature to represent a tampered or corrupt manifest.
 func rewriteManifestRowCount(t *testing.T, dir string, rowCount int) {
 	t.Helper()
 	path := filepath.Join(dir, "manifest.json")

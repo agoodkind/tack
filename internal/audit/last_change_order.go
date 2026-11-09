@@ -7,10 +7,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// changeCandidates stores the successful changes of one entry that can still
-// be the latest one. A commit version orders rows only within the
-// FoundationDB outbox, so versioned keeps the highest versioned change, and
-// unversioned keeps every change without a commit version.
+// changeCandidates stores successful changes that may be the latest for an
+// entry. Commit versions order rows only within the FoundationDB outbox.
+// versioned stores the highest versioned change, and unversioned stores every
+// change without a commit version.
 type changeCandidates struct {
 	versioned   *LastChange
 	unversioned []LastChange
@@ -80,8 +80,8 @@ func compareChanges(left, right LastChange) int {
 	return cmp.Compare(left.EventID.String(), right.EventID.String())
 }
 
-// legacyEvidence is one legacy change row of the node. Its row cannot name the
-// fields or the relationship it changed.
+// legacyEvidence stores one legacy change row of the node. The row cannot
+// identify the fields or relationship that it changed.
 type legacyEvidence struct {
 	change LastChange
 }
@@ -96,24 +96,23 @@ func (legacy legacyEvidence) notOlderThan(known LastChange) bool {
 	return !legacy.change.EventTime.Before(known.EventTime)
 }
 
-// readCoverage states which part of the node's history the rows read cover.
-// complete is true when the rows read include the node's creation and the
-// read was not truncated. truncated is true when the read stopped at its row
-// limit before the oldest row of the window.
+// readCoverage records which part of the node's history the read includes.
+// complete is true when the read includes creation and does not stop early.
+// truncated is true when the row limit stops the read before the window's
+// oldest row.
 type readCoverage struct {
 	complete  bool
 	truncated bool
 }
 
-// resolveEntry sets the status, change, and evidence of entry from the
-// candidates of the entry and the legacy rows of the node. It returns false
-// when the entry has no evidence and the rows read cover the node's history.
+// resolveEntry sets entry's status, change, and evidence from candidates and
+// legacy rows. It returns false when the entry lacks evidence and the read
+// covers the node's complete history.
 //
-// A truncated read reads rows by event time, and a row that it did not read
-// can have an older event time and a later commit version. After a truncated
-// read, an entry with candidates therefore reports partial: it keeps the
-// observed latest candidate as Change when the candidates are ordered, and it
-// lists the observed candidates.
+// A read orders rows by event time. After truncation, an unread row can have
+// an older event time and a later commit version. An entry with observed
+// candidates reports partial after truncation. It lists those candidates and
+// retains the latest observed candidate as Change when their order is known.
 func resolveEntry(entry LastChangeEntry, candidates *changeCandidates, legacy []legacyEvidence, coverage readCoverage) (LastChangeEntry, bool) {
 	if candidates == nil {
 		if len(legacy) > 0 {

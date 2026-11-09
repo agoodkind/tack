@@ -29,9 +29,9 @@ type relationshipIdentity struct {
 	targetID     uuid.UUID
 }
 
-// LastChangeDeriver derives a LastChangeReport for one node from ledger rows.
-// Add accepts the rows in any order. The deriver stores the candidates of
-// each entry, not the rows.
+// LastChangeDeriver computes a LastChangeReport from a node's ledger rows.
+// Add accepts rows in any order. The deriver stores each entry's candidates
+// rather than complete rows.
 type LastChangeDeriver struct {
 	nodeID        uuid.UUID
 	path          string
@@ -47,8 +47,17 @@ type LastChangeDeriver struct {
 	legacyRelationships []legacyEvidence
 }
 
-// NewLastChangeDeriver returns a deriver for nodeID. A non-empty path limits
-// the report to that field path and leaves out relationships.
+// NewLastChangeDeriver creates a history deriver for nodeID.
+//
+// A nonempty path limits the report to that field path and excludes
+// relationships. An empty path includes fields and relationships.
+//
+// A caller can request one field's history as follows:
+//
+//	deriver := NewLastChangeDeriver(nodeID, "/name")
+//	report := deriver.Report(false)
+//	fmt.Println(len(report.Relationships))
+//	// Output: 0
 func NewLastChangeDeriver(nodeID uuid.UUID, path string) *LastChangeDeriver {
 	return &LastChangeDeriver{
 		nodeID: nodeID, path: path, historyStart: false,
@@ -58,9 +67,20 @@ func NewLastChangeDeriver(nodeID uuid.UUID, path string) *LastChangeDeriver {
 	}
 }
 
-// Add records the evidence of one row. It ignores rows of other nodes, read
-// rows, result rows, and unsuccessful changes. It returns an error when the
-// record in a change row is not a JSON object.
+// Add records change evidence and observed relationship identities from row.
+//
+// The method ignores other nodes. It excludes read rows, result rows, and
+// unsuccessful changes from change candidates, but records observed
+// relationship identities for this node. It returns an error when a change
+// record is not a JSON object.
+//
+// A caller can add each ledger row as follows:
+//
+//	for _, row := range rows {
+//		if err := deriver.Add(row); err != nil {
+//			return err
+//		}
+//	}
 func (deriver *LastChangeDeriver) Add(row Row) error {
 	if row.Context.AuditFormatVersion == AuditFormatLegacy {
 		deriver.addLegacy(row)

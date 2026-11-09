@@ -32,10 +32,11 @@ type NodeHistoryFilter struct {
 	NodeID uuid.UUID
 	Oldest time.Time
 	Latest time.Time
-	// rowLimitOverride lowers the row cap below LastChangeRowLimit. Only
-	// tests set it, through WithNodeHistoryRowLimit in export_test.go. Zero,
-	// a negative value, or a value above LastChangeRowLimit uses
-	// LastChangeRowLimit.
+	// rowLimitOverride lowers the cap through the test helper
+	// WithNodeHistoryRowLimit in [export_test.go]. Nonpositive values and values
+	// above LastChangeRowLimit use LastChangeRowLimit.
+	//
+	// [export_test.go]: export_test.go
 	rowLimitOverride int `exhaustruct:"optional"`
 }
 
@@ -64,10 +65,18 @@ type historyPosition struct {
 	eventID   uuid.UUID
 }
 
-// ReadNodeHistory reads the rows that filter selects, newest first, and calls
-// visit for each row. It reads at most the row limit of filter. An empty
-// cursor starts at Latest; a cursor from an earlier NextCursor starts after
-// the last row that the earlier call read.
+// ReadNodeHistory reads filter's ledger rows newest first and visits each row.
+//
+// The method reads at most filter's row limit. An empty cursor starts at
+// Latest. A previous NextCursor resumes after that call's last visited row.
+// The returned [NodeHistoryRead] reports truncation and the next cursor.
+//
+// A caller can resume a read as follows:
+//
+//	read, err := reader.ReadNodeHistory(ctx, filter, cursor, visit)
+//	if err == nil && read.Truncated {
+//		cursor = read.NextCursor
+//	}
 func (r *Reader) ReadNodeHistory(ctx context.Context, filter NodeHistoryFilter, cursor string, visit func(Row) error) (NodeHistoryRead, error) {
 	result := NodeHistoryRead{RowsRead: 0, Truncated: false, NextCursor: ""}
 	if err := r.checkNodeHistoryFilter(filter); err != nil {
