@@ -13,14 +13,14 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// deadLetterTestPartition is the hand-made partition the test creates once
-// the refusal has been observed. Its week sits five years out, past anything
-// the partition manager premakes, so the refusal keeps happening year after
-// year and the created partition never collides with a managed one.
+// deadLetterTestPartition identifies the partition that the test creates
+// after observing an insert refusal. The test uses dates five years ahead,
+// beyond the partition manager's prepared range, to avoid a managed
+// partition.
 const deadLetterTestPartition = "audit.events_test_dlq_far_future"
 
-// deadLetterTestWeek returns the start of the week five years from now and
-// an instant inside it.
+// deadLetterTestWeek returns midnight UTC on the date five years ahead and
+// an instant 36 hours later for the test partition.
 func deadLetterTestWeek() (time.Time, time.Time) {
 	start := time.Now().UTC().AddDate(5, 0, 0).Truncate(24 * time.Hour)
 	return start, start.Add(36 * time.Hour)
@@ -40,10 +40,10 @@ func countDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string) (int, int,
 	return rows, attempts, errText
 }
 
-// waitForDeadLetters polls until the table holds the expected row count with
-// at least the expected attempts, or fails after the deadline. A replay's
-// records can land in separate polls, so the ledger count alone is not the
-// end of the run.
+// waitForDeadLetters waits for the expected row count and for at least one
+// row to meet the expected attempt count. It returns the last observation at
+// the deadline. Replay records can arrive in separate polls. Ledger counts
+// do not establish replay completion.
 func waitForDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string, wantRows, wantAttempts int) (int, int, string) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
@@ -59,11 +59,10 @@ func waitForDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string, wantRows
 	}
 }
 
-// writerLoginDSN creates a throwaway login that inherits audit_writer, the
-// role the deployed consumer runs as, and returns the test DSN rewritten to
-// connect as it. The consumer under test then holds exactly the privileges
-// migration 011 grants and nothing the admin role has, so a missing grant
-// fails here rather than on a deployment.
+// writerLoginDSN creates a temporary login that inherits audit_writer, the
+// deployed consumer's role, and returns a test DSN for that login. The test
+// consumer uses the writer grants from migration 011 without the admin
+// role's privileges. Missing grants fail the test before deployment.
 func writerLoginDSN(t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -92,8 +91,8 @@ func writerLoginDSN(t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
 	return parsed.String()
 }
 
-// consumerErrorCount reads the process-wide count of records whose batch
-// failed, from the same counter the operator scrapes.
+// consumerErrorCount reads the process-wide count of records in failed
+// batches from the counter that operators inspect.
 func consumerErrorCount(t *testing.T) int64 {
 	t.Helper()
 	processed, ok := expvar.Get("tack_audit_consumer_processed_total").(*expvar.Map)

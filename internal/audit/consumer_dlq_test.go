@@ -13,14 +13,13 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestConsumerDeadLettersARefusedInsertAndReplaysIt is TACK-336's consumer
-// half end to end. An event the ledger refuses (dated into a week with no
-// partition) lands in the dead-letter table instead of failing the batch, the
-// batch's other event still commits, and the offset advances past both. Once
-// the partition exists, a replay through the topic lands the event and the
-// consumer deletes the row. A payload the decoder rejects stays after a
-// replay with exactly one attempt counted: the second consumer, in the same
-// group, resumes from the committed offset and never re-reads the original.
+// TestConsumerDeadLettersARefusedInsertAndReplaysIt checks the consumer
+// recovery for TACK-336. An event outside every weekly partition enters the
+// dead-letter table, the other event commits, and the offset advances past
+// both. After the test creates the partition, replay inserts the event and
+// deletes its dead-letter row. A malformed payload remains after replay
+// with exactly one counted attempt. The second consumer uses the same
+// group and resumes at the committed offset without rereading the original.
 func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	ctx := context.Background()
@@ -62,8 +61,9 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 		t.Fatalf("the batch with a refused insert must still commit its offset; offset rows = %d", offsetRows)
 	}
 
-	// The cause clears: the week gains a partition. Replay everything.
-	// DDL takes no bind parameters; the bounds are dates this test computed.
+	// The test creates the missing weekly partition before replaying all dead
+	// letters. DDL does not accept bind parameters. The partition bounds use
+	// dates that this test computed.
 	partitionDDL := `CREATE TABLE ` + deadLetterTestPartition + ` PARTITION OF audit.events FOR VALUES FROM ('` +
 		weekStart.Format("2006-01-02") + `') TO ('` + weekStart.AddDate(0, 0, 7).Format("2006-01-02") + `')`
 	// The schema guard of migration 019 refuses this statement from any role
@@ -95,10 +95,9 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	}
 }
 
-// TestConsumerSurvivesHostileRecords pins two records that must not stop a
-// partition: one with no value at all (a tombstone), which is dead-lettered
-// as an empty payload, and one carrying a replay header the consumer cannot
-// read, which is projected as a fresh record. The events after them land.
+// TestConsumerSurvivesHostileRecords checks that an empty tombstone enters
+// the dead-letter table and that an unreadable replay header permits fresh
+// record processing. The consumer also inserts the following events.
 func TestConsumerSurvivesHostileRecords(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	ctx := context.Background()
@@ -132,10 +131,10 @@ func TestConsumerSurvivesHostileRecords(t *testing.T) {
 	}
 }
 
-// TestConsumerRewindsAFailedBatch pins that a batch failing for a deployment
-// fault (here the writer login losing every privilege) commits nothing and
-// re-fetches the same records once the fault clears, so no offset is ever
-// committed past records the ledger never saw.
+// TestConsumerRewindsAFailedBatch removes the writer login's inherited
+// privileges to simulate a deployment fault. The batch does not commit, and
+// the consumer fetches the same records after privileges return. Offsets do
+// not advance past events that the ledger has not recorded.
 func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	ctx := context.Background()
@@ -153,8 +152,8 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 		Brokers: brokers, Topic: topic, GroupID: "tack-audit-projector-test-" + uuid.NewString()[:8],
 		BatchSize: 8, PollInterval: 100 * time.Millisecond, YugabyteDSN: dsn,
 	}
-	// Longer than the two waits below together, so the context never ends
-	// the consumer while the test is still allowed to wait on it.
+	// The 70-second consumer context exceeds the combined 20-second and
+	// 30-second waits below.
 	runCtx, cancel := context.WithTimeout(ctx, 70*time.Second)
 	defer cancel()
 	consumer, err := NewConsumer(runCtx, cfg)
@@ -164,9 +163,9 @@ func TestConsumerRewindsAFailedBatch(t *testing.T) {
 	t.Cleanup(func() { _ = consumer.Close() })
 	failedBefore := consumerErrorCount(t)
 	consumer.Start(runCtx)
-	// The privileges come back only after the consumer has fetched the
-	// batch and failed it, so the test proves the re-fetch and not a first
-	// fetch that happened to come late.
+	// The test restores privileges after the consumer fetches and fails the
+	// batch. This order distinguishes a second fetch from a delayed first
+	// fetch.
 	waitUntil(t, 20*time.Second, "the consumer never failed a batch", func() bool {
 		return consumerErrorCount(t) > failedBefore
 	})

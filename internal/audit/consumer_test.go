@@ -23,8 +23,8 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// integrationDSN returns the Yugabyte DSN used by consumer tests: the test
-// ledger's superuser DSN, on a database that carries every migration.
+// integrationDSN returns the consumer tests' YugabyteDB ledger superuser DSN
+// for a database with every migration.
 func integrationDSN(t *testing.T) string {
 	t.Helper()
 	return testenv.Ledger(t)
@@ -72,8 +72,8 @@ func produceEvents(t *testing.T, brokers []string, topic string, events []Event)
 		if err != nil {
 			t.Fatalf("marshal: %v", err)
 		}
-		// The producer carries event_id in the payload, so the consumer reads
-		// it from the decoded Event rather than a Kafka header.
+		// The producer includes event_id in the payload. The consumer reads it
+		// from the decoded Event rather than a Kafka header.
 		ids = append(ids, ev.EventID)
 		rec := &kgo.Record{
 			Topic: topic,
@@ -86,12 +86,11 @@ func produceEvents(t *testing.T, brokers []string, topic string, events []Event)
 	return ids
 }
 
-// runConsumerOnce starts a consumer and stops it once the test's org holds
-// at least expect ledger rows. The count is by org, because that is the one
-// column the test controls: an earlier version counted through
-// audit.consumer_offsets, which has no org column, so the subquery
-// correlated to the outer table and counted every row in the ledger once
-// any offset row existed.
+// runConsumerOnce starts a consumer and stops it after the test organization
+// has at least expect ledger rows. The organization identifies the rows
+// that this test creates. An earlier audit.consumer_offsets subquery lacked
+// an organization column and correlated to the outer table. It counted all
+// ledger rows after any offset row existed.
 func runConsumerOnce(t *testing.T, cfg ConsumerConfig, orgID uuid.UUID, expect int) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -190,8 +189,9 @@ func makeReadEvent(orgID uuid.UUID, suffix string) Event {
 			Tool:   "tack_get_issue",
 		},
 		Outcome: OutcomeOK,
-		// A current timestamp so the row lands in a weekly partition that
-		// migration 002 creates (current week plus eight).
+		// The current time selects an existing weekly partition. Migration 002
+		// creates the current week and eight future weeks before later migrations
+		// adjust that coverage.
 		OccurredAt: clock.Now().UTC(),
 	}
 }
@@ -203,9 +203,9 @@ func purgeOrg(t *testing.T, pool *pgxpool.Pool, orgID uuid.UUID) {
 	_, _ = pool.Exec(ctx, `DELETE FROM audit.chain_heads WHERE org_id = $1`, orgID)
 }
 
-// TestConsumerProjectsToEvents produces 100 events to Kafka, runs the
-// consumer, and asserts all 100 land in audit.events with a chain that
-// matches what YBRecorder would have written for the same input.
+// TestConsumerProjectsToEvents produces 100 Kafka events and checks that
+// the consumer inserts all 100 in audit.events. It checks for positive
+// sequence numbers and 32-byte row hashes.
 func TestConsumerProjectsToEvents(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -257,9 +257,9 @@ func TestConsumerProjectsToEvents(t *testing.T) {
 	}
 }
 
-// TestConsumerIdempotentOnEventID produces 100 events, runs the consumer,
-// runs it again (simulating crash mid-batch), and asserts the unique index
-// dedups so exactly 100 rows remain in audit.events.
+// TestConsumerIdempotentOnEventID produces 100 events and processes them
+// with two consumer groups. It checks that event identity deduplication
+// leaves exactly 100 rows in audit.events.
 func TestConsumerIdempotentOnEventID(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -280,9 +280,9 @@ func TestConsumerIdempotentOnEventID(t *testing.T) {
 		YugabyteDSN: dsn,
 	}, orgID, total)
 
-	// The second group re-reads the topic from its start; the run ends only
-	// once that group has committed an offset past every produced record,
-	// so a broken dedupe cannot hide behind a consumer that never got there.
+	// The second group reads the topic from its start. The test waits until
+	// that group commits an offset past every produced record before checking
+	// for duplicates.
 	groupB := "tack-audit-projector-test-" + uuid.NewString()[:8]
 	runConsumerUntilOffset(t, ConsumerConfig{
 		Brokers: brokers, Topic: topic, GroupID: groupB,
@@ -301,9 +301,9 @@ func TestConsumerIdempotentOnEventID(t *testing.T) {
 	}
 }
 
-// TestConsumerOffsetAdvanceIsAtomicWithProjection kills the consumer mid
-// batch and restarts. The transactional offset commit guarantees no row is
-// missing and no row is double-projected.
+// TestConsumerOffsetAdvanceIsAtomicWithProjection stops the consumer after
+// 500 milliseconds and restarts it with the same group. It checks that all
+// 50 events appear exactly once after restart.
 func TestConsumerOffsetAdvanceIsAtomicWithProjection(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -348,8 +348,8 @@ func TestConsumerOffsetAdvanceIsAtomicWithProjection(t *testing.T) {
 	}
 }
 
-// TestConsumerNotarizerSigns runs the embedded notarizer for two ticks and
-// asserts two audit.notarizations rows with valid Ed25519 signatures.
+// TestConsumerNotarizerSigns waits for at least two audit.notarizations rows
+// and checks their Ed25519 signatures, signing key, and host.
 func TestConsumerNotarizerSigns(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -426,9 +426,9 @@ func TestConsumerNotarizerSigns(t *testing.T) {
 	_ = consumer.Close()
 }
 
-// TestConsumerHandlesMalformedPayload produces one record with invalid JSON
-// and asserts the consumer logs and advances past it without halting the
-// batch. The malformed record lands in audit.events_dlq.
+// TestConsumerHandlesMalformedPayload produces invalid JSON followed by a
+// valid event. It checks that the consumer inserts the valid event and
+// stores the malformed record in audit.events_dlq.
 func TestConsumerHandlesMalformedPayload(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -514,8 +514,8 @@ func loadPublicKey(t *testing.T, path string) ed25519.PublicKey {
 	return priv.Public().(ed25519.PublicKey)
 }
 
-// TestErrMalformedSignal documents that errors.Is correctly identifies the
-// malformed-payload sentinel even when wrapped.
+// TestErrMalformedSignal checks that errors.Is identifies the wrapped
+// malformed-payload sentinel.
 func TestErrMalformedSignal(t *testing.T) {
 	wrapped := fmt.Errorf("decode failed: %w", errMalformedPayload)
 	if !errors.Is(wrapped, errMalformedPayload) {

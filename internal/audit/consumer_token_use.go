@@ -1,7 +1,7 @@
-// consumer_token_use.go projects each token's last use out of the auth events
-// a batch has committed, so the app never writes the token table on the
-// request path (TACK-502). The ledger row is the record; the token column is
-// a projection of it, written in the same transaction.
+// The consumer derives token last-use times from batch authentication events
+// (TACK-502). The application request path does not write the token table.
+// The ledger event supplies the record, and the consumer updates the token
+// column in the same transaction.
 
 package audit
 
@@ -17,10 +17,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// recordTokenUses writes the newest use time of every token the batch's auth
-// events name, one update per token, inside the batch transaction. The update
-// keeps whichever time is later, so an event delivered out of order or twice
-// can never move a token's last use backwards.
+// recordTokenUses updates each token once with its newest authentication
+// time in the batch transaction. It keeps the later timestamp when events
+// arrive out of order or repeat.
 func recordTokenUses(ctx context.Context, tx pgx.Tx, projected []committedAuthEvent) error {
 	newest := newestTokenUses(projected)
 	for _, tokenID := range sortedTokenIDs(newest) {
@@ -37,8 +36,8 @@ func recordTokenUses(ctx context.Context, tx pgx.Tx, projected []committedAuthEv
 	return nil
 }
 
-// newestTokenUses folds a batch down to the latest accepted-auth time per
-// token, skipping events that accepted no token.
+// newestTokenUses selects each token's latest accepted authentication time
+// and skips events that did not accept a token.
 func newestTokenUses(projected []committedAuthEvent) map[uuid.UUID]time.Time {
 	newest := map[uuid.UUID]time.Time{}
 	for _, event := range projected {
@@ -53,8 +52,8 @@ func newestTokenUses(projected []committedAuthEvent) map[uuid.UUID]time.Time {
 	return newest
 }
 
-// sortedTokenIDs fixes the update order, so two batches that touch the same
-// tokens lock their rows in the same sequence.
+// sortedTokenIDs orders token updates. Batches with overlapping tokens lock
+// their rows in the same sequence.
 func sortedTokenIDs(newest map[uuid.UUID]time.Time) []uuid.UUID {
 	ids := make([]uuid.UUID, 0, len(newest))
 	for id := range newest {

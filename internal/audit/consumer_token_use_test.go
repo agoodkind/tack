@@ -14,8 +14,8 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// insertTokenRow creates a user and one token for it, and removes both when
-// the test ends. It returns the token id.
+// insertTokenRow creates a user and token and returns the token ID. Test
+// cleanup removes both.
 func insertTokenRow(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 	t.Helper()
 	ctx := context.Background()
@@ -65,10 +65,9 @@ func lastUsedOf(t *testing.T, pool *pgxpool.Pool, tokenID uuid.UUID) *time.Time 
 	return lastUsed
 }
 
-// TestConsumerProjectsTokenLastUseFromTheAuthEvent runs the consumer as the
-// ledger writer login against auth events for one token: the newest event
-// sets the token's last use, and an older event delivered after it leaves
-// the newer time in place.
+// TestConsumerProjectsTokenLastUseFromTheAuthEvent processes authentication
+// events for one token with the ledger writer login. It checks that last-use
+// matches the newest event when a later record contains an older event.
 func TestConsumerProjectsTokenLastUseFromTheAuthEvent(t *testing.T) {
 	pool, brokers, topic := newConsumerEnv(t)
 	orgID := uuid.Must(uuid.NewV7())
@@ -78,8 +77,8 @@ func TestConsumerProjectsTokenLastUseFromTheAuthEvent(t *testing.T) {
 		t.Fatal("a fresh token has no last use")
 	}
 
-	// A fresh ledger has no partition before the Monday of its migration week.
-	// Both events are dated at or after now.
+	// A fresh ledger does not have a partition before its migration week's
+	// Monday. Both events use times at or after the current time.
 	older := clock.Now().UTC().Truncate(time.Microsecond)
 	newer := older.Add(time.Hour)
 	produceEvents(t, brokers, topic, []Event{
@@ -101,9 +100,9 @@ func TestConsumerProjectsTokenLastUseFromTheAuthEvent(t *testing.T) {
 	}
 }
 
-// TestAppRoleCannotWriteTheTokenTable proves migration 015 took the update
-// right away from the application's base role: the request path can no
-// longer write last_used even by mistake.
+// TestAppRoleCannotWriteTheTokenTable checks that the app_auth role cannot
+// update last_used under migration 015. It also checks that the role can
+// still read the token row.
 func TestAppRoleCannotWriteTheTokenTable(t *testing.T) {
 	pool, _, _ := newConsumerEnv(t)
 	ctx := context.Background()
@@ -130,9 +129,8 @@ func TestAppRoleCannotWriteTheTokenTable(t *testing.T) {
 	}
 }
 
-// TestNewestTokenUsesFoldsABatchPerToken pins the fold the projection runs
-// on: one time per token, the latest, and no entry for events that accepted
-// no token.
+// TestNewestTokenUsesFoldsABatchPerToken checks that the projection selects
+// one latest time per token and omits events that did not accept a token.
 func TestNewestTokenUsesFoldsABatchPerToken(t *testing.T) {
 	tokenA := uuid.Must(uuid.NewV7())
 	tokenB := uuid.Must(uuid.NewV7())

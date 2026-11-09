@@ -26,9 +26,16 @@ type ConsumerOffset struct {
 }
 
 // ConsumerOffsets reads every committed consumer offset through the ledger
-// reader. The consumer writes each row in the transaction that appends the
-// batch. Every record before a row's committed offset is in the ledger or in
-// the dead-letter table.
+// reader.
+//
+// The consumer writes each offset in the same transaction as its batch's
+// storage changes.
+//
+// A batch can produce these durable outcomes:
+//
+//  - A ledger row records the event.
+//  - A dead-letter row preserves a rejected record.
+//  - An assembly stores parts or a manifest before the event completes.
 func (r *Reader) ConsumerOffsets(ctx context.Context) ([]ConsumerOffset, error) {
 	if r == nil || r.pool == nil {
 		return nil, fmt.Errorf("audit reader not configured")
@@ -59,8 +66,15 @@ func (r *Reader) ConsumerOffsets(ctx context.Context) ([]ConsumerOffset, error) 
 	return offsets, nil
 }
 
-// TopicHighWaterMarks returns the high-water mark of every partition of topic,
-// read from the brokers with one metadata request and one ListOffsets request.
+// TopicHighWaterMarks returns the high-water mark for every topic partition.
+//
+// It uses one metadata request and one ListOffsets request. Each returned
+// offset follows the partition's last record.
+//
+// Errors prevent a partial result:
+//
+//  - A failed metadata request or an unavailable topic returns an error.
+//  - A failed offset request or a partition error returns an error.
 func TopicHighWaterMarks(ctx context.Context, brokers []string, topic string) (map[int32]int64, error) {
 	client, err := kgo.NewClient(kgo.SeedBrokers(brokers...), kgo.ClientID("tack-audit-consumer-offsets"))
 	if err != nil {

@@ -59,9 +59,14 @@ func newAssemblyPartReader(ctx context.Context, tx pgx.Tx, manifest transportMes
 	return &assemblyPartReader{manifest: manifest, fetch: fetch, next: 0, pending: nil, hasher: sha256.New(), failure: nil}
 }
 
-// Read copies bytes of the current part into buffer. It reads the next part
-// when the current part has no bytes left and returns [io.EOF] after the last
-// declared part.
+// Read copies bytes from the current part into buffer.
+//
+// It reads the next part after the current part runs out of bytes.
+//
+// Read reports completion or a stored failure as follows:
+//
+//  - It returns [io.EOF] after the last declared part.
+//  - It repeats the first error from loading a part on every later call.
 func (r *assemblyPartReader) Read(buffer []byte) (int, error) {
 	for len(r.pending) == 0 {
 		if r.failure != nil {
@@ -114,8 +119,8 @@ func (r *assemblyPartReader) databaseFailure() error {
 	return nil
 }
 
-// complete reports whether the reader returned every declared part and the
-// part bytes match the transport digest of the manifest.
+// complete reports whether the reader loaded every declared part and the
+// part bytes match the manifest's transport digest.
 func (r *assemblyPartReader) complete() bool {
 	return r.next == r.manifest.PartCount && hex.EncodeToString(r.hasher.Sum(nil)) == r.manifest.TransportDigest
 }

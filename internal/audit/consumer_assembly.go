@@ -79,9 +79,10 @@ func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.U
 	}
 }
 
-// completeAssembly locks a ready assembly, streams and verifies its parts,
-// writes its read manifest parts, fills a missing commit version, appends the
-// event, and finishes the assembly in one transaction. A crash before commit leaves the assembly ready for another poll.
+// completeAssembly locks a ready assembly, reads and verifies its parts,
+// writes its read manifest parts, fills a missing commit version, appends
+// the event, and finishes the assembly in one transaction. A crash before
+// commit leaves the assembly ready for another poll.
 func (c *Consumer) completeAssembly(ctx context.Context, eventID uuid.UUID) error {
 	tx, err := c.ybpool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

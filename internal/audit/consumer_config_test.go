@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// TestApplyConsumerDefaultsPartitionPeriod pins the 24h default and that an
-// explicit value is preserved.
+// TestApplyConsumerDefaultsPartitionPeriod checks the 24h default and
+// preservation of an explicit value.
 func TestApplyConsumerDefaultsPartitionPeriod(t *testing.T) {
 	got := applyConsumerDefaults(ConsumerConfig{}).PartitionPeriod
 	if got != 24*time.Hour {
