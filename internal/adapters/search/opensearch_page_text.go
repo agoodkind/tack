@@ -11,7 +11,7 @@ import (
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// nodePageTextLimit bounds the active pages one NodePageText call reads.
+// nodePageTextLimit limits the active pages NodePageText can return.
 const nodePageTextLimit = 1000
 
 // pageOrdinalSort orders the active pages of one node by page ordinal.
@@ -37,9 +37,15 @@ type pageTextSource struct {
 }
 
 // NodePageText returns the stored page_text of every active page of nodeID
-// in index, in page order. It reads only documents that the last refresh of
-// index made searchable. A node with more than nodePageTextLimit active pages
-// returns an error.
+// in index, in page order. It reads only documents that the last index
+// refresh made searchable.
+//
+// The result must fit within nodePageTextLimit active pages. The request
+// asks for one extra page to detect a node that exceeds the limit.
+//
+//   - A node with more than nodePageTextLimit active pages returns an error.
+//   - A timed-out search or failed shard returns an error.
+//   - Each result contains page_text from one active page.
 func (a *Adapter) NodePageText(ctx context.Context, index string, nodeID uuid.UUID) ([]string, error) {
 	body, err := encodePageTextRequest(ctx, index, nodeID)
 	if err != nil {

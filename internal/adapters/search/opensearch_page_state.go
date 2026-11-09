@@ -9,8 +9,9 @@ import (
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// pageState is the stored generation, retirement flag, and sequence number
-// of one page document. Found is false for an absent document.
+// pageState records one page document's stored generation, retirement
+// flag, sequence number, and primary term. Found is false for an absent
+// document.
 type pageState struct {
 	Found       bool
 	Retired     bool

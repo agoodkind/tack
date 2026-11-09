@@ -46,11 +46,11 @@ type predictResponse struct {
 	} `json:"inference_results"`
 }
 
-// predictQueryTokens runs the pinned model once and returns the exact
-// token-weight JSON. It requires exactly one nonempty map of finite,
-// nonnegative weights within maxBytes. When the memory circuit breaker still
-// rejects the predict after the client retries, the returned error wraps
-// [searchdomain.ErrEngineUnavailable].
+// predictQueryTokens runs the pinned model once and returns its token
+// weights as compact JSON. It requires exactly one nonempty map of finite,
+// nonnegative weights within maxBytes before compaction. When the memory
+// circuit breaker still rejects prediction after the client retries, the
+// error wraps [searchdomain.ErrEngineUnavailable].
 func (a *Adapter) predictQueryTokens(ctx context.Context, modelID, text string, maxBytes int) (json.RawMessage, error) {
 	body, err := json.Marshal(predictBody{TextDocs: []string{text}})
 	if err != nil {
@@ -116,8 +116,8 @@ func tokenFailure(ctx context.Context, modelID string, err error) error {
 // rejection.
 const breakerExceptionType = "circuit_breaking_exception"
 
-// breakerRejected reports whether a predict failed with HTTP status 429 and
-// the circuit breaker exception type.
+// breakerRejected reports whether prediction failed with HTTP 429 and the
+// circuit breaker exception type.
 func breakerRejected(status int, parsed error) bool {
 	var structured *opensearch.StructError
 	return status == http.StatusTooManyRequests && errors.As(parsed, &structured) && structured.Err.Type == breakerExceptionType

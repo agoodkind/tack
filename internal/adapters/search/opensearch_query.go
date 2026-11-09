@@ -41,6 +41,13 @@ type rankResponse struct {
 
 // Read returns the next raw batch after the exact sort position. An empty
 // batch is the only engine exhaustion signal.
+//
+// The batch includes the point-in-time ID for the next request. Read uses
+// the response's replacement ID when OpenSearch provides one.
+//
+//   - Without a replacement ID, the batch retains snapshot.PITID.
+//   - A timed-out search or failed shard returns an error.
+//   - Each page match includes its node ID and exact sort values.
 func (r *QueryRanker) Read(ctx context.Context, query searchdomain.Query, snapshot searchdomain.Snapshot, after json.RawMessage) (searchdomain.RankBatch, error) {
 	var none searchdomain.RankBatch
 	body, err := encodeRankRequest(query, snapshot, after, r.settings.BatchSize, r.settings.KeepAlive)
@@ -87,8 +94,8 @@ func (r *QueryRanker) Read(ctx context.Context, query searchdomain.Query, snapsh
 	return batch, nil
 }
 
-// searchError returns [searchdomain.ErrSnapshotLost] when OpenSearch no
-// longer recognizes the point in time and an explicit error otherwise.
+// searchError returns [searchdomain.ErrSnapshotLost] when OpenSearch does
+// not recognize the point in time. It returns the request failure otherwise.
 func (r *QueryRanker) searchError(ctx context.Context, snapshot searchdomain.Snapshot, response *opensearch.Response) error {
 	parsed := opensearch.ParseError(response)
 	var structured *opensearch.StructError

@@ -8,7 +8,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ServerVersion reads the OpenSearch distribution and version from the typed API.
+// ServerVersion reads the OpenSearch distribution and version through the
+// typed API and returns the version string.
+//
+// The response must identify the opensearch distribution and include a
+// nonempty version.
+//
+//   - An API failure logs and returns the request error.
+//   - A different distribution or an empty version logs and returns a
+//     validation error.
 func (a *Adapter) ServerVersion(ctx context.Context) (string, error) {
 	info, err := a.api.Info(ctx, nil)
 	if err != nil {

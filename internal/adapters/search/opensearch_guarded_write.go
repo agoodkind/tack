@@ -10,23 +10,23 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// maxGuardedAttempts bounds the reads of one guarded write. Each attempt
-// after the first follows a 409 from a write that changed a page between
+// maxGuardedAttempts limits the reads for one guarded write. Each attempt
+// after the first follows HTTP 409 when another write changes a page between
 // its read and its index request.
 const maxGuardedAttempts = 3
 
-// pagePrecondition is the stored state an index request requires. Create
-// requires an absent document; otherwise the request requires the sequence
-// number and primary term of the read.
+// pagePrecondition records the stored state an index request requires.
+// Create requires an absent document. Other requests require the sequence
+// number and primary term from the read.
 type pagePrecondition struct {
 	Create      bool
 	SeqNo       int64
 	PrimaryTerm int64
 }
 
-// guardedPage is one page write sent only after a read of the stored page.
-// When holdCreate is true and the page is absent, the write returns
-// ErrPageWritePending without sending a write request.
+// guardedPage represents one page write. The write sends a request only
+// after reading the stored page. When holdCreate is true and the page is
+// absent, the write returns ErrPageWritePending without a write request.
 type guardedPage struct {
 	documentID string
 	generation int64
@@ -38,12 +38,12 @@ type guardedPage struct {
 type staleRule uint8
 
 const (
-	// staleRefused refuses a content write below the stored generation or to
-	// a retired page with ErrObsoleteWrite. A page at the write generation
-	// needs no request.
+	// staleRefused returns ErrObsoleteWrite for a content write below the
+	// stored generation or to a retired page. An equal-generation page does
+	// not require a request unless it has retired.
 	staleRefused staleRule = iota + 1
 	// staleSuperseded accepts a retirement below the stored generation
-	// without a request: the newer stored write supersedes it.
+	// without a request because the newer stored write supersedes it.
 	staleSuperseded
 )
 
@@ -73,11 +73,11 @@ func decideGuardedWrite(state pageState, generation int64, rule staleRule) guard
 	}
 }
 
-// guardedPlan contains the requests for one attempt of a guarded write.
-// positions[i] is the page position of operation i.
-// positions[len(operations)] is the position of the stale or held page, or
-// the page count when stale is nil. stale wraps ErrObsoleteWrite for a stale
-// page or ErrPageWritePending for a held page.
+// guardedPlan contains the requests for one guarded write attempt.
+// positions[i] records the page position of operation i. The final entry,
+// positions[len(operations)], records the stale or held page position, or
+// the page count when stale is nil. A stale page makes stale wrap
+// ErrObsoleteWrite. A held page makes stale wrap ErrPageWritePending.
 type guardedPlan struct {
 	operations []bulkOperation
 	positions  []int
@@ -126,8 +126,8 @@ func (a *Adapter) writeGuarded(ctx context.Context, index string, pages []guarde
 	}
 }
 
-// planGuardedWrite encodes the requests for pages in order and stops at the
-// first stale page.
+// planGuardedWrite encodes page requests in order. It stops at the first
+// stale page or absent page with holdCreate set.
 func planGuardedWrite(ctx context.Context, index string, pages []guardedPage, states map[string]pageState,
 	rule staleRule,
 ) (guardedPlan, error) {

@@ -18,9 +18,14 @@ import (
 var _ searchdomain.IndexReplacer = (*Adapter)(nil)
 
 // CreateReplacement creates one empty strict replacement index with the
-// pinned model, or verifies the index a previous attempt created. Each node
-// configuration sets action.auto_create_index to refuse automatic creation
-// of node-pages-* indexes. A delayed bulk write to a deleted index fails.
+// pinned model, or verifies the index from a previous attempt.
+//
+// Configure action.auto_create_index on every node to refuse automatic
+// creation of node-pages-* indexes. With automatic creation disabled, a
+// delayed bulk write to a deleted index fails.
+//
+//   - A new index uses the requested primary, routing, and replica counts.
+//   - An existing index must satisfy the same index specification.
 func (a *Adapter) CreateReplacement(ctx context.Context, index string, primaries, routing, replicas int) error {
 	model, err := a.Provision(ctx)
 	if err != nil {
@@ -33,12 +38,16 @@ func (a *Adapter) CreateReplacement(ctx context.Context, index string, primaries
 	return nil
 }
 
-// ValidateSplit reads source and returns its topology when a native split
-// to primaries is permitted. The source must use the pinned mapping version
-// and tokenizer. primaries must be an approved split target, larger than the
-// source primary count, and a multiple of that count. The source routing
-// shard count must be a multiple of primaries. The check runs before any
-// write block.
+// ValidateSplit reads source and returns its topology when OpenSearch can
+// split it to primaries. The source must use the pinned mapping version and
+// tokenizer.
+//
+// This check runs before any write block. The requested primary count must
+// satisfy each split constraint.
+//
+//   - primaries must be an approved split target.
+//   - primaries must exceed the source primary count and be a multiple of it.
+//   - The source routing shard count must be a multiple of primaries.
 func (a *Adapter) ValidateSplit(ctx context.Context, source string, primaries int) (PhysicalSettings, error) {
 	info, err := a.IndexInfo(ctx, source)
 	if err != nil {
@@ -64,11 +73,16 @@ type splitSettings struct {
 	Settings map[string]int `json:"settings"`
 }
 
-// SplitIndex splits the write-blocked source into target with primaries
-// shards and replicas replica copies through the typed Split Index API.
-// OpenSearch gives a split target the cluster default replica count unless
-// the request sets one. A target that already has the requested primary
-// count satisfies the request.
+// SplitIndex splits the write-blocked source into target through the typed
+// Split Index API. It requests primaries primary shards and replicas replica
+// copies.
+//
+// OpenSearch uses the cluster default replica count unless the split request
+// sets one. SplitIndex includes the requested replica count in a new split.
+//
+//   - A target that already has the requested primary count satisfies the
+//     request.
+//   - An existing target with a different primary count returns an error.
 func (a *Adapter) SplitIndex(ctx context.Context, source, target string, primaries, replicas int) error {
 	exists, err := opensearch.Execute[json.RawMessage](ctx, a.client, http.MethodHead, &opensearchapi.IndicesExistsReq{Indices: []string{target}}, nil)
 	if err != nil {
@@ -114,8 +128,13 @@ type writeBlock struct {
 }
 
 // SetWriteBlock sets or clears the write block of index. A blocked index
-// rejects every document write and keeps serving reads. SetWriteBlock
-// returns [searchdomain.ErrIndexNotFound] when index does not exist.
+// rejects every document write and continues serving reads.
+//
+// The blocked argument selects whether OpenSearch enables or clears the
+// write block.
+//
+//   - An index that does not exist returns [searchdomain.ErrIndexNotFound].
+//   - A request that OpenSearch does not acknowledge returns an error.
 func (a *Adapter) SetWriteBlock(ctx context.Context, index string, blocked bool) error {
 	body, err := json.Marshal(writeBlockSettings{Index: writeBlockIndex{Blocks: writeBlock{Write: blocked}}})
 	if err != nil {

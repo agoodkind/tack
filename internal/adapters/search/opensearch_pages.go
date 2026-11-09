@@ -12,15 +12,19 @@ import (
 )
 
 // Put writes one complete page at its FoundationDB generation. It validates
-// page_text, then reads the stored page in each index. It returns
-// ErrObsoleteWrite for a retired page or a stored generation above the write
-// generation. It skips pages at the write generation and otherwise indexes
-// with if_seq_no and if_primary_term from the read. When intent.Pending is
-// non-nil, Put returns ErrPageWritePending for an absent page in
-// intent.Pending.Index without sending a write request to that index.
-// Put writes the mirror after the target accepts the page and returns the
-// total encoded request length in bytes. Each failed index request returns
-// a PageWriteError that identifies its physical index.
+// page_text before reading the stored page in each index. It writes the
+// mirror after the target accepts the page.
+//
+// Put returns the total encoded request length in bytes. Each failed index
+// request returns a PageWriteError that identifies its physical index.
+//
+//   - A retired page or stored generation above the write generation returns
+//     ErrObsoleteWrite.
+//   - A page at the write generation does not require an index request unless
+//     it has retired. Other writes use if_seq_no and if_primary_term from the
+//     read.
+//   - When intent.Pending is non-nil, an absent page in intent.Pending.Index
+//     returns ErrPageWritePending without a write request to that index.
 func (a *Adapter) Put(ctx context.Context, intent searchdomain.WriteIntent) (int, error) {
 	if intent.Work.Target == "" {
 		return 0, pageWriteFailure(ctx, "search.page.target_missing", intent.Work, errors.New("page write requires a serving index"))
@@ -55,8 +59,15 @@ func (a *Adapter) putPage(ctx context.Context, intent searchdomain.WriteIntent) 
 }
 
 // UpdateAccess changes only search_generation and access on the current
-// pages of the target and the mirror index. It sends no page_text and needs
-// no deployed model. It returns the length of the prefix both accepted.
+// pages of the target and mirror indexes. It does not send page_text or
+// require a deployed model.
+//
+// The return count depends on whether the target update permits the mirror
+// attempt. Each count measures an accepted prefix of intent.Documents.
+//
+//   - A target error or absent mirror returns the target's accepted prefix.
+//   - After a mirror attempt, the count is the shorter accepted prefix from
+//     the target and mirror.
 func (a *Adapter) UpdateAccess(ctx context.Context, intent searchdomain.AccessIntent) (int, error) {
 	accepted, err := a.updateAccessIn(ctx, intent.Work, intent)
 	if err != nil || intent.Work.Mirror == "" {
@@ -82,10 +93,15 @@ func (a *Adapter) updateAccessIn(ctx context.Context, work searchdomain.Work, in
 	return accepted, nil
 }
 
-// Retire replaces each obsolete page with a text-free retired record at the
-// work generation in the target and the mirror index. A page stored at a
-// higher generation stays unchanged and counts as accepted. It returns the
-// length of the prefix both accepted.
+// Retire replaces each obsolete page with a retired record without text at
+// the work generation in the target and mirror indexes.
+//
+// A page at a higher stored generation stays unchanged and counts as
+// accepted. Other pages receive a retired record at the work generation.
+//
+//   - A target error or absent mirror returns the target's accepted prefix.
+//   - After a mirror attempt, the count is the shorter accepted prefix from
+//     the target and mirror.
 func (a *Adapter) Retire(ctx context.Context, intent searchdomain.RetirementIntent) (int, error) {
 	accepted, err := a.retireIn(ctx, intent.Work, intent.Documents)
 	if err != nil || intent.Work.Mirror == "" {
@@ -112,14 +128,20 @@ func (a *Adapter) retireIn(ctx context.Context, work searchdomain.Work, document
 	return accepted, nil
 }
 
-// mirrorWork returns a copy of work with Target set to the mirror index and
-// Mirror cleared.
+// mirrorWork returns a copy of work with Target set to the mirror index.
+// It clears Mirror in the copy.
 func mirrorWork(work searchdomain.Work) searchdomain.Work {
 	work.Target, work.Mirror = work.Mirror, ""
 	return work
 }
 
 // Refresh makes every completed write in index searchable.
+//
+// It sends an index refresh request and returns an error when OpenSearch
+// cannot complete the request.
+//
+//   - An API error returns the request failure.
+//   - An HTTP error response returns the response details.
 func (a *Adapter) Refresh(ctx context.Context, index string) error {
 	response, err := a.api.Indices.Refresh(ctx, &opensearchapi.IndicesRefreshReq{Indices: []string{index}})
 	if err != nil {

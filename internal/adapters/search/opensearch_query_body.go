@@ -63,9 +63,9 @@ type multiMatch struct {
 }
 
 // lexicalOperator requires one field to contain every query term before the
-// lexical clause adds its score to the sparse score.
-// Pages that match only part of the query receive only the sparse score.
-// Single-term queries score as before.
+// lexical clause adds its score to the sparse score. Pages that match only
+// part of the query receive only the sparse score. For a single-term query,
+// changing the operator from or to and does not change the lexical score.
 const lexicalOperator = "and"
 
 type nestedClause struct {

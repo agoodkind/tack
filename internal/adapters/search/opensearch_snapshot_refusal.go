@@ -21,8 +21,9 @@ const (
 	snapshotSecurityRefusal          snapshotRefusalType = "security_exception"
 )
 
-// Public request validation, index resolution and action filters run before
-// the PIT action. An error from an internal PIT update does not prove refusal.
+// Public request validation, index resolution, and action filters run
+// before the point-in-time action. An error from an internal point-in-time
+// update does not prove refusal.
 func snapshotEffectRefused(response *opensearch.Response, err error) bool {
 	if response == nil || !response.IsError() {
 		return false

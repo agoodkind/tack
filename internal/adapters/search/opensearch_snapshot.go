@@ -34,17 +34,29 @@ type QueryRanker struct {
 
 var _ searchdomain.Ranker = (*QueryRanker)(nil)
 
-// Ranker returns the ranked query path over this adapter's client.
+// Ranker returns a QueryRanker that uses this adapter's client for ranked
+// queries.
+//
+// The returned ranker uses settings to limit the resources for snapshots
+// and batch reads.
+//
+//   - KeepAlive sets the point-in-time lifetime.
+//   - TokenBytes limits query token bytes.
+//   - BatchSize limits raw matches per batch.
 func (a *Adapter) Ranker(settings RankerSettings) *QueryRanker {
 	return &QueryRanker{adapter: a, settings: settings}
 }
 
 // Open resolves the public alias, verifies the physical index and pinned
-// model, computes the query tokens once, and creates one point in time. For a
-// successful HTTP response with failed shards or without an ID, it returns a
-// partial snapshot with [searchdomain.ErrSnapshotPartial]. The caller deletes a
-// partial snapshot with a usable ID. A missing ID also returns
-// [searchdomain.ErrSnapshotUncertain].
+// model, computes the query tokens once, and creates one point in time.
+//
+// A successful HTTP response with failed shards or without an ID returns a
+// partial snapshot with [searchdomain.ErrSnapshotPartial]. The caller must
+// delete a partial snapshot that has a usable ID.
+//
+//   - Failed shards prevent a complete snapshot even when the response has an
+//     ID.
+//   - A missing ID also returns [searchdomain.ErrSnapshotUncertain].
 func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searchdomain.Snapshot, error) {
 	var none searchdomain.Snapshot
 	timing := newSnapshotTiming()
@@ -104,12 +116,17 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 	return searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: tokens}, nil
 }
 
-// Close deletes the point in time and returns nil on success. It returns nil without sending
-// a request when snapshot.PITID is empty. It logs and returns ID parsing and context cancellation
-// errors. Close returns an error that wraps [searchdomain.ErrSnapshotLost] only when OpenSearch
-// answers the delete with HTTP 404. Other responses do not establish that the point in time
-// is missing. For other delete errors, snapshotEffectFailure preserves known refusal causes
-// and also wraps [searchdomain.ErrSnapshotUncertain] when the error does not establish a refusal.
+// Close deletes the point in time and returns nil on success. An empty
+// snapshot.PITID returns nil without a request.
+//
+// Close logs and returns ID parsing and context cancellation errors. For
+// other delete errors, snapshotEffectFailure preserves known refusal causes.
+//
+//   - Close wraps [searchdomain.ErrSnapshotLost] only when OpenSearch answers
+//     the delete with HTTP 404. Other responses do not establish that the
+//     point in time is missing.
+//   - A delete error that does not establish a refusal also wraps
+//     [searchdomain.ErrSnapshotUncertain].
 func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot) error {
 	if snapshot.PITID == "" {
 		return nil
@@ -152,7 +169,8 @@ func snapshotFailure(ctx context.Context, index, operation string, err error) er
 	return wrapped
 }
 
-// `pinnedModelCause` classifies a mismatch only in model state as `ErrEngineUnavailable` because public queries require a `DEPLOYED` model.
+// pinnedModelCause classifies a mismatch only in model state as
+// ErrEngineUnavailable. Public queries require a DEPLOYED model.
 func pinnedModelCause(model registeredModel) error {
 	mismatches := modelMismatches(model)
 	if len(mismatches) == 0 {

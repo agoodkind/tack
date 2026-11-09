@@ -14,9 +14,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// unavailableStatuses lists HTTP statuses that indicate request rejection or
-// member unavailability after the client stops retrying.
-// [proxyFailed] checks HTTP 500 separately.
+// unavailableStatuses contains HTTP statuses that indicate request rejection
+// or member unavailability after the client stops retrying.
+// proxyFailed checks HTTP 500 separately.
 var unavailableStatuses = []int{
 	http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout,
 }
@@ -34,10 +34,10 @@ func (e unavailableError) Unwrap() []error {
 	return []error{searchdomain.ErrEngineUnavailable, e.err}
 }
 
-// engineCause wraps err as [searchdomain.ErrEngineUnavailable] when a connection
-// fails with connection refused, the response status is in [unavailableStatuses],
-// [proxyFailed] returns true, or the request times out.
-// It returns err unchanged otherwise. It logs each HTTP 429 rejection once.
+// engineCause wraps err as [searchdomain.ErrEngineUnavailable] for a refused
+// connection, a response status in unavailableStatuses, a true result from
+// proxyFailed, or a request timeout. It returns err unchanged otherwise.
+// It logs each HTTP 429 rejection once.
 func engineCause(ctx context.Context, response *opensearch.Response, err error) error {
 	refused := errors.Is(err, syscall.ECONNREFUSED)
 	rejected := response != nil && slices.Contains(unavailableStatuses, response.StatusCode)
@@ -52,15 +52,15 @@ func engineCause(ctx context.Context, response *opensearch.Response, err error) 
 
 // proxyFailed reports whether response has HTTP 500 and err wraps
 // [opensearch.ErrJSONUnmarshalBody]. The proxy writes this response when it
-// cannot complete the round trip to OpenSearch.
+// cannot complete the request to OpenSearch.
 func proxyFailed(response *opensearch.Response, err error) bool {
 	return response != nil && response.StatusCode == http.StatusInternalServerError &&
 		errors.Is(err, opensearch.ErrJSONUnmarshalBody)
 }
 
-// engineTimedOut reports whether err ended an engine request at the client's per-attempt
-// timeout or at the deadline of ctx. A canceled ctx means the caller stopped waiting, and
-// engineTimedOut returns false for it.
+// engineTimedOut reports whether err ended an engine request at the client's
+// per-attempt timeout or the deadline of ctx. A canceled ctx means the caller
+// stopped waiting. engineTimedOut returns false for a canceled ctx.
 func engineTimedOut(ctx context.Context, err error) bool {
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return false
@@ -69,9 +69,9 @@ func engineTimedOut(ctx context.Context, err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netError) && netError.Timeout())
 }
 
-// logEngineRejection logs search.engine.rejected at Error level with the error text, HTTP status,
-// and OpenSearch error type. The error type is empty unless the response body contains a structured
-// OpenSearch error.
+// logEngineRejection logs search.engine.rejected at Error level with the
+// error text, HTTP status, and OpenSearch error type. The error type is empty
+// unless the response body contains a structured OpenSearch error.
 func logEngineRejection(ctx context.Context, status int, err error) {
 	errorType := ""
 	var structured *opensearch.StructError
