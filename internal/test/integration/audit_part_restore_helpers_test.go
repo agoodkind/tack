@@ -3,8 +3,6 @@ package integration_test
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
@@ -105,8 +103,7 @@ func buildRestoreChangeWithTool(t *testing.T, manifest ops.AuditPartRestoreManif
 
 func newPartRestoreRawFixtureWithPayload(t *testing.T, admin *pgxpool.Pool, payload []byte) partRestoreRawFixture {
 	t.Helper()
-	digest := sha256.Sum256(payload)
-	root := hex.EncodeToString(digest[:])
+	root := audit.SHA256Hex(payload)
 	fixture := partRestoreRawFixture{
 		admin: admin, org: uuid.Must(uuid.NewV7()), target: uuid.Must(uuid.NewV7()), source: uuid.Must(uuid.NewV7()), payload: payload,
 	}
