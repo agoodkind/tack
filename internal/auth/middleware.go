@@ -29,9 +29,9 @@ type OrgLister interface {
 // attachMembership reads the actor's organizations once and attaches them
 // to the request context. It returns the sole organization for the auth
 // event, or [uuid.Nil] for zero or multiple organizations. The auth event
-// uses the system organization for uuid.Nil. A nil orgs skips the lookup.
+// uses the system organization for [uuid.Nil]. A nil orgs skips the lookup.
 // A failed lookup does not attach memberships or fail the request and
-// returns uuid.Nil. Under TACK-503, the MCP handler reuses attached
+// returns [uuid.Nil]. Under TACK-503, the MCP handler reuses attached
 // memberships or reads them itself and rejects the request if that read
 // fails.
 func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (context.Context, uuid.UUID) {

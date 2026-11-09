@@ -24,7 +24,7 @@ func WithUser(ctx context.Context, userID uuid.UUID) context.Context {
 // UserID returns the authenticated user's ID from the context.
 //
 // It returns [uuid.Nil] and false when the context does not contain a user
-// ID. A stored uuid.Nil also produces false.
+// ID. A stored [uuid.Nil] also produces false.
 //
 // Callers can check the second result before using the ID:
 //
