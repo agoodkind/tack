@@ -74,6 +74,7 @@ func TestRuntimeAuditSQLMembershipConflictRetry(t *testing.T) {
 			}
 		case audit.PhaseResult:
 			failures++
+		case audit.PhaseIntent, audit.PhaseRead:
 		}
 	}
 	if changes != 1 || failures != 0 {

@@ -182,10 +182,6 @@ jobs:
       - name: run the OpenSearch-backed tests
         run: make test-search-host-group GROUP=${{ matrix.group }}
 
-  # The feature partitions select search tests outside the dedicated behavior
-  # groups by test name. The A through M job allows 75 minutes for go test,
-  # 20 minutes for the SDK contract step, and 15 minutes for setup. Each other
-  # feature job allows 75 minutes for go test and 15 minutes for setup.
   search-features:
     name: ${{ matrix.description }}
     runs-on: ubuntu-latest
@@ -195,10 +191,10 @@ jobs:
       matrix:
         include:
           - group: features-a-through-m
-            description: Search features A through M
+            description: Search permissions, pagination, and concurrent updates
             timeout_minutes: 110
           - group: remaining-features
-            description: Other search feature tests
+            description: Search queries, indexing, relationships, and session cleanup
             timeout_minutes: 90
           - group: runtime-and-session-audit
             description: Search runtime and session audit recording

@@ -177,7 +177,12 @@ func occupySlotAfterRemoval(ctx context.Context, cfg *config.Config, proxy *pred
 	}
 	<-time.After(hold)
 	proxy.release()
-	<-searched
+
+	searchErr := <-searched
+	if searchErr != nil && ctx.Err() == nil {
+		return searchErr
+	}
+
 	return nil
 }
 

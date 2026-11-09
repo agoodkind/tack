@@ -51,8 +51,16 @@ func runReferenceDuplicates(ctx context.Context, env *Env) error {
 	return nil
 }
 
-// FindDuplicateReferences returns each rendered reference held by multiple
-// nodes. It groups template name and rendered value across node types.
+// FindDuplicateReferences returns duplicate rendered references.
+//
+// The function reads organization IDs from org_members and groups
+// references by organization, template name, and rendered value across
+// node types. Each group contains at least two node IDs. The function
+// logs and skips references that fail to render. It sorts groups by
+// organization ID, template name, and value, and sorts each group's
+// node IDs.
+//
+//	duplicates, err := FindDuplicateReferences(ctx, env)
 func FindDuplicateReferences(ctx context.Context, env *Env) ([]DuplicateReference, error) {
 	orgIDs, err := listOrgIDs(ctx, env)
 	if err != nil {

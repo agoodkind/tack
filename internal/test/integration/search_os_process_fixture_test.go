@@ -142,8 +142,16 @@ func (server *actualSearchServer) stop(t *testing.T) {
 			t.Errorf("actual server pid=%d exit: %v", pid, err)
 		}
 	case <-deadline.C:
-		server.command.Process.Kill()
-		<-server.done
+		killErr := server.command.Process.Kill()
+		if killErr != nil {
+			t.Errorf("kill actual server pid=%d: %v", pid, killErr)
+		}
+
+		waitErr := <-server.done
+		if waitErr != nil {
+			t.Errorf("actual server pid=%d exit after kill: %v", pid, waitErr)
+		}
+
 		t.Errorf("actual server pid=%d required forced termination", pid)
 	}
 	server.command = nil
