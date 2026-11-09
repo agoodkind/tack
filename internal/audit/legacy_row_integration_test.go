@@ -8,14 +8,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestLegacyRowReadsAsUnrecordedAndStillVerifies is the whole point of the
-// legacy writer. A row written before the ledger stored outcomes must read as
-// unrecorded rather than as a success nobody observed, and it must still
-// verify, because production's ledger is full of such rows and a verification
-// that rejected them would report the honest past as tampered.
-//
-// Only production carries these rows naturally. This proves the contract
-// against a real ledger by writing one.
+// TestLegacyRowReadsAsUnrecordedAndStillVerifies writes a pre-outcome row into
+// a real ledger. The reader must report unrecorded instead of an unobserved
+// success, and hash verification must accept the row. Historical production
+// contained many such rows, while newer environments did not naturally contain
+// them. Rejecting the format would mistake valid history for tampering.
 func TestLegacyRowReadsAsUnrecordedAndStillVerifies(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()
@@ -63,9 +60,8 @@ func openTestReader(t *testing.T, pool *pgxpool.Pool) *Reader {
 	return reader
 }
 
-// TestLegacyRowExtendsTheChainItJoins pins that the fabricated row is a real
-// member of its chain, not an island. A row whose prev_hash did not come from
-// the chain head would break verification for every row after it.
+// TestLegacyRowExtendsTheChainItJoins checks that two legacy rows extend one
+// hash chain. An incorrect prev_hash would break verification of later rows.
 func TestLegacyRowExtendsTheChainItJoins(t *testing.T) {
 	pool, orgID := chainTestPool(t)
 	ctx := context.Background()
@@ -77,8 +73,8 @@ func TestLegacyRowExtendsTheChainItJoins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write the first legacy row: %v", err)
 	}
-	// The shard derives from the actor and event ids, so the second row picks
-	// an event id that lands on the first row's chain.
+	// The shard derives from the actor and event IDs. The second row uses an
+	// event ID that selects the first row's chain.
 	input.EventID = eventIDOnShard(t, input.ActorID, first.Shard)
 	second, err := WriteLegacyRow(ctx, pool, input)
 	if err != nil {
@@ -114,8 +110,8 @@ func TestLegacyRowExtendsTheChainItJoins(t *testing.T) {
 	}
 }
 
-// eventIDOnShard returns a fresh event id that shardOf places on shard for
-// actorID. One in 256 ids lands there, so the search is short.
+// eventIDOnShard returns a fresh event ID that shardOf assigns to shard for
+// actorID. Each ID has a one-in-256 chance of selecting that shard.
 func eventIDOnShard(t *testing.T, actorID uuid.UUID, shard int16) uuid.UUID {
 	t.Helper()
 	const attempts = 100000

@@ -11,9 +11,9 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// changeRow returns a successful format 2 change row of nodeID that changes
-// /name from before to after. An empty commitVersion makes a row from a SQL
-// change stream.
+// changeRow returns a successful format 2 change row for nodeID that changes
+// /name from before to after. An empty commitVersion represents a SQL change
+// stream row.
 func changeRow(nodeID uuid.UUID, at time.Time, commitVersion, before, after string) audit.Row {
 	var row audit.Row
 	row.EventID = uuid.Must(uuid.NewV7())
@@ -52,8 +52,8 @@ func deriveFields(t *testing.T, nodeID uuid.UUID, truncated bool, rows ...audit.
 	return entries
 }
 
-// TestLastChangeOrdersFoundationDBRowsByCommitVersion gives the newer commit
-// version the older event time. The higher commit version must win.
+// TestLastChangeOrdersFoundationDBRowsByCommitVersion assigns an older event
+// time to the newer commit version and checks that the higher version wins.
 func TestLastChangeOrdersFoundationDBRowsByCommitVersion(t *testing.T) {
 	nodeID, now := uuid.Must(uuid.NewV7()), time.Now().UTC()
 	newer := changeRow(nodeID, now, "000000000000000000020000", "b", "c")
@@ -64,9 +64,9 @@ func TestLastChangeOrdersFoundationDBRowsByCommitVersion(t *testing.T) {
 	}
 }
 
-// TestLastChangeReportsAmbiguousOrderAcrossDomains mixes a row with a commit
-// version and a row without one. The entry must list both candidates and
-// report no change.
+// TestLastChangeReportsAmbiguousOrderAcrossDomains combines rows with and
+// without commit versions. The entry must list both candidates and must not
+// report a change.
 func TestLastChangeReportsAmbiguousOrderAcrossDomains(t *testing.T) {
 	nodeID, now := uuid.Must(uuid.NewV7()), time.Now().UTC()
 	versioned := changeRow(nodeID, now, "000000000000000000010000", "a", "b")
@@ -78,9 +78,9 @@ func TestLastChangeReportsAmbiguousOrderAcrossDomains(t *testing.T) {
 	}
 }
 
-// TestLastChangeReportsPartialWithoutHistoryStart reads one update without
-// the node's creation and without truncation. A path of the record without a
-// change must report partial, and the changed path must report known.
+// TestLastChangeReportsPartialWithoutHistoryStart reads one update without the
+// node's creation and without truncation. An unchanged record path must report
+// partial, and the changed path must report known.
 func TestLastChangeReportsPartialWithoutHistoryStart(t *testing.T) {
 	nodeID := uuid.Must(uuid.NewV7())
 	update := changeRow(nodeID, time.Now().UTC(), "000000000000000000010000", "a", "b")
@@ -93,10 +93,10 @@ func TestLastChangeReportsPartialWithoutHistoryStart(t *testing.T) {
 	}
 }
 
-// TestLastChangeReportsPartialForCandidatesAfterTruncatedRead derives from
-// the newer-by-time row only, as a truncated read does when the row with the
-// later commit version has the older event time. The entry must report
-// partial with the observed row as its change and its only candidate.
+// TestLastChangeReportsPartialForCandidatesAfterTruncatedRead uses only the
+// row with the newer event time. A truncated read can omit a row with a higher
+// commit version and an older event time. The entry must report partial, with
+// the observed row as its change and its only candidate.
 func TestLastChangeReportsPartialForCandidatesAfterTruncatedRead(t *testing.T) {
 	nodeID, now := uuid.Must(uuid.NewV7()), time.Now().UTC()
 	observed := changeRow(nodeID, now.Add(time.Second), "000000000000000000010000", "a", "b")

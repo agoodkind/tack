@@ -10,14 +10,14 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// ReadFinalizeDeadline limits how long RecordOperatorRead waits to save the
+// ReadFinalizeDeadline limits how long [RecordOperatorRead] waits to save the
 // final read event after the read returns.
 const ReadFinalizeDeadline = 30 * time.Second
 
 const readFailedCode = "read_failed"
 
-// ErrReadNotAdmitted reports that RecordOperatorRead did not save the
-// admission and did not run the read.
+// ErrReadNotAdmitted reports that [RecordOperatorRead] did not save admission
+// and did not run the read.
 var ErrReadNotAdmitted = errors.New("audit read: RecordOperatorRead did not save the read admission")
 
 // OperatorReadOutput contains the exact bytes an operator read returns, their
@@ -29,10 +29,16 @@ type OperatorReadOutput struct {
 }
 
 // RecordOperatorRead saves template in store to admit the read, then calls
-// read and renews its lease while it runs. It saves a final event with the
-// SHA-256 digest of the exact payload bytes and the returned identities.
-// It returns the payload only after store saves the final event. If read
-// returns an error, RecordOperatorRead saves a failed event and returns that error.
+// read while renewing the admission lease.
+//
+// The final event records the SHA-256 digest of the exact payload bytes and
+// the returned object identities. The function returns the payload only after
+// store saves the final event. A read error requires a failed final event
+// before the function returns that error.
+//
+//  1. Save the read admission before running read.
+//  2. Run read while renewing the lease.
+//  3. Save the final event before returning payload bytes or the read error.
 func RecordOperatorRead(
 	ctx context.Context,
 	store ReadLifecycle,

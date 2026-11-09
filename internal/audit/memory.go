@@ -9,8 +9,8 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// MemoryRecorder captures events in memory for tests and integration
-// harnesses. Safe for concurrent use. Not for production.
+// MemoryRecorder stores events in memory for tests and integration harnesses.
+// Its methods support concurrent calls. Production must use a durable recorder.
 type MemoryRecorder struct {
 	mu     sync.Mutex
 	events []Event
@@ -28,7 +28,13 @@ func (m *MemoryRecorder) Record(_ context.Context, ev Event) error {
 	return nil
 }
 
-// Events returns a copy of every event captured so far.
+// Events returns a copy of every event that MemoryRecorder has recorded.
+//
+// The method copies the event slice while the recorder's mutex protects it.
+// The copy does not deep-copy nested values inside each event.
+//
+//   - Changes to the returned slice do not replace stored slice entries.
+//   - Nested event values retain their existing references.
 func (m *MemoryRecorder) Events() []Event {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -37,32 +43,46 @@ func (m *MemoryRecorder) Events() []Event {
 	return out
 }
 
-// Reset drops all captured events; useful between subtests.
+// Reset removes every event from MemoryRecorder.
+//
+// Tests can call Reset between subtests instead of creating another recorder.
+// The method locks the same mutex that protects recording and event reads.
+//
+//  1. Call Reset after the preceding subtest finishes using its events.
+//  2. Record the events for the next subtest.
 func (m *MemoryRecorder) Reset() {
 	m.mu.Lock()
 	m.events = nil
 	m.mu.Unlock()
 }
 
-// NoopRecorder discards every event. A deployment reaches it only by setting
-// AUDIT_ALLOW_UNRECORDED, which is the operator saying unrecorded operation is
-// intended. Nothing may substitute it for a recorder that failed to open.
+// NoopRecorder discards every event. Runtime selection requires
+// AUDIT_ALLOW_UNRECORDED when a deployment lacks an audit backend. The flag
+// expresses the operator's intent to run without recording. Do not substitute
+// NoopRecorder after a recorder fails to open.
+//
+// The audit completeness contract requires durable recording before user-data
+// operations. Selecting NoopRecorder does not meet that requirement.
 type NoopRecorder struct{}
 
 func (NoopRecorder) Record(context.Context, Event) error { return nil }
 
-// ErrRecorderUnwired is what an uninstalled sink returns. It names a wiring
-// bug rather than a backend failure, so a reader of the log can tell the two
-// apart.
+// ErrRecorderUnwired reports that startup did not install a recorder. The
+// error distinguishes missing recorder setup from an audit backend failure.
 var ErrRecorderUnwired = errors.New("audit: no recorder installed")
 
-// UnwiredRecorder is the sink a boundary holds before startup installs the
-// real one. It refuses and says so, because the previous default discarded
-// events silently: a wiring mistake then produced a server that recorded
-// nothing and looked healthy from outside.
+// UnwiredRecorder rejects events until startup installs a recorder. The
+// earlier default silently discarded events, and missing recorder setup could
+// leave a server apparently healthy without recording its actions.
 type UnwiredRecorder struct{}
 
-// Record refuses the event and names the wiring bug that caused it.
+// Record rejects the event with [ErrRecorderUnwired].
+//
+// The method logs the event verb and the missing recorder error. It does not
+// discard the event while reporting success.
+//
+//   - The return value always equals ErrRecorderUnwired.
+//   - The log event uses audit.recorder_unwired.
 func (UnwiredRecorder) Record(_ context.Context, ev Event) error {
 	slog.Error("audit.recorder_unwired",
 		slog.String("verb", ev.Verb),

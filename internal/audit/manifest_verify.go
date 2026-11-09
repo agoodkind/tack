@@ -19,7 +19,16 @@ type ManifestVerification struct {
 	PayloadVerified  bool   `json:"payload_verified"`
 }
 
-// VerifyManifest checks the stored payloads against one organization's event.
+// VerifyManifest checks stored manifest payloads against one organization's
+// event declaration.
+//
+// The method validates the declaration and each part before comparing the
+// identity count, part count, and recomputed digest with the declared values.
+//
+//   - A valid manifest returns its counts and digests with PayloadVerified
+//     true.
+//   - A missing declaration, invalid part, or mismatched result returns an
+//     error.
 func (r *Reader) VerifyManifest(ctx context.Context, orgID, eventID uuid.UUID) (ManifestVerification, error) {
 	var result ManifestVerification
 	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, readStatement("manifest_evidence"), orgID, eventID, EventPartMaxBytes+1))

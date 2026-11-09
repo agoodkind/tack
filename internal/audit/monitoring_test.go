@@ -15,9 +15,8 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// captureSlog redirects slog.Default to a JSON handler backed by buf for
-// the duration of the test. Returns a teardown that restores the previous
-// default.
+// captureSlog replaces slog.Default with a JSON handler that writes to the
+// returned buffer. The test cleanup restores the previous default logger.
 func captureSlog(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	prev := slog.Default()
@@ -31,8 +30,8 @@ func captureSlog(t *testing.T) *bytes.Buffer {
 	return buf
 }
 
-// containsLogEvent reports whether buf has at least one slog JSON line
-// whose msg field equals event.
+// containsLogEvent reports whether the buffer contains a slog JSON line with
+// a msg field equal to event.
 func containsLogEvent(buf *bytes.Buffer, event string) bool {
 	for _, line := range strings.Split(buf.String(), "\n") {
 		line = strings.TrimSpace(line)
@@ -50,10 +49,10 @@ func containsLogEvent(buf *bytes.Buffer, event string) bool {
 	return false
 }
 
-// readMapInt returns the int64 value at key in an [expvar.Map], or 0 when
-// the key is absent or not an integer counter. The telemetry package uses
-// a private struct for gauge values; falling back to String() parsing
-// keeps this helper agnostic to the concrete type.
+// readMapInt reads the int64 value at key in an [expvar.Map]. It returns zero
+// when the key does not exist or the value does not parse as an integer. The
+// telemetry package uses a private gauge type. Parsing its String result
+// supports that type without a concrete type assertion.
 func readMapInt(m *expvar.Map, key string) int64 {
 	v := m.Get(key)
 	if v == nil {
@@ -107,16 +106,15 @@ func TestKafkaRecorderProduceErrorEmitsMetricAndLog(t *testing.T) {
 	if totalsAfter <= totalsBefore {
 		t.Fatalf("audit_kafka_produce_total{error}: got %d, want > %d", totalsAfter, totalsBefore)
 	}
-	// The first refusal of an outage is the one the operator sees; later
-	// refusals in the same outage log at Debug (TACK-320).
+	// The first refusal in an outage logs kafka.produce.refusing for the
+	// operator. Later refusals in that outage log at Debug (TACK-320).
 	if !containsLogEvent(buf, "kafka.produce.refusing") {
 		t.Fatalf("expected kafka.produce.refusing log; got: %s", buf.String())
 	}
 }
 
-// fakeFetchPartition is the test-only stand-in we feed to observeLag. It
-// uses the same field shape as kgo.FetchTopicPartition by direct value
-// construction below.
+// TestConsumerObserveLagWarnsAtThreshold passes a directly constructed
+// kgo.Fetches value to observeLag through buildFetchesWithLag.
 
 func TestConsumerObserveLagWarnsAtThreshold(t *testing.T) {
 	buf := captureSlog(t)
@@ -169,10 +167,10 @@ func TestConsumerObserveLagSilentBelowThreshold(t *testing.T) {
 	}
 }
 
-// buildFetchesWithLag constructs a kgo.Fetches with one topic/partition
-// where the broker reports HighWatermark and the supplied records were
-// returned. The simulated lag is HighWatermark - (lastRecordOffset + 1)
-// when records are present, or HighWatermark when records is empty.
+// buildFetchesWithLag constructs kgo.Fetches with one topic and partition.
+// It supplies the records and a broker HighWatermark that produces the
+// requested lag: HighWatermark - (lastRecordOffset + 1) when records exist, or
+// HighWatermark when records is empty.
 func buildFetchesWithLag(topic string, partition int32, lag int64, records []*kgo.Record) kgo.Fetches {
 	var lastOffset int64 = -1
 	for _, r := range records {

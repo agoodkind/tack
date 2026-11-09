@@ -14,14 +14,22 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ErrMissingMutationContext reports a missing or invalid audit operation for a database write.
+// ErrMissingMutationContext reports a missing or invalid audit operation for
+// a database write.
 var ErrMissingMutationContext = errors.New("the write requires an audit mutation context")
 
 // uuidVersionTimeOrdered is the UUID version that encodes its creation time.
 const uuidVersionTimeOrdered = 7
 
-// WithMutationContext encodes operation and attaches it to ctx with auditintent.WithOperation.
-// RequireMutationContext reads this operation unless a caller attaches a nearer slot.
+// WithMutationContext encodes operation and attaches it to ctx with
+// [auditintent.WithOperation].
+//
+// [RequireMutationContext] reads the attached operation unless a caller
+// attaches a nearer audit slot. An encoding error returns the original ctx
+// with an error.
+//
+//  1. Encode and attach the operation with WithMutationContext.
+//  2. Pass the returned context to the database write.
 func WithMutationContext(ctx context.Context, operation Event) (context.Context, error) {
 	encoded, err := MarshalEvent(operation)
 	if err != nil {
@@ -31,8 +39,14 @@ func WithMutationContext(ctx context.Context, operation Event) (context.Context,
 	return auditintent.WithOperation(ctx, encoded), nil
 }
 
-// NewMutationOperation returns an operation with a new UUIDv7 operation ID
-// and a start time equal to that ID's time.
+// NewMutationOperation creates an operation with a new UUIDv7 operation ID.
+//
+// The operation's start time equals the time in that UUID. Its actor, source,
+// and tool come from the arguments.
+//
+//   - UUID creation errors return an error instead of an operation.
+//   - The returned event stores its start time in both StartedAt and
+//     OccurredAt.
 func NewMutationOperation(actor Actor, source Source, tool string) (Event, error) {
 	operationID, err := uuid.NewV7()
 	if err != nil {
@@ -45,14 +59,20 @@ func NewMutationOperation(actor Actor, source Source, tool string) (Event, error
 	}, nil), nil
 }
 
-// RequireMutationContext reads the operation from the nearest slot on ctx.
-// The slot stores an operation from WithMutationContext or auditintent.WithOperation,
-// or an MCP tool call from auditintent.WithSlot. Without a slot, it reads the
-// operator principal and UUIDv7 operation ID that the clispec command gate attaches.
+// RequireMutationContext reads the operation from the nearest audit slot on
+// ctx.
 //
-// RequireMutationContext returns an error that wraps ErrMissingMutationContext
-// when it cannot find an operation or the operation lacks an actor ID, a known
-// actor kind, an operation ID, or a start time.
+// The slot can contain an operation from [WithMutationContext] or
+// [auditintent.WithOperation], or an MCP tool call from [auditintent.WithSlot].
+// Without a slot, the function reads the operator principal and UUIDv7
+// operation ID that the clispec command gate attaches.
+//
+// An error wraps [ErrMissingMutationContext] when any required value is missing
+// or invalid:
+//
+//   - The context must provide an operation.
+//   - The actor must have an ID and a known kind.
+//   - The operation must have an ID and a start time.
 func RequireMutationContext(ctx context.Context) (Event, error) {
 	operation, found, err := findMutationContext(ctx)
 	if err != nil {
@@ -70,8 +90,15 @@ func RequireMutationContext(ctx context.Context) (Event, error) {
 	return operation, nil
 }
 
-// WithMutationTool reads the operation with RequireMutationContext and sets its tool name to tool.
-// It attaches the operation to the returned context with WithMutationContext.
+// WithMutationTool reads the operation with [RequireMutationContext] and sets
+// the operation's tool to tool.
+//
+// The function attaches the updated operation to the returned context with
+// [WithMutationContext]. A read or encoding error returns the original context
+// and the error.
+//
+//  1. Pass the existing operation context to WithMutationTool.
+//  2. Use the returned context for work under the updated tool.
 func WithMutationTool(ctx context.Context, tool string) (context.Context, error) {
 	operation, err := RequireMutationContext(ctx)
 	if err != nil {
@@ -112,9 +139,9 @@ func findMutationContext(ctx context.Context) (Event, bool, error) {
 	return operationEvent(actor, opID, requestContext(ctx, SourceSystem, ""), nil), true, nil
 }
 
-// slotOperation builds an operation from the nearest MCP tool or act-as slot on ctx.
-// It sets ParentOperationID to the operator command's operation ID when that
-// ID exists and differs from the slot's operation ID.
+// slotOperation builds an operation from the nearest MCP tool or act-as slot
+// on ctx. It sets ParentOperationID to the operator command's operation ID
+// when that ID exists and differs from the slot's operation ID.
 func slotOperation(ctx context.Context) (Event, error) {
 	operationID, err := auditintent.OperationID(ctx)
 	if err != nil {

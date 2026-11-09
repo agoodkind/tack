@@ -6,10 +6,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestSystemOrgID pins the reserved system org id. Global ops record on this
-// org; EventContext.OrgID is mandatory and the reader rejects uuid.Nil, so
-// the constant must be a fixed non-nil UUID that never changes once events
-// reference it.
+// TestSystemOrgID checks the reserved organization ID for global operator
+// commands. EventContext.OrgID requires a non-nil UUID, and the reader rejects
+// uuid.Nil. The ID must stay fixed after events reference it.
 func TestSystemOrgID(t *testing.T) {
 	if SystemOrgID() == uuid.Nil {
 		t.Fatal("SystemOrgID must not be the nil UUID")
@@ -18,14 +17,15 @@ func TestSystemOrgID(t *testing.T) {
 	if SystemOrgID().String() != want {
 		t.Fatalf("SystemOrgID = %s, want %s", SystemOrgID(), want)
 	}
-	// Two calls must agree. The value reaches stored rows, so a caller that
-	// could change it between calls would split one org's chain in two.
+	// Repeated calls must return the same ID. Changing the value between calls
+	// would assign later records to another organization's hash chain.
 	if SystemOrgID() != SystemOrgID() {
 		t.Fatal("SystemOrgID is not stable between calls")
 	}
 }
 
-// TestSpecZeroValueHasNoClaims confirms the zero value carries no declaration.
+// TestSpecZeroValueHasNoClaims checks that the zero Spec does not declare a
+// verb or behavior flags.
 func TestSpecZeroValueHasNoClaims(t *testing.T) {
 	var spec Spec
 	if spec.Verb != "" {
@@ -36,9 +36,9 @@ func TestSpecZeroValueHasNoClaims(t *testing.T) {
 	}
 }
 
-// TestOperatorPrincipalActorType pins that one principal yields one actor
-// kind everywhere: the zero Kind stays operator, and a service principal is
-// never misclassified as a human by an event builder.
+// TestOperatorPrincipalActorType checks that zero Kind selects ActorOperator
+// and ActorService selects a service actor. Event builders must preserve that
+// distinction instead of recording service runs as human runs.
 func TestOperatorPrincipalActorType(t *testing.T) {
 	var human OperatorPrincipal
 	if human.ActorType() != ActorOperator {

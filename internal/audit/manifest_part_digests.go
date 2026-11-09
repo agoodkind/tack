@@ -14,7 +14,15 @@ type ManifestPartDigest struct {
 	Digest string
 }
 
-// ManifestPartDigests reads part indexes and digests for one org and event in index order. It does not read payloads.
+// ManifestPartDigests reads part indexes and SHA-256 digests for one
+// organization and event in index order.
+//
+// The query does not read manifest payloads. It returns the complete digest
+// list only after reading all selected rows.
+//
+//   - A query failure returns an error.
+//   - A scan or row-iteration failure returns an error instead of a partial
+//     list.
 func (r *Reader) ManifestPartDigests(ctx context.Context, orgID, eventID uuid.UUID) ([]ManifestPartDigest, error) {
 	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, readStatement("manifest_part_digests"), orgID, eventID))
 	if err != nil {

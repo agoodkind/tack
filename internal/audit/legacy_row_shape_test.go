@@ -7,11 +7,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestLegacyEventCarriesTheDeleteShape pins the row shape production actually
-// holds for the deletion that blocks the reference-key reconstruction: the
-// node.delete verb, the tool that performed it, and the mcp_tool entity kind
-// the pre-fix build stamped, which is why the row names no node. A testbed
-// cannot reproduce the production case without all three.
+// TestLegacyEventCarriesTheDeleteShape checks the historical production
+// deletion format that prevents reference-key reconstruction. The fixture
+// preserves node.delete, the tool that performed the deletion, and the earlier
+// mcp_tool entity kind. That kind does not identify the deleted node. A
+// reproduction requires all three fields.
 func TestLegacyEventCarriesTheDeleteShape(t *testing.T) {
 	t.Parallel()
 	in := LegacyRowInput{
@@ -36,9 +36,9 @@ func TestLegacyEventCarriesTheDeleteShape(t *testing.T) {
 	}
 }
 
-// TestLegacyEventKeepsTheToolInvocationDefault pins that the original TACK-435
-// shape is unchanged when the new fields are absent, so the pre-column outcome
-// proof still writes the row it always wrote.
+// TestLegacyEventKeepsTheToolInvocationDefault checks that empty action and
+// tool fields preserve the original TACK-435 fixture. The fixture still tests
+// the format from before the outcome column.
 func TestLegacyEventKeepsTheToolInvocationDefault(t *testing.T) {
 	t.Parallel()
 	entityID := uuid.New()

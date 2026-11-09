@@ -7,42 +7,50 @@ import (
 	"github.com/google/uuid"
 )
 
-// systemOrgID is the org that global operator commands record against.
-// EventContext.OrgID is mandatory and the reader rejects the nil UUID, so a
-// command with no customer org still needs a real org to record under.
+// systemOrgID identifies the organization for global operator commands.
+// EventContext.OrgID is mandatory, and the reader rejects the nil UUID. A
+// command without a customer organization still records under a non-nil ID.
 //
-// It is unexported deliberately. As an exported variable, any importing
-// package could reassign it, which would move later operator events onto a
-// different hash chain and change what the stored rows mean, silently.
+// The unexported variable prevents importing packages from reassigning it.
+// Reassignment would select a different hash chain for later operator events
+// and silently change the organization associated with those records.
 var systemOrgID = uuid.MustParse("00000000-0000-0000-0000-0000000005ee")
 
-// SystemOrgID returns the org that global operator commands record against.
+// SystemOrgID returns the organization for global operator commands.
+//
+// The returned UUID identifies the reserved organization for commands without
+// a customer organization. Importing packages cannot reassign the stored ID.
+//
+//   - Global command events use this ID as their organization.
+//   - Repeated calls return the same UUID.
 func SystemOrgID() uuid.UUID {
 	return systemOrgID
 }
 
-// Spec is the audit declaration every operator command carries. Mutates marks
-// a command that changes state.
-// Atomic marks a FoundationDB command whose event commits inside the same
-// transaction as the change, so the two can never disagree. Reads marks a
-// command that only reads and records the access.
+// Spec declares the audit behavior of an operator command. Mutates marks a
+// command that changes state. Atomic declares that a FoundationDB transaction
+// commits the event and the change together. Reads marks a command that only
+// reads and records access.
 type Spec struct {
 	Verb    string
 	Mutates bool `exhaustruct:"optional"`
 	Atomic  bool `exhaustruct:"optional"`
 	Reads   bool `exhaustruct:"optional"`
-	// CreatesAuditInfrastructure defers recording when the outbox table or
-	// operator login is absent, or when database authentication prevents the
-	// first intent write after both exist. It never skips recording: the gate
-	// writes intent and outcome after the infrastructure command returns. The
-	// authentication case is safe because the only in-band repair for a
-	// credential mismatch is the seed-roles step inside this command, and both
-	// rows land after it, so nothing goes unaudited. The operator role can drop
-	// neither object. Only a superuser can manufacture either absence, and an
-	// absent login proves no operator command has ever recorded.
+	// CreatesAuditInfrastructure permits deferred recording when the outbox
+	// table or operator login does not exist, or authentication prevents the
+	// first intent write after both exist. The gate then attempts to write the
+	// intent and outcome after the command returns. A later write can fail.
+	//
+	// The seed-roles step repairs credential mismatches during infrastructure
+	// creation. The operator role cannot drop the table or login. Elevated
+	// privileges can remove them, and their absence does not prove that earlier
+	// commands never recorded.
+	//
+	// The audit completeness contract requires durable intent before external
+	// effects. Deferred recording does not satisfy that ordering requirement.
 	CreatesAuditInfrastructure bool `exhaustruct:"optional"`
-	// Class is the operation class of the definition. ValidateSpec rejects a
-	// read class on a definition that mutates.
+	// Class specifies the definition's operation class. ValidateSpec rejects a
+	// read class when the definition mutates.
 	Class OperationClass `exhaustruct:"optional"`
 	// Targets returns the typed targets for one operation input.
 	Targets func(context.Context, json.RawMessage) ([]Target, error) `exhaustruct:"optional"`
@@ -62,8 +70,8 @@ type InfrastructureState struct {
 	OperatorReadsExist bool `exhaustruct:"optional"`
 }
 
-// InfrastructureProbe reports the audit infrastructure state before a command
-// that creates it runs.
+// InfrastructureProbe reports the audit infrastructure state before the
+// command that creates the infrastructure runs.
 type InfrastructureProbe func(context.Context) (InfrastructureState, error)
 
 // OutboxWriter durably writes an operator event.
@@ -71,9 +79,9 @@ type OutboxWriter interface {
 	WriteOutbox(ctx context.Context, event Event) error
 }
 
-// IdempotentOutboxWriter writes an event only when its event identity is not
-// already present. Reconstructed history uses this narrow contract so an
-// operator can resume a partial run without duplicating ledger history.
+// IdempotentOutboxWriter writes an event only when its identity does not
+// already exist. Reconstructed history uses this contract to resume partial
+// runs without duplicating ledger history.
 type IdempotentOutboxWriter interface {
 	WriteOutboxIfAbsent(ctx context.Context, event Event) (bool, error)
 }
@@ -83,15 +91,16 @@ type IdempotentOutboxWriter interface {
 type OperatorPrincipal struct {
 	// ID is the stable identity of the operator.
 	ID uuid.UUID
-	// Email is the operator email snapshot. A service principal has none.
+	// Email records the operator email snapshot. A service principal does not
+	// provide an email.
 	Email string
 	// Name is the operator display name snapshot.
 	Name string
 	// Source identifies the mechanism that resolved the principal.
 	Source string
-	// Kind names the ledger actor kind. The zero value means ActorOperator,
-	// which keeps the existing human sources unchanged; the service identity
-	// source sets ActorService so a daemon is never recorded as a human.
+	// Kind specifies the ledger actor kind. The zero value selects
+	// ActorOperator for existing human identity sources. The service identity
+	// source sets ActorService to distinguish a daemon from a human.
 	Kind ActorType `exhaustruct:"optional"`
 	// SessionID identifies the agent session that ran the command. The
 	// service identity source sets it from the session flag; a human principal
@@ -103,10 +112,13 @@ type OperatorPrincipal struct {
 	OnBehalfOf *ActProvenance `exhaustruct:"optional"`
 }
 
-// ActorType returns the ledger actor kind this principal records as. The zero
-// Kind means ActorOperator, so every event built from one principal carries
-// one kind; a nested event that hardcoded the kind would misclassify a
-// service run as a human.
+// ActorType returns the ledger actor kind for the principal.
+//
+// A zero Kind selects ActorOperator. Event builders must use this method
+// instead of hardcoding a human kind for a service run.
+//
+//   - A human principal with zero Kind records as ActorOperator.
+//   - A service principal with ActorService records as ActorService.
 func (p OperatorPrincipal) ActorType() ActorType {
 	if p.Kind == "" {
 		return ActorOperator

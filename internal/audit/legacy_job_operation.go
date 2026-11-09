@@ -11,19 +11,22 @@ import (
 
 const legacyJobOperationName = "subtree-delete-operation"
 
-// LegacyJobOperation builds the audit operation for a subtree delete job record
-// that does not contain an operation. When template is not empty, it decodes
-// template as an [Event] and copies its actor, source, tool, request ID, and trace
-// ID. When template is empty, it uses a user actor with actorID and the system
-// source, [SourceSystem].
+// LegacyJobOperation builds an audit operation for a subtree delete job record
+// that does not contain an operation.
 //
-// It derives a name-based UUID from jobID as the operation ID. Every step and
-// every runner derive the same operation ID from the same job ID. StartedAt uses
-// the time that the UUIDv7 jobID encodes. It returns an error that wraps
-// [ErrMissingMutationContext] when jobID is not a UUIDv7, and an error when
-// template is not valid event JSON.
+// The operation ID derives from jobID with a name-based UUID. Every step and
+// runner derives the same operation ID for the same job. StartedAt uses the
+// time in the UUIDv7 jobID. Invalid jobID versions return an error that wraps
+// [ErrMissingMutationContext], and invalid event JSON returns a decoding error.
 //
-// Remove AuditTemplate and [LegacyJobOperation] after job records with
+// The template controls the initiating identity and request details:
+//
+//   - A nonempty template decodes as an [Event] and supplies its actor, source,
+//     tool, request ID, and trace ID.
+//   - An empty template uses actorID as a user actor and [SourceSystem] as the
+//     source.
+//
+// Remove AuditTemplate and LegacyJobOperation after job records with
 // audit_template no longer exist in any environment.
 func LegacyJobOperation(ctx context.Context, jobID, actorID uuid.UUID, template json.RawMessage) (Event, error) {
 	if jobID.Version() != uuidVersionTimeOrdered {

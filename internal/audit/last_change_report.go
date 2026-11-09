@@ -7,12 +7,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// Report returns the field entries in path order and the relationship
-// entries in source, relation type, and target order. Pass truncated as true
-// when the read stopped before the oldest row of the window. Entries without
-// change evidence report partial when truncated is true or when the rows read
-// do not include the node's creation. Every entry with candidates reports
-// partial when truncated is true.
+// Report returns field entries in path order and relationship entries in
+// source, relation type, and target order.
+//
+// The truncated argument reports whether the read stopped before the oldest row
+// of the window. Coverage affects the returned entries as follows:
+//
+//   - Entries without candidates or legacy evidence report partial when
+//     truncated is true or the rows do not include the node's creation.
+//   - Every entry with candidates reports partial when truncated is true.
 func (deriver *LastChangeDeriver) Report(truncated bool) LastChangeReport {
 	coverage := readCoverage{complete: deriver.historyStart && !truncated, truncated: truncated}
 	report := LastChangeReport{
@@ -47,14 +50,15 @@ func (deriver *LastChangeDeriver) Report(truncated bool) LastChangeReport {
 }
 
 // relationshipLegacy returns the legacy rows that apply to the relationship
-// entry for identity. Legacy relationship rows store only the source node, so
-// they apply to every entry with the node as source and to no entry with the
-// node as target. Legacy node rows do not apply to relationship entries.
+// entry for identity. Legacy relationship rows record only the source node.
+// They apply to entries with the node as source and do not apply to entries
+// with the node as target. Legacy node rows do not apply to relationship
+// entries.
 //
-// An identity without candidates comes from an unsuccessful change row. It
-// reports partial when the rows read do not cover the history, and the report
-// leaves it out otherwise. LegacyRelationshipEventIDs on the report lists the
-// legacy relationship rows that such an identity does not show.
+// An identity without candidates comes from an unsuccessful change row. The
+// report includes that identity as partial when the read does not cover the
+// history and omits it otherwise. LastChangeReport.LegacyRelationshipEventIDs
+// lists the legacy relationship rows that the identity does not show.
 func (deriver *LastChangeDeriver) relationshipLegacy(identity relationshipIdentity, candidates *changeCandidates) []legacyEvidence {
 	if candidates == nil || identity.sourceID != deriver.nodeID {
 		return nil
@@ -81,8 +85,8 @@ func (deriver *LastChangeDeriver) reportPaths() []string {
 	return paths
 }
 
-// reportRelationships returns every relationship identity that a row read
-// identifies, including identities of unsuccessful changes.
+// reportRelationships returns every relationship identity in the rows,
+// including identities from unsuccessful changes.
 func (deriver *LastChangeDeriver) reportRelationships() []relationshipIdentity {
 	identities := make([]relationshipIdentity, 0, len(deriver.seenTargets))
 	for identity := range deriver.seenTargets {

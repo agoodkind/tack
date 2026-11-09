@@ -9,6 +9,13 @@ import (
 )
 
 // ReadEventByRequest finds one organization's read event for a request.
+//
+// The lookup requires an organization ID, request ID, and nonzero time bounds.
+// It refuses ambiguous results instead of selecting one event.
+//
+//   - A matching event returns its UUID.
+//   - A request without a matching event returns uuid.Nil and a nil error.
+//   - Multiple matching events return an error.
 func (r *Reader) ReadEventByRequest(ctx context.Context, orgID uuid.UUID, requestID string, oldest, latest time.Time) (uuid.UUID, error) {
 	if orgID == uuid.Nil || requestID == "" || oldest.IsZero() || latest.IsZero() {
 		return uuid.Nil, fmt.Errorf("read event lookup requires an organization, request ID, and time range")

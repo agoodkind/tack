@@ -18,7 +18,8 @@ type manifestDeclaration struct {
 	outcome string
 }
 
-// readEvidence classifies missing evidence and validates a present declaration.
+// readEvidence validates the event declaration and rejects missing read
+// evidence.
 func (d manifestDeclaration) readEvidence(eventID uuid.UUID) (*ReadEvidence, error) {
 	if len(d.raw) > EventPartMaxBytes {
 		return nil, fmt.Errorf("event %s declares oversized read evidence", eventID)

@@ -13,13 +13,15 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestWriteOutboxIfAbsentUnderInsertOnlyRole runs the idempotent outbox write
-// as the kind of role an operator command authenticates as: INSERT on the
-// outbox and nothing else. The reconstruction writes every one of its events
-// through this path, and under ON CONFLICT it failed on the first event with
-// "permission denied for table ops_outbox", because resolving a conflict
-// target reads the table. The command could not have written its history on
-// any environment that enforces the privilege split, production included.
+// TestWriteOutboxIfAbsentUnderInsertOnlyRole exercises idempotent outbox
+// writes with the operator role's INSERT-only table permissions.
+//
+// Reconstruction uses this path for every event. An earlier ON CONFLICT
+// implementation required a table read to resolve the conflict target and
+// failed on its first event with "permission denied for table ops_outbox".
+// Reconstruction could not record its history under the privilege split,
+// including production. The test checks that the current write inserts once
+// and accepts a repeated event without creating another row.
 func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
@@ -66,10 +68,10 @@ func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
 	}
 }
 
-// insertOnlyOutboxDSN creates a login role holding INSERT on the outbox and
-// nothing else, mirroring the deployment role an operator command uses, and
-// returns a connection string for it. The credential is generated per run and
-// never logged.
+// insertOnlyOutboxDSN creates a login role with only INSERT permission on the
+// outbox, matching the operator command's deployment role. It returns the
+// role's connection string and generates a new credential for each run. The
+// helper does not log the credential.
 func insertOnlyOutboxDSN(
 	ctx context.Context,
 	t *testing.T,
@@ -86,8 +88,8 @@ func insertOnlyOutboxDSN(
 	if _, err := rand.Read(suffix); err != nil {
 		t.Fatalf("generate role suffix: %v", err)
 	}
-	// Roles belong to the whole engine rather than one database, so the name
-	// carries a per-run suffix and never meets a role an earlier run left.
+	// Roles apply to the whole database engine. A random per-run suffix avoids
+	// reusing a role from an earlier run.
 	role := "outbox_insert_only_test_" + hex.EncodeToString(suffix)
 
 	if _, err := owner.Exec(ctx,

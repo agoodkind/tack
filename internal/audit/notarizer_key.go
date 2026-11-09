@@ -34,8 +34,14 @@ func loadEd25519Key(path string) (ed25519.PrivateKey, string, error) {
 	return priv, KeyIdentifier(pub), nil
 }
 
-// GenerateAuditSigningKey writes a fresh Ed25519 private key in PKCS#8 PEM
-// format to path for the operator workflow.
+// GenerateAuditSigningKey writes a fresh Ed25519 private key to path for the
+// operator workflow.
+//
+// The function encodes the key as PKCS#8 PEM. It writes the file with mode
+// 0600 when creating it.
+//
+//   - Key generation and PKCS#8 encoding failures return an error.
+//   - File write failures return the filesystem error.
 func GenerateAuditSigningKey(path string) error {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
