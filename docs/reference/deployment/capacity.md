@@ -14,20 +14,20 @@ Measurement inputs:
 
 | Input | Measurement method | Qualification |
 |---|---|---|
-| Ledger events per interval | Use `ops db sql --execute` through `tack-ops` to run one read-only `COUNT(*)` on `audit.events` across all organizations, including the nil organization. Count each row with `event_time` at or after the start and before the end. | The database login must have ledger read access. The command requires a reason, successful alarm mail delivery, and recorded intent before running the statement. |
-| Restored ledger rows | Read each organization's row count from the restore drill's `backup.restore_drill.ledger_chain.org` results. | Each drill counts its restored backup, rather than the live ledger at drill time. |
-| Kafka records per interval | Run `ops audit consumer-offsets --execute` through `audit-ops` at both boundaries and record each report's `read_at`. Subtract the starting `high_water_mark` from the ending value for each `topic` and `partition`. Sum each difference once across consumer groups. | The reports must cover the same topic and every partition at both boundaries. The difference counts audit records when each new offset represents one audit record and offsets remain continuous. A stopped consumer does not affect this measure. Offset growth does not count final ledger events. |
-| Ledger bytes per final event | Measure audit partition total relation growth, including indexes, and divide by the final events added during the same workload. | Row payload bytes alone omit index and relation costs. A zero growth or row count does not produce a usable per-event measurement. |
-| Kafka bytes per record | Divide broker byte growth by broker records added during the same workload. | The workload and compression affect this value. |
-| Read-receipt bytes | Measure terminal receipt keys, values, and cleanup indexes, then multiply by the storage replica count. | Per-receipt averages divide those bytes by the measured terminal receipt count. |
-| Guest free space | Read `df -h /` and `du -sh` for each Docker volume on the target guest. | Guest services can share a disk; a retired volume still consumes space. |
-| Backup capacity | Measure the object-store guest and retained objects separately. | The application guest's free space does not measure SeaweedFS capacity. |
+| Ledger events per interval | The measurement uses `ops db sql --execute` through `tack-ops` for one read-only `COUNT(*)` on `audit.events` across all organizations, including the nil organization. It counts each row with `event_time` at or after the start and before the end. | The database login must have ledger read access. The command requires a reason, successful alarm mail delivery, and recorded intent before running the statement. |
+| Restored ledger rows | Each organization's row count comes from the restore drill's `backup.restore_drill.ledger_chain.org` results. | Each drill counts its restored backup, rather than the live ledger at drill time. |
+| Kafka records per interval | The measurement uses `ops audit consumer-offsets --execute` through `audit-ops` at both boundaries and records each report's `read_at`. For each `topic` and `partition`, it subtracts the starting `high_water_mark` from the ending value and sums each difference once across consumer groups. | The reports must cover the same topic and every partition at both boundaries. The difference counts audit records when each new offset represents one audit record and offsets remain continuous. A stopped consumer does not affect this measure. Offset growth does not count final ledger events. |
+| Ledger bytes per final event | The measurement divides audit partition total relation growth, including indexes, by the final events added during the same workload. | Row payload bytes alone omit index and relation costs. A zero growth or row count does not produce a usable per-event measurement. |
+| Kafka bytes per record | The measurement divides broker byte growth by broker records added during the same workload. | The workload and compression affect this value. |
+| Read-receipt bytes | The measurement includes terminal receipt keys, values, and cleanup indexes, multiplied by the storage replica count. | Per-receipt averages divide those bytes by the measured terminal receipt count. |
+| Guest free space | The measurement uses `df -h /` and `du -sh` for each Docker volume on the target guest. | Guest services can share a disk; a retired volume still consumes space. |
+| Backup capacity | Operators must measure the object-store guest and retained objects separately. | The application guest's free space does not measure SeaweedFS capacity. |
 
 The host command `audit query --execute` pages through rows for one nonzero
 `--org` between the inclusive `--oldest` and exclusive `--latest` RFC3339
 bounds. Only the internal reader filter can explicitly select the nil
-organization in this query. Identify every omitted organization when reporting
-a subtotal from these pages.
+organization in this query. A subtotal report must identify every omitted organization
+when it uses these pages.
 
 The runtime audit scaling test measures the same workload at different app
 instance counts and reports storage growth. Its measurements describe that

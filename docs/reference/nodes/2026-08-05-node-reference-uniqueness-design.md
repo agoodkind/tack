@@ -18,7 +18,16 @@ The design requires repair of duplicate references for every template a deployme
 
 For each node selected for renumbering, the current repair chooses that type's primary template. Preview and execution both fail if the type lacks a primary template with a generated property. Execution changes that property and submits only the newly rendered primary claim as the replacement set in the node update. After renumbering, execution reasserts all templates' claims. Preview skips that last step. If two nodes share a secondary identifier independent of the primary's generated property, changing the number does not resolve their secondary collision.
 
-The default `--keep oldest` retains the lexically smallest UUID string in the group. `--keep newest` retains the largest. UUIDv7 encodes time in milliseconds. The command does not check UUID versions or compare creation timestamps. A random legacy UUID does not encode creation time. UUIDv7 values from the same millisecond do not guarantee the actual order of two creates. The storage constraint rejects a conflicting claim regardless of the repair policy.
+The repair policies select a retained node by lexical UUID order.
+
+Retention policies:
+
+| Policy | Retained UUID string |
+| --- | --- |
+| Default `--keep oldest` | The lexically smallest string in the group. |
+| `--keep newest` | The lexically largest string in the group. |
+
+UUIDv7 encodes time in milliseconds. The command does not check UUID versions or compare creation timestamps. A random legacy UUID does not encode creation time. UUIDv7 values from the same millisecond do not guarantee the actual order of two creates. The storage constraint rejects a conflicting claim regardless of the repair policy.
 
 A formerly duplicated address identifies the node that kept it. It cannot forward to one successor because several nodes used it. TACK-365 separately proposes forwarding for a move from a previously unique address. Under that proposal, the resolver would first check the direct claim and would consult a forwarding record only after a direct miss.
 
@@ -26,14 +35,36 @@ A formerly duplicated address identifies the node that kept it. It cannot forwar
 
 The printed mapping identifies the UUID and replacement address for each renamed node. If an archived note gives only an address that several nodes shared, the mapping cannot establish which node its author meant. The production execution and ledger cross-check appear in [TACK-342](https://tack.home.goodkind.io/browse/TACK-342) and [TACK-391](https://tack.home.goodkind.io/browse/TACK-391).
 
+The dated production records establish the scope and limits of each repair.
+
+Production evidence:
+
 | Date | What the production evidence establishes |
 | --- | --- |
 | August 7, 2026 | The operator authorized a backup followed by execution. The backup completed. The operators did not run the restore drill. Preview and execution ran back to back without a separate human review of the mapping. Detection found 102 groups in seven projects. The run renamed 103 nodes, seeded 11 counters, backfilled 1,620 keys and ended with zero duplicate groups. |
 | August 8, 2026 | The ledger cross-check did not find contemporaneous rows for the August 7 repair. An app still running the old image issued a duplicate `TACK-403`. After an image update, a separate repair renamed that node `TACK-420`. |
 
-The reconstruction covered 104 renames, 11 counter seeds, 3,241 reference keys and two production seed runs. It required the ordinary audit path to append each event in current chain order, mark it as reconstructed, retain its historical occurrence time and cite the printed mapping and execution log. A separate event had to identify the operator who ran reconstruction and what it covered. The resulting chain had to pass verification.
+The reconstruction covered the recorded production changes.
 
-The testbed executed the reconstruction and verified its chain. A repeat execution did not add rows. Production ran only a dry run. Five classes matched their expected counts. One class produced 1,619 of 1,620 expected key backfills. The dry run did not write reconstructed events. [TACK-429](https://tack.home.goodkind.io/browse/TACK-429)
+Reconstruction scope:
+
+| Change | Count |
+| --- | ---: |
+| Renames | 104 |
+| Counter seeds | 11 |
+| Reference keys | 3,241 |
+| Production seed runs | 2 |
+
+It required the ordinary audit path to append each event in current chain order, mark it as reconstructed, retain its historical occurrence time and cite the printed mapping and execution log. A separate event had to identify the operator who ran reconstruction and what it covered. The resulting chain had to pass verification.
+
+The reconstruction results distinguish testbed execution from the production dry run. [TACK-429](https://tack.home.goodkind.io/browse/TACK-429)
+
+Reconstruction results:
+
+| Environment | Observed result |
+| --- | --- |
+| Testbed | The testbed executed the reconstruction and verified its chain. A repeat execution did not add rows. |
+| Production | Production ran only a dry run. Five classes matched their expected counts. One class produced 1,619 of 1,620 expected key backfills. The dry run did not write reconstructed events. |
 
 Retiring the property scan required complete reference claims and zero duplicate groups in both QA and production. A sequence lookup now returns not found for a missing claim even if the primary record exists.
 
@@ -41,15 +72,19 @@ Retiring the property scan required complete reference claims and zero duplicate
 
 Reference acceptance requires real create, update, delete and lookup operations against FoundationDB. Domain tests verify rendering, parsing and counter-key derivation without a database. The `make test-integration` target enables the `integration` build tag and runs the suite with single-node FoundationDB and YugabyteDB containers for these cases.
 
+Acceptance evidence must establish each reference behavior.
+
+Reference acceptance:
+
 | Case | Required observation |
 | --- | --- |
-| Cross-type create | An ordinary create of an epic followed by an issue in one project must assign successive numbers and render different references. Confirm the detector includes the fixture organization and reports zero groups. |
+| Cross-type create | An ordinary create of an epic followed by an issue in one project must assign successive numbers and render different references. The detector must include the fixture organization and report zero groups. |
 | Occupied destination in a same-type scope repair | A resident issue owns `QAT-1`. A second issue has the destination project as its parent, the original project as its scope and sequence 1. `RepairSequenceScopeIDs` derives the destination scope from its parent and preserves the sequence. The occupied claim must cause `ErrConflict` and zero repairs. The stale issue must retain its original scope, and the resident must retain `QAT-1`. |
 | Unoccupied destination | The stale issue owns `FAN-1`. When `QAT-1` is available, the same repair must transfer the issue's claim to `QAT-1` and release `FAN-1`. |
 | Claim lifecycle | A retry by the same owner succeeds. An update or deletion releases the old value, and lookup cannot return its former owner. A rejected create must not leave a partial node. |
 | Nonstandard property | For a template that generates `property(number)`, creation must allocate into `number`, rendering must read `number`, and resolution must use `number`. These operations must not read the literal `sequence` property on this path. |
 | Per-type numbering and parsing | A template containing `node_type` permits an epic and an issue to use the same number and prints distinct references. Parsing must recover the rendered parts, including a hyphenated scope, and reject a missing delimiter. |
-| Legacy cross-type collision | In a project with identifier `FAN`, store an epic and an issue with sequence 1 and the same project parent and scope. Detection must report exactly one group under template `reference` and value `FAN-1`, with both fixture UUIDs. |
+| Legacy cross-type collision | In a project with identifier `FAN`, the fixture must contain an epic and an issue with sequence 1 and the same project parent and scope. Detection must report exactly one group under template `reference` and value `FAN-1`, with both fixture UUIDs. |
 
 If a create repeats the original cross-type collision and attempts to issue the same reference, the design requires an invalid-argument error. Ordinary creates that receive successive numbers do not exercise this refusal. A separate storage test must submit the same rendered reference for two nodes and verify that the second claim fails with `ErrConflict`. The storage result alone cannot establish the error that a caller receives from a create.
 

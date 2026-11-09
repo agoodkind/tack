@@ -64,18 +64,17 @@ Required state:
 
 ## General provider requirements
 
-General providers must satisfy the following lifecycle requirements. A capability
-that an existing provider implements does not require a duplicate Tack resource.
+General providers must satisfy the following lifecycle requirements. A capability that an existing provider implements does not require a duplicate Tack resource.
 
 Required behavior:
 
 | Area | Required behavior |
 | --- | --- |
-| Packages | Declare apt versions and upgrade restrictions, and perform package removal when the declared lifecycle requires it. |
-| Services | Show and perform the required shutdown and disablement when removing a managed service. |
-| Files | Show readable changes to nonsecret content, and use hashes to detect drift in write-only content. |
-| Backup mounts | Compare live mount state and manage changes through resources instead of ignored fields and imperative hot-plug steps. |
-| Host overlays and permissions | Read installed overlay versions, roles, and access rules, and replace command-triggered installation and grants with observable resources. |
+| Packages | General providers must declare apt versions and upgrade restrictions, and perform package removal when the declared lifecycle requires it. |
+| Services | General providers must show and perform the required shutdown and disablement when removing a managed service. |
+| Files | General providers must show readable changes to nonsecret content, and use hashes to detect drift in write-only content. |
+| Backup mounts | General providers must compare live mount state and manage changes through resources instead of ignored fields and imperative hot-plug steps. |
+| Host overlays and permissions | General providers must read installed overlay versions, roles, and access rules, and replace command-triggered installation and grants with observable resources. |
 
 ## Refresh and planning
 
@@ -155,11 +154,12 @@ Service startup must verify that configuration without changing it.
 Every deployment field and setup step requires a record of the owning provider,
 live reader, planned changes, apply and removal behavior, and acceptance evidence.
 Every provider release must satisfy these requirements before its resources
-replace an existing deployment step. Acceptance must use real provider interfaces
-on disposable systems with the deployed engines and cover reused, extended, and
+replace an existing deployment step. Acceptance must use real provider interfaces on disposable systems with the deployed engines and cover reused, extended, and
 new resources.
 
-Acceptance requires the following evidence:
+Acceptance requires evidence for each deployment and recovery case.
+
+Acceptance evidence:
 
 | Acceptance case | Required evidence |
 | --- | --- |

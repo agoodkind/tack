@@ -16,8 +16,13 @@ not automatically become a required setting for the HTTP server.
 ## Secret file references
 
 A supported secret setting can use a value or a corresponding `_FILE`
-environment variable. The configuration loader rejects a nonempty value with
-a file reference, an empty file path, an unreadable file, or an empty secret.
+environment variable. The configuration loader rejects these inputs:
+
+- A nonempty value with a file reference.
+- An empty file path.
+- An unreadable file.
+- An empty secret.
+
 It removes trailing carriage returns and newlines from file contents. It gives
 the resolved value to the configuration parser without changing the process
 environment.

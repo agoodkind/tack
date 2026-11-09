@@ -9,7 +9,9 @@ The patch supports role management on YugabyteDB 2024.2 with external locking.
 The `role_lock_mode` provider setting accepts `advisory` and `external`. It defaults
 to `advisory` and rejects other values.
 
-The modes control locks for `postgresql_role` writes:
+The modes control locks for `postgresql_role` writes.
+
+Role lock modes:
 
 | Mode | Create | Update and delete |
 | --- | --- | --- |
@@ -45,7 +47,11 @@ Role behavior:
 
 ## Remaining advisory locks
 
-External mode applies only to `postgresql_role`. The `postgresql_database`,
-`postgresql_default_privileges`, and `postgresql_grant` resources still request
-advisory locks on the role or database. Operations that request those locks fail
+External mode applies only to `postgresql_role`. These resources still request advisory locks on the role or database:
+
+- `postgresql_database`
+- `postgresql_default_privileges`
+- `postgresql_grant`
+
+Operations that request those locks fail
 on YugabyteDB.

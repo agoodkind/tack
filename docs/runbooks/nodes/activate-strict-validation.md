@@ -8,6 +8,8 @@ Activation applies to every organization in the FoundationDB cluster. It makes o
 
 2. For an agent run, set the shell variables below to the actual agent and accountable operator identity.
 
+   Identity variables:
+
    | Shell variable | Identity flag |
    | --- | --- |
    | `OPERATOR_SERVICE` | `--operator-service` |
@@ -57,6 +59,10 @@ Activation applies to every organization in the FoundationDB cluster. It makes o
    ```
 
 2. Check the printed identity and read the JSON output. Confirm `dry_run` is `true`. The scan fields are inside `result`. The top-level `max_violations` limits the number of entries in `result.first_violations`.
+
+   The fields establish the scan status and reported violations.
+
+   Scan checks:
 
    | Field in `result` | Check |
    | --- | --- |

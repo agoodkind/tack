@@ -29,7 +29,16 @@ The service starts at the selected scope and follows `parent_id`. It uses the fi
 
 The contract permits scope chains of arbitrary depth. The current service returns an error if the chain continues after 32 nodes.
 
-For the `scoped_sequence` strategy, parsing must recover the scope and generated property from the same parts. With a hyphen separator, `FAN-QA-13` yields scope `FAN-QA` and value `13`. If the template also includes the type, `FAN-epic-1` yields scope `FAN`, type `epic` and value `1`. A missing separator or required segment fails parsing.
+For the `scoped_sequence` strategy, parsing must recover the scope and generated property from the same parts. These examples use a hyphen separator.
+
+Parsed references:
+
+| Input | Template condition | Scope | Type | Generated value |
+| --- | --- | --- | --- | --- |
+| `FAN-QA-13` | The template omits the type. | `FAN-QA` | Not included. | `13` |
+| `FAN-epic-1` | The template includes the type. | `FAN` | `epic` | `1` |
+
+A missing separator or required segment fails parsing.
 
 For a `scoped_property` such as `PROJECT::In Progress`, the example template declares `scope_ref(is_scope)`, `literal("::")` and `property(name)` in that order. A direct property needs only its declared value, such as `property(identifier)`.
 
@@ -39,8 +48,29 @@ A template with zero parts renders the empty string. A create that passes its ot
 
 The generator omits the property it fills and renders the remaining parts to obtain the counter key. The allocator selects the counter by organization and rendered counter key. Types using the seeded template in the same organization share a counter when their `scope_ref` parts render the same text. A `node_type` part distinguishes both the counter and the printed value. For example, with `OPS` as the scope, a hyphen separator and `number` as the generated property, the counter key is `OPS-`. A value of 4 renders as `OPS-4`. Each allocation increments the selected counter atomically. When a deployment adopts a different counter key for existing nodes, the repair must initialize it to at least the highest value already present before issuing new numbers. A new counter begins at zero. A repeat initialization must never lower its value.
 
-The seed design requires a shared primary template for issues, epics, cycles and modules. Its parts select the `is_scope` feature, the literal `-` and the generated property `sequence`. It omits `node_type`. Issue and epic creates in one project take successive numbers.
-The current seed installs this template only on types with `has_sequence_id`. Issues and epics declare that feature. Cycles and modules use the `scoped_sequence` strategy but omit the feature and the template.
+The seed design requires a shared primary template for these types:
+
+- Issues.
+- Epics.
+- Cycles.
+- Modules.
+
+Its ordered parts select these values:
+
+1. The `is_scope` feature.
+2. The literal `-`.
+3. The generated property `sequence`.
+
+It omits `node_type`. Issue and epic creates in one project take successive numbers.
+The current seed installs this template only on types with `has_sequence_id`.
+
+Seed implementation:
+
+| Types | `has_sequence_id` | Shared primary template | Reference strategy |
+| --- | --- | --- | --- |
+| Issues and epics | The types declare the feature. | The seed installs the template. | The template allocates successive numbers in one project. |
+| Cycles and modules | The types omit the feature. | The seed omits the template. | The types use `scoped_sequence`. |
+
 Separators, scope features, property names and type keys are deployment data.
 
 Each time `SeedOrg` runs, it writes the full built-in type definitions again. Reseeding restores an edited or removed template on a built-in type to its seed declaration. This loop does not rewrite organization-defined types. An organization can keep a custom template across reseeds on its own type.
@@ -64,7 +94,17 @@ FoundationDB packs the organization, template name and complete rendered string 
 
 A create reads the forward claim in the mutation transaction. A different owner produces `ErrConflict`. The same owner may assert its claim again. An update replacing its claims clears previous forward and reverse entries before writing new ones in the same transaction. An explicit empty replacement releases the claims. An omitted replacement leaves existing claims alone. A deletion releases the node's claims. A malformed reverse entry must fail the transaction, since clearing it could strand a forward claim.
 
-The service renders claims from the type's metadata. `NodeService` uses `node.Mutator.ApplyMutation` for a user-facing create or update. The transaction reads the current type and property definitions, derives the indexed properties and accepts the service's rendered claims. It commits the primary record and its properties, resolution record, view, indexes, claims, relationship changes and required audit evidence together. When the store enables search work, the transaction also schedules the required indexing. A move into a scope where another node owns the new reference must fail without changing either node.
+The service renders claims from the type's metadata. `NodeService` uses `node.Mutator.ApplyMutation` for a user-facing create or update. The transaction reads the current type and property definitions, derives the indexed properties and accepts the service's rendered claims. It commits these records together:
+
+- The primary record and its properties.
+- The resolution record.
+- The view.
+- The indexes.
+- The claims.
+- The relationship changes.
+- The required audit evidence.
+
+When the store enables search work, the transaction also schedules the required indexing. A move into a scope where another node owns the new reference must fail without changing either node.
 
 The design requires a human-readable reference to resolve with one point read, a lookup of one exact storage key. For sequence references, it rules out scanning the property index, walking each candidate's parent chain and trying every sequence-bearing type in each workspace.
 
