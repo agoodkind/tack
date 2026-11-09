@@ -13,8 +13,8 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// auditReadReceipt stores the terminal record of one read. PublishedAt remains
-// zero until the relay acknowledges publication.
+// auditReadReceipt stores the terminal record of one read. PublishedAt
+// remains zero until the relay acknowledges publication.
 type auditReadReceipt struct {
 	Owner       uuid.UUID     `json:"owner"`
 	Generation  uint64        `json:"generation"`
@@ -23,7 +23,8 @@ type auditReadReceipt struct {
 	PublishedAt time.Time     `json:"published_at,omitzero" exhaustruct:"optional"`
 }
 
-// auditRecord restricts read lifecycle JSON records to pending reads and terminal receipts.
+// auditRecord restricts read lifecycle JSON records to pending reads and
+// terminal receipts.
 type auditRecord interface {
 	auditReadPending | auditReadReceipt
 }
@@ -36,10 +37,11 @@ func auditReadCleanupKey(bucket uint16, published time.Time, eventID uuid.UUID) 
 	return fdb.Key(withPrefix(tuple.Tuple{keyAuditReadCleanup, int64(bucket), published.UnixNano(), eventID.String()}.Pack()))
 }
 
-// FinalizeRead saves the final event in the outbox, saves its digest in a terminal
-// receipt, and removes pending state in one transaction. If pending state does not
-// exist, a receipt from the same owner with the same digest confirms an earlier
-// commit. Finalization never recreates missing pending state.
+// FinalizeRead saves the final event in the outbox, saves its digest in a
+// terminal receipt, and removes pending state in one transaction. If pending
+// state does not exist, a receipt from the same owner with the same digest
+// confirms an earlier commit. Finalization does not recreate missing pending
+// state.
 func (s *AuditReadStore) FinalizeRead(ctx context.Context, completion audit.ReadCompletion) error {
 	token := completion.Token
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
@@ -76,8 +78,8 @@ func (s *AuditReadStore) FinalizeRead(ctx context.Context, completion audit.Read
 	return nil
 }
 
-// confirmFinalized accepts a retry only when the receipt matches the owner and
-// digest and records a terminal outcome other than incomplete.
+// confirmFinalized accepts a retry only when the receipt matches the owner
+// and digest and records a terminal outcome other than incomplete.
 func confirmFinalized(tr fdb.Transaction, completion audit.ReadCompletion) error {
 	receipt, found, err := readAuditRecord[auditReadReceipt](tr, auditReadReceiptKey(completion.Token.EventID))
 	if err != nil {
@@ -89,8 +91,8 @@ func confirmFinalized(tr fdb.Transaction, completion audit.ReadCompletion) error
 	return nil
 }
 
-// AcknowledgePublished marks matching receipts as published and schedules their
-// cleanup in one transaction.
+// AcknowledgePublished marks matching receipts as published and schedules
+// their cleanup in one transaction.
 func (s *AuditReadStore) AcknowledgePublished(ctx context.Context, reads []audit.PublishedRead) error {
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
 		return acknowledgeReads(tr, s.clock.Now(), reads)
@@ -101,11 +103,11 @@ func (s *AuditReadStore) AcknowledgePublished(ctx context.Context, reads []audit
 	return nil
 }
 
-// acknowledgeReads skips reads without receipts. It returns an error when the
-// acknowledgment digest differs from the receipt digest, even after publication.
-// It does not change a published receipt when the digest matches. For an unpublished
-// receipt with a matching digest, it records now as the publication time and schedules
-// cleanup within tr.
+// acknowledgeReads skips reads without receipts. It returns an error when
+// the acknowledgment digest differs from the receipt digest, even after
+// publication. It does not change a published receipt when the digest
+// matches. For an unpublished receipt with a matching digest, it records now
+// as the publication time and schedules cleanup within tr.
 func acknowledgeReads(tr fdb.Transaction, now time.Time, reads []audit.PublishedRead) error {
 	for _, read := range reads {
 		key := auditReadReceiptKey(read.EventID)

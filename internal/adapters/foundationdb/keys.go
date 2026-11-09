@@ -1,91 +1,112 @@
 package foundationdb
 
-// FDB key space. Everything is expressed through one of a small set of generic
-// patterns; nothing in the key space privileges a specific concept (no
-// assignment keys, no label keys, no comment keys, etc.).
-//
-// All keys use the tuple layer. orgID sits early in the tuple for tenant
-// locality.
+// FoundationDB stores product entities with generic key patterns. It does
+// not use separate assignment, label, or comment key families. Keys use the
+// tuple layer. Organization-scoped keys place orgID early in the tuple to
+// group each tenant's records.
 const (
-	// Primary node storage.
+	// keyNodeInstance stores primary node records.
+	//
 	// (node_instance, orgID, nodeType, nodeID) -> Node JSON
 	keyNodeInstance = "node_instance"
 
-	// Materialized read view. Mirrors node_instance key structure.
+	// keyNodeView stores materialized read views with the same key structure as
+	// node_instance.
+	//
 	// (node_view, orgID, nodeType, nodeID) -> NodeView JSON
 	keyNodeView = "node_view"
 
-	// Global resolution record; NOT org-scoped. Keyed by nodeID only so any
-	// caller can resolve an entity without knowing its org upfront.
+	// keyNodeResolve stores global resolution records by nodeID without an
+	// organization scope. Callers can resolve an entity without already knowing
+	// its organization.
+	//
 	// (node_resolve, nodeID) -> NodeResolve JSON
 	keyNodeResolve = "node_resolve"
 
-	// Secondary index for indexed PropertyDefs. Sorted by encoded value so
-	// filtered range scans are cheap.
+	// keyNodeByProperty indexes properties with indexed PropertyDefs. It orders
+	// entries by encoded value for filtered range scans.
+	//
 	// (node_by_property, orgID, nodeType, propName, encodedValue, nodeID) -> nil
 	keyNodeByProperty = "node_by_property"
 
-	// Forward node reference uniqueness index.
+	// keyNodeReference indexes forward node references and enforces their
+	// uniqueness.
+	//
 	// (node_reference, orgID, templateName, encoded) -> nodeID
 	keyNodeReference = "node_reference"
 
-	// Reverse node reference ownership index.
+	// keyNodeReferenceOwned indexes the references that each node owns.
+	//
 	// (node_reference_owned, orgID, nodeID, templateName) -> encoded
 	keyNodeReferenceOwned = "node_reference_owned"
 
-	// Forward relationship.
+	// keyRelationship stores forward relationships.
+	//
 	// (relationship, orgID, sourceID, relationType, targetID) -> metadata JSON
 	keyRelationship = "relationship"
 
-	// Reverse relationship for lookups by target.
+	// keyRelationshipReverse indexes relationships by target.
+	//
 	// (relationship_reverse, orgID, targetID, relationType, sourceID) -> nil
 	keyRelationshipReverse = "relationship_reverse"
 
-	// Atomic sequence counters keyed by (orgID, scopeNodeID, nodeType).
-	// scopeNodeID is the container that defines uniqueness (typically a project).
+	// keySequence stores atomic sequence counters for orgID, scopeNodeID, and
+	// nodeType. scopeNodeID identifies the container that defines uniqueness,
+	// typically a project. AllocateSequenceByKey uses counterKey instead of
+	// scopeNodeID and nodeType.
+	//
 	// (sequence, orgID, scopeNodeID, nodeType) -> int64
 	keySequence = "sequence"
 
-	// NodeType configuration records.
+	// keyNodeTypeDef stores NodeType configuration records.
+	//
 	// (node_type_def, orgID, typeID) -> NodeType JSON
 	keyNodeTypeDef = "node_type_def"
 
-	// PropertyDef records.
+	// keyPropertyDef stores PropertyDef records.
+	//
 	// (property_def, orgID, defID) -> PropertyDef JSON
 	keyPropertyDef = "property_def"
 
 	// The metadata lookup indexes map a type key or property name to record
 	// IDs. The transaction that writes a record also writes its index entry.
+	//
 	// (node_type_by_key, orgID, typeKey, typeID) -> nil
 	// (property_def_by_name, orgID, name, defID) -> nil
 	keyNodeTypeByKey     = "node_type_by_key"
 	keyPropertyDefByName = "property_def_by_name"
 
-	// Idempotency key index. The value is an IdempotencyRecord JSON payload.
-	// Older records may contain only the raw nodeID bytes.
+	// keyIdempotency indexes idempotency keys with IdempotencyRecord JSON
+	// values. Older records may contain only raw nodeID bytes.
+	//
 	// (idempotency_key, orgID, key) -> IdempotencyRecord JSON
 	keyIdempotency = "idempotency_key"
 
-	// Operator-command audit outbox. It is deliberately not org-scoped so the
-	// relay can drain every org in commit order.
+	// keyOpsOutbox stores audit outbox entries without an organization scope.
+	// The relay reads entries from every organization in commit order. Entries
+	// contain plain event JSON or multipart transport records.
+	//
 	// (ops_outbox, versionstamp) -> audit event JSON
 	keyOpsOutbox = "ops_outbox"
 
 	// The strict validation keys store the global activation record and write
 	// fence bucket epochs. Neither key family uses an organization scope.
+	//
 	// (strict_activation) -> StrictActivation JSON
 	// (write_fence, bucket) -> little-endian int64 epoch that atomic adds increment
 	keyStrictActivation = "strict_activation"
 	keyWriteFence       = "write_fence"
 
-	// The relay lease key family stores the owner ID and the expiry in
-	// FoundationDB read versions.
+	// The relay lease key family stores the owner ID and expiry in FoundationDB
+	// read versions.
+	//
 	// (ops_outbox_relay_lease) -> relay lease record JSON
 	keyOpsOutboxRelayLease = "ops_outbox_relay_lease"
 
 	// keyAuditReadPending stores pending reads by eventID. These key families
 	// do not include orgID. bucket uses the first SHA-256 byte of the event ID
 	// modulo 64. deadline and published use Unix nanoseconds.
+	//
 	// (audit_read_pending, eventID) -> pending read record JSON
 	// (audit_read_expiry, bucket, deadline, eventID) -> nil
 	// (audit_read_receipt, eventID) -> terminal receipt JSON
@@ -95,21 +116,24 @@ const (
 	keyAuditReadReceipt = "audit_read_receipt"
 	keyAuditReadCleanup = "audit_read_cleanup"
 
-	// Subtree delete jobs. The family is not org-scoped. A runner in any
-	// process lists every unfinished job of every organization.
+	// keyNodeDeleteJob stores subtree delete jobs without an organization
+	// scope. A runner in any process can list unfinished jobs across
+	// organizations.
+	//
 	// (node_delete_job, jobID) -> SubtreeDeleteJob JSON
 	keyNodeDeleteJob = "node_delete_job"
 
 	// The repair checkpoint family stores one checkpoint per repair ID and uses
-	// only the repair ID in its key because later runs cannot read the organization
-	// ID from a node's resolution record after a repair deletes the node and that
-	// record.
+	// only that ID in its key. After a repair deletes a node and its resolution
+	// record, later runs cannot read the organization ID from that record.
+	//
 	// (repair_checkpoint, repairID) -> RepairCheckpoint JSON
 	keyRepairCheckpoint = "repair_checkpoint"
 
 	// The search keys store durable search work and search state. Work, age,
 	// and claim keys include a bucket number that searchBucket computes from
-	// (orgID, nodeID). A claim reads the age keys of one bucket at a time.
+	// orgID and nodeID. A claim reads the age keys of one bucket at a time.
+	//
 	// (search_generation, orgID, nodeID) -> search generation counter
 	// (search_revision, orgID, nodeID) -> generation of the last content change
 	// (search_work, class, bucket, orgID, nodeID) -> pending work record JSON

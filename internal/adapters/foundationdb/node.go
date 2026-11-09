@@ -15,8 +15,8 @@ import (
 
 // NodeStore implements node.NodeRepository using FoundationDB. When
 // searchWork is true, each node write schedules search work in the same
-// transaction and stamps it with a time from s.clock. When writeFence is
-// set, each node write transaction attempt calls it for the written node.
+// transaction with a time from s.clock. When writeFence is non-nil, each
+// node write transaction attempt calls it for the written node.
 type NodeStore struct {
 	db         fdb.Database
 	clock      clock.Clock
@@ -27,13 +27,13 @@ type NodeStore struct {
 	sequenceLocks *sequenceLockSet
 }
 
-// NewNodeStore creates the node store. It schedules no search work until
-// [Stores.EnableSearchWork] runs.
+// NewNodeStore creates the node store. It does not schedule search work
+// until [Stores.EnableSearchWork] runs.
 func NewNodeStore(db fdb.Database, source clock.Clock) *NodeStore {
 	return &NodeStore{db: db, clock: source, searchWork: false, writeFence: fenceNodeMutation, sequenceLocks: newSequenceLockSet()}
 }
 
-// Get resolves the node by ID through its global resolution record.
+// Get resolves the node by ID using its global resolution record.
 func (s *NodeStore) Get(ctx context.Context, orgID, nodeID uuid.UUID) (n *node.Node, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.get")(&err)
 	var encoded []byte

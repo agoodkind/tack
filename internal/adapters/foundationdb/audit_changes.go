@@ -13,10 +13,11 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// AppendChanges builds one format 2 change event per audit.Change using operation.
-// It encodes each event with audit.EncodeEvent and writes the events to the outbox
-// in tr with one OutboxWriter. Callers run AppendChanges once per transaction attempt
-// after making their changes and do not write other outbox entries in that attempt.
+// AppendChanges builds one format 2 change event per audit.Change using
+// operation. It encodes each event with audit.EncodeEvent and writes the
+// events to the outbox in tr with one OutboxWriter. Callers run
+// AppendChanges once per transaction attempt after making their changes and
+// do not write other outbox entries in that attempt.
 func AppendChanges(ctx context.Context, tr fdb.Transaction, operation audit.Event, changes []audit.Change) error {
 	if len(changes) == 0 {
 		return nil
@@ -56,18 +57,20 @@ func changeEncodeFailure(step string, change audit.Change, err error) error {
 	return fmt.Errorf("%s the change event %s: %w", step, change.EventID, err)
 }
 
-// mutationAudit records changes for one write using one operation and base event ID.
-// Every transaction attempt uses the same event ID for the same change kind and record.
+// mutationAudit records changes for one write using one operation and base
+// event ID. Every transaction attempt uses the same event ID for the same
+// change kind and record.
 type mutationAudit struct {
 	operation audit.Event
 	base      uuid.UUID
 	changes   []audit.Change
 }
 
-// beginMutationAudit reads the operation with audit.RequireMutationContext and
-// allocates a base event ID before the first transaction attempt for one write to orgID.
-// It returns an error that wraps audit.ErrMissingMutationContext when the operation
-// is absent or lacks an actor ID, a known actor kind, an operation ID, or a start time.
+// beginMutationAudit reads the operation with audit.RequireMutationContext
+// and allocates a base event ID before the first transaction attempt for one
+// write to orgID. It returns an error that wraps
+// audit.ErrMissingMutationContext when the operation does not exist or lacks
+// an actor ID, a known actor kind, an operation ID, or a start time.
 func beginMutationAudit(ctx context.Context, orgID uuid.UUID) (*mutationAudit, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
@@ -82,10 +85,11 @@ func beginMutationAudit(ctx context.Context, orgID uuid.UUID) (*mutationAudit, e
 	return &mutationAudit{operation: operation, base: base, changes: nil}, nil
 }
 
-// jobMutationAudit returns a recorder for one subtree delete step using the job's
-// stored operation. It derives the base event ID from the operation ID and jobID.
-// Each retried or resumed step uses the same event ID for the same change kind and
-// record. Each step records the actor and operation ID from the stored operation.
+// jobMutationAudit returns a recorder for one subtree delete step using the
+// job's stored operation. It derives the base event ID from the operation ID
+// and jobID. Each retry or resumed step uses the same event ID for the same
+// change kind and record. Each step records the actor and operation ID from
+// the stored operation.
 func jobMutationAudit(operation audit.Event, orgID, jobID uuid.UUID) *mutationAudit {
 	operation.Context.OrgID = orgID
 	base := uuid.NewSHA1(operation.Context.OperationID, []byte("job:"+jobID.String()))
@@ -97,8 +101,8 @@ func (m *mutationAudit) startAttempt() {
 	m.changes = m.changes[:0]
 }
 
-// record adds a change for target when before and after differ.
-// It treats a nil or empty value as an absent record.
+// record adds a change for target when before and after differ. It treats a
+// nil or empty value as an absent record.
 func (m *mutationAudit) record(target audit.Target, before, after []byte) error {
 	if len(before) == 0 && len(after) == 0 {
 		return nil

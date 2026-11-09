@@ -17,10 +17,11 @@ import (
 )
 
 // RecoverExpired saves an incomplete event and a terminal receipt for up to
-// limit expired pending reads in bucket. Each read uses a separate transaction
-// that rechecks pending state and the indexed lease deadline and saves the receipt
-// with an incremented generation. A stale owner then receives ErrReadOwnerLost
-// from renewal and finalization. Recovery never reruns the read.
+// limit expired pending reads in bucket. Each read uses a separate
+// transaction that rechecks pending state and the indexed lease deadline and
+// saves the receipt with an incremented generation. A stale owner then
+// receives ErrReadOwnerLost from renewal and finalization. Recovery does not
+// rerun the read.
 func (s *AuditReadStore) RecoverExpired(ctx context.Context, bucket uint16, limit int) (int, error) {
 	if bucket >= audit.ReadRecoveryBuckets {
 		return 0, auditReadFailure(ctx, "recover audit reads", uuid.Nil, fmt.Errorf("bucket %d is out of range", bucket))
@@ -56,8 +57,8 @@ func (s *AuditReadStore) RecoverExpired(ctx context.Context, bucket uint16, limi
 }
 
 // recoverOne recovers one expired pending read. It clears an expiry key when
-// pending state does not exist or the lease deadline differs. It skips a read
-// when a renewal has extended its lease beyond the current time.
+// pending state does not exist or the lease deadline differs. It skips a
+// read when a renewal has extended its lease beyond the current time.
 func (s *AuditReadStore) recoverOne(ctx context.Context, bucket uint16, deadline int64, eventID uuid.UUID) (bool, error) {
 	saved := false
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
@@ -155,9 +156,10 @@ func unpackAuditReadTimeKey(key fdb.Key) (int64, uuid.UUID, error) {
 }
 
 // transactAuditRead calls apply and commits the transaction. It retries
-// retryable FoundationDB errors. Each attempt limits its timeout to
-// auditReadTransactionTimeout and the time left before the context deadline.
-// It returns other errors from apply unchanged.
+// retryable FoundationDB errors. Each attempt selects the shorter of
+// auditReadTransactionTimeout and the time left before the context deadline,
+// with a minimum of one millisecond. It returns other errors from apply
+// unchanged.
 func transactAuditRead(ctx context.Context, db fdb.Database, apply func(fdb.Transaction) error) error {
 	transaction, err := db.CreateTransaction()
 	if err != nil {

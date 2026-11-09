@@ -15,7 +15,7 @@ func nodeViewKey(orgID uuid.UUID, nodeType string, nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keyNodeView, orgID.String(), nodeType, nodeID.String()}.Pack())
 }
 
-// nodeResolveKey packs a global resolve key.
+// nodeResolveKey packs a global resolution key.
 func nodeResolveKey(nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keyNodeResolve, nodeID.String()}.Pack())
 }
@@ -35,12 +35,13 @@ func nodeReferenceOwnedKey(orgID, nodeID uuid.UUID, templateName string) []byte 
 	return withPrefix(tuple.Tuple{keyNodeReferenceOwned, orgID.String(), nodeID.String(), templateName}.Pack())
 }
 
-// nodeReferenceOwnedPrefix packs a node's reverse reference ownership prefix.
+// nodeReferenceOwnedPrefix packs a node's reverse reference ownership
+// prefix.
 func nodeReferenceOwnedPrefix(orgID, nodeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keyNodeReferenceOwned, orgID.String(), nodeID.String()}.Pack())
 }
 
-// nodeTypeDefKey packs a NodeType config key.
+// nodeTypeDefKey packs a NodeType configuration key.
 func nodeTypeDefKey(orgID, typeID uuid.UUID) []byte {
 	return withPrefix(tuple.Tuple{keyNodeTypeDef, orgID.String(), typeID.String()}.Pack())
 }
@@ -80,7 +81,7 @@ func nodeDeleteJobPrefix() []byte {
 	return withPrefix(tuple.Tuple{keyNodeDeleteJob}.Pack())
 }
 
-// idempotencyKey packs the per-org idempotency-key sentinel.
+// idempotencyKey packs the idempotency-key sentinel for one organization.
 func idempotencyKey(orgID uuid.UUID, key string) []byte {
 	return withPrefix(tuple.Tuple{keyIdempotency, orgID.String(), key}.Pack())
 }

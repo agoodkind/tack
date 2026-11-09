@@ -25,15 +25,17 @@ type AuditReadStore struct {
 	clock clock.Clock
 }
 
-// AuditReads returns the read lifecycle store on the shared FoundationDB connection.
-// The injected clock supplies admission, lease, and retention times.
+// AuditReads returns the read lifecycle store on the shared FoundationDB
+// connection. The injected clock supplies admission, lease, and retention
+// times.
 func (s *Stores) AuditReads(source clock.Clock) *AuditReadStore {
 	return &AuditReadStore{db: s.db, clock: source}
 }
 
 var _ audit.ReadLifecycle = (*AuditReadStore)(nil)
 
-// auditReadPending stores an admitted read until finalization or recovery saves a terminal event.
+// auditReadPending stores an admitted read until finalization or recovery
+// saves a terminal event.
 type auditReadPending struct {
 	Owner             uuid.UUID       `json:"owner"`
 	Generation        uint64          `json:"generation"`
@@ -60,7 +62,8 @@ func auditReadDueRange(family string, bucket uint16, limit time.Time) fdb.KeyRan
 
 // BeginRead saves pending state with generation one, an admission deadline,
 // and a lease before the caller reads data. A retry by the same owner with
-// the same template at or before the admission deadline returns the saved token.
+// the same template at or before the admission deadline returns the saved
+// token.
 func (s *AuditReadStore) BeginRead(ctx context.Context, admission audit.ReadAdmission) (audit.ReadToken, error) {
 	eventID := admission.Token.EventID
 	if err := audit.ValidateReadAdmission(admission); err != nil {
@@ -121,8 +124,8 @@ func retriedAdmission(pending auditReadPending, owner uuid.UUID, template []byte
 	}, nil
 }
 
-// RenewRead updates the lease deadline and its expiry key only when the token's
-// owner and generation match the pending read.
+// RenewRead updates the lease deadline and its expiry key only when the
+// token's owner and generation match the pending read.
 func (s *AuditReadStore) RenewRead(ctx context.Context, token audit.ReadToken) error {
 	err := transactAuditRead(ctx, s.db, func(tr fdb.Transaction) error {
 		pending, err := ownedPending(tr, token)

@@ -8,13 +8,14 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// InspectStore exposes read-only record-family inspection helpers for operator
-// repair tooling.
+// InspectStore provides read-only inspection of record families for operator
+// repair tools.
 type InspectStore struct {
 	db fdb.Database
 }
 
-// NodeInspectionReport is the raw, family-oriented snapshot for one node UUID.
+// NodeInspectionReport contains the raw records for one node UUID, grouped
+// by record family.
 type NodeInspectionReport struct {
 	NodeID                  uuid.UUID                       `json:"node_id"`
 	Resolve                 *node.NodeResolve               `json:"resolve,omitempty"`
@@ -25,7 +26,8 @@ type NodeInspectionReport struct {
 	RelationshipReverseRows []InspectRelationshipReverseRow `json:"relationship_reverse_rows,omitempty"`
 }
 
-// InspectNodeInstance is one node_instance row that matched the inspected UUID.
+// InspectNodeInstance contains one node_instance row that matches the
+// inspected UUID.
 type InspectNodeInstance struct {
 	OrgID    uuid.UUID  `json:"org_id"`
 	NodeType string     `json:"node_type"`
@@ -33,7 +35,8 @@ type InspectNodeInstance struct {
 	Value    *node.Node `json:"value,omitempty"`
 }
 
-// InspectNodeView is one node_view row that matched the inspected UUID.
+// InspectNodeView contains one node_view row that matches the inspected
+// UUID.
 type InspectNodeView struct {
 	OrgID    uuid.UUID      `json:"org_id"`
 	NodeType string         `json:"node_type"`
@@ -41,7 +44,8 @@ type InspectNodeView struct {
 	Value    *node.NodeView `json:"value,omitempty"`
 }
 
-// InspectPropertyIndexRow is one node_by_property row that matched the UUID.
+// InspectPropertyIndexRow contains one node_by_property row that matches the
+// UUID.
 type InspectPropertyIndexRow struct {
 	OrgID        uuid.UUID       `json:"org_id"`
 	NodeType     string          `json:"node_type"`
@@ -50,8 +54,8 @@ type InspectPropertyIndexRow struct {
 	NodeID       uuid.UUID       `json:"node_id"`
 }
 
-// InspectRelationshipRow is one forward relationship row where the UUID is the
-// source node.
+// InspectRelationshipRow contains one forward relationship row with the
+// inspected UUID as the source node.
 type InspectRelationshipRow struct {
 	OrgID             uuid.UUID          `json:"org_id"`
 	SourceID          uuid.UUID          `json:"source_id"`
@@ -61,8 +65,8 @@ type InspectRelationshipRow struct {
 	Value             *node.Relationship `json:"value,omitempty"`
 }
 
-// InspectRelationshipReverseRow is one reverse relationship row where the UUID
-// is the target node.
+// InspectRelationshipReverseRow contains one reverse relationship row with
+// the inspected UUID as the target node.
 type InspectRelationshipReverseRow struct {
 	OrgID             uuid.UUID `json:"org_id"`
 	TargetID          uuid.UUID `json:"target_id"`

@@ -36,10 +36,10 @@ func relationshipTarget(sourceID uuid.UUID, relationType string, targetID uuid.U
 	}
 }
 
-// applyRelationshipChanges processes each set in changesList in order inside tr.
-// For each set, it removes relationships before adding relationships. It reads the
-// stored values before each group of removals or additions and records each change
-// in changes after clearing or writing the relationship.
+// applyRelationshipChanges processes each set in changesList in order inside
+// tr. For each set, it removes relationships before adding relationships. It
+// reads the stored values before each group of removals or additions and
+// records each change in changes after clearing or writing the relationship.
 func applyRelationshipChanges(ctx context.Context, tr fdb.Transaction, changesList []node.RelationshipChanges, changes *mutationAudit) error {
 	for _, set := range changesList {
 		if err := removeRelationships(ctx, tr, set.Remove, changes); err != nil {
@@ -52,8 +52,9 @@ func applyRelationshipChanges(ctx context.Context, tr fdb.Transaction, changesLi
 	return nil
 }
 
-// removeRelationships clears each relationship inside tr and records its stored
-// value as a deletion. It does not record a change when the relationship does not exist.
+// removeRelationships clears each relationship inside tr and records its
+// stored value as a deletion. It does not record a change when the
+// relationship does not exist.
 func removeRelationships(ctx context.Context, tr fdb.Transaction, removed []*node.Relationship, changes *mutationAudit) error {
 	stored, err := readRelationshipValues(ctx, tr, removed)
 	if err != nil {
@@ -70,8 +71,8 @@ func removeRelationships(ctx context.Context, tr fdb.Transaction, removed []*nod
 	return nil
 }
 
-// addRelationships writes each relationship inside tr and records the
-// stored value before the write and the written value.
+// addRelationships writes each relationship inside tr and records the stored
+// value before the write and the written value.
 func addRelationships(ctx context.Context, tr fdb.Transaction, added []*node.Relationship, changes *mutationAudit) error {
 	stored, err := readRelationshipValues(ctx, tr, added)
 	if err != nil {
@@ -95,8 +96,8 @@ func addRelationships(ctx context.Context, tr fdb.Transaction, added []*node.Rel
 }
 
 // readRelationshipValues reads the stored forward value of each relationship
-// inside tr. It starts all reads before waiting for their results and returns
-// a nil entry for each relationship that does not exist.
+// inside tr. It starts all reads before waiting for their results and
+// returns a nil entry for each relationship that does not exist.
 func readRelationshipValues(ctx context.Context, tr fdb.Transaction, relationships []*node.Relationship) ([][]byte, error) {
 	futures := make([]fdb.FutureByteSlice, 0, len(relationships))
 	for _, relationship := range relationships {

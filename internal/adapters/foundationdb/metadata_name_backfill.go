@@ -14,14 +14,16 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// nameIndexBackfillPageSize bounds the metadata records that one backfill
-// transaction reads.
+// nameIndexBackfillPageSize limits the metadata records that one backfill
+// page returns. The range read requests one extra record to detect another
+// page.
 const nameIndexBackfillPageSize = 100
 
 // NameIndexPage reports one backfill page of a metadata name index. Scanned
-// counts the records the page read. Missing counts the records without an
-// index entry, which the page writes when the caller asks it to. Next is the
-// cursor of the following page, or empty after the last page.
+// counts the records in the page. Missing counts the records without an
+// index entry. The page writes those entries when the caller requests
+// writes. Next contains the following page's cursor and is empty after the
+// last page.
 type NameIndexPage struct {
 	Scanned int
 	Missing int
@@ -47,8 +49,8 @@ func (s *NodeTypeStore) BackfillNameIndex(ctx context.Context, cursor string, wr
 
 // BackfillNameIndex reads one page of property definitions of every
 // organization after cursor and finds the definitions without a
-// property-name index entry. When write is true, the same transaction
-// writes each missing entry.
+// property-name index entry. When write is true, the same transaction writes
+// each missing entry.
 func (s *PropertyDefStore) BackfillNameIndex(ctx context.Context, cursor string, write bool) (page NameIndexPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.property_def.backfill_name_index")(&err)
 	return backfillNameIndexPage(ctx, s.db, keyPropertyDef, cursor, write, func(orgID, definitionID uuid.UUID, encoded []byte) ([]byte, error) {
@@ -60,8 +62,8 @@ func (s *PropertyDefStore) BackfillNameIndex(ctx context.Context, cursor string,
 	})
 }
 
-// nameIndexEntry returns the index entry key of one stored record, or nil
-// when the record has no entry.
+// nameIndexEntry computes the index entry key for one stored record. It
+// returns nil when that record does not require an index entry.
 type nameIndexEntry func(orgID, recordID uuid.UUID, encoded []byte) ([]byte, error)
 
 func backfillNameIndexPage(ctx context.Context, database fdb.Database, family, cursor string, write bool, entryFor nameIndexEntry) (NameIndexPage, error) {
@@ -114,7 +116,7 @@ func backfillNameIndexPage(ctx context.Context, database fdb.Database, family, c
 	return page, nil
 }
 
-// readNameIndexRecords reads up to nameIndexBackfillPageSize records of
+// readNameIndexRecords returns up to nameIndexBackfillPageSize records of
 // family after cursor, across every organization, in key order.
 func readNameIndexRecords(ctx context.Context, tr fdb.Transaction, family, cursor string) ([]fdb.KeyValue, string, error) {
 	keyRange, err := fdb.PrefixRange(withPrefix(tuple.Tuple{family}.Pack()))

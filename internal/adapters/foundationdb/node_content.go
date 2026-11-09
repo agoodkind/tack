@@ -18,10 +18,12 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// maxSearchNameBytes bounds the name prefix stored for lexical boosting.
+// maxSearchNameBytes limits the name prefix that search uses to boost name
+// matches.
 const maxSearchNameBytes = 512
 
-// NodeContentStore reads bounded pages of node search text from FoundationDB.
+// NodeContentStore reads bounded pages of node search text from
+// FoundationDB.
 type NodeContentStore struct {
 	db       fdb.Database
 	policies *searchaccess.PolicySet
@@ -34,9 +36,9 @@ func NewNodeContentStore(db fdb.Database, policies *searchaccess.PolicySet) *Nod
 
 // Content returns one bounded UTF-8 page of the node's current revision. It
 // returns ErrContentChanged when the request or cursor belongs to another
-// revision or projection. It returns ErrWorkChanged when the requested search
-// generation or access versions differ from the stored ones. It returns
-// ErrNotFound after deletion.
+// revision or projection. It returns ErrWorkChanged when the requested
+// search generation or access versions differ from the stored ones. It
+// returns ErrNotFound after deletion.
 func (s *NodeContentStore) Content(ctx context.Context, request searchdomain.ContentRequest) (page node.ContentPage, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_content.read")(&err)
 	snapshot, err := s.readSnapshot(ctx, request.NodeID)

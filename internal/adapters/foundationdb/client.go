@@ -7,15 +7,15 @@ import (
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
 )
 
-// Open opens a connection to FoundationDB using the given cluster file.
-// API version is pinned to 740 (FDB 7.4.x).
-// Call once at process startup; the returned DB is safe for concurrent use.
+// Open opens a connection to FoundationDB using the given cluster file. It
+// selects API version 740 (FoundationDB 7.4.x). Call Open once at process
+// startup. The returned database supports concurrent use.
 //
-// transactionTimeout bounds every transaction this database creates, retries
-// included: at API version 740 the binding does not reset the option after a
-// retryable error, so one value bounds the whole retry loop. A zero or
-// negative value sets no option (TACK-408). The timeout is a property of the
-// returned database, shared by every transaction it creates.
+// transactionTimeout limits transactions that the database creates,
+// including retries. At API version 740, the binding does not reset the
+// timeout after a retryable error. Zero and negative values do not set the
+// option (TACK-408). The returned database applies the timeout to every
+// transaction it creates.
 func Open(clusterFile string, transactionTimeout time.Duration) (fdb.Database, error) {
 	if err := fdb.APIVersion(740); err != nil {
 		return fdb.Database{}, fmt.Errorf("fdb api version: %w", err)
