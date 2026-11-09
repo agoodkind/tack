@@ -15,16 +15,7 @@ func (execution *macRunnerExecution) removeFixtureNetwork(ctx context.Context, i
 		return fmt.Errorf("refuse baseline or unrecorded fixture network %s", id)
 	}
 
-	inspection, err := macObserve(
-		ctx,
-		func(observation context.Context) (client.NetworkInspectResult, error) {
-			return execution.defaultClient.NetworkInspect(
-				observation,
-				id,
-				client.NetworkInspectOptions{},
-			)
-		},
-	)
+	inspection, err := execution.inspectFixtureNetwork(ctx, id)
 	if errdefs.IsNotFound(err) {
 		fixture.Absent = true
 		execution.fixtures.Networks[id] = fixture
@@ -73,16 +64,7 @@ func (execution *macRunnerExecution) removeFixtureNetwork(ctx context.Context, i
 		}
 	}
 
-	inspection, err = macObserve(
-		ctx,
-		func(observation context.Context) (client.NetworkInspectResult, error) {
-			return execution.defaultClient.NetworkInspect(
-				observation,
-				id,
-				client.NetworkInspectOptions{},
-			)
-		},
-	)
+	inspection, err = execution.inspectFixtureNetwork(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -110,16 +92,7 @@ func (execution *macRunnerExecution) removeFixtureNetwork(ctx context.Context, i
 		return macRunnerFailure("remove fixture network "+id, err)
 	}
 
-	_, err = macObserve(
-		ctx,
-		func(observation context.Context) (client.NetworkInspectResult, error) {
-			return execution.defaultClient.NetworkInspect(
-				observation,
-				id,
-				client.NetworkInspectOptions{},
-			)
-		},
-	)
+	_, err = execution.inspectFixtureNetwork(ctx, id)
 	if !errdefs.IsNotFound(err) {
 		return macRunnerAbsence("fixture network", id, err)
 	}
@@ -128,4 +101,20 @@ func (execution *macRunnerExecution) removeFixtureNetwork(ctx context.Context, i
 	execution.fixtures.Networks[id] = fixture
 
 	return nil
+}
+
+func (execution *macRunnerExecution) inspectFixtureNetwork(
+	ctx context.Context,
+	networkID string,
+) (client.NetworkInspectResult, error) {
+	return macObserve(
+		ctx,
+		func(observation context.Context) (client.NetworkInspectResult, error) {
+			return execution.defaultClient.NetworkInspect(
+				observation,
+				networkID,
+				client.NetworkInspectOptions{},
+			)
+		},
+	)
 }

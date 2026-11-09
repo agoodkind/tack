@@ -87,13 +87,7 @@ func (execution *macRunnerExecution) attributeFixtures(ctx context.Context) erro
 }
 
 func (execution *macRunnerExecution) inventoryFixtureDiskVolumes(ctx context.Context) error {
-	filters := client.Filters{}.Add(
-		"label",
-		managedLabel+"=true",
-	).Add(
-		"label",
-		runnerLabel+"="+execution.acceptedID,
-	)
+	filters := execution.fixtureVolumeFilters()
 	volumes, err := macObserve(
 		ctx,
 		func(observation context.Context) (client.VolumeListResult, error) {
@@ -313,4 +307,14 @@ func (execution *macRunnerExecution) attributeNetwork(inspection network.Inspect
 		LogObserved: false,
 		Volumes:     nil,
 	}
+}
+
+func (execution *macRunnerExecution) fixtureVolumeFilters() client.Filters {
+	return client.Filters{}.Add(
+		"label",
+		managedLabel+"=true",
+	).Add(
+		"label",
+		runnerLabel+"="+execution.acceptedID,
+	)
 }

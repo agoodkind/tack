@@ -55,67 +55,9 @@ func openSearchDiskReadiness(
 	client *opensearch.Client,
 	fixture OpenSearchFixture,
 ) error {
-	settings, err := opensearch.Execute[opensearchapi.ClusterGetSettingsResp](
-		ctx,
-		client,
-		http.MethodGet,
-		&opensearchapi.ClusterGetSettingsReq{
-			Params: &opensearchapi.ClusterGetSettingsParams{
-				FlatSettings:    new(true),
-				IncludeDefaults: new(true),
-				DebugParams: opensearchapi.DebugParams{
-					FilterPath: []string{
-						"*.cluster*create_index*",
-						"*.cluster*watermark*",
-					},
-				},
-			},
-		},
-		nil,
-	)
+	settings, blocked, err := readOpenSearchDiskSettings(ctx, client)
 	if err != nil {
-		return diskReadinessFailure(
-			ctx,
-			fmt.Errorf("read the create-index readiness settings: %w", err),
-		)
-	}
-
-	if settings == nil {
-		return diskReadinessFailure(
-			ctx,
-			errors.New("the create-index readiness settings request did not return a response"),
-		)
-	}
-
-	if settings.IsError() {
-		return diskReadinessFailure(
-			ctx,
-			fmt.Errorf("read the create-index readiness settings: HTTP %d", settings.StatusCode),
-		)
-	}
-
-	var effective opensearchapi.ClusterGetSettingsResp
-	if err := json.Unmarshal(settings.RawBody(), &effective); err != nil {
-		return diskReadinessFailure(
-			ctx,
-			fmt.Errorf("decode the create-index readiness settings: %w", err),
-		)
-	}
-
-	blocked := effective.Defaults[openSearchCreateIndexBlock]
-	if value, found := effective.Persistent[openSearchCreateIndexBlock]; found {
-		blocked = value
-	}
-
-	if value, found := effective.Transient[openSearchCreateIndexBlock]; found {
-		blocked = value
-	}
-
-	if len(blocked) == 0 {
-		return diskReadinessFailure(
-			ctx,
-			errors.New("the readiness response omitted cluster.blocks.create_index"),
-		)
+		return err
 	}
 
 	var blockCause error
@@ -130,7 +72,7 @@ func openSearchDiskReadiness(
 				"effective %s=%s; settings=%s; filesystem measurement failed: %w",
 				openSearchCreateIndexBlock,
 				blocked,
-				settings.RawBody(),
+				settings,
 				errors.Join(blockCause, cause),
 			),
 		)
@@ -188,13 +130,7 @@ func openSearchDiskReadiness(
 		}
 	}
 
-	telemetry.L(ctx).InfoContext(
-		ctx,
-		"search.fixture_disk_readiness",
-		slog.String("create_index_block", string(blocked)),
-		slog.String("settings", string(settings.RawBody())),
-		slog.String("filesystem", string(filesystem)),
-	)
+	logOpenSearchDiskReadiness(ctx, blocked, settings, filesystem)
 	if string(blocked) != `"true"` && string(blocked) != "true" {
 		return nil
 	}
@@ -208,7 +144,7 @@ func openSearchDiskReadiness(
 			errOpenSearchCreateIndexBlocked,
 			openSearchCreateIndexBlock,
 			blocked,
-			settings.RawBody(),
+			settings,
 			filesystem,
 			logs,
 		),
@@ -250,4 +186,89 @@ func diskReadinessFailure(ctx context.Context, err error) error {
 	)
 
 	return err
+}
+
+func readOpenSearchDiskSettings(
+	ctx context.Context,
+	client *opensearch.Client,
+) (json.RawMessage, json.RawMessage, error) {
+	settings, err := opensearch.Execute[opensearchapi.ClusterGetSettingsResp](
+		ctx,
+		client,
+		http.MethodGet,
+		&opensearchapi.ClusterGetSettingsReq{
+			Params: &opensearchapi.ClusterGetSettingsParams{
+				FlatSettings:    new(true),
+				IncludeDefaults: new(true),
+				DebugParams: opensearchapi.DebugParams{
+					FilterPath: []string{
+						"*.cluster*create_index*",
+						"*.cluster*watermark*",
+					},
+				},
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		return nil, nil, diskReadinessFailure(
+			ctx,
+			fmt.Errorf("read the create-index readiness settings: %w", err),
+		)
+	}
+
+	if settings == nil {
+		return nil, nil, diskReadinessFailure(
+			ctx,
+			errors.New("the create-index readiness settings request did not return a response"),
+		)
+	}
+
+	if settings.IsError() {
+		return nil, nil, diskReadinessFailure(
+			ctx,
+			fmt.Errorf("read the create-index readiness settings: HTTP %d", settings.StatusCode),
+		)
+	}
+
+	var effective opensearchapi.ClusterGetSettingsResp
+	if err := json.Unmarshal(settings.RawBody(), &effective); err != nil {
+		return nil, nil, diskReadinessFailure(
+			ctx,
+			fmt.Errorf("decode the create-index readiness settings: %w", err),
+		)
+	}
+
+	blocked := effective.Defaults[openSearchCreateIndexBlock]
+	if value, found := effective.Persistent[openSearchCreateIndexBlock]; found {
+		blocked = value
+	}
+
+	if value, found := effective.Transient[openSearchCreateIndexBlock]; found {
+		blocked = value
+	}
+
+	if len(blocked) == 0 {
+		return nil, nil, diskReadinessFailure(
+			ctx,
+			errors.New("the readiness response omitted cluster.blocks.create_index"),
+		)
+	}
+
+	return settings.RawBody(), blocked, nil
+}
+
+func logOpenSearchDiskReadiness(
+	ctx context.Context,
+	blocked json.RawMessage,
+	settings json.RawMessage,
+	filesystem json.RawMessage,
+) {
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.fixture_disk_readiness",
+		slog.String("create_index_block", string(blocked)),
+		slog.String("settings", string(settings)),
+		slog.String("filesystem", string(filesystem)),
+	)
 }

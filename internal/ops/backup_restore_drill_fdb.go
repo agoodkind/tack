@@ -97,56 +97,10 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	// fails the drill, and it fails naming what it had done when it stopped.
 	// Each probe is bounded on its own, so a hung exec cannot keep the watch
 	// from deciding.
-	progress, exitCode, err := awaitFDBRestore(
-		ctx,
-		fdbRestoreWatch{
-			Finished: func(pollCtx context.Context) (int, bool, error) {
-				return fdbRestoreExitCode(pollCtx, r, name)
-			},
-			Status: func(pollCtx context.Context) (string, error) {
-				return fdbRestoreStatusText(pollCtx, r, name)
-			},
-		},
-		fdbDrillRestoreStallWindow,
-		fdbDrillRestorePollInterval,
-		fdbDrillProbeTimeout,
-	)
+	err = waitFDBDrillRestore(ctx, r, name, logger)
 	if err != nil {
-		wrapped := fmt.Errorf(
-			"%w; the restore's last output was: %s",
-			err,
-			fdbRestoreLogTail(ctx, r, name),
-		)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.fdb.failed",
-			slog.String("err", wrapped.Error()),
-		)
-
-		return wrapped
+		return err
 	}
-
-	if exitCode != 0 {
-		wrapped := fmt.Errorf(
-			"fdbrestore exited %d after %s: %s",
-			exitCode,
-			progress.summary(),
-			fdbRestoreLogTail(ctx, r, name),
-		)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.fdb.failed",
-			slog.String("err", wrapped.Error()),
-		)
-
-		return wrapped
-	}
-
-	logger.InfoContext(
-		ctx,
-		"backup.restore_drill.fdb.restored",
-		slog.String("progress", progress.summary()),
-	)
 
 	assertRes, err := containerExec(
 		ctx,
@@ -213,38 +167,17 @@ func bootScratchFDB(
 		binds = append(binds, fdbOrigClusterMount)
 	}
 
-	created, err := r.Cli.ContainerCreate(
-		ctx,
-		client.ContainerCreateOptions{
-			Config: &container.Config{
-				Image: r.Cfg.BackupFDBImage,
-				Env: []string{
-					"FDB_NETWORKING_MODE=container",
-					"FDB_PORT=4500",
-					"FDB_PROCESS_CLASS=unset",
-				},
-			},
-			HostConfig: &container.HostConfig{
-				Binds:      binds,
-				ExtraHosts: extraHosts,
-			},
-			NetworkingConfig: netMode(r.Cfg.BackupFDBNetwork),
-			Name:             name,
-		},
-	)
+	containerID, err := createScratchFDB(ctx, r, name, binds, extraHosts, logger)
 	if err != nil {
-		wrapped := fmt.Errorf("create scratch fdb %s: %w", name, err)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.fdb.failed",
-			slog.String("err", wrapped.Error()),
-		)
-
-		return wrapped
+		return err
 	}
 
 	r.trackContainer(name)
-	if _, err := r.Cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
+	if _, err := r.Cli.ContainerStart(
+		ctx,
+		containerID,
+		client.ContainerStartOptions{},
+	); err != nil {
 		wrapped := fmt.Errorf("start scratch fdb %s: %w", name, err)
 		logger.ErrorContext(
 			ctx,
@@ -255,44 +188,9 @@ func bootScratchFDB(
 		return wrapped
 	}
 
-	if err := waitExecOK(
-		ctx,
-		r,
-		name,
-		30*time.Second,
-		nil,
-		[]string{"test", "-f", "/var/fdb/fdb.cluster"},
-	); err != nil {
-		wrapped := fmt.Errorf("scratch fdb cluster file never appeared: %w", err)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.fdb.failed",
-			slog.String("err", wrapped.Error()),
-		)
-
-		return wrapped
-	}
-
-	if _, err := containerExec(
-		ctx,
-		r.Cli,
-		name,
-		[]string{
-			"fdbcli",
-			"-C",
-			"/var/fdb/fdb.cluster",
-			"--exec",
-			"configure new single ssd",
-		},
-	); err != nil {
-		wrapped := fmt.Errorf("configure new single ssd: %w", err)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.fdb.failed",
-			slog.String("err", wrapped.Error()),
-		)
-
-		return wrapped
+	err = initializeScratchFDB(ctx, r, name, logger)
+	if err != nil {
+		return err
 	}
 
 	if err := waitExecOK(
@@ -329,6 +227,156 @@ func bootScratchFDB(
 		},
 	); err != nil {
 		wrapped := fmt.Errorf("start scratch backup_agent: %w", err)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
+		return wrapped
+	}
+
+	return nil
+}
+
+func waitFDBDrillRestore(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	name string,
+	logger *slog.Logger,
+) error {
+	progress, exitCode, err := awaitFDBRestore(
+		ctx,
+		fdbRestoreWatch{
+			Finished: func(pollCtx context.Context) (int, bool, error) {
+				return fdbRestoreExitCode(pollCtx, r, name)
+			},
+			Status: func(pollCtx context.Context) (string, error) {
+				return fdbRestoreStatusText(pollCtx, r, name)
+			},
+		},
+		fdbDrillRestoreStallWindow,
+		fdbDrillRestorePollInterval,
+		fdbDrillProbeTimeout,
+	)
+	if err != nil {
+		wrapped := fmt.Errorf(
+			"%w; the restore's last output was: %s",
+			err,
+			fdbRestoreLogTail(ctx, r, name),
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
+		return wrapped
+	}
+
+	if exitCode != 0 {
+		wrapped := fmt.Errorf(
+			"fdbrestore exited %d after %s: %s",
+			exitCode,
+			progress.summary(),
+			fdbRestoreLogTail(ctx, r, name),
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
+		return wrapped
+	}
+
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.fdb.restored",
+		slog.String("progress", progress.summary()),
+	)
+
+	return nil
+}
+
+func createScratchFDB(
+	ctx context.Context,
+	drill *restoreDrillCtx,
+	name string,
+	binds []string,
+	extraHosts []string,
+	logger *slog.Logger,
+) (string, error) {
+	created, err := drill.Cli.ContainerCreate(
+		ctx,
+		client.ContainerCreateOptions{
+			Config: &container.Config{
+				Image: drill.Cfg.BackupFDBImage,
+				Env: []string{
+					"FDB_NETWORKING_MODE=container",
+					"FDB_PORT=4500",
+					"FDB_PROCESS_CLASS=unset",
+				},
+			},
+			HostConfig: &container.HostConfig{
+				Binds:      binds,
+				ExtraHosts: extraHosts,
+			},
+			NetworkingConfig: netMode(drill.Cfg.BackupFDBNetwork),
+			Name:             name,
+		},
+	)
+	if err != nil {
+		wrapped := fmt.Errorf("create scratch fdb %s: %w", name, err)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
+		return "", wrapped
+	}
+
+	return created.ID, nil
+}
+
+func initializeScratchFDB(
+	ctx context.Context,
+	drill *restoreDrillCtx,
+	name string,
+	logger *slog.Logger,
+) error {
+	if err := waitExecOK(
+		ctx,
+		drill,
+		name,
+		30*time.Second,
+		nil,
+		[]string{"test", "-f", "/var/fdb/fdb.cluster"},
+	); err != nil {
+		wrapped := fmt.Errorf("scratch fdb cluster file never appeared: %w", err)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
+		return wrapped
+	}
+
+	if _, err := containerExec(
+		ctx,
+		drill.Cli,
+		name,
+		[]string{
+			"fdbcli",
+			"-C",
+			"/var/fdb/fdb.cluster",
+			"--exec",
+			"configure new single ssd",
+		},
+	); err != nil {
+		wrapped := fmt.Errorf("configure new single ssd: %w", err)
 		logger.ErrorContext(
 			ctx,
 			"backup.restore_drill.fdb.failed",

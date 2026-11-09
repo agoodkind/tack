@@ -125,30 +125,9 @@ func awaitYBScratch(
 
 	for {
 		reading := readYBScratch(ctx, watch, probeTimeout)
-		if reading.exited {
-			err := fmt.Errorf(
-				"%s: the scratch yugabyted container is not running: %s",
-				step,
-				progress.summary(),
-			)
-			slog.ErrorContext(
-				ctx,
-				"backup.restore_drill.yb.wait_exited",
-				slog.String("err", err.Error()),
-			)
-
-			return 0, err
-		}
-
-		if reading.failure != "" {
-			err := fmt.Errorf("%s: %s: %s", step, reading.failure, progress.summary())
-			slog.ErrorContext(
-				ctx,
-				"backup.restore_drill.yb.wait_failed",
-				slog.String("err", err.Error()),
-			)
-
-			return 0, err
+		readFailure := ybScratchReadFailure(ctx, step, progress, reading)
+		if readFailure != nil {
+			return 0, readFailure
 		}
 
 		if reading.ready {
@@ -236,4 +215,39 @@ func ybScratchStallError(
 	}
 
 	return errors.New(message)
+}
+
+func ybScratchReadFailure(
+	ctx context.Context,
+	step string,
+	progress *ybScratchProgress,
+	reading ybScratchReading,
+) error {
+	if reading.exited {
+		err := fmt.Errorf(
+			"%s: the scratch yugabyted container is not running: %s",
+			step,
+			progress.summary(),
+		)
+		slog.ErrorContext(
+			ctx,
+			"backup.restore_drill.yb.wait_exited",
+			slog.String("err", err.Error()),
+		)
+
+		return err
+	}
+
+	if reading.failure != "" {
+		err := fmt.Errorf("%s: %s: %s", step, reading.failure, progress.summary())
+		slog.ErrorContext(
+			ctx,
+			"backup.restore_drill.yb.wait_failed",
+			slog.String("err", err.Error()),
+		)
+
+		return err
+	}
+
+	return nil
 }

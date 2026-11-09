@@ -106,55 +106,16 @@ func renumberOneNode(
 	}
 
 	view := viewFromRepairedNode(updated)
-	nodeType, template, typeIndex, typeErr := repairReferenceTemplate(
-		ctx,
-		env,
-		duplicate.OrgID,
-		view,
-	)
-	if typeErr != nil {
-		return ReferenceRename{}, typeErr
-	}
-
-	scopeRefs, err := scopeReferencesForView(
-		ctx,
-		env,
-		duplicate.OrgID,
-		typeIndex,
-		view,
-		map[uuid.UUID]map[string]string{},
-	)
+	plan, err := renumberPlanFor(ctx, env, duplicate.OrgID, nodeID, view)
 	if err != nil {
 		return ReferenceRename{}, err
 	}
 
-	counterKey, err := template.CounterKey(node.ReferenceRenderInput{
-		NodeTypeKey: nodeType.TypeKey,
-		Props:       view.Props,
-		ScopeRefs:   scopeRefs,
-	})
-	if err != nil {
-		wrapped := fmt.Errorf("derive counter key for node %s: %w", nodeID, err)
-		env.Log.WarnContext(
-			ctx,
-			"repair.reference_uniqueness.counter_key_failed",
-			slog.String("node_id", nodeID.String()),
-			slog.String("err", wrapped.Error()),
-		)
-
-		return ReferenceRename{}, wrapped
-	}
-
 	if !execute {
-		return ReferenceRename{
-			OrgID:  duplicate.OrgID,
-			NodeID: nodeID,
-			From:   duplicate.Encoded,
-			To:     "(next value on " + counterKey + ")",
-		}, nil
+		return referenceRenameResult(duplicate, nodeID, "(next value on "+plan.counterKey+")"), nil
 	}
 
-	nextValue, err := env.Stores.Nodes.AllocateSequenceByKey(ctx, duplicate.OrgID, counterKey)
+	nextValue, err := env.Stores.Nodes.AllocateSequenceByKey(ctx, duplicate.OrgID, plan.counterKey)
 	if err != nil {
 		wrapped := fmt.Errorf("allocate replacement value for node %s: %w", nodeID, err)
 		env.Log.WarnContext(
@@ -168,11 +129,11 @@ func renumberOneNode(
 	}
 
 	oldProps := maps.Clone(updated.Props)
-	updated.Props[template.Generated] = json.RawMessage(strconv.FormatInt(nextValue, 10))
-	rendered, err := template.Render(node.ReferenceRenderInput{
-		NodeTypeKey: nodeType.TypeKey,
+	updated.Props[plan.template.Generated] = json.RawMessage(strconv.FormatInt(nextValue, 10))
+	rendered, err := plan.template.Render(node.ReferenceRenderInput{
+		NodeTypeKey: plan.nodeType.TypeKey,
 		Props:       updated.Props,
-		ScopeRefs:   scopeRefs,
+		ScopeRefs:   plan.scopeRefs,
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("render replacement reference for node %s: %w", nodeID, err)
@@ -186,28 +147,20 @@ func renumberOneNode(
 		return ReferenceRename{}, wrapped
 	}
 
-	propertyDefs, err := env.Stores.PropertyDefs.List(ctx, duplicate.OrgID)
+	propertyDefs, err := renumberPropertyDefinitions(ctx, env, duplicate.OrgID)
 	if err != nil {
-		wrapped := fmt.Errorf("list property definitions for org %s: %w", duplicate.OrgID, err)
-		env.Log.WarnContext(
-			ctx,
-			"repair.reference_uniqueness.property_defs_failed",
-			slog.String("org_id", duplicate.OrgID.String()),
-			slog.String("err", wrapped.Error()),
-		)
-
-		return ReferenceRename{}, wrapped
+		return ReferenceRename{}, err
 	}
 
 	updatedView := viewFromRepairedNode(updated)
-	referenceKeys := []node.ReferenceKey{{TemplateName: template.Name, Encoded: rendered}}
+	referenceKeys := []node.ReferenceKey{{TemplateName: plan.template.Name, Encoded: rendered}}
 	if err := env.Stores.Nodes.UpdateAtomicFrom(
 		ctx,
 		readDigest,
 		updated,
 		updatedView,
 		oldProps,
-		indexedPropsFor(nodeType, propertyDefs),
+		indexedPropsFor(plan.nodeType, propertyDefs),
 		referenceKeys,
 	); err != nil {
 		wrapped := fmt.Errorf("write renumbered node %s: %w", nodeID, err)
@@ -221,12 +174,7 @@ func renumberOneNode(
 		return ReferenceRename{}, wrapped
 	}
 
-	return ReferenceRename{
-		OrgID:  duplicate.OrgID,
-		NodeID: nodeID,
-		From:   duplicate.Encoded,
-		To:     rendered,
-	}, nil
+	return referenceRenameResult(duplicate, nodeID, rendered), nil
 }
 
 func repairReferenceTemplate(
@@ -264,4 +212,96 @@ func repairReferenceTemplate(
 	}
 
 	return nodeType, template, typeIndex, nil
+}
+
+type renumberReferencePlan struct {
+	nodeType   *node.NodeType
+	template   *node.ReferenceTemplate
+	scopeRefs  map[string]string
+	counterKey string
+}
+
+func renumberPlanFor(
+	ctx context.Context,
+	env *Env,
+	orgID uuid.UUID,
+	nodeID uuid.UUID,
+	view *node.NodeView,
+) (renumberReferencePlan, error) {
+	var empty renumberReferencePlan
+	nodeType, template, typeIndex, typeErr := repairReferenceTemplate(ctx, env, orgID, view)
+	if typeErr != nil {
+		return empty, typeErr
+	}
+
+	scopeRefs, err := scopeReferencesForView(
+		ctx,
+		env,
+		orgID,
+		typeIndex,
+		view,
+		map[uuid.UUID]map[string]string{},
+	)
+	if err != nil {
+		return empty, err
+	}
+
+	counterKey, err := template.CounterKey(node.ReferenceRenderInput{
+		NodeTypeKey: nodeType.TypeKey,
+		Props:       view.Props,
+		ScopeRefs:   scopeRefs,
+	})
+	if err != nil {
+		wrapped := fmt.Errorf("derive counter key for node %s: %w", nodeID, err)
+		env.Log.WarnContext(
+			ctx,
+			"repair.reference_uniqueness.counter_key_failed",
+			slog.String("node_id", nodeID.String()),
+			slog.String("err", wrapped.Error()),
+		)
+
+		return empty, wrapped
+	}
+
+	return renumberReferencePlan{
+		nodeType:   nodeType,
+		template:   template,
+		scopeRefs:  scopeRefs,
+		counterKey: counterKey,
+	}, nil
+}
+
+func referenceRenameResult(
+	duplicate DuplicateReference,
+	nodeID uuid.UUID,
+	target string,
+) ReferenceRename {
+	return ReferenceRename{
+		OrgID:  duplicate.OrgID,
+		NodeID: nodeID,
+		From:   duplicate.Encoded,
+		To:     target,
+	}
+}
+
+func renumberPropertyDefinitions(
+	ctx context.Context,
+	env *Env,
+	orgID uuid.UUID,
+) ([]*node.PropertyDef, error) {
+	propertyDefs, err := env.Stores.PropertyDefs.List(ctx, orgID)
+	if err != nil {
+		wrapped := fmt.Errorf("list property definitions for org %s: %w", orgID, err)
+		logger := env.Log
+		logger.WarnContext(
+			ctx,
+			"repair.reference_uniqueness.property_defs_failed",
+			slog.String("org_id", orgID.String()),
+			slog.String("err", wrapped.Error()),
+		)
+
+		return nil, wrapped
+	}
+
+	return propertyDefs, nil
 }

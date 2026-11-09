@@ -289,21 +289,13 @@ func (a *Adapter) SetAlias(ctx context.Context, alias, index string) error {
 		return nil
 	}
 
-	response, err := a.api.Indices.PutAlias(
-		ctx,
-		opensearchapi.IndicesPutAliasReq{Name: alias, Indices: []string{index}},
-	)
-	if err != nil {
-		wrapped := fmt.Errorf("set OpenSearch alias %s to %s: %w", alias, index, err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.alias.set_failed",
-			slog.String("err", wrapped.Error()),
-			slog.String("alias", alias),
-			slog.String("index", index),
-		)
+	return a.createIndexAlias(ctx, alias, index)
+}
 
-		return wrapped
+func (a *Adapter) createIndexAlias(ctx context.Context, alias string, index string) error {
+	response, err := a.putIndexAlias(ctx, alias, index)
+	if err != nil {
+		return err
 	}
 
 	if response.Inspect().Response != nil && response.Inspect().Response.IsError() {

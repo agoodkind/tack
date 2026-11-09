@@ -72,30 +72,9 @@ func (r *QueryRanker) Open(
 		)
 	}
 
-	info, err := r.adapter.IndexInfo(ctx, target)
-	timing.mark(&timing.mapping)
+	info, err := r.readSnapshotIndex(ctx, target, timing)
 	if err != nil {
-		return none, snapshotFailure(ctx, target, "read the index mapping", err)
-	}
-
-	if info.ModelID == "" || info.MappingVersion == "" ||
-		info.TokenizerSHA256 != PinnedModel.TokenizerDigest {
-		return none, snapshotFailure(
-			ctx,
-			target,
-			"verify the index mapping",
-			errors.New("the mapping does not record the pinned model and tokenizer"),
-		)
-	}
-
-	model, err := r.adapter.getModel(ctx, info.ModelID)
-	timing.mark(&timing.model)
-	if err != nil {
-		return none, snapshotFailure(ctx, target, "read the pinned model", err)
-	}
-
-	if cause := pinnedModelCause(model); cause != nil {
-		return none, snapshotFailure(ctx, target, "verify the pinned model", cause)
+		return none, err
 	}
 
 	tokens, err := r.adapter.predictQueryTokens(
