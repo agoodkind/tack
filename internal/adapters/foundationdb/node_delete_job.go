@@ -90,8 +90,12 @@ func jobOperation(ctx context.Context, job *node.SubtreeDeleteJob) (audit.Event,
 //
 // It selects jobID in one read transaction and returns one of these results:
 //
-//  - It returns the record when it exists.
-//  - It returns nil when the record does not exist.
+//  - It returns an existing record and a nil error when the read and JSON
+//    decoding succeed.
+//  - It returns nil and a nil error when the read succeeds and the record
+//    does not exist.
+//  - It returns nil and an error when the read transaction fails,
+//    including a storage read failure or a JSON decoding failure.
 func (s *NodeDeleteStore) SubtreeDelete(ctx context.Context, jobID uuid.UUID) (job *node.SubtreeDeleteJob, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_read")(&err)
 	err = runNodeReadTransaction(ctx, s.nodes.db, "read subtree delete job "+jobID.String(), func(tr fdb.Transaction) error {

@@ -84,7 +84,8 @@ func writeCanonical(buf *bytes.Buffer, v any) error {
 
 // ShardCount sets the number of parallel hash chains for each org.
 // The ledger assigns each write to a shard with shardOf(actor, eventID).
-// Each (org, shard) pair has its own hash chain in audit.chain_heads.
+// Hash-linked event rows in audit.events form each (org, shard) chain.
+// audit.chain_heads stores each chain's current head.
 //
 // The count can change for future writes. Every audit.events row stores
 // its shard. Verification checks each stored (org, shard) chain after a

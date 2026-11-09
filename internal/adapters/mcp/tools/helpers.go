@@ -38,8 +38,10 @@ func bindArgs(req mcpmcp.CallToolRequest) (argMap, error) {
 //   - The input is not a JSON string.
 //   - The input decodes to an empty string.
 //
-// Callers return recoverableError after a failed check, before using the
-// required value.
+// Handlers report a failed required string check with recoverableError
+// before using the required value. Intermediate helpers may return the
+// check result or a missing argument message to their callers. Handlers
+// return the error result with a nil Go error.
 func requireString(args argMap, name string) (string, bool) {
 	raw, ok := args[name]
 	if !ok || len(raw) == 0 {
