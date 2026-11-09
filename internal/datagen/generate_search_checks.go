@@ -19,8 +19,8 @@ const searchVerificationScale = "small"
 var errPublicSearchDisabled = errors.New("public search is disabled; set OPENSEARCH_PUBLIC_ENABLED=true in this environment")
 
 // SearchVerification reports the verified organization, property warning
-// case, and relevance probe. AbandonedSessionID identifies the session
-// that the run abandoned and a sweep must delete.
+// case, and relevance probe. AbandonedSessionID identifies the session that
+// the run abandoned and required a sweep to delete.
 type SearchVerification struct {
 	OrgID              uuid.UUID            `json:"org_id"`
 	PropertyWarning    SearchWarningCase    `json:"property_warning"`
@@ -28,17 +28,30 @@ type SearchVerification struct {
 	AbandonedSessionID uuid.UUID            `json:"abandoned_session_id"`
 }
 
-// VerifySearch runs VerifySearchWithSeed with the current Unix time in
-// nanoseconds as the seed. The seed determines the organization ID and
-// workspace slug.
+// VerifySearch calls [VerifySearchWithSeed] with the current Unix time in
+// nanoseconds as its seed.
+//
+// The seed determines the organization ID and workspace slug. The seeded
+// function accepts a chosen seed for runs that need a repeatable identity.
+//
+//   - The organization slug includes the seed and organization index.
+//   - The workspace slug includes the seed, organization index, and workspace
+//     index.
 func VerifySearch(ctx context.Context, cfg *config.Config) (SearchVerification, error) {
 	return VerifySearchWithSeed(ctx, cfg, clock.Now().UnixNano())
 }
 
 // VerifySearchWithSeed checks the target marker and public search setting
-// first. It then writes one organization for seed, opaque search metadata,
-// and nodes, and calls tack_search through authenticated MCP requests.
-// It returns a SearchVerification report with the property warning case and relevance probe.
+// before writing one organization for seed, opaque search metadata, and
+// nodes. It calls tack_search through authenticated MCP requests.
+//
+// The returned [SearchVerification] includes the property warning case and
+// relevance probe. An error stops verification and returns the report values
+// that the function has collected.
+//
+//  1. Verify the fixture search results.
+//  2. Check the property warning and relevance behavior.
+//  3. Check session cleanup and access restrictions.
 func VerifySearchWithSeed(ctx context.Context, cfg *config.Config, seed int64) (SearchVerification, error) {
 	var report SearchVerification
 	if err := ValidateTarget(cfg); err != nil {

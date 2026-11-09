@@ -38,8 +38,9 @@ var routeProbes = []routeProbe{
 	{"malformed body", http.MethodPost, "/mcp", true, `{"jsonrpc":"2.0","id":`, http.StatusBadRequest},
 }
 
-// exerciseHTTPRoutes runs each route probe against the server routes and checks the response status.
-// It uses the first actor of the first workspace for probes that require authentication.
+// exerciseHTTPRoutes runs each route probe against the server routes and
+// checks the response status. Probes that require authentication use the
+// first actor of the first workspace.
 func (g *Generator) exerciseHTTPRoutes(ctx context.Context) error {
 	if g.dryRun {
 		slog.InfoContext(ctx, "qa.datagen.route_probes_planned", slog.Int("probes", len(routeProbes)))

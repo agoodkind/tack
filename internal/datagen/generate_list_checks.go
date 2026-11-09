@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// listPagingCheckLimit is the page size the paging check requests. The small
-// scale generates more issues than this per project, so the check always
-// reads at least two pages there.
+// listPagingCheckLimit sets the requested page size for the paging check.
+// The small scale generates more issues per project than this limit. A
+// successful check outside a dry run reads at least two pages at that scale.
 const listPagingCheckLimit = 5
 
 const (
@@ -18,9 +18,9 @@ const (
 )
 
 // verifyListPaging reads the first two pages of tack_list_issues for one
-// project and fails when a generated project with more issues than one page
-// prints no cursor, or when the second page repeats a reference from the
-// first.
+// project. It fails if the first response omits a cursor when the scale
+// requires more issues than one page, or if the second page repeats a
+// reference from the first.
 func (g *Generator) verifyListPaging(ctx context.Context, workspace WorkspaceIdentity, projectReference string) error {
 	if g.dryRun {
 		return nil
@@ -57,7 +57,8 @@ func (g *Generator) verifyListPaging(ctx context.Context, workspace WorkspaceIde
 	return nil
 }
 
-// nextCursor returns the cursor a list response prints, or "" on the last page.
+// nextCursor extracts the cursor from a list response. It returns an empty
+// string on the last page or when the cursor marker lacks a closing backtick.
 func nextCursor(text string) string {
 	start := strings.Index(text, nextCursorMarker)
 	if start < 0 {

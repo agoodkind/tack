@@ -17,12 +17,28 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// PlanIdentities returns deterministic request identities without writing them.
+// PlanIdentities returns deterministic request identities without writing
+// them.
+//
+// The configuration, seed, and scale determine the planned workspaces and
+// actors. The function does not mint random authentication tokens.
+//
+//	first := PlanIdentities(cfg, seed, scale)
+//	second := PlanIdentities(cfg, seed, scale)
+//	// first and second contain the same identity data.
 func PlanIdentities(cfg *config.Config, seed int64, scale Scale) Identities {
 	return plannedIdentities(cfg, seed, scale)
 }
 
-// BootstrapIdentities creates the SQL identities and FDB entry points.
+// BootstrapIdentities creates SQL identities and FoundationDB entry points.
+//
+// The function starts with deterministic plans and mints random tokens. It
+// seeds each organization once, then creates each workspace. A repeated run
+// can reuse an existing user by email.
+//
+//  1. Seed the organization's built-in and QA property definitions.
+//  2. Create the organization, actors, tokens, and organization memberships.
+//  3. Create each workspace and an expired token for authentication checks.
 func BootstrapIdentities(
 	ctx context.Context,
 	cfg *config.Config,
@@ -165,9 +181,9 @@ func bootstrapToken(ctx context.Context, tokens *postgres.TokenRepo, orgID, user
 	return nil
 }
 
-// expireToken uses TokenRepo.CreateExpiring to insert an expired token for the
-// workspace's first actor. It sets the expiry during insertion because the
-// application login cannot update api_tokens.
+// expireToken uses [postgres.TokenRepo.CreateExpiring] to insert an expired
+// token for the workspace's first actor. It sets the expiry during insertion
+// because the application login cannot update api_tokens.
 func expireToken(ctx context.Context, tokens *postgres.TokenRepo, raw string, workspace WorkspaceIdentity) error {
 	expiresAt := clock.Now().UTC().Add(-expiredTokenAge)
 	userID := workspace.Actors[0].UserID

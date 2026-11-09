@@ -28,9 +28,9 @@ func seedQAPropertyDefs(
 	return nil
 }
 
-// qaPropertyDefs declares every QA definition with an explicit search
-// decision. The text and URL definitions include search. Every other QA
-// definition excludes it.
+// qaPropertyDefs sets search inclusion for every QA definition.
+// The text and URL definitions enable search. Every other QA
+// definition excludes search.
 func qaPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 	return []*node.PropertyDef{
 		qaPropertyDef(orgID, "qa_text", node.PropertyTypeText, nil, qaSearch(true, 0)),

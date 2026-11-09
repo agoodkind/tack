@@ -17,11 +17,11 @@ const parentCycleRefusalText = "one of its descendants"
 // that is the node's own ID or the ID of one of its descendants.
 var errParentCycleAccepted = errors.New("the update stored a parent_id that is the node or one of its descendants")
 
-// generateNestedEpic skips a project without a generated epic and otherwise
-// creates an epic in the same project with parent_id set to the raw ID of
-// parentEpic. It requires tack_get_epic to return the nested epic. It then
-// requires tack_update_epic to refuse parentEpic's move under the nested
-// epic and the nested epic's move under itself.
+// generateNestedEpic skips a project without a generated epic. Otherwise,
+// it creates an epic in the same project with parent_id set to parentEpic's
+// raw ID and requires tack_get_epic to return it. It then requires
+// tack_update_epic to refuse both parentEpic's reassignment under the nested
+// epic and the nested epic's reassignment under itself.
 func (g *Generator) generateNestedEpic(
 	ctx context.Context,
 	actor Actor,

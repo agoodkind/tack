@@ -7,7 +7,7 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// Actor is one real SQL identity used to authenticate generated requests.
+// Actor provides one SQL identity for authenticating generated requests.
 type Actor struct {
 	UserID       uuid.UUID
 	Email        string
@@ -17,7 +17,7 @@ type Actor struct {
 	RequestToken string
 }
 
-// WorkspaceIdentity is one bootstrapped MCP entry point and its actors.
+// WorkspaceIdentity pairs one MCP entry point with its actors.
 type WorkspaceIdentity struct {
 	OrgID   uuid.UUID
 	OrgSlug string
@@ -26,7 +26,8 @@ type WorkspaceIdentity struct {
 	Actors  []Actor
 }
 
-// Identities contains every request identity and negative-auth token.
+// Identities contains every request identity and the tokens for failed
+// authentication checks.
 type Identities struct {
 	Workspaces          []WorkspaceIdentity
 	ExpiredToken        string
