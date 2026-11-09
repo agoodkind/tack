@@ -18,7 +18,7 @@ func (failure *environmentError) Error() string {
 
 // Unwrap returns the original environment input error.
 //
-// The returned error lets errors.Is match the cause supplied when the
+// The returned error lets [errors.Is] match the cause supplied when the
 // manifest input failed validation.
 //
 //	cause := failure.Unwrap()
