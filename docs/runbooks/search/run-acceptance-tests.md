@@ -77,6 +77,8 @@ Before running the host inventory commands below, install the Go toolchain selec
 
    Each group uses the indicated runner and time limit.
 
+   Required groups:
+
    | Group | Runner | Runs | Limit | Selection |
    | --- | --- | --- | --- | --- |
    | `continuation-with-duplicate-pages` | Container | 1 | 60m | `^TestSearchContinuationTraversesDuplicateHeavyCorpus$` |
@@ -106,7 +108,17 @@ Before running the host inventory commands below, install the Go toolchain selec
    make build
    ```
 
-5. Run the repeated concurrency and replacement tail after the corresponding correction. The target selects one continuation test, seven replacement tests, and 18 access, cursor, and worker tests. Require three complete runs of all 26 tests, for 78 executions. Record actual durations against limits of 180m, 85m, and 50m respectively. The limits are estimates from three times the slowest single run and a factor of 1.5. The Makefile sets `SEARCH_REPEAT_REPLACEMENT_TESTS` and `SEARCH_REPEAT_ACCESS_CURSOR_WORKER_TESTS` for the repeated replacement and access, cursor, and worker groups.
+5. Run the repeated concurrency and replacement tail after the corresponding correction. Require three complete runs of all 26 tests, for 78 executions. Record actual durations against the limits below. The limits are estimates from three times the slowest single run and a factor of 1.5. The Makefile sets `SEARCH_REPEAT_REPLACEMENT_TESTS` and `SEARCH_REPEAT_ACCESS_CURSOR_WORKER_TESTS` for the repeated replacement and access, cursor, and worker groups.
+
+   Each repeated group selects the corresponding tests and time limit.
+
+   Repeated groups:
+
+   | Group | Tests per run | Limit |
+   | --- | ---: | --- |
+   | Continuation | 1 | 180m |
+   | Replacement | 7 | 85m |
+   | Access, cursor, and worker | 18 | 50m |
 
    ```sh
    make test-search-group GROUP=repeat-continuation-with-duplicate-pages

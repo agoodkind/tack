@@ -76,7 +76,9 @@ The captured classifications support comparison with the protected production ex
 
 The reviewed decision preserved the 82 valid issue-under-issue roots and their descendants. A search access failure did not justify reparenting them. For nodes with several direct edges, the approved rule selected the unique closest linked container and removed only redundant direct containment links to its ancestors. It preserved project scope and unrelated relationships. The ancestor graph supported that grouping decision but could not establish the order of earlier writes.
 
-The captured multiple-edge mappings comprised three patterns.
+The reviewed mappings distinguish the stored parent and containment edges.
+
+Multiple-edge mappings:
 
 | Cases | Stored pattern | Reviewed mapping |
 | ---: | --- | --- |
@@ -116,7 +118,19 @@ The dated decisions determined the sanctioned state in the five conflicts.
 | MWAN-79 | `open` | Cancelled | The July 12 decision recorded supersession by the documentation rewrite. |
 | CLYDE-184 | `Todo` | Done | A May 2 completion comment preceded a node update by one second. |
 
-The approved mapping required the current metadata to contain each destination key. It selected `high` for CLYDE-184 and CLYDE-185, which stored the `priority` label `High`, and `medium` for CLYDE-188, which stored `Medium`. It did not authorize general case-insensitive conversion, new options or changes to unrelated values.
+The approved mapping required the current metadata to contain each destination key.
+
+The reviewed conversions replace the stored `priority` labels with these option keys.
+
+Priority mappings:
+
+| Node | Stored label | Destination key |
+| --- | --- | --- |
+| CLYDE-184 | `High` | `high` |
+| CLYDE-185 | `High` | `high` |
+| CLYDE-188 | `Medium` | `medium` |
+
+The mapping did not authorize general case-insensitive conversion, new options or changes to unrelated values.
 
 ## Comments with missing parents
 

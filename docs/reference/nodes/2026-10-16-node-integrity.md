@@ -104,6 +104,8 @@ For TACK-581, confirm guest absence by Proxmox node and VMID before excluding an
 
 TACK-568 covers read-only application and migration status. LAB-92 owns reusable database, search, credential, certificate, backup and scheduling capabilities. TACK-569 covers justified Tack-specific schema, audit, compatibility and coordinated search behavior. These scopes supersede TACK-571's combined assignment. TACK-570 covers QA adoption, TACK-572 transfers ownership, and TACK-573 covers production adoption. Retire each earlier writer before its replacement starts writing.
 
-Attribute old mismatches to a write, import, seed, backfill or internal operation only when retained evidence identifies it. Attach the records that establish the cause. If they do not establish it, record the cause as unknown.
-Before closing an issue, attach the canonical requirement and plan links, the relevant merged commits, installed revisions and direct acceptance evidence.
-For a superseded issue, verify that its replacement covers its complete scope. An unresolved or unapproved record remains visible.
+Attribution of old mismatches to a write, import, seed, backfill or internal operation requires retained evidence that identifies that operation. The evidence must include attached records that establish the cause. The records must identify the cause as unknown when retained evidence does not establish it.
+
+Issue closure requires attached canonical requirement and plan links, relevant merged commits, installed revisions and direct acceptance evidence.
+
+A superseded issue requires verification that its replacement covers its complete scope. An unresolved or unapproved record must remain visible.

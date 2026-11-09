@@ -23,7 +23,16 @@ OpenSearch creates sparse embeddings, which map model tokens to numeric weights.
 
 Tack computes sparse query weights when it opens a session. FoundationDB stores those weights for later pages. Every continuation reuses them without another inference request.
 
-The original `bert-uncased` analyzer comparison omitted both `signin` targets. The regression requires saved model weights to return both targets among the first 25 distinct nodes, and the analyzer to miss at least one. A separate control repeated inference on every request. Its 100 queries took 15.4 seconds with a 148.3 ms median. The current release must repeat the comparison and measure continuation with saved weights.
+The comparison checks retrieval with saved model weights against the `bert-uncased` analyzer.
+
+Retrieval evidence:
+
+| Comparison | Result or requirement |
+| --- | --- |
+| Original analyzer comparison | The analyzer omitted both `signin` targets. |
+| Regression | Saved model weights must return both targets among the first 25 distinct nodes. The analyzer must miss at least one. |
+| Separate control | The control repeated inference on every request. Its 100 queries took 15.4 seconds with a 148.3 ms median. |
+| Current release | The release must repeat the comparison and measure continuation with saved weights. |
 
 One node can contribute many matching pages. A fixed candidate window or field collapse can discard other nodes before complete traversal. Tack records visited node IDs separately from the engine sort position. A point in time freezes the engine view, and `search_after` resumes after the last consumed match. Only an empty raw batch completes traversal.
 
@@ -41,6 +50,30 @@ New sessions use the replacement after the switch. Existing sessions continue ag
 
 ## Distinguish redundancy from capacity
 
-A single search guest cannot provide search-node failover. The two-process test measures Tack scaling. The proxy and search members in each initial environment depend on the same hypervisor. The proxy selects a healthy backend. OpenSearch assigns inference to eligible ML nodes and search to primary or replica shards. Dedicated ML nodes add inference resources, data nodes and replicas add ranking resources, and coordinating nodes can serve as proxy backends without changing Tack. Additional OpenSearch members require separate model-placement, proxy, replica, and independent member-stop tests.
+A single search guest cannot provide search-node failover. The two-process test measures Tack scaling. The proxy and search members in each initial environment depend on the same hypervisor. The proxy selects a healthy backend. OpenSearch assigns inference to eligible ML nodes and search to primary or replica shards.
 
-Model memory requirements and a successful request do not establish production capacity. Capacity evidence must measure public search and concurrent writes, freshness, pending-work age, memory, disk, maintenance, outage, and catch-up on the target host. Configuration and merged changes do not establish live acceptance.
+The resource roles determine which work additional nodes can perform.
+
+Resource roles:
+
+| Resource | Work |
+| --- | --- |
+| Dedicated ML nodes | They add inference resources. |
+| Data nodes and replicas | They add ranking resources. |
+| Coordinating nodes | They can serve as proxy backends without changing Tack. |
+
+Additional OpenSearch members require separate tests:
+
+- Tests must verify model placement.
+- Tests must verify proxy behavior.
+- Tests must verify replica behavior.
+- Tests must stop each member independently.
+
+Model memory requirements and a successful request do not establish production capacity. Capacity evidence must measure workloads and conditions on the target host:
+
+- Measurements must cover public search and concurrent writes.
+- Measurements must include freshness and pending-work age.
+- Measurements must include memory and disk.
+- Measurements must cover maintenance, outage, and catch-up.
+
+Configuration and merged changes do not establish live acceptance.
