@@ -11,7 +11,12 @@ import (
 // RegisterPrompts registers the orientation prompt. It mirrors the
 // tack://getting-started resource so callers who prefer prompts over
 // resources get the same content.
-func RegisterPrompts(s *mcpserver.MCPServer, resolver *Resolver, nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) {
+func RegisterPrompts(
+	s *mcpserver.MCPServer,
+	resolver *Resolver,
+	nodeTypes []*node.NodeType,
+	propertyDefs []*node.PropertyDef,
+) {
 	s.AddPrompt(
 		mcpmcp.Prompt{
 			Name:        "tack_getting_started",
@@ -19,10 +24,14 @@ func RegisterPrompts(s *mcpserver.MCPServer, resolver *Resolver, nodeTypes []*no
 		},
 		func(_ context.Context, _ mcpmcp.GetPromptRequest) (*mcpmcp.GetPromptResult, error) {
 			text := buildGettingStartedText(resolver, nodeTypes, propertyDefs)
+
 			return &mcpmcp.GetPromptResult{
 				Description: "Tack orientation",
 				Messages: []mcpmcp.PromptMessage{
-					{Role: mcpmcp.RoleAssistant, Content: mcpmcp.TextContent{Type: "text", Text: text}},
+					{
+						Role:    mcpmcp.RoleAssistant,
+						Content: mcpmcp.TextContent{Type: "text", Text: text},
+					},
 				},
 			}, nil
 		},

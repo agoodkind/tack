@@ -40,9 +40,11 @@ func TrustMailpit(ctx context.Context, tests []string) {
 	if !flag.Parsed() {
 		flag.Parse()
 	}
+
 	if testing.Short() || !mailpitSelected(ctx, tests) {
 		return
 	}
+
 	mailpitState.once.Do(func() {
 		provisionCtx, cancel := context.WithTimeout(ctx, provisionTimeout)
 		defer cancel()
@@ -50,6 +52,7 @@ func TrustMailpit(ctx context.Context, tests []string) {
 		if err == nil {
 			err = trustMailpitBundle(provisionCtx, fixture)
 		}
+
 		mailpitState.fixture, mailpitState.err, mailpitState.trusted = fixture, err, err == nil
 	})
 }
@@ -60,19 +63,31 @@ func TrustMailpit(ctx context.Context, tests []string) {
 func mailpitSelected(ctx context.Context, tests []string) bool {
 	selection := flag.Lookup("test.run")
 	if selection == nil {
-		slog.WarnContext(ctx, "testenv.mailpit.selection_unknown", slog.String("reason", "no test.run flag"))
+		slog.WarnContext(
+			ctx,
+			"testenv.mailpit.selection_unknown",
+			slog.String("reason", "no test.run flag"),
+		)
 		return true
 	}
+
 	pattern, _, _ := strings.Cut(selection.Value.String(), "/")
 	if pattern == "" {
 		return true
 	}
+
 	expression, err := regexp.Compile(pattern)
 	if err != nil {
-		slog.WarnContext(ctx, "testenv.mailpit.selection_unknown",
-			slog.String("pattern", pattern), slog.String("err", err.Error()))
+		slog.WarnContext(
+			ctx,
+			"testenv.mailpit.selection_unknown",
+			slog.String("pattern", pattern),
+			slog.String("err", err.Error()),
+		)
+
 		return true
 	}
+
 	return slices.ContainsFunc(tests, expression.MatchString)
 }
 
@@ -82,7 +97,9 @@ func trustMailpitBundle(ctx context.Context, fixture MailpitFixture) error {
 		slog.ErrorContext(ctx, "testenv.mailpit.trust_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("set %s: %w", certFileVariable, err)
 	}
+
 	slog.InfoContext(ctx, "testenv.mailpit.trusted", slog.String("bundle", fixture.TrustBundle))
+
 	return nil
 }
 
@@ -95,5 +112,6 @@ func systemRoots() []byte {
 			return append(contents, '\n')
 		}
 	}
+
 	return nil
 }

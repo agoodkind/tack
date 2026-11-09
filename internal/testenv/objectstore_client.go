@@ -29,18 +29,18 @@ const (
 // newObjectStoreClient builds an S3 client signing as the writer identity,
 // with the path-style addressing SeaweedFS requires.
 func newObjectStoreClient(access ObjectStoreBucket) *s3.Client {
-	signer := credentials.NewStaticCredentialsProvider(
-		access.AccessKey,
-		access.SecretKey,
-		"",
+	signer := credentials.NewStaticCredentialsProvider(access.AccessKey, access.SecretKey, "")
+
+	return s3.NewFromConfig(
+		aws.Config{
+			Region:      access.Region,
+			Credentials: signer,
+		},
+		func(options *s3.Options) {
+			options.BaseEndpoint = aws.String(access.Endpoint)
+			options.UsePathStyle = true
+		},
 	)
-	return s3.NewFromConfig(aws.Config{
-		Region:      access.Region,
-		Credentials: signer,
-	}, func(options *s3.Options) {
-		options.BaseEndpoint = aws.String(access.Endpoint)
-		options.UsePathStyle = true
-	})
 }
 
 // newObjectStoreBucket creates an empty bucket with a random name on the
@@ -50,20 +50,28 @@ func newObjectStoreBucket(ctx context.Context, containerName string) (ObjectStor
 	if err != nil {
 		return ObjectStoreBucket{}, err
 	}
+
 	defer func() { _ = cli.Close() }()
 	access, err := objectStoreAccess(ctx, cli, containerName)
 	if err != nil {
 		return ObjectStoreBucket{}, err
 	}
+
 	suffix, err := randomHex(ctx, objectStoreBucketBytes)
 	if err != nil {
 		return ObjectStoreBucket{}, err
 	}
+
 	access.Bucket = "tack-test-" + suffix
-	if err := createObjectStoreBucket(ctx, newObjectStoreClient(access), access.Bucket); err != nil {
+	if err := createObjectStoreBucket(
+		ctx,
+		newObjectStoreClient(access),
+		access.Bucket,
+	); err != nil {
 		slog.ErrorContext(ctx, "testenv.objectstore.bucket_failed", slog.String("err", err.Error()))
 		return ObjectStoreBucket{}, err
 	}
+
 	return access, nil
 }
 
@@ -76,26 +84,41 @@ func createObjectStoreBucket(ctx context.Context, s3Client *s3.Client, bucket st
 	if err == nil || errors.As(err, &owned) {
 		return nil
 	}
+
 	return errors.New("create bucket " + bucket + ": " + err.Error())
 }
 
 // waitForObjectStore polls until the engine in containerName stores an
 // object, and returns how it is reached. An engine answers HTTP before its
 // volume server has registered, so only a completed write proves it ready.
-func waitForObjectStore(ctx context.Context, cli *client.Client, containerName string) (ObjectStoreBucket, error) {
+func waitForObjectStore(
+	ctx context.Context,
+	cli *client.Client,
+	containerName string,
+) (ObjectStoreBucket, error) {
 	access, err := objectStoreAccess(ctx, cli, containerName)
 	if err != nil {
 		return ObjectStoreBucket{}, err
 	}
+
 	s3Client := newObjectStoreClient(access)
+
 	for {
 		lastErr := probeObjectStore(ctx, s3Client)
 		if lastErr == nil {
 			return access, nil
 		}
+
 		if !sleepOrDone(ctx) {
-			slog.ErrorContext(ctx, "testenv.objectstore.not_ready", slog.String("err", lastErr.Error()))
-			return ObjectStoreBucket{}, fmt.Errorf("the test object store stored nothing before the deadline: %w", lastErr)
+			slog.ErrorContext(
+				ctx,
+				"testenv.objectstore.not_ready",
+				slog.String("err", lastErr.Error()),
+			)
+			return ObjectStoreBucket{}, fmt.Errorf(
+				"the test object store stored nothing before the deadline: %w",
+				lastErr,
+			)
 		}
 	}
 }
@@ -110,35 +133,52 @@ func probeObjectStore(ctx context.Context, s3Client *s3.Client) error {
 		slog.DebugContext(ctx, "testenv.objectstore.probe", slog.String("err", err.Error()))
 		return err
 	}
-	_, err := s3Client.PutObject(probeCtx, &s3.PutObjectInput{
-		Bucket: aws.String(objectStoreReadyBucket),
-		Key:    aws.String("ready"),
-		Body:   bytes.NewReader([]byte("ready")),
-	})
+
+	_, err := s3Client.PutObject(
+		probeCtx,
+		&s3.PutObjectInput{
+			Bucket: aws.String(objectStoreReadyBucket),
+			Key:    aws.String("ready"),
+			Body:   bytes.NewReader([]byte("ready")),
+		},
+	)
 	if err != nil {
 		slog.DebugContext(ctx, "testenv.objectstore.probe", slog.String("err", err.Error()))
 		return errors.New("write the readiness object: " + err.Error())
 	}
+
 	return nil
 }
 
 // objectStoreAccess reads a running or stopped engine's address and
 // identities back from its container, so a process that did not start the
 // engine can still reach it.
-func objectStoreAccess(ctx context.Context, cli *client.Client, containerName string) (ObjectStoreBucket, error) {
+func objectStoreAccess(
+	ctx context.Context,
+	cli *client.Client,
+	containerName string,
+) (ObjectStoreBucket, error) {
 	address, err := containerAddress(ctx, cli, containerName)
 	if err != nil {
 		return ObjectStoreBucket{}, err
 	}
+
 	contents, err := readContainerFile(ctx, cli, containerName, objectStoreConfigPath)
 	if err != nil {
 		return ObjectStoreBucket{}, err
 	}
+
 	var identities objectStoreConfig
 	if err := json.Unmarshal(contents, &identities); err != nil {
 		slog.ErrorContext(ctx, "testenv.objectstore.config_failed", slog.String("err", err.Error()))
-		return ObjectStoreBucket{}, fmt.Errorf("parse %s in %s: %w", objectStoreConfigPath, containerName, err)
+		return ObjectStoreBucket{}, fmt.Errorf(
+			"parse %s in %s: %w",
+			objectStoreConfigPath,
+			containerName,
+			err,
+		)
 	}
+
 	access := ObjectStoreBucket{
 		Endpoint:          "http://" + net.JoinHostPort(address, objectStorePort),
 		Region:            objectStoreRegion,
@@ -152,10 +192,16 @@ func objectStoreAccess(ctx context.Context, cli *client.Client, containerName st
 	writer, writerFound := identityCredential(identities, objectStoreWriterName)
 	reader, readerFound := identityCredential(identities, objectStoreReaderName)
 	if !writerFound || !readerFound {
-		return ObjectStoreBucket{}, fmt.Errorf("%s in %s lacks the testenv identities", objectStoreConfigPath, containerName)
+		return ObjectStoreBucket{}, fmt.Errorf(
+			"%s in %s lacks the testenv identities",
+			objectStoreConfigPath,
+			containerName,
+		)
 	}
+
 	access.AccessKey, access.SecretKey = writer.AccessKey, writer.SecretKey
 	access.ReadOnlyAccessKey, access.ReadOnlySecretKey = reader.AccessKey, reader.SecretKey
+
 	return access, nil
 }
 
@@ -166,5 +212,6 @@ func identityCredential(identities objectStoreConfig, name string) (objectStoreC
 			return identity.Credentials[0], true
 		}
 	}
+
 	return objectStoreCredential{AccessKey: "", SecretKey: ""}, false
 }

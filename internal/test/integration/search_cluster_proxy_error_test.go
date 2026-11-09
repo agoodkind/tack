@@ -20,19 +20,38 @@ func TestSearchClusterProxyServerError(t *testing.T) {
 	cluster := integration.StartSearchTestCluster(t, 1)
 	fixture, spec := integration.NewClusterQueryFixture(t, cluster.Fixture)
 	defer integration.CaptureClusterTestFailure(t, cluster, fixture, spec.Model.ID)
-	integration.RequireSearchable(t, fixture, []uuid.UUID{integration.ClusterNodeWriter(t, fixture)()})
+	integration.RequireSearchable(
+		t,
+		fixture,
+		[]uuid.UUID{integration.ClusterNodeWriter(t, fixture)()},
+	)
 	cluster.RefusePath(t, predictPathPrefix)
 	_, err := integration.TrySearch(fixture.Harness, integration.ClusterPhrase, "")
 	if err == nil || err.Error() != proxyErrorUnavailableText {
-		t.Fatalf("tack_search with the proxy refusing predictions returned error %v, want %q", err, proxyErrorUnavailableText)
+		t.Fatalf(
+			"tack_search with the proxy refusing predictions returned error %v, want %q",
+			err,
+			proxyErrorUnavailableText,
+		)
 	}
-	integration.ClusterEventually(t, "read the proxy's HTTP 500 prediction response", func() error {
-		for _, response := range cluster.PredictionResponses(t, spec.Model.ID) {
-			if response.Status == http.StatusInternalServerError {
-				t.Logf("proxy prediction response backend=%s status=%d origin_status=%d", response.Backend, response.Status, response.OriginStatus)
-				return nil
+
+	integration.ClusterEventually(
+		t,
+		"read the proxy's HTTP 500 prediction response",
+		func() error {
+			for _, response := range cluster.PredictionResponses(t, spec.Model.ID) {
+				if response.Status == http.StatusInternalServerError {
+					t.Logf(
+						"proxy prediction response backend=%s status=%d origin_status=%d",
+						response.Backend,
+						response.Status,
+						response.OriginStatus,
+					)
+					return nil
+				}
 			}
-		}
-		return errors.New("the proxy access log has no HTTP 500 prediction response")
-	})
+
+			return errors.New("the proxy access log has no HTTP 500 prediction response")
+		},
+	)
 }

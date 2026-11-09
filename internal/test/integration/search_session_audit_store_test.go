@@ -64,17 +64,43 @@ func sessionTokens(size int) json.RawMessage {
 
 func storedSearchSession(tokens json.RawMessage) searchdomain.Session {
 	now := clock.Now().UTC()
-	authorityID, principalID, entryPointID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	authorityID, principalID, entryPointID := uuid.Must(uuid.NewV7()), uuid.Must(
+		uuid.NewV7(),
+	), uuid.Must(uuid.NewV7())
 	query := searchdomain.Query{
-		Text: "session audit store", Index: "node-pages-store", NodeType: "",
-		Access: searchdomain.AccessFilter{Version: searchaccess.StableVersion, Keys: []string{"key-" + uuid.NewString()}}, Generation: 0,
+		Text:     "session audit store",
+		Index:    "node-pages-store",
+		NodeType: "",
+		Access: searchdomain.AccessFilter{
+			Version: searchaccess.StableVersion,
+			Keys:    []string{"key-" + uuid.NewString()},
+		},
+		Generation: 0,
 	}
 	return searchdomain.Session{
-		ID: uuid.Must(uuid.NewV7()), PrincipalID: principalID, AuthorityID: authorityID, EntryPointID: entryPointID,
-		Binding: searchdomain.SessionBinding(principalID, authorityID, entryPointID, query), Query: query,
-		Snapshot: searchdomain.Snapshot{PITID: "pit-store", Index: query.Index, QueryTokens: tokens},
-		Sort:     nil, Version: 0, CreatedAt: now, IdleDeadline: now.Add(sessionStoreIdle),
-		AbsoluteDeadline: now.Add(time.Hour), Complete: false, Closing: false,
+		ID:           uuid.Must(uuid.NewV7()),
+		PrincipalID:  principalID,
+		AuthorityID:  authorityID,
+		EntryPointID: entryPointID,
+		Binding: searchdomain.SessionBinding(
+			principalID,
+			authorityID,
+			entryPointID,
+			query,
+		),
+		Query: query,
+		Snapshot: searchdomain.Snapshot{
+			PITID:       "pit-store",
+			Index:       query.Index,
+			QueryTokens: tokens,
+		},
+		Sort:             nil,
+		Version:          0,
+		CreatedAt:        now,
+		IdleDeadline:     now.Add(sessionStoreIdle),
+		AbsoluteDeadline: now.Add(time.Hour),
+		Complete:         false,
+		Closing:          false,
 	}
 }
 
@@ -102,21 +128,40 @@ func TestSearchSessionAuditRefusesMissingContext(t *testing.T) {
 		t.Fatalf("load session %s: %v", session.ID, err)
 	}
 	mark := searchOutboxTail(t, stores)
-	commit := searchdomain.PageCommit{Sort: json.RawMessage(`[1]`), PITID: "pit-next", Visited: newIDs(1), ResultIDs: newIDs(1), Complete: false}
-	_, createErr := store.Create(t.Context(), storedSearchSession(sessionTokens(sessionStoreTokenBytes*16)))
+	commit := searchdomain.PageCommit{
+		Sort:      json.RawMessage(`[1]`),
+		PITID:     "pit-next",
+		Visited:   newIDs(1),
+		ResultIDs: newIDs(1),
+		Complete:  false,
+	}
+	_, createErr := store.Create(
+		t.Context(),
+		storedSearchSession(sessionTokens(sessionStoreTokenBytes*16)),
+	)
 	_, commitErr := store.CommitPage(t.Context(), session.ID, 0, commit)
 	cleanupErr := store.BeginCleanup(t.Context(), session.ID)
 	_, sliceErr := store.CleanupSlice(t.Context(), session.ID, maximumCleanupKeys)
-	for name, writerErr := range map[string]error{"Create": createErr, "CommitPage": commitErr, "BeginCleanup": cleanupErr, "CleanupSlice": sliceErr} {
+	for name, writerErr := range map[string]error{
+		"Create":       createErr,
+		"CommitPage":   commitErr,
+		"BeginCleanup": cleanupErr,
+		"CleanupSlice": sliceErr,
+	} {
 		if !errors.Is(writerErr, audit.ErrMissingMutationContext) {
-			t.Fatalf("%s without an operation = %v, want audit.ErrMissingMutationContext", name, writerErr)
+			t.Fatalf(
+				"%s without an operation = %v, want audit.ErrMissingMutationContext",
+				name,
+				writerErr,
+			)
 		}
 	}
 	after, err := store.Load(t.Context(), session.ID)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("session after the refused writes = %+v, %v, want %+v", after, err, before)
 	}
-	if entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), mark, 1); err != nil || len(entries) != 0 {
+	if entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), mark, 1); err != nil ||
+		len(entries) != 0 {
 		t.Fatalf("the refused writes added outbox entries %d, %v", len(entries), err)
 	}
 }

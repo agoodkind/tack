@@ -36,11 +36,18 @@ func TestDropKilltestSchemaDropsTheSchemaOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
+
 	marker := ops.KilltestSchemaTable{Name: "marker", Rows: 3}
 	if !planned.DryRun || !planned.Result.Exists || planned.Result.Owner != "yugabyte" || planned.Result.Dropped ||
-		len(planned.Result.Tables) != 1 || planned.Result.Tables[0] != marker {
-		t.Fatalf("dry run report = %+v, want the schema owned by yugabyte with %+v and no drop", planned, marker)
+		len(planned.Result.Tables) != 1 ||
+		planned.Result.Tables[0] != marker {
+		t.Fatalf(
+			"dry run report = %+v, want the schema owned by yugabyte with %+v and no drop",
+			planned,
+			marker,
+		)
 	}
+
 	if rows := countRows(t.Context(), t, admin, `SELECT count(*) FROM killtest.marker`); rows != 3 {
 		t.Fatalf("killtest.marker has %d rows after the dry run, want 3", rows)
 	}
@@ -49,9 +56,12 @@ func TestDropKilltestSchemaDropsTheSchemaOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !applied.Result.Dropped || len(applied.Result.Tables) != 1 || applied.Result.Tables[0] != marker {
+
+	if !applied.Result.Dropped || len(applied.Result.Tables) != 1 ||
+		applied.Result.Tables[0] != marker {
 		t.Fatalf("execute report = %+v, want the drop of %+v", applied, marker)
 	}
+
 	if schemas := countRows(t.Context(), t, admin, killtestSchemaCountQuery); schemas != 0 {
 		t.Fatalf("the killtest schema remains after the drop")
 	}
@@ -60,6 +70,7 @@ func TestDropKilltestSchemaDropsTheSchemaOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second execute: %v", err)
 	}
+
 	if rerun.Result.Exists || rerun.Result.Dropped || len(rerun.Result.Tables) != 0 {
 		t.Fatalf("second execute report = %+v, want an absent schema and no drop", rerun)
 	}
@@ -68,14 +79,22 @@ func TestDropKilltestSchemaDropsTheSchemaOnce(t *testing.T) {
 func TestDropKilltestSchemaRefusesOtherObjects(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	admin := testenv.LedgerPool(t, dsn)
-	createKilltestSchema(t, admin,
+	createKilltestSchema(
+		t,
+		admin,
 		`CREATE VIEW killtest.marker_view AS SELECT id FROM killtest.marker`,
-		`CREATE FUNCTION killtest.marker_count() RETURNS bigint LANGUAGE sql AS 'SELECT count(*) FROM killtest.marker'`)
+		`CREATE FUNCTION killtest.marker_count() RETURNS bigint LANGUAGE sql AS 'SELECT count(*) FROM killtest.marker'`,
+	)
 
 	_, err := runDropKilltestSchema(t, dsn, admin, true)
-	if err == nil || !strings.Contains(err.Error(), "relation marker_view") || !strings.Contains(err.Error(), "function marker_count") {
-		t.Fatalf("execute with a view and a function: err = %v, want a refusal that lists both", err)
+	if err == nil || !strings.Contains(err.Error(), "relation marker_view") ||
+		!strings.Contains(err.Error(), "function marker_count") {
+		t.Fatalf(
+			"execute with a view and a function: err = %v, want a refusal that lists both",
+			err,
+		)
 	}
+
 	if schemas := countRows(t.Context(), t, admin, killtestSchemaCountQuery); schemas != 1 {
 		t.Fatalf("the killtest schema is gone after the refusal")
 	}
@@ -84,12 +103,20 @@ func TestDropKilltestSchemaRefusesOtherObjects(t *testing.T) {
 func TestDropKilltestSchemaRefusesADependentInPublic(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	admin := testenv.LedgerPool(t, dsn)
-	createKilltestSchema(t, admin, `CREATE VIEW public.tack560_marker_view AS SELECT id FROM killtest.marker`)
+	createKilltestSchema(
+		t,
+		admin,
+		`CREATE VIEW public.tack560_marker_view AS SELECT id FROM killtest.marker`,
+	)
 
 	_, err := runDropKilltestSchema(t, dsn, admin, true)
 	if err == nil || !strings.Contains(err.Error(), "tack560_marker_view") {
-		t.Fatalf("execute with a dependent view in public: err = %v, want a refusal that lists the view", err)
+		t.Fatalf(
+			"execute with a dependent view in public: err = %v, want a refusal that lists the view",
+			err,
+		)
 	}
+
 	if schemas := countRows(t.Context(), t, admin, killtestSchemaCountQuery); schemas != 1 {
 		t.Fatalf("the killtest schema is gone after the refusal")
 	}
@@ -98,23 +125,41 @@ func TestDropKilltestSchemaRefusesADependentInPublic(t *testing.T) {
 func TestDropKilltestSchemaRefusesTheMigratorLogin(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	admin := testenv.LedgerPool(t, dsn)
+
 	cfg := &config.Config{DatabaseURL: dsn}
 	for _, generated := range []*string{
-		&cfg.AuditWriterPassword, &cfg.AuditReaderPassword, &cfg.AuditRedactorPassword,
-		&cfg.AuditOperatorPassword, &cfg.AppPassword, &cfg.MigratorPassword,
+		&cfg.AuditWriterPassword,
+		&cfg.AuditReaderPassword,
+		&cfg.AuditRedactorPassword,
+		&cfg.AuditOperatorPassword,
+		&cfg.AppPassword,
+		&cfg.MigratorPassword,
 	} {
 		*generated = uuid.NewString()
 	}
+
 	if err := ops.RunAuditSeedRoles(t.Context(), cfg); err != nil {
 		t.Fatalf("seed-roles as the engine superuser: %v", err)
 	}
+
 	createKilltestSchema(t, admin)
 
-	_, err := runDropKilltestSchema(t, loginDSN(t, dsn, migration.MigratorRole, cfg.MigratorPassword), admin, true)
-	if err == nil || !strings.Contains(err.Error(), "the login "+migration.MigratorRole+" cannot drop") ||
+	_, err := runDropKilltestSchema(
+		t,
+		loginDSN(t, dsn, migration.MigratorRole, cfg.MigratorPassword),
+		admin,
+		true,
+	)
+	if err == nil ||
+		!strings.Contains(err.Error(), "the login "+migration.MigratorRole+" cannot drop") ||
 		!strings.Contains(err.Error(), "superuser") {
-		t.Fatalf("execute as %s: err = %v, want a refusal that states the login and the right", migration.MigratorRole, err)
+		t.Fatalf(
+			"execute as %s: err = %v, want a refusal that states the login and the right",
+			migration.MigratorRole,
+			err,
+		)
 	}
+
 	if schemas := countRows(t.Context(), t, admin, killtestSchemaCountQuery); schemas != 1 {
 		t.Fatalf("the killtest schema is gone after the refusal")
 	}
@@ -123,15 +168,22 @@ func TestDropKilltestSchemaRefusesTheMigratorLogin(t *testing.T) {
 func createKilltestSchema(t *testing.T, admin *pgxpool.Pool, extra ...string) {
 	t.Helper()
 	t.Cleanup(func() {
-		if _, err := admin.Exec(context.WithoutCancel(t.Context()), `DROP SCHEMA IF EXISTS killtest CASCADE`); err != nil {
+		if _, err := admin.Exec(
+			context.WithoutCancel(t.Context()),
+			`DROP SCHEMA IF EXISTS killtest CASCADE`,
+		); err != nil {
 			t.Errorf("remove the killtest schema: %v", err)
 		}
 	})
-	statements := append([]string{
-		`CREATE SCHEMA killtest`,
-		`CREATE TABLE killtest.marker (id int PRIMARY KEY)`,
-		`INSERT INTO killtest.marker (id) VALUES (1), (2), (3)`,
-	}, extra...)
+
+	statements := append(
+		[]string{
+			`CREATE SCHEMA killtest`,
+			`CREATE TABLE killtest.marker (id int PRIMARY KEY)`,
+			`INSERT INTO killtest.marker (id) VALUES (1), (2), (3)`,
+		},
+		extra...,
+	)
 	for _, statement := range statements {
 		if _, err := admin.Exec(t.Context(), statement); err != nil {
 			t.Fatalf("%q: %v", statement, err)
@@ -139,7 +191,12 @@ func createKilltestSchema(t *testing.T, admin *pgxpool.Pool, extra ...string) {
 	}
 }
 
-func runDropKilltestSchema(t *testing.T, dsn string, outbox *pgxpool.Pool, execute bool) (killtestSchemaReport, error) {
+func runDropKilltestSchema(
+	t *testing.T,
+	dsn string,
+	outbox *pgxpool.Pool,
+	execute bool,
+) (killtestSchemaReport, error) {
 	t.Helper()
 	factory := cli.System(&config.Config{DatabaseURL: dsn})
 	var output bytes.Buffer
@@ -151,28 +208,40 @@ func runDropKilltestSchema(t *testing.T, dsn string, outbox *pgxpool.Pool, execu
 	ops.RegisterCommands(registry, factory)
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
 	factory.RegisterGlobalFlags(root)
+
 	for _, rendered := range clispec.RenderCobra(registry, factory) {
 		root.AddCommand(rendered)
 	}
+
 	arguments := []string{
-		"--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
-		"--operator-email", "operator@example.com", "--operator-name", "Killtest Schema Test",
-		"ops", "backfill", "once-drop-killtest-schema",
+		"--operator-id",
+		"019dd226-440e-729a-a442-281aaf73ca30",
+		"--operator-email",
+		"operator@example.com",
+		"--operator-name",
+		"Killtest Schema Test",
+		"ops",
+		"backfill",
+		"once-drop-killtest-schema",
 	}
 	if execute {
 		arguments = append(arguments, "--execute")
 	}
+
 	root.SetArgs(arguments)
 	var report killtestSchemaReport
 	if err := root.Execute(); err != nil {
 		return report, err
 	}
+
 	_, document, found := strings.Cut(output.String(), "{")
 	if !found {
 		t.Fatalf("the command printed no JSON report: %q", output.String())
 	}
+
 	if err := json.Unmarshal([]byte("{"+document), &report); err != nil {
 		t.Fatalf("decode the report %q: %v", output.String(), err)
 	}
+
 	return report, nil
 }

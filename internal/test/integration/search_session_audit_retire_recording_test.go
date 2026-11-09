@@ -53,23 +53,47 @@ func TestSearchSessionAuditRetireRecoveryOmitsUnsavedCodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the lost attempt operation: %v", err)
 	}
-	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
-		retireCleanupFailedMessage: func() { setContainerPaused(t, container, true) },
-		retireCodesFailedMessage:   func() { setContainerPaused(t, container, false) },
-	})
+	hooks := installRetireLogHooks(
+		t,
+		session.ID.String(),
+		map[string]func(){
+			retireCleanupFailedMessage: func() { setContainerPaused(t, container, true) },
+			retireCodesFailedMessage:   func() { setContainerPaused(t, container, false) },
+		},
+	)
 
 	_, err = rebuilds.RetireIndexSessions(lostContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
 	if !errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf("RetireIndexSessions of %s without saved evidence = %v, want %v", index, err, audit.ErrEventNotRecorded)
+		t.Fatalf(
+			"RetireIndexSessions of %s without saved evidence = %v, want %v",
+			index,
+			err,
+			audit.ErrEventNotRecorded,
+		)
 	}
 	waitUntilTime(t, clock.Now().Add(retireAttemptWait))
-	if _, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit); err != nil {
+	if _, err := rebuilds.RetireIndexSessions(
+		integration.WithTestOperation(t, t.Context()),
+		index,
+		retireSliceLimit,
+	); err != nil {
 		t.Fatalf("RetireIndexSessions of %s after the attempt lease: %v", index, err)
 	}
-	events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved))
+	events := cleanupFailureEvents(
+		t,
+		stores,
+		mark,
+		session.ID,
+		searchdomain.CleanupStep(retireResultNotSaved),
+	)
 	if len(events) != 1 || events[0].Context.OperationID != operation.Context.OperationID {
-		t.Fatalf("session %s recovered events = %+v, want 1 under operation %s", session.ID, events, operation.Context.OperationID)
+		t.Fatalf(
+			"session %s recovered events = %+v, want 1 under operation %s",
+			session.ID,
+			events,
+			operation.Context.OperationID,
+		)
 	}
 	var evidence retireFailureEvidence
 	if len(events[0].Extra) != 0 {
@@ -101,77 +125,186 @@ func TestSearchSessionAuditRetireRecoversLostFailureEvent(t *testing.T) {
 		{index: "node-pages-delete-lost", closing: true, verb: audit.VerbSearchSessionDelete},
 	}
 	for _, current := range cases {
-		t.Run(current.index, func(t *testing.T) {
-			stores := sessionStoreStores(t)
-			rebuilds := stores.SearchRebuilds(clock.Wall{})
-			store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
-			container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
-			beginRetiringRebuild(t, stores, current.index)
-			session := retiringSession(t, stores, current.index)
-			if current.closing {
-				if err := store.BeginCleanup(integration.WithTestOperation(t, t.Context()), session.ID); err != nil {
-					t.Fatalf("close session %s: %v", session.ID, err)
+		t.Run(
+			current.index,
+			func(t *testing.T) {
+				stores := sessionStoreStores(t)
+				rebuilds := stores.SearchRebuilds(clock.Wall{})
+				store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
+				container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
+				beginRetiringRebuild(t, stores, current.index)
+				session := retiringSession(t, stores, current.index)
+				if current.closing {
+					if err := store.BeginCleanup(
+						integration.WithTestOperation(t, t.Context()),
+						session.ID,
+					); err != nil {
+						t.Fatalf("close session %s: %v", session.ID, err)
+					}
 				}
-			}
-			mark := searchOutboxTail(t, stores)
-			gate := installRetirePauseGate(t, container, session.ID.String(), retireCleanupFailedMessage)
-			lostContext := withFutureOperation(t, t.Context())
-			operation, err := audit.RequireMutationContext(lostContext)
-			if err != nil {
-				t.Fatalf("read the lost attempt operation: %v", err)
-			}
-
-			remaining, err := rebuilds.RetireIndexSessions(lostContext, current.index, retireSliceLimit)
-			gate.requireFinished(t)
-			if err == nil || !remaining || !errors.Is(err, audit.ErrEventNotRecorded) {
-				t.Fatalf("RetireIndexSessions of %s without a saved failure event = %t, %v, want a remaining session and %v", current.index, remaining, err, audit.ErrEventNotRecorded)
-			}
-			for _, want := range []string{changeEventFailure, cleanupRecordingFailure, transactionTimedOutText} {
-				if !strings.Contains(err.Error(), want) {
-					t.Fatalf("RetireIndexSessions of %s error = %v, want text %q", current.index, err, want)
+				mark := searchOutboxTail(t, stores)
+				gate := installRetirePauseGate(
+					t,
+					container,
+					session.ID.String(),
+					retireCleanupFailedMessage,
+				)
+				lostContext := withFutureOperation(t, t.Context())
+				operation, err := audit.RequireMutationContext(lostContext)
+				if err != nil {
+					t.Fatalf("read the lost attempt operation: %v", err)
 				}
-			}
-			timedOut := fdb.Error{Code: transactionTimedOutNumber}
-			if !errors.Is(err, audit.ErrEventNotRecorded) || !errors.Is(err, timedOut) {
-				t.Fatalf("RetireIndexSessions of %s returned %v, want an error matching %v and %v", current.index, err, audit.ErrEventNotRecorded, timedOut)
-			}
-			stored, err := store.Load(t.Context(), session.ID)
-			if err != nil || stored.Closing != current.closing {
-				t.Fatalf("session %s after the lost failure event = %+v, %v, want closing %t", session.ID, stored, err, current.closing)
-			}
 
-			remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), current.index, retireSliceLimit)
-			if err != nil || !remaining {
-				t.Fatalf("RetireIndexSessions of %s during the attempt lease = %t, %v, want remaining work", current.index, remaining, err)
-			}
-			if _, err := store.Load(t.Context(), session.ID); !errors.Is(err, searchdomain.ErrSessionNotFound) {
-				t.Fatalf("load session %s after the successful retry = %v, want %v", session.ID, err, searchdomain.ErrSessionNotFound)
-			}
-			if events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved)); len(events) != 0 {
-				t.Fatalf("session %s has %d recovered events during the attempt lease, want 0", session.ID, len(events))
-			}
+				remaining, err := rebuilds.RetireIndexSessions(
+					lostContext,
+					current.index,
+					retireSliceLimit,
+				)
+				gate.requireFinished(t)
+				if err == nil || !remaining || !errors.Is(err, audit.ErrEventNotRecorded) {
+					t.Fatalf(
+						"RetireIndexSessions of %s without a saved failure event = %t, %v, want a remaining session and %v",
+						current.index,
+						remaining,
+						err,
+						audit.ErrEventNotRecorded,
+					)
+				}
+				for _, want := range []string{
+					changeEventFailure,
+					cleanupRecordingFailure,
+					transactionTimedOutText,
+				} {
+					if !strings.Contains(err.Error(), want) {
+						t.Fatalf(
+							"RetireIndexSessions of %s error = %v, want text %q",
+							current.index,
+							err,
+							want,
+						)
+					}
+				}
+				timedOut := fdb.Error{Code: transactionTimedOutNumber}
+				if !errors.Is(err, audit.ErrEventNotRecorded) || !errors.Is(err, timedOut) {
+					t.Fatalf(
+						"RetireIndexSessions of %s returned %v, want an error matching %v and %v",
+						current.index,
+						err,
+						audit.ErrEventNotRecorded,
+						timedOut,
+					)
+				}
+				stored, err := store.Load(t.Context(), session.ID)
+				if err != nil || stored.Closing != current.closing {
+					t.Fatalf(
+						"session %s after the lost failure event = %+v, %v, want closing %t",
+						session.ID,
+						stored,
+						err,
+						current.closing,
+					)
+				}
 
-			waitUntilTime(t, clock.Now().Add(retireAttemptWait))
-			remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), current.index, retireSliceLimit)
-			if err != nil || remaining {
-				t.Fatalf("RetireIndexSessions of %s after the attempt lease = %t, %v, want a finished retirement", current.index, remaining, err)
-			}
-			events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved))
-			if len(events) != 1 {
-				t.Fatalf("session %s has %d recovered attempt events, want 1", session.ID, len(events))
-			}
-			event := events[0]
-			if event.Actor.ID != integration.TestActorID || event.Context.OperationID != operation.Context.OperationID ||
-				!event.Context.StartedAt.Equal(operation.Context.StartedAt) || event.Verb != string(current.verb) ||
-				event.Outcome != audit.OutcomeIncomplete || event.Context.OrgID != session.AuthorityID ||
-				event.Context.Target == nil || event.Context.Target.OwnerID != session.PrincipalID {
-				t.Fatalf("recovered attempt event = %+v, target %+v, want %s by actor %s under operation %s started at %s",
-					event, event.Context.Target, current.verb, integration.TestActorID, operation.Context.OperationID, operation.Context.StartedAt)
-			}
-			var evidence retireFailureEvidence
-			if err := json.Unmarshal(event.Extra, &evidence); err != nil || evidence.Cleanup != unclassifiedFailureCode || evidence.Recording != transactionTimedOutCode {
-				t.Fatalf("recovered attempt evidence = %s, %v, want cleanup code %q and recording code %q", event.Extra, err, unclassifiedFailureCode, transactionTimedOutCode)
-			}
-		})
+				remaining, err = rebuilds.RetireIndexSessions(
+					integration.WithTestOperation(t, t.Context()),
+					current.index,
+					retireSliceLimit,
+				)
+				if err != nil || !remaining {
+					t.Fatalf(
+						"RetireIndexSessions of %s during the attempt lease = %t, %v, want remaining work",
+						current.index,
+						remaining,
+						err,
+					)
+				}
+				if _, err := store.Load(t.Context(), session.ID); !errors.Is(
+					err,
+					searchdomain.ErrSessionNotFound,
+				) {
+					t.Fatalf(
+						"load session %s after the successful retry = %v, want %v",
+						session.ID,
+						err,
+						searchdomain.ErrSessionNotFound,
+					)
+				}
+				if events := cleanupFailureEvents(
+					t,
+					stores,
+					mark,
+					session.ID,
+					searchdomain.CleanupStep(retireResultNotSaved),
+				); len(events) != 0 {
+					t.Fatalf(
+						"session %s has %d recovered events during the attempt lease, want 0",
+						session.ID,
+						len(events),
+					)
+				}
+
+				waitUntilTime(t, clock.Now().Add(retireAttemptWait))
+				remaining, err = rebuilds.RetireIndexSessions(
+					integration.WithTestOperation(t, t.Context()),
+					current.index,
+					retireSliceLimit,
+				)
+				if err != nil || remaining {
+					t.Fatalf(
+						"RetireIndexSessions of %s after the attempt lease = %t, %v, want a finished retirement",
+						current.index,
+						remaining,
+						err,
+					)
+				}
+				events := cleanupFailureEvents(
+					t,
+					stores,
+					mark,
+					session.ID,
+					searchdomain.CleanupStep(retireResultNotSaved),
+				)
+				if len(events) != 1 {
+					t.Fatalf(
+						"session %s has %d recovered attempt events, want 1",
+						session.ID,
+						len(events),
+					)
+				}
+				event := events[0]
+				if event.Actor.ID != integration.TestActorID || event.Context.OperationID != operation.Context.OperationID ||
+					!event.Context.StartedAt.Equal(
+						operation.Context.StartedAt,
+					) || event.Verb != string(current.verb) ||
+					event.Outcome != audit.OutcomeIncomplete ||
+					event.Context.OrgID != session.AuthorityID ||
+					event.Context.Target == nil ||
+					event.Context.Target.OwnerID != session.PrincipalID {
+					t.Fatalf(
+						"recovered attempt event = %+v, target %+v, want %s by actor %s under operation %s started at %s",
+						event,
+						event.Context.Target,
+						current.verb,
+						integration.TestActorID,
+						operation.Context.OperationID,
+						operation.Context.StartedAt,
+					)
+				}
+				var evidence retireFailureEvidence
+				if err := json.Unmarshal(
+					event.Extra,
+					&evidence,
+				); err != nil || evidence.Cleanup != unclassifiedFailureCode ||
+					evidence.Recording != transactionTimedOutCode {
+					t.Fatalf(
+						"recovered attempt evidence = %s, %v, want cleanup code %q and recording code %q",
+						event.Extra,
+						err,
+						unclassifiedFailureCode,
+						transactionTimedOutCode,
+					)
+				}
+			},
+		)
 	}
 }

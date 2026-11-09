@@ -27,12 +27,14 @@ func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("owner pool: %v", err)
 	}
+
 	t.Cleanup(owner.Close)
 
 	restricted, err := pgxpool.New(ctx, insertOnlyOutboxDSN(ctx, t, owner, dsn))
 	if err != nil {
 		t.Fatalf("restricted pool: %v", err)
 	}
+
 	t.Cleanup(restricted.Close)
 
 	outbox := NewPoolOutbox(restricted)
@@ -45,22 +47,31 @@ func TestWriteOutboxIfAbsentUnderInsertOnlyRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first write: %v", err)
 	}
+
 	if !written {
 		t.Fatal("first write reported the event was already present")
 	}
+
 	rewritten, err := outbox.WriteOutboxIfAbsent(ctx, event)
 	if err != nil {
 		t.Fatalf("second write: %v", err)
 	}
+
 	if rewritten {
 		t.Fatal("second write reported an insert, so a resumed run would duplicate history")
 	}
+
 	var rows int
-	if err := owner.QueryRow(ctx,
-		`SELECT count(*) FROM public.ops_outbox WHERE event_id = $1`, event.EventID,
-	).Scan(&rows); err != nil {
+	if err := owner.QueryRow(
+		ctx,
+		`SELECT count(*) FROM public.ops_outbox WHERE event_id = $1`,
+		event.EventID,
+	).Scan(
+		&rows,
+	); err != nil {
 		t.Fatalf("count rows: %v", err)
 	}
+
 	if rows != 1 {
 		t.Fatalf("outbox rows = %d, want 1", rows)
 	}
@@ -81,19 +92,24 @@ func insertOnlyOutboxDSN(
 	if _, err := rand.Read(entropy); err != nil {
 		t.Fatalf("generate role credential: %v", err)
 	}
+
 	credential := hex.EncodeToString(entropy)
 	suffix := make([]byte, 4)
 	if _, err := rand.Read(suffix); err != nil {
 		t.Fatalf("generate role suffix: %v", err)
 	}
+
 	// Roles belong to the whole engine rather than one database, so the name
 	// carries a per-run suffix and never meets a role an earlier run left.
 	role := "outbox_insert_only_test_" + hex.EncodeToString(suffix)
 
-	if _, err := owner.Exec(ctx,
-		`CREATE ROLE `+role+` LOGIN PASSWORD `+quoteLiteral(credential)); err != nil {
+	if _, err := owner.Exec(
+		ctx,
+		`CREATE ROLE `+role+` LOGIN PASSWORD `+quoteLiteral(credential),
+	); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
+
 	t.Cleanup(func() {
 		_, _ = owner.Exec(ctx, `REVOKE ALL ON public.ops_outbox FROM `+role)
 		_, _ = owner.Exec(ctx, `DROP ROLE IF EXISTS `+role)
@@ -101,14 +117,18 @@ func insertOnlyOutboxDSN(
 	if _, err := owner.Exec(ctx, `REVOKE ALL ON public.ops_outbox FROM `+role); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
+
 	if _, err := owner.Exec(ctx, `GRANT INSERT ON public.ops_outbox TO `+role); err != nil {
 		t.Fatalf("grant insert: %v", err)
 	}
+
 	parsed, err := url.Parse(ownerDSN)
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)
 	}
+
 	parsed.User = url.UserPassword(role, credential)
+
 	return parsed.String()
 }
 

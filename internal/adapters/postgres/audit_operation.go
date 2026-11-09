@@ -25,11 +25,18 @@ const (
 func changeOperation(ctx context.Context, verb audit.Verb, orgID uuid.UUID) (audit.Event, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.change.context_missing", slog.String("verb", string(verb)), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.change.context_missing",
+			slog.String("verb", string(verb)),
+			slog.String("err", err.Error()),
+		)
 		return audit.Event{}, fmt.Errorf("record %s in org %s: %w", verb, orgID, err)
 	}
+
 	operation.Verb = string(verb)
 	operation.Context.OrgID = orgID
+
 	return operation, nil
 }
 
@@ -42,9 +49,15 @@ func changeOperation(ctx context.Context, verb audit.Verb, orgID uuid.UUID) (aud
 //	target := UserTarget(userID)
 func UserTarget(userID uuid.UUID) audit.Target {
 	return audit.Target{
-		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: "",
-		URI: userTargetPrefix + userID.String(), RelationType: "",
-		ID: userID, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         audit.TargetKindResource,
+		NodeType:     "",
+		Reference:    "",
+		Name:         "",
+		URI:          userTargetPrefix + userID.String(),
+		RelationType: "",
+		ID:           userID,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
@@ -56,9 +69,15 @@ func UserTarget(userID uuid.UUID) audit.Target {
 //	target := TokenTarget(tokenID, label)
 func TokenTarget(tokenID uuid.UUID, label string) audit.Target {
 	return audit.Target{
-		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: label,
-		URI: audit.APIAccessURIPrefix + tokenID.String(), RelationType: "",
-		ID: tokenID, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         audit.TargetKindResource,
+		NodeType:     "",
+		Reference:    "",
+		Name:         label,
+		URI:          audit.APIAccessURIPrefix + tokenID.String(),
+		RelationType: "",
+		ID:           tokenID,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
@@ -71,8 +90,14 @@ func TokenTarget(tokenID uuid.UUID, label string) audit.Target {
 //	target := MemberTarget(memberID, orgID, userID)
 func MemberTarget(memberID, orgID, userID uuid.UUID) audit.Target {
 	return audit.Target{
-		Kind: audit.TargetKindRelationship, NodeType: "", Reference: "", Name: "",
-		URI: "", RelationType: memberRelation,
-		ID: memberID, SourceID: orgID, TargetID: userID,
+		Kind:         audit.TargetKindRelationship,
+		NodeType:     "",
+		Reference:    "",
+		Name:         "",
+		URI:          "",
+		RelationType: memberRelation,
+		ID:           memberID,
+		SourceID:     orgID,
+		TargetID:     userID,
 	}
 }

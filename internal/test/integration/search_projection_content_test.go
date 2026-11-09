@@ -37,29 +37,85 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 	included, excluded, labeled := opaqueName("p"), opaqueName("p"), opaqueName("c")
 	laterName, earlierName := opaqueName("b"), opaqueName("a")
 	optioned, restricted, listed := opaqueName("o"), opaqueName("r"), opaqueName("l")
-	structured, absent, summaryKey, tagsKey := opaqueName("s"), opaqueName("x"), opaqueName("f"), opaqueName("g")
-	scalar := node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}}
-	scalarItems := node.TextRule{Mode: node.TextRuleItems, Items: &node.TextRule{Mode: node.TextRuleScalar}}
-	structuredRule := node.TextRule{Mode: node.TextRuleObject, Fields: []node.TextField{
-		{Key: tagsKey, Rule: scalarItems}, {Key: summaryKey, Rule: node.TextRule{Mode: node.TextRuleScalar}},
-	}}
+	structured, absent, summaryKey, tagsKey := opaqueName(
+		"s",
+	), opaqueName("x"), opaqueName("f"), opaqueName("g")
+	scalar := node.SearchProjection{
+		Include: true,
+		Order:   0,
+		Rule:    node.TextRule{Mode: node.TextRuleScalar},
+	}
+	scalarItems := node.TextRule{
+		Mode:  node.TextRuleItems,
+		Items: &node.TextRule{Mode: node.TextRuleScalar},
+	}
+	structuredRule := node.TextRule{
+		Mode: node.TextRuleObject,
+		Fields: []node.TextField{
+			{
+				Key:  tagsKey,
+				Rule: scalarItems,
+			},
+			{Key: summaryKey, Rule: node.TextRule{Mode: node.TextRuleScalar}},
+		},
+	}
 	definitions := []*node.PropertyDef{
 		projectionDefinition(orgID, included, scalar),
-		projectionDefinition(orgID, excluded, node.SearchProjection{Include: false, Order: 1, Rule: node.TextRule{Mode: node.TextRuleScalar}}),
-		projectionDefinition(orgID, labeled, node.SearchProjection{
-			Include: true, Order: 2, Rule: node.TextRule{Mode: node.TextRuleLabels, Labels: map[string]string{"declared": "Declared label"}},
-		}),
+		projectionDefinition(
+			orgID,
+			excluded,
+			node.SearchProjection{
+				Include: false,
+				Order:   1,
+				Rule:    node.TextRule{Mode: node.TextRuleScalar},
+			},
+		),
+		projectionDefinition(
+			orgID,
+			labeled,
+			node.SearchProjection{
+				Include: true,
+				Order:   2,
+				Rule: node.TextRule{
+					Mode:   node.TextRuleLabels,
+					Labels: map[string]string{"declared": "Declared label"},
+				},
+			},
+		),
 		{
-			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: optioned, Type: node.PropertyTypeSelect,
+			ID:      uuid.Must(uuid.NewV7()),
+			OrgID:   orgID,
+			Name:    optioned,
+			Type:    node.PropertyTypeSelect,
 			Options: []node.EnumOption{{Key: "planned", Label: "Planned"}},
 		},
 		{
-			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: restricted, Type: node.PropertyTypeText,
-			AppliesToFeatures: []string{node.FeatureHasDueDates}, Search: &scalar,
+			ID:                uuid.Must(uuid.NewV7()),
+			OrgID:             orgID,
+			Name:              restricted,
+			Type:              node.PropertyTypeText,
+			AppliesToFeatures: []string{node.FeatureHasDueDates},
+			Search:            &scalar,
 		},
-		projectionDefinition(orgID, listed, node.SearchProjection{Include: true, Order: 3, Rule: scalarItems}),
-		projectionDefinition(orgID, structured, node.SearchProjection{Include: true, Order: 4, Rule: structuredRule}),
-		projectionDefinition(orgID, absent, node.SearchProjection{Include: true, Order: 5, Rule: node.TextRule{Mode: node.TextRuleScalar}}),
+		projectionDefinition(
+			orgID,
+			listed,
+			node.SearchProjection{Include: true, Order: 3, Rule: scalarItems},
+		),
+		projectionDefinition(
+			orgID,
+			structured,
+			node.SearchProjection{Include: true, Order: 4, Rule: structuredRule},
+		),
+		projectionDefinition(
+			orgID,
+			absent,
+			node.SearchProjection{
+				Include: true,
+				Order:   5,
+				Rule:    node.TextRule{Mode: node.TextRuleScalar},
+			},
+		),
 	}
 	want := map[string]expectedDiagnostic{
 		earlierName: {reason: node.DiagnosticUndeclared, definitionID: uuid.Nil},
@@ -71,18 +127,26 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 	}
 	typeKey := opaqueName("n")
 	kind := &node.NodeType{
-		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: typeKey, TypeKey: typeKey, Slug: typeKey, PluralSlug: typeKey + "s",
-		Features: node.Features{node.FeatureIsEntryPoint},
+		ID:         uuid.Must(uuid.NewV7()),
+		OrgID:      orgID,
+		Name:       typeKey,
+		TypeKey:    typeKey,
+		Slug:       typeKey,
+		PluralSlug: typeKey + "s",
+		Features:   node.Features{node.FeatureIsEntryPoint},
 	}
+
 	for _, definition := range definitions {
 		kind.PropertyDefIDs = append(kind.PropertyDefIDs, definition.ID)
 		if err := env.Stores.PropertyDefs.Set(env.Ctx, definition); err != nil {
 			t.Fatalf("store property definition %s: %v", definition.Name, err)
 		}
 	}
+
 	if err := env.Stores.NodeTypes.Set(env.Ctx, kind); err != nil {
 		t.Fatalf("store node type %s: %v", typeKey, err)
 	}
+
 	props := map[string]json.RawMessage{
 		included:    json.RawMessage(`"amber included value"`),
 		excluded:    json.RawMessage(`"amber excluded value"`),
@@ -92,39 +156,77 @@ func TestSearchProjectionIndexesValidContent(t *testing.T) {
 		optioned:    json.RawMessage(`"amber-missing-option"`),
 		restricted:  json.RawMessage(`"amber inapplicable value"`),
 		listed:      json.RawMessage(`["amber listed value", null]`),
-		structured:  json.RawMessage(`{"` + tagsKey + `":["amber structured tag"],"` + summaryKey + `":"amber structured summary"}`),
+		structured: json.RawMessage(
+			`{"` + tagsKey + `":["amber structured tag"],"` + summaryKey + `":"amber structured summary"}`,
+		),
 	}
 	nodeID := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()
-	value := &node.Node{ID: nodeID, OrgID: orgID, NodeType: typeKey, Name: "Projection node", Props: props, CreatedAt: now, UpdatedAt: now}
-	view := &node.NodeView{ID: nodeID, OrgID: orgID, NodeType: typeKey, Name: "Projection node", Props: props, CreatedAt: now, UpdatedAt: now}
+	value := &node.Node{
+		ID:        nodeID,
+		OrgID:     orgID,
+		NodeType:  typeKey,
+		Name:      "Projection node",
+		Props:     props,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	view := &node.NodeView{
+		ID:        nodeID,
+		OrgID:     orgID,
+		NodeType:  typeKey,
+		Name:      "Projection node",
+		Props:     props,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
 	if err := env.Stores.Nodes.Set(env.Ctx, value, view); err != nil {
 		t.Fatalf("store node %s: %v", nodeID, err)
 	}
 
 	reader := env.Stores.SearchContent(env.Stores.SearchPolicySet())
-	request := searchdomain.ContentRequest{NodeID: nodeID, Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: 4096, SearchGeneration: 0}
+	request := searchdomain.ContentRequest{
+		NodeID:           nodeID,
+		Cursor:           "",
+		ProjectionConfig: "",
+		AccessVersions:   nil,
+		MaxBytes:         4096,
+		SearchGeneration: 0,
+	}
 	first, err := reader.Content(env.Ctx, request)
 	if err != nil {
 		t.Fatalf("read the search text of node %s: %v", nodeID, err)
 	}
+
 	second, err := reader.Content(env.Ctx, request)
-	if err != nil || second.Text != first.Text || !slices.Equal(second.Diagnostics, first.Diagnostics) {
-		t.Fatalf("a second read returned %+v, error %v, want the first read %+v", second, err, first)
+	if err != nil || second.Text != first.Text ||
+		!slices.Equal(second.Diagnostics, first.Diagnostics) {
+		t.Fatalf(
+			"a second read returned %+v, error %v, want the first read %+v",
+			second,
+			err,
+			first,
+		)
 	}
-	if want := "Projection node\namber included value\namber structured summary\namber structured tag\n"; first.Text != want || !first.Done {
+
+	if want := "Projection node\namber included value\namber structured summary\namber structured tag\n"; first.Text != want ||
+		!first.Done {
 		t.Fatalf("search text = %q, done %t, want %q on one page", first.Text, first.Done, want)
 	}
+
 	wantNames := make([]string, 0, len(want))
 	for name := range want {
 		wantNames = append(wantNames, name)
 	}
+
 	slices.Sort(wantNames)
+
 	names := make([]string, 0, len(first.Diagnostics))
 	for _, diagnostic := range first.Diagnostics {
 		names = append(names, diagnostic.PropertyName)
 		requireDiagnostic(t, diagnostic, nodeID, want[diagnostic.PropertyName])
 	}
+
 	if !slices.Equal(names, wantNames) {
 		t.Fatalf("diagnostics name %v, want %v", names, wantNames)
 	}
@@ -141,20 +243,41 @@ type expectedDiagnostic struct {
 
 // requireDiagnostic checks that diagnostic identifies nodeID and the
 // revision, reports the expected reason, and omits the source value.
-func requireDiagnostic(t *testing.T, diagnostic node.PropertyDiagnostic, nodeID uuid.UUID, want expectedDiagnostic) {
+func requireDiagnostic(
+	t *testing.T,
+	diagnostic node.PropertyDiagnostic,
+	nodeID uuid.UUID,
+	want expectedDiagnostic,
+) {
 	t.Helper()
 	if diagnostic.NodeID != nodeID || diagnostic.Revision == "" || diagnostic.ProjectionVersion == "" ||
-		diagnostic.Reason != want.reason || diagnostic.PropertyDefID != want.definitionID || strings.Contains(diagnostic.Message, "amber") ||
+		diagnostic.Reason != want.reason ||
+		diagnostic.PropertyDefID != want.definitionID ||
+		strings.Contains(diagnostic.Message, "amber") ||
 		strings.Contains(diagnostic.Message, "undeclared-label") {
-		t.Fatalf("diagnostic %+v, want node %s, reason %s, and definition %s without the source value", diagnostic, nodeID, want.reason, want.definitionID)
+		t.Fatalf(
+			"diagnostic %+v, want node %s, reason %s, and definition %s without the source value",
+			diagnostic,
+			nodeID,
+			want.reason,
+			want.definitionID,
+		)
 	}
 }
 
 // projectionDefinition returns a property definition in organization orgID
 // with the given name and search as its explicit search declaration. The
 // definition uses a randomly generated property type that Tack does not define.
-func projectionDefinition(orgID uuid.UUID, name string, search node.SearchProjection) *node.PropertyDef {
+func projectionDefinition(
+	orgID uuid.UUID,
+	name string,
+	search node.SearchProjection,
+) *node.PropertyDef {
 	return &node.PropertyDef{
-		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: name, Type: node.PropertyType(opaqueName("t")), Search: &search,
+		ID:     uuid.Must(uuid.NewV7()),
+		OrgID:  orgID,
+		Name:   name,
+		Type:   node.PropertyType(opaqueName("t")),
+		Search: &search,
 	}
 }

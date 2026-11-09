@@ -55,7 +55,12 @@ func TestSearchSessionAuditRetireInvalidAttemptRecord(t *testing.T) {
 	mark := searchOutboxTail(t, stores)
 	oversized := bytes.Repeat([]byte("x"), oversizedRecordBytes)
 	integration.ReplaceRawValue(t, retireAttemptKey(t, index), oversized)
-	malformedKey := fdb.Key(append(bytes.Clone(fdbadapter.TestPrefixRange()), tuple.Tuple{retireAttemptFamily, index, "malformed"}.Pack()...))
+	malformedKey := fdb.Key(
+		append(
+			bytes.Clone(fdbadapter.TestPrefixRange()),
+			tuple.Tuple{retireAttemptFamily, index, "malformed"}.Pack()...,
+		),
+	)
 	integration.ReplaceRawValue(t, malformedKey, []byte(invalidAttemptValue))
 
 	retryContext := integration.WithTestOperation(t, t.Context())
@@ -65,24 +70,57 @@ func TestSearchSessionAuditRetireInvalidAttemptRecord(t *testing.T) {
 	}
 	remaining, err := rebuilds.RetireIndexSessions(retryContext, index, retireSliceLimit)
 	if err != nil || remaining {
-		t.Fatalf("RetireIndexSessions of %s with invalid attempt records = %t, %v, want a finished retirement", index, remaining, err)
+		t.Fatalf(
+			"RetireIndexSessions of %s with invalid attempt records = %t, %v, want a finished retirement",
+			index,
+			remaining,
+			err,
+		)
 	}
-	if _, err := store.Load(t.Context(), session.ID); !errors.Is(err, searchdomain.ErrSessionNotFound) {
-		t.Fatalf("load session %s after retirement = %v, want %v", session.ID, err, searchdomain.ErrSessionNotFound)
+	if _, err := store.Load(t.Context(), session.ID); !errors.Is(
+		err,
+		searchdomain.ErrSessionNotFound,
+	) {
+		t.Fatalf(
+			"load session %s after retirement = %v, want %v",
+			session.ID,
+			err,
+			searchdomain.ErrSessionNotFound,
+		)
 	}
 	events := invalidAttemptEvents(t, stores, mark)
 	if len(events) != invalidRecordCount {
-		t.Fatalf("index %s has %d invalid attempt events, want %d", index, len(events), invalidRecordCount)
+		t.Fatalf(
+			"index %s has %d invalid attempt events, want %d",
+			index,
+			len(events),
+			invalidRecordCount,
+		)
 	}
-	expected := map[string][]byte{digestOf(oversized): oversized, digestOf([]byte(invalidAttemptValue)): []byte(invalidAttemptValue)}
+	expected := map[string][]byte{
+		digestOf(oversized):                   oversized,
+		digestOf([]byte(invalidAttemptValue)): []byte(invalidAttemptValue),
+	}
 	for _, event := range events {
 		var evidence invalidAttemptEvidence
-		if err := json.Unmarshal(event.Extra, &evidence); err != nil || evidence.Record != nil || expected[evidence.Digest] == nil {
-			t.Fatalf("invalid attempt evidence = %s, %v, want only a known digest", event.Extra, err)
+		if err := json.Unmarshal(event.Extra, &evidence); err != nil || evidence.Record != nil ||
+			expected[evidence.Digest] == nil {
+			t.Fatalf(
+				"invalid attempt evidence = %s, %v, want only a known digest",
+				event.Extra,
+				err,
+			)
 		}
-		if event.Actor.ID != integration.TestActorID || event.Context.OperationID != operation.Context.OperationID ||
-			event.Outcome != audit.OutcomeIncomplete || event.Context.OrgID != audit.SystemOrgID() {
-			t.Fatalf("invalid attempt event = %+v, want an incomplete event by actor %s under operation %s", event, integration.TestActorID, operation.Context.OperationID)
+		if event.Actor.ID != integration.TestActorID ||
+			event.Context.OperationID != operation.Context.OperationID ||
+			event.Outcome != audit.OutcomeIncomplete ||
+			event.Context.OrgID != audit.SystemOrgID() {
+			t.Fatalf(
+				"invalid attempt event = %+v, want an incomplete event by actor %s under operation %s",
+				event,
+				integration.TestActorID,
+				operation.Context.OperationID,
+			)
 		}
 	}
 	retainedIDs := retainedAttemptEvents(t, stores, mark)
@@ -97,7 +135,12 @@ func digestOf(value []byte) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func requireRetainedRecords(t *testing.T, letters map[uuid.UUID]audit.DeadLetter, expected map[string][]byte, malformedKey fdb.Key) {
+func requireRetainedRecords(
+	t *testing.T,
+	letters map[uuid.UUID]audit.DeadLetter,
+	expected map[string][]byte,
+	malformedKey fdb.Key,
+) {
 	t.Helper()
 	chunks := map[string][]invalidAttemptEvidence{}
 	for eventID, letter := range letters {
@@ -114,17 +157,31 @@ func requireRetainedRecords(t *testing.T, letters map[uuid.UUID]audit.DeadLetter
 	keySeen := false
 	for digest, value := range expected {
 		parts := chunks[digest]
-		slices.SortFunc(parts, func(left, right invalidAttemptEvidence) int { return left.Index - right.Index })
+		slices.SortFunc(
+			parts,
+			func(left, right invalidAttemptEvidence) int { return left.Index - right.Index },
+		)
 		rebuilt := []byte{}
 		for position, part := range parts {
 			if part.Index != position || part.Count != len(parts) {
-				t.Fatalf("retained chunk %d of %d has index %d and count %d", position, len(parts), part.Index, part.Count)
+				t.Fatalf(
+					"retained chunk %d of %d has index %d and count %d",
+					position,
+					len(parts),
+					part.Index,
+					part.Count,
+				)
 			}
 			rebuilt = append(rebuilt, part.Record...)
 			keySeen = keySeen || bytes.Equal(part.Key, malformedKey)
 		}
 		if !bytes.Equal(rebuilt, value) {
-			t.Fatalf("retained record with digest %s has %d bytes, want %d equal bytes", digest, len(rebuilt), len(value))
+			t.Fatalf(
+				"retained record with digest %s has %d bytes, want %d equal bytes",
+				digest,
+				len(rebuilt),
+				len(value),
+			)
 		}
 	}
 	if !keySeen {

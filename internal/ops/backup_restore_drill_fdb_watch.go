@@ -32,20 +32,33 @@ const (
 )
 
 // fdbRestoreExitCode reports the restore's exit status once it has one.
-func fdbRestoreExitCode(ctx context.Context, r *restoreDrillCtx, container string) (int, bool, error) {
+func fdbRestoreExitCode(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	container string,
+) (int, bool, error) {
 	probe := "if [ -s " + fdbRestoreExitPath + " ]; then printf 'exited '; cat " + fdbRestoreExitPath +
 		"; else printf 'running\\n'; fi"
 	res, err := containerExec(ctx, r.Cli, container, []string{"sh", "-c", probe})
 	if err != nil {
 		wrapped := fmt.Errorf("read the fdbrestore exit status: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.fdb.failed",
-			slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, false, wrapped
 	}
+
 	if res.ExitCode != 0 {
-		return 0, false, fmt.Errorf("read the fdbrestore exit status: exit %d: %s",
-			res.ExitCode, strings.TrimSpace(res.Stderr))
+		return 0, false, fmt.Errorf(
+			"read the fdbrestore exit status: exit %d: %s",
+			res.ExitCode,
+			strings.TrimSpace(res.Stderr),
+		)
 	}
+
 	return parseFDBRestoreExit(res.Stdout)
 }
 
@@ -59,14 +72,20 @@ func parseFDBRestoreExit(out string) (int, bool, error) {
 	if trimmed == "running" {
 		return 0, false, nil
 	}
+
 	status, found := strings.CutPrefix(trimmed, "exited ")
 	if !found {
 		return 0, false, fmt.Errorf("read %q as the fdbrestore exit status", trimmed)
 	}
+
 	code, err := strconv.Atoi(strings.TrimSpace(status))
 	if err != nil {
-		return 0, false, fmt.Errorf("read %q as the fdbrestore exit status: it names no exit code", trimmed)
+		return 0, false, fmt.Errorf(
+			"read %q as the fdbrestore exit status: it names no exit code",
+			trimmed,
+		)
 	}
+
 	return code, true, nil
 }
 
@@ -79,18 +98,31 @@ func parseFDBRestoreExit(out string) (int, bool, error) {
 // the error path, is what keeps the reading safe to carry into any log or
 // error downstream; the watch reads only the counters out of it, and they
 // survive the redaction untouched.
-func fdbRestoreStatusText(ctx context.Context, r *restoreDrillCtx, container string) (string, error) {
-	res, err := containerExec(ctx, r.Cli, container,
-		[]string{"fdbrestore", "status", "--dest-cluster-file", fdbScratchClusterFile})
+func fdbRestoreStatusText(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	container string,
+) (string, error) {
+	res, err := containerExec(
+		ctx,
+		r.Cli,
+		container,
+		[]string{"fdbrestore", "status", "--dest-cluster-file", fdbScratchClusterFile},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("read the fdbrestore status: %w", err)
 		// A status read that fails is tolerated for the stall window rather
 		// than failing the drill outright, so it is warned rather than
 		// errored; the stall report carries the last one.
-		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.fdb.status_unreadable",
-			slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).WarnContext(
+			ctx,
+			"backup.restore_drill.fdb.status_unreadable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return "", wrapped
 	}
+
 	return fdbRestoreStatusReading(r.Cfg, res)
 }
 
@@ -98,9 +130,13 @@ func fdbRestoreStatusText(ctx context.Context, r *restoreDrillCtx, container str
 // watch gets, with the credentials removed from whichever stream carries them.
 func fdbRestoreStatusReading(cfg *config.Config, res execResult) (string, error) {
 	if res.ExitCode != 0 {
-		return "", fmt.Errorf("fdbrestore status exited %d: %s", res.ExitCode,
-			redactSecret(cfg, strings.TrimSpace(res.Stderr)))
+		return "", fmt.Errorf(
+			"fdbrestore status exited %d: %s",
+			res.ExitCode,
+			redactSecret(cfg, strings.TrimSpace(res.Stderr)),
+		)
 	}
+
 	return redactSecret(cfg, res.Stdout), nil
 }
 
@@ -108,14 +144,20 @@ func fdbRestoreStatusReading(cfg *config.Config, res execResult) (string, error)
 // an error message. A tail it could not read says so rather than reading as an
 // empty restore log.
 func fdbRestoreLogTail(ctx context.Context, r *restoreDrillCtx, container string) string {
-	res, err := containerExec(ctx, r.Cli, container,
-		[]string{"tail", "-c", strconv.Itoa(fdbRestoreLogTailBytes), fdbRestoreLogPath})
+	res, err := containerExec(
+		ctx,
+		r.Cli,
+		container,
+		[]string{"tail", "-c", strconv.Itoa(fdbRestoreLogTailBytes), fdbRestoreLogPath},
+	)
 	if err != nil || res.ExitCode != 0 {
 		return "the restore log could not be read"
 	}
+
 	tail := strings.TrimSpace(res.Stdout)
 	if tail == "" {
 		return "the restore log is empty"
 	}
+
 	return redactSecret(r.Cfg, tail)
 }

@@ -17,19 +17,31 @@ import (
 func parseAuditManifestUUID(ctx context.Context, flag, value string) (uuid.UUID, error) {
 	id, err := uuid.Parse(strings.TrimSpace(value))
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.manifest_parts_bad_flag", slog.String("flag", flag), slog.String("err", "the value is not a UUID"))
+		slog.ErrorContext(
+			ctx,
+			"audit.manifest_parts_bad_flag",
+			slog.String("flag", flag),
+			slog.String("err", "the value is not a UUID"),
+		)
 		return uuid.Nil, fmt.Errorf("%s: %s must be a UUID", auditManifestPartsCommand, flag)
 	}
+
 	return id, nil
 }
 
 // decodeAuditManifestInput decodes the encoded command input.
 func decodeAuditManifestInput(input json.RawMessage) (auditManifestPartsInput, error) {
-	in := auditManifestPartsInput{InputMarker: clispec.InputMarker{}, Org: "", EventID: "", VerifyPayloads: false}
+	in := auditManifestPartsInput{
+		InputMarker:    clispec.InputMarker{},
+		Org:            "",
+		EventID:        "",
+		VerifyPayloads: false,
+	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		slog.Error("audit.manifest_parts_input_failed", slog.String("err", err.Error()))
 		return in, fmt.Errorf("%s: decode the command input: %w", auditManifestPartsCommand, err)
 	}
+
 	return in, nil
 }
 
@@ -39,20 +51,27 @@ func auditManifestPartsSafeInput(input json.RawMessage) (json.RawMessage, error)
 	if err != nil {
 		return nil, err
 	}
+
 	safe, err := json.Marshal(auditManifestPartsInput{
-		InputMarker: clispec.InputMarker{}, Org: audit.CanonicalUUID(in.Org), EventID: audit.CanonicalUUID(in.EventID), VerifyPayloads: in.VerifyPayloads,
+		InputMarker:    clispec.InputMarker{},
+		Org:            audit.CanonicalUUID(in.Org),
+		EventID:        audit.CanonicalUUID(in.EventID),
+		VerifyPayloads: in.VerifyPayloads,
 	})
 	if err != nil {
 		slog.Error("audit.manifest_parts_input_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("%s: encode the safe input: %w", auditManifestPartsCommand, err)
 	}
+
 	return safe, nil
 }
 
 // auditManifestPartsSpec declares an audited read with a target function and a safe input function that stores only parsed UUID flag values.
 func auditManifestPartsSpec() audit.Spec {
 	return audit.Spec{
-		Verb: string(audit.VerbAuditRead), Reads: true, Class: audit.OperationRead,
+		Verb:      string(audit.VerbAuditRead),
+		Reads:     true,
+		Class:     audit.OperationRead,
 		Targets:   auditManifestPartsTargets,
 		SafeInput: auditManifestPartsSafeInput,
 	}
@@ -64,5 +83,8 @@ func auditManifestPartsTargets(_ context.Context, input json.RawMessage) ([]audi
 	if err != nil {
 		return nil, err
 	}
-	return []audit.Target{audit.ResourceTarget(audit.ResourceURI(audit.EventURIPrefix, in.EventID))}, nil
+
+	return []audit.Target{
+		audit.ResourceTarget(audit.ResourceURI(audit.EventURIPrefix, in.EventID)),
+	}, nil
 }

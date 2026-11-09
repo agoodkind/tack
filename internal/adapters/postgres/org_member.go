@@ -35,27 +35,44 @@ func (r *OrgMemberRepo) AddMember(ctx context.Context, m *org.Member) error {
 	if err != nil {
 		return err
 	}
+
 	target := MemberTarget(uuid.Nil, m.OrgID, m.UserID)
-	err = changeTx(ctx, r.pool, operation, target, func(tx pgx.Tx) error {
-		previous, found, err := lockMember(ctx, tx, m.OrgID, m.UserID)
-		if err != nil {
-			return err
-		}
-		if found && previous.Role == m.Role {
-			m.ID, m.CreatedAt = previous.ID, previous.CreatedAt
-			return nil
-		}
-		stored, err := saveMember(ctx, tx, previous, m)
-		if err != nil {
-			return err
-		}
-		m.ID, m.CreatedAt = stored.ID, stored.CreatedAt
-		return writeMemberChange(ctx, tx, operation, previous, stored)
-	})
+	err = changeTx(
+		ctx,
+		r.pool,
+		operation,
+		target,
+		func(tx pgx.Tx) error {
+			previous, found, err := lockMember(ctx, tx, m.OrgID, m.UserID)
+			if err != nil {
+				return err
+			}
+
+			if found && previous.Role == m.Role {
+				m.ID, m.CreatedAt = previous.ID, previous.CreatedAt
+				return nil
+			}
+
+			stored, err := saveMember(ctx, tx, previous, m)
+			if err != nil {
+				return err
+			}
+
+			m.ID, m.CreatedAt = stored.ID, stored.CreatedAt
+
+			return writeMemberChange(ctx, tx, operation, previous, stored)
+		},
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "org.member_add_failed", slog.String("user_id", m.UserID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"org.member_add_failed",
+			slog.String("user_id", m.UserID.String()),
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("add org member %s: %w", m.UserID, err)
 	}
+
 	return nil
 }
 
@@ -70,23 +87,48 @@ func (r *OrgMemberRepo) RemoveMember(ctx context.Context, orgID, userID uuid.UUI
 	if err != nil {
 		return err
 	}
+
 	target := MemberTarget(uuid.Nil, orgID, userID)
-	err = changeTx(ctx, r.pool, operation, target, func(tx pgx.Tx) error {
-		removed := &memberValue{ID: uuid.Nil, OrgID: uuid.Nil, UserID: uuid.Nil, Role: 0, CreatedAt: time.Time{}}
-		if err := tx.QueryRow(ctx, q, orgID, userID).Scan(
-			&removed.ID, &removed.OrgID, &removed.UserID, &removed.Role, &removed.CreatedAt,
-		); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return domain.ErrNotFound
+	err = changeTx(
+		ctx,
+		r.pool,
+		operation,
+		target,
+		func(tx pgx.Tx) error {
+			removed := &memberValue{
+				ID:        uuid.Nil,
+				OrgID:     uuid.Nil,
+				UserID:    uuid.Nil,
+				Role:      0,
+				CreatedAt: time.Time{},
 			}
-			return pgErr(err)
-		}
-		return writeMemberChange(ctx, tx, operation, removed, nil)
-	})
+			if err := tx.QueryRow(ctx, q, orgID, userID).Scan(
+				&removed.ID,
+				&removed.OrgID,
+				&removed.UserID,
+				&removed.Role,
+				&removed.CreatedAt,
+			); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return domain.ErrNotFound
+				}
+
+				return pgErr(err)
+			}
+
+			return writeMemberChange(ctx, tx, operation, removed, nil)
+		},
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "org.member_remove_failed", slog.String("user_id", userID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"org.member_remove_failed",
+			slog.String("user_id", userID.String()),
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("remove org member %s: %w", userID, err)
 	}
+
 	return nil
 }
 
@@ -98,18 +140,24 @@ func (r *OrgMemberRepo) ListMembers(ctx context.Context, orgID uuid.UUID) ([]*or
 	}
 	defer rows.Close()
 	var members []*org.Member
+
 	for rows.Next() {
 		m := &org.Member{}
 		if err := rows.Scan(&m.ID, &m.OrgID, &m.UserID, &m.Role, &m.CreatedAt); err != nil {
 			return nil, fmt.Errorf("org member scan: %w", err)
 		}
+
 		members = append(members, m)
 	}
+
 	return members, rows.Err()
 }
 
 // ListOrgIDsForUser returns all org UUIDs the user belongs to.
-func (r *OrgMemberRepo) ListOrgIDsForUser(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+func (r *OrgMemberRepo) ListOrgIDsForUser(
+	ctx context.Context,
+	userID uuid.UUID,
+) ([]uuid.UUID, error) {
 	const q = `SELECT DISTINCT org_id FROM org_members WHERE user_id = $1`
 	rows, err := r.pool.Query(ctx, q, userID)
 	if err != nil {
@@ -117,12 +165,15 @@ func (r *OrgMemberRepo) ListOrgIDsForUser(ctx context.Context, userID uuid.UUID)
 	}
 	defer rows.Close()
 	var ids []uuid.UUID
+
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("scan org id: %w", err)
 		}
+
 		ids = append(ids, id)
 	}
+
 	return ids, rows.Err()
 }

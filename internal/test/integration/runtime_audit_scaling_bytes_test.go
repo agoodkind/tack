@@ -25,7 +25,12 @@ var readReceiptFamilies = []string{"audit_read_receipt", "audit_read_cleanup"}
 
 // redundancyReplicas maps each FoundationDB redundancy mode to its number of
 // storage replicas.
-var redundancyReplicas = map[string]int64{"single": 1, "double": 2, "triple": 3, "three_data_hall": 3}
+var redundancyReplicas = map[string]int64{
+	"single":          1,
+	"double":          2,
+	"triple":          3,
+	"three_data_hall": 3,
+}
 
 // topicBytes sums the partition sizes that Kafka DescribeLogDirs reports for
 // the supplied topic.
@@ -33,13 +38,19 @@ func topicBytes(t *testing.T, topic string) int64 {
 	t.Helper()
 	client, err := kgo.NewClient(kgo.SeedBrokers(testenv.Kafka(t)))
 	if err != nil {
-		t.Fatalf("Creating a Kafka client failed; broker byte measurement requires that client: %v", err)
+		t.Fatalf(
+			"Creating a Kafka client failed; broker byte measurement requires that client: %v",
+			err,
+		)
 	}
 	defer client.Close()
 	request := kmsg.NewPtrDescribeLogDirsRequest()
 	response, err := request.RequestWith(t.Context(), client)
 	if err != nil {
-		t.Fatalf("Kafka DescribeLogDirs failed; broker byte measurement requires the topic's partition sizes: %v", err)
+		t.Fatalf(
+			"Kafka DescribeLogDirs failed; broker byte measurement requires the topic's partition sizes: %v",
+			err,
+		)
 	}
 	var total int64
 	for _, directory := range response.Dirs {
@@ -79,7 +90,10 @@ func rangeBytes(t *testing.T, database fdb.Database, begin []byte) (int64, int64
 		return transaction.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
 	})
 	if err != nil {
-		t.Fatalf("Reading the FoundationDB key range failed; the byte measurement requires every key and value: %v", err)
+		t.Fatalf(
+			"Reading the FoundationDB key range failed; the byte measurement requires every key and value: %v",
+			err,
+		)
 	}
 	var total int64
 	entries := items.([]fdb.KeyValue)
@@ -97,7 +111,10 @@ func replicationFactor(t *testing.T, database fdb.Database) int64 {
 		return transaction.Get(fdb.Key("\xff\xff/status/json")).Get()
 	})
 	if err != nil {
-		t.Fatalf("Reading the FoundationDB status document failed; the replica byte measurement requires it: %v", err)
+		t.Fatalf(
+			"Reading the FoundationDB status document failed; the replica byte measurement requires it: %v",
+			err,
+		)
 	}
 	var status struct {
 		Cluster struct {
@@ -116,7 +133,10 @@ func replicationFactor(t *testing.T, database fdb.Database) int64 {
 	}
 	replicas, known := redundancyReplicas[configuration.RedundancyMode]
 	if !known {
-		t.Fatalf("The FoundationDB status document reports redundancy mode %q, which has no known storage replica count", configuration.RedundancyMode)
+		t.Fatalf(
+			"The FoundationDB status document reports redundancy mode %q, which has no known storage replica count",
+			configuration.RedundancyMode,
+		)
 	}
 	return replicas
 }
@@ -128,7 +148,10 @@ func (run *scalingRun) measureFoundationDB(t *testing.T) {
 	t.Helper()
 	database, err := fdbadapter.Open(run.server.clusterFile, 30*time.Second)
 	if err != nil {
-		t.Fatalf("Opening FoundationDB failed; the byte measurement requires access to the run's key prefix: %v", err)
+		t.Fatalf(
+			"Opening FoundationDB failed; the byte measurement requires access to the run's key prefix: %v",
+			err,
+		)
 	}
 	run.result.fdbBytes, _ = rangeBytes(t, database, run.prefix)
 	run.result.replication = replicationFactor(t, database)

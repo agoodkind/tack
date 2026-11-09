@@ -64,42 +64,78 @@ func newRolloutFixture(t *testing.T) rolloutFixture {
 	if err != nil {
 		t.Fatalf("cannot provision search model: %v", err)
 	}
+
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	deleteRolloutIndex(t, client, index)
 	t.Cleanup(func() { deleteRolloutIndex(t, client, index) })
-	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
+	spec := search.IndexSpec{
+		Model:          model,
+		MappingVersion: search.MappingVersion,
+		Primaries:      1,
+		RoutingShards:  24,
+		Replicas:       0,
+	}
 	if err := adapter.EnsureIndex(rolloutContext(t), index, spec); err != nil {
 		t.Fatalf("cannot create search index: %v", err)
 	}
+
 	if err := adapter.SetAlias(rolloutContext(t), search.PublicAlias, index); err != nil {
 		t.Fatalf("cannot set public alias: %v", err)
 	}
+
 	if err := stores.InitializeSearchIndex(rolloutContext(t), index); err != nil {
 		t.Fatalf("cannot record serving index: %v", err)
 	}
+
 	cfg := rolloutConfig(t, engine)
 	graph, err := appruntime.BuildGraph(rolloutContext(t), cfg)
 	if err != nil {
 		t.Fatalf("cannot build graph: %v", err)
 	}
+
 	t.Cleanup(graph.Close)
 	scale, err := datagen.ParseScale("medium")
 	if err != nil {
 		t.Fatalf("cannot parse scale: %v", err)
 	}
-	identities, err := datagen.BootstrapIdentities(rolloutContext(t), cfg, clock.Now().UnixNano(), scale)
+
+	identities, err := datagen.BootstrapIdentities(
+		rolloutContext(t),
+		cfg,
+		clock.Now().UnixNano(),
+		scale,
+	)
 	if err != nil {
 		t.Fatalf("cannot bootstrap identities: %v", err)
 	}
+
 	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, cfg.DatabaseURL))
-	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	nodes, err := service.NewNodeService(
+		stores.Nodes,
+		stores.Views,
+		stores.NodeTypes,
+		stores.PropertyDefs,
+		stores.Relationships,
+		stores.NodeDeleter,
+		members,
+		stores.Relationships,
+	)
 	if err != nil {
 		t.Fatalf("cannot build the node service: %v", err)
 	}
+
 	return rolloutFixture{
-		stores: stores, adapter: adapter, client: client, engine: engine, index: index, cfg: cfg,
-		handler: graph.AuthMiddleware(graph.MCPHandler), workspaces: identities.Workspaces,
-		worker: newRolloutWorker(t, stores, adapter), nodes: nodes, titles: datagen.NewSearchTitles(),
+		stores:     stores,
+		adapter:    adapter,
+		client:     client,
+		engine:     engine,
+		index:      index,
+		cfg:        cfg,
+		handler:    graph.AuthMiddleware(graph.MCPHandler),
+		workspaces: identities.Workspaces,
+		worker:     newRolloutWorker(t, stores, adapter),
+		nodes:      nodes,
+		titles:     datagen.NewSearchTitles(),
 	}
 }
 
@@ -123,11 +159,13 @@ func newRolloutStores(t *testing.T) *fdbadapter.Stores {
 		fdbadapter.SetTestPrefix(nil)
 		t.Fatalf("cannot open search stores: %v", err)
 	}
+
 	t.Cleanup(func() {
 		clearRolloutPrefix(t, cluster, prefix)
 		fdbadapter.SetTestPrefix(nil)
 	})
 	stores.EnableSearchWork()
+
 	return stores
 }
 
@@ -140,9 +178,13 @@ func clearRolloutPrefix(t *testing.T, cluster string, prefix []byte) {
 		t.Errorf("cannot open FoundationDB for cleanup: %v", err)
 		return
 	}
+
 	end := append(append([]byte{}, prefix...), 0xFF)
 	if _, err := database.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
+		tr.ClearRange(fdb.KeyRange{
+			Begin: fdb.Key(prefix),
+			End:   fdb.Key(end),
+		})
 		return nil, nil
 	}); err != nil {
 		t.Errorf("cannot clear test prefix: %v", err)
@@ -151,20 +193,28 @@ func clearRolloutPrefix(t *testing.T, cluster string, prefix []byte) {
 
 // rolloutSearchClients returns the production adapter and a typed
 // official client with the same settings.
-func rolloutSearchClients(t *testing.T, engine testenv.OpenSearchFixture) (*search.Adapter, *opensearchapi.Client) {
+func rolloutSearchClients(
+	t *testing.T,
+	engine testenv.OpenSearchFixture,
+) (*search.Adapter, *opensearchapi.Client) {
 	t.Helper()
 	configuration := rolloutSearchConfig(engine)
 	adapter, err := search.New(rolloutContext(t), configuration)
 	if err != nil {
 		t.Fatalf("cannot open search client: %v", err)
 	}
+
 	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(t.Context())) })
-	clientAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: configuration.ClientConfig(nil)})
+	clientAPI, err := opensearchapi.NewClient(opensearchapi.Config{
+		Client: configuration.ClientConfig(nil),
+	})
 	if err != nil {
 		t.Fatalf("cannot open search client: %v", err)
 	}
+
 	client := clientAPI.Client
 	t.Cleanup(func() { _ = client.Close() })
+
 	return adapter, clientAPI
 }
 
@@ -172,8 +222,12 @@ func rolloutSearchClients(t *testing.T, engine testenv.OpenSearchFixture) (*sear
 // engine.
 func rolloutSearchConfig(engine testenv.OpenSearchFixture) search.Config {
 	return search.Config{
-		Endpoint: engine.Endpoint, CA: engine.CA, Username: engine.Username,
-		Password: engine.Password, RequestTimeout: 2 * time.Minute, MaxRetries: 1,
+		Endpoint:       engine.Endpoint,
+		CA:             engine.CA,
+		Username:       engine.Username,
+		Password:       engine.Password,
+		RequestTimeout: 2 * time.Minute,
+		MaxRetries:     1,
 	}
 }
 
@@ -183,11 +237,18 @@ func deleteRolloutIndex(t *testing.T, client *opensearchapi.Client, index string
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Minute)
 	defer cancel()
-	response, err := opensearch.Execute[json.RawMessage](ctx, client.Client, http.MethodDelete, &opensearchapi.IndicesDeleteReq{Indices: []string{index}}, nil)
+	response, err := opensearch.Execute[json.RawMessage](
+		ctx,
+		client.Client,
+		http.MethodDelete,
+		&opensearchapi.IndicesDeleteReq{Indices: []string{index}},
+		nil,
+	)
 	if err != nil {
 		t.Errorf("cannot delete index %s: %v", index, err)
 		return
 	}
+
 	if response.IsError() && response.StatusCode != http.StatusNotFound {
 		t.Errorf("cannot delete index %s: %v", index, opensearch.ParseError(response))
 	}

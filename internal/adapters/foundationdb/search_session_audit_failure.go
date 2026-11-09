@@ -45,44 +45,81 @@ func (e sessionNotStartedError) Unwrap() []error {
 // organization and owner of the stored session. If the header is absent
 // or cannot decode, the event uses the system organization and omits
 // the owner.
-func (s *SearchSessionStore) RecordCleanupFailure(ctx context.Context, sessionID uuid.UUID, step searchdomain.CleanupStep, cause error) error {
-	slog.ErrorContext(ctx, "search.session.cleanup_failed", slog.String("err", cause.Error()),
-		slog.String("session_id", sessionID.String()), slog.String("step", string(step)))
-	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), audit.ExternalResultDeadline)
+func (s *SearchSessionStore) RecordCleanupFailure(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	step searchdomain.CleanupStep,
+	cause error,
+) error {
+	slog.ErrorContext(
+		ctx,
+		"search.session.cleanup_failed",
+		slog.String("err", cause.Error()),
+		slog.String("session_id", sessionID.String()),
+		slog.String("step", string(step)),
+	)
+	recordContext, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		audit.ExternalResultDeadline,
+	)
 	defer cancel()
 	changes, err := beginSessionAudit(recordContext, recordCleanupFailureOperation, sessionID)
 	if err != nil {
 		return err
 	}
-	return transactSession(recordContext, s.db, s.clock, recordCleanupFailureOperation, sessionID, func(tr fdb.Transaction) error {
-		changes.startAttempt()
-		target := audit.SearchSessionTarget(sessionID, uuid.Nil)
-		var record searchSessionRecord
-		found, readErr := readSessionValue(tr, searchSessionKey(sessionID), &record)
-		var databaseError fdb.Error
-		if errors.As(readErr, &databaseError) {
-			return readErr
-		}
-		if readErr == nil && found {
-			changes.bind(record)
-			target = audit.SearchSessionTarget(sessionID, record.PrincipalID)
-		}
-		return appendCleanupFailure(recordContext, tr, changes, target, step, cause)
-	})
+
+	return transactSession(
+		recordContext,
+		s.db,
+		s.clock,
+		recordCleanupFailureOperation,
+		sessionID,
+		func(tr fdb.Transaction) error {
+			changes.startAttempt()
+			target := audit.SearchSessionTarget(sessionID, uuid.Nil)
+			var record searchSessionRecord
+			found, readErr := readSessionValue(tr, searchSessionKey(sessionID), &record)
+			var databaseError fdb.Error
+			if errors.As(readErr, &databaseError) {
+				return readErr
+			}
+
+			if readErr == nil && found {
+				changes.bind(record)
+				target = audit.SearchSessionTarget(sessionID, record.PrincipalID)
+			}
+
+			return appendCleanupFailure(recordContext, tr, changes, target, step, cause)
+		},
+	)
 }
 
 // appendCleanupFailure writes the failure event of step to the outbox in tr.
 // Its event ID stays the same across transaction attempts.
-func appendCleanupFailure(ctx context.Context, tr fdb.Transaction, changes *sessionAudit, target audit.Target, step searchdomain.CleanupStep, cause error) error {
+func appendCleanupFailure(
+	ctx context.Context,
+	tr fdb.Transaction,
+	changes *sessionAudit,
+	target audit.Target,
+	step searchdomain.CleanupStep,
+	cause error,
+) error {
 	event, err := cleanupFailureEvent(ctx, changes, target, step, cause)
 	if err != nil {
 		return err
 	}
+
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
-		slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", target.ID.String()))
+		slog.ErrorContext(
+			ctx,
+			"search.session.audit_failed",
+			slog.String("err", err.Error()),
+			slog.String("session_id", target.ID.String()),
+		)
 		return fmt.Errorf("encode the cleanup failure event of session %s: %w", target.ID, err)
 	}
+
 	return NewOutboxWriter(tr).WriteEncodedEvent(ctx, encoded)
 }
 
@@ -93,23 +130,45 @@ func appendCleanupFailure(ctx context.Context, tr fdb.Transaction, changes *sess
 // wraps sessionNotStartedError, it sets cleanupNotStartedCode and
 // cleanupNotStartedMessage. The event ID derives from the operation base
 // and step.
-func cleanupFailureEvent(ctx context.Context, changes *sessionAudit, target audit.Target, step searchdomain.CleanupStep, cause error) (audit.Event, error) {
+func cleanupFailureEvent(
+	ctx context.Context,
+	changes *sessionAudit,
+	target audit.Target,
+	step searchdomain.CleanupStep,
+	cause error,
+) (audit.Event, error) {
 	details := audit.OutcomeDetails{
-		Outcome: audit.OutcomeFailed, FailureCode: string(step), FailureMessage: cleanupFailureMessage, CommittedSteps: nil,
+		Outcome:        audit.OutcomeFailed,
+		FailureCode:    string(step),
+		FailureMessage: cleanupFailureMessage,
+		CommittedSteps: nil,
 	}
 	if errors.Is(cause, searchdomain.ErrSessionStepNotStarted) {
 		details.FailureCode, details.FailureMessage = cleanupNotStartedCode, cleanupNotStartedMessage
 	}
+
 	var uncertain commitUncertainError
 	if errors.As(cause, &uncertain) {
 		details.Outcome, details.FailureCode, details.FailureMessage = audit.OutcomeIncomplete, retireResultUncertainCode, retireResultUncertainMessage
 	}
+
 	event, err := audit.ChangeFailureEvent(changes.operation, target, cleanupVerb(step), details)
 	if err != nil {
-		slog.ErrorContext(ctx, "search.session.audit_failed", slog.String("err", err.Error()), slog.String("session_id", target.ID.String()))
-		return audit.Event{}, fmt.Errorf("build the cleanup failure event of session %s: %w", target.ID, err)
+		slog.ErrorContext(
+			ctx,
+			"search.session.audit_failed",
+			slog.String("err", err.Error()),
+			slog.String("session_id", target.ID.String()),
+		)
+		return audit.Event{}, fmt.Errorf(
+			"build the cleanup failure event of session %s: %w",
+			target.ID,
+			err,
+		)
 	}
+
 	event.EventID = uuid.NewSHA1(changes.base, []byte("failure:"+string(step)))
+
 	return event, nil
 }
 
@@ -117,5 +176,6 @@ func cleanupVerb(step searchdomain.CleanupStep) audit.Verb {
 	if step == searchdomain.CleanupClose {
 		return audit.VerbSearchSessionUpdate
 	}
+
 	return audit.VerbSearchSessionDelete
 }

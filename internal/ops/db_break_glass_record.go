@@ -44,34 +44,71 @@ func recordDBBreakGlass(
 ) error {
 	encoded, err := json.Marshal(extra)
 	if err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.extra_encode_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"db.break_glass.extra_encode_failed",
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("encode the break-glass record: %w", err)
 	}
+
 	correlation := response.FromContext(ctx)
 	event := audit.Event{
-		Verb: string(audit.VerbOpsDBBreakGlass), EventID: uuid.Must(uuid.NewV7()),
+		Verb:    string(audit.VerbOpsDBBreakGlass),
+		EventID: uuid.Must(uuid.NewV7()),
 		Actor: audit.Actor{
-			Type: principal.ActorType(), ID: principal.ID, Email: principal.Email, Name: principal.Name,
-			SessionID: principal.SessionID, IP: "", UserAgent: "", RequestID: correlation.RequestID, APITokenLabel: "",
+			Type:          principal.ActorType(),
+			ID:            principal.ID,
+			Email:         principal.Email,
+			Name:          principal.Name,
+			SessionID:     principal.SessionID,
+			IP:            "",
+			UserAgent:     "",
+			RequestID:     correlation.RequestID,
+			APITokenLabel: "",
 		},
-		Entity: audit.Entity{Type: "database", NodeType: "", ID: extra.AttemptID, Identifier: "", Name: extra.CommandTag},
+		Entity: audit.Entity{
+			Type:       "database",
+			NodeType:   "",
+			ID:         extra.AttemptID,
+			Identifier: "",
+			Name:       extra.CommandTag,
+		},
 		Context: audit.EventContext{
-			OrgID: audit.SystemOrgID(), WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: correlation.RequestID, TraceID: correlation.TraceID,
-			Source: audit.SourceSystem, Tool: "", RPC: "", Reason: extra.Reason,
+			OrgID:       audit.SystemOrgID(),
+			WorkspaceID: uuid.Nil,
+			ScopeID:     uuid.Nil,
+			ParentID:    uuid.Nil,
+			RequestID:   correlation.RequestID,
+			TraceID:     correlation.TraceID,
+			Source:      audit.SourceSystem,
+			Tool:        "",
+			RPC:         "",
+			Reason:      extra.Reason,
 		},
-		Delta: nil, Outcome: outcome, Error: nil, IdempotencyKey: "",
-		OccurredAt: clock.Now().UTC(), Extra: encoded,
+		Delta:          nil,
+		Outcome:        outcome,
+		Error:          nil,
+		IdempotencyKey: "",
+		OccurredAt:     clock.Now().UTC(),
+		Extra:          encoded,
 	}
 	if runErr != nil {
 		event.Error = &audit.EventError{Code: "statement_failed", Message: runErr.Error()}
 	}
+
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbBreakGlassRecordTimeout)
 	defer cancel()
 	if err := outbox.WriteOutbox(recordCtx, event); err != nil {
-		slog.ErrorContext(ctx, "db.break_glass.record_failed",
-			slog.String("outcome", string(outcome)), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"db.break_glass.record_failed",
+			slog.String("outcome", string(outcome)),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("record the break-glass statement (%s): %w", outcome, err)
 	}
+
 	return nil
 }

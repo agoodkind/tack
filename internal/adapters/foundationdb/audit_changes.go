@@ -17,42 +17,67 @@ import (
 // It encodes each event with audit.EncodeEvent and writes the events to the outbox
 // in tr with one OutboxWriter. Callers run AppendChanges once per transaction attempt
 // after making their changes and do not write other outbox entries in that attempt.
-func AppendChanges(ctx context.Context, tr fdb.Transaction, operation audit.Event, changes []audit.Change) error {
+func AppendChanges(
+	ctx context.Context,
+	tr fdb.Transaction,
+	operation audit.Event,
+	changes []audit.Change,
+) error {
 	if len(changes) == 0 {
 		return nil
 	}
+
 	outbox := NewOutboxWriter(tr)
 	completedAt := clock.Now().UTC()
+
 	for _, change := range changes {
 		encoded, err := encodeChangeEvent(operation, change, completedAt)
 		if err != nil {
-			slog.ErrorContext(ctx, "audit.changes.append_failed", slog.String("event_id", change.EventID.String()), slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.changes.append_failed",
+				slog.String("event_id", change.EventID.String()),
+				slog.String("err", err.Error()),
+			)
 			return fmt.Errorf("append change event %s: %w", change.EventID, err)
 		}
+
 		if err := outbox.WriteEncodedEvent(ctx, encoded); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
 // encodeChangeEvent builds and encodes the change event for change.
-func encodeChangeEvent(operation audit.Event, change audit.Change, completedAt time.Time) (audit.EncodedEvent, error) {
+func encodeChangeEvent(
+	operation audit.Event,
+	change audit.Change,
+	completedAt time.Time,
+) (audit.EncodedEvent, error) {
 	event, err := audit.ChangeEvent(operation, change, completedAt)
 	if err != nil {
 		return audit.EncodedEvent{}, changeEncodeFailure("build", change, err)
 	}
+
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
 		return audit.EncodedEvent{}, changeEncodeFailure("encode", change, err)
 	}
+
 	return encoded, nil
 }
 
 // changeEncodeFailure logs and wraps err with the failed step and the event
 // ID of change.
 func changeEncodeFailure(step string, change audit.Change, err error) error {
-	slog.Error("audit.changes.encode_failed", slog.String("step", step), slog.String("event_id", change.EventID.String()), slog.String("err", err.Error()))
+	slog.Error(
+		"audit.changes.encode_failed",
+		slog.String("step", step),
+		slog.String("event_id", change.EventID.String()),
+		slog.String("err", err.Error()),
+	)
 	return fmt.Errorf("%s the change event %s: %w", step, change.EventID, err)
 }
 
@@ -73,12 +98,15 @@ func beginMutationAudit(ctx context.Context, orgID uuid.UUID) (*mutationAudit, e
 	if err != nil {
 		return nil, fmt.Errorf("record changes in org %s: %w", orgID, err)
 	}
+
 	base, err := uuid.NewV7()
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.changes.id_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("create the change event base ID: %w", err)
 	}
+
 	operation.Context.OrgID = orgID
+
 	return &mutationAudit{operation: operation, base: base, changes: nil}, nil
 }
 
@@ -89,6 +117,7 @@ func beginMutationAudit(ctx context.Context, orgID uuid.UUID) (*mutationAudit, e
 func jobMutationAudit(operation audit.Event, orgID, jobID uuid.UUID) *mutationAudit {
 	operation.Context.OrgID = orgID
 	base := uuid.NewSHA1(operation.Context.OperationID, []byte("job:"+jobID.String()))
+
 	return &mutationAudit{operation: operation, base: base, changes: nil}
 }
 
@@ -103,26 +132,41 @@ func (m *mutationAudit) record(target audit.Target, before, after []byte) error 
 	if len(before) == 0 && len(after) == 0 {
 		return nil
 	}
+
 	if string(before) == string(after) {
 		return nil
 	}
+
 	change, err := audit.NewChange(m.eventID(target, before, after), target, before, after)
 	if err != nil {
-		slog.Error("audit.changes.record_failed", slog.String("target", targetKey(target)), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.changes.record_failed",
+			slog.String("target", targetKey(target)),
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("record the change of %s: %w", targetKey(target), err)
 	}
+
 	m.changes = append(m.changes, change)
+
 	return nil
 }
 
-func (m *mutationAudit) recordProtected(target audit.Target, before, after []byte, protected []audit.ProtectedValue) error {
+func (m *mutationAudit) recordProtected(
+	target audit.Target,
+	before []byte,
+	after []byte,
+	protected []audit.ProtectedValue,
+) error {
 	position := len(m.changes)
 	if err := m.record(target, before, after); err != nil {
 		return err
 	}
+
 	if len(m.changes) > position {
 		m.changes[position].Protected = protected
 	}
+
 	return nil
 }
 
@@ -136,6 +180,7 @@ func (m *mutationAudit) eventID(target audit.Target, before, after []byte) uuid.
 	case len(after) == 0:
 		kind = "delete"
 	}
+
 	return uuid.NewSHA1(m.base, []byte(kind+":"+targetKey(target)))
 }
 
@@ -156,5 +201,6 @@ func targetKey(target audit.Target) string {
 	if target.Kind == audit.TargetKindRelationship {
 		return target.Kind + ":" + target.SourceID.String() + ":" + target.RelationType + ":" + target.TargetID.String()
 	}
+
 	return target.Kind + ":" + target.NodeType + ":" + target.ID.String()
 }

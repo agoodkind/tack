@@ -40,36 +40,89 @@ type pageTextSource struct {
 // in index, in page order. It reads only documents that the last refresh of
 // index made searchable. A node with more than nodePageTextLimit active pages
 // returns an error.
-func (a *Adapter) NodePageText(ctx context.Context, index string, nodeID uuid.UUID) ([]string, error) {
+func (a *Adapter) NodePageText(
+	ctx context.Context,
+	index string,
+	nodeID uuid.UUID,
+) ([]string, error) {
 	body, err := encodePageTextRequest(ctx, index, nodeID)
 	if err != nil {
 		return nil, err
 	}
-	response, err := a.api.Search(ctx, &opensearchapi.SearchReq{
-		Indices: []string{index}, BodyReader: bytes.NewReader(body), Header: nil, Params: &opensearchapi.SearchParams{},
-	})
+
+	response, err := a.api.Search(
+		ctx,
+		&opensearchapi.SearchReq{
+			Indices: []string{
+				index,
+			},
+			BodyReader: bytes.NewReader(body),
+			Header:     nil,
+			Params:     &opensearchapi.SearchParams{},
+		},
+	)
 	if err != nil {
-		return nil, engineFailure(ctx, "search.page_text.read_failed", "read page text of node "+nodeID.String(), index, err)
+		return nil, engineFailure(
+			ctx,
+			"search.page_text.read_failed",
+			"read page text of node "+nodeID.String(),
+			index,
+			err,
+		)
 	}
+
 	if response.TimedOut || response.Shards.Failed > 0 {
-		incomplete := fmt.Errorf("search timed out %t with %d failed shards", response.TimedOut, response.Shards.Failed)
-		return nil, engineFailure(ctx, "search.page_text.read_incomplete", "read page text of node "+nodeID.String(), index, incomplete)
+		incomplete := fmt.Errorf(
+			"search timed out %t with %d failed shards",
+			response.TimedOut,
+			response.Shards.Failed,
+		)
+		return nil, engineFailure(
+			ctx,
+			"search.page_text.read_incomplete",
+			"read page text of node "+nodeID.String(),
+			index,
+			incomplete,
+		)
 	}
+
 	if len(response.Hits.Hits) > nodePageTextLimit {
 		excess := fmt.Errorf("node has more than %d active pages", nodePageTextLimit)
-		return nil, engineFailure(ctx, "search.page_text.too_many_pages", "read page text of node "+nodeID.String(), index, excess)
+		return nil, engineFailure(
+			ctx,
+			"search.page_text.too_many_pages",
+			"read page text of node "+nodeID.String(),
+			index,
+			excess,
+		)
 	}
+
 	texts := make([]string, 0, len(response.Hits.Hits))
 	for _, hit := range response.Hits.Hits {
 		if hit.ID == nil {
-			return nil, engineFailure(ctx, "search.page_text.decode_failed", "read page text of node "+nodeID.String(), index, errors.New("document ID is required"))
+			return nil, engineFailure(
+				ctx,
+				"search.page_text.decode_failed",
+				"read page text of node "+nodeID.String(),
+				index,
+				errors.New("document ID is required"),
+			)
 		}
+
 		var source pageTextSource
 		if err := json.Unmarshal(hit.Source, &source); err != nil {
-			return nil, engineFailure(ctx, "search.page_text.decode_failed", "decode page "+*hit.ID+" of node "+nodeID.String(), index, err)
+			return nil, engineFailure(
+				ctx,
+				"search.page_text.decode_failed",
+				"decode page "+*hit.ID+" of node "+nodeID.String(),
+				index,
+				err,
+			)
 		}
+
 		texts = append(texts, source.PageText)
 	}
+
 	return texts, nil
 }
 
@@ -81,17 +134,33 @@ func encodePageTextRequest(ctx context.Context, index string, nodeID uuid.UUID) 
 	if err != nil {
 		return nil, engineFailure(ctx, event, "encode node filter for "+nodeID.String(), index, err)
 	}
+
 	active, err := json.Marshal(booleanTermClause{Term: map[string]bool{"retired": false}})
 	if err != nil {
-		return nil, engineFailure(ctx, event, "encode retirement filter for "+nodeID.String(), index, err)
+		return nil, engineFailure(
+			ctx,
+			event,
+			"encode retirement filter for "+nodeID.String(),
+			index,
+			err,
+		)
 	}
+
 	encoded, err := json.Marshal(pageTextRequest{
-		Size: nodePageTextLimit + 1, Source: []string{"page_text"},
-		Query: pageTextQuery{Bool: pageTextFilter{Filter: []json.RawMessage{nodeFilter, active}}},
-		Sort:  pageOrdinalSort,
+		Size:   nodePageTextLimit + 1,
+		Source: []string{"page_text"},
+		Query:  pageTextQuery{Bool: pageTextFilter{Filter: []json.RawMessage{nodeFilter, active}}},
+		Sort:   pageOrdinalSort,
 	})
 	if err != nil {
-		return nil, engineFailure(ctx, event, "encode page text request for "+nodeID.String(), index, err)
+		return nil, engineFailure(
+			ctx,
+			event,
+			"encode page text request for "+nodeID.String(),
+			index,
+			err,
+		)
 	}
+
 	return encoded, nil
 }

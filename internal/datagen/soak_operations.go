@@ -9,10 +9,21 @@ import (
 // soakOperationNames labels the latency of each operation kind, in mix
 // order. The project read stays last.
 var soakOperationNames = [...]string{
-	"workflow", "issue_churn", "comment_create", "activity_create",
-	"epic_churn", "cycle_churn", "module_churn", "label_churn",
-	"state_churn", "project_churn", "relationship_churn", "issue_update",
-	"cycle_update", soakKindSearch, "project_read",
+	"workflow",
+	"issue_churn",
+	"comment_create",
+	"activity_create",
+	"epic_churn",
+	"cycle_churn",
+	"module_churn",
+	"label_churn",
+	"state_churn",
+	"project_churn",
+	"relationship_churn",
+	"issue_update",
+	"cycle_update",
+	soakKindSearch,
+	"project_read",
 }
 
 const soakOperationKinds = len(soakOperationNames)
@@ -54,11 +65,35 @@ func (s *Soak) dispatchOperation(ctx context.Context, operationIndex int) (strin
 	case 3:
 		return name, s.createIssueChildForProject(ctx, project, actor, "activity", operationIndex)
 	case 4:
-		return name, s.churnContainer(ctx, project, actor, soakNodeEpic, &project.Epics, operationIndex, create)
+		return name, s.churnContainer(
+			ctx,
+			project,
+			actor,
+			soakNodeEpic,
+			&project.Epics,
+			operationIndex,
+			create,
+		)
 	case 5:
-		return name, s.churnContainer(ctx, project, actor, soakNodeCycle, &project.Cycles, operationIndex, create)
+		return name, s.churnContainer(
+			ctx,
+			project,
+			actor,
+			soakNodeCycle,
+			&project.Cycles,
+			operationIndex,
+			create,
+		)
 	case 6:
-		return name, s.churnContainer(ctx, project, actor, soakNodeModule, &project.Modules, operationIndex, create)
+		return name, s.churnContainer(
+			ctx,
+			project,
+			actor,
+			soakNodeModule,
+			&project.Modules,
+			operationIndex,
+			create,
+		)
 	case 7:
 		return name, s.churnLabel(ctx, project, actor, operationIndex, create)
 	case 8:
@@ -70,7 +105,14 @@ func (s *Soak) dispatchOperation(ctx context.Context, operationIndex int) (strin
 	case 11:
 		return name, s.updateIssue(ctx, project, actor, operationIndex)
 	case 12:
-		return name, s.updateContainer(ctx, project, actor, soakNodeCycle, project.Cycles, operationIndex)
+		return name, s.updateContainer(
+			ctx,
+			project,
+			actor,
+			soakNodeCycle,
+			project.Cycles,
+			operationIndex,
+		)
 	case 13:
 		return s.searchProject(ctx, project, actor, operationIndex)
 	case 14:
@@ -91,11 +133,16 @@ func (s *Soak) updateIssue(
 	}
 	issue := project.Issues[operationIndex/soakOperationKinds%len(project.Issues)]
 	properties := soakProperties(s.content, operationIndex)
-	_, err := s.driver.Call(ctx, actor.Token, "tack_update_issue", ToolArguments{
-		WorkspaceReference: project.Workspace.Slug,
-		NodeID:             issue.RawID,
-		Properties:         properties,
-	})
+	_, err := s.driver.Call(
+		ctx,
+		actor.Token,
+		"tack_update_issue",
+		ToolArguments{
+			WorkspaceReference: project.Workspace.Slug,
+			NodeID:             issue.RawID,
+			Properties:         properties,
+		},
+	)
 	if err != nil {
 		return loggedError(ctx, "qa datagen soak: update issue "+issue.RawID, err)
 	}
@@ -113,21 +160,21 @@ func (s *Soak) updateContainer(
 ) error {
 	if len(nodes) == 0 {
 		return s.churnContainer(
-			ctx, project, actor, nodeType, containerNodes(project, nodeType),
-			operationIndex, true,
+			ctx,
+			project,
+			actor,
+			nodeType,
+			containerNodes(project, nodeType),
+			operationIndex,
+			true,
 		)
 	}
 	target := nodes[operationIndex/soakOperationKinds%len(nodes)]
 	properties := soakProperties(s.content, operationIndex)
 	if nodeType == soakNodeCycle {
-		simulated := s.content.ReferenceTime().Add(
-			time.Duration(operationIndex) * 24 * time.Hour,
-		)
+		simulated := s.content.ReferenceTime().Add(time.Duration(operationIndex) * 24 * time.Hour)
 		properties.setString("start_date", simulated.Format(time.RFC3339))
-		properties.setString(
-			"due_date",
-			simulated.Add(14*24*time.Hour).Format(time.RFC3339),
-		)
+		properties.setString("due_date", simulated.Add(14*24*time.Hour).Format(time.RFC3339))
 	}
 	_, err := s.driver.Call(
 		ctx,

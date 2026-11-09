@@ -19,25 +19,62 @@ import (
 // authority.
 func addSearchControlCases(cases map[string]coverageCase) {
 	cases["command ops search settings"] = searchCommandCase(
-		failingCommandCase(audit.VerbOpsSearchSettings, audit.OutcomeFailed, fixedCommand("ops", "search", "settings")),
-		commandCase(audit.VerbOpsSearchSettings, audit.OutcomeCompleted, fixedCommand("ops", "search", "settings")),
+		failingCommandCase(
+			audit.VerbOpsSearchSettings,
+			audit.OutcomeFailed,
+			fixedCommand("ops", "search", "settings"),
+		),
+		commandCase(
+			audit.VerbOpsSearchSettings,
+			audit.OutcomeCompleted,
+			fixedCommand("ops", "search", "settings"),
+		),
 	)
-	cases["command ops search provision"] = failingCommandCase(audit.VerbOpsSearchProvision, audit.OutcomeRefused,
-		fixedCommand("ops", "search", "provision"))
-	cases["command ops search access-rollout"] = commandCase(audit.VerbOpsSearchAccessRollout, audit.OutcomeCompleted,
+	cases["command ops search provision"] = failingCommandCase(
+		audit.VerbOpsSearchProvision,
+		audit.OutcomeRefused,
+		fixedCommand("ops", "search", "provision"),
+	)
+	cases["command ops search access-rollout"] = commandCase(
+		audit.VerbOpsSearchAccessRollout,
+		audit.OutcomeCompleted,
 		func(*testing.T, *coverageEnv) commandInput {
-			return commandInput{args: accessRolloutArgs(uuid.NewString()), configure: nil, outbox: nil}
-		})
-	cases["command ops search access-rollback"] = commandCase(audit.VerbOpsSearchAccessRollback, audit.OutcomeOK,
+			return commandInput{
+				args:      accessRolloutArgs(uuid.NewString()),
+				configure: nil,
+				outbox:    nil,
+			}
+		},
+	)
+	cases["command ops search access-rollback"] = commandCase(
+		audit.VerbOpsSearchAccessRollback,
+		audit.OutcomeOK,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			authority := uuid.NewString()
 			if _, output, err := env.command(t, nil, accessRolloutArgs(authority)...); err != nil {
-				t.Fatalf("Starting an access rollout failed; the rollback case requires a rollout in progress: %v\n%s", err, output)
+				t.Fatalf(
+					"Starting an access rollout failed; the rollback case requires a rollout in progress: %v\n%s",
+					err,
+					output,
+				)
 			}
-			return commandInput{args: []string{"ops", "search", "access-rollback", "--authority", authority}, configure: nil, outbox: nil}
-		})
+			return commandInput{
+				args:      []string{"ops", "search", "access-rollback", "--authority", authority},
+				configure: nil,
+				outbox:    nil,
+			}
+		},
+	)
 }
 
 func accessRolloutArgs(authority string) []string {
-	return []string{"ops", "search", "access-rollout", "--authority", authority, "--candidate", searchaccess.RotatedVersion}
+	return []string{
+		"ops",
+		"search",
+		"access-rollout",
+		"--authority",
+		authority,
+		"--candidate",
+		searchaccess.RotatedVersion,
+	}
 }

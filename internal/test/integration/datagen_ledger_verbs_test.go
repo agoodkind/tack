@@ -26,10 +26,14 @@ const ledgerVerbsDeadline = 90 * time.Second
 // verb.
 var recordedLedgerVerbs = []audit.Verb{
 	audit.VerbOpsBackupRetention,
-	audit.VerbOpsLedgerNodePrepare, audit.VerbOpsLedgerNodeWait,
-	audit.VerbOpsLedgerBootstrapWait, audit.VerbOpsLedgerAuditBootstrap,
-	audit.VerbSearchIndexStructure, audit.VerbSearchAccessRolloutPhase,
-	audit.VerbSearchModelRepair, audit.VerbAuditPartitionMaintain,
+	audit.VerbOpsLedgerNodePrepare,
+	audit.VerbOpsLedgerNodeWait,
+	audit.VerbOpsLedgerBootstrapWait,
+	audit.VerbOpsLedgerAuditBootstrap,
+	audit.VerbSearchIndexStructure,
+	audit.VerbSearchAccessRolloutPhase,
+	audit.VerbSearchModelRepair,
+	audit.VerbAuditPartitionMaintain,
 	audit.VerbNodeSubtreeDeleteResume,
 }
 
@@ -77,20 +81,34 @@ func TestDatagenSeedReportsHostOnlyLedgerVerbs(t *testing.T) {
 	cfg.AuditKafkaBrokers = brokers
 	cfg.AuditKafkaTopic = "audit.ledger-verbs-test-" + uuid.NewString()[:8]
 	cfg.DatagenAllowTarget = "local"
-	consumer, err := audit.NewConsumer(ctx, audit.ConsumerConfig{
-		Brokers: []string{brokers}, Topic: cfg.AuditKafkaTopic, GroupID: "tack-ledger-verbs-test-" + uuid.NewString()[:8],
-		BatchSize: 32, PollInterval: 100 * time.Millisecond, YugabyteDSN: adminDSN,
-	})
+	consumer, err := audit.NewConsumer(
+		ctx,
+		audit.ConsumerConfig{
+			Brokers:      []string{brokers},
+			Topic:        cfg.AuditKafkaTopic,
+			GroupID:      "tack-ledger-verbs-test-" + uuid.NewString()[:8],
+			BatchSize:    32,
+			PollInterval: 100 * time.Millisecond,
+			YugabyteDSN:  adminDSN,
+		},
+	)
 	if err != nil {
 		t.Fatalf("start the audit consumer: %v", err)
 	}
 	consumer.Start(ctx)
 	t.Cleanup(func() { _ = consumer.Close() })
-	relay, err := auditrelay.Open(ctx, auditrelay.Config{
-		Brokers: []string{brokers}, Topic: cfg.AuditKafkaTopic, YugabyteDSN: adminDSN,
-		FDBClusterFile: cfg.FDBClusterFile, FDBTransactionTimeout: 10 * time.Second,
-		PollInterval: 100 * time.Millisecond, BatchSize: 64,
-	})
+	relay, err := auditrelay.Open(
+		ctx,
+		auditrelay.Config{
+			Brokers:               []string{brokers},
+			Topic:                 cfg.AuditKafkaTopic,
+			YugabyteDSN:           adminDSN,
+			FDBClusterFile:        cfg.FDBClusterFile,
+			FDBTransactionTimeout: 10 * time.Second,
+			PollInterval:          100 * time.Millisecond,
+			BatchSize:             64,
+		},
+	)
 	if err != nil {
 		t.Fatalf("open the audit relay: %v", err)
 	}
@@ -125,7 +143,10 @@ func ledgerVerbRows(t *testing.T, output datagenSeedLedgerVerbsOutput) map[strin
 	t.Helper()
 	rows := map[string]int64{}
 	if output.Result.ManifestVerification == nil || !output.Result.ManifestVerification.PayloadVerified {
-		t.Fatalf("manifest verification = %+v, want verified payloads", output.Result.ManifestVerification)
+		t.Fatalf(
+			"manifest verification = %+v, want verified payloads",
+			output.Result.ManifestVerification,
+		)
 	}
 	for _, verb := range output.Result.LedgerVerbs.Verbs {
 		rows[verb.Verb] = verb.Rows
@@ -135,8 +156,13 @@ func ledgerVerbRows(t *testing.T, output datagenSeedLedgerVerbsOutput) map[strin
 	}
 	for _, verb := range recordedLedgerVerbs {
 		if _, listed := rows[string(verb)]; !listed || len(rows) != len(recordedLedgerVerbs) {
-			t.Fatalf("ledger verbs = %+v, want %d rows with one row for each host ledger command and service job verb; verb %s listed = %t",
-				output.Result.LedgerVerbs.Verbs, len(recordedLedgerVerbs), verb, listed)
+			t.Fatalf(
+				"ledger verbs = %+v, want %d rows with one row for each host ledger command and service job verb; verb %s listed = %t",
+				output.Result.LedgerVerbs.Verbs,
+				len(recordedLedgerVerbs),
+				verb,
+				listed,
+			)
 		}
 	}
 	return rows
@@ -155,9 +181,20 @@ func runDatagenSeedCommit(t *testing.T, cfg *config.Config, pool *pgxpool.Pool) 
 	root := searchCommandRoot(factory)
 	root.SetContext(t.Context())
 	root.SetArgs([]string{
-		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca32",
-		"--operator-email", "operator@example.com", "--operator-name", "Ledger Verbs Test",
-		"ops", "qa", "datagen", "seed", "--commit",
+		"--execute",
+		"--output",
+		"json",
+		"--operator-id",
+		"019dd226-440e-729a-a442-281aaf73ca32",
+		"--operator-email",
+		"operator@example.com",
+		"--operator-name",
+		"Ledger Verbs Test",
+		"ops",
+		"qa",
+		"datagen",
+		"seed",
+		"--commit",
 	})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("ops qa datagen seed --commit: %v\n%s", err, output.String())

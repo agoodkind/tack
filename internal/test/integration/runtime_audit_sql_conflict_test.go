@@ -42,29 +42,50 @@ func TestRuntimeAuditSQLMembershipConflictRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin the conflicting transaction: got error %v, want nil", err)
 	}
+
 	t.Cleanup(func() { _ = blocker.Rollback(context.WithoutCancel(t.Context())) })
-	if _, err := blocker.Exec(t.Context(), readTestSQL(t, "runtime_audit_member_conflict_insert.sql"),
-		uuid.Must(uuid.NewV7()), orgID, holder.ID, conflictBlockerRole); err != nil {
+	if _, err := blocker.Exec(
+		t.Context(),
+		readTestSQL(t, "runtime_audit_member_conflict_insert.sql"),
+		uuid.Must(uuid.NewV7()),
+		orgID,
+		holder.ID,
+		conflictBlockerRole,
+	); err != nil {
 		t.Fatalf("insert the conflicting membership: got error %v, want nil", err)
 	}
 
 	ctx, operation := sqlAuditContext(t, principal)
-	member := &org.Member{ID: uuid.Nil, OrgID: orgID, UserID: holder.ID, Role: conflictMemberRole, CreatedAt: time.Time{}}
+	member := &org.Member{
+		ID:        uuid.Nil,
+		OrgID:     orgID,
+		UserID:    holder.ID,
+		Role:      conflictMemberRole,
+		CreatedAt: time.Time{},
+	}
 	added := make(chan error, 1)
 	go func() { added <- postgres.NewOrgMemberRepo(admin).AddMember(ctx, member) }()
 	waitForBlockedMemberInsert(t, admin, added)
 	if err := blocker.Commit(t.Context()); err != nil {
 		t.Fatalf("commit the conflicting transaction: got error %v, want nil", err)
 	}
+
 	if err := <-added; err != nil {
 		t.Fatalf("AddMember after a conflicting commit: got error %v, want nil", err)
 	}
 
 	stored := requireMemberRole(t, admin, orgID, holder.ID)
 	if stored.Role != conflictMemberRole || stored.ID != member.ID {
-		t.Fatalf("stored membership = %+v, want role %d and ID %s", stored, conflictMemberRole, member.ID)
+		t.Fatalf(
+			"stored membership = %+v, want role %d and ID %s",
+			stored,
+			conflictMemberRole,
+			member.ID,
+		)
 	}
+
 	changes, failures := 0, 0
+
 	for _, event := range sqlOutboxEvents(t, admin, operation.Context.OperationID) {
 		switch event.Context.Phase {
 		case audit.PhaseChange:
@@ -77,9 +98,14 @@ func TestRuntimeAuditSQLMembershipConflictRetry(t *testing.T) {
 		case audit.PhaseIntent, audit.PhaseRead:
 		}
 	}
+
 	if changes != 1 || failures != 0 {
-		t.Fatalf("outbox events for operation %s = %d changes and %d results, want 1 change and 0 results",
-			operation.Context.OperationID, changes, failures)
+		t.Fatalf(
+			"outbox events for operation %s = %d changes and %d results, want 1 change and 0 results",
+			operation.Context.OperationID,
+			changes,
+			failures,
+		)
 	}
 }
 
@@ -89,6 +115,7 @@ func TestRuntimeAuditSQLMembershipConflictRetry(t *testing.T) {
 func waitForBlockedMemberInsert(t *testing.T, pool *pgxpool.Pool, added <-chan error) {
 	t.Helper()
 	query := readTestSQL(t, "runtime_audit_member_conflict_waiting.sql")
+
 	deadline := clock.Now().Add(conflictWaitDeadline)
 	for clock.Now().Before(deadline) {
 		select {
@@ -96,16 +123,23 @@ func waitForBlockedMemberInsert(t *testing.T, pool *pgxpool.Pool, added <-chan e
 			t.Fatalf("AddMember returned before the conflicting transaction committed: %v", err)
 		default:
 		}
+
 		var waiting int
 		if err := pool.QueryRow(t.Context(), query).Scan(&waiting); err != nil {
 			t.Fatalf("read pg_stat_activity: got error %v, want nil", err)
 		}
+
 		if waiting > 0 {
 			return
 		}
+
 		time.Sleep(conflictPollInterval)
 	}
-	t.Fatalf("AddMember did not block on the conflicting transaction within %s", conflictWaitDeadline)
+
+	t.Fatalf(
+		"AddMember did not block on the conflicting transaction within %s",
+		conflictWaitDeadline,
+	)
 }
 
 // requireMemberRole returns the membership for userID in orgID.
@@ -116,14 +150,23 @@ func requireMemberRole(t *testing.T, pool *pgxpool.Pool, orgID, userID uuid.UUID
 	if err != nil {
 		t.Fatalf("ListMembers(%s): got error %v, want nil", orgID, err)
 	}
+
 	var found []*org.Member
+
 	for _, stored := range listed {
 		if stored.UserID == userID {
 			found = append(found, stored)
 		}
 	}
+
 	if len(found) != 1 {
-		t.Fatalf("ListMembers(%s) has %d memberships for user %s, want 1", orgID, len(found), userID)
+		t.Fatalf(
+			"ListMembers(%s) has %d memberships for user %s, want 1",
+			orgID,
+			len(found),
+			userID,
+		)
 	}
+
 	return found[0]
 }

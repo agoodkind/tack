@@ -63,11 +63,13 @@ func (capture *searchCapture) record(response *http.Response) error {
 	if !ok {
 		return nil
 	}
+
 	payload, err := io.ReadAll(response.Body)
 	_ = response.Body.Close()
 	if err != nil {
 		return errors.New("read ranked search response: " + err.Error())
 	}
+
 	capture.mutex.Lock()
 	defer capture.mutex.Unlock()
 	if capture.replacement != "" {
@@ -75,12 +77,15 @@ func (capture *searchCapture) record(response *http.Response) error {
 		if err != nil {
 			return err
 		}
+
 		capture.replacement = ""
 	}
+
 	response.Body = io.NopCloser(bytes.NewReader(payload))
 	response.ContentLength = int64(len(payload))
 	response.Header.Set("Content-Length", strconv.Itoa(len(payload)))
 	capture.searches = append(capture.searches, capturedSearch{Request: body, Response: payload})
+
 	return nil
 }
 
@@ -99,13 +104,16 @@ func replacePITID(payload []byte, replacement string) ([]byte, error) {
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		return nil, fmt.Errorf("decode ranked search response: %w", err)
 	}
+
 	if decoded.PITID == "" {
 		return nil, errors.New("ranked search response does not contain a pit_id")
 	}
+
 	original := []byte(`"pit_id":"` + decoded.PITID + `"`)
 	if !bytes.Contains(payload, original) {
 		return nil, errors.New("ranked search response does not contain the compact pit_id field")
 	}
+
 	return bytes.Replace(payload, original, []byte(`"pit_id":"`+replacement+`"`), 1), nil
 }
 
@@ -117,15 +125,18 @@ func (capture *searchCapture) ServeHTTP(writer http.ResponseWriter, request *htt
 		capture.recordDelete(writer, request)
 		return
 	}
+
 	if request.Method != http.MethodPost || request.URL.Path != rankedSearchPath {
 		capture.engine.ServeHTTP(writer, request)
 		return
 	}
+
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
 		http.Error(writer, "read ranked search body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	forwarded := body
 	if capture.profile {
 		var fields map[string]json.RawMessage
@@ -133,12 +144,18 @@ func (capture *searchCapture) ServeHTTP(writer http.ResponseWriter, request *htt
 			http.Error(writer, "decode ranked search body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+
 		fields["profile"] = json.RawMessage("true")
 		if forwarded, err = json.Marshal(fields); err != nil {
-			http.Error(writer, "encode profiled search body: "+err.Error(), http.StatusInternalServerError)
+			http.Error(
+				writer,
+				"encode profiled search body: "+err.Error(),
+				http.StatusInternalServerError,
+			)
 			return
 		}
 	}
+
 	request = request.WithContext(context.WithValue(request.Context(), capturedBodyKey{}, body))
 	request.Body = io.NopCloser(bytes.NewReader(forwarded))
 	request.ContentLength = int64(len(forwarded))
@@ -153,44 +170,66 @@ func (capture *searchCapture) take() []capturedSearch {
 	defer capture.mutex.Unlock()
 	searches := capture.searches
 	capture.searches = nil
+
 	return searches
 }
 
 // newCaptureHarness starts a TLS proxy on IPv6 loopback and configures a
 // second production graph to use its endpoint and certificate. It returns
 // an MCP harness with the fixture's bearer token and the proxy recorder.
-func newCaptureHarness(t *testing.T, fixture integration.QueryFixture, profile bool) (*integration.MCPHarness, *searchCapture) {
+func newCaptureHarness(
+	t *testing.T,
+	fixture integration.QueryFixture,
+	profile bool,
+) (*integration.MCPHarness, *searchCapture) {
 	t.Helper()
 	engine := testenv.OpenSearchWithMemory(t, integration.NativeSearchMemoryBytes)
 	target, err := url.Parse(engine.Endpoint)
 	if err != nil {
 		t.Fatalf("parse engine endpoint: %v", err)
 	}
+
 	engineCA := x509.NewCertPool()
 	if !engineCA.AppendCertsFromPEM([]byte(engine.CA)) {
 		t.Fatal("engine CA is invalid")
 	}
-	capture := &searchCapture{engine: nil, profile: profile, mutex: sync.Mutex{}, searches: nil, replacement: "", deleted: nil}
+
+	capture := &searchCapture{
+		engine:      nil,
+		profile:     profile,
+		mutex:       sync.Mutex{},
+		searches:    nil,
+		replacement: "",
+		deleted:     nil,
+	}
 	capture.engine = &httputil.ReverseProxy{
-		Rewrite:        func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
-		Transport:      &http.Transport{TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12}},
+		Rewrite: func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12},
+		},
 		ModifyResponse: capture.record,
 	}
 	listener, err := net.Listen("tcp6", "[::1]:0")
 	if err != nil {
 		t.Fatalf("listen for the search capture proxy: %v", err)
 	}
+
 	server := httptest.NewUnstartedServer(capture)
 	server.Listener = listener
 	server.StartTLS()
 	t.Cleanup(server.Close)
 	caPath := filepath.Join(t.TempDir(), "capture-ca.pem")
-	proxyCA := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	proxyCA := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: server.Certificate().Raw,
+	})
 	if err := os.WriteFile(caPath, proxyCA, 0o600); err != nil {
 		t.Fatalf("write capture proxy CA: %v", err)
 	}
+
 	cfg := integration.QueryConfig(t)
 	cfg.SearchEndpoint = server.URL
 	cfg.SearchCA = caPath
+
 	return integration.ProcessHarness(t, fixture.Harness, cfg), capture
 }

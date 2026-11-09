@@ -54,7 +54,9 @@ func foundationDBReadBackend(t *testing.T) *readBackend {
 	if err != nil {
 		t.Fatalf("open FoundationDB stores: %v", err)
 	}
+
 	t.Cleanup(func() { clearReadPrefix(t, clusterFile, prefix) })
+
 	return &readBackend{
 		name:  "foundationdb",
 		store: stores.AuditReads(clock.Wall{}),
@@ -72,10 +74,12 @@ func foundationDBReadBackend(t *testing.T) *readBackend {
 			if err != nil {
 				t.Fatalf("read the FoundationDB outbox: %v", err)
 			}
+
 			messages := make([][]byte, 0, len(entries))
 			for _, entry := range entries {
 				messages = append(messages, entry.Event)
 			}
+
 			return outboxEvents(t, messages, eventID)
 		},
 		childEnv: func() []string {
@@ -98,9 +102,13 @@ func clearReadPrefix(t *testing.T, clusterFile string, prefix []byte) {
 		t.Logf("cleanup: open FoundationDB: %v", err)
 		return
 	}
+
 	end := append(bytes.Clone(prefix), 0xFF)
 	if _, err := database.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
+		tr.ClearRange(fdb.KeyRange{
+			Begin: fdb.Key(prefix),
+			End:   fdb.Key(end),
+		})
 		return nil, nil
 	}); err != nil {
 		t.Logf("cleanup: clear the test prefix: %v", err)
@@ -115,20 +123,29 @@ func yugabyteReadBackend(t *testing.T) *readBackend {
 	if err != nil {
 		t.Fatalf("open the administrator pool: %v", err)
 	}
+
 	t.Cleanup(admin.Close)
 	application := applicationRolePool(t, dsn)
+
 	return &readBackend{
 		name:  "yugabytedb",
 		store: audit.NewPoolReadLifecycle(application),
 		expire: func(t *testing.T, eventIDs ...uuid.UUID) {
 			t.Helper()
-			if _, err := admin.Exec(t.Context(), readTestSQL(t, "runtime_audit_read_expire_lease.sql"), eventIDs); err != nil {
+			if _, err := admin.Exec(
+				t.Context(),
+				readTestSQL(t, "runtime_audit_read_expire_lease.sql"),
+				eventIDs,
+			); err != nil {
 				t.Fatalf("expire the read leases: %v", err)
 			}
 		},
 		agePublished: func(t *testing.T, _ uuid.UUID) {
 			t.Helper()
-			if _, err := admin.Exec(t.Context(), readTestSQL(t, "runtime_audit_read_age_published.sql")); err != nil {
+			if _, err := admin.Exec(
+				t.Context(),
+				readTestSQL(t, "runtime_audit_read_age_published.sql"),
+			); err != nil {
 				t.Fatalf("age the published receipts: %v", err)
 			}
 		},
@@ -137,7 +154,10 @@ func yugabyteReadBackend(t *testing.T) *readBackend {
 			return outboxEvents(t, yugabyteOutboxRecords(t, admin, eventID), eventID)
 		},
 		childEnv: func() []string {
-			return []string{readChildBackendVariable + "=yugabytedb", readChildDSNVariable + "=" + dsn}
+			return []string{
+				readChildBackendVariable + "=yugabytedb",
+				readChildDSNVariable + "=" + dsn,
+			}
 		},
 		clusterFile: "",
 	}
@@ -150,11 +170,14 @@ func applicationRolePool(t *testing.T, dsn string) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("parse the ledger address: %v", err)
 	}
+
 	config.ConnConfig.RuntimeParams["role"] = "app_auth"
 	pool, err := pgxpool.NewWithConfig(t.Context(), config)
 	if err != nil {
 		t.Fatalf("open the application role pool: %v", err)
 	}
+
 	t.Cleanup(pool.Close)
+
 	return pool
 }

@@ -26,29 +26,50 @@ func readExportManifest(dir string) (ExportManifest, error) {
 	path := filepath.Join(dir, exportManifestFile)
 	file, err := os.Open(path)
 	if err != nil {
-		slog.Error("audit.verify.manifest_read_failed", slog.String("dir", dir), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.verify.manifest_read_failed",
+			slog.String("dir", dir),
+			slog.String("err", err.Error()),
+		)
 		return mf, fmt.Errorf("verify manifest: %w", err)
 	}
+
 	defer func() { _ = file.Close() }()
 	mfBytes, err := io.ReadAll(io.LimitReader(file, maxManifestBytes+1))
 	if err != nil {
-		slog.Error("audit.verify.manifest_read_failed", slog.String("dir", dir), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.verify.manifest_read_failed",
+			slog.String("dir", dir),
+			slog.String("err", err.Error()),
+		)
 		return mf, fmt.Errorf("verify manifest: %w", err)
 	}
+
 	if len(mfBytes) > maxManifestBytes {
 		err := fmt.Errorf("verify manifest: %s exceeds %d bytes", path, maxManifestBytes)
-		slog.Error("audit.verify.manifest_oversized", slog.String("dir", dir), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.verify.manifest_oversized",
+			slog.String("dir", dir),
+			slog.String("err", err.Error()),
+		)
+
 		return mf, err
 	}
+
 	decoder := json.NewDecoder(bytes.NewReader(mfBytes))
 	// A manifest key the type does not declare is rejected, not dropped: the
 	// signature covers only the declared fields, so a dropped key would be a
 	// planted field that verifies.
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&mf); err != nil {
-		slog.Error("audit.verify.manifest_parse_failed", slog.String("dir", dir), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.verify.manifest_parse_failed",
+			slog.String("dir", dir),
+			slog.String("err", err.Error()),
+		)
 		return mf, fmt.Errorf("verify manifest parse: %w", err)
 	}
+
 	return mf, nil
 }
 
@@ -68,5 +89,6 @@ func manifestSignatureOK(mf ExportManifest, pub ed25519.PublicKey) bool {
 	if err != nil || len(pub) != ed25519.PublicKeySize {
 		return false
 	}
+
 	return ed25519.Verify(pub, manifestForVerify, sig)
 }

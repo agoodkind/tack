@@ -22,35 +22,56 @@ const strayChildrenQuery = `
 func (s *pgPartitionStore) StrayChildren(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx, strayChildrenQuery)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.partition.stray_query_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.partition.stray_query_failed",
+			slog.String("err", err.Error()),
+		)
 		return nil, fmt.Errorf("stray child query: %w", err)
 	}
 	defer rows.Close()
 	var names []string
+
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			slog.ErrorContext(ctx, "audit.partition.stray_query_failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.partition.stray_query_failed",
+				slog.String("err", err.Error()),
+			)
 			return nil, fmt.Errorf("stray child scan: %w", err)
 		}
+
 		names = append(names, name)
 	}
+
 	if err := rows.Err(); err != nil {
-		slog.ErrorContext(ctx, "audit.partition.stray_query_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.partition.stray_query_failed",
+			slog.String("err", err.Error()),
+		)
 		return nil, fmt.Errorf("stray child rows: %w", err)
 	}
+
 	return names, nil
 }
 
 func (m *PartitionManager) reportStrayChildren(ctx context.Context) {
 	names, err := m.store.StrayChildren(ctx)
 	if err != nil {
-		telemetry.L(ctx).Error("audit.partition.stray_check_failed", slog.String("err", err.Error()))
+		telemetry.L(ctx).Error(
+			"audit.partition.stray_check_failed",
+			slog.String("err", err.Error()),
+		)
 		return
 	}
+
 	telemetry.SetAuditPartitionStrayChildren(int64(len(names)))
 	if len(names) > 0 {
-		telemetry.L(ctx).Error("audit.partition.stray_child",
+		telemetry.L(ctx).Error(
+			"audit.partition.stray_child",
 			slog.Int("stray_children", len(names)),
 			slog.Any("names", names),
 			slog.String("err", "audit.events has children named outside events_pYYYY_MM_DD"),

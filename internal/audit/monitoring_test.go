@@ -22,12 +22,20 @@ func captureSlog(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	prev := slog.Default()
 	buf := &bytes.Buffer{}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{
-		AddSource:   false,
-		Level:       slog.LevelDebug,
-		ReplaceAttr: nil,
-	})))
+	slog.SetDefault(
+		slog.New(
+			slog.NewJSONHandler(
+				buf,
+				&slog.HandlerOptions{
+					AddSource:   false,
+					Level:       slog.LevelDebug,
+					ReplaceAttr: nil,
+				},
+			),
+		),
+	)
 	t.Cleanup(func() { slog.SetDefault(prev) })
+
 	return buf
 }
 
@@ -39,14 +47,17 @@ func containsLogEvent(buf *bytes.Buffer, event string) bool {
 		if line == "" {
 			continue
 		}
+
 		var rec map[string]any
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			continue
 		}
+
 		if msg, _ := rec["msg"].(string); msg == event {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -59,23 +70,23 @@ func readMapInt(m *expvar.Map, key string) int64 {
 	if v == nil {
 		return 0
 	}
+
 	if i, ok := v.(*expvar.Int); ok {
 		return i.Value()
 	}
+
 	n, err := strconv.ParseInt(strings.Trim(v.String(), `"`), 10, 64)
 	if err != nil {
 		return 0
 	}
+
 	return n
 }
 
 func TestKafkaRecorderProduceErrorEmitsMetricAndLog(t *testing.T) {
 	buf := captureSlog(t)
 
-	cluster, err := kfake.NewCluster(
-		kfake.NumBrokers(1),
-		kfake.SeedTopics(1, testKafkaTopic),
-	)
+	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(1, testKafkaTopic))
 	if err != nil {
 		t.Fatalf("kfake.NewCluster: %v", err)
 	}
@@ -90,6 +101,7 @@ func TestKafkaRecorderProduceErrorEmitsMetricAndLog(t *testing.T) {
 		cluster.Close()
 		t.Fatalf("NewKafkaRecorder: %v", err)
 	}
+
 	t.Cleanup(func() { _ = rec.Close() })
 
 	totalsBefore := readExpvarMapInt(t, "tack_audit_kafka_produce_total", "error")
@@ -107,6 +119,7 @@ func TestKafkaRecorderProduceErrorEmitsMetricAndLog(t *testing.T) {
 	if totalsAfter <= totalsBefore {
 		t.Fatalf("audit_kafka_produce_total{error}: got %d, want > %d", totalsAfter, totalsBefore)
 	}
+
 	// The first refusal of an outage is the one the operator sees; later
 	// refusals in the same outage log at Debug (TACK-320).
 	if !containsLogEvent(buf, "kafka.produce.refusing") {
@@ -121,18 +134,20 @@ func TestKafkaRecorderProduceErrorEmitsMetricAndLog(t *testing.T) {
 func TestConsumerObserveLagWarnsAtThreshold(t *testing.T) {
 	buf := captureSlog(t)
 
-	c := &Consumer{cfg: ConsumerConfig{
-		Brokers:         nil,
-		Topic:           testKafkaTopic,
-		GroupID:         "g",
-		BatchSize:       0,
-		PollInterval:    0,
-		YugabyteDSN:     "",
-		SigningKeyPath:  "",
-		NotarizerPeriod: 0,
-		LagWarnMessages: 100,
-		SummaryEvery:    100,
-	}}
+	c := &Consumer{
+		cfg: ConsumerConfig{
+			Brokers:         nil,
+			Topic:           testKafkaTopic,
+			GroupID:         "g",
+			BatchSize:       0,
+			PollInterval:    0,
+			YugabyteDSN:     "",
+			SigningKeyPath:  "",
+			NotarizerPeriod: 0,
+			LagWarnMessages: 100,
+			SummaryEvery:    100,
+		},
+	}
 
 	fetches := buildFetchesWithLag(testKafkaTopic, 0, 250, nil)
 	c.observeLag(context.Background(), fetches)
@@ -142,6 +157,7 @@ func TestConsumerObserveLagWarnsAtThreshold(t *testing.T) {
 	if gotLag != 250 {
 		t.Fatalf("audit_consumer_lag_messages{%s}: got %d, want 250", lagKey, gotLag)
 	}
+
 	if !containsLogEvent(buf, "consumer.lag.high") {
 		t.Fatalf("expected consumer.lag.high log; got: %s", buf.String())
 	}
@@ -150,22 +166,27 @@ func TestConsumerObserveLagWarnsAtThreshold(t *testing.T) {
 func TestConsumerObserveLagSilentBelowThreshold(t *testing.T) {
 	buf := captureSlog(t)
 
-	c := &Consumer{cfg: ConsumerConfig{
-		Brokers:         nil,
-		Topic:           testKafkaTopic,
-		GroupID:         "g",
-		BatchSize:       0,
-		PollInterval:    0,
-		YugabyteDSN:     "",
-		SigningKeyPath:  "",
-		NotarizerPeriod: 0,
-		LagWarnMessages: 1000,
-		SummaryEvery:    100,
-	}}
+	c := &Consumer{
+		cfg: ConsumerConfig{
+			Brokers:         nil,
+			Topic:           testKafkaTopic,
+			GroupID:         "g",
+			BatchSize:       0,
+			PollInterval:    0,
+			YugabyteDSN:     "",
+			SigningKeyPath:  "",
+			NotarizerPeriod: 0,
+			LagWarnMessages: 1000,
+			SummaryEvery:    100,
+		},
+	}
 	fetches := buildFetchesWithLag(testKafkaTopic, 0, 50, nil)
 	c.observeLag(context.Background(), fetches)
 	if containsLogEvent(buf, "consumer.lag.high") {
-		t.Fatalf("did not expect consumer.lag.high log when lag below threshold; got: %s", buf.String())
+		t.Fatalf(
+			"did not expect consumer.lag.high log when lag below threshold; got: %s",
+			buf.String(),
+		)
 	}
 }
 
@@ -173,17 +194,25 @@ func TestConsumerObserveLagSilentBelowThreshold(t *testing.T) {
 // where the broker reports HighWatermark and the supplied records were
 // returned. The simulated lag is HighWatermark - (lastRecordOffset + 1)
 // when records are present, or HighWatermark when records is empty.
-func buildFetchesWithLag(topic string, partition int32, lag int64, records []*kgo.Record) kgo.Fetches {
+func buildFetchesWithLag(
+	topic string,
+	partition int32,
+	lag int64,
+	records []*kgo.Record,
+) kgo.Fetches {
 	var lastOffset int64 = -1
+
 	for _, r := range records {
 		if r.Offset > lastOffset {
 			lastOffset = r.Offset
 		}
 	}
+
 	hwm := lag
 	if lastOffset >= 0 {
 		hwm = lastOffset + 1 + lag
 	}
+
 	fp := kgo.FetchPartition{
 		Partition:        partition,
 		Err:              nil,
@@ -197,6 +226,7 @@ func buildFetchesWithLag(topic string, partition int32, lag int64, records []*kg
 		TopicID:    [16]byte{},
 		Partitions: []kgo.FetchPartition{fp},
 	}
+
 	return kgo.Fetches{kgo.Fetch{Topics: []kgo.FetchTopic{ft}}}
 }
 
@@ -206,9 +236,11 @@ func readExpvarMapInt(t *testing.T, mapName, key string) int64 {
 	if v == nil {
 		return 0
 	}
+
 	m, ok := v.(*expvar.Map)
 	if !ok {
 		t.Fatalf("%s is not an expvar.Map", mapName)
 	}
+
 	return readMapInt(m, key)
 }

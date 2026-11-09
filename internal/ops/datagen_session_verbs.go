@@ -23,7 +23,10 @@ const (
 // awaitDatagenSearchSessionVerbs reads the session verb report of orgID until
 // the ledger stores at least one row of every verb. It returns an error that
 // lists the verbs without rows after datagenSessionRowsWait.
-func awaitDatagenSearchSessionVerbs(ctx context.Context, f *cli.Factory, orgID uuid.UUID) (datagenLedgerVerbsReport, error) {
+func awaitDatagenSearchSessionVerbs(ctx context.Context, f *cli.Factory, orgID uuid.UUID) (
+	datagenLedgerVerbsReport,
+	error,
+) {
 	deadline := clock.Now().Add(datagenSessionRowsWait)
 	for {
 		report, err := readDatagenSearchSessionVerbs(ctx, f, orgID)
@@ -35,16 +38,33 @@ func awaitDatagenSearchSessionVerbs(ctx context.Context, f *cli.Factory, orgID u
 			return report, nil
 		}
 		if clock.Now().After(deadline) {
-			err := fmt.Errorf("the ledger of organization %s stored no rows of %s within %s", orgID, strings.Join(missing, ", "), datagenSessionRowsWait)
-			slog.ErrorContext(ctx, "qa.datagen.session_rows_missing", slog.String("err", err.Error()))
+			err := fmt.Errorf(
+				"the ledger of organization %s stored no rows of %s within %s",
+				orgID,
+				strings.Join(missing, ", "),
+				datagenSessionRowsWait,
+			)
+			slog.ErrorContext(
+				ctx,
+				"qa.datagen.session_rows_missing",
+				slog.String("err", err.Error()),
+			)
 			return report, err
 		}
 		timer := time.NewTimer(datagenSessionRowsPoll)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			wrapped := fmt.Errorf("wait for the session rows of organization %s: %w", orgID, ctx.Err())
-			slog.ErrorContext(ctx, "qa.datagen.session_rows_wait_failed", slog.String("err", wrapped.Error()))
+			wrapped := fmt.Errorf(
+				"wait for the session rows of organization %s: %w",
+				orgID,
+				ctx.Err(),
+			)
+			slog.ErrorContext(
+				ctx,
+				"qa.datagen.session_rows_wait_failed",
+				slog.String("err", wrapped.Error()),
+			)
 			return report, wrapped
 		case <-timer.C:
 		}

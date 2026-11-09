@@ -26,9 +26,11 @@ func (p *auditTestProbe) Check(context.Context) (audit.InfrastructureState, erro
 }
 
 func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenLoginIsAbsent(t *testing.T) {
-	outbox := &auditTestOutbox{writeErrors: []error{
-		&pgconn.PgError{Code: "28000", Message: "role does not exist"},
-	}}
+	outbox := &auditTestOutbox{
+		writeErrors: []error{
+			&pgconn.PgError{Code: "28000", Message: "role does not exist"},
+		},
+	}
 	probe := &auditTestProbe{infrastructure: audit.InfrastructureState{OutboxTableExists: true}}
 	runCount := 0
 	eventsDuringRun := 0
@@ -36,31 +38,47 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenLoginIsAbse
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), "tack-443-deploy-commit", true, outbox, probe.Check,
+		testOperatorSource(),
+		"tack-443-deploy-commit",
+		true,
+		outbox,
+		probe.Check,
 		func(context.Context) error {
 			runCount++
 			eventsDuringRun = len(outbox.events)
 			runStartedAt = clock.Now().UTC()
+
 			return nil
 		},
 	)
 	if err != nil {
 		t.Fatalf("runAudited: %v", err)
 	}
+
 	if runCount != 1 || eventsDuringRun != 0 || probe.callCount != 1 || len(outbox.events) != 2 {
-		t.Fatalf("runs = %d, events during run = %d, probes = %d, events = %d",
-			runCount, eventsDuringRun, probe.callCount, len(outbox.events))
+		t.Fatalf(
+			"runs = %d, events during run = %d, probes = %d, events = %d",
+			runCount,
+			eventsDuringRun,
+			probe.callCount,
+			len(outbox.events),
+		)
 	}
-	if outbox.events[0].Outcome != audit.OutcomePending || outbox.events[1].Outcome != audit.OutcomeOK {
+
+	if outbox.events[0].Outcome != audit.OutcomePending ||
+		outbox.events[1].Outcome != audit.OutcomeOK {
 		t.Fatalf("outcomes = %q, %q", outbox.events[0].Outcome, outbox.events[1].Outcome)
 	}
+
 	var extra operatorEventExtra
 	if err := json.Unmarshal(outbox.events[0].Extra, &extra); err != nil {
 		t.Fatalf("decode intent extra: %v", err)
 	}
+
 	if extra.StartedAt == nil || extra.StartedAt.After(runStartedAt) {
 		t.Fatalf("intent start = %v, run start = %s", extra.StartedAt, runStartedAt)
 	}
+
 	for _, event := range outbox.events {
 		gotCommit, ok := deployCommitOf(t, event)
 		if !ok || gotCommit != "tack-443-deploy-commit" {
@@ -70,15 +88,21 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenLoginIsAbse
 }
 
 func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenTableIsAbsent(t *testing.T) {
-	outbox := &auditTestOutbox{writeErrors: []error{
-		&pgconn.PgError{Code: "28000", Message: "role does not exist"},
-	}}
+	outbox := &auditTestOutbox{
+		writeErrors: []error{
+			&pgconn.PgError{Code: "28000", Message: "role does not exist"},
+		},
+	}
 	probe := &auditTestProbe{infrastructure: audit.InfrastructureState{OperatorLoginExists: true}}
 	runCount := 0
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), "", true, outbox, probe.Check,
+		testOperatorSource(),
+		"",
+		true,
+		outbox,
+		probe.Check,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -87,21 +111,34 @@ func TestRunAuditedInfrastructureDefersAfterAuthenticationFailureWhenTableIsAbse
 	if err != nil {
 		t.Fatalf("runAudited: %v", err)
 	}
+
 	if runCount != 1 || probe.callCount != 1 || len(outbox.events) != 2 {
-		t.Fatalf("runs = %d, probes = %d, events = %d", runCount, probe.callCount, len(outbox.events))
+		t.Fatalf(
+			"runs = %d, probes = %d, events = %d",
+			runCount,
+			probe.callCount,
+			len(outbox.events),
+		)
 	}
 }
 
 func TestRunAuditedInfrastructureRefusesWhenTableAndLoginExist(t *testing.T) {
 	writeErr := &pgconn.PgError{Code: "42501", Message: "permission denied"}
-	probe := &auditTestProbe{infrastructure: audit.InfrastructureState{
-		OutboxTableExists: true, OperatorLoginExists: true,
-	}}
+	probe := &auditTestProbe{
+		infrastructure: audit.InfrastructureState{
+			OutboxTableExists:   true,
+			OperatorLoginExists: true,
+		},
+	}
 	runCount := 0
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), "", true, &auditTestOutbox{writeErrors: []error{writeErr}}, probe.Check,
+		testOperatorSource(),
+		"",
+		true,
+		&auditTestOutbox{writeErrors: []error{writeErr}},
+		probe.Check,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -110,6 +147,7 @@ func TestRunAuditedInfrastructureRefusesWhenTableAndLoginExist(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), writeErr.Message) {
 		t.Fatalf("error = %v, want original write error", err)
 	}
+
 	if runCount != 0 || probe.callCount != 1 {
 		t.Fatalf("runs = %d, probes = %d", runCount, probe.callCount)
 	}
@@ -121,7 +159,11 @@ func TestRunAuditedInfrastructureRefusesWhenProbeFails(t *testing.T) {
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), "", true, &auditTestOutbox{writeErrors: []error{errors.New("write failed")}}, probe.Check,
+		testOperatorSource(),
+		"",
+		true,
+		&auditTestOutbox{writeErrors: []error{errors.New("write failed")}},
+		probe.Check,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -137,7 +179,11 @@ func TestRunAuditedInfrastructureRefusesWhenProbeIsUnwired(t *testing.T) {
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), "", true, &auditTestOutbox{writeErrors: []error{errors.New("write failed")}}, nil,
+		testOperatorSource(),
+		"",
+		true,
+		&auditTestOutbox{writeErrors: []error{errors.New("write failed")}},
+		nil,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -152,8 +198,13 @@ func TestRunAuditedWithoutInfrastructureNeverProbes(t *testing.T) {
 	probe := &auditTestProbe{}
 	runCount := 0
 	err := runAudited(
-		context.Background(), audit.Spec{Verb: "ops.test", Mutates: true}, testOperatorSource(), "", true,
-		&auditTestOutbox{writeErrors: []error{errors.New("write failed")}}, probe.Check,
+		context.Background(),
+		audit.Spec{Verb: "ops.test", Mutates: true},
+		testOperatorSource(),
+		"",
+		true,
+		&auditTestOutbox{writeErrors: []error{errors.New("write failed")}},
+		probe.Check,
 		func(context.Context) error {
 			runCount++
 			return nil
@@ -171,24 +222,40 @@ func TestRunAuditedHealthyOutboxNeverProbes(t *testing.T) {
 	err := runAudited(
 		context.Background(),
 		audit.Spec{Verb: "ops.provision", Mutates: true, CreatesAuditInfrastructure: true},
-		testOperatorSource(), "", true, outbox, probe.Check,
+		testOperatorSource(),
+		"",
+		true,
+		outbox,
+		probe.Check,
 		func(context.Context) error {
 			eventsDuringRun = len(outbox.events)
 			return nil
 		},
 	)
 	if err != nil || eventsDuringRun != 1 || probe.callCount != 0 || len(outbox.events) != 2 {
-		t.Fatalf("error = %v, events during run = %d, probes = %d, events = %d",
-			err, eventsDuringRun, probe.callCount, len(outbox.events))
+		t.Fatalf(
+			"error = %v, events during run = %d, probes = %d, events = %d",
+			err,
+			eventsDuringRun,
+			probe.callCount,
+			len(outbox.events),
+		)
 	}
-	if outbox.events[0].Outcome != audit.OutcomePending || outbox.events[1].Outcome != audit.OutcomeOK {
+
+	if outbox.events[0].Outcome != audit.OutcomePending ||
+		outbox.events[1].Outcome != audit.OutcomeOK {
 		t.Fatalf("outcomes = %q, %q", outbox.events[0].Outcome, outbox.events[1].Outcome)
 	}
 }
 
 func TestValidateAuditSpecRejectsInfrastructureRead(t *testing.T) {
-	err := validateAuditSpec(audit.Spec{Verb: "ops.test", Reads: true, CreatesAuditInfrastructure: true})
-	if err == nil || !strings.Contains(err.Error(), "cannot create audit infrastructure for a read") {
+	err := validateAuditSpec(audit.Spec{
+		Verb:                       "ops.test",
+		Reads:                      true,
+		CreatesAuditInfrastructure: true,
+	})
+	if err == nil ||
+		!strings.Contains(err.Error(), "cannot create audit infrastructure for a read") {
 		t.Fatalf("validateAuditSpec error = %v", err)
 	}
 }

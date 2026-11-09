@@ -60,13 +60,16 @@ func (o *PoolOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	if err != nil {
 		return err
 	}
+
 	if !FitsSingleRecord(eventJSON) {
 		return o.writeLargeOutbox(ctx, event)
 	}
+
 	if err := o.insertOutboxEvent(ctx, event, eventJSON); err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.write_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write ops outbox event %s: %w", event.EventID, err)
 	}
+
 	return nil
 }
 
@@ -85,24 +88,36 @@ func (o *PoolOutbox) WriteOutboxIfAbsent(ctx context.Context, event Event) (bool
 	if err != nil {
 		return false, err
 	}
+
 	if !FitsSingleRecord(eventJSON) {
 		err = o.writeLargeOutbox(ctx, event)
 	} else {
-		_, err = o.pool.Exec(ctx, `
+		_, err = o.pool.Exec(
+			ctx,
+			`
 			INSERT INTO public.ops_outbox (event_id, event)
 			VALUES ($1, $2)
-		`, event.EventID, eventJSON)
+		`,
+			event.EventID,
+			eventJSON,
+		)
 	}
+
 	if isOutboxDuplicate(err) {
 		return false, nil
 	}
+
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.outbox.idempotent_write_failed",
+		slog.ErrorContext(
+			ctx,
+			"audit.outbox.idempotent_write_failed",
 			slog.String("event_id", event.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return false, fmt.Errorf("write idempotent ops outbox event %s: %w", event.EventID, err)
 	}
+
 	return true, nil
 }
 
@@ -119,13 +134,16 @@ func (o *PoolOutbox) WriteOutboxTx(ctx context.Context, tx pgx.Tx, event Event) 
 	if err != nil {
 		return err
 	}
+
 	if FitsSingleRecord(eventJSON) {
 		return insertOutboxRow(ctx, tx, event.EventID, eventJSON)
 	}
+
 	encoded, err := EncodeEvent(event, nil)
 	if err != nil {
 		return err
 	}
+
 	return WriteEncodedOutboxTx(ctx, tx, encoded)
 }
 
@@ -135,6 +153,7 @@ func marshalOutboxEvent(ctx context.Context, event Event) ([]byte, error) {
 		slog.ErrorContext(ctx, "audit.outbox.event_encode_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("encode ops outbox event: %w", err)
 	}
+
 	return eventJSON, nil
 }
 
@@ -144,27 +163,44 @@ func marshalOutboxEvent(ctx context.Context, event Event) ([]byte, error) {
 // runs over the same data.
 func (o *PoolOutbox) ReadBatch(ctx context.Context, limit int) ([]OutboxRow, error) {
 	var batch []OutboxRow
-	err := pgx.BeginTxFunc(ctx, o.pool, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
-		var readErr error
-		batch, readErr = readOutboxRows(ctx, tx, `
+	err := pgx.BeginTxFunc(
+		ctx,
+		o.pool,
+		pgx.TxOptions{AccessMode: pgx.ReadOnly},
+		func(tx pgx.Tx) error {
+			var readErr error
+			batch, readErr = readOutboxRows(
+				ctx,
+				tx,
+				`
 			SELECT event_id, event
 			  FROM public.ops_outbox
 			 ORDER BY created_at ASC, event_id ASC
 			 LIMIT $1
-		`, limit)
-		return readErr
-	})
+		`,
+				limit,
+			)
+
+			return readErr
+		},
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.read_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read ops outbox batch: %w", err)
 	}
+
 	return batch, nil
 }
 
 // readOutboxRows executes statement with limit in tx and decodes the selected
 // outbox rows. For multipart events, it reads parts in part_index order and
 // appends the manifest.
-func readOutboxRows(ctx context.Context, tx pgx.Tx, statement string, limit int) ([]OutboxRow, error) {
+func readOutboxRows(
+	ctx context.Context,
+	tx pgx.Tx,
+	statement string,
+	limit int,
+) ([]OutboxRow, error) {
 	rows, err := tx.Query(ctx, statement, limit)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.read_query_failed", slog.String("err", err.Error()))
@@ -173,6 +209,7 @@ func readOutboxRows(ctx context.Context, tx pgx.Tx, statement string, limit int)
 	defer rows.Close()
 
 	out := make([]OutboxRow, 0)
+
 	for rows.Next() {
 		var row OutboxRow
 		var eventJSON []byte
@@ -180,33 +217,50 @@ func readOutboxRows(ctx context.Context, tx pgx.Tx, statement string, limit int)
 			slog.ErrorContext(ctx, "audit.outbox.read_scan_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("scan ops outbox row: %w", err)
 		}
+
 		header, isManifest, err := manifestHeader(eventJSON)
 		if err != nil {
-			slog.ErrorContext(ctx, "audit.outbox.manifest_decode_failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.outbox.manifest_decode_failed",
+				slog.String("err", err.Error()),
+			)
 			return nil, fmt.Errorf("decode ops outbox manifest %s: %w", row.EventID, err)
 		}
+
 		if isManifest {
 			row.Messages = [][]byte{header}
 		} else if err := json.Unmarshal(eventJSON, &row.Event); err != nil {
-			slog.ErrorContext(ctx, "audit.outbox.event_decode_failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.outbox.event_decode_failed",
+				slog.String("err", err.Error()),
+			)
 			return nil, fmt.Errorf("decode ops outbox event: %w", err)
 		}
+
 		out = append(out, row)
 	}
+
 	if err := rows.Err(); err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.read_rows_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read ops outbox rows: %w", err)
 	}
+
 	rows.Close()
+
 	for position, row := range out {
 		if len(row.Messages) == 0 {
 			continue
 		}
+
 		messages, err := outboxPartMessages(ctx, tx, row.EventID, row.Messages[0])
 		if err != nil {
 			return nil, err
 		}
+
 		out[position].Messages = messages
 	}
+
 	return out, nil
 }

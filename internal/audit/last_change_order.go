@@ -22,6 +22,7 @@ func (candidates *changeCandidates) add(change LastChange) {
 		candidates.unversioned = append(candidates.unversioned, change)
 		return
 	}
+
 	if candidates.versioned == nil || compareChanges(change, *candidates.versioned) > 0 {
 		kept := change
 		candidates.versioned = &kept
@@ -35,6 +36,7 @@ func (candidates *changeCandidates) ambiguous() bool {
 	if candidates.versioned != nil {
 		count++
 	}
+
 	return count > 1 && len(candidates.unversioned) > 0
 }
 
@@ -43,6 +45,7 @@ func (candidates *changeCandidates) winner() LastChange {
 	if candidates.versioned != nil {
 		return *candidates.versioned
 	}
+
 	return candidates.unversioned[0]
 }
 
@@ -53,16 +56,23 @@ func (candidates *changeCandidates) eventIDs() []uuid.UUID {
 	if candidates.versioned != nil {
 		changes = append(changes, *candidates.versioned)
 	}
-	slices.SortFunc(changes, func(left, right LastChange) int {
-		if order := left.EventTime.Compare(right.EventTime); order != 0 {
-			return order
-		}
-		return cmp.Compare(left.EventID.String(), right.EventID.String())
-	})
+
+	slices.SortFunc(
+		changes,
+		func(left, right LastChange) int {
+			if order := left.EventTime.Compare(right.EventTime); order != 0 {
+				return order
+			}
+
+			return cmp.Compare(left.EventID.String(), right.EventID.String())
+		},
+	)
+
 	identifiers := make([]uuid.UUID, 0, len(changes))
 	for _, change := range changes {
 		identifiers = append(identifiers, change.EventID)
 	}
+
 	return identifiers
 }
 
@@ -74,9 +84,11 @@ func compareChanges(left, right LastChange) int {
 			return order
 		}
 	}
+
 	if order := left.EventTime.Compare(right.EventTime); order != 0 {
 		return order
 	}
+
 	return cmp.Compare(left.EventID.String(), right.EventID.String())
 }
 
@@ -93,6 +105,7 @@ func (legacy legacyEvidence) notOlderThan(known LastChange) bool {
 	if legacy.change.CommitVersion != "" && known.CommitVersion != "" {
 		return legacy.change.CommitVersion > known.CommitVersion
 	}
+
 	return !legacy.change.EventTime.Before(known.EventTime)
 }
 
@@ -114,16 +127,25 @@ type readCoverage struct {
 // read, an entry with candidates therefore reports partial: it keeps the
 // observed latest candidate as Change when the candidates are ordered, and it
 // lists the observed candidates.
-func resolveEntry(entry LastChangeEntry, candidates *changeCandidates, legacy []legacyEvidence, coverage readCoverage) (LastChangeEntry, bool) {
+func resolveEntry(
+	entry LastChangeEntry,
+	candidates *changeCandidates,
+	legacy []legacyEvidence,
+	coverage readCoverage,
+) (LastChangeEntry, bool) {
 	if candidates == nil {
 		if len(legacy) > 0 {
 			entry.Status = LastChangeUnknown
 			entry.LegacyEventIDs = legacyEventIDs(legacy, nil)
+
 			return entry, true
 		}
+
 		entry.Status = LastChangePartial
+
 		return entry, !coverage.complete
 	}
+
 	if coverage.truncated {
 		entry.Status = LastChangePartial
 		entry.CandidateEventIDs = candidates.eventIDs()
@@ -131,22 +153,29 @@ func resolveEntry(entry LastChangeEntry, candidates *changeCandidates, legacy []
 			winner := candidates.winner()
 			entry.Change = &winner
 		}
+
 		return entry, true
 	}
+
 	if candidates.ambiguous() {
 		entry.Status = LastChangeAmbiguousOrder
 		entry.CandidateEventIDs = candidates.eventIDs()
+
 		return entry, true
 	}
+
 	winner := candidates.winner()
 	entry.Change = &winner
 	newer := legacyEventIDs(legacy, &winner)
 	if len(newer) > 0 {
 		entry.Status = LastChangeUnknown
 		entry.LegacyEventIDs = newer
+
 		return entry, true
 	}
+
 	entry.Status = LastChangeKnown
+
 	return entry, true
 }
 
@@ -154,10 +183,12 @@ func resolveEntry(entry LastChangeEntry, candidates *changeCandidates, legacy []
 // than known, or of every legacy row when known is nil.
 func legacyEventIDs(legacy []legacyEvidence, known *LastChange) []uuid.UUID {
 	identifiers := []uuid.UUID{}
+
 	for _, evidence := range legacy {
 		if known == nil || evidence.notOlderThan(*known) {
 			identifiers = append(identifiers, evidence.change.EventID)
 		}
 	}
+
 	return identifiers
 }

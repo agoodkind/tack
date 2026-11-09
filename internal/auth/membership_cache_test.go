@@ -17,7 +17,10 @@ type countingMembers struct {
 	reads atomic.Int64
 }
 
-func (c *countingMembers) ListOrgIDsForUser(_ context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
+func (c *countingMembers) ListOrgIDsForUser(
+	_ context.Context,
+	userID uuid.UUID,
+) ([]uuid.UUID, error) {
 	c.reads.Add(1)
 	return append([]uuid.UUID(nil), c.orgs[userID]...), nil
 }
@@ -40,10 +43,12 @@ func TestCachedMembersReadsOncePerLifetime(t *testing.T) {
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
+
 		if len(orgIDs) != 1 || orgIDs[0] != orgID {
 			t.Fatalf("orgs = %v, want [%s]", orgIDs, orgID)
 		}
 	}
+
 	if reads := store.reads.Load(); reads != 1 {
 		t.Fatalf("store read %d times, want 1", reads)
 	}
@@ -61,14 +66,20 @@ func TestCachedMembersForgetsAfterTheLifetime(t *testing.T) {
 	if _, err := cached.ListOrgIDsForUser(ctx, userID); err != nil {
 		t.Fatalf("list: %v", err)
 	}
+
 	store.orgs[userID] = nil
 	time.Sleep(60 * time.Millisecond)
 	orgIDs, err := cached.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
 		t.Fatalf("list after lifetime: %v", err)
 	}
+
 	if len(orgIDs) != 0 || store.reads.Load() != 2 {
-		t.Fatalf("after the lifetime: orgs %v, reads %d; want none and 2", orgIDs, store.reads.Load())
+		t.Fatalf(
+			"after the lifetime: orgs %v, reads %d; want none and 2",
+			orgIDs,
+			store.reads.Load(),
+		)
 	}
 }
 
@@ -85,11 +96,13 @@ func TestCachedMembersHandsOutCopies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
+
 	first[0] = uuid.Nil
 	second, err := cached.ListOrgIDsForUser(ctx, userID)
 	if err != nil {
 		t.Fatalf("list again: %v", err)
 	}
+
 	if second[0] != orgID {
 		t.Fatalf("a caller's write reached the cache: %v", second)
 	}

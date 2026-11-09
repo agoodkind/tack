@@ -47,9 +47,13 @@ func TestSearchRuntimeAuditSessionLifecycle(t *testing.T) {
 	if pageCount < lifecyclePages {
 		t.Fatalf("the traversal returned %d pages, want at least %d", pageCount, lifecyclePages)
 	}
-	rows := fixture.waitForRows(t, fixture.first.OrgID, func(current []audit.Row) bool {
-		return lifecycleEvidencePresent(t, current, traversal)
-	})
+	rows := fixture.waitForRows(
+		t,
+		fixture.first.OrgID,
+		func(current []audit.Row) bool {
+			return lifecycleEvidencePresent(t, current, traversal)
+		},
+	)
 	fixture.requireSessionCreate(t, rows, session, owner.UserID)
 	requireSessionUpdates(t, fixture, rows, traversal)
 	requireReplayRecords(t, rows, traversal)
@@ -69,18 +73,38 @@ func (f sessionAuditFixture) traverse(t *testing.T, token string) sessionPages {
 		if page.Complete {
 			return traversal
 		}
-		traversal.stored = append(traversal.stored, sessionOfCursor(t, f.parentEdgeFixture, page.Cursor))
+		traversal.stored = append(
+			traversal.stored,
+			sessionOfCursor(t, f.parentEdgeFixture, page.Cursor),
+		)
 		cursor = page.Cursor
 	}
 }
 
-func (f sessionAuditFixture) requireSessionCreate(t *testing.T, rows []audit.Row, session searchdomain.Session, ownerID uuid.UUID) {
+func (f sessionAuditFixture) requireSessionCreate(
+	t *testing.T,
+	rows []audit.Row,
+	session searchdomain.Session,
+	ownerID uuid.UUID,
+) {
 	t.Helper()
-	created := onlyRow(t, sessionChanges(rows, session.ID, audit.VerbSearchSessionCreate, audit.TargetSearchSession), "the session create")
+	created := onlyRow(
+		t,
+		sessionChanges(rows, session.ID, audit.VerbSearchSessionCreate, audit.TargetSearchSession),
+		"the session create",
+	)
 	target := created.Context.Target
 	if target.Kind != audit.TargetKindResource || target.ID != session.ID || target.OwnerID != ownerID ||
-		target.URI != "tack:search-session/"+session.ID.String() || target.Reference != "" || created.EntityID != session.ID {
-		t.Fatalf("session create target = %+v, entity %s, want a resource target of session %s and owner %s", target, created.EntityID, session.ID, ownerID)
+		target.URI != "tack:search-session/"+session.ID.String() ||
+		target.Reference != "" ||
+		created.EntityID != session.ID {
+		t.Fatalf(
+			"session create target = %+v, entity %s, want a resource target of session %s and owner %s",
+			target,
+			created.EntityID,
+			session.ID,
+			ownerID,
+		)
 	}
 	if created.Delta == nil || len(created.Delta.Before) != 0 {
 		t.Fatalf("session create delta = %+v, want a new value only", created.Delta)
@@ -89,28 +113,62 @@ func (f sessionAuditFixture) requireSessionCreate(t *testing.T, rows []audit.Row
 	f.requireProtectedMember(t, after, "text", encodeJSON(t, session.Query.Text))
 	f.requireProtectedMember(t, after, "query_tokens", session.Snapshot.QueryTokens)
 	f.requireProtectedMember(t, after, "access_keys", encodeJSON(t, session.Query.Access.Keys))
-	if string(after["version_entry"]) != "true" || string(after["complete"]) != "false" || string(after["principal_id"]) != string(encodeJSON(t, ownerID)) {
-		t.Fatalf("session create value = %s, want an open session of owner %s", created.Delta.After, ownerID)
+	if string(after["version_entry"]) != "true" || string(after["complete"]) != "false" ||
+		string(after["principal_id"]) != string(encodeJSON(t, ownerID)) {
+		t.Fatalf(
+			"session create value = %s, want an open session of owner %s",
+			created.Delta.After,
+			ownerID,
+		)
 	}
 }
 
-func requireSessionUpdates(t *testing.T, fixture sessionAuditFixture, rows []audit.Row, traversal sessionPages) {
+func requireSessionUpdates(
+	t *testing.T,
+	fixture sessionAuditFixture,
+	rows []audit.Row,
+	traversal sessionPages,
+) {
 	t.Helper()
-	updates := sessionChanges(rows, traversal.stored[0].ID, audit.VerbSearchSessionUpdate, audit.TargetSearchSession)
-	slices.SortFunc(updates, func(left, right audit.Row) int {
-		return compareVersions(t, left, right)
-	})
+	updates := sessionChanges(
+		rows,
+		traversal.stored[0].ID,
+		audit.VerbSearchSessionUpdate,
+		audit.TargetSearchSession,
+	)
+	slices.SortFunc(
+		updates,
+		func(left, right audit.Row) int {
+			return compareVersions(t, left, right)
+		},
+	)
 	last := len(updates) - 1
 	for position, update := range updates {
 		before, after := deltaMembers(t, update.Delta.Before), deltaMembers(t, update.Delta.After)
-		if string(before["version"]) != string(encodeJSON(t, position)) || string(after["version"]) != string(encodeJSON(t, position+1)) {
-			t.Fatalf("update %d changes version %s to %s", position, before["version"], after["version"])
+		if string(before["version"]) != string(encodeJSON(t, position)) ||
+			string(after["version"]) != string(encodeJSON(t, position+1)) {
+			t.Fatalf(
+				"update %d changes version %s to %s",
+				position,
+				before["version"],
+				after["version"],
+			)
 		}
-		if string(before["idle_deadline"]) == "" || string(before["idle_deadline"]) == string(after["idle_deadline"]) {
-			t.Fatalf("update %d changes idle_deadline %s to %s", position, before["idle_deadline"], after["idle_deadline"])
+		if string(before["idle_deadline"]) == "" ||
+			string(before["idle_deadline"]) == string(after["idle_deadline"]) {
+			t.Fatalf(
+				"update %d changes idle_deadline %s to %s",
+				position,
+				before["idle_deadline"],
+				after["idle_deadline"],
+			)
 		}
 		if _, found := before["sort"]; found == (position == 0) {
-			t.Fatalf("update %d old value = %s, want an old sort after the first page only", position, update.Delta.Before)
+			t.Fatalf(
+				"update %d old value = %s, want an old sort after the first page only",
+				position,
+				update.Delta.Before,
+			)
 		}
 		if position < len(traversal.stored) {
 			fixture.requireProtectedMember(t, after, "sort", traversal.stored[position].Sort)
@@ -120,13 +178,26 @@ func requireSessionUpdates(t *testing.T, fixture sessionAuditFixture, rows []aud
 		}
 		_, completed := after["complete"]
 		if completed != (position == last) {
-			t.Fatalf("update %d new value = %s, want complete on the final page only", position, update.Delta.After)
+			t.Fatalf(
+				"update %d new value = %s, want complete on the final page only",
+				position,
+				update.Delta.After,
+			)
 		}
 	}
-	finalBefore, finalAfter := deltaMembers(t, updates[last].Delta.Before), deltaMembers(t, updates[last].Delta.After)
+	finalBefore, finalAfter := deltaMembers(t, updates[last].Delta.Before), deltaMembers(
+		t,
+		updates[last].Delta.After,
+	)
 	if string(finalBefore["complete"]) != "false" || string(finalAfter["complete"]) != "true" ||
-		string(finalBefore["version_entry"]) != "true" || string(finalAfter["version_entry"]) != "false" {
-		t.Fatalf("final update = %s to %s, want complete and version_entry to change", updates[last].Delta.Before, updates[last].Delta.After)
+		string(
+			finalBefore["version_entry"],
+		) != "true" || string(finalAfter["version_entry"]) != "false" {
+		t.Fatalf(
+			"final update = %s to %s, want complete and version_entry to change",
+			updates[last].Delta.Before,
+			updates[last].Delta.After,
+		)
 	}
 }
 

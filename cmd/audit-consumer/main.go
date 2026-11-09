@@ -23,51 +23,80 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-func newAuditRelay(ctx context.Context, cfg config.AuditConsumerSettings) (auditrelay.Opened, error) {
-	opened, err := auditrelay.Open(ctx, auditrelay.Config{
-		Brokers: splitBrokers(cfg.Brokers), Topic: cfg.Topic, YugabyteDSN: cfg.YugabyteDSN,
-		FDBClusterFile: cfg.FDBClusterFile, FDBTransactionTimeout: cfg.FDBTransactionTimeout,
-		PollInterval: cfg.PollInterval, BatchSize: cfg.BatchSize,
-	})
+func newAuditRelay(
+	ctx context.Context,
+	cfg config.AuditConsumerSettings,
+) (auditrelay.Opened, error) {
+	opened, err := auditrelay.Open(
+		ctx,
+		auditrelay.Config{
+			Brokers:               splitBrokers(cfg.Brokers),
+			Topic:                 cfg.Topic,
+			YugabyteDSN:           cfg.YugabyteDSN,
+			FDBClusterFile:        cfg.FDBClusterFile,
+			FDBTransactionTimeout: cfg.FDBTransactionTimeout,
+			PollInterval:          cfg.PollInterval,
+			BatchSize:             cfg.BatchSize,
+		},
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit_consumer.relay_open_failed", slog.String("err", err.Error()))
 		return opened, fmt.Errorf("open the audit relay: %w", err)
 	}
+
 	return opened, nil
 }
 
 const consumerService = "tack-audit-consumer"
 
-func newAuditConsumer(ctx context.Context, cfg config.AuditConsumerSettings, maintenance audit.OutboxWriter) (*audit.Consumer, error) {
+func newAuditConsumer(
+	ctx context.Context,
+	cfg config.AuditConsumerSettings,
+	maintenance audit.OutboxWriter,
+) (*audit.Consumer, error) {
 	signingHost := cfg.SigningHost
 	if signingHost == "" {
 		hostname, err := os.Hostname()
 		if err != nil {
-			slog.ErrorContext(ctx, "audit_consumer.hostname_failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit_consumer.hostname_failed",
+				slog.String("err", err.Error()),
+			)
 			return nil, fmt.Errorf("read the hostname for the signing host: %w", err)
 		}
+
 		signingHost = hostname
 	}
-	consumer, err := audit.NewConsumer(ctx, audit.ConsumerConfig{
-		Brokers:         splitBrokers(cfg.Brokers),
-		Topic:           cfg.Topic,
-		GroupID:         cfg.GroupID,
-		BatchSize:       cfg.BatchSize,
-		PollInterval:    cfg.PollInterval,
-		YugabyteDSN:     cfg.YugabyteDSN,
-		SigningKeyPath:  cfg.SigningKeyPath,
-		NotarizerPeriod: cfg.NotarizerPeriod,
-		SigningHost:     signingHost,
-		LagWarnMessages: cfg.LagWarnMessages,
-		SummaryEvery:    cfg.SummaryEvery,
-		PartitionPeriod: cfg.PartitionPeriod,
-		TopicRetention:  cfg.TopicRetention,
-	})
+
+	consumer, err := audit.NewConsumer(
+		ctx,
+		audit.ConsumerConfig{
+			Brokers:         splitBrokers(cfg.Brokers),
+			Topic:           cfg.Topic,
+			GroupID:         cfg.GroupID,
+			BatchSize:       cfg.BatchSize,
+			PollInterval:    cfg.PollInterval,
+			YugabyteDSN:     cfg.YugabyteDSN,
+			SigningKeyPath:  cfg.SigningKeyPath,
+			NotarizerPeriod: cfg.NotarizerPeriod,
+			SigningHost:     signingHost,
+			LagWarnMessages: cfg.LagWarnMessages,
+			SummaryEvery:    cfg.SummaryEvery,
+			PartitionPeriod: cfg.PartitionPeriod,
+			TopicRetention:  cfg.TopicRetention,
+		},
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit_consumer.consumer_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("new consumer: %w", err)
 	}
-	consumer.RecordPartitionRuns(maintenance, audit.ServiceActor(cli.ServiceActorID(consumerService), consumerService))
+
+	consumer.RecordPartitionRuns(
+		maintenance,
+		audit.ServiceActor(cli.ServiceActorID(consumerService), consumerService),
+	)
+
 	return consumer, nil
 }
 
@@ -83,6 +112,7 @@ func run() error {
 	if err != nil {
 		wrapped := fmt.Errorf("load audit consumer configuration: %w", err)
 		slog.Error("audit_consumer.config_failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
 
@@ -104,6 +134,7 @@ func runConsumer(cfg config.AuditConsumerSettings) error {
 	if err != nil {
 		return fmt.Errorf("telemetry setup: %w", err)
 	}
+
 	defer func() {
 		if closer != nil {
 			_ = closer.Close()
@@ -122,7 +153,9 @@ func runConsumer(cfg config.AuditConsumerSettings) error {
 	defer opened.Pool.Close()
 	relay, relayRecorder := opened.Relay, opened.Recorder
 
-	slog.InfoContext(ctx, "audit_consumer.starting",
+	slog.InfoContext(
+		ctx,
+		"audit_consumer.starting",
 		slog.String("topic", cfg.Topic),
 		slog.String("group", cfg.GroupID),
 	)
@@ -130,8 +163,13 @@ func runConsumer(cfg config.AuditConsumerSettings) error {
 	consumer, err := newAuditConsumer(ctx, cfg, audit.NewRecorderOutbox(relayRecorder))
 	if err != nil {
 		if closeErr := relayRecorder.CloseContext(ctx); closeErr != nil {
-			slog.ErrorContext(ctx, "audit_consumer.relay_recorder_close_failed", slog.String("err", closeErr.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit_consumer.relay_recorder_close_failed",
+				slog.String("err", closeErr.Error()),
+			)
 		}
+
 		return err
 	}
 
@@ -148,22 +186,27 @@ func runConsumer(cfg config.AuditConsumerSettings) error {
 		if err := metricsServer.Shutdown(metricsCtx); err != nil {
 			slog.Error("server.metrics_shutdown_failed", slog.String("err", err.Error()))
 		}
+
 		metricsCancel()
 	}
+
 	done := make(chan struct{})
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("audit_consumer.close_panic",
+				slog.Error(
+					"audit_consumer.close_panic",
 					slog.Any("panic", r),
 					slog.String("err", fmt.Sprintf("%v", r)),
 				)
 			}
+
 			close(done)
 		}()
 		if err := relay.Close(); err != nil {
 			slog.Error("audit_consumer.relay_close_failed", slog.String("err", err.Error()))
 		}
+
 		if err := consumer.Close(); err != nil {
 			slog.Error("audit_consumer.consumer_close_failed", slog.String("err", err.Error()))
 		}
@@ -174,6 +217,7 @@ func runConsumer(cfg config.AuditConsumerSettings) error {
 	case <-drainCtx.Done():
 		slog.Warn("audit_consumer.drain_timeout")
 	}
+
 	return nil
 }
 
@@ -193,7 +237,9 @@ func startMetricsServer(ctx context.Context, addr string) *http.Server {
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(ctx, "server.metrics_panic",
+				slog.ErrorContext(
+					ctx,
+					"server.metrics_panic",
 					slog.Any("panic", recovered),
 					slog.String("err", fmt.Sprintf("%v", recovered)),
 				)
@@ -203,18 +249,22 @@ func startMetricsServer(ctx context.Context, addr string) *http.Server {
 			slog.ErrorContext(ctx, "server.metrics_failed", slog.String("err", err.Error()))
 		}
 	}()
+
 	return server
 }
 
 func splitBrokers(raw string) []string {
 	parts := strings.Split(raw, ",")
+
 	out := parts[:0]
 	for _, p := range parts {
 		s := strings.TrimSpace(p)
 		if s == "" {
 			continue
 		}
+
 		out = append(out, s)
 	}
+
 	return out
 }

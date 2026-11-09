@@ -42,7 +42,13 @@ type ybScratchTablet struct {
 // container. master is the scratch master address whose restorations the
 // failure check reads, or "" for a step that runs no restoration. readyCmd is
 // the step's readiness command and env its environment.
-func newYBScratchWatch(r *restoreDrillCtx, container, master string, env, readyCmd []string) ybScratchWatch {
+func newYBScratchWatch(
+	r *restoreDrillCtx,
+	container string,
+	master string,
+	env []string,
+	readyCmd []string,
+) ybScratchWatch {
 	return ybScratchWatch{
 		Running: func(ctx context.Context) (bool, error) {
 			health, err := inspectLedgerNodeHealth(ctx, r.Cli, container)
@@ -50,10 +56,18 @@ func newYBScratchWatch(r *restoreDrillCtx, container, master string, env, readyC
 		},
 		Failed: newYBScratchFailureProbe(r, container, master),
 		Ready: func(ctx context.Context) (bool, error) {
-			exitCode, _, err := containerExecStreaming(ctx, r.Cli, container, readyCmd, env, devNull{})
+			exitCode, _, err := containerExecStreaming(
+				ctx,
+				r.Cli,
+				container,
+				readyCmd,
+				env,
+				devNull{},
+			)
 			if err != nil {
 				return false, err
 			}
+
 			return exitCode == 0, nil
 		},
 		Progress: func(ctx context.Context) (map[string]int64, error) {
@@ -68,15 +82,30 @@ func newYBScratchWatch(r *restoreDrillCtx, container, master string, env, readyC
 // adds the count of running tablets and the files they hold, which rise as a
 // restoration lands. Only a reading where no counter could be read is an
 // error.
-func readYBScratchCounters(ctx context.Context, r *restoreDrillCtx, container string) (map[string]int64, error) {
+func readYBScratchCounters(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	container string,
+) (map[string]int64, error) {
 	counters := map[string]int64{}
 	var failures []string
-	if _, err := fetchYBScratchPage(ctx, r, container, "http://"+ybScratchHost(container)+":7000/"); err != nil {
+	if _, err := fetchYBScratchPage(
+		ctx,
+		r,
+		container,
+		"http://"+ybScratchHost(container)+":7000/",
+	); err != nil {
 		failures = append(failures, "master: "+err.Error())
 	} else {
 		counters[ybCounterMasterAnswers] = 1
 	}
-	body, err := fetchYBScratchPage(ctx, r, container, "http://"+ybScratchHost(container)+":9000/api/v1/tablets")
+
+	body, err := fetchYBScratchPage(
+		ctx,
+		r,
+		container,
+		"http://"+ybScratchHost(container)+":9000/api/v1/tablets",
+	)
 	if err != nil {
 		failures = append(failures, "tablet server: "+err.Error())
 	} else {
@@ -85,17 +114,21 @@ func readYBScratchCounters(ctx context.Context, r *restoreDrillCtx, container st
 		if parseErr != nil {
 			failures = append(failures, parseErr.Error())
 		}
+
 		maps.Copy(counters, tabletCounters)
 	}
+
 	dataBytes, err := readYBScratchDataBytes(ctx, r, container)
 	if err != nil {
 		failures = append(failures, err.Error())
 	} else {
 		counters[ybCounterDataBytes] = dataBytes
 	}
+
 	if len(counters) == 0 {
 		return nil, errors.New(strings.Join(failures, "; "))
 	}
+
 	return counters, nil
 }
 
@@ -107,13 +140,28 @@ func readYBScratchCounters(ctx context.Context, r *restoreDrillCtx, container st
 // leader-ready while its log fsyncs took up to 0.19 s each). The engine's logs
 // sit under the same directory and grow on every heartbeat, so counting them
 // would read a wedged engine as one still moving.
-func readYBScratchDataBytes(ctx context.Context, r *restoreDrillCtx, container string) (int64, error) {
-	res, err := containerExec(ctx, r.Cli, container, []string{"du", "-sb", "--exclude=logs", ybScratchDataDir})
+func readYBScratchDataBytes(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	container string,
+) (int64, error) {
+	res, err := containerExec(
+		ctx,
+		r.Cli,
+		container,
+		[]string{"du", "-sb", "--exclude=logs", ybScratchDataDir},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("du %s: %w", ybScratchDataDir, err)
-		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.data_bytes_unreadable", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).WarnContext(
+			ctx,
+			"backup.restore_drill.yb.data_bytes_unreadable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, wrapped
 	}
+
 	return parseYBScratchDataBytes(ctx, res.ExitCode, res.Stdout)
 }
 
@@ -123,29 +171,53 @@ func readYBScratchDataBytes(ctx context.Context, r *restoreDrillCtx, container s
 func parseYBScratchDataBytes(ctx context.Context, exitCode int, stdout string) (int64, error) {
 	fields := strings.Fields(stdout)
 	if exitCode > 1 || len(fields) == 0 {
-		err := fmt.Errorf("du %s exited %d with %q", ybScratchDataDir, exitCode, strings.TrimSpace(stdout))
-		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.data_bytes_unreadable", slog.String("err", err.Error()))
+		err := fmt.Errorf(
+			"du %s exited %d with %q",
+			ybScratchDataDir,
+			exitCode,
+			strings.TrimSpace(stdout),
+		)
+		telemetry.L(ctx).WarnContext(
+			ctx,
+			"backup.restore_drill.yb.data_bytes_unreadable",
+			slog.String("err", err.Error()),
+		)
+
 		return 0, err
 	}
+
 	bytes, err := strconv.ParseInt(fields[0], 10, 64)
 	if err != nil {
 		wrapped := fmt.Errorf("parse du %s output %q: %w", ybScratchDataDir, fields[0], err)
-		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.data_bytes_unreadable", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).WarnContext(
+			ctx,
+			"backup.restore_drill.yb.data_bytes_unreadable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, wrapped
 	}
+
 	return bytes, nil
 }
 
 // fetchYBScratchPage runs curl inside the scratch container and returns the
 // body of a page that answered with a success status.
-func fetchYBScratchPage(ctx context.Context, r *restoreDrillCtx, container, url string) (string, error) {
+func fetchYBScratchPage(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	container string,
+	url string,
+) (string, error) {
 	res, err := containerExec(ctx, r.Cli, container, []string{"curl", "-sf", "-m", "20", url})
 	if err != nil {
 		return "", err
 	}
+
 	if res.ExitCode != 0 {
 		return "", fmt.Errorf("curl %s exited %d", url, res.ExitCode)
 	}
+
 	return res.Stdout, nil
 }
 
@@ -155,16 +227,24 @@ func ybScratchTabletCounters(ctx context.Context, body string) (map[string]int64
 	var tablets map[string]ybScratchTablet
 	if err := json.Unmarshal([]byte(body), &tablets); err != nil {
 		wrapped := fmt.Errorf("unmarshal tablet server tablets page: %w", err)
-		telemetry.L(ctx).WarnContext(ctx, "backup.restore_drill.yb.tablets_unparseable",
-			slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).WarnContext(
+			ctx,
+			"backup.restore_drill.yb.tablets_unparseable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	var running, files int64
+
 	for _, tablet := range tablets {
 		if tablet.State == ybTabletStateRunning {
 			running++
 		}
+
 		files += tablet.NumSSTFiles
 	}
+
 	return map[string]int64{ybCounterRunningTablets: running, ybCounterSSTFiles: files}, nil
 }

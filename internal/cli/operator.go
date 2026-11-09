@@ -23,35 +23,49 @@ func (s FlagOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrincipa
 	if s.Factory == nil {
 		err := fmt.Errorf("operator flag source has no factory")
 		slog.ErrorContext(ctx, "operator.flag.factory_missing", slog.String("err", err.Error()))
+
 		return audit.OperatorPrincipal{}, err
 	}
+
 	operatorID, email, name := s.Factory.Operator()
 	operatorID = strings.TrimSpace(operatorID)
 	if operatorID == "" {
 		err := fmt.Errorf("operator-id is required for flag identity")
 		slog.ErrorContext(ctx, "operator.flag.id_missing", slog.String("err", err.Error()))
+
 		return audit.OperatorPrincipal{}, err
 	}
+
 	id, err := uuid.Parse(operatorID)
 	if err != nil {
-		slog.ErrorContext(ctx, "operator.flag.id_invalid",
-			slog.String("operator_id", operatorID), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"operator.flag.id_invalid",
+			slog.String("operator_id", operatorID),
+			slog.String("err", err.Error()),
+		)
+
 		return audit.OperatorPrincipal{}, fmt.Errorf("parse operator-id %q: %w", operatorID, err)
 	}
+
 	// The all-zeros UUID parses cleanly and names nobody. Recording it would
 	// put a row in the ledger with no attributable actor, which is the one
 	// thing an operator identity exists to prevent.
 	if id == uuid.Nil {
 		err := errors.New("operator-id is the nil UUID, which identifies nobody")
 		slog.ErrorContext(ctx, "operator.flag.id_nil", slog.String("err", err.Error()))
+
 		return audit.OperatorPrincipal{}, err
 	}
+
 	trimmedEmail := strings.TrimSpace(email)
 	if trimmedEmail == "" {
 		err := errors.New("operator-email is required alongside operator-id")
 		slog.ErrorContext(ctx, "operator.flag.email_missing", slog.String("err", err.Error()))
+
 		return audit.OperatorPrincipal{}, err
 	}
+
 	return audit.OperatorPrincipal{
 		ID:     id,
 		Email:  trimmedEmail,
@@ -85,24 +99,36 @@ func (s selectingOperatorSource) Resolve(ctx context.Context) (audit.OperatorPri
 	if s.factory == nil {
 		return GitConfigOperatorSource{}.Resolve(ctx)
 	}
+
 	operatorID, _, _ := s.factory.Operator()
 	hasOperatorID := strings.TrimSpace(operatorID) != ""
 	hasServiceName := strings.TrimSpace(s.factory.OperatorService()) != ""
 	hasSession := strings.TrimSpace(s.factory.OperatorSession()) != ""
 	if hasSession && !hasServiceName {
-		err := errors.New("--operator-session requires --operator-service; only a service identity records a session")
-		slog.ErrorContext(ctx, "operator.select.session_without_service", slog.String("err", err.Error()))
+		err := errors.New(
+			"--operator-session requires --operator-service; only a service identity records a session",
+		)
+		slog.ErrorContext(
+			ctx,
+			"operator.select.session_without_service",
+			slog.String("err", err.Error()),
+		)
+
 		return audit.OperatorPrincipal{}, err
 	}
+
 	if hasServiceName && hasOperatorID {
 		return s.resolveServiceOnBehalfOf(ctx)
 	}
+
 	if hasServiceName {
 		return ServiceOperatorSource{Factory: s.factory}.Resolve(ctx)
 	}
+
 	if hasOperatorID {
 		return FlagOperatorSource{Factory: s.factory}.Resolve(ctx)
 	}
+
 	return GitConfigOperatorSource{}.Resolve(ctx)
 }
 
@@ -110,25 +136,38 @@ func (s selectingOperatorSource) Resolve(ctx context.Context) (audit.OperatorPri
 // operator recorded as the accountable operator. No act-as grant exists for
 // this pairing, so GrantID is the nil UUID, and the command fills Reason where
 // it takes one. An empty session refuses: the agent action records its session.
-func (s selectingOperatorSource) resolveServiceOnBehalfOf(ctx context.Context) (audit.OperatorPrincipal, error) {
+func (s selectingOperatorSource) resolveServiceOnBehalfOf(
+	ctx context.Context,
+) (audit.OperatorPrincipal, error) {
 	if strings.TrimSpace(s.factory.OperatorSession()) == "" {
-		err := errors.New("--operator-service with --operator-id requires --operator-session; an agent action records its session")
-		slog.ErrorContext(ctx, "operator.select.on_behalf_of_without_session", slog.String("err", err.Error()))
+		err := errors.New(
+			"--operator-service with --operator-id requires --operator-session; an agent action records its session",
+		)
+		slog.ErrorContext(
+			ctx,
+			"operator.select.on_behalf_of_without_session",
+			slog.String("err", err.Error()),
+		)
+
 		return audit.OperatorPrincipal{}, err
 	}
+
 	principal, err := ServiceOperatorSource{Factory: s.factory}.Resolve(ctx)
 	if err != nil {
 		return audit.OperatorPrincipal{}, err
 	}
+
 	accountable, err := FlagOperatorSource{Factory: s.factory}.Resolve(ctx)
 	if err != nil {
 		return audit.OperatorPrincipal{}, err
 	}
+
 	principal.OnBehalfOf = &audit.ActProvenance{
 		OperatorID:    accountable.ID,
 		OperatorEmail: accountable.Email,
 		GrantID:       uuid.Nil,
 		Reason:        "",
 	}
+
 	return principal, nil
 }

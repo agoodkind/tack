@@ -21,25 +21,47 @@ func TestSearchSummaryForbiddenNodeIsFoundAndWithheld(t *testing.T) {
 	forbidden := corpus.Forbidden[0]
 	requested := []uuid.UUID{corpus.Allowed[0], corpus.Allowed[1], forbidden, corpus.Allowed[2]}
 
-	results, err := fixture.Stores.NodeSummaries(fixture.Stores.SearchPolicySet()).Summaries(WithTestOperation(t, t.Context()), requested, summaryNameBytes)
+	results, err := fixture.Stores.NodeSummaries(fixture.Stores.SearchPolicySet()).Summaries(
+		WithTestOperation(t, t.Context()),
+		requested,
+		summaryNameBytes,
+	)
 	if err != nil {
 		t.Fatalf("read %d summaries: %v", len(requested), err)
 	}
+
 	if len(results) != len(requested) {
 		t.Fatalf("summaries returned %d results for %d IDs", len(results), len(requested))
 	}
+
 	for position, result := range results {
 		nodeID := requested[position]
 		if result.NodeID != nodeID || result.Status != node.SummaryFound {
-			t.Fatalf("result %d is node %s with status %q, want found node %s", position, result.NodeID, result.Status, nodeID)
+			t.Fatalf(
+				"result %d is node %s with status %q, want found node %s",
+				position,
+				result.NodeID,
+				result.Status,
+				nodeID,
+			)
 		}
+
 		permitted := corpus.Filter.Permits(result.AccessKeys)
 		if nodeID == forbidden && (len(result.AccessKeys) == 0 || permitted) {
-			t.Fatalf("foreign node %s returned keys %v with permitted=%t, want current keys that the caller filter rejects",
-				nodeID, result.AccessKeys, permitted)
+			t.Fatalf(
+				"foreign node %s returned keys %v with permitted=%t, want current keys that the caller filter rejects",
+				nodeID,
+				result.AccessKeys,
+				permitted,
+			)
 		}
+
 		if nodeID != forbidden && !permitted {
-			t.Fatalf("allowed node %s returned keys %v that the caller filter rejects", nodeID, result.AccessKeys)
+			t.Fatalf(
+				"allowed node %s returned keys %v that the caller filter rejects",
+				nodeID,
+				result.AccessKeys,
+			)
 		}
 	}
 
@@ -47,9 +69,11 @@ func TestSearchSummaryForbiddenNodeIsFoundAndWithheld(t *testing.T) {
 	if !slices.Contains(rawRankedNodes(t, fixture, corpus.Filter, permissionQuery), forbidden) {
 		t.Fatalf("the corrupted pages of node %s did not pass the OpenSearch filter", forbidden)
 	}
+
 	pages := callEverySearchPage(t, permissionQuery, fixture.Harness)
 	if slices.Contains(pages.IDs, forbidden) {
 		t.Fatalf("public search returned the foreign node %s", forbidden)
 	}
+
 	requireCorpusOnce(t, pages.IDs, corpus.Allowed, entryPoint(t, fixture, fixture.Workspaces[0]))
 }

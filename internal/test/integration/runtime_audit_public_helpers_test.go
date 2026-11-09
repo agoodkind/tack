@@ -48,7 +48,10 @@ type publicResponse struct {
 // startPublicServer builds the runtime graph with a new FoundationDB key prefix and creates test identities.
 // It uses store(graph) for the request recorder when store is not nil.
 // When store is nil, the request recorder uses graph.ProductReads.
-func startPublicServer(t *testing.T, store func(*appruntime.Graph) audit.ReadLifecycle) *publicServer {
+func startPublicServer(
+	t *testing.T,
+	store func(*appruntime.Graph) audit.ReadLifecycle,
+) *publicServer {
 	t.Helper()
 	return newPublicServer(t, publicConfig(t), store)
 }
@@ -68,6 +71,7 @@ func publicConfig(t *testing.T) *config.Config {
 	if err != nil {
 		t.Fatalf("config.Load failed: %v", err)
 	}
+
 	return cfg
 }
 
@@ -75,54 +79,90 @@ func publicConfig(t *testing.T) *config.Config {
 // for authenticated requests. When store is nonnil, it uses store(graph) for
 // the request recorder; otherwise, it uses the graph's routes. It disables the
 // graph's Kafka brokers and audit writer DSN and permits unrecorded operations.
-func newPublicServer(t *testing.T, cfg *config.Config, store func(*appruntime.Graph) audit.ReadLifecycle) *publicServer {
+func newPublicServer(
+	t *testing.T,
+	cfg *config.Config,
+	store func(*appruntime.Graph) audit.ReadLifecycle,
+) *publicServer {
 	t.Helper()
 	cfg.AuditKafkaBrokers, cfg.AuditWriterDSN, cfg.AuditAllowUnrecorded = "", "", true
+
 	return buildPublicServer(t, cfg, store)
 }
 
 // buildPublicServer builds a runtime graph from cfg with its audit settings
 // and creates test identities for authenticated requests.
-func buildPublicServer(t *testing.T, cfg *config.Config, store func(*appruntime.Graph) audit.ReadLifecycle) *publicServer {
+func buildPublicServer(
+	t *testing.T,
+	cfg *config.Config,
+	store func(*appruntime.Graph) audit.ReadLifecycle,
+) *publicServer {
 	t.Helper()
 	ctx := integration.WithTestOperation(t, t.Context())
 	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {
 		t.Fatalf("appruntime.BuildGraph failed: %v", err)
 	}
+
 	t.Cleanup(graph.Close)
 	scale, err := datagen.ParseScale("small")
 	if err != nil {
 		t.Fatalf("datagen.ParseScale failed: %v", err)
 	}
+
 	identities, err := datagen.BootstrapIdentities(ctx, cfg, clock.Now().UnixNano(), scale)
 	if err != nil {
 		t.Fatalf("datagen.BootstrapIdentities failed: %v", err)
 	}
+
 	routes := graph.Routes
 	if store != nil {
 		recorder := mcpadapter.NewRequestRecorder(store(graph))
-		routes = appruntime.NewRoutes(recorder, recorder.MCP(graph.AuthMiddleware, graph.MCPHandler), http.NotFoundHandler())
+		routes = appruntime.NewRoutes(
+			recorder,
+			recorder.MCP(graph.AuthMiddleware, graph.MCPHandler),
+			http.NotFoundHandler(),
+		)
 	}
+
 	workspace := identities.Workspaces[0]
+
 	return &publicServer{
-		handler: telemetry.RequestLogger(routes), config: cfg, graph: graph,
-		token: workspace.Actors[0].Token, userID: workspace.Actors[0].UserID, orgID: workspace.OrgID,
-		workspace: workspace.Slug, clusterFile: cfg.FDBClusterFile,
+		handler:     telemetry.RequestLogger(routes),
+		config:      cfg,
+		graph:       graph,
+		token:       workspace.Actors[0].Token,
+		userID:      workspace.Actors[0].UserID,
+		orgID:       workspace.OrgID,
+		workspace:   workspace.Slug,
+		clusterFile: cfg.FDBClusterFile,
 	}
 }
 
 // send sends one request with requestID and an optional bearer value and
 // returns the exact response.
-func (server *publicServer) send(t *testing.T, method, path, bearer, requestID string, body []byte) publicResponse {
+func (server *publicServer) send(
+	t *testing.T,
+	method string,
+	path string,
+	bearer string,
+	requestID string,
+	body []byte,
+) publicResponse {
 	t.Helper()
-	request := httptest.NewRequestWithContext(context.WithoutCancel(t.Context()), method, path, bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(
+		context.WithoutCancel(t.Context()),
+		method,
+		path,
+		bytes.NewReader(body),
+	)
 	request.Header.Set(telemetry.RequestIDHeader, requestID)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	if bearer != "" {
 		request.Header.Set("Authorization", "Bearer "+bearer)
 	}
+
 	recorder := httptest.NewRecorder()
 	server.handler.ServeHTTP(recorder, request)
 	response := recorder.Result()
@@ -131,21 +171,40 @@ func (server *publicServer) send(t *testing.T, method, path, bearer, requestID s
 	if err != nil {
 		t.Fatalf("io.ReadAll failed for the %s %s response: %v", method, path, err)
 	}
+
 	return publicResponse{status: response.StatusCode, header: response.Header, body: payload}
 }
 
 // rpc sends one authenticated JSON-RPC request to the MCP route.
-func (server *publicServer) rpc(t *testing.T, requestID, method string, params map[string]any) publicResponse {
+func (server *publicServer) rpc(
+	t *testing.T,
+	requestID string,
+	method string,
+	params map[string]any,
+) publicResponse {
 	t.Helper()
-	return server.send(t, http.MethodPost, "/mcp", server.token, requestID, rpcBody(t, method, params))
+	return server.send(
+		t,
+		http.MethodPost,
+		"/mcp",
+		server.token,
+		requestID,
+		rpcBody(t, method, params),
+	)
 }
 
 func rpcBody(t *testing.T, method string, params map[string]any) []byte {
 	t.Helper()
-	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": uuid.NewString(), "method": method, "params": params})
+	body, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      uuid.NewString(),
+		"method":  method,
+		"params":  params,
+	})
 	if err != nil {
 		t.Fatalf("json.Marshal failed for the %s request: %v", method, err)
 	}
+
 	return body
 }
 

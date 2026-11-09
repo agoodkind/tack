@@ -22,7 +22,10 @@ import (
 func TestNodeIntegritySchemaRejectsUndeclaredNames(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
-	_, err := env.NodeSvc.Create(env.Ctx, schemaCreateInput(projectID, projectID, "issue", schemaProps("progress", quoted("half"))))
+	_, err := env.NodeSvc.Create(
+		env.Ctx,
+		schemaCreateInput(projectID, projectID, "issue", schemaProps("progress", quoted("half"))),
+	)
 	requireRefusedName(t, err, "progress")
 	if issues := listByScope(t, env, "issue", projectID); len(issues) != 0 {
 		t.Fatalf("the refused create stored %d issues", len(issues))
@@ -30,13 +33,24 @@ func TestNodeIntegritySchemaRejectsUndeclaredNames(t *testing.T) {
 
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	before := storedStoreView(t, env.Stores, issue.ID)
+
 	for _, name := range []string{"progress", "identifier"} {
-		_, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
-			NodeID: issue.ID, Name: nil, Props: schemaProps(name, quoted("value")),
-			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
-		})
+		_, err := env.NodeSvc.Update(
+			env.Ctx,
+			service.UpdateInput{
+				NodeID: issue.ID,
+				Name:   nil,
+				Props:  schemaProps(name, quoted("value")),
+				RelationshipChanges: node.RelationshipChanges{
+					Add:    nil,
+					Remove: nil,
+				},
+				ActorID: uuid.New(),
+			},
+		)
 		requireRefusedName(t, err, name)
 	}
+
 	after := storedStoreView(t, env.Stores, issue.ID)
 	if !reflect.DeepEqual(after.Props, before.Props) || !after.UpdatedAt.Equal(before.UpdatedAt) {
 		t.Fatalf("a refused update changed the stored issue: before %+v, after %+v", before, after)
@@ -50,27 +64,52 @@ func TestNodeIntegritySchemaRejectsUndeclaredNames(t *testing.T) {
 func TestNodeIntegritySchemaAppliesDefaultsAndPartialUpdates(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
-	issue := createSchemaNode(t, env, projectID, projectID, "issue", schemaProps("description", quoted("Original description")))
+	issue := createSchemaNode(
+		t,
+		env,
+		projectID,
+		projectID,
+		"issue",
+		schemaProps("description", quoted("Original description")),
+	)
+
 	todoID := stateByName(t, env, projectID, "Todo")
-	for name, want := range map[string]string{"priority": `"none"`, "is_draft": "false", "state_id": strconv.Quote(todoID.String())} {
+	for name, want := range map[string]string{
+		"priority": `"none"`,
+		"is_draft": "false",
+		"state_id": strconv.Quote(todoID.String()),
+	} {
 		if got := string(issue.Props[name]); got != want {
 			t.Fatalf("default %s = %s, want %s", name, got, want)
 		}
 	}
 
-	if _, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
-		NodeID: issue.ID, Name: nil, Props: schemaProps("priority", quoted("high")),
-		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
-	}); err != nil {
+	if _, err := env.NodeSvc.Update(
+		env.Ctx,
+		service.UpdateInput{
+			NodeID:              issue.ID,
+			Name:                nil,
+			Props:               schemaProps("priority", quoted("high")),
+			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
+			ActorID:             uuid.New(),
+		},
+	); err != nil {
 		t.Fatalf("update priority: %v", err)
 	}
+
 	updated := storedStoreView(t, env.Stores, issue.ID)
 	if got := string(updated.Props["priority"]); got != `"high"` {
 		t.Fatalf("updated priority = %s, want \"high\"", got)
 	}
+
 	for _, name := range []string{"description", "state_id", "sequence", "scope_id", "parent_id"} {
 		if string(updated.Props[name]) != string(issue.Props[name]) {
-			t.Fatalf("partial update changed %s from %s to %s", name, issue.Props[name], updated.Props[name])
+			t.Fatalf(
+				"partial update changed %s from %s to %s",
+				name,
+				issue.Props[name],
+				updated.Props[name],
+			)
 		}
 	}
 }
@@ -83,13 +122,27 @@ func TestNodeIntegritySchemaIndexesScopeOfEveryType(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
-	comment := createSchemaNode(t, env, issue.ID, projectID, "comment", schemaProps("description", quoted("A comment")))
+	comment := createSchemaNode(
+		t,
+		env,
+		issue.ID,
+		projectID,
+		"comment",
+		schemaProps("description", quoted("A comment")),
+	)
 	activity := createSchemaNode(t, env, issue.ID, projectID, "activity", nil)
-	workspaceID := uuid.MustParse(strings.Trim(string(storedStoreView(t, env.Stores, projectID).Props["scope_id"]), `"`))
+	workspaceID := uuid.MustParse(
+		strings.Trim(string(storedStoreView(t, env.Stores, projectID).Props["scope_id"]), `"`),
+	)
 
 	if states := listByScope(t, env, "state", projectID); len(states) != 5 {
-		t.Fatalf("scope_id index lists %d states of project %s, want the 5 default states", len(states), projectID)
+		t.Fatalf(
+			"scope_id index lists %d states of project %s, want the 5 default states",
+			len(states),
+			projectID,
+		)
 	}
+
 	for _, expected := range []struct {
 		typeKey string
 		scopeID uuid.UUID
@@ -102,64 +155,136 @@ func TestNodeIntegritySchemaIndexesScopeOfEveryType(t *testing.T) {
 	} {
 		listed := listByScope(t, env, expected.typeKey, expected.scopeID)
 		if len(listed) != 1 || listed[0].ID != expected.nodeID {
-			t.Fatalf("scope_id index lists %s nodes %v of scope %s, want node %s", expected.typeKey, listed, expected.scopeID, expected.nodeID)
+			t.Fatalf(
+				"scope_id index lists %s nodes %v of scope %s, want node %s",
+				expected.typeKey,
+				listed,
+				expected.scopeID,
+				expected.nodeID,
+			)
 		}
 	}
 }
 
 func requireRefusedName(t *testing.T, err error, name string) {
 	t.Helper()
-	if !errors.Is(err, domain.ErrInvalidArgument) || !strings.Contains(err.Error(), strconv.Quote(name)) {
+	if !errors.Is(err, domain.ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), strconv.Quote(name)) {
 		t.Fatalf("error = %v, want an invalid argument that contains %q", err, name)
 	}
 }
 
 func createSchemaProject(t *testing.T, env *integration.TestEnv) uuid.UUID {
 	t.Helper()
-	workspace := createSchemaNode(t, env, env.OrgID, env.OrgID, "workspace", schemaProps("slug", quoted("main")))
-	project := createSchemaNode(t, env, workspace.ID, workspace.ID, "project", map[string]json.RawMessage{
-		"slug": quoted("schema"), "identifier": quoted("SCHEMA"),
-	})
+	workspace := createSchemaNode(
+		t,
+		env,
+		env.OrgID,
+		env.OrgID,
+		"workspace",
+		schemaProps("slug", quoted("main")),
+	)
+	project := createSchemaNode(
+		t,
+		env,
+		workspace.ID,
+		workspace.ID,
+		"project",
+		map[string]json.RawMessage{
+			"slug":       quoted("schema"),
+			"identifier": quoted("SCHEMA"),
+		},
+	)
+
 	return project.ID
 }
 
-func createSchemaNode(t *testing.T, env *integration.TestEnv, parentID, scopeID uuid.UUID, typeKey string, props map[string]json.RawMessage) *node.NodeView {
+func createSchemaNode(
+	t *testing.T,
+	env *integration.TestEnv,
+	parentID uuid.UUID,
+	scopeID uuid.UUID,
+	typeKey string,
+	props map[string]json.RawMessage,
+) *node.NodeView {
 	t.Helper()
-	created, err := env.NodeSvc.Create(env.Ctx, schemaCreateInput(parentID, scopeID, typeKey, props))
+	created, err := env.NodeSvc.Create(
+		env.Ctx,
+		schemaCreateInput(parentID, scopeID, typeKey, props),
+	)
 	if err != nil {
 		t.Fatalf("create %s: %v", typeKey, err)
 	}
+
 	return created.View
 }
 
-func schemaCreateInput(parentID, scopeID uuid.UUID, typeKey string, props map[string]json.RawMessage) service.CreateInput {
+func schemaCreateInput(
+	parentID uuid.UUID,
+	scopeID uuid.UUID,
+	typeKey string,
+	props map[string]json.RawMessage,
+) service.CreateInput {
 	return service.CreateInput{
-		ParentID: parentID, ScopeID: scopeID, NodeTypeKey: typeKey, Name: "Schema " + typeKey,
-		Props: props, Relationships: nil, ActorID: uuid.New(),
-		IdempotencyKey: "", IdempotencyFingerprint: "", IdempotencySource: "",
+		ParentID:               parentID,
+		ScopeID:                scopeID,
+		NodeTypeKey:            typeKey,
+		Name:                   "Schema " + typeKey,
+		Props:                  props,
+		Relationships:          nil,
+		ActorID:                uuid.New(),
+		IdempotencyKey:         "",
+		IdempotencyFingerprint: "",
+		IdempotencySource:      "",
 	}
 }
 
-func listByScope(t *testing.T, env *integration.TestEnv, typeKey string, scopeID uuid.UUID) []*node.Node {
+func listByScope(
+	t *testing.T,
+	env *integration.TestEnv,
+	typeKey string,
+	scopeID uuid.UUID,
+) []*node.Node {
 	t.Helper()
-	nodes, err := env.Stores.Nodes.ListByProperty(env.Ctx, env.OrgID, typeKey, "scope_id", quoted(scopeID.String()))
+	nodes, err := env.Stores.Nodes.ListByProperty(
+		env.Ctx,
+		env.OrgID,
+		typeKey,
+		"scope_id",
+		quoted(scopeID.String()),
+	)
 	if err != nil {
 		t.Fatalf("list %s nodes by scope %s: %v", typeKey, scopeID, err)
 	}
+
 	return nodes
 }
 
-func stateByName(t *testing.T, env *integration.TestEnv, projectID uuid.UUID, name string) uuid.UUID {
+func stateByName(
+	t *testing.T,
+	env *integration.TestEnv,
+	projectID uuid.UUID,
+	name string,
+) uuid.UUID {
 	t.Helper()
-	states, err := env.Stores.Nodes.ListByProperty(env.Ctx, env.OrgID, "state", "parent_id", quoted(projectID.String()))
+	states, err := env.Stores.Nodes.ListByProperty(
+		env.Ctx,
+		env.OrgID,
+		"state",
+		"parent_id",
+		quoted(projectID.String()),
+	)
 	if err != nil {
 		t.Fatalf("list states of project %s: %v", projectID, err)
 	}
+
 	for _, state := range states {
 		if state.Name == name {
 			return state.ID
 		}
 	}
+
 	t.Fatalf("project %s has no state %q", projectID, name)
+
 	return uuid.Nil
 }

@@ -35,7 +35,13 @@ func answerDeadlineAtOnce(context.Context) (string, error) {
 // drill's context is still live.
 func TestClassifyFDBRestoreProbeAnswerTakesOnlyTheProbesOwnDeadline(t *testing.T) {
 	deadlineErr := fmt.Errorf("read the fdbrestore status: %w", context.DeadlineExceeded)
-	answered := fdbRestoreReading{exitCode: 0, done: false, status: "", statusErr: deadlineErr, timedOut: false}
+	answered := fdbRestoreReading{
+		exitCode:  0,
+		done:      false,
+		status:    "",
+		statusErr: deadlineErr,
+		timedOut:  false,
+	}
 	expired, cancelExpired := context.WithDeadline(t.Context(), time.Unix(0, 0))
 	defer cancelExpired()
 	live, cancelLive := context.WithTimeout(t.Context(), time.Hour)
@@ -45,15 +51,39 @@ func TestClassifyFDBRestoreProbeAnswerTakesOnlyTheProbesOwnDeadline(t *testing.T
 
 	got := classifyFDBRestoreProbeAnswer(answered, expired, t.Context(), time.Minute)
 	if !got.timedOut {
-		t.Fatalf("an answer carrying the deadline after the probe's context expired must be a timeout, got %+v", got)
+		t.Fatalf(
+			"an answer carrying the deadline after the probe's context expired must be a timeout, got %+v",
+			got,
+		)
 	}
-	if !errors.Is(got.statusErr, errFDBRestoreProbeTimedOut) || !errors.Is(got.statusErr, context.DeadlineExceeded) {
-		t.Fatalf("the timeout must carry both the probe's verdict and the exec's error, got %v", got.statusErr)
+
+	if !errors.Is(got.statusErr, errFDBRestoreProbeTimedOut) ||
+		!errors.Is(got.statusErr, context.DeadlineExceeded) {
+		t.Fatalf(
+			"the timeout must carry both the probe's verdict and the exec's error, got %v",
+			got.statusErr,
+		)
 	}
-	if got := classifyFDBRestoreProbeAnswer(answered, live, t.Context(), time.Minute); got.timedOut || got.statusErr != deadlineErr {
-		t.Fatalf("a deadline error while the probe's context is live is a probe error, got %+v", got)
+
+	if got := classifyFDBRestoreProbeAnswer(
+		answered,
+		live,
+		t.Context(),
+		time.Minute,
+	); got.timedOut ||
+		got.statusErr != deadlineErr {
+		t.Fatalf(
+			"a deadline error while the probe's context is live is a probe error, got %+v",
+			got,
+		)
 	}
-	if got := classifyFDBRestoreProbeAnswer(answered, expired, cancelled, time.Minute); got.timedOut {
+
+	if got := classifyFDBRestoreProbeAnswer(
+		answered,
+		expired,
+		cancelled,
+		time.Minute,
+	); got.timedOut {
 		t.Fatalf("a deadline under a cancelled drill is not a probe timeout, got %+v", got)
 	}
 }
@@ -73,12 +103,15 @@ func TestAwaitFDBRestoreCountsAnAnsweredDeadlineAsATimeout(t *testing.T) {
 	}
 
 	_, _, err := awaitOrHang(t, watch)
-
 	if err == nil {
 		t.Fatal("a restore whose status probe keeps hitting its deadline must not pass")
 	}
+
 	if !strings.Contains(err.Error(), "3 consecutive polls had a probe that did not answer") {
-		t.Fatalf("a probe that returned its deadline must count as one that did not answer, got: %v", err)
+		t.Fatalf(
+			"a probe that returned its deadline must count as one that did not answer, got: %v",
+			err,
+		)
 	}
 }
 
@@ -97,15 +130,22 @@ func TestAwaitFDBRestoreToleratesAnExitProbeThatAnsweredWithItsDeadline(t *testi
 				_, err := answerAtDeadline(ctx)
 				return 0, false, err
 			}
+
 			return 0, true, nil
 		},
-		Status: func(context.Context) (string, error) { return fdbStatusLine(1, 10, 0, 4096, 0), nil },
+		Status: func(context.Context) (string, error) {
+			return fdbStatusLine(1, 10, 0, 4096, 0), nil
+		},
 	}
 
 	_, exitCode, err := awaitOrHang(t, watch)
 	if err != nil {
-		t.Fatalf("exit probes that hit their deadline under the tolerance must not fail the drill: %v", err)
+		t.Fatalf(
+			"exit probes that hit their deadline under the tolerance must not fail the drill: %v",
+			err,
+		)
 	}
+
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0", exitCode)
 	}
@@ -124,15 +164,22 @@ func TestAwaitFDBRestoreKeepsAnInstantDeadlineErrorAProbeError(t *testing.T) {
 	}
 
 	_, _, err := awaitOrHang(t, watch)
-
 	if err == nil {
 		t.Fatal("a restore whose status probe keeps failing must not pass")
 	}
+
 	if strings.Contains(err.Error(), "could not be observed") {
-		t.Fatalf("a deadline error the probe returned at once must not count as a blind poll, got: %v", err)
+		t.Fatalf(
+			"a deadline error the probe returned at once must not count as a blind poll, got: %v",
+			err,
+		)
 	}
+
 	if !strings.Contains(err.Error(), "made no progress for") ||
-		!strings.Contains(err.Error(), "the last status read failed: read the fdbrestore status: context deadline exceeded") {
+		!strings.Contains(
+			err.Error(),
+			"the last status read failed: read the fdbrestore status: context deadline exceeded",
+		) {
 		t.Fatalf("the failure must be the stall with the probe's own error, got: %v", err)
 	}
 }

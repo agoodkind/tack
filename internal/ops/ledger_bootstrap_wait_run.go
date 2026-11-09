@@ -34,35 +34,57 @@ func runLedgerBootstrapWait(
 	cfg *config.Config,
 	sink clispec.ResultSink,
 	target ledgerBootstrapTarget,
-	deadline, poll time.Duration,
+	deadline time.Duration,
+	poll time.Duration,
 ) error {
 	masters, err := ledgerBootstrapMasterList(cfg, target.masters)
 	if err != nil {
 		slog.ErrorContext(ctx, "ops.ledger.bootstrap_wait.failed", slog.String("err", err.Error()))
 		return fmt.Errorf("%s: %w", ledgerBootstrapCommandLabel, err)
 	}
+
 	cli, err := newDockerClient(ctx)
 	if err != nil {
 		return fmt.Errorf("%s: %w", ledgerBootstrapCommandLabel, err)
 	}
+
 	defer func() { _ = cli.Close() }()
 	read := func(ctx context.Context) ledgerBootstrapReading {
 		return readLedgerBootstrapCluster(ctx, cli, cfg, masters, target)
 	}
 	reading, elapsed, err := awaitLedgerBootstrap(ctx, read, target, deadline, poll)
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.bootstrap_wait.failed",
-			slog.String("masters", masters.names), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.bootstrap_wait.failed",
+			slog.String("masters", masters.names),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("%s: %w", ledgerBootstrapCommandLabel, err)
 	}
-	line := fmt.Sprintf("ledger bootstrap ready after %s against %s: %s",
-		elapsed.Round(time.Millisecond), masters.names, reading.summary(target))
-	slog.InfoContext(ctx, "ops.ledger.bootstrap_wait.ready",
-		slog.Duration("elapsed", elapsed), slog.String("counts", reading.summary(target)))
+
+	line := fmt.Sprintf(
+		"ledger bootstrap ready after %s against %s: %s",
+		elapsed.Round(time.Millisecond),
+		masters.names,
+		reading.summary(target),
+	)
+	slog.InfoContext(
+		ctx,
+		"ops.ledger.bootstrap_wait.ready",
+		slog.Duration("elapsed", elapsed),
+		slog.String("counts", reading.summary(target)),
+	)
 	if err := sink.WriteText(ctx, line); err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.bootstrap_wait.write_result_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.bootstrap_wait.write_result_failed",
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("%s: write result: %w", ledgerBootstrapCommandLabel, err)
 	}
+
 	return nil
 }
 
@@ -72,26 +94,50 @@ func awaitLedgerBootstrap(
 	ctx context.Context,
 	read func(context.Context) ledgerBootstrapReading,
 	target ledgerBootstrapTarget,
-	deadline, poll time.Duration,
+	deadline time.Duration,
+	poll time.Duration,
 ) (ledgerBootstrapReading, time.Duration, error) {
 	started := opsNow()
+
 	for {
 		reading := read(ctx)
 		elapsed := opsNow().Sub(started)
 		if reading.satisfies(target) {
 			return reading, elapsed, nil
 		}
+
 		remaining := deadline - elapsed
 		if remaining <= 0 {
-			expired := fmt.Errorf("the ledger did not report %s within the %s deadline: elapsed %s: %s",
-				targetText(target), deadline, elapsed.Round(time.Millisecond), reading.summary(target))
-			slog.ErrorContext(ctx, "ops.ledger.bootstrap_wait.deadline_passed", slog.String("err", expired.Error()))
+			expired := fmt.Errorf(
+				"the ledger did not report %s within the %s deadline: elapsed %s: %s",
+				targetText(target),
+				deadline,
+				elapsed.Round(time.Millisecond),
+				reading.summary(target),
+			)
+			slog.ErrorContext(
+				ctx,
+				"ops.ledger.bootstrap_wait.deadline_passed",
+				slog.String("err", expired.Error()),
+			)
+
 			return reading, elapsed, expired
 		}
+
 		if !opsWait(ctx, min(poll, remaining)) {
-			cancelled := fmt.Errorf("waiting for %s, cancelled after %s: %s: %w",
-				targetText(target), elapsed.Round(time.Millisecond), reading.summary(target), ctx.Err())
-			slog.ErrorContext(ctx, "ops.ledger.bootstrap_wait.cancelled", slog.String("err", cancelled.Error()))
+			cancelled := fmt.Errorf(
+				"waiting for %s, cancelled after %s: %s: %w",
+				targetText(target),
+				elapsed.Round(time.Millisecond),
+				reading.summary(target),
+				ctx.Err(),
+			)
+			slog.ErrorContext(
+				ctx,
+				"ops.ledger.bootstrap_wait.cancelled",
+				slog.String("err", cancelled.Error()),
+			)
+
 			return reading, elapsed, cancelled
 		}
 	}
@@ -103,6 +149,7 @@ func targetText(target ledgerBootstrapTarget) string {
 	if target.replicas > 0 {
 		text += fmt.Sprintf(" num_replicas=%d under_replicated_tablets=0", target.replicas)
 	}
+
 	return text
 }
 
@@ -126,16 +173,22 @@ func readLedgerBootstrapCluster(
 	} else {
 		reading.masters, reading.mastersRead = countAliveRows(masterList.Stdout), true
 	}
+
 	tabletServers, err := ybAdminAtMasters(readCtx, cli, cfg, masters, "list_all_tablet_servers")
 	if err != nil {
 		failures = append(failures, err.Error())
 	} else {
-		reading.tabletServers, reading.tabletServersRead = countAliveRows(tabletServers.Stdout), true
+		reading.tabletServers, reading.tabletServersRead = countAliveRows(
+			tabletServers.Stdout,
+		), true
 	}
+
 	if target.replicas > 0 {
 		failures = append(failures, readLedgerReplication(readCtx, cli, cfg, masters, &reading)...)
 	}
+
 	reading.lastError = strings.Join(failures, "; ")
+
 	return reading
 }
 
@@ -153,16 +206,19 @@ func readLedgerReplication(
 	if err == nil {
 		reading.replicas, err = unmarshalUniverseNumReplicas(ctx, universe.Stdout)
 	}
+
 	if err != nil {
 		failures = append(failures, err.Error())
 	} else {
 		reading.replicasRead = true
 	}
+
 	counts, err := probeLedgerClusterCounts(ctx, masters.health)
 	if err != nil {
 		failures = append(failures, err.Error())
 	} else {
 		reading.underReplicated, reading.underReplicatedRead = counts.underReplicated, true
 	}
+
 	return failures
 }

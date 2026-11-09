@@ -25,8 +25,10 @@ func decodeNativeChunks(t *testing.T, semantic json.RawMessage) []nativeChunk {
 		if err := json.Unmarshal(semantic, &nested); err != nil {
 			t.Fatalf("decode native chunks: %v", err)
 		}
+
 		chunks = nested.Chunks
 	}
+
 	return chunks
 }
 
@@ -40,26 +42,43 @@ func requireNativeChunks(t *testing.T, semantic json.RawMessage, source string) 
 	if len(chunks) == 0 {
 		t.Fatalf("native chunks are absent for a %d-byte source", len(source))
 	}
+
 	covered := 0
+
 	for number, chunk := range chunks {
-		if chunk.Text == "" || !utf8.ValidString(chunk.Text) || utf8.RuneCountInString(chunk.Text) > 160 {
-			t.Fatalf("chunk %d has invalid text or more than 160 characters: %q", number, chunk.Text)
+		if chunk.Text == "" || !utf8.ValidString(chunk.Text) ||
+			utf8.RuneCountInString(chunk.Text) > 160 {
+			t.Fatalf(
+				"chunk %d has invalid text or more than 160 characters: %q",
+				number,
+				chunk.Text,
+			)
 		}
+
 		if !strings.HasPrefix(source[covered:], chunk.Text) {
-			t.Fatalf("chunk %d %q does not start at source byte %d, the end of the previous chunk", number, chunk.Text, covered)
+			t.Fatalf(
+				"chunk %d %q does not start at source byte %d, the end of the previous chunk",
+				number,
+				chunk.Text,
+				covered,
+			)
 		}
+
 		covered += len(chunk.Text)
 		// A whitespace-only chunk has no model tokens, so its embedding may
 		// be empty but must still exist.
-		if chunk.Embedding == nil || len(chunk.Embedding) == 0 && strings.TrimSpace(chunk.Text) != "" {
+		if chunk.Embedding == nil ||
+			len(chunk.Embedding) == 0 && strings.TrimSpace(chunk.Text) != "" {
 			t.Fatalf("chunk %d %q has no sparse weights", number, chunk.Text)
 		}
+
 		for term, weight := range chunk.Embedding {
 			if term == "" || math.IsNaN(weight) || math.IsInf(weight, 0) || weight < 0 {
 				t.Fatalf("chunk %d has an invalid sparse weight", number)
 			}
 		}
 	}
+
 	if covered != len(source) {
 		t.Fatalf("native chunks cover %d of %d source bytes", covered, len(source))
 	}
@@ -103,35 +122,51 @@ func requireNativeChunkMapping(t *testing.T, client *opensearchapi.Client, index
 	if err := json.Unmarshal(mappingJSON, &mapping); err != nil {
 		t.Fatalf("decode mapping of %s: %v", index, err)
 	}
+
 	chunking := mapping.Properties.PageText.Chunking
 	if len(chunking) != 1 || chunking[0].Algorithm != "fixed_char_length" {
 		t.Fatalf("page_text chunking = %s, want one fixed_char_length chunker", mappingJSON)
 	}
+
 	parameters := chunking[0].Parameters
 	if parameters.CharLimit == nil || *parameters.CharLimit != 160 || parameters.OverlapRate == nil || *parameters.OverlapRate != 0 ||
-		parameters.MaxChunkLimit == nil || *parameters.MaxChunkLimit != -1 {
-		t.Fatalf("page_text chunking = %s, want char_limit 160, overlap_rate 0, max_chunk_limit -1", mappingJSON)
+		parameters.MaxChunkLimit == nil ||
+		*parameters.MaxChunkLimit != -1 {
+		t.Fatalf(
+			"page_text chunking = %s, want char_limit 160, overlap_rate 0, max_chunk_limit -1",
+			mappingJSON,
+		)
 	}
+
 	if embeddingType := mapping.Properties.Semantic.Properties.Chunks.Properties.Embedding.Type; embeddingType != "rank_features" {
-		t.Fatalf("page_text_semantic_info.chunks.embedding type = %q, want rank_features", embeddingType)
+		t.Fatalf(
+			"page_text_semantic_info.chunks.embedding type = %q, want rank_features",
+			embeddingType,
+		)
 	}
 }
 
 func nativeMapping(t *testing.T, client *opensearchapi.Client, index string) json.RawMessage {
 	t.Helper()
-	response, err := client.Indices.GetMapping(WithTestOperation(t, t.Context()), &opensearchapi.IndicesGetMappingReq{Indices: []string{index}})
+	response, err := client.Indices.GetMapping(
+		WithTestOperation(t, t.Context()),
+		&opensearchapi.IndicesGetMappingReq{Indices: []string{index}},
+	)
 	if err != nil {
 		t.Fatalf("read mapping of %s: %v", index, err)
 	}
+
 	var indices map[string]struct {
 		Mappings json.RawMessage `json:"mappings"`
 	}
 	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
 		t.Fatal(err)
 	}
+
 	entry, exists := indices[index]
 	if !exists {
 		t.Fatalf("mapping of %s is absent", index)
 	}
+
 	return entry.Mappings
 }

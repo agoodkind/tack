@@ -23,21 +23,34 @@ func TestBackupRetentionAndRestoreSerializeUntilCancellation(t *testing.T) {
 	defer cancel()
 	finished := make(chan error, 1)
 	go func() {
-		finished <- ops.PreviewBackupRetention(ctx, fixture.config, ops.BackupRetentionOptions{KeepDays: 14}, io.Discard)
+		finished <- ops.PreviewBackupRetention(
+			ctx,
+			fixture.config,
+			ops.BackupRetentionOptions{KeepDays: 14},
+			io.Discard,
+		)
 	}()
 	waitForRetentionLock(t, fixture.config.BackupRoot)
 	restoreContext, cancelRestore := context.WithTimeout(t.Context(), 150*time.Millisecond)
 	defer cancelRestore()
 	err := ops.RunBackupRestoreDrill(restoreContext, fixture.config, ops.RestoreDrillOptions{})
-	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "backup operation lock") {
+	if !errors.Is(err, context.DeadlineExceeded) ||
+		!strings.Contains(err.Error(), "backup operation lock") {
 		t.Fatalf("concurrent restore did not wait for retention: %v", err)
 	}
+
 	cancel()
 	if err := <-finished; !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled retention returned %v", err)
 	}
+
 	fixture.config.BackupS3Endpoint = fixture.store.start()
-	if err := ops.PreviewBackupRetention(t.Context(), fixture.config, ops.BackupRetentionOptions{KeepDays: 14}, io.Discard); err != nil {
+	if err := ops.PreviewBackupRetention(
+		t.Context(),
+		fixture.config,
+		ops.BackupRetentionOptions{KeepDays: 14},
+		io.Discard,
+	); err != nil {
 		t.Fatalf("retention lock did not release after cancellation: %v", err)
 	}
 }
@@ -48,6 +61,7 @@ func waitForRetentionLock(t *testing.T, root string) {
 	defer deadline.Stop()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
+
 	for {
 		file, err := os.OpenFile(filepath.Join(root, backupOperationLockName), os.O_RDWR, 0)
 		if err == nil {
@@ -57,6 +71,7 @@ func waitForRetentionLock(t *testing.T, root string) {
 				return
 			}
 		}
+
 		select {
 		case <-deadline.C:
 			t.Fatal("retention did not acquire the shared backup lock")

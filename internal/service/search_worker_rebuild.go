@@ -19,6 +19,7 @@ import (
 func (w *SearchWorker) rebuildSlice(ctx context.Context, work searchdomain.Work) error {
 	leaseContext, cancel := context.WithTimeout(ctx, work.LeaseUntil.Sub(w.clock.Now()))
 	defer cancel()
+
 	return w.rebuildState(leaseContext, work)
 }
 
@@ -28,9 +29,11 @@ func (w *SearchWorker) rebuildState(ctx context.Context, work searchdomain.Work)
 	if err != nil {
 		return w.settle(ctx, work, "read index replacement", err)
 	}
+
 	if !found {
 		return w.settle(ctx, work, "advance index replacement", searchdomain.ErrWorkChanged)
 	}
+
 	switch rebuild.State {
 	case searchdomain.RebuildCreating:
 		return w.rebuildCreate(ctx, work, rebuild)
@@ -45,53 +48,77 @@ func (w *SearchWorker) rebuildState(ctx context.Context, work searchdomain.Work)
 	case searchdomain.RebuildFailed:
 		return w.rebuildRecover(ctx, work, rebuild)
 	}
-	return w.settle(ctx, work, "advance index replacement", fmt.Errorf("unknown replacement state %q", rebuild.State))
+
+	return w.settle(
+		ctx,
+		work,
+		"advance index replacement",
+		fmt.Errorf("unknown replacement state %q", rebuild.State),
+	)
 }
 
 // rebuildCopy schedules copies for one page of FoundationDB nodes. After the
 // scan finishes it waits until every copy item completes.
-func (w *SearchWorker) rebuildCopy(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) error {
+func (w *SearchWorker) rebuildCopy(
+	ctx context.Context,
+	work searchdomain.Work,
+	rebuild searchdomain.Rebuild,
+) error {
 	if !rebuild.ScanComplete {
 		if err := w.ports.Rebuilds.CopyNextNodes(ctx, work, rebuild); err != nil {
 			return w.settle(ctx, work, "schedule replacement copies", err)
 		}
+
 		return w.yield(ctx, work)
 	}
+
 	pending, err := w.ports.Rebuilds.CopiesPending(ctx)
 	if err != nil {
 		return w.settle(ctx, work, "read pending replacement copies", err)
 	}
+
 	if pending {
 		return w.waitRebuild(ctx, work)
 	}
+
 	next := rebuild
 	next.State, next.VerifyCursor = searchdomain.RebuildVerifying, ""
+
 	return w.advanceRebuild(ctx, work, rebuild, next)
 }
 
 // rebuildVerify reads one batch of exact current pages from the target.
-func (w *SearchWorker) rebuildVerify(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) error {
+func (w *SearchWorker) rebuildVerify(
+	ctx context.Context,
+	work searchdomain.Work,
+	rebuild searchdomain.Rebuild,
+) error {
 	batch, err := w.ports.Rebuilds.VerifyRebuildDocuments(ctx, work, rebuild, searchBatchLimit)
 	if err != nil {
 		return w.settle(ctx, work, "read replacement verification documents", err)
 	}
+
 	ids := make([]string, 0, len(batch.Documents))
 	for _, document := range batch.Documents {
 		ids = append(ids, document.Document.DocumentID)
 	}
+
 	operationContext, cancel := context.WithTimeout(ctx, w.settings.OperationTimeout)
 	states, err := w.ports.Documents.DocumentAccess(operationContext, rebuild.TargetIndex, ids)
 	cancel()
 	if err != nil {
 		return w.settleEngine(ctx, work, "read replacement page documents", err)
 	}
+
 	waiting, err := w.ports.Rebuilds.CompleteRebuildVerify(ctx, work, rebuild, batch, states)
 	if err != nil {
 		return w.settle(ctx, work, "checkpoint replacement verification", err)
 	}
+
 	if waiting {
 		return w.waitRebuild(ctx, work)
 	}
+
 	return w.yield(ctx, work)
 }
 
@@ -99,80 +126,144 @@ func (w *SearchWorker) rebuildVerify(ctx context.Context, work searchdomain.Work
 // ended, then finishes the replacement. A missing old index skips the write
 // block. An earlier attempt that deleted the index and then failed to record
 // the finish leaves the index missing.
-func (w *SearchWorker) rebuildRetire(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) error {
+func (w *SearchWorker) rebuildRetire(
+	ctx context.Context,
+	work searchdomain.Work,
+	rebuild searchdomain.Rebuild,
+) error {
 	retirement, err := w.retirementContext(ctx, rebuild)
 	if err != nil {
-		return w.settle(ctx, work, "attach the retirement operation of index "+rebuild.SourceIndex, err)
+		return w.settle(
+			ctx,
+			work,
+			"attach the retirement operation of index "+rebuild.SourceIndex,
+			err,
+		)
 	}
-	remaining, err := w.ports.Rebuilds.RetireIndexSessions(retirement, rebuild.SourceIndex, searchBatchLimit)
+
+	remaining, err := w.ports.Rebuilds.RetireIndexSessions(
+		retirement,
+		rebuild.SourceIndex,
+		searchBatchLimit,
+	)
 	if err != nil {
 		return w.settle(ctx, work, "retire sessions of index "+rebuild.SourceIndex, err)
 	}
+
 	if remaining {
 		return w.waitRebuild(ctx, work)
 	}
-	if err := w.engineStep(ctx, func(operation context.Context) error {
-		return w.ports.Replacer.SetWriteBlock(operation, rebuild.SourceIndex, true)
-	}); err != nil && !errors.Is(err, searchdomain.ErrIndexNotFound) {
+
+	if err := w.engineStep(
+		ctx,
+		func(operation context.Context) error {
+			return w.ports.Replacer.SetWriteBlock(operation, rebuild.SourceIndex, true)
+		},
+	); err != nil && !errors.Is(err, searchdomain.ErrIndexNotFound) {
 		return w.settleEngine(ctx, work, "block writes to retiring index "+rebuild.SourceIndex, err)
 	}
+
 	if err := w.deleteIndex(ctx, rebuild, rebuild.SourceIndex); err != nil {
 		return w.settleEngine(ctx, work, "delete retiring index "+rebuild.SourceIndex, err)
 	}
+
 	if err := w.ports.Rebuilds.FinishRebuild(ctx, work, rebuild); err != nil {
 		return w.settle(ctx, work, "finish index replacement", err)
 	}
+
 	return nil
 }
 
 // rebuildRecover restores source writes, deletes the failed target, and ends
 // the replacement. The public alias still selects the source in this state.
-func (w *SearchWorker) rebuildRecover(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) error {
-	if err := w.engineStep(ctx, func(operation context.Context) error {
-		return w.ports.Replacer.SetWriteBlock(operation, rebuild.SourceIndex, false)
-	}); err != nil {
+func (w *SearchWorker) rebuildRecover(
+	ctx context.Context,
+	work searchdomain.Work,
+	rebuild searchdomain.Rebuild,
+) error {
+	if err := w.engineStep(
+		ctx,
+		func(operation context.Context) error {
+			return w.ports.Replacer.SetWriteBlock(operation, rebuild.SourceIndex, false)
+		},
+	); err != nil {
 		return w.settleEngine(ctx, work, "restore writes to index "+rebuild.SourceIndex, err)
 	}
+
 	if err := w.deleteIndex(ctx, rebuild, rebuild.TargetIndex); err != nil {
 		return w.settleEngine(ctx, work, "delete failed target "+rebuild.TargetIndex, err)
 	}
+
 	if err := w.ports.Rebuilds.FinishRebuild(ctx, work, rebuild); err != nil {
 		return w.settle(ctx, work, "finish failed index replacement", err)
 	}
+
 	return nil
 }
 
 // advanceRebuild checkpoints next and yields the claim.
-func (w *SearchWorker) advanceRebuild(ctx context.Context, work searchdomain.Work, read, next searchdomain.Rebuild) error {
+func (w *SearchWorker) advanceRebuild(
+	ctx context.Context,
+	work searchdomain.Work,
+	read searchdomain.Rebuild,
+	next searchdomain.Rebuild,
+) error {
 	if err := w.ports.Rebuilds.AdvanceRebuild(ctx, work, read, next); err != nil {
 		return w.settle(ctx, work, "advance index replacement to "+string(next.State), err)
 	}
+
 	return w.yield(ctx, work)
 }
 
 // failRebuild records failure in the durable state. The failed state
 // restores source writes and deletes the target on the next claim.
-func (w *SearchWorker) failRebuild(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild, operation string, cause error) error {
+func (w *SearchWorker) failRebuild(
+	ctx context.Context,
+	work searchdomain.Work,
+	rebuild searchdomain.Rebuild,
+	operation string,
+	cause error,
+) error {
 	wrapped := fmt.Errorf("%s for index replacement %s: %w", operation, rebuild.ID, cause)
-	telemetry.L(ctx).ErrorContext(ctx, "search.rebuild.step_failed", slog.String("err", wrapped.Error()),
-		slog.String("rebuild_id", rebuild.ID.String()), slog.String("state", string(rebuild.State)))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.rebuild.step_failed",
+		slog.String("err", wrapped.Error()),
+		slog.String("rebuild_id", rebuild.ID.String()),
+		slog.String("state", string(rebuild.State)),
+	)
 	next := rebuild
 	next.State, next.Paused, next.Failure = searchdomain.RebuildFailed, false, wrapped.Error()
+
 	return w.advanceRebuild(ctx, work, rebuild, next)
 }
 
-func (w *SearchWorker) deleteIndex(ctx context.Context, rebuild searchdomain.Rebuild, index string) error {
-	return w.recordIndexStructure(ctx, "delete_index", index, rebuild, func(ctx context.Context) error {
-		return w.engineStep(ctx, func(operation context.Context) error {
-			return w.ports.Replacer.DeleteIndex(operation, index)
-		})
-	})
+func (w *SearchWorker) deleteIndex(
+	ctx context.Context,
+	rebuild searchdomain.Rebuild,
+	index string,
+) error {
+	return w.recordIndexStructure(
+		ctx,
+		"delete_index",
+		index,
+		rebuild,
+		func(ctx context.Context) error {
+			return w.engineStep(
+				ctx,
+				func(operation context.Context) error {
+					return w.ports.Replacer.DeleteIndex(operation, index)
+				},
+			)
+		},
+	)
 }
 
 // engineStep runs one engine operation under the operation timeout.
 func (w *SearchWorker) engineStep(ctx context.Context, step func(context.Context) error) error {
 	operationContext, cancel := context.WithTimeout(ctx, w.settings.OperationTimeout)
 	defer cancel()
+
 	return step(operationContext)
 }
 
@@ -183,7 +274,13 @@ func (w *SearchWorker) waitRebuild(ctx context.Context, work searchdomain.Work) 
 	if err == nil || errors.Is(err, searchdomain.ErrWorkChanged) {
 		return nil
 	}
+
 	wrapped := fmt.Errorf("delay index replacement: %w", err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.worker.rebuild_wait_failed", slog.String("err", wrapped.Error()))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.worker.rebuild_wait_failed",
+		slog.String("err", wrapped.Error()),
+	)
+
 	return loggedWorkerError{err: wrapped}
 }

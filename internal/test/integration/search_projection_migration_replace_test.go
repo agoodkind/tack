@@ -31,27 +31,61 @@ func TestSearchProjectionMigrationReplaceCommitsDigestAuditAndRescan(t *testing.
 	parentDefinition := env.putStoredBuiltIn(t, "parent_id", true, nil)
 	parent := env.putNodes(t, 1, "copper meadow lantern")[0]
 	child := uuid.Must(uuid.NewV7())
-	env.putNodeProps(t, child, map[string]json.RawMessage{env.IncludedKey: encodeText(t, "zephyr orchard beacon"), "parent_id": encodeText(t, parent.String())})
+	env.putNodeProps(
+		t,
+		child,
+		map[string]json.RawMessage{
+			env.IncludedKey: encodeText(t, "zephyr orchard beacon"),
+			"parent_id":     encodeText(t, parent.String()),
+		},
+	)
 	env.runIdle(t)
 	indexed := env.pages(t, parent, false)[0].ProjectionVersion
 
-	principal := audit.OperatorPrincipal{ID: uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca32"), Email: "operator@example.invalid", Name: "Operator", Source: "test"}
-	result, err := ops.RunFixedDefinitionCorrection(audit.WithOperatorPrincipal(integration.WithTestOperation(t, t.Context()), principal), env.Stores.PropertyDefs, false)
+	principal := audit.OperatorPrincipal{
+		ID:     uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca32"),
+		Email:  "operator@example.invalid",
+		Name:   "Operator",
+		Source: "test",
+	}
+	result, err := ops.RunFixedDefinitionCorrection(
+		audit.WithOperatorPrincipal(integration.WithTestOperation(t, t.Context()), principal),
+		env.Stores.PropertyDefs,
+		false,
+	)
 	if err != nil || result.Corrected != 1 {
 		t.Fatalf("correction = %+v, err %v; want one corrected definition", result, err)
 	}
+
 	if fresh := env.readerPages(t, parent)[0].ProjectionVersion; fresh == indexed {
-		t.Fatalf("reader projection after the correction = %q, want a version other than the indexed %q", fresh, indexed)
+		t.Fatalf(
+			"reader projection after the correction = %q, want a version other than the indexed %q",
+			fresh,
+			indexed,
+		)
 	}
+
 	env.requireCorrectionEvents(t, []uuid.UUID{parentDefinition.ID})
 	store := env.Stores.SearchWork(clock.Wall{})
-	rescan, claimed, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassRescan, "replace-check", time.Minute)
+	rescan, claimed, err := store.Claim(
+		integration.WithTestOperation(t, t.Context()),
+		searchdomain.WorkClassRescan,
+		"replace-check",
+		time.Minute,
+	)
 	if err != nil || !claimed || rescan.OrgID != env.OrgID {
-		t.Fatalf("rescan after the correction = %+v, claimed %t, err %v; want a non-empty claim of the organization's rescan", rescan, claimed, err)
+		t.Fatalf(
+			"rescan after the correction = %+v, claimed %t, err %v; want a non-empty claim of the organization's rescan",
+			rescan,
+			claimed,
+			err,
+		)
 	}
+
 	if err := store.Yield(integration.WithTestOperation(t, t.Context()), rescan); err != nil {
 		t.Fatalf("yield the rescan: %v", err)
 	}
+
 	env.runIdle(t)
 	if text := env.pageText(t, child); strings.Contains(text, parent.String()) {
 		t.Fatalf("child pages after the correction = %q, want them without the parent UUID", text)

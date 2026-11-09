@@ -33,11 +33,16 @@ type auditRuntime struct {
 // assigned to another graph in the same process (TACK-583). The server does
 // not open a ledger read or redaction connection: every audit read and
 // redaction is an operator command on the host, never an MCP tool.
-func buildAuditRuntime(ctx context.Context, cfg *config.Config, spill audit.OutboxAppender) (auditRuntime, error) {
+func buildAuditRuntime(
+	ctx context.Context,
+	cfg *config.Config,
+	spill audit.OutboxAppender,
+) (auditRuntime, error) {
 	auditRec, err := buildAuditRecorder(ctx, cfg)
 	if err != nil {
 		return auditRuntime{Recorder: nil}, err
 	}
+
 	// The spill sits between the canonical stamp and the backend so what it
 	// stores already carries the event id and time the relay must preserve.
 	// It wraps only the Kafka producer: the synchronous Yugabyte recorder
@@ -52,16 +57,23 @@ func buildAuditRuntime(ctx context.Context, cfg *config.Config, spill audit.Outb
 			slog.InfoContext(ctx, "audit.spill_enabled")
 		}
 	}
+
 	// Read-class events leave the request path here: the queue answers the
 	// request and the flusher delivers batches behind it (TACK-506). The
 	// canonical stamp sits outside, so a queued event already carries the id
 	// and time of the request that made it.
-	auditRec = audit.NewBufferedRecorder(ctx, auditRec, overflow, audit.BufferedConfig{
-		Capacity:      cfg.AuditReadBufferCapacity,
-		BatchSize:     cfg.AuditReadBatchSize,
-		FlushInterval: cfg.AuditReadFlushInterval,
-	})
+	auditRec = audit.NewBufferedRecorder(
+		ctx,
+		auditRec,
+		overflow,
+		audit.BufferedConfig{
+			Capacity:      cfg.AuditReadBufferCapacity,
+			BatchSize:     cfg.AuditReadBatchSize,
+			FlushInterval: cfg.AuditReadFlushInterval,
+		},
+	)
 	wired := audit.Recorder(audit.CanonicalRecorder{Inner: auditRec})
+
 	return auditRuntime{Recorder: wired}, nil
 }
 
@@ -91,15 +103,22 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) (audit.Recorder
 	if len(brokers) > 0 {
 		return buildKafkaRecorder(ctx, cfg, brokers)
 	}
+
 	if cfg.AuditWriterDSN == "" {
 		return unconfiguredAuditRecorder(ctx, cfg)
 	}
+
 	yb, err := audit.NewYBRecorder(ctx, cfg.AuditWriterDSN)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.writer_setup_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("runtime: audit writer unavailable, refusing to serve unrecorded: %w", err)
+		return nil, fmt.Errorf(
+			"runtime: audit writer unavailable, refusing to serve unrecorded: %w",
+			err,
+		)
 	}
+
 	slog.InfoContext(ctx, "audit.writer_connected")
+
 	return yb, nil
 }
 
@@ -107,7 +126,11 @@ func buildAuditRecorder(ctx context.Context, cfg *config.Config) (audit.Recorder
 // franz-go client connects lazily, so construction succeeds against a dead
 // broker; without the reachability check, an unreachable Kafka would start a
 // server that fails every ledger write for as long as it runs.
-func buildKafkaRecorder(ctx context.Context, cfg *config.Config, brokers []string) (audit.Recorder, error) {
+func buildKafkaRecorder(
+	ctx context.Context,
+	cfg *config.Config,
+	brokers []string,
+) (audit.Recorder, error) {
 	kafkaRec, err := audit.NewKafkaRecorder(audit.KafkaConfig{
 		Brokers:        brokers,
 		Topic:          cfg.AuditKafkaTopic,
@@ -116,16 +139,27 @@ func buildKafkaRecorder(ctx context.Context, cfg *config.Config, brokers []strin
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.kafka_setup_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("runtime: audit producer unavailable, refusing to serve unrecorded: %w", err)
+		return nil, fmt.Errorf(
+			"runtime: audit producer unavailable, refusing to serve unrecorded: %w",
+			err,
+		)
 	}
+
 	if err := waitForBrokers(ctx, cfg, kafkaRec); err != nil {
 		_ = kafkaRec.CloseContext(ctx)
-		return nil, fmt.Errorf("runtime: audit brokers unreachable, refusing to serve unrecorded: %w", err)
+		return nil, fmt.Errorf(
+			"runtime: audit brokers unreachable, refusing to serve unrecorded: %w",
+			err,
+		)
 	}
-	slog.InfoContext(ctx, "audit.kafka_enabled",
+
+	slog.InfoContext(
+		ctx,
+		"audit.kafka_enabled",
 		slog.Int("broker_count", len(brokers)),
 		slog.String("topic", cfg.AuditKafkaTopic),
 	)
+
 	return kafkaRec, nil
 }
 
@@ -137,13 +171,16 @@ func waitForBrokers(ctx context.Context, cfg *config.Config, recorder *audit.Kaf
 	if budget <= 0 {
 		budget = defaultAuditBrokerReadyTimeout
 	}
+
 	attemptTimeout := cfg.AuditKafkaProduceTimeout
 	if attemptTimeout <= 0 {
 		attemptTimeout = defaultAuditBrokerPingTimeout
 	}
+
 	deadlineCtx, cancelDeadline := context.WithTimeout(ctx, budget)
 	defer cancelDeadline()
 	var lastErr error
+
 	for {
 		attemptCtx, cancelAttempt := context.WithTimeout(deadlineCtx, attemptTimeout)
 		lastErr = recorder.Ready(attemptCtx)
@@ -151,12 +188,16 @@ func waitForBrokers(ctx context.Context, cfg *config.Config, recorder *audit.Kaf
 		if lastErr == nil {
 			return nil
 		}
+
 		select {
 		case <-deadlineCtx.Done():
-			slog.ErrorContext(ctx, "audit.brokers_unreachable",
+			slog.ErrorContext(
+				ctx,
+				"audit.brokers_unreachable",
 				slog.String("budget", budget.String()),
 				slog.String("err", lastErr.Error()),
 			)
+
 			return fmt.Errorf("after %s: %w", budget, lastErr)
 		case <-time.After(auditBrokerRetryInterval):
 		}
@@ -170,12 +211,22 @@ func waitForBrokers(ctx context.Context, cfg *config.Config, recorder *audit.Kaf
 // deliberately unaudited.
 func unconfiguredAuditRecorder(ctx context.Context, cfg *config.Config) (audit.Recorder, error) {
 	if !cfg.AuditAllowUnrecorded {
-		err := errors.New("set AUDIT_KAFKA_BROKERS or AUDIT_WRITER_DSN, or set AUDIT_ALLOW_UNRECORDED to run without a ledger")
+		err := errors.New(
+			"set AUDIT_KAFKA_BROKERS or AUDIT_WRITER_DSN, or set AUDIT_ALLOW_UNRECORDED to run without a ledger",
+		)
 		slog.ErrorContext(ctx, "audit.writer_unconfigured", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("runtime: no audit backend configured, refusing to serve unrecorded: %w", err)
+
+		return nil, fmt.Errorf(
+			"runtime: no audit backend configured, refusing to serve unrecorded: %w",
+			err,
+		)
 	}
-	slog.ErrorContext(ctx, "audit.unrecorded_acknowledged",
+
+	slog.ErrorContext(
+		ctx,
+		"audit.unrecorded_acknowledged",
 		slog.String("err", "AUDIT_ALLOW_UNRECORDED is set; this server records nothing"),
 	)
+
 	return audit.NoopRecorder{}, nil
 }

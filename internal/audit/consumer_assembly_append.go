@@ -19,51 +19,84 @@ func (c *Consumer) appendAssembledEvent(ctx context.Context, tx pgx.Tx, event Ev
 	if err != nil {
 		return err
 	}
+
 	savepoint, err := tx.Begin(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.savepoint_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("create savepoint for audit event %s: %w", event.EventID, err)
 	}
+
 	piiRef, err := writeEventPII(ctx, savepoint, prepared.Event)
 	if err != nil {
 		_ = savepoint.Rollback(ctx)
 		return err
 	}
+
 	prepared.PIIRef = piiRef
 	projected, err := c.advanceChain(ctx, savepoint, prepared)
 	if errors.Is(err, errAlreadyProjected) {
 		_ = savepoint.Rollback(ctx)
-		slog.WarnContext(ctx, "audit.consumer.assembly_already_projected", slog.String("event_id", event.EventID.String()))
+		slog.WarnContext(
+			ctx,
+			"audit.consumer.assembly_already_projected",
+			slog.String("event_id", event.EventID.String()),
+		)
+
 		return nil
 	}
+
 	if err != nil {
 		_ = savepoint.Rollback(ctx)
 		return err
 	}
+
 	if err := savepoint.Commit(ctx); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.savepoint_release_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.savepoint_release_failed",
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("release savepoint for audit event %s: %w", event.EventID, err)
 	}
+
 	return recordTokenUses(ctx, tx, []committedAuthEvent{projected})
 }
 
 // finishAssembly records the completed transport digest and deletes the
 // transient parts and assembly row in the caller's transaction.
-func finishAssembly(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, transportDigest string) error {
-	_, err := tx.Exec(ctx, `
+func finishAssembly(
+	ctx context.Context,
+	tx pgx.Tx,
+	eventID uuid.UUID,
+	transportDigest string,
+) error {
+	_, err := tx.Exec(
+		ctx,
+		`
 		INSERT INTO audit.completed_transports (event_id, transport_digest)
 		VALUES ($1, $2)
 		ON CONFLICT (event_id) DO NOTHING
-	`, eventID, transportDigest)
+	`,
+		eventID,
+		transportDigest,
+	)
 	if err == nil {
 		_, err = tx.Exec(ctx, `DELETE FROM audit.event_assembly_parts WHERE event_id = $1`, eventID)
 	}
+
 	if err == nil {
 		_, err = tx.Exec(ctx, `DELETE FROM audit.event_assemblies WHERE event_id = $1`, eventID)
 	}
+
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.assembly_finish_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.assembly_finish_failed",
+			slog.String("event_id", eventID.String()),
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("finish audit event %s assembly: %w", eventID, err)
 	}
+
 	return nil
 }

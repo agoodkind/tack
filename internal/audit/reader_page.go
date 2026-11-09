@@ -36,27 +36,33 @@ func (r *Reader) QueryPage(ctx context.Context, f QueryFilter, cursor string) (P
 	if f.Limit <= 0 {
 		f.Limit = DefaultQueryPageLimit
 	}
+
 	if f.Limit > MaxQueryPageLimit {
 		f.Limit = MaxQueryPageLimit
 	}
+
 	if cursor != "" {
 		beforeTime, beforeSeq, err := UnmarshalQueryCursor(ctx, cursor)
 		if err != nil {
 			slog.ErrorContext(ctx, "audit.query_page.bad_cursor", slog.String("err", err.Error()))
 			return Page{}, fmt.Errorf("audit query cursor: %w", err)
 		}
+
 		f.BeforeTime = beforeTime
 		f.BeforeSeq = beforeSeq
 	}
+
 	rows, err := r.Query(ctx, f)
 	if err != nil {
 		return Page{}, err
 	}
+
 	page := Page{Rows: rows, NextCursor: ""}
 	if len(rows) == f.Limit {
 		last := rows[len(rows)-1]
 		page.NextCursor = MarshalQueryCursor(last.EventTime, last.Seq)
 	}
+
 	return page, nil
 }
 
@@ -64,7 +70,10 @@ func (r *Reader) QueryPage(ctx context.Context, f QueryFilter, cursor string) (P
 // opaque string. Exported with UnmarshalQueryCursor so any paging surface
 // shares one cursor format.
 func MarshalQueryCursor(eventTime time.Time, seq int64) string {
-	raw := eventTime.UTC().Format(time.RFC3339Nano) + queryCursorSeparator + strconv.FormatInt(seq, 10)
+	raw := eventTime.UTC().Format(time.RFC3339Nano) + queryCursorSeparator + strconv.FormatInt(
+		seq,
+		10,
+	)
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
@@ -74,23 +83,42 @@ func MarshalQueryCursor(eventTime time.Time, seq int64) string {
 func UnmarshalQueryCursor(ctx context.Context, cursor string) (time.Time, int64, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		slog.WarnContext(ctx, "audit.query_cursor.invalid", slog.String("part", "encoding"), slog.String("err", err.Error()))
+		slog.WarnContext(
+			ctx,
+			"audit.query_cursor.invalid",
+			slog.String("part", "encoding"),
+			slog.String("err", err.Error()),
+		)
 		return time.Time{}, 0, fmt.Errorf("decode cursor: %w", err)
 	}
+
 	timePart, seqPart, ok := strings.Cut(string(raw), queryCursorSeparator)
 	if !ok {
 		slog.WarnContext(ctx, "audit.query_cursor.invalid", slog.String("part", "shape"))
 		return time.Time{}, 0, errors.New("cursor is not a next_cursor from a previous page")
 	}
+
 	beforeTime, err := time.Parse(time.RFC3339Nano, timePart)
 	if err != nil {
-		slog.WarnContext(ctx, "audit.query_cursor.invalid", slog.String("part", "time"), slog.String("err", err.Error()))
+		slog.WarnContext(
+			ctx,
+			"audit.query_cursor.invalid",
+			slog.String("part", "time"),
+			slog.String("err", err.Error()),
+		)
 		return time.Time{}, 0, fmt.Errorf("cursor time: %w", err)
 	}
+
 	beforeSeq, err := strconv.ParseInt(seqPart, 10, 64)
 	if err != nil {
-		slog.WarnContext(ctx, "audit.query_cursor.invalid", slog.String("part", "seq"), slog.String("err", err.Error()))
+		slog.WarnContext(
+			ctx,
+			"audit.query_cursor.invalid",
+			slog.String("part", "seq"),
+			slog.String("err", err.Error()),
+		)
 		return time.Time{}, 0, fmt.Errorf("cursor seq: %w", err)
 	}
+
 	return beforeTime, beforeSeq, nil
 }

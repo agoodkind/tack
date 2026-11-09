@@ -24,27 +24,76 @@ func TestDeployVerifyChecksOnlyTheAppServiceOnAnAppOnlyGuest(t *testing.T) {
 
 	output, err := integration.VerifyDeployAs(t, fixture, operatorID, serverDigest, consumerDigest)
 	if err == nil || !strings.Contains(err.Error(), "service audit-consumer") {
-		t.Fatalf("deploy verify of both services on an app-only guest = %v, want a refusal for the missing audit-consumer replica\n%s", err, output)
+		t.Fatalf(
+			"deploy verify of both services on an app-only guest = %v, want a refusal for the missing audit-consumer replica\n%s",
+			err,
+			output,
+		)
 	}
+
 	t.Logf("both services refused: %v", err)
 
-	output, err = integration.VerifyDeployArgsAs(t, fixture, operatorID, "--service", "app", "--tack-server-digest", serverDigest)
+	output, err = integration.VerifyDeployArgsAs(
+		t,
+		fixture,
+		operatorID,
+		"--service",
+		"app",
+		"--tack-server-digest",
+		serverDigest,
+	)
 	if err != nil {
-		t.Fatalf("deploy verify --service app with the pushed tack-server index digest: %v\n%s", err, output)
+		t.Fatalf(
+			"deploy verify --service app with the pushed tack-server index digest: %v\n%s",
+			err,
+			output,
+		)
 	}
-	if !strings.Contains(output, "tack-app-1 runs index "+serverDigest) || strings.Contains(output, "audit-consumer") {
-		t.Fatalf("deploy verify --service app output = %q, want only the tack-app-1 line with the given digest", output)
+
+	if !strings.Contains(output, "tack-app-1 runs index "+serverDigest) ||
+		strings.Contains(output, "audit-consumer") {
+		t.Fatalf(
+			"deploy verify --service app output = %q, want only the tack-app-1 line with the given digest",
+			output,
+		)
 	}
+
 	t.Logf("app service verified: %s", strings.TrimSpace(output))
 
-	output, err = integration.VerifyDeployArgsAs(t, fixture, operatorID, "--service", "app", "--tack-server-digest", consumerDigest)
-	if err == nil || !strings.Contains(err.Error(), "descriptor digest differs") || !strings.Contains(err.Error(), "tack-app-1") {
-		t.Fatalf("deploy verify --service app with the other index digest = %v, want a refusal for tack-app-1\n%s", err, output)
+	output, err = integration.VerifyDeployArgsAs(
+		t,
+		fixture,
+		operatorID,
+		"--service",
+		"app",
+		"--tack-server-digest",
+		consumerDigest,
+	)
+	if err == nil || !strings.Contains(err.Error(), "descriptor digest differs") ||
+		!strings.Contains(err.Error(), "tack-app-1") {
+		t.Fatalf(
+			"deploy verify --service app with the other index digest = %v, want a refusal for tack-app-1\n%s",
+			err,
+			output,
+		)
 	}
 
-	output, err = integration.VerifyDeployArgsAs(t, fixture, operatorID,
-		"--service", "app", "--tack-server-digest", serverDigest, "--tack-audit-consumer-digest", consumerDigest)
+	output, err = integration.VerifyDeployArgsAs(
+		t,
+		fixture,
+		operatorID,
+		"--service",
+		"app",
+		"--tack-server-digest",
+		serverDigest,
+		"--tack-audit-consumer-digest",
+		consumerDigest,
+	)
 	if err == nil || !strings.Contains(err.Error(), "refuses --tack-audit-consumer-digest") {
-		t.Fatalf("deploy verify --service app with an audit-consumer digest = %v, want a refusal of that flag\n%s", err, output)
+		t.Fatalf(
+			"deploy verify --service app with an audit-consumer digest = %v, want a refusal of that flag\n%s",
+			err,
+			output,
+		)
 	}
 }

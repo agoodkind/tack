@@ -55,28 +55,42 @@ type mailpitDetail struct {
 
 // Messages returns every stored message, newest first.
 func (f MailpitFixture) Messages(ctx context.Context) ([]MailpitMessage, error) {
-	body, err := f.request(ctx, http.MethodGet, "/api/v1/messages?limit="+strconv.Itoa(mailpitPageLimit))
+	body, err := f.request(
+		ctx,
+		http.MethodGet,
+		"/api/v1/messages?limit="+strconv.Itoa(mailpitPageLimit),
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("list Mailpit messages: %w", err)
 		slog.ErrorContext(ctx, "testenv.mailpit.list_failed", slog.String("err", wrapped.Error()))
+
 		return nil, wrapped
 	}
+
 	var list mailpitList
 	if err := json.Unmarshal(body, &list); err != nil {
 		slog.ErrorContext(ctx, "testenv.mailpit.list_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("decode Mailpit message list: %w", err)
 	}
+
 	if list.Total > len(list.Messages) {
-		return nil, fmt.Errorf("the Mailpit server stores %d messages, more than the %d one list request returns", list.Total, len(list.Messages))
+		return nil, fmt.Errorf(
+			"the Mailpit server stores %d messages, more than the %d one list request returns",
+			list.Total,
+			len(list.Messages),
+		)
 	}
+
 	messages := make([]MailpitMessage, 0, len(list.Messages))
 	for _, summary := range list.Messages {
 		message, err := f.message(ctx, summary.ID)
 		if err != nil {
 			return nil, err
 		}
+
 		messages = append(messages, message)
 	}
+
 	return messages, nil
 }
 
@@ -86,17 +100,21 @@ func (f MailpitFixture) message(ctx context.Context, id string) (MailpitMessage,
 	if err != nil {
 		wrapped := fmt.Errorf("read Mailpit message %s: %w", id, err)
 		slog.ErrorContext(ctx, "testenv.mailpit.read_failed", slog.String("err", wrapped.Error()))
+
 		return MailpitMessage{}, wrapped
 	}
+
 	var detail mailpitDetail
 	if err := json.Unmarshal(body, &detail); err != nil {
 		slog.ErrorContext(ctx, "testenv.mailpit.read_failed", slog.String("err", err.Error()))
 		return MailpitMessage{}, fmt.Errorf("decode Mailpit message %s: %w", id, err)
 	}
+
 	recipients := make([]string, 0, len(detail.To))
 	for _, address := range detail.To {
 		recipients = append(recipients, address.Address)
 	}
+
 	return MailpitMessage{To: recipients, Subject: detail.Subject, Text: detail.Text}, nil
 }
 
@@ -105,8 +123,10 @@ func (f MailpitFixture) DeleteAll(ctx context.Context) error {
 	if _, err := f.request(ctx, http.MethodDelete, "/api/v1/messages"); err != nil {
 		wrapped := fmt.Errorf("delete Mailpit messages: %w", err)
 		slog.ErrorContext(ctx, "testenv.mailpit.delete_failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
+
 	return nil
 }
 
@@ -118,10 +138,21 @@ func waitForMailpit(ctx context.Context, fixture MailpitFixture) error {
 		if lastErr == nil {
 			return nil
 		}
+
 		slog.DebugContext(ctx, "testenv.mailpit.probe", slog.String("reason", lastErr.Error()))
 		if !sleepOrDone(ctx) {
-			wrapped := fmt.Errorf("wait for Mailpit at %s: %s: %w", fixture.APIBaseURL, lastErr.Error(), ctx.Err())
-			slog.ErrorContext(ctx, "testenv.mailpit.wait_failed", slog.String("err", wrapped.Error()))
+			wrapped := fmt.Errorf(
+				"wait for Mailpit at %s: %s: %w",
+				fixture.APIBaseURL,
+				lastErr.Error(),
+				ctx.Err(),
+			)
+			slog.ErrorContext(
+				ctx,
+				"testenv.mailpit.wait_failed",
+				slog.String("err", wrapped.Error()),
+			)
+
 			return wrapped
 		}
 	}
@@ -135,19 +166,33 @@ func (f MailpitFixture) request(ctx context.Context, method, path string) ([]byt
 		slog.DebugContext(ctx, "testenv.mailpit.request_failed", slog.String("reason", err.Error()))
 		return nil, errors.New("build Mailpit request " + method + " " + path + ": " + err.Error())
 	}
+
 	response, err := (&http.Client{Timeout: mailpitRequestTimeout}).Do(request)
 	if err != nil {
 		slog.DebugContext(ctx, "testenv.mailpit.unavailable", slog.String("reason", err.Error()))
 		return nil, errors.New("send Mailpit request " + method + " " + path + ": " + err.Error())
 	}
+
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, mailpitMaxResponseBytes))
 	if err != nil {
-		slog.DebugContext(ctx, "testenv.mailpit.response_unreadable", slog.String("reason", err.Error()))
-		return nil, errors.New("read Mailpit response to " + method + " " + path + ": " + err.Error())
+		slog.DebugContext(
+			ctx,
+			"testenv.mailpit.response_unreadable",
+			slog.String("reason", err.Error()),
+		)
+		return nil, errors.New(
+			"read Mailpit response to " + method + " " + path + ": " + err.Error(),
+		)
 	}
+
 	if response.StatusCode != http.StatusOK {
-		return nil, errors.New("the Mailpit server answered " + method + " " + path + " with " + response.Status + ": " + string(body))
+		return nil, errors.New(
+			"the Mailpit server answered " + method + " " + path + " with " + response.Status + ": " + string(
+				body,
+			),
+		)
 	}
+
 	return body, nil
 }

@@ -27,53 +27,78 @@ func enumerateReferenceCounters(
 	nodeTypes, err := env.Stores.NodeTypes.List(ctx, orgID)
 	if err != nil {
 		wrapped := fmt.Errorf("list node types for org %s: %w", orgID, err)
-		env.Log.WarnContext(ctx, "repair.reference_uniqueness.types_failed",
-			slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
+		env.Log.WarnContext(
+			ctx,
+			"repair.reference_uniqueness.types_failed",
+			slog.String("org_id", orgID.String()),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	typeIndex := node.BuildTypeIndex(nodeTypes)
 	highest := make(map[string]int64)
 	scopeCache := make(map[uuid.UUID]map[string]string)
+
 	for _, nodeType := range nodeTypes {
 		template := nodeType.PrimaryReferenceTemplate()
 		if template == nil || template.Generated == "" {
 			continue
 		}
-		views, listErr := env.Stores.Views.List(ctx, node.NodeListQuery{
-			OrgID:            orgID,
-			NodeType:         nodeType.TypeKey,
-			ByProperty:       nil,
-			BySourceRelation: nil,
-			ByTargetRelation: nil,
-			CreatedAfter:     nil,
-			CreatedBefore:    createdBefore,
-			PropFilters:      nil,
-			Limit:            0,
-			Cursor:           "",
-		})
+
+		views, listErr := env.Stores.Views.List(
+			ctx,
+			node.NodeListQuery{
+				OrgID:            orgID,
+				NodeType:         nodeType.TypeKey,
+				ByProperty:       nil,
+				BySourceRelation: nil,
+				ByTargetRelation: nil,
+				CreatedAfter:     nil,
+				CreatedBefore:    createdBefore,
+				PropFilters:      nil,
+				Limit:            0,
+				Cursor:           "",
+			},
+		)
 		if listErr != nil {
 			wrapped := fmt.Errorf("list %s nodes in org %s: %w", nodeType.TypeKey, orgID, listErr)
 			env.Log.WarnContext(
-				ctx, "repair.reference_uniqueness.views_failed",
+				ctx,
+				"repair.reference_uniqueness.views_failed",
 				slog.String("org_id", orgID.String()),
 				slog.String("node_type", nodeType.TypeKey),
 				slog.String("err", wrapped.Error()),
 			)
+
 			return nil, wrapped
 		}
+
 		for _, view := range views {
 			if recordErr := recordHighestGenerated(
-				ctx, env, orgID, typeIndex, nodeType, *template, view, highest, scopeCache,
+				ctx,
+				env,
+				orgID,
+				typeIndex,
+				nodeType,
+				*template,
+				view,
+				highest,
+				scopeCache,
 			); recordErr != nil {
 				return nil, recordErr
 			}
 		}
 	}
+
 	counters := make([]referenceCounter, 0, len(highest))
 	for counterKey, value := range highest {
 		counters = append(counters, referenceCounter{Key: counterKey, Value: value})
 	}
+
 	sort.Slice(counters, func(i, j int) bool { return counters[i].Key < counters[j].Key })
+
 	return counters, nil
 }
 
@@ -92,6 +117,7 @@ func recordHighestGenerated(
 	if err != nil {
 		return err
 	}
+
 	counterKey, err := template.CounterKey(node.ReferenceRenderInput{
 		NodeTypeKey: nodeType.TypeKey,
 		Props:       view.Props,
@@ -99,20 +125,33 @@ func recordHighestGenerated(
 	})
 	if err != nil {
 		wrapped := fmt.Errorf("derive counter key for node %s: %w", view.ID, err)
-		env.Log.WarnContext(ctx, "repair.reference_uniqueness.counter_key_failed",
-			slog.String("node_id", view.ID.String()), slog.String("err", wrapped.Error()))
+		env.Log.WarnContext(
+			ctx,
+			"repair.reference_uniqueness.counter_key_failed",
+			slog.String("node_id", view.ID.String()),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	value, err := numberPropValue(view.Props, template.Generated)
 	if err != nil {
 		wrapped := fmt.Errorf("read generated value for node %s: %w", view.ID, err)
-		env.Log.WarnContext(ctx, "repair.reference_uniqueness.generated_value_unreadable",
-			slog.String("node_id", view.ID.String()), slog.String("err", wrapped.Error()))
+		env.Log.WarnContext(
+			ctx,
+			"repair.reference_uniqueness.generated_value_unreadable",
+			slog.String("node_id", view.ID.String()),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	if value > highest[counterKey] {
 		highest[counterKey] = value
 	}
+
 	return nil
 }
 
@@ -126,10 +165,12 @@ func numberPropValue(props map[string]json.RawMessage, name string) (int64, erro
 	if len(raw) == 0 {
 		return 0, nil
 	}
+
 	var value int64
 	if err := json.Unmarshal(raw, &value); err == nil {
 		return value, nil
 	}
+
 	// Rendering accepts a numeric string, so seeding reads one too; the two
 	// must agree on what counts as the node's number.
 	var text string
@@ -139,5 +180,6 @@ func numberPropValue(props map[string]json.RawMessage, name string) (int64, erro
 			return parsed, nil
 		}
 	}
+
 	return 0, fmt.Errorf("property %q holds %s, which is not a whole number", name, raw)
 }

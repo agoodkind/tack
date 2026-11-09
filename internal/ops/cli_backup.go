@@ -23,23 +23,56 @@ func backupCommand(f *cli.Factory) *cobra.Command {
 		Short: "Manage production datastore backups",
 		Long:  "Subcommands initialize an object-store bucket and recovery schedules, export snapshots, and drill restores.",
 	}
-	clispec.AttachRead(cmd, f, singletonReadSpec(audit.VerbOpsBackup, "backup"), emptyCommandInput,
+	clispec.AttachRead(
+		cmd,
+		f,
+		singletonReadSpec(audit.VerbOpsBackup, "backup"),
+		emptyCommandInput,
 		func(context.Context) (audit.OperatorReadOutput, error) {
-			return audit.OperatorReadOutput{}, fmt.Errorf("ops backup requires a subcommand (%s); the bare command deliberately runs nothing", strings.Join(backupSubcommandNames(cmd), ", "))
-		})
+			return audit.OperatorReadOutput{}, fmt.Errorf(
+				"ops backup requires a subcommand (%s); the bare command deliberately runs nothing",
+				strings.Join(backupSubcommandNames(cmd), ", "),
+			)
+		},
+	)
 	cmd.AddCommand(
-		backupLeaf(f, "buckets-init", "Idempotently create the SeaweedFS S3 backup bucket", audit.VerbOpsBackupBucketsInit, runBackupBucketsInitRecorded),
-		backupLeaf(f, "yb-pitr-init", "Create the YugabyteDB point-in-time-recovery snapshot schedule", audit.VerbOpsBackupYBPITRInit, runBackupYBPITRInitRecorded),
-		backupLeaf(f, "yb-snapshot-export", "Export a YugabyteDB distributed snapshot off-host to the object store", audit.VerbOpsBackupYBSnapshotExport, runBackupYBSnapshotExportRecorded),
+		backupLeaf(
+			f,
+			"buckets-init",
+			"Idempotently create the SeaweedFS S3 backup bucket",
+			audit.VerbOpsBackupBucketsInit,
+			runBackupBucketsInitRecorded,
+		),
+		backupLeaf(
+			f,
+			"yb-pitr-init",
+			"Create the YugabyteDB point-in-time-recovery snapshot schedule",
+			audit.VerbOpsBackupYBPITRInit,
+			runBackupYBPITRInitRecorded,
+		),
+		backupLeaf(
+			f,
+			"yb-snapshot-export",
+			"Export a YugabyteDB distributed snapshot off-host to the object store",
+			audit.VerbOpsBackupYBSnapshotExport,
+			runBackupYBSnapshotExportRecorded,
+		),
 		backupYBArchiveNodeCommand(f),
 		backupRestoreDrillCommand(f),
-		backupLeaf(f, "fdb-continuous-init", "Start the FoundationDB continuous backup session (idempotent)", audit.VerbOpsBackupFDBContinuousInit, runBackupFDBContinuousInitRecorded),
+		backupLeaf(
+			f,
+			"fdb-continuous-init",
+			"Start the FoundationDB continuous backup session (idempotent)",
+			audit.VerbOpsBackupFDBContinuousInit,
+			runBackupFDBContinuousInitRecorded,
+		),
 		backupStalenessCheckCommand(f),
 		backupFDBRestoreVersionCommand(f),
 		backupRetentionCommand(f),
 	)
 	cmd.SetHelpCommand(backupHelpCommand())
 	cmd.InitDefaultHelpCmd()
+
 	return cmd
 }
 
@@ -51,10 +84,16 @@ func backupLeaf(
 	run func(context.Context, *config.Config, audit.StepRecorder) (audit.OutcomeDetails, error),
 ) *cobra.Command {
 	cmd := &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs}
-	clispec.AttachExternal(cmd, f, backupSpec(verb, use), emptyCommandInput,
+	clispec.AttachExternal(
+		cmd,
+		f,
+		backupSpec(verb, use),
+		emptyCommandInput,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return run(ctx, f.Cfg, steps)
-		})
+		},
+	)
+
 	return cmd
 }
 
@@ -71,13 +110,26 @@ func backupYBArchiveNodeCommand(f *cli.Factory) *cobra.Command {
 		Short: "Archive this node's YugabyteDB tablet snapshot files for an export run",
 		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&runKey, "run-key", "",
-		"export run key to archive (default: the newest manifest in the object store)")
-	input := func() (json.RawMessage, error) { return encodeCommandInput(archiveNodeInput{RunKey: runKey}) }
+	cmd.Flags().StringVar(
+		&runKey,
+		"run-key",
+		"",
+		"export run key to archive (default: the newest manifest in the object store)",
+	)
+	input := func() (json.RawMessage, error) {
+		return encodeCommandInput(archiveNodeInput{RunKey: runKey})
+	}
 	spec := backupSpec(audit.VerbOpsBackupYBArchiveNode, "yb-archive-node")
-	clispec.AttachExternal(cmd, f, spec, input, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-		return runBackupYBArchiveNodeRecorded(ctx, f.Cfg, runKey, steps)
-	})
+	clispec.AttachExternal(
+		cmd,
+		f,
+		spec,
+		input,
+		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			return runBackupYBArchiveNodeRecorded(ctx, f.Cfg, runKey, steps)
+		},
+	)
+
 	return cmd
 }
 
@@ -103,26 +155,46 @@ func backupRestoreDrillCommand(f *cli.Factory) *cobra.Command {
 		Short: "Restore each store into throwaway containers and assert data is present",
 		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&ybRunKey, "yb-run-key", "",
-		"yugabyte export run key to drill, refused if incomplete (default: the newest complete run)")
-	cmd.Flags().StringVar(&fdbTargetTime, "fdb-target-time", "",
+	cmd.Flags().StringVar(
+		&ybRunKey,
+		"yb-run-key",
+		"",
+		"yugabyte export run key to drill, refused if incomplete (default: the newest complete run)",
+	)
+	cmd.Flags().StringVar(
+		&fdbTargetTime,
+		"fdb-target-time",
+		"",
 		"whole second to restore FoundationDB to, as RFC 3339 (2026-08-30T01:07:23Z) or 2026/08/30.01:07:23+0000,"+
-			" refused if outside the backup's restorable window (default: the latest restorable point)")
+			" refused if outside the backup's restorable window (default: the latest restorable point)",
+	)
 	input := func() (json.RawMessage, error) {
-		return encodeCommandInput(restoreDrillInput{YBRunKey: ybRunKey, FDBTargetTime: fdbTargetTime})
+		return encodeCommandInput(restoreDrillInput{
+			YBRunKey:      ybRunKey,
+			FDBTargetTime: fdbTargetTime,
+		})
 	}
 	spec := backupSpec(audit.VerbOpsBackupRestoreDrill, "restore-drill")
-	clispec.AttachExternal(cmd, f, spec, input, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-		opts := RestoreDrillOptions{YBRunKey: ybRunKey, FDBTargetTime: nil}
-		if fdbTargetTime != "" {
-			parsed, err := parseFDBTargetTime(fdbTargetTime)
-			if err != nil {
-				return commandOutcome(audit.OutcomeRefused, commandConfigCode, err), err
+	clispec.AttachExternal(
+		cmd,
+		f,
+		spec,
+		input,
+		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			opts := RestoreDrillOptions{YBRunKey: ybRunKey, FDBTargetTime: nil}
+			if fdbTargetTime != "" {
+				parsed, err := parseFDBTargetTime(fdbTargetTime)
+				if err != nil {
+					return commandOutcome(audit.OutcomeRefused, commandConfigCode, err), err
+				}
+
+				opts.FDBTargetTime = &parsed
 			}
-			opts.FDBTargetTime = &parsed
-		}
-		return runBackupRestoreDrillRecorded(ctx, f.Cfg, opts, steps)
-	})
+
+			return runBackupRestoreDrillRecorded(ctx, f.Cfg, opts, steps)
+		},
+	)
+
 	return cmd
 }
 
@@ -135,10 +207,22 @@ func backupStalenessCheckCommand(f *cli.Factory) *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	spec := backupSpec(audit.VerbOpsBackupStalenessCheck, "staleness-check")
-	clispec.AttachExternalCheck(cmd, f, spec, emptyCommandInput, func(ctx context.Context, steps audit.StepRecorder) (clispec.CheckOutcome, error) {
-		details, stale, err := runBackupStalenessCheckRecorded(ctx, f.Cfg, cmd.OutOrStdout(), steps)
-		return clispec.CheckOutcome{Details: details, Verdict: stale}, err
-	})
+	clispec.AttachExternalCheck(
+		cmd,
+		f,
+		spec,
+		emptyCommandInput,
+		func(ctx context.Context, steps audit.StepRecorder) (clispec.CheckOutcome, error) {
+			details, stale, err := runBackupStalenessCheckRecorded(
+				ctx,
+				f.Cfg,
+				cmd.OutOrStdout(),
+				steps,
+			)
+			return clispec.CheckOutcome{Details: details, Verdict: stale}, err
+		},
+	)
+
 	return cmd
 }
 
@@ -153,19 +237,31 @@ func backupFDBRestoreVersionCommand(f *cli.Factory) *cobra.Command {
 		Short: "Convert a moment into the FoundationDB version to restore to, from the object store alone",
 		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&at, "at", "",
-		"the moment to restore to, as RFC 3339 (2026-08-30T01:07:23Z) or 2026/08/30.01:07:23+0000 (default: now)")
-	clispec.AttachAudit(cmd, f, audit.Spec{Verb: string(audit.VerbOpsBackupFDBRestoreVersion), Reads: true}, func(ctx context.Context) error {
-		want := opsNow().UTC()
-		if at != "" {
-			parsed, err := parseFDBTargetTime(at)
-			if err != nil {
-				return err
+	cmd.Flags().StringVar(
+		&at,
+		"at",
+		"",
+		"the moment to restore to, as RFC 3339 (2026-08-30T01:07:23Z) or 2026/08/30.01:07:23+0000 (default: now)",
+	)
+	clispec.AttachAudit(
+		cmd,
+		f,
+		audit.Spec{Verb: string(audit.VerbOpsBackupFDBRestoreVersion), Reads: true},
+		func(ctx context.Context) error {
+			want := opsNow().UTC()
+			if at != "" {
+				parsed, err := parseFDBTargetTime(at)
+				if err != nil {
+					return err
+				}
+
+				want = parsed
 			}
-			want = parsed
-		}
-		return RunBackupFDBRestoreVersion(ctx, f.Cfg, want, cmd.OutOrStdout())
-	})
+
+			return RunBackupFDBRestoreVersion(ctx, f.Cfg, want, cmd.OutOrStdout())
+		},
+	)
+
 	return cmd
 }
 
@@ -179,11 +275,13 @@ func backupHelpCommand() *cobra.Command {
 			if len(args) == 0 {
 				return parent.Help()
 			}
+
 			for _, child := range parent.Commands() {
 				if child.Name() == args[0] {
 					return child.Help()
 				}
 			}
+
 			return fmt.Errorf("unknown backup help topic %q", args[0])
 		},
 	}
@@ -196,5 +294,6 @@ func backupSubcommandNames(cmd *cobra.Command) []string {
 	for _, sub := range cmd.Commands() {
 		names = append(names, strings.Fields(sub.Use)[0])
 	}
+
 	return names
 }

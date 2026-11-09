@@ -55,9 +55,13 @@ type auditManifestPartEntry struct {
 func (r auditManifestPartsResult) AuditReadTargets() ([]audit.Target, error) {
 	targets := make([]audit.Target, 0, len(r.Parts))
 	for _, part := range r.Parts {
-		uri := audit.EventURIPrefix + r.EventID.String() + auditEventPartURISegment + strconv.FormatUint(uint64(part.Index), 10)
+		uri := audit.EventURIPrefix + r.EventID.String() + auditEventPartURISegment + strconv.FormatUint(
+			uint64(part.Index),
+			10,
+		)
 		targets = append(targets, audit.ResourceTarget(uri))
 	}
+
 	return targets, nil
 }
 
@@ -87,12 +91,34 @@ func auditManifestPartsOp(f *cli.Factory) clispec.Operation[auditManifestPartsIn
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[auditManifestPartsInput]{
-			clispec.StringParam("org", "UUID of the org that owns the audit event.", "", true, func(in *auditManifestPartsInput, v string) { in.Org = v }),
-			clispec.StringParam("event-id", "UUID of the audit event.", "", true, func(in *auditManifestPartsInput, v string) { in.EventID = v }),
-			clispec.BoolParam("verify-payloads", "Verify stored manifest payloads against the event declaration.", false, func(in *auditManifestPartsInput, v bool) { in.VerifyPayloads = v }),
+			clispec.StringParam(
+				"org",
+				"UUID of the org that owns the audit event.",
+				"",
+				true,
+				func(in *auditManifestPartsInput, v string) { in.Org = v },
+			),
+			clispec.StringParam(
+				"event-id",
+				"UUID of the audit event.",
+				"",
+				true,
+				func(in *auditManifestPartsInput, v string) { in.EventID = v },
+			),
+			clispec.BoolParam(
+				"verify-payloads",
+				"Verify stored manifest payloads against the event declaration.",
+				false,
+				func(in *auditManifestPartsInput, v bool) { in.VerifyPayloads = v },
+			),
 		},
 		New: func() auditManifestPartsInput {
-			return auditManifestPartsInput{InputMarker: clispec.InputMarker{}, Org: "", EventID: "", VerifyPayloads: false}
+			return auditManifestPartsInput{
+				InputMarker:    clispec.InputMarker{},
+				Org:            "",
+				EventID:        "",
+				VerifyPayloads: false,
+			}
 		},
 		Run: func(ctx context.Context, in auditManifestPartsInput, sink clispec.ResultSink) error {
 			return runAuditManifestParts(ctx, f, in, sink)
@@ -101,20 +127,34 @@ func auditManifestPartsOp(f *cli.Factory) clispec.Operation[auditManifestPartsIn
 }
 
 // runAuditManifestParts reads and writes manifest part indexes and digests without loading payloads.
-func runAuditManifestParts(ctx context.Context, f *cli.Factory, in auditManifestPartsInput, sink clispec.ResultSink) error {
+func runAuditManifestParts(
+	ctx context.Context,
+	f *cli.Factory,
+	in auditManifestPartsInput,
+	sink clispec.ResultSink,
+) error {
 	orgID, err := parseAuditManifestUUID(ctx, "--org", in.Org)
 	if err != nil {
 		return err
 	}
+
 	eventID, err := parseAuditManifestUUID(ctx, "--event-id", in.EventID)
 	if err != nil {
 		return err
 	}
+
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 	if err != nil {
 		// Omit the reader error, which can contain text from AUDIT_READER_DSN.
-		slog.ErrorContext(ctx, "audit.manifest_parts_reader_failed", slog.String("err", "the ledger reader did not open"))
-		return fmt.Errorf("%s: open the ledger reader: check AUDIT_READER_DSN", auditManifestPartsCommand)
+		slog.ErrorContext(
+			ctx,
+			"audit.manifest_parts_reader_failed",
+			slog.String("err", "the ledger reader did not open"),
+		)
+		return fmt.Errorf(
+			"%s: open the ledger reader: check AUDIT_READER_DSN",
+			auditManifestPartsCommand,
+		)
 	}
 	defer reader.Close()
 	if in.VerifyPayloads {
@@ -122,32 +162,59 @@ func runAuditManifestParts(ctx context.Context, f *cli.Factory, in auditManifest
 		if err != nil {
 			return fmt.Errorf("%s: verify event %s: %w", auditManifestPartsCommand, eventID, err)
 		}
+
 		result := auditManifestVerificationResult{
-			ResultMarker: clispec.ResultMarker{}, Command: "ops.audit.manifest_parts", OrgID: orgID, EventID: eventID,
+			ResultMarker: clispec.ResultMarker{},
+			Command:      "ops.audit.manifest_parts",
+			OrgID:        orgID,
+			EventID:      eventID,
 			Verification: verification,
 		}
 		if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
 			return fmt.Errorf("%s: write the verification: %w", auditManifestPartsCommand, err)
 		}
+
 		return nil
 	}
+
 	parts, err := reader.ManifestPartDigests(ctx, orgID, eventID)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.manifest_parts_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.manifest_parts_failed",
+			slog.String("event_id", eventID.String()),
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("%s %s: %w", auditManifestPartsCommand, eventID, err)
 	}
+
 	entries := make([]auditManifestPartEntry, 0, len(parts))
 	for _, part := range parts {
 		entries = append(entries, auditManifestPartEntry{Index: part.Index, Digest: part.Digest})
 	}
-	slog.InfoContext(ctx, "audit.manifest_parts_read", slog.String("event_id", eventID.String()), slog.Int("part_count", len(entries)))
+
+	slog.InfoContext(
+		ctx,
+		"audit.manifest_parts_read",
+		slog.String("event_id", eventID.String()),
+		slog.Int("part_count", len(entries)),
+	)
 	result := auditManifestPartsResult{
-		ResultMarker: clispec.ResultMarker{}, Command: "ops.audit.manifest_parts", OrgID: orgID, EventID: eventID,
-		PartCount: len(entries), Parts: entries,
+		ResultMarker: clispec.ResultMarker{},
+		Command:      "ops.audit.manifest_parts",
+		OrgID:        orgID,
+		EventID:      eventID,
+		PartCount:    len(entries),
+		Parts:        entries,
 	}
 	if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
-		slog.ErrorContext(ctx, "audit.manifest_parts_report_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.manifest_parts_report_failed",
+			slog.String("err", err.Error()),
+		)
 		return fmt.Errorf("%s: write the result: %w", auditManifestPartsCommand, err)
 	}
+
 	return nil
 }

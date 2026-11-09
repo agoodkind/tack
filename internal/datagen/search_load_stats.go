@@ -48,7 +48,14 @@ func (s *searchLoadStats) record(elapsed time.Duration, err error) {
 	}
 }
 
-func (s *searchLoadStats) summary(dryRun bool, planned, sent, dropped, distinct int, elapsed time.Duration) SearchLoadSummary {
+func (s *searchLoadStats) summary(
+	dryRun bool,
+	planned int,
+	sent int,
+	dropped int,
+	distinct int,
+	elapsed time.Duration,
+) SearchLoadSummary {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	sorted := slices.Clone(s.latencies)
@@ -56,14 +63,29 @@ func (s *searchLoadStats) summary(dryRun bool, planned, sent, dropped, distinct 
 	latency := SearchLoadLatency{Min: 0, P50: 0, P95: 0, P99: 0, Max: 0}
 	if len(sorted) > 0 {
 		latency = SearchLoadLatency{
-			Min: sorted[0], P50: nearestRank(sorted, searchLoadP50), P95: nearestRank(sorted, searchLoadP95),
-			P99: nearestRank(sorted, searchLoadP99), Max: sorted[len(sorted)-1],
+			Min: sorted[0],
+			P50: nearestRank(sorted, searchLoadP50),
+			P95: nearestRank(sorted, searchLoadP95),
+			P99: nearestRank(sorted, searchLoadP99),
+			Max: sorted[len(sorted)-1],
 		}
 	}
 	return SearchLoadSummary{
-		DryRun: dryRun, Planned: planned, Sent: sent, Completed: len(sorted), Dropped: dropped,
-		DistinctQueries: distinct, Unavailable: s.unavailable, ToolErrors: s.toolErrors,
-		TransportErrors: s.transportErrors, Elapsed: elapsed, Latency: latency,
-		PointInTime: SearchLoadPointInTime{Peak: 0, Answered: 0, Samples: []SearchLoadPointInTimeSample{}},
+		DryRun:          dryRun,
+		Planned:         planned,
+		Sent:            sent,
+		Completed:       len(sorted),
+		Dropped:         dropped,
+		DistinctQueries: distinct,
+		Unavailable:     s.unavailable,
+		ToolErrors:      s.toolErrors,
+		TransportErrors: s.transportErrors,
+		Elapsed:         elapsed,
+		Latency:         latency,
+		PointInTime: SearchLoadPointInTime{
+			Peak:     0,
+			Answered: 0,
+			Samples:  []SearchLoadPointInTimeSample{},
+		},
 	}
 }

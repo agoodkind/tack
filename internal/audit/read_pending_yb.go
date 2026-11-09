@@ -43,46 +43,91 @@ var _ ReadLifecycle = (*PoolReadLifecycle)(nil)
 func readStatement(name string) string {
 	statement, err := readStatements.ReadFile("read_sql/" + name + ".sql")
 	if err != nil {
-		slog.Error("audit.read_lifecycle.statement_missing", slog.String("name", name), slog.String("err", err.Error()))
+		slog.Error(
+			"audit.read_lifecycle.statement_missing",
+			slog.String("name", name),
+			slog.String("err", err.Error()),
+		)
 		return ""
 	}
+
 	return string(statement)
 }
 
 // BeginRead saves pending state before the caller reads data.
-func (l *PoolReadLifecycle) BeginRead(ctx context.Context, admission ReadAdmission) (ReadToken, error) {
+func (l *PoolReadLifecycle) BeginRead(
+	ctx context.Context,
+	admission ReadAdmission,
+) (ReadToken, error) {
 	token := admission.Token
 	if err := ValidateReadAdmission(admission); err != nil {
 		return ReadToken{}, readLifecycleFailure(ctx, "begin audit read", token.EventID, err)
 	}
+
 	template, err := json.Marshal(admission.Template)
 	if err != nil {
-		return ReadToken{}, readLifecycleFailure(ctx, "encode audit read template", token.EventID, err)
+		return ReadToken{}, readLifecycleFailure(
+			ctx,
+			"encode audit read template",
+			token.EventID,
+			err,
+		)
 	}
+
 	var generation uint64
 	var deadline time.Time
 	bucket := int(ReadBucket(token.EventID))
-	err = l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
-		return connection.QueryRow(ctx, readStatement("begin"), token.EventID, token.Owner, bucket, template).
-			Scan(&generation, &deadline)
-	})
+	err = l.onCheckedConnection(
+		ctx,
+		func(connection *pgx.Conn) error {
+			return connection.QueryRow(
+				ctx,
+				readStatement("begin"),
+				token.EventID,
+				token.Owner,
+				bucket,
+				template,
+			).
+				Scan(
+					&generation,
+					&deadline,
+				)
+		},
+	)
 	if err != nil {
 		return ReadToken{}, readLifecycleFailure(ctx, "begin audit read", token.EventID, err)
 	}
-	return ReadToken{EventID: token.EventID, Owner: token.Owner, Generation: generation, AdmissionDeadline: deadline}, nil
+
+	return ReadToken{
+		EventID:           token.EventID,
+		Owner:             token.Owner,
+		Generation:        generation,
+		AdmissionDeadline: deadline,
+	}, nil
 }
 
 // RenewRead extends the lease only when token still owns the pending read.
 func (l *PoolReadLifecycle) RenewRead(ctx context.Context, token ReadToken) error {
-	err := l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
-		if _, err := connection.Exec(ctx, readStatement("renew"), token.EventID, token.Owner, token.Generation); err != nil {
-			return statementFailure(ctx, "renew", err)
-		}
-		return nil
-	})
+	err := l.onCheckedConnection(
+		ctx,
+		func(connection *pgx.Conn) error {
+			if _, err := connection.Exec(
+				ctx,
+				readStatement("renew"),
+				token.EventID,
+				token.Owner,
+				token.Generation,
+			); err != nil {
+				return statementFailure(ctx, "renew", err)
+			}
+
+			return nil
+		},
+	)
 	if err != nil {
 		return readLifecycleFailure(ctx, "renew audit read", token.EventID, err)
 	}
+
 	return nil
 }
 
@@ -94,57 +139,107 @@ func (l *PoolReadLifecycle) FinalizeRead(ctx context.Context, completion ReadCom
 	token := completion.Token
 	generation := token.Generation
 	var stored []byte
-	err := l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
-		return connection.QueryRow(ctx, readStatement("template"), token.EventID, token.Owner, generation, completion.Digest).
-			Scan(&stored)
-	})
+	err := l.onCheckedConnection(
+		ctx,
+		func(connection *pgx.Conn) error {
+			return connection.QueryRow(
+				ctx,
+				readStatement("template"),
+				token.EventID,
+				token.Owner,
+				generation,
+				completion.Digest,
+			).
+				Scan(
+					&stored,
+				)
+		},
+	)
 	if err != nil {
 		return readLifecycleFailure(ctx, "read audit read template", token.EventID, err)
 	}
+
 	if stored == nil {
 		return nil
 	}
+
 	var template Event
 	if err := json.Unmarshal(stored, &template); err != nil {
 		return readLifecycleFailure(ctx, "decode audit read template", token.EventID, err)
 	}
+
 	encoded, err := CheckReadCompletion(template, completion)
 	if err != nil {
 		return readLifecycleFailure(ctx, "finalize audit read", token.EventID, err)
 	}
+
 	header, parts, err := splitOutboxRecords(encoded)
 	if err != nil {
 		return readLifecycleFailure(ctx, "encode audit read event", token.EventID, err)
 	}
-	err = l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
-		_, err := connection.Exec(ctx, readStatement("finalize"), token.EventID, token.Owner, generation,
-			encoded.TransportDigest, string(completion.Event.Outcome), header, parts)
-		if err != nil {
-			return statementFailure(ctx, "finalize", err)
-		}
-		return nil
-	})
+
+	err = l.onCheckedConnection(
+		ctx,
+		func(connection *pgx.Conn) error {
+			_, err := connection.Exec(
+				ctx,
+				readStatement("finalize"),
+				token.EventID,
+				token.Owner,
+				generation,
+				encoded.TransportDigest,
+				string(completion.Event.Outcome),
+				header,
+				parts,
+			)
+			if err != nil {
+				return statementFailure(ctx, "finalize", err)
+			}
+
+			return nil
+		},
+	)
 	if err != nil {
 		return readLifecycleFailure(ctx, "finalize audit read", token.EventID, err)
 	}
+
 	return nil
 }
 
 // AcknowledgePublished marks the supplied read receipts as published in one transaction.
 func (l *PoolReadLifecycle) AcknowledgePublished(ctx context.Context, reads []PublishedRead) error {
-	err := l.onCheckedConnection(ctx, func(connection *pgx.Conn) error {
-		return pgx.BeginFunc(ctx, connection, func(tx pgx.Tx) error {
-			for _, read := range reads {
-				if _, err := tx.Exec(ctx, readStatement("acknowledge"), read.EventID, read.Digest); err != nil {
-					return readLifecycleFailure(ctx, "acknowledge audit read", read.EventID, err)
-				}
-			}
-			return nil
-		})
-	})
+	err := l.onCheckedConnection(
+		ctx,
+		func(connection *pgx.Conn) error {
+			return pgx.BeginFunc(
+				ctx,
+				connection,
+				func(tx pgx.Tx) error {
+					for _, read := range reads {
+						if _, err := tx.Exec(
+							ctx,
+							readStatement("acknowledge"),
+							read.EventID,
+							read.Digest,
+						); err != nil {
+							return readLifecycleFailure(
+								ctx,
+								"acknowledge audit read",
+								read.EventID,
+								err,
+							)
+						}
+					}
+
+					return nil
+				},
+			)
+		},
+	)
 	if err != nil {
 		return readLifecycleFailure(ctx, "acknowledge audit reads", uuid.Nil, err)
 	}
+
 	return nil
 }
 
@@ -159,12 +254,18 @@ func splitOutboxRecords(encoded EncodedEvent) ([]byte, [][]byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
 	return encoded.Header, parts, nil
 }
 
 // readLifecycleFailure logs a lifecycle error and adds the operation and event ID.
 // It includes ErrReadOwnerLost or ErrReadAdmissionExpired when the SQL error code matches.
-func readLifecycleFailure(ctx context.Context, operation string, eventID uuid.UUID, err error) error {
+func readLifecycleFailure(
+	ctx context.Context,
+	operation string,
+	eventID uuid.UUID,
+	err error,
+) error {
 	var postgresError *pgconn.PgError
 	if errors.As(err, &postgresError) {
 		switch postgresError.Code {
@@ -174,8 +275,15 @@ func readLifecycleFailure(ctx context.Context, operation string, eventID uuid.UU
 			err = errors.Join(ErrReadAdmissionExpired, err)
 		}
 	}
+
 	wrapped := fmt.Errorf("%s %s: %w", operation, eventID, err)
-	slog.ErrorContext(ctx, "audit.read_lifecycle.failed",
-		slog.String("operation", operation), slog.String("event_id", eventID.String()), slog.String("err", wrapped.Error()))
+	slog.ErrorContext(
+		ctx,
+		"audit.read_lifecycle.failed",
+		slog.String("operation", operation),
+		slog.String("event_id", eventID.String()),
+		slog.String("err", wrapped.Error()),
+	)
+
 	return wrapped
 }

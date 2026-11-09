@@ -25,28 +25,49 @@ func TestSearchSemanticPairs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if settings.IdleTimeout != 30*time.Second || settings.AbsoluteTimeout != 2*time.Hour {
 		t.Fatal("relevance fixture did not retain its configured session deadlines")
 	}
+
 	t.Logf("relevance session idle=%s absolute=%s", settings.IdleTimeout, settings.AbsoluteTimeout)
 	workspace := fixture.Workspaces[0]
 	entryID := entryPoint(t, fixture, workspace)
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
 	pairs := semanticPairs(t)
 	targets := make(map[string]uuid.UUID, len(pairs))
+
 	for _, item := range semanticCorpus(t) {
-		targets[item.Identifier] = putOpaqueNode(t, fixture, kind, entryID, item.Text, item.Text, "excluded")
+		targets[item.Identifier] = putOpaqueNode(
+			t,
+			fixture,
+			kind,
+			entryID,
+			item.Text,
+			item.Text,
+			"excluded",
+		)
 	}
+
 	positionNode, pageTargets := putPagePositionNodes(t, fixture, kind, entryID)
 	drainSearchWork(t, fixture.Worker, 5000)
 	requirePagePositions(t, readSearchPages(t, fixture.Stores, positionNode, runtimePageBytes))
 	requireSemanticTargets(t, fixture, pairs, targets, "initial")
 	requirePageTargets(t, fixture, entryID, positionNode, pageTargets)
-	request := searchdomain.BeginRebuild{Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 24, Reason: "relevance repeat"}
+	request := searchdomain.BeginRebuild{
+		Mode:          searchdomain.ReplacementFull,
+		PrimaryShards: 1,
+		RoutingShards: 24,
+		Reason:        "relevance repeat",
+	}
 	rebuild := beginRebuild(t, fixture, request)
-	runRebuildUntil(t, fixture, func(current searchdomain.Rebuild, found bool) bool {
-		return !found || current.State == searchdomain.RebuildRetiring
-	})
+	runRebuildUntil(
+		t,
+		fixture,
+		func(current searchdomain.Rebuild, found bool) bool {
+			return !found || current.State == searchdomain.RebuildRetiring
+		},
+	)
 	previous := fixture.Index
 	requireServing(t, fixture, rebuild.TargetIndex, "")
 	t.Logf("relevance serving switched from=%s to=%s", previous, rebuild.TargetIndex)
@@ -57,30 +78,57 @@ func TestSearchSemanticPairs(t *testing.T) {
 	t.Logf("relevance previous index retired=%s", previous)
 }
 
-func requireSemanticTargets(t *testing.T, fixture queryFixture, pairs []semanticPair, targets map[string]uuid.UUID, phase string) {
+func requireSemanticTargets(
+	t *testing.T,
+	fixture queryFixture,
+	pairs []semanticPair,
+	targets map[string]uuid.UUID,
+	phase string,
+) {
 	t.Helper()
+
 	for _, pair := range pairs {
 		for attempt := range 3 {
 			page := callSearch(t, fixture.Harness, pair.Query, "")
 			rank := slices.Index(page.IDs, targets[pair.Identifier]) + 1
 			if rank == 0 {
-				t.Fatalf("attempt %d of %q did not return %q in the first page", attempt+1, pair.Query, pair.Target)
+				t.Fatalf(
+					"attempt %d of %q did not return %q in the first page",
+					attempt+1,
+					pair.Query,
+					pair.Target,
+				)
 			}
-			t.Logf("semantic phase=%s target=%s query=%q attempt=%d rank=%d", phase, pair.Identifier, pair.Query, attempt+1, rank)
+
+			t.Logf(
+				"semantic phase=%s target=%s query=%q attempt=%d rank=%d",
+				phase,
+				pair.Identifier,
+				pair.Query,
+				attempt+1,
+				rank,
+			)
 			completeRankedCursor(t, fixture, pair.Query, page.Cursor)
 		}
 	}
+
 	workspace := fixture.Workspaces[0]
 	filter := callerAccess(t, fixture, workspace, entryPoint(t, fixture, workspace))
 	lexicalMisses := 0
+
 	for _, pair := range pairs {
-		if !slices.Contains(lexicalTopNodes(t, fixture, filter, pair.Query), targets[pair.Identifier]) {
+		if !slices.Contains(
+			lexicalTopNodes(t, fixture, filter, pair.Query),
+			targets[pair.Identifier],
+		) {
 			lexicalMisses++
 		}
 	}
+
 	if lexicalMisses == 0 {
 		t.Fatal("the lexical-only control retrieved every pair")
 	}
+
 	t.Logf("semantic phase=%s lexical_misses=%d targets=%d", phase, lexicalMisses, len(pairs))
 }
 
@@ -89,23 +137,34 @@ func completeRankedCursor(t *testing.T, fixture queryFixture, query, cursor stri
 	if cursor == "" {
 		return
 	}
+
 	tokens := bytes.Clone(cursorSession(t, fixture, cursor).Snapshot.QueryTokens)
+
 	for range 10_000 {
 		page := callSearch(t, fixture.Harness, query, cursor)
 		continued := cursorSession(t, fixture, cursor)
 		if !bytes.Equal(tokens, continued.Snapshot.QueryTokens) {
 			t.Fatal("relevance continuation changed its saved token map")
 		}
+
 		replay := callSearch(t, fixture.Harness, query, cursor)
-		if !slices.Equal(page.IDs, replay.IDs) || page.Cursor != replay.Cursor || page.Complete != replay.Complete {
+		if !slices.Equal(page.IDs, replay.IDs) || page.Cursor != replay.Cursor ||
+			page.Complete != replay.Complete {
 			t.Fatal("relevance continuation replay changed its result")
 		}
+
 		if page.Complete {
-			t.Logf("relevance query=%q continuation_complete=true token_bytes=%d", query, len(tokens))
+			t.Logf(
+				"relevance query=%q continuation_complete=true token_bytes=%d",
+				query,
+				len(tokens),
+			)
 			return
 		}
+
 		cursor = page.Cursor
 	}
+
 	t.Fatal("relevance continuation did not complete within 10000 pages")
 }
 
@@ -115,24 +174,38 @@ func requirePagePositions(t *testing.T, pages []node.ContentPage) {
 	t.Helper()
 	last := len(pages) - 1
 	if last < 4 || !strings.Contains(pages[0].Text, "kestrelbegin") {
-		t.Fatalf("position node has %d pages, want the beginning target on page 0 of at least 5", len(pages))
+		t.Fatalf(
+			"position node has %d pages, want the beginning target on page 0 of at least 5",
+			len(pages),
+		)
 	}
+
 	crossed := false
+
 	for ordinal, page := range pages {
 		if strings.Contains(page.Text, "kestrelmiddle") && (ordinal == 0 || ordinal == last) {
 			t.Fatalf("middle target is on page %d of %d", ordinal, last)
 		}
-		if ordinal < last && (strings.Contains(page.Text, "kestrelfinal") || strings.Contains(page.Text, pageTargetSemantic)) {
+
+		if ordinal < last &&
+			(strings.Contains(
+				page.Text,
+				"kestrelfinal",
+			) || strings.Contains(page.Text, pageTargetSemantic)) {
 			t.Fatalf("final targets are on page %d before the final page %d", ordinal, last)
 		}
-		if ordinal < last && strings.HasSuffix(page.Text, pageTargetBoundaryPrefix) && !strings.Contains(page.Text, pageTargetBoundary) &&
+
+		if ordinal < last && strings.HasSuffix(page.Text, pageTargetBoundaryPrefix) &&
+			!strings.Contains(page.Text, pageTargetBoundary) &&
 			strings.Contains(pages[ordinal+1].Text, pageTargetBoundary) {
 			crossed = true
 		}
 	}
+
 	if !crossed {
 		t.Fatalf("no page ends inside %q", pageTargetBoundary)
 	}
+
 	if !strings.Contains(pages[last].Text, "kestrelfinal "+pageTargetSemantic) {
 		t.Fatalf("final page %q lacks the final targets", pages[last].Text)
 	}
@@ -141,19 +214,36 @@ func requirePagePositions(t *testing.T, pages []node.ContentPage) {
 // requirePageTargets requires each target node within the first 25 distinct
 // nodes of its query and requires the lexical control to miss the semantic
 // final-page target.
-func requirePageTargets(t *testing.T, fixture queryFixture, entryID, semanticNode uuid.UUID, targets []pageTarget) {
+func requirePageTargets(
+	t *testing.T,
+	fixture queryFixture,
+	entryID uuid.UUID,
+	semanticNode uuid.UUID,
+	targets []pageTarget,
+) {
 	t.Helper()
+
 	for _, target := range targets {
 		distinct := firstDistinctNodes(t, fixture, target.Query, pageTargetRankLimit)
 		rank := slices.Index(distinct, target.NodeID) + 1
 		if rank == 0 {
-			t.Fatalf("query %q did not return node %s within the first %d distinct nodes", target.Query, target.NodeID, pageTargetRankLimit)
+			t.Fatalf(
+				"query %q did not return node %s within the first %d distinct nodes",
+				target.Query,
+				target.NodeID,
+				pageTargetRankLimit,
+			)
 		}
+
 		t.Logf("page target query=%q node=%s rank=%d", target.Query, target.NodeID, rank)
 	}
+
 	filter := callerAccess(t, fixture, fixture.Workspaces[0], entryID)
 	if slices.Contains(lexicalTopNodes(t, fixture, filter, pageTargetSemanticQuery), semanticNode) {
-		t.Fatalf("the lexical-only control retrieved the semantic final-page target for %q", pageTargetSemanticQuery)
+		t.Fatalf(
+			"the lexical-only control retrieved the semantic final-page target for %q",
+			pageTargetSemanticQuery,
+		)
 	}
 }
 
@@ -163,6 +253,7 @@ func firstDistinctNodes(t *testing.T, fixture queryFixture, query string, limit 
 	t.Helper()
 	distinct := make([]uuid.UUID, 0, limit)
 	cursor := ""
+
 	for range 100 {
 		page := callSearch(t, fixture.Harness, query, cursor)
 		for _, id := range page.IDs {
@@ -170,11 +261,15 @@ func firstDistinctNodes(t *testing.T, fixture queryFixture, query string, limit 
 				distinct = append(distinct, id)
 			}
 		}
+
 		if page.Complete || len(distinct) == limit {
 			return distinct
 		}
+
 		cursor = page.Cursor
 	}
+
 	t.Fatalf("search %q did not return %d distinct nodes within 100 pages", query, limit)
+
 	return nil
 }

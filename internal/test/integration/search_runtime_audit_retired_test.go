@@ -43,28 +43,63 @@ func TestSearchRuntimeAuditRetiredSessionEvents(t *testing.T) {
 	}
 	runReplacementUntil(t, fixture.parentEdgeFixture, replacementFinished)
 
-	rows := fixture.waitForRows(t, fixture.first.OrgID, func(current []audit.Row) bool {
-		return len(sessionChanges(current, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession)) == 1 &&
-			len(closingUpdates(t, current, session.ID)) == 1
-	})
+	rows := fixture.waitForRows(
+		t,
+		fixture.first.OrgID,
+		func(current []audit.Row) bool {
+			return len(
+				sessionChanges(
+					current,
+					session.ID,
+					audit.VerbSearchSessionDelete,
+					audit.TargetSearchSession,
+				),
+			) == 1 &&
+				len(closingUpdates(t, current, session.ID)) == 1
+		},
+	)
 	workerID := cli.ServiceActorID(appruntime.SearchWorkerService)
-	deleted := onlyRow(t, sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession), "the session delete")
+	deleted := onlyRow(
+		t,
+		sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession),
+		"the session delete",
+	)
 	for _, row := range []audit.Row{closingUpdates(t, rows, session.ID)[0], deleted} {
 		requireRetirementRow(t, row, workerID, rebuild, source)
 	}
 }
 
-func requireRetirementRow(t *testing.T, row audit.Row, workerID uuid.UUID, rebuild searchdomain.Rebuild, source string) {
+func requireRetirementRow(
+	t *testing.T,
+	row audit.Row,
+	workerID uuid.UUID,
+	rebuild searchdomain.Rebuild,
+	source string,
+) {
 	t.Helper()
 	if row.ActorID != workerID || row.Context.ParentOperationID != rebuild.Initiation.OperationID {
-		t.Fatalf("row %s has actor %s and parent %s, want actor %s and parent %s",
-			row.EventID, row.ActorID, row.Context.ParentOperationID, workerID, rebuild.Initiation.OperationID)
+		t.Fatalf(
+			"row %s has actor %s and parent %s, want actor %s and parent %s",
+			row.EventID,
+			row.ActorID,
+			row.Context.ParentOperationID,
+			workerID,
+			rebuild.Initiation.OperationID,
+		)
 	}
 	var extra retirementExtra
 	if err := json.Unmarshal(row.Extra, &extra); err != nil {
 		t.Fatalf("decode row %s evidence %s: %v", row.EventID, row.Extra, err)
 	}
-	if extra.RebuildID != rebuild.ID.String() || extra.SourceIndex != source || extra.InitiatedActorID != rebuild.Initiation.ActorID {
-		t.Fatalf("row %s evidence = %+v, want rebuild %s, source %s, and actor %s", row.EventID, extra, rebuild.ID, source, rebuild.Initiation.ActorID)
+	if extra.RebuildID != rebuild.ID.String() || extra.SourceIndex != source ||
+		extra.InitiatedActorID != rebuild.Initiation.ActorID {
+		t.Fatalf(
+			"row %s evidence = %+v, want rebuild %s, source %s, and actor %s",
+			row.EventID,
+			extra,
+			rebuild.ID,
+			source,
+			rebuild.Initiation.ActorID,
+		)
 	}
 }

@@ -43,31 +43,62 @@ type deployIndexDigests map[string]string
 // When services are only app, the command refuses --tack-audit-consumer-digest.
 // The command also refuses a value outside the sha256 index digest form. Every
 // refusal happens before the command reads the daemon.
-func parseDeployIndexDigests(ctx context.Context, server, consumer string, services []string) (deployIndexDigests, error) {
+func parseDeployIndexDigests(
+	ctx context.Context,
+	server string,
+	consumer string,
+	services []string,
+) (deployIndexDigests, error) {
 	if server == "" && consumer == "" {
 		return nil, nil
 	}
+
 	appOnly := !slices.Contains(services, auditConsumerService)
 	var problems []string
 	switch {
 	case appOnly && consumer != "":
-		problems = append(problems, "--service app checks only the app service and refuses --tack-audit-consumer-digest")
+		problems = append(
+			problems,
+			"--service app checks only the app service and refuses --tack-audit-consumer-digest",
+		)
 	case !appOnly && (server == "" || consumer == ""):
-		problems = append(problems, "--tack-server-digest and --tack-audit-consumer-digest must be given together")
+		problems = append(
+			problems,
+			"--tack-server-digest and --tack-audit-consumer-digest must be given together",
+		)
 	}
-	for flag, value := range map[string]string{"--tack-server-digest": server, "--tack-audit-consumer-digest": consumer} {
+
+	for flag, value := range map[string]string{
+		"--tack-server-digest":         server,
+		"--tack-audit-consumer-digest": consumer,
+	} {
 		if value != "" && !indexDigestPattern.MatchString(value) {
-			problems = append(problems, fmt.Sprintf("%s %q is not sha256: followed by 64 lowercase hex digits", flag, value))
+			problems = append(
+				problems,
+				fmt.Sprintf(
+					"%s %q is not sha256: followed by 64 lowercase hex digits",
+					flag,
+					value,
+				),
+			)
 		}
 	}
+
 	if len(problems) > 0 {
 		err := errors.New("ops deploy verify: " + strings.Join(problems, "; "))
-		slog.ErrorContext(ctx, "ops.deploy.verify.digest_flags_invalid", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.deploy.verify.digest_flags_invalid",
+			slog.String("err", err.Error()),
+		)
+
 		return nil, err
 	}
+
 	if appOnly {
 		return deployIndexDigests{appService: server}, nil
 	}
+
 	return deployIndexDigests{appService: server, auditConsumerService: consumer}, nil
 }
 
@@ -79,6 +110,7 @@ func imageStoreDriverType(status [][2]string) string {
 			return entry[1]
 		}
 	}
+
 	return ""
 }
 
@@ -89,8 +121,18 @@ func requireContainerdImageStore(ctx context.Context, status [][2]string) error 
 	if driverType == ContainerdSnapshotterDriverType {
 		return nil
 	}
-	err := fmt.Errorf("unsupported image store: driver-type %q, want %q", driverType, ContainerdSnapshotterDriverType)
-	slog.ErrorContext(ctx, "ops.deploy.verify.image_store_unsupported", slog.String("err", err.Error()))
+
+	err := fmt.Errorf(
+		"unsupported image store: driver-type %q, want %q",
+		driverType,
+		ContainerdSnapshotterDriverType,
+	)
+	slog.ErrorContext(
+		ctx,
+		"ops.deploy.verify.image_store_unsupported",
+		slog.String("err", err.Error()),
+	)
+
 	return err
 }
 
@@ -119,52 +161,103 @@ func requireIndexDescriptor(ctx context.Context, given string, reading indexRead
 	default:
 		return nil
 	}
+
 	descriptorDigest, mediaType := "", ""
 	if descriptor != nil {
 		descriptorDigest, mediaType = descriptor.Digest.String(), descriptor.MediaType
 	}
-	err := fmt.Errorf("deploy verify: %s on %s (given=%s driver-type=%s container.Image=%s descriptor.digest=%q descriptor.mediaType=%q image.Id=%s repoDigests=%v)",
-		reason, container, given, reading.driverType, reading.containerImage, descriptorDigest, mediaType, inspected.ID, inspected.RepoDigests)
-	slog.ErrorContext(ctx, "ops.deploy.verify.mismatch", slog.String("container", container), slog.String("err", err.Error()))
+
+	err := fmt.Errorf(
+		"deploy verify: %s on %s (given=%s driver-type=%s container.Image=%s descriptor.digest=%q descriptor.mediaType=%q image.Id=%s repoDigests=%v)",
+		reason,
+		container,
+		given,
+		reading.driverType,
+		reading.containerImage,
+		descriptorDigest,
+		mediaType,
+		inspected.ID,
+		inspected.RepoDigests,
+	)
+	slog.ErrorContext(
+		ctx,
+		"ops.deploy.verify.mismatch",
+		slog.String("container", container),
+		slog.String("err", err.Error()),
+	)
+
 	return err
 }
 
 // verifyIndexDigests reads the image store once, then each container's image
 // by the image ID the container runs, and compares its index descriptor with
 // the given digest. It returns one result line per container.
-func verifyIndexDigests(ctx context.Context, cli *client.Client, targets []serviceReplica, digests deployIndexDigests) ([]string, error) {
+func verifyIndexDigests(
+	ctx context.Context,
+	cli *client.Client,
+	targets []serviceReplica,
+	digests deployIndexDigests,
+) ([]string, error) {
 	info, err := cli.Info(ctx, client.InfoOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "ops.deploy.verify.info_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read the daemon image store: %w", err)
 	}
+
 	driverType := imageStoreDriverType(info.Info.DriverStatus)
 	if err := requireContainerdImageStore(ctx, info.Info.DriverStatus); err != nil {
 		return nil, err
 	}
+
 	lines := make([]string, 0, len(targets))
 	for _, target := range targets {
 		given := digests[target.Service]
-		inspectedContainer, err := cli.ContainerInspect(ctx, target.Container, client.ContainerInspectOptions{})
+		inspectedContainer, err := cli.ContainerInspect(
+			ctx,
+			target.Container,
+			client.ContainerInspectOptions{},
+		)
 		if err != nil {
-			slog.ErrorContext(ctx, "ops.deploy.verify.container_inspect_failed",
-				slog.String("name", target.Container), slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"ops.deploy.verify.container_inspect_failed",
+				slog.String("name", target.Container),
+				slog.String("err", err.Error()),
+			)
+
 			return nil, fmt.Errorf("container inspect %s: %w", target.Container, err)
 		}
+
 		imageID := strings.TrimSpace(inspectedContainer.Container.Image)
 		inspectedImage, err := cli.ImageInspect(ctx, imageID)
 		if err != nil {
-			slog.ErrorContext(ctx, "ops.deploy.verify.image_inspect_failed",
-				slog.String("ref", imageID), slog.String("err", err.Error()))
-			return nil, fmt.Errorf("image inspect %s of container %s: %w", imageID, target.Container, err)
+			slog.ErrorContext(
+				ctx,
+				"ops.deploy.verify.image_inspect_failed",
+				slog.String("ref", imageID),
+				slog.String("err", err.Error()),
+			)
+
+			return nil, fmt.Errorf(
+				"image inspect %s of container %s: %w",
+				imageID,
+				target.Container,
+				err,
+			)
 		}
+
 		reading := indexReading{
-			container: target.Container, driverType: driverType, containerImage: imageID, image: inspectedImage.InspectResponse,
+			container:      target.Container,
+			driverType:     driverType,
+			containerImage: imageID,
+			image:          inspectedImage.InspectResponse,
 		}
 		if err := requireIndexDescriptor(ctx, given, reading); err != nil {
 			return nil, err
 		}
+
 		lines = append(lines, target.Container+" runs index "+given+" (given digest)")
 	}
+
 	return lines, nil
 }

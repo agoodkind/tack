@@ -157,7 +157,11 @@ type MutationReceipt struct {
 // transaction attempt rereads every expectation. If an expectation differs,
 // the attempt returns an error that wraps domain.ErrConflict without writing.
 type Mutator interface {
-	ReadMutationSnapshot(ctx context.Context, orgID, nodeID uuid.UUID) (MutationSnapshot, SchemaSnapshot, error)
+	ReadMutationSnapshot(
+		ctx context.Context,
+		orgID uuid.UUID,
+		nodeID uuid.UUID,
+	) (MutationSnapshot, SchemaSnapshot, error)
 	ApplyMutation(ctx context.Context, plan MutationPlan) (MutationReceipt, error)
 	DeleteNode(ctx context.Context, plan DeletionPlan) (MutationReceipt, error)
 }

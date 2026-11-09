@@ -42,9 +42,11 @@ func runSchemaGuardProof(ctx context.Context, cfg *config.Config, sink clispec.R
 	if err != nil {
 		return err
 	}
+
 	if _, err := removeSchemaGuardProbe(ctx, pool); err != nil {
 		return err
 	}
+
 	refused, probeErr := attemptSchemaGuardProbe(ctx, pool)
 	remained, err := removeSchemaGuardProbe(ctx, pool)
 	switch {
@@ -55,21 +57,40 @@ func runSchemaGuardProof(ctx context.Context, cfg *config.Config, sink clispec.R
 	case err != nil:
 		return err
 	case remained:
-		leftover := fmt.Errorf("the schema guard refused %q, but %s remained", schemaGuardProbeStatement, schemaGuardProbeTable)
-		logger.ErrorContext(ctx, "schema_guard.probe_remained", slog.String("err", leftover.Error()))
+		leftover := fmt.Errorf(
+			"the schema guard refused %q, but %s remained",
+			schemaGuardProbeStatement,
+			schemaGuardProbeTable,
+		)
+		logger.ErrorContext(
+			ctx,
+			"schema_guard.probe_remained",
+			slog.String("err", leftover.Error()),
+		)
+
 		return leftover
 	}
-	logger.InfoContext(ctx, "schema_guard.refused",
-		slog.String("session_role", sessionRole), slog.String("probe_role", schemaGuardProbeRole),
-		slog.String("sqlstate", refused.Code))
+
+	logger.InfoContext(
+		ctx,
+		"schema_guard.refused",
+		slog.String("session_role", sessionRole),
+		slog.String("probe_role", schemaGuardProbeRole),
+		slog.String("sqlstate", refused.Code),
+	)
 	result := schemaGuardResult{
-		ResultMarker: clispec.ResultMarker{}, Command: "ops.audit.prove-schema-guard",
-		SessionRole: sessionRole, ProbeRole: schemaGuardProbeRole, Statement: schemaGuardProbeStatement,
-		SQLState: refused.Code, Message: refused.Message,
+		ResultMarker: clispec.ResultMarker{},
+		Command:      "ops.audit.prove-schema-guard",
+		SessionRole:  sessionRole,
+		ProbeRole:    schemaGuardProbeRole,
+		Statement:    schemaGuardProbeStatement,
+		SQLState:     refused.Code,
+		Message:      refused.Message,
 	}
 	if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
 		logger.ErrorContext(ctx, "schema_guard.report_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write the schema guard proof: %w", err)
 	}
+
 	return nil
 }

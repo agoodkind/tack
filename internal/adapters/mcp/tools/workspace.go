@@ -31,8 +31,14 @@ type nodeTypeSummary struct {
 
 // RegisterWorkspace registers tack_list_workspaces and tack_describe_workspace
 // using only generic primitives.
-func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver *Resolver, nodeTypes []*node.NodeType) {
-	registerTool(s,
+func RegisterWorkspace(
+	s *mcpserver.MCPServer,
+	reader node.NodeReader,
+	resolver *Resolver,
+	nodeTypes []*node.NodeType,
+) {
+	registerTool(
+		s,
 		mcpmcp.Tool{
 			Name:        "tack_list_workspaces",
 			Description: "Lists workspaces the caller has access to.",
@@ -43,16 +49,20 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 			if err != nil {
 				return unexpectedError(ctx, err), nil
 			}
+
 			wss, err := resolver.WorkspacesForUser(ctx, userID)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
+
 			rc := newRenderCtxWithTypes(ctx, reader, nil, resolver.typeIndex)
+
 			return successText(renderList(rc, "workspaces", wss), ""), nil
 		},
 	)
 
-	registerTool(s,
+	registerTool(
+		s,
 		mcpmcp.Tool{
 			Name:        fmt.Sprintf("tack_describe_%s", resolver.entryPointSlug),
 			Description: "Describes a workspace: its node types and a count of direct children per node type.",
@@ -66,54 +76,77 @@ func RegisterWorkspace(s *mcpserver.MCPServer, reader node.NodeReader, resolver 
 			if err != nil {
 				return recoverableError(err.Error()), nil
 			}
+
 			entryPointReference, ok := resolver.entryPointReference(args)
 			if !ok {
 				return recoverableError(resolver.entryPointRequiredMessage()), nil
 			}
+
 			ws, err := resolver.Workspace(ctx, entryPointReference)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
+
 			parentIDRaw, _ := json.Marshal(ws.ID.String())
+
 			types := make([]nodeTypeSummary, 0, len(nodeTypes))
 			for _, nt := range nodeTypes {
 				if nt.OrgID != ws.OrgID {
 					continue
 				}
-				page, err := reader.ListPage(ctx, node.NodeListQuery{
-					OrgID:            ws.OrgID,
-					NodeType:         nt.TypeKey,
-					ByProperty:       &node.PropertyMatch{PropName: "parent_id", Value: parentIDRaw},
-					BySourceRelation: nil,
-					ByTargetRelation: nil,
-					CreatedAfter:     nil,
-					CreatedBefore:    nil,
-					PropFilters:      nil,
-					Limit:            maxListLimit,
-					Cursor:           "",
-				})
+
+				page, err := reader.ListPage(
+					ctx,
+					node.NodeListQuery{
+						OrgID:    ws.OrgID,
+						NodeType: nt.TypeKey,
+						ByProperty: &node.PropertyMatch{
+							PropName: "parent_id",
+							Value:    parentIDRaw,
+						},
+						BySourceRelation: nil,
+						ByTargetRelation: nil,
+						CreatedAfter:     nil,
+						CreatedBefore:    nil,
+						PropFilters:      nil,
+						Limit:            maxListLimit,
+						Cursor:           "",
+					},
+				)
 				if err != nil {
 					return classifyError(ctx, err), nil
 				}
-				types = append(types, nodeTypeSummary{
-					Slug:           nt.Slug,
-					PluralSlug:     nt.PluralSlug,
-					Name:           nt.Name,
-					Features:       []string(nt.Features),
-					Reference:      nt.Reference,
-					ChildCount:     len(page.Views),
-					ChildCountMore: page.NextCursor != "",
-				})
+
+				types = append(
+					types,
+					nodeTypeSummary{
+						Slug:           nt.Slug,
+						PluralSlug:     nt.PluralSlug,
+						Name:           nt.Name,
+						Features:       []string(nt.Features),
+						Reference:      nt.Reference,
+						ChildCount:     len(page.Views),
+						ChildCountMore: page.NextCursor != "",
+					},
+				)
 			}
+
 			rc := newRenderCtxWithTypes(ctx, reader, nil, resolver.typeIndex)
+
 			return successText(renderWorkspaceDescribe(rc, ws, types), ""), nil
 		},
 	)
 }
 
 // RegisterMembers registers tack_list_members.
-func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users user.Repository, resolver *Resolver) {
-	registerTool(s,
+func RegisterMembers(
+	s *mcpserver.MCPServer,
+	members org.MemberRepository,
+	users user.Repository,
+	resolver *Resolver,
+) {
+	registerTool(
+		s,
 		mcpmcp.Tool{
 			Name:        "tack_list_members",
 			Description: "Lists org members for the workspace's org.",
@@ -127,27 +160,34 @@ func RegisterMembers(s *mcpserver.MCPServer, members org.MemberRepository, users
 			if err != nil {
 				return recoverableError(err.Error()), nil
 			}
+
 			entryPointReference, ok := resolver.entryPointReference(args)
 			if !ok {
 				return recoverableError(resolver.entryPointRequiredMessage()), nil
 			}
+
 			ws, err := resolver.Workspace(ctx, entryPointReference)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
+
 			ms, err := members.ListMembers(ctx, ws.OrgID)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
+
 			usersOut := make([]*user.User, 0, len(ms))
 			for _, m := range ms {
 				u, err := users.GetByID(ctx, m.UserID)
 				if err != nil || u == nil {
 					continue
 				}
+
 				usersOut = append(usersOut, u)
 			}
+
 			addUserTargets(ctx, ws.OrgID, usersOut)
+
 			return successText(renderMembers(usersOut), ""), nil
 		},
 	)

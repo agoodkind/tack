@@ -23,12 +23,21 @@ type macRunnerEventTransport struct {
 func (transport *macRunnerEventTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	response, err := transport.transport.RoundTrip(request)
 	if err != nil {
-		slog.ErrorContext(request.Context(), "testenv.run_mac.event_request_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			request.Context(),
+			"testenv.run_mac.event_request_failed",
+			slog.String("err", err.Error()),
+		)
 		return nil, fmt.Errorf("request Docker events: %w", err)
 	}
+
 	if strings.HasSuffix(request.URL.Path, "/events") {
-		response.Body = &macRunnerBoundedEventBody{ReadCloser: response.Body, remaining: macRunnerEventStreamLimit}
+		response.Body = &macRunnerBoundedEventBody{
+			ReadCloser: response.Body,
+			remaining:  macRunnerEventStreamLimit,
+		}
 	}
+
 	return response, nil
 }
 
@@ -41,33 +50,47 @@ func (body *macRunnerBoundedEventBody) Read(buffer []byte) (int, error) {
 	if body.remaining <= 0 {
 		return 0, errors.New("docker event stream exceeds 32 MiB")
 	}
+
 	if int64(len(buffer)) > body.remaining {
 		buffer = buffer[:body.remaining]
 	}
+
 	count, err := body.ReadCloser.Read(buffer)
 	body.remaining -= int64(count)
 	if errors.Is(err, io.EOF) {
 		return count, io.EOF
 	}
+
 	if err != nil {
 		return count, fmt.Errorf("read Docker events: %w", err)
 	}
+
 	return count, nil
 }
 
 func (execution *macRunnerExecution) connectEvents(socket, version string) error {
 	transport := &http.Transport{
-		MaxIdleConns: 6, IdleConnTimeout: 30 * time.Second,
+		MaxIdleConns:    6,
+		IdleConnTimeout: 30 * time.Second,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 		},
 	}
-	docker, err := client.New(client.WithHost("unix://"+socket), client.WithHTTPClient(&http.Client{Transport: &macRunnerEventTransport{transport: transport}, CheckRedirect: client.CheckRedirect}), client.WithAPIVersion(version))
+	docker, err := client.New(
+		client.WithHost("unix://"+socket),
+		client.WithHTTPClient(&http.Client{
+			Transport:     &macRunnerEventTransport{transport: transport},
+			CheckRedirect: client.CheckRedirect,
+		}),
+		client.WithAPIVersion(version),
+	)
 	if err != nil {
 		transport.CloseIdleConnections()
 		return macRunnerFailure("create bounded event client", err)
 	}
+
 	execution.eventClient = docker
 	execution.eventTransport = transport
+
 	return nil
 }

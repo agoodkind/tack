@@ -29,9 +29,11 @@ func newBackupTestStore(t *testing.T, objects map[string][]byte) *backupTestStor
 	backupS3Attempts(t, backupS3DefaultMaxAttempts)
 	store := &backupTestStore{t: t, bucket: testenv.ObjectStore(t), client: nil, stopped: false}
 	store.client = newBackupS3Client(store.config())
+
 	for key, body := range objects {
 		store.put(key, body)
 	}
+
 	return store
 }
 
@@ -63,7 +65,13 @@ func (s *backupTestStore) signAsWriter(cfg *config.Config) {
 // put writes body under key.
 func (s *backupTestStore) put(key string, body []byte) {
 	s.t.Helper()
-	if err := putObjectBytes(context.Background(), s.client, s.bucket.Bucket, key, body); err != nil {
+	if err := putObjectBytes(
+		context.Background(),
+		s.client,
+		s.bucket.Bucket,
+		key,
+		body,
+	); err != nil {
 		s.t.Fatalf("put %s: %v", key, err)
 	}
 }
@@ -71,10 +79,13 @@ func (s *backupTestStore) put(key string, body []byte) {
 // remove deletes the object under key.
 func (s *backupTestStore) remove(key string) {
 	s.t.Helper()
-	_, err := s.client.DeleteObject(context.Background(), &s3.DeleteObjectInput{
-		Bucket: aws.String(s.bucket.Bucket),
-		Key:    aws.String(key),
-	})
+	_, err := s.client.DeleteObject(
+		context.Background(),
+		&s3.DeleteObjectInput{
+			Bucket: aws.String(s.bucket.Bucket),
+			Key:    aws.String(key),
+		},
+	)
 	if err != nil {
 		s.t.Fatalf("delete %s: %v", key, err)
 	}
@@ -87,9 +98,11 @@ func (s *backupTestStore) object(key string) (body []byte, found bool) {
 	if isObjectNotFound(err) {
 		return nil, false
 	}
+
 	if err != nil {
 		s.t.Fatalf("get %s: %v", key, err)
 	}
+
 	return body, true
 }
 
@@ -111,6 +124,7 @@ func (s *backupTestStore) start() string {
 	s.stopped = false
 	backupS3Attempts(s.t, backupS3DefaultMaxAttempts)
 	s.client = newBackupS3Client(s.config())
+
 	return s.bucket.Endpoint
 }
 

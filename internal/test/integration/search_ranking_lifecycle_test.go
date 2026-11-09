@@ -25,10 +25,18 @@ func (r *rankingRun) session(t *testing.T, cursor string) searchdomain.Session {
 	if err != nil {
 		t.Fatalf("decode cursor: %v", err)
 	}
-	session, err := r.stores.SearchSessions(clock.Wall{}, 15*time.Minute).Load(integration.WithTestOperation(t, t.Context()), sessionID)
+
+	session, err := r.stores.SearchSessions(
+		clock.Wall{},
+		15*time.Minute,
+	).Load(
+		integration.WithTestOperation(t, t.Context()),
+		sessionID,
+	)
 	if err != nil {
 		t.Fatalf("load session %s: %v", sessionID, err)
 	}
+
 	return session
 }
 
@@ -38,66 +46,116 @@ func (r *rankingRun) servingIndex(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("read serving search index: %v", err)
 	}
+
 	return index
 }
 
 func (r *rankingRun) waitIndexed(t *testing.T, nodes []uuid.UUID) {
 	t.Helper()
 	index := r.servingIndex(t)
+
 	identifiers := make([]string, 0, len(nodes))
 	for _, nodeID := range nodes {
 		identifiers = append(identifiers, nodeID.String())
 	}
+
 	filters := []json.RawMessage{
 		encodeTrace(t, traceTerms{Terms: map[string][]string{"node_id": identifiers}}),
 		json.RawMessage(`{"term":{"retired":false}}`),
 	}
-	body := traceSearch{Size: traceHits, Explain: false, Source: []string{"node_id"}, Query: traceBool{Bool: traceBoolClauses{
-		Filter: filters, Should: []json.RawMessage{}, MinimumShouldMatch: 0,
-	}}}
+	body := traceSearch{
+		Size:    traceHits,
+		Explain: false,
+		Source:  []string{"node_id"},
+		Query: traceBool{
+			Bool: traceBoolClauses{
+				Filter:             filters,
+				Should:             []json.RawMessage{},
+				MinimumShouldMatch: 0,
+			},
+		},
+	}
+
 	started := clock.Now()
 	for clock.Since(started) < rankingWaitDeadline {
-		if _, err := r.client.Indices.Refresh(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Indices: []string{index}}); err != nil {
+		if _, err := r.client.Indices.Refresh(
+			integration.WithTestOperation(t, t.Context()),
+			&opensearchapi.IndicesRefreshReq{Indices: []string{index}},
+		); err != nil {
 			t.Fatalf("refresh %s: %v", index, err)
 		}
+
 		indexed := len(rankedTraceNodes(t, r.traceSearch(t, index, body)))
 		if indexed == len(nodes) {
-			t.Logf("regression indexed nodes=%d wall_ms=%d", indexed, clock.Since(started).Milliseconds())
+			t.Logf(
+				"regression indexed nodes=%d wall_ms=%d",
+				indexed,
+				clock.Since(started).Milliseconds(),
+			)
 			return
 		}
+
 		time.Sleep(rankingPoll)
 	}
+
 	t.Fatalf("the serving index did not have every regression node within %s", rankingWaitDeadline)
 }
 
 func (r *rankingRun) beginRebuild(t *testing.T) searchdomain.Rebuild {
 	t.Helper()
-	request := searchdomain.BeginRebuild{Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 24, Reason: "relevance regression"}
-	rebuild, err := r.stores.SearchRebuilds(clock.Wall{}).BeginRebuild(integration.WithTestOperation(t, t.Context()), request)
+	request := searchdomain.BeginRebuild{
+		Mode:          searchdomain.ReplacementFull,
+		PrimaryShards: 1,
+		RoutingShards: 24,
+		Reason:        "relevance regression",
+	}
+	rebuild, err := r.stores.SearchRebuilds(clock.Wall{}).BeginRebuild(
+		integration.WithTestOperation(t, t.Context()),
+		request,
+	)
 	if err != nil {
 		t.Fatalf("begin index replacement: %v", err)
 	}
+
 	t.Cleanup(func() {
 		deletion := &opensearchapi.IndicesDeleteReq{Indices: []string{rebuild.TargetIndex}}
-		_, _ = r.client.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), deletion)
+		_, _ = r.client.Indices.Delete(
+			context.WithoutCancel(integration.WithTestOperation(t, t.Context())),
+			deletion,
+		)
 	})
+
 	return rebuild
 }
 
 func (r *rankingRun) waitRebuild(t *testing.T, done func(searchdomain.Rebuild, bool) bool) {
 	t.Helper()
 	rebuilds := r.stores.SearchRebuilds(clock.Wall{})
+
 	started := clock.Now()
 	for clock.Since(started) < rankingWaitDeadline {
-		current, found, err := rebuilds.CurrentRebuild(integration.WithTestOperation(t, t.Context()))
+		current, found, err := rebuilds.CurrentRebuild(
+			integration.WithTestOperation(t, t.Context()),
+		)
 		if err != nil {
 			t.Fatalf("read index replacement: %v", err)
 		}
+
 		if done(current, found) {
-			t.Logf("regression replacement found=%t state=%s wall_ms=%d", found, current.State, clock.Since(started).Milliseconds())
+			t.Logf(
+				"regression replacement found=%t state=%s wall_ms=%d",
+				found,
+				current.State,
+				clock.Since(started).Milliseconds(),
+			)
 			return
 		}
+
 		time.Sleep(rankingPoll)
 	}
-	t.Fatalf("the index replacement did not enter the expected state within %s", rankingWaitDeadline)
+
+	t.Fatalf(
+		"the index replacement did not enter the expected state within %s",
+		rankingWaitDeadline,
+	)
 }

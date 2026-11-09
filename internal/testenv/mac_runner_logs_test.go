@@ -14,15 +14,26 @@ import (
 
 func TestMacRunnerDockerFinalOutput(t *testing.T) {
 	options, docker, _ := macDockerFixture(t)
-	options.TestArguments = []string{"-run=^TestMacRunnerFinalOutput$", "-count=1", "-timeout=45s", "-tags=macrunnerfixture,runtimeaudit"}
+	options.TestArguments = []string{
+		"-run=^TestMacRunnerFinalOutput$",
+		"-count=1",
+		"-timeout=45s",
+		"-tags=macrunnerfixture,runtimeaudit",
+	}
 	result, err := testenv.RunMacTests(t.Context(), options)
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("final output invocation: result=%+v error=%v", result, err)
 	}
 	macRuntimeEvidence(t, options, docker)
 	output := macRead(t, options.EvidenceDirectory, "runtime.log")
-	if strings.Count(output, "MAC_RUNNER_STDOUT\n") != 4096 || strings.Count(output, "MAC_RUNNER_STDERR\n") != 4096 || !strings.Contains(output, "MAC_RUNNER_FINAL_STDOUT\n") || !strings.Contains(output, "MAC_RUNNER_FINAL_STDERR\n") || !strings.Contains(output, "\nPASS\n") {
-		t.Fatal("final Docker logs did not contain complete stdout, stderr, cleanup output, and Go test completion")
+	if strings.Count(output, "MAC_RUNNER_STDOUT\n") != 4096 ||
+		strings.Count(output, "MAC_RUNNER_STDERR\n") != 4096 ||
+		!strings.Contains(output, "MAC_RUNNER_FINAL_STDOUT\n") ||
+		!strings.Contains(output, "MAC_RUNNER_FINAL_STDERR\n") ||
+		!strings.Contains(output, "\nPASS\n") {
+		t.Fatal(
+			"final Docker logs did not contain complete stdout, stderr, cleanup output, and Go test completion",
+		)
 	}
 	attached := macRead(t, options.EvidenceDirectory, "attach.log")
 	if !bytes.Equal([]byte(output), []byte(attached)) {
@@ -40,7 +51,10 @@ func macRequireInvocation(t *testing.T, directory string) {
 		SchemaVersion int    `json:"schema_version"`
 		Name          string `json:"name"`
 	}
-	if err := json.Unmarshal([]byte(macRead(t, directory, "invocation.json")), &invocation); err != nil {
+	if err := json.Unmarshal(
+		[]byte(macRead(t, directory, "invocation.json")),
+		&invocation,
+	); err != nil {
 		t.Fatal(err)
 	}
 	var summary struct {
@@ -50,8 +64,15 @@ func macRequireInvocation(t *testing.T, directory string) {
 	if err := json.Unmarshal([]byte(macRead(t, directory, "result.json")), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if invocation.SchemaVersion != 1 || !regexp.MustCompile(`^tack-mac-runner-[0-9a-f]{24}$`).MatchString(invocation.Name) || invocation.Name != summary.Name || !summary.FinalLogsComplete {
-		t.Fatalf("invocation metadata and final log status: invocation=%+v result=%+v", invocation, summary)
+	if invocation.SchemaVersion != 1 ||
+		!regexp.MustCompile(`^tack-mac-runner-[0-9a-f]{24}$`).MatchString(invocation.Name) ||
+		invocation.Name != summary.Name ||
+		!summary.FinalLogsComplete {
+		t.Fatalf(
+			"invocation metadata and final log status: invocation=%+v result=%+v",
+			invocation,
+			summary,
+		)
 	}
 }
 
@@ -61,7 +82,8 @@ func macRequireStageFailure(t *testing.T, directory, artifact, message string) {
 		t.Fatalf("%s did not record a failure status", artifact)
 	}
 	details := strings.TrimSpace(macRead(t, directory, artifact+".error"))
-	if !strings.Contains(details, message) || !strings.Contains(macRead(t, directory, "wrapper.error"), details) {
+	if !strings.Contains(details, message) ||
+		!strings.Contains(macRead(t, directory, "wrapper.error"), details) {
 		t.Fatalf("%s did not preserve paired and aggregate error details: %s", artifact, details)
 	}
 	var summary struct {
@@ -86,7 +108,8 @@ func macRequireFinalLogFailure(t *testing.T, directory, id string) {
 	if !strings.Contains(macRead(t, directory, "attach.log"), "MAC_RUNNER_SIGNAL_READY") {
 		t.Fatal("failed final retrieval did not preserve original attach output")
 	}
-	if macRead(t, directory, "source-hash-verification.exit") != "0\n" || macRead(t, directory, "cleanup.exit") != "0\n" {
+	if macRead(t, directory, "source-hash-verification.exit") != "0\n" ||
+		macRead(t, directory, "cleanup.exit") != "0\n" {
 		t.Fatal("failed final retrieval prevented source verification or outer cleanup")
 	}
 	var summary struct {

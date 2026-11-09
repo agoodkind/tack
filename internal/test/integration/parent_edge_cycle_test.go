@@ -22,21 +22,59 @@ func TestParentEdgeUpdateRefusesCyclicAncestry(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
 	project := createDeleteFixtureProject(t, env, actor, "CYCLE")
-	first := createDeleteFixtureNode(t, env, actor, project, project, "issue", "First cycle issue", nil)
-	second := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Second cycle issue", nil)
+	first := createDeleteFixtureNode(
+		t,
+		env,
+		actor,
+		project,
+		project,
+		"issue",
+		"First cycle issue",
+		nil,
+	)
+	second := createDeleteFixtureNode(
+		t,
+		env,
+		actor,
+		project,
+		project,
+		"issue",
+		"Second cycle issue",
+		nil,
+	)
 	moved := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Moved issue", nil)
 	storeParentID(t, env, first, second.String())
 	storeParentID(t, env, second, first.String())
 
-	_, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
-		NodeID: moved, Props: map[string]json.RawMessage{"parent_id": parentEdgeJSON(t, first.String())}, ActorID: actor,
-	})
-	if !errors.Is(err, domain.ErrInvalidArgument) || !strings.Contains(err.Error(), moved.String()) || !strings.Contains(err.Error(), first.String()) {
-		t.Fatalf("move of issue %s under %s returned %v, want a refusal with both IDs", moved, first, err)
+	_, err := env.NodeSvc.Update(
+		env.Ctx,
+		service.UpdateInput{
+			NodeID:  moved,
+			Props:   map[string]json.RawMessage{"parent_id": parentEdgeJSON(t, first.String())},
+			ActorID: actor,
+		},
+	)
+	if !errors.Is(err, domain.ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), moved.String()) ||
+		!strings.Contains(err.Error(), first.String()) {
+		t.Fatalf(
+			"move of issue %s under %s returned %v, want a refusal with both IDs",
+			moved,
+			first,
+			err,
+		)
 	}
+
 	view, err := env.Stores.Views.Get(env.Ctx, moved)
-	if err != nil || view == nil || string(view.Props["parent_id"]) != string(parentEdgeJSON(t, project.String())) {
-		t.Fatalf("issue %s after the refused move = %+v, err %v, want parent_id %s", moved, view, err, project)
+	if err != nil || view == nil ||
+		string(view.Props["parent_id"]) != string(parentEdgeJSON(t, project.String())) {
+		t.Fatalf(
+			"issue %s after the refused move = %+v, err %v, want parent_id %s",
+			moved,
+			view,
+			err,
+			project,
+		)
 	}
 }
 
@@ -49,10 +87,12 @@ func storeParentID(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID, par
 	if err != nil || current == nil {
 		t.Fatalf("read node %s: %v", nodeID, err)
 	}
+
 	view, err := env.Stores.Views.Get(env.Ctx, nodeID)
 	if err != nil || view == nil {
 		t.Fatalf("read view of node %s: %v", nodeID, err)
 	}
+
 	value := parentEdgeJSON(t, parentValue)
 	current.Props["parent_id"], view.Props["parent_id"] = value, value
 	if err := env.Stores.Nodes.Set(env.Ctx, current, view); err != nil {
