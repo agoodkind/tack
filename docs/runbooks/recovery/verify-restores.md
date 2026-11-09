@@ -59,7 +59,7 @@ temporary ledger.
    backup readers and native operations to end before cleanup can delete their
    artifacts.
 
-The FoundationDB restore watches progress rather than impose a total duration.
+The FoundationDB restore monitors progress without imposing a total duration.
 A stalled restore reports its last counters and inactivity. Metadata lookup and
 individual probes have their own time limits. A large restore can continue
 while it advances. YugabyteDB readiness and restoration also stop on failure or

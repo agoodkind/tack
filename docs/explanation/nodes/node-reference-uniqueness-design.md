@@ -14,7 +14,9 @@ The template can render a composite identifier that a uniqueness flag on a singl
 `Generated` selects the property to fill during creation. An empty `Generated` does not select a property for template allocation.
 A template that fails to render a required part must report the problem instead of issuing a partial reference.
 
-Each part contributes text in its declared position.
+The template uses each part's value to render its reference.
+
+Reference parts:
 
 | Part | Value |
 | --- | --- |

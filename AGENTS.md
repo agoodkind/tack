@@ -49,18 +49,6 @@ Represent edges as `Relationship` records. Derive behavior from `NodeType` metad
 
 Use FoundationDB for all product data.
 
-Required product data:
-
-- Store nodes in FoundationDB.
-- Store relationships in FoundationDB.
-- Store read rows in FoundationDB.
-- Store resolution records in FoundationDB.
-- Store activity in FoundationDB.
-- Store comments in FoundationDB.
-- Store properties in FoundationDB.
-- Store sequences in FoundationDB.
-- Store automation rules in FoundationDB.
-
 Use YugabyteDB SQL only for authentication and compliance auditing.
 
 Permitted SQL records:
