@@ -10,8 +10,8 @@ import (
 	"goodkind.io/tack/internal/domain/org"
 )
 
-// countingMembers is a membership store that counts its reads, standing in
-// for the org_members table.
+// countingMembers substitutes for org_members in tests and counts
+// ListOrgIDsForUser calls.
 type countingMembers struct {
 	orgs  map[uuid.UUID][]uuid.UUID
 	reads atomic.Int64
@@ -29,8 +29,9 @@ func (c *countingMembers) ListMembers(context.Context, uuid.UUID) ([]*org.Member
 	return nil, nil
 }
 
-// TestCachedMembersReadsOncePerLifetime pins TACK-505: the second read
-// within the lifetime costs no call to the store, and the set is the same.
+// TestCachedMembersReadsOncePerLifetime checks that repeated lookups within
+// the cache lifetime return the same organizations without reading the store
+// again.
 func TestCachedMembersReadsOncePerLifetime(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
@@ -54,8 +55,8 @@ func TestCachedMembersReadsOncePerLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedMembersForgetsAfterTheLifetime pins that a change made elsewhere
-// reaches this instance within one lifetime.
+// TestCachedMembersForgetsAfterTheLifetime checks that the next lookup after
+// expiry returns a membership change from the store.
 func TestCachedMembersForgetsAfterTheLifetime(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
@@ -83,8 +84,8 @@ func TestCachedMembersForgetsAfterTheLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedMembersHandsOutCopies pins that a caller mutating its set does
-// not change what the next caller reads.
+// TestCachedMembersHandsOutCopies checks that a caller's changes to its
+// organization set do not change the set the next caller reads.
 func TestCachedMembersHandsOutCopies(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())

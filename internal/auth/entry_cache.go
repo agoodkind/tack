@@ -10,15 +10,15 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// cacheable is what the auth caches hold: a token record, a membership set,
-// or a user record. The union keeps the cache concrete rather than open to
-// any value.
+// cacheable restricts auth cache values to token records, organization
+// membership sets, and user records.
 type cacheable interface {
 	*token.Token | []uuid.UUID | *user.User
 }
 
-// entryCache is a bounded cache with a lifetime per entry. When it is full
-// the entry untouched for longest goes first. It is safe for concurrent use.
+// entryCache limits the number of entries and gives each entry an expiry. It
+// removes the least recently used entry when full and supports concurrent
+// callers.
 type entryCache[V cacheable] struct {
 	mu      sync.Mutex
 	max     int
@@ -41,8 +41,8 @@ func newEntryCache[V cacheable](limit int) *entryCache[V] {
 	}
 }
 
-// get returns the live entry for key and marks it recently used. An entry
-// past its lifetime is removed and reported absent.
+// get returns an unexpired entry for key and marks it recently used. It
+// removes an expired entry and reports that the cache does not contain it.
 func (c *entryCache[V]) get(key string, now time.Time) (V, bool) {
 	var none V
 	c.mu.Lock()
@@ -105,7 +105,7 @@ func (c *entryCache[V]) put(key string, value V, expires time.Time) {
 	})
 }
 
-// remove forgets key, if present.
+// remove deletes the entry for key if the cache contains it.
 func (c *entryCache[V]) remove(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -15,29 +15,24 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// TokenValidator is the minimal interface the middleware needs.
+// TokenValidator provides the token check that the middleware requires.
 type TokenValidator interface {
 	Validate(ctx context.Context, raw string) (*token.Token, error)
 }
 
-// OrgLister resolves the orgs a user belongs to, so auth events carry the
-// actor's org instead of the nil org (TACK-461).
+// OrgLister returns a user's organizations. Auth events use the actor's
+// organization when the actor belongs to exactly one organization.
 type OrgLister interface {
 	ListOrgIDsForUser(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 }
 
-// attachMembership reads the actor's org memberships once per request,
-// attaches the set to the context for the handlers behind the middleware,
-// and returns the actor's sole org for the auth event. It returns [uuid.Nil]
-// when the actor belongs to zero or several orgs, and the auth event then
-// uses the system org. A lookup failure attaches nothing and returns
-// [uuid.Nil] without failing the request. The MCP handler then makes its own
-// lookup and fails closed (TACK-503).
-func attachMembership(
-	ctx context.Context,
-	orgs OrgLister,
-	userID uuid.UUID,
-) (context.Context, uuid.UUID) {
+// attachMembership reads the actor's organizations once and attaches them to
+// the context for later handlers. It returns the sole organization for the
+// auth event, or [uuid.Nil] for zero or multiple organizations. The auth
+// event uses the system organization for [uuid.Nil]. A failed lookup does
+// not attach memberships or fail the request and returns [uuid.Nil]. The MCP
+// handler then reads memberships itself and rejects the request on failure.
+func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (context.Context, uuid.UUID) {
 	if orgs == nil {
 		return ctx, uuid.Nil
 	}
@@ -181,8 +176,8 @@ func DevBearer(orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.
 	}
 }
 
-// isUnauthenticated reports whether a token lookup refused the token, as
-// distinct from failing to answer, through any wrapping a cache added.
+// isUnauthenticated uses [errors.Is] to recognize token refusals, including
+// wrapped errors. Other errors indicate a failed check.
 func isUnauthenticated(err error) bool {
 	return errors.Is(err, domain.ErrUnauthenticated)
 }
@@ -207,8 +202,7 @@ func unauthorized(w http.ResponseWriter, msg string) {
 }
 
 // authUnavailable returns HTTP 503 with a JSON body when the token check
-// cannot answer. For example, the server may be unable to connect to the
-// ledger.
+// cannot determine validity, including a database connection failure.
 func authUnavailable(w http.ResponseWriter) {
 	writeJSONError(w, http.StatusServiceUnavailable, "authentication unavailable")
 }

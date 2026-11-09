@@ -46,11 +46,11 @@ func devBearerResponse(
 	return resp.StatusCode, body, nextRan.Load()
 }
 
-// TestDevBearerRefusesRequestWhenAuthEventIsNotRecorded is TACK-583: when
-// the recorder refuses the auth.token_used event, the middleware answers 503
-// with a JSON error body and does not call the next handler. A middleware
-// built later with a refusing recorder does not change the recorder of a
-// middleware built earlier, as with two runtime graphs in one process.
+// TestDevBearerRefusesRequestWhenAuthEventIsNotRecorded checks that recorder
+// refusal of auth.token_used returns HTTP 503 with a JSON error body and
+// prevents the next handler from running. A middleware instance with a
+// refusing recorder does not change an earlier instance's recorder. Runtime
+// graphs in one process depend on this separation.
 func TestDevBearerRefusesRequestWhenAuthEventIsNotRecorded(t *testing.T) {
 	working := audit.NewMemoryRecorder()
 	served := auth.DevBearer(nil, working)

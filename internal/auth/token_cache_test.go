@@ -13,8 +13,8 @@ import (
 	"goodkind.io/tack/internal/domain/token"
 )
 
-// countingValidator answers one token record per bearer and counts how many
-// times it was asked, which is the number the token cache exists to reduce.
+// countingValidator returns a token record for each known bearer and counts
+// validation calls to check how often the token cache reads the store.
 type countingValidator struct {
 	records map[string]*token.Token
 	calls   atomic.Int64
@@ -43,9 +43,9 @@ func liveToken(expiresAt *time.Time) *token.Token {
 	}
 }
 
-// TestCachedTokenValidatorAsksOncePerLifetime pins TACK-504: the second
-// lookup within the lifetime costs no call to the store, and the record
-// comes back unchanged.
+// TestCachedTokenValidatorAsksOncePerLifetime checks that a second lookup
+// within the cache lifetime does not read the store again and returns the
+// same token and user IDs.
 func TestCachedTokenValidatorAsksOncePerLifetime(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{"tack_a": liveToken(nil)}}
 	cached := NewCachedTokenValidator(store, time.Minute, 16)
@@ -70,9 +70,8 @@ func TestCachedTokenValidatorAsksOncePerLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedTokenValidatorForgetsAfterTheLifetime pins that the lifetime is
-// the revocation bound: after it, the store is asked again and a token it no
-// longer holds is refused.
+// TestCachedTokenValidatorForgetsAfterTheLifetime checks that a lookup after
+// expiry reads the store again and rejects a token the store removed.
 func TestCachedTokenValidatorForgetsAfterTheLifetime(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{"tack_b": liveToken(nil)}}
 	cached := NewCachedTokenValidator(store, 40*time.Millisecond, 16)
@@ -93,8 +92,9 @@ func TestCachedTokenValidatorForgetsAfterTheLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedTokenValidatorHonorsTheTokensOwnExpiry pins that a cached record
-// whose expires_at passes is refused at once, whatever the cache lifetime.
+// TestCachedTokenValidatorHonorsTheTokensOwnExpiry checks that the validator
+// rejects a cached token after expires_at even if the cache lifetime has not
+// expired.
 func TestCachedTokenValidatorHonorsTheTokensOwnExpiry(t *testing.T) {
 	expiresAt := time.Now().Add(30 * time.Millisecond)
 	store := &countingValidator{records: map[string]*token.Token{"tack_c": liveToken(&expiresAt)}}
@@ -112,8 +112,9 @@ func TestCachedTokenValidatorHonorsTheTokensOwnExpiry(t *testing.T) {
 	}
 }
 
-// TestCachedTokenValidatorNeverCachesARefusal pins that a token created after
-// a refusal is accepted on the next request.
+// TestCachedTokenValidatorNeverCachesARefusal checks that the validator
+// accepts a token on the next lookup after the store creates it following a
+// refusal.
 func TestCachedTokenValidatorNeverCachesARefusal(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{}}
 	cached := NewCachedTokenValidator(store, time.Minute, 16)
@@ -129,8 +130,8 @@ func TestCachedTokenValidatorNeverCachesARefusal(t *testing.T) {
 	}
 }
 
-// TestCachedTokenValidatorStaysBounded pins the size bound: the cache never
-// holds more than it was sized for.
+// TestCachedTokenValidatorStaysBounded checks that the cache does not exceed
+// its configured entry limit.
 func TestCachedTokenValidatorStaysBounded(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{}}
 
@@ -153,8 +154,8 @@ func TestCachedTokenValidatorStaysBounded(t *testing.T) {
 	}
 }
 
-// TestBearerRefusesAWrappedUnauthenticated pins that the middleware still
-// answers 401 when the refusal arrives wrapped by the cache.
+// TestBearerRefusesAWrappedUnauthenticated checks that Bearer returns HTTP
+// 401 when CachedTokenValidator refuses an unknown token.
 func TestBearerRefusesAWrappedUnauthenticated(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{}}
 	cached := NewCachedTokenValidator(store, time.Minute, 16)

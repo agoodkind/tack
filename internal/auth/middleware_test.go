@@ -14,8 +14,8 @@ import (
 	"goodkind.io/tack/internal/domain/token"
 )
 
-// captureRecorder keeps every auth event the middleware records so a test
-// can read the stamped org back.
+// captureRecorder stores every auth event the middleware records. Tests read
+// the recorded organization from these events.
 type captureRecorder struct {
 	mu     sync.Mutex
 	events []audit.Event
@@ -45,7 +45,7 @@ func (c *captureRecorder) tokenUsed(t *testing.T) audit.Event {
 	return audit.Event{}
 }
 
-// fixedOrgs serves a canned membership answer, standing in for org_members.
+// fixedOrgs substitutes a fixed membership result for org_members in tests.
 type fixedOrgs struct {
 	orgs []uuid.UUID
 	err  error
@@ -55,8 +55,8 @@ func (f fixedOrgs) ListOrgIDsForUser(context.Context, uuid.UUID) ([]uuid.UUID, e
 	return f.orgs, f.err
 }
 
-// fixedValidator accepts every bearer as one user, standing in for the token
-// table.
+// fixedValidator substitutes for the token table in tests and accepts every
+// bearer as the same user.
 type fixedValidator struct {
 	userID  uuid.UUID
 	tokenID uuid.UUID
@@ -73,14 +73,11 @@ func (f fixedValidator) Validate(context.Context, string) (*token.Token, error) 
 	}, nil
 }
 
-// driveAuth sends one authenticated request through the middleware that
-// build returns for recorder, and returns the recorded auth.token_used event
-// and the response status.
-func driveAuth(
-	t *testing.T,
-	build func(audit.Recorder) func(http.Handler) http.Handler,
-	bearer string,
-) (audit.Event, int) {
+// driveAuth sends one authenticated request to the middleware that build
+// creates with recorder. It returns the recorded auth.token_used event and
+// response status after HTTP 200, or an empty event and the status
+// otherwise.
+func driveAuth(t *testing.T, build func(audit.Recorder) func(http.Handler) http.Handler, bearer string) (audit.Event, int) {
 	t.Helper()
 	recorder := &captureRecorder{}
 	middleware := build(recorder)
@@ -125,8 +122,8 @@ func devBearerFor(orgs OrgLister) func(audit.Recorder) func(http.Handler) http.H
 	}
 }
 
-// TestDevBearerStampsSoleOrg pins TACK-461's forward fix: an auth event for
-// an actor who belongs to exactly one org carries that org instead of nil.
+// TestDevBearerStampsSoleOrg checks that an auth event records the actor's
+// organization when the actor belongs to exactly one organization.
 func TestDevBearerStampsSoleOrg(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
@@ -151,8 +148,9 @@ func TestDevBearerStampsSoleOrg(t *testing.T) {
 	}
 }
 
-// TestDevBearerUsesSystemOrgForAmbiguousOrgs checks that an actor with zero
-// or several memberships produces a token_used event in the system org.
+// TestDevBearerUsesSystemOrgForAmbiguousOrgs checks that DevBearer records
+// auth.token_used in the system organization for zero or multiple
+// memberships.
 func TestDevBearerUsesSystemOrgForAmbiguousOrgs(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 
@@ -198,10 +196,9 @@ func TestDevBearerLookupFailureNeverFailsAuth(t *testing.T) {
 	}
 }
 
-// TestBearerStampsSoleOrg covers the production token path with the same
-// sole-org stamp, and pins that the accepted token's id rides on the event,
-// which is what the audit-consumer projects the token's last use from
-// (TACK-502).
+// TestBearerStampsSoleOrg checks that Bearer records the actor's sole
+// organization and the accepted token ID in the auth event. The
+// audit-consumer uses that ID to update the token's last-use time.
 func TestBearerStampsSoleOrg(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())

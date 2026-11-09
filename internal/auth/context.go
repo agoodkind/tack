@@ -1,5 +1,5 @@
 // Package auth provides HTTP middleware for bearer-token authentication. Its
-// context helpers store the authenticated user ID in request contexts.
+// context helpers store and read the authenticated user ID.
 package auth
 
 import (

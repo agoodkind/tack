@@ -12,8 +12,8 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// countingOrgs answers one membership set and counts how many times the
-// middleware asked, which is the number the request-path criterion bounds.
+// countingOrgs returns one membership set and counts middleware lookups. The
+// membership test uses the count to check for one lookup per request.
 type countingOrgs struct {
 	orgs  []uuid.UUID
 	err   error
@@ -25,13 +25,10 @@ func (c *countingOrgs) ListOrgIDsForUser(context.Context, uuid.UUID) ([]uuid.UUI
 	return c.orgs, c.err
 }
 
-// membershipSeenByNext sends one authenticated request through the
-// middleware and returns the membership set the next handler found on its
-// context, and whether one was attached.
-func membershipSeenByNext(
-	t *testing.T,
-	middleware func(http.Handler) http.Handler,
-) ([]uuid.UUID, bool) {
+// membershipSeenByNext sends one authenticated request to the middleware. It
+// returns the next handler's context memberships and whether the context
+// contains a membership set.
+func membershipSeenByNext(t *testing.T, middleware func(http.Handler) http.Handler) ([]uuid.UUID, bool) {
 	t.Helper()
 	var seen []uuid.UUID
 	var attached bool
@@ -61,9 +58,9 @@ func membershipSeenByNext(
 	return seen, attached
 }
 
-// TestBearerAttachesTheMembershipItReadOnce pins TACK-503: the middleware
-// asks the membership store once and hands the answer to the handler behind
-// it, so the MCP handler does not ask again.
+// TestBearerAttachesTheMembershipItReadOnce checks that the middleware reads
+// memberships once and stores them in the next handler's request context.
+// The MCP handler reuses this set instead of reading memberships again.
 func TestBearerAttachesTheMembershipItReadOnce(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgs := []uuid.UUID{uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())}
@@ -83,9 +80,10 @@ func TestBearerAttachesTheMembershipItReadOnce(t *testing.T) {
 	}
 }
 
-// TestBearerAttachesNothingWhenTheReadFails pins the fail-closed handoff: a
-// failed read serves the request with no set attached, so the handler behind
-// the middleware must look membership up itself and refuse on failure.
+// TestBearerAttachesNothingWhenTheReadFails checks that the middleware calls
+// the next handler without attaching memberships after a failed read. The
+// MCP handler must then read memberships itself and reject the request if
+// that read fails.
 func TestBearerAttachesNothingWhenTheReadFails(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	lister := &countingOrgs{orgs: nil, err: errors.New("membership store down")}
