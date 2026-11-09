@@ -64,37 +64,3 @@ A stalled restore reports its last counters and inactivity. Metadata lookup and
 individual probes have their own time limits. A large restore can continue
 while it advances. YugabyteDB readiness and restoration also stop on failure or
 stalled progress rather than treat a large database as a failed restore.
-
-## Measure guest-failure recovery
-
-Use the [acceptance criteria](../../reference/recovery/2026-08-08-backup-rearch-acceptance.md)
-for the required result of each measurement. Run deliberate guest failures on
-QA. Store observations outside the guest under test.
-
-1. Record cluster status, full replication, a successful public product write,
-   and the current restorable point. Preserve the acknowledged value for
-   readback after the failure.
-2. Poll external health once per second for two minutes while stopping one data
-   guest. Exercise public product reads and writes throughout that interval.
-   Measure the longest interval with non-200 responses against the ten-second
-   maximum. Read back the pre-failure acknowledged write and record ledger
-   election time.
-3. Observe the restorable point during the failure and follow backup status for
-   fifteen minutes. Require continued advancement, rather than a single fresh
-   sample after recovery.
-4. Restore the guest and record the time until every cluster reports full
-   replication. Repeat for each data guest. Measure each affected database and
-   broker; a ledger-only test cannot establish product-store availability.
-5. For broker failures, compare counts of produced events with their permanent
-   ledger rows. For app failures, observe proxy selection and external responses.
-   Retain the before-and-after measurements with the corresponding guest and
-   engine identities.
-
-## Verify ledger node changes
-
-1. Before changing a ledger node's identity or startup configuration, record its
-   volume and row count.
-2. Verify that the restarted node uses the same volume and returns the same
-   count before admitting another node.
-3. Before retiring a node, record cluster status from outside the cluster.
-   Require the three data nodes, three copies, and full replication.

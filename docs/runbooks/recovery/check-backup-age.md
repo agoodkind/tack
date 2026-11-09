@@ -1,8 +1,7 @@
 # Check backup age
 
 The staleness check records observations and can send alarm mail. Run checks
-through the audited operator CLI with a verified identity. Run tests on QA or
-in Docker containers; production tests require explicit operator authorization.
+through the audited operator CLI with a verified identity.
 
 1. Use the Configs-managed installation and backup settings. Confirm the alarm
    recipient and relay configuration. An empty `TACK_BACKUP_ALARM_EMAIL` disables

@@ -24,6 +24,8 @@
 - [Expire old backups](runbooks/recovery/expire-backups.md)
 - [Prepare a data restore](runbooks/recovery/restore-data.md)
 - [Verify backup restores](runbooks/recovery/verify-restores.md)
+- [Measure guest-failure recovery](runbooks/recovery/measure-guest-failure-recovery.md)
+- [Verify ledger node changes](runbooks/recovery/verify-ledger-node-changes.md)
 
 ## Search
 
