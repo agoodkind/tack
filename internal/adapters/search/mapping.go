@@ -28,7 +28,8 @@ type IndexInfo struct {
 	TokenizerSHA256 string
 }
 
-// MappingVersion mismatches require a full index replacement through ops search reindex.
+// MappingVersion mismatches require a full index replacement through ops search
+// reindex.
 const MappingVersion = "2"
 
 // approvedSplitTargets lists the primary shard counts a native split may
@@ -99,8 +100,13 @@ type indexSettingsBody struct {
 }
 
 // Validate checks the model identity, mapping version, and shard settings
-// before index creation. It returns one joined error that lists every failed
-// check.
+// before index creation.
+//
+// Validate joins every failed check into one error.
+//
+//	1. Check the registered model and pinned tokenizer.
+//	2. Require a mapping version and valid shard counts.
+//	3. Check routing divisibility for primaries and approved split targets.
 func (s IndexSpec) Validate(ctx context.Context) error {
 	problems := s.problems()
 	if len(problems) == 0 {

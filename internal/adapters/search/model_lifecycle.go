@@ -108,8 +108,8 @@ func (a *Adapter) deployOnce(ctx context.Context, modelID string) error {
 	return a.waitDeploy(ctx, modelID, taskID)
 }
 
-// startDeploy starts one deploy task for modelID with no node IDs and
-// returns its task ID.
+// startDeploy starts one deploy task for modelID without node IDs and returns
+// its task ID.
 func (a *Adapter) startDeploy(ctx context.Context, modelID string) (string, error) {
 	var started modelTaskStart
 	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, modelDeployRequest{modelID: modelID}, &started)

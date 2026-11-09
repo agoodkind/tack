@@ -21,14 +21,13 @@ const (
 
 // waitDeployedRecord reads the record of modelID while its state is DEPLOYING
 // or DEPLOY_FAILED, until modelTaskWait ends. ML Commons marks a deploy task
-// COMPLETED before it writes the final state to the model record, and its
-// sync-up job can write DEPLOY_FAILED to the record while a slow deploy runs. A
-// read directly after the task can return either earlier state. Every other
-// state is final for this task and ends the wait. A poll that status 429 rejects
-// or that exceeds its request timeout does not end the wait, as in
-// waitModelTask. It returns an error when modelTaskWait ends. After a final
-// state, the caller verifies the record and rejects any state other than
-// DEPLOYED.
+// COMPLETED before it writes the final state to the model record. Its sync-up
+// job can write DEPLOY_FAILED to the record while a slow deploy runs. A read
+// directly after the task can return either earlier state. Every other state
+// ends the wait. A poll does not end the wait when OpenSearch rejects it with
+// status 429 or the request times out, as in waitModelTask. waitDeployedRecord
+// returns an error when modelTaskWait ends. After a final state, the caller
+// verifies the record and rejects any state other than DEPLOYED.
 func (a *Adapter) waitDeployedRecord(ctx context.Context, modelID string) error {
 	window := time.NewTimer(modelTaskWait)
 	defer window.Stop()

@@ -28,6 +28,12 @@ type Config struct {
 }
 
 // Validate rejects incomplete or insecure native search settings.
+//
+// Validate returns an error at the first failed check.
+//
+//	1. Require an HTTPS endpoint and credentials.
+//	2. Require a positive timeout and nonnegative retry count.
+//	3. Require a valid CA certificate.
 func (c Config) Validate(ctx context.Context) error {
 	parsed, err := url.Parse(c.Endpoint)
 	if err != nil {
@@ -66,16 +72,22 @@ func retryBackoff(attempt int) time.Duration {
 }
 
 // ClientConfig returns the official client settings for this configuration.
-// The client sends every request to the one configured endpoint and never
-// discovers other cluster members, because the environment's proxy selects
-// the OpenSearch node.
+//
+// The client sends every request to the configured endpoint. It does not
+// discover other cluster members because the environment's proxy selects the
+// OpenSearch node.
+//
+//	1. Apply the configured credentials, CA, timeout, and retry count.
+//	2. Disable retries when MaxRetries is zero.
+//	3. Disable node discovery.
 func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
 	discoverNodesOnStart := false
 	pass := c.Password
-	// Config.MaxRetries accepts 0 for one attempt per request. The official client
-	// treats MaxRetries of 0 as its default of six retries and resends requests that time out.
-	// A retry can repeat a point in time create or delete after the first attempt
-	// already took effect. DisableRetry limits the client to one attempt.
+	// Config.MaxRetries accepts zero for one attempt per request. The official
+	// client treats MaxRetries of zero as its default of six retries and resends
+	// requests that time out. A retry can repeat a point in time create or delete
+	// after the first attempt already took effect. DisableRetry limits the client
+	// to one attempt.
 	retriesDisabled := c.MaxRetries == 0
 	return opensearch.Config{
 		Addresses:             []string{c.Endpoint},
@@ -95,12 +107,14 @@ func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) op
 	}
 }
 
-// predictClientConfig returns ClientConfig settings with RequestTimeout set to zero and
-// EnableRetryOnTimeout set to false. The caller's deadline bounds the predict call.
-// With MaxRetries set to zero, the client makes one attempt and does not retry any status.
-// With a positive MaxRetries, the client retries responses with statuses in retryStatuses
-// up to MaxRetries times and waits retryBackoff between attempts. A timeout does not trigger
-// a retry.
+// predictClientConfig returns ClientConfig settings with RequestTimeout set to
+// zero and EnableRetryOnTimeout set to false. The caller's deadline bounds the
+// predict call.
+//
+// With MaxRetries set to zero, the client makes one attempt and does not retry
+// any status. With a positive MaxRetries, the client retries responses with
+// statuses in retryStatuses up to MaxRetries times and waits retryBackoff
+// between attempts. A timeout does not trigger a retry.
 func (c Config) predictClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
 	settings := c.ClientConfig(observer)
 	settings.RequestTimeout = 0

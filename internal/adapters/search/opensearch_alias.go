@@ -33,15 +33,23 @@ type aliasBinding struct {
 	IsWriteIndex bool   `json:"is_write_index,omitempty"`
 }
 
-// PublicAliasTarget returns the one physical index the public alias selects.
+// PublicAliasTarget returns the physical index that the public alias selects.
+//
+// PublicAliasTarget rejects an alias that does not select exactly one index.
+//
+//	1. Resolve PublicAlias.
+//	2. Return its single physical index.
 func (a *Adapter) PublicAliasTarget(ctx context.Context) (string, error) {
 	return a.AliasTarget(ctx, PublicAlias)
 }
 
-// SwitchPublicAlias removes the public alias from one physical index and
-// adds it to another in one typed alias request. OpenSearch applies both
-// actions atomically. An uncertain result requires the caller to read the
-// alias.
+// SwitchPublicAlias changes the physical index that the public alias selects.
+//
+// OpenSearch applies the removal and addition atomically in one typed alias
+// request. The caller must read the alias after an uncertain result.
+//
+//	1. Remove the public alias from from.
+//	2. Add the public alias to to as the write index.
 func (a *Adapter) SwitchPublicAlias(ctx context.Context, from, to string) error {
 	remove := aliasBinding{Index: from, Alias: PublicAlias, IsWriteIndex: false}
 	add := aliasBinding{Index: to, Alias: PublicAlias, IsWriteIndex: true}
@@ -61,8 +69,12 @@ func (a *Adapter) SwitchPublicAlias(ctx context.Context, from, to string) error 
 	return nil
 }
 
-// DeleteIndex deletes one physical index. A missing index satisfies the
-// request.
+// DeleteIndex deletes one physical index.
+//
+// DeleteIndex accepts an index that does not exist.
+//
+//	1. Request deletion with IgnoreUnavailable enabled.
+//	2. Log successful completion.
 func (a *Adapter) DeleteIndex(ctx context.Context, index string) error {
 	ignoreMissing := true
 	_, err := a.api.Indices.Delete(ctx, &opensearchapi.IndicesDeleteReq{
@@ -80,8 +92,12 @@ type retiredCount struct {
 	Query booleanTermClause `json:"query"`
 }
 
-// IndexRetention counts the retired pages of index and reads the bytes its
-// primary shards store.
+// IndexRetention counts retired pages and reads primary shard storage bytes.
+//
+// IndexRetention returns an error when index does not have storage statistics.
+//
+//	1. Count documents with retired set to true.
+//	2. Read the primary shards' store size.
 func (a *Adapter) IndexRetention(ctx context.Context, index string) (searchdomain.RetentionStats, error) {
 	var none searchdomain.RetentionStats
 	body, err := json.Marshal(retiredCount{Query: booleanTermClause{Term: map[string]bool{"retired": true}}})

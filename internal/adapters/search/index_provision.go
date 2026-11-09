@@ -14,9 +14,14 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// EnsureIndex creates a missing physical index. For an existing index, it
-// updates only the replica count and then verifies the mapping and shard
-// topology against spec.
+// EnsureIndex creates a missing physical index.
+//
+// For an existing index, EnsureIndex updates only the replica count before
+// verifying the mapping and shard topology against spec.
+//
+//	1. Validate spec and check whether index exists.
+//	2. Create a missing index.
+//	3. Update replicas and verify an existing index.
 func (a *Adapter) EnsureIndex(ctx context.Context, index string, spec IndexSpec) error {
 	if err := spec.Validate(ctx); err != nil {
 		wrapped := fmt.Errorf("ensure OpenSearch index %s: %w", index, err)
@@ -56,11 +61,14 @@ func (a *Adapter) EnsureIndex(ctx context.Context, index string, spec IndexSpec)
 // DefaultGreenWait is the health wait of index provisioning and verification.
 const DefaultGreenWait = time.Minute
 
-// WaitGreen waits at most timeout for every configured index shard to become
-// assigned. It returns [searchdomain.ErrIndexNotReady] when the index health
-// is not green after that wait. OpenSearch returns HTTP 408 when the health
-// wait times out, and WaitGreen maps that response to
-// [searchdomain.ErrIndexNotReady].
+// WaitGreen waits at most timeout for OpenSearch to assign every configured
+// index shard.
+//
+// WaitGreen returns [searchdomain.ErrIndexNotReady] if the index health does
+// not become green. OpenSearch returns HTTP 408 when the health wait times out.
+//
+//	1. Request green health with timeout.
+//	2. Treat HTTP 408, a timed out response, or nongreen health as not ready.
 func (a *Adapter) WaitGreen(ctx context.Context, index string, timeout time.Duration) error {
 	response, err := a.api.Cluster.Health(ctx, &opensearchapi.ClusterHealthReq{
 		Indices: []string{index},

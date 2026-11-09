@@ -32,8 +32,14 @@ var PinnedModel = ModelInfo{
 	RuntimeBytes:    0,
 }
 
-// Provision reuses the registered pinned pretrained model when one exists and
-// registers the model when none exists. It then deploys and verifies the model.
+// Provision reuses the registered pinned pretrained model when one exists.
+//
+// Provision registers the model when the lookup does not find one, then deploys
+// and verifies it.
+//
+//	1. Find or register the pinned model.
+//	2. Deploy the model.
+//	3. Verify its identity and placement.
 func (a *Adapter) Provision(ctx context.Context) (ModelInfo, error) {
 	modelID, err := a.findPinnedModel(ctx)
 	if err == nil && modelID == "" {

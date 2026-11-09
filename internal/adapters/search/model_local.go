@@ -16,9 +16,9 @@ import (
 // reported total counts every connector.
 const connectorSearchBody = `{"query":{"match_all":{}},"_source":["name","protocol"],"size":100,"track_total_hits":true}`
 
-// LocalModel is the ML Commons record of one deployed model and of every
-// registered connector. A connector lets ML Commons send text to a service
-// outside the engine.
+// LocalModel contains one deployed model's ML Commons record and up to 100
+// registered connectors. A connector lets ML Commons send text to a service
+// outside the engine. The total count includes every connector.
 type LocalModel struct {
 	ModelID         string
 	Function        string
@@ -36,8 +36,8 @@ type Connector struct {
 	Protocol string
 }
 
-// localModelError is a LocalModel failure. LocalModel logs nothing; the caller
-// that owns the check logs the failure once.
+// localModelError reports a LocalModel failure. LocalModel does not write
+// log messages; the caller that owns the check logs each failure once.
 type localModelError struct {
 	operation string
 	err       error
@@ -74,10 +74,16 @@ type connectorSearchResult struct {
 	} `json:"hits"`
 }
 
-// LocalModel reads the model document for modelID and every ML Commons
-// connector. It returns an error unless the model is a local sparse-encoding
-// model without a connector and ML Commons lists no connector. The returned
-// record includes the model ID and bundle SHA-256 on every completed read.
+// LocalModel reads the model document for modelID and the ML Commons connector
+// list.
+//
+// LocalModel returns an error unless the model uses local sparse encoding
+// without a connector and ML Commons does not list any connectors. Every
+// completed model read includes the model ID and bundle SHA-256.
+//
+//	1. Read the model document.
+//	2. Read up to 100 connectors and the total connector count.
+//	3. Check the model function and reject connector use.
 func (a *Adapter) LocalModel(ctx context.Context, modelID string) (LocalModel, error) {
 	model, err := a.readLocalModel(ctx, modelID)
 	if err != nil {
@@ -105,8 +111,9 @@ func (a *Adapter) readLocalModel(ctx context.Context, modelID string) (LocalMode
 	}, nil
 }
 
-// readConnectors adds every registered connector to model. ML Commons
-// returns an empty result before the first connector creates its index.
+// readConnectors adds up to 100 registered connectors and their total count to
+// model. ML Commons returns an empty result before the first connector creates
+// its index.
 func (a *Adapter) readConnectors(ctx context.Context, model *LocalModel) error {
 	var found connectorSearchResult
 	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, connectorSearchRequest{body: []byte(connectorSearchBody)}, &found)

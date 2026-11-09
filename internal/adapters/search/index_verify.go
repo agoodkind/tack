@@ -13,12 +13,19 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// generatedSemanticField is the nested chunk field OpenSearch adds for page_text.
+// generatedSemanticField identifies the nested chunk field that OpenSearch adds
+// for page_text.
 const generatedSemanticField = "page_text_semantic_info"
 
-// VerifyIndex compares the stored mapping, including the model ID in its
-// metadata, and the shard topology with spec. It does not read the model
-// registration; VerifyModel checks that.
+// VerifyIndex compares the stored mapping and shard topology with spec.
+//
+// The mapping comparison includes the model ID in its metadata. VerifyIndex
+// does not read the model registration; [Adapter.VerifyModel] checks that
+// record.
+//
+//	1. Validate spec and build the expected mapping.
+//	2. Compare stored mapping fields and metadata.
+//	3. Compare primary, routing, and replica counts.
 func (a *Adapter) VerifyIndex(ctx context.Context, index string, spec IndexSpec) error {
 	if err := spec.Validate(ctx); err != nil {
 		wrapped := fmt.Errorf("verify OpenSearch index %s: %w", index, err)

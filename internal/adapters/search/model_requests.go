@@ -140,9 +140,14 @@ type modelProfile struct {
 	} `json:"nodes"`
 }
 
-// MarshalModelSearchBody encodes the pinned model lookup. ML Commons maps
-// the model name as analyzed text with an exact name.keyword subfield. The
-// query excludes model chunk documents that include chunk_number.
+// MarshalModelSearchBody encodes the pinned model lookup.
+//
+// ML Commons maps the model name as analyzed text with an exact name.keyword
+// subfield. The query excludes model chunk documents that include chunk_number.
+//
+//	1. Match PinnedModel.Name through name.keyword.
+//	2. Exclude documents with chunk_number.
+//	3. Request up to 100 model documents.
 func MarshalModelSearchBody() ([]byte, error) {
 	type termQuery struct {
 		Name string `json:"name.keyword"`

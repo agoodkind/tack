@@ -20,9 +20,9 @@ import (
 type Adapter struct {
 	client *opensearch.Client
 	api    *opensearchapi.Client
-	// predictClient sends the query predict request once without a per-attempt
-	// timeout. It does not retry after a timeout. A retry after a timeout repeats
-	// model work that OpenSearch is still computing.
+	// predictClient sends query predict requests without a per-attempt timeout. It
+	// does not retry after a timeout because OpenSearch can still compute the
+	// original request. It can retry the configured response statuses.
 	predictClient *opensearch.Client
 	// snapshotAPI sends each point in time create request once with RequestTimeout.
 	// It does not retry after a timeout or an HTTP error response.
@@ -30,7 +30,12 @@ type Adapter struct {
 	observer    *endpointObserver
 }
 
-// New constructs the official client after validating native settings.
+// New validates cfg and creates the three official OpenSearch clients.
+//
+// If client creation fails, New closes clients that it already created.
+//
+//	1. Validate the endpoint, credentials, timeout, retries, and CA.
+//	2. Create the main, predict, and point in time clients.
 func New(ctx context.Context, cfg Config) (*Adapter, error) {
 	if err := cfg.Validate(ctx); err != nil {
 		wrapped := fmt.Errorf("create OpenSearch client: %w", err)
@@ -62,6 +67,12 @@ func New(ctx context.Context, cfg Config) (*Adapter, error) {
 }
 
 // Close stops the transport resources of all three official clients.
+//
+// Close joins client errors and logs the combined failure.
+//
+//	1. Close the main client.
+//	2. Close the predict client.
+//	3. Close the point in time client.
 func (a *Adapter) Close(ctx context.Context) error {
 	if err := errors.Join(a.client.Close(), a.predictClient.Close(), a.snapshotAPI.Client.Close()); err != nil {
 		wrapped := fmt.Errorf("close OpenSearch client: %w", err)
@@ -72,6 +83,12 @@ func (a *Adapter) Close(ctx context.Context) error {
 }
 
 // CreateIndex creates one strict native semantic index.
+//
+// CreateIndex validates spec before requesting index creation.
+//
+//	1. Validate the model and shard settings.
+//	2. Encode the mapping and shard settings.
+//	3. Ask OpenSearch to create index.
 func (a *Adapter) CreateIndex(ctx context.Context, index string, spec IndexSpec) error {
 	if err := spec.Validate(ctx); err != nil {
 		wrapped := fmt.Errorf("validate OpenSearch index %q: %w", index, err)
@@ -109,6 +126,11 @@ func (a *Adapter) CreateIndex(ctx context.Context, index string, spec IndexSpec)
 }
 
 // SetReplicas changes the replica count without changing mappings.
+//
+// SetReplicas rejects a negative count before sending a settings request.
+//
+//	1. Require a nonnegative replica count.
+//	2. Update number_of_replicas for index.
 func (a *Adapter) SetReplicas(ctx context.Context, index string, replicas int) error {
 	if replicas < 0 {
 		wrapped := errors.New("OpenSearch replicas must be nonnegative")
@@ -135,7 +157,13 @@ func (a *Adapter) SetReplicas(ctx context.Context, index string, replicas int) e
 	return nil
 }
 
-// IndexInfo reads mapping metadata used by the verification command.
+// IndexInfo reads mapping metadata for the verification command.
+//
+// IndexInfo rejects a response that does not include index.
+//
+//	1. Read mapping_version.
+//	2. Read model_id.
+//	3. Read tokenizer_sha256.
 func (a *Adapter) IndexInfo(ctx context.Context, index string) (IndexInfo, error) {
 	response, err := a.api.Indices.GetMapping(ctx, &opensearchapi.IndicesGetMappingReq{Indices: []string{index}})
 	if err != nil {
@@ -170,7 +198,13 @@ func (a *Adapter) IndexInfo(ctx context.Context, index string) (IndexInfo, error
 	}, nil
 }
 
-// Ping verifies the configured endpoint through the official client.
+// Ping checks the configured endpoint through the official client.
+//
+// Ping returns an error for an HTTP error response and closes the response
+// body.
+//
+//	1. Send GET to the endpoint root.
+//	2. Check the HTTP response status.
 func (a *Adapter) Ping(ctx context.Context) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
 	if err != nil {

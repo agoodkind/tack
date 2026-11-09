@@ -19,10 +19,13 @@ type PhysicalSettings struct {
 	Replicas      int
 }
 
-// IndexSettings reads the primary and replica counts from the typed settings
-// API and the routing shard count from the index metadata in the cluster
-// state. A split target has no index.number_of_routing_shards setting. Its
-// metadata still records the routing shard count.
+// IndexSettings reads the shard topology of index.
+//
+// A split target does not have an index.number_of_routing_shards setting. Its
+// cluster state metadata still records the routing shard count.
+//
+//	1. Read primary and replica counts from the typed settings API.
+//	2. Read the routing shard count from cluster state metadata.
 func (a *Adapter) IndexSettings(ctx context.Context, index string) (PhysicalSettings, error) {
 	response, err := a.api.Indices.GetSettings(ctx, &opensearchapi.IndicesGetSettingsReq{Indices: []string{index}})
 	if err != nil {
@@ -105,6 +108,12 @@ func (a *Adapter) routingShards(ctx context.Context, index string) (int, error) 
 }
 
 // AliasTarget requires the public alias to select exactly one physical index.
+//
+// AliasTarget returns the physical index name from the OpenSearch alias
+// response.
+//
+//	1. Read the indices that alias selects.
+//	2. Return the single physical index.
 func (a *Adapter) AliasTarget(ctx context.Context, alias string) (string, error) {
 	response, err := a.api.Indices.GetAlias(ctx, &opensearchapi.IndicesGetAliasReq{Name: []string{alias}})
 	if err != nil {
@@ -125,6 +134,13 @@ func (a *Adapter) AliasTarget(ctx context.Context, alias string) (string, error)
 }
 
 // SetAlias binds the public name to the provisioned physical index.
+//
+// SetAlias accepts an existing binding to index and rejects a binding to
+// another index.
+//
+//	1. Check whether alias exists.
+//	2. Verify an existing binding or create a missing binding.
+//	3. Require OpenSearch to acknowledge the new binding.
 func (a *Adapter) SetAlias(ctx context.Context, alias, index string) error {
 	existsResponse, err := opensearch.Execute[json.RawMessage](ctx, a.client, http.MethodHead, &opensearchapi.IndicesExistsAliasReq{Name: []string{alias}}, nil)
 	if err != nil {

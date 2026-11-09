@@ -27,8 +27,8 @@ type pageDocument struct {
 	Access            pageAccess `json:"access"`
 }
 
-// retiredDocument replaces an obsolete page. It has no page_text, name,
-// access, or generated semantic fields.
+// retiredDocument replaces an obsolete page. It omits page_text, name, access,
+// and generated semantic fields.
 type retiredDocument struct {
 	NodeID           string `json:"node_id"`
 	NodeRevision     string `json:"node_revision"`
@@ -88,21 +88,22 @@ type accessScriptParams struct {
 // item error with this message to ErrObsoleteWrite.
 const staleGenerationMarker = "tack stale search generation"
 
-// accessUpdateScript orders access-only updates by search_generation. It
-// writes search_generation and access when the stored search_generation is
-// lower than the update generation and the page is not retired. It throws
-// params.stale_marker when the stored search_generation is higher. It makes
-// no change at the same generation or on a retired page.
+// accessUpdateScript orders access-only updates by search_generation. It writes
+// search_generation and access when the stored search_generation is lower than
+// the update generation and the page is not retired. It throws
+// params.stale_marker when the stored search_generation is higher. It does not
+// change a retired page or a page at the same generation.
 //
 // An access-only update uses a script because OpenSearch 3.8.0 rejects an
 // update action with version or version_type. The script runs on the primary
 // shard under the document lock.
 //
-// Content writes and retirements read the stored page first (writeGuarded)
-// and send index actions with if_seq_no and if_primary_term from that read.
+// Content writes and retirements read the stored page first through
+// writeGuarded. Their index actions require if_seq_no and if_primary_term from
+// that read.
 //
-// The update omits page_text. skip_existing_embedding leaves the stored
-// chunks and sparse weights unchanged, and ML Commons runs no inference.
+// The update omits page_text. skip_existing_embedding preserves the stored
+// chunks and sparse weights, and ML Commons does not run inference.
 //
 //go:embed access_update.painless
 var accessUpdateScript string
