@@ -1,69 +1,63 @@
 # Tack
 
-Tack is a horizontally scalable, multi-tenant project management platform: a
-replacement for Plane CE, Linear, and Jira, built for production scale from the
-first commit. It is not a personal tool or a prototype.
+Tack is a project management platform for many tenants and horizontal scale. It
+aims to replace Plane CE, Linear, and Jira in production use. The project treats
+production scale as a design requirement rather than a later addition.
 
-## Design philosophy
+[AGENTS.md](AGENTS.md) defines the binding architecture and development contract.
+Its requirements take precedence if this introduction conflicts with them.
 
-These are the durable principles that govern every decision. The binding
-architecture and rules live in [AGENTS.md](AGENTS.md); the design docs and
-runbooks live in [docs/](docs/). If this README and AGENTS.md ever disagree on a
-rule, AGENTS.md wins.
+## Design requirements
 
-### Everything is a node
+Every product entity uses the same FoundationDB node model, with universal
+fields and a property map. Relationships connect nodes. Node-type metadata
+defines behavior without separate tables or hardcoded behavior for each entity
+type. Add new entity types through metadata and data without changing
+application code.
 
-Every entity (org, workspace, project, state, label, issue, epic, cycle, module,
-comment, activity, custom type) is the same primitive: a node in FoundationDB
-with universal fields and a property map, connected by relationship edges. There
-are no special-case entity tables. A new kind of entity is data, not a code
-change. Behavior follows node-type metadata, never hardcoded type names.
+Product entities:
 
-### Horizontal scale from day zero
+- Organizations use nodes.
+- Workspaces use nodes.
+- Projects use nodes.
+- States use nodes.
+- Labels use nodes.
+- Issues use nodes.
+- Epics use nodes.
+- Cycles use nodes.
+- Modules use nodes.
+- Comments use nodes.
+- Activities use nodes.
+- Custom types use nodes.
 
-The system is designed for N=many while it runs on one host. There is no single
-point of write contention and no coordinator a second node would have to fight.
-Growing from one node to many is configuration and operations, not a rewrite. We
-never ship a design that "works for now" and is meant to be fixed for scale
-later. If it will not scale, it does not ship.
+Design each component for several instances even when an environment starts
+with one host. Avoid a single point of write contention or a coordinator that
+prevents another instance from writing. Additional instances must require
+configuration and operations rather than an architectural rewrite. Do not ship
+a design that defers required scale support.
 
-### Over-engineered and over-optimized early, on purpose
+Accept early architecture and optimization costs when they meet these scale
+requirements. Replacing storage or coordination designs after tenants depend
+on them adds migration cost and operational risk.
 
-We pay for scale-grade architecture before the load arrives, because retrofitting
-scale into a live multi-tenant system is the expensive and dangerous path. Early
-over-engineering here is a deliberate trade, not gold-plating. The default answer
-to "is this too much for current scale" is yes, and that is intended.
+Design every read, write, and background job for a target of millions of
+requests per second. Apply this requirement to expected low-traffic operations
+as well as known busy operations. Account for unexpected demand in the design.
+This target states a requirement; it does not report measured throughput.
 
-### Assume millions of requests per second on every slice
+Support user-defined types and demanding use cases through metadata. The type
+hierarchy permits several parent types without cycles. A node that needs a
+parent has one canonical direct parent. Its [reference and numbering scope](docs/reference/nodes/2026-10-16-node-integrity.md#scope-containment-and-deletion)
+can differ from that parent. Declare references, addresses, and behavior as data.
+New use cases must use the core model without an architectural rewrite.
 
-Not only the hot paths. Every read, every write, and every background job is
-designed as if it will be hammered, including the slices nobody predicted. There
-is no path that gets a pass because "this one is low traffic." Unexpected load on
-an unexpected slice is a first-class case, not an incident.
-
-### Exotic and unexpected use cases are first-class
-
-The type system is user-extensible. Hierarchy is a DAG defined by metadata, not a
-fixed tree. References, addresses, and behavior are declared as data. Strange,
-demanding, never-anticipated requirements are meant to be supported by the core
-design, not bolted on at the edges. The architecture is built to absorb the crazy
-case without a rewrite.
-
-### Multi-tenant from the start
-
-The org is the tenancy root. Tenant isolation is built into identity, storage
-locality, and authorization. It is never layered on after the fact, and no
-feature is designed as if there were a single tenant.
+Use the organization as the tenancy root. Require tenant isolation in identity,
+storage locality, and authorization from the start. Design every feature for
+multiple tenants.
 
 ## Where to look
 
-- [AGENTS.md](AGENTS.md): the binding contract, the configs/tack deploy seam, the
-  settled decisions, and the architecture.
-- [docs/plans/](docs/plans/): forward design, including the audit subsystem
-  horizontal design and the Kafka cutover.
-- [docs/runbooks/](docs/runbooks/): recovery and operational procedures.
-- [Run search acceptance tests](docs/runbooks/search.md) provides native runner
-  setup, process and cluster checks, and fixture cleanup instructions.
-- The code is the source of truth for concrete values: FDB keys in
-  `internal/adapters/foundationdb/keys.go`, SQL schema in `migrations/`, config
-  in `internal/config/config.go`, and the stack in `docker-compose.yml`.
+Use the [project documentation](docs/README.md) for audit design, recovery
+procedures, and search acceptance tests, including native runner setup, process
+and cluster checks, and fixture cleanup. Use the project contract to check
+current keys, SQL schemas, configuration, and stack values.
