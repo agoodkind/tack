@@ -5,7 +5,7 @@
 // Each Lifetime literal must meet these conditions:
 //
 //   - Ticket must contain a nonempty string literal.
-//   - RemoveBy must call time.Date with a literal year and day and a literal
+//   - RemoveBy must call [time.Date] with a literal year and day and a literal
 //     month or a named month constant.
 //   - The removal deadline must not precede the current UTC time.
 package main
@@ -156,8 +156,8 @@ func stringLiteral(expr ast.Expr) (string, bool) {
 	return value, true
 }
 
-// dateLiteral reads a time.Date call with a literal year and day and a
-// literal month or a named time.Month constant. It returns the removal
+// dateLiteral reads a [time.Date] call with a literal year and day and a
+// literal month or a named [time.Month] constant. It returns the removal
 // deadline at 23:59:59 UTC on that calendar day.
 func dateLiteral(expr ast.Expr) (time.Time, bool) {
 	call, ok := expr.(*ast.CallExpr)

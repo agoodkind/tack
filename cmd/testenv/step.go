@@ -31,7 +31,8 @@ func (step *cliStep) Helper() {}
 //
 // Engine helpers use this context when they create a provisioning timeout.
 //
-//   - For example, provisioned.get limits provisioning with context.WithTimeout.
+//   - For example, provisioned.get limits provisioning with
+//     [context.WithTimeout].
 func (step *cliStep) Context() context.Context { return context.Background() }
 
 // Output returns the destination for a failing helper's reason.
@@ -45,7 +46,8 @@ func (step *cliStep) Output() io.Writer { return os.Stderr }
 //
 // runStep detects the failure after the goroutine ends and attempts cleanup.
 //
-//   - For example, provisioned.get writes a provisioning error before calling FailNow.
+//   - For example, provisioned.get writes a provisioning error before calling
+//     FailNow.
 func (step *cliStep) FailNow() {
 	step.failed.Store(true)
 	runtime.Goexit()

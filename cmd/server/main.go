@@ -26,7 +26,7 @@ func main() {
 }
 
 // run starts the application, dispatches the command, and returns a process
-// exit code. Its deferred telemetry close runs before main calls os.Exit.
+// exit code. Its deferred telemetry close runs before main calls [os.Exit].
 func run() int {
 	cfg, err := config.Load()
 	if err != nil {

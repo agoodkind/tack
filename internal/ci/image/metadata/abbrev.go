@@ -25,7 +25,7 @@ var errAbbreviationBelowMinimum = errors.New("below the minimum of 4")
 // The function reads system, global, and local configuration in that order.
 // Like git describe, it rejects an invalid core.abbrev entry before checking
 // a later override. Otherwise, the last entry determines the result. This
-// command parses numeric values as decimal integers with strconv.Atoi. Git's
+// command parses numeric values as decimal integers with [strconv.Atoi]. Git's
 // integer parser also accepts other bases and unit suffixes.
 //
 // An unset or auto value returns zero for automatic abbreviation. A positive
