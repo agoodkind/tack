@@ -13,8 +13,11 @@ var ErrRolloutInProgress = errors.New("search access rollout is already in progr
 
 const accessRolloutTargetPrefix = "foundationdb/search/access-rollout/"
 
-// AccessRolloutTargetReference returns the audit target reference for an
-// authority's access rollout.
+// AccessRolloutTargetReference returns an authority's rollout audit target.
+//
+// The reference identifies durable FoundationDB access rollout state.
+//
+//   - The reference appends authority to the access rollout target prefix.
 func AccessRolloutTargetReference(authority string) string {
 	return accessRolloutTargetPrefix + authority
 }
@@ -41,7 +44,7 @@ const (
 	// the active version on every current page.
 	AccessBackfill AccessPhase = "backfill"
 	// AccessVerifying reads every current page and requires both versions.
-	// After activation it waits until no session reads the previous version.
+	// After activation, it waits until sessions stop reading the previous version.
 	AccessVerifying AccessPhase = "verifying"
 	// AccessRetiring removes the previous version from every current page.
 	AccessRetiring AccessPhase = "retiring"
@@ -66,7 +69,12 @@ type AccessRollout struct {
 	Initiation Initiation `exhaustruct:"optional"`
 }
 
-// Activated reports whether the candidate already serves new sessions.
+// Activated reports whether the candidate serves new sessions.
+//
+// The method compares the candidate with the active version.
+//
+//   - A nonempty CandidateVersion equal to ActiveVersion returns true.
+//   - An empty or different CandidateVersion returns false.
 func (r AccessRollout) Activated() bool {
 	return r.CandidateVersion != "" && r.ActiveVersion == r.CandidateVersion
 }
@@ -105,9 +113,9 @@ type RolloutDocument struct {
 	Document IssuedDocument
 }
 
-// DocumentAccess is the stored state and access versions of one page
-// document. Found is false when OpenSearch has no document with the ID.
-// Generation is the access generation the page stores.
+// DocumentAccess stores one page document's state and access versions.
+// Found is false when OpenSearch does not contain the document ID.
+// Generation records the page's access generation.
 type DocumentAccess struct {
 	Found, Retired bool
 	Versions       []string
@@ -118,8 +126,8 @@ type DocumentAccess struct {
 type RolloutStep uint8
 
 const (
-	// RolloutContinue means the worker releases the claim with no retry
-	// delay. The next claim of the rollout runs the next step.
+	// RolloutContinue releases the claim without a retry delay. The next claim
+	// runs the next rollout step.
 	RolloutContinue RolloutStep = iota + 1
 	// RolloutWait means the step waits for pending page work or sessions.
 	RolloutWait

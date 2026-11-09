@@ -21,28 +21,32 @@ const (
 // AllOps is the default set of allowed operations for a new node type.
 var AllOps = []Op{OpCreate, OpRead, OpList, OpUpdate, OpDelete}
 
-// Feature strings are capability declarations on a NodeType. Features drive
-// runtime behavior: which properties apply, which relationships are allowed,
-// which MCP tools get registered. Features are extensible.
-//
-// Built-in features shipped by seed:
+// Feature strings declare NodeType capabilities. Features control applicable
+// properties, allowed relationships, and MCP tool registration. Additional
+// features can extend these declarations. The seed supplies these built-in
+// features.
 const (
-	FeatureHasWorkflowStates       = "has_workflow_states"        // supports a workflow-state property
-	FeatureHasAssignees            = "has_assignees"              // supports assigned_to relationships
-	FeatureHasSequenceID           = "has_sequence_id"            // supports a sequence property
-	FeatureIsContainer             = "is_container"               // can contain child nodes
-	FeatureHasDueDates             = "has_due_dates"              // supports start_date / due_date properties
-	FeatureHasComments             = "has_comments"               // supports child comment nodes
-	FeatureHasActivity             = "has_activity"               // emits activity nodes on write
-	FeatureIsEntryPoint            = "is_entry_point"             // top-level MCP entry (workspace today)
-	FeatureIsScope                 = "is_scope"                   // defines an FDB key scope level
-	FeatureExcludeFromGenericTools = "exclude_from_generic_tools" // skip generic CRUD tool registration
+	FeatureHasWorkflowStates       = "has_workflow_states"        // This feature supports a workflow-state property.
+	FeatureHasAssignees            = "has_assignees"              // This feature supports assigned_to relationships.
+	FeatureHasSequenceID           = "has_sequence_id"            // This feature supports a sequence property.
+	FeatureIsContainer             = "is_container"               // This feature allows child nodes.
+	FeatureHasDueDates             = "has_due_dates"              // This feature supports start_date and due_date properties.
+	FeatureHasComments             = "has_comments"               // This feature supports child comment nodes.
+	FeatureHasActivity             = "has_activity"               // This feature emits activity nodes on writes.
+	FeatureIsEntryPoint            = "is_entry_point"             // This feature declares a top-level MCP entry point, currently a workspace.
+	FeatureIsScope                 = "is_scope"                   // This feature defines a FoundationDB key scope level.
+	FeatureExcludeFromGenericTools = "exclude_from_generic_tools" // This feature excludes generic CRUD tool registration.
 )
 
 // Features is a set of capability strings on a NodeType.
 type Features []string
 
-// Has reports whether the feature set includes the given feature.
+// Has reports whether the feature set includes feat.
+//
+// The method compares each feature string with feat.
+//
+//   - An exact match returns true.
+//   - The method returns false when every comparison differs.
 func (f Features) Has(feat string) bool {
 	for _, s := range f {
 		if s == feat {
@@ -52,7 +56,12 @@ func (f Features) Has(feat string) bool {
 	return false
 }
 
-// HasAny reports whether the feature set includes any of the given features.
+// HasAny reports whether the feature set includes any supplied feature.
+//
+// The method checks each argument with [Features.Has].
+//
+//   - The first matching feature returns true.
+//   - An empty argument list or a list without a match returns false.
 func (f Features) HasAny(feats ...string) bool {
 	for _, want := range feats {
 		if f.Has(want) {
@@ -62,9 +71,14 @@ func (f Features) HasAny(feats ...string) bool {
 	return false
 }
 
-// UnmarshalJSON handles the legacy uint32 bitmask and the current []string format.
-// The bitmask support exists to read pre-migration FDB records; new writes always
-// produce []string.
+// UnmarshalJSON reads a string array or a legacy uint32 feature bitmask.
+//
+// Bitmask support permits reads of existing records from before the format
+// migration. New writes use the string array format.
+//
+//   - The method first attempts to decode a string array.
+//   - A bitmask maps each recognized bit to its feature string.
+//   - Invalid input returns the uint32 decoding error.
 func (f *Features) UnmarshalJSON(b []byte) error {
 	var ss []string
 	if err := json.Unmarshal(b, &ss); err == nil {
@@ -101,9 +115,9 @@ func (f *Features) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// ReferenceStrategy names how human-readable refs are derived for a NodeType.
-// UUID remains canonical for every node; this strategy only controls display
-// and MCP input ergonomics.
+// ReferenceStrategy selects how a NodeType derives human-readable
+// references for display and MCP input. UUID remains the canonical node
+// identity.
 type ReferenceStrategy string
 
 const (
@@ -112,16 +126,17 @@ const (
 	ReferenceScopedProperty ReferenceStrategy = "scoped_property"
 )
 
-// ReferenceConfig declares the human-readable ref contract for a NodeType.
-// Property names the canonical prop when Strategy uses property lookup.
+// ReferenceConfig declares the human-readable reference contract for a
+// NodeType. Property selects the canonical property when Strategy uses
+// property lookup.
 type ReferenceConfig struct {
 	Strategy ReferenceStrategy `json:"strategy"`
 	Property string            `json:"property,omitempty"`
 }
 
-// NodeType defines a type in the extensibility hierarchy. NodeType records are
-// themselves nodes of NodeType "node_type" in the same FDB key space as any
-// other node. This is configuration metadata, not runtime data.
+// NodeType defines a type in the extensibility hierarchy. Each NodeType
+// record is a node of type "node_type" in the shared FoundationDB key space.
+// These records store configuration metadata.
 type NodeType struct {
 	ID             uuid.UUID   `json:"id"`
 	OrgID          uuid.UUID   `json:"org_id"`
@@ -132,10 +147,10 @@ type NodeType struct {
 	AllowedOps     []Op        `json:"allowed_ops"`
 	PropertyDefIDs []uuid.UUID `json:"property_def_ids"`
 	PluralSlug     string      `json:"plural_slug,omitempty"`
-	// IsBuiltin marks seeded built-in types. Built-in types cannot be deleted via MCP.
+	// IsBuiltin marks seeded built-in types. MCP cannot delete these types.
 	IsBuiltin bool `json:"is_builtin,omitempty"`
-	// TypeKey is the stable internal dispatch key. Slug and PluralSlug are
-	// user-mutable display/tool naming fields; TypeKey is not.
+	// TypeKey is the stable internal dispatch key. Users can change Slug and
+	// PluralSlug for display and tool registration, but cannot change TypeKey.
 	TypeKey      string   `json:"type_key,omitempty"`
 	Features     Features `json:"features,omitempty"`
 	CanContain   []string `json:"can_contain,omitempty"`
@@ -146,23 +161,27 @@ type NodeType struct {
 	Reference ReferenceConfig `json:"reference,omitempty"`
 	// ReferenceTemplates declare the rendered references this type owns.
 	ReferenceTemplates []ReferenceTemplate `json:"reference_templates,omitempty"`
-	// DefaultChildren lists nodes that should be auto-created under any new
-	// instance of this type. Empty by default: no NodeType implies any
-	// automatic child creation unless the seed (or a later edit) declares
-	// it explicitly. Used so a freshly created project gets a starter set
-	// of states without baking those state names into Go code.
+	// DefaultChildren declares the child nodes to create under each new
+	// instance. The default is empty. Only an explicit seed or later edit
+	// enables automatic child creation. A project can declare starter states
+	// without hardcoded state names in Go.
 	DefaultChildren []DefaultChild `json:"default_children,omitempty"`
 }
 
-// DefaultChild names a child node to auto-create. Props is a JSON object that
-// is merged into the child's Props before create.
+// DefaultChild specifies a child node to create automatically. Creation
+// merges this JSON Props object into the child's Props.
 type DefaultChild struct {
 	TypeKey string                     `json:"type_key"`
 	Name    string                     `json:"name"`
 	Props   map[string]json.RawMessage `json:"props,omitempty"`
 }
 
-// BuildTypeIndex creates a lookup map from TypeKey to NodeType.
+// BuildTypeIndex maps each nonempty TypeKey to its NodeType.
+//
+// The function examines the supplied types in order.
+//
+//   - An empty TypeKey does not create an entry.
+//   - A later type replaces an earlier entry with the same TypeKey.
 func BuildTypeIndex(types []*NodeType) map[string]*NodeType {
 	m := make(map[string]*NodeType, len(types))
 	for _, nt := range types {
@@ -173,7 +192,13 @@ func BuildTypeIndex(types []*NodeType) map[string]*NodeType {
 	return m
 }
 
-// PrimaryReferenceTemplate returns this type's human-readable reference template.
+// PrimaryReferenceTemplate returns the type's primary human-readable
+// reference template.
+//
+// The method searches ReferenceTemplates in slice order.
+//
+//   - The first template with IsPrimary returns a pointer to that entry.
+//   - The method returns nil when every template lacks IsPrimary.
 func (n *NodeType) PrimaryReferenceTemplate() *ReferenceTemplate {
 	for index := range n.ReferenceTemplates {
 		if n.ReferenceTemplates[index].IsPrimary {
@@ -183,15 +208,13 @@ func (n *NodeType) PrimaryReferenceTemplate() *ReferenceTemplate {
 	return nil
 }
 
-// Node is the single primary record for every entity in the system. Every
-// concept-specific value (workspace, project, state, assignees, labels,
-// priority, due dates, description, etc.) lives in Props as JSON-encoded
-// property values keyed by PropertyDef name. Everything that connects nodes
-// together lives in Relationship records, not on the node itself.
+// Node is the primary record for every entity. Props stores concept-specific
+// JSON property values under PropertyDef names, including workspace,
+// project, state, assignees, labels, priority, due dates, and description.
+// Relationship records store connections between nodes.
 //
-// The universal-fields rule for Node: a field earns a spot on the struct only
-// if it would exist on a node in a completely different product (CMS, CRM,
-// game engine) built on the same architecture.
+// Add a field to Node only if that field would exist in a different product,
+// such as a CMS, CRM, or game engine, on this architecture.
 type Node struct {
 	ID        uuid.UUID                  `json:"id"`
 	OrgID     uuid.UUID                  `json:"org_id"`
@@ -204,14 +227,13 @@ type Node struct {
 	UpdatedAt time.Time                  `json:"updated_at"`
 }
 
-// Relationship is a generic directed edge between two nodes. The RelationType
-// string carries the semantics: "assigned_to", "labeled_with", "child_of",
-// "watches", "mentioned_in", "reacted_to", "comment_of", etc.
+// Relationship is a directed edge between two nodes. RelationType selects
+// the edge's meaning, including "assigned_to", "labeled_with", "child_of",
+// "watches", "mentioned_in", "reacted_to", and "comment_of".
 //
-// Relationships replace all dedicated concept-specific join records: assignments,
-// labels-on-nodes, parent-child containment, watchers, mentions, reactions.
-// New relation types are user-extensible; nothing in the storage layer privileges
-// one RelationType over another.
+// Relationship records represent assignments, labels on nodes, parent-child
+// containment, watchers, mentions, and reactions. Users can extend relation
+// types. The storage layer must treat every RelationType equally.
 type Relationship struct {
 	OrgID        uuid.UUID                  `json:"org_id"`
 	SourceID     uuid.UUID                  `json:"source_id"`
@@ -222,8 +244,8 @@ type Relationship struct {
 	Props        map[string]json.RawMessage `json:"props,omitempty"`
 }
 
-// Well-known relation types seeded by default. Nothing stops callers from
-// defining their own; these exist so built-in features wire to consistent strings.
+// The seed supplies these relation types for consistent built-in feature
+// behavior. Callers can also define relation types.
 const (
 	RelAssignedTo  = "assigned_to"
 	RelLabeledWith = "labeled_with"
@@ -259,62 +281,77 @@ type EnumOption struct {
 	SortRank int32  `json:"sort_rank"`
 }
 
-// PropertyDef defines a property that can be attached to one or more node types.
-// A PropertyDef applies to a NodeType when AppliesToFeatures is empty (applies
-// to all) or when the NodeType declares any of the listed features. PropertyDefs
-// are never scoped by hardcoded NodeType name lists.
+// PropertyDef defines a property for one or more node types. It applies to
+// every NodeType when AppliesToFeatures is empty, or to a NodeType that
+// declares any listed feature. PropertyDefs must not use hardcoded NodeType
+// name lists for scope.
 type PropertyDef struct {
 	ID    uuid.UUID    `json:"id"`
 	OrgID uuid.UUID    `json:"org_id"`
 	Name  string       `json:"name"`
 	Type  PropertyType `json:"type"`
-	// AppliesToFeatures scopes this PropertyDef to NodeTypes that declare any
-	// of these features. Empty means applies to every NodeType.
+	// AppliesToFeatures limits the property to NodeTypes that declare any listed
+	// feature. An empty list applies to every NodeType.
 	AppliesToFeatures []string `json:"applies_to_features,omitempty"`
-	// Indexed controls whether FDB maintains a secondary sort index on this property.
+	// Indexed controls whether FoundationDB maintains a secondary sort index
+	// for this property.
 	Indexed  bool         `json:"indexed"`
-	Options  []EnumOption `json:"options,omitempty"` // for select / multi_select
+	Options  []EnumOption `json:"options,omitempty"` // Options supplies select and multi_select choices.
 	Required bool         `json:"required"`
 	// DefaultValue stores a literal JSON default for non-reference property values.
 	DefaultValue json.RawMessage `json:"default_value,omitempty"`
 	// DefaultReference stores a human-reference default resolved through the
 	// target NodeType Reference contract for UUID-valued properties.
 	DefaultReference *PropertyDefaultReference `json:"default_reference,omitempty"`
-	// ReferenceTargetTypeKey names the NodeType whose human reference should be
-	// accepted for UUID-valued properties. Empty means the UUID is opaque.
+	// ReferenceTargetTypeKey selects the NodeType that resolves human
+	// references for UUID-valued properties. An empty value treats the UUID as
+	// opaque.
 	ReferenceTargetTypeKey string `json:"reference_target_type_key,omitempty"`
 	// Search declares the explicit text projection for this property. A nil
-	// value is incomplete metadata and blocks the initial search rebuild.
+	// value selects the effective type default. Readiness rejects invalid
+	// declarations and definitions without a valid declaration or default
+	// before rebuilding.
 	Search *SearchProjection `json:"search"`
 }
 
-// Deterministic-ID namespaces for workspace and system-property IDs.
-// These remain deterministic because WorkspaceID and SystemPropID are called
-// with stable inputs (orgID + slug or orgID + propName) and the callers rely
-// on reproducibility across wipes. orgNamespace was removed with TACK-230.
+// The workspace and system-property namespaces produce deterministic IDs.
+// WorkspaceID uses orgID and address; SystemPropID uses orgID and propName.
+// Callers rely on these stable inputs to reproduce IDs across wipes.
+// TACK-230 removed orgNamespace.
 var (
 	workspaceNamespace = uuid.MustParse("0a6f7572-cafe-dead-beef-000000000002")
 	systemPropNS       = uuid.MustParse("7ac0face-dead-beef-cafe-000000000000")
 )
 
-// NewOrgID returns a fresh UUIDv7 for a newly created org. The slug or address
-// has no relationship to the orgID; orgIDs are random and opaque. Two tenants
-// with the same slug get different orgIDs and live under different FDB key
-// prefixes. TACK-230 replaced the old SHA-1 derivation that caused the
-// 2026-05-09 parallel-org outage.
+// NewOrgID returns a fresh UUIDv7 for a new organization.
+//
+// The ID is random and opaque. The slug or address does not determine it.
+// The original incident account attributes the 2026-05-09 parallel-org
+// outage to SHA-1 organization ID derivation. TACK-230 replaced that
+// derivation.
+//
+//   - Tenants with the same slug receive different organization IDs.
+//   - Each organization uses a different FoundationDB key prefix.
 func NewOrgID() uuid.UUID {
 	return uuid.Must(uuid.NewV7())
 }
 
-// WorkspaceID returns the deterministic UUID for a workspace node under a
-// given org, identified by address.
+// WorkspaceID returns a deterministic workspace UUID within an organization.
+//
+// The organization ID and workspace address determine the result.
+//
+//   - Repeated calls with the same inputs return the same UUID.
+//   - The function does not read FoundationDB.
 func WorkspaceID(orgID uuid.UUID, address string) uuid.UUID {
 	return uuid.NewSHA1(workspaceNamespace, []byte(orgID.String()+":"+address))
 }
 
-// SystemPropID returns a deterministic UUID for a built-in property definition
-// scoped to an org. Used by seed and migration scripts to compute stable IDs
-// without FDB reads.
+// SystemPropID returns a deterministic built-in property definition UUID.
+//
+// The organization ID and property name determine the result. Seed and
+// migration callers use it to calculate stable IDs without FoundationDB reads.
+//
+//   - Repeated calls with the same inputs return the same UUID.
 func SystemPropID(orgID uuid.UUID, propName string) uuid.UUID {
 	return uuid.NewSHA1(systemPropNS, []byte(orgID.String()+":"+propName))
 }

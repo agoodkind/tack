@@ -15,8 +15,11 @@ import (
 // transaction.
 const WriteFenceBuckets = 64
 
-// WriteFenceBucket returns a node's write fence bucket from a hash of its
-// organization ID and node ID.
+// WriteFenceBucket returns the node's write fence bucket.
+//
+// The hash includes the organization ID followed by the node ID.
+//
+//   - The result is a bucket index below [WriteFenceBuckets].
 func WriteFenceBucket(orgID, nodeID uuid.UUID) int {
 	hash := fnv.New32a()
 	_, _ = hash.Write(orgID[:])
@@ -44,16 +47,23 @@ type StrictEvidenceChange struct {
 	Organizations []uuid.UUID
 }
 
-// Empty reports whether every bucket epoch and organization metadata epoch
-// stayed unchanged.
+// Empty reports whether the two captures contain identical epochs.
+//
+// The result depends on both the bucket changes and organization changes.
+//
+//   - An empty Buckets slice and an empty Organizations slice return true.
+//   - Either slice containing an entry returns false.
 func (c StrictEvidenceChange) Empty() bool {
 	return len(c.Buckets) == 0 && len(c.Organizations) == 0
 }
 
-// Compare compares the evidence in e, captured before the scan, with the
-// subsequent StrictEvidence capture in later. It returns a StrictEvidenceChange
-// with each bucket and each organization that has a different epoch in the two
-// captures.
+// Compare compares e from before the scan with the later evidence capture.
+//
+// The result lists each bucket and organization with a different epoch.
+//
+//   - A missing bucket or organization epoch counts as zero.
+//   - Bucket changes follow bucket order.
+//   - Organization changes sort by UUID bytes.
 func (e StrictEvidence) Compare(later StrictEvidence) StrictEvidenceChange {
 	change := StrictEvidenceChange{Buckets: nil, Organizations: nil}
 	for bucket := range max(len(e.Buckets), len(later.Buckets)) {

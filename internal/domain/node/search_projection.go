@@ -63,9 +63,17 @@ type ProjectionIdentity struct {
 type LoggedProjectionError struct{ Cause error }
 
 // Error returns the original failure text.
+//
+// The method calls Cause.Error() directly and requires a non-nil Cause.
+//
+//   - Use Unwrap to inspect the original error instead of comparing text.
 func (e LoggedProjectionError) Error() string { return e.Cause.Error() }
 
 // Unwrap returns the original failure.
+//
+// The method returns Cause without a wrapper or replacement.
+//
+//   - Standard error inspection can match the original error identity.
 func (e LoggedProjectionError) Unwrap() error { return e.Cause }
 
 const (
@@ -80,9 +88,14 @@ const (
 	maxTextRuleDepth = 8
 )
 
-// Validate returns an error and logs a request-scoped event when the
-// projection has a negative order or an invalid text rule. It reads only the
-// projection and ignores the property type and secondary-index metadata.
+// Validate checks the projection's order and text rule.
+//
+// A negative order or invalid rule causes an error and a request-scoped
+// telemetry event. The check reads only the projection.
+//
+//   - The check ignores the property type and secondary-index metadata.
+//   - A valid projection returns nil.
+//   - A failure returns [LoggedProjectionError] with the validation error.
 func (p SearchProjection) Validate(ctx context.Context, fields ...slog.Attr) error {
 	var err error
 	if p.Order < 0 {

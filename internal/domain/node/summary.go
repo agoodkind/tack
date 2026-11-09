@@ -23,8 +23,8 @@ type Summary struct {
 	Name     string
 }
 
-// SummaryResult is the current summary and opaque access keys of one node.
-// A deleted node has an empty summary and no keys.
+// SummaryResult contains one node's current summary and opaque access keys.
+// A deleted node does not have summary values or access keys.
 type SummaryResult struct {
 	NodeID     uuid.UUID
 	Status     SummaryStatus
@@ -32,8 +32,13 @@ type SummaryResult struct {
 	AccessKeys []string
 }
 
-// TruncateUTF8 returns the longest prefix of text within maxBytes that ends
-// on a rune boundary.
+// TruncateUTF8 returns the longest prefix within maxBytes that ends on a
+// rune boundary.
+//
+// The function shortens the prefix when the byte limit splits a rune.
+//
+//   - Text within the byte limit remains unchanged.
+//   - A nonpositive byte limit returns an empty string.
 func TruncateUTF8(text string, maxBytes int) string {
 	if len(text) <= maxBytes {
 		return text

@@ -12,13 +12,17 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RenderSearchText renders source with the node name first, followed by
-// included property values in projection order, then by definition ID. Each
-// value ends with a newline. It omits undeclared, invalid, and inapplicable
-// properties with one diagnostic each. Explicit exclusions do not produce
-// diagnostics. It returns an error only for incomplete or duplicate
-// definitions, malformed declared rules, a missing node type, or an unknown
-// property type without a declaration.
+// RenderSearchText renders the node name before included property values.
+//
+// Property values sort by projection order, then definition ID. Each value
+// ends with a newline.
+//
+//   - Undeclared, invalid, and inapplicable properties each produce a
+//     diagnostic instead of text.
+//   - Explicit exclusions do not produce diagnostics.
+//   - Only incomplete or duplicate definitions, malformed declared rules,
+//     a missing node type, or an unknown property type without a declaration
+//     cause an error.
 func RenderSearchText(ctx context.Context, source SearchSource) (SearchRender, error) {
 	render, err := renderSearchText(source)
 	if err != nil {

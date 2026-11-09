@@ -29,8 +29,13 @@ type AccessFilter struct {
 	Keys    []string
 }
 
-// ValidateAccessFilter rejects an empty, duplicate, unsorted, or oversized
-// access filter.
+// ValidateAccessFilter rejects invalid caller access values.
+//
+// The filter must supply a version and a sorted list of unique keys.
+//
+//   - The version and each key must fit [MaxAccessValueBytes] and be nonempty.
+//   - The filter must contain between one and [MaxAccessKeys] keys.
+//   - Valid input returns nil; invalid input wraps [ErrInvalidAccessFilter].
 func ValidateAccessFilter(filter AccessFilter) error {
 	valueBound := strconv.Itoa(MaxAccessValueBytes)
 	if filter.Version == "" || len(filter.Version) > MaxAccessValueBytes {
@@ -50,9 +55,13 @@ func ValidateAccessFilter(filter AccessFilter) error {
 	return nil
 }
 
-// Permits reports whether any current resource key equals a caller key. It
-// binary-searches f.Keys. [ValidateAccessFilter] requires f.Keys to be
-// sorted. resourceKeys can be in any order.
+// Permits reports whether a current resource key equals a caller key.
+//
+// The method uses binary search over f.Keys. [ValidateAccessFilter] requires
+// those keys to sort before this check.
+//
+//   - The resourceKeys argument can use any order.
+//   - A matching key returns true; a list without a match returns false.
 func (f AccessFilter) Permits(resourceKeys []string) bool {
 	for _, key := range resourceKeys {
 		if _, found := slices.BinarySearch(f.Keys, key); found {
