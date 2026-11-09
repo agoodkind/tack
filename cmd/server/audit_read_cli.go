@@ -30,8 +30,8 @@ type auditQueryInput struct {
 	Cursor              string `json:"cursor,omitempty"`
 }
 
-// auditQueryOp declares `audit query`: the ledger rows of one org over a
-// bounded window, read through the audit_reader role and recorded as
+// auditQueryOp defines audit query, which reads one organization's ledger
+// rows within a bounded time window through audit_reader and records
 // audit.read.
 func auditQueryOp(f *cli.Factory) clispec.Operation[auditQueryInput] {
 	return clispec.Operation[auditQueryInput]{
@@ -116,8 +116,8 @@ type auditGetInput struct {
 	EventID             string `json:"event_id"`
 }
 
-// auditGetOp declares `audit get`: one ledger row by event id, read through
-// the audit_reader role and recorded as audit.read.
+// auditGetOp defines audit get, which reads one ledger row by event ID
+// through audit_reader and records audit.read.
 func auditGetOp(f *cli.Factory) clispec.Operation[auditGetInput] {
 	return clispec.Operation[auditGetInput]{
 		Name:     clispec.Name{Canonical: "get", CLIOverride: ""},

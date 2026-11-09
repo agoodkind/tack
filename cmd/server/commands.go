@@ -19,14 +19,15 @@ import (
 	"goodkind.io/tack/internal/version"
 )
 
-// emptyInput is the input for top-level commands that take no flags or args.
+// emptyInput represents top-level commands without operation-specific flags
+// or positional arguments.
 type emptyInput struct {
 	clispec.InputMarker `exhaustruct:"optional"`
 }
 
-// buildRoot assembles the cobra command tree. The bare command starts the
-// server; serve, migrate, seed, the audit bundle family, and the ops
-// maintenance family are subcommands rendered from one declarative registry.
+// buildRoot builds the Cobra command tree. The bare command starts the
+// server. One registry renders serve, migrate, seed, audit operations, and
+// ops maintenance subcommands.
 func buildRoot(f *cli.Factory) *cobra.Command {
 	serve := serveOp(f)
 	root := &cobra.Command{

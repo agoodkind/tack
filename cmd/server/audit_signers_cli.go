@@ -29,9 +29,9 @@ type auditSignersResult struct {
 	Report               audit.SignerReport `json:"report"`
 }
 
-// auditSignersOp declares `audit signers`: every notarization since a point
-// in time is checked against the valid signer set, and any signed outside it
-// is reported by identifier and claimed host (TACK-437).
+// auditSignersOp defines audit signers, which checks notarizations since a
+// supplied time against the valid signer set and reports rejected signer
+// identifiers and their claimed hosts.
 func auditSignersOp(f *cli.Factory) clispec.Operation[auditSignersInput] {
 	return clispec.Operation[auditSignersInput]{
 		Name:     clispec.Name{Canonical: "signers", CLIOverride: ""},
@@ -83,8 +83,9 @@ func runAuditSigners(f *cli.Factory) func(context.Context, auditSignersInput, cl
 			return err
 		}
 		if !set.Configured() {
-			// Refused before anything is opened: an empty set would accept
-			// nothing and a skipped check would accept everything.
+			// The command refuses an unconfigured signer set before opening the key
+			// or reader. An empty set does not permit any identifier. VerifySigners
+			// also refuses an unconfigured set.
 			slog.ErrorContext(ctx, "audit.signers_no_set", slog.String("err", audit.ErrNoSignerSet.Error()))
 			return fmt.Errorf("audit signers: %w", audit.ErrNoSignerSet)
 		}
@@ -108,8 +109,8 @@ func runAuditSigners(f *cli.Factory) func(context.Context, auditSignersInput, cl
 			slog.ErrorContext(ctx, "audit.signers_render_failed", slog.String("err", writeErr.Error()))
 			return fmt.Errorf("audit signers: render report: %w", writeErr)
 		}
-		// The report prints either way; the exit code carries the verdict for
-		// a script or a release gate that reads nothing else.
+		// The command prints the report before checking the verdict. Scripts and
+		// release checks can use the exit status without reading the report.
 		if verdictErr := report.Err(); verdictErr != nil {
 			slog.ErrorContext(ctx, "audit.signers_rejected", slog.String("err", verdictErr.Error()))
 			return fmt.Errorf("audit signers: %w", verdictErr)
@@ -118,9 +119,8 @@ func runAuditSigners(f *cli.Factory) func(context.Context, auditSignersInput, cl
 	}
 }
 
-// auditSignerSet parses the set from the flag, else from AUDIT_VALID_SIGNERS.
-// An empty result is a set with no members, which the callers treat as
-// unconfigured.
+// auditSignerSet parses the flag value or, when it is empty,
+// AUDIT_VALID_SIGNERS. Callers treat an empty set as unconfigured.
 func auditSignerSet(ctx context.Context, f *cli.Factory, flagValue string) (audit.SignerSet, error) {
 	raw := strings.TrimSpace(flagValue)
 	if raw == "" && f != nil && f.Cfg != nil {
@@ -134,10 +134,9 @@ func auditSignerSet(ctx context.Context, f *cli.Factory, flagValue string) (audi
 	return set, nil
 }
 
-// auditLocalPublicKey loads the public half of the local signing key from the
-// flag, else from AUDIT_SIGNING_KEY_PATH. No key is a refusal: a run that
-// verified no signature would read as a pass while proving only that
-// identifier strings matched.
+// auditLocalPublicKey loads the local signing public key from the flag or,
+// when it is empty, AUDIT_SIGNING_KEY_PATH. It refuses a missing key because
+// matching identifier strings alone does not verify a signature.
 func auditLocalPublicKey(ctx context.Context, f *cli.Factory, flagValue string) (ed25519.PublicKey, error) {
 	keyPath := strings.TrimSpace(flagValue)
 	if keyPath == "" && f != nil && f.Cfg != nil {

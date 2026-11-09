@@ -16,11 +16,11 @@ type auditRedactActorInput struct {
 	ActorID             string
 }
 
-// auditRedactActorOp declares `audit redact-actor`: GDPR erasure of the PII
-// payload behind every event one org recorded for one actor. The global
-// --execute is the only action gate: without it the command reports what it
-// would erase and records nothing; with it the choke-point records intent
-// and outcome under audit.pii_redacted around the erasure.
+// auditRedactActorOp defines audit redact-actor for GDPR erasure of
+// personally identifiable information in one actor's events within one
+// organization. Without --execute, the command reports planned erasure and
+// records the preview read. With --execute, the shared audit entry point
+// records audit.pii_redacted intent before erasure and outcome afterward.
 func auditRedactActorOp(f *cli.Factory) clispec.Operation[auditRedactActorInput] {
 	return clispec.Operation[auditRedactActorInput]{
 		Name:     clispec.Name{Canonical: "redact-actor", CLIOverride: ""},

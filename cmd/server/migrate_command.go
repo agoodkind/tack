@@ -121,8 +121,9 @@ func printMigrationStatus(ctx context.Context, f *cli.Factory, input json.RawMes
 	return nil
 }
 
-// readMigrationStatus reads the migration state and returns the exact bytes
-// that the command prints. It also returns one target for each embedded migration.
+// readMigrationStatus reads the migration state and returns the status
+// payload for recording and later output formatting. It also returns one
+// target for each embedded migration.
 func readMigrationStatus(ctx context.Context, f *cli.Factory, jsonOutput bool) (audit.OperatorReadOutput, error) {
 	status, err := schemastatus.Read(ctx, f.Cfg.DatabaseURL, migrations.FS)
 	if err != nil {

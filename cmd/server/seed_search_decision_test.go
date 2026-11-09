@@ -18,11 +18,10 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestSeedCommandStoresSearchDecisionOnEverySeededDefinition runs `seed`
-// through the audited command tree against the test ledger, the real
-// operator outbox, and the test FoundationDB. Every definition the command
-// stores for the seeded organization must declare search inclusion or
-// exclusion when read back from FoundationDB.
+// TestSeedCommandStoresSearchDecisionOnEverySeededDefinition runs seed
+// through the audited command tree with a test ledger, real operator outbox,
+// and test FoundationDB. It reads each seeded property definition from
+// FoundationDB and requires a search inclusion or exclusion decision.
 func TestSeedCommandStoresSearchDecisionOnEverySeededDefinition(t *testing.T) {
 	ledgerDSN := testenv.Ledger(t)
 	clusterFile := testenv.FoundationDB(t)
@@ -83,10 +82,10 @@ func TestSeedCommandStoresSearchDecisionOnEverySeededDefinition(t *testing.T) {
 // seedTokenHeaders start the lines the seed prints before each bearer value.
 var seedTokenHeaders = []string{"Production-mode API token", "Dev-mode bearer"}
 
-// executeWithoutPrintedTokens runs execute with the process standard output
-// sent to a temporary file, because the seed prints its bearer values there.
-// It returns the printed text with the line after each token header replaced,
-// so no test output contains a bearer value.
+// executeWithoutPrintedTokens captures process standard output in a
+// temporary file while execute runs because seed prints bearer values there.
+// It replaces the line after each recognized token header before returning
+// the captured text.
 func executeWithoutPrintedTokens(t *testing.T, execute func() error) (string, error) {
 	t.Helper()
 	capture, err := os.CreateTemp(t.TempDir(), "seed-stdout")
@@ -115,8 +114,8 @@ func executeWithoutPrintedTokens(t *testing.T, execute func() error) (string, er
 	return strings.Join(lines, "\n"), runErr
 }
 
-// isolateSeedKeys points every store of this process at prefix and clears
-// the prefix when the test ends.
+// isolateSeedKeys configures every store in this process to use prefix and
+// deletes keys under that prefix when the test ends.
 func isolateSeedKeys(t *testing.T, cfg *config.Config, prefix []byte) {
 	t.Helper()
 	fdbadapter.SetTestPrefix(prefix)

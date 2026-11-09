@@ -1,7 +1,7 @@
-// Command server builds the `tack` binary: the operator CLI and the HTTP
-// server. With no subcommand it starts the server; subcommands run migrations,
-// seeding, audit bundle operations, and the ops maintenance family. Every
-// command runs under a root trace span so its output and logs share a trace_id.
+// Command server builds the tack operator CLI and HTTP server. The bare
+// command starts the server. Subcommands run migrations, seeding, audit
+// bundle operations, and ops maintenance. Command execution uses a root
+// trace span to correlate output and logs by trace_id.
 package main
 
 import (
@@ -25,8 +25,8 @@ func main() {
 	}
 }
 
-// run owns startup and dispatch and returns a process exit code, so [os.Exit]
-// stays in main and the telemetry closer's deferred Close always runs.
+// run starts the application, dispatches the command, and returns a process
+// exit code. Its deferred telemetry close runs before main calls os.Exit.
 func run() int {
 	cfg, err := config.Load()
 	if err != nil {
@@ -34,8 +34,8 @@ func run() int {
 		return 1
 	}
 
-	// Mint a per-invocation request id so every command's output and logs share
-	// a request_id alongside the span's trace_id and span_id.
+	// A new request ID identifies this invocation in output and logs alongside
+	// the span's trace_id and span_id.
 	requestID := uuid.NewString()
 	f := cli.System(cfg)
 	root := buildRoot(f)
@@ -75,8 +75,8 @@ func run() int {
 	defer span.End()
 	ctx = telemetry.WithRequestMetadata(ctx, requestID)
 	ctx = telemetry.WithTraceLogger(ctx)
-	// Log one correlated line per invocation so a command's output envelope
-	// trace_id can be matched against the run's log trail.
+	// The start log and command output use the same trace_id to identify this
+	// invocation.
 	telemetry.L(ctx).InfoContext(ctx, "cli.start")
 	if logs.CommandDir != "" {
 		if removeExpiredCommandLogs(ctx, logs.CommandDir, cfg.LogMaxAgeDays) != nil {
@@ -94,13 +94,12 @@ func run() int {
 	return 0
 }
 
-// exitCodeOf is the process exit status for a failed command: the status the
-// error declares through an OperatorExitStatus method, else 1. A command
-// declares one when the unit that runs it must tell that failure apart from
-// the rest, such as a restore drill that only failed to record its marker and
-// must not have its restores repeated. The method name is specific to this
-// contract so an error carrying some other process's exit code, such as
-// [exec.ExitError], does not set this process's.
+// exitCodeOf returns the error's OperatorExitStatus value or 1 when the
+// error does not implement that method. A restore drill uses a distinct
+// status for a marker write failure after successful restores, which lets
+// the caller avoid repeating them. The specific method prevents a child
+// process error such as exec.ExitError from setting this process's status
+// through its ExitCode method.
 func exitCodeOf(err error) int {
 	var coded interface{ OperatorExitStatus() int }
 	if errors.As(err, &coded) {

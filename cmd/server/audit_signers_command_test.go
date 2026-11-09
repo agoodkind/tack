@@ -20,11 +20,11 @@ import (
 )
 
 // TestAuditSignersCommandWiresTheFlagsThroughTheReader runs the real command
-// against a migrated ledger: the deployed configuration shape (set and key
-// from Cfg, reader DSN from the environment), a row signed by the local key,
-// and a row signed by a key the set may or may not name. It pins that the
-// --allow-unverified and --since flags reach the verification and change the
-// exit code, which the refusal tests above never get far enough to show.
+// against a migrated test ledger. Cfg supplies the signer set, key path, and
+// reader DSN. The test inserts rows under the local key and another key,
+// then checks the returned errors with that other key included or excluded
+// from the set. It checks --allow-unverified and --since after the
+// configuration checks permit reader verification.
 func TestAuditSignersCommandWiresTheFlagsThroughTheReader(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
@@ -70,8 +70,8 @@ func TestAuditSignersCommandWiresTheFlagsThroughTheReader(t *testing.T) {
 	if err := run(localID+","+otherID, true, sinceFlag); err != nil {
 		t.Fatalf("err = %v, want the acknowledged run to pass", err)
 	}
-	// A --since after both rows scans nothing under this org, so the other
-	// key's row cannot be rejected: the bound reaches the query.
+	// A --since value after both inserted rows excludes them from the query.
+	// The other key's row must not cause rejection.
 	if err := run(localID, false, since.Add(time.Minute).Format(time.RFC3339)); err != nil && strings.Contains(err.Error(), otherID) {
 		t.Fatalf("err = %v, want --since to exclude the older rows", err)
 	}

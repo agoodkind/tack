@@ -19,9 +19,8 @@ type auditVerifyInput struct {
 	Signers             string
 }
 
-// auditVerifyOp declares `audit verify`: an exported bundle is checked
-// offline against the signing public key and, when a valid signer set is
-// configured, against that set (TACK-437).
+// auditVerifyOp defines audit verify, which checks an exported bundle
+// offline against the signing public key and a required valid signer set.
 func auditVerifyOp(f *cli.Factory) clispec.Operation[auditVerifyInput] {
 	return clispec.Operation[auditVerifyInput]{
 		Name:     clispec.Name{Canonical: "verify", CLIOverride: ""},
@@ -64,10 +63,8 @@ func runAuditVerify(f *cli.Factory) func(context.Context, auditVerifyInput, clis
 			return err
 		}
 		if !signers.Configured() {
-			// Refused rather than run without the signer verdict: a bundle
-			// that verified on signature alone would read as a pass under a
-			// key the environment may have revoked. On a deployed host the set
-			// is rendered, so its absence is a misconfiguration.
+			// The command requires a valid signer set. A valid signature alone does
+			// not establish that the environment still allows the signing key.
 			slog.ErrorContext(ctx, "audit.verify_no_signer_set", slog.String("bundle", in.Bundle),
 				slog.String("err", audit.ErrNoSignerSet.Error()))
 			return fmt.Errorf("audit verify: %w", audit.ErrNoSignerSet)
@@ -87,9 +84,8 @@ func runAuditVerify(f *cli.Factory) func(context.Context, auditVerifyInput, clis
 			slog.ErrorContext(ctx, "audit.verify_render_failed", slog.String("err", writeErr.Error()))
 			return fmt.Errorf("audit verify: render report: %w", writeErr)
 		}
-		// The report prints either way, so the human path is unchanged.
-		// The exit code has to carry the same verdict, because a script or
-		// a release gate reads only that.
+		// The command prints the report before checking the verdict. Scripts and
+		// release checks can use the exit status without reading the report.
 		if verdictErr := report.Err(); verdictErr != nil {
 			slog.ErrorContext(ctx, "audit.verify_rejected",
 				slog.String("bundle", report.BundleDir),

@@ -17,7 +17,7 @@ type memberAdder interface {
 	AddMember(ctx context.Context, m *org.Member) error
 }
 
-// seedMembership grants the seeded user the owner role.
+// seedMembership grants the seeded user the admin role.
 func seedMembership(
 	ctx context.Context,
 	members memberAdder,
@@ -34,6 +34,6 @@ func seedMembership(
 	return nil
 }
 
-// seedOwnerRole is the org role the seeded user receives. It matches the
-// numeric role the seed has always granted.
+// seedOwnerRole is the organization admin role that the seeded user
+// receives.
 const seedOwnerRole = 20

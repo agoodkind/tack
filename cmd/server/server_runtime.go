@@ -16,10 +16,10 @@ import (
 	"goodkind.io/tack/internal/version"
 )
 
-// runServer builds the shared runtime object graph, mounts the MCP and Connect
-// handlers, then serves until an interrupt arrives or the listener fails. It is
-// the default action of the bare binary and of the explicit `serve` subcommand,
-// and returns any fatal error to main rather than exiting in place.
+// runServer builds the shared runtime graph and serves its MCP, health,
+// diagnostics, and unmatched-path handlers until SIGINT, SIGTERM, or a
+// listener failure. The bare command and serve subcommand use this function,
+// which returns fatal errors to the caller.
 func runServer(ctx context.Context, cfg *config.Config) error {
 	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {
@@ -43,8 +43,8 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 		"dirty", version.Dirty(),
 	)
 
-	// Enable HTTP/1.1 and unencrypted HTTP/2 (h2c) on the server directly,
-	// the supported replacement for the deprecated x/net/http2/h2c handler.
+	// The server enables HTTP/1.1 and unencrypted HTTP/2 (h2c) directly through
+	// http.Server.Protocols.
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           telemetry.RequestLogger(telemetry.RequestPathCounter(mux)),

@@ -14,9 +14,10 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// commandLogFilePattern matches the files that processLogFiles names and the backups that
-// lumberjack makes of them: the command path, the request ID, an optional rotation time, the
-// .jsonl or .log extension, and an optional .gz suffix.
+// commandLogFilePattern matches command logs and their lumberjack rotation
+// backups. Each name includes the command path and request ID, an optional
+// rotation timestamp, a .jsonl or .log extension, and an optional .gz
+// suffix.
 var commandLogFilePattern = regexp.MustCompile(
 	`^[a-z0-9-]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}` +
 		`(-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\.[0-9]{3})?\.(jsonl|log)(\.gz)?$`)
