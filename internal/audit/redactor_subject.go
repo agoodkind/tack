@@ -9,8 +9,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// PIIRefsForSubject lists audit.pii references for subjectID within orgID,
-// including references to redacted rows.
+// PIIRefsForSubject lists audit.pii references for subjectID within orgID.
+//
+// The lookup includes references to redacted rows. It reads subject ownership
+// directly from audit.pii rather than querying event actors.
+//
+//   - An unconfigured redactor returns an error before querying.
+//   - Query, scan, and iteration failures return contextual errors.
 func (r *Redactor) PIIRefsForSubject(ctx context.Context, orgID, subjectID uuid.UUID) ([]uuid.UUID, error) {
 	if r == nil || r.pool == nil {
 		return nil, errors.New("audit redactor not configured")

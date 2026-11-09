@@ -12,26 +12,31 @@ import (
 )
 
 const (
-	// DefaultQueryPageLimit is the page size when the caller asks for none.
+	// DefaultQueryPageLimit is the page size when the caller omits a limit.
 	DefaultQueryPageLimit = 100
-	// MaxQueryPageLimit caps one page; larger requests clamp down to it.
+	// MaxQueryPageLimit caps a page; QueryPage reduces larger limits to this value.
 	MaxQueryPageLimit = 1000
 
 	queryCursorSeparator = "|"
 )
 
-// Page is one page of ledger rows. NextCursor is non-empty exactly when the
-// page filled, and resumes the same query at the next row.
+// Page contains one page of ledger rows. A full page includes a nonempty
+// NextCursor that resumes the same query after its last row.
 type Page struct {
 	Rows []Row
-	// NextCursor is opaque to callers; pass it back through
-	// QueryFilter cursor decoding via QueryPage.
+	// NextCursor is an opaque cursor that QueryPage decodes into a QueryFilter.
 	NextCursor string
 }
 
-// QueryPage runs Query with the limit clamped to [1, MaxQueryPageLimit] and
-// keyset pagination behind one opaque cursor, so every surface pages the
-// ledger the same way. An empty cursor starts at the newest row.
+// QueryPage runs [Reader.Query] with a bounded limit and an opaque cursor.
+//
+// All callers use the same keyset pagination, which resumes after the last
+// row's event time and sequence. An empty cursor starts at the newest row
+// when f does not already specify a cursor position.
+//
+//   - A nonpositive limit uses DefaultQueryPageLimit.
+//   - A limit above MaxQueryPageLimit uses MaxQueryPageLimit.
+//   - A full page includes a cursor for the last returned row.
 func (r *Reader) QueryPage(ctx context.Context, f QueryFilter, cursor string) (Page, error) {
 	if f.Limit <= 0 {
 		f.Limit = DefaultQueryPageLimit
@@ -60,17 +65,28 @@ func (r *Reader) QueryPage(ctx context.Context, f QueryFilter, cursor string) (P
 	return page, nil
 }
 
-// MarshalQueryCursor renders the (event_time, seq) resume position as one
-// opaque string. Exported with UnmarshalQueryCursor so any paging surface
-// shares one cursor format.
+// MarshalQueryCursor encodes an event_time and seq position as one opaque
+// string.
+//
+// [UnmarshalQueryCursor] decodes this shared format for paging callers. The
+// encoding uses a UTC RFC3339Nano time and a decimal sequence separated by a
+// vertical bar, then applies unpadded URL-safe base64.
+//
+//	cursor := MarshalQueryCursor(eventTime, sequence)
+//	decodedTime, decodedSequence, err := UnmarshalQueryCursor(ctx, cursor)
 func MarshalQueryCursor(eventTime time.Time, seq int64) string {
 	raw := eventTime.UTC().Format(time.RFC3339Nano) + queryCursorSeparator + strconv.FormatInt(seq, 10)
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
-// UnmarshalQueryCursor reverses MarshalQueryCursor. Every rejection names the
-// broken part; a cursor is operator input, so the reason is logged here where
-// the raw value is still known.
+// UnmarshalQueryCursor decodes a position from [MarshalQueryCursor].
+//
+// The cursor is operator input. Each rejection identifies the failed component
+// and logs the reason at the decoder. The log does not include the raw cursor.
+//
+//   - Invalid base64 reports an encoding error.
+//   - A missing separator reports a shape error.
+//   - Invalid time or sequence text reports the corresponding parse error.
 func UnmarshalQueryCursor(ctx context.Context, cursor string) (time.Time, int64, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {

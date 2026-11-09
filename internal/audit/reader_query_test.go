@@ -46,12 +46,11 @@ func TestBuildAuditQueryFiltersContextCorrelation(t *testing.T) {
 	}
 }
 
-// TestBuildAuditQueryWithoutALimitAsksForEveryRow pins the statement the
-// streaming export runs. A zero limit must not fall back to a page, or the
-// bundle stops short of the ledger; and it must not carry an ORDER BY, because
-// no index serves event_time order under an org-only filter, so ordering an
-// unbounded result makes the database hold every matching row before it returns
-// the first one.
+// TestBuildAuditQueryWithoutALimitAsksForEveryRow checks the streaming
+// export's statement. A zero limit must request every matching row rather than
+// truncate the bundle to one page. The statement must omit ORDER BY: the
+// organization-only filter lacks a matching time-order index, and sorting
+// requires processing every match before returning the first row.
 func TestBuildAuditQueryWithoutALimitAsksForEveryRow(t *testing.T) {
 	filter := QueryFilter{
 		OrgID:     uuid.Must(uuid.NewV7()),

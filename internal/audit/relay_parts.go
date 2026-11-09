@@ -12,16 +12,18 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// errRelayMessageProducer reports that the recorder does not implement messageProducer.
+// errRelayMessageProducer reports that the recorder does not implement
+// messageProducer for raw publication.
 var errRelayMessageProducer = errors.New("relay recorder cannot publish audit transport messages")
 
-// messageProducer lets a recorder produce raw records with an explicit Kafka key.
+// messageProducer permits raw record publication with an explicit Kafka key.
 type messageProducer interface {
 	produceMessage(ctx context.Context, key, value []byte) error
 }
 
-// produceRow records a plain row through Recorder or produces multipart messages
-// in order using a Kafka key from the event's organization and shard.
+// produceRow records a plain row through Recorder or publishes multipart
+// messages in order. The multipart Kafka key uses the event's organization
+// and shard.
 func (r *Relay) produceRow(ctx context.Context, row OutboxRow) (bool, error) {
 	if len(row.Messages) == 0 {
 		if err := r.recorder.Record(ctx, row.Event); err != nil {
@@ -45,9 +47,9 @@ func (r *Relay) produceRow(ctx context.Context, row OutboxRow) (bool, error) {
 	return false, nil
 }
 
-// produceEntry produces one FoundationDB outbox entry as a plain event or transport message.
-// It sets a missing manifest commit_version from the entry's versionstamp
-// and preserves part messages unchanged.
+// produceEntry publishes one FoundationDB outbox entry as an event or
+// transport message. It fills an empty manifest commit_version from the
+// entry's versionstamp and preserves part messages.
 func (r *Relay) produceEntry(ctx context.Context, entry RelayOutboxEntry) (uuid.UUID, error) {
 	message, isTransport, err := decodeTransportMessage(entry.Event)
 	if err != nil {
@@ -84,8 +86,9 @@ func (r *Relay) produceEvent(ctx context.Context, entry RelayOutboxEntry) (uuid.
 	return event.EventID, nil
 }
 
-// produceMessage produces a raw record through the recorder's messageProducer implementation.
-// It returns errRelayMessageProducer when the recorder does not implement that interface.
+// produceMessage publishes a raw record through the recorder's
+// messageProducer implementation. A recorder without that interface returns
+// errRelayMessageProducer.
 func (r *Relay) produceMessage(ctx context.Context, key, value []byte) error {
 	producer, ok := r.recorder.(messageProducer)
 	if !ok {
@@ -98,8 +101,8 @@ func (r *Relay) produceMessage(ctx context.Context, key, value []byte) error {
 	return nil
 }
 
-// stopAfterProduce runs AfterProduce when set and returns true if it returns an error.
-// It logs the event ID and error when the function requests a stop.
+// stopAfterProduce invokes AfterProduce when configured. A callback error
+// logs the event ID and error and returns true to request a batch stop.
 func (r *Relay) stopAfterProduce(ctx context.Context, eventID uuid.UUID) bool {
 	if r.afterProduce == nil {
 		return false
@@ -112,7 +115,8 @@ func (r *Relay) stopAfterProduce(ctx context.Context, eventID uuid.UUID) bool {
 	return false
 }
 
-// produceMessage synchronously produces one raw Kafka record with the given event key.
+// produceMessage synchronously publishes one raw Kafka record with the
+// specified event key.
 func (k *KafkaRecorder) produceMessage(ctx context.Context, key, value []byte) error {
 	produceCtx, cancel := context.WithTimeout(ctx, k.produceTimeout)
 	defer cancel()
@@ -128,8 +132,8 @@ func (k *KafkaRecorder) produceMessage(ctx context.Context, key, value []byte) e
 	return nil
 }
 
-// partitionKey returns the organization ID bytes followed by the two shard bytes,
-// using the same encoding as kafkaPartitionKey for plain events.
+// partitionKey encodes the organization ID bytes followed by two shard bytes.
+// Plain events use the same encoding in kafkaPartitionKey.
 func (message transportMessage) partitionKey() []byte {
 	key := make([]byte, 0, len(message.OrgID)+2)
 	key = append(key, message.OrgID[:]...)

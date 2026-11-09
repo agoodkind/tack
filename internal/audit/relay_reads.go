@@ -53,7 +53,8 @@ func (r *Relay) clearThrough(ctx context.Context, mark []byte, reads []Published
 	return nil
 }
 
-// rowPublishedReads returns the event ID and digest for a read in a YugabyteDB row.
+// rowPublishedReads returns the event ID and digest for a read from a
+// YugabyteDB outbox row.
 func rowPublishedReads(ctx context.Context, row OutboxRow) []PublishedRead {
 	if len(row.Messages) > 0 {
 		return recordPublishedReads(ctx, row.Messages[len(row.Messages)-1])
@@ -61,9 +62,9 @@ func rowPublishedReads(ctx context.Context, row OutboxRow) []PublishedRead {
 	return eventPublishedReads(ctx, row.Event)
 }
 
-// recordPublishedReads returns an event ID and transport digest from a manifest
-// or computes the digest of a plain read event. It returns nil for part records.
-// If decoding fails, it returns nil and leaves the receipt unpublished.
+// recordPublishedReads returns a manifest's event ID and transport digest or
+// computes a digest for a plain read event. Part records return nil. A decoding
+// failure returns nil and leaves the receipt unpublished.
 func recordPublishedReads(ctx context.Context, raw []byte) []PublishedRead {
 	message, isTransport, err := decodeTransportMessage(raw)
 	if err != nil {

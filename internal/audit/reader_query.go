@@ -44,25 +44,20 @@ func buildAuditQuery(filter QueryFilter) (string, []any) {
 	return appendAuditQueryOrder(query, args, filter.Limit)
 }
 
-// appendAuditQueryOrder finishes the statement. A positive limit reads the
-// newest rows, so it orders and caps.
+// appendAuditQueryOrder adds descending time and sequence ordering and a cap
+// for positive limits. Exactly zero requests every matching row without
+// ORDER BY, as the streaming export requires.
 //
-// A limit of zero asks for every matching row, which only the streaming export
-// does, and it deliberately carries no ORDER BY. No index serves event_time
-// order under an org-only filter: the ledger indexes event_time under an actor,
-// an entity, or an action, and orders the primary key under a hashed
-// (org_id, shard). Ordering an unbounded result therefore means a sort, and a
-// sort must read and hold every matching row before it can emit the first one,
-// which is the same "memory grows with the ledger" failure on the database side
-// that streaming removes on the client side. Nothing downstream reads the file
-// order: the verifier sorts what it scans into per-shard sequence order before
-// it walks the chain.
+// The ledger's time indexes require an actor, entity, or action; its primary
+// key hashes (org_id, shard). An organization-only time sort must process all
+// matching rows before returning the first row. Omitting that sort avoids
+// database-side work that grows with the matching set while the client
+// streams rows. The verifier sorts exported rows by shard sequence before
+// checking each chain and does not depend on the file's row order.
 //
-// Exactly zero is what means every row. A negative limit is a caller mistake,
-// not a request for the whole ledger, and Reader.Query normalises one to the
-// page default, so reading it as unlimited here would make the same filter mean
-// opposite things on the two paths: a page of a hundred rows one way, and an
-// unbounded scan the other.
+// A negative limit indicates a caller mistake and uses DefaultQueryPageLimit,
+// matching Reader.Query. Treating a negative value as unlimited would return
+// an unbounded stream for a filter that Query limits to a hundred rows.
 func appendAuditQueryOrder(query string, args []any, limit int) (string, []any) {
 	if limit == 0 {
 		return query, args

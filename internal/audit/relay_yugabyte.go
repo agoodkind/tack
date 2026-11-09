@@ -11,7 +11,7 @@ import (
 // broker acknowledgment.
 var errRelayStopped = errors.New("relay stopped after broker acknowledgment")
 
-// claimingOutbox claims rows and deletes successful publishes in one
+// claimingOutbox claims rows and deletes successfully published rows in one
 // transaction.
 type claimingOutbox interface {
 	ClaimBatch(ctx context.Context, limit int, publish func(context.Context, OutboxRow) error) (int, error)
@@ -32,11 +32,10 @@ func (r *Relay) yugabyteLoop(ctx context.Context) {
 	}
 }
 
-// drainYugabyte produces one batch and deletes each row only after the broker
-// accepts it. A produce failure stops the batch and leaves the rest in place,
-// so the next tick retries them; a redelivery is harmless because the consumer
-// drops a duplicate event id, while a deletion before acceptance would lose an
-// audit event outright.
+// drainYugabyte publishes one batch and deletes each row after broker
+// acceptance. A publication failure stops the batch and retains the remaining
+// rows for a later poll. The consumer ignores duplicate event IDs on retry.
+// Deleting an event before acceptance would discard its audit evidence.
 func (r *Relay) drainYugabyte(ctx context.Context) {
 	if claimer, ok := r.yugabyte.(claimingOutbox); ok {
 		r.drainClaimed(ctx, claimer)

@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// wholeRangeFilter is the export's filter for one org, with the time bounds
-// the guard requires and nothing else set.
+// wholeRangeFilter returns the export filter for one organization with the
+// required time bounds. It leaves optional filters and the limit unset.
 func wholeRangeFilter(orgID uuid.UUID) QueryFilter {
 	return QueryFilter{
 		OrgID:     orgID,
@@ -24,9 +24,9 @@ func wholeRangeFilter(orgID uuid.UUID) QueryFilter {
 	}
 }
 
-// TestQueryFilterRefusesAForgottenOrg pins the guard the nil-org flag must not
-// weaken: a filter whose org was never set is still refused, because that is
-// what an accidental read of the whole ledger looks like.
+// TestQueryFilterRefusesAForgottenOrg checks that a missing organization
+// still fails validation. NilOrg must not permit an accidental read without
+// an organization choice.
 func TestQueryFilterRefusesAForgottenOrg(t *testing.T) {
 	err := wholeRangeFilter(uuid.Nil).Validate()
 	if err == nil || !strings.Contains(err.Error(), "org_id required") {
@@ -34,9 +34,9 @@ func TestQueryFilterRefusesAForgottenOrg(t *testing.T) {
 	}
 }
 
-// TestQueryFilterServesTheNilOrgWhenNamed pins the other half: a caller that
-// names the nil org on purpose is served, because the ledger holds rows under
-// it and their chain is a chain like any other.
+// TestQueryFilterServesTheNilOrgWhenNamed checks that an explicit NilOrg
+// choice passes validation. The nil organization stores historical rows with
+// the same chain structure as other organizations.
 func TestQueryFilterServesTheNilOrgWhenNamed(t *testing.T) {
 	filter := wholeRangeFilter(uuid.Nil)
 	filter.NilOrg = true
@@ -45,9 +45,9 @@ func TestQueryFilterServesTheNilOrgWhenNamed(t *testing.T) {
 	}
 }
 
-// TestQueryFilterRefusesTheNilOrgFlagBesideARealOrg pins that the flag is a
-// name for one org rather than a switch that turns the guard off: set beside a
-// real org it contradicts the filter, and a contradiction is refused.
+// TestQueryFilterRefusesTheNilOrgFlagBesideARealOrg checks that NilOrg fails
+// beside a non-nil OrgID. The flag selects the nil organization and must not
+// disable organization validation.
 func TestQueryFilterRefusesTheNilOrgFlagBesideARealOrg(t *testing.T) {
 	filter := wholeRangeFilter(uuid.Must(uuid.NewV7()))
 	filter.NilOrg = true
@@ -57,8 +57,8 @@ func TestQueryFilterRefusesTheNilOrgFlagBesideARealOrg(t *testing.T) {
 	}
 }
 
-// TestQueryFilterStillRequiresBothTimeBounds pins that naming the nil org does
-// not relax the range rule an unbounded scan is refused by.
+// TestQueryFilterStillRequiresBothTimeBounds checks that NilOrg does not
+// permit a read without both time bounds.
 func TestQueryFilterStillRequiresBothTimeBounds(t *testing.T) {
 	filter := wholeRangeFilter(uuid.Nil)
 	filter.NilOrg = true

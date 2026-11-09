@@ -1,10 +1,10 @@
-// Package audit defines the audit ledger contract: a single Recorder that
-// every state change and every meaningful read funnels through. Storage
-// backends (Yugabyte, FDB-intent, in-memory) live in sibling files.
+// Package audit defines the audit ledger contract. Every state change and
+// meaningful read must use Recorder. The package implements YugabyteDB,
+// FoundationDB intent, and in-memory recording.
 //
-// The recorder layer is dual-track with telemetry: every Record call still
-// emits a structured slog line. Audit is for legal evidence; slog is for
-// operations. They are independent and both required.
+// Audit records provide legal evidence, and structured slog entries support
+// operations. Both forms of recording are independent requirements.
+// MemoryRecorder captures test events without emitting a slog entry.
 package audit
 
 import (
@@ -15,24 +15,27 @@ import (
 	"github.com/google/uuid"
 )
 
-// Recorder accepts one audit event and either persists it (production) or
-// captures it (tests). Implementations are responsible for hash chaining,
-// sequence allocation, and durability guarantees appropriate to the verb
-// class (state-change verbs commit synchronously with the operation;
-// read verbs may batch through a WAL).
+// Recorder accepts one audit event for durable production storage or test
+// capture. Implementations must provide hash chaining, sequence allocation,
+// and durability appropriate to the operation.
+//
+// State changes must commit their evidence atomically with the change. Reads
+// may batch evidence through a write-ahead log, but they must admit the read
+// durably and finalize its evidence before returning data.
 type Recorder interface {
 	Record(ctx context.Context, ev Event) error
 }
 
-// Event is the canonical record shape. Field names match the on-disk JSONB
-// columns in audit.events so callers can serialize without translation.
+// Event is the canonical audit record. Its JSON tags define the transport
+// representation. The writer maps these values to audit.events columns and
+// JSONB values.
 type Event struct {
 	Verb string `json:"verb"`
-	// EventID is the canonical event identity, assigned by the producer at
-	// the recording call site. The Kafka producer keys the partition by the
-	// shard derived from this id, and the consumer reuses it for the chain
-	// row and the idempotency index. It must be stable from record time so a
-	// redelivered Kafka record reconstructs the same row.
+	// EventID identifies the event from the producer's recording call. The
+	// Kafka partition key uses the shard derived from this ID and the actor ID.
+	// The consumer reuses EventID for the chain row and idempotency index. The ID
+	// must remain stable after recording; Kafka redelivery must reconstruct the
+	// same row.
 	EventID        uuid.UUID       `json:"event_id"`
 	Actor          Actor           `json:"actor"`
 	Entity         Entity          `json:"entity"`
@@ -48,8 +51,9 @@ type Event struct {
 	Protected []ProtectedValue `json:"protected,omitempty" exhaustruct:"optional"`
 }
 
-// Actor is who triggered the event. PII fields (Email, Name, IP, UA) are
-// snapshots at event time; GDPR redaction lives in audit.pii (see TACK-178).
+// Actor identifies who triggered the event. Email, Name, IP, and UserAgent
+// record personal information at event time. GDPR redaction erases the
+// corresponding audit.pii payloads (TACK-178).
 type Actor struct {
 	Type          ActorType `json:"type"`
 	ID            uuid.UUID `json:"id"`
@@ -69,16 +73,16 @@ const (
 	ActorService ActorType = "service"
 	ActorSystem  ActorType = "system"
 	ActorToken   ActorType = "api_token"
-	// ActorOperator is a human running an operator command against the
-	// deployment itself, not a product user acting through the API.
+	// ActorOperator identifies a human running a command against the deployment.
+	// Product users acting through the API use a different actor type.
 	ActorOperator ActorType = "operator"
 	// ActorUnauthenticated identifies the actor of a request that failed before
 	// authentication. The event uses a nil actor ID and the system org.
 	ActorUnauthenticated ActorType = "unauthenticated"
 )
 
-// Entity is the target of the event. NodeType is the tack-specific kind
-// (issue, project, ...) when Type is "node".
+// Entity identifies the event target. When Type is "node", NodeType records
+// the Tack node kind, such as an issue or project.
 type Entity struct {
 	Type       string    `json:"type"`
 	NodeType   string    `json:"node_type,omitempty"`
@@ -87,8 +91,8 @@ type Entity struct {
 	Name       string    `json:"name,omitempty"`
 }
 
-// EventContext carries scope and provenance. OrgID is mandatory; the recorder
-// uses it for sharding, RLS, and chain isolation.
+// EventContext records scope and provenance. OrgID is mandatory for sharding,
+// row-level security, and chain isolation.
 type EventContext struct {
 	OrgID       uuid.UUID `json:"org_id"`
 	WorkspaceID uuid.UUID `json:"workspace_id,omitempty"`
@@ -101,23 +105,24 @@ type EventContext struct {
 	RPC         string    `json:"rpc,omitempty"`
 	Reason      string    `json:"reason,omitempty"`
 
-	// APITokenID names the token that authenticated the request, on the
-	// auth event that accepted it. The audit-consumer projects the token's
-	// last use from it, so the app never writes the token table on the
-	// request path (TACK-502). omitzero, not omitempty: encoding/json never
-	// omits an array under omitempty, and a zero id written into every other
-	// event's context changed the bytes those rows' hashes covered (TACK-514).
+	// APITokenID identifies the token on the authentication event that accepted
+	// the request. The audit-consumer derives the token's last use from this
+	// event; the app does not update the token table during the request
+	// (TACK-502).
+	//
+	// The omitzero tag omits a zero UUID. encoding/json does not omit arrays with
+	// omitempty. TACK-514 tracked zero IDs in other event contexts that changed
+	// the bytes covered by existing row hashes.
 	APITokenID uuid.UUID `json:"api_token_id,omitzero" exhaustruct:"optional"`
 
-	// CommitVersion is the FoundationDB outbox entry's versionstamp encoded as
-	// 24 lowercase hexadecimal characters. Sorting these strings gives the
-	// outbox commit order. The relay sets this field only when it is empty.
-	// JSON encoding omits an empty value, preserving the context bytes used to
-	// hash events that do not include this field.
+	// CommitVersion records the FoundationDB outbox versionstamp as 24 lowercase
+	// hexadecimal characters. String order matches outbox commit order. The relay
+	// sets this field only when it is empty. JSON encoding omits an empty value
+	// and preserves the hashed context bytes of events without this field.
 	CommitVersion string `json:"commit_version,omitzero" exhaustruct:"optional"`
 
-	// Format 2 events set these fields. JSON encoding omits each zero value.
-	// Format 0 events keep the same context bytes that their row hashes cover.
+	// Format 2 events set these fields. JSON encoding omits each zero value and
+	// preserves the context bytes covered by format 0 row hashes.
 	AuditFormatVersion uint16         `json:"audit_format_version,omitzero" exhaustruct:"optional"`
 	OperationClass     OperationClass `json:"operation_class,omitzero" exhaustruct:"optional"`
 	Phase              Phase          `json:"phase,omitzero" exhaustruct:"optional"`
@@ -128,9 +133,9 @@ type EventContext struct {
 	Target             *Target        `json:"target,omitempty" exhaustruct:"optional"`
 	Read               *ReadEvidence  `json:"read,omitempty" exhaustruct:"optional"`
 	CommittedSteps     []string       `json:"committed_steps,omitempty" exhaustruct:"optional"`
-	// Selection records the normalized arguments of a read, HTTPMethod the
-	// checked HTTP method, and RequestPath the checked request path. JSON
-	// encoding omits each empty value, so earlier rows keep their hashes.
+	// Selection records normalized read arguments. HTTPMethod and RequestPath
+	// record the checked HTTP method and path. JSON encoding omits empty values
+	// and preserves the context bytes covered by earlier row hashes.
 	Selection   *ReadSelection `json:"selection,omitempty" exhaustruct:"optional"`
 	HTTPMethod  string         `json:"http_method,omitempty" exhaustruct:"optional"`
 	RequestPath string         `json:"request_path,omitempty" exhaustruct:"optional"`
@@ -144,12 +149,13 @@ const (
 	SourceSystem    Source = "system"
 	SourceMigration Source = "migration"
 	SourceSeed      Source = "seed"
-	// SourceOperator marks a product row written through the operator
-	// surface on a user's behalf (TACK-424).
+	// SourceOperator identifies a product row that an operator command writes
+	// on a user's behalf (TACK-424).
 	SourceOperator Source = "operator"
 )
 
-// Delta captures before/after for state-change verbs. Read verbs leave it nil.
+// Delta records before and after values for state changes. Reads leave Delta
+// nil.
 type Delta struct {
 	Before  json.RawMessage `json:"before,omitempty"`
 	After   json.RawMessage `json:"after,omitempty"`
@@ -161,15 +167,16 @@ type Outcome string
 const (
 	OutcomeOK    Outcome = "ok"
 	OutcomeError Outcome = "error"
-	// OutcomePending is carried by intent rows until the outcome row lands.
+	// OutcomePending identifies an intent row that awaits its outcome row.
 	OutcomePending Outcome = "pending"
-	// OutcomeUnrecorded is what a read returns for a row written before the
-	// ledger stored outcomes at all. It is never written, and it is distinct
-	// from OutcomeOK on purpose: nobody observed those events succeeding.
+	// OutcomeUnrecorded represents a historical SQL NULL from before the ledger
+	// stored outcomes. Readers return this value. Writers must never store it.
+	// It differs from OutcomeOK because the historical record does not establish
+	// success.
 	OutcomeUnrecorded Outcome = "unrecorded"
 
-	// OutcomeCompleted is a format 2 terminal outcome when an operation
-	// finished. For a read, the read prepared its result.
+	// OutcomeCompleted is a format 2 terminal outcome for a finished operation.
+	// A completed read has prepared its result.
 	OutcomeCompleted Outcome = "completed"
 	// OutcomeRefused is a format 2 terminal outcome when Tack rejected a request
 	// before the operation ran. Authentication or authorization failure can

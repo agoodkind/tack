@@ -24,16 +24,24 @@ func (p *readerPool) Ping(ctx context.Context) error {
 	return sanitizeReaderError(p.unsanitized.Ping(ctx))
 }
 
-// Rows returns rows without wrapping them and sanitizes the query error;
-// pgx.Rows.Err cannot return a pgconn.ConnectError after Query acquires a
-// connection.
+// Rows returns the original rows without wrapping them.
+//
+// After Query acquires a connection, pgx.Rows.Err does not return a
+// pgconn.ConnectError.
+//
+//   - Query connection errors use fixed text and any available SQLSTATE.
+//   - Other query errors retain their original value.
 func (p *readerPool) Rows(rows pgx.Rows, err error) (pgx.Rows, error) {
 	return rows, sanitizeReaderError(err)
 }
 
-// Scan passes the error from pgx.Row.Scan through sanitizeReaderError.
-// pgxpool.Pool.QueryRow reports a failed connection attempt through that Scan
+// Scan sanitizes the error from pgx.Row.Scan.
+//
+// pgxpool.Pool.QueryRow reports a failed connection attempt through the Scan
 // call.
+//
+//   - A connection error uses fixed reader connection error text.
+//   - Other errors retain their original value.
 func (p *readerPool) Scan(err error) error {
 	return sanitizeReaderError(err)
 }

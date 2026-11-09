@@ -112,8 +112,8 @@ func TestReaderReadsOmitConnectionStringFromConnectError(t *testing.T) {
 	}
 }
 
-// TestReaderKeepsConnectionRefusedMatching checks that a sanitized connection
-// error matches syscall.ECONNREFUSED.
+// TestReaderKeepsConnectionRefusedMatching checks that errors.Is matches
+// syscall.ECONNREFUSED after the reader sanitizes a connection error.
 func TestReaderKeepsConnectionRefusedMatching(t *testing.T) {
 	ctx, reader, _ := openUnconnectableReader(t)
 	_, err := reader.OperatorOutboxRemainder(ctx)

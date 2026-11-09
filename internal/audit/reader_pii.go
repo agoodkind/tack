@@ -12,10 +12,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// PIIRefsForActor returns every audit.pii reference that an event in orgID
-// recorded for actorID. The reader role holds SELECT on audit.events and the
-// redactor role does not, so the org-scoped lookup lives here and the redactor
-// only ever sees the references it is handed.
+// PIIRefsForActor returns distinct audit.pii references from events for actorID
+// within orgID.
+//
+// The reader role can SELECT audit.events, and the redactor role cannot. The
+// reader performs this organization-scoped lookup; the redactor receives only
+// the references that the caller supplies.
+//
+//   - Nil organization or actor IDs return an error.
+//   - Events without a pii_ref do not contribute a reference.
 func (r *Reader) PIIRefsForActor(ctx context.Context, orgID, actorID uuid.UUID) ([]uuid.UUID, error) {
 	ctx, span := telemetry.StartSpan(ctx, "audit.pii_refs_for_actor",
 		trace.WithSpanKind(trace.SpanKindInternal),
