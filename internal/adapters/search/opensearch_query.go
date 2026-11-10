@@ -41,70 +41,149 @@ type rankResponse struct {
 
 // Read returns the next raw batch after the exact sort position. An empty
 // batch is the only engine exhaustion signal.
-func (r *QueryRanker) Read(ctx context.Context, query searchdomain.Query, snapshot searchdomain.Snapshot, after json.RawMessage) (searchdomain.RankBatch, error) {
+func (r *QueryRanker) Read(
+	ctx context.Context,
+	query searchdomain.Query,
+	snapshot searchdomain.Snapshot,
+	after json.RawMessage,
+) (searchdomain.RankBatch, error) {
 	var none searchdomain.RankBatch
-	body, err := encodeRankRequest(query, snapshot, after, r.settings.BatchSize, r.settings.KeepAlive)
+	body, err := encodeRankRequest(
+		query,
+		snapshot,
+		after,
+		r.settings.BatchSize,
+		r.settings.KeepAlive,
+	)
 	if err != nil {
 		return none, rankFailure(ctx, snapshot.Index, err)
 	}
+
 	partial := false
 	request := &opensearchapi.SearchReq{
-		Indices: nil, BodyReader: bytes.NewReader(body), Header: nil,
-		Params: &opensearchapi.SearchParams{AllowPartialSearchResults: &partial},
+		Indices:    nil,
+		BodyReader: bytes.NewReader(body),
+		Header:     nil,
+		Params:     &opensearchapi.SearchParams{AllowPartialSearchResults: &partial},
 	}
 	var decoded rankResponse
 	started := clock.Now()
 	response, err := opensearch.Execute(ctx, r.adapter.client, http.MethodPost, request, &decoded)
-	telemetry.L(ctx).DebugContext(ctx, "search.query.batch_read", slog.String("index", snapshot.Index),
-		slog.Int64("duration_ms", clock.Since(started).Milliseconds()), slog.Int("hits", len(decoded.Hits.Hits)))
+	telemetry.L(ctx).DebugContext(
+		ctx,
+		"search.query.batch_read",
+		slog.String("index", snapshot.Index),
+		slog.Int64("duration_ms", clock.Since(started).Milliseconds()),
+		slog.Int("hits", len(decoded.Hits.Hits)),
+	)
 	if err != nil {
-		return none, rankFailure(ctx, snapshot.Index, fmt.Errorf("send search request: %w", engineCause(ctx, response, err)))
+		return none, rankFailure(
+			ctx,
+			snapshot.Index,
+			fmt.Errorf("send search request: %w", engineCause(ctx, response, err)),
+		)
 	}
+
 	if response == nil {
-		return none, rankFailure(ctx, snapshot.Index, errors.New("OpenSearch returned no search response"))
+		return none, rankFailure(
+			ctx,
+			snapshot.Index,
+			errors.New("OpenSearch returned no search response"),
+		)
 	}
+
 	if response.IsError() {
 		return none, r.searchError(ctx, snapshot, response)
 	}
+
 	if decoded.TimedOut || decoded.Shards.Failed > 0 {
-		return none, rankFailure(ctx, snapshot.Index, fmt.Errorf("search timed out %t with %d failed shards", decoded.TimedOut, decoded.Shards.Failed))
+		return none, rankFailure(
+			ctx,
+			snapshot.Index,
+			fmt.Errorf(
+				"search timed out %t with %d failed shards",
+				decoded.TimedOut,
+				decoded.Shards.Failed,
+			),
+		)
 	}
-	batch := searchdomain.RankBatch{Hits: make([]searchdomain.RankHit, 0, len(decoded.Hits.Hits)), PITID: snapshot.PITID}
+
+	batch := searchdomain.RankBatch{
+		Hits:  make([]searchdomain.RankHit, 0, len(decoded.Hits.Hits)),
+		PITID: snapshot.PITID,
+	}
 	if decoded.PITID != "" {
 		batch.PITID = decoded.PITID
 	}
+
 	for _, hit := range decoded.Hits.Hits {
 		nodeID, err := uuid.Parse(hit.Source.NodeID)
 		if err != nil {
-			return none, rankFailure(ctx, snapshot.Index, fmt.Errorf("decode page match node ID %q: %w", hit.Source.NodeID, err))
+			return none, rankFailure(
+				ctx,
+				snapshot.Index,
+				fmt.Errorf("decode page match node ID %q: %w", hit.Source.NodeID, err),
+			)
 		}
+
 		var values []json.RawMessage
 		if err := json.Unmarshal(hit.Sort, &values); err != nil || len(values) != rankSortValues {
-			return none, rankFailure(ctx, snapshot.Index, fmt.Errorf("page match for node %s has invalid sort values %s", nodeID, hit.Sort))
+			return none, rankFailure(
+				ctx,
+				snapshot.Index,
+				fmt.Errorf("page match for node %s has invalid sort values %s", nodeID, hit.Sort),
+			)
 		}
+
 		batch.Hits = append(batch.Hits, searchdomain.RankHit{NodeID: nodeID, Sort: hit.Sort})
 	}
+
 	return batch, nil
 }
 
 // searchError returns [searchdomain.ErrSnapshotLost] when OpenSearch no
 // longer recognizes the point in time and an explicit error otherwise.
-func (r *QueryRanker) searchError(ctx context.Context, snapshot searchdomain.Snapshot, response *opensearch.Response) error {
+func (r *QueryRanker) searchError(
+	ctx context.Context,
+	snapshot searchdomain.Snapshot,
+	response *opensearch.Response,
+) error {
 	parsed := opensearch.ParseError(response)
 	var structured *opensearch.StructError
 	missing := response.StatusCode == http.StatusNotFound
 	if errors.As(parsed, &structured) && structured.Err.Type == "search_context_missing_exception" {
 		missing = true
 	}
+
 	if missing {
-		telemetry.L(ctx).InfoContext(ctx, "search.snapshot.lost", slog.String("index", snapshot.Index), slog.String("reason", parsed.Error()))
-		return queryStepError{operation: "read search snapshot on " + snapshot.Index, err: searchdomain.ErrSnapshotLost}
+		telemetry.L(ctx).InfoContext(
+			ctx,
+			"search.snapshot.lost",
+			slog.String("index", snapshot.Index),
+			slog.String("reason", parsed.Error()),
+		)
+
+		return queryStepError{
+			operation: "read search snapshot on " + snapshot.Index,
+			err:       searchdomain.ErrSnapshotLost,
+		}
 	}
-	return rankFailure(ctx, snapshot.Index, fmt.Errorf("search request rejected: %w", engineCause(ctx, response, parsed)))
+
+	return rankFailure(
+		ctx,
+		snapshot.Index,
+		fmt.Errorf("search request rejected: %w", engineCause(ctx, response, parsed)),
+	)
 }
 
 func rankFailure(ctx context.Context, index string, err error) error {
 	wrapped := fmt.Errorf("read ranked search batch on %s: %w", index, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.query.read_failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.query.read_failed",
+		slog.String("err", wrapped.Error()),
+		slog.String("index", index),
+	)
+
 	return wrapped
 }

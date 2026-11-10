@@ -35,33 +35,70 @@ var bothAccessVersions = []string{searchaccess.StableVersion, searchaccess.Rotat
 
 // beginAccessRollout starts a rollout to the rotated version through the
 // production rollout store.
-func beginAccessRollout(t *testing.T, fixture rolloutFixture, authorityID uuid.UUID) searchdomain.AccessRollout {
+func beginAccessRollout(
+	t *testing.T,
+	fixture rolloutFixture,
+	authorityID uuid.UUID,
+) searchdomain.AccessRollout {
 	t.Helper()
 	current := currentAccessRollout(t, fixture, authorityID)
-	begun, err := fixture.stores.SearchRollouts(clock.Wall{}, fixture.stores.SearchPolicySet()).Begin(rolloutContext(t), searchdomain.BeginAccessRollout{
-		AuthorityID: authorityID, CandidateVersion: searchaccess.RotatedVersion, ExpectedGeneration: current.Generation,
-	})
+	begun, err := fixture.stores.SearchRollouts(
+		clock.Wall{},
+		fixture.stores.SearchPolicySet(),
+	).Begin(
+		rolloutContext(t),
+		searchdomain.BeginAccessRollout{
+			AuthorityID:        authorityID,
+			CandidateVersion:   searchaccess.RotatedVersion,
+			ExpectedGeneration: current.Generation,
+		},
+	)
 	if err != nil {
 		t.Fatalf("cannot begin rollout for authority %s: %v", authorityID, err)
 	}
+
 	return begun
 }
 
-func currentAccessRollout(t *testing.T, fixture rolloutFixture, authorityID uuid.UUID) searchdomain.AccessRollout {
+func currentAccessRollout(
+	t *testing.T,
+	fixture rolloutFixture,
+	authorityID uuid.UUID,
+) searchdomain.AccessRollout {
 	t.Helper()
-	rollout, err := fixture.stores.SearchRollouts(clock.Wall{}, fixture.stores.SearchPolicySet()).Current(rolloutContext(t), authorityID)
+	rollout, err := fixture.stores.SearchRollouts(
+		clock.Wall{},
+		fixture.stores.SearchPolicySet(),
+	).Current(
+		rolloutContext(t),
+		authorityID,
+	)
 	if err != nil {
 		t.Fatalf("cannot read rollout for authority %s: %v", authorityID, err)
 	}
+
 	return rollout
 }
 
 // requireAccessRollout requires the specified active version, write
 // versions, and phase.
-func requireAccessRollout(t *testing.T, rollout searchdomain.AccessRollout, active string, writes []string, phase searchdomain.AccessPhase) {
+func requireAccessRollout(
+	t *testing.T,
+	rollout searchdomain.AccessRollout,
+	active string,
+	writes []string,
+	phase searchdomain.AccessPhase,
+) {
 	t.Helper()
-	if rollout.ActiveVersion != active || !slices.Equal(rollout.WriteVersions, writes) || rollout.Phase != phase {
-		t.Fatalf("rollout %+v must use active version %s, write versions %v, and phase %s", rollout, active, writes, phase)
+	if rollout.ActiveVersion != active || !slices.Equal(rollout.WriteVersions, writes) ||
+		rollout.Phase != phase {
+		t.Fatalf(
+			"rollout %+v must use active version %s, write versions %v, and phase %s",
+			rollout,
+			active,
+			writes,
+			phase,
+		)
 	}
 }
 
@@ -74,6 +111,7 @@ func runRolloutSlice(t *testing.T, worker *service.SearchWorker) {
 		waitAfterRejection(t, err)
 		return
 	}
+
 	if !claimed {
 		time.Sleep(rolloutIdlePause)
 	}
@@ -86,29 +124,49 @@ func waitAfterRejection(t *testing.T, err error) {
 	if !strings.Contains(err.Error(), rolloutRejectionText) {
 		t.Fatalf("worker slice failed: %v", err)
 	}
+
 	time.Sleep(rolloutRejectedWait)
 }
 
 // runRolloutUntil runs fixture worker slices until done returns true for
 // the rollout and returns that state.
-func runRolloutUntil(t *testing.T, fixture rolloutFixture, authorityID uuid.UUID, done func(searchdomain.AccessRollout) bool) searchdomain.AccessRollout {
+func runRolloutUntil(
+	t *testing.T,
+	fixture rolloutFixture,
+	authorityID uuid.UUID,
+	done func(searchdomain.AccessRollout) bool,
+) searchdomain.AccessRollout {
 	t.Helper()
 	return runWorkerUntil(t, fixture, fixture.worker, authorityID, done)
 }
 
 // runWorkerUntil runs slices of worker until done returns true for the
 // rollout of authorityID and returns that state.
-func runWorkerUntil(t *testing.T, fixture rolloutFixture, worker *service.SearchWorker, authorityID uuid.UUID, done func(searchdomain.AccessRollout) bool) searchdomain.AccessRollout {
+func runWorkerUntil(
+	t *testing.T,
+	fixture rolloutFixture,
+	worker *service.SearchWorker,
+	authorityID uuid.UUID,
+	done func(searchdomain.AccessRollout) bool,
+) searchdomain.AccessRollout {
 	t.Helper()
+
 	deadline := time.Now().Add(rolloutStepDeadline)
 	for time.Now().Before(deadline) {
 		current := currentAccessRollout(t, fixture, authorityID)
 		if done(current) {
 			return current
 		}
+
 		runRolloutSlice(t, worker)
 	}
-	t.Fatalf("rollout for authority %s did not enter the expected state within %s", authorityID, rolloutStepDeadline)
+
+	t.Fatalf(
+		"rollout for authority %s did not enter the expected state within %s",
+		authorityID,
+		rolloutStepDeadline,
+	)
+
 	return searchdomain.AccessRollout{}
 }
 
@@ -119,16 +177,19 @@ func rolloutStable(rollout searchdomain.AccessRollout) bool {
 // drainRolloutWork runs slices until the worker cannot claim work.
 func drainRolloutWork(t *testing.T, fixture rolloutFixture) {
 	t.Helper()
+
 	for range rolloutDrainSlices {
 		claimed, err := fixture.worker.RunSlice(rolloutContext(t))
 		if err != nil {
 			waitAfterRejection(t, err)
 			continue
 		}
+
 		if !claimed {
 			return
 		}
 	}
+
 	t.Fatalf("work did not drain within %d slices", rolloutDrainSlices)
 }
 
@@ -137,18 +198,27 @@ func drainRolloutWork(t *testing.T, fixture rolloutFixture) {
 func drainLiveWork(t *testing.T, fixture rolloutFixture) {
 	t.Helper()
 	store := fixture.stores.SearchWork(clock.Wall{})
+
 	for range rolloutDrainSlices {
-		work, claimed, err := store.Claim(rolloutContext(t), searchdomain.WorkClassLive, "rollout-live-driver", time.Minute)
+		work, claimed, err := store.Claim(
+			rolloutContext(t),
+			searchdomain.WorkClassLive,
+			"rollout-live-driver",
+			time.Minute,
+		)
 		if err != nil {
 			t.Fatalf("cannot claim live work: %v", err)
 		}
+
 		if !claimed {
 			return
 		}
+
 		if err := fixture.worker.Process(rolloutContext(t), work); err != nil {
 			t.Fatalf("cannot process live work for node %s: %v", work.NodeID, err)
 		}
 	}
+
 	t.Fatalf("work did not drain within %d slices", rolloutDrainSlices)
 }
 
@@ -156,16 +226,26 @@ func drainLiveWork(t *testing.T, fixture rolloutFixture) {
 // versions through the production policy set.
 func expectedAccessKeys(t *testing.T, fixture rolloutFixture, orgID, nodeID uuid.UUID) []string {
 	t.Helper()
+
 	keys := make([]string, 0, len(bothAccessVersions))
 	for _, version := range bothAccessVersions {
-		access, err := fixture.stores.SearchPolicySet().Index(rolloutContext(t), searchaccess.IndexAccessRequest{
-			Version: version, OrganizationID: orgID, ResourceID: nodeID, Generation: 0,
-		})
+		access, err := fixture.stores.SearchPolicySet().Index(
+			rolloutContext(t),
+			searchaccess.IndexAccessRequest{
+				Version:        version,
+				OrganizationID: orgID,
+				ResourceID:     nodeID,
+				Generation:     0,
+			},
+		)
 		if err != nil {
 			t.Fatalf("cannot compile access version %s for node %s: %v", version, nodeID, err)
 		}
+
 		keys = append(keys, access.Keys...)
 	}
+
 	slices.Sort(keys)
+
 	return slices.Compact(keys)
 }

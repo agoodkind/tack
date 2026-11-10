@@ -27,13 +27,22 @@ func TestSearchSnapshotPartialCreateResponse(t *testing.T) {
 	direct := integration.OpenSearchClient(t, engine)
 	ctx := t.Context()
 	index := "tack-pit-partial-" + uuid.NewString()
-	if _, err := direct.Indices.Create(ctx, opensearchapi.IndicesCreateReq{
-		Index: index, BodyReader: strings.NewReader(`{"settings":{"number_of_shards":1,"number_of_replicas":0}}`),
-	}); err != nil {
+	if _, err := direct.Indices.Create(
+		ctx,
+		opensearchapi.IndicesCreateReq{
+			Index: index,
+			BodyReader: strings.NewReader(
+				`{"settings":{"number_of_shards":1,"number_of_replicas":0}}`,
+			),
+		},
+	); err != nil {
 		t.Fatalf("create index %s: %v", index, err)
 	}
 	t.Cleanup(func() {
-		if _, err := direct.Indices.Delete(context.WithoutCancel(ctx), &opensearchapi.IndicesDeleteReq{Indices: []string{index}}); err != nil {
+		if _, err := direct.Indices.Delete(
+			context.WithoutCancel(ctx),
+			&opensearchapi.IndicesDeleteReq{Indices: []string{index}},
+		); err != nil {
 			t.Errorf("delete index %s: %v", index, err)
 		}
 	})
@@ -48,7 +57,14 @@ func TestSearchSnapshotPartialCreateResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the proxy certificate: %v", err)
 	}
-	settings := search.Config{Endpoint: endpoint, CA: string(certificate), Username: engine.Username, Password: engine.Password, RequestTimeout: time.Minute, MaxRetries: 0}
+	settings := search.Config{
+		Endpoint:       endpoint,
+		CA:             string(certificate),
+		Username:       engine.Username,
+		Password:       engine.Password,
+		RequestTimeout: time.Minute,
+		MaxRetries:     0,
+	}
 	client, err := opensearchapi.NewClient(opensearchapi.Config{Client: settings.ClientConfig(nil)})
 	if err != nil {
 		t.Fatalf("create the pinned API client: %v", err)
@@ -61,14 +77,30 @@ func TestSearchSnapshotPartialCreateResponse(t *testing.T) {
 	if client.ErrorMask() != errmask.Empty {
 		t.Fatalf("the adapter client settings masked partial failures: %s", client.ErrorMask())
 	}
-	created, err := client.PointInTime.Create(ctx, &opensearchapi.CreatePITReq{
-		Indices: []string{index}, Params: &opensearchapi.CreatePITParams{KeepAlive: time.Minute},
-	})
+	created, err := client.PointInTime.Create(
+		ctx,
+		&opensearchapi.CreatePITReq{
+			Indices: []string{index},
+			Params:  &opensearchapi.CreatePITParams{KeepAlive: time.Minute},
+		},
+	)
 	var partial *opensearchapi.PartialSearchError
-	if !errors.As(err, &partial) || !created.PITID.IsSet() || created.Shards.Failed != 1 || created.Inspect().Response.StatusCode != http.StatusOK {
-		t.Fatalf("the partial create did not retain its PIT identity and HTTP response: created=%+v error=%v", created, err)
+	if !errors.As(err, &partial) || !created.PITID.IsSet() || created.Shards.Failed != 1 ||
+		created.Inspect().Response.StatusCode != http.StatusOK {
+		t.Fatalf(
+			"the partial create did not retain its PIT identity and HTTP response: created=%+v error=%v",
+			created,
+			err,
+		)
 	}
-	t.Logf("partial create: mask=%s HTTP=%d failed_shards=%d pit_id=%s error=%v", client.ErrorMask(), created.Inspect().Response.StatusCode, created.Shards.Failed, created.PITID, err)
+	t.Logf(
+		"partial create: mask=%s HTTP=%d failed_shards=%d pit_id=%s error=%v",
+		client.ErrorMask(),
+		created.Inspect().Response.StatusCode,
+		created.Shards.Failed,
+		created.PITID,
+		err,
+	)
 	listed, err := direct.PointInTime.GetAll(ctx, nil)
 	if err != nil {
 		t.Fatalf("list the real partial point in time: %v", err)
@@ -82,7 +114,12 @@ func TestSearchSnapshotPartialCreateResponse(t *testing.T) {
 	if !open {
 		t.Fatal("the real engine did not retain the point in time from the partial response")
 	}
-	if _, err := direct.PointInTime.Delete(ctx, &opensearchapi.DeletePITReq{Body: &opensearchapi.DeletePITBody{PITID: []opensearchapi.PITID{created.PITID}}}); err != nil {
+	if _, err := direct.PointInTime.Delete(
+		ctx,
+		&opensearchapi.DeletePITReq{
+			Body: &opensearchapi.DeletePITBody{PITID: []opensearchapi.PITID{created.PITID}},
+		},
+	); err != nil {
 		t.Fatalf("delete the partial point in time: %v", err)
 	}
 }

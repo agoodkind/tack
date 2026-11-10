@@ -28,12 +28,15 @@ type permissionCorpus struct {
 
 func otherOrganization(t *testing.T, fixture queryFixture) datagen.WorkspaceIdentity {
 	t.Helper()
+
 	for _, workspace := range fixture.Workspaces {
 		if workspace.OrgID != fixture.Workspaces[0].OrgID {
 			return workspace
 		}
 	}
+
 	t.Fatal("the fixture has one organization")
+
 	return datagen.WorkspaceIdentity{}
 }
 
@@ -41,69 +44,137 @@ func putPermissionCorpus(t *testing.T, fixture queryFixture) permissionCorpus {
 	t.Helper()
 	caller, foreign := fixture.Workspaces[0], otherOrganization(t, fixture)
 	callerEntry, foreignEntry := entryPoint(t, fixture, caller), entryPoint(t, fixture, foreign)
-	callerKind, foreignKind := putOpaqueKind(t, fixture, caller.OrgID), putOpaqueKind(t, fixture, foreign.OrgID)
-	corpus := permissionCorpus{Allowed: nil, Forbidden: nil, Filter: searchdomain.AccessFilter{Version: "", Keys: nil}}
+	callerKind, foreignKind := putOpaqueKind(t, fixture, caller.OrgID), putOpaqueKind(
+		t,
+		fixture,
+		foreign.OrgID,
+	)
+	corpus := permissionCorpus{
+		Allowed:   nil,
+		Forbidden: nil,
+		Filter:    searchdomain.AccessFilter{Version: "", Keys: nil},
+	}
+
 	for number := range 5 {
-		corpus.Allowed = append(corpus.Allowed, putOpaqueNode(t, fixture, callerKind, callerEntry,
-			fmt.Sprintf("Allowed %d", number), "notes that mention a saffron pipeline once", "excluded"))
+		corpus.Allowed = append(
+			corpus.Allowed,
+			putOpaqueNode(
+				t,
+				fixture,
+				callerKind,
+				callerEntry,
+				fmt.Sprintf("Allowed %d", number),
+				"notes that mention a saffron pipeline once",
+				"excluded",
+			),
+		)
 	}
+
 	strong := strings.Repeat("Saffron pipeline saffron pipeline. ", 3)
+
 	for number := range 60 {
-		corpus.Forbidden = append(corpus.Forbidden, putOpaqueNode(t, fixture, foreignKind, foreignEntry,
-			fmt.Sprintf("Saffron pipeline %d", number), strong, "excluded"))
+		corpus.Forbidden = append(
+			corpus.Forbidden,
+			putOpaqueNode(
+				t,
+				fixture,
+				foreignKind,
+				foreignEntry,
+				fmt.Sprintf("Saffron pipeline %d", number),
+				strong,
+				"excluded",
+			),
+		)
 	}
+
 	drainSearchWork(t, fixture.Worker, 2000)
 	corpus.Filter = callerAccess(t, fixture, caller, callerEntry)
+
 	return corpus
 }
 
 // callerAccess compiles the caller's opaque keys under the authority's
 // active access version, which the production rollout store returns for a
 // new search session.
-func callerAccess(t *testing.T, fixture queryFixture, workspace datagen.WorkspaceIdentity, entryID uuid.UUID) searchdomain.AccessFilter {
+func callerAccess(
+	t *testing.T,
+	fixture queryFixture,
+	workspace datagen.WorkspaceIdentity,
+	entryID uuid.UUID,
+) searchdomain.AccessFilter {
 	t.Helper()
 	policies := fixture.Stores.SearchPolicySet()
-	version, err := fixture.Stores.SearchRollouts(clock.Wall{}, policies).ActiveAccessVersion(WithTestOperation(t, t.Context()), workspace.OrgID)
+	version, err := fixture.Stores.SearchRollouts(
+		clock.Wall{},
+		policies,
+	).ActiveAccessVersion(
+		WithTestOperation(t, t.Context()),
+		workspace.OrgID,
+	)
 	if err != nil {
 		t.Fatalf("read active access version: %v", err)
 	}
-	filter, err := policies.Query(WithTestOperation(t, t.Context()), searchaccess.AccessRequest{
-		Version: version, PrincipalID: workspace.Actors[0].UserID, AuthorityID: workspace.OrgID,
-		EntryPointID: entryID, MemberOrganizations: []uuid.UUID{workspace.OrgID},
-	})
+
+	filter, err := policies.Query(
+		WithTestOperation(t, t.Context()),
+		searchaccess.AccessRequest{
+			Version:             version,
+			PrincipalID:         workspace.Actors[0].UserID,
+			AuthorityID:         workspace.OrgID,
+			EntryPointID:        entryID,
+			MemberOrganizations: []uuid.UUID{workspace.OrgID},
+		},
+	)
 	if err != nil {
 		t.Fatalf("compile caller access: %v", err)
 	}
+
 	return filter
 }
 
 // rawRankedNodes reads every raw ranker batch of one snapshot in order.
-func rawRankedNodes(t *testing.T, fixture queryFixture, filter searchdomain.AccessFilter, text string) []uuid.UUID {
+func rawRankedNodes(
+	t *testing.T,
+	fixture queryFixture,
+	filter searchdomain.AccessFilter,
+	text string,
+) []uuid.UUID {
 	t.Helper()
-	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
+	ranker := fixture.Adapter.Ranker(search.RankerSettings{
+		KeepAlive:  time.Minute,
+		TokenBytes: 64 << 10,
+		BatchSize:  100,
+	})
 	query := searchdomain.Query{Text: text, Index: fixture.Index, NodeType: "", Access: filter}
 	snapshot, err := ranker.Open(WithTestOperation(t, t.Context()), query)
 	if err != nil {
 		t.Fatalf("open snapshot: %v", err)
 	}
+
 	t.Cleanup(func() { _ = ranker.Close(WithTestOperation(t, t.Context()), snapshot) })
 	var nodes []uuid.UUID
 	var after json.RawMessage
+
 	for range 10_000 {
 		batch, err := ranker.Read(WithTestOperation(t, t.Context()), query, snapshot, after)
 		if err != nil {
 			t.Fatalf("read ranked batch: %v", err)
 		}
+
 		if len(batch.Hits) == 0 {
 			return nodes
 		}
+
 		snapshot.PITID = batch.PITID
 		for _, hit := range batch.Hits {
 			nodes = append(nodes, hit.NodeID)
 		}
+
 		after = batch.Hits[len(batch.Hits)-1].Sort
 	}
+
 	t.Fatal("raw ranking did not end within 10000 batches")
+
 	return nil
 }
 
@@ -113,19 +184,27 @@ func rawRankedNodes(t *testing.T, fixture queryFixture, filter searchdomain.Acce
 func TestSearchFiltersForbiddenPagesBeforeRanking(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	corpus := putPermissionCorpus(t, fixture)
+
 	ranked := rawRankedNodes(t, fixture, corpus.Filter, permissionQuery)
 	for _, forbidden := range corpus.Forbidden {
 		if slices.Contains(ranked, forbidden) {
 			t.Fatalf("raw ranker output contains forbidden node %s", forbidden)
 		}
 	}
+
 	for _, allowed := range corpus.Allowed {
 		if !slices.Contains(ranked, allowed) {
 			t.Fatalf("raw ranker output omits allowed node %s", allowed)
 		}
 	}
+
 	callerEntry := entryPoint(t, fixture, fixture.Workspaces[0])
-	requireCorpusOnce(t, callEverySearchPage(t, permissionQuery, fixture.Harness).IDs, corpus.Allowed, callerEntry)
+	requireCorpusOnce(
+		t,
+		callEverySearchPage(t, permissionQuery, fixture.Harness).IDs,
+		corpus.Allowed,
+		callerEntry,
+	)
 }
 
 // TestSearchFinalCheckRejectsCorruptIndexedAccess requires the final
@@ -140,6 +219,7 @@ func TestSearchFinalCheckRejectsCorruptIndexedAccess(t *testing.T) {
 	if !slices.Contains(rawRankedNodes(t, fixture, corpus.Filter, permissionQuery), forbidden) {
 		t.Fatalf("the corrupted page %s did not pass the OpenSearch filter", forbidden)
 	}
+
 	for _, query := range []string{permissionQuery, forbidden.String()} {
 		pages := callEverySearchPage(t, query, fixture.Harness)
 		if slices.Contains(pages.IDs, forbidden) {
@@ -150,7 +230,12 @@ func TestSearchFinalCheckRejectsCorruptIndexedAccess(t *testing.T) {
 
 // RawRankedNodes reads every batch from the OpenSearch ranker for text with
 // filter and returns the node IDs in rank order.
-func RawRankedNodes(t *testing.T, fixture QueryFixture, filter searchdomain.AccessFilter, text string) []uuid.UUID {
+func RawRankedNodes(
+	t *testing.T,
+	fixture QueryFixture,
+	filter searchdomain.AccessFilter,
+	text string,
+) []uuid.UUID {
 	t.Helper()
 	return rawRankedNodes(t, fixture, filter, text)
 }

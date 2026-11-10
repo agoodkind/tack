@@ -58,18 +58,22 @@ func StartEmptyLedger(t *testing.T, containerName string) EmptyLedgerNode {
 	if err != nil {
 		t.Fatalf("start empty ledger %s: %v", containerName, err)
 	}
+
 	defer func() { _ = cli.Close() }()
 	if err := refuseExistingContainer(ctx, cli, containerName); err != nil {
 		t.Fatalf("start empty ledger: %v", err)
 	}
+
 	superuserKey, err := randomHex(ctx, 16)
 	if err != nil {
 		t.Fatalf("start empty ledger %s: %v", containerName, err)
 	}
+
 	started, err := startEmptyLedgerContainer(ctx, cli, containerName, superuserKey)
 	if err != nil {
 		t.Fatalf("start empty ledger %s: %v", containerName, err)
 	}
+
 	removeLedgerAfterTest(t, started.name)
 	dsn := url.URL{
 		Scheme:   "postgres",
@@ -81,11 +85,14 @@ func StartEmptyLedger(t *testing.T, containerName string) EmptyLedgerNode {
 	if err := waitForLedger(ctx, dsn.String()); err != nil {
 		t.Fatalf("start empty ledger %s: %v", containerName, err)
 	}
+
 	image, err := serviceImage(ctx, ledgerService)
 	if err != nil {
 		t.Fatalf("start empty ledger %s: %v", containerName, err)
 	}
+
 	slog.InfoContext(ctx, "testenv.ledger.empty_ready", slog.String("container", started.name))
+
 	return EmptyLedgerNode{
 		Image:         image,
 		DSN:           dsn.String(),
@@ -100,53 +107,85 @@ func StartEmptyLedger(t *testing.T, containerName string) EmptyLedgerNode {
 func refuseExistingContainer(ctx context.Context, cli *client.Client, containerName string) error {
 	_, err := cli.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{Size: false})
 	if err == nil {
-		return fmt.Errorf("a container named %s already exists; remove it before this test starts its own", containerName)
+		return fmt.Errorf(
+			"a container named %s already exists; remove it before this test starts its own",
+			containerName,
+		)
 	}
+
 	if !cerrdefs.IsNotFound(err) {
 		slog.ErrorContext(ctx, "testenv.ledger.inspect_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("inspect container %s: %w", containerName, err)
 	}
+
 	return nil
 }
 
 // startEmptyLedgerContainer creates and starts the node's container from the
 // stack's yugabyte image.
-func startEmptyLedgerContainer(ctx context.Context, cli *client.Client, containerName, superuserKey string) (engine, error) {
+func startEmptyLedgerContainer(
+	ctx context.Context,
+	cli *client.Client,
+	containerName string,
+	superuserKey string,
+) (engine, error) {
 	image, err := serviceImage(ctx, ledgerService)
 	if err != nil {
 		return engine{}, err
 	}
+
 	platform, err := ledgerPlatform(ctx, cli)
 	if err != nil {
 		return engine{}, err
 	}
-	command := append(slices.Clone(ledgerCommand), "--advertise_address="+containerName, "--listen="+containerName)
+
+	command := append(
+		slices.Clone(ledgerCommand),
+		"--advertise_address="+containerName,
+		"--listen="+containerName,
+	)
 	files, err := yugabyteRuntimeFiles(ctx, superuserKey)
 	if err != nil {
 		return engine{}, err
 	}
-	return startEngine(ctx, cli, engineSpec{
-		kind:     ledgerService,
-		image:    image,
-		platform: platform,
-		cmd:      command,
-		env: []string{
-			"YSQL_USER=" + ledgerAdminUser,
-			"YSQL_PASSWORD_FILE=/run/secrets/YUGABYTE_PASSWORD",
-			"YSQL_DB=" + ledgerDatabase,
+
+	return startEngine(
+		ctx,
+		cli,
+		engineSpec{
+			kind:     ledgerService,
+			image:    image,
+			platform: platform,
+			cmd:      command,
+			env: []string{
+				"YSQL_USER=" + ledgerAdminUser,
+				"YSQL_PASSWORD_FILE=/run/secrets/YUGABYTE_PASSWORD",
+				"YSQL_DB=" + ledgerDatabase,
+			},
+			files: files,
+			entrypoint: []string{
+				"/sbin/tini",
+				"--",
+				"/usr/bin/env",
+				"bash",
+				"/opt/tack/yugabyte-entrypoint.sh",
+			},
+			name: containerName,
+			healthcheck: &container.HealthConfig{
+				Test: []string{
+					"CMD",
+					"/usr/bin/env",
+					"bash",
+					"/opt/tack/yugabyte-healthcheck.sh",
+				},
+				Interval:      ledgerHealthInterval,
+				Timeout:       ledgerHealthTimeout,
+				StartPeriod:   ledgerHealthStartPeriod,
+				StartInterval: 0,
+				Retries:       ledgerHealthRetries,
+			},
 		},
-		files:      files,
-		entrypoint: []string{"/sbin/tini", "--", "/usr/bin/env", "bash", "/opt/tack/yugabyte-entrypoint.sh"},
-		name:       containerName,
-		healthcheck: &container.HealthConfig{
-			Test:          []string{"CMD", "/usr/bin/env", "bash", "/opt/tack/yugabyte-healthcheck.sh"},
-			Interval:      ledgerHealthInterval,
-			Timeout:       ledgerHealthTimeout,
-			StartPeriod:   ledgerHealthStartPeriod,
-			StartInterval: 0,
-			Retries:       ledgerHealthRetries,
-		},
-	})
+	)
 }
 
 // removeLedgerAfterTest removes the node's container when the test ends.

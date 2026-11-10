@@ -45,21 +45,30 @@ func writeBackupStatusMarker(
 ) error {
 	logger := telemetry.L(ctx)
 	key := backupStatusKey(metric)
-	body, err := json.Marshal(backupStatusMarker{At: at.UTC(), Detail: detail})
+	body, err := json.Marshal(backupStatusMarker{
+		At:     at.UTC(),
+		Detail: detail,
+	})
 	if err != nil {
 		wrapped := fmt.Errorf("marshal backup status marker %s: %w", key, err)
 		logger.ErrorContext(ctx, "backup.status.marker_failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
+
 	if err := put(key, body); err != nil {
 		return err
 	}
-	logger.InfoContext(ctx, "backup.status.marker_written",
+
+	logger.InfoContext(
+		ctx,
+		"backup.status.marker_written",
 		slog.String("metric", metric),
 		slog.String("key", key),
 		slog.Time("at", at.UTC()),
 		slog.String("detail", detail),
 	)
+
 	return nil
 }
 
@@ -81,17 +90,23 @@ func readBackupStatusMarker(
 		if isObjectNotFound(err) {
 			return absent, false, nil
 		}
+
 		return absent, false, err
 	}
+
 	if err := json.Unmarshal(body, &marker); err != nil {
 		wrapped := fmt.Errorf("unmarshal backup status marker %s: %w", key, err)
 		logger.ErrorContext(ctx, "backup.status.marker_failed", slog.String("err", wrapped.Error()))
+
 		return absent, false, wrapped
 	}
+
 	if marker.At.IsZero() {
 		wrapped := fmt.Errorf("backup status marker %s carries no at timestamp", key)
 		logger.ErrorContext(ctx, "backup.status.marker_failed", slog.String("err", wrapped.Error()))
+
 		return absent, false, wrapped
 	}
+
 	return marker, true, nil
 }

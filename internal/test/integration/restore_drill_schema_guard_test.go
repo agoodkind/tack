@@ -48,14 +48,17 @@ func TestRestoreDrillRestoresLedgerWithSchemaGuard(t *testing.T) {
 	if err := migration.Migrate(ctx, node.DSN, migrations.FS); err != nil {
 		t.Fatalf("migrate the empty ledger: %v", err)
 	}
+
 	cfg := restoreDrillConfig(t, node)
 	if err := ops.RunAuditSeedRoles(ctx, cfg); err != nil {
 		t.Fatalf("seed-roles: %v", err)
 	}
+
 	admin, err := pgxpool.New(ctx, node.DSN)
 	if err != nil {
 		t.Fatalf("open the ledger pool: %v", err)
 	}
+
 	t.Cleanup(admin.Close)
 	seedDrillAuthRows(t, admin)
 	seedDrillLedgerRow(t, node.DSN, admin)
@@ -63,10 +66,16 @@ func TestRestoreDrillRestoresLedgerWithSchemaGuard(t *testing.T) {
 	if err := ops.RunBackupYBSnapshotExport(ctx, cfg); err != nil {
 		t.Fatalf("export the ledger snapshot: %v", err)
 	}
+
 	if err := ops.RunBackupYBArchiveNode(ctx, cfg, ""); err != nil {
 		t.Fatalf("archive the node's tablets: %v", err)
 	}
-	if err := ops.RunBackupRestoreDrill(ctx, cfg, ops.RestoreDrillOptions{YBRunKey: "", FDBTargetTime: nil}); err != nil {
+
+	if err := ops.RunBackupRestoreDrill(
+		ctx,
+		cfg,
+		ops.RestoreDrillOptions{YBRunKey: "", FDBTargetTime: nil},
+	); err != nil {
 		t.Fatalf("restore drill: %v", err)
 	}
 }
@@ -79,9 +88,11 @@ func restoreDrillConfig(t *testing.T, node testenv.EmptyLedgerNode) *config.Conf
 	if err != nil {
 		t.Fatalf("resolve the yugabyted overlay: %v", err)
 	}
+
 	bucket := testenv.ObjectStore(t)
 	cfg := &config.Config{
-		DatabaseURL: node.DSN, YugabyteDB: drillLedgerDatabase,
+		DatabaseURL:             node.DSN,
+		YugabyteDB:              drillLedgerDatabase,
 		BackupRoot:              filepath.Join(testenv.SharedDir(t), "backups"),
 		BackupYBImage:           node.Image,
 		BackupYBOverlayPath:     overlay,
@@ -95,13 +106,19 @@ func restoreDrillConfig(t *testing.T, node testenv.EmptyLedgerNode) *config.Conf
 		BackupS3AccessKey:       bucket.AccessKey,
 		BackupS3SecretKey:       bucket.SecretKey,
 	}
+
 	logins := []*string{
-		&cfg.AuditWriterPassword, &cfg.AuditReaderPassword, &cfg.AuditRedactorPassword,
-		&cfg.AuditOperatorPassword, &cfg.AppPassword, &cfg.MigratorPassword,
+		&cfg.AuditWriterPassword,
+		&cfg.AuditReaderPassword,
+		&cfg.AuditRedactorPassword,
+		&cfg.AuditOperatorPassword,
+		&cfg.AppPassword,
+		&cfg.MigratorPassword,
 	}
 	for _, login := range logins {
 		*login = uuid.NewString()
 	}
+
 	return cfg
 }
 
@@ -111,18 +128,37 @@ func seedDrillAuthRows(t *testing.T, admin *pgxpool.Pool) {
 	now := time.Now().UTC()
 	ctx, _ := sqlAuditContext(t, sqlAuditPrincipal())
 	orgID := uuid.Must(uuid.NewV7())
-	holder, err := postgres.NewUserRepo(admin).Create(ctx, &user.User{
-		ID: uuid.Must(uuid.NewV7()), Email: "drill-" + uuid.NewString() + "@example.invalid",
-		DisplayName: "Drill Holder", AvatarURL: nil, CreatedAt: now, UpdatedAt: now,
-	})
+	holder, err := postgres.NewUserRepo(admin).Create(
+		ctx,
+		&user.User{
+			ID:          uuid.Must(uuid.NewV7()),
+			Email:       "drill-" + uuid.NewString() + "@example.invalid",
+			DisplayName: "Drill Holder",
+			AvatarURL:   nil,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create the drill user: %v", err)
 	}
-	if _, err := postgres.NewTokenRepo(admin).Create(ctx, orgID, holder.ID, uuid.NewString(), "restore drill"); err != nil {
+
+	if _, err := postgres.NewTokenRepo(admin).Create(
+		ctx,
+		orgID,
+		holder.ID,
+		uuid.NewString(),
+		"restore drill",
+	); err != nil {
 		t.Fatalf("create the drill token: %v", err)
 	}
+
 	member := &org.Member{
-		ID: uuid.Nil, OrgID: orgID, UserID: holder.ID, Role: drillMemberRole, CreatedAt: now,
+		ID:        uuid.Nil,
+		OrgID:     orgID,
+		UserID:    holder.ID,
+		Role:      drillMemberRole,
+		CreatedAt: now,
 	}
 	if err := postgres.NewOrgMemberRepo(admin).AddMember(ctx, member); err != nil {
 		t.Fatalf("add the drill org member: %v", err)
@@ -148,17 +184,32 @@ func seedDrillLedgerRow(t *testing.T, ledgerDSN string, admin *pgxpool.Pool) {
 	if err := audit.NewPoolOutbox(admin).WriteOutbox(ctx, event); err != nil {
 		t.Fatalf("write the drill event to the outbox: %v", err)
 	}
+
 	deadline := time.Now().Add(drillLedgerRowDeadline)
+
 	for {
 		var projected int
-		err := admin.QueryRow(ctx, `SELECT count(*) FROM audit.events WHERE org_id = $1`, orgID).Scan(&projected)
+		err := admin.QueryRow(
+			ctx,
+			`SELECT count(*) FROM audit.events WHERE org_id = $1`,
+			orgID,
+		).Scan(
+			&projected,
+		)
 		if err == nil && projected == 1 {
 			return
 		}
+
 		if time.Now().After(deadline) {
-			t.Fatalf("audit.events contains %d rows of org %s after %s (last error %v), want 1",
-				projected, orgID, drillLedgerRowDeadline, err)
+			t.Fatalf(
+				"audit.events contains %d rows of org %s after %s (last error %v), want 1",
+				projected,
+				orgID,
+				drillLedgerRowDeadline,
+				err,
+			)
 		}
+
 		time.Sleep(drillPollInterval)
 	}
 }
@@ -170,29 +221,46 @@ func startDrillAuditPipeline(t *testing.T, ledgerDSN string, admin *pgxpool.Pool
 	t.Helper()
 	brokers := testenv.Kafka(t)
 	topic := "audit.restore-drill-test-" + uuid.NewString()[:8]
-	consumer, err := audit.NewConsumer(t.Context(), audit.ConsumerConfig{
-		Brokers: []string{brokers}, Topic: topic, GroupID: "tack-restore-drill-test-" + uuid.NewString()[:8],
-		BatchSize: 32, PollInterval: drillPollInterval, YugabyteDSN: ledgerDSN,
-	})
+	consumer, err := audit.NewConsumer(
+		t.Context(),
+		audit.ConsumerConfig{
+			Brokers: []string{
+				brokers,
+			},
+			Topic:        topic,
+			GroupID:      "tack-restore-drill-test-" + uuid.NewString()[:8],
+			BatchSize:    32,
+			PollInterval: drillPollInterval,
+			YugabyteDSN:  ledgerDSN,
+		},
+	)
 	if err != nil {
 		t.Fatalf("start the audit consumer: %v", err)
 	}
+
 	consumer.Start(t.Context())
 	t.Cleanup(func() { _ = consumer.Close() })
 	recorder, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers: audit.SplitBrokers(brokers), Topic: topic, ClientID: "tack-restore-drill-test",
+		Brokers:        audit.SplitBrokers(brokers),
+		Topic:          topic,
+		ClientID:       "tack-restore-drill-test",
 		ProduceTimeout: 30 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("open the relay producer: %v", err)
 	}
+
 	relay, err := audit.NewRelay(audit.RelayConfig{
-		Recorder: recorder, Yugabyte: audit.NewPoolOutbox(admin), FoundationDB: nil,
-		PollInterval: drillPollInterval, BatchSize: 64,
+		Recorder:     recorder,
+		Yugabyte:     audit.NewPoolOutbox(admin),
+		FoundationDB: nil,
+		PollInterval: drillPollInterval,
+		BatchSize:    64,
 	})
 	if err != nil {
 		t.Fatalf("start the relay: %v", err)
 	}
+
 	relay.Start(t.Context())
 	t.Cleanup(func() { _ = relay.Close() })
 }

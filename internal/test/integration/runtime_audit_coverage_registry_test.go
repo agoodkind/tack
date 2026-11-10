@@ -57,7 +57,10 @@ func commandClasses(t *testing.T) map[string]string {
 	var walk func(command *cobra.Command, path []string)
 	walk = func(command *cobra.Command, path []string) {
 		if command.RunE != nil {
-			classes["command "+strings.Join(path, " ")] = command.Annotations[clispec.AuditClassAnnotation]
+			classes["command "+strings.Join(
+				path,
+				" ",
+			)] = command.Annotations[clispec.AuditClassAnnotation]
 		}
 		for _, child := range command.Commands() {
 			walk(child, append(slices.Clone(path), child.Name()))
@@ -67,7 +70,9 @@ func commandClasses(t *testing.T) map[string]string {
 		walk(command, []string{command.Name()})
 	}
 	if len(classes) == 0 {
-		t.Fatal("The ops command tree did not contain any commands with RunE functions; coverage requires runnable commands.")
+		t.Fatal(
+			"The ops command tree did not contain any commands with RunE functions; coverage requires runnable commands.",
+		)
 	}
 	return classes
 }
@@ -82,17 +87,32 @@ func listedNames(t *testing.T, env *coverageEnv, method, collection, field strin
 		Result map[string]json.RawMessage `json:"result"`
 	}
 	if err := json.Unmarshal(response.body, &decoded); err != nil {
-		t.Fatalf("The test could not decode the expected MCP discovery data from %s: %v\n%s", method, err, response.body)
+		t.Fatalf(
+			"The test could not decode the expected MCP discovery data from %s: %v\n%s",
+			method,
+			err,
+			response.body,
+		)
 	}
 	var entries []map[string]json.RawMessage
 	if err := json.Unmarshal(decoded.Result[collection], &entries); err != nil {
-		t.Fatalf("The test could not decode the expected MCP discovery data from %s: %v\n%s", method, err, response.body)
+		t.Fatalf(
+			"The test could not decode the expected MCP discovery data from %s: %v\n%s",
+			method,
+			err,
+			response.body,
+		)
 	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		var name string
 		if err := json.Unmarshal(entry[field], &name); err != nil || name == "" {
-			t.Fatalf("The discovery response did not contain a nonempty string for the requested field; the method, field value, and decoding error follow: %s: %s %v", method, entry[field], err)
+			t.Fatalf(
+				"The discovery response did not contain a nonempty string for the requested field; the method, field value, and decoding error follow: %s: %s %v",
+				method,
+				entry[field],
+				err,
+			)
 		}
 		names = append(names, name)
 	}

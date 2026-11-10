@@ -25,7 +25,9 @@ func TestPartitionManagerHealsFutureWeek(t *testing.T) {
 	target := time.Now().UTC().AddDate(0, 0, 7*20)
 
 	// Extend this isolated fixture until the target is its maintenance frontier.
-	if _, err := pool.Exec(ctx, `
+	if _, err := pool.Exec(
+		ctx,
+		`
 		UPDATE partman.part_config
 		SET premake = round(
 		    EXTRACT(
@@ -36,7 +38,9 @@ func TestPartitionManagerHealsFutureWeek(t *testing.T) {
 		    ) / EXTRACT('epoch' FROM partition_interval::interval)
 		)::integer
 		WHERE parent_table = 'audit.events'
-	`, target); err != nil {
+	`,
+		target,
+	); err != nil {
 		t.Fatalf("extend fixture partition horizon: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `SELECT audit.run_partition_maintenance()`); err != nil {
@@ -61,12 +65,18 @@ func TestPartitionManagerHealsFutureWeek(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	err := insertPartitionManagerTestEvent(ctx, pool, orgID, target)
 	if err == nil {
-		t.Fatalf("insert at %s before manager start succeeded, want error", target.Format(time.DateOnly))
+		t.Fatalf(
+			"insert at %s before manager start succeeded, want error",
+			target.Format(time.DateOnly),
+		)
 	}
 	var postgresError *pgconn.PgError
 	if !errors.As(err, &postgresError) || postgresError.Code != "23514" {
-		t.Fatalf("insert at %s before manager start error = %v, want SQLSTATE 23514",
-			target.Format(time.DateOnly), err)
+		t.Fatalf(
+			"insert at %s before manager start error = %v, want SQLSTATE 23514",
+			target.Format(time.DateOnly),
+			err,
+		)
 	}
 	t.Logf("pre-start insert failed as expected: %v", err)
 
@@ -98,7 +108,9 @@ func TestPartitionManagerHealsFutureWeek(t *testing.T) {
 
 func dropPartitionsCovering(t *testing.T, pool *pgxpool.Pool, target time.Time) {
 	t.Helper()
-	rows, err := pool.Query(context.Background(), `
+	rows, err := pool.Query(
+		context.Background(),
+		`
 		SELECT child_ns.nspname, c.relname
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
@@ -119,7 +131,9 @@ func dropPartitionsCovering(t *testing.T, pool *pgxpool.Pool, target time.Time) 
 		          'TO \(''([0-9 :.+-]+)'''
 		      )
 		  )[1]::timestamptz
-	`, target)
+	`,
+		target,
+	)
 	if err != nil {
 		t.Fatalf("query partitions covering target: %v", err)
 	}
@@ -150,7 +164,9 @@ func dropPartitionsCovering(t *testing.T, pool *pgxpool.Pool, target time.Time) 
 func partitionCountCovering(t *testing.T, pool *pgxpool.Pool, target time.Time) int {
 	t.Helper()
 	var count int
-	if err := pool.QueryRow(context.Background(), `
+	if err := pool.QueryRow(
+		context.Background(),
+		`
 		SELECT count(*)
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
@@ -170,7 +186,11 @@ func partitionCountCovering(t *testing.T, pool *pgxpool.Pool, target time.Time) 
 		          'TO \(''([0-9 :.+-]+)'''
 		      )
 		  )[1]::timestamptz
-	`, target).Scan(&count); err != nil {
+	`,
+		target,
+	).Scan(
+		&count,
+	); err != nil {
 		t.Fatalf("count partitions covering target: %v", err)
 	}
 	return count
@@ -183,7 +203,9 @@ func insertPartitionManagerTestEvent(
 	eventTime time.Time,
 ) error {
 	identifier := uuid.Must(uuid.NewV7())
-	if _, err := pool.Exec(ctx, `
+	if _, err := pool.Exec(
+		ctx,
+		`
 		INSERT INTO audit.events (
 			org_id, shard, event_time, event_id, seq, actor_id, actor_kind,
 			action, entity_kind, entity_id, context, delta, pii_ref,
@@ -193,7 +215,14 @@ func insertPartitionManagerTestEvent(
 			'test.partition_manager', 'node', $5, '{}', 'null', NULL,
 			''::bytea, '\x00'::bytea, $6
 		)
-	`, orgID, eventTime, identifier, identifier, identifier, uuid.NewString()); err != nil {
+	`,
+		orgID,
+		eventTime,
+		identifier,
+		identifier,
+		identifier,
+		uuid.NewString(),
+	); err != nil {
 		return fmt.Errorf("insert partition-manager test event: %w", err)
 	}
 	return nil

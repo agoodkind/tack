@@ -46,21 +46,30 @@ func TestSearchWorkerSliceStopsAtStartDeadline(t *testing.T) {
 	if pages := env.readerPages(t, nodeID); len(pages) < 3 {
 		t.Fatalf("node has %d pages, want at least 3", len(pages))
 	}
+
 	proxy.target(nodeID, 0)
 	if claimed, err := env.Worker.RunSlice(t.Context()); err != nil || !claimed {
 		t.Fatalf("run the first slice: claimed %t err %v", claimed, err)
 	}
+
 	if writes := proxy.writesOf(nodeID); len(writes) != 1 || writes[0].ordinal != 0 {
 		t.Fatalf("the delayed slice sent %d page writes %+v, want only page 0", len(writes), writes)
 	}
+
 	store := env.Stores.SearchWork(clock.Wall{})
 	next := claimClassOf(t, store, searchdomain.WorkClassLive, nodeID)
 	if next.Ordinal != 1 || next.Cursor == "" {
-		t.Fatalf("next claim resumes at ordinal %d cursor %q, want ordinal 1 with a cursor", next.Ordinal, next.Cursor)
+		t.Fatalf(
+			"next claim resumes at ordinal %d cursor %q, want ordinal 1 with a cursor",
+			next.Ordinal,
+			next.Cursor,
+		)
 	}
+
 	if err := store.Yield(t.Context(), next); err != nil {
 		t.Fatalf("yield the inspected claim: %v", err)
 	}
+
 	env.runIdle(t)
 	requireIndexedNode(t, env, nodeID)
 }
@@ -85,6 +94,7 @@ func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
 				return
 			}
 		}
+
 		results <- delayedSlice{returned: time.Now(), err: nil, ended: false}
 	}()
 	select {
@@ -96,10 +106,12 @@ func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
 	otherID := uuid.Must(uuid.NewV7())
 	env.putNode(t, otherID, shortTimingText)
 	second := env.newWorker(t, env.Stores)
+
 	for len(proxy.writesOf(otherID)) == 0 {
 		if _, until, _ := proxy.held(); !until.IsZero() {
 			break
 		}
+
 		if _, err := second.RunSlice(t.Context()); err != nil {
 			t.Fatalf("run a slice of the second worker: %v", err)
 		}
@@ -111,35 +123,61 @@ func TestSearchWorkerStopsDelayedRequestAtOperationTimeout(t *testing.T) {
 	case <-time.After(resultWait):
 		t.Fatalf("the first worker loop did not return within %s", resultWait)
 	}
+
 	from, until, abandoned := proxy.held()
 	otherWritten := false
+
 	for _, write := range proxy.writesOf(otherID) {
 		if write.received.After(from) && write.received.Before(until) {
 			otherWritten = true
 		}
 	}
+
 	if !otherWritten {
-		t.Fatalf("the second worker wrote no page of another node while the delayed write was open from %s to %s", from, until)
+		t.Fatalf(
+			"the second worker wrote no page of another node while the delayed write was open from %s to %s",
+			from,
+			until,
+		)
 	}
+
 	if !result.ended || !abandoned {
-		t.Fatalf("delayed write ended %t abandoned %t, slice error %v; want the client to abandon it", result.ended, abandoned, result.err)
+		t.Fatalf(
+			"delayed write ended %t abandoned %t, slice error %v; want the client to abandon it",
+			result.ended,
+			abandoned,
+			result.err,
+		)
 	}
+
 	if open := until.Sub(from); open < operationStopEarliest || open > operationStopLatest {
 		t.Fatalf("the worker abandoned the delayed write after %s, want about ten seconds", open)
 	}
+
 	for _, write := range proxy.writesOf(delayedID) {
 		if write.received.After(from) && write.received.Before(result.returned) {
-			t.Fatalf("the worker sent page %d at %s while the delayed write was open", write.ordinal, write.received)
+			t.Fatalf(
+				"the worker sent page %d at %s while the delayed write was open",
+				write.ordinal,
+				write.received,
+			)
 		}
 	}
+
 	store := env.Stores.SearchWork(clock.Wall{})
 	next := claimClassOf(t, store, searchdomain.WorkClassLive, delayedID)
 	if next.Ordinal != 1 || next.Cursor == "" {
-		t.Fatalf("next claim resumes at ordinal %d cursor %q, want ordinal 1 with a cursor", next.Ordinal, next.Cursor)
+		t.Fatalf(
+			"next claim resumes at ordinal %d cursor %q, want ordinal 1 with a cursor",
+			next.Ordinal,
+			next.Cursor,
+		)
 	}
+
 	if err := store.Yield(t.Context(), next); err != nil {
 		t.Fatalf("yield the inspected claim: %v", err)
 	}
+
 	// The proxy never sends the abandoned write to the engine. The worker must
 	// resend page 1 after migrationWriteHorizon to finish indexing the node.
 	resent := until.Add(migrationWriteHorizon + resendMargin)

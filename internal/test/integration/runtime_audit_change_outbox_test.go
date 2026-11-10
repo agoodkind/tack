@@ -18,14 +18,17 @@ const outboxPageLimit = 500
 func outboxTail(t *testing.T, env *integration.TestEnv) []byte {
 	t.Helper()
 	var mark []byte
+
 	for {
 		entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(env.Ctx, mark, outboxPageLimit)
 		if err != nil {
 			t.Fatalf("read the outbox: %v", err)
 		}
+
 		if len(entries) == 0 {
 			return mark
 		}
+
 		mark = entries[len(entries)-1].Mark
 	}
 }
@@ -35,21 +38,26 @@ func outboxTail(t *testing.T, env *integration.TestEnv) []byte {
 func outboxEventsAfter(t *testing.T, env *integration.TestEnv, mark []byte) []audit.Event {
 	t.Helper()
 	events := []audit.Event{}
+
 	for {
 		entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(env.Ctx, mark, outboxPageLimit)
 		if err != nil {
 			t.Fatalf("read the outbox: %v", err)
 		}
+
 		if len(entries) == 0 {
 			return events
 		}
+
 		for _, entry := range entries {
 			var event audit.Event
 			if err := json.Unmarshal(entry.Event, &event); err != nil || event.Verb == "" {
 				t.Fatalf("outbox entry %s is not one audit event: %v", entry.Event, err)
 			}
+
 			events = append(events, event)
 		}
+
 		mark = entries[len(entries)-1].Mark
 	}
 }
@@ -58,15 +66,18 @@ func outboxEventsAfter(t *testing.T, env *integration.TestEnv, mark []byte) []au
 // It matches targetID against the target node ID or relationship source ID.
 func changeEventsFor(events []audit.Event, verb audit.Verb, targetID uuid.UUID) []audit.Event {
 	matched := []audit.Event{}
+
 	for _, event := range events {
 		target := event.Context.Target
 		if event.Verb != string(verb) || target == nil {
 			continue
 		}
+
 		if target.ID == targetID || target.SourceID == targetID {
 			matched = append(matched, event)
 		}
 	}
+
 	return matched
 }
 
@@ -77,12 +88,26 @@ func requireChangeEvent(t *testing.T, event audit.Event, operationID, actorID uu
 	if err := audit.ValidateEvent(event); err != nil {
 		t.Fatalf("change event %s is invalid: %v", event.EventID, err)
 	}
+
 	eventContext := event.Context
-	if eventContext.AuditFormatVersion != audit.AuditFormatComplete || eventContext.Phase != audit.PhaseChange {
-		t.Fatalf("event %s format %d phase %q, want format 2 change", event.EventID, eventContext.AuditFormatVersion, eventContext.Phase)
+	if eventContext.AuditFormatVersion != audit.AuditFormatComplete ||
+		eventContext.Phase != audit.PhaseChange {
+		t.Fatalf(
+			"event %s format %d phase %q, want format 2 change",
+			event.EventID,
+			eventContext.AuditFormatVersion,
+			eventContext.Phase,
+		)
 	}
+
 	if eventContext.OperationID != operationID || event.Actor.ID != actorID {
-		t.Fatalf("event %s operation %s actor %s, want operation %s actor %s",
-			event.EventID, eventContext.OperationID, event.Actor.ID, operationID, actorID)
+		t.Fatalf(
+			"event %s operation %s actor %s, want operation %s actor %s",
+			event.EventID,
+			eventContext.OperationID,
+			event.Actor.ID,
+			operationID,
+			actorID,
+		)
 	}
 }

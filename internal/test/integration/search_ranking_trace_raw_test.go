@@ -23,11 +23,18 @@ type traceMLRequest struct {
 }
 
 func (request traceMLRequest) GetRequest(method string) (*http.Request, error) {
-	result, err := http.NewRequestWithContext(context.Background(), method, request.path, bytes.NewReader(request.body))
+	result, err := http.NewRequestWithContext(
+		context.Background(),
+		method,
+		request.path,
+		bytes.NewReader(request.body),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("build trace request %s: %w", request.path, err)
 	}
+
 	result.Header.Set("Content-Type", "application/json")
+
 	return result, nil
 }
 
@@ -45,16 +52,21 @@ type tracePredictResponse struct {
 // It fails the test when that field is empty.
 func (r *rankingRun) indexModel(t *testing.T, index string) string {
 	t.Helper()
-	response, err := r.client.Indices.GetMapping(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesGetMappingReq{Indices: []string{index}})
+	response, err := r.client.Indices.GetMapping(
+		integration.WithTestOperation(t, t.Context()),
+		&opensearchapi.IndicesGetMappingReq{Indices: []string{index}},
+	)
 	if err != nil {
 		t.Fatalf("read mapping of %s: %v", index, err)
 	}
+
 	var indices map[string]struct {
 		Mappings json.RawMessage `json:"mappings"`
 	}
 	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
 		t.Fatal(err)
 	}
+
 	var mapping struct {
 		Meta struct {
 			ModelID string `json:"model_id"`
@@ -63,9 +75,11 @@ func (r *rankingRun) indexModel(t *testing.T, index string) string {
 	if err := json.Unmarshal(indices[index].Mappings, &mapping); err != nil {
 		t.Fatalf("decode mapping of %s: %v", index, err)
 	}
+
 	if mapping.Meta.ModelID == "" {
 		t.Fatalf("mapping of %s has no model ID", index)
 	}
+
 	return mapping.Meta.ModelID
 }
 
@@ -78,19 +92,32 @@ func (r *rankingRun) predictTraceWeights(t *testing.T, modelID, text string) map
 	if err != nil {
 		t.Fatalf("encode trace prediction: %v", err)
 	}
-	request := traceMLRequest{path: "/_plugins/_ml/_predict/sparse_encoding/" + url.PathEscape(modelID), body: body}
+
+	request := traceMLRequest{
+		path: "/_plugins/_ml/_predict/sparse_encoding/" + url.PathEscape(modelID),
+		body: body,
+	}
 	var decoded tracePredictResponse
-	response, err := opensearch.Execute(integration.WithTestOperation(t, t.Context()), r.client.Client, http.MethodPost, request, &decoded)
+	response, err := opensearch.Execute(
+		integration.WithTestOperation(t, t.Context()),
+		r.client.Client,
+		http.MethodPost,
+		request,
+		&decoded,
+	)
 	if err != nil {
 		t.Fatalf("predict trace weights: %v", err)
 	}
+
 	if response.IsError() {
 		t.Fatalf("predict trace weights: %v", opensearch.ParseError(response))
 	}
+
 	if len(decoded.InferenceResults) != 1 || len(decoded.InferenceResults[0].Output) != 1 ||
 		len(decoded.InferenceResults[0].Output[0].DataAsMap.Response) != 1 {
 		t.Fatal("trace prediction must return exactly one token-weight map")
 	}
+
 	return decoded.InferenceResults[0].Output[0].DataAsMap.Response[0]
 }
 
@@ -98,26 +125,58 @@ func (r *rankingRun) predictTraceWeights(t *testing.T, modelID, text string) map
 // dot products with the unpruned weights and the stored chunk embedding. It also logs the largest
 // unpruned weight, both maps' token counts, and each query token with a positive unpruned weight
 // that does not appear in the stored embedding, including its unpruned weight and query weight.
-func (r *rankingRun) traceRawChunk(t *testing.T, modelID, query, name string, page, number int, text string, stored, weights map[string]float64) {
+func (r *rankingRun) traceRawChunk(
+	t *testing.T,
+	modelID string,
+	query string,
+	name string,
+	page int,
+	number int,
+	text string,
+	stored map[string]float64,
+	weights map[string]float64,
+) {
 	t.Helper()
 	raw := r.predictTraceWeights(t, modelID, text)
 	rawMax := 0.0
+
 	for _, weight := range raw {
 		rawMax = max(rawMax, weight)
 	}
+
 	omitted := make([]string, 0, len(weights))
 	for token := range weights {
 		if _, kept := stored[token]; !kept && raw[token] > 0 {
 			omitted = append(omitted, token)
 		}
 	}
-	sort.Slice(omitted, func(i, j int) bool {
-		return weights[omitted[i]]*raw[omitted[i]] > weights[omitted[j]]*raw[omitted[j]]
-	})
+
+	sort.Slice(
+		omitted,
+		func(i, j int) bool {
+			return weights[omitted[i]]*raw[omitted[i]] > weights[omitted[j]]*raw[omitted[j]]
+		},
+	)
+
 	parts := make([]string, 0, len(omitted))
 	for _, token := range omitted {
-		parts = append(parts, fmt.Sprintf("%q:raw=%.4f,query=%.3f", token, raw[token], weights[token]))
+		parts = append(
+			parts,
+			fmt.Sprintf("%q:raw=%.4f,query=%.3f", token, raw[token], weights[token]),
+		)
 	}
-	t.Logf("trace query=%q raw chunk name=%q page=%d chunk=%d raw_dot=%.4f stored_dot=%.4f raw_max=%.4f raw_tokens=%d stored_tokens=%d omitted=[%s]",
-		query, name, page, number, traceDot(weights, raw), traceDot(weights, stored), rawMax, len(raw), len(stored), strings.Join(parts, " "))
+
+	t.Logf(
+		"trace query=%q raw chunk name=%q page=%d chunk=%d raw_dot=%.4f stored_dot=%.4f raw_max=%.4f raw_tokens=%d stored_tokens=%d omitted=[%s]",
+		query,
+		name,
+		page,
+		number,
+		traceDot(weights, raw),
+		traceDot(weights, stored),
+		rawMax,
+		len(raw),
+		len(stored),
+		strings.Join(parts, " "),
+	)
 }

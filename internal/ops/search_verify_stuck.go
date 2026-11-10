@@ -28,27 +28,37 @@ type searchStuckWorkOutput struct {
 // output.
 func listStuckSearchWork(ctx context.Context, env *Env, output *searchVerifyOutput) error {
 	cursor := ""
+
 	for {
 		page, err := env.Stores.SearchStuckWork(ctx, cursor)
 		if err != nil {
 			return searchVerifyFailure(ctx, "list search work at the attempt limit", err)
 		}
+
 		for _, stuck := range page.Work {
 			output.StuckWork = append(output.StuckWork, stuckWorkOutput(stuck))
 		}
+
 		if page.Done {
 			break
 		}
+
 		cursor = page.NextCursor
 	}
+
 	output.StuckWorkItems = len(output.StuckWork)
+
 	return nil
 }
 
 func stuckWorkOutput(stuck searchdomain.StuckWork) searchStuckWorkOutput {
 	return searchStuckWorkOutput{
-		Kind: string(stuck.Class), ItemID: stuck.ItemID, Attempts: stuck.Attempts, LastError: stuck.LastError,
-		orgID: stuck.OrgID, nodeID: stuck.NodeID,
+		Kind:      string(stuck.Class),
+		ItemID:    stuck.ItemID,
+		Attempts:  stuck.Attempts,
+		LastError: stuck.LastError,
+		orgID:     stuck.OrgID,
+		nodeID:    stuck.NodeID,
 	}
 }
 
@@ -57,8 +67,13 @@ func stuckWorkOutput(stuck searchdomain.StuckWork) searchStuckWorkOutput {
 func joinVerifyFailures(ctx context.Context, stuck, physical error) error {
 	joined := errors.Join(stuck, physical)
 	if joined != nil {
-		telemetry.L(ctx).ErrorContext(ctx, "search.verify.failed", slog.String("err", joined.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.verify.failed",
+			slog.String("err", joined.Error()),
+		)
 	}
+
 	return joined
 }
 
@@ -69,11 +84,32 @@ func stuckWorkError(ctx context.Context, stuck []searchStuckWorkOutput) error {
 	if len(stuck) == 0 {
 		return nil
 	}
+
 	items := make([]string, 0, len(stuck))
 	for _, item := range stuck {
-		items = append(items, fmt.Sprintf("%s work %s failed %d times, last error: %s", item.Kind, item.ItemID, item.Attempts, item.LastError))
+		items = append(
+			items,
+			fmt.Sprintf(
+				"%s work %s failed %d times, last error: %s",
+				item.Kind,
+				item.ItemID,
+				item.Attempts,
+				item.LastError,
+			),
+		)
 	}
-	wrapped := fmt.Errorf("%d search work items crossed the attempt limit: %s", len(stuck), strings.Join(items, "; "))
-	telemetry.L(ctx).ErrorContext(ctx, "search.verify.stuck_work", slog.String("err", wrapped.Error()), slog.Int("stuck_work_items", len(stuck)))
+
+	wrapped := fmt.Errorf(
+		"%d search work items crossed the attempt limit: %s",
+		len(stuck),
+		strings.Join(items, "; "),
+	)
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.verify.stuck_work",
+		slog.String("err", wrapped.Error()),
+		slog.Int("stuck_work_items", len(stuck)),
+	)
+
 	return wrapped
 }

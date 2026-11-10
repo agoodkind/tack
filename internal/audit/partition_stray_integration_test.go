@@ -62,7 +62,10 @@ func TestPartitionManagerReportsStrayChildCreatedWithSchemaGuardDisabled(t *test
 
 	setGuardTriggers(ctx, t, pool, "DISABLE")
 	t.Cleanup(func() {
-		if _, err := pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+strayReportChildTable); err != nil {
+		if _, err := pool.Exec(
+			context.Background(),
+			"DROP TABLE IF EXISTS "+strayReportChildTable,
+		); err != nil {
 			t.Errorf("drop %s: %v", strayReportChildTable, err)
 		}
 		setGuardTriggers(context.Background(), t, pool, "ENABLE")
@@ -73,7 +76,10 @@ func TestPartitionManagerReportsStrayChildCreatedWithSchemaGuardDisabled(t *test
 
 	telemetry.SetAuditPartitionStrayChildren(0)
 	logs := &strayReportLogBuffer{mu: sync.Mutex{}, buf: bytes.Buffer{}}
-	handler := slog.NewJSONHandler(logs, &slog.HandlerOptions{AddSource: false, Level: slog.LevelDebug, ReplaceAttr: nil})
+	handler := slog.NewJSONHandler(
+		logs,
+		&slog.HandlerOptions{AddSource: false, Level: slog.LevelDebug, ReplaceAttr: nil},
+	)
 	manager := audit.NewPartitionManager(audit.NewPGPartitionStore(pool), time.Hour)
 	manager.Start(telemetry.WithLogger(ctx, slog.New(handler)))
 	t.Cleanup(func() {
@@ -94,7 +100,12 @@ func TestPartitionManagerReportsStrayChildCreatedWithSchemaGuardDisabled(t *test
 		}
 		select {
 		case <-deadline.C:
-			t.Fatalf("audit.partition.stray_child names = %v, want %s; logs:\n%s", names, strayReportChildName, output)
+			t.Fatalf(
+				"audit.partition.stray_child names = %v, want %s; logs:\n%s",
+				names,
+				strayReportChildName,
+				output,
+			)
 		case <-ticker.C:
 		}
 	}
@@ -115,7 +126,8 @@ func strayChildLogNames(t *testing.T, output string) []string {
 		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
 			t.Fatalf("decode log line %q: %v", scanner.Text(), err)
 		}
-		if record.Message == "audit.partition.stray_child" && record.Level == slog.LevelError.String() {
+		if record.Message == "audit.partition.stray_child" &&
+			record.Level == slog.LevelError.String() {
 			return record.Names
 		}
 	}

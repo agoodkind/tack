@@ -22,7 +22,12 @@ func TestNodeIntegrityMutationRefusesDeleteOfReferencedState(t *testing.T) {
 	before, _ := mutationSnapshot(t, env, todoID)
 
 	_, err := env.NodeSvc.Delete(env.Ctx, todoID, uuid.New())
-	requireError(t, err, domain.ErrFailedPrecondition, "the delete of referenced state "+todoID.String())
+	requireError(
+		t,
+		err,
+		domain.ErrFailedPrecondition,
+		"the delete of referenced state "+todoID.String(),
+	)
 	requireUnchanged(t, env, before)
 }
 
@@ -33,16 +38,33 @@ func TestNodeIntegrityMutationRefusesDeleteOfReferencedState(t *testing.T) {
 func TestNodeIntegrityMutationRefusesUnindexedReferenceDefinition(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	definition := &node.PropertyDef{
-		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, Name: "reviewer_state_id", Type: node.PropertyTypeUUID,
-		Indexed: false, ReferenceTargetTypeKey: "state",
-		Search: &node.SearchProjection{Include: false, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}},
+		ID:                     uuid.Must(uuid.NewV7()),
+		OrgID:                  env.OrgID,
+		Name:                   "reviewer_state_id",
+		Type:                   node.PropertyTypeUUID,
+		Indexed:                false,
+		ReferenceTargetTypeKey: "state",
+		Search: &node.SearchProjection{
+			Include: false,
+			Order:   0,
+			Rule:    node.TextRule{Mode: node.TextRuleScalar},
+		},
 	}
 	err := env.Stores.PropertyDefs.Set(env.Ctx, definition)
 	if !errors.Is(err, domain.ErrInvalidArgument) {
-		t.Fatalf("store the unindexed reference definition returned %v, want an invalid argument", err)
+		t.Fatalf(
+			"store the unindexed reference definition returned %v, want an invalid argument",
+			err,
+		)
 	}
+
 	stored, err := env.Stores.PropertyDefs.Get(env.Ctx, env.OrgID, definition.ID)
 	if err != nil || stored != nil {
-		t.Fatalf("definition %s after the refused write = %+v, %v, want none", definition.ID, stored, err)
+		t.Fatalf(
+			"definition %s after the refused write = %+v, %v, want none",
+			definition.ID,
+			stored,
+			err,
+		)
 	}
 }

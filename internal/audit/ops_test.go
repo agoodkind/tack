@@ -14,10 +14,12 @@ func TestSystemOrgID(t *testing.T) {
 	if SystemOrgID() == uuid.Nil {
 		t.Fatal("SystemOrgID must not be the nil UUID")
 	}
+
 	want := "00000000-0000-0000-0000-0000000005ee"
 	if SystemOrgID().String() != want {
 		t.Fatalf("SystemOrgID = %s, want %s", SystemOrgID(), want)
 	}
+
 	// Two calls must agree. The value reaches stored rows, so a caller that
 	// could change it between calls would split one org's chain in two.
 	if SystemOrgID() != SystemOrgID() {
@@ -31,6 +33,7 @@ func TestSpecZeroValueHasNoClaims(t *testing.T) {
 	if spec.Verb != "" {
 		t.Fatalf("zero Spec verb = %q, want empty", spec.Verb)
 	}
+
 	if spec.Mutates || spec.Atomic || spec.Reads || spec.CreatesAuditInfrastructure {
 		t.Fatal("zero Spec must not claim any behavior flags")
 	}
@@ -44,6 +47,7 @@ func TestOperatorPrincipalActorType(t *testing.T) {
 	if human.ActorType() != ActorOperator {
 		t.Fatalf("zero-kind principal = %q, want %q", human.ActorType(), ActorOperator)
 	}
+
 	service := OperatorPrincipal{Kind: ActorService}
 	if service.ActorType() != ActorService {
 		t.Fatalf("service principal = %q, want %q", service.ActorType(), ActorService)

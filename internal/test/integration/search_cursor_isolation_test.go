@@ -19,11 +19,21 @@ const (
 
 // actorHarness returns a harness that calls tack_search as actor index of
 // workspace, through the fixture's production handler.
-func actorHarness(fixture queryFixture, workspace datagen.WorkspaceIdentity, index int) *MCPHarness {
+func actorHarness(
+	fixture queryFixture,
+	workspace datagen.WorkspaceIdentity,
+	index int,
+) *MCPHarness {
 	return &MCPHarness{
-		driver: fixture.Harness.driver, handler: fixture.Harness.handler, token: workspace.Actors[index].Token,
-		ledgerDSN: fixture.Harness.ledgerDSN, orgID: workspace.OrgID, Workspace: workspace.Slug, Project: "",
-		outbox: fixture.Harness.outbox, titles: fixture.Harness.titles,
+		driver:    fixture.Harness.driver,
+		handler:   fixture.Harness.handler,
+		token:     workspace.Actors[index].Token,
+		ledgerDSN: fixture.Harness.ledgerDSN,
+		orgID:     workspace.OrgID,
+		Workspace: workspace.Slug,
+		Project:   "",
+		outbox:    fixture.Harness.outbox,
+		titles:    fixture.Harness.titles,
 	}
 }
 
@@ -38,26 +48,49 @@ func TestSearchCursorRejectsForeignCallerAndChangedType(t *testing.T) {
 	caller, foreign := fixture.Workspaces[0], otherOrganization(t, fixture)
 	callerEntry := entryPoint(t, fixture, caller)
 	kind := putOpaqueKind(t, fixture, caller.OrgID)
+
 	for number := range 30 {
-		putOpaqueNode(t, fixture, kind, callerEntry, fmt.Sprintf("Cobalt ledger %d", number), "cobalt ledger entry", "excluded")
+		putOpaqueNode(
+			t,
+			fixture,
+			kind,
+			callerEntry,
+			fmt.Sprintf("Cobalt ledger %d", number),
+			"cobalt ledger entry",
+			"excluded",
+		)
 	}
+
 	drainSearchWork(t, fixture.Worker, 2000)
 	first := callSearch(t, fixture.Harness, cursorIsolationQuery, "")
 	if first.Complete || first.Cursor == "" {
-		t.Fatalf("first page returned %d results and complete=%t, want a cursor", len(first.IDs), first.Complete)
+		t.Fatalf(
+			"first page returned %d results and complete=%t, want a cursor",
+			len(first.IDs),
+			first.Complete,
+		)
 	}
 
 	sameOrganization := actorHarness(fixture, caller, 1)
 	otherOrganizationCaller := actorHarness(fixture, foreign, 0)
 	changedType := searchArguments(fixture.Harness, cursorIsolationQuery, first.Cursor)
 	changedType["node_type"] = entryTypeKeys(t, fixture.Stores, caller.OrgID)[0]
+
 	attempts := []struct {
 		name      string
 		harness   *MCPHarness
 		arguments map[string]any
 	}{
-		{"another member of the organization", sameOrganization, searchArguments(sameOrganization, cursorIsolationQuery, first.Cursor)},
-		{"a member of another organization", otherOrganizationCaller, searchArguments(otherOrganizationCaller, cursorIsolationQuery, first.Cursor)},
+		{
+			"another member of the organization",
+			sameOrganization,
+			searchArguments(sameOrganization, cursorIsolationQuery, first.Cursor),
+		},
+		{
+			"a member of another organization",
+			otherOrganizationCaller,
+			searchArguments(otherOrganizationCaller, cursorIsolationQuery, first.Cursor),
+		},
 		{"the same caller with a changed node type", fixture.Harness, changedType},
 	}
 	for _, attempt := range attempts {
@@ -65,6 +98,7 @@ func TestSearchCursorRejectsForeignCallerAndChangedType(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", attempt.name, err)
 		}
+
 		if !isError || !strings.Contains(text, cursorMismatchText) {
 			t.Fatalf("%s continued another session with error=%t:\n%s", attempt.name, isError, text)
 		}
@@ -74,6 +108,7 @@ func TestSearchCursorRejectsForeignCallerAndChangedType(t *testing.T) {
 	if len(second.IDs) == 0 {
 		t.Fatal("the original caller's second page returned no node after the refused calls")
 	}
+
 	for _, id := range second.IDs {
 		if slices.Contains(first.IDs, id) {
 			t.Fatalf("the second page repeated node %s from the first page", id)
@@ -83,6 +118,10 @@ func TestSearchCursorRejectsForeignCallerAndChangedType(t *testing.T) {
 
 // ActorHarness returns an MCP harness that calls the fixture's production
 // handler with the bearer token of the actor at index in workspace.
-func ActorHarness(fixture QueryFixture, workspace datagen.WorkspaceIdentity, index int) *MCPHarness {
+func ActorHarness(
+	fixture QueryFixture,
+	workspace datagen.WorkspaceIdentity,
+	index int,
+) *MCPHarness {
 	return actorHarness(fixture, workspace, index)
 }

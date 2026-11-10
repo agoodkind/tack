@@ -32,23 +32,38 @@ const SyncBytes = 8 << 20
 // kernel instead of leaving them charged to this process's memory limit.
 func copyToStagedFile(ctx context.Context, file *os.File, body io.Reader) (int64, error) {
 	var written int64
+
 	for {
 		copied, copyErr := io.CopyN(file, body, SyncBytes)
 		if copied > 0 {
 			if err := file.Sync(); err != nil {
-				wrapped := fmt.Errorf("sync %s after %d bytes: %w", file.Name(), written+copied, err)
-				slog.ErrorContext(ctx, "backup.s3.stage_failed", slog.String("err", wrapped.Error()))
+				wrapped := fmt.Errorf(
+					"sync %s after %d bytes: %w",
+					file.Name(),
+					written+copied,
+					err,
+				)
+				slog.ErrorContext(
+					ctx,
+					"backup.s3.stage_failed",
+					slog.String("err", wrapped.Error()),
+				)
+
 				return written + copied, wrapped
 			}
+
 			releaseCachedPages(ctx, file, written, copied)
 			written += copied
 		}
+
 		if errors.Is(copyErr, io.EOF) {
 			return written, nil
 		}
+
 		if copyErr != nil {
 			wrapped := fmt.Errorf("copy into %s after %d bytes: %w", file.Name(), written, copyErr)
 			slog.ErrorContext(ctx, "backup.s3.stage_failed", slog.String("err", wrapped.Error()))
+
 			return written, wrapped
 		}
 	}
@@ -61,13 +76,17 @@ func copyToStagedFile(ctx context.Context, file *os.File, body io.Reader) (int64
 // engine.
 func GetObjectToFile(ctx context.Context, client *s3.Client, bucket, key, path string) error {
 	logger := telemetry.L(ctx)
-	out, err := client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	})
+	out, err := client.GetObject(
+		ctx,
+		&s3.GetObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String(key),
+		},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("get object %s/%s: %w", bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
 	defer out.Body.Close()
@@ -76,6 +95,7 @@ func GetObjectToFile(ctx context.Context, client *s3.Client, bucket, key, path s
 	if err != nil {
 		wrapped := fmt.Errorf("create %s for download of %s/%s: %w", path, bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
 	defer f.Close()
@@ -84,12 +104,17 @@ func GetObjectToFile(ctx context.Context, client *s3.Client, bucket, key, path s
 	if err != nil {
 		wrapped := fmt.Errorf("write %s from %s/%s: %w", path, bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
-	logger.InfoContext(ctx, "backup.s3.get",
+
+	logger.InfoContext(
+		ctx,
+		"backup.s3.get",
 		slog.String("bucket", bucket),
 		slog.String("key", key),
 		slog.Int64("bytes", written),
 	)
+
 	return nil
 }

@@ -28,13 +28,14 @@ func TestBuildAuditRecorderRefusesUnreachableBrokers(t *testing.T) {
 	}
 
 	recorder, err := buildAuditRecorder(context.Background(), cfg)
-
 	if err == nil {
 		t.Fatal("a server that cannot reach its brokers must refuse to start")
 	}
+
 	if recorder != nil {
 		t.Fatalf("recorder = %T, want none: a failed backend must never yield a sink", recorder)
 	}
+
 	if !strings.Contains(err.Error(), "refusing to serve unrecorded") {
 		t.Fatalf("err = %v, want it to name why the server refuses", err)
 	}
@@ -49,10 +50,10 @@ func TestBuildAuditRecorderRefusesUnreachableWriter(t *testing.T) {
 	}
 
 	recorder, err := buildAuditRecorder(context.Background(), cfg)
-
 	if err == nil {
 		t.Fatal("an unreachable audit writer must refuse to start")
 	}
+
 	if recorder != nil {
 		t.Fatalf("recorder = %T, want none", recorder)
 	}
@@ -65,13 +66,14 @@ func TestBuildAuditRecorderRefusesUnconfigured(t *testing.T) {
 	t.Parallel()
 
 	recorder, err := buildAuditRecorder(context.Background(), &config.Config{})
-
 	if err == nil {
 		t.Fatal("no configured backend must refuse to start")
 	}
+
 	if recorder != nil {
 		t.Fatalf("recorder = %T, want none", recorder)
 	}
+
 	if !strings.Contains(err.Error(), "AUDIT_ALLOW_UNRECORDED") {
 		t.Fatalf("err = %v, want it to name the flag that permits unrecorded operation", err)
 	}
@@ -83,10 +85,14 @@ func TestBuildAuditRecorderRefusesUnconfigured(t *testing.T) {
 func TestBuildAuditRecorderAllowsAcknowledgedUnrecorded(t *testing.T) {
 	t.Parallel()
 
-	recorder, err := buildAuditRecorder(context.Background(), &config.Config{AuditAllowUnrecorded: true})
+	recorder, err := buildAuditRecorder(
+		context.Background(),
+		&config.Config{AuditAllowUnrecorded: true},
+	)
 	if err != nil {
 		t.Fatalf("an acknowledged unrecorded deployment must start: %v", err)
 	}
+
 	if _, ok := recorder.(audit.NoopRecorder); !ok {
 		t.Fatalf("recorder = %T, want the discarding recorder the operator asked for", recorder)
 	}
@@ -100,7 +106,6 @@ func TestUnwiredRecorderRefusesInsteadOfDiscarding(t *testing.T) {
 	t.Parallel()
 
 	err := audit.UnwiredRecorder{}.Record(context.Background(), audit.Event{Verb: "node.read"})
-
 	if err == nil {
 		t.Fatal("an uninstalled sink must refuse, not silently discard")
 	}
@@ -120,6 +125,7 @@ func TestBuildKafkaRecorderWaitsForASlowBroker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reserve port: %v", err)
 	}
+
 	address := reservation.Addr().String()
 	port := portOf(t, address)
 	started := make(chan *kfake.Cluster, 1)
@@ -129,6 +135,7 @@ func TestBuildKafkaRecorderWaitsForASlowBroker(t *testing.T) {
 			started <- nil
 			return
 		}
+
 		cluster, err := kfake.NewCluster(
 			kfake.NumBrokers(1),
 			kfake.Ports(port),
@@ -138,6 +145,7 @@ func TestBuildKafkaRecorderWaitsForASlowBroker(t *testing.T) {
 			started <- nil
 			return
 		}
+
 		started <- cluster
 	}()
 	t.Cleanup(func() {
@@ -146,15 +154,19 @@ func TestBuildKafkaRecorderWaitsForASlowBroker(t *testing.T) {
 		}
 	})
 
-	recorder, err := buildAuditRecorder(context.Background(), &config.Config{
-		AuditKafkaBrokers:        address,
-		AuditKafkaTopic:          "audit.events.v1",
-		AuditKafkaProduceTimeout: 2 * time.Second,
-		AuditBrokerReadyTimeout:  20 * time.Second,
-	})
+	recorder, err := buildAuditRecorder(
+		context.Background(),
+		&config.Config{
+			AuditKafkaBrokers:        address,
+			AuditKafkaTopic:          "audit.events.v1",
+			AuditKafkaProduceTimeout: 2 * time.Second,
+			AuditBrokerReadyTimeout:  20 * time.Second,
+		},
+	)
 	if err != nil {
 		t.Fatalf("a broker that becomes ready must not refuse the server: %v", err)
 	}
+
 	if closer, ok := recorder.(interface{ Close() error }); ok {
 		_ = closer.Close()
 	}
@@ -166,10 +178,12 @@ func portOf(t *testing.T, address string) int {
 	if err != nil {
 		t.Fatalf("split %q: %v", address, err)
 	}
+
 	number, err := strconv.Atoi(port)
 	if err != nil {
 		t.Fatalf("port %q: %v", port, err)
 	}
+
 	return number
 }
 
@@ -183,6 +197,7 @@ func TestBuildAuditRecorderRefusesAMissingTopic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("kfake.NewCluster: %v", err)
 	}
+
 	t.Cleanup(cluster.Close)
 
 	// The ready budget is generous because the assertion is on the reason
@@ -191,19 +206,23 @@ func TestBuildAuditRecorderRefusesAMissingTopic(t *testing.T) {
 	// seconds, and a budget that expires first turns a missing-topic refusal
 	// into a deadline refusal, which is the wrong thing proven for the wrong
 	// reason.
-	recorder, err := buildAuditRecorder(context.Background(), &config.Config{
-		AuditKafkaBrokers:        strings.Join(cluster.ListenAddrs(), ","),
-		AuditKafkaTopic:          "audit.events.v1",
-		AuditKafkaProduceTimeout: time.Second,
-		AuditBrokerReadyTimeout:  20 * time.Second,
-	})
-
+	recorder, err := buildAuditRecorder(
+		context.Background(),
+		&config.Config{
+			AuditKafkaBrokers:        strings.Join(cluster.ListenAddrs(), ","),
+			AuditKafkaTopic:          "audit.events.v1",
+			AuditKafkaProduceTimeout: time.Second,
+			AuditBrokerReadyTimeout:  20 * time.Second,
+		},
+	)
 	if err == nil {
 		t.Fatal("a reachable broker with no audit topic must still refuse")
 	}
+
 	if recorder != nil {
 		t.Fatalf("recorder = %T, want none", recorder)
 	}
+
 	if !strings.Contains(err.Error(), "audit.events.v1") {
 		t.Fatalf("err = %v, want it to name the topic that cannot be written", err)
 	}

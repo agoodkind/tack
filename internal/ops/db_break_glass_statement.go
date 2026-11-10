@@ -28,7 +28,8 @@ const (
 
 var errDBStatementWrites = errors.New(
 	"ops db sql is read-only and the statement changes data or schema; " +
-		"a database write needs a migration or a reviewed ops command")
+		"a database write needs a migration or a reviewed ops command",
+)
 
 // runDBStatement sends the statement with the extended protocol as one
 // unnamed prepared statement. The server refuses more than one command in an
@@ -41,6 +42,7 @@ func runDBStatement(ctx context.Context, dsn, statement string) (dbStatementResu
 		slog.ErrorContext(ctx, "db.break_glass.dsn_failed", slog.String("err", err.Error()))
 		return none, fmt.Errorf("parse the database address for the break-glass statement: %w", err)
 	}
+
 	connConfig.RuntimeParams[dbReadOnlySetting] = "on"
 	connConfig.Tracer = &telemetry.QueryTracer{}
 	conn, err := pgx.ConnectConfig(ctx, connConfig)
@@ -48,28 +50,40 @@ func runDBStatement(ctx context.Context, dsn, statement string) (dbStatementResu
 		slog.ErrorContext(ctx, "db.break_glass.connect_failed", slog.String("err", err.Error()))
 		return none, fmt.Errorf("open the database for the break-glass statement: %w", err)
 	}
+
 	defer func() { _ = conn.Close(context.WithoutCancel(ctx)) }()
-	rows, err := conn.Query(ctx, statement, pgx.QueryExecModeExec, pgx.QueryResultFormats{pgx.TextFormatCode})
+	rows, err := conn.Query(
+		ctx,
+		statement,
+		pgx.QueryExecModeExec,
+		pgx.QueryResultFormats{pgx.TextFormatCode},
+	)
 	if err != nil {
 		return none, dbStatementError(ctx, err)
 	}
 	defer rows.Close()
 	outcome := dbStatementResult{Tag: "", Columns: nil, Rows: nil, Truncated: false}
+
 	for _, field := range rows.FieldDescriptions() {
 		outcome.Columns = append(outcome.Columns, field.Name)
 	}
+
 	for rows.Next() {
 		if len(outcome.Rows) == dbBreakGlassRowLimit {
 			outcome.Truncated = true
 			break
 		}
+
 		outcome.Rows = append(outcome.Rows, textCells(rows.RawValues()))
 	}
+
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return none, dbStatementError(ctx, err)
 	}
+
 	outcome.Tag = rows.CommandTag().String()
+
 	return outcome, nil
 }
 
@@ -79,6 +93,7 @@ func dbStatementError(ctx context.Context, err error) error {
 	if errors.As(err, &serverErr) && serverErr.Code == dbReadOnlySQLState {
 		return fmt.Errorf("%w: %w", errDBStatementWrites, err)
 	}
+
 	return fmt.Errorf("run the break-glass statement: %w", err)
 }
 
@@ -91,8 +106,10 @@ func textCells(raw [][]byte) []*string {
 			cells = append(cells, nil)
 			continue
 		}
+
 		text := string(value)
 		cells = append(cells, &text)
 	}
+
 	return cells
 }

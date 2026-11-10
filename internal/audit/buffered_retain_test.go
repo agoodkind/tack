@@ -21,14 +21,19 @@ func TestBufferedRetainsUndeliveredEventsUntilRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("kfake.NewCluster: %v", err)
 	}
+
 	t.Cleanup(cluster.Close)
 	stop := refuseProduces(cluster)
 	t.Cleanup(stop)
 	outbox := &failingOutbox{mu: sync.Mutex{}, fail: nil, entries: nil}
 	outbox.setFail(errors.New("FoundationDB error 1031: transaction timed out"))
 	inner := &audit.SpillRecorder{Primary: newRetainKafka(t, cluster), Spill: outbox}
-	buffered := audit.NewBufferedRecorder(context.Background(), inner, outbox,
-		audit.BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: 20 * time.Millisecond})
+	buffered := audit.NewBufferedRecorder(
+		context.Background(),
+		inner,
+		outbox,
+		audit.BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: 20 * time.Millisecond},
+	)
 	t.Cleanup(func() { _ = buffered.Close() })
 	ctx := context.Background()
 
@@ -36,9 +41,12 @@ func TestBufferedRetainsUndeliveredEventsUntilRecovery(t *testing.T) {
 	if err := buffered.Record(ctx, retained); err != nil {
 		t.Fatalf("record: %v", err)
 	}
+
 	logs.waitFor(t, "audit.buffer.delivery_retained")
 	if err := buffered.Record(ctx, retainReadEvent("refused")); err == nil {
-		t.Fatal("Record accepted an event while the retained event filled the capacity and the outbox failed")
+		t.Fatal(
+			"Record accepted an event while the retained event filled the capacity and the outbox failed",
+		)
 	}
 
 	stop()
@@ -54,10 +62,17 @@ func TestBufferedRetainsUndeliveredEventsUntilRecovery(t *testing.T) {
 	if err := newRetainKafka(t, cluster).Record(ctx, sentinel); err != nil {
 		t.Fatalf("record sentinel: %v", err)
 	}
+
 	deliveries := consumeEventIDs(t, cluster, 2)
+
 	for _, ev := range []audit.Event{retained, sentinel} {
 		if got := deliveries[ev.EventID]; got != 1 {
-			t.Fatalf("broker stored event %s %d times, want exactly once; deliveries %v", ev.EventID, got, deliveries)
+			t.Fatalf(
+				"broker stored event %s %d times, want exactly once; deliveries %v",
+				ev.EventID,
+				got,
+				deliveries,
+			)
 		}
 	}
 }
@@ -69,14 +84,20 @@ func TestBufferedRetainLogStatesTheRecordError(t *testing.T) {
 	logs := captureSyncedLogs(t)
 	// The test does not call Close: the unwired recorder refuses every
 	// retry, and Close would retry for the whole close deadline.
-	buffered := audit.NewBufferedRecorder(context.Background(), audit.UnwiredRecorder{}, nil,
-		audit.BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: 20 * time.Millisecond})
+	buffered := audit.NewBufferedRecorder(
+		context.Background(),
+		audit.UnwiredRecorder{},
+		nil,
+		audit.BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: 20 * time.Millisecond},
+	)
 
 	retained := retainReadEvent("unwired")
 	if err := buffered.Record(context.Background(), retained); err != nil {
 		t.Fatalf("record: %v", err)
 	}
+
 	logs.waitFor(t, "audit.buffer.delivery_retained")
+
 	for _, want := range []string{audit.ErrRecorderUnwired.Error(), retained.EventID.String()} {
 		if !logs.lineContains("audit.buffer.delivery_retained", want) {
 			t.Fatalf("audit.buffer.delivery_retained does not state %q", want)

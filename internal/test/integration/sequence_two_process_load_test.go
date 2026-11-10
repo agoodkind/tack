@@ -45,7 +45,9 @@ func (log *sequenceLoadLog) record(writer string, value int64, err error) bool {
 		log.failures = append(log.failures, writer+": "+err.Error())
 		return false
 	}
+
 	log.values = append(log.values, value)
+
 	return true
 }
 
@@ -66,6 +68,7 @@ func TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter(
 	log := &sequenceLoadLog{mutex: sync.Mutex{}, values: nil, failures: nil}
 	deadline := clock.Now().Add(sequenceLoadDuration)
 	var busyWriters sync.WaitGroup
+
 	for writer := range sequenceLoadBusyWriters {
 		label := fmt.Sprintf("busy store writer %d", writer)
 		busyWriters.Go(func() {
@@ -74,6 +77,7 @@ func TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter(
 					log.record(label, 0, fmt.Errorf("panicked: %v", recovered))
 				}
 			}()
+
 			for clock.Now().Before(deadline) {
 				value, err := busy.AllocateSequenceByKey(ctx, orgID, counterKey)
 				if !log.record(label, value, err) {
@@ -82,14 +86,30 @@ func TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter(
 			}
 		})
 	}
-	quietCalls, longestQuietCall := runQuietSequenceWriter(ctx, quiet, orgID, counterKey, deadline, log)
+
+	quietCalls, longestQuietCall := runQuietSequenceWriter(
+		ctx,
+		quiet,
+		orgID,
+		counterKey,
+		deadline,
+		log,
+	)
 	busyWriters.Wait()
-	t.Logf("quiet store calls: %d; longest quiet store call: %s; counter values: %d",
-		quietCalls, longestQuietCall, len(log.values))
+	t.Logf(
+		"quiet store calls: %d; longest quiet store call: %s; counter values: %d",
+		quietCalls,
+		longestQuietCall,
+		len(log.values),
+	)
 	if len(log.failures) > 0 {
-		t.Fatalf("every counter increment must succeed; %d failed:\n%s",
-			len(log.failures), strings.Join(log.failures, "\n"))
+		t.Fatalf(
+			"every counter increment must succeed; %d failed:\n%s",
+			len(log.failures),
+			strings.Join(log.failures, "\n"),
+		)
 	}
+
 	requireOneThroughN(t, "counter values", log.values)
 }
 
@@ -97,11 +117,16 @@ func TestSequenceWriterInSecondProcessFinishesWhileFirstProcessWritesTheCounter(
 // time until deadline or until the first failed call. It returns the number
 // of calls and the duration of the longest call.
 func runQuietSequenceWriter(
-	ctx context.Context, store *fdbadapter.NodeStore, orgID uuid.UUID, counterKey string, deadline time.Time,
+	ctx context.Context,
+	store *fdbadapter.NodeStore,
+	orgID uuid.UUID,
+	counterKey string,
+	deadline time.Time,
 	log *sequenceLoadLog,
 ) (int, time.Duration) {
 	calls := 0
 	longest := time.Duration(0)
+
 	for clock.Now().Before(deadline) {
 		started := clock.Now()
 		value, err := store.AllocateSequenceByKey(ctx, orgID, counterKey)
@@ -111,6 +136,7 @@ func runQuietSequenceWriter(
 			break
 		}
 	}
+
 	return calls, longest
 }
 
@@ -120,5 +146,6 @@ func openSequenceLoadStore(t *testing.T, clusterFile string) *fdbadapter.NodeSto
 	if err != nil {
 		t.Fatalf("open the FoundationDB stores: %v", err)
 	}
+
 	return stores.Nodes
 }

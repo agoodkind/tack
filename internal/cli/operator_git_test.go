@@ -22,12 +22,15 @@ func TestGitConfigOperatorSourceReadsHomeConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+
 	if principal.Name != "Ada Lovelace" || principal.Email != "ada@example.com" {
 		t.Fatalf("principal = %+v", principal)
 	}
+
 	if principal.Source != "git" {
 		t.Fatalf("source = %q, want git", principal.Source)
 	}
+
 	if principal.ID.Version() != uuid.Version(5) {
 		t.Fatalf("id version = %v, want 5", principal.ID.Version())
 	}
@@ -58,6 +61,7 @@ func TestGitConfigOperatorSourceHonorsGlobalOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+
 	if principal.Name != "Global User" || principal.Email != "global@example.com" {
 		t.Fatalf("principal = %+v", principal)
 	}
@@ -74,10 +78,12 @@ func TestGitConfigOperatorSourceUsesStableID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Resolve: %v", err)
 	}
+
 	second, err := source.Resolve(context.Background())
 	if err != nil {
 		t.Fatalf("second Resolve: %v", err)
 	}
+
 	if first.ID != second.ID {
 		t.Fatalf("ids differ: %s and %s", first.ID, second.ID)
 	}
@@ -93,9 +99,11 @@ func TestGitConfigQuotedEmailYieldsSameID(t *testing.T) {
 	if plain.ID != quoted.ID {
 		t.Fatalf("quoted email id = %s, plain = %s", quoted.ID, plain.ID)
 	}
+
 	if quoted.Email != "alex@goodkind.io" {
 		t.Fatalf("quoted email = %q, want unquoted", quoted.Email)
 	}
+
 	if quoted.Name != "Alex" {
 		t.Fatalf("quoted name = %q, want unquoted", quoted.Name)
 	}
@@ -116,6 +124,7 @@ func writeGitConfig(t *testing.T, path, name, email string) {
 	if email != "" {
 		content += "\temail = " + email + "\n"
 	}
+
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write gitconfig: %v", err)
 	}
@@ -128,10 +137,12 @@ func resolveGitOperator(t *testing.T, contents string) audit.OperatorPrincipal {
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write gitconfig: %v", err)
 	}
+
 	t.Setenv("GIT_CONFIG_GLOBAL", path)
 	principal, err := GitConfigOperatorSource{}.Resolve(t.Context())
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
+
 	return principal
 }

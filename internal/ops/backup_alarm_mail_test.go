@@ -35,6 +35,7 @@ func captureBackupAlarmSends(t *testing.T, sendErr error) *capturedBackupAlarm {
 		return captured.sendErr
 	}
 	t.Cleanup(func() { backupAlarmSendFunc = previous })
+
 	return captured
 }
 
@@ -53,6 +54,7 @@ func fixBackupStalenessClock(t *testing.T, now time.Time) {
 func unreachableBackupStalenessConfig(t *testing.T, recipient string) *config.Config {
 	t.Helper()
 	backupS3Attempts(t, 1)
+
 	return &config.Config{
 		BackupRoot:                           t.TempDir(),
 		BackupS3Endpoint:                     "http://127.0.0.1:1",
@@ -84,6 +86,7 @@ func storedBackupStalenessConfig(t *testing.T, store *backupTestStore) *config.C
 	cfg.BackupStalenessReplicationMaxSeconds = 1800
 	cfg.BackupStalenessFDBMaxSeconds = 7200
 	cfg.BackupAlarmEmail = "backups@example.test"
+
 	return cfg
 }
 
@@ -97,27 +100,35 @@ func runStaleBackupStalenessCheck(t *testing.T, cfg *config.Config) string {
 	if err == nil {
 		t.Fatal("a stale run must exit nonzero")
 	}
+
 	if !strings.Contains(err.Error(), "past threshold") {
 		t.Fatalf("the returned error must be the staleness verdict: %v", err)
 	}
+
 	return out.String()
 }
 
 // alarmedBackupMetrics reads the alarm's memory from the backup root. found is
 // false when no state file exists.
-func alarmedBackupMetrics(t *testing.T, cfg *config.Config) (alarmed map[string]time.Time, found bool) {
+func alarmedBackupMetrics(
+	t *testing.T,
+	cfg *config.Config,
+) (alarmed map[string]time.Time, found bool) {
 	t.Helper()
 	body, err := os.ReadFile(backupAlarmStatePath(cfg))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false
 	}
+
 	if err != nil {
 		t.Fatalf("read alarm state: %v", err)
 	}
+
 	var state backupAlarmState
 	if err := json.Unmarshal(body, &state); err != nil {
 		t.Fatalf("decode alarm state %q: %v", body, err)
 	}
+
 	return state.Alarmed, true
 }
 
@@ -136,7 +147,11 @@ func TestBackupStalenessAlarmMailsOncePerFault(t *testing.T) {
 	for run := 1; run <= 3; run++ {
 		runStaleBackupStalenessCheck(t, cfg)
 		if len(captured.messages) != 1 {
-			t.Fatalf("after run %d the fault must have mailed exactly once, sent %d", run, len(captured.messages))
+			t.Fatalf(
+				"after run %d the fault must have mailed exactly once, sent %d",
+				run,
+				len(captured.messages),
+			)
 		}
 	}
 
@@ -144,21 +159,34 @@ func TestBackupStalenessAlarmMailsOncePerFault(t *testing.T) {
 	if !found {
 		t.Fatal("an accepted mail must be remembered in the state file")
 	}
-	for _, name := range []string{backupStalenessExportName, backupStalenessRehearsalName, backupStalenessReplicationName} {
+
+	for _, name := range []string{
+		backupStalenessExportName,
+		backupStalenessRehearsalName,
+		backupStalenessReplicationName,
+	} {
 		if _, ok := alarmed[name]; !ok {
 			t.Errorf("state file does not remember %s: %v", name, alarmed)
 		}
 	}
+
 	if len(alarmed) != 3 {
-		t.Errorf("state file remembers %d metrics, want the 3 that were read: %v", len(alarmed), alarmed)
+		t.Errorf(
+			"state file remembers %d metrics, want the 3 that were read: %v",
+			len(alarmed),
+			alarmed,
+		)
 	}
+
 	message := captured.messages[0]
 	if message.To != "backups@example.test" {
 		t.Errorf("To = %q, want the configured recipient", message.To)
 	}
+
 	if message.From != "" {
 		t.Errorf("From = %q, want empty so the library uses the -mailer@ sender", message.From)
 	}
+
 	if message.Caller == "" {
 		t.Error("Caller must identify the command that raised the alarm")
 	}
@@ -171,21 +199,38 @@ func TestBackupStalenessAlarmMailsAgainAfterAClear(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
-	objects := ybExportRunObjects(t, "20260829T100000Z",
-		newYBSnapshotManifest("20260829T100000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
-	objects[backupStatusKey(backupStalenessReplicationName)] = marshalBackupStatusMarker(t,
-		now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets")
+	objects := ybExportRunObjects(
+		t,
+		"20260829T100000Z",
+		newYBSnapshotManifest(
+			"20260829T100000Z",
+			"snap-1",
+			"tack",
+			[]string{"yb1"},
+			ybTestArtifactNames(),
+		),
+	)
+	objects[backupStatusKey(backupStalenessReplicationName)] = marshalBackupStatusMarker(
+		t,
+		now.Add(-10*time.Minute),
+		"0 dead nodes, 0 under-replicated tablets",
+	)
 	store := newBackupTestStore(t, objects)
 	cfg := storedBackupStalenessConfig(t, store)
 	seesHealthyCluster(t, cfg)
 	rehearsalKey := backupStatusKey(backupStalenessRehearsalName)
-	freshRehearsal := marshalBackupStatusMarker(t, now.Add(-6*time.Hour), "restore drill passed every leg")
+	freshRehearsal := marshalBackupStatusMarker(
+		t,
+		now.Add(-6*time.Hour),
+		"restore drill passed every leg",
+	)
 
 	// Run 1: the rehearsal has never passed.
 	runStaleBackupStalenessCheck(t, cfg)
 	if len(captured.messages) != 1 {
 		t.Fatalf("the first fault must mail once, sent %d", len(captured.messages))
 	}
+
 	wantSubject := "[" + backupAlarmHost() + "] Restore rehearsal has never passed"
 	if captured.messages[0].Subject != wantSubject {
 		t.Errorf("subject = %q, want %q", captured.messages[0].Subject, wantSubject)
@@ -197,9 +242,11 @@ func TestBackupStalenessAlarmMailsAgainAfterAClear(t *testing.T) {
 	if err := RunBackupStalenessCheck(context.Background(), cfg, &out); err != nil {
 		t.Fatalf("every mechanism is fresh, so the check must pass: %v\n%s", err, out.String())
 	}
+
 	if len(captured.messages) != 1 {
 		t.Fatalf("a clear must mail nothing, sent %d in total", len(captured.messages))
 	}
+
 	alarmed, _ := alarmedBackupMetrics(t, cfg)
 	if _, ok := alarmed[backupStalenessRehearsalName]; ok {
 		t.Fatalf("a cleared mechanism must be forgotten, state = %v", alarmed)
@@ -228,15 +275,19 @@ func TestBackupStalenessAlarmRetriesAnUnsentMail(t *testing.T) {
 	if err == nil {
 		t.Fatal("a failed alarm mail must not turn a stale run into a success")
 	}
+
 	if errors.Is(err, sendErr) || strings.Contains(err.Error(), "connection refused") {
 		t.Fatalf("the mail failure must not become the returned error: %v", err)
 	}
+
 	if !strings.Contains(err.Error(), "past threshold") {
 		t.Fatalf("the returned error must still be the staleness verdict: %v", err)
 	}
+
 	if len(captured.messages) != 1 {
 		t.Fatalf("the alarm must have been attempted once, attempts = %d", len(captured.messages))
 	}
+
 	if alarmed, found := alarmedBackupMetrics(t, cfg); found && len(alarmed) != 0 {
 		t.Fatalf("a refused mail must not be remembered, state = %v", alarmed)
 	}
@@ -246,6 +297,7 @@ func TestBackupStalenessAlarmRetriesAnUnsentMail(t *testing.T) {
 	if len(captured.messages) != 2 {
 		t.Fatalf("the next run must retry the unsent mail, attempts = %d", len(captured.messages))
 	}
+
 	if alarmed, found := alarmedBackupMetrics(t, cfg); !found || len(alarmed) != 3 {
 		t.Fatalf("an accepted mail must be remembered, found = %v state = %v", found, alarmed)
 	}
@@ -269,9 +321,11 @@ func TestBackupStalenessAlarmWithNoRecipientAttemptsNoSend(t *testing.T) {
 	if len(captured.messages) != 0 {
 		t.Fatalf("no recipient must mean no send attempt, got %d", len(captured.messages))
 	}
+
 	if report == "" {
 		t.Fatal("the report must still be printed when there is nobody to mail")
 	}
+
 	if _, found := alarmedBackupMetrics(t, cfg); found {
 		t.Fatal("nothing was mailed, so nothing may be remembered")
 	}
@@ -286,24 +340,48 @@ func TestBackupStalenessCheckWithEverythingFreshMailsNothing(t *testing.T) {
 	fixBackupStalenessClock(t, now)
 	captured := captureBackupAlarmSends(t, nil)
 
-	objects := ybExportRunObjects(t, "20260829T100000Z",
-		newYBSnapshotManifest("20260829T100000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
-	maps.Copy(objects, map[string][]byte{
-		backupStatusKey(backupStalenessRehearsalName): marshalBackupStatusMarker(t,
-			now.Add(-6*time.Hour), "restore drill passed every leg"),
-		backupStatusKey(backupStalenessReplicationName): marshalBackupStatusMarker(t,
-			now.Add(-10*time.Minute), "0 dead nodes, 0 under-replicated tablets"),
-	})
+	objects := ybExportRunObjects(
+		t,
+		"20260829T100000Z",
+		newYBSnapshotManifest(
+			"20260829T100000Z",
+			"snap-1",
+			"tack",
+			[]string{"yb1"},
+			ybTestArtifactNames(),
+		),
+	)
+	maps.Copy(
+		objects,
+		map[string][]byte{
+			backupStatusKey(backupStalenessRehearsalName): marshalBackupStatusMarker(
+				t,
+				now.Add(-6*time.Hour),
+				"restore drill passed every leg",
+			),
+			backupStatusKey(backupStalenessReplicationName): marshalBackupStatusMarker(
+				t,
+				now.Add(-10*time.Minute),
+				"0 dead nodes, 0 under-replicated tablets",
+			),
+		},
+	)
 	cfg := storedBackupStalenessConfig(t, newBackupTestStore(t, objects))
 	seesHealthyCluster(t, cfg)
 
 	var out bytes.Buffer
 	if err := RunBackupStalenessCheck(context.Background(), cfg, &out); err != nil {
-		t.Fatalf("every mechanism is inside its threshold, so the check must pass: %v\n%s", err, out.String())
+		t.Fatalf(
+			"every mechanism is inside its threshold, so the check must pass: %v\n%s",
+			err,
+			out.String(),
+		)
 	}
+
 	if strings.Contains(out.String(), "STALE") {
 		t.Fatalf("no mechanism should read STALE:\n%s", out.String())
 	}
+
 	if len(captured.messages) != 0 {
 		t.Fatalf("a healthy run must mail nothing, sent %d", len(captured.messages))
 	}
@@ -313,9 +391,13 @@ func TestBackupStalenessCheckWithEverythingFreshMailsNothing(t *testing.T) {
 // object store.
 func marshalBackupStatusMarker(t *testing.T, at time.Time, detail string) []byte {
 	t.Helper()
-	body, err := json.Marshal(backupStatusMarker{At: at, Detail: detail})
+	body, err := json.Marshal(backupStatusMarker{
+		At:     at,
+		Detail: detail,
+	})
 	if err != nil {
 		t.Fatalf("marshal marker: %v", err)
 	}
+
 	return body
 }

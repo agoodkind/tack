@@ -51,7 +51,13 @@ func macOwnershipEvidence(t *testing.T, directory string) macOwnershipSummary {
 	if err := json.Unmarshal(contents, &summary); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"fixture-ids.json", "inner-process-ids.json", "unattributed-preserved-ids.json", "fixture-attribution.exit", "fixture-cleanup.exit"} {
+	for _, name := range []string{
+		"fixture-ids.json",
+		"inner-process-ids.json",
+		"unattributed-preserved-ids.json",
+		"fixture-attribution.exit",
+		"fixture-cleanup.exit",
+	} {
 		if _, err := os.Stat(filepath.Join(directory, name)); err != nil {
 			t.Fatal(err)
 		}
@@ -70,10 +76,16 @@ func macRequireOwnedAbsent(t *testing.T, docker *client.Client, summary macOwner
 		if fixture.Log {
 			logged++
 		}
-		if fixture.Labels["io.goodkind.tack.testenv.runner"] != summary.RunnerID || !fixture.Absent || !fixture.Create {
+		if fixture.Labels["io.goodkind.tack.testenv.runner"] != summary.RunnerID ||
+			!fixture.Absent ||
+			!fixture.Create {
 			t.Errorf("fixture lacks exact owner/create/absence evidence: %s: %+v", id, fixture)
 		}
-		if _, err := docker.ContainerInspect(t.Context(), id, client.ContainerInspectOptions{}); !errdefs.IsNotFound(err) {
+		if _, err := docker.ContainerInspect(
+			t.Context(),
+			id,
+			client.ContainerInspectOptions{},
+		); !errdefs.IsNotFound(err) {
 			t.Errorf("owned fixture remains %s: %v", id, err)
 		}
 	}
@@ -84,7 +96,11 @@ func macRequireOwnedAbsent(t *testing.T, docker *client.Client, summary macOwner
 		if !fixture.Absent {
 			t.Errorf("owned network lacks absence: %s", id)
 		}
-		if _, err := docker.NetworkInspect(t.Context(), id, client.NetworkInspectOptions{}); !errdefs.IsNotFound(err) {
+		if _, err := docker.NetworkInspect(
+			t.Context(),
+			id,
+			client.NetworkInspectOptions{},
+		); !errdefs.IsNotFound(err) {
 			t.Errorf("owned network remains %s: %v", id, err)
 		}
 	}
@@ -121,15 +137,25 @@ func macOwnershipRecovery(t *testing.T, docker *client.Client, directory string)
 			if !preserved.Incomplete || preserved.Kind != "container" || preserved.ID != fixtureID {
 				continue
 			}
-			inspection, err := docker.ContainerInspect(context.Background(), preserved.ID, client.ContainerInspectOptions{})
+			inspection, err := docker.ContainerInspect(
+				context.Background(),
+				preserved.ID,
+				client.ContainerInspectOptions{},
+			)
 			if errdefs.IsNotFound(err) {
 				continue
 			}
-			if err != nil || inspection.Container.Config == nil || inspection.Container.Config.Labels["io.goodkind.tack.testenv"] != "true" || inspection.Container.Config.Labels["io.goodkind.tack.testenv.runner"] != "" {
+			if err != nil || inspection.Container.Config == nil ||
+				inspection.Container.Config.Labels["io.goodkind.tack.testenv"] != "true" ||
+				inspection.Container.Config.Labels["io.goodkind.tack.testenv.runner"] != "" {
 				t.Errorf("refuse preserved fixture recovery %s: %v", preserved.ID, err)
 				continue
 			}
-			if _, err := docker.ContainerRemove(context.Background(), preserved.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
+			if _, err := docker.ContainerRemove(
+				context.Background(),
+				preserved.ID,
+				client.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
+			); err != nil {
 				t.Error(err)
 			}
 		}

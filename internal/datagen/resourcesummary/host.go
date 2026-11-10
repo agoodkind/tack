@@ -74,9 +74,13 @@ func SummarizeHost(
 	if err != nil {
 		return HostSummary{}, err
 	}
-	slog.InfoContext(ctx, "resource_summary.sampler_read",
-		slog.String("path", path), slog.Int("samples", accumulator.summary.Samples),
-		slog.Int("failed_samples", accumulator.summary.FailedSamples))
+	slog.InfoContext(
+		ctx,
+		"resource_summary.sampler_read",
+		slog.String("path", path),
+		slog.Int("samples", accumulator.summary.Samples),
+		slog.Int("failed_samples", accumulator.summary.FailedSamples),
+	)
 	return accumulator.finish()
 }
 

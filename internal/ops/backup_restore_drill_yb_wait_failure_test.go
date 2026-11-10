@@ -25,18 +25,24 @@ func TestYBScratchFailureProbeReadsAMissingLogAsZeroRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("docker client: %v", err)
 	}
+
 	defer func() { _ = cli.Close() }()
 
 	const image = "alpine:3"
 	if err := ensureImage(ctx, cli, nopLogger(), image); err != nil {
 		t.Fatalf("ensure %s: %v", image, err)
 	}
-	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: &container.Config{Image: image, Cmd: []string{"sleep", "300"}},
-	})
+
+	created, err := cli.ContainerCreate(
+		ctx,
+		client.ContainerCreateOptions{
+			Config: &container.Config{Image: image, Cmd: []string{"sleep", "300"}},
+		},
+	)
 	if err != nil {
 		t.Fatalf("create container: %v", err)
 	}
+
 	t.Cleanup(func() {
 		teardown, stop := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer stop()
@@ -45,26 +51,42 @@ func TestYBScratchFailureProbeReadsAMissingLogAsZeroRestarts(t *testing.T) {
 	if _, err := cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
 		t.Fatalf("start container: %v", err)
 	}
+
 	probe := newYBScratchFailureProbe(&restoreDrillCtx{Cli: cli}, created.ID, "")
 
 	failure, err := probe(ctx)
 	if err != nil || failure != "" {
-		t.Fatalf("before the log exists: failure %q, err %v; want no failure and no error", failure, err)
+		t.Fatalf(
+			"before the log exists: failure %q, err %v; want no failure and no error",
+			failure,
+			err,
+		)
 	}
 
 	write := "mkdir -p /home/yugabyte/var/logs && printf '%s\\n%s\\n%s\\n' " +
 		"'| 3.5s | master died unexpectedly. Restarting...' " +
 		"'| 4.0s | Webserver died unexpectedly. Restarting...' " +
 		"'| 9.1s | tserver died unexpectedly. Restarting...' > " + ybScratchLogPath
-	if res, err := containerExec(ctx, cli, created.ID, []string{"sh", "-c", write}); err != nil || res.ExitCode != 0 {
+	if res, err := containerExec(
+		ctx,
+		cli,
+		created.ID,
+		[]string{"sh", "-c", write},
+	); err != nil ||
+		res.ExitCode != 0 {
 		t.Fatalf("write the log: exit %d, err %v, stderr %q", res.ExitCode, err, res.Stderr)
 	}
+
 	failure, err = probe(ctx)
 	if err != nil {
 		t.Fatalf("after two restart lines: %v", err)
 	}
+
 	if !strings.Contains(failure, "2 time(s)") {
-		t.Fatalf("failure = %q, want the two engine restarts counted and the web server's ignored", failure)
+		t.Fatalf(
+			"failure = %q, want the two engine restarts counted and the web server's ignored",
+			failure,
+		)
 	}
 
 	removeContainerForce(ctx, cli, created.ID)

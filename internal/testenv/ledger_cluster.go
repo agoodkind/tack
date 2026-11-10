@@ -67,43 +67,61 @@ func NewLedgerCluster(t *testing.T, names ...string) *LedgerCluster {
 	if err != nil {
 		t.Fatalf("ledger cluster: %v", err)
 	}
+
 	t.Cleanup(func() { _ = cli.Close() })
 	image, err := serviceImage(ctx, ledgerService)
 	if err != nil {
 		t.Fatalf("ledger cluster: %v", err)
 	}
+
 	platform, err := ledgerPlatform(ctx, cli)
 	if err != nil {
 		t.Fatalf("ledger cluster: %v", err)
 	}
+
 	root, err := repoRoot(ctx)
 	if err != nil {
 		t.Fatalf("ledger cluster: %v", err)
 	}
+
 	overlay, err := os.ReadFile(filepath.Join(root, ledgerClusterOverlay))
 	if err != nil {
 		t.Fatalf("ledger cluster: read %s: %v", ledgerClusterOverlay, err)
 	}
+
 	superuserKey, err := randomHex(ctx, 16)
 	if err != nil {
 		t.Fatalf("ledger cluster: %v", err)
 	}
+
 	clusterNetwork, subnet, err := createLedgerClusterNetwork(ctx, cli)
 	if err != nil {
 		t.Fatalf("ledger cluster: %v", err)
 	}
+
 	cluster := &LedgerCluster{
-		Network: clusterNetwork, Image: image, cli: cli, platform: platform, overlay: overlay,
-		superuserKey: superuserKey, selfID: "", names: names, addresses: map[string]netip.Addr{},
-		containers: map[string]string{}, extraHosts: nil, started: nil,
+		Network:      clusterNetwork,
+		Image:        image,
+		cli:          cli,
+		platform:     platform,
+		overlay:      overlay,
+		superuserKey: superuserKey,
+		selfID:       "",
+		names:        names,
+		addresses:    map[string]netip.Addr{},
+		containers:   map[string]string{},
+		extraHosts:   nil,
+		started:      nil,
 	}
 	t.Cleanup(func() { cluster.remove(t) })
 	if cluster.selfID, err = joinWhenContainerized(ctx, cli, clusterNetwork); err != nil {
 		t.Fatalf("ledger cluster: %v", err)
 	}
+
 	if err := cluster.plan(ctx, subnet); err != nil {
 		t.Fatalf("ledger cluster: %v", err)
 	}
+
 	return cluster
 }
 
@@ -111,19 +129,27 @@ func NewLedgerCluster(t *testing.T, names ...string) *LedgerCluster {
 // the lower half of subnet, from host number ledgerClusterFirstNodeHost up.
 func (c *LedgerCluster) plan(ctx context.Context, subnet netip.Prefix) error {
 	if len(c.names) > ledgerClusterDynamicHost-ledgerClusterFirstNodeHost {
-		return fmt.Errorf("%d ledger nodes do not fit below the dynamic range of %s", len(c.names), subnet)
+		return fmt.Errorf(
+			"%d ledger nodes do not fit below the dynamic range of %s",
+			len(c.names),
+			subnet,
+		)
 	}
+
 	var host uint32 = ledgerClusterFirstNodeHost
+
 	for _, name := range c.names {
 		containerName, err := generatedEngineName(ctx, ledgerClusterNodeKind+name)
 		if err != nil {
 			return err
 		}
+
 		address := ledgerClusterHost(subnet, host)
 		c.containers[name], c.addresses[name] = containerName, address
 		c.extraHosts = append(c.extraHosts, name+":"+address.String())
 		host++
 	}
+
 	return nil
 }
 
@@ -137,31 +163,53 @@ func (c *LedgerCluster) Start(t *testing.T, name, joinTarget string) EmptyLedger
 	if !planned {
 		t.Fatalf("start ledger node %s: the cluster plans only %v", name, c.names)
 	}
+
 	ctx, cancel := context.WithTimeout(t.Context(), provisionTimeout)
 	defer cancel()
 	command := []string{
-		"python3", ledgerClusterYugabyted, "start", "--daemon=false", "--base_dir=/home/yugabyte/var",
-		"--advertise_address=" + name, "--listen=" + name,
+		"python3",
+		ledgerClusterYugabyted,
+		"start",
+		"--daemon=false",
+		"--base_dir=/home/yugabyte/var",
+		"--advertise_address=" + name,
+		"--listen=" + name,
 		"--tserver_flags=ysql_num_shards_per_tserver=1,yb_num_shards_per_tserver=1",
 	}
 	if joinTarget != "" {
 		command = append(command, "--join="+joinTarget)
 	}
-	started, err := startEngine(ctx, c.cli, engineSpec{
-		kind: ledgerClusterNodeKind + name, image: c.Image, platform: c.platform, cmd: command,
-		env: []string{
-			"YSQL_USER=" + ledgerAdminUser, "YSQL_PASSWORD=" + c.superuserKey, "YSQL_DB=" + ledgerDatabase,
+
+	started, err := startEngine(
+		ctx,
+		c.cli,
+		engineSpec{
+			kind:     ledgerClusterNodeKind + name,
+			image:    c.Image,
+			platform: c.platform,
+			cmd:      command,
+			env: []string{
+				"YSQL_USER=" + ledgerAdminUser,
+				"YSQL_PASSWORD=" + c.superuserKey,
+				"YSQL_DB=" + ledgerDatabase,
+			},
+			files:         map[string][]byte{ledgerClusterYugabyted: c.overlay},
+			name:          containerName,
+			attachNetwork: c.Network,
+			ipv4Address:   c.addresses[name],
+			extraHosts:    c.extraHosts,
 		},
-		files: map[string][]byte{ledgerClusterYugabyted: c.overlay},
-		name:  containerName, attachNetwork: c.Network, ipv4Address: c.addresses[name], extraHosts: c.extraHosts,
-	})
+	)
 	c.started = append(c.started, name)
 	if err != nil {
 		t.Fatalf("start ledger node %s: %v", name, err)
 	}
+
 	dsn := url.URL{
-		Scheme: "postgres", User: url.UserPassword(ledgerAdminUser, c.superuserKey),
-		Host: net.JoinHostPort(started.address, ledgerPort), Path: "/" + ledgerDatabase,
+		Scheme:   "postgres",
+		User:     url.UserPassword(ledgerAdminUser, c.superuserKey),
+		Host:     net.JoinHostPort(started.address, ledgerPort),
+		Path:     "/" + ledgerDatabase,
 		RawQuery: "sslmode=disable",
 	}
 	if joinTarget == "" {
@@ -169,13 +217,22 @@ func (c *LedgerCluster) Start(t *testing.T, name, joinTarget string) EmptyLedger
 			t.Fatalf("start ledger node %s: %v", name, err)
 		}
 	}
-	slog.InfoContext(ctx, "testenv.ledger_cluster.node_started", slog.String("node", name),
-		slog.String("container", containerName), slog.String("address", started.address),
-		slog.String("join", joinTarget))
+
+	slog.InfoContext(
+		ctx,
+		"testenv.ledger_cluster.node_started",
+		slog.String("node", name),
+		slog.String("container", containerName),
+		slog.String("address", started.address),
+		slog.String("join", joinTarget),
+	)
+
 	return EmptyLedgerNode{
-		DSN: dsn.String(), Address: started.address,
-		MasterAddress: net.JoinHostPort(started.address, ledgerMasterPort), Network: c.Network,
-		Image: c.Image,
+		DSN:           dsn.String(),
+		Address:       started.address,
+		MasterAddress: net.JoinHostPort(started.address, ledgerMasterPort),
+		Network:       c.Network,
+		Image:         c.Image,
 	}
 }
 
@@ -186,5 +243,6 @@ func (c *LedgerCluster) NodeAddresses() map[string]string {
 	for name, address := range c.addresses {
 		addresses[name] = address.String()
 	}
+
 	return addresses
 }

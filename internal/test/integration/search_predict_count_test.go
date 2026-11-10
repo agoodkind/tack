@@ -48,16 +48,26 @@ type predictData struct {
 func requireOnePrediction(t *testing.T, exchange inferenceExchange) map[string]float64 {
 	t.Helper()
 	if exchange.Arrivals != 1 || len(exchange.Predicts) != 1 {
-		t.Fatalf("the session sent %d model predict requests and the engine answered %d, want 1 of each", exchange.Arrivals, len(exchange.Predicts))
+		t.Fatalf(
+			"the session sent %d model predict requests and the engine answered %d, want 1 of each",
+			exchange.Arrivals,
+			len(exchange.Predicts),
+		)
 	}
+
 	var result predictResult
 	if err := json.Unmarshal(exchange.Predicts[0].Response, &result); err != nil {
 		t.Fatalf("decode model predict response: %v", err)
 	}
+
 	if len(result.InferenceResults) != 1 || len(result.InferenceResults[0].Output) != 1 ||
 		len(result.InferenceResults[0].Output[0].DataAsMap.Response) != 1 {
-		t.Fatalf("model predict response does not contain exactly one token-weight map: %s", exchange.Predicts[0].Response)
+		t.Fatalf(
+			"model predict response does not contain exactly one token-weight map: %s",
+			exchange.Predicts[0].Response,
+		)
 	}
+
 	return result.InferenceResults[0].Output[0].DataAsMap.Response[0]
 }
 
@@ -81,6 +91,7 @@ func (capture *inferenceCapture) admitPredict(ctx context.Context) bool {
 	if hold == 0 {
 		return true
 	}
+
 	timer := time.NewTimer(hold)
 	defer timer.Stop()
 	select {
@@ -104,7 +115,15 @@ func TestSearchQueryPredictSentOnce(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
 	entryID := integration.EntryPoint(t, fixture, workspace)
-	nodeID := integration.PutOpaqueNode(t, fixture, kind, entryID, "Held predict node", heldPredictQuery, "excluded")
+	nodeID := integration.PutOpaqueNode(
+		t,
+		fixture,
+		kind,
+		entryID,
+		"Held predict node",
+		heldPredictQuery,
+		"excluded",
+	)
 	integration.DrainSearchWork(t, fixture.Worker, heldPredictSlices)
 	harness, capture := newInferenceCaptureHarness(t, fixture)
 	capture.take()
@@ -113,14 +132,27 @@ func TestSearchQueryPredictSentOnce(t *testing.T) {
 	page, err := integration.TrySearch(harness, heldPredictQuery, "")
 	elapsed := clock.Since(started)
 	exchange := capture.take()
-	t.Logf("held predict search returned after %s with %d predict requests, %d answered, err %v", elapsed, exchange.Arrivals, len(exchange.Predicts), err)
+	t.Logf(
+		"held predict search returned after %s with %d predict requests, %d answered, err %v",
+		elapsed,
+		exchange.Arrivals,
+		len(exchange.Predicts),
+		err,
+	)
 	if err != nil {
 		t.Fatalf("search %q with a held predict: %v", heldPredictQuery, err)
 	}
+
 	requireOnePrediction(t, exchange)
 	if elapsed < predictHold {
-		t.Fatalf("search %q returned after %s, before the %s predict hold ended", heldPredictQuery, elapsed, predictHold)
+		t.Fatalf(
+			"search %q returned after %s, before the %s predict hold ended",
+			heldPredictQuery,
+			elapsed,
+			predictHold,
+		)
 	}
+
 	if !slices.Contains(page.IDs, nodeID) {
 		t.Fatalf("search %q returned nodes %v, want node %s", heldPredictQuery, page.IDs, nodeID)
 	}

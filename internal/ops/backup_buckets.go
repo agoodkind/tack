@@ -25,18 +25,25 @@ func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 	if cfg.BackupS3Endpoint == "" {
 		err := fmt.Errorf("buckets-init: TACK_BACKUP_S3_ENDPOINT is required")
 		logger.ErrorContext(ctx, "backup.buckets.failed", slog.String("err", err.Error()))
+
 		return err
 	}
+
 	if cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
-		err := fmt.Errorf("buckets-init: TACK_BACKUP_S3_ACCESS_KEY_ID and TACK_BACKUP_S3_SECRET_ACCESS_KEY are required")
+		err := fmt.Errorf(
+			"buckets-init: TACK_BACKUP_S3_ACCESS_KEY_ID and TACK_BACKUP_S3_SECRET_ACCESS_KEY are required",
+		)
 		logger.ErrorContext(ctx, "backup.buckets.failed", slog.String("err", err.Error()))
+
 		return err
 	}
 
 	client := newBackupS3Client(cfg)
 	buckets := []string{cfg.BackupS3BucketMain}
 
-	logger.InfoContext(ctx, "backup.buckets.start",
+	logger.InfoContext(
+		ctx,
+		"backup.buckets.start",
 		slog.String("endpoint", cfg.BackupS3Endpoint),
 		slog.String("region", cfg.BackupS3Region),
 		slog.Int("bucket_count", len(buckets)),
@@ -45,17 +52,19 @@ func RunBackupBucketsInit(ctx context.Context, cfg *config.Config) error {
 	for _, bucket := range buckets {
 		if err := ensureBucket(ctx, client, bucket); err != nil {
 			wrapped := fmt.Errorf("buckets-init: ensure bucket %q: %w", bucket, err)
-			logger.ErrorContext(ctx, "backup.buckets.failed",
+			logger.ErrorContext(
+				ctx,
+				"backup.buckets.failed",
 				slog.String("bucket", bucket),
 				slog.String("err", wrapped.Error()),
 			)
+
 			return wrapped
 		}
 	}
 
-	logger.InfoContext(ctx, "backup.buckets.completed",
-		slog.Int("bucket_count", len(buckets)),
-	)
+	logger.InfoContext(ctx, "backup.buckets.completed", slog.Int("bucket_count", len(buckets)))
+
 	return nil
 }
 
@@ -78,11 +87,15 @@ func newBackupS3Client(cfg *config.Config) *s3.Client {
 		Region:      cfg.BackupS3Region,
 		Credentials: creds,
 	}
-	return s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(cfg.BackupS3Endpoint)
-		o.UsePathStyle = true
-		o.RetryMaxAttempts = backupS3MaxAttempts
-	})
+
+	return s3.NewFromConfig(
+		awsCfg,
+		func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(cfg.BackupS3Endpoint)
+			o.UsePathStyle = true
+			o.RetryMaxAttempts = backupS3MaxAttempts
+		},
+	)
 }
 
 // ensureBucket creates one bucket if it is missing. A successful HeadBucket
@@ -96,12 +109,16 @@ func ensureBucket(ctx context.Context, client *s3.Client, bucket string) error {
 		logger.InfoContext(ctx, "backup.bucket.exists", slog.String("bucket", bucket))
 		return nil
 	}
+
 	if !isBucketNotFound(headErr) {
 		wrapped := fmt.Errorf("head bucket %q: %w", bucket, headErr)
-		logger.ErrorContext(ctx, "backup.bucket.head_failed",
+		logger.ErrorContext(
+			ctx,
+			"backup.bucket.head_failed",
 			slog.String("bucket", bucket),
 			slog.String("err", wrapped.Error()),
 		)
+
 		return wrapped
 	}
 
@@ -111,15 +128,20 @@ func ensureBucket(ctx context.Context, client *s3.Client, bucket string) error {
 			logger.InfoContext(ctx, "backup.bucket.exists", slog.String("bucket", bucket))
 			return nil
 		}
+
 		wrapped := fmt.Errorf("create bucket %q: %w", bucket, createErr)
-		logger.ErrorContext(ctx, "backup.bucket.create_failed",
+		logger.ErrorContext(
+			ctx,
+			"backup.bucket.create_failed",
 			slog.String("bucket", bucket),
 			slog.String("err", wrapped.Error()),
 		)
+
 		return wrapped
 	}
 
 	logger.InfoContext(ctx, "backup.bucket.created", slog.String("bucket", bucket))
+
 	return nil
 }
 
@@ -131,15 +153,18 @@ func isBucketNotFound(err error) bool {
 	if errors.As(err, &notFound) {
 		return true
 	}
+
 	var noSuchBucket *s3types.NoSuchBucket
 	if errors.As(err, &noSuchBucket) {
 		return true
 	}
+
 	var apiErr smithy.APIError
 	if errors.As(err, &apiErr) {
 		code := apiErr.ErrorCode()
 		return code == "NotFound" || code == "NoSuchBucket" || code == "404"
 	}
+
 	return false
 }
 
@@ -150,14 +175,17 @@ func isBucketAlreadyOwned(err error) bool {
 	if errors.As(err, &owned) {
 		return true
 	}
+
 	var exists *s3types.BucketAlreadyExists
 	if errors.As(err, &exists) {
 		return true
 	}
+
 	var apiErr smithy.APIError
 	if errors.As(err, &apiErr) {
 		code := apiErr.ErrorCode()
 		return code == "BucketAlreadyOwnedByYou" || code == "BucketAlreadyExists"
 	}
+
 	return false
 }

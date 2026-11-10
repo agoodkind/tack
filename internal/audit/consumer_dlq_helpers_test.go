@@ -30,13 +30,22 @@ func countDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string) (int, int,
 	t.Helper()
 	var rows, attempts int
 	var errText string
-	err := pool.QueryRow(context.Background(), `
+	err := pool.QueryRow(
+		context.Background(),
+		`
 		SELECT count(*), coalesce(max(attempt_count), 0), coalesce(max(error), '')
 		  FROM audit.events_dlq WHERE topic = $1
-	`, topic).Scan(&rows, &attempts, &errText)
+	`,
+		topic,
+	).Scan(
+		&rows,
+		&attempts,
+		&errText,
+	)
 	if err != nil {
 		t.Fatalf("count dead letters: %v", err)
 	}
+
 	return rows, attempts, errText
 }
 
@@ -44,17 +53,26 @@ func countDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string) (int, int,
 // at least the expected attempts, or fails after the deadline. A replay's
 // records can land in separate polls, so the ledger count alone is not the
 // end of the run.
-func waitForDeadLetters(t *testing.T, pool *pgxpool.Pool, topic string, wantRows, wantAttempts int) (int, int, string) {
+func waitForDeadLetters(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	topic string,
+	wantRows int,
+	wantAttempts int,
+) (int, int, string) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
+
 	for {
 		rows, attempts, errText := countDeadLetters(t, pool, topic)
 		if rows == wantRows && attempts >= wantAttempts {
 			return rows, attempts, errText
 		}
+
 		if time.Now().After(deadline) {
 			return rows, attempts, errText
 		}
+
 		time.Sleep(200 * time.Millisecond)
 	}
 }
@@ -71,24 +89,33 @@ func writerLoginDSN(t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
 	if _, err := rand.Read(suffix); err != nil {
 		t.Fatalf("login suffix: %v", err)
 	}
+
 	secret := make([]byte, 16)
 	if _, err := rand.Read(secret); err != nil {
 		t.Fatalf("login secret: %v", err)
 	}
+
 	login := "tack_test_dlq_writer_" + hex.EncodeToString(suffix)
 	encodedSecret := hex.EncodeToString(secret)
-	if _, err := admin.Exec(ctx, "CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'"); err != nil {
+	if _, err := admin.Exec(
+		ctx,
+		"CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'",
+	); err != nil {
 		t.Fatalf("create %s: %v", login, err)
 	}
+
 	t.Cleanup(func() { _, _ = admin.Exec(ctx, "DROP ROLE IF EXISTS "+login) })
 	if _, err := admin.Exec(ctx, "GRANT audit_writer TO "+login); err != nil {
 		t.Fatalf("grant audit_writer to %s: %v", login, err)
 	}
+
 	parsed, err := url.Parse(adminDSN)
 	if err != nil {
 		t.Fatalf("parse the test DSN: %v", err)
 	}
+
 	parsed.User = url.UserPassword(login, encodedSecret)
+
 	return parsed.String()
 }
 
@@ -100,10 +127,12 @@ func consumerErrorCount(t *testing.T) int64 {
 	if !ok {
 		t.Fatalf("the consumer's processed counter is not published")
 	}
+
 	errored, ok := processed.Get("error").(*expvar.Int)
 	if !ok {
 		return 0
 	}
+
 	return errored.Value()
 }
 
@@ -111,6 +140,7 @@ func consumerErrorCount(t *testing.T) int64 {
 func waitUntil(t *testing.T, limit time.Duration, failure string, condition func() bool) {
 	t.Helper()
 	deadline := time.After(limit)
+
 	for !condition() {
 		select {
 		case <-deadline:
@@ -127,10 +157,17 @@ func loginOfDSN(t *testing.T, dsn string) string {
 	if err != nil {
 		t.Fatalf("parse the DSN: %v", err)
 	}
+
 	return parsed.User.Username()
 }
 
-func produceRaw(t *testing.T, brokers []string, topic string, value []byte, headers []kgo.RecordHeader) {
+func produceRaw(
+	t *testing.T,
+	brokers []string,
+	topic string,
+	value []byte,
+	headers []kgo.RecordHeader,
+) {
 	t.Helper()
 	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...), kgo.RequiredAcks(kgo.AllISRAcks()))
 	if err != nil {
@@ -139,7 +176,10 @@ func produceRaw(t *testing.T, brokers []string, topic string, value []byte, head
 	defer cl.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := cl.ProduceSync(ctx, &kgo.Record{Topic: topic, Value: value, Headers: headers}).FirstErr(); err != nil {
+	if err := cl.ProduceSync(
+		ctx,
+		&kgo.Record{Topic: topic, Value: value, Headers: headers},
+	).FirstErr(); err != nil {
 		t.Fatalf("produce: %v", err)
 	}
 }

@@ -17,6 +17,7 @@ func TestMetadataCommandTags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	checkMetadata(t, root, head.Hash(), "feature/a", "feature/a")
 
 	lightweightTag(t, repository, "light-b", head.Hash())
@@ -41,9 +42,11 @@ func TestMetadataCommandLongTagChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	target := head.Hash()
 	start := time.Now().Add(-time.Hour)
 	var outermost string
+
 	for i := range chainLength {
 		outermost = "chain-" + strconv.Itoa(i)
 		annotatedTag(t, repository, outermost, target, start.Add(time.Duration(i)*time.Second))
@@ -51,8 +54,10 @@ func TestMetadataCommandLongTagChain(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		target = reference.Hash()
 	}
+
 	checkMetadata(t, root, head.Hash(), mainBranch, outermost)
 }
 
@@ -70,33 +75,47 @@ func TestMetadataCommandCheckoutKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Run("shallow", func(t *testing.T) {
-		if err := os.WriteFile(filepath.Join(root, ".git", "shallow"), []byte(head.Hash().String()+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		checkMetadata(t, root, head.Hash(), mainBranch, mainBranch)
-		if err := os.Remove(filepath.Join(root, ".git", "shallow")); err != nil {
-			t.Fatal(err)
-		}
-	})
-	t.Run("linked", func(t *testing.T) {
-		linked := t.TempDir()
-		administrative := filepath.Join(root, ".git", "worktrees", "linked")
-		if err := os.MkdirAll(administrative, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		files := map[string]string{
-			filepath.Join(administrative, "HEAD"):      head.Hash().String() + "\n",
-			filepath.Join(administrative, "commondir"): "../..\n",
-			filepath.Join(administrative, "gitdir"):    filepath.Join(linked, ".git") + "\n",
-			filepath.Join(linked, ".git"):              "gitdir: " + administrative + "\n",
-		}
-		for path, content := range files {
-			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+
+	t.Run(
+		"shallow",
+		func(t *testing.T) {
+			if err := os.WriteFile(
+				filepath.Join(root, ".git", "shallow"),
+				[]byte(head.Hash().String()+"\n"),
+				0o600,
+			); err != nil {
 				t.Fatal(err)
 			}
-		}
-		lightweightTag(t, repository, "linked-tag", head.Hash())
-		checkMetadata(t, linked, head.Hash(), mainBranch, "linked-tag")
-	})
+
+			checkMetadata(t, root, head.Hash(), mainBranch, mainBranch)
+			if err := os.Remove(filepath.Join(root, ".git", "shallow")); err != nil {
+				t.Fatal(err)
+			}
+		},
+	)
+	t.Run(
+		"linked",
+		func(t *testing.T) {
+			linked := t.TempDir()
+			administrative := filepath.Join(root, ".git", "worktrees", "linked")
+			if err := os.MkdirAll(administrative, 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			files := map[string]string{
+				filepath.Join(administrative, "HEAD"):      head.Hash().String() + "\n",
+				filepath.Join(administrative, "commondir"): "../..\n",
+				filepath.Join(administrative, "gitdir"):    filepath.Join(linked, ".git") + "\n",
+				filepath.Join(linked, ".git"):              "gitdir: " + administrative + "\n",
+			}
+			for path, content := range files {
+				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			lightweightTag(t, repository, "linked-tag", head.Hash())
+			checkMetadata(t, linked, head.Hash(), mainBranch, "linked-tag")
+		},
+	)
 }

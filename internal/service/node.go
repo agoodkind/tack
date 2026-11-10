@@ -32,7 +32,9 @@ type NodeService struct {
 
 // errMissingMemberDependency is the error that NewNodeService returns when it
 // receives a nil member repository or member target adder.
-var errMissingMemberDependency = errors.New("service.NewNodeService: the member repository and the member target adder are required")
+var errMissingMemberDependency = errors.New(
+	"service.NewNodeService: the member repository and the member target adder are required",
+)
 
 // NewNodeService returns errMissingMemberDependency when members or
 // memberTargets is nil, because AddRelationship reads both for a target that
@@ -50,6 +52,7 @@ func NewNodeService(
 	if members == nil || memberTargets == nil {
 		return nil, errMissingMemberDependency
 	}
+
 	return &NodeService{
 		nodes:         nodes,
 		reader:        reader,
@@ -68,7 +71,9 @@ func NewNodeService(
 // It stores a member relationship when the target is a member of rel.OrgID.
 // Otherwise, it adds a node relationship.
 func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationship) error {
-	ctx, span := telemetry.StartSpan(ctx, "service.node.relationship.add",
+	ctx, span := telemetry.StartSpan(
+		ctx,
+		"service.node.relationship.add",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("node.relationship.type", rel.RelationType),
@@ -77,37 +82,68 @@ func (s *NodeService) AddRelationship(ctx context.Context, rel *node.Relationshi
 		),
 	)
 	defer span.End()
-	ctx = telemetry.WithTraceLogger(ctx,
+	ctx = telemetry.WithTraceLogger(
+		ctx,
 		slog.String("relation_type", rel.RelationType),
 		slog.String("source_id", rel.SourceID.String()),
 		slog.String("target_id", rel.TargetID.String()),
 	)
 	if rel.RelationType == node.RelChildOf {
-		err := fmt.Errorf("add relationship from %s to %s: %w", rel.SourceID, rel.TargetID, node.ErrReservedParentRelation)
+		err := fmt.Errorf(
+			"add relationship from %s to %s: %w",
+			rel.SourceID,
+			rel.TargetID,
+			node.ErrReservedParentRelation,
+		)
 		slog.ErrorContext(ctx, "node.relationship.add_refused", slog.String("err", err.Error()))
+
 		return err
 	}
+
 	if rel.CreatedAt.IsZero() {
 		rel.CreatedAt = clock.Now().UTC()
 	}
+
 	memberTarget, err := s.isMemberTarget(ctx, rel)
 	if err != nil {
 		return err
 	}
+
 	if memberTarget {
 		if err := s.memberTargets.AddMemberTarget(ctx, rel); err != nil {
-			wrapped := fmt.Errorf("add %s relationship from %s to member %s: %w", rel.RelationType, rel.SourceID, rel.TargetID, err)
-			slog.ErrorContext(ctx, "node.relationship.add_member_target_failed", slog.String("err", wrapped.Error()))
+			wrapped := fmt.Errorf(
+				"add %s relationship from %s to member %s: %w",
+				rel.RelationType,
+				rel.SourceID,
+				rel.TargetID,
+				err,
+			)
+			slog.ErrorContext(
+				ctx,
+				"node.relationship.add_member_target_failed",
+				slog.String("err", wrapped.Error()),
+			)
+
 			return wrapped
 		}
+
 		return nil
 	}
+
 	return s.relationships.Add(ctx, rel)
 }
 
 // RemoveRelationship removes a directed edge.
-func (s *NodeService) RemoveRelationship(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error {
-	ctx, span := telemetry.StartSpan(ctx, "service.node.relationship.remove",
+func (s *NodeService) RemoveRelationship(
+	ctx context.Context,
+	orgID uuid.UUID,
+	sourceID uuid.UUID,
+	relationType string,
+	targetID uuid.UUID,
+) error {
+	ctx, span := telemetry.StartSpan(
+		ctx,
+		"service.node.relationship.remove",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("node.relationship.type", relationType),
@@ -116,23 +152,30 @@ func (s *NodeService) RemoveRelationship(ctx context.Context, orgID, sourceID uu
 		),
 	)
 	defer span.End()
-	ctx = telemetry.WithTraceLogger(ctx,
+	ctx = telemetry.WithTraceLogger(
+		ctx,
 		slog.String("relation_type", relationType),
 		slog.String("source_id", sourceID.String()),
 		slog.String("target_id", targetID.String()),
 	)
+
 	return s.relationships.Remove(ctx, orgID, sourceID, relationType, targetID)
 }
 
 // resolveOrgFromParent returns the org context for a parent node, handling the
 // "no parent" case (seed for org-level nodes).
-func (s *NodeService) resolveOrgFromParent(ctx context.Context, parentID uuid.UUID) (uuid.UUID, error) {
+func (s *NodeService) resolveOrgFromParent(
+	ctx context.Context,
+	parentID uuid.UUID,
+) (uuid.UUID, error) {
 	if parentID == uuid.Nil {
 		return uuid.Nil, fmt.Errorf("parent_id required: %w", domain.ErrInvalidArgument)
 	}
+
 	resolve, err := s.reader.Resolve(ctx, parentID)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("resolve parent: %w", err)
 	}
+
 	return resolve.OrgID, nil
 }

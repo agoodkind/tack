@@ -40,15 +40,19 @@ func TestNodeIntegrityAuditRecordsCommittedDeltaInLedger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
+
 	createArguments := auditedIssueArguments(harness)
 	createArguments.ProjectReference = harness.Project
 	createArguments.Name = "audited issue before"
-	createArguments.Properties = datagen.NodeProperties{"description": json.RawMessage(auditedDescription)}
+	createArguments.Properties = datagen.NodeProperties{
+		"description": json.RawMessage(auditedDescription),
+	}
 	issueID := uuid.MustParse(harness.Call(t, "tack_create_issue", createArguments).RawID())
 	createdView, err := stores.Views.Get(t.Context(), issueID)
 	if err != nil || createdView == nil {
 		t.Fatalf("issue %s after the create = %v, %v", issueID, createdView, err)
 	}
+
 	updateArguments := auditedIssueArguments(harness)
 	updateArguments.NodeID = issueID.String()
 	updateArguments.Name = "audited issue after"
@@ -58,9 +62,16 @@ func TestNodeIntegrityAuditRecordsCommittedDeltaInLedger(t *testing.T) {
 	if err != nil || view == nil {
 		t.Fatalf("issue %s after the update = %v, %v", issueID, view, err)
 	}
+
 	if _, kept := view.Props["description"]; kept || view.Name != "audited issue after" {
-		t.Fatalf("issue %s after the update = %q with props %v, want the new name and no description", issueID, view.Name, view.Props)
+		t.Fatalf(
+			"issue %s after the update = %q with props %v, want the new name and no description",
+			issueID,
+			view.Name,
+			view.Props,
+		)
 	}
+
 	updatePayload := outboxEvent(t, stores, issueID, audit.VerbNodeUpdate)
 
 	ledger := startNodeAuditLedger(t)
@@ -68,17 +79,31 @@ func TestNodeIntegrityAuditRecordsCommittedDeltaInLedger(t *testing.T) {
 	updated := ledger.entityRows(t, view.OrgID, issueID, audit.VerbNodeUpdate, 1)
 	requireCreateDelta(t, created[0], createdView)
 	requireUpdateDelta(t, updated[0])
+
 	for _, row := range []audit.Row{created[0], updated[0]} {
-		if row.ActorID != view.UpdatedBy || row.ActorKind != 1 || row.Context.Source != audit.SourceMCP {
-			t.Fatalf("%s row actor = %s (kind %d, source %q), want user %s through mcp", row.Action, row.ActorID, row.ActorKind, row.Context.Source, view.UpdatedBy)
+		if row.ActorID != view.UpdatedBy || row.ActorKind != 1 ||
+			row.Context.Source != audit.SourceMCP {
+			t.Fatalf(
+				"%s row actor = %s (kind %d, source %q), want user %s through mcp",
+				row.Action,
+				row.ActorID,
+				row.ActorKind,
+				row.Context.Source,
+				view.UpdatedBy,
+			)
 		}
 	}
 
 	ledger.redeliver(t, updatePayload)
 	again := ledger.entityRows(t, view.OrgID, issueID, audit.VerbNodeUpdate, 1)
 	if len(again) != 1 || again[0].EventID != updated[0].EventID || again[0].Seq != updated[0].Seq {
-		t.Fatalf("update rows after a second delivery = %+v, want only row %s", again, updated[0].EventID)
+		t.Fatalf(
+			"update rows after a second delivery = %+v, want only row %s",
+			again,
+			updated[0].EventID,
+		)
 	}
+
 	ledger.requireChainVerifies(t, view.OrgID)
 }
 
@@ -86,8 +111,20 @@ func TestNodeIntegrityAuditRecordsCommittedDeltaInLedger(t *testing.T) {
 // workspace and leave every other field empty.
 func auditedIssueArguments(harness *integration.MCPHarness) datagen.ToolArguments {
 	return datagen.ToolArguments{
-		WorkspaceReference: harness.Workspace, ProjectReference: "", IssueReference: "", Name: "", Properties: nil,
-		NodeID: "", Query: "", NodeType: "", Direction: "", SourceID: "", RelationType: "", TargetID: "", Limit: 0, Cursor: "",
+		WorkspaceReference: harness.Workspace,
+		ProjectReference:   "",
+		IssueReference:     "",
+		Name:               "",
+		Properties:         nil,
+		NodeID:             "",
+		Query:              "",
+		NodeType:           "",
+		Direction:          "",
+		SourceID:           "",
+		RelationType:       "",
+		TargetID:           "",
+		Limit:              0,
+		Cursor:             "",
 	}
 }
 
@@ -101,16 +138,21 @@ func requireCreateDelta(t *testing.T, row audit.Row, created *node.NodeView) {
 	if row.Delta == nil || len(row.Delta.Before) != 0 {
 		t.Fatalf("create delta = %+v, want a delta without Before", row.Delta)
 	}
+
 	want := []string{"/name"}
+
 	for property := range created.Props {
 		want = append(want, "/props/"+property)
 	}
+
 	slices.Sort(want)
 	if !slices.Equal(row.Delta.Changed, want) || !slices.Contains(want, "/props/description") {
 		t.Fatalf("create changed = %v, want %v with /props/description", row.Delta.Changed, want)
 	}
+
 	after := decodeAuditedIssueFields(t, row.Delta.After)
-	if after.Name == nil || *after.Name != "audited issue before" || string(after.Props["description"]) != auditedDescription {
+	if after.Name == nil || *after.Name != "audited issue before" ||
+		string(after.Props["description"]) != auditedDescription {
 		t.Fatalf("create after = %s, want the created name and description", row.Delta.After)
 	}
 }
@@ -121,15 +163,23 @@ func requireCreateDelta(t *testing.T, row audit.Row, created *node.NodeView) {
 // record with the new name and without the description.
 func requireUpdateDelta(t *testing.T, row audit.Row) {
 	t.Helper()
-	if row.Delta == nil || !slices.Equal(row.Delta.Changed, []string{"/name", "/props/description"}) {
+	if row.Delta == nil ||
+		!slices.Equal(row.Delta.Changed, []string{"/name", "/props/description"}) {
 		t.Fatalf("update delta = %+v, want /name and /props/description changed", row.Delta)
 	}
+
 	before := decodeAuditedIssueFields(t, row.Delta.Before)
-	if before.Name == nil || *before.Name != "audited issue before" || string(before.Props["description"]) != auditedDescription {
-		t.Fatalf("update before = %s, want the old name and the removed description", row.Delta.Before)
+	if before.Name == nil || *before.Name != "audited issue before" ||
+		string(before.Props["description"]) != auditedDescription {
+		t.Fatalf(
+			"update before = %s, want the old name and the removed description",
+			row.Delta.Before,
+		)
 	}
+
 	after := decodeAuditedIssueFields(t, row.Delta.After)
-	if _, kept := after.Props["description"]; kept || after.Name == nil || *after.Name != "audited issue after" {
+	if _, kept := after.Props["description"]; kept || after.Name == nil ||
+		*after.Name != "audited issue after" {
 		t.Fatalf("update after = %s, want the new name without the description", row.Delta.After)
 	}
 }
@@ -140,5 +190,6 @@ func decodeAuditedIssueFields(t *testing.T, raw json.RawMessage) auditedIssueFie
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatalf("decode delta fields %s: %v", raw, err)
 	}
+
 	return fields
 }

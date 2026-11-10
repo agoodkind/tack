@@ -42,6 +42,7 @@ func harnessConfig(t *testing.T) *config.Config {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
+
 	return cfg
 }
 
@@ -54,6 +55,7 @@ var harnessSeedCounter = seededCounter()
 func seededCounter() *atomic.Int64 {
 	counter := &atomic.Int64{}
 	counter.Store(clock.Now().UnixNano())
+
 	return counter
 }
 
@@ -88,11 +90,14 @@ func harnessGraph(t *testing.T, audited bool) (*config.Config, *appruntime.Graph
 		cfg.AuditWriterDSN = ""
 		cfg.AuditAllowUnrecorded = true
 	}
+
 	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {
 		t.Fatalf("build graph: %v", err)
 	}
+
 	t.Cleanup(graph.Close)
+
 	return cfg, graph
 }
 
@@ -106,6 +111,7 @@ func (h *MCPHarness) SecondProcess(t *testing.T) *MCPHarness {
 	second := *h
 	second.driver = datagen.NewDriver(graph, false, nextHarnessSeed())
 	second.handler = graph.MCPRoute
+
 	return &second
 }
 
@@ -116,15 +122,18 @@ func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
 	if audited {
 		graph.StartDeleteResumer(ctx)
 	}
+
 	scale, err := datagen.ParseScale("small")
 	if err != nil {
 		t.Fatalf("parse scale: %v", err)
 	}
+
 	seed := nextHarnessSeed()
 	identities, err := datagen.BootstrapIdentities(ctx, cfg, seed, scale)
 	if err != nil {
 		t.Fatalf("bootstrap identities: %v", err)
 	}
+
 	workspace := identities.Workspaces[0]
 	harness := &MCPHarness{
 		driver:    datagen.NewDriver(graph, false, seed),
@@ -138,6 +147,7 @@ func newMCPHarness(t *testing.T, audited bool) *MCPHarness {
 		titles:    datagen.NewSearchTitles(),
 	}
 	harness.createProject(t)
+
 	return harness
 }
 
@@ -169,15 +179,21 @@ func (h *MCPHarness) createProject(t *testing.T) {
 
 // Call invokes one MCP tool with the harness bearer token and records
 // created nodes in h.titles. It fails the test when the call returns an error.
-func (h *MCPHarness) Call(t *testing.T, toolName string, args datagen.ToolArguments) datagen.Result {
+func (h *MCPHarness) Call(
+	t *testing.T,
+	toolName string,
+	args datagen.ToolArguments,
+) datagen.Result {
 	t.Helper()
 	result, err := h.driver.Call(t.Context(), h.token, toolName, args)
 	if err != nil {
 		t.Fatalf("call %s: %v", toolName, err)
 	}
+
 	if strings.HasPrefix(toolName, createToolPrefix) {
 		h.registerCreated(t, result, args.Name)
 	}
+
 	return result
 }
 
@@ -193,20 +209,27 @@ func (h *MCPHarness) registerCreated(t *testing.T, result datagen.Result, name s
 	if err != nil {
 		t.Fatalf("parse created node ID %q: %v", result.RawID(), err)
 	}
+
 	item := result.SearchItem()
 	if item.Title == "" {
 		item.Title = name
 	}
+
 	h.titles.Add(item, nodeID)
 }
 
 // CallExpectError invokes one MCP tool and fails the test when it succeeds,
 // returning the error text so the caller can assert on it.
-func (h *MCPHarness) CallExpectError(t *testing.T, toolName string, args datagen.ToolArguments) string {
+func (h *MCPHarness) CallExpectError(
+	t *testing.T,
+	toolName string,
+	args datagen.ToolArguments,
+) string {
 	t.Helper()
 	_, err := h.driver.Call(t.Context(), h.token, toolName, args)
 	if err == nil {
 		t.Fatalf("call %s: expected an error, got success", toolName)
 	}
+
 	return err.Error()
 }

@@ -31,10 +31,23 @@ func TestReferencePropertyToolDescribesStateDiscovery(t *testing.T) {
 		TypeKey:    "project",
 		Slug:       "project",
 		PluralSlug: "projects",
-		Reference:  node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"},
+		Reference: node.ReferenceConfig{
+			Strategy: node.ReferenceDirectProperty,
+			Property: "identifier",
+		},
 	}
-	issueType := &node.NodeType{TypeKey: "issue", Slug: "issue", Name: "Issue", CanLiveUnder: []string{"project"}}
-	stateType := &node.NodeType{TypeKey: "state", Slug: "state", PluralSlug: "states", Name: "State"}
+	issueType := &node.NodeType{
+		TypeKey:      "issue",
+		Slug:         "issue",
+		Name:         "Issue",
+		CanLiveUnder: []string{"project"},
+	}
+	stateType := &node.NodeType{
+		TypeKey:    "state",
+		Slug:       "state",
+		PluralSlug: "states",
+		Name:       "State",
+	}
 	resolver := &Resolver{
 		entryPointSlug: "workspace",
 		typeIndex: map[string]*node.NodeType{
@@ -64,9 +77,11 @@ func TestReferencePropertyToolDescribesStateDiscovery(t *testing.T) {
 			t.Fatalf("state setter description should contain %q:\n%s", want, tool.Description)
 		}
 	}
+
 	if !strings.Contains(schemaDescription(t, tool, "state"), "Use tack_list_states") {
 		t.Fatalf("state field should point agents to tack_list_states")
 	}
+
 	if !strings.Contains(schemaDescription(t, tool, "project_reference"), "project reference") {
 		t.Fatalf("project_reference should explain project reference discovery")
 	}

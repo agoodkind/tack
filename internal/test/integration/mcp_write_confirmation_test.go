@@ -19,8 +19,13 @@ func longDescriptionProperties() datagen.NodeProperties {
 func assertShortConfirmation(t *testing.T, text string, name string) {
 	t.Helper()
 	if len(text) > maxWriteConfirmationBytes {
-		t.Fatalf("write response is %d bytes, want at most %d", len(text), maxWriteConfirmationBytes)
+		t.Fatalf(
+			"write response is %d bytes, want at most %d",
+			len(text),
+			maxWriteConfirmationBytes,
+		)
 	}
+
 	if !strings.Contains(text, name) || !strings.Contains(text, "description") {
 		t.Fatalf("confirmation lacks name or changed field:\n%s", text)
 	}
@@ -46,6 +51,7 @@ func TestUpdateIssueReturnsShortConfirmation(t *testing.T) {
 	if nodeID == "" {
 		t.Fatalf("create response has no raw id:\n%s", created.Text())
 	}
+
 	updateArguments := harness.projectArgs()
 	updateArguments.ProjectReference = ""
 	updateArguments.NodeID = nodeID

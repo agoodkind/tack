@@ -24,6 +24,7 @@ func buildRepairingQueryGraph(t *testing.T, cfg *config.Config) *appruntime.Grap
 	t.Helper()
 	graph := buildQueryGraph(t, cfg)
 	graph.StartSearchModelRepair(WithTestOperation(t, t.Context()))
+
 	return graph
 }
 
@@ -32,11 +33,18 @@ func buildRepairingQueryGraph(t *testing.T, cfg *config.Config) *appruntime.Grap
 type deployTasksSinceRequest struct{ body []byte }
 
 func (request deployTasksSinceRequest) GetRequest(method string) (*http.Request, error) {
-	httpRequest, err := http.NewRequestWithContext(context.Background(), method, "/_plugins/_ml/tasks/_search", bytes.NewReader(request.body))
+	httpRequest, err := http.NewRequestWithContext(
+		context.Background(),
+		method,
+		"/_plugins/_ml/tasks/_search",
+		bytes.NewReader(request.body),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("build deploy task count request: %w", err)
 	}
+
 	httpRequest.Header.Set("Content-Type", "application/json")
+
 	return httpRequest, nil
 }
 
@@ -46,9 +54,20 @@ func disableNativeRedeploy(t *testing.T, fixture queryFixture) {
 	t.Helper()
 	body := []byte(`{"persistent":{"plugins.ml_commons.model_auto_redeploy.enable":false}}`)
 	var result json.RawMessage
-	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodPut, clusterSettingsRequest{body: body}, &result)
+	response, err := opensearch.Execute(
+		WithTestOperation(t, t.Context()),
+		fixture.Client.Client,
+		http.MethodPut,
+		clusterSettingsRequest{body: body},
+		&result,
+	)
 	if err != nil || response == nil || response.IsError() {
-		t.Fatalf("disable native automatic redeploy: response %v err %v body %s", response, err, result)
+		t.Fatalf(
+			"disable native automatic redeploy: response %v err %v body %s",
+			response,
+			err,
+			result,
+		)
 	}
 }
 
@@ -56,9 +75,14 @@ func disableNativeRedeploy(t *testing.T, fixture queryFixture) {
 // the real task index records with a create time at or after since.
 func deployTasksSince(t *testing.T, fixture queryFixture, modelID string, since time.Time) int {
 	t.Helper()
-	body := fmt.Appendf(nil, `{"size":0,"track_total_hits":true,"query":{"bool":{"filter":[`+
-		`{"term":{"model_id":%q}},{"term":{"task_type":"DEPLOY_MODEL"}},`+
-		`{"range":{"create_time":{"gte":%d}}}]}}}`, modelID, since.UnixMilli())
+	body := fmt.Appendf(
+		nil,
+		`{"size":0,"track_total_hits":true,"query":{"bool":{"filter":[`+
+			`{"term":{"model_id":%q}},{"term":{"task_type":"DEPLOY_MODEL"}},`+
+			`{"range":{"create_time":{"gte":%d}}}]}}}`,
+		modelID,
+		since.UnixMilli(),
+	)
 	var result struct {
 		Hits struct {
 			Total struct {
@@ -66,10 +90,23 @@ func deployTasksSince(t *testing.T, fixture queryFixture, modelID string, since 
 			} `json:"total"`
 		} `json:"hits"`
 	}
-	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodPost, deployTasksSinceRequest{body: body}, &result)
+	response, err := opensearch.Execute(
+		WithTestOperation(t, t.Context()),
+		fixture.Client.Client,
+		http.MethodPost,
+		deployTasksSinceRequest{body: body},
+		&result,
+	)
 	if err != nil || response == nil || response.IsError() {
-		t.Fatalf("count deploy tasks of model %s since %s: response %v err %v", modelID, since, response, err)
+		t.Fatalf(
+			"count deploy tasks of model %s since %s: response %v err %v",
+			modelID,
+			since,
+			response,
+			err,
+		)
 	}
+
 	return result.Hits.Total.Value
 }
 
@@ -93,14 +130,31 @@ type staleDeployTask struct {
 // The repair query must observe the task immediately after insertion.
 func writeDeployTask(t *testing.T, fixture queryFixture, task staleDeployTask) {
 	t.Helper()
-	body := fmt.Appendf(nil, `{"model_id":%q,"task_type":"DEPLOY_MODEL","function_name":"SPARSE_ENCODING","state":"RUNNING",`+
-		`"worker_node":["tack-stale-node"],"create_time":%d,"last_update_time":%d,"is_async":true}`,
-		task.modelID, task.created.UnixMilli(), task.updated.UnixMilli())
+	body := fmt.Appendf(
+		nil,
+		`{"model_id":%q,"task_type":"DEPLOY_MODEL","function_name":"SPARSE_ENCODING","state":"RUNNING",`+
+			`"worker_node":["tack-stale-node"],"create_time":%d,"last_update_time":%d,"is_async":true}`,
+		task.modelID,
+		task.created.UnixMilli(),
+		task.updated.UnixMilli(),
+	)
 	request := nativeMLRequest{path: deployTaskPath + task.id + "?refresh=true", body: body}
 	var result json.RawMessage
-	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodPut, request, &result)
+	response, err := opensearch.Execute(
+		WithTestOperation(t, t.Context()),
+		fixture.Client.Client,
+		http.MethodPut,
+		request,
+		&result,
+	)
 	if err != nil || response == nil || response.IsError() {
-		t.Fatalf("The repair query must observe the task immediately after insertion.  -rejected: task %s response %v err %v body %s", task.id, response, err, result)
+		t.Fatalf(
+			"The repair query must observe the task immediately after insertion.  -rejected: task %s response %v err %v body %s",
+			task.id,
+			response,
+			err,
+			result,
+		)
 	}
 }
 
@@ -109,23 +163,50 @@ func deleteDeployTask(t *testing.T, fixture queryFixture, taskID string) {
 	t.Helper()
 	var result json.RawMessage
 	request := nativeMLRequest{path: deployTaskPath + taskID, body: nil}
-	response, err := opensearch.Execute(context.WithoutCancel(WithTestOperation(t, t.Context())), fixture.Client.Client, http.MethodDelete, request, &result)
+	response, err := opensearch.Execute(
+		context.WithoutCancel(WithTestOperation(t, t.Context())),
+		fixture.Client.Client,
+		http.MethodDelete,
+		request,
+		&result,
+	)
 	if err != nil || response == nil || response.IsError() {
-		t.Logf("The injected task must not affect later tests after cancellation.  -failed: task %s response %v err %v body %s", taskID, response, err, result)
+		t.Logf(
+			"The injected task must not affect later tests after cancellation.  -failed: task %s response %v err %v body %s",
+			taskID,
+			response,
+			err,
+			result,
+		)
 	}
 }
 
 // Later tests require native redeployment and a deployed model after cancellation.
 func restoreNativeModel(t *testing.T, fixture queryFixture) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), nativeRedeployTimeout)
+	ctx, cancel := context.WithTimeout(
+		context.WithoutCancel(WithTestOperation(t, t.Context())),
+		nativeRedeployTimeout,
+	)
 	defer cancel()
 	var result json.RawMessage
 	request := clusterSettingsRequest{body: []byte(nativeRedeployDefault)}
-	response, err := opensearch.Execute(ctx, fixture.Client.Client, http.MethodPut, request, &result)
+	response, err := opensearch.Execute(
+		ctx,
+		fixture.Client.Client,
+		http.MethodPut,
+		request,
+		&result,
+	)
 	if err != nil || response == nil || response.IsError() {
-		t.Errorf("restore native redeployment setting failed: response %v err %v body %s", response, err, result)
+		t.Errorf(
+			"restore native redeployment setting failed: response %v err %v body %s",
+			response,
+			err,
+			result,
+		)
 	}
+
 	if err := redeployNativeModel(ctx, fixture.Adapter, fixture.Client); err != nil {
 		t.Errorf("restore native model deployment failed: %v", err)
 	}

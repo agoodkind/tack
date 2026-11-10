@@ -39,24 +39,58 @@ type assemblyPartReader struct {
 
 // newAssemblyPartReader returns a reader for the parts that manifest declares.
 // It reads each part with one query in tx.
-func newAssemblyPartReader(ctx context.Context, tx pgx.Tx, manifest transportMessage) *assemblyPartReader {
+func newAssemblyPartReader(
+	ctx context.Context,
+	transaction pgx.Tx,
+	manifest transportMessage,
+) *assemblyPartReader {
 	fetch := func(index uint32) (string, []byte, bool, error) {
 		var digest string
 		var payload []byte
-		err := tx.QueryRow(ctx, `
+		err := transaction.QueryRow(
+			ctx,
+			`
 			SELECT digest, payload FROM audit.event_assembly_parts
 			 WHERE event_id = $1 AND part_index = $2
-		`, manifest.EventID, int64(index)).Scan(&digest, &payload)
+		`,
+			manifest.EventID,
+			int64(index),
+		).Scan(
+			&digest,
+			&payload,
+		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil, false, nil
 		}
+
 		if err != nil {
-			slog.ErrorContext(ctx, "audit.consumer.parts_read_failed", slog.String("event_id", manifest.EventID.String()), slog.String("err", err.Error()))
-			return "", nil, false, fmt.Errorf("%w: audit event %s part %d: %w", errAssemblyPartRead, manifest.EventID, index, err)
+			slog.ErrorContext(
+				ctx,
+				"audit.consumer.parts_read_failed",
+				slog.String("event_id", manifest.EventID.String()),
+				slog.String("err", err.Error()),
+			)
+
+			return "", nil, false, fmt.Errorf(
+				"%w: audit event %s part %d: %w",
+				errAssemblyPartRead,
+				manifest.EventID,
+				index,
+				err,
+			)
 		}
+
 		return digest, payload, true, nil
 	}
-	return &assemblyPartReader{manifest: manifest, fetch: fetch, next: 0, pending: nil, hasher: sha256.New(), failure: nil}
+
+	return &assemblyPartReader{
+		manifest: manifest,
+		fetch:    fetch,
+		next:     0,
+		pending:  nil,
+		hasher:   sha256.New(),
+		failure:  nil,
+	}
 }
 
 // Read copies bytes of the current part into buffer. It reads the next part
@@ -67,16 +101,20 @@ func (r *assemblyPartReader) Read(buffer []byte) (int, error) {
 		if r.failure != nil {
 			return 0, r.failure
 		}
+
 		if r.next == r.manifest.PartCount {
 			return 0, io.EOF
 		}
+
 		if err := r.load(); err != nil {
 			r.failure = err
 			return 0, err
 		}
 	}
+
 	copied := copy(buffer, r.pending)
 	r.pending = r.pending[copied:]
+
 	return copied, nil
 }
 
@@ -87,21 +125,32 @@ func (r *assemblyPartReader) load() error {
 	if err != nil {
 		return err
 	}
+
 	if !found {
 		return r.invalidPart(fmt.Sprintf("received %d of %d parts", r.next, r.manifest.PartCount))
 	}
+
 	if len(payload) > EventPartMaxBytes || sha256Hex(payload) != digest {
-		return r.invalidPart(fmt.Sprintf("part %d has an invalid size or does not match its digest", r.next))
+		return r.invalidPart(
+			fmt.Sprintf("part %d has an invalid size or does not match its digest", r.next),
+		)
 	}
+
 	_, _ = r.hasher.Write(payload)
 	r.pending = payload
 	r.next++
+
 	return nil
 }
 
 // invalidPart logs reason and returns it wrapped with errAssemblyPartsInvalid.
 func (r *assemblyPartReader) invalidPart(reason string) error {
-	slog.Warn("audit.consumer.assembly_part_invalid", slog.String("event_id", r.manifest.EventID.String()), slog.String("reason", reason))
+	slog.Warn(
+		"audit.consumer.assembly_part_invalid",
+		slog.String("event_id", r.manifest.EventID.String()),
+		slog.String("reason", reason),
+	)
+
 	return fmt.Errorf("%w: %s", errAssemblyPartsInvalid, reason)
 }
 
@@ -111,11 +160,13 @@ func (r *assemblyPartReader) databaseFailure() error {
 	if errors.Is(r.failure, errAssemblyPartRead) {
 		return r.failure
 	}
+
 	return nil
 }
 
 // complete reports whether the reader returned every declared part and the
 // part bytes match the transport digest of the manifest.
 func (r *assemblyPartReader) complete() bool {
-	return r.next == r.manifest.PartCount && hex.EncodeToString(r.hasher.Sum(nil)) == r.manifest.TransportDigest
+	return r.next == r.manifest.PartCount &&
+		hex.EncodeToString(r.hasher.Sum(nil)) == r.manifest.TransportDigest
 }

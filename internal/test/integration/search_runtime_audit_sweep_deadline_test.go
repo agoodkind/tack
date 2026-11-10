@@ -43,7 +43,10 @@ func TestSearchRuntimeAuditSweepStopsAfterRequestDeadline(t *testing.T) {
 	sessions := make([]searchdomain.Session, 0, sweepStopSessions)
 	for range sweepStopSessions {
 		opened := integration.CallSearch(t, harness, failureAuditQuery, "")
-		sessions = append(sessions, integration.CursorSession(t, fixture.QueryFixture, opened.Cursor))
+		sessions = append(
+			sessions,
+			integration.CursorSession(t, fixture.QueryFixture, opened.Cursor),
+		)
 	}
 	latest := sessions[len(sessions)-1].IdleDeadline
 	waitUntilTime(t, latest.Truncate(time.Minute).Add(time.Minute+sessionAuditMargin))
@@ -53,7 +56,11 @@ func TestSearchRuntimeAuditSweepStopsAfterRequestDeadline(t *testing.T) {
 	page, err := integration.TrySearch(harness, failureAuditQuery, "")
 	restoreLog()
 	if err != nil || len(page.IDs) == 0 {
-		t.Fatalf("the search with the stopped sweep returned %d results and error %v", len(page.IDs), err)
+		t.Fatalf(
+			"the search with the stopped sweep returned %d results and error %v",
+			len(page.IDs),
+			err,
+		)
 	}
 	if !bytes.Contains(logged.contents(), []byte(sweepStoppedMessage)) {
 		t.Fatalf("the sweep did not log %s", sweepStoppedMessage)
@@ -63,23 +70,42 @@ func TestSearchRuntimeAuditSweepStopsAfterRequestDeadline(t *testing.T) {
 		t.Fatalf("the search that sweeps the remaining sessions failed: %v", err)
 	}
 	orgID := fixture.Workspaces[0].OrgID
-	rows := fixture.audited.waitForRows(t, orgID, func(current []audit.Row) bool {
-		notStarted := 0
-		for _, session := range sessions {
-			if len(sessionChanges(current, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession)) != 1 {
-				return false
+	rows := fixture.audited.waitForRows(
+		t,
+		orgID,
+		func(current []audit.Row) bool {
+			notStarted := 0
+			for _, session := range sessions {
+				if len(
+					sessionChanges(
+						current,
+						session.ID,
+						audit.VerbSearchSessionDelete,
+						audit.TargetSearchSession,
+					),
+				) != 1 {
+					return false
+				}
+				notStarted += len(cleanupFailures(current, session.ID, cleanupNotStarted))
 			}
-			notStarted += len(cleanupFailures(current, session.ID, cleanupNotStarted))
-		}
-		return notStarted == sweepStopNotStartedRows
-	})
+			return notStarted == sweepStopNotStartedRows
+		},
+	)
 	for _, session := range sessions {
-		if len(cleanupFailures(rows, session.ID, searchdomain.CleanupClose))+len(cleanupFailures(rows, session.ID, searchdomain.CleanupDelete)) != 0 {
+		if len(cleanupFailures(rows, session.ID, searchdomain.CleanupClose))+len(
+			cleanupFailures(rows, session.ID, searchdomain.CleanupDelete),
+		) != 0 {
 			t.Fatalf("session %s has failed cleanup rows for steps that did not start", session.ID)
 		}
 		for _, row := range cleanupFailures(rows, session.ID, cleanupNotStarted) {
-			if row.Outcome != audit.OutcomeFailed || row.Action != string(audit.VerbSearchSessionUpdate) || row.Error.Message == "" {
-				t.Fatalf("the not started row of session %s = %+v, want the failed outcome, the update action, and a message", session.ID, row)
+			if row.Outcome != audit.OutcomeFailed ||
+				row.Action != string(audit.VerbSearchSessionUpdate) ||
+				row.Error.Message == "" {
+				t.Fatalf(
+					"the not started row of session %s = %+v, want the failed outcome, the update action, and a message",
+					session.ID,
+					row,
+				)
 			}
 		}
 	}

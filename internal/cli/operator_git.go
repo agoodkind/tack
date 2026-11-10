@@ -37,18 +37,24 @@ func (GitConfigOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrinc
 		slog.ErrorContext(ctx, "operator.git_config.path_failed", slog.String("err", err.Error()))
 		return audit.OperatorPrincipal{}, err
 	}
+
 	name, email, read := readGitConfigIdentity(ctx, candidates)
 	if read == 0 {
 		err := fmt.Errorf("no readable gitconfig among %d candidate path(s)", len(candidates))
 		slog.ErrorContext(ctx, "operator.git_config.read_failed", slog.String("err", err.Error()))
+
 		return audit.OperatorPrincipal{}, err
 	}
+
 	if email == "" {
 		err := errors.New("gitconfig has no user.email; set it or pass --operator-email")
 		slog.ErrorContext(ctx, "operator.git_config.email_missing", slog.String("err", err.Error()))
+
 		return audit.OperatorPrincipal{}, err
 	}
+
 	normalizedEmail := strings.ToLower(email)
+
 	return audit.OperatorPrincipal{
 		ID:     uuid.NewSHA1(operatorNamespace, []byte(normalizedEmail)),
 		Email:  email,
@@ -75,22 +81,27 @@ func (GitConfigOperatorSource) Resolve(ctx context.Context) (audit.OperatorPrinc
 func readGitConfigIdentity(ctx context.Context, candidates []string) (string, string, int) {
 	var name, email string
 	read := 0
+
 	for _, candidate := range candidates {
 		cleaned := filepath.Clean(candidate)
 		contents, err := os.ReadFile(cleaned)
 		if err != nil {
 			continue
 		}
+
 		read++
 		fileName, fileEmail := parseGitConfig(contents)
 		if fileName != "" {
 			name = fileName
 		}
+
 		if fileEmail != "" {
 			email = fileEmail
 		}
+
 		slog.DebugContext(ctx, "operator.git_config.read", slog.String("path", cleaned))
 	}
+
 	return name, email, read
 }
 
@@ -106,6 +117,7 @@ func gitConfigCandidates() ([]string, error) {
 	if path := strings.TrimSpace(os.Getenv("GIT_CONFIG_GLOBAL")); path != "" {
 		return []string{path}, nil
 	}
+
 	var candidates []string
 	xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
 	home := strings.TrimSpace(os.Getenv("HOME"))
@@ -114,13 +126,17 @@ func gitConfigCandidates() ([]string, error) {
 	} else if home != "" {
 		candidates = append(candidates, filepath.Join(home, ".config", "git", "config"))
 	}
+
 	if home == "" {
 		if len(candidates) == 0 {
 			return nil, fmt.Errorf("HOME is not set and GIT_CONFIG_GLOBAL is empty")
 		}
+
 		return candidates, nil
 	}
+
 	candidates = append(candidates, filepath.Join(home, ".gitconfig"))
+
 	return candidates, nil
 }
 
@@ -134,11 +150,14 @@ func gitConfigValue(raw string) string {
 		if index := strings.IndexAny(value, "#;"); index >= 0 {
 			value = strings.TrimSpace(value[:index])
 		}
+
 		return value
 	}
+
 	if closing := strings.LastIndex(value, "\""); closing > 0 {
 		return value[1:closing]
 	}
+
 	return strings.TrimPrefix(value, "\"")
 }
 
@@ -146,23 +165,28 @@ func parseGitConfig(contents []byte) (string, string) {
 	var name string
 	var email string
 	inUserSection := false
+
 	for rawLine := range strings.SplitSeq(string(contents), "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
+
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			section := strings.TrimSpace(line[1 : len(line)-1])
 			inUserSection = strings.EqualFold(section, "user")
 			continue
 		}
+
 		if !inUserSection {
 			continue
 		}
+
 		key, value, ok := strings.Cut(line, "=")
 		if !ok {
 			continue
 		}
+
 		key = strings.ToLower(strings.TrimSpace(key))
 		value = gitConfigValue(value)
 		switch gitConfigKey(key) {
@@ -172,5 +196,6 @@ func parseGitConfig(contents []byte) (string, string) {
 			email = value
 		}
 	}
+
 	return name, email
 }

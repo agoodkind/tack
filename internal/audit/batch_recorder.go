@@ -25,6 +25,7 @@ type BatchRecorder interface {
 // is counted as dropped and left out, because no retry can change its bytes.
 func (k *KafkaRecorder) RecordBatch(ctx context.Context, events []Event) ([]Event, error) {
 	records := make([]*kgo.Record, 0, len(events))
+
 	produced := make([]Event, 0, len(events))
 	for _, ev := range events {
 		payload, err := MarshalEvent(ev)
@@ -33,12 +34,18 @@ func (k *KafkaRecorder) RecordBatch(ctx context.Context, events []Event) ([]Even
 			telemetry.IncAuditKafkaProduce("error")
 			continue
 		}
-		records = append(records, &kgo.Record{Topic: k.topic, Key: kafkaPartitionKey(ev), Value: payload})
+
+		records = append(
+			records,
+			&kgo.Record{Topic: k.topic, Key: kafkaPartitionKey(ev), Value: payload},
+		)
 		produced = append(produced, ev)
 	}
+
 	if len(records) == 0 {
 		return nil, nil
 	}
+
 	produceCtx, cancel := context.WithTimeout(ctx, k.produceTimeout)
 	defer cancel()
 	start := monoStart()
@@ -46,18 +53,22 @@ func (k *KafkaRecorder) RecordBatch(ctx context.Context, events []Event) ([]Even
 	telemetry.ObserveAuditKafkaProduceLatency(sinceMs(start))
 
 	var refused []Event
+
 	for index, result := range results {
 		if result.Err == nil {
 			telemetry.IncAuditKafkaProduce("ok")
 			continue
 		}
+
 		telemetry.IncAuditKafkaProduce("error")
 		refused = append(refused, produced[index])
 		k.noteRefusal(ctx, produced[index], result.Err)
 	}
+
 	if len(refused) == 0 && k.refusing.CompareAndSwap(true, false) {
 		slog.InfoContext(ctx, "kafka.produce.recovered", slog.String("topic", k.topic))
 	}
+
 	return refused, nil
 }
 
@@ -74,6 +85,7 @@ func (k *KafkaRecorder) noteRefusal(ctx context.Context, ev Event, produceErr er
 		slog.LogAttrs(ctx, slog.LevelWarn, "kafka.produce.refusing", attrs...)
 		return
 	}
+
 	slog.LogAttrs(ctx, slog.LevelDebug, "kafka.produce.failed", attrs...)
 }
 
@@ -84,22 +96,32 @@ func (s *SpillRecorder) RecordBatch(ctx context.Context, events []Event) ([]Even
 	if !ok {
 		return s.recordOneByOne(ctx, events)
 	}
+
 	refused, err := batcher.RecordBatch(ctx, events)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.spill.batch_failed",
-			slog.Int("batch", len(events)), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.spill.batch_failed",
+			slog.Int("batch", len(events)),
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("batch through primary: %w", err)
 	}
+
 	if len(refused) == 0 {
 		s.noteRecovered(ctx)
 		return nil, nil
 	}
+
 	var lost []Event
+
 	for _, ev := range refused {
 		if spillErr := s.spill(ctx, ev, errBrokerRefused); spillErr != nil {
 			lost = append(lost, ev)
 		}
 	}
+
 	return lost, nil
 }
 
@@ -107,10 +129,12 @@ func (s *SpillRecorder) RecordBatch(ctx context.Context, events []Event) ([]Even
 // event at a time.
 func (s *SpillRecorder) recordOneByOne(ctx context.Context, events []Event) ([]Event, error) {
 	var lost []Event
+
 	for _, ev := range events {
 		if err := s.Record(ctx, ev); err != nil {
 			lost = append(lost, ev)
 		}
 	}
+
 	return lost, nil
 }

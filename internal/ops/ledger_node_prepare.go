@@ -57,101 +57,184 @@ type ledgerNodePreparePlan struct {
 
 // planLedgerNodePrepare reads the local node's saved master list and stale
 // flags. It returns the result that a dry run reports.
-func planLedgerNodePrepare(ctx context.Context, cfg *config.Config, cli *client.Client) (ledgerNodePreparePlan, error) {
+func planLedgerNodePrepare(
+	ctx context.Context,
+	cfg *config.Config,
+	cli *client.Client,
+) (ledgerNodePreparePlan, error) {
 	var unread launcherConfigFile
 	plan := ledgerNodePreparePlan{
 		result: ledgerNodePrepareResult{
-			ResultMarker: clispec.ResultMarker{}, Command: ledgerNodePrepareLabel, Container: yugabyteBackupContainer,
-			State: "", Before: "", After: "", StaleFlags: nil, Stopped: false, DryRun: true,
+			ResultMarker: clispec.ResultMarker{},
+			Command:      ledgerNodePrepareLabel,
+			Container:    yugabyteBackupContainer,
+			State:        "",
+			Before:       "",
+			After:        "",
+			StaleFlags:   nil,
+			Stopped:      false,
+			DryRun:       true,
 		},
-		saved: unread, wanted: nil, rewrite: false,
+		saved:   unread,
+		wanted:  nil,
+		rewrite: false,
 	}
 	names, err := deployedLedgerNodeNames(cfg)
 	if err != nil {
 		slog.ErrorContext(ctx, "ops.ledger.node_prepare.failed", slog.String("err", err.Error()))
 		return plan, fmt.Errorf("%s: %w", ledgerNodePrepareLabel, err)
 	}
+
 	plan.wanted = ledgerMasterList(names)
 	saved, found, err := readLauncherConfig(ctx, cli, yugabyteBackupContainer)
 	if err != nil {
 		return plan, fmt.Errorf("%s: %w", ledgerNodePrepareLabel, err)
 	}
+
 	if !found {
 		plan.result.State = ledgerNodeStateAbsent
-		slog.InfoContext(ctx, "ops.ledger.node_prepare.absent", slog.String("container", yugabyteBackupContainer))
+		slog.InfoContext(
+			ctx,
+			"ops.ledger.node_prepare.absent",
+			slog.String("container", yugabyteBackupContainer),
+		)
+
 		return plan, nil
 	}
+
 	plan.saved = saved
 	current, err := savedLedgerMasters(ctx, saved.content)
 	if err != nil {
 		slog.ErrorContext(ctx, "ops.ledger.node_prepare.failed", slog.String("err", err.Error()))
 		return plan, fmt.Errorf("%s: %w", ledgerNodePrepareLabel, err)
 	}
-	plan.result.Before, plan.result.After = strings.Join(current, ","), strings.Join(plan.wanted, ",")
+
+	plan.result.Before, plan.result.After = strings.Join(current, ","), strings.Join(
+		plan.wanted,
+		",",
+	)
 	plan.result.State, plan.rewrite = ledgerNodeStateChanged, !equalStringSets(current, plan.wanted)
 	if plan.rewrite {
 		return plan, nil
 	}
+
 	stale, err := staleLedgerNodeFlags(ctx, cli, yugabyteBackupContainer)
 	if err != nil {
 		return plan, fmt.Errorf("%s: %w", ledgerNodePrepareLabel, err)
 	}
+
 	plan.result.StaleFlags = stale
 	if len(stale) == 0 {
 		plan.result.State = ledgerNodeStateUnchanged
-		slog.InfoContext(ctx, "ops.ledger.node_prepare.unchanged", slog.String("masters", plan.result.Before))
+		slog.InfoContext(
+			ctx,
+			"ops.ledger.node_prepare.unchanged",
+			slog.String("masters", plan.result.Before),
+		)
 	}
+
 	return plan, nil
 }
 
 // applyLedgerNodePrepare rewrites the saved master list when it differs and
 // stops the container when the plan changed the node. It returns the result
 // that the command reports after --execute.
-func applyLedgerNodePrepare(ctx context.Context, cli *client.Client, plan ledgerNodePreparePlan) (ledgerNodePrepareResult, error) {
+func applyLedgerNodePrepare(
+	ctx context.Context,
+	cli *client.Client,
+	plan ledgerNodePreparePlan,
+) (ledgerNodePrepareResult, error) {
 	result := plan.result
 	result.DryRun = false
 	if result.State != ledgerNodeStateChanged {
 		return result, nil
 	}
+
 	if plan.rewrite {
 		rewritten, err := rewriteLedgerMasters(ctx, plan.saved.content, plan.wanted)
 		if err != nil {
-			slog.ErrorContext(ctx, "ops.ledger.node_prepare.failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"ops.ledger.node_prepare.failed",
+				slog.String("err", err.Error()),
+			)
+
 			return result, fmt.Errorf("%s: %w", ledgerNodePrepareLabel, err)
 		}
-		if err := writeLauncherConfig(ctx, cli, yugabyteBackupContainer, plan.saved.header, rewritten); err != nil {
+
+		if err := writeLauncherConfig(
+			ctx,
+			cli,
+			yugabyteBackupContainer,
+			plan.saved.header,
+			rewritten,
+		); err != nil {
 			return result, fmt.Errorf("%s: %w", ledgerNodePrepareLabel, err)
 		}
 	}
-	if _, err := cli.ContainerStop(ctx, yugabyteBackupContainer, client.ContainerStopOptions{}); err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.node_prepare.stop_failed", slog.String("err", err.Error()))
-		return result, fmt.Errorf("%s: stop %s after the change: %w", ledgerNodePrepareLabel, yugabyteBackupContainer, err)
+
+	if _, err := cli.ContainerStop(
+		ctx,
+		yugabyteBackupContainer,
+		client.ContainerStopOptions{},
+	); err != nil {
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.node_prepare.stop_failed",
+			slog.String("err", err.Error()),
+		)
+
+		return result, fmt.Errorf(
+			"%s: stop %s after the change: %w",
+			ledgerNodePrepareLabel,
+			yugabyteBackupContainer,
+			err,
+		)
 	}
+
 	result.Stopped = true
-	slog.InfoContext(ctx, "ops.ledger.node_prepare.changed", slog.String("before", result.Before),
-		slog.String("after", result.After), slog.Any("stale_flags", result.StaleFlags))
+	slog.InfoContext(
+		ctx,
+		"ops.ledger.node_prepare.changed",
+		slog.String("before", result.Before),
+		slog.String("after", result.After),
+		slog.Any("stale_flags", result.StaleFlags),
+	)
+
 	return result, nil
 }
 
 // writeLedgerNodePrepareResult emits the result through the sink.
-func writeLedgerNodePrepareResult(ctx context.Context, sink clispec.ResultSink, result ledgerNodePrepareResult) error {
+func writeLedgerNodePrepareResult(
+	ctx context.Context,
+	sink clispec.ResultSink,
+	result ledgerNodePrepareResult,
+) error {
 	if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.node_prepare.write_result_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.node_prepare.write_result_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("%s: write result: %w", result.Command, err)
 	}
+
 	return nil
 }
 
 // equalStringSets reports whether two sorted, deduplicated lists contain the
 // same entries.
-func equalStringSets(a, b []string) bool {
-	if len(a) != len(b) {
+func equalStringSets(left, right []string) bool {
+	if len(left) != len(right) {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
+
+	for i := range left {
+		if left[i] != right[i] {
 			return false
 		}
 	}
+
 	return true
 }

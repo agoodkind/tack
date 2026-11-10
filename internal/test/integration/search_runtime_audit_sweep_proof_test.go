@@ -33,15 +33,28 @@ const (
 // that the proof accepts a completed header delete.
 func TestSearchRuntimeAuditSweepProofRequiresHeaderDelete(t *testing.T) {
 	fixture := newFailureFixture(t)
-	searcher := integration.QueryService(t, fixture.QueryFixture, failureAuditResponseBytes, sweepProofIdle, sweepProofAbsolute)
+	searcher := integration.QueryService(
+		t,
+		fixture.QueryFixture,
+		failureAuditResponseBytes,
+		sweepProofIdle,
+		sweepProofAbsolute,
+	)
 	request := integration.ServiceRequest(t, fixture.QueryFixture, failureAuditQuery)
 	first, err := searcher.Search(integration.WithTestOperation(t, t.Context()), request)
 	if err != nil || first.Complete {
-		t.Fatalf("open the session: complete %t, %v, want a session with another page", first.Complete, err)
+		t.Fatalf(
+			"open the session: complete %t, %v, want a session with another page",
+			first.Complete,
+			err,
+		)
 	}
 	continuation := request
 	continuation.SessionID, continuation.Version = first.SessionID, first.NextVersion
-	if _, err := searcher.Search(integration.WithTestOperation(t, t.Context()), continuation); err != nil {
+	if _, err := searcher.Search(
+		integration.WithTestOperation(t, t.Context()),
+		continuation,
+	); err != nil {
 		t.Fatalf("continue session %s: %v", first.SessionID, err)
 	}
 	store := fixture.Stores.SearchSessions(clock.Wall{}, sweepProofIdle)
@@ -58,26 +71,64 @@ func TestSearchRuntimeAuditSweepProofRequiresHeaderDelete(t *testing.T) {
 	_, err = searcher.Search(failing, request)
 	requireChangeEventFailure(t, "Search under the failing operation", err)
 	orgID := fixture.Workspaces[0].OrgID
-	fixture.audited.waitForRows(t, orgID, func(current []audit.Row) bool {
-		return len(cleanupFailures(current, session.ID, searchdomain.CleanupDelete)) == 1 &&
-			len(sessionChanges(current, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSessionReplay)) == 1
-	})
+	fixture.audited.waitForRows(
+		t,
+		orgID,
+		func(current []audit.Row) bool {
+			return len(cleanupFailures(current, session.ID, searchdomain.CleanupDelete)) == 1 &&
+				len(
+					sessionChanges(
+						current,
+						session.ID,
+						audit.VerbSearchSessionDelete,
+						audit.TargetSearchSessionReplay,
+					),
+				) == 1
+		},
+	)
 	cfg := *fixture.Config
-	cfg.AuditReaderDSN = roleLoginDSN(t, fixture.audited.ledger.stack.admin, testenv.Ledger(t), auditReaderRole)
+	cfg.AuditReaderDSN = roleLoginDSN(
+		t,
+		fixture.audited.ledger.stack.admin,
+		testenv.Ledger(t),
+		auditReaderRole,
+	)
 	factory := cli.System(&cfg)
 	refusal, cancel := context.WithTimeout(t.Context(), sweepProofRefusalWait)
 	defer cancel()
 	if err := ops.AwaitDatagenSessionHeaderDelete(refusal, factory, orgID, session.ID); err == nil {
-		t.Fatalf("the proof accepted session %s after its replay removal and failed delete", session.ID)
+		t.Fatalf(
+			"the proof accepted session %s after its replay removal and failed delete",
+			session.ID,
+		)
 	}
 
-	if _, err := searcher.Search(integration.WithTestOperation(t, t.Context()), request); err != nil {
+	if _, err := searcher.Search(
+		integration.WithTestOperation(t, t.Context()),
+		request,
+	); err != nil {
 		t.Fatalf("the search that sweeps session %s failed: %v", session.ID, err)
 	}
-	fixture.audited.waitForRows(t, orgID, func(current []audit.Row) bool {
-		return len(sessionChanges(current, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession)) == 1
-	})
-	if err := ops.AwaitDatagenSessionHeaderDelete(t.Context(), factory, orgID, session.ID); err != nil {
+	fixture.audited.waitForRows(
+		t,
+		orgID,
+		func(current []audit.Row) bool {
+			return len(
+				sessionChanges(
+					current,
+					session.ID,
+					audit.VerbSearchSessionDelete,
+					audit.TargetSearchSession,
+				),
+			) == 1
+		},
+	)
+	if err := ops.AwaitDatagenSessionHeaderDelete(
+		t.Context(),
+		factory,
+		orgID,
+		session.ID,
+	); err != nil {
 		t.Fatalf("the proof refused the completed header delete of session %s: %v", session.ID, err)
 	}
 }

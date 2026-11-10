@@ -30,31 +30,48 @@ const fdbBackupMarkerPrefix = "backups/"
 // checked before any restore starts, so a moment no backup can reach stops the
 // drill instead of quietly restoring some other moment. markers are the
 // backups/ marker keys sorted ascending.
-func selectFDBBackup(ctx context.Context, r *restoreDrillCtx, containerName string, markers []string) (string, error) {
+func selectFDBBackup(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	containerName string,
+	markers []string,
+) (string, error) {
 	names := fdbBackupNames(markers)
 	if r.FDBTargetTime == nil {
 		return names[len(names)-1], nil
 	}
+
 	logger := telemetry.L(ctx)
 	target := *r.FDBTargetTime
-	name, window, err := chooseFDBBackupForTarget(target, names,
+	name, window, err := chooseFDBBackupForTarget(
+		target,
+		names,
 		func(backupName string) (fdbRestorableWindow, error) {
 			return describeFDBBackupWindow(ctx, r, containerName, backupName)
 		},
 		func(backupName, reason string) {
-			logger.InfoContext(ctx, "backup.restore_drill.fdb.backup_skipped",
-				slog.String("name", backupName), slog.String("reason", reason))
-		})
+			logger.InfoContext(
+				ctx,
+				"backup.restore_drill.fdb.backup_skipped",
+				slog.String("name", backupName),
+				slog.String("reason", reason),
+			)
+		},
+	)
 	if err != nil {
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", err.Error()))
 		return "", err
 	}
-	logger.InfoContext(ctx, "backup.restore_drill.fdb.target_in_window",
+
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.fdb.target_in_window",
 		slog.String("name", name),
 		slog.String("target", formatFDBTime(target)),
 		slog.String("window_min", formatFDBTime(window.Min)),
 		slog.String("window_max", formatFDBTime(window.Max)),
 	)
+
 	return name, nil
 }
 
@@ -65,6 +82,7 @@ func fdbBackupNames(markers []string) []string {
 	for _, marker := range markers {
 		names = append(names, strings.TrimPrefix(marker, fdbBackupMarkerPrefix))
 	}
+
 	return names
 }
 
@@ -92,15 +110,27 @@ func chooseFDBBackupForTarget(
 			reasons = append(reasons, name+": "+err.Error())
 			continue
 		}
+
 		if err := assertTargetWithinWindow(target, window); err != nil {
 			skip(name, err.Error())
-			reasons = append(reasons, fmt.Sprintf("%s: restorable window %s .. %s",
-				name, formatFDBTime(window.Min), formatFDBTime(window.Max)))
+			reasons = append(
+				reasons,
+				fmt.Sprintf(
+					"%s: restorable window %s .. %s",
+					name,
+					formatFDBTime(window.Min),
+					formatFDBTime(window.Max),
+				),
+			)
 			continue
 		}
+
 		return name, window, nil
 	}
+
 	return "", fdbRestorableWindow{}, fmt.Errorf(
 		"restore target %s is outside the restorable window of every FoundationDB backup in the store (%s)",
-		formatFDBTime(target), strings.Join(reasons, "; "))
+		formatFDBTime(target),
+		strings.Join(reasons, "; "),
+	)
 }

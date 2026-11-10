@@ -14,7 +14,13 @@ func MCPHandler(harness *MCPHarness) http.Handler {
 	return harness.handler
 }
 
-func QueryService(t *testing.T, fixture QueryFixture, responseBytes int, idle, absolute time.Duration) *service.SearchQueryService {
+func QueryService(
+	t *testing.T,
+	fixture QueryFixture,
+	responseBytes int,
+	idle time.Duration,
+	absolute time.Duration,
+) *service.SearchQueryService {
 	t.Helper()
 	return queryService(t, fixture, responseBytes, idle, absolute)
 }

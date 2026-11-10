@@ -67,17 +67,29 @@ func TestSearchSessionTimeoutReturnsUnavailable(t *testing.T) {
 	paused = false
 
 	if err := <-outcome; err == nil || err.Error() != sessionTimeoutUnavailableText {
-		t.Fatalf("tack_search with a timed out session create returned error %v, want %q", err, sessionTimeoutUnavailableText)
+		t.Fatalf(
+			"tack_search with a timed out session create returned error %v, want %q",
+			err,
+			sessionTimeoutUnavailableText,
+		)
 	}
+
 	deadline := clock.Now().Add(sessionTimeoutRecovery)
+
 	for {
 		_, err := integration.TrySearch(harness, sessionTimeoutQuery, "")
 		if err == nil {
 			return
 		}
+
 		if clock.Now().After(deadline) {
-			t.Fatalf("tack_search did not succeed within %s after FoundationDB resumed: %v", sessionTimeoutRecovery, err)
+			t.Fatalf(
+				"tack_search did not succeed within %s after FoundationDB resumed: %v",
+				sessionTimeoutRecovery,
+				err,
+			)
 		}
+
 		time.Sleep(time.Second)
 	}
 }
@@ -102,6 +114,7 @@ func setContainerPaused(t *testing.T, container string, paused bool) {
 	if err := changeContainerPause(ctx, container, paused); err != nil {
 		t.Fatalf("set container %s paused %t: %v", container, paused, err)
 	}
+
 	if paused {
 		t.Cleanup(func() { resumeContainerIfPaused(t, container) })
 	}
@@ -115,11 +128,13 @@ func changeContainerPause(ctx context.Context, container string, paused bool) er
 	if err != nil {
 		return fmt.Errorf("open docker client: %w", err)
 	}
+
 	defer func() { _ = docker.Close() }()
 	if paused {
 		_, err = docker.ContainerPause(ctx, container, client.ContainerPauseOptions{})
 	} else {
 		_, err = docker.ContainerUnpause(ctx, container, client.ContainerUnpauseOptions{})
 	}
+
 	return err
 }

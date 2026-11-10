@@ -33,10 +33,13 @@ func TestPartitionManagerReportsHeadroomWhenMaintenanceFails(t *testing.T) {
 	nextWeek := time.Now().UTC().AddDate(0, 0, 7)
 	dropPartitionsCovering(t, pool, nextWeek)
 	dropPartitionsCovering(t, pool, nextWeek.AddDate(0, 0, 7))
-	if _, err := pool.Exec(ctx, `
+	if _, err := pool.Exec(
+		ctx,
+		`
 		CREATE TABLE audit.events_tack336_proof PARTITION OF audit.events
 		FOR VALUES FROM ('2031-03-03 00:00:00+00') TO ('2031-03-10 00:00:00+00')
-	`); err != nil {
+	`,
+	); err != nil {
 		t.Fatalf("create misnamed child: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `SELECT audit.run_partition_maintenance()`); err == nil ||
@@ -49,7 +52,10 @@ func TestPartitionManagerReportsHeadroomWhenMaintenanceFails(t *testing.T) {
 	telemetry.SetAuditPartitionHeadroomWeeks(staleHeadroomWeeks)
 	failuresBefore := maintenanceErrors(t)
 	logs := &lockedBuffer{mu: sync.Mutex{}, buf: bytes.Buffer{}}
-	handler := slog.NewJSONHandler(logs, &slog.HandlerOptions{AddSource: false, Level: slog.LevelDebug, ReplaceAttr: nil})
+	handler := slog.NewJSONHandler(
+		logs,
+		&slog.HandlerOptions{AddSource: false, Level: slog.LevelDebug, ReplaceAttr: nil},
+	)
 	managerCtx := telemetry.WithLogger(ctx, slog.New(handler))
 	manager := NewPartitionManager(NewPGPartitionStore(pool), time.Hour)
 	manager.Start(managerCtx)
@@ -65,17 +71,25 @@ func TestPartitionManagerReportsHeadroomWhenMaintenanceFails(t *testing.T) {
 	defer ticker.Stop()
 	for {
 		output := logs.String()
-		if headroomGauge(t) == wantHeadroom && strings.Contains(output, `"msg":"audit.partition.headroom_low"`) {
+		if headroomGauge(t) == wantHeadroom &&
+			strings.Contains(output, `"msg":"audit.partition.headroom_low"`) {
 			if failures := maintenanceErrors(t); failures <= failuresBefore {
-				t.Fatalf("maintenance error count = %d, want more than %d: the gauge must come from a failed run",
-					failures, failuresBefore)
+				t.Fatalf(
+					"maintenance error count = %d, want more than %d: the gauge must come from a failed run",
+					failures,
+					failuresBefore,
+				)
 			}
 			return
 		}
 		select {
 		case <-deadline.C:
-			t.Fatalf("headroom gauge = %d, want %d with audit.partition.headroom_low; logs:\n%s",
-				headroomGauge(t), wantHeadroom, output)
+			t.Fatalf(
+				"headroom gauge = %d, want %d with audit.partition.headroom_low; logs:\n%s",
+				headroomGauge(t),
+				wantHeadroom,
+				output,
+			)
 		case <-ticker.C:
 		}
 	}

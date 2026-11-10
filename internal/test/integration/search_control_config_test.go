@@ -22,15 +22,21 @@ func searchControlConfig(t *testing.T, fixture testenv.OpenSearchFixture) *confi
 	if err := os.WriteFile(caPath, []byte(fixture.CA), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	t.Setenv("OPENSEARCH_SHARDS", "1")
 	t.Setenv("OPENSEARCH_ROUTING_SHARDS", "8")
 	t.Setenv("OPENSEARCH_REPLICAS", "0")
 	pass := fixture.Password
+
 	return &config.Config{
-		SearchEndpoint: fixture.Endpoint, SearchCA: caPath,
-		SearchUsername: fixture.Username, SearchPassword: pass,
-		SearchRequestTimeout: 2 * time.Minute, SearchMaxRetries: 1,
-		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t),
+		SearchEndpoint:        fixture.Endpoint,
+		SearchCA:              caPath,
+		SearchUsername:        fixture.Username,
+		SearchPassword:        pass,
+		SearchRequestTimeout:  2 * time.Minute,
+		SearchMaxRetries:      1,
+		DatabaseURL:           testenv.Ledger(t),
+		FDBClusterFile:        testenv.FoundationDB(t),
 		FDBTransactionTimeout: testTransactionTimeout,
 	}
 }
@@ -44,6 +50,7 @@ func ConfigureSearchMaintenance(t *testing.T, fixture testenv.OpenSearchFixture)
 	if err := os.WriteFile(path, []byte(fixture.Password), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	t.Setenv("OPENSEARCH_MAINTENANCE_USERNAME", fixture.Username)
 	t.Setenv("OPENSEARCH_MAINTENANCE_PASSWORD", "")
 	t.Setenv("OPENSEARCH_MAINTENANCE_PASSWORD_FILE", path)

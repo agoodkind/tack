@@ -17,10 +17,20 @@ func RequireCommandCorrelation(t *testing.T, output string, events []audit.Event
 	if len(events) == 0 {
 		t.Fatalf("command with request ID %s does not have any audit events", requestID)
 	}
+
 	for _, event := range events {
-		if event.Actor.RequestID != requestID || event.Context.RequestID != requestID || event.Context.TraceID != traceID {
-			t.Fatalf("event %s %s request IDs %q and %q and trace ID %q, want request ID %s and trace ID %s",
-				event.EventID, event.Verb, event.Actor.RequestID, event.Context.RequestID, event.Context.TraceID, requestID, traceID)
+		if event.Actor.RequestID != requestID || event.Context.RequestID != requestID ||
+			event.Context.TraceID != traceID {
+			t.Fatalf(
+				"event %s %s request IDs %q and %q and trace ID %q, want request ID %s and trace ID %s",
+				event.EventID,
+				event.Verb,
+				event.Actor.RequestID,
+				event.Context.RequestID,
+				event.Context.TraceID,
+				requestID,
+				traceID,
+			)
 		}
 	}
 }
@@ -33,8 +43,10 @@ func CommandCorrelation(t *testing.T, output string) (string, string) {
 	if err := json.NewDecoder(strings.NewReader(output)).Decode(&document); err != nil {
 		t.Fatalf("decode the JSON command output: %v\n%s", err, output)
 	}
+
 	if document.Meta.RequestID == "" || document.Meta.TraceID == "" {
 		t.Fatalf("command _meta = %+v, want a request ID and a trace ID\n%s", document.Meta, output)
 	}
+
 	return document.Meta.RequestID, document.Meta.TraceID
 }
