@@ -32,9 +32,12 @@ const (
 	schemaAddress = "tack_schema.qa"
 )
 
-// acceptanceProviderConfig declares the OpenTofu variables and the tack provider
-// block, with every value supplied through a variable. The api_token variable is
-// sensitive. The configuration text does not contain the token value.
+// acceptanceProviderConfig declares OpenTofu variables and configures the
+// tack provider. Variables supply connection settings and the operator
+// email. The provider uses literal values for insecure and the operator
+// name. The api_token variable marks the token as sensitive. The provider
+// block reads the token from that variable. The configuration text does
+// not contain the token value.
 const acceptanceProviderConfig = `
 terraform {
   required_providers {
@@ -103,10 +106,12 @@ func newAcceptanceEnvironment(t *testing.T) acceptanceEnvironment {
 	if os.Getenv(acceptanceVariable) == "" {
 		t.Skipf("%s is not set", acceptanceVariable)
 	}
+
 	tokenBytes, err := os.ReadFile(requireVariable(t, tokenFileVariable))
 	if err != nil {
 		t.Fatalf("read the token file named by %s: %v", tokenFileVariable, err)
 	}
+
 	return acceptanceEnvironment{
 		node:           requireVariable(t, nodeVariable),
 		endpoint:       requireVariable(t, endpointVariable),
@@ -123,8 +128,9 @@ func (environment acceptanceEnvironment) importID() string {
 	return fmt.Sprintf("%s/%d:%s", environment.node, environment.vmid, environment.installDir)
 }
 
-// secret returns the part of the acceptanceEnvironment API token after the first
-// =. Credential checks search for this value.
+// secret supplies credential checks with the part of the
+// acceptanceEnvironment API token after the first equals sign to detect
+// API token exposure in plans and state.
 func (environment acceptanceEnvironment) secret() string {
 	_, secret, _ := strings.Cut(environment.token, "=")
 	return secret
@@ -145,6 +151,7 @@ func (environment acceptanceEnvironment) variables(version int64) config.Variabl
 
 func importStep(environment acceptanceEnvironment, version int64) resource.TestStep {
 	versionText := strconv.FormatInt(version, 10)
+
 	return resource.TestStep{
 		Config:             acceptanceConfig,
 		ConfigVariables:    environment.variables(version),
@@ -154,8 +161,11 @@ func importStep(environment acceptanceEnvironment, version int64) resource.TestS
 		ImportStatePersist: true,
 		ImportStateCheck: func(states []*terraform.InstanceState) error {
 			if len(states) != 1 || states[0].Attributes["applied_version"] != versionText {
-				return errors.New("the import did not return one state at the applied version " + versionText)
+				return errors.New(
+					"the import did not return one state at the applied version " + versionText,
+				)
 			}
+
 			return nil
 		},
 	}
@@ -173,6 +183,7 @@ func requireVariable(t *testing.T, name string) string {
 	if value == "" {
 		t.Fatalf("%s must be set for the acceptance test", name)
 	}
+
 	return value
 }
 
@@ -182,5 +193,6 @@ func requireNumber(t *testing.T, name string) int64 {
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
 	}
+
 	return number
 }

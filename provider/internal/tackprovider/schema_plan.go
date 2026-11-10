@@ -93,8 +93,8 @@ func (r *schemaResource) ModifyPlan(
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &planned)...)
 }
 
-// plannedStatus returns the migration status for the plan comparison, or false
-// if the plan cannot determine status.
+// plannedStatus returns the migration status for the plan comparison. Its
+// boolean result reports whether the plan could determine status.
 func (r *schemaResource) plannedStatus(
 	ctx context.Context,
 	req resource.ModifyPlanRequest,

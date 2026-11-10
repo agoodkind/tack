@@ -19,8 +19,8 @@ import (
 
 var absolutePathPattern = regexp.MustCompile(`^/`)
 
-// schemaResource implements tack_schema, which manages the migration version of
-// one Tack installation's ledger database.
+// schemaResource implements tack_schema, which manages the migration
+// version of one Tack installation's ledger database.
 type schemaResource struct {
 	data *providerData
 }
@@ -35,18 +35,35 @@ func newSchemaResource() resource.Resource {
 	return &schemaResource{data: nil}
 }
 
-func (r *schemaResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *schemaResource) Metadata(
+	_ context.Context,
+	req resource.MetadataRequest,
+	resp *resource.MetadataResponse,
+) {
 	resp.TypeName = req.ProviderTypeName + "_schema"
 }
 
-func (r *schemaResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	migrationObject := schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-		"version": schema.Int64Attribute{Computed: true, Description: "This value identifies the migration version."},
-		"name":    schema.StringAttribute{Computed: true, Description: "This value specifies the migration file name."},
-		"sha256": schema.StringAttribute{
-			Computed: true, Description: "This value contains the SHA-256 hash of the migration file.",
+func (r *schemaResource) Schema(
+	_ context.Context,
+	_ resource.SchemaRequest,
+	resp *resource.SchemaResponse,
+) {
+	migrationObject := schema.NestedAttributeObject{
+		Attributes: map[string]schema.Attribute{
+			"version": schema.Int64Attribute{
+				Computed:    true,
+				Description: "This value identifies the migration version.",
+			},
+			"name": schema.StringAttribute{
+				Computed:    true,
+				Description: "This value specifies the migration file name.",
+			},
+			"sha256": schema.StringAttribute{
+				Computed:    true,
+				Description: "This value contains the SHA-256 hash of the migration file.",
+			},
 		},
-	}}
+	}
 	resp.Schema = schema.Schema{
 		Description: "tack_schema manages the migration version of one Tack installation's ledger database, " +
 			"YugabyteDB. Apply runs migrate --execute in the tack-ops service. Delete removes the resource " +
@@ -105,37 +122,58 @@ func (r *schemaResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 	}
 }
 
-func (r *schemaResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *schemaResource) Configure(
+	_ context.Context,
+	req resource.ConfigureRequest,
+	resp *resource.ConfigureResponse,
+) {
 	if req.ProviderData == nil {
 		return
 	}
+
 	data, ok := req.ProviderData.(*providerData)
 	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data",
-			fmt.Sprintf("tack_schema received provider data of type %T.", req.ProviderData))
+		resp.Diagnostics.AddError(
+			"Unexpected provider data",
+			fmt.Sprintf("tack_schema received provider data of type %T.", req.ProviderData),
+		)
+
 		return
 	}
+
 	r.data = data
 }
 
-func (r *schemaResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (r *schemaResource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
 	node, vmid, installDir, err := parseSchemaID(req.ID)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid import ID", err.Error())
 		return
 	}
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), schemaID(node, vmid, installDir))...)
+
+	resp.Diagnostics.Append(
+		resp.State.SetAttribute(ctx, path.Root("id"), schemaID(node, vmid, installDir))...,
+	)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("node"), node)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("vmid"), vmid)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("install_dir"), installDir)...)
 }
 
-// configured reports whether the provider configured this resource. It adds an
-// error diagnostic if the provider did not configure it.
+// configured reports whether the provider configured this resource. It
+// adds an error diagnostic if the provider did not configure it.
 func (r *schemaResource) configured(diags *diag.Diagnostics) bool {
 	if r.data != nil {
 		return true
 	}
-	diags.AddError("Unconfigured provider", "The tack provider did not configure tack_schema before the resource ran.")
+
+	diags.AddError(
+		"Unconfigured provider",
+		"The tack provider did not configure tack_schema before the resource ran.",
+	)
+
 	return false
 }

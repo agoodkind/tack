@@ -37,7 +37,8 @@ type nodeModel struct {
 }
 
 // providerData contains the values that Configure passes to every resource.
-// Its operatorFlags field contains the identity flags for every Tack command.
+// Its operatorFlags field contains the identity flags for every Tack
+// command.
 type providerData struct {
 	client        *transport.Client
 	operatorFlags []string
