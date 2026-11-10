@@ -18,8 +18,8 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// actAsTransactionTimeout bounds every product-store transaction the act-as
-// tests run. It matches the deployed default.
+// actAsTransactionTimeout limits each product-store transaction in the act-as
+// tests. It matches the server configuration's default.
 const actAsTransactionTimeout = 5 * time.Second
 
 // actAsStores opens the FoundationDB stores under a per-test key prefix and
@@ -41,8 +41,8 @@ func actAsStores(t *testing.T) *fdbadapter.Stores {
 	return stores
 }
 
-// clearActAsPrefix range-clears every key under prefix on its own database
-// handle.
+// clearActAsPrefix opens its own database handle and clears every key under
+// prefix.
 func clearActAsPrefix(t *testing.T, clusterFile string, prefix []byte) {
 	t.Helper()
 	db, err := fdbadapter.Open(clusterFile, actAsTransactionTimeout)
@@ -60,8 +60,9 @@ func clearActAsPrefix(t *testing.T, clusterFile string, prefix []byte) {
 	}
 }
 
-// writeActAsOrg writes a root org node with the store, the way the seed
-// command writes one, and seeds the org's node types and property defs.
+// writeActAsOrg writes a root organization through the store, as the seed
+// command does. It seeds the organization's node types and property
+// definitions.
 func writeActAsOrg(t *testing.T, stores *fdbadapter.Stores, slug string) uuid.UUID {
 	t.Helper()
 	orgID := node.NewOrgID()
@@ -84,8 +85,8 @@ func writeActAsOrg(t *testing.T, stores *fdbadapter.Stores, slug string) uuid.UU
 	return orgID
 }
 
-// actAsFixtureContext returns the test context with an audit operation of a
-// system actor for the fixture writes.
+// actAsFixtureContext attaches a system actor's audit operation to the test
+// context for fixture writes.
 func actAsFixtureContext(t *testing.T) context.Context {
 	t.Helper()
 	operation, err := audit.NewMutationOperation(audit.Actor{
@@ -102,8 +103,8 @@ func actAsFixtureContext(t *testing.T) context.Context {
 	return attached
 }
 
-// createActAsScope creates a workspace or project through the node service.
-// A project also gets an identifier for its issue references.
+// createActAsScope creates a workspace or project through the node service. It
+// sets an identifier for a project's issue references.
 func createActAsScope(t *testing.T, nodes *service.NodeService, typeKey, name string, parentID uuid.UUID) uuid.UUID {
 	t.Helper()
 	props := map[string]json.RawMessage{"slug": actAsJSONString(t, strings.ToLower(name))}
@@ -130,8 +131,8 @@ func actAsJSONString(t *testing.T, value string) json.RawMessage {
 	return encoded
 }
 
-// actAsOutboxRows reads every row in the FoundationDB operator outbox under
-// the test's key prefix. The store writes a staged user row there inside the
+// actAsOutboxRows reads a batch from the FoundationDB operator outbox under the
+// test's key prefix. The store commits a staged user event there inside the
 // create transaction.
 func actAsOutboxRows(t *testing.T, stores *fdbadapter.Stores) []audit.Event {
 	t.Helper()

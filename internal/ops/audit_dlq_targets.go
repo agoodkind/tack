@@ -9,7 +9,12 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// AuditReadTargets identifies each summary group by the digest of its error key.
+// AuditReadTargets uses the digest of each summary group's error key to
+// identify the group.
+//
+// The digest supplies the resource URI suffix for the group's audit target.
+//
+//   - The method returns one target for each ByError group.
 func (result auditDLQInspectResult) AuditReadTargets() ([]audit.Target, error) {
 	targets := make([]audit.Target, 0, len(result.ByError))
 	for _, group := range result.ByError {

@@ -15,16 +15,20 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// AuthTokenRevocation is what one revocation removed.
+// AuthTokenRevocation contains the token, user, and organization for a
+// revocation.
 type AuthTokenRevocation struct {
 	Token  *token.Token
 	Holder *user.User
 	OrgID  uuid.UUID
 }
 
-// RevokeAuthToken looks up the token, its user regardless of active status,
-// and its organization, then deletes it through TokenRepo.Delete. The
-// repository reads the audit operation from ctx.
+// RevokeAuthToken finds a token, its user, and its organization, then deletes
+// the token through TokenRepo.Delete.
+//
+// The repository reads the audit operation from ctx.
+//
+//   - User lookup includes inactive accounts.
 func RevokeAuthToken(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -45,10 +49,9 @@ func RevokeAuthToken(
 	return revocation, nil
 }
 
-// lookupAuthToken resolves a token id to the token, its user, and its org,
-// which is everything a revocation and its dry run report. The holder is read
-// whether or not the account is active, because a deactivated user's token
-// still authenticates and revoking it is the point.
+// lookupAuthToken returns the token, user, and organization for a revocation or
+// its dry run. It includes inactive accounts because their tokens still
+// authenticate and may need revocation.
 func lookupAuthToken(ctx context.Context, pool *pgxpool.Pool, tokenID uuid.UUID) (AuthTokenRevocation, error) {
 	stored, err := postgres.NewTokenRepo(pool).GetByID(ctx, tokenID)
 	if err != nil {

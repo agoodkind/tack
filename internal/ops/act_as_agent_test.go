@@ -18,10 +18,10 @@ const (
 	actAsAgentSession = "session-act-as-1"
 )
 
-// TestActAsCreateRecordsTheAgentSessionAndAccountableOperator runs act-as as
-// a service agent acting for a flag operator. The grant row records the
-// service as the actor with its session, and its extra stores the session and
-// the accountable operator with the grant reason.
+// TestActAsCreateRecordsTheAgentSessionAndAccountableOperator runs act-as with
+// a service agent and an operator supplied through flags. It checks that the
+// grant actor records the service and session. It also checks that the grant
+// extra records the session and accountable operator with the grant reason.
 func TestActAsCreateRecordsTheAgentSessionAndAccountableOperator(t *testing.T) {
 	f := newActAsFixture(t, []string{
 		"--operator-service", actAsAgentService, "--operator-session", actAsAgentSession,
@@ -54,9 +54,9 @@ func TestActAsCreateRecordsTheAgentSessionAndAccountableOperator(t *testing.T) {
 	requireAgentUserRow(t, f, actAsCreatedNode(t, f, sink.buf).ID, grant.GrantID, reason)
 }
 
-// TestActAsCreateRefusesAServiceWithoutAnAccountableOperator requires act-as
-// by a service with no operator to refuse before it records a grant row or
-// makes the write.
+// TestActAsCreateRefusesAServiceWithoutAnAccountableOperator checks that act-as
+// rejects a service without an accountable operator before recording a grant or
+// creating a node.
 func TestActAsCreateRefusesAServiceWithoutAnAccountableOperator(t *testing.T) {
 	f := newActAsFixture(t, []string{"--operator-service", actAsAgentService})
 	err := runActAsCreate(t.Context(), f.deps, actAsInput(f, f.user.Email, "service alone"), &bufferSink{buf: &bytes.Buffer{}}, true)
@@ -66,9 +66,8 @@ func TestActAsCreateRefusesAServiceWithoutAnAccountableOperator(t *testing.T) {
 	requireNoActAsWrite(t, f)
 }
 
-// requireAgentUserRow requires the outbox row for the node written as the
-// user to record the accountable operator and the agent service, its ID, and
-// its session.
+// requireAgentUserRow checks that the outbox event for the user's node records
+// the accountable operator and the agent service, ID, and session.
 func requireAgentUserRow(t *testing.T, f actAsFixture, nodeID, grantID uuid.UUID, reason string) {
 	t.Helper()
 	got := actAsRowProvenance(t, actAsUserRow(t, f, nodeID))

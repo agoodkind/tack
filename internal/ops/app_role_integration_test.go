@@ -19,17 +19,17 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// permissionDeniedSQLState is what the engine answers a role that holds no
-// grant on the object it named.
+// permissionDeniedSQLState identifies the engine's refusal when a role lacks
+// permission for an object.
 const permissionDeniedSQLState = "42501"
 
-// TestAppRoleReachesTheAuthTablesAndNothingElse is TACK-180's acceptance
-// against the engine. A login holding only app_auth, the base role the
-// application's tack_app inherits, does the application's own work through
-// the real repositories: it creates a user, a membership, and a token, reads
-// them back, and deletes them. The same login is refused on the ledger, on
-// the operator outbox, and on the migration ledger, so an injection through
-// the application pool cannot read or touch the compliance record.
+// TestAppRoleReachesTheAuthTablesAndNothingElse checks TACK-180 against the
+// engine with a login that inherits only app_auth, the base role for tack_app.
+// Real repositories create a user, membership, and token, list the token, and
+// delete the token and membership. The test checks permission refusals on the
+// audit ledger, operator outbox, and migration ledger. These checks detect
+// grants that could let SQL injection through the application pool read or
+// change compliance records.
 func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
@@ -75,20 +75,18 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 		t.Fatalf("remove a membership as the app login: %v", err)
 	}
 
-	// Every verb on every protected table, not only reads: an accidental
-	// INSERT, UPDATE, or DELETE grant would let application SQL change the
-	// compliance record while the read check still passed. Each statement
-	// runs in its own transaction that is always rolled back, so a grant
-	// that slipped through fails the test without leaving a row behind.
+	// Check each protected table for SELECT, INSERT, UPDATE, and DELETE
+	// permissions. A read refusal alone cannot detect an accidental mutation grant.
+	// Each statement runs in a separate transaction, and the helper always rolls it
+	// back to remove any probe changes.
 	for _, table := range []string{
 		"audit.events", "audit.notarizations", "public.ops_outbox", "public.goose_db_version",
 	} {
 		for _, refused := range []string{
 			"SELECT count(*) FROM " + table,
 			"INSERT INTO " + table + " DEFAULT VALUES",
-			// DEFAULT rather than a column read: an UPDATE that reads a column
-			// also needs SELECT, and SELECT is already denied, so a stray
-			// UPDATE grant would still fail for the wrong reason and pass.
+			// Use DEFAULT without reading a column. An UPDATE that reads a column also
+			// requires SELECT. A SELECT refusal could hide an accidental UPDATE grant.
 			"UPDATE " + table + " SET " + firstColumn(ctx, t, admin, table) + " = DEFAULT WHERE false",
 			"DELETE FROM " + table + " WHERE false",
 		} {
@@ -100,8 +98,9 @@ func TestAppRoleReachesTheAuthTablesAndNothingElse(t *testing.T) {
 	assertPermissionDenied(ctx, t, app, "CREATE TABLE public.tack180_probe (id int)")
 }
 
-// assertPermissionDenied runs statement as the app login inside a transaction
-// it always rolls back and requires the engine to refuse it with 42501.
+// assertPermissionDenied runs statement as the app login and requires SQLSTATE
+// 42501, which indicates a permission refusal. It always rolls back the
+// transaction.
 func assertPermissionDenied(ctx context.Context, t *testing.T, app *pgxpool.Pool, statement string) {
 	t.Helper()
 	transaction, err := app.Begin(ctx)
@@ -116,8 +115,8 @@ func assertPermissionDenied(ctx context.Context, t *testing.T, app *pgxpool.Pool
 	}
 }
 
-// firstColumn names a column of table so an UPDATE can be phrased against it
-// without knowing the schema; the permission check fires before any row.
+// firstColumn reads a column name for table without requiring prior schema
+// knowledge. The UPDATE probe checks permission without updating rows.
 func firstColumn(ctx context.Context, t *testing.T, admin *pgxpool.Pool, table string) string {
 	t.Helper()
 	schema, name, _ := strings.Cut(table, ".")
@@ -131,8 +130,8 @@ func firstColumn(ctx context.Context, t *testing.T, admin *pgxpool.Pool, table s
 	return column
 }
 
-// appAuthLoginDSN creates a throwaway login that inherits app_auth and nothing
-// else and returns the DSN rewritten to connect as it.
+// appAuthLoginDSN creates a temporary login that inherits only app_auth and
+// returns a DSN that authenticates as that login.
 func appAuthLoginDSN(ctx context.Context, t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
 	t.Helper()
 	suffix := make([]byte, 4)

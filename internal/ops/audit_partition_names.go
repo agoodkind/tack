@@ -22,12 +22,12 @@ var auditPartitionBoundPattern = regexp.MustCompile(`^FOR VALUES FROM \('([^']+)
 
 const (
 	// pg_get_expr prints each bound in the session time zone.
-	// RunAuditPartitionNamesBackfill sets the session to UTC before the read.
 	auditPartitionBoundLayout = "2006-01-02 15:04:05-07"
 	auditWeek                 = 7 * 24 * time.Hour
 )
 
-// AuditPartitionRename is one child of audit.events renamed to the week form.
+// AuditPartitionRename records an audit.events child rename to the weekly name
+// format.
 type AuditPartitionRename struct {
 	From       string    `json:"from"`
 	To         string    `json:"to"`
@@ -40,8 +40,17 @@ type AuditPartitionNamesResult struct {
 	Renames []AuditPartitionRename `json:"renames"`
 }
 
-// RunAuditPartitionNamesBackfill renames each audit.events child outside
-// events_pYYYY_MM_DD to the Monday its one-week range starts on.
+// RunAuditPartitionNamesBackfill renames audit.events children that do not
+// match events_pYYYY_MM_DD. Each new name uses the Monday that starts the
+// child's one-week range.
+//
+// The function sets the session time zone to UTC before reading partition
+// bounds.
+//
+//   - A dry run returns planned renames without executing them.
+//   - The function rejects a range that does not start on Monday at 00:00 UTC
+//     or end exactly one week later.
+//   - The function rejects a rename when the target name already exists.
 func RunAuditPartitionNamesBackfill(ctx context.Context, pool *pgxpool.Pool, dryRun bool) (AuditPartitionNamesResult, error) {
 	result := AuditPartitionNamesResult{Renames: []AuditPartitionRename{}}
 	conn, err := pool.Acquire(ctx)
@@ -142,8 +151,9 @@ func weekRename(name, bound string) (AuditPartitionRename, error) {
 	return AuditPartitionRename{From: name, To: "events_p" + lower.Format("2006_01_02"), LowerBound: lower, UpperBound: upper}, nil
 }
 
-// The primary key rename runs before the table rename. A rerun after a failed
-// table rename finds the key named To_pkey and renames only the table.
+// renameAuditPartition renames the primary key before the table. After a failed
+// table rename, a rerun recognizes the target primary key name, To_pkey, and
+// renames only the table.
 func renameAuditPartition(ctx context.Context, conn *pgx.Conn, rename AuditPartitionRename) error {
 	table := pgx.Identifier{"audit", rename.From}.Sanitize()
 	var key string

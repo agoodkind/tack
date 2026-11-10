@@ -6,8 +6,10 @@ import (
 	"testing"
 )
 
-// TestActAsCreateDryRunRecordsNothing requires the dry run to report the user
-// and the org without recording a grant row or making a write.
+// TestActAsCreateDryRunRecordsNothing checks the organization and dry_run:true
+// in the report and checks that the command does not record a grant or user
+// audit event or create an issue. The command also reports the user; this test
+// does not assert that field.
 func TestActAsCreateDryRunRecordsNothing(t *testing.T) {
 	f := newActAsFixture(t, humanOperatorFlags())
 	sink := &bufferSink{buf: &bytes.Buffer{}}

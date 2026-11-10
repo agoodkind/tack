@@ -1,6 +1,5 @@
-// act_as_write.go is the recording half of the act-as command: the grant row
-// written as the operator before the write, and the write itself made as the
-// user with the operator's provenance staged on its row (TACK-424).
+// The act-as command records its grant and product events separately
+// (TACK-424).
 
 package ops
 
@@ -59,15 +58,15 @@ func recordActAsGrant(ctx context.Context, outbox audit.OutboxWriter, principal 
 	return nil
 }
 
-// actAsCreated is what createAsUser reports back.
+// actAsCreated contains the result of createAsUser.
 type actAsCreated struct {
 	nodeID       uuid.UUID
 	rowCommitted bool
 }
 
-// createAsUser makes the write with the user as the actor and the operator's
-// provenance staged on the row, the same way the MCP wrapper stages a user's
-// own write: the store commits the row inside the create transaction.
+// createAsUser creates a node with the user as the actor and stages the
+// operator's provenance on the event. The MCP wrapper also stages user writes.
+// The store commits the event inside the create transaction.
 func createAsUser(ctx context.Context, nodes actAsNodeCreator, target actAsTarget, input actAsCreateInput, provenance audit.ActProvenance) (actAsCreated, error) {
 	ctx = auth.WithUser(ctx, target.user.ID)
 	ctx = audit.WithScopeBuilder(ctx)

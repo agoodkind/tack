@@ -17,8 +17,8 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// AuthTokenIssue is what one issue produced. Raw is the bearer value and
-// exists only in this struct and in the operator's terminal.
+// AuthTokenIssue contains the issued token and its user and organization. Raw
+// contains the bearer value for the command to display once.
 type AuthTokenIssue struct {
 	Token  *token.Token
 	Holder *user.User
@@ -26,12 +26,10 @@ type AuthTokenIssue struct {
 	Raw    string
 }
 
-// authTokenHolder finds the user a token belongs to, by the email exactly as
-// the users table holds it: the column is case-sensitive and the seed stores
-// the address as given, so no case folding happens here. Issuing needs an
-// active user; listing reaches a deactivated one too, because that user's
-// tokens still authenticate and are the ones to find and revoke. Creating
-// users is the seed's job.
+// authTokenHolder finds a user by the email's stored case. The users column
+// compares case exactly, and seeding preserves the supplied address. Issuing
+// requires an active user. Listing includes inactive users to find and revoke
+// tokens that still authenticate. Seeding creates users.
 func authTokenHolder(ctx context.Context, pool *pgxpool.Pool, email string, includeInactive bool) (*user.User, error) {
 	trimmed := strings.TrimSpace(email)
 	if trimmed == "" {
@@ -60,10 +58,13 @@ func authTokenHolder(ctx context.Context, pool *pgxpool.Pool, email string, incl
 }
 
 // IssueAuthToken finds an active user and organization, generates a bearer
-// value, and creates the token through TokenRepo.CreateWithID with a new
-// UUIDv7 ID. The repository reads the audit operation from ctx. IssueAuthToken
-// returns the bearer in Raw for the command to display once; the database
-// stores only its hash.
+// value, and creates a token with a new UUIDv7 ID through
+// TokenRepo.CreateWithID.
+//
+// The repository reads the audit operation from ctx.
+//
+//   - Raw returns the bearer for the command to display once.
+//   - The database stores only the bearer's hash.
 func IssueAuthToken(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -104,10 +105,10 @@ func IssueAuthToken(
 }
 
 // failIssue reconciles an insert error that may follow a commit by calling
-// RevokeAuthToken for tokenID on a context detached with
-// [context.WithoutCancel]. Successful revocation confirms deletion;
-// domain.ErrNotFound confirms that the token does not exist. Other errors leave
-// its state unknown and direct the operator to token-list.
+// RevokeAuthToken for tokenID with [context.WithoutCancel]. Successful
+// revocation confirms deletion. domain.ErrNotFound confirms that the token does
+// not exist. Other errors leave its state unknown and require the operator to
+// check token-list.
 func failIssue(
 	ctx context.Context,
 	pool *pgxpool.Pool,

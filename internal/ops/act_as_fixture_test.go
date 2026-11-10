@@ -23,11 +23,11 @@ import (
 // actAsMemberRole is the org_members role of the seeded user.
 const actAsMemberRole = 15
 
-// actAsFixture wires the command to the dependencies the command factory
-// builds: the SQL outbox, user repository, and org member repository on the
-// test ledger, and the node reader and node service on the FoundationDB
-// stores. The user is a member of the project's org and not of the outside
-// org.
+// actAsFixture supplies the command factory's dependency types. The test ledger
+// supplies the SQL outbox and user and organization membership repositories.
+// FoundationDB stores supply the node reader and node service. The user belongs
+// to the project's organization and does not belong to the outside
+// organization.
 type actAsFixture struct {
 	deps            actAsDeps
 	pool            *pgxpool.Pool
@@ -66,9 +66,9 @@ func newActAsFixture(t *testing.T, operatorFlags []string) actAsFixture {
 	}
 }
 
-// seedActAsMember creates a user with a unique email and adds it to orgID
-// through the production repositories, and deletes the user and its
-// membership when the test ends.
+// seedActAsMember creates a user with a unique email and adds the user to orgID
+// through the production repositories. Test cleanup deletes the user and
+// membership.
 func seedActAsMember(t *testing.T, pool *pgxpool.Pool, users *postgres.UserRepo, members *postgres.OrgMemberRepo, orgID uuid.UUID) *user.User {
 	t.Helper()
 	created, err := users.Create(actAsFixtureContext(t), &user.User{
@@ -92,8 +92,8 @@ func actAsInput(f actAsFixture, email, reason string) actAsCreateInput {
 	return actAsCreateInput{Email: email, Reason: reason, ParentID: f.parentID.String(), NodeType: "issue", Name: "Fix the board"}
 }
 
-// actAsGrantRows reads the grant rows naming the fixture's user from the
-// operator outbox.
+// actAsGrantRows reads the fixture user's grant events from the operator
+// outbox.
 func actAsGrantRows(t *testing.T, f actAsFixture) []audit.Event {
 	t.Helper()
 	filter := opsoutbox.Filter{Verb: audit.VerbOpsActAsGrant, Path: []string{"entity", "id"}, Value: f.user.ID.String()}

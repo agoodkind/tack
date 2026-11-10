@@ -2,9 +2,8 @@ package ops
 
 import "goodkind.io/tack/internal/clispec"
 
-// authTokenCreateResult is what token-create reports. In a dry run it names
-// the holder and org the token would be issued to; after an execute it also
-// carries the token's id and its raw value.
+// authTokenCreateResult reports the user and organization for token-create. A
+// dry run reports the intended recipient. Execution also reports the token ID.
 type authTokenCreateResult struct {
 	clispec.ResultMarker
 	Command   string `json:"command"`
@@ -15,13 +14,12 @@ type authTokenCreateResult struct {
 	OrgID     string `json:"org_id"`
 	TokenID   string `json:"token_id,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
-	// Token is the raw bearer. It appears here once and nowhere else: not in
-	// a log, not in the ledger, not in the database.
+	// Token contains the raw bearer for the execution report's one-time display.
+	// Logs, the ledger, and the database must not record this value.
 	Token string `json:"token,omitempty"`
 }
 
-// authTokenListEntry is one token as token-list reports it. Raw values are
-// never stored, so none is here.
+// authTokenListEntry reports one token without its raw bearer value.
 type authTokenListEntry struct {
 	TokenID   string `json:"token_id"`
 	Label     string `json:"label"`
@@ -38,8 +36,8 @@ type authTokenListResult struct {
 	Tokens  []authTokenListEntry `json:"tokens"`
 }
 
-// authTokenRevokeResult is what token-revoke reports: the token it removed,
-// or in a dry run the token it would remove.
+// authTokenRevokeResult reports the token that token-revoke removed or would
+// remove in a dry run.
 type authTokenRevokeResult struct {
 	clispec.ResultMarker
 	Command string `json:"command"`
