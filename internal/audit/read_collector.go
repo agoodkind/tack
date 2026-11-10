@@ -35,10 +35,18 @@ type CollectedRead struct {
 // WithReadCollector returns a context with an empty collector for the identities
 // and outcome of one public read.
 func WithReadCollector(ctx context.Context) context.Context {
-	return context.WithValue(ctx, readCollectorKey{}, &readCollector{
-		mu: sync.Mutex{}, targets: nil, byOrg: map[uuid.UUID][]Target{}, seen: map[Target]struct{}{},
-		seenInOrg: map[orgTarget]struct{}{}, outcome: NoOutcome(),
-	})
+	return context.WithValue(
+		ctx,
+		readCollectorKey{},
+		&readCollector{
+			mu:        sync.Mutex{},
+			targets:   nil,
+			byOrg:     map[uuid.UUID][]Target{},
+			seen:      map[Target]struct{}{},
+			seenInOrg: map[orgTarget]struct{}{},
+			outcome:   NoOutcome(),
+		},
+	)
 }
 
 // HasReadCollector reports whether ctx has a read collector. The request
@@ -55,14 +63,17 @@ func AddReadTargets(ctx context.Context, orgID uuid.UUID, targets ...Target) {
 	if collector == nil {
 		return
 	}
+
 	collector.mu.Lock()
 	defer collector.mu.Unlock()
+
 	for _, target := range targets {
 		key := orgTarget{orgID: orgID, target: target}
 		if _, found := collector.seenInOrg[key]; !found {
 			collector.seenInOrg[key] = struct{}{}
 			collector.byOrg[orgID] = append(collector.byOrg[orgID], target)
 		}
+
 		if _, found := collector.seen[target]; !found {
 			collector.seen[target] = struct{}{}
 			collector.targets = append(collector.targets, target)
@@ -77,12 +88,19 @@ func NoteReadOutcome(ctx context.Context, outcome Outcome, code, message string)
 	if collector == nil {
 		return
 	}
+
 	collector.mu.Lock()
 	defer collector.mu.Unlock()
 	if collector.outcome.Outcome != "" {
 		return
 	}
-	collector.outcome = OutcomeDetails{Outcome: outcome, FailureCode: code, FailureMessage: message, CommittedSteps: nil}
+
+	collector.outcome = OutcomeDetails{
+		Outcome:        outcome,
+		FailureCode:    code,
+		FailureMessage: message,
+		CommittedSteps: nil,
+	}
 }
 
 // ReadCollected returns the identities and the first reported outcome from the collector in ctx.
@@ -90,15 +108,26 @@ func NoteReadOutcome(ctx context.Context, outcome Outcome, code, message string)
 func ReadCollected(ctx context.Context) CollectedRead {
 	collector, _ := ctx.Value(readCollectorKey{}).(*readCollector)
 	if collector == nil {
-		return CollectedRead{Targets: nil, OrgTargets: map[uuid.UUID][]Target{}, Outcome: NoOutcome()}
+		return CollectedRead{
+			Targets:    nil,
+			OrgTargets: map[uuid.UUID][]Target{},
+			Outcome:    NoOutcome(),
+		}
 	}
+
 	collector.mu.Lock()
 	defer collector.mu.Unlock()
+
 	byOrg := make(map[uuid.UUID][]Target, len(collector.byOrg))
 	for orgID, targets := range collector.byOrg {
 		byOrg[orgID] = append([]Target(nil), targets...)
 	}
-	return CollectedRead{Targets: append([]Target(nil), collector.targets...), OrgTargets: byOrg, Outcome: collector.outcome}
+
+	return CollectedRead{
+		Targets:    append([]Target(nil), collector.targets...),
+		OrgTargets: byOrg,
+		Outcome:    collector.outcome,
+	}
 }
 
 // NoOutcome returns empty outcome details.

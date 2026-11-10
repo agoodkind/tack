@@ -33,33 +33,70 @@ func putOpaqueKind(t *testing.T, fixture queryFixture, orgID uuid.UUID) opaqueKi
 
 // putOpaqueKindWithTypeKey stores the same opaque child type as
 // putOpaqueKind under the given type key.
-func putOpaqueKindWithTypeKey(t *testing.T, fixture queryFixture, orgID uuid.UUID, typeKey string) opaqueKind {
+func putOpaqueKindWithTypeKey(
+	t *testing.T,
+	fixture queryFixture,
+	orgID uuid.UUID,
+	typeKey string,
+) opaqueKind {
 	t.Helper()
-	kind := opaqueKind{OrgID: orgID, TypeKey: typeKey, IncludedKey: opaqueSearchKey("p"), ExcludedKey: opaqueSearchKey("p")}
+	kind := opaqueKind{
+		OrgID:       orgID,
+		TypeKey:     typeKey,
+		IncludedKey: opaqueSearchKey("p"),
+		ExcludedKey: opaqueSearchKey("p"),
+	}
+
 	definitions := []*node.PropertyDef{
 		{
-			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: kind.IncludedKey, Type: node.PropertyTypeText,
-			Search: &node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}},
+			ID:    uuid.Must(uuid.NewV7()),
+			OrgID: orgID,
+			Name:  kind.IncludedKey,
+			Type:  node.PropertyTypeText,
+			Search: &node.SearchProjection{
+				Include: true,
+				Order:   0,
+				Rule:    node.TextRule{Mode: node.TextRuleScalar},
+			},
 		},
 		{
-			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: kind.ExcludedKey, Type: node.PropertyTypeText,
-			Search: &node.SearchProjection{Include: false, Order: 1, Rule: node.TextRule{Mode: node.TextRuleScalar}},
+			ID:    uuid.Must(uuid.NewV7()),
+			OrgID: orgID,
+			Name:  kind.ExcludedKey,
+			Type:  node.PropertyTypeText,
+			Search: &node.SearchProjection{
+				Include: false,
+				Order:   1,
+				Rule:    node.TextRule{Mode: node.TextRuleScalar},
+			},
 		},
 	}
 	for _, definition := range definitions {
-		if err := fixture.Stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
+		if err := fixture.Stores.PropertyDefs.Set(
+			WithTestOperation(t, t.Context()),
+			definition,
+		); err != nil {
 			t.Fatalf("store property definition: %v", err)
 		}
 	}
+
 	nodeType := &node.NodeType{
-		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: kind.TypeKey, TypeKey: kind.TypeKey,
-		Slug: kind.TypeKey, PluralSlug: kind.TypeKey + "s",
+		ID:             uuid.Must(uuid.NewV7()),
+		OrgID:          orgID,
+		Name:           kind.TypeKey,
+		TypeKey:        kind.TypeKey,
+		Slug:           kind.TypeKey,
+		PluralSlug:     kind.TypeKey + "s",
 		PropertyDefIDs: []uuid.UUID{definitions[0].ID, definitions[1].ID},
 		CanLiveUnder:   entryTypeKeys(t, fixture.Stores, orgID),
 	}
-	if err := fixture.Stores.NodeTypes.Set(WithTestOperation(t, t.Context()), nodeType); err != nil {
+	if err := fixture.Stores.NodeTypes.Set(
+		WithTestOperation(t, t.Context()),
+		nodeType,
+	); err != nil {
 		t.Fatalf("store node type: %v", err)
 	}
+
 	return kind
 }
 
@@ -72,15 +109,19 @@ func entryTypeKeys(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID) []s
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
 	}
+
 	keys := make([]string, 0, 1)
+
 	for _, kind := range types {
 		if kind.Features.Has(node.FeatureIsEntryPoint) {
 			keys = append(keys, kind.TypeKey)
 		}
 	}
+
 	if len(keys) == 0 {
 		t.Fatalf("organization %s has no entry-point type", orgID)
 	}
+
 	return keys
 }
 
@@ -90,10 +131,20 @@ func fixtureNodeService(t *testing.T, fixture queryFixture) *service.NodeService
 	t.Helper()
 	stores := fixture.Stores
 	members := postgres.NewOrgMemberRepo(testenv.LedgerPool(t, fixture.Config.DatabaseURL))
-	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	nodes, err := service.NewNodeService(
+		stores.Nodes,
+		stores.Views,
+		stores.NodeTypes,
+		stores.PropertyDefs,
+		stores.Relationships,
+		stores.NodeDeleter,
+		members,
+		stores.Relationships,
+	)
 	if err != nil {
 		t.Fatalf("build the node service: %v", err)
 	}
+
 	return nodes
 }
 
@@ -101,16 +152,38 @@ func fixtureNodeService(t *testing.T, fixture queryFixture) *service.NodeService
 // NodeService.Create and returns its ID. The service writes parent_id,
 // scope_id, the child_of edge, and search work in one FoundationDB
 // transaction.
-func putOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID uuid.UUID, name, included, excluded string) uuid.UUID {
+func putOpaqueNode(
+	t *testing.T,
+	fixture queryFixture,
+	kind opaqueKind,
+	parentID uuid.UUID,
+	name string,
+	included string,
+	excluded string,
+) uuid.UUID {
 	t.Helper()
-	props := map[string]json.RawMessage{kind.IncludedKey: mustJSON(included), kind.ExcludedKey: mustJSON(excluded)}
-	result, err := fixtureNodeService(t, fixture).Create(WithTestOperation(t, t.Context()), service.CreateInput{
-		ParentID: parentID, NodeTypeKey: kind.TypeKey, Name: name, Props: props,
-	})
+	props := map[string]json.RawMessage{
+		kind.IncludedKey: mustJSON(included),
+		kind.ExcludedKey: mustJSON(excluded),
+	}
+	result, err := fixtureNodeService(t, fixture).Create(
+		WithTestOperation(t, t.Context()),
+		service.CreateInput{
+			ParentID:    parentID,
+			NodeTypeKey: kind.TypeKey,
+			Name:        name,
+			Props:       props,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create opaque node of type %s under %s: %v", kind.TypeKey, parentID, err)
 	}
-	fixture.Harness.titles.Add(datagen.SearchItem{Title: name, NodeType: kind.TypeKey}, result.View.ID)
+
+	fixture.Harness.titles.Add(
+		datagen.SearchItem{Title: name, NodeType: kind.TypeKey},
+		result.View.ID,
+	)
+
 	return result.View.ID
 }
 
@@ -119,18 +192,40 @@ func putOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID
 // with both parent_id and scope_id set to to. Every caller passes a workspace
 // entry node as to. The update replaces the child_of edge in the same
 // transaction.
-func moveOpaqueNode(t *testing.T, fixture queryFixture, kind opaqueKind, nodeID, from, to uuid.UUID) {
+func moveOpaqueNode(
+	t *testing.T,
+	fixture queryFixture,
+	kind opaqueKind,
+	nodeID uuid.UUID,
+	from uuid.UUID,
+	to uuid.UUID,
+) {
 	t.Helper()
 	current, err := fixture.Stores.Views.Get(WithTestOperation(t, t.Context()), nodeID)
 	if err != nil || current == nil {
 		t.Fatalf("read node %s before the move: %v", nodeID, err)
 	}
-	if current.NodeType != kind.TypeKey || !bytes.Equal(current.Props["parent_id"], mustJSON(from.String())) {
-		t.Fatalf("node %s has type %s and parent_id %s, want type %s under %s", nodeID, current.NodeType, current.Props["parent_id"], kind.TypeKey, from)
+
+	if current.NodeType != kind.TypeKey ||
+		!bytes.Equal(current.Props["parent_id"], mustJSON(from.String())) {
+		t.Fatalf(
+			"node %s has type %s and parent_id %s, want type %s under %s",
+			nodeID,
+			current.NodeType,
+			current.Props["parent_id"],
+			kind.TypeKey,
+			from,
+		)
 	}
-	if _, err := fixtureNodeService(t, fixture).Update(WithTestOperation(t, t.Context()), service.UpdateInput{
-		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": mustJSON(to.String())}, ScopeID: to,
-	}); err != nil {
+
+	if _, err := fixtureNodeService(t, fixture).Update(
+		WithTestOperation(t, t.Context()),
+		service.UpdateInput{
+			NodeID:  nodeID,
+			Props:   map[string]json.RawMessage{"parent_id": mustJSON(to.String())},
+			ScopeID: to,
+		},
+	); err != nil {
 		t.Fatalf("move node %s from %s to %s: %v", nodeID, from, to, err)
 	}
 }

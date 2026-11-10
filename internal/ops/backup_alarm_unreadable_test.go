@@ -25,15 +25,28 @@ var backupOutageStart = time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 func readBackupStoreBeforeOutage(t *testing.T) (*backupTestStore, *config.Config) {
 	t.Helper()
 	fixBackupStalenessClock(t, backupOutageStart)
-	objects := ybExportRunObjects(t, "20260828T001000Z",
-		newYBSnapshotManifest("20260828T001000Z", "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames()))
-	objects[backupStatusKey(backupStalenessRehearsalName)] = marshalBackupStatusMarker(t,
-		backupOutageStart.Add(-24*time.Hour), "restore drill passed every leg")
+	objects := ybExportRunObjects(
+		t,
+		"20260828T001000Z",
+		newYBSnapshotManifest(
+			"20260828T001000Z",
+			"snap-1",
+			"tack",
+			[]string{"yb1"},
+			ybTestArtifactNames(),
+		),
+	)
+	objects[backupStatusKey(backupStalenessRehearsalName)] = marshalBackupStatusMarker(
+		t,
+		backupOutageStart.Add(-24*time.Hour),
+		"restore drill passed every leg",
+	)
 	store := newBackupTestStore(t, objects)
 	cfg := storedBackupStalenessConfig(t, store)
 	startYBMasterHealthServer(t, ybHealthAllGood, ybFollowerHealthPage)
 	cfg.BackupYBMasterAddresses = "[::1]:7100"
 	runFreshBackupStalenessCheck(t, cfg)
+
 	return store, cfg
 }
 
@@ -45,6 +58,7 @@ func runFreshBackupStalenessCheck(t *testing.T, cfg *config.Config) string {
 	if err := RunBackupStalenessCheck(context.Background(), cfg, &out); err != nil {
 		t.Fatalf("the run must find nothing stale: %v\n%s", err, out.String())
 	}
+
 	return out.String()
 }
 
@@ -63,11 +77,16 @@ func TestBackupStalenessAlarmStaysQuietThroughAShortStoreOutage(t *testing.T) {
 	report := runFreshBackupStalenessCheck(t, cfg)
 
 	if len(captured.messages) != 0 {
-		t.Fatalf("an outage inside every limit must not mail, sent %q", captured.messages[0].Subject)
+		t.Fatalf(
+			"an outage inside every limit must not mail, sent %q",
+			captured.messages[0].Subject,
+		)
 	}
+
 	if strings.Count(report, "unreadable, dated from the reading at 2026-08-29T12:00:00Z") != 2 {
 		t.Errorf("the report must date each unreadable reading from the last run:\n%s", report)
 	}
+
 	// The cluster's reading is the guest's own, so the store's silence never
 	// touches it: it ages from the observation the first run took.
 	if !strings.Contains(report, "age=180s threshold=1800s FRESH") {
@@ -93,10 +112,12 @@ func TestBackupStalenessAlarmMailsTheObjectStoreOnceAfterTheThreshold(t *testing
 	if len(captured.messages) != 1 {
 		t.Fatalf("two mechanisms past their limits must mail once, sent %d", len(captured.messages))
 	}
+
 	message := captured.messages[0]
 	if message.Subject != "["+backupAlarmHost()+"] 2 backup problems" {
 		t.Errorf("subject = %q", message.Subject)
 	}
+
 	wantBody := "The object store (where the backups are kept) did not answer; " +
 		"this guest last read it at 12:00 PM UTC on Aug 29, 2026. " +
 		"Confirm the object store guest is running before the steps below.\n" +
@@ -118,11 +139,19 @@ func TestBackupStalenessAlarmMailsTheObjectStoreOnceAfterTheThreshold(t *testing
 	if message.Body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", message.Body, wantBody)
 	}
-	for _, raw := range []string{"operation error", "StatusCode", "http", store.bucket.Endpoint, "request send failed"} {
+
+	for _, raw := range []string{
+		"operation error",
+		"StatusCode",
+		"http",
+		store.bucket.Endpoint,
+		"request send failed",
+	} {
 		if strings.Contains(message.Subject+message.Body, raw) {
 			t.Errorf("the mail carries the client's error text %q:\n%s", raw, message.Body)
 		}
 	}
+
 	assertBackupAlarmPlainWords(t, message.Subject, message.Body, cfg.BackupS3Endpoint)
 
 	fixBackupStalenessClock(t, backupOutageStart.Add(40*time.Minute))
@@ -141,10 +170,14 @@ func TestBackupStalenessAlarmHoldsAFaultThroughAnOutage(t *testing.T) {
 	captured := captureBackupAlarmSends(t, nil)
 	store, cfg := readBackupStoreBeforeOutage(t)
 	claimedAt := backupOutageStart.Add(time.Minute)
-	saveBackupAlarmState(context.Background(), cfg, backupAlarmState{
-		Alarmed:    map[string]time.Time{backupStalenessRehearsalName: claimedAt},
-		Generation: 1,
-	})
+	saveBackupAlarmState(
+		context.Background(),
+		cfg,
+		backupAlarmState{
+			Alarmed:    map[string]time.Time{backupStalenessRehearsalName: claimedAt},
+			Generation: 1,
+		},
+	)
 
 	store.stop()
 	defer store.ensureStarted()
@@ -162,6 +195,7 @@ func TestBackupStalenessAlarmHoldsAFaultThroughAnOutage(t *testing.T) {
 	if _, held := alarmed[backupStalenessRehearsalName]; held {
 		t.Fatalf("a fresh rehearsal read from the store must clear the fault, state %v", alarmed)
 	}
+
 	if len(captured.messages) != 0 {
 		t.Fatalf("holding and clearing must not mail, sent %d", len(captured.messages))
 	}

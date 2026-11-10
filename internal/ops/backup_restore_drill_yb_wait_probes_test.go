@@ -23,9 +23,11 @@ func TestYBScratchTabletCountersReadsTheServedPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
+
 	if counters[ybCounterRunningTablets] != 2 {
 		t.Errorf("running_tablets = %d, want 2", counters[ybCounterRunningTablets])
 	}
+
 	if counters[ybCounterSSTFiles] != 6 {
 		t.Errorf("sst_files = %d, want 6", counters[ybCounterSSTFiles])
 	}
@@ -39,17 +41,29 @@ func TestParseYBScratchDataBytesReadsDuOutput(t *testing.T) {
 	if err != nil || bytes != 48123904 {
 		t.Fatalf("bytes = %d, err = %v, want 48123904", bytes, err)
 	}
-	if _, err := parseYBScratchDataBytes(t.Context(), 1, "du: cannot access '/home/yugabyte/var/data'"); err == nil {
+
+	if _, err := parseYBScratchDataBytes(
+		t.Context(),
+		1,
+		"du: cannot access '/home/yugabyte/var/data'",
+	); err == nil {
 		t.Fatal("a du that exited non-zero must be an error")
 	}
+
 	if _, err := parseYBScratchDataBytes(t.Context(), 0, ""); err == nil {
 		t.Fatal("an empty du output must be an error")
 	}
+
 	bytes, err = parseYBScratchDataBytes(t.Context(), 1, "51200000\t/home/yugabyte/var/data\n")
 	if err != nil || bytes != 51200000 {
 		t.Fatalf("bytes = %d, err = %v, want a total from a du that saw a file vanish", bytes, err)
 	}
-	if _, err := parseYBScratchDataBytes(t.Context(), 2, "51200000\t/home/yugabyte/var/data\n"); err == nil {
+
+	if _, err := parseYBScratchDataBytes(
+		t.Context(),
+		2,
+		"51200000\t/home/yugabyte/var/data\n",
+	); err == nil {
 		t.Fatal("a du that exited 2 must be an error")
 	}
 }
@@ -62,13 +76,28 @@ func TestParseYBScratchRestartsReadsGrepCount(t *testing.T) {
 		exitCode int
 		stdout   string
 		want     int64
-	}{{exitCode: 1, stdout: "0\n", want: 0}, {exitCode: 0, stdout: "2\n", want: 2}} {
+	}{
+		{exitCode: 1, stdout: "0\n", want: 0},
+		{exitCode: 0, stdout: "2\n", want: 2},
+	} {
 		got, err := parseYBScratchRestarts(t.Context(), tc.exitCode, tc.stdout)
 		if err != nil || got != tc.want {
-			t.Errorf("exit %d %q: restarts = %d, err = %v, want %d", tc.exitCode, tc.stdout, got, err, tc.want)
+			t.Errorf(
+				"exit %d %q: restarts = %d, err = %v, want %d",
+				tc.exitCode,
+				tc.stdout,
+				got,
+				err,
+				tc.want,
+			)
 		}
 	}
-	if _, err := parseYBScratchRestarts(t.Context(), 2, "grep: yugabyted.log: No such file or directory"); err == nil {
+
+	if _, err := parseYBScratchRestarts(
+		t.Context(),
+		2,
+		"grep: yugabyted.log: No such file or directory",
+	); err == nil {
 		t.Fatal("a log grep could not read must be an error")
 	}
 }
@@ -79,6 +108,7 @@ func TestParseYBScratchRestartsReadsGrepCount(t *testing.T) {
 // pattern that matched it would fail a healthy drill with a false cause.
 func TestYBScratchRestartMarkerMatchesOnlyTheEngineProcesses(t *testing.T) {
 	marker := regexp.MustCompile(ybScratchRestartMarker)
+
 	for _, line := range []string{
 		"[yugabyted start] 2026-09-15 15:08:56,229 ERROR: | 3.5s | master died unexpectedly. Restarting...",
 		"[yugabyted start] 2026-09-15 15:08:56,229 ERROR: | 3.5s | tserver died unexpectedly. Restarting...",
@@ -87,6 +117,7 @@ func TestYBScratchRestartMarkerMatchesOnlyTheEngineProcesses(t *testing.T) {
 			t.Errorf("marker must match %q", line)
 		}
 	}
+
 	webserver := "[yugabyted start] 2026-09-15 15:08:56,229 ERROR: | 3.5s | Webserver died unexpectedly. Restarting..."
 	if marker.MatchString(webserver) {
 		t.Errorf("marker must not match the web server line %q", webserver)
@@ -101,6 +132,7 @@ func TestYBRestorationFailureNamesATerminalState(t *testing.T) {
 	if got := ybRestorationFailure(failed); !strings.Contains(got, "FAILED") {
 		t.Errorf("failure = %q, want FAILED named", got)
 	}
+
 	for _, listing := range []string{
 		`{"restorations": []}`,
 		`{"restorations": [{"id": "a1", "snapshot_id": "b2", "state": "RESTORING"}]}`,
@@ -116,7 +148,10 @@ func TestYBRestorationFailureNamesATerminalState(t *testing.T) {
 // tablets page yields an error, so an endpoint that answers with something
 // else never vouches for progress.
 func TestYBScratchTabletCountersRefusesAnotherPage(t *testing.T) {
-	if _, err := ybScratchTabletCounters(t.Context(), "<html>Error retrieving leader master URL</html>"); err == nil {
+	if _, err := ybScratchTabletCounters(
+		t.Context(),
+		"<html>Error retrieving leader master URL</html>",
+	); err == nil {
 		t.Fatal("an HTML page must not parse as tablet counters")
 	}
 }

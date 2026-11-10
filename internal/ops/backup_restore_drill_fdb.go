@@ -30,6 +30,7 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	if r.Cfg.BackupFDBOverlayPath == "" {
 		err := fmt.Errorf("restore-drill fdb: TACK_BACKUP_FDB_OVERLAY_PATH is required")
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", err.Error()))
+
 		return err
 	}
 
@@ -39,15 +40,27 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	// backups/ subfolder) to discover backups. fdbrestore re-adds the backups/
 	// folder from the backup name, so the selection strips the prefix to
 	// recover the bare name fdbrestore addresses.
-	markers, err := listImmediateObjects(ctx, s3Client, r.Cfg.BackupS3BucketMain, fdbBackupMarkerPrefix)
+	markers, err := listImmediateObjects(
+		ctx,
+		s3Client,
+		r.Cfg.BackupS3BucketMain,
+		fdbBackupMarkerPrefix,
+	)
 	if err != nil {
 		return err
 	}
+
 	if len(markers) == 0 {
 		wrapped := fmt.Errorf("no FDB backup under backups/ in bucket %s", r.Cfg.BackupS3BucketMain)
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.no_backup", slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.no_backup",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	extraHosts, err := blobstoreExtraHosts(r.Cfg.BackupS3Endpoint)
 	if err != nil {
 		return err
@@ -62,6 +75,7 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 	if err != nil {
 		return err
 	}
+
 	logger.InfoContext(ctx, "backup.restore_drill.fdb.backup", slog.String("name", backupName))
 	dest, err := fdbBlobstoreURL(r.Cfg, backupName)
 	if err != nil {
@@ -73,46 +87,90 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", err.Error()))
 		return err
 	}
+
 	if err := launchFDBRestore(ctx, r, name, restoreCmd); err != nil {
 		return err
 	}
+
 	// The restore is watched for progress, not timed. A restore that keeps
 	// moving runs as long as its dataset needs; only one that stops moving
 	// fails the drill, and it fails naming what it had done when it stopped.
 	// Each probe is bounded on its own, so a hung exec cannot keep the watch
 	// from deciding.
-	progress, exitCode, err := awaitFDBRestore(ctx, fdbRestoreWatch{
-		Finished: func(pollCtx context.Context) (int, bool, error) {
-			return fdbRestoreExitCode(pollCtx, r, name)
+	progress, exitCode, err := awaitFDBRestore(
+		ctx,
+		fdbRestoreWatch{
+			Finished: func(pollCtx context.Context) (int, bool, error) {
+				return fdbRestoreExitCode(pollCtx, r, name)
+			},
+			Status: func(pollCtx context.Context) (string, error) {
+				return fdbRestoreStatusText(pollCtx, r, name)
+			},
 		},
-		Status: func(pollCtx context.Context) (string, error) {
-			return fdbRestoreStatusText(pollCtx, r, name)
-		},
-	}, fdbDrillRestoreStallWindow, fdbDrillRestorePollInterval, fdbDrillProbeTimeout)
+		fdbDrillRestoreStallWindow,
+		fdbDrillRestorePollInterval,
+		fdbDrillProbeTimeout,
+	)
 	if err != nil {
-		wrapped := fmt.Errorf("%w; the restore's last output was: %s", err, fdbRestoreLogTail(ctx, r, name))
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if exitCode != 0 {
-		wrapped := fmt.Errorf("fdbrestore exited %d after %s: %s",
-			exitCode, progress.summary(), fdbRestoreLogTail(ctx, r, name))
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	logger.InfoContext(ctx, "backup.restore_drill.fdb.restored", slog.String("progress", progress.summary()))
+		wrapped := fmt.Errorf(
+			"%w; the restore's last output was: %s",
+			err,
+			fdbRestoreLogTail(ctx, r, name),
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
 
-	assertRes, err := containerExec(ctx, r.Cli, name,
-		[]string{"fdbcli", "-C", "/var/fdb/fdb.cluster", "--exec", `getrange "" \xff 5`})
+		return wrapped
+	}
+
+	if exitCode != 0 {
+		wrapped := fmt.Errorf(
+			"fdbrestore exited %d after %s: %s",
+			exitCode,
+			progress.summary(),
+			fdbRestoreLogTail(ctx, r, name),
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
+		return wrapped
+	}
+
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.fdb.restored",
+		slog.String("progress", progress.summary()),
+	)
+
+	assertRes, err := containerExec(
+		ctx,
+		r.Cli,
+		name,
+		[]string{"fdbcli", "-C", "/var/fdb/fdb.cluster", "--exec", `getrange "" \xff 5`},
+	)
 	if err != nil {
 		return fmt.Errorf("fdb getrange exec: %w", err)
 	}
+
 	if !strings.Contains(assertRes.Stdout, "`") {
 		wrapped := fmt.Errorf("restored FoundationDB keyspace is empty")
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	logger.InfoContext(ctx, "backup.restore_drill.fdb.ok", slog.String("name", backupName))
+
 	return nil
 }
 
@@ -122,19 +180,27 @@ func restoreDrillFDB(ctx context.Context, r *restoreDrillCtx) error {
 // data and never joins the live cluster. Its data and log directories are
 // fresh per-run directories under the backup root; the rest of /var/fdb stays
 // the image's own, so the image's scripts are not hidden.
-func bootScratchFDB(ctx context.Context, r *restoreDrillCtx, name string, extraHosts []string) error {
+func bootScratchFDB(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	name string,
+	extraHosts []string,
+) error {
 	logger := telemetry.L(ctx)
 	if err := ensureImage(ctx, r.Cli, logger, r.Cfg.BackupFDBImage); err != nil {
 		return err
 	}
+
 	dataDir, err := makeDrillScratchDir(ctx, r, r.Cfg.BackupFDBImage, "fdb", "data")
 	if err != nil {
 		return err
 	}
+
 	logsDir, err := makeDrillScratchDir(ctx, r, r.Cfg.BackupFDBImage, "fdb", "logs")
 	if err != nil {
 		return err
 	}
+
 	binds := []string{
 		dataDir + ":/var/fdb/data",
 		logsDir + ":/var/fdb/logs",
@@ -146,53 +212,130 @@ func bootScratchFDB(ctx context.Context, r *restoreDrillCtx, name string, extraH
 		// and only for a run that asked for a point in time.
 		binds = append(binds, fdbOrigClusterMount)
 	}
-	created, err := r.Cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: &container.Config{
-			Image: r.Cfg.BackupFDBImage,
-			Env:   []string{"FDB_NETWORKING_MODE=container", "FDB_PORT=4500", "FDB_PROCESS_CLASS=unset"},
+
+	created, err := r.Cli.ContainerCreate(
+		ctx,
+		client.ContainerCreateOptions{
+			Config: &container.Config{
+				Image: r.Cfg.BackupFDBImage,
+				Env: []string{
+					"FDB_NETWORKING_MODE=container",
+					"FDB_PORT=4500",
+					"FDB_PROCESS_CLASS=unset",
+				},
+			},
+			HostConfig: &container.HostConfig{
+				Binds:      binds,
+				ExtraHosts: extraHosts,
+			},
+			NetworkingConfig: netMode(r.Cfg.BackupFDBNetwork),
+			Name:             name,
 		},
-		HostConfig: &container.HostConfig{
-			Binds:      binds,
-			ExtraHosts: extraHosts,
-		},
-		NetworkingConfig: netMode(r.Cfg.BackupFDBNetwork),
-		Name:             name,
-	})
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("create scratch fdb %s: %w", name, err)
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	r.trackContainer(name)
 	if _, err := r.Cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
 		wrapped := fmt.Errorf("start scratch fdb %s: %w", name, err)
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
 
-	if err := waitExecOK(ctx, r, name, 30*time.Second, nil, []string{"test", "-f", "/var/fdb/fdb.cluster"}); err != nil {
+	if err := waitExecOK(
+		ctx,
+		r,
+		name,
+		30*time.Second,
+		nil,
+		[]string{"test", "-f", "/var/fdb/fdb.cluster"},
+	); err != nil {
 		wrapped := fmt.Errorf("scratch fdb cluster file never appeared: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if _, err := containerExec(ctx, r.Cli, name,
-		[]string{"fdbcli", "-C", "/var/fdb/fdb.cluster", "--exec", "configure new single ssd"}); err != nil {
-		wrapped := fmt.Errorf("configure new single ssd: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
-		return wrapped
-	}
-	if err := waitExecOK(ctx, r, name, 60*time.Second, nil,
-		[]string{"sh", "-c", "fdbcli -C /var/fdb/fdb.cluster --exec 'status minimal' | grep -q available"}); err != nil {
-		wrapped := fmt.Errorf("scratch fdb never reported available: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
 
-	if _, err := containerExec(ctx, r.Cli, name,
-		[]string{"sh", "-c", "mkdir -p /var/fdb/logs; backup_agent -C /var/fdb/fdb.cluster --logdir /var/fdb/logs >/var/fdb/logs/agent.out 2>&1 &"}); err != nil {
-		wrapped := fmt.Errorf("start scratch backup_agent: %w", err)
-		logger.ErrorContext(ctx, "backup.restore_drill.fdb.failed", slog.String("err", wrapped.Error()))
+	if _, err := containerExec(
+		ctx,
+		r.Cli,
+		name,
+		[]string{
+			"fdbcli",
+			"-C",
+			"/var/fdb/fdb.cluster",
+			"--exec",
+			"configure new single ssd",
+		},
+	); err != nil {
+		wrapped := fmt.Errorf("configure new single ssd: %w", err)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
+	if err := waitExecOK(
+		ctx,
+		r,
+		name,
+		60*time.Second,
+		nil,
+		[]string{
+			"sh",
+			"-c",
+			"fdbcli -C /var/fdb/fdb.cluster --exec 'status minimal' | grep -q available",
+		},
+	); err != nil {
+		wrapped := fmt.Errorf("scratch fdb never reported available: %w", err)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
+		return wrapped
+	}
+
+	if _, err := containerExec(
+		ctx,
+		r.Cli,
+		name,
+		[]string{
+			"sh",
+			"-c",
+			"mkdir -p /var/fdb/logs; backup_agent -C /var/fdb/fdb.cluster --logdir /var/fdb/logs >/var/fdb/logs/agent.out 2>&1 &",
+		},
+	); err != nil {
+		wrapped := fmt.Errorf("start scratch backup_agent: %w", err)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.fdb.failed",
+			slog.String("err", wrapped.Error()),
+		)
+
+		return wrapped
+	}
+
 	return nil
 }

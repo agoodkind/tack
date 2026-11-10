@@ -46,17 +46,20 @@ func (p *soakProject) workflowStates() []soakNode {
 			states = append(states, state)
 		}
 	}
-	slices.SortFunc(states, func(left, right soakNode) int {
-		leftRank := workflowGroupRank(left.Group)
-		rightRank := workflowGroupRank(right.Group)
-		if leftRank != rightRank {
-			return leftRank - rightRank
-		}
-		if left.SortOrder != right.SortOrder {
-			return left.SortOrder - right.SortOrder
-		}
-		return compareStrings(left.RawID, right.RawID)
-	})
+	slices.SortFunc(
+		states,
+		func(left, right soakNode) int {
+			leftRank := workflowGroupRank(left.Group)
+			rightRank := workflowGroupRank(right.Group)
+			if leftRank != rightRank {
+				return leftRank - rightRank
+			}
+			if left.SortOrder != right.SortOrder {
+				return left.SortOrder - right.SortOrder
+			}
+			return compareStrings(left.RawID, right.RawID)
+		},
+	)
 	return states
 }
 

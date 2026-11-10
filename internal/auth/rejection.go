@@ -36,8 +36,10 @@ func RejectionReason(ctx context.Context) (string, bool) {
 	if note == nil {
 		return "", false
 	}
+
 	note.mu.Lock()
 	defer note.mu.Unlock()
+
 	return note.reason, note.reason != ""
 }
 
@@ -46,6 +48,7 @@ func noteRejection(ctx context.Context, reason string) {
 	if note == nil {
 		return
 	}
+
 	note.mu.Lock()
 	defer note.mu.Unlock()
 	note.reason = reason

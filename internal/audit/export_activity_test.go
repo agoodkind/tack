@@ -36,19 +36,24 @@ const descriptorGuardExports = 16
 // entries are read by name only, because stat-ing them fails on macOS.
 func openDescriptorCount(t *testing.T) int {
 	t.Helper()
+
 	for _, dir := range []string{"/proc/self/fd", "/dev/fd"} {
 		handle, err := os.Open(dir)
 		if err != nil {
 			continue
 		}
+
 		names, err := handle.Readdirnames(-1)
 		_ = handle.Close()
 		if err != nil {
 			t.Fatalf("list descriptors under %s: %v", dir, err)
 		}
+
 		return len(names)
 	}
+
 	t.Fatal("this platform lists open descriptors under neither /proc/self/fd nor /dev/fd")
+
 	return 0
 }
 
@@ -68,17 +73,29 @@ func countDescriptorGrowth(t *testing.T, work func()) int {
 	before := openDescriptorCount(t)
 	work()
 	after := openDescriptorCount(t)
+
 	return after - before
 }
 
 // descriptorGuardExport runs one export into dir with the row source the guard
 // tests share. The context is the caller's, because the contended guard needs
 // one that expires.
-func descriptorGuardExport(ctx context.Context, t *testing.T, dir string, signer ed25519.PrivateKey) {
+func descriptorGuardExport(
+	ctx context.Context,
+	t *testing.T,
+	dir string,
+	signer ed25519.PrivateKey,
+) {
 	t.Helper()
 	orgID := uuid.Must(uuid.NewV7())
-	if _, err := Export(ctx, exportTestRows(t, orgID, 5, nil),
-		signer, "ed25519:test", exportTestFilter(orgID), dir); err != nil {
+	if _, err := Export(
+		ctx,
+		exportTestRows(t, orgID, 5, nil),
+		signer,
+		"ed25519:test",
+		exportTestFilter(orgID),
+		dir,
+	); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 }
@@ -100,18 +117,25 @@ func TestAnExportHoldsNoDescriptorAfterItReturns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+
 	// The first export into a directory creates the lock file and the manifest;
 	// it is run outside the counted window so the counts compare like with like.
 	descriptorGuardExport(context.Background(), t, dir, privateKey)
 
-	grew := countDescriptorGrowth(t, func() {
-		for range descriptorGuardExports {
-			descriptorGuardExport(context.Background(), t, dir, privateKey)
-		}
-	})
+	grew := countDescriptorGrowth(
+		t,
+		func() {
+			for range descriptorGuardExports {
+				descriptorGuardExport(context.Background(), t, dir, privateKey)
+			}
+		},
+	)
 	if grew > 0 {
-		t.Fatalf("%d exports left %d descriptors open: the beacon's release no longer closes its handle",
-			descriptorGuardExports, grew)
+		t.Fatalf(
+			"%d exports left %d descriptors open: the beacon's release no longer closes its handle",
+			descriptorGuardExports,
+			grew,
+		)
 	}
 }
 
@@ -132,6 +156,7 @@ func TestAContendedExportHoldsNoDescriptorEither(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+
 	descriptorGuardExport(context.Background(), t, dir, privateKey)
 
 	blocker := flock.New(filepath.Join(dir, exportActivityLockFile))
@@ -139,6 +164,7 @@ func TestAContendedExportHoldsNoDescriptorEither(t *testing.T) {
 	if err != nil || !held {
 		t.Fatalf("take the beacon exclusively: held=%v err=%v", held, err)
 	}
+
 	t.Cleanup(func() { _ = blocker.Unlock() })
 
 	// The beacon has to be genuinely contended, or the exports below take the
@@ -161,17 +187,24 @@ func TestAContendedExportHoldsNoDescriptorEither(t *testing.T) {
 		t.Fatalf("plant the abandoned rows: %v", err)
 	}
 
-	grew := countDescriptorGrowth(t, func() {
-		for range descriptorGuardExports {
-			ctx, cancel := context.WithTimeout(context.Background(), beaconContendedDeadline)
-			descriptorGuardExport(ctx, t, dir, privateKey)
-			cancel()
-		}
-	})
+	grew := countDescriptorGrowth(
+		t,
+		func() {
+			for range descriptorGuardExports {
+				ctx, cancel := context.WithTimeout(context.Background(), beaconContendedDeadline)
+				descriptorGuardExport(ctx, t, dir, privateKey)
+				cancel()
+			}
+		},
+	)
 	if grew > 0 {
-		t.Fatalf("%d contended exports left %d descriptors open: a failed try no longer closes its handle",
-			descriptorGuardExports, grew)
+		t.Fatalf(
+			"%d contended exports left %d descriptors open: a failed try no longer closes its handle",
+			descriptorGuardExports,
+			grew,
+		)
 	}
+
 	if _, statErr := os.Stat(abandoned); statErr != nil {
 		t.Fatalf("a reclaim ran while the beacon was held exclusively: %v", statErr)
 	}

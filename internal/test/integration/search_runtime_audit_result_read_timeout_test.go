@@ -38,10 +38,14 @@ func TestSearchRuntimeAuditResultReadTimeoutReturnsUnavailable(t *testing.T) {
 	}
 	before := integration.CursorSession(t, fixture.QueryFixture, opened.Cursor).Version
 	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
-	hooks := installRetireLogHooks(t, "", map[string]func(){
-		resultReadPageMessage:   func() { setContainerPaused(t, container, true) },
-		resultReadFailedMessage: func() { setContainerPaused(t, container, false) },
-	})
+	hooks := installRetireLogHooks(
+		t,
+		"",
+		map[string]func(){
+			resultReadPageMessage:   func() { setContainerPaused(t, container, true) },
+			resultReadFailedMessage: func() { setContainerPaused(t, container, false) },
+		},
+	)
 
 	_, err := integration.TrySearch(fixture.Harness, failureAuditQuery, opened.Cursor)
 	hooks.requireFinished(t)
@@ -51,25 +55,52 @@ func TestSearchRuntimeAuditResultReadTimeoutReturnsUnavailable(t *testing.T) {
 	}
 	committed := integration.CursorSession(t, fixture.QueryFixture, opened.Cursor)
 	if committed.Version != before+1 || committed.Complete {
-		t.Fatalf("the session after the timeout has version %d and complete %t, want version %d and unread pages", committed.Version, committed.Complete, before+1)
+		t.Fatalf(
+			"the session after the timeout has version %d and complete %t, want version %d and unread pages",
+			committed.Version,
+			committed.Complete,
+			before+1,
+		)
 	}
 	store := fixture.Stores.SearchSessions(clock.Wall{}, failureAuditIdle)
-	stored, found, err := store.Replay(integration.WithTestOperation(t, t.Context()), committed.ID, before)
+	stored, found, err := store.Replay(
+		integration.WithTestOperation(t, t.Context()),
+		committed.ID,
+		before,
+	)
 	if err != nil || !found {
 		t.Fatalf("read the replay record at version %d: found %t, error %v", before, found, err)
 	}
 	records := sessionRecords(t, committed.ID)
 	replayed, err := integration.TrySearch(fixture.Harness, failureAuditQuery, opened.Cursor)
 	if err != nil || !slices.Equal(replayed.IDs, stored.ResultIDs) {
-		t.Fatalf("the retry with the same cursor returned %v and error %v, want the replay record %v", replayed.IDs, err, stored.ResultIDs)
+		t.Fatalf(
+			"the retry with the same cursor returned %v and error %v, want the replay record %v",
+			replayed.IDs,
+			err,
+			stored.ResultIDs,
+		)
 	}
-	requireSessionUnchanged(t, "the retry after the timeout", records, sessionRecords(t, committed.ID))
-	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(current []audit.Row) bool {
-		return len(cleanupLossReads(current, audit.OutcomeFailed)) == 1
-	})
+	requireSessionUnchanged(
+		t,
+		"the retry after the timeout",
+		records,
+		sessionRecords(t, committed.ID),
+	)
+	rows := fixture.audited.waitForRows(
+		t,
+		fixture.Workspaces[0].OrgID,
+		func(current []audit.Row) bool {
+			return len(cleanupLossReads(current, audit.OutcomeFailed)) == 1
+		},
+	)
 	failed := onlyRow(t, cleanupLossReads(rows, audit.OutcomeFailed), "the failed read")
 	if failed.Error == nil || failed.Error.Code != searchUnavailableCode {
-		t.Fatalf("the failed read event did not store the %s code: %+v", searchUnavailableCode, failed)
+		t.Fatalf(
+			"the failed read event did not store the %s code: %+v",
+			searchUnavailableCode,
+			failed,
+		)
 	}
 }
 
@@ -84,9 +115,17 @@ func TestSearchRuntimeAuditAssigneeReadTimeoutWrapsStorageTimeout(t *testing.T) 
 	}
 	container := testenv.FoundationDBContainer(cluster)
 	setContainerPaused(t, container, true)
-	_, err = stores.Relationships.ListBySources(t.Context(), uuid.Must(uuid.NewV7()), []uuid.UUID{uuid.Must(uuid.NewV7())}, node.RelAssignedTo)
+	_, err = stores.Relationships.ListBySources(
+		t.Context(),
+		uuid.Must(uuid.NewV7()),
+		[]uuid.UUID{uuid.Must(uuid.NewV7())},
+		node.RelAssignedTo,
+	)
 	setContainerPaused(t, container, false)
 	if !errors.Is(err, domain.ErrStorageTimeout) {
-		t.Fatalf("ListBySources with a paused FoundationDB returned error %v, want a match for domain.ErrStorageTimeout", err)
+		t.Fatalf(
+			"ListBySources with a paused FoundationDB returned error %v, want a match for domain.ErrStorageTimeout",
+			err,
+		)
 	}
 }

@@ -35,19 +35,23 @@ func NewYBRecorder(ctx context.Context, dsn string) (*YBRecorder, error) {
 	if dsn == "" {
 		return nil, errors.New("audit: AUDIT_WRITER_DSN required")
 	}
+
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("audit pool config: %w", err)
 	}
+
 	cfg.ConnConfig.Tracer = &telemetry.QueryTracer{}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("audit pool open: %w", err)
 	}
+
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("audit pool ping: %w", err)
 	}
+
 	return &YBRecorder{pool: pool}, nil
 }
 
@@ -73,7 +77,9 @@ func (r *YBRecorder) Close() {
 // and logged a failure at Warn, which is how the 2026-07-06 gap left eight
 // issue creations in the store with no row here (TACK-335).
 func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
-	ctx, span := telemetry.StartSpan(ctx, "audit.record",
+	ctx, span := telemetry.StartSpan(
+		ctx,
+		"audit.record",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("audit.verb", ev.Verb),
@@ -82,7 +88,8 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 		),
 	)
 	defer span.End()
-	ctx = telemetry.WithTraceLogger(ctx,
+	ctx = telemetry.WithTraceLogger(
+		ctx,
 		slog.String("audit_verb", ev.Verb),
 		slog.String("entity_type", ev.Entity.Type),
 		slog.String("entity_id", ev.Entity.ID.String()),
@@ -91,10 +98,12 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 	if ev.OccurredAt.IsZero() {
 		ev.OccurredAt = clock.Now().UTC()
 	}
+
 	canonicalizeCorrelation(&ev)
 	if ev.EventID == uuid.Nil {
 		ev.EventID = uuid.Must(uuid.NewV7())
 	}
+
 	shard := shardOf(ev.Actor.ID, ev.EventID)
 
 	contextJSON, err := json.Marshal(ev.Context)
@@ -102,6 +111,7 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 		bumpDropped(ev.Verb, "context_marshal")
 		return fmt.Errorf("audit marshal context: %w", err)
 	}
+
 	deltaJSON := []byte("null")
 	if ev.Delta != nil {
 		deltaJSON, err = json.Marshal(ev.Delta)
@@ -113,23 +123,29 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 
 	const maxChainRetries = 8
 	var res chainAppendResult
+
 	for attempt := 1; ; attempt++ {
 		res, err = r.recordOnce(ctx, ev, shard, contextJSON, deltaJSON)
 		if err == nil {
 			break
 		}
+
 		if errors.Is(err, errAlreadyProjected) {
 			return nil
 		}
+
 		if attempt < maxChainRetries && isRetryableChainErr(err) {
 			continue
 		}
+
 		bumpDropped(ev.Verb, "chain")
+
 		return err
 	}
 
 	telemetry.IncAuditRecord(ev.Verb)
-	telemetry.L(ctx).Debug("audit.record",
+	telemetry.L(ctx).Debug(
+		"audit.record",
 		slog.String("verb", ev.Verb),
 		slog.String("actor_id", ev.Actor.ID.String()),
 		slog.String("entity_id", ev.Entity.ID.String()),
@@ -138,6 +154,7 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 		slog.String("idempotency_key", ev.IdempotencyKey),
 		slog.Int64("duration_us", clock.Since(start).Microseconds()),
 	)
+
 	return nil
 }
 
@@ -146,12 +163,19 @@ func (r *YBRecorder) Record(ctx context.Context, ev Event) error {
 // PII split keeps actor PII in audit.pii under a fresh pii_ref so GDPR erasure
 // never breaks the hash chain, which covers the reference rather than the
 // payload.
-func (r *YBRecorder) recordOnce(ctx context.Context, ev Event, shard int16, contextJSON, deltaJSON []byte) (chainAppendResult, error) {
+func (r *YBRecorder) recordOnce(
+	ctx context.Context,
+	ev Event,
+	shard int16,
+	contextJSON []byte,
+	deltaJSON []byte,
+) (chainAppendResult, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.record.tx_begin_failed", slog.String("err", err.Error()))
 		return chainAppendResult{}, fmt.Errorf("audit tx begin: %w", err)
 	}
+
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	piiRef, err := writeEventPII(ctx, tx, ev)
@@ -159,14 +183,18 @@ func (r *YBRecorder) recordOnce(ctx context.Context, ev Event, shard int16, cont
 		return chainAppendResult{}, err
 	}
 
-	res, err := appendChainRow(ctx, tx, chainAppendInput{
-		Event:       ev,
-		EventID:     ev.EventID,
-		Shard:       shard,
-		PIIRef:      piiRef,
-		ContextJSON: contextJSON,
-		DeltaJSON:   deltaJSON,
-	})
+	res, err := appendChainRow(
+		ctx,
+		tx,
+		chainAppendInput{
+			Event:       ev,
+			EventID:     ev.EventID,
+			Shard:       shard,
+			PIIRef:      piiRef,
+			ContextJSON: contextJSON,
+			DeltaJSON:   deltaJSON,
+		},
+	)
 	if err != nil {
 		return chainAppendResult{}, err
 	}
@@ -176,6 +204,7 @@ func (r *YBRecorder) recordOnce(ctx context.Context, ev Event, shard int16, cont
 		slog.ErrorContext(ctx, "audit.record.commit_failed", slog.String("err", err.Error()))
 		return chainAppendResult{}, fmt.Errorf("audit commit: %w", err)
 	}
+
 	return res, nil
 }
 

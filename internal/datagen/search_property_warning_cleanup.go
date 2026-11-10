@@ -16,12 +16,20 @@ func (r searchRun) removeWarningNode(ctx context.Context, nodeID uuid.UUID) erro
 	if err := r.fixture.remove(ctx, nodeID); err != nil {
 		return err
 	}
-	if err := r.eventually(ctx, "clear the search warning of the deleted warning node", func(ctx context.Context) error {
-		return r.warningCleared(ctx, nodeID)
-	}); err != nil {
+	if err := r.eventually(
+		ctx,
+		"clear the search warning of the deleted warning node",
+		func(ctx context.Context) error {
+			return r.warningCleared(ctx, nodeID)
+		},
+	); err != nil {
 		return err
 	}
-	slog.InfoContext(ctx, "qa.datagen.search_warning_node_deleted", slog.String("node_id", nodeID.String()))
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.search_warning_node_deleted",
+		slog.String("node_id", nodeID.String()),
+	)
 	return nil
 }
 
@@ -36,7 +44,11 @@ func (r searchRun) warningCleared(ctx context.Context, nodeID uuid.UUID) error {
 		}
 		for _, warning := range page.Warnings {
 			if warning.NodeID == nodeID {
-				return fmt.Errorf("search warnings still list property %s on deleted node %s", warning.PropertyName, nodeID)
+				return fmt.Errorf(
+					"search warnings still list property %s on deleted node %s",
+					warning.PropertyName,
+					nodeID,
+				)
 			}
 		}
 		if page.Done {

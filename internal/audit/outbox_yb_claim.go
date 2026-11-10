@@ -25,26 +25,38 @@ const claimOutboxStatement = `
 // and remaining rows for retry. ClaimBatch returns the committed row count and
 // wraps the publish error.  A transaction error returns zero. A later claim can
 // publish records that Kafka already accepted before the transaction failed.
-func (o *PoolOutbox) ClaimBatch(ctx context.Context, limit int, publish func(context.Context, OutboxRow) error) (int, error) {
+func (o *PoolOutbox) ClaimBatch(
+	ctx context.Context,
+	limit int,
+	publish func(context.Context, OutboxRow) error,
+) (int, error) {
 	published := 0
 	var publishErr error
-	err := pgx.BeginFunc(ctx, o.pool, func(tx pgx.Tx) error {
-		published, publishErr = 0, nil
-		rows, err := readOutboxRows(ctx, tx, claimOutboxStatement, limit)
-		if err != nil {
-			return err
-		}
-		var deleteErr error
-		published, publishErr, deleteErr = publishClaimedRows(ctx, tx, rows, publish)
-		return deleteErr
-	})
+	err := pgx.BeginFunc(
+		ctx,
+		o.pool,
+		func(tx pgx.Tx) error {
+			published, publishErr = 0, nil
+			rows, err := readOutboxRows(ctx, tx, claimOutboxStatement, limit)
+			if err != nil {
+				return err
+			}
+
+			var deleteErr error
+			published, publishErr, deleteErr = publishClaimedRows(ctx, tx, rows, publish)
+
+			return deleteErr
+		},
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.claim_failed", slog.String("err", err.Error()))
 		return 0, fmt.Errorf("claim ops outbox batch: %w", err)
 	}
+
 	if publishErr != nil {
 		return published, fmt.Errorf("publish claimed ops outbox batch: %w", publishErr)
 	}
+
 	return published, nil
 }
 
@@ -53,16 +65,25 @@ func (o *PoolOutbox) ClaimBatch(ctx context.Context, limit int, publish func(con
 // first failure and returns the completed row count, publish error, and
 // database error separately. ClaimBatch commits earlier deletions after a
 // publish error and rolls back after a database error.
-func publishClaimedRows(ctx context.Context, tx pgx.Tx, rows []OutboxRow, publish func(context.Context, OutboxRow) error) (int, error, error) {
+func publishClaimedRows(
+	ctx context.Context,
+	tx pgx.Tx,
+	rows []OutboxRow,
+	publish func(context.Context, OutboxRow) error,
+) (int, error, error) {
 	published := 0
+
 	for _, row := range rows {
 		if publishErr := publish(ctx, row); publishErr != nil {
 			return published, publishErr, nil
 		}
+
 		if err := deletePublishedTx(ctx, tx, row.EventID, rowPublishedReads(ctx, row)); err != nil {
 			return published, nil, err
 		}
+
 		published++
 	}
+
 	return published, nil, nil
 }

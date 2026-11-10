@@ -22,15 +22,28 @@ func TestParentEdgeGuardKeepsCanonicalEdge(t *testing.T) {
 	project := createDeleteFixtureProject(t, env, actor, "GUARD")
 	parent := createDeleteFixtureNode(t, env, actor, project, project, "issue", "Parent issue", nil)
 	child := createDeleteFixtureNode(t, env, actor, parent, project, "issue", "Child issue", nil)
-	redundant := &node.Relationship{OrgID: env.OrgID, SourceID: child, RelationType: node.RelChildOf, TargetID: project}
+	redundant := &node.Relationship{
+		OrgID:        env.OrgID,
+		SourceID:     child,
+		RelationType: node.RelChildOf,
+		TargetID:     project,
+	}
 	if err := env.Stores.Relationships.Add(env.Ctx, redundant); err != nil {
 		t.Fatalf("add redundant parent edge of issue %s: %v", child, err)
 	}
+
 	requireRemovalRefused(t, env, child, parent)
 	requireParentEdges(t, env, child, parent, project)
-	if err := env.Stores.Relationships.Remove(env.Ctx, env.OrgID, child, node.RelChildOf, project); err != nil {
+	if err := env.Stores.Relationships.Remove(
+		env.Ctx,
+		env.OrgID,
+		child,
+		node.RelChildOf,
+		project,
+	); err != nil {
 		t.Fatalf("remove redundant parent edge of issue %s: %v", child, err)
 	}
+
 	requireParentEdges(t, env, child, parent)
 }
 
@@ -41,7 +54,16 @@ func TestParentEdgeGuardRefusesRootTypeCanonicalEdge(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
 	project := createDeleteFixtureProject(t, env, actor, "GUARDROOT")
-	rooted := createDeleteFixtureNode(t, env, actor, project, project, storeGuardRootType(t, env), "Node of a root type", nil)
+	rooted := createDeleteFixtureNode(
+		t,
+		env,
+		actor,
+		project,
+		project,
+		storeGuardRootType(t, env),
+		"Node of a root type",
+		nil,
+	)
 	requireRemovalRefused(t, env, rooted, project)
 	requireParentEdges(t, env, rooted, project)
 }
@@ -55,7 +77,16 @@ func TestParentEdgeGuardRefusesInvalidParentID(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	actor := uuid.Must(uuid.NewV7())
 	project := createDeleteFixtureProject(t, env, actor, "GUARDINVALID")
-	rooted := createDeleteFixtureNode(t, env, actor, project, project, storeGuardRootType(t, env), "Node with an invalid parent", nil)
+	rooted := createDeleteFixtureNode(
+		t,
+		env,
+		actor,
+		project,
+		project,
+		storeGuardRootType(t, env),
+		"Node with an invalid parent",
+		nil,
+	)
 	storeParentID(t, env, rooted, "not a UUID")
 	requireRemovalRefused(t, env, rooted, project)
 	requireParentEdges(t, env, rooted, project)
@@ -66,12 +97,17 @@ func TestParentEdgeGuardRefusesInvalidParentID(t *testing.T) {
 func storeGuardRootType(t *testing.T, env *integration.TestEnv) string {
 	t.Helper()
 	kind := &node.NodeType{
-		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, Name: "guardroot", TypeKey: "guardroot",
-		Slug: "guardroot", PluralSlug: "guardroots",
+		ID:         uuid.Must(uuid.NewV7()),
+		OrgID:      env.OrgID,
+		Name:       "guardroot",
+		TypeKey:    "guardroot",
+		Slug:       "guardroot",
+		PluralSlug: "guardroots",
 	}
 	if err := env.Stores.NodeTypes.Set(env.Ctx, kind); err != nil {
 		t.Fatalf("store node type %s: %v", kind.TypeKey, err)
 	}
+
 	return kind.TypeKey
 }
 
@@ -79,19 +115,39 @@ func requireRemovalRefused(t *testing.T, env *integration.TestEnv, sourceID, tar
 	t.Helper()
 	err := env.Stores.Relationships.Remove(env.Ctx, env.OrgID, sourceID, node.RelChildOf, targetID)
 	if !errors.Is(err, domain.ErrFailedPrecondition) {
-		t.Fatalf("removal of the canonical parent edge from %s to %s returned %v, want a refusal", sourceID, targetID, err)
+		t.Fatalf(
+			"removal of the canonical parent edge from %s to %s returned %v, want a refusal",
+			sourceID,
+			targetID,
+			err,
+		)
 	}
 }
 
-func requireParentEdges(t *testing.T, env *integration.TestEnv, sourceID uuid.UUID, want ...uuid.UUID) {
+func requireParentEdges(
+	t *testing.T,
+	env *integration.TestEnv,
+	sourceID uuid.UUID,
+	want ...uuid.UUID,
+) {
 	t.Helper()
-	edges, err := env.Stores.Relationships.EdgesFrom(env.Ctx, env.OrgID, sourceID, node.RelChildOf, "", 10)
+	edges, err := env.Stores.Relationships.EdgesFrom(
+		env.Ctx,
+		env.OrgID,
+		sourceID,
+		node.RelChildOf,
+		"",
+		10,
+	)
 	if err != nil {
 		t.Fatalf("read child_of edges of %s: %v", sourceID, err)
 	}
+
 	got := slices.Clone(edges.IDs)
 	expected := slices.Clone(want)
-	byText := func(left, right uuid.UUID) int { return strings.Compare(left.String(), right.String()) }
+	byText := func(left, right uuid.UUID) int {
+		return strings.Compare(left.String(), right.String())
+	}
 	slices.SortFunc(got, byText)
 	slices.SortFunc(expected, byText)
 	if !slices.Equal(got, expected) {

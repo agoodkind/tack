@@ -33,13 +33,17 @@ func seedOp(f *cli.Factory) clispec.Operation[seedInput] {
 		Name:     clispec.Name{Canonical: "seed"},
 		Lifetime: clispec.Permanent,
 		Audit: audit.Spec{
-			Verb: string(audit.VerbBootstrapSeed), Mutates: true,
+			Verb:    string(audit.VerbBootstrapSeed),
+			Mutates: true,
 		},
 		Short: "Seed the initial user, org, workspace, and API token",
 		Params: []clispec.Param[seedInput]{
-			clispec.BoolParam("allow-reseed",
+			clispec.BoolParam(
+				"allow-reseed",
 				"Allow seed against a non-empty database; required for re-seeding production",
-				false, func(in *seedInput, v bool) { in.AllowReseed = v }),
+				false,
+				func(in *seedInput, v bool) { in.AllowReseed = v },
+			),
 		},
 		New: func() seedInput { return seedInput{AllowReseed: false} },
 		Run: func(ctx context.Context, in seedInput, sink clispec.ResultSink) error {
@@ -47,15 +51,21 @@ func seedOp(f *cli.Factory) clispec.Operation[seedInput] {
 			if err != nil {
 				return err
 			}
+
 			if nonEmpty && !in.AllowReseed {
-				return errors.New("seed refused: database already contains at least one org; pass --allow-reseed to override (TACK-230, 2026-05-09 parallel-org outage)")
+				return errors.New(
+					"seed refused: database already contains at least one org; pass --allow-reseed to override (TACK-230, 2026-05-09 parallel-org outage)",
+				)
 			}
+
 			if f.Cfg.SeedEmail == "" || f.Cfg.SeedName == "" {
 				return errors.New("seed: SEED_EMAIL and SEED_NAME are both required")
 			}
+
 			if err := execSeed(ctx, f.Cfg); err != nil {
 				return err
 			}
+
 			return sink.WriteText(ctx, "seed complete")
 		},
 	}
@@ -96,6 +106,7 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 		slog.ErrorContext(ctx, "seed.foundationdb_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("seed: foundationdb: %w", err)
 	}
+
 	enableSeedSearchWork(cfg, fdbStores)
 
 	userRepo := postgres.NewUserRepo(pool)
@@ -116,10 +127,12 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 	if memberErr != nil {
 		log.WarnContext(ctx, "seed.list_memberships_failed", "err", memberErr)
 	}
+
 	var knownOrgID uuid.UUID
 	if len(existingOrgIDs) > 0 {
 		knownOrgID = existingOrgIDs[0]
 	}
+
 	orgID, err := ensureSeedOrg(ctx, fdbStores, seeder, cfg, knownOrgID)
 	if err != nil {
 		return err
@@ -130,7 +143,15 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 	}
 
 	// orgID is the parent of the workspace, so it doubles as the lookup orgID.
-	wsID, err := ensureNode(ctx, fdbStores, "workspace", cfg.SeedWorkspaceSlug, cfg.SeedWorkspaceName, orgID, orgID)
+	wsID, err := ensureNode(
+		ctx,
+		fdbStores,
+		"workspace",
+		cfg.SeedWorkspaceSlug,
+		cfg.SeedWorkspaceName,
+		orgID,
+		orgID,
+	)
 	if err != nil {
 		return err
 	}
@@ -143,6 +164,7 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 	}
 
 	log.InfoContext(ctx, "seed.completed", "user_id", u.ID, "org_id", orgID, "workspace_id", wsID)
+
 	return nil
 }
 
@@ -152,24 +174,43 @@ func execSeed(ctx context.Context, cfg *config.Config) error {
 // node. After strict validation activates, CreateAtomic validates the org node
 // against the node type org of that org and refuses it when the type does not
 // exist.
-func ensureSeedOrg(ctx context.Context, s *fdbadapter.Stores, seeder *service.Seeder, cfg *config.Config, knownOrgID uuid.UUID) (uuid.UUID, error) {
+func ensureSeedOrg(
+	ctx context.Context,
+	s *fdbadapter.Stores,
+	seeder *service.Seeder,
+	cfg *config.Config,
+	knownOrgID uuid.UUID,
+) (uuid.UUID, error) {
 	existing, err := findSeedNode(ctx, s, "org", cfg.SeedOrgSlug, knownOrgID)
 	if err != nil {
 		return uuid.Nil, err
 	}
+
 	orgID := existing
 	if orgID == uuid.Nil {
 		orgID = seedNodeID("org", cfg.SeedOrgSlug, uuid.Nil)
 	}
+
 	if err := seeder.SeedOrg(ctx, orgID); err != nil {
 		slog.ErrorContext(ctx, "seed.org_definitions_failed", slog.String("err", err.Error()))
 		return uuid.Nil, fmt.Errorf("seed: seed org definitions: %w", err)
 	}
+
 	if existing != uuid.Nil {
 		return existing, nil
 	}
-	if err := createSeedNode(ctx, s, orgID, "org", cfg.SeedOrgSlug, cfg.SeedOrgName, uuid.Nil); err != nil {
+
+	if err := createSeedNode(
+		ctx,
+		s,
+		orgID,
+		"org",
+		cfg.SeedOrgSlug,
+		cfg.SeedOrgName,
+		uuid.Nil,
+	); err != nil {
 		return uuid.Nil, err
 	}
+
 	return orgID, nil
 }

@@ -29,12 +29,14 @@ func Op(ctx context.Context, name string) func(err *error) {
 // to emitting the Op event.
 func FDBOp(ctx context.Context, name string) func(err *error) {
 	end := trace.Op(ctx, name)
+
 	return func(errp *error) {
 		if errp != nil && *errp != nil {
 			IncFDBTxErr()
 		} else {
 			IncFDBTx()
 		}
+
 		end(errp)
 	}
 }

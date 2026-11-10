@@ -40,7 +40,11 @@ func (s *searchMixedStats) markerFound(lag time.Duration) {
 	s.lags = append(s.lags, lag)
 }
 
-func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int, writeElapsed time.Duration) SearchMixedSummary {
+func (s *searchMixedStats) summary(
+	searches SearchLoadSummary,
+	plannedWrites int,
+	writeElapsed time.Duration,
+) SearchMixedSummary {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	sorted := slices.Clone(s.lags)
@@ -48,30 +52,82 @@ func (s *searchMixedStats) summary(searches SearchLoadSummary, plannedWrites int
 	freshness := SearchMixedFreshness{P50: 0, P95: 0, P99: 0, Max: 0}
 	if len(sorted) > 0 {
 		freshness = SearchMixedFreshness{
-			P50: nearestRank(sorted, searchLoadP50), P95: nearestRank(sorted, searchLoadP95),
-			P99: nearestRank(sorted, searchLoadP99), Max: sorted[len(sorted)-1],
+			P50: nearestRank(sorted, searchLoadP50),
+			P95: nearestRank(sorted, searchLoadP95),
+			P99: nearestRank(sorted, searchLoadP99),
+			Max: sorted[len(sorted)-1],
 		}
 	}
 	return SearchMixedSummary{
-		Search: searches, PlannedWrites: plannedWrites, Creates: s.creates, Edits: s.edits, Deletes: s.deletes,
-		WriteErrors: s.writeErrors, WriteElapsed: writeElapsed, Freshness: freshness,
-		MarkersNotFound: s.markersNotFound, MarkersUnsearched: s.markersUnsearched, DeletedReturned: s.deletedReturned, DeletesUnverified: s.deletesUnverified,
-		ProbeErrors: s.probeErrors, Endpoints: 0, Tenants: 0, Burst: SearchMixedBurst{Planned: 0, Created: 0, Failed: 0, Started: 0, Elapsed: 0},
+		Search:            searches,
+		PlannedWrites:     plannedWrites,
+		Creates:           s.creates,
+		Edits:             s.edits,
+		Deletes:           s.deletes,
+		WriteErrors:       s.writeErrors,
+		WriteElapsed:      writeElapsed,
+		Freshness:         freshness,
+		MarkersNotFound:   s.markersNotFound,
+		MarkersUnsearched: s.markersUnsearched,
+		DeletedReturned:   s.deletedReturned,
+		DeletesUnverified: s.deletesUnverified,
+		ProbeErrors:       s.probeErrors,
+		Endpoints:         0,
+		Tenants:           0,
+		Burst: SearchMixedBurst{
+			Planned: 0,
+			Created: 0,
+			Failed:  0,
+			Started: 0,
+			Elapsed: 0,
+		},
 		Sessions: SearchMixedSessions{
-			Checks: 0, Pages: 0, Replays: 0, Endpoints: 0, Unavailable: 0, ExpiredDuringOutage: 0, ContinuationErrors: 0, MissingCorpusIssues: 0,
-			ReplayMismatches: 0, CrossTenantResults: 0, DeletedNodesReturned: 0,
+			Checks:               0,
+			Pages:                0,
+			Replays:              0,
+			Endpoints:            0,
+			Unavailable:          0,
+			ExpiredDuringOutage:  0,
+			ContinuationErrors:   0,
+			MissingCorpusIssues:  0,
+			ReplayMismatches:     0,
+			CrossTenantResults:   0,
+			DeletedNodesReturned: 0,
 		},
-		Pending: SearchMixedPending{Checks: 0, PendingObserved: 0, Unavailable: 0, DeletedNodesReturned: 0},
+		Pending: SearchMixedPending{
+			Checks:               0,
+			PendingObserved:      0,
+			Unavailable:          0,
+			DeletedNodesReturned: 0,
+		},
 		Revocation: SearchMixedRevocation{
-			Checks: 0, PagesWithinCacheLifetime: 0, ResultsAfterCacheLifetime: 0, Unavailable: 0, RefusedAfter: 0, Refused: false,
+			Checks:                    0,
+			PagesWithinCacheLifetime:  0,
+			ResultsAfterCacheLifetime: 0,
+			Unavailable:               0,
+			RefusedAfter:              0,
+			Refused:                   false,
 		},
-		Rebuild: SearchMixedRebuildResult{Requested: false, TargetIndex: "", Started: 0, Switched: 0, FinalState: ""},
-		CatchUp: SearchMixedCatchUp{Completed: false, Elapsed: 0, DrainedAfter: 0},
-		Samples: []SearchMixedSample{}, Measured: false, SkippedPhases: []string{},
+		Rebuild: SearchMixedRebuildResult{
+			Requested:   false,
+			TargetIndex: "",
+			Started:     0,
+			Switched:    0,
+			FinalState:  "",
+		},
+		CatchUp:       SearchMixedCatchUp{Completed: false, Elapsed: 0, DrainedAfter: 0},
+		Samples:       []SearchMixedSample{},
+		Measured:      false,
+		SkippedPhases: []string{},
 		Changes: SearchMixedChanges{
-			MetadataPlanned: 0, MetadataChanges: s.metadataChanges, MetadataNotFound: s.metadataNotFound,
-			MovesPlanned: 0, Moves: s.moves, MovesUnverified: s.movesUnverified,
-			MetadataAbsentBefore: s.metadataAbsentBefore, MetadataPresentBefore: s.metadataPresentBefore,
+			MetadataPlanned:         0,
+			MetadataChanges:         s.metadataChanges,
+			MetadataNotFound:        s.metadataNotFound,
+			MovesPlanned:            0,
+			Moves:                   s.moves,
+			MovesUnverified:         s.movesUnverified,
+			MetadataAbsentBefore:    s.metadataAbsentBefore,
+			MetadataPresentBefore:   s.metadataPresentBefore,
 			MetadataUncheckedBefore: s.metadataUncheckedBefore,
 		},
 	}

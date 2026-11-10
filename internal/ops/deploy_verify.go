@@ -23,30 +23,43 @@ import (
 // digest when digests is set, and otherwise with the registry digest the
 // daemon records for the expected image tag. It returns the printed lines as
 // the payload and one external target per checked container.
-func runDeployVerify(ctx context.Context, cfg *config.Config, explicitTag string, services []string, digests deployIndexDigests) (audit.OperatorReadOutput, error) {
+func runDeployVerify(
+	ctx context.Context,
+	cfg *config.Config,
+	explicitTag string,
+	services []string,
+	digests deployIndexDigests,
+) (audit.OperatorReadOutput, error) {
 	targets := deployVerifyTargets(cfg, explicitTag, services)
 	cli, err := newDockerClient(ctx)
 	if err != nil {
 		return audit.OperatorReadOutput{}, deployVerifyFailure(ctx, err)
 	}
+
 	defer func() { _ = cli.Close() }()
 
 	replicas, err := serviceReplicas(ctx, cli, cfg.DeployComposeProject, targets)
 	if err != nil {
 		return audit.OperatorReadOutput{}, deployVerifyFailure(ctx, err)
 	}
+
 	var lines []string
 	if digests != nil {
 		lines, err = verifyIndexDigests(ctx, cli, replicas, digests)
 	} else {
 		lines, err = verifyLocalTagDigests(ctx, cli, replicas)
 	}
+
 	if err != nil {
 		return audit.OperatorReadOutput{}, deployVerifyFailure(ctx, err)
 	}
+
 	slog.InfoContext(ctx, "ops.deploy.verify.completed", slog.Int("containers", len(replicas)))
+
 	return audit.OperatorReadOutput{
-		Payload: []byte(strings.Join(lines, "\n")), Format: deployVerifyPayloadFormat, Targets: replicaTargets(replicas),
+		Payload: []byte(strings.Join(lines, "\n")),
+		Format:  deployVerifyPayloadFormat,
+		Targets: replicaTargets(replicas),
 	}, nil
 }
 
@@ -58,34 +71,55 @@ func deployVerifyFailure(ctx context.Context, err error) error {
 
 // verifyLocalTagDigests reads each expected image's registry digest from the
 // daemon and compares it with the digest that each replica runs.
-func verifyLocalTagDigests(ctx context.Context, cli *client.Client, replicas []serviceReplica) ([]string, error) {
+func verifyLocalTagDigests(
+	ctx context.Context,
+	cli *client.Client,
+	replicas []serviceReplica,
+) ([]string, error) {
 	lines := make([]string, 0, len(replicas))
 	for _, replica := range replicas {
-		slog.DebugContext(ctx, "ops.deploy.verify.target",
-			slog.String("container", replica.Container), slog.String("image_ref", replica.Image))
+		slog.DebugContext(
+			ctx,
+			"ops.deploy.verify.target",
+			slog.String("container", replica.Container),
+			slog.String("image_ref", replica.Image),
+		)
 		expected, err := inspectImageDigest(ctx, cli, replica.Image)
 		if err != nil {
 			return nil, err
 		}
+
 		if expected == "" {
-			err := fmt.Errorf("this daemon does not record a registry digest for image %s", replica.Image)
+			err := fmt.Errorf(
+				"this daemon does not record a registry digest for image %s",
+				replica.Image,
+			)
 			slog.ErrorContext(ctx, "ops.deploy.verify.no_expected", slog.String("err", err.Error()))
+
 			return nil, err
 		}
+
 		actual, err := containerImageDigest(ctx, cli, replica.Container)
 		if err != nil {
 			return nil, err
 		}
+
 		if err := compareDigests(replica.Container, expected, actual); err != nil {
-			slog.ErrorContext(ctx, "ops.deploy.verify.mismatch",
+			slog.ErrorContext(
+				ctx,
+				"ops.deploy.verify.mismatch",
 				slog.String("container", replica.Container),
 				slog.String("expected", expected),
 				slog.String("actual", actual),
-				slog.String("err", err.Error()))
+				slog.String("err", err.Error()),
+			)
+
 			return nil, err
 		}
+
 		lines = append(lines, replica.Container+" runs "+replica.Image+" ("+expected+", local tag)")
 	}
+
 	return lines, nil
 }
 
@@ -95,16 +129,23 @@ func verifyLocalTagDigests(ctx context.Context, cli *client.Client, replicas []s
 func inspectImageDigest(ctx context.Context, cli *client.Client, ref string) (string, error) {
 	insp, err := cli.ImageInspect(ctx, ref)
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.deploy.image.inspect_failed",
-			slog.String("ref", ref), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.deploy.image.inspect_failed",
+			slog.String("ref", ref),
+			slog.String("err", err.Error()),
+		)
+
 		return "", fmt.Errorf("inspect %s: %w", ref, err)
 	}
+
 	for _, rd := range insp.RepoDigests {
 		_, after, ok := strings.Cut(rd, "@")
 		if ok {
 			return after, nil
 		}
 	}
+
 	return "", nil
 }
 
@@ -116,30 +157,46 @@ func inspectImageDigest(ctx context.Context, cli *client.Client, ref string) (st
 func containerImageDigest(ctx context.Context, cli *client.Client, name string) (string, error) {
 	insp, err := cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.deploy.verify.container_inspect_failed",
-			slog.String("name", name), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.deploy.verify.container_inspect_failed",
+			slog.String("name", name),
+			slog.String("err", err.Error()),
+		)
+
 		return "", fmt.Errorf("container inspect %s: %w", name, err)
 	}
+
 	imageRef := strings.TrimSpace(insp.Container.Image)
 	if imageRef == "" {
 		return "", fmt.Errorf("container %s has empty image reference", name)
 	}
+
 	if strings.HasPrefix(imageRef, "sha256:") {
 		return imageRef, nil
 	}
+
 	digest, err := inspectImageDigest(ctx, cli, imageRef)
 	if err != nil {
 		return "", err
 	}
+
 	if digest != "" {
 		return digest, nil
 	}
+
 	imgInsp, err := cli.ImageInspect(ctx, imageRef)
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.deploy.verify.image_inspect_failed",
-			slog.String("ref", imageRef), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.deploy.verify.image_inspect_failed",
+			slog.String("ref", imageRef),
+			slog.String("err", err.Error()),
+		)
+
 		return "", fmt.Errorf("image inspect %s: %w", imageRef, err)
 	}
+
 	return imgInsp.ID, nil
 }
 
@@ -150,15 +207,23 @@ func compareDigests(container, expected, actual string) error {
 	exp := normalizeDigest(expected)
 	act := normalizeDigest(actual)
 	if exp == "" || act == "" {
-		return fmt.Errorf("deploy verify: empty digest (container=%s expected=%q actual=%q)",
-			container, expected, actual)
+		return fmt.Errorf(
+			"deploy verify: empty digest (container=%s expected=%q actual=%q)",
+			container,
+			expected,
+			actual,
+		)
 	}
+
 	if exp != act {
 		return fmt.Errorf(
 			"deploy verify: digest mismatch on %s (expected=%s actual=%s)",
-			container, expected, actual,
+			container,
+			expected,
+			actual,
 		)
 	}
+
 	return nil
 }
 
@@ -170,12 +235,15 @@ func normalizeDigest(d string) string {
 	if d == "" {
 		return ""
 	}
+
 	if i := strings.LastIndex(d, "@"); i >= 0 {
 		d = d[i+1:]
 	}
+
 	_, after, ok := strings.Cut(d, ":")
 	if ok {
 		return strings.ToLower(after)
 	}
+
 	return strings.ToLower(d)
 }

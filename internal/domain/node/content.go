@@ -49,6 +49,7 @@ func extractProjectedLeaves(raw json.RawMessage, rule TextRule) ([]string, error
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, invalidValueError{message: "the value is not valid JSON"}
 	}
+
 	return extractRuleLeaves(value, rule)
 }
 
@@ -72,18 +73,21 @@ func scalarLeaf(raw json.RawMessage) ([]string, error) {
 	if len(trimmed) == 0 {
 		return nil, invalidValueError{message: "the scalar value is empty"}
 	}
+
 	switch trimmed[0] {
 	case '"':
 		var scalar string
 		if err := json.Unmarshal(trimmed, &scalar); err != nil {
 			return nil, invalidValueError{message: "the value is not a string"}
 		}
+
 		return []string{scalar}, nil
 	case 't', 'f':
 		var scalar bool
 		if err := json.Unmarshal(trimmed, &scalar); err != nil {
 			return nil, invalidValueError{message: "the value is not a boolean"}
 		}
+
 		return []string{strconv.FormatBool(scalar)}, nil
 	case 'n':
 		return nil, invalidValueError{message: "the value is null"}
@@ -92,6 +96,7 @@ func scalarLeaf(raw json.RawMessage) ([]string, error) {
 		if err := json.Unmarshal(trimmed, &scalar); err != nil {
 			return nil, invalidValueError{message: "the value is not a scalar"}
 		}
+
 		return []string{scalar.String()}, nil
 	}
 }
@@ -101,14 +106,18 @@ func itemLeaves(raw json.RawMessage, rule TextRule) ([]string, error) {
 	if err := json.Unmarshal(raw, &items); err != nil || items == nil {
 		return nil, invalidValueError{message: "the value is not a list"}
 	}
+
 	var leaves []string
+
 	for _, item := range items {
 		itemLeaves, err := extractRuleLeaves(item, *rule.Items)
 		if err != nil {
 			return nil, err
 		}
+
 		leaves = append(leaves, itemLeaves...)
 	}
+
 	return leaves, nil
 }
 
@@ -117,28 +126,37 @@ func objectLeaves(raw json.RawMessage, rule TextRule) ([]string, error) {
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		return nil, invalidValueError{message: "the value is not an object"}
 	}
+
 	declared := make(map[string]TextRule, len(rule.Fields))
 	for _, field := range rule.Fields {
 		declared[field.Key] = field.Rule
 	}
+
 	for key := range fields {
 		if _, exists := declared[key]; !exists {
-			return nil, invalidValueError{message: "the object contains a field outside the text rule's declaration"}
+			return nil, invalidValueError{
+				message: "the object contains a field outside the text rule's declaration",
+			}
 		}
 	}
+
 	orderedKeys := make([]string, 0, len(fields))
 	for key := range fields {
 		orderedKeys = append(orderedKeys, key)
 	}
+
 	sort.Strings(orderedKeys)
 	var leaves []string
+
 	for _, key := range orderedKeys {
 		fieldLeaves, err := extractRuleLeaves(fields[key], declared[key])
 		if err != nil {
 			return nil, err
 		}
+
 		leaves = append(leaves, fieldLeaves...)
 	}
+
 	return leaves, nil
 }
 
@@ -147,9 +165,13 @@ func labelLeaf(raw json.RawMessage, rule TextRule) ([]string, error) {
 	if err := json.Unmarshal(raw, &label); err != nil {
 		return nil, invalidValueError{message: "the label value is not a string"}
 	}
+
 	value, exists := rule.Labels[label]
 	if !exists {
-		return nil, invalidValueError{message: "the text rule does not declare a label for the value"}
+		return nil, invalidValueError{
+			message: "the text rule does not declare a label for the value",
+		}
 	}
+
 	return []string{value}, nil
 }

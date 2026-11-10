@@ -84,11 +84,17 @@ func (m *searchMixed) moveIssue(ctx context.Context) bool {
 	}
 	projectID := m.changes.destinations[pinned.tenant].projectID
 	target := json.RawMessage(strconv.Quote(projectID.String()))
-	_, err := m.changes.nodes.Update(ctx, service.UpdateInput{
-		NodeID: pinned.id, Name: nil, Props: map[string]json.RawMessage{"parent_id": target},
-		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-		ActorID:             m.tenants[pinned.tenant].workspace.Actors[0].UserID, ScopeID: projectID,
-	})
+	_, err := m.changes.nodes.Update(
+		ctx,
+		service.UpdateInput{
+			NodeID:              pinned.id,
+			Name:                nil,
+			Props:               map[string]json.RawMessage{"parent_id": target},
+			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
+			ActorID:             m.tenants[pinned.tenant].workspace.Actors[0].UserID,
+			ScopeID:             projectID,
+		},
+	)
 	if err != nil {
 		m.writeFailed(ctx, "qa.datagen.search_mixed_move_failed", err)
 		return true
@@ -96,7 +102,10 @@ func (m *searchMixed) moveIssue(ctx context.Context) bool {
 	m.stats.count(&m.stats.moves)
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	m.markers = slices.DeleteFunc(m.markers, func(entry searchMixedMarker) bool { return entry.node == pinned })
+	m.markers = slices.DeleteFunc(
+		m.markers,
+		func(entry searchMixedMarker) bool { return entry.node == pinned },
+	)
 	m.moveChecks = append(m.moveChecks, searchMixedCheck{node: pinned, marker: marker})
 	return true
 }
@@ -129,7 +138,10 @@ func (m *searchMixed) probeMetadata(ctx context.Context, tick int) {
 	}
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	m.metadataChecks = slices.DeleteFunc(m.metadataChecks, func(entry searchMixedCheck) bool { return found[entry.node] })
+	m.metadataChecks = slices.DeleteFunc(
+		m.metadataChecks,
+		func(entry searchMixedCheck) bool { return found[entry.node] },
+	)
 }
 
 // pageTextContains reports whether any page text in texts contains value.
@@ -151,7 +163,12 @@ func (m *searchMixed) probeMoves(ctx context.Context, tick int) {
 	m.probeMutex.Unlock()
 	verified := make(map[*searchMixedNode]bool)
 	for _, entry := range pending {
-		moved, err := m.probeReturns(ctx, tick, entry, m.changes.destinations[entry.node.tenant].entry)
+		moved, err := m.probeReturns(
+			ctx,
+			tick,
+			entry,
+			m.changes.destinations[entry.node.tenant].entry,
+		)
 		if err != nil || !moved {
 			continue
 		}
@@ -163,12 +180,20 @@ func (m *searchMixed) probeMoves(ctx context.Context, tick int) {
 	}
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	m.moveChecks = slices.DeleteFunc(m.moveChecks, func(entry searchMixedCheck) bool { return verified[entry.node] })
+	m.moveChecks = slices.DeleteFunc(
+		m.moveChecks,
+		func(entry searchMixedCheck) bool { return verified[entry.node] },
+	)
 }
 
 // probeReturns searches for the check marker under workspace entry as the issue's tenant.
 // It reports whether the first page returns the issue. It counts failed searches as probe errors.
-func (m *searchMixed) probeReturns(ctx context.Context, tick int, check searchMixedCheck, entry string) (bool, error) {
+func (m *searchMixed) probeReturns(
+	ctx context.Context,
+	tick int,
+	check searchMixedCheck,
+	entry string,
+) (bool, error) {
 	tenant := m.tenants[check.node.tenant]
 	driver := m.driver(tick + check.node.ordinal)
 	identities := m.titleFixture(check.node.tenant).identities(driver, tenant.token(), entry)

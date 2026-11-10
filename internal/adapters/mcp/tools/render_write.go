@@ -24,7 +24,12 @@ const (
 // maxChangeLines lines from describeFieldChanges and Raw id last. If it omits lines,
 // it adds one More line with their count and tack_get_<type>. A node without a distinct
 // reference, such as a comment, prints its name once, shortened, in the heading.
-func renderWriteConfirmation(rc *renderCtx, verb string, view *node.NodeView, changes fieldChanges) string {
+func renderWriteConfirmation(
+	rc *renderCtx,
+	verb string,
+	view *node.NodeView,
+	changes fieldChanges,
+) string {
 	nodeType := strings.ToLower(view.NodeType)
 	reference := identifierFor(view, rc)
 	fields := make([]markdownField, 0, 5)
@@ -33,30 +38,41 @@ func renderWriteConfirmation(rc *renderCtx, verb string, view *node.NodeView, ch
 		heading = fmt.Sprintf("%s %s: %s", verb, nodeType, truncateName(view.Name))
 	} else {
 		heading = fmt.Sprintf("%s %s `%s`", verb, nodeType, reference)
-		fields = append(fields,
+		fields = append(
+			fields,
 			markdownCodeFieldValue("Reference", reference),
 			markdownFieldValue("Name", truncateName(view.Name)),
 		)
 	}
+
 	fields = append(fields, markdownCodeFieldValue("Type", view.NodeType))
 	rawID := markdownCodeFieldValue("Raw id", view.ID.String())
 	shown := len(changes.Shown)
+
 	for {
 		hidden := moreChangesField(rc, view, changes.Total-shown)
 		text := renderConfirmationFields(heading, fields, changes.Shown[:shown], hidden, rawID)
 		if len(text) <= maxConfirmationBytes || shown == 0 {
 			return text
 		}
+
 		shown--
 	}
 }
 
-func renderConfirmationFields(heading string, fields, shown, more []markdownField, rawID markdownField) string {
+func renderConfirmationFields(
+	heading string,
+	fields []markdownField,
+	shown []markdownField,
+	more []markdownField,
+	rawID markdownField,
+) string {
 	all := make([]markdownField, 0, len(fields)+len(shown)+len(more)+1)
 	all = append(all, fields...)
 	all = append(all, shown...)
 	all = append(all, more...)
 	all = append(all, rawID)
+
 	return executeMarkdownTemplate("node.md.tmpl", nodeTemplateData{Heading: heading, Fields: all})
 }
 
@@ -64,15 +80,24 @@ func moreChangesField(rc *renderCtx, view *node.NodeView, hidden int) []markdown
 	if hidden <= 0 {
 		return nil
 	}
+
 	slug := strings.ToLower(view.NodeType)
 	if nodeType := rc.typeIndex[view.NodeType]; nodeType != nil {
 		slug = strings.ToLower(nodeType.Slug)
 	}
+
 	noun := "fields"
 	if hidden == 1 {
 		noun = "field"
 	}
-	value := fmt.Sprintf("the request covered %d more %s, and `tack_get_%s` returns the full node", hidden, noun, slug)
+
+	value := fmt.Sprintf(
+		"the request covered %d more %s, and `tack_get_%s` returns the full node",
+		hidden,
+		noun,
+		slug,
+	)
+
 	return []markdownField{{Label: "More", Value: value}}
 }
 
@@ -89,10 +114,12 @@ func shortenText(text string, limit int) string {
 	if len(text) <= limit {
 		return text
 	}
+
 	keep := limit
 	for keep > 0 && !utf8.RuneStart(text[keep]) {
 		keep--
 	}
+
 	return text[:keep] + truncatedNameSuffix
 }
 
@@ -104,9 +131,11 @@ func shortenTextStart(text string, limit int) string {
 	if len(text) <= limit {
 		return text
 	}
+
 	keep := len(text) - limit
 	for keep < len(text) && !utf8.RuneStart(text[keep]) {
 		keep++
 	}
+
 	return truncatedNameSuffix + text[keep:]
 }

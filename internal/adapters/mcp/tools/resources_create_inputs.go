@@ -19,31 +19,41 @@ type createInputParam struct {
 
 func createInputRows(resolver *Resolver, nodeTypes []*node.NodeType) []createInputTemplateRow {
 	var rows []createInputTemplateRow
+
 	for _, nodeType := range nodeTypes {
 		if nodeType.Features.Has(node.FeatureExcludeFromGenericTools) {
 			continue
 		}
+
 		if _, ok := opSet(nodeType.AllowedOps)[node.OpCreate]; !ok {
 			continue
 		}
+
 		route := resolver.ScopeRouteForType(nodeType)
 		required := []createInputParam{
 			{Name: resolver.EntryPointParamName(), Example: ""},
 			{Name: "name", Example: ""},
 		}
+
 		for _, level := range requiredScopeLevels(route) {
 			required = append(required, scopeInputParam(resolver, level))
 		}
+
 		alternatives := make([]createInputParam, 0, len(route.Leaves))
 		for _, leaf := range route.Leaves {
 			alternatives = append(alternatives, scopeInputParam(resolver, leaf.Level))
 		}
-		rows = append(rows, createInputTemplateRow{
-			Tool:         "tack_create_" + strings.ToLower(nodeType.Slug),
-			Required:     required,
-			Alternatives: alternatives,
-		})
+
+		rows = append(
+			rows,
+			createInputTemplateRow{
+				Tool:         "tack_create_" + strings.ToLower(nodeType.Slug),
+				Required:     required,
+				Alternatives: alternatives,
+			},
+		)
 	}
+
 	return rows
 }
 
@@ -54,6 +64,7 @@ func requiredScopeLevels(route scopeRoute) []ScopeLevel {
 	if len(route.Leaves) > 0 {
 		candidates = route.Leaves[0].Chain
 	}
+
 	for _, level := range candidates {
 		for _, name := range requiredNames {
 			if level.ParamName == name {
@@ -61,6 +72,7 @@ func requiredScopeLevels(route scopeRoute) []ScopeLevel {
 			}
 		}
 	}
+
 	return levels
 }
 

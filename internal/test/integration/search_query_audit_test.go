@@ -25,38 +25,64 @@ func harnessOutbox(t *testing.T, clusterFile string) *fdbadapter.OpsOutboxStore 
 	if err != nil {
 		t.Fatalf("the test could not open the FoundationDB outbox: %v", err)
 	}
+
 	return stores.OpsOutbox
 }
 
 // requireSearchAuditInvocation waits until the FoundationDB outbox contains
 // exactly one completed node.search read event for requestID in the harness
 // organization.
-func requireSearchAuditInvocation(parent context.Context, harness *MCPHarness, requestID string) error {
+func requireSearchAuditInvocation(
+	parent context.Context,
+	harness *MCPHarness,
+	requestID string,
+) error {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
+
 	for {
 		events, err := harnessReadEvents(ctx, harness, requestID)
 		if err != nil {
 			return err
 		}
+
 		if len(events) > 1 {
-			return fmt.Errorf("expected one read event for search request %s, got %d", requestID, len(events))
+			return fmt.Errorf(
+				"expected one read event for search request %s, got %d",
+				requestID,
+				len(events),
+			)
 		}
+
 		if len(events) == 1 {
 			event := events[0]
-			if event.Verb != string(audit.VerbNodeSearch) || event.Outcome != audit.OutcomeCompleted ||
+			if event.Verb != string(audit.VerbNodeSearch) ||
+				event.Outcome != audit.OutcomeCompleted ||
 				event.Context.OrgID != harness.orgID {
-				return fmt.Errorf("search request %s has read event %s %s in organization %s; expected %s %s in organization %s",
-					requestID, event.Verb, event.Outcome, event.Context.OrgID,
-					audit.VerbNodeSearch, audit.OutcomeCompleted, harness.orgID)
+				return fmt.Errorf(
+					"search request %s has read event %s %s in organization %s; expected %s %s in organization %s",
+					requestID,
+					event.Verb,
+					event.Outcome,
+					event.Context.OrgID,
+					audit.VerbNodeSearch,
+					audit.OutcomeCompleted,
+					harness.orgID,
+				)
 			}
+
 			return nil
 		}
+
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait for the read event for search request %s: %w", requestID, ctx.Err())
+			return fmt.Errorf(
+				"wait for the read event for search request %s: %w",
+				requestID,
+				ctx.Err(),
+			)
 		case <-ticker.C:
 		}
 	}
@@ -76,30 +102,51 @@ type harnessReadScan struct {
 
 // harnessReadEvents returns read events with requestID from the FoundationDB
 // outbox. It reads the entries after the last entry that it read.
-func harnessReadEvents(ctx context.Context, harness *MCPHarness, requestID string) ([]audit.Event, error) {
+func harnessReadEvents(
+	ctx context.Context,
+	harness *MCPHarness,
+	requestID string,
+) ([]audit.Event, error) {
 	if harness.outbox == nil {
-		return nil, fmt.Errorf("test harness for %s does not have a FoundationDB outbox reader", requestID)
+		return nil, fmt.Errorf(
+			"test harness for %s does not have a FoundationDB outbox reader",
+			requestID,
+		)
 	}
-	stored, _ := harnessReadScans.LoadOrStore(harness.outbox, &harnessReadScan{
-		mutex: sync.Mutex{}, mark: nil, envelopes: map[string][]byte{}, reads: map[string][]audit.Event{},
-	})
+
+	stored, _ := harnessReadScans.LoadOrStore(
+		harness.outbox,
+		&harnessReadScan{
+			mutex:     sync.Mutex{},
+			mark:      nil,
+			envelopes: map[string][]byte{},
+			reads:     map[string][]audit.Event{},
+		},
+	)
 	scan, _ := stored.(*harnessReadScan)
 	scan.mutex.Lock()
 	defer scan.mutex.Unlock()
+
 	for {
 		entries, err := harness.outbox.ReadOutboxFrom(ctx, scan.mark, searchAuditPageSize)
 		if err != nil {
 			return nil, fmt.Errorf("read the FoundationDB outbox: %w", err)
 		}
+
 		for _, entry := range entries {
 			event, decoded := decodeOutboxEvent(entry.Event, scan.envelopes)
 			if decoded && event.Context.OperationClass == audit.OperationRead {
-				scan.reads[event.Context.RequestID] = append(scan.reads[event.Context.RequestID], event)
+				scan.reads[event.Context.RequestID] = append(
+					scan.reads[event.Context.RequestID],
+					event,
+				)
 			}
 		}
+
 		if len(entries) > 0 {
 			scan.mark = entries[len(entries)-1].Mark
 		}
+
 		if len(entries) < searchAuditPageSize {
 			return slices.Clone(scan.reads[requestID]), nil
 		}
@@ -108,35 +155,59 @@ func harnessReadEvents(ctx context.Context, harness *MCPHarness, requestID strin
 
 // harnessOutboxEvents returns events of class with requestID from the
 // FoundationDB outbox.
-func harnessOutboxEvents(ctx context.Context, harness *MCPHarness, requestID string, class audit.OperationClass) ([]audit.Event, error) {
-	return harnessOutboxMatching(ctx, harness, requestID, func(event audit.Event) bool {
-		return event.Context.RequestID == requestID && event.Context.OperationClass == class
-	})
+func harnessOutboxEvents(
+	ctx context.Context,
+	harness *MCPHarness,
+	requestID string,
+	class audit.OperationClass,
+) ([]audit.Event, error) {
+	return harnessOutboxMatching(
+		ctx,
+		harness,
+		requestID,
+		func(event audit.Event) bool {
+			return event.Context.RequestID == requestID && event.Context.OperationClass == class
+		},
+	)
 }
 
 // harnessOutboxMatching returns the FoundationDB outbox events that match
 // accepts. It joins the parts of each multipart event before decoding the
 // event. label identifies the request or tool in errors.
-func harnessOutboxMatching(ctx context.Context, harness *MCPHarness, label string, accepts func(audit.Event) bool) ([]audit.Event, error) {
+func harnessOutboxMatching(
+	ctx context.Context,
+	harness *MCPHarness,
+	label string,
+	accepts func(audit.Event) bool,
+) ([]audit.Event, error) {
 	if harness.outbox == nil {
-		return nil, fmt.Errorf("test harness for %s does not have a FoundationDB outbox reader", label)
+		return nil, fmt.Errorf(
+			"test harness for %s does not have a FoundationDB outbox reader",
+			label,
+		)
 	}
+
 	envelopes := map[string][]byte{}
 	var events []audit.Event
 	var mark []byte
+
 	for {
 		entries, err := harness.outbox.ReadOutboxFrom(ctx, mark, searchAuditPageSize)
 		if err != nil {
 			return nil, fmt.Errorf("read the FoundationDB outbox: %w", err)
 		}
+
 		for _, entry := range entries {
-			if event, decoded := decodeOutboxEvent(entry.Event, envelopes); decoded && accepts(event) {
+			if event, decoded := decodeOutboxEvent(entry.Event, envelopes); decoded &&
+				accepts(event) {
 				events = append(events, event)
 			}
 		}
+
 		if len(entries) < searchAuditPageSize {
 			return events, nil
 		}
+
 		mark = entries[len(entries)-1].Mark
 	}
 }
@@ -153,6 +224,7 @@ func decodeOutboxEvent(entry []byte, envelopes map[string][]byte) (audit.Event, 
 	if json.Unmarshal(entry, &record) != nil {
 		return event, false
 	}
+
 	switch record.Message {
 	case "":
 		return event, json.Unmarshal(entry, &event) == nil
@@ -165,6 +237,7 @@ func decodeOutboxEvent(entry []byte, envelopes map[string][]byte) (audit.Event, 
 		}
 		decoded := json.Unmarshal(envelopes[record.EventID], &envelope) == nil
 		delete(envelopes, record.EventID)
+
 		return envelope.Event, decoded
 	}
 }

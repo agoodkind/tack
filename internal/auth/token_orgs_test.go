@@ -23,15 +23,21 @@ type tokenOrgsStore struct {
 func (s *tokenOrgsStore) Validate(context.Context, string) (*token.Token, error) {
 	s.reads.Add(1)
 	copied := *s.record
+
 	return &copied, nil
 }
 
-func (s *tokenOrgsStore) ValidateWithOrgs(_ context.Context, raw string) (*token.Token, []uuid.UUID, error) {
+func (s *tokenOrgsStore) ValidateWithOrgs(
+	_ context.Context,
+	raw string,
+) (*token.Token, []uuid.UUID, error) {
 	s.reads.Add(1)
 	if raw != "tack_cold" {
 		return nil, nil, domain.ErrUnauthenticated
 	}
+
 	copied := *s.record
+
 	return &copied, append([]uuid.UUID(nil), s.orgIDs...), nil
 }
 
@@ -55,10 +61,16 @@ func TestColdRequestCostsOneLedgerRead(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
+
 	if reads := store.reads.Load() + members.reads.Load(); reads != 1 {
-		t.Fatalf("a cold request made %d ledger reads (token %d, membership %d), want 1",
-			reads, store.reads.Load(), members.reads.Load())
+		t.Fatalf(
+			"a cold request made %d ledger reads (token %d, membership %d), want 1",
+			reads,
+			store.reads.Load(),
+			members.reads.Load(),
+		)
 	}
+
 	if ev.Context.OrgID != orgID {
 		t.Fatalf("token_used org = %s, want %s", ev.Context.OrgID, orgID)
 	}
@@ -73,9 +85,14 @@ func TestColdRefusalCachesNoMembership(t *testing.T) {
 	cachedTokens := NewCachedTokenValidator(store, time.Minute, 16)
 	cachedTokens.PrimeMembers(cachedMembers)
 
-	if _, status := driveAuth(t, bearerFor(cachedTokens, cachedMembers), "tack_unknown"); status != http.StatusUnauthorized {
+	if _, status := driveAuth(
+		t,
+		bearerFor(cachedTokens, cachedMembers),
+		"tack_unknown",
+	); status != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", status)
 	}
+
 	cachedMembers.cache.mu.Lock()
 	held := cachedMembers.cache.order.Len()
 	cachedMembers.cache.mu.Unlock()

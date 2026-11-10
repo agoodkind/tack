@@ -25,13 +25,15 @@ const (
 )
 
 // searchResponseLine matches the permitted lines of a tack_search page.
-var searchResponseLine = regexp.MustCompile("^(#### Search results|" +
-	"|[0-9]+ results shown\\." +
-	"|- `[^`]+`" +
-	"|  - Name: .+" +
-	"|  - (Type|State|Priority): `[^`]+`" +
-	"|  - Assigned: .+" +
-	"|More results exist\\. Next cursor: `[^`]+`)$")
+var searchResponseLine = regexp.MustCompile(
+	"^(#### Search results|" +
+		"|[0-9]+ results shown\\." +
+		"|- `[^`]+`" +
+		"|  - Name: .+" +
+		"|  - (Type|State|Priority): `[^`]+`" +
+		"|  - Assigned: .+" +
+		"|More results exist\\. Next cursor: `[^`]+`)$",
+)
 
 // searchResponseCountKeys lists JSON keys for a count value. The response
 // body must contain none of them.
@@ -43,14 +45,22 @@ func rawSearchBody(t *testing.T, harness *MCPHarness, arguments map[string]any) 
 	t.Helper()
 	requestID := uuid.NewString()
 	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0", "id": requestID, "method": "tools/call",
-		"params": map[string]any{"name": "tack_search", "arguments": arguments},
+		"jsonrpc": "2.0",
+		"id":      requestID,
+		"method":  "tools/call",
+		"params":  map[string]any{"name": "tack_search", "arguments": arguments},
 	})
 	if err != nil {
 		t.Fatalf("encode search request: %v", err)
 	}
+
 	requestContext := telemetry.WithRequestMetadata(context.Background(), requestID)
-	request := httptest.NewRequestWithContext(requestContext, http.MethodPost, "/mcp", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(
+		requestContext,
+		http.MethodPost,
+		"/mcp",
+		bytes.NewReader(body),
+	)
 	request.Header.Set(telemetry.RequestIDHeader, requestID)
 	request.Header.Set("Authorization", "Bearer "+harness.token)
 	request.Header.Set("Content-Type", "application/json")
@@ -63,21 +73,25 @@ func rawSearchBody(t *testing.T, harness *MCPHarness, arguments map[string]any) 
 	if err != nil || response.StatusCode != http.StatusOK {
 		t.Fatalf("search HTTP status %d: %v %s", response.StatusCode, err, whole)
 	}
+
 	payload := whole
 	for _, line := range bytes.Split(whole, []byte("\n")) {
 		if bytes.HasPrefix(line, []byte("data: ")) {
 			payload = bytes.TrimPrefix(line, []byte("data: "))
 		}
 	}
+
 	var decoded struct {
 		Result rawToolResult `json:"result"`
 	}
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		t.Fatalf("decode search response: %v", err)
 	}
+
 	if decoded.Result.IsError {
 		t.Fatalf("search returned an error: %s", toolResultText(decoded.Result))
 	}
+
 	return whole, toolResultText(decoded.Result)
 }
 
@@ -91,63 +105,119 @@ func TestSearchResponseOmitsForeignOrganization(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	caller, foreign := fixture.Workspaces[0], otherOrganization(t, fixture)
 	callerEntry, foreignEntry := entryPoint(t, fixture, caller), entryPoint(t, fixture, foreign)
-	callerKind, foreignKind := putOpaqueKind(t, fixture, caller.OrgID), putOpaqueKind(t, fixture, foreign.OrgID)
+	callerKind, foreignKind := putOpaqueKind(t, fixture, caller.OrgID), putOpaqueKind(
+		t,
+		fixture,
+		foreign.OrgID,
+	)
 	own := make([]uuid.UUID, 0, 30)
+
 	for number := range 30 {
-		own = append(own, putOpaqueNode(t, fixture, callerKind, callerEntry,
-			fmt.Sprintf("Harbor lantern %d", number), "harbor lantern notes", "excluded"))
+		own = append(
+			own,
+			putOpaqueNode(
+				t,
+				fixture,
+				callerKind,
+				callerEntry,
+				fmt.Sprintf("Harbor lantern %d", number),
+				"harbor lantern notes",
+				"excluded",
+			),
+		)
 	}
+
 	strong := strings.Repeat("Harbor lantern "+foreignMarker+" harbor lantern. ", 3)
 	foreignIDs := make([]uuid.UUID, 0, 40)
+
 	for number := range 40 {
-		foreignIDs = append(foreignIDs, putOpaqueNode(t, fixture, foreignKind, foreignEntry,
-			fmt.Sprintf("Zephyrine harbor lantern %d", number), strong, "excluded"))
+		foreignIDs = append(
+			foreignIDs,
+			putOpaqueNode(
+				t,
+				fixture,
+				foreignKind,
+				foreignEntry,
+				fmt.Sprintf("Zephyrine harbor lantern %d", number),
+				strong,
+				"excluded",
+			),
+		)
 	}
+
 	drainSearchWork(t, fixture.Worker, 2000)
 
 	forbidden := []string{foreignMarker, foreign.OrgID.String(), foreignEntry.String()}
+
 	for _, id := range foreignIDs {
 		forbidden = append(forbidden, id.String())
 	}
+
 	forbidden = append(forbidden, searchResponseCountKeys...)
-	requireCorpusOnce(t, callerTraversalWithoutForeign(t, fixture.Harness, forbidden), own, callerEntry)
+	requireCorpusOnce(
+		t,
+		callerTraversalWithoutForeign(t, fixture.Harness, forbidden),
+		own,
+		callerEntry,
+	)
 
 	// The foreign caller runs after the caller traversal: it proves the
 	// foreign nodes are indexed, and the body checks above run first.
 	foreignCaller := actorHarness(fixture, foreign, 0)
-	requireCorpusOnce(t, callEverySearchPage(t, responseIsolationQuery, foreignCaller).IDs, foreignIDs, foreignEntry)
+	requireCorpusOnce(
+		t,
+		callEverySearchPage(t, responseIsolationQuery, foreignCaller).IDs,
+		foreignIDs,
+		foreignEntry,
+	)
 }
 
 // callerTraversalWithoutForeign reads every search page and rejects response
 // bodies that contain a value from forbidden or tool text outside the page
 // grammar. It resolves result IDs through the harness identities.
-func callerTraversalWithoutForeign(t *testing.T, harness *MCPHarness, forbidden []string) []uuid.UUID {
+func callerTraversalWithoutForeign(
+	t *testing.T,
+	harness *MCPHarness,
+	forbidden []string,
+) []uuid.UUID {
 	t.Helper()
 	var seen []uuid.UUID
 	cursor := ""
+
 	for pageNumber := range 100 {
-		whole, text := rawSearchBody(t, harness, searchArguments(harness, responseIsolationQuery, cursor))
+		whole, text := rawSearchBody(
+			t,
+			harness,
+			searchArguments(harness, responseIsolationQuery, cursor),
+		)
 		lowered := strings.ToLower(string(whole))
+
 		for _, value := range forbidden {
 			if strings.Contains(lowered, strings.ToLower(value)) {
 				t.Fatalf("page %d response body contains %q:\n%s", pageNumber, value, whole)
 			}
 		}
+
 		for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
 			if !searchResponseLine.MatchString(line) {
 				t.Fatalf("page %d contains a line outside the page grammar: %q", pageNumber, line)
 			}
 		}
+
 		page, err := parseSearchPage(t.Context(), text, harness.searchIdentities())
 		if err != nil {
 			t.Fatalf("parse page %d: %v", pageNumber, err)
 		}
+
 		seen = append(seen, page.IDs...)
 		if page.Complete {
 			return seen
 		}
+
 		cursor = page.Cursor
 	}
+
 	t.Fatal("the caller's search did not complete within 100 pages")
+
 	return nil
 }

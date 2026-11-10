@@ -51,11 +51,21 @@ func definitionContribution(ctx context.Context, definition *node.PropertyDef) (
 	if definition == nil {
 		return nil, nil
 	}
-	return hashContribution(ctx, "property definition "+definition.ID.String(), definitionContributionInput{
-		Kind: contributionDefinition, ID: definition.ID, Name: definition.Name, Type: definition.Type,
-		Options: definition.Options, AppliesToFeatures: sortedCopy(definition.AppliesToFeatures),
-		ReferenceTargetTypeKey: definition.ReferenceTargetTypeKey, Search: definition.Search,
-	})
+
+	return hashContribution(
+		ctx,
+		"property definition "+definition.ID.String(),
+		definitionContributionInput{
+			Kind:                   contributionDefinition,
+			ID:                     definition.ID,
+			Name:                   definition.Name,
+			Type:                   definition.Type,
+			Options:                definition.Options,
+			AppliesToFeatures:      sortedCopy(definition.AppliesToFeatures),
+			ReferenceTargetTypeKey: definition.ReferenceTargetTypeKey,
+			Search:                 definition.Search,
+		},
+	)
 }
 
 // typeContribution hashes kind's inputs for property applicability.
@@ -64,27 +74,47 @@ func typeContribution(ctx context.Context, kind *node.NodeType) ([]byte, error) 
 	if kind == nil {
 		return nil, nil
 	}
-	return hashContribution(ctx, "node type "+kind.ID.String(), typeContributionInput{
-		Kind: contributionType, ID: kind.ID, TypeKey: kind.TypeKey, Features: sortedCopy(kind.Features),
-	})
+
+	return hashContribution(
+		ctx,
+		"node type "+kind.ID.String(),
+		typeContributionInput{
+			Kind:     contributionType,
+			ID:       kind.ID,
+			TypeKey:  kind.TypeKey,
+			Features: sortedCopy(kind.Features),
+		},
+	)
 }
 
-func hashContribution[Input definitionContributionInput | typeContributionInput](ctx context.Context, subject string, input Input) ([]byte, error) {
+func hashContribution[Input definitionContributionInput | typeContributionInput](
+	ctx context.Context,
+	subject string,
+	input Input,
+) ([]byte, error) {
 	encoded, err := json.Marshal(input)
 	if err != nil {
 		return nil, searchReadFailure(ctx, "encode projection contribution of "+subject, err)
 	}
+
 	sum := sha256.Sum256(encoded)
+
 	return sum[:], nil
 }
 
 // replaceContribution subtracts previous from the hex digest and adds next
 // modulo 2^256. It treats a nil contribution or an empty digest as zero.
-func replaceContribution(ctx context.Context, digest string, previous, next []byte) (string, error) {
+func replaceContribution(
+	ctx context.Context,
+	digest string,
+	previous []byte,
+	next []byte,
+) (string, error) {
 	stored, err := hex.DecodeString(digest)
 	if err != nil {
 		return "", searchReadFailure(ctx, "decode projection digest", err)
 	}
+
 	return hex.EncodeToString(sumContributions(stored, previous, next)), nil
 }
 
@@ -95,15 +125,19 @@ func sumContributions(stored, previous, next []byte) []byte {
 	if previous != nil {
 		sum.Sub(sum, new(big.Int).SetBytes(previous))
 	}
+
 	if next != nil {
 		sum.Add(sum, new(big.Int).SetBytes(next))
 	}
+
 	sum.Mod(sum, projectionModulus)
+
 	return sum.FillBytes(make([]byte, projectionDigestBytes))
 }
 
 func sortedCopy(values []string) []string {
 	copied := slices.Clone(values)
 	slices.Sort(copied)
+
 	return copied
 }

@@ -42,40 +42,64 @@ type nodePrepareOutput struct {
 // writes the run after the login exists.
 func TestLedgerBootstrapFromEmpty(t *testing.T) {
 	node := testenv.StartEmptyLedger(t, bootstrapLedgerContainer)
-	t.Setenv(bootstrapClusterDirectoryVariable, bootstrapClusterDirectory(t, testenv.FoundationDB(t)))
+	t.Setenv(
+		bootstrapClusterDirectoryVariable,
+		bootstrapClusterDirectory(t, testenv.FoundationDB(t)),
+	)
 	cfg := bootstrapConfig(t, node)
 	admin := openBootstrapPool(t, node.DSN)
 	operator := openBootstrapPool(t, operatorLoginDSN(t, node.DSN, cfg.AuditOperatorPassword))
 	run := bootstrapCommandRunner(t, cfg, operator)
 
-	red := t.Run("node-prepare before provision fails", func(t *testing.T) {
-		output, err := run("ops", "ledger", "node-prepare")
-		if err == nil || !strings.Contains(err.Error(), "record command intent") {
-			t.Fatalf("node-prepare before provision = %v, want a record command intent error\n%s", err, output)
-		}
-	})
+	red := t.Run(
+		"node-prepare before provision fails",
+		func(t *testing.T) {
+			output, err := run("ops", "ledger", "node-prepare")
+			if err == nil || !strings.Contains(err.Error(), "record command intent") {
+				t.Fatalf(
+					"node-prepare before provision = %v, want a record command intent error\n%s",
+					err,
+					output,
+				)
+			}
+		},
+	)
 	if !red {
 		t.FailNow()
 	}
-	t.Run("node commands succeed and record after provision", func(t *testing.T) {
-		if output, err := run("ops", "provision"); err != nil {
-			t.Fatalf("ops provision: %v\n%s", err, output)
-		}
-		output, err := run("ops", "ledger", "node-prepare")
-		if err != nil {
-			t.Fatalf("node-prepare after provision: %v\n%s", err, output)
-		}
-		requireNodePrepareKeptNode(t, output)
-		if output, err := run("ops", "ledger", "node-wait", "--stall", "3m", "--poll", "2s"); err != nil {
-			t.Fatalf("node-wait after provision: %v\n%s", err, output)
-		}
 
-		startBootstrapAuditPipeline(t, testenv.Kafka(t), node.DSN, admin)
-		rows := waitForBootstrapRows(t, admin)
-		requireBootstrapRun(t, rows, audit.VerbOpsProvision)
-		requireBootstrapRun(t, rows, audit.VerbOpsLedgerNodePrepare)
-		requireBootstrapRun(t, rows, audit.VerbOpsLedgerNodeWait)
-	})
+	t.Run(
+		"node commands succeed and record after provision",
+		func(t *testing.T) {
+			if output, err := run("ops", "provision"); err != nil {
+				t.Fatalf("ops provision: %v\n%s", err, output)
+			}
+
+			output, err := run("ops", "ledger", "node-prepare")
+			if err != nil {
+				t.Fatalf("node-prepare after provision: %v\n%s", err, output)
+			}
+
+			requireNodePrepareKeptNode(t, output)
+			if output, err := run(
+				"ops",
+				"ledger",
+				"node-wait",
+				"--stall",
+				"3m",
+				"--poll",
+				"2s",
+			); err != nil {
+				t.Fatalf("node-wait after provision: %v\n%s", err, output)
+			}
+
+			startBootstrapAuditPipeline(t, testenv.Kafka(t), node.DSN, admin)
+			rows := waitForBootstrapRows(t, admin)
+			requireBootstrapRun(t, rows, audit.VerbOpsProvision)
+			requireBootstrapRun(t, rows, audit.VerbOpsLedgerNodePrepare)
+			requireBootstrapRun(t, rows, audit.VerbOpsLedgerNodeWait)
+		},
+	)
 }
 
 // requireNodePrepareKeptNode requires node-prepare to report the node absent
@@ -86,9 +110,15 @@ func requireNodePrepareKeptNode(t *testing.T, output string) {
 	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
 		t.Fatalf("decode the node-prepare output %q: %v", output, err)
 	}
+
 	state := decoded.Result.State
 	if (state != "absent" && state != "unchanged") || decoded.Result.Stopped {
-		t.Fatalf("node-prepare state = %s (before %q, after %q, stopped %t), want absent or unchanged and running",
-			state, decoded.Result.Before, decoded.Result.After, decoded.Result.Stopped)
+		t.Fatalf(
+			"node-prepare state = %s (before %q, after %q, stopped %t), want absent or unchanged and running",
+			state,
+			decoded.Result.Before,
+			decoded.Result.After,
+			decoded.Result.Stopped,
+		)
 	}
 }

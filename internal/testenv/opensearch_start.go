@@ -35,97 +35,172 @@ const (
 // fixture endpoint both use the holder's address. A process on the Docker host
 // and a process on the tack-testenv network both connect to that address. The
 // address stays assigned while the engine is stopped.
-func provisionOpenSearch(ctx context.Context, settings openSearchEngineSettings) (OpenSearchFixture, []string, error) {
+func provisionOpenSearch(
+	ctx context.Context,
+	settings openSearchEngineSettings,
+) (OpenSearchFixture, []string, error) {
 	var created []string
 	cli, err := dockerClient(ctx)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
+
 	defer func() { _ = cli.Close() }()
-	holder, err := startEngine(ctx, cli, engineSpec{
-		kind: "opensearch-address", image: openSearchImage, platform: nil,
-		entrypoint: []string{"sleep"}, cmd: []string{openSearchHolderSeconds}, env: nil,
-	})
+	holder, err := startEngine(
+		ctx,
+		cli,
+		engineSpec{
+			kind:       "opensearch-address",
+			image:      openSearchImage,
+			platform:   nil,
+			entrypoint: []string{"sleep"},
+			cmd:        []string{openSearchHolderSeconds},
+			env:        nil,
+		},
+	)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
+
 	created = append(created, holder.name)
 	suffix, err := randomHex(ctx, 4)
 	if err != nil {
 		wrapped := fmt.Errorf("generate OpenSearch container suffix: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.fixture_name_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.fixture_name_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return OpenSearchFixture{}, created, wrapped
 	}
+
 	name := "tack-testenv-opensearch-" + strconv.Itoa(os.Getpid()) + "-" + suffix
-	certificates, err := openSearchCertificatesForSettings(ctx, net.ParseIP(holder.address), settings.administratorDirectory)
+	certificates, err := openSearchCertificatesForSettings(
+		ctx,
+		net.ParseIP(holder.address),
+		settings.administratorDirectory,
+	)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
+
 	securityFiles, username, pass, err := prepareOpenSearchSecurity(ctx, settings)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
+
 	owner, err := prepareCreate(ctx, cli)
 	if err != nil {
 		return OpenSearchFixture{}, created, err
 	}
-	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: &container.Config{
-			Image: openSearchImage,
-			Env: append([]string{
-				"discovery.type=single-node",
-				"OPENSEARCH_JAVA_OPTS=" + openSearchJavaOptions,
-				"DISABLE_INSTALL_DEMO_CONFIG=true",
-			}, settings.nodeSettings...),
-			Labels: ownerLabels(owner),
+
+	_, err = cli.ContainerCreate(
+		ctx,
+		client.ContainerCreateOptions{
+			Config: &container.Config{
+				Image: openSearchImage,
+				Env: append(
+					[]string{
+						"discovery.type=single-node",
+						"OPENSEARCH_JAVA_OPTS=" + openSearchJavaOptions,
+						"DISABLE_INSTALL_DEMO_CONFIG=true",
+					},
+					settings.nodeSettings...,
+				),
+				Labels: ownerLabels(owner),
+			},
+			HostConfig:       openSearchHostConfig(holder.name, settings),
+			NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: nil},
+			Name:             name,
 		},
-		HostConfig:       openSearchHostConfig(holder.name, settings),
-		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: nil},
-		Name:             name,
-	})
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("create OpenSearch fixture %s: %w", name, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.fixture_create_failed", slog.String("err", wrapped.Error()), slog.String("container", name))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.fixture_create_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("container", name),
+		)
+
 		return OpenSearchFixture{}, created, wrapped
 	}
+
 	own(name)
 	created = append(created, name)
+
 	for path, contents := range map[string][]byte{
 		"/usr/share/opensearch/config/opensearch.yml":     []byte(openSearchConfig),
 		"/usr/share/opensearch/config/certs/ca.pem":       certificates.ca,
 		"/usr/share/opensearch/config/certs/node.pem":     certificates.node,
 		"/usr/share/opensearch/config/certs/node-key.pem": certificates.key,
 	} {
-		if err := writeContainerFileAs(ctx, cli, name, path, contents, openSearchOwner); err != nil {
+		if err := writeContainerFileAs(
+			ctx,
+			cli,
+			name,
+			path,
+			contents,
+			openSearchOwner,
+		); err != nil {
 			return OpenSearchFixture{}, created, err
 		}
 	}
+
 	if err := installOpenSearchSecurity(ctx, cli, name, securityFiles); err != nil {
 		return OpenSearchFixture{}, created, err
 	}
+
 	if _, err := cli.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
 		wrapped := fmt.Errorf("start OpenSearch fixture %s: %w", name, err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.fixture_start_failed", slog.String("err", wrapped.Error()), slog.String("container", name))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.fixture_start_failed",
+			slog.String("err", wrapped.Error()),
+			slog.String("container", name),
+		)
+
 		return OpenSearchFixture{}, created, wrapped
 	}
+
 	fixture := OpenSearchFixture{
-		Endpoint: "https://" + net.JoinHostPort(holder.address, openSearchPort), CA: string(certificates.ca),
-		Username: username, Password: pass, Container: name,
+		Endpoint:  "https://" + net.JoinHostPort(holder.address, openSearchPort),
+		CA:        string(certificates.ca),
+		Username:  username,
+		Password:  pass,
+		Container: name,
 	}
 	healthContext, stopWaiting := context.WithCancelCause(ctx)
 	defer stopWaiting(nil)
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(ctx, "testenv.engine.wait_panicked", slog.String("err", fmt.Sprint(recovered)))
+				slog.ErrorContext(
+					ctx,
+					"testenv.engine.wait_panicked",
+					slog.String("err", fmt.Sprint(recovered)),
+				)
 			}
 		}()
 		cancelOnExit(healthContext, cli, name, stopWaiting)
 	}()
 	if err := waitForOpenSearchHealth(healthContext, fixture); err != nil {
-		return OpenSearchFixture{}, created, engineStartFailure(ctx, cli, name, errors.Join(err, context.Cause(healthContext)))
+		return OpenSearchFixture{}, created, engineStartFailure(
+			ctx,
+			cli,
+			name,
+			errors.Join(err, context.Cause(healthContext)),
+		)
 	}
-	telemetry.L(ctx).InfoContext(ctx, "search.fixture_started", slog.String("container", name),
-		slog.Int64("memory_bytes", settings.memoryBytes), slog.String("data_volume", settings.dataVolume))
+
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.fixture_started",
+		slog.String("container", name),
+		slog.Int64("memory_bytes", settings.memoryBytes),
+		slog.String("data_volume", settings.dataVolume),
+	)
+
 	return fixture, created, nil
 }

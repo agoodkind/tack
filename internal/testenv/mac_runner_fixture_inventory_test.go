@@ -34,7 +34,9 @@ func TestMacRunnerDockerTaskResourceInventory(t *testing.T) {
 	if image == "" {
 		t.Fatal("require the existing immutable runner image ID")
 	}
-	docker, err := client.New(client.WithHost("unix://" + filepath.Join(os.Getenv("HOME"), ".docker/run/docker.sock")))
+	docker, err := client.New(
+		client.WithHost("unix://" + filepath.Join(os.Getenv("HOME"), ".docker/run/docker.sock")),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +65,11 @@ func macVerifyTaskInventory(t *testing.T, docker *client.Client, directory strin
 		result.CreatedIDs = append(result.CreatedIDs, id)
 	}
 	for _, id := range result.CreatedIDs {
-		if _, err := docker.ContainerInspect(t.Context(), id, client.ContainerInspectOptions{}); !errdefs.IsNotFound(err) {
+		if _, err := docker.ContainerInspect(
+			t.Context(),
+			id,
+			client.ContainerInspectOptions{},
+		); !errdefs.IsNotFound(err) {
 			t.Errorf("recorded task container still exists %s: %v", id, err)
 		}
 		t.Logf("recorded task container absent %s", id)
@@ -74,7 +80,11 @@ func macVerifyTaskInventory(t *testing.T, docker *client.Client, directory strin
 		}
 	}
 	for name := range result.AnonymousVolumes {
-		if _, err := docker.VolumeInspect(t.Context(), name, client.VolumeInspectOptions{}); !errdefs.IsNotFound(err) {
+		if _, err := docker.VolumeInspect(
+			t.Context(),
+			name,
+			client.VolumeInspectOptions{},
+		); !errdefs.IsNotFound(err) {
 			t.Errorf("recorded task volume still exists %s: %v", name, err)
 		}
 		t.Logf("recorded task volume absent %s", name)
@@ -83,7 +93,11 @@ func macVerifyTaskInventory(t *testing.T, docker *client.Client, directory strin
 		result.Fixtures.Networks[result.NetworkID] = nil
 	}
 	for id := range result.Fixtures.Networks {
-		if _, err := docker.NetworkInspect(t.Context(), id, client.NetworkInspectOptions{}); !errdefs.IsNotFound(err) {
+		if _, err := docker.NetworkInspect(
+			t.Context(),
+			id,
+			client.NetworkInspectOptions{},
+		); !errdefs.IsNotFound(err) {
 			t.Errorf("recorded task network still exists %s: %v", id, err)
 		}
 		t.Logf("recorded task network absent %s", id)

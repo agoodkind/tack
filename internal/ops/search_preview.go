@@ -25,9 +25,15 @@ func recordedSearchPreview(
 		if err != nil {
 			return err
 		}
-		return clispec.RunRecordedPreview(ctx, f, clispec.PreviewSpec(spec), encoded,
+
+		return clispec.RunRecordedPreview(
+			ctx,
+			f,
+			clispec.PreviewSpec(spec),
+			encoded,
 			func(ctx context.Context, sink clispec.ResultSink) ([]audit.Target, error) {
 				return nil, preview(ctx, sink)
-			})
+			},
+		)
 	}
 }

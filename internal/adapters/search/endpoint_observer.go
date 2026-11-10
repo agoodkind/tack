@@ -24,13 +24,18 @@ type endpointObserver struct {
 var _ opensearchtransport.ConnectionObserver = (*endpointObserver)(nil)
 
 func newEndpointObserver() *endpointObserver {
-	return &endpointObserver{BaseConnectionObserver: opensearchtransport.BaseConnectionObserver{}, mutex: sync.Mutex{}, endpoints: map[string]struct{}{}}
+	return &endpointObserver{
+		BaseConnectionObserver: opensearchtransport.BaseConnectionObserver{},
+		mutex:                  sync.Mutex{},
+		endpoints:              map[string]struct{}{},
+	}
 }
 
 func (o *endpointObserver) record(endpoint string) {
 	if endpoint == "" {
 		return
 	}
+
 	o.mutex.Lock()
 	defer o.mutex.Unlock()
 	o.endpoints[endpoint] = struct{}{}
@@ -39,12 +44,21 @@ func (o *endpointObserver) record(endpoint string) {
 func (o *endpointObserver) snapshot() []string {
 	o.mutex.Lock()
 	defer o.mutex.Unlock()
+
 	return slices.Collect(maps.Keys(o.endpoints))
 }
 
-func (o *endpointObserver) OnPromote(event opensearchtransport.ConnectionEvent) { o.record(event.URL) }
+func (o *endpointObserver) OnPromote(
+	event opensearchtransport.ConnectionEvent,
+) {
+	o.record(event.URL)
+}
 
-func (o *endpointObserver) OnDemote(event opensearchtransport.ConnectionEvent) { o.record(event.URL) }
+func (o *endpointObserver) OnDemote(
+	event opensearchtransport.ConnectionEvent,
+) {
+	o.record(event.URL)
+}
 
 func (o *endpointObserver) OnOverloadDetected(event opensearchtransport.ConnectionEvent) {
 	o.record(event.URL)
@@ -88,12 +102,15 @@ func (o *endpointObserver) OnWarmupRequest(event opensearchtransport.ConnectionE
 
 func (o *endpointObserver) OnRoute(event opensearchtransport.RouteEvent) {
 	o.record(event.Selected.URL)
+
 	for _, candidate := range event.Candidates {
 		o.record(candidate.URL)
 	}
 }
 
-func (o *endpointObserver) OnShardMapInvalidation(event opensearchtransport.ShardMapInvalidationEvent) {
+func (o *endpointObserver) OnShardMapInvalidation(
+	event opensearchtransport.ShardMapInvalidationEvent,
+) {
 	o.record(event.ConnURL)
 }
 
@@ -107,34 +124,57 @@ func (o *endpointObserver) OnAddressRewrite(event opensearchtransport.AddressRew
 // An observer event can report an endpoint before a client sends a request to it.
 func (a *Adapter) Endpoints(ctx context.Context) ([]string, error) {
 	endpoints := map[string]struct{}{}
+
 	for _, endpoint := range a.observer.snapshot() {
 		endpoints[endpoint] = struct{}{}
 	}
+
 	for _, client := range []*opensearch.Client{a.client, a.predictClient, a.snapshotAPI.Client} {
 		if err := addPoolEndpoints(ctx, client, endpoints); err != nil {
 			return nil, err
 		}
 	}
+
 	return slices.Sorted(maps.Keys(endpoints)), nil
 }
 
 // addPoolEndpoints adds every connection URL that client's connection pool
 // metrics list to endpoints.
-func addPoolEndpoints(ctx context.Context, client *opensearch.Client, endpoints map[string]struct{}) error {
+func addPoolEndpoints(
+	ctx context.Context,
+	client *opensearch.Client,
+	endpoints map[string]struct{},
+) error {
 	metrics, err := client.Metrics()
 	if err != nil {
 		wrapped := fmt.Errorf("read OpenSearch client metrics: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.client.metrics_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.client.metrics_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	for _, connection := range metrics.Connections {
 		metric, isMetric := connection.(opensearchtransport.ConnectionMetric)
 		if !isMetric {
-			wrapped := fmt.Errorf("OpenSearch client reported connection metric type %T", connection)
-			telemetry.L(ctx).ErrorContext(ctx, "search.client.metrics_invalid", slog.String("err", wrapped.Error()))
+			wrapped := fmt.Errorf(
+				"OpenSearch client reported connection metric type %T",
+				connection,
+			)
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"search.client.metrics_invalid",
+				slog.String("err", wrapped.Error()),
+			)
+
 			return wrapped
 		}
+
 		endpoints[metric.URL] = struct{}{}
 	}
+
 	return nil
 }

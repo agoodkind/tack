@@ -48,33 +48,87 @@ func TestSearchRebuildFailsAfterPauseLimit(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	entry := entryPoint(t, fixture, workspace)
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
-	indexed := putOpaqueNode(t, fixture, kind, entry, "indexed blocked node", "ochre blocked indexed", readerExcludedValue)
+	indexed := putOpaqueNode(
+		t,
+		fixture,
+		kind,
+		entry,
+		"indexed blocked node",
+		"ochre blocked indexed",
+		readerExcludedValue,
+	)
 	drainSearchWork(t, fixture.Worker, 2000)
 	source := fixture.Index
-	rebuild := beginRebuild(t, fixture, searchdomain.BeginRebuild{
-		Mode: searchdomain.ReplacementSplit, PrimaryShards: 2, RoutingShards: 24, Replicas: 1, Restored: false, Reason: "test",
-	})
-	runBoundedRebuildUntil(t, fixture, source, func(current searchdomain.Rebuild, found bool) bool {
-		return found && current.State == searchdomain.RebuildCreating && current.Paused && writeBlocked(t, fixture.Client, source)
-	})
+	rebuild := beginRebuild(
+		t,
+		fixture,
+		searchdomain.BeginRebuild{
+			Mode:          searchdomain.ReplacementSplit,
+			PrimaryShards: 2,
+			RoutingShards: 24,
+			Replicas:      1,
+			Restored:      false,
+			Reason:        "test",
+		},
+	)
+	runBoundedRebuildUntil(
+		t,
+		fixture,
+		source,
+		func(current searchdomain.Rebuild, found bool) bool {
+			return found && current.State == searchdomain.RebuildCreating && current.Paused &&
+				writeBlocked(t, fixture.Client, source)
+		},
+	)
 
 	requireServing(t, fixture, source, "")
-	if results := callEverySearchPage(t, "ochre blocked", fixture.Harness); !slices.Contains(results.IDs, indexed) {
-		t.Fatalf("search during the split write block returned %v, want node %s from the source", results.IDs, indexed)
+	if results := callEverySearchPage(t, "ochre blocked", fixture.Harness); !slices.Contains(
+		results.IDs,
+		indexed,
+	) {
+		t.Fatalf(
+			"search during the split write block returned %v, want node %s from the source",
+			results.IDs,
+			indexed,
+		)
 	}
-	queued := putOpaqueNode(t, fixture, kind, entry, "queued blocked node", "ochre blocked queued", readerExcludedValue)
+
+	queued := putOpaqueNode(
+		t,
+		fixture,
+		kind,
+		entry,
+		"queued blocked node",
+		"ochre blocked queued",
+		readerExcludedValue,
+	)
 	editOpaqueNode(t, fixture, kind, indexed, "ochre blocked revised")
-	failed := runBoundedRebuildUntil(t, fixture, source, func(current searchdomain.Rebuild, found bool) bool {
-		return !found || current.State == searchdomain.RebuildFailed
-	})
+	failed := runBoundedRebuildUntil(
+		t,
+		fixture,
+		source,
+		func(current searchdomain.Rebuild, found bool) bool {
+			return !found || current.State == searchdomain.RebuildFailed
+		},
+	)
 	requireFailure(t, failed, "wait for green target "+rebuild.TargetIndex)
 	requireQueued(t, fixture, source, queued, indexed)
 	requireRecovered(t, fixture, source, rebuild.TargetIndex)
 	// A live write that failed on the write block waits for its retry delay,
 	// which a drain does not wait for.
-	runBoundedRebuildUntil(t, fixture, source, func(searchdomain.Rebuild, bool) bool {
-		return pagesCurrent(t, fixture, source, indexed) && pagesCurrent(t, fixture, source, queued)
-	})
+	runBoundedRebuildUntil(
+		t,
+		fixture,
+		source,
+		func(searchdomain.Rebuild, bool) bool {
+			return pagesCurrent(
+				t,
+				fixture,
+				source,
+				indexed,
+			) && pagesCurrent(t, fixture, source, queued)
+		},
+	)
 	requireCurrentPages(t, fixture, source, []uuid.UUID{indexed, queued})
 }
 
@@ -82,16 +136,29 @@ func TestSearchRebuildFailsAfterPauseLimit(t *testing.T) {
 // readOnlySetting or writeBlockSetting. When blocked is true, it also
 // registers a cleanup that clears the block before the index cleanup deletes
 // the index.
-func setIndexBlock(t *testing.T, client *opensearchapi.Client, index, setting string, blocked bool) {
+func setIndexBlock(
+	t *testing.T,
+	client *opensearchapi.Client,
+	index string,
+	setting string,
+	blocked bool,
+) {
 	t.Helper()
 	if blocked {
 		t.Cleanup(func() {
 			body := strings.NewReader(fmt.Sprintf(`{%q:false}`, setting))
-			_, _ = client.Indices.PutSettings(context.WithoutCancel(t.Context()), &opensearchapi.IndicesPutSettingsReq{Indices: []string{index}, BodyReader: body})
+			_, _ = client.Indices.PutSettings(
+				context.WithoutCancel(t.Context()),
+				&opensearchapi.IndicesPutSettingsReq{Indices: []string{index}, BodyReader: body},
+			)
 		})
 	}
+
 	body := strings.NewReader(fmt.Sprintf(`{%q:%t}`, setting, blocked))
-	response, err := client.Indices.PutSettings(WithTestOperation(t, t.Context()), &opensearchapi.IndicesPutSettingsReq{Indices: []string{index}, BodyReader: body})
+	response, err := client.Indices.PutSettings(
+		WithTestOperation(t, t.Context()),
+		&opensearchapi.IndicesPutSettingsReq{Indices: []string{index}, BodyReader: body},
+	)
 	if err != nil || !response.Acknowledged {
 		t.Fatalf("set %s %t on %s: %v", setting, blocked, index, err)
 	}
@@ -106,20 +173,26 @@ func clearIndexBlock(t *testing.T, client *opensearchapi.Client, index, setting 
 // writeBlocked reports whether index has the write block.
 func writeBlocked(t *testing.T, client *opensearchapi.Client, index string) bool {
 	t.Helper()
-	response, err := client.Indices.GetSettings(WithTestOperation(t, t.Context()), &opensearchapi.IndicesGetSettingsReq{Indices: []string{index}})
+	response, err := client.Indices.GetSettings(
+		WithTestOperation(t, t.Context()),
+		&opensearchapi.IndicesGetSettingsReq{Indices: []string{index}},
+	)
 	if err != nil {
 		t.Fatalf("read settings of %s: %v", index, err)
 	}
+
 	var indices map[string]struct {
 		Settings json.RawMessage `json:"settings"`
 	}
 	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
 		t.Fatal(err)
 	}
+
 	entry, exists := indices[index]
 	if !exists {
 		t.Fatalf("settings of %s are absent", index)
 	}
+
 	var decoded struct {
 		Index struct {
 			Blocks struct {
@@ -130,6 +203,7 @@ func writeBlocked(t *testing.T, client *opensearchapi.Client, index string) bool
 	if err := json.Unmarshal(entry.Settings, &decoded); err != nil {
 		t.Fatalf("decode settings of %s: %v", index, err)
 	}
+
 	return decoded.Index.Blocks.Write == "true"
 }
 
@@ -145,7 +219,12 @@ func requireWritable(t *testing.T, client *opensearchapi.Client, index string) {
 func requireFailure(t *testing.T, failed searchdomain.Rebuild, text string) {
 	t.Helper()
 	if failed.State != searchdomain.RebuildFailed || !strings.Contains(failed.Failure, text) {
-		t.Fatalf("replacement in %s failed with %q, want a failure that contains %q", failed.State, failed.Failure, text)
+		t.Fatalf(
+			"replacement in %s failed with %q, want a failure that contains %q",
+			failed.State,
+			failed.Failure,
+			text,
+		)
 	}
 }
 
@@ -159,18 +238,29 @@ func requireRecovered(t *testing.T, fixture queryFixture, source, target string)
 	t.Helper()
 	fixture.Worker = faultWorker(t, fixture)
 	var failures []error
-	runFaultedRebuildUntil(t, fixture, source, func(_ searchdomain.Rebuild, found bool, recorded []error) bool {
-		failures = recorded
-		return !found
-	})
+	runFaultedRebuildUntil(
+		t,
+		fixture,
+		source,
+		func(_ searchdomain.Rebuild, found bool, recorded []error) bool {
+			failures = recorded
+			return !found
+		},
+	)
+
 	for _, failure := range failures {
-		if !strings.Contains(failure.Error(), "to "+source+":") || !strings.Contains(failure.Error(), "index write") {
+		if !strings.Contains(failure.Error(), "to "+source+":") ||
+			!strings.Contains(failure.Error(), "index write") {
 			t.Fatalf("recovery slice failed outside the source write block: %v", failure)
 		}
 	}
+
 	requireWritable(t, fixture.Client, source)
 	requireServing(t, fixture, source, "")
-	if _, err := fixture.Adapter.IndexSettings(WithTestOperation(t, t.Context()), target); err == nil {
+	if _, err := fixture.Adapter.IndexSettings(
+		WithTestOperation(t, t.Context()),
+		target,
+	); err == nil {
 		t.Fatalf("failed target %s still exists", target)
 	}
 }
@@ -179,10 +269,16 @@ func requireRecovered(t *testing.T, fixture queryFixture, source, target string)
 // lacks its current pages.
 func requireQueued(t *testing.T, fixture queryFixture, index string, nodes ...uuid.UUID) {
 	t.Helper()
+
 	for _, nodeID := range nodes {
-		if view, err := fixture.Stores.Views.Get(WithTestOperation(t, t.Context()), nodeID); err != nil || view == nil {
+		if view, err := fixture.Stores.Views.Get(
+			WithTestOperation(t, t.Context()),
+			nodeID,
+		); err != nil ||
+			view == nil {
 			t.Fatalf("read committed node %s: %v", nodeID, err)
 		}
+
 		if pagesCurrent(t, fixture, index, nodeID) {
 			t.Fatalf("index %s already has the current pages of node %s", index, nodeID)
 		}

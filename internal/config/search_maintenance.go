@@ -22,17 +22,30 @@ func LoadSearchMaintenanceCredentials() (SearchMaintenanceCredentials, error) {
 	if err != nil {
 		return SearchMaintenanceCredentials{}, err
 	}
-	if environment["ENV"] == "production" && environment["OPENSEARCH_MAINTENANCE_PASSWORD_FILE"] == "" {
-		return SearchMaintenanceCredentials{}, errors.New("OPENSEARCH_MAINTENANCE_PASSWORD_FILE is required in production")
+
+	if environment["ENV"] == "production" &&
+		environment["OPENSEARCH_MAINTENANCE_PASSWORD_FILE"] == "" {
+		return SearchMaintenanceCredentials{}, errors.New(
+			"OPENSEARCH_MAINTENANCE_PASSWORD_FILE is required in production",
+		)
 	}
+
 	var credentials SearchMaintenanceCredentials
-	if err := env.ParseWithOptions(&credentials, env.Options{Environment: environment}); err != nil {
+	if err := env.ParseWithOptions(
+		&credentials,
+		env.Options{Environment: environment},
+	); err != nil {
 		wrapped := fmt.Errorf("load search maintenance credentials: %w", err)
 		slog.Error("config.search_maintenance_failed", slog.String("err", wrapped.Error()))
+
 		return credentials, wrapped
 	}
+
 	if credentials.Username == "" || credentials.Password == "" {
-		return SearchMaintenanceCredentials{}, errors.New("OPENSEARCH_MAINTENANCE_USERNAME and OPENSEARCH_MAINTENANCE_PASSWORD_FILE are required")
+		return SearchMaintenanceCredentials{}, errors.New(
+			"OPENSEARCH_MAINTENANCE_USERNAME and OPENSEARCH_MAINTENANCE_PASSWORD_FILE are required",
+		)
 	}
+
 	return credentials, nil
 }

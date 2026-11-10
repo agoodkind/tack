@@ -31,6 +31,7 @@ func RunBackupYBArchiveNode(ctx context.Context, cfg *config.Config, runID strin
 	if err := requireYBArchiveConfig(ctx, cfg); err != nil {
 		return err
 	}
+
 	cli, err := newDockerClient(ctx)
 	if err != nil {
 		return err
@@ -46,27 +47,44 @@ func RunBackupYBArchiveNode(ctx context.Context, cfg *config.Config, runID strin
 	if err != nil || target == nil || target.complete {
 		return err
 	}
+
 	return uploadYBNodeArchive(ctx, cfg, cli, nodeName, target)
 }
 
 func requireYBArchiveConfig(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
-		err := fmt.Errorf("yb-archive-node: object store configuration is incomplete; set TACK_BACKUP_S3_ENDPOINT, TACK_BACKUP_S3_ACCESS_KEY_ID, and TACK_BACKUP_S3_SECRET_ACCESS_KEY")
+		err := fmt.Errorf(
+			"yb-archive-node: object store configuration is incomplete; set TACK_BACKUP_S3_ENDPOINT, TACK_BACKUP_S3_ACCESS_KEY_ID, and TACK_BACKUP_S3_SECRET_ACCESS_KEY",
+		)
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
+
 		return err
 	}
+
 	if cfg.BackupYBRocksDBDir == "" {
-		err := fmt.Errorf("yb-archive-node: TACK_BACKUP_YB_ROCKSDB_DIR is empty; set it to the RocksDB directory inside the yugabyte container")
+		err := fmt.Errorf(
+			"yb-archive-node: TACK_BACKUP_YB_ROCKSDB_DIR is empty; set it to the RocksDB directory inside the yugabyte container",
+		)
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
+
 		return err
 	}
+
 	return nil
 }
 
-func uploadYBNodeArchive(ctx context.Context, cfg *config.Config, cli *client.Client, nodeName string, target *ybArchiveTarget) error {
+func uploadYBNodeArchive(
+	ctx context.Context,
+	cfg *config.Config,
+	cli *client.Client,
+	nodeName string,
+	target *ybArchiveTarget,
+) error {
 	logger := telemetry.L(ctx)
-	logger.InfoContext(ctx, "backup.yb_archive.start",
+	logger.InfoContext(
+		ctx,
+		"backup.yb_archive.start",
 		slog.String("run_id", target.manifest.RunID),
 		slog.String("snapshot_id", target.manifest.SnapshotID),
 		slog.String("node", nodeName),
@@ -78,19 +96,31 @@ func uploadYBNodeArchive(ctx context.Context, cfg *config.Config, cli *client.Cl
 	// removed on exit, so independently refuse any resolved path that escapes
 	// the backup root before creating or deleting anything.
 	if !strings.HasPrefix(stageDir, filepath.Clean(cfg.BackupRoot)+string(filepath.Separator)) {
-		err := fmt.Errorf("yb-archive-node: stage dir %s escapes backup root %s", stageDir, cfg.BackupRoot)
+		err := fmt.Errorf(
+			"yb-archive-node: stage dir %s escapes backup root %s",
+			stageDir,
+			cfg.BackupRoot,
+		)
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
+
 		return err
 	}
+
 	if err := os.MkdirAll(stageDir, 0o750); err != nil {
 		wrapped := fmt.Errorf("mkdir yb archive stage %s: %w", stageDir, err)
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
+
 	defer func() {
 		if rmErr := os.RemoveAll(stageDir); rmErr != nil {
-			logger.WarnContext(ctx, "backup.yb_archive.stage_cleanup_failed",
-				slog.String("dir", stageDir), slog.String("err", rmErr.Error()))
+			logger.WarnContext(
+				ctx,
+				"backup.yb_archive.stage_cleanup_failed",
+				slog.String("dir", stageDir),
+				slog.String("err", rmErr.Error()),
+			)
 		}
 	}()
 
@@ -98,23 +128,39 @@ func uploadYBNodeArchive(ctx context.Context, cfg *config.Config, cli *client.Cl
 	if err := tarYBTabletSnapshots(ctx, cli, cfg, target.manifest.SnapshotID, tarPath); err != nil {
 		return err
 	}
+
 	// The inventory is recorded from the finished archive and uploaded ahead of
 	// it, so no archive is ever in the store without the record of what it
 	// carries; every gate and this command's own idempotency probe require
 	// both.
-	if err := writeYBArchiveInventory(ctx, target.manifest.RunID, nodeName, stageDir, tarPath); err != nil {
-		return err
-	}
-	if err := uploadYBSnapshotArtifacts(ctx, cfg, target.prefix, ybNodeUploadArtifacts(stageDir)); err != nil {
+	if err := writeYBArchiveInventory(
+		ctx,
+		target.manifest.RunID,
+		nodeName,
+		stageDir,
+		tarPath,
+	); err != nil {
 		return err
 	}
 
-	logger.InfoContext(ctx, "backup.yb_archive.completed",
+	if err := uploadYBSnapshotArtifacts(
+		ctx,
+		cfg,
+		target.prefix,
+		ybNodeUploadArtifacts(stageDir),
+	); err != nil {
+		return err
+	}
+
+	logger.InfoContext(
+		ctx,
+		"backup.yb_archive.completed",
 		slog.String("run_id", target.manifest.RunID),
 		slog.String("snapshot_id", target.manifest.SnapshotID),
 		slog.String("node", nodeName),
 		slog.String("bucket", cfg.BackupS3BucketMain),
 		slog.String("key_prefix", target.prefix),
 	)
+
 	return nil
 }

@@ -62,6 +62,7 @@ func (state *provisioned) get(t T, provision func(context.Context) (string, erro
 		_, _ = fmt.Fprintf(t.Output(), "testenv: %v\n", state.err)
 		t.FailNow()
 	}
+
 	return state.result
 }
 
@@ -88,6 +89,7 @@ func skipWhenShort(t T) {
 func Ledger(t T) string {
 	t.Helper()
 	skipWhenShort(t)
+
 	return ledgerState.get(t, provisionLedger)
 }
 
@@ -96,6 +98,7 @@ func Ledger(t T) string {
 func FoundationDB(t T) string {
 	t.Helper()
 	skipWhenShort(t)
+
 	return foundationDBState.get(t, provisionFoundationDB)
 }
 

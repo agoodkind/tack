@@ -103,10 +103,12 @@ func newAcceptanceEnvironment(t *testing.T) acceptanceEnvironment {
 	if os.Getenv(acceptanceVariable) == "" {
 		t.Skipf("%s is not set", acceptanceVariable)
 	}
+
 	tokenBytes, err := os.ReadFile(requireVariable(t, tokenFileVariable))
 	if err != nil {
 		t.Fatalf("read the token file named by %s: %v", tokenFileVariable, err)
 	}
+
 	return acceptanceEnvironment{
 		node:           requireVariable(t, nodeVariable),
 		endpoint:       requireVariable(t, endpointVariable),
@@ -145,6 +147,7 @@ func (environment acceptanceEnvironment) variables(version int64) config.Variabl
 
 func importStep(environment acceptanceEnvironment, version int64) resource.TestStep {
 	versionText := strconv.FormatInt(version, 10)
+
 	return resource.TestStep{
 		Config:             acceptanceConfig,
 		ConfigVariables:    environment.variables(version),
@@ -154,8 +157,11 @@ func importStep(environment acceptanceEnvironment, version int64) resource.TestS
 		ImportStatePersist: true,
 		ImportStateCheck: func(states []*terraform.InstanceState) error {
 			if len(states) != 1 || states[0].Attributes["applied_version"] != versionText {
-				return errors.New("the import did not return one state at the applied version " + versionText)
+				return errors.New(
+					"the import did not return one state at the applied version " + versionText,
+				)
 			}
+
 			return nil
 		},
 	}
@@ -173,6 +179,7 @@ func requireVariable(t *testing.T, name string) string {
 	if value == "" {
 		t.Fatalf("%s must be set for the acceptance test", name)
 	}
+
 	return value
 }
 
@@ -182,5 +189,6 @@ func requireNumber(t *testing.T, name string) int64 {
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
 	}
+
 	return number
 }

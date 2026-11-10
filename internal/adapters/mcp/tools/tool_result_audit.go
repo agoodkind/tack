@@ -28,46 +28,95 @@ const (
 // succeeded, recordToolResult records nothing more. Otherwise it records one
 // format 2 database change result event with the operation ID, target, and
 // outcome of the call.
-func recordToolResult(ctx context.Context, recorder audit.Recorder, toolName string, result *mcpmcp.CallToolResult, runErr error, refused bool) {
+func recordToolResult(
+	ctx context.Context,
+	recorder audit.Recorder,
+	toolName string,
+	result *mcpmcp.CallToolResult,
+	runErr error,
+	refused bool,
+) {
 	committed := auditintent.Committed(ctx)
 	outcome, reason, noted := toolResultOutcome(ctx, refused, runErr, result)
 	if committed && outcome.Outcome == audit.OutcomeCompleted {
 		return
 	}
+
 	if committed {
-		outcome.Outcome, outcome.CommittedSteps = audit.OutcomePartiallyCompleted, []string{committedChangeStep}
+		outcome.Outcome, outcome.CommittedSteps = audit.OutcomePartiallyCompleted, []string{
+			committedChangeStep,
+		}
 	}
-	event, err := toolResultEvent(ctx, toolName, outcome, reason, toolResultTarget(ctx, toolName, noted))
+
+	event, err := toolResultEvent(
+		ctx,
+		toolName,
+		outcome,
+		reason,
+		toolResultTarget(ctx, toolName, noted),
+	)
 	if err == nil {
 		// The audit-consumer stores an event that fails validation in the
 		// dead-letter table for repair.
 		if invalid := audit.ValidateEvent(event); invalid != nil {
-			telemetry.L(ctx).ErrorContext(ctx, "mcp.tool.result_invalid",
-				slog.String("tool", toolName), slog.String("err", invalid.Error()))
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"mcp.tool.result_invalid",
+				slog.String("tool", toolName),
+				slog.String("err", invalid.Error()),
+			)
 		}
+
 		err = recorder.Record(ctx, event)
 	}
+
 	if err != nil {
-		telemetry.L(ctx).ErrorContext(ctx, "mcp.tool.result_not_recorded",
-			slog.String("tool", toolName), slog.String("err", err.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"mcp.tool.result_not_recorded",
+			slog.String("tool", toolName),
+			slog.String("err", err.Error()),
+		)
 	}
 }
 
 // toolResultOutcome returns the outcome of one tool call, the reason for a
 // successful result without a change, and the target that the handler stored.
-func toolResultOutcome(ctx context.Context, refused bool, runErr error, result *mcpmcp.CallToolResult) (audit.OutcomeDetails, string, *audit.Target) {
+func toolResultOutcome(
+	ctx context.Context,
+	refused bool,
+	runErr error,
+	result *mcpmcp.CallToolResult,
+) (audit.OutcomeDetails, string, *audit.Target) {
 	noted, reason, target := toolNoteResult(ctx)
 	switch {
 	case refused:
-		return unsuccessful(audit.OutcomeRefused, "permission_denied", "the tool result did not pass a membership check"), "", target
+		return unsuccessful(
+			audit.OutcomeRefused,
+			"permission_denied",
+			"the tool result did not pass a membership check",
+		), "", target
 	case runErr != nil:
-		return unsuccessful(audit.OutcomeFailed, "tool_failed", "the tool handler returned an error"), "", target
+		return unsuccessful(
+			audit.OutcomeFailed,
+			"tool_failed",
+			"the tool handler returned an error",
+		), "", target
 	case noted.Outcome != "":
 		return noted, reason, target
 	case result != nil && result.IsError:
-		return unsuccessful(audit.OutcomeRefused, "tool_request_rejected", "the tool rejected the request arguments"), "", target
+		return unsuccessful(
+			audit.OutcomeRefused,
+			"tool_request_rejected",
+			"the tool rejected the request arguments",
+		), "", target
 	default:
-		return audit.OutcomeDetails{Outcome: audit.OutcomeCompleted, FailureCode: "", FailureMessage: "", CommittedSteps: nil},
+		return audit.OutcomeDetails{
+				Outcome:        audit.OutcomeCompleted,
+				FailureCode:    "",
+				FailureMessage: "",
+				CommittedSteps: nil,
+			},
 			unchangedReason, target
 	}
 }
@@ -79,7 +128,12 @@ func toolChangesState(toolName string) bool {
 }
 
 func unsuccessful(outcome audit.Outcome, code, message string) audit.OutcomeDetails {
-	return audit.OutcomeDetails{Outcome: outcome, FailureCode: code, FailureMessage: message, CommittedSteps: nil}
+	return audit.OutcomeDetails{
+		Outcome:        outcome,
+		FailureCode:    code,
+		FailureMessage: message,
+		CommittedSteps: nil,
+	}
 }
 
 // toolResultTarget returns the stored target, the node that the handler
@@ -88,36 +142,66 @@ func toolResultTarget(ctx context.Context, toolName string, noted *audit.Target)
 	if noted != nil {
 		return *noted
 	}
+
 	entity := audit.EntityFromContext(ctx)
 	if entity.ID != uuid.Nil && entity.NodeType != "" {
 		return nodeTarget(entity.NodeType, entity.ID)
 	}
+
 	return audit.Target{
-		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: toolName, URI: toolResultRoute,
-		RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         audit.TargetKindResource,
+		NodeType:     "",
+		Reference:    "",
+		Name:         toolName,
+		URI:          toolResultRoute,
+		RelationType: "",
+		ID:           uuid.Nil,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
 // toolResultEvent builds the result event from the audit operation of the
 // tool call. It uses the system organization when the handler did not
 // resolve an organization.
-func toolResultEvent(ctx context.Context, toolName string, outcome audit.OutcomeDetails, reason string, target audit.Target) (audit.Event, error) {
+func toolResultEvent(
+	ctx context.Context,
+	toolName string,
+	outcome audit.OutcomeDetails,
+	reason string,
+	target audit.Target,
+) (audit.Event, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "mcp.tool.result_operation_missing", slog.String("tool", toolName), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"mcp.tool.result_operation_missing",
+			slog.String("tool", toolName),
+			slog.String("err", err.Error()),
+		)
+
 		return audit.Event{}, fmt.Errorf("read the audit operation of tool %s: %w", toolName, err)
 	}
+
 	verb, _ := audit.ToolVerb(toolName)
 	completedAt := clock.Now().UTC()
 	if completedAt.Before(operation.Context.StartedAt) {
 		completedAt = operation.Context.StartedAt
 	}
+
 	event := operation
 	event.Verb, event.EventID, event.OccurredAt = string(verb), uuid.Must(uuid.NewV7()), completedAt
-	event.Entity = audit.Entity{Type: target.Kind, NodeType: target.NodeType, ID: target.ID, Identifier: target.Reference, Name: target.Name}
+	event.Entity = audit.Entity{
+		Type:       target.Kind,
+		NodeType:   target.NodeType,
+		ID:         target.ID,
+		Identifier: target.Reference,
+		Name:       target.Name,
+	}
 	if event.Context.OrgID == uuid.Nil {
 		event.Context.OrgID = audit.SystemOrgID()
 	}
+
 	event.Context.Tool, event.Context.Reason = toolName, reason
 	event.Context.AuditFormatVersion = audit.AuditFormatComplete
 	event.Context.OperationClass, event.Context.Phase = audit.OperationDatabaseChange, audit.PhaseResult
@@ -127,5 +211,6 @@ func toolResultEvent(ctx context.Context, toolName string, outcome audit.Outcome
 	if outcome.Outcome != audit.OutcomeCompleted {
 		event.Error = &audit.EventError{Code: outcome.FailureCode, Message: outcome.FailureMessage}
 	}
+
 	return event, nil
 }

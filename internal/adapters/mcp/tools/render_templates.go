@@ -11,7 +11,9 @@ import (
 //go:embed templates/*.md.tmpl
 var markdownTemplateFS embed.FS
 
-var markdownTemplates = template.Must(template.New("").ParseFS(markdownTemplateFS, "templates/*.md.tmpl"))
+var markdownTemplates = template.Must(
+	template.New("").ParseFS(markdownTemplateFS, "templates/*.md.tmpl"),
+)
 
 type markdownField struct {
 	Label string
@@ -56,6 +58,7 @@ func executeMarkdownTemplate(name string, data any) string {
 	if err := markdownTemplates.ExecuteTemplate(&buf, name, data); err != nil {
 		panic(fmt.Sprintf("render markdown template %s: %v", name, err))
 	}
+
 	return strings.TrimRight(buf.String(), "\n") + "\n"
 }
 
@@ -63,6 +66,7 @@ func markdownValue(value string) string {
 	if value == "" {
 		return "-"
 	}
+
 	return value
 }
 
@@ -70,6 +74,7 @@ func markdownCodeValue(value string) string {
 	if value == "" {
 		return "-"
 	}
+
 	return fmt.Sprintf("`%s`", value)
 }
 

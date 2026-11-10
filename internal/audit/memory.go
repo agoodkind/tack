@@ -22,9 +22,11 @@ func (m *MemoryRecorder) Record(_ context.Context, ev Event) error {
 	if ev.OccurredAt.IsZero() {
 		ev.OccurredAt = clock.Now().UTC()
 	}
+
 	m.mu.Lock()
 	m.events = append(m.events, ev)
 	m.mu.Unlock()
+
 	return nil
 }
 
@@ -34,6 +36,7 @@ func (m *MemoryRecorder) Events() []Event {
 	defer m.mu.Unlock()
 	out := make([]Event, len(m.events))
 	copy(out, m.events)
+
 	return out
 }
 
@@ -64,9 +67,11 @@ type UnwiredRecorder struct{}
 
 // Record refuses the event and names the wiring bug that caused it.
 func (UnwiredRecorder) Record(_ context.Context, ev Event) error {
-	slog.Error("audit.recorder_unwired",
+	slog.Error(
+		"audit.recorder_unwired",
 		slog.String("verb", ev.Verb),
 		slog.String("err", ErrRecorderUnwired.Error()),
 	)
+
 	return ErrRecorderUnwired
 }

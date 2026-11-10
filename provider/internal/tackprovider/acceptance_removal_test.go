@@ -19,27 +19,40 @@ func TestSchemaDeclaredRemoval(t *testing.T) {
 	version := environment.appliedVersion
 	variables := environment.variables(version)
 	secret := environment.secret()
-	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: providerFactories(),
-		Steps: []resource.TestStep{
-			importStep(environment, version),
-			{
-				Config:          acceptanceProviderConfig,
-				ConfigVariables: variables,
-				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
-					plancheck.ExpectResourceAction(schemaAddress, plancheck.ResourceActionDestroy),
-					secretAbsentFromPlan{secret: secret},
-				}},
-				ConfigStateChecks: []statecheck.StateCheck{secretAbsentFromState{secret: secret}},
-				Check: func(state *terraform.State) error {
-					if _, found := state.RootModule().Resources[schemaAddress]; found {
-						return errors.New("the state still contains " + schemaAddress + " after its removal")
-					}
-					return nil
+	resource.Test(
+		t,
+		resource.TestCase{
+			ProtoV6ProviderFactories: providerFactories(),
+			Steps: []resource.TestStep{
+				importStep(environment, version),
+				{
+					Config:          acceptanceProviderConfig,
+					ConfigVariables: variables,
+					ConfigPlanChecks: resource.ConfigPlanChecks{
+						PreApply: []plancheck.PlanCheck{
+							plancheck.ExpectResourceAction(
+								schemaAddress,
+								plancheck.ResourceActionDestroy,
+							),
+							secretAbsentFromPlan{secret: secret},
+						},
+					},
+					ConfigStateChecks: []statecheck.StateCheck{
+						secretAbsentFromState{secret: secret},
+					},
+					Check: func(state *terraform.State) error {
+						if _, found := state.RootModule().Resources[schemaAddress]; found {
+							return errors.New(
+								"the state still contains " + schemaAddress + " after its removal",
+							)
+						}
+
+						return nil
+					},
 				},
+				importStep(environment, version),
+				{Config: acceptanceConfig, ConfigVariables: variables, PlanOnly: true},
 			},
-			importStep(environment, version),
-			{Config: acceptanceConfig, ConfigVariables: variables, PlanOnly: true},
 		},
-	})
+	)
 }

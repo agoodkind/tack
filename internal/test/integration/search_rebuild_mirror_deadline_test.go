@@ -24,15 +24,31 @@ func TestSearchRebuildMirrorMissSurvivesExpiredSlice(t *testing.T) {
 	nodeID := uuid.Must(uuid.NewV7())
 	proxy.targetIn(nodeID, mirrorExpiredOrdinal, target)
 	env.putNode(t, nodeID, strings.Repeat(timingText, 40))
-	ctx, cancel := context.WithTimeout(integration.WithTestOperation(t, t.Context()), mirrorSliceDeadline)
+	ctx, cancel := context.WithTimeout(
+		integration.WithTestOperation(t, t.Context()),
+		mirrorSliceDeadline,
+	)
 	claimed, err := env.Worker.RunSlice(ctx)
 	cancel()
 	_, abandonedAt, abandoned := proxy.held()
 	if !claimed || !abandoned {
-		t.Fatalf("the expired slice claimed %t and abandoned the write of page %d %t (error %v), want both",
-			claimed, mirrorExpiredOrdinal, abandoned, err)
+		t.Fatalf(
+			"the expired slice claimed %t and abandoned the write of page %d %t (error %v), want both",
+			claimed,
+			mirrorExpiredOrdinal,
+			abandoned,
+			err,
+		)
 	}
-	run := mirrorRun{env: env, proxy: proxy, target: target, nodeID: nodeID, firstAbandoned: abandonedAt, secondAbandoned: time.Time{}}
+
+	run := mirrorRun{
+		env:             env,
+		proxy:           proxy,
+		target:          target,
+		nodeID:          nodeID,
+		firstAbandoned:  abandonedAt,
+		secondAbandoned: time.Time{},
+	}
 	requireSwitchAfterCopies(t, env, target)
 	requireReplacementPages(t, run)
 	requireResendAfterHorizon(t, proxy, nodeID, mirrorExpiredOrdinal, target, abandonedAt)

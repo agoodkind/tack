@@ -21,16 +21,21 @@ type memberAdder interface {
 func seedMembership(
 	ctx context.Context,
 	members memberAdder,
-	orgID, userID uuid.UUID,
+	orgID uuid.UUID,
+	userID uuid.UUID,
 ) error {
 	member := &org.Member{
-		ID: uuid.Nil, OrgID: orgID, UserID: userID,
-		Role: seedOwnerRole, CreatedAt: time.Time{},
+		ID:        uuid.Nil,
+		OrgID:     orgID,
+		UserID:    userID,
+		Role:      seedOwnerRole,
+		CreatedAt: time.Time{},
 	}
 	if err := members.AddMember(ctx, member); err != nil {
 		slog.ErrorContext(ctx, "seed.add_member_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("seed: add member: %w", err)
 	}
+
 	return nil
 }
 

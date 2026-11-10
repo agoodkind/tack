@@ -23,13 +23,19 @@ func (t *CountingQueryTracer) TraceQueryStart(
 	if t.Next == nil {
 		return ctx
 	}
+
 	return t.Next.TraceQueryStart(ctx, conn, data)
 }
 
 // TraceQueryEnd delegates to Next.
-func (t *CountingQueryTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
+func (t *CountingQueryTracer) TraceQueryEnd(
+	ctx context.Context,
+	conn *pgx.Conn,
+	data pgx.TraceQueryEndData,
+) {
 	if t.Next == nil {
 		return
 	}
+
 	t.Next.TraceQueryEnd(ctx, conn, data)
 }

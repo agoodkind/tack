@@ -28,18 +28,24 @@ func TestContainerExecEndsWhenItsContextDoes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("docker client: %v", err)
 	}
+
 	defer func() { _ = cli.Close() }()
 
 	const image = "alpine:3"
 	if err := ensureImage(ctx, cli, nopLogger(), image); err != nil {
 		t.Fatalf("ensure %s: %v", image, err)
 	}
-	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: &container.Config{Image: image, Cmd: []string{"sleep", "300"}},
-	})
+
+	created, err := cli.ContainerCreate(
+		ctx,
+		client.ContainerCreateOptions{
+			Config: &container.Config{Image: image, Cmd: []string{"sleep", "300"}},
+		},
+	)
 	if err != nil {
 		t.Fatalf("create container: %v", err)
 	}
+
 	t.Cleanup(func() {
 		teardown, stop := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer stop()
@@ -59,6 +65,7 @@ func TestContainerExecEndsWhenItsContextDoes(t *testing.T) {
 	if err == nil {
 		t.Fatal("an exec that outlives its context must return an error")
 	}
+
 	if took > 10*deadline {
 		t.Fatalf("the exec held the read for %s past a %s deadline", took, deadline)
 	}

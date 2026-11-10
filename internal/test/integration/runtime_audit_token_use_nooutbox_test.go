@@ -36,8 +36,11 @@ func TestRuntimeAuditTokenUseWithoutOutbox(t *testing.T) {
 
 	rows := tokenUsedRows(t, reader, server.orgID, requestID)
 	if len(rows) != 1 {
-		t.Fatalf("ledger has %d auth.token_used rows for request %s when the response returned, want 1",
-			len(rows), requestID)
+		t.Fatalf(
+			"ledger has %d auth.token_used rows for request %s when the response returned, want 1",
+			len(rows),
+			requestID,
+		)
 	}
 
 	requireTokenUsedRowFields(t, rows[0], server.userID, fixtureTokenID(t, server), requestID)

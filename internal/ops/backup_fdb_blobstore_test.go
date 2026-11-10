@@ -25,6 +25,7 @@ func TestFDBBlobstoreURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fdbBlobstoreURL: %v", err)
 	}
+
 	want := "blobstore://AKIAEXAMPLE:secretexample@fdb-blobstore-host:8333/20260528T000000Z" +
 		"?bucket=tack-backups&region=us-east-1&secure_connection=0"
 	if got != want {
@@ -47,6 +48,7 @@ func TestFDBBlobstoreURLStripsHTTPS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fdbBlobstoreURL: %v", err)
 	}
+
 	want := "blobstore://key:sec@fdb-blobstore-host:8333/run" +
 		"?bucket=tack-backups&region=us-east-1&secure_connection=0"
 	if got != want {
@@ -63,10 +65,12 @@ func TestBlobstoreHostMappingIPv6Literal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("blobstoreHostMapping: %v", err)
 	}
+
 	wantHost := "fdb-blobstore-host:8333"
 	if hostForURL != wantHost {
 		t.Errorf("hostForURL mismatch:\n got=%s\nwant=%s", hostForURL, wantHost)
 	}
+
 	wantExtra := "fdb-blobstore-host:3d06:bad:b01:204::410"
 	if extraHost != wantExtra {
 		t.Errorf("extraHost mismatch:\n got=%s\nwant=%s", extraHost, wantExtra)
@@ -81,9 +85,11 @@ func TestBlobstoreHostMappingPlainHostname(t *testing.T) {
 	if err != nil {
 		t.Fatalf("blobstoreHostMapping: %v", err)
 	}
+
 	if hostForURL != "seaweedfs-s3:8333" {
 		t.Errorf("hostForURL mismatch:\n got=%s\nwant=seaweedfs-s3:8333", hostForURL)
 	}
+
 	if extraHost != "" {
 		t.Errorf("extraHost should be empty for a plain hostname, got %q", extraHost)
 	}
@@ -96,6 +102,7 @@ func TestBlobstoreExtraHostsIPv6Literal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("blobstoreExtraHosts: %v", err)
 	}
+
 	if len(got) != 1 || got[0] != "fdb-blobstore-host:3d06:bad:b01:204::410" {
 		t.Errorf("extra hosts mismatch: got=%v", got)
 	}
@@ -108,6 +115,7 @@ func TestBlobstoreExtraHostsPlainHostname(t *testing.T) {
 	if err != nil {
 		t.Fatalf("blobstoreExtraHosts: %v", err)
 	}
+
 	if got != nil {
 		t.Errorf("expected nil extra hosts for plain hostname, got %v", got)
 	}

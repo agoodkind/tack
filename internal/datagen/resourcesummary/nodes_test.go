@@ -92,17 +92,20 @@ func TestSummarizeRunRejectsInvalidTotals(t *testing.T) {
 		},
 	}
 	for _, scenario := range cases {
-		t.Run(scenario.name, func(t *testing.T) {
-			path := writeChangedFixture(t, runLogFixture, scenario.change)
+		t.Run(
+			scenario.name,
+			func(t *testing.T) {
+				path := writeChangedFixture(t, runLogFixture, scenario.change)
 
-			got, err := resourcesummary.SummarizeRun(t.Context(), path)
+				got, err := resourcesummary.SummarizeRun(t.Context(), path)
 
-			if err == nil {
-				t.Fatalf("summary = %+v, want error %q", got, scenario.wantError)
-			}
-			if err.Error() != scenario.wantError {
-				t.Errorf("error = %q, want %q", err.Error(), scenario.wantError)
-			}
-		})
+				if err == nil {
+					t.Fatalf("summary = %+v, want error %q", got, scenario.wantError)
+				}
+				if err.Error() != scenario.wantError {
+					t.Errorf("error = %q, want %q", err.Error(), scenario.wantError)
+				}
+			},
+		)
 	}
 }

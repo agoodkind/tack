@@ -32,6 +32,7 @@ func approvedRelevanceNodes(t *testing.T) []rankingApprovedNode {
 	if err := json.Unmarshal(rankingApprovedJSON, &nodes); err != nil {
 		t.Fatalf("decode approved semantic corpus: %v", err)
 	}
+
 	return nodes
 }
 
@@ -39,24 +40,47 @@ func approvedRelevanceNodes(t *testing.T) []rankingApprovedNode {
 // node types in turn, and uses each corpus text as the name and included
 // property. It indexes the nodes and returns target IDs by approved query,
 // requiring two targets per query.
-func putRelevanceCorpus(t *testing.T, fixture integration.QueryFixture, nodes []rankingApprovedNode, kinds []integration.OpaqueKind) map[string][]uuid.UUID {
+func putRelevanceCorpus(
+	t *testing.T,
+	fixture integration.QueryFixture,
+	nodes []rankingApprovedNode,
+	kinds []integration.OpaqueKind,
+) map[string][]uuid.UUID {
 	t.Helper()
 	entryID := integration.EntryPoint(t, fixture, fixture.Workspaces[0])
 	targets := make(map[string][]uuid.UUID, len(rankingApprovedQueries))
+
 	for position, item := range nodes {
-		nodeID := integration.PutOpaqueNode(t, fixture, kinds[position%len(kinds)], entryID, item.Text, item.Text, "excluded")
+		nodeID := integration.PutOpaqueNode(
+			t,
+			fixture,
+			kinds[position%len(kinds)],
+			entryID,
+			item.Text,
+			item.Text,
+			"excluded",
+		)
 		if !strings.HasPrefix(item.Identifier, "t-") {
 			continue
 		}
+
 		query := rankingApprovedQueries[int(item.Identifier[2]-'0')]
 		targets[query] = append(targets[query], nodeID)
 	}
+
 	for _, query := range rankingApprovedQueries {
 		if len(targets[query]) != relevanceTargetsPerQuery {
-			t.Fatalf("approved corpus has %d targets for %q, want %d", len(targets[query]), query, relevanceTargetsPerQuery)
+			t.Fatalf(
+				"approved corpus has %d targets for %q, want %d",
+				len(targets[query]),
+				query,
+				relevanceTargetsPerQuery,
+			)
 		}
 	}
+
 	integration.DrainSearchWork(t, fixture.Worker, relevanceCorpusSlices)
+
 	return targets
 }
 
@@ -64,11 +88,18 @@ func putRelevanceCorpus(t *testing.T, fixture integration.QueryFixture, nodes []
 // page and logs each target's rank.
 func requireTargetsOnPage(t *testing.T, query string, targets, page []uuid.UUID) {
 	t.Helper()
+
 	for _, target := range targets {
 		rank := slices.Index(page, target) + 1
 		if rank == 0 {
-			t.Fatalf("search %q did not return target %s on the first page of %d nodes", query, target, len(page))
+			t.Fatalf(
+				"search %q did not return target %s on the first page of %d nodes",
+				query,
+				target,
+				len(page),
+			)
 		}
+
 		t.Logf("relevance query=%q target=%s rank=%d", query, target, rank)
 	}
 }
@@ -85,14 +116,20 @@ func TestSearchRelevanceOpaqueCorpus(t *testing.T) {
 	seed := rand.Uint64()
 	t.Logf("relevance corpus shuffle seed=%d", seed)
 	nodes := approvedRelevanceNodes(t)
-	rand.New(rand.NewPCG(seed, seed)).Shuffle(len(nodes), func(i, j int) { nodes[i], nodes[j] = nodes[j], nodes[i] })
+	rand.New(rand.NewPCG(seed, seed)).Shuffle(
+		len(nodes),
+		func(i, j int) { nodes[i], nodes[j] = nodes[j], nodes[i] },
+	)
+
 	kinds := make([]integration.OpaqueKind, 0, relevanceOpaqueKinds)
 	for range relevanceOpaqueKinds {
 		kinds = append(kinds, integration.PutOpaqueKind(t, fixture, fixture.Workspaces[0].OrgID))
 	}
+
 	targets := putRelevanceCorpus(t, fixture, nodes, kinds)
 	harness, capture := newInferenceCaptureHarness(t, fixture)
 	var firstShape []byte
+
 	for _, query := range rankingApprovedQueries {
 		capture.take()
 		page := integration.CallSearch(t, harness, query, "")
@@ -102,13 +139,24 @@ func TestSearchRelevanceOpaqueCorpus(t *testing.T) {
 		if len(exchange.Searches) == 0 {
 			t.Fatalf("search %q sent no ranked batch", query)
 		}
+
 		request := decodeRankedRequest(t, exchange.Searches[0])
 		if request.Lexical.MultiMatch.Query != query {
-			t.Fatalf("ranked batch for %q sends lexical text %q", query, request.Lexical.MultiMatch.Query)
+			t.Fatalf(
+				"ranked batch for %q sends lexical text %q",
+				query,
+				request.Lexical.MultiMatch.Query,
+			)
 		}
+
 		if len(request.Body.SearchAfter) != 0 {
-			t.Fatalf("the first ranked batch for %q sends search_after %s", query, request.Body.SearchAfter)
+			t.Fatalf(
+				"the first ranked batch for %q sends search_after %s",
+				query,
+				request.Body.SearchAfter,
+			)
 		}
+
 		requirePredictedTokens(t, request.Tokens, predicted)
 		shape := rankedRequestShape(t, request)
 		if firstShape == nil {
@@ -116,8 +164,15 @@ func TestSearchRelevanceOpaqueCorpus(t *testing.T) {
 			t.Logf("relevance request shape=%s", shape)
 			continue
 		}
+
 		if !bytes.Equal(shape, firstShape) {
-			t.Fatalf("ranked batch for %q differs from %q apart from query text, token map, and point in time:\n%s\n%s", query, rankingApprovedQueries[0], shape, firstShape)
+			t.Fatalf(
+				"ranked batch for %q differs from %q apart from query text, token map, and point in time:\n%s\n%s",
+				query,
+				rankingApprovedQueries[0],
+				shape,
+				firstShape,
+			)
 		}
 	}
 }

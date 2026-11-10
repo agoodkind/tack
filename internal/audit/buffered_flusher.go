@@ -32,6 +32,7 @@ func (b *BufferedRecorder) run(ctx context.Context) {
 	ticker := time.NewTicker(b.flushInterval)
 	defer ticker.Stop()
 	batch := make([]Event, 0, b.batchSize)
+
 	for {
 		select {
 		case ev := <-b.queue:
@@ -61,10 +62,12 @@ func (b *BufferedRecorder) flush(ctx context.Context, batch []Event) {
 	if len(b.retained) == 0 {
 		return
 	}
+
 	if b.attempts > 0 && clock.Now().Before(b.retryAt) {
 		b.room.setRetained(len(b.retained))
 		return
 	}
+
 	failed, err := b.deliverAll(ctx, b.retained)
 	b.settle(ctx, failed, err)
 }
@@ -81,14 +84,18 @@ func (b *BufferedRecorder) deliverAll(ctx context.Context, events []Event) ([]Ev
 		if len(lost) == 0 {
 			continue
 		}
+
 		if err == nil {
 			err = errBrokerRefused
 		}
+
 		failed := make([]Event, 0, len(lost)+len(events)-end)
 		failed = append(failed, lost...)
 		failed = append(failed, events[end:]...)
+
 		return failed, err
 	}
+
 	return nil, nil
 }
 
@@ -96,20 +103,32 @@ func (b *BufferedRecorder) deliver(ctx context.Context, batch []Event) ([]Event,
 	if batcher, ok := b.inner.(BatchRecorder); ok {
 		refused, err := batcher.RecordBatch(ctx, batch)
 		if err != nil {
-			slog.ErrorContext(ctx, "audit.buffer.batch_failed",
-				slog.Int("batch", len(batch)), slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.buffer.batch_failed",
+				slog.Int("batch", len(batch)),
+				slog.String("err", err.Error()),
+			)
+
 			return batch, fmt.Errorf("deliver audit batch: %w", err)
 		}
+
 		return refused, nil
 	}
+
 	var lost []Event
 	var causes []error
+
 	for _, ev := range batch {
 		if err := b.inner.Record(ctx, ev); err != nil {
 			lost = append(lost, ev)
-			causes = append(causes, fmt.Errorf("record audit event %s %s: %w", ev.Verb, ev.EventID, err))
+			causes = append(
+				causes,
+				fmt.Errorf("record audit event %s %s: %w", ev.Verb, ev.EventID, err),
+			)
 		}
 	}
+
 	return lost, errors.Join(causes...)
 }
 
@@ -122,24 +141,38 @@ func (b *BufferedRecorder) settle(ctx context.Context, failed []Event, err error
 	b.room.setRetained(len(failed))
 	if len(failed) == 0 {
 		if b.attempts > 0 {
-			slog.InfoContext(ctx, "audit.buffer.retained_delivered",
-				slog.Int("failed_attempts", b.attempts))
+			slog.InfoContext(
+				ctx,
+				"audit.buffer.retained_delivered",
+				slog.Int("failed_attempts", b.attempts),
+			)
 		}
+
 		b.attempts = 0
+
 		return
 	}
+
 	b.attempts++
 	b.retryAt = clock.Now().Add(retryBackoff(b.attempts))
 	if b.attempts == 1 {
-		slog.ErrorContext(ctx, "audit.buffer.delivery_retained",
+		slog.ErrorContext(
+			ctx,
+			"audit.buffer.delivery_retained",
 			slog.Int("retained", len(failed)),
-			slog.String("err", err.Error()))
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
-	slog.DebugContext(ctx, "audit.buffer.retry_failed",
+
+	slog.DebugContext(
+		ctx,
+		"audit.buffer.retry_failed",
 		slog.Int("retained", len(failed)),
 		slog.Int("failed_attempts", b.attempts),
-		slog.String("err", err.Error()))
+		slog.String("err", err.Error()),
+	)
 }
 
 // retryBackoff returns the wait after the given count of failed attempts. The

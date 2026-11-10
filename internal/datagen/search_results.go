@@ -41,7 +41,11 @@ type searchRun struct {
 }
 
 // eventually repeats check until it succeeds or the deadline passes.
-func (r searchRun) eventually(ctx context.Context, description string, check func(context.Context) error) error {
+func (r searchRun) eventually(
+	ctx context.Context,
+	description string,
+	check func(context.Context) error,
+) error {
 	deadline := clock.Now().Add(searchConvergenceDeadline)
 	for {
 		err := check(ctx)
@@ -71,7 +75,13 @@ func (r searchRun) ranked(ctx context.Context, query string, nodes ...uuid.UUID)
 	for _, nodeID := range nodes {
 		position := slices.Index(results, nodeID)
 		if position < 0 || position >= searchRankBound {
-			return fmt.Errorf("search %q ranks node %s at %d, want within the first %d distinct nodes", query, nodeID, position, searchRankBound)
+			return fmt.Errorf(
+				"search %q ranks node %s at %d, want within the first %d distinct nodes",
+				query,
+				nodeID,
+				position,
+				searchRankBound,
+			)
 		}
 	}
 	return nil
@@ -91,7 +101,10 @@ func (r searchRun) includes(ctx context.Context, query string, nodes ...uuid.UUI
 
 // missing resolves all results for query and returns the omitted input node
 // IDs in input order.
-func (r searchRun) missing(ctx context.Context, query string, nodes ...uuid.UUID) ([]uuid.UUID, error) {
+func (r searchRun) missing(ctx context.Context, query string, nodes ...uuid.UUID) (
+	[]uuid.UUID,
+	error,
+) {
 	results, err := traverseSearch(ctx, r.driver, r.identities(), r.token, r.entry, query, r.limits)
 	if err != nil {
 		return nil, err
@@ -124,7 +137,12 @@ func (r searchRun) notIndexed(ctx context.Context, value string, nodeID uuid.UUI
 	}
 	for position, text := range texts {
 		if strings.Contains(text, value) {
-			return fmt.Errorf("active page %d of node %s stores the excluded value %q", position, nodeID, value)
+			return fmt.Errorf(
+				"active page %d of node %s stores the excluded value %q",
+				position,
+				nodeID,
+				value,
+			)
 		}
 	}
 	return nil
