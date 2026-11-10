@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// The window is deliberately not the deployed one, so the wait is exercised
-// against a window it does not hardcode. The fake clock moves one minute per
-// read, so a run of a few hundred polls covers hours without sleeping.
+// The test window differs from the implementation's window to check that the
+// wait uses its supplied duration. The simulated clock advances one minute
+// per read; hundreds of polls represent hours without sleeping for that time.
 const (
 	ybWaitTestStall     = 7 * time.Minute
 	ybWaitTestClockStep = time.Minute
@@ -18,17 +18,16 @@ const (
 	ybWaitTestProbe     = time.Second
 )
 
-// scriptedYBScratch drives one awaitYBScratch run: the engine stays not ready
-// for readyAfter polls, and the counters are handed out in order with the last
-// one repeating.
+// scriptedYBScratch supplies one awaitYBScratch run. Readiness stays false
+// until readyAfter progress reads. Counter readings follow their supplied
+// order and repeat the last value after the sequence ends.
 type scriptedYBScratch struct {
 	readyAfter  int
 	counters    []map[string]int64
 	progressErr error
 	running     bool
 	polls       int
-	// failReason, when set, is reported by the failure check from poll
-	// failAfter on.
+	// The failure check returns a nonempty failReason starting at failAfter.
 	failReason string
 	failAfter  int
 }
@@ -56,7 +55,8 @@ func (s *scriptedYBScratch) watch() ybScratchWatch {
 	}
 }
 
-// risingTablets renders a restoration landing one more tablet's files per poll.
+// risingTablets supplies an sst_files count that increases by one per poll,
+// representing restoration of another tablet's files.
 func risingTablets(polls int) []map[string]int64 {
 	counters := make([]map[string]int64, 0, polls)
 	for i := range polls {
@@ -65,10 +65,14 @@ func risingTablets(polls int) []map[string]int64 {
 	return counters
 }
 
-// TestAwaitYBScratchLetsASlowRestorationRunPastAnyFixedBudget is the defect
-// this wait exists for. The restoration below takes four hours of wall clock
-// and finishes, because every poll shows more files landed. Under the fixed
-// five minute wall the drill used to carry, it failed while it was working.
+// TestAwaitYBScratchLetsASlowRestorationRunPastAnyFixedBudget checks the
+// fixed-budget defect. The original scenario claimed a four-hour restoration
+// with more files on every poll. The former five-minute limit stopped active
+// restoration.
+//
+// The test requires success and at least three hours of simulated elapsed
+// time. The clock advances on every opsNow call, including more than one
+// call in a progressing iteration.
 func TestAwaitYBScratchLetsASlowRestorationRunPastAnyFixedBudget(t *testing.T) {
 	const polls = 240
 	advanceClockPerRead(t, ybWaitTestClockStep)
@@ -84,9 +88,9 @@ func TestAwaitYBScratchLetsASlowRestorationRunPastAnyFixedBudget(t *testing.T) {
 	}
 }
 
-// TestAwaitYBScratchFailsAnEngineThatStoppedMoving proves the other half: an
-// engine whose counters froze is reported as stalled after the window, with
-// the marks and the step named, and the wait does not run on.
+// TestAwaitYBScratchFailsAnEngineThatStoppedMoving checks that fixed counters
+// produce a stall. The error must include the step and maxima, and the wait
+// must stop within the test's poll limit after the inactivity window.
 func TestAwaitYBScratchFailsAnEngineThatStoppedMoving(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
@@ -107,9 +111,9 @@ func TestAwaitYBScratchFailsAnEngineThatStoppedMoving(t *testing.T) {
 	}
 }
 
-// TestAwaitYBScratchIgnoresACounterThatFallsAndRecovers proves a counter is
-// read against its high-water mark: a count that drops and climbs back to
-// where it was is not movement, so a wedged engine cannot ratchet forward.
+// TestAwaitYBScratchIgnoresACounterThatFallsAndRecovers checks that readings
+// within a previous maximum do not keep resetting the timer. A count that
+// decreases and returns to its maximum must still produce a stall.
 func TestAwaitYBScratchIgnoresACounterThatFallsAndRecovers(t *testing.T) {
 	const polls = 60
 	advanceClockPerRead(t, ybWaitTestClockStep)
@@ -126,9 +130,9 @@ func TestAwaitYBScratchIgnoresACounterThatFallsAndRecovers(t *testing.T) {
 	}
 }
 
-// TestAwaitYBScratchNamesAnEngineItCouldNotRead keeps a wedged engine apart
-// from one the drill never read: the stall carries the last failed read and
-// says no counter arrived.
+// TestAwaitYBScratchNamesAnEngineItCouldNotRead checks a persistent progress
+// read failure. The stall must include that error and report that the wait
+// never read a counter, distinguishing failed observation from stopped work.
 func TestAwaitYBScratchNamesAnEngineItCouldNotRead(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)
@@ -148,8 +152,8 @@ func TestAwaitYBScratchNamesAnEngineItCouldNotRead(t *testing.T) {
 	}
 }
 
-// TestAwaitYBScratchEndsWhenTheContainerExits proves a scratch container that
-// died ends the wait at once rather than after the stall window.
+// TestAwaitYBScratchEndsWhenTheContainerExits checks that a stopped container
+// ends the wait before a progress read rather than after the stall window.
 func TestAwaitYBScratchEndsWhenTheContainerExits(t *testing.T) {
 	advanceClockPerRead(t, ybWaitTestClockStep)
 	recordLedgerWaits(t)

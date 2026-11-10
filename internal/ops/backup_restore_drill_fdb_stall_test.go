@@ -7,9 +7,12 @@ import (
 	"testing"
 )
 
-// TestAwaitFDBRestoreFailsARestoreThatStopsMoving proves the replacement
-// failure mode: a restore that stops advancing fails, and the failure names
-// how long nothing moved and where the counters got to.
+// TestAwaitFDBRestoreFailsARestoreThatStopsMoving checks the stall failure
+// that replaced the fixed total timeout. The expected error reports the
+// inactivity duration and the last block and byte counts.
+//
+// The test checks for "made no progress for" and the counter values. It does
+// not assert a numeric duration.
 func TestAwaitFDBRestoreFailsARestoreThatStopsMoving(t *testing.T) {
 	advanceClockPerRead(t, testClockStep)
 	wedged := fdbStatusLine(7, 900, 4, 28672, 0)
@@ -33,10 +36,10 @@ func TestAwaitFDBRestoreFailsARestoreThatStopsMoving(t *testing.T) {
 	}
 }
 
-// TestAwaitFDBRestoreIgnoresBlocksInProgress proves a field that moves in no
-// fixed direction is not read as progress. BlocksInProgress rises and falls as
-// blocks are dispatched and retired, so a wedged restore whose only moving
-// field is that one must still fail.
+// TestAwaitFDBRestoreIgnoresBlocksInProgress checks that changes in
+// BlocksInProgress do not prevent a stall. The engine increments and
+// decrements that field as it dispatches and finishes blocks. A restore that
+// changes only that field must still fail the drill.
 func TestAwaitFDBRestoreIgnoresBlocksInProgress(t *testing.T) {
 	const polls = 60
 	advanceClockPerRead(t, testClockStep)
@@ -56,12 +59,13 @@ func TestAwaitFDBRestoreIgnoresBlocksInProgress(t *testing.T) {
 	}
 }
 
-// TestAwaitFDBRestoreCountsAFallingApplyVersionLagAsProgress is the defect this
-// case exists for. Applying the backup's mutation log is the phase where no new
-// block lands and no new byte is written, so every rising counter stands still
-// while ApplyVersionLag falls. Reading only rises there killed a healthy large
-// restore for being quiet in its last phase: the run below covers days of
-// wall-clock time with blocks and bytes frozen and must finish cleanly.
+// TestAwaitFDBRestoreCountsAFallingApplyVersionLagAsProgress checks progress
+// during mutation-log application while completed blocks and written bytes
+// stay fixed. A rising-only check previously stopped a healthy large restore
+// after its final phase exceeded the inactivity window.
+//
+// The scripted restore represents days of elapsed time with decreasing lag.
+// The test requires successful completion and the final lag in the summary.
 func TestAwaitFDBRestoreCountsAFallingApplyVersionLagAsProgress(t *testing.T) {
 	const polls = 200
 	advanceClockPerRead(t, testClockStep)
@@ -83,11 +87,10 @@ func TestAwaitFDBRestoreCountsAFallingApplyVersionLagAsProgress(t *testing.T) {
 	}
 }
 
-// TestAwaitFDBRestoreIgnoresAnApplyVersionLagThatClimbs proves the falling
-// counter is read in one direction only, which is what stops it ratcheting a
-// wedged restore forward forever. The lag below oscillates and ends higher than
-// it started, and its low-water mark absorbs the first excursion, so nothing
-// after that reads as movement and the drill still fails.
+// TestAwaitFDBRestoreIgnoresAnApplyVersionLagThatClimbs checks that only a
+// new minimum counts as falling-counter progress. The scripted lag oscillates
+// and ends above its initial value. Its first reading establishes the minimum;
+// later readings cannot reset the timer, and the test requires a stall.
 func TestAwaitFDBRestoreIgnoresAnApplyVersionLagThatClimbs(t *testing.T) {
 	const polls = 60
 	advanceClockPerRead(t, testClockStep)
@@ -107,9 +110,9 @@ func TestAwaitFDBRestoreIgnoresAnApplyVersionLagThatClimbs(t *testing.T) {
 	}
 }
 
-// TestAwaitFDBRestoreReportsAStatusItCannotRead proves a status the drill can
-// never parse ends as a named stall carrying the read failure, rather than as
-// a wait with no bound at all.
+// TestAwaitFDBRestoreReportsAStatusItCannotRead checks a status-read failure
+// that persists until the stall window expires. The error must report that
+// the drill never read a counter and include the last status-read failure.
 func TestAwaitFDBRestoreReportsAStatusItCannotRead(t *testing.T) {
 	advanceClockPerRead(t, testClockStep)
 	watch := fdbRestoreWatch{

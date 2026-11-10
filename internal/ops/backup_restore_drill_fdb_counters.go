@@ -1,8 +1,6 @@
-// backup_restore_drill_fdb_counters.go reads how much work a FoundationDB
-// restore has done out of `fdbrestore status`, and remembers the furthest each
-// counter has ever got in the one direction that counter moves while work is
-// happening. Those marks are what the wait compares against, so only real
-// forward motion counts as the restore still being alive.
+// The drill reads FoundationDB restore work counters from fdbrestore status.
+// It compares each reading with the highest rising value or lowest falling
+// value previously observed. Only a new extreme counts as further progress.
 
 package ops
 
@@ -13,43 +11,41 @@ import (
 	"strings"
 )
 
-// fdbRestoreRisingCounters are the fields of `fdbrestore status` that only ever
-// count upwards while the restore does work, so a rise in one of them is
-// evidence the restore moved. FoundationDB 7.4.6 prints one line per restore
-// tag:
+// fdbRestoreRisingCounters selects status fields that increase during restore
+// work. The original FoundationDB 7.4.6 observation recorded one line per tag:
 //
 //	Tag: %s  UID: %s  State: %s  Blocks: %lld/%lld  BlocksInProgress: %lld  Files: %lld  BytesWritten: %lld  ApplyVersionLag: %lld  LastError: %s
 //
-// Blocks carries finished and total blocks, and the total is what moves while
-// the restore is still enumerating the backup's files and no block has landed
-// yet, so both halves count. BlocksInProgress is excluded because it rises and
-// falls as blocks are dispatched and retired, so it moves in no fixed
-// direction and no reading of it is evidence of anything; Files is fixed once
-// the restore is dispatched.
+// Blocks reports completed and total blocks. The total can increase while the
+// restore enumerates backup files before completing a block; both values
+// count as progress. BlocksInProgress increases and decreases as the engine
+// dispatches and finishes blocks, and cannot establish directional progress.
+// Files stays fixed after dispatch.
 var fdbRestoreRisingCounters = map[string]bool{
 	"blocks":       true,
 	"blockstotal":  true,
 	"byteswritten": true,
 }
 
-// fdbRestoreFallingCounters are the fields that only ever count downwards while
-// the restore does work, so a fall in one of them is the evidence a rise is for
-// the counters above. ApplyVersionLag is how far the restore's applied version
-// still trails its target. Applying the backup's mutation log is exactly the
-// phase where no new block lands and no new byte is written, so a restore in it
-// shows every rising counter standing still while the lag falls: reading only
-// rises there is what made a healthy large restore look wedged and get killed
-// once its quiet last phase outran the inactivity window.
+// fdbRestoreFallingCounters selects fields that decrease during restore work.
+// ApplyVersionLag measures the difference between the target version and the
+// applied version. The mutation-log phase can reduce that difference without
+// completing another block or writing another byte.
+//
+// The original defect occurred when a healthy large restore spent longer than
+// the inactivity window in that final phase. A wait that checked only rising
+// counters treated the restore as stalled and stopped it.
 var fdbRestoreFallingCounters = map[string]bool{
 	"applyversionlag": true,
 }
 
-// parseFDBRestoreProgress reads the directional work counters out of one
-// `fdbrestore status` output. A status holding none of them yields no
-// counters, which the wait reads as no progress rather than as an error: an
-// unreadable status then ends as a named stall, which says no counter was ever
-// read, instead of as an unbounded wait. The raw reading itself is never
-// carried into an error or a log; only the counters are.
+// parseFDBRestoreProgress reads directional counters from one fdbrestore
+// status response. An unparseable response returns an empty map. The wait
+// treats it as a poll without progress and eventually reports a stall if
+// neither completion nor progress occurs.
+//
+// If every response lacks readable counters, the stall report states that
+// condition. Errors and logs use the parsed counters rather than raw status.
 func parseFDBRestoreProgress(status string) map[string]int64 {
 	counters := map[string]int64{}
 	fields := strings.Fields(status)
@@ -63,12 +59,12 @@ func parseFDBRestoreProgress(status string) map[string]int64 {
 	return counters
 }
 
-// recordFDBRestoreCounter stores a counter's value, and stores the second half
-// under a "total" name when the value is the done/total pair Blocks prints. A
-// label that repeats across the status's per-tag lines keeps the larger value,
-// which is the conservative reading in both directions: a rising counter cannot
-// be made to look like it fell, and a falling one only signals once the worst
-// tag's value has come down.
+// recordFDBRestoreCounter records a value and, for the Blocks done/total pair,
+// records the total under the counter name plus "total". Repeated labels on
+// per-tag status lines retain the largest value.
+//
+// This aggregation cannot make a rising counter appear to decrease. A falling
+// counter signals progress only after the largest tag value decreases.
 func recordFDBRestoreCounter(counters map[string]int64, name, value string) {
 	done, total, paired := strings.Cut(value, "/")
 	recordFDBCounterValue(counters, name, done)
@@ -90,9 +86,9 @@ func recordFDBCounterValue(counters map[string]int64, name, value string) {
 	}
 }
 
-// normalizeFDBCounterName lowercases a status label and drops everything that
-// is not a letter or a digit, so cosmetic punctuation around a label does not
-// quietly drop the counter it names.
+// normalizeFDBCounterName lowercases a status label and retains only ASCII
+// letters and digits. Punctuation around a recognized label does not prevent
+// the parser from recognizing that counter.
 func normalizeFDBCounterName(label string) string {
 	var name strings.Builder
 	for _, symbol := range strings.ToLower(label) {
@@ -103,12 +99,10 @@ func normalizeFDBCounterName(label string) string {
 	return name.String()
 }
 
-// fdbRestoreProgress remembers the furthest every counter has moved in its own
-// direction: the highest value seen for a rising counter, the lowest for a
-// falling one. Marks, rather than the last reading, are what stop a value that
-// moves both ways from looking like forward motion forever. Every mark is
-// one-directional, so a counter signals only while it is setting a new extreme
-// and a value that oscillates signals nothing after its first excursion.
+// fdbRestoreProgress tracks the highest rising counter values and the lowest
+// falling counter values. Each counter signals progress only when it sets a
+// new extreme. Repeated oscillation within previously observed values does
+// not keep resetting the inactivity timer.
 type fdbRestoreProgress struct {
 	highWater map[string]int64
 	lowWater  map[string]int64
@@ -118,9 +112,9 @@ func newFDBRestoreProgress() *fdbRestoreProgress {
 	return &fdbRestoreProgress{highWater: map[string]int64{}, lowWater: map[string]int64{}}
 }
 
-// observe records one status reading and reports whether it moved any counter
-// past its mark. The first reading that carries counters at all counts as
-// movement, because the restore registering is itself progress.
+// observe records one status response and reports whether a counter sets a
+// new extreme. The first valid value for a counter counts as progress because
+// the restore has begun reporting that counter.
 func (p *fdbRestoreProgress) observe(status string) bool {
 	advanced := false
 	for name, value := range parseFDBRestoreProgress(status) {
@@ -137,9 +131,9 @@ func (p *fdbRestoreProgress) observe(status string) bool {
 	return advanced
 }
 
-// observeRise moves a rising counter's high-water mark, which never falls. The
-// engine only ever increments these, so the mark can be passed once per
-// increment and a restore doing no work passes it never.
+// observeRise updates a counter's highest value only when a reading exceeds
+// the previous maximum. The engine's rising work counters signal each new
+// increment once; an unchanged reading does not signal progress.
 func (p *fdbRestoreProgress) observeRise(name string, value int64) bool {
 	previous, seen := p.highWater[name]
 	if seen && value <= previous {
@@ -149,12 +143,13 @@ func (p *fdbRestoreProgress) observeRise(name string, value int64) bool {
 	return true
 }
 
-// observeFall moves a falling counter's low-water mark, which never rises. A
-// negative reading is ignored, so the mark is a whole number that strictly
-// decreases on every signal and is floored at zero: one restore can therefore
-// produce at most as many signals as its first reading's value, which bounds
-// them however long it runs. A lag that climbs back up, or oscillates, moves
-// nothing.
+// observeFall ignores negative readings and records each new minimum. The
+// first nonnegative value establishes the mark; every later progress signal
+// requires a smaller integer, with zero as the lower bound.
+//
+// After that initial reading, a counter can signal at most as many times as
+// its initial value. A later increase or repeated oscillation above the
+// minimum does not signal progress.
 func (p *fdbRestoreProgress) observeFall(name string, value int64) bool {
 	if value < 0 {
 		return false
@@ -167,11 +162,10 @@ func (p *fdbRestoreProgress) observeFall(name string, value int64) bool {
 	return true
 }
 
-// summary renders every mark in a stable order for a log line or a stall
-// report. It says so when it never read one, because a status the drill could
-// not read at all is a different failure from a restore that moved and then
-// stopped. The two mark sets name disjoint counters, so one merged reading is
-// unambiguous.
+// summary renders all marks in sorted order for logs and stall reports. It
+// reports when the drill has never read a counter, distinguishing that case
+// from a restore that progressed and then stopped. Rising and falling maps
+// use different counter names, and the merged summary preserves both sets.
 func (p *fdbRestoreProgress) summary() string {
 	marks := make(map[string]int64, len(p.highWater)+len(p.lowWater))
 	maps.Copy(marks, p.highWater)

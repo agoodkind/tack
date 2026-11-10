@@ -1,10 +1,9 @@
-// backup_restore_drill_yb_wait.go decides when the drill's scratch yugabyted
-// has stopped moving, not when it has taken too long. Starting the scratch
-// engine and applying the restored snapshot both run on whatever CPU the owner
-// guest has left, and the restoration grows with the ledger, so a fixed budget
-// for either is a wall that a loaded host or a larger ledger hits while the
-// work is still progressing (TACK-471). Only inactivity is bounded here, the
-// way the FoundationDB restore wait and the ledger node wait bound it.
+// The drill limits inactivity while starting scratch yugabyted and applying
+// a restored snapshot. Both tasks share the owner guest's available CPU, and
+// restore work grows with the ledger. TACK-471 recorded the fixed-budget
+// defect: host load or ledger growth could exhaust a total time limit while
+// work continued. FoundationDB restore and ledger node waits also limit
+// inactivity.
 
 package ops
 
@@ -21,46 +20,55 @@ import (
 )
 
 const (
-	// ybScratchStallWindow is how long the scratch yugabyted may show no
-	// progress at all before the drill calls it stalled. It bounds inactivity
-	// and never total work, so it does not grow with the ledger.
+	// ybScratchStallWindow limits how long scratch yugabyted can run without
+	// progress before the drill reports a stall. It limits inactivity rather
+	// than total work and does not increase with ledger size.
 	ybScratchStallWindow = 10 * time.Minute
 	// ybScratchPollInterval is how often the drill reads the scratch engine.
 	ybScratchPollInterval = 10 * time.Second
-	// ybScratchBlindTolerance is how many polls in a row may leave the drill
-	// unable to read whether the step failed. A crash loop writes bytes that
-	// read as progress, so the failure check is what stops the wait running to
-	// the unit's backstop; a wait that cannot run it is not one that can vouch
-	// for the engine. One unreadable poll is a transient, such as the daemon
-	// answering late under load.
+	// ybScratchBlindTolerance sets the consecutive unreadable failure-check
+	// count that ends the wait. A crash loop can keep writing bytes and reset
+	// the inactivity timer; the failure check must detect that condition before
+	// the unit's backstop timeout.
+	//
+	// The wait tolerates an isolated unreadable poll, such as a daemon response
+	// that arrives late under load.
 	ybScratchBlindTolerance = 3
-	// ybScratchProbeTimeout bounds one probe. Most probes do constant work (an
-	// inspect, one readiness command, one status page); the data directory walk
-	// grows with the scratch engine's file count, which at today's ledger size
-	// takes well under a second. A probe that hits the deadline counts as a
-	// failed read, not as progress.
+	// ybScratchProbeTimeout sets a deadline context for each probe. The helper
+	// calls callbacks synchronously, and each callback must honor cancellation
+	// to return at its deadline.
+	//
+	// Container inspection, a readiness command and a status page involve fixed
+	// tasks. The data-directory walk grows with the scratch engine's file count.
+	// The original observation put that walk well below one second at the ledger
+	// size then in use.
+	//
+	// A probe that reports its deadline as an error counts as a failed read
+	// rather than progress.
 	ybScratchProbeTimeout = 2 * time.Minute
 )
 
-// ybScratchWatch is what the wait reads on each poll. All three are functions
-// so the loop's decisions are exercised in tests without a Docker daemon.
+// ybScratchWatch supplies the four probe functions that the wait reads on
+// each poll. Tests supply those functions to exercise loop decisions without
+// a Docker daemon.
 type ybScratchWatch struct {
 	// Running reports whether the scratch container is still running.
 	Running func(ctx context.Context) (bool, error)
-	// Failed returns a reason the step can never succeed, such as a crashed
-	// process yugabyted restarted or a restoration the master marked failed,
-	// or "" while the step can still succeed. Without it, the bytes a
-	// restarting engine writes would read as progress.
+	// Failed returns a permanent failure reason, such as a process that
+	// yugabyted restarted after a crash or a restoration the master marked
+	// failed. An empty string means the check has not reported a permanent
+	// failure. Without this check, restart writes could count as progress.
 	Failed func(ctx context.Context) (string, error)
 	// Ready reports whether the step's readiness check passed.
 	Ready func(ctx context.Context) (bool, error)
-	// Progress returns counters that only rise while the engine does work.
+	// Progress returns work counters for comparison with their highest observed
+	// values. Only a new maximum counts as further progress.
 	Progress func(ctx context.Context) (map[string]int64, error)
 }
 
-// ybScratchProgress remembers the highest value each counter has reached.
-// Marks, rather than the last reading, stop a count that moves both ways from
-// looking like progress forever.
+// ybScratchProgress tracks each counter's highest value. A decrease followed
+// by recovery to that value does not count as further progress or keep
+// resetting the inactivity timer.
 type ybScratchProgress struct {
 	highWater map[string]int64
 }
@@ -69,9 +77,9 @@ func newYBScratchProgress() *ybScratchProgress {
 	return &ybScratchProgress{highWater: map[string]int64{}}
 }
 
-// observe records one reading and reports whether any counter rose past its
-// mark. A counter seen for the first time counts as movement, because a status
-// page that starts answering is progress for an engine that is starting.
+// observe records a reading and reports whether any counter exceeds its
+// previous maximum. The first value for a counter also counts as progress;
+// an answering status page provides startup evidence.
 func (p *ybScratchProgress) observe(counters map[string]int64) bool {
 	moved := false
 	for name, value := range counters {
@@ -85,8 +93,8 @@ func (p *ybScratchProgress) observe(counters map[string]int64) bool {
 	return moved
 }
 
-// summary renders every mark in a stable order, and says so when no counter
-// was ever read.
+// summary renders counter maxima in sorted order. It reports when the wait
+// has never read a counter.
 func (p *ybScratchProgress) summary() string {
 	if len(p.highWater) == 0 {
 		return "no progress counter was ever readable from the scratch yugabyted"
@@ -98,12 +106,14 @@ func (p *ybScratchProgress) summary() string {
 	return strings.Join(parts, " ")
 }
 
-// awaitYBScratch blocks until the step's readiness check passes, the scratch
-// container stops running, the failure check reports a reason, or nothing
-// moves for stallWindow. step names what
-// is being waited for in every error. A read that fails is remembered and
-// carried into the stall error, so a wedged engine reads differently from one
-// the drill could not look at.
+// awaitYBScratch waits for readiness while checking container state,
+// permanent failure and inactivity. It also stops after consecutive unreadable
+// failure checks meet the tolerance or the context cancels. Every error
+// identifies the step.
+//
+// The stall error includes the latest poll's last read error when present.
+// A recovered read error does not explain a later stall. The counter summary
+// distinguishes stopped progress from counters the drill could never read.
 func awaitYBScratch(
 	ctx context.Context,
 	step string,
@@ -160,8 +170,8 @@ func awaitYBScratch(
 	}
 }
 
-// ybScratchStallError names what the drill saw before it gave up: how long
-// nothing moved, the furthest mark of every counter, and the last failed read.
+// ybScratchStallError reports the inactivity duration and every counter's
+// maximum. It includes the latest poll's last read error when present.
 func ybScratchStallError(step string, stalled time.Duration, progress *ybScratchProgress, lastReadErr string) error {
 	message := fmt.Sprintf("%s: the scratch yugabyted made no progress for %s: %s",
 		step, stalled.Round(time.Second), progress.summary())
