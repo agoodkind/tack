@@ -1,1 +1,2 @@
-# staticcheck-extra: generated_at=2026-11-08T23:31:45Z
+# staticcheck-extra: generated_at=2026-11-10T05:03:48Z
+main.go:3:1: Keep short simple calls compact, and place wrapped list items on separate lines.	# staticcheck-extra:first_added=2026-11-10T05:03:48Z last_seen=2026-11-10T05:03:48Z
