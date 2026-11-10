@@ -35,7 +35,11 @@ type OrgLister interface {
 // returns [uuid.Nil]. Under TACK-503, the MCP handler reuses attached
 // memberships or reads them itself and rejects the request if that read
 // fails.
-func attachMembership(ctx context.Context, orgs OrgLister, userID uuid.UUID) (context.Context, uuid.UUID) {
+func attachMembership(
+	ctx context.Context,
+	orgs OrgLister,
+	userID uuid.UUID,
+) (context.Context, uuid.UUID) {
 	if orgs == nil {
 		return ctx, uuid.Nil
 	}

@@ -28,7 +28,10 @@ func (c *countingOrgs) ListOrgIDsForUser(context.Context, uuid.UUID) ([]uuid.UUI
 // membershipSeenByNext sends one authenticated request to the middleware. It
 // returns the next handler's context memberships and whether the context
 // contains a membership set.
-func membershipSeenByNext(t *testing.T, middleware func(http.Handler) http.Handler) ([]uuid.UUID, bool) {
+func membershipSeenByNext(
+	t *testing.T,
+	middleware func(http.Handler) http.Handler,
+) ([]uuid.UUID, bool) {
 	t.Helper()
 	var seen []uuid.UUID
 	var attached bool

@@ -115,7 +115,11 @@ func (c *CachedTokenValidator) Validate(ctx context.Context, raw string) (*token
 
 // lookup asks inner for the token. It reads the user's organizations in the
 // same call when inner implements TokenOrgsValidator and members is not nil.
-func (c *CachedTokenValidator) lookup(ctx context.Context, raw string, now time.Time) (*token.Token, error) {
+func (c *CachedTokenValidator) lookup(
+	ctx context.Context,
+	raw string,
+	now time.Time,
+) (*token.Token, error) {
 	withOrgs, ok := c.inner.(TokenOrgsValidator)
 	if !ok || c.members == nil {
 		record, err := c.inner.Validate(ctx, raw)
