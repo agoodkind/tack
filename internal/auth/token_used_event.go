@@ -45,11 +45,12 @@ func userTarget(userID uuid.UUID) audit.Target {
 }
 
 // tokenUsedEvent returns the format 2 auth.token_used event for an accepted
-// bearer. The event uses the request operation ID from audit.WithOpID, or a
-// new UUIDv7 when ctx does not have one. It uses the system organization when
-// orgID is [uuid.Nil]. The event records a completed database change result
-// because the audit-consumer writes the token's last use from
-// Context.APITokenID.
+// bearer. It uses the request operation ID from audit.WithOpID, or a new
+// UUIDv7 when ctx does not contain an ID or contains [uuid.Nil]. It uses the
+// system organization when orgID is [uuid.Nil]. The event records a
+// completed database change result. The audit-consumer uses
+// Context.APITokenID to update the token's last-use time and skips that
+// update for development events with a nil token ID.
 func tokenUsedEvent(
 	ctx context.Context,
 	startedAt time.Time,

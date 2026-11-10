@@ -13,9 +13,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// wiredRecorder returns recorder, or the unwired recorder when the caller
-// passed nil. The unwired recorder refuses and logs every auth event, and the
-// middleware then refuses each request.
+// wiredRecorder returns recorder, or an unwired recorder when the caller
+// passes nil. The unwired recorder logs and rejects every auth event. The
+// middleware rejects an otherwise accepted request when recording fails.
 func wiredRecorder(recorder audit.Recorder) audit.Recorder {
 	if recorder == nil {
 		return audit.UnwiredRecorder{}
@@ -24,8 +24,10 @@ func wiredRecorder(recorder audit.Recorder) audit.Recorder {
 	return recorder
 }
 
-// hashBearer returns the first 16 hexadecimal characters of sha256(bearer).
-// Audit events use it to correlate one client without storing the token.
+// hashBearer returns an empty string when raw is empty. Otherwise, it
+// returns the first 16 hexadecimal characters of SHA-256(raw). Audit events
+// use this value to correlate requests with the same token without storing
+// the token.
 func hashBearer(raw string) string {
 	if raw == "" {
 		return ""
@@ -36,12 +38,11 @@ func hashBearer(raw string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// emitAuthAudit adds the request fields to ev, validates it, and records it
-// with rec.
-// It records an event that fails validation, and the audit-consumer stores
-// that event in the dead-letter table for repair. It logs a validation failure
-// and continues. It returns an error when the recorder refuses the event, and
-// the middleware then refuses the request instead of serving it unaudited.
+// emitAuthAudit adds request fields to ev and validates it before calling
+// rec.Record. It logs validation failures and still attempts to record the
+// event. With Kafka recording, the audit-consumer stores invalid events in
+// the dead-letter table for repair. If rec.Record fails, emitAuthAudit
+// returns an error and the middleware rejects the request.
 func emitAuthAudit(ctx context.Context, rec audit.Recorder, r *http.Request, ev audit.Event) error {
 	ev.Actor.IP = clientIP(r)
 	ev.Actor.UserAgent = r.UserAgent()

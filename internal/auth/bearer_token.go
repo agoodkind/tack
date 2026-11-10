@@ -7,12 +7,13 @@ import (
 	"log/slog"
 )
 
-// bearerTokenBytes is the entropy behind one bearer token. 32 bytes is well
-// past what a SHA-256 hash lookup needs to make guessing infeasible.
+// bearerTokenBytes sets the random input length for one bearer token. The
+// 32-byte input provides 256 bits of entropy against guessing tokens that
+// the database looks up by SHA-256 hash.
 const bearerTokenBytes = 32
 
-// bearerTokenPrefix marks a value as a Tack bearer so a leaked one is
-// recognisable in a scanner's output.
+// bearerTokenPrefix identifies Tack bearer tokens in scanner output,
+// including leaked tokens.
 const bearerTokenPrefix = "tack_"
 
 // NewBearerToken returns a fresh random bearer value.

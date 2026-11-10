@@ -15,24 +15,26 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// TokenValidator is the minimal interface the middleware needs.
+// TokenValidator is the minimal token validation interface for [Bearer].
+// Successful validation must return a non-nil token.
 type TokenValidator interface {
 	Validate(ctx context.Context, raw string) (*token.Token, error)
 }
 
-// OrgLister resolves the orgs a user belongs to, so auth events carry the
-// actor's org instead of the nil org (TACK-461).
+// OrgLister returns a user's organizations. Auth events use the actor's
+// organization when the actor has exactly one membership (TACK-461).
 type OrgLister interface {
 	ListOrgIDsForUser(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error)
 }
 
-// attachMembership reads the actor's org memberships once per request,
-// attaches the set to the context for the handlers behind the middleware,
-// and returns the actor's sole org for the auth event. It returns [uuid.Nil]
-// when the actor belongs to zero or several orgs, and the auth event then
-// uses the system org. A lookup failure attaches nothing and returns
-// [uuid.Nil] without failing the request. The MCP handler then makes its own
-// lookup and fails closed (TACK-503).
+// attachMembership reads the actor's organizations once and attaches them
+// to the request context. It returns the sole organization for the auth
+// event, or [uuid.Nil] for zero or multiple organizations. The auth event
+// uses the system organization for [uuid.Nil]. A nil orgs skips the lookup.
+// A failed lookup does not attach memberships or fail the request and
+// returns [uuid.Nil]. Under TACK-503, the MCP handler reuses attached
+// memberships or reads them itself and rejects the request if that read
+// fails.
 func attachMembership(
 	ctx context.Context,
 	orgs OrgLister,
@@ -139,7 +141,8 @@ func Bearer(
 // without reading the token table.
 //
 // The runtime selects it only when ENV=development. Like Bearer, it returns
-// HTTP 503 when the recorder rejects the auth event.
+// HTTP 503 when the recorder rejects the auth event. UUID parsing does not
+// check whether the user exists.
 //
 // Its request handling distinguishes these conditions:
 //   - A missing bearer value causes HTTP 401.
@@ -181,8 +184,8 @@ func DevBearer(orgs OrgLister, recorder audit.Recorder) func(http.Handler) http.
 	}
 }
 
-// isUnauthenticated reports whether a token lookup refused the token, as
-// distinct from failing to answer, through any wrapping a cache added.
+// isUnauthenticated uses [errors.Is] to recognize token refusals, including
+// wrapped errors. Other errors indicate a failed check.
 func isUnauthenticated(err error) bool {
 	return errors.Is(err, domain.ErrUnauthenticated)
 }
@@ -207,14 +210,13 @@ func unauthorized(w http.ResponseWriter, msg string) {
 }
 
 // authUnavailable returns HTTP 503 with a JSON body when the token check
-// cannot answer. For example, the server may be unable to connect to the
-// ledger.
+// cannot determine validity, including a database connection failure.
 func authUnavailable(w http.ResponseWriter) {
 	writeJSONError(w, http.StatusServiceUnavailable, "authentication unavailable")
 }
 
-// auditUnavailable answers 503 with a JSON body when the audit recorder did
-// not accept the auth event of an authenticated request.
+// auditUnavailable returns HTTP 503 with a JSON body when the audit
+// recorder rejects the auth event of an authenticated request.
 func auditUnavailable(w http.ResponseWriter) {
 	writeJSONError(w, http.StatusServiceUnavailable, "audit recording unavailable")
 }

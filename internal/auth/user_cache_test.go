@@ -12,8 +12,8 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// countingUsers is a users table that counts its by-id reads, the number the
-// user cache exists to reduce.
+// countingUsers substitutes for the users table in tests and counts GetByID
+// calls to check how often the user cache reads the store.
 type countingUsers struct {
 	records map[uuid.UUID]*user.User
 	reads   atomic.Int64
@@ -46,9 +46,13 @@ func namedUser(name string) *user.User {
 	}
 }
 
-// TestCachedUsersReadsOncePerLifetime pins the production reading of
-// 2026-09-19: a tool call that renders "Created by" read the users table on
-// every call. Within the lifetime the second render costs no ledger read.
+// TestCachedUsersReadsOncePerLifetime checks that repeated user lookups
+// within the cache lifetime return the creator's display name and call the
+// substitute store once.
+//
+// A production check on 2026-09-19 found that each tool call rendering
+// "Created by" read the users table. This test checks repeated lookups
+// against that historical baseline; it does not repeat the production check.
 func TestCachedUsersReadsOncePerLifetime(t *testing.T) {
 	creator := namedUser("creator")
 	store := &countingUsers{records: map[uuid.UUID]*user.User{creator.ID: creator}}
@@ -71,8 +75,8 @@ func TestCachedUsersReadsOncePerLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedUsersSeesAChangeAfterTheLifetime pins the staleness bound: a
-// display-name change made elsewhere is seen once the lifetime passes.
+// TestCachedUsersSeesAChangeAfterTheLifetime checks that the next lookup
+// after expiry returns a display-name change from the store.
 func TestCachedUsersSeesAChangeAfterTheLifetime(t *testing.T) {
 	creator := namedUser("before")
 	store := &countingUsers{records: map[uuid.UUID]*user.User{creator.ID: creator}}
@@ -102,8 +106,9 @@ func TestCachedUsersSeesAChangeAfterTheLifetime(t *testing.T) {
 	}
 }
 
-// TestCachedUsersNeverCachesAMiss pins that an unknown id is asked again,
-// so a user created after the miss renders on the next call.
+// TestCachedUsersNeverCachesAMiss checks that GetByID first rejects an
+// unknown ID and then accepts a lookup after the substitute store creates
+// the user.
 func TestCachedUsersNeverCachesAMiss(t *testing.T) {
 	store := &countingUsers{records: map[uuid.UUID]*user.User{}}
 	cached := NewCachedUsers(store, time.Minute, 16)

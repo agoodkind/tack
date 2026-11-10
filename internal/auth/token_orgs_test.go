@@ -12,8 +12,8 @@ import (
 	"goodkind.io/tack/internal/domain/token"
 )
 
-// tokenOrgsStore answers a token and its holder's org set in one read and
-// counts those reads, standing in for the joined ledger query.
+// tokenOrgsStore substitutes for the joined database query in tests. It
+// returns a token and its user's organizations and counts lookup calls.
 type tokenOrgsStore struct {
 	record *token.Token
 	orgIDs []uuid.UUID
@@ -41,11 +41,14 @@ func (s *tokenOrgsStore) ValidateWithOrgs(
 	return &copied, append([]uuid.UUID(nil), s.orgIDs...), nil
 }
 
-// TestColdRequestCostsOneLedgerRead pins criterion 12 of the backup
-// acceptance on a cold cache. QA measured two ledger reads for a first
-// request, the token lookup and then the membership lookup; with the token
-// cache primed from the joined query, the membership lookup is a cache hit
-// and the auth event still carries the sole org.
+// TestColdRequestCostsOneLedgerRead checks criterion 12 of backup
+// acceptance. A cold request makes one combined token and membership lookup
+// through substitute stores. The membership cache reuses that result, and
+// the auth event records the actor's sole organization.
+//
+// Historical QA measurements counted two ledger reads for a first request:
+// one token lookup and one membership lookup. This test checks the combined
+// lookup against that baseline; it does not repeat the QA measurement.
 func TestColdRequestCostsOneLedgerRead(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	orgID := uuid.Must(uuid.NewV7())
@@ -76,8 +79,8 @@ func TestColdRequestCostsOneLedgerRead(t *testing.T) {
 	}
 }
 
-// TestColdRefusalCachesNoMembership pins that a refused token primes
-// nothing: the joined query found no holder, so no org set may be stored.
+// TestColdRefusalCachesNoMembership checks that a refused combined lookup
+// returns HTTP 401 and does not populate the membership cache.
 func TestColdRefusalCachesNoMembership(t *testing.T) {
 	store := &tokenOrgsStore{record: liveToken(nil), orgIDs: nil}
 	members := &countingMembers{orgs: map[uuid.UUID][]uuid.UUID{}}

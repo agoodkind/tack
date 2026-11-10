@@ -14,26 +14,27 @@ import (
 	"goodkind.io/tack/internal/domain/token"
 )
 
-// CachedTokenValidator remembers accepted tokens for a short lifetime, so a
-// request whose token was accepted moments ago costs no ledger read
-// (TACK-504). Keys are the token's SHA-256, never the bearer. A stored record
-// past its own expiry is refused whatever the cache lifetime says. A refusal
-// is never cached, so a token created after a refusal is accepted at once.
-// Revocation runs in another process, so it takes effect on every instance
-// within one lifetime.
+// CachedTokenValidator caches accepted tokens for a short lifetime under
+// TACK-504. A cache hit avoids a database read. Cache keys use the token's
+// SHA-256 hash and do not store the bearer value. The validator rejects a
+// cached token at its own expiry even if the cache entry has not expired.
+// It does not cache refusals. A token created after a refusal can pass the
+// next lookup. Revocation in another process takes effect at each instance's
+// next lookup after the cache entry expires.
 type CachedTokenValidator struct {
 	inner    TokenValidator
 	cache    *entryCache[*token.Token]
 	lifetime time.Duration
-	// members, when set and inner can answer the token and its org set in
-	// one read, receives the org set, so the membership lookup that follows
-	// in the same request is a cache hit (criterion 12: one ledger read on
-	// a cold request).
+	// members stores organizations from a combined token and membership read
+	// when inner supports it. The membership cache needs a positive lifetime.
+	// The next membership lookup reuses this set while the entry remains
+	// unexpired and the cache retains it. That request then needs one database
+	// read for token and membership validation.
 	members *CachedMembers `exhaustruct:"optional"`
 }
 
-// TokenOrgsValidator answers a token and the org set of its holder in one
-// ledger read.
+// TokenOrgsValidator returns a token and its user's organizations from one
+// database read.
 type TokenOrgsValidator interface {
 	ValidateWithOrgs(ctx context.Context, raw string) (*token.Token, []uuid.UUID, error)
 }
@@ -112,8 +113,8 @@ func (c *CachedTokenValidator) Validate(ctx context.Context, raw string) (*token
 	return record, nil
 }
 
-// lookup asks inner for the token, in the same read as the holder's org set
-// when both inner and members allow it.
+// lookup asks inner for the token. It reads the user's organizations in the
+// same call when inner implements TokenOrgsValidator and members is not nil.
 func (c *CachedTokenValidator) lookup(
 	ctx context.Context,
 	raw string,
@@ -149,8 +150,8 @@ func (c *CachedTokenValidator) lookup(
 	return record, nil
 }
 
-// tokenCacheKey is the full SHA-256 of the bearer, the same identity the
-// token table stores, so the cache never holds a bearer.
+// tokenCacheKey returns the bearer's full SHA-256 hash, matching the token
+// table's identity. The cache does not store bearer values.
 func tokenCacheKey(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
