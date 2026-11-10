@@ -1,24 +1,21 @@
-// backup_yb_node_artifacts.go declares what one data guest's archive run
-// publishes under its node prefix, and is the completeness gate every reader of
-// an export run consults. One declaration serves both sides: the archive
-// command uploads exactly these objects in this order, and the gate requires
-// exactly these objects to be present, so a new node artifact is gated by
-// adding it here rather than by remembering to probe for it.
+// One declaration defines the artifacts that a data guest uploads under its
+// node prefix. The archive command uploads those objects in declaration order,
+// and readers require every declared object before treating the node's export
+// as complete. The declaration includes each added artifact in both operations.
 
 package ops
 
-// ybNodeArtifactObjects names every object one node's archive run publishes,
-// in upload order. The tablet archive is last so that no archive is ever in
-// the store without the inventory recorded from it. The archive command's own
-// idempotency probe requires every object here, the same rule as the gate, so
-// a run interrupted between the two uploads, or an archive published before
-// inventories existed, looks unarchived on the next timer and is redone.
+// ybNodeArtifactObjects returns the objects a node uploads, in upload order.
+// The inventory precedes the tablet archive. The archive command's repeat-run
+// check requires every declared object, as the completeness check does. The
+// next timer retries a run interrupted between uploads or an older archive that
+// predates inventories.
 func ybNodeArtifactObjects() []string {
 	return []string{ybNodeInventoryObject, ybNodeArchiveObject}
 }
 
-// ybNodeArtifactKeys is the full object key of every artifact the named node
-// must publish for the manifest's run.
+// ybNodeArtifactKeys returns the complete object key for every artifact the
+// node must publish for the manifest's run.
 func ybNodeArtifactKeys(runID string, node ybSnapshotManifestNode) []string {
 	prefix := ybNodeKeyPrefix(runID, node)
 	keys := make([]string, 0, len(ybNodeArtifactObjects()))
@@ -28,31 +25,30 @@ func ybNodeArtifactKeys(runID string, node ybSnapshotManifestNode) []string {
 	return keys
 }
 
-// ybNodeKeyPrefix is the object-store key prefix one node's artifacts live
-// under for a run.
+// ybNodeKeyPrefix returns the object-store prefix for a node's artifacts in one
+// run.
 func ybNodeKeyPrefix(runID string, node ybSnapshotManifestNode) string {
 	return ybSnapshotKeyPrefix(runID) + node.Prefix
 }
 
-// ybNodeArchiveKey is the full object key of one node's tablet archive for the
-// manifest's run. It is the object the completeness gate's node names are
-// reported against and the one the restore stages.
+// ybNodeArchiveKey returns the complete object key for a node's tablet archive
+// in the manifest's run. Restore stages this object, and the completeness check
+// reports the node when its required artifacts are missing.
 func ybNodeArchiveKey(runID string, node ybSnapshotManifestNode) string {
 	return ybNodeKeyPrefix(runID, node) + ybNodeArchiveObject
 }
 
-// ybNodeInventoryKey is the full object key of the inventory recording what
-// that node's archive carries.
+// ybNodeInventoryKey returns the complete object key for the inventory that
+// records a node archive's contents.
 func ybNodeInventoryKey(runID string, node ybSnapshotManifestNode) string {
 	return ybNodeKeyPrefix(runID, node) + ybNodeInventoryObject
 }
 
-// missingYBNodeArchives returns the names of the manifest's nodes that have not
-// published every artifact their archive run owes, using the caller's existence
-// check so the completeness rule stays testable without an object store. A node
-// counts as archived only once all of them are present: an archive with no
-// inventory beside it is an archive the restore cannot verify, so it is as
-// incomplete as no archive at all.
+// missingYBNodeArchives returns manifest node names when required artifacts are
+// missing. It uses the caller's existence check, which permits tests without an
+// object store. A complete node requires every artifact, including the
+// inventory that restore uses to verify the archive. An archive without an
+// inventory does not satisfy that requirement.
 func missingYBNodeArchives(manifest ybSnapshotManifest, exists func(key string) (bool, error)) ([]string, error) {
 	var missing []string
 	for _, node := range manifest.Nodes {
@@ -67,8 +63,8 @@ func missingYBNodeArchives(manifest ybSnapshotManifest, exists func(key string) 
 	return missing, nil
 }
 
-// ybNodeFullyArchived reports whether every object one node owes the run is
-// present.
+// ybNodeFullyArchived reports whether every required object exists for one node
+// and run.
 func ybNodeFullyArchived(
 	runID string,
 	node ybSnapshotManifestNode,

@@ -11,8 +11,8 @@ import (
 
 const repairManifestTarget = "repair/manifest"
 
-// singletonReadSpec returns the read definition for a command that reads one
-// fixed external resource and does not record input.
+// singletonReadSpec returns an audit read definition for one fixed external
+// resource. Its SafeInput function omits command input from the record.
 func singletonReadSpec(verb audit.Verb, reference string) audit.Spec {
 	target := externalTarget(reference)
 	return audit.Spec{

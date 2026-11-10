@@ -12,31 +12,29 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ybAdminBinary is the yb-admin path inside the yugabyte image. The image
-// ships its CLIs under /home/yugabyte/bin alongside yugabyted, which the
-// compose service bind-mounts the overlay over.
+// ybAdminBinary identifies yb-admin inside the YugabyteDB image. The engine
+// tools share a directory with yugabyted, which the Compose service replaces
+// with a bind-mounted overlay.
 const ybAdminBinary = "/home/yugabyte/bin/yb-admin"
 
-// RunBackupYBPITRInit creates a YugabyteDB point-in-time-recovery snapshot
-// schedule for the auth + audit database so a fresh deploy can roll the SQL
-// control plane back to any point within the retention window. It runs
-// yb-admin create_snapshot_schedule inside a one-shot container on the tack
-// compose network, never shelling out to a CLI on the host.
+// RunBackupYBPITRInit creates a YugabyteDB snapshot schedule for point-in-time
+// recovery of the auth and audit database. Recovery can restore the SQL control
+// plane to a point within the retention window.
 //
-// The yb-admin argument order is fixed by the tool:
+// The command runs yb-admin create_snapshot_schedule in a one-shot container on
+// the Tack Compose network. It does not invoke a host CLI. The ysql.<database>
+// filter includes every schema, including public auth tables and the audit.*
+// ledger.
+//
+// yb-admin requires this argument order:
 //
 //	yb-admin --master_addresses <masters> create_snapshot_schedule \
 //	    <interval-minutes> <retention-minutes> ysql.<database>
 //
-// Both the interval and the retention are in minutes (yb-admin's documented
-// units for create_snapshot_schedule). The ysql.<database> filter covers every
-// schema in that database, so a single schedule protects both the public auth
-// tables and the audit.* ledger in the tack database.
-//
-// Idempotency: a schedule that already exists for the filter is treated as
-// success and logged backup.yb_pitr.exists. yb-admin's duplicate-schedule
-// behavior is detected from its output text because the tool does not expose a
-// distinct exit code for that case.
+// Both interval and retention use minutes. An existing schedule for the filter
+// counts as success and logs backup.yb_pitr.exists. The command identifies that
+// case from output text because yb-admin does not provide a distinct
+// duplicate-schedule exit code.
 func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
 	if err := requireBackupYBImage(ctx, cfg, "yb-pitr-init", "backup.yb_pitr.failed"); err != nil {
@@ -59,13 +57,11 @@ func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 	}
 	defer cli.Close()
 
-	// yb-admin is the entrypoint; the schedule arguments follow in Cmd. The
-	// one-shot joins the compose network so the embedded Docker DNS resolves
-	// the masters hostname. It reaches the cluster the same way every other
-	// one-shot does, including the certificates an encrypted cluster requires;
-	// this call builds its own command rather than going through the shared
-	// helper because it reads the exit code and the output itself, to treat a
-	// schedule that already exists as success.
+	// The one-shot uses yb-admin as its entrypoint and Cmd for schedule arguments.
+	// The Compose network provides Docker DNS for master hostnames. Shared access
+	// settings include certificates when the cluster requires encryption. This call
+	// reads exit status and output directly to recognize an existing schedule as
+	// success.
 	accessArgs, accessBinds := ybAdminClusterAccess(cfg)
 	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
 		Image:      cfg.BackupYBImage,
@@ -100,8 +96,8 @@ func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	// yb-admin can exit 0 while reporting a pre-existing schedule on some
-	// builds; treat that as the idempotent success path too.
+	// Some yb-admin builds report an existing schedule with exit status 0. That
+	// result also counts as success.
 	if isScheduleAlreadyExists(combined) {
 		logger.InfoContext(ctx, "backup.yb_pitr.exists", slog.String("filter", filter))
 		return nil
@@ -120,10 +116,10 @@ func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-// parseScheduleID extracts the schedule_id UUID from yb-admin's JSON output.
-// On success yb-admin prints `{"schedule_id": "<uuid>"}`. An empty return means
-// the field was absent, which the caller treats as a completed-but-unparsed
-// success rather than a failure.
+// parseScheduleID extracts the schedule_id UUID from yb-admin JSON such as
+// {"schedule_id": "<uuid>"}. It returns an empty string when output is empty,
+// invalid JSON, or omits the field. The caller logs completion without a parsed
+// ID instead of returning an error.
 func parseScheduleID(stdout string) string {
 	var parsed struct {
 		ScheduleID string `json:"schedule_id"`
@@ -138,10 +134,9 @@ func parseScheduleID(stdout string) string {
 	return parsed.ScheduleID
 }
 
-// isScheduleAlreadyExists reports whether yb-admin's output indicates a
-// snapshot schedule already exists for the requested filter. yb-admin does not
-// expose a dedicated exit code for the duplicate case, so the duplicate is
-// detected from the message text, which mentions an already-existing schedule.
+// isScheduleAlreadyExists checks yb-admin output for an existing snapshot
+// schedule. The duplicate case does not have a dedicated exit code; the
+// function examines message text for a schedule and a duplicate indication.
 func isScheduleAlreadyExists(output string) bool {
 	lower := strings.ToLower(output)
 	if !strings.Contains(lower, "schedule") {

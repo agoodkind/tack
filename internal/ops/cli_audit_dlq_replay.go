@@ -50,8 +50,8 @@ func runAuditDLQReplay(ctx context.Context, f *cli.Factory, input auditDLQReplay
 	return writeAuditDLQResult(ctx, sink, result)
 }
 
-// auditDLQProducer opens the same producer the app records through, so a
-// replay reaches the topic the consumer reads.
+// auditDLQProducer opens the application's producer implementation with the
+// configured audit topic. The consumer reads that topic for replayed events.
 func auditDLQProducer(ctx context.Context, f *cli.Factory) (*audit.KafkaRecorder, error) {
 	brokers := strings.TrimSpace(f.Cfg.AuditKafkaBrokers)
 	if brokers == "" {

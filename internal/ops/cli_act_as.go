@@ -12,11 +12,9 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// actAsGroup holds the sanctioned way for an operator to make a product
-// write as a named user. The write lands owned by the user, and its ledger
-// row carries the operator, a recorded grant, and the reason, so nobody has
-// to choose between recording the change as the user (losing the operator)
-// or as the operator (losing the user) (TACK-424).
+// actAsGroup groups operator commands that write product data as a named user.
+// The user owns the write. Its audit record includes the operator, recorded
+// grant, and reason as well as the user identity required by TACK-424.
 var actAsGroup = &clispec.Group{
 	Use: "act-as", Short: "Make a recorded product write as a named user", Long: "", Parent: opsGroup,
 }

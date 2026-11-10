@@ -11,18 +11,20 @@ import (
 	"time"
 )
 
-// ybTestArtifactNames is the run-root artifact set a real export declares,
-// derived from the production upload list so a test manifest gates on what an
-// export actually publishes rather than on a list maintained here.
+// ybTestArtifactNames derives the artifacts declared by an export manifest from
+// the production upload list. Tests do not maintain a separate artifact list.
 func ybTestArtifactNames() []string {
 	return ybSnapshotGatedArtifactNames(ybSnapshotUploadArtifacts(
 		"/stage", "/stage/schema.sql", "/stage/roles.sql", "/stage/manifest.json"))
 }
 
-// TestNewYBSnapshotManifestAssignsNodePrefixes locks the completeness
-// contract's shape: one entry per tablet server, sorted by name, each with the
-// run-relative prefix its archive command must fill, plus the run-root
-// artifacts the export published, in upload order.
+// TestNewYBSnapshotManifestAssignsNodePrefixes checks the manifest's
+// completeness information.
+//
+// The test checks these fields:
+//   - Each tablet server has one entry, sorted by name.
+//   - Each entry has the run-relative prefix its archive command must fill.
+//   - The run-root artifacts follow upload order.
 func TestNewYBSnapshotManifestAssignsNodePrefixes(t *testing.T) {
 	nowFunc = func() time.Time { return time.Date(2026, 8, 26, 3, 0, 0, 0, time.UTC) }
 	t.Cleanup(func() { nowFunc = time.Now })
@@ -54,9 +56,9 @@ func TestNewYBSnapshotManifestAssignsNodePrefixes(t *testing.T) {
 	}
 }
 
-// TestYBSnapshotManifestFileRoundTrip writes the manifest through the
-// production writer and reads it back through the same JSON tags the fetch
-// path decodes, so the writer and reader can never disagree on field names.
+// TestYBSnapshotManifestFileRoundTrip writes a manifest with the production
+// writer and decodes it with the JSON tags that the fetch path uses. The
+// equality assertion checks field compatibility for this round trip.
 func TestYBSnapshotManifestFileRoundTrip(t *testing.T) {
 	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack",
 		[]string{"yb1", "yb2"}, ybTestArtifactNames())
@@ -77,11 +79,12 @@ func TestYBSnapshotManifestFileRoundTrip(t *testing.T) {
 	}
 }
 
-// TestYBSnapshotManifestValidateRejectsTraversalRunID proves a manifest whose
-// run id carries traversal segments is refused at both trust boundaries: the
-// validate method every fetch runs, and the production writer. The run id
-// feeds filepath.Join on staging dirs that are recursively removed, so a
-// traversal run id must never survive decode or write.
+// TestYBSnapshotManifestValidateRejectsTraversalRunID checks that validation
+// and the production writer reject invalid run IDs, including traversal
+// segments. Fetches validate each manifest. Staging paths use the run ID with
+// [filepath.Join], and cleanup removes those directories recursively. Run IDs
+// with traversal segments must fail validation before readers or writers use
+// them.
 func TestYBSnapshotManifestValidateRejectsTraversalRunID(t *testing.T) {
 	for _, runID := range []string{"../../../etc", "20260826T030000Z/../..", "run-1", ""} {
 		manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames())
@@ -98,12 +101,11 @@ func TestYBSnapshotManifestValidateRejectsTraversalRunID(t *testing.T) {
 	}
 }
 
-// TestYBSnapshotManifestValidateRejectsBadNodeNames proves node names carrying
-// path separators, traversal segments, or shell metacharacters are refused:
-// they feed staged archive file names and the in-container extraction paths.
-// A node whose prefix disagrees with the one derived from its name is refused
-// too, because the prefix becomes part of the object key the archive uploads
-// to.
+// TestYBSnapshotManifestValidateRejectsBadNodeNames checks that validation
+// rejects path separators, traversal segments, and shell metacharacters in node
+// names. Node names determine staged archive filenames and extraction paths
+// inside the container. Validation also rejects a prefix that differs from the
+// prefix derived from the node name. Uploads use that prefix in the object key.
 func TestYBSnapshotManifestValidateRejectsBadNodeNames(t *testing.T) {
 	badNames := []string{
 		"../yb1", "a..b", "nodes/yb1", `yb\1`,
@@ -136,10 +138,11 @@ func TestYBSnapshotManifestValidateRejectsBadNodeNames(t *testing.T) {
 	}
 }
 
-// TestYBSnapshotManifestValidateAcceptsOrchestratorShape proves the manifests
-// the orchestrator actually derives, run-key timestamp run id plus DNS node
-// names or an unbracketed IPv6 literal (the hostFromHostPort output for a
-// bracketed host:port), pass validation and the production writer.
+// TestYBSnapshotManifestValidateAcceptsOrchestratorShape checks validation and
+// the production writer with the orchestrator's manifest format. The run ID
+// uses the run-key timestamp format. Nodes accept DNS names and unbracketed
+// IPv6 literals. hostFromHostPort removes the brackets from a bracketed
+// host:port value.
 func TestYBSnapshotManifestValidateAcceptsOrchestratorShape(t *testing.T) {
 	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack",
 		[]string{"yb1", "yb2", "yb3", "3d06:bad:b01::10"}, ybTestArtifactNames())
@@ -152,12 +155,11 @@ func TestYBSnapshotManifestValidateAcceptsOrchestratorShape(t *testing.T) {
 	}
 }
 
-// TestFetchYBSnapshotManifestRefusesAForeignRunID fetches manifests through the
-// real object-store client and proves a manifest is refused when it declares a
-// run other than the prefix it was fetched from. Every downstream path keys off
-// the manifest's own run id rather than the prefix, so a manifest planted or
-// copied under an older run's prefix would otherwise date the export from the
-// run it names and walk the wrong prefix for the node archives.
+// TestFetchYBSnapshotManifestRefusesAForeignRunID uses the real object-store
+// client to check that a fetched manifest declares the run in its storage
+// prefix. Downstream paths use the manifest's run ID. A manifest copied under
+// an older run's prefix must not change the export date or select another run's
+// node archives.
 func TestFetchYBSnapshotManifestRefusesAForeignRunID(t *testing.T) {
 	ctx := context.Background()
 	const storedUnder = "20260829T100000Z"
@@ -184,8 +186,8 @@ func TestFetchYBSnapshotManifestRefusesAForeignRunID(t *testing.T) {
 	}
 }
 
-// TestYBNodeArchiveKey pins the full object key the archive command uploads to
-// and the restore gate checks, so the two sides can never drift apart.
+// TestYBNodeArchiveKey checks the complete object key used by archive uploads
+// and the restore completeness check.
 func TestYBNodeArchiveKey(t *testing.T) {
 	node := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
 	got := ybNodeArchiveKey("20260826T030000Z", node)
@@ -195,11 +197,10 @@ func TestYBNodeArchiveKey(t *testing.T) {
 	}
 }
 
-// TestMissingYBNodeArchives exercises the completeness rule the restore drill
-// gates on: a node is reported unless every artifact its archive run publishes
-// is present, in manifest order. yb2 has published nothing and yb3 has
-// published its archive without the inventory that says what the archive
-// carries, which the restore cannot verify and so must not use.
+// TestMissingYBNodeArchives checks that the restore completeness check reports
+// nodes with missing artifacts in manifest order. The fixture omits every yb2
+// artifact and omits the yb3 inventory while retaining its archive. Restore
+// requires the inventory to verify archive contents.
 func TestMissingYBNodeArchives(t *testing.T) {
 	manifest := newYBSnapshotManifest("run-1", "snap-1", "tack",
 		[]string{"yb1", "yb2", "yb3"}, ybTestArtifactNames())
@@ -229,9 +230,9 @@ func TestMissingYBNodeArchives(t *testing.T) {
 	}
 }
 
-// TestMissingYBRunArtifacts exercises the run-root half of the completeness
-// rule: only the declared artifacts whose object is absent are reported, in
-// manifest order, and a run holding every artifact it declared reports none.
+// TestMissingYBRunArtifacts checks that the completeness check reports missing
+// declared run-root artifacts in manifest order. It does not report missing
+// artifacts when every declared object exists.
 func TestMissingYBRunArtifacts(t *testing.T) {
 	manifest := newYBSnapshotManifest("run-1", "snap-1", "tack",
 		[]string{"yb1"}, ybTestArtifactNames())
@@ -258,11 +259,11 @@ func TestMissingYBRunArtifacts(t *testing.T) {
 	}
 }
 
-// TestYBSnapshotManifestValidateRejectsBadArtifactNames proves artifact names
-// carrying path separators, traversal segments, or shell metacharacters are
-// refused. The drill joins each declared name onto the staging directory and
-// onto the run's object prefix, so a manifest from the object store must not be
-// able to redirect either.
+// TestYBSnapshotManifestValidateRejectsBadArtifactNames checks that validation
+// rejects path separators, traversal segments, and shell metacharacters in
+// artifact names. The restore drill appends declared names to the staging
+// directory and the run's object prefix. An untrusted manifest must not
+// redirect either path.
 func TestYBSnapshotManifestValidateRejectsBadArtifactNames(t *testing.T) {
 	badNames := []string{
 		"../schema.sql", "a..b", "nodes/schema.sql", `schema\.sql`,
@@ -277,9 +278,9 @@ func TestYBSnapshotManifestValidateRejectsBadArtifactNames(t *testing.T) {
 	}
 }
 
-// TestYBNodeArtifactKeysGateEveryPublishedObject proves the gate walks the same
-// declaration the archive command uploads, so an artifact added to a node's run
-// is gated by declaring it rather than by remembering to probe for it.
+// TestYBNodeArtifactKeysGateEveryPublishedObject compares completeness keys
+// with the archive command's upload declaration. Declaring an added artifact
+// must include it in both uploads and completeness checks.
 func TestYBNodeArtifactKeysGateEveryPublishedObject(t *testing.T) {
 	node := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
 	keys := ybNodeArtifactKeys("20260826T030000Z", node)
@@ -301,13 +302,18 @@ func TestYBNodeArtifactKeysGateEveryPublishedObject(t *testing.T) {
 	}
 }
 
-// TestParseYBTabletServers parses the column layout yb-admin
-// list_all_tablet_servers actually prints (fixture captured live from
-// 2024.2.8.0 on 2026-08-28): a header row, then one row per server with the
-// undashed 32-hex UUID first, the advertised RPC host:port second, and the
-// Status fourth. A DEAD server is excluded, because it can never archive its
-// tablets and listing it would block the completeness gate forever.
-// Duplicate hosts collapse and the result is sorted.
+// TestParseYBTabletServers checks the yb-admin list_all_tablet_servers layout.
+// The fixture records output from version 2024.2.8.0 on 2026-08-28, with a
+// header followed by one row per server.
+//
+// The server rows use these columns:
+//   - The first column contains an undashed 32-digit hexadecimal UUID.
+//   - The second column contains the advertised RPC host:port value.
+//   - The fourth column contains Status.
+//
+// The parser excludes DEAD servers, which cannot archive their tablets and
+// would prevent export completion. It removes duplicate hosts and sorts the
+// result.
 func TestParseYBTabletServers(t *testing.T) {
 	out := "Tablet Server UUID               RPC Host/Port Heartbeat delay Status   Reads/s  Writes/s Uptime   SST total size  SST uncomp size SST #files      Memory   Broadcast Host/Port \n" +
 		"4f5e4f2de0294c44bc30c15d1e4ce337 yb2:9100 0.77s           ALIVE    0.00     0.20     1514     1.03 GB         9.58 GB         62              189.01 MB yb2:9100\n" +
@@ -320,8 +326,8 @@ func TestParseYBTabletServers(t *testing.T) {
 	}
 }
 
-// TestParseYBTabletServersIPv6Literal keeps the parser correct if a server
-// ever registers a bracketed IPv6 literal instead of a name.
+// TestParseYBTabletServersIPv6Literal checks parsing when a server registers a
+// bracketed IPv6 literal instead of a DNS name.
 func TestParseYBTabletServersIPv6Literal(t *testing.T) {
 	out := "4f5e4f2de0294c44bc30c15d1e4ce337 [3d06:bad:b01::10]:9100 0.10s ALIVE\n"
 	got := parseYBTabletServers(out)
@@ -330,16 +336,13 @@ func TestParseYBTabletServersIPv6Literal(t *testing.T) {
 	}
 }
 
-// TestUndeclaredYBRequiredArtifacts proves the declaration rule reads the
-// manifest and nothing else: it reports which artifacts a restore opens by name
-// that the run never claimed to hold, and reports none for the declaration a
-// real export writes.
+// TestUndeclaredYBRequiredArtifacts checks the manifest declaration without
+// consulting object storage. It reports required restore artifacts that the
+// manifest omits and accepts the production export declaration.
 //
-// A run is not restorable without all three whatever the object store holds, so
-// this is what separates a manifest that misdescribes its own run from a run
-// that lost an object. A truncated declaration is the more dangerous of the two,
-// because every presence check downstream only ever probes for what was
-// declared and so finds nothing wrong.
+// Restore requires all three artifacts even when object storage contains them.
+// An omitted declaration differs from a missing object: presence checks examine
+// only declared artifacts and cannot detect an omitted declaration.
 func TestUndeclaredYBRequiredArtifacts(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -379,10 +382,10 @@ func TestUndeclaredYBRequiredArtifacts(t *testing.T) {
 	}
 }
 
-// TestWriteYBSnapshotManifestRefusesATruncatedDeclaration proves the export
-// cannot publish a manifest that omits an artifact the restore opens by name.
-// The check runs while the export is still in flight and can be fixed, and no
-// file is left behind for an uploader to find.
+// TestWriteYBSnapshotManifestRefusesATruncatedDeclaration checks that the
+// production writer rejects an export manifest that omits an artifact restore
+// requires. The check runs during export, while failure can still stop
+// publication. The writer does not create a manifest file after rejection.
 func TestWriteYBSnapshotManifestRefusesATruncatedDeclaration(t *testing.T) {
 	manifest := newYBSnapshotManifest("20260826T030000Z", "snap-1", "tack",
 		[]string{"yb1"}, []string{ybSnapshotMetadataObject, ybSnapshotSchemaObject})

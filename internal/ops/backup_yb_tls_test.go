@@ -9,19 +9,20 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// TestYBAdminClusterAccessCarriesCertificatesOnlyWhenTheClusterEncrypts pins
-// what the engine's administration tool is told about this environment. On a
-// plaintext cluster it gets the master addresses and nothing else, so no
-// one-shot mounts a directory that does not exist; on an encrypted cluster it
-// also gets the certificate directory as a flag and as a read-only mount at
-// the same path, which is the whole reason a backup can still reach the
-// cluster after TACK-460 (the tool speaks the cluster protocol, not SQL, so
-// the DSNs' sslmode does nothing for it).
+// TestYBAdminClusterAccessCarriesCertificatesOnlyWhenTheClusterEncrypts checks
+// yb-admin cluster-access arguments and mounts.
 //
-// The third case is a half-configured host: encryption on, no directory
-// rendered. It must not invent a path, because a mount of a directory Docker
-// then creates empty would turn a clear connection failure into a confusing
-// certificate error.
+// The test checks these configurations:
+//   - Plaintext clusters use master addresses without a certificate mount.
+//   - Encrypted clusters also use a certificate flag and a read-only mount at
+//     the host path.
+//   - Encrypted clusters without a rendered directory omit the certificate flag
+//     and mount instead of inventing a path.
+//
+// TACK-460 introduced cluster encryption. yb-admin uses the cluster protocol
+// rather than SQL; a SQL connection string's sslmode does not configure it.
+// Inventing a directory could let Docker create an empty mount and obscure the
+// missing configuration with a certificate error.
 func TestYBAdminClusterAccessCarriesCertificatesOnlyWhenTheClusterEncrypts(t *testing.T) {
 	const masters = "yb1:7100,yb2:7100,yb3:7100"
 	const certsDir = "/etc/tack/ledger-certs"
@@ -80,11 +81,11 @@ func TestYBAdminClusterAccessCarriesCertificatesOnlyWhenTheClusterEncrypts(t *te
 	}
 }
 
-// TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts pins what the
-// schema and roles dumps are told. The dumpers take no connection-string flag,
-// so an encrypted ledger has to reach them through the environment; without
-// this they connect in the clear and an encrypted node refuses them, which
-// would fail the nightly export rather than a test.
+// TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts checks the
+// transport environment and mounts for schema and roles dumps. The dumpers do
+// not accept a connection-string flag. Their environment configures encrypted
+// connections and node verification; plaintext connections to an encrypted node
+// would fail the nightly export.
 func TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts(t *testing.T) {
 	const certsDir = "/etc/tack/ledger-certs"
 
@@ -110,10 +111,9 @@ func TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts(t *testing.T) 
 			wantBinds: []string{certsDir + ":" + certsDir + ":ro"},
 		},
 		{
-			// Fail closed: with no directory there is nothing to mount, so the
-			// mode alone goes in. Verification then has no authority to read
-			// and the connection fails, rather than falling back to the client
-			// library's default, which would accept an unverified one.
+			// The helper omits mounts when the certificate directory is unset but still
+			// requests verification. It must not use the client library's default mode,
+			// which could accept an unverified connection.
 			name:      "encrypted cluster with no directory rendered",
 			cfg:       &config.Config{LedgerTLSEnabled: true, LedgerCertsDir: ""},
 			wantEnv:   []string{"PGSSLMODE=verify-full"},
@@ -134,11 +134,10 @@ func TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts(t *testing.T) 
 	}
 }
 
-// TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory pins
-// the fail-closed rule at the only place that can enforce it before a
-// container starts. A host whose ledger encrypts client traffic but whose
-// certificate directory is unset cannot verify the node, and an export that
-// ran anyway would ship an artifact taken over a connection nobody checked.
+// TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory checks
+// that the dump command rejects missing certificate configuration before
+// starting a container. An encrypted ledger requires a certificate directory to
+// verify the node before exporting data.
 func TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory(t *testing.T) {
 	cfg := &config.Config{
 		LedgerTLSEnabled:        true,
@@ -156,11 +155,11 @@ func TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory(t *t
 	}
 }
 
-// TestLedgerCertificateSettingsTreatABlankDirectoryAsNone pins that a value
-// made of whitespace counts as no directory in every caller. The value is
-// rendered into an environment file where a stray space is invisible, and a
-// path of spaces would otherwise mount nothing and be handed to the engine's
-// tools as if it were real. Found in review of this branch.
+// TestLedgerCertificateSettingsTreatABlankDirectoryAsNone checks that
+// administration arguments, dump transport, and dump startup treat whitespace
+// as an unset certificate directory. An environment file can hide a stray
+// space; a path made of spaces does not supply valid certificates. Review of
+// the original branch identified this case.
 func TestLedgerCertificateSettingsTreatABlankDirectoryAsNone(t *testing.T) {
 	cfg := &config.Config{
 		LedgerTLSEnabled:        true,

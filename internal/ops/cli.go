@@ -8,8 +8,8 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// Command groups for the operator `ops` family. One *Group value per parent so
-// the renderer attaches every subcommand under a single cobra parent.
+// The operator ops command groups use one *Group value per parent. The renderer
+// attaches each parent's subcommands to one Cobra command.
 var (
 	opsGroup      = &clispec.Group{Use: "ops", Short: "Operator maintenance commands for node and storage state", Long: "", Parent: nil}
 	inspectGroup  = &clispec.Group{Use: "inspect", Short: "Read, find, and query node and storage state", Long: "", Parent: opsGroup}
@@ -21,14 +21,20 @@ var (
 	batchGroup    = &clispec.Group{Use: "batch", Short: "Run registered batch maintenance operations", Long: "", Parent: opsGroup}
 )
 
-// noInput is the input for commands that take no flags or positional args.
+// noInput represents input for commands without flags or positional arguments.
 type noInput struct {
 	clispec.InputMarker
 }
 
-// RegisterCommands adds the whole `ops` family to reg: the declared leaf
-// operations plus the hand-written backup subtree, whose bare command rejects
-// invocation.
+// RegisterCommands registers the operator ops commands in reg.
+//
+// The registry combines declared leaf operations with commands that build their
+// own Cobra trees. The backup subtree rejects invocation of its bare parent
+// command.
+//
+// Registration uses these forms:
+//   - clispec.Register adds a declared operation.
+//   - reg.AddHandwritten adds a command builder.
 func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, inspectReadOp(f))
 	clispec.Register(reg, inspectFindOp(f))
@@ -85,9 +91,9 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: backupCommand})
 }
 
-// registerBatchOps renders one leaf under `ops batch` per registered batch op,
-// excluding the repair.* helpers that the repair family already exposes. The
-// canonical name is used verbatim so dotted op names keep their exact spelling.
+// registerBatchOps registers one ops batch leaf for each registered batch
+// operation except repair.* helpers, which the repair family exposes. Each leaf
+// uses the exact canonical operation name, including dots.
 func registerBatchOps(reg *clispec.Registry, f *cli.Factory) {
 	for _, op := range List() {
 		if strings.HasPrefix(op.Name, "repair.") {

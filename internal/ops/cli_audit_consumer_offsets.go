@@ -16,11 +16,12 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// auditOutboxCountPage bounds one FoundationDB outbox read while counting.
+// auditOutboxCountPage limits each FoundationDB outbox read during counting.
 const auditOutboxCountPage = 500
 
-// auditPartitionLag is the committed lag of one topic partition for one
-// consumer group. Lag is the high-water mark minus the committed offset.
+// auditPartitionLag records committed lag for one topic partition and consumer
+// group. Lag is the high-water mark minus the committed offset, with a minimum
+// of zero.
 type auditPartitionLag struct {
 	Group       string `json:"consumer_group"`
 	Partition   int32  `json:"partition"`
@@ -42,8 +43,8 @@ type auditConsumerOffsetsReport struct {
 	FoundationDBOutboxEntries int                 `json:"foundationdb_outbox_entries"`
 }
 
-// readAuditConsumerOffsets reads the committed offsets, the high-water marks,
-// and both operator outbox remainders, and builds the report.
+// readAuditConsumerOffsets builds a report from committed offsets, high-water
+// marks, and the pending entries in both operator outboxes.
 func readAuditConsumerOffsets(ctx context.Context, f *cli.Factory) (auditConsumerOffsetsReport, error) {
 	report := auditConsumerOffsetsReport{
 		ResultMarker: clispec.ResultMarker{}, Command: "ops.audit.consumer_offsets",
@@ -83,9 +84,9 @@ func readAuditConsumerOffsets(ctx context.Context, f *cli.Factory) (auditConsume
 	return report, err
 }
 
-// partitionLags pairs every partition high-water mark with the committed
-// offset of each consumer group on topic. A partition without a committed row
-// has committed offset 0.
+// partitionLags pairs each partition high-water mark with the committed offset
+// for each consumer group on topic. A partition without a committed row uses
+// offset 0.
 func partitionLags(topic string, offsets []audit.ConsumerOffset, marks map[int32]int64) ([]auditPartitionLag, int64) {
 	committed := map[string]map[int32]audit.ConsumerOffset{}
 	for _, offset := range offsets {
@@ -118,8 +119,8 @@ func partitionLags(topic string, offsets []audit.ConsumerOffset, marks map[int32
 	return lags, total
 }
 
-// countFoundationDBOutbox counts the FoundationDB operator outbox entries by
-// reading them in pages from the start of the outbox.
+// countFoundationDBOutbox counts operator outbox entries by reading pages from
+// the beginning of the FoundationDB outbox.
 func countFoundationDBOutbox(ctx context.Context, f *cli.Factory) (int, error) {
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
@@ -143,8 +144,8 @@ func countFoundationDBOutbox(ctx context.Context, f *cli.Factory) (int, error) {
 	}
 }
 
-// consumerOffsetsFailure logs one failed read of the report and returns it
-// wrapped with the operation.
+// consumerOffsetsFailure logs a report read failure and returns an error with
+// the operation's context.
 func consumerOffsetsFailure(ctx context.Context, operation string, err error) error {
 	wrapped := fmt.Errorf("ops audit consumer-offsets: %s: %w", operation, err)
 	slog.ErrorContext(ctx, "audit.consumer_offsets.failed", slog.String("err", wrapped.Error()))

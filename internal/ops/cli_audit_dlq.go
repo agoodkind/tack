@@ -13,16 +13,16 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// The dead-letter table holds every audit event the consumer could not commit
-// to the ledger. These commands let an operator see what accumulated and send
-// it back through the audit topic once the cause is gone; the consumer, as
-// the ledger's one writer, lands each event and clears its row (TACK-336,
-// TACK-240).
+// The dead-letter table stores audit events that the consumer could not commit
+// to the ledger. Operators inspect those events and replay them to the audit
+// topic after correcting the cause. The consumer remains the ledger's sole
+// writer and deletes each dead-letter row after recording its event, following
+// TACK-336 and TACK-240.
 
 var auditDLQGroup = &clispec.Group{Use: "dlq", Short: "Inspect and replay the audit dead-letter table", Long: "", Parent: auditOpsGroup}
 
-// defaultDLQReplayLimit bounds one replay run so an operator reads the
-// consumer's answer before sending the rest.
+// defaultDLQReplayLimit limits each replay run. Operators can inspect the
+// consumer's result before replaying more events.
 const defaultDLQReplayLimit = 500
 
 type auditDLQInspectInput struct {
@@ -148,8 +148,8 @@ func runAuditDLQInspect(ctx context.Context, f *cli.Factory, sink clispec.Result
 		})
 	}
 	if result.Rows > 0 {
-		// A non-empty table means audit writes failed and nobody has replayed
-		// them; the line is at error level so the log alarm sees it.
+		// Pending dead-letter rows indicate failed audit writes that the consumer has
+		// not yet resolved. This error-level log triggers the log alarm.
 		slog.ErrorContext(ctx, "audit.dlq.non_empty",
 			slog.Int("rows", result.Rows),
 			slog.String("err", fmt.Sprintf("%d audit events are dead-lettered and not yet replayed", result.Rows)))

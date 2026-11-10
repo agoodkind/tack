@@ -26,33 +26,36 @@ import (
 var gateRoleStateQuery string
 
 const (
-	// closedOutboxDSN connects to a loopback port with no listener. Every
-	// outbox write through it fails at connect, before any command body runs.
+	// closedOutboxDSN selects a loopback port without a listener. Outbox writes
+	// fail during connection setup, before command bodies run.
 	closedOutboxDSN = "host=::1 port=1 user=tack_audit_operator dbname=tack sslmode=disable connect_timeout=2"
-	// unwiredProbeError is the choke-point's error for a command that creates
-	// the audit infrastructure when no infrastructure probe is wired.
+	// unwiredProbeError identifies the shared audit check's error when a command
+	// creates audit infrastructure without a configured infrastructure probe.
 	unwiredProbeError = "audit infrastructure probe is unwired"
-	// readRecordError is the choke-point's error for a read that could not
-	// write its record.
+	// readRecordError identifies the shared audit check's error when a read cannot
+	// record its access.
 	readRecordError = "record read access"
-	// intentRecordError is the choke-point's error for a mutating command that
-	// could not write its intent.
+	// intentRecordError identifies the shared audit check's error when a mutating
+	// command cannot record its intent.
 	intentRecordError = "record command intent"
-	// gateOperatorID is the test operator, never a person.
+	// gateOperatorID identifies the test operator rather than a person.
 	gateOperatorID = "019dd226-440e-729a-a442-281aaf73ca32"
 )
 
-// TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure runs every
-// audited command in the rendered ops tree with --execute through the real
-// choke-point and the real operator outbox. Most commands use an outbox
-// pointed at a port with no listener. Seed-roles authenticates to an empty
-// disposable ledger. That ledger does not have an operator outbox. Each
-// command stops at its first record. A read stops with
-// "record read access", a mutating command with "record command intent", and
-// a command that declares CreatesAuditInfrastructure stops at the unwired
-// infrastructure probe. Only ops provision and ops ledger audit-bootstrap may
-// stop at the probe: any other command that ran before its record existed
-// would act unrecorded.
+// TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure executes each
+// audited command in the rendered ops tree with --execute through the shared
+// audit check and real operator outbox. Most commands use an outbox connection
+// to a port without a listener. Seed-roles authenticates to an empty disposable
+// ledger without an operator outbox.
+//
+// Each command must stop before its body runs:
+//   - A read fails with "record read access".
+//   - A mutating command fails with "record command intent".
+//   - A command with CreatesAuditInfrastructure fails at the unconfigured
+//     infrastructure probe.
+//
+// Only ops provision and ops ledger audit-bootstrap may stop at that probe.
+// Every other command requires its audit record before execution.
 func TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure(t *testing.T) {
 	node := testenv.StartEmptyLedger(t, "tack-test-audit-gate-"+uuid.NewString()[:8])
 	cfg := &config.Config{DatabaseURL: node.DSN, AuditOperatorDSN: node.DSN, AuditOperatorPassword: uuid.NewString()}
@@ -122,8 +125,8 @@ func TestOnlyProvisionAndAuditBootstrapCreateAuditInfrastructure(t *testing.T) {
 	}
 }
 
-// auditedCommandPaths lists the path of every command in the rendered tree
-// with an audit verb annotation.
+// auditedCommandPaths returns paths for rendered commands with an audit verb
+// annotation.
 func auditedCommandPaths(t *testing.T) [][]string {
 	t.Helper()
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
@@ -145,9 +148,9 @@ func auditedCommandPaths(t *testing.T) [][]string {
 	return paths
 }
 
-// placeholderArguments returns one value per positional placeholder in the
-// command's usage line and one flag value per required flag. Cobra then
-// accepts the command line and calls the choke-point.
+// placeholderArguments returns a value for every positional placeholder in the
+// usage line and every required flag. Cobra can then accept the arguments and
+// invoke the shared audit check.
 func placeholderArguments(command *cobra.Command) []string {
 	var values []string
 	for range strings.Fields(command.Use)[1:] {
