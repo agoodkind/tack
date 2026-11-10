@@ -38,17 +38,36 @@ func pinnedFieldMutators() []pinnedFieldMutator {
 			target: func(c *partRestoreCall) { c.rowHash = []byte("different") },
 			source: func(c *partRestoreCall) { c.sourceRowHash = []byte("different") },
 		},
-		{name: "seq", target: func(c *partRestoreCall) { c.seq++ }, source: func(c *partRestoreCall) { c.sourceSeq++ }},
-		{name: "shard", target: func(c *partRestoreCall) { c.shard++ }, source: func(c *partRestoreCall) { c.sourceShard++ }},
+		{
+			name:   "seq",
+			target: func(c *partRestoreCall) { c.seq++ },
+			source: func(c *partRestoreCall) { c.sourceSeq++ },
+		},
+		{
+			name:   "shard",
+			target: func(c *partRestoreCall) { c.shard++ },
+			source: func(c *partRestoreCall) { c.sourceShard++ },
+		},
 	}
 }
 
 func pinnedFieldRefusals() []partRestoreRefusal {
 	refusals := []partRestoreRefusal{}
+
 	for _, field := range pinnedFieldMutators() {
-		refusals = append(refusals,
-			partRestoreRefusal{name: "target " + field.name + " differs", mutate: field.target, fragment: partRestoreTargetFragment},
-			partRestoreRefusal{name: "source " + field.name + " differs", mutate: field.source, fragment: partRestoreSourceFragment})
+		refusals = append(
+			refusals,
+			partRestoreRefusal{
+				name:     "target " + field.name + " differs",
+				mutate:   field.target,
+				fragment: partRestoreTargetFragment,
+			},
+			partRestoreRefusal{
+				name:     "source " + field.name + " differs",
+				mutate:   field.source,
+				fragment: partRestoreSourceFragment,
+			},
+		)
 	}
 
 	return refusals
@@ -59,49 +78,97 @@ func storedStateRefusals() []partRestoreRefusal {
 		{
 			name: "target already has a part",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, readTestSQL(t, "part_restore_part_insert.sql"), f.org, f.target, f.call.root, f.payload)
+				mustExec(
+					t,
+					f.admin,
+					readTestSQL(t, "part_restore_part_insert.sql"),
+					f.org,
+					f.target,
+					f.call.root,
+					f.payload,
+				)
 			},
 			fragment: "already has",
 		},
 		{
 			name: "source part was deleted",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, readTestSQL(t, "manifest_test_delete_part.sql"), f.org, f.source)
+				mustExec(
+					t,
+					f.admin,
+					readTestSQL(t, "manifest_test_delete_part.sql"),
+					f.org,
+					f.source,
+				)
 			},
 			fragment: "does not store part 0",
 		},
 		{
 			name: "source payload was altered",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, readTestSQL(t, "part_restore_update_part_payload.sql"), f.org, f.source, []byte("altered payload"))
+				mustExec(
+					t,
+					f.admin,
+					readTestSQL(t, "part_restore_update_part_payload.sql"),
+					f.org,
+					f.source,
+					[]byte("altered payload"),
+				)
 			},
 			fragment: "does not hash to the declared root",
 		},
 		{
 			name: "source digest differs",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, readTestSQL(t, "part_restore_update_part_digest.sql"), f.org, f.source, "00"+f.call.root[2:])
+				mustExec(
+					t,
+					f.admin,
+					readTestSQL(t, "part_restore_update_part_digest.sql"),
+					f.org,
+					f.source,
+					"00"+f.call.root[2:],
+				)
 			},
 			fragment: "does not hash to the declared root",
 		},
 		{
 			name: "only the source belongs to another organization",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, readTestSQL(t, "part_restore_update_event_org.sql"), f.org, f.source, uuid.Must(uuid.NewV7()))
+				mustExec(
+					t,
+					f.admin,
+					readTestSQL(t, "part_restore_update_event_org.sql"),
+					f.org,
+					f.source,
+					uuid.Must(uuid.NewV7()),
+				)
 			},
 			fragment: partRestoreSourceFragment,
 		},
 		{
 			name: "source declares another root",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, readTestSQL(t, "part_restore_update_event_root.sql"), f.org, f.source, "00"+f.call.root[2:])
+				mustExec(
+					t,
+					f.admin,
+					readTestSQL(t, "part_restore_update_event_root.sql"),
+					f.org,
+					f.source,
+					"00"+f.call.root[2:],
+				)
 			},
 			fragment: partRestoreSourceFragment,
 		},
 		{
 			name: "source declares two parts",
 			prepare: func(t *testing.T, f partRestoreRawFixture) {
-				mustExec(t, f.admin, readTestSQL(t, "part_restore_update_event_parts.sql"), f.org, f.source)
+				mustExec(
+					t,
+					f.admin,
+					readTestSQL(t, "part_restore_update_event_parts.sql"),
+					f.org,
+					f.source,
+				)
 			},
 			fragment: partRestoreSourceFragment,
 		},
@@ -115,29 +182,46 @@ func TestAuditPartRestoreRefusals(t *testing.T) {
 
 	cases := append(pinnedFieldRefusals(), storedStateRefusals()...)
 
-	cases = append(cases,
-		partRestoreRefusal{name: "source is the target", mutate: func(c *partRestoreCall) { c.source = c.event }, fragment: "source event is the target"},
-		partRestoreRefusal{name: "target in another org", mutate: func(c *partRestoreCall) { c.org = otherOrg }, fragment: partRestoreTargetFragment},
-		partRestoreRefusal{name: "root differs from the declaration", mutate: func(c *partRestoreCall) { c.root = "00" + c.root[2:] }, fragment: partRestoreTargetFragment},
+	cases = append(
+		cases,
+		partRestoreRefusal{
+			name:     "source is the target",
+			mutate:   func(c *partRestoreCall) { c.source = c.event },
+			fragment: "source event is the target",
+		},
+		partRestoreRefusal{
+			name:     "target in another org",
+			mutate:   func(c *partRestoreCall) { c.org = otherOrg },
+			fragment: partRestoreTargetFragment,
+		},
+		partRestoreRefusal{
+			name:     "root differs from the declaration",
+			mutate:   func(c *partRestoreCall) { c.root = "00" + c.root[2:] },
+			fragment: partRestoreTargetFragment,
+		},
 	)
 	for _, current := range cases {
-		t.Run(current.name, func(t *testing.T) {
-			fixture := newPartRestoreRawFixture(t, admin)
-			if current.prepare != nil {
-				current.prepare(t, fixture)
-			}
+		t.Run(
+			current.name,
+			func(t *testing.T) {
+				fixture := newPartRestoreRawFixture(t, admin)
+				if current.prepare != nil {
+					current.prepare(t, fixture)
+				}
 
-			call := fixture.call
-			if current.mutate != nil {
-				current.mutate(&call)
-			}
-			before := readPartRestoreCounts(t, admin, call.changeID)
-			requirePartRestoreRefusal(t, call.run(t, operator), current.fragment)
+				call := fixture.call
+				if current.mutate != nil {
+					current.mutate(&call)
+				}
 
-			if after := readPartRestoreCounts(t, admin, call.changeID); after != before {
-				t.Fatalf("counts after a refusal = %+v, want %+v", after, before)
-			}
-		})
+				before := readPartRestoreCounts(t, admin, call.changeID)
+				requirePartRestoreRefusal(t, call.run(t, operator), current.fragment)
+
+				if after := readPartRestoreCounts(t, admin, call.changeID); after != before {
+					t.Fatalf("counts after a refusal = %+v, want %+v", after, before)
+				}
+			},
+		)
 	}
 }
 
@@ -149,6 +233,10 @@ func TestAuditPartRestoreDuplicateChangeEventRollsBackPart(t *testing.T) {
 	before := readPartRestoreCounts(t, admin, fixture.call.changeID)
 	requirePGCode(t, fixture.call.run(t, operator), "23505")
 	if after := readPartRestoreCounts(t, admin, fixture.call.changeID); after != before {
-		t.Fatalf("counts after the duplicate error = %+v, want %+v (no part and no second outbox row)", after, before)
+		t.Fatalf(
+			"counts after the duplicate error = %+v, want %+v (no part and no second outbox row)",
+			after,
+			before,
+		)
 	}
 }

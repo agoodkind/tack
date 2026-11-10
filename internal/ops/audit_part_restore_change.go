@@ -37,10 +37,14 @@ type auditPartProvenance struct {
 }
 
 func auditPartTarget(eventID uuid.UUID, partIndex int64) audit.Target {
-	uri := audit.EventURIPrefix + eventID.String() + auditEventPartURISegment + strconv.FormatInt(partIndex, 10)
+	uri := audit.EventURIPrefix + eventID.String() + auditEventPartURISegment + strconv.FormatInt(
+		partIndex,
+		10,
+	)
 	target := audit.ResourceTarget(uri)
 	target.NodeType = audit.TargetAuditEventPart
 	target.ID = eventID
+
 	return target
 }
 
@@ -66,42 +70,73 @@ func BuildAuditPartChange(
 ) (audit.EncodedEvent, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot read the part restore operation", err)
+		return audit.EncodedEvent{}, partRestoreFailure(
+			ctx,
+			"cannot read the part restore operation",
+			err,
+		)
 	}
+
 	operation.Context.OrgID = manifest.OrgID
 
 	provenance, err := json.Marshal(auditPartProvenance{
-		SourceEventID: manifest.SourceEventID, ManifestFileSHA256: manifestFileDigest,
+		SourceEventID:      manifest.SourceEventID,
+		ManifestFileSHA256: manifestFileDigest,
 	})
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot encode the part provenance", err)
+		return audit.EncodedEvent{}, partRestoreFailure(
+			ctx,
+			"cannot encode the part provenance",
+			err,
+		)
 	}
+
 	operation.Extra = provenance
 	target := auditPartTarget(manifest.TargetEventID, manifest.PartIndex)
 	changeID := uuid.NewSHA1(auditPartRestoreNamespace, []byte(manifestFileDigest+"/"+target.URI))
 	payloadRef := uuid.NewSHA1(auditPartRestoreNamespace, []byte(changeID.String()+"/payload"))
 	after, err := json.Marshal(auditPartRecord{
-		OrgID: manifest.OrgID, EventID: manifest.TargetEventID,
-		PartIndex: manifest.PartIndex, Digest: manifest.ManifestSHA256,
-		Payload: audit.ProtectedReference{PIIRef: payloadRef},
+		OrgID:     manifest.OrgID,
+		EventID:   manifest.TargetEventID,
+		PartIndex: manifest.PartIndex,
+		Digest:    manifest.ManifestSHA256,
+		Payload:   audit.ProtectedReference{PIIRef: payloadRef},
 	})
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot encode the restored part record", err)
+		return audit.EncodedEvent{}, partRestoreFailure(
+			ctx,
+			"cannot encode the restored part record",
+			err,
+		)
 	}
+
 	change, err := audit.NewChange(changeID, target, nil, after)
 	if err != nil {
 		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot build the part change", err)
 	}
+
 	protectedValue := json.RawMessage(`"` + base64.StdEncoding.EncodeToString(payload) + `"`)
-	change.Protected = []audit.ProtectedValue{{Ref: payloadRef, SubjectID: target.ID, Value: protectedValue}}
+	change.Protected = []audit.ProtectedValue{
+		{Ref: payloadRef, SubjectID: target.ID, Value: protectedValue},
+	}
 	event, err := audit.ChangeEvent(operation, change, clock.Now())
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot build the part change event", err)
+		return audit.EncodedEvent{}, partRestoreFailure(
+			ctx,
+			"cannot build the part change event",
+			err,
+		)
 	}
+
 	encoded, err := audit.EncodeEvent(event, nil)
 	if err != nil {
-		return audit.EncodedEvent{}, partRestoreFailure(ctx, "cannot encode the part change event", err)
+		return audit.EncodedEvent{}, partRestoreFailure(
+			ctx,
+			"cannot encode the part change event",
+			err,
+		)
 	}
+
 	return encoded, nil
 }
 
@@ -116,11 +151,22 @@ func callAuditPartRestore(
 		return partRestoreFailure(ctx, "cannot read the change event messages", err)
 	}
 
-	_, err = pool.Exec(ctx, auditPartRestoreStatement,
-		manifest.OrgID, manifest.TargetEventID, manifest.SourceEventID, manifest.ManifestSHA256,
-		manifest.TargetRowHash, manifest.TargetSeq, manifest.TargetShard,
-		manifest.SourceRowHash, manifest.SourceSeq, manifest.SourceShard,
-		encoded.EventID, header, parts,
+	_, err = pool.Exec(
+		ctx,
+		auditPartRestoreStatement,
+		manifest.OrgID,
+		manifest.TargetEventID,
+		manifest.SourceEventID,
+		manifest.ManifestSHA256,
+		manifest.TargetRowHash,
+		manifest.TargetSeq,
+		manifest.TargetShard,
+		manifest.SourceRowHash,
+		manifest.SourceSeq,
+		manifest.SourceShard,
+		encoded.EventID,
+		header,
+		parts,
 	)
 
 	var postgresError *pgconn.PgError
@@ -129,7 +175,11 @@ func callAuditPartRestore(
 	}
 
 	if err != nil {
-		return partRestoreFailure(ctx, "cannot restore the part of event "+manifest.TargetEventID.String(), err)
+		return partRestoreFailure(
+			ctx,
+			"cannot restore the part of event "+manifest.TargetEventID.String(),
+			err,
+		)
 	}
 
 	return nil

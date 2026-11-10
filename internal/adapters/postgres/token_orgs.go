@@ -19,7 +19,10 @@ import (
 // acceptance, TACK-504). Returns domain.ErrUnauthenticated if the token is
 // missing or expired. The org set is empty, never nil, for a user with no
 // membership.
-func (r *TokenRepo) ValidateWithOrgs(ctx context.Context, raw string) (*token.Token, []uuid.UUID, error) {
+func (r *TokenRepo) ValidateWithOrgs(
+	ctx context.Context,
+	raw string,
+) (*token.Token, []uuid.UUID, error) {
 	const q = `
 		SELECT t.id, t.user_id, t.label, t.last_used, t.expires_at, t.created_at,
 		       COALESCE(array_agg(DISTINCT m.org_id) FILTER (WHERE m.org_id IS NOT NULL), '{}')
@@ -29,21 +32,37 @@ func (r *TokenRepo) ValidateWithOrgs(ctx context.Context, raw string) (*token.To
 		  AND (t.expires_at IS NULL OR t.expires_at > now())
 		GROUP BY t.id, t.user_id, t.label, t.last_used, t.expires_at, t.created_at`
 
-	record := &token.Token{ID: uuid.Nil, UserID: uuid.Nil, Label: "", LastUsed: nil, ExpiresAt: nil, CreatedAt: time.Time{}}
+	record := &token.Token{
+		ID:        uuid.Nil,
+		UserID:    uuid.Nil,
+		Label:     "",
+		LastUsed:  nil,
+		ExpiresAt: nil,
+		CreatedAt: time.Time{},
+	}
 	var orgIDs []uuid.UUID
 	err := r.db.QueryRow(ctx, q, hashToken(raw)).Scan(
-		&record.ID, &record.UserID, &record.Label, &record.LastUsed, &record.ExpiresAt, &record.CreatedAt,
+		&record.ID,
+		&record.UserID,
+		&record.Label,
+		&record.LastUsed,
+		&record.ExpiresAt,
+		&record.CreatedAt,
 		&orgIDs,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, domain.ErrUnauthenticated
 		}
+
 		slog.ErrorContext(ctx, "token.validate_with_orgs_failed", slog.String("err", err.Error()))
+
 		return nil, nil, fmt.Errorf("token validate with orgs: %w", err)
 	}
+
 	if orgIDs == nil {
 		orgIDs = []uuid.UUID{}
 	}
+
 	return record, orgIDs, nil
 }

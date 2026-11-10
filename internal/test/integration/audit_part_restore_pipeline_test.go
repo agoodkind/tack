@@ -48,30 +48,58 @@ func partRestoreTargets() []audit.Target {
 
 	targets = append(targets, readNodeTarget())
 	for len(targets) < partRestoreIdentityCount {
-		targets = append(targets, audit.Target{
-			Kind: audit.TargetKindNode, NodeType: "issue", Reference: "", Name: "", URI: "",
-			RelationType: "", ID: uuid.Must(uuid.NewV7()), SourceID: uuid.Nil, TargetID: uuid.Nil,
-		})
+		targets = append(
+			targets,
+			audit.Target{
+				Kind:         audit.TargetKindNode,
+				NodeType:     "issue",
+				Reference:    "",
+				Name:         "",
+				URI:          "",
+				RelationType: "",
+				ID:           uuid.Must(uuid.NewV7()),
+				SourceID:     uuid.Nil,
+				TargetID:     uuid.Nil,
+			},
+		)
 	}
+
 	return targets
 }
 
-func storeOnePartRead(t *testing.T, ledger *nodeAuditLedger, org uuid.UUID, targets []audit.Target) uuid.UUID {
+func storeOnePartRead(
+	t *testing.T,
+	ledger *nodeAuditLedger,
+	org uuid.UUID,
+	targets []audit.Target,
+) uuid.UUID {
 	t.Helper()
 	root, parts, err := audit.ReadManifestDigest(targets)
 	if err != nil || parts != 1 {
 		t.Fatalf("read manifest digest = %q, %d parts, error %v, want one part", root, parts, err)
 	}
+
 	fingerprint := audit.SHA256Hex([]byte(uuid.NewString()))
-	read := completeEvent(org, userActor(), targets[0], audit.OperationRead, audit.PhaseRead, audit.OutcomeCompleted)
+	read := completeEvent(
+		org,
+		userActor(),
+		targets[0],
+		audit.OperationRead,
+		audit.PhaseRead,
+		audit.OutcomeCompleted,
+	)
 	read.Context.Read = &audit.ReadEvidence{
-		Count: partRestoreIdentityCount, PayloadSHA256: fingerprint, PayloadFormat: "application/json",
-		ManifestSHA256: root, ManifestParts: parts,
+		Count:          partRestoreIdentityCount,
+		PayloadSHA256:  fingerprint,
+		PayloadFormat:  "application/json",
+		ManifestSHA256: root,
+		ManifestParts:  parts,
 	}
 	encoded, err := audit.EncodeEvent(read, targets)
 	if err != nil {
 		t.Fatalf("encode read event %s: %v", read.EventID, err)
 	}
+
 	transaction, err := ledger.admin.Begin(t.Context())
 	if err != nil {
 		t.Fatalf("begin the outbox write of %s: %v", read.EventID, err)
@@ -82,10 +110,13 @@ func storeOnePartRead(t *testing.T, ledger *nodeAuditLedger, org uuid.UUID, targ
 	if err := audit.WriteEncodedOutboxTx(t.Context(), transaction, encoded); err != nil {
 		t.Fatalf("write read event %s to the outbox: %v", read.EventID, err)
 	}
+
 	if err := transaction.Commit(t.Context()); err != nil {
 		t.Fatalf("commit the outbox write of %s: %v", read.EventID, err)
 	}
+
 	waitForOnePartRead(t, ledger, org, read.EventID, root)
+
 	return read.EventID
 }
 
@@ -110,6 +141,7 @@ func newPartRestorePipeline(t *testing.T, ledger *nodeAuditLedger) *partRestoreP
 	if err != nil {
 		t.Fatalf("read source %s: %v", sourceID, err)
 	}
+
 	sourceParts, err := ledger.reader.ManifestParts(t.Context(), org, sourceID)
 	if err != nil || len(sourceParts) != 1 {
 		t.Fatalf("read the source part: %d parts, %v", len(sourceParts), err)
@@ -118,14 +150,32 @@ func newPartRestorePipeline(t *testing.T, ledger *nodeAuditLedger) *partRestoreP
 	mustExec(t, ledger.admin, readTestSQL(t, "manifest_test_delete_part.sql"), org, targetID)
 	root := targetRow.Context.Read.ManifestSHA256
 	manifest := ops.AuditPartRestoreManifest{
-		SchemaVersion: 1, Ticket: "TACK-620", OrgID: org, TargetEventID: targetID, SourceEventID: sourceID, PartIndex: 0,
-		ManifestSHA256: root, DeclaredParts: 1, IdentityCount: partRestoreIdentityCount,
-		TargetSeq: targetRow.Seq, TargetShard: targetRow.Shard, TargetHashVersion: targetRow.HashVersion, TargetRowHash: targetRow.RowHash,
-		SourceSeq: sourceRow.Seq, SourceShard: sourceRow.Shard, SourceRowHash: sourceRow.RowHash,
+		SchemaVersion:     1,
+		Ticket:            "TACK-620",
+		OrgID:             org,
+		TargetEventID:     targetID,
+		SourceEventID:     sourceID,
+		PartIndex:         0,
+		ManifestSHA256:    root,
+		DeclaredParts:     1,
+		IdentityCount:     partRestoreIdentityCount,
+		TargetSeq:         targetRow.Seq,
+		TargetShard:       targetRow.Shard,
+		TargetHashVersion: targetRow.HashVersion,
+		TargetRowHash:     targetRow.RowHash,
+		SourceSeq:         sourceRow.Seq,
+		SourceShard:       sourceRow.Shard,
+		SourceRowHash:     sourceRow.RowHash,
 	}
 	pipeline := &partRestorePipeline{
-		ledger: ledger, org: org, target: targetID, source: sourceID, payload: sourceParts[0].Payload,
-		manifest: manifest, operatorID: uuid.Must(uuid.NewV7()), repairDir: t.TempDir(),
+		ledger:     ledger,
+		org:        org,
+		target:     targetID,
+		source:     sourceID,
+		payload:    sourceParts[0].Payload,
+		manifest:   manifest,
+		operatorID: uuid.Must(uuid.NewV7()),
+		repairDir:  t.TempDir(),
 	}
 	pipeline.writeManifest(t, manifest)
 	ledgerDSN := testenv.Ledger(t)
@@ -142,6 +192,7 @@ func (p *partRestorePipeline) writeManifest(t *testing.T, manifest ops.AuditPart
 	if err != nil {
 		t.Fatalf("encode the manifest: %v", err)
 	}
+
 	p.manifestPath, p.fileDigest = p.writeManifestFile(t, content)
 }
 
@@ -151,6 +202,7 @@ func (p *partRestorePipeline) writeManifestFile(t *testing.T, content []byte) (s
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatalf("write the manifest: %v", err)
 	}
+
 	return path, audit.SHA256Hex(content)
 }
 
@@ -159,7 +211,13 @@ func (p *partRestorePipeline) run(t *testing.T, execute bool) partRestoreRun {
 	return p.runManifest(t, execute, p.manifestPath, p.fileDigest, p.target.String())
 }
 
-func (p *partRestorePipeline) runManifest(t *testing.T, execute bool, manifestPath, manifestDigest, targetFlag string) partRestoreRun {
+func (p *partRestorePipeline) runManifest(
+	t *testing.T,
+	execute bool,
+	manifestPath string,
+	manifestDigest string,
+	targetFlag string,
+) partRestoreRun {
 	t.Helper()
 	cfg := *p.ledger.cfg
 	cfg.RepairDir, cfg.AuditOperatorDSN = p.repairDir, p.operatorDSN
@@ -171,15 +229,30 @@ func (p *partRestorePipeline) runManifest(t *testing.T, execute bool, manifestPa
 	root := nodeAuditCommandRoot(factory)
 	root.SetContext(testenv.CommandContext(t))
 	arguments := []string{
-		"--output", "json", "--operator-id", p.operatorID.String(), "--operator-email", "part-restore@example.test",
-		"ops", "audit", "backfill", "once-restore-manifest-part", "--manifest", manifestPath, "--manifest-sha256", manifestDigest,
-		"--target-event-id", targetFlag,
+		"--output",
+		"json",
+		"--operator-id",
+		p.operatorID.String(),
+		"--operator-email",
+		"part-restore@example.test",
+		"ops",
+		"audit",
+		"backfill",
+		"once-restore-manifest-part",
+		"--manifest",
+		manifestPath,
+		"--manifest-sha256",
+		manifestDigest,
+		"--target-event-id",
+		targetFlag,
 	}
 	if execute {
 		arguments = append([]string{"--execute"}, arguments...)
 	}
+
 	root.SetArgs(arguments)
 	err := root.Execute()
+
 	return partRestoreRun{stdout: stdout.String(), stderr: stderr.String(), err: err}
 }
 
@@ -195,6 +268,7 @@ func (r partRestoreRun) status(t *testing.T) string {
 	if err := json.Unmarshal([]byte(r.stdout), &envelope); err != nil {
 		t.Fatalf("decode the command output %q: %v", r.stdout, err)
 	}
+
 	return envelope.Result.Status + " " + envelope.Result.Plan
 }
 

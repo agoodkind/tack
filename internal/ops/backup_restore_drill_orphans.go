@@ -53,24 +53,31 @@ func sweepDrillOrphans(ctx context.Context, r *restoreDrillCtx) {
 	orphans := findDrillRuns(ctx, r)
 	delete(orphans, r.RunID)
 	var removed, skipped []string
+
 	for _, run := range slices.Sorted(maps.Keys(orphans)) {
 		lock, live, err := tryLockDrillRun(ctx, drillScratchRoot(r), run)
 		if err != nil {
 			continue
 		}
+
 		if live {
 			skipped = append(skipped, run)
 			continue
 		}
+
 		removed = append(removed, removeDrillOrphan(ctx, r, run, orphans[run])...)
 		if lock != nil {
 			_ = lock.Close()
 		}
 	}
+
 	if len(removed) > 0 || len(skipped) > 0 {
-		telemetry.L(ctx).InfoContext(ctx, "backup.restore_drill.orphans_swept",
+		telemetry.L(ctx).InfoContext(
+			ctx,
+			"backup.restore_drill.orphans_swept",
 			slog.String("removed", strings.Join(removed, " ")),
-			slog.String("live_runs_skipped", strings.Join(skipped, " ")))
+			slog.String("live_runs_skipped", strings.Join(skipped, " ")),
+		)
 	}
 }
 
@@ -84,15 +91,24 @@ func findDrillRuns(ctx context.Context, r *restoreDrillCtx) map[string]*drillOrp
 		if runs[run] == nil {
 			runs[run] = &drillOrphan{containers: nil, image: ""}
 		}
+
 		return runs[run]
 	}
-	listed, err := r.Cli.ContainerList(ctx, client.ContainerListOptions{
-		All:     true,
-		Filters: client.Filters{}.Add("name", "tack-rt"),
-	})
+	listed, err := r.Cli.ContainerList(
+		ctx,
+		client.ContainerListOptions{
+			All:     true,
+			Filters: client.Filters{}.Add("name", "tack-rt"),
+		},
+	)
 	if err != nil {
-		logger.ErrorContext(ctx, "backup.restore_drill.orphan_list_failed", slog.String("err", err.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.orphan_list_failed",
+			slog.String("err", err.Error()),
+		)
 	}
+
 	for _, item := range listed.Items {
 		for _, name := range item.Names {
 			name = strings.TrimPrefix(name, "/")
@@ -100,21 +116,25 @@ func findDrillRuns(ctx context.Context, r *restoreDrillCtx) map[string]*drillOrp
 			if !ok || !drillEngineUnderBackupRoot(r, item.Mounts, run) {
 				continue
 			}
+
 			orphan := add(run)
 			orphan.containers = append(orphan.containers, name)
 			orphan.image = item.Image
 		}
 	}
+
 	for _, entry := range readDirEntries(ctx, drillScratchRoot(r)) {
 		if entry.IsDir() && drillRunIDPattern.MatchString(entry.Name()) {
 			add(entry.Name())
 		}
 	}
+
 	for _, entry := range readDirEntries(ctx, r.Cfg.BackupRoot) {
 		if run, ok := drillRunFromName(entry.Name(), drillStagePrefixes); ok && entry.IsDir() {
 			add(run)
 		}
 	}
+
 	return runs
 }
 
@@ -122,14 +142,21 @@ func findDrillRuns(ctx context.Context, r *restoreDrillCtx) map[string]*drillOrp
 // The function returns true for a bind mount source under the backup root or
 // an existing run scratch directory under that root.
 // This check excludes engines it cannot associate with this backup root (TACK-563).
-func drillEngineUnderBackupRoot(r *restoreDrillCtx, mounts []container.MountPoint, run string) bool {
+func drillEngineUnderBackupRoot(
+	r *restoreDrillCtx,
+	mounts []container.MountPoint,
+	run string,
+) bool {
 	backupRoot := filepath.Clean(r.Cfg.BackupRoot) + string(filepath.Separator)
+
 	for _, point := range mounts {
 		if strings.HasPrefix(filepath.Clean(point.Source)+string(filepath.Separator), backupRoot) {
 			return true
 		}
 	}
+
 	_, err := os.Stat(filepath.Join(drillScratchRoot(r), run))
+
 	return err == nil
 }
 
@@ -141,6 +168,7 @@ func drillRunFromName(name string, prefixes []string) (string, bool) {
 			return run, true
 		}
 	}
+
 	return "", false
 }
 
@@ -148,9 +176,14 @@ func drillRunFromName(name string, prefixes []string) (string, bool) {
 func readDirEntries(ctx context.Context, dir string) []os.DirEntry {
 	entries, err := os.ReadDir(dir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.orphan_list_failed",
-			slog.String("dir", dir), slog.String("err", err.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"backup.restore_drill.orphan_list_failed",
+			slog.String("dir", dir),
+			slog.String("err", err.Error()),
+		)
 	}
+
 	return entries
 }
 
@@ -158,30 +191,45 @@ func readDirEntries(ctx context.Context, dir string) []os.DirEntry {
 // writes into its directories, then its scratch and staging directories, and
 // returns the names of the containers and the paths of the staging
 // directories it removed. The scratch directory's removal logs itself.
-func removeDrillOrphan(ctx context.Context, r *restoreDrillCtx, run string, orphan *drillOrphan) []string {
+func removeDrillOrphan(
+	ctx context.Context,
+	r *restoreDrillCtx,
+	run string,
+	orphan *drillOrphan,
+) []string {
 	removed := make([]string, 0, len(orphan.containers)+len(drillStagePrefixes))
 	for _, name := range orphan.containers {
 		removeContainerForce(ctx, r.Cli, name)
 		removed = append(removed, name)
 	}
+
 	if _, err := os.Stat(filepath.Join(drillScratchRoot(r), run)); err == nil {
 		image := orphan.image
 		if image == "" {
 			image = r.Cfg.BackupYBImage
 		}
+
 		removeDrillScratchRun(ctx, r, image, run)
 	}
+
 	for _, prefix := range drillStagePrefixes {
 		dir := filepath.Join(r.Cfg.BackupRoot, prefix+run)
 		if _, err := os.Stat(dir); err != nil {
 			continue
 		}
+
 		if err := os.RemoveAll(dir); err != nil {
-			telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.scratch_leaked",
-				slog.String("dir", dir), slog.String("err", err.Error()))
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"backup.restore_drill.scratch_leaked",
+				slog.String("dir", dir),
+				slog.String("err", err.Error()),
+			)
 			continue
 		}
+
 		removed = append(removed, dir)
 	}
+
 	return removed
 }

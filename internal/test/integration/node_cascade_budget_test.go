@@ -27,12 +27,22 @@ func TestDeleteLargerThanOneBudget(t *testing.T) {
 	project := mustCreateScope(t, env, "project", "Large", workspace.ID, workspace.ID, actor)
 	issueID := createTestIssue(t, env, project.ID, "Busy issue")
 	removed := append([]uuid.UUID{project.ID}, directChildren(t, project.ID)...)
+
 	for range cascadeBudgetComments {
-		comment := mustCreate(t, env, service.CreateInput{
-			ParentID: issueID, ScopeID: project.ID, NodeTypeKey: "comment", Name: "Comment", ActorID: actor,
-		})
+		comment := mustCreate(
+			t,
+			env,
+			service.CreateInput{
+				ParentID:    issueID,
+				ScopeID:     project.ID,
+				NodeTypeKey: "comment",
+				Name:        "Comment",
+				ActorID:     actor,
+			},
+		)
 		removed = append(removed, comment.ID)
 	}
+
 	drainOutbox(t, env)
 	ctx := auditintent.WithSlot(audit.WithScopeBuilder(env.Ctx), "tack_delete_project", actor)
 
@@ -40,26 +50,49 @@ func TestDeleteLargerThanOneBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete project %s: %v", project.ID, err)
 	}
+
 	if result.State != node.SubtreeDeleteRunning || result.Deleted >= len(removed) {
-		t.Fatalf("delete result = %+v, want a running job with fewer than %d deleted nodes", result, len(removed))
+		t.Fatalf(
+			"delete result = %+v, want a running job with fewer than %d deleted nodes",
+			result,
+			len(removed),
+		)
 	}
+
 	if !auditintent.Committed(ctx) {
-		t.Fatal("the started job must mark the staged row written; the tool wrapper then records no second row")
+		t.Fatal(
+			"the started job must mark the staged row written; the tool wrapper then records no second row",
+		)
 	}
+
 	running, err := env.NodeSvc.DeleteStatus(env.Ctx, result.JobID)
-	if err != nil || running.State != node.SubtreeDeleteRunning || running.Deleted != result.Deleted {
-		t.Fatalf("status after the request = %+v, %v; want running with %d deleted nodes", running, err, result.Deleted)
+	if err != nil || running.State != node.SubtreeDeleteRunning ||
+		running.Deleted != result.Deleted {
+		t.Fatalf(
+			"status after the request = %+v, %v; want running with %d deleted nodes",
+			running,
+			err,
+			result.Deleted,
+		)
 	}
+
 	requireNodesPresent(t, env, []uuid.UUID{project.ID})
 
 	finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0, env.LedgerResumeAudit())
 	if err != nil || finished != 1 {
 		t.Fatalf("resume = %d, %v; want 1 finished job", finished, err)
 	}
+
 	status, err := env.NodeSvc.DeleteStatus(env.Ctx, result.JobID)
 	if err != nil || status.State != node.SubtreeDeleteFinished || status.Deleted != len(removed) {
-		t.Fatalf("status after the resume = %+v, %v; want finished with %d deleted nodes", status, err, len(removed))
+		t.Fatalf(
+			"status after the resume = %+v, %v; want finished with %d deleted nodes",
+			status,
+			err,
+			len(removed),
+		)
 	}
+
 	requireNodesGone(t, env, removed)
 	requireNodesPresent(t, env, []uuid.UUID{workspace.ID})
 	requireNoDanglingParents(t, env)

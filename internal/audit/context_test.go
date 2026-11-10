@@ -47,13 +47,16 @@ func TestCanonicalRecorderRecordsEveryEvent(t *testing.T) {
 	if err := recorder.Record(context.Background(), Event{Verb: "test.event"}); err != nil {
 		t.Fatalf("Record() error = %v", err)
 	}
+
 	if len(inner.events) != 1 {
 		t.Fatalf("recorded events = %d, want 1", len(inner.events))
 	}
+
 	event := inner.events[0]
 	if event.EventID == uuid.Nil {
 		t.Fatal("EventID is nil")
 	}
+
 	if event.OccurredAt.IsZero() || event.OccurredAt.After(time.Now().UTC()) {
 		t.Fatalf("OccurredAt = %v, want current timestamp", event.OccurredAt)
 	}
@@ -66,6 +69,7 @@ func TestCanonicalRecorderCloseClosesInner(t *testing.T) {
 	if err := recorder.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
+
 	if !inner.closed {
 		t.Fatal("inner Close() was not called")
 	}
@@ -86,6 +90,7 @@ func TestCanonicalRecorderCloseClosesInnerWithoutError(t *testing.T) {
 	if err := recorder.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
+
 	if !inner.closed {
 		t.Fatal("inner Close() was not called")
 	}

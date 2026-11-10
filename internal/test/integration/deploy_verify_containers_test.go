@@ -18,6 +18,7 @@ func pullImage(t *testing.T, cli *client.Client, ref string) {
 	if err != nil {
 		t.Fatalf("pull %s: %v", ref, err)
 	}
+
 	defer func() { _ = response.Close() }()
 	if err := response.Wait(t.Context()); err != nil {
 		t.Fatalf("pull %s: %v", ref, err)
@@ -33,10 +34,15 @@ func createFromIndex(t *testing.T, cli *client.Client, name, service, ref string
 	t.Cleanup(func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		if _, err := cli.ImageRemove(cleanup, ref, client.ImageRemoveOptions{Force: true}); err != nil {
+		if _, err := cli.ImageRemove(
+			cleanup,
+			ref,
+			client.ImageRemoveOptions{Force: true},
+		); err != nil {
 			t.Errorf("remove image %s: %v", ref, err)
 			return
 		}
+
 		t.Logf("removed image %s", ref)
 	})
 	createServiceContainer(t, cli, name, service, ref)
@@ -45,15 +51,21 @@ func createFromIndex(t *testing.T, cli *client.Client, name, service, ref string
 func createServiceContainer(t *testing.T, cli *client.Client, name, service, ref string) {
 	t.Helper()
 	labels := map[string]string{
-		deployTestenvLabel: "true", ops.ComposeProjectLabel: deployComposeProject, ops.ComposeServiceLabel: service,
+		deployTestenvLabel:      "true",
+		ops.ComposeProjectLabel: deployComposeProject,
+		ops.ComposeServiceLabel: service,
 	}
-	_, err := cli.ContainerCreate(t.Context(), client.ContainerCreateOptions{
-		Config: &container.Config{Image: ref, Cmd: []string{"/marker"}, Labels: labels},
-		Name:   name,
-	})
+	_, err := cli.ContainerCreate(
+		t.Context(),
+		client.ContainerCreateOptions{
+			Config: &container.Config{Image: ref, Cmd: []string{"/marker"}, Labels: labels},
+			Name:   name,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create %s from %s: %v", name, ref, err)
 	}
+
 	t.Cleanup(func() { removeDeployContainer(t, cli, name) })
 }
 
@@ -69,24 +81,34 @@ func removeDeployContainer(t *testing.T, cli *client.Client, name string) {
 	if cerrdefs.IsNotFound(err) {
 		return
 	}
+
 	if err != nil {
 		t.Errorf("inspect container %s before removal: %v", name, err)
 		return
 	}
+
 	var volumes []string
+
 	for _, mount := range inspected.Container.Mounts {
 		if mount.Name != "" {
 			volumes = append(volumes, mount.Name)
 		}
 	}
-	if _, err := cli.ContainerRemove(cleanup, name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
+
+	if _, err := cli.ContainerRemove(
+		cleanup,
+		name,
+		client.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
+	); err != nil {
 		t.Errorf("remove container %s: %v", name, err)
 		return
 	}
+
 	for _, volume := range volumes {
 		if _, err := cli.VolumeInspect(cleanup, volume, client.VolumeInspectOptions{}); err == nil {
 			t.Errorf("volume %s of container %s remains after removal", volume, name)
 		}
 	}
+
 	t.Logf("removed container %s with volumes %v", name, volumes)
 }

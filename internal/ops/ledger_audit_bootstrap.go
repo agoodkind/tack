@@ -50,12 +50,15 @@ func (p ledgerAuditPresence) found() []string {
 	if p.migrationTable {
 		present = append(present, "migration table "+goose.TableName())
 	}
+
 	if p.outboxTable {
 		present = append(present, "table "+ledgerOperatorOutboxTable)
 	}
+
 	if p.operatorLogin {
 		present = append(present, "role "+ledgerOperatorLogin)
 	}
+
 	return present
 }
 
@@ -71,50 +74,110 @@ func (p ledgerAuditPresence) found() []string {
 func readLedgerAuditPresence(ctx context.Context, databaseURL string) (ledgerAuditPresence, error) {
 	connection, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.audit_bootstrap.connect_failed", slog.String("err", err.Error()))
-		return ledgerAuditPresence{}, fmt.Errorf("connect to read the ledger audit infrastructure: %w", err)
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.audit_bootstrap.connect_failed",
+			slog.String("err", err.Error()),
+		)
+
+		return ledgerAuditPresence{}, fmt.Errorf(
+			"connect to read the ledger audit infrastructure: %w",
+			err,
+		)
 	}
+
 	defer func() { _ = connection.Close(context.WithoutCancel(ctx)) }()
 	var presence ledgerAuditPresence
-	row := connection.QueryRow(ctx, ledgerAuditPresenceQuery,
-		goose.TableName(), ledgerOperatorOutboxTable, ledgerOperatorLogin)
-	if err := row.Scan(&presence.migrationTable, &presence.outboxTable, &presence.operatorLogin); err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.audit_bootstrap.read_failed", slog.String("err", err.Error()))
+	row := connection.QueryRow(
+		ctx,
+		ledgerAuditPresenceQuery,
+		goose.TableName(),
+		ledgerOperatorOutboxTable,
+		ledgerOperatorLogin,
+	)
+	if err := row.Scan(
+		&presence.migrationTable,
+		&presence.outboxTable,
+		&presence.operatorLogin,
+	); err != nil {
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.audit_bootstrap.read_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return ledgerAuditPresence{}, fmt.Errorf("read the ledger audit infrastructure: %w", err)
 	}
+
 	return presence, nil
 }
 
 // runLedgerAuditBootstrap refuses a populated ledger before it changes
 // anything, then migrates and seeds the audit roles. With execute false it
 // reports the decision and writes nothing.
-func runLedgerAuditBootstrap(ctx context.Context, cfg *config.Config, sink clispec.ResultSink, execute bool) error {
+func runLedgerAuditBootstrap(
+	ctx context.Context,
+	cfg *config.Config,
+	sink clispec.ResultSink,
+	execute bool,
+) error {
 	presence, err := readLedgerAuditPresence(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("%s: %w", ledgerAuditBootstrapCommand, err)
 	}
+
 	if found := presence.found(); len(found) > 0 {
-		refusal := fmt.Errorf("%s: the ledger already contains %s; this command runs only on an empty ledger, and ops provision runs on a populated one",
-			ledgerAuditBootstrapCommand, strings.Join(found, ", "))
-		slog.ErrorContext(ctx, "ops.ledger.audit_bootstrap.refused", slog.String("err", refusal.Error()))
+		refusal := fmt.Errorf(
+			"%s: the ledger already contains %s; this command runs only on an empty ledger, and ops provision runs on a populated one",
+			ledgerAuditBootstrapCommand,
+			strings.Join(found, ", "),
+		)
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.audit_bootstrap.refused",
+			slog.String("err", refusal.Error()),
+		)
+
 		return refusal
 	}
+
 	if !execute {
-		return writeLedgerAuditBootstrapLine(ctx, sink, "the ledger is empty; with --execute this runs the migrations and seeds the audit roles")
+		return writeLedgerAuditBootstrapLine(
+			ctx,
+			sink,
+			"the ledger is empty; with --execute this runs the migrations and seeds the audit roles",
+		)
 	}
+
 	if err := migrateAndSeedAuditRoles(ctx, cfg); err != nil {
 		return fmt.Errorf("%s: %w", ledgerAuditBootstrapCommand, err)
 	}
+
 	slog.InfoContext(ctx, "ops.ledger.audit_bootstrap.completed")
-	return writeLedgerAuditBootstrapLine(ctx, sink, "ledger audit bootstrap complete: migrations applied and audit roles seeded")
+
+	return writeLedgerAuditBootstrapLine(
+		ctx,
+		sink,
+		"ledger audit bootstrap complete: migrations applied and audit roles seeded",
+	)
 }
 
 // writeLedgerAuditBootstrapLine writes one result line through the sink.
-func writeLedgerAuditBootstrapLine(ctx context.Context, sink clispec.ResultSink, line string) error {
+func writeLedgerAuditBootstrapLine(
+	ctx context.Context,
+	sink clispec.ResultSink,
+	line string,
+) error {
 	if err := sink.WriteText(ctx, line); err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.audit_bootstrap.write_result_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.audit_bootstrap.write_result_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("%s: write result: %w", ledgerAuditBootstrapCommand, err)
 	}
+
 	return nil
 }
 
@@ -132,5 +195,6 @@ func migrateAndSeedAuditRoles(ctx context.Context, cfg *config.Config) error {
 	if err := RunAuditSeedRoles(ctx, cfg); err != nil {
 		return fmt.Errorf("provision seed roles: %w", err)
 	}
+
 	return nil
 }

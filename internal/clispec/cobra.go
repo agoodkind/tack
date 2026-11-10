@@ -35,6 +35,7 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 		if c, ok := parents[g]; ok {
 			return c
 		}
+
 		c := newGroupCommand(g)
 		parents[g] = c
 		if g.Parent == nil {
@@ -42,10 +43,12 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 		} else {
 			ensure(g.Parent).AddCommand(c)
 		}
+
 		return c
 	}
 
 	backfills := backfillGroups{}
+
 	for _, op := range reg.ops {
 		cmd := op.cobraCommand(f)
 		if g := op.renderParent(backfills); g != nil {
@@ -54,6 +57,7 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 			tops = append(tops, cmd)
 		}
 	}
+
 	for _, h := range reg.handwritten {
 		cmd := h.Build(f)
 		cmd.Use = h.Lifetime.terminalName(cmd.Use)
@@ -63,6 +67,7 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 			tops = append(tops, cmd)
 		}
 	}
+
 	return tops
 }
 
@@ -72,10 +77,12 @@ func RenderCobra(reg *Registry, f *cli.Factory) []*cobra.Command {
 func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 	var use strings.Builder
 	use.WriteString(op.terminalName())
+
 	for _, arg := range op.Args {
 		use.WriteString(" ")
 		use.WriteString(arg.placeholder())
 	}
+
 	cmd := &cobra.Command{
 		Use:     use.String(),
 		Aliases: op.Aliases,
@@ -89,38 +96,70 @@ func (op Operation[I]) cobraCommand(f *cli.Factory) *cobra.Command {
 			AuditClassAnnotation: string(op.Audit.Class),
 		},
 	}
+
 	applies := make([]func(in *I), 0, len(op.Params))
 	for _, param := range op.Params {
 		applies = append(applies, registerFlag(cmd, param))
 	}
+
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		defer applyHangupPolicy(cmd.Context(), op.auditSpec(), f.Execute())()
+
 		in := op.New()
 		for i, arg := range op.Args {
 			arg.bind(&in, args[i])
 		}
+
 		for _, apply := range applies {
 			apply(&in)
 		}
+
 		if op.auditSpec().Class == audit.OperationRead {
 			return runReadOperation(cmd.Context(), f, op, in)
 		}
+
 		if !f.Execute() && op.DryRun != nil {
-			err := RunAudited(cmd.Context(), dryRunDestination(f, f.Out), op.auditSpec(), f.OperatorIdentitySource(), f.DeployCommit(), false, f.AuditOutbox(), f.AuditInfrastructureProbe(),
-				func(context.Context) error { return nil })
+			err := RunAudited(
+				cmd.Context(),
+				dryRunDestination(f, f.Out),
+				op.auditSpec(),
+				f.OperatorIdentitySource(),
+				f.DeployCommit(),
+				false,
+				f.AuditOutbox(),
+				f.AuditInfrastructureProbe(),
+				func(context.Context) error { return nil },
+			)
 			if err != nil {
 				return err
 			}
-			return RunRecordedPreview(cmd.Context(), f, PreviewSpec(op.auditSpec()), json.RawMessage("{}"),
+
+			return RunRecordedPreview(
+				cmd.Context(),
+				f,
+				PreviewSpec(op.auditSpec()),
+				json.RawMessage("{}"),
 				func(ctx context.Context, sink ResultSink) ([]audit.Target, error) {
 					return nil, op.DryRun(ctx, in, sink)
-				})
+				},
+			)
 		}
-		return RunAudited(cmd.Context(), dryRunDestination(f, f.Out), op.auditSpec(), f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), f.AuditInfrastructureProbe(),
+
+		return RunAudited(
+			cmd.Context(),
+			dryRunDestination(f, f.Out),
+			op.auditSpec(),
+			f.OperatorIdentitySource(),
+			f.DeployCommit(),
+			f.Execute(),
+			f.AuditOutbox(),
+			f.AuditInfrastructureProbe(),
 			func(ctx context.Context) error {
 				return op.Run(ctx, in, NewCLISink(f))
-			})
+			},
+		)
 	}
+
 	return cmd
 }
 
@@ -134,11 +173,23 @@ func AttachAudit(
 	if cmd.Annotations == nil {
 		cmd.Annotations = make(map[string]string)
 	}
+
 	cmd.Annotations[AuditVerbAnnotation] = spec.Verb
 	cmd.Annotations[AuditClassAnnotation] = string(spec.Class)
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		defer applyHangupPolicy(cmd.Context(), spec, f.Execute())()
-		return RunAudited(cmd.Context(), dryRunDestination(f, cmd.OutOrStdout()), spec, f.OperatorIdentitySource(), f.DeployCommit(), f.Execute(), f.AuditOutbox(), f.AuditInfrastructureProbe(), run)
+
+		return RunAudited(
+			cmd.Context(),
+			dryRunDestination(f, cmd.OutOrStdout()),
+			spec,
+			f.OperatorIdentitySource(),
+			f.DeployCommit(),
+			f.Execute(),
+			f.AuditOutbox(),
+			f.AuditInfrastructureProbe(),
+			run,
+		)
 	}
 }
 
@@ -152,22 +203,29 @@ func (op Operation[I]) longHelp() string {
 	case op.Short != "":
 		b.WriteString(op.Short)
 	}
+
 	if len(op.Args) == 0 {
 		return b.String()
 	}
+
 	width := 0
+
 	for _, arg := range op.Args {
 		if len(arg.placeholder()) > width {
 			width = len(arg.placeholder())
 		}
 	}
+
 	if b.Len() > 0 {
 		b.WriteString("\n\n")
 	}
+
 	b.WriteString("Arguments:")
+
 	for _, arg := range op.Args {
 		fmt.Fprintf(&b, "\n  %-*s  %s", width, arg.placeholder(), arg.Description)
 	}
+
 	return b.String()
 }
 
@@ -181,17 +239,21 @@ func registerFlag[I Input](cmd *cobra.Command, param Param[I]) func(in *I) {
 		if param.Required {
 			_ = cmd.MarkFlagRequired(param.Flag)
 		}
+
 		bind := param.bindString
+
 		return func(in *I) { bind(in, *holder) }
 	case kindInt:
 		holder := new(int)
 		cmd.Flags().IntVar(holder, param.Flag, param.DefaultInt, param.Description)
 		bind := param.bindInt
+
 		return func(in *I) { bind(in, *holder) }
 	case kindBool:
 		holder := new(bool)
 		cmd.Flags().BoolVar(holder, param.Flag, param.DefaultBool, param.Description)
 		bind := param.bindBool
+
 		return func(in *I) { bind(in, *holder) }
 	default:
 		return func(in *I) {}

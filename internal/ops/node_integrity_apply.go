@@ -61,37 +61,61 @@ type repairApplier struct {
 
 func (applier repairApplier) applyFrozenManifest(ctx context.Context) (NodeIntegrityApply, error) {
 	result := NodeIntegrityApply{
-		ManifestDigest: applier.manifest.Digest, Counts: map[RepairApplyStatus]int{},
-		Entries: make([]NodeIntegrityEntryApply, 0, len(applier.manifest.Entries)),
+		ManifestDigest: applier.manifest.Digest,
+		Counts:         map[RepairApplyStatus]int{},
+		Entries:        make([]NodeIntegrityEntryApply, 0, len(applier.manifest.Entries)),
 	}
 	for _, entry := range applier.manifest.Entries {
 		outcome := applier.applyEntry(ctx, entry)
 		result.Counts[outcome.Status]++
 		result.Entries = append(result.Entries, outcome)
 	}
-	telemetry.L(ctx).InfoContext(ctx, "repair.manifest.applied", slog.String("manifest_digest", applier.manifest.Digest),
-		slog.Int("applied", result.Counts[RepairApplyApplied]), slog.Int("unchanged", result.Counts[RepairApplyUnchanged]),
-		slog.Int("conflicted", result.Counts[RepairApplyConflicted]), slog.Int("unresolved", result.Counts[RepairApplyUnresolved]),
-		slog.Int("failed", result.Counts[RepairApplyFailed]))
+
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"repair.manifest.applied",
+		slog.String("manifest_digest", applier.manifest.Digest),
+		slog.Int("applied", result.Counts[RepairApplyApplied]),
+		slog.Int("unchanged", result.Counts[RepairApplyUnchanged]),
+		slog.Int("conflicted", result.Counts[RepairApplyConflicted]),
+		slog.Int("unresolved", result.Counts[RepairApplyUnresolved]),
+		slog.Int("failed", result.Counts[RepairApplyFailed]),
+	)
 	if result.Counts[RepairApplyFailed] > 0 {
-		wrapped := fmt.Errorf("apply manifest %s: %d entries: %w", applier.manifest.Digest, result.Counts[RepairApplyFailed], errRepairEntriesFailed)
+		wrapped := fmt.Errorf(
+			"apply manifest %s: %d entries: %w",
+			applier.manifest.Digest,
+			result.Counts[RepairApplyFailed],
+			errRepairEntriesFailed,
+		)
 		slog.ErrorContext(ctx, "repair.manifest.apply_failed", slog.String("err", wrapped.Error()))
+
 		return result, wrapped
 	}
+
 	return result, nil
 }
 
-func (applier repairApplier) applyEntry(ctx context.Context, entry NodeIntegrityEntry) NodeIntegrityEntryApply {
+func (applier repairApplier) applyEntry(
+	ctx context.Context,
+	entry NodeIntegrityEntry,
+) NodeIntegrityEntryApply {
 	outcome := NodeIntegrityEntryApply{
-		RepairID: entry.RepairID, NodeID: entry.NodeID, Status: RepairApplyUnresolved,
-		Committed: []node.RepairPhase{}, NextPhase: "", Reason: "",
+		RepairID:  entry.RepairID,
+		NodeID:    entry.NodeID,
+		Status:    RepairApplyUnresolved,
+		Committed: []node.RepairPhase{},
+		NextPhase: "",
+		Reason:    "",
 	}
+
 	for {
 		preview, err := previewRepairEntry(ctx, applier.state, entry)
 		if err != nil {
 			outcome.Status, outcome.Reason = RepairApplyFailed, err.Error()
 			return outcome
 		}
+
 		switch preview.Status {
 		case RepairPreviewUnresolved:
 			outcome.Status, outcome.Reason = RepairApplyUnresolved, preview.Reason
@@ -101,21 +125,32 @@ func (applier repairApplier) applyEntry(ctx context.Context, entry NodeIntegrity
 			return outcome
 		case RepairPreviewCompleted, RepairPreviewPlanned, RepairPreviewInProgress:
 		}
+
 		outcome.NextPhase = preview.NextPhase
 		if preview.Status == RepairPreviewCompleted {
 			outcome.Status = RepairApplyUnchanged
 			if len(outcome.Committed) > 0 {
 				outcome.Status = RepairApplyApplied
 			}
+
 			return outcome
 		}
-		if err := applier.phases.runPhase(ctx, applier.manifest.Digest, applier.principal, entry, preview.NextPhase); err != nil {
+
+		if err := applier.phases.runPhase(
+			ctx,
+			applier.manifest.Digest,
+			applier.principal,
+			entry,
+			preview.NextPhase,
+		); err != nil {
 			outcome.Status, outcome.Reason = RepairApplyFailed, err.Error()
 			if errors.Is(err, domain.ErrConflict) {
 				outcome.Status = RepairApplyConflicted
 			}
+
 			return outcome
 		}
+
 		outcome.Committed = append(outcome.Committed, preview.NextPhase)
 	}
 }

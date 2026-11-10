@@ -17,8 +17,12 @@ type bulkMeasurement struct {
 // attr returns the measurement as the bulk log attribute group with
 // duration_ms, pages, and bytes as keys.
 func (m bulkMeasurement) attr() slog.Attr {
-	return slog.Group("bulk", slog.Int64("duration_ms", m.duration.Milliseconds()),
-		slog.Int("pages", m.pages), slog.Int("bytes", m.bytes))
+	return slog.Group(
+		"bulk",
+		slog.Int64("duration_ms", m.duration.Milliseconds()),
+		slog.Int("pages", m.pages),
+		slog.Int("bytes", m.bytes),
+	)
 }
 
 // bulkRequestError wraps err with the measurement of the failed bulk
@@ -41,5 +45,6 @@ func bulkAttr(err error) slog.Attr {
 	if !errors.As(err, &failed) {
 		return slog.Attr{}
 	}
+
 	return failed.measured.attr()
 }

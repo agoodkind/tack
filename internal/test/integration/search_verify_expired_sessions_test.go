@@ -41,11 +41,13 @@ func TestSearchVerifyReportsExpiredSessionBacklog(t *testing.T) {
 	// Wait for a new minute. Each search sweeps sessions from earlier minutes,
 	// and the third search must not sweep the first two sessions.
 	waitForTime(t, clock.Now().Truncate(time.Minute).Add(time.Minute+sweepExpiryMargin))
+
 	expired := make([]searchdomain.Session, 0, expiredBacklogSessions)
 	for range expiredBacklogSessions {
 		page := integration.CallSearch(t, fixture.Harness, expiredBacklogQuery, "")
 		expired = append(expired, integration.CursorSession(t, fixture, page.Cursor))
 	}
+
 	latest := expired[len(expired)-1].IdleDeadline
 	waitForTime(t, latest.Truncate(time.Minute).Add(time.Minute+sweepExpiryMargin))
 	requireExpiredBacklog(t, fixture, expiredBacklogSessions, false)
@@ -53,6 +55,7 @@ func TestSearchVerifyReportsExpiredSessionBacklog(t *testing.T) {
 	integration.CallSearch(t, fixture.Harness, expiredBacklogQuery, "")
 	store := fixture.Stores.SearchSessions(clock.Wall{}, expiredBacklogIdle)
 	remaining := 0
+
 	for _, session := range expired {
 		_, err := store.Load(integration.WithTestOperation(t, t.Context()), session.ID)
 		switch {
@@ -62,9 +65,16 @@ func TestSearchVerifyReportsExpiredSessionBacklog(t *testing.T) {
 			t.Fatalf("load session %s after one sweep: %v", session.ID, err)
 		}
 	}
+
 	if remaining != expiredBacklogLeft {
-		t.Fatalf("%d of %d expired sessions remain after one sweep, want %d", remaining, expiredBacklogSessions, expiredBacklogLeft)
+		t.Fatalf(
+			"%d of %d expired sessions remain after one sweep, want %d",
+			remaining,
+			expiredBacklogSessions,
+			expiredBacklogLeft,
+		)
 	}
+
 	requireExpiredBacklog(t, fixture, expiredBacklogLeft, false)
 }
 
@@ -81,26 +91,66 @@ func TestSearchVerifyBoundsExpiredSessionCount(t *testing.T) {
 	writeExpiryKeys(t, minute, 1)
 	requireExpiredBacklog(t, fixture, expiredBacklogBound, true)
 
-	setPrefixedValue(t, tuple.Tuple{sessionExpiryFamily, minute - 1, 0, expiredBacklogMalformed}, nil)
+	setPrefixedValue(
+		t,
+		tuple.Tuple{sessionExpiryFamily, minute - 1, 0, expiredBacklogMalformed},
+		nil,
+	)
 	pool := ledgerAdminPool(t)
 	operatorID := uuid.Must(uuid.NewV7())
-	root, output := searchReadCommand(t, fixture.Config, pool, operatorID, "ops", "search", "verify")
+	root, output := searchReadCommand(
+		t,
+		fixture.Config,
+		pool,
+		operatorID,
+		"ops",
+		"search",
+		"verify",
+	)
 	err := root.ExecuteContext(t.Context())
 	if err == nil || !strings.Contains(err.Error(), expiredBacklogCountRead) || output.Len() != 0 {
-		t.Fatalf("ops search verify with a malformed expiry key = %v, output = %q; want %q without output", err, output.String(), expiredBacklogCountRead)
+		t.Fatalf(
+			"ops search verify with a malformed expiry key = %v, output = %q; want %q without output",
+			err,
+			output.String(),
+			expiredBacklogCountRead,
+		)
 	}
-	requireFailedSearchRead(t, requireSearchReadEvent(t, pool, operatorID, audit.VerbOpsSearchVerify, expiredBacklogReference), err)
+
+	requireFailedSearchRead(
+		t,
+		requireSearchReadEvent(
+			t,
+			pool,
+			operatorID,
+			audit.VerbOpsSearchVerify,
+			expiredBacklogReference,
+		),
+		err,
+	)
 }
 
-func requireExpiredBacklog(t *testing.T, fixture integration.QueryFixture, count int, truncated bool) {
+func requireExpiredBacklog(
+	t *testing.T,
+	fixture integration.QueryFixture,
+	count int,
+	truncated bool,
+) {
 	t.Helper()
 	report, err := integration.RunSearchVerifyCommand(t, fixture.Config)
 	if err != nil {
 		t.Fatalf("ops search verify failed: %v", err)
 	}
+
 	if report.ExpiredSessions != count || report.ExpiredSessionsTruncated != truncated {
-		t.Fatalf("ops search verify at %s reported %d expired sessions and truncated %t, want %d and %t",
-			clock.Now().UTC().Format(time.RFC3339), report.ExpiredSessions, report.ExpiredSessionsTruncated, count, truncated)
+		t.Fatalf(
+			"ops search verify at %s reported %d expired sessions and truncated %t, want %d and %t",
+			clock.Now().UTC().Format(time.RFC3339),
+			report.ExpiredSessions,
+			report.ExpiredSessionsTruncated,
+			count,
+			truncated,
+		)
 	}
 }
 
@@ -108,6 +158,7 @@ func requireExpiredBacklog(t *testing.T, fixture integration.QueryFixture, count
 // given minute without session headers.
 func writeExpiryKeys(t *testing.T, minute int64, count int) {
 	t.Helper()
+
 	for written := 0; written < count; written += expiredBacklogBatch {
 		writeExpiryKeyBatch(t, minute, min(expiredBacklogBatch, count-written))
 	}
@@ -118,9 +169,14 @@ func writeExpiryKeyBatch(t *testing.T, minute int64, count int) {
 	prefix := activeTestPrefix(t)
 	transaction := pendingFixtureTransaction(t)
 	defer transaction.Cancel()
+
 	for range count {
-		transaction.Set(prefixedKey(prefix, tuple.Tuple{sessionExpiryFamily, minute, 0, uuid.NewString()}), nil)
+		transaction.Set(
+			prefixedKey(prefix, tuple.Tuple{sessionExpiryFamily, minute, 0, uuid.NewString()}),
+			nil,
+		)
 	}
+
 	if err := transaction.Commit().Get(); err != nil {
 		t.Fatalf("write %d expiry keys: %v", count, err)
 	}

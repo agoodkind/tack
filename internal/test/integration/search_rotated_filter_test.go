@@ -42,38 +42,95 @@ const (
 func TestSearchRotatedVersionFiltersForbiddenPagesBeforeRanking(t *testing.T) {
 	fixture := newRolloutFixture(t)
 	caller, foreign := fixture.workspaces[0], otherOrganizationWorkspace(t, fixture)
-	callerEntry, foreignEntry := rolloutEntryPoint(t, fixture, caller), rolloutEntryPoint(t, fixture, foreign)
-	callerKind, foreignKind := putRolloutKind(t, fixture, caller.OrgID), putRolloutKind(t, fixture, foreign.OrgID)
+	callerEntry, foreignEntry := rolloutEntryPoint(t, fixture, caller), rolloutEntryPoint(
+		t,
+		fixture,
+		foreign,
+	)
+	callerKind, foreignKind := putRolloutKind(t, fixture, caller.OrgID), putRolloutKind(
+		t,
+		fixture,
+		foreign.OrgID,
+	)
+
 	allowed := make([]uuid.UUID, 0, rotatedFilterAllowed)
 	for number := range rotatedFilterAllowed {
-		allowed = append(allowed, putRolloutNode(t, fixture, callerKind, callerEntry, fmt.Sprintf("Allowed %d", number), "notes that mention a saffron pipeline once"))
+		allowed = append(
+			allowed,
+			putRolloutNode(
+				t,
+				fixture,
+				callerKind,
+				callerEntry,
+				fmt.Sprintf("Allowed %d", number),
+				"notes that mention a saffron pipeline once",
+			),
+		)
 	}
+
 	strong := strings.Repeat("Saffron pipeline saffron pipeline. ", 3)
+
 	forbidden := make([]uuid.UUID, 0, rotatedFilterForbidden)
 	for number := range rotatedFilterForbidden {
-		forbidden = append(forbidden, putRolloutNode(t, fixture, foreignKind, foreignEntry, fmt.Sprintf("Saffron pipeline %d", number), strong))
+		forbidden = append(
+			forbidden,
+			putRolloutNode(
+				t,
+				fixture,
+				foreignKind,
+				foreignEntry,
+				fmt.Sprintf("Saffron pipeline %d", number),
+				strong,
+			),
+		)
 	}
+
 	drainRolloutWork(t, fixture)
 
 	authorities := []uuid.UUID{caller.OrgID, foreign.OrgID}
 	beginRotatedRollouts(t, fixture, authorities)
+
 	for _, authority := range authorities {
 		runRolloutUntil(t, fixture, authority, searchdomain.AccessRollout.Activated)
 	}
+
 	for _, page := range rolloutPages(t, fixture, forbidden) {
 		if !slices.Contains(page.Access.Versions, searchaccess.RotatedVersion) {
-			t.Fatalf("forbidden page %s stores versions %v without %s", page.ID, page.Access.Versions, searchaccess.RotatedVersion)
+			t.Fatalf(
+				"forbidden page %s stores versions %v without %s",
+				page.ID,
+				page.Access.Versions,
+				searchaccess.RotatedVersion,
+			)
 		}
 	}
+
 	requireRotatedRankerFilter(t, fixture, caller, callerEntry, allowed, forbidden)
 
 	for _, authority := range authorities {
 		final := runRolloutUntil(t, fixture, authority, rolloutStable)
-		requireAccessRollout(t, final, searchaccess.RotatedVersion, []string{searchaccess.RotatedVersion}, searchdomain.AccessStable)
+		requireAccessRollout(
+			t,
+			final,
+			searchaccess.RotatedVersion,
+			[]string{searchaccess.RotatedVersion},
+			searchdomain.AccessStable,
+		)
 	}
-	requirePageVersions(t, rolloutPages(t, fixture, append(slices.Clone(allowed), forbidden...)), []string{searchaccess.RotatedVersion})
+
+	requirePageVersions(
+		t,
+		rolloutPages(t, fixture, append(slices.Clone(allowed), forbidden...)),
+		[]string{searchaccess.RotatedVersion},
+	)
 	requireRotatedRankerFilter(t, fixture, caller, callerEntry, allowed, forbidden)
-	found := traverseSearch(t, fixture, caller, rotatedFilterQuery, searchAs(t, fixture, caller, rotatedFilterQuery, ""))
+	found := traverseSearch(
+		t,
+		fixture,
+		caller,
+		rotatedFilterQuery,
+		searchAs(t, fixture, caller, rotatedFilterQuery, ""),
+	)
 	requireNodesFound(t, found, allowed)
 	requireNodesAbsent(t, found, forbidden)
 }
@@ -87,27 +144,70 @@ func beginRotatedRollouts(t *testing.T, fixture rolloutFixture, authorities []uu
 	if err != nil {
 		t.Fatalf("cannot open outbox pool: %v", err)
 	}
+
 	t.Cleanup(pool.Close)
+
 	for _, authority := range authorities {
-		output, err := runOpsCommand(t, fixture.cfg, pool,
-			"--execute", "--operator-id", uuid.Must(uuid.NewV7()).String(), "--operator-email", rotatedFilterOperatorEmail,
-			"ops", "search", "access-rollout", "--authority", authority.String(), "--candidate", searchaccess.RotatedVersion)
+		output, err := runOpsCommand(
+			t,
+			fixture.cfg,
+			pool,
+			"--execute",
+			"--operator-id",
+			uuid.Must(uuid.NewV7()).String(),
+			"--operator-email",
+			rotatedFilterOperatorEmail,
+			"ops",
+			"search",
+			"access-rollout",
+			"--authority",
+			authority.String(),
+			"--candidate",
+			searchaccess.RotatedVersion,
+		)
 		if err != nil {
 			t.Fatalf("access-rollout for authority %s failed: %v\n%s", authority, err, output)
 		}
-		requireAccessRollout(t, currentAccessRollout(t, fixture, authority), searchaccess.StableVersion, bothAccessVersions, searchdomain.AccessBackfill)
+
+		requireAccessRollout(
+			t,
+			currentAccessRollout(t, fixture, authority),
+			searchaccess.StableVersion,
+			bothAccessVersions,
+			searchdomain.AccessBackfill,
+		)
 	}
 }
 
 // requireRotatedRankerFilter compiles caller keys under the active version,
 // requires the candidate version, and checks raw ranker output.
-func requireRotatedRankerFilter(t *testing.T, fixture rolloutFixture, caller datagen.WorkspaceIdentity, entryID uuid.UUID, allowed, forbidden []uuid.UUID) {
+func requireRotatedRankerFilter(
+	t *testing.T,
+	fixture rolloutFixture,
+	caller datagen.WorkspaceIdentity,
+	entryID uuid.UUID,
+	allowed []uuid.UUID,
+	forbidden []uuid.UUID,
+) {
 	t.Helper()
 	members := membershipRepository(t, fixture)
-	filter, denied := currentCallerAccess(t, fixture, members, caller.Actors[0].UserID, caller.OrgID, entryID)
+	filter, denied := currentCallerAccess(
+		t,
+		fixture,
+		members,
+		caller.Actors[0].UserID,
+		caller.OrgID,
+		entryID,
+	)
 	if denied || filter.Version != searchaccess.RotatedVersion {
-		t.Fatalf("the caller's filter uses version %q with denied=%t instead of %s", filter.Version, denied, searchaccess.RotatedVersion)
+		t.Fatalf(
+			"the caller's filter uses version %q with denied=%t instead of %s",
+			filter.Version,
+			denied,
+			searchaccess.RotatedVersion,
+		)
 	}
+
 	ranked := rotatedRankedNodes(t, fixture, filter)
 	requireNodesAbsent(t, ranked, forbidden)
 	requireNodesFound(t, ranked, allowed)
@@ -115,31 +215,52 @@ func requireRotatedRankerFilter(t *testing.T, fixture rolloutFixture, caller dat
 
 // rotatedRankedNodes opens one snapshot through the production ranker and
 // reads every raw batch in order.
-func rotatedRankedNodes(t *testing.T, fixture rolloutFixture, filter searchdomain.AccessFilter) []uuid.UUID {
+func rotatedRankedNodes(
+	t *testing.T,
+	fixture rolloutFixture,
+	filter searchdomain.AccessFilter,
+) []uuid.UUID {
 	t.Helper()
-	ranker := fixture.adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
-	query := searchdomain.Query{Text: rotatedFilterQuery, Index: fixture.index, NodeType: "", Access: filter, Generation: 0}
+	ranker := fixture.adapter.Ranker(search.RankerSettings{
+		KeepAlive:  time.Minute,
+		TokenBytes: 64 << 10,
+		BatchSize:  100,
+	})
+	query := searchdomain.Query{
+		Text:       rotatedFilterQuery,
+		Index:      fixture.index,
+		NodeType:   "",
+		Access:     filter,
+		Generation: 0,
+	}
 	snapshot, err := ranker.Open(rolloutContext(t), query)
 	if err != nil {
 		t.Fatalf("cannot open a snapshot: %v", err)
 	}
+
 	t.Cleanup(func() { _ = ranker.Close(rolloutContext(t), snapshot) })
 	nodes := []uuid.UUID{}
 	var after json.RawMessage
+
 	for range rotatedFilterBatches {
 		batch, err := ranker.Read(rolloutContext(t), query, snapshot, after)
 		if err != nil {
 			t.Fatalf("cannot read a ranked batch: %v", err)
 		}
+
 		if len(batch.Hits) == 0 {
 			return nodes
 		}
+
 		snapshot.PITID = batch.PITID
 		for _, hit := range batch.Hits {
 			nodes = append(nodes, hit.NodeID)
 		}
+
 		after = batch.Hits[len(batch.Hits)-1].Sort
 	}
+
 	t.Fatalf("raw ranking did not end within %d batches", rotatedFilterBatches)
+
 	return nil
 }

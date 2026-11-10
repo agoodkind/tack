@@ -20,6 +20,7 @@ func ExecAsRole(tb testing.TB, pool *pgxpool.Pool, role, statement string) {
 	if _, err := connection.Exec(ctx, "SET ROLE "+role); err != nil {
 		tb.Fatalf("set role %s: %v", role, err)
 	}
+
 	defer func() { _, _ = connection.Exec(ctx, "RESET ROLE") }()
 	if _, err := connection.Exec(ctx, statement); err != nil {
 		tb.Fatalf("%q as %s: %v", statement, role, err)

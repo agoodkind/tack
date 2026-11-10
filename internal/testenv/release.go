@@ -44,18 +44,22 @@ func Release(ctx context.Context) error {
 	owned.containers, owned.directories = nil, nil
 	owned.Unlock()
 	var failures []error
+
 	for _, directory := range directories {
 		if err := os.RemoveAll(directory); err != nil {
 			failures = append(failures, fmt.Errorf("remove %s: %w", directory, err))
 		}
 	}
+
 	if self, created := knownOwner(); created {
 		failures = append(failures, removeRun(ctx, self))
 	}
+
 	if err := errors.Join(failures...); err != nil {
 		slog.ErrorContext(ctx, "testenv.release_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("release test engines: %w", err)
 	}
+
 	return nil
 }
 
@@ -69,16 +73,20 @@ func Down(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+
 	defer func() { _ = cli.Close() }()
 	self, err := currentOwner(ctx, cli)
 	if err != nil {
 		return 0, err
 	}
+
 	removed, err := removeEngines(ctx, cli, self, removeForOperator)
 	if err != nil {
 		return removed, err
 	}
+
 	removeNetwork(ctx, cli)
+
 	return removed, nil
 }
 
@@ -88,7 +96,9 @@ func removeContainers(ctx context.Context, names []string) error {
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = cli.Close() }()
+
 	return removeContainersWith(ctx, cli, names)
 }
 
@@ -96,16 +106,23 @@ func removeContainers(ctx context.Context, names []string) error {
 // container already gone counts as removed.
 func removeContainersWith(ctx context.Context, cli *client.Client, names []string) error {
 	var failures []error
+
 	for _, name := range names {
-		_, err := cli.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		_, err := cli.ContainerRemove(
+			ctx,
+			name,
+			client.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
+		)
 		if err != nil && !cerrdefs.IsNotFound(err) {
 			failures = append(failures, fmt.Errorf("remove container %s: %w", name, err))
 		}
 	}
+
 	if err := errors.Join(failures...); err != nil {
 		slog.ErrorContext(ctx, "testenv.remove_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("remove test engines: %w", err)
 	}
+
 	return nil
 }
 

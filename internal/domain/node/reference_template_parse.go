@@ -25,20 +25,35 @@ func (t ReferenceTemplate) Parse(input string) (ReferenceParseResult, error) {
 		NodeTypeKey: "",
 	}
 	remaining := input
+
 	for index, part := range t.Parts {
 		if part.Kind == ReferencePartLiteral {
 			if index == 0 || t.Parts[index-1].Kind == ReferencePartLiteral {
 				if !strings.HasPrefix(remaining, part.Value) {
-					return ReferenceParseResult{}, fmt.Errorf("parse %q against template %q: separator %q not found", input, t.Name, part.Value)
+					return ReferenceParseResult{}, fmt.Errorf(
+						"parse %q against template %q: separator %q not found",
+						input,
+						t.Name,
+						part.Value,
+					)
 				}
+
 				remaining = strings.TrimPrefix(remaining, part.Value)
 			}
+
 			continue
 		}
+
 		segment, rest, err := consumeReferenceSegment(t.Parts, index, remaining)
 		if err != nil {
-			return ReferenceParseResult{}, fmt.Errorf("parse %q against template %q: %s", input, t.Name, err.Error())
+			return ReferenceParseResult{}, fmt.Errorf(
+				"parse %q against template %q: %s",
+				input,
+				t.Name,
+				err.Error(),
+			)
 		}
+
 		remaining = rest
 		switch part.Kind {
 		case ReferencePartScopeRef:
@@ -50,6 +65,7 @@ func (t ReferenceTemplate) Parse(input string) (ReferenceParseResult, error) {
 		case ReferencePartLiteral:
 		}
 	}
+
 	return result, nil
 }
 
@@ -62,22 +78,30 @@ func (t ReferenceTemplate) Parse(input string) (ReferenceParseResult, error) {
 // "FAN-QA-13" against scope "-" sequence yields scope "FAN-QA", while parsing
 // "FAN-epic-1" against scope "-" type "-" sequence yields scope "FAN", type
 // "epic", and sequence "1".
-func consumeReferenceSegment(parts []ReferencePart, index int, remaining string) (string, string, error) {
+func consumeReferenceSegment(
+	parts []ReferencePart,
+	index int,
+	remaining string,
+) (string, string, error) {
 	delimiter := nextReferenceLiteral(parts, index)
 	if delimiter == "" {
 		if remaining == "" {
 			return "", "", fmt.Errorf("no text left for final part")
 		}
+
 		return remaining, "", nil
 	}
+
 	reserved := laterLiteralCount(parts, index, delimiter)
 	cut := nthIndexFromEnd(remaining, delimiter, reserved+1)
 	if cut < 0 {
 		return "", "", fmt.Errorf("separator %q not found", delimiter)
 	}
+
 	if cut == 0 {
 		return "", "", fmt.Errorf("no text before separator %q", delimiter)
 	}
+
 	return remaining[:cut], remaining[cut+len(delimiter):], nil
 }
 
@@ -87,18 +111,22 @@ func consumeReferenceSegment(parts []ReferencePart, index int, remaining string)
 func laterLiteralCount(parts []ReferencePart, index int, delimiter string) int {
 	passedNext := false
 	count := 0
+
 	for cursor := index + 1; cursor < len(parts); cursor++ {
 		if parts[cursor].Kind != ReferencePartLiteral {
 			continue
 		}
+
 		if !passedNext {
 			passedNext = true
 			continue
 		}
+
 		if parts[cursor].Value == delimiter {
 			count++
 		}
 	}
+
 	return count
 }
 
@@ -107,13 +135,16 @@ func laterLiteralCount(parts []ReferencePart, index int, delimiter string) int {
 func nthIndexFromEnd(text, needle string, n int) int {
 	end := len(text)
 	position := -1
+
 	for range n {
 		position = strings.LastIndex(text[:end], needle)
 		if position < 0 {
 			return -1
 		}
+
 		end = position
 	}
+
 	return position
 }
 
@@ -123,5 +154,6 @@ func nextReferenceLiteral(parts []ReferencePart, index int) string {
 			return parts[cursor].Value
 		}
 	}
+
 	return ""
 }

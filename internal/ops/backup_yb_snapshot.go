@@ -54,18 +54,9 @@ const (
 // every listed prefix is filled.
 func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
-	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
-		err := fmt.Errorf("yb-snapshot-export: TACK_BACKUP_S3_ENDPOINT, _ACCESS_KEY_ID, and _SECRET_ACCESS_KEY are required")
-		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
-		return err
-	}
-	if cfg.MigratorPassword == "" {
-		err := fmt.Errorf("yb-snapshot-export: TACK_MIGRATOR_PASSWORD is required")
-		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
-		return err
-	}
-	if err := requireBackupYBImage(ctx, cfg, "yb-snapshot-export", "backup.yb_snapshot.failed"); err != nil {
-		return err
+	configErr := checkYBExportConfig(ctx, cfg, logger)
+	if configErr != nil {
+		return configErr
 	}
 
 	filter := "ysql." + cfg.YugabyteDB
@@ -74,14 +65,17 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 	if err := os.MkdirAll(stageDir, 0o750); err != nil {
 		wrapped := fmt.Errorf("mkdir yb snapshot stage %s: %w", stageDir, err)
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
+
 	// export_snapshot runs in a one-shot and writes the metadata file into this
 	// dir via a bind mount, so it must be writable by the container user. The
 	// dir is transient and removed after the upload succeeds.
 	if err := os.Chmod(stageDir, 0o777); err != nil {
 		wrapped := fmt.Errorf("chmod yb snapshot stage %s: %w", stageDir, err)
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
 
@@ -92,7 +86,8 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 	defer cli.Close()
 
 	logger.InfoContext(
-		ctx, "backup.yb_snapshot.start",
+		ctx,
+		"backup.yb_snapshot.start",
 		slog.String("filter", filter),
 		slog.String("run_id", runID),
 		slog.String("masters", cfg.BackupYBMasterAddresses),
@@ -108,19 +103,32 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
+
 	snapshotID := parseSnapshotID(createRes.Stdout)
 	if snapshotID == "" {
-		wrapped := fmt.Errorf("yb-snapshot-export: could not parse snapshot id from %q", strings.TrimSpace(createRes.Stdout))
+		wrapped := fmt.Errorf(
+			"yb-snapshot-export: could not parse snapshot id from %q",
+			strings.TrimSpace(createRes.Stdout),
+		)
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
+
 	logger.InfoContext(ctx, "backup.yb_snapshot.created", slog.String("snapshot_id", snapshotID))
 
 	if err := waitYBSnapshotComplete(ctx, cli, cfg, snapshotID); err != nil {
 		return err
 	}
 
-	if err := exportYBSnapshotToObjectStore(ctx, cli, cfg, runID, stageDir, snapshotID); err != nil {
+	if err := exportYBSnapshotToObjectStore(
+		ctx,
+		cli,
+		cfg,
+		runID,
+		stageDir,
+		snapshotID,
+	); err != nil {
 		return err
 	}
 
@@ -129,17 +137,23 @@ func RunBackupYBSnapshotExport(ctx context.Context, cfg *config.Config) error {
 	// run deletes it once the manifest is satisfied.
 
 	if rmErr := os.RemoveAll(stageDir); rmErr != nil {
-		logger.WarnContext(ctx, "backup.yb_snapshot.stage_cleanup_failed",
-			slog.String("dir", stageDir), slog.String("err", rmErr.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.yb_snapshot.stage_cleanup_failed",
+			slog.String("dir", stageDir),
+			slog.String("err", rmErr.Error()),
+		)
 	}
 
 	logger.InfoContext(
-		ctx, "backup.yb_snapshot.completed",
+		ctx,
+		"backup.yb_snapshot.completed",
 		slog.String("run_id", runID),
 		slog.String("snapshot_id", snapshotID),
 		slog.String("bucket", cfg.BackupS3BucketMain),
 		slog.String("key_prefix", ybSnapshotKeyPrefix(runID)),
 	)
+
 	return nil
 }
 
@@ -153,11 +167,19 @@ func exportYBSnapshotToObjectStore(
 	ctx context.Context,
 	cli *client.Client,
 	cfg *config.Config,
-	runID, stageDir, snapshotID string,
+	runID string,
+	stageDir string,
+	snapshotID string,
 ) error {
-	if _, err := ybAdminOneShot(ctx, cli, cfg,
+	if _, err := ybAdminOneShot(
+		ctx,
+		cli,
+		cfg,
 		[]string{stageDir + ":" + ybDumpOutDir},
-		"export_snapshot", snapshotID, ybDumpOutDir+"/"+ybSnapshotMetadataObject); err != nil {
+		"export_snapshot",
+		snapshotID,
+		ybDumpOutDir+"/"+ybSnapshotMetadataObject,
+	); err != nil {
 		return err
 	}
 
@@ -178,8 +200,13 @@ func exportYBSnapshotToObjectStore(
 
 	manifestPath := filepath.Join(stageDir, ybSnapshotManifestObject)
 	artifacts := ybSnapshotUploadArtifacts(stageDir, schemaPath, rolesPath, manifestPath)
-	manifest := newYBSnapshotManifest(runID, snapshotID, cfg.YugabyteDB, nodes,
-		ybSnapshotGatedArtifactNames(artifacts))
+	manifest := newYBSnapshotManifest(
+		runID,
+		snapshotID,
+		cfg.YugabyteDB,
+		nodes,
+		ybSnapshotGatedArtifactNames(artifacts),
+	)
 	if err := writeYBSnapshotManifest(ctx, manifestPath, manifest); err != nil {
 		return err
 	}
@@ -193,20 +220,30 @@ func exportYBSnapshotToObjectStore(
 // listYBTabletServerNodes derives the tablet-server node names live from
 // yb-admin so the manifest tracks the cluster rather than a config value. An
 // empty list is an error: a manifest that lists no nodes would gate nothing.
-func listYBTabletServerNodes(ctx context.Context, cli *client.Client, cfg *config.Config) ([]string, error) {
+func listYBTabletServerNodes(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+) ([]string, error) {
 	logger := telemetry.L(ctx)
 	res, err := ybAdminOneShot(ctx, cli, cfg, nil, "list_all_tablet_servers")
 	if err != nil {
 		return nil, err
 	}
+
 	nodes := parseYBTabletServers(res.Stdout)
 	if len(nodes) == 0 {
-		wrapped := fmt.Errorf("yb-snapshot-export: list_all_tablet_servers reported no tablet servers: %q",
-			strings.TrimSpace(res.Stdout))
+		wrapped := fmt.Errorf(
+			"yb-snapshot-export: list_all_tablet_servers reported no tablet servers: %q",
+			strings.TrimSpace(res.Stdout),
+		)
 		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", wrapped.Error()))
+
 		return nil, wrapped
 	}
+
 	logger.InfoContext(ctx, "backup.yb_snapshot.tablet_servers", slog.Any("nodes", nodes))
+
 	return nodes, nil
 }
 
@@ -235,18 +272,34 @@ func cleanupYBPriorExportSnapshots(ctx context.Context, cli *client.Client, cfg 
 	s3Client := newBackupS3Client(cfg)
 	runIDs, err := listYBSnapshotRunIDs(ctx, s3Client, cfg.BackupS3BucketMain)
 	if err != nil {
-		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_list_failed", slog.String("err", err.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.yb_snapshot.cleanup_list_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	if len(runIDs) > ybSnapshotCleanupMaxRuns {
 		runIDs = runIDs[len(runIDs)-ybSnapshotCleanupMaxRuns:]
 	}
+
 	states, err := listYBClusterSnapshots(ctx, cli, cfg)
 	if err != nil {
-		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_list_snapshots_failed", slog.String("err", err.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.yb_snapshot.cleanup_list_snapshots_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
-	referenced, orphanPassOK := cleanupYBExportRuns(ctx, runIDs, states,
+
+	referenced, orphanPassOK := cleanupYBExportRuns(
+		ctx,
+		runIDs,
+		states,
 		func(runID string) (ybSnapshotManifest, error) {
 			return fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, runID)
 		},
@@ -261,6 +314,7 @@ func cleanupYBPriorExportSnapshots(ctx context.Context, cli *client.Client, cfg 
 	if !orphanPassOK {
 		return
 	}
+
 	cleanupYBOrphanSnapshots(ctx, cli, cfg, states, referenced)
 }
 
@@ -282,22 +336,37 @@ func cleanupYBExportRuns(
 	logger := telemetry.L(ctx)
 	referenced = map[string]bool{}
 	if len(runIDs) == 0 {
-		logger.InfoContext(ctx, "backup.yb_snapshot.cleanup_orphans_skipped",
-			slog.String("reason", "no export run prefixes to build the reference set from"))
+		logger.InfoContext(
+			ctx,
+			"backup.yb_snapshot.cleanup_orphans_skipped",
+			slog.String("reason", "no export run prefixes to build the reference set from"),
+		)
+
 		return referenced, false
 	}
+
 	var unresolved []string
+
 	for _, runID := range runIDs {
 		if !cleanupYBExportRun(ctx, runID, states, referenced, fetch, exists, deleteSnapshot) {
 			unresolved = append(unresolved, runID)
 		}
 	}
+
 	if len(unresolved) > 0 {
-		logger.InfoContext(ctx, "backup.yb_snapshot.cleanup_orphans_skipped",
-			slog.String("reason", "manifests for runs "+strings.Join(unresolved, ", ")+
-				" did not resolve, so the reference set is incomplete"))
+		logger.InfoContext(
+			ctx,
+			"backup.yb_snapshot.cleanup_orphans_skipped",
+			slog.String(
+				"reason",
+				"manifests for runs "+strings.Join(unresolved, ", ")+
+					" did not resolve, so the reference set is incomplete",
+			),
+		)
+
 		return referenced, false
 	}
+
 	return referenced, true
 }
 
@@ -321,54 +390,92 @@ func cleanupYBExportRun(
 	manifest, err := fetch(runID)
 	if err != nil {
 		if isObjectNotFound(err) {
-			logger.InfoContext(ctx, "backup.yb_snapshot.cleanup_run_skipped",
-				slog.String("run_id", runID), slog.String("reason", "manifest not uploaded"))
+			logger.InfoContext(
+				ctx,
+				"backup.yb_snapshot.cleanup_run_skipped",
+				slog.String("run_id", runID),
+				slog.String("reason", "manifest not uploaded"),
+			)
+
 			return true
 		}
-		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_manifest_failed",
-			slog.String("run_id", runID), slog.String("err", err.Error()))
+
+		logger.WarnContext(
+			ctx,
+			"backup.yb_snapshot.cleanup_manifest_failed",
+			slog.String("run_id", runID),
+			slog.String("err", err.Error()),
+		)
+
 		return false
 	}
+
 	if manifest.SnapshotID == "" {
 		return true
 	}
+
 	referenced[manifest.SnapshotID] = true
 	state, inCluster := states[manifest.SnapshotID]
 	if !inCluster {
 		// Already deleted by an earlier cleanup; nothing to do for this run.
 		return true
 	}
+
 	if len(manifest.Nodes) == 0 {
-		logger.InfoContext(ctx, "backup.yb_snapshot.snapshot_kept",
-			slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID),
-			slog.String("reason", "manifest lists no nodes"))
+		logKeptYBSnapshot(ctx, logger, runID, manifest.SnapshotID, "manifest lists no nodes")
+
 		return true
 	}
+
 	missing, err := missingYBNodeArchives(manifest, exists)
 	if err != nil {
-		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_check_failed",
-			slog.String("run_id", runID), slog.String("err", err.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.yb_snapshot.cleanup_check_failed",
+			slog.String("run_id", runID),
+			slog.String("err", err.Error()),
+		)
+
 		return true
 	}
+
 	if len(missing) > 0 {
-		logger.InfoContext(ctx, "backup.yb_snapshot.snapshot_kept",
-			slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID),
-			slog.String("reason", "nodes "+strings.Join(missing, ", ")+" have not archived"))
+		logKeptYBSnapshot(
+			ctx,
+			logger,
+			runID,
+			manifest.SnapshotID,
+			"nodes "+strings.Join(missing, ", ")+" have not archived",
+		)
+
 		return true
 	}
+
 	if !ybSnapshotDeletable(state) {
-		logger.InfoContext(ctx, "backup.yb_snapshot.snapshot_kept",
-			slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID),
-			slog.String("reason", "state "+string(state)+" is not deletable"))
+		logKeptYBSnapshot(
+			ctx,
+			logger,
+			runID,
+			manifest.SnapshotID,
+			"state "+string(state)+" is not deletable",
+		)
+
 		return true
 	}
+
 	if delErr := deleteSnapshot(manifest.SnapshotID); delErr != nil {
-		logger.WarnContext(ctx, "backup.yb_snapshot.delete_failed",
-			slog.String("snapshot_id", manifest.SnapshotID), slog.String("err", delErr.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.yb_snapshot.delete_failed",
+			slog.String("snapshot_id", manifest.SnapshotID),
+			slog.String("err", delErr.Error()),
+		)
+
 		return true
 	}
-	logger.InfoContext(ctx, "backup.yb_snapshot.prior_snapshot_deleted",
-		slog.String("run_id", runID), slog.String("snapshot_id", manifest.SnapshotID))
+
+	logDeletedYBSnapshot(ctx, logger, runID, manifest.SnapshotID)
+
 	return true
 }
 
@@ -388,41 +495,69 @@ func cleanupYBOrphanSnapshots(
 ) {
 	logger := telemetry.L(ctx)
 	unreferenced := false
+
 	for id := range states {
 		if !referenced[id] {
 			unreferenced = true
 			break
 		}
 	}
+
 	if !unreferenced {
 		return
 	}
+
 	scheduleOwned, err := listYBScheduleSnapshotIDs(ctx, cli, cfg)
 	if err != nil {
-		logger.WarnContext(ctx, "backup.yb_snapshot.cleanup_schedules_failed", slog.String("err", err.Error()))
+		logger.WarnContext(
+			ctx,
+			"backup.yb_snapshot.cleanup_schedules_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	var kept []string
 	var deleted []string
+
 	for _, disposition := range reconcileYBOrphanSnapshots(states, referenced, scheduleOwned) {
 		if !disposition.delete {
 			kept = append(kept, disposition.id+": "+disposition.reason)
 			continue
 		}
-		if _, delErr := ybAdminOneShot(ctx, cli, cfg, nil, "delete_snapshot", disposition.id); delErr != nil {
-			logger.WarnContext(ctx, "backup.yb_snapshot.delete_failed",
-				slog.String("snapshot_id", disposition.id), slog.String("err", delErr.Error()))
+
+		if _, delErr := ybAdminOneShot(
+			ctx,
+			cli,
+			cfg,
+			nil,
+			"delete_snapshot",
+			disposition.id,
+		); delErr != nil {
+			logger.WarnContext(
+				ctx,
+				"backup.yb_snapshot.delete_failed",
+				slog.String("snapshot_id", disposition.id),
+				slog.String("err", delErr.Error()),
+			)
 			continue
 		}
+
 		deleted = append(deleted, disposition.id)
 	}
+
 	if len(kept) > 0 {
 		logger.InfoContext(ctx, "backup.yb_snapshot.snapshots_kept", slog.Any("snapshots", kept))
 	}
+
 	if len(deleted) > 0 {
-		logger.InfoContext(ctx, "backup.yb_snapshot.orphan_snapshots_deleted",
+		logger.InfoContext(
+			ctx,
+			"backup.yb_snapshot.orphan_snapshots_deleted",
 			slog.Any("snapshot_ids", deleted),
-			slog.String("reason", "no export run manifest references them"))
+			slog.String("reason", "no export run manifest references them"),
+		)
 	}
 }
 
@@ -441,7 +576,8 @@ type ybOrphanSnapshotDisposition struct {
 // order is deterministic.
 func reconcileYBOrphanSnapshots(
 	states map[string]ybSnapshotStatus,
-	referenced, scheduleOwned map[string]bool,
+	referenced map[string]bool,
+	scheduleOwned map[string]bool,
 ) []ybOrphanSnapshotDisposition {
 	ids := make([]string, 0, len(states))
 	for id := range states {
@@ -449,24 +585,42 @@ func reconcileYBOrphanSnapshots(
 			ids = append(ids, id)
 		}
 	}
+
 	sort.Strings(ids)
+
 	dispositions := make([]ybOrphanSnapshotDisposition, 0, len(ids))
 	for _, id := range ids {
 		switch {
 		case scheduleOwned[id]:
-			dispositions = append(dispositions, ybOrphanSnapshotDisposition{
-				id: id, delete: false, reason: "owned by a snapshot schedule",
-			})
+			dispositions = append(
+				dispositions,
+				ybOrphanSnapshotDisposition{
+					id:     id,
+					delete: false,
+					reason: "owned by a snapshot schedule",
+				},
+			)
 		case !ybSnapshotDeletable(states[id]):
-			dispositions = append(dispositions, ybOrphanSnapshotDisposition{
-				id: id, delete: false, reason: "state " + string(states[id]) + " is not deletable",
-			})
+			dispositions = append(
+				dispositions,
+				ybOrphanSnapshotDisposition{
+					id:     id,
+					delete: false,
+					reason: "state " + string(states[id]) + " is not deletable",
+				},
+			)
 		default:
-			dispositions = append(dispositions, ybOrphanSnapshotDisposition{
-				id: id, delete: true, reason: "no export run manifest references it",
-			})
+			dispositions = append(
+				dispositions,
+				ybOrphanSnapshotDisposition{
+					id:     id,
+					delete: true,
+					reason: "no export run manifest references it",
+				},
+			)
 		}
 	}
+
 	return dispositions
 }
 
@@ -479,11 +633,16 @@ func ybSnapshotDeletable(state ybSnapshotStatus) bool {
 
 // listYBClusterSnapshots returns every snapshot the cluster reports, id to
 // state, via a list_snapshots one-shot.
-func listYBClusterSnapshots(ctx context.Context, cli *client.Client, cfg *config.Config) (map[string]ybSnapshotStatus, error) {
+func listYBClusterSnapshots(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+) (map[string]ybSnapshotStatus, error) {
 	res, err := ybAdminOneShot(ctx, cli, cfg, nil, "list_snapshots")
 	if err != nil {
 		return nil, err
 	}
+
 	return parseYBClusterSnapshots(res.Stdout), nil
 }
 
@@ -493,29 +652,39 @@ func listYBClusterSnapshots(ctx context.Context, cli *client.Client, cfg *config
 // restoration ids are also UUIDs and must not be mistaken for snapshots.
 func parseYBClusterSnapshots(stdout string) map[string]ybSnapshotStatus {
 	states := map[string]ybSnapshotStatus{}
+
 	for line := range strings.SplitSeq(stdout, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue
 		}
+
 		if fields[0] == "Restoration" {
 			break
 		}
+
 		if len(fields) < 2 || !ybUUIDPattern.MatchString(fields[0]) {
 			continue
 		}
+
 		states[fields[0]] = ybSnapshotStatus(fields[1])
 	}
+
 	return states
 }
 
 // listYBScheduleSnapshotIDs returns the ids of every snapshot owned by a
 // snapshot schedule (the PITR layer), via a list_snapshot_schedules one-shot.
-func listYBScheduleSnapshotIDs(ctx context.Context, cli *client.Client, cfg *config.Config) (map[string]bool, error) {
+func listYBScheduleSnapshotIDs(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+) (map[string]bool, error) {
 	res, err := ybAdminOneShot(ctx, cli, cfg, nil, "list_snapshot_schedules")
 	if err != nil {
 		return nil, err
 	}
+
 	return unmarshalYBScheduleSnapshotIDs(ctx, res.Stdout)
 }
 
@@ -532,16 +701,23 @@ func unmarshalYBScheduleSnapshotIDs(ctx context.Context, stdout string) (map[str
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &parsed); err != nil {
 		wrapped := fmt.Errorf("parse list_snapshot_schedules output: %w", err)
-		telemetry.L(ctx).WarnContext(ctx, "backup.yb_snapshot.schedules_unparseable",
-			slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).WarnContext(
+			ctx,
+			"backup.yb_snapshot.schedules_unparseable",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	owned := map[string]bool{}
+
 	for _, schedule := range parsed.Schedules {
 		for _, snapshot := range schedule.Snapshots {
 			owned[snapshot.ID] = true
 		}
 	}
+
 	return owned, nil
 }
 
@@ -563,7 +739,9 @@ func ybAdminClusterAccess(cfg *config.Config) (args []string, binds []string) {
 	if !cfg.LedgerTLSEnabled || certsDir == "" {
 		return args, nil
 	}
+
 	args = append(args, "--certs_dir_name", certsDir)
+
 	return args, []string{certsDir + ":" + certsDir + ":ro"}
 }
 
@@ -598,30 +776,52 @@ func ybAdminOneShot(
 	if len(binds) > 0 {
 		user = stageWriterUser()
 	}
-	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
-		Image:      cfg.BackupYBImage,
-		Network:    cfg.BackupFDBNetwork,
-		Entrypoint: []string{ybAdminBinary},
-		Cmd:        cmd,
-		Env:        nil,
-		Binds:      mounts,
-		ExtraHosts: nil,
-		Name:       "",
-		User:       user,
-	})
+
+	res, err := runOneShot(
+		ctx,
+		cli,
+		logger,
+		runOneShotOptions{
+			Image:      cfg.BackupYBImage,
+			Network:    cfg.BackupFDBNetwork,
+			Entrypoint: []string{ybAdminBinary},
+			Cmd:        cmd,
+			Env:        nil,
+			Binds:      mounts,
+			ExtraHosts: nil,
+			Name:       "",
+			User:       user,
+		},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("yb-admin %s: %w", args[0], err)
-		logger.ErrorContext(ctx, "backup.yb_snapshot.yb_admin_failed",
-			slog.String("subcommand", args[0]), slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.yb_snapshot.yb_admin_failed",
+			slog.String("subcommand", args[0]),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return res, wrapped
 	}
+
 	if res.ExitCode != 0 {
-		wrapped := fmt.Errorf("yb-admin %s exited %d: %s", args[0], res.ExitCode,
-			strings.TrimSpace(res.Stdout+" "+res.Stderr))
-		logger.ErrorContext(ctx, "backup.yb_snapshot.yb_admin_failed",
-			slog.String("subcommand", args[0]), slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"yb-admin %s exited %d: %s",
+			args[0],
+			res.ExitCode,
+			strings.TrimSpace(res.Stdout+" "+res.Stderr),
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.yb_snapshot.yb_admin_failed",
+			slog.String("subcommand", args[0]),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return res, wrapped
 	}
+
 	return res, nil
 }
 
@@ -633,10 +833,12 @@ func parseSnapshotID(stdout string) string {
 	if !found {
 		return ""
 	}
+
 	fields := strings.Fields(after)
 	if len(fields) == 0 {
 		return ""
 	}
+
 	return fields[0]
 }
 
@@ -654,6 +856,7 @@ func waitYBSnapshotComplete(
 	defer cancel()
 	ticker := time.NewTicker(ybSnapshotPollInterval)
 	defer ticker.Stop()
+
 	for {
 		res, err := ybAdminOneShot(pollCtx, cli, cfg, nil, "list_snapshots")
 		if err == nil {
@@ -662,17 +865,32 @@ func waitYBSnapshotComplete(
 				return nil
 			case ybSnapStatusFailed:
 				wrapped := fmt.Errorf("yb-snapshot-export: snapshot %s reported FAILED", snapshotID)
-				logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", wrapped.Error()))
+				logger.ErrorContext(
+					ctx,
+					"backup.yb_snapshot.failed",
+					slog.String("err", wrapped.Error()),
+				)
+
 				return wrapped
 			case ybSnapStatusUnknown, ybSnapStatusCreating:
 				// Not ready yet; fall through to the wait below.
 			}
 		}
+
 		select {
 		case <-pollCtx.Done():
-			wrapped := fmt.Errorf("yb-snapshot-export: snapshot %s did not reach COMPLETE within %s: %w",
-				snapshotID, ybSnapshotCompleteTimeout, pollCtx.Err())
-			logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", wrapped.Error()))
+			wrapped := fmt.Errorf(
+				"yb-snapshot-export: snapshot %s did not reach COMPLETE within %s: %w",
+				snapshotID,
+				ybSnapshotCompleteTimeout,
+				pollCtx.Err(),
+			)
+			logger.ErrorContext(
+				ctx,
+				"backup.yb_snapshot.failed",
+				slog.String("err", wrapped.Error()),
+			)
+
 			return wrapped
 		case <-ticker.C:
 		}
@@ -686,6 +904,7 @@ func ybSnapshotState(listOutput, snapshotID string) ybSnapshotStatus {
 		if !strings.Contains(line, snapshotID) {
 			continue
 		}
+
 		switch {
 		case strings.Contains(line, string(ybSnapStatusComplete)):
 			return ybSnapStatusComplete
@@ -695,5 +914,63 @@ func ybSnapshotState(listOutput, snapshotID string) ybSnapshotStatus {
 			return ybSnapStatusCreating
 		}
 	}
+
 	return ybSnapStatusUnknown
+}
+
+func checkYBExportConfig(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
+		err := errYBBackupSettingsMissing
+		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
+
+		return err
+	}
+
+	if cfg.MigratorPassword == "" {
+		err := errYBMigratorPasswordMissing
+		logger.ErrorContext(ctx, "backup.yb_snapshot.failed", slog.String("err", err.Error()))
+
+		return err
+	}
+
+	if err := requireBackupYBImage(
+		ctx,
+		cfg,
+		"yb-snapshot-export",
+		"backup.yb_snapshot.failed",
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func logKeptYBSnapshot(
+	ctx context.Context,
+	logger *slog.Logger,
+	runID string,
+	snapshotID string,
+	reason string,
+) {
+	logger.InfoContext(
+		ctx,
+		"backup.yb_snapshot.snapshot_kept",
+		slog.String("run_id", runID),
+		slog.String("snapshot_id", snapshotID),
+		slog.String("reason", reason),
+	)
+}
+
+func logDeletedYBSnapshot(
+	ctx context.Context,
+	logger *slog.Logger,
+	runID string,
+	snapshotID string,
+) {
+	logger.InfoContext(
+		ctx,
+		"backup.yb_snapshot.prior_snapshot_deleted",
+		slog.String("run_id", runID),
+		slog.String("snapshot_id", snapshotID),
+	)
 }

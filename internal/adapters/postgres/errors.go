@@ -13,6 +13,7 @@ func pgErr(err error) error {
 	if err == nil {
 		return nil
 	}
+
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
@@ -22,5 +23,6 @@ func pgErr(err error) error {
 			return domain.ErrInvalidArgument
 		}
 	}
+
 	return err
 }

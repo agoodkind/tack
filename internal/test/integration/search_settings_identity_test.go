@@ -49,19 +49,31 @@ const (
 func useSearchSettingsMaintenanceIdentity(t *testing.T, admin *opensearchapi.Client) {
 	t.Helper()
 	putSecurityResource(t, admin, "roles/"+searchSettingsRuntimeRoleName, searchSettingsRuntimeRole)
-	putSecurityResource(t, admin, "roles/"+searchSettingsMaintenanceRoleName, searchSettingsMaintenanceRole)
+	putSecurityResource(
+		t,
+		admin,
+		"roles/"+searchSettingsMaintenanceRoleName,
+		searchSettingsMaintenanceRole,
+	)
 	secret := make([]byte, 24)
 	if _, err := rand.Read(secret); err != nil {
 		t.Fatalf("generate the maintenance test password: %v", err)
 	}
+
 	password := "Tk-" + hex.EncodeToString(secret)
-	user, err := json.Marshal(struct {
-		Password string   `json:"password"`
-		Roles    []string `json:"opendistro_security_roles"`
-	}{Password: password, Roles: []string{searchSettingsRuntimeRoleName, searchSettingsMaintenanceRoleName}})
+	user, err := json.Marshal(
+		struct {
+			Password string   `json:"password"`
+			Roles    []string `json:"opendistro_security_roles"`
+		}{
+			Password: password,
+			Roles:    []string{searchSettingsRuntimeRoleName, searchSettingsMaintenanceRoleName},
+		},
+	)
 	if err != nil {
 		t.Fatalf("encode the maintenance test user: %v", err)
 	}
+
 	putSecurityResource(t, admin, "internalusers/"+searchSettingsMaintenanceUser, user)
 	t.Cleanup(func() {
 		for _, resource := range []string{
@@ -76,6 +88,7 @@ func useSearchSettingsMaintenanceIdentity(t *testing.T, admin *opensearchapi.Cli
 	if err := os.WriteFile(path, []byte(password), 0o600); err != nil {
 		t.Fatalf("write the maintenance test password file: %v", err)
 	}
+
 	t.Setenv("OPENSEARCH_MAINTENANCE_USERNAME", searchSettingsMaintenanceUser)
 	t.Setenv("OPENSEARCH_MAINTENANCE_PASSWORD", "")
 	t.Setenv("OPENSEARCH_MAINTENANCE_PASSWORD_FILE", path)
@@ -91,24 +104,44 @@ func putSecurityResource(t *testing.T, admin *opensearchapi.Client, resource str
 // securityRequest sends one request to the security REST API as the
 // fixture administrator and fails the test unless OpenSearch returns HTTP
 // 200 or 201.
-func securityRequest(t *testing.T, admin *opensearchapi.Client, method, resource string, body []byte) {
+func securityRequest(
+	t *testing.T,
+	admin *opensearchapi.Client,
+	method string,
+	resource string,
+	body []byte,
+) {
 	t.Helper()
 	ctx := context.WithoutCancel(integration.WithTestOperation(t, t.Context()))
-	request, err := http.NewRequestWithContext(ctx, method, "/_plugins/_security/api/"+resource, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(
+		ctx,
+		method,
+		"/_plugins/_security/api/"+resource,
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		t.Fatalf("build security request %s %s: %v", method, resource, err)
 	}
+
 	request.Header.Set("Content-Type", "application/json")
 	response, err := admin.Client.Request(request)
 	if err != nil {
 		t.Fatalf("security request %s %s: %v", method, resource, err)
 	}
+
 	defer func() { _ = response.Body.Close() }()
 	reply, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatalf("read security response %s %s: %v", method, resource, err)
 	}
+
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
-		t.Fatalf("security request %s %s returned HTTP %d: %s", method, resource, response.StatusCode, reply)
+		t.Fatalf(
+			"security request %s %s returned HTTP %d: %s",
+			method,
+			resource,
+			response.StatusCode,
+			reply,
+		)
 	}
 }

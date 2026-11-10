@@ -22,10 +22,12 @@ func TestABundleWrittenBeforeTheNameExistedStillVerifies(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, legacyExportEventsFile)); err != nil {
 		t.Fatalf("the fixture must be a bundle in the older layout: %v", err)
 	}
+
 	manifest, err := readExportManifest(dir)
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
+
 	if manifest.EventsFile != "" {
 		t.Fatalf("events_file = %q, want the older layout's empty name", manifest.EventsFile)
 	}
@@ -34,9 +36,11 @@ func TestABundleWrittenBeforeTheNameExistedStillVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify an older bundle: %v", err)
 	}
+
 	if verdict := report.Err(); verdict != nil {
 		t.Fatalf("an older bundle no longer verifies: %v", verdict)
 	}
+
 	if report.RowsScanned != len(rows) {
 		t.Fatalf("rows scanned = %d, want %d", report.RowsScanned, len(rows))
 	}

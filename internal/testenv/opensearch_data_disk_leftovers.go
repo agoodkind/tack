@@ -32,7 +32,9 @@ func removeLeftoverDataDisks(ctx context.Context, cli *client.Client) ([]string,
 	if err != nil {
 		return nil, dataDiskFailure(ctx, "list leftover data disk volumes", err)
 	}
+
 	var dataVolumes, imageVolumes []string
+
 	for _, item := range listed.Items {
 		switch {
 		case !strings.HasPrefix(item.Name, dataDiskPrefix), item.Labels[managedLabel] != "true":
@@ -42,54 +44,83 @@ func removeLeftoverDataDisks(ctx context.Context, cli *client.Client) ([]string,
 			imageVolumes = append(imageVolumes, item.Name)
 		}
 	}
+
 	if len(dataVolumes)+len(imageVolumes) == 0 {
 		return nil, nil
 	}
+
 	var removed []string
-	containers, err := leftoverDataDiskContainers(ctx, cli, slices.Concat(dataVolumes, imageVolumes))
+	containers, err := leftoverDataDiskContainers(
+		ctx,
+		cli,
+		slices.Concat(dataVolumes, imageVolumes),
+	)
 	if err != nil {
 		return removed, err
 	}
+
 	if err := removeContainersWith(ctx, cli, containers); err != nil {
 		return removed, err
 	}
+
 	for _, name := range containers {
 		removed = append(removed, "container "+name)
 	}
+
 	for _, name := range dataVolumes {
 		if err := removeDataDiskVolume(ctx, cli, name); err != nil {
 			return removed, err
 		}
+
 		removed = append(removed, "volume "+name)
 	}
+
 	devices, err := detachLeftoverDataDiskDevices(ctx, cli, imageVolumes)
 	for _, device := range devices {
 		removed = append(removed, "loop device "+device)
 	}
+
 	if err != nil {
 		return removed, err
 	}
+
 	for _, name := range imageVolumes {
 		if err := removeDataDiskVolume(ctx, cli, name); err != nil {
 			return removed, err
 		}
+
 		removed = append(removed, "volume "+name)
 	}
-	telemetry.L(ctx).InfoContext(ctx, "search.data_disk_leftovers_removed", slog.String("removed", strings.Join(removed, ", ")))
+
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.data_disk_leftovers_removed",
+		slog.String("removed", strings.Join(removed, ", ")),
+	)
+
 	return removed, nil
 }
 
 // leftoverDataDiskContainers returns every container, running or stopped,
 // with the testenv label that uses one of volumes. A container without the
 // label stays, and the volume removal then reports the volume as in use.
-func leftoverDataDiskContainers(ctx context.Context, cli *client.Client, volumes []string) ([]string, error) {
+func leftoverDataDiskContainers(
+	ctx context.Context,
+	cli *client.Client,
+	volumes []string,
+) ([]string, error) {
 	var containers []string
+
 	for _, volume := range volumes {
 		filters := client.Filters{}.Add("volume", volume).Add("label", managedLabel+"=true")
-		listed, err := cli.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: filters})
+		listed, err := cli.ContainerList(
+			ctx,
+			client.ContainerListOptions{All: true, Filters: filters},
+		)
 		if err != nil {
 			return nil, dataDiskFailure(ctx, "list the containers that use volume "+volume, err)
 		}
+
 		for _, item := range listed.Items {
 			container := strings.TrimPrefix(strings.Join(item.Names, ","), "/")
 			if !slices.Contains(containers, container) {
@@ -97,27 +128,36 @@ func leftoverDataDiskContainers(ctx context.Context, cli *client.Client, volumes
 			}
 		}
 	}
+
 	return containers, nil
 }
 
 // detachLeftoverDataDiskDevices starts a short-lived helper with each image
 // volume mounted, detaches every loop device attached to an image file in
 // them, and removes the helper. It returns the detached devices.
-func detachLeftoverDataDiskDevices(ctx context.Context, cli *client.Client, imageVolumes []string) ([]string, error) {
+func detachLeftoverDataDiskDevices(
+	ctx context.Context,
+	cli *client.Client,
+	imageVolumes []string,
+) ([]string, error) {
 	if len(imageVolumes) == 0 {
 		return nil, nil
 	}
+
 	helper, err := generatedEngineName(ctx, dataDiskKind+"-cleanup")
 	if err != nil {
 		return nil, err
 	}
+
 	mounts := make([]mount.Mount, 0, len(imageVolumes))
+
 	files := make([]string, 0, len(imageVolumes))
 	for position, volume := range imageVolumes {
 		target := "/leftover/" + strconv.Itoa(position)
 		mounts = append(mounts, mount.Mount{Type: mount.TypeVolume, Source: volume, Target: target})
 		files = append(files, target+"/"+dataDiskFileName)
 	}
+
 	startErr := startDataDiskHelper(ctx, cli, helper, mounts)
 	var detached []string
 	var failures []error
@@ -125,21 +165,32 @@ func detachLeftoverDataDiskDevices(ctx context.Context, cli *client.Client, imag
 		for _, file := range files {
 			_, code, err := execInContainer(ctx, cli, helper, []string{"test", "-f", file})
 			if err != nil {
-				failures = append(failures, fmt.Errorf("check for image file %s in %s: %w", file, helper, err))
+				failures = append(
+					failures,
+					fmt.Errorf("check for image file %s in %s: %w", file, helper, err),
+				)
 				continue
 			}
+
 			if code != 0 {
 				// A run killed before truncate left no image file.
 				continue
 			}
+
 			devices, err := detachDataDiskDevices(ctx, cli, helper, file)
 			detached = append(detached, devices...)
 			failures = append(failures, err)
 		}
 	}
+
 	failures = append(failures, startErr, removeContainersWith(ctx, cli, []string{helper}))
 	if err := errors.Join(failures...); err != nil {
-		return detached, dataDiskFailure(ctx, "detach leftover loop devices with helper "+helper, err)
+		return detached, dataDiskFailure(
+			ctx,
+			"detach leftover loop devices with helper "+helper,
+			err,
+		)
 	}
+
 	return detached, nil
 }

@@ -26,18 +26,59 @@ const rolloutAbandonLease = 500 * time.Millisecond
 // putUndeclaredNode creates a node of kind under parentID with a value for
 // a property that does not yet have a definition. It records the node in
 // fixture.Harness.titles.
-func putUndeclaredNode(t *testing.T, fixture queryFixture, kind opaqueKind, parentID uuid.UUID, name, value string) uuid.UUID {
+func putUndeclaredNode(
+	t *testing.T,
+	fixture queryFixture,
+	kind opaqueKind,
+	parentID uuid.UUID,
+	name string,
+	value string,
+) uuid.UUID {
 	t.Helper()
 	nodeID := uuid.Must(uuid.NewV7())
 	props := map[string]json.RawMessage{name: mustJSON(value)}
 	now := clock.Now().UTC()
-	created := &node.Node{ID: nodeID, OrgID: kind.OrgID, NodeType: kind.TypeKey, Name: "undeclared node", Props: props, CreatedAt: now, UpdatedAt: now}
-	view := &node.NodeView{ID: nodeID, OrgID: kind.OrgID, NodeType: kind.TypeKey, Name: "undeclared node", Props: props, CreatedAt: now, UpdatedAt: now}
-	parent := &node.Relationship{OrgID: kind.OrgID, SourceID: nodeID, TargetID: parentID, RelationType: node.RelChildOf}
-	if err := fixture.Stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
+	created := &node.Node{
+		ID:        nodeID,
+		OrgID:     kind.OrgID,
+		NodeType:  kind.TypeKey,
+		Name:      "undeclared node",
+		Props:     props,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	view := &node.NodeView{
+		ID:        nodeID,
+		OrgID:     kind.OrgID,
+		NodeType:  kind.TypeKey,
+		Name:      "undeclared node",
+		Props:     props,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	parent := &node.Relationship{
+		OrgID:        kind.OrgID,
+		SourceID:     nodeID,
+		TargetID:     parentID,
+		RelationType: node.RelChildOf,
+	}
+	if err := fixture.Stores.Nodes.CreateAtomic(
+		WithTestOperation(t, t.Context()),
+		created,
+		view,
+		[]*node.Relationship{parent},
+		nil,
+		nil,
+		nil,
+	); err != nil {
 		t.Fatalf("create undeclared node: %v", err)
 	}
-	fixture.Harness.titles.Add(datagen.SearchItem{Title: created.Name, NodeType: kind.TypeKey}, nodeID)
+
+	fixture.Harness.titles.Add(
+		datagen.SearchItem{Title: created.Name, NodeType: kind.TypeKey},
+		nodeID,
+	)
+
 	return nodeID
 }
 
@@ -45,6 +86,7 @@ func putUndeclaredNode(t *testing.T, fixture queryFixture, kind opaqueKind, pare
 // failures. Tests use it for work that fails until a later metadata write.
 func runSlicesIgnoringFailures(t *testing.T, worker *service.SearchWorker, limit int) {
 	t.Helper()
+
 	for range limit {
 		claimed, err := worker.RunSlice(WithTestOperation(t, t.Context()))
 		if err == nil && !claimed {
@@ -57,7 +99,10 @@ func runSlicesIgnoringFailures(t *testing.T, worker *service.SearchWorker, limit
 // physical index.
 func requireAliasTarget(t *testing.T, fixture queryFixture) {
 	t.Helper()
-	target, err := fixture.Adapter.AliasTarget(WithTestOperation(t, t.Context()), search.PublicAlias)
+	target, err := fixture.Adapter.AliasTarget(
+		WithTestOperation(t, t.Context()),
+		search.PublicAlias,
+	)
 	if err != nil || target != fixture.Index {
 		t.Fatalf("public alias target = %q, error = %v, want %q", target, err, fixture.Index)
 	}
@@ -66,13 +111,16 @@ func requireAliasTarget(t *testing.T, fixture queryFixture) {
 // pagesOf returns the active pages of every node in order.
 func pagesOf(t *testing.T, fixture queryFixture, nodes []uuid.UUID) []searchPageSource {
 	t.Helper()
+
 	pages := make([]searchPageSource, 0, len(nodes)*2)
 	for _, nodeID := range nodes {
 		pages = append(pages, searchNodePages(t, fixture.Client, fixture.Index, nodeID, false)...)
 	}
+
 	if len(pages) == 0 {
 		t.Fatal("the nodes have no active pages")
 	}
+
 	return pages
 }
 
@@ -83,10 +131,15 @@ func requireSemanticPreserved(t *testing.T, before, after []searchPageSource) {
 	if len(before) != len(after) {
 		t.Fatalf("active pages changed from %d to %d", len(before), len(after))
 	}
+
 	for position, page := range after {
 		previous := before[position]
-		if page.ID != previous.ID || page.NodeRevision != previous.NodeRevision || !bytes.Equal(page.Semantic, previous.Semantic) ||
-			page.PageText == nil || previous.PageText == nil || *page.PageText != *previous.PageText {
+		if page.ID != previous.ID || page.NodeRevision != previous.NodeRevision || !bytes.Equal(
+			page.Semantic,
+			previous.Semantic,
+		) ||
+			page.PageText == nil || previous.PageText == nil ||
+			*page.PageText != *previous.PageText {
 			t.Fatalf("page %d changed its identity, text, or semantic fields", position)
 		}
 	}
@@ -96,16 +149,26 @@ func requireSemanticPreserved(t *testing.T, before, after []searchPageSource) {
 // versions in versions.
 func requireAccessVersions(t *testing.T, pages []searchPageSource, versions []string) {
 	t.Helper()
+
 	for position, page := range pages {
 		if !slices.Equal(page.Access.Versions, versions) {
-			t.Fatalf("page %d access versions = %v, want %v", position, page.Access.Versions, versions)
+			t.Fatalf(
+				"page %d access versions = %v, want %v",
+				position,
+				page.Access.Versions,
+				versions,
+			)
 		}
 	}
 }
 
 // sameOrgWorkspaces returns two bootstrapped workspaces of one organization.
-func sameOrgWorkspaces(t *testing.T, fixture queryFixture) (datagen.WorkspaceIdentity, datagen.WorkspaceIdentity) {
+func sameOrgWorkspaces(
+	t *testing.T,
+	fixture queryFixture,
+) (datagen.WorkspaceIdentity, datagen.WorkspaceIdentity) {
 	t.Helper()
+
 	for first, workspace := range fixture.Workspaces {
 		for _, other := range fixture.Workspaces[first+1:] {
 			if other.OrgID == workspace.OrgID {
@@ -113,7 +176,9 @@ func sameOrgWorkspaces(t *testing.T, fixture queryFixture) (datagen.WorkspaceIde
 			}
 		}
 	}
+
 	t.Fatal("no organization has two workspaces")
+
 	return datagen.WorkspaceIdentity{}, datagen.WorkspaceIdentity{}
 }
 
@@ -126,7 +191,12 @@ func beginRollout(t *testing.T, fixture queryFixture, authorityID uuid.UUID, can
 	if err != nil {
 		t.Fatalf("read access rollout: %v", err)
 	}
-	request := searchdomain.BeginAccessRollout{AuthorityID: authorityID, CandidateVersion: candidate, ExpectedGeneration: current.Generation}
+
+	request := searchdomain.BeginAccessRollout{
+		AuthorityID:        authorityID,
+		CandidateVersion:   candidate,
+		ExpectedGeneration: current.Generation,
+	}
 	if _, err := rollouts.Begin(WithTestOperation(t, t.Context()), request); err != nil {
 		t.Fatalf("begin access rollout: %v", err)
 	}
@@ -134,26 +204,38 @@ func beginRollout(t *testing.T, fixture queryFixture, authorityID uuid.UUID, can
 
 // runRolloutUntilStable runs worker slices until the authority's rollout
 // returns to the stable phase. onPhase runs once for each phase it sees.
-func runRolloutUntilStable(t *testing.T, fixture queryFixture, worker *service.SearchWorker, authorityID uuid.UUID, onPhase func(searchdomain.AccessPhase)) searchdomain.AccessRollout {
+func runRolloutUntilStable(
+	t *testing.T,
+	fixture queryFixture,
+	worker *service.SearchWorker,
+	authorityID uuid.UUID,
+	onPhase func(searchdomain.AccessPhase),
+) searchdomain.AccessRollout {
 	t.Helper()
 	rollouts := fixture.Stores.SearchRollouts(clock.Wall{}, fixture.Stores.SearchPolicySet())
 	seen := make(map[searchdomain.AccessPhase]bool)
+
 	deadline := time.Now().Add(rolloutDeadline)
 	for time.Now().Before(deadline) {
 		current, err := rollouts.Current(WithTestOperation(t, t.Context()), authorityID)
 		if err != nil {
 			t.Fatalf("read access rollout: %v", err)
 		}
+
 		if current.Phase == searchdomain.AccessStable {
 			return current
 		}
+
 		if !seen[current.Phase] {
 			seen[current.Phase] = true
 			onPhase(current.Phase)
 		}
+
 		runSliceOrPause(t, worker)
 	}
+
 	t.Fatalf("access rollout of %s did not finish within %s", authorityID, rolloutDeadline)
+
 	return searchdomain.AccessRollout{}
 }
 
@@ -168,6 +250,7 @@ func runSliceOrPause(t *testing.T, worker *service.SearchWorker) {
 	if err != nil {
 		t.Fatalf("run search worker slice: %v", err)
 	}
+
 	if !claimed {
 		time.Sleep(idleSlicePause)
 	}

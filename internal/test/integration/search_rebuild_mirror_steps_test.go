@@ -29,18 +29,31 @@ func TestSearchRebuildMirrorMissSurvivesFailedCheckpoint(t *testing.T) {
 	run := runTwoMirrorMisses(t, mirrorSteps{duringFirstHold: relateNode, afterFirstMiss: nil})
 	requireSwitchAfterCopies(t, run.env, run.target)
 	requireReplacementPages(t, run)
-	requireResendAfterHorizon(t, run.proxy, run.nodeID, mirrorFirstOrdinal, run.target, run.firstAbandoned)
+	requireResendAfterHorizon(
+		t,
+		run.proxy,
+		run.nodeID,
+		mirrorFirstOrdinal,
+		run.target,
+		run.firstAbandoned,
+	)
 }
 
 // Create the action on the test goroutine before running it during the held request.
 // Return its error or recovered panic to the waiting test goroutine.
-func (steps mirrorSteps) startDuringHold(t *testing.T, env *migrationEnv, proxy *pageDelayProxy, nodeID uuid.UUID) <-chan error {
+func (steps mirrorSteps) startDuringHold(
+	t *testing.T,
+	env *migrationEnv,
+	proxy *pageDelayProxy,
+	nodeID uuid.UUID,
+) <-chan error {
 	t.Helper()
 	done := make(chan error, 1)
 	if steps.duringFirstHold == nil {
 		done <- nil
 		return done
 	}
+
 	action := steps.duringFirstHold(t, env, nodeID)
 	proxy.mutex.Lock()
 	started := proxy.started
@@ -55,6 +68,7 @@ func (steps mirrorSteps) startDuringHold(t *testing.T, env *migrationEnv, proxy 
 		<-started
 		done <- action(ctx)
 	}()
+
 	return done
 }
 
@@ -66,20 +80,29 @@ func relateNode(t *testing.T, env *migrationEnv, nodeID uuid.UUID) func(context.
 	otherID := uuid.Must(uuid.NewV7())
 	env.putNode(t, otherID, shortTimingText)
 	relationship := &node.Relationship{
-		OrgID: env.OrgID, SourceID: nodeID, RelationType: uniqueKey("r"), TargetID: otherID,
-		CreatedBy: uuid.Nil, CreatedAt: clock.Now().UTC(), Props: nil,
+		OrgID:        env.OrgID,
+		SourceID:     nodeID,
+		RelationType: uniqueKey("r"),
+		TargetID:     otherID,
+		CreatedBy:    uuid.Nil,
+		CreatedAt:    clock.Now().UTC(),
+		Props:        nil,
 	}
+
 	return func(ctx context.Context) error {
 		if err := env.Stores.Relationships.Add(ctx, relationship); err != nil {
 			return fmt.Errorf("add a relationship of node %s: %w", nodeID, err)
 		}
+
 		return nil
 	}
 }
 
 func raiseNodeGeneration(t *testing.T, env *migrationEnv, nodeID uuid.UUID) {
 	t.Helper()
-	if err := relateNode(t, env, nodeID)(integration.WithTestOperation(t, t.Context())); err != nil {
+	if err := relateNode(t, env, nodeID)(
+		integration.WithTestOperation(t, t.Context()),
+	); err != nil {
 		t.Fatal(err)
 	}
 }

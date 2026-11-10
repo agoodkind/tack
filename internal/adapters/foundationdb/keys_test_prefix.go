@@ -31,9 +31,11 @@ func withPrefix(key []byte) []byte {
 	if testPrefix == nil {
 		return key
 	}
+
 	out := make([]byte, 0, len(testPrefix)+len(key))
 	out = append(out, testPrefix...)
 	out = append(out, key...)
+
 	return out
 }
 
@@ -45,9 +47,11 @@ func stripPrefix(key []byte) []byte {
 	if testPrefix == nil {
 		return key
 	}
+
 	if len(key) >= len(testPrefix) && bytes.Equal(key[:len(testPrefix)], testPrefix) {
 		return key[len(testPrefix):]
 	}
+
 	return key
 }
 
@@ -58,5 +62,6 @@ func TestPrefixRange() []byte {
 	if testPrefix == nil {
 		return nil
 	}
+
 	return testPrefix
 }

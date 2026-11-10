@@ -41,30 +41,73 @@ func contractGapMutations() []partRestoreMutation {
 
 	return []partRestoreMutation{
 		nilEvent,
-		headerSet("decimal context.audit_format_version", integerFragment, "context.audit_format_version", decimalFormatVersion),
-		headerSet("impossible calendar date", "does not decode", "occurred_at", `"2026-02-30T00:00:00Z"`),
+		headerSet(
+			"decimal context.audit_format_version",
+			integerFragment,
+			"context.audit_format_version",
+			decimalFormatVersion,
+		),
+		headerSet(
+			"impossible calendar date",
+			"does not decode",
+			"occurred_at",
+			`"2026-02-30T00:00:00Z"`,
+		),
 		headerSet("hour 24", validTimeFragment, "occurred_at", `"2026-01-01T24:00:00Z"`),
 		headerSet("second 60", validTimeFragment, "occurred_at", `"2026-01-01T23:59:60Z"`),
-		headerSet("selection with an unknown member", selectionFragment, "context.selection", `{"unknown":1}`),
-		headerSet("selection with a known member", selectionFragment, "context.selection", `{"reference":"issue"}`),
+		headerSet(
+			"selection with an unknown member",
+			selectionFragment,
+			"context.selection",
+			`{"unknown":1}`,
+		),
+		headerSet(
+			"selection with a known member",
+			selectionFragment,
+			"context.selection",
+			`{"reference":"issue"}`,
+		),
 	}
 }
 
 func wrongTypeMutations() []partRestoreMutation {
 	mutations := []partRestoreMutation{}
+
 	for _, path := range strings.Fields(partRestoreStringSet) {
-		mutations = append(mutations, headerSet("number in "+path, wrongTypeFragment, path, wrongScalarValue))
+		mutations = append(
+			mutations,
+			headerSet("number in "+path, wrongTypeFragment, path, wrongScalarValue),
+		)
 	}
 
 	for _, path := range strings.Fields(partRestoreContainerSet) {
-		mutations = append(mutations, headerSet("text in "+path, wrongTypeFragment, path, wrongContainerValue))
+		mutations = append(
+			mutations,
+			headerSet("text in "+path, wrongTypeFragment, path, wrongContainerValue),
+		)
 	}
+
 	for _, path := range strings.Fields(partRestoreUUIDSet) {
-		mutations = append(mutations, headerSet("invalid UUID in "+path, notUUIDFragment, path, invalidUUIDValue))
+		mutations = append(
+			mutations,
+			headerSet("invalid UUID in "+path, notUUIDFragment, path, invalidUUIDValue),
+		)
 	}
-	return append(mutations,
-		headerSet("text in context.audit_format_version", wrongTypeFragment, "context.audit_format_version", wrongNumberValue),
-		headerSet("number in context.committed_steps", listElementFragment, "context.committed_steps", "[1]"),
+
+	return append(
+		mutations,
+		headerSet(
+			"text in context.audit_format_version",
+			wrongTypeFragment,
+			"context.audit_format_version",
+			wrongNumberValue,
+		),
+		headerSet(
+			"number in context.committed_steps",
+			listElementFragment,
+			"context.committed_steps",
+			"[1]",
+		),
 		headerSet("number in delta.changed", listElementFragment, "delta.changed", "[1]"),
 	)
 }

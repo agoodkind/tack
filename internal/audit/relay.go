@@ -87,19 +87,31 @@ type Relay struct {
 // NewRelay validates the relay dependencies and returns a ready relay.
 func NewRelay(cfg RelayConfig) (*Relay, error) {
 	if cfg.Recorder == nil {
-		slog.Error("audit.relay.recorder_missing", slog.String("err", errRelayRecorderRequired.Error()))
+		slog.Error(
+			"audit.relay.recorder_missing",
+			slog.String("err", errRelayRecorderRequired.Error()),
+		)
+
 		return nil, fmt.Errorf("new audit relay: %w", errRelayRecorderRequired)
 	}
+
 	if cfg.Yugabyte == nil {
-		slog.Error("audit.relay.yugabyte_missing", slog.String("err", errRelayYugabyteRequired.Error()))
+		slog.Error(
+			"audit.relay.yugabyte_missing",
+			slog.String("err", errRelayYugabyteRequired.Error()),
+		)
+
 		return nil, fmt.Errorf("new audit relay: %w", errRelayYugabyteRequired)
 	}
+
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = 250 * time.Millisecond
 	}
+
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = 256
 	}
+
 	return &Relay{
 		recorder:     cfg.Recorder,
 		yugabyte:     cfg.Yugabyte,
@@ -125,10 +137,13 @@ func (r *Relay) Start(ctx context.Context) {
 			r.foundationDBLoop(ctx)
 		})
 	}
+
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(ctx, "audit.relay.wait_panic",
+				slog.ErrorContext(
+					ctx,
+					"audit.relay.wait_panic",
 					slog.Any("panic", recovered),
 					slog.String("err", fmt.Sprintf("%v", recovered)),
 				)
@@ -158,18 +173,19 @@ func (r *Relay) Close() error {
 	select {
 	case <-r.stopped:
 	case <-timer.C:
-		slog.Warn("audit.relay.drain_timeout",
-			slog.Duration("waited", relayDrainGrace),
-		)
+		slog.Warn("audit.relay.drain_timeout", slog.Duration("waited", relayDrainGrace))
 	}
+
 	r.releaseLease()
 	closer, ok := r.recorder.(interface{ Close() error })
 	if !ok {
 		return nil
 	}
+
 	if err := closer.Close(); err != nil {
 		slog.Error("audit.relay.recorder_close_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("close audit relay recorder: %w", err)
 	}
+
 	return nil
 }

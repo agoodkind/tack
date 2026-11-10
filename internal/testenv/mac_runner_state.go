@@ -98,12 +98,18 @@ func (execution *macRunnerExecution) stage(name string, err error) error {
 	if err != nil {
 		stage.Error = err.Error()
 	}
+
 	execution.stages = append(execution.stages, stage)
+
 	return err
 }
 
-func macObserve[T macRunnerObservationResult](ctx context.Context, operation func(context.Context) (T, error)) (T, error) {
+func macObserve[T macRunnerObservationResult](
+	ctx context.Context,
+	operation func(context.Context) (T, error),
+) (T, error) {
 	observation, cancel := context.WithTimeout(ctx, macRunnerObservation)
 	defer cancel()
+
 	return operation(observation)
 }

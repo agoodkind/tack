@@ -43,7 +43,14 @@ func Run(ctx context.Context, operation func(context.Context) error) error {
 		case <-ctx.Done():
 			timer.Stop()
 
-			return errors.Join(err, ctx.Err())
+			cancellationError := errors.Join(err, ctx.Err())
+			slog.ErrorContext(
+				ctx,
+				"postgresql.transaction_retry_cancelled",
+				slog.Any("err", cancellationError),
+			)
+
+			return cancellationError
 		case <-timer.C:
 		}
 

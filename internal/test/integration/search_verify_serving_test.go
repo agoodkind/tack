@@ -29,10 +29,25 @@ func TestSearchVerifyChecksTheRecordedServingIndex(t *testing.T) {
 	t.Setenv("OPENSEARCH_REPLICAS", "0")
 	workspace := fixture.Workspaces[0]
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
-	putOpaqueNode(t, fixture, kind, entryPoint(t, fixture, workspace), "verified node", "amber verify serving", readerExcludedValue)
+	putOpaqueNode(
+		t,
+		fixture,
+		kind,
+		entryPoint(t, fixture, workspace),
+		"verified node",
+		"amber verify serving",
+		readerExcludedValue,
+	)
 	drainSearchWork(t, fixture.Worker, 2000)
 
-	request := searchdomain.BeginRebuild{Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 24, Replicas: 0, Restored: false, Reason: "test"}
+	request := searchdomain.BeginRebuild{
+		Mode:          searchdomain.ReplacementFull,
+		PrimaryShards: 1,
+		RoutingShards: 24,
+		Replicas:      0,
+		Restored:      false,
+		Reason:        "test",
+	}
 	rebuild := beginRebuild(t, fixture, request)
 	runRebuildUntil(t, fixture, rebuildFinished)
 	requireServing(t, fixture, rebuild.TargetIndex, fixture.Index)
@@ -44,21 +59,44 @@ func TestSearchVerifyChecksTheRecordedServingIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provision search model: %v", err)
 	}
+
 	other := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	t.Cleanup(func() { deleteNativeIndex(t, fixture.Client, other) })
-	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
-	if err := fixture.Adapter.EnsureIndex(WithTestOperation(t, t.Context()), other, spec); err != nil {
+	spec := search.IndexSpec{
+		Model:          model,
+		MappingVersion: search.MappingVersion,
+		Primaries:      1,
+		RoutingShards:  24,
+		Replicas:       0,
+	}
+	if err := fixture.Adapter.EnsureIndex(
+		WithTestOperation(t, t.Context()),
+		other,
+		spec,
+	); err != nil {
 		t.Fatalf("create index %s: %v", other, err)
 	}
+
 	body := `{"actions":[{"remove":{"index":"` + rebuild.TargetIndex + `","alias":"` + search.PublicAlias + `"}},` +
 		`{"add":{"index":"` + other + `","alias":"` + search.PublicAlias + `"}}]}`
-	response, err := fixture.Client.Indices.UpdateAliases(WithTestOperation(t, t.Context()), &opensearchapi.IndicesUpdateAliasesReq{BodyReader: strings.NewReader(body)})
+	response, err := fixture.Client.Indices.UpdateAliases(
+		WithTestOperation(t, t.Context()),
+		&opensearchapi.IndicesUpdateAliasesReq{BodyReader: strings.NewReader(body)},
+	)
 	if err != nil || response.Inspect().Response.IsError() {
 		t.Fatalf("point the public alias at %s: %v", other, err)
 	}
+
 	_, err = runOpsSearchVerify(t, fixture.Config)
-	if err == nil || !strings.Contains(err.Error(), other) || !strings.Contains(err.Error(), rebuild.TargetIndex) {
-		t.Fatalf("ops search verify with the alias on %s = %v, want an error that names %s and the serving index %s", other, err, other, rebuild.TargetIndex)
+	if err == nil || !strings.Contains(err.Error(), other) ||
+		!strings.Contains(err.Error(), rebuild.TargetIndex) {
+		t.Fatalf(
+			"ops search verify with the alias on %s = %v, want an error that names %s and the serving index %s",
+			other,
+			err,
+			other,
+			rebuild.TargetIndex,
+		)
 	}
 }
 
@@ -78,10 +116,18 @@ func runOpsSearchVerify(t *testing.T, cfg *config.Config) (string, error) {
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := searchCommandRoot(factory)
 	root.SetArgs([]string{
-		"--execute", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
-		"--operator-email", "operator@example.com", "--operator-name", "Search Test",
-		"ops", "search", "verify",
+		"--execute",
+		"--operator-id",
+		"019dd226-440e-729a-a442-281aaf73ca30",
+		"--operator-email",
+		"operator@example.com",
+		"--operator-name",
+		"Search Test",
+		"ops",
+		"search",
+		"verify",
 	})
 	runErr := root.Execute()
+
 	return output.String(), runErr
 }

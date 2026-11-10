@@ -18,7 +18,13 @@ import (
 func TestAuditSignersCommandRefusesWithoutASet(t *testing.T) {
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
 	operation := auditSignersOp(factory)
-	input := auditSignersInput{InputMarker: clispec.InputMarker{}, Since: "", Signers: "", Pub: "", AllowUnverified: false}
+	input := auditSignersInput{
+		InputMarker:     clispec.InputMarker{},
+		Since:           "",
+		Signers:         "",
+		Pub:             "",
+		AllowUnverified: false,
+	}
 
 	err := operation.Run(context.Background(), input, clispec.NewCLISink(factory))
 	if err == nil || !strings.Contains(err.Error(), "no valid signer set") {
@@ -32,7 +38,13 @@ func TestAuditSignersCommandRefusesWithoutASet(t *testing.T) {
 func TestAuditSignersCommandRefusesWithoutALocalKey(t *testing.T) {
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
 	operation := auditSignersOp(factory)
-	input := auditSignersInput{InputMarker: clispec.InputMarker{}, Since: "", Signers: "ed25519:0000000000000000", Pub: "", AllowUnverified: false}
+	input := auditSignersInput{
+		InputMarker:     clispec.InputMarker{},
+		Since:           "",
+		Signers:         "ed25519:0000000000000000",
+		Pub:             "",
+		AllowUnverified: false,
+	}
 
 	err := operation.Run(context.Background(), input, clispec.NewCLISink(factory))
 	if err == nil || !strings.Contains(err.Error(), "no local signing key") {
@@ -47,7 +59,12 @@ func TestAuditVerifyCommandRefusesWithoutASet(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := writeVerifyTestKey(t, dir)
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
-	input := auditVerifyInput{InputMarker: clispec.InputMarker{}, Bundle: filepath.Join(dir, "absent"), Pub: keyPath, Signers: ""}
+	input := auditVerifyInput{
+		InputMarker: clispec.InputMarker{},
+		Bundle:      filepath.Join(dir, "absent"),
+		Pub:         keyPath,
+		Signers:     "",
+	}
 
 	err := auditVerifyOp(factory).Run(context.Background(), input, clispec.NewCLISink(factory))
 	if err == nil || !strings.Contains(err.Error(), "no valid signer set") {
@@ -65,11 +82,17 @@ func TestAuditVerifyCommandRejectsASignerOutsideTheSet(t *testing.T) {
 	if err := os.MkdirAll(bundleDir, 0o750); err != nil {
 		t.Fatalf("create bundle dir: %v", err)
 	}
+
 	writeMismatchedBundle(t, bundleDir, keyPath)
 
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
 	operation := auditVerifyOp(factory)
-	input := auditVerifyInput{InputMarker: clispec.InputMarker{}, Bundle: bundleDir, Pub: keyPath, Signers: "ed25519:0000000000000000"}
+	input := auditVerifyInput{
+		InputMarker: clispec.InputMarker{},
+		Bundle:      bundleDir,
+		Pub:         keyPath,
+		Signers:     "ed25519:0000000000000000",
+	}
 
 	err := operation.Run(context.Background(), input, clispec.NewCLISink(factory))
 	if err == nil || !strings.Contains(err.Error(), "outside the valid signer set") {

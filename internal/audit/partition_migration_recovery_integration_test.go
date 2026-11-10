@@ -28,7 +28,9 @@ func TestPartmanMigrationUpDownUpPreservesLedger(t *testing.T) {
 		context.Background(),
 		`SELECT count(*) FROM audit.events WHERE event_id = $1`,
 		eventID,
-	).Scan(&preservedRows); err != nil {
+	).Scan(
+		&preservedRows,
+	); err != nil {
 		t.Fatalf("preserved row query after up-down-up: %v", err)
 	}
 	if preservedRows != 1 {
@@ -58,7 +60,9 @@ func TestPartmanMigrationRetriesExistingRegistration(t *testing.T) {
 		context.Background(),
 		`SELECT count(*) FROM audit.events WHERE event_id = $1`,
 		eventID,
-	).Scan(&preservedRows); err != nil {
+	).Scan(
+		&preservedRows,
+	); err != nil {
 		t.Fatalf("preserved row query after retry: %v", err)
 	}
 	if preservedRows != 1 {
@@ -71,11 +75,18 @@ func assertPartmanRegistration(t *testing.T, fixture *partmanTestDatabase) {
 	var registrationCount int
 	var premake int
 	var retention *string
-	if err := fixture.pool.QueryRow(context.Background(), `
+	if err := fixture.pool.QueryRow(
+		context.Background(),
+		`
 		SELECT count(*), min(premake), min(retention)
 		FROM partman.part_config
 		WHERE parent_table = 'audit.events'
-	`).Scan(&registrationCount, &premake, &retention); err != nil {
+	`,
+	).Scan(
+		&registrationCount,
+		&premake,
+		&retention,
+	); err != nil {
 		t.Fatalf("partman registration query: %v", err)
 	}
 	if registrationCount != 1 {
@@ -94,7 +105,9 @@ func logPartmanArtifacts(t *testing.T, fixture *partmanTestDatabase) {
 	t.Helper()
 	var defaultPartitionCount int
 	var templateTableCount int
-	if err := fixture.pool.QueryRow(context.Background(), `
+	if err := fixture.pool.QueryRow(
+		context.Background(),
+		`
 		SELECT count(*)
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
@@ -103,16 +116,24 @@ func logPartmanArtifacts(t *testing.T, fixture *partmanTestDatabase) {
 		WHERE n.nspname = 'audit'
 		  AND p.relname = 'events'
 		  AND pg_get_expr(c.relpartbound, c.oid) = 'DEFAULT'
-	`).Scan(&defaultPartitionCount); err != nil {
+	`,
+	).Scan(
+		&defaultPartitionCount,
+	); err != nil {
 		t.Fatalf("default partition inventory: %v", err)
 	}
-	if err := fixture.pool.QueryRow(context.Background(), `
+	if err := fixture.pool.QueryRow(
+		context.Background(),
+		`
 		SELECT count(*)
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname = 'partman'
 		  AND c.relname LIKE 'template_audit_events%'
-	`).Scan(&templateTableCount); err != nil {
+	`,
+	).Scan(
+		&templateTableCount,
+	); err != nil {
 		t.Fatalf("template table inventory: %v", err)
 	}
 	t.Logf(

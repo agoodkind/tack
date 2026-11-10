@@ -28,8 +28,11 @@ func (auditPartRestoreIdentity) isStepEvidence() {}
 
 func (manifest AuditPartRestoreManifest) identity() auditPartRestoreIdentity {
 	return auditPartRestoreIdentity{
-		OrgID: manifest.OrgID, TargetEventID: manifest.TargetEventID, SourceEventID: manifest.SourceEventID,
-		PartIndex: manifest.PartIndex, RootDigest: manifest.ManifestSHA256,
+		OrgID:         manifest.OrgID,
+		TargetEventID: manifest.TargetEventID,
+		SourceEventID: manifest.SourceEventID,
+		PartIndex:     manifest.PartIndex,
+		RootDigest:    manifest.ManifestSHA256,
 	}
 }
 
@@ -67,6 +70,7 @@ func previewFailure(err error) error {
 	if !errors.Is(err, errAuditPartRestoreManifest) && !errors.Is(err, errAuditPartRestoreRefused) {
 		return err
 	}
+
 	return auditPartRestoreOutcomeError{details: outcomeFor(err), cause: err}
 }
 
@@ -77,12 +81,14 @@ func refusePartRestore(ctx context.Context, reason string) error {
 func refuseWith(ctx context.Context, sentinel error, reason string) error {
 	err := fmt.Errorf("%w: %s", sentinel, reason)
 	slog.ErrorContext(ctx, "audit_part_restore.refused", slog.String("err", err.Error()))
+
 	return err
 }
 
 func partRestoreFailure(ctx context.Context, step string, err error) error {
 	wrapped := fmt.Errorf("%s: %w", step, err)
 	slog.ErrorContext(ctx, "audit_part_restore.step_failed", slog.String("err", wrapped.Error()))
+
 	return wrapped
 }
 
@@ -93,41 +99,79 @@ func inspectAuditPartRestore(
 ) (auditPartRestoreState, error) {
 	source, err := reader.VerifyManifest(ctx, manifest.OrgID, manifest.SourceEventID)
 	if err != nil {
-		return auditPartRestoreState{}, refusePartRestore(ctx,
-			fmt.Sprintf("verify the source event %s: %v", manifest.SourceEventID, err))
+		return auditPartRestoreState{}, refusePartRestore(
+			ctx,
+			fmt.Sprintf("verify the source event %s: %v", manifest.SourceEventID, err),
+		)
 	}
+
 	err = checkVerification(manifest, source)
 	if err != nil {
-		return auditPartRestoreState{}, refusePartRestore(ctx,
-			fmt.Sprintf("source event %s: %v", manifest.SourceEventID, err))
+		return auditPartRestoreState{}, refusePartRestore(
+			ctx,
+			fmt.Sprintf("source event %s: %v", manifest.SourceEventID, err),
+		)
 	}
-	target, err := readPinnedRow(ctx, reader, manifest,
-		manifest.TargetEventID, manifest.TargetSeq, manifest.TargetShard, manifest.TargetRowHash)
+
+	target, err := readPinnedRow(
+		ctx,
+		reader,
+		manifest,
+		manifest.TargetEventID,
+		manifest.TargetSeq,
+		manifest.TargetShard,
+		manifest.TargetRowHash,
+	)
 	if err != nil {
 		return auditPartRestoreState{}, err
 	}
 
 	if target.HashVersion != manifest.TargetHashVersion {
-		return auditPartRestoreState{}, refusePartRestore(ctx,
-			fmt.Sprintf("target hash version %d is not %d", target.HashVersion, manifest.TargetHashVersion))
+		return auditPartRestoreState{}, refusePartRestore(
+			ctx,
+			fmt.Sprintf(
+				"target hash version %d is not %d",
+				target.HashVersion,
+				manifest.TargetHashVersion,
+			),
+		)
 	}
-	_, err = readPinnedRow(ctx, reader, manifest,
-		manifest.SourceEventID, manifest.SourceSeq, manifest.SourceShard, manifest.SourceRowHash)
+
+	_, err = readPinnedRow(
+		ctx,
+		reader,
+		manifest,
+		manifest.SourceEventID,
+		manifest.SourceSeq,
+		manifest.SourceShard,
+		manifest.SourceRowHash,
+	)
 	if err != nil {
 		return auditPartRestoreState{}, err
 	}
 
 	digests, err := reader.ManifestPartDigests(ctx, manifest.OrgID, manifest.TargetEventID)
 	if err != nil {
-		return auditPartRestoreState{}, partRestoreFailure(ctx,
-			"cannot read the part digests of event "+manifest.TargetEventID.String(), err)
+		return auditPartRestoreState{}, partRestoreFailure(
+			ctx,
+			"cannot read the part digests of event "+manifest.TargetEventID.String(),
+			err,
+		)
 	}
+
 	if len(digests) == 0 {
 		return missingPartState(ctx, reader, manifest, target)
 	}
+
 	if len(digests) != 1 || digests[0].Index != 0 || digests[0].Digest != manifest.ManifestSHA256 {
-		return auditPartRestoreState{}, refusePartRestore(ctx,
-			fmt.Sprintf("event %s stores %d parts that differ from the frozen part", manifest.TargetEventID, len(digests)))
+		return auditPartRestoreState{}, refusePartRestore(
+			ctx,
+			fmt.Sprintf(
+				"event %s stores %d parts that differ from the frozen part",
+				manifest.TargetEventID,
+				len(digests),
+			),
+		)
 	}
 
 	return auditPartRestoreState{Target: target, Present: true, Payload: nil}, nil
@@ -141,22 +185,37 @@ func missingPartState(
 ) (auditPartRestoreState, error) {
 	parts, err := reader.ManifestParts(ctx, manifest.OrgID, manifest.SourceEventID)
 	if err != nil {
-		return auditPartRestoreState{}, partRestoreFailure(ctx,
-			"cannot read the source part of event "+manifest.SourceEventID.String(), err)
+		return auditPartRestoreState{}, partRestoreFailure(
+			ctx,
+			"cannot read the source part of event "+manifest.SourceEventID.String(),
+			err,
+		)
 	}
+
 	if len(parts) != 1 || parts[0].Index != 0 {
-		return auditPartRestoreState{}, refusePartRestore(ctx,
-			fmt.Sprintf("source event %s stores %d parts, want part 0 only", manifest.SourceEventID, len(parts)))
+		return auditPartRestoreState{}, refusePartRestore(
+			ctx,
+			fmt.Sprintf(
+				"source event %s stores %d parts, want part 0 only",
+				manifest.SourceEventID,
+				len(parts),
+			),
+		)
 	}
+
 	return auditPartRestoreState{Target: target, Present: false, Payload: parts[0].Payload}, nil
 }
 
-func checkVerification(manifest AuditPartRestoreManifest, verification audit.ManifestVerification) error {
+func checkVerification(
+	manifest AuditPartRestoreManifest,
+	verification audit.ManifestVerification,
+) error {
 	if !verification.PayloadVerified || verification.IdentityCount != manifest.IdentityCount ||
 		verification.DeclaredParts != manifest.DeclaredParts || verification.PartCount != manifest.DeclaredParts ||
 		verification.DeclaredDigest != manifest.ManifestSHA256 || verification.RecomputedDigest != manifest.ManifestSHA256 {
 		return fmt.Errorf("verification %+v %w", verification, errAuditPartVerification)
 	}
+
 	return nil
 }
 
@@ -173,15 +232,21 @@ func readPinnedRow(
 	if err != nil {
 		return audit.Row{}, refusePartRestore(ctx, fmt.Sprintf("read event %s: %v", eventID, err))
 	}
-	if row.OrgID != manifest.OrgID || row.Seq != seq || row.Shard != shard || !bytes.Equal(row.RowHash, rowHash) {
-		return audit.Row{}, refusePartRestore(ctx,
-			fmt.Sprintf("event %s differs from its frozen org, seq, shard, or row hash", eventID))
+
+	if row.OrgID != manifest.OrgID || row.Seq != seq || row.Shard != shard ||
+		!bytes.Equal(row.RowHash, rowHash) {
+		return audit.Row{}, refusePartRestore(
+			ctx,
+			fmt.Sprintf("event %s differs from its frozen org, seq, shard, or row hash", eventID),
+		)
 	}
+
 	return *row, nil
 }
 
 func sameLedgerRow(before, after audit.Row) bool {
 	return before.EventID == after.EventID && before.Seq == after.Seq && before.Shard == after.Shard &&
-		before.HashVersion == after.HashVersion && bytes.Equal(before.PrevHash, after.PrevHash) &&
+		before.HashVersion == after.HashVersion &&
+		bytes.Equal(before.PrevHash, after.PrevHash) &&
 		bytes.Equal(before.RowHash, after.RowHash)
 }

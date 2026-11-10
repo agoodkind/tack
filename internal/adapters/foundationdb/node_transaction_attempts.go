@@ -36,7 +36,13 @@ type transactionAttempts struct {
 // newTransactionAttempts starts the record of a transaction created at
 // created.
 func newTransactionAttempts(created time.Time) *transactionAttempts {
-	return &transactionAttempts{created: created, count: 0, codes: nil, omitted: 0, conflicted: false}
+	return &transactionAttempts{
+		created:    created,
+		count:      0,
+		codes:      nil,
+		omitted:    0,
+		conflicted: false,
+	}
 }
 
 // start counts one more attempt.
@@ -51,10 +57,12 @@ func (attempts *transactionAttempts) recordError(code int) {
 	if code == transactionNotCommitted {
 		attempts.conflicted = true
 	}
+
 	if len(attempts.codes) < attemptErrorCodeLimit {
 		attempts.codes = append(attempts.codes, strconv.Itoa(code))
 		return
 	}
+
 	attempts.omitted++
 }
 
@@ -91,5 +99,7 @@ func (refused *retryRefusedError) Unwrap() error { return refused.err }
 // least one attempt conflicted (1020).
 func (refused *retryRefusedError) conflictTimedOut() bool {
 	var databaseErr fdb.Error
-	return refused.attempts.conflicted && errors.As(refused.err, &databaseErr) && databaseErr.Code == transactionTimedOut
+
+	return refused.attempts.conflicted && errors.As(refused.err, &databaseErr) &&
+		databaseErr.Code == transactionTimedOut
 }

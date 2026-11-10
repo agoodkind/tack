@@ -31,9 +31,11 @@ func NewHealthHandler(probes map[string]func(context.Context) error) http.Handle
 		for name := range probes {
 			names = append(names, name)
 		}
+
 		sort.Strings(names)
 
 		results := make(chan healthProbeResult, len(probes))
+
 		for _, name := range names {
 			probe := probes[name]
 			go func() {
@@ -60,12 +62,14 @@ func NewHealthHandler(probes map[string]func(context.Context) error) http.Handle
 				}
 			}
 		}
+
 		for _, name := range names {
 			if errorsByName[name] != nil {
 				http.Error(w, name+" unhealthy", http.StatusServiceUnavailable)
 				return
 			}
 		}
+
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})

@@ -35,22 +35,33 @@ func planNodeTypeCorrection(stored, seed *node.NodeType) nodeTypeCorrection {
 	if seed == nil {
 		return plan
 	}
+
 	earlier, guarded := earlierSeededCanLiveUnder()[seed.Slug]
 	if !guarded {
 		plan.Corrected = correctedNodeType(stored, seed)
 		return plan
 	}
+
 	if sameFeatures(stored.CanLiveUnder, seed.CanLiveUnder) {
 		return plan
 	}
+
 	proposed := withSeededCanLiveUnder(stored, seed)
 	if slices.Equal(stored.CanLiveUnder, earlier) {
 		plan.Corrected = proposed
 		return plan
 	}
+
 	plan.Proposed = proposed
-	plan.Conflict = fmt.Sprintf("the correction did not write this node type: the stored can_live_under %q equals neither the earlier seeded value %q nor the seeded value %q",
-		stored.CanLiveUnder, earlier, seed.CanLiveUnder)
+	plan.Conflict = fmt.Sprintf(
+		"the correction did not write this node type: the stored "+
+			"can_live_under %q equals neither the earlier seeded value %q nor "+
+			"the seeded value %q",
+		stored.CanLiveUnder,
+		earlier,
+		seed.CanLiveUnder,
+	)
+
 	return plan
 }
 
@@ -61,14 +72,17 @@ func correctedNodeType(stored, seed *node.NodeType) *node.NodeType {
 	if len(stored.CanLiveUnder) == 0 {
 		return nil
 	}
+
 	for _, parentType := range stored.CanLiveUnder {
 		if !slices.Contains(seed.CanLiveUnder, parentType) {
 			return nil
 		}
 	}
+
 	if sameFeatures(stored.CanLiveUnder, seed.CanLiveUnder) {
 		return nil
 	}
+
 	return withSeededCanLiveUnder(stored, seed)
 }
 
@@ -77,5 +91,6 @@ func correctedNodeType(stored, seed *node.NodeType) *node.NodeType {
 func withSeededCanLiveUnder(stored, seed *node.NodeType) *node.NodeType {
 	next := *stored
 	next.CanLiveUnder = slices.Clone(seed.CanLiveUnder)
+
 	return &next
 }

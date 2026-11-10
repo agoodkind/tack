@@ -11,9 +11,7 @@ func discoverSoakProjects(
 	var projects []*soakProject
 	complete := true
 	for workspaceIndex, workspace := range session.identities.Workspaces {
-		workspaceProjects, err := discoverWorkspaceProjects(
-			ctx, session, workspace, workspaceIndex,
-		)
+		workspaceProjects, err := discoverWorkspaceProjects(ctx, session, workspace, workspaceIndex)
 		if err != nil {
 			return nil, false, err
 		}
@@ -48,12 +46,16 @@ func discoverWorkspaceProjects(
 	}
 	var projects []*soakProject
 	for projectOffset, item := range projectList.collectionItems() {
-		definition := seededProjectDefinition(
-			session, workspace, workspaceIndex, projectOffset,
-		)
+		definition := seededProjectDefinition(session, workspace, workspaceIndex, projectOffset)
 		projectIndex := workspaceIndex*session.scale.ProjectsPerWorkspace + projectOffset
 		project, err := discoverProject(
-			ctx, session, workspace, item, labels, projectIndex, &definition,
+			ctx,
+			session,
+			workspace,
+			item,
+			labels,
+			projectIndex,
+			&definition,
 		)
 		if err != nil {
 			return nil, err
@@ -101,36 +103,65 @@ func discoverProject(
 	}
 	projectReference := project.RawID
 	resolutionScope := item.Reference
-	stateDefinitions := seededStateDefinitions(
-		session, workspace, projectIndex, projectReference,
-	)
+	stateDefinitions := seededStateDefinitions(session, workspace, projectIndex, projectReference)
 	project.States, err = discoverScopedNodes(
-		ctx, session.driver, actor.Token, workspace.Slug, projectReference, resolutionScope,
-		"state", "states", stateDefinitions,
+		ctx,
+		session.driver,
+		actor.Token,
+		workspace.Slug,
+		projectReference,
+		resolutionScope,
+		"state",
+		"states",
+		stateDefinitions,
 	)
 	if err != nil {
 		return nil, err
 	}
 	containerDefinitions := seededContainerDefinitions(
-		session, workspace, projectIndex, projectReference,
+		session,
+		workspace,
+		projectIndex,
+		projectReference,
 	)
 	project.Epics, err = discoverScopedNodes(
-		ctx, session.driver, actor.Token, workspace.Slug, projectReference, resolutionScope,
-		"epic", "epics", containerDefinitions["epic"],
+		ctx,
+		session.driver,
+		actor.Token,
+		workspace.Slug,
+		projectReference,
+		resolutionScope,
+		"epic",
+		"epics",
+		containerDefinitions["epic"],
 	)
 	if err != nil {
 		return nil, err
 	}
 	project.Cycles, err = discoverScopedNodes(
-		ctx, session.driver, actor.Token, workspace.Slug, projectReference, resolutionScope,
-		"cycle", "cycles", containerDefinitions["cycle"],
+		ctx,
+		session.driver,
+		actor.Token,
+		workspace.Slug,
+		projectReference,
+		resolutionScope,
+		"cycle",
+		"cycles",
+		containerDefinitions["cycle"],
 	)
 	if err != nil {
 		return nil, err
 	}
 	project.Modules, err = discoverScopedNodes(
-		ctx, session.driver, actor.Token, workspace.Slug, projectReference, resolutionScope,
-		"module", "modules", containerDefinitions["module"],
+		ctx,
+		session.driver,
+		actor.Token,
+		workspace.Slug,
+		projectReference,
+		resolutionScope,
+		"module",
+		"modules",
+		containerDefinitions["module"],
 	)
 	if err != nil {
 		return nil, err
@@ -146,17 +177,27 @@ func discoverProject(
 		containers,
 	)
 	issues, err := discoverScopedNodes(
-		ctx, session.driver, actor.Token, workspace.Slug, projectReference, resolutionScope,
-		"issue", "issues", issueDefinitions,
+		ctx,
+		session.driver,
+		actor.Token,
+		workspace.Slug,
+		projectReference,
+		resolutionScope,
+		"issue",
+		"issues",
+		issueDefinitions,
 	)
 	if err != nil {
 		return nil, err
 	}
 	for index, issue := range issues {
-		project.Issues = append(project.Issues, &soakIssue{
-			soakNode: issue,
-			Reopen:   index%5 == 0,
-		})
+		project.Issues = append(
+			project.Issues,
+			&soakIssue{
+				soakNode: issue,
+				Reopen:   index%5 == 0,
+			},
+		)
 	}
 	return project, nil
 }

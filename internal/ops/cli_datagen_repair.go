@@ -17,7 +17,13 @@ import (
 // datagenRepairClasses lists the repair classes of the entries that the
 // command builds. A dry run prints this list.
 var datagenRepairClasses = []string{
-	"multiple_child_of_edges", "legacy_status", "select_label", "printed_parent", "absent_parent_uuid", "absent_parent", "test_fixture",
+	"multiple_child_of_edges",
+	"legacy_status",
+	"select_label",
+	"printed_parent",
+	"absent_parent_uuid",
+	"absent_parent",
+	"test_fixture",
 }
 
 type datagenRepairInput struct {
@@ -50,7 +56,12 @@ func datagenRepairOp(f *cli.Factory) clispec.Operation[datagenRepairInput] {
 			"The command creates a datagen organization, freezes and previews a repair manifest, applies every entry, verifies the results through view and relationship reads, then applies the manifest again. The second application must report every entry as unchanged. " +
 			"Each repair ID includes an organization ID suffix. Each run writes new repair checkpoints.",
 		Params: []clispec.Param[datagenRepairInput]{
-			clispec.BoolParam("commit", "Create the datagen organization and run the repair proof with TACK_DATAGEN_ALLOW_TARGET set to exactly qa or local and the repair directory set by TACK_REPAIR_DIR.", false, func(input *datagenRepairInput, value bool) { input.Commit = value }),
+			clispec.BoolParam(
+				"commit",
+				"Create the datagen organization and run the repair proof with TACK_DATAGEN_ALLOW_TARGET set to exactly qa or local and the repair directory set by TACK_REPAIR_DIR.",
+				false,
+				func(input *datagenRepairInput, value bool) { input.Commit = value },
+			),
 		},
 		New: func() datagenRepairInput {
 			return datagenRepairInput{InputMarker: clispec.InputMarker{}, Commit: false}
@@ -65,10 +76,23 @@ func datagenRepairOp(f *cli.Factory) clispec.Operation[datagenRepairInput] {
 // and returns the repair error. When writing the result fails, it returns
 // that write failure instead. Without --commit, it writes only the class
 // list to the output.
-func runDatagenRepair(ctx context.Context, f *cli.Factory, input datagenRepairInput, sink clispec.ResultSink) error {
+func runDatagenRepair(
+	ctx context.Context,
+	f *cli.Factory,
+	input datagenRepairInput,
+	sink clispec.ResultSink,
+) error {
 	result := datagenRepairResult{
-		ResultMarker: clispec.ResultMarker{}, Command: "ops.qa.datagen.repair", DryRun: !input.Commit,
-		Classes: datagenRepairClasses, OrgID: uuid.Nil, ManifestDigest: "", Preview: nil, Applied: nil, Rerun: nil, Verified: false,
+		ResultMarker:   clispec.ResultMarker{},
+		Command:        "ops.qa.datagen.repair",
+		DryRun:         !input.Commit,
+		Classes:        datagenRepairClasses,
+		OrgID:          uuid.Nil,
+		ManifestDigest: "",
+		Preview:        nil,
+		Applied:        nil,
+		Rerun:          nil,
+		Verified:       false,
 	}
 	var runErr error
 	if input.Commit {
@@ -86,7 +110,11 @@ func commitDatagenRepair(ctx context.Context, f *cli.Factory, result *datagenRep
 	}
 	principal, ok := audit.OperatorPrincipalFromContext(ctx)
 	if !ok {
-		return datagenRepairFailure(ctx, "read the operator", errors.New("the operator principal is missing"))
+		return datagenRepairFailure(
+			ctx,
+			"read the operator",
+			errors.New("the operator principal is missing"),
+		)
 	}
 	directory, err := openRepairDirectory(ctx, f.Cfg.RepairDir)
 	if err != nil {
@@ -97,12 +125,23 @@ func commitDatagenRepair(ctx context.Context, f *cli.Factory, result *datagenRep
 		return datagenRepairFailure(ctx, "open the environment", err)
 	}
 	defer env.Close()
-	fixture, err := datagen.SeedRepairFixture(ctx, env.Stores, postgres.NewOrgMemberRepo(env.Pool), principal.ID)
+	fixture, err := datagen.SeedRepairFixture(
+		ctx,
+		env.Stores,
+		postgres.NewOrgMemberRepo(env.Pool),
+		principal.ID,
+	)
 	result.OrgID = fixture.OrgID
 	if err != nil {
 		return datagenRepairFailure(ctx, "seed the repair fixture", err)
 	}
-	return runDatagenRepairManifest(ctx, env, fixture, datagenRepairRequest(fixture, directory), result)
+	return runDatagenRepairManifest(
+		ctx,
+		env,
+		fixture,
+		datagenRepairRequest(fixture, directory),
+		result,
+	)
 }
 
 // runDatagenRepairManifest freezes the request into a manifest, previews it,
@@ -111,7 +150,13 @@ func commitDatagenRepair(ctx context.Context, f *cli.Factory, result *datagenRep
 // every entry as planned, the first execution applies every entry, and the
 // second execution reports every entry as unchanged. It sets Verified after
 // the second execution meets that requirement.
-func runDatagenRepairManifest(ctx context.Context, env *Env, fixture datagen.RepairFixture, request NodeIntegrityRequest, result *datagenRepairResult) error {
+func runDatagenRepairManifest(
+	ctx context.Context,
+	env *Env,
+	fixture datagen.RepairFixture,
+	request NodeIntegrityRequest,
+	result *datagenRepairResult,
+) error {
 	repairs := env.Stores.Repairs()
 	manifest, err := freezeNodeIntegrityRequest(ctx, repairs, request)
 	if err != nil {
@@ -124,12 +169,31 @@ func runDatagenRepairManifest(ctx context.Context, env *Env, fixture datagen.Rep
 		return datagenRepairFailure(ctx, "preview the manifest", err)
 	}
 	if preview.Counts[RepairPreviewPlanned] != len(manifest.Entries) {
-		return datagenRepairFailure(ctx, "preview the manifest", fmt.Errorf("preview counts %v, want %d planned entries", preview.Counts, len(manifest.Entries)))
+		return datagenRepairFailure(
+			ctx,
+			"preview the manifest",
+			fmt.Errorf(
+				"preview counts %v, want %d planned entries",
+				preview.Counts,
+				len(manifest.Entries),
+			),
+		)
 	}
 	applied, err := applyNodeIntegrityManifest(ctx, env, manifest)
 	result.Applied = &applied
 	if err != nil || applied.Counts[RepairApplyApplied] != len(manifest.Entries) {
-		return datagenRepairFailure(ctx, "execute the manifest", errors.Join(fmt.Errorf("apply counts %v, want %d applied entries", applied.Counts, len(manifest.Entries)), err))
+		return datagenRepairFailure(
+			ctx,
+			"execute the manifest",
+			errors.Join(
+				fmt.Errorf(
+					"apply counts %v, want %d applied entries",
+					applied.Counts,
+					len(manifest.Entries),
+				),
+				err,
+			),
+		)
 	}
 	if err := verifyDatagenRepair(ctx, env, fixture, manifest); err != nil {
 		return err
@@ -137,7 +201,18 @@ func runDatagenRepairManifest(ctx context.Context, env *Env, fixture datagen.Rep
 	rerun, err := applyNodeIntegrityManifest(ctx, env, manifest)
 	result.Rerun = &rerun
 	if err != nil || rerun.Counts[RepairApplyUnchanged] != len(manifest.Entries) {
-		return datagenRepairFailure(ctx, "execute the manifest again", errors.Join(fmt.Errorf("rerun counts %v, want %d unchanged entries", rerun.Counts, len(manifest.Entries)), err))
+		return datagenRepairFailure(
+			ctx,
+			"execute the manifest again",
+			errors.Join(
+				fmt.Errorf(
+					"rerun counts %v, want %d unchanged entries",
+					rerun.Counts,
+					len(manifest.Entries),
+				),
+				err,
+			),
+		)
 	}
 	result.Verified = true
 	return nil

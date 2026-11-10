@@ -42,7 +42,13 @@ func newFaultProxy(t *testing.T, target databaseTarget, role, mode string) *faul
 	if err != nil {
 		t.Fatalf("start database fault proxy: %v", err)
 	}
-	proxy := &faultProxy{listener: listener, backend: net.JoinHostPort(target.host, target.port), role: role, mode: mode, active: make(map[net.Conn]struct{})}
+	proxy := &faultProxy{
+		listener: listener,
+		backend:  net.JoinHostPort(target.host, target.port),
+		role:     role,
+		mode:     mode,
+		active:   make(map[net.Conn]struct{}),
+	}
 	proxy.workers.Add(1)
 	go proxy.accept()
 	t.Cleanup(proxy.close)

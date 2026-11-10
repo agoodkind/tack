@@ -31,16 +31,19 @@ const (
 // each organization must pass chain verification.
 func TestRuntimeAuditLegacyKafkaRecords(t *testing.T) {
 	for _, revision := range legacyRevisions {
-		t.Run(revision, func(t *testing.T) {
-			fixtures := legacyFixtures(t, revision, "kafka")
-			pipeline := newPartsPipeline(t)
-			pipeline.startConsumer(t)
-			produceLegacyRecords(t, pipeline, fixtures)
-			produceLegacyRecords(t, pipeline, fixtures)
-			pipeline.waitForConsumed(t)
-			requireLegacyLedger(t, pipeline, fixtures)
-			pipeline.stack().waitForDeadLetters(t, 0)
-		})
+		t.Run(
+			revision,
+			func(t *testing.T) {
+				fixtures := legacyFixtures(t, revision, "kafka")
+				pipeline := newPartsPipeline(t)
+				pipeline.startConsumer(t)
+				produceLegacyRecords(t, pipeline, fixtures)
+				produceLegacyRecords(t, pipeline, fixtures)
+				pipeline.waitForConsumed(t)
+				requireLegacyLedger(t, pipeline, fixtures)
+				pipeline.stack().waitForDeadLetters(t, 0)
+			},
+		)
 	}
 }
 
@@ -51,46 +54,67 @@ func TestRuntimeAuditLegacyKafkaRecords(t *testing.T) {
 // ledger row per event.
 func TestRuntimeAuditLegacyOutboxRecords(t *testing.T) {
 	for _, revision := range legacyRevisions {
-		t.Run(revision, func(t *testing.T) {
-			sqlRows := legacyFixtures(t, revision, "ops_outbox")
-			entries := legacyFixtures(t, revision, "fdb_outbox")
-			clusterFile := testenv.FoundationDB(t)
-			identity := uuid.New()
-			prefix := append([]byte("tack-test:"), identity[:]...)
-			fdbadapter.SetTestPrefix(prefix)
-			t.Cleanup(func() { clearReadPrefix(t, clusterFile, prefix) })
-			admin := ledgerAdminPool(t)
-			for _, row := range sqlRows {
-				if _, err := admin.Exec(t.Context(), readTestSQL(t, "legacy_audit/ops_outbox_insert.sql"), row.EventID, []byte(row.Value)); err != nil {
-					t.Fatalf("Inserting legacy outbox row %s failed: %v", row.EventID, err)
-				}
-			}
-			writeLegacyEntries(t, clusterFile, prefix, entries)
+		t.Run(
+			revision,
+			func(t *testing.T) {
+				sqlRows := legacyFixtures(t, revision, "ops_outbox")
+				entries := legacyFixtures(t, revision, "fdb_outbox")
+				clusterFile := testenv.FoundationDB(t)
+				identity := uuid.New()
+				prefix := append([]byte("tack-test:"), identity[:]...)
+				fdbadapter.SetTestPrefix(prefix)
+				t.Cleanup(func() { clearReadPrefix(t, clusterFile, prefix) })
+				admin := ledgerAdminPool(t)
 
-			pipeline := newPartsPipeline(t)
-			pipeline.startConsumer(t)
-			startLegacyRelay(t, pipeline, clusterFile)
-			waitFor(t, "deletion of the legacy outbox rows", func() bool {
 				for _, row := range sqlRows {
-					if pipeline.count(t, outboxRowsQuery, row.EventID) != 0 {
-						return false
+					if _, err := admin.Exec(
+						t.Context(),
+						readTestSQL(t, "legacy_audit/ops_outbox_insert.sql"),
+						row.EventID,
+						[]byte(row.Value),
+					); err != nil {
+						t.Fatalf("Inserting legacy outbox row %s failed: %v", row.EventID, err)
 					}
 				}
-				return true
-			})
-			stores, err := fdbadapter.NewStores(clusterFile, 5*time.Second, nil)
-			if err != nil {
-				t.Fatalf("Opening the FoundationDB stores failed: %v", err)
-			}
-			waitFor(t, "clearing of the legacy FoundationDB outbox entries", func() bool {
-				remaining, readErr := stores.OpsOutbox.ReadOutboxFrom(t.Context(), nil, 100)
-				if readErr != nil {
-					t.Fatalf("Reading the FoundationDB outbox failed: %v", readErr)
+
+				writeLegacyEntries(t, clusterFile, prefix, entries)
+
+				pipeline := newPartsPipeline(t)
+				pipeline.startConsumer(t)
+				startLegacyRelay(t, pipeline, clusterFile)
+				waitFor(
+					t,
+					"deletion of the legacy outbox rows",
+					func() bool {
+						for _, row := range sqlRows {
+							if pipeline.count(t, outboxRowsQuery, row.EventID) != 0 {
+								return false
+							}
+						}
+
+						return true
+					},
+				)
+				stores, err := fdbadapter.NewStores(clusterFile, 5*time.Second, nil)
+				if err != nil {
+					t.Fatalf("Opening the FoundationDB stores failed: %v", err)
 				}
-				return len(remaining) == 0
-			})
-			requireLegacyLedger(t, pipeline, append(sqlRows, entries...))
-		})
+
+				waitFor(
+					t,
+					"clearing of the legacy FoundationDB outbox entries",
+					func() bool {
+						remaining, readErr := stores.OpsOutbox.ReadOutboxFrom(t.Context(), nil, 100)
+						if readErr != nil {
+							t.Fatalf("Reading the FoundationDB outbox failed: %v", readErr)
+						}
+
+						return len(remaining) == 0
+					},
+				)
+				requireLegacyLedger(t, pipeline, append(sqlRows, entries...))
+			},
+		)
 	}
 }
 
@@ -98,14 +122,22 @@ func TestRuntimeAuditLegacyOutboxRecords(t *testing.T) {
 // the pipeline topic. Test cleanup closes the relay and its pool.
 func startLegacyRelay(t *testing.T, pipeline partsPipeline, clusterFile string) {
 	t.Helper()
-	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
-		Brokers: []string{pipeline.brokers}, Topic: pipeline.topic, YugabyteDSN: pipeline.ledger,
-		FDBClusterFile: clusterFile, FDBTransactionTimeout: 5 * time.Second,
-		PollInterval: 100 * time.Millisecond, BatchSize: 64,
-	})
+	opened, err := auditrelay.Open(
+		t.Context(),
+		auditrelay.Config{
+			Brokers:               []string{pipeline.brokers},
+			Topic:                 pipeline.topic,
+			YugabyteDSN:           pipeline.ledger,
+			FDBClusterFile:        clusterFile,
+			FDBTransactionTimeout: 5 * time.Second,
+			PollInterval:          100 * time.Millisecond,
+			BatchSize:             64,
+		},
+	)
 	if err != nil {
 		t.Fatalf("Opening the relay failed: %v", err)
 	}
+
 	t.Cleanup(opened.Pool.Close)
 	t.Cleanup(func() { _ = opened.Relay.Close() })
 	opened.Relay.Start(t.Context())
@@ -120,11 +152,18 @@ func writeLegacyEntries(t *testing.T, clusterFile string, prefix []byte, entries
 	if err != nil {
 		t.Fatalf("Opening FoundationDB failed: %v", err)
 	}
+
 	for _, entry := range entries {
-		key, err := tuple.Tuple{"ops_outbox", tuple.IncompleteVersionstamp(0)}.PackWithVersionstamp(prefix)
+		key, err := tuple.Tuple{
+			"ops_outbox",
+			tuple.IncompleteVersionstamp(0),
+		}.PackWithVersionstamp(
+			prefix,
+		)
 		if err != nil {
 			t.Fatalf("Packing the legacy outbox key failed: %v", err)
 		}
+
 		if _, err := database.Transact(func(transaction fdb.Transaction) (any, error) {
 			transaction.SetVersionstampedKey(fdb.Key(key), []byte(entry.Value))
 			return nil, nil
@@ -140,30 +179,68 @@ func writeLegacyEntries(t *testing.T, clusterFile string, prefix []byte, entries
 // consumer, which must store one ledger row and delete the dead-letter row.
 func TestRuntimeAuditLegacyDeadLetterReplay(t *testing.T) {
 	for index, revision := range legacyRevisions {
-		t.Run(revision, func(t *testing.T) {
-			letter := legacyFixtures(t, revision, "dlq")[0]
-			admin := ledgerAdminPool(t)
-			offset := int64(legacyDeadLetterOffset + index)
-			if _, err := admin.Exec(t.Context(), readTestSQL(t, "legacy_audit/dead_letter_insert.sql"),
-				legacyDeadLetterTopic, int32(legacyDeadLetterPartition), offset, []byte(letter.Value), legacyDeadLetterError); err != nil {
-				t.Fatalf("Inserting the legacy dead letter failed: %v", err)
-			}
-			pipeline := newPartsPipeline(t)
-			pipeline.startConsumer(t)
-			cfg := &config.Config{
-				AuditReaderDSN: testenv.Ledger(t), AuditKafkaBrokers: pipeline.brokers, AuditKafkaTopic: pipeline.topic,
-				AuditKafkaProduceTimeout: 30 * time.Second,
-			}
-			output, err := runOpsCommand(t, cfg, admin, "--execute", "--operator-id", uuid.Must(uuid.NewV7()).String(),
-				"--operator-email", "operator@example.com", "--operator-name", "Legacy Replay Test",
-				"ops", "audit", "dlq", "replay", "--limit", "100")
-			if err != nil {
-				t.Fatalf("ops audit dlq replay failed: %v\n%s", err, output)
-			}
-			requireLegacyLedger(t, pipeline, []legacyFixture{letter})
-			waitFor(t, "deletion of the legacy dead letter", func() bool {
-				return countRows(t, admin, readTestSQL(t, "legacy_audit/dead_letter_rows.sql"), letter.EventID) == 0
-			})
-		})
+		t.Run(
+			revision,
+			func(t *testing.T) {
+				letter := legacyFixtures(t, revision, "dlq")[0]
+				admin := ledgerAdminPool(t)
+				offset := int64(legacyDeadLetterOffset + index)
+				if _, err := admin.Exec(
+					t.Context(),
+					readTestSQL(t, "legacy_audit/dead_letter_insert.sql"),
+					legacyDeadLetterTopic,
+					int32(legacyDeadLetterPartition),
+					offset,
+					[]byte(letter.Value),
+					legacyDeadLetterError,
+				); err != nil {
+					t.Fatalf("Inserting the legacy dead letter failed: %v", err)
+				}
+
+				pipeline := newPartsPipeline(t)
+				pipeline.startConsumer(t)
+				cfg := &config.Config{
+					AuditReaderDSN:           testenv.Ledger(t),
+					AuditKafkaBrokers:        pipeline.brokers,
+					AuditKafkaTopic:          pipeline.topic,
+					AuditKafkaProduceTimeout: 30 * time.Second,
+				}
+				output, err := runOpsCommand(
+					t,
+					cfg,
+					admin,
+					"--execute",
+					"--operator-id",
+					uuid.Must(uuid.NewV7()).String(),
+					"--operator-email",
+					"operator@example.com",
+					"--operator-name",
+					"Legacy Replay Test",
+					"ops",
+					"audit",
+					"dlq",
+					"replay",
+					"--limit",
+					"100",
+				)
+				if err != nil {
+					t.Fatalf("ops audit dlq replay failed: %v\n%s", err, output)
+				}
+
+				requireLegacyLedger(t, pipeline, []legacyFixture{letter})
+				waitFor(
+					t,
+					"deletion of the legacy dead letter",
+					func() bool {
+						return countRows(
+							t,
+							admin,
+							readTestSQL(t, "legacy_audit/dead_letter_rows.sql"),
+							letter.EventID,
+						) == 0
+					},
+				)
+			},
+		)
 	}
 }

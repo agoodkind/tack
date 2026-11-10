@@ -45,8 +45,13 @@ func startCoverageEnv(t *testing.T) *coverageEnv {
 	t.Helper()
 	server := startPublicServer(t, nil)
 	env := &coverageEnv{
-		server: server, ledger: startPublicLedger(t, server), admin: ledgerAdminPool(t),
-		commandClasses: commandClasses(t), nodes: nil, searchEnabled: false, backup: startCoverageBackupLedger(t),
+		server:         server,
+		ledger:         startPublicLedger(t, server),
+		admin:          ledgerAdminPool(t),
+		commandClasses: commandClasses(t),
+		nodes:          nil,
+		searchEnabled:  false,
+		backup:         startCoverageBackupLedger(t),
 	}
 	env.nodes = newCoverageFixture(t, env)
 	return env
@@ -54,7 +59,11 @@ func startCoverageEnv(t *testing.T) *coverageEnv {
 
 // command executes an ops command with optional configuration changes and
 // returns its operator ID, output, and error.
-func (env *coverageEnv) command(t *testing.T, configure func(*config.Config), args ...string) (uuid.UUID, string, error) {
+func (env *coverageEnv) command(
+	t *testing.T,
+	configure func(*config.Config),
+	args ...string,
+) (uuid.UUID, string, error) {
 	t.Helper()
 	return env.commandWith(t, commandInput{args: args, configure: configure, outbox: nil})
 }
@@ -70,14 +79,23 @@ func (env *coverageEnv) commandWith(t *testing.T, input commandInput) (uuid.UUID
 // returns the command output and error.
 func (env *coverageEnv) dryRun(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	_, output, err := env.runCommand(t, commandInput{args: args, configure: nil, outbox: nil}, "--output", "json")
+	_, output, err := env.runCommand(
+		t,
+		commandInput{args: args, configure: nil, outbox: nil},
+		"--output",
+		"json",
+	)
 	return output, err
 }
 
 // runCommand runs an ops command with the supplied mode flags and a unique
 // operator identity. It applies optional configuration and database pool
 // overrides and returns the operator ID, combined output, and error.
-func (env *coverageEnv) runCommand(t *testing.T, input commandInput, mode ...string) (uuid.UUID, string, error) {
+func (env *coverageEnv) runCommand(
+	t *testing.T,
+	input commandInput,
+	mode ...string,
+) (uuid.UUID, string, error) {
 	t.Helper()
 	cfg := *env.server.config
 	if input.configure != nil {
@@ -110,9 +128,20 @@ func (env *coverageEnv) runCommand(t *testing.T, input commandInput, mode ...str
 		root.AddCommand(rendered)
 	}
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
-	root.SetArgs(slices.Concat(mode, []string{
-		"--operator-id", operatorID.String(), "--operator-email", "coverage@example.test", "--operator-name", "Coverage Test",
-	}, args))
+	root.SetArgs(
+		slices.Concat(
+			mode,
+			[]string{
+				"--operator-id",
+				operatorID.String(),
+				"--operator-email",
+				"coverage@example.test",
+				"--operator-name",
+				"Coverage Test",
+			},
+			args,
+		),
+	)
 	err := root.ExecuteContext(testenv.CommandContext(t))
 	return operatorID, output.String(), err
 }
@@ -122,7 +151,12 @@ func (env *coverageEnv) runCommand(t *testing.T, input commandInput, mode ...str
 // several events, and the consumer can store them in any order. When the
 // evidence selects an operator outbox, it checks that outbox instead and
 // returns nil.
-func (env *coverageEnv) waitForRows(t *testing.T, evidence coverageEvidence, verb audit.Verb, outcome audit.Outcome) []audit.Row {
+func (env *coverageEnv) waitForRows(
+	t *testing.T,
+	evidence coverageEvidence,
+	verb audit.Verb,
+	outcome audit.Outcome,
+) []audit.Row {
 	t.Helper()
 	if evidence.outbox != nil {
 		requireOutboxEvent(t, evidence, verb, outcome)
@@ -130,19 +164,39 @@ func (env *coverageEnv) waitForRows(t *testing.T, evidence coverageEvidence, ver
 	}
 	deadline := clock.Now().Add(coverageDeliveryTimeout)
 	for {
-		rows, err := env.ledger.stack.reader.Query(t.Context(), audit.QueryFilter{
-			OrgID: evidence.orgID, Oldest: env.ledger.since, Latest: clock.Now().Add(time.Hour), Action: "",
-			ActorID: evidence.actorID, EntityID: uuid.Nil, RequestID: evidence.requestID, TraceID: "", Limit: 100,
-		})
+		rows, err := env.ledger.stack.reader.Query(
+			t.Context(),
+			audit.QueryFilter{
+				OrgID:     evidence.orgID,
+				Oldest:    env.ledger.since,
+				Latest:    clock.Now().Add(time.Hour),
+				Action:    "",
+				ActorID:   evidence.actorID,
+				EntityID:  uuid.Nil,
+				RequestID: evidence.requestID,
+				TraceID:   "",
+				Limit:     100,
+			},
+		)
 		if err != nil {
-			t.Fatalf("The audit ledger query failed instead of returning rows for %+v: %v", evidence, err)
+			t.Fatalf(
+				"The audit ledger query failed instead of returning rows for %+v: %v",
+				evidence,
+				err,
+			)
 		}
 		if caseEvidenceFound(t, env, evidence, verb, outcome, rows) {
 			return rows
 		}
 		if clock.Now().After(deadline) {
-			t.Fatalf("The audit ledger did not record a matching event that targets node %s before the deadline; the evidence, expected verb and outcome, and observed events follow: %+v %s %s: %s",
-				evidence.targetID, evidence, verb, outcome, describeRows(rows))
+			t.Fatalf(
+				"The audit ledger did not record a matching event that targets node %s before the deadline; the evidence, expected verb and outcome, and observed events follow: %+v %s %s: %s",
+				evidence.targetID,
+				evidence,
+				verb,
+				outcome,
+				describeRows(rows),
+			)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -160,14 +214,29 @@ func describeRows(rows []audit.Row) string {
 // organization.
 func operatorEvidence(actorID uuid.UUID) coverageEvidence {
 	return coverageEvidence{
-		orgID: audit.SystemOrgID(), requestID: "", actorID: actorID, outcome: "", outbox: nil,
-		body: nil, targetID: uuid.Nil,
+		orgID:     audit.SystemOrgID(),
+		requestID: "",
+		actorID:   actorID,
+		outcome:   "",
+		outbox:    nil,
+		body:      nil,
+		targetID:  uuid.Nil,
 	}
 }
 
-func requireOutboxEvent(t *testing.T, evidence coverageEvidence, verb audit.Verb, outcome audit.Outcome) {
+func requireOutboxEvent(
+	t *testing.T,
+	evidence coverageEvidence,
+	verb audit.Verb,
+	outcome audit.Outcome,
+) {
 	t.Helper()
-	events := outboxEventsByQuery(t, evidence.outbox, "runtime_audit_actor_outbox.sql", evidence.actorID.String())
+	events := outboxEventsByQuery(
+		t,
+		evidence.outbox,
+		"runtime_audit_actor_outbox.sql",
+		evidence.actorID.String(),
+	)
 	var described bytes.Buffer
 	for _, event := range events {
 		if event.Verb == string(verb) && event.Outcome == outcome {
@@ -175,5 +244,11 @@ func requireOutboxEvent(t *testing.T, evidence coverageEvidence, verb audit.Verb
 		}
 		described.WriteString(event.Verb + " " + string(event.Outcome) + "; ")
 	}
-	t.Fatalf("The operator outbox did not contain a matching event; the actor ID, expected verb and outcome, and observed events follow: %s %s %s: %s", evidence.actorID, verb, outcome, described.String())
+	t.Fatalf(
+		"The operator outbox did not contain a matching event; the actor ID, expected verb and outcome, and observed events follow: %s %s %s: %s",
+		evidence.actorID,
+		verb,
+		outcome,
+		described.String(),
+	)
 }

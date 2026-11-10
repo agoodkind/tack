@@ -35,6 +35,7 @@ func (l Lifetime) terminalName(name string) string {
 	if l.isBackfill() {
 		return BackfillNamePrefix + name
 	}
+
 	return name
 }
 
@@ -42,6 +43,7 @@ func (l Lifetime) renderParent(backfills backfillGroups, parent *Group) *Group {
 	if l.isBackfill() {
 		return backfills.under(parent)
 	}
+
 	return parent
 }
 
@@ -53,6 +55,7 @@ func (b backfillGroups) under(parent *Group) *Group {
 	if group, ok := b[parent]; ok {
 		return group
 	}
+
 	group := &Group{
 		Use:    "backfill",
 		Short:  "One-time jobs, each deleted by its removal day",
@@ -60,6 +63,7 @@ func (b backfillGroups) under(parent *Group) *Group {
 		Parent: parent,
 	}
 	b[parent] = group
+
 	return group
 }
 

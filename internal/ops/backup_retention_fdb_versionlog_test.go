@@ -35,14 +35,24 @@ type retentionFDBTestVersionLog struct {
 // retentionFDBTestRecordReading waits until fdbbackup status reports a
 // restorable point stamped after after, and appends that point to the version
 // log the way the staleness check does in production.
-func retentionFDBTestRecordReading(t *testing.T, fixture *retentionCommandFixture, cluster string, after time.Time) retentionFDBTestReading {
+func retentionFDBTestRecordReading(
+	t *testing.T,
+	fixture *retentionCommandFixture,
+	cluster string,
+	after time.Time,
+) retentionFDBTestReading {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
-		status := retentionFDBTestExec(t, fixture.config, cluster, []string{"fdbbackup", "status", "-C", "/var/fdb/fdb.cluster"})
+		status := retentionFDBTestExec(
+			t,
+			fixture.config,
+			cluster,
+			[]string{"fdbbackup", "status", "-C", "/var/fdb/fdb.cluster"},
+		)
 		reading, found := retentionFDBTestStatusReading(status)
 		if found && reading.At.After(after) {
 			retentionFDBTestAppendReading(t, fixture, reading)
@@ -58,7 +68,8 @@ func retentionFDBTestRecordReading(t *testing.T, fixture *retentionCommandFixtur
 
 func retentionFDBTestStatusReading(status string) (retentionFDBTestReading, bool) {
 	lowered := strings.ToLower(status)
-	if !strings.Contains(lowered, " is restorable") || strings.Contains(lowered, " is not restorable") {
+	if !strings.Contains(lowered, " is restorable") ||
+		strings.Contains(lowered, " is not restorable") {
 		return retentionFDBTestReading{}, false
 	}
 	for line := range strings.SplitSeq(status, "\n") {
@@ -81,13 +92,31 @@ func retentionFDBTestStatusReading(status string) (retentionFDBTestReading, bool
 // conversion of fdbrestore and appends that pair to the version log. The dry
 // run prints the conversion first, and it may then refuse because backup name
 // cannot restore at the requested time.
-func retentionFDBTestRecordMoment(t *testing.T, fixture *retentionCommandFixture, cluster, name string, at time.Time) retentionFDBTestReading {
+func retentionFDBTestRecordMoment(
+	t *testing.T,
+	fixture *retentionCommandFixture,
+	cluster string,
+	name string,
+	at time.Time,
+) retentionFDBTestReading {
 	t.Helper()
 	timestamp := at.UTC().Format(retentionFDBTimestampLayout)
-	output, _ := retentionFDBTestExecResult(t, fixture.config, cluster, []string{
-		"fdbrestore", "start", "--dryrun", "--timestamp", timestamp,
-		"--orig-cluster-file", "/var/fdb/fdb.cluster", "-r", retentionFDBTestURL(fixture.config, name),
-	})
+	output, _ := retentionFDBTestExecResult(
+		t,
+		fixture.config,
+		cluster,
+		[]string{
+			"fdbrestore",
+			"start",
+			"--dryrun",
+			"--timestamp",
+			timestamp,
+			"--orig-cluster-file",
+			"/var/fdb/fdb.cluster",
+			"-r",
+			retentionFDBTestURL(fixture.config, name),
+		},
+	)
 	prefix := "Timestamp '" + timestamp + "' resolves to version "
 	for line := range strings.SplitSeq(output, "\n") {
 		if value, found := strings.CutPrefix(strings.TrimSpace(line), prefix); found {
@@ -104,7 +133,11 @@ func retentionFDBTestRecordMoment(t *testing.T, fixture *retentionCommandFixture
 	return retentionFDBTestReading{}
 }
 
-func retentionFDBTestAppendReading(t *testing.T, fixture *retentionCommandFixture, reading retentionFDBTestReading) {
+func retentionFDBTestAppendReading(
+	t *testing.T,
+	fixture *retentionCommandFixture,
+	reading retentionFDBTestReading,
+) {
 	t.Helper()
 	var versionLog retentionFDBTestVersionLog
 	if body, found := fixture.store.object(retentionFDBVersionLogKey); found {

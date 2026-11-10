@@ -12,6 +12,7 @@ func TestStoresPing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStores: %v", err)
 	}
+
 	if err := stores.Ping(context.Background()); err != nil {
 		t.Fatalf("Ping: %v", err)
 	}

@@ -57,20 +57,34 @@ func loadBackupAlarmState(ctx context.Context, cfg *config.Config) backupAlarmSt
 	if errors.Is(err, os.ErrNotExist) {
 		return empty
 	}
+
 	if err != nil {
-		telemetry.L(ctx).WarnContext(ctx, "backup.staleness.alarm_state_unreadable",
-			slog.String("path", path), slog.String("err", err.Error()))
+		telemetry.L(ctx).WarnContext(
+			ctx,
+			"backup.staleness.alarm_state_unreadable",
+			slog.String("path", path),
+			slog.String("err", err.Error()),
+		)
+
 		return empty
 	}
+
 	var state backupAlarmState
 	if err := json.Unmarshal(body, &state); err != nil {
-		telemetry.L(ctx).WarnContext(ctx, "backup.staleness.alarm_state_unreadable",
-			slog.String("path", path), slog.String("err", err.Error()))
+		telemetry.L(ctx).WarnContext(
+			ctx,
+			"backup.staleness.alarm_state_unreadable",
+			slog.String("path", path),
+			slog.String("err", err.Error()),
+		)
+
 		return empty
 	}
+
 	if state.Alarmed == nil {
 		state.Alarmed = map[string]time.Time{}
 	}
+
 	return state
 }
 
@@ -84,32 +98,60 @@ func saveBackupAlarmState(ctx context.Context, cfg *config.Config, state backupA
 	path := backupAlarmStatePath(cfg)
 	body, err := json.Marshal(state)
 	if err != nil {
-		logger.ErrorContext(ctx, "backup.staleness.alarm_state_write_failed",
-			slog.String("path", path), slog.String("err", err.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.staleness.alarm_state_write_failed",
+			slog.String("path", path),
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	if err := os.MkdirAll(cfg.BackupRoot, 0o750); err != nil {
-		logger.ErrorContext(ctx, "backup.staleness.alarm_state_write_failed",
-			slog.String("path", path), slog.String("err", err.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.staleness.alarm_state_write_failed",
+			slog.String("path", path),
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	partial, err := stageBackupAlarmState(ctx, path, body)
 	if err != nil {
-		logger.ErrorContext(ctx, "backup.staleness.alarm_state_write_failed",
-			slog.String("path", path), slog.String("err", err.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.staleness.alarm_state_write_failed",
+			slog.String("path", path),
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	if err := os.Rename(partial, path); err != nil {
 		// The temporary is this invocation's own, so removing it is safe.
 		_ = os.Remove(partial)
 		renameErr := fmt.Errorf("rename %s into place: %w", partial, err)
-		logger.ErrorContext(ctx, "backup.staleness.alarm_state_write_failed",
-			slog.String("path", path), slog.String("err", renameErr.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.staleness.alarm_state_write_failed",
+			slog.String("path", path),
+			slog.String("err", renameErr.Error()),
+		)
+
 		return
 	}
-	logger.InfoContext(ctx, "backup.staleness.alarm_state_written",
-		slog.String("path", path), slog.Int("generation", state.Generation),
-		slog.Int("alarmed_count", len(state.Alarmed)))
+
+	logger.InfoContext(
+		ctx,
+		"backup.staleness.alarm_state_written",
+		slog.String("path", path),
+		slog.Int("generation", state.Generation),
+		slog.Int("alarmed_count", len(state.Alarmed)),
+	)
 }
 
 // backupAlarmPartialSuffix names one invocation's temporary. It is a variable
@@ -122,9 +164,15 @@ func randomBackupAlarmPartialSuffix(ctx context.Context) (string, error) {
 	var raw [8]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		wrapped := fmt.Errorf("draw temporary name: %w", err)
-		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
+		slog.ErrorContext(
+			ctx,
+			"backup.staleness.alarm_state_partial_refused",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return "", wrapped
 	}
+
 	return hex.EncodeToString(raw[:]), nil
 }
 
@@ -147,25 +195,44 @@ func stageBackupAlarmState(ctx context.Context, path string, body []byte) (strin
 	if err != nil {
 		return "", err
 	}
+
 	partial := path + ".partial." + suffix
 	file, err := os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		wrapped := fmt.Errorf("create %s: %w", partial, err)
-		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
+		slog.ErrorContext(
+			ctx,
+			"backup.staleness.alarm_state_partial_refused",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return "", wrapped
 	}
+
 	if _, err := file.Write(body); err != nil {
 		_ = file.Close()
 		_ = os.Remove(partial)
 		wrapped := fmt.Errorf("write %s: %w", partial, err)
-		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
+		slog.ErrorContext(
+			ctx,
+			"backup.staleness.alarm_state_partial_refused",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return "", wrapped
 	}
+
 	if err := file.Close(); err != nil {
 		_ = os.Remove(partial)
 		wrapped := fmt.Errorf("close %s: %w", partial, err)
-		slog.ErrorContext(ctx, "backup.staleness.alarm_state_partial_refused", slog.String("err", wrapped.Error()))
+		slog.ErrorContext(
+			ctx,
+			"backup.staleness.alarm_state_partial_refused",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return "", wrapped
 	}
+
 	return partial, nil
 }

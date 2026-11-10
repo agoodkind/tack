@@ -39,33 +39,58 @@ func runExternalCreatingAuditInfrastructure(
 	intentErr error,
 ) error {
 	if probe == nil {
-		slog.ErrorContext(ctx, "cli.audit_infrastructure_probe_unwired",
-			slog.String("operation", intent.Verb), slog.String("err", intentErr.Error()))
+		slog.ErrorContext(
+			ctx,
+			"cli.audit_infrastructure_probe_unwired",
+			slog.String("operation", intent.Verb),
+			slog.String("err", intentErr.Error()),
+		)
+
 		return fmt.Errorf("audit infrastructure probe is unwired: %w", intentErr)
 	}
+
 	infrastructure, probeErr := probe(ctx)
 	if probeErr != nil {
-		slog.ErrorContext(ctx, "cli.audit_infrastructure_probe_failed", slog.String("err", probeErr.Error()))
+		slog.ErrorContext(
+			ctx,
+			"cli.audit_infrastructure_probe_failed",
+			slog.String("err", probeErr.Error()),
+		)
+
 		return fmt.Errorf("probe the audit infrastructure: %w", errors.Join(probeErr, intentErr))
 	}
-	if infrastructure.OutboxTableExists && infrastructure.OperatorLoginExists && !isAuthenticationFailure(intentErr) {
+
+	if infrastructure.OutboxTableExists && infrastructure.OperatorLoginExists &&
+		!isAuthenticationFailure(intentErr) {
 		return intentErr
 	}
-	slog.WarnContext(ctx, "cli.audit_events_deferred",
+
+	slog.WarnContext(
+		ctx,
+		"cli.audit_events_deferred",
 		slog.String("operation", intent.Verb),
 		slog.Bool("outbox_table_exists", infrastructure.OutboxTableExists),
-		slog.Bool("operator_login_exists", infrastructure.OperatorLoginExists))
+		slog.Bool("operator_login_exists", infrastructure.OperatorLoginExists),
+	)
 	deferred := &deferredOutbox{events: nil}
-	runErr := audit.RunExternal(runContext, deferred, intent, func(stepContext context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-		return run(stepContext, steps)
-	})
+
+	runErr := audit.RunExternal(
+		runContext,
+		deferred,
+		intent,
+		func(stepContext context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			return run(stepContext, steps)
+		},
+	)
 	for _, event := range deferred.events {
 		if err := outbox.WriteOutbox(ctx, event); err != nil {
 			return recordedAfterRunError(ctx, "record deferred command events", runErr, err)
 		}
 	}
+
 	if runErr != nil {
 		return fmt.Errorf("run after creating the audit infrastructure: %w", runErr)
 	}
+
 	return nil
 }

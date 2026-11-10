@@ -25,7 +25,7 @@ const (
 )
 
 // builtinReferenceKeys lists the built-in property keys that identify reference targets.
-var builtinReferenceKeys = []string{"parent_id", "scope_id"}
+var builtinReferenceKeys = []string{parentIDPropertyName, "scope_id"}
 
 // writeChanges stores the requested fields and the node before and after a write.
 // Before is nil for a create.
@@ -52,11 +52,13 @@ func referenceKeysOf(defs []*node.PropertyDef) map[string]struct{} {
 	for _, key := range builtinReferenceKeys {
 		keys[key] = struct{}{}
 	}
+
 	for _, def := range defs {
 		if def.ReferenceTargetTypeKey != "" {
 			keys[def.Name] = struct{}{}
 		}
 	}
+
 	return keys
 }
 
@@ -68,15 +70,19 @@ func describeFieldChanges(rc *renderCtx, changes writeChanges) fieldChanges {
 	if changes.Name != nil && changes.Before != nil {
 		fieldKeys = append(fieldKeys, nameFieldKey)
 	}
+
 	for key := range changes.Props {
 		fieldKeys = append(fieldKeys, key)
 	}
+
 	sort.Strings(fieldKeys)
 	changes.targets = map[uuid.UUID]string{}
+
 	shown := make([]markdownField, 0, maxChangeLines)
 	for _, key := range fieldKeys[:min(len(fieldKeys), maxChangeLines)] {
 		shown = append(shown, describeFieldChange(rc, changes, key))
 	}
+
 	return fieldChanges{Shown: shown, Total: len(fieldKeys)}
 }
 
@@ -88,15 +94,29 @@ func describeFieldChange(rc *renderCtx, changes writeChanges, key string) markdo
 	case !hadBefore && !hasAfter:
 		return markdownField{Label: changeLabelUnchanged, Value: field + " is not set"}
 	case !hadBefore:
-		return markdownField{Label: changeLabelSet, Value: fmt.Sprintf("%s to %s", field, changes.display(rc, key, after))}
+		return markdownField{
+			Label: changeLabelSet,
+			Value: fmt.Sprintf("%s to %s", field, changes.display(rc, key, after)),
+		}
 	case !hasAfter:
-		return markdownField{Label: changeLabelRemoved, Value: fmt.Sprintf("%s (was %s)", field, changes.display(rc, key, before))}
+		return markdownField{
+			Label: changeLabelRemoved,
+			Value: fmt.Sprintf("%s (was %s)", field, changes.display(rc, key, before)),
+		}
 	case sameJSON(before, after):
-		return markdownField{Label: changeLabelUnchanged, Value: fmt.Sprintf("%s is %s", field, changes.display(rc, key, after))}
+		return markdownField{
+			Label: changeLabelUnchanged,
+			Value: fmt.Sprintf("%s is %s", field, changes.display(rc, key, after)),
+		}
 	default:
 		return markdownField{
 			Label: changeLabelChanged,
-			Value: fmt.Sprintf("%s from %s to %s", field, changes.display(rc, key, before), changes.display(rc, key, after)),
+			Value: fmt.Sprintf(
+				"%s from %s to %s",
+				field,
+				changes.display(rc, key, before),
+				changes.display(rc, key, after),
+			),
 		}
 	}
 }
@@ -107,13 +127,16 @@ func (changes writeChanges) storedValue(view *node.NodeView, key string) (json.R
 	if view == nil {
 		return nil, false
 	}
+
 	if key == nameFieldKey && changes.Name != nil {
 		return mustRawString(view.Name), true
 	}
+
 	raw, ok := view.Props[key]
 	if !ok || isAbsentJSON(raw) {
 		return nil, false
 	}
+
 	return raw, true
 }
 
@@ -127,15 +150,18 @@ func (changes writeChanges) display(rc *renderCtx, key string, raw json.RawMessa
 	if isReference {
 		text = changes.referenceText(rc, text)
 	}
+
 	text = strings.ReplaceAll(text, "`", "'")
 	if isReference {
 		text = shortenTextStart(text, maxChangeValueBytes)
 	} else {
 		text = shortenText(text, maxChangeValueBytes)
 	}
+
 	if text == "" {
 		return emptyStringText
 	}
+
 	return markdownCodeValue(text)
 }
 
@@ -147,13 +173,17 @@ func (changes writeChanges) referenceText(rc *renderCtx, text string) string {
 	if err != nil {
 		return text
 	}
+
 	if identifier, read := changes.targets[targetID]; read {
 		return identifier
 	}
+
 	identifier, _ := rc.nodeSummaryInOrg(targetID, changes.After.OrgID)
 	if identifier == "" {
 		identifier = text
 	}
+
 	changes.targets[targetID] = identifier
+
 	return identifier
 }

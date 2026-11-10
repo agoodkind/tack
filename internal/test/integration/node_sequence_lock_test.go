@@ -37,10 +37,15 @@ const (
 // every queued allocation finishes, and the queued allocations must store
 // exactly 1 through N.
 func TestNodeStoreSequenceLockWaitEndsWithContext(t *testing.T) {
-	stores, err := fdbadapter.NewStores(testenv.FoundationDB(t), sequenceLockTransactionTimeout, nil)
+	stores, err := fdbadapter.NewStores(
+		testenv.FoundationDB(t),
+		sequenceLockTransactionTimeout,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
+
 	ctx := integration.WithTestOperation(t, t.Context())
 	orgID := uuid.New()
 	counterKey := "LOCK-"
@@ -48,6 +53,7 @@ func TestNodeStoreSequenceLockWaitEndsWithContext(t *testing.T) {
 	values := make([]int64, queuedSequenceWriters)
 	failures := make([]error, queuedSequenceWriters)
 	var group sync.WaitGroup
+
 	for index := range queuedSequenceWriters {
 		group.Go(func() {
 			defer completed.Add(1)
@@ -56,9 +62,14 @@ func TestNodeStoreSequenceLockWaitEndsWithContext(t *testing.T) {
 					failures[index] = fmt.Errorf("allocation %d panicked: %v", index, recovered)
 				}
 			}()
-			values[index], failures[index] = stores.Nodes.AllocateSequenceByKey(ctx, orgID, counterKey)
+			values[index], failures[index] = stores.Nodes.AllocateSequenceByKey(
+				ctx,
+				orgID,
+				counterKey,
+			)
 		})
 	}
+
 	time.Sleep(queuedWritersHeadStart)
 	waitContext, cancel := context.WithTimeout(ctx, canceledWaitTimeout)
 	defer cancel()
@@ -66,13 +77,23 @@ func TestNodeStoreSequenceLockWaitEndsWithContext(t *testing.T) {
 	completedAtReturn := completed.Load()
 	group.Wait()
 	if !errors.Is(waitErr, context.DeadlineExceeded) {
-		t.Fatalf("allocation with an ended context = %v; want an error that wraps %v", waitErr, context.DeadlineExceeded)
+		t.Fatalf(
+			"allocation with an ended context = %v; want an error that wraps %v",
+			waitErr,
+			context.DeadlineExceeded,
+		)
 	}
+
 	if completedAtReturn >= queuedSequenceWriters {
-		t.Fatalf("allocation with an ended context returned after all %d queued allocations finished", queuedSequenceWriters)
+		t.Fatalf(
+			"allocation with an ended context returned after all %d queued allocations finished",
+			queuedSequenceWriters,
+		)
 	}
+
 	if err := errors.Join(failures...); err != nil {
 		t.Fatalf("every queued allocation must succeed: %v", err)
 	}
+
 	requireOneThroughN(t, "queued allocation values", values)
 }

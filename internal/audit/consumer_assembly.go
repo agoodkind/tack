@@ -32,21 +32,38 @@ func (c *Consumer) completeAssemblies(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	rows, err := c.ybpool.Query(ctx, `
+
+	rows, err := c.ybpool.Query(
+		ctx,
+		`
 		SELECT event_id FROM audit.event_assemblies
 		 WHERE ready AND invalid_reason IS NULL
 		 ORDER BY created_at ASC, event_id ASC
 		 LIMIT $1
-	`, assemblyCompletionBatch)
+	`,
+		assemblyCompletionBatch,
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.assembly_scan_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.assembly_scan_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	eventIDs, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.assembly_scan_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.assembly_scan_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	for _, eventID := range eventIDs {
 		c.completeAssemblyWithRetry(ctx, eventID)
 	}
@@ -62,18 +79,47 @@ func (c *Consumer) completeAssemblyWithRetry(ctx context.Context, eventID uuid.U
 		case err == nil:
 			return
 		case attempt < assemblyChainRetries && isRetryableChainErr(err):
-			slog.WarnContext(ctx, "audit.consumer.assembly_chain_retry", slog.String("event_id", eventID.String()), slog.Int("attempt", attempt), slog.String("err", err.Error()))
+			slog.WarnContext(
+				ctx,
+				"audit.consumer.assembly_chain_retry",
+				slog.String("event_id", eventID.String()),
+				slog.Int("attempt", attempt),
+				slog.String("err", err.Error()),
+			)
 			continue
 		case errors.Is(err, errMalformedPayload):
-			if _, markErr := c.ybpool.Exec(ctx, `
+			if _, markErr := c.ybpool.Exec(
+				ctx,
+				`
 				UPDATE audit.event_assemblies SET invalid_reason = $2 WHERE event_id = $1
-			`, eventID, err.Error()); markErr != nil {
-				slog.ErrorContext(ctx, "audit.consumer.assembly_mark_invalid_failed", slog.String("event_id", eventID.String()), slog.String("err", markErr.Error()))
+			`,
+				eventID,
+				err.Error(),
+			); markErr != nil {
+				slog.ErrorContext(
+					ctx,
+					"audit.consumer.assembly_mark_invalid_failed",
+					slog.String("event_id", eventID.String()),
+					slog.String("err", markErr.Error()),
+				)
 			}
-			slog.ErrorContext(ctx, "audit.consumer.assembly_invalid", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+
+			slog.ErrorContext(
+				ctx,
+				"audit.consumer.assembly_invalid",
+				slog.String("event_id", eventID.String()),
+				slog.String("err", err.Error()),
+			)
+
 			return
 		default:
-			slog.ErrorContext(ctx, "audit.consumer.assembly_complete_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.consumer.assembly_complete_failed",
+				slog.String("event_id", eventID.String()),
+				slog.String("err", err.Error()),
+			)
+
 			return
 		}
 	}
@@ -88,38 +134,59 @@ func (c *Consumer) completeAssembly(ctx context.Context, eventID uuid.UUID) erro
 		slog.ErrorContext(ctx, "audit.consumer.begin_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("begin audit event %s completion: %w", eventID, err)
 	}
+
 	defer func() { _ = tx.Rollback(ctx) }()
 	var header []byte
 	var commitVersion string
-	err = tx.QueryRow(ctx, `
+	err = tx.QueryRow(
+		ctx,
+		`
 		SELECT header, commit_version FROM audit.event_assemblies
 		 WHERE event_id = $1 AND ready AND invalid_reason IS NULL
 		 FOR UPDATE
-	`, eventID).Scan(&header, &commitVersion)
+	`,
+		eventID,
+	).Scan(
+		&header,
+		&commitVersion,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
+
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.assembly_read_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.assembly_read_failed",
+			slog.String("event_id", eventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("read audit event %s assembly: %w", eventID, err)
 	}
+
 	event, transportDigest, err := streamAssembly(ctx, tx, eventID, header)
 	if err != nil {
 		return err
 	}
+
 	if event.Context.CommitVersion == "" {
 		event.Context.CommitVersion = commitVersion
 	}
+
 	if err := c.appendAssembledEvent(ctx, tx, event); err != nil {
 		return err
 	}
+
 	if err := finishAssembly(ctx, tx, eventID, transportDigest); err != nil {
 		return err
 	}
+
 	if err := tx.Commit(ctx); err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.commit_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("commit audit event %s completion: %w", eventID, err)
 	}
+
 	return nil
 }
 
@@ -131,19 +198,37 @@ func (c *Consumer) alertWaitingAssemblies(ctx context.Context) {
 	if now.Sub(c.assemblyAlertAt) < assemblyAlertInterval {
 		return
 	}
+
 	c.assemblyAlertAt = now
 	var waiting, invalid int64
-	if err := c.ybpool.QueryRow(ctx, `
+	if err := c.ybpool.QueryRow(
+		ctx,
+		`
 		SELECT count(*) FILTER (WHERE NOT ready AND created_at < now() - make_interval(secs => $1)),
 		       count(*) FILTER (WHERE invalid_reason IS NOT NULL)
 		  FROM audit.event_assemblies
-	`, assemblyWaitingAlertAge.Seconds()).Scan(&waiting, &invalid); err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.assembly_alert_failed", slog.String("err", err.Error()))
+	`,
+		assemblyWaitingAlertAge.Seconds(),
+	).Scan(
+		&waiting,
+		&invalid,
+	); err != nil {
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.assembly_alert_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return
 	}
+
 	if waiting > 0 || invalid > 0 {
-		slog.ErrorContext(ctx, "audit.consumer.assemblies_incomplete",
-			slog.Int64("waiting", waiting), slog.Int64("invalid", invalid),
-			slog.String("err", "audit event assemblies have missing parts or validation failures"))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.assemblies_incomplete",
+			slog.Int64("waiting", waiting),
+			slog.Int64("invalid", invalid),
+			slog.String("err", "audit event assemblies have missing parts or validation failures"),
+		)
 	}
 }

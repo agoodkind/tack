@@ -47,8 +47,12 @@ type auditPartRestoreResult struct {
 
 func (r auditPartRestoreRequest) result(status, plan string) auditPartRestoreResult {
 	return auditPartRestoreResult{
-		ResultMarker: clispec.ResultMarker{}, auditPartRestoreIdentity: r.manifest.identity(),
-		Command: auditPartRestoreTool, Status: status, Plan: plan, ManifestFileSHA256: r.fileDigest,
+		ResultMarker:             clispec.ResultMarker{},
+		auditPartRestoreIdentity: r.manifest.identity(),
+		Command:                  auditPartRestoreTool,
+		Status:                   status,
+		Plan:                     plan,
+		ManifestFileSHA256:       r.fileDigest,
 	}
 }
 
@@ -59,14 +63,20 @@ func loadAuditPartRestore(
 ) (auditPartRestoreLoaded, error) {
 	reader, err := audit.NewReader(ctx, factory.Cfg.AuditReaderDSN)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit_part_restore.reader_failed", slog.String("err", "the ledger reader did not open"))
+		slog.ErrorContext(
+			ctx,
+			"audit_part_restore.reader_failed",
+			slog.String("err", "the ledger reader did not open"),
+		)
 		return auditPartRestoreLoaded{}, errAuditPartReaderOpen
 	}
+
 	state, err := inspectAuditPartRestore(ctx, reader, request.manifest)
 	if err != nil {
 		reader.Close()
 		return auditPartRestoreLoaded{}, err
 	}
+
 	return auditPartRestoreLoaded{request: request, reader: reader, state: state}, nil
 }
 
@@ -85,6 +95,7 @@ func previewAuditPartRestore(
 	if loaded.state.Present {
 		plan = auditPartPlannedPresent
 	}
+
 	return writeAuditPartResult(ctx, sink, request.result(auditPartStatusPlanned, plan))
 }
 
@@ -104,11 +115,14 @@ func runAuditPartRestore(
 		err := writeAuditPartResult(ctx, sink, request.result(auditPartStatusPresent, ""))
 		return outcomeFor(err), err
 	}
+
 	details, err := restoreAuditPart(ctx, factory, loaded, steps)
 	if err != nil {
 		return details, err
 	}
+
 	err = writeAuditPartResult(ctx, sink, request.result(auditPartStatusRestored, ""))
+
 	return outcomeFor(err), err
 }
 
@@ -120,7 +134,12 @@ func restoreAuditPart(
 ) (audit.OutcomeDetails, error) {
 	manifest := loaded.request.manifest
 
-	encoded, err := BuildAuditPartChange(ctx, manifest, loaded.request.fileDigest, loaded.state.Payload)
+	encoded, err := BuildAuditPartChange(
+		ctx,
+		manifest,
+		loaded.request.fileDigest,
+		loaded.state.Payload,
+	)
 	if err != nil {
 		return outcomeFor(err), err
 	}
@@ -133,10 +152,11 @@ func restoreAuditPart(
 
 	pool, err := pgxpool.New(ctx, factory.Cfg.AuditOperatorDSN)
 	if err != nil {
-		slog.ErrorContext(ctx,
+		slog.ErrorContext(
+			ctx,
 			"audit_part_restore.operator_pool_failed",
-			slog.String("err",
-				"the operator pool did not open"))
+			slog.String("err", "the operator pool did not open"),
+		)
 		wrapped := errAuditPartOperatorOpen
 
 		return outcomeFor(wrapped), wrapped
@@ -146,20 +166,23 @@ func restoreAuditPart(
 	if err != nil {
 		return outcomeFor(err), err
 	}
-	return recordedStep(ctx,
-		steps,
-		audit.ExternalStep(auditPartTarget(manifest.TargetEventID,
-			manifest.PartIndex),
-			planned),
 
-		func(ctx context.Context) error { return callAuditPartRestore(ctx, pool, manifest, encoded) },
+	return recordedStep(
+		ctx,
+		steps,
+		audit.ExternalStep(auditPartTarget(manifest.TargetEventID, manifest.PartIndex), planned),
+		func(ctx context.Context) error {
+			return callAuditPartRestore(ctx, pool, manifest, encoded)
+		},
 		func(ctx context.Context) (json.RawMessage, error) {
 			observed, err := observeRestoredAuditPart(ctx, loaded.reader, manifest, loaded.state)
 			if err != nil {
 				return nil, err
 			}
+
 			return encodeEvidence(ctx, observed)
-		})
+		},
+	)
 }
 
 type auditPartRestoreObserved struct {
@@ -183,48 +206,71 @@ func observeRestoredAuditPart(
 	verification, err := reader.VerifyManifest(ctx, manifest.OrgID, manifest.TargetEventID)
 	if err != nil {
 		return auditPartRestoreObserved{},
-			partRestoreFailure(ctx,
+			partRestoreFailure(
+				ctx,
 				"cannot verify the restored event "+manifest.TargetEventID.String(),
-				err)
+				err,
+			)
 	}
+
 	err = checkVerification(manifest, verification)
 	if err != nil {
 		return auditPartRestoreObserved{},
-			partRestoreFailure(ctx,
+			partRestoreFailure(
+				ctx,
 				"cannot check the restored event "+manifest.TargetEventID.String(),
-				err)
+				err,
+			)
 	}
+
 	parts, err := reader.ManifestParts(ctx, manifest.OrgID, manifest.TargetEventID)
 	if err != nil || len(parts) != 1 {
 		return auditPartRestoreObserved{},
-			partRestoreFailure(ctx,
+			partRestoreFailure(
+				ctx,
 				"cannot read the restored part of event "+manifest.TargetEventID.String(),
-				errors.Join(err,
-					errAuditPartRestoreRefused))
+				errors.Join(err, errAuditPartRestoreRefused),
+			)
 	}
+
 	after, err := reader.GetByID(ctx, manifest.TargetEventID)
 	if err != nil {
 		return auditPartRestoreObserved{},
-			partRestoreFailure(ctx,
+			partRestoreFailure(
+				ctx,
 				"cannot read the restored event "+manifest.TargetEventID.String(),
-				err)
+				err,
+			)
 	}
+
 	if !sameLedgerRow(before.Target, *after) {
 		return auditPartRestoreObserved{},
-			partRestoreFailure(ctx,
+			partRestoreFailure(
+				ctx,
 				"the ledger row differs for event "+manifest.TargetEventID.String(),
-				errAuditPartRestoreRefused)
+				errAuditPartRestoreRefused,
+			)
 	}
+
 	return auditPartRestoreObserved{
-		auditPartRestoreIdentity: manifest.identity(), PartDigest: parts[0].Digest, PayloadBytes: len(parts[0].Payload),
-		TargetSeq: after.Seq, TargetShard: after.Shard, TargetRowHash: after.RowHash,
+		auditPartRestoreIdentity: manifest.identity(),
+		PartDigest:               parts[0].Digest,
+		PayloadBytes:             len(parts[0].Payload),
+		TargetSeq:                after.Seq,
+		TargetShard:              after.Shard,
+		TargetRowHash:            after.RowHash,
 	}, nil
 }
 
-func writeAuditPartResult(ctx context.Context, sink clispec.ResultSink, result auditPartRestoreResult) error {
+func writeAuditPartResult(
+	ctx context.Context,
+	sink clispec.ResultSink,
+	result auditPartRestoreResult,
+) error {
 	err := clispec.WriteJSONValue(ctx, sink, result)
 	if err != nil {
 		return partRestoreFailure(ctx, "cannot write the part restore result", err)
 	}
+
 	return nil
 }

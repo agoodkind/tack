@@ -73,20 +73,41 @@ type SearchQueryService struct {
 }
 
 // NewSearchQueryService constructs the public search service and its search slots.
-func NewSearchQueryService(ports SearchQueryPorts, source clock.Clock, settings config.SearchQuerySettings) *SearchQueryService {
-	return &SearchQueryService{ports: ports, clock: source, settings: settings, slots: make(chan struct{}, settings.Concurrency)}
+func NewSearchQueryService(
+	ports SearchQueryPorts,
+	source clock.Clock,
+	settings config.SearchQuerySettings,
+) *SearchQueryService {
+	return &SearchQueryService{
+		ports:    ports,
+		clock:    source,
+		settings: settings,
+		slots:    make(chan struct{}, settings.Concurrency),
+	}
 }
 
 // Search takes a process search slot, opens a session or continues one, then
 // returns one bounded page of currently authorized nodes.
-func (s *SearchQueryService) Search(ctx context.Context, request SearchRequest) (SearchPage, error) {
+func (s *SearchQueryService) Search(
+	ctx context.Context,
+	request SearchRequest,
+) (SearchPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.settings.RequestDeadline)
 	defer cancel()
 	text := strings.TrimSpace(request.Text)
 	if text == "" || len(text) > s.settings.MaxQueryBytes || !utf8.ValidString(text) {
-		return SearchPage{}, queryFailure(ctx, "validate query", request.SessionID,
-			fmt.Errorf("query must contain 1 to %d bytes of UTF-8 text: %w", s.settings.MaxQueryBytes, searchdomain.ErrInvalidQuery))
+		return SearchPage{}, queryFailure(
+			ctx,
+			"validate query",
+			request.SessionID,
+			fmt.Errorf(
+				"query must contain 1 to %d bytes of UTF-8 text: %w",
+				s.settings.MaxQueryBytes,
+				searchdomain.ErrInvalidQuery,
+			),
+		)
 	}
+
 	release, err := s.acquireSearchSlot(ctx, request.SessionID)
 	if err != nil {
 		return SearchPage{}, err
@@ -94,70 +115,154 @@ func (s *SearchQueryService) Search(ctx context.Context, request SearchRequest) 
 	defer release()
 	authority, err := s.ports.Access.EntryAuthority(ctx, request.EntryPointID)
 	if err != nil {
-		return SearchPage{}, queryFailure(ctx, "resolve entry point authority", request.SessionID, err)
+		return SearchPage{}, queryFailure(
+			ctx,
+			"resolve entry point authority",
+			request.SessionID,
+			err,
+		)
 	}
+
 	restoreEpoch, err := s.ports.Generations.SearchRestoreEpoch(ctx)
 	if err != nil {
 		return SearchPage{}, queryFailure(ctx, "read search restore epoch", request.SessionID, err)
 	}
+
 	if request.SessionID == uuid.Nil {
 		version, versionErr := s.ports.Versions.ActiveAccessVersion(ctx, authority)
 		if versionErr != nil {
-			return SearchPage{}, queryFailure(ctx, "read active access version", uuid.Nil, versionErr)
+			return SearchPage{}, queryFailure(
+				ctx,
+				"read active access version",
+				uuid.Nil,
+				versionErr,
+			)
 		}
+
 		filter, compileErr := s.callerAccess(ctx, request, authority, version)
 		if compileErr != nil {
 			return SearchPage{}, compileErr
 		}
-		page, openErr := s.open(ctx, request, authority, searchdomain.Query{Text: text, Index: "", NodeType: request.NodeType, Access: filter, Generation: restoreEpoch})
+
+		page, openErr := s.open(
+			ctx,
+			request,
+			authority,
+			searchdomain.Query{
+				Text:       text,
+				Index:      "",
+				NodeType:   request.NodeType,
+				Access:     filter,
+				Generation: restoreEpoch,
+			},
+		)
 		// If sweepExpired fails, withhold the page and session created by open.
 		// The session expires later, and a later sweep removes it.
 		if sweepErr := s.sweepExpired(ctx); sweepErr != nil {
-			failure := queryFailure(ctx, "sweep expired search sessions", uuid.Nil, errors.Join(openErr, sweepErr))
+			failure := queryFailure(
+				ctx,
+				"sweep expired search sessions",
+				uuid.Nil,
+				errors.Join(openErr, sweepErr),
+			)
+
 			return SearchPage{}, failure
 		}
+
 		return page, openErr
 	}
+
 	session, err := s.ports.Sessions.Load(ctx, request.SessionID)
 	if err != nil {
 		return SearchPage{}, queryFailure(ctx, "load search session", request.SessionID, err)
 	}
+
 	filter, err := s.callerAccess(ctx, request, authority, session.Query.Access.Version)
 	if err != nil {
 		return SearchPage{}, err
 	}
-	current := searchdomain.Query{Text: text, Index: session.Query.Index, NodeType: request.NodeType, Access: filter, Generation: restoreEpoch}
+
+	current := searchdomain.Query{
+		Text:       text,
+		Index:      session.Query.Index,
+		NodeType:   request.NodeType,
+		Access:     filter,
+		Generation: restoreEpoch,
+	}
+
 	return s.continueSession(ctx, request, session, authority, current)
 }
 
 // callerAccess compiles the caller's current opaque keys under version from
 // current membership.
-func (s *SearchQueryService) callerAccess(ctx context.Context, request SearchRequest, authority uuid.UUID, version string) (searchdomain.AccessFilter, error) {
-	filter, err := s.ports.Access.Query(ctx, searchaccess.AccessRequest{
-		Version: version, PrincipalID: request.PrincipalID, AuthorityID: authority,
-		EntryPointID: request.EntryPointID, MemberOrganizations: request.MemberOrganizations,
-	})
+func (s *SearchQueryService) callerAccess(
+	ctx context.Context,
+	request SearchRequest,
+	authority uuid.UUID,
+	version string,
+) (searchdomain.AccessFilter, error) {
+	filter, err := s.ports.Access.Query(
+		ctx,
+		searchaccess.AccessRequest{
+			Version:             version,
+			PrincipalID:         request.PrincipalID,
+			AuthorityID:         authority,
+			EntryPointID:        request.EntryPointID,
+			MemberOrganizations: request.MemberOrganizations,
+		},
+	)
 	if err != nil {
-		return searchdomain.AccessFilter{}, queryFailure(ctx, "compile caller access", request.SessionID, err)
+		return searchdomain.AccessFilter{}, queryFailure(
+			ctx,
+			"compile caller access",
+			request.SessionID,
+			err,
+		)
 	}
+
 	return filter, nil
 }
 
-func (s *SearchQueryService) continueSession(ctx context.Context, request SearchRequest, session searchdomain.Session, authority uuid.UUID, current searchdomain.Query) (SearchPage, error) {
+func (s *SearchQueryService) continueSession(
+	ctx context.Context,
+	request SearchRequest,
+	session searchdomain.Session,
+	authority uuid.UUID,
+	current searchdomain.Query,
+) (SearchPage, error) {
 	filter := current.Access
-	binding := searchdomain.SessionBinding(request.PrincipalID, authority, request.EntryPointID, current)
+	binding := searchdomain.SessionBinding(
+		request.PrincipalID,
+		authority,
+		request.EntryPointID,
+		current,
+	)
 	if binding != session.Binding || request.Version > session.Version {
-		return SearchPage{}, queryFailure(ctx, "verify search session", session.ID, searchdomain.ErrSessionMismatch)
+		return SearchPage{}, queryFailure(
+			ctx,
+			"verify search session",
+			session.ID,
+			searchdomain.ErrSessionMismatch,
+		)
 	}
+
 	if session.Closing || session.Expired(s.clock.Now()) {
 		return SearchPage{}, s.refuseExpired(ctx, session)
 	}
+
 	if request.Version < session.Version {
 		return s.replay(ctx, session, request.Version, filter)
 	}
+
 	if session.Complete {
-		return SearchPage{}, queryFailure(ctx, "verify search session", session.ID, searchdomain.ErrSessionExpired)
+		return SearchPage{}, queryFailure(
+			ctx,
+			"verify search session",
+			session.ID,
+			searchdomain.ErrSessionExpired,
+		)
 	}
+
 	return s.advance(ctx, session, filter)
 }
 
@@ -165,17 +270,36 @@ func (s *SearchQueryService) continueSession(ctx context.Context, request Search
 // Storage, engine, and policy failures log at Error.
 func queryFailure(ctx context.Context, operation string, sessionID uuid.UUID, err error) error {
 	wrapped := fmt.Errorf("search %s: %w", operation, err)
+
 	expected := []error{
-		searchdomain.ErrInvalidQuery, searchdomain.ErrSessionChanged, searchdomain.ErrSessionExpired,
-		searchdomain.ErrSessionNotFound, searchdomain.ErrSessionMismatch, searchdomain.ErrSnapshotLost,
-		searchdomain.ErrNoServingIndex, searchaccess.ErrAccessDenied,
+		searchdomain.ErrInvalidQuery,
+		searchdomain.ErrSessionChanged,
+		searchdomain.ErrSessionExpired,
+		searchdomain.ErrSessionNotFound,
+		searchdomain.ErrSessionMismatch,
+		searchdomain.ErrSnapshotLost,
+		searchdomain.ErrNoServingIndex,
+		searchaccess.ErrAccessDenied,
 	}
 	for _, outcome := range expected {
 		if errors.Is(err, outcome) {
-			telemetry.L(ctx).InfoContext(ctx, "search.query.refused", slog.String("reason", wrapped.Error()), slog.String("session_id", sessionID.String()))
+			telemetry.L(ctx).InfoContext(
+				ctx,
+				"search.query.refused",
+				slog.String("reason", wrapped.Error()),
+				slog.String("session_id", sessionID.String()),
+			)
+
 			return wrapped
 		}
 	}
-	telemetry.L(ctx).ErrorContext(ctx, "search.query.failed", slog.String("err", wrapped.Error()), slog.String("session_id", sessionID.String()))
+
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.query.failed",
+		slog.String("err", wrapped.Error()),
+		slog.String("session_id", sessionID.String()),
+	)
+
 	return wrapped
 }

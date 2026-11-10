@@ -46,14 +46,29 @@ type AuditPartRestoreManifest struct {
 }
 
 var auditPartRestoreRequiredMembers = []string{
-	"schema_version", "ticket", "org_id", "target_event_id", "source_event_id", "part_index", "manifest_sha256",
-	"declared_parts", "identity_count", "target_seq", "target_shard", "target_hash_version",
-	"target_row_hash", "source_seq", "source_shard", "source_row_hash",
+	"schema_version",
+	"ticket",
+	"org_id",
+	"target_event_id",
+	"source_event_id",
+	"part_index",
+	"manifest_sha256",
+	"declared_parts",
+	"identity_count",
+	"target_seq",
+	"target_shard",
+	"target_hash_version",
+	"target_row_hash",
+	"source_seq",
+	"source_shard",
+	"source_row_hash",
 }
 
 func readAuditPartRestoreManifest(
 	ctx context.Context,
-	repairDir, path, wantDigest string,
+	repairDir string,
+	path string,
+	wantDigest string,
 ) (AuditPartRestoreManifest, string, error) {
 	directory, err := openRepairDirectory(ctx, repairDir)
 	if err != nil {
@@ -67,14 +82,24 @@ func readAuditPartRestoreManifest(
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return AuditPartRestoreManifest{}, "", manifestRefused(ctx,
-			fmt.Sprintf("cannot read part restore manifest %q: %v", path, err))
+		return AuditPartRestoreManifest{}, "", manifestRefused(
+			ctx,
+			fmt.Sprintf("cannot read part restore manifest %q: %v", path, err),
+		)
 	}
+
 	fileDigest := audit.SHA256Hex(content)
 	if fileDigest != wantDigest {
-		return AuditPartRestoreManifest{}, "", manifestRefused(ctx,
-			fmt.Sprintf("manifest file digest %s does not equal --manifest-sha256 %s", fileDigest, wantDigest))
+		return AuditPartRestoreManifest{}, "", manifestRefused(
+			ctx,
+			fmt.Sprintf(
+				"manifest file digest %s does not equal --manifest-sha256 %s",
+				fileDigest,
+				wantDigest,
+			),
+		)
 	}
+
 	err = requireManifestMembers(ctx, content)
 	if err != nil {
 		return AuditPartRestoreManifest{}, "", err
@@ -85,10 +110,12 @@ func readAuditPartRestoreManifest(
 	if err != nil {
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
+
 	err = manifest.validate()
 	if err != nil {
 		return AuditPartRestoreManifest{}, "", manifestRefused(ctx, err.Error())
 	}
+
 	return manifest, fileDigest, nil
 }
 
@@ -105,13 +132,19 @@ func requireManifestMembers(ctx context.Context, content []byte) error {
 			return manifestRefused(ctx, "member "+name+" is missing or null")
 		}
 	}
+
 	return nil
 }
 
 func (m AuditPartRestoreManifest) validate() error {
 	switch {
 	case m.SchemaVersion != auditPartRestoreSchemaVersion:
-		return fmt.Errorf("%w %d is not %d", errAuditPartSchemaVersion, m.SchemaVersion, auditPartRestoreSchemaVersion)
+		return fmt.Errorf(
+			"%w %d is not %d",
+			errAuditPartSchemaVersion,
+			m.SchemaVersion,
+			auditPartRestoreSchemaVersion,
+		)
 	case m.Ticket != auditPartRestoreTicket:
 		return fmt.Errorf("%w %q is not %s", errAuditPartTicket, m.Ticket, auditPartRestoreTicket)
 	case m.OrgID == uuid.Nil || m.TargetEventID == uuid.Nil || m.SourceEventID == uuid.Nil:

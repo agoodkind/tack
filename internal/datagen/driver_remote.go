@@ -30,7 +30,10 @@ func NewRemoteDriver(endpoint string, client *http.Client, seed int64) (*Driver,
 		return nil, fmt.Errorf("qa datagen: remote endpoint %q is not a valid URL", endpoint)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, fmt.Errorf("qa datagen: remote endpoint scheme %q is not http or https", parsed.Scheme)
+		return nil, fmt.Errorf(
+			"qa datagen: remote endpoint scheme %q is not http or https",
+			parsed.Scheme,
+		)
 	}
 	if parsed.Host == "" {
 		return nil, fmt.Errorf("qa datagen: remote endpoint %q has no host", endpoint)

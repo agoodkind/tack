@@ -8,7 +8,11 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-func (space *workspace) run(t *testing.T, variables map[string]string, args ...string) (string, int) {
+func (space *workspace) run(
+	t *testing.T,
+	variables map[string]string,
+	args ...string,
+) (string, int) {
 	t.Helper()
 	environment, command := space.tofuCommand(variables, args)
 	output, code := space.host.Run(t, environment, command...)
@@ -17,7 +21,11 @@ func (space *workspace) run(t *testing.T, variables map[string]string, args ...s
 }
 
 // start runs tofu in the container without waiting for it to end.
-func (space *workspace) start(t *testing.T, variables map[string]string, args ...string) *testenv.TofuProcess {
+func (space *workspace) start(
+	t *testing.T,
+	variables map[string]string,
+	args ...string,
+) *testenv.TofuProcess {
 	t.Helper()
 	environment, command := space.tofuCommand(variables, args)
 	return space.host.Start(t, environment, command...)
@@ -31,7 +39,10 @@ func (space *workspace) wait(t *testing.T, process *testenv.TofuProcess) (string
 	return output, code
 }
 
-func (space *workspace) tofuCommand(variables map[string]string, args []string) ([]string, []string) {
+func (space *workspace) tofuCommand(
+	variables map[string]string,
+	args []string,
+) ([]string, []string) {
 	environment := []string{
 		"HOME=" + space.host.Directory,
 		"TF_CLI_CONFIG_FILE=" + space.cliConfigPath(),

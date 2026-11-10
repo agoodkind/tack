@@ -11,27 +11,50 @@ import (
 )
 
 func TestMacRunnerRejectsUnsupportedNestedCompose(t *testing.T) {
-	t.Run("multiple documents", func(t *testing.T) {
-		options, _ := macFixture(t)
-		compose := macRead(t, options.Root, "docker-compose.test.yml")
-		macWrite(t, options.Root, "docker-compose.test.yml", compose+"\n---\nservices:\n  tests:\n    privileged: true\n")
-		result, err := testenv.RunMacTests(t.Context(), options)
-		if err == nil || !strings.Contains(err.Error(), "multiple Compose documents are unsupported") || result.ExitCode != 1 {
-			t.Fatalf("multiple Compose documents: result=%+v error=%v", result, err)
-		}
-		if _, err := os.Lstat(options.EvidenceDirectory); !os.IsNotExist(err) {
-			t.Fatalf("multiple Compose documents created evidence: %v", err)
-		}
-	})
-	t.Run("aliased bind options", func(t *testing.T) {
-		options, _ := macFixture(t)
-		compose := macRead(t, options.Root, "docker-compose.test.yml")
-		anchor := "services:\n  fixture:\n    image: unused\n    volumes: &fixture_mounts\n      - type: bind\n        source: /var/run/docker.sock\n        target: /var/run/docker.sock\n        bind:\n          create_host_path: true\n"
-		compose = strings.Replace(compose, "services:\n", anchor, 1)
-		compose = strings.Replace(compose, "- /var/run/docker.sock:/var/run/docker.sock", "- *fixture_mount", 1)
-		compose = strings.Replace(compose, "      - type: bind", "      - &fixture_mount\n        type: bind", 1)
-		macRefuseNestedCompose(t, options, compose, "bind.create_host_path")
-	})
+	t.Run(
+		"multiple documents",
+		func(t *testing.T) {
+			options, _ := macFixture(t)
+			compose := macRead(t, options.Root, "docker-compose.test.yml")
+			macWrite(
+				t,
+				options.Root,
+				"docker-compose.test.yml",
+				compose+"\n---\nservices:\n  tests:\n    privileged: true\n",
+			)
+			result, err := testenv.RunMacTests(t.Context(), options)
+			if err == nil ||
+				!strings.Contains(err.Error(), "multiple Compose documents are unsupported") ||
+				result.ExitCode != 1 {
+				t.Fatalf("multiple Compose documents: result=%+v error=%v", result, err)
+			}
+			if _, err := os.Lstat(options.EvidenceDirectory); !os.IsNotExist(err) {
+				t.Fatalf("multiple Compose documents created evidence: %v", err)
+			}
+		},
+	)
+	t.Run(
+		"aliased bind options",
+		func(t *testing.T) {
+			options, _ := macFixture(t)
+			compose := macRead(t, options.Root, "docker-compose.test.yml")
+			anchor := "services:\n  fixture:\n    image: unused\n    volumes: &fixture_mounts\n      - type: bind\n        source: /var/run/docker.sock\n        target: /var/run/docker.sock\n        bind:\n          create_host_path: true\n"
+			compose = strings.Replace(compose, "services:\n", anchor, 1)
+			compose = strings.Replace(
+				compose,
+				"- /var/run/docker.sock:/var/run/docker.sock",
+				"- *fixture_mount",
+				1,
+			)
+			compose = strings.Replace(
+				compose,
+				"      - type: bind",
+				"      - &fixture_mount\n        type: bind",
+				1,
+			)
+			macRefuseNestedCompose(t, options, compose, "bind.create_host_path")
+		},
+	)
 	for _, test := range []struct {
 		field   string
 		options string
@@ -41,13 +64,21 @@ func TestMacRunnerRejectsUnsupportedNestedCompose(t *testing.T) {
 		{field: "volume.labels", options: "volume:\n          labels: {fixture: test}"},
 		{field: "consistency", options: "consistency: cached"},
 	} {
-		t.Run(test.field, func(t *testing.T) {
-			options, _ := macFixture(t)
-			compose := macRead(t, options.Root, "docker-compose.test.yml")
-			mount := "- type: volume\n        source: tack-test-go-cache\n        target: /root/.cache/go-build\n        " + test.options
-			compose = strings.Replace(compose, "- tack-test-go-cache:/root/.cache/go-build", mount, 1)
-			macRefuseNestedCompose(t, options, compose, test.field)
-		})
+		t.Run(
+			test.field,
+			func(t *testing.T) {
+				options, _ := macFixture(t)
+				compose := macRead(t, options.Root, "docker-compose.test.yml")
+				mount := "- type: volume\n        source: tack-test-go-cache\n        target: /root/.cache/go-build\n        " + test.options
+				compose = strings.Replace(
+					compose,
+					"- tack-test-go-cache:/root/.cache/go-build",
+					mount,
+					1,
+				)
+				macRefuseNestedCompose(t, options, compose, test.field)
+			},
+		)
 	}
 	for _, test := range []struct {
 		field string
@@ -58,13 +89,21 @@ func TestMacRunnerRejectsUnsupportedNestedCompose(t *testing.T) {
 		{field: "recursive", value: "disabled"},
 		{field: "create_host_path", value: "true"},
 	} {
-		t.Run("bind."+test.field, func(t *testing.T) {
-			options, _ := macFixture(t)
-			compose := macRead(t, options.Root, "docker-compose.test.yml")
-			mount := "- type: bind\n        source: /var/run/docker.sock\n        target: /var/run/docker.sock\n        bind:\n          " + test.field + ": " + test.value
-			compose = strings.Replace(compose, "- /var/run/docker.sock:/var/run/docker.sock", mount, 1)
-			macRefuseNestedCompose(t, options, compose, "bind."+test.field)
-		})
+		t.Run(
+			"bind."+test.field,
+			func(t *testing.T) {
+				options, _ := macFixture(t)
+				compose := macRead(t, options.Root, "docker-compose.test.yml")
+				mount := "- type: bind\n        source: /var/run/docker.sock\n        target: /var/run/docker.sock\n        bind:\n          " + test.field + ": " + test.value
+				compose = strings.Replace(
+					compose,
+					"- /var/run/docker.sock:/var/run/docker.sock",
+					mount,
+					1,
+				)
+				macRefuseNestedCompose(t, options, compose, "bind."+test.field)
+			},
+		)
 	}
 	for _, test := range []struct {
 		field string
@@ -81,13 +120,16 @@ func TestMacRunnerRejectsUnsupportedNestedCompose(t *testing.T) {
 		{field: "priority", value: "1"},
 		{field: "use_service_name_alias", value: "false"},
 	} {
-		t.Run("endpoint."+test.field, func(t *testing.T) {
-			options, _ := macFixture(t)
-			compose := macRead(t, options.Root, "docker-compose.test.yml")
-			endpoint := "  tests:\n    networks:\n      default:\n        " + test.field + ": " + test.value + "\n"
-			compose = strings.Replace(compose, "  tests:\n", endpoint, 1)
-			macRefuseNestedCompose(t, options, compose, test.field)
-		})
+		t.Run(
+			"endpoint."+test.field,
+			func(t *testing.T) {
+				options, _ := macFixture(t)
+				compose := macRead(t, options.Root, "docker-compose.test.yml")
+				endpoint := "  tests:\n    networks:\n      default:\n        " + test.field + ": " + test.value + "\n"
+				compose = strings.Replace(compose, "  tests:\n", endpoint, 1)
+				macRefuseNestedCompose(t, options, compose, test.field)
+			},
+		)
 	}
 }
 
@@ -95,7 +137,9 @@ func macRefuseNestedCompose(t *testing.T, options testenv.MacTestOptions, compos
 	t.Helper()
 	macWrite(t, options.Root, "docker-compose.test.yml", compose)
 	result, err := testenv.RunMacTests(t.Context(), options)
-	if err == nil || !strings.Contains(err.Error(), "unsupported tests") || !strings.Contains(err.Error(), field) || result.ExitCode != 1 {
+	if err == nil || !strings.Contains(err.Error(), "unsupported tests") ||
+		!strings.Contains(err.Error(), field) ||
+		result.ExitCode != 1 {
 		t.Fatalf("unsupported nested Compose %s: result=%+v error=%v", field, result, err)
 	}
 	if _, err := os.Lstat(options.EvidenceDirectory); !os.IsNotExist(err) {

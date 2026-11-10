@@ -21,12 +21,18 @@ func TestDiscoverSoakProjectsUsesRawIDsForExistingCorpus(t *testing.T) {
 	session := &runSession{
 		driver:  NewDriver(testGraph(fake), false, seed),
 		content: content,
-		identities: Identities{Workspaces: []WorkspaceIdentity{{
-			Slug: "qa-777-o01-w01",
-			Actors: []Actor{{
-				Token: "token",
-			}},
-		}}},
+		identities: Identities{
+			Workspaces: []WorkspaceIdentity{
+				{
+					Slug: "qa-777-o01-w01",
+					Actors: []Actor{
+						{
+							Token: "token",
+						},
+					},
+				},
+			},
+		},
 		scale: scale,
 		seed:  seed,
 	}

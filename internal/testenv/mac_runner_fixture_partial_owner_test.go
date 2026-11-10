@@ -28,7 +28,10 @@ func TestMacRunnerDockerFixturePartialOwner(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	completed := make(chan outcome, 1)
-	go func() { result, err := testenv.RunMacTests(ctx, options); completed <- outcome{result, err} }()
+	go func() {
+		result, err := testenv.RunMacTests(ctx, options)
+		completed <- outcome{result, err}
+	}()
 	finished := false
 	t.Cleanup(func() {
 		if !finished {
@@ -61,7 +64,12 @@ func TestMacRunnerDockerFixturePartialOwner(t *testing.T) {
 		}
 	}
 	outer := strings.TrimSpace(macRead(t, options.EvidenceDirectory, "outer-id.txt"))
-	if _, err := macFixtureExec(t.Context(), docker, outer, []string{"kill", "-KILL", match[2]}); err != nil {
+	if _, err := macFixtureExec(
+		t.Context(),
+		docker,
+		outer,
+		[]string{"kill", "-KILL", match[2]},
+	); err != nil {
 		t.Fatal(err)
 	}
 	result := <-completed
@@ -71,14 +79,24 @@ func TestMacRunnerDockerFixturePartialOwner(t *testing.T) {
 	}
 	summary := macOwnershipEvidence(t, options.EvidenceDirectory)
 	fixture, found := summary.Fixtures.Containers[match[1]]
-	if !found || !fixture.Create || !fixture.Log || !fixture.Absent || fixture.Labels["io.goodkind.tack.testenv.runner"] != "" || !summary.FullCleanup {
+	if !found || !fixture.Create || !fixture.Log || !fixture.Absent ||
+		fixture.Labels["io.goodkind.tack.testenv.runner"] != "" ||
+		!summary.FullCleanup {
 		t.Errorf("partial owner attribution or cleanup incomplete: %+v", summary)
 	}
-	if _, err := docker.ContainerInspect(t.Context(), match[1], client.ContainerInspectOptions{}); !errdefs.IsNotFound(err) {
+	if _, err := docker.ContainerInspect(
+		t.Context(),
+		match[1],
+		client.ContainerInspectOptions{},
+	); !errdefs.IsNotFound(err) {
 		t.Errorf("partial owner container remains: %v", err)
 	}
 	for name := range summary.Fixtures.Volumes {
-		if _, err := docker.VolumeInspect(t.Context(), name, client.VolumeInspectOptions{}); !errdefs.IsNotFound(err) {
+		if _, err := docker.VolumeInspect(
+			t.Context(),
+			name,
+			client.VolumeInspectOptions{},
+		); !errdefs.IsNotFound(err) {
 			t.Errorf("partial owner volume remains %s: %v", name, err)
 		}
 	}
@@ -91,7 +109,9 @@ func macHasCreateEvent(directory, id string) bool {
 	}
 	for _, line := range strings.Split(string(contents), "\n") {
 		var event events.Message
-		if json.Unmarshal([]byte(line), &event) == nil && event.Type == events.ContainerEventType && event.Action == events.ActionCreate && event.Actor.ID == id {
+		if json.Unmarshal([]byte(line), &event) == nil && event.Type == events.ContainerEventType &&
+			event.Action == events.ActionCreate &&
+			event.Actor.ID == id {
 			return true
 		}
 	}

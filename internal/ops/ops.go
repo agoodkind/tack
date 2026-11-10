@@ -65,6 +65,7 @@ func (e *Env) Close() {
 	if e == nil || e.Pool == nil {
 		return
 	}
+
 	e.Pool.Close()
 }
 
@@ -75,14 +76,17 @@ func NewEnv(ctx context.Context, cfg *config.Config) (*Env, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: %w", err)
 	}
+
 	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, pool)
 	if err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("foundationdb: %w", err)
 	}
+
 	if cfg.SearchEndpoint != "" {
 		stores.EnableSearchWork()
 	}
+
 	return &Env{
 		Cfg:    cfg,
 		Pool:   pool,
@@ -99,12 +103,15 @@ func Register(op Operation) {
 	if op.Name == "" {
 		panic("ops.Register: name required")
 	}
+
 	if op.Run == nil {
 		panic("ops.Register: " + op.Name + " missing Run")
 	}
+
 	if _, exists := registry[op.Name]; exists {
 		panic("ops.Register: duplicate name: " + op.Name)
 	}
+
 	registry[op.Name] = op
 }
 
@@ -120,7 +127,9 @@ func List() []Operation {
 	for _, op := range registry {
 		out = append(out, op)
 	}
+
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+
 	return out
 }
 
@@ -131,6 +140,7 @@ func Run(ctx context.Context, cfg *config.Config, name string) error {
 	if !ok {
 		return fmt.Errorf("unknown op: %s", name)
 	}
+
 	return runOperation(ctx, cfg, op, op.Run)
 }
 
@@ -142,14 +152,23 @@ func RunDryRun(ctx context.Context, cfg *config.Config, name string) error {
 	if !ok {
 		return fmt.Errorf("unknown op: %s", name)
 	}
+
 	if op.DryRun == nil {
 		return fmt.Errorf("op %s declares no dry run", name)
 	}
+
 	return runOperation(ctx, cfg, op, op.DryRun)
 }
 
-func runOperation(ctx context.Context, cfg *config.Config, op Operation, work func(ctx context.Context, env *Env) error) error {
-	ctx, span := telemetry.StartSpan(ctx, "ops.run",
+func runOperation(
+	ctx context.Context,
+	cfg *config.Config,
+	op Operation,
+	work func(ctx context.Context, env *Env) error,
+) error {
+	ctx, span := telemetry.StartSpan(
+		ctx,
+		"ops.run",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(attribute.String("ops.name", op.Name)),
 	)
@@ -164,9 +183,17 @@ func runOperation(ctx context.Context, cfg *config.Config, op Operation, work fu
 
 	env.Log.InfoContext(ctx, "ops.start", slog.String("op", op.Name))
 	if err := work(ctx, env); err != nil {
-		env.Log.ErrorContext(ctx, "ops.failed", slog.String("op", op.Name), slog.String("err", err.Error()))
+		env.Log.ErrorContext(
+			ctx,
+			"ops.failed",
+			slog.String("op", op.Name),
+			slog.String("err", err.Error()),
+		)
+
 		return err
 	}
+
 	env.Log.InfoContext(ctx, "ops.completed", slog.String("op", op.Name))
+
 	return nil
 }

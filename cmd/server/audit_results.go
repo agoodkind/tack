@@ -41,6 +41,7 @@ func (r auditQueryResult) AuditReadTargets() ([]audit.Target, error) {
 	for _, row := range r.Rows {
 		targets = append(targets, audit.EventTarget(row.EventID))
 	}
+
 	return targets, nil
 }
 
@@ -55,11 +56,13 @@ func (r auditLastChangeResult) AuditReadTargets() ([]audit.Target, error) {
 			targets = append(targets, audit.EventTarget(entry.Change.EventID))
 		}
 	}
+
 	for _, entry := range r.Relationships {
 		if entry.Change != nil {
 			targets = append(targets, audit.EventTarget(entry.Change.EventID))
 		}
 	}
+
 	return targets, nil
 }
 
