@@ -24,6 +24,7 @@ jobs:
       attestations: write
     secrets: inherit
     with:
+      job_layout: single
       golangci_lint_version: v2.15.0
       pre_make_commands: |
         fdb_version=7.4.6
