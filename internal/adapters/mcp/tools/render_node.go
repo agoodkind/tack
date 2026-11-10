@@ -15,26 +15,38 @@ func renderNode(rc *renderCtx, view *node.NodeView) string {
 	if view == nil {
 		return executeMarkdownTemplate("node.md.tmpl", nodeTemplateData{Heading: "Node not found"})
 	}
+
 	addNodeTargets(rc.ctx, view)
 	ident := identifierFor(view, rc)
 	heading := view.Name
 	if ident != "" && ident != view.Name {
 		heading = fmt.Sprintf("`%s`: %s", ident, view.Name)
 	}
+
 	fields := nodeFields(rc, view)
-	return executeMarkdownTemplate("node.md.tmpl", nodeTemplateData{Heading: heading, Fields: fields})
+
+	return executeMarkdownTemplate(
+		"node.md.tmpl",
+		nodeTemplateData{Heading: heading, Fields: fields},
+	)
 }
 
-// renderDeletedNode renders the delete confirmation. result counts the
-// deleted nodes, the root included once it is gone, and the children moved
-// to the root's parent, and states whether the delete job finished within the
-// request.
-func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time, result service.DeleteResult) string {
+// renderDeletedNode renders the delete confirmation. result counts deleted
+// nodes, including the root after deletion, and children that the job moved
+// to the root's parent. Its state indicates whether the delete job finished
+// during the request.
+func renderDeletedNode(
+	rc *renderCtx,
+	view *node.NodeView,
+	deletedAt time.Time,
+	result service.DeleteResult,
+) string {
 	ident := identifierFor(view, rc)
 	nodeType := strings.ToLower(view.NodeType)
 	if ident == "" {
 		ident = view.Name
 	}
+
 	fields := []markdownField{
 		markdownCodeFieldValue("Reference", ident),
 		markdownCodeFieldValue("Type", view.NodeType),
@@ -46,15 +58,24 @@ func renderDeletedNode(rc *renderCtx, view *node.NodeView, deletedAt time.Time, 
 	}
 	heading := fmt.Sprintf("Deleted %s `%s`", nodeType, ident)
 	if result.State != node.SubtreeDeleteFinished {
-		heading = fmt.Sprintf("Deleting %s `%s` and its descendants in the background", nodeType, ident)
+		heading = fmt.Sprintf(
+			"Deleting %s `%s` and its descendants in the background",
+			nodeType,
+			ident,
+		)
 	}
-	return executeMarkdownTemplate("node.md.tmpl", nodeTemplateData{Heading: heading, Fields: fields})
+
+	return executeMarkdownTemplate(
+		"node.md.tmpl",
+		nodeTemplateData{Heading: heading, Fields: fields},
+	)
 }
 
 func nodeFields(rc *renderCtx, view *node.NodeView) []markdownField {
 	fields := make([]markdownField, 0, len(view.Props)+6)
 	fields = appendRefField(fields, rc, "Scope", uuidProp(view, "scope_id"))
 	fields = appendRefField(fields, rc, "Parent", uuidProp(view, "parent_id"))
+
 	fields = appendRefField(fields, rc, "State", uuidProp(view, "state_id"))
 	for _, key := range sortedScalarPropKeys(view) {
 		value := propAsString(view.Props[key])
@@ -62,35 +83,53 @@ func nodeFields(rc *renderCtx, view *node.NodeView) []markdownField {
 			fields = append(fields, markdownFieldValue(humanLabel(key), value))
 		}
 	}
+
 	fields = appendAssignees(fields, rc, view)
 	fields = appendUserField(fields, rc, "Created", view.CreatedAt, view.CreatedBy)
 	fields = appendUserField(fields, rc, "Updated", view.UpdatedAt, view.UpdatedBy)
 	fields = append(fields, markdownCodeFieldValue("Raw id", view.ID.String()))
+
 	return fields
 }
 
-func appendRefField(fields []markdownField, rc *renderCtx, label string, id uuid.UUID) []markdownField {
+func appendRefField(
+	fields []markdownField,
+	rc *renderCtx,
+	label string,
+	id uuid.UUID,
+) []markdownField {
 	if id == uuid.Nil || rc == nil || rc.reader == nil {
 		return fields
 	}
+
 	ident, _, nodeType := rc.nodeSummary(id)
 	if ident == "" {
 		return append(fields, markdownFieldValue(label, fmt.Sprintf("missing `%s`", id)))
 	}
+
 	return append(fields, markdownFieldValue(label, fmt.Sprintf("`%s` (`%s`)", ident, nodeType)))
 }
 
-func appendUserField(fields []markdownField, rc *renderCtx, label string, t time.Time, by uuid.UUID) []markdownField {
+func appendUserField(
+	fields []markdownField,
+	rc *renderCtx,
+	label string,
+	t time.Time,
+	by uuid.UUID,
+) []markdownField {
 	stamp := formatDisplayTime(t)
 	if stamp == "" {
 		return fields
 	}
+
 	name := ""
 	if rc != nil {
 		name = rc.userDisplay(by)
 	}
+
 	if name != "" {
 		return append(fields, markdownFieldValue(label, fmt.Sprintf("%s by %s", stamp, name)))
 	}
+
 	return append(fields, markdownFieldValue(label, stamp))
 }

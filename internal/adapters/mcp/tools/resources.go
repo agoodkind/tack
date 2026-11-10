@@ -17,9 +17,15 @@ import (
 // gettingStartedURI is the one resource this server exposes.
 const gettingStartedURI = "tack://getting-started"
 
-// RegisterResources registers MCP resources. Content is generated from the
-// current metadata set so that custom types surface automatically without
-// editing string literals.
+// RegisterResources registers the MCP orientation resource.
+//
+// The resource renders current node types and property definitions. Custom
+// types appear from metadata without edits to the template's type list.
+//
+// The resource registration uses these values:
+//
+//   - The URI is tack://getting-started.
+//   - The MIME type is text/markdown.
 func RegisterResources(
 	s *mcpserver.MCPServer,
 	reader node.NodeReader,
@@ -38,70 +44,87 @@ func RegisterResources(
 	)
 }
 
-// gettingStartedHandler builds the handler AddResource registers.
+// gettingStartedHandler builds the handler that AddResource registers.
 //
-// It is a named function rather than a literal so a test can drive the same
-// handler the server serves. A test that called the recording helper directly
-// would pass even if the handler stopped calling it, which is the shape that
-// let this verb go unemitted in the first place.
+// Resource tests invoke the handler through the registered resource. Calling
+// only the recording helper would not detect a handler that omits recording.
 func gettingStartedHandler(
 	resolver *Resolver,
 	nodeTypes []*node.NodeType,
 	propertyDefs []*node.PropertyDef,
 ) func(context.Context, mcpmcp.ReadResourceRequest) ([]mcpmcp.ResourceContents, error) {
-	return func(ctx context.Context, _ mcpmcp.ReadResourceRequest) ([]mcpmcp.ResourceContents, error) {
-		// Reading a resource is a product action by an identified caller, so it
-		// is recorded like any other. This handler took the context and ignored
-		// it, which is why mcp.resource_read was declared and never emitted
-		// (TACK-340).
+	return func(ctx context.Context, _ mcpmcp.ReadResourceRequest) (
+		[]mcpmcp.ResourceContents,
+		error,
+	) {
+		// Record the identified caller's resource read before rendering content.
+		// TACK-340 added this requirement after the handler ignored its context
+		// and did not emit mcp.resource_read.
 		if err := recordResourceRead(ctx, gettingStartedURI, resolver); err != nil {
 			return nil, err
 		}
+
 		return []mcpmcp.ResourceContents{
-			mcpmcp.TextResourceContents{URI: gettingStartedURI, MIMEType: "text/markdown", Text: buildGettingStartedText(resolver, nodeTypes, propertyDefs)},
+			mcpmcp.TextResourceContents{
+				URI:      gettingStartedURI,
+				MIMEType: "text/markdown",
+				Text:     buildGettingStartedText(resolver, nodeTypes, propertyDefs),
+			},
 		}, nil
 	}
 }
 
-// recordResourceRead writes the ledger row for one resource read.
+// recordResourceRead skips local recording when a read collector exists.
+// Otherwise it submits mcp.resource_read to the context recorder before the
+// handler renders content. A missing recorder refuses the read. A recorder
+// failure only logs a warning; that branch does not satisfy the requirement
+// to refuse reads when required audit recording fails.
 //
-// A failure to record is logged rather than returned, matching the tool
-// wrapper: the read has already happened, and refusing the response afterwards
-// would neither unmake it nor record it. It returns an error when the request
-// context does not have an audit recorder, and the handler then refuses the
-// read.
-//
-// A resource read resolves no workspace, so nothing stamps a scope and the
-// row would carry the nil org, which no per-tenant query, redaction, or chain
-// reaches (TACK-477). The row therefore carries the reader's sole org when
-// their membership admits exactly one, and nil when it admits zero or
-// several, the same honesty rule the auth events follow (TACK-461).
+// The helper preserves an existing scope. Without an organization in that
+// scope, it uses the reader's sole organization or [uuid.Nil] for zero or
+// several memberships. TACK-477 added that selection after resource reads
+// omitted the organization, following the auth-event rule from TACK-461.
 func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) error {
 	if audit.HasReadCollector(ctx) {
 		return nil
 	}
+
 	recorder, err := requireAuditRecorder(ctx)
 	if err != nil {
 		logRecorderMissing(ctx, "resource:"+uri)
 		return err
 	}
+
 	actor := audit.Actor{
-		Type: audit.ActorUser, ID: uuid.Nil, Email: "", Name: "", SessionID: "",
-		IP: "", UserAgent: "", RequestID: telemetry.RequestID(ctx), APITokenLabel: "",
+		Type:          audit.ActorUser,
+		ID:            uuid.Nil,
+		Email:         "",
+		Name:          "",
+		SessionID:     "",
+		IP:            "",
+		UserAgent:     "",
+		RequestID:     telemetry.RequestID(ctx),
+		APITokenLabel: "",
 	}
 	if userID, found := auth.UserID(ctx); found {
 		actor.ID = userID
 	}
+
 	scope := audit.ScopeFromContext(ctx)
 	if scope.OrgID == uuid.Nil {
 		scope.OrgID = readerSoleOrg(ctx, resolver)
 	}
+
 	event := audit.Event{
 		EventID: uuid.Nil,
 		Verb:    string(audit.VerbMCPResourceRead),
 		Actor:   actor,
 		Entity: audit.Entity{
-			Type: "mcp_resource", NodeType: "", ID: uuid.Nil, Identifier: "", Name: uri,
+			Type:       "mcp_resource",
+			NodeType:   "",
+			ID:         uuid.Nil,
+			Identifier: "",
+			Name:       uri,
 		},
 		Context: audit.EventContext{
 			Source:      audit.SourceMCP,
@@ -123,27 +146,34 @@ func recordResourceRead(ctx context.Context, uri string, resolver *Resolver) err
 		Extra:          nil,
 	}
 	if err := recorder.Record(ctx, event); err != nil {
-		telemetry.L(ctx).Warn("audit.record_failed",
+		telemetry.L(ctx).Warn(
+			"audit.record_failed",
 			slog.String("resource", uri),
-			slog.String("err", err.Error()))
+			slog.String("err", err.Error()),
+		)
 	}
+
 	return nil
 }
 
-// readerSoleOrg returns the org the reader belongs to when the membership
-// admits exactly one, and nil otherwise. A lookup failure also returns nil:
-// enriching the row must never cost the read it describes.
+// readerSoleOrg returns the reader's sole organization or [uuid.Nil] for any
+// other membership count. It also returns [uuid.Nil] when the resolver or
+// membership repository is missing, or when the lookup fails. A lookup
+// failure logs a warning.
 func readerSoleOrg(ctx context.Context, resolver *Resolver) uuid.UUID {
 	if resolver == nil || resolver.members == nil {
 		return uuid.Nil
 	}
+
 	orgIDs, err := resolver.callerOrgIDs(ctx)
 	if err != nil {
 		telemetry.L(ctx).Warn("audit.resource_org_stamp_failed", slog.String("err", err.Error()))
 		return uuid.Nil
 	}
+
 	if len(orgIDs) == 1 {
 		return orgIDs[0]
 	}
+
 	return uuid.Nil
 }

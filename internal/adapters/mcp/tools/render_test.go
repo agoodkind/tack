@@ -12,9 +12,9 @@ import (
 	"goodkind.io/tack/internal/domain/user"
 )
 
-// fakeReader is a tiny in-memory NodeReader that lets render_test assert
-// cross-reference resolution without standing up FDB. Only Get is used by the
-// renderer; the other methods panic to make accidental calls obvious.
+// fakeReader implements NodeReader in memory for tests of reference
+// rendering without FoundationDB. The renderer calls only Get. The other
+// methods panic on a test call.
 type fakeReader struct {
 	views map[uuid.UUID]*node.NodeView
 }
@@ -31,7 +31,10 @@ func (r *fakeReader) List(context.Context, node.NodeListQuery) ([]*node.NodeView
 	panic("fakeReader.List called")
 }
 
-func (r *fakeReader) Stream(context.Context, node.NodeListQuery) (<-chan node.NodeStreamResult, error) {
+func (r *fakeReader) Stream(
+	context.Context,
+	node.NodeListQuery,
+) (<-chan node.NodeStreamResult, error) {
 	panic("fakeReader.Stream called")
 }
 
@@ -57,12 +60,15 @@ func mustRaw(t *testing.T, v any) json.RawMessage {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+
 	return b
 }
 
-// TestRenderNodeIdentifierPreferred asserts that an issue under a project
-// renders with a "<PROJECT>-<seq>" identifier and pretty-printed scope and
-// parent fields, with the raw UUID at the bottom for round-tripping.
+// TestRenderNodeIdentifierPreferred checks that the response for an issue
+// under a project contains a "<PROJECT>-<seq>" identifier, the issue name,
+// readable scope and parent fields, and the raw issue UUID for later
+// requests. renderNode puts the identifier and name in the heading.
+// nodeFields appends the raw UUID after the other fields.
 func TestRenderNodeIdentifierPreferred(t *testing.T) {
 	now := time.Date(2026, 4, 28, 5, 30, 0, 0, time.UTC)
 	orgID := uuid.New()
@@ -116,37 +122,64 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 		},
 	}
 
-	reader := &fakeReader{views: map[uuid.UUID]*node.NodeView{
-		projectID: project,
-		epicID:    epic,
-		stateID:   state,
-		issueID:   issue,
-	}}
-	users := &fakeUsers{users: map[uuid.UUID]*user.User{
-		userID: {ID: userID, DisplayName: "alex", Email: "alex@goodkind.io"},
-	}}
+	reader := &fakeReader{
+		views: map[uuid.UUID]*node.NodeView{
+			projectID: project,
+			epicID:    epic,
+			stateID:   state,
+			issueID:   issue,
+		},
+	}
+	users := &fakeUsers{
+		users: map[uuid.UUID]*user.User{
+			userID: {ID: userID, DisplayName: "alex", Email: "alex@goodkind.io"},
+		},
+	}
 
-	rc := newRenderCtxWithTypes(context.Background(), reader, users, map[string]*node.NodeType{
-		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}},
-		"epic":    {TypeKey: "epic", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
-		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
-	})
+	rc := newRenderCtxWithTypes(
+		context.Background(),
+		reader,
+		users,
+		map[string]*node.NodeType{
+			"project": {
+				TypeKey: "project",
+				Reference: node.ReferenceConfig{
+					Strategy: node.ReferenceDirectProperty,
+					Property: "identifier",
+				},
+			},
+			"epic": {
+				TypeKey: "epic",
+				Reference: node.ReferenceConfig{
+					Strategy: node.ReferenceScopedSequence,
+					Property: "sequence",
+				},
+			},
+			"issue": {
+				TypeKey: "issue",
+				Reference: node.ReferenceConfig{
+					Strategy: node.ReferenceScopedSequence,
+					Property: "sequence",
+				},
+			},
+		},
+	)
 	out := renderNode(rc, issue)
 
-	mustContain(t, out, "TACK-65")                          // identifier in header
-	mustContain(t, out, "Fix the resolver bug")             // name in header
-	mustContain(t, out, "- Scope:")                         // resolved scope label
-	mustContain(t, out, "`TACK` (`project`)")               // resolved scope value
-	mustContain(t, out, "- Parent:")                        // resolved parent label
-	mustContain(t, out, "`TACK-12` (`epic`)")               // resolved parent identifier
-	mustContain(t, out, "- State:")                         // resolved state label
-	mustContain(t, out, "`in-progress` (`state`)")          // resolved state value
-	mustContain(t, out, "- Priority: high")                 // scalar prop
-	mustContain(t, out, "- Created:")                       // audit field
-	mustContain(t, out, "by alex")                          // resolved user
-	mustContain(t, out, "- Raw id: `"+issueID.String()+"`") // raw id at bottom
+	mustContain(t, out, "TACK-65")                          // Match the ID.
+	mustContain(t, out, "Fix the resolver bug")             // Check the name.
+	mustContain(t, out, "- Scope:")                         // Check Scope.
+	mustContain(t, out, "`TACK` (`project`)")               // Check the scope.
+	mustContain(t, out, "- Parent:")                        // Check Parent.
+	mustContain(t, out, "`TACK-12` (`epic`)")               // Check the parent.
+	mustContain(t, out, "- State:")                         // Check State.
+	mustContain(t, out, "`in-progress` (`state`)")          // Check the state.
+	mustContain(t, out, "- Priority: high")                 // Check priority.
+	mustContain(t, out, "- Created:")                       // Check Created.
+	mustContain(t, out, "by alex")                          // Match user name.
+	mustContain(t, out, "- Raw id: `"+issueID.String()+"`") // Match raw UUID.
 
-	// No raw UUIDs for cross-references should appear in the body.
+	// The body must not contain raw UUIDs for cross-references.
 	for _, raw := range []string{projectID.String(), epicID.String(), stateID.String()} {
 		if strings.Contains(out, raw) {
 			t.Errorf("rendered output should not contain raw cross-ref UUID %s; got:\n%s", raw, out)
@@ -154,42 +187,72 @@ func TestRenderNodeIdentifierPreferred(t *testing.T) {
 	}
 }
 
-// TestRenderListUsesIdentifiers asserts that a list of issues prints
+// TestRenderListUsesIdentifiers checks that a list of issues prints
 // identifiers and resolved state names rather than raw UUIDs.
 func TestRenderListUsesIdentifiers(t *testing.T) {
 	orgID := uuid.New()
 	projectID := uuid.New()
 	stateID := uuid.New()
 	project := &node.NodeView{
-		ID: projectID, OrgID: orgID, NodeType: "project", Name: "Tack",
-		Props: map[string]json.RawMessage{"identifier": mustRaw(t, "TACK")},
+		ID:       projectID,
+		OrgID:    orgID,
+		NodeType: "project",
+		Name:     "Tack",
+		Props:    map[string]json.RawMessage{"identifier": mustRaw(t, "TACK")},
 	}
 	stateView := &node.NodeView{
-		ID: stateID, OrgID: orgID, NodeType: "state", Name: "in-progress",
+		ID:       stateID,
+		OrgID:    orgID,
+		NodeType: "state",
+		Name:     "in-progress",
 	}
 	issues := make([]*node.NodeView, 0, 3)
+
 	for i := 1; i <= 3; i++ {
-		issues = append(issues, &node.NodeView{
-			ID:       uuid.New(),
-			OrgID:    orgID,
-			NodeType: "issue",
-			Name:     "issue " + string(rune('A'+i-1)),
-			Props: map[string]json.RawMessage{
-				"sequence": mustRaw(t, i),
-				"scope_id": mustRaw(t, projectID.String()),
-				"state_id": mustRaw(t, stateID.String()),
-				"priority": mustRaw(t, "medium"),
+		issues = append(
+			issues,
+			&node.NodeView{
+				ID:       uuid.New(),
+				OrgID:    orgID,
+				NodeType: "issue",
+				Name:     "issue " + string(rune('A'+i-1)),
+				Props: map[string]json.RawMessage{
+					"sequence": mustRaw(t, i),
+					"scope_id": mustRaw(t, projectID.String()),
+					"state_id": mustRaw(t, stateID.String()),
+					"priority": mustRaw(t, "medium"),
+				},
 			},
-		})
+		)
 	}
-	reader := &fakeReader{views: map[uuid.UUID]*node.NodeView{
-		projectID: project,
-		stateID:   stateView,
-	}}
-	rc := newRenderCtxWithTypes(context.Background(), reader, nil, map[string]*node.NodeType{
-		"project": {TypeKey: "project", Reference: node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}},
-		"issue":   {TypeKey: "issue", Reference: node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}},
-	})
+
+	reader := &fakeReader{
+		views: map[uuid.UUID]*node.NodeView{
+			projectID: project,
+			stateID:   stateView,
+		},
+	}
+	rc := newRenderCtxWithTypes(
+		context.Background(),
+		reader,
+		nil,
+		map[string]*node.NodeType{
+			"project": {
+				TypeKey: "project",
+				Reference: node.ReferenceConfig{
+					Strategy: node.ReferenceDirectProperty,
+					Property: "identifier",
+				},
+			},
+			"issue": {
+				TypeKey: "issue",
+				Reference: node.ReferenceConfig{
+					Strategy: node.ReferenceScopedSequence,
+					Property: "sequence",
+				},
+			},
+		},
+	)
 	out := renderList(rc, "issues", issues)
 
 	mustContain(t, out, "3 issues")

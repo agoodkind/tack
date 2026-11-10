@@ -29,8 +29,8 @@ const (
 	maxSessionTokenBytes = maxSessionTokenChunks * sessionTokenChunkBytes
 )
 
-// searchSessionRecord is the bounded session header. Query tokens are stored
-// in separate chunk keys.
+// searchSessionRecord stores the bounded session header. Separate chunk keys
+// store its query tokens.
 type searchSessionRecord struct {
 	ID               uuid.UUID       `json:"id"`
 	PrincipalID      uuid.UUID       `json:"principal_id"`
@@ -63,16 +63,32 @@ type searchReplayRecord struct {
 }
 
 func sessionRecordFor(session searchdomain.Session) searchSessionRecord {
-	chunks := (len(session.Snapshot.QueryTokens) + sessionTokenChunkBytes - 1) / sessionTokenChunkBytes
+	chunks := (len(
+		session.Snapshot.QueryTokens,
+	) + sessionTokenChunkBytes - 1) / sessionTokenChunkBytes
+
 	return searchSessionRecord{
-		ID: session.ID, PrincipalID: session.PrincipalID, AuthorityID: session.AuthorityID,
-		EntryPointID: session.EntryPointID, Binding: hex.EncodeToString(session.Binding[:]),
-		Text: session.Query.Text, Index: session.Query.Index, NodeType: session.Query.NodeType,
-		AccessVersion: session.Query.Access.Version, AccessKeys: session.Query.Access.Keys,
-		Generation: session.Query.Generation, PITID: session.Snapshot.PITID, Sort: session.Sort, Version: session.Version,
-		TokenBytes: len(session.Snapshot.QueryTokens), TokenChunks: chunks,
-		CreatedAt: session.CreatedAt, IdleDeadline: session.IdleDeadline, AbsoluteDeadline: session.AbsoluteDeadline,
-		Complete: session.Complete, Closing: session.Closing,
+		ID:               session.ID,
+		PrincipalID:      session.PrincipalID,
+		AuthorityID:      session.AuthorityID,
+		EntryPointID:     session.EntryPointID,
+		Binding:          hex.EncodeToString(session.Binding[:]),
+		Text:             session.Query.Text,
+		Index:            session.Query.Index,
+		NodeType:         session.Query.NodeType,
+		AccessVersion:    session.Query.Access.Version,
+		AccessKeys:       session.Query.Access.Keys,
+		Generation:       session.Query.Generation,
+		PITID:            session.Snapshot.PITID,
+		Sort:             session.Sort,
+		Version:          session.Version,
+		TokenBytes:       len(session.Snapshot.QueryTokens),
+		TokenChunks:      chunks,
+		CreatedAt:        session.CreatedAt,
+		IdleDeadline:     session.IdleDeadline,
+		AbsoluteDeadline: session.AbsoluteDeadline,
+		Complete:         session.Complete,
+		Closing:          session.Closing,
 	}
 }
 
@@ -82,18 +98,35 @@ func (r searchSessionRecord) session(tokens json.RawMessage) (searchdomain.Sessi
 	if err != nil || len(decoded) != len(binding) {
 		return searchdomain.Session{}, fmt.Errorf("session %s binding is invalid", r.ID)
 	}
+
 	copy(binding[:], decoded)
 	query := searchdomain.Query{
-		Text: r.Text, Index: r.Index, NodeType: r.NodeType,
+		Text:       r.Text,
+		Index:      r.Index,
+		NodeType:   r.NodeType,
 		Access:     searchdomain.AccessFilter{Version: r.AccessVersion, Keys: r.AccessKeys},
 		Generation: r.Generation,
 	}
+
 	return searchdomain.Session{
-		ID: r.ID, PrincipalID: r.PrincipalID, AuthorityID: r.AuthorityID, EntryPointID: r.EntryPointID,
-		Binding: binding, Query: query,
-		Snapshot: searchdomain.Snapshot{PITID: r.PITID, Index: r.Index, QueryTokens: tokens},
-		Sort:     r.Sort, Version: r.Version, CreatedAt: r.CreatedAt, IdleDeadline: r.IdleDeadline,
-		AbsoluteDeadline: r.AbsoluteDeadline, Complete: r.Complete, Closing: r.Closing,
+		ID:           r.ID,
+		PrincipalID:  r.PrincipalID,
+		AuthorityID:  r.AuthorityID,
+		EntryPointID: r.EntryPointID,
+		Binding:      binding,
+		Query:        query,
+		Snapshot: searchdomain.Snapshot{
+			PITID:       r.PITID,
+			Index:       r.Index,
+			QueryTokens: tokens,
+		},
+		Sort:             r.Sort,
+		Version:          r.Version,
+		CreatedAt:        r.CreatedAt,
+		IdleDeadline:     r.IdleDeadline,
+		AbsoluteDeadline: r.AbsoluteDeadline,
+		Complete:         r.Complete,
+		Closing:          r.Closing,
 	}, nil
 }
 
@@ -101,31 +134,51 @@ type sessionValue interface {
 	searchSessionRecord | searchReplayRecord
 }
 
-func readSessionValue[Value sessionValue](tr fdb.ReadTransaction, key []byte, value *Value) (bool, error) {
+func readSessionValue[Value sessionValue](
+	tr fdb.ReadTransaction,
+	key []byte,
+	value *Value,
+) (bool, error) {
 	countSessionRead(tr)
 	encoded, err := tr.Get(fdb.Key(key)).Get()
 	if err != nil {
 		return false, sessionStepError{operation: "read search session value", err: err}
 	}
+
 	if len(encoded) == 0 {
 		return false, nil
 	}
+
 	if err := json.Unmarshal(encoded, value); err != nil {
 		return false, sessionStepError{operation: "decode search session value", err: err}
 	}
+
 	return true, nil
 }
 
-func writeSessionValue[Value sessionValue](tr fdb.Transaction, key []byte, value Value, limit int) error {
+func writeSessionValue[Value sessionValue](
+	tr fdb.Transaction,
+	key []byte,
+	value Value,
+	limit int,
+) error {
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return sessionStepError{operation: "encode search session value", err: err}
 	}
+
 	if len(encoded) > limit {
-		operation := fmt.Sprintf("search session value contains %d bytes, above the %d-byte bound", len(encoded), limit)
+		operation := fmt.Sprintf(
+			"search session value contains %d bytes, above the %d-byte bound",
+			len(encoded),
+			limit,
+		)
+
 		return sessionStepError{operation: operation, err: searchdomain.ErrInvalidQuery}
 	}
+
 	tr.Set(fdb.Key(key), encoded)
+
 	return nil
 }
 
@@ -142,6 +195,8 @@ func (e sessionStepError) Unwrap() error { return e.err }
 // isSessionOutcome reports whether err is an expected session state rather
 // than a storage failure.
 func isSessionOutcome(err error) bool {
-	return errors.Is(err, searchdomain.ErrSessionChanged) || errors.Is(err, searchdomain.ErrSessionExpired) ||
-		errors.Is(err, searchdomain.ErrSessionNotFound) || errors.Is(err, searchdomain.ErrInvalidQuery)
+	return errors.Is(err, searchdomain.ErrSessionChanged) ||
+		errors.Is(err, searchdomain.ErrSessionExpired) ||
+		errors.Is(err, searchdomain.ErrSessionNotFound) ||
+		errors.Is(err, searchdomain.ErrInvalidQuery)
 }

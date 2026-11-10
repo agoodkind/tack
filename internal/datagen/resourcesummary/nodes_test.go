@@ -9,10 +9,11 @@ import (
 
 const runLogFixture = "testdata/run.log"
 
-// TestSummarizeRunFixture checks the node figures from a hand-written run log. The log
-// has one-line slog records around the indented result and one sample without node readings.
-// The second node-b reading has fewer heap bytes and a larger heap fraction than the first.
-// node-c has one reading.
+// TestSummarizeRunFixture checks node figures using a run log that the test
+// author wrote. The log includes single-line slog records around the indented
+// result and one sample without node readings. The second node-b reading has
+// fewer heap bytes and a larger heap fraction than its first reading. node-c
+// has one reading.
 func TestSummarizeRunFixture(t *testing.T) {
 	got, err := resourcesummary.SummarizeRun(t.Context(), runLogFixture)
 	if err != nil {
@@ -62,8 +63,8 @@ func TestSummarizeRunFixture(t *testing.T) {
 	}
 }
 
-// TestSummarizeRunRejectsInvalidTotals changes one total in the run log fixture for each case
-// and checks the exact error from SummarizeRun.
+// TestSummarizeRunRejectsInvalidTotals changes one total in the run log fixture
+// for each case and checks the exact error from SummarizeRun.
 func TestSummarizeRunRejectsInvalidTotals(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -92,7 +93,9 @@ func TestSummarizeRunRejectsInvalidTotals(t *testing.T) {
 		},
 	}
 	for _, scenario := range cases {
-		t.Run(scenario.name, func(t *testing.T) {
+		t.Run(
+			scenario.name,
+			func(t *testing.T) {
 			path := writeChangedFixture(t, runLogFixture, scenario.change)
 
 			got, err := resourcesummary.SummarizeRun(t.Context(), path)
@@ -103,6 +106,7 @@ func TestSummarizeRunRejectsInvalidTotals(t *testing.T) {
 			if err.Error() != scenario.wantError {
 				t.Errorf("error = %q, want %q", err.Error(), scenario.wantError)
 			}
-		})
+			},
+		)
 	}
 }

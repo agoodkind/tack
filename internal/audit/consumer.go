@@ -18,8 +18,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ConsumerConfig collects every input the audit-consumer binary needs.
-// Defaults match the cutover design in docs/plans/audit-kafka-cutover.md.
+// ConsumerConfig supplies audit-consumer connection and processing settings.
+// NewConsumer applies defaults for omitted settings.
 type ConsumerConfig struct {
 	Brokers         []string
 	Topic           string
@@ -29,34 +29,34 @@ type ConsumerConfig struct {
 	YugabyteDSN     string
 	SigningKeyPath  string
 	NotarizerPeriod time.Duration
-	// SigningHost is stamped on every notarization the embedded notarizer
-	// writes (TACK-437).
+	// SigningHost identifies the host on every notarization that the embedded
+	// notarizer writes (TACK-437).
 	SigningHost string
 
-	// LagWarnMessages is the per-partition lag threshold above which the
-	// consumer emits a `consumer.lag.high` warning every poll. Zero falls
-	// back to 1000 (the operator-default for Wave 1).
+	// LagWarnMessages sets the per-partition threshold for consumer.lag.high
+	// warnings on each poll. The consumer warns at or above the threshold.
+	// A nonpositive value uses 1000, the Wave 1 operator default.
 	LagWarnMessages int64
 
-	// SummaryEvery is how many records between batched
-	// `consumer.processed` debug summaries. Zero falls back to 100.
+	// SummaryEvery sets the record count between consumer.processed debug
+	// summaries. A nonpositive value uses 100.
 	SummaryEvery int
 
-	// PartitionPeriod is how often the partition-manager runs pg_partman
-	// maintenance for audit.events. Zero falls back to 24h.
+	// PartitionPeriod sets the pg_partman maintenance interval for audit.events.
+	// A nonpositive value uses 24h.
 	PartitionPeriod time.Duration
 
-	// TopicRetention is how long the broker keeps an audit record nobody has
-	// consumed. The consumer sets it on the topic at startup. Zero falls back
-	// to one year: the topic is the buffer that survives a consumer outage,
-	// and the broker default of seven days lost fifteen days of events
+	// TopicRetention sets how long the broker retains audit records, including
+	// records that the consumer has not processed. The consumer requests
+	// retention at startup. A nonpositive value uses one year. The seven-day
+	// broker default discarded fifteen days of events during a consumer outage
 	// (TACK-336).
 	TopicRetention time.Duration
 }
 
-// defaultTopicRetention is one year, well past any outage the operator would
-// leave unattended, while still bounded so a broker disk cannot fill without
-// end.
+// defaultTopicRetention retains records for one year to allow recovery from
+// an extended consumer outage. It limits retention time rather than disk
+// usage.
 const defaultTopicRetention = 365 * 24 * time.Hour
 
 // Consumer records Kafka audit events in YugabyteDB and runs the embedded
@@ -74,48 +74,60 @@ type Consumer struct {
 	once    sync.Once
 
 	summary processedSummary
-	// consecutiveFailures counts polls in a row that failed a batch; the loop
-	// alone reads and writes it.
+	// consecutiveFailures counts failed polls with records since the last
+	// successful poll with records. Only the consumer loop reads and writes it.
 	consecutiveFailures int
 	// assemblyAlertAt records the time of the last assembly alert check.
 	assemblyAlertAt time.Time
 }
 
-// processedSummary buffers per-batch counts so the consumer emits one
-// `consumer.processed` debug line per N records rather than one per record.
+// processedSummary accumulates batch counts for consumer.processed debug
+// summaries after the configured record count.
 type processedSummary struct {
 	count        int
 	verbCounts   map[string]int
 	commitOffset int64
 }
 
-// NewConsumer opens every external connection and prepares the embedded
-// notarizer. The returned Consumer is ready for Start. Callers must Close.
+// NewConsumer prepares a [Consumer] for [Consumer.Start].
+//
+// It connects to YugabyteDB and Kafka and prepares the embedded notarizer
+// when SigningKeyPath supplies a key.
+//
+// Manage the returned consumer in this order:
+//
+//  1. Call [Consumer.Start] to run the consumer.
+//  2. Call [Consumer.Close] to release its resources.
 func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	cfg = applyConsumerDefaults(cfg)
 	if len(cfg.Brokers) == 0 {
 		return nil, errors.New("audit consumer: brokers required")
 	}
+
 	if cfg.YugabyteDSN == "" {
 		return nil, errors.New("audit consumer: yugabyte DSN required")
 	}
 
 	ybpool, err := pgxpool.New(ctx, cfg.YugabyteDSN)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.yugabyte_pool_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.yugabyte_pool_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("audit consumer yugabyte pool: %w", err)
 	}
+
 	if err := pingYugabyteUntilReady(ctx, ybpool); err != nil {
 		ybpool.Close()
 		return nil, err
 	}
 
-	// Autocommit stays off: the loop commits the records of each batch
-	// explicitly, right after the ledger transaction that projected them
-	// commits, so the group offset never runs ahead of the ledger. The
-	// earlier loop marked records for an autocommit that was never enabled,
-	// so no offset was ever committed and every restart re-read the topic
-	// from its start (TACK-336 review).
+	// The loop commits Kafka offsets after the batch transaction commits.
+	// Automatic commits remain disabled. The earlier loop marked records for
+	// automatic commits without enabling them and never committed an offset.
+	// Every restart reread the topic from the start (TACK-336 review).
 	kclient, err := kgo.NewClient(
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumerGroup(cfg.GroupID),
@@ -124,14 +136,20 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		kgo.FetchMaxWait(cfg.PollInterval),
 	)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.kafka_client_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.kafka_client_failed",
+			slog.String("err", err.Error()),
+		)
 		ybpool.Close()
+
 		return nil, fmt.Errorf("audit consumer kafka client: %w", err)
 	}
 
 	if err := ensureAuditTopic(ctx, kclient, cfg.Topic, cfg.TopicRetention); err != nil {
 		kclient.Close()
 		ybpool.Close()
+
 		return nil, err
 	}
 
@@ -154,16 +172,26 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	}
 
 	if cfg.SigningKeyPath != "" {
-		n, nerr := NewNotarizer(ctx, cfg.YugabyteDSN, NotarizerConfig{
-			SigningKeyPath: cfg.SigningKeyPath,
-			SigningHost:    cfg.SigningHost,
-			Period:         cfg.NotarizerPeriod,
-		})
+		n, nerr := NewNotarizer(
+			ctx,
+			cfg.YugabyteDSN,
+			NotarizerConfig{
+				SigningKeyPath: cfg.SigningKeyPath,
+				SigningHost:    cfg.SigningHost,
+				Period:         cfg.NotarizerPeriod,
+			},
+		)
 		if nerr != nil {
-			slog.ErrorContext(ctx, "audit.consumer.notarizer_failed", slog.String("err", nerr.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.consumer.notarizer_failed",
+				slog.String("err", nerr.Error()),
+			)
 			c.closeResources()
+
 			return nil, fmt.Errorf("audit consumer notarizer: %w", nerr)
 		}
+
 		c.notarizer = n
 	}
 
@@ -176,46 +204,65 @@ func applyConsumerDefaults(cfg ConsumerConfig) ConsumerConfig {
 	if cfg.Topic == "" {
 		cfg.Topic = "audit.events.v1"
 	}
+
 	if cfg.GroupID == "" {
 		cfg.GroupID = "tack-audit-projector"
 	}
+
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = 256
 	}
+
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = 250 * time.Millisecond
 	}
+
 	if cfg.NotarizerPeriod <= 0 {
 		cfg.NotarizerPeriod = 60 * time.Second
 	}
+
 	if cfg.LagWarnMessages <= 0 {
 		cfg.LagWarnMessages = 1000
 	}
+
 	if cfg.SummaryEvery <= 0 {
 		cfg.SummaryEvery = 100
 	}
+
 	if cfg.PartitionPeriod <= 0 {
 		cfg.PartitionPeriod = 24 * time.Hour
 	}
+
 	if cfg.TopicRetention <= 0 {
 		cfg.TopicRetention = defaultTopicRetention
 	}
+
 	return cfg
 }
 
-// Start runs the poll loop and the embedded notarizer until ctx is canceled
-// or Close is called.
+// Start runs the consumer poll loop.
+//
+// It also starts the embedded notarizer and partition manager when present.
+//
+// Either condition stops the poll loop:
+//
+//   - ctx.Done() closes after cancellation or a deadline.
+//   - The caller calls [Consumer.Close].
 func (c *Consumer) Start(ctx context.Context) {
 	if c.notarizer != nil {
 		c.notarizer.Start(ctx)
 	}
+
 	if c.partitions != nil {
 		c.partitions.Start(ctx)
 	}
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				slog.ErrorContext(ctx, "audit.consumer.loop_panic",
+				slog.ErrorContext(
+					ctx,
+					"audit.consumer.loop_panic",
 					slog.Any("panic", r),
 					slog.String("err", fmt.Sprintf("%v", r)),
 				)
@@ -225,18 +272,28 @@ func (c *Consumer) Start(ctx context.Context) {
 	}()
 }
 
-// Close signals the loop to stop, drains in-flight work, and releases every
-// underlying resource. Idempotent.
+// Close drains in-flight work and releases every underlying resource.
+//
+// Only the first call signals the consumer loop to stop. Each call waits for
+// the loop to stop before closing resources.
+//
+// Close releases resources in this order:
+//
+//  1. Close the embedded notarizer and partition manager when present.
+//  2. Close the Kafka client and YugabyteDB pool.
 func (c *Consumer) Close() error {
 	c.once.Do(func() { close(c.stop) })
 	<-c.stopped
 	if c.notarizer != nil {
 		_ = c.notarizer.Close()
 	}
+
 	if c.partitions != nil {
 		_ = c.partitions.Close()
 	}
+
 	c.closeResources()
+
 	return nil
 }
 
@@ -244,6 +301,7 @@ func (c *Consumer) closeResources() {
 	if c.kclient != nil {
 		c.kclient.Close()
 	}
+
 	if c.ybpool != nil {
 		c.ybpool.Close()
 	}
@@ -251,6 +309,7 @@ func (c *Consumer) closeResources() {
 
 func (c *Consumer) loop(ctx context.Context) {
 	defer close(c.stopped)
+
 	for {
 		select {
 		case <-c.stop:
@@ -267,16 +326,18 @@ func (c *Consumer) loop(ctx context.Context) {
 
 		if errs := fetches.Errors(); len(errs) > 0 {
 			for _, fe := range errs {
-				// On an idle topic the per-poll deadline elapses and franz-go
-				// injects a fake fetch carrying the poll context's error (empty
-				// topic, partition -1). That is the expected "nothing arrived"
-				// signal, not a fetch failure, so skip it and only log real
-				// per-partition errors. A genuine fatal partition error is
-				// surfaced separately and still logged here.
-				if errors.Is(fe.Err, context.DeadlineExceeded) || errors.Is(fe.Err, context.Canceled) {
+				// An idle poll deadline produces a synthetic franz-go fetch error with an
+				// empty topic and partition -1. Cancellation and deadline errors do not
+				// indicate a partition failure. The loop skips them and logs the other
+				// per-partition errors, including separately reported fatal errors.
+				if errors.Is(fe.Err, context.DeadlineExceeded) ||
+					errors.Is(fe.Err, context.Canceled) {
 					continue
 				}
-				slog.ErrorContext(ctx, "audit.consumer.fetch_err",
+
+				slog.ErrorContext(
+					ctx,
+					"audit.consumer.fetch_err",
 					slog.String("topic", fe.Topic),
 					slog.Int("partition", int(fe.Partition)),
 					slog.String("err", fe.Err.Error()),
@@ -291,42 +352,49 @@ func (c *Consumer) loop(ctx context.Context) {
 		if hasRecords {
 			failed = c.projectFetches(ctx, fetches)
 		}
+
 		c.completeAssemblies(ctx)
 		c.alertWaitingAssemblies(ctx)
 		if !hasRecords {
 			continue
 		}
+
 		telemetry.ObserveAuditConsumerBatchLatency(sinceMs(pollStart))
 		c.backOffAfterFailures(ctx, failed)
 	}
 }
 
-// observeLag publishes the current lag for every partition the broker
-// returned, and emits one `consumer.lag.high` warning per partition that
-// crosses the configured threshold. Lag is HighWatermark minus the
-// just-consumed offset; when no records were returned but the partition
-// is non-empty, we still record the gap so the operator sees backlog
-// growth even on idle polls.
+// observeLag records lag for each partition in the fetch response. It
+// subtracts the next offset after the last returned record from
+// HighWatermark, or uses HighWatermark when the poll did not return records.
+// It clamps negative lag to zero and logs consumer.lag.high at or above the
+// configured threshold on every poll, including idle polls.
 func (c *Consumer) observeLag(ctx context.Context, fetches kgo.Fetches) {
 	fetches.EachPartition(func(p kgo.FetchTopicPartition) {
 		var lastOffset int64 = -1
+
 		for _, r := range p.Records {
 			if r.Offset > lastOffset {
 				lastOffset = r.Offset
 			}
 		}
+
 		var lag int64
 		if lastOffset >= 0 {
 			lag = p.HighWatermark - (lastOffset + 1)
 		} else {
 			lag = p.HighWatermark
 		}
+
 		if lag < 0 {
 			lag = 0
 		}
+
 		telemetry.SetAuditConsumerLag(p.Topic, p.Partition, lag)
 		if lag >= c.cfg.LagWarnMessages {
-			slog.WarnContext(ctx, "consumer.lag.high",
+			slog.WarnContext(
+				ctx,
+				"consumer.lag.high",
 				slog.String("topic", p.Topic),
 				slog.Int("partition", int(p.Partition)),
 				slog.Int64("lag", lag),
@@ -335,23 +403,28 @@ func (c *Consumer) observeLag(ctx context.Context, fetches kgo.Fetches) {
 	})
 }
 
-// recordSummary folds the just-projected batch into the running summary
-// and emits a `consumer.processed` debug line every cfg.SummaryEvery
-// records. Verb breakdown is the top-5 verbs by count; ties break
-// alphabetically so the output is deterministic.
+// recordSummary adds the processed batch to the running summary. It logs
+// consumer.processed after the count meets cfg.SummaryEvery. The verb
+// summary includes the five most frequent verbs and orders equal counts
+// alphabetically.
 func (c *Consumer) recordSummary(ctx context.Context, records []*kgo.Record, commitOffset int64) {
 	if c.summary.verbCounts == nil {
 		c.summary.verbCounts = make(map[string]int)
 	}
+
 	c.summary.commitOffset = commitOffset
+
 	for _, r := range records {
 		c.summary.count++
 		c.summary.verbCounts[verbFromRecord(r)]++
 	}
+
 	if c.summary.count < c.cfg.SummaryEvery {
 		return
 	}
-	telemetry.L(ctx).Debug("consumer.processed",
+
+	telemetry.L(ctx).Debug(
+		"consumer.processed",
 		slog.Int("count", c.summary.count),
 		slog.Any("verb_breakdown_top5", topVerbs(c.summary.verbCounts, 5)),
 		slog.Int64("commit_offset", c.summary.commitOffset),
@@ -360,9 +433,8 @@ func (c *Consumer) recordSummary(ctx context.Context, records []*kgo.Record, com
 	c.summary.verbCounts = make(map[string]int)
 }
 
-// verbFromRecord pulls the verb out of a Kafka record by peeking at the
-// JSON value. The decode is best-effort; an unparseable payload falls
-// back to "_unparseable" so the summary still surfaces the volume.
+// verbFromRecord reads the verb from the record's JSON value. Invalid JSON
+// or an empty verb returns "_unparseable", which the summary still counts.
 func verbFromRecord(rec *kgo.Record) string {
 	var probe struct {
 		Verb string `json:"verb"`
@@ -370,34 +442,43 @@ func verbFromRecord(rec *kgo.Record) string {
 	if err := json.Unmarshal(rec.Value, &probe); err != nil || probe.Verb == "" {
 		return "_unparseable"
 	}
+
 	return probe.Verb
 }
 
-// topVerbs returns the top-N verbs by count from the summary map. Output
-// is a slice of "verb=count" strings ordered by count desc, then verb asc,
-// so the slog line stays readable.
+// topVerbs returns up to n "verb=count" strings for the log summary. It
+// orders counts from highest to lowest and orders equal counts by verb
+// alphabetically.
 func topVerbs(counts map[string]int, n int) []string {
 	type pair struct {
 		verb  string
 		count int
 	}
+
 	pairs := make([]pair, 0, len(counts))
 	for v, c := range counts {
 		pairs = append(pairs, pair{v, c})
 	}
-	sort.Slice(pairs, func(i, j int) bool {
-		if pairs[i].count != pairs[j].count {
-			return pairs[i].count > pairs[j].count
-		}
-		return pairs[i].verb < pairs[j].verb
-	})
+
+	sort.Slice(
+		pairs,
+		func(i, j int) bool {
+			if pairs[i].count != pairs[j].count {
+				return pairs[i].count > pairs[j].count
+			}
+
+			return pairs[i].verb < pairs[j].verb
+		},
+	)
 	if len(pairs) > n {
 		pairs = pairs[:n]
 	}
+
 	out := make([]string, 0, len(pairs))
 	for _, p := range pairs {
 		out = append(out, fmt.Sprintf("%s=%d", p.verb, p.count))
 	}
+
 	return out
 }
 
@@ -408,42 +489,58 @@ type topicPartition struct {
 
 func groupByPartition(fetches kgo.Fetches) map[topicPartition][]*kgo.Record {
 	out := map[topicPartition][]*kgo.Record{}
+
 	iter := fetches.RecordIter()
 	for !iter.Done() {
 		r := iter.Next()
 		key := topicPartition{Topic: r.Topic, Partition: r.Partition}
 		out[key] = append(out[key], r)
 	}
+
 	return out
 }
 
-func (c *Consumer) projectBatch(ctx context.Context, tp topicPartition, records []*kgo.Record) error {
+func (c *Consumer) projectBatch(
+	ctx context.Context,
+	tp topicPartition,
+	records []*kgo.Record,
+) error {
 	const maxChainRetries = 8
+
 	for attempt := 1; ; attempt++ {
 		err := c.projectBatchOnce(ctx, tp, records)
 		if err == nil {
 			return nil
 		}
+
 		if attempt < maxChainRetries && isRetryableChainErr(err) {
-			slog.WarnContext(ctx, "audit.consumer.chain_retry",
+			slog.WarnContext(
+				ctx,
+				"audit.consumer.chain_retry",
 				slog.String("topic", tp.Topic),
 				slog.Int("partition", int(tp.Partition)),
 				slog.Int("attempt", attempt),
 			)
 			continue
 		}
+
 		return err
 	}
 }
 
 // projectBatchOnce saves ledger rows, token use times, and the consumer offset
 // in one YugabyteDB transaction.
-func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, records []*kgo.Record) error {
+func (c *Consumer) projectBatchOnce(
+	ctx context.Context,
+	tp topicPartition,
+	records []*kgo.Record,
+) error {
 	tx, err := c.ybpool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.begin_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("begin tx: %w", err)
 	}
+
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	projected := make([]committedAuthEvent, 0, len(records))
@@ -452,24 +549,38 @@ func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, reco
 		if perr != nil {
 			return perr
 		}
+
 		if landed {
 			projected = append(projected, pe)
 		}
 	}
+
 	if err := recordTokenUses(ctx, tx, projected); err != nil {
 		return err
 	}
 
 	last := records[len(records)-1]
-	_, err = tx.Exec(ctx, `
+	_, err = tx.Exec(
+		ctx,
+		`
 		INSERT INTO audit.consumer_offsets (consumer_group, topic, partition, "offset", updated_at)
 		VALUES ($1, $2, $3, $4, now())
 		ON CONFLICT (consumer_group, topic, partition) DO UPDATE
 		    SET "offset"   = EXCLUDED."offset",
 		        updated_at = EXCLUDED.updated_at
-	`, c.cfg.GroupID, tp.Topic, tp.Partition, last.Offset+1)
+	`,
+		c.cfg.GroupID,
+		tp.Topic,
+		tp.Partition,
+		last.Offset+1,
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.offset_upsert_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.offset_upsert_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("offset upsert: %w", err)
 	}
 
@@ -482,36 +593,56 @@ func (c *Consumer) projectBatchOnce(ctx context.Context, tp topicPartition, reco
 	return nil
 }
 
-// projectRecord projects one record inside a savepoint of the batch
-// transaction and reports whether it produced a ledger row.
+// projectRecord processes one record in a savepoint of the batch transaction
+// and reports whether it produced a ledger row.
 //
-// A record the ledger refuses, such as one dated into a week no partition
-// covers, used to fail the whole batch, which left the offset in place and the
-// record redelivered until Kafka's retention discarded it: that is how the
-// 2026-07-06 to 07-21 events were lost (TACK-336). The savepoint lets the
-// failed statement be rolled back without aborting the batch, so the record
-// is written to the dead-letter table in the same transaction that advances
-// the offset. Only a failure about the record itself is dead-lettered (see
-// isDeadLetterable); a chain conflict, a lost connection, or a deployment
-// fault still fails the batch, because retrying is the right answer to those.
+// A ledger refusal, such as an event outside every weekly partition, used to
+// fail the batch and prevent offset progress. Kafka repeatedly delivered the
+// record until retention discarded it. This caused the 2026-07-06 to 07-21
+// event loss (TACK-336). The savepoint permits rollback of the failed
+// statement before the batch stores the record in the dead-letter table and
+// advances its offset in the same transaction.
 //
-// A replayed record that lands deletes the dead-letter row it came from in
-// the same transaction; one the ledger already holds does the same, since the
-// event is accounted for either way.
-func (c *Consumer) projectRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (committedAuthEvent, bool, error) {
+// Only record-specific failures qualify for the dead-letter table under
+// isDeadLetterable. Chain conflicts, lost connections, and deployment faults
+// fail the batch for retry. A successful replay deletes its dead-letter row
+// in the same transaction. A replay of an event already in the ledger also
+// deletes its dead-letter row.
+func (c *Consumer) projectRecord(
+	ctx context.Context,
+	tx pgx.Tx,
+	rec *kgo.Record,
+) (committedAuthEvent, bool, error) {
 	savepoint, err := tx.Begin(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.savepoint_failed", slog.String("err", err.Error()))
-		return committedAuthEvent{}, false, fmt.Errorf("savepoint for offset=%d: %w", rec.Offset, err)
+
+		return committedAuthEvent{}, false, fmt.Errorf(
+			"savepoint for offset=%d: %w",
+			rec.Offset,
+			err,
+		)
 	}
+
 	pe, landed, perr := c.projectOne(ctx, savepoint, rec)
 	if perr == nil {
 		if err := savepoint.Commit(ctx); err != nil {
-			slog.ErrorContext(ctx, "audit.consumer.savepoint_release_failed", slog.String("err", err.Error()))
-			return committedAuthEvent{}, false, fmt.Errorf("release savepoint for offset=%d: %w", rec.Offset, err)
+			slog.ErrorContext(
+				ctx,
+				"audit.consumer.savepoint_release_failed",
+				slog.String("err", err.Error()),
+			)
+
+			return committedAuthEvent{}, false, fmt.Errorf(
+				"release savepoint for offset=%d: %w",
+				rec.Offset,
+				err,
+			)
 		}
+
 		return pe, landed, resolveDeadLetter(ctx, tx, rec)
 	}
+
 	_ = savepoint.Rollback(ctx)
 	switch {
 	case errors.Is(perr, errAlreadyProjected):
@@ -519,16 +650,23 @@ func (c *Consumer) projectRecord(ctx context.Context, tx pgx.Tx, rec *kgo.Record
 	case isRetryableChainErr(perr):
 		return committedAuthEvent{}, false, perr
 	case isDeadLetterable(perr):
-		// Malformed payloads and refused inserts alike: the record is kept,
-		// named, and counted in the dead-letter table, and the batch goes on.
+		// The dead-letter table preserves and identifies malformed payloads and
+		// refused inserts. The consumer counts the record and continues the batch.
 		telemetry.IncAuditConsumerDeadLettered()
 		return committedAuthEvent{}, false, deadLetterRecord(ctx, tx, rec, perr)
 	default:
-		slog.ErrorContext(ctx, "audit.consumer.project_record_failed",
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.project_record_failed",
 			slog.String("err", perr.Error()),
 			slog.Int64("offset", rec.Offset),
 		)
-		return committedAuthEvent{}, false, fmt.Errorf("project record offset=%d: %w", rec.Offset, perr)
+
+		return committedAuthEvent{}, false, fmt.Errorf(
+			"project record offset=%d: %w",
+			rec.Offset,
+			perr,
+		)
 	}
 }
 
@@ -543,40 +681,54 @@ type committedAuthEvent struct {
 	APITokenID uuid.UUID
 }
 
-// projectOne writes one event's PII row, then appends it to audit.events and
-// advances audit.chain_heads through the shared chain helper.
-// It first checks for part and manifest messages and stores them in the
-// batch transaction that advances audit.consumer_offsets. The consumer
-// can commit broker offsets before the event is complete. Plain records
-// follow the event path. A plain read event must declare read evidence
-// that matches an empty target list; otherwise, the consumer writes the
-// record to the dead-letter table.
-func (c *Consumer) projectOne(ctx context.Context, tx pgx.Tx, rec *kgo.Record) (committedAuthEvent, bool, error) {
+// projectOne first checks for part and manifest messages. It stores them in
+// the batch transaction that advances audit.consumer_offsets. The consumer
+// can commit broker offsets before the assembled event is complete.
+//
+// For a plain event, it writes personal data before appending audit.events
+// and advancing audit.chain_heads with the shared chain helper.
+//
+// Require every plain read event to declare read evidence that matches an
+// empty target list.
+//
+// When checkReadManifest returns an error, the consumer writes the record
+// to the dead-letter table.
+func (c *Consumer) projectOne(
+	ctx context.Context,
+	tx pgx.Tx,
+	rec *kgo.Record,
+) (committedAuthEvent, bool, error) {
 	message, isTransport, err := decodeTransportMessage(rec.Value)
 	if err != nil {
 		return committedAuthEvent{}, false, rejectTransport(ctx, message.EventID, err.Error())
 	}
+
 	if isTransport {
 		return committedAuthEvent{}, false, storeTransportMessage(ctx, tx, message, rec.Value)
 	}
+
 	prepared, err := unmarshalRecord(ctx, rec)
 	if err != nil {
 		return committedAuthEvent{}, false, err
 	}
+
 	if err := checkReadManifest(prepared.Event, nil); err != nil {
 		return committedAuthEvent{}, false, rejectTransport(ctx, prepared.EventID, err.Error())
 	}
+
 	piiRef, err := writeEventPII(ctx, tx, prepared.Event)
 	if err != nil {
 		return committedAuthEvent{}, false, err
 	}
+
 	prepared.PIIRef = piiRef
 	projected, err := c.advanceChain(ctx, tx, prepared)
+
 	return projected, err == nil, err
 }
 
-// preparedEvent is the post-decode, pre-chain shape of a Kafka record. It
-// caches the json marshals so chain advancement does not redo them.
+// preparedEvent stores a decoded Kafka event before chain insertion. It
+// caches JSON encodings for chain advancement.
 type preparedEvent struct {
 	Event       Event
 	EventID     uuid.UUID
@@ -586,16 +738,17 @@ type preparedEvent struct {
 	PIIRef      uuid.UUID
 }
 
-// unmarshalRecord decodes the Kafka record value into an Event and prepares
-// derived fields. Errors here are treated as malformed-payload signals so
-// the consumer can route the record to the dead-letter table.
+// unmarshalRecord decodes the Kafka record into an [Event] and prepares its
+// derived fields. JSON decoding errors wrap errMalformedPayload for the
+// dead-letter table. Event preparation can also fail before insertion.
 func unmarshalRecord(ctx context.Context, rec *kgo.Record) (preparedEvent, error) {
-	var ev Event
-	if err := json.Unmarshal(rec.Value, &ev); err != nil {
+	var event Event
+	if err := json.Unmarshal(rec.Value, &event); err != nil {
 		slog.WarnContext(ctx, "audit.consumer.malformed_json", slog.String("err", err.Error()))
 		return preparedEvent{}, fmt.Errorf("%w: %w", errMalformedPayload, err)
 	}
-	return prepareEvent(ctx, ev)
+
+	return prepareEvent(ctx, event)
 }
 
 // prepareEvent validates the decoded event, normalizes correlation fields,
@@ -606,28 +759,42 @@ func prepareEvent(ctx context.Context, ev Event) (preparedEvent, error) {
 		slog.WarnContext(ctx, "audit.consumer.malformed_no_occurred_at")
 		return preparedEvent{}, fmt.Errorf("%w: occurred_at missing", errMalformedPayload)
 	}
+
 	canonicalizeCorrelation(&ev)
 
 	if ev.EventID == uuid.Nil {
 		slog.WarnContext(ctx, "audit.consumer.malformed_no_event_id")
 		return preparedEvent{}, fmt.Errorf("%w: event_id missing", errMalformedPayload)
 	}
+
 	eventID := ev.EventID
 	shard := shardOf(ev.Actor.ID, eventID)
 
 	contextJSON, err := json.Marshal(ev.Context)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.consumer.marshal_context_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.consumer.marshal_context_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return preparedEvent{}, fmt.Errorf("marshal context: %w", err)
 	}
+
 	deltaJSON := []byte("null")
 	if ev.Delta != nil {
 		deltaJSON, err = json.Marshal(ev.Delta)
 		if err != nil {
-			slog.ErrorContext(ctx, "audit.consumer.marshal_delta_failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.consumer.marshal_delta_failed",
+				slog.String("err", err.Error()),
+			)
+
 			return preparedEvent{}, fmt.Errorf("marshal delta: %w", err)
 		}
 	}
+
 	return preparedEvent{
 		Event:       ev,
 		EventID:     eventID,
@@ -638,23 +805,32 @@ func prepareEvent(ctx context.Context, ev Event) (preparedEvent, error) {
 	}, nil
 }
 
-// advanceChain appends the prepared event to audit.events and advances its
-// (org, shard) head through the shared compare-and-swap helper, so two
-// consumers on the same chain cannot fork it. Returns errAlreadyProjected when
-// the idempotency index rejects a redelivered event, and errChainConflict when
-// the head moved underneath this writer.
-func (c *Consumer) advanceChain(ctx context.Context, tx pgx.Tx, p preparedEvent) (committedAuthEvent, error) {
-	_, err := appendChainRow(ctx, tx, chainAppendInput{
-		Event:       p.Event,
-		EventID:     p.EventID,
-		Shard:       p.Shard,
-		PIIRef:      p.PIIRef,
-		ContextJSON: p.ContextJSON,
-		DeltaJSON:   p.DeltaJSON,
-	})
+// advanceChain appends the event to audit.events and updates its
+// organization and shard head with the shared compare-and-swap helper.
+// That helper rejects concurrent updates to the same head to prevent forks.
+// It returns errAlreadyProjected for a repeated event identity and
+// errChainConflict when another writer changes the head.
+func (c *Consumer) advanceChain(
+	ctx context.Context,
+	tx pgx.Tx,
+	p preparedEvent,
+) (committedAuthEvent, error) {
+	_, err := appendChainRow(
+		ctx,
+		tx,
+		chainAppendInput{
+			Event:       p.Event,
+			EventID:     p.EventID,
+			Shard:       p.Shard,
+			PIIRef:      p.PIIRef,
+			ContextJSON: p.ContextJSON,
+			DeltaJSON:   p.DeltaJSON,
+		},
+	)
 	if err != nil {
 		return committedAuthEvent{}, err
 	}
+
 	return committedAuthEvent{
 		EventTime:  p.Event.OccurredAt.UTC(),
 		Action:     p.Event.Verb,
@@ -666,6 +842,7 @@ func writePIIRow(ctx context.Context, tx pgx.Tx, actor Actor) (uuid.UUID, error)
 	if !hasPII(actor) {
 		return uuid.Nil, nil
 	}
+
 	piiRef := uuid.Must(uuid.NewV7())
 	piiPayload, err := json.Marshal(map[string]string{
 		"email":           actor.Email,
@@ -678,20 +855,27 @@ func writePIIRow(ctx context.Context, tx pgx.Tx, actor Actor) (uuid.UUID, error)
 		slog.ErrorContext(ctx, "audit.consumer.pii_marshal_failed", slog.String("err", err.Error()))
 		return uuid.Nil, fmt.Errorf("marshal pii: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
+
+	if _, err := tx.Exec(
+		ctx,
+		`
 		INSERT INTO audit.pii (pii_ref, payload, redacted)
 		VALUES ($1, $2, false)
 		ON CONFLICT DO NOTHING
-	`, piiRef, piiPayload); err != nil {
+	`,
+		piiRef,
+		piiPayload,
+	); err != nil {
 		slog.ErrorContext(ctx, "audit.consumer.pii_insert_failed", slog.String("err", err.Error()))
 		return uuid.Nil, fmt.Errorf("pii insert: %w", err)
 	}
+
 	return piiRef, nil
 }
 
-// rowHashInput collects every field that contributes to one event's
-// hash-chain payload. The struct exists so the call site avoids inline
-// map[string]any and the lint stays clean.
+// rowHashInput provides the fields for one event's hash-chain payload.
+// The struct replaces an inline map[string]any at the call site to satisfy
+// lint requirements.
 type rowHashInput struct {
 	Event       Event
 	EventID     uuid.UUID
@@ -704,20 +888,20 @@ type rowHashInput struct {
 	Version     int16
 }
 
-// hashRowForEvent computes the per-event chain hash. Both the consumer and
-// YBRecorder reach it through appendChainRow, so the chain is byte-identical
-// regardless of which writer is active.
+// hashRowForEvent computes the event's chain hash. The consumer and
+// [YBRecorder] both use hashRowForEvent through appendChainRow with the same
+// hash encoding.
 func hashRowForEvent(in rowHashInput) ([]byte, error) {
-	// Version 3 hashes event_time at the microsecond precision the
-	// TIMESTAMPTZ column stores, so offline verification can recompute the
-	// hash from the read-back row in one try. Versions 1 and 2 hashed the
-	// producer's nanosecond timestamp, which the database never stored, so
-	// verification recovers their rows by trying every lost remainder
-	// (TACK-445).
+	// Version 3 hashes event_time at the microsecond precision that TIMESTAMPTZ
+	// stores. Offline verification can recompute the timestamp input from the
+	// stored row. Versions 1 and 2 hashed the producer's nanosecond timestamp.
+	// The database omitted that precision, and verification tries each lost
+	// remainder for those versions (TACK-445).
 	eventTime := in.Event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	if in.Version == auditHashVersion3 {
 		eventTime = in.Event.OccurredAt.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano)
 	}
+
 	payload := rowHashPayloadV1{
 		OrgID:       in.Event.Context.OrgID,
 		Shard:       in.Shard,
@@ -746,12 +930,14 @@ func hashRowForEvent(in rowHashInput) ([]byte, error) {
 	case auditHashVersion2:
 		return hashRow(in.LastHash, payloadV2)
 	case auditHashVersion3:
-		// The version is part of the hash from version 3 on. Versions 2 and 3
-		// otherwise cover the same fields, and a version 3 row already carries
-		// a whole-microsecond timestamp, so without this a forger could relabel
-		// a version 3 row as version 2 and the legacy candidate search would
-		// reproduce its hash on the first try.
-		return hashRow(in.LastHash, rowHashPayloadV3{rowHashPayloadV2: payloadV2, HashVersion: in.Version})
+		// Version 3 includes the version in the hash. Versions 2 and 3 otherwise
+		// hash the same fields, and version 3 uses whole-microsecond timestamps.
+		// Without the version field, relabeling a version 3 row as version 2 would
+		// let the legacy candidate search reproduce its hash on the first attempt.
+		return hashRow(
+			in.LastHash,
+			rowHashPayloadV3{rowHashPayloadV2: payloadV2, HashVersion: in.Version},
+		)
 	default:
 		return nil, fmt.Errorf("unsupported audit hash version %d", in.Version)
 	}
@@ -761,8 +947,8 @@ const (
 	auditHashVersion1 int16 = 1
 	auditHashVersion2 int16 = 2
 	auditHashVersion3 int16 = 3
-	// auditHashVersionCurrent is what appendChainRow both hashes with and
-	// stores in the hash_version column, so the two cannot diverge.
+	// appendChainRow uses auditHashVersionCurrent for both the hash input and
+	// the hash_version column.
 	auditHashVersionCurrent = auditHashVersion3
 )
 
@@ -795,12 +981,13 @@ type rowHashPayloadV3 struct {
 	HashVersion int16 `json:"hash_version"`
 }
 
-// piiRefArg returns the value to bind for audit.events.pii_ref. The pgx
-// adapter treats a typed nil interface as NULL; [uuid.Nil] written literally
-// would produce a non-NULL all-zeros UUID, so we route through pgtype.
+// piiRefArg returns the audit.events.pii_ref parameter as a [pgtype.UUID].
+// An invalid pgtype.UUID represents SQL NULL. A literal [uuid.Nil] would
+// store a non-NULL zero UUID.
 func piiRefArg(ref uuid.UUID) pgtype.UUID {
 	if ref == uuid.Nil {
 		return pgtype.UUID{Bytes: [16]byte{}, Valid: false}
 	}
+
 	return pgtype.UUID{Bytes: ref, Valid: true}
 }

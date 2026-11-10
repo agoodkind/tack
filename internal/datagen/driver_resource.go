@@ -22,14 +22,15 @@ type resourceRequest struct {
 	Params  readResourceParams `json:"params"`
 }
 
-// ReadResource reads one MCP resource through the same authenticated boundary
-// the tool calls use.
+// ReadResource reads one MCP resource through the authenticated HTTP handler
+// that tool calls also use.
 //
-// The generator covers resources as well as tools because reading one is a
-// recorded product action: it emits mcp.resource_read. Without a request here,
-// that verb had no generated traffic, so no testbed run could produce a row for
-// it, which is how it stayed unemitted while its ticket recorded it as shipped
-// (TACK-340).
+// Resource reads exercise the mcp.resource_read audit action. The original
+// TACK-340 account recorded that missing generator resource traffic had hidden
+// an absent emitter even after the ticket reported completion.
+//
+//   - A dry run logs the URI and returns a synthetic result.
+//   - Other runs send resources/read and decode the response.
 func (d *Driver) ReadResource(ctx context.Context, token, uri string) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, loggedError(ctx, "qa datagen: stop before reading "+uri, err)

@@ -8,20 +8,28 @@ import (
 	"log/slog"
 )
 
-// ReadManifestDigest returns the lowercase hexadecimal SHA-256 digest of
-// the manifest array bytes concatenated in order, plus the array count.
-// An empty target list produces the digest of zero bytes and a count of zero.
+// ReadManifestDigest returns the lowercase hexadecimal SHA-256 digest of the
+// manifest array bytes concatenated in order, plus the array count.
+//
+// The manifest partitions targets into JSON arrays before hashing. The digest
+// therefore depends on both target order and array boundaries.
+//
+//   - An empty target list produces the digest of zero bytes and zero arrays.
+//   - A target that cannot fit in one array returns an error.
 func ReadManifestDigest(targets []Target) (string, uint32, error) {
 	parts, err := readManifestParts(targets)
 	if err != nil {
 		return "", 0, err
 	}
+
 	hasher := sha256.New()
 	var count uint32
+
 	for _, part := range parts {
 		_, _ = hasher.Write(part)
 		count++
 	}
+
 	return hex.EncodeToString(hasher.Sum(nil)), count, nil
 }
 
@@ -34,20 +42,23 @@ func readManifestParts(targets []Target) ([][]byte, error) {
 		parts = append(parts, payload)
 		return nil
 	})
+
 	for _, target := range targets {
 		if err := builder.add(target); err != nil {
 			return nil, err
 		}
 	}
+
 	if err := builder.finish(); err != nil {
 		return nil, err
 	}
+
 	return parts, nil
 }
 
 // manifestBuilder groups read targets in order into JSON arrays within
 // ReadManifestMaxEntries and EventPartMaxBytes. It passes each finished array
-// to emit and keeps at most one unfinished array.
+// to emit and stores at most one unfinished array.
 type manifestBuilder struct {
 	current      []Target
 	currentBytes int
@@ -57,7 +68,11 @@ type manifestBuilder struct {
 // newManifestBuilder returns an empty builder that passes finished arrays to
 // emit.
 func newManifestBuilder(emit func(payload []byte) error) *manifestBuilder {
-	return &manifestBuilder{current: make([]Target, 0, ReadManifestMaxEntries), currentBytes: len("[]"), emit: emit}
+	return &manifestBuilder{
+		current:      make([]Target, 0, ReadManifestMaxEntries),
+		currentBytes: len("[]"),
+		emit:         emit,
+	}
 }
 
 // add appends target to the unfinished array. It first finishes that array
@@ -69,17 +84,21 @@ func (b *manifestBuilder) add(target Target) error {
 		slog.Error("audit.read_manifest.target_encode_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("encode read target: %w", err)
 	}
+
 	targetBytes := len(encoded) + len(",")
 	if len(encoded)+len("[]") > EventPartMaxBytes {
 		return fmt.Errorf("read target of %d bytes exceeds the part size limit", len(encoded))
 	}
+
 	if len(b.current) == ReadManifestMaxEntries || b.currentBytes+targetBytes > EventPartMaxBytes {
 		if err := b.flush(); err != nil {
 			return err
 		}
 	}
+
 	b.current = append(b.current, target)
 	b.currentBytes += targetBytes
+
 	return nil
 }
 
@@ -88,6 +107,7 @@ func (b *manifestBuilder) finish() error {
 	if len(b.current) == 0 {
 		return nil
 	}
+
 	return b.flush()
 }
 
@@ -99,7 +119,9 @@ func (b *manifestBuilder) flush() error {
 		slog.Error("audit.read_manifest.encode_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("encode read manifest part: %w", err)
 	}
+
 	b.current = b.current[:0]
 	b.currentBytes = len("[]")
+
 	return b.emit(payload)
 }

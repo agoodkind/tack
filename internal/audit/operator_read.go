@@ -10,15 +10,17 @@ import (
 	"goodkind.io/tack/internal/clock"
 )
 
-// ReadFinalizeDeadline limits how long RecordOperatorRead waits to save the
+// ReadFinalizeDeadline limits how long [RecordOperatorRead] waits to save the
 // final read event after the read returns.
 const ReadFinalizeDeadline = 30 * time.Second
 
 const readFailedCode = "read_failed"
 
-// ErrReadNotAdmitted reports that RecordOperatorRead did not save the
-// admission and did not run the read.
-var ErrReadNotAdmitted = errors.New("audit read: RecordOperatorRead did not save the read admission")
+// ErrReadNotAdmitted reports that [RecordOperatorRead] did not save admission
+// and did not run the read.
+var ErrReadNotAdmitted = errors.New(
+	"audit read: RecordOperatorRead did not save the read admission",
+)
 
 // OperatorReadOutput contains the exact bytes an operator read returns, their
 // media type, and the identities of the returned objects in order.
@@ -29,10 +31,16 @@ type OperatorReadOutput struct {
 }
 
 // RecordOperatorRead saves template in store to admit the read, then calls
-// read and renews its lease while it runs. It saves a final event with the
-// SHA-256 digest of the exact payload bytes and the returned identities.
-// It returns the payload only after store saves the final event. If read
-// returns an error, RecordOperatorRead saves a failed event and returns that error.
+// read while renewing the admission lease.
+//
+// The final event records the SHA-256 digest of the exact payload bytes and
+// the returned object identities. The function returns the payload only after
+// store saves the final event. A read error requires a failed final event
+// before the function returns that error.
+//
+//  1. Save the read admission before running read.
+//  2. Run read while renewing the lease.
+//  3. Save the final event before returning payload bytes or the read error.
 func RecordOperatorRead(
 	ctx context.Context,
 	store ReadLifecycle,
@@ -40,17 +48,33 @@ func RecordOperatorRead(
 	read func(context.Context) (OperatorReadOutput, error),
 ) ([]byte, error) {
 	if store == nil {
-		return nil, operatorReadFailure(ctx, "begin audit read", template,
-			errors.Join(ErrReadNotAdmitted, errors.New("audit read store is nil")))
+		return nil, operatorReadFailure(
+			ctx,
+			"begin audit read",
+			template,
+			errors.Join(ErrReadNotAdmitted, errors.New("audit read store is nil")),
+		)
 	}
+
 	admission := ReadAdmission{
-		Token:    ReadToken{EventID: template.EventID, Owner: NewReadOwner(), Generation: 0, AdmissionDeadline: time.Time{}},
+		Token: ReadToken{
+			EventID:           template.EventID,
+			Owner:             NewReadOwner(),
+			Generation:        0,
+			AdmissionDeadline: time.Time{},
+		},
 		Template: template,
 	}
 	token, err := store.BeginRead(ctx, admission)
 	if err != nil {
-		return nil, operatorReadFailure(ctx, "begin audit read", template, errors.Join(ErrReadNotAdmitted, err))
+		return nil, operatorReadFailure(
+			ctx,
+			"begin audit read",
+			template,
+			errors.Join(ErrReadNotAdmitted, err),
+		)
 	}
+
 	stopRenewal := KeepReadOwned(ctx, store, token)
 	output, readErr := read(ctx)
 	renewErr := stopRenewal()
@@ -58,23 +82,37 @@ func RecordOperatorRead(
 	if err != nil {
 		return nil, operatorReadFailure(ctx, "finalize audit read", template, err)
 	}
+
 	finalizeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), ReadFinalizeDeadline)
 	defer cancel()
 	if err := store.FinalizeRead(finalizeContext, completion); err != nil {
-		return nil, operatorReadFailure(ctx, "finalize audit read", template, errors.Join(err, renewErr))
+		return nil, operatorReadFailure(
+			ctx,
+			"finalize audit read",
+			template,
+			errors.Join(err, renewErr),
+		)
 	}
+
 	if readErr != nil {
 		return nil, readErr
 	}
+
 	return output.Payload, nil
 }
 
-func operatorReadCompletion(token ReadToken, template Event, output OperatorReadOutput, readErr error) (ReadCompletion, error) {
+func operatorReadCompletion(
+	token ReadToken,
+	template Event,
+	output OperatorReadOutput,
+	readErr error,
+) (ReadCompletion, error) {
 	final := template
 	final.Context.CompletedAt = clock.Now().UTC()
 	if final.Context.CompletedAt.Before(final.Context.StartedAt) {
 		final.Context.CompletedAt = final.Context.StartedAt
 	}
+
 	final.OccurredAt = template.OccurredAt
 	targets := output.Targets
 	if readErr != nil {
@@ -87,37 +125,57 @@ func operatorReadCompletion(token ReadToken, template Event, output OperatorRead
 		if err != nil {
 			return ReadCompletion{}, err
 		}
+
 		final.Outcome = OutcomeCompleted
 		final.Error = nil
 		final.Context.Read = &evidence
 	}
+
 	encoded, err := EncodeEvent(final, targets)
 	if err != nil {
 		return ReadCompletion{}, err
 	}
-	return ReadCompletion{Token: token, Event: final, Targets: targets, Digest: encoded.TransportDigest}, nil
+
+	return ReadCompletion{
+		Token:   token,
+		Event:   final,
+		Targets: targets,
+		Digest:  encoded.TransportDigest,
+	}, nil
 }
 
 func operatorReadEvidence(output OperatorReadOutput) (ReadEvidence, error) {
 	evidence := ReadEvidence{
-		Count: uint64(len(output.Targets)), PayloadSHA256: sha256Hex(output.Payload), PayloadFormat: output.Format,
-		ManifestSHA256: "", ManifestParts: 0,
+		Count:          uint64(len(output.Targets)),
+		PayloadSHA256:  sha256Hex(output.Payload),
+		PayloadFormat:  output.Format,
+		ManifestSHA256: "",
+		ManifestParts:  0,
 	}
 	if len(output.Targets) == 0 {
 		return evidence, nil
 	}
+
 	digest, parts, err := ReadManifestDigest(output.Targets)
 	if err != nil {
 		return ReadEvidence{}, err
 	}
+
 	evidence.ManifestSHA256, evidence.ManifestParts = digest, parts
+
 	return evidence, nil
 }
 
 func operatorReadFailure(ctx context.Context, action string, template Event, err error) error {
 	wrapped := fmt.Errorf("%s %s: %w", action, template.EventID, err)
-	slog.ErrorContext(ctx, "audit.operator_read.failed",
-		slog.String("action", action), slog.String("verb", template.Verb),
-		slog.String("event_id", template.EventID.String()), slog.String("err", wrapped.Error()))
+	slog.ErrorContext(
+		ctx,
+		"audit.operator_read.failed",
+		slog.String("action", action),
+		slog.String("verb", template.Verb),
+		slog.String("event_id", template.EventID.String()),
+		slog.String("err", wrapped.Error()),
+	)
+
 	return wrapped
 }

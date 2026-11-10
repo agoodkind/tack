@@ -7,9 +7,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// TestKafkaRecordCountsOneSynchronousProduceOnTheRequest proves the produce
-// the recorder blocks on is counted against the request that made it, which
-// is the number the request-path criterion reads (TACK-507).
+// TestKafkaRecordCountsOneSynchronousProduceOnTheRequest checks that the
+// request counts the synchronous produce that its recorder waits for. The
+// request-path criterion uses this count under TACK-507.
 func TestKafkaRecordCountsOneSynchronousProduceOnTheRequest(t *testing.T) {
 	cluster := newFakeCluster(t)
 	rec := newKafkaRecorderForTest(t, cluster)
@@ -22,6 +22,7 @@ func TestKafkaRecordCountsOneSynchronousProduceOnTheRequest(t *testing.T) {
 	if got := counts.Counts().SyncProduces; got != 1 {
 		t.Fatalf("sync produces = %d, want 1", got)
 	}
+
 	if records := consumeRecords(t, cluster.ListenAddrs(), testKafkaTopic, 1); len(records) != 1 {
 		t.Fatalf("broker holds %d records, want 1", len(records))
 	}

@@ -22,43 +22,52 @@ func getHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFunc 
 		if err := req.BindArguments(&in); err != nil {
 			return recoverableError(err.Error()), nil
 		}
+
 		args, err := bindArgs(req)
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
+
 		entryPoint, missing, err := requireEntryPointArg(ctx, args, b)
 		if missing != "" {
 			return recoverableError(missing), nil
 		}
+
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		id, err := b.Resolver.ResolveTypedNodeID(ctx, nt, in.NodeID)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		view, err := b.Reader.Get(ctx, id)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		if view == nil {
 			return classifyError(ctx, domain.ErrNotFound), nil
 		}
+
 		if err := stampAuditNodeInEntryPoint(ctx, b.Resolver, entryPoint, view); err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
 		if err := rc.loadAssignees(b.Relationships, view); err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		return successText(renderNode(rc, view), ""), nil
 	}
 }
 
-// updateInput omits Properties on purpose. BindArguments cannot reliably
-// preserve a stringified JSON payload through its mapstructure-style decoder
-// across different MCP transports. The handler reads properties straight
-// from the typed argMap and routes through parseProps. See TACK-165.
+// updateInput omits Properties. The handler reads properties from the
+// typed argMap and calls parseProps to accept JSON objects and JSON inside
+// strings. TACK-165 removed Properties from this struct and changed
+// updateHandler to parse the properties argument from req.GetArguments.
 type updateInput struct {
 	NodeID string  `json:"node_id"`
 	Name   *string `json:"name,omitempty"`
@@ -70,69 +79,95 @@ func updateHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err := req.BindArguments(&in); err != nil {
 			return recoverableError(err.Error()), nil
 		}
+
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return unexpectedError(ctx, err), nil
 		}
+
 		args, err := bindArgs(req)
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
+
 		entryPoint, missing, err := requireEntryPointArg(ctx, args, b)
 		if missing != "" {
 			return recoverableError(missing), nil
 		}
+
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		id, err := b.Resolver.ResolveTypedNodeID(ctx, nt, in.NodeID)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		rawProps, propsResult := parseToolProps(args["properties"])
 		if propsResult != nil {
 			return propsResult, nil
 		}
+
 		existing, err := b.Reader.Get(ctx, id)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		if existing == nil {
 			return classifyError(ctx, domain.ErrNotFound), nil
 		}
+
 		if err := stampAuditNodeInEntryPoint(ctx, b.Resolver, entryPoint, existing); err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
-		audit.SetAuditEntity(ctx, audit.Entity{
-			Type:       "node",
-			NodeType:   existing.NodeType,
-			ID:         existing.ID,
-			Identifier: identifierFor(existing, rc),
-			Name:       existing.Name,
-		})
+		audit.SetAuditEntity(
+			ctx,
+			audit.Entity{
+				Type:       audit.TargetKindNode,
+				NodeType:   existing.NodeType,
+				ID:         existing.ID,
+				Identifier: identifierFor(existing, rc),
+				Name:       existing.Name,
+			},
+		)
 		rawProps, defs, err := normalizeUpdateProps(ctx, b, nt, existing, rawProps)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		// Refuse before the write, not only in the response.
+
+		// Refuse an unauthorized call before the write.
 		if !isAuthorized(ctx) {
 			return permissionDenied(), nil
 		}
 
-		view, err := b.NodeSvc.Update(ctx, service.UpdateInput{
-			NodeID:              id,
-			Name:                in.Name,
-			Props:               rawProps,
-			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-			ActorID:             userID,
-		})
+		view, err := b.NodeSvc.Update(
+			ctx,
+			service.UpdateInput{
+				NodeID:              id,
+				Name:                in.Name,
+				Props:               rawProps,
+				RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
+				ActorID:             userID,
+			},
+		)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
-		changes := describeFieldChanges(rc, writeChanges{
-			Before: existing, After: view, Name: in.Name, Props: rawProps, ReferenceKeys: referenceKeysOf(defs),
-		})
+
+		changes := describeFieldChanges(
+			rc,
+			writeChanges{
+				Before:        existing,
+				After:         view,
+				Name:          in.Name,
+				Props:         rawProps,
+				ReferenceKeys: referenceKeysOf(defs),
+			},
+		)
+
 		return successText(renderWriteConfirmation(rc, "Updated", view, changes), ""), nil
 	}
 }
@@ -147,51 +182,65 @@ func deleteHandler(nt *node.NodeType, b NodeTypeBinding) mcpserver.ToolHandlerFu
 		if err := req.BindArguments(&in); err != nil {
 			return recoverableError(err.Error()), nil
 		}
+
 		userID, err := mustUser(ctx)
 		if err != nil {
 			return unexpectedError(ctx, err), nil
 		}
+
 		args, err := bindArgs(req)
 		if err != nil {
 			return recoverableError(err.Error()), nil
 		}
+
 		entryPoint, missing, err := requireEntryPointArg(ctx, args, b)
 		if missing != "" {
 			return recoverableError(missing), nil
 		}
+
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		id, err := b.Resolver.ResolveTypedNodeID(ctx, nt, in.NodeID)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		existing, err := b.Reader.Get(ctx, id)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		if existing == nil {
 			return classifyError(ctx, domain.ErrNotFound), nil
 		}
+
 		if err := stampAuditNodeInEntryPoint(ctx, b.Resolver, entryPoint, existing); err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		rc := newRenderCtxWithTypes(ctx, b.Reader, b.Users, b.Resolver.typeIndex)
-		audit.SetAuditEntity(ctx, audit.Entity{
-			Type:       "node",
-			NodeType:   existing.NodeType,
-			ID:         existing.ID,
-			Identifier: identifierFor(existing, rc),
-			Name:       existing.Name,
-		})
-		// Refuse before the write, not only in the response.
+		audit.SetAuditEntity(
+			ctx,
+			audit.Entity{
+				Type:       "node",
+				NodeType:   existing.NodeType,
+				ID:         existing.ID,
+				Identifier: identifierFor(existing, rc),
+				Name:       existing.Name,
+			},
+		)
+		// Refuse an unauthorized call before the write.
 		if !isAuthorized(ctx) {
 			return permissionDenied(), nil
 		}
+
 		result, err := b.NodeSvc.Delete(ctx, id, userID)
 		if err != nil {
 			return classifyError(ctx, err), nil
 		}
+
 		return successText(renderDeletedNode(rc, existing, clock.Now().UTC(), result), ""), nil
 	}
 }

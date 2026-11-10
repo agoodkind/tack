@@ -7,7 +7,7 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// Actor is one real SQL identity used to authenticate generated requests.
+// Actor provides one SQL identity for authenticating generated requests.
 type Actor struct {
 	UserID       uuid.UUID
 	Email        string
@@ -17,7 +17,7 @@ type Actor struct {
 	RequestToken string
 }
 
-// WorkspaceIdentity is one bootstrapped MCP entry point and its actors.
+// WorkspaceIdentity pairs one MCP entry point with its actors.
 type WorkspaceIdentity struct {
 	OrgID   uuid.UUID
 	OrgSlug string
@@ -26,7 +26,8 @@ type WorkspaceIdentity struct {
 	Actors  []Actor
 }
 
-// Identities contains every request identity and negative-auth token.
+// Identities contains every request identity and the tokens for failed
+// authentication checks.
 type Identities struct {
 	Workspaces          []WorkspaceIdentity
 	ExpiredToken        string
@@ -49,11 +50,21 @@ func plannedIdentities(cfg *config.Config, seed int64, scale Scale) Identities {
 		actors := plannedActors(cfg, seed, orgIndex, scale.ActorsPerOrg)
 		for workspaceIndex := range scale.WorkspacesPerOrg {
 			slug := fmt.Sprintf("qa-%d-o%02d-w%02d", seed, orgIndex+1, workspaceIndex+1)
-			identities.Workspaces = append(identities.Workspaces, WorkspaceIdentity{
-				OrgID: orgID, OrgSlug: orgSlug, Slug: slug,
-				Name:   fmt.Sprintf("QA Workspace %d.%d seed %d", orgIndex+1, workspaceIndex+1, seed),
+			identities.Workspaces = append(
+				identities.Workspaces,
+				WorkspaceIdentity{
+					OrgID:   orgID,
+					OrgSlug: orgSlug,
+					Slug:    slug,
+					Name: fmt.Sprintf(
+						"QA Workspace %d.%d seed %d",
+						orgIndex+1,
+						workspaceIndex+1,
+						seed,
+					),
 				Actors: append([]Actor(nil), actors...),
-			})
+				},
+			)
 		}
 	}
 	return identities
@@ -75,12 +86,16 @@ func plannedActors(cfg *config.Config, seed int64, orgIndex, count int) []Actor 
 			token = userID.String()
 			requestToken = token
 		}
-		actors = append(actors, Actor{
-			UserID: userID, Email: email,
+		actors = append(
+			actors,
+			Actor{
+				UserID:       userID,
+				Email:        email,
 			DisplayName:  fmt.Sprintf("QA Actor %d.%d", orgIndex+1, actorIndex+1),
 			Token:        token,
 			RequestToken: requestToken,
-		})
+			},
+		)
 	}
 	return actors
 }

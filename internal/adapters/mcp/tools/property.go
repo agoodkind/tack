@@ -8,9 +8,21 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// RegisterProperty registers tools for property metadata and raw node props.
-func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepository, resolver *Resolver) {
-	registerTool(s,
+// RegisterProperty registers tools for property metadata and raw node
+// properties.
+//
+// The tools read property definitions for a workspace's organization or
+// the property values of one node. The registrations are:
+//
+//   - tack_list_property_defs lists property definitions.
+//   - tack_get_properties returns raw node properties.
+func RegisterProperty(
+	s *mcpserver.MCPServer,
+	propertyDefs node.PropertyDefRepository,
+	resolver *Resolver,
+) {
+	registerTool(
+		s,
 		mcpmcp.Tool{
 			Name:        "tack_list_property_defs",
 			Description: "Lists property definitions for the workspace org as Markdown.",
@@ -24,23 +36,28 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 			if err != nil {
 				return recoverableError(err.Error()), nil
 			}
+
 			entryPointReference, ok := resolver.entryPointReference(args)
 			if !ok {
 				return recoverableError(resolver.entryPointRequiredMessage()), nil
 			}
+
 			ws, err := resolver.Workspace(ctx, entryPointReference)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
+
 			defs, err := propertyDefs.List(ctx, ws.OrgID)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
+
 			return successText(renderPropertyDefs(defs), ""), nil
 		},
 	)
 
-	registerTool(s,
+	registerTool(
+		s,
 		mcpmcp.Tool{
 			Name:        "tack_get_properties",
 			Description: "Returns the raw Props map for a node as fenced JSON Markdown.",
@@ -54,21 +71,26 @@ func RegisterProperty(s *mcpserver.MCPServer, propertyDefs node.PropertyDefRepos
 			if err != nil {
 				return recoverableError(err.Error()), nil
 			}
+
 			input, ok := requireString(args, "node_id")
 			if !ok {
 				return recoverableError("node_id is required"), nil
 			}
+
 			id, err := resolver.ResolveNodeID(ctx, input)
 			if err != nil {
 				return classifyError(ctx, err), nil
 			}
+
 			view, err := resolver.reader.Get(ctx, id)
 			if err != nil || view == nil {
 				return classifyError(ctx, err), nil
 			}
+
 			stampAuditNodeView(ctx, view)
 			addNodeTargets(ctx, view)
 			rc := newRenderCtxWithTypes(ctx, resolver.reader, nil, resolver.typeIndex)
+
 			return successText(renderProperties(rc, view), ""), nil
 		},
 	)

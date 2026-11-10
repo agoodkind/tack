@@ -1,20 +1,20 @@
-# Local Go test runner.
+# Run local Go tests in containers.
 #
-# One service, tests, builds a Go image that links the same FoundationDB
-# client library the production server links and runs go test against a
-# bind-mount of the working tree. `make test-unit` and `make test-integration`
-# run it, and set TACK_TEST_ROOT to the tree's host path.
+# The tests service builds a Go image with the production server's
+# FoundationDB client library and runs go test against the working
+# tree's bind mount. The make test-unit and make test-integration
+# commands run it and set TACK_TEST_ROOT to the tree's host path.
 #
-# Tests that need a store start it themselves through internal/testenv, which
-# drives the Docker daemon through the SDK over the mounted socket: each test
-# binary starts its own single-node FoundationDB and YugabyteDB on the
-# tack-testenv network and attaches this container to that network, so the engines are
-# reached at their network addresses rather than through Docker Desktop's port
-# forwarder, which drops FoundationDB's connect-packet exchange on macOS.
+# Tests start their own stores through internal/testenv and the
+# Docker SDK using the mounted daemon socket. Each test binary
+# starts single-node FoundationDB and YugabyteDB engines on
+# tack-testenv and attaches this container to that network.
+# Tests connect directly to engine addresses. Docker Desktop's
+# port forwarder drops FoundationDB's connection exchange on macOS.
 #
-# The tree is mounted at its host path, not a fixed one, because a test that
-# asks the daemon to bind-mount a file names it by this container's path, and
-# the daemon reads that path on its own host (testenv.SharedDir).
+# Mount the tree at its host path. A test uses its
+# container path when it requests a file bind mount, and the
+# daemon reads that path on its own host (testenv.SharedDir).
 
 services:
   tests:
@@ -27,17 +27,17 @@ services:
     # which gives `docker stop` time to let the test binary remove its engines.
     stop_grace_period: 150s
     volumes:
-      # Source bind-mount: edits on the host are visible without a rebuild.
+      # The source bind mount exposes host edits without rebuilding the image.
       - .:${TACK_TEST_ROOT:?set TACK_TEST_ROOT to the repository's host path}
-      # The daemon internal/testenv starts the test engines on.
+      # The internal/testenv package starts test engines through this daemon.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Persist Go's build and module caches across runs so the second invocation
-      # only compiles what changed.
+      # Persist Go's build and module caches across
+      # runs. Later runs compile only changed code.
       - tack-test-go-cache:/root/.cache/go-build
       - tack-test-go-mod:/go/pkg/mod
-      # Test temporary files on a disk filesystem rather than the container's
-      # overlayfs, through which the kernel reports no page cache: the staging
-      # test reads the cache of the file it downloads.
+      # Store test temporary files on a disk filesystem. The kernel
+      # cannot report the page cache through the container's
+      # overlayfs, and the staging test measures the downloaded file's cache.
       - /tmp/tack-test
     environment:
       TMPDIR: /tmp/tack-test
@@ -75,8 +75,8 @@ services:
     profiles: ["pgoverlay-runner"]
 
 networks:
-  # IPv4 only, like the shared testenv network: the engine images need an IPv4
-  # address, and the daemon's default network options can leave it out.
+  # Use IPv4 only, as the shared testenv network does. Engine images
+  # require IPv4, which the daemon's default network options can omit.
   pgoverlay:
     enable_ipv4: true
     enable_ipv6: false
@@ -84,10 +84,10 @@ networks:
 volumes:
   tack-test-go-cache:
   tack-test-go-mod:
-  # Each overlay test run uses its own Compose project, and these caches
-  # outlive every run. They are external, so Compose neither labels them with a
-  # project nor warns about a project mismatch, and `down` never removes them.
-  # `make test-postgresql-overlay` creates them when they are missing.
+  # Each overlay run uses a separate Compose project and shares these
+  # persistent external caches. Compose does not assign project labels or
+  # report project mismatches for them. The down command does not remove
+  # them. The make test-postgresql-overlay command creates missing caches.
   pgoverlay-go-cache:
     name: tack-pgoverlay-go-cache
     external: true

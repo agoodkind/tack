@@ -9,13 +9,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// ValidateEvent checks format rules and rejects unsupported versions.
-// Format 0 events cannot set format 2 context fields, terminal outcomes,
-// or Protected, and cannot use the unauthenticated actor kind.
-// Format 2 events require an outcome, evidence for their operation class,
-// and exactly one valid JSON Protected value per delta reference with
-// SubjectID equal to Context.Target.OwnerID when the target states an owner
-// and to Context.Target.ID otherwise.
+// ValidateEvent checks event format rules and rejects unsupported versions.
+//
+// The function validates evidence and protected values for the selected format.
+// Each protected delta reference requires exactly one valid JSON Protected
+// value. Its SubjectID must equal Context.Target.OwnerID when the target states
+// an owner, or Context.Target.ID otherwise.
+//
+//   - Format 0 rejects format 2 context fields, terminal outcomes, Protected,
+//     and the unauthenticated actor kind.
+//   - Format 2 requires an outcome and evidence for the operation class.
 func ValidateEvent(event Event) error {
 	return validateEventContract(event, true)
 }
@@ -43,15 +46,23 @@ func validateEventContract(event Event, pairProtected bool) error {
 	default:
 		err = fmt.Errorf("audit format version %d is unsupported", event.Context.AuditFormatVersion)
 	}
+
 	if err != nil {
 		return fmt.Errorf("audit event %s: %s", event.EventID, err.Error())
 	}
+
 	return nil
 }
 
-// ValidateSpec checks an operation definition for a verb, a target
-// extractor, a safe input selector, and a supported class. It rejects read
-// definitions that mutate and change definitions that do not mutate.
+// ValidateSpec checks an operation definition's required fields and class.
+//
+// The function requires a verb, target extractor, safe input selector, and
+// supported class. It rejects inconsistent read and mutation declarations.
+//
+//   - Read definitions cannot set Mutates or Atomic.
+//   - Database change and external definitions require Mutates and cannot set
+//     Reads.
+//   - External definitions cannot set Atomic.
 func ValidateSpec(spec Spec) error {
 	switch {
 	case spec.Verb == "":
@@ -61,42 +72,59 @@ func ValidateSpec(spec Spec) error {
 	case spec.SafeInput == nil:
 		return fmt.Errorf("audit spec %s: definition requires a safe input selector", spec.Verb)
 	}
+
 	switch spec.Class {
 	case OperationRead:
 		if spec.Mutates || spec.Atomic {
-			return fmt.Errorf("audit spec %s: read definition cannot set Mutates or Atomic", spec.Verb)
+			return fmt.Errorf(
+				"audit spec %s: read definition cannot set Mutates or Atomic",
+				spec.Verb,
+			)
 		}
 	case OperationDatabaseChange, OperationExternal:
 		if !spec.Mutates || spec.Reads {
-			return fmt.Errorf("audit spec %s: %s definition requires Mutates and cannot set Reads", spec.Verb, spec.Class)
+			return fmt.Errorf(
+				"audit spec %s: %s definition requires Mutates and cannot set Reads",
+				spec.Verb,
+				spec.Class,
+			)
 		}
+
 		if spec.Class == OperationExternal && spec.Atomic {
 			return fmt.Errorf("audit spec %s: external definition cannot set Atomic", spec.Verb)
 		}
 	default:
 		return fmt.Errorf("audit spec %s: operation class %q is unsupported", spec.Verb, spec.Class)
 	}
+
 	return nil
 }
 
-// ValidateChange checks a changed record before a writer records it. It
-// requires an event ID, a valid target, and an old or new value that is
-// valid JSON.
+// ValidateChange checks a changed record before a writer records it.
+//
+// The function requires an event ID, a valid target, and at least one old or
+// new value. Each provided value must contain valid JSON.
+//
+//	err := ValidateChange(change)
 func ValidateChange(change Change) error {
 	if change.EventID == uuid.Nil {
 		return errors.New("audit change: record change requires an event ID")
 	}
+
 	if err := validateTarget(change.Target); err != nil {
 		return fmt.Errorf("audit change %s: %s", change.EventID, err.Error())
 	}
+
 	if len(change.Before) == 0 && len(change.After) == 0 {
 		return fmt.Errorf("audit change %s: record requires an old or new value", change.EventID)
 	}
+
 	for _, value := range []json.RawMessage{change.Before, change.After} {
 		if len(value) != 0 && !json.Valid(value) {
 			return fmt.Errorf("audit change %s: change value must be valid JSON", change.EventID)
 		}
 	}
+
 	return nil
 }
 
@@ -112,21 +140,31 @@ func validateCompleteEvent(event Event) error {
 	case event.Outcome == "":
 		return errors.New("format 2 event: outcome required")
 	}
+
 	if err := validateActor(event); err != nil {
 		return err
 	}
+
 	if err := validateTarget(*eventContext.Target); err != nil {
 		return err
 	}
+
 	if event.Entity.Type != eventContext.Target.Kind || event.Entity.ID != eventContext.Target.ID {
 		return errors.New("event entity type and ID must match the target kind and ID")
 	}
-	if err := validatePhase(eventContext.OperationClass, eventContext.Phase, event.Outcome); err != nil {
+
+	if err := validatePhase(
+		eventContext.OperationClass,
+		eventContext.Phase,
+		event.Outcome,
+	); err != nil {
 		return err
 	}
+
 	if err := validateOutcomeFields(event); err != nil {
 		return err
 	}
+
 	return validateClassEvidence(event)
 }
 
@@ -135,21 +173,27 @@ func validatePhase(class OperationClass, phase Phase, outcome Outcome) error {
 	if !known {
 		return fmt.Errorf("operation class %q is unsupported", class)
 	}
+
 	if !slices.Contains(phases, phase) {
 		return fmt.Errorf("phase %q is invalid for operation class %s", phase, class)
 	}
+
 	if phase == PhaseIntent {
 		if outcome != OutcomePending {
 			return errors.New("intent phase event requires the pending outcome")
 		}
+
 		return nil
 	}
+
 	if !isTerminalOutcome(outcome) {
 		return fmt.Errorf("outcome %q is not a terminal outcome", outcome)
 	}
+
 	if phase == PhaseChange && outcome != OutcomeCompleted {
 		return errors.New("change phase event requires the completed outcome")
 	}
+
 	return nil
 }
 
@@ -159,20 +203,27 @@ func validateClassEvidence(event Event) error {
 		if eventContext.Read != nil {
 			return errors.New("only read class events can set read evidence")
 		}
-		hasValue := event.Delta != nil && (len(event.Delta.Before) != 0 || len(event.Delta.After) != 0)
+
+		hasValue := event.Delta != nil &&
+			(len(event.Delta.Before) != 0 || len(event.Delta.After) != 0)
 		if eventContext.Phase == PhaseChange && !hasValue {
 			return errors.New("change phase event requires an old or new value")
 		}
+
 		return nil
 	}
+
 	if event.Delta != nil {
 		return errors.New("read class event cannot set a delta")
 	}
+
 	if eventContext.Read == nil {
 		if event.Outcome == OutcomeCompleted || event.Outcome == OutcomePartiallyCompleted {
 			return errors.New("completed or partially completed read requires read evidence")
 		}
+
 		return nil
 	}
+
 	return validateReadEvidence(*eventContext.Read)
 }

@@ -13,8 +13,8 @@ import (
 // test treats it as stalled.
 const stallLimit = 5 * time.Second
 
-// recordWithin runs Record with a context that has no deadline and returns
-// its error, or fails the test when Record does not return within stallLimit.
+// recordWithin runs Record with a context without a deadline and returns its
+// error. It fails the test if Record does not return within stallLimit.
 func recordWithin(t *testing.T, buffered *audit.BufferedRecorder, ev audit.Event) error {
 	t.Helper()
 	result := make(chan error, 1)
@@ -28,27 +28,34 @@ func recordWithin(t *testing.T, buffered *audit.BufferedRecorder, ev audit.Event
 	}
 }
 
-// TestBufferedWithoutOverflowRefusesWhileRetainedEventsFillTheQueue is
-// TACK-583. With no overflow, a Record that found the queue full used to
-// wait under the stop lock until room opened. Retained events keep the queue
-// full for the whole outage. That Record, every later Record, and Close then
-// stalled. Record must refuse the event at once, and Close must return.
+// TestBufferedWithoutOverflowRefusesWhileRetainedEventsFillTheQueue checks
+// TACK-583. Without overflow, Record formerly waited under the stop lock when
+// the queue filled. Retained events kept the queue full during an outage and
+// blocked that Record, later Record calls, and Close. Record must refuse the
+// event immediately, and Close must return.
 func TestBufferedWithoutOverflowRefusesWhileRetainedEventsFillTheQueue(t *testing.T) {
 	logs := captureSyncedLogs(t)
 	cluster, err := kfake.NewCluster(kfake.NumBrokers(1), kfake.SeedTopics(1, retainTopic))
 	if err != nil {
 		t.Fatalf("kfake.NewCluster: %v", err)
 	}
+
 	t.Cleanup(cluster.Close)
 	stop := refuseProduces(cluster)
 	t.Cleanup(stop)
-	buffered := audit.NewBufferedRecorder(context.Background(), newRetainKafka(t, cluster), nil,
-		audit.BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: 20 * time.Millisecond})
+	buffered := audit.NewBufferedRecorder(
+		context.Background(),
+		newRetainKafka(t, cluster),
+		nil,
+		audit.BufferedConfig{Capacity: 1, BatchSize: 1, FlushInterval: 20 * time.Millisecond},
+	)
 
 	if err := buffered.Record(context.Background(), retainReadEvent("retained")); err != nil {
 		t.Fatalf("record: %v", err)
 	}
+
 	logs.waitFor(t, "audit.buffer.delivery_retained")
+
 	for _, suffix := range []string{"first-refused", "later-refused"} {
 		if err := recordWithin(t, buffered, retainReadEvent(suffix)); err == nil {
 			t.Fatalf("Record accepted %s while the retained event filled the queue", suffix)

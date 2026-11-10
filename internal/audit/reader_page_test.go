@@ -12,6 +12,7 @@ func TestQueryCursorRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
+
 	if !gotTime.Equal(eventTime) || gotSeq != 42 {
 		t.Fatalf("round trip = (%s, %d), want (%s, 42)", gotTime, gotSeq, eventTime)
 	}

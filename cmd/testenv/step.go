@@ -12,31 +12,53 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// cliStep is the tool's stand-in for a test: it satisfies testenv.T, writes
-// failure reasons to stderr, and ends the step the way [testing.T.FailNow]
-// ends a test, by exiting the step's goroutine.
+// cliStep implements testenv.T for this tool. It writes failure reasons to
+// stderr and ends the step's goroutine, as [testing.T.FailNow] ends a test's
+// goroutine.
 type cliStep struct {
 	failed atomic.Bool
 }
 
-// Helper is a no-op outside a test binary.
+// Helper does not perform an operation outside a test binary.
+//
+// The method satisfies the helper interface without changing the step.
+//
+//   - For example, an engine helper can call Helper before provisioning.
 func (step *cliStep) Helper() {}
 
-// Context is the step's context. The tool runs one step per process and an
-// interrupt ends the process, so nothing cancels it sooner.
+// Context returns the step's context. The tool runs one step per process.
+// An interrupt ends the process. The tool does not cancel this context.
+//
+// Engine helpers use this context when they create a provisioning timeout.
+//
+//   - For example, provisioned.get limits provisioning with
+//     [context.WithTimeout].
 func (step *cliStep) Context() context.Context { return context.Background() }
 
-// Output is where a failing helper writes its reason.
+// Output returns the destination for a failing helper's reason.
+//
+// The destination is standard error.
+//
+//   - For example, fail writes its error to Output before calling FailNow.
 func (step *cliStep) Output() io.Writer { return os.Stderr }
 
 // FailNow marks the step failed and ends its goroutine.
+//
+// runStep detects the failure after the goroutine ends and attempts cleanup.
+//
+//   - For example, provisioned.get writes a provisioning error before calling
+//     FailNow.
 func (step *cliStep) FailNow() {
 	step.failed.Store(true)
 	runtime.Goexit()
 }
 
-// SkipNow ends the step without failing it. The tool never runs under
-// -short, so no helper asks for it.
+// SkipNow ends the step without failing it. The tool does not run with -short,
+// and helpers do not request skipping for that flag.
+//
+// The method exits the goroutine without changing the failure flag.
+//
+//   - For example, calling SkipNow on a new step leaves its failure flag false.
 func (step *cliStep) SkipNow() { runtime.Goexit() }
 
 // fail writes err and fails the step.
@@ -45,9 +67,9 @@ func (step *cliStep) fail(err error) {
 	step.FailNow()
 }
 
-// runStep runs body on its own goroutine, so FailNow can end it without
-// ending the process, and returns the exit code. A failed step releases the
-// engines it had started, since nobody will use them.
+// runStep runs body in its own goroutine and returns the exit code. FailNow
+// ends that goroutine without ending the process. If the step fails, runStep
+// releases the engines it started.
 func runStep(body func(*cliStep)) int {
 	step := &cliStep{failed: atomic.Bool{}}
 	var _ testenv.T = step
@@ -66,8 +88,10 @@ func runStep(body func(*cliStep)) int {
 	if !step.failed.Load() {
 		return 0
 	}
+
 	if err := testenv.Release(step.Context()); err != nil {
 		slog.Error("testenv.release_failed", slog.String("err", err.Error()))
 	}
+
 	return 1
 }

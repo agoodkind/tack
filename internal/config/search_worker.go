@@ -22,19 +22,19 @@ const (
 	searchClassWeightMax    = 16
 )
 
-// SearchReplacementPauseLimit is how long an index replacement waits for a
-// green target. The wait starts when the replacement pauses claims, or when
-// it begins for a full replacement that creates its target. A create, split,
-// or switch step that finds the target not green after this limit records
-// the replacement as failed. The failure path then restores source writes,
+// SearchReplacementPauseLimit bounds the wait for a green target, a target with
+// healthy primary and replica shards. The wait starts when replacement pauses
+// claims, or when a full replacement begins, including the wait for its first
+// claim. A create, split, or switch step fails the replacement if the target
+// remains unhealthy past this limit. The next claim restores source writes,
 // deletes the target, and resumes claims.
 const SearchReplacementPauseLimit = 10 * time.Minute
 
-// SearchWriteCompletionHorizon is the time from abandonment until a claim
+// SearchWriteCompletionHorizon sets the wait after abandonment before a claim
 // may resend a page that remains absent from its recorded index.
 const SearchWriteCompletionHorizon = 90 * time.Second
 
-// SearchWorkerSettings contains bounded environment-backed indexing settings.
+// SearchWorkerSettings bounds indexing work through environment settings.
 type SearchWorkerSettings struct {
 	PageBytes        int           `env:"OPENSEARCH_PAGE_BYTES"               envDefault:"4096"`
 	MaxPages         int           `env:"OPENSEARCH_WORKER_MAX_PAGES"         envDefault:"32"`
@@ -44,73 +44,131 @@ type SearchWorkerSettings struct {
 	Lease            time.Duration `env:"OPENSEARCH_WORKER_LEASE"             envDefault:"30s"`
 	IdleInterval     time.Duration `env:"OPENSEARCH_WORKER_IDLE_INTERVAL"     envDefault:"250ms"`
 	Concurrency      int           `env:"OPENSEARCH_WORKER_CONCURRENCY"       envDefault:"1"`
-	// ClassWeights sets each class's share of one worker's time while
-	// several classes have pending work. It requires a weight of at least
-	// one for every scheduled class and no other class.
+	// ClassWeights sets each class's share of worker time when several classes have
+	// pending work. Every scheduled class requires a weight of at least one; the
+	// map must not include other classes.
 	ClassWeights map[string]int `env:"OPENSEARCH_WORK_CLASS_WEIGHTS" envDefault:"live:4,access:2,cleanup:2,rescan:1,rollout:1,rebuild:1,copy:2" envKeyValSeparator:":"`
-	// ReplacementPauseLimit is the longest wait for a green replacement
-	// target. It has no environment variable. LoadSearchWorkerSettings sets
-	// it to SearchReplacementPauseLimit, and tests set a shorter limit.
+	// ReplacementPauseLimit bounds the wait for a green replacement target. It does
+	// not have an environment variable. [LoadSearchWorkerSettings] sets it to
+	// [SearchReplacementPauseLimit], and tests use shorter limits.
 	ReplacementPauseLimit time.Duration
-	// WriteCompletionHorizon limits how long claims wait for an abandoned
-	// write when its page remains absent. It does not have an environment
-	// variable. LoadSearchWorkerSettings sets it to
-	// SearchWriteCompletionHorizon, and tests set other horizons.
+	// WriteCompletionHorizon bounds the wait for an abandoned write when its page
+	// remains absent. It does not have an environment variable.
+	// [LoadSearchWorkerSettings] sets it to [SearchWriteCompletionHorizon], and
+	// tests use other horizons.
 	WriteCompletionHorizon time.Duration
 }
 
-// LoadSearchWorkerSettings parses and validates the indexing worker environment.
+// LoadSearchWorkerSettings reads the indexing worker environment settings.
+//
+// LoadSearchWorkerSettings assigns the fixed replacement and write-completion
+// limits, then calls [SearchWorkerSettings.Validate]. Parsing or validation
+// failures return an empty settings value and an error.
+//
+// The fixed settings use these constants:
+//
+//   - ReplacementPauseLimit uses [SearchReplacementPauseLimit].
+//   - WriteCompletionHorizon uses [SearchWriteCompletionHorizon].
 func LoadSearchWorkerSettings(ctx context.Context) (SearchWorkerSettings, error) {
 	var settings SearchWorkerSettings
 	if err := env.Parse(&settings); err != nil {
 		wrapped := fmt.Errorf("parse search worker settings: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.worker.config_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.worker.config_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return SearchWorkerSettings{}, wrapped
 	}
+
 	settings.ReplacementPauseLimit = SearchReplacementPauseLimit
 	settings.WriteCompletionHorizon = SearchWriteCompletionHorizon
 	if err := settings.Validate(); err != nil {
 		wrapped := fmt.Errorf("validate search worker settings: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.worker.config_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.worker.config_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return SearchWorkerSettings{}, wrapped
 	}
+
 	return settings, nil
 }
 
-// Validate enforces the production page, slice, lease, and class limits.
+// Validate checks the indexing limits in [SearchWorkerSettings].
+//
+// SearchWorkerSettings.Validate checks page and byte bounds, timing,
+// concurrency, and scheduled class weights. It returns the first error it
+// finds.
+//
+// Validation requires these timing relationships:
+//
+//   - Lease must exceed SliceBudget plus OperationTimeout.
+//   - ReplacementPauseLimit must exceed Lease.
+//   - WriteCompletionHorizon must exceed OperationTimeout and remain shorter
+//     than ReplacementPauseLimit.
 func (s SearchWorkerSettings) Validate() error {
 	if s.PageBytes < searchPageByteMinimum || s.PageBytes > searchPageByteMaximum {
-		return fmt.Errorf("search page bytes must be between %d and %d", searchPageByteMinimum, searchPageByteMaximum)
+		return fmt.Errorf(
+			"search page bytes must be between %d and %d",
+			searchPageByteMinimum,
+			searchPageByteMaximum,
+		)
 	}
+
 	if s.MaxPages <= 0 || s.MaxPages > searchWorkerPageMaximum {
 		return fmt.Errorf("search worker pages must be between 1 and %d", searchWorkerPageMaximum)
 	}
+
 	if s.MaxBytes <= 0 || s.MaxBytes > searchWorkerByteMaximum {
 		return fmt.Errorf("search worker bytes must be between 1 and %d", searchWorkerByteMaximum)
 	}
+
 	if s.SliceBudget <= 0 || s.SliceBudget > 2*time.Second {
-		return errors.New("search worker slice budget must be positive and must not exceed two seconds")
+		return errors.New(
+			"search worker slice budget must be positive and must not exceed two seconds",
+		)
 	}
+
 	if s.OperationTimeout <= 0 || s.OperationTimeout > 10*time.Second {
-		return errors.New("search worker operation timeout must be positive and must not exceed ten seconds")
+		return errors.New(
+			"search worker operation timeout must be positive and must not exceed ten seconds",
+		)
 	}
+
 	if s.Lease <= s.SliceBudget+s.OperationTimeout {
-		return errors.New("search worker lease must exceed the slice budget plus the operation timeout")
+		return errors.New(
+			"search worker lease must exceed the slice budget plus the operation timeout",
+		)
 	}
+
 	if s.ReplacementPauseLimit <= s.Lease {
 		return errors.New("search replacement pause limit must exceed the worker lease")
 	}
-	if s.WriteCompletionHorizon <= s.OperationTimeout || s.WriteCompletionHorizon >= s.ReplacementPauseLimit {
-		return errors.New("search write completion horizon must exceed the operation timeout and must be shorter than the replacement pause limit")
+
+	if s.WriteCompletionHorizon <= s.OperationTimeout ||
+		s.WriteCompletionHorizon >= s.ReplacementPauseLimit {
+		return errors.New(
+			"search write completion horizon must exceed the operation " +
+				"timeout and must be shorter than the replacement pause limit",
+		)
 	}
+
 	if s.IdleInterval <= 0 || s.Concurrency <= 0 || s.Concurrency > searchWorkerMaximum {
-		return fmt.Errorf("search worker idle interval must be positive, and concurrency must be between 1 and %d", searchWorkerMaximum)
+		return fmt.Errorf(
+			"search worker idle interval must be positive, and concurrency must be between 1 and %d",
+			searchWorkerMaximum,
+		)
 	}
+
 	return validateClassWeights(s.ClassWeights)
 }
 
-// validateClassWeights requires one weight for each class a search worker
-// schedules and rejects every other class name.
+// validateClassWeights requires a weight for every scheduled search work class
+// and rejects other class names.
 func validateClassWeights(weights map[string]int) error {
 	classes := search.ScheduledWorkClasses()
 	for _, class := range classes {
@@ -118,14 +176,21 @@ func validateClassWeights(weights map[string]int) error {
 		if !exists {
 			return fmt.Errorf("search work class %q requires a weight", class)
 		}
+
 		if weight < 1 || weight > searchClassWeightMax {
-			return fmt.Errorf("search work class %q weight must be between 1 and %d", class, searchClassWeightMax)
+			return fmt.Errorf(
+				"search work class %q weight must be between 1 and %d",
+				class,
+				searchClassWeightMax,
+			)
 		}
 	}
+
 	for class := range weights {
 		if !slices.Contains(classes, search.WorkClass(class)) {
 			return fmt.Errorf("search work class %q is not a scheduled class", class)
 		}
 	}
+
 	return nil
 }

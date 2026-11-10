@@ -34,18 +34,33 @@ type QueryRanker struct {
 
 var _ searchdomain.Ranker = (*QueryRanker)(nil)
 
-// Ranker returns the ranked query path over this adapter's client.
+// Ranker returns a QueryRanker that uses this adapter's client for ranked
+// queries.
+//
+// The returned ranker uses settings to limit the resources for snapshots
+// and batch reads.
+//
+//   - KeepAlive sets the point-in-time lifetime.
+//   - TokenBytes limits query token bytes.
+//   - BatchSize limits raw matches per batch.
 func (a *Adapter) Ranker(settings RankerSettings) *QueryRanker {
 	return &QueryRanker{adapter: a, settings: settings}
 }
 
 // Open resolves the public alias, verifies the physical index and pinned
-// model, computes the query tokens once, and creates one point in time. For a
-// successful HTTP response with failed shards or without an ID, it returns a
-// partial snapshot with [searchdomain.ErrSnapshotPartial]. The caller deletes a
-// partial snapshot with a usable ID. A missing ID also returns
-// [searchdomain.ErrSnapshotUncertain].
-func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searchdomain.Snapshot, error) {
+// model, computes the query tokens once, and creates one point in time.
+//
+// A successful HTTP response with failed shards or without an ID returns a
+// partial snapshot with [searchdomain.ErrSnapshotPartial]. The caller must
+// delete a partial snapshot that has a usable ID.
+//
+//   - Failed shards prevent a complete snapshot even when the response has an
+//     ID.
+//   - A missing ID also returns [searchdomain.ErrSnapshotUncertain].
+func (r *QueryRanker) Open(
+	ctx context.Context,
+	query searchdomain.Query,
+) (searchdomain.Snapshot, error) {
 	var none searchdomain.Snapshot
 	timing := newSnapshotTiming()
 	defer timing.log(ctx, query.Index)
@@ -54,115 +69,187 @@ func (r *QueryRanker) Open(ctx context.Context, query searchdomain.Query) (searc
 	if err != nil {
 		return none, snapshotFailure(ctx, query.Index, "resolve the public alias", err)
 	}
+
 	if query.Index == "" || target != query.Index {
-		return none, snapshotFailure(ctx, query.Index, "verify the serving index",
-			fmt.Errorf("alias %s selects %q, and FoundationDB records %q", PublicAlias, target, query.Index))
+		return none, snapshotFailure(
+			ctx,
+			query.Index,
+			"verify the serving index",
+			fmt.Errorf(
+				"alias %s selects %q, and FoundationDB records %q",
+				PublicAlias,
+				target,
+				query.Index,
+			),
+		)
 	}
-	info, err := r.adapter.IndexInfo(ctx, target)
-	timing.mark(&timing.mapping)
+
+	info, err := r.readSnapshotIndex(ctx, target, timing)
 	if err != nil {
-		return none, snapshotFailure(ctx, target, "read the index mapping", err)
+		return none, err
 	}
-	if info.ModelID == "" || info.MappingVersion == "" || info.TokenizerSHA256 != PinnedModel.TokenizerDigest {
-		return none, snapshotFailure(ctx, target, "verify the index mapping", errors.New("the mapping does not record the pinned model and tokenizer"))
-	}
-	model, err := r.adapter.getModel(ctx, info.ModelID)
-	timing.mark(&timing.model)
-	if err != nil {
-		return none, snapshotFailure(ctx, target, "read the pinned model", err)
-	}
-	if cause := pinnedModelCause(model); cause != nil {
-		return none, snapshotFailure(ctx, target, "verify the pinned model", cause)
-	}
-	tokens, err := r.adapter.predictQueryTokens(ctx, info.ModelID, query.Text, r.settings.TokenBytes)
+
+	tokens, err := r.adapter.predictQueryTokens(
+		ctx,
+		info.ModelID,
+		query.Text,
+		r.settings.TokenBytes,
+	)
 	timing.mark(&timing.predict)
 	if err != nil {
 		return none, queryStepError{operation: "open search snapshot on " + target, err: err}
 	}
+
 	if err := ctx.Err(); err != nil {
 		return none, snapshotFailure(ctx, target, "create a point in time", err)
 	}
-	created, err := r.adapter.snapshotAPI.PointInTime.Create(ctx, &opensearchapi.CreatePITReq{
-		Indices: []string{target}, Header: nil,
-		Params: &opensearchapi.CreatePITParams{KeepAlive: r.settings.KeepAlive},
-	})
+
+	created, err := r.adapter.snapshotAPI.PointInTime.Create(
+		ctx,
+		&opensearchapi.CreatePITReq{
+			Indices: []string{target},
+			Header:  nil,
+			Params:  &opensearchapi.CreatePITParams{KeepAlive: r.settings.KeepAlive},
+		},
+	)
 	timing.mark(&timing.pointInTime)
 	response := created.Inspect().Response
-	if response != nil && !response.IsError() && (!created.PITID.IsSet() || created.Shards.Failed > 0) {
-		partial := searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: nil}
+	if response != nil && !response.IsError() &&
+		(!created.PITID.IsSet() || created.Shards.Failed > 0) {
+		partial := searchdomain.Snapshot{
+			PITID:       created.PITID.String(),
+			Index:       target,
+			QueryTokens: nil,
+		}
 		cause := errors.Join(searchdomain.ErrSnapshotPartial, err)
 		if !created.PITID.IsSet() {
 			cause = errors.Join(cause, searchdomain.ErrSnapshotUncertain)
 		}
-		return partial, snapshotFailure(ctx, target, "create a point in time",
-			fmt.Errorf("OpenSearch returned an empty ID or %d failed shards: %w", created.Shards.Failed, cause))
+
+		return partial, snapshotFailure(
+			ctx,
+			target,
+			"create a point in time",
+			fmt.Errorf(
+				"OpenSearch returned an empty ID or %d failed shards: %w",
+				created.Shards.Failed,
+				cause,
+			),
+		)
 	}
+
 	if err != nil {
 		return none, snapshotEffectFailure(ctx, target, "create a point in time", response, err)
 	}
-	telemetry.L(ctx).DebugContext(ctx, "search.snapshot.opened", slog.String("index", target), slog.Int("token_bytes", len(tokens)))
-	return searchdomain.Snapshot{PITID: created.PITID.String(), Index: target, QueryTokens: tokens}, nil
+
+	telemetry.L(ctx).DebugContext(
+		ctx,
+		"search.snapshot.opened",
+		slog.String("index", target),
+		slog.Int("token_bytes", len(tokens)),
+	)
+
+	return searchdomain.Snapshot{
+		PITID:       created.PITID.String(),
+		Index:       target,
+		QueryTokens: tokens,
+	}, nil
 }
 
-// Close deletes the point in time and returns nil on success. It returns nil without sending
-// a request when snapshot.PITID is empty. It logs and returns ID parsing and context cancellation
-// errors. Close returns an error that wraps [searchdomain.ErrSnapshotLost] only when OpenSearch
-// answers the delete with HTTP 404. Other responses do not establish that the point in time
-// is missing. For other delete errors, snapshotEffectFailure preserves known refusal causes
-// and also wraps [searchdomain.ErrSnapshotUncertain] when the error does not establish a refusal.
+// Close deletes the point in time and returns nil on success. An empty
+// snapshot.PITID returns nil without a request.
+//
+// Close logs and returns ID parsing and context cancellation errors. For
+// other delete errors, snapshotEffectFailure preserves known refusal causes.
+//
+//   - Close wraps [searchdomain.ErrSnapshotLost] only when OpenSearch answers
+//     the delete with HTTP 404. Other responses do not establish that the
+//     point in time is missing.
+//   - A delete error that does not establish a refusal also wraps
+//     [searchdomain.ErrSnapshotUncertain].
 func (r *QueryRanker) Close(ctx context.Context, snapshot searchdomain.Snapshot) error {
 	if snapshot.PITID == "" {
 		return nil
 	}
+
 	id, err := opensearchapi.ParsePITID(snapshot.PITID)
 	if err != nil {
 		return snapshotFailure(ctx, snapshot.Index, "parse a point in time", err)
 	}
+
 	if err := ctx.Err(); err != nil {
 		return snapshotFailure(ctx, snapshot.Index, "delete a point in time", err)
 	}
-	response, err := r.adapter.api.PointInTime.Delete(ctx, &opensearchapi.DeletePITReq{Body: &opensearchapi.DeletePITBody{PITID: []opensearchapi.PITID{id}}})
+
+	response, err := r.adapter.api.PointInTime.Delete(
+		ctx,
+		&opensearchapi.DeletePITReq{
+			Body: &opensearchapi.DeletePITBody{PITID: []opensearchapi.PITID{id}},
+		},
+	)
 	if err == nil {
 		return nil
 	}
+
 	var deleted *opensearch.Response
 	if response != nil {
 		deleted = response.Inspect().Response
 	}
+
 	if deleted != nil && deleted.StatusCode == http.StatusNotFound {
-		return queryStepError{operation: "delete a point in time on " + snapshot.Index, err: searchdomain.ErrSnapshotLost}
+		return queryStepError{
+			operation: "delete a point in time on " + snapshot.Index,
+			err:       searchdomain.ErrSnapshotLost,
+		}
 	}
+
 	return snapshotEffectFailure(ctx, snapshot.Index, "delete a point in time", deleted, err)
 }
 
 // snapshotEffectFailure preserves known refusals and marks other errors
 // uncertain. A complete error response does not establish whether the
 // operation took effect.
-func snapshotEffectFailure(ctx context.Context, index, operation string, response *opensearch.Response, err error) error {
+func snapshotEffectFailure(
+	ctx context.Context,
+	index string,
+	operation string,
+	response *opensearch.Response,
+	err error,
+) error {
 	cause := engineCause(ctx, response, err)
 	if !snapshotEffectRefused(response, err) {
 		cause = errors.Join(searchdomain.ErrSnapshotUncertain, cause)
 	}
+
 	return snapshotFailure(ctx, index, operation, cause)
 }
 
 func snapshotFailure(ctx context.Context, index, operation string, err error) error {
 	wrapped := fmt.Errorf("search snapshot on %s: %s: %w", index, operation, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.snapshot.failed", slog.String("err", wrapped.Error()), slog.String("index", index))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.snapshot.failed",
+		slog.String("err", wrapped.Error()),
+		slog.String("index", index),
+	)
+
 	return wrapped
 }
 
-// `pinnedModelCause` classifies a mismatch only in model state as `ErrEngineUnavailable` because public queries require a `DEPLOYED` model.
+// pinnedModelCause classifies a mismatch only in model state as
+// ErrEngineUnavailable. Public queries require a DEPLOYED model.
 func pinnedModelCause(model registeredModel) error {
 	mismatches := modelMismatches(model)
 	if len(mismatches) == 0 {
 		return nil
 	}
+
 	joined := errors.Join(mismatches...)
 	deployed := model
 	deployed.State = deployedModelState
 	if len(modelMismatches(deployed)) > 0 {
 		return joined
 	}
+
 	return unavailableError{err: joined}
 }

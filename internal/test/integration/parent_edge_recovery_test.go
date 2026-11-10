@@ -31,31 +31,60 @@ func TestSearchParentEdgeReindexReadmits(t *testing.T) {
 	parent := fixture.createLeaf(t, fixture.firstEntry, "topaz parent leaf")
 	nested := fixture.createLeaf(t, parent, "topaz nested leaf")
 	fixture.drain(t)
-	second := &node.Relationship{OrgID: fixture.kind.orgID, SourceID: nested, RelationType: node.RelChildOf, TargetID: fixture.secondEntry}
-	if err := fixture.stores.Relationships.Add(integration.WithTestOperation(t, t.Context()), second); err != nil {
+	second := &node.Relationship{
+		OrgID:        fixture.kind.orgID,
+		SourceID:     nested,
+		RelationType: node.RelChildOf,
+		TargetID:     fixture.secondEntry,
+	}
+	if err := fixture.stores.Relationships.Add(
+		integration.WithTestOperation(t, t.Context()),
+		second,
+	); err != nil {
 		t.Fatalf("add second parent edge of nested leaf %s: %v", nested, err)
 	}
+
 	fixture.drain(t)
 	if !slices.Contains(fixture.excluded(t), nested) {
 		t.Fatalf("ops search verify does not list the excluded nested leaf %s", nested)
 	}
-	if found := fixture.search(t, fixture.first, "topaz nested leaf"); slices.Contains(found, nested) {
+
+	if found := fixture.search(t, fixture.first, "topaz nested leaf"); slices.Contains(
+		found,
+		nested,
+	) {
 		t.Fatalf("search returned the excluded nested leaf %s", nested)
 	}
-	unscheduled, err := fdbadapter.NewStores(fixture.cfg.FDBClusterFile, cohortTransactionTimeout, nil)
+
+	unscheduled, err := fdbadapter.NewStores(
+		fixture.cfg.FDBClusterFile,
+		cohortTransactionTimeout,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("open stores without search work: %v", err)
 	}
-	if err := unscheduled.Relationships.Remove(integration.WithTestOperation(t, t.Context()), fixture.kind.orgID, nested, node.RelChildOf, fixture.secondEntry); err != nil {
+
+	if err := unscheduled.Relationships.Remove(
+		integration.WithTestOperation(t, t.Context()),
+		fixture.kind.orgID,
+		nested,
+		node.RelChildOf,
+		fixture.secondEntry,
+	); err != nil {
 		t.Fatalf("remove second parent edge of nested leaf %s: %v", nested, err)
 	}
 
 	fixture.reindex(t)
 	fixture.drain(t)
 
-	if found := fixture.search(t, fixture.first, "topaz nested leaf"); !slices.Contains(found, nested) {
+	if found := fixture.search(t, fixture.first, "topaz nested leaf"); !slices.Contains(
+		found,
+		nested,
+	) {
 		t.Fatalf("search after the reindex returned %v, want nested leaf %s", found, nested)
 	}
+
 	if slices.Contains(fixture.excluded(t), nested) {
 		t.Fatalf("ops search verify lists nested leaf %s after the reindex", nested)
 	}
@@ -67,6 +96,7 @@ func (f parentEdgeFixture) excluded(t *testing.T) []uuid.UUID {
 	if verifyErr != nil {
 		t.Fatalf("ops search verify: %v", verifyErr)
 	}
+
 	var listing struct {
 		Exclusions []struct {
 			NodeID uuid.UUID `json:"node_id"`
@@ -75,10 +105,12 @@ func (f parentEdgeFixture) excluded(t *testing.T) []uuid.UUID {
 	if err := json.Unmarshal(result, &listing); err != nil {
 		t.Fatalf("decode ops search verify listing %s: %v", result, err)
 	}
+
 	nodes := make([]uuid.UUID, 0, len(listing.Exclusions))
 	for _, exclusion := range listing.Exclusions {
 		nodes = append(nodes, exclusion.NodeID)
 	}
+
 	return nodes
 }
 
@@ -94,32 +126,44 @@ func (f parentEdgeFixture) reindex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ops search reindex --mode full: %v", err)
 	}
+
 	var replacement struct {
 		TargetIndex string `json:"target_index"`
 	}
 	if err := json.Unmarshal(result, &replacement); err != nil || replacement.TargetIndex == "" {
 		t.Fatalf("decode ops search reindex result %s: %v", result, err)
 	}
+
 	t.Cleanup(func() {
-		_ = f.adapter.DeleteIndex(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), replacement.TargetIndex)
+		_ = f.adapter.DeleteIndex(
+			context.WithoutCancel(integration.WithTestOperation(t, t.Context())),
+			replacement.TargetIndex,
+		)
 	})
 	rebuilds := f.stores.SearchRebuilds(clock.Wall{})
+
 	deadline := clock.Now().Add(parentEdgeDeadline)
 	for clock.Now().Before(deadline) {
-		current, running, err := rebuilds.CurrentRebuild(integration.WithTestOperation(t, t.Context()))
+		current, running, err := rebuilds.CurrentRebuild(
+			integration.WithTestOperation(t, t.Context()),
+		)
 		if err != nil {
 			t.Fatalf("read index replacement: %v", err)
 		}
+
 		if !running || current.State == searchdomain.RebuildRetiring {
 			return
 		}
+
 		claimed, err := f.worker.RunSlice(integration.WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("search slice failed during the replacement: %v", err)
 		}
+
 		if !claimed {
 			<-time.After(parentEdgePause)
 		}
 	}
+
 	t.Fatalf("the index replacement did not switch the serving index within %s", parentEdgeDeadline)
 }

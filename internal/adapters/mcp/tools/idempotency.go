@@ -13,14 +13,19 @@ import (
 
 type mcpRequestMetadataKey struct{}
 
-// MCPRequestMetadata carries transport-level identity that mcp-go does not
+// MCPRequestMetadata stores transport request identity that mcp-go does not
 // expose on CallToolRequest.
 type MCPRequestMetadata struct {
 	RequestID string
 	SessionID string
 }
 
-// WithMCPRequestMetadata stores transport-level request identity in context.
+// WithMCPRequestMetadata stores transport request identity in ctx.
+//
+// Create idempotency can use the request ID with a session ID when the tool
+// request does not supply explicit operation metadata.
+//
+//	ctx = WithMCPRequestMetadata(ctx, metadata)
 func WithMCPRequestMetadata(ctx context.Context, metadata MCPRequestMetadata) context.Context {
 	return context.WithValue(ctx, mcpRequestMetadataKey{}, metadata)
 }
@@ -37,7 +42,11 @@ type createIdempotencyInput struct {
 	Args           argMap
 }
 
-func createIdempotency(ctx context.Context, req mcpmcp.CallToolRequest, in createIdempotencyInput) (key string, fingerprint string, source string, err error) {
+func createIdempotency(
+	ctx context.Context,
+	req mcpmcp.CallToolRequest,
+	in createIdempotencyInput,
+) (key string, fingerprint string, source string, err error) {
 	fingerprint, err = createFingerprint(in)
 	if err != nil {
 		return "", "", "", err
@@ -52,11 +61,18 @@ func createIdempotency(ctx context.Context, req mcpmcp.CallToolRequest, in creat
 	if operationID == "" && sessionID != "" {
 		operationID = operationIDFromContext(ctx)
 	}
+
 	if operationID == "" {
 		return "", fingerprint, "", nil
 	}
 
-	return fmt.Sprintf("mcp:%s:%s:%s:%s", in.UserID, in.ToolName, sessionID, operationID), fingerprint, "mcp", nil
+	return fmt.Sprintf(
+		"mcp:%s:%s:%s:%s",
+		in.UserID,
+		in.ToolName,
+		sessionID,
+		operationID,
+	), fingerprint, "mcp", nil
 }
 
 func createFingerprint(in createIdempotencyInput) (string, error) {
@@ -80,11 +96,14 @@ func createFingerprint(in createIdempotencyInput) (string, error) {
 	if payload.Props == nil {
 		payload.Props = map[string]json.RawMessage{}
 	}
+
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshal idempotency fingerprint: %w", err)
 	}
+
 	sum := sha256.Sum256(body)
+
 	return hex.EncodeToString(sum[:]), nil
 }
 
@@ -92,9 +111,11 @@ func operationIDFromMeta(req mcpmcp.CallToolRequest) string {
 	if req.Params.Meta == nil {
 		return ""
 	}
+
 	if value, ok := req.Params.Meta.AdditionalFields["tackOperationID"]; ok {
 		return fmt.Sprint(value)
 	}
+
 	return ""
 }
 
@@ -108,6 +129,8 @@ func sessionIDFromRequest(ctx context.Context, req mcpmcp.CallToolRequest) strin
 	if sessionID != "" {
 		return sessionID
 	}
+
 	metadata, _ := MCPRequestMetadataFromContext(ctx)
+
 	return metadata.SessionID
 }

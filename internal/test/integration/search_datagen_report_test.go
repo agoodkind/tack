@@ -25,7 +25,11 @@ import (
 const sessionVerbCount = 5
 
 // relevanceProbeQueries lists the queries that the relevance probe must report in order.
-var relevanceProbeQueries = []string{"restart containers one by one", "rolling Docker restart", "restart containers sequentially"}
+var relevanceProbeQueries = []string{
+	"restart containers one by one",
+	"rolling Docker restart",
+	"restart containers sequentially",
+}
 
 // TestSearchDatagenReportsWarningAndRelevance runs ops qa datagen search --commit, ops
 // search verify, and an ops verify strict-validation dry run through Cobra with real
@@ -35,7 +39,11 @@ var relevanceProbeQueries = []string{"restart containers one by one", "rolling D
 func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 	cfg := newCohortEngines(t)
 	cfg.AuditReaderDSN = cfg.DatabaseURL
-	startPublicLedgerOn(t, &publicServer{clusterFile: cfg.FDBClusterFile}, startRuntimeAuditStack(t))
+	startPublicLedgerOn(
+		t,
+		&publicServer{clusterFile: cfg.FDBClusterFile},
+		startRuntimeAuditStack(t),
+	)
 	output, err := runDatagenSearchCommand(t, cfg, "--commit")
 	if err != nil {
 		t.Fatalf("execute ops qa datagen search: %v; output=%s", err, output)
@@ -56,42 +64,80 @@ func TestSearchDatagenReportsWarningAndRelevance(t *testing.T) {
 		t.Fatalf("decode ops qa datagen search result: %v; output=%s", err, output)
 	}
 	if !envelope.Result.Verified || envelope.Result.Search == nil {
-		t.Fatalf("ops qa datagen search did not report verified=true with a search report: %s", output)
+		t.Fatalf(
+			"ops qa datagen search did not report verified=true with a search report: %s",
+			output,
+		)
 	}
-	if len(envelope.Result.SessionVerbs.Verbs) != sessionVerbCount || envelope.Result.Search.OrgID == uuid.Nil {
-		t.Fatalf("ops qa datagen search reported organization %s and session verbs %+v, want an organization and %d verbs",
-			envelope.Result.Search.OrgID, envelope.Result.SessionVerbs.Verbs, sessionVerbCount)
+	if len(
+		envelope.Result.SessionVerbs.Verbs,
+	) != sessionVerbCount || envelope.Result.Search.OrgID == uuid.Nil {
+		t.Fatalf(
+			"ops qa datagen search reported organization %s and session verbs %+v, want an organization and %d verbs",
+			envelope.Result.Search.OrgID,
+			envelope.Result.SessionVerbs.Verbs,
+			sessionVerbCount,
+		)
 	}
 	for _, verb := range envelope.Result.SessionVerbs.Verbs {
 		if verb.Rows == 0 {
-			t.Fatalf("ops qa datagen search reported zero ledger rows of verb %s: %s", verb.Verb, output)
+			t.Fatalf(
+				"ops qa datagen search reported zero ledger rows of verb %s: %s",
+				verb.Verb,
+				output,
+			)
 		}
 	}
 	warning := envelope.Result.Search.PropertyWarning
 	if warning.NodeID == uuid.Nil || warning.PropertyName == "" || warning.PropertyDefID == uuid.Nil ||
 		warning.Reason != string(node.DiagnosticInapplicable) || warning.Revision == "" {
-		t.Fatalf("property warning case does not include every required field or reports a reason other than inapplicable_property: %+v", warning)
+		t.Fatalf(
+			"property warning case does not include every required field or reports a reason other than inapplicable_property: %+v",
+			warning,
+		)
 	}
 	if verifyListsWarning(t, cfg, warning) {
-		t.Fatalf("ops search verify still lists the property warning of the deleted warning node: %+v", warning)
+		t.Fatalf(
+			"ops search verify still lists the property warning of the deleted warning node: %+v",
+			warning,
+		)
 	}
 	strict, err := runStrictValidation(t, false)
 	if err != nil || strict.Result.ViolationCount != 0 {
-		t.Fatalf("ops verify strict-validation dry run after ops qa datagen search --commit = %+v, %v; want 0 invalid records", strict.Result, err)
+		t.Fatalf(
+			"ops verify strict-validation dry run after ops qa datagen search --commit = %+v, %v; want 0 invalid records",
+			strict.Result,
+			err,
+		)
 	}
 	relevance := envelope.Result.Search.Relevance
 	queries := make([]string, 0, len(relevance.Queries))
 	for _, query := range relevance.Queries {
 		queries = append(queries, query.Query)
 	}
-	if relevance.TargetID == uuid.Nil || relevance.Distractors == 0 || relevance.TitleRank < 1 || !slices.Equal(queries, relevanceProbeQueries) {
-		t.Fatalf("relevance probe must report a target ID, distractors, a title rank of at least 1, and all three queries in order: %+v", relevance)
+	if relevance.TargetID == uuid.Nil || relevance.Distractors == 0 || relevance.TitleRank < 1 || !slices.Equal(
+		queries,
+		relevanceProbeQueries,
+	) {
+		t.Fatalf(
+			"relevance probe must report a target ID, distractors, a title rank of at least 1, and all three queries in order: %+v",
+			relevance,
+		)
 	}
 	for _, query := range relevance.Queries {
 		if query.Returned < 1 || query.Rank < 0 || query.Rank > query.Returned {
-			t.Fatalf("relevance query reports fewer than one returned node or a rank outside 0 through the returned count: %+v", query)
+			t.Fatalf(
+				"relevance query reports fewer than one returned node or a rank outside 0 through the returned count: %+v",
+				query,
+			)
 		}
-		t.Logf("relevance probe query=%q rank=%d returned=%d title_rank=%d", query.Query, query.Rank, query.Returned, relevance.TitleRank)
+		t.Logf(
+			"relevance probe query=%q rank=%d returned=%d title_rank=%d",
+			query.Query,
+			query.Rank,
+			query.Returned,
+			relevance.TitleRank,
+		)
 	}
 }
 
@@ -149,9 +195,22 @@ func runAuditedCommand(t *testing.T, cfg *config.Config, command ...string) ([]b
 		root.AddCommand(rendered)
 	}
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
-	root.SetArgs(append([]string{
-		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30", "--operator-email", "operator@example.com", "--operator-name", "Search Test",
-	}, command...))
+	root.SetArgs(
+		append(
+			[]string{
+				"--execute",
+				"--output",
+				"json",
+				"--operator-id",
+				"019dd226-440e-729a-a442-281aaf73ca30",
+				"--operator-email",
+				"operator@example.com",
+				"--operator-name",
+				"Search Test",
+			},
+			command...,
+		),
+	)
 	err = root.ExecuteContext(t.Context())
 	return output.Bytes(), err
 }

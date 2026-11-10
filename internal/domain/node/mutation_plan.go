@@ -12,33 +12,43 @@ import (
 // that DeleteNode deletes in one transaction.
 const MutationEdgeLimit = 100
 
-// Digest is the SHA-256 digest of one stored encoding.
+// Digest contains the SHA-256 digest of one stored encoding.
 type Digest [32]byte
 
 // PrimaryDigest returns the SHA-256 digest of the exact stored node_instance
 // bytes.
+//
+// The function hashes encoding without decoding or rewriting the stored
+// record.
+//
+//   - A nil encoding hashes the empty byte sequence.
 func PrimaryDigest(encoding []byte) Digest {
 	return sha256.Sum256(encoding)
 }
 
 // RelationshipDigest returns the SHA-256 digest of the exact stored metadata
 // bytes of one relationship.
+//
+// The function hashes metadata without decoding or rewriting it.
+//
+//   - Nil metadata hashes the empty byte sequence.
 func RelationshipDigest(metadata []byte) Digest {
 	return sha256.Sum256(metadata)
 }
 
-// RelationshipSnapshot represents one stored relationship and the digest of
-// its stored metadata.
+// RelationshipSnapshot contains one stored relationship and the digest of its
+// stored metadata.
 type RelationshipSnapshot struct {
 	Relationship Relationship
 	Digest       Digest
 }
 
-// MutationSnapshot represents the state of one node that one FoundationDB
-// transaction read. Exists is false if the node does not have a primary record
-// in the organization. Outgoing lists every relationship from the node.
-// Incoming lists every relationship to the node if the count does not exceed
-// MutationEdgeLimit. Otherwise, IncomingOverflow is true and Incoming is empty.
+// MutationSnapshot records one node's state from one FoundationDB transaction.
+// Exists is false when the organization does not contain the node's primary
+// record. Outgoing lists every relationship from the node. Incoming lists
+// every relationship to the node when the count does not exceed
+// MutationEdgeLimit. Otherwise, IncomingOverflow is true and Incoming is
+// empty.
 type MutationSnapshot struct {
 	Exists           bool
 	Node             Node
@@ -50,7 +60,7 @@ type MutationSnapshot struct {
 	IncomingOverflow bool
 }
 
-// SchemaSnapshot represents the schema and metadata epoch that one transaction
+// SchemaSnapshot records the schema and metadata epoch that one transaction
 // read for one organization.
 type SchemaSnapshot struct {
 	Schema
@@ -87,9 +97,9 @@ type IncomingRelationshipExpectation struct {
 	Digest       Digest
 }
 
-// GraphExpectation specifies the expected digests of records and relationships
-// that preparation read. Records lists the proposed parent, each ancestor of
-// that parent, and each referenced node. Relationships lists the outgoing
+// GraphExpectation specifies the expected record and relationship digests
+// from preparation. Records lists the proposed parent, every ancestor of that
+// parent, and every referenced node. Relationships lists the outgoing
 // relationships that the mutation removes or deletes. Incoming lists the
 // relationships to a node that the mutation deletes.
 type GraphExpectation struct {
@@ -103,9 +113,9 @@ type ParentChange struct {
 	TargetID uuid.UUID
 }
 
-// MutationPlan specifies one checked node create or update. Props specifies
-// a partial patch that preserves omitted properties and removes properties
-// with a JSON null. Parent sets parent_id and the child_of edge. A nil Parent
+// MutationPlan specifies one checked node create or update. Props specifies a
+// partial patch that preserves omitted properties and removes properties with
+// a JSON null. Parent sets parent_id and the child_of edge. A nil Parent
 // preserves the current parent. Relationships changes relationships of other
 // types.
 type MutationPlan struct {
@@ -157,7 +167,11 @@ type MutationReceipt struct {
 // transaction attempt rereads every expectation. If an expectation differs,
 // the attempt returns an error that wraps domain.ErrConflict without writing.
 type Mutator interface {
-	ReadMutationSnapshot(ctx context.Context, orgID, nodeID uuid.UUID) (MutationSnapshot, SchemaSnapshot, error)
+	ReadMutationSnapshot(
+		ctx context.Context,
+		orgID uuid.UUID,
+		nodeID uuid.UUID,
+	) (MutationSnapshot, SchemaSnapshot, error)
 	ApplyMutation(ctx context.Context, plan MutationPlan) (MutationReceipt, error)
 	DeleteNode(ctx context.Context, plan DeletionPlan) (MutationReceipt, error)
 }

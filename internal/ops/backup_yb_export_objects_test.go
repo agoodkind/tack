@@ -5,38 +5,50 @@ import (
 	"testing"
 )
 
-// ybExportRunObjects is the object set a finished export run leaves under
-// one run prefix: the manifest the walk reads, every run-root artifact the
-// manifest declares, and, per node the manifest lists, every artifact that
-// node's archive run publishes, which is what the completeness gate probes for.
-// The manifest is placed under prefixRunID whatever run it declares, so a
-// manifest that names a run other than its own prefix can be exercised.
-func ybExportRunObjects(t *testing.T, prefixRunID string, manifest ybSnapshotManifest) map[string][]byte {
+// ybExportRunObjects builds the object set for a finished export under one
+// run prefix. It includes the manifest, every declared artifact at the run
+// root, and every node artifact that the completeness check requires. It
+// stores the manifest under prefixRunID even if the manifest declares another
+// run, allowing tests of that mismatch.
+func ybExportRunObjects(
+	t *testing.T,
+	prefixRunID string,
+	manifest ybSnapshotManifest,
+) map[string][]byte {
 	t.Helper()
 	body, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatalf("marshal yb snapshot manifest: %v", err)
 	}
+
 	prefix := ybSnapshotKeyPrefix(prefixRunID)
 	objects := map[string][]byte{prefix + ybSnapshotManifestObject: body}
+
 	for _, artifact := range manifest.Artifacts {
 		objects[prefix+artifact] = []byte("export artifact " + artifact)
 	}
+
 	for _, node := range manifest.Nodes {
 		for _, object := range ybNodeArtifactObjects() {
 			objects[prefix+node.Prefix+object] = ybNodeArtifactBody(manifest, node, object)
 		}
 	}
+
 	return objects
 }
 
-// ybNodeArtifactBody is the body of one node artifact in a test store. The
-// inventory is rendered through the production writer for the manifest's own
-// run and node, recording no files, so the drill's staging step reads it back
-// the way it reads a real one; every other node artifact is opaque bytes.
-func ybNodeArtifactBody(manifest ybSnapshotManifest, node ybSnapshotManifestNode, object string) []byte {
+// ybNodeArtifactBody returns bytes for a node artifact in the test store.
+// It uses the production inventory renderer for the manifest's run and node
+// with an empty file list. The drill staging step can read that inventory as
+// it reads a real one. Other artifacts contain opaque fixture bytes.
+func ybNodeArtifactBody(
+	manifest ybSnapshotManifest,
+	node ybSnapshotManifestNode,
+	object string,
+) []byte {
 	if object == ybNodeInventoryObject {
 		return ybArchiveInventory{RunID: manifest.RunID, Node: node.Name, Files: nil}.render()
 	}
+
 	return []byte("node artifact")
 }

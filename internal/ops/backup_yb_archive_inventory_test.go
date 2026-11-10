@@ -7,18 +7,29 @@ import (
 	"testing"
 )
 
-// TestYBArchiveInventoryRecordsEveryFileWithItsSize proves the record is taken
-// from the archive itself: every regular member is listed at the size it was
-// archived with, directory entries carry no bytes and are left out, and the
-// "./" the export's find prefixes every path with is gone, so the paths are the
-// ones the restore compares its extraction against.
+// TestYBArchiveInventoryRecordsEveryFileWithItsSize checks that the inventory
+// lists every regular archive member with its archived size. It omits
+// directory entries and removes the export's ./ prefix. The restore uses
+// these relative paths to compare extracted files.
 func TestYBArchiveInventoryRecordsEveryFileWithItsSize(t *testing.T) {
-	entries := tabletArchiveEntries("table-a/tablet-1.snapshots/snap",
-		map[string]string{"CURRENT": "abc", "000123.sst": strings.Repeat("x", 4096)})
-	entries = append(entries, tabletArchiveEntries("table-a/tablet-2.snapshots/snap",
-		map[string]string{"CURRENT": "de"})...)
+	entries := tabletArchiveEntries(
+		"table-a/tablet-1.snapshots/snap",
+		map[string]string{"CURRENT": "abc", "000123.sst": strings.Repeat("x", 4096)},
+	)
+	entries = append(
+		entries,
+		tabletArchiveEntries(
+			"table-a/tablet-2.snapshots/snap",
+			map[string]string{"CURRENT": "de"},
+		)...,
+	)
 
-	inventory, err := readYBArchiveInventory(t.Context(), "20260830T010203Z", "yb1", writeTestArchive(t, entries))
+	inventory, err := readYBArchiveInventory(
+		t.Context(),
+		"20260830T010203Z",
+		"yb1",
+		writeTestArchive(t, entries),
+	)
 	if err != nil {
 		t.Fatalf("readYBArchiveInventory: %v", err)
 	}
@@ -31,16 +42,16 @@ func TestYBArchiveInventoryRecordsEveryFileWithItsSize(t *testing.T) {
 	if !reflect.DeepEqual(inventory.Files, want) {
 		t.Fatalf("inventory files:\n got=%+v\nwant=%+v", inventory.Files, want)
 	}
+
 	if inventory.RunID != "20260830T010203Z" || inventory.Node != "yb1" {
 		t.Fatalf("inventory declares run %q node %q", inventory.RunID, inventory.Node)
 	}
 }
 
-// TestYBArchiveInventoryRefusesArchivesItCannotDescribe proves the export fails
-// rather than publishing an archive whose record is silently short. A member
-// the inventory skips is a member the restore never checks, which is the
-// silence the whole record exists to remove, and an archive of directory
-// entries alone carries no tablet data at all.
+// TestYBArchiveInventoryRefusesArchivesItCannotDescribe checks that the
+// inventory reader rejects directory-only archives, nonregular members, and
+// paths with a tab. Publishing an incomplete record would omit files from
+// the restore's checks. A directory-only archive does not contain tablet data.
 func TestYBArchiveInventoryRefusesArchivesItCannotDescribe(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -55,28 +66,46 @@ func TestYBArchiveInventoryRefusesArchivesItCannotDescribe(t *testing.T) {
 		{
 			name: "a member that is not a file",
 			entries: append(
-				tabletArchiveEntries("table-a/tablet-1.snapshots/snap", map[string]string{"CURRENT": "abc"}),
+				tabletArchiveEntries(
+					"table-a/tablet-1.snapshots/snap",
+					map[string]string{"CURRENT": "abc"},
+				),
 				testArchiveEntry{
-					name: "./table-a/tablet-1.snapshots/snap/link", typeflag: tar.TypeSymlink, body: "CURRENT",
-				}),
+					name:     "./table-a/tablet-1.snapshots/snap/link",
+					typeflag: tar.TypeSymlink,
+					body:     "CURRENT",
+				},
+			),
 		},
 		{
 			name: "a name no inventory line can hold",
 			entries: []testArchiveEntry{
-				{name: "./table-a/tablet-1.snapshots/snap/od\td", typeflag: tar.TypeReg, body: "abc"},
+				{
+					name:     "./table-a/tablet-1.snapshots/snap/od\td",
+					typeflag: tar.TypeReg,
+					body:     "abc",
+				},
 			},
 		},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := readYBArchiveInventory(t.Context(), "20260830T010203Z", "yb1", writeTestArchive(t, tc.entries)); err == nil {
-				t.Fatal("the export must refuse an archive it cannot fully describe")
-			}
-		})
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				if _, err := readYBArchiveInventory(
+					t.Context(),
+					"20260830T010203Z",
+					"yb1",
+					writeTestArchive(t, tc.entries),
+				); err == nil {
+					t.Fatal("the export must refuse an archive it cannot fully describe")
+				}
+			},
+		)
 	}
 }
 
-// TestYBArchiveInventoryRoundTrip proves the record the export writes is the
-// record the restore reads, field for field, through the same bytes that go to
+// TestYBArchiveInventoryRoundTrip checks that the restore parser reads every
+// field the export renderer writes using the inventory bytes intended for
 // the object store.
 func TestYBArchiveInventoryRoundTrip(t *testing.T) {
 	inventory := ybArchiveInventory{
@@ -92,16 +121,16 @@ func TestYBArchiveInventoryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseYBArchiveInventory: %v", err)
 	}
+
 	if !reflect.DeepEqual(decoded, inventory) {
 		t.Fatalf("round trip:\n got=%+v\nwant=%+v", decoded, inventory)
 	}
 }
 
-// TestParseYBArchiveInventoryRefusesWhatWouldWeakenTheCheck is the point of the
-// header. An inventory that arrives short, or that belongs to another run or
-// node, expects the wrong set of files, and every tablet judged against the
-// wrong set is judged too leniently. Each shape below must be refused rather
-// than read as a smaller archive.
+// TestParseYBArchiveInventoryRefusesWhatWouldWeakenTheCheck checks that the
+// header prevents truncated inventories and inventories for another run or
+// node from passing. These records select the wrong comparison set. The test
+// also rejects missing headers, missing sizes, and invalid sizes.
 func TestParseYBArchiveInventoryRefusesWhatWouldWeakenTheCheck(t *testing.T) {
 	whole := ybArchiveInventory{
 		RunID: "20260830T010203Z",
@@ -126,18 +155,34 @@ func TestParseYBArchiveInventoryRefusesWhatWouldWeakenTheCheck(t *testing.T) {
 		{name: "no header", runID: "20260830T010203Z", node: "yb1", body: "table-a/x\t3"},
 		{name: "empty", runID: "20260830T010203Z", node: "yb1", body: ""},
 		{
-			name: "a line with no size", runID: "20260830T010203Z", node: "yb1",
-			body: ybInventoryMarker + " 20260830T010203Z yb1 1\ntable-a/x\n",
+			name:  "a line with no size",
+			runID: "20260830T010203Z",
+			node:  "yb1",
+			body:  ybInventoryMarker + " 20260830T010203Z yb1 1\ntable-a/x\n",
 		},
 		{
-			name: "a size that is not a number", runID: "20260830T010203Z", node: "yb1",
-			body: ybInventoryMarker + " 20260830T010203Z yb1 1\ntable-a/x\tsome\n",
+			name:  "a size that is not a number",
+			runID: "20260830T010203Z",
+			node:  "yb1",
+			body:  ybInventoryMarker + " 20260830T010203Z yb1 1\ntable-a/x\tsome\n",
 		},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := parseYBArchiveInventory(tc.runID, tc.node, []byte(tc.body)); err == nil {
-				t.Fatalf("parsing %q as the inventory for run %s node %s must fail", tc.body, tc.runID, tc.node)
-			}
-		})
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				if _, err := parseYBArchiveInventory(
+					tc.runID,
+					tc.node,
+					[]byte(tc.body),
+				); err == nil {
+					t.Fatalf(
+						"parsing %q as the inventory for run %s node %s must fail",
+						tc.body,
+						tc.runID,
+						tc.node,
+					)
+				}
+			},
+		)
 	}
 }

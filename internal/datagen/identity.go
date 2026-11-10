@@ -17,12 +17,28 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// PlanIdentities returns deterministic request identities without writing them.
+// PlanIdentities returns deterministic request identities without writing
+// them.
+//
+// The configuration, seed, and scale determine the planned workspaces and
+// actors. The function does not mint random authentication tokens.
+//
+//	first := PlanIdentities(cfg, seed, scale)
+//	second := PlanIdentities(cfg, seed, scale)
+//	// first and second contain the same identity data.
 func PlanIdentities(cfg *config.Config, seed int64, scale Scale) Identities {
 	return plannedIdentities(cfg, seed, scale)
 }
 
-// BootstrapIdentities creates the SQL identities and FDB entry points.
+// BootstrapIdentities creates SQL identities and FoundationDB entry points.
+//
+// The function starts with deterministic plans and mints random tokens. It
+// seeds each organization once, then creates each workspace. A repeated run
+// can reuse an existing user by email.
+//
+//  1. Seed the organization's built-in and QA property definitions.
+//  2. Create the organization, actors, tokens, and organization memberships.
+//  3. Create each workspace and an expired token for authentication checks.
 func BootstrapIdentities(
 	ctx context.Context,
 	cfg *config.Config,
@@ -52,7 +68,10 @@ func BootstrapIdentities(
 	for workspaceIndex := range identities.Workspaces {
 		workspace := &identities.Workspaces[workspaceIndex]
 		if _, ok := seededOrgs[workspace.OrgID.String()]; !ok {
-			if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(ctx, workspace.OrgID); err != nil {
+			if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(
+				ctx,
+				workspace.OrgID,
+			); err != nil {
 				return Identities{}, loggedError(ctx, "qa datagen: seed org", err)
 			}
 			if err := seedQAPropertyDefs(ctx, stores.PropertyDefs, workspace.OrgID); err != nil {
@@ -70,7 +89,12 @@ func BootstrapIdentities(
 			return Identities{}, err
 		}
 	}
-	if err := expireToken(ctx, tokens, identities.ExpiredToken, identities.Workspaces[0]); err != nil {
+	if err := expireToken(
+		ctx,
+		tokens,
+		identities.ExpiredToken,
+		identities.Workspaces[0],
+	); err != nil {
 		return Identities{}, err
 	}
 	return identities, nil
@@ -87,7 +111,10 @@ func mintTokens(identities *Identities, cfg *config.Config) error {
 				var err error
 				rawToken, err = tokenFor()
 				if err != nil {
-					slog.Error("qa.datagen.token_generation_failed", slog.String("err", err.Error()))
+					slog.Error(
+						"qa.datagen.token_generation_failed",
+						slog.String("err", err.Error()),
+					)
 					return fmt.Errorf("qa datagen: generate token: %w", err)
 				}
 				rawTokens[actor.UserID] = rawToken
@@ -126,19 +153,29 @@ func bootstrapActors(
 			return loggedError(ctx, "qa datagen: get user "+actor.Email, err)
 		}
 		if stored == nil {
-			stored, err = users.Create(ctx, &user.User{
-				ID: actor.UserID, Email: actor.Email, DisplayName: actor.DisplayName,
-				AvatarURL: nil,
-			})
+			stored, err = users.Create(
+				ctx,
+				&user.User{
+					ID:          actor.UserID,
+					Email:       actor.Email,
+					DisplayName: actor.DisplayName,
+					AvatarURL:   nil,
+				},
+			)
 			if err != nil {
 				return loggedError(ctx, "qa datagen: create user "+actor.Email, err)
 			}
 		}
 		actor.UserID = stored.ID
-		if err := members.AddMember(ctx, &org.Member{
-			ID: uuid.Nil, OrgID: workspace.OrgID, UserID: stored.ID,
-			Role: 20,
-		}); err != nil {
+		if err := members.AddMember(
+			ctx,
+			&org.Member{
+				ID:     uuid.Nil,
+				OrgID:  workspace.OrgID,
+				UserID: stored.ID,
+				Role:   20,
+			},
+		); err != nil {
 			return loggedError(ctx, "qa datagen: add org member "+actor.Email, err)
 		}
 		if err := bootstrapToken(ctx, tokens, workspace.OrgID, stored.ID, actor); err != nil {
@@ -151,7 +188,13 @@ func bootstrapActors(
 // bootstrapToken skips creation when actor.RawToken validates. It creates the
 // token when validation returns domain.ErrUnauthenticated and returns any other
 // validation error.
-func bootstrapToken(ctx context.Context, tokens *postgres.TokenRepo, orgID, userID uuid.UUID, actor *Actor) error {
+func bootstrapToken(
+	ctx context.Context,
+	tokens *postgres.TokenRepo,
+	orgID uuid.UUID,
+	userID uuid.UUID,
+	actor *Actor,
+) error {
 	_, err := tokens.Validate(ctx, actor.RawToken)
 	if err == nil {
 		return nil
@@ -165,13 +208,25 @@ func bootstrapToken(ctx context.Context, tokens *postgres.TokenRepo, orgID, user
 	return nil
 }
 
-// expireToken uses TokenRepo.CreateExpiring to insert an expired token for the
-// workspace's first actor. It sets the expiry during insertion because the
-// application login cannot update api_tokens.
-func expireToken(ctx context.Context, tokens *postgres.TokenRepo, raw string, workspace WorkspaceIdentity) error {
+// expireToken uses [postgres.TokenRepo.CreateExpiring] to insert an expired
+// token for the workspace's first actor. It sets the expiry during insertion
+// because the application login cannot update api_tokens.
+func expireToken(
+	ctx context.Context,
+	tokens *postgres.TokenRepo,
+	raw string,
+	workspace WorkspaceIdentity,
+) error {
 	expiresAt := clock.Now().UTC().Add(-expiredTokenAge)
 	userID := workspace.Actors[0].UserID
-	if _, err := tokens.CreateExpiring(ctx, workspace.OrgID, userID, raw, expiredTokenLabel, expiresAt); err != nil {
+	if _, err := tokens.CreateExpiring(
+		ctx,
+		workspace.OrgID,
+		userID,
+		raw,
+		expiredTokenLabel,
+		expiresAt,
+	); err != nil {
 		return loggedError(ctx, "qa datagen: create expired token", err)
 	}
 	return nil

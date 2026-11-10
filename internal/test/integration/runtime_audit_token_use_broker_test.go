@@ -23,11 +23,13 @@ const (
 )
 
 // TestRuntimeAuditTokenUseSurvivesBrokerOutage authenticates one request with a
-// real API token while the only relay in the test points at a Kafka address
-// without a broker. The request must succeed. Throughout the outage, the
-// outbox must contain the auth.token_used event and the ledger must not
-// contain it. After a relay with a working broker starts, the ledger row must
-// contain the actor, token target, request ID, operation ID, and outcome, and
+// real API token before the test starts its only relay against a Kafka
+// address without a broker. The request must succeed. Throughout the outage,
+// the outbox must preserve the auth.token_used event and the ledger must not
+// contain it before broker recovery. The test checks these conditions once
+// after the wait; it does not observe them continuously. After a relay
+// with a working broker starts, the ledger row must contain the actor, token
+// target, request ID, operation ID, and outcome. The token's
 // api_tokens.last_used must equal the event time.
 func TestRuntimeAuditTokenUseSurvivesBrokerOutage(t *testing.T) {
 	stack := startRuntimeAuditStack(t)
@@ -47,12 +49,23 @@ func TestRuntimeAuditTokenUseSurvivesBrokerOutage(t *testing.T) {
 		t.Fatalf("tools/list status = %d, want 200: %s", response.status, response.body)
 	}
 
-	outage, err := auditrelay.Open(t.Context(), auditrelay.Config{
-		Brokers: []string{tokenUseUnreachableBroker}, Topic: stack.topic, YugabyteDSN: testenv.Ledger(t),
-		FDBClusterFile: server.clusterFile, FDBTransactionTimeout: tokenUseOutboxTimeout,
-		PollInterval: tokenUseRelayPoll, BatchSize: tokenUseRelayBatch,
-		LeaseDuration: 0, AfterProduce: nil, AfterLeaseAcquired: nil,
-	})
+	outage, err := auditrelay.Open(
+		t.Context(),
+		auditrelay.Config{
+			Brokers: []string{
+				tokenUseUnreachableBroker,
+			},
+			Topic:                 stack.topic,
+			YugabyteDSN:           testenv.Ledger(t),
+			FDBClusterFile:        server.clusterFile,
+			FDBTransactionTimeout: tokenUseOutboxTimeout,
+			PollInterval:          tokenUseRelayPoll,
+			BatchSize:             tokenUseRelayBatch,
+			LeaseDuration:         0,
+			AfterProduce:          nil,
+			AfterLeaseAcquired:    nil,
+		},
+	)
 	if err != nil {
 		t.Fatalf("auditrelay.Open failed for the unreachable broker: %v", err)
 	}
@@ -80,7 +93,12 @@ func TestRuntimeAuditTokenUseSurvivesBrokerOutage(t *testing.T) {
 
 // requireNoLedgerTokenUsed checks that the ledger does not contain an
 // auth.token_used row for requestID.
-func requireNoLedgerTokenUsed(t *testing.T, reader *audit.Reader, orgID uuid.UUID, requestID string) {
+func requireNoLedgerTokenUsed(
+	t *testing.T,
+	reader *audit.Reader,
+	orgID uuid.UUID,
+	requestID string,
+) {
 	t.Helper()
 
 	rows := tokenUsedRows(t, reader, orgID, requestID)

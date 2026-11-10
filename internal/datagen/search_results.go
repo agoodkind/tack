@@ -12,19 +12,19 @@ import (
 )
 
 const (
-	// searchConvergenceDeadline bounds how long one check waits for workers
-	// to index committed changes.
+	// searchConvergenceDeadline bounds how long one check waits for workers to
+	// index committed changes.
 	searchConvergenceDeadline = 5 * time.Minute
 	searchPollInterval        = 2 * time.Second
 	// searchRankBound is the number of leading distinct nodes in the complete
 	// continuation traversal that must contain a relevance target. The search
-	// acceptance criteria count these nodes across continuations. A public page
-	// can end at its byte limit before it returns 25 nodes.
+	// acceptance criteria count these nodes across continuations. A public page can
+	// end at its byte limit before it returns 25 nodes.
 	searchRankBound = 25
 )
 
-// storedPageReader reads the page text that the serving search index stores
-// for one node.
+// storedPageReader reads the page text that the serving search index stores for
+// one node.
 type storedPageReader interface {
 	SearchPageText(context.Context, uuid.UUID) ([]string, error)
 }
@@ -41,7 +41,11 @@ type searchRun struct {
 }
 
 // eventually repeats check until it succeeds or the deadline passes.
-func (r searchRun) eventually(ctx context.Context, description string, check func(context.Context) error) error {
+func (r searchRun) eventually(
+	ctx context.Context,
+	description string,
+	check func(context.Context) error,
+) error {
 	deadline := clock.Now().Add(searchConvergenceDeadline)
 	for {
 		err := check(ctx)
@@ -71,7 +75,13 @@ func (r searchRun) ranked(ctx context.Context, query string, nodes ...uuid.UUID)
 	for _, nodeID := range nodes {
 		position := slices.Index(results, nodeID)
 		if position < 0 || position >= searchRankBound {
-			return fmt.Errorf("search %q ranks node %s at %d, want within the first %d distinct nodes", query, nodeID, position, searchRankBound)
+			return fmt.Errorf(
+				"search %q ranks node %s at %d, want within the first %d distinct nodes",
+				query,
+				nodeID,
+				position,
+				searchRankBound,
+			)
 		}
 	}
 	return nil
@@ -89,9 +99,12 @@ func (r searchRun) includes(ctx context.Context, query string, nodes ...uuid.UUI
 	return nil
 }
 
-// missing resolves all results for query and returns the omitted input node
-// IDs in input order.
-func (r searchRun) missing(ctx context.Context, query string, nodes ...uuid.UUID) ([]uuid.UUID, error) {
+// missing resolves all results for query and returns the omitted input node IDs
+// in input order.
+func (r searchRun) missing(ctx context.Context, query string, nodes ...uuid.UUID) (
+	[]uuid.UUID,
+	error,
+) {
 	results, err := traverseSearch(ctx, r.driver, r.identities(), r.token, r.entry, query, r.limits)
 	if err != nil {
 		return nil, err
@@ -99,7 +112,8 @@ func (r searchRun) missing(ctx context.Context, query string, nodes ...uuid.UUID
 	return omitted(results, nodes), nil
 }
 
-// omitted returns, in input order, each node in nodes that results does not contain.
+// omitted returns, in input order, each node in nodes that results does not
+// contain.
 func omitted(results, nodes []uuid.UUID) []uuid.UUID {
 	absent := make([]uuid.UUID, 0, len(nodes))
 	for _, nodeID := range nodes {
@@ -110,10 +124,10 @@ func omitted(results, nodes []uuid.UUID) []uuid.UUID {
 	return absent
 }
 
-// notIndexed requires nodeID to have at least one active page in the serving
-// index and requires no active page text to contain value. Search also ranks
-// by semantic similarity to other text of the node. A search result therefore
-// cannot prove that value was left out of the index.
+// notIndexed requires at least one active serving-index page for nodeID. It
+// rejects active page text that contains value. Search also ranks nodes by
+// semantic similarity to other node text. Search results cannot prove that the
+// index omits value.
 func (r searchRun) notIndexed(ctx context.Context, value string, nodeID uuid.UUID) error {
 	texts, err := r.pages.SearchPageText(ctx, nodeID)
 	if err != nil {
@@ -124,14 +138,19 @@ func (r searchRun) notIndexed(ctx context.Context, value string, nodeID uuid.UUI
 	}
 	for position, text := range texts {
 		if strings.Contains(text, value) {
-			return fmt.Errorf("active page %d of node %s stores the excluded value %q", position, nodeID, value)
+			return fmt.Errorf(
+				"active page %d of node %s stores the excluded value %q",
+				position,
+				nodeID,
+				value,
+			)
 		}
 	}
 	return nil
 }
 
-// excludes resolves all results for query and fails if any result matches
-// an ID in nodes.
+// excludes resolves all results for query and fails if any result matches an ID
+// in nodes.
 func (r searchRun) excludes(ctx context.Context, query string, nodes ...uuid.UUID) error {
 	results, err := traverseSearch(ctx, r.driver, r.identities(), r.token, r.entry, query, r.limits)
 	if err != nil {

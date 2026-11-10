@@ -39,28 +39,36 @@ func serviceImage(ctx context.Context, service string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	path := filepath.Join(root, composeFileName)
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.compose.read_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
+
 	var stack composeFile
 	if err := yaml.Unmarshal(contents, &stack); err != nil {
 		slog.ErrorContext(ctx, "testenv.compose.parse_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("parse %s: %w", path, err)
 	}
+
 	image := stack.Services[service].Image
 	if image == "" {
 		return "", fmt.Errorf("%s declares no image for service %s", path, service)
 	}
-	return defaultedVariable.ReplaceAllStringFunc(image, func(reference string) string {
-		parts := defaultedVariable.FindStringSubmatch(reference)
-		if value := os.Getenv(parts[1]); value != "" {
-			return value
-		}
-		return parts[2]
-	}), nil
+
+	return defaultedVariable.ReplaceAllStringFunc(
+		image,
+		func(reference string) string {
+			parts := defaultedVariable.FindStringSubmatch(reference)
+			if value := os.Getenv(parts[1]); value != "" {
+				return value
+			}
+
+			return parts[2]
+		},
+	), nil
 }
 
 // repoRoot walks up from the working directory, which go test sets to the
@@ -71,14 +79,17 @@ func repoRoot(ctx context.Context) (string, error) {
 		slog.ErrorContext(ctx, "testenv.workdir_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("read the working directory: %w", err)
 	}
+
 	for {
 		if _, statErr := os.Stat(filepath.Join(directory, "go.mod")); statErr == nil {
 			return directory, nil
 		}
+
 		parent := filepath.Dir(directory)
 		if parent == directory {
 			return "", errors.New("no go.mod above the working directory")
 		}
+
 		directory = parent
 	}
 }
@@ -90,5 +101,6 @@ func randomHex(ctx context.Context, size int) (string, error) {
 		slog.ErrorContext(ctx, "testenv.random_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("read random bytes: %w", err)
 	}
+
 	return hex.EncodeToString(buffer), nil
 }

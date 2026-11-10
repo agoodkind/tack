@@ -34,9 +34,9 @@ type WriteIntent struct {
 	// Pending is an unexpired pending write for DocumentID. Put does not create
 	// an absent page in Pending.Index while Pending is non-nil.
 	Pending *PendingWrite `exhaustruct:"optional"`
-	// MirrorMissed identifies an owed replacement write of DocumentID and its deadline.
-	// The worker suppresses the mirror request while this is non-nil.
-	// CompletePage commits the owed copy with the serving cursor.
+	// MirrorMissed identifies an owed replacement write and its deadline for
+	// DocumentID. The worker suppresses the mirror request while this field is
+	// non-nil. CompletePage commits the owed copy with the serving cursor.
 	MirrorMissed *PendingWrite `exhaustruct:"optional"`
 }
 
@@ -62,8 +62,16 @@ type PageWriteError struct {
 	Err   error
 }
 
-// Error returns the message of the write error.
+// Error returns the page write failure message.
+//
+// The method calls Err.Error() directly and requires a non-nil Err.
+//
+//   - Inspect Index separately to identify the failed request's index.
 func (e *PageWriteError) Error() string { return e.Err.Error() }
 
-// Unwrap returns the write error.
+// Unwrap returns the page write error.
+//
+// The method returns Err without a wrapper or replacement.
+//
+//   - Standard error inspection can match the original error identity.
 func (e *PageWriteError) Unwrap() error { return e.Err }

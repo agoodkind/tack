@@ -7,10 +7,9 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestMain starts the Mailpit server and trusts its certificate authority
-// when the run selects a test that delivers mail, and removes the test
-// engines this binary started once every test has run; the binary exits with
-// the tests' result.
+// Outside short mode, TestMain starts Mailpit and trusts its certificate
+// authority when the selected tests deliver mail. It removes the engines this
+// binary started after all tests run. The binary exits with the test result.
 func TestMain(m *testing.M) {
 	testenv.TrustMailpit(context.Background(), breakGlassMailTests)
 	m.Run()

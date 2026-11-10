@@ -43,67 +43,116 @@ type searchRuntime struct {
 // buildSearchRuntime constructs the content reader, policy set, work store,
 // access store, adapter, and workers on the graph's clock. It returns an
 // empty runtime when no search endpoint is configured.
-func buildSearchRuntime(ctx context.Context, cfg *config.Config, stores *fdbadapter.Stores, source clock.Clock, recorder audit.Recorder) (searchRuntime, error) {
+func buildSearchRuntime(
+	ctx context.Context,
+	cfg *config.Config,
+	stores *fdbadapter.Stores,
+	source clock.Clock,
+	recorder audit.Recorder,
+) (searchRuntime, error) {
 	empty := searchRuntime{adapter: nil, workers: nil, idleTime: 0, retention: nil, repair: nil}
 	if cfg.SearchEndpoint == "" {
 		return empty, nil
 	}
+
 	settings, err := config.LoadSearchWorkerSettings(ctx)
 	if err != nil {
 		return empty, searchRuntimeFailure(ctx, "load search worker settings", err)
 	}
+
 	retentionSettings, err := config.LoadSearchRetentionSettings(ctx)
 	if err != nil {
 		return empty, searchRuntimeFailure(ctx, "load search retention settings", err)
 	}
+
 	topology, err := config.LoadSearchTopology(ctx)
 	if err != nil {
 		return empty, searchRuntimeFailure(ctx, "load search topology", err)
 	}
+
 	repairSettings, err := config.LoadSearchModelRepairSettings(ctx)
 	if err != nil {
 		return empty, searchRuntimeFailure(ctx, "load search model repair settings", err)
 	}
+
 	certificate, err := config.LoadSearchCA(ctx, cfg.SearchCA)
 	if err != nil {
 		return empty, searchRuntimeFailure(ctx, "load search CA", err)
 	}
+
 	pass := cfg.SearchPassword
-	adapter, err := searchadapter.New(ctx, searchadapter.Config{
-		Endpoint: cfg.SearchEndpoint, CA: certificate, Username: cfg.SearchUsername,
-		Password: pass, RequestTimeout: cfg.SearchRequestTimeout, MaxRetries: cfg.SearchMaxRetries,
-	})
+	adapter, err := searchadapter.New(
+		ctx,
+		searchadapter.Config{
+			Endpoint:       cfg.SearchEndpoint,
+			CA:             certificate,
+			Username:       cfg.SearchUsername,
+			Password:       pass,
+			RequestTimeout: cfg.SearchRequestTimeout,
+			MaxRetries:     cfg.SearchMaxRetries,
+		},
+	)
 	if err != nil {
 		return empty, searchRuntimeFailure(ctx, "create OpenSearch adapter", err)
 	}
+
 	policies := stores.SearchPolicySet()
 	rollouts := stores.SearchRollouts(source, policies)
 	rebuilds := stores.SearchRebuilds(source).WithFailureRecorder(recorder)
 	ports := service.SearchWorkerPorts{
-		Store: stores.SearchWork(source), Reader: stores.SearchContent(policies),
-		Access: stores.SearchAccess(policies), Writer: adapter,
-		Rollouts: rollouts, Sessions: rollouts, Documents: adapter,
-		Rebuilds: rebuilds, Replacer: adapter,
-		Audit: SearchWorkerAudit(stores),
+		Store:     stores.SearchWork(source),
+		Reader:    stores.SearchContent(policies),
+		Access:    stores.SearchAccess(policies),
+		Writer:    adapter,
+		Rollouts:  rollouts,
+		Sessions:  rollouts,
+		Documents: adapter,
+		Rebuilds:  rebuilds,
+		Replacer:  adapter,
+		Audit:     SearchWorkerAudit(stores),
 	}
-	retention := service.NewSearchRetention(rebuilds, adapter, stores, source, retentionSettings, topology)
+	retention := service.NewSearchRetention(
+		rebuilds,
+		adapter,
+		stores,
+		source,
+		retentionSettings,
+		topology,
+	)
+
 	workers := make([]*service.SearchWorker, 0, settings.Concurrency)
 	for position := range settings.Concurrency {
 		worker, err := service.NewSearchWorker(ports, source, settings, position)
 		if err != nil {
-			return empty, searchRuntimeFailure(ctx, "create search worker "+strconv.Itoa(position), errors.Join(err, adapter.Close(ctx)))
+			return empty, searchRuntimeFailure(
+				ctx,
+				"create search worker "+strconv.Itoa(position),
+				errors.Join(err, adapter.Close(ctx)),
+			)
 		}
+
 		workers = append(workers, worker)
 	}
-	repair := service.NewSearchModelRepair(service.SearchModelRepairPorts{
-		Engine: adapter, Records: stores.SearchModelRepairs(), Index: stores, Audit: SearchModelRepairAudit(stores),
-	}, source, repairSettings, service.SearchModelRepairGates{Enabled: repairSettings.Enabled, PublicSearch: cfg.SearchPublicEnabled})
-	return searchRuntime{adapter: adapter, workers: workers, idleTime: settings.IdleInterval, retention: retention, repair: repair}, nil
+
+	repair := newConfiguredModelRepair(cfg, stores, adapter, source, repairSettings)
+
+	return searchRuntime{
+		adapter:   adapter,
+		workers:   workers,
+		idleTime:  settings.IdleInterval,
+		retention: retention,
+		repair:    repair,
+	}, nil
 }
 
 func searchRuntimeFailure(ctx context.Context, operation string, err error) error {
 	wrapped := fmt.Errorf("runtime: %s: %w", operation, err)
-	telemetry.L(ctx).ErrorContext(ctx, "search.runtime.build_failed", slog.String("err", wrapped.Error()))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.runtime.build_failed",
+		slog.String("err", wrapped.Error()),
+	)
+
 	return wrapped
 }
 
@@ -113,8 +162,10 @@ func (g *Graph) StartSearchWorkers(ctx context.Context) {
 	if len(g.search.workers) == 0 || g.searchStarted {
 		return
 	}
+
 	g.searchStarted = true
 	workerContext, cancel := context.WithCancel(ctx)
+
 	g.searchCancel = cancel
 	for _, worker := range g.search.workers {
 		current := worker
@@ -123,11 +174,16 @@ func (g *Graph) StartSearchWorkers(ctx context.Context) {
 			runSearchLoop(workerContext, current, g.search.idleTime)
 		})
 	}
+
 	g.searchWorkers.Go(func() {
 		defer recoverSearchWorker(workerContext, "search.retention.loop_panicked")
 		runRetentionLoop(workerContext, g.search.retention)
 	})
-	telemetry.L(ctx).InfoContext(ctx, "search.worker.started", slog.Int("workers", len(g.search.workers)))
+	telemetry.L(ctx).InfoContext(
+		ctx,
+		"search.worker.started",
+		slog.Int("workers", len(g.search.workers)),
+	)
 }
 
 // runSearchLoop runs slices until ctx ends. It waits the idle interval after
@@ -137,6 +193,7 @@ func runSearchLoop(ctx context.Context, worker *service.SearchWorker, idle time.
 		if runSearchIteration(ctx, worker) {
 			continue
 		}
+
 		timer := time.NewTimer(idle)
 		select {
 		case <-ctx.Done():
@@ -151,11 +208,16 @@ func runSearchLoop(ctx context.Context, worker *service.SearchWorker, idle time.
 func runSearchIteration(ctx context.Context, worker *service.SearchWorker) (worked bool) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			telemetry.L(ctx).ErrorContext(ctx, "search.worker.slice_panicked", slog.String("err", fmt.Sprint(recovered)))
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"search.worker.slice_panicked",
+				slog.String("err", fmt.Sprint(recovered)),
+			)
 			worked = false
 		}
 	}()
 	claimed, err := worker.RunSlice(ctx)
+
 	return claimed && err == nil
 }
 
@@ -164,6 +226,7 @@ func runSearchIteration(ctx context.Context, worker *service.SearchWorker) (work
 func runRetentionLoop(ctx context.Context, retention *service.SearchRetention) {
 	ticker := time.NewTicker(retention.Interval())
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():

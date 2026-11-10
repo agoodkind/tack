@@ -31,12 +31,16 @@ func hasContainerdImageStore(t *testing.T, cli *client.Client) bool {
 	if err != nil {
 		t.Fatalf("read docker info: %v", err)
 	}
+
 	t.Logf("daemon driver=%s driverStatus=%v", info.Info.Driver, info.Info.DriverStatus)
+
 	for _, entry := range info.Info.DriverStatus {
-		if entry[0] == ops.ImageStoreDriverTypeKey && entry[1] == ops.ContainerdSnapshotterDriverType {
+		if entry[0] == ops.ImageStoreDriverTypeKey &&
+			entry[1] == ops.ContainerdSnapshotterDriverType {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -45,7 +49,11 @@ func hasContainerdImageStore(t *testing.T, cli *client.Client) bool {
 func requireContainerdImageStore(t *testing.T, cli *client.Client) {
 	t.Helper()
 	if !hasContainerdImageStore(t, cli) {
-		t.Fatalf("daemon has no %s = %s entry", ops.ImageStoreDriverTypeKey, ops.ContainerdSnapshotterDriverType)
+		t.Fatalf(
+			"daemon has no %s = %s entry",
+			ops.ImageStoreDriverTypeKey,
+			ops.ContainerdSnapshotterDriverType,
+		)
 	}
 }
 
@@ -54,7 +62,11 @@ func requireContainerdImageStore(t *testing.T, cli *client.Client) {
 func requireClassicImageStore(t *testing.T, cli *client.Client) {
 	t.Helper()
 	if hasContainerdImageStore(t, cli) {
-		t.Fatalf("daemon has a %s = %s entry, want the classic image store", ops.ImageStoreDriverTypeKey, ops.ContainerdSnapshotterDriverType)
+		t.Fatalf(
+			"daemon has a %s = %s entry, want the classic image store",
+			ops.ImageStoreDriverTypeKey,
+			ops.ContainerdSnapshotterDriverType,
+		)
 	}
 }
 
@@ -62,51 +74,82 @@ func requireClassicImageStore(t *testing.T, cli *client.Client) {
 // API port published on the daemon's own address, daemonAddress. It returns a
 // registry client for the test process and the published port the daemon
 // pulls from on localhost.
-func startDeployRegistry(t *testing.T, cli *client.Client, daemonAddress string) (localRegistry, string) {
+func startDeployRegistry(
+	t *testing.T,
+	cli *client.Client,
+	daemonAddress string,
+) (localRegistry, string) {
 	t.Helper()
 	pullImage(t, cli, deployRegistryImage)
 	name := "tack-testenv-registry-" + uuid.NewString()[:8]
 	apiPort := network.MustParsePort("5000/tcp")
-	_, err := cli.ContainerCreate(t.Context(), client.ContainerCreateOptions{
-		Config: &container.Config{
-			Image: deployRegistryImage, ExposedPorts: network.PortSet{apiPort: {}},
-			Labels: map[string]string{deployTestenvLabel: "true"},
+	_, err := cli.ContainerCreate(
+		t.Context(),
+		client.ContainerCreateOptions{
+			Config: &container.Config{
+				Image:        deployRegistryImage,
+				ExposedPorts: network.PortSet{apiPort: {}},
+				Labels:       map[string]string{deployTestenvLabel: "true"},
+			},
+			HostConfig: &container.HostConfig{
+				PortBindings: network.PortMap{
+					apiPort: {
+						{HostPort: ""},
+					},
+				},
+			},
+			Name: name,
 		},
-		HostConfig: &container.HostConfig{PortBindings: network.PortMap{apiPort: {{HostPort: ""}}}},
-		Name:       name,
-	})
+	)
 	if err != nil {
 		t.Fatalf("create the registry: %v", err)
 	}
+
 	t.Cleanup(func() { removeDeployContainer(t, cli, name) })
 	if _, err := cli.ContainerStart(t.Context(), name, client.ContainerStartOptions{}); err != nil {
 		t.Fatalf("start the registry: %v", err)
 	}
+
 	inspected, err := cli.ContainerInspect(t.Context(), name, client.ContainerInspectOptions{})
-	if err != nil || inspected.Container.NetworkSettings == nil || len(inspected.Container.NetworkSettings.Ports[apiPort]) == 0 {
+	if err != nil || inspected.Container.NetworkSettings == nil ||
+		len(inspected.Container.NetworkSettings.Ports[apiPort]) == 0 {
 		t.Fatalf("read the registry port: %v", err)
 	}
+
 	hostPort := inspected.Container.NetworkSettings.Ports[apiPort][0].HostPort
-	registry := localRegistry{base: "http://" + daemonAddress + ":" + hostPort, http: &http.Client{Timeout: 30 * time.Second}}
+	registry := localRegistry{
+		base: "http://" + daemonAddress + ":" + hostPort,
+		http: &http.Client{Timeout: 30 * time.Second},
+	}
 	waitForRegistry(t, registry)
+
 	return registry, hostPort
 }
 
 func waitForRegistry(t *testing.T, registry localRegistry) {
 	t.Helper()
+
 	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, registry.base+"/v2/", nil)
+		request, err := http.NewRequestWithContext(
+			t.Context(),
+			http.MethodGet,
+			registry.base+"/v2/",
+			nil,
+		)
 		if err != nil {
 			t.Fatalf("build the registry probe: %v", err)
 		}
+
 		if response, err := registry.http.Do(request); err == nil {
 			_ = response.Body.Close()
 			if response.StatusCode == http.StatusOK {
 				return
 			}
 		}
+
 		time.Sleep(500 * time.Millisecond)
 	}
+
 	t.Fatalf("the %s did not answer /v2/ within a minute", registry.base)
 }

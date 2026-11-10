@@ -44,23 +44,38 @@ func newRetentionCommandFixture(t *testing.T) *retentionCommandFixture {
 	t.Helper()
 	bucket := testenv.ObjectStore(t)
 	cfg := &config.Config{
-		BackupRoot: t.TempDir(), BackupS3Endpoint: bucket.Endpoint, BackupS3Region: bucket.Region,
-		BackupS3BucketMain: bucket.Bucket, BackupS3AccessKey: bucket.AccessKey, BackupS3SecretKey: bucket.SecretKey,
+		BackupRoot:         t.TempDir(),
+		BackupS3Endpoint:   bucket.Endpoint,
+		BackupS3Region:     bucket.Region,
+		BackupS3BucketMain: bucket.Bucket,
+		BackupS3AccessKey:  bucket.AccessKey,
+		BackupS3SecretKey:  bucket.SecretKey,
 	}
 	client := s3.New(s3.Options{
-		BaseEndpoint: aws.String(bucket.Endpoint), Region: bucket.Region, UsePathStyle: true,
-		Credentials: credentials.NewStaticCredentialsProvider(bucket.AccessKey, bucket.SecretKey, ""),
+		BaseEndpoint: aws.String(bucket.Endpoint),
+		Region:       bucket.Region,
+		UsePathStyle: true,
+		Credentials: credentials.NewStaticCredentialsProvider(
+			bucket.AccessKey,
+			bucket.SecretKey,
+			"",
+		),
 	})
 	pool, err := pgxpool.New(t.Context(), testenv.Ledger(t))
 	if err != nil {
 		t.Fatalf("open retention audit ledger: %v", err)
 	}
+
 	t.Cleanup(pool.Close)
 	now := time.Date(2026, time.October, 23, 12, 0, 0, 0, time.UTC)
 	ops.SetBackupRetentionTestClock(t, now)
+
 	return &retentionCommandFixture{
-		store:  &retentionObjectStore{t: t, bucket: bucket, client: client, stopped: false},
-		config: cfg, pool: pool, service: "retention-test-" + uuid.NewString(), cutoff: now.AddDate(0, 0, -14),
+		store:   &retentionObjectStore{t: t, bucket: bucket, client: client, stopped: false},
+		config:  cfg,
+		pool:    pool,
+		service: "retention-test-" + uuid.NewString(),
+		cutoff:  now.AddDate(0, 0, -14),
 	}
 }
 
@@ -68,7 +83,11 @@ func (fixture *retentionCommandFixture) run(t *testing.T, execute bool) (string,
 	return fixture.runContext(t, t.Context(), execute)
 }
 
-func (fixture *retentionCommandFixture) runContext(t *testing.T, ctx context.Context, execute bool) (string, error) {
+func (fixture *retentionCommandFixture) runContext(
+	t *testing.T,
+	ctx context.Context,
+	execute bool,
+) (string, error) {
 	t.Helper()
 	var output bytes.Buffer
 	factory := cli.System(fixture.config)
@@ -79,9 +98,11 @@ func (fixture *retentionCommandFixture) runContext(t *testing.T, ctx context.Con
 	ops.RegisterCommands(registry, factory)
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
 	factory.RegisterGlobalFlags(root)
+
 	for _, command := range clispec.RenderCobra(registry, factory) {
 		root.AddCommand(command)
 	}
+
 	root.SetOut(&output)
 	root.SetErr(&output)
 	root.SetContext(ctx)
@@ -89,8 +110,10 @@ func (fixture *retentionCommandFixture) runContext(t *testing.T, ctx context.Con
 	if execute {
 		arguments = append(arguments, "--execute")
 	}
+
 	root.SetArgs(arguments)
 	err := root.Execute()
+
 	return output.String(), err
 }
 
@@ -111,17 +134,29 @@ func (fixture *retentionCommandFixture) completeRun(t *testing.T, timestamp time
 	t.Helper()
 	run := timestamp.UTC().Format(ybSnapshotRunIDLayout)
 	manifest := retentionManifest{
-		RunID: run, SnapshotID: "retention-snapshot", Database: "tack", Artifacts: []string{"metadata.snapshot", "schema.sql", "roles.sql"},
-		Nodes: []retentionManifestNode{{Name: "yb1", Prefix: "nodes/yb1/"}},
+		RunID:      run,
+		SnapshotID: "retention-snapshot",
+		Database:   "tack",
+		Artifacts:  []string{"metadata.snapshot", "schema.sql", "roles.sql"},
+		Nodes:      []retentionManifestNode{{Name: "yb1", Prefix: "nodes/yb1/"}},
 	}
 	body, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, artifact := range []string{"metadata.snapshot", "schema.sql", "roles.sql", "nodes/yb1/tablets.tar.gz", "nodes/yb1/tablets.inventory"} {
+
+	for _, artifact := range []string{
+		"metadata.snapshot",
+		"schema.sql",
+		"roles.sql",
+		"nodes/yb1/tablets.tar.gz",
+		"nodes/yb1/tablets.inventory",
+	} {
 		fixture.store.put(ybRunArtifactKey(run, artifact), []byte("retention artifact"))
 	}
+
 	fixture.store.put(ybRunArtifactKey(run, ybSnapshotManifestObject), body)
+
 	return run
 }
 
@@ -139,12 +174,16 @@ func (fixture *retentionCommandFixture) events(t *testing.T) []audit.Event {
 	if err != nil {
 		t.Fatalf("read retention outbox: %v", err)
 	}
+
 	var events []audit.Event
+
 	for _, row := range rows {
-		if row.Event.Verb == string(audit.VerbOpsBackupRetention) && row.Event.Actor.ID == cli.ServiceActorID(fixture.service) {
+		if row.Event.Verb == string(audit.VerbOpsBackupRetention) &&
+			row.Event.Actor.ID == cli.ServiceActorID(fixture.service) {
 			events = append(events, row.Event)
 		}
 	}
+
 	return events
 }
 

@@ -42,19 +42,39 @@ type sessionObservations struct {
 func observeSessionTransactions(t *testing.T) *sessionObservations {
 	t.Helper()
 	observations := &sessionObservations{mutex: sync.Mutex{}, committed: nil}
-	fdbadapter.SetSessionObserver(func(operation string, sessionID uuid.UUID, size int64, reads int) {
-		observations.mutex.Lock()
-		defer observations.mutex.Unlock()
-		observations.committed = append(observations.committed, observedTransaction{operation: operation, sessionID: sessionID, bytes: size, reads: reads})
-	})
+	fdbadapter.SetSessionObserver(
+		func(operation string, sessionID uuid.UUID, size int64, reads int) {
+			observations.mutex.Lock()
+			defer observations.mutex.Unlock()
+			observations.committed = append(
+				observations.committed,
+				observedTransaction{
+					operation: operation,
+					sessionID: sessionID,
+					bytes:     size,
+					reads:     reads,
+				},
+			)
+		},
+	)
 	t.Cleanup(func() { fdbadapter.SetSessionObserver(nil) })
 	return observations
 }
 
-func (o *sessionObservations) requireBounded(t *testing.T, label, operation string, sessionID uuid.UUID, count int) []observedTransaction {
+func (o *sessionObservations) requireBounded(
+	t *testing.T,
+	label string,
+	operation string,
+	sessionID uuid.UUID,
+	count int,
+) []observedTransaction {
 	t.Helper()
 	if pending := fdbadapter.PendingSessionObservations(); pending != 0 {
-		t.Fatalf("%s: the observer tracks %d unfinished session transactions, want 0", label, pending)
+		t.Fatalf(
+			"%s: the observer tracks %d unfinished session transactions, want 0",
+			label,
+			pending,
+		)
 	}
 	o.mutex.Lock()
 	committed := o.committed
@@ -69,26 +89,53 @@ func (o *sessionObservations) requireBounded(t *testing.T, label, operation stri
 	}
 	o.mutex.Unlock()
 	for _, transaction := range matched {
-		t.Logf("%s: %s committed %d bytes with %d reads", label, operation, transaction.bytes, transaction.reads)
-		if transaction.reads < 1 || transaction.reads > sessionTransactionReadLimit || transaction.bytes >= sessionTransactionByteLimit {
-			t.Fatalf("%s: %s committed %d bytes with %d reads, want 1 to %d reads and fewer than %d bytes",
-				label, operation, transaction.bytes, transaction.reads, sessionTransactionReadLimit, sessionTransactionByteLimit)
+		t.Logf(
+			"%s: %s committed %d bytes with %d reads",
+			label,
+			operation,
+			transaction.bytes,
+			transaction.reads,
+		)
+		if transaction.reads < 1 || transaction.reads > sessionTransactionReadLimit ||
+			transaction.bytes >= sessionTransactionByteLimit {
+			t.Fatalf(
+				"%s: %s committed %d bytes with %d reads, want 1 to %d reads and fewer than %d bytes",
+				label,
+				operation,
+				transaction.bytes,
+				transaction.reads,
+				sessionTransactionReadLimit,
+				sessionTransactionByteLimit,
+			)
 		}
 	}
 	if len(matched) != count {
-		t.Fatalf("%s: observed %d committed %s transactions of session %s, want %d", label, len(matched), operation, sessionID, count)
+		t.Fatalf(
+			"%s: observed %d committed %s transactions of session %s, want %d",
+			label,
+			len(matched),
+			operation,
+			sessionID,
+			count,
+		)
 	}
 	return matched
 }
 
-func familyRecords(t *testing.T, family string, sessionID uuid.UUID, parts ...string) []fdb.KeyValue {
+func familyRecords(
+	t *testing.T,
+	family string,
+	sessionID uuid.UUID,
+	parts ...string,
+) []fdb.KeyValue {
 	t.Helper()
 	prefix := activeTestPrefix(t)
 	keyRange := prefixKeyRange(t, append(bytes.Clone(prefix), tuple.Tuple{family}.Pack()...))
 	matched := []fdb.KeyValue{}
 	for _, item := range readTestKeys(t, pendingFixtureDatabase(t), keyRange) {
 		unpacked, err := tuple.Unpack(item.Key[len(prefix):])
-		if err != nil || len(unpacked) < sessionChildPartPosition+len(parts) || unpacked[sessionKeyLayouts[family].session] != sessionID.String() {
+		if err != nil || len(unpacked) < sessionChildPartPosition+len(parts) ||
+			unpacked[sessionKeyLayouts[family].session] != sessionID.String() {
 			continue
 		}
 		related := true
@@ -116,7 +163,10 @@ func addReplayRecords(t *testing.T, sessionID uuid.UUID, count int) {
 	_, err = pendingFixtureDatabase(t).Transact(func(tr fdb.Transaction) (any, error) {
 		for version := 1; version <= count; version++ {
 			key := append(tuple.Tuple{}, unpacked[:sessionChildPartPosition+1]...)
-			tr.Set(fdb.Key(append(bytes.Clone(prefix), append(key, version).Pack()...)), replays[0].Value)
+			tr.Set(
+				fdb.Key(append(bytes.Clone(prefix), append(key, version).Pack()...)),
+				replays[0].Value,
+			)
 		}
 		return nil, nil
 	})
@@ -125,11 +175,17 @@ func addReplayRecords(t *testing.T, sessionID uuid.UUID, count int) {
 	}
 }
 
-func sessionTokenValues(t *testing.T, stores *fdbadapter.Stores, mark []byte, sessionID uuid.UUID) (created, removed []json.RawMessage) {
+func sessionTokenValues(
+	t *testing.T,
+	stores *fdbadapter.Stores,
+	mark []byte,
+	sessionID uuid.UUID,
+) (created, removed []json.RawMessage) {
 	t.Helper()
 	for _, event := range outboxPlainEvents(t, stores, mark) {
 		target := event.Context.Target
-		if event.Delta == nil || target == nil || target.NodeType != audit.TargetSearchSession || !strings.Contains(target.URI, sessionID.String()) {
+		if event.Delta == nil || target == nil || target.NodeType != audit.TargetSearchSession ||
+			!strings.Contains(target.URI, sessionID.String()) {
 			continue
 		}
 		created = append(created, protectedMember(t, event, event.Delta.After)...)
@@ -149,7 +205,13 @@ func protectedMember(t *testing.T, event audit.Event, record json.RawMessage) []
 	}
 	var reference audit.ProtectedReference
 	if err := json.Unmarshal(member, &reference); err != nil {
-		t.Fatalf("event %s member %s = %s, want a protected reference: %v", event.EventID, sessionTokensMember, member, err)
+		t.Fatalf(
+			"event %s member %s = %s, want a protected reference: %v",
+			event.EventID,
+			sessionTokensMember,
+			member,
+			err,
+		)
 	}
 	for _, value := range event.Protected {
 		if value.Ref == reference.PIIRef {

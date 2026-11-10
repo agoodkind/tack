@@ -9,9 +9,9 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// auditQueryResult is the `audit query` output: one page of matching ledger
-// rows, most recent first. A full page carries next_cursor; pass it back as
-// --cursor for the next page.
+// auditQueryResult contains one page of matching audit query rows, most
+// recent first. A full page includes next_cursor. The next query uses that
+// value as --cursor.
 type auditQueryResult struct {
 	clispec.ResultMarker `exhaustruct:"optional"`
 	Command              string      `json:"command"`
@@ -41,6 +41,7 @@ func (r auditQueryResult) AuditReadTargets() ([]audit.Target, error) {
 	for _, row := range r.Rows {
 		targets = append(targets, audit.EventTarget(row.EventID))
 	}
+
 	return targets, nil
 }
 
@@ -55,11 +56,13 @@ func (r auditLastChangeResult) AuditReadTargets() ([]audit.Target, error) {
 			targets = append(targets, audit.EventTarget(entry.Change.EventID))
 		}
 	}
+
 	for _, entry := range r.Relationships {
 		if entry.Change != nil {
 			targets = append(targets, audit.EventTarget(entry.Change.EventID))
 		}
 	}
+
 	return targets, nil
 }
 
@@ -76,7 +79,7 @@ type auditRedactActorResult struct {
 	Redacted             int64     `json:"redacted"`
 }
 
-// auditExportResult mirrors audit.ExportManifest for CLI emission.
+// auditExportResult contains the audit.ExportManifest fields for CLI output.
 type auditExportResult struct {
 	clispec.ResultMarker `exhaustruct:"optional"`
 	ExportID             uuid.UUID `json:"export_id"`
@@ -90,7 +93,8 @@ type auditExportResult struct {
 	Signature            string    `json:"signature"`
 }
 
-// auditVerifyResult mirrors audit.VerifyReport for CLI emission.
+// auditVerifyResult contains the audit.VerifyReport fields that the CLI
+// prints.
 type auditVerifyResult struct {
 	clispec.ResultMarker `exhaustruct:"optional"`
 	BundleDir            string   `json:"bundle_dir"`

@@ -17,15 +17,19 @@ func TestServiceOperatorSourceResolvesServicePrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+
 	if principal.Kind != audit.ActorService {
 		t.Fatalf("kind = %q, want %q", principal.Kind, audit.ActorService)
 	}
+
 	if principal.Source != "service" {
 		t.Fatalf("source = %q, want service", principal.Source)
 	}
+
 	if principal.Name != "tack-app" {
 		t.Fatalf("name = %q, want tack-app", principal.Name)
 	}
+
 	if principal.Email != "" {
 		t.Fatalf("email = %q, want empty; a service has no mailbox", principal.Email)
 	}
@@ -34,6 +38,7 @@ func TestServiceOperatorSourceResolvesServicePrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Resolve: %v", err)
 	}
+
 	if again.ID != principal.ID {
 		t.Fatalf("same service resolved to %s then %s, want a stable id", principal.ID, again.ID)
 	}
@@ -43,6 +48,7 @@ func TestServiceOperatorSourceResolvesServicePrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("other Resolve: %v", err)
 	}
+
 	if otherPrincipal.ID == principal.ID {
 		t.Fatalf("different services share id %s", principal.ID)
 	}
@@ -69,24 +75,29 @@ func TestNewOperatorSourcePrefersServiceFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+
 	if principal.Source != "service" || principal.Kind != audit.ActorService {
 		t.Fatalf("principal = %+v, want the service source", principal)
 	}
 }
 
-// TestNewOperatorSourceRecordsServiceOnBehalfOfOperator pins the pairing rule:
-// the service is the actor, and the flag operator is the accountable operator
-// recorded in OnBehalfOf with no act-as grant.
+// TestNewOperatorSourceRecordsServiceOnBehalfOfOperator checks that the
+// service remains the actor and OnBehalfOf identifies the accountable flag
+// operator. The pairing does not use an act-as grant.
 func TestNewOperatorSourceRecordsServiceOnBehalfOfOperator(t *testing.T) {
 	factory := &Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
 	root := &cobra.Command{Use: "tack"}
 	factory.RegisterGlobalFlags(root)
 	operatorID := "019dd222-440e-729a-a442-281aaf73ca30"
 	if err := root.ParseFlags([]string{
-		"--operator-service", "tack-app",
-		"--operator-session", " session-1 ",
-		"--operator-id", operatorID,
-		"--operator-email", "ops@goodkind.io",
+		"--operator-service",
+		"tack-app",
+		"--operator-session",
+		" session-1 ",
+		"--operator-id",
+		operatorID,
+		"--operator-email",
+		"ops@goodkind.io",
 	}); err != nil {
 		t.Fatalf("parse flags: %v", err)
 	}
@@ -95,12 +106,15 @@ func TestNewOperatorSourceRecordsServiceOnBehalfOfOperator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+
 	if principal.Kind != audit.ActorService || principal.ID != ServiceActorID("tack-app") {
 		t.Fatalf("principal = %+v, want the tack-app service principal", principal)
 	}
+
 	if principal.SessionID != "session-1" {
 		t.Fatalf("session = %q, want session-1", principal.SessionID)
 	}
+
 	want := audit.ActProvenance{
 		OperatorID:    uuid.MustParse(operatorID),
 		OperatorEmail: "ops@goodkind.io",
@@ -112,17 +126,21 @@ func TestNewOperatorSourceRecordsServiceOnBehalfOfOperator(t *testing.T) {
 	}
 }
 
-// TestNewOperatorSourceRefusesOnBehalfOfWithoutSession requires a service
-// acting for a flag operator to name its session.
+// TestNewOperatorSourceRefusesOnBehalfOfWithoutSession checks that the resolver
+// rejects a service acting for a flag operator without a session ID.
 func TestNewOperatorSourceRefusesOnBehalfOfWithoutSession(t *testing.T) {
 	factory := &Factory{Cfg: nil, In: nil, Out: nil, Err: nil}
 	root := &cobra.Command{Use: "tack"}
 	factory.RegisterGlobalFlags(root)
 	if err := root.ParseFlags([]string{
-		"--operator-service", "tack-app",
-		"--operator-session", "   ",
-		"--operator-id", "019dd222-440e-729a-a442-281aaf73ca30",
-		"--operator-email", "ops@goodkind.io",
+		"--operator-service",
+		"tack-app",
+		"--operator-session",
+		"   ",
+		"--operator-id",
+		"019dd222-440e-729a-a442-281aaf73ca30",
+		"--operator-email",
+		"ops@goodkind.io",
 	}); err != nil {
 		t.Fatalf("parse flags: %v", err)
 	}

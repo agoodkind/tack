@@ -21,9 +21,19 @@ var commandPath string
 
 // RunTests builds ci-image and runs the calling package's tests.
 //
-// RunTests builds the command once in a temporary directory, calls m.Run,
-// and removes the directory. It returns the test exit code, or 1 if the
-// build or cleanup fails. Tests use Prepare to run the command.
+// RunTests uses this sequence:
+//
+//  1. It builds the command once in a temporary directory.
+//  2. It calls m.Run.
+//  3. It removes the directory.
+//
+// The function returns the test exit code. It returns 1 for these failures:
+//
+//   - It cannot create the directory.
+//   - It cannot build the command.
+//   - It cannot remove the directory.
+//
+// Tests use Prepare to run the command.
 //
 //	func TestMain(m *testing.M) {
 //		os.Exit(imagetest.RunTests(m))
@@ -40,7 +50,12 @@ func RunTests(m *testing.M) int {
 
 	build := exec.CommandContext(
 		context.Background(),
-		"go", "build", "-buildvcs=false", "-o", commandPath, commandPackage,
+		"go",
+		"build",
+		"-buildvcs=false",
+		"-o",
+		commandPath,
+		commandPackage,
 	)
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr
@@ -83,10 +98,11 @@ type Command func(ctx context.Context) *exec.Cmd
 
 // Prepare sets up a ci-image command in directory.
 //
-// Prepare creates a hard link to the executable built by RunTests under
-// the name ci-image. If that name already exists, it must refer to the
-// same file. Prepare fails the test if RunTests did not build the
-// executable or if it cannot create or verify the link.
+// The calling package must call [RunTests] from TestMain before using
+// Prepare. Prepare creates a hard link to the executable under the name
+// ci-image. If that name already exists, it must refer to the same file.
+// Prepare fails the test if RunTests did not build the executable or if it
+// cannot create or verify the link.
 //
 // Prepare calls build with t.Context() and sets the command's Dir to
 // directory. The caller can set Env before running the command.
@@ -94,6 +110,19 @@ type Command func(ctx context.Context) *exec.Cmd
 //	command := imagetest.Prepare(t, t.TempDir(), digestCommand)
 //	command.Env = environment
 //	output, err := command.CombinedOutput()
+//
+// For example, a test can execute help and inspect its output:
+//
+//	helpCommand := func(ctx context.Context) *exec.Cmd {
+//		return exec.CommandContext(ctx, "./ci-image", "--help")
+//	}
+//
+//	command := imagetest.Prepare(t, t.TempDir(), helpCommand)
+//	output, err := command.CombinedOutput()
+//	if err != nil {
+//		t.Fatal(err)
+//	}
+//	t.Log(string(output))
 func Prepare(t *testing.T, directory string, build Command) *exec.Cmd {
 	t.Helper()
 

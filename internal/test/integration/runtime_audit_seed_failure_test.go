@@ -49,15 +49,34 @@ func TestRuntimeAuditSeedFailedUserCreate(t *testing.T) {
 	before := seedRows(t, admin, email, operatorID)
 
 	logDir := t.TempDir()
-	process := exec.CommandContext(t.Context(), binary,
-		"--execute", "--operator-id", operatorID.String(), "--operator-email", "operator@example.com",
-		"seed", "--allow-reseed")
-	process.Env = append(os.Environ(),
-		"DATABASE_URL="+templateLoginDSN(t, admin, runtimeAuditSeedLoginTemplate, runtimeAuditSeedDropLoginTemplate),
-		"AUDIT_OPERATOR_DSN="+ledgerDSN, "FDB_CLUSTER_FILE="+testenv.FoundationDB(t),
-		"SEED_EMAIL="+email, "SEED_NAME=Seed Audit Failure Test", "SEED_ORG_SLUG=seed-audit-failure-"+suffix,
-		"LOG_DISABLE_STDOUT=true", "LOG_JSON_FILE="+filepath.Join(logDir, "tack.json"),
-		"LOG_TEXT_FILE="+filepath.Join(logDir, "tack.log"))
+	process := exec.CommandContext(
+		t.Context(),
+		binary,
+		"--execute",
+		"--operator-id",
+		operatorID.String(),
+		"--operator-email",
+		"operator@example.com",
+		"seed",
+		"--allow-reseed",
+	)
+	process.Env = append(
+		os.Environ(),
+		"DATABASE_URL="+templateLoginDSN(
+			t,
+			admin,
+			runtimeAuditSeedLoginTemplate,
+			runtimeAuditSeedDropLoginTemplate,
+		),
+		"AUDIT_OPERATOR_DSN="+ledgerDSN,
+		"FDB_CLUSTER_FILE="+testenv.FoundationDB(t),
+		"SEED_EMAIL="+email,
+		"SEED_NAME=Seed Audit Failure Test",
+		"SEED_ORG_SLUG=seed-audit-failure-"+suffix,
+		"LOG_DISABLE_STDOUT=true",
+		"LOG_JSON_FILE="+filepath.Join(logDir, "tack.json"),
+		"LOG_TEXT_FILE="+filepath.Join(logDir, "tack.log"),
+	)
 	output := &bytes.Buffer{}
 	process.Stdout, process.Stderr = output, output
 	runErr := process.Run()
@@ -65,9 +84,16 @@ func TestRuntimeAuditSeedFailedUserCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the seed log: %v", err)
 	}
+
 	if runErr == nil || !strings.Contains(output.String()+string(logged), sqlAuditWriteFailure) {
-		t.Fatalf("seed error = %v, want a failed run that reports %q\n%s", runErr, sqlAuditWriteFailure, output.String())
+		t.Fatalf(
+			"seed error = %v, want a failed run that reports %q\n%s",
+			runErr,
+			sqlAuditWriteFailure,
+			output.String(),
+		)
 	}
+
 	if after := seedRows(t, admin, email, operatorID); after != before {
 		t.Fatalf("rows after the failed seed = %+v, want the rows before it %+v", after, before)
 	}
@@ -75,13 +101,25 @@ func TestRuntimeAuditSeedFailedUserCreate(t *testing.T) {
 
 // seedRows counts the users, api_tokens, and org_members rows of the user
 // with email and the outbox change events by operatorID.
-func seedRows(t *testing.T, admin *pgxpool.Pool, email string, operatorID uuid.UUID) seedFailureRows {
+func seedRows(
+	t *testing.T,
+	admin *pgxpool.Pool,
+	email string,
+	operatorID uuid.UUID,
+) seedFailureRows {
 	t.Helper()
 	var rows seedFailureRows
-	if err := admin.QueryRow(t.Context(), runtimeAuditSeedRowsQuery, email, operatorID.String()).Scan(
-		&rows.StoredRows, &rows.ChangeEvents,
+	if err := admin.QueryRow(
+		t.Context(),
+		runtimeAuditSeedRowsQuery,
+		email,
+		operatorID.String(),
+	).Scan(
+		&rows.StoredRows,
+		&rows.ChangeEvents,
 	); err != nil {
 		t.Fatalf("count the rows of user %s: %v", email, err)
 	}
+
 	return rows
 }

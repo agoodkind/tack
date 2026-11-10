@@ -14,7 +14,8 @@ import (
 
 const databaseTimeout = 30 * time.Second
 
-// databaseTarget is one local database engine and its superuser login.
+// databaseTarget stores a local database engine's connection details and
+// superuser login.
 type databaseTarget struct {
 	host          string
 	port          string
@@ -72,7 +73,7 @@ func (target databaseTarget) connectionString(user, password string) string {
 	return login.String()
 }
 
-// loginError returns the error from a login as role, or nil when the login works.
+// loginError returns a login error for role or nil when login succeeds.
 func (target databaseTarget) loginError(t *testing.T, role, password string) error {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), databaseTimeout)
@@ -87,8 +88,8 @@ func (target databaseTarget) loginError(t *testing.T, role, password string) err
 	return nil
 }
 
-// dropRole removes a role the test created. The provider cannot drop it on
-// YugabyteDB because its delete also takes an advisory lock.
+// dropRole removes a role that the test created. Provider deletion in advisory
+// mode takes an advisory lock, which YugabyteDB does not support.
 func (target databaseTarget) dropRole(t *testing.T, role string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), databaseTimeout)

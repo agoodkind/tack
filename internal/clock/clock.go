@@ -1,37 +1,54 @@
-// Package clock is the single permitted home for direct wall-time
-// calls. Every other package reads time through the package-level
-// [Now] and [Since] helpers instead of importing [time.Now] or
-// [time.Since] directly. Tests substitute the wall clock through the
-// active [Clock]. The staticcheck-extra time_now_outside_clock analyzer
-// enforces this so production call sites stay testable.
+// Package clock permits direct wall-time reads only within this package.
+// Other packages must call [Now] and [Since] instead of [time.Now] and
+// [time.Since]. Tests can replace the active [Clock] without changing
+// production callers. The staticcheck-extra time_now_outside_clock
+// analyzer checks this restriction to keep production callers testable.
 package clock
 
 import "time"
 
-// Clock abstracts wall-time reads so tests can substitute a fake
-// implementation without touching production call sites.
+// Clock defines wall-time reads. Tests can supply a fake implementation
+// without changing production callers.
 type Clock interface {
 	Now() time.Time
 	Since(t time.Time) time.Duration
 }
 
-// Wall is the production clock. It forwards to the stdlib time
-// package and is the only call site in the repo permitted to do so.
+// Wall implements the production clock with the standard time package.
+// Only Wall may call [time.Now] and [time.Since] directly in this repository.
 type Wall struct{}
 
 // Now returns the current wall time.
+//
+// It calls the standard time package directly.
+//
+//	instant := (Wall{}).Now()
 func (Wall) Now() time.Time { return time.Now() }
 
-// Since returns the duration elapsed since t, computed against the
-// current wall time.
+// Since returns the duration between t and the current time.
+//
+// It calls [time.Since], which uses a monotonic clock, a clock for measuring
+// elapsed time, when t includes that reading. Otherwise, it uses wall time.
+//
+//	started := (Wall{}).Now()
+//	elapsed := (Wall{}).Since(started)
 func (Wall) Since(t time.Time) time.Duration { return time.Since(t) }
 
-// current is the process-wide clock backing the package-level [Now]
-// and [Since] helpers. Production code reads through Now and Since.
+// current stores the process-wide clock that the package-level Now and
+// Since functions use. Production callers must use those functions.
 var current Clock = Wall{}
 
 // Now returns the current wall time from the active clock.
+//
+// The active clock defaults to Wall in production.
+//
+//	instant := Now()
 func Now() time.Time { return current.Now() }
 
-// Since returns the duration elapsed since t against the active clock.
+// Since returns the duration since t from the active clock.
+//
+// The active Clock computes the duration; production uses Wall.
+//
+//	started := Now()
+//	elapsed := Since(started)
 func Since(t time.Time) time.Duration { return current.Since(t) }

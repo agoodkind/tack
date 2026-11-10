@@ -7,31 +7,32 @@ import (
 	"github.com/google/uuid"
 )
 
-// NodeCleanupScheduler enqueues asynchronous FDB cleanup for a soft-deleted node.
+// NodeCleanupScheduler enqueues asynchronous FoundationDB cleanup for a
+// soft-deleted node.
 type NodeCleanupScheduler interface {
 	Schedule(ctx context.Context, orgID, nodeID uuid.UUID) error
 }
 
-// NodeDeleter deletes a node and every hierarchy descendant of the node in
-// bounded transactions. A node is a hierarchy descendant when a chain of
-// edges leads from it to the deleted node, and NodeType metadata (the
-// source's CanLiveUnder list or the target's CanContain list) places the
-// source of each edge under its target.
+// NodeDeleter deletes a node in bounded transactions. The child_of edges
+// determine its hierarchy descendants. A direct child moves to the deleted
+// node's parent when the child's CanLiveUnder list or the parent's CanContain
+// list permits that type pair. Otherwise, the job deletes the child and its
+// descendants.
 type NodeDeleter interface {
 	// StartSubtreeDelete stores a new job record with job.RootID as the only
 	// stack entry and the encoded audit operation from ctx. It returns an error
 	// when audit.RequireMutationContext cannot read a valid operation from ctx.
 	StartSubtreeDelete(ctx context.Context, job *SubtreeDeleteJob) error
-	// DeleteSubtreeStep runs one bounded step of the job. The step deletes
-	// one node, adds one hierarchy child to the stack, or clears one page of
-	// edges of a node with more edges than one step reads. The step writes
-	// one change event for each changed node or relationship, with the actor and
-	// operation ID from the job record.
+	// DeleteSubtreeStep runs one bounded job step. The step moves one eligible
+	// direct child to the root's parent, deletes one node, adds one hierarchy
+	// child to the stack, or clears one edge page when the node exceeds the
+	// step's edge bound. Each changed node or relationship produces a change
+	// event with the actor and operation ID from the job record.
 	DeleteSubtreeStep(ctx context.Context, jobID uuid.UUID) (SubtreeDeleteProgress, error)
-	// SubtreeDelete reads one job record. A missing record returns nil.
+	// SubtreeDelete reads one job record and returns nil when it does not exist.
 	SubtreeDelete(ctx context.Context, jobID uuid.UUID) (*SubtreeDeleteJob, error)
-	// SubtreeDeletes reads at most limit job records after the job ID after,
-	// in job ID order. uuid.Nil reads from the first job.
+	// SubtreeDeletes reads at most limit records in job ID order.
+	// It starts after the job ID in after; uuid.Nil starts with the first job.
 	SubtreeDeletes(ctx context.Context, after uuid.UUID, limit int) ([]*SubtreeDeleteJob, error)
 	// ClearSubtreeDelete removes the record of one finished job.
 	ClearSubtreeDelete(ctx context.Context, jobID uuid.UUID) error
@@ -53,11 +54,12 @@ type PropertyDefRepository interface {
 	Delete(ctx context.Context, orgID, defID uuid.UUID) error
 }
 
-// RelationshipChanges describes relationship mutations applied with a node update.
+// RelationshipChanges contains relationship mutations for a node update.
 type RelationshipChanges struct {
 	// Add lists relationships written in the same transaction as the node update.
 	Add []*Relationship
-	// Remove lists relationships cleared in the same transaction as the node update.
+	// Remove lists relationships to clear in the transaction that updates
+	// the node.
 	Remove []*Relationship
 }
 
@@ -69,29 +71,34 @@ type ReferenceKey struct {
 	Encoded string
 }
 
-// NodeRepository is the single write path for nodes. CreateAtomic writes the
-// node primary record, the view, the resolve record, property indexes for
-// indexed Props, and all provided relationships in a single FDB transaction.
+// NodeRepository provides the single write path for nodes. CreateAtomic
+// writes the primary record, view, resolve record, property indexes for
+// indexed Props, and all supplied relationships in one FoundationDB
+// transaction.
 //
-// No concept-specific parameters (no assigneeIDs, no labelIDs, no state
-// transitions). Callers pass Props and Relationships directly.
+// Callers supply Props and Relationships directly. The interface does not
+// accept concept-specific parameters such as assigneeIDs, labelIDs, or state
+// transitions.
 type NodeRepository interface {
-	// Get returns a node by primary key. Returns nil, nil if not found.
+	// Get returns a node by primary key, or nil, nil when the node does not exist.
 	Get(ctx context.Context, orgID, nodeID uuid.UUID) (*Node, error)
 
-	// Set overwrites an existing node and view but does NOT reconcile the
-	// secondary property indexes. Use UpdateAtomic on every user-facing
-	// update path. Set is correct only when the caller has already
-	// reconciled indexes externally.
+	// Set overwrites an existing node and view without reconciling secondary
+	// property indexes. Use UpdateAtomic for every user-facing update. Use Set
+	// only after the caller reconciles the indexes separately.
 	Set(ctx context.Context, n *Node, view *NodeView) error
 
-	// UpdateAtomic overwrites the node and view and reconciles the secondary
+	// UpdateAtomic overwrites the node and view and reconciles secondary
 	// property indexes against oldProps for each name in indexedProps.
 	//
-	// referenceKeys controls reference ownership: nil leaves the node's
-	// existing claims untouched, a non-nil slice replaces them, and a non-nil
-	// empty slice releases them all. A duplicate reference rolls the whole
-	// update back, so concurrent readers never see a half-rotated index.
+	// The referenceKeys argument controls reference ownership:
+	//
+	//   - A nil slice preserves the node's existing claims.
+	//   - A non-nil slice replaces the claims.
+	//   - A non-nil empty slice releases every claim.
+	//
+	// A duplicate reference aborts the entire update. Concurrent readers cannot
+	// observe a partially replaced reference index.
 	UpdateAtomic(
 		ctx context.Context,
 		n *Node,
@@ -109,18 +116,24 @@ type NodeRepository interface {
 	// SetReferenceKeys replaces the rendered references owned by a node.
 	SetReferenceKeys(ctx context.Context, orgID, nodeID uuid.UUID, keys []ReferenceKey) error
 
-	// LookupReference returns the node owning a rendered reference.
-	// It returns uuid.Nil and nil when no node owns the reference.
-	LookupReference(ctx context.Context, orgID uuid.UUID, templateName, encoded string) (uuid.UUID, error)
+	// LookupReference returns the node that owns a rendered reference.
+	// It returns uuid.Nil and nil when the lookup does not find an owner.
+	LookupReference(
+		ctx context.Context,
+		orgID uuid.UUID,
+		templateName string,
+		encoded string,
+	) (uuid.UUID, error)
 
-	// CreateAtomic writes a new node plus its initial relationships in one FDB
-	// transaction. Used by NodeService.Create. Sequence allocation (if the node
-	// declares FeatureHasSequenceID) is the caller's responsibility; the caller
-	// sets the sequence value in Props before calling CreateAtomic.
+	// CreateAtomic writes a new node and its initial relationships in one
+	// FoundationDB transaction. NodeService.Create calls CreateAtomic. When the
+	// node declares FeatureHasSequenceID, the caller allocates the sequence and
+	// sets its value in Props before calling CreateAtomic.
 	//
-	// indexedProps names the subset of Props that should receive a secondary
-	// property index entry. The caller resolves this from the PropertyDef
-	// registry before calling; the storage layer does not read PropertyDefs.
+	// The indexedProps argument selects the Props that need secondary property
+	// index entries. The caller reads the PropertyDef registry to select these
+	// properties before calling CreateAtomic. The storage layer does not read
+	// PropertyDefs.
 	CreateAtomic(
 		ctx context.Context,
 		n *Node,
@@ -131,9 +144,9 @@ type NodeRepository interface {
 		idempotency *IdempotencyRecord,
 	) error
 
-	// ListByProperty returns all nodes where the given property equals value.
-	// Only works for PropertyDefs with Indexed=true. NodeType scoping is an
-	// optimization: pass empty to scan across types.
+	// ListByProperty returns every node with a property equal to value. The
+	// PropertyDef must have Indexed=true. An empty nodeType searches all types;
+	// a nonempty nodeType limits the scan to that type as an optimization.
 	ListByProperty(
 		ctx context.Context,
 		orgID uuid.UUID,
@@ -142,35 +155,61 @@ type NodeRepository interface {
 		value json.RawMessage,
 	) ([]*Node, error)
 
-	// AllocateSequence atomically increments a counter keyed by (orgID, scopeNodeID, nodeType)
-	// and returns the next value. The scopeNodeID is the container (typically a
-	// project node) under which sequence numbers are unique.
-	AllocateSequence(ctx context.Context, orgID, scopeNodeID uuid.UUID, nodeType string) (int64, error)
+	// AllocateSequence atomically increments the counter for
+	// (orgID, scopeNodeID, nodeType) and returns its next value. The scopeNodeID
+	// identifies the container, typically a project node, within which sequence
+	// numbers are unique.
+	AllocateSequence(
+		ctx context.Context,
+		orgID uuid.UUID,
+		scopeNodeID uuid.UUID,
+		nodeType string,
+	) (int64, error)
 
-	// AllocateSequenceByKey atomically increments and returns counterKey.
+	// AllocateSequenceByKey atomically increments the counter at counterKey and
+	// returns the next value.
 	AllocateSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string) (int64, error)
 
 	// SeedSequenceByKey raises counterKey to value without lowering it.
 	SeedSequenceByKey(ctx context.Context, orgID uuid.UUID, counterKey string, value int64) error
 
-	// LookupIdempotencyKey returns the record stamped under (orgID, key). A nil
-	// record and nil error mean the key has not been seen.
-	LookupIdempotencyKey(ctx context.Context, orgID uuid.UUID, key string) (*IdempotencyRecord, error)
+	// LookupIdempotencyKey returns the record for (orgID, key). It returns a nil
+	// record and nil error when the key does not have a record.
+	LookupIdempotencyKey(
+		ctx context.Context,
+		orgID uuid.UUID,
+		key string,
+	) (*IdempotencyRecord, error)
 }
 
-// RelationshipRepository manages edges between nodes. Every dedicated
-// concept-specific join (assignments, labels-on-nodes, containment, watchers,
-// mentions, reactions, comments) is expressed as a Relationship with an
-// appropriate RelationType string.
+// RelationshipRepository manages edges between nodes. Relationship records
+// with appropriate RelationType strings represent assignments, labels on
+// nodes, containment, watchers, mentions, reactions, and comments.
 type RelationshipRepository interface {
 	Add(ctx context.Context, rel *Relationship) error
-	Remove(ctx context.Context, orgID, sourceID uuid.UUID, relationType string, targetID uuid.UUID) error
+	Remove(
+		ctx context.Context,
+		orgID uuid.UUID,
+		sourceID uuid.UUID,
+		relationType string,
+		targetID uuid.UUID,
+	) error
 
-	// ListBySource returns all relationships originating from sourceID, optionally
-	// filtered by relationType (empty string = all types).
-	ListBySource(ctx context.Context, orgID, sourceID uuid.UUID, relationType string) ([]*Relationship, error)
+	// ListBySource returns relationships with sourceID as their source. A
+	// nonempty relationType filters the results; an empty string accepts all types.
+	ListBySource(
+		ctx context.Context,
+		orgID uuid.UUID,
+		sourceID uuid.UUID,
+		relationType string,
+	) ([]*Relationship, error)
 
-	// ListByTarget returns all relationships pointing to targetID, optionally
-	// filtered by relationType (empty string = all types).
-	ListByTarget(ctx context.Context, orgID, targetID uuid.UUID, relationType string) ([]*Relationship, error)
+	// ListByTarget returns relationships with targetID as their target. A
+	// nonempty relationType filters the results; an empty string accepts all types.
+	ListByTarget(
+		ctx context.Context,
+		orgID uuid.UUID,
+		targetID uuid.UUID,
+		relationType string,
+	) ([]*Relationship, error)
 }

@@ -1,7 +1,13 @@
-// Package postgres opens YugabyteDB connection pools and stores and reads Tack's
-// users, api_tokens, and org_members auth tables.
-// Each repository change method writes audit change events to the operator outbox
-// in the same transaction as the record change.
+// Package postgres opens YugabyteDB connection pools.
+//
+// The package stores and reads these Tack auth tables:
+//
+//   - users
+//   - api_tokens
+//   - org_members
+//
+// Each repository change method writes audit change events to the operator
+// outbox in the same transaction as the record change.
 package postgres
 
 import (
@@ -19,60 +25,109 @@ const (
 	memberRelation   = "org_member"
 )
 
-// changeOperation reads the audit mutation operation from ctx and sets its verb
-// and organization ID. It returns an error wrapping
-// audit.ErrMissingMutationContext when ctx lacks a valid operation.
+// changeOperation reads the audit mutation operation from ctx and sets its
+// verb and organization ID. A missing operation or an invalid required actor
+// or operation field produces an error wrapping
+// [audit.ErrMissingMutationContext]. The helper also returns
+// operation-decoding errors.
 func changeOperation(ctx context.Context, verb audit.Verb, orgID uuid.UUID) (audit.Event, error) {
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.change.context_missing", slog.String("verb", string(verb)), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.change.context_missing",
+			slog.String("verb", string(verb)),
+			slog.String("err", err.Error()),
+		)
+
 		return audit.Event{}, fmt.Errorf("record %s in org %s: %w", verb, orgID, err)
 	}
+
 	operation.Verb = string(verb)
 	operation.Context.OrgID = orgID
+
 	return operation, nil
 }
 
 // UserTarget returns a resource audit target for userID.
 //
-// The target uses userID as its ID and appends its string form to
-// userTargetPrefix for the URI. The other target fields are empty or
-// zero UUIDs.
+// The target uses userID as its ID. Its URI appends the string form of
+// userID to userTargetPrefix. NodeType, Reference, Name, and RelationType
+// contain empty strings. SourceID, TargetID, and OwnerID contain zero UUIDs.
+//
+// The URI has this layout:
+//
+//	tack:user/<userID>
+//
+// For example, a caller can create the target:
 //
 //	target := UserTarget(userID)
 func UserTarget(userID uuid.UUID) audit.Target {
 	return audit.Target{
-		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: "",
-		URI: userTargetPrefix + userID.String(), RelationType: "",
-		ID: userID, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         audit.TargetKindResource,
+		NodeType:     "",
+		Reference:    "",
+		Name:         "",
+		URI:          userTargetPrefix + userID.String(),
+		RelationType: "",
+		ID:           userID,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
 // TokenTarget returns a resource audit target for tokenID.
 //
-// The target uses tokenID as its ID and label as its name. Its URI
-// appends the string form of tokenID to audit.APIAccessURIPrefix.
+// The target uses tokenID as its ID and label as its name. Its URI appends
+// the string form of tokenID to audit.APIAccessURIPrefix.
+//
+// The URI has this layout:
+//
+//	tack:api_token/<tokenID>
+//
+// For example, a caller can create the target:
 //
 //	target := TokenTarget(tokenID, label)
 func TokenTarget(tokenID uuid.UUID, label string) audit.Target {
 	return audit.Target{
-		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: label,
-		URI: audit.APIAccessURIPrefix + tokenID.String(), RelationType: "",
-		ID: tokenID, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         audit.TargetKindResource,
+		NodeType:     "",
+		Reference:    "",
+		Name:         label,
+		URI:          audit.APIAccessURIPrefix + tokenID.String(),
+		RelationType: "",
+		ID:           tokenID,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
 // MemberTarget returns a relationship audit target from orgID to userID.
 //
-// The target uses memberID as the membership row ID. Failure events can
-// use [uuid.Nil] for memberID when the row does not exist. The target
-// uses memberRelation as its relationship type.
+// The target uses memberID as the membership row ID. Failure events can use
+// [uuid.Nil] for memberID when the row does not exist. The target uses
+// memberRelation as its relationship type.
+//
+// The target assigns these relationship fields:
+//
+//	RelationType: "org_member"
+//	ID:           memberID
+//	SourceID:     orgID
+//	TargetID:     userID
+//
+// For example, a caller can create the target:
 //
 //	target := MemberTarget(memberID, orgID, userID)
 func MemberTarget(memberID, orgID, userID uuid.UUID) audit.Target {
 	return audit.Target{
-		Kind: audit.TargetKindRelationship, NodeType: "", Reference: "", Name: "",
-		URI: "", RelationType: memberRelation,
-		ID: memberID, SourceID: orgID, TargetID: userID,
+		Kind:         audit.TargetKindRelationship,
+		NodeType:     "",
+		Reference:    "",
+		Name:         "",
+		URI:          "",
+		RelationType: memberRelation,
+		ID:           memberID,
+		SourceID:     orgID,
+		TargetID:     userID,
 	}
 }

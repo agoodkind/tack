@@ -30,7 +30,8 @@ type rpcRequest struct {
 	Params  callParams `json:"params"`
 }
 
-// Driver sends authenticated JSON-RPC requests through the in-process MCP handler.
+// Driver sends authenticated JSON-RPC requests through the in-process MCP
+// handler.
 type Driver struct {
 	graph     *runtime.Graph
 	dryRun    bool
@@ -62,15 +63,26 @@ func (d *Driver) requestToken(token string) string {
 	return identity
 }
 
-// NewDriver builds a request driver. A nil graph is valid only for dry runs.
+// NewDriver constructs a request driver with a session ID derived from seed.
+//
+// A nil graph supports dry runs only. Requests that use the HTTP handler
+// require a graph.
+//
+//	driver := NewDriver(nil, true, 245)
 func NewDriver(graph *runtime.Graph, dryRun bool, seed int64) *Driver {
 	return &Driver{
-		graph: graph, dryRun: dryRun,
+		graph:     graph,
+		dryRun:    dryRun,
 		sessionID: fmt.Sprintf("qa-datagen-%d", seed),
 	}
 }
 
-// Call invokes one MCP tool through the authenticated HTTP boundary.
+// Call invokes one MCP tool through the authenticated HTTP handler.
+//
+// A dry run logs the planned call and returns a synthetic result. Other calls
+// encode tools/call and decode the handler's response.
+//
+//	result, err := driver.Call(ctx, token, "tack_list_workspaces", ToolArguments{})
 func (d *Driver) Call(
 	ctx context.Context,
 	token string,
@@ -87,11 +99,7 @@ func (d *Driver) call(
 	args ToolArguments,
 ) (Result, error) {
 	if err := ctx.Err(); err != nil {
-		return Result{}, loggedError(
-			ctx,
-			"qa datagen: stop before "+toolName+" call",
-			err,
-		)
+		return Result{}, loggedError(ctx, "qa datagen: stop before "+toolName+" call", err)
 	}
 	d.callCount.Add(1)
 	requestID, err := d.requestID(ctx, token, toolName, args)
@@ -99,7 +107,9 @@ func (d *Driver) call(
 		return Result{}, err
 	}
 	if d.dryRun {
-		slog.InfoContext(ctx, "qa.datagen.call_planned",
+		slog.InfoContext(
+			ctx,
+			"qa.datagen.call_planned",
 			slog.String("tool", toolName),
 			slog.Any("arguments", args),
 		)
@@ -121,7 +131,15 @@ func (d *Driver) call(
 	return decodeResponse(ctx, toolName, response)
 }
 
-// CallCount returns the number of planned or executed tool calls.
+// CallCount returns the number of tool calls and resource reads that the driver
+// counted, including dry runs.
+//
+// The driver increments the count after checking context cancellation and
+// before building the request. A later request failure still contributes to the
+// count.
+//
+//   - A new driver starts at zero.
+//   - A call with an already-canceled context leaves that value at zero.
 func (d *Driver) CallCount() int64 {
 	return d.callCount.Load()
 }
@@ -134,15 +152,9 @@ func (d *Driver) requestID(
 ) (string, error) {
 	body, err := json.Marshal(args)
 	if err != nil {
-		return "", loggedError(
-			ctx,
-			"qa datagen: encode "+toolName+" request identity",
-			err,
-		)
+		return "", loggedError(ctx, "qa datagen: encode "+toolName+" request identity", err)
 	}
 	requestToken := d.requestToken(token)
-	sum := sha256.Sum256(
-		append([]byte(d.sessionID+":"+requestToken+":"+toolName+":"), body...),
-	)
+	sum := sha256.Sum256(append([]byte(d.sessionID+":"+requestToken+":"+toolName+":"), body...))
 	return "datagen-" + hex.EncodeToString(sum[:12]), nil
 }

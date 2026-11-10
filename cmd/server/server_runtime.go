@@ -16,15 +16,27 @@ import (
 	"goodkind.io/tack/internal/version"
 )
 
-// runServer builds the shared runtime object graph, mounts the MCP and Connect
-// handlers, then serves until an interrupt arrives or the listener fails. It is
-// the default action of the bare binary and of the explicit `serve` subcommand,
-// and returns any fatal error to main rather than exiting in place.
+// runServer builds the shared runtime graph. The bare command and the
+// serve subcommand call runServer, which returns fatal errors to the caller.
+//
+// The server serves these handlers:
+//
+//   - It serves MCP requests.
+//   - It serves health checks.
+//   - It serves diagnostics.
+//   - It handles unmatched paths.
+//
+// The server stops under these conditions:
+//
+//   - SIGINT requests shutdown.
+//   - SIGTERM requests shutdown.
+//   - A listener failure returns an error to the caller.
 func runServer(ctx context.Context, cfg *config.Config) error {
 	graph, err := appruntime.BuildGraph(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("server: build runtime: %w", err)
 	}
+
 	graph.StartSearchWorkers(ctx)
 	graph.StartSearchModelRepair(ctx)
 	graph.StartDeleteResumer(ctx)
@@ -34,17 +46,25 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	mux := graph.Routes
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	slog.InfoContext(ctx, "starting server",
-		"addr", addr,
-		"version", version.Tag(),
-		"commit", version.Commit(),
-		"build_hash", version.BuildHash(),
-		"build_time", version.BuildTime(),
-		"dirty", version.Dirty(),
+	slog.InfoContext(
+		ctx,
+		"starting server",
+		"addr",
+		addr,
+		"version",
+		version.Tag(),
+		"commit",
+		version.Commit(),
+		"build_hash",
+		version.BuildHash(),
+		"build_time",
+		version.BuildTime(),
+		"dirty",
+		version.Dirty(),
 	)
 
-	// Enable HTTP/1.1 and unencrypted HTTP/2 (h2c) on the server directly,
-	// the supported replacement for the deprecated x/net/http2/h2c handler.
+	// The server enables HTTP/1.1 and unencrypted HTTP/2 (h2c) directly through
+	// http.Server.Protocols.
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           telemetry.RequestLogger(telemetry.RequestPathCounter(mux)),
@@ -82,5 +102,6 @@ func runServer(ctx context.Context, cfg *config.Config) error {
 	if err := srv.Shutdown(shutCtx); err != nil {
 		slog.ErrorContext(ctx, "http.shutdown_failed", slog.String("err", err.Error()))
 	}
+
 	return nil
 }

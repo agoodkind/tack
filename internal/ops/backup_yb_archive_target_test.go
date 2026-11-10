@@ -5,17 +5,22 @@ import (
 	"testing"
 )
 
-// TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory is the defect
-// this file exists for. The archive command decided it was done by probing the
-// archive object alone, so an archive uploaded before inventories existed read
-// as finished and no inventory was ever written for it; the restore drill then
-// refused the run for lacking one, and nothing healed it. Against the test
-// SeaweedFS engine, yb1's prefix holds the archive and no inventory and must come back
-// as work to do. The yb2 prefix contains both and resolves as complete.
+// TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory reproduces
+// the legacy archive state that the earlier archive-only check accepted.
+// That check left archives without inventories and caused the restore drill
+// to reject their runs. The test uses SeaweedFS with an archive but without
+// an inventory for yb1; it must require another upload. The yb2 prefix
+// contains both artifacts and must resolve as complete.
 func TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory(t *testing.T) {
 	ctx := context.Background()
 	const runID = "20260830T010203Z"
-	manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1", "yb2"}, ybTestArtifactNames())
+	manifest := newYBSnapshotManifest(
+		runID,
+		"snap-1",
+		"tack",
+		[]string{"yb1", "yb2"},
+		ybTestArtifactNames(),
+	)
 	yb1 := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
 	objects := ybExportRunObjects(t, runID, manifest)
 	delete(objects, ybNodeInventoryKey(runID, yb1))
@@ -26,30 +31,53 @@ func TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory(t *testing.T) 
 	if err != nil {
 		t.Fatalf("resolve the target for yb1: %v", err)
 	}
+
 	if target == nil || target.complete {
-		t.Fatal("an archive in the store without its inventory must be redone, but yb1 found nothing to do")
+		t.Fatal(
+			"an archive in the store without its inventory must be redone, but yb1 found nothing to do",
+		)
 	}
+
 	if target.manifest.RunID != runID || target.prefix != ybNodeKeyPrefix(runID, yb1) {
-		t.Fatalf("yb1 resolved run %q prefix %q, want run %q prefix %q",
-			target.manifest.RunID, target.prefix, runID, ybNodeKeyPrefix(runID, yb1))
+		t.Fatalf(
+			"yb1 resolved run %q prefix %q, want run %q prefix %q",
+			target.manifest.RunID,
+			target.prefix,
+			runID,
+			ybNodeKeyPrefix(runID, yb1),
+		)
 	}
 
 	done, err := resolveYBArchiveTarget(ctx, cfg, s3Client, "yb2", "")
 	if err != nil {
 		t.Fatalf("resolve the target for yb2: %v", err)
 	}
-	if done == nil || !done.complete || done.prefix != ybNodeKeyPrefix(runID, ybSnapshotManifestNode{Name: "yb2", Prefix: "nodes/yb2/"}) {
-		t.Fatalf("a node with every artifact in the store must resolve its complete prefix, got %+v", done)
+
+	if done == nil || !done.complete ||
+		done.prefix != ybNodeKeyPrefix(
+			runID,
+			ybSnapshotManifestNode{Name: "yb2", Prefix: "nodes/yb2/"},
+		) {
+		t.Fatalf(
+			"a node with every artifact in the store must resolve its complete prefix, got %+v",
+			done,
+		)
 	}
 }
 
-// TestResolveYBArchiveTargetRedoesAnExplicitRunWithoutItsInventory proves the
-// same rule holds when the operator names the run, which is how an old run is
-// healed by hand.
+// TestResolveYBArchiveTargetRedoesAnExplicitRunWithoutItsInventory checks
+// that an explicit run ID also requires another upload when its inventory
+// is missing. An operator can select an older run for this repair.
 func TestResolveYBArchiveTargetRedoesAnExplicitRunWithoutItsInventory(t *testing.T) {
 	ctx := context.Background()
 	const runID = "20260830T010203Z"
-	manifest := newYBSnapshotManifest(runID, "snap-1", "tack", []string{"yb1"}, ybTestArtifactNames())
+	manifest := newYBSnapshotManifest(
+		runID,
+		"snap-1",
+		"tack",
+		[]string{"yb1"},
+		ybTestArtifactNames(),
+	)
 	yb1 := ybSnapshotManifestNode{Name: "yb1", Prefix: "nodes/yb1/"}
 	objects := ybExportRunObjects(t, runID, manifest)
 	delete(objects, ybNodeInventoryKey(runID, yb1))
@@ -60,6 +88,7 @@ func TestResolveYBArchiveTargetRedoesAnExplicitRunWithoutItsInventory(t *testing
 	if err != nil {
 		t.Fatalf("resolve the explicit run for yb1: %v", err)
 	}
+
 	if target == nil || target.complete {
 		t.Fatal("an explicitly named run with an archive and no inventory must be redone")
 	}

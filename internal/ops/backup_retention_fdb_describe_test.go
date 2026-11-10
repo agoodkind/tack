@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	// retentionFDBReadLifeKnob and retentionFDBCommitIntervalKnob shorten how
-	// long the storage server keeps old versions readable. With them, a
-	// describe with --version-timestamps fails on the test cluster after a few
-	// hundred snapshots, as it fails on QA after weeks of hourly snapshots.
+	// retentionFDBReadLifeKnob and retentionFDBCommitIntervalKnob shorten the
+	// period during which the storage server permits reads of old versions.
+	// With these settings, describe with --version-timestamps fails after a few
+	// hundred test snapshots. QA showed that failure after weeks of hourly
+	// snapshots.
 	retentionFDBReadLifeKnob       = "max_read_transaction_life_versions"
 	retentionFDBReadLifeVersions   = "50000"
 	retentionFDBCommitIntervalKnob = "storage_commit_interval"
@@ -27,14 +28,20 @@ const (
 )
 
 // TestBackupRetentionFDBPlansBackupWithManySnapshots runs retention on a
-// backup with enough snapshots that `fdbbackup describe --version-timestamps`
-// fails with error 1007 (TACK-609). The preview and the execution must expire
-// the backup, and the cutoff must stay restorable.
+// backup with enough snapshots to make fdbbackup describe --version-timestamps
+// fail with error 1007 (TACK-609). That error reports an old transaction.
+// Preview must select expiration, execution must expire the backup, and the
+// cutoff must remain restorable.
 func TestBackupRetentionFDBPlansBackupWithManySnapshots(t *testing.T) {
 	fixture := newRetentionCommandFixture(t)
-	cluster := retentionFDBTestConfigWithKnobs(t, fixture.config, map[string]string{
-		retentionFDBReadLifeKnob: retentionFDBReadLifeVersions, retentionFDBCommitIntervalKnob: retentionFDBCommitInterval,
-	})
+	cluster := retentionFDBTestConfigWithKnobs(
+		t,
+		fixture.config,
+		map[string]string{
+			retentionFDBReadLifeKnob:       retentionFDBReadLifeVersions,
+			retentionFDBCommitIntervalKnob: retentionFDBCommitInterval,
+		},
+	)
 	name := retentionFDBTestStartEvery(t, fixture.config, cluster, "1")
 	first := retentionFDBTestRecordReading(t, fixture, cluster, time.Time{})
 	reading := retentionFDBTestRecordReading(t, fixture, cluster, first.At.Add(10*time.Second))
@@ -47,14 +54,25 @@ func TestBackupRetentionFDBPlansBackupWithManySnapshots(t *testing.T) {
 	before := retentionFDBTestKeys(t, fixture)
 	output, err := fixture.run(t, false)
 	if err != nil {
-		t.Fatalf("public preview did not plan a backup with %d snapshots: %v\n%s", snapshots, err, output)
+		t.Fatalf(
+			"public preview did not plan a backup with %d snapshots: %v\n%s",
+			snapshots,
+			err,
+			output,
+		)
 	}
 	action := retentionFDBTestPreviewAction(t, output)
-	if action.Name != name || action.Action != "expire" || action.ExpireBeforeVersion <= 0 || action.Window.MaxVersion < reading.Version {
+	if action.Name != name || action.Action != "expire" || action.ExpireBeforeVersion <= 0 ||
+		action.Window.MaxVersion < reading.Version {
 		t.Fatalf("public preview did not select native expiration: %+v", action)
 	}
 	if output, err := fixture.run(t, true); err != nil {
-		t.Fatalf("public retention did not expire a backup with %d snapshots: %v\n%s", snapshots, err, output)
+		t.Fatalf(
+			"public retention did not expire a backup with %d snapshots: %v\n%s",
+			snapshots,
+			err,
+			output,
+		)
 	}
 	after := retentionFDBTestKeys(t, fixture)
 	removed := 0
@@ -69,35 +87,53 @@ func TestBackupRetentionFDBPlansBackupWithManySnapshots(t *testing.T) {
 	retentionFDBTestRestore(t, fixture.config, cluster, name, cutoff)
 }
 
-// retentionFDBTestAwaitTooOld runs describe with --version-timestamps until it
-// fails with error 1007, and returns the number of snapshots in the backup at
-// that point.
+// retentionFDBTestAwaitTooOld runs describe with --version-timestamps until
+// the transaction becomes too old, error 1007. It returns the backup's snapshot
+// count at that point.
 func retentionFDBTestAwaitTooOld(t *testing.T, cfg *config.Config, cluster, name string) int {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	describe := []string{"fdbbackup", "describe", "-d", retentionFDBTestURL(cfg, name), "-C", "/var/fdb/fdb.cluster"}
+	describe := []string{
+		"fdbbackup",
+		"describe",
+		"-d",
+		retentionFDBTestURL(cfg, name),
+		"-C",
+		"/var/fdb/fdb.cluster",
+	}
 	for {
-		output, exitCode := retentionFDBTestExecResult(t, cfg, cluster, append(describe, "--version-timestamps"))
+		output, exitCode := retentionFDBTestExecResult(
+			t,
+			cfg,
+			cluster,
+			append(describe, "--version-timestamps"),
+		)
 		if exitCode != 0 {
 			if !strings.Contains(output, retentionFDBTooOldText) {
-				t.Fatalf("describe --version-timestamps exited %d without error 1007: %s", exitCode, output)
+				t.Fatalf(
+					"describe --version-timestamps exited %d without error 1007: %s",
+					exitCode,
+					output,
+				)
 			}
 			return strings.Count(retentionFDBTestExec(t, cfg, cluster, describe), "\nSnapshot:")
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("describe --version-timestamps did not fail with error 1007 after %d snapshots",
-				strings.Count(output, "\nSnapshot:"))
+			t.Fatalf(
+				"describe --version-timestamps did not fail with error 1007 after %d snapshots",
+				strings.Count(output, "\nSnapshot:"),
+			)
 		case <-ticker.C:
 		}
 	}
 }
 
-// retentionFDBTestPreviewAction returns the one FoundationDB action of the
-// JSON plan that a public preview prints.
+// retentionFDBTestPreviewAction returns the single FoundationDB action from
+// the JSON plan that a public preview prints.
 func retentionFDBTestPreviewAction(t *testing.T, output string) retentionFDBPreviewAction {
 	t.Helper()
 	jsonPlan := ""

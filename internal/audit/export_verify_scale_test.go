@@ -12,8 +12,8 @@ const opsSidecarMemLimitBytes = 512 << 20
 
 const verifyScaleRows = 20000
 
-// buildScaleBundle writes a signed bundle of n rows spread across shards, with
-// each shard's rows chained so the link pass has real work to do.
+// buildScaleBundle writes a signed bundle of n rows across shards. Each
+// shard's rows form a chain that exercises link verification.
 func buildScaleBundle(t *testing.T, n int) (string, []byte) {
 	t.Helper()
 	dir := t.TempDir()
@@ -50,7 +50,9 @@ func buildScaleBundle(t *testing.T, n int) (string, []byte) {
 		prevByShard[shard] = row.RowHash
 		rows = append(rows, row)
 	}
+
 	pub := writeSignedExportTestBundle(t, dir, rows)
+
 	return dir, pub
 }
 
@@ -67,13 +69,20 @@ func TestVerifyBundleMultiShardIntegrity(t *testing.T) {
 	if report.RowsScanned != verifyScaleRows {
 		t.Fatalf("rows scanned = %d, want %d", report.RowsScanned, verifyScaleRows)
 	}
+
 	if report.HashMatches != verifyScaleRows {
 		t.Fatalf("hash matches = %d, want %d", report.HashMatches, verifyScaleRows)
 	}
+
 	if len(report.ChainBreaks) != 0 {
 		t.Fatalf("chain breaks = %v, want none", report.ChainBreaks)
 	}
+
 	if !report.FileSHA256OK || !report.SignatureOK {
-		t.Fatalf("digest ok = %v, signature ok = %v, want both true", report.FileSHA256OK, report.SignatureOK)
+		t.Fatalf(
+			"digest ok = %v, signature ok = %v, want both true",
+			report.FileSHA256OK,
+			report.SignatureOK,
+		)
 	}
 }

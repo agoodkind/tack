@@ -8,7 +8,7 @@ import (
 	"goodkind.io/tack/internal/domain"
 )
 
-// Typed failure codes that tool calls record in audit events.
+// Tool calls record these typed failure codes in audit events.
 const (
 	accessDeniedCode     = "access_denied"
 	notFoundCode         = "not_found"
@@ -16,18 +16,17 @@ const (
 	invalidArgumentCode  = "invalid_argument"
 )
 
-// membershipRefusalError wraps the not-found error that a membership check
-// returns for a target in an organization that the caller does not belong
-// to. The response text matches an absent target. The audit event records
-// accessDeniedCode.
+// membershipRefusalError wraps the not-found error for a target outside the
+// caller's organizations. The response text matches an absent target, and
+// the audit event records accessDeniedCode.
 type membershipRefusalError struct{ err error }
 
 func (refusal membershipRefusalError) Error() string { return refusal.err.Error() }
 
 func (refusal membershipRefusalError) Unwrap() error { return refusal.err }
 
-// invalidReferenceError wraps the invalid-argument error for a node reference
-// that does not match any reference format of its node type.
+// invalidReferenceError wraps the invalid-argument error when a node
+// reference does not match any reference format of its node type.
 type invalidReferenceError struct{ err error }
 
 func (reference invalidReferenceError) Error() string { return reference.err.Error() }
@@ -65,7 +64,8 @@ func refusalCode(err error) (string, string, bool) {
 	}
 }
 
-// noteRefusal records the refusal code of err for the request's audit events.
+// noteRefusal records the refusal code of err for the request's audit
+// events.
 func noteRefusal(ctx context.Context, err error) {
 	if code, message, refused := refusalCode(err); refused {
 		noteOutcome(ctx, audit.OutcomeRefused, code, message)

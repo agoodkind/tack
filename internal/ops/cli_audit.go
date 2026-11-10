@@ -10,10 +10,9 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// auditSeedRolesCommand builds `ops audit seed-roles` to create login roles
-// or update their passwords for audit access, application authentication,
-// and migrations. The command records one step per role with its state before
-// and after the operation.
+// auditSeedRolesCommand builds ops audit seed-roles to create login roles or
+// update their passwords for audit access, application authentication, and
+// migrations. The command records each role's state before and after its step.
 func auditSeedRolesCommand(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "seed-roles",
@@ -26,23 +25,30 @@ func auditSeedRolesCommand(f *cli.Factory) *cobra.Command {
 			"commands (TACK-554).",
 		Args: cobra.NoArgs,
 	}
-	clispec.AttachExternal(cmd, f, externalSpec(audit.VerbAuditRolesSeed, "yugabyte/roles"), emptyCommandInput,
+	clispec.AttachExternal(
+		cmd,
+		f,
+		externalSpec(audit.VerbAuditRolesSeed, "yugabyte/roles"),
+		emptyCommandInput,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return runAuditSeedRolesRecorded(ctx, f.Cfg, steps)
-		})
+		},
+	)
 	cmd.PreRunE = func(cmd *cobra.Command, _ []string) error {
 		if !f.Execute() {
 			return nil
 		}
+
 		return prepareSeedRolesAuditOutbox(cmd.Context(), f)
 	}
+
 	return cmd
 }
 
-// auditConsumerOffsetsOp declares `ops audit consumer-offsets`. It reports
-// the audit events that are produced and not yet in the ledger: the committed
-// lag of every topic partition and the events waiting in both operator
-// outboxes.
+// auditConsumerOffsetsOp returns the definition for ops audit consumer-offsets.
+// The command reports committed lag for every audit topic partition and pending
+// events in both operator outboxes. The report measures work waiting for ledger
+// recording.
 func auditConsumerOffsetsOp(f *cli.Factory) clispec.Operation[noInput] {
 	return clispec.Operation[noInput]{
 		Name:     clispec.Name{Canonical: "consumer-offsets", CLIOverride: ""},
@@ -66,6 +72,7 @@ func auditConsumerOffsetsOp(f *cli.Factory) clispec.Operation[noInput] {
 			if err != nil {
 				return err
 			}
+
 			return clispec.WriteJSONValue(ctx, sink, report)
 		},
 	}

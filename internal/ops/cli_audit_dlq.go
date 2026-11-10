@@ -13,16 +13,21 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// The dead-letter table holds every audit event the consumer could not commit
-// to the ledger. These commands let an operator see what accumulated and send
-// it back through the audit topic once the cause is gone; the consumer, as
-// the ledger's one writer, lands each event and clears its row (TACK-336,
-// TACK-240).
+// The dead-letter table stores audit events that the consumer could not commit
+// to the ledger. Operators inspect those events and replay them to the audit
+// topic after correcting the cause. The consumer remains the ledger's sole
+// writer and deletes each dead-letter row after recording its event, following
+// TACK-336 and TACK-240.
 
-var auditDLQGroup = &clispec.Group{Use: "dlq", Short: "Inspect and replay the audit dead-letter table", Long: "", Parent: auditOpsGroup}
+var auditDLQGroup = &clispec.Group{
+	Use:    "dlq",
+	Short:  "Inspect and replay the audit dead-letter table",
+	Long:   "",
+	Parent: auditOpsGroup,
+}
 
-// defaultDLQReplayLimit bounds one replay run so an operator reads the
-// consumer's answer before sending the rest.
+// defaultDLQReplayLimit limits each replay run. Operators can inspect the
+// consumer's result before replaying more events.
 const defaultDLQReplayLimit = 500
 
 type auditDLQInspectInput struct {
@@ -71,7 +76,11 @@ func auditDLQInspectOp(f *cli.Factory) clispec.Operation[auditDLQInspectInput] {
 		Examples: nil,
 		Args:     nil,
 		Params:   nil,
-		New:      func() auditDLQInspectInput { return auditDLQInspectInput{InputMarker: clispec.InputMarker{}} },
+		New: func() auditDLQInspectInput {
+			return auditDLQInspectInput{
+				InputMarker: clispec.InputMarker{},
+			}
+		},
 		Run: func(ctx context.Context, _ auditDLQInspectInput, sink clispec.ResultSink) error {
 			return runAuditDLQInspect(ctx, f, sink)
 		},
@@ -96,11 +105,18 @@ func auditDLQReplayOp(f *cli.Factory) clispec.Operation[auditDLQReplayInput] {
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[auditDLQReplayInput]{
-			clispec.IntParam("limit", "how many rows to send this run, fewest attempts then oldest first", defaultDLQReplayLimit,
-				func(input *auditDLQReplayInput, value int) { input.Limit = value }),
+			clispec.IntParam(
+				"limit",
+				"how many rows to send this run, fewest attempts then oldest first",
+				defaultDLQReplayLimit,
+				func(input *auditDLQReplayInput, value int) { input.Limit = value },
+			),
 		},
 		New: func() auditDLQReplayInput {
-			return auditDLQReplayInput{InputMarker: clispec.InputMarker{}, Limit: defaultDLQReplayLimit}
+			return auditDLQReplayInput{
+				InputMarker: clispec.InputMarker{},
+				Limit:       defaultDLQReplayLimit,
+			}
 		},
 		DryRun: func(ctx context.Context, input auditDLQReplayInput, sink clispec.ResultSink) error {
 			return runAuditDLQReplay(ctx, f, input, sink, false)
@@ -115,13 +131,20 @@ func auditDLQReader(ctx context.Context, f *cli.Factory) (*audit.Reader, error) 
 	if f == nil || f.Cfg == nil || strings.TrimSpace(f.Cfg.AuditReaderDSN) == "" {
 		err := errors.New("the dead-letter commands need AUDIT_READER_DSN")
 		slog.ErrorContext(ctx, "audit.dlq.reader_dsn_missing", slog.String("err", err.Error()))
+
 		return nil, err
 	}
+
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.dlq.reader_open_failed", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("open the ledger reader for the dead-letter table from AUDIT_READER_DSN: %w", err)
+
+		return nil, fmt.Errorf(
+			"open the ledger reader for the dead-letter table from AUDIT_READER_DSN: %w",
+			err,
+		)
 	}
+
 	return reader, nil
 }
 
@@ -136,31 +159,52 @@ func runAuditDLQInspect(ctx context.Context, f *cli.Factory, sink clispec.Result
 		slog.ErrorContext(ctx, "audit.dlq.inspect_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("inspect the dead-letter table: %w", err)
 	}
+
 	result := auditDLQInspectResult{
-		ResultMarker: clispec.ResultMarker{}, Command: "ops.audit.dlq.inspect", Rows: 0,
-		ByError: make([]auditDLQSummaryResult, 0, len(summaries)),
+		ResultMarker: clispec.ResultMarker{},
+		Command:      "ops.audit.dlq.inspect",
+		Rows:         0,
+		ByError:      make([]auditDLQSummaryResult, 0, len(summaries)),
 	}
 	for _, summary := range summaries {
 		result.Rows += summary.Count
-		result.ByError = append(result.ByError, auditDLQSummaryResult{
-			Error: summary.Error, Count: summary.Count,
-			Oldest: summary.Oldest.UTC().Format(time.RFC3339), Newest: summary.Newest.UTC().Format(time.RFC3339),
-		})
+		result.ByError = append(
+			result.ByError,
+			auditDLQSummaryResult{
+				Error:  summary.Error,
+				Count:  summary.Count,
+				Oldest: summary.Oldest.UTC().Format(time.RFC3339),
+				Newest: summary.Newest.UTC().Format(time.RFC3339),
+			},
+		)
 	}
+
 	if result.Rows > 0 {
-		// A non-empty table means audit writes failed and nobody has replayed
-		// them; the line is at error level so the log alarm sees it.
-		slog.ErrorContext(ctx, "audit.dlq.non_empty",
+		// Pending dead-letter rows indicate failed audit writes that the consumer has
+		// not yet resolved. This error-level log triggers the log alarm.
+		slog.ErrorContext(
+			ctx,
+			"audit.dlq.non_empty",
 			slog.Int("rows", result.Rows),
-			slog.String("err", fmt.Sprintf("%d audit events are dead-lettered and not yet replayed", result.Rows)))
+			slog.String(
+				"err",
+				fmt.Sprintf("%d audit events are dead-lettered and not yet replayed", result.Rows),
+			),
+		)
 	}
+
 	return writeAuditDLQResult(ctx, sink, result)
 }
 
-func writeAuditDLQResult(ctx context.Context, sink clispec.ResultSink, result clispec.Result) error {
+func writeAuditDLQResult(
+	ctx context.Context,
+	sink clispec.ResultSink,
+	result clispec.Result,
+) error {
 	if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
 		slog.ErrorContext(ctx, "audit.dlq.report_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write the dead-letter report: %w", err)
 	}
+
 	return nil
 }

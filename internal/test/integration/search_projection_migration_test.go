@@ -22,7 +22,11 @@ var migrationText = strings.Repeat("amber lattice orchard ", 12)
 // node pass pending.
 func (env *migrationEnv) finishMetadataPass(t *testing.T) {
 	t.Helper()
-	env.driveRescan(t, func(work searchdomain.Work) bool { return work.Phase == searchdomain.PhasePages }, func(int) {})
+	env.driveRescan(
+		t,
+		func(work searchdomain.Work) bool { return work.Phase == searchdomain.PhasePages },
+		func(int) {},
+	)
 }
 
 // TestSearchProjectionMigrationReindexesUnchangedDefinitions checks that
@@ -42,7 +46,14 @@ func TestSearchProjectionMigrationReindexesUnchangedDefinitions(t *testing.T) {
 	initialProjection := env.pages(t, nodes[0], false)[0].ProjectionVersion
 
 	reader := env.Stores.SearchContent(env.Stores.SearchPolicySet())
-	request := searchdomain.ContentRequest{NodeID: nodes[0], Cursor: "", ProjectionConfig: "", AccessVersions: nil, MaxBytes: migrationPageBytes, SearchGeneration: 0}
+	request := searchdomain.ContentRequest{
+		NodeID:           nodes[0],
+		Cursor:           "",
+		ProjectionConfig: "",
+		AccessVersions:   nil,
+		MaxBytes:         migrationPageBytes,
+		SearchGeneration: 0,
+	}
 	opening, err := reader.Content(integration.WithTestOperation(t, t.Context()), request)
 	if err != nil || opening.Done {
 		t.Fatalf("read the first page = done %t, err %v; want a continuing page", opening.Done, err)
@@ -51,15 +62,27 @@ func TestSearchProjectionMigrationReindexesUnchangedDefinitions(t *testing.T) {
 	env.forgetProjectionState(t)
 	env.finishMetadataPass(t)
 	fresh, err := reader.Content(integration.WithTestOperation(t, t.Context()), request)
-	if err != nil || fresh.Revision != opening.Revision || fresh.ProjectionVersion == opening.ProjectionVersion {
-		t.Fatalf("fresh read after activation = revision %s projection %s err %v, want revision %s under a new projection",
-			fresh.Revision, fresh.ProjectionVersion, err, opening.Revision)
+	if err != nil || fresh.Revision != opening.Revision ||
+		fresh.ProjectionVersion == opening.ProjectionVersion {
+		t.Fatalf(
+			"fresh read after activation = revision %s projection %s err %v, want revision %s under a new projection",
+			fresh.Revision,
+			fresh.ProjectionVersion,
+			err,
+			opening.Revision,
+		)
 	}
+
 	request.Cursor = opening.NextCursor
-	if _, err := reader.Content(integration.WithTestOperation(t, t.Context()), request); !errors.Is(err, node.ErrContentChanged) {
+	if _, err := reader.Content(integration.WithTestOperation(t, t.Context()), request); !errors.Is(
+		err,
+		node.ErrContentChanged,
+	) {
 		t.Fatalf("continue an older projection cursor = %v, want ErrContentChanged", err)
 	}
+
 	env.runIdle(t)
+
 	migrated := env.requireMigrated(t, nodes, initial, initialProjection)
 	for _, nodeID := range nodes {
 		env.requireRetiredRevision(t, nodeID, initial[nodeID])

@@ -12,27 +12,33 @@ import (
 	"github.com/google/uuid"
 )
 
-// chainedExportTestRows builds n rows on one shard whose prev_hash links are
-// intact, so a verifier failure on them can only come from the manifest.
+// chainedExportTestRows builds n rows on one shard with intact prev_hash
+// links. The fixture isolates manifest failures from chain failures.
 func chainedExportTestRows(t *testing.T, n int) []Row {
 	t.Helper()
 	now := time.Now().UTC()
 	orgID := uuid.Must(uuid.NewV7())
 	rows := make([]Row, 0, n)
 	var previous []byte
+
 	for i := range n {
 		row := Row{
-			OrgID:       orgID,
-			EventTime:   now.Add(time.Duration(i) * time.Second),
-			EventID:     uuid.Must(uuid.NewV7()),
-			Seq:         int64(i + 1),
-			Shard:       1,
-			ActorID:     uuid.Must(uuid.NewV7()),
-			ActorKind:   1,
-			Action:      "node.read",
-			Outcome:     OutcomeOK,
-			EntityID:    uuid.Must(uuid.NewV7()),
-			Context:     EventContext{OrgID: orgID, RequestID: "req-count", TraceID: "trace-count", Source: SourceMCP},
+			OrgID:     orgID,
+			EventTime: now.Add(time.Duration(i) * time.Second),
+			EventID:   uuid.Must(uuid.NewV7()),
+			Seq:       int64(i + 1),
+			Shard:     1,
+			ActorID:   uuid.Must(uuid.NewV7()),
+			ActorKind: 1,
+			Action:    "node.read",
+			Outcome:   OutcomeOK,
+			EntityID:  uuid.Must(uuid.NewV7()),
+			Context: EventContext{
+				OrgID:     orgID,
+				RequestID: "req-count",
+				TraceID:   "trace-count",
+				Source:    SourceMCP,
+			},
 			PrevHash:    previous,
 			HashVersion: auditHashVersion3,
 		}
@@ -40,15 +46,15 @@ func chainedExportTestRows(t *testing.T, n int) []Row {
 		previous = row.RowHash
 		rows = append(rows, row)
 	}
+
 	return rows
 }
 
-// TestVerifyBundleSurvivesAManifestClaimingMoreRowsThanCanExist is TACK-469's
-// core case. The verifier sized its link slice from the manifest's row count
-// before anything about the manifest was trusted, so a bundle claiming an
-// absurd count made it allocate for the claim on the line before it would have
-// rejected the bundle. Offline inspection of a foreign bundle is exactly what
-// VerifyBundle exists for, so a hostile manifest is its normal input.
+// TestVerifyBundleSurvivesAManifestClaimingMoreRowsThanCanExist covers the
+// core TACK-469 regression. The old verifier allocated its link slice from
+// the untrusted manifest row count before rejecting the bundle. A huge count
+// could trigger excessive allocation. VerifyBundle supports offline
+// inspection of foreign bundles and must handle hostile manifests.
 func TestVerifyBundleSurvivesAManifestClaimingMoreRowsThanCanExist(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 3)
@@ -59,26 +65,36 @@ func TestVerifyBundleSurvivesAManifestClaimingMoreRowsThanCanExist(t *testing.T)
 	if err != nil {
 		t.Fatalf("VerifyBundle must report on a lying manifest, not fail outright: %v", err)
 	}
+
 	if report.RowsScanned != 3 {
-		t.Fatalf("RowsScanned = %d, want 3: the file, not the manifest, decides what was scanned", report.RowsScanned)
+		t.Fatalf(
+			"RowsScanned = %d, want 3: the file, not the manifest, decides what was scanned",
+			report.RowsScanned,
+		)
 	}
+
 	if report.ManifestRowCount != math.MaxInt64 {
-		t.Fatalf("ManifestRowCount = %d, want the claimed %d carried into the report", report.ManifestRowCount, math.MaxInt64)
+		t.Fatalf(
+			"ManifestRowCount = %d, want the claimed %d carried into the report",
+			report.ManifestRowCount,
+			math.MaxInt64,
+		)
 	}
+
 	verdict := report.Err()
 	if verdict == nil {
 		t.Fatal("a manifest claiming more rows than the file holds must fail verification")
 	}
+
 	if !strings.Contains(verdict.Error(), "declares 9223372036854775807 rows") {
 		t.Fatalf("verdict = %v, want it to name the claimed count", verdict)
 	}
 }
 
-// TestVerifyBundleRejectsAManifestWhoseCountDisagreesWithItsFile pins the
-// count check on its own. The manifest here is validly signed and its digest
-// matches, which is the shape a truncating exporter produces when it signs
-// whatever count it stopped at; only the row count is wrong, and that alone
-// has to fail the bundle.
+// TestVerifyBundleRejectsAManifestWhoseCountDisagreesWithItsFile isolates
+// the row-count check. The manifest has a valid signature and matching file
+// digest and row hashes. A truncating exporter could sign a count that does
+// not match its file. That mismatch alone must fail verification.
 func TestVerifyBundleRejectsAManifestWhoseCountDisagreesWithItsFile(t *testing.T) {
 	dir := t.TempDir()
 	rows := chainedExportTestRows(t, 3)
@@ -88,21 +104,31 @@ func TestVerifyBundleRejectsAManifestWhoseCountDisagreesWithItsFile(t *testing.T
 	if err != nil {
 		t.Fatalf("VerifyBundle: %v", err)
 	}
+
 	if !report.SignatureOK || !report.FileSHA256OK || report.HashMatches != report.RowsScanned {
-		t.Fatalf("signature=%v digest=%v hashes=%d/%d: every other check must pass so the count check is the one under test",
-			report.SignatureOK, report.FileSHA256OK, report.HashMatches, report.RowsScanned)
+		t.Fatalf(
+			"signature=%v digest=%v hashes=%d/%d: every other check must pass so the count check is the one under test",
+			report.SignatureOK,
+			report.FileSHA256OK,
+			report.HashMatches,
+			report.RowsScanned,
+		)
 	}
+
 	verdict := report.Err()
 	if verdict == nil {
-		t.Fatal("a signed manifest whose row count disagrees with its own file must fail verification")
+		t.Fatal(
+			"a signed manifest whose row count disagrees with its own file must fail verification",
+		)
 	}
+
 	if !strings.Contains(verdict.Error(), "declares 4 rows but the events file holds 3") {
 		t.Fatalf("verdict = %v, want the declared and actual counts named", verdict)
 	}
 }
 
-// rewriteManifestRowCount edits the row count in place, leaving the signature
-// as it was, which is what a tampered or corrupt manifest looks like.
+// rewriteManifestRowCount changes the count and preserves the original
+// signature to represent a tampered or corrupt manifest.
 func rewriteManifestRowCount(t *testing.T, dir string, rowCount int) {
 	t.Helper()
 	path := filepath.Join(dir, "manifest.json")
@@ -110,15 +136,18 @@ func rewriteManifestRowCount(t *testing.T, dir string, rowCount int) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var manifest ExportManifest
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		t.Fatal(err)
 	}
+
 	manifest.RowCount = rowCount
 	edited, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(path, edited, 0o600); err != nil {
 		t.Fatal(err)
 	}

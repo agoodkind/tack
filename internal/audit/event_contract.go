@@ -37,10 +37,14 @@ const (
 	PhaseRead Phase = "read"
 )
 
-// allowedPhases maps operation classes to phases: read to read, database
-// change to change or result, and external to intent or result.
-// ValidateEvent rejects format 2 events if the map does not contain the
-// class or does not list the phase for that class.
+// allowedPhases maps each operation class to its supported phases.
+// [ValidateEvent] rejects format 2 events with an absent class or phase.
+//
+// The supported class and phase combinations are:
+//
+//   - Read operations use the read phase.
+//   - Database changes use the change or result phase.
+//   - External operations use the intent or result phase.
 var allowedPhases = map[OperationClass][]Phase{
 	OperationRead:           {PhaseRead},
 	OperationDatabaseChange: {PhaseChange, PhaseResult},
@@ -48,9 +52,9 @@ var allowedPhases = map[OperationClass][]Phase{
 }
 
 const (
-	// AuditFormatLegacy is the format of every historical row and every event
-	// current writers produce. It is the zero value of
-	// EventContext.AuditFormatVersion.
+	// AuditFormatLegacy is the original event format and the zero value of
+	// [EventContext.AuditFormatVersion]. Historical format 0 rows retain this
+	// format; current writers can also produce [AuditFormatComplete] events.
 	AuditFormatLegacy uint16 = 0
 	// AuditFormatComplete is the event format that requires evidence for the
 	// event's operation class.
@@ -134,7 +138,11 @@ type Change struct {
 
 func isTerminalOutcome(outcome Outcome) bool {
 	switch outcome {
-	case OutcomeCompleted, OutcomeRefused, OutcomeFailed, OutcomePartiallyCompleted, OutcomeIncomplete:
+	case OutcomeCompleted,
+		OutcomeRefused,
+		OutcomeFailed,
+		OutcomePartiallyCompleted,
+		OutcomeIncomplete:
 		return true
 	case OutcomeOK, OutcomeError, OutcomePending, OutcomeUnrecorded:
 		return false

@@ -7,8 +7,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// stagedIntents returns no payloads: bb9792cd writes FoundationDB changes as
-// format 2 change events, not staged format 0 intents.
+// stagedIntents does not return payloads. Revision bb9792cd writes FoundationDB
+// changes as format 2 change events rather than staged format 0 intents.
 func stagedIntents(context.Context, uuid.UUID, uuid.UUID) ([]json.RawMessage, error) {
 	return nil, nil
 }

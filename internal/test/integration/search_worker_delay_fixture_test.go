@@ -76,11 +76,13 @@ func (proxy *pageDelayProxy) ServeHTTP(writer http.ResponseWriter, request *http
 		proxy.engine.ServeHTTP(writer, request)
 		return
 	}
+
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
 		http.Error(writer, "read bulk body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	request.ContentLength = int64(len(body))
 	var page delayedPageBody
@@ -89,22 +91,34 @@ func (proxy *pageDelayProxy) ServeHTTP(writer http.ResponseWriter, request *http
 		proxy.engine.ServeHTTP(writer, request)
 		return
 	}
+
 	now := time.Now()
 	index := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/"), "/_bulk")
 	proxy.mutex.Lock()
-	proxy.writes = append(proxy.writes, delayedPageWrite{
-		nodeID: page.NodeID, ordinal: page.PageOrdinal, revision: page.NodeRevision, generation: page.SearchGeneration, received: now, index: index,
-	})
-	hold := !proxy.delayed && page.NodeID == proxy.nodeID && page.PageOrdinal == proxy.ordinal && (proxy.index == "" || proxy.index == index)
+	proxy.writes = append(
+		proxy.writes,
+		delayedPageWrite{
+			nodeID:     page.NodeID,
+			ordinal:    page.PageOrdinal,
+			revision:   page.NodeRevision,
+			generation: page.SearchGeneration,
+			received:   now,
+			index:      index,
+		},
+	)
+	hold := !proxy.delayed && page.NodeID == proxy.nodeID && page.PageOrdinal == proxy.ordinal &&
+		(proxy.index == "" || proxy.index == index)
 	if hold {
 		proxy.delayed, proxy.heldFrom = true, now
 		close(proxy.started)
 	}
+
 	proxy.mutex.Unlock()
 	if hold && !proxy.wait(request.Context()) {
 		proxy.forwardAbandoned(request)
 		return
 	}
+
 	proxy.engine.ServeHTTP(writer, request)
 }
 
@@ -114,15 +128,18 @@ func (proxy *pageDelayProxy) wait(ctx context.Context) bool {
 	if proxy.delay > 0 {
 		timer = time.After(proxy.delay)
 	}
+
 	abandoned := false
 	select {
 	case <-ctx.Done():
 		abandoned = true
 	case <-timer:
 	}
+
 	proxy.mutex.Lock()
 	proxy.heldUntil, proxy.abandoned = time.Now(), abandoned
 	proxy.mutex.Unlock()
+
 	return !abandoned
 }
 
@@ -138,6 +155,7 @@ func (proxy *pageDelayProxy) target(nodeID uuid.UUID, ordinal uint64) {
 func (proxy *pageDelayProxy) held() (from, until time.Time, abandoned bool) {
 	proxy.mutex.Lock()
 	defer proxy.mutex.Unlock()
+
 	return proxy.heldFrom, proxy.heldUntil, proxy.abandoned
 }
 
@@ -148,7 +166,11 @@ func (proxy *pageDelayProxy) held() (from, until time.Time, abandoned bool) {
 // for the node and page ordinal selected by proxy.target. A positive delay
 // forwards the write after that interval. A zero delay keeps the write open
 // until the client abandons it.
-func newDelayedMigrationEnv(t *testing.T, pageBytes int, delay time.Duration) (*migrationEnv, *pageDelayProxy) {
+func newDelayedMigrationEnv(
+	t *testing.T,
+	pageBytes int,
+	delay time.Duration,
+) (*migrationEnv, *pageDelayProxy) {
 	t.Helper()
 	env := newMigrationEnv(t, pageBytes)
 	fixture := testenv.OpenSearchWithMemory(t, migrationEngineMemory)
@@ -156,36 +178,63 @@ func newDelayedMigrationEnv(t *testing.T, pageBytes int, delay time.Duration) (*
 	if err != nil {
 		t.Fatalf("parse engine endpoint: %v", err)
 	}
+
 	engineCA := x509.NewCertPool()
 	if !engineCA.AppendCertsFromPEM([]byte(fixture.CA)) {
 		t.Fatal("engine CA is invalid")
 	}
+
 	proxy := &pageDelayProxy{
 		engine: &httputil.ReverseProxy{
-			Rewrite:   func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12}},
+			Rewrite: func(outbound *httputil.ProxyRequest) { outbound.SetURL(target) },
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{RootCAs: engineCA, MinVersion: tls.VersionTLS12},
+			},
 		},
-		nodeID: "", ordinal: 0, index: "", delay: delay, started: make(chan struct{}),
-		mutex: sync.Mutex{}, delayed: false, heldFrom: time.Time{}, heldUntil: time.Time{}, abandoned: false, writes: nil,
-		forwardAfter: 0, forwardedAt: time.Time{}, forwardStatus: 0,
+		nodeID:        "",
+		ordinal:       0,
+		index:         "",
+		delay:         delay,
+		started:       make(chan struct{}),
+		mutex:         sync.Mutex{},
+		delayed:       false,
+		heldFrom:      time.Time{},
+		heldUntil:     time.Time{},
+		abandoned:     false,
+		writes:        nil,
+		forwardAfter:  0,
+		forwardedAt:   time.Time{},
+		forwardStatus: 0,
 	}
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		t.Fatalf("listen for the delay proxy: %v", err)
 	}
+
 	server := httptest.NewUnstartedServer(proxy)
 	server.Listener = listener
 	server.StartTLS()
 	t.Cleanup(server.Close)
-	proxyCA := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
-	pass := fixture.Password
-	adapter, err := search.New(t.Context(), search.Config{
-		Endpoint: server.URL, CA: string(proxyCA), Username: fixture.Username,
-		Password: pass, RequestTimeout: 2 * time.Minute, MaxRetries: 1,
+	proxyCA := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: server.Certificate().Raw,
 	})
+	pass := fixture.Password
+	adapter, err := search.New(
+		t.Context(),
+		search.Config{
+			Endpoint:       server.URL,
+			CA:             string(proxyCA),
+			Username:       fixture.Username,
+			Password:       pass,
+			RequestTimeout: 2 * time.Minute,
+			MaxRetries:     1,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create delayed adapter: %v", err)
 	}
+
 	t.Cleanup(func() {
 		if err := adapter.Close(context.WithoutCancel(t.Context())); err != nil {
 			t.Errorf("close delayed adapter: %v", err)
@@ -193,5 +242,6 @@ func newDelayedMigrationEnv(t *testing.T, pageBytes int, delay time.Duration) (*
 	})
 	env.Adapter = adapter
 	env.Worker = env.newWorker(t, env.Stores)
+
 	return env, proxy
 }

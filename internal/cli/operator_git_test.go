@@ -22,12 +22,15 @@ func TestGitConfigOperatorSourceReadsHomeConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+
 	if principal.Name != "Ada Lovelace" || principal.Email != "ada@example.com" {
 		t.Fatalf("principal = %+v", principal)
 	}
+
 	if principal.Source != "git" {
 		t.Fatalf("source = %q, want git", principal.Source)
 	}
+
 	if principal.ID.Version() != uuid.Version(5) {
 		t.Fatalf("id version = %v, want 5", principal.ID.Version())
 	}
@@ -58,6 +61,7 @@ func TestGitConfigOperatorSourceHonorsGlobalOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+
 	if principal.Name != "Global User" || principal.Email != "global@example.com" {
 		t.Fatalf("principal = %+v", principal)
 	}
@@ -74,35 +78,38 @@ func TestGitConfigOperatorSourceUsesStableID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Resolve: %v", err)
 	}
+
 	second, err := source.Resolve(context.Background())
 	if err != nil {
 		t.Fatalf("second Resolve: %v", err)
 	}
+
 	if first.ID != second.ID {
 		t.Fatalf("ids differ: %s and %s", first.ID, second.ID)
 	}
 }
 
-// TestGitConfigQuotedEmailYieldsSameID pins that quoting an email in the git
-// config does not change the operator's identity. The actor id is derived from
-// the email, so a stray pair of quotes would otherwise split one person into
-// two operators in the ledger.
+// TestGitConfigQuotedEmailYieldsSameID checks that quoted and unquoted emails
+// produce the same operator ID. The resolver derives the ID from the email;
+// including surrounding quotes would produce a different ledger identity.
 func TestGitConfigQuotedEmailYieldsSameID(t *testing.T) {
 	plain := resolveGitOperator(t, "[user]\n\tname = Alex\n\temail = alex@goodkind.io\n")
 	quoted := resolveGitOperator(t, "[user]\n\tname = \"Alex\"\n\temail = \"alex@goodkind.io\"\n")
 	if plain.ID != quoted.ID {
 		t.Fatalf("quoted email id = %s, plain = %s", quoted.ID, plain.ID)
 	}
+
 	if quoted.Email != "alex@goodkind.io" {
 		t.Fatalf("quoted email = %q, want unquoted", quoted.Email)
 	}
+
 	if quoted.Name != "Alex" {
 		t.Fatalf("quoted name = %q, want unquoted", quoted.Name)
 	}
 }
 
-// TestGitConfigTrailingCommentIsStripped pins that a comment after a value is
-// not folded into the identity.
+// TestGitConfigTrailingCommentIsStripped checks that the resolver excludes a
+// trailing comment from the operator email.
 func TestGitConfigTrailingCommentIsStripped(t *testing.T) {
 	principal := resolveGitOperator(t, "[user]\n\temail = alex@goodkind.io ; work\n")
 	if principal.Email != "alex@goodkind.io" {
@@ -116,6 +123,7 @@ func writeGitConfig(t *testing.T, path, name, email string) {
 	if email != "" {
 		content += "\temail = " + email + "\n"
 	}
+
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write gitconfig: %v", err)
 	}
@@ -128,10 +136,12 @@ func resolveGitOperator(t *testing.T, contents string) audit.OperatorPrincipal {
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write gitconfig: %v", err)
 	}
+
 	t.Setenv("GIT_CONFIG_GLOBAL", path)
 	principal, err := GitConfigOperatorSource{}.Resolve(t.Context())
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
+
 	return principal
 }

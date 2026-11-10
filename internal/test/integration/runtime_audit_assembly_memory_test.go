@@ -54,29 +54,73 @@ const (
 func TestRuntimeAuditAssemblyMemoryIsBounded(t *testing.T) {
 	pipeline := newPartsPipeline(t)
 	pipeline.startConsumer(t)
-	producer, err := kgo.NewClient(kgo.SeedBrokers(pipeline.brokers), kgo.DefaultProduceTopic(pipeline.topic))
+	producer, err := kgo.NewClient(
+		kgo.SeedBrokers(pipeline.brokers),
+		kgo.DefaultProduceTopic(pipeline.topic),
+	)
 	if err != nil {
 		t.Fatalf("Opening the test producer failed: %v", err)
 	}
+
 	t.Cleanup(producer.Close)
 
-	small, smallParts := assemblyPeakHeap(t, pipeline, producer, func() assemblyEvent { return readAssemblyEvent(t, assemblySmallTargets) })
-	large, largeParts := assemblyPeakHeap(t, pipeline, producer, func() assemblyEvent {
-		return readAssemblyEvent(t, assemblySmallTargets*assemblyReadGrowth)
-	})
+	small, smallParts := assemblyPeakHeap(
+		t,
+		pipeline,
+		producer,
+		func() assemblyEvent { return readAssemblyEvent(t, assemblySmallTargets) },
+	)
+	large, largeParts := assemblyPeakHeap(
+		t,
+		pipeline,
+		producer,
+		func() assemblyEvent {
+			return readAssemblyEvent(t, assemblySmallTargets*assemblyReadGrowth)
+		},
+	)
 	partBytes := int64(largeParts-smallParts) * audit.EventPartMaxBytes
-	t.Logf("Read event peak heap growth: %d bytes for %d parts, %d bytes for %d parts", small, smallParts, large, largeParts)
+	t.Logf(
+		"Read event peak heap growth: %d bytes for %d parts, %d bytes for %d parts",
+		small,
+		smallParts,
+		large,
+		largeParts,
+	)
 	if int64(large)-int64(small) >= partBytes {
-		t.Fatalf("The read event peak heap growth increased from %d bytes for %d parts to %d bytes for %d parts, at least the %d payload bytes of the additional parts; the consumer must not hold the read targets of every part",
-			small, smallParts, large, largeParts, partBytes)
+		t.Fatalf(
+			"The read event peak heap growth increased from %d bytes for %d parts to %d bytes for %d parts, at least the %d payload bytes of the additional parts; the consumer must not hold the read targets of every part",
+			small,
+			smallParts,
+			large,
+			largeParts,
+			partBytes,
+		)
 	}
 
-	for _, deltaBytes := range []int{assemblySmallDeltaBytes, assemblySmallDeltaBytes * assemblyDeltaGrowth} {
-		growth, parts := assemblyPeakHeap(t, pipeline, producer, func() assemblyEvent { return changeAssemblyEvent(t, deltaBytes) })
+	for _, deltaBytes := range []int{
+		assemblySmallDeltaBytes,
+		assemblySmallDeltaBytes * assemblyDeltaGrowth,
+	} {
+		growth, parts := assemblyPeakHeap(
+			t,
+			pipeline,
+			producer,
+			func() assemblyEvent { return changeAssemblyEvent(t, deltaBytes) },
+		)
 		limit := small + uint64(assemblyDeltaHeapFactor*2*deltaBytes)
-		t.Logf("Change event peak heap growth: %d bytes for %d parts and %d delta bytes", growth, parts, 2*deltaBytes)
+		t.Logf(
+			"Change event peak heap growth: %d bytes for %d parts and %d delta bytes",
+			growth,
+			parts,
+			2*deltaBytes,
+		)
 		if growth > limit {
-			t.Fatalf("The change event peak heap growth of %d bytes for %d delta bytes exceeds %d bytes", growth, 2*deltaBytes, limit)
+			t.Fatalf(
+				"The change event peak heap growth of %d bytes for %d delta bytes exceeds %d bytes",
+				growth,
+				2*deltaBytes,
+				limit,
+			)
 		}
 	}
 }
@@ -94,19 +138,30 @@ type assemblyEvent struct {
 // It then collects the heap, produces the manifest record, and samples the heap
 // until the ledger row exists. It returns the smallest peak heap growth of the
 // runs and the part count.
-func assemblyPeakHeap(t *testing.T, pipeline partsPipeline, producer *kgo.Client, build func() assemblyEvent) (uint64, int) {
+func assemblyPeakHeap(
+	t *testing.T,
+	pipeline partsPipeline,
+	producer *kgo.Client,
+	build func() assemblyEvent,
+) (uint64, int) {
 	t.Helper()
 	var smallest uint64
 	parts := 0
+
 	for run := range assemblyHeapRuns {
 		event := build()
 		parts = len(event.parts)
 		if err := producer.ProduceSync(t.Context(), event.parts...).FirstErr(); err != nil {
 			t.Fatalf("Producing the parts of event %s failed: %v", event.eventID, err)
 		}
-		waitFor(t, "storage of every part", func() bool {
-			return pipeline.count(t, assemblyPartRowsQuery, event.eventID) == int64(parts)
-		})
+
+		waitFor(
+			t,
+			"storage of every part",
+			func() bool {
+				return pipeline.count(t, assemblyPartRowsQuery, event.eventID) == int64(parts)
+			},
+		)
 		previous := debug.SetGCPercent(assemblyGCPercent)
 		runtime.GC()
 		var stats runtime.MemStats
@@ -116,6 +171,7 @@ func assemblyPeakHeap(t *testing.T, pipeline partsPipeline, producer *kgo.Client
 		if err := producer.ProduceSync(t.Context(), event.manifest).FirstErr(); err != nil {
 			t.Fatalf("Producing the manifest of event %s failed: %v", event.eventID, err)
 		}
+
 		pipeline.stack().waitForRow(t, event.eventID)
 		growth := peak() - baseline
 		debug.SetGCPercent(previous)
@@ -123,6 +179,7 @@ func assemblyPeakHeap(t *testing.T, pipeline partsPipeline, producer *kgo.Client
 			smallest = growth
 		}
 	}
+
 	return smallest, parts
 }
 
@@ -130,12 +187,21 @@ func assemblyPeakHeap(t *testing.T, pipeline partsPipeline, producer *kgo.Client
 // targets.
 func readAssemblyEvent(t *testing.T, targetCount int) assemblyEvent {
 	t.Helper()
+
 	targets := make([]audit.Target, 0, targetCount)
 	for range targetCount {
 		targets = append(targets, readNodeTarget())
 	}
+
 	fixture := newReadFixture(t)
-	completion := completeRead(t, fixture.completion.Token, fixture.admission.Template, targets, "runtime audit assembly payload")
+	completion := completeRead(
+		t,
+		fixture.completion.Token,
+		fixture.admission.Template,
+		targets,
+		"runtime audit assembly payload",
+	)
+
 	return encodeAssemblyEvent(t, completion.Event, targets)
 }
 
@@ -144,11 +210,25 @@ func readAssemblyEvent(t *testing.T, targetCount int) assemblyEvent {
 func changeAssemblyEvent(t *testing.T, deltaBytes int) assemblyEvent {
 	t.Helper()
 	node := readNodeTarget()
-	event := completeEvent(uuid.Must(uuid.NewV7()), userActor(), node, audit.OperationDatabaseChange, audit.PhaseChange, audit.OutcomeCompleted)
+	event := completeEvent(
+		uuid.Must(uuid.NewV7()),
+		userActor(),
+		node,
+		audit.OperationDatabaseChange,
+		audit.PhaseChange,
+		audit.OutcomeCompleted,
+	)
 	value := func(text string) json.RawMessage {
-		return json.RawMessage(`{"description":` + strconv.Quote(strings.Repeat(text, deltaBytes/len(text))) + `}`)
+		return json.RawMessage(
+			`{"description":` + strconv.Quote(strings.Repeat(text, deltaBytes/len(text))) + `}`,
+		)
 	}
-	event.Delta = &audit.Delta{Before: value("old value "), After: value("new value "), Changed: []string{"/description"}}
+	event.Delta = &audit.Delta{
+		Before:  value("old value "),
+		After:   value("new value "),
+		Changed: []string{"/description"},
+	}
+
 	return encodeAssemblyEvent(t, event, nil)
 }
 
@@ -160,15 +240,22 @@ func encodeAssemblyEvent(t *testing.T, event audit.Event, targets []audit.Target
 	if err != nil {
 		t.Fatalf("Encoding event %s failed: %v", event.EventID, err)
 	}
+
 	messages, err := encoded.Messages()
 	if err != nil {
 		t.Fatalf("Encoding the messages of event %s failed: %v", event.EventID, err)
 	}
+
 	records := make([]*kgo.Record, 0, len(messages))
 	for _, message := range messages {
 		records = append(records, &kgo.Record{Key: messageKey(t, message), Value: message})
 	}
-	return assemblyEvent{eventID: event.EventID, parts: records[:len(records)-1], manifest: records[len(records)-1]}
+
+	return assemblyEvent{
+		eventID:  event.EventID,
+		parts:    records[:len(records)-1],
+		manifest: records[len(records)-1],
+	}
 }
 
 // sampleHeap starts a goroutine that records the highest HeapAlloc value. The
@@ -182,6 +269,7 @@ func sampleHeap(baseline uint64) func() uint64 {
 		var stats runtime.MemStats
 		ticker := time.NewTicker(assemblyHeapSampleInterval)
 		defer ticker.Stop()
+
 		for {
 			runtime.ReadMemStats(&stats)
 			highest = max(highest, stats.HeapAlloc)
@@ -192,9 +280,11 @@ func sampleHeap(baseline uint64) func() uint64 {
 			}
 		}
 	})
+
 	return func() uint64 {
 		close(stop)
 		group.Wait()
+
 		return highest
 	}
 }

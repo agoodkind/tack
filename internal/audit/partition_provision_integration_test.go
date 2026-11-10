@@ -19,19 +19,21 @@ import (
 	"goodkind.io/tack/migrations"
 )
 
-// One maintenance pass leaves two or three future weeks. Measured on
-// 2026-10-05 00:17 UTC, a Monday: two. Measured on 2026-10-02, a Friday:
-// three.
+// One maintenance pass leaves two or three future weeks. Historical
+// measurements recorded these results:
+//
+//   - The Monday measurement on 2026-10-05 at 00:17 UTC recorded two weeks.
+//   - The Friday measurement on 2026-10-02 recorded three weeks.
 const maxHeadroomWeeks = partitionHeadroomAlertFloor + 1
 
 var partmanChildName = regexp.MustCompile(`^events_p[0-9]{4}_[0-9]{2}_[0-9]{2}$`)
 
 // TestFreshProvisionMaintainsWeeklyPartitions applies every migration to an
-// empty ledger through postgres.Migrate, the call ops provision makes, and
-// runs one partition-manager pass as an audit_writer login, the role the
-// audit consumer uses. The pass must succeed, leave every week through the
-// last premade one partitioned under pg_partman names, and report the
-// headroom pg_partman produces, with no manual SQL.
+// empty ledger using migration.Migrate, the function ops provision calls. It
+// runs one partition-manager pass as an audit_writer login, matching the audit
+// consumer's role. The pass must succeed and create every week through the
+// last premade week under pg_partman names. The test checks pg_partman's
+// headroom without manual SQL.
 func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 	fixture := newPartmanTestDatabase(t)
 	ctx := context.Background()
@@ -43,7 +45,12 @@ func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 		t.Fatalf("reopen fixture pool: %v", err)
 	}
 	var version int64
-	if err := fixture.pool.QueryRow(ctx, `SELECT max(version_id) FROM goose_db_version WHERE is_applied`).Scan(&version); err != nil {
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT max(version_id) FROM goose_db_version WHERE is_applied`,
+	).Scan(
+		&version,
+	); err != nil {
 		t.Fatalf("read applied migration version: %v", err)
 	}
 	if latest := latestMigrationVersion(t); version != latest {
@@ -57,14 +64,21 @@ func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 	okBefore := maintenanceOutcomes(t, "ok")
 	errorsBefore := maintenanceOutcomes(t, "error")
 	logs := &lockedBuffer{mu: sync.Mutex{}, buf: bytes.Buffer{}}
-	handler := slog.NewJSONHandler(logs, &slog.HandlerOptions{AddSource: false, Level: slog.LevelDebug, ReplaceAttr: nil})
+	handler := slog.NewJSONHandler(
+		logs,
+		&slog.HandlerOptions{AddSource: false, Level: slog.LevelDebug, ReplaceAttr: nil},
+	)
 	NewPartitionManager(store, time.Hour).runOnce(telemetry.WithLogger(ctx, slog.New(handler)))
 
 	children := eventsChildNames(t, fixture.pool)
 	output := logs.String()
-	if maintenanceOutcomes(t, "ok") != okBefore+1 || maintenanceOutcomes(t, "error") != errorsBefore ||
+	if maintenanceOutcomes(t, "ok") != okBefore+1 ||
+		maintenanceOutcomes(t, "error") != errorsBefore ||
 		!strings.Contains(output, `"msg":"audit.partition.maintained"`) {
-		t.Fatalf("partition-manager pass did not complete maintenance without error; logs:\n%s", output)
+		t.Fatalf(
+			"partition-manager pass did not complete maintenance without error; logs:\n%s",
+			output,
+		)
 	}
 	now := time.Now().UTC()
 	headroom, err := store.HeadroomWeeks(ctx, now)
@@ -72,10 +86,18 @@ func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 		t.Fatalf("read headroom: %v", err)
 	}
 	if gauge := headroomGauge(t); gauge != int64(headroom) {
-		t.Fatalf("headroom gauge after the pass = %d, want the HeadroomWeeks value %d", gauge, headroom)
+		t.Fatalf(
+			"headroom gauge after the pass = %d, want the HeadroomWeeks value %d",
+			gauge,
+			headroom,
+		)
 	}
 	if headroom < partitionHeadroomAlertFloor {
-		t.Fatalf("HeadroomWeeks = %d, below the alert floor %d", headroom, partitionHeadroomAlertFloor)
+		t.Fatalf(
+			"HeadroomWeeks = %d, below the alert floor %d",
+			headroom,
+			partitionHeadroomAlertFloor,
+		)
 	}
 	if headroom > maxHeadroomWeeks {
 		t.Fatalf("HeadroomWeeks = %d, want at most %d", headroom, maxHeadroomWeeks)
@@ -83,7 +105,12 @@ func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 	for week := 0; week <= headroom; week++ {
 		target := now.AddDate(0, 0, 7*week)
 		if covering := partitionCountCovering(t, fixture.pool, target); covering != 1 {
-			t.Fatalf("partitions covering %s (week +%d) = %d, want 1", target.Format(time.DateOnly), week, covering)
+			t.Fatalf(
+				"partitions covering %s (week +%d) = %d, want 1",
+				target.Format(time.DateOnly),
+				week,
+				covering,
+			)
 		}
 	}
 	for _, name := range children {
@@ -95,7 +122,9 @@ func TestFreshProvisionMaintainsWeeklyPartitions(t *testing.T) {
 
 func eventsChildNames(t *testing.T, pool *pgxpool.Pool) []string {
 	t.Helper()
-	rows, err := pool.Query(context.Background(), `
+	rows, err := pool.Query(
+		context.Background(),
+		`
 		SELECT c.relname, pg_get_expr(c.relpartbound, c.oid)
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
@@ -103,7 +132,8 @@ func eventsChildNames(t *testing.T, pool *pgxpool.Pool) []string {
 		JOIN pg_namespace n ON n.oid = p.relnamespace
 		WHERE n.nspname = 'audit' AND p.relname = 'events'
 		ORDER BY c.relname
-	`)
+	`,
+	)
 	if err != nil {
 		t.Fatalf("list audit.events children: %v", err)
 	}

@@ -1,17 +1,17 @@
-# Builds the audit-consumer image: the single writer of audit.events. It tails
-# Kafka, writes YugabyteDB, and drains the operator-command outboxes, one of
-# which lives in FoundationDB. The
-# FoundationDB Go bindings are a CGO wrapper over the C client, so this image
-# installs that client and builds with CGO enabled, the same way the server
-# image does.
+# Build the audit-consumer image for the single writer
+# of audit.events. The consumer reads Kafka, writes
+# YugabyteDB, and processes operator-command outboxes,
+# including one in FoundationDB. The FoundationDB Go
+# bindings use CGO to call the C client. This image
+# installs that client and enables CGO, as the server image does.
 
 ARG FDB_VERSION=7.4.6
 
-# ── builder ───────────────────────────────────────────────────────────────────
+# Build the audit-consumer binary.
 FROM golang:1.27.3-bookworm AS builder
 ARG FDB_VERSION
 
-# The FDB C client is required by the CGO bindings at link time.
+# The CGO bindings require the FoundationDB C client library at link time.
 RUN set -eux \
     && case "$(dpkg --print-architecture)" in \
          amd64) fdb_arch=amd64 ;; \
@@ -44,7 +44,7 @@ RUN CGO_ENABLED=1 go build -tags fdb -trimpath \
         -X goodkind.io/gklog/version.BuildTime=${BUILD_TIME}" \
     -o /bin/audit-consumer ./cmd/audit-consumer
 
-# ── runtime ───────────────────────────────────────────────────────────────────
+# Assemble the runtime image.
 FROM debian:bookworm-slim AS runtime
 ARG FDB_VERSION
 

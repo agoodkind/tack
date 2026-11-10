@@ -25,8 +25,9 @@ type SearchLoadSummary struct {
 	Elapsed         time.Duration
 	Latency         SearchLoadLatency
 	PointInTime     SearchLoadPointInTime
-	// Stopped is true when the schedule context ended before the schedule started or dropped
-	// every planned request.
+	// Stopped is true when the schedule context ends before the loop attempts
+	// every planned request. A request attempt either starts a call or counts as
+	// dropped when all concurrency slots are busy.
 	Stopped bool `exhaustruct:"optional"`
 }
 
@@ -40,6 +41,15 @@ type searchLoad struct {
 }
 
 // RunSearchLoad sends first-page tack_search requests only when Commit is true.
+//
+// The schedule context controls request start times. Calls use callContext,
+// and the function waits for active calls before returning the summary.
+//
+// Commit selects the operation:
+//
+//   - A false Commit returns planned counts without opening drivers or stores.
+//   - A true Commit validates the target, opens drivers, prepares queries, and
+//     samples open point-in-time contexts during the request schedule.
 func RunSearchLoad(
 	scheduleContext context.Context,
 	callContext context.Context,
@@ -55,7 +65,11 @@ func RunSearchLoad(
 		return stats.summary(true, planned, 0, 0, 0, 0), nil
 	}
 	if planned < 1 {
-		return SearchLoadSummary{}, fmt.Errorf("qa datagen search-load: rate and duration must schedule at least one request: rate %d, duration %s", options.Rate, options.Duration)
+		return SearchLoadSummary{}, fmt.Errorf(
+			"qa datagen search-load: rate and duration must schedule at least one request: rate %d, duration %s",
+			options.Rate,
+			options.Duration,
+		)
 	}
 	if err := ValidateTarget(cfg); err != nil {
 		return SearchLoadSummary{}, err
@@ -77,15 +91,28 @@ func RunSearchLoad(
 	pointsInTime.start(callContext)
 	summary := load.run(scheduleContext, callContext, planned)
 	summary.PointInTime = pointsInTime.finish(callContext)
-	slog.InfoContext(callContext, "qa.datagen.search_load_finished", slog.Int("rate", options.Rate),
-		slog.Int("endpoints", len(options.Endpoints)), slog.Int("sent", summary.Sent),
-		slog.Int("completed", summary.Completed), slog.Int("dropped", summary.Dropped),
-		slog.Int("unavailable", summary.Unavailable), slog.Int("point_in_time_peak", summary.PointInTime.Peak),
-		slog.Duration("elapsed", summary.Elapsed))
+	slog.InfoContext(
+		callContext,
+		"qa.datagen.search_load_finished",
+		slog.Int("rate", options.Rate),
+		slog.Int("endpoints", len(options.Endpoints)),
+		slog.Int("sent", summary.Sent),
+		slog.Int("completed", summary.Completed),
+		slog.Int("dropped", summary.Dropped),
+		slog.Int("unavailable", summary.Unavailable),
+		slog.Int("point_in_time_peak", summary.PointInTime.Peak),
+		slog.Duration("elapsed", summary.Elapsed),
+	)
 	return summary, nil
 }
 
-func newSearchLoad(ctx context.Context, cfg *config.Config, options SearchLoadOptions, drivers []*Driver, planned int) (*searchLoad, error) {
+func newSearchLoad(
+	ctx context.Context,
+	cfg *config.Config,
+	options SearchLoadOptions,
+	drivers []*Driver,
+	planned int,
+) (*searchLoad, error) {
 	scale, err := ParseScale(searchVerificationScale)
 	if err != nil {
 		return nil, err
@@ -100,8 +127,12 @@ func newSearchLoad(ctx context.Context, cfg *config.Config, options SearchLoadOp
 		return nil, err
 	}
 	return &searchLoad{
-		drivers: drivers, token: workspace.Actors[0].Token, entry: workspace.Slug,
-		options: options, queries: queries, stats: &searchLoadStats{},
+		drivers: drivers,
+		token:   workspace.Actors[0].Token,
+		entry:   workspace.Slug,
+		options: options,
+		queries: queries,
+		stats:   &searchLoadStats{},
 	}, nil
 }
 
@@ -133,7 +164,11 @@ func (l *searchLoad) run(scheduleContext, callContext context.Context, planned i
 			defer func() { <-slots }()
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					slog.ErrorContext(callContext, "qa.datagen.search_load_request_panicked", slog.String("err", fmt.Sprint(recovered)))
+					slog.ErrorContext(
+						callContext,
+						"qa.datagen.search_load_request_panicked",
+						slog.String("err", fmt.Sprint(recovered)),
+					)
 					l.stats.record(0, errSearchLoadPanic)
 				}
 			}()

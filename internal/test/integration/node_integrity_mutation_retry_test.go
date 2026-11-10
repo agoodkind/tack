@@ -41,8 +41,10 @@ func TestNodeIntegrityMutationRetryRecordsOneEvent(t *testing.T) {
 	if err != nil || project == nil {
 		t.Fatalf("get project %s: %v, %v", projectID, project, err)
 	}
+
 	projectView := storedStoreView(t, env.Stores, projectID)
 	rewrites := 0
+
 	createdIDs := make([]uuid.UUID, 0, retryCreateCount)
 	for position := range retryCreateCount {
 		input := schemaCreateInput(projectID, projectID, "issue", nil)
@@ -53,28 +55,42 @@ func TestNodeIntegrityMutationRetryRecordsOneEvent(t *testing.T) {
 		creator.Go(func() {
 			created, createErr = env.NodeSvc.Create(auditSlot(env, input.ActorID), input)
 		})
+
 		for range retryRewritesPerCreate {
 			if err := env.Stores.Nodes.Set(env.Ctx, project, projectView); err != nil {
 				creator.Wait()
 				t.Fatalf("rewrite project %s: %v", projectID, err)
 			}
+
 			rewrites++
 			time.Sleep(retryRewritePause)
 		}
+
 		creator.Wait()
 		if createErr != nil {
 			t.Fatalf("create issue %d during project rewrites: %v", position, createErr)
 		}
+
 		createdIDs = append(createdIDs, created.View.ID)
 	}
+
 	for _, createdID := range createdIDs {
 		var event audit.Event
-		if err := json.Unmarshal(outboxEvent(t, env.Stores, createdID, audit.VerbNodeCreate), &event); err != nil {
+		if err := json.Unmarshal(
+			outboxEvent(t, env.Stores, createdID, audit.VerbNodeCreate),
+			&event,
+		); err != nil {
 			t.Fatalf("decode the node.create event of %s: %v", createdID, err)
 		}
+
 		if event.Entity.ID != createdID || outboxEventCount(t, env, createdID) != 1 {
-			t.Fatalf("outbox events of issue %s = %+v, want exactly one node.create event", createdID, event)
+			t.Fatalf(
+				"outbox events of issue %s = %+v, want exactly one node.create event",
+				createdID,
+				event,
+			)
 		}
 	}
+
 	t.Logf("the test committed %d project rewrites during %d creates", rewrites, retryCreateCount)
 }

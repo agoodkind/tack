@@ -1,6 +1,6 @@
-// buffered_shutdown.go delivers the buffered recorder's remaining events when
-// Close stops the flusher. It retries the retained events until a shutdown
-// deadline and counts each event it could not deliver by then (TACK-583).
+// Close stops the flusher and attempts delivery of the remaining events.
+// Shutdown retries retained events until the deadline and counts events it
+// cannot deliver by then (TACK-583).
 
 package audit
 
@@ -49,12 +49,13 @@ func (b *BufferedRecorder) Close() error {
 	case interface{ Close() }:
 		recorder.Close()
 	}
+
 	return nil
 }
 
-// drain takes everything queued at stop time and delivers it with the
-// retained events. Close locks the stop lock while it signals. Record cannot
-// add an event to the queue after Close releases that lock.
+// drain collects the events queued at stop time and delivers them with the
+// retained events. Close signals while locking stopping. Record cannot add an
+// event to the queue after Close releases that lock.
 func (b *BufferedRecorder) drain(ctx context.Context, batch []Event) {
 	for {
 		select {
@@ -64,6 +65,7 @@ func (b *BufferedRecorder) drain(ctx context.Context, batch []Event) {
 		default:
 			b.retained = append(b.retained, batch...)
 			b.deliverBeforeDeadline(ctx)
+
 			return
 		}
 	}
@@ -75,18 +77,21 @@ func (b *BufferedRecorder) drain(ctx context.Context, batch []Event) {
 func (b *BufferedRecorder) deliverBeforeDeadline(ctx context.Context) {
 	deadlineCtx, cancel := context.WithTimeout(ctx, closeDeliveryTimeout)
 	defer cancel()
+
 	for len(b.retained) > 0 {
 		failed, err := b.deliverAll(deadlineCtx, b.retained)
 		b.settle(ctx, failed, err)
 		if len(b.retained) == 0 {
 			return
 		}
+
 		wait := time.NewTimer(retryBackoff(b.attempts))
 		select {
 		case <-wait.C:
 		case <-deadlineCtx.Done():
 			wait.Stop()
 			b.abandon(ctx, err)
+
 			return
 		}
 	}
@@ -98,10 +103,14 @@ func (b *BufferedRecorder) abandon(ctx context.Context, err error) {
 	for _, ev := range b.retained {
 		telemetry.IncAuditDropped(ev.Verb, "buffer_flush")
 	}
-	slog.ErrorContext(ctx, "audit.buffer.flush_lost",
+
+	slog.ErrorContext(
+		ctx,
+		"audit.buffer.flush_lost",
 		slog.Int("lost", len(b.retained)),
 		slog.Int("failed_attempts", b.attempts),
-		slog.String("err", err.Error()))
+		slog.String("err", err.Error()),
+	)
 	b.retained = nil
 	b.room.setRetained(0)
 }

@@ -14,7 +14,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// sequenceTargetPrefix starts the URI of every sequence counter audit target.
+// sequenceTargetPrefix starts the URI of every sequence counter audit
+// target.
 const sequenceTargetPrefix = "tack:sequence/"
 
 // sequenceRecord is the recorded old or new state of one sequence counter.
@@ -29,7 +30,10 @@ type sequenceChange func(current int64) (int64, bool, error)
 // scopeSequenceTarget returns the audit target of the counter that numbers
 // nodes of nodeType under scopeNodeID in orgID.
 func scopeSequenceTarget(orgID, scopeNodeID uuid.UUID, nodeType string) audit.Target {
-	return sequenceTarget(sequenceTargetPrefix+orgID.String()+"/"+scopeNodeID.String()+"/"+nodeType, nodeType)
+	return sequenceTarget(
+		sequenceTargetPrefix+orgID.String()+"/"+scopeNodeID.String()+"/"+nodeType,
+		nodeType,
+	)
 }
 
 // keySequenceTarget returns the audit target of the counter stored under
@@ -42,37 +46,58 @@ func keySequenceTarget(orgID uuid.UUID, counterKey string) audit.Target {
 // the name-based UUID of uri.
 func sequenceTarget(uri, name string) audit.Target {
 	return audit.Target{
-		Kind: audit.TargetKindResource, NodeType: audit.TargetSequenceCounter, Reference: "", Name: name,
-		URI: uri, RelationType: "", ID: uuid.NewSHA1(uuid.NameSpaceURL, []byte(uri)),
-		SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         audit.TargetKindResource,
+		NodeType:     audit.TargetSequenceCounter,
+		Reference:    "",
+		Name:         name,
+		URI:          uri,
+		RelationType: "",
+		ID:           uuid.NewSHA1(uuid.NameSpaceURL, []byte(uri)),
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
 // writeAuditedSequence reads the counter at key in tr and applies change.
-// When change reports a new value, it writes the value and records one change
-// event with the old and new values in tr. It returns the stored value and
-// whether the counter changed.
+// When change reports a new value, it writes the value and records one
+// change event with the old and new values in tr. It returns the stored
+// value and whether the counter changed.
 func writeAuditedSequence(
-	ctx context.Context, tr fdb.Transaction, changes *mutationAudit, key fdb.Key, target audit.Target, change sequenceChange,
+	ctx context.Context,
+	tr fdb.Transaction,
+	changes *mutationAudit,
+	key fdb.Key,
+	target audit.Target,
+	change sequenceChange,
 ) (int64, bool, error) {
 	changes.startAttempt()
 	raw, err := tr.Get(key).Get()
 	if err != nil {
 		wrapped := fmt.Errorf("read sequence %s: %w", target.URI, err)
-		telemetry.L(ctx).ErrorContext(ctx, "node.sequence.read_failed", slog.String("uri", target.URI), slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"node.sequence.read_failed",
+			slog.String("uri", target.URI),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, false, loggedSearchError{err: wrapped}
 	}
+
 	current, err := readEncodedSequence(raw)
 	if err != nil {
 		return 0, false, err
 	}
+
 	next, changed, err := change(current)
 	if err != nil || !changed {
 		return current, false, err
 	}
+
 	if err := writeSequence(tr, key, next); err != nil {
 		return 0, false, err
 	}
+
 	var before []byte
 	if raw != nil {
 		before, err = json.Marshal(sequenceRecord{Value: current})
@@ -80,13 +105,16 @@ func writeAuditedSequence(
 			return 0, false, nodeOperationFailure(ctx, "encode the old value of "+target.URI, err)
 		}
 	}
+
 	after, err := json.Marshal(sequenceRecord{Value: next})
 	if err != nil {
 		return 0, false, nodeOperationFailure(ctx, "encode the new value of "+target.URI, err)
 	}
+
 	if err := recordMetadataChange(ctx, tr, changes, target, before, after); err != nil {
 		return 0, false, err
 	}
+
 	return next, true, nil
 }
 
@@ -95,6 +123,7 @@ func incrementSequence(current int64) (int64, bool, error) {
 	if current == math.MaxInt64 {
 		return 0, false, fmt.Errorf("sequence value %d overflows after increment 1", current)
 	}
+
 	return current + 1, true, nil
 }
 
@@ -105,6 +134,7 @@ func raiseSequence(value int64) sequenceChange {
 		if current >= value {
 			return current, false, nil
 		}
+
 		return value, true, nil
 	}
 }

@@ -32,29 +32,60 @@ func TestSearchProjectionRepairClearsWarning(t *testing.T) {
 	name := opaqueSearchKey("p")
 	affected := putUndeclaredNode(t, fixture, kind, entry, name, "quartz lantern harbor")
 	drainSearchWork(t, fixture.Worker, 2000)
-	if results := callEverySearchPage(t, "undeclared node", fixture.Harness); !slices.Contains(results.IDs, affected) {
+	if results := callEverySearchPage(t, "undeclared node", fixture.Harness); !slices.Contains(
+		results.IDs,
+		affected,
+	) {
 		t.Fatalf("search for the node name returned %v, want node %s", results.IDs, affected)
 	}
+
 	report := runSearchVerifyWarnings(t, fixture.Config)
-	if slices.ContainsFunc(report.Exclusions, func(exclusion verifyNode) bool { return exclusion.NodeID == affected.String() }) {
+	if slices.ContainsFunc(
+		report.Exclusions,
+		func(exclusion verifyNode) bool { return exclusion.NodeID == affected.String() },
+	) {
 		t.Fatalf("ops search verify excludes node %s for an undeclared property", affected)
 	}
+
 	warning, warned := report.warning(affected, name)
-	if !warned || warning.Reason != string(node.DiagnosticUndeclared) || warning.PropertyDefID != "" || warning.Revision == "" {
-		t.Fatalf("ops search verify warning of node %s = %+v, listed %t, want an undeclared property warning", affected, warning, warned)
+	if !warned || warning.Reason != string(node.DiagnosticUndeclared) ||
+		warning.PropertyDefID != "" ||
+		warning.Revision == "" {
+		t.Fatalf(
+			"ops search verify warning of node %s = %+v, listed %t, want an undeclared property warning",
+			affected,
+			warning,
+			warned,
+		)
 	}
 
 	definition := &node.PropertyDef{
-		ID: uuid.Must(uuid.NewV7()), OrgID: workspace.OrgID, Name: name, Type: node.PropertyType(opaqueSearchKey("t")),
-		Search: &node.SearchProjection{Include: true, Order: 2, Rule: node.TextRule{Mode: node.TextRuleScalar}},
+		ID:    uuid.Must(uuid.NewV7()),
+		OrgID: workspace.OrgID,
+		Name:  name,
+		Type:  node.PropertyType(opaqueSearchKey("t")),
+		Search: &node.SearchProjection{
+			Include: true,
+			Order:   2,
+			Rule:    node.TextRule{Mode: node.TextRuleScalar},
+		},
 	}
-	if err := fixture.Stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
+	if err := fixture.Stores.PropertyDefs.Set(
+		WithTestOperation(t, t.Context()),
+		definition,
+	); err != nil {
 		t.Fatalf("declare property %s: %v", name, err)
 	}
+
 	drainSearchWork(t, fixture.Worker, 2000)
-	if results := callEverySearchPage(t, "quartz lantern harbor", fixture.Harness); !slices.Contains(results.IDs, affected) {
+	if results := callEverySearchPage(
+		t,
+		"quartz lantern harbor",
+		fixture.Harness,
+	); !slices.Contains(results.IDs, affected) {
 		t.Fatalf("search for the repaired value returned %v, want node %s", results.IDs, affected)
 	}
+
 	if _, warned := runSearchVerifyWarnings(t, fixture.Config).warning(affected, name); warned {
 		t.Fatalf("ops search verify still lists the warning of node %s after the repair", affected)
 	}
@@ -84,12 +115,16 @@ type verifyWarningReport struct {
 	Warnings   []verifyWarning `json:"warnings"`
 }
 
-func (report verifyWarningReport) warning(nodeID uuid.UUID, propertyName string) (verifyWarning, bool) {
+func (report verifyWarningReport) warning(
+	nodeID uuid.UUID,
+	propertyName string,
+) (verifyWarning, bool) {
 	for _, warning := range report.Warnings {
 		if warning.NodeID == nodeID.String() && warning.PropertyName == propertyName {
 			return warning, true
 		}
 	}
+
 	return verifyWarning{}, false
 }
 
@@ -112,18 +147,27 @@ func runSearchVerifyWarnings(t *testing.T, cfg *config.Config) verifyWarningRepo
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := searchCommandRoot(factory)
 	root.SetArgs([]string{
-		"--execute", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
-		"--operator-email", "operator@example.com", "--operator-name", "Search Test",
-		"ops", "search", "verify",
+		"--execute",
+		"--operator-id",
+		"019dd226-440e-729a-a442-281aaf73ca30",
+		"--operator-email",
+		"operator@example.com",
+		"--operator-name",
+		"Search Test",
+		"ops",
+		"search",
+		"verify",
 	})
 	runErr := root.Execute()
 	var report verifyWarningReport
 	if err := json.NewDecoder(&output).Decode(&report); err != nil {
 		t.Fatalf("decode ops search verify output (command error %v): %v", runErr, err)
 	}
+
 	if runErr != nil {
 		t.Fatalf("execute ops search verify: %v", runErr)
 	}
+
 	return report
 }
 
@@ -138,11 +182,13 @@ func snapshotProjectionKeys(t *testing.T) map[string]projectionKeyValue {
 	if err != nil {
 		t.Fatalf("open projection snapshot database: %v", err)
 	}
+
 	prefix := fdbadapter.TestPrefixRange()
 	keyRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		t.Fatalf("create projection snapshot range: %v", err)
 	}
+
 	transaction, err := database.CreateTransaction()
 	if err != nil {
 		t.Fatalf("create projection snapshot transaction: %v", err)
@@ -152,18 +198,22 @@ func snapshotProjectionKeys(t *testing.T) map[string]projectionKeyValue {
 	if err != nil {
 		t.Fatalf("read projection snapshot: %v", err)
 	}
+
 	snapshot := make(map[string]projectionKeyValue, len(entries))
 	for _, entry := range entries {
 		parts, decodeErr := tuple.Unpack(entry.Key[len(prefix):])
 		if decodeErr != nil || len(parts) == 0 {
 			t.Fatalf("decode projection snapshot key: %v", decodeErr)
 		}
+
 		family, ok := parts[0].(string)
 		if !ok {
 			t.Fatalf("projection snapshot key family is not a string: %v", parts[0])
 		}
+
 		snapshot[string(entry.Key)] = projectionKeyValue{family: family, value: string(entry.Value)}
 	}
+
 	return snapshot
 }
 
@@ -171,13 +221,19 @@ func snapshotProjectionKeys(t *testing.T) map[string]projectionKeyValue {
 // definition records, their property-name index entries, and the audit
 // outbox entries. A backfill must leave every remaining key unchanged,
 // including the search work, projection digest, and scan keys.
-func withoutProjectionMetadata(snapshot map[string]projectionKeyValue) map[string]projectionKeyValue {
+func withoutProjectionMetadata(
+	snapshot map[string]projectionKeyValue,
+) map[string]projectionKeyValue {
 	other := make(map[string]projectionKeyValue)
+
 	for key, value := range snapshot {
-		if value.family == "property_def" || value.family == "property_def_by_name" || value.family == "ops_outbox" {
+		if value.family == "property_def" || value.family == "property_def_by_name" ||
+			value.family == "ops_outbox" {
 			continue
 		}
+
 		other[key] = value
 	}
+
 	return other
 }

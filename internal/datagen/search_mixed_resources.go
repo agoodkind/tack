@@ -13,7 +13,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// searchMixedNodeMetrics limits each OpenSearch request to these statistics groups.
+// searchMixedNodeMetrics limits each OpenSearch request to these statistics
+// groups.
 var searchMixedNodeMetrics = []string{"os", "process", "jvm", "fs"}
 
 type searchMixedNodeStats struct {
@@ -64,8 +65,8 @@ type searchMixedDiskStat struct {
 	Available int64 `json:"available_in_bytes"`
 }
 
-// searchMixedResources reads OpenSearch node statistics with the configured search endpoint,
-// CA, and credentials.
+// searchMixedResources reads OpenSearch node statistics with the configured
+// search endpoint, certificate authority (CA), and credentials.
 type searchMixedResources struct {
 	client *opensearch.Client
 }
@@ -80,7 +81,11 @@ func newSearchMixedResources(ctx context.Context, cfg *config.Config) (*searchMi
 
 func (r *searchMixedResources) close(ctx context.Context) {
 	if err := r.client.Close(); err != nil {
-		slog.ErrorContext(ctx, "qa.datagen.search_mixed_resources_close_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"qa.datagen.search_mixed_resources_close_failed",
+			slog.String("err", err.Error()),
+		)
 	}
 }
 
@@ -90,21 +95,42 @@ func (r *searchMixedResources) read(ctx context.Context) ([]SearchMixedNodeResou
 	request := &opensearchapi.NodesStatsReq{Metric: searchMixedNodeMetrics}
 	response, err := opensearch.Execute(ctx, r.client, http.MethodGet, request, &stats)
 	if err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not read OpenSearch node statistics", err)
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not read OpenSearch node statistics",
+			err,
+		)
 	}
 	if response.IsError() {
 		_ = response.Body.Close()
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not read OpenSearch node statistics", fmt.Errorf("OpenSearch returned HTTP status %d", response.StatusCode))
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not read OpenSearch node statistics",
+			fmt.Errorf("OpenSearch returned HTTP status %d", response.StatusCode),
+		)
 	}
 	nodes := make([]SearchMixedNodeResources, 0, len(stats.Nodes))
 	for _, node := range stats.Nodes {
-		nodes = append(nodes, SearchMixedNodeResources{
-			Name: node.Name, CPUPercent: node.OS.CPU.Percent, ProcessCPUPercent: node.Process.CPU.Percent,
-			MemoryUsedBytes: node.OS.Mem.Used, MemoryTotalBytes: node.OS.Mem.Total,
-			HeapUsedBytes: node.JVM.Mem.HeapUsed, HeapMaxBytes: node.JVM.Mem.HeapMax,
-			DiskTotalBytes: node.FS.Total.Total, DiskAvailableBytes: node.FS.Total.Available,
-		})
+		nodes = append(
+			nodes,
+			SearchMixedNodeResources{
+				Name:               node.Name,
+				CPUPercent:         node.OS.CPU.Percent,
+				ProcessCPUPercent:  node.Process.CPU.Percent,
+				MemoryUsedBytes:    node.OS.Mem.Used,
+				MemoryTotalBytes:   node.OS.Mem.Total,
+				HeapUsedBytes:      node.JVM.Mem.HeapUsed,
+				HeapMaxBytes:       node.JVM.Mem.HeapMax,
+				DiskTotalBytes:     node.FS.Total.Total,
+				DiskAvailableBytes: node.FS.Total.Available,
+			},
+		)
 	}
-	slices.SortFunc(nodes, func(left, right SearchMixedNodeResources) int { return strings.Compare(left.Name, right.Name) })
+	slices.SortFunc(
+		nodes,
+		func(left, right SearchMixedNodeResources) int {
+			return strings.Compare(left.Name, right.Name)
+		},
+	)
 	return nodes, nil
 }

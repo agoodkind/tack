@@ -23,23 +23,30 @@ func normalizeListFilters(
 	if err != nil {
 		return nil, fmt.Errorf("invalid filters payload: %w", err)
 	}
+
 	filters, err = normalizeFilterAliases(ctx, b, nt, orgID, filters)
 	if err != nil {
 		return nil, err
 	}
+
 	filters, err = normalizePropertyCommandReferences(ctx, b, nt, orgID, scopeID, filters)
 	if err != nil {
 		return nil, err
 	}
+
 	matches := make([]node.PropertyMatch, 0, len(filters))
+
 	keys := make([]string, 0, len(filters))
 	for key := range filters {
 		keys = append(keys, key)
 	}
+
 	sort.Strings(keys)
+
 	for _, key := range keys {
 		matches = append(matches, node.PropertyMatch{PropName: key, Value: filters[key]})
 	}
+
 	return matches, nil
 }
 
@@ -53,31 +60,44 @@ func normalizeFilterAliases(
 	if filters == nil || b.PropertyDefs == nil {
 		return filters, nil
 	}
+
 	defs, err := b.PropertyDefs.List(ctx, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("list property defs for filter aliases: %w", err)
 	}
+
 	normalized := make(map[string]json.RawMessage, len(filters))
 	for name, raw := range filters {
 		normalized[name] = raw
 	}
+
 	for _, def := range defs {
 		if !node.PropertyAppliesTo(def, nt) {
 			continue
 		}
+
 		alias := referencePropertyAlias(def.Name)
 		if alias == def.Name {
 			continue
 		}
+
 		raw, hasAlias := normalized[alias]
 		if !hasAlias {
 			continue
 		}
+
 		if _, hasCanonical := normalized[def.Name]; hasCanonical {
-			return nil, fmt.Errorf("filters contain both %q and %q: %w", alias, def.Name, domain.ErrInvalidArgument)
+			return nil, fmt.Errorf(
+				"filters contain both %q and %q: %w",
+				alias,
+				def.Name,
+				domain.ErrInvalidArgument,
+			)
 		}
+
 		delete(normalized, alias)
 		normalized[def.Name] = raw
 	}
+
 	return normalized, nil
 }

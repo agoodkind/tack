@@ -1,5 +1,5 @@
-// buffered_overflow.go appends a read-class event that finds the buffered
-// recorder's queue full to the durable outbox (TACK-506).
+// The buffered recorder appends read-class events to the durable outbox when
+// the queue fills (TACK-506).
 
 package audit
 
@@ -21,17 +21,20 @@ type outboxAppendFailure struct {
 }
 
 var (
-	// overflowFailure is the report of an append for an event that found
-	// the queue full.
+	// overflowFailure supplies reporting fields for an append after the queue
+	// fills.
 	overflowFailure = outboxAppendFailure{
-		logEvent: "audit.buffer.overflow_failed", marshalStage: "overflow_marshal",
-		appendStage: "overflow", appendError: "audit overflow to outbox",
+		logEvent:     "audit.buffer.overflow_failed",
+		marshalStage: "overflow_marshal",
+		appendStage:  "overflow",
+		appendError:  "audit overflow to outbox",
 	}
-	// durableFailure is the report of an append for an event that needs
-	// durable admission.
+	// durableFailure supplies reporting fields for durable admission appends.
 	durableFailure = outboxAppendFailure{
-		logEvent: "audit.durable_admission.failed", marshalStage: "durable_admission_marshal",
-		appendStage: "durable_admission", appendError: "audit durable admission to outbox",
+		logEvent:     "audit.durable_admission.failed",
+		marshalStage: "durable_admission_marshal",
+		appendStage:  "durable_admission",
+		appendError:  "audit durable admission to outbox",
 	}
 )
 
@@ -46,9 +49,12 @@ func (b *BufferedRecorder) overflowed(ctx context.Context, event Event) error {
 	telemetry.IncAuditBufferOverflow(event.Verb)
 
 	if b.overflowing.CompareAndSwap(false, true) {
-		slog.WarnContext(ctx, "audit.buffer.overflowing",
+		slog.WarnContext(
+			ctx,
+			"audit.buffer.overflowing",
 			slog.String("verb", event.Verb),
-			slog.Int("capacity", cap(b.queue)))
+			slog.Int("capacity", cap(b.queue)),
+		)
 	}
 
 	return nil
@@ -64,7 +70,11 @@ func (b *BufferedRecorder) recordDurably(ctx context.Context, event Event) error
 	return b.appendToOutbox(ctx, event, durableFailure)
 }
 
-func (b *BufferedRecorder) appendToOutbox(ctx context.Context, event Event, failure outboxAppendFailure) error {
+func (b *BufferedRecorder) appendToOutbox(
+	ctx context.Context,
+	event Event,
+	failure outboxAppendFailure,
+) error {
 	payload, err := MarshalEvent(event)
 	if err != nil {
 		telemetry.IncAuditDropped(event.Verb, failure.marshalStage)
@@ -78,10 +88,13 @@ func (b *BufferedRecorder) appendToOutbox(ctx context.Context, event Event, fail
 	err = b.overflow.Append(spillCtx, payload)
 	if err != nil {
 		telemetry.IncAuditDropped(event.Verb, failure.appendStage)
-		slog.ErrorContext(ctx, failure.logEvent,
+		slog.ErrorContext(
+			ctx,
+			failure.logEvent,
 			slog.String("verb", event.Verb),
 			slog.String("event_id", event.EventID.String()),
-			slog.String("err", err.Error()))
+			slog.String("err", err.Error()),
+		)
 
 		return fmt.Errorf("%s: %w", failure.appendError, err)
 	}

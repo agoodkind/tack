@@ -15,13 +15,14 @@ import (
 const (
 	// searchMixedRetryLimit bounds the retries of one phase read.
 	searchMixedRetryLimit = time.Minute
-	// foundationDBTimedOut is the FoundationDB error code of a read that
-	// outlasts its transaction timeout.
+	// foundationDBTimedOut is the FoundationDB error code of a read that outlasts
+	// its transaction timeout.
 	foundationDBTimedOut = 1031
 )
 
-// retryTimedOutRead repeats read of nodeID after a FoundationDB timeout until
-// searchMixedRetryLimit ends or ctx ends. It returns every other error at once.
+// retryTimedOutRead retries read after a FoundationDB timeout until
+// searchMixedRetryLimit expires or ctx ends. It returns other errors without
+// retrying and uses nodeID in retry logs.
 func retryTimedOutRead(ctx context.Context, nodeID uuid.UUID, read func() error) error {
 	deadline := clock.Now().Add(searchMixedRetryLimit)
 	for {
@@ -31,17 +32,29 @@ func retryTimedOutRead(ctx context.Context, nodeID uuid.UUID, read func() error)
 		if !timedOut || clock.Now().After(deadline) || !waitForSearchMixedPoll(ctx) {
 			return err
 		}
-		slog.DebugContext(ctx, "qa.datagen.search_mixed_read_retried", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
+		slog.DebugContext(
+			ctx,
+			"qa.datagen.search_mixed_read_retried",
+			slog.String("node_id", nodeID.String()),
+			slog.String("err", err.Error()),
+		)
 	}
 }
 
 // resolveResult reads the resolve record of nodeID with retryTimedOutRead.
-func (m *searchMixed) resolveResult(ctx context.Context, nodeID uuid.UUID) (*node.NodeResolve, error) {
+func (m *searchMixed) resolveResult(ctx context.Context, nodeID uuid.UUID) (
+	*node.NodeResolve,
+	error,
+) {
 	var resolved *node.NodeResolve
-	err := retryTimedOutRead(ctx, nodeID, func() error {
+	err := retryTimedOutRead(
+		ctx,
+		nodeID,
+		func() error {
 		var readErr error
 		resolved, readErr = m.stores.Views.Resolve(ctx, nodeID)
 		return readErr
-	})
+		},
+	)
 	return resolved, err
 }

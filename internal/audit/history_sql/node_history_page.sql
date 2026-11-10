@@ -1,18 +1,20 @@
--- One page of the ledger rows of one node in one org, newest first.
+-- The query reads one page of a node's ledger rows in one org, newest first.
 --
--- $1 org_id, $2 node ID as uuid, $3 node ID as text, $4 oldest event_time
--- (inclusive), $5 $6 $7 the (event_time, seq, event_id) position that every
--- returned row precedes, $8 page size.
+-- The parameters select the rows and page boundary:
+--   - $1 supplies org_id.
+--   - $2 supplies the node ID as a UUID, and $3 supplies it as text.
+--   - $4 supplies the inclusive oldest event_time.
+--   - $5, $6, and $7 supply the exclusive (event_time, seq, event_id) boundary.
+--   - $8 supplies the page size.
 --
 -- Each branch reads one index and stops at the page size. The first branch
 -- reads the node's own rows through events_entity_time. The second branch
--- reads, through the same index, the legacy relationship rows that store the
--- node as the source in entity_id with entity_kind 'relationship'. Format 2
--- relationship rows store the zero UUID in entity_id, and the second branch
--- does not return them. The third and fourth branches read format 2
--- relationship rows through events_relationship_source_time and
--- events_relationship_target_time. The fourth branch skips a relationship
--- from the node to itself, which the third branch already returns.
+-- uses that index for legacy relationship rows with the source in entity_id
+-- and 'relationship' in entity_kind. Format 2 relationship rows store the
+-- zero UUID in entity_id, and the second branch excludes them. The third and
+-- fourth branches read format 2 rows through events_relationship_source_time
+-- and events_relationship_target_time. The fourth branch excludes
+-- self-relationships that the third branch already returns.
 (
     SELECT org_id, event_time, event_id, seq, shard,
            actor_id, actor_kind, action, outcome, entity_kind, entity_id,

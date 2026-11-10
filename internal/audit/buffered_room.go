@@ -1,16 +1,15 @@
-// buffered_room.go admits read-class events to the buffered recorder's queue.
-// The capacity covers the events waiting in the queue and each event that the
-// flusher retains after a failed delivery until a later delivery succeeds.
-// During an outage the retained events fill the capacity, and Record sends new
-// events to the overflow instead of growing memory (TACK-583).
+// The buffered recorder counts queued events and retained undelivered events
+// against its capacity. When retained events fill that capacity during an
+// outage, Record appends new events to the configured overflow instead of
+// increasing the retained event count without a limit (TACK-583).
 
 package audit
 
 import "sync"
 
-// bufferRoom sends an event to the queue only while the queued events and
-// the retained events together are fewer than the queue's capacity. Every
-// send runs under mu after that check and never blocks.
+// bufferRoom sends an event to the queue only when the queued and retained
+// event counts together fall below capacity. Each send checks capacity under
+// mu and does not block.
 type bufferRoom struct {
 	mu       sync.Mutex
 	queue    chan Event
@@ -36,7 +35,9 @@ func (r *bufferRoom) tryAdmit(ev Event) bool {
 	if !r.hasRoom() {
 		return false
 	}
+
 	r.queue <- ev
+
 	return true
 }
 
@@ -46,8 +47,8 @@ type admission int
 const (
 	// admitted means admitOrWait sent the event to the queue.
 	admitted admission = iota
-	// refusedRetained means the queue was full while the flusher retained
-	// undelivered events, so room opens only after a delivery succeeds.
+	// refusedRetained reports full capacity with undelivered retained events.
+	// Successful delivery must free capacity before admission can resume.
 	refusedRetained
 	// mustWait means the queue was full of queued events. The caller waits
 	// on the returned channel and then calls stopWaiting.
@@ -64,10 +65,13 @@ func (r *bufferRoom) admitOrWait(ev Event) (admission, <-chan struct{}) {
 		r.queue <- ev
 		return admitted, nil
 	}
+
 	if r.retained > 0 {
 		return refusedRetained, nil
 	}
+
 	r.waiting++
+
 	return mustWait, r.opened
 }
 
@@ -102,6 +106,7 @@ func (r *bufferRoom) wake() {
 	if r.waiting == 0 || !r.hasRoom() {
 		return
 	}
+
 	close(r.opened)
 	r.opened = make(chan struct{})
 }

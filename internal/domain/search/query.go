@@ -44,8 +44,10 @@ type GenerationReader interface {
 	SearchRestoreEpoch(context.Context) (int64, error)
 }
 
-// Snapshot is one stable OpenSearch view. QueryTokens is the exact opaque
-// token-weight JSON the pinned model returned for the query text.
+// Snapshot is one stable OpenSearch view. QueryTokens stores compact JSON
+// with the pinned model's token weights for the query text. Compaction
+// preserves the weights. Validation applies the byte limit to the raw model
+// response before compaction.
 type Snapshot struct {
 	PITID, Index string
 	QueryTokens  json.RawMessage

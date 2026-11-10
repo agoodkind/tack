@@ -21,25 +21,45 @@ var errAdmissionWaitEnded = errors.New("no search slot became free within the ad
 // success it returns the function that frees the slot. Otherwise it returns
 // an error that wraps [searchdomain.ErrEngineUnavailable], and the search
 // does not send any request to OpenSearch.
-func (s *SearchQueryService) acquireSearchSlot(ctx context.Context, sessionID uuid.UUID) (func(), error) {
+func (s *SearchQueryService) acquireSearchSlot(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (func(), error) {
 	timer := time.NewTimer(s.settings.AdmissionWait)
 	defer timer.Stop()
 	var cause error
 	started := clock.Now()
 	select {
 	case s.slots <- struct{}{}:
-		slog.DebugContext(ctx, "search.admission.granted", slog.Int64("wait_ms", clock.Since(started).Milliseconds()),
-			slog.String("session_id", sessionID.String()))
+		slog.DebugContext(
+			ctx,
+			"search.admission.granted",
+			slog.Int64("wait_ms", clock.Since(started).Milliseconds()),
+			slog.String("session_id", sessionID.String()),
+		)
+
 		return s.releaseSearchSlot, nil
 	case <-timer.C:
 		cause = errAdmissionWaitEnded
 	case <-ctx.Done():
 		cause = ctx.Err()
 	}
-	refused := fmt.Errorf("search admission with %d slots: %w: %w", s.settings.Concurrency, cause, searchdomain.ErrEngineUnavailable)
-	slog.ErrorContext(ctx, "search.admission.refused", slog.String("err", refused.Error()),
-		slog.String("session_id", sessionID.String()), slog.Int("concurrency", s.settings.Concurrency),
-		slog.Duration("admission_wait", s.settings.AdmissionWait))
+
+	refused := fmt.Errorf(
+		"search admission with %d slots: %w: %w",
+		s.settings.Concurrency,
+		cause,
+		searchdomain.ErrEngineUnavailable,
+	)
+	slog.ErrorContext(
+		ctx,
+		"search.admission.refused",
+		slog.String("err", refused.Error()),
+		slog.String("session_id", sessionID.String()),
+		slog.Int("concurrency", s.settings.Concurrency),
+		slog.Duration("admission_wait", s.settings.AdmissionWait),
+	)
+
 	return nil, refused
 }
 

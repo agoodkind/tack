@@ -37,20 +37,43 @@ func TestSearchRuntimeAuditPartialPointInTimeDeleted(t *testing.T) {
 	}
 	capture.engine.ModifyResponse = failPointInTimeShards
 
-	if _, err := integration.TrySearch(harness, failureAuditQuery, ""); err == nil || !strings.Contains(err.Error(), unexpectedErrorText) {
-		t.Fatalf("tack_search with a partial point in time returned %v, want an error containing %q", err, unexpectedErrorText)
+	if _, err := integration.TrySearch(harness, failureAuditQuery, ""); err == nil ||
+		!strings.Contains(err.Error(), unexpectedErrorText) {
+		t.Fatalf(
+			"tack_search with a partial point in time returned %v, want an error containing %q",
+			err,
+			unexpectedErrorText,
+		)
 	}
-	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(current []audit.Row) bool {
-		results := snapshotResults(current, audit.VerbSearchPointInTimeCreate, audit.OutcomePartiallyCompleted)
-		return len(partialDeletes(current)) == 1 && len(results) == 2 && snapshotResultsHaveIntents(current, results)
-	})
+	rows := fixture.audited.waitForRows(
+		t,
+		fixture.Workspaces[0].OrgID,
+		func(current []audit.Row) bool {
+			results := snapshotResults(
+				current,
+				audit.VerbSearchPointInTimeCreate,
+				audit.OutcomePartiallyCompleted,
+			)
+			return len(partialDeletes(current)) == 1 && len(results) == 2 &&
+				snapshotResultsHaveIntents(current, results)
+		},
+	)
 	step := onlyRow(t, partialDeletes(rows), "the partial point in time delete")
 	var observed struct {
 		PITID         string `json:"pit_id"`
 		AlreadyClosed bool   `json:"already_closed"`
 	}
-	if err := json.Unmarshal(step.Extra, &observed); err != nil || observed.PITID == "" || observed.AlreadyClosed || step.Outcome != audit.OutcomeCompleted {
-		t.Fatalf("delete step = %s with outcome %s: %v, want a completed delete of an open point in time", step.Extra, step.Outcome, err)
+	if err := json.Unmarshal(
+		step.Extra,
+		&observed,
+	); err != nil || observed.PITID == "" || observed.AlreadyClosed ||
+		step.Outcome != audit.OutcomeCompleted {
+		t.Fatalf(
+			"delete step = %s with outcome %s: %v, want a completed delete of an open point in time",
+			step.Extra,
+			step.Outcome,
+			err,
+		)
 	}
 	requireDeleteSent(t, capture, []string{observed.PITID})
 	requirePITsClosed(t, fixture.QueryFixture, []string{observed.PITID})
@@ -60,7 +83,8 @@ func TestSearchRuntimeAuditPartialPointInTimeDeleted(t *testing.T) {
 // failPointInTimeShards sets the failed shard count of a point in time create
 // response to one.
 func failPointInTimeShards(response *http.Response) error {
-	if response.Request.Method != http.MethodPost || !strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
+	if response.Request.Method != http.MethodPost ||
+		!strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
 		return nil
 	}
 	payload, err := io.ReadAll(response.Body)
@@ -92,8 +116,10 @@ func partialDeletes(rows []audit.Row) []audit.Row {
 	selected := []audit.Row{}
 	for _, row := range rows {
 		target := row.Context.Target
-		if row.Action == string(audit.VerbSearchPointInTimeDelete) && row.Context.Phase == audit.PhaseResult &&
-			target != nil && target.Kind == audit.TargetKindExternal {
+		if row.Action == string(audit.VerbSearchPointInTimeDelete) &&
+			row.Context.Phase == audit.PhaseResult &&
+			target != nil &&
+			target.Kind == audit.TargetKindExternal {
 			selected = append(selected, row)
 		}
 	}
@@ -106,12 +132,23 @@ func partialDeletes(rows []audit.Row) []audit.Row {
 // audit.ErrEventNotRecorded. The search must not open a point in time.
 func TestSearchRuntimeAuditMissingOperationRefusesSnapshot(t *testing.T) {
 	fixture := integration.NewQueryFixture(t)
-	searcher := integration.QueryService(t, fixture, failureAuditResponseBytes, failureAuditIdle, failureAuditAbsolute)
+	searcher := integration.QueryService(
+		t,
+		fixture,
+		failureAuditResponseBytes,
+		failureAuditIdle,
+		failureAuditAbsolute,
+	)
 	request := integration.ServiceRequest(t, fixture, failureAuditQuery)
 	before := openPITs(t, fixture)
 	_, err := searcher.Search(t.Context(), request)
-	if !errors.Is(err, searchdomain.ErrEngineUnavailable) || !errors.Is(err, audit.ErrMissingMutationContext) || !errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf("Search returned error %v; want matches for the engine unavailable error, the missing operation error, and audit.ErrEventNotRecorded", err)
+	if !errors.Is(err, searchdomain.ErrEngineUnavailable) ||
+		!errors.Is(err, audit.ErrMissingMutationContext) ||
+		!errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf(
+			"Search returned error %v; want matches for the engine unavailable error, the missing operation error, and audit.ErrEventNotRecorded",
+			err,
+		)
 	}
 	for id := range openPITs(t, fixture) {
 		if !before[id] {
@@ -126,19 +163,41 @@ func TestSearchRuntimeAuditMissingOperationRefusesSnapshot(t *testing.T) {
 // without an owner.
 func TestSearchRuntimeAuditCorruptHeaderSweepRecorded(t *testing.T) {
 	fixture := newFailureFixture(t)
-	searcher := integration.QueryService(t, fixture.QueryFixture, failureAuditResponseBytes, failureAuditIdle, failureAuditAbsolute)
+	searcher := integration.QueryService(
+		t,
+		fixture.QueryFixture,
+		failureAuditResponseBytes,
+		failureAuditIdle,
+		failureAuditAbsolute,
+	)
 	request := integration.ServiceRequest(t, fixture.QueryFixture, failureAuditQuery)
 	expired := fixture.openExpired(t, searcher, request)
 	integration.ReplaceRawValue(t, sessionHeaderKey(t, fixture, expired.ID), []byte("{"))
-	if _, err := searcher.Search(integration.WithTestOperation(t, t.Context()), request); err != nil {
+	if _, err := searcher.Search(
+		integration.WithTestOperation(t, t.Context()),
+		request,
+	); err != nil {
 		t.Fatalf("the search that sweeps session %s failed: %v", expired.ID, err)
 	}
-	rows := fixture.audited.waitForRows(t, audit.SystemOrgID(), func(current []audit.Row) bool {
-		return len(cleanupFailures(current, expired.ID, searchdomain.CleanupDelete)) == 1
-	})
-	failure := onlyRow(t, cleanupFailures(rows, expired.ID, searchdomain.CleanupDelete), "the Load failure")
-	if failure.Outcome != audit.OutcomeFailed || failure.Context.Target.OwnerID != uuid.Nil || failure.Action != string(audit.VerbSearchSessionDelete) {
-		t.Fatalf("Load failure row = %+v, target %+v, want a failed delete without an owner", failure, failure.Context.Target)
+	rows := fixture.audited.waitForRows(
+		t,
+		audit.SystemOrgID(),
+		func(current []audit.Row) bool {
+			return len(cleanupFailures(current, expired.ID, searchdomain.CleanupDelete)) == 1
+		},
+	)
+	failure := onlyRow(
+		t,
+		cleanupFailures(rows, expired.ID, searchdomain.CleanupDelete),
+		"the Load failure",
+	)
+	if failure.Outcome != audit.OutcomeFailed || failure.Context.Target.OwnerID != uuid.Nil ||
+		failure.Action != string(audit.VerbSearchSessionDelete) {
+		t.Fatalf(
+			"Load failure row = %+v, target %+v, want a failed delete without an owner",
+			failure,
+			failure.Context.Target,
+		)
 	}
 }
 

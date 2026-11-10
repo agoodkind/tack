@@ -17,8 +17,8 @@ var ErrRebuildInProgress = errors.New("an index replacement is already in progre
 // exist.
 var ErrIndexNotFound = errors.New("the search index does not exist")
 
-// ErrIndexNotReady means an index health wait ended before the index health
-// was green.
+// ErrIndexNotReady means the health wait ended before the index became
+// green.
 var ErrIndexNotReady = errors.New("the search index is not green")
 
 // ReplacementMode selects how the replacement index receives its documents.
@@ -51,9 +51,9 @@ const (
 	RebuildFailed RebuildState = "failed"
 )
 
-// Rebuild is the durable state of the one index replacement. From the
-// copying state through the switch, every search write also writes the
-// target. The switch replays no journal.
+// Rebuild stores durable index replacement state. Every search write also
+// writes the target from the copying state through the switch. The switch
+// does not replay a journal.
 type Rebuild struct {
 	ID                                     uuid.UUID
 	Mode                                   ReplacementMode
@@ -68,15 +68,19 @@ type Rebuild struct {
 	Initiation Initiation `exhaustruct:"optional"`
 }
 
-// Mirror returns the replacement index in the copying, verifying, and
-// switching states. Every search write in those states also writes that
-// index. Mirror returns an empty string in every other state.
+// Mirror returns the replacement index that also receives search writes.
+//
+// The result depends on the replacement's current state.
+//
+//   - Copying, verifying, and switching return TargetIndex.
+//   - Every other state returns an empty string.
 func (r Rebuild) Mirror() string {
 	switch r.State {
 	case RebuildCopying, RebuildVerifying, RebuildSwitching:
 		return r.TargetIndex
 	case RebuildCreating, RebuildRetiring, RebuildFailed:
 	}
+
 	return ""
 }
 
@@ -90,21 +94,40 @@ type BeginRebuild struct {
 	Initiation Initiation `exhaustruct:"optional"`
 }
 
-// Validate rejects a mode other than full or split, an invalid shard
-// topology, and a restored split.
+// Validate rejects an invalid replacement mode or topology.
+//
+// Restored replacements must rebuild from FoundationDB in full mode.
+//
+//   - Mode must be full or split.
+//   - PrimaryShards must be positive and Replicas must be nonnegative.
+//   - RoutingShards must be at least PrimaryShards and divisible by it.
+//   - Valid input returns nil.
 func (r BeginRebuild) Validate() error {
 	if r.Mode != ReplacementFull && r.Mode != ReplacementSplit {
 		return fmt.Errorf("replacement mode %q is not full or split", r.Mode)
 	}
+
 	if r.PrimaryShards < 1 || r.RoutingShards < r.PrimaryShards || r.Replicas < 0 {
-		return fmt.Errorf("replacement topology %d/%d/%d is invalid", r.PrimaryShards, r.RoutingShards, r.Replicas)
+		return fmt.Errorf(
+			"replacement topology %d/%d/%d is invalid",
+			r.PrimaryShards,
+			r.RoutingShards,
+			r.Replicas,
+		)
 	}
+
 	if r.RoutingShards%r.PrimaryShards != 0 {
-		return fmt.Errorf("replacement routing shards %d must be divisible by primaries %d", r.RoutingShards, r.PrimaryShards)
+		return fmt.Errorf(
+			"replacement routing shards %d must be divisible by primaries %d",
+			r.RoutingShards,
+			r.PrimaryShards,
+		)
 	}
+
 	if r.Restored && r.Mode != ReplacementFull {
 		return errors.New("a restored replacement must rebuild from FoundationDB")
 	}
+
 	return nil
 }
 
@@ -141,7 +164,13 @@ type RebuildProgress interface {
 	CopyNextNodes(context.Context, Work, Rebuild) error
 	CopiesPending(context.Context) (bool, error)
 	VerifyRebuildDocuments(context.Context, Work, Rebuild, int) (RebuildBatch, error)
-	CompleteRebuildVerify(context.Context, Work, Rebuild, RebuildBatch, map[string]DocumentAccess) (bool, error)
+	CompleteRebuildVerify(
+		context.Context,
+		Work,
+		Rebuild,
+		RebuildBatch,
+		map[string]DocumentAccess,
+	) (bool, error)
 	RetireIndexSessions(context.Context, string, int) (bool, error)
 }
 

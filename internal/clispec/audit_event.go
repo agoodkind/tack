@@ -13,10 +13,10 @@ import (
 	"goodkind.io/tack/internal/response"
 )
 
-// newOperatorEvent builds the event a command records. Extra stores the op
-// id. The ledger stores Extra and the row hash covers it. A reader pairs the
-// intent row with its outcome row by op id, and altering either row breaks
-// the chain.
+// newOperatorEvent builds the event a command records. Extra stores the
+// operation ID that a reader uses to pair intent and outcome. The ledger
+// stores Extra and includes it in the row hash. Changing either row
+// invalidates its hash chain.
 func newOperatorEvent(
 	ctx context.Context,
 	spec audit.Spec,
@@ -35,7 +35,9 @@ func newOperatorEvent(
 	if err != nil {
 		return audit.Event{}, loggedAuditError(ctx, "encode operator event extra", err)
 	}
+
 	correlation := response.FromContext(ctx)
+
 	return audit.Event{
 		Verb:    spec.Verb,
 		EventID: uuid.Must(uuid.NewV7()),
@@ -78,19 +80,22 @@ func newOperatorEvent(
 	}, nil
 }
 
-// operatorEventExtra is the correlation payload of every operator event.
+// operatorEventExtra stores the operation ID and operator details for events.
 type operatorEventExtra struct {
-	// OpID is shared by an intent row and its outcome row.
+	// OpID associates an intent row with its outcome row.
 	OpID uuid.UUID `json:"op_id"`
-	// StartedAt records when a deferred infrastructure command entered the gate.
+	// StartedAt records when the deferred infrastructure command began running.
 	StartedAt *time.Time `json:"started_at,omitempty"`
-	// OperatorSource identifies the mechanism that established the identity.
-	// A reader uses it to tell a git-config identity from an asserted flag.
+	// OperatorSource identifies how the command established the identity.
+	// A reader uses it to distinguish a Git configuration identity from an
+	// identity the operator supplied through a flag.
 	OperatorSource string `json:"operator_source"`
-	// DeployCommit identifies the opaque commit or branch supplied by the deploy playbook.
+	// DeployCommit records the opaque commit or branch that the deploy
+	// playbook supplies.
 	DeployCommit string `json:"deploy_commit,omitempty"`
 	// SessionID identifies the agent session of a service principal. The
-	// ledger table has no session column; the row hash covers this field.
+	// ledger table does not have a session column. The row hash covers this
+	// field in Extra.
 	SessionID string `json:"session_id,omitempty"`
 	// OnBehalfOf identifies the accountable human operator when a service
 	// principal runs the command for that operator.

@@ -25,8 +25,8 @@ func replaceEvery(old string, replacement string) func(string) string {
 	}
 }
 
-// zeroFinalCounters sets the counters that match pattern to zero in the last sampler line
-// inside the test window.
+// zeroFinalCounters sets counters matching pattern to zero in the last
+// sampler line inside the test window.
 func zeroFinalCounters(pattern string) func(string) string {
 	counters := regexp.MustCompile(pattern)
 	return func(input string) string {
@@ -42,7 +42,8 @@ func zeroFinalCounters(pattern string) func(string) string {
 	}
 }
 
-// writeChangedFixture applies change to the fixture and writes the result to a temporary file.
+// writeChangedFixture applies change to the fixture and writes the result to
+// a temporary file.
 func writeChangedFixture(
 	t *testing.T,
 	fixturePath string,
@@ -65,8 +66,8 @@ func writeChangedFixture(
 	return path
 }
 
-// TestSummarizeHostRejectsInvalidMeasurements changes one measurement in the sampler fixture
-// for each case and checks the exact error from SummarizeHost.
+// TestSummarizeHostRejectsInvalidMeasurements changes one measurement in the
+// sampler fixture for each case and checks the exact error from SummarizeHost.
 func TestSummarizeHostRejectsInvalidMeasurements(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -141,7 +142,9 @@ func TestSummarizeHostRejectsInvalidMeasurements(t *testing.T) {
 	windowStart := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	window := resourcesummary.Window{Start: windowStart, End: windowStart.Add(time.Minute)}
 	for _, scenario := range cases {
-		t.Run(scenario.name, func(t *testing.T) {
+		t.Run(
+			scenario.name,
+			func(t *testing.T) {
 			path := writeChangedFixture(t, samplerFixture, scenario.change)
 
 			got, err := resourcesummary.SummarizeHost(t.Context(), path, window, searchGuestID)
@@ -152,6 +155,7 @@ func TestSummarizeHostRejectsInvalidMeasurements(t *testing.T) {
 			if err.Error() != scenario.wantError {
 				t.Errorf("error = %q, want %q", err.Error(), scenario.wantError)
 			}
-		})
+			},
+		)
 	}
 }

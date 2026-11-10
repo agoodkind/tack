@@ -49,22 +49,24 @@ type searchProgressRecord struct {
 }
 
 // searchAccessRecord stores the compiled access of the node. Access work
-// records it before it writes that access to any page document.
-// PagesPending is true while some current page document can contain older
-// access. DependentsPending is true while the nodes that derive their access
-// from this node still need access work. Scheduling a newer generation of
-// the pending work leaves both flags unchanged.
+// records it before it writes that access to any page document. PagesPending
+// is true while some current page document can contain older access.
+// DependentsPending is true while the nodes that derive their access from
+// this node still need access work. Scheduling a newer generation of the
+// pending work leaves both flags unchanged.
 type searchAccessRecord struct {
 	Access            node.SearchAccess `json:"access"`
 	PagesPending      bool              `json:"pages_pending"`
 	DependentsPending bool              `json:"dependents_pending"`
-	// PageAccess stores the versions and keys shared by every page registered since record creation
-	// while tracking is on, with the lowest registered generation. It is nil before the first
+	// PageAccess stores the versions and keys common to every page that
+	// Register records since this record's creation while tracking is on. It
+	// uses the lowest registered generation. It is nil before the first
 	// registration and after tracking stops.
 	PageAccess *node.SearchAccess `json:"page_access,omitempty"`
-	// PageAccessTracked starts true for a new record only when the node lacks issued pages.
-	// It stays true until registered pages differ in versions or keys, or access work records
-	// compiled access. Records that predate this field decode it as false.
+	// PageAccessTracked starts true for a new record only when the node lacks
+	// issued pages. It stays true until registered pages differ in versions or
+	// keys, or access work records compiled access. Records that predate this
+	// field decode it as false.
 	PageAccessTracked bool `json:"page_access_tracked,omitempty"`
 }
 
@@ -89,8 +91,8 @@ type searchScanRecord struct {
 	TypeKeys []string `json:"type_keys,omitempty"`
 	Features []string `json:"features,omitempty"`
 	Access   bool     `json:"access"`
-	// Projection records the metadata pass's projection recomputation.
-	// It is nil when the pass does not recompute the projection.
+	// Projection records the metadata pass's projection recomputation. It is
+	// nil when the pass does not recompute the projection.
 	Projection *searchProjectionTarget `json:"projection,omitempty"`
 }
 
@@ -102,44 +104,72 @@ type searchRecordValue interface {
 
 // readSearchRecord decodes the JSON record at key. It reports false when the
 // key is absent.
-func readSearchRecord[Record searchRecordValue](ctx context.Context, tr fdb.Transaction, key []byte, record *Record) (bool, error) {
+func readSearchRecord[Record searchRecordValue](
+	ctx context.Context,
+	tr fdb.Transaction,
+	key []byte,
+	record *Record,
+) (bool, error) {
 	countSessionRead(tr)
 	encoded, err := tr.Get(fdb.Key(key)).Get()
 	if err != nil {
 		return false, searchReadFailure(ctx, "read search record", err)
 	}
+
 	if len(encoded) == 0 {
 		return false, nil
 	}
+
 	if err := json.Unmarshal(encoded, record); err != nil {
 		wrapped := fmt.Errorf("decode search record: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.record.decode_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.record.decode_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return false, loggedSearchError{err: wrapped}
 	}
+
 	return true, nil
 }
 
 // writeSearchRecord encodes record as JSON at key.
-func writeSearchRecord[Record searchRecordValue](ctx context.Context, tr fdb.Transaction, key []byte, record Record) error {
+func writeSearchRecord[Record searchRecordValue](
+	ctx context.Context,
+	tr fdb.Transaction,
+	key []byte,
+	record Record,
+) error {
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		wrapped := fmt.Errorf("encode search record: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.record.encode_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.record.encode_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return loggedSearchError{err: wrapped}
 	}
+
 	tr.Set(fdb.Key(key), encoded)
+
 	return nil
 }
 
-// readSearchCounter reads one tuple-encoded counter. An absent key reads zero.
+// readSearchCounter reads one tuple-encoded counter. An absent key reads
+// zero.
 func readSearchCounter(ctx context.Context, tr fdb.Transaction, key []byte) (int64, error) {
 	encoded, err := tr.Get(fdb.Key(key)).Get()
 	if err != nil {
 		return 0, searchReadFailure(ctx, "read search counter", err)
 	}
+
 	if len(encoded) == 0 {
 		return 0, nil
 	}
+
 	return unpackCounter(ctx, encoded)
 }
 
@@ -149,13 +179,24 @@ func unpackCounter(ctx context.Context, encoded []byte) (int64, error) {
 	if err != nil {
 		return 0, searchReadFailure(ctx, "decode search counter", err)
 	}
+
 	if len(values) != 1 {
-		return 0, searchReadFailure(ctx, "decode search counter", fmt.Errorf("counter has %d values", len(values)))
+		return 0, searchReadFailure(
+			ctx,
+			"decode search counter",
+			fmt.Errorf("counter has %d values", len(values)),
+		)
 	}
+
 	value, ok := values[0].(int64)
 	if !ok || value < 0 {
-		return 0, searchReadFailure(ctx, "decode search counter", fmt.Errorf("counter value %v is not a nonnegative integer", values[0]))
+		return 0, searchReadFailure(
+			ctx,
+			"decode search counter",
+			fmt.Errorf("counter value %v is not a nonnegative integer", values[0]),
+		)
 	}
+
 	return value, nil
 }
 
@@ -169,11 +210,19 @@ func incrementSearchCounter(ctx context.Context, tr fdb.Transaction, key []byte)
 	if err != nil {
 		return 0, err
 	}
+
 	if current == math.MaxInt64 {
 		wrapped := fmt.Errorf("search counter overflows at %d", current)
-		telemetry.L(ctx).ErrorContext(ctx, "search.counter.overflow", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.counter.overflow",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, loggedSearchError{err: wrapped}
 	}
+
 	writeSearchCounter(tr, key, current+1)
+
 	return current + 1, nil
 }

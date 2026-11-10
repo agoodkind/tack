@@ -31,14 +31,14 @@ type SoakSummary struct {
 	Comments      int
 	Reads         int
 	// Searches counts answered tack_search calls. SearchesUnavailable counts
-	// calls refused because public search is disabled.
+	// unavailable responses, including refusals when public search is disabled.
 	Searches            int
 	SearchesUnavailable int
 	QuietOps            int
 	SpikeOps            int
 	Elapsed             time.Duration
-	// Latency lists, per operation kind, the completed operations and their
-	// p50 and p95 wall time.
+	// Latency reports the completed operation count and p50 and p95 wall time
+	// for each operation kind.
 	Latency []SoakOperationLatency
 }
 
@@ -53,7 +53,15 @@ type Soak struct {
 	latencies soakLatencies
 }
 
-// RunSoak prepares a corpus and runs until a configured stop condition.
+// RunSoak prepares a corpus and schedules operations until a configured stop
+// condition ends the run.
+//
+// Setup uses discovered server projects. If discovery does not find a usable
+// project, setup seeds the corpus and repeats discovery. Setup fails if the
+// second discovery still does not find a usable project.
+//
+//   - Option validation precedes identity bootstrap.
+//   - Project preparation precedes content generation.
 func RunSoak(
 	scheduleContext context.Context,
 	callContext context.Context,
@@ -67,9 +75,7 @@ func RunSoak(
 	if err := soakContextError(scheduleContext, "start setup"); err != nil {
 		return SoakSummary{}, err
 	}
-	session, err := openRunSession(
-		callContext, cfg, options.Scale, options.Seed, options.Commit,
-	)
+	session, err := openRunSession(callContext, cfg, options.Scale, options.Seed, options.Commit)
 	if err != nil {
 		return SoakSummary{}, err
 	}
@@ -89,7 +95,10 @@ func RunSoak(
 		return SoakSummary{}, err
 	}
 	soak := &Soak{
-		driver: session.driver, content: content, projects: projects, options: options,
+		driver:   session.driver,
+		content:  content,
+		projects: projects,
+		options:  options,
 		summary: SoakSummary{Seed: options.Seed, DryRun: !options.Commit},
 		clock:   clock.Wall{},
 	}
@@ -136,7 +145,14 @@ func soakContextError(ctx context.Context, step string) error {
 	return nil
 }
 
-// Run executes scheduled operations and returns after calls already in flight finish.
+// Run executes scheduled operations and waits for calls already in progress
+// to finish before returning.
+//
+// Each successful operation increases the completed operation count and the
+// count for its quiet or spike phase.
+//
+//   - A stop condition ends scheduling before the next operation starts.
+//   - An operation error returns the summary with the error.
 func (s *Soak) Run(
 	scheduleContext context.Context,
 	callContext context.Context,
@@ -161,9 +177,7 @@ func (s *Soak) Run(
 				delay = remaining
 			}
 		}
-		proceed, err := waitForSoakOperation(
-			scheduleContext, stop, delay,
-		)
+		proceed, err := waitForSoakOperation(scheduleContext, stop, delay)
 		if err != nil {
 			return s.finish(scheduleContext, startedAt, "context"), err
 		}

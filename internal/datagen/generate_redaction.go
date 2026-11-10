@@ -8,13 +8,15 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// ActorRedactor erases the audit PII one org recorded for one actor the way
-// the `audit redact-actor` host command does, and reports what it found.
+// ActorRedactor erases the personal information that one organization
+// recorded for one actor in the audit ledger. It uses the host command
+// audit redact-actor behavior and reports the redaction results.
 type ActorRedactor func(ctx context.Context, orgID, actorID uuid.UUID) (audit.ActorRedaction, error)
 
 // redactOneActor exercises the host redaction path for the first generated
-// actor of the first workspace. Redaction is an opt-in because it erases
-// data the rest of the corpus and its audit rows refer to.
+// actor of the first workspace. Redaction requires explicit opt-in because
+// it erases personal information that the rest of the corpus and its audit
+// rows reference.
 func (g *Generator) redactOneActor(ctx context.Context) error {
 	if !g.redactAuditPII {
 		logRedactionSkip(ctx, "explicit redaction opt-in is disabled")
@@ -28,7 +30,9 @@ func (g *Generator) redactOneActor(ctx context.Context) error {
 	workspace := g.identities.Workspaces[0]
 	actor := workspace.Actors[0]
 	if g.dryRun {
-		slog.InfoContext(ctx, "qa.datagen.audit_redaction_planned",
+		slog.InfoContext(
+			ctx,
+			"qa.datagen.audit_redaction_planned",
 			slog.String("org_id", workspace.OrgID.String()),
 			slog.String("actor_id", actor.UserID.String()),
 		)
@@ -42,7 +46,9 @@ func (g *Generator) redactOneActor(ctx context.Context) error {
 	if err != nil {
 		return loggedError(ctx, "qa datagen: redact audit pii for "+actor.Email, err)
 	}
-	slog.InfoContext(ctx, "qa.datagen.audit_redaction_requested",
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.audit_redaction_requested",
 		slog.String("org_id", workspace.OrgID.String()),
 		slog.String("actor_id", actor.UserID.String()),
 		slog.Int("pii_ref_count", redaction.PIIRefCount),

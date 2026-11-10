@@ -26,7 +26,7 @@ type semanticPair struct {
 	Text  string `json:"text"`
 }
 
-// searchPhrases is the fixed search fixture text.
+// searchPhrases stores the fixed search fixture text.
 type searchPhrases struct {
 	Semantic          []semanticPair `json:"semantic"`
 	Distractors       []string       `json:"distractors"`
@@ -51,9 +51,9 @@ func loadSearchPhrases(ctx context.Context) (searchPhrases, error) {
 	return phrases, nil
 }
 
-// searchFixture is one generated opaque node type under one entry node. The
-// type and both property names are UUID-derived. Search behavior depends
-// only on their stored declarations.
+// searchFixture uses one generated node type under one entry node. The type
+// and both property names derive from UUIDs and do not encode product meaning.
+// Search behavior depends only on their stored declarations.
 type searchFixture struct {
 	stores      *fdbadapter.Stores
 	members     org.MemberRepository
@@ -66,8 +66,8 @@ type searchFixture struct {
 	titles      *SearchTitles
 }
 
-// opaqueKey returns a lowercase identifier with a label prefix and no
-// product meaning.
+// opaqueKey returns a label prefix followed by lowercase UUID characters. The
+// generated suffix does not encode product meaning.
 func opaqueKey(label string) string {
 	return label + strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", "")[20:]
 }
@@ -75,7 +75,12 @@ func opaqueKey(label string) string {
 // openSearchFixtureStores opens FoundationDB stores with search work enabled
 // and the ledger org_members repository. The caller runs the returned close
 // function after the last fixture write.
-func openSearchFixtureStores(ctx context.Context, cfg *config.Config, purpose string) (*fdbadapter.Stores, org.MemberRepository, func(), error) {
+func openSearchFixtureStores(ctx context.Context, cfg *config.Config, purpose string) (
+	*fdbadapter.Stores,
+	org.MemberRepository,
+	func(),
+	error,
+) {
 	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, nil)
 	if err != nil {
 		return nil, nil, nil, loggedError(ctx, "qa datagen: open foundationdb for "+purpose, err)
@@ -88,52 +93,110 @@ func openSearchFixtureStores(ctx context.Context, cfg *config.Config, purpose st
 	return stores, postgres.NewOrgMemberRepo(pool), pool.Close, nil
 }
 
-// newSearchFixture stores one included and one excluded definition and one
-// node type that lives under the workspace entry node type.
-func newSearchFixture(ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository, workspace WorkspaceIdentity) (searchFixture, error) {
+// newSearchFixture stores one included property definition, one excluded
+// property definition, and a node type that permits the workspace entry node
+// type as its parent.
+func newSearchFixture(
+	ctx context.Context,
+	stores *fdbadapter.Stores,
+	members org.MemberRepository,
+	workspace WorkspaceIdentity,
+) (searchFixture, error) {
 	return newSearchFixtureWithManifest(ctx, stores, members, workspace, nil)
 }
 
 func newSearchFixtureWithManifest(
-	ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository, workspace WorkspaceIdentity, manifest *SearchManifest,
+	ctx context.Context,
+	stores *fdbadapter.Stores,
+	members org.MemberRepository,
+	workspace WorkspaceIdentity,
+	manifest *SearchManifest,
 ) (searchFixture, error) {
 	entryID := node.WorkspaceID(workspace.OrgID, workspace.Slug)
 	entry, err := stores.Views.Get(ctx, entryID)
 	if err != nil || entry == nil {
-		return searchFixture{}, loggedError(ctx, "qa datagen: read search entry node "+entryID.String(), errMissing(err))
+		return searchFixture{}, loggedError(
+			ctx,
+			"qa datagen: read search entry node "+entryID.String(),
+			errMissing(err),
+		)
 	}
-	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
+	nodes, err := service.NewNodeService(
+		stores.Nodes,
+		stores.Views,
+		stores.NodeTypes,
+		stores.PropertyDefs,
+		stores.Relationships,
+		stores.NodeDeleter,
+		members,
+		stores.Relationships,
+	)
 	if err != nil {
-		return searchFixture{}, loggedError(ctx, "qa datagen: build the search fixture node service", err)
+		return searchFixture{}, loggedError(
+			ctx,
+			"qa datagen: build the search fixture node service",
+			err,
+		)
 	}
 	fixture := searchFixture{
-		stores: stores, members: members, nodes: nodes, orgID: workspace.OrgID, entryID: entryID,
-		typeKey: opaqueKey("n"), includedKey: opaqueKey("p"), excludedKey: opaqueKey("p"),
-		titles: NewSearchTitles(),
+		stores:      stores,
+		members:     members,
+		nodes:       nodes,
+		orgID:       workspace.OrgID,
+		entryID:     entryID,
+		typeKey:     opaqueKey("n"),
+		includedKey: opaqueKey("p"),
+		excludedKey: opaqueKey("p"),
+		titles:      NewSearchTitles(),
 	}
 	fixture.titles.Add(SearchItem{Title: workspace.Slug, NodeType: entry.NodeType}, entryID)
 	included := searchDefinition(workspace.OrgID, fixture.includedKey, true, 0)
 	excluded := searchDefinition(workspace.OrgID, fixture.excludedKey, false, 1)
 	for _, definition := range []*node.PropertyDef{included, excluded} {
 		if err := stores.PropertyDefs.Set(ctx, definition); err != nil {
-			return searchFixture{}, loggedError(ctx, "qa datagen: store search property "+definition.Name, err)
+			return searchFixture{}, loggedError(
+				ctx,
+				"qa datagen: store search property "+definition.Name,
+				err,
+			)
 		}
 		if manifest != nil {
-			manifest.Properties = append(manifest.Properties, SearchManifestProperty{
-				ID: definition.ID, Key: definition.Name, Included: definition.Search.Include,
-			})
+			manifest.Properties = append(
+				manifest.Properties,
+				SearchManifestProperty{
+					ID:       definition.ID,
+					Key:      definition.Name,
+					Included: definition.Search.Include,
+				},
+			)
 		}
 	}
 	var reference node.ReferenceConfig
 	kind := &node.NodeType{
-		ID: uuid.Must(uuid.NewV7()), OrgID: workspace.OrgID, Name: fixture.typeKey, Slug: fixture.typeKey,
-		Color: "", Icon: "", AllowedOps: nil, PropertyDefIDs: []uuid.UUID{included.ID, excluded.ID},
-		PluralSlug: fixture.typeKey + "s", IsBuiltin: false, TypeKey: fixture.typeKey, Features: nil,
-		CanContain: nil, CanLiveUnder: []string{entry.NodeType}, Reference: reference,
-		ReferenceTemplates: nil, DefaultChildren: nil,
+		ID:                 uuid.Must(uuid.NewV7()),
+		OrgID:              workspace.OrgID,
+		Name:               fixture.typeKey,
+		Slug:               fixture.typeKey,
+		Color:              "",
+		Icon:               "",
+		AllowedOps:         nil,
+		PropertyDefIDs:     []uuid.UUID{included.ID, excluded.ID},
+		PluralSlug:         fixture.typeKey + "s",
+		IsBuiltin:          false,
+		TypeKey:            fixture.typeKey,
+		Features:           nil,
+		CanContain:         nil,
+		CanLiveUnder:       []string{entry.NodeType},
+		Reference:          reference,
+		ReferenceTemplates: nil,
+		DefaultChildren:    nil,
 	}
 	if err := stores.NodeTypes.Set(ctx, kind); err != nil {
-		return searchFixture{}, loggedError(ctx, "qa datagen: store search node type "+fixture.typeKey, err)
+		return searchFixture{}, loggedError(
+			ctx,
+			"qa datagen: store search node type "+fixture.typeKey,
+			err,
+		)
 	}
 	if manifest != nil {
 		manifest.Types = append(manifest.Types, SearchManifestType{ID: kind.ID, Key: kind.TypeKey})
@@ -143,12 +206,27 @@ func newSearchFixtureWithManifest(
 
 func searchDefinition(orgID uuid.UUID, name string, include bool, order int) *node.PropertyDef {
 	return &node.PropertyDef{
-		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: name, Type: node.PropertyTypeText,
-		AppliesToFeatures: nil, Indexed: false, Options: nil, Required: false, DefaultValue: nil,
-		DefaultReference: nil, ReferenceTargetTypeKey: "",
-		Search: &node.SearchProjection{Include: include, Order: order, Rule: node.TextRule{
-			Mode: node.TextRuleScalar, Fields: nil, Items: nil, Labels: nil,
-		}},
+		ID:                     uuid.Must(uuid.NewV7()),
+		OrgID:                  orgID,
+		Name:                   name,
+		Type:                   node.PropertyTypeText,
+		AppliesToFeatures:      nil,
+		Indexed:                false,
+		Options:                nil,
+		Required:               false,
+		DefaultValue:           nil,
+		DefaultReference:       nil,
+		ReferenceTargetTypeKey: "",
+		Search: &node.SearchProjection{
+			Include: include,
+			Order:   order,
+			Rule: node.TextRule{
+				Mode:   node.TextRuleScalar,
+				Fields: nil,
+				Items:  nil,
+				Labels: nil,
+			},
+		},
 	}
 }
 
@@ -159,11 +237,21 @@ func (f searchFixture) put(ctx context.Context, name, included, excluded string)
 		f.includedKey: json.RawMessage(strconv.Quote(included)),
 		f.excludedKey: json.RawMessage(strconv.Quote(excluded)),
 	}
-	result, err := f.nodes.Create(ctx, service.CreateInput{
-		ParentID: f.entryID, ScopeID: uuid.Nil, NodeTypeKey: f.typeKey, Name: name, Props: props,
-		Relationships: nil, ActorID: uuid.Nil,
-		IdempotencyKey: "", IdempotencyFingerprint: "", IdempotencySource: "",
-	})
+	result, err := f.nodes.Create(
+		ctx,
+		service.CreateInput{
+			ParentID:               f.entryID,
+			ScopeID:                uuid.Nil,
+			NodeTypeKey:            f.typeKey,
+			Name:                   name,
+			Props:                  props,
+			Relationships:          nil,
+			ActorID:                uuid.Nil,
+			IdempotencyKey:         "",
+			IdempotencyFingerprint: "",
+			IdempotencySource:      "",
+		},
+	)
 	if err != nil {
 		return uuid.Nil, loggedError(ctx, "qa datagen: create search node "+name, err)
 	}
@@ -181,15 +269,26 @@ func (r searchRun) identities() SearchIdentities {
 // The resolver calls get tools with token under entry for declared references
 // and requires a unique stored name for types without a declared reference.
 func (f searchFixture) identities(driver *Driver, token, entry string) SearchIdentities {
-	return SearchIdentities{Titles: f.titles, Resolve: storeResolver(f.stores, f.orgID, ReferenceResolver(driver, token, entry))}
+	return SearchIdentities{
+		Titles:  f.titles,
+		Resolve: storeResolver(f.stores, f.orgID, ReferenceResolver(driver, token, entry)),
+	}
 }
 
 // edit replaces the included value of one node.
 func (f searchFixture) edit(ctx context.Context, nodeID uuid.UUID, included string) error {
-	if _, err := f.nodes.Update(ctx, service.UpdateInput{
-		NodeID: nodeID, Name: nil, Props: map[string]json.RawMessage{f.includedKey: json.RawMessage(strconv.Quote(included))},
-		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.Nil,
-	}); err != nil {
+	if _, err := f.nodes.Update(
+		ctx,
+		service.UpdateInput{
+			NodeID: nodeID,
+			Name:   nil,
+			Props: map[string]json.RawMessage{
+				f.includedKey: json.RawMessage(strconv.Quote(included)),
+			},
+			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
+			ActorID:             uuid.Nil,
+		},
+	); err != nil {
 		return loggedError(ctx, "qa datagen: edit search node "+nodeID.String(), err)
 	}
 	return nil
@@ -206,7 +305,11 @@ func (f searchFixture) remove(ctx context.Context, nodeID uuid.UUID) error {
 		return loggedError(ctx, "qa datagen: delete search node "+nodeID.String(), err)
 	}
 	if result.State != node.SubtreeDeleteFinished {
-		return loggedError(ctx, "qa datagen: delete search node "+nodeID.String(), errDeleteUnfinished)
+		return loggedError(
+			ctx,
+			"qa datagen: delete search node "+nodeID.String(),
+			errDeleteUnfinished,
+		)
 	}
 	return nil
 }

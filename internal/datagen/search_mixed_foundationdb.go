@@ -10,14 +10,16 @@ import (
 )
 
 const (
-	// searchMixedStatusKey is the special key that returns the FoundationDB status document.
+	// searchMixedStatusKey selects the FoundationDB status document through a
+	// special key.
 	searchMixedStatusKey = "\xff\xff/status/json"
-	// searchMixedStatusTimeout is the longest time that one status read can add to a sample.
+	// searchMixedStatusTimeout limits the time that one status read can add to a
+	// sample.
 	searchMixedStatusTimeout = 1500 * time.Millisecond
 )
 
-// SearchMixedFoundationDB is one reading of FoundationDB cluster health from the status
-// document.
+// SearchMixedFoundationDB records one reading of cluster health from the
+// FoundationDB status document.
 type SearchMixedFoundationDB struct {
 	PerformanceLimitedBy                   string  `json:"performance_limited_by"`
 	WorstQueueBytesStorageServer           int64   `json:"worst_queue_bytes_storage_server"`
@@ -25,8 +27,8 @@ type SearchMixedFoundationDB struct {
 	WorstDurabilityLagStorageServerSeconds float64 `json:"worst_durability_lag_storage_server_seconds"`
 	TransactionsPerSecondLimit             float64 `json:"transactions_per_second_limit"`
 	ReleasedTransactionsPerSecond          float64 `json:"released_transactions_per_second"`
-	// TransactionStartSeconds, ReadSeconds, and CommitSeconds are nil when the status document
-	// does not include the latency probe.
+	// TransactionStartSeconds, ReadSeconds, and CommitSeconds are nil when the
+	// status document does not include the latency probe.
 	TransactionStartSeconds *float64 `json:"transaction_start_seconds"`
 	ReadSeconds             *float64 `json:"read_seconds"`
 	CommitSeconds           *float64 `json:"commit_seconds"`
@@ -76,21 +78,32 @@ type searchMixedStatusDisk struct {
 	Busy float64 `json:"busy"`
 }
 
-// searchMixedFoundationDBStatus reads cluster health from the FoundationDB status document.
+// searchMixedFoundationDBStatus reads cluster health from the FoundationDB
+// status document.
 type searchMixedFoundationDBStatus struct {
 	db fdb.Database
 }
 
-// read returns the cluster health values of the current status document. The read fails when
-// it takes longer than searchMixedStatusTimeout.
+// read returns cluster health values from the current status document. The
+// read fails when it takes longer than searchMixedStatusTimeout.
 func (s *searchMixedFoundationDBStatus) read(ctx context.Context) (*SearchMixedFoundationDB, error) {
 	transaction, err := s.db.CreateTransaction()
 	if err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not create a transaction to read the FoundationDB status document", err)
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not create a transaction to read the FoundationDB status document",
+			err,
+		)
 	}
 	defer transaction.Cancel()
-	if err := transaction.Options().SetTimeout(searchMixedStatusTimeout.Milliseconds()); err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not set the timeout of the FoundationDB status read", err)
+	if err := transaction.Options().SetTimeout(
+		searchMixedStatusTimeout.Milliseconds(),
+	); err != nil {
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not set the timeout of the FoundationDB status read",
+			err,
+		)
 	}
 	for {
 		document, readErr := transaction.Get(fdb.Key(searchMixedStatusKey)).Get()
@@ -99,10 +112,18 @@ func (s *searchMixedFoundationDBStatus) read(ctx context.Context) (*SearchMixedF
 		}
 		var databaseError fdb.Error
 		if !errors.As(readErr, &databaseError) {
-			return nil, loggedError(ctx, "qa datagen search-mixed: the command could not read the FoundationDB status document", readErr)
+			return nil, loggedError(
+				ctx,
+				"qa datagen search-mixed: the command could not read the FoundationDB status document",
+				readErr,
+			)
 		}
 		if retryErr := transaction.OnError(databaseError).Get(); retryErr != nil {
-			return nil, loggedError(ctx, "qa datagen search-mixed: the command could not retry the FoundationDB status read", retryErr)
+			return nil, loggedError(
+				ctx,
+				"qa datagen search-mixed: the command could not retry the FoundationDB status read",
+				retryErr,
+			)
 		}
 	}
 }
@@ -110,7 +131,11 @@ func (s *searchMixedFoundationDBStatus) read(ctx context.Context) (*SearchMixedF
 func decodeSearchMixedStatus(ctx context.Context, document []byte) (*SearchMixedFoundationDB, error) {
 	var status searchMixedStatusDocument
 	if err := json.Unmarshal(document, &status); err != nil {
-		return nil, loggedError(ctx, "qa datagen search-mixed: the command could not decode the FoundationDB status document", err)
+		return nil, loggedError(
+			ctx,
+			"qa datagen search-mixed: the command could not decode the FoundationDB status document",
+			err,
+		)
 	}
 	qos := status.Cluster.QOS
 	probe := status.Cluster.LatencyProbe

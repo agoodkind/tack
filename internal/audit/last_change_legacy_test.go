@@ -24,10 +24,22 @@ func relationshipRow(sourceID, targetID uuid.UUID, at time.Time, commitVersion s
 	row.Context.Phase = audit.PhaseChange
 	row.Context.CommitVersion = commitVersion
 	row.Context.Target = &audit.Target{
-		Kind: audit.TargetKindRelationship, NodeType: "", Reference: "", Name: "", URI: "", RelationType: "blocks",
-		ID: uuid.Nil, SourceID: sourceID, TargetID: targetID,
+		Kind:         audit.TargetKindRelationship,
+		NodeType:     "",
+		Reference:    "",
+		Name:         "",
+		URI:          "",
+		RelationType: "blocks",
+		ID:           uuid.Nil,
+		SourceID:     sourceID,
+		TargetID:     targetID,
 	}
-	row.Delta = &audit.Delta{Before: nil, After: json.RawMessage(`{"relation_type":"blocks"}`), Changed: nil}
+	row.Delta = &audit.Delta{
+		Before:  nil,
+		After:   json.RawMessage(`{"relation_type":"blocks"}`),
+		Changed: nil,
+	}
+
 	return row
 }
 
@@ -50,31 +62,46 @@ func TestLastChangeAppliesLegacyRelationshipRowsToSourceEntries(t *testing.T) {
 	legacy.EntityKind = "relationship"
 	legacy.EntityID = nodeID
 	deriver := audit.NewLastChangeDeriver(nodeID, "")
+
 	for _, row := range []audit.Row{field, outgoing, incoming, legacy} {
 		if err := deriver.Add(row); err != nil {
 			t.Fatalf("add row %s: %v", row.EventID, err)
 		}
 	}
+
 	report := deriver.Report(false)
 	want := []uuid.UUID{legacy.EventID}
 	if !slices.Equal(report.LegacyRelationshipEventIDs, want) || report.LegacyRowCount != 1 {
-		t.Fatalf("report legacy relationship events = %v, legacy rows = %d; want %v and 1", report.LegacyRelationshipEventIDs, report.LegacyRowCount, want)
+		t.Fatalf(
+			"report legacy relationship events = %v, legacy rows = %d; want %v and 1",
+			report.LegacyRelationshipEventIDs,
+			report.LegacyRowCount,
+			want,
+		)
 	}
+
 	for _, entry := range report.Fields {
 		if entry.Status != audit.LastChangeKnown || len(entry.LegacyEventIDs) != 0 {
 			t.Fatalf("field entry %+v, want known without legacy events", entry)
 		}
 	}
+
 	for _, entry := range report.Relationships {
 		fromNode := entry.SourceID == nodeID
-		if fromNode && (entry.Status != audit.LastChangeUnknown || !slices.Equal(entry.LegacyEventIDs, want)) {
+		if fromNode &&
+			(entry.Status != audit.LastChangeUnknown || !slices.Equal(entry.LegacyEventIDs, want)) {
 			t.Fatalf("relationship from the node = %+v, want unknown with %v", entry, want)
 		}
+
 		if !fromNode && (entry.Status != audit.LastChangeKnown || len(entry.LegacyEventIDs) != 0) {
 			t.Fatalf("relationship to the node = %+v, want known without legacy events", entry)
 		}
 	}
+
 	if len(report.Relationships) != 2 {
-		t.Fatalf("relationships = %+v, want the relationship from and to the node", report.Relationships)
+		t.Fatalf(
+			"relationships = %+v, want the relationship from and to the node",
+			report.Relationships,
+		)
 	}
 }

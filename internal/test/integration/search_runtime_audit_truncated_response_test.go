@@ -27,7 +27,10 @@ func TestSearchRuntimeAuditSecurityErrorSnapshotResult(t *testing.T) {
 	requireUnconfirmedSnapshotResult(t, replaceSnapshotResponseWithSecurityError)
 }
 
-func requireUnconfirmedSnapshotResult(t *testing.T, replace func(*http.Response) (snapshotResponse, error)) {
+func requireUnconfirmedSnapshotResult(
+	t *testing.T,
+	replace func(*http.Response) (snapshotResponse, error),
+) {
 	t.Helper()
 	fixture := newFailureFixture(t)
 	t.Setenv("OPENSEARCH_MAX_RETRIES", "0")
@@ -38,7 +41,8 @@ func requireUnconfirmedSnapshotResult(t *testing.T, replace func(*http.Response)
 	}
 	responses := make(chan snapshotResponse, 1)
 	capture.engine.ModifyResponse = func(response *http.Response) error {
-		if response.Request.Method != http.MethodDelete || !strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
+		if response.Request.Method != http.MethodDelete ||
+			!strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
 			return capture.record(response)
 		}
 		observed, err := replace(response)
@@ -51,27 +55,50 @@ func requireUnconfirmedSnapshotResult(t *testing.T, replace func(*http.Response)
 	ctx := t.Context()
 	result := callSnapshotSearch(ctx, fixture, harness, page.Cursor)
 	if result.err != nil || result.status != http.StatusOK {
-		t.Fatalf("the MCP continuation returned HTTP %d with error %v: %s", result.status, result.err, result.text)
+		t.Fatalf(
+			"the MCP continuation returned HTTP %d with error %v: %s",
+			result.status,
+			result.err,
+			result.text,
+		)
 	}
 	if ctx.Err() != nil {
 		t.Fatalf("the unconfirmed response ended the caller's context: %v", ctx.Err())
 	}
 	observed := waitSnapshotResponse(t, responses)
 	requirePITsClosed(t, fixture.QueryFixture, []string{observed.id})
-	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(rows []audit.Row) bool {
-		results := snapshotResults(rows, audit.VerbSearchPointInTimeDelete, audit.OutcomeIncomplete)
-		return len(results) == 2 && snapshotResultsHaveIntents(rows, results)
-	})
+	rows := fixture.audited.waitForRows(
+		t,
+		fixture.Workspaces[0].OrgID,
+		func(rows []audit.Row) bool {
+			results := snapshotResults(
+				rows,
+				audit.VerbSearchPointInTimeDelete,
+				audit.OutcomeIncomplete,
+			)
+			return len(results) == 2 && snapshotResultsHaveIntents(rows, results)
+		},
+	)
 	requireInterruptedSnapshotRows(t, fixture, rows, audit.VerbSearchPointInTimeDelete)
-	for _, row := range snapshotResults(rows, audit.VerbSearchPointInTimeDelete, audit.OutcomeIncomplete) {
+	for _, row := range snapshotResults(
+		rows,
+		audit.VerbSearchPointInTimeDelete,
+		audit.OutcomeIncomplete,
+	) {
 		if row.Context.Target.Kind != audit.TargetKindExternal {
 			continue
 		}
 		var evidence struct {
 			PITID string `json:"pit_id"`
 		}
-		if err := json.Unmarshal(row.Extra, &evidence); err != nil || evidence.PITID != observed.id {
-			t.Fatalf("the permanent delete result does not identify the actual point in time %s: %s; error=%v", observed.id, row.Extra, err)
+		if err := json.Unmarshal(row.Extra, &evidence); err != nil ||
+			evidence.PITID != observed.id {
+			t.Fatalf(
+				"the permanent delete result does not identify the actual point in time %s: %s; error=%v",
+				observed.id,
+				row.Extra,
+				err,
+			)
 		}
 	}
 }

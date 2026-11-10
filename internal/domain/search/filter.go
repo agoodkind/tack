@@ -29,35 +29,57 @@ type AccessFilter struct {
 	Keys    []string
 }
 
-// ValidateAccessFilter rejects an empty, duplicate, unsorted, or oversized
-// access filter.
+// ValidateAccessFilter rejects invalid caller access values.
+//
+// The filter must supply a version and a sorted list of unique keys.
+//
+//   - The version and each key must fit [MaxAccessValueBytes] and be nonempty.
+//   - The filter must contain between one and [MaxAccessKeys] keys.
+//   - Valid input returns nil; invalid input wraps [ErrInvalidAccessFilter].
 func ValidateAccessFilter(filter AccessFilter) error {
 	valueBound := strconv.Itoa(MaxAccessValueBytes)
 	if filter.Version == "" || len(filter.Version) > MaxAccessValueBytes {
-		return invalidFilterError{reason: "the version must contain between 1 and " + valueBound + " bytes"}
+		return invalidFilterError{
+			reason: "the version must contain between 1 and " + valueBound + " bytes",
+		}
 	}
+
 	if len(filter.Keys) == 0 || len(filter.Keys) > MaxAccessKeys {
-		return invalidFilterError{reason: "the filter must contain between 1 and " + strconv.Itoa(MaxAccessKeys) + " keys"}
+		return invalidFilterError{
+			reason: "the filter must contain between 1 and " + strconv.Itoa(
+				MaxAccessKeys,
+			) + " keys",
+		}
 	}
+
 	if !slices.IsSorted(filter.Keys) || hasDuplicate(filter.Keys) {
 		return invalidFilterError{reason: "keys must be sorted and unique"}
 	}
+
 	for _, key := range filter.Keys {
 		if key == "" || len(key) > MaxAccessValueBytes {
-			return invalidFilterError{reason: "each key must contain between 1 and " + valueBound + " bytes"}
+			return invalidFilterError{
+				reason: "each key must contain between 1 and " + valueBound + " bytes",
+			}
 		}
 	}
+
 	return nil
 }
 
-// Permits reports whether any current resource key equals a caller key. It
-// binary-searches f.Keys. [ValidateAccessFilter] requires f.Keys to be
-// sorted. resourceKeys can be in any order.
+// Permits reports whether a current resource key equals a caller key.
+//
+// The method uses binary search over f.Keys. [ValidateAccessFilter] requires
+// those keys to sort before this check.
+//
+//   - The resourceKeys argument can use any order.
+//   - A matching key returns true; a list without a match returns false.
 func (f AccessFilter) Permits(resourceKeys []string) bool {
 	for _, key := range resourceKeys {
 		if _, found := slices.BinarySearch(f.Keys, key); found {
 			return true
 		}
 	}
+
 	return false
 }

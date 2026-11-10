@@ -10,7 +10,8 @@ import (
 )
 
 // RepairExportRecord contains a node's resolution, primary, and view records
-// and the stored forward value for each relationship key to or from the node.
+// and the stored forward value for each relationship key to or from the
+// node.
 type RepairExportRecord struct {
 	Found         bool
 	Resolve       json.RawMessage
@@ -30,53 +31,99 @@ type RepairExportEdge struct {
 
 // RepairExport reads nodeID's resolution, primary, and view records and the
 // stored forward value for every relationship key to or from the node in one
-// read transaction. It returns an error if the edges in either direction
-// exceed one page.
-func (s *RepairStore) RepairExport(ctx context.Context, nodeID uuid.UUID) (record RepairExportRecord, err error) {
+// read transaction.
+//
+// It returns an error if the edges in either direction exceed one page.
+//
+//   - A missing forward relationship value produces an edge with a nil
+//     Value.
+func (s *RepairStore) RepairExport(
+	ctx context.Context,
+	nodeID uuid.UUID,
+) (record RepairExportRecord, err error) {
 	defer telemetry.FDBOp(ctx, "store.repair.export")(&err)
-	err = runNodeReadTransaction(ctx, s.db, "read repair export of node "+nodeID.String(), func(tr fdb.Transaction) error {
-		var readErr error
-		record, readErr = readRepairExport(ctx, tr, nodeID)
-		return readErr
-	})
+	err = runNodeReadTransaction(
+		ctx,
+		s.db,
+		"read repair export of node "+nodeID.String(),
+		func(tr fdb.Transaction) error {
+			var readErr error
+			record, readErr = readRepairExport(ctx, tr, nodeID)
+
+			return readErr
+		},
+	)
+
 	return record, err
 }
 
-func readRepairExport(ctx context.Context, tr fdb.Transaction, nodeID uuid.UUID) (RepairExportRecord, error) {
-	record := RepairExportRecord{Found: false, Resolve: nil, Primary: nil, View: nil, Relationships: nil}
+func readRepairExport(
+	ctx context.Context,
+	tr fdb.Transaction,
+	nodeID uuid.UUID,
+) (RepairExportRecord, error) {
+	record := RepairExportRecord{
+		Found:         false,
+		Resolve:       nil,
+		Primary:       nil,
+		View:          nil,
+		Relationships: nil,
+	}
 	current, err := readRepairNode(ctx, tr, nodeID)
 	if err != nil || !current.Found {
 		return record, err
 	}
+
 	resolve, err := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
 	if err != nil {
 		return record, searchReadFailure(ctx, "read resolution of node "+nodeID.String(), err)
 	}
+
 	view, err := tr.Get(fdb.Key(nodeViewKey(current.OrgID, current.NodeType, nodeID))).Get()
 	if err != nil {
 		return record, searchReadFailure(ctx, "read view of node "+nodeID.String(), err)
 	}
+
 	record.Found, record.Resolve, record.Primary = true, resolve, current.Primary
 	if len(view) > 0 {
 		record.View = view
 	}
+
 	record.Relationships = []RepairExportEdge{}
+
 	for _, incoming := range []bool{false, true} {
 		edges, err := readRepairEdges(ctx, tr, current, incoming)
 		if err != nil {
 			return record, err
 		}
+
 		for _, edge := range edges {
-			stored, err := tr.Get(fdb.Key(relationshipKey(current.OrgID, edge.SourceID, edge.RelationType, edge.TargetID))).Get()
+			stored, err := tr.Get(
+				fdb.Key(
+					relationshipKey(current.OrgID, edge.SourceID, edge.RelationType, edge.TargetID),
+				),
+			).Get()
 			if err != nil {
-				return record, searchReadFailure(ctx, "read relationship of node "+nodeID.String(), err)
+				return record, searchReadFailure(
+					ctx,
+					"read relationship of node "+nodeID.String(),
+					err,
+				)
 			}
-			exported := RepairExportEdge{SourceID: edge.SourceID, RelationType: edge.RelationType, TargetID: edge.TargetID, Value: nil}
+
+			exported := RepairExportEdge{
+				SourceID:     edge.SourceID,
+				RelationType: edge.RelationType,
+				TargetID:     edge.TargetID,
+				Value:        nil,
+			}
 			if len(stored) > 0 {
 				exported.Value = stored
 			}
+
 			record.Relationships = append(record.Relationships, exported)
 		}
 	}
+
 	return record, nil
 }

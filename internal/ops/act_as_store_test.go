@@ -18,8 +18,8 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// actAsTransactionTimeout bounds every product-store transaction the act-as
-// tests run. It matches the deployed default.
+// actAsTransactionTimeout limits each product-store transaction in the act-as
+// tests. It matches the server configuration's default.
 const actAsTransactionTimeout = 5 * time.Second
 
 // actAsStores opens the FoundationDB stores under a per-test key prefix and
@@ -38,11 +38,12 @@ func actAsStores(t *testing.T) *fdbadapter.Stores {
 	if err != nil {
 		t.Fatalf("open foundationdb: %v", err)
 	}
+
 	return stores
 }
 
-// clearActAsPrefix range-clears every key under prefix on its own database
-// handle.
+// clearActAsPrefix opens its own database handle and clears every key under
+// prefix.
 func clearActAsPrefix(t *testing.T, clusterFile string, prefix []byte) {
 	t.Helper()
 	db, err := fdbadapter.Open(clusterFile, actAsTransactionTimeout)
@@ -50,9 +51,14 @@ func clearActAsPrefix(t *testing.T, clusterFile string, prefix []byte) {
 		t.Logf("cleanup: open fdb: %v", err)
 		return
 	}
+
 	end := append(append([]byte(nil), prefix...), 0xFF)
 	_, err = db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
+		tr.ClearRange(fdb.KeyRange{
+			Begin: fdb.Key(prefix),
+			End:   fdb.Key(end),
+		})
+
 		return nil, nil
 	})
 	if err != nil {
@@ -60,64 +66,123 @@ func clearActAsPrefix(t *testing.T, clusterFile string, prefix []byte) {
 	}
 }
 
-// writeActAsOrg writes a root org node with the store, the way the seed
-// command writes one, and seeds the org's node types and property defs.
+// writeActAsOrg writes a root organization through the store, as the seed
+// command does. It seeds the organization's node types and property
+// definitions.
 func writeActAsOrg(t *testing.T, stores *fdbadapter.Stores, slug string) uuid.UUID {
 	t.Helper()
 	orgID := node.NewOrgID()
 	now := clock.Now().UTC()
 	props := map[string]json.RawMessage{"slug": actAsJSONString(t, slug)}
 	value := &node.Node{
-		ID: orgID, OrgID: orgID, NodeType: "org", Name: slug, Props: props,
-		CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
+		ID:        orgID,
+		OrgID:     orgID,
+		NodeType:  "org",
+		Name:      slug,
+		Props:     props,
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	view := &node.NodeView{
-		ID: orgID, OrgID: orgID, NodeType: "org", Name: slug, Props: props,
-		CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
+		ID:        orgID,
+		OrgID:     orgID,
+		NodeType:  "org",
+		Name:      slug,
+		Props:     props,
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
-	if err := stores.Nodes.CreateAtomic(actAsFixtureContext(t), value, view, nil, []string{"slug"}, nil, nil); err != nil {
+	if err := stores.Nodes.CreateAtomic(
+		actAsFixtureContext(t),
+		value,
+		view,
+		nil,
+		[]string{"slug"},
+		nil,
+		nil,
+	); err != nil {
 		t.Fatalf("write org %s: %v", slug, err)
 	}
-	if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(actAsFixtureContext(t), orgID); err != nil {
+
+	if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(
+		actAsFixtureContext(t),
+		orgID,
+	); err != nil {
 		t.Fatalf("seed org %s: %v", slug, err)
 	}
+
 	return orgID
 }
 
-// actAsFixtureContext returns the test context with an audit operation of a
-// system actor for the fixture writes.
+// actAsFixtureContext attaches a system actor's audit operation to the test
+// context for fixture writes.
 func actAsFixtureContext(t *testing.T) context.Context {
 	t.Helper()
-	operation, err := audit.NewMutationOperation(audit.Actor{
-		Type: audit.ActorSystem, ID: uuid.New(), Email: "", Name: "act-as fixture", SessionID: "",
-		IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
-	}, audit.SourceSystem, "act-as-fixture")
+	operation, err := audit.NewMutationOperation(
+		audit.Actor{
+			Type:          audit.ActorSystem,
+			ID:            uuid.New(),
+			Email:         "",
+			Name:          "act-as fixture",
+			SessionID:     "",
+			IP:            "",
+			UserAgent:     "",
+			RequestID:     "",
+			APITokenLabel: "",
+		},
+		audit.SourceSystem,
+		"act-as-fixture",
+	)
 	if err != nil {
 		t.Fatalf("create the fixture audit operation: %v", err)
 	}
+
 	attached, err := audit.WithMutationContext(t.Context(), operation)
 	if err != nil {
 		t.Fatalf("attach the fixture audit operation: %v", err)
 	}
+
 	return attached
 }
 
-// createActAsScope creates a workspace or project through the node service.
-// A project also gets an identifier for its issue references.
-func createActAsScope(t *testing.T, nodes *service.NodeService, typeKey, name string, parentID uuid.UUID) uuid.UUID {
+// createActAsScope creates a workspace or project through the node service. It
+// sets an identifier for a project's issue references.
+func createActAsScope(
+	t *testing.T,
+	nodes *service.NodeService,
+	typeKey string,
+	name string,
+	parentID uuid.UUID,
+) uuid.UUID {
 	t.Helper()
 	props := map[string]json.RawMessage{"slug": actAsJSONString(t, strings.ToLower(name))}
 	if typeKey == "project" {
 		props["identifier"] = actAsJSONString(t, strings.ToUpper(name))
 	}
-	created, err := nodes.Create(actAsFixtureContext(t), service.CreateInput{
-		ParentID: parentID, ScopeID: parentID, NodeTypeKey: typeKey, Name: name, Props: props,
-		Relationships: nil, ActorID: uuid.New(),
-		IdempotencyKey: "", IdempotencyFingerprint: "", IdempotencySource: "",
-	})
+
+	created, err := nodes.Create(
+		actAsFixtureContext(t),
+		service.CreateInput{
+			ParentID:               parentID,
+			ScopeID:                parentID,
+			NodeTypeKey:            typeKey,
+			Name:                   name,
+			Props:                  props,
+			Relationships:          nil,
+			ActorID:                uuid.New(),
+			IdempotencyKey:         "",
+			IdempotencyFingerprint: "",
+			IdempotencySource:      "",
+		},
+	)
 	if err != nil {
 		t.Fatalf("create %s %s: %v", typeKey, name, err)
 	}
+
 	return created.View.ID
 }
 
@@ -127,11 +192,12 @@ func actAsJSONString(t *testing.T, value string) json.RawMessage {
 	if err != nil {
 		t.Fatalf("encode %q: %v", value, err)
 	}
+
 	return encoded
 }
 
-// actAsOutboxRows reads every row in the FoundationDB operator outbox under
-// the test's key prefix. The store writes a staged user row there inside the
+// actAsOutboxRows reads a batch from the FoundationDB operator outbox under the
+// test's key prefix. The store commits a staged user event there inside the
 // create transaction.
 func actAsOutboxRows(t *testing.T, stores *fdbadapter.Stores) []audit.Event {
 	t.Helper()
@@ -139,23 +205,30 @@ func actAsOutboxRows(t *testing.T, stores *fdbadapter.Stores) []audit.Event {
 	if err != nil {
 		t.Fatalf("read the foundationdb outbox: %v", err)
 	}
+
 	rows := make([]audit.Event, 0, len(entries))
 	for _, entry := range entries {
 		var event audit.Event
 		if err := json.Unmarshal(entry.Event, &event); err != nil {
 			t.Fatalf("decode the outbox row: %v", err)
 		}
+
 		rows = append(rows, event)
 	}
+
 	return rows
 }
 
 // actAsIssues lists the issue nodes in orgID through the node reader.
 func actAsIssues(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID) []*node.NodeView {
 	t.Helper()
-	views, err := stores.Views.List(t.Context(), node.NodeListQuery{OrgID: orgID, NodeType: "issue"})
+	views, err := stores.Views.List(
+		t.Context(),
+		node.NodeListQuery{OrgID: orgID, NodeType: "issue"},
+	)
 	if err != nil {
 		t.Fatalf("list issues in org %s: %v", orgID, err)
 	}
+
 	return views
 }

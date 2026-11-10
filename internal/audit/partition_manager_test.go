@@ -24,12 +24,14 @@ func (f *fakeStore) RunMaintenance(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.runs++
+
 	return f.runErr
 }
 
 func (f *fakeStore) HeadroomWeeks(context.Context, time.Time) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	return f.headroom, f.headErr
 }
 
@@ -38,17 +40,19 @@ func (f *fakeStore) StrayChildren(context.Context) ([]string, error) { return ni
 func (f *fakeStore) runCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	return f.runs
 }
 
-// TestPartitionManagerRunsOnceOnStart verifies boot catch-up: Start triggers one
-// maintenance run before any tick fires.
+// TestPartitionManagerRunsOnceOnStart checks that Start triggers startup
+// maintenance before the first timer tick.
 func TestPartitionManagerRunsOnceOnStart(t *testing.T) {
 	store := &fakeStore{headroom: 12}
 	pm := NewPartitionManager(store, time.Hour)
 	ctx := context.Background()
 	pm.Start(ctx)
 	deadline := time.After(2 * time.Second)
+
 	for store.runCount() < 1 {
 		select {
 		case <-deadline:
@@ -56,53 +60,62 @@ func TestPartitionManagerRunsOnceOnStart(t *testing.T) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
+
 	if err := pm.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 }
 
-// TestPartitionManagerCloseIdempotent verifies Close can be called twice safely.
+// TestPartitionManagerCloseIdempotent checks that two Close calls succeed.
 func TestPartitionManagerCloseIdempotent(t *testing.T) {
 	pm := NewPartitionManager(&fakeStore{headroom: 12}, time.Hour)
 	pm.Start(context.Background())
 	if err := pm.Close(); err != nil {
 		t.Fatalf("first Close: %v", err)
 	}
+
 	if err := pm.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
 }
 
 // TestPartitionMaintenanceMeetsTheAlertFloor runs maintenance on a migrated
-// ledger and checks that the headroom it leaves does not trip the alert.
+// ledger and checks that the resulting headroom meets the alert floor.
 func TestPartitionMaintenanceMeetsTheAlertFloor(t *testing.T) {
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, testenv.Ledger(t))
 	if err != nil {
 		t.Fatalf("pgxpool: %v", err)
 	}
+
 	t.Cleanup(pool.Close)
 	store := NewPGPartitionStore(pool)
 	if err := store.RunMaintenance(ctx); err != nil {
 		t.Fatalf("run maintenance: %v", err)
 	}
+
 	headroom, err := store.HeadroomWeeks(ctx, clock.Now().UTC())
 	if err != nil {
 		t.Fatalf("headroom: %v", err)
 	}
+
 	if headroom < partitionHeadroomAlertFloor {
-		t.Fatalf("headroom after maintenance = %d weeks, below the alert floor of %d",
-			headroom, partitionHeadroomAlertFloor)
+		t.Fatalf(
+			"headroom after maintenance = %d weeks, below the alert floor of %d",
+			headroom,
+			partitionHeadroomAlertFloor,
+		)
 	}
 }
 
-// TestPartitionManagerRunErrorDoesNotPanic verifies a maintenance failure is
-// swallowed (logged) and the worker keeps running.
+// TestPartitionManagerRunErrorDoesNotPanic checks that the worker continues
+// after a maintenance failure. The worker logs the failure.
 func TestPartitionManagerRunErrorDoesNotPanic(t *testing.T) {
 	store := &fakeStore{runErr: errors.New("boom"), headroom: 0}
 	pm := NewPartitionManager(store, time.Hour)
 	pm.Start(context.Background())
 	deadline := time.After(2 * time.Second)
+
 	for store.runCount() < 1 {
 		select {
 		case <-deadline:
@@ -110,6 +123,7 @@ func TestPartitionManagerRunErrorDoesNotPanic(t *testing.T) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
+
 	if err := pm.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}

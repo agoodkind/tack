@@ -57,21 +57,35 @@ func macDockerFixture(t *testing.T) (testenv.MacTestOptions, *client.Client, str
 	digest := sha256.Sum256([]byte(options.Root))
 	project := fmt.Sprintf("tack-runner-fixture-%x", digest[:8])
 	t.Setenv("COMPOSE_PROJECT_NAME", project)
-	options.TestArguments = []string{"-run=^TestMacRunner(Flags|Skip|CacheMarker)$", "-count=2", "-timeout=45s", "-tags=macrunnerfixture,runtimeaudit", "-skip=^TestMacRunnerSkip$"}
+	options.TestArguments = []string{
+		"-run=^TestMacRunner(Flags|Skip|CacheMarker)$",
+		"-count=2",
+		"-timeout=45s",
+		"-tags=macrunnerfixture,runtimeaudit",
+		"-skip=^TestMacRunnerSkip$",
+	}
 	contents, err := os.ReadFile("testdata/macrunnerfixture/runner_test.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	macWrite(t, options.Root, "internal/test/integration/example_test.go", string(contents))
 	macWrite(t, options.Root, "go.mod", "module goodkind.io/tack\n\ngo 1.27\n")
-	docker, err := client.New(client.WithHost("unix://" + filepath.Join(os.Getenv("HOME"), ".docker/run/docker.sock")))
+	docker, err := client.New(
+		client.WithHost("unix://" + filepath.Join(os.Getenv("HOME"), ".docker/run/docker.sock")),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = docker.Close() })
 	for _, suffix := range []string{"tack-test-go-cache", "tack-test-go-mod"} {
 		name := project + "_" + suffix
-		created, err := docker.VolumeCreate(t.Context(), client.VolumeCreateOptions{Name: name, Labels: map[string]string{"tack.mac-runner-fixture": project}})
+		created, err := docker.VolumeCreate(
+			t.Context(),
+			client.VolumeCreateOptions{
+				Name:   name,
+				Labels: map[string]string{"tack.mac-runner-fixture": project},
+			},
+		)
 		if err != nil || created.Volume.Name != name {
 			t.Fatalf("create fixture cache %s: %v", name, err)
 		}
@@ -97,7 +111,11 @@ func macRemoveFixtureVolume(t *testing.T, docker *client.Client, name, project s
 	}
 }
 
-func macRuntimeEvidence(t *testing.T, options testenv.MacTestOptions, docker *client.Client) macRuntimeSummary {
+func macRuntimeEvidence(
+	t *testing.T,
+	options testenv.MacTestOptions,
+	docker *client.Client,
+) macRuntimeSummary {
 	t.Helper()
 	contents, err := os.ReadFile(filepath.Join(options.EvidenceDirectory, "result.json"))
 	if err != nil {
@@ -110,7 +128,8 @@ func macRuntimeEvidence(t *testing.T, options testenv.MacTestOptions, docker *cl
 	for _, operation := range summary.Operations {
 		switch operation.Operation {
 		case "container remove":
-			if summary.Baseline.Containers[operation.ID] || !slices.Contains(summary.CreatedIDs, operation.ID) {
+			if summary.Baseline.Containers[operation.ID] ||
+				!slices.Contains(summary.CreatedIDs, operation.ID) {
 				t.Fatalf("container mutation lacks invocation ownership: %+v", operation)
 			}
 		case "volume remove":
@@ -124,13 +143,21 @@ func macRuntimeEvidence(t *testing.T, options testenv.MacTestOptions, docker *cl
 		}
 	}
 	if summary.RunnerID != "" {
-		_, err := docker.ContainerInspect(t.Context(), summary.RunnerID, client.ContainerInspectOptions{})
+		_, err := docker.ContainerInspect(
+			t.Context(),
+			summary.RunnerID,
+			client.ContainerInspectOptions{},
+		)
 		if !errdefs.IsNotFound(err) {
 			t.Fatalf("runner remains after finalization: %v", err)
 		}
 	}
 	for volume := range summary.AnonymousVolumes {
-		if _, err := docker.VolumeInspect(t.Context(), volume, client.VolumeInspectOptions{}); !errdefs.IsNotFound(err) {
+		if _, err := docker.VolumeInspect(
+			t.Context(),
+			volume,
+			client.VolumeInspectOptions{},
+		); !errdefs.IsNotFound(err) {
 			t.Fatalf("owned temporary volume remains: %s: %v", volume, err)
 		}
 	}
@@ -151,18 +178,39 @@ func macRuntimeEvidence(t *testing.T, options testenv.MacTestOptions, docker *cl
 func TestMacRunnerDockerFlagsAndCleanup(t *testing.T) {
 	options, docker, project := macDockerFixture(t)
 	reusedNetwork := macReusedFixtureNetwork(t, docker, project)
-	marker, err := docker.ContainerCreate(t.Context(), client.ContainerCreateOptions{
-		Name: project + "-baseline", Config: &container.Config{Image: options.Image, Labels: map[string]string{"tack.mac-runner-fixture": project}},
-		HostConfig: &container.HostConfig{Mounts: []mount.Mount{
-			{Type: mount.TypeVolume, Source: project + "_tack-test-go-cache", Target: "/root/.cache/go-build"},
-			{Type: mount.TypeVolume, Source: project + "_tack-test-go-mod", Target: "/go/pkg/mod"},
-		}},
-	})
+	marker, err := docker.ContainerCreate(
+		t.Context(),
+		client.ContainerCreateOptions{
+			Name: project + "-baseline",
+			Config: &container.Config{
+				Image:  options.Image,
+				Labels: map[string]string{"tack.mac-runner-fixture": project},
+			},
+			HostConfig: &container.HostConfig{
+				Mounts: []mount.Mount{
+					{
+						Type:   mount.TypeVolume,
+						Source: project + "_tack-test-go-cache",
+						Target: "/root/.cache/go-build",
+					},
+					{
+						Type:   mount.TypeVolume,
+						Source: project + "_tack-test-go-mod",
+						Target: "/go/pkg/mod",
+					},
+				},
+			},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, err := docker.ContainerRemove(context.Background(), marker.ID, client.ContainerRemoveOptions{})
+		_, err := docker.ContainerRemove(
+			context.Background(),
+			marker.ID,
+			client.ContainerRemoveOptions{},
+		)
 		if err != nil {
 			t.Error(err)
 		}
@@ -172,20 +220,35 @@ func TestMacRunnerDockerFlagsAndCleanup(t *testing.T) {
 		t.Errorf("fixture runner: result=%+v error=%v", result, err)
 	}
 	summary := macRuntimeEvidence(t, options, docker)
-	if summary.RuntimeExit == nil || *summary.RuntimeExit != 0 || !summary.AttachComplete || !summary.EventsComplete {
+	if summary.RuntimeExit == nil || *summary.RuntimeExit != 0 || !summary.AttachComplete ||
+		!summary.EventsComplete {
 		t.Fatalf("incomplete runtime evidence: %+v", summary)
 	}
 	contents, err := os.ReadFile(filepath.Join(options.EvidenceDirectory, "runtime.log"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(contents), "MAC_RUNNER_FLAGS") != 2 || strings.Count(string(contents), "MAC_RUNNER_CACHE_MARKER") != 2 || strings.Contains(string(contents), "=== RUN   TestMacRunnerSkip") || !strings.Contains(string(contents), "-test.timeout=45s") {
-		t.Fatalf("fixture output did not prove exact selection, count, timeout and skip: %s", contents)
+	if strings.Count(string(contents), "MAC_RUNNER_FLAGS") != 2 ||
+		strings.Count(string(contents), "MAC_RUNNER_CACHE_MARKER") != 2 ||
+		strings.Contains(string(contents), "=== RUN   TestMacRunnerSkip") ||
+		!strings.Contains(string(contents), "-test.timeout=45s") {
+		t.Fatalf(
+			"fixture output did not prove exact selection, count, timeout and skip: %s",
+			contents,
+		)
 	}
-	if _, err := docker.ContainerInspect(t.Context(), marker.ID, client.ContainerInspectOptions{}); err != nil {
+	if _, err := docker.ContainerInspect(
+		t.Context(),
+		marker.ID,
+		client.ContainerInspectOptions{},
+	); err != nil {
 		t.Fatalf("baseline marker disappeared: %v", err)
 	}
-	if _, err := docker.NetworkInspect(t.Context(), reusedNetwork, client.NetworkInspectOptions{}); err != nil {
+	if _, err := docker.NetworkInspect(
+		t.Context(),
+		reusedNetwork,
+		client.NetworkInspectOptions{},
+	); err != nil {
 		t.Fatalf("reused default network disappeared: %v", err)
 	}
 	macCacheMarker(t, docker, marker.ID, "/root/.cache/go-build/mac-runner-marker")

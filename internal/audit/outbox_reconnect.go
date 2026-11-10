@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Server-side SQLSTATE codes that mean the connection ended rather than the
-// statement being refused: the server shut down, crashed, or is starting.
+// These SQLSTATE codes report server shutdown, a server crash, or server
+// startup rather than a statement refusal.
 const (
 	adminShutdownSQLState    = "57P01"
 	crashShutdownSQLState    = "57P02"
@@ -23,29 +23,38 @@ const (
 	connectionExceptionClass = "08"
 )
 
-// insertOutboxEvent inserts one event and, when the connection it used was
-// lost, inserts it once more on a fresh connection. The ledger DSN names every
-// node, so the fresh connection lands on a node that is still serving.
+// insertOutboxEvent inserts one event and retries once through the pool when
+// the connection fails. A ledger DSN with every node permits the pool to
+// connect to another serving node.
 //
-// An operator command can stop the very node its connection sits on: `ops
-// ledger node-prepare` stops the local ledger container and then records its
-// outcome. Without the second attempt that outcome write fails on the dead
-// connection, the command exits non-zero, and the deploy never starts the node
-// again (TACK-497).
+// The ops ledger node-prepare command stops the local ledger container before
+// recording its outcome. TACK-497 documented a failed outcome write on the
+// stopped connection: the command exited with an error, and deployment did
+// not restart the node. The retry attempts the outcome write again after a
+// lost connection.
 //
-// The first attempt can commit and still report a lost connection. A duplicate
-// key on the second attempt is therefore that same row, already written.
+// The first attempt can commit before reporting a lost connection. A duplicate
+// event key on retry counts as an already-written row.
 func (o *PoolOutbox) insertOutboxEvent(ctx context.Context, event Event, eventJSON []byte) error {
 	_, err := o.pool.Exec(ctx, outboxInsertStatement, event.EventID, eventJSON)
 	if err == nil {
 		return nil
 	}
+
 	if !isConnectionLost(err) {
-		slog.ErrorContext(ctx, "audit.outbox.insert_failed",
-			slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.outbox.insert_failed",
+			slog.String("event_id", event.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("insert outbox event: %w", err)
 	}
-	slog.WarnContext(ctx, "audit.outbox.write_reconnecting",
+
+	slog.WarnContext(
+		ctx,
+		"audit.outbox.write_reconnecting",
 		slog.String("event_id", event.EventID.String()),
 		slog.String("err", err.Error()),
 	)
@@ -53,8 +62,14 @@ func (o *PoolOutbox) insertOutboxEvent(ctx context.Context, event Event, eventJS
 	if retryErr == nil || isOutboxDuplicate(retryErr) {
 		return nil
 	}
-	slog.ErrorContext(ctx, "audit.outbox.reconnect_insert_failed",
-		slog.String("event_id", event.EventID.String()), slog.String("err", retryErr.Error()))
+
+	slog.ErrorContext(
+		ctx,
+		"audit.outbox.reconnect_insert_failed",
+		slog.String("event_id", event.EventID.String()),
+		slog.String("err", retryErr.Error()),
+	)
+
 	return fmt.Errorf("insert outbox event after the connection was lost: %w", retryErr)
 }
 
@@ -64,8 +79,8 @@ const outboxInsertStatement = `
 	VALUES ($1, $2)
 `
 
-// isConnectionLost reports whether err means the connection to the ledger went
-// away, as opposed to the database refusing the statement.
+// isConnectionLost reports whether err indicates a lost or unavailable ledger
+// connection rather than a refused statement.
 func isConnectionLost(err error) bool {
 	var postgresError *pgconn.PgError
 	if errors.As(err, &postgresError) {
@@ -73,15 +88,19 @@ func isConnectionLost(err error) bool {
 		case adminShutdownSQLState, crashShutdownSQLState, cannotConnectNowSQLState:
 			return true
 		}
+
 		return strings.HasPrefix(postgresError.Code, connectionExceptionClass)
 	}
+
 	var connectError *pgconn.ConnectError
 	if errors.As(err, &connectError) {
 		return true
 	}
+
 	var networkError net.Error
 	if errors.As(err, &networkError) {
 		return true
 	}
+
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }

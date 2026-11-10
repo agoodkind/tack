@@ -10,8 +10,8 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// rolloutRepair specifies the action a stale node needs before
-// verification can pass. A larger value takes precedence for a node.
+// rolloutRepair selects the action a stale node needs before verification
+// can pass. A larger value takes precedence for a node.
 type rolloutRepair uint8
 
 const (
@@ -47,6 +47,7 @@ func staleRolloutNodes(
 ) (map[uuid.UUID]rolloutRepair, error) {
 	stale := make(map[uuid.UUID]rolloutRepair)
 	nodes := make(map[uuid.UUID]rolloutNodeState)
+
 	for _, document := range documents {
 		nodeState, read := nodes[document.NodeID]
 		if !read {
@@ -55,19 +56,26 @@ func staleRolloutNodes(
 			if err != nil {
 				return nil, err
 			}
+
 			nodes[document.NodeID] = nodeState
 		}
+
 		repair := pageRepair(states[document.Document.DocumentID], required, nodeState)
 		if repair > stale[document.NodeID] {
 			stale[document.NodeID] = repair
 		}
 	}
+
 	return stale, nil
 }
 
 // pageRepair returns the repair one page needs, or zero when the page is
 // current.
-func pageRepair(state searchdomain.DocumentAccess, required []string, nodeState rolloutNodeState) rolloutRepair {
+func pageRepair(
+	state searchdomain.DocumentAccess,
+	required []string,
+	nodeState rolloutNodeState,
+) rolloutRepair {
 	versions := slices.Clone(state.Versions)
 	slices.Sort(versions)
 	switch {
@@ -84,26 +92,42 @@ func pageRepair(state searchdomain.DocumentAccess, required []string, nodeState 
 
 // readRolloutNodeState reads one node's pending live, access, cleanup,
 // and copy work and recorded access generation inside tr.
-func readRolloutNodeState(ctx context.Context, tr fdb.Transaction, orgID, nodeID uuid.UUID) (rolloutNodeState, error) {
+func readRolloutNodeState(
+	ctx context.Context,
+	tr fdb.Transaction,
+	orgID uuid.UUID,
+	nodeID uuid.UUID,
+) (rolloutNodeState, error) {
 	state := rolloutNodeState{pending: false, generation: 0}
+
 	for _, class := range searchNodeClasses {
 		_, found, err := readSearchWork(ctx, tr, class, orgID, nodeID)
 		if err != nil {
 			return state, err
 		}
+
 		state.pending = state.pending || found
 	}
+
 	record, err := accessRecordFor(ctx, tr, orgID, nodeID)
 	if err != nil {
 		return state, err
 	}
+
 	state.generation = record.Access.Generation
+
 	return state, nil
 }
 
 // scheduleRolloutRepairs schedules content or access work for each stale
 // node. It does not schedule new work for a waiting node.
-func scheduleRolloutRepairs(ctx context.Context, tr fdb.Transaction, now time.Time, orgID uuid.UUID, stale map[uuid.UUID]rolloutRepair) error {
+func scheduleRolloutRepairs(
+	ctx context.Context,
+	tr fdb.Transaction,
+	now time.Time,
+	orgID uuid.UUID,
+	stale map[uuid.UUID]rolloutRepair,
+) error {
 	for nodeID, repair := range stale {
 		var err error
 		switch repair {
@@ -113,9 +137,11 @@ func scheduleRolloutRepairs(ctx context.Context, tr fdb.Transaction, now time.Ti
 		case rolloutRepairAccess:
 			err = scheduleAccessRepair(ctx, tr, now, orgID, nodeID)
 		}
+
 		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }

@@ -20,7 +20,8 @@ var (
 	// ErrConcurrentWrite means another write changed a page after the search
 	// adapter read it, on every one of its bounded write attempts.
 	ErrConcurrentWrite = errors.New("another write changed the search page after it was read")
-	// ErrNoServingIndex means FoundationDB records no serving physical index yet.
+	// ErrNoServingIndex means FoundationDB has not recorded a serving
+	// physical index.
 	ErrNoServingIndex = errors.New("no serving search index is recorded")
 )
 
@@ -44,12 +45,21 @@ const (
 	WorkClassCopy WorkClass = "copy"
 )
 
-// ScheduledWorkClasses returns every class a search worker rotates through,
-// in the order that breaks weight ties.
+// ScheduledWorkClasses returns every class that a search worker schedules.
+//
+// Workers rotate this order by their offset to break ties in worker time
+// per unit of weight.
+//
+//   - An offset of zero starts the order with live work.
 func ScheduledWorkClasses() []WorkClass {
 	return []WorkClass{
-		WorkClassLive, WorkClassAccess, WorkClassCleanup, WorkClassRescan,
-		WorkClassRollout, WorkClassRebuild, WorkClassCopy,
+		WorkClassLive,
+		WorkClassAccess,
+		WorkClassCleanup,
+		WorkClassRescan,
+		WorkClassRollout,
+		WorkClassRebuild,
+		WorkClassCopy,
 	}
 }
 
@@ -94,13 +104,18 @@ type Work struct {
 	Mirror string
 }
 
-// Excludable reports whether a failure of work can exclude its node from
-// search. Live, access, and copy work of an existing node can. Cleanup work,
-// work of a deleted node, and organization or index work cannot.
+// Excludable reports whether a work failure can exclude its node from search.
+//
+// Only live, access, and copy work can exclude an existing node.
+//
+//   - Cleanup work cannot exclude a node.
+//   - Work for a deleted node cannot exclude it.
+//   - Organization and index work cannot exclude a node.
 func (w Work) Excludable() bool {
 	if w.Deleted {
 		return false
 	}
+
 	return w.Class == WorkClassLive || w.Class == WorkClassAccess || w.Class == WorkClassCopy
 }
 
@@ -149,8 +164,9 @@ type RetirementIntent struct {
 	Documents []IssuedDocument
 }
 
-// AccessPlan is the next step of one access work item after FoundationDB
-// recorded its compiled access. Finished means no step remains.
+// AccessPlan identifies the next step of one access work item after
+// FoundationDB records its compiled access. Finished is true when the item
+// does not need another step.
 type AccessPlan struct {
 	Work     Work
 	Finished bool

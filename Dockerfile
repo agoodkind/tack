@@ -1,10 +1,10 @@
 ARG FDB_VERSION=7.4.6
 
-# ── builder ───────────────────────────────────────────────────────────────────
+# Build the server binary.
 FROM golang:1.27.3-bookworm AS builder
 ARG FDB_VERSION
 
-# Install FDB C client library (required by CGO bindings at link time)
+# Install the FoundationDB C client library that the CGO bindings link against.
 RUN set -eux \
     && case "$(dpkg --print-architecture)" in \
          amd64) fdb_arch=amd64 ;; \
@@ -37,7 +37,7 @@ RUN CGO_ENABLED=1 go build -tags fdb -trimpath \
         -X goodkind.io/gklog/version.BuildTime=${BUILD_TIME}" \
     -o /bin/tack ./cmd/server
 
-# ── runtime ───────────────────────────────────────────────────────────────────
+# Assemble the runtime image.
 FROM debian:bookworm-slim AS runtime
 ARG FDB_VERSION
 
@@ -56,9 +56,9 @@ RUN set -eux \
     && apt-get remove -y curl && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# The binary is `tack`; `/server` stays a symlink to it so existing deploy and
-# compose invocations that call `/server ...` (and the `/server` entrypoint)
-# keep working unchanged.
+# The tack binary uses /server as a symbolic link.
+# Existing deploy and Compose commands that invoke
+# /server, including this entrypoint, continue to use that path.
 COPY --from=builder /bin/tack /usr/local/bin/tack
 RUN ln -s /usr/local/bin/tack /server
 ENTRYPOINT ["/server"]

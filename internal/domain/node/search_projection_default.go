@@ -5,29 +5,43 @@ import (
 	"strings"
 )
 
-// defaultSearchOrder places default projections after all declared orders.
-// Definition IDs order the default projections.
+// defaultSearchOrder assigns the default projection order. Default
+// projections sort by definition ID when their orders match.
 const defaultSearchOrder = 1 << 20
 
 // EffectiveSearchProjection returns the declared projection when the
-// definition has one. Otherwise, it returns a default projection.
-// A definition with a nonempty ReferenceTargetTypeKey does not render.
-// Its value is a node reference. For other definitions, text, URL, number,
-// date, and timestamp render as scalars. Select renders the option label.
-// Multi-select renders each item's label. Checkbox and UUID do not render.
-// EffectiveSearchProjection returns an error for an unknown type without a
-// declaration.
+// definition supplies one. Otherwise, it selects a default projection.
+//
+// The default excludes node references with a nonempty
+// ReferenceTargetTypeKey. The remaining property types use these rules:
+//
+//   - Text, URL, number, date, and timestamp render scalar values.
+//   - Select renders the option label.
+//   - Multi-select renders each item's label.
+//   - Checkbox and UUID do not render.
+//   - An unknown type returns an error when it lacks a declaration.
 func EffectiveSearchProjection(definition *PropertyDef) (SearchProjection, error) {
 	if definition.Search != nil {
 		return *definition.Search, nil
 	}
+
 	scalar := TextRule{Mode: TextRuleScalar, Fields: nil, Items: nil, Labels: nil}
-	labels := TextRule{Mode: TextRuleLabels, Fields: nil, Items: nil, Labels: optionLabels(definition.Options)}
+	labels := TextRule{
+		Mode:   TextRuleLabels,
+		Fields: nil,
+		Items:  nil,
+		Labels: optionLabels(definition.Options),
+	}
 	if definition.ReferenceTargetTypeKey != "" {
 		return SearchProjection{Include: false, Order: defaultSearchOrder, Rule: scalar}, nil
 	}
+
 	switch definition.Type {
-	case PropertyTypeText, PropertyTypeURL, PropertyTypeNumber, PropertyTypeDate, PropertyTypeTimestamp:
+	case PropertyTypeText,
+		PropertyTypeURL,
+		PropertyTypeNumber,
+		PropertyTypeDate,
+		PropertyTypeTimestamp:
 		return SearchProjection{Include: true, Order: defaultSearchOrder, Rule: scalar}, nil
 	case PropertyTypeSelect:
 		return SearchProjection{Include: true, Order: defaultSearchOrder, Rule: labels}, nil
@@ -37,8 +51,13 @@ func EffectiveSearchProjection(definition *PropertyDef) (SearchProjection, error
 	case PropertyTypeCheckbox, PropertyTypeUUID:
 		return SearchProjection{Include: false, Order: defaultSearchOrder, Rule: scalar}, nil
 	default:
-		return SearchProjection{}, definitionError{message: fmt.Sprintf(
-			"property definition %s uses unknown type %q without a search declaration", definition.ID, definition.Type)}
+		return SearchProjection{}, definitionError{
+			message: fmt.Sprintf(
+				"property definition %s uses unknown type %q without a search declaration",
+				definition.ID,
+				definition.Type,
+			),
+		}
 	}
 }
 
@@ -51,7 +70,9 @@ func optionLabels(options []EnumOption) map[string]string {
 		if strings.TrimSpace(label) == "" {
 			label = option.Key
 		}
+
 		labels[option.Key] = label
 	}
+
 	return labels
 }

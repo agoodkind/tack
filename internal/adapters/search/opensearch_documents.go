@@ -27,8 +27,8 @@ type pageDocument struct {
 	Access            pageAccess `json:"access"`
 }
 
-// retiredDocument replaces an obsolete page. It has no page_text, name,
-// access, or generated semantic fields.
+// retiredDocument replaces an obsolete page. It omits page_text, name, access,
+// and generated semantic fields.
 type retiredDocument struct {
 	NodeID           string `json:"node_id"`
 	NodeRevision     string `json:"node_revision"`
@@ -88,61 +88,122 @@ type accessScriptParams struct {
 // item error with this message to ErrObsoleteWrite.
 const staleGenerationMarker = "tack stale search generation"
 
-// accessUpdateScript orders access-only updates by search_generation. It
-// writes search_generation and access when the stored search_generation is
-// lower than the update generation and the page is not retired. It throws
-// params.stale_marker when the stored search_generation is higher. It makes
-// no change at the same generation or on a retired page.
+// accessUpdateScript orders access-only updates by search_generation. It writes
+// search_generation and access when the stored search_generation is lower than
+// the update generation and the page is not retired. It throws
+// params.stale_marker when the stored search_generation is higher. It does not
+// change a retired page or a page at the same generation.
 //
 // An access-only update uses a script because OpenSearch 3.8.0 rejects an
 // update action with version or version_type. The script runs on the primary
 // shard under the document lock.
 //
-// Content writes and retirements read the stored page first (writeGuarded)
-// and send index actions with if_seq_no and if_primary_term from that read.
+// Content writes and retirements read the stored page first through
+// writeGuarded. Their index actions require if_seq_no and if_primary_term from
+// that read.
 //
-// The update omits page_text. skip_existing_embedding leaves the stored
-// chunks and sparse weights unchanged, and ML Commons runs no inference.
+// The update omits page_text. skip_existing_embedding preserves the stored
+// chunks and sparse weights, and ML Commons does not run inference.
 //
 //go:embed access_update.painless
 var accessUpdateScript string
 
-func encodePageDocument(ctx context.Context, intent searchdomain.WriteIntent, precondition pagePrecondition) ([]byte, error) {
+func encodePageDocument(
+	ctx context.Context,
+	intent searchdomain.WriteIntent,
+	precondition pagePrecondition,
+) ([]byte, error) {
 	document := pageDocument{
-		NodeID: intent.Work.NodeID.String(), NodeType: intent.Page.NodeType,
-		NodeRevision: intent.Page.Revision, ProjectionVersion: intent.Page.ProjectionVersion,
-		PageOrdinal: intent.Page.Ordinal, Name: intent.Page.Name, PageText: intent.Page.Text,
-		Retired: false, SearchGeneration: intent.Work.Generation, Access: toPageAccess(intent.Page.Access),
+		NodeID:            intent.Work.NodeID.String(),
+		NodeType:          intent.Page.NodeType,
+		NodeRevision:      intent.Page.Revision,
+		ProjectionVersion: intent.Page.ProjectionVersion,
+		PageOrdinal:       intent.Page.Ordinal,
+		Name:              intent.Page.Name,
+		PageText:          intent.Page.Text,
+		Retired:           false,
+		SearchGeneration:  intent.Work.Generation,
+		Access:            toPageAccess(intent.Page.Access),
 	}
+
 	return encodeGuarded(ctx, intent.Work.Target, intent.DocumentID, precondition, document)
 }
 
-func encodeRetirement(ctx context.Context, work searchdomain.Work, document searchdomain.IssuedDocument, precondition pagePrecondition) ([]byte, error) {
+func encodeRetirement(
+	ctx context.Context,
+	work searchdomain.Work,
+	document searchdomain.IssuedDocument,
+	precondition pagePrecondition,
+) ([]byte, error) {
 	retired := retiredDocument{
-		NodeID: work.NodeID.String(), NodeRevision: strconv.FormatInt(document.Revision, 10),
-		PageOrdinal: document.Ordinal, Retired: true, SearchGeneration: work.Generation,
+		NodeID:           work.NodeID.String(),
+		NodeRevision:     strconv.FormatInt(document.Revision, 10),
+		PageOrdinal:      document.Ordinal,
+		Retired:          true,
+		SearchGeneration: work.Generation,
 	}
+
 	return encodeGuarded(ctx, work.Target, document.DocumentID, precondition, retired)
 }
 
 // encodeGuarded encodes a create action for an absent page, or an index
 // action that requires the read sequence number and primary term.
-func encodeGuarded[Body pageDocument | retiredDocument](ctx context.Context, index, documentID string, precondition pagePrecondition, body Body) ([]byte, error) {
+func encodeGuarded[Body pageDocument | retiredDocument](
+	ctx context.Context,
+	index string,
+	documentID string,
+	precondition pagePrecondition,
+	body Body,
+) ([]byte, error) {
 	if precondition.Create {
-		target := bulkTarget{Index: index, ID: documentID, IfSeqNo: nil, IfPrimaryTerm: nil, RetryOnConflict: 0}
+		target := bulkTarget{
+			Index:           index,
+			ID:              documentID,
+			IfSeqNo:         nil,
+			IfPrimaryTerm:   nil,
+			RetryOnConflict: 0,
+		}
+
 		return encodeBulkLines(ctx, bulkCreateHeader{Create: target}, body)
 	}
+
 	seqNo, primaryTerm := precondition.SeqNo, precondition.PrimaryTerm
-	target := bulkTarget{Index: index, ID: documentID, IfSeqNo: &seqNo, IfPrimaryTerm: &primaryTerm, RetryOnConflict: 0}
+	target := bulkTarget{
+		Index:           index,
+		ID:              documentID,
+		IfSeqNo:         &seqNo,
+		IfPrimaryTerm:   &primaryTerm,
+		RetryOnConflict: 0,
+	}
+
 	return encodeBulkLines(ctx, bulkIndexHeader{Index: target}, body)
 }
 
-func encodeAccessUpdate(ctx context.Context, work searchdomain.Work, documentID string, access node.SearchAccess) ([]byte, error) {
-	target := bulkTarget{Index: work.Target, ID: documentID, IfSeqNo: nil, IfPrimaryTerm: nil, RetryOnConflict: accessRetryOnConflict}
-	body := accessScriptBody{Script: accessScript{
-		Source: accessUpdateScript, Lang: "painless",
-		Params: accessScriptParams{Generation: work.Generation, Access: toPageAccess(access), StaleMarker: staleGenerationMarker},
-	}}
+func encodeAccessUpdate(
+	ctx context.Context,
+	work searchdomain.Work,
+	documentID string,
+	access node.SearchAccess,
+) ([]byte, error) {
+	target := bulkTarget{
+		Index:           work.Target,
+		ID:              documentID,
+		IfSeqNo:         nil,
+		IfPrimaryTerm:   nil,
+		RetryOnConflict: accessRetryOnConflict,
+	}
+	body := accessScriptBody{
+		Script: accessScript{
+			Source: accessUpdateScript,
+			Lang:   "painless",
+			Params: accessScriptParams{
+				Generation:  work.Generation,
+				Access:      toPageAccess(access),
+				StaleMarker: staleGenerationMarker,
+			},
+		},
+	}
+
 	return encodeBulkLines(ctx, bulkUpdateHeader{Update: target}, body)
 }
 
@@ -158,22 +219,39 @@ type bulkBody interface {
 	pageDocument | retiredDocument | accessScriptBody
 }
 
-func encodeBulkLines[Header bulkLine, Body bulkBody](ctx context.Context, header Header, body Body) ([]byte, error) {
+func encodeBulkLines[Header bulkLine, Body bulkBody](
+	ctx context.Context,
+	header Header,
+	body Body,
+) ([]byte, error) {
 	first, err := json.Marshal(header)
 	if err != nil {
 		wrapped := fmt.Errorf("encode bulk action: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.bulk.encode_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.bulk.encode_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	second, err := json.Marshal(body)
 	if err != nil {
 		wrapped := fmt.Errorf("encode bulk document: %w", err)
-		telemetry.L(ctx).ErrorContext(ctx, "search.bulk.encode_failed", slog.String("err", wrapped.Error()))
+		telemetry.L(ctx).ErrorContext(
+			ctx,
+			"search.bulk.encode_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	encoded := make([]byte, 0, len(first)+len(second)+2)
 	encoded = append(encoded, first...)
 	encoded = append(encoded, '\n')
 	encoded = append(encoded, second...)
+
 	return append(encoded, '\n'), nil
 }

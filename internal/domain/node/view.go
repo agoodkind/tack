@@ -7,26 +7,25 @@ import (
 	"github.com/google/uuid"
 )
 
-// NodeResolve is the global resolution record written atomically with every
-// node. It is keyed only by nodeID so any caller can look up an entity by ID
-// without org context. The authorization check (does the caller have access
-// to this org?) happens after fetch, not before.
+// NodeResolve stores a global resolution record that node writes create
+// atomically. Its key uses only nodeID; callers can resolve an entity
+// without organization context. Authorization checks the organization after
+// the read.
 //
-// Scope context (containing workspace, project, etc.) is derived at read time
-// by following child_of relationships, not stored on the resolve record.
+// Reads derive containing workspace and project context from child_of
+// relationships. The record does not store this scope context.
 type NodeResolve struct {
 	OrgID    uuid.UUID `json:"org_id"`
 	NodeType string    `json:"node_type"`
 }
 
-// NodeView is the denormalized materialized view written atomically with every
-// node write. It mirrors Node exactly: same universal fields plus Props. The
-// view exists so list operations can scan the view key space and render rows
-// without follow-up property or relationship fetches.
+// NodeView stores the universal Node fields and indexed Props for list
+// reads. Each node write updates the view atomically. List operations scan
+// view keys to render rows without separate property or relationship reads.
 //
-// Non-indexed Props are omitted from the view to bound its size. Indexed Props
-// are copied in full. Relationships are not inlined: callers that need them
-// fetch via the RelationshipStore.
+// The view excludes non-indexed Props to limit size and copies indexed Props
+// in full. Callers that need relationships read them separately through
+// RelationshipStore.
 type NodeView struct {
 	ID        uuid.UUID                  `json:"id"`
 	OrgID     uuid.UUID                  `json:"org_id"`

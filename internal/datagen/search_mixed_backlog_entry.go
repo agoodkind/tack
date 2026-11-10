@@ -10,11 +10,12 @@ import (
 	searchdomain "goodkind.io/tack/internal/domain/search"
 )
 
-// searchWorkFamily is the FoundationDB key family for pending search work records.
-// Each key uses (search_work, class, bucket, orgID, nodeID).
+// searchWorkFamily identifies the FoundationDB key family for pending search
+// work records. Each key uses (search_work, class, bucket, orgID, nodeID).
 const searchWorkFamily = "search_work"
 
-// searchAgeEntry stores an age key's bucket, enqueue time in Unix nanoseconds, orgID, and nodeID.
+// searchAgeEntry stores an age key's bucket, enqueue time in Unix nanoseconds,
+// orgID, and nodeID.
 type searchAgeEntry struct {
 	bucket   int64
 	enqueued int64
@@ -22,7 +23,7 @@ type searchAgeEntry struct {
 	nodeID   string
 }
 
-// searchWorkEnqueued decodes the enqueued_at time from a pending search work record.
+// searchWorkEnqueued decodes enqueued_at from a pending search work record.
 type searchWorkEnqueued struct {
 	EnqueuedAt time.Time `json:"enqueued_at"`
 }
@@ -31,7 +32,11 @@ func unpackSearchAgeKey(ctx context.Context, key []byte) (searchAgeEntry, error)
 	var entry searchAgeEntry
 	elements, err := tuple.Unpack(key)
 	if err != nil {
-		return entry, loggedError(ctx, "the command could not decode the pending search work key", err)
+		return entry, loggedError(
+			ctx,
+			"the command could not decode the pending search work key",
+			err,
+		)
 	}
 	if len(elements) != searchAgeKeyElements {
 		return entry, errSearchAgeKey
@@ -46,23 +51,41 @@ func unpackSearchAgeKey(ctx context.Context, key []byte) (searchAgeEntry, error)
 	return searchAgeEntry{bucket: bucket, enqueued: enqueued, orgID: orgID, nodeID: nodeID}, nil
 }
 
-// searchAgeEntryRecord reads the work record's enqueue time for an age key's class, bucket,
-// organization, and node. It returns SearchMixedOldestRecordMissing if the record does not exist,
-// SearchMixedOldestRecordSuperseded if times differ, or SearchMixedOldestRecordLive otherwise.
+// searchAgeEntryRecord reads the work record's enqueue time for an age key's
+// class, bucket, organization, and node. It returns the matching record state:
+//
+//   - A missing record returns SearchMixedOldestRecordMissing.
+//   - Different enqueue times return SearchMixedOldestRecordSuperseded.
+//   - Equal enqueue times return SearchMixedOldestRecordLive.
 func searchAgeEntryRecord(
-	ctx context.Context, snapshot fdb.Snapshot, prefix []byte, class searchdomain.WorkClass, entry searchAgeEntry,
+	ctx context.Context,
+	snapshot fdb.Snapshot,
+	prefix []byte,
+	class searchdomain.WorkClass,
+	entry searchAgeEntry,
 ) (SearchMixedOldestRecord, error) {
-	key := prefixedKey(prefix, tuple.Tuple{searchWorkFamily, string(class), entry.bucket, entry.orgID, entry.nodeID})
+	key := prefixedKey(
+		prefix,
+		tuple.Tuple{searchWorkFamily, string(class), entry.bucket, entry.orgID, entry.nodeID},
+	)
 	value, err := snapshot.Get(fdb.Key(key)).Get()
 	if err != nil {
-		return "", loggedError(ctx, "the command could not read a pending search work record for class "+string(class), err)
+		return "", loggedError(
+			ctx,
+			"the command could not read a pending search work record for class "+string(class),
+			err,
+		)
 	}
 	if len(value) == 0 {
 		return SearchMixedOldestRecordMissing, nil
 	}
 	var record searchWorkEnqueued
 	if err := json.Unmarshal(value, &record); err != nil {
-		return "", loggedError(ctx, "the command could not decode a pending search work record for class "+string(class), err)
+		return "", loggedError(
+			ctx,
+			"the command could not decode a pending search work record for class "+string(class),
+			err,
+		)
 	}
 	if record.EnqueuedAt.UnixNano() != entry.enqueued {
 		return SearchMixedOldestRecordSuperseded, nil

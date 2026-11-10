@@ -11,7 +11,9 @@ import (
 //go:embed templates/*.md.tmpl
 var markdownTemplateFS embed.FS
 
-var markdownTemplates = template.Must(template.New("").ParseFS(markdownTemplateFS, "templates/*.md.tmpl"))
+var markdownTemplates = template.Must(
+	template.New("").ParseFS(markdownTemplateFS, "templates/*.md.tmpl"),
+)
 
 type markdownField struct {
 	Label string
@@ -35,8 +37,8 @@ type collectionTemplateData struct {
 	Count   int
 	Noun    string
 	Items   []markdownItem
-	// NextCursor resumes a paged list; empty on the last page and for
-	// collections that are not paged.
+	// NextCursor resumes a paged list. It is empty on the last page and for
+	// collections without pagination.
 	NextCursor string `exhaustruct:"optional"`
 }
 
@@ -56,6 +58,7 @@ func executeMarkdownTemplate(name string, data any) string {
 	if err := markdownTemplates.ExecuteTemplate(&buf, name, data); err != nil {
 		panic(fmt.Sprintf("render markdown template %s: %v", name, err))
 	}
+
 	return strings.TrimRight(buf.String(), "\n") + "\n"
 }
 
@@ -63,6 +66,7 @@ func markdownValue(value string) string {
 	if value == "" {
 		return "-"
 	}
+
 	return value
 }
 
@@ -70,6 +74,7 @@ func markdownCodeValue(value string) string {
 	if value == "" {
 		return "-"
 	}
+
 	return fmt.Sprintf("`%s`", value)
 }
 

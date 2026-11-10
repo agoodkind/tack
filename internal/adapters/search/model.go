@@ -32,27 +32,43 @@ var PinnedModel = ModelInfo{
 	RuntimeBytes:    0,
 }
 
-// Provision reuses the registered pinned pretrained model when one exists and
-// registers the model when none exists. It then deploys and verifies the model.
+// Provision reuses the registered pinned pretrained model when one exists.
+//
+// Provision registers the model when the lookup does not find one, then deploys
+// and verifies it.
+//
+//  1. Find or register the pinned model.
+//  2. Deploy the model.
+//  3. Verify its identity and placement.
 func (a *Adapter) Provision(ctx context.Context) (ModelInfo, error) {
 	modelID, err := a.findPinnedModel(ctx)
 	if err == nil && modelID == "" {
 		modelID, err = a.registerPinnedModel(ctx)
 	}
+
 	if err == nil {
 		err = a.deployModel(ctx, modelID)
 	}
+
 	if err == nil {
 		err = a.verifyModel(ctx, modelID)
 	}
+
 	if err != nil {
 		wrapped := fmt.Errorf("provision pinned OpenSearch model: %w", err)
 		if !isLoggedModelError(err) {
-			telemetry.L(ctx).ErrorContext(ctx, "search.model.provision_failed", slog.String("err", wrapped.Error()))
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"search.model.provision_failed",
+				slog.String("err", wrapped.Error()),
+			)
 		}
+
 		return ModelInfo{}, wrapped
 	}
+
 	model := PinnedModel
 	model.ID = modelID
+
 	return model, nil
 }

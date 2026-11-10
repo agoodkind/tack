@@ -17,28 +17,34 @@ import (
 )
 
 // wrapToolHandler adds structured logging, expvar counters, and audit
-// recording to an MCP tool handler. Every tool call logs two messages:
+// recording to an MCP tool handler. Its closure stores the tool name for
+// each registration. After its recorder check, it logs mcp.tool.started at
+// Debug before the handler runs. The start log call adds only the tool
+// attribute.
 //
-//   - mcp.tool.started (Debug) on entry with the tool name
-//   - mcp.tool.completed (Info, status=ok) or mcp.tool.failed (Warn,
-//     status=failed/error_response) on exit, with duration_ms
+// After the handler returns, it logs tool and duration_ms with one of
+// these completion messages:
 //
-// The "error_response" status marks a CallToolResult with IsError=true. The
-// handler returns a nil Go error for those results, and the client can
-// correct the request.
+//   - mcp.tool.completed uses Info with status=ok for a successful result.
+//   - mcp.tool.failed uses Warn with status=failed for a Go error, or
+//     status=error_response for IsError=true with a nil Go error.
 //
-// IncMCPTool and IncMCPToolErr update process-global expvars for /debug/vars.
-// The closure stores the tool name for each registration.
+// IncMCPTool and IncMCPToolErr update process-global expvar counters that
+// /debug/vars exposes. An error response can report an internal server
+// failure as well as a request that the client can correct.
 func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		start := clock.Now()
-		ctx, span := telemetry.StartSpan(ctx, "mcp.tool."+name,
+		ctx, span := telemetry.StartSpan(
+			ctx,
+			"mcp.tool."+name,
 			trace.WithAttributes(attribute.String("mcp.tool.name", name)),
 		)
 		defer span.End()
-		// A state-changing call outside a read collector records a result
-		// event with the recorder on its context. Without a recorder, the
-		// call fails before the handler runs and changes nothing.
+		// A state-changing call outside a read collector uses the recorder
+		// on its context for its result event. If the context does not have
+		// a recorder, the wrapper returns before running the handler or
+		// allowing it to change data.
 		recordsResult := !audit.HasReadCollector(ctx) && toolChangesState(name)
 		var recorder audit.Recorder
 		if recordsResult {
@@ -47,22 +53,24 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 				logRecorderMissing(ctx, "tool:"+name)
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "audit_recorder_missing")
+
 				return nil, err
 			}
+
 			recorder = required
 		}
 
 		log := telemetry.L(ctx)
 		log.DebugContext(ctx, "mcp.tool.started", slog.String("tool", name))
 
-		// Resolvers inside the handler write the org, workspace, and entity
-		// they resolved to these builders. The audit events read them.
+		// Resolvers store the organization, workspace, and entity they
+		// resolve in these context builders for audit event construction.
 		ctx = audit.WithScopeBuilder(ctx)
 		ctx = audit.WithEntityBuilder(ctx)
 		ctx = withAuthorization(ctx)
 		ctx = withToolNote(ctx)
-		// A FoundationDB writer commits the change events of a state change
-		// in its transaction and marks this slot committed.
+		// A FoundationDB writer commits change events in its transaction,
+		// then marks this request slot committed.
 		actorID, _ := auth.UserID(ctx)
 		ctx = auditintent.WithSlot(ctx, name, actorID)
 
@@ -70,34 +78,47 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 		dur := clock.Since(start)
 		telemetry.IncMCPTool(name)
 
-		// Fail closed: the wrapper refuses a successful result when the
-		// handler did not pass a membership check.
+		// The wrapper refuses a successful result when the handler did not
+		// mark a successful membership check.
 		refused := err == nil && (res == nil || !res.IsError) && !isAuthorized(ctx)
 		if refused {
-			log.WarnContext(ctx, "mcp.tool.refused",
+			log.WarnContext(
+				ctx,
+				"mcp.tool.refused",
 				slog.String("tool", name),
 				slog.String("reason", "no membership check passed"),
 			)
 			res = permissionDenied()
 		}
+
 		logToolOutcome(ctx, span, name, dur.Milliseconds(), res, err)
 		noteToolOutcome(ctx, refused, err, res)
 		if recordsResult {
 			recordToolResult(ctx, recorder, name, res, err, refused)
 		}
+
 		return res, err
 	}
 }
 
 // logToolOutcome logs the end of one tool call and sets its span status.
-func logToolOutcome(ctx context.Context, span trace.Span, name string, durationMS int64, res *mcpmcp.CallToolResult, err error) {
+func logToolOutcome(
+	ctx context.Context,
+	span trace.Span,
+	name string,
+	durationMS int64,
+	res *mcpmcp.CallToolResult,
+	err error,
+) {
 	log := telemetry.L(ctx)
 	switch {
 	case err != nil:
 		telemetry.IncMCPToolErr(name)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed")
-		log.WarnContext(ctx, "mcp.tool.failed",
+		log.WarnContext(
+			ctx,
+			"mcp.tool.failed",
 			slog.String("tool", name),
 			slog.String("status", "failed"),
 			slog.Int64("duration_ms", durationMS),
@@ -106,19 +127,24 @@ func logToolOutcome(ctx context.Context, span trace.Span, name string, durationM
 	case res != nil && res.IsError:
 		telemetry.IncMCPToolErr(name)
 		span.SetStatus(codes.Error, "error_response")
-		log.WarnContext(ctx, "mcp.tool.failed",
+		log.WarnContext(
+			ctx,
+			"mcp.tool.failed",
 			slog.String("tool", name),
 			slog.String("status", "error_response"),
 			slog.Int64("duration_ms", durationMS),
 		)
 	default:
 		span.SetStatus(codes.Ok, "ok")
-		log.InfoContext(ctx, "mcp.tool.completed",
+		log.InfoContext(
+			ctx,
+			"mcp.tool.completed",
 			slog.String("tool", name),
 			slog.String("status", "ok"),
 			slog.Int64("duration_ms", durationMS),
 		)
 	}
+
 	span.SetAttributes(
 		attribute.Int64("mcp.tool.duration_ms", durationMS),
 		attribute.Bool("mcp.tool.error", err != nil || (res != nil && res.IsError)),

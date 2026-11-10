@@ -44,7 +44,7 @@ func (target databaseTarget) execute(t *testing.T, statement string) {
 	})
 }
 
-// roleOID returns the OID of the role with this name.
+// roleOID returns the object identifier (OID) of the role with the given name.
 func (target databaseTarget) roleOID(t *testing.T, role string) int64 {
 	t.Helper()
 	var oid int64
@@ -57,7 +57,8 @@ func (target databaseTarget) roleOID(t *testing.T, role string) int64 {
 	return oid
 }
 
-// roleNameByOID returns the current name of the role with this OID.
+// roleNameByOID returns the current name of the role with the given object
+// identifier (OID).
 func (target databaseTarget) roleNameByOID(t *testing.T, oid int64) (string, bool) {
 	t.Helper()
 	var name string
@@ -109,7 +110,7 @@ func (target databaseTarget) isMember(t *testing.T, member, parent string) bool 
 	return found
 }
 
-// createRole creates a role. A non-empty password makes it a login role.
+// createRole creates a role. It enables login when password is not empty.
 func (target databaseTarget) createRole(t *testing.T, role, password string) {
 	t.Helper()
 	statement := "CREATE ROLE " + pgx.Identifier{role}.Sanitize()
@@ -130,8 +131,9 @@ func (target databaseTarget) grantMembership(t *testing.T, parent, member string
 	target.execute(t, "GRANT "+pgx.Identifier{parent}.Sanitize()+" TO "+pgx.Identifier{member}.Sanitize())
 }
 
-// waitForRoleName polls until the role with this OID has the wanted name and
-// fails the test when it does not within the timeout.
+// waitForRoleName polls until the role with the given object identifier (OID)
+// has the expected name. It fails the test if the name does not match within
+// the timeout.
 func (target databaseTarget) waitForRoleName(t *testing.T, oid int64, want string, timeout time.Duration) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
@@ -156,15 +158,16 @@ func (target databaseTarget) waitForRoleName(t *testing.T, oid int64, want strin
 	t.Fatalf("role OID %d did not get the name %s within %s", oid, want, timeout)
 }
 
-// isCatalogRetry reports whether the engine asks the client to retry because a
-// concurrent schema change invalidated the catalog snapshot (SQLSTATE 40001).
+// isCatalogRetry reports whether errors.As finds a pgconn.PgError with
+// SQLSTATE 40001. It does not inspect the cause. The original retry rationale
+// was catalog snapshot invalidation after a concurrent schema change.
 func isCatalogRetry(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == serializationFailureCode
 }
 
-// waitForQuietStatements polls until no other session runs a statement that
-// mentions one of these role names.
+// waitForQuietStatements polls until other sessions do not run statements that
+// mention any of the given role names.
 func (target databaseTarget) waitForQuietStatements(t *testing.T, roles ...string) {
 	t.Helper()
 	deadline := time.Now().Add(quietTimeout)

@@ -22,7 +22,7 @@ const (
 	mainBranch    = "main"
 )
 
-// TestMain builds the image command once and runs the package tests against it.
+// TestMain builds ci-image once and runs the metadata tests against it.
 func TestMain(m *testing.M) {
 	os.Exit(imagetest.RunTests(m))
 }
@@ -39,13 +39,16 @@ func commitFile(t *testing.T, repository *git.Repository, name string) plumbing.
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	path := filepath.Join(worktree.Filesystem().Root(), name)
 	if err := os.WriteFile(path, []byte(name), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	if _, err := worktree.Add(name); err != nil {
 		t.Fatal(err)
 	}
+
 	hash, err := worktree.Commit(name, &git.CommitOptions{Author: testSignature(time.Now())})
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +66,7 @@ func newRepository(t *testing.T) (*git.Repository, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	commitFile(t, repository, "first")
 
 	return repository, root
@@ -70,12 +74,20 @@ func newRepository(t *testing.T) (*git.Repository, string) {
 
 func lightweightTag(t *testing.T, repository *git.Repository, name string, target plumbing.Hash) {
 	t.Helper()
-	if err := repository.Storer.SetReference(plumbing.NewHashReference(plumbing.NewTagReferenceName(name), target)); err != nil {
+	if err := repository.Storer.SetReference(
+		plumbing.NewHashReference(plumbing.NewTagReferenceName(name), target),
+	); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func annotatedTag(t *testing.T, repository *git.Repository, name string, target plumbing.Hash, when time.Time) {
+func annotatedTag(
+	t *testing.T,
+	repository *git.Repository,
+	name string,
+	target plumbing.Hash,
+	when time.Time,
+) {
 	t.Helper()
 	options := &git.CreateTagOptions{Tagger: testSignature(when), Message: name}
 	if _, err := repository.CreateTag(name, target, options); err != nil {
@@ -114,18 +126,21 @@ func metadataCommand(t *testing.T, directory string, environment map[string]stri
 	return command
 }
 
-// expectFailure runs the command, requires a failure that mentions message, and
-// requires that the command did not create GITHUB_OUTPUT.
+// expectFailure requires a command failure with output that includes message.
+// If the caller sets GITHUB_OUTPUT, the helper also checks that the command
+// did not create the output file.
 func expectFailure(t *testing.T, directory string, environment map[string]string, message string) {
 	t.Helper()
 	output, err := runMetadata(t, directory, environment)
 	if err == nil || !strings.Contains(output, message) {
 		t.Fatalf("err = %v, output = %s", err, output)
 	}
+
 	outputPath, set := environment["GITHUB_OUTPUT"]
 	if !set {
 		return
 	}
+
 	if _, statErr := os.Stat(outputPath); !os.IsNotExist(statErr) {
 		t.Fatalf("output file written on failure: %v", statErr)
 	}
@@ -137,9 +152,11 @@ func appendText(t *testing.T, path, text string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if _, err := file.WriteString(text); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -150,16 +167,20 @@ func readOutputs(t *testing.T, content string) map[string]string {
 	if !strings.HasSuffix(content, "\n") {
 		t.Fatalf("output lacks final newline: %q", content)
 	}
+
 	outputs := map[string]string{}
 	var order []string
+
 	for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
 		key, value, found := strings.Cut(line, "=")
 		if !found {
 			t.Fatalf("malformed line %q", line)
 		}
+
 		order = append(order, key)
 		outputs[key] = value
 	}
+
 	if got := strings.Join(order, ","); got != "commit,short,build_time,tag" {
 		t.Fatalf("line order = %s", got)
 	}
@@ -174,26 +195,37 @@ func checkMetadata(t *testing.T, directory string, head plumbing.Hash, branch, w
 	if err := os.WriteFile(outputPath, []byte(earlier), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if output, err := runMetadata(t, directory, map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: branch}); err != nil {
+
+	if output, err := runMetadata(
+		t,
+		directory,
+		map[string]string{"GITHUB_OUTPUT": outputPath, branchNameKey: branch},
+	); err != nil {
 		t.Fatalf("metadata failed: %v: %s", err, output)
 	}
+
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if !strings.HasPrefix(string(content), earlier) {
 		t.Fatalf("earlier content lost: %q", content)
 	}
+
 	outputs := readOutputs(t, strings.TrimPrefix(string(content), earlier))
 	if outputs["commit"] != head.String() {
 		t.Fatalf("commit = %s, want %s", outputs["commit"], head)
 	}
+
 	if len(outputs["short"]) < 7 || !strings.HasPrefix(head.String(), outputs["short"]) {
 		t.Fatalf("short = %s", outputs["short"])
 	}
+
 	if !metadataTimePattern.MatchString(outputs["build_time"]) {
 		t.Fatalf("build_time = %s", outputs["build_time"])
 	}
+
 	if outputs["tag"] != wantTag {
 		t.Fatalf("tag = %s, want %s", outputs["tag"], wantTag)
 	}

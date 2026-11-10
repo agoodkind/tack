@@ -7,9 +7,10 @@ import (
 	"time"
 )
 
-// UnknownSigner is one identifier the ledger holds that the valid signer set
-// does not, with what the rows under it claim: how many, from which hosts,
-// over what span. This is the signal a leaked key leaves.
+// UnknownSigner summarizes ledger rows with an identifier outside the valid
+// signer set. The summary includes the row count, claimed hosts, and time span
+// for investigation of a suspected leaked key. An unknown identifier alone
+// does not prove that a key leaked.
 type UnknownSigner struct {
 	SigningKey   string    `json:"signing_key"`
 	SigningHosts []string  `json:"signing_hosts"`
@@ -18,8 +19,9 @@ type UnknownSigner struct {
 	Last         time.Time `json:"last"`
 }
 
-// SignerReport is what `audit signers` prints: every notarization since a
-// point in time, sorted into accepted and rejected, with the rejections named.
+// SignerReport provides the audit signers output for notarizations since a
+// specified time. It counts accepted and rejected rows and identifies the
+// rejection reasons.
 type SignerReport struct {
 	Since                 time.Time       `json:"since"`
 	SignerSet             []string        `json:"signer_set"`
@@ -31,17 +33,24 @@ type SignerReport struct {
 	RejectedUnknownSigner int             `json:"rejected_unknown_signer"`
 	SignatureFailed       int             `json:"signature_failed"`
 	UnknownSigners        []UnknownSigner `json:"unknown_signers"`
-	// UnverifiedAcknowledged records that the operator accepted rows under
-	// allowed identifiers this host holds no key for. Without it those rows
-	// fail the report, because an identifier alone is a label anyone can
-	// write and only a signature proves the key.
+	// UnverifiedAcknowledged records the operator's acceptance of rows under
+	// allowed identifiers when this host lacks their keys. These rows fail the
+	// report without acknowledgment. Anyone can write an identifier; only
+	// signature verification proves that the signer used the key.
 	UnverifiedAcknowledged bool `json:"unverified_acknowledged"`
 }
 
-// Err names every reason the report fails, and is nil when every notarization
-// came from a signer in the set and every signature was verified, or the
-// unverified ones were acknowledged. A caller that reads only the exit code
-// gets the same verdict.
+// Err returns each reason the signer report fails.
+//
+// The audit signers command uses this verdict for its exit result after
+// printing the report.
+//
+//   - An identifier outside the valid signer set fails the report.
+//   - A signature that fails verification with the local key fails the report.
+//   - A row under another allowed identifier fails the report unless the
+//     operator acknowledges the unavailable signature verification.
+//
+// Err returns nil when the report does not contain any of these failures.
 func (r *SignerReport) Err() error {
 	var failures []string
 	if r.RejectedUnknownSigner > 0 {
@@ -49,36 +58,59 @@ func (r *SignerReport) Err() error {
 		for _, unknown := range r.UnknownSigners {
 			ids = append(ids, unknown.SigningKey)
 		}
-		failures = append(failures, fmt.Sprintf("%d notarization(s) signed outside the valid signer set by %s",
-			r.RejectedUnknownSigner, strings.Join(ids, ", ")))
+
+		failures = append(
+			failures,
+			fmt.Sprintf(
+				"%d notarization(s) signed outside the valid signer set by %s",
+				r.RejectedUnknownSigner,
+				strings.Join(ids, ", "),
+			),
+		)
 	}
+
 	if r.SignatureFailed > 0 {
-		failures = append(failures, fmt.Sprintf("%d notarization(s) carry a signature the local key does not verify",
-			r.SignatureFailed))
+		failures = append(
+			failures,
+			fmt.Sprintf(
+				"%d notarization(s) carry a signature the local key does not verify",
+				r.SignatureFailed,
+			),
+		)
 	}
+
 	if r.AllowedUnverifiedHere > 0 && !r.UnverifiedAcknowledged {
-		failures = append(failures, fmt.Sprintf("%d notarization(s) under allowed identifiers this host holds no key for; "+
-			"pass --allow-unverified to accept them on the set alone", r.AllowedUnverifiedHere))
+		failures = append(
+			failures,
+			fmt.Sprintf(
+				"%d notarization(s) under allowed identifiers this host holds no key for; "+
+					"pass --allow-unverified to accept them on the set alone",
+				r.AllowedUnverifiedHere,
+			),
+		)
 	}
+
 	if len(failures) == 0 {
 		return nil
 	}
+
 	return errors.New(strings.Join(failures, "; "))
 }
 
-// ErrNoSignerSet is returned when verification is asked to run with nothing
-// to check against: an empty set would accept nothing, and skipping the check
-// would accept everything, and neither is what an operator asked for.
+// ErrNoSignerSet indicates that verification lacks a valid signer set.
+// An empty set cannot accept any identifier. Skipping the membership check
+// would accept every identifier. Neither case provides the requested check
+// against an operator's valid signer set.
 var ErrNoSignerSet = errors.New("no valid signer set: set AUDIT_VALID_SIGNERS or pass --signers")
 
-// ErrNoLocalKey is returned when no signing key is available to check
-// signatures with: a run that matched identifiers and verified no signature
-// would read as a pass while proving only that strings matched.
+// ErrNoLocalKey indicates that verification lacks a local signing key.
+// Matching identifiers without checking a signature proves only that the
+// strings match and cannot justify successful signature verification.
 var ErrNoLocalKey = errors.New("no local signing key: pass --pub or set AUDIT_SIGNING_KEY_PATH")
 
-// ErrLocalKeyNotInSet is returned when the local key is not one the set
-// accepts: every allowed row would then be unverifiable here, and an
-// acknowledgement would clear them all having verified nothing. The cases
-// the acknowledgement exists for, a rotation overlap or a second signing
-// guest, both keep the local key in the set.
+// ErrLocalKeyNotInSet indicates that the valid signer set excludes the local
+// key. Every allowed row would then lack local signature verification, and
+// acknowledgment could accept all rows without verifying any signature.
+// Rotation overlap and a second signing guest are the intended acknowledgment
+// cases. Both cases retain the local key in the valid signer set.
 var ErrLocalKeyNotInSet = errors.New("the local signing key is not in the valid signer set")

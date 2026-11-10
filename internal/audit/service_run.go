@@ -20,28 +20,53 @@ type AppendOutbox struct {
 	appender OutboxAppender
 }
 
-// NewAppendOutbox creates an AppendOutbox that writes events through appender.
+// NewAppendOutbox creates an [AppendOutbox] that writes through appender.
+//
+// Construction stores appender without appending an event.
+//
+//   - A nil appender makes WriteOutbox return an error.
 func NewAppendOutbox(appender OutboxAppender) AppendOutbox {
 	return AppendOutbox{appender: appender}
 }
 
-// WriteOutbox encodes event and appends it as a single outbox record.
-// It rejects events that exceed the record size limit.
+// WriteOutbox encodes event and appends it as one outbox record.
+//
+// The method returns an error when the event exceeds the record size limit.
+//
+//   - An encoding failure prevents the append.
+//   - An absent appender prevents the append.
+//   - An append failure returns an error.
 func (o AppendOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	if o.appender == nil {
-		return serviceRunFailure(ctx, "append the audit event", event.EventID, errors.New("the outbox appender is nil"))
+		return serviceRunFailure(
+			ctx,
+			"append the audit event",
+			event.EventID,
+			errors.New("the outbox appender is nil"),
+		)
 	}
+
 	encoded, err := MarshalEvent(event)
 	if err != nil {
 		return serviceRunFailure(ctx, "encode the audit event", event.EventID, err)
 	}
+
 	if !FitsSingleRecord(encoded) {
-		return serviceRunFailure(ctx, "append the audit event", event.EventID,
-			fmt.Errorf("the event has %d bytes and does not fit in one outbox record", len(encoded)))
+		return serviceRunFailure(
+			ctx,
+			"append the audit event",
+			event.EventID,
+			fmt.Errorf(
+				"the event has %d bytes and does not fit in one outbox record",
+				len(encoded),
+			),
+		)
 	}
+
 	if err := o.appender.Append(ctx, encoded); err != nil {
 		return serviceRunFailure(ctx, "append the audit event", event.EventID, err)
 	}
+
 	return nil
 }
 
@@ -51,33 +76,64 @@ type RecorderOutbox struct {
 	recorder Recorder
 }
 
-// NewRecorderOutbox creates a RecorderOutbox that writes events through recorder.
+// NewRecorderOutbox creates a [RecorderOutbox] that writes through recorder.
+//
+// Construction stores recorder without recording an event.
+//
+//   - A nil recorder makes WriteOutbox return an error.
 func NewRecorderOutbox(recorder Recorder) RecorderOutbox {
 	return RecorderOutbox{recorder: recorder}
 }
 
-// WriteOutbox records event through the configured Recorder.
+// WriteOutbox records event through the configured [Recorder].
+//
+// The method returns an error when the recorder is nil or recording fails.
+//
+//   - A successful recording returns nil.
 func (o RecorderOutbox) WriteOutbox(ctx context.Context, event Event) error {
 	if o.recorder == nil {
-		return serviceRunFailure(ctx, "record the audit event", event.EventID, errors.New("the recorder is nil"))
+		return serviceRunFailure(
+			ctx,
+			"record the audit event",
+			event.EventID,
+			errors.New("the recorder is nil"),
+		)
 	}
+
 	if err := o.recorder.Record(ctx, event); err != nil {
 		return serviceRunFailure(ctx, "record the audit event", event.EventID, err)
 	}
+
 	return nil
 }
 
 // ServiceActor creates a service actor with the supplied ID and name.
+//
+// The actor uses ActorService as its type.
+//
+//   - The actor starts with empty email and session fields.
 func ServiceActor(id uuid.UUID, name string) Actor {
 	return Actor{
-		Type: ActorService, ID: id, Email: "", Name: name, SessionID: "",
-		IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+		Type:          ActorService,
+		ID:            id,
+		Email:         "",
+		Name:          name,
+		SessionID:     "",
+		IP:            "",
+		UserAgent:     "",
+		RequestID:     "",
+		APITokenLabel: "",
 	}
 }
 
-// RunServiceExternal records an in-process service job as an external operation
-// on target. Each run uses a new UUIDv7 operation ID, actor, and the system
-// organization.
+// RunServiceExternal records an in-process service job as an external
+// operation on target.
+//
+// Each run uses a new UUIDv7 operation ID and the system organization. The run
+// uses the supplied actor.
+//
+//   - The intent uses the system source and external operation class.
+//   - [RunExternal] records the operation around run.
 func RunServiceExternal(
 	ctx context.Context,
 	outbox OutboxWriter,
@@ -89,23 +145,56 @@ func RunServiceExternal(
 	now := clock.Now().UTC()
 	eventTarget := target
 	intent := Event{
-		Verb: string(verb), EventID: uuid.Must(uuid.NewV7()), Actor: actor,
-		Entity: Entity{Type: target.Kind, NodeType: target.NodeType, ID: target.ID, Identifier: target.Reference, Name: target.Name},
-		Context: EventContext{
-			OrgID: SystemOrgID(), WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
-			RequestID: "", TraceID: "", Source: SourceSystem, Tool: "", RPC: "", Reason: "",
-			AuditFormatVersion: AuditFormatComplete, OperationClass: OperationExternal, Phase: PhaseIntent,
-			OperationID: uuid.Must(uuid.NewV7()), ParentOperationID: uuid.Nil, StartedAt: now, CompletedAt: time.Time{},
-			Target: &eventTarget, Read: nil, CommittedSteps: nil,
+		Verb:    string(verb),
+		EventID: uuid.Must(uuid.NewV7()),
+		Actor:   actor,
+		Entity: Entity{
+			Type:       target.Kind,
+			NodeType:   target.NodeType,
+			ID:         target.ID,
+			Identifier: target.Reference,
+			Name:       target.Name,
 		},
-		Delta: nil, Outcome: OutcomePending, Error: nil, IdempotencyKey: "", OccurredAt: now, Extra: nil,
+		Context: EventContext{
+			OrgID:              SystemOrgID(),
+			WorkspaceID:        uuid.Nil,
+			ScopeID:            uuid.Nil,
+			ParentID:           uuid.Nil,
+			RequestID:          "",
+			TraceID:            "",
+			Source:             SourceSystem,
+			Tool:               "",
+			RPC:                "",
+			Reason:             "",
+			AuditFormatVersion: AuditFormatComplete,
+			OperationClass:     OperationExternal,
+			Phase:              PhaseIntent,
+			OperationID:        uuid.Must(uuid.NewV7()),
+			ParentOperationID:  uuid.Nil,
+			StartedAt:          now,
+			CompletedAt:        time.Time{},
+			Target:             &eventTarget,
+			Read:               nil,
+			CommittedSteps:     nil,
+		},
+		Delta:          nil,
+		Outcome:        OutcomePending,
+		Error:          nil,
+		IdempotencyKey: "",
+		OccurredAt:     now,
+		Extra:          nil,
 	}
+
 	return RunExternal(ctx, outbox, intent, run)
 }
 
 // RunServiceStep records a service job as an external operation with one step.
-// It records planned evidence before calling effect and records the result
-// afterward. It calls observe only after effect succeeds.
+//
+// The function records planned evidence before it calls effect and records
+// the result afterward. It calls observe only after effect succeeds.
+//
+//   - A failure to begin the step prevents effect.
+//   - An effect or observation failure produces a failed step result.
 func RunServiceStep(
 	ctx context.Context,
 	outbox OutboxWriter,
@@ -116,35 +205,67 @@ func RunServiceStep(
 	effect func(context.Context) error,
 	observe func(context.Context) (json.RawMessage, error),
 ) error {
-	return RunServiceExternal(ctx, outbox, actor, verb, target, func(ctx context.Context, steps StepRecorder) (OutcomeDetails, error) {
-		step := ExternalStep(target, planned)
-		if err := steps.BeginStep(ctx, step); err != nil {
-			slog.ErrorContext(ctx, "audit.service_run.step_failed", slog.String("err", err.Error()))
-			return failedServiceStep(err), fmt.Errorf("record the step: %w", err)
-		}
-		details := OutcomeDetails{Outcome: OutcomeCompleted, FailureCode: "", FailureMessage: "", CommittedSteps: nil}
-		var evidence json.RawMessage
-		runErr := effect(ctx)
-		if runErr == nil {
-			evidence, runErr = observe(ctx)
-		}
-		if runErr != nil {
-			details = failedServiceStep(runErr)
-		}
-		if err := steps.FinishStep(ctx, FinishedStep(step, details, evidence)); err != nil {
-			slog.ErrorContext(ctx, "audit.service_run.step_failed", slog.String("err", err.Error()))
-			return details, errors.Join(runErr, fmt.Errorf("record the step result: %w", err))
-		}
-		return details, runErr
-	})
+	return RunServiceExternal(
+		ctx,
+		outbox,
+		actor,
+		verb,
+		target,
+		func(ctx context.Context, steps StepRecorder) (OutcomeDetails, error) {
+			step := ExternalStep(target, planned)
+			if err := steps.BeginStep(ctx, step); err != nil {
+				slog.ErrorContext(
+					ctx,
+					"audit.service_run.step_failed",
+					slog.String("err", err.Error()),
+				)
+
+				return failedServiceStep(err), fmt.Errorf("record the step: %w", err)
+			}
+
+			details := OutcomeDetails{
+				Outcome:        OutcomeCompleted,
+				FailureCode:    "",
+				FailureMessage: "",
+				CommittedSteps: nil,
+			}
+			var evidence json.RawMessage
+			runErr := effect(ctx)
+			if runErr == nil {
+				evidence, runErr = observe(ctx)
+			}
+
+			if runErr != nil {
+				details = failedServiceStep(runErr)
+			}
+
+			if err := steps.FinishStep(ctx, FinishedStep(step, details, evidence)); err != nil {
+				slog.ErrorContext(
+					ctx,
+					"audit.service_run.step_failed",
+					slog.String("err", err.Error()),
+				)
+
+				return details, errors.Join(runErr, fmt.Errorf("record the step result: %w", err))
+			}
+
+			return details, runErr
+		},
+	)
 }
 
 func failedServiceStep(cause error) OutcomeDetails {
-	return OutcomeDetails{Outcome: OutcomeFailed, FailureCode: serviceStepCode, FailureMessage: cause.Error(), CommittedSteps: nil}
+	return OutcomeDetails{
+		Outcome:        OutcomeFailed,
+		FailureCode:    serviceStepCode,
+		FailureMessage: cause.Error(),
+		CommittedSteps: nil,
+	}
 }
 
 func serviceRunFailure(ctx context.Context, action string, eventID uuid.UUID, err error) error {
 	wrapped := fmt.Errorf("%s %s: %w", action, eventID, err)
 	slog.ErrorContext(ctx, "audit.service_run.record_failed", slog.String("err", wrapped.Error()))
+
 	return wrapped
 }

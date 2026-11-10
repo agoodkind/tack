@@ -1,5 +1,5 @@
-// Command legacyfixture prints audit records that this revision's own writers
-// produce, as JSON, for the runtime audit legacy writer tests.
+// Command legacyfixture prints JSON audit records from the writers of the
+// revision under test for the runtime audit legacy writer tests.
 package main
 
 import (
@@ -17,9 +17,9 @@ import (
 	"goodkind.io/tack/internal/clispec"
 )
 
-// fixture is one record in the order the writer produced it. PartitionBytes
-// contains the Kafka record key in hexadecimal. Value contains the record
-// bytes as text, because every writer encodes the value as JSON.
+// fixture records one event in the order the writer produced it. PartitionBytes
+// contains the Kafka record key in hexadecimal. Value contains the record bytes
+// as text because every writer encodes the value as JSON.
 type fixture struct {
 	Kind           string    `json:"kind"`
 	EventID        uuid.UUID `json:"event_id"`
@@ -81,9 +81,9 @@ func generate(ctx context.Context, deployCommit string) ([]fixture, error) {
 	userID := uuid.Must(uuid.NewV7())
 	var out []fixture
 
-	// The MCP wrapper and auth middleware record through CanonicalRecorder,
-	// and KafkaRecorder.Record produces MarshalEvent bytes under the
-	// partition key.
+	// The legacy MCP wrapper and auth middleware use CanonicalRecorder.
+	// KafkaRecorder.Record encodes events with MarshalEvent and uses the partition
+	// key.
 	kafka := &captureRecorder{}
 	recorder := audit.CanonicalRecorder{Inner: kafka}
 	tool := audit.Event{
@@ -123,8 +123,8 @@ func generate(ctx context.Context, deployCommit string) ([]fixture, error) {
 		out = append(out, fixture{Kind: kind, EventID: ev.EventID, OrgID: ev.Context.OrgID, Verb: ev.Verb, PartitionBytes: hex.EncodeToString(audit.LegacyFixturePartitionKey(ev)), Value: string(value)})
 	}
 
-	// An operator command writes its intent and outcome through the
-	// clispec choke-point into the operator outbox.
+	// An operator command records its intent and outcome in the operator outbox
+	// through the shared clispec audit operation.
 	outbox := &captureOutbox{}
 	source := staticSource{principal: audit.OperatorPrincipal{
 		ID: uuid.Must(uuid.NewV7()), Email: "operator@example.invalid", Name: "Legacy Operator", Source: "flags",
@@ -147,7 +147,8 @@ func generate(ctx context.Context, deployCommit string) ([]fixture, error) {
 		out = append(out, fixture{Kind: "ops_outbox", EventID: ev.EventID, OrgID: ev.Context.OrgID, Verb: ev.Verb, Value: string(value)})
 	}
 
-	// A refused broker record spills to the FoundationDB operator outbox.
+	// The recorder saves a broker record in the FoundationDB operator outbox when
+	// the broker refuses it.
 	spill := &captureAppender{}
 	spilling := audit.CanonicalRecorder{Inner: &audit.SpillRecorder{Primary: refusingRecorder{}, Spill: spill}}
 	spilled := tool

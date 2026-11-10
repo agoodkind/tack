@@ -39,18 +39,36 @@ func diagnosticBroker(t *testing.T, cli *client.Client, bootstrap string) contai
 		t.Fatal(err)
 	}
 	filters := client.Filters{}.Add("label", "io.goodkind.tack.testenv").
-		Add("label", "io.goodkind.tack.testenv.host="+host).
-		Add("label", "io.goodkind.tack.testenv.runner="+runner)
-	listed, err := cli.ContainerList(t.Context(), client.ContainerListOptions{All: true, Filters: filters})
+		Add(
+			"label",
+			"io.goodkind.tack.testenv.host="+host,
+		).
+		Add(
+			"label",
+			"io.goodkind.tack.testenv.runner="+runner,
+		)
+	listed, err := cli.ContainerList(
+		t.Context(),
+		client.ContainerListOptions{All: true, Filters: filters},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var holders []container.Summary
 	for _, item := range listed.Items {
-		if !slices.ContainsFunc(item.Names, func(name string) bool { return strings.HasPrefix(name, "/tack-testenv-kafka-address-") }) {
+		if !slices.ContainsFunc(
+			item.Names,
+			func(name string) bool {
+				return strings.HasPrefix(name, "/tack-testenv-kafka-address-")
+			},
+		) {
 			continue
 		}
-		inspection, err := cli.ContainerInspect(t.Context(), item.ID, client.ContainerInspectOptions{Size: false})
+		inspection, err := cli.ContainerInspect(
+			t.Context(),
+			item.ID,
+			client.ContainerInspectOptions{Size: false},
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -65,22 +83,36 @@ func diagnosticBroker(t *testing.T, cli *client.Client, bootstrap string) contai
 		}
 	}
 	if len(holders) != 1 || holders[0].Labels[diagnosticRunLabel] == "" {
-		t.Fatalf("bootstrap %s matched %d address holders; require one identified owner", bootstrap, len(holders))
+		t.Fatalf(
+			"bootstrap %s matched %d address holders; require one identified owner",
+			bootstrap,
+			len(holders),
+		)
 	}
 	holder := holders[0]
 	var brokers []container.Summary
 	for _, item := range listed.Items {
-		if item.ID == holder.ID || item.Labels[diagnosticRunLabel] != holder.Labels[diagnosticRunLabel] {
+		if item.ID == holder.ID ||
+			item.Labels[diagnosticRunLabel] != holder.Labels[diagnosticRunLabel] {
 			continue
 		}
-		inspection, err := cli.ContainerInspect(t.Context(), item.ID, client.ContainerInspectOptions{Size: false})
+		inspection, err := cli.ContainerInspect(
+			t.Context(),
+			item.ID,
+			client.ContainerInspectOptions{Size: false},
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if inspection.Container.HostConfig == nil || !inspection.Container.HostConfig.NetworkMode.IsContainer() {
+		if inspection.Container.HostConfig == nil ||
+			!inspection.Container.HostConfig.NetworkMode.IsContainer() {
 			continue
 		}
-		shared, err := cli.ContainerInspect(t.Context(), inspection.Container.HostConfig.NetworkMode.ConnectedContainer(), client.ContainerInspectOptions{Size: false})
+		shared, err := cli.ContainerInspect(
+			t.Context(),
+			inspection.Container.HostConfig.NetworkMode.ConnectedContainer(),
+			client.ContainerInspectOptions{Size: false},
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,26 +121,53 @@ func diagnosticBroker(t *testing.T, cli *client.Client, bootstrap string) contai
 		}
 	}
 	if len(brokers) != 1 {
-		t.Fatalf("bootstrap %s matched %d broker namespaces; require exactly one", bootstrap, len(brokers))
+		t.Fatalf(
+			"bootstrap %s matched %d broker namespaces; require exactly one",
+			bootstrap,
+			len(brokers),
+		)
 	}
 	return brokers[0]
 }
 
-func diagnosticHelper(t *testing.T, cli *client.Client, image string, labels map[string]string, entrypoint, command []string) string {
+func diagnosticHelper(
+	t *testing.T,
+	cli *client.Client,
+	image string,
+	labels map[string]string,
+	entrypoint []string,
+	command []string,
+) string {
 	t.Helper()
-	created, err := cli.ContainerCreate(t.Context(), client.ContainerCreateOptions{
-		Config: &container.Config{Image: image, Entrypoint: entrypoint, Cmd: command, Labels: labels},
-	})
+	created, err := cli.ContainerCreate(
+		t.Context(),
+		client.ContainerCreateOptions{
+			Config: &container.Config{
+				Image:      image,
+				Entrypoint: entrypoint,
+				Cmd:        command,
+				Labels:     labels,
+			},
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, err := cli.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		_, err := cli.ContainerRemove(
+			context.Background(),
+			created.ID,
+			client.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
+		)
 		if err != nil && !cerrdefs.IsNotFound(err) {
 			t.Error(err)
 		}
 	})
-	if _, err := cli.ContainerStart(t.Context(), created.ID, client.ContainerStartOptions{}); err != nil {
+	if _, err := cli.ContainerStart(
+		t.Context(),
+		created.ID,
+		client.ContainerStartOptions{},
+	); err != nil {
 		t.Fatal(err)
 	}
 	return created.ID
@@ -116,7 +175,11 @@ func diagnosticHelper(t *testing.T, cli *client.Client, image string, labels map
 
 func waitForDiagnosticExit(t *testing.T, cli *client.Client, identifier string) {
 	t.Helper()
-	waiting := cli.ContainerWait(t.Context(), identifier, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	waiting := cli.ContainerWait(
+		t.Context(),
+		identifier,
+		client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning},
+	)
 	select {
 	case <-waiting.Result:
 	case err := <-waiting.Error:

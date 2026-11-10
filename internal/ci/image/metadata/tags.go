@@ -22,9 +22,15 @@ type exactTag struct {
 	date     int64
 }
 
-// outranks mirrors the selection in git describe: annotated tags beat
-// lightweight tags, newer annotated tags beat older ones, and the first
-// tag by name wins ties.
+// outranks compares exact tag candidates using the priority rules of
+// git describe --tags.
+//
+// The caller visits tags in name order and retains the earlier candidate
+// when this method returns false. The comparison uses these priorities:
+//
+//   - Annotated tags take priority over lightweight tags.
+//   - Newer annotated tags take priority over older annotated tags.
+//   - The first tag by name wins ties.
 func (candidate exactTag) outranks(current exactTag) bool {
 	if candidate.priority != current.priority {
 		return candidate.priority > current.priority
@@ -54,9 +60,12 @@ func findExactTag(
 		return "", false, &os.PathError{Op: "read Git tags", Path: root, Err: err}
 	}
 
-	slices.SortFunc(tags, func(left, right *plumbing.Reference) int {
-		return strings.Compare(left.Name().String(), right.Name().String())
-	})
+	slices.SortFunc(
+		tags,
+		func(left, right *plumbing.Reference) int {
+			return strings.Compare(left.Name().String(), right.Name().String())
+		},
+	)
 
 	var best exactTag
 
@@ -99,11 +108,20 @@ func classifyTag(
 		return none, false, nil
 	}
 
-	candidate := exactTag{name: name, priority: annotatedTagPriority, date: outer.Tagger.When.Unix()}
+	candidate := exactTag{
+		name:     name,
+		priority: annotatedTagPriority,
+		date:     outer.Tagger.When.Unix(),
+	}
+
 	for {
 		next, err := outer.Object()
 		if err != nil {
-			return none, false, &os.PathError{Op: "read Git tag " + name + " target", Path: root, Err: err}
+			return none, false, &os.PathError{
+				Op:   "read Git tag " + name + " target",
+				Path: root,
+				Err:  err,
+			}
 		}
 
 		nested, isTag := next.(*object.Tag)

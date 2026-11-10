@@ -13,7 +13,9 @@ const nameBoost = "name^3"
 
 // rankSort orders page matches by score, then node ID, then the shard
 // document position that the point in time keeps stable.
-var rankSort = json.RawMessage(`[{"_score":{"order":"desc"}},{"node_id":{"order":"asc"}},{"_shard_doc":{"order":"asc"}}]`)
+var rankSort = json.RawMessage(
+	`[{"_score":{"order":"desc"}},{"node_id":{"order":"asc"}},{"_shard_doc":{"order":"asc"}}]`,
+)
 
 type rankRequestBody struct {
 	Size           int             `json:"size"`
@@ -63,9 +65,9 @@ type multiMatch struct {
 }
 
 // lexicalOperator requires one field to contain every query term before the
-// lexical clause adds its score to the sparse score.
-// Pages that match only part of the query receive only the sparse score.
-// Single-term queries score as before.
+// lexical clause adds its score to the sparse score. Pages that match only
+// part of the query receive only the sparse score. For a single-term query,
+// changing the operator from or to and does not change the lexical score.
 const lexicalOperator = "and"
 
 type nestedClause struct {
@@ -88,59 +90,105 @@ type sparseTokens struct {
 
 // encodeRankRequest builds one filtered native sparse search body. The
 // access, retirement, and node type filters apply before scoring.
-func encodeRankRequest(query searchdomain.Query, snapshot searchdomain.Snapshot, after json.RawMessage, size int, keepAlive time.Duration) ([]byte, error) {
+func encodeRankRequest(
+	query searchdomain.Query,
+	snapshot searchdomain.Snapshot,
+	after json.RawMessage,
+	size int,
+	keepAlive time.Duration,
+) ([]byte, error) {
 	filters, err := encodeFilters(query)
 	if err != nil {
 		return nil, err
 	}
-	lexical, err := json.Marshal(multiMatchClause{MultiMatch: multiMatch{Query: query.Text, Fields: []string{nameBoost, "page_text"}, Operator: lexicalOperator}})
+
+	lexical, err := json.Marshal(multiMatchClause{
+		MultiMatch: multiMatch{
+			Query:    query.Text,
+			Fields:   []string{nameBoost, "page_text"},
+			Operator: lexicalOperator,
+		},
+	})
 	if err != nil {
 		return nil, queryStepError{operation: "encode lexical clause", err: err}
 	}
-	semantic, err := json.Marshal(nestedClause{Nested: nestedSparse{
-		Path: generatedSemanticField + ".chunks", ScoreMode: "max",
-		Query: neuralSparseSpec{NeuralSparse: map[string]sparseTokens{
-			generatedSemanticField + ".chunks.embedding": {QueryTokens: snapshot.QueryTokens},
-		}},
-	}})
+
+	semantic, err := json.Marshal(nestedClause{
+		Nested: nestedSparse{
+			Path:      generatedSemanticField + ".chunks",
+			ScoreMode: "max",
+			Query: neuralSparseSpec{
+				NeuralSparse: map[string]sparseTokens{
+					generatedSemanticField + ".chunks.embedding": {
+						QueryTokens: snapshot.QueryTokens,
+					},
+				},
+			},
+		},
+	})
 	if err != nil {
 		return nil, queryStepError{operation: "encode sparse clause", err: err}
 	}
+
 	body := rankRequestBody{
-		Size: size, PIT: rankPIT{ID: snapshot.PITID, KeepAlive: strconv.FormatInt(keepAlive.Milliseconds(), 10) + "ms"},
-		Source: []string{"node_id"}, TrackTotalHits: false,
-		Query: rankQuery{Bool: rankBool{Filter: filters, Should: []json.RawMessage{lexical, semantic}, MinimumShouldMatch: 1}},
-		Sort:  rankSort, SearchAfter: after,
+		Size: size,
+		PIT: rankPIT{
+			ID:        snapshot.PITID,
+			KeepAlive: strconv.FormatInt(keepAlive.Milliseconds(), 10) + "ms",
+		},
+		Source:         []string{"node_id"},
+		TrackTotalHits: false,
+		Query: rankQuery{
+			Bool: rankBool{
+				Filter:             filters,
+				Should:             []json.RawMessage{lexical, semantic},
+				MinimumShouldMatch: 1,
+			},
+		},
+		Sort:        rankSort,
+		SearchAfter: after,
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return nil, queryStepError{operation: "encode rank request", err: err}
 	}
+
 	return encoded, nil
 }
 
 func encodeFilters(query searchdomain.Query) ([]json.RawMessage, error) {
 	clauses := make([]json.RawMessage, 0, 4)
-	version, err := json.Marshal(termClause{Term: map[string]string{"access.versions": query.Access.Version}})
+	version, err := json.Marshal(termClause{
+		Term: map[string]string{"access.versions": query.Access.Version},
+	})
 	if err != nil {
 		return nil, queryStepError{operation: "encode access version filter", err: err}
 	}
-	keys, err := json.Marshal(termsClause{Terms: map[string][]string{"access.keys": query.Access.Keys}})
+
+	keys, err := json.Marshal(termsClause{
+		Terms: map[string][]string{"access.keys": query.Access.Keys},
+	})
 	if err != nil {
 		return nil, queryStepError{operation: "encode access key filter", err: err}
 	}
+
 	retired, err := json.Marshal(booleanTermClause{Term: map[string]bool{"retired": false}})
 	if err != nil {
 		return nil, queryStepError{operation: "encode retirement filter", err: err}
 	}
+
 	clauses = append(clauses, version, keys, retired)
 	if query.NodeType != "" {
-		nodeType, err := json.Marshal(termClause{Term: map[string]string{"node_type": query.NodeType}})
+		nodeType, err := json.Marshal(termClause{
+			Term: map[string]string{"node_type": query.NodeType},
+		})
 		if err != nil {
 			return nil, queryStepError{operation: "encode node type filter", err: err}
 		}
+
 		clauses = append(clauses, nodeType)
 	}
+
 	return clauses, nil
 }
 

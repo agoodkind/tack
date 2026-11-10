@@ -15,66 +15,69 @@ import (
 	"github.com/google/uuid"
 )
 
-// RowSource is the ledger read an export needs: every row the filter matches,
-// handed over one at a time. *Reader is the production implementation, and the
-// interface is what lets an export be driven by a row supply large enough to
-// prove the export does not grow with it.
+// RowSource supplies each matching ledger row individually for an export.
+// [Reader] implements the interface in production. Tests can supply a large
+// ledger through the interface to check that export memory does not grow with
+// the row count.
 type RowSource interface {
 	StreamQuery(ctx context.Context, f QueryFilter, visit RowVisitor) error
 }
 
-// ExportManifest describes one exported bundle and is signed over every field
-// but its own signature. A bundle is this manifest plus the rows file it names,
-// and nothing else in the directory is part of it.
+// ExportManifest records a bundle's metadata. Its signature covers every field
+// except Signature. A bundle consists of the manifest and the rows file it
+// selects; other directory entries do not belong to the bundle.
 type ExportManifest struct {
 	ExportID uuid.UUID `json:"export_id"`
 	OrgID    uuid.UUID `json:"org_id"`
 	Oldest   time.Time `json:"oldest"`
 	Latest   time.Time `json:"latest"`
 	RowCount int       `json:"row_count"`
-	// EventsFile names the rows file this manifest describes, and the signature
-	// covers it. Without that binding a signed manifest could be repointed at
-	// another export's rows; with it, the pair either belongs together or fails
-	// to verify. It is empty only on a bundle written before the manifest
-	// carried the name, whose format fixed the name instead.
+	// EventsFile selects the rows file, and the signature covers that selection.
+	// Changing it to another export's rows invalidates the signature. Older bundles
+	// omit the field and use the fixed filename from their original format.
 	EventsFile  string `json:"events_file,omitempty"`
 	FileSHA256  string `json:"file_sha256"`
 	SignatureBy string `json:"signing_key_id"`
 	Signature   string `json:"signature"`
 }
 
-// Export streams the events that match filter into a directory layout:
+// Export streams matching ledger events into a signed bundle directory.
+//
+// The caller supplies a [RowSource] and the notarizer's Ed25519 signing key.
+// Verification uses the public key. The function returns an [ExportManifest]
+// that the caller can render.
 //
 //	<dir>/events-<export id>.jsonl   newline-delimited Row records
 //	<dir>/manifest.json              {export_id, org_id, time_range, row_count,
 //	                                  events_file, file_sha256, signature,
 //	                                  signing_key_id}
 //
-// Caller supplies the audit Reader and the same Ed25519 signing key the
-// notarizer uses; verification reuses the public half. Returns the manifest as
-// a Go struct so the caller can render it.
+// The function writes and releases each row individually while accumulating the
+// row count and file digest. Ledger size does not impose a row limit. A zero
+// filter.Limit exports every row in the range for compliance exports and the
+// restore drill's chain check. A positive limit selects that many newest rows.
 //
-// The rows are streamed: each one is written and released as it is read, and
-// the row count and the file digest are both accumulated as that happens, so
-// there is no ledger size this refuses. A zero filter.Limit exports every row
-// in the range, which is what a compliance export and the restore drill's chain
-// check both ask for; a positive limit exports that many of the newest rows.
-//
-// Publishing is the single rename that replaces the manifest. The rows are
-// written under a name no other export can use and are never renamed, so the
-// manifest is the only mutable name in the directory and the pair it names is
-// always its own. Two exports into one directory therefore race to replace one
-// file: whichever lands second is the bundle, and either outcome is a manifest
-// beside the rows it was signed for. A re-export that fails partway leaves the
-// bundle already in the directory exactly as it was, because nothing published
-// is written in place.
-func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, keyID string, filter QueryFilter, dir string) (*ExportManifest, error) {
+// Each export writes a unique rows filename and never renames it. One rename
+// replaces the manifest to publish the bundle. Concurrent exports replace only
+// that shared manifest; the last replacement selects that export's signed rows.
+// An export that fails before publication preserves the existing bundle because
+// it does not rewrite published files in place.
+func Export(
+	ctx context.Context,
+	reader RowSource,
+	signer ed25519.PrivateKey,
+	keyID string,
+	filter QueryFilter,
+	dir string,
+) (*ExportManifest, error) {
 	if reader == nil {
 		return nil, errors.New("audit export: reader required")
 	}
+
 	if signer == nil || keyID == "" {
 		return nil, errors.New("audit export: signing key required")
 	}
+
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("audit export mkdir: %w", err)
 	}
@@ -109,86 +112,101 @@ func Export(ctx context.Context, reader RowSource, signer ed25519.PrivateKey, ke
 		_ = os.Remove(eventsPath)
 		return nil, err
 	}
-	// The rename that published this manifest is a change to the directory, so
-	// it is not on disk until the directory is synced. The reclaim below unlinks
-	// the rows the previous bundle named, and a power loss between an unlink
-	// that persisted and a rename that did not leaves the previous manifest
-	// naming rows that are gone. Nothing is removed here: the bundle is
-	// published and whole, and only its durability is unproven.
+
+	// The manifest rename changes the directory and requires a directory sync. If
+	// an unlink persists before that rename, power loss can leave the previous
+	// manifest without its rows. Preserve files when the sync fails: publication
+	// has succeeded, but directory durability remains unproven.
 	if err := syncExportDirectory(dir); err != nil {
 		return nil, err
 	}
 
-	// The reclaim runs after the manifest is published and after this export
-	// stops counting as active, so what it sees is a settled directory: the
-	// bundle that is now published, plus the rows of every export that was
-	// superseded or died before it could publish.
+	// Reclaim runs after publication and after this export stops counting as
+	// active. It considers the published bundle and rows from exports that another
+	// export superseded or that stopped before publication.
 	activity.end()
 	reclaimAbandonedExportFiles(ctx, dir)
+
 	return manifest, nil
 }
 
-// publishExportManifest writes the manifest and renames it over the published
-// name, which replaces the file there atomically. Nothing is unlinked first:
-// removing the manifest up front would destroy the only thing that makes the
-// directory readable as a bundle, and a rename that then failed, or a crash
-// before it ran, would leave that loss permanent. A failure of the rename
-// leaves the directory exactly as it was and reports it, which is why the error
-// reaches the caller rather than being logged and swallowed.
+// publishExportManifest writes a staged manifest and atomically renames it over
+// the published filename. It does not unlink the existing manifest first. An
+// unlink followed by a failed rename or crash would remove the usable bundle. A
+// failed rename preserves the previous publication and returns an error.
 //
-// The staged manifest is on stable storage before the rename runs. A rename
-// publishes a name, not the bytes behind it, so publishing over contents that
-// had not landed yet would let a power loss leave a signed compliance artifact
-// that is empty or torn.
-func publishExportManifest(ctx context.Context, dir string, exportID uuid.UUID, manifest *ExportManifest) error {
+// The function persists staged bytes before the rename. A rename publishes a
+// directory entry without persisting file contents. Publishing unsynced bytes
+// could leave an empty or incomplete signed compliance artifact after power
+// loss.
+func publishExportManifest(
+	ctx context.Context,
+	dir string,
+	exportID uuid.UUID,
+	manifest *ExportManifest,
+) error {
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return fmt.Errorf("audit export marshal manifest: %w", err)
 	}
+
 	published := filepath.Join(dir, exportManifestFile)
 	staged := stagedExportPath(published, exportID)
 	if err := writeSyncedFile(staged, manifestBytes, 0o600); err != nil {
 		_ = os.Remove(staged)
-		slog.ErrorContext(ctx, "audit.export.publish_failed",
-			slog.String("path", staged), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.export.publish_failed",
+			slog.String("path", staged),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("audit export write manifest: %w", err)
 	}
+
 	if err := os.Rename(staged, published); err != nil {
 		_ = os.Remove(staged)
-		slog.ErrorContext(ctx, "audit.export.publish_failed",
-			slog.String("path", published), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.export.publish_failed",
+			slog.String("path", published),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("audit export publish manifest: %w", err)
 	}
+
 	return nil
 }
 
-// exportSignableManifest renders the manifest fields the signature covers. The
-// signature is over everything but itself, so verification re-renders the same
-// shape from the manifest it read, which is why signing and verifying share
-// this one function rather than each keeping a copy that could drift.
+// exportSignableManifest serializes every manifest field except Signature.
+// Signing and verification use this function to avoid different projections.
 //
-// events_file is last and omitted when empty, so a manifest written before the
-// field existed renders exactly the bytes it was signed over and still
-// verifies, while every manifest that names its rows signs that name.
+// The events_file field remains last and omits empty values. Older manifests
+// retain their original signing bytes, and current manifests sign the filename
+// that selects their rows.
 func exportSignableManifest(manifest *ExportManifest) []byte {
-	signable, _ := json.Marshal(struct {
-		ExportID    uuid.UUID `json:"export_id"`
-		OrgID       uuid.UUID `json:"org_id"`
-		Oldest      time.Time `json:"oldest"`
-		Latest      time.Time `json:"latest"`
-		RowCount    int       `json:"row_count"`
-		FileSHA256  string    `json:"file_sha256"`
-		SignatureBy string    `json:"signing_key_id"`
-		EventsFile  string    `json:"events_file,omitempty"`
-	}{
-		ExportID:    manifest.ExportID,
-		OrgID:       manifest.OrgID,
-		Oldest:      manifest.Oldest,
-		Latest:      manifest.Latest,
-		RowCount:    manifest.RowCount,
-		FileSHA256:  manifest.FileSHA256,
-		SignatureBy: manifest.SignatureBy,
-		EventsFile:  manifest.EventsFile,
-	})
+	signable, _ := json.Marshal(
+		struct {
+			ExportID    uuid.UUID `json:"export_id"`
+			OrgID       uuid.UUID `json:"org_id"`
+			Oldest      time.Time `json:"oldest"`
+			Latest      time.Time `json:"latest"`
+			RowCount    int       `json:"row_count"`
+			FileSHA256  string    `json:"file_sha256"`
+			SignatureBy string    `json:"signing_key_id"`
+			EventsFile  string    `json:"events_file,omitempty"`
+		}{
+			ExportID:    manifest.ExportID,
+			OrgID:       manifest.OrgID,
+			Oldest:      manifest.Oldest,
+			Latest:      manifest.Latest,
+			RowCount:    manifest.RowCount,
+			FileSHA256:  manifest.FileSHA256,
+			SignatureBy: manifest.SignatureBy,
+			EventsFile:  manifest.EventsFile,
+		},
+	)
+
 	return signable
 }

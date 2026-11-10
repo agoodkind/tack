@@ -26,20 +26,34 @@ func TestFailedRepairRecordsWhatItAppliedBeforeFailing(t *testing.T) {
 	report := partialRepairReport(orgID)
 	runErr := errors.New("write renumbered node: transaction too old")
 
-	returned := repairRecordOutcome(context.Background(), report, runErr, true, func(recordCtx context.Context) error {
-		return recordReferenceRepair(
-			recordCtx, outbox, repairAuditTestPrincipal(), report,
-			time.Date(2026, time.August, 31, 1, 0, 0, 0, time.UTC),
-		)
-	})
+	returned := repairRecordOutcome(
+		context.Background(),
+		report,
+		runErr,
+		true,
+		func(recordCtx context.Context) error {
+			return recordReferenceRepair(
+				recordCtx,
+				outbox,
+				repairAuditTestPrincipal(),
+				report,
+				time.Date(2026, time.August, 31, 1, 0, 0, 0, time.UTC),
+			)
+		},
+	)
 
 	if returned == nil || !errors.Is(returned, runErr) {
 		t.Fatalf("returned = %v, want the run's own failure so the operator acts on it", returned)
 	}
+
 	events := repairAuditRecordedEvents(t, outbox, orgID)
 	if len(events) != 1 {
-		t.Fatalf("recorded events = %d, want the one rename that landed before the failure", len(events))
+		t.Fatalf(
+			"recorded events = %d, want the one rename that landed before the failure",
+			len(events),
+		)
 	}
+
 	rename := repairAuditExtra(t, events[0])
 	if rename.From != "APP-10" || rename.To != "APP-18" {
 		t.Fatalf("recorded rename = %s to %s, want APP-10 to APP-18", rename.From, rename.To)
@@ -53,16 +67,25 @@ func TestDryRunFailureRecordsNothing(t *testing.T) {
 	outbox, orgID := repairAuditOutbox(t)
 	report := partialRepairReport(orgID)
 
-	returned := repairRecordOutcome(context.Background(), report, errors.New("list nodes: unavailable"), false, func(recordCtx context.Context) error {
-		return recordReferenceRepair(
-			recordCtx, outbox, repairAuditTestPrincipal(), report,
-			time.Date(2026, time.August, 31, 1, 0, 0, 0, time.UTC),
-		)
-	})
-
+	returned := repairRecordOutcome(
+		context.Background(),
+		report,
+		errors.New("list nodes: unavailable"),
+		false,
+		func(recordCtx context.Context) error {
+			return recordReferenceRepair(
+				recordCtx,
+				outbox,
+				repairAuditTestPrincipal(),
+				report,
+				time.Date(2026, time.August, 31, 1, 0, 0, 0, time.UTC),
+			)
+		},
+	)
 	if returned == nil {
 		t.Fatal("a failed dry run must still return its error")
 	}
+
 	if events := repairAuditRecordedEvents(t, outbox, orgID); len(events) != 0 {
 		t.Fatalf("recorded events = %d, want none: a dry run applied nothing", len(events))
 	}
@@ -77,15 +100,25 @@ func TestBothFailuresReachTheOperator(t *testing.T) {
 	runErr := errors.New("allocate replacement value: transaction too old")
 	recordErr := errors.New("outbox unavailable")
 
-	returned := repairRecordOutcome(context.Background(), partialRepairReport(uuid.Nil), runErr, true, func(context.Context) error {
-		return recordErr
-	})
+	returned := repairRecordOutcome(
+		context.Background(),
+		partialRepairReport(uuid.Nil),
+		runErr,
+		true,
+		func(context.Context) error {
+			return recordErr
+		},
+	)
 
 	if !errors.Is(returned, runErr) {
 		t.Fatalf("returned = %v, want the run failure preserved", returned)
 	}
+
 	if !errors.Is(returned, recordErr) {
-		t.Fatalf("returned = %v, want the recording failure preserved: unrecorded changes are live in the store", returned)
+		t.Fatalf(
+			"returned = %v, want the recording failure preserved: unrecorded changes are live in the store",
+			returned,
+		)
 	}
 }
 
@@ -99,21 +132,35 @@ func TestRecordingSurvivesACancelledRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	returned := repairRecordOutcome(ctx, report, context.Canceled, true, func(recordCtx context.Context) error {
-		if recordCtx.Err() != nil {
-			return recordCtx.Err()
-		}
-		return recordReferenceRepair(
-			recordCtx, outbox, repairAuditTestPrincipal(), report,
-			time.Date(2026, time.August, 31, 1, 0, 0, 0, time.UTC),
-		)
-	})
+	returned := repairRecordOutcome(
+		ctx,
+		report,
+		context.Canceled,
+		true,
+		func(recordCtx context.Context) error {
+			if recordCtx.Err() != nil {
+				return recordCtx.Err()
+			}
+
+			return recordReferenceRepair(
+				recordCtx,
+				outbox,
+				repairAuditTestPrincipal(),
+				report,
+				time.Date(2026, time.August, 31, 1, 0, 0, 0, time.UTC),
+			)
+		},
+	)
 
 	if !errors.Is(returned, context.Canceled) {
 		t.Fatalf("returned = %v, want the run's cancellation", returned)
 	}
+
 	if events := repairAuditRecordedEvents(t, outbox, orgID); len(events) != 1 {
-		t.Fatalf("recorded events = %d, want the applied rename recorded despite the cancelled run", len(events))
+		t.Fatalf(
+			"recorded events = %d, want the applied rename recorded despite the cancelled run",
+			len(events),
+		)
 	}
 }
 
@@ -123,9 +170,15 @@ func TestRecordingSurvivesACancelledRun(t *testing.T) {
 func TestRecordFailureSurfacesWhenTheRunSucceeded(t *testing.T) {
 	recordErr := errors.New("outbox unavailable")
 
-	returned := repairRecordOutcome(context.Background(), partialRepairReport(uuid.Nil), nil, true, func(context.Context) error {
-		return recordErr
-	})
+	returned := repairRecordOutcome(
+		context.Background(),
+		partialRepairReport(uuid.Nil),
+		nil,
+		true,
+		func(context.Context) error {
+			return recordErr
+		},
+	)
 
 	if !errors.Is(returned, recordErr) {
 		t.Fatalf("returned = %v, want the recording failure", returned)
@@ -136,6 +189,7 @@ func TestRecordFailureSurfacesWhenTheRunSucceeded(t *testing.T) {
 // its second failed: one applied rename, nothing else.
 func partialRepairReport(orgID uuid.UUID) RepairReferenceReport {
 	nodeID := uuid.MustParse("019dc5ed-eac1-7ab4-b86b-cebc6ce06de8")
+
 	return RepairReferenceReport{
 		Renumbered: []ReferenceRename{
 			{OrgID: orgID, NodeID: nodeID, From: "APP-10", To: "APP-18"},
@@ -156,20 +210,30 @@ func TestRenumberGroupReturnsTheRenamesItAppliedBeforeFailing(t *testing.T) {
 	failure := errors.New("allocate replacement value: transaction too old")
 	calls := 0
 
-	renamed, err := renumberGroupNodes([]uuid.UUID{first, second, third}, 0, func(nodeID uuid.UUID) (ReferenceRename, error) {
-		calls++
-		if nodeID == third {
-			return ReferenceRename{}, failure
-		}
-		return ReferenceRename{NodeID: nodeID, From: "APP-1", To: "APP-9"}, nil
-	})
+	renamed, err := renumberGroupNodes(
+		[]uuid.UUID{first, second, third},
+		0,
+		func(nodeID uuid.UUID) (ReferenceRename, error) {
+			calls++
+			if nodeID == third {
+				return ReferenceRename{}, failure
+			}
+
+			return ReferenceRename{NodeID: nodeID, From: "APP-1", To: "APP-9"}, nil
+		},
+	)
 
 	if !errors.Is(err, failure) {
 		t.Fatalf("err = %v, want the rename failure", err)
 	}
+
 	if calls != 2 {
-		t.Fatalf("renameOne calls = %d, want 2: the retained node is skipped and the run stops at the failure", calls)
+		t.Fatalf(
+			"renameOne calls = %d, want 2: the retained node is skipped and the run stops at the failure",
+			calls,
+		)
 	}
+
 	if len(renamed) != 1 || renamed[0].NodeID != second {
 		t.Fatalf("renamed = %+v, want the one rename that landed before the failure", renamed)
 	}
@@ -186,12 +250,14 @@ func TestRepairFaultIsRefusedOutsideATestbed(t *testing.T) {
 			t.Fatalf("target %q accepted the fault flag", target)
 		}
 	}
+
 	for _, target := range []string{"qa", "local"} {
 		factory := &cli.Factory{Cfg: &config.Config{DatagenAllowTarget: target}}
 		if err := checkRepairFaultAllowed(context.Background(), factory, 1); err != nil {
 			t.Fatalf("target %q refused the fault flag: %v", target, err)
 		}
 	}
+
 	// Without the flag the marker is irrelevant, so a production repair still
 	// runs: the gate must not become a second condition on ordinary work.
 	factory := &cli.Factory{Cfg: &config.Config{DatagenAllowTarget: ""}}
@@ -210,7 +276,9 @@ func TestInjectedFaultStopsAfterTheGivenRenames(t *testing.T) {
 		if applied >= 2 {
 			return ErrRepairFaultInjected
 		}
+
 		applied++
+
 		return nil
 	}
 	ids := []uuid.UUID{
@@ -220,16 +288,22 @@ func TestInjectedFaultStopsAfterTheGivenRenames(t *testing.T) {
 		uuid.MustParse("00000000-0000-0000-0000-000000000004"),
 	}
 
-	renamed, err := renumberGroupNodes(ids, 0, func(nodeID uuid.UUID) (ReferenceRename, error) {
-		if faultErr := beforeRename(); faultErr != nil {
-			return ReferenceRename{}, faultErr
-		}
-		return ReferenceRename{NodeID: nodeID, From: "APP-1", To: "APP-9"}, nil
-	})
+	renamed, err := renumberGroupNodes(
+		ids,
+		0,
+		func(nodeID uuid.UUID) (ReferenceRename, error) {
+			if faultErr := beforeRename(); faultErr != nil {
+				return ReferenceRename{}, faultErr
+			}
+
+			return ReferenceRename{NodeID: nodeID, From: "APP-1", To: "APP-9"}, nil
+		},
+	)
 
 	if !errors.Is(err, ErrRepairFaultInjected) {
 		t.Fatalf("err = %v, want the injected fault", err)
 	}
+
 	if len(renamed) != 2 {
 		t.Fatalf("renamed = %d, want exactly the 2 renames the fault allowed", len(renamed))
 	}
@@ -244,19 +318,32 @@ func TestInjectedFaultStopsAfterTheGivenRenames(t *testing.T) {
 func TestUnrecordedLoggingKeepsEveryIdentityInBoundedBatches(t *testing.T) {
 	var recorded bytes.Buffer
 	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&recorded, &slog.HandlerOptions{
-		AddSource: false, Level: slog.LevelError, ReplaceAttr: nil,
-	})))
+	slog.SetDefault(
+		slog.New(
+			slog.NewTextHandler(
+				&recorded,
+				&slog.HandlerOptions{
+					AddSource:   false,
+					Level:       slog.LevelError,
+					ReplaceAttr: nil,
+				},
+			),
+		),
+	)
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
 	report := RepairReferenceReport{Renumbered: nil, Counters: nil, Keys: nil}
+
 	for i := range 500 {
-		report.Renumbered = append(report.Renumbered, ReferenceRename{
-			OrgID:  uuid.Nil,
-			NodeID: uuid.New(),
-			From:   "APP-" + strconv.Itoa(i),
-			To:     "APP-" + strconv.Itoa(1000+i),
-		})
+		report.Renumbered = append(
+			report.Renumbered,
+			ReferenceRename{
+				OrgID:  uuid.Nil,
+				NodeID: uuid.New(),
+				From:   "APP-" + strconv.Itoa(i),
+				To:     "APP-" + strconv.Itoa(1000+i),
+			},
+		)
 	}
 
 	logUnrecordedRepair(context.Background(), report, errors.New("outbox unavailable"))
@@ -266,18 +353,27 @@ func TestUnrecordedLoggingKeepsEveryIdentityInBoundedBatches(t *testing.T) {
 	// would have dropped are exactly the ones no rerun can recover.
 	for _, rename := range report.Renumbered {
 		if !strings.Contains(logged, rename.NodeID.String()) {
-			t.Fatalf("rename %s is missing from the log, so its change is unrecorded and unrecoverable", rename.NodeID)
+			t.Fatalf(
+				"rename %s is missing from the log, so its change is unrecorded and unrecoverable",
+				rename.NodeID,
+			)
 		}
 	}
+
 	// 500 identities at 50 per line is 10 batch lines plus the summary. The
 	// bound is on line size, so the count stays far below one line per item.
 	lines := strings.Count(logged, "\n")
 	if lines != 11 {
 		t.Fatalf("log lines = %d, want 11: one summary plus ten batches of fifty", lines)
 	}
+
 	if !strings.Contains(logged, "batch=10") || !strings.Contains(logged, "batches=10") {
-		t.Fatalf("log = %s, want each line to name its position so a truncated log is visible", logged)
+		t.Fatalf(
+			"log = %s, want each line to name its position so a truncated log is visible",
+			logged,
+		)
 	}
+
 	if !strings.Contains(logged, "total=500") {
 		t.Fatalf("log = %s, want the exact total", logged)
 	}

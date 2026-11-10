@@ -9,33 +9,33 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// failureBackoffCap bounds the pause between polls while a partition keeps
-// failing, so a ledger outage costs a few log lines a minute rather than a
-// storm, while recovery is noticed within the cap.
+// failureBackoffCap limits the delay between failed polls to reduce repeated
+// outage logs. The consumer retries after at most this delay.
 const failureBackoffCap = 30 * time.Second
 
 // failureBackoffDoublings caps how many times the pause doubles.
 const failureBackoffDoublings = 8
 
-// projectFetches projects every partition batch one poll returned, winds
-// back the partitions whose batch failed, and commits the rest. It reports
-// whether any batch failed.
+// projectFetches processes each partition batch from one poll, resets failed
+// partitions to their first record, and commits the successful partitions.
+// It reports whether any batch failed.
 //
-// The poll advanced the client's fetch position past every record it
-// returned, including the ones a failed batch never projected. Those
-// partitions are wound back to the failed batch's first record before
-// anything is committed, so the next poll re-fetches them and no later batch
-// can commit an offset past records the ledger never saw. The seek runs
-// between polls and before the commit, the two conditions the client's own
-// documentation sets for a group consumer.
+// Polling advances the client's fetch position even for records that fail
+// projection. This call resets failed partitions between polls and before
+// its explicit commits to retry records that the failed batch did not store.
+// The client also recommends blocking concurrent group revocation during a
+// reset.
 func (c *Consumer) projectFetches(ctx context.Context, fetches kgo.Fetches) bool {
 	batches := groupByPartition(fetches)
 	committed := make([]*kgo.Record, 0, len(batches))
 	rewind := map[string]map[int32]kgo.EpochOffset{}
+
 	for tp, records := range batches {
 		if err := c.projectBatch(ctx, tp, records); err != nil {
 			telemetry.IncAuditConsumerProcessed("error", int64(len(records)))
-			slog.ErrorContext(ctx, "audit.consumer.project_failed",
+			slog.ErrorContext(
+				ctx,
+				"audit.consumer.project_failed",
 				slog.String("topic", tp.Topic),
 				slog.Int("partition", int(tp.Partition)),
 				slog.String("err", err.Error()),
@@ -44,45 +44,58 @@ func (c *Consumer) projectFetches(ctx context.Context, fetches kgo.Fetches) bool
 			if rewind[tp.Topic] == nil {
 				rewind[tp.Topic] = map[int32]kgo.EpochOffset{}
 			}
-			rewind[tp.Topic][tp.Partition] = kgo.EpochOffset{Epoch: first.LeaderEpoch, Offset: first.Offset}
+
+			rewind[tp.Topic][tp.Partition] = kgo.EpochOffset{
+				Epoch:  first.LeaderEpoch,
+				Offset: first.Offset,
+			}
 			continue
 		}
+
 		last := records[len(records)-1]
 		committed = append(committed, last)
 		telemetry.IncAuditConsumerProcessed("ok", int64(len(records)))
 		telemetry.SetAuditConsumerOffsetCommitted(tp.Topic, tp.Partition, last.Offset+1)
 		c.recordSummary(ctx, records, last.Offset+1)
 	}
+
 	if len(rewind) > 0 {
 		c.kclient.SetOffsets(rewind)
 	}
-	// A commit lost to a rebalance only redelivers, and a redelivered record
-	// is refused by the ledger's identity claim, so the group offset may lag
-	// the ledger but never lead it.
+
+	// This call commits Kafka offsets for successful batches after their
+	// YugabyteDB transactions commit. A failed Kafka commit during rebalance can
+	// cause redelivery. The ledger's event identity claim rejects repeat inserts.
 	if len(committed) > 0 {
 		if err := c.kclient.CommitRecords(ctx, committed...); err != nil {
 			slog.ErrorContext(ctx, "audit.consumer.commit_failed", slog.String("err", err.Error()))
 		}
 	}
+
 	return len(rewind) > 0
 }
 
-// backOffAfterFailures pauses before the next poll when this one failed a
-// batch, doubling the pause per consecutive failing poll up to the cap, and
-// resets on a clean poll. The pause ends early on stop or cancellation.
+// backOffAfterFailures pauses after a poll fails a batch. Each consecutive
+// failed poll with records doubles the pause up to the cap. A successful
+// poll with records resets the failure count. Stop or cancellation ends the
+// pause early.
 func (c *Consumer) backOffAfterFailures(ctx context.Context, failed bool) {
 	if !failed {
 		c.consecutiveFailures = 0
 		return
 	}
+
 	c.consecutiveFailures++
-	// Doubling stops at the cap, so no poll interval and no failure count
-	// can push the duration past it or over the type's range.
+	// The initial delay and every doubled delay stay within the cap and the
+	// duration type's range.
 	wait := min(c.cfg.PollInterval, failureBackoffCap)
 	for i := 0; i < c.consecutiveFailures && i < failureBackoffDoublings && wait < failureBackoffCap; i++ {
 		wait = min(wait*2, failureBackoffCap)
 	}
-	slog.WarnContext(ctx, "audit.consumer.retry_backoff",
+
+	slog.WarnContext(
+		ctx,
+		"audit.consumer.retry_backoff",
 		slog.Int("consecutive_failures", c.consecutiveFailures),
 		slog.String("wait", wait.String()),
 	)

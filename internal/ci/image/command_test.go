@@ -14,7 +14,13 @@ const (
 	unknownOperation = "unknown"
 )
 
-// TestMain builds the image command once and runs the package tests against it.
+// TestMain calls RunTests to run the command tests.
+//
+// RunTests manages the executable for each subprocess in the package:
+//
+//   - It builds the command once before the tests start.
+//   - It removes the build directory after the tests finish.
+//   - It returns the exit code that TestMain passes to [os.Exit].
 func TestMain(m *testing.M) {
 	os.Exit(imagetest.RunTests(m))
 }
@@ -33,8 +39,13 @@ func runBuiltCommand(
 	return string(output), err
 }
 
-// TestHelpSucceedsWithoutOperationEnvironment checks that help succeeds
-// without operation environment variables or a failure log.
+// TestHelpSucceedsWithoutOperationEnvironment checks command help.
+//
+// Each invocation uses an empty environment and must succeed without logging
+// ci-image.failed. The cases request help for these commands:
+//
+//   - The root command supports help.
+//   - Each image operation supports help.
 func TestHelpSucceedsWithoutOperationEnvironment(t *testing.T) {
 	for _, test := range []commandCase{
 		{helpFlag, rootHelpCommand},
@@ -43,21 +54,30 @@ func TestHelpSucceedsWithoutOperationEnvironment(t *testing.T) {
 		{"verify-native-runner " + helpFlag, verifyNativeRunnerHelpCommand},
 		{"metadata " + helpFlag, metadataHelpCommand},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			output, err := runBuiltCommand(t, []string{}, test.build)
-			if err != nil {
-				t.Fatalf("err = %v, output = %s", err, output)
-			}
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				output, err := runBuiltCommand(t, []string{}, test.build)
+				if err != nil {
+					t.Fatalf("err = %v, output = %s", err, output)
+				}
 
-			if strings.Contains(output, "ci-image.failed") {
-				t.Fatalf("help logged a failure: %s", output)
-			}
-		})
+				if strings.Contains(output, "ci-image.failed") {
+					t.Fatalf("help logged a failure: %s", output)
+				}
+			},
+		)
 	}
 }
 
-// TestInvalidArgumentsFailOnceWithoutWritingFiles checks that invalid
-// arguments produce one failure log and do not create a digest directory.
+// TestInvalidArgumentsFailOnceWithoutWritingFiles checks argument rejection.
+//
+// Each case must fail and log one boundary error. The digest directory must
+// remain absent. The cases check these arguments:
+//
+//   - The caller omits the operation.
+//   - The caller requests an unknown operation.
+//   - The caller adds an extra argument for digest.
 func TestInvalidArgumentsFailOnceWithoutWritingFiles(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "digests")
 	environment := []string{
@@ -71,20 +91,24 @@ func TestInvalidArgumentsFailOnceWithoutWritingFiles(t *testing.T) {
 		{"unknown operation", unknownOperationCommand},
 		{"extra argument", extraArgumentCommand},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			output, err := runBuiltCommand(t, environment, test.build)
-			if err == nil {
-				t.Fatalf("expected failure, output = %s", output)
-			}
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				output, err := runBuiltCommand(t, environment, test.build)
+				if err == nil {
+					t.Fatalf("expected failure, output = %s", output)
+				}
 
-			if strings.Count(output, "ERROR ") != 1 || !strings.Contains(output, "ci-image.failed") {
-				t.Fatalf("expected one boundary log, output = %s", output)
-			}
+				if strings.Count(output, "ERROR ") != 1 ||
+					!strings.Contains(output, "ci-image.failed") {
+					t.Fatalf("expected one boundary log, output = %s", output)
+				}
 
-			_, statErr := os.Stat(directory)
-			if !os.IsNotExist(statErr) {
-				t.Fatalf("digest directory exists after a rejected command: %v", statErr)
-			}
-		})
+				_, statErr := os.Stat(directory)
+				if !os.IsNotExist(statErr) {
+					t.Fatalf("digest directory exists after a rejected command: %v", statErr)
+				}
+			},
+		)
 	}
 }

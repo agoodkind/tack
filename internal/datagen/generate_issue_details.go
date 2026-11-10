@@ -47,7 +47,13 @@ func (g *Generator) generateIssueDetails(
 		}
 	}
 	if index%5 == 0 {
-		return g.updateIssueAndCheckConfirmation(ctx, actor, workspace, projectIdentifier, issueReference)
+		return g.updateIssueAndCheckConfirmation(
+			ctx,
+			actor,
+			workspace,
+			projectIdentifier,
+			issueReference,
+		)
 	}
 	return nil
 }

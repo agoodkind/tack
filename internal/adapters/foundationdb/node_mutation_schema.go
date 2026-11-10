@@ -9,24 +9,43 @@ import (
 	"goodkind.io/tack/internal/domain/node"
 )
 
-// readSchemaSnapshot reads the metadata epoch, property definitions, and node
-// types for orgID inside tr.
-func readSchemaSnapshot(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID) (node.SchemaSnapshot, error) {
-	empty := node.SchemaSnapshot{Schema: node.Schema{OrgID: orgID, Types: nil, Definitions: nil}, MetadataEpoch: 0}
+// readSchemaSnapshot reads the metadata epoch, property definitions, and
+// node types for orgID inside tr.
+func readSchemaSnapshot(
+	ctx context.Context,
+	tr fdb.Transaction,
+	orgID uuid.UUID,
+) (node.SchemaSnapshot, error) {
+	empty := node.SchemaSnapshot{
+		Schema:        node.Schema{OrgID: orgID, Types: nil, Definitions: nil},
+		MetadataEpoch: 0,
+	}
 	epoch, err := readMetadataEpoch(ctx, tr, orgID)
 	if err != nil {
 		return empty, err
 	}
-	definitions, err := readSchemaRecords[node.PropertyDef](ctx, tr, propertyDefPrefix(orgID), "property definitions")
+
+	definitions, err := readSchemaRecords[node.PropertyDef](
+		ctx,
+		tr,
+		propertyDefPrefix(orgID),
+		"property definitions",
+	)
 	if err != nil {
 		return empty, err
 	}
+
 	types, err := readSchemaRecords[node.NodeType](ctx, tr, nodeTypeDefPrefix(orgID), "node types")
 	if err != nil {
 		return empty, err
 	}
+
 	return node.SchemaSnapshot{
-		Schema:        node.Schema{OrgID: orgID, Types: node.BuildTypeIndex(types), Definitions: definitions},
+		Schema: node.Schema{
+			OrgID:       orgID,
+			Types:       node.BuildTypeIndex(types),
+			Definitions: definitions,
+		},
 		MetadataEpoch: epoch,
 	}, nil
 }
@@ -38,23 +57,32 @@ func readMetadataEpoch(ctx context.Context, tr fdb.Transaction, orgID uuid.UUID)
 }
 
 // readSchemaRecords reads and decodes every record under prefix inside tr.
-func readSchemaRecords[Record node.PropertyDef | node.NodeType](ctx context.Context, tr fdb.Transaction, prefix []byte, subject string) ([]*Record, error) {
+func readSchemaRecords[Record node.PropertyDef | node.NodeType](
+	ctx context.Context,
+	tr fdb.Transaction,
+	prefix []byte,
+	subject string,
+) ([]*Record, error) {
 	keyRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		return nil, nodeOperationFailure(ctx, "create the range of "+subject, err)
 	}
+
 	items, err := tr.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
 	if err != nil {
 		return nil, searchReadFailure(ctx, "read "+subject, err)
 	}
+
 	records := make([]*Record, 0, len(items))
 	for _, item := range items {
 		var record Record
 		if err := json.Unmarshal(item.Value, &record); err != nil {
 			return nil, nodeOperationFailure(ctx, "decode "+subject, err)
 		}
+
 		records = append(records, &record)
 	}
+
 	return records, nil
 }
 
@@ -67,5 +95,6 @@ func indexedPropertyNames(schema node.Schema, kind *node.NodeType) []string {
 			names = append(names, definition.Name)
 		}
 	}
+
 	return names
 }

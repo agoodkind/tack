@@ -9,10 +9,11 @@ import (
 
 const samplerFixture = "testdata/sampler.jsonl"
 
-// TestSummarizeHostFixture checks every host and guest figure on hand-written sampler lines.
-// The fixture has one line before and one line after the window, with readings of 99 that a
-// window error would expose, and one failed line inside the window. A later line at 00:02:00Z
-// falls outside this window.
+// TestSummarizeHostFixture checks every host and guest figure using sampler
+// lines that the test author wrote. The fixture includes lines before and
+// after the window with readings of 99 to expose incorrect window selection.
+// It also includes one failed line inside the window. The later line at
+// 00:02:00Z falls outside this window.
 func TestSummarizeHostFixture(t *testing.T) {
 	windowStart := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	window := resourcesummary.Window{Start: windowStart, End: windowStart.Add(time.Minute)}
@@ -26,7 +27,12 @@ func TestSummarizeHostFixture(t *testing.T) {
 		t.Errorf("samples = %d, failed = %d, want 3 and 1", got.Samples, got.FailedSamples)
 	}
 	if !got.First.Equal(windowStart) || got.Elapsed() != time.Minute {
-		t.Errorf("first = %s, elapsed = %s, want %s and 1m0s", got.First, got.Elapsed(), windowStart)
+		t.Errorf(
+			"first = %s, elapsed = %s, want %s and 1m0s",
+			got.First,
+			got.Elapsed(),
+			windowStart,
+		)
 	}
 	figures := []struct {
 		name string
@@ -56,8 +62,9 @@ func TestSummarizeHostFixture(t *testing.T) {
 	}
 }
 
-// TestSummarizeHostRejectsIncompletePressure checks the fixture line at 00:02:00Z. Its host IO
-// pressure input has a some line without a full line.
+// TestSummarizeHostRejectsIncompletePressure checks the fixture line at
+// 00:02:00Z. Its host IO pressure input includes a some line but omits a full
+// line.
 func TestSummarizeHostRejectsIncompletePressure(t *testing.T) {
 	const wantError = `sample 2026-01-01T00:02:00Z: host IO pressure: ` +
 		`find full line in ["some avg10=2.50 avg60=0.00 avg300=0.00 total=60"]: ` +

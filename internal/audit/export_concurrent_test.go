@@ -1,8 +1,7 @@
-// export_concurrent_test.go covers what two exports writing into one directory
-// do to each other. Both tests here run one export to completion while another
-// is mid-stream, which is the shape in which the two are indistinguishable by
-// name: one pins that each publishes its own rows, the other that the one
-// finishing does not free the rows the other is still writing.
+// These tests run one export to completion while another still writes rows in
+// the same directory. They check independent bundle publication and
+// preservation of in-progress rows that filenames alone cannot distinguish from
+// abandoned rows.
 
 package audit
 
@@ -17,18 +16,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestASecondExportIntoTheSameDirectoryPublishesItsOwnRows pins that two
-// exports sharing a directory do not write each other's files. The rows files
-// used to share one name, so the second export's create truncated the first
-// one's while the first still held the descriptor: the first went on writing
-// into a file the second had already published, and the directory ended up
-// holding one run's rows under the other run's signed manifest. That is a
-// bundle whose manifest vouches for rows it never saw.
+// TestASecondExportIntoTheSameDirectoryPublishesItsOwnRows checks that exports
+// sharing a directory write separate rows files. Earlier exports shared one
+// filename. A second create truncated the first export's open file, and the
+// first continued writing bytes the second had already published. The directory
+// then paired one run's rows with another run's signed manifest.
 //
-// The interleaving is deterministic rather than concurrent: the second export
-// runs to completion at the point where the first is halfway through its rows,
-// which is one of the orders two concurrent exports produce and the one that
-// does the damage. A race would test the same thing and only sometimes.
+// The test deterministically completes the second export halfway through the
+// first export's rows. This reproduces the harmful concurrent order without
+// depending on a race that occurs only sometimes.
 func TestASecondExportIntoTheSameDirectoryPublishesItsOwnRows(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
@@ -40,59 +36,84 @@ func TestASecondExportIntoTheSameDirectoryPublishesItsOwnRows(t *testing.T) {
 	const firstRows, secondRows = 400, 120
 	var secondManifest *ExportManifest
 	var secondErr error
-	first := exportTestRows(t, orgID, firstRows, func(index int) {
-		if index != firstRows/2 {
-			return
-		}
-		secondManifest, secondErr = Export(context.Background(), exportTestRows(t, orgID, secondRows, nil),
-			privateKey, "ed25519:test", exportTestFilter(orgID), dir)
-	})
+	first := exportTestRows(
+		t,
+		orgID,
+		firstRows,
+		func(index int) {
+			if index != firstRows/2 {
+				return
+			}
+
+			secondManifest, secondErr = Export(
+				context.Background(),
+				exportTestRows(t, orgID, secondRows, nil),
+				privateKey,
+				"ed25519:test",
+				exportTestFilter(orgID),
+				dir,
+			)
+		},
+	)
 
 	firstManifest, err := Export(
-		context.Background(), first, privateKey, "ed25519:test", exportTestFilter(orgID), dir)
+		context.Background(),
+		first,
+		privateKey,
+		"ed25519:test",
+		exportTestFilter(orgID),
+		dir,
+	)
 	if secondErr != nil {
 		t.Fatalf("the export that ran while another was mid-stream failed: %v", secondErr)
 	}
+
 	if err != nil {
 		t.Fatalf("the export that was mid-stream when another ran failed: %v", err)
 	}
+
 	if secondManifest.RowCount != secondRows {
 		t.Fatalf("second export counted %d rows, want %d", secondManifest.RowCount, secondRows)
 	}
+
 	if firstManifest.RowCount != firstRows {
 		t.Fatalf("first export counted %d rows, want %d", firstManifest.RowCount, firstRows)
 	}
+
 	if firstManifest.EventsFile == secondManifest.EventsFile {
 		t.Fatalf("both exports named the same rows file %q", firstManifest.EventsFile)
 	}
 
-	// The first export published last, so its pair is what the directory holds.
-	// What matters is that the pair is one run's: a manifest signed for rows the
-	// file does not hold is exactly what a shared rows name produced.
+	// The first export publishes last. Its manifest must match its own rows; the
+	// earlier shared filename allowed another run's rows in that signed bundle.
 	report, err := VerifyBundle(dir, publicKey)
 	if err != nil {
 		t.Fatalf("verify the surviving bundle: %v", err)
 	}
+
 	if verdict := report.Err(); verdict != nil {
 		t.Fatalf("the bundle two exports left behind does not verify: %v", verdict)
 	}
+
 	if report.RowsScanned != firstRows {
-		t.Fatalf("the published bundle holds %d rows, want the %d the last publish wrote",
-			report.RowsScanned, firstRows)
+		t.Fatalf(
+			"the published bundle holds %d rows, want the %d the last publish wrote",
+			report.RowsScanned,
+			firstRows,
+		)
 	}
+
 	assertDirectoryHoldsOnlyItsBundle(t, dir)
 }
 
-// TestTheReclaimSparesTheRowsOfAnExportStillWriting is what separates the
-// reclaim rule from a rule that destroys bundles. "No manifest names this file"
-// is true of two different files: the rows of an export that is finished, and
-// the rows of an export that is still streaming into them. A reclaim that
-// cannot tell them apart deletes the second, and the export writing it goes on
-// filling an unlinked file and then publishes a manifest naming rows that are
-// gone, reporting success as it does.
+// TestTheReclaimSparesTheRowsOfAnExportStillWriting checks that reclamation
+// preserves an active export's rows. A manifest may omit both abandoned rows
+// and rows that an export still writes. Deleting the active file lets its
+// writer finish an unlinked file and report success with a manifest selecting a
+// missing file.
 //
-// The export that finishes here does so while another is mid-stream, which is
-// exactly when the two are indistinguishable by name.
+// One export completes while another still writes rows. At that point, a
+// filename-only check cannot distinguish those rows from abandoned files.
 func TestTheReclaimSparesTheRowsOfAnExportStillWriting(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
@@ -103,41 +124,67 @@ func TestTheReclaimSparesTheRowsOfAnExportStillWriting(t *testing.T) {
 
 	const streamingRows, finishingRows = 400, 60
 	var missing []string
-	streaming := exportTestRows(t, orgID, streamingRows, func(index int) {
-		if index != streamingRows/2 {
-			return
-		}
-		inFlight := bundleRowsFileNames(t, dir)
-		if _, err := Export(context.Background(), exportTestRows(t, orgID, finishingRows, nil),
-			privateKey, "ed25519:test", exportTestFilter(orgID), dir); err != nil {
-			t.Errorf("the export that finished mid-stream failed: %v", err)
-			return
-		}
-		for _, name := range inFlight {
-			if _, statErr := os.Stat(filepath.Join(dir, name)); statErr != nil {
-				missing = append(missing, name)
+	streaming := exportTestRows(
+		t,
+		orgID,
+		streamingRows,
+		func(index int) {
+			if index != streamingRows/2 {
+				return
 			}
-		}
-	})
+
+			inFlight := bundleRowsFileNames(t, dir)
+			if _, err := Export(
+				context.Background(),
+				exportTestRows(t, orgID, finishingRows, nil),
+				privateKey,
+				"ed25519:test",
+				exportTestFilter(orgID),
+				dir,
+			); err != nil {
+				t.Errorf("the export that finished mid-stream failed: %v", err)
+				return
+			}
+
+			for _, name := range inFlight {
+				if _, statErr := os.Stat(filepath.Join(dir, name)); statErr != nil {
+					missing = append(missing, name)
+				}
+			}
+		},
+	)
 
 	manifest, err := Export(
-		context.Background(), streaming, privateKey, "ed25519:test", exportTestFilter(orgID), dir)
+		context.Background(),
+		streaming,
+		privateKey,
+		"ed25519:test",
+		exportTestFilter(orgID),
+		dir,
+	)
 	if err != nil {
 		t.Fatalf("the export that was mid-stream when another finished failed: %v", err)
 	}
+
 	if len(missing) > 0 {
-		t.Fatalf("a finishing export reclaimed %v, which the export still writing them was about to publish",
-			missing)
+		t.Fatalf(
+			"a finishing export reclaimed %v, which the export still writing them was about to publish",
+			missing,
+		)
 	}
+
 	if manifest.RowCount != streamingRows {
 		t.Fatalf("row count = %d, want %d", manifest.RowCount, streamingRows)
 	}
+
 	report, err := VerifyBundle(dir, publicKey)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	if verdict := report.Err(); verdict != nil {
 		t.Fatalf("the bundle published after a concurrent reclaim does not verify: %v", verdict)
 	}
+
 	assertDirectoryHoldsOnlyItsBundle(t, dir)
 }

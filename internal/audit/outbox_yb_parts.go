@@ -10,17 +10,43 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// WriteEncodedOutboxTx calls public.ops_outbox_write_encoded inside the caller's
-// transaction with the event ID, plain event or manifest, and ordered part messages.
+// WriteEncodedOutboxTx calls public.ops_outbox_write_encoded inside the
+// caller's transaction.
+//
+// The caller controls the commit or rollback. The function receives the
+// encoded event as these arguments:
+//
+//   - The event ID identifies the outbox row.
+//   - A plain event or manifest supplies the header.
+//   - Ordered messages supply the event parts.
 func WriteEncodedOutboxTx(ctx context.Context, tx pgx.Tx, encoded EncodedEvent) error {
 	event, parts, err := encoded.HeaderAndParts()
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `SELECT public.ops_outbox_write_encoded($1, $2, $3)`, encoded.EventID, event, parts); err != nil {
-		slog.ErrorContext(ctx, "audit.outbox.encoded_write_failed", slog.String("event_id", encoded.EventID.String()), slog.String("err", err.Error()))
-		return fmt.Errorf("write ops outbox event %s with %d parts: %w", encoded.EventID, len(parts), err)
+
+	if _, err := tx.Exec(
+		ctx,
+		`SELECT public.ops_outbox_write_encoded($1, $2, $3)`,
+		encoded.EventID,
+		event,
+		parts,
+	); err != nil {
+		slog.ErrorContext(
+			ctx,
+			"audit.outbox.encoded_write_failed",
+			slog.String("event_id", encoded.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
+		return fmt.Errorf(
+			"write ops outbox event %s with %d parts: %w",
+			encoded.EventID,
+			len(parts),
+			err,
+		)
 	}
+
 	return nil
 }
 
@@ -31,98 +57,179 @@ func (o *PoolOutbox) writeLargeOutbox(ctx context.Context, event Event) error {
 	if err != nil {
 		return err
 	}
+
 	tx, err := o.pool.Begin(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.begin_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("begin ops outbox write of event %s: %w", event.EventID, err)
 	}
+
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := WriteEncodedOutboxTx(ctx, tx, encoded); err != nil {
 		return err
 	}
+
 	if err := tx.Commit(ctx); err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.commit_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("commit ops outbox write of event %s: %w", event.EventID, err)
 	}
+
 	return nil
 }
 
 // insertOutboxRow inserts one plain event row inside the caller's transaction.
 func insertOutboxRow(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, eventJSON []byte) error {
-	if _, err := tx.Exec(ctx, `
+	if _, err := tx.Exec(
+		ctx,
+		`
 		INSERT INTO public.ops_outbox (event_id, event)
 		VALUES ($1, $2)
-	`, eventID, eventJSON); err != nil {
+	`,
+		eventID,
+		eventJSON,
+	); err != nil {
 		slog.ErrorContext(ctx, "audit.outbox.write_tx_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write ops outbox event %s in transaction: %w", eventID, err)
 	}
+
 	return nil
 }
 
 // outboxPartMessages reads an event's part messages in part_index order
 // and appends the manifest header.
-func outboxPartMessages(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, header []byte) ([][]byte, error) {
-	rows, err := tx.Query(ctx, `
+func outboxPartMessages(
+	ctx context.Context,
+	tx pgx.Tx,
+	eventID uuid.UUID,
+	header []byte,
+) ([][]byte, error) {
+	rows, err := tx.Query(
+		ctx,
+		`
 		SELECT message FROM public.ops_outbox_parts
 		 WHERE event_id = $1
 		 ORDER BY part_index ASC
-	`, eventID)
+	`,
+		eventID,
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.outbox.parts_query_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.outbox.parts_query_failed",
+			slog.String("event_id", eventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("read ops outbox event %s parts: %w", eventID, err)
 	}
+
 	messages, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.outbox.parts_scan_failed", slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.outbox.parts_scan_failed",
+			slog.String("event_id", eventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("scan ops outbox event %s parts: %w", eventID, err)
 	}
+
 	return append(messages, header), nil
 }
 
 // Delete removes an event's parts and outbox row in one transaction.
-// The relay runs Delete after the broker accepts every record for the row.
+//
+// The relay deletes a delivered row only after the broker accepts every record
+// for that row. It calls Delete when the outbox does not support publication
+// acknowledgments or claimed batches.
+//
+//   - Delete removes the row without acknowledging read receipts.
 func (o *PoolOutbox) Delete(ctx context.Context, eventID uuid.UUID) error {
 	return o.DeletePublished(ctx, eventID, nil)
 }
 
-// DeletePublished deletes an event's parts and outbox row and marks the read
-// receipts in reads as published in the same transaction.
-func (o *PoolOutbox) DeletePublished(ctx context.Context, eventID uuid.UUID, reads []PublishedRead) error {
-	err := pgx.BeginFunc(ctx, o.pool, func(tx pgx.Tx) error {
-		return deletePublishedTx(ctx, tx, eventID, reads)
-	})
+// DeletePublished deletes an event's parts and outbox row and marks the
+// read receipts in reads as published in the same transaction.
+//
+// The method deletes parts before deleting the event row, then acknowledges
+// the read receipts.
+//
+//   - A deletion error prevents receipt acknowledgment.
+func (o *PoolOutbox) DeletePublished(
+	ctx context.Context,
+	eventID uuid.UUID,
+	reads []PublishedRead,
+) error {
+	err := pgx.BeginFunc(
+		ctx,
+		o.pool,
+		func(tx pgx.Tx) error {
+			return deletePublishedTx(ctx, tx, eventID, reads)
+		},
+	)
 	if err != nil {
-		slog.ErrorContext(ctx, "audit.outbox.delete_failed",
+		slog.ErrorContext(
+			ctx,
+			"audit.outbox.delete_failed",
 			slog.String("event_id", eventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return fmt.Errorf("delete ops outbox event %s: %w", eventID, err)
 	}
+
 	return nil
 }
 
 // deletePublishedTx deletes an event's parts and outbox row, then acknowledges
 // matching read receipts in tx. The caller commits or rolls back the
 // transaction.
-func deletePublishedTx(ctx context.Context, tx pgx.Tx, eventID uuid.UUID, reads []PublishedRead) error {
+func deletePublishedTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	eventID uuid.UUID,
+	reads []PublishedRead,
+) error {
 	var failure error
-	if _, err := tx.Exec(ctx, `DELETE FROM public.ops_outbox_parts WHERE event_id = $1`, eventID); err != nil {
+	if _, err := tx.Exec(
+		ctx,
+		`DELETE FROM public.ops_outbox_parts WHERE event_id = $1`,
+		eventID,
+	); err != nil {
 		failure = fmt.Errorf("delete parts: %w", err)
-	} else if _, err := tx.Exec(ctx, `DELETE FROM public.ops_outbox WHERE event_id = $1`, eventID); err != nil {
+	} else if _, err := tx.Exec(
+		ctx,
+		`DELETE FROM public.ops_outbox WHERE event_id = $1`,
+		eventID,
+	); err != nil {
 		failure = fmt.Errorf("delete event: %w", err)
 	}
+
 	for _, read := range reads {
 		if failure != nil {
 			break
 		}
-		if _, err := tx.Exec(ctx, readStatement("acknowledge"), read.EventID, read.Digest); err != nil {
+
+		if _, err := tx.Exec(
+			ctx,
+			readStatement("acknowledge"),
+			read.EventID,
+			read.Digest,
+		); err != nil {
 			failure = fmt.Errorf("mark read %s published: %w", read.EventID, err)
 		}
 	}
+
 	if failure != nil {
-		slog.ErrorContext(ctx, "audit.outbox.delete_published_failed",
-			slog.String("event_id", eventID.String()), slog.String("err", failure.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.outbox.delete_published_failed",
+			slog.String("event_id", eventID.String()),
+			slog.String("err", failure.Error()),
+		)
 	}
+
 	return failure
 }
 
@@ -133,9 +240,14 @@ func manifestHeader(eventJSON []byte) ([]byte, bool, error) {
 	if err != nil || !isTransport {
 		return nil, isTransport, err
 	}
+
 	if message.Message != messageKindManifest {
-		return nil, true, errors.New("ops outbox row contains a part message instead of a manifest message")
+		return nil, true, errors.New(
+			"ops outbox row contains a part message instead of a manifest message",
+		)
 	}
+
 	header, err := encodeTransportMessage(message)
+
 	return header, true, err
 }

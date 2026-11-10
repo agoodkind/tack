@@ -6,7 +6,8 @@ import (
 	"goodkind.io/tack/internal/datagen/resourcesummary"
 )
 
-// hostWant is the set of host and guest values that TACK-544 cites for one window.
+// hostWant stores the host and guest values that TACK-544 cites for one
+// window.
 type hostWant struct {
 	samples            int
 	failedSamples      int
@@ -24,7 +25,7 @@ type hostWant struct {
 	guestWriteMiB      float64
 }
 
-// nodeWant is the set of OpenSearch node values that TACK-544 cites for one run.
+// nodeWant stores the OpenSearch node values that TACK-544 cites for one run.
 type nodeWant struct {
 	name                  string
 	readings              int
@@ -63,13 +64,25 @@ func savedRuns() []savedRun {
 				first:              time.Date(2026, time.October, 30, 10, 21, 43, 0, time.UTC),
 				last:               time.Date(2026, time.October, 30, 10, 42, 15, 0, time.UTC),
 				memAvailableMinGiB: 4.874,
-				memoryPressure:     resourcesummary.Pressure{SomeAvg10Max: 11.14, FullAvg10Max: 4.17},
+				memoryPressure: resourcesummary.Pressure{
+					SomeAvg10Max: 11.14,
+					FullAvg10Max: 4.17,
+				},
 				cpuPressureSome:    60.86,
 				loadOneMinuteMax:   61.15,
-				ioPressure:         resourcesummary.Pressure{SomeAvg10Max: 44.05, FullAvg10Max: 16.90},
+				ioPressure: resourcesummary.Pressure{
+					SomeAvg10Max: 44.05,
+					FullAvg10Max: 16.90,
+				},
 				guestCPUCores:      0.805,
-				guestCPUPressure:   resourcesummary.Pressure{SomeAvg10Max: 89.21, FullAvg10Max: 59.29},
-				guestIOPressure:    resourcesummary.Pressure{SomeAvg10Max: 13.16, FullAvg10Max: 11.02},
+				guestCPUPressure: resourcesummary.Pressure{
+					SomeAvg10Max: 89.21,
+					FullAvg10Max: 59.29,
+				},
+				guestIOPressure: resourcesummary.Pressure{
+					SomeAvg10Max: 13.16,
+					FullAvg10Max: 11.02,
+				},
 				guestReadMiB:       160.5,
 				guestWriteMiB:      0,
 			},
@@ -103,10 +116,19 @@ func savedRuns() []savedRun {
 				memoryPressure:     resourcesummary.Pressure{SomeAvg10Max: 6.21, FullAvg10Max: 1.97},
 				cpuPressureSome:    59.23,
 				loadOneMinuteMax:   56.42,
-				ioPressure:         resourcesummary.Pressure{SomeAvg10Max: 55.32, FullAvg10Max: 20.72},
+				ioPressure: resourcesummary.Pressure{
+					SomeAvg10Max: 55.32,
+					FullAvg10Max: 20.72,
+				},
 				guestCPUCores:      0.732,
-				guestCPUPressure:   resourcesummary.Pressure{SomeAvg10Max: 87.97, FullAvg10Max: 59.25},
-				guestIOPressure:    resourcesummary.Pressure{SomeAvg10Max: 15.61, FullAvg10Max: 9.32},
+				guestCPUPressure: resourcesummary.Pressure{
+					SomeAvg10Max: 87.97,
+					FullAvg10Max: 59.25,
+				},
+				guestIOPressure: resourcesummary.Pressure{
+					SomeAvg10Max: 15.61,
+					FullAvg10Max: 9.32,
+				},
 				guestReadMiB:       259.8,
 				guestWriteMiB:      0,
 			},

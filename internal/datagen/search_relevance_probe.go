@@ -9,21 +9,24 @@ import (
 	"github.com/google/uuid"
 )
 
-// probeNode stores the name and text of a target or distractor in the relevance probe.
+// probeNode stores the name and text of a target or distractor in the relevance
+// probe.
 type probeNode struct {
 	Name string `json:"name"`
 	Text string `json:"text"`
 }
 
-// probePhrases stores the target, distractors, and queries from the relevance probe JSON.
+// probePhrases stores the target, distractors, and queries from the relevance
+// probe JSON.
 type probePhrases struct {
 	Target      probeNode   `json:"target"`
 	Distractors []probeNode `json:"distractors"`
 	Queries     []string    `json:"queries"`
 }
 
-// SearchRelevanceProbe reports the target's search positions for its exact name and
-// each probe query, with the distractor count and the number of nodes each query returns.
+// SearchRelevanceProbe reports the target's search positions for its exact name
+// and each probe query, with the distractor count and the number of nodes each
+// query returns.
 type SearchRelevanceProbe struct {
 	TargetID    uuid.UUID              `json:"target_id"`
 	Distractors int                    `json:"distractors"`
@@ -31,20 +34,24 @@ type SearchRelevanceProbe struct {
 	Queries     []SearchRelevanceQuery `json:"queries"`
 }
 
-// SearchRelevanceQuery reports a query, the target's position starting at 1, and the
-// number of returned nodes. A rank of 0 means the search did not return the target.
+// SearchRelevanceQuery reports a query, the target's position starting at 1,
+// and the number of returned nodes. A rank of 0 means the search did not return
+// the target.
 type SearchRelevanceQuery struct {
 	Query    string `json:"query"`
 	Rank     int    `json:"rank"`
 	Returned int    `json:"returned"`
 }
 
-// probeRelevance creates the target and distractors, waits for searches by name to
-// return them, and records target ranks across all pages without requiring a minimum rank.
+// probeRelevance creates the target and distractors, waits for searches by name
+// to return them, and records target ranks across all pages without requiring a
+// minimum rank.
 func (r searchRun) probeRelevance(ctx context.Context) (SearchRelevanceProbe, error) {
 	phrases := r.phrases.Relevance
 	probe := SearchRelevanceProbe{
-		TargetID: uuid.Nil, Distractors: len(phrases.Distractors), TitleRank: 0,
+		TargetID:    uuid.Nil,
+		Distractors: len(phrases.Distractors),
+		TitleRank:   0,
 		Queries: make([]SearchRelevanceQuery, 0, len(phrases.Queries)),
 	}
 	items := slices.Concat([]probeNode{phrases.Target}, phrases.Distractors)
@@ -58,9 +65,13 @@ func (r searchRun) probeRelevance(ctx context.Context) (SearchRelevanceProbe, er
 	}
 	probe.TargetID = written[0]
 	for position, item := range items {
-		if err := r.eventually(ctx, "find relevance probe node "+item.Name, func(ctx context.Context) error {
+		if err := r.eventually(
+			ctx,
+			"find relevance probe node "+item.Name,
+			func(ctx context.Context) error {
 			return r.includes(ctx, item.Name, written[position])
-		}); err != nil {
+			},
+		); err != nil {
 			return probe, err
 		}
 	}
@@ -74,10 +85,18 @@ func (r searchRun) probeRelevance(ctx context.Context) (SearchRelevanceProbe, er
 		if err != nil {
 			return probe, err
 		}
-		probe.Queries = append(probe.Queries, SearchRelevanceQuery{Query: query, Rank: rank, Returned: returned})
+		probe.Queries = append(
+			probe.Queries,
+			SearchRelevanceQuery{Query: query, Rank: rank, Returned: returned},
+		)
 	}
-	slog.InfoContext(ctx, "qa.datagen.search_relevance_probed", slog.String("target_id", probe.TargetID.String()),
-		slog.Int("title_rank", probe.TitleRank), slog.String("queries", fmt.Sprintf("%+v", probe.Queries)))
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.search_relevance_probed",
+		slog.String("target_id", probe.TargetID.String()),
+		slog.Int("title_rank", probe.TitleRank),
+		slog.String("queries", fmt.Sprintf("%+v", probe.Queries)),
+	)
 	return probe, nil
 }
 

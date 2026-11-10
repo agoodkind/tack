@@ -6,6 +6,7 @@ func repairNeedDetails(preview *RepairPreview) string {
 	if preview.NeedsRepair {
 		return "repair would change persisted props"
 	}
+
 	return "reference property already matches selected storage"
 }
 
@@ -14,11 +15,14 @@ func repairPreviewStatus(preview *RepairPreview) string {
 	if preview == nil {
 		return "blocked"
 	}
+
 	if !preview.NeedsRepair {
 		return "noop"
 	}
+
 	if preview.CanApply {
 		return "ready"
 	}
+
 	return "blocked"
 }

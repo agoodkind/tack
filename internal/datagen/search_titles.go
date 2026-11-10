@@ -18,27 +18,27 @@ const (
 	printedReference   = "- Reference: `"
 	printedType        = "- Type: `"
 	searchKeySeparator = "\x00"
-	// searchShortenedSuffix ends a value that search shortened to fit the
-	// response byte budget.
+	// searchShortenedSuffix ends a value that search shortened to fit the response
+	// byte budget.
 	searchShortenedSuffix = "…"
 	searchTitleShared     = "search returned the result %q of type %q, which names more than one registered node"
 	searchTitleUnmatched  = "search returned the result %q of type %q, which matches no recorded node"
 )
 
-// errSearchResultUnresolved reports a result that the resolver cannot match
-// to a node.
+// errSearchResultUnresolved reports a result that the resolver cannot match to
+// a node.
 var errSearchResultUnresolved = errors.New("search result identifies no node")
 
 // SearchItem records the printed title and node type of one search result.
-// Search uses the node's declared reference as its title, or its name when
-// the node type does not declare a reference.
+// Search uses the node's declared reference as its title, or its name when the
+// node type does not declare a reference.
 type SearchItem struct {
 	Title    string
 	NodeType string
 }
 
-// SearchResolver resolves a result that the title registry did not match.
-// It returns a real node ID or an error when it cannot resolve the result.
+// SearchResolver resolves a result that the title registry did not match. It
+// returns a real node ID or an error when it cannot resolve the result.
 type SearchResolver func(context.Context, SearchItem) (uuid.UUID, error)
 
 // SearchIdentities pairs a title and node type registry with an optional
@@ -48,10 +48,13 @@ type SearchIdentities struct {
 	Resolve SearchResolver
 }
 
-// IDs returns each item's node ID in response order without changing Titles.
-// IDs calls Resolve each time an item does not match Titles.
-// IDs fails when a title and node type match multiple recorded nodes,
-// when an unmatched result lacks a resolver, or when Resolve returns an error.
+// IDs returns each item's node ID in response order without changing Titles. It
+// calls Resolve for each item that Titles does not match.
+//
+// IDs fails when a title and node type match multiple recorded nodes, an
+// unmatched result lacks a resolver, or Resolve returns an error.
+//
+//   - IDs returns an empty slice without calling Resolve when items is empty.
 func (i SearchIdentities) IDs(ctx context.Context, items []SearchItem) ([]uuid.UUID, error) {
 	nodeIDs := make([]uuid.UUID, 0, len(items))
 	for _, item := range items {
@@ -65,7 +68,15 @@ func (i SearchIdentities) IDs(ctx context.Context, items []SearchItem) ([]uuid.U
 			}
 			nodeID, err = i.Resolve(ctx, item)
 			if err != nil {
-				return nil, loggedError(ctx, fmt.Sprintf("qa datagen: resolve search result %q of type %q", item.Title, item.NodeType), err)
+				return nil, loggedError(
+					ctx,
+					fmt.Sprintf(
+						"qa datagen: resolve search result %q of type %q",
+						item.Title,
+						item.NodeType,
+					),
+					err,
+				)
 			}
 		}
 		nodeIDs = append(nodeIDs, nodeID)
@@ -81,12 +92,27 @@ type SearchTitles struct {
 }
 
 // NewSearchTitles creates an empty title and node type registry.
+//
+// The registry supports [SearchTitles.Add] and result lookup. Each call creates
+// separate maps for recorded IDs and pairs that more than one node uses.
+//
+//	titles := NewSearchTitles()
+//	titles.Add(SearchItem{Title: "Sample", NodeType: "example"}, nodeID)
 func NewSearchTitles() *SearchTitles {
-	return &SearchTitles{mutex: sync.Mutex{}, ids: map[string]uuid.UUID{}, shared: map[string]bool{}}
+	return &SearchTitles{
+		mutex:  sync.Mutex{},
+		ids:    map[string]uuid.UUID{},
+		shared: map[string]bool{},
+	}
 }
 
-// Add records the node ID for item's title and node type. It marks the pair
-// as shared when another node ID already uses it.
+// Add records nodeID for item's title and node type.
+//
+// The registry marks the pair as shared when another node ID already uses it.
+// Adding the same node ID again does not mark an unshared pair as shared.
+//
+//	titles.Add(SearchItem{Title: "Sample", NodeType: "example"}, firstID)
+//	titles.Add(SearchItem{Title: "Sample", NodeType: "example"}, secondID)
 func (s *SearchTitles) Add(item SearchItem, nodeID uuid.UUID) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -98,8 +124,8 @@ func (s *SearchTitles) Add(item SearchItem, nodeID uuid.UUID) {
 }
 
 // lookup matches item's title and node type to a recorded node ID. It tries
-// shortenedID when the exact pair does not match and returns an error when
-// the exact pair matches multiple nodes.
+// shortenedID when the exact pair does not match and returns an error when the
+// exact pair matches multiple nodes.
 func (s *SearchTitles) lookup(item SearchItem) (uuid.UUID, bool, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -114,14 +140,22 @@ func (s *SearchTitles) lookup(item SearchItem) (uuid.UUID, bool, error) {
 	return nodeID, found, nil
 }
 
-// SearchResultItems uses SearchResultBlocks to read each result's title
-// and node type in response order.
+// SearchResultItems uses [SearchResultBlocks] to read each result's title and
+// node type in response order.
+//
+// The parser removes surrounding title quotes and reads the Type field. A block
+// without that field returns an empty NodeType.
+//
+//	items := SearchResultItems("- Sample\n  - Type: example")
 func SearchResultItems(text string) []SearchItem {
 	blocks := SearchResultBlocks(text)
 	items := make([]SearchItem, 0, len(blocks))
 	for _, block := range blocks {
 		lines := strings.Split(block, "\n")
-		item := SearchItem{Title: unquoteSearchValue(strings.TrimPrefix(lines[0], searchItemPrefix)), NodeType: ""}
+		item := SearchItem{
+			Title:    unquoteSearchValue(strings.TrimPrefix(lines[0], searchItemPrefix)),
+			NodeType: "",
+		}
 		for _, line := range lines[1:] {
 			if nodeType, found := strings.CutPrefix(line, searchTypeField); found {
 				item.NodeType = unquoteSearchValue(nodeType)
@@ -133,7 +167,12 @@ func SearchResultItems(text string) []SearchItem {
 }
 
 // SearchResultBlocks splits a tack_search page into result blocks in response
-// order. Each block contains a title line followed by its field lines.
+// order.
+//
+// Each block contains a title line followed by its field lines. The parser
+// ignores text before the first title and lines without a result prefix.
+//
+//	blocks := SearchResultBlocks("- First\n  - Type: example\n- Second")
 func SearchResultBlocks(text string) []string {
 	blocks := make([]string, 0)
 	for _, line := range strings.Split(text, "\n") {
@@ -149,6 +188,12 @@ func SearchResultBlocks(text string) []string {
 
 // SearchItem reads the printed reference and node type from a write
 // confirmation.
+//
+// The result uses the values after the Reference and Type markers. A missing
+// marker or closing quote produces an empty field.
+//
+//	item := confirmation.SearchItem()
+//	titles.Add(item, nodeID)
 func (r Result) SearchItem() SearchItem {
 	return SearchItem{Title: r.codeField(printedReference), NodeType: r.codeField(printedType)}
 }
@@ -166,10 +211,9 @@ func (r Result) codeField(marker string) string {
 	return field
 }
 
-// shortenedID removes searchShortenedSuffix from a shortened title and
-// finds recorded titles of the same node type that start with that prefix.
-// It returns an ID only when those titles identify one node. The caller
-// must lock mutex.
+// shortenedID removes searchShortenedSuffix from a shortened title and finds
+// recorded titles of the same node type that start with that prefix. It returns
+// an ID only when those titles identify one node. The caller must lock mutex.
 func (s *SearchTitles) shortenedID(item SearchItem) (uuid.UUID, bool) {
 	prefix, shortened := strings.CutSuffix(item.Title, searchShortenedSuffix)
 	if !shortened {

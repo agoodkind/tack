@@ -11,9 +11,10 @@ import (
 	"goodkind.io/tack/internal/service"
 )
 
-// metadataValues returns a new marker per excluded definition name when tenant is 0 and
-// excluded definitions exist. Otherwise, it returns nil. Each scheduled create in tenant 0
-// stores each marker under its definition name.
+// metadataValues returns a new marker for each excluded definition name when
+// tenant is zero and excluded definitions exist. Otherwise, it returns nil.
+// Each scheduled create in tenant zero stores each marker under its definition
+// name.
 func (m *searchMixed) metadataValues(tenant int) map[string]string {
 	if tenant != 0 || len(m.changes.definitions) == 0 {
 		return nil
@@ -25,19 +26,26 @@ func (m *searchMixed) metadataValues(tenant int) map[string]string {
 	return values
 }
 
-// changeMetadata selects an issue that the prober has found for its issue marker and that has a
-// value under the next excluded definition. It removes the issue from selection for later writes
-// and increments the used definition count. It reads the issue's active pages from the serving
-// index with SearchPageText. If the read fails, it increments probe_errors and
-// metadata_unchecked_before. If the read succeeds but the issue does not have any active pages,
-// it increments metadata_unchecked_before. For a successful read with active pages, it increments
-// metadata_present_before if any page text contains the value, or metadata_absent_before if the
-// page texts do not contain the value. It then stores the definition with Search.Include set to
-// true. That write requests a rescan of issues with values under the definition name. After a
-// successful write, it adds a check for the value. If the definition write fails, changeMetadata
-// counts the failure in writes.failed. On failure, it returns true to use the scheduled write
-// index without incrementing the committed metadata change count. It returns false if it cannot
-// find a settled issue with a value under that definition.
+// changeMetadata selects an issue that the prober has found for its issue
+// marker and that has a value under the next excluded definition. It removes
+// the issue from later write selection and increments the used definition
+// count.
+//
+// It reads the issue's active pages from the serving index with SearchPageText
+// and records the result:
+//
+//   - A failed read increments probe_errors and metadata_unchecked_before.
+//   - A successful read without active pages increments
+//     metadata_unchecked_before.
+//   - Active pages with the value increment metadata_present_before; active
+//     pages without the value increment metadata_absent_before.
+//
+// It then stores the definition with Search.Include true. That write requests
+// a rescan of issues with values under the definition name. A successful write
+// adds a value check and increments the committed metadata change count. A
+// failed write increments writes.failed and returns true to use the scheduled
+// write index without incrementing the committed count. The function returns
+// false if it cannot find a settled issue with a value under the definition.
 func (m *searchMixed) changeMetadata(ctx context.Context) bool {
 	definition := m.changes.definitions[m.changes.changed]
 	pinned, _ := m.pinNode(func(candidate *searchMixedNode) bool {
@@ -72,11 +80,12 @@ func (m *searchMixed) changeMetadata(ctx context.Context) bool {
 	return true
 }
 
-// moveIssue removes an issue from selection for later writes and sets its parent_id and
-// scope_id to its tenant's destination project through service.Update. That update schedules
-// search access work. moveIssue removes any pending marker check for the issue because search
-// under the original workspace no longer returns it. It returns false if an issue is not
-// available.
+// moveIssue removes an issue from later write selection and sets its
+// parent_id and scope_id to its tenant's destination project through
+// [service.NodeService.Update]. The update schedules search access work. After
+// a successful update, moveIssue removes pending marker checks for the issue
+// because searches under the original workspace must omit it. It returns false
+// if an issue is not available.
 func (m *searchMixed) moveIssue(ctx context.Context) bool {
 	pinned, marker := m.pinNode(func(*searchMixedNode) bool { return true })
 	if pinned == nil {
@@ -84,11 +93,17 @@ func (m *searchMixed) moveIssue(ctx context.Context) bool {
 	}
 	projectID := m.changes.destinations[pinned.tenant].projectID
 	target := json.RawMessage(strconv.Quote(projectID.String()))
-	_, err := m.changes.nodes.Update(ctx, service.UpdateInput{
-		NodeID: pinned.id, Name: nil, Props: map[string]json.RawMessage{"parent_id": target},
-		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-		ActorID:             m.tenants[pinned.tenant].workspace.Actors[0].UserID, ScopeID: projectID,
-	})
+	_, err := m.changes.nodes.Update(
+		ctx,
+		service.UpdateInput{
+			NodeID:              pinned.id,
+			Name:                nil,
+			Props:               map[string]json.RawMessage{"parent_id": target},
+			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
+			ActorID:             m.tenants[pinned.tenant].workspace.Actors[0].UserID,
+			ScopeID:             projectID,
+		},
+	)
 	if err != nil {
 		m.writeFailed(ctx, "qa.datagen.search_mixed_move_failed", err)
 		return true
@@ -96,17 +111,20 @@ func (m *searchMixed) moveIssue(ctx context.Context) bool {
 	m.stats.count(&m.stats.moves)
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	m.markers = slices.DeleteFunc(m.markers, func(entry searchMixedMarker) bool { return entry.node == pinned })
+	m.markers = slices.DeleteFunc(
+		m.markers,
+		func(entry searchMixedMarker) bool { return entry.node == pinned },
+	)
 	m.moveChecks = append(m.moveChecks, searchMixedCheck{node: pinned, marker: marker})
 	return true
 }
 
-// probeMetadata reads each pending issue's active pages from the serving index with
-// SearchPageText on each prober pass. A failed read counts in probe_errors and leaves the check
-// pending. When any active page text contains the value, it searches the first page under the
-// issue's workspace for that value with public tack_search. It removes the check when that
-// search returns the issue. A check still pending when probing stops increments metadata_not_found
-// and fails Verify.
+// probeMetadata reads each pending issue's active serving-index pages with
+// SearchPageText on every prober pass. A failed read increments probe_errors
+// and leaves the check pending. When active page text contains the value, it
+// calls public tack_search for the value under the issue's workspace and
+// checks the first page. A returned issue removes the check. A check pending
+// when probing stops increments metadata_not_found and fails Verify.
 func (m *searchMixed) probeMetadata(ctx context.Context, tick int) {
 	m.probeMutex.Lock()
 	pending := slices.Clone(m.metadataChecks)
@@ -129,7 +147,10 @@ func (m *searchMixed) probeMetadata(ctx context.Context, tick int) {
 	}
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	m.metadataChecks = slices.DeleteFunc(m.metadataChecks, func(entry searchMixedCheck) bool { return found[entry.node] })
+	m.metadataChecks = slices.DeleteFunc(
+		m.metadataChecks,
+		func(entry searchMixedCheck) bool { return found[entry.node] },
+	)
 }
 
 // pageTextContains reports whether any page text in texts contains value.
@@ -142,16 +163,21 @@ func pageTextContains(texts []string, value string) bool {
 	return false
 }
 
-// probeMoves searches for each moved issue's marker under its destination and original workspaces.
-// It removes a check when the first page under the destination workspace returns the issue and
-// the first page under the original workspace does not.
+// probeMoves searches each moved issue's marker under its destination and
+// original workspaces. It removes a check when the destination's first page
+// returns the issue and the original workspace's first page omits it.
 func (m *searchMixed) probeMoves(ctx context.Context, tick int) {
 	m.probeMutex.Lock()
 	pending := slices.Clone(m.moveChecks)
 	m.probeMutex.Unlock()
 	verified := make(map[*searchMixedNode]bool)
 	for _, entry := range pending {
-		moved, err := m.probeReturns(ctx, tick, entry, m.changes.destinations[entry.node.tenant].entry)
+		moved, err := m.probeReturns(
+			ctx,
+			tick,
+			entry,
+			m.changes.destinations[entry.node.tenant].entry,
+		)
 		if err != nil || !moved {
 			continue
 		}
@@ -163,12 +189,21 @@ func (m *searchMixed) probeMoves(ctx context.Context, tick int) {
 	}
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	m.moveChecks = slices.DeleteFunc(m.moveChecks, func(entry searchMixedCheck) bool { return verified[entry.node] })
+	m.moveChecks = slices.DeleteFunc(
+		m.moveChecks,
+		func(entry searchMixedCheck) bool { return verified[entry.node] },
+	)
 }
 
-// probeReturns searches for the check marker under workspace entry as the issue's tenant.
-// It reports whether the first page returns the issue. It counts failed searches as probe errors.
-func (m *searchMixed) probeReturns(ctx context.Context, tick int, check searchMixedCheck, entry string) (bool, error) {
+// probeReturns searches the check marker under workspace entry as the issue's
+// tenant. It reports whether the first page returns the issue and counts failed
+// searches as probe errors.
+func (m *searchMixed) probeReturns(
+	ctx context.Context,
+	tick int,
+	check searchMixedCheck,
+	entry string,
+) (bool, error) {
 	tenant := m.tenants[check.node.tenant]
 	driver := m.driver(tick + check.node.ordinal)
 	identities := m.titleFixture(check.node.tenant).identities(driver, tenant.token(), entry)

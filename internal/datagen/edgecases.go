@@ -8,7 +8,17 @@ import (
 
 const maxEdgeCaseNameLength = 255
 
-// InjectEdgeCases deterministically adds boundary values to generated properties.
+// InjectEdgeCases adds boundary values to generated properties in a
+// deterministic cycle.
+//
+// The index selects one of five cases. The function updates properties in place
+// and returns the resulting name.
+//
+//   - Case zero uses empty text and zero.
+//   - Case one uses Unicode text and a Unicode URL.
+//   - Case two creates a maximum-length name.
+//   - Case three uses a null URL and an empty selection.
+//   - Case four uses future and past dates relative to now.
 func InjectEdgeCases(
 	index int,
 	name string,
@@ -29,14 +39,8 @@ func InjectEdgeCases(
 		properties.setNull("qa_url")
 		properties.setStrings("qa_multi_select", []string{})
 	case 4:
-		properties.setString(
-			"qa_timestamp",
-			now.Add(365*24*time.Hour).UTC().Format(time.RFC3339),
-		)
-		properties.setString(
-			"qa_date",
-			now.Add(-365*24*time.Hour).UTC().Format(time.DateOnly),
-		)
+		properties.setString("qa_timestamp", now.Add(365*24*time.Hour).UTC().Format(time.RFC3339))
+		properties.setString("qa_date", now.Add(-365*24*time.Hour).UTC().Format(time.DateOnly))
 	}
 	return name
 }

@@ -1,16 +1,19 @@
-// Package tools defines the typed schema and response shapes Tack uses to
-// build MCP tools. The mark3labs/mcp-go library declares its tool input
-// schema as map[string]any and its tool arguments as map[string]any. Both
-// are external types we cannot change; this file contains the only places
-// where Tack code touches those any-typed shapes. Every other caller in the
-// package works with typed structs.
+// Package tools builds MCP tools with typed schemas and response structures.
+// The pinned mcp-go API declares ToolArgumentsSchema.Properties as
+// map[string]any. CallToolParams declares Arguments as any and RawArguments
+// as [json.RawMessage]. BindArguments decodes nonempty RawArguments first.
+// Otherwise it decodes [json.RawMessage] in Arguments, or marshals other
+// Arguments values before decoding them. GetArguments provides access to
+// Arguments as map[string]any for compatibility and returns nil for other
+// types. Tack's schema builder creates property maps, and its argument
+// handlers decode typed inputs or raw JSON values.
 package tools
 
 import (
 	mcpmcp "github.com/mark3labs/mcp-go/v2/mcp"
 )
 
-// schemaType enumerates the JSON-schema field types we use for tool input.
+// schemaType specifies a JSON Schema field type for tool input.
 type schemaType string
 
 const (
@@ -20,8 +23,9 @@ const (
 	schemaBoolean schemaType = "boolean"
 )
 
-// schemaField describes one field in a tool's input schema. Description and
-// Enum are optional. Enum is only meaningful for schemaString fields.
+// schemaField defines one tool input field. Desc and Enum are optional.
+// Enum supplies string choices for schemaString fields. The builder includes
+// Enum whenever it contains values.
 type schemaField struct {
 	Name string
 	Type schemaType
@@ -29,18 +33,15 @@ type schemaField struct {
 	Enum []string
 }
 
-// schema is a typed builder for an MCP tool input schema. Call toMCP to
-// convert at registration time. The any-typed result lives entirely inside
-// mcp-go's ToolInputSchema.Properties field; Tack code outside this file
-// never constructs that shape directly.
+// schema builds an MCP input schema from typed fields. Registration calls
+// toMCP to create the external ToolInputSchema.Properties map.
 type schema struct {
 	Fields   []schemaField
 	Required []string
 }
 
-// toMCP converts the typed schema to mcp-go's ToolInputSchema. This is the
-// single bridge point between Tack's typed builder and the external map
-// shape mcp-go declares.
+// toMCP converts typed fields to mcp-go's ToolInputSchema. It creates the
+// property maps that the external schema type requires.
 func (s schema) toMCP() mcpmcp.ToolInputSchema {
 	props := make(map[string]any, len(s.Fields))
 	for _, f := range s.Fields {
@@ -48,11 +49,14 @@ func (s schema) toMCP() mcpmcp.ToolInputSchema {
 		if f.Desc != "" {
 			spec["description"] = f.Desc
 		}
+
 		if len(f.Enum) > 0 {
 			spec["enum"] = f.Enum
 		}
+
 		props[f.Name] = spec
 	}
+
 	return mcpmcp.ToolInputSchema{
 		Type:                 "object",
 		Properties:           props,

@@ -6,19 +6,21 @@ import (
 )
 
 const (
-	// soakSearchUnavailableText is the whole tack_search tool error while
-	// public search is disabled.
+	// soakSearchUnavailableText matches the complete tack_search unavailable
+	// error, including refusals when public search is disabled.
 	soakSearchUnavailableText = "Search is temporarily unavailable."
-	// soakKindSearch labels the latency of an answered search. A refusal
-	// because public search is disabled gets soakKindSearchUnavailable.
+	// soakKindSearch identifies the latency of an answered search. An
+	// unavailable response, including a refusal when public search is disabled,
+	// uses soakKindSearchUnavailable.
 	soakKindSearch            = "search"
 	soakKindSearchUnavailable = "search_unavailable"
 )
 
-// searchProject calls tack_search once under the project workspace for the
-// name of one project issue, or for the project reference when the project
-// has no issue. It returns the latency kind of the call. A disabled public
-// search is counted and does not stop the soak; any other error does.
+// searchProject calls tack_search once in the project workspace with the
+// name of a project issue. It uses the project reference when the project
+// does not contain an issue. It returns the call's latency kind. It counts
+// unavailable responses, including refusals when public search is disabled,
+// without stopping the soak. Any other error stops the soak.
 func (s *Soak) searchProject(
 	ctx context.Context,
 	project *soakProject,
@@ -29,10 +31,15 @@ func (s *Soak) searchProject(
 	if len(project.Issues) > 0 {
 		query = project.Issues[operationIndex/soakOperationKinds%len(project.Issues)].Name
 	}
-	_, err := s.driver.Call(ctx, actor.Token, "tack_search", ToolArguments{
+	_, err := s.driver.Call(
+		ctx,
+		actor.Token,
+		"tack_search",
+		ToolArguments{
 		WorkspaceReference: project.Workspace.Slug,
 		Query:              query,
-	})
+		},
+	)
 	if isSearchUnavailable(err) {
 		s.summary.SearchesUnavailable++
 		return soakKindSearchUnavailable, nil
@@ -44,8 +51,8 @@ func (s *Soak) searchProject(
 	return soakKindSearch, nil
 }
 
-// isSearchUnavailable reports whether err is a tack_search tool error with the whole text
-// soakSearchUnavailableText.
+// isSearchUnavailable reports whether err is a tack_search tool error that
+// exactly matches soakSearchUnavailableText.
 func isSearchUnavailable(err error) bool {
 	var toolError *toolCallError
 	return errors.As(err, &toolError) && toolError.message == soakSearchUnavailableText

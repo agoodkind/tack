@@ -17,6 +17,11 @@ import (
 const MaxPageBytes = 4096
 
 // DocumentID returns a stable identifier for one revision-bound search page.
+//
+// The identifier encodes the organization, node, revision, projection, and
+// page ordinal with length prefixes.
+//
+//   - Different page ordinals produce different identifiers.
 func DocumentID(orgID, nodeID uuid.UUID, revision, projection string, ordinal uint64) string {
 	var identity bytes.Buffer
 	writeIdentityPart(&identity, orgID[:])
@@ -26,6 +31,7 @@ func DocumentID(orgID, nodeID uuid.UUID, revision, projection string, ordinal ui
 	var number [8]byte
 	binary.BigEndian.PutUint64(number[:], ordinal)
 	writeIdentityPart(&identity, number[:])
+
 	return base64.RawURLEncoding.EncodeToString(identity.Bytes())
 }
 
@@ -36,55 +42,84 @@ func writeIdentityPart(destination *bytes.Buffer, value []byte) {
 	destination.Write(value)
 }
 
-// ValidatePageText rejects an active page without page_text or with text
-// above the byte bound, before any engine request.
+// ValidatePageText checks text for an active search page.
+//
+// Callers validate page_text before any engine request.
+//
+//   - Empty text returns an error.
+//   - Text above MaxPageBytes returns an error.
+//   - Invalid UTF-8 returns an error.
 func ValidatePageText(text string) error {
 	if text == "" {
 		return errors.New("an active search page requires page_text")
 	}
+
 	if len(text) > MaxPageBytes || !utf8.ValidString(text) {
 		return fmt.Errorf("search page_text must be valid UTF-8 at or below %d bytes", MaxPageBytes)
 	}
+
 	return nil
 }
 
-// ValidatePage checks document invariants before a write intent is registered.
-// Live work and replacement copy work write pages. Every other class returns
+// ValidatePage checks document invariants before callers register a write
+// intent.
+//
+// Live work and replacement copy work can write pages. Other classes return
 // ErrWorkChanged.
+//
+//   - A missing target or nonpositive generation returns ErrWorkChanged.
+//   - Page text and access values must pass their validation checks.
 func ValidatePage(work Work, page node.ContentPage) error {
 	writesPages := work.Class == WorkClassLive || work.Class == WorkClassCopy
 	if !writesPages || work.Target == "" || work.Generation <= 0 {
 		return ErrWorkChanged
 	}
+
 	if page.NodeID != work.NodeID || page.Revision == "" || page.ProjectionVersion == "" {
 		return ErrWorkChanged
 	}
+
 	if err := ValidatePageText(page.Text); err != nil {
 		return err
 	}
-	if page.OverlapBytes < 0 || page.OverlapBytes > MaxPageBytes/4 || page.OverlapBytes >= len(page.Text) {
+
+	if page.OverlapBytes < 0 || page.OverlapBytes > MaxPageBytes/4 ||
+		page.OverlapBytes >= len(page.Text) {
 		return errors.New("search page overlap exceeds the reserved byte bound or does not advance")
 	}
+
 	if page.Access.Generation != work.Generation {
 		return ErrWorkChanged
 	}
+
 	return ValidateAccess(page.Access)
 }
 
-// ValidateAccess rejects empty, unsorted, or duplicate opaque access values.
+// ValidateAccess checks opaque access values.
+//
+// The checks apply to both the version list and the key list.
+//
+//   - An empty list returns an error.
+//   - An empty entry returns an error.
+//   - Unsorted values return an error.
+//   - Duplicate values return an error.
 func ValidateAccess(access node.SearchAccess) error {
 	if len(access.Versions) == 0 || len(access.Keys) == 0 {
 		return errors.New("search access versions and keys must not be empty")
 	}
+
 	if !slices.IsSorted(access.Versions) || !slices.IsSorted(access.Keys) {
 		return errors.New("search access values must be sorted")
 	}
+
 	if hasDuplicate(access.Versions) || hasDuplicate(access.Keys) {
 		return errors.New("search access values must be unique")
 	}
+
 	if slices.Contains(access.Versions, "") || slices.Contains(access.Keys, "") {
 		return errors.New("search access values must not be empty")
 	}
+
 	return nil
 }
 
@@ -94,5 +129,6 @@ func hasDuplicate(values []string) bool {
 			return true
 		}
 	}
+
 	return false
 }

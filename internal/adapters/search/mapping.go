@@ -28,7 +28,8 @@ type IndexInfo struct {
 	TokenizerSHA256 string
 }
 
-// MappingVersion mismatches require a full index replacement through ops search reindex.
+// MappingVersion mismatches require a full index replacement through ops search
+// reindex.
 const MappingVersion = "2"
 
 // approvedSplitTargets lists the primary shard counts a native split may
@@ -99,16 +100,28 @@ type indexSettingsBody struct {
 }
 
 // Validate checks the model identity, mapping version, and shard settings
-// before index creation. It returns one joined error that lists every failed
-// check.
+// before index creation.
+//
+// Validate joins every failed check into one error.
+//
+//  1. Check the registered model and pinned tokenizer.
+//  2. Require a mapping version and valid shard counts.
+//  3. Check routing divisibility for primaries and approved split targets.
 func (s IndexSpec) Validate(ctx context.Context) error {
 	problems := s.problems()
 	if len(problems) == 0 {
 		return nil
 	}
+
 	invalid := errors.Join(problems...)
-	telemetry.L(ctx).ErrorContext(ctx, "search.index.spec_invalid", slog.String("err", invalid.Error()),
-		slog.String("mapping_version", s.MappingVersion), slog.String("model_id", s.Model.ID))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"search.index.spec_invalid",
+		slog.String("err", invalid.Error()),
+		slog.String("mapping_version", s.MappingVersion),
+		slog.String("model_id", s.Model.ID),
+	)
+
 	return loggedModelError{err: invalid}
 }
 
@@ -117,29 +130,75 @@ func (s IndexSpec) problems() []error {
 	if s.Model.ID == "" {
 		problems = append(problems, errors.New("search index requires a registered model ID"))
 	}
+
 	if s.Model.Name != PinnedModel.Name || s.Model.Version != PinnedModel.Version {
-		problems = append(problems, fmt.Errorf("search index model %s version %s is not the pinned model", s.Model.Name, s.Model.Version))
+		problems = append(
+			problems,
+			fmt.Errorf(
+				"search index model %s version %s is not the pinned model",
+				s.Model.Name,
+				s.Model.Version,
+			),
+		)
 	}
+
 	if s.Model.TokenizerDigest != PinnedModel.TokenizerDigest {
-		problems = append(problems, fmt.Errorf("search index tokenizer SHA-256 %q is not the pinned tokenizer", s.Model.TokenizerDigest))
+		problems = append(
+			problems,
+			fmt.Errorf(
+				"search index tokenizer SHA-256 %q is not the pinned tokenizer",
+				s.Model.TokenizerDigest,
+			),
+		)
 	}
+
 	if s.MappingVersion == "" {
 		problems = append(problems, errors.New("search index requires a mapping version"))
 	}
+
 	if s.Replicas < 0 {
-		problems = append(problems, fmt.Errorf("search index replicas %d must be nonnegative", s.Replicas))
+		problems = append(
+			problems,
+			fmt.Errorf("search index replicas %d must be nonnegative", s.Replicas),
+		)
 	}
+
 	if s.Primaries <= 0 || s.RoutingShards <= 0 {
-		problems = append(problems, fmt.Errorf("search index primary shards %d and routing shards %d must be positive", s.Primaries, s.RoutingShards))
+		problems = append(
+			problems,
+			fmt.Errorf(
+				"search index primary shards %d and routing shards %d must be positive",
+				s.Primaries,
+				s.RoutingShards,
+			),
+		)
+
 		return problems
 	}
+
 	if s.RoutingShards%s.Primaries != 0 {
-		problems = append(problems, fmt.Errorf("search index routing shards %d must be divisible by primary shards %d", s.RoutingShards, s.Primaries))
+		problems = append(
+			problems,
+			fmt.Errorf(
+				"search index routing shards %d must be divisible by primary shards %d",
+				s.RoutingShards,
+				s.Primaries,
+			),
+		)
 	}
+
 	for _, target := range approvedSplitTargets {
 		if s.RoutingShards%target != 0 {
-			problems = append(problems, fmt.Errorf("search index routing shards %d must be divisible by approved split target %d", s.RoutingShards, target))
+			problems = append(
+				problems,
+				fmt.Errorf(
+					"search index routing shards %d must be divisible by approved split target %d",
+					s.RoutingShards,
+					target,
+				),
+			)
 		}
 	}
+
 	return problems
 }

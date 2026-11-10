@@ -45,8 +45,8 @@ func latestMigrationVersion(t *testing.T) int64 {
 	return latest
 }
 
-// auditWriterPool opens a pool on the fixture database as a throwaway LOGIN
-// role that inherits only audit_writer.
+// auditWriterPool opens the fixture database using a temporary LOGIN role
+// that inherits only audit_writer.
 func auditWriterPool(t *testing.T, fixture *partmanTestDatabase) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
@@ -61,7 +61,10 @@ func auditWriterPool(t *testing.T, fixture *partmanTestDatabase) *pgxpool.Pool {
 	login := "tack_test_partition_writer_" + hex.EncodeToString(suffix)
 	password := hex.EncodeToString(secret)
 	identifier := pgx.Identifier{login}.Sanitize()
-	if _, err := fixture.adminPool.Exec(ctx, "CREATE ROLE "+identifier+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+password+"'"); err != nil {
+	if _, err := fixture.adminPool.Exec(
+		ctx,
+		"CREATE ROLE "+identifier+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+password+"'",
+	); err != nil {
 		t.Fatalf("create %s: %v", login, err)
 	}
 	if _, err := fixture.adminPool.Exec(ctx, "GRANT audit_writer TO "+identifier); err != nil {
@@ -78,7 +81,10 @@ func auditWriterPool(t *testing.T, fixture *partmanTestDatabase) *pgxpool.Pool {
 	}
 	t.Cleanup(func() {
 		pool.Close()
-		if _, err := fixture.adminPool.Exec(context.Background(), "DROP ROLE IF EXISTS "+identifier); err != nil {
+		if _, err := fixture.adminPool.Exec(
+			context.Background(),
+			"DROP ROLE IF EXISTS "+identifier,
+		); err != nil {
 			t.Errorf("drop %s: %v", login, err)
 		}
 	})

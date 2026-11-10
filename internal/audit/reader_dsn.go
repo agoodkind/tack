@@ -15,5 +15,6 @@ func parseReaderDSN(dsn string) (*pgxpool.Config, error) {
 		// password.
 		return nil, errReaderDSNParse
 	}
+
 	return cfg, nil
 }

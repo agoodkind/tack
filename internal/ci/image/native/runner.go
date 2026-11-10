@@ -19,10 +19,16 @@ var (
 
 // Verify checks IMAGE_ARCH against the runner machine type.
 //
-// It accepts amd64 on x86_64 and arm64 on aarch64. On a match, it writes
-// the machine type to stdout. For example:
+// The function rejects unsupported architectures and mismatched machine
+// types before writing. On a match, it writes the machine type to stdout.
+// For example:
 //
 //	Native image runner: x86_64
+//
+// The supported pairs are:
+//
+//	IMAGE_ARCH=amd64: x86_64
+//	IMAGE_ARCH=arm64: aarch64
 func Verify(stdout io.Writer) error {
 	architecture, err := environment.Required("IMAGE_ARCH")
 	if err != nil {

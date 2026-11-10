@@ -18,26 +18,28 @@ func seedQAPropertyDefs(
 ) error {
 	for _, definition := range qaPropertyDefs(orgID) {
 		if err := writer.Set(ctx, definition); err != nil {
-			return loggedError(
-				ctx,
-				"qa datagen: seed property definition "+definition.Name,
-				err,
-			)
+			return loggedError(ctx, "qa datagen: seed property definition "+definition.Name, err)
 		}
 	}
 	return nil
 }
 
-// qaPropertyDefs declares every QA definition with an explicit search
-// decision. The text and URL definitions include search. Every other QA
-// definition excludes it.
+// qaPropertyDefs sets search inclusion for every QA definition.
+// The text and URL definitions enable search. Every other QA
+// definition excludes search.
 func qaPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 	return []*node.PropertyDef{
 		qaPropertyDef(orgID, "qa_text", node.PropertyTypeText, nil, qaSearch(true, 0)),
 		qaPropertyDef(orgID, "qa_number", node.PropertyTypeNumber, nil, qaSearch(false, 1)),
 		qaPropertyDef(orgID, "qa_date", node.PropertyTypeDate, nil, qaSearch(false, 2)),
 		qaPropertyDef(orgID, "qa_select", node.PropertyTypeSelect, qaOptions(), qaSearch(false, 3)),
-		qaPropertyDef(orgID, "qa_multi_select", node.PropertyTypeMultiSelect, qaOptions(), qaSearch(false, 4)),
+		qaPropertyDef(
+			orgID,
+			"qa_multi_select",
+			node.PropertyTypeMultiSelect,
+			qaOptions(),
+			qaSearch(false, 4),
+		),
 		qaPropertyDef(orgID, "qa_url", node.PropertyTypeURL, nil, qaSearch(true, 5)),
 		qaPropertyDef(orgID, "qa_checkbox", node.PropertyTypeCheckbox, nil, qaSearch(false, 6)),
 		qaPropertyDef(orgID, "qa_timestamp", node.PropertyTypeTimestamp, nil, qaSearch(false, 7)),
@@ -53,10 +55,17 @@ func qaPropertyDef(
 	search node.SearchProjection,
 ) *node.PropertyDef {
 	return &node.PropertyDef{
-		ID: node.SystemPropID(orgID, name), OrgID: orgID, Name: name,
-		Type: propertyType, AppliesToFeatures: nil, Indexed: false,
-		Options: options, Required: false, DefaultValue: nil,
-		DefaultReference: nil, ReferenceTargetTypeKey: "",
+		ID:                     node.SystemPropID(orgID, name),
+		OrgID:                  orgID,
+		Name:                   name,
+		Type:                   propertyType,
+		AppliesToFeatures:      nil,
+		Indexed:                false,
+		Options:                options,
+		Required:               false,
+		DefaultValue:           nil,
+		DefaultReference:       nil,
+		ReferenceTargetTypeKey: "",
 		Search: &search,
 	}
 }

@@ -1,7 +1,7 @@
-// reader_stream.go is the whole-match-set read. Query builds a slice, which
-// bounds it to what fits in memory; this hands each row to the caller as it is
-// decoded and keeps none, so a read of a production-sized org costs the same as
-// a read of one row.
+// StreamQuery reads the complete matching set without collecting result rows.
+// Query builds a slice limited by available memory. StreamQuery invokes a
+// visitor for each decoded row and does not retain the rows between calls.
+// Total decoding and visitor work increases with the number of matching rows.
 
 package audit
 
@@ -16,23 +16,28 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RowVisitor receives one ledger row. The row is valid for the duration of the
-// call and is released afterwards, so a visitor that needs to keep something
-// must copy what it needs. Returning an error stops the stream.
+// RowVisitor receives one ledger row for the duration of a call. A visitor
+// that retains row data must copy the values it needs. An error stops the
+// stream.
 type RowVisitor func(Row) error
 
-// StreamQuery runs the same filter Query runs and hands every matching row to
-// visit as it arrives off the connection. Peak memory is one row plus the
-// connection's read buffer, whatever the filter matches, because nothing here
-// accumulates: pgx reads one protocol message per row rather than collecting
-// the result set.
+// StreamQuery applies the same filter as [Reader.Query] and invokes visit for
+// each decoded row without accumulating a result slice.
 //
-// A zero limit means every matching row, which is where this differs from
-// Query. Query defaults a missing limit to a page because its callers render a
-// page; the caller here is the compliance export, and an export that stopped at
-// a page would be a truncated bundle that reads as a complete one.
+// A zero limit selects every matching row. Query instead defaults a missing
+// limit to a page for callers that render pages. The compliance export requires
+// the complete matching set; a default page would create a truncated bundle
+// that appears complete.
+//
+//   - The method retains the current row and connection buffers, rather than
+//     all returned rows. Row and protocol message sizes affect memory use.
+//   - pgx decodes rows from protocol messages rather than collecting the full
+//     result set. The visitor controls any additional retained data.
+//   - A query, decoding, visitor, or interrupted-result error stops the stream.
 func (r *Reader) StreamQuery(ctx context.Context, f QueryFilter, visit RowVisitor) error {
-	ctx, span := telemetry.StartSpan(ctx, "audit.stream_query",
+	ctx, span := telemetry.StartSpan(
+		ctx,
+		"audit.stream_query",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("org.id", f.OrgID.String()),
@@ -54,24 +59,33 @@ func (r *Reader) StreamQuery(ctx context.Context, f QueryFilter, visit RowVisito
 	defer rows.Close()
 
 	streamed := 0
+
 	for rows.Next() {
 		row, readErr := readAuditRow(rows)
 		if readErr != nil {
 			return readErr
 		}
+
 		if visitErr := visit(row); visitErr != nil {
 			return fmt.Errorf("audit stream query row %s: %w", row.EventID, visitErr)
 		}
+
 		streamed++
 	}
-	// rows.Err is what separates a stream that ended from one that was cut off
-	// mid-result by a dropped connection or a cancelled context. Reading only
-	// the loop's exit would turn a partial read into a short, silent success,
-	// which for an export is a bundle missing its tail.
+
+	// rows.Err distinguishes a completed result from an interruption, including
+	// a dropped connection or canceled context. Ignoring this error would report
+	// a partial export as a successful complete read.
 	if err := rows.Err(); err != nil {
-		slog.ErrorContext(ctx, "audit.stream_query.interrupted",
-			slog.Int("rows_streamed", streamed), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.stream_query.interrupted",
+			slog.Int("rows_streamed", streamed),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("audit stream query after %d rows: %w", streamed, err)
 	}
+
 	return nil
 }

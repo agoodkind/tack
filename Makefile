@@ -4,12 +4,12 @@
 BINARY := tack
 CMD    := ./cmd/server
 
-# CGO required for FoundationDB bindings; -tags fdb gates the FDB code paths.
+# FoundationDB bindings require CGO; -tags fdb enables the FoundationDB code.
 export CGO_ENABLED := 1
 GO_BUILD_TAGS     := fdb
 
-# Pipeline modules (skip go-release.mk: tack ships prebuilt container images
-# from CI, not GoReleaser).
+# Skip go-release.mk because CI publishes Tack's
+# prebuilt container images without GoReleaser.
 GO_MK_MODULES := go-build.mk
 
 # CI runs the integration package separately through test-store-host-shard.
@@ -40,12 +40,12 @@ build: backfill-expiry
 run:
 	go run $(GO_BUILD_FLAGS) $(CMD)
 
-# Run DB migrations against DATABASE_URL.
+# Run database migrations against DATABASE_URL.
 .PHONY: migrate
 migrate:
 	go run $(GO_BUILD_FLAGS) $(CMD) migrate --execute
 
-# Seed the database with initial user/org/workspace/token.
+# Seed the database with the initial user, org, workspace, and token.
 .PHONY: seed
 seed:
 	go run $(GO_BUILD_FLAGS) $(CMD) seed
@@ -94,18 +94,18 @@ test-runtime-audit-host test-runtime-audit: TEST_ARGS = $(TEST_RUNTIME_AUDIT_ARG
 # addresses. CI runs the same target.
 PG_OVERLAY_TEST_ARGS := -tags pgoverlay -count=1 -timeout 30m -v ./internal/test/pgoverlay/...
 
-# Each run uses its own Compose project named after the make process. The EXIT
-# trap runs after a pass, a failure, or an interrupt. It stops the run container
-# with down, removes the test engines that have the project and service labels
-# of this run, then runs down again to remove the network and image. Compose
-# does not treat the engines as orphans, and the trap removes them by label.
-# Cleanup does not affect other Compose projects. The recipe exits with the test
-# status, or with 1 when the tests passed and a cleanup step failed.
+# Each run uses a Compose project with the Make process ID.
+# After success, failure, or interruption, the EXIT trap runs
+# down to stop the runner, removes test engines with this run's
+# project and service labels, then runs down again to remove the
+# network and image. Compose does not classify these engines as
+# orphans. Cleanup does not affect other projects. The recipe
+# returns the test status, or 1 if tests passed but cleanup failed.
 PG_OVERLAY_COMPOSE = TACK_TEST_ROOT=$(CURDIR) docker compose -p "$$project" -f docker-compose.test.yml --profile pgoverlay-runner
 
-# The Go caches are external volumes that every run shares and no run removes.
-# The names must equal the volume names in docker-compose.test.yml. Creating an
-# existing volume leaves it unchanged.
+# Every run shares these external Go cache volumes, and
+# cleanup does not remove them. Their names must match the
+# Compose volume names. Creating an existing volume does not change it.
 PG_OVERLAY_CACHE_VOLUMES := tack-pgoverlay-go-cache tack-pgoverlay-go-mod
 
 .PHONY: test-postgresql-overlay
@@ -144,7 +144,7 @@ test-service-secrets:
 	    --env TACK_SEARCH_INTEGRATION=1 tests \
 	    test -tags integration -count=1 -timeout 30m -v -run '^TestServiceSecret' ./internal/test/integration/...
 
-# Search opt-in starts an 8 GiB engine and downloads the 555 MB model.
+# Enabling search tests starts an 8 GiB engine and downloads the 555 MB model.
 TEST_SEARCH_ARGS := -count=1 -timeout 90m -v -run '^TestSearch' ./internal/test/integration/...
 test-search-host test-search: TEST_ARGS = $(TEST_SEARCH_ARGS)
 test-search-host test-search test-search-host-group test-search-group: TEST_ENV = TACK_TEST_SOURCE_REVISION="$(shell git rev-parse HEAD)" TACK_SEARCH_INTEGRATION=1
@@ -228,8 +228,8 @@ update-fdb:
 	@echo "Reminder: hand-edit FDB_BINDINGS_VERSION in this Makefile to match"
 	@echo "and update the fdb.APIVersion call in internal/adapters/foundationdb/client.go."
 
-# Create or rotate audit LOGIN roles after migrations or password changes.
-# tack-ops reads the audit passwords and DATABASE_URL from the rendered .env.
+# Create or rotate audit LOGIN roles after migrations or password changes. The
+# rendered secrets supply tack-ops with the audit passwords and DATABASE_URL.
 .PHONY: seed-audit-roles
 seed-audit-roles:
 	ssh tack 'cd /root/tack && docker compose run --rm tack-ops /server ops audit seed-roles'

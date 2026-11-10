@@ -18,6 +18,14 @@ const (
 var productionAddress = netip.MustParseAddr(productionIPv6)
 
 // ValidateTarget requires an explicit QA or local write marker.
+//
+// The function checks configured SQL and Kafka endpoint hosts before
+// accepting the marker. It rejects the production address and hosts that
+// contain the production hostname, even when the marker permits writes.
+//
+//   - The marker accepts qa or local after trimming spaces and converting
+//     letters to lowercase.
+//   - An empty or different marker returns an error.
 func ValidateTarget(cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("qa datagen: configuration is required")
@@ -36,7 +44,9 @@ func ValidateTarget(cfg *config.Config) error {
 	}
 	for _, broker := range strings.Split(cfg.AuditKafkaBrokers, ",") {
 		if err := validateEndpoint(targetEndpoint{
-			name: "AUDIT_KAFKA_BROKERS", value: strings.TrimSpace(broker), kafka: true,
+			name:  "AUDIT_KAFKA_BROKERS",
+			value: strings.TrimSpace(broker),
+			kafka: true,
 		}); err != nil {
 			return err
 		}

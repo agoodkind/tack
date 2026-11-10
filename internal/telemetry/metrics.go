@@ -124,7 +124,12 @@ func IncAuditKafkaProduce(result string) { auditKafkaProduceTotal.Add(result, 1)
 // ObserveAuditKafkaProduceLatency records one produce latency sample in
 // milliseconds.
 func ObserveAuditKafkaProduceLatency(ms float64) {
-	observeHistogram(auditKafkaProduceLatencyMs, auditKafkaProduceLatencyStats, ms, latencyBucketsMs)
+	observeHistogram(
+		auditKafkaProduceLatencyMs,
+		auditKafkaProduceLatencyStats,
+		ms,
+		latencyBucketsMs,
+	)
 }
 
 // IncAuditKafkaProduceInflight increments the inflight gauge before a
@@ -154,7 +159,12 @@ func IncAuditConsumerProcessed(result string, n int64) {
 // ObserveAuditConsumerBatchLatency records one poll-to-commit batch latency
 // sample in milliseconds.
 func ObserveAuditConsumerBatchLatency(ms float64) {
-	observeHistogram(auditConsumerBatchLatencyMs, auditConsumerBatchLatencyStats, ms, latencyBucketsMs)
+	observeHistogram(
+		auditConsumerBatchLatencyMs,
+		auditConsumerBatchLatencyStats,
+		ms,
+		latencyBucketsMs,
+	)
 }
 
 // SetAuditConsumerOffsetCommitted publishes the most recently committed
@@ -189,6 +199,7 @@ func observeHistogram(buckets, stats *expvar.Map, sample float64, bounds []float
 			buckets.Add(histogramBucketKey(b), 1)
 		}
 	}
+
 	buckets.Add("le_+Inf", 1)
 	stats.Add("count", 1)
 	addFloat(stats, "sum", sample)
@@ -206,10 +217,11 @@ func histogramBucketKey(bound float64) string {
 // under the key and bumps it.
 func addFloat(m *expvar.Map, key string, delta float64) {
 	v := m.Get(key)
-	f, ok := v.(*expvar.Float)
+	counter, ok := v.(*expvar.Float)
 	if !ok {
-		f = new(expvar.Float)
-		m.Set(key, f)
+		counter = new(expvar.Float)
+		m.Set(key, counter)
 	}
-	f.Add(delta)
+
+	counter.Add(delta)
 }

@@ -23,14 +23,24 @@ type remoteForwarder struct {
 	client *http.Client
 }
 
-// NewRemoteDriver creates a Driver for MCP requests to a remote Tack process.
+// NewRemoteDriver constructs a [Driver] for MCP requests to a remote Tack
+// process.
+//
+// The endpoint must use HTTP or HTTPS and include a host. The supplied client
+// sends the requests.
+//
+//   - The endpoint https://example.invalid uses the /mcp path.
+//   - The endpoint https://example.invalid/tack uses the /tack/mcp path.
 func NewRemoteDriver(endpoint string, client *http.Client, seed int64) (*Driver, error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("qa datagen: remote endpoint %q is not a valid URL", endpoint)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, fmt.Errorf("qa datagen: remote endpoint scheme %q is not http or https", parsed.Scheme)
+		return nil, fmt.Errorf(
+			"qa datagen: remote endpoint scheme %q is not http or https",
+			parsed.Scheme,
+		)
 	}
 	if parsed.Host == "" {
 		return nil, fmt.Errorf("qa datagen: remote endpoint %q has no host", endpoint)
@@ -39,7 +49,8 @@ func NewRemoteDriver(endpoint string, client *http.Client, seed int64) (*Driver,
 		target: parsed.JoinPath("mcp").String(),
 		client: client,
 	}
-	// The remote process authenticates the bearer token and records each request.
+	// The forwarder delegates bearer authentication and request recording to the
+	// remote process.
 	graph := &runtime.Graph{MCPRoute: forwarder}
 	return NewDriver(graph, false, seed), nil
 }

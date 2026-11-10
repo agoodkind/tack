@@ -15,158 +15,274 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// maxSubtreeDeleteJobPage bounds the job records one SubtreeDeletes call reads.
+// maxSubtreeDeleteJobPage bounds the job records one SubtreeDeletes call
+// reads.
 const maxSubtreeDeleteJobPage = 100
 
-// StartSubtreeDelete stores the record of a new subtree delete job with the root as its
-// only stack entry. It sets the deleted and moved counts to zero and stores the root's
-// hierarchy parent as the destination for moved children. It stores the encoded audit
-// operation from ctx for every step to use.
+// StartSubtreeDelete stores a new subtree delete job with the root as its
+// only stack entry.
 //
-// After the job record commits, StartSubtreeDelete marks the request slot committed.
-// The MCP wrapper reads this mark and skips its event for the delete request, even when
-// the request returns before the job deletes the root.
-func (s *NodeDeleteStore) StartSubtreeDelete(ctx context.Context, job *node.SubtreeDeleteJob) (err error) {
+// It sets the deleted and moved counts to zero and stores the root's
+// hierarchy parent as the destination for moved children. It stores the
+// encoded audit operation from ctx for every step to use. The request slot
+// controls the MCP result event:
+//
+//   - StartSubtreeDelete marks the slot committed after the job record
+//     commits.
+//   - The MCP wrapper skips its result event when the slot has that mark and
+//     the request succeeds, even if the request returns before the job
+//     deletes the root.
+//   - If the marked request fails, the MCP wrapper records a partially
+//     completed result.
+func (s *NodeDeleteStore) StartSubtreeDelete(
+	ctx context.Context,
+	job *node.SubtreeDeleteJob,
+) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_start")(&err)
 	operation, err := audit.RequireMutationContext(ctx)
 	if err != nil {
 		return nodeOperationFailure(ctx, "start subtree delete of node "+job.RootID.String(), err)
 	}
+
 	job.Operation, err = audit.MarshalEvent(operation)
 	if err != nil {
-		return nodeOperationFailure(ctx, "encode the audit operation of subtree delete "+job.ID.String(), err)
+		return nodeOperationFailure(
+			ctx,
+			"encode the audit operation of subtree delete "+job.ID.String(),
+			err,
+		)
 	}
+
 	job.Stack = []uuid.UUID{job.RootID}
 	job.Deleted, job.Moved = 0, 0
 	job.FinishedAt = time.Time{}
-	err = runNodeMutation(ctx, s.nodes.db, "start subtree delete of node "+job.RootID.String(), func(tr fdb.Transaction) error {
-		parentID, readErr := readRootParent(ctx, tr, job.OrgID, job.RootID)
-		if readErr != nil {
-			return readErr
-		}
-		job.RootParentID = parentID
-		return writeDeleteJob(ctx, tr, job, s.nodes.clock.Now())
-	})
+	err = runNodeMutation(
+		ctx,
+		s.nodes.db,
+		"start subtree delete of node "+job.RootID.String(),
+		func(tr fdb.Transaction) error {
+			parentID, readErr := readRootParent(ctx, tr, job.OrgID, job.RootID)
+			if readErr != nil {
+				return readErr
+			}
+
+			job.RootParentID = parentID
+
+			return writeDeleteJob(ctx, tr, job, s.nodes.clock.Now())
+		},
+	)
 	if err != nil {
 		return err
 	}
+
 	commitStagedIntent(ctx)
+
 	return nil
 }
 
-// jobOperation decodes the audit operation in job.Operation. When job.Operation
-// is empty, it builds the operation from job.AuditTemplate and job.ActorID with
-// [audit.LegacyJobOperation]. It returns an error that wraps
-// [audit.ErrMissingMutationContext] when the operation lacks an actor ID, a known
-// actor kind, an operation ID, or a start time.
+// jobOperation decodes the audit operation in job.Operation. When
+// job.Operation is empty, it builds the operation from job.AuditTemplate and
+// job.ActorID with [audit.LegacyJobOperation]. It returns an error that
+// wraps [audit.ErrMissingMutationContext] when the operation lacks an actor
+// ID, a known actor kind, an operation ID, or a start time.
 func jobOperation(ctx context.Context, job *node.SubtreeDeleteJob) (audit.Event, error) {
 	encoded := job.Operation
 	if len(encoded) == 0 {
 		legacy, err := audit.LegacyJobOperation(ctx, job.ID, job.ActorID, job.AuditTemplate)
 		if err != nil {
-			return audit.Event{}, nodeOperationFailure(ctx, "build the audit operation of legacy subtree delete job "+job.ID.String(), err)
+			return audit.Event{}, nodeOperationFailure(
+				ctx,
+				"build the audit operation of legacy subtree delete job "+job.ID.String(),
+				err,
+			)
 		}
+
 		encoded, err = audit.MarshalEvent(legacy)
 		if err != nil {
-			return audit.Event{}, nodeOperationFailure(ctx, "encode the audit operation of legacy subtree delete job "+job.ID.String(), err)
+			return audit.Event{}, nodeOperationFailure(
+				ctx,
+				"encode the audit operation of legacy subtree delete job "+job.ID.String(),
+				err,
+			)
 		}
 	}
+
 	recovered, err := audit.RequireMutationContext(auditintent.WithOperation(ctx, encoded))
 	if err != nil {
-		return audit.Event{}, nodeOperationFailure(ctx, "read the audit operation of subtree delete "+job.ID.String(), err)
+		return audit.Event{}, nodeOperationFailure(
+			ctx,
+			"read the audit operation of subtree delete "+job.ID.String(),
+			err,
+		)
 	}
+
 	return recovered, nil
 }
 
-// SubtreeDelete reads one job record. A missing record returns nil.
-func (s *NodeDeleteStore) SubtreeDelete(ctx context.Context, jobID uuid.UUID) (job *node.SubtreeDeleteJob, err error) {
+// SubtreeDelete reads one job record.
+//
+// It selects jobID in one read transaction and returns one of these results:
+//
+//   - It returns an existing record and a nil error when the read and JSON
+//     decoding succeed.
+//   - It returns nil and a nil error when the read succeeds and the record
+//     does not exist.
+//   - It returns nil and an error when the read transaction fails,
+//     including a storage read failure or a JSON decoding failure.
+func (s *NodeDeleteStore) SubtreeDelete(
+	ctx context.Context,
+	jobID uuid.UUID,
+) (job *node.SubtreeDeleteJob, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_read")(&err)
-	err = runNodeReadTransaction(ctx, s.nodes.db, "read subtree delete job "+jobID.String(), func(tr fdb.Transaction) error {
-		var readErr error
-		job, readErr = readDeleteJob(ctx, tr, jobID)
-		return readErr
-	})
+	err = runNodeReadTransaction(
+		ctx,
+		s.nodes.db,
+		"read subtree delete job "+jobID.String(),
+		func(tr fdb.Transaction) error {
+			var readErr error
+			job, readErr = readDeleteJob(ctx, tr, jobID)
+
+			return readErr
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	return job, nil
 }
 
-// ClearSubtreeDelete removes the record of one finished job. A running job
-// keeps its record.
+// ClearSubtreeDelete removes the record of one finished job.
+//
+// It reads the job and clears its key in one FoundationDB transaction.
+//
+//   - It preserves a running job's record.
 func (s *NodeDeleteStore) ClearSubtreeDelete(ctx context.Context, jobID uuid.UUID) (err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_clear")(&err)
-	return runNodeMutation(ctx, s.nodes.db, "clear subtree delete job "+jobID.String(), func(tr fdb.Transaction) error {
-		job, readErr := readDeleteJob(ctx, tr, jobID)
-		if readErr != nil || job == nil || !job.Finished() {
-			return readErr
-		}
-		tr.Clear(fdb.Key(nodeDeleteJobKey(jobID)))
-		return nil
-	})
+
+	return runNodeMutation(
+		ctx,
+		s.nodes.db,
+		"clear subtree delete job "+jobID.String(),
+		func(tr fdb.Transaction) error {
+			job, readErr := readDeleteJob(ctx, tr, jobID)
+			if readErr != nil || job == nil || !job.Finished() {
+				return readErr
+			}
+
+			tr.Clear(fdb.Key(nodeDeleteJobKey(jobID)))
+
+			return nil
+		},
+	)
 }
 
-// SubtreeDeletes reads at most limit job records after the job ID after, in
-// job ID order. Passing [uuid.Nil] as after starts the page at the first job.
-func (s *NodeDeleteStore) SubtreeDeletes(ctx context.Context, after uuid.UUID, limit int) (jobs []*node.SubtreeDeleteJob, err error) {
+// SubtreeDeletes reads at most limit job records in job ID order.
+//
+// The after argument selects the start of the page:
+//
+//   - It reads records after the job ID in after.
+//   - It starts at the first job when after is [uuid.Nil].
+func (s *NodeDeleteStore) SubtreeDeletes(
+	ctx context.Context,
+	after uuid.UUID,
+	limit int,
+) (jobs []*node.SubtreeDeleteJob, err error) {
 	defer telemetry.FDBOp(ctx, "store.node.subtree_delete_list")(&err)
 	if limit < 1 || limit > maxSubtreeDeleteJobPage {
-		wrapped := fmt.Errorf("list subtree delete jobs: limit must be between 1 and %d", maxSubtreeDeleteJobPage)
-		slog.ErrorContext(ctx, "node.subtree_delete.list_failed", slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"list subtree delete jobs: limit must be between 1 and %d",
+			maxSubtreeDeleteJobPage,
+		)
+		slog.ErrorContext(
+			ctx,
+			"node.subtree_delete.list_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return nil, wrapped
 	}
+
 	keyRange, err := fdb.PrefixRange(nodeDeleteJobPrefix())
 	if err != nil {
 		return nil, nodeOperationFailure(ctx, "create subtree delete job range", err)
 	}
+
 	begin := fdb.FirstGreaterOrEqual(keyRange.Begin)
 	if after != uuid.Nil {
 		begin = fdb.FirstGreaterThan(fdb.Key(nodeDeleteJobKey(after)))
 	}
+
 	selection := fdb.SelectorRange{Begin: begin, End: fdb.FirstGreaterOrEqual(keyRange.End)}
 	var items []fdb.KeyValue
-	err = runNodeReadTransaction(ctx, s.nodes.db, "list subtree delete jobs", func(tr fdb.Transaction) error {
-		var readErr error
-		items, readErr = tr.GetRange(selection, fdb.RangeOptions{Limit: limit}).GetSliceWithError()
-		if readErr != nil {
-			return searchReadFailure(ctx, "read subtree delete jobs", readErr)
-		}
-		return nil
-	})
+	err = runNodeReadTransaction(
+		ctx,
+		s.nodes.db,
+		"list subtree delete jobs",
+		func(tr fdb.Transaction) error {
+			var readErr error
+			items, readErr = tr.GetRange(
+				selection,
+				fdb.RangeOptions{Limit: limit},
+			).GetSliceWithError()
+			if readErr != nil {
+				return searchReadFailure(ctx, "read subtree delete jobs", readErr)
+			}
+
+			return nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	jobs = make([]*node.SubtreeDeleteJob, 0, len(items))
 	for _, item := range items {
 		job, decodeErr := decodeDeleteJob(ctx, item.Value)
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
+
 		jobs = append(jobs, job)
 	}
+
 	return jobs, nil
 }
 
-// readDeleteJob reads one job record inside tr. A missing record returns nil.
-func readDeleteJob(ctx context.Context, tr fdb.Transaction, jobID uuid.UUID) (*node.SubtreeDeleteJob, error) {
+// readDeleteJob reads one job record inside tr and returns nil when the
+// record does not exist.
+func readDeleteJob(
+	ctx context.Context,
+	tr fdb.Transaction,
+	jobID uuid.UUID,
+) (*node.SubtreeDeleteJob, error) {
 	encoded, err := tr.Get(fdb.Key(nodeDeleteJobKey(jobID))).Get()
 	if err != nil {
 		return nil, searchReadFailure(ctx, "read subtree delete job "+jobID.String(), err)
 	}
+
 	if len(encoded) == 0 {
 		return nil, nil
 	}
+
 	return decodeDeleteJob(ctx, encoded)
 }
 
 // writeDeleteJob stamps job with now and stores its record inside tr.
-func writeDeleteJob(ctx context.Context, tr fdb.Transaction, job *node.SubtreeDeleteJob, now time.Time) error {
+func writeDeleteJob(
+	ctx context.Context,
+	tr fdb.Transaction,
+	job *node.SubtreeDeleteJob,
+	now time.Time,
+) error {
 	job.UpdatedAt = now.UTC()
 	encoded, err := json.Marshal(job)
 	if err != nil {
 		return nodeOperationFailure(ctx, "encode subtree delete job "+job.ID.String(), err)
 	}
+
 	tr.Set(fdb.Key(nodeDeleteJobKey(job.ID)), encoded)
+
 	return nil
 }
 
@@ -175,5 +291,6 @@ func decodeDeleteJob(ctx context.Context, encoded []byte) (*node.SubtreeDeleteJo
 	if err := json.Unmarshal(encoded, &job); err != nil {
 		return nil, nodeOperationFailure(ctx, "decode subtree delete job", err)
 	}
+
 	return &job, nil
 }

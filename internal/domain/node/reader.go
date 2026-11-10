@@ -8,42 +8,43 @@ import (
 	"github.com/google/uuid"
 )
 
-// NodeListQuery describes a read request to NodeReader.List or NodeReader.Stream.
+// NodeListQuery specifies a read request to NodeReader.List or
+// NodeReader.Stream. The primary selector controls the scan:
 //
-// The primary index selector picks a scan strategy:
-//   - ByProperty: scan the node_by_property index for PropName equal to Value
-//   - BySourceRelation: scan relationships from SourceID with RelationType, return
-//     the target nodes
-//   - ByTargetRelation: scan relationships to TargetID with RelationType, return
-//     the source nodes
-//   - none set: full scan of (orgID, nodeType) in the view key space
+//   - ByProperty scans node_by_property for PropName equal to Value.
+//   - BySourceRelation scans relationships from its NodeID with RelationType
+//     and returns their target nodes.
+//   - ByTargetRelation scans relationships to its NodeID with RelationType
+//     and returns their source nodes.
+//   - An unset selector scans the full (orgID, nodeType) view key range.
 //
-// PropFilters apply after the primary scan: the caller's post-scan AND filter
-// over Props keys. Non-indexed properties are filtered this way.
+// PropFilters checks the Props keys after the primary scan. Every filter must
+// match. This step supports properties without an index.
 type NodeListQuery struct {
 	OrgID    uuid.UUID
-	NodeType string // optional; empty = all types under OrgID
+	NodeType string // NodeType selects one type; an empty value selects all types under OrgID.
 
-	// Primary index selector: set at most one.
+	// Set at most one primary index selector.
 	ByProperty       *PropertyMatch
 	BySourceRelation *RelationScan
 	ByTargetRelation *RelationScan
 
-	// UUIDv7 time-range boundaries; no extra index needed.
+	// CreatedAfter and CreatedBefore bound UUIDv7 creation times without an
+	// extra index.
 	CreatedAfter  *time.Time
 	CreatedBefore *time.Time
 
-	// Post-scan Props filters. AND across keys; each entry matches when the
-	// node's Props[key] equals Value (raw JSON equality).
+	// PropFilters checks Props after the scan. Every entry must match the raw
+	// JSON value at its property key.
 	PropFilters []PropertyMatch
 
-	// Pagination.
+	// Limit and Cursor control pagination.
 	Limit  int
 	Cursor string
 }
 
 // PropertyMatch pairs a PropertyDef name with an expected raw JSON value.
-// Raw JSON equality is used for indexed scans and post-filter comparisons.
+// Indexed scans and comparisons after filtering use raw JSON equality.
 type PropertyMatch struct {
 	PropName string
 	Value    json.RawMessage
@@ -55,34 +56,33 @@ type RelationScan struct {
 	RelationType string
 }
 
-// NodeStreamResult is one item delivered through a NodeReader.Stream channel.
+// NodeStreamResult contains one item from a NodeReader.Stream channel.
 type NodeStreamResult struct {
 	View *NodeView
 	Err  error
 }
 
-// Page is one page of a ListPage call. NextCursor is empty on the last
-// page.
+// Page contains one page from ListPage. NextCursor is empty on the last page.
 type Page struct {
 	Views      []*NodeView
 	NextCursor string
 }
 
-// NodeReader is the read path for all node types. The service layer MUST use
-// NodeReader for reads; it must not call storage-layer repositories directly.
+// NodeReader provides reads for every node type. The service layer must use
+// NodeReader for reads and must not read directly from storage repositories.
 type NodeReader interface {
-	// Get resolves nodeID via the global resolve record and fetches the NodeView.
-	// Does not require org context from the caller. The caller authorizes the
+	// Get resolves nodeID with the global resolve record and reads the NodeView.
+	// The caller does not supply organization context and must authorize the
 	// returned OrgID.
 	Get(ctx context.Context, nodeID uuid.UUID) (*NodeView, error)
 
-	// Resolve returns the org / type context for any node UUID.
+	// Resolve returns the organization and type context for any node UUID.
 	Resolve(ctx context.Context, nodeID uuid.UUID) (*NodeResolve, error)
 
-	// List is for bounded result sets. Blocks until all matching views assemble.
+	// List is for bounded result sets. It waits until all matching views assemble.
 	List(ctx context.Context, q NodeListQuery) ([]*NodeView, error)
 
-	// Stream is for large or unbounded scans.
+	// Stream supports large or unbounded scans.
 	Stream(ctx context.Context, q NodeListQuery) (<-chan NodeStreamResult, error)
 
 	// ListPage returns at most q.Limit views after q.Cursor, in node ID

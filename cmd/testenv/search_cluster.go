@@ -6,7 +6,7 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// startSearchCluster starts an OpenSearch cluster of members behind a
+// startSearchCluster starts the requested number of OpenSearch members behind a
 // Traefik proxy. It prints the proxy endpoint and admin login, one line per
 // member with its proxy status, and the CA certificate.
 func startSearchCluster(step *cliStep, members int) *testenv.OpenSearchCluster {
@@ -14,9 +14,11 @@ func startSearchCluster(step *cliStep, members int) *testenv.OpenSearchCluster {
 	for range members - 1 {
 		cluster.AddMember(step)
 	}
+
 	_, _ = fmt.Println(cluster.Fixture.Endpoint, cluster.Fixture.Username, cluster.Fixture.Password)
 	printSearchBackends(step, cluster)
 	_, _ = fmt.Print(cluster.Fixture.CA)
+
 	return cluster
 }
 

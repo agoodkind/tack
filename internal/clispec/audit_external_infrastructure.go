@@ -9,14 +9,19 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// deferredOutbox keeps the events of an external command in memory while the
-// command creates the audit infrastructure that stores them. Only the
-// first-time setup exception uses it.
+// deferredOutbox stores events in memory while an external command creates
+// their audit storage. Only the fallback for creating audit infrastructure
+// uses it.
 type deferredOutbox struct {
 	events []audit.Event
 }
 
-// WriteOutbox appends event to the deferred events.
+// WriteOutbox appends event to the deferred events in memory.
+//
+// The caller that creates audit infrastructure writes these events to
+// persistent storage after the command runs.
+//
+//   - Events retain their append order.
 func (o *deferredOutbox) WriteOutbox(_ context.Context, event audit.Event) error {
 	o.events = append(o.events, event)
 	return nil
@@ -39,33 +44,58 @@ func runExternalCreatingAuditInfrastructure(
 	intentErr error,
 ) error {
 	if probe == nil {
-		slog.ErrorContext(ctx, "cli.audit_infrastructure_probe_unwired",
-			slog.String("operation", intent.Verb), slog.String("err", intentErr.Error()))
+		slog.ErrorContext(
+			ctx,
+			"cli.audit_infrastructure_probe_unwired",
+			slog.String("operation", intent.Verb),
+			slog.String("err", intentErr.Error()),
+		)
+
 		return fmt.Errorf("audit infrastructure probe is unwired: %w", intentErr)
 	}
+
 	infrastructure, probeErr := probe(ctx)
 	if probeErr != nil {
-		slog.ErrorContext(ctx, "cli.audit_infrastructure_probe_failed", slog.String("err", probeErr.Error()))
+		slog.ErrorContext(
+			ctx,
+			"cli.audit_infrastructure_probe_failed",
+			slog.String("err", probeErr.Error()),
+		)
+
 		return fmt.Errorf("probe the audit infrastructure: %w", errors.Join(probeErr, intentErr))
 	}
-	if infrastructure.OutboxTableExists && infrastructure.OperatorLoginExists && !isAuthenticationFailure(intentErr) {
+
+	if infrastructure.OutboxTableExists && infrastructure.OperatorLoginExists &&
+		!isAuthenticationFailure(intentErr) {
 		return intentErr
 	}
-	slog.WarnContext(ctx, "cli.audit_events_deferred",
+
+	slog.WarnContext(
+		ctx,
+		"cli.audit_events_deferred",
 		slog.String("operation", intent.Verb),
 		slog.Bool("outbox_table_exists", infrastructure.OutboxTableExists),
-		slog.Bool("operator_login_exists", infrastructure.OperatorLoginExists))
+		slog.Bool("operator_login_exists", infrastructure.OperatorLoginExists),
+	)
 	deferred := &deferredOutbox{events: nil}
-	runErr := audit.RunExternal(runContext, deferred, intent, func(stepContext context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-		return run(stepContext, steps)
-	})
+
+	runErr := audit.RunExternal(
+		runContext,
+		deferred,
+		intent,
+		func(stepContext context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+			return run(stepContext, steps)
+		},
+	)
 	for _, event := range deferred.events {
 		if err := outbox.WriteOutbox(ctx, event); err != nil {
 			return recordedAfterRunError(ctx, "record deferred command events", runErr, err)
 		}
 	}
+
 	if runErr != nil {
 		return fmt.Errorf("run after creating the audit infrastructure: %w", runErr)
 	}
+
 	return nil
 }

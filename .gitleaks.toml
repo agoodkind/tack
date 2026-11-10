@@ -1,5 +1,5 @@
-# Gitleaks config for the tack repo. Extends the default ruleset and adds an
-# allowlist for vendored upstream files that carry public default constants.
+# Extend the default Gitleaks rules and allow vendored
+# upstream files that contain public default constants.
 [extend]
 useDefault = true
 

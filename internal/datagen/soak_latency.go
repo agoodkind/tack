@@ -6,10 +6,11 @@ import (
 	"time"
 )
 
-// SoakOperationLatency is the completed call count and latency of one soak
-// operation kind. P50 and P95 are nearest-rank percentiles of the wall time
-// of each completed operation, which includes all of its MCP calls. Min and
-// Max are the shortest and longest of those wall times.
+// SoakOperationLatency records the completed call count and latency for one
+// soak operation kind. P50 and P95 use nearest-rank percentiles of each
+// completed operation's wall time, including all its MCP calls. A nearest-rank
+// percentile selects an observed duration at the requested rank. Min and Max
+// record the shortest and longest wall times.
 type SoakOperationLatency struct {
 	Kind  string
 	Calls int
@@ -20,7 +21,7 @@ type SoakOperationLatency struct {
 }
 
 // soakLatencies stores the wall time of every completed operation by kind.
-// The zero value is ready to use.
+// Its add method accepts the zero value without prior initialization.
 type soakLatencies struct {
 	samples map[string][]time.Duration
 }
@@ -39,18 +40,24 @@ func (l *soakLatencies) summary() []SoakOperationLatency {
 	for _, kind := range kinds {
 		sorted := slices.Clone(l.samples[kind])
 		slices.Sort(sorted)
-		latencies = append(latencies, SoakOperationLatency{
-			Kind: kind, Calls: len(sorted), Min: sorted[0],
-			P50: nearestRank(sorted, 50), P95: nearestRank(sorted, 95),
+		latencies = append(
+			latencies,
+			SoakOperationLatency{
+				Kind:  kind,
+				Calls: len(sorted),
+				Min:   sorted[0],
+				P50:   nearestRank(sorted, 50),
+				P95:   nearestRank(sorted, 95),
 			Max: sorted[len(sorted)-1],
-		})
+			},
+		)
 	}
 	return latencies
 }
 
-// nearestRank returns the percentile of sorted, a non-empty ascending slice:
-// the smallest value with at least percentile percent of the values at or
-// below it.
+// nearestRank returns the smallest value in sorted with at least percentile
+// percent of the values at or below it. The sorted slice must contain at least
+// one value and use ascending order.
 func nearestRank(sorted []time.Duration, percentile int) time.Duration {
 	rank := (percentile*len(sorted) + 99) / 100
 	if rank < 1 {

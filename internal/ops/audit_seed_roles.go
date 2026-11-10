@@ -1,9 +1,5 @@
-// audit_seed_roles.go: create or rotate the LOGIN-capable audit roles the
-// application DSNs authenticate as, granting each the matching NOLOGIN base
-// role from migrations/002_audit.sql. Idempotent: re-running rotates each
-// password to the current env value. Replaces the former
-// scripts/seed-audit-roles.sh; the op uses pgx, never a shell-out, per the
-// binding rule that no tack Go path shells out.
+// Role seeding uses the pgx database driver instead of the former
+// seed-audit-roles shell script. Tack Go must not run external commands.
 
 package ops
 
@@ -21,29 +17,34 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// auditLoginRole pairs a LOGIN role the app DSN connects as with the NOLOGIN
-// base role (created by migration 002) it inherits, plus the env password to
-// set on it. The login names match the configs DSNs (tack_audit_*).
+// auditLoginRole pairs a LOGIN role with its inherited NOLOGIN base role from
+// migration 002 and the password from the environment. The audit login names
+// match the tack_audit_* deployment DSNs.
 type auditLoginRole struct {
 	login    string
 	base     string
 	password string
 }
 
-// newAuditLoginRole builds one role entry. The secret arrives as a positional
-// argument rather than a named field in a composite literal, because the
-// secret scanner treats any line that assigns to a field named password as a
-// hardcoded credential, even when the value is a config reference.
+// newAuditLoginRole builds a role entry from positional arguments. The original
+// secret scan treated a composite literal's password field as a hardcoded
+// credential even when its value referenced configuration.
 func newAuditLoginRole(login, base, secret string) auditLoginRole {
 	return auditLoginRole{login: login, base: base, password: secret}
 }
 
-// RunAuditSeedRoles creates or rotates the five LOGIN roles the deployment
-// connects as: the four audit roles (tack_audit_writer, tack_audit_reader,
-// tack_audit_redactor, tack_audit_operator) and the application's own
-// tack_app (TACK-180), each granting exactly the matching base role. It then
-// sets LOGIN and the password on tack_migrator (TACK-554). It connects as
-// DATABASE_URL, which needs CREATEROLE. Idempotent.
+// RunAuditSeedRoles creates or rotates the audit logins and tack_app, granting
+// each its matching base role (TACK-180). It then sets LOGIN and the password
+// on tack_migrator (TACK-554).
+//
+// The function connects through DATABASE_URL with a role that requires
+// CREATEROLE. Each rerun sets the passwords to the current environment values.
+//
+//   - tack_audit_writer inherits audit_writer.
+//   - tack_audit_reader inherits audit_reader.
+//   - tack_audit_redactor inherits audit_redactor.
+//   - tack_audit_operator inherits audit_operator.
+//   - tack_app inherits app_auth.
 func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 	roles := []auditLoginRole{
 		newAuditLoginRole("tack_audit_writer", "audit_writer", cfg.AuditWriterPassword),
@@ -53,16 +54,33 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 		newAuditLoginRole("tack_app", "app_auth", cfg.AppPassword),
 	}
 	if cfg.MigratorPassword == "" {
-		err := fmt.Errorf("audit seed-roles: password for %s is empty; set TACK_MIGRATOR_PASSWORD", migration.MigratorRole)
-		slog.ErrorContext(ctx, "audit.seed_roles.password_missing",
-			slog.String("login_role", migration.MigratorRole), slog.String("err", err.Error()))
+		err := fmt.Errorf(
+			"audit seed-roles: password for %s is empty; set TACK_MIGRATOR_PASSWORD",
+			migration.MigratorRole,
+		)
+		slog.ErrorContext(
+			ctx,
+			"audit.seed_roles.password_missing",
+			slog.String("login_role", migration.MigratorRole),
+			slog.String("err", err.Error()),
+		)
+
 		return err
 	}
+
 	for _, role := range roles {
 		if role.password == "" {
-			err := fmt.Errorf("audit seed-roles: password for %s is empty; set its AUDIT_*_PASSWORD or TACK_APP_PASSWORD env", role.login)
-			slog.ErrorContext(ctx, "audit.seed_roles.password_missing",
-				slog.String("login_role", role.login), slog.String("err", err.Error()))
+			err := fmt.Errorf(
+				"audit seed-roles: password for %s is empty; set its AUDIT_*_PASSWORD or TACK_APP_PASSWORD env",
+				role.login,
+			)
+			slog.ErrorContext(
+				ctx,
+				"audit.seed_roles.password_missing",
+				slog.String("login_role", role.login),
+				slog.String("err", err.Error()),
+			)
+
 			return err
 		}
 	}
@@ -79,18 +97,21 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 			return err
 		}
 	}
+
 	if err := setMigratorLogin(ctx, pool, cfg.MigratorPassword); err != nil {
 		return err
 	}
+
 	slog.InfoContext(ctx, "audit.seed_roles.completed", slog.Int("role_count", len(roles)+1))
+
 	return nil
 }
 
-// upsertAuditLoginRole creates the LOGIN role when absent or rotates its
-// password when present, then grants the base role. The role and base names
-// are fixed constants, never caller input, so interpolating them is safe;
-// the password is escaped as a SQL string literal because CREATE/ALTER ROLE
-// does not accept bind parameters for the password.
+// upsertAuditLoginRole creates a missing LOGIN role or rotates an existing
+// role's password, then grants its base role. The role and base names use fixed
+// values rather than caller input. The function quotes the password as a SQL
+// string literal because CREATE ROLE and ALTER ROLE do not accept password bind
+// parameters.
 func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLoginRole) error {
 	exists, err := nonSuperuserRoleExists(ctx, pool, role.login)
 	if err != nil {
@@ -103,45 +124,52 @@ func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLog
 	if exists {
 		roleStmt = fmt.Sprintf(
 			"ALTER ROLE %s WITH LOGIN INHERIT NOCREATEDB NOCREATEROLE PASSWORD %s",
-			role.login, passwordLiteral,
+			role.login,
+			passwordLiteral,
 		)
 	} else {
 		roleStmt = fmt.Sprintf(
 			"CREATE ROLE %s LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %s",
-			role.login, passwordLiteral,
+			role.login,
+			passwordLiteral,
 		)
 	}
+
 	if _, err := pool.Exec(ctx, roleStmt); err != nil {
-		slog.ErrorContext(ctx, "audit.seed_roles.upsert_failed",
-			slog.String("login_role", role.login), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.seed_roles.upsert_failed",
+			slog.String("login_role", role.login),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("audit seed-roles: upsert %s: %w", role.login, err)
 	}
 
-	// Seeding decides what a login role may do, so it must also decide what
-	// it may no longer do. Membership granted by an earlier seed, or by hand,
-	// otherwise survives and combines with INHERIT: an operator role that once
-	// held audit_writer would keep the delete right that lets it erase its own
-	// pending audit event. Revoking the others first makes each seed
-	// authoritative rather than additive.
+	// Earlier seeded or manual memberships retain privileges through INHERIT.
+	// An operator login with audit_writer membership could delete its own
+	// pending audit event.
 	if err := revokeOtherAuditBases(ctx, pool, role); err != nil {
 		return err
 	}
 
 	grantStmt := fmt.Sprintf("GRANT %s TO %s", role.base, role.login)
 	if _, err := pool.Exec(ctx, grantStmt); err != nil {
-		slog.ErrorContext(ctx, "audit.seed_roles.grant_failed",
-			slog.String("login_role", role.login), slog.String("base_role", role.base),
-			slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.seed_roles.grant_failed",
+			slog.String("login_role", role.login),
+			slog.String("base_role", role.base),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("audit seed-roles: grant %s to %s: %w", role.base, role.login, err)
 	}
+
 	return nil
 }
 
-// auditBaseRoles is every base role a seeded login can hold: the audit
-// surface's four and the application's app_auth (TACK-180). A login role gets
-// exactly one of them, and this list is what the others are revoked from, so
-// the application login can never hold a ledger role and no ledger login can
-// reach the auth tables.
+// auditBaseRoles lists the four audit base roles and app_auth (TACK-180).
 var auditBaseRoles = []string{
 	"audit_writer",
 	"audit_reader",
@@ -150,27 +178,36 @@ var auditBaseRoles = []string{
 	"app_auth",
 }
 
-// revokeOtherAuditBases strips every audit base role except the one this login
-// role is supposed to hold.
+// revokeOtherAuditBases revokes each managed base except the login's assigned
+// base before the caller grants that base. This separates the seeded
+// application and audit role memberships.
 func revokeOtherAuditBases(ctx context.Context, pool *pgxpool.Pool, role auditLoginRole) error {
 	for _, base := range auditBaseRoles {
 		if base == role.base {
 			continue
 		}
+
 		revokeStmt := fmt.Sprintf("REVOKE %s FROM %s", base, role.login)
 		if _, err := pool.Exec(ctx, revokeStmt); err != nil {
-			slog.ErrorContext(ctx, "audit.seed_roles.revoke_failed",
-				slog.String("login_role", role.login), slog.String("base_role", base),
-				slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"audit.seed_roles.revoke_failed",
+				slog.String("login_role", role.login),
+				slog.String("base_role", base),
+				slog.String("err", err.Error()),
+			)
+
 			return fmt.Errorf("audit seed-roles: revoke %s from %s: %w", base, role.login, err)
 		}
 	}
+
 	return nil
 }
 
-// quoteSQLStringLiteral wraps s in single quotes and doubles any embedded
-// single quote. Safe under standard_conforming_strings (the YugabyteDB
-// default), where a backslash is an ordinary character.
+// quoteSQLStringLiteral wraps s in single quotes and doubles each embedded
+// single quote. The original implementation assumes YugabyteDB enables
+// standard_conforming_strings, under which a backslash remains an ordinary
+// character.
 func quoteSQLStringLiteral(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

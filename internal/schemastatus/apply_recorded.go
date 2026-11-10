@@ -25,12 +25,26 @@ const (
 	migrationFailedCode = "migration_failed"
 )
 
-// MigrationsTarget returns the external target of the database migration
+// MigrationsTarget returns the external audit target for database migration
 // state.
+//
+// The target identifies the migration collection rather than an individual
+// file:
+//
+//   - Reference is database/migrations.
+//   - Kind is audit.TargetKindExternal.
+//   - The target does not specify node or relationship IDs.
 func MigrationsTarget() audit.Target {
 	return audit.Target{
-		Kind: audit.TargetKindExternal, NodeType: "", Reference: migrationsReference, Name: "", URI: "",
-		RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         audit.TargetKindExternal,
+		NodeType:     "",
+		Reference:    migrationsReference,
+		Name:         "",
+		URI:          "",
+		RelationType: "",
+		ID:           uuid.Nil,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
@@ -49,21 +63,20 @@ type migrationResult struct {
 	AppliedVersion int64 `json:"applied_version"`
 }
 
-// ApplyRecorded checks guard against the database migration state at dsn
-// before applying migrations through the target version. It returns refused
-// if guard rejects the run before any migration runs.
+// ApplyRecorded checks guard against the database migration state at dsn before
+// applying migrations through the target version.
 //
-// Before the run, ApplyRecorded saves one step with the version range and
-// each planned migration file's SHA-256 digest. After the run, it reads the
-// applied version again and saves the step result. It determines the outcome:
+// Before the run, ApplyRecorded saves one step with the version range and each
+// planned migration file's SHA-256 digest. After the run, it reads the applied
+// version again and saves the step result. The observed state determines the
+// outcome:
 //
-//   - It returns completed at the target version.
-//   - It returns partially_completed with the file names of applied migrations
-//     if the run stops below the target after applying some migrations.
-//   - It returns failed if the run stops below the target without applying any
-//     migration.
-//
-// If the second read fails, ApplyRecorded returns incomplete.
+//   - Guard rejection returns refused before any migration runs.
+//   - The target version produces completed.
+//   - A run below target after applying some migrations produces
+//     partially_completed with the applied migration file names.
+//   - A run below target without applying any migration produces failed.
+//   - Failure of the second state read produces incomplete.
 func ApplyRecorded(
 	ctx context.Context,
 	dsn string,
@@ -75,42 +88,82 @@ func ApplyRecorded(
 	if err != nil {
 		return 0, failedOutcome(audit.OutcomeFailed, statusUnreadableCode, err), err
 	}
+
 	target, err := Target(ctx, before, guard)
 	if err != nil {
 		return 0, failedOutcome(audit.OutcomeRefused, guardRefusedCode, err), err
 	}
+
 	planned := plannedMigrations(before, target)
 	if len(planned) == 0 {
 		return before.AppliedVersion, completedOutcome(), nil
 	}
+
 	evidence, err := json.Marshal(migrationRange{
-		FromVersion: before.AppliedVersion, ToVersion: target, ImageCommit: before.ImageCommit, Migrations: planned,
+		FromVersion: before.AppliedVersion,
+		ToVersion:   target,
+		ImageCommit: before.ImageCommit,
+		Migrations:  planned,
 	})
 	if err != nil {
-		slog.ErrorContext(ctx, "schemastatus.evidence_encode_failed", slog.String("err", err.Error()))
-		return 0, failedOutcome(audit.OutcomeFailed, migrationFailedCode, err), fmt.Errorf("encode the migration range evidence: %w", err)
+		slog.ErrorContext(
+			ctx,
+			"schemastatus.evidence_encode_failed",
+			slog.String("err", err.Error()),
+		)
+
+		return 0, failedOutcome(audit.OutcomeFailed, migrationFailedCode, err), fmt.Errorf(
+			"encode the migration range evidence: %w",
+			err,
+		)
 	}
+
 	step := audit.ExternalStep(rangeTarget(before.AppliedVersion, target), evidence)
 	if err := steps.BeginStep(ctx, step); err != nil {
 		slog.ErrorContext(ctx, "schemastatus.step_record_failed", slog.String("err", err.Error()))
-		return 0, failedOutcome(audit.OutcomeFailed, migrationFailedCode, err), fmt.Errorf("record the migration range: %w", err)
+
+		return 0, failedOutcome(audit.OutcomeFailed, migrationFailedCode, err), fmt.Errorf(
+			"record the migration range: %w",
+			err,
+		)
 	}
-	slog.InfoContext(ctx, "schemastatus.apply_started",
-		slog.Int64("applied_version", before.AppliedVersion), slog.Int64("target_version", target))
+
+	slog.InfoContext(
+		ctx,
+		"schemastatus.apply_started",
+		slog.Int64("applied_version", before.AppliedVersion),
+		slog.Int64("target_version", target),
+	)
 	migrateErr := migration.MigrateTo(ctx, dsn, migrationsFS, target)
 	after, readErr := Read(ctx, dsn, migrationsFS)
 	if readErr != nil {
-		return 0, failedOutcome(audit.OutcomeIncomplete, statusUnreadableCode, readErr), errors.Join(migrateErr, readErr)
+		return 0, failedOutcome(
+			audit.OutcomeIncomplete,
+			statusUnreadableCode,
+			readErr,
+		), errors.Join(migrateErr, readErr)
 	}
+
 	details := observedOutcome(planned, after.AppliedVersion, target, migrateErr)
 	result, err := json.Marshal(migrationResult{AppliedVersion: after.AppliedVersion})
 	if err != nil {
-		slog.ErrorContext(ctx, "schemastatus.evidence_encode_failed", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"schemastatus.evidence_encode_failed",
+			slog.String("err", err.Error()),
+		)
+
 		return 0, details, fmt.Errorf("encode the migration result evidence: %w", err)
 	}
+
 	if err := steps.FinishStep(ctx, audit.FinishedStep(step, details, result)); err != nil {
 		slog.ErrorContext(ctx, "schemastatus.step_record_failed", slog.String("err", err.Error()))
-		return 0, details, errors.Join(migrateErr, fmt.Errorf("record the migration result: %w", err))
+
+		return 0, details, errors.Join(
+			migrateErr,
+			fmt.Errorf("record the migration result: %w", err),
+		)
 	}
+
 	return applyResult(ctx, after.AppliedVersion, target, details, migrateErr)
 }

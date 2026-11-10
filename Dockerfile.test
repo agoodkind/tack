@@ -1,8 +1,8 @@
-# Test runner image. Builds the Go test binaries against the same FDB client
-# library version the production server links. internal/testenv attaches the
-# running container to the test engines' network, so FDB protocol-level
-# reconnects resolve directly without going through Docker Desktop's host port
-# forwarding.
+# Build the Go test binaries with the production server's
+# FoundationDB client library version. The internal/testenv
+# package attaches the running container to the engines'
+# network. FoundationDB reconnects use engine addresses
+# directly and bypass Docker Desktop's host port forwarding.
 
 ARG FDB_VERSION=7.4.6
 
@@ -10,8 +10,8 @@ FROM golang:1.27.3-bookworm
 
 ARG FDB_VERSION
 
-# Install FDB C client library so cgo can link. Pick the arch matching the
-# build platform so Apple Silicon and amd64 hosts both work.
+# Install the FoundationDB C client library for CGO linking. Match the
+# build platform's architecture to support Apple Silicon and amd64 hosts.
 RUN set -eux \
     && apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates dumb-init \
@@ -31,13 +31,13 @@ RUN set -eux \
 
 WORKDIR /src
 
-# Cache the module download layer so re-runs on unchanged go.mod skip the pull.
+# Cache module downloads when the module files do not change.
 COPY go.mod go.sum ./
 RUN go mod download
 
-# The container runs `go test` against a bind-mount of the working tree, so
-# the rest of the source comes in at runtime; the make targets pass the go
-# arguments.
+# The container runs go test against the working tree's
+# bind mount. Docker mounts the remaining source at
+# runtime, and the Make targets supply the Go arguments.
 ENV CGO_ENABLED=1
 
 # `docker compose run` forwards SIGTERM to the main process, and `docker stop`

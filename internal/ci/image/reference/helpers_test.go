@@ -21,7 +21,27 @@ const (
 	registryPrefix    = "registry/owner/image:"
 )
 
-// TestMain builds the image command once and runs the package tests against it.
+// TestMain runs the reference tests against one image command build.
+//
+// RunTests manages the executable for each subprocess in the package:
+//
+//   - It builds the command once before the tests start.
+//   - It removes the build directory after the tests finish.
+//   - It returns the exit code that TestMain passes to [os.Exit].
+//
+// The reference tests use isolated environments and check these outcomes:
+//
+//   - The digest tests check validation and directory handling. For
+//     supported architectures, the command creates digest files with a final
+//     newline.
+//   - The command rejects invalid architectures and digest values.
+//   - The command fails when a file blocks the digest directory or required
+//     inputs are missing.
+//   - When the digest directory path contains a symlink followed by a parent
+//     directory, the command writes the digest with its final newline to the
+//     resolved parent. The command does not write a digest to the symlink's
+//     parent.
+//   - The tag tests check output and file failures.
 func TestMain(m *testing.M) {
 	os.Exit(imagetest.RunTests(m))
 }

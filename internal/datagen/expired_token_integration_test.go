@@ -19,11 +19,14 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// TestExpireTokenRunsAsTheAppLogin pins the QA failure of 2026-09-18: after
-// migration 015 took UPDATE on api_tokens away from app_auth, the generator's
-// expired-token step failed with permission denied and every soak stopped at
-// bootstrap. The step now runs as a login holding only app_auth, stores a
-// token already past its expiry, and the real validator refuses it.
+// TestExpireTokenRunsAsTheAppLogin reproduces the QA failure of 2026-09-18. The
+// original incident account recorded that migration 015 removed UPDATE on
+// api_tokens from app_auth. The expired-token step then failed with permission
+// denied, and every soak stopped during bootstrap.
+//
+// The test runs the step as a login that inherits only app_auth. It checks that
+// the step stores a token with a past expiry and that the real validator
+// rejects the token.
 func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 	dsn := testenv.Ledger(t)
 	ctx := context.Background()
@@ -39,10 +42,15 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 	t.Cleanup(app.Close)
 
 	ctx = withTestMutation(t, ctx)
-	holder, err := postgres.NewUserRepo(app).Create(ctx, &user.User{
-		ID: uuid.Must(uuid.NewV7()), Email: "expired-" + uuid.NewString()[:8] + "@example.test",
-		DisplayName: "expired token holder", AvatarURL: nil,
-	})
+	holder, err := postgres.NewUserRepo(app).Create(
+		ctx,
+		&user.User{
+			ID:          uuid.Must(uuid.NewV7()),
+			Email:       "expired-" + uuid.NewString()[:8] + "@example.test",
+			DisplayName: "expired token holder",
+			AvatarURL:   nil,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create the holder as the app login: %v", err)
 	}
@@ -52,13 +60,29 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate a token: %v", err)
 	}
-	actor := Actor{UserID: holder.ID, Email: holder.Email, DisplayName: "", Token: "", RawToken: "", RequestToken: ""}
-	workspace := WorkspaceIdentity{OrgID: uuid.Must(uuid.NewV7()), OrgSlug: "", Slug: "", Name: "", Actors: []Actor{actor}}
+	actor := Actor{
+		UserID:       holder.ID,
+		Email:        holder.Email,
+		DisplayName:  "",
+		Token:        "",
+		RawToken:     "",
+		RequestToken: "",
+	}
+	workspace := WorkspaceIdentity{
+		OrgID:   uuid.Must(uuid.NewV7()),
+		OrgSlug: "",
+		Slug:    "",
+		Name:    "",
+		Actors:  []Actor{actor},
+	}
 	if err := expireToken(ctx, postgres.NewTokenRepo(app), raw, workspace); err != nil {
 		t.Fatalf("expireToken as the app login: %v", err)
 	}
 
-	if _, err := postgres.NewTokenRepo(app).Validate(ctx, raw); !errors.Is(err, domain.ErrUnauthenticated) {
+	if _, err := postgres.NewTokenRepo(app).Validate(
+		ctx,
+		raw,
+	); !errors.Is(err, domain.ErrUnauthenticated) {
 		t.Fatalf("Validate(expired) err = %v, want unauthenticated", err)
 	}
 	stored, err := postgres.NewTokenRepo(app).List(ctx, holder.ID)
@@ -70,14 +94,25 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 	}
 }
 
-// withTestMutation creates a mutation operation for a service actor, attaches
-// it to ctx, and returns the resulting context.
+// withTestMutation creates a mutation operation for a service actor and returns
+// a context with that operation attached.
 func withTestMutation(t *testing.T, ctx context.Context) context.Context {
 	t.Helper()
-	operation, err := audit.NewMutationOperation(audit.Actor{
-		Type: audit.ActorService, ID: uuid.Must(uuid.NewV7()), Email: "", Name: "datagen test",
-		SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
-	}, audit.SourceSystem, "datagen-test")
+	operation, err := audit.NewMutationOperation(
+		audit.Actor{
+			Type:          audit.ActorService,
+			ID:            uuid.Must(uuid.NewV7()),
+			Email:         "",
+			Name:          "datagen test",
+			SessionID:     "",
+			IP:            "",
+			UserAgent:     "",
+			RequestID:     "",
+			APITokenLabel: "",
+		},
+		audit.SourceSystem,
+		"datagen-test",
+	)
 	if err != nil {
 		t.Fatalf("audit.NewMutationOperation error = %v, want nil", err)
 	}
@@ -88,8 +123,8 @@ func withTestMutation(t *testing.T, ctx context.Context) context.Context {
 	return attached
 }
 
-// appLoginDSN creates a throwaway login that inherits app_auth and nothing
-// else and returns the DSN rewritten to connect as it.
+// appLoginDSN creates a temporary login that inherits only app_auth. It returns
+// the DSN with that login's credentials.
 func appLoginDSN(ctx context.Context, t *testing.T, admin *pgxpool.Pool, adminDSN string) string {
 	t.Helper()
 	suffix := make([]byte, 4)
@@ -102,7 +137,10 @@ func appLoginDSN(ctx context.Context, t *testing.T, admin *pgxpool.Pool, adminDS
 	}
 	login := "tack_test_datagen_" + hex.EncodeToString(suffix)
 	encodedSecret := hex.EncodeToString(secret)
-	if _, err := admin.Exec(ctx, "CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'"); err != nil {
+	if _, err := admin.Exec(
+		ctx,
+		"CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'",
+	); err != nil {
 		t.Fatalf("create %s: %v", login, err)
 	}
 	t.Cleanup(func() { _, _ = admin.Exec(ctx, "DROP ROLE IF EXISTS "+login) })

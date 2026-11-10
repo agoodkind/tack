@@ -43,11 +43,22 @@ type cleanupLossGate struct {
 	resumeSeen chan struct{}
 }
 
-func newCleanupLossGate(t *testing.T, container string, pauseWhen, resumeWhen func(slog.Record) bool) *cleanupLossGate {
+func newCleanupLossGate(
+	t *testing.T,
+	container string,
+	pauseWhen func(slog.Record) bool,
+	resumeWhen func(slog.Record) bool,
+) *cleanupLossGate {
 	t.Helper()
 	return &cleanupLossGate{
-		t: t, container: container, pauseWhen: pauseWhen, resumeWhen: resumeWhen, mutex: sync.Mutex{}, paused: false,
-		pausedSeen: make(chan struct{}), resumeSeen: make(chan struct{}),
+		t:          t,
+		container:  container,
+		pauseWhen:  pauseWhen,
+		resumeWhen: resumeWhen,
+		mutex:      sync.Mutex{},
+		paused:     false,
+		pausedSeen: make(chan struct{}),
+		resumeSeen: make(chan struct{}),
 	}
 }
 
@@ -65,7 +76,11 @@ func cleanupLossSessionLog(message, session string) func(slog.Record) bool {
 func cleanupLossStepLog(record slog.Record) bool {
 	matched := false
 	record.Attrs(func(attr slog.Attr) bool {
-		matched = matched || (attr.Key == "err" && strings.Contains(attr.Value.String(), "record external step result"))
+		matched = matched ||
+			(attr.Key == "err" && strings.Contains(
+				attr.Value.String(),
+				"record external step result",
+			))
 		return true
 	})
 	return record.Message == cleanupLossStepMessage && matched
@@ -75,7 +90,12 @@ func (g *cleanupLossGate) install() {
 	g.t.Helper()
 	previous, writer, flags := slog.Default(), log.Writer(), log.Flags()
 	base := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
-	slog.SetDefault(slog.New(cleanupLossHandler{Handler: base, gate: g}))
+	slog.SetDefault(
+		slog.New(cleanupLossHandler{
+			Handler: base,
+			gate:    g,
+		}),
+	)
 	g.t.Cleanup(func() {
 		slog.SetDefault(previous)
 		log.SetOutput(writer)

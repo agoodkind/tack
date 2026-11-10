@@ -14,9 +14,7 @@ import (
 
 const commandName = "ci-image"
 
-var errUsage = errors.New(
-	"usage: ci-image digest|tags|verify-native-runner|metadata",
-)
+var errUsage = errors.New("usage: ci-image digest|tags|verify-native-runner|metadata")
 
 // operationError prefixes an error with the operation name and exposes
 // the original error through Unwrap.
@@ -43,10 +41,21 @@ func newOperationError(operation string, err error) error {
 	return &operationError{operation: operation, err: err}
 }
 
-// NewCommand returns the ci-image command.
+// NewCommand returns the ci-image command and its subcommands.
 //
 // The command registers subcommands that run image build operations
-// implemented in packages under internal/ci/image.
+// implemented in packages under internal/ci/image. Each subcommand rejects
+// positional arguments. The root command returns a usage error when a caller
+// runs it without a subcommand.
+//
+// The command registers these operations:
+//
+//   - digest writes the image digest file.
+//   - tags writes the image tag file.
+//   - verify-native-runner checks and prints the runner machine type.
+//   - metadata appends build metadata and prints the selected tag or branch.
+//
+// For example, a caller can execute the command:
 //
 //	if err := image.NewCommand().Execute(); err != nil {
 //		slog.Error("ci-image.failed", slog.String("error", err.Error()))

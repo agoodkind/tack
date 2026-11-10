@@ -18,9 +18,7 @@ func (g *Generator) generateLabels(
 	}
 	references := make([]string, 0, g.scale.LabelsPerWorkspace)
 	for labelIndex := range g.scale.LabelsPerWorkspace {
-		name, properties := labelDefinition(
-			g.content, g.seed, workspaceIndex, labelIndex,
-		)
+		name, properties := labelDefinition(g.content, g.seed, workspaceIndex, labelIndex)
 		reference, created, err := g.ensureNode(
 			ctx,
 			actor.Token,
@@ -48,21 +46,13 @@ func labelDefinition(
 	workspaceIndex int,
 	labelIndex int,
 ) (string, NodeProperties) {
-	name := fmt.Sprintf(
-		"%s-w%02d-seed-%d",
-		content.Label(labelIndex),
-		workspaceIndex+1,
-		seed,
-	)
+	name := fmt.Sprintf("%s-w%02d-seed-%d", content.Label(labelIndex), workspaceIndex+1, seed)
 	return name, labelProperties(labelIndex)
 }
 
 func labelProperties(labelIndex int) NodeProperties {
 	properties := newProperties()
-	properties.setString(
-		"color",
-		fmt.Sprintf("#%06X", (labelIndex+1)*0x1F2A3B&0xFFFFFF),
-	)
+	properties.setString("color", fmt.Sprintf("#%06X", (labelIndex+1)*0x1F2A3B&0xFFFFFF))
 	properties.setString(
 		"qa_select",
 		[]string{"planned", "active", "verified"}[labelIndex%3],

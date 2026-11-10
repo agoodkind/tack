@@ -48,25 +48,40 @@ func CompileCreatePropertyCommand(
 	resolveReference ReferenceResolver,
 	resolveParent ParentResolver,
 ) (*PropertyCommand, error) {
-	compiled, err := compilePropertyCommand(ctx, defs, typeIndex, nt, orgID, scopeID, props, resolveReference)
+	compiled, err := compilePropertyCommand(
+		ctx,
+		defs,
+		typeIndex,
+		nt,
+		orgID,
+		scopeID,
+		props,
+		resolveReference,
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	if compiled == nil {
 		return &PropertyCommand{ParentID: scopeID}, nil
 	}
+
 	if raw, ok := compiled["parent_id"]; ok && isDeletedPropValue(raw) {
 		// An absent or null parent on create means the scope itself.
 		delete(compiled, "parent_id")
 	}
+
 	parentID, present, err := resolveCommandParent(ctx, nt, orgID, scopeID, compiled, resolveParent)
 	if err != nil {
 		return nil, err
 	}
+
 	if !present {
 		parentID = scopeID
 	}
+
 	delete(compiled, "parent_id")
+
 	return &PropertyCommand{ParentID: parentID, Props: compiled}, nil
 }
 
@@ -85,20 +100,33 @@ func CompileUpdatePropertyCommand(
 	resolveReference ReferenceResolver,
 	resolveParent ParentResolver,
 ) (*PropertyCommand, error) {
-	compiled, err := compilePropertyCommand(ctx, defs, typeIndex, nt, orgID, scopeID, props, resolveReference)
+	compiled, err := compilePropertyCommand(
+		ctx,
+		defs,
+		typeIndex,
+		nt,
+		orgID,
+		scopeID,
+		props,
+		resolveReference,
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	if compiled == nil {
 		return &PropertyCommand{ParentID: uuid.Nil, Props: nil}, nil
 	}
+
 	parentID, present, err := resolveCommandParent(ctx, nt, orgID, scopeID, compiled, resolveParent)
 	if err != nil {
 		return nil, err
 	}
+
 	if present {
 		compiled["parent_id"] = mustRawString(parentID.String())
 	}
+
 	return &PropertyCommand{ParentID: parentID, Props: compiled}, nil
 }
 
@@ -115,32 +143,50 @@ func compilePropertyCommand(
 	if props == nil {
 		return nil, nil
 	}
+
 	compiled, err := canonicalizePropertyCommandKeys(nt, defs, props)
 	if err != nil {
 		return nil, err
 	}
+
 	for _, def := range defs {
-		if !node.PropertyAppliesTo(def, nt) || def.ReferenceTargetTypeKey == "" || def.Type != node.PropertyTypeUUID {
+		if !node.PropertyAppliesTo(def, nt) || def.ReferenceTargetTypeKey == "" ||
+			def.Type != node.PropertyTypeUUID {
 			continue
 		}
+
 		raw, ok := compiled[def.Name]
 		if !ok || len(raw) == 0 || string(raw) == "null" {
 			continue
 		}
+
 		targetType := typeIndex[def.ReferenceTargetTypeKey]
 		if targetType == nil {
-			return nil, fmt.Errorf("properties.%s target type %q: %w", def.Name, def.ReferenceTargetTypeKey, domain.ErrInvalidArgument)
+			return nil, fmt.Errorf(
+				"properties.%s target type %q: %w",
+				def.Name,
+				def.ReferenceTargetTypeKey,
+				domain.ErrInvalidArgument,
+			)
 		}
+
 		ref, ok := rawString(raw)
 		if !ok || strings.TrimSpace(ref) == "" {
-			return nil, fmt.Errorf("properties.%s must be a node reference string: %w", def.Name, domain.ErrInvalidArgument)
+			return nil, fmt.Errorf(
+				"properties.%s must be a node reference string: %w",
+				def.Name,
+				domain.ErrInvalidArgument,
+			)
 		}
+
 		id, err := resolveReference(ctx, orgID, scopeID, targetType, ref)
 		if err != nil {
 			return nil, fmt.Errorf("properties.%s %q: %w", def.Name, ref, domain.ErrInvalidArgument)
 		}
+
 		compiled[def.Name] = mustRawString(id.String())
 	}
+
 	return compiled, nil
 }
 
@@ -151,18 +197,27 @@ func canonicalizePropertyCommandKeys(
 ) (map[string]json.RawMessage, error) {
 	canonicalNames, aliasMap := allowedPropertyCommandKeys(nt, defs)
 	compiled := make(map[string]json.RawMessage, len(props))
+
 	seenNames := make(map[string]string, len(props))
 	for name, raw := range props {
 		canonicalName, err := canonicalPropertyCommandKey(name, canonicalNames, aliasMap)
 		if err != nil {
 			return nil, err
 		}
+
 		if seenName, exists := seenNames[canonicalName]; exists {
-			return nil, fmt.Errorf("properties contain both %q and %q: %w", seenName, name, domain.ErrInvalidArgument)
+			return nil, fmt.Errorf(
+				"properties contain both %q and %q: %w",
+				seenName,
+				name,
+				domain.ErrInvalidArgument,
+			)
 		}
+
 		seenNames[canonicalName] = name
 		compiled[canonicalName] = raw
 	}
+
 	return compiled, nil
 }
 
@@ -172,21 +227,27 @@ func allowedPropertyCommandKeys(
 ) (map[string]struct{}, map[string]string) {
 	canonicalNames := make(map[string]struct{}, len(defs)+1)
 	aliasMap := make(map[string]string)
+
 	for _, def := range defs {
 		if !node.PropertyAppliesTo(def, nt) {
 			continue
 		}
+
 		canonicalNames[def.Name] = struct{}{}
 		if def.ReferenceTargetTypeKey == "" || def.Type != node.PropertyTypeUUID {
 			continue
 		}
+
 		alias := strings.TrimSuffix(def.Name, "_id")
 		if alias == def.Name {
 			continue
 		}
+
 		aliasMap[alias] = def.Name
 	}
+
 	canonicalNames["parent_id"] = struct{}{}
+
 	return canonicalNames, aliasMap
 }
 
@@ -198,10 +259,16 @@ func canonicalPropertyCommandKey(
 	if _, ok := canonicalNames[name]; ok {
 		return name, nil
 	}
+
 	if canonicalName, ok := aliasMap[name]; ok {
 		return canonicalName, nil
 	}
-	return "", fmt.Errorf("properties.%s is not declared for this node type: %w", name, domain.ErrInvalidArgument)
+
+	return "", fmt.Errorf(
+		"properties.%s is not declared for this node type: %w",
+		name,
+		domain.ErrInvalidArgument,
+	)
 }
 
 func rawString(raw json.RawMessage) (string, bool) {
@@ -209,6 +276,7 @@ func rawString(raw json.RawMessage) (string, bool) {
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return "", false
 	}
+
 	return value, true
 }
 

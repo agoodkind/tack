@@ -16,24 +16,28 @@ import (
 // gettingStartedURI is the resource URI that tools.RegisterResources serves.
 const gettingStartedURI = "tack://getting-started"
 
-// readGettingStarted registers the resources for resolver on a new MCP server
-// and reads the getting-started resource through the JSON-RPC surface with
-// ctx. It fails the test unless the read returns one resource.
+// readGettingStarted registers the resources for resolver on a new MCP
+// server and reads the getting-started resource through the JSON-RPC surface
+// with ctx. It fails the test unless the read returns one resource.
 func readGettingStarted(t *testing.T, ctx context.Context, resolver *tools.Resolver) {
 	t.Helper()
 	server := mcpserver.NewMCPServer("tack", "0.2.0")
 	tools.RegisterResources(server, nil, resolver, nil, nil)
 	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0", "id": 1, "method": "resources/read",
-		"params": map[string]any{"uri": gettingStartedURI},
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "resources/read",
+		"params":  map[string]any{"uri": gettingStartedURI},
 	})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
+
 	encoded, err := json.Marshal(server.HandleMessage(ctx, body))
 	if err != nil {
 		t.Fatalf("marshal response: %v", err)
 	}
+
 	var response struct {
 		Result struct {
 			Contents []json.RawMessage `json:"contents"`
@@ -45,6 +49,7 @@ func readGettingStarted(t *testing.T, ctx context.Context, resolver *tools.Resol
 	if err := json.Unmarshal(encoded, &response); err != nil {
 		t.Fatalf("decode response: %v\n%s", err, encoded)
 	}
+
 	if response.Error != nil || len(response.Result.Contents) != 1 {
 		t.Fatalf("resources/read = %s, want the one markdown document", encoded)
 	}
@@ -54,21 +59,35 @@ func readGettingStarted(t *testing.T, ctx context.Context, resolver *tools.Resol
 func resourceReadEvent(t *testing.T, recorder *audit.MemoryRecorder) audit.Event {
 	t.Helper()
 	var found []audit.Event
+
 	for _, event := range recorder.Events() {
 		if event.Verb == string(audit.VerbMCPResourceRead) {
 			found = append(found, event)
 		}
 	}
+
 	if len(found) != 1 {
-		t.Fatalf("recorder stored %d mcp.resource_read events, want 1: %+v", len(found), recorder.Events())
+		t.Fatalf(
+			"recorder stored %d mcp.resource_read events, want 1: %+v",
+			len(found),
+			recorder.Events(),
+		)
 	}
+
 	return found[0]
 }
 
-// TestResourceReadRecordsTheRead pins that reading the getting-started
-// resource records an mcp.resource_read event with the recorder on the
-// request context. The handler used to take a context and ignore it, and no
-// code emitted mcp.resource_read (TACK-340).
+// TestResourceReadRecordsTheRead checks that reading the getting-started
+// resource records an mcp.resource_read event with the recorder from the
+// request context.
+//
+// Before TACK-340, the resource handler ignored its context and did not emit
+// mcp.resource_read. This regression preserves the requirement to record
+// that resource read. The test uses the registered resource handler to check
+// the event:
+//
+//   - It checks the actor identity.
+//   - It checks the resource identity.
 func TestResourceReadRecordsTheRead(t *testing.T) {
 	recorder := audit.NewMemoryRecorder()
 	actorID := uuid.New()
@@ -77,18 +96,34 @@ func TestResourceReadRecordsTheRead(t *testing.T) {
 	readGettingStarted(t, ctx, tools.NewResolver(nil, nil, nil, nil))
 
 	event := resourceReadEvent(t, recorder)
-	if event.Actor.ID != actorID || event.Entity.Type != "mcp_resource" || event.Entity.Name != gettingStartedURI {
-		t.Fatalf("mcp.resource_read actor = %s, entity = %s %q; want %s, mcp_resource %q",
-			event.Actor.ID, event.Entity.Type, event.Entity.Name, actorID, gettingStartedURI)
+	if event.Actor.ID != actorID || event.Entity.Type != "mcp_resource" ||
+		event.Entity.Name != gettingStartedURI {
+		t.Fatalf(
+			"mcp.resource_read actor = %s, entity = %s %q; want %s, mcp_resource %q",
+			event.Actor.ID,
+			event.Entity.Type,
+			event.Entity.Name,
+			actorID,
+			gettingStartedURI,
+		)
 	}
 }
 
-// TestResourceReadCarriesTheReadersSoleOrg is TACK-477. A resource read does
-// not resolve a workspace, and the event used to carry the nil org. A reader
-// with exactly one org gets that org, and a reader with zero or two orgs gets
-// the nil org.
+// TestResourceReadCarriesTheReadersSoleOrg checks the organization
+// identifier in the event for a resource read that does not resolve a
+// workspace.
+//
+// Before TACK-477, resource reads did not assign the reader's sole
+// organization to the event. The event recorded the nil organization even
+// when the reader belonged to exactly one organization. The test checks
+// these membership cases:
+//
+//   - With zero memberships, the event records the nil organization.
+//   - With one membership, the event records that organization.
+//   - With two memberships, the event records the nil organization.
 func TestResourceReadCarriesTheReadersSoleOrg(t *testing.T) {
 	orgID := uuid.New()
+
 	cases := map[string]struct {
 		orgs []uuid.UUID
 		want uuid.UUID
@@ -98,19 +133,26 @@ func TestResourceReadCarriesTheReadersSoleOrg(t *testing.T) {
 		"none": {orgs: nil, want: uuid.Nil},
 	}
 	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			recorder := audit.NewMemoryRecorder()
-			// The request attaches its membership as the auth middleware does.
-			// The resolver reads the membership from the context and does not
-			// query the membership repository.
-			ctx := auth.WithOrgMembership(auth.WithUser(t.Context(), uuid.New()), tc.orgs)
-			ctx = tools.WithAuditRecorder(ctx, recorder)
+		t.Run(
+			name,
+			func(t *testing.T) {
+				recorder := audit.NewMemoryRecorder()
+				// The request attaches its membership as the auth middleware does. The
+				// resolver reads the membership from the context and does not query the
+				// membership repository.
+				ctx := auth.WithOrgMembership(auth.WithUser(t.Context(), uuid.New()), tc.orgs)
+				ctx = tools.WithAuditRecorder(ctx, recorder)
 
-			readGettingStarted(t, ctx, tools.NewResolver(nil, nil, postgres.NewOrgMemberRepo(nil), nil))
+				readGettingStarted(
+					t,
+					ctx,
+					tools.NewResolver(nil, nil, postgres.NewOrgMemberRepo(nil), nil),
+				)
 
-			if got := resourceReadEvent(t, recorder).Context.OrgID; got != tc.want {
-				t.Fatalf("resource_read org = %s, want %s", got, tc.want)
-			}
-		})
+				if got := resourceReadEvent(t, recorder).Context.OrgID; got != tc.want {
+					t.Fatalf("resource_read org = %s, want %s", got, tc.want)
+				}
+			},
+		)
 	}
 }

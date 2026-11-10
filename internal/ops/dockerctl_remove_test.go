@@ -30,38 +30,56 @@ func TestRemoveContainerForceRemovesAnonymousVolumes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("docker client: %v", err)
 	}
+
 	defer func() { _ = cli.Close() }()
 
 	const image = "alpine:3"
 	if err := ensureImage(ctx, cli, nopLogger(), image); err != nil {
 		t.Fatalf("ensure %s: %v", image, err)
 	}
+
 	named := "tack-remove-test-named-" + time.Now().UTC().Format("20060102T150405")
 	if _, err := cli.VolumeCreate(ctx, client.VolumeCreateOptions{Name: named}); err != nil {
 		t.Fatalf("create named volume: %v", err)
 	}
+
 	t.Cleanup(func() {
-		_, _ = cli.VolumeRemove(context.WithoutCancel(ctx), named, client.VolumeRemoveOptions{Force: true})
+		_, _ = cli.VolumeRemove(
+			context.WithoutCancel(ctx),
+			named,
+			client.VolumeRemoveOptions{Force: true},
+		)
 	})
-	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: &container.Config{Image: image, Cmd: []string{"true"}, Volumes: map[string]struct{}{"/scratch": {}}},
-		HostConfig: &container.HostConfig{
-			Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: named, Target: "/kept"}},
+	created, err := cli.ContainerCreate(
+		ctx,
+		client.ContainerCreateOptions{
+			Config: &container.Config{
+				Image:   image,
+				Cmd:     []string{"true"},
+				Volumes: map[string]struct{}{"/scratch": {}},
+			},
+			HostConfig: &container.HostConfig{
+				Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: named, Target: "/kept"}},
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("create container: %v", err)
 	}
+
 	inspected, err := cli.ContainerInspect(ctx, created.ID, client.ContainerInspectOptions{})
 	if err != nil {
 		t.Fatalf("inspect container: %v", err)
 	}
+
 	var anonymous string
+
 	for _, point := range inspected.Container.Mounts {
 		if point.Destination == "/scratch" {
 			anonymous = point.Name
 		}
 	}
+
 	if anonymous == "" {
 		t.Fatal("the container must carry an anonymous volume at /scratch before teardown")
 	}
@@ -71,6 +89,7 @@ func TestRemoveContainerForceRemovesAnonymousVolumes(t *testing.T) {
 	if _, err := cli.VolumeInspect(ctx, anonymous, client.VolumeInspectOptions{}); err == nil {
 		t.Fatalf("anonymous volume %s outlived its container", anonymous)
 	}
+
 	if _, err := cli.VolumeInspect(ctx, named, client.VolumeInspectOptions{}); err != nil {
 		t.Fatalf("named volume %s must survive teardown: %v", named, err)
 	}

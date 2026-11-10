@@ -2,18 +2,22 @@ package audit
 
 import "testing"
 
-// TestActorKindCodeOperator pins the operator actor kind to ledger code 5.
-// The audit.events actor_kind column is SMALLINT; codes 1 through 4 are
-// taken by user, service, system, and api_token, and the mapping must stay
-// stable because the ledger stores the integer.
+// TestActorKindCodeOperator checks that ActorOperator uses ledger code 5.
+// The audit.events actor_kind column uses SMALLINT and stores the integer.
+// The existing mappings must remain stable:
+//
+//   - user uses code 1.
+//   - service uses code 2.
+//   - system uses code 3.
+//   - api_token uses code 4.
 func TestActorKindCodeOperator(t *testing.T) {
 	if got := actorKindCode(ActorOperator); got != 5 {
 		t.Fatalf("actorKindCode(ActorOperator) = %d, want 5", got)
 	}
 }
 
-// TestActorKindCodesStable pins the existing four codes so a reorder can
-// never silently rewrite history's meaning.
+// TestActorKindCodesStable checks the four existing actor codes.
+// Reordering the mappings would change the meaning of stored ledger values.
 func TestActorKindCodesStable(t *testing.T) {
 	cases := []struct {
 		actor ActorType

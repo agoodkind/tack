@@ -15,10 +15,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestVerifyBundleRoundTrip writes a synthetic events.jsonl + manifest.json
-// using the same shapes Export produces and asserts VerifyBundle accepts
-// them. Avoids the database dependency at this layer; full Export is
-// covered by the integration suite once Yugabyte is wired in test compose.
+// TestVerifyBundleRoundTrip writes synthetic rows and a signed manifest in the
+// shapes that [Export] produces, then checks that [VerifyBundle] accepts the
+// bundle. The test separately unmarshals its synthetic jsonlBytes and checks
+// request_id. It constructs the files without a database. Integration tests
+// separately export rows from a database reader.
 func TestVerifyBundleRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -30,17 +31,22 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	rows := []Row{
 		{
-			OrgID:       orgID,
-			EventTime:   now,
-			EventID:     uuid.Must(uuid.NewV7()),
-			Seq:         1,
-			Shard:       1,
-			ActorID:     uuid.Must(uuid.NewV7()),
-			ActorKind:   1,
-			Action:      "node.read",
-			Outcome:     OutcomeOK,
-			EntityID:    uuid.Must(uuid.NewV7()),
-			Context:     EventContext{OrgID: orgID, RequestID: "req-export", TraceID: "trace-export", Source: SourceMCP},
+			OrgID:     orgID,
+			EventTime: now,
+			EventID:   uuid.Must(uuid.NewV7()),
+			Seq:       1,
+			Shard:     1,
+			ActorID:   uuid.Must(uuid.NewV7()),
+			ActorKind: 1,
+			Action:    "node.read",
+			Outcome:   OutcomeOK,
+			EntityID:  uuid.Must(uuid.NewV7()),
+			Context: EventContext{
+				OrgID:     orgID,
+				RequestID: "req-export",
+				TraceID:   "trace-export",
+				Source:    SourceMCP,
+			},
 			HashVersion: auditHashVersion3,
 		},
 	}
@@ -50,12 +56,15 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	enc := json.NewEncoder(jf)
+
 	for _, row := range rows {
 		if err := enc.Encode(row); err != nil {
 			t.Fatal(err)
 		}
 	}
+
 	_ = jf.Close()
 	jsonlBytes, _ := os.ReadFile(jsonlPath)
 	hashHex := hex.EncodeToString(sumSHA256(jsonlBytes))
@@ -69,18 +78,25 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 		FileSHA256:  hashHex,
 		SignatureBy: "ed25519:test",
 	}
-	signable, _ := json.Marshal(struct {
-		ExportID    uuid.UUID `json:"export_id"`
-		OrgID       uuid.UUID `json:"org_id"`
-		Oldest      time.Time `json:"oldest"`
-		Latest      time.Time `json:"latest"`
-		RowCount    int       `json:"row_count"`
-		FileSHA256  string    `json:"file_sha256"`
-		SignatureBy string    `json:"signing_key_id"`
-	}{
-		manifest.ExportID, manifest.OrgID, manifest.Oldest, manifest.Latest,
-		manifest.RowCount, manifest.FileSHA256, manifest.SignatureBy,
-	})
+	signable, _ := json.Marshal(
+		struct {
+			ExportID    uuid.UUID `json:"export_id"`
+			OrgID       uuid.UUID `json:"org_id"`
+			Oldest      time.Time `json:"oldest"`
+			Latest      time.Time `json:"latest"`
+			RowCount    int       `json:"row_count"`
+			FileSHA256  string    `json:"file_sha256"`
+			SignatureBy string    `json:"signing_key_id"`
+		}{
+			manifest.ExportID,
+			manifest.OrgID,
+			manifest.Oldest,
+			manifest.Latest,
+			manifest.RowCount,
+			manifest.FileSHA256,
+			manifest.SignatureBy,
+		},
+	)
 	manifest.Signature = hex.EncodeToString(ed25519.Sign(priv, signable))
 	mfBytes, _ := json.MarshalIndent(manifest, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), mfBytes, 0o600); err != nil {
@@ -91,19 +107,24 @@ func TestVerifyBundleRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	if !report.FileSHA256OK {
 		t.Errorf("file sha mismatch")
 	}
+
 	if !report.SignatureOK {
 		t.Errorf("signature did not verify")
 	}
+
 	if report.RowsScanned != 1 {
 		t.Errorf("rows scanned = %d, want 1", report.RowsScanned)
 	}
+
 	var exported Row
 	if err := json.Unmarshal(jsonlBytes, &exported); err != nil {
 		t.Fatalf("exported row: %v", err)
 	}
+
 	if exported.Context.RequestID != "req-export" {
 		t.Fatalf("context did not export request_id: %+v", exported.Context)
 	}
@@ -118,10 +139,23 @@ func TestVerifyBundleReportsEditedRow(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	row := Row{
-		OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
-		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 1,
-		Action: "node.read", Outcome: OutcomeOK, EntityKind: "node", EntityID: uuid.Must(uuid.NewV7()),
-		Context: EventContext{OrgID: orgID, RequestID: "req-tamper", Source: SourceMCP}, HashVersion: auditHashVersion3,
+		OrgID:      orgID,
+		EventTime:  time.Now().UTC(),
+		EventID:    uuid.Must(uuid.NewV7()),
+		Seq:        1,
+		Shard:      1,
+		ActorID:    uuid.Must(uuid.NewV7()),
+		ActorKind:  1,
+		Action:     "node.read",
+		Outcome:    OutcomeOK,
+		EntityKind: "node",
+		EntityID:   uuid.Must(uuid.NewV7()),
+		Context: EventContext{
+			OrgID:     orgID,
+			RequestID: "req-tamper",
+			Source:    SourceMCP,
+		},
+		HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	pub := writeSignedExportTestBundle(t, dir, []Row{row})
@@ -131,15 +165,18 @@ func TestVerifyBundleReportsEditedRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var edited Row
 	if err := json.Unmarshal(jsonlBytes, &edited); err != nil {
 		t.Fatal(err)
 	}
+
 	edited.Action = "node.delete"
 	editedBytes, err := json.Marshal(edited)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(jsonlPath, append(editedBytes, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -148,41 +185,57 @@ func TestVerifyBundleReportsEditedRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	if report.HashMatches != 0 {
 		t.Fatalf("hash matches = %d, want 0", report.HashMatches)
 	}
-	if len(report.ChainBreaks) == 0 || !strings.Contains(report.ChainBreaks[0], row.EventID.String()) {
+
+	if len(report.ChainBreaks) == 0 ||
+		!strings.Contains(report.ChainBreaks[0], row.EventID.String()) {
 		t.Fatalf("chain breaks = %v, want row %s", report.ChainBreaks, row.EventID)
 	}
 }
 
-// hashExportTestRow computes a row's hash the way the writer does: from the
-// event's own typed fields, marshalled by the same encoder the consumer uses.
+// hashExportTestRow computes a row hash from typed event fields using the
+// consumer's JSON encoder.
 func hashExportTestRow(t *testing.T, row Row) []byte {
 	t.Helper()
 	contextJSON, err := json.Marshal(row.Context)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	deltaJSON, err := json.Marshal(row.Delta)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	hash, err := hashRowForEvent(rowHashInput{
 		Event: Event{
-			Verb: row.Action, EventID: row.EventID,
-			Actor:   Actor{Type: actorTypeFromCode(row.ActorKind), ID: row.ActorID},
-			Entity:  Entity{Type: row.EntityKind, ID: row.EntityID},
-			Context: row.Context, Delta: row.Delta, Outcome: row.Outcome,
-			Error: row.Error, Extra: row.Extra, OccurredAt: row.EventTime,
+			Verb:           row.Action,
+			EventID:        row.EventID,
+			Actor:          Actor{Type: actorTypeFromCode(row.ActorKind), ID: row.ActorID},
+			Entity:         Entity{Type: row.EntityKind, ID: row.EntityID},
+			Context:        row.Context,
+			Delta:          row.Delta,
+			Outcome:        row.Outcome,
+			Error:          row.Error,
+			Extra:          row.Extra,
+			OccurredAt:     row.EventTime,
 			IdempotencyKey: row.IdempotencyKey,
 		},
-		EventID: row.EventID, Shard: row.Shard, Seq: row.Seq, ContextJSON: contextJSON,
-		DeltaJSON: deltaJSON, LastHash: row.PrevHash, Version: row.HashVersion,
+		EventID:     row.EventID,
+		Shard:       row.Shard,
+		Seq:         row.Seq,
+		ContextJSON: contextJSON,
+		DeltaJSON:   deltaJSON,
+		LastHash:    row.PrevHash,
+		Version:     row.HashVersion,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	return hash
 }
 
@@ -191,76 +244,111 @@ func writeSignedExportTestBundle(t *testing.T, dir string, rows []Row) ed25519.P
 	return writeSignedExportTestBundleDeclaring(t, dir, rows, len(rows))
 }
 
-// writeSignedExportTestBundleDeclaring writes the rows and a manifest that is
-// validly signed over declaredRowCount rather than over the true count, which
-// is the shape a truncating exporter or a lying manifest produces.
-func writeSignedExportTestBundleDeclaring(t *testing.T, dir string, rows []Row, declaredRowCount int) ed25519.PublicKey {
+// writeSignedExportTestBundleDeclaring writes rows and signs their manifest
+// with declaredRowCount, which can differ from the actual count. This
+// reproduces a truncated export or a false manifest count.
+func writeSignedExportTestBundleDeclaring(
+	t *testing.T,
+	dir string,
+	rows []Row,
+	declaredRowCount int,
+) ed25519.PublicKey {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	jsonlPath := filepath.Join(dir, "events.jsonl")
 	file, err := os.Create(jsonlPath)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	for _, row := range rows {
 		if err := json.NewEncoder(file).Encode(row); err != nil {
 			t.Fatal(err)
 		}
 	}
+
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
+
 	jsonlBytes, err := os.ReadFile(jsonlPath)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	now := time.Now().UTC()
 	manifest := ExportManifest{
-		ExportID: uuid.Must(uuid.NewV7()), OrgID: rows[0].OrgID,
-		Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour), RowCount: declaredRowCount,
-		FileSHA256: hex.EncodeToString(sumSHA256(jsonlBytes)), SignatureBy: "test",
+		ExportID:    uuid.Must(uuid.NewV7()),
+		OrgID:       rows[0].OrgID,
+		Oldest:      now.Add(-time.Hour),
+		Latest:      now.Add(time.Hour),
+		RowCount:    declaredRowCount,
+		FileSHA256:  hex.EncodeToString(sumSHA256(jsonlBytes)),
+		SignatureBy: "test",
 	}
-	signable, err := json.Marshal(struct {
-		ExportID    uuid.UUID `json:"export_id"`
-		OrgID       uuid.UUID `json:"org_id"`
-		Oldest      time.Time `json:"oldest"`
-		Latest      time.Time `json:"latest"`
-		RowCount    int       `json:"row_count"`
-		FileSHA256  string    `json:"file_sha256"`
-		SignatureBy string    `json:"signing_key_id"`
-	}{manifest.ExportID, manifest.OrgID, manifest.Oldest, manifest.Latest, manifest.RowCount, manifest.FileSHA256, manifest.SignatureBy})
+	signable, err := json.Marshal(
+		struct {
+			ExportID    uuid.UUID `json:"export_id"`
+			OrgID       uuid.UUID `json:"org_id"`
+			Oldest      time.Time `json:"oldest"`
+			Latest      time.Time `json:"latest"`
+			RowCount    int       `json:"row_count"`
+			FileSHA256  string    `json:"file_sha256"`
+			SignatureBy string    `json:"signing_key_id"`
+		}{
+			manifest.ExportID,
+			manifest.OrgID,
+			manifest.Oldest,
+			manifest.Latest,
+			manifest.RowCount,
+			manifest.FileSHA256,
+			manifest.SignatureBy,
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	manifest.Signature = hex.EncodeToString(ed25519.Sign(priv, signable))
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), manifestBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	return pub
 }
 
-// TestVerifyBundleRecoversLegacyRows pins the TACK-445 story for rows written
-// under hash versions 1 and 2: their hash covered a nanosecond timestamp the
-// database stored only to the microsecond, so the verifier recovers the lost
-// remainder by trying every possible value. The row below reproduces the real
-// condition: its stored hash was computed from a nanosecond timestamp, and
-// the row read back carries the microsecond-truncated one.
+// TestVerifyBundleRecoversLegacyRows checks the TACK-445 precision regression
+// for hash versions 1 and 2. Historical writers hashed nanosecond timestamps,
+// and the database stored only microseconds. The verifier searches all possible
+// lost remainders. The fixture hashes the original nanosecond timestamp before
+// replacing it with the stored microsecond-truncated value.
 func TestVerifyBundleRecoversLegacyRows(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	originalTime := time.Date(2026, 8, 10, 4, 17, 1, 59766789, time.UTC)
 	row := Row{
-		OrgID: orgID, EventTime: originalTime, EventID: uuid.Must(uuid.NewV7()),
-		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
-		Action: "ops.test.legacy", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion2,
+		OrgID:       orgID,
+		EventTime:   originalTime,
+		EventID:     uuid.Must(uuid.NewV7()),
+		Seq:         1,
+		Shard:       1,
+		ActorID:     uuid.Must(uuid.NewV7()),
+		ActorKind:   5,
+		Action:      "ops.test.legacy",
+		Outcome:     OutcomeOK,
+		EntityKind:  "system",
+		EntityID:    orgID,
+		Context:     EventContext{OrgID: orgID, Source: SourceSystem},
+		HashVersion: auditHashVersion2,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	row.EventTime = originalTime.Truncate(time.Microsecond)
@@ -270,36 +358,54 @@ func TestVerifyBundleRecoversLegacyRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	if report.HashMatches != 1 {
-		t.Fatalf("hash matches = %d, want 1; the candidate search must recover the legacy row", report.HashMatches)
+		t.Fatalf(
+			"hash matches = %d, want 1; the candidate search must recover the legacy row",
+			report.HashMatches,
+		)
 	}
+
 	if verdict := report.Err(); verdict != nil {
 		t.Fatalf("honest legacy bundle rejected: %v", verdict)
 	}
 }
 
-// TestVerifyBundleRejectsHashVersionDowngrade reproduces the review attack:
-// edit a version 3 row's content and relabel it version 2, leaving both
-// hashes untouched. The relabel buys the forger nothing, because a claimed
-// version 2 row is recomputed at every possible lost-nanosecond candidate and
-// the edited content matches none of them.
+// TestVerifyBundleRejectsHashVersionDowngrade reproduces the review attack that
+// edits version 3 content and relabels it as version 2 without changing either
+// hash. Recomputing the claimed legacy row over all possible lost nanosecond
+// remainders must not accept the edited content.
 func TestVerifyBundleRejectsHashVersionDowngrade(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	rows := make([]Row, 0, 2)
 	var prevHash []byte
+
 	for seq := int64(1); seq <= 2; seq++ {
 		row := Row{
-			OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
-			Seq: seq, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
-			Action: "ops.test.downgrade", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-			Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
-			PrevHash: prevHash,
+			OrgID:      orgID,
+			EventTime:  time.Now().UTC(),
+			EventID:    uuid.Must(uuid.NewV7()),
+			Seq:        seq,
+			Shard:      1,
+			ActorID:    uuid.Must(uuid.NewV7()),
+			ActorKind:  5,
+			Action:     "ops.test.downgrade",
+			Outcome:    OutcomeOK,
+			EntityKind: "system",
+			EntityID:   orgID,
+			Context: EventContext{
+				OrgID:  orgID,
+				Source: SourceSystem,
+			},
+			HashVersion: auditHashVersion3,
+			PrevHash:    prevHash,
 		}
 		row.RowHash = hashExportTestRow(t, row)
 		prevHash = row.RowHash
 		rows = append(rows, row)
 	}
+
 	rows[1].Action = "ops.test.forged"
 	rows[1].HashVersion = auditHashVersion2
 	pub := writeSignedExportTestBundle(t, dir, rows)
@@ -308,33 +414,50 @@ func TestVerifyBundleRejectsHashVersionDowngrade(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	verdict := report.Err()
 	if verdict == nil {
 		t.Fatal("downgraded tampered row accepted, want a rejection")
 	}
+
 	if !strings.Contains(verdict.Error(), "hash") {
 		t.Fatalf("verdict = %v, want it to name the hash failure", verdict)
 	}
-	if len(report.ChainBreaks) == 0 || !strings.Contains(report.ChainBreaks[0], rows[1].EventID.String()) {
-		t.Fatalf("chain breaks = %v, want the relabeled row %s named", report.ChainBreaks, rows[1].EventID)
+
+	if len(report.ChainBreaks) == 0 ||
+		!strings.Contains(report.ChainBreaks[0], rows[1].EventID.String()) {
+		t.Fatalf(
+			"chain breaks = %v, want the relabeled row %s named",
+			report.ChainBreaks,
+			rows[1].EventID,
+		)
 	}
 }
 
-// TestVerifyBundleRejectsRelabelledVersion3Row closes the hole a second review
-// pass found in the legacy candidate search: a forger takes a genuine version 3
-// row, moves its timestamp back one nanosecond, and relabels the row as legacy.
-// The candidate search would add that nanosecond back, rediscover the original
-// instant, and accept the moved row. The ledger stores whole microseconds, so
-// the moved timestamp is itself the evidence.
+// TestVerifyBundleRejectsRelabelledVersion3Row reproduces the second review's
+// timestamp attack. A forger subtracts one nanosecond from a genuine version 3
+// timestamp and relabels the row as legacy. The candidate search could
+// previously restore the original instant and accept that edit. The database
+// stores whole microseconds, and the verifier now rejects the forged
+// sub-microsecond timestamp.
 func TestVerifyBundleRejectsRelabelledVersion3Row(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	stored := time.Now().UTC().Truncate(time.Microsecond)
 	row := Row{
-		OrgID: orgID, EventTime: stored, EventID: uuid.Must(uuid.NewV7()),
-		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
-		Action: "ops.test.relabel", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
+		OrgID:       orgID,
+		EventTime:   stored,
+		EventID:     uuid.Must(uuid.NewV7()),
+		Seq:         1,
+		Shard:       1,
+		ActorID:     uuid.Must(uuid.NewV7()),
+		ActorKind:   5,
+		Action:      "ops.test.relabel",
+		Outcome:     OutcomeOK,
+		EntityKind:  "system",
+		EntityID:    orgID,
+		Context:     EventContext{OrgID: orgID, Source: SourceSystem},
+		HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 
@@ -347,31 +470,43 @@ func TestVerifyBundleRejectsRelabelledVersion3Row(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	if report.HashMatches != 0 {
 		t.Fatalf("hash matches = %d, want 0; the relabelled row was accepted", report.HashMatches)
 	}
+
 	if report.Err() == nil {
 		t.Fatal("relabelled row accepted, want a rejection")
 	}
+
 	if len(report.ChainBreaks) == 0 || !strings.Contains(report.ChainBreaks[0], "sub-microsecond") {
 		t.Fatalf("breaks = %v, want the sub-microsecond timestamp named", report.ChainBreaks)
 	}
 }
 
-// TestVerifyBundleRejectsPureVersionRelabel closes the hole a fifth review
-// pass found: versions 2 and 3 cover the same fields, and a version 3 row
-// already carries a whole-microsecond timestamp, so relabelling an untouched
-// version 3 row as version 2 let the legacy candidate search reproduce its
-// hash on the first try. Version 3 therefore hashes its own version number,
-// and a relabelled row matches under no candidate.
+// TestVerifyBundleRejectsPureVersionRelabel reproduces the fifth review's
+// version-only attack. Versions 2 and 3 previously covered the same fields. A
+// version 3 timestamp already had whole-microsecond precision, and the first
+// legacy candidate could reproduce its hash after a label-only downgrade.
+// Version 3 now hashes its version number, and the relabeled row must fail
+// every candidate.
 func TestVerifyBundleRejectsPureVersionRelabel(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	row := Row{
-		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
-		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
-		Action: "ops.test.relabel_only", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
+		OrgID:       orgID,
+		EventTime:   time.Now().UTC().Truncate(time.Microsecond),
+		EventID:     uuid.Must(uuid.NewV7()),
+		Seq:         1,
+		Shard:       1,
+		ActorID:     uuid.Must(uuid.NewV7()),
+		ActorKind:   5,
+		Action:      "ops.test.relabel_only",
+		Outcome:     OutcomeOK,
+		EntityKind:  "system",
+		EntityID:    orgID,
+		Context:     EventContext{OrgID: orgID, Source: SourceSystem},
+		HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 
@@ -383,25 +518,36 @@ func TestVerifyBundleRejectsPureVersionRelabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	if report.HashMatches != 0 {
 		t.Fatalf("hash matches = %d, want 0; the relabelled row was accepted", report.HashMatches)
 	}
+
 	if report.Err() == nil {
 		t.Fatal("relabelled row accepted, want a rejection")
 	}
 }
 
-// TestVerifyBundleRejectsUnknownHashVersion pins that a row claiming a version
-// the ledger never wrote is reported as a broken row, not accepted as version
-// 1 and not treated as a verifier crash that hides the rest of the bundle.
+// TestVerifyBundleRejectsUnknownHashVersion checks that an unsupported version
+// produces a broken-row report. The verifier must not treat it as version 1 or
+// abort verification before reporting the rest of the bundle.
 func TestVerifyBundleRejectsUnknownHashVersion(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	row := Row{
-		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
-		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
-		Action: "ops.test.unknown_version", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion1,
+		OrgID:       orgID,
+		EventTime:   time.Now().UTC().Truncate(time.Microsecond),
+		EventID:     uuid.Must(uuid.NewV7()),
+		Seq:         1,
+		Shard:       1,
+		ActorID:     uuid.Must(uuid.NewV7()),
+		ActorKind:   5,
+		Action:      "ops.test.unknown_version",
+		Outcome:     OutcomeOK,
+		EntityKind:  "system",
+		EntityID:    orgID,
+		Context:     EventContext{OrgID: orgID, Source: SourceSystem},
+		HashVersion: auditHashVersion1,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	forged := row
@@ -412,28 +558,41 @@ func TestVerifyBundleRejectsUnknownHashVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	if report.HashMatches != 0 {
-		t.Fatalf("hash matches = %d, want 0; version 0 was accepted as version 1", report.HashMatches)
+		t.Fatalf(
+			"hash matches = %d, want 0; version 0 was accepted as version 1",
+			report.HashMatches,
+		)
 	}
+
 	if len(report.ChainBreaks) != 1 || !strings.Contains(report.ChainBreaks[0], "never wrote") {
 		t.Fatalf("breaks = %v, want the unknown version named", report.ChainBreaks)
 	}
 }
 
-// TestVerifyBundleRejectsPlantedPayloadKey closes the hole the sixth review
-// pass found: the verifier decodes context, delta, and error into their
-// types and re-marshals them for the hash, so a key those types do not
-// declare would be dropped and the planted row would still verify. The
-// decode is strict, so the planted key is a verification error that names
-// the bundle line.
+// TestVerifyBundleRejectsPlantedPayloadKey reproduces the sixth review's
+// unknown-key attack. The verifier decodes context, delta, and error into typed
+// values before marshaling them for hashing. Silently dropping an undeclared
+// key would allow that planted field to verify. Strict decoding rejects it and
+// identifies the bundle line.
 func TestVerifyBundleRejectsPlantedPayloadKey(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	row := Row{
-		OrgID: orgID, EventTime: time.Now().UTC().Truncate(time.Microsecond), EventID: uuid.Must(uuid.NewV7()),
-		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
-		Action: "ops.test.planted", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
+		OrgID:       orgID,
+		EventTime:   time.Now().UTC().Truncate(time.Microsecond),
+		EventID:     uuid.Must(uuid.NewV7()),
+		Seq:         1,
+		Shard:       1,
+		ActorID:     uuid.Must(uuid.NewV7()),
+		ActorKind:   5,
+		Action:      "ops.test.planted",
+		Outcome:     OutcomeOK,
+		EntityKind:  "system",
+		EntityID:    orgID,
+		Context:     EventContext{OrgID: orgID, Source: SourceSystem},
+		HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	pub := writeSignedExportTestBundle(t, dir, []Row{row})
@@ -443,24 +602,29 @@ func TestVerifyBundleRejectsPlantedPayloadKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var planted map[string]json.RawMessage
 	if err := json.Unmarshal(jsonlBytes, &planted); err != nil {
 		t.Fatal(err)
 	}
+
 	var plantedContext map[string]json.RawMessage
 	if err := json.Unmarshal(planted["Context"], &plantedContext); err != nil {
 		t.Fatal(err)
 	}
+
 	plantedContext["approved_by"] = json.RawMessage(`"alice"`)
 	contextBytes, err := json.Marshal(plantedContext)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	planted["Context"] = contextBytes
 	plantedBytes, err := json.Marshal(planted)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(jsonlPath, append(plantedBytes, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -469,24 +633,34 @@ func TestVerifyBundleRejectsPlantedPayloadKey(t *testing.T) {
 	if err == nil {
 		t.Fatalf("planted context key accepted; report = %+v", report)
 	}
+
 	if !strings.Contains(err.Error(), "approved_by") || !strings.Contains(err.Error(), "line 1") {
 		t.Fatalf("verify error = %v, want the planted key and the bundle line named", err)
 	}
 }
 
-// TestVerifyReportErrTracksTheReport pins that the verdict a caller acts on
-// matches the report a human reads. A clean bundle returns nil; a tampered one
-// returns an error naming what failed. Before this, verification printed its
-// findings and reported success, so a script or a release gate treated a
-// tampered bundle as verified.
+// TestVerifyReportErrTracksTheReport checks that the caller's verdict matches
+// the integrity report. A clean bundle returns nil, and a changed bundle
+// returns an error identifying the failure. Earlier verification printed
+// findings but returned success, which let scripts and release checks accept a
+// changed bundle.
 func TestVerifyReportErrTracksTheReport(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	row := Row{
-		OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
-		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
-		Action: "ops.test.verdict", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-		Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
+		OrgID:       orgID,
+		EventTime:   time.Now().UTC(),
+		EventID:     uuid.Must(uuid.NewV7()),
+		Seq:         1,
+		Shard:       1,
+		ActorID:     uuid.Must(uuid.NewV7()),
+		ActorKind:   5,
+		Action:      "ops.test.verdict",
+		Outcome:     OutcomeOK,
+		EntityKind:  "system",
+		EntityID:    orgID,
+		Context:     EventContext{OrgID: orgID, Source: SourceSystem},
+		HashVersion: auditHashVersion3,
 	}
 	row.RowHash = hashExportTestRow(t, row)
 	pub := writeSignedExportTestBundle(t, dir, []Row{row})
@@ -495,6 +669,7 @@ func TestVerifyReportErrTracksTheReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify clean bundle: %v", err)
 	}
+
 	if verdict := clean.Err(); verdict != nil {
 		t.Fatalf("clean bundle rejected: %v", verdict)
 	}
@@ -504,15 +679,18 @@ func TestVerifyReportErrTracksTheReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var edited Row
 	if err := json.Unmarshal(jsonlBytes, &edited); err != nil {
 		t.Fatal(err)
 	}
+
 	edited.Action = "ops.test.tampered"
 	editedBytes, err := json.Marshal(edited)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(jsonlPath, append(editedBytes, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -521,37 +699,52 @@ func TestVerifyReportErrTracksTheReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify tampered bundle: %v", err)
 	}
+
 	verdict := tampered.Err()
 	if verdict == nil {
 		t.Fatal("tampered bundle accepted, want a rejection")
 	}
+
 	if !strings.Contains(verdict.Error(), "hash") {
 		t.Fatalf("verdict = %v, want it to name the hash failure", verdict)
 	}
 }
 
-// TestVerifyOneEditedRowDoesNotCondemnTheRest pins that editing a single row
-// is reported as a single failure. Advancing the chain tracking only on a
-// matching row made the next row compare against the wrong predecessor, so
-// one edit cascaded into a break on every row after it, and a reader could
-// not tell how much of the bundle had actually been altered.
+// TestVerifyOneEditedRowDoesNotCondemnTheRest checks that one edited row
+// produces one reported failure. Earlier tracking advanced only after a
+// matching row. Later rows then compared against the wrong predecessor and
+// produced cascading breaks that obscured the actual extent of the edit.
 func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
 	dir := t.TempDir()
 	orgID := uuid.Must(uuid.NewV7())
 	rows := make([]Row, 0, 4)
 	var prevHash []byte
+
 	for seq := int64(1); seq <= 4; seq++ {
 		row := Row{
-			OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
-			Seq: seq, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
-			Action: "ops.test.chain", Outcome: OutcomeOK, EntityKind: "system", EntityID: orgID,
-			Context: EventContext{OrgID: orgID, Source: SourceSystem}, HashVersion: auditHashVersion3,
-			PrevHash: prevHash,
+			OrgID:      orgID,
+			EventTime:  time.Now().UTC(),
+			EventID:    uuid.Must(uuid.NewV7()),
+			Seq:        seq,
+			Shard:      1,
+			ActorID:    uuid.Must(uuid.NewV7()),
+			ActorKind:  5,
+			Action:     "ops.test.chain",
+			Outcome:    OutcomeOK,
+			EntityKind: "system",
+			EntityID:   orgID,
+			Context: EventContext{
+				OrgID:  orgID,
+				Source: SourceSystem,
+			},
+			HashVersion: auditHashVersion3,
+			PrevHash:    prevHash,
 		}
 		row.RowHash = hashExportTestRow(t, row)
 		prevHash = row.RowHash
 		rows = append(rows, row)
 	}
+
 	pub := writeSignedExportTestBundle(t, dir, rows)
 
 	jsonlPath := filepath.Join(dir, "events.jsonl")
@@ -559,19 +752,23 @@ func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	lines := strings.Split(strings.TrimRight(string(original), "\n"), "\n")
 	if len(lines) != 4 {
 		t.Fatalf("bundle lines = %d, want 4", len(lines))
 	}
+
 	var edited Row
 	if err := json.Unmarshal([]byte(lines[1]), &edited); err != nil {
 		t.Fatal(err)
 	}
+
 	edited.Action = "ops.test.tampered"
 	editedLine, err := json.Marshal(edited)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	lines[1] = string(editedLine)
 	if err := os.WriteFile(jsonlPath, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -581,30 +778,38 @@ func TestVerifyOneEditedRowDoesNotCondemnTheRest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
+
 	if report.HashMatches != 3 {
 		t.Fatalf("hash matches = %d, want 3 of 4 rows still intact", report.HashMatches)
 	}
+
 	if len(report.ChainBreaks) != 1 {
 		t.Fatalf("chain breaks = %v, want exactly the one edited row", report.ChainBreaks)
 	}
+
 	if !strings.Contains(report.ChainBreaks[0], edited.EventID.String()) {
-		t.Fatalf("break = %q, want it to name the edited row %s",
-			report.ChainBreaks[0], edited.EventID)
+		t.Fatalf(
+			"break = %q, want it to name the edited row %s",
+			report.ChainBreaks[0],
+			edited.EventID,
+		)
 	}
-	// This assertion is what catches the cascade. The rows are contiguous, so
-	// a correct pass reports no gaps. Tracking that advanced only on a match
-	// would leave the sequence stuck at the last good row, and every row after
-	// the edit would be counted as a gap.
+
+	// The fixture has contiguous sequences and must not report gaps. Match-only
+	// tracking would remain at the last valid row and falsely count every later row
+	// as a gap.
 	if report.ChainGapCount != 0 {
 		t.Fatalf("sequence gaps = %d in a contiguous bundle, want 0", report.ChainGapCount)
 	}
+
 	if report.Err() == nil {
 		t.Fatal("tampered bundle accepted")
 	}
 }
 
-// WithNodeHistoryRowLimit returns filter with its row cap lowered to limit,
-// so an external test can produce a truncated read without thousands of rows.
+// WithNodeHistoryRowLimit returns filter with its row cap set to limit.
+// External tests can request a truncated read without creating thousands of
+// rows.
 func WithNodeHistoryRowLimit(filter NodeHistoryFilter, limit int) NodeHistoryFilter {
 	filter.rowLimitOverride = limit
 	return filter

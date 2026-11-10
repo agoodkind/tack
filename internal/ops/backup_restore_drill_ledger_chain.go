@@ -1,25 +1,20 @@
-// backup_restore_drill_ledger_chain.go decides whether a restored audit ledger
-// still carries an intact hash chain. Counting rows cannot see a broken chain:
-// a restore can land rows that look complete while the per-(org, shard)
-// prev_hash links no longer name the row before them, and a restore is exactly
-// where that happens silently. Re-hashing the rows is what sees it.
+// The restored audit ledger must retain an intact per-(org, shard) hash
+// chain. Row counts alone cannot detect a prev_hash that does not identify
+// the preceding row. Verification recomputes row hashes and checks the links.
 //
-// The verdict is read from the verifier's structured report, never from a
-// process exit code. A verifier that finds breaks and still exits zero would
-// otherwise pass the drill, which is the failure this leg exists to remove.
+// The drill reads the verifier's structured report instead of relying on its
+// process exit code. A verifier can report breaks while exiting successfully.
+// The report must make that drill fail.
 //
-// Every verdict here fails closed, for the same reason. A check that cannot
-// see all of what it is checking has not checked it, so a bundle covering part
-// of an org's rows fails rather than passing on the part it could read, and a
-// full-range bundle with a hole in a chain fails rather than verifying the rows
-// on either side of it.
+// The drill rejects partial organization exports and gaps in a whole-range
+// bundle. It cannot verify links across missing rows by checking only the
+// rows on either side.
 //
-// What a passing chain proves, and what it does not: every row the restored
-// ledger holds was exported, re-hashed, and linked to the row before it, with
-// no missing sequence number in between. It does not prove they are all the
-// rows the live ledger held, because a restore that dropped the newest rows
-// leaves an intact chain behind it. Comparing the restored ledger against the
-// live one is separate work and deliberately out of scope here.
+// A passing check establishes that the export includes every restored row,
+// each hash matches, and each link follows the previous row without a missing
+// sequence number. It does not establish that restore preserved every live
+// row: dropping the newest rows can leave an intact chain. Comparison with
+// the live ledger remains separate work outside this check.
 
 package ops
 
@@ -38,29 +33,27 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// drillLedgerExportFunc writes one org's signed bundle into dir and reports
-// how many rows it wrote. The leg takes it as a parameter rather than calling
-// the exporter directly so a test can drive the verdict with bundles it wrote
-// itself, without standing up a database.
+// drillLedgerExportFunc writes one organization's signed bundle to dir and
+// returns its row count. Tests supply bundles directly through this parameter
+// to exercise verdicts without a database.
 type drillLedgerExportFunc func(ctx context.Context, orgID uuid.UUID, dir string) (int, error)
 
-// drillLedgerVerifyFunc verifies one exported bundle directory and returns the
-// structured report. Production binds it to the same offline verifier the
-// operator `audit verify` command runs, over the run's throwaway public key.
+// drillLedgerVerifyFunc verifies one bundle directory and returns a
+// structured report. Production uses the offline verifier for audit verify
+// with the run's temporary public key.
 type drillLedgerVerifyFunc func(dir string) (*audit.VerifyReport, error)
 
-// verifyRestoredLedgerChains exports one bundle per org and folds every report
-// into one verdict. Every org is attempted even after one fails, so the drill
-// reports the whole picture rather than the first break it meets.
+// verifyRestoredLedgerChains exports and verifies a bundle for each
+// organization. It continues after an organization's verification failure to
+// report every such failure.
 //
-// An empty org list fails rather than passing quietly. The artifact under
-// drill is an export of the live auth-and-audit database; every operator
-// command records through the ledger, and the export command that produced the
-// artifact records itself, so a deployment whose ledger can be exported always
-// holds rows. Zero rows therefore means the restore did not bring the ledger
-// back, and a chain check with nothing to check is indistinguishable from one
-// that was skipped. A sparse ledger is not the same thing: one row passes. The
-// auth-row assertion already fails on zero for the same reason.
+// An empty organization list fails. The artifact restores the live auth and
+// audit database, and the binding audit contract requires every operator
+// command, including the export command, to record its operation. Under that
+// contract, an exportable ledger contains rows. An empty restore cannot
+// establish chain preservation and must not count as a skipped check that
+// passes. A sparse ledger with one row can pass. The auth-row assertion also
+// rejects an empty restore.
 func verifyRestoredLedgerChains(
 	ctx context.Context,
 	orgs []drillLedgerOrg,
@@ -71,24 +64,26 @@ func verifyRestoredLedgerChains(
 	logger := telemetry.L(ctx)
 	if len(orgs) == 0 {
 		err := errors.New("restored audit ledger holds no rows, so its hash chain proves nothing")
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed", slog.String("err", err.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.failed",
+			slog.String("err", err.Error()),
+		)
+
 		return err
 	}
 
-	// Each org's bundle is removed as soon as its verdict is read, so the disk
-	// this needs is the largest single org rather than the sum of every org.
-	// Keeping them all until the run ends would make the drill's footprint grow
-	// with tenant count, which is the one number a multi-tenant product is
-	// certain to grow.
+	// The loop removes each organization's bundle immediately after reading its
+	// verdict. Disk use depends on the largest bundle instead of total tenant
+	// count, which can grow in a multi-tenant product.
 	//
-	// A cleanup that fails stops the run rather than being logged and carried
-	// past. The reclaim is what bounds the footprint, so continuing without it
-	// exports the next org onto a volume that is not being freed, and the drill
-	// would keep going until the disk it shares with the backups ran out. It
-	// also fails rather than merely stopping, because a run that could not clean
-	// up has not shown the rehearsal works.
+	// A cleanup failure stops and fails the drill. Continuing would export more
+	// bundles without reclaiming space on the volume shared with backups. That
+	// could exhaust the volume, and failed cleanup does not establish a working
+	// rehearsal.
 	var failures []string
 	totalRows := 0
+
 	for _, org := range orgs {
 		orgBundle := filepath.Join(bundleRoot, org.ID.String())
 		rows, err := verifyRestoredOrgChain(ctx, org, orgBundle, export, verify)
@@ -96,42 +91,60 @@ func verifyRestoredLedgerChains(
 			wrapped := fmt.Errorf(
 				"org %s: could not free the exported bundle at %s, so the drill stopped "+
 					"rather than export another org onto a volume it cannot reclaim: %w",
-				org.ID, orgBundle, removeErr)
-			logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed",
-				slog.String("err", wrapped.Error()))
+				org.ID,
+				orgBundle,
+				removeErr,
+			)
+			logger.ErrorContext(
+				ctx,
+				"backup.restore_drill.ledger_chain.failed",
+				slog.String("err", wrapped.Error()),
+			)
+
 			return wrapped
 		}
+
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue
 		}
+
 		totalRows += rows
 	}
 
 	if len(failures) > 0 {
-		err := fmt.Errorf("restored audit ledger failed chain verification: %s",
-			strings.Join(failures, "; "))
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed",
-			slog.String("err", err.Error()))
+		err := fmt.Errorf(
+			"restored audit ledger failed chain verification: %s",
+			strings.Join(failures, "; "),
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.failed",
+			slog.String("err", err.Error()),
+		)
+
 		return err
 	}
-	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.ok",
+
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.ledger_chain.ok",
 		slog.Int("orgs", len(orgs)),
-		slog.Int("rows_verified", totalRows))
+		slog.Int("rows_verified", totalRows),
+	)
+
 	return nil
 }
 
-// exportWholeOrgLedger writes one org's bundle and establishes that the bundle
-// holds every row the restored ledger has for that org.
+// exportWholeOrgLedger exports one organization and checks that the bundle
+// contains every row that the restored database stores for it.
 //
-// The export asks for the org's whole range with no row limit, so a shortfall
-// is a defect rather than a corpus that outgrew a cap. Reconciling the bundle
-// against the ledger's own count is still the check that catches one, and it is
-// the only check that can: a row dropped from the middle of a chain shows up as
-// a sequence gap, but a row dropped from the newest or oldest end of a shard
-// leaves the remaining rows contiguous and correctly linked, so the chain
-// verdict alone would pass a bundle that quietly lost a shard's head. The ends
-// are exactly where a streaming read's off-by-one lands.
+// The export requests the whole range without a row limit. A short export
+// therefore indicates a defect rather than a size cap. Count reconciliation
+// detects omitted oldest or newest rows in a shard: the remaining rows can
+// remain contiguous and correctly linked. Chain verification alone cannot
+// detect that loss, including an off-by-one error at a streaming boundary.
+// A missing row in the middle instead produces a sequence gap.
 func exportWholeOrgLedger(
 	ctx context.Context,
 	org drillLedgerOrg,
@@ -142,31 +155,51 @@ func exportWholeOrgLedger(
 	rowCount, err := export(ctx, org.ID, dir)
 	if err != nil {
 		wrapped := fmt.Errorf("org %s: export from the restored ledger: %w", org.ID, err)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	if rowCount == 0 {
 		wrapped := fmt.Errorf(
-			"org %s: the restored ledger lists this org but the export wrote no rows", org.ID)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()))
+			"org %s: the restored ledger lists this org but the export wrote no rows",
+			org.ID,
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	if rowCount != org.RowCount {
 		wrapped := fmt.Errorf(
 			"org %s: the export wrote %d of the %d rows the restored ledger holds, "+
 				"so the chain of the rows it left out is unchecked",
-			org.ID, rowCount, org.RowCount)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()))
+			org.ID,
+			rowCount,
+			org.RowCount,
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return wrapped
 	}
+
 	return nil
 }
 
-// verifyRestoredOrgChain exports one org and reads its report, returning the
-// rows verified so the caller can log what the leg actually covered.
+// verifyRestoredOrgChain exports one organization, checks its report, and
+// returns the verified row count for logging actual coverage.
 func verifyRestoredOrgChain(
 	ctx context.Context,
 	org drillLedgerOrg,
@@ -179,67 +212,90 @@ func verifyRestoredOrgChain(
 		return 0, err
 	}
 
-	// A verifier that cannot run fails the drill. Logging the reason and
-	// carrying on would leave a drill that reports success while checking
-	// nothing, which is the shape of every silent backup failure.
+	// A verifier failure must fail the drill. Logging it and continuing could
+	// report success without verifying the backup.
 	report, err := verify(dir)
 	if err != nil {
 		wrapped := fmt.Errorf("org %s: verify the exported bundle: %w", org.ID, err)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, wrapped
 	}
 
 	breaks := len(report.ChainBreaks)
-	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.org",
+	logger.InfoContext(
+		ctx,
+		"backup.restore_drill.ledger_chain.org",
 		slog.String("org_id", org.ID.String()),
 		slog.Int("rows_scanned", report.RowsScanned),
 		slog.Int("hash_matches", report.HashMatches),
 		slog.Int("chain_breaks", breaks),
-		slog.Int("chain_gaps", report.ChainGapCount))
+		slog.Int("chain_gaps", report.ChainGapCount),
+	)
 
-	// The break count is read here rather than delegated to the shared verdict
-	// alone, so loosening that verdict cannot quietly let a broken chain pass
-	// this drill. A break is a prev_hash that does not name the row before it,
-	// or a row whose stored hash does not recompute, which is what a damaged
-	// restore produces.
+	// The drill checks ChainBreaks directly as well as the shared verdict.
+	// Weakening the shared verdict must not permit a broken restored chain to
+	// pass. A break identifies an incorrect prev_hash or a stored hash that does
+	// not match the recomputed hash.
 	if breaks > 0 {
-		wrapped := fmt.Errorf("org %s: %d chain break(s), first: %s",
-			org.ID, breaks, report.ChainBreaks[0])
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"org %s: %d chain break(s), first: %s",
+			org.ID,
+			breaks,
+			report.ChainBreaks[0],
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, wrapped
 	}
-	// A gap is a sequence number the bundle does not carry, and whether that is
-	// an artifact or a finding depends entirely on what the export asked for.
-	// Over a filtered or time-bounded export it is an artifact: the window cut
-	// the chain, the omitted rows are still in the ledger, and failing on it
-	// would reject every honest bundle. That is why the shared verifier counts
-	// a gap instead of calling it a break, and why this leg must not inherit
-	// that tolerance. This export asks for the org's whole range, and the
-	// bundle has already been reconciled against the ledger's own row count, so
-	// nothing here left a row out on purpose. A gap is therefore a row the
-	// restore did not bring back, sitting between two rows it did: the verifier
-	// cannot compare prev_hash across it, so the chain is unverified exactly
-	// where the ledger is incomplete. That is an incomplete restore, and an
-	// incomplete restore is not a passing rehearsal.
+
+	// A gap indicates a missing sequence number. A filtered or time-limited
+	// export can intentionally omit rows that remain in the ledger. The shared
+	// verifier counts those gaps separately from breaks to accept valid partial
+	// bundles.
+	//
+	// This drill requests the whole organization range and has reconciled the
+	// export against the restored ledger's row count. It does not intentionally
+	// omit rows. A gap therefore indicates missing restored rows between retained
+	// rows. The verifier cannot compare prev_hash across that gap. The incomplete
+	// restore must fail the rehearsal instead of using the shared tolerance.
 	if report.ChainGapCount > 0 {
 		wrapped := fmt.Errorf(
 			"org %s: %d sequence gap(s) in a whole-ledger export, so rows are missing from "+
 				"inside the chain and the links across them are unverified",
-			org.ID, report.ChainGapCount)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()))
+			org.ID,
+			report.ChainGapCount,
+		)
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, wrapped
 	}
-	// The rest of the bundle's verdict (the events digest, the manifest
-	// signature, and any row that scanned without matching its hash) still
-	// applies, and it is the same rule the operator verify command enforces.
+
+	// The shared verdict still checks the events digest, manifest signature, and
+	// rows that scanned without a matching hash. The operator verify command
+	// enforces that verdict too.
 	if verdict := report.Err(); verdict != nil {
 		wrapped := fmt.Errorf("org %s: %w", org.ID, verdict)
-		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()))
+		logger.ErrorContext(
+			ctx,
+			"backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()),
+		)
+
 		return 0, wrapped
 	}
+
 	return report.RowsScanned, nil
 }

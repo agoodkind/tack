@@ -5,18 +5,18 @@ import (
 	"time"
 )
 
-// Model states that ML Commons writes to the model record. Search compares
-// them as engine values and never writes them.
+// ML Commons writes these model states. Search compares the engine values
+// without writing them.
 const (
 	ModelStateDeployed          = "DEPLOYED"
 	ModelStatePartiallyDeployed = "PARTIALLY_DEPLOYED"
 	ModelStateDeployFailed      = "DEPLOY_FAILED"
 )
 
-// ModelDeployment is the deployment state of the model that the serving
-// index maps. ActiveTasks counts the DEPLOY_MODEL tasks of the model in
-// CREATED or RUNNING.
-// A task counts as active only within the deploy-task wait bound after its latest update.
+// ModelDeployment records the deployment state of the serving index's
+// model. ActiveTasks counts the model's DEPLOY_MODEL tasks in CREATED or
+// RUNNING only while their latest update remains within the deploy-task
+// wait bound.
 type ModelDeployment struct {
 	ModelID     string
 	State       string
@@ -24,8 +24,12 @@ type ModelDeployment struct {
 	ActiveTasks int
 }
 
-// Stuck reports whether ML Commons left the model PARTIALLY_DEPLOYED or
-// DEPLOY_FAILED with no deploy task in CREATED or RUNNING.
+// Stuck reports whether a failed model deployment lacks an active task.
+//
+// The method checks the deployment state and ActiveTasks together.
+//
+//   - PARTIALLY_DEPLOYED or DEPLOY_FAILED with zero ActiveTasks returns true.
+//   - Every other state or a positive active-task count returns false.
 func (d ModelDeployment) Stuck() bool {
 	failed := d.State == ModelStatePartiallyDeployed || d.State == ModelStateDeployFailed
 	return failed && d.ActiveTasks == 0
@@ -51,11 +55,11 @@ type ModelRepairRequest struct {
 	MaxAttempts int
 }
 
-// ModelRepairClaim is the result of one claim. Record is the stored record
-// after the claim. Previous is the record before the claim, and
-// PreviousFound is false when no record for the model existed. Replaced is
-// the model ID of a record for another model that the claim deleted, or an
-// empty string.
+// ModelRepairClaim records a repair claim's outcome. Record stores the
+// state after the claim; Previous stores the state before it. PreviousFound
+// is false when the model did not have a record. Replaced contains the ID
+// of another model after the claim deletes that model's record, or an empty
+// string.
 type ModelRepairClaim struct {
 	Granted       bool
 	Record        ModelRepairRecord
@@ -64,20 +68,20 @@ type ModelRepairClaim struct {
 	Replaced      string
 }
 
-// ModelRepairEngine reads the serving model deployment and deploys the model
-// with no node IDs.
+// ModelRepairEngine reads the serving model deployment and starts model
+// deployment without specifying node IDs.
 type ModelRepairEngine interface {
 	ModelDeployment(ctx context.Context, index string, now time.Time) (ModelDeployment, error)
 	StartModelDeploy(ctx context.Context, modelID string) (string, error)
 	WaitModelDeploy(ctx context.Context, modelID, taskID string) error
 }
 
-// ModelRepairStore persists the one repair record. ClaimModelRepair counts
-// one attempt. ReleaseModelRepair restores the record that a claim replaced
-// when no other claim followed it. UncountModelRepair removes the attempt of
-// an interrupted claim and keeps its claim time. It reports false and changes
-// nothing when the stored record differs from the claim's record.
-// ResetModelRepair deletes the record and returns it.
+// ModelRepairStore persists one repair record. ClaimModelRepair counts one
+// attempt. ReleaseModelRepair restores the replaced record only when
+// another claim has not followed it. UncountModelRepair removes an
+// interrupted claim's attempt count and preserves its claim time. It returns
+// false without changing the record when the stored record differs from the
+// claim's record. ResetModelRepair deletes and returns the record.
 type ModelRepairStore interface {
 	ClaimModelRepair(ctx context.Context, request ModelRepairRequest) (ModelRepairClaim, error)
 	ReleaseModelRepair(ctx context.Context, claim ModelRepairClaim) error

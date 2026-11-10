@@ -17,8 +17,8 @@ func mustRawString(value string) json.RawMessage {
 	return service.MustRawString(value)
 }
 
-// normalizeCreateProps normalizes create properties and resolves the parent ID.
-// It also returns the property definitions it loaded.
+// normalizeCreateProps normalizes create properties and resolves the parent
+// ID. It also returns the property definitions it loaded.
 func normalizeCreateProps(
 	ctx context.Context,
 	b NodeTypeBinding,
@@ -31,6 +31,7 @@ func normalizeCreateProps(
 	if err != nil {
 		return nil, uuid.Nil, nil, err
 	}
+
 	command, err := service.CompileCreatePropertyCommand(
 		ctx,
 		defs,
@@ -39,19 +40,33 @@ func normalizeCreateProps(
 		orgID,
 		scopeID,
 		props,
-		func(ctx context.Context, orgID uuid.UUID, scopeID uuid.UUID, targetType *node.NodeType, ref string) (uuid.UUID, error) {
+		func(
+			ctx context.Context,
+			orgID uuid.UUID,
+			scopeID uuid.UUID,
+			targetType *node.NodeType,
+			ref string,
+		) (uuid.UUID, error) {
 			return resolveReferenceProp(ctx, b.Resolver, orgID, scopeID, targetType, ref)
 		},
-		func(ctx context.Context, childType *node.NodeType, orgID uuid.UUID, scopeID uuid.UUID, ref string) (uuid.UUID, error) {
+		func(
+			ctx context.Context,
+			childType *node.NodeType,
+			orgID uuid.UUID,
+			scopeID uuid.UUID,
+			ref string,
+		) (uuid.UUID, error) {
 			return resolveParentReference(ctx, b, childType, orgID, scopeID, ref)
 		},
 	)
 	if err != nil {
 		return nil, uuid.Nil, nil, err
 	}
+
 	if command == nil {
 		return nil, scopeID, defs, nil
 	}
+
 	return command.Props, command.ParentID, defs, nil
 }
 
@@ -67,14 +82,17 @@ func normalizeUpdateProps(
 	if existing == nil {
 		return nil, nil, domain.ErrNotFound
 	}
+
 	scopeID := uuidProp(existing, "scope_id")
 	if scopeID == uuid.Nil {
 		scopeID = uuidProp(existing, "parent_id")
 	}
+
 	defs, err := b.PropertyDefs.List(ctx, existing.OrgID)
 	if err != nil {
 		return nil, nil, err
 	}
+
 	command, err := service.CompileUpdatePropertyCommand(
 		ctx,
 		defs,
@@ -83,26 +101,46 @@ func normalizeUpdateProps(
 		existing.OrgID,
 		scopeID,
 		props,
-		func(ctx context.Context, orgID uuid.UUID, scopeID uuid.UUID, targetType *node.NodeType, ref string) (uuid.UUID, error) {
+		func(
+			ctx context.Context,
+			orgID uuid.UUID,
+			scopeID uuid.UUID,
+			targetType *node.NodeType,
+			ref string,
+		) (uuid.UUID, error) {
 			return resolveReferenceProp(ctx, b.Resolver, orgID, scopeID, targetType, ref)
 		},
-		func(ctx context.Context, childType *node.NodeType, orgID uuid.UUID, scopeID uuid.UUID, ref string) (uuid.UUID, error) {
+		func(
+			ctx context.Context,
+			childType *node.NodeType,
+			orgID uuid.UUID,
+			scopeID uuid.UUID,
+			ref string,
+		) (uuid.UUID, error) {
 			return resolveParentReference(ctx, b, childType, orgID, scopeID, ref)
 		},
 	)
 	if err != nil {
 		return nil, nil, loggedNormalizeError(ctx, nt, "update", err)
 	}
+
 	if command == nil {
 		return nil, defs, nil
 	}
+
 	return command.Props, defs, nil
 }
 
 // loggedNormalizeError logs a refused property command and wraps its cause.
 func loggedNormalizeError(ctx context.Context, nt *node.NodeType, command string, err error) error {
-	slog.WarnContext(ctx, "node.props_refused",
-		slog.String("node_type", nt.TypeKey), slog.String("command", command), slog.String("err", err.Error()))
+	slog.WarnContext(
+		ctx,
+		"node.props_refused",
+		slog.String("node_type", nt.TypeKey),
+		slog.String("command", command),
+		slog.String("err", err.Error()),
+	)
+
 	return fmt.Errorf("normalize %s %s properties: %w", nt.TypeKey, command, err)
 }
 
@@ -117,10 +155,12 @@ func normalizePropertyCommandReferences(
 	if props == nil {
 		return nil, nil
 	}
+
 	defs, err := b.PropertyDefs.List(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
+
 	compiled, err := service.CompileUpdatePropertyCommand(
 		ctx,
 		defs,
@@ -129,19 +169,33 @@ func normalizePropertyCommandReferences(
 		orgID,
 		scopeID,
 		props,
-		func(ctx context.Context, orgID uuid.UUID, scopeID uuid.UUID, targetType *node.NodeType, ref string) (uuid.UUID, error) {
+		func(
+			ctx context.Context,
+			orgID uuid.UUID,
+			scopeID uuid.UUID,
+			targetType *node.NodeType,
+			ref string,
+		) (uuid.UUID, error) {
 			return resolveReferenceProp(ctx, b.Resolver, orgID, scopeID, targetType, ref)
 		},
-		func(ctx context.Context, childType *node.NodeType, orgID uuid.UUID, scopeID uuid.UUID, ref string) (uuid.UUID, error) {
+		func(
+			ctx context.Context,
+			childType *node.NodeType,
+			orgID uuid.UUID,
+			scopeID uuid.UUID,
+			ref string,
+		) (uuid.UUID, error) {
 			return resolveParentReference(ctx, b, childType, orgID, scopeID, ref)
 		},
 	)
 	if err != nil {
 		return nil, loggedNormalizeError(ctx, nt, "filter", err)
 	}
+
 	if compiled == nil {
 		return nil, nil
 	}
+
 	return compiled.Props, nil
 }
 
@@ -153,23 +207,37 @@ func resolveReferenceProp(
 	targetType *node.NodeType,
 	ref string,
 ) (uuid.UUID, error) {
-	if targetType.Reference.Strategy == node.ReferenceScopedProperty && !strings.Contains(ref, scopedNodeRefSeparator) && scopeID != uuid.Nil {
+	if targetType.Reference.Strategy == node.ReferenceScopedProperty &&
+		!strings.Contains(ref, scopedNodeRefSeparator) &&
+		scopeID != uuid.Nil {
 		propName := strings.TrimSpace(targetType.Reference.Property)
 		if propName == "" {
 			return uuid.Nil, domain.ErrInvalidArgument
 		}
-		return resolver.resolveNodeWithinScope(ctx, orgID, scopeID, targetType.TypeKey, propName, ref)
+
+		return resolver.resolveNodeWithinScope(
+			ctx,
+			orgID,
+			scopeID,
+			targetType.TypeKey,
+			propName,
+			ref,
+		)
 	}
+
 	id, err := resolver.ResolveTypedNodeID(ctx, targetType, ref)
 	if err != nil {
 		return uuid.Nil, err
 	}
+
 	resolve, err := resolver.reader.Resolve(ctx, id)
 	if err != nil {
 		return uuid.Nil, err
 	}
+
 	if resolve == nil || resolve.OrgID != orgID {
 		return uuid.Nil, domain.ErrNotFound
 	}
+
 	return id, nil
 }
