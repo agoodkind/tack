@@ -32,8 +32,15 @@ const (
 //	target := ResourceTarget(uri)
 func ResourceTarget(uri string) Target {
 	return Target{
-		Kind: TargetKindResource, NodeType: "", Reference: "", Name: "", URI: uri,
-		RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         TargetKindResource,
+		NodeType:     "",
+		Reference:    "",
+		Name:         "",
+		URI:          uri,
+		RelationType: "",
+		ID:           uuid.Nil,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
@@ -70,6 +77,7 @@ func CanonicalUUID(value string) string {
 	if err != nil {
 		return ""
 	}
+
 	return id.String()
 }
 
@@ -84,5 +92,6 @@ func ResourceURI(prefix, value string) string {
 	if id == "" {
 		return prefix + InvalidURISegment
 	}
+
 	return prefix + id
 }

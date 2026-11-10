@@ -34,15 +34,36 @@ const (
 
 // newClusterQueryFixture builds the newQueryFixture graph over engine. The
 // adapter, the worker, and the graph use engine.Endpoint as their only endpoint.
-func newClusterQueryFixture(t *testing.T, engine testenv.OpenSearchFixture) (queryFixture, search.IndexSpec) {
+func newClusterQueryFixture(
+	t *testing.T,
+	engine testenv.OpenSearchFixture,
+) (queryFixture, search.IndexSpec) {
 	t.Helper()
 	stores := newSearchStore(t)
 	adapter, client := openSearchClientsFor(t, engine)
 	index := "cluster-" + uuid.Must(uuid.NewV7()).String()
-	spec := search.IndexSpec{Model: clusterProvision(t, adapter), MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
-	clusterRequire(t, "create search index", adapter.EnsureIndex(WithTestOperation(t, t.Context()), index, spec))
-	clusterRequire(t, "set public alias", adapter.SetAlias(WithTestOperation(t, t.Context()), search.PublicAlias, index))
-	clusterRequire(t, "record serving index", stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index))
+	spec := search.IndexSpec{
+		Model:          clusterProvision(t, adapter),
+		MappingVersion: search.MappingVersion,
+		Primaries:      1,
+		RoutingShards:  24,
+		Replicas:       0,
+	}
+	clusterRequire(
+		t,
+		"create search index",
+		adapter.EnsureIndex(WithTestOperation(t, t.Context()), index, spec),
+	)
+	clusterRequire(
+		t,
+		"set public alias",
+		adapter.SetAlias(WithTestOperation(t, t.Context()), search.PublicAlias, index),
+	)
+	clusterRequire(
+		t,
+		"record serving index",
+		stores.InitializeSearchIndex(WithTestOperation(t, t.Context()), index),
+	)
 	caPath := filepath.Join(t.TempDir(), "search-ca.crt")
 	clusterRequire(t, "write search CA", os.WriteFile(caPath, []byte(engine.CA), 0o600))
 	secret := engine.Password
@@ -60,22 +81,48 @@ func newClusterQueryFixture(t *testing.T, engine testenv.OpenSearchFixture) (que
 	scale, err := datagen.ParseScale("medium")
 	clusterRequire(t, "parse scale", err)
 	seed := nextHarnessSeed()
-	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, seed, scale)
+	identities, err := datagen.BootstrapIdentities(
+		WithTestOperation(t, t.Context()),
+		cfg,
+		seed,
+		scale,
+	)
 	clusterRequire(t, "bootstrap identities", err)
 	workspace := identities.Workspaces[0]
 	harness := &MCPHarness{
-		driver: datagen.NewDriver(graph, false, seed), handler: graph.MCPRoute,
-		token: workspace.Actors[0].Token, ledgerDSN: cfg.DatabaseURL, orgID: workspace.OrgID,
-		Workspace: workspace.Slug, Project: "", outbox: stores.OpsOutbox, titles: datagen.NewSearchTitles(),
+		driver:    datagen.NewDriver(graph, false, seed),
+		handler:   graph.MCPRoute,
+		token:     workspace.Actors[0].Token,
+		ledgerDSN: cfg.DatabaseURL,
+		orgID:     workspace.OrgID,
+		Workspace: workspace.Slug,
+		Project:   "",
+		outbox:    stores.OpsOutbox,
+		titles:    datagen.NewSearchTitles(),
 	}
-	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, searchWorkerSettings(runtimePageBytes))
+	worker := newSearchWorker(
+		t,
+		stores,
+		adapter,
+		clock.Wall{},
+		searchWorkerSettings(runtimePageBytes),
+	)
+
 	fixture := queryFixture{
-		Stores: stores, Adapter: adapter, Client: client, Index: index, Config: cfg,
-		Graph: graph, Harness: harness, Workspaces: identities.Workspaces, Worker: worker,
+		Stores:     stores,
+		Adapter:    adapter,
+		Client:     client,
+		Index:      index,
+		Config:     cfg,
+		Graph:      graph,
+		Harness:    harness,
+		Workspaces: identities.Workspaces,
+		Worker:     worker,
 	}
 	for _, bootstrapped := range identities.Workspaces {
 		entryPoint(t, fixture, bootstrapped)
 	}
+
 	return fixture, spec
 }
 
@@ -92,6 +139,7 @@ func clusterFailure(operation string, err error) error {
 	if err == nil {
 		return nil
 	}
+
 	return errors.New(operation + ": " + err.Error())
 }
 
@@ -100,10 +148,12 @@ func clusterFailure(operation string, err error) error {
 func clusterEventually(t *testing.T, operation string, check func() error) {
 	t.Helper()
 	deadline := clock.Now().Add(clusterDeadline)
+
 	for err := check(); err != nil; err = check() {
 		if clock.Now().After(deadline) {
 			t.Fatalf("%s within %s: %v", operation, clusterDeadline, err)
 		}
+
 		time.Sleep(clusterPoll)
 	}
 }
@@ -113,11 +163,17 @@ func clusterEventually(t *testing.T, operation string, check func() error) {
 func clusterProvision(t *testing.T, adapter *search.Adapter) search.ModelInfo {
 	t.Helper()
 	var model search.ModelInfo
-	clusterEventually(t, "provision the search model", func() error {
-		provisioned, err := adapter.Provision(WithTestOperation(t, t.Context()))
-		model = provisioned
-		return clusterFailure("provision", err)
-	})
+	clusterEventually(
+		t,
+		"provision the search model",
+		func() error {
+			provisioned, err := adapter.Provision(WithTestOperation(t, t.Context()))
+			model = provisioned
+
+			return clusterFailure("provision", err)
+		},
+	)
+
 	return model
 }
 
@@ -130,77 +186,114 @@ func clusterNodeWriter(t *testing.T, fixture queryFixture) func() uuid.UUID {
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
 	parent := entryPoint(t, fixture, workspace)
 	var written atomic.Int64
+
 	return func() uuid.UUID {
 		name := "cluster node " + strconv.FormatInt(written.Add(1), 10)
 		return putOpaqueNode(t, fixture, kind, parent, name, clusterPhrase, "excluded cluster text")
 	}
 }
 
-func requireSearchable(t *testing.T, fixture queryFixture, expected []uuid.UUID, onFailure ...clusterFailureCallbacks) {
+func requireSearchable(
+	t *testing.T,
+	fixture queryFixture,
+	expected []uuid.UUID,
+	onFailure ...clusterFailureCallbacks,
+) {
 	t.Helper()
-	clusterEventually(t, "search every written node", func() error {
-		for range 100 {
-			claimed, err := fixture.Worker.RunSlice(WithTestOperation(t, t.Context()))
-			if err != nil {
-				for _, diagnose := range onFailure {
-					diagnose.Worker(err)
+	clusterEventually(
+		t,
+		"search every written node",
+		func() error {
+			for range 100 {
+				claimed, err := fixture.Worker.RunSlice(WithTestOperation(t, t.Context()))
+				if err != nil {
+					for _, diagnose := range onFailure {
+						diagnose.Worker(err)
+					}
+
+					return clusterFailure("run search worker slice", err)
 				}
-				return clusterFailure("run search worker slice", err)
-			}
-			if !claimed {
-				break
-			}
-		}
-		found, cursor, complete := []uuid.UUID{}, "", false
-		for range clusterSearchPages {
-			page, err := trySearch(fixture.Harness, clusterPhrase, cursor)
-			if err != nil {
-				for _, diagnose := range onFailure {
-					diagnose.Public(err)
+
+				if !claimed {
+					break
 				}
-				return err
 			}
-			found = append(found, page.IDs...)
-			complete = page.Complete
-			if complete {
-				break
+
+			found, cursor, complete := []uuid.UUID{}, "", false
+
+			for range clusterSearchPages {
+				page, err := trySearch(fixture.Harness, clusterPhrase, cursor)
+				if err != nil {
+					for _, diagnose := range onFailure {
+						diagnose.Public(err)
+					}
+
+					return err
+				}
+
+				found = append(found, page.IDs...)
+				complete = page.Complete
+				if complete {
+					break
+				}
+
+				cursor = page.Cursor
 			}
-			cursor = page.Cursor
-		}
-		if !complete {
-			return fmt.Errorf("search results continue past %d pages", clusterSearchPages)
-		}
-		for _, nodeID := range expected {
-			if !slices.Contains(found, nodeID) {
-				return fmt.Errorf("node %s is not in the search results", nodeID)
+
+			if !complete {
+				return fmt.Errorf("search results continue past %d pages", clusterSearchPages)
 			}
-		}
-		return nil
-	})
+
+			for _, nodeID := range expected {
+				if !slices.Contains(found, nodeID) {
+					return fmt.Errorf("node %s is not in the search results", nodeID)
+				}
+			}
+
+			return nil
+		},
+	)
 }
 
 // requireModelOnEveryMember reads the model record through the ML Commons
 // API until it reports a deployment to all nodes with one worker per member.
 func requireModelOnEveryMember(t *testing.T, fixture queryFixture, modelID string, members int) {
 	t.Helper()
-	clusterEventually(t, "deploy the model to every member", func() error {
-		request, err := http.NewRequestWithContext(WithTestOperation(t, t.Context()), http.MethodGet, "/_plugins/_ml/models/"+url.PathEscape(modelID), nil)
-		clusterRequire(t, "build the model request", err)
-		response, err := fixture.Client.Client.Request(request)
-		if err != nil {
-			return clusterFailure("read the model", err)
-		}
-		defer func() { _ = response.Body.Close() }()
-		var model struct {
-			AllNodes bool `json:"deploy_to_all_nodes"`
-			Workers  int  `json:"current_worker_node_count"`
-		}
-		if err := json.NewDecoder(response.Body).Decode(&model); err != nil {
-			return clusterFailure("decode the model", err)
-		}
-		if !model.AllNodes || model.Workers != members {
-			return fmt.Errorf("model deploy_to_all_nodes=%t with %d workers, want true with %d", model.AllNodes, model.Workers, members)
-		}
-		return nil
-	})
+	clusterEventually(
+		t,
+		"deploy the model to every member",
+		func() error {
+			request, err := http.NewRequestWithContext(
+				WithTestOperation(t, t.Context()),
+				http.MethodGet,
+				"/_plugins/_ml/models/"+url.PathEscape(modelID),
+				nil,
+			)
+			clusterRequire(t, "build the model request", err)
+			response, err := fixture.Client.Client.Request(request)
+			if err != nil {
+				return clusterFailure("read the model", err)
+			}
+
+			defer func() { _ = response.Body.Close() }()
+			var model struct {
+				AllNodes bool `json:"deploy_to_all_nodes"`
+				Workers  int  `json:"current_worker_node_count"`
+			}
+			if err := json.NewDecoder(response.Body).Decode(&model); err != nil {
+				return clusterFailure("decode the model", err)
+			}
+
+			if !model.AllNodes || model.Workers != members {
+				return fmt.Errorf(
+					"model deploy_to_all_nodes=%t with %d workers, want true with %d",
+					model.AllNodes,
+					model.Workers,
+					members,
+				)
+			}
+
+			return nil
+		},
+	)
 }

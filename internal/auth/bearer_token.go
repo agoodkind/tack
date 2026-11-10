@@ -24,5 +24,6 @@ func NewBearerToken() (string, error) {
 		slog.Error("auth.bearer_token_generate_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("generate bearer token: %w", err)
 	}
+
 	return bearerTokenPrefix + base64.RawURLEncoding.EncodeToString(raw), nil
 }

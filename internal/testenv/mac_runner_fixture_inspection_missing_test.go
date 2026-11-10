@@ -39,43 +39,67 @@ func TestMacRunnerDockerFixtureMissingInspection(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(fixtureHome) })
 	inspectionSocket := filepath.Join(fixtureHome, ".docker/run/docker.sock")
-	rawSocket := filepath.Join(fixtureHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock")
+	rawSocket := filepath.Join(
+		fixtureHome,
+		"Library/Containers/com.docker.docker/Data/docker.raw.sock",
+	)
 	for _, directory := range []string{filepath.Dir(inspectionSocket), filepath.Dir(rawSocket)} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Symlink(filepath.Join(originalHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock"), rawSocket); err != nil {
+	if err := os.Symlink(
+		filepath.Join(originalHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock"),
+		rawSocket,
+	); err != nil {
 		t.Fatal(err)
 	}
 	listener, err := net.Listen("unix", inspectionSocket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(originalHome, ".docker/run/docker.sock"))
-	}}
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "docker"})
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(
+				ctx,
+				"unix",
+				filepath.Join(originalHome, ".docker/run/docker.sock"),
+			)
+		},
+	}
+	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
+		Scheme: "http",
+		Host:   "docker",
+	})
 	proxy.Transport = transport
 	proxy.FlushInterval = -1
 	removed := make(chan struct{})
 	var removedOnce sync.Once
-	server := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		id := macContainerInspectionID(request)
-		if id != "" {
-			matched, captureErr := macRemoveUnloggedFixture(request.Context(), docker, options.EvidenceDirectory, id, fixture)
-			if captureErr != nil {
-				http.Error(writer, captureErr.Error(), http.StatusInternalServerError)
-				return
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			id := macContainerInspectionID(request)
+			if id != "" {
+				matched, captureErr := macRemoveUnloggedFixture(
+					request.Context(),
+					docker,
+					options.EvidenceDirectory,
+					id,
+					fixture,
+				)
+				if captureErr != nil {
+					http.Error(writer, captureErr.Error(), http.StatusInternalServerError)
+					return
+				}
+				if matched {
+					removedOnce.Do(func() { close(removed) })
+					http.Error(writer, "injected fixture disappearance", http.StatusNotFound)
+					return
+				}
 			}
-			if matched {
-				removedOnce.Do(func() { close(removed) })
-				http.Error(writer, "injected fixture disappearance", http.StatusNotFound)
-				return
-			}
-		}
-		proxy.ServeHTTP(writer, request)
-	}), ReadHeaderTimeout: 10 * time.Second}
+			proxy.ServeHTTP(writer, request)
+		}),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close(); transport.CloseIdleConnections() })
 	t.Setenv("HOME", fixtureHome)
@@ -86,7 +110,10 @@ func TestMacRunnerDockerFixtureMissingInspection(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	completed := make(chan outcome, 1)
-	go func() { result, runErr := testenv.RunMacTests(ctx, options); completed <- outcome{result, runErr} }()
+	go func() {
+		result, runErr := testenv.RunMacTests(ctx, options)
+		completed <- outcome{result, runErr}
+	}()
 	finished := false
 	t.Cleanup(func() {
 		if !finished {
@@ -122,19 +149,36 @@ func TestMacRunnerDockerFixtureMissingInspection(t *testing.T) {
 	finished = true
 	summary := macOwnershipEvidence(t, options.EvidenceDirectory)
 	preserved := summary.Fixtures.Preserved["container:"+id]
-	if result.err == nil || result.result.ExitCode != 130 || summary.Attribution || summary.Cleanup || summary.FullCleanup || !preserved.Incomplete || preserved.ID != id {
-		t.Errorf("missing inspection reported complete attribution: result=%+v error=%v summary=%+v", result.result, result.err, summary)
+	if result.err == nil || result.result.ExitCode != 130 || summary.Attribution ||
+		summary.Cleanup ||
+		summary.FullCleanup ||
+		!preserved.Incomplete ||
+		preserved.ID != id {
+		t.Errorf(
+			"missing inspection reported complete attribution: result=%+v error=%v summary=%+v",
+			result.result,
+			result.err,
+			summary,
+		)
 	}
-	if result.err == nil || !strings.Contains(result.err.Error(), "create inspection failed") || strings.Contains(macRead(t, options.EvidenceDirectory, "runtime.log"), name) {
+	if result.err == nil || !strings.Contains(result.err.Error(), "create inspection failed") ||
+		strings.Contains(macRead(t, options.EvidenceDirectory, "runtime.log"), name) {
 		t.Error("the missing inspection lacks its error or unexpectedly has a start log")
 	}
 	if summary.Fixtures.Volumes[volumeName] {
 		t.Error("the runner attributed an unobserved anonymous volume")
 	}
-	if strings.Contains(macRead(t, options.EvidenceDirectory, "baseline-volumes.stdout"), volumeName) {
+	if strings.Contains(
+		macRead(t, options.EvidenceDirectory, "baseline-volumes.stdout"),
+		volumeName,
+	) {
 		t.Error("the test volume existed before the runner baseline")
 	}
-	if _, err := docker.VolumeInspect(t.Context(), volumeName, client.VolumeInspectOptions{}); err != nil {
+	if _, err := docker.VolumeInspect(
+		t.Context(),
+		volumeName,
+		client.VolumeInspectOptions{},
+	); err != nil {
 		t.Errorf("the unproven volume disappeared: %v", err)
 	}
 }

@@ -19,26 +19,41 @@ import (
 // org the user belongs to, deduplicated by slug and name, for the per-user
 // server build. Any failed read returns an error. The handler then answers
 // with an explicit error and publishes no server from partial metadata.
-func (h *Handler) collectMetadata(ctx context.Context, orgIDs []uuid.UUID) ([]*node.NodeType, []*node.PropertyDef, error) {
+func (h *Handler) collectMetadata(
+	ctx context.Context,
+	orgIDs []uuid.UUID,
+) ([]*node.NodeType, []*node.PropertyDef, error) {
 	var nodeTypes []*node.NodeType
 	seen := make(map[string]struct{})
 	var propertyDefs []*node.PropertyDef
 	seenPropertyDefs := make(map[string]struct{})
+
 	for _, orgID := range orgIDs {
 		nts, err := h.nodeTypes.List(ctx, orgID)
 		if err != nil {
-			return nil, nil, metadataReadFailure(ctx, "list node types of organization "+orgID.String(), err)
+			return nil, nil, metadataReadFailure(
+				ctx,
+				"list node types of organization "+orgID.String(),
+				err,
+			)
 		}
+
 		for _, nt := range nts {
 			if _, dup := seen[nt.Slug]; !dup {
 				seen[nt.Slug] = struct{}{}
 				nodeTypes = append(nodeTypes, nt)
 			}
 		}
+
 		defs, err := h.propertyDefs.List(ctx, orgID)
 		if err != nil {
-			return nil, nil, metadataReadFailure(ctx, "list property definitions of organization "+orgID.String(), err)
+			return nil, nil, metadataReadFailure(
+				ctx,
+				"list property definitions of organization "+orgID.String(),
+				err,
+			)
 		}
+
 		for _, def := range defs {
 			if _, dup := seenPropertyDefs[def.Name]; !dup {
 				seenPropertyDefs[def.Name] = struct{}{}
@@ -46,13 +61,19 @@ func (h *Handler) collectMetadata(ctx context.Context, orgIDs []uuid.UUID) ([]*n
 			}
 		}
 	}
+
 	return nodeTypes, propertyDefs, nil
 }
 
 // metadataReadFailure logs one failed metadata read and returns it wrapped.
 func metadataReadFailure(ctx context.Context, operation string, err error) error {
 	wrapped := fmt.Errorf("mcp: %s: %w", operation, err)
-	telemetry.L(ctx).ErrorContext(ctx, "mcp.metadata_read_failed", slog.String("err", wrapped.Error()))
+	telemetry.L(ctx).ErrorContext(
+		ctx,
+		"mcp.metadata_read_failed",
+		slog.String("err", wrapped.Error()),
+	)
+
 	return wrapped
 }
 
@@ -64,7 +85,10 @@ func metadataUnavailable(w http.ResponseWriter, span trace.Span, err error) {
 	http.Error(w, `{"error":"metadata unavailable"}`, http.StatusServiceUnavailable)
 }
 
-func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) (*mcpserver.MCPServer, *tools.Resolver) {
+func (h *Handler) buildServer(
+	nodeTypes []*node.NodeType,
+	propertyDefs []*node.PropertyDef,
+) (*mcpserver.MCPServer, *tools.Resolver) {
 	s := mcpserver.NewMCPServer("tack", "0.2.0")
 
 	resolver := tools.NewResolver(h.nodes, h.reader, h.members, nodeTypes)
@@ -83,12 +107,15 @@ func (h *Handler) buildServer(nodeTypes []*node.NodeType, propertyDefs []*node.P
 		Relationships: h.relationshipLister,
 	}
 	tools.RegisterSearch(s, binding, h.search)
+
 	for _, nt := range nodeTypes {
 		tools.RegisterNodeTools(s, nt, binding)
 	}
+
 	tools.RegisterReferencePropertyTools(s, binding, nodeTypes, propertyDefs)
 
 	tools.RegisterResources(s, h.reader, resolver, nodeTypes, propertyDefs)
 	tools.RegisterPrompts(s, resolver, nodeTypes, propertyDefs)
+
 	return s, resolver
 }

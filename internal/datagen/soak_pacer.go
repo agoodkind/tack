@@ -61,9 +61,7 @@ func waitForSoakOperation(
 			return false, nil
 		default:
 		}
-		slog.ErrorContext(ctx, "qa.datagen.soak_wait_failed",
-			slog.String("err", ctx.Err().Error()),
-		)
+		slog.ErrorContext(ctx, "qa.datagen.soak_wait_failed", slog.String("err", ctx.Err().Error()))
 		return false, fmt.Errorf("qa datagen soak: wait for operation: %w", ctx.Err())
 	}
 }

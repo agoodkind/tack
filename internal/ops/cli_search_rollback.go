@@ -17,12 +17,26 @@ type searchRollbackInput struct {
 
 func searchRollbackOp(f *cli.Factory) clispec.Operation[searchRollbackInput] {
 	return clispec.Operation[searchRollbackInput]{
-		Name: clispec.Name{Canonical: "access-rollback", CLIOverride: ""}, Lifetime: clispec.Permanent,
-		Audit: audit.Spec{Verb: string(audit.VerbOpsSearchAccessRollback), Mutates: true}, Group: searchGroup,
+		Name: clispec.Name{
+			Canonical:   "access-rollback",
+			CLIOverride: "",
+		},
+		Lifetime: clispec.Permanent,
+		Audit: audit.Spec{
+			Verb:    string(audit.VerbOpsSearchAccessRollback),
+			Mutates: true,
+		},
+		Group: searchGroup,
 		Short: "Roll back one permission authority's access policy rollout",
 		Long:  "The command defaults to a dry run that prints the authority's current rollout state. With the execute flag, the command restores the previous active version before retirement begins and stops new writes from including the candidate version. The worker removes the candidate keys after sessions that use the candidate finish. The command refuses rollback after retirement begins.",
 		Params: []clispec.Param[searchRollbackInput]{
-			clispec.StringParam("authority", "permission authority (organization) ID", "", true, func(in *searchRollbackInput, value string) { in.Authority = value }),
+			clispec.StringParam(
+				"authority",
+				"permission authority (organization) ID",
+				"",
+				true,
+				func(in *searchRollbackInput, value string) { in.Authority = value },
+			),
 		},
 		New: func() searchRollbackInput {
 			return searchRollbackInput{InputMarker: clispec.InputMarker{}, Authority: ""}
@@ -36,11 +50,18 @@ func searchRollbackOp(f *cli.Factory) clispec.Operation[searchRollbackInput] {
 	}
 }
 
-func runSearchRollback(ctx context.Context, f *cli.Factory, in searchRollbackInput, sink clispec.ResultSink, dryRun bool) error {
-	authorityID, err := uuid.Parse(in.Authority)
+func runSearchRollback(
+	ctx context.Context,
+	f *cli.Factory,
+	input searchRollbackInput,
+	sink clispec.ResultSink,
+	dryRun bool,
+) error {
+	authorityID, err := uuid.Parse(input.Authority)
 	if err != nil {
-		return searchRolloutFailure(ctx, "parse authority "+in.Authority, err)
+		return searchRolloutFailure(ctx, "parse authority "+input.Authority, err)
 	}
+
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
 		return searchRolloutFailure(ctx, "open search rollback environment", err)
@@ -49,19 +70,35 @@ func runSearchRollback(ctx context.Context, f *cli.Factory, in searchRollbackInp
 	rollouts := env.Stores.SearchRollouts(opsClockSource{}, env.Stores.SearchPolicySet())
 	rollout, err := rollouts.Current(ctx, authorityID)
 	if err != nil {
-		return searchRolloutFailure(ctx, "read access rollout of authority "+authorityID.String(), err)
+		return searchRolloutFailure(
+			ctx,
+			"read access rollout of authority "+authorityID.String(),
+			err,
+		)
 	}
+
 	if !dryRun {
 		initiation, initiationErr := commandInitiation(ctx)
 		if initiationErr != nil {
 			return initiationErr
 		}
-		rollout, err = rollouts.Rollback(ctx, searchdomain.RollbackAccessRollout{
-			AuthorityID: authorityID, ExpectedGeneration: rollout.Generation, Initiation: initiation,
-		})
+
+		rollout, err = rollouts.Rollback(
+			ctx,
+			searchdomain.RollbackAccessRollout{
+				AuthorityID:        authorityID,
+				ExpectedGeneration: rollout.Generation,
+				Initiation:         initiation,
+			},
+		)
 		if err != nil {
-			return searchRolloutFailure(ctx, "roll back access rollout of authority "+authorityID.String(), err)
+			return searchRolloutFailure(
+				ctx,
+				"roll back access rollout of authority "+authorityID.String(),
+				err,
+			)
 		}
 	}
+
 	return writeSearchRolloutResult(ctx, sink, rollouts, rollout, dryRun)
 }

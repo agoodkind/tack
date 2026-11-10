@@ -77,9 +77,19 @@ func TestSearchSessionInfersOnce(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
 	entryID := integration.EntryPoint(t, fixture, workspace)
+
 	for number := range sessionNodes {
-		integration.PutOpaqueNode(t, fixture, kind, entryID, fmt.Sprintf("Session node %d", number), sessionQuery, "excluded")
+		integration.PutOpaqueNode(
+			t,
+			fixture,
+			kind,
+			entryID,
+			fmt.Sprintf("Session node %d", number),
+			sessionQuery,
+			"excluded",
+		)
 	}
+
 	integration.DrainSearchWork(t, fixture.Worker, sessionSlices)
 	harness, capture := newInferenceCaptureHarness(t, fixture)
 	capture.take()
@@ -88,17 +98,36 @@ func TestSearchSessionInfersOnce(t *testing.T) {
 	exchange := capture.take()
 	predicted := requireOnePrediction(t, exchange)
 	if pages < sessionMinimumPages || len(exchange.Searches) < sessionMinimumBatches {
-		t.Fatalf("search %q returned %d pages from %d ranked batches, want at least %d pages and %d batches",
-			sessionQuery, pages, len(exchange.Searches), sessionMinimumPages, sessionMinimumBatches)
+		t.Fatalf(
+			"search %q returned %d pages from %d ranked batches, want at least %d pages and %d batches",
+			sessionQuery,
+			pages,
+			len(exchange.Searches),
+			sessionMinimumPages,
+			sessionMinimumBatches,
+		)
 	}
+
 	first := decodeRankedRequest(t, exchange.Searches[0]).Tokens
 	requirePredictedTokens(t, first, predicted)
+
 	for number, search := range exchange.Searches[1:] {
 		if tokens := decodeRankedRequest(t, search).Tokens; !bytes.Equal(tokens, first) {
-			t.Fatalf("ranked batch %d sends query tokens that differ from the first batch", number+2)
+			t.Fatalf(
+				"ranked batch %d sends query tokens that differ from the first batch",
+				number+2,
+			)
 		}
 	}
-	t.Logf("session query=%q pages=%d ranked_batches=%d predicts=%d tokens=%d", sessionQuery, pages, len(exchange.Searches), len(exchange.Predicts), len(predicted))
+
+	t.Logf(
+		"session query=%q pages=%d ranked_batches=%d predicts=%d tokens=%d",
+		sessionQuery,
+		pages,
+		len(exchange.Searches),
+		len(exchange.Predicts),
+		len(predicted),
+	)
 }
 
 // followSession reads sessionQuery to completion and returns its public page
@@ -108,20 +137,26 @@ func TestSearchSessionInfersOnce(t *testing.T) {
 func followSession(t *testing.T, harness *integration.MCPHarness) int {
 	t.Helper()
 	cursor := ""
+
 	for pages := 1; pages <= sessionMaxPages; pages++ {
 		page := integration.CallSearch(t, harness, sessionQuery, cursor)
 		if cursor != "" {
 			replay := integration.CallSearch(t, harness, sessionQuery, cursor)
-			if !slices.Equal(page.IDs, replay.IDs) || page.Cursor != replay.Cursor || page.Complete != replay.Complete {
+			if !slices.Equal(page.IDs, replay.IDs) || page.Cursor != replay.Cursor ||
+				page.Complete != replay.Complete {
 				t.Fatalf("replaying the cursor of page %d returned a different page", pages)
 			}
 		}
+
 		if page.Complete {
 			return pages
 		}
+
 		cursor = page.Cursor
 	}
+
 	t.Fatalf("search %q did not complete within %d pages", sessionQuery, sessionMaxPages)
+
 	return 0
 }
 
@@ -133,7 +168,12 @@ func followSession(t *testing.T, harness *integration.MCPHarness) int {
 func TestSearchSavedTokensFindAnalyzerMiss(t *testing.T) {
 	fixture := integration.NewQueryFixture(t)
 	kind := integration.PutOpaqueKind(t, fixture, fixture.Workspaces[0].OrgID)
-	targets := putRelevanceCorpus(t, fixture, approvedRelevanceNodes(t), []integration.OpaqueKind{kind})
+	targets := putRelevanceCorpus(
+		t,
+		fixture,
+		approvedRelevanceNodes(t),
+		[]integration.OpaqueKind{kind},
+	)
 	harness, capture := newInferenceCaptureHarness(t, fixture)
 	capture.take()
 	page := integration.CallSearch(t, harness, analyzerQuery, "")
@@ -142,18 +182,32 @@ func TestSearchSavedTokensFindAnalyzerMiss(t *testing.T) {
 	if len(exchange.Searches) == 0 {
 		t.Fatalf("search %q sent no ranked batch", analyzerQuery)
 	}
+
 	request := decodeRankedRequest(t, exchange.Searches[0])
 	ranked := analyzerRanks(t, fixture, request, analyzerQuery)
 	missed := 0
+
 	for _, target := range targets[analyzerQuery] {
 		rank := slices.Index(ranked, target) + 1
-		t.Logf("analyzer query=%q analyzer=%s target=%s analyzer_rank=%d", analyzerQuery, builtInAnalyzer, target, rank)
+		t.Logf(
+			"analyzer query=%q analyzer=%s target=%s analyzer_rank=%d",
+			analyzerQuery,
+			builtInAnalyzer,
+			target,
+			rank,
+		)
 		if rank == 0 || rank > analyzerFirstPage {
 			missed++
 		}
 	}
+
 	if missed == 0 {
-		t.Fatalf("the %s analyzer query returned every %q target within the first %d nodes", builtInAnalyzer, analyzerQuery, analyzerFirstPage)
+		t.Fatalf(
+			"the %s analyzer query returned every %q target within the first %d nodes",
+			builtInAnalyzer,
+			analyzerQuery,
+			analyzerFirstPage,
+		)
 	}
 }
 
@@ -161,33 +215,63 @@ func TestSearchSavedTokensFindAnalyzerMiss(t *testing.T) {
 // instead of saved query_tokens. It preserves the captured filters, lexical
 // clause, nested path, and score mode. It returns distinct node IDs in rank
 // order.
-func analyzerRanks(t *testing.T, fixture integration.QueryFixture, request rankedRequest, query string) []uuid.UUID {
+func analyzerRanks(
+	t *testing.T,
+	fixture integration.QueryFixture,
+	request rankedRequest,
+	query string,
+) []uuid.UUID {
 	t.Helper()
 	nested := request.Sparse.Nested
-	sparse := analyzerSparseClause{Nested: analyzerSparseNested{
-		Path: nested.Path, ScoreMode: nested.ScoreMode,
-		Query: analyzerNeuralSparse{NeuralSparse: map[string]analyzerQueryText{}},
-	}}
-	for field := range nested.Query.NeuralSparse {
-		sparse.Nested.Query.NeuralSparse[field] = analyzerQueryText{QueryText: query, Analyzer: builtInAnalyzer}
+
+	sparse := analyzerSparseClause{
+		Nested: analyzerSparseNested{
+			Path:      nested.Path,
+			ScoreMode: nested.ScoreMode,
+			Query:     analyzerNeuralSparse{NeuralSparse: map[string]analyzerQueryText{}},
+		},
 	}
+	for field := range nested.Query.NeuralSparse {
+		sparse.Nested.Query.NeuralSparse[field] = analyzerQueryText{
+			QueryText: query,
+			Analyzer:  builtInAnalyzer,
+		}
+	}
+
 	encoded, err := json.Marshal(sparse)
 	if err != nil {
 		t.Fatalf("encode analyzer sparse clause: %v", err)
 	}
-	body := traceSearch{Size: analyzerHits, Explain: false, Source: []string{"node_id"}, Query: traceBool{Bool: traceBoolClauses{
-		Filter: request.Body.Query.Bool.Filter, Should: []json.RawMessage{request.Body.Query.Bool.Should[0], encoded}, MinimumShouldMatch: 1,
-	}}}
-	response, err := fixture.Client.Search(integration.WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{
-		Indices: []string{fixture.Index}, BodyReader: bytes.NewReader(encodeTrace(t, body)),
-	})
+
+	body := traceSearch{
+		Size:    analyzerHits,
+		Explain: false,
+		Source:  []string{"node_id"},
+		Query: traceBool{
+			Bool: traceBoolClauses{
+				Filter:             request.Body.Query.Bool.Filter,
+				Should:             []json.RawMessage{request.Body.Query.Bool.Should[0], encoded},
+				MinimumShouldMatch: 1,
+			},
+		},
+	}
+	response, err := fixture.Client.Search(
+		integration.WithTestOperation(t, t.Context()),
+		&opensearchapi.SearchReq{
+			Indices:    []string{fixture.Index},
+			BodyReader: bytes.NewReader(encodeTrace(t, body)),
+		},
+	)
 	if err != nil {
 		t.Fatalf("analyzer search %q on %s: %v", query, fixture.Index, err)
 	}
+
 	nodes := rankedTraceNodes(t, response.Hits.Hits)
+
 	ranked := make([]uuid.UUID, 0, len(nodes))
 	for _, node := range nodes {
 		ranked = append(ranked, node.ID)
 	}
+
 	return ranked
 }

@@ -16,9 +16,15 @@ func repairPhases(entry NodeIntegrityEntry) []node.RepairPhase {
 	if entry.Delete != nil {
 		return []node.RepairPhase{node.RepairPhaseExported, node.RepairPhaseCompleted}
 	}
+
 	if entry.Report != nil {
-		return []node.RepairPhase{node.RepairPhaseCommentCreated, node.RepairPhaseCommentVerified, node.RepairPhaseCompleted}
+		return []node.RepairPhase{
+			node.RepairPhaseCommentCreated,
+			node.RepairPhaseCommentVerified,
+			node.RepairPhaseCompleted,
+		}
 	}
+
 	return []node.RepairPhase{node.RepairPhaseCompleted}
 }
 
@@ -30,12 +36,15 @@ func nextRepairPhase(entry NodeIntegrityEntry, current node.RepairPhase) (node.R
 	if current == "" {
 		return phases[0], true
 	}
+
 	position := slices.Index(phases, current)
 	if position < 0 {
 		return "", false
 	}
+
 	if position == len(phases)-1 {
 		return "", true
 	}
+
 	return phases[position+1], true
 }

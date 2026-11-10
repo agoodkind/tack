@@ -36,17 +36,23 @@ type Stores struct {
 // NewStores opens FDB once and wires all generic stores to the same connection.
 // sqlPool is reserved for auth-adjacent queries (org_members), not domain data.
 // transactionTimeout bounds every transaction these stores run; see [Open].
-func NewStores(clusterFile string, transactionTimeout time.Duration, sqlPool *pgxpool.Pool) (*Stores, error) {
+func NewStores(
+	clusterFile string,
+	transactionTimeout time.Duration,
+	sqlPool *pgxpool.Pool,
+) (*Stores, error) {
 	db, err := Open(clusterFile, transactionTimeout)
 	if err != nil {
 		return nil, err
 	}
+
 	return newStores(db, sqlPool), nil
 }
 
 func newStores(db fdb.Database, _ *pgxpool.Pool) *Stores {
 	source := processClock{}
 	nodes := NewNodeStore(db, source)
+
 	return &Stores{
 		db:            db,
 		NodeTypes:     NewNodeTypeStore(db, source),
@@ -120,6 +126,7 @@ func (s *Stores) Ping(ctx context.Context) (err error) {
 	if contextErr := ctx.Err(); contextErr != nil {
 		return fdbPingError(ctx, contextErr)
 	}
+
 	transaction, transactionErr := s.db.CreateTransaction()
 	if transactionErr != nil {
 		return fdbPingError(ctx, transactionErr)
@@ -132,6 +139,7 @@ func (s *Stores) Ping(ctx context.Context) (err error) {
 		if timeoutMilliseconds <= 0 {
 			return fdbPingError(ctx, context.DeadlineExceeded)
 		}
+
 		if timeoutErr := transaction.Options().SetTimeout(timeoutMilliseconds); timeoutErr != nil {
 			return fdbPingError(ctx, timeoutErr)
 		}
@@ -142,13 +150,16 @@ func (s *Stores) Ping(ctx context.Context) (err error) {
 		if readErr == nil {
 			return nil
 		}
+
 		if contextErr := ctx.Err(); contextErr != nil {
 			return fdbPingError(ctx, contextErr)
 		}
+
 		var fdbErr fdb.Error
 		if !errors.As(readErr, &fdbErr) {
 			return fdbPingError(ctx, readErr)
 		}
+
 		if retryErr := transaction.OnError(fdbErr).Get(); retryErr != nil {
 			return fdbPingError(ctx, retryErr)
 		}

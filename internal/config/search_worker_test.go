@@ -14,11 +14,14 @@ func TestLoadSearchWorkerSettingsRejectsIncompleteClassWeights(t *testing.T) {
 		"live:1",
 		"live:1,access:1,cleanup:1,rescan:1,archive:1",
 	} {
-		t.Run(weights, func(t *testing.T) {
-			t.Setenv("OPENSEARCH_WORK_CLASS_WEIGHTS", weights)
-			if _, err := LoadSearchWorkerSettings(t.Context()); err == nil {
-				t.Fatalf("LoadSearchWorkerSettings accepted class weights %q", weights)
-			}
-		})
+		t.Run(
+			weights,
+			func(t *testing.T) {
+				t.Setenv("OPENSEARCH_WORK_CLASS_WEIGHTS", weights)
+				if _, err := LoadSearchWorkerSettings(t.Context()); err == nil {
+					t.Fatalf("LoadSearchWorkerSettings accepted class weights %q", weights)
+				}
+			},
+		)
 	}
 }

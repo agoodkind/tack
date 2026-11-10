@@ -49,13 +49,23 @@ func TestRuntimeAuditTokenUseRefusedWhenOutboxAppendFails(t *testing.T) {
 
 	setContainerPaused(t, container, false)
 
-	if refused.status != http.StatusServiceUnavailable || string(refused.body) != auditUnavailableResponse {
-		t.Fatalf("response = %d %s, want 503 %s", refused.status, refused.body, auditUnavailableResponse)
+	if refused.status != http.StatusServiceUnavailable ||
+		string(refused.body) != auditUnavailableResponse {
+		t.Fatalf(
+			"response = %d %s, want 503 %s",
+			refused.status,
+			refused.body,
+			auditUnavailableResponse,
+		)
 	}
 
 	if after := droppedAuditEvents(t); after <= dropped {
-		t.Fatalf("%s count = %d after the failed append, want more than %d",
-			durableAdmissionDropKey, after, dropped)
+		t.Fatalf(
+			"%s count = %d after the failed append, want more than %d",
+			durableAdmissionDropKey,
+			after,
+			dropped,
+		)
 	}
 
 	deadline := clock.Now().Add(tokenUseStorageRecovery)
@@ -71,8 +81,12 @@ func TestRuntimeAuditTokenUseRefusedWhenOutboxAppendFails(t *testing.T) {
 		}
 
 		if clock.Now().After(deadline) {
-			t.Fatalf("tools/list status = %d after FoundationDB resumed, want 200 within %s: %s",
-				response.status, tokenUseStorageRecovery, response.body)
+			t.Fatalf(
+				"tools/list status = %d after FoundationDB resumed, want 200 within %s: %s",
+				response.status,
+				tokenUseStorageRecovery,
+				response.body,
+			)
 		}
 
 		time.Sleep(time.Second)

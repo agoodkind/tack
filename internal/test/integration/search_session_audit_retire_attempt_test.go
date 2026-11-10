@@ -38,14 +38,22 @@ func TestSearchSessionAuditRetireLateOwnerSavesFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the late attempt operation: %v", err)
 	}
-	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
-		retireCleanupFailedMessage: func() {
-			waitUntilTime(t, clock.Now().Add(retireAttemptWait))
-			if _, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit); err != nil {
-				t.Fatalf("recover the late attempt of index %s: %v", index, err)
-			}
+	hooks := installRetireLogHooks(
+		t,
+		session.ID.String(),
+		map[string]func(){
+			retireCleanupFailedMessage: func() {
+				waitUntilTime(t, clock.Now().Add(retireAttemptWait))
+				if _, err := rebuilds.RetireIndexSessions(
+					integration.WithTestOperation(t, t.Context()),
+					index,
+					retireSliceLimit,
+				); err != nil {
+					t.Fatalf("recover the late attempt of index %s: %v", index, err)
+				}
+			},
 		},
-	})
+	)
 
 	_, err = rebuilds.RetireIndexSessions(lateContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
@@ -54,16 +62,39 @@ func TestSearchSessionAuditRetireLateOwnerSavesFailure(t *testing.T) {
 		t.Fatalf("RetireIndexSessions of %s error = %v, want a saved failure event", index, err)
 	}
 	if errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf("RetireIndexSessions of %s returned %v, which must not match %v because the failure event was saved", index, err, audit.ErrEventNotRecorded)
+		t.Fatalf(
+			"RetireIndexSessions of %s returned %v, which must not match %v because the failure event was saved",
+			index,
+			err,
+			audit.ErrEventNotRecorded,
+		)
 	}
 	failed := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupClose)
-	recovered := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved))
+	recovered := cleanupFailureEvents(
+		t,
+		stores,
+		mark,
+		session.ID,
+		searchdomain.CleanupStep(retireResultNotSaved),
+	)
 	if len(failed) != 1 || len(recovered) != 1 {
-		t.Fatalf("session %s has %d failed and %d incomplete events, want 1 of each", session.ID, len(failed), len(recovered))
+		t.Fatalf(
+			"session %s has %d failed and %d incomplete events, want 1 of each",
+			session.ID,
+			len(failed),
+			len(recovered),
+		)
 	}
-	if failed[0].EventID == recovered[0].EventID || failed[0].Outcome != audit.OutcomeFailed || recovered[0].Outcome != audit.OutcomeIncomplete ||
-		failed[0].Context.OperationID != operation.Context.OperationID || recovered[0].Context.OperationID != operation.Context.OperationID {
-		t.Fatalf("failed event = %+v, incomplete event = %+v, want separate event IDs under operation %s", failed[0], recovered[0], operation.Context.OperationID)
+	if failed[0].EventID == recovered[0].EventID || failed[0].Outcome != audit.OutcomeFailed ||
+		recovered[0].Outcome != audit.OutcomeIncomplete ||
+		failed[0].Context.OperationID != operation.Context.OperationID ||
+		recovered[0].Context.OperationID != operation.Context.OperationID {
+		t.Fatalf(
+			"failed event = %+v, incomplete event = %+v, want separate event IDs under operation %s",
+			failed[0],
+			recovered[0],
+			operation.Context.OperationID,
+		)
 	}
 }
 
@@ -88,38 +119,100 @@ func TestSearchSessionAuditRetireLateEffectIsFenced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the late effect operation: %v", err)
 	}
-	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
-		retireAttemptSavedMessage: func() {
-			waitUntilTime(t, clock.Now().Add(retireAttemptWait))
-			_, recoverErr := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), index, retireSliceLimit)
-			requireChangeEventFailure(t, "RetireIndexSessions recovery of "+index, recoverErr)
+	hooks := installRetireLogHooks(
+		t,
+		session.ID.String(),
+		map[string]func(){
+			retireAttemptSavedMessage: func() {
+				waitUntilTime(t, clock.Now().Add(retireAttemptWait))
+				_, recoverErr := rebuilds.RetireIndexSessions(
+					withFutureOperation(t, t.Context()),
+					index,
+					retireSliceLimit,
+				)
+				requireChangeEventFailure(t, "RetireIndexSessions recovery of "+index, recoverErr)
+			},
 		},
-	})
+	)
 
 	remaining, err := rebuilds.RetireIndexSessions(lateContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
-	if err == nil || !remaining || !strings.Contains(err.Error(), retireAttemptFenced) || errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf("RetireIndexSessions of %s with a late effect = %t, %v, want remaining work and only the fence text %q", index, remaining, err, retireAttemptFenced)
+	if err == nil || !remaining || !strings.Contains(err.Error(), retireAttemptFenced) ||
+		errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf(
+			"RetireIndexSessions of %s with a late effect = %t, %v, want remaining work and only the fence text %q",
+			index,
+			remaining,
+			err,
+			retireAttemptFenced,
+		)
 	}
-	recovered := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved))
+	recovered := cleanupFailureEvents(
+		t,
+		stores,
+		mark,
+		session.ID,
+		searchdomain.CleanupStep(retireResultNotSaved),
+	)
 	if len(recovered) != 1 || recovered[0].Context.OperationID != operation.Context.OperationID {
-		t.Fatalf("session %s recovered events = %+v, want 1 under operation %s", session.ID, recovered, operation.Context.OperationID)
+		t.Fatalf(
+			"session %s recovered events = %+v, want 1 under operation %s",
+			session.ID,
+			recovered,
+			operation.Context.OperationID,
+		)
 	}
-	if count := sessionChangeEvents(t, stores, mark, session, operation.Context.OperationID, audit.VerbSearchSessionUpdate); count != 0 {
-		t.Fatalf("session %s has %d update change events under the fenced operation %s, want 0", session.ID, count, operation.Context.OperationID)
+	if count := sessionChangeEvents(
+		t,
+		stores,
+		mark,
+		session,
+		operation.Context.OperationID,
+		audit.VerbSearchSessionUpdate,
+	); count != 0 {
+		t.Fatalf(
+			"session %s has %d update change events under the fenced operation %s, want 0",
+			session.ID,
+			count,
+			operation.Context.OperationID,
+		)
 	}
-	for _, failed := range cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupClose) {
+	for _, failed := range cleanupFailureEvents(
+		t,
+		stores,
+		mark,
+		session.ID,
+		searchdomain.CleanupClose,
+	) {
 		if failed.Context.OperationID == operation.Context.OperationID {
-			t.Fatalf("the fenced operation %s wrote the failed event %+v", operation.Context.OperationID, failed)
+			t.Fatalf(
+				"the fenced operation %s wrote the failed event %+v",
+				operation.Context.OperationID,
+				failed,
+			)
 		}
 	}
 	stored, err := store.Load(t.Context(), session.ID)
 	if err != nil || stored.Closing {
-		t.Fatalf("session %s after the fenced effect = %+v, %v, want an open session", session.ID, stored, err)
+		t.Fatalf(
+			"session %s after the fenced effect = %+v, %v, want an open session",
+			session.ID,
+			stored,
+			err,
+		)
 	}
-	remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
+	remaining, err = rebuilds.RetireIndexSessions(
+		integration.WithTestOperation(t, t.Context()),
+		index,
+		retireSliceLimit,
+	)
 	if err != nil || remaining {
-		t.Fatalf("RetireIndexSessions of %s after the fenced effect = %t, %v, want a finished retirement", index, remaining, err)
+		t.Fatalf(
+			"RetireIndexSessions of %s after the fenced effect = %t, %v, want a finished retirement",
+			index,
+			remaining,
+			err,
+		)
 	}
 }
 
@@ -143,34 +236,88 @@ func TestSearchSessionAuditRetireClearReportsLostOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the owner operation: %v", err)
 	}
-	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
-		sessionDeletedMessage: func() {
-			waitUntilTime(t, clock.Now().Add(retireAttemptWait))
-			if _, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit); err != nil {
-				t.Fatalf("recover the attempt of index %s: %v", index, err)
-			}
+	hooks := installRetireLogHooks(
+		t,
+		session.ID.String(),
+		map[string]func(){
+			sessionDeletedMessage: func() {
+				waitUntilTime(t, clock.Now().Add(retireAttemptWait))
+				if _, err := rebuilds.RetireIndexSessions(
+					integration.WithTestOperation(t, t.Context()),
+					index,
+					retireSliceLimit,
+				); err != nil {
+					t.Fatalf("recover the attempt of index %s: %v", index, err)
+				}
+			},
 		},
-	})
+	)
 
 	remaining, err := rebuilds.RetireIndexSessions(ownerContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
-	if err == nil || !remaining || !strings.Contains(err.Error(), retireAttemptFenced) || errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf("RetireIndexSessions of %s with a lost clear = %t, %v, want remaining work and only the fence text %q", index, remaining, err, retireAttemptFenced)
+	if err == nil || !remaining || !strings.Contains(err.Error(), retireAttemptFenced) ||
+		errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf(
+			"RetireIndexSessions of %s with a lost clear = %t, %v, want remaining work and only the fence text %q",
+			index,
+			remaining,
+			err,
+			retireAttemptFenced,
+		)
 	}
-	recovered := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultNotSaved))
+	recovered := cleanupFailureEvents(
+		t,
+		stores,
+		mark,
+		session.ID,
+		searchdomain.CleanupStep(retireResultNotSaved),
+	)
 	if len(recovered) != 1 || recovered[0].Context.OperationID != operation.Context.OperationID {
-		t.Fatalf("session %s recovered events = %+v, want 1 under operation %s", session.ID, recovered, operation.Context.OperationID)
+		t.Fatalf(
+			"session %s recovered events = %+v, want 1 under operation %s",
+			session.ID,
+			recovered,
+			operation.Context.OperationID,
+		)
 	}
-	if count := sessionChangeEvents(t, stores, mark, session, operation.Context.OperationID, audit.VerbSearchSessionDelete); count != 1 {
-		t.Fatalf("session %s has %d delete change events under operation %s, want 1", session.ID, count, operation.Context.OperationID)
+	if count := sessionChangeEvents(
+		t,
+		stores,
+		mark,
+		session,
+		operation.Context.OperationID,
+		audit.VerbSearchSessionDelete,
+	); count != 1 {
+		t.Fatalf(
+			"session %s has %d delete change events under operation %s, want 1",
+			session.ID,
+			count,
+			operation.Context.OperationID,
+		)
 	}
-	remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
+	remaining, err = rebuilds.RetireIndexSessions(
+		integration.WithTestOperation(t, t.Context()),
+		index,
+		retireSliceLimit,
+	)
 	if err != nil || remaining {
-		t.Fatalf("RetireIndexSessions of %s after the lost clear = %t, %v, want a finished retirement", index, remaining, err)
+		t.Fatalf(
+			"RetireIndexSessions of %s after the lost clear = %t, %v, want a finished retirement",
+			index,
+			remaining,
+			err,
+		)
 	}
 }
 
-func sessionChangeEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte, session searchdomain.Session, operationID uuid.UUID, verb audit.Verb) int {
+func sessionChangeEvents(
+	t *testing.T,
+	stores *fdbadapter.Stores,
+	mark []byte,
+	session searchdomain.Session,
+	operationID uuid.UUID,
+	verb audit.Verb,
+) int {
 	t.Helper()
 	entries, err := stores.OpsOutbox.ReadOutboxFrom(t.Context(), mark, searchAuditPageLimit)
 	if err != nil {
@@ -183,8 +330,12 @@ func sessionChangeEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte, s
 			t.Fatalf("decode outbox entry %s: %v", entry.Event, err)
 		}
 		target := event.Context.Target
-		if event.Verb == string(verb) && event.Context.Phase == audit.PhaseChange && event.Context.OperationID == operationID &&
-			target != nil && target.NodeType == audit.TargetSearchSession && strings.Contains(target.URI, session.ID.String()) {
+		if event.Verb == string(
+			verb,
+		) && event.Context.Phase == audit.PhaseChange && event.Context.OperationID == operationID &&
+			target != nil &&
+			target.NodeType == audit.TargetSearchSession &&
+			strings.Contains(target.URI, session.ID.String()) {
 			count++
 		}
 	}

@@ -37,24 +37,39 @@ func newSearchControl(t *testing.T) searchControl {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	t.Cleanup(pool.Close)
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	t.Cleanup(factory.CloseAuditOutbox)
 	adapter, client := openSearchClientsFor(t, fixture)
 	control := searchControl{
-		fixture: fixture, adapter: adapter, client: client,
+		fixture: fixture,
+		adapter: adapter,
+		client:  client,
 		run: func(args ...string) error {
 			root := searchCommandRoot(factory)
-			root.SetArgs(append([]string{
-				"--execute", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
-				"--operator-email", "operator@example.com", "--operator-name", "Search Test",
-			}, args...))
+			root.SetArgs(
+				append(
+					[]string{
+						"--execute",
+						"--operator-id",
+						"019dd226-440e-729a-a442-281aaf73ca30",
+						"--operator-email",
+						"operator@example.com",
+						"--operator-name",
+						"Search Test",
+					},
+					args...,
+				),
+			)
+
 			return root.Execute()
 		},
 	}
 	control.reset(t)
 	t.Cleanup(func() { control.reset(t) })
+
 	return control
 }
 
@@ -80,20 +95,26 @@ func (control searchControl) provisionFromEmpty(t *testing.T) {
 // index changes its UUID.
 func (control searchControl) indexUUID(t *testing.T, index string) string {
 	t.Helper()
-	response, err := control.client.Indices.GetSettings(WithTestOperation(t, t.Context()), &opensearchapi.IndicesGetSettingsReq{Indices: []string{index}})
+	response, err := control.client.Indices.GetSettings(
+		WithTestOperation(t, t.Context()),
+		&opensearchapi.IndicesGetSettingsReq{Indices: []string{index}},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var indices map[string]struct {
 		Settings json.RawMessage `json:"settings"`
 	}
 	if err := json.NewDecoder(response.RawBody()).Decode(&indices); err != nil {
 		t.Fatal(err)
 	}
+
 	entry, exists := indices[index]
 	if !exists {
 		t.Fatalf("OpenSearch index %s settings are absent", index)
 	}
+
 	var settings struct {
 		Index struct {
 			UUID string `json:"uuid"`
@@ -102,8 +123,10 @@ func (control searchControl) indexUUID(t *testing.T, index string) string {
 	if err := json.Unmarshal(entry.Settings, &settings); err != nil {
 		t.Fatal(err)
 	}
+
 	if settings.Index.UUID == "" {
 		t.Fatalf("OpenSearch index %s has no UUID", index)
 	}
+
 	return settings.Index.UUID
 }

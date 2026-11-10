@@ -11,14 +11,54 @@ import (
 // Command groups for the operator `ops` family. One *Group value per parent so
 // the renderer attaches every subcommand under a single cobra parent.
 var (
-	opsGroup      = &clispec.Group{Use: "ops", Short: "Operator maintenance commands for node and storage state", Long: "", Parent: nil}
-	inspectGroup  = &clispec.Group{Use: "inspect", Short: "Read, find, and query node and storage state", Long: "", Parent: opsGroup}
-	verifyGroup   = &clispec.Group{Use: "verify", Short: "Check node consistency and constraints", Long: "", Parent: opsGroup}
-	validateGroup = &clispec.Group{Use: "validate", Short: "Check repair applicability for a node", Long: "", Parent: opsGroup}
-	repairGroup   = &clispec.Group{Use: "repair", Short: "Preview and apply targeted repairs", Long: "", Parent: opsGroup}
-	auditOpsGroup = &clispec.Group{Use: "audit", Short: "Compliance audit operations", Long: "", Parent: opsGroup}
-	authOpsGroup  = &clispec.Group{Use: "auth", Short: "Issue, list, and revoke API tokens for existing users", Long: "", Parent: opsGroup}
-	batchGroup    = &clispec.Group{Use: "batch", Short: "Run registered batch maintenance operations", Long: "", Parent: opsGroup}
+	opsGroup = &clispec.Group{
+		Use:    "ops",
+		Short:  "Operator maintenance commands for node and storage state",
+		Long:   "",
+		Parent: nil,
+	}
+	inspectGroup = &clispec.Group{
+		Use:    "inspect",
+		Short:  "Read, find, and query node and storage state",
+		Long:   "",
+		Parent: opsGroup,
+	}
+	verifyGroup = &clispec.Group{
+		Use:    "verify",
+		Short:  "Check node consistency and constraints",
+		Long:   "",
+		Parent: opsGroup,
+	}
+	validateGroup = &clispec.Group{
+		Use:    "validate",
+		Short:  "Check repair applicability for a node",
+		Long:   "",
+		Parent: opsGroup,
+	}
+	repairGroup = &clispec.Group{
+		Use:    "repair",
+		Short:  "Preview and apply targeted repairs",
+		Long:   "",
+		Parent: opsGroup,
+	}
+	auditOpsGroup = &clispec.Group{
+		Use:    "audit",
+		Short:  "Compliance audit operations",
+		Long:   "",
+		Parent: opsGroup,
+	}
+	authOpsGroup = &clispec.Group{
+		Use:    "auth",
+		Short:  "Issue, list, and revoke API tokens for existing users",
+		Long:   "",
+		Parent: opsGroup,
+	}
+	batchGroup = &clispec.Group{
+		Use:    "batch",
+		Short:  "Run registered batch maintenance operations",
+		Long:   "",
+		Parent: opsGroup,
+	}
 )
 
 // noInput is the input for commands that take no flags or positional args.
@@ -40,7 +80,10 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, repairPreviewOp(f))
 	clispec.Register(reg, repairApplyOp(f))
 	clispec.Register(reg, repairReferenceUniquenessOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: auditOpsGroup, Build: auditSeedRolesCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: auditOpsGroup,
+		Build: auditSeedRolesCommand,
+	})
 	clispec.Register(reg, auditDLQInspectOp(f))
 	clispec.Register(reg, auditDLQReplayOp(f))
 	clispec.Register(reg, auditConsumerOffsetsOp(f))
@@ -58,22 +101,43 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, datagenSearchMixedOp(f))
 	clispec.Register(reg, datagenLegacyLedgerRowOp(f))
 	clispec.Register(reg, datagenRepairOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: provisionCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: opsGroup,
+		Build: provisionCommand,
+	})
 	clispec.Register(reg, ledgerAuditBootstrapOp(f))
 	clispec.Register(reg, ledgerBootstrapWaitOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: ledgerGroup, Build: ledgerNodePrepareCommand})
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: ledgerGroup, Build: ledgerNodeWaitCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: ledgerGroup,
+		Build: ledgerNodePrepareCommand,
+	})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: ledgerGroup,
+		Build: ledgerNodeWaitCommand,
+	})
 	clispec.Register(reg, storeStatusOp(f))
 	clispec.Register(reg, storeSetRedundancyOp(f))
 	clispec.Register(reg, storeSetCoordinatorsOp(f))
 	clispec.Register(reg, storeExcludeOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: deployGroup, Build: deployVerifyCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: deployGroup,
+		Build: deployVerifyCommand,
+	})
 	clispec.Register(reg, searchVerifyOp(f))
 	clispec.Register(reg, searchSettingsOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: searchGroup, Build: searchProvisionCommand})
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: searchGroup, Build: searchRolloutCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: searchGroup,
+		Build: searchProvisionCommand,
+	})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: searchGroup,
+		Build: searchRolloutCommand,
+	})
 	clispec.Register(reg, searchRollbackOp(f))
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: searchGroup, Build: searchReindexCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: searchGroup,
+		Build: searchReindexCommand,
+	})
 	clispec.Register(reg, searchProjectionBackfillOp(f))
 	clispec.Register(reg, fixedDefinitionsOp(f))
 	clispec.Register(reg, metadataNameBackfillOp(f))
@@ -82,7 +146,10 @@ func RegisterCommands(reg *clispec.Registry, f *cli.Factory) {
 	clispec.Register(reg, auditPartitionNamesBackfillOp(f))
 	clispec.Register(reg, killtestSchemaBackfillOp(f))
 	registerBatchOps(reg, f)
-	reg.AddHandwritten(clispec.HandwrittenCommand{Group: opsGroup, Build: backupCommand})
+	reg.AddHandwritten(clispec.HandwrittenCommand{
+		Group: opsGroup,
+		Build: backupCommand,
+	})
 }
 
 // registerBatchOps renders one leaf under `ops batch` per registered batch op,
@@ -93,6 +160,7 @@ func registerBatchOps(reg *clispec.Registry, f *cli.Factory) {
 		if strings.HasPrefix(op.Name, "repair.") {
 			continue
 		}
+
 		name := op.Name
 		var dryRun func(ctx context.Context, in noInput, sink clispec.ResultSink) error
 		if op.DryRun != nil {
@@ -100,23 +168,27 @@ func registerBatchOps(reg *clispec.Registry, f *cli.Factory) {
 				return RunDryRun(ctx, f.Cfg, name)
 			}
 		}
-		clispec.Register(reg, clispec.Operation[noInput]{
-			Name:     clispec.Name{Canonical: name, CLIOverride: name},
-			Lifetime: op.Lifetime,
-			Audit:    op.Audit,
-			Group:    batchGroup,
-			Aliases:  nil,
-			Hidden:   false,
-			Short:    op.Description,
-			Long:     "",
-			Examples: nil,
-			Args:     nil,
-			Params:   nil,
-			New:      func() noInput { return noInput{InputMarker: clispec.InputMarker{}} },
-			DryRun:   dryRun,
-			Run: func(ctx context.Context, _ noInput, _ clispec.ResultSink) error {
-				return Run(ctx, f.Cfg, name)
+
+		clispec.Register(
+			reg,
+			clispec.Operation[noInput]{
+				Name:     clispec.Name{Canonical: name, CLIOverride: name},
+				Lifetime: op.Lifetime,
+				Audit:    op.Audit,
+				Group:    batchGroup,
+				Aliases:  nil,
+				Hidden:   false,
+				Short:    op.Description,
+				Long:     "",
+				Examples: nil,
+				Args:     nil,
+				Params:   nil,
+				New:      func() noInput { return noInput{InputMarker: clispec.InputMarker{}} },
+				DryRun:   dryRun,
+				Run: func(ctx context.Context, _ noInput, _ clispec.ResultSink) error {
+					return Run(ctx, f.Cfg, name)
+				},
 			},
-		})
+		)
 	}
 }

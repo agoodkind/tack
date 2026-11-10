@@ -40,6 +40,7 @@ func (g *Graph) StartDeleteResumer(ctx context.Context) {
 	if g.deletes.started {
 		return
 	}
+
 	g.deletes.started = true
 	loopContext, cancel := context.WithCancel(ctx)
 	g.deletes.cancel = cancel
@@ -47,6 +48,7 @@ func (g *Graph) StartDeleteResumer(ctx context.Context) {
 		defer recoverSearchWorker(loopContext, "node.subtree_delete.loop_panicked")
 		ticker := time.NewTicker(deleteResumeInterval)
 		defer ticker.Stop()
+
 		for {
 			select {
 			case <-loopContext.Done():
@@ -64,7 +66,11 @@ func (g *Graph) StartDeleteResumer(ctx context.Context) {
 func (g *Graph) resumeDeletes(ctx context.Context) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			telemetry.L(ctx).ErrorContext(ctx, "node.subtree_delete.resume_panicked", slog.String("err", fmt.Sprint(recovered)))
+			telemetry.L(ctx).ErrorContext(
+				ctx,
+				"node.subtree_delete.resume_panicked",
+				slog.String("err", fmt.Sprint(recovered)),
+			)
 		}
 	}()
 	_, _ = g.nodes.ResumeSubtreeDeletes(ctx, deleteStaleAfter, DeleteResumerAudit(g.fdbStores))
@@ -84,6 +90,7 @@ func (g *Graph) stopDeleteResumer() {
 	if g.deletes.cancel != nil {
 		g.deletes.cancel()
 	}
+
 	if g.deletes.started {
 		g.deletes.loop.Wait()
 	}

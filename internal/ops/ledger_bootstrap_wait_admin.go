@@ -31,28 +31,49 @@ func ybAdminAtMasters(
 	scoped := *cfg
 	scoped.BackupYBMasterAddresses = masters.names
 	accessArgs, accessBinds := ybAdminClusterAccess(&scoped)
-	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
-		Image:      cfg.BackupYBImage,
-		Network:    cfg.BackupFDBNetwork,
-		Entrypoint: []string{ybAdminBinary},
-		Cmd:        append(accessArgs, subcommand),
-		Env:        nil,
-		Binds:      accessBinds,
-		ExtraHosts: masters.extraHosts,
-		Name:       "",
-	})
+	res, err := runOneShot(
+		ctx,
+		cli,
+		logger,
+		runOneShotOptions{
+			Image:      cfg.BackupYBImage,
+			Network:    cfg.BackupFDBNetwork,
+			Entrypoint: []string{ybAdminBinary},
+			Cmd:        append(accessArgs, subcommand),
+			Env:        nil,
+			Binds:      accessBinds,
+			ExtraHosts: masters.extraHosts,
+			Name:       "",
+		},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("yb-admin %s: %w", subcommand, err)
-		slog.ErrorContext(ctx, "ops.ledger.bootstrap_wait.yb_admin_failed",
-			slog.String("subcommand", subcommand), slog.String("err", wrapped.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.bootstrap_wait.yb_admin_failed",
+			slog.String("subcommand", subcommand),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return res, wrapped
 	}
+
 	if res.ExitCode != 0 {
-		wrapped := fmt.Errorf("yb-admin %s exited %d: %s", subcommand, res.ExitCode,
-			strings.TrimSpace(res.Stdout+" "+res.Stderr))
-		slog.ErrorContext(ctx, "ops.ledger.bootstrap_wait.yb_admin_failed",
-			slog.String("subcommand", subcommand), slog.String("err", wrapped.Error()))
+		wrapped := fmt.Errorf(
+			"yb-admin %s exited %d: %s",
+			subcommand,
+			res.ExitCode,
+			strings.TrimSpace(res.Stdout+" "+res.Stderr),
+		)
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.bootstrap_wait.yb_admin_failed",
+			slog.String("subcommand", subcommand),
+			slog.String("err", wrapped.Error()),
+		)
+
 		return res, wrapped
 	}
+
 	return res, nil
 }

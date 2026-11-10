@@ -24,12 +24,26 @@ func TestSearchParentEdgeLeafUnderLeaf(t *testing.T) {
 	nested := fixture.createLeaf(t, parent, "cinder nested leaf")
 	fixture.drain(t)
 
-	if found := fixture.search(t, fixture.first, "cinder nested leaf"); !slices.Contains(found, nested) {
-		t.Fatalf("search under the first entry point returned %v, want nested leaf %s", found, nested)
+	if found := fixture.search(t, fixture.first, "cinder nested leaf"); !slices.Contains(
+		found,
+		nested,
+	) {
+		t.Fatalf(
+			"search under the first entry point returned %v, want nested leaf %s",
+			found,
+			nested,
+		)
 	}
+
 	keys := fixture.summaryKeys(t, nested, parent, fixture.firstEntry)
-	if len(keys[nested]) == 0 || !slices.Equal(keys[nested], keys[fixture.firstEntry]) || !slices.Equal(keys[parent], keys[fixture.firstEntry]) {
-		t.Fatalf("summary keys: nested leaf %v, parent leaf %v, entry point %v; want three equal sets", keys[nested], keys[parent], keys[fixture.firstEntry])
+	if len(keys[nested]) == 0 || !slices.Equal(keys[nested], keys[fixture.firstEntry]) ||
+		!slices.Equal(keys[parent], keys[fixture.firstEntry]) {
+		t.Fatalf(
+			"summary keys: nested leaf %v, parent leaf %v, entry point %v; want three equal sets",
+			keys[nested],
+			keys[parent],
+			keys[fixture.firstEntry],
+		)
 	}
 }
 
@@ -43,35 +57,68 @@ func TestSearchParentEdgeMovedChain(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	chain := make([]uuid.UUID, 0, parentChainLength)
 	parent := fixture.firstEntry
+
 	for number := range parentChainLength {
 		parent = fixture.createLeaf(t, parent, fmt.Sprintf("basalt chain leaf %02d", number))
 		chain = append(chain, parent)
 	}
+
 	fixture.drain(t)
-	if found := intersect(fixture.search(t, fixture.first, "basalt chain leaf"), chain); len(found) != parentChainLength {
-		t.Fatalf("search under the first entry point returned %d chain leaves before the move, want %d", len(found), parentChainLength)
+	if found := intersect(fixture.search(t, fixture.first, "basalt chain leaf"), chain); len(
+		found,
+	) != parentChainLength {
+		t.Fatalf(
+			"search under the first entry point returned %d chain leaves before the move, want %d",
+			len(found),
+			parentChainLength,
+		)
 	}
 
 	if err := fixture.moveLeaf(t, chain[0], fixture.secondEntry); err != nil {
 		t.Fatalf("move top leaf %s to the second entry point: %v", chain[0], err)
 	}
+
 	fixture.drain(t)
 
 	keys := fixture.summaryKeys(t, append([]uuid.UUID{fixture.secondEntry}, chain...)...)
 	for _, leaf := range chain {
 		if len(keys[leaf]) == 0 || !slices.Equal(keys[leaf], keys[fixture.secondEntry]) {
-			t.Fatalf("leaf %s has summary keys %v after the move, want the second entry point keys %v", leaf, keys[leaf], keys[fixture.secondEntry])
+			t.Fatalf(
+				"leaf %s has summary keys %v after the move, want the second entry point keys %v",
+				leaf,
+				keys[leaf],
+				keys[fixture.secondEntry],
+			)
 		}
 	}
-	fixture.eventually(t, func() string {
-		if found := intersect(fixture.search(t, fixture.first, "basalt chain leaf"), chain); len(found) != 0 {
-			return fmt.Sprintf("search under the first entry point returned moved leaves %v", found)
-		}
-		if found := intersect(fixture.search(t, fixture.second, "basalt chain leaf"), chain); len(found) != parentChainLength {
-			return fmt.Sprintf("search under the second entry point returned %d moved leaves, want %d", len(found), parentChainLength)
-		}
-		return ""
-	})
+
+	fixture.eventually(
+		t,
+		func() string {
+			if found := intersect(
+				fixture.search(t, fixture.first, "basalt chain leaf"),
+				chain,
+			); len(found) != 0 {
+				return fmt.Sprintf(
+					"search under the first entry point returned moved leaves %v",
+					found,
+				)
+			}
+
+			if found := intersect(
+				fixture.search(t, fixture.second, "basalt chain leaf"),
+				chain,
+			); len(found) != parentChainLength {
+				return fmt.Sprintf(
+					"search under the second entry point returned %d moved leaves, want %d",
+					len(found),
+					parentChainLength,
+				)
+			}
+
+			return ""
+		},
+	)
 }
 
 // TestSearchParentEdgeMembershipEdge stores a node of a type without
@@ -84,19 +131,41 @@ func TestSearchParentEdgeMovedChain(t *testing.T) {
 func TestSearchParentEdgeMembershipEdge(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	rootKind := fixture.putKind(t, fixture.kind.orgID, nil)
-	member := fixture.storeNode(t, rootKind, "garnet member node",
-		&node.Relationship{RelationType: node.RelChildOf, TargetID: fixture.firstEntry})
+	member := fixture.storeNode(
+		t,
+		rootKind,
+		"garnet member node",
+		&node.Relationship{RelationType: node.RelChildOf, TargetID: fixture.firstEntry},
+	)
 	fixture.drain(t)
-	if found := fixture.search(t, fixture.first, "garnet member node"); !slices.Contains(found, member) {
+	if found := fixture.search(t, fixture.first, "garnet member node"); !slices.Contains(
+		found,
+		member,
+	) {
 		t.Fatalf("search returned %v before the edge change, want node %s", found, member)
 	}
 
 	relationships := fixture.stores.Relationships
-	membership := &node.Relationship{OrgID: rootKind.orgID, SourceID: member, RelationType: "member_of", TargetID: fixture.firstEntry}
-	if err := relationships.Add(integration.WithTestOperation(t, t.Context()), membership); err != nil {
+	membership := &node.Relationship{
+		OrgID:        rootKind.orgID,
+		SourceID:     member,
+		RelationType: "member_of",
+		TargetID:     fixture.firstEntry,
+	}
+	if err := relationships.Add(
+		integration.WithTestOperation(t, t.Context()),
+		membership,
+	); err != nil {
 		t.Fatalf("add member_of edge of node %s: %v", member, err)
 	}
-	if err := relationships.Remove(integration.WithTestOperation(t, t.Context()), rootKind.orgID, member, node.RelChildOf, fixture.firstEntry); err != nil {
+
+	if err := relationships.Remove(
+		integration.WithTestOperation(t, t.Context()),
+		rootKind.orgID,
+		member,
+		node.RelChildOf,
+		fixture.firstEntry,
+	); err != nil {
 		t.Fatalf("remove child_of edge of node %s: %v", member, err)
 	}
 
@@ -104,7 +173,11 @@ func TestSearchParentEdgeMembershipEdge(t *testing.T) {
 	if shared := intersect(keys[member], keys[fixture.firstEntry]); len(shared) != 0 {
 		t.Fatalf("node %s with a member_of edge has the entry point keys %v", member, shared)
 	}
-	if found := fixture.search(t, fixture.first, "garnet member node"); slices.Contains(found, member) {
+
+	if found := fixture.search(t, fixture.first, "garnet member node"); slices.Contains(
+		found,
+		member,
+	) {
 		t.Fatalf("search returned node %s, which has no child_of edge to the entry point", member)
 	}
 }

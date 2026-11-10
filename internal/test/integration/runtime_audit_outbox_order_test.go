@@ -31,6 +31,7 @@ func TestRuntimeAuditOutboxSharedTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open FoundationDB: %v", err)
 	}
+
 	prefixID := uuid.New()
 	fdbadapter.SetTestPrefix(append([]byte("tack-test:"), prefixID[:]...))
 	t.Cleanup(func() { fdbadapter.SetTestPrefix(nil) })
@@ -39,28 +40,34 @@ func TestRuntimeAuditOutboxSharedTransaction(t *testing.T) {
 	if err != nil || single.Multipart() {
 		t.Fatalf("encode the single record event: multipart %t, %v", single.Multipart(), err)
 	}
+
 	large, err := audit.EncodeEvent(largeChangeEvent(orgID), nil)
 	if err != nil || !large.Multipart() {
 		t.Fatalf("encode the multipart event: multipart %t, %v", large.Multipart(), err)
 	}
+
 	plain := smallChangeEvent(orgID)
 	plainJSON, err := audit.MarshalEvent(plain)
 	if err != nil {
 		t.Fatalf("encode the plain event: %v", err)
 	}
+
 	_, err = database.Transact(func(tr fdb.Transaction) (any, error) {
 		outbox := fdbadapter.NewOutboxWriter(tr)
 		if err := outbox.WriteEncodedEvent(t.Context(), single); err != nil {
 			return nil, err
 		}
+
 		if err := outbox.WriteEncodedEvent(t.Context(), large); err != nil {
 			return nil, err
 		}
+
 		return nil, outbox.WriteEventJSON(t.Context(), plainJSON)
 	})
 	if err != nil {
 		t.Fatalf("write three events in one transaction: %v", err)
 	}
+
 	store := fdbadapter.NewOpsOutboxStore(database)
 	entries, err := store.ReadOutboxFrom(t.Context(), nil, 100)
 	if err != nil || len(entries) != len(large.Parts)+3 {
@@ -70,35 +77,61 @@ func TestRuntimeAuditOutboxSharedTransaction(t *testing.T) {
 	topic := "audit.outbox-order-test-" + uuid.NewString()[:8]
 	brokers := testenv.Kafka(t)
 	ledgerDSN := testenv.Ledger(t)
-	topicOwner, err := audit.NewConsumer(t.Context(), audit.ConsumerConfig{
-		Brokers: []string{brokers}, Topic: topic, GroupID: "tack-outbox-order-test-" + uuid.NewString()[:8],
-		BatchSize: 32, PollInterval: 100 * time.Millisecond, YugabyteDSN: ledgerDSN,
-	})
+	topicOwner, err := audit.NewConsumer(
+		t.Context(),
+		audit.ConsumerConfig{
+			Brokers: []string{
+				brokers,
+			},
+			Topic:        topic,
+			GroupID:      "tack-outbox-order-test-" + uuid.NewString()[:8],
+			BatchSize:    32,
+			PollInterval: 100 * time.Millisecond,
+			YugabyteDSN:  ledgerDSN,
+		},
+	)
 	if err != nil {
 		t.Fatalf("create the audit topic %s: %v", topic, err)
 	}
+
 	topicOwner.Start(t.Context())
 	t.Cleanup(func() { _ = topicOwner.Close() })
-	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
-		Brokers: []string{brokers}, Topic: topic, YugabyteDSN: ledgerDSN,
-		FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: nodeAuditTransactionTimeout,
-		PollInterval: 100 * time.Millisecond, BatchSize: 64,
-	})
+	opened, err := auditrelay.Open(
+		t.Context(),
+		auditrelay.Config{
+			Brokers:               []string{brokers},
+			Topic:                 topic,
+			YugabyteDSN:           ledgerDSN,
+			FDBClusterFile:        testenv.FoundationDB(t),
+			FDBTransactionTimeout: nodeAuditTransactionTimeout,
+			PollInterval:          100 * time.Millisecond,
+			BatchSize:             64,
+		},
+	)
 	if err != nil {
 		t.Fatalf("open the relay: %v", err)
 	}
+
 	opened.Relay.Start(t.Context())
 	t.Cleanup(func() {
 		_ = opened.Relay.Close()
 		opened.Pool.Close()
 	})
 
-	versions := relayedCommitVersions(t, brokers, topic, map[uuid.UUID]bool{single.EventID: true, large.EventID: true, plain.EventID: true})
+	versions := relayedCommitVersions(
+		t,
+		brokers,
+		topic,
+		map[uuid.UUID]bool{single.EventID: true, large.EventID: true, plain.EventID: true},
+	)
+
 	ordered := []string{versions[single.EventID], versions[large.EventID], versions[plain.EventID]}
 	for position, version := range ordered {
-		if len(version) != commitVersionLength || version[:transactionVersionLength] != ordered[0][:transactionVersionLength] {
+		if len(version) != commitVersionLength ||
+			version[:transactionVersionLength] != ordered[0][:transactionVersionLength] {
 			t.Fatalf("commit versions %v do not share one transaction version", ordered)
 		}
+
 		if position > 0 && ordered[position-1] >= version {
 			t.Fatalf("commit versions %v are not distinct and in write order", ordered)
 		}
@@ -108,30 +141,66 @@ func TestRuntimeAuditOutboxSharedTransaction(t *testing.T) {
 // smallChangeEvent returns a small synthetic format 2 change event.
 func smallChangeEvent(orgID uuid.UUID) audit.Event {
 	target := audit.Target{
-		Kind: audit.TargetKindNode, NodeType: "issue", Reference: "", Name: "", URI: "",
-		RelationType: "", ID: uuid.Must(uuid.NewV7()), SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         audit.TargetKindNode,
+		NodeType:     "issue",
+		Reference:    "",
+		Name:         "",
+		URI:          "",
+		RelationType: "",
+		ID:           uuid.Must(uuid.NewV7()),
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
-	event := completeEvent(orgID, userActor(), target, audit.OperationDatabaseChange, audit.PhaseChange, audit.OutcomeCompleted)
-	event.Delta = &audit.Delta{Before: nil, After: json.RawMessage(`{"name":"synthetic"}`), Changed: []string{"name"}}
+	event := completeEvent(
+		orgID,
+		userActor(),
+		target,
+		audit.OperationDatabaseChange,
+		audit.PhaseChange,
+		audit.OutcomeCompleted,
+	)
+	event.Delta = &audit.Delta{
+		Before:  nil,
+		After:   json.RawMessage(`{"name":"synthetic"}`),
+		Changed: []string{"name"},
+	}
+
 	return event
 }
 
 // relayedCommitVersions reads the topic until it finds each wanted event's
 // commit version in plain event JSON or a multipart manifest. It fails the
 // test if the deadline passes.
-func relayedCommitVersions(t *testing.T, brokers, topic string, wanted map[uuid.UUID]bool) map[uuid.UUID]string {
+func relayedCommitVersions(
+	t *testing.T,
+	brokers string,
+	topic string,
+	wanted map[uuid.UUID]bool,
+) map[uuid.UUID]string {
 	t.Helper()
-	client, err := kgo.NewClient(kgo.SeedBrokers(brokers), kgo.ConsumeTopics(topic), kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(brokers),
+		kgo.ConsumeTopics(topic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+	)
 	if err != nil {
 		t.Fatalf("open the test consumer: %v", err)
 	}
+
 	t.Cleanup(client.Close)
 	versions := make(map[uuid.UUID]string, len(wanted))
 	deadline := clock.Now().Add(runtimeAuditDeadline)
+
 	for len(versions) < len(wanted) {
 		if clock.Now().After(deadline) {
-			t.Fatalf("relay delivered commit versions %v within %s, want %d events", versions, runtimeAuditDeadline, len(wanted))
+			t.Fatalf(
+				"relay delivered commit versions %v within %s, want %d events",
+				versions,
+				runtimeAuditDeadline,
+				len(wanted),
+			)
 		}
+
 		pollContext, cancel := context.WithTimeout(t.Context(), time.Second)
 		fetches := client.PollFetches(pollContext)
 		cancel()
@@ -145,6 +214,7 @@ func relayedCommitVersions(t *testing.T, brokers, topic string, wanted map[uuid.
 			if json.Unmarshal(record.Value, &message) != nil || !wanted[message.EventID] {
 				return
 			}
+
 			switch message.Kind {
 			case "":
 				versions[message.EventID] = message.Context.CommitVersion
@@ -153,5 +223,6 @@ func relayedCommitVersions(t *testing.T, brokers, topic string, wanted map[uuid.
 			}
 		})
 	}
+
 	return versions
 }

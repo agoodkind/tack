@@ -31,8 +31,12 @@ func TestExecuteReachesTheAuditGate(t *testing.T) {
 		if err := root.Execute(); err != nil {
 			t.Fatalf("%v --execute: %v", path, err)
 		}
+
 		if !factory.Execute() {
-			t.Fatalf("%v --execute never reached the audit gate; a local flag shadows the global one", path)
+			t.Fatalf(
+				"%v --execute never reached the audit gate; a local flag shadows the global one",
+				path,
+			)
 		}
 	}
 }
@@ -50,9 +54,14 @@ func TestNoCommandShadowsAGlobalFlag(t *testing.T) {
 	walk = func(command *cobra.Command) {
 		command.LocalNonPersistentFlags().VisitAll(func(flag *pflag.Flag) {
 			if globals[flag.Name] {
-				t.Errorf("%s declares --%s, which is a global flag", command.CommandPath(), flag.Name)
+				t.Errorf(
+					"%s declares --%s, which is a global flag",
+					command.CommandPath(),
+					flag.Name,
+				)
 			}
 		})
+
 		for _, child := range command.Commands() {
 			walk(child)
 		}
@@ -66,8 +75,10 @@ func executeGateRoot(t *testing.T, factory *cli.Factory) *cobra.Command {
 	ops.RegisterCommands(registry, factory)
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
 	factory.RegisterGlobalFlags(root)
+
 	for _, rendered := range clispec.RenderCobra(registry, factory) {
 		root.AddCommand(rendered)
 	}
+
 	return root
 }

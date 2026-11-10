@@ -19,11 +19,18 @@ func parseDatagenSearchEndpoints(input datagenSearchInput) ([]string, error) {
 		endpoints = append(endpoints, strings.TrimSpace(value))
 	}
 	if len(endpoints) != datagenSearchEndpointCount {
-		return nil, fmt.Errorf("qa datagen search: endpoints require exactly %d values, got %d", datagenSearchEndpointCount, len(endpoints))
+		return nil, fmt.Errorf(
+			"qa datagen search: endpoints require exactly %d values, got %d",
+			datagenSearchEndpointCount,
+			len(endpoints),
+		)
 	}
 	for _, endpoint := range endpoints {
 		if endpoint == "" {
-			return nil, fmt.Errorf("qa datagen search: endpoints require %d nonempty values", datagenSearchEndpointCount)
+			return nil, fmt.Errorf(
+				"qa datagen search: endpoints require %d nonempty values",
+				datagenSearchEndpointCount,
+			)
 		}
 	}
 	for _, endpoint := range endpoints {
@@ -40,7 +47,10 @@ func validateDatagenSearchEndpoint(endpoint string) error {
 		return fmt.Errorf("qa datagen search: endpoint %q is not a valid URL", endpoint)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("qa datagen search: endpoint %q does not use scheme http or https", endpoint)
+		return fmt.Errorf(
+			"qa datagen search: endpoint %q does not use scheme http or https",
+			endpoint,
+		)
 	}
 	if parsed.Host == "" {
 		return fmt.Errorf("qa datagen search: endpoint %q has no host", endpoint)

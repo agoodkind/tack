@@ -169,7 +169,10 @@ type PushedIndex struct {
 func PushIndex(t *testing.T, tag string, addenda ...mutate.IndexAddendum) PushedIndex {
 	t.Helper()
 
-	index := mutate.AppendManifests(mutate.IndexMediaType(empty.Index, types.OCIImageIndex), addenda...)
+	index := mutate.AppendManifests(
+		mutate.IndexMediaType(empty.Index, types.OCIImageIndex),
+		addenda...,
+	)
 
 	reference, err := name.NewTag(tag)
 	if err != nil {

@@ -29,22 +29,51 @@ func TestSearchMixedMarkersBeyondFirstPage(t *testing.T) {
 	endpoints := startSearchMixedProcesses(t, cfg)
 	ctx := integration.WithTestOperation(t, t.Context())
 	options := datagen.SearchMixedOptions{
-		Seed: clock.Now().UnixNano(), Rate: 30, WriteRate: 480, Duration: 40 * time.Second, Concurrency: 4,
-		Commit: true, BurstWrites: 10, CatchUp: 0, Endpoints: endpoints,
-		Client: &http.Client{Timeout: searchMixedMarkersCallTimeout}, Rebuild: nil, MetadataWrites: 0, Moves: 0,
+		Seed:        clock.Now().UnixNano(),
+		Rate:        30,
+		WriteRate:   480,
+		Duration:    40 * time.Second,
+		Concurrency: 4,
+		Commit:      true,
+		BurstWrites: 10,
+		CatchUp:     0,
+		Endpoints:   endpoints,
+		Client: &http.Client{
+			Timeout: searchMixedMarkersCallTimeout,
+		},
+		Rebuild:           nil,
+		MetadataWrites:    0,
+		Moves:             0,
 		ProbeAfterCatchUp: true,
 	}
 	summary, err := datagen.RunSearchMixed(ctx, ctx, cfg, options)
 	if err != nil {
-		t.Fatalf("qa datagen search-mixed: RunSearchMixed returned an error: %v (summary=%+v)", err, summary)
+		t.Fatalf(
+			"qa datagen search-mixed: RunSearchMixed returned an error: %v (summary=%+v)",
+			err,
+			summary,
+		)
 	}
+
 	if summary.Tenants == 0 || summary.Creates <= searchMixedResultPageSize*summary.Tenants {
-		t.Fatalf("qa datagen search-mixed: the run must create more marker issues than %d times the tenant count: %d creates, %d tenants", searchMixedResultPageSize, summary.Creates, summary.Tenants)
+		t.Fatalf(
+			"qa datagen search-mixed: the run must create more marker issues than %d times the tenant count: %d creates, %d tenants",
+			searchMixedResultPageSize,
+			summary.Creates,
+			summary.Tenants,
+		)
 	}
-	if summary.MarkersNotFound != 0 || summary.MarkersUnsearched != 0 || !summary.CatchUp.Completed {
-		t.Fatalf("qa datagen search-mixed: catch-up must complete, and the final pass after catch-up must search every marker with its own tack_search query and find each issue on the first result page: markers_not_found=%d markers_unsearched=%d catch_up.completed=%t",
-			summary.MarkersNotFound, summary.MarkersUnsearched, summary.CatchUp.Completed)
+
+	if summary.MarkersNotFound != 0 || summary.MarkersUnsearched != 0 ||
+		!summary.CatchUp.Completed {
+		t.Fatalf(
+			"qa datagen search-mixed: catch-up must complete, and the final pass after catch-up must search every marker with its own tack_search query and find each issue on the first result page: markers_not_found=%d markers_unsearched=%d catch_up.completed=%t",
+			summary.MarkersNotFound,
+			summary.MarkersUnsearched,
+			summary.CatchUp.Completed,
+		)
 	}
+
 	if err := summary.Verify(ctx, "none"); err != nil {
 		t.Fatalf("qa datagen search-mixed: Verify returned an error: %v", err)
 	}

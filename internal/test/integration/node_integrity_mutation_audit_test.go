@@ -21,6 +21,7 @@ func TestNodeIntegrityMutationUpdateStagesAuditEntity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
+
 	issueID, reference := createSchemaIssue(t, harness, "Audited state")
 	updateSchemaState(t, harness, issueID, quoted("Done"))
 
@@ -29,13 +30,24 @@ func TestNodeIntegrityMutationUpdateStagesAuditEntity(t *testing.T) {
 	if got := string(issue.Props["state_id"]); got != string(quoted(doneID.String())) {
 		t.Fatalf("issue %s state_id = %s, want the Done state %s", issueID, got, doneID)
 	}
+
 	var event audit.Event
-	if err := json.Unmarshal(outboxEvent(t, stores, issueID, audit.VerbNodeUpdate), &event); err != nil {
+	if err := json.Unmarshal(
+		outboxEvent(t, stores, issueID, audit.VerbNodeUpdate),
+		&event,
+	); err != nil {
 		t.Fatalf("decode the node.update event of %s: %v", issueID, err)
 	}
-	if event.Entity.Identifier != reference || event.Entity.NodeType != "issue" || event.Actor.ID != issue.UpdatedBy {
-		t.Fatalf("node.update entity %+v and actor %s, want reference %s, type issue, and actor %s",
-			event.Entity, event.Actor.ID, reference, issue.UpdatedBy)
+
+	if event.Entity.Identifier != reference || event.Entity.NodeType != "issue" ||
+		event.Actor.ID != issue.UpdatedBy {
+		t.Fatalf(
+			"node.update entity %+v and actor %s, want reference %s, type issue, and actor %s",
+			event.Entity,
+			event.Actor.ID,
+			reference,
+			issue.UpdatedBy,
+		)
 	}
 }
 
@@ -48,6 +60,7 @@ func TestNodeIntegrityMutationSetterStagesAuditEntity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
+
 	issueID, reference := createSchemaIssue(t, harness, "Setter carrier")
 	harness.SetIssueState(t, reference, "Done")
 
@@ -56,18 +69,37 @@ func TestNodeIntegrityMutationSetterStagesAuditEntity(t *testing.T) {
 	if err != nil || stored == nil {
 		t.Fatalf("get issue %s: %v, %v", issueID, stored, err)
 	}
+
 	doneState := string(quoted(schemaStateID(t, stores, view, "Done").String()))
-	if string(stored.Props["state_id"]) != doneState || string(view.Props["state_id"]) != doneState {
-		t.Fatalf("issue %s state_id = %s in the node and %s in the read row, want %s",
-			issueID, stored.Props["state_id"], view.Props["state_id"], doneState)
+	if string(stored.Props["state_id"]) != doneState ||
+		string(view.Props["state_id"]) != doneState {
+		t.Fatalf(
+			"issue %s state_id = %s in the node and %s in the read row, want %s",
+			issueID,
+			stored.Props["state_id"],
+			view.Props["state_id"],
+			doneState,
+		)
 	}
+
 	var event audit.Event
-	if err := json.Unmarshal(outboxEvent(t, stores, issueID, audit.VerbNodeUpdate), &event); err != nil {
+	if err := json.Unmarshal(
+		outboxEvent(t, stores, issueID, audit.VerbNodeUpdate),
+		&event,
+	); err != nil {
 		t.Fatalf("decode the node.update event of %s: %v", issueID, err)
 	}
+
 	entity := event.Entity
-	if entity.Identifier != reference || entity.NodeType != "issue" || entity.Name != stored.Name || event.Actor.ID != stored.UpdatedBy {
-		t.Fatalf("node.update entity %+v and actor %s, want reference %s, type issue, name %q, and actor %s",
-			entity, event.Actor.ID, reference, stored.Name, stored.UpdatedBy)
+	if entity.Identifier != reference || entity.NodeType != "issue" || entity.Name != stored.Name ||
+		event.Actor.ID != stored.UpdatedBy {
+		t.Fatalf(
+			"node.update entity %+v and actor %s, want reference %s, type issue, name %q, and actor %s",
+			entity,
+			event.Actor.ID,
+			reference,
+			stored.Name,
+			stored.UpdatedBy,
+		)
 	}
 }

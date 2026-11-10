@@ -59,6 +59,7 @@ func (f *Factory) OutputFormat() string {
 	if f.output != nil && *f.output == FormatJSON {
 		return FormatJSON
 	}
+
 	return FormatText
 }
 
@@ -147,28 +148,36 @@ func (f *Factory) CloseAuditOutbox() {
 // RegisterGlobalFlags installs the persistent global flags on root and binds
 // them so every command sees the operator's choices through Factory accessors.
 func (f *Factory) RegisterGlobalFlags(root *cobra.Command) {
-	f.output = root.PersistentFlags().String(
-		"output", FormatText, "output format: text or json")
-	f.operatorID = root.PersistentFlags().String(
-		"operator-id", "", "operator UUID")
-	f.operatorEmail = root.PersistentFlags().String(
-		"operator-email", "", "operator email")
-	f.operatorName = root.PersistentFlags().String(
-		"operator-name", "", "operator name")
+	f.output = root.PersistentFlags().String("output", FormatText, "output format: text or json")
+	f.operatorID = root.PersistentFlags().String("operator-id", "", "operator UUID")
+	f.operatorEmail = root.PersistentFlags().String("operator-email", "", "operator email")
+	f.operatorName = root.PersistentFlags().String("operator-name", "", "operator name")
 	f.operatorService = root.PersistentFlags().String(
-		"operator-service", "",
-		"service name for a non-human operator identity; with --operator-id, the service acts for that operator")
+		"operator-service",
+		"",
+		"service name for a non-human operator identity; with --operator-id, the service acts for that operator",
+	)
 	f.operatorSession = root.PersistentFlags().String(
-		"operator-session", "", "agent session identifier; valid only with --operator-service")
+		"operator-session",
+		"",
+		"agent session identifier; valid only with --operator-service",
+	)
 	f.deployCommit = root.PersistentFlags().String(
-		"deploy-commit", "", "commit or branch being deployed, supplied by the deploy playbook")
+		"deploy-commit",
+		"",
+		"commit or branch being deployed, supplied by the deploy playbook",
+	)
 	f.execute = root.PersistentFlags().Bool(
-		"execute", false, "execute the command instead of printing its dry-run")
+		"execute",
+		false,
+		"execute the command instead of printing its dry-run",
+	)
 }
 
 func stringValue(value *string) string {
 	if value == nil {
 		return ""
 	}
+
 	return *value
 }

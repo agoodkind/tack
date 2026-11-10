@@ -52,6 +52,7 @@ func fdbBlobstoreURL(cfg *config.Config, name string) (string, error) {
 		// pure-encoder shape free of a logging obligation.
 		return "", err
 	}
+
 	if cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
 		return "", fmt.Errorf("blobstore destination requires S3 access key and secret key")
 	}
@@ -69,6 +70,7 @@ func fdbBlobstoreURL(cfg *config.Config, name string) (string, error) {
 		name,
 		query.Encode(),
 	)
+
 	return dest, nil
 }
 
@@ -88,19 +90,26 @@ func blobstoreHostMapping(endpoint string) (hostForURL string, extraHost string,
 	if err != nil {
 		return "", "", err
 	}
+
 	if !strings.HasPrefix(authority, "[") {
 		// Plain hostname (optionally host:port). fdbbackup resolves it directly,
 		// so no synthetic name and no ExtraHosts mapping are required.
 		return authority, "", nil
 	}
+
 	closeIdx := strings.LastIndex(authority, "]")
 	if closeIdx < 0 {
-		return "", "", fmt.Errorf("endpoint %q has an opening bracket but no closing bracket", endpoint)
+		return "", "", fmt.Errorf(
+			"endpoint %q has an opening bracket but no closing bracket",
+			endpoint,
+		)
 	}
+
 	ipv6 := authority[1:closeIdx]
 	if ipv6 == "" {
 		return "", "", fmt.Errorf("endpoint %q has empty IPv6 literal", endpoint)
 	}
+
 	// Everything after the closing bracket is the optional :port. Split on the
 	// first ":" after "]" so the port stays attached to the synthetic host and
 	// the IPv6 literal (which itself contains colons) is not mis-split.
@@ -109,10 +118,16 @@ func blobstoreHostMapping(endpoint string) (hostForURL string, extraHost string,
 	if strings.HasPrefix(rest, ":") {
 		port = rest
 	} else if rest != "" {
-		return "", "", fmt.Errorf("endpoint %q has unexpected trailing data %q after IPv6 literal", endpoint, rest)
+		return "", "", fmt.Errorf(
+			"endpoint %q has unexpected trailing data %q after IPv6 literal",
+			endpoint,
+			rest,
+		)
 	}
+
 	hostForURL = fdbBlobstoreSyntheticHost + port
 	extraHost = fdbBlobstoreSyntheticHost + ":" + ipv6
+
 	return hostForURL, extraHost, nil
 }
 
@@ -123,11 +138,13 @@ func stripScheme(endpoint string) (string, error) {
 	if endpoint == "" {
 		return "", fmt.Errorf("endpoint is empty")
 	}
+
 	trimmed := strings.TrimPrefix(endpoint, "https://")
 	trimmed = strings.TrimPrefix(trimmed, "http://")
 	if trimmed == "" {
 		return "", fmt.Errorf("endpoint %q has no host after scheme", endpoint)
 	}
+
 	return trimmed, nil
 }
 
@@ -138,30 +155,38 @@ func stripScheme(endpoint string) (string, error) {
 // embedded in the destination URL and never logged; only the endpoint and bucket
 // are logged at the call site. See
 // https://apple.github.io/foundationdb/backups.html
-func fdbBackupStartArgs(b *backupCtx) (cmd []string, binds []string, extraHosts []string, err error) {
+func fdbBackupStartArgs(
+	b *backupCtx,
+) (cmd []string, binds []string, extraHosts []string, err error) {
 	// The run ID is the bare backup name. The FoundationDB blobstore layer stores
 	// every backup under its own backups/ folder in the bucket, so the object keys
 	// land at backups/<run-id>/ without a backups/ prefix here.
 	dest, err := fdbBlobstoreURL(b.Cfg, b.RunID)
 	if err != nil {
 		wrapped := fmt.Errorf("build blobstore destination: %w", err)
-		b.Log.Error("backup.fdb.blobstore_url_failed",
+		b.Log.Error(
+			"backup.fdb.blobstore_url_failed",
 			slog.String("endpoint", b.Cfg.BackupS3Endpoint),
 			slog.String("bucket", b.Cfg.BackupS3BucketMain),
 			slog.Any("err", wrapped),
 		)
+
 		return nil, nil, nil, wrapped
 	}
+
 	extraHosts, err = blobstoreExtraHosts(b.Cfg.BackupS3Endpoint)
 	if err != nil {
 		wrapped := fmt.Errorf("build blobstore extra hosts: %w", err)
-		b.Log.Error("backup.fdb.blobstore_extra_hosts_failed",
+		b.Log.Error(
+			"backup.fdb.blobstore_extra_hosts_failed",
 			slog.String("endpoint", b.Cfg.BackupS3Endpoint),
 			slog.String("bucket", b.Cfg.BackupS3BucketMain),
 			slog.Any("err", wrapped),
 		)
+
 		return nil, nil, nil, wrapped
 	}
+
 	binds = []string{fdbClusterReadOnlyBind(b.Cfg)}
 	// -z (--no-stop-when-done) keeps the backup running after it becomes
 	// restorable, so it streams a continuously-advancing restore window instead
@@ -169,10 +194,13 @@ func fdbBackupStartArgs(b *backupCtx) (cmd []string, binds []string, extraHosts 
 	// backup is restorable.
 	cmd = []string{
 		"start",
-		"-d", dest,
-		"--snapshot-interval", strconv.Itoa(b.Cfg.BackupFDBSnapshotInterval),
+		"-d",
+		dest,
+		"--snapshot-interval",
+		strconv.Itoa(b.Cfg.BackupFDBSnapshotInterval),
 		"-z",
 	}
+
 	return cmd, binds, extraHosts, nil
 }
 
@@ -187,8 +215,10 @@ func blobstoreExtraHosts(endpoint string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if extraHost == "" {
 		return nil, nil
 	}
+
 	return []string{extraHost}, nil
 }

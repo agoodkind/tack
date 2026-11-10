@@ -98,14 +98,25 @@ type SessionStore interface {
 const RankingVersion = "2"
 
 // SessionBinding returns RankedSessionBinding for RankingVersion.
-func SessionBinding(principalID, authorityID, entryPointID uuid.UUID, query Query) [sha256.Size]byte {
+func SessionBinding(
+	principalID uuid.UUID,
+	authorityID uuid.UUID,
+	entryPointID uuid.UUID,
+	query Query,
+) [sha256.Size]byte {
 	return RankedSessionBinding(RankingVersion, principalID, authorityID, entryPointID, query)
 }
 
 // RankedSessionBinding hashes the ranking version, restore epoch, principal,
 // permission authority, entry point, query text, node type, physical index,
 // access version, and access keys using length-prefixed serialization.
-func RankedSessionBinding(rankingVersion string, principalID, authorityID, entryPointID uuid.UUID, query Query) [sha256.Size]byte {
+func RankedSessionBinding(
+	rankingVersion string,
+	principalID uuid.UUID,
+	authorityID uuid.UUID,
+	entryPointID uuid.UUID,
+	query Query,
+) [sha256.Size]byte {
 	var identity bytes.Buffer
 	writeIdentityPart(&identity, []byte(rankingVersion))
 	writeIdentityPart(&identity, []byte(strconv.FormatInt(query.Generation, 10)))
@@ -116,8 +127,10 @@ func RankedSessionBinding(rankingVersion string, principalID, authorityID, entry
 	writeIdentityPart(&identity, []byte(query.NodeType))
 	writeIdentityPart(&identity, []byte(query.Index))
 	writeIdentityPart(&identity, []byte(query.Access.Version))
+
 	for _, key := range query.Access.Keys {
 		writeIdentityPart(&identity, []byte(key))
 	}
+
 	return sha256.Sum256(identity.Bytes())
 }

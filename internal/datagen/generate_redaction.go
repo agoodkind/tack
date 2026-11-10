@@ -28,7 +28,9 @@ func (g *Generator) redactOneActor(ctx context.Context) error {
 	workspace := g.identities.Workspaces[0]
 	actor := workspace.Actors[0]
 	if g.dryRun {
-		slog.InfoContext(ctx, "qa.datagen.audit_redaction_planned",
+		slog.InfoContext(
+			ctx,
+			"qa.datagen.audit_redaction_planned",
 			slog.String("org_id", workspace.OrgID.String()),
 			slog.String("actor_id", actor.UserID.String()),
 		)
@@ -42,7 +44,9 @@ func (g *Generator) redactOneActor(ctx context.Context) error {
 	if err != nil {
 		return loggedError(ctx, "qa datagen: redact audit pii for "+actor.Email, err)
 	}
-	slog.InfoContext(ctx, "qa.datagen.audit_redaction_requested",
+	slog.InfoContext(
+		ctx,
+		"qa.datagen.audit_redaction_requested",
 		slog.String("org_id", workspace.OrgID.String()),
 		slog.String("actor_id", actor.UserID.String()),
 		slog.Int("pii_ref_count", redaction.PIIRefCount),

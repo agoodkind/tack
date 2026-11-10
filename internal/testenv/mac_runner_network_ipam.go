@@ -14,8 +14,10 @@ func macRunnerIPAM(configuration types.IPAMConfig) (*network.IPAM, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		ipam.Config = append(ipam.Config, converted)
 	}
+
 	return ipam, nil
 }
 
@@ -24,31 +26,42 @@ func macRunnerIPAMPool(pool *types.IPAMPool) (network.IPAMConfig, error) {
 	for _, item := range []struct {
 		value  string
 		target *netip.Prefix
-	}{{pool.Subnet, &converted.Subnet}, {pool.IPRange, &converted.IPRange}} {
+	}{
+		{pool.Subnet, &converted.Subnet},
+		{pool.IPRange, &converted.IPRange},
+	} {
 		value, target := item.value, item.target
 		if value == "" {
 			continue
 		}
+
 		prefix, err := netip.ParsePrefix(value)
 		if err != nil {
 			return converted, macRunnerFailure("parse default-network IPAM prefix "+value, err)
 		}
+
 		*target = prefix
 	}
+
 	if pool.Gateway != "" {
 		gateway, err := netip.ParseAddr(pool.Gateway)
 		if err != nil {
 			return converted, macRunnerFailure("parse default-network gateway "+pool.Gateway, err)
 		}
+
 		converted.Gateway = gateway
 	}
+
 	converted.AuxAddress = make(map[string]netip.Addr)
+
 	for name, value := range pool.AuxiliaryAddresses {
 		address, err := netip.ParseAddr(value)
 		if err != nil {
 			return converted, macRunnerFailure("parse default-network auxiliary address "+name, err)
 		}
+
 		converted.AuxAddress[name] = address
 	}
+
 	return converted, nil
 }

@@ -24,27 +24,55 @@ func Target(ctx context.Context, status Status, guard Guard) (int64, error) {
 	if highest == 0 {
 		return 0, refused(ctx, errors.New("the image embeds no migration"))
 	}
+
 	if guard.ExpectFrom != 0 && guard.ExpectFrom != status.AppliedVersion {
-		return 0, refused(ctx, fmt.Errorf(
-			"the database is at migration version %d, and --expect-from requires version %d",
-			status.AppliedVersion, guard.ExpectFrom))
+		return 0, refused(
+			ctx,
+			fmt.Errorf(
+				"the database is at migration version %d, and --expect-from requires version %d",
+				status.AppliedVersion,
+				guard.ExpectFrom,
+			),
+		)
 	}
+
 	if guard.To == 0 {
 		if status.AppliedVersion > highest {
-			return 0, refused(ctx, fmt.Errorf(
-				"the database is at migration version %d, above the highest embedded version %d",
-				status.AppliedVersion, highest))
+			return 0, refused(
+				ctx,
+				fmt.Errorf(
+					"the database is at migration version %d, above the highest embedded version %d",
+					status.AppliedVersion,
+					highest,
+				),
+			)
 		}
+
 		return highest, nil
 	}
+
 	if guard.To < status.AppliedVersion {
-		return 0, refused(ctx, fmt.Errorf(
-			"--to version %d is below the applied migration version %d", guard.To, status.AppliedVersion))
+		return 0, refused(
+			ctx,
+			fmt.Errorf(
+				"--to version %d is below the applied migration version %d",
+				guard.To,
+				status.AppliedVersion,
+			),
+		)
 	}
+
 	if guard.To > highest {
-		return 0, refused(ctx, fmt.Errorf(
-			"--to version %d is above the highest embedded migration version %d", guard.To, highest))
+		return 0, refused(
+			ctx,
+			fmt.Errorf(
+				"--to version %d is above the highest embedded migration version %d",
+				guard.To,
+				highest,
+			),
+		)
 	}
+
 	return guard.To, nil
 }
 

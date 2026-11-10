@@ -24,16 +24,27 @@ import (
 func recordTokenUses(ctx context.Context, tx pgx.Tx, projected []committedAuthEvent) error {
 	newest := newestTokenUses(projected)
 	for _, tokenID := range sortedTokenIDs(newest) {
-		if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(
+			ctx,
+			`
 			UPDATE public.api_tokens
 			SET last_used = GREATEST(last_used, $2::timestamptz)
 			WHERE id = $1
-		`, tokenID, newest[tokenID]); err != nil {
-			slog.ErrorContext(ctx, "audit.consumer.token_use_failed",
-				slog.String("token_id", tokenID.String()), slog.String("err", err.Error()))
+		`,
+			tokenID,
+			newest[tokenID],
+		); err != nil {
+			slog.ErrorContext(
+				ctx,
+				"audit.consumer.token_use_failed",
+				slog.String("token_id", tokenID.String()),
+				slog.String("err", err.Error()),
+			)
+
 			return fmt.Errorf("record token use %s: %w", tokenID, err)
 		}
 	}
+
 	return nil
 }
 
@@ -41,15 +52,18 @@ func recordTokenUses(ctx context.Context, tx pgx.Tx, projected []committedAuthEv
 // token, skipping events that accepted no token.
 func newestTokenUses(projected []committedAuthEvent) map[uuid.UUID]time.Time {
 	newest := map[uuid.UUID]time.Time{}
+
 	for _, event := range projected {
 		if event.Action != string(VerbAuthTokenUsed) || event.APITokenID == uuid.Nil {
 			continue
 		}
+
 		current, seen := newest[event.APITokenID]
 		if !seen || event.EventTime.After(current) {
 			newest[event.APITokenID] = event.EventTime
 		}
 	}
+
 	return newest
 }
 
@@ -60,6 +74,8 @@ func sortedTokenIDs(newest map[uuid.UUID]time.Time) []uuid.UUID {
 	for id := range newest {
 		ids = append(ids, id)
 	}
+
 	slices.SortFunc(ids, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+
 	return ids
 }

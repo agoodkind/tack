@@ -62,7 +62,10 @@ type readerErrorDSN struct {
 }
 
 var readerMalformedCase = readerErrorDSN{
-	name: "malformed", dsn: readerMalformedDSN, required: readerFixedMessage, forbidden: []string{readerErrorSecret, readerParseErrorText},
+	name:      "malformed",
+	dsn:       readerMalformedDSN,
+	required:  readerFixedMessage,
+	forbidden: []string{readerErrorSecret, readerParseErrorText},
 }
 
 // TestAuditExportReaderErrorOmitsConnectionString checks that audit.NewReader
@@ -72,23 +75,53 @@ var readerMalformedCase = readerErrorDSN{
 // for forbidden text. It also requires the log and stored failure to contain
 // readerFixedMessage.
 func TestAuditExportReaderErrorOmitsConnectionString(t *testing.T) {
-	if _, err := audit.NewReader(t.Context(), readerMalformedDSN); err == nil || err.Error() != readerParseFailure {
-		t.Fatalf("audit.NewReader with the malformed DSN returned %v, want %q", err, readerParseFailure)
+	if _, err := audit.NewReader(t.Context(), readerMalformedDSN); err == nil ||
+		err.Error() != readerParseFailure {
+		t.Fatalf(
+			"audit.NewReader with the malformed DSN returned %v, want %q",
+			err,
+			readerParseFailure,
+		)
 	}
+
 	ledger := startNodeAuditLedger(t)
 	operatorID, now := uuid.Must(uuid.NewV7()), clock.Now().UTC()
-	run := builtAuditCommand(t, readerMalformedDSN,
-		"--execute", "--operator-id", operatorID.String(), "--operator-email", readerErrorOperatorKey, "--output", "json",
-		"audit", "export", "--org", uuid.Must(uuid.NewV7()).String(), "--oldest", now.Add(-time.Hour).Format(time.RFC3339),
-		"--latest", now.Add(time.Hour).Format(time.RFC3339), "--out", filepath.Join(t.TempDir(), "bundle"))
+	run := builtAuditCommand(
+		t,
+		readerMalformedDSN,
+		"--execute",
+		"--operator-id",
+		operatorID.String(),
+		"--operator-email",
+		readerErrorOperatorKey,
+		"--output",
+		"json",
+		"audit",
+		"export",
+		"--org",
+		uuid.Must(uuid.NewV7()).String(),
+		"--oldest",
+		now.Add(-time.Hour).Format(time.RFC3339),
+		"--latest",
+		now.Add(time.Hour).Format(time.RFC3339),
+		"--out",
+		filepath.Join(t.TempDir(), "bundle"),
+	)
 	if run.err == nil || !strings.Contains(run.log, readerFixedMessage) {
-		t.Fatalf("audit export error = %v, want a failure and a log with %q\n%s", run.err, readerFixedMessage, run.output())
+		t.Fatalf(
+			"audit export error = %v, want a failure and a log with %q\n%s",
+			run.err,
+			readerFixedMessage,
+			run.output(),
+		)
 	}
+
 	for _, forbidden := range readerMalformedCase.forbidden {
 		if strings.Contains(run.output(), forbidden) {
 			t.Fatalf("audit export exposed %q in output or logs:\n%s", forbidden, run.output())
 		}
 	}
+
 	command := readerErrorCommand{args: []string{"audit", "export"}, rows: 2, storesFail: true}
 	requireReaderErrorRows(t, ledger, readerMalformedCase, operatorID, command, run.output())
 }
@@ -104,17 +137,38 @@ func TestAuditReaderErrorsOmitConnectionStrings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse the ledger DSN: %v", err)
 	}
+
 	parsed.User = url.UserPassword("nobody", readerConnectSecret)
 	dsns := []readerErrorDSN{
 		readerMalformedCase,
-		{name: "slash in the password", dsn: readerSlashPasswordDSN, required: readerConnectFailure, forbidden: []string{readerConnectSecret}},
-		{name: "refused port", dsn: readerRefusedPortDSN, required: readerConnectFailure, forbidden: []string{readerConnectSecret}},
-		{name: "refused login", dsn: parsed.String(), required: readerConnectFailure, forbidden: []string{readerConnectSecret}},
+		{
+			name:      "slash in the password",
+			dsn:       readerSlashPasswordDSN,
+			required:  readerConnectFailure,
+			forbidden: []string{readerConnectSecret},
+		},
+		{
+			name:      "refused port",
+			dsn:       readerRefusedPortDSN,
+			required:  readerConnectFailure,
+			forbidden: []string{readerConnectSecret},
+		},
+		{
+			name:      "refused login",
+			dsn:       parsed.String(),
+			required:  readerConnectFailure,
+			forbidden: []string{readerConnectSecret},
+		},
 	}
+
 	commands := []readerErrorCommand{
 		{args: []string{"ops", "audit", "consumer-offsets"}, rows: 1, storesFail: false},
 		{args: []string{"ops", "audit", "dlq", "inspect"}, rows: 1, storesFail: true},
-		{args: []string{"ops", "audit", "dlq", "replay", "--limit", "1"}, rows: 2, storesFail: true},
+		{
+			args:       []string{"ops", "audit", "dlq", "replay", "--limit", "1"},
+			rows:       2,
+			storesFail: true,
+		},
 	}
 	for _, command := range commands {
 		for _, current := range dsns {
@@ -127,7 +181,13 @@ func TestAuditReaderErrorsOmitConnectionStrings(t *testing.T) {
 
 // runReaderErrorCommand runs one command through the rendered ops tree, checks
 // its error, output, and logs, and returns their combined text.
-func runReaderErrorCommand(t *testing.T, ledger *nodeAuditLedger, current readerErrorDSN, operatorID uuid.UUID, command readerErrorCommand) string {
+func runReaderErrorCommand(
+	t *testing.T,
+	ledger *nodeAuditLedger,
+	current readerErrorDSN,
+	operatorID uuid.UUID,
+	command readerErrorCommand,
+) string {
 	t.Helper()
 	cfg := *ledger.cfg
 	cfg.AuditReaderDSN = current.dsn
@@ -135,12 +195,25 @@ func runReaderErrorCommand(t *testing.T, ledger *nodeAuditLedger, current reader
 	factory := cli.System(&cfg)
 	factory.Out, factory.Err = stdout, stderr
 	factory.SetAuditOutbox(audit.NewPoolOutbox(ledger.admin))
-	factory.SetAuditReads(audit.NewPoolReadLifecycle(rolePool(t, testenv.Ledger(t), "audit_operator")))
+	factory.SetAuditReads(
+		audit.NewPoolReadLifecycle(rolePool(t, testenv.Ledger(t), "audit_operator")),
+	)
 	root := nodeAuditCommandRoot(factory)
 	root.SetContext(t.Context())
-	root.SetArgs(slices.Concat([]string{
-		"--execute", "--output", "json", "--operator-id", operatorID.String(), "--operator-email", readerErrorOperatorKey,
-	}, command.args))
+	root.SetArgs(
+		slices.Concat(
+			[]string{
+				"--execute",
+				"--output",
+				"json",
+				"--operator-id",
+				operatorID.String(),
+				"--operator-email",
+				readerErrorOperatorKey,
+			},
+			command.args,
+		),
+	)
 	previousLogger := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
 	runErr := root.Execute()
@@ -148,14 +221,33 @@ func runReaderErrorCommand(t *testing.T, ledger *nodeAuditLedger, current reader
 	if runErr == nil {
 		t.Fatalf("%v with the %s DSN succeeded, want an error", command.args, current.name)
 	}
-	combined := strings.Join([]string{runErr.Error(), stdout.String(), stderr.String(), logs.String()}, "\n")
+
+	combined := strings.Join(
+		[]string{runErr.Error(), stdout.String(), stderr.String(), logs.String()},
+		"\n",
+	)
+
 	for _, forbidden := range current.forbidden {
 		if strings.Contains(combined, forbidden) {
-			t.Fatalf("%v with the %s DSN exposed %q in output or logs:\n%s", command.args, current.name, forbidden, combined)
+			t.Fatalf(
+				"%v with the %s DSN exposed %q in output or logs:\n%s",
+				command.args,
+				current.name,
+				forbidden,
+				combined,
+			)
 		}
 	}
+
 	if !strings.Contains(runErr.Error(), current.required) {
-		t.Fatalf("%v with the %s DSN returned %q, want %q", command.args, current.name, runErr, current.required)
+		t.Fatalf(
+			"%v with the %s DSN returned %q, want %q",
+			command.args,
+			current.name,
+			runErr,
+			current.required,
+		)
 	}
+
 	return combined
 }

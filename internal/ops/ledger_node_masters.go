@@ -45,13 +45,19 @@ const (
 // must not guess.
 func deployedLedgerNodeNames(cfg *config.Config) ([]string, error) {
 	var names []string
+
 	for _, name := range ledgerNodeNames(cfg) {
 		names = append(names, name)
 	}
+
 	if len(names) == 0 {
-		return nil, errors.New("TACK_LEDGER_NODE_HOSTS names no ledger node, so there is no master list to align to")
+		return nil, errors.New(
+			"TACK_LEDGER_NODE_HOSTS names no ledger node, so there is no master list to align to",
+		)
 	}
+
 	slices.Sort(names)
+
 	return slices.Compact(names), nil
 }
 
@@ -62,7 +68,9 @@ func ledgerMasterList(names []string) []string {
 	for _, name := range names {
 		masters = append(masters, name+":"+ledgerMasterRPCPort)
 	}
+
 	slices.Sort(masters)
+
 	return masters
 }
 
@@ -75,23 +83,38 @@ func savedLedgerMasters(ctx context.Context, conf []byte) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	raw, present := fields[ledgerLauncherMastersKey]
 	if !present {
 		return nil, fmt.Errorf("saved launcher config has no %s key", ledgerLauncherMastersKey)
 	}
+
 	var joined string
 	if err := json.Unmarshal(raw, &joined); err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.node_prepare.config_unreadable", slog.String("err", err.Error()))
-		return nil, fmt.Errorf("saved launcher config %s is not a string: %w", ledgerLauncherMastersKey, err)
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.node_prepare.config_unreadable",
+			slog.String("err", err.Error()),
+		)
+
+		return nil, fmt.Errorf(
+			"saved launcher config %s is not a string: %w",
+			ledgerLauncherMastersKey,
+			err,
+		)
 	}
+
 	var masters []string
+
 	for entry := range strings.SplitSeq(joined, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry != "" {
 			masters = append(masters, entry)
 		}
 	}
+
 	slices.Sort(masters)
+
 	return slices.Compact(masters), nil
 }
 
@@ -103,17 +126,30 @@ func rewriteLedgerMasters(ctx context.Context, conf []byte, masters []string) ([
 	if err != nil {
 		return nil, err
 	}
+
 	encoded, err := json.Marshal(strings.Join(masters, ","))
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.node_prepare.config_unwritable", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.node_prepare.config_unwritable",
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("encode master list: %w", err)
 	}
+
 	fields[ledgerLauncherMastersKey] = encoded
 	rewritten, err := json.MarshalIndent(fields, "", "    ")
 	if err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.node_prepare.config_unwritable", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.node_prepare.config_unwritable",
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("encode saved launcher config: %w", err)
 	}
+
 	return append(rewritten, '\n'), nil
 }
 
@@ -122,8 +158,14 @@ func rewriteLedgerMasters(ctx context.Context, conf []byte, masters []string) ([
 func decodeLauncherConfig(ctx context.Context, conf []byte) (map[string]json.RawMessage, error) {
 	fields := map[string]json.RawMessage{}
 	if err := json.Unmarshal(conf, &fields); err != nil {
-		slog.ErrorContext(ctx, "ops.ledger.node_prepare.config_unreadable", slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"ops.ledger.node_prepare.config_unreadable",
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("parse saved launcher config: %w", err)
 	}
+
 	return fields, nil
 }

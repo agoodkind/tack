@@ -41,38 +41,57 @@ func resolveYBArchiveTarget(
 	ctx context.Context,
 	cfg *config.Config,
 	s3Client *s3.Client,
-	nodeName, runID string,
+	nodeName string,
+	runID string,
 ) (*ybArchiveTarget, error) {
 	logger := telemetry.L(ctx)
 	discovered := runID == ""
 	var manifest ybSnapshotManifest
 	if discovered {
-		newest, found, err := newestUploadedYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain)
+		newest, found, err := newestUploadedYBSnapshotManifest(
+			ctx,
+			s3Client,
+			cfg.BackupS3BucketMain,
+		)
 		if err != nil {
 			return nil, err
 		}
+
 		if !found {
 			logger.InfoContext(ctx, "backup.yb_archive.no_manifest", slog.String("node", nodeName))
 			return nil, nil
 		}
+
 		manifest = newest
 	} else {
 		fetched, err := fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, runID)
 		if err != nil {
 			return nil, err
 		}
+
 		manifest = fetched
 	}
 
 	prefix, listed := manifest.nodePrefix(nodeName)
 	if !listed {
 		if discovered {
-			logger.InfoContext(ctx, "backup.yb_archive.node_not_listed",
-				slog.String("run_id", manifest.RunID), slog.String("node", nodeName))
+			logger.InfoContext(
+				ctx,
+				"backup.yb_archive.node_not_listed",
+				slog.String("run_id", manifest.RunID),
+				slog.String("node", nodeName),
+			)
+
 			return nil, nil
 		}
-		err := fmt.Errorf("yb-archive-node: manifest for run %s does not list node %q", runID, nodeName)
+
+		err := fmt.Errorf(
+			"yb-archive-node: manifest for run %s does not list node %q",
+			runID,
+			nodeName,
+		)
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", err.Error()))
+
 		return nil, err
 	}
 
@@ -86,18 +105,32 @@ func resolveYBArchiveTarget(
 	// again beside the inventory, because the inventory is recorded from the
 	// archive it is uploaded with and cannot vouch for bytes another run put in
 	// the store.
-	complete, err := ybNodeFullyArchived(manifest.RunID, node, func(key string) (bool, error) {
-		return objectExists(ctx, s3Client, cfg.BackupS3BucketMain, key)
-	})
+	complete, err := ybNodeFullyArchived(
+		manifest.RunID,
+		node,
+		func(key string) (bool, error) {
+			return objectExists(ctx, s3Client, cfg.BackupS3BucketMain, key)
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	if complete {
-		logger.InfoContext(ctx, "backup.yb_archive.already_archived",
-			slog.String("run_id", manifest.RunID), slog.String("node", nodeName),
-			slog.String("key_prefix", ybNodeKeyPrefix(manifest.RunID, node)))
+		logger.InfoContext(
+			ctx,
+			"backup.yb_archive.already_archived",
+			slog.String("run_id", manifest.RunID),
+			slog.String("node", nodeName),
+			slog.String("key_prefix", ybNodeKeyPrefix(manifest.RunID, node)),
+		)
 	}
-	return &ybArchiveTarget{manifest: manifest, prefix: ybNodeKeyPrefix(manifest.RunID, node), complete: complete}, nil
+
+	return &ybArchiveTarget{
+		manifest: manifest,
+		prefix:   ybNodeKeyPrefix(manifest.RunID, node),
+		complete: complete,
+	}, nil
 }
 
 // localYBNodeName is the node name this guest's yugabyte container announces
@@ -107,16 +140,31 @@ func resolveYBArchiveTarget(
 // is the node's identity.
 func localYBNodeName(ctx context.Context, cli *client.Client) (string, error) {
 	logger := telemetry.L(ctx)
-	insp, err := cli.ContainerInspect(ctx, yugabyteBackupContainer, client.ContainerInspectOptions{})
+	insp, err := cli.ContainerInspect(
+		ctx,
+		yugabyteBackupContainer,
+		client.ContainerInspectOptions{},
+	)
 	if err != nil {
-		wrapped := fmt.Errorf("inspect local yugabyte container %q: %w", yugabyteBackupContainer, err)
+		wrapped := fmt.Errorf(
+			"inspect local yugabyte container %q: %w",
+			yugabyteBackupContainer,
+			err,
+		)
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", wrapped.Error()))
+
 		return "", wrapped
 	}
+
 	if insp.Container.Config == nil || strings.TrimSpace(insp.Container.Config.Hostname) == "" {
-		wrapped := fmt.Errorf("local yugabyte container %q has no hostname to identify this node", yugabyteBackupContainer)
+		wrapped := fmt.Errorf(
+			"local yugabyte container %q has no hostname to identify this node",
+			yugabyteBackupContainer,
+		)
 		logger.ErrorContext(ctx, "backup.yb_archive.failed", slog.String("err", wrapped.Error()))
+
 		return "", wrapped
 	}
+
 	return insp.Container.Config.Hostname, nil
 }

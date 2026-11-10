@@ -52,19 +52,26 @@ func clusterConfig(t *testing.T, cluster *testenv.LedgerCluster) *config.Config 
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
+
 	logins := []*string{
-		&cfg.AuditWriterPassword, &cfg.AuditReaderPassword, &cfg.AuditRedactorPassword,
-		&cfg.AuditOperatorPassword, &cfg.AppPassword, &cfg.MigratorPassword,
+		&cfg.AuditWriterPassword,
+		&cfg.AuditReaderPassword,
+		&cfg.AuditRedactorPassword,
+		&cfg.AuditOperatorPassword,
+		&cfg.AppPassword,
+		&cfg.MigratorPassword,
 	}
 	for _, login := range logins {
 		*login = bootstrapSecret(t)
 	}
+
 	cfg.AuditOperatorDSN = cluster.KeywordDSN(bootstrapOperatorLogin, cfg.AuditOperatorPassword)
 	cfg.BackupFDBNetwork = cluster.Network
 	cfg.BackupYBImage = cluster.Image
 	cfg.BackupYBMasterAddresses = clusterBackupMasters
 	cfg.LedgerNodeHosts = clusterNodeHosts(cluster)
 	cfg.LedgerTLSEnabled = false
+
 	return cfg
 }
 
@@ -75,6 +82,7 @@ func ledgerIsEmpty(t *testing.T, pool *pgxpool.Pool) bool {
 	if err := pool.QueryRow(t.Context(), clusterEmptyQuery).Scan(&empty); err != nil {
 		t.Fatalf("read whether the ledger is empty: %v", err)
 	}
+
 	return empty
 }
 
@@ -85,6 +93,7 @@ func migrationVersion(t *testing.T, pool *pgxpool.Pool) int64 {
 	if err := pool.QueryRow(t.Context(), clusterVersionQuery).Scan(&version); err != nil {
 		t.Fatalf("read the migration version: %v", err)
 	}
+
 	return version
 }
 
@@ -95,6 +104,7 @@ func operatorSecretHash(t *testing.T, pool *pgxpool.Pool) string {
 	if err := pool.QueryRow(t.Context(), clusterSecretHashQuery).Scan(&hash); err != nil {
 		t.Fatalf("read the operator login hash: %v", err)
 	}
+
 	return hash
 }
 
@@ -104,6 +114,7 @@ func requireCommandError(t *testing.T, label string, err error, output, want str
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("%s = %v, want an error containing %q\n%s", label, err, want, output)
 	}
+
 	t.Logf("%s failed as required: %v", label, err)
 }
 
@@ -128,6 +139,7 @@ func outboxOpID(t *testing.T, event audit.Event) string {
 	if err := json.Unmarshal(event.Extra, &extra); err != nil || extra.OpID == "" {
 		t.Fatalf("outbox event %s extra %s has no op id: %v", event.EventID, event.Extra, err)
 	}
+
 	return extra.OpID
 }
 
@@ -142,10 +154,12 @@ func requireOutboxPair(t *testing.T, pair []audit.Event, want audit.Outcome) str
 	if !slices.Equal(outcomes, expected) {
 		t.Fatalf("outbox outcomes = %v, want %v", outcomes, expected)
 	}
+
 	opID := outboxOpID(t, pair[0])
 	if outboxOpID(t, pair[1]) != opID {
 		t.Fatalf("outbox op ids = %s and %s, want one op id", opID, outboxOpID(t, pair[1]))
 	}
+
 	return opID
 }
 
@@ -156,6 +170,7 @@ func requireOperatorLogin(t *testing.T, dsn string) {
 	if err != nil {
 		t.Fatalf("connect as the operator login: %v", err)
 	}
+
 	defer func() { _ = connection.Close(t.Context()) }()
 	if err := connection.Ping(t.Context()); err != nil {
 		t.Fatalf("ping as the operator login: %v", err)
@@ -168,26 +183,37 @@ func waitNumReplicas(t *testing.T, cluster *testenv.LedgerCluster, want int) {
 	t.Helper()
 	var lastOutput string
 	var lastErr error
-	matched := waitFor(t, clusterReplicaDeadline, func() bool {
-		lastOutput, lastErr = cluster.Admin(t.Context(), "get_universe_config")
-		start, end := strings.Index(lastOutput, "{"), strings.LastIndex(lastOutput, "}")
-		if lastErr != nil || start < 0 || end < start {
-			return false
-		}
-		var universe struct {
-			ReplicationInfo struct {
-				LiveReplicas struct {
-					NumReplicas int `json:"numReplicas"`
-				} `json:"liveReplicas"`
-			} `json:"replicationInfo"`
-		}
-		if json.Unmarshal([]byte(lastOutput[start:end+1]), &universe) != nil {
-			return false
-		}
-		return universe.ReplicationInfo.LiveReplicas.NumReplicas == want
-	})
+	matched := waitFor(
+		t,
+		clusterReplicaDeadline,
+		func() bool {
+			lastOutput, lastErr = cluster.Admin(t.Context(), "get_universe_config")
+			start, end := strings.Index(lastOutput, "{"), strings.LastIndex(lastOutput, "}")
+			if lastErr != nil || start < 0 || end < start {
+				return false
+			}
+
+			var universe struct {
+				ReplicationInfo struct {
+					LiveReplicas struct {
+						NumReplicas int `json:"numReplicas"`
+					} `json:"liveReplicas"`
+				} `json:"replicationInfo"`
+			}
+			if json.Unmarshal([]byte(lastOutput[start:end+1]), &universe) != nil {
+				return false
+			}
+
+			return universe.ReplicationInfo.LiveReplicas.NumReplicas == want
+		},
+	)
 	t.Logf("get_universe_config raw stdout:\n%s", lastOutput)
 	if !matched {
-		t.Fatalf("numReplicas did not become %d within %s (last error %v)", want, clusterReplicaDeadline, lastErr)
+		t.Fatalf(
+			"numReplicas did not become %d within %s (last error %v)",
+			want,
+			clusterReplicaDeadline,
+			lastErr,
+		)
 	}
 }
