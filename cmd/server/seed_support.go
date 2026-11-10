@@ -41,34 +41,63 @@ func userIDForEmail(email string) uuid.UUID {
 // org membership or [uuid.Nil] when a prior membership does not exist. In
 // the create transaction, CreateAtomic writes a change event for the new node
 // and writes one for its parent relationship when parentID is not [uuid.Nil].
-func ensureNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug, name string, parentID, lookupOrgID uuid.UUID) (uuid.UUID, error) {
+func ensureNode(
+	ctx context.Context,
+	s *fdbadapter.Stores,
+	typeKey string,
+	slug string,
+	name string,
+	parentID uuid.UUID,
+	lookupOrgID uuid.UUID,
+) (uuid.UUID, error) {
 	existing, err := findSeedNode(ctx, s, typeKey, slug, lookupOrgID)
 	if err != nil || existing != uuid.Nil {
 		return existing, err
 	}
+
 	id := seedNodeID(typeKey, slug, parentID)
 	if err := createSeedNode(ctx, s, id, typeKey, slug, name, parentID); err != nil {
 		return uuid.Nil, err
 	}
+
 	return id, nil
 }
 
 // findSeedNode returns the ID of the node of typeKey with slug that the
 // node_by_property index of lookupOrgID lists. It returns [uuid.Nil] when
 // lookupOrgID is [uuid.Nil] or the index does not list a node.
-func findSeedNode(ctx context.Context, s *fdbadapter.Stores, typeKey, slug string, lookupOrgID uuid.UUID) (uuid.UUID, error) {
+func findSeedNode(
+	ctx context.Context,
+	s *fdbadapter.Stores,
+	typeKey string,
+	slug string,
+	lookupOrgID uuid.UUID,
+) (uuid.UUID, error) {
 	if lookupOrgID == uuid.Nil {
 		return uuid.Nil, nil
 	}
+
 	slugRaw, err := encodeSeedSlug(ctx, slug)
 	if err != nil {
 		return uuid.Nil, err
 	}
+
 	existing, listErr := s.Nodes.ListByProperty(ctx, lookupOrgID, typeKey, "slug", slugRaw)
 	if listErr == nil && len(existing) > 0 {
-		telemetry.L(ctx).InfoContext(ctx, "seed.node_exists", "type", typeKey, "slug", slug, "id", existing[0].ID)
+		telemetry.L(ctx).InfoContext(
+			ctx,
+			"seed.node_exists",
+			"type",
+			typeKey,
+			"slug",
+			slug,
+			"id",
+			existing[0].ID,
+		)
+
 		return existing[0].ID, nil
 	}
+
 	return uuid.Nil, nil
 }
 
@@ -94,26 +123,42 @@ func encodeSeedSlug(ctx context.Context, slug string) (json.RawMessage, error) {
 		slog.ErrorContext(ctx, "seed.encode_slug_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("seed: encode slug %q: %w", slug, err)
 	}
+
 	return slugRaw, nil
 }
 
 // createSeedNode writes the node id of typeKey with slug and name under
 // parentID, its view, its slug index entry, and its child_of edge in one
 // CreateAtomic transaction.
-func createSeedNode(ctx context.Context, s *fdbadapter.Stores, id uuid.UUID, typeKey, slug, name string, parentID uuid.UUID) error {
+func createSeedNode(
+	ctx context.Context,
+	s *fdbadapter.Stores,
+	id uuid.UUID,
+	typeKey string,
+	slug string,
+	name string,
+	parentID uuid.UUID,
+) error {
 	slugRaw, err := encodeSeedSlug(ctx, slug)
 	if err != nil {
 		return err
 	}
+
 	now := clock.Now().UTC()
 	props := make(map[string]json.RawMessage)
 	props["slug"] = slugRaw
 	if parentID != uuid.Nil {
 		parentRaw, marshalErr := json.Marshal(parentID.String())
 		if marshalErr != nil {
-			slog.ErrorContext(ctx, "seed.encode_parent_failed", slog.String("err", marshalErr.Error()))
+			slog.ErrorContext(
+				ctx,
+				"seed.encode_parent_failed",
+				slog.String("err", marshalErr.Error()),
+			)
+
 			return fmt.Errorf("seed: encode parent_id: %w", marshalErr)
 		}
+
 		props["parent_id"] = parentRaw
 	}
 
@@ -125,28 +170,58 @@ func createSeedNode(ctx context.Context, s *fdbadapter.Stores, id uuid.UUID, typ
 	}
 
 	n := &node.Node{
-		ID: id, OrgID: orgID, NodeType: typeKey, Name: name,
-		Props: props, CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
+		ID:        id,
+		OrgID:     orgID,
+		NodeType:  typeKey,
+		Name:      name,
+		Props:     props,
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	view := &node.NodeView{
-		ID: id, OrgID: orgID, NodeType: typeKey, Name: name,
-		Props: props, CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
+		ID:        id,
+		OrgID:     orgID,
+		NodeType:  typeKey,
+		Name:      name,
+		Props:     props,
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	var rels []*node.Relationship
 	if parentID != uuid.Nil {
-		rels = append(rels, &node.Relationship{
-			OrgID: orgID, SourceID: id, RelationType: node.RelChildOf,
-			TargetID: parentID, CreatedBy: uuid.Nil, Props: nil, CreatedAt: now,
-		})
+		rels = append(
+			rels,
+			&node.Relationship{
+				OrgID:        orgID,
+				SourceID:     id,
+				RelationType: node.RelChildOf,
+				TargetID:     parentID,
+				CreatedBy:    uuid.Nil,
+				Props:        nil,
+				CreatedAt:    now,
+			},
+		)
 	}
 
 	// Mark slug as indexed so ListByProperty works for it. The node_by_property
 	// index written here replaces the former address_index write.
 	if err := s.Nodes.CreateAtomic(ctx, n, view, rels, []string{"slug"}, nil, nil); err != nil {
-		slog.ErrorContext(ctx, "seed.create_node_failed", slog.String("type", typeKey), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"seed.create_node_failed",
+			slog.String("type", typeKey),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("seed: create node of type %s: %w", typeKey, err)
 	}
+
 	telemetry.L(ctx).InfoContext(ctx, "seed.node_created", "type", typeKey, "slug", slug, "id", id)
+
 	return nil
 }
 
@@ -158,6 +233,7 @@ func generateToken() (string, error) {
 		slog.Error("seed.token_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("seed: generate token: %w", err)
 	}
+
 	return raw, nil
 }
 
@@ -182,8 +258,11 @@ func orgsExist(ctx context.Context, cfg *config.Config) (bool, error) {
 		if strings.Contains(err.Error(), "does not exist") {
 			return false, nil
 		}
+
 		slog.ErrorContext(ctx, "seed.orgs_exist_query_failed", slog.String("err", err.Error()))
+
 		return false, fmt.Errorf("orgsExist: query: %w", err)
 	}
+
 	return exists, nil
 }

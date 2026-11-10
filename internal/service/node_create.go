@@ -57,7 +57,9 @@ type CreateResult struct {
 // returns it with CreateResult.Existed=true and performs no writes. If no
 // record exists, Create stamps the key alongside the new node.
 func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult, error) {
-	ctx, span := telemetry.StartSpan(ctx, "service.node.create",
+	ctx, span := telemetry.StartSpan(
+		ctx,
+		"service.node.create",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(attribute.String("node.type", in.NodeTypeKey)),
 	)
@@ -75,6 +77,7 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 	if err != nil {
 		return nil, err
 	}
+
 	if existingResult != nil {
 		return existingResult, nil
 	}
@@ -83,72 +86,114 @@ func (s *NodeService) Create(ctx context.Context, in CreateInput) (*CreateResult
 	if err != nil {
 		return nil, err
 	}
+
 	nt := schema.Types[in.NodeTypeKey]
 	if nt == nil {
 		return nil, fmt.Errorf("node type %q: %w", in.NodeTypeKey, domain.ErrNotFound)
 	}
+
 	id := uuid.Must(uuid.NewV7())
 	plan, err := s.createPlan(ctx, log, orgID, id, nt, schema, in)
 	if err != nil {
 		return nil, err
 	}
+
 	receipt, err := s.nodes.ApplyMutation(ctx, *plan)
 	if err != nil {
-		log.ErrorContext(ctx, "node.create_failed", slog.String("node_type", nt.TypeKey), slog.String("node_id", id.String()), slog.String("err", err.Error()))
+		log.ErrorContext(
+			ctx,
+			"node.create_failed",
+			slog.String("node_type", nt.TypeKey),
+			slog.String("node_id", id.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return nil, fmt.Errorf("create node: %w", err)
 	}
+
 	view, err := s.committedView(ctx, receipt.NodeID)
 	if err != nil {
 		return nil, err
 	}
+
 	if receipt.NodeID != id {
 		return &CreateResult{View: view, Existed: true}, nil
 	}
 
 	s.createDefaultChildren(ctx, log, nt, id, in.ActorID)
 
-	log.InfoContext(ctx, "node.Create",
+	log.InfoContext(
+		ctx,
+		"node.Create",
 		slog.String("node_id", id.String()),
 		slog.String("node_type", nt.TypeKey),
 	)
+
 	return &CreateResult{View: view, Existed: false}, nil
 }
 
 // createPlan prepares the checked mutation that creates node id of type nt
 // from in.
 func (s *NodeService) createPlan(
-	ctx context.Context, log *slog.Logger, orgID, id uuid.UUID, nt *node.NodeType, schema node.SchemaSnapshot, in CreateInput,
+	ctx context.Context,
+	log *slog.Logger,
+	orgID uuid.UUID,
+	id uuid.UUID,
+	nt *node.NodeType,
+	schema node.SchemaSnapshot,
+	in CreateInput,
 ) (*node.MutationPlan, error) {
 	props, err := s.prepareCreateProps(ctx, log, orgID, nt, in)
 	if err != nil {
 		return nil, err
 	}
+
 	referenceKeys, err := s.referenceKeysFor(ctx, orgID, nt, in.ScopeID, props)
 	if err != nil {
 		return nil, err
 	}
+
 	parentRecords, err := s.parentGraph(ctx, orgID, id, in.ParentID)
 	if err != nil {
 		return nil, err
 	}
+
 	referenceRecords, err := s.referenceGraph(ctx, orgID, schema.Schema, props)
 	if err != nil {
 		return nil, err
 	}
+
 	relationships, err := createRelationships(ctx, id, in)
 	if err != nil {
 		return nil, err
 	}
+
 	var parent *node.ParentChange
 	if in.ParentID != uuid.Nil {
 		parent = &node.ParentChange{TargetID: in.ParentID}
 	}
+
 	name := in.Name
+
 	return &node.MutationPlan{
-		OrgID: orgID, NodeID: id, NodeType: nt.TypeKey, ActorID: in.ActorID,
-		Source: node.SourceExpectation{Absent: true, PrimaryDigest: node.Digest{}}, MetadataEpoch: schema.MetadataEpoch,
-		Graph: node.GraphExpectation{Records: sortedGraphRecords(parentRecords, referenceRecords), Relationships: nil, Incoming: nil},
-		Name:  &name, Props: propsWithoutParent(props), Parent: parent, ReferenceKeys: referenceKeys,
+		OrgID:    orgID,
+		NodeID:   id,
+		NodeType: nt.TypeKey,
+		ActorID:  in.ActorID,
+		Source: node.SourceExpectation{
+			Absent:        true,
+			PrimaryDigest: node.Digest{},
+		},
+		MetadataEpoch: schema.MetadataEpoch,
+		Graph: node.GraphExpectation{
+			Records:       sortedGraphRecords(parentRecords, referenceRecords),
+			Relationships: nil,
+			Incoming:      nil,
+		},
+		Name:          &name,
+		Props:         propsWithoutParent(props),
+		Parent:        parent,
+		ReferenceKeys: referenceKeys,
 		Relationships: node.RelationshipChanges{Add: relationships, Remove: nil},
 		Idempotency:   createIdempotencyRecord(in, id, clock.Now().UTC()),
 	}, nil

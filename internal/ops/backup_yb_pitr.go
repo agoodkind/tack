@@ -42,11 +42,14 @@ func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 	if err := requireBackupYBImage(ctx, cfg, "yb-pitr-init", "backup.yb_pitr.failed"); err != nil {
 		return err
 	}
+
 	filter := "ysql." + cfg.YugabyteDB
 	interval := strconv.Itoa(cfg.BackupYBPITRIntervalMinutes)
 	retention := strconv.Itoa(cfg.BackupYBPITRRetentionMinutes)
 
-	logger.InfoContext(ctx, "backup.yb_pitr.start",
+	logger.InfoContext(
+		ctx,
+		"backup.yb_pitr.start",
 		slog.String("masters", cfg.BackupYBMasterAddresses),
 		slog.String("filter", filter),
 		slog.Int("interval_minutes", cfg.BackupYBPITRIntervalMinutes),
@@ -67,24 +70,25 @@ func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 	// helper because it reads the exit code and the output itself, to treat a
 	// schedule that already exists as success.
 	accessArgs, accessBinds := ybAdminClusterAccess(cfg)
-	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
-		Image:      cfg.BackupYBImage,
-		Network:    cfg.BackupFDBNetwork,
-		Entrypoint: []string{ybAdminBinary},
-		Cmd: append(accessArgs,
-			"create_snapshot_schedule",
-			interval,
-			retention,
-			filter,
-		),
-		Env:        nil,
-		Binds:      accessBinds,
-		ExtraHosts: nil,
-		Name:       "",
-	})
+	res, err := runOneShot(
+		ctx,
+		cli,
+		logger,
+		runOneShotOptions{
+			Image:      cfg.BackupYBImage,
+			Network:    cfg.BackupFDBNetwork,
+			Entrypoint: []string{ybAdminBinary},
+			Cmd:        append(accessArgs, "create_snapshot_schedule", interval, retention, filter),
+			Env:        nil,
+			Binds:      accessBinds,
+			ExtraHosts: nil,
+			Name:       "",
+		},
+	)
 	if err != nil {
 		wrapped := fmt.Errorf("run yb-admin create_snapshot_schedule for %q: %w", filter, err)
 		logger.ErrorContext(ctx, "backup.yb_pitr.failed", slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
 
@@ -94,9 +98,14 @@ func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 			logger.InfoContext(ctx, "backup.yb_pitr.exists", slog.String("filter", filter))
 			return nil
 		}
-		err := fmt.Errorf("yb-admin create_snapshot_schedule exited %d: %s",
-			res.ExitCode, strings.TrimSpace(combined))
+
+		err := fmt.Errorf(
+			"yb-admin create_snapshot_schedule exited %d: %s",
+			res.ExitCode,
+			strings.TrimSpace(combined),
+		)
 		logger.ErrorContext(ctx, "backup.yb_pitr.failed", slog.String("err", err.Error()))
+
 		return err
 	}
 
@@ -109,14 +118,18 @@ func RunBackupYBPITRInit(ctx context.Context, cfg *config.Config) error {
 
 	scheduleID := parseScheduleID(res.Stdout)
 	if scheduleID != "" {
-		logger.InfoContext(ctx, "backup.yb_pitr.created",
+		logger.InfoContext(
+			ctx,
+			"backup.yb_pitr.created",
 			slog.String("filter", filter),
 			slog.String("schedule_id", scheduleID),
 		)
+
 		return nil
 	}
 
 	logger.InfoContext(ctx, "backup.yb_pitr.completed", slog.String("filter", filter))
+
 	return nil
 }
 
@@ -132,9 +145,11 @@ func parseScheduleID(stdout string) string {
 	if trimmed == "" {
 		return ""
 	}
+
 	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
 		return ""
 	}
+
 	return parsed.ScheduleID
 }
 
@@ -147,6 +162,7 @@ func isScheduleAlreadyExists(output string) bool {
 	if !strings.Contains(lower, "schedule") {
 		return false
 	}
+
 	return strings.Contains(lower, "already exists") ||
 		strings.Contains(lower, "already scheduled") ||
 		strings.Contains(lower, "duplicate")

@@ -16,7 +16,11 @@ import (
 // runPartitionMaintenanceIn opens a new session with TimeZone set to
 // timeZone and calls audit.run_partition_maintenance from it. It fails unless
 // the session reports that zone before the call.
-func runPartitionMaintenanceIn(ctx context.Context, fixture *partmanTestDatabase, timeZone string) error {
+func runPartitionMaintenanceIn(
+	ctx context.Context,
+	fixture *partmanTestDatabase,
+	timeZone string,
+) error {
 	config, err := pgx.ParseConfig(fixture.dsn)
 	if err != nil {
 		return fmt.Errorf("parse fixture DSN: %w", err)
@@ -48,18 +52,31 @@ func requireMaintenanceSettings(t *testing.T, fixture *partmanTestDatabase) {
 	var owner string
 	var securityDefiner, writerCanExecute bool
 	var settings []string
-	if err := fixture.pool.QueryRow(context.Background(), `
+	if err := fixture.pool.QueryRow(
+		context.Background(),
+		`
 		SELECT pg_get_userbyid(p.proowner), p.prosecdef, p.proconfig,
 		       has_function_privilege('audit_writer', 'audit.run_partition_maintenance()', 'EXECUTE')
 		FROM pg_proc p
 		JOIN pg_namespace n ON n.oid = p.pronamespace
 		WHERE n.nspname = 'audit' AND p.proname = 'run_partition_maintenance'
-	`).Scan(&owner, &securityDefiner, &settings, &writerCanExecute); err != nil {
+	`,
+	).Scan(
+		&owner,
+		&securityDefiner,
+		&settings,
+		&writerCanExecute,
+	); err != nil {
 		t.Fatalf("read maintenance function settings: %v", err)
 	}
 	if owner != fixture.migrationOwner || !securityDefiner || !writerCanExecute {
-		t.Fatalf("maintenance function owner %q, SECURITY DEFINER %t, audit_writer EXECUTE %t; want %q, true, true",
-			owner, securityDefiner, writerCanExecute, fixture.migrationOwner)
+		t.Fatalf(
+			"maintenance function owner %q, SECURITY DEFINER %t, audit_writer EXECUTE %t; want %q, true, true",
+			owner,
+			securityDefiner,
+			writerCanExecute,
+			fixture.migrationOwner,
+		)
 	}
 	for _, setting := range []string{"search_path=pg_catalog, partman, audit", "TimeZone=UTC"} {
 		if !slices.Contains(settings, setting) {
@@ -76,20 +93,37 @@ func requireUTCWeekNames(t *testing.T, fixture *partmanTestDatabase, moments []t
 	for _, moment := range moments {
 		utc := moment.UTC()
 		daysSinceMonday := (int(utc.Weekday()) + 6) % 7
-		monday := time.Date(utc.Year(), utc.Month(), utc.Day()-daysSinceMonday, 0, 0, 0, 0, time.UTC)
+		monday := time.Date(
+			utc.Year(),
+			utc.Month(),
+			utc.Day()-daysSinceMonday,
+			0,
+			0,
+			0,
+			0,
+			time.UTC,
+		)
 		name := "events_p" + monday.Format("2006_01_02")
 		var bound string
-		if err := fixture.pool.QueryRow(context.Background(), `
+		if err := fixture.pool.QueryRow(
+			context.Background(),
+			`
 			SELECT pg_get_expr(c.relpartbound, c.oid)
 			FROM pg_inherits i
 			JOIN pg_class c ON c.oid = i.inhrelid
 			JOIN pg_class p ON p.oid = i.inhparent
 			JOIN pg_namespace n ON n.oid = p.relnamespace
 			WHERE n.nspname = 'audit' AND p.relname = 'events' AND c.relname = $1
-		`, name).Scan(&bound); err != nil {
+		`,
+			name,
+		).Scan(
+			&bound,
+		); err != nil {
 			t.Fatalf("read partition %s for %s: %v", name, utc.Format(time.DateOnly), err)
 		}
-		if want := "FOR VALUES FROM ('" + monday.Format(time.DateOnly) + " 00:00:00+00')"; !strings.HasPrefix(bound, want) {
+		if want := "FOR VALUES FROM ('" + monday.Format(
+			time.DateOnly,
+		) + " 00:00:00+00')"; !strings.HasPrefix(bound, want) {
 			t.Fatalf("partition %s bound %q, want prefix %q", name, bound, want)
 		}
 	}

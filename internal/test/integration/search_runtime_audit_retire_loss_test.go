@@ -44,23 +44,52 @@ func TestSearchRuntimeAuditRetiredSessionLostResult(t *testing.T) {
 	runReplacementThroughFailures(t, fixture.parentEdgeFixture)
 	gate.requireFinished(t)
 
-	rows := fixture.waitForRows(t, fixture.first.OrgID, func(current []audit.Row) bool {
-		return len(lostRetireRows(current, session.ID)) == 1 && len(closingUpdates(t, current, session.ID)) == 1 &&
-			len(sessionChanges(current, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession)) == 1
-	})
+	rows := fixture.waitForRows(
+		t,
+		fixture.first.OrgID,
+		func(current []audit.Row) bool {
+			return len(lostRetireRows(current, session.ID)) == 1 &&
+				len(closingUpdates(t, current, session.ID)) == 1 &&
+				len(
+					sessionChanges(
+						current,
+						session.ID,
+						audit.VerbSearchSessionDelete,
+						audit.TargetSearchSession,
+					),
+				) == 1
+		},
+	)
 	workerID := cli.ServiceActorID(appruntime.SearchWorkerService)
 	lost := onlyRow(t, lostRetireRows(rows, session.ID), "the lost cleanup result")
 	closed := closingUpdates(t, rows, session.ID)[0]
 	requireRetirementRow(t, lost, workerID, rebuild, source)
 	requireRetirementRow(t, closed, workerID, rebuild, source)
 	var evidence retireFailureEvidence
-	if err := json.Unmarshal(lost.Extra, &evidence); err != nil || evidence.Cleanup != transactionTimedOutCode || evidence.Recording != transactionTimedOutCode {
-		t.Fatalf("lost attempt evidence = %s, %v, want cleanup and recording code %q", lost.Extra, err, transactionTimedOutCode)
+	if err := json.Unmarshal(
+		lost.Extra,
+		&evidence,
+	); err != nil || evidence.Cleanup != transactionTimedOutCode ||
+		evidence.Recording != transactionTimedOutCode {
+		t.Fatalf(
+			"lost attempt evidence = %s, %v, want cleanup and recording code %q",
+			lost.Extra,
+			err,
+			transactionTimedOutCode,
+		)
 	}
-	if lost.Context.OperationID == closed.Context.OperationID || !lost.Context.StartedAt.Before(closed.Context.StartedAt) ||
+	if lost.Context.OperationID == closed.Context.OperationID ||
+		!lost.Context.StartedAt.Before(closed.Context.StartedAt) ||
 		!lost.EventTime.Before(closed.EventTime) {
-		t.Fatalf("lost attempt %s started at %s with event time %s; the successful retry %s started at %s with event time %s; want an earlier separate operation",
-			lost.Context.OperationID, lost.Context.StartedAt, lost.EventTime, closed.Context.OperationID, closed.Context.StartedAt, closed.EventTime)
+		t.Fatalf(
+			"lost attempt %s started at %s with event time %s; the successful retry %s started at %s with event time %s; want an earlier separate operation",
+			lost.Context.OperationID,
+			lost.Context.StartedAt,
+			lost.EventTime,
+			closed.Context.OperationID,
+			closed.Context.StartedAt,
+			closed.EventTime,
+		)
 	}
 }
 
@@ -68,8 +97,12 @@ func lostRetireRows(rows []audit.Row, sessionID uuid.UUID) []audit.Row {
 	selected := []audit.Row{}
 	for _, row := range rows {
 		target := row.Context.Target
-		if row.Action == string(audit.VerbSearchSessionUpdate) && row.Outcome == audit.OutcomeIncomplete && target != nil &&
-			strings.Contains(target.URI, sessionID.String()) && row.Error != nil && row.Error.Code == retireResultNotSaved {
+		if row.Action == string(audit.VerbSearchSessionUpdate) &&
+			row.Outcome == audit.OutcomeIncomplete &&
+			target != nil &&
+			strings.Contains(target.URI, sessionID.String()) &&
+			row.Error != nil &&
+			row.Error.Code == retireResultNotSaved {
 			selected = append(selected, row)
 		}
 	}

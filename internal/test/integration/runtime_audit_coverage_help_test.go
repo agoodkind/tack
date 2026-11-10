@@ -28,12 +28,16 @@ const unreachableDatabaseURL = "postgres://coverage@unreachable.invalid:1/none?c
 func requireStaticHelp(t *testing.T, key string) {
 	t.Helper()
 	cfg := &config.Config{
-		DatabaseURL: unreachableDatabaseURL, AuditOperatorDSN: unreachableDatabaseURL,
-		FDBClusterFile: filepath.Join(t.TempDir(), "absent.cluster"),
+		DatabaseURL:      unreachableDatabaseURL,
+		AuditOperatorDSN: unreachableDatabaseURL,
+		FDBClusterFile:   filepath.Join(t.TempDir(), "absent.cluster"),
 	}
 	unreachable, err := pgxpool.New(t.Context(), unreachableDatabaseURL)
 	if err != nil {
-		t.Fatalf("The test could not create the database pool required for the static help check: %v", err)
+		t.Fatalf(
+			"The test could not create the database pool required for the static help check: %v",
+			err,
+		)
 	}
 	t.Cleanup(unreachable.Close)
 	factory := cli.System(cfg)
@@ -53,9 +57,18 @@ func requireStaticHelp(t *testing.T, key string) {
 	root.SetErr(&output)
 	root.SetArgs(strings.Fields(strings.TrimPrefix(key, "command ")))
 	if err := root.ExecuteContext(t.Context()); err != nil {
-		t.Fatalf("The command returned an error when static help should succeed without a database; the command, error, and output follow: %s: %v\n%s", key, err, output.String())
+		t.Fatalf(
+			"The command returned an error when static help should succeed without a database; the command, error, and output follow: %s: %v\n%s",
+			key,
+			err,
+			output.String(),
+		)
 	}
 	if !strings.Contains(output.String(), "Usage:") {
-		t.Fatalf("The command output did not contain the expected Usage: text for %s:\n%s", key, output.String())
+		t.Fatalf(
+			"The command output did not contain the expected Usage: text for %s:\n%s",
+			key,
+			output.String(),
+		)
 	}
 }

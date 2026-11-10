@@ -55,8 +55,19 @@ func inspectReadOp(f *cli.Factory) clispec.Operation[inspectReadInput] {
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[inspectReadInput]{
-			clispec.StringParam("node", "node UUID", "", true, func(in *inspectReadInput, v string) { in.NodeID = v }),
-			clispec.BoolParam("records", "include raw inspection rows", false, func(in *inspectReadInput, v bool) { in.Records = v }),
+			clispec.StringParam(
+				"node",
+				"node UUID",
+				"",
+				true,
+				func(in *inspectReadInput, v string) { in.NodeID = v },
+			),
+			clispec.BoolParam(
+				"records",
+				"include raw inspection rows",
+				false,
+				func(in *inspectReadInput, v bool) { in.Records = v },
+			),
 		},
 		New: func() inspectReadInput {
 			return inspectReadInput{InputMarker: clispec.InputMarker{}, NodeID: "", Records: false}
@@ -67,6 +78,7 @@ func inspectReadOp(f *cli.Factory) clispec.Operation[inspectReadInput] {
 				slog.ErrorContext(ctx, "inspect.read_bad_node", slog.String("err", err.Error()))
 				return fmt.Errorf("inspect read: --node must be a UUID: %w", err)
 			}
+
 			env, err := NewEnv(ctx, f.Cfg)
 			if err != nil {
 				return err
@@ -77,6 +89,7 @@ func inspectReadOp(f *cli.Factory) clispec.Operation[inspectReadInput] {
 				slog.ErrorContext(ctx, "inspect.read_query_failed", slog.String("err", err.Error()))
 				return fmt.Errorf("inspect read: inspect node %s: %w", nodeID, err)
 			}
+
 			selection := selectRepairNode(report)
 			result := inspectReadResult{
 				ResultMarker: clispec.ResultMarker{},
@@ -91,6 +104,7 @@ func inspectReadOp(f *cli.Factory) clispec.Operation[inspectReadInput] {
 			if in.Records {
 				result.Records = report
 			}
+
 			return clispec.WriteJSONValue(ctx, sink, result)
 		},
 	}
@@ -116,22 +130,46 @@ func inspectFindOp(f *cli.Factory) clispec.Operation[inspectFindInput] {
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[inspectFindInput]{
-			clispec.StringParam("org", "org UUID", "", true, func(in *inspectFindInput, v string) { in.OrgID = v }),
-			clispec.StringParam("type", "node type key", "", false, func(in *inspectFindInput, v string) { in.NodeType = v }),
-			clispec.IntParam("limit", "max rows", 50, func(in *inspectFindInput, v int) { in.Limit = v }),
+			clispec.StringParam(
+				"org",
+				"org UUID",
+				"",
+				true,
+				func(in *inspectFindInput, v string) { in.OrgID = v },
+			),
+			clispec.StringParam(
+				"type",
+				"node type key",
+				"",
+				false,
+				func(in *inspectFindInput, v string) { in.NodeType = v },
+			),
+			clispec.IntParam(
+				"limit",
+				"max rows",
+				50,
+				func(in *inspectFindInput, v int) { in.Limit = v },
+			),
 		},
 		New: func() inspectFindInput {
-			return inspectFindInput{InputMarker: clispec.InputMarker{}, OrgID: "", NodeType: "", Limit: 50}
+			return inspectFindInput{
+				InputMarker: clispec.InputMarker{},
+				OrgID:       "",
+				NodeType:    "",
+				Limit:       50,
+			}
 		},
 		Run: func(ctx context.Context, in inspectFindInput, sink clispec.ResultSink) error {
 			if in.Limit <= 0 {
 				return errors.New("inspect find: --limit must be greater than zero")
 			}
+
 			orgID, err := uuid.Parse(strings.TrimSpace(in.OrgID))
 			if err != nil {
 				slog.ErrorContext(ctx, "inspect.find_bad_org", slog.String("err", err.Error()))
 				return fmt.Errorf("inspect find: --org must be a UUID: %w", err)
 			}
+
 			query := node.NodeListQuery{
 				OrgID:            orgID,
 				NodeType:         in.NodeType,
@@ -154,13 +192,18 @@ func inspectFindOp(f *cli.Factory) clispec.Operation[inspectFindInput] {
 				slog.ErrorContext(ctx, "inspect.find_list_failed", slog.String("err", err.Error()))
 				return fmt.Errorf("inspect find: list views: %w", err)
 			}
-			return clispec.WriteJSONValue(ctx, sink, inspectListResult{
-				ResultMarker: clispec.ResultMarker{},
-				Command:      "inspect.find",
-				Query:        query,
-				Count:        len(views),
-				Views:        views,
-			})
+
+			return clispec.WriteJSONValue(
+				ctx,
+				sink,
+				inspectListResult{
+					ResultMarker: clispec.ResultMarker{},
+					Command:      "inspect.find",
+					Query:        query,
+					Count:        len(views),
+					Views:        views,
+				},
+			)
 		},
 	}
 }
@@ -187,28 +230,67 @@ func inspectQueryOp(f *cli.Factory) clispec.Operation[inspectQueryInput] {
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[inspectQueryInput]{
-			clispec.StringParam("org", "org UUID", "", true, func(in *inspectQueryInput, v string) { in.OrgID = v }),
-			clispec.StringParam("type", "node type key", "", false, func(in *inspectQueryInput, v string) { in.NodeType = v }),
-			clispec.StringParam("property", "property name", "", true, func(in *inspectQueryInput, v string) { in.Property = v }),
-			clispec.StringParam("value", "property value as JSON", "", true, func(in *inspectQueryInput, v string) { in.Value = v }),
-			clispec.IntParam("limit", "max rows", 50, func(in *inspectQueryInput, v int) { in.Limit = v }),
+			clispec.StringParam(
+				"org",
+				"org UUID",
+				"",
+				true,
+				func(in *inspectQueryInput, v string) { in.OrgID = v },
+			),
+			clispec.StringParam(
+				"type",
+				"node type key",
+				"",
+				false,
+				func(in *inspectQueryInput, v string) { in.NodeType = v },
+			),
+			clispec.StringParam(
+				"property",
+				"property name",
+				"",
+				true,
+				func(in *inspectQueryInput, v string) { in.Property = v },
+			),
+			clispec.StringParam(
+				"value",
+				"property value as JSON",
+				"",
+				true,
+				func(in *inspectQueryInput, v string) { in.Value = v },
+			),
+			clispec.IntParam(
+				"limit",
+				"max rows",
+				50,
+				func(in *inspectQueryInput, v int) { in.Limit = v },
+			),
 		},
 		New: func() inspectQueryInput {
-			return inspectQueryInput{InputMarker: clispec.InputMarker{}, OrgID: "", NodeType: "", Property: "", Value: "", Limit: 50}
+			return inspectQueryInput{
+				InputMarker: clispec.InputMarker{},
+				OrgID:       "",
+				NodeType:    "",
+				Property:    "",
+				Value:       "",
+				Limit:       50,
+			}
 		},
 		Run: func(ctx context.Context, in inspectQueryInput, sink clispec.ResultSink) error {
 			if in.Limit <= 0 {
 				return errors.New("inspect query: --limit must be greater than zero")
 			}
+
 			rawValue := json.RawMessage(in.Value)
 			if !json.Valid(rawValue) {
 				return errors.New("inspect query: --value must be valid JSON")
 			}
+
 			orgID, err := uuid.Parse(strings.TrimSpace(in.OrgID))
 			if err != nil {
 				slog.ErrorContext(ctx, "inspect.query_bad_org", slog.String("err", err.Error()))
 				return fmt.Errorf("inspect query: --org must be a UUID: %w", err)
 			}
+
 			query := node.NodeListQuery{
 				OrgID:            orgID,
 				NodeType:         in.NodeType,
@@ -231,13 +313,18 @@ func inspectQueryOp(f *cli.Factory) clispec.Operation[inspectQueryInput] {
 				slog.ErrorContext(ctx, "inspect.query_list_failed", slog.String("err", err.Error()))
 				return fmt.Errorf("inspect query: list views: %w", err)
 			}
-			return clispec.WriteJSONValue(ctx, sink, inspectListResult{
-				ResultMarker: clispec.ResultMarker{},
-				Command:      "inspect.query",
-				Query:        query,
-				Count:        len(views),
-				Views:        views,
-			})
+
+			return clispec.WriteJSONValue(
+				ctx,
+				sink,
+				inspectListResult{
+					ResultMarker: clispec.ResultMarker{},
+					Command:      "inspect.query",
+					Query:        query,
+					Count:        len(views),
+					Views:        views,
+				},
+			)
 		},
 	}
 }

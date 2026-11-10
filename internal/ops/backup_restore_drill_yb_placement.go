@@ -94,24 +94,33 @@ func ybPlacementScriptPrefix(layout ybPlacementLayout) string {
 // the next clause would push the current one past the byte budget, so no
 // script exceeds the kernel's per-argument limit however many tablets the
 // corpus holds.
-func ybPlacementScripts(placements []ybTabletPlacement, layout ybPlacementLayout, newSnap string) []string {
+func ybPlacementScripts(
+	placements []ybTabletPlacement,
+	layout ybPlacementLayout,
+	newSnap string,
+) []string {
 	prefix := ybPlacementScriptPrefix(layout)
 	var scripts []string
 	var script strings.Builder
+
 	for _, placement := range placements {
 		clause := ybPlacementClause(placement, layout, newSnap)
 		if script.Len() > 0 && script.Len()+len(clause) > ybPlacementScriptMaxBytes {
 			scripts = append(scripts, script.String())
 			script.Reset()
 		}
+
 		if script.Len() == 0 {
 			script.WriteString(prefix)
 		}
+
 		script.WriteString(clause)
 	}
+
 	if script.Len() > 0 {
 		scripts = append(scripts, script.String())
 	}
+
 	return scripts
 }
 
@@ -121,12 +130,23 @@ func ybPlacementScripts(placements []ybTabletPlacement, layout ybPlacementLayout
 // inventories, so the clause has nothing to decide and no way to skip: under
 // the script's `set -e` a failed copy stops the chunk instead of leaving a
 // tablet silently unplaced.
-func ybPlacementClause(placement ybTabletPlacement, layout ybPlacementLayout, newSnap string) string {
+func ybPlacementClause(
+	placement ybTabletPlacement,
+	layout ybPlacementLayout,
+	newSnap string,
+) string {
 	// Every path and id is one shell word, so a configured directory carrying a
 	// space stays one word and an id carrying $(...) or a backtick stays data.
 	src := shellQuote(placement.source)
-	dst := shellQuote(fmt.Sprintf("%s/table-%s/tablet-%s.snapshots/%s",
-		layout.RocksDBDir, placement.remap.table, placement.remap.new, newSnap))
+	dst := shellQuote(
+		fmt.Sprintf(
+			"%s/table-%s/tablet-%s.snapshots/%s",
+			layout.RocksDBDir,
+			placement.remap.table,
+			placement.remap.new,
+			newSnap,
+		),
+	)
 	identity := shellQuote(ybTabletIdentity(placement.remap))
 	// cp -a preserves the tablet files' ownership from the export, and the
 	// placement exec runs as the container's default user (root in the
@@ -138,7 +158,12 @@ func ybPlacementClause(placement ybTabletPlacement, layout ybPlacementLayout, ne
 	// moment a ledger path carries a space.
 	return fmt.Sprintf(
 		"printf '%%s\\n' %s >>\"$e\"; mkdir -p %s && cp -a %s/. %s/ && printf '%%s\\n' %s >>\"$p\"; ",
-		identity, dst, src, dst, identity)
+		identity,
+		dst,
+		src,
+		dst,
+		identity,
+	)
 }
 
 // ybTabletIdentity names one tablet of one table, which is what the ledgers

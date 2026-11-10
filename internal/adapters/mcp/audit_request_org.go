@@ -48,19 +48,32 @@ func addMetadataTargets(ctx context.Context, server *cachedServer) {
 	if marked, _ := ctx.Value(metadataTargetsKey{}).(bool); !marked {
 		return
 	}
+
 	for _, nodeType := range server.nodeTypes {
 		audit.AddReadTargets(ctx, nodeType.OrgID, metadataTarget(nodeTypeTargetType, nodeType.ID))
 	}
+
 	for _, definition := range server.propertyDefs {
-		audit.AddReadTargets(ctx, definition.OrgID, metadataTarget(propertyDefTargetType, definition.ID))
+		audit.AddReadTargets(
+			ctx,
+			definition.OrgID,
+			metadataTarget(propertyDefTargetType, definition.ID),
+		)
 	}
 }
 
 // metadataTarget returns the node target of one metadata record.
 func metadataTarget(nodeType string, id uuid.UUID) audit.Target {
 	return audit.Target{
-		Kind: audit.TargetKindNode, NodeType: nodeType, Reference: "", Name: "", URI: "",
-		RelationType: "", ID: id, SourceID: uuid.Nil, TargetID: uuid.Nil,
+		Kind:         audit.TargetKindNode,
+		NodeType:     nodeType,
+		Reference:    "",
+		Name:         "",
+		URI:          "",
+		RelationType: "",
+		ID:           id,
+		SourceID:     uuid.Nil,
+		TargetID:     uuid.Nil,
 	}
 }
 
@@ -70,47 +83,71 @@ func metadataTarget(nodeType string, id uuid.UUID) audit.Target {
 // A tool call uses the organization of the workspace or node that its arguments identify.
 // It uses the system organization if the arguments do not identify a workspace or node
 // that the caller can read.
-func (h *Handler) requestOrganizations(ctx context.Context, operation requestOperation) ([]uuid.UUID, error) {
+func (h *Handler) requestOrganizations(
+	ctx context.Context,
+	operation requestOperation,
+) ([]uuid.UUID, error) {
 	if operation.organizations == orgSystem {
 		return []uuid.UUID{audit.SystemOrgID()}, nil
 	}
+
 	userID, _ := auth.UserID(ctx)
 	orgIDs, attached := auth.OrgMembership(ctx)
 	if !attached {
 		listed, err := h.members.ListOrgIDsForUser(ctx, userID)
 		if err != nil {
-			slog.ErrorContext(ctx, "mcp.audit_request.membership_failed", slog.String("err", err.Error()))
+			slog.ErrorContext(
+				ctx,
+				"mcp.audit_request.membership_failed",
+				slog.String("err", err.Error()),
+			)
+
 			return nil, fmt.Errorf("list the organizations of user %s: %w", userID, err)
 		}
+
 		orgIDs = listed
 	}
+
 	if operation.organizations == orgCaller {
 		if len(orgIDs) == 0 {
 			return []uuid.UUID{audit.SystemOrgID()}, nil
 		}
+
 		return orgIDs, nil
 	}
+
 	server, err := h.userServer(ctx, trace.SpanFromContext(ctx), userID, orgIDs)
 	if err != nil {
 		return nil, err
 	}
-	orgID, err := h.argumentOrganization(auth.WithOrgMembership(ctx, orgIDs), server, operation.arguments)
+
+	orgID, err := h.argumentOrganization(
+		auth.WithOrgMembership(ctx, orgIDs),
+		server,
+		operation.arguments,
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	return []uuid.UUID{orgID}, nil
 }
 
 // argumentOrganization returns the organization of the workspace or node that arguments identify.
 // It returns the system organization when arguments do not identify either, or the resolver
 // cannot find the workspace or node among the caller's organizations.
-func (h *Handler) argumentOrganization(ctx context.Context, server *cachedServer, arguments json.RawMessage) (uuid.UUID, error) {
+func (h *Handler) argumentOrganization(
+	ctx context.Context,
+	server *cachedServer,
+	arguments json.RawMessage,
+) (uuid.UUID, error) {
 	values := map[string]json.RawMessage{}
 	if len(arguments) != 0 {
 		if err := json.Unmarshal(arguments, &values); err != nil {
 			values = map[string]json.RawMessage{}
 		}
 	}
+
 	if reference := stringArgument(values, server.resolver.EntryPointParamName()); reference != "" {
 		workspace, err := server.resolver.Workspace(ctx, reference)
 		switch {
@@ -120,21 +157,26 @@ func (h *Handler) argumentOrganization(ctx context.Context, server *cachedServer
 			return uuid.Nil, organizationReadFailure(ctx, "workspace "+reference, err)
 		}
 	}
+
 	input := stringArgument(values, nodeIDArgument)
 	if input == "" {
 		return audit.SystemOrgID(), nil
 	}
+
 	nodeID, err := server.resolver.ResolveNodeID(ctx, input)
 	if err != nil {
 		return unresolvedOrganization(ctx, "node "+input, err)
 	}
+
 	view, err := h.reader.Get(ctx, nodeID)
 	if err != nil {
 		return unresolvedOrganization(ctx, "node "+nodeID.String(), err)
 	}
+
 	if view == nil {
 		return audit.SystemOrgID(), nil
 	}
+
 	return view.OrgID, nil
 }
 
@@ -150,12 +192,18 @@ func unresolvedOrganization(ctx context.Context, target string, cause error) (uu
 	if targetMissing(cause) {
 		return audit.SystemOrgID(), nil
 	}
+
 	return uuid.Nil, organizationReadFailure(ctx, target, cause)
 }
 
 // organizationReadFailure logs and wraps a failed read of the organization of target.
 func organizationReadFailure(ctx context.Context, target string, err error) error {
-	slog.ErrorContext(ctx, "mcp.audit_request.organization_read_failed", slog.String("err", err.Error()))
+	slog.ErrorContext(
+		ctx,
+		"mcp.audit_request.organization_read_failed",
+		slog.String("err", err.Error()),
+	)
+
 	return fmt.Errorf("read the organization of %s: %w", target, err)
 }
 
@@ -166,5 +214,6 @@ func stringArgument(values map[string]json.RawMessage, name string) string {
 	if json.Unmarshal(values[name], &value) != nil {
 		return ""
 	}
+
 	return value
 }

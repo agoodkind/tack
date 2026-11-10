@@ -134,7 +134,11 @@ type Change struct {
 
 func isTerminalOutcome(outcome Outcome) bool {
 	switch outcome {
-	case OutcomeCompleted, OutcomeRefused, OutcomeFailed, OutcomePartiallyCompleted, OutcomeIncomplete:
+	case OutcomeCompleted,
+		OutcomeRefused,
+		OutcomeFailed,
+		OutcomePartiallyCompleted,
+		OutcomeIncomplete:
 		return true
 	case OutcomeOK, OutcomeError, OutcomePending, OutcomeUnrecorded:
 		return false

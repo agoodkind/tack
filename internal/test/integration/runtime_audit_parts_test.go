@@ -61,16 +61,27 @@ func TestRuntimeAuditLargeDeltaDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
-	first := strings.Repeat("first synthetic description line\n", largeDescriptionBytes/len("first synthetic description line\n"))
-	second := strings.Repeat("second synthetic description line\n", largeDescriptionBytes/len("second synthetic description line\n"))
+
+	first := strings.Repeat(
+		"first synthetic description line\n",
+		largeDescriptionBytes/len("first synthetic description line\n"),
+	)
+	second := strings.Repeat(
+		"second synthetic description line\n",
+		largeDescriptionBytes/len("second synthetic description line\n"),
+	)
 	createArguments := auditedIssueArguments(harness)
 	createArguments.ProjectReference = harness.Project
 	createArguments.Name = "large delta issue"
-	createArguments.Properties = datagen.NodeProperties{"description": json.RawMessage(strconv.Quote(first))}
+	createArguments.Properties = datagen.NodeProperties{
+		"description": json.RawMessage(strconv.Quote(first)),
+	}
 	issueID := uuid.MustParse(harness.Call(t, "tack_create_issue", createArguments).RawID())
 	updateArguments := auditedIssueArguments(harness)
 	updateArguments.NodeID = issueID.String()
-	updateArguments.Properties = datagen.NodeProperties{"description": json.RawMessage(strconv.Quote(second))}
+	updateArguments.Properties = datagen.NodeProperties{
+		"description": json.RawMessage(strconv.Quote(second)),
+	}
 	harness.Call(t, "tack_update_issue", updateArguments)
 	view, err := stores.Views.Get(t.Context(), issueID)
 	if err != nil || view == nil {
@@ -82,14 +93,22 @@ func TestRuntimeAuditLargeDeltaDelivery(t *testing.T) {
 	if row.Delta == nil || len(row.Delta.Before)+len(row.Delta.After) <= foundationDBValueLimit {
 		t.Fatalf("update delta of %s is not larger than one FoundationDB value", issueID)
 	}
+
 	before := decodeAuditedIssueFields(t, row.Delta.Before)
 	after := decodeAuditedIssueFields(t, row.Delta.After)
-	if string(before.Props["description"]) != strconv.Quote(first) || string(after.Props["description"]) != strconv.Quote(second) {
-		t.Fatalf("update delta of %s does not contain the complete old and new descriptions", issueID)
+	if string(before.Props["description"]) != strconv.Quote(first) ||
+		string(after.Props["description"]) != strconv.Quote(second) {
+		t.Fatalf(
+			"update delta of %s does not contain the complete old and new descriptions",
+			issueID,
+		)
 	}
-	if countRows(t, ledger.admin, completedRowsQuery, row.EventID) != 1 || countRows(t, ledger.admin, assemblyRowsQuery, row.EventID) != 0 {
+
+	if countRows(t, ledger.admin, completedRowsQuery, row.EventID) != 1 ||
+		countRows(t, ledger.admin, assemblyRowsQuery, row.EventID) != 0 {
 		t.Fatalf("event %s did not complete through part delivery", row.EventID)
 	}
+
 	ledger.requireChainVerifies(t, view.OrgID)
 }
 
@@ -109,6 +128,7 @@ func TestRuntimeAuditPartCrashRecovery(t *testing.T) {
 	if err != nil || len(encoded.Parts) < 2 {
 		t.Fatalf("encode event %s into parts: %d parts, %v", event.EventID, len(encoded.Parts), err)
 	}
+
 	records := len(encoded.Parts) + 1
 	if err := audit.NewPoolOutbox(pipeline.admin).WriteOutbox(t.Context(), event); err != nil {
 		t.Fatalf("write event %s to the outbox: %v", event.EventID, err)
@@ -116,34 +136,57 @@ func TestRuntimeAuditPartCrashRecovery(t *testing.T) {
 
 	firstConsumer := pipeline.startConsumer(t)
 	pipeline.deliverUntilStopped(t, event.EventID, 2)
-	waitFor(t, "storage of two parts", func() bool { return pipeline.count(t, assemblyPartRowsQuery, event.EventID) == 2 })
+	waitFor(
+		t,
+		"storage of two parts",
+		func() bool { return pipeline.count(t, assemblyPartRowsQuery, event.EventID) == 2 },
+	)
 	_ = firstConsumer.Close()
-	if pipeline.count(t, eventRowsQuery, event.EventID) != 0 || pipeline.count(t, outboxRowsQuery, event.EventID) != 1 {
-		t.Fatalf("event %s after interrupted delivery: want no ledger row and one outbox row", event.EventID)
+	if pipeline.count(t, eventRowsQuery, event.EventID) != 0 ||
+		pipeline.count(t, outboxRowsQuery, event.EventID) != 1 {
+		t.Fatalf(
+			"event %s after interrupted delivery: want no ledger row and one outbox row",
+			event.EventID,
+		)
 	}
 
 	pipeline.deliverUntilStopped(t, event.EventID, records)
 	if pipeline.count(t, outboxRowsQuery, event.EventID) != 1 {
 		t.Fatalf("event %s outbox row was deleted before the relay finished", event.EventID)
 	}
+
 	pipeline.startConsumer(t)
 	row := pipeline.stack().waitForRow(t, event.EventID)
 	pipeline.startRelay(t, nil)
-	waitFor(t, "outbox delivery", func() bool { return pipeline.count(t, outboxRowsQuery, event.EventID) == 0 })
+	waitFor(
+		t,
+		"outbox delivery",
+		func() bool { return pipeline.count(t, outboxRowsQuery, event.EventID) == 0 },
+	)
 	pipeline.waitForConsumed(t)
 
 	for query, want := range map[string]int64{
-		eventRowsQuery: 1, assemblyRowsQuery: 0, assemblyPartRowsQuery: 0, completedRowsQuery: 1,
+		eventRowsQuery:        1,
+		assemblyRowsQuery:     0,
+		assemblyPartRowsQuery: 0,
+		completedRowsQuery:    1,
 	} {
 		if got := pipeline.count(t, query, event.EventID); got != want {
 			t.Fatalf("%s for %s = %d, want %d", query, event.EventID, got, want)
 		}
 	}
+
 	requireSameDelta(t, event, row)
 	pipeline.stack().waitForDeadLetters(t, 0)
 	pipeline.requireActorPII(t, event.Actor, row)
-	requireExportWithout(t, pipeline.stack(), event.Context.OrgID, oldest, clock.Now().UTC().Add(time.Minute),
-		[]string{event.Actor.Email, event.Actor.Name})
+	requireExportWithout(
+		t,
+		pipeline.stack(),
+		event.Context.OrgID,
+		oldest,
+		clock.Now().UTC().Add(time.Minute),
+		[]string{event.Actor.Email, event.Actor.Name},
+	)
 }
 
 // TestRuntimeAuditPartConflict stores an altered part with a matching part
@@ -158,14 +201,20 @@ func TestRuntimeAuditPartConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode event %s: %v", event.EventID, err)
 	}
+
 	messages, err := encoded.Messages()
 	if err != nil || len(messages) < 3 {
 		t.Fatalf("encode event %s messages: %d, %v", event.EventID, len(messages), err)
 	}
-	producer, err := kgo.NewClient(kgo.SeedBrokers(pipeline.brokers), kgo.DefaultProduceTopic(pipeline.topic))
+
+	producer, err := kgo.NewClient(
+		kgo.SeedBrokers(pipeline.brokers),
+		kgo.DefaultProduceTopic(pipeline.topic),
+	)
 	if err != nil {
 		t.Fatalf("open the test producer: %v", err)
 	}
+
 	t.Cleanup(producer.Close)
 	produce := func(value []byte) {
 		t.Helper()
@@ -176,18 +225,41 @@ func TestRuntimeAuditPartConflict(t *testing.T) {
 	}
 
 	produce(alteredPart(t, messages[1]))
-	waitFor(t, "storage of the altered part", func() bool { return pipeline.count(t, assemblyPartRowsQuery, event.EventID) == 1 })
+	waitFor(
+		t,
+		"storage of the altered part",
+		func() bool { return pipeline.count(t, assemblyPartRowsQuery, event.EventID) == 1 },
+	)
+
 	for _, message := range messages {
 		produce(message)
 	}
+
 	errorTexts := pipeline.stack().waitForDeadLetters(t, 1)
-	if !strings.Contains(errorTexts[0], event.EventID.String()) || !strings.Contains(errorTexts[0], "conflicts with the stored part") {
-		t.Fatalf("dead letter error = %q, want the conflicting part of event %s", errorTexts[0], event.EventID)
+	if !strings.Contains(errorTexts[0], event.EventID.String()) ||
+		!strings.Contains(errorTexts[0], "conflicts with the stored part") {
+		t.Fatalf(
+			"dead letter error = %q, want the conflicting part of event %s",
+			errorTexts[0],
+			event.EventID,
+		)
 	}
-	waitFor(t, "rejection of the assembly", func() bool {
-		return pipeline.count(t, invalidAssemblyRowsQuery, event.EventID) == 1
-	})
-	if _, err := pipeline.reader.GetByID(t.Context(), event.EventID); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("ledger read of event %s with an altered part = %v, want no row", event.EventID, err)
+
+	waitFor(
+		t,
+		"rejection of the assembly",
+		func() bool {
+			return pipeline.count(t, invalidAssemblyRowsQuery, event.EventID) == 1
+		},
+	)
+	if _, err := pipeline.reader.GetByID(t.Context(), event.EventID); !errors.Is(
+		err,
+		pgx.ErrNoRows,
+	) {
+		t.Fatalf(
+			"ledger read of event %s with an altered part = %v, want no row",
+			event.EventID,
+			err,
+		)
 	}
 }

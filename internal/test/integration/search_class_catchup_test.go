@@ -45,16 +45,39 @@ const (
 func TestSearchCatchUpFinishesAccessAndCleanupBeforeLive(t *testing.T) {
 	env := newMigrationEnv(t, catchUpPageBytes)
 	liveText := strings.Repeat(catchUpLiveSentence, catchUpLiveRepeats)
-	buildFairnessBacklog(t, env, catchUpAccessNodes, catchUpDeletedNodes, catchUpLiveNodes, liveText)
-	slices := runFairnessSlices(t, newFairnessWorker(t, env, catchUpSliceBudget), catchUpSliceLimit, catchUpDeadline)
+	buildFairnessBacklog(
+		t,
+		env,
+		catchUpAccessNodes,
+		catchUpDeletedNodes,
+		catchUpLiveNodes,
+		liveText,
+	)
+	slices := runFairnessSlices(
+		t,
+		newFairnessWorker(t, env, catchUpSliceBudget),
+		catchUpSliceLimit,
+		catchUpDeadline,
+	)
 	requireAccessCaughtUp(t, slices)
 	claimed := map[string]int{}
+
 	for _, slice := range slices {
 		claimed[slice.class]++
 	}
-	for _, class := range []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup} {
+
+	for _, class := range []searchdomain.WorkClass{
+		searchdomain.WorkClassLive,
+		searchdomain.WorkClassAccess,
+		searchdomain.WorkClassCleanup,
+	} {
 		if claimed[string(class)] == 0 {
-			t.Fatalf("the worker ran %d slices by class %v without a %s slice", len(slices), claimed, class)
+			t.Fatalf(
+				"the worker ran %d slices by class %v without a %s slice",
+				len(slices),
+				claimed,
+				class,
+			)
 		}
 	}
 }

@@ -30,11 +30,13 @@ type migrationModel struct {
 	SHA256  types.String `tfsdk:"sha256"`
 }
 
-var migrationObjectType = types.ObjectType{AttrTypes: map[string]attr.Type{
-	"version": types.Int64Type,
-	"name":    types.StringType,
-	"sha256":  types.StringType,
-}}
+var migrationObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"version": types.Int64Type,
+		"name":    types.StringType,
+		"sha256":  types.StringType,
+	},
+}
 
 func (model schemaModel) target() schemaTarget {
 	return schemaTarget{
@@ -48,7 +50,8 @@ func (model schemaModel) target() schemaTarget {
 }
 
 func (model schemaModel) sameTarget(other schemaModel) bool {
-	return model.Node.Equal(other.Node) && model.VMID.Equal(other.VMID) && model.InstallDir.Equal(other.InstallDir)
+	return model.Node.Equal(other.Node) && model.VMID.Equal(other.VMID) &&
+		model.InstallDir.Equal(other.InstallDir)
 }
 
 // schemaID formats the resource ID and import ID as `<node>/<vmid>:<install_dir>`.
@@ -60,42 +63,64 @@ func schemaID(node string, vmid int64, installDir string) string {
 func parseSchemaID(id string) (string, int64, string, error) {
 	guestPart, installDir, found := strings.Cut(id, ":")
 	if !found || installDir == "" {
-		return "", 0, "", fmt.Errorf("import ID %q does not match the form `<node>/<vmid>:<install_dir>`", id)
+		return "", 0, "", fmt.Errorf(
+			"import ID %q does not match the form `<node>/<vmid>:<install_dir>`",
+			id,
+		)
 	}
+
 	slash := strings.LastIndex(guestPart, "/")
 	if slash <= 0 {
-		return "", 0, "", fmt.Errorf("import ID %q does not match the form `<node>/<vmid>:<install_dir>`", id)
+		return "", 0, "", fmt.Errorf(
+			"import ID %q does not match the form `<node>/<vmid>:<install_dir>`",
+			id,
+		)
 	}
+
 	vmid, err := strconv.ParseInt(guestPart[slash+1:], 10, 64)
 	if err != nil || vmid <= 0 {
-		return "", 0, "", fmt.Errorf("import ID %q contains VMID %q, which is not a positive integer", id, guestPart[slash+1:])
+		return "", 0, "", fmt.Errorf(
+			"import ID %q contains VMID %q, which is not a positive integer",
+			id,
+			guestPart[slash+1:],
+		)
 	}
+
 	return guestPart[:slash], vmid, installDir, nil
 }
 
 func migrationList(ctx context.Context, migrations []migration) (types.List, diag.Diagnostics) {
 	models := make([]migrationModel, 0, len(migrations))
 	for _, item := range migrations {
-		models = append(models, migrationModel{
-			Version: types.Int64Value(item.Version),
-			Name:    types.StringValue(item.Name),
-			SHA256:  types.StringValue(item.SHA256),
-		})
+		models = append(
+			models,
+			migrationModel{
+				Version: types.Int64Value(item.Version),
+				Name:    types.StringValue(item.Name),
+				SHA256:  types.StringValue(item.SHA256),
+			},
+		)
 	}
+
 	return types.ListValueFrom(ctx, migrationObjectType, models)
 }
 
 func statusFromModel(ctx context.Context, model schemaModel) (schemaStatus, diag.Diagnostics) {
 	var models []migrationModel
 	diags := model.Available.ElementsAs(ctx, &models, false)
+
 	available := make([]migration, 0, len(models))
 	for _, item := range models {
-		available = append(available, migration{
-			Version: item.Version.ValueInt64(),
-			Name:    item.Name.ValueString(),
-			SHA256:  item.SHA256.ValueString(),
-		})
+		available = append(
+			available,
+			migration{
+				Version: item.Version.ValueInt64(),
+				Name:    item.Name.ValueString(),
+				SHA256:  item.SHA256.ValueString(),
+			},
+		)
 	}
+
 	return schemaStatus{
 		MigrationTablePresent: true,
 		AppliedVersion:        model.AppliedVersion.ValueInt64(),
@@ -120,8 +145,11 @@ func modelFromStatus(
 	pending, pendingDiags := migrationList(ctx, status.pendingThrough(version))
 	diags.Append(pendingDiags...)
 	target := identity.target()
+
 	return schemaModel{
-		ID:             types.StringValue(schemaID(target.guest.Node, target.guest.VMID, target.installDir)),
+		ID: types.StringValue(
+			schemaID(target.guest.Node, target.guest.VMID, target.installDir),
+		),
 		Node:           identity.Node,
 		VMID:           identity.VMID,
 		InstallDir:     identity.InstallDir,

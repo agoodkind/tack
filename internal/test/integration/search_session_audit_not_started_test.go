@@ -35,29 +35,62 @@ func TestSearchSessionAuditCleanupCodeAfterConflictRetry(t *testing.T) {
 	mark := searchOutboxTail(t, stores)
 	closing, cancel := context.WithCancel(ctx)
 	defer cancel()
-	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
-		retireCommitReady: func() {
-			integration.ReplaceRawValue(t, retireFamilyKey(t, sessionHeaderFamily), []byte(invalidHeaderValue))
-			cancel()
+	hooks := installRetireLogHooks(
+		t,
+		session.ID.String(),
+		map[string]func(){
+			retireCommitReady: func() {
+				integration.ReplaceRawValue(
+					t,
+					retireFamilyKey(t, sessionHeaderFamily),
+					[]byte(invalidHeaderValue),
+				)
+				cancel()
+			},
 		},
-	})
+	)
 
 	closeErr := store.BeginCleanup(closing, session.ID)
 	hooks.requireFinished(t)
-	if !errors.Is(closeErr, context.Canceled) || errors.Is(closeErr, searchdomain.ErrSessionStepNotStarted) {
-		t.Fatalf("BeginCleanup after a conflict and an ended context returned %v, want %v without %v", closeErr, context.Canceled, searchdomain.ErrSessionStepNotStarted)
+	if !errors.Is(closeErr, context.Canceled) ||
+		errors.Is(closeErr, searchdomain.ErrSessionStepNotStarted) {
+		t.Fatalf(
+			"BeginCleanup after a conflict and an ended context returned %v, want %v without %v",
+			closeErr,
+			context.Canceled,
+			searchdomain.ErrSessionStepNotStarted,
+		)
 	}
-	if err := store.RecordCleanupFailure(closing, session.ID, searchdomain.CleanupClose, closeErr); err != nil {
+	if err := store.RecordCleanupFailure(
+		closing,
+		session.ID,
+		searchdomain.CleanupClose,
+		closeErr,
+	); err != nil {
 		t.Fatalf("record the close step that made an attempt: %v", err)
 	}
 	requireCleanupCode(t, stores, mark, session, searchdomain.CleanupClose, cleanupNotStarted)
 }
 
-func requireCleanupCode(t *testing.T, stores *fdbadapter.Stores, mark []byte, session searchdomain.Session, wanted, unwanted searchdomain.CleanupStep) {
+func requireCleanupCode(
+	t *testing.T,
+	stores *fdbadapter.Stores,
+	mark []byte,
+	session searchdomain.Session,
+	wanted searchdomain.CleanupStep,
+	unwanted searchdomain.CleanupStep,
+) {
 	t.Helper()
 	events := cleanupFailureEvents(t, stores, mark, session.ID, wanted)
-	if len(events) != 1 || events[0].Outcome != audit.OutcomeFailed || events[0].Verb != string(audit.VerbSearchSessionUpdate) {
-		t.Fatalf("session %s has %s events %+v, want one failed %s event", session.ID, wanted, events, audit.VerbSearchSessionUpdate)
+	if len(events) != 1 || events[0].Outcome != audit.OutcomeFailed ||
+		events[0].Verb != string(audit.VerbSearchSessionUpdate) {
+		t.Fatalf(
+			"session %s has %s events %+v, want one failed %s event",
+			session.ID,
+			wanted,
+			events,
+			audit.VerbSearchSessionUpdate,
+		)
 	}
 	if other := cleanupFailureEvents(t, stores, mark, session.ID, unwanted); len(other) != 0 {
 		t.Fatalf("session %s has %d %s events, want 0", session.ID, len(other), unwanted)
@@ -85,9 +118,18 @@ func TestSearchSessionAuditCleanupCodesSeparateNotStartedSteps(t *testing.T) {
 	defer cancel()
 	notStartedErr := store.BeginCleanup(ended, unstarted.ID)
 	if !errors.Is(notStartedErr, context.DeadlineExceeded) {
-		t.Fatalf("BeginCleanup after the deadline returned %v, want %v", notStartedErr, context.DeadlineExceeded)
+		t.Fatalf(
+			"BeginCleanup after the deadline returned %v, want %v",
+			notStartedErr,
+			context.DeadlineExceeded,
+		)
 	}
-	if err := store.RecordCleanupFailure(ended, unstarted.ID, searchdomain.CleanupClose, notStartedErr); err != nil {
+	if err := store.RecordCleanupFailure(
+		ended,
+		unstarted.ID,
+		searchdomain.CleanupClose,
+		notStartedErr,
+	); err != nil {
 		t.Fatalf("record the close step that did not start: %v", err)
 	}
 
@@ -95,9 +137,18 @@ func TestSearchSessionAuditCleanupCodesSeparateNotStartedSteps(t *testing.T) {
 	timedOutErr := store.BeginCleanup(ctx, begun.ID)
 	setContainerPaused(t, container, false)
 	if !errors.Is(timedOutErr, fdb.Error{Code: transactionTimedOutNumber}) {
-		t.Fatalf("BeginCleanup during the pause returned %v, want FoundationDB error %d", timedOutErr, transactionTimedOutNumber)
+		t.Fatalf(
+			"BeginCleanup during the pause returned %v, want FoundationDB error %d",
+			timedOutErr,
+			transactionTimedOutNumber,
+		)
 	}
-	if err := store.RecordCleanupFailure(ctx, begun.ID, searchdomain.CleanupClose, timedOutErr); err != nil {
+	if err := store.RecordCleanupFailure(
+		ctx,
+		begun.ID,
+		searchdomain.CleanupClose,
+		timedOutErr,
+	); err != nil {
 		t.Fatalf("record the close step that timed out: %v", err)
 	}
 

@@ -11,6 +11,7 @@ func rawJSON(t *testing.T, v any) json.RawMessage {
 	if err != nil {
 		t.Fatalf("marshal %v: %v", v, err)
 	}
+
 	return b
 }
 
@@ -39,6 +40,7 @@ func TestReferenceTemplateRendersScopedSequence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+
 	if got != "FAN-13" {
 		t.Fatalf("Render = %q, want %q", got, "FAN-13")
 	}
@@ -62,6 +64,7 @@ func TestReferenceTemplateRendersScopedProperty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+
 	if got != "CLYDE::In Progress" {
 		t.Fatalf("Render = %q, want %q", got, "CLYDE::In Progress")
 	}
@@ -88,6 +91,7 @@ func TestReferenceTemplateRendersNodeTypePart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+
 	if got != "FAN-epic-1" {
 		t.Fatalf("Render = %q, want %q", got, "FAN-epic-1")
 	}
@@ -123,6 +127,7 @@ func TestReferenceTemplateCounterKeyOmitsGeneratedPart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CounterKey: %v", err)
 	}
+
 	if key != "FAN-" {
 		t.Fatalf("CounterKey = %q, want FAN-", key)
 	}
@@ -146,6 +151,7 @@ func TestReferenceTemplateCounterKeyIncludesDeclaredNodeType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CounterKey(issue): %v", err)
 	}
+
 	epicKey, err := template.CounterKey(ReferenceRenderInput{
 		NodeTypeKey: "epic",
 		ScopeRefs:   map[string]string{FeatureIsScope: "FAN"},
@@ -153,20 +159,24 @@ func TestReferenceTemplateCounterKeyIncludesDeclaredNodeType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CounterKey(epic): %v", err)
 	}
+
 	if issueKey == epicKey {
 		t.Fatalf("counter keys both = %q, want distinct keys", issueKey)
 	}
 }
 
 func TestPrimaryReferenceTemplateSelectsMarkedTemplate(t *testing.T) {
-	nodeType := &NodeType{ReferenceTemplates: []ReferenceTemplate{
-		{Name: "external"},
-		{Name: "reference", IsPrimary: true},
-	}}
+	nodeType := &NodeType{
+		ReferenceTemplates: []ReferenceTemplate{
+			{Name: "external"},
+			{Name: "reference", IsPrimary: true},
+		},
+	}
 	primary := nodeType.PrimaryReferenceTemplate()
 	if primary == nil {
 		t.Fatal("PrimaryReferenceTemplate() = nil")
 	}
+
 	if primary.Name != "reference" {
 		t.Fatalf("PrimaryReferenceTemplate().Name = %q, want reference", primary.Name)
 	}

@@ -24,12 +24,14 @@ func TestEveryRegisteredCommandDeclaresAuditVerb(t *testing.T) {
 
 func assertCommandAuditVerb(t *testing.T, command *cobra.Command) {
 	t.Helper()
-	if command.Name() != "help" && command.Annotations[clispec.GroupAnnotation] != "true" && command.RunE != nil {
+	if command.Name() != "help" && command.Annotations[clispec.GroupAnnotation] != "true" &&
+		command.RunE != nil {
 		verb := command.Annotations[clispec.AuditVerbAnnotation]
 		if verb == "" {
 			t.Errorf("command %q has no audit verb", command.CommandPath())
 		}
 	}
+
 	for _, child := range command.Commands() {
 		assertCommandAuditVerb(t, child)
 	}

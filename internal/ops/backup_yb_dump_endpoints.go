@@ -34,14 +34,17 @@ import (
 func ybDumpHosts(masterAddresses string) []string {
 	var hosts []string
 	seen := map[string]bool{}
+
 	for entry := range strings.SplitSeq(masterAddresses, ",") {
 		host := hostFromHostPort(strings.TrimSpace(entry))
 		if host == "" || seen[host] {
 			continue
 		}
+
 		seen[host] = true
 		hosts = append(hosts, host)
 	}
+
 	return hosts
 }
 
@@ -70,15 +73,23 @@ func runYBDumpOneShot(
 	// here, before any container runs, and say which setting is missing
 	// (TACK-460).
 	if cfg.LedgerTLSEnabled && ledgerCertsDir(cfg) == "" {
-		err := fmt.Errorf("ysql %s dump: the ledger encrypts client traffic but TACK_LEDGER_CERTS_DIR is empty, so the node cannot be verified",
-			spec.label)
+		err := fmt.Errorf(
+			"ysql %s dump: the ledger encrypts client traffic but TACK_LEDGER_CERTS_DIR is empty, so the node cannot be verified",
+			spec.label,
+		)
 		telemetry.L(ctx).ErrorContext(ctx, spec.failEvent, slog.String("err", err.Error()))
+
 		return err
 	}
-	return walkYBDumpEndpoints(ctx, ybDumpHosts(cfg.BackupYBMasterAddresses), spec,
+
+	return walkYBDumpEndpoints(
+		ctx,
+		ybDumpHosts(cfg.BackupYBMasterAddresses),
+		spec,
 		func(host string) (int64, string) {
 			return dumpYBFromEndpoint(ctx, cli, cfg, stageDir, spec, host)
-		})
+		},
+	)
 }
 
 // walkYBDumpEndpoints tries hosts in order and returns as soon as one produces
@@ -100,40 +111,61 @@ func walkYBDumpEndpoints(
 ) error {
 	logger := telemetry.L(ctx)
 	if len(hosts) == 0 {
-		wrapped := fmt.Errorf("ysql %s dump: the configured master addresses name no endpoint to dump from",
-			spec.label)
+		wrapped := fmt.Errorf(
+			"ysql %s dump: the configured master addresses name no endpoint to dump from",
+			spec.label,
+		)
 		logger.ErrorContext(ctx, spec.failEvent, slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
+
 	refusals := make([]ybDumpEndpointRefusal, 0, len(hosts))
 	servedBy := ""
 	var served int64
+
 	for _, host := range hosts {
 		size, reason := dump(host)
 		if reason == "" {
 			servedBy, served = host, size
 			break
 		}
+
 		refusals = append(refusals, ybDumpEndpointRefusal{host: host, reason: reason})
-		logger.WarnContext(ctx, spec.attemptEvent,
+		logger.WarnContext(
+			ctx,
+			spec.attemptEvent,
 			slog.String("host", host),
 			slog.String("reason", reason),
-			slog.Int("endpoints_left", len(hosts)-len(refusals)))
+			slog.Int("endpoints_left", len(hosts)-len(refusals)),
+		)
 	}
+
 	if servedBy == "" {
 		described := make([]string, 0, len(refusals))
 		for _, refusal := range refusals {
 			described = append(described, refusal.host+": "+refusal.reason)
 		}
-		wrapped := fmt.Errorf("ysql %s dump: no endpoint served it, tried %s: %s",
-			spec.label, strings.Join(hosts, ", "), strings.Join(described, "; "))
+
+		wrapped := fmt.Errorf(
+			"ysql %s dump: no endpoint served it, tried %s: %s",
+			spec.label,
+			strings.Join(hosts, ", "),
+			strings.Join(described, "; "),
+		)
 		logger.ErrorContext(ctx, spec.failEvent, slog.String("err", wrapped.Error()))
+
 		return wrapped
 	}
-	logger.InfoContext(ctx, spec.okEvent,
+
+	logger.InfoContext(
+		ctx,
+		spec.okEvent,
 		slog.String("host", servedBy),
 		slog.String("path", spec.outPath),
-		slog.Int64("bytes", served))
+		slog.Int64("bytes", served),
+	)
+
 	return nil
 }
 
@@ -169,17 +201,23 @@ func dumpYBFromEndpoint(
 	mounts := make([]string, 0, 1+len(tlsBinds))
 	mounts = append(mounts, stageDir+":"+ybDumpOutDir)
 	mounts = append(mounts, tlsBinds...)
-	res, err := runOneShot(ctx, cli, logger, runOneShotOptions{
-		Image:      cfg.BackupYBImage,
-		Network:    cfg.BackupFDBNetwork,
-		Entrypoint: []string{spec.binary},
-		Cmd:        cmd,
-		Env:        env,
-		Binds:      mounts,
-		ExtraHosts: extraHosts,
-		Name:       "",
-		User:       stageWriterUser(),
-	})
+	res, err := runOneShot(
+		ctx,
+		cli,
+		logger,
+		runOneShotOptions{
+			Image:      cfg.BackupYBImage,
+			Network:    cfg.BackupFDBNetwork,
+			Entrypoint: []string{spec.binary},
+			Cmd:        cmd,
+			Env:        env,
+			Binds:      mounts,
+			ExtraHosts: extraHosts,
+			Name:       "",
+			User:       stageWriterUser(),
+		},
+	)
+
 	return ybDumpAttemptOutcome(res, err, spec.outPath)
 }
 
@@ -201,15 +239,18 @@ func ybDumpTransport(cfg *config.Config) (env []string, binds []string) {
 	if !cfg.LedgerTLSEnabled {
 		return nil, nil
 	}
+
 	certsDir := ledgerCertsDir(cfg)
 	if certsDir == "" {
 		return []string{"PGSSLMODE=verify-full"}, nil
 	}
+
 	env = []string{
 		"PGSSLMODE=verify-full",
 		"PGSSLROOTCERT=" + certsDir + "/ca.crt",
 	}
 	binds = []string{certsDir + ":" + certsDir + ":ro"}
+
 	return env, binds
 }
 
@@ -218,20 +259,31 @@ func ybDumpTransport(cfg *config.Config) (env []string, binds []string) {
 // A dump that exited cleanly but wrote nothing counts as a refusal like any
 // other, because an empty artifact restores as an absence nobody notices, and
 // because a later endpoint may still write a real one.
-func ybDumpAttemptOutcome(res execResult, runErr error, outPath string) (size int64, reason string) {
+func ybDumpAttemptOutcome(
+	res execResult,
+	runErr error,
+	outPath string,
+) (size int64, reason string) {
 	if runErr != nil {
 		return 0, "dump one-shot: " + runErr.Error()
 	}
+
 	if res.ExitCode != 0 {
-		return 0, fmt.Sprintf("exited %d: %s", res.ExitCode,
-			strings.TrimSpace(res.Stdout+" "+res.Stderr))
+		return 0, fmt.Sprintf(
+			"exited %d: %s",
+			res.ExitCode,
+			strings.TrimSpace(res.Stdout+" "+res.Stderr),
+		)
 	}
+
 	info, err := os.Stat(outPath)
 	if err != nil {
 		return 0, fmt.Sprintf("stat %s: %s", outPath, err.Error())
 	}
+
 	if info.Size() == 0 {
 		return 0, "produced 0 bytes"
 	}
+
 	return info.Size(), ""
 }

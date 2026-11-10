@@ -55,7 +55,11 @@ type Graph struct {
 // record events with the audit recorder of this graph. On failure it releases
 // anything it already opened and returns the error.
 func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
-	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, &telemetry.CountingQueryTracer{Next: &telemetry.QueryTracer{}})
+	pool, err := postgres.NewPool(
+		ctx,
+		cfg.DatabaseURL,
+		&telemetry.CountingQueryTracer{Next: &telemetry.QueryTracer{}},
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "server.postgres_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("runtime: postgres: %w", err)
@@ -65,6 +69,7 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	if err != nil {
 		slog.ErrorContext(ctx, "server.foundationdb_failed", slog.String("err", err.Error()))
 		pool.Close()
+
 		return nil, fmt.Errorf("runtime: foundationdb: %w", err)
 	}
 
@@ -80,8 +85,12 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		fdbStores.EnableSearchWork()
 		epochs = fdbStores.Views
 	}
-	orgMembers := auth.NewCachedMembers(postgres.NewOrgMemberRepo(pool),
-		cfg.AuthMembershipCacheLifetime, cfg.AuthMembershipCacheSize)
+
+	orgMembers := auth.NewCachedMembers(
+		postgres.NewOrgMemberRepo(pool),
+		cfg.AuthMembershipCacheLifetime,
+		cfg.AuthMembershipCacheSize,
+	)
 	nodeSvc, err := buildNodeService(ctx, fdbStores, orgMembers)
 	if err != nil {
 		pool.Close()
@@ -93,21 +102,26 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		pool.Close()
 		return nil, err
 	}
+
 	search, err := buildSearchRuntime(ctx, cfg, fdbStores, source, auditRuntimeDeps.Recorder)
 	if err != nil {
 		slog.ErrorContext(ctx, "server.search_failed", slog.String("err", err.Error()))
 		auditRuntimeDeps.Close()
 		pool.Close()
+
 		return nil, err
 	}
+
 	searchBinding, err := buildSearchQuery(ctx, cfg, fdbStores, search, source)
 	if err != nil {
 		if search.adapter != nil {
 			err = errors.Join(err, search.adapter.Close(ctx))
 		}
+
 		slog.ErrorContext(ctx, "server.search_failed", slog.String("err", err.Error()))
 		auditRuntimeDeps.Close()
 		pool.Close()
+
 		return nil, err
 	}
 
@@ -115,12 +129,18 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 	// off most requests (TACK-504, TACK-505); the lifetimes bound how long a
 	// revocation or a membership change made elsewhere takes to reach this
 	// instance.
-	tokenRepo := auth.NewCachedTokenValidator(postgres.NewTokenRepo(pool),
-		cfg.AuthTokenCacheLifetime, cfg.AuthTokenCacheSize)
+	tokenRepo := auth.NewCachedTokenValidator(
+		postgres.NewTokenRepo(pool),
+		cfg.AuthTokenCacheLifetime,
+		cfg.AuthTokenCacheSize,
+	)
 	// Tool output renders who created or changed a node; the user cache keeps
 	// that rendering off the ledger on most calls (criterion 12).
-	userRepo := auth.NewCachedUsers(postgres.NewUserRepo(pool),
-		cfg.AuthUserCacheLifetime, cfg.AuthUserCacheSize)
+	userRepo := auth.NewCachedUsers(
+		postgres.NewUserRepo(pool),
+		cfg.AuthUserCacheLifetime,
+		cfg.AuthUserCacheSize,
+	)
 	// A cold request reads the token and its holder's org set in one query,
 	// so it costs one ledger read, not two (criterion 12).
 	tokenRepo.PrimeMembers(orgMembers)
@@ -163,27 +183,43 @@ func BuildGraph(ctx context.Context, cfg *config.Config) (*Graph, error) {
 		auditReads:     newAuditReadRecovery(productReads, audit.NewPoolReadLifecycle(pool)),
 	}
 	graph.Routes = NewRoutes(requests, graph.MCPRoute, graph.healthHandler())
+
 	return graph, nil
 }
 
-func buildNodeService(ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository) (*service.NodeService, error) {
+func buildNodeService(
+	ctx context.Context,
+	stores *fdbadapter.Stores,
+	members org.MemberRepository,
+) (*service.NodeService, error) {
 	nodeSvc, err := service.NewNodeService(
-		stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs,
-		stores.Relationships, stores.NodeDeleter, members, stores.Relationships,
+		stores.Nodes,
+		stores.Views,
+		stores.NodeTypes,
+		stores.PropertyDefs,
+		stores.Relationships,
+		stores.NodeDeleter,
+		members,
+		stores.Relationships,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "server.node_service_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("runtime: node service: %w", err)
 	}
+
 	return nodeSvc, nil
 }
 
 func buildAuthMiddleware(
-	cfg *config.Config, tokenRepo auth.TokenValidator, orgMembers auth.OrgLister, recorder audit.Recorder,
+	cfg *config.Config,
+	tokenRepo auth.TokenValidator,
+	orgMembers auth.OrgLister,
+	recorder audit.Recorder,
 ) func(http.Handler) http.Handler {
 	if cfg.Env == "development" {
 		slog.Warn("dev_auth.enabled")
 		return auth.DevBearer(orgMembers, recorder)
 	}
+
 	return auth.Bearer(tokenRepo, orgMembers, recorder)
 }

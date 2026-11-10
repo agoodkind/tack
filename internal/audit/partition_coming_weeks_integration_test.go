@@ -37,18 +37,28 @@ func TestPartitionMigrationRefusesStrayChildName(t *testing.T) {
 	fixture.migrateTo(t, comingWeeksMigration-1)
 	ctx := context.Background()
 	attachFarChild(t, fixture, "events_tack336_proof")
-	if err := runPartitionMaintenance(ctx, fixture); err == nil || !strings.Contains(err.Error(), `invalid value "roof"`) {
+	if err := runPartitionMaintenance(ctx, fixture); err == nil ||
+		!strings.Contains(err.Error(), `invalid value "roof"`) {
 		t.Fatalf("maintenance with events_tack336_proof = %v, want invalid value \"roof\"", err)
 	}
 
 	err := fixture.migrate(comingWeeksMigration)
 	if err == nil || !strings.Contains(err.Error(), "events_tack336_proof") {
-		t.Fatalf("migration %d with events_tack336_proof = %v, want an error that lists the child", comingWeeksMigration, err)
+		t.Fatalf(
+			"migration %d with events_tack336_proof = %v, want an error that lists the child",
+			comingWeeksMigration,
+			err,
+		)
 	}
 	var appliedVersion int64
-	if err := fixture.pool.QueryRow(ctx, `
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`
 		SELECT max(version_id) FROM goose_db_version WHERE is_applied
-	`).Scan(&appliedVersion); err != nil {
+	`,
+	).Scan(
+		&appliedVersion,
+	); err != nil {
 		t.Fatalf("read applied migration version: %v", err)
 	}
 	if appliedVersion != comingWeeksMigration-1 {
@@ -82,13 +92,22 @@ func TestPartitionMaintenanceCreatesComingWeeksPastFarChild(t *testing.T) {
 	}
 	for _, week := range weeks {
 		if covering := partitionCountCovering(t, fixture.pool, week); covering != 0 {
-			t.Fatalf("partitions covering %s before migration %d = %d, want 0", week.Format(time.DateOnly), comingWeeksMigration, covering)
+			t.Fatalf(
+				"partitions covering %s before migration %d = %d, want 0",
+				week.Format(time.DateOnly),
+				comingWeeksMigration,
+				covering,
+			)
 		}
 	}
 	insertErr := insertPartitionManagerTestEvent(ctx, fixture.pool, uuid.Must(uuid.NewV7()), now)
 	var postgresError *pgconn.PgError
 	if !errors.As(insertErr, &postgresError) || postgresError.Code != "23514" {
-		t.Fatalf("current-week insert before migration %d = %v, want SQLSTATE 23514", comingWeeksMigration, insertErr)
+		t.Fatalf(
+			"current-week insert before migration %d = %v, want SQLSTATE 23514",
+			comingWeeksMigration,
+			insertErr,
+		)
 	}
 
 	fixture.migrateTo(t, comingWeeksMigration)
@@ -100,7 +119,12 @@ func TestPartitionMaintenanceCreatesComingWeeksPastFarChild(t *testing.T) {
 	}
 	requireWeeksCovered(t, fixture, weeks)
 	requireUTCWeekNames(t, fixture, weeks)
-	if err := insertPartitionManagerTestEvent(ctx, fixture.pool, uuid.Must(uuid.NewV7()), weeks[1]); err != nil {
+	if err := insertPartitionManagerTestEvent(
+		ctx,
+		fixture.pool,
+		uuid.Must(uuid.NewV7()),
+		weeks[1],
+	); err != nil {
 		t.Fatalf("next-week insert after migration %d: %v", comingWeeksMigration, err)
 	}
 
@@ -112,7 +136,11 @@ func TestPartitionMaintenanceCreatesComingWeeksPastFarChild(t *testing.T) {
 	requireWeeksCovered(t, fixture, weeks)
 	requireUTCWeekNames(t, fixture, weeks)
 	if covering := partitionCountCovering(t, fixture.pool, farChildEventTime); covering != 1 {
-		t.Fatalf("partitions covering %s = %d, want the 2031 child", farChildEventTime.Format(time.DateOnly), covering)
+		t.Fatalf(
+			"partitions covering %s = %d, want the 2031 child",
+			farChildEventTime.Format(time.DateOnly),
+			covering,
+		)
 	}
 	requireChainVerifies(t, fixture, orgID)
 }

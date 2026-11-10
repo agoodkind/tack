@@ -13,13 +13,35 @@ import (
 // with a nil error when the refused count is zero. When the refused count exceeds
 // zero, scopeRepairResult also logs repair.scope_ids.refused and returns the
 // counts with an error that wraps domain.ErrConflict and states the refused count.
-func scopeRepairResult(ctx context.Context, env *Env, repaired, skipped, refused int) (int, int, error) {
-	env.Log.InfoContext(ctx, "repair.scope_ids.completed",
-		slog.Int("repaired", repaired), slog.Int("skipped", skipped), slog.Int("refused", refused))
+func scopeRepairResult(
+	ctx context.Context,
+	env *Env,
+	repaired int,
+	skipped int,
+	refused int,
+) (int, int, error) {
+	env.Log.InfoContext(
+		ctx,
+		"repair.scope_ids.completed",
+		slog.Int("repaired", repaired),
+		slog.Int("skipped", skipped),
+		slog.Int("refused", refused),
+	)
 	if refused == 0 {
 		return repaired, skipped, nil
 	}
-	err := fmt.Errorf("repair sequence scope IDs: the repair refused %d writes; the operator must run the repair again to read the current records: %w", refused, domain.ErrConflict)
-	env.Log.ErrorContext(ctx, "repair.scope_ids.refused", slog.Int("refused", refused), slog.String("err", err.Error()))
+
+	err := fmt.Errorf(
+		"repair sequence scope IDs: the repair refused %d writes; the operator must run the repair again to read the current records: %w",
+		refused,
+		domain.ErrConflict,
+	)
+	env.Log.ErrorContext(
+		ctx,
+		"repair.scope_ids.refused",
+		slog.Int("refused", refused),
+		slog.String("err", err.Error()),
+	)
+
 	return repaired, skipped, err
 }

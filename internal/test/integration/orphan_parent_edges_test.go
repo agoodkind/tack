@@ -25,55 +25,111 @@ func TestOrphanBackfillRemovesExtraParentEdges(t *testing.T) {
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	project := mustCreateScope(t, env, "project", "Edges", workspace.ID, workspace.ID, actor)
 	issueID := createTestIssue(t, env, project.ID, "Issue with extra parents")
+
 	for _, typeKey := range []string{"cycle", "module", "epic"} {
-		container := mustCreate(t, env, service.CreateInput{
-			ParentID: project.ID, ScopeID: project.ID, NodeTypeKey: typeKey, Name: "Container " + typeKey, ActorID: actor,
-		})
-		if err := env.Stores.Relationships.Add(env.Ctx, &node.Relationship{
-			OrgID: env.OrgID, SourceID: issueID, RelationType: node.RelChildOf, TargetID: container.ID,
-			CreatedBy: actor, CreatedAt: time.Now().UTC(), Props: nil,
-		}); err != nil {
+		container := mustCreate(
+			t,
+			env,
+			service.CreateInput{
+				ParentID:    project.ID,
+				ScopeID:     project.ID,
+				NodeTypeKey: typeKey,
+				Name:        "Container " + typeKey,
+				ActorID:     actor,
+			},
+		)
+		if err := env.Stores.Relationships.Add(
+			env.Ctx,
+			&node.Relationship{
+				OrgID:        env.OrgID,
+				SourceID:     issueID,
+				RelationType: node.RelChildOf,
+				TargetID:     container.ID,
+				CreatedBy:    actor,
+				CreatedAt:    time.Now().UTC(),
+				Props:        nil,
+			},
+		); err != nil {
 			t.Fatalf("add child_of edge to %s: %v", typeKey, err)
 		}
 	}
+
 	requireParentEdges(t, env, issueID, 4)
 	drainOutbox(t, env)
-	principal := audit.OperatorPrincipal{ID: uuid.New(), Email: "operator@example.com", Name: "Operator", Source: "test"}
-	ctx := audit.WithOpID(audit.WithOperatorPrincipal(t.Context(), principal), uuid.Must(uuid.NewV7()))
+	principal := audit.OperatorPrincipal{
+		ID:     uuid.New(),
+		Email:  "operator@example.com",
+		Name:   "Operator",
+		Source: "test",
+	}
+	ctx := audit.WithOpID(
+		audit.WithOperatorPrincipal(t.Context(), principal),
+		uuid.Must(uuid.NewV7()),
+	)
 
-	planned, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, env.NodeSvc, true)
+	planned, err := ops.RunOrphanNodeBackfill(
+		ctx,
+		env.Stores.NodeDeleter,
+		env.Stores.Relationships,
+		env.NodeSvc,
+		true,
+	)
 	if err != nil {
 		t.Fatalf("dry-run orphan backfill: %v", err)
 	}
+
 	if planned.ExtraParentEdges != 3 || planned.RemovedEdges != 0 || planned.Orphans != 0 {
-		t.Errorf("dry-run result = %+v, want 3 extra parent edges, none removed, and no orphans", planned)
+		t.Errorf(
+			"dry-run result = %+v, want 3 extra parent edges, none removed, and no orphans",
+			planned,
+		)
 	}
+
 	requireParentEdges(t, env, issueID, 4)
 
-	applied, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, env.NodeSvc, false)
+	applied, err := ops.RunOrphanNodeBackfill(
+		ctx,
+		env.Stores.NodeDeleter,
+		env.Stores.Relationships,
+		env.NodeSvc,
+		false,
+	)
 	if err != nil {
 		t.Fatalf("run orphan backfill: %v", err)
 	}
+
 	if applied.ExtraParentEdges != 3 || applied.RemovedEdges != 3 || applied.Deleted != 0 {
 		t.Errorf("backfill result = %+v, want 3 extra parent edges removed and no deletes", applied)
 	}
+
 	requireParentEdges(t, env, issueID, 1)
 	requireNodesPresent(t, env, []uuid.UUID{issueID, project.ID})
 	removals := 0
+
 	for _, event := range outboxEvents(t, env) {
 		target := event.Context.Target
-		if event.Verb == string(audit.VerbRelationshipRemove) && event.Actor.ID == principal.ID && target != nil && target.SourceID == issueID {
+		if event.Verb == string(audit.VerbRelationshipRemove) && event.Actor.ID == principal.ID &&
+			target != nil &&
+			target.SourceID == issueID {
 			removals++
 		}
 	}
+
 	if removals != 3 {
 		t.Errorf("relationship.remove ledger rows for issue %s = %d, want 3", issueID, removals)
 	}
 
-	rerun, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, env.NodeSvc, false)
+	rerun, err := ops.RunOrphanNodeBackfill(
+		ctx,
+		env.Stores.NodeDeleter,
+		env.Stores.Relationships,
+		env.NodeSvc,
+		false,
+	)
 	if err != nil {
 		t.Fatalf("rerun orphan backfill: %v", err)
 	}
+
 	if rerun.ExtraParentEdges != 0 || rerun.RemovedEdges != 0 || rerun.Orphans != 0 {
 		t.Errorf("rerun result = %+v, want no extra parent edges and no orphans", rerun)
 	}
@@ -87,18 +143,23 @@ func requireParentEdges(t *testing.T, env *TestEnv, nodeID uuid.UUID, want int) 
 	if err != nil {
 		t.Fatalf("list child_of edges of node %s: %v", nodeID, err)
 	}
+
 	if len(edges) != want {
 		t.Fatalf("node %s has %d child_of edges, want %d", nodeID, len(edges), want)
 	}
+
 	view, err := env.Stores.Views.Get(env.Ctx, nodeID)
 	if err != nil || view == nil {
 		t.Fatalf("read node %s: %v", nodeID, err)
 	}
+
 	parentID := stringPropOf(view, "parent_id")
+
 	for _, edge := range edges {
 		if edge.TargetID.String() == parentID {
 			return
 		}
 	}
+
 	t.Fatalf("node %s has no child_of edge to its parent_id %s", nodeID, parentID)
 }

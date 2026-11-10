@@ -31,24 +31,33 @@ type terminalProcess struct {
 // pseudo-terminal on standard input and captures standard output and error.
 // Closing the master triggers the kernel SIGHUP path that sshd uses when
 // an SSH session drops.
-func startInTerminal(t *testing.T, binary string, environment []string, arguments ...string) *terminalProcess {
+func startInTerminal(
+	t *testing.T,
+	binary string,
+	environment []string,
+	arguments ...string,
+) *terminalProcess {
 	t.Helper()
 	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		t.Fatalf("open the pseudo-terminal master: %v", err)
 	}
+
 	t.Cleanup(func() { _ = master.Close() })
 	if err := unix.IoctlSetPointerInt(int(master.Fd()), unix.TIOCSPTLCK, 0); err != nil {
 		t.Fatalf("unlock the pseudo-terminal: %v", err)
 	}
+
 	number, err := unix.IoctlGetInt(int(master.Fd()), unix.TIOCGPTN)
 	if err != nil {
 		t.Fatalf("read the pseudo-terminal number: %v", err)
 	}
+
 	terminal, err := os.OpenFile("/dev/pts/"+strconv.Itoa(number), os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		t.Fatalf("open the pseudo-terminal %d: %v", number, err)
 	}
+
 	output := &bytes.Buffer{}
 	command := exec.Command(binary, arguments...)
 	command.Env = environment
@@ -59,12 +68,20 @@ func startInTerminal(t *testing.T, binary string, environment []string, argument
 	if startErr != nil {
 		t.Fatalf("start %v in the pseudo-terminal: %v", arguments, startErr)
 	}
-	process := &terminalProcess{command: command, master: master, output: output, exited: make(chan struct{}), waitErr: nil}
+
+	process := &terminalProcess{
+		command: command,
+		master:  master,
+		output:  output,
+		exited:  make(chan struct{}),
+		waitErr: nil,
+	}
 	go func() {
 		process.waitErr = command.Wait()
 		close(process.exited)
 	}()
 	t.Cleanup(process.kill)
+
 	return process
 }
 
@@ -96,24 +113,40 @@ func (process *terminalProcess) waitForExit(t *testing.T, limit time.Duration) s
 	case <-time.After(limit):
 		t.Fatalf("the process did not exit within %s", limit)
 	}
+
 	status, ok := process.command.ProcessState.Sys().(syscall.WaitStatus)
 	if !ok {
-		t.Fatalf("the process state %v does not contain a wait status", process.command.ProcessState)
+		t.Fatalf(
+			"the process state %v does not contain a wait status",
+			process.command.ProcessState,
+		)
 	}
+
 	return status
 }
 
 // waitForLogRecord polls the command log for the given JSON message name.
 // It fails the test if the process exits first or the time limit passes.
-func (process *terminalProcess) waitForLogRecord(t *testing.T, pattern, name string, limit time.Duration) {
+func (process *terminalProcess) waitForLogRecord(
+	t *testing.T,
+	pattern string,
+	name string,
+	limit time.Duration,
+) {
 	t.Helper()
 	deadline := time.After(limit)
 	ticker := time.NewTicker(hangupLogPoll)
 	defer ticker.Stop()
+
 	for !logContainsRecord(t, pattern, name) {
 		select {
 		case <-process.exited:
-			t.Fatalf("the process exited with %v before it logged %s:\n%s", process.waitErr, name, process.output)
+			t.Fatalf(
+				"the process exited with %v before it logged %s:\n%s",
+				process.waitErr,
+				name,
+				process.output,
+			)
 		case <-deadline:
 			t.Fatalf("the process did not log %s within %s", name, limit)
 		case <-ticker.C:
@@ -130,12 +163,15 @@ func logContainsRecord(t *testing.T, pattern, name string) bool {
 	if err != nil {
 		t.Fatalf("match the log files %s: %v", pattern, err)
 	}
+
 	if len(matches) != 1 {
 		return false
 	}
+
 	contents, err := os.ReadFile(matches[0])
 	if err != nil {
 		t.Fatalf("read the log file %s: %v", matches[0], err)
 	}
+
 	return bytes.Contains(contents, []byte(`"msg":"`+name+`"`))
 }

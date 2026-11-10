@@ -40,28 +40,53 @@ func TestSearchRebuildKeepsOpenSessionOnOldIndex(t *testing.T) {
 	putRetiringCorpus(t, fixture)
 	requireRetiredSince(t, fixture, source, true)
 	target := beginReplacement(t, fixture)
-	runReplacementUntil(t, fixture, func(current searchdomain.Rebuild, found bool) bool {
-		return found && current.State == searchdomain.RebuildSwitching
-	})
+	runReplacementUntil(
+		t,
+		fixture,
+		func(current searchdomain.Rebuild, found bool) bool {
+			return found && current.State == searchdomain.RebuildSwitching
+		},
+	)
 	first := searchPageOf(t, fixture, openSessionQuery, "")
 	old := sessionOfCursor(t, fixture, first.cursor)
 	if old.Query.Index != source {
-		t.Fatalf("session %s reads index %s before the switch, want %s", old.ID, old.Query.Index, source)
+		t.Fatalf(
+			"session %s reads index %s before the switch, want %s",
+			old.ID,
+			old.Query.Index,
+			source,
+		)
 	}
+
 	cursor := continueThroughRetirement(t, fixture, old, first.cursor, target)
 	waitUntilTime(t, old.AbsoluteDeadline.Add(time.Second))
 	if _, err := trySearchPage(t, fixture, openSessionQuery, cursor); err == nil {
-		t.Fatalf("session %s continued after its absolute deadline %s", old.ID, old.AbsoluteDeadline)
+		t.Fatalf(
+			"session %s continued after its absolute deadline %s",
+			old.ID,
+			old.AbsoluteDeadline,
+		)
 	}
+
 	runReplacementUntil(t, fixture, replacementFinished)
 	requireReplaced(t, fixture, target, source)
 	requireRetiredSince(t, fixture, source, false)
 	if presence := presenceSessions(t, fixture, source); len(presence) != 0 {
-		t.Fatalf("index %s keeps presence entries of sessions %v after the replacement", source, presence)
+		t.Fatalf(
+			"index %s keeps presence entries of sessions %v after the replacement",
+			source,
+			presence,
+		)
 	}
+
 	_, err := fixture.stores.SearchSessions(clock.Wall{}, time.Minute).Load(t.Context(), old.ID)
 	if !errors.Is(err, searchdomain.ErrSessionNotFound) {
-		t.Fatalf("load session %s after the replacement: %v, want %v", old.ID, err, searchdomain.ErrSessionNotFound)
+		t.Fatalf(
+			"load session %s after the replacement: %v, want %v",
+			old.ID,
+			err,
+			searchdomain.ErrSessionNotFound,
+		)
 	}
 }
 
@@ -70,15 +95,23 @@ func TestSearchRebuildKeepsOpenSessionOnOldIndex(t *testing.T) {
 func putRetiringCorpus(t *testing.T, fixture parentEdgeFixture) {
 	t.Helper()
 	edited := make([]uuid.UUID, 0, openSessionEdited)
+
 	for number := range openSessionNodes {
-		nodeID := fixture.createLeaf(t, fixture.firstEntry, fmt.Sprintf("%s %02d", openSessionQuery, number))
+		nodeID := fixture.createLeaf(
+			t,
+			fixture.firstEntry,
+			fmt.Sprintf("%s %02d", openSessionQuery, number),
+		)
 		if number < openSessionEdited {
 			edited = append(edited, nodeID)
 		}
 	}
+
 	fixture.drain(t)
+
 	for _, nodeID := range edited {
 		editLeafText(t, fixture, nodeID, openSessionQuery+" revised")
 	}
+
 	fixture.drain(t)
 }

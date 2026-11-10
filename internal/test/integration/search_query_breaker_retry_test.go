@@ -25,11 +25,18 @@ const (
 type clusterSettingsRequest struct{ body []byte }
 
 func (request clusterSettingsRequest) GetRequest(method string) (*http.Request, error) {
-	httpRequest, err := http.NewRequestWithContext(context.Background(), method, "/_cluster/settings", bytes.NewReader(request.body))
+	httpRequest, err := http.NewRequestWithContext(
+		context.Background(),
+		method,
+		"/_cluster/settings",
+		bytes.NewReader(request.body),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("build cluster settings request: %w", err)
 	}
+
 	httpRequest.Header.Set("Content-Type", "application/json")
+
 	return httpRequest, nil
 }
 
@@ -47,6 +54,7 @@ func TestSearchQueryBreakerRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read serving model: %v", err)
 	}
+
 	t.Cleanup(func() {
 		if err := setBreakerThreshold(context.Background(), fixture, "null"); err != nil {
 			t.Errorf("restore the breaker threshold: %v", err)
@@ -59,12 +67,28 @@ func TestSearchQueryBreakerRetry(t *testing.T) {
 	_, err = trySearch(fixture.Harness, "breaker exhausted", "")
 	elapsed := clock.Since(started)
 	if err == nil || err.Error() != searchUnavailableResponse {
-		t.Fatalf("search with the breaker open returned %v, want %q", err, searchUnavailableResponse)
+		t.Fatalf(
+			"search with the breaker open returned %v, want %q",
+			err,
+			searchUnavailableResponse,
+		)
 	}
+
 	after, profileAfter := breakerTriggers(t, fixture), predictRequests(t, fixture, info.ModelID)
-	t.Logf("exhausted case: breaker triggers %d to %d, profile predicts %d to %d, elapsed %s", before, after, profileBefore, profileAfter, elapsed)
+	t.Logf(
+		"exhausted case: breaker triggers %d to %d, profile predicts %d to %d, elapsed %s",
+		before,
+		after,
+		profileBefore,
+		profileAfter,
+		elapsed,
+	)
 	if after-before != 3 || elapsed < 3*time.Second {
-		t.Fatalf("search with the breaker open had %d breaker rejections in %s, want 3 in at least 3s", after-before, elapsed)
+		t.Fatalf(
+			"search with the breaker open had %d breaker rejections in %s, want 3 in at least 3s",
+			after-before,
+			elapsed,
+		)
 	}
 
 	before, profileBefore = breakerTriggers(t, fixture), predictRequests(t, fixture, info.ModelID)
@@ -73,7 +97,11 @@ func TestSearchQueryBreakerRetry(t *testing.T) {
 	go func() {
 		time.Sleep(breakerResetDelay)
 		err := setBreakerThreshold(context.Background(), fixture, "null")
-		t.Logf("breaker threshold restored at=%s err=%v", clock.Now().UTC().Format(time.RFC3339Nano), err)
+		t.Logf(
+			"breaker threshold restored at=%s err=%v",
+			clock.Now().UTC().Format(time.RFC3339Nano),
+			err,
+		)
 		reset <- err
 	}()
 	_, err = trySearch(fixture.Harness, "breaker recovered", "")
@@ -81,14 +109,31 @@ func TestSearchQueryBreakerRetry(t *testing.T) {
 	if resetErr := <-reset; resetErr != nil {
 		t.Fatalf("restore the breaker threshold: %v", resetErr)
 	}
-	t.Logf("recovery search started=%s returned after %s err=%v", started.UTC().Format(time.RFC3339Nano), elapsed, err)
+
+	t.Logf(
+		"recovery search started=%s returned after %s err=%v",
+		started.UTC().Format(time.RFC3339Nano),
+		elapsed,
+		err,
+	)
 	if err != nil {
 		t.Fatalf("search after the breaker closed: %v", err)
 	}
+
 	after, profileAfter = breakerTriggers(t, fixture), predictRequests(t, fixture, info.ModelID)
-	t.Logf("recovery case: breaker triggers %d to %d, profile predicts %d to %d", before, after, profileBefore, profileAfter)
+	t.Logf(
+		"recovery case: breaker triggers %d to %d, profile predicts %d to %d",
+		before,
+		after,
+		profileBefore,
+		profileAfter,
+	)
 	if after-before != 1 || elapsed < time.Second {
-		t.Fatalf("recovered search had %d breaker rejections in %s, want 1 in at least 1s", after-before, elapsed)
+		t.Fatalf(
+			"recovered search had %d breaker rejections in %s, want 1 in at least 1s",
+			after-before,
+			elapsed,
+		)
 	}
 }
 
@@ -103,20 +148,35 @@ func breakerTriggers(t *testing.T, fixture queryFixture) int64 {
 		} `json:"nodes"`
 	}
 	var raw json.RawMessage
-	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, mlStatsRequest{}, &raw)
+	response, err := opensearch.Execute(
+		WithTestOperation(t, t.Context()),
+		fixture.Client.Client,
+		http.MethodGet,
+		mlStatsRequest{},
+		&raw,
+	)
 	if err != nil || response == nil || response.IsError() {
 		t.Fatalf("read ML Commons stats: response %v err %v", response, err)
 	}
+
 	if err := json.Unmarshal(raw, &stats); err != nil || len(stats.Nodes) == 0 {
 		t.Fatalf("decode ML Commons stats %s: %v", raw, err)
 	}
+
 	var total int64
+
 	for node, values := range stats.Nodes {
 		if values.Triggers == nil {
-			t.Fatalf("ML Commons stats for node %s have no ml_circuit_breaker_trigger_count: %s", node, raw)
+			t.Fatalf(
+				"ML Commons stats for node %s have no ml_circuit_breaker_trigger_count: %s",
+				node,
+				raw,
+			)
 		}
+
 		total += *values.Triggers
 	}
+
 	return total
 }
 
@@ -145,13 +205,21 @@ func setBreakerThreshold(ctx context.Context, fixture queryFixture, value string
 func setClusterSetting(ctx context.Context, fixture queryFixture, name, value string) error {
 	body := fmt.Appendf(nil, `{"persistent":{%q:%s}}`, name, value)
 	var result json.RawMessage
-	response, err := opensearch.Execute(ctx, fixture.Client.Client, http.MethodPut, clusterSettingsRequest{body: body}, &result)
+	response, err := opensearch.Execute(
+		ctx,
+		fixture.Client.Client,
+		http.MethodPut,
+		clusterSettingsRequest{body: body},
+		&result,
+	)
 	if err != nil {
 		return err
 	}
+
 	if response == nil || response.IsError() {
 		return fmt.Errorf("cluster settings response %v body %s", response, result)
 	}
+
 	return nil
 }
 
@@ -169,13 +237,22 @@ func predictRequests(t *testing.T, fixture queryFixture, modelID string) int {
 			} `json:"models"`
 		} `json:"nodes"`
 	}
-	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), fixture.Client.Client, http.MethodGet, clusterModelProfileRequest{modelID: modelID}, &profile)
+	response, err := opensearch.Execute(
+		WithTestOperation(t, t.Context()),
+		fixture.Client.Client,
+		http.MethodGet,
+		clusterModelProfileRequest{modelID: modelID},
+		&profile,
+	)
 	if err != nil || response == nil || response.IsError() {
 		t.Fatalf("read model profile %s: response %v err %v", modelID, response, err)
 	}
+
 	total := 0
+
 	for _, node := range profile.Nodes {
 		total += node.Models[modelID].Stats.Count
 	}
+
 	return total
 }

@@ -32,7 +32,12 @@ func TestDatagenSoakDiscoveryKeepsExistingNames(t *testing.T) {
 	cfg := soakDiscoveryConfig(t)
 	seed := clock.Now().UnixNano()
 	ctx := integration.WithTestOperation(t, t.Context())
-	seedOptions := datagen.SeedRunOptions{Scale: "small", Seed: seed, Commit: true, RedactAuditPII: false}
+	seedOptions := datagen.SeedRunOptions{
+		Scale:          "small",
+		Seed:           seed,
+		Commit:         true,
+		RedactAuditPII: false,
+	}
 	if _, err := datagen.RunSeed(ctx, cfg, seedOptions); err != nil {
 		t.Fatalf("seed the corpus: %v", err)
 	}
@@ -44,7 +49,12 @@ func TestDatagenSoakDiscoveryKeepsExistingNames(t *testing.T) {
 	}
 
 	soakOptions := datagen.SoakOptions{
-		Duration: time.Minute, Rate: 60, MaxOps: 1, Scale: "small", Seed: seed, Commit: true,
+		Duration: time.Minute,
+		Rate:     60,
+		MaxOps:   1,
+		Scale:    "small",
+		Seed:     seed,
+		Commit:   true,
 	}
 	result, err := datagen.RunSoak(ctx, ctx, cfg, soakOptions, nil)
 	if err != nil {
@@ -57,7 +67,12 @@ func TestDatagenSoakDiscoveryKeepsExistingNames(t *testing.T) {
 	after := soakDiscoveryNames(t, cfg, seed)
 	for toolName, names := range before {
 		if !slices.Equal(after[toolName], names) {
-			t.Fatalf("%s names after soak discovery = %q, want %q", toolName, after[toolName], names)
+			t.Fatalf(
+				"%s names after soak discovery = %q, want %q",
+				toolName,
+				after[toolName],
+				names,
+			)
 		}
 	}
 }
@@ -99,9 +114,15 @@ func soakDiscoveryNames(t *testing.T, cfg *config.Config, seed int64) map[string
 	workspace := identities.Workspaces[0]
 	driver := datagen.NewDriver(graph, false, seed)
 	listNames := func(toolName string, projectReference string) []string {
-		result, err := driver.Call(ctx, workspace.Actors[0].Token, toolName, datagen.ToolArguments{
-			WorkspaceReference: workspace.Slug, ProjectReference: projectReference,
-		})
+		result, err := driver.Call(
+			ctx,
+			workspace.Actors[0].Token,
+			toolName,
+			datagen.ToolArguments{
+				WorkspaceReference: workspace.Slug,
+				ProjectReference:   projectReference,
+			},
+		)
 		if err != nil {
 			t.Fatalf("call %s: %v", toolName, err)
 		}

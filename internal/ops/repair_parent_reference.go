@@ -22,17 +22,21 @@ func (c *RepairConsole) planParentReference(
 	if err != nil {
 		return nil, err
 	}
+
 	view, err := c.reader.Get(ctx, nodeID)
 	if err != nil {
 		return nil, loggedRepairError(ctx, fmt.Sprintf("get repair node %s", nodeID), err)
 	}
+
 	if view == nil {
 		return nil, domain.ErrNotFound
 	}
+
 	metadata, err := c.loadReferenceRepairMetadata(ctx, view, preparedProfile, true)
 	if err != nil {
 		return nil, err
 	}
+
 	preview := newReferencePreview(view, preparedProfile, metadata.targetType)
 	preview.Class = RepairClassParentReference
 	matchContext := referenceMatchContext{
@@ -57,18 +61,21 @@ func (c *RepairConsole) planParentReference(
 	if blockReason != "" {
 		preview.NeedsRepair = referenceSourcesPresent(preview.ObservedSources)
 		preview.Summary = blockReason
+
 		return &repairPlan{
 			preview:             preview,
 			props:               nil,
 			relationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
 		}, nil
 	}
+
 	preview.ChosenCandidate = chosen
 	props := plannedParentReferenceProps(view, preparedProfile, chosen.NodeID)
 	changes, err := c.plannedParentRelationshipChanges(ctx, view, chosen.NodeID)
 	if err != nil {
 		return nil, err
 	}
+
 	preview.PlannedProps = props
 	preview.PlannedRelationships = previewRelationshipChanges(changes)
 	preview.NeedsRepair = len(props) > 0 || len(changes.Add) > 0 || len(changes.Remove) > 0
@@ -77,6 +84,7 @@ func (c *RepairConsole) planParentReference(
 	if preview.CanApply {
 		preview.ConfirmationToken = repairConfirmationToken(preview)
 	}
+
 	return &repairPlan{preview: preview, props: props, relationshipChanges: changes}, nil
 }
 
@@ -85,35 +93,59 @@ func prepareParentReferenceProfile(
 	profile *RepairReferenceProfile,
 ) (RepairReferenceProfile, error) {
 	if profile == nil {
-		return RepairReferenceProfile{}, loggedRepairError(ctx, "parent repair profile required", domain.ErrInvalidArgument)
+		return RepairReferenceProfile{}, loggedRepairError(
+			ctx,
+			"parent repair profile required",
+			domain.ErrInvalidArgument,
+		)
 	}
+
 	prepared := *profile
 	prepared.TargetProperty = strings.TrimSpace(prepared.TargetProperty)
 	if prepared.TargetProperty == "" {
 		prepared.TargetProperty = "parent_id"
 	}
+
 	if prepared.TargetProperty != "parent_id" {
-		return RepairReferenceProfile{}, loggedRepairError(ctx, "parent repair target_property must be parent_id", domain.ErrInvalidArgument)
+		return RepairReferenceProfile{}, loggedRepairError(
+			ctx,
+			"parent repair target_property must be parent_id",
+			domain.ErrInvalidArgument,
+		)
 	}
+
 	prepared.TargetTypeKey = strings.TrimSpace(prepared.TargetTypeKey)
 	if prepared.TargetTypeKey == "" {
-		return RepairReferenceProfile{}, loggedRepairError(ctx, "parent repair target_type_key required", domain.ErrInvalidArgument)
+		return RepairReferenceProfile{}, loggedRepairError(
+			ctx,
+			"parent repair target_type_key required",
+			domain.ErrInvalidArgument,
+		)
 	}
+
 	prepared.TargetMatchProperty = strings.TrimSpace(prepared.TargetMatchProperty)
 	prepared.SourceFields = compactStrings(prepared.SourceFields)
 	if len(prepared.SourceFields) == 0 {
-		return RepairReferenceProfile{}, loggedRepairError(ctx, "parent repair source_fields required", domain.ErrInvalidArgument)
+		return RepairReferenceProfile{}, loggedRepairError(
+			ctx,
+			"parent repair source_fields required",
+			domain.ErrInvalidArgument,
+		)
 	}
+
 	prepared.ScopeFields = compactStrings(prepared.ScopeFields)
 	if len(prepared.ScopeFields) == 0 {
 		prepared.ScopeFields = []string{"scope_id", "parent_id"}
 	}
+
 	if prepared.CleanupBehavior == "" {
 		prepared.CleanupBehavior = RepairCleanupSourceFields
 	}
+
 	if prepared.ConflictPolicy == "" {
 		prepared.ConflictPolicy = RepairConflictPreferSource
 	}
+
 	return prepared, nil
 }
 
@@ -126,6 +158,7 @@ func plannedParentReferenceProps(
 	if rawUUIDProp(view.Props, "parent_id") != chosenID {
 		props["parent_id"] = service.MustRawString(chosenID.String())
 	}
+
 	if profile.CleanupBehavior == RepairCleanupSourceFields {
 		for _, field := range profile.SourceFields {
 			if _, ok := view.Props[field]; ok {
@@ -133,6 +166,7 @@ func plannedParentReferenceProps(
 			}
 		}
 	}
+
 	return props
 }
 
@@ -145,50 +179,74 @@ func (c *RepairConsole) plannedParentRelationshipChanges(
 	changes := node.RelationshipChanges{Add: nil, Remove: nil}
 	targetRelationshipExists := false
 	if c.relationships != nil {
-		relationships, err := c.relationships.ListBySource(ctx, view.OrgID, view.ID, node.RelChildOf)
+		relationships, err := c.relationships.ListBySource(
+			ctx,
+			view.OrgID,
+			view.ID,
+			node.RelChildOf,
+		)
 		if err != nil {
-			return changes, loggedRepairError(ctx, fmt.Sprintf("list child_of relationships for repair %s", view.ID), err)
+			return changes, loggedRepairError(
+				ctx,
+				fmt.Sprintf("list child_of relationships for repair %s", view.ID),
+				err,
+			)
 		}
+
 		for _, relationship := range relationships {
 			if relationship.TargetID == targetID {
 				targetRelationshipExists = true
 				continue
 			}
-			changes.Remove = append(changes.Remove, &node.Relationship{
-				OrgID:        view.OrgID,
-				SourceID:     view.ID,
-				RelationType: node.RelChildOf,
-				TargetID:     relationship.TargetID,
-				CreatedBy:    uuid.Nil,
-				CreatedAt:    time.Time{},
-				Props:        nil,
-			})
+
+			changes.Remove = append(
+				changes.Remove,
+				&node.Relationship{
+					OrgID:        view.OrgID,
+					SourceID:     view.ID,
+					RelationType: node.RelChildOf,
+					TargetID:     relationship.TargetID,
+					CreatedBy:    uuid.Nil,
+					CreatedAt:    time.Time{},
+					Props:        nil,
+				},
+			)
 		}
 	} else {
 		targetRelationshipExists = currentParentID == targetID
 	}
-	if currentParentID != uuid.Nil && currentParentID != targetID && !relationshipTargetPlanned(changes.Remove, currentParentID) {
-		changes.Remove = append(changes.Remove, &node.Relationship{
-			OrgID:        view.OrgID,
-			SourceID:     view.ID,
-			RelationType: node.RelChildOf,
-			TargetID:     currentParentID,
-			CreatedBy:    uuid.Nil,
-			CreatedAt:    time.Time{},
-			Props:        nil,
-		})
+
+	if currentParentID != uuid.Nil && currentParentID != targetID &&
+		!relationshipTargetPlanned(changes.Remove, currentParentID) {
+		changes.Remove = append(
+			changes.Remove,
+			&node.Relationship{
+				OrgID:        view.OrgID,
+				SourceID:     view.ID,
+				RelationType: node.RelChildOf,
+				TargetID:     currentParentID,
+				CreatedBy:    uuid.Nil,
+				CreatedAt:    time.Time{},
+				Props:        nil,
+			},
+		)
 	}
+
 	if !targetRelationshipExists {
-		changes.Add = append(changes.Add, &node.Relationship{
-			OrgID:        view.OrgID,
-			SourceID:     view.ID,
-			RelationType: node.RelChildOf,
-			TargetID:     targetID,
-			CreatedBy:    uuid.Nil,
-			CreatedAt:    time.Time{},
-			Props:        nil,
-		})
+		changes.Add = append(
+			changes.Add,
+			&node.Relationship{
+				OrgID:        view.OrgID,
+				SourceID:     view.ID,
+				RelationType: node.RelChildOf,
+				TargetID:     targetID,
+				CreatedBy:    uuid.Nil,
+				CreatedAt:    time.Time{},
+				Props:        nil,
+			},
+		)
 	}
+
 	return changes, nil
 }
 
@@ -198,5 +256,6 @@ func relationshipTargetPlanned(relationships []*node.Relationship, targetID uuid
 			return true
 		}
 	}
+
 	return false
 }

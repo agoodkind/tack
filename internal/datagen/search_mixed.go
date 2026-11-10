@@ -28,8 +28,8 @@ type SearchMixedOptions struct {
 	// When CatchUp is zero, the wait ends when that work finishes or the schedule context ends.
 	CatchUp   time.Duration
 	Endpoints []string
-	Client      *http.Client
-	Rebuild     SearchMixedRebuild
+	Client    *http.Client
+	Rebuild   SearchMixedRebuild
 	// MetadataWrites is the requested number of property definition changes that enable search
 	// for previously excluded values.
 	MetadataWrites int
@@ -47,15 +47,15 @@ type SearchMixedRebuild func(context.Context) (string, error)
 
 // SearchMixedSummary reports the measurements and correctness checks of one workload run.
 type SearchMixedSummary struct {
-	Search            SearchLoadSummary
-	PlannedWrites     int
-	Creates           int
-	Edits             int
-	Deletes           int
-	WriteErrors       int
-	WriteElapsed      time.Duration
-	Freshness         SearchMixedFreshness
-	MarkersNotFound   int
+	Search          SearchLoadSummary
+	PlannedWrites   int
+	Creates         int
+	Edits           int
+	Deletes         int
+	WriteErrors     int
+	WriteElapsed    time.Duration
+	Freshness       SearchMixedFreshness
+	MarkersNotFound int
 	// MarkersUnsearched counts pending markers that the final probe pass did not search without
 	// an error, including markers that the pass did not attempt.
 	MarkersUnsearched int
@@ -103,34 +103,34 @@ type searchMixed struct {
 	victimWord string
 	limits     searchLimits
 	// sessionIdle is the IdleTimeout that config.LoadSearchQuerySettings reads for the app server.
-	sessionIdle time.Duration
-	stores     *fdbadapter.Stores
-	pages      storedPageReader
-	backlog    *searchMixedBacklog
+	sessionIdle   time.Duration
+	stores        *fdbadapter.Stores
+	pages         storedPageReader
+	backlog       *searchMixedBacklog
 	clusterStatus *searchMixedFoundationDBStatus
-	resources  *searchMixedResources
-	members    *postgres.OrgMemberRepo
-	stats      *searchMixedStats
-	phases     *searchMixedPhaseStats
-	corpusIndex *searchMixedCorpusIndex
-	titles     *SearchTitles
-	corpus     searchMixedCorpus  `exhaustruct:"optional"`
-	failureMutex sync.Mutex          `exhaustruct:"optional"`
-	failures   []error               `exhaustruct:"optional"`
-	probeMutex sync.Mutex            `exhaustruct:"optional"`
-	markers    []searchMixedMarker   `exhaustruct:"optional"`
-	deletions  []searchMixedDeletion `exhaustruct:"optional"`
+	resources     *searchMixedResources
+	members       *postgres.OrgMemberRepo
+	stats         *searchMixedStats
+	phases        *searchMixedPhaseStats
+	corpusIndex   *searchMixedCorpusIndex
+	titles        *SearchTitles
+	corpus        searchMixedCorpus     `exhaustruct:"optional"`
+	failureMutex  sync.Mutex            `exhaustruct:"optional"`
+	failures      []error               `exhaustruct:"optional"`
+	probeMutex    sync.Mutex            `exhaustruct:"optional"`
+	markers       []searchMixedMarker   `exhaustruct:"optional"`
+	deletions     []searchMixedDeletion `exhaustruct:"optional"`
 	// drainStarted is true after drain starts. The next probe pass to start is the final pass.
 	drainStarted bool `exhaustruct:"optional"`
 	// finalPassDone is true after the final probe pass finishes. That pass starts after drain starts.
-	finalPassDone bool `exhaustruct:"optional"`
-	nodeMutex  sync.Mutex         `exhaustruct:"optional"`
-	nodes      []*searchMixedNode `exhaustruct:"optional"`
-	deleted    map[uuid.UUID]time.Time `exhaustruct:"optional"`
-	created    int                `exhaustruct:"optional"`
-	changes    searchMixedChanges `exhaustruct:"optional"`
-	metadataChecks []searchMixedCheck `exhaustruct:"optional"`
-	moveChecks []searchMixedCheck `exhaustruct:"optional"`
+	finalPassDone  bool                    `exhaustruct:"optional"`
+	nodeMutex      sync.Mutex              `exhaustruct:"optional"`
+	nodes          []*searchMixedNode      `exhaustruct:"optional"`
+	deleted        map[uuid.UUID]time.Time `exhaustruct:"optional"`
+	created        int                     `exhaustruct:"optional"`
+	changes        searchMixedChanges      `exhaustruct:"optional"`
+	metadataChecks []searchMixedCheck      `exhaustruct:"optional"`
+	moveChecks     []searchMixedCheck      `exhaustruct:"optional"`
 }
 
 // RunSearchMixed measures search during concurrent public issue writes and the workload phases.
@@ -154,19 +154,38 @@ func RunSearchMixed(
 		return unmeasuredSearchMixedSummary(options, true, plannedSearches, plannedWrites), nil
 	}
 	if plannedSearches < 1 || plannedWrites < 1 {
-		return SearchMixedSummary{}, fmt.Errorf("qa datagen search-mixed: schedule requires at least one search and one write: rate %d, write rate %d, duration %s", options.Rate, options.WriteRate, options.Duration)
+		return SearchMixedSummary{}, fmt.Errorf(
+			"qa datagen search-mixed: schedule requires at least one search and one write: rate %d, write rate %d, duration %s",
+			options.Rate,
+			options.WriteRate,
+			options.Duration,
+		)
 	}
 	if err := ValidateTarget(cfg); err != nil {
 		return SearchMixedSummary{}, err
 	}
 	if !cfg.SearchPublicEnabled {
-		return SearchMixedSummary{}, loggedError(callContext, "qa datagen search-mixed: this command requires public search", errPublicSearchDisabled)
+		return SearchMixedSummary{}, loggedError(
+			callContext,
+			"qa datagen search-mixed: this command requires public search",
+			errPublicSearchDisabled,
+		)
 	}
 	corpusIndex := &searchMixedCorpusIndex{}
-	mixed, closeMixed, err := newSearchMixed(scheduleContext, callContext, cfg, options, plannedSearches, corpusIndex)
+	mixed, closeMixed, err := newSearchMixed(
+		scheduleContext,
+		callContext,
+		cfg,
+		options,
+		plannedSearches,
+		corpusIndex,
+	)
 	if errors.Is(err, errSearchMixedSetupStopped) {
-		slog.InfoContext(callContext, "qa.datagen.search_mixed_setup_stopped",
-			slog.String("cause", context.Cause(scheduleContext).Error()))
+		slog.InfoContext(
+			callContext,
+			"qa.datagen.search_mixed_setup_stopped",
+			slog.String("cause", context.Cause(scheduleContext).Error()),
+		)
 		summary := unmeasuredSearchMixedSummary(options, false, plannedSearches, plannedWrites)
 		summary.Stopped, summary.SkippedPhases = true, searchMixedPhaseNames(options.Rebuild != nil)
 		summary.CorpusIndex = corpusIndex.snapshot()
@@ -181,11 +200,20 @@ func RunSearchMixed(
 	if err != nil {
 		return summary, err
 	}
-	slog.InfoContext(callContext, "qa.datagen.search_mixed_finished", slog.Int("rate", options.Rate),
-		slog.Int("write_rate", options.WriteRate), slog.Int("completed", summary.Search.Completed),
-		slog.Int("creates", summary.Creates), slog.Int("edits", summary.Edits), slog.Int("deletes", summary.Deletes),
-		slog.Int("burst_created", summary.Burst.Created), slog.Int("markers_not_found", summary.MarkersNotFound),
+	slog.InfoContext(
+		callContext,
+		"qa.datagen.search_mixed_finished",
+		slog.Int("rate", options.Rate),
+		slog.Int("write_rate", options.WriteRate),
+		slog.Int("completed", summary.Search.Completed),
+		slog.Int("creates", summary.Creates),
+		slog.Int("edits", summary.Edits),
+		slog.Int("deletes", summary.Deletes),
+		slog.Int("burst_created", summary.Burst.Created),
+		slog.Int("markers_not_found", summary.MarkersNotFound),
 		slog.Int("markers_unsearched", summary.MarkersUnsearched),
-		slog.Int("deleted_returned", summary.DeletedReturned), slog.Bool("caught_up", summary.CatchUp.Completed))
+		slog.Int("deleted_returned", summary.DeletedReturned),
+		slog.Bool("caught_up", summary.CatchUp.Completed),
+	)
 	return summary, nil
 }

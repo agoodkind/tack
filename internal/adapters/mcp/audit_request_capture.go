@@ -35,7 +35,10 @@ type responseCapture struct {
 
 func newResponseCapture() *responseCapture {
 	return &responseCapture{
-		ReadValueMarker: audit.ReadValueMarker{}, header: http.Header{}, status: http.StatusOK, body: bytes.Buffer{},
+		ReadValueMarker: audit.ReadValueMarker{},
+		header:          http.Header{},
+		status:          http.StatusOK,
+		body:            bytes.Buffer{},
 	}
 }
 
@@ -46,6 +49,7 @@ func (capture *responseCapture) Write(payload []byte) (int, error) {
 	if err != nil {
 		return written, fmt.Errorf("capture response body: %w", err)
 	}
+
 	return written, nil
 }
 
@@ -60,23 +64,35 @@ func (capture *responseCapture) readResult(ctx context.Context) audit.ReadResult
 	if outcome.Outcome == "" {
 		outcome = jsonRPCOutcome(capture.header.Get("Content-Type"), capture.body.Bytes())
 	}
+
 	if outcome.Outcome == "" {
 		outcome = statusOutcome(capture.status)
 	}
+
 	if outcome.Outcome == "" && capture.body.Len() == 0 && ctx.Err() != nil {
 		outcome = failed("request_canceled", "request ended before response preparation")
 	}
+
 	return audit.ReadResult[*responseCapture]{
-		Value: capture, Targets: collected.Targets, OrgTargets: collected.OrgTargets,
-		Count: uint64(len(collected.Targets)),
+		Value:      capture,
+		Targets:    collected.Targets,
+		OrgTargets: collected.OrgTargets,
+		Count:      uint64(len(collected.Targets)),
 		Encode: func(writer io.Writer, captured *responseCapture) error {
 			if _, err := writer.Write(captured.body.Bytes()); err != nil {
-				slog.ErrorContext(ctx, "mcp.audit_request.encode_failed", slog.String("err", err.Error()))
+				slog.ErrorContext(
+					ctx,
+					"mcp.audit_request.encode_failed",
+					slog.String("err", err.Error()),
+				)
+
 				return fmt.Errorf("write captured response body: %w", err)
 			}
+
 			return nil
 		},
-		ContentType: capture.header.Get("Content-Type"), Outcome: outcome,
+		ContentType: capture.header.Get("Content-Type"),
+		Outcome:     outcome,
 	}
 }
 
@@ -86,8 +102,10 @@ func (capture *responseCapture) release(writer http.ResponseWriter, payload []by
 		if name == "Content-Length" {
 			continue
 		}
+
 		writer.Header()[name] = values
 	}
+
 	writer.WriteHeader(capture.status)
 	_, _ = writer.Write(payload)
 }
@@ -122,6 +140,7 @@ func jsonRPCOutcome(contentType string, body []byte) audit.OutcomeDetails {
 	if !strings.HasPrefix(contentType, "application/json") {
 		return audit.NoOutcome()
 	}
+
 	var response struct {
 		Error *struct {
 			Code int `json:"code"`
@@ -148,9 +167,19 @@ func jsonRPCOutcome(contentType string, body []byte) audit.OutcomeDetails {
 }
 
 func refused(code, message string) audit.OutcomeDetails {
-	return audit.OutcomeDetails{Outcome: audit.OutcomeRefused, FailureCode: code, FailureMessage: message, CommittedSteps: nil}
+	return audit.OutcomeDetails{
+		Outcome:        audit.OutcomeRefused,
+		FailureCode:    code,
+		FailureMessage: message,
+		CommittedSteps: nil,
+	}
 }
 
 func failed(code, message string) audit.OutcomeDetails {
-	return audit.OutcomeDetails{Outcome: audit.OutcomeFailed, FailureCode: code, FailureMessage: message, CommittedSteps: nil}
+	return audit.OutcomeDetails{
+		Outcome:        audit.OutcomeFailed,
+		FailureCode:    code,
+		FailureMessage: message,
+		CommittedSteps: nil,
+	}
 }

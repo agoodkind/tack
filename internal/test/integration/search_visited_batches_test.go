@@ -31,19 +31,43 @@ const (
 
 // requireBatchesOfNode checks that a public response requested four ranked
 // batches and that each batch returned 100 page matches from nodeID only.
-func requireBatchesOfNode(t *testing.T, searches []capturedSearch, nodeID uuid.UUID, response string) {
+func requireBatchesOfNode(
+	t *testing.T,
+	searches []capturedSearch,
+	nodeID uuid.UUID,
+	response string,
+) {
 	t.Helper()
 	if len(searches) != visitedMaxBatches {
-		t.Fatalf("the %s response sent %d ranked batches, want %d", response, len(searches), visitedMaxBatches)
+		t.Fatalf(
+			"the %s response sent %d ranked batches, want %d",
+			response,
+			len(searches),
+			visitedMaxBatches,
+		)
 	}
+
 	for number, search := range searches {
 		hits := decodeCapturedHits(t, search).Hits
 		if len(hits) != visitedBatchSize {
-			t.Fatalf("batch %d of the %s response returned %d page matches, want %d", number+1, response, len(hits), visitedBatchSize)
+			t.Fatalf(
+				"batch %d of the %s response returned %d page matches, want %d",
+				number+1,
+				response,
+				len(hits),
+				visitedBatchSize,
+			)
 		}
+
 		for _, hit := range hits {
 			if hit.Source.NodeID != nodeID {
-				t.Fatalf("batch %d of the %s response returned a page of node %s, want only node %s", number+1, response, hit.Source.NodeID, nodeID)
+				t.Fatalf(
+					"batch %d of the %s response returned a page of node %s, want only node %s",
+					number+1,
+					response,
+					hit.Source.NodeID,
+					nodeID,
+				)
 			}
 		}
 	}
@@ -61,12 +85,33 @@ func TestSearchVisitedBatchesReturnEmptyPage(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	entryID := integration.EntryPoint(t, fixture, workspace)
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
-	visited := integration.PutOpaqueNode(t, fixture, kind, entryID, "Orbital duplicate", integration.ScaleQuery, "excluded")
+	visited := integration.PutOpaqueNode(
+		t,
+		fixture,
+		kind,
+		entryID,
+		"Orbital duplicate",
+		integration.ScaleQuery,
+		"excluded",
+	)
+
 	remaining := make([]uuid.UUID, 0, visitedRemainingNodes)
 	for number := range visitedRemainingNodes {
 		name := fmt.Sprintf("Kitchen item %d", number)
-		remaining = append(remaining, integration.PutOpaqueNode(t, fixture, kind, entryID, name, visitedRemainingText, "excluded"))
+		remaining = append(
+			remaining,
+			integration.PutOpaqueNode(
+				t,
+				fixture,
+				kind,
+				entryID,
+				name,
+				visitedRemainingText,
+				"excluded",
+			),
+		)
 	}
+
 	integration.DrainSearchWork(t, fixture.Worker, 500)
 	filter := integration.CallerAccess(t, fixture, workspace, entryID)
 	integration.PutDuplicatePages(t, fixture, kind, visited, filter, visitedDuplicatePages)
@@ -74,16 +119,28 @@ func TestSearchVisitedBatchesReturnEmptyPage(t *testing.T) {
 
 	first := integration.CallSearch(t, harness, integration.ScaleQuery, "")
 	if !slices.Equal(first.IDs, []uuid.UUID{visited}) || first.Cursor == "" {
-		t.Fatalf("the first page returned %v with cursor %q, want only node %s and a cursor", first.IDs, first.Cursor, visited)
+		t.Fatalf(
+			"the first page returned %v with cursor %q, want only node %s and a cursor",
+			first.IDs,
+			first.Cursor,
+			visited,
+		)
 	}
+
 	requireBatchesOfNode(t, capture.take(), visited, "first")
 	empty := integration.CallSearch(t, harness, integration.ScaleQuery, first.Cursor)
 	if len(empty.IDs) != 0 || empty.Cursor == "" {
-		t.Fatalf("the second page returned %v with cursor %q, want zero results and a cursor", empty.IDs, empty.Cursor)
+		t.Fatalf(
+			"the second page returned %v with cursor %q, want zero results and a cursor",
+			empty.IDs,
+			empty.Cursor,
+		)
 	}
+
 	requireBatchesOfNode(t, capture.take(), visited, "second")
 	var later []uuid.UUID
 	cursor := empty.Cursor
+
 	for range visitedLaterPages {
 		page := integration.CallSearch(t, harness, integration.ScaleQuery, cursor)
 		later = append(later, page.IDs...)
@@ -91,7 +148,13 @@ func TestSearchVisitedBatchesReturnEmptyPage(t *testing.T) {
 			integration.RequireCorpusOnce(t, later, remaining, entryID)
 			return
 		}
+
 		cursor = page.Cursor
 	}
-	t.Fatalf("search %q did not complete within %d pages after the empty page", integration.ScaleQuery, visitedLaterPages)
+
+	t.Fatalf(
+		"search %q did not complete within %d pages after the empty page",
+		integration.ScaleQuery,
+		visitedLaterPages,
+	)
 }

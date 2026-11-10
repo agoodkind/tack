@@ -11,7 +11,5 @@ import (
 
 func main() {
 	slog.Info("provider.started", slog.String("provider", "postgresql"))
-	plugin.Serve(&plugin.ServeOpts{
-		ProviderFunc: postgresql.Provider,
-	})
+	plugin.Serve(&plugin.ServeOpts{ProviderFunc: postgresql.Provider})
 }

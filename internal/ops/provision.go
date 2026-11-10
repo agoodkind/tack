@@ -46,12 +46,18 @@ const (
 // re-runnable.
 //
 // It returns the observed state of the cluster.
-func provisionFDB(ctx context.Context, cli *client.Client, cfg *config.Config, allowFDBInit bool) (string, error) {
+func provisionFDB(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+	allowFDBInit bool,
+) (string, error) {
 	mode := cfg.OpsFDBRedundancyMode
 	if err := validateRedundancyMode(mode); err != nil {
 		slog.ErrorContext(ctx, "provision.fdb.redundancy_rejected", slog.String("err", err.Error()))
 		return "", fmt.Errorf("provision fdb redundancy: %w", err)
 	}
+
 	// fdbcli exits nonzero when the cluster it is asked about was never
 	// configured, which is the reading this step wants. The exit code is
 	// therefore data; a container that could not run at all is the error.
@@ -60,22 +66,34 @@ func provisionFDB(ctx context.Context, cli *client.Client, cfg *config.Config, a
 		slog.ErrorContext(ctx, "provision.fdb.status_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("provision fdb status: %w", err)
 	}
+
 	if strings.Contains(status, fdbAvailableMarker) {
 		slog.InfoContext(ctx, "provision.fdb.already_configured")
 		return provisionFDBAlreadyConfigured, nil
 	}
+
 	if !allowFDBInit {
-		unconfigured := errors.New("provision: fdb is not configured and --allow-fdb-init was not passed; pass it ONLY on a truly fresh environment, NEVER on prod")
-		slog.ErrorContext(ctx, "provision.fdb.unconfigured_no_optin", slog.String("err", unconfigured.Error()))
+		unconfigured := errors.New(
+			"provision: fdb is not configured and --allow-fdb-init was not passed; pass it ONLY on a truly fresh environment, NEVER on prod",
+		)
+		slog.ErrorContext(
+			ctx,
+			"provision.fdb.unconfigured_no_optin",
+			slog.String("err", unconfigured.Error()),
+		)
+
 		return "", unconfigured
 	}
+
 	slog.WarnContext(ctx, "provision.fdb.configuring_new", slog.String("redundancy", mode))
 	out, err := runStoreCLIWith(ctx, cli, cfg, "configure new "+mode+" "+storeStorageEngine)
 	if err != nil {
 		slog.ErrorContext(ctx, "provision.fdb.configure_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("provision fdb configure: %w", err)
 	}
+
 	slog.InfoContext(ctx, "provision.fdb.configured", slog.String("out", out))
+
 	return provisionFDBConfigured, nil
 }
 
@@ -89,25 +107,46 @@ func provisionSeed(ctx context.Context, cli *client.Client, cfg *config.Config) 
 	slog.InfoContext(ctx, "provision.seed.start", slog.String("container", cfg.OpsAppContainer))
 	env := []string{"SEED_EMAIL=" + cfg.SeedEmail, "SEED_NAME=" + cfg.SeedName}
 	var out bytes.Buffer
-	code, stderr, err := containerExecStreaming(ctx, cli, cfg.OpsAppContainer, []string{"/server", "seed"}, env, &out)
+	code, stderr, err := containerExecStreaming(
+		ctx,
+		cli,
+		cfg.OpsAppContainer,
+		[]string{"/server", "seed"},
+		env,
+		&out,
+	)
 	if err != nil {
 		// On a truly fresh boot the app container is created but not yet running
 		// (it waits for fdb health, which this same run just configured), so the
 		// exec cannot attach. Defer rather than fail: provision is idempotent, so
 		// re-running it once the app is up completes the seed.
-		slog.WarnContext(ctx, "provision.seed.deferred",
-			slog.String("reason", "app container not execable yet; re-run provision after the app is running"),
-			slog.String("err", err.Error()))
+		slog.WarnContext(
+			ctx,
+			"provision.seed.deferred",
+			slog.String(
+				"reason",
+				"app container not execable yet; re-run provision after the app is running",
+			),
+			slog.String("err", err.Error()),
+		)
+
 		return provisionSeedDeferred, nil
 	}
+
 	if code != 0 {
 		seedErr := fmt.Errorf("provision seed: app container exited %d", code)
-		slog.ErrorContext(ctx, "provision.seed.nonzero_exit",
+		slog.ErrorContext(
+			ctx,
+			"provision.seed.nonzero_exit",
 			slog.Int("code", code),
 			slog.String("stderr", strings.TrimSpace(stderr)),
-			slog.String("err", seedErr.Error()))
+			slog.String("err", seedErr.Error()),
+		)
+
 		return "", seedErr
 	}
+
 	slog.InfoContext(ctx, "provision.seed.completed")
+
 	return provisionSeedCompleted, nil
 }

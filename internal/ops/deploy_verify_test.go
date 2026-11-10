@@ -25,11 +25,13 @@ func TestDeployVerifyTargetsFollowTheRenderedTag(t *testing.T) {
 	if len(got) != len(want) {
 		t.Fatalf("targets = %v, want %v", got, want)
 	}
+
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("target %d = %v, want %v", i, got[i], want[i])
 		}
 	}
+
 	explicit := deployVerifyTargets(cfg, " 2eb962e ", []string{appService, auditConsumerService})
 	wantExplicit := []deployVerifyTarget{
 		{Service: "app", Image: "ghcr.io/agoodkind/tack-server:2eb962e"},
@@ -38,6 +40,7 @@ func TestDeployVerifyTargetsFollowTheRenderedTag(t *testing.T) {
 	if len(explicit) != len(wantExplicit) {
 		t.Fatalf("explicit targets = %v, want %v", explicit, wantExplicit)
 	}
+
 	for i := range wantExplicit {
 		if explicit[i] != wantExplicit[i] {
 			t.Fatalf("explicit target %d = %v, want %v", i, explicit[i], wantExplicit[i])
@@ -85,9 +88,11 @@ func TestCompareDigestsMismatchFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected mismatch to error")
 	}
+
 	if !strings.Contains(err.Error(), "digest mismatch") {
 		t.Fatalf("expected mismatch wording, got: %v", err)
 	}
+
 	if !strings.Contains(err.Error(), "tack-app-1") {
 		t.Fatalf("expected container name in error, got: %v", err)
 	}
@@ -98,6 +103,7 @@ func TestCompareDigestsEmptyFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected empty expected to fail")
 	}
+
 	err = compareDigests("tack-app-1", "sha256:abc", "")
 	if err == nil {
 		t.Fatal("expected empty actual to fail")

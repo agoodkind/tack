@@ -32,9 +32,14 @@ const (
 // the backup, and the cutoff must stay restorable.
 func TestBackupRetentionFDBPlansBackupWithManySnapshots(t *testing.T) {
 	fixture := newRetentionCommandFixture(t)
-	cluster := retentionFDBTestConfigWithKnobs(t, fixture.config, map[string]string{
-		retentionFDBReadLifeKnob: retentionFDBReadLifeVersions, retentionFDBCommitIntervalKnob: retentionFDBCommitInterval,
-	})
+	cluster := retentionFDBTestConfigWithKnobs(
+		t,
+		fixture.config,
+		map[string]string{
+			retentionFDBReadLifeKnob:       retentionFDBReadLifeVersions,
+			retentionFDBCommitIntervalKnob: retentionFDBCommitInterval,
+		},
+	)
 	name := retentionFDBTestStartEvery(t, fixture.config, cluster, "1")
 	first := retentionFDBTestRecordReading(t, fixture, cluster, time.Time{})
 	reading := retentionFDBTestRecordReading(t, fixture, cluster, first.At.Add(10*time.Second))
@@ -47,14 +52,25 @@ func TestBackupRetentionFDBPlansBackupWithManySnapshots(t *testing.T) {
 	before := retentionFDBTestKeys(t, fixture)
 	output, err := fixture.run(t, false)
 	if err != nil {
-		t.Fatalf("public preview did not plan a backup with %d snapshots: %v\n%s", snapshots, err, output)
+		t.Fatalf(
+			"public preview did not plan a backup with %d snapshots: %v\n%s",
+			snapshots,
+			err,
+			output,
+		)
 	}
 	action := retentionFDBTestPreviewAction(t, output)
-	if action.Name != name || action.Action != "expire" || action.ExpireBeforeVersion <= 0 || action.Window.MaxVersion < reading.Version {
+	if action.Name != name || action.Action != "expire" || action.ExpireBeforeVersion <= 0 ||
+		action.Window.MaxVersion < reading.Version {
 		t.Fatalf("public preview did not select native expiration: %+v", action)
 	}
 	if output, err := fixture.run(t, true); err != nil {
-		t.Fatalf("public retention did not expire a backup with %d snapshots: %v\n%s", snapshots, err, output)
+		t.Fatalf(
+			"public retention did not expire a backup with %d snapshots: %v\n%s",
+			snapshots,
+			err,
+			output,
+		)
 	}
 	after := retentionFDBTestKeys(t, fixture)
 	removed := 0
@@ -78,19 +94,37 @@ func retentionFDBTestAwaitTooOld(t *testing.T, cfg *config.Config, cluster, name
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	describe := []string{"fdbbackup", "describe", "-d", retentionFDBTestURL(cfg, name), "-C", "/var/fdb/fdb.cluster"}
+	describe := []string{
+		"fdbbackup",
+		"describe",
+		"-d",
+		retentionFDBTestURL(cfg, name),
+		"-C",
+		"/var/fdb/fdb.cluster",
+	}
 	for {
-		output, exitCode := retentionFDBTestExecResult(t, cfg, cluster, append(describe, "--version-timestamps"))
+		output, exitCode := retentionFDBTestExecResult(
+			t,
+			cfg,
+			cluster,
+			append(describe, "--version-timestamps"),
+		)
 		if exitCode != 0 {
 			if !strings.Contains(output, retentionFDBTooOldText) {
-				t.Fatalf("describe --version-timestamps exited %d without error 1007: %s", exitCode, output)
+				t.Fatalf(
+					"describe --version-timestamps exited %d without error 1007: %s",
+					exitCode,
+					output,
+				)
 			}
 			return strings.Count(retentionFDBTestExec(t, cfg, cluster, describe), "\nSnapshot:")
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("describe --version-timestamps did not fail with error 1007 after %d snapshots",
-				strings.Count(output, "\nSnapshot:"))
+			t.Fatalf(
+				"describe --version-timestamps did not fail with error 1007 after %d snapshots",
+				strings.Count(output, "\nSnapshot:"),
+			)
 		case <-ticker.C:
 		}
 	}

@@ -66,11 +66,13 @@ const (
 // success this artifact exists to remove.
 func ybSchemaDumpArgs(cfg *config.Config) []string {
 	return []string{
-		"-d", cfg.YugabyteDB,
+		"-d",
+		cfg.YugabyteDB,
 		"--schema-only",
 		"--include-yb-metadata",
 		"--no-owner",
-		"-f", ybDumpOutDir + "/" + ybSnapshotSchemaObject,
+		"-f",
+		ybDumpOutDir + "/" + ybSnapshotSchemaObject,
 	}
 }
 
@@ -84,10 +86,12 @@ func ybSchemaDumpArgs(cfg *config.Config) []string {
 // sets one, which is where those passwords are owned.
 func ybRolesDumpArgs(cfg *config.Config) []string {
 	return []string{
-		"-l", cfg.YugabyteDB,
+		"-l",
+		cfg.YugabyteDB,
 		"--roles-only",
 		"--no-role-passwords",
-		"-f", ybDumpOutDir + "/" + ybSnapshotRolesObject,
+		"-f",
+		ybDumpOutDir + "/" + ybSnapshotRolesObject,
 	}
 }
 
@@ -140,12 +144,24 @@ func ybRolesDumpSpec(cfg *config.Config, rolesPath string) ybDumpSpec {
 
 // dumpYBSchemaOneShot writes a schema-only dump of the database into the
 // bind-mounted stage dir.
-func dumpYBSchemaOneShot(ctx context.Context, cli *client.Client, cfg *config.Config, stageDir, schemaPath string) error {
+func dumpYBSchemaOneShot(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+	stageDir string,
+	schemaPath string,
+) error {
 	return runYBDumpOneShot(ctx, cli, cfg, stageDir, ybSchemaDumpSpec(cfg, schemaPath))
 }
 
 // dumpYBRolesOneShot writes the cluster's roles into the bind-mounted stage
 // dir.
-func dumpYBRolesOneShot(ctx context.Context, cli *client.Client, cfg *config.Config, stageDir, rolesPath string) error {
+func dumpYBRolesOneShot(
+	ctx context.Context,
+	cli *client.Client,
+	cfg *config.Config,
+	stageDir string,
+	rolesPath string,
+) error {
 	return runYBDumpOneShot(ctx, cli, cfg, stageDir, ybRolesDumpSpec(cfg, rolesPath))
 }

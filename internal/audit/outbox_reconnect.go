@@ -40,12 +40,21 @@ func (o *PoolOutbox) insertOutboxEvent(ctx context.Context, event Event, eventJS
 	if err == nil {
 		return nil
 	}
+
 	if !isConnectionLost(err) {
-		slog.ErrorContext(ctx, "audit.outbox.insert_failed",
-			slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
+		slog.ErrorContext(
+			ctx,
+			"audit.outbox.insert_failed",
+			slog.String("event_id", event.EventID.String()),
+			slog.String("err", err.Error()),
+		)
+
 		return fmt.Errorf("insert outbox event: %w", err)
 	}
-	slog.WarnContext(ctx, "audit.outbox.write_reconnecting",
+
+	slog.WarnContext(
+		ctx,
+		"audit.outbox.write_reconnecting",
 		slog.String("event_id", event.EventID.String()),
 		slog.String("err", err.Error()),
 	)
@@ -53,8 +62,14 @@ func (o *PoolOutbox) insertOutboxEvent(ctx context.Context, event Event, eventJS
 	if retryErr == nil || isOutboxDuplicate(retryErr) {
 		return nil
 	}
-	slog.ErrorContext(ctx, "audit.outbox.reconnect_insert_failed",
-		slog.String("event_id", event.EventID.String()), slog.String("err", retryErr.Error()))
+
+	slog.ErrorContext(
+		ctx,
+		"audit.outbox.reconnect_insert_failed",
+		slog.String("event_id", event.EventID.String()),
+		slog.String("err", retryErr.Error()),
+	)
+
 	return fmt.Errorf("insert outbox event after the connection was lost: %w", retryErr)
 }
 
@@ -73,15 +88,19 @@ func isConnectionLost(err error) bool {
 		case adminShutdownSQLState, crashShutdownSQLState, cannotConnectNowSQLState:
 			return true
 		}
+
 		return strings.HasPrefix(postgresError.Code, connectionExceptionClass)
 	}
+
 	var connectError *pgconn.ConnectError
 	if errors.As(err, &connectError) {
 		return true
 	}
+
 	var networkError net.Error
 	if errors.As(err, &networkError) {
 		return true
 	}
+
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }

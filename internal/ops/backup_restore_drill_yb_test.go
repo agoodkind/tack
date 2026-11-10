@@ -21,6 +21,7 @@ func (f *drillWalkFixture) fetch(runID string) (ybSnapshotManifest, error) {
 	if !ok {
 		return ybSnapshotManifest{}, fmt.Errorf("get manifest %s: %w", runID, &s3types.NotFound{})
 	}
+
 	return manifest, nil
 }
 
@@ -38,9 +39,11 @@ func (f *drillWalkFixture) skip(runID, reason string) {
 func completeYBRun(f *drillWalkFixture, runID string, nodes []string) ybSnapshotManifest {
 	manifest := newYBSnapshotManifest(runID, "snap-"+runID, "tack", nodes, ybTestArtifactNames())
 	markYBRunArtifactsPresent(f, manifest)
+
 	for _, node := range manifest.Nodes {
 		archiveYBNode(f, runID, node)
 	}
+
 	return manifest
 }
 
@@ -71,24 +74,36 @@ func TestNewestCompleteYBSnapshotRunWalksBack(t *testing.T) {
 	complete := completeYBRun(fixture, "run-1", []string{"yb1", "yb2"})
 	fixture.manifests["run-1"] = complete
 	// run-2 has a manifest and its artifacts but yb2 has not archived.
-	incomplete := newYBSnapshotManifest("run-2", "snap-run-2", "tack",
-		[]string{"yb1", "yb2"}, ybTestArtifactNames())
+	incomplete := newYBSnapshotManifest(
+		"run-2",
+		"snap-run-2",
+		"tack",
+		[]string{"yb1", "yb2"},
+		ybTestArtifactNames(),
+	)
 	fixture.manifests["run-2"] = incomplete
 	markYBRunArtifactsPresent(fixture, incomplete)
 	archiveYBNode(fixture, "run-2", incomplete.Nodes[0])
 	// run-3 (the newest) has no manifest at all.
 
 	got, found, err := newestCompleteYBSnapshotRun(
-		[]string{"run-1", "run-2", "run-3"}, fixture.fetch, fixture.exists, fixture.skip)
+		[]string{"run-1", "run-2", "run-3"},
+		fixture.fetch,
+		fixture.exists,
+		fixture.skip,
+	)
 	if err != nil {
 		t.Fatalf("newestCompleteYBSnapshotRun: %v", err)
 	}
+
 	if !found {
 		t.Fatal("walk must find the complete run-1")
 	}
+
 	if got.RunID != "run-1" {
 		t.Fatalf("chosen run = %s, want run-1", got.RunID)
 	}
+
 	wantSkips := []string{
 		"run-3: manifest not uploaded",
 		"run-2: nodes yb2 have not uploaded their archives",
@@ -110,13 +125,19 @@ func TestNewestCompleteYBSnapshotRunPrefersNewest(t *testing.T) {
 	fixture.manifests["run-2"] = completeYBRun(fixture, "run-2", []string{"yb1"})
 
 	got, found, err := newestCompleteYBSnapshotRun(
-		[]string{"run-1", "run-2"}, fixture.fetch, fixture.exists, fixture.skip)
+		[]string{"run-1", "run-2"},
+		fixture.fetch,
+		fixture.exists,
+		fixture.skip,
+	)
 	if err != nil || !found {
 		t.Fatalf("walk: found=%v err=%v", found, err)
 	}
+
 	if got.RunID != "run-2" {
 		t.Fatalf("chosen run = %s, want the newest complete run-2", got.RunID)
 	}
+
 	if len(fixture.skips) != 0 {
 		t.Fatalf("skips = %v, want none", fixture.skips)
 	}
@@ -131,16 +152,28 @@ func TestNewestCompleteYBSnapshotRunNoneComplete(t *testing.T) {
 		skips:     nil,
 	}
 	// run-1's manifest lists no nodes; run-2 has no manifest.
-	fixture.manifests["run-1"] = newYBSnapshotManifest("run-1", "snap-1", "tack", nil, ybTestArtifactNames())
+	fixture.manifests["run-1"] = newYBSnapshotManifest(
+		"run-1",
+		"snap-1",
+		"tack",
+		nil,
+		ybTestArtifactNames(),
+	)
 
 	_, found, err := newestCompleteYBSnapshotRun(
-		[]string{"run-1", "run-2"}, fixture.fetch, fixture.exists, fixture.skip)
+		[]string{"run-1", "run-2"},
+		fixture.fetch,
+		fixture.exists,
+		fixture.skip,
+	)
 	if err != nil {
 		t.Fatalf("newestCompleteYBSnapshotRun: %v", err)
 	}
+
 	if found {
 		t.Fatal("walk must report not found when no run is complete")
 	}
+
 	wantSkips := []string{
 		"run-2: manifest not uploaded",
 		"run-1: manifest lists no tablet-server nodes",
@@ -167,13 +200,19 @@ func TestNewestCompleteYBSnapshotRunSkipsRunMissingAnArtifact(t *testing.T) {
 	delete(fixture.present, ybRunArtifactKey("run-2", ybSnapshotRolesObject))
 
 	got, found, err := newestCompleteYBSnapshotRun(
-		[]string{"run-1", "run-2"}, fixture.fetch, fixture.exists, fixture.skip)
+		[]string{"run-1", "run-2"},
+		fixture.fetch,
+		fixture.exists,
+		fixture.skip,
+	)
 	if err != nil {
 		t.Fatalf("newestCompleteYBSnapshotRun: %v", err)
 	}
+
 	if !found || got.RunID != "run-1" {
 		t.Fatalf("chosen run = %s (found=%v), want the complete run-1", got.RunID, found)
 	}
+
 	wantSkips := []string{"run-2: artifacts roles.sql are absent"}
 	if !reflect.DeepEqual(fixture.skips, wantSkips) {
 		t.Fatalf("skips:\n got=%v\nwant=%v", fixture.skips, wantSkips)
@@ -218,12 +257,21 @@ func TestYBDrillManifestDefectRequiresEveryArtifactTheRestoreOpens(t *testing.T)
 		},
 	}
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			manifest := newYBSnapshotManifest("run-1", "snap-1", "tack", []string{"yb1"}, test.artifacts)
-			if defect := ybDrillManifestDefect(manifest); defect != test.want {
-				t.Fatalf("defect:\n got=%q\nwant=%q", defect, test.want)
-			}
-		})
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				manifest := newYBSnapshotManifest(
+					"run-1",
+					"snap-1",
+					"tack",
+					[]string{"yb1"},
+					test.artifacts,
+				)
+				if defect := ybDrillManifestDefect(manifest); defect != test.want {
+					t.Fatalf("defect:\n got=%q\nwant=%q", defect, test.want)
+				}
+			},
+		)
 	}
 }
 
@@ -244,22 +292,34 @@ func TestNewestCompleteYBSnapshotRunSkipsATruncatedDeclaration(t *testing.T) {
 		skips:     nil,
 	}
 	fixture.manifests["run-1"] = completeYBRun(fixture, "run-1", []string{"yb1"})
-	truncated := newYBSnapshotManifest("run-2", "snap-run-2", "tack",
-		[]string{"yb1"}, []string{ybSnapshotMetadataObject})
+	truncated := newYBSnapshotManifest(
+		"run-2",
+		"snap-run-2",
+		"tack",
+		[]string{"yb1"},
+		[]string{ybSnapshotMetadataObject},
+	)
 	fixture.manifests["run-2"] = truncated
 	markYBRunArtifactsPresent(fixture, truncated)
+
 	for _, node := range truncated.Nodes {
 		archiveYBNode(fixture, "run-2", node)
 	}
 
 	got, found, err := newestCompleteYBSnapshotRun(
-		[]string{"run-1", "run-2"}, fixture.fetch, fixture.exists, fixture.skip)
+		[]string{"run-1", "run-2"},
+		fixture.fetch,
+		fixture.exists,
+		fixture.skip,
+	)
 	if err != nil {
 		t.Fatalf("newestCompleteYBSnapshotRun: %v", err)
 	}
+
 	if !found || got.RunID != "run-1" {
 		t.Fatalf("chosen run = %s (found=%v), want the complete run-1", got.RunID, found)
 	}
+
 	wantSkips := []string{
 		"run-2: manifest does not declare required artifacts " +
 			ybSnapshotSchemaObject + ", " + ybSnapshotRolesObject,
@@ -277,8 +337,12 @@ func TestNewestCompleteYBSnapshotRunPropagatesFetchErrors(t *testing.T) {
 		return ybSnapshotManifest{}, fmt.Errorf("store unreachable")
 	}
 	exists := func(string) (bool, error) { return true, nil }
-	_, found, err := newestCompleteYBSnapshotRun([]string{"run-1"}, fetch, exists,
-		func(string, string) {})
+	_, found, err := newestCompleteYBSnapshotRun(
+		[]string{"run-1"},
+		fetch,
+		exists,
+		func(string, string) {},
+	)
 	if err == nil || found {
 		t.Fatalf("walk must propagate the fetch error, got found=%v err=%v", found, err)
 	}

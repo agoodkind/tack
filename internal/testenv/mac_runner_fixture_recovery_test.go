@@ -21,7 +21,9 @@ func TestMacRunnerDockerRecoverTaskFixture(t *testing.T) {
 	if directory == "" {
 		t.Skip("requires an exact failed task fixture evidence directory")
 	}
-	docker, err := client.New(client.WithHost("unix://" + filepath.Join(os.Getenv("HOME"), ".docker/run/docker.sock")))
+	docker, err := client.New(
+		client.WithHost("unix://" + filepath.Join(os.Getenv("HOME"), ".docker/run/docker.sock")),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +44,8 @@ func macRecoverOuterFixture(t *testing.T, docker *client.Client, directory strin
 	if err := json.Unmarshal(contents, &expected); err != nil {
 		t.Fatal(err)
 	}
-	if expected.Config == nil || expected.Config.Labels["com.docker.compose.project"] == "" || expected.Config.Labels["io.goodkind.tack.mac-runner.root"] == "" {
+	if expected.Config == nil || expected.Config.Labels["com.docker.compose.project"] == "" ||
+		expected.Config.Labels["io.goodkind.tack.mac-runner.root"] == "" {
 		t.Fatal("refuse outer fixture recovery without recorded ownership labels")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -55,7 +58,10 @@ func macRecoverOuterFixture(t *testing.T, docker *client.Client, directory strin
 		t.Fatal(err)
 	}
 	labels := current.Container.Config.Labels
-	if current.Container.ID != expected.ID || current.Container.Name != expected.Name || labels["io.goodkind.tack.mac-runner.native"] != "true" || labels["com.docker.compose.project"] != expected.Config.Labels["com.docker.compose.project"] || labels["io.goodkind.tack.mac-runner.root"] != expected.Config.Labels["io.goodkind.tack.mac-runner.root"] {
+	if current.Container.ID != expected.ID || current.Container.Name != expected.Name ||
+		labels["io.goodkind.tack.mac-runner.native"] != "true" ||
+		labels["com.docker.compose.project"] != expected.Config.Labels["com.docker.compose.project"] ||
+		labels["io.goodkind.tack.mac-runner.root"] != expected.Config.Labels["io.goodkind.tack.mac-runner.root"] {
 		t.Fatal("refuse outer fixture recovery without exact recorded ownership")
 	}
 	var volume string
@@ -64,7 +70,11 @@ func macRecoverOuterFixture(t *testing.T, docker *client.Client, directory strin
 			volume = point.Name
 		}
 	}
-	if _, err := docker.ContainerRemove(ctx, expected.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
+	if _, err := docker.ContainerRemove(
+		ctx,
+		expected.ID,
+		client.ContainerRemoveOptions{Force: true},
+	); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("removed exact failed outer fixture %s", expected.ID)
@@ -73,7 +83,15 @@ func macRecoverOuterFixture(t *testing.T, docker *client.Client, directory strin
 			t.Error(err)
 		}
 	}
-	networks, err := docker.NetworkList(ctx, client.NetworkListOptions{Filters: client.Filters{}.Add("label", "io.goodkind.tack.mac-runner="+labels["io.goodkind.tack.mac-runner"])})
+	networks, err := docker.NetworkList(
+		ctx,
+		client.NetworkListOptions{
+			Filters: client.Filters{}.Add(
+				"label",
+				"io.goodkind.tack.mac-runner="+labels["io.goodkind.tack.mac-runner"],
+			),
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +101,8 @@ func macRecoverOuterFixture(t *testing.T, docker *client.Client, directory strin
 			t.Error(err)
 			continue
 		}
-		if inspection.Network.Labels["io.goodkind.tack.mac-runner"] != labels["io.goodkind.tack.mac-runner"] || len(inspection.Network.Containers) != 0 {
+		if inspection.Network.Labels["io.goodkind.tack.mac-runner"] != labels["io.goodkind.tack.mac-runner"] ||
+			len(inspection.Network.Containers) != 0 {
 			t.Error("refuse occupied or changed fixture network")
 			continue
 		}

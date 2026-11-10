@@ -29,6 +29,7 @@ func configureSearchRuntime(t *testing.T) {
 	if err := os.WriteFile(caPath, []byte(engine.CA), 0o600); err != nil {
 		t.Fatalf("write OpenSearch CA: %v", err)
 	}
+
 	secret := engine.Password
 	t.Setenv("OPENSEARCH_ENDPOINT", engine.Endpoint)
 	t.Setenv("OPENSEARCH_CA", caPath)
@@ -48,11 +49,13 @@ func currentRevisionIndexed(documents []searchPageSource, pages []node.ContentPa
 	if len(documents) != len(pages) {
 		return false
 	}
+
 	for _, document := range documents {
 		if document.NodeRevision != pages[0].Revision {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -67,6 +70,7 @@ func TestSearchRuntimeIndexesThroughGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build graph: %v", err)
 	}
+
 	t.Cleanup(graph.Close)
 	graph.StartSearchWorkers(WithTestOperation(t, t.Context()))
 
@@ -75,6 +79,7 @@ func TestSearchRuntimeIndexesThroughGraph(t *testing.T) {
 	deadline := time.NewTimer(2 * time.Minute)
 	defer deadline.Stop()
 	staleReads := 0
+
 	for {
 		// The fixture's property definition and node type writes request a
 		// rescan. A worker that runs the rescan after the node write schedules
@@ -86,16 +91,23 @@ func TestSearchRuntimeIndexesThroughGraph(t *testing.T) {
 		case errors.Is(err, node.ErrContentChanged):
 			staleReads++
 			if staleReads > maxStaleCursorRetries {
-				t.Fatalf("page reads returned ErrContentChanged %d times in %s: %v", staleReads, time.Since(started), err)
+				t.Fatalf(
+					"page reads returned ErrContentChanged %d times in %s: %v",
+					staleReads,
+					time.Since(started),
+					err,
+				)
 			}
 		case err != nil:
 			t.Fatal(err)
 		}
+
 		documents := searchNodePages(t, client, index, fixture.NodeID, false)
 		if err == nil && currentRevisionIndexed(documents, pages) {
 			requireIndexedPages(t, documents, pages, 1)
 			return
 		}
+
 		poll := time.NewTimer(500 * time.Millisecond)
 		select {
 		case <-deadline.C:

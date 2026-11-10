@@ -13,21 +13,11 @@ type httpStatusError struct {
 }
 
 func (e *httpStatusError) Error() string {
-	return fmt.Sprintf(
-		"qa datagen: %s returned HTTP %d: %s",
-		e.operation,
-		e.statusCode,
-		e.body,
-	)
+	return fmt.Sprintf("qa datagen: %s returned HTTP %d: %s", e.operation, e.statusCode, e.body)
 }
 
 func (e *rpcError) Error() string {
-	return fmt.Sprintf(
-		"qa datagen: %s JSON-RPC error %d: %s",
-		e.toolName,
-		e.Code,
-		e.Message,
-	)
+	return fmt.Sprintf("qa datagen: %s JSON-RPC error %d: %s", e.toolName, e.Code, e.Message)
 }
 
 type toolCallError struct {

@@ -29,11 +29,18 @@ const (
 // JSON, causing every later sweep of those sessions to fail. The test
 // checks that the command returns the abandoned session sweep error.
 func TestSearchSweepProofDatagenFailsWhenSweepFails(t *testing.T) {
-	err := runDatagenSearchWithDamagedSessions(t, func(key fdb.Key) {
-		integration.ReplaceRawValue(t, key, []byte(invalidHeaderValue))
-	})
+	err := runDatagenSearchWithDamagedSessions(
+		t,
+		func(key fdb.Key) {
+			integration.ReplaceRawValue(t, key, []byte(invalidHeaderValue))
+		},
+	)
 	if err == nil || !strings.Contains(err.Error(), datagenSweepFailed) {
-		t.Fatalf("ops qa datagen search after a failed sweep returned %v, want text %q", err, datagenSweepFailed)
+		t.Fatalf(
+			"ops qa datagen search after a failed sweep returned %v, want text %q",
+			err,
+			datagenSweepFailed,
+		)
 	}
 }
 
@@ -46,7 +53,11 @@ func TestSearchSweepProofDatagenFailsWhenSweepFails(t *testing.T) {
 func TestSearchSweepProofDatagenFailsWithoutHeaderDelete(t *testing.T) {
 	err := runDatagenSearchWithDamagedSessions(t, func(key fdb.Key) { clearAttemptRecord(t, key) })
 	if err == nil || !strings.Contains(err.Error(), datagenDeleteMissing) {
-		t.Fatalf("ops qa datagen search without a header delete returned %v, want text %q", err, datagenDeleteMissing)
+		t.Fatalf(
+			"ops qa datagen search without a header delete returned %v, want text %q",
+			err,
+			datagenDeleteMissing,
+		)
 	}
 }
 
@@ -63,14 +74,21 @@ func runDatagenSearchWithDamagedSessions(t *testing.T, damage func(fdb.Key)) err
 	stack := startRuntimeAuditStack(t)
 	startPublicLedgerOn(t, &publicServer{clusterFile: cfg.FDBClusterFile}, stack)
 	cfg.AuditReaderDSN = roleLoginDSN(t, stack.admin, testenv.Ledger(t), auditReaderRole)
-	hooks := installRetireLogHooks(t, "", map[string]func(){
-		datagenSessionAbandoned: func() {
-			for _, key := range stateKeysOf(readStateKeys(t, parentEdgeFixture{cfg: cfg}), sessionHeaderFamily) {
-				packed := tuple.Tuple(key.elements).Pack()
-				damage(fdb.Key(append(bytes.Clone(fdbadapter.TestPrefixRange()), packed...)))
-			}
+	hooks := installRetireLogHooks(
+		t,
+		"",
+		map[string]func(){
+			datagenSessionAbandoned: func() {
+				for _, key := range stateKeysOf(
+					readStateKeys(t, parentEdgeFixture{cfg: cfg}),
+					sessionHeaderFamily,
+				) {
+					packed := tuple.Tuple(key.elements).Pack()
+					damage(fdb.Key(append(bytes.Clone(fdbadapter.TestPrefixRange()), packed...)))
+				}
+			},
 		},
-	})
+	)
 	_, err := runDatagenSearchCommand(t, cfg, "--commit")
 	hooks.requireFinished(t)
 	return err

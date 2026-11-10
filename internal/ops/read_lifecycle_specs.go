@@ -15,8 +15,11 @@ const repairManifestTarget = "repair/manifest"
 // fixed external resource and does not record input.
 func singletonReadSpec(verb audit.Verb, reference string) audit.Spec {
 	target := externalTarget(reference)
+
 	return audit.Spec{
-		Verb: string(verb), Reads: true, Class: audit.OperationRead,
+		Verb:  string(verb),
+		Reads: true,
+		Class: audit.OperationRead,
 		Targets: func(context.Context, json.RawMessage) ([]audit.Target, error) {
 			return []audit.Target{target}, nil
 		},
@@ -33,57 +36,100 @@ func orgInputTarget(orgID string) audit.Target {
 }
 
 func verifyNodeSpec() audit.Spec {
-	return clispec.InputReadSpec(audit.VerbOpsVerifyNode,
+	return clispec.InputReadSpec(
+		audit.VerbOpsVerifyNode,
 		func(in verifyNodeInput) audit.Target { return nodeInputTarget(in.NodeID) },
 		func(in verifyNodeInput) verifyNodeInput {
-			return verifyNodeInput{InputMarker: clispec.InputMarker{}, NodeID: audit.CanonicalUUID(in.NodeID), Class: in.Class, Profile: "", Records: in.Records}
-		})
+			return verifyNodeInput{
+				InputMarker: clispec.InputMarker{},
+				NodeID:      audit.CanonicalUUID(in.NodeID),
+				Class:       in.Class,
+				Profile:     "",
+				Records:     in.Records,
+			}
+		},
+	)
 }
 
 func validateNodeSpec() audit.Spec {
-	return clispec.InputReadSpec(audit.VerbOpsValidateNode,
+	return clispec.InputReadSpec(
+		audit.VerbOpsValidateNode,
 		func(in validateNodeInput) audit.Target { return nodeInputTarget(in.NodeID) },
 		func(in validateNodeInput) validateNodeInput {
-			return validateNodeInput{InputMarker: clispec.InputMarker{}, NodeID: audit.CanonicalUUID(in.NodeID), Class: in.Class, Profile: ""}
-		})
+			return validateNodeInput{
+				InputMarker: clispec.InputMarker{},
+				NodeID:      audit.CanonicalUUID(in.NodeID),
+				Class:       in.Class,
+				Profile:     "",
+			}
+		},
+	)
 }
 
 func inspectReadSpec() audit.Spec {
-	return clispec.InputReadSpec(audit.VerbOpsInspectRead,
+	return clispec.InputReadSpec(
+		audit.VerbOpsInspectRead,
 		func(in inspectReadInput) audit.Target { return nodeInputTarget(in.NodeID) },
 		func(in inspectReadInput) inspectReadInput {
-			return inspectReadInput{InputMarker: clispec.InputMarker{}, NodeID: audit.CanonicalUUID(in.NodeID), Records: in.Records}
-		})
+			return inspectReadInput{
+				InputMarker: clispec.InputMarker{},
+				NodeID:      audit.CanonicalUUID(in.NodeID),
+				Records:     in.Records,
+			}
+		},
+	)
 }
 
 func repairPreviewSpec() audit.Spec {
-	return clispec.InputReadSpec(audit.VerbOpsRepairPreview,
+	return clispec.InputReadSpec(
+		audit.VerbOpsRepairPreview,
 		func(in repairPreviewInput) audit.Target {
 			if audit.CanonicalUUID(in.NodeID) == "" && strings.TrimSpace(in.Manifest) != "" {
 				return externalTarget(repairManifestTarget)
 			}
+
 			return nodeInputTarget(in.NodeID)
 		},
 		func(in repairPreviewInput) repairPreviewInput {
-			return repairPreviewInput{InputMarker: clispec.InputMarker{}, NodeID: audit.CanonicalUUID(in.NodeID), Class: in.Class, Profile: "", Manifest: ""}
-		})
+			return repairPreviewInput{
+				InputMarker: clispec.InputMarker{},
+				NodeID:      audit.CanonicalUUID(in.NodeID),
+				Class:       in.Class,
+				Profile:     "",
+				Manifest:    "",
+			}
+		},
+	)
 }
 
 func inspectFindSpec() audit.Spec {
-	return clispec.InputReadSpec(audit.VerbOpsInspectFind,
+	return clispec.InputReadSpec(
+		audit.VerbOpsInspectFind,
 		func(in inspectFindInput) audit.Target { return orgInputTarget(in.OrgID) },
 		func(in inspectFindInput) inspectFindInput {
-			return inspectFindInput{InputMarker: clispec.InputMarker{}, OrgID: audit.CanonicalUUID(in.OrgID), NodeType: in.NodeType, Limit: in.Limit}
-		})
+			return inspectFindInput{
+				InputMarker: clispec.InputMarker{},
+				OrgID:       audit.CanonicalUUID(in.OrgID),
+				NodeType:    in.NodeType,
+				Limit:       in.Limit,
+			}
+		},
+	)
 }
 
 func inspectQuerySpec() audit.Spec {
-	return clispec.InputReadSpec(audit.VerbOpsInspectQuery,
+	return clispec.InputReadSpec(
+		audit.VerbOpsInspectQuery,
 		func(in inspectQueryInput) audit.Target { return orgInputTarget(in.OrgID) },
 		func(in inspectQueryInput) inspectQueryInput {
 			return inspectQueryInput{
-				InputMarker: clispec.InputMarker{}, OrgID: audit.CanonicalUUID(in.OrgID), NodeType: in.NodeType,
-				Property: in.Property, Value: "", Limit: in.Limit,
+				InputMarker: clispec.InputMarker{},
+				OrgID:       audit.CanonicalUUID(in.OrgID),
+				NodeType:    in.NodeType,
+				Property:    in.Property,
+				Value:       "",
+				Limit:       in.Limit,
 			}
-		})
+		},
+	)
 }

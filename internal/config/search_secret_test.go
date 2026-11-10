@@ -17,6 +17,7 @@ func TestLoadSearchQuerySettingsReadsCursorKeyFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if settings.CursorKey != key || os.Getenv("OPENSEARCH_CURSOR_KEY") != "" {
 		t.Fatal("the cursor key did not remain confined to configuration")
 	}
@@ -28,17 +29,24 @@ func TestLoadSearchMaintenanceCredentialsRequiresSeparateProductionFile(t *testi
 	t.Setenv("OPENSEARCH_PASSWORD", "runtime-fixture-password")
 	t.Setenv("OPENSEARCH_MAINTENANCE_USERNAME", "maintenance-fixture")
 	t.Setenv("OPENSEARCH_MAINTENANCE_PASSWORD", "")
-	t.Setenv("OPENSEARCH_MAINTENANCE_PASSWORD_FILE", writeSecret(t, "maintenance-fixture-password\n"))
+	t.Setenv(
+		"OPENSEARCH_MAINTENANCE_PASSWORD_FILE",
+		writeSecret(t, "maintenance-fixture-password\n"),
+	)
 	credentials, err := config.LoadSearchMaintenanceCredentials()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if credentials.Username != "maintenance-fixture" || credentials.Password != "maintenance-fixture-password" {
+
+	if credentials.Username != "maintenance-fixture" ||
+		credentials.Password != "maintenance-fixture-password" {
 		t.Fatal("maintenance credentials did not use the separate file")
 	}
+
 	if os.Getenv("OPENSEARCH_MAINTENANCE_PASSWORD") != "" {
 		t.Fatal("maintenance configuration exported its secret")
 	}
+
 	t.Setenv("OPENSEARCH_MAINTENANCE_PASSWORD_FILE", "")
 	if _, err := config.LoadSearchMaintenanceCredentials(); err == nil {
 		t.Fatal("maintenance configuration reused runtime credentials")
@@ -54,6 +62,7 @@ func TestLoadAuditConsumerSettingsReadsDSNFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if settings.YugabyteDSN != "postgres://consumer-fixture" {
 		t.Fatal("consumer configuration did not resolve its DSN files")
 	}

@@ -21,12 +21,22 @@ func TestSearchParentEdgeCrossOrganization(t *testing.T) {
 	foreignEntry := fixture.entry(t, fixture.foreign)
 	leaf := fixture.createLeaf(t, fixture.firstEntry, "quartz local leaf")
 	err := fixture.moveLeaf(t, leaf, foreignEntry)
-	if !errors.Is(err, domain.ErrInvalidArgument) || !strings.Contains(err.Error(), foreignEntry.String()) {
-		t.Fatalf("move of leaf %s to entry point %s of another organization returned %v, want a refusal", leaf, foreignEntry, err)
+	if !errors.Is(err, domain.ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), foreignEntry.String()) {
+		t.Fatalf(
+			"move of leaf %s to entry point %s of another organization returned %v, want a refusal",
+			leaf,
+			foreignEntry,
+			err,
+		)
 	}
 
-	stored := fixture.storeNode(t, fixture.kind, "quartz foreign parent",
-		&node.Relationship{RelationType: node.RelChildOf, TargetID: foreignEntry})
+	stored := fixture.storeNode(
+		t,
+		fixture.kind,
+		"quartz foreign parent",
+		&node.Relationship{RelationType: node.RelChildOf, TargetID: foreignEntry},
+	)
 	requireParentEdgeDefect(t, fixture, stored, searchaccess.ErrHierarchyDefect)
 }
 
@@ -37,11 +47,19 @@ func TestSearchParentEdgeCrossOrganization(t *testing.T) {
 func TestSearchParentEdgeCycle(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	outer := fixture.createLeaf(t, fixture.firstEntry, "onyx outer leaf")
+
 	nested := fixture.createLeaf(t, outer, "onyx nested leaf")
 	for _, parentID := range []uuid.UUID{nested, outer} {
 		err := fixture.moveLeaf(t, outer, parentID)
-		if !errors.Is(err, domain.ErrInvalidArgument) || !strings.Contains(err.Error(), outer.String()) || !strings.Contains(err.Error(), parentID.String()) {
-			t.Fatalf("move of leaf %s under %s returned %v, want a cycle refusal with both IDs", outer, parentID, err)
+		if !errors.Is(err, domain.ErrInvalidArgument) ||
+			!strings.Contains(err.Error(), outer.String()) ||
+			!strings.Contains(err.Error(), parentID.String()) {
+			t.Fatalf(
+				"move of leaf %s under %s returned %v, want a cycle refusal with both IDs",
+				outer,
+				parentID,
+				err,
+			)
 		}
 	}
 }
@@ -53,10 +71,19 @@ func TestSearchParentEdgeCycle(t *testing.T) {
 func TestSearchParentEdgeTwoParents(t *testing.T) {
 	fixture := newParentEdgeFixture(t)
 	leaf := fixture.createLeaf(t, fixture.firstEntry, "jasper two parent leaf")
-	second := &node.Relationship{OrgID: fixture.kind.orgID, SourceID: leaf, RelationType: node.RelChildOf, TargetID: fixture.secondEntry}
-	if err := fixture.stores.Relationships.Add(integration.WithTestOperation(t, t.Context()), second); err != nil {
+	second := &node.Relationship{
+		OrgID:        fixture.kind.orgID,
+		SourceID:     leaf,
+		RelationType: node.RelChildOf,
+		TargetID:     fixture.secondEntry,
+	}
+	if err := fixture.stores.Relationships.Add(
+		integration.WithTestOperation(t, t.Context()),
+		second,
+	); err != nil {
 		t.Fatalf("add second parent edge of leaf %s: %v", leaf, err)
 	}
+
 	requireParentEdgeDefect(t, fixture, leaf, node.ErrNoHierarchyParent)
 }
 
@@ -69,20 +96,38 @@ func TestSearchParentEdgeOnlyParentRemoval(t *testing.T) {
 	parent := fixture.createLeaf(t, fixture.firstEntry, "amber parent leaf")
 	nested := fixture.createLeaf(t, parent, "amber nested leaf")
 	relationships := fixture.stores.Relationships
-	err := relationships.Remove(integration.WithTestOperation(t, t.Context()), fixture.kind.orgID, nested, node.RelChildOf, parent)
-	if !errors.Is(err, domain.ErrFailedPrecondition) || !strings.Contains(err.Error(), "only hierarchy parent") {
-		t.Fatalf("removal of the only parent edge of leaf %s returned %v, want a refusal", nested, err)
+	err := relationships.Remove(
+		integration.WithTestOperation(t, t.Context()),
+		fixture.kind.orgID,
+		nested,
+		node.RelChildOf,
+		parent,
+	)
+	if !errors.Is(err, domain.ErrFailedPrecondition) ||
+		!strings.Contains(err.Error(), "only hierarchy parent") {
+		t.Fatalf(
+			"removal of the only parent edge of leaf %s returned %v, want a refusal",
+			nested,
+			err,
+		)
 	}
+
 	if _, err := fixture.index(t, nested); err != nil {
 		t.Fatalf("index access of leaf %s after the refused removal: %v", nested, err)
 	}
 }
 
-func requireParentEdgeDefect(t *testing.T, fixture parentEdgeFixture, nodeID uuid.UUID, want error) {
+func requireParentEdgeDefect(
+	t *testing.T,
+	fixture parentEdgeFixture,
+	nodeID uuid.UUID,
+	want error,
+) {
 	t.Helper()
 	if _, err := fixture.index(t, nodeID); !errors.Is(err, want) {
 		t.Fatalf("index access of node %s returned %v, want %v", nodeID, err, want)
 	}
+
 	if keys := fixture.summaryKeys(t, nodeID)[nodeID]; len(keys) != 0 {
 		t.Fatalf("node %s has a hierarchy defect and has summary keys %v", nodeID, keys)
 	}
