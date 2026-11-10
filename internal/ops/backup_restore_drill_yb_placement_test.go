@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-// TestYBRestoreRefusesATabletMissingOneArchivedFile is the silent success this
-// design exists for. A tablet whose extraction lost one of its files still
-// holds files, and every question the drill used to ask of the directory itself
-// answered yes, so the partial copy was placed and the restore reported a whole
-// database. Judged against what the archive recorded, one absent file is enough
-// to refuse the tablet by name.
+// TestYBRestoreRefusesATabletMissingOneArchivedFile checks a partial-copy
+// regression. Earlier directory checks accepted a nonempty extraction despite
+// a missing file and reported a complete restore. This test removes one
+// archived file while retaining the others, then checks that the inventory
+// comparison refuses the tablet and reports its identity and missing-file
+// count.
 func TestYBRestoreRefusesATabletMissingOneArchivedFile(t *testing.T) {
 	eachPlacementShell(t, func(t *testing.T, shell string) {
 		const exportSnap, newSnap = "expsnap", "newsnap"
@@ -43,10 +43,9 @@ func TestYBRestoreRefusesATabletMissingOneArchivedFile(t *testing.T) {
 	})
 }
 
-// TestYBRestoreRefusesATabletWhoseFileLostItsBytes proves the check is about
-// bytes and not names. A file that arrives at the wrong size is present, so
-// every test that asks whether a file is there passes it, and the tablet it
-// belongs to is silently short of data.
+// TestYBRestoreRefusesATabletWhoseFileLostItsBytes checks recorded file sizes.
+// A presence check alone accepts a truncated file. This test shortens one
+// archived file and requires a tablet defect.
 func TestYBRestoreRefusesATabletWhoseFileLostItsBytes(t *testing.T) {
 	eachPlacementShell(t, func(t *testing.T, shell string) {
 		const exportSnap, newSnap = "expsnap", "newsnap"
@@ -70,9 +69,9 @@ func TestYBRestoreRefusesATabletWhoseFileLostItsBytes(t *testing.T) {
 	})
 }
 
-// TestYBRestoreRefusesATabletNoArchiveCarried proves a tablet the import
-// created that no node's archive holds is refused and named, rather than
-// counted as placed because its directory happened to exist.
+// TestYBRestoreRefusesATabletNoArchiveCarried checks refusal of an imported
+// tablet that lacks archived files on every node. An existing directory does
+// not qualify as a copy; the test checks the tablet's identity in the defect.
 func TestYBRestoreRefusesATabletNoArchiveCarried(t *testing.T) {
 	eachPlacementShell(t, func(t *testing.T, shell string) {
 		const exportSnap, newSnap = "expsnap", "newsnap"
@@ -80,8 +79,8 @@ func TestYBRestoreRefusesATabletNoArchiveCarried(t *testing.T) {
 		for _, remap := range fixture.remaps[:2] {
 			fixture.stageTablet(t, remap, "yb1", exportSnap, "CURRENT")
 		}
-		// The directory an archive truncated after its entries restores: it
-		// exists, it holds nothing, and no file of it was ever recorded.
+		// This empty directory models an extraction after archive truncation.
+		// The inventory does not record any files for it.
 		if err := os.MkdirAll(fixture.tabletSourceDir(fixture.remaps[2], "yb1", exportSnap), 0o755); err != nil {
 			t.Fatalf("stage an empty tablet directory: %v", err)
 		}
@@ -99,10 +98,11 @@ func TestYBRestoreRefusesATabletNoArchiveCarried(t *testing.T) {
 	})
 }
 
-// TestYBRestorePlacesEveryTabletTheArchiveCarries proves a whole export passes,
-// that the files really land where yugabyted reads them, and that one copy is
-// taken rather than several merged: yb1 comes first, so its file set is the one
-// that lands and yb2's extra file must not appear.
+// TestYBRestorePlacesEveryTabletTheArchiveCarries checks a complete export
+// against the placement verdict and the snapshot directories that yugabyted
+// uses. It checks the expected files and excludes yb2's extra file. The first
+// complete copy belongs to yb1; placement must not merge copies from both
+// nodes.
 func TestYBRestorePlacesEveryTabletTheArchiveCarries(t *testing.T) {
 	eachPlacementShell(t, func(t *testing.T, shell string) {
 		const exportSnap, newSnap = "expsnap", "newsnap"
@@ -138,10 +138,9 @@ func TestYBRestorePlacesEveryTabletTheArchiveCarries(t *testing.T) {
 	})
 }
 
-// TestYBRestoreTakesTheCopyThatMatchesItsInventory proves the choice skips a
-// node whose extraction is short and takes one that is whole, so a damaged copy
-// on the first node does not hide a good copy on another. yb1 comes first and
-// loses a file; yb2 is the copy that must land.
+// TestYBRestoreTakesTheCopyThatMatchesItsInventory checks selection of a
+// complete copy after an incomplete one. The test removes a file from yb1, then
+// checks that placement uses yb2's files for every tablet.
 func TestYBRestoreTakesTheCopyThatMatchesItsInventory(t *testing.T) {
 	eachPlacementShell(t, func(t *testing.T, shell string) {
 		const exportSnap, newSnap = "expsnap", "newsnap"

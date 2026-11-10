@@ -1,10 +1,9 @@
-// backup_restore_drill_yb_replica.go picks which node's extracted copy of a
-// tablet the placement copies, and refuses the restore when no node has a whole
-// one. A tablet exists on several nodes and any one node's copy is a consistent
-// set, so the choice is made against the inventories: a copy counts only when
-// every file that node's archive recorded for that tablet is in the extraction
-// at its recorded size. Deciding here rather than in the placement shell is
-// what lets the refusal name the tablet and how many of its files are gone.
+// Tablet replica selection chooses one node's extracted copy for placement
+// and refuses a restore if every copy is incomplete. A tablet can have copies
+// on several nodes; each node supplies a consistent file set. A complete copy
+// contains every file in that node's inventory at its recorded size. Selection
+// before shell placement permits an error with the tablet's identity and
+// missing-file count.
 
 package ops
 
@@ -13,19 +12,19 @@ import (
 	"strings"
 )
 
-// ybTabletDirComponents is how many path components a tablet's directory has
-// inside an archive: "table-<id>/tablet-<id>.snapshots/<snapshot>".
+// ybTabletDirComponents counts the components in an archived tablet
+// directory: "table-<id>/tablet-<id>.snapshots/<snapshot>".
 const ybTabletDirComponents = 3
 
-// ybTabletSourceDir is the archive-relative directory one tablet's exported
-// files live under, named by the tablet id the export knew it as.
+// ybTabletSourceDir returns the archive-relative directory for a tablet's
+// exported files, using the tablet ID from the export.
 func ybTabletSourceDir(remap ybTabletRemap, exportSnap string) string {
 	return fmt.Sprintf("table-%s/tablet-%s.snapshots/%s", remap.table, remap.old, exportSnap)
 }
 
-// ybTabletDirOf reports which tablet directory an archive-relative file path
-// belongs to, or "" for a path too shallow to be a tablet's file. Files nested
-// deeper still belong to the tablet directory above them.
+// ybTabletDirOf returns the tablet directory for an archive-relative file
+// path. It returns an empty string for a path without a file below that
+// directory. Deeper files use the tablet directory above them.
 func ybTabletDirOf(path string) string {
 	parts := strings.Split(path, "/")
 	if len(parts) <= ybTabletDirComponents {
@@ -34,19 +33,20 @@ func ybTabletDirOf(path string) string {
 	return strings.Join(parts[:ybTabletDirComponents], "/")
 }
 
-// ybNodeExtraction is one node's extracted archive weighed against its
-// inventory, counted per tablet directory.
+// ybNodeExtraction records one node's inventory and incomplete-file counts
+// by tablet directory.
 type ybNodeExtraction struct {
-	// node is the tablet-server name whose archive this is.
+	// node identifies the tablet server that produced the archive.
 	node string
 	// carried counts the files the inventory records for each tablet.
 	carried map[string]int
-	// missing counts those the extraction does not hold at their recorded size.
+	// missing counts absent files and files with a different size from the
+	// inventory.
 	missing map[string]int
 }
 
-// newYBNodeExtraction folds one node's inventory and the files its extraction
-// is short of into per-tablet counts.
+// newYBNodeExtraction counts inventoried files and extraction shortfalls
+// for each tablet directory.
 func newYBNodeExtraction(inventory ybArchiveInventory, missing []ybArchivedFile) ybNodeExtraction {
 	extraction := ybNodeExtraction{
 		node:    inventory.Node,
@@ -66,30 +66,29 @@ func newYBNodeExtraction(inventory ybArchiveInventory, missing []ybArchivedFile)
 	return extraction
 }
 
-// ybTabletPlacement pairs one tablet with the extracted copy the drill verified
-// against the inventory of the node that carried it.
+// ybTabletPlacement pairs a tablet with an extracted copy that matches the
+// source node's inventory.
 type ybTabletPlacement struct {
 	remap  ybTabletRemap
 	source string
 }
 
-// ybTabletDefect is one tablet the export cannot supply: either no node's
-// archive carried it, or every node that did is short of files.
+// ybTabletDefect records a tablet without a complete source copy. Either
+// every node lacks archived files for it, or every available extraction lacks
+// files at their recorded sizes.
 type ybTabletDefect struct {
-	// identity names the tablet the way the placement ledgers do.
+	// identity identifies the tablet using the placement ledger's format.
 	identity string
-	// carried is whether any node's archive recorded files for it at all.
+	// carried reports whether any node's archive recorded files for the tablet.
 	carried bool
-	// missing is the fewest files any carrying node's extraction is short of.
+	// missing counts the fewest incomplete files among nodes with archived files.
 	missing int
 }
 
-// chooseYBTabletReplicas takes, for each tablet the import created, the first
-// node whose extraction holds every file that node archived for it. Nodes are
-// walked in manifest order, so the choice is the same on every run over the
-// same export. A tablet named twice by the mapping is decided once, under the
-// identity the ledgers record, so neither the copies nor the refusals count it
-// twice.
+// chooseYBTabletReplicas selects the first complete extraction for each
+// imported tablet, using the manifest's node order. Repeated mapping entries
+// use the placement ledger's tablet identity for one decision. The result
+// counts each tablet once, either as a copy or as a defect.
 func chooseYBTabletReplicas(
 	remaps []ybTabletRemap,
 	exportRoot, exportSnap string,
@@ -113,8 +112,9 @@ func chooseYBTabletReplicas(
 	return placements, defects
 }
 
-// chooseYBTabletReplica returns the whole copy of one tablet, or the defect
-// describing the best any node could offer.
+// chooseYBTabletReplica returns one tablet's complete source copy or a defect.
+// The defect records the smallest file shortfall among nodes that archived the
+// tablet, or reports that every node lacks archived files for it.
 func chooseYBTabletReplica(
 	remap ybTabletRemap,
 	dir, exportRoot string,
@@ -136,8 +136,8 @@ func chooseYBTabletReplica(
 	return "", defect
 }
 
-// ybTabletDefectError refuses a restore the export cannot supply, naming what
-// is wrong with each tablet it cannot place.
+// ybTabletDefectError rejects a restore that lacks complete source copies.
+// It reports exact counts and a sample of the tablets' defects.
 func ybTabletDefectError(defects []ybTabletDefect, wanted int) error {
 	reasons := make([]string, 0, len(defects))
 	for _, defect := range defects {
@@ -147,7 +147,7 @@ func ybTabletDefectError(defects []ybTabletDefect, wanted int) error {
 		len(defects), wanted, sampleTabletIdentities(reasons))
 }
 
-// reason says why one tablet cannot be placed.
+// reason explains why placement cannot copy one tablet.
 func (d ybTabletDefect) reason() string {
 	if !d.carried {
 		return d.identity + " (no node's archive carried it)"

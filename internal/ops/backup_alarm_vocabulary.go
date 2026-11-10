@@ -1,35 +1,30 @@
-// backup_alarm_vocabulary.go is each backup mechanism's share of the alarm
-// mail: the phrase that names each kind of fault, the one sentence that says
-// what happened, and the steps that fix it. Metric names, thresholds in
-// seconds, and run identifiers stay in the journal report; none of them appear
-// here. The composition is in backup_alarm_words.go.
+// Backup alarm vocabulary supplies each mechanism's fault phrase, factual
+// sentence, and recovery steps. The journal report includes metric identifiers,
+// thresholds in seconds, and run identifiers. The alarm composer uses these
+// words without those report details.
 
 package ops
 
-// backupAlarmWords is one mechanism's vocabulary. The known template takes the
-// last-good time, the age, and the limit, in that order. An unknown age has two
-// vocabularies, chosen by the metric's cause, because a success that was never
-// recorded and a record that could not be read support different claims. The
-// never-recorded template takes the detail alone. The unreadable sentence takes
-// nothing, because the only detail is a client's error text, which stays in the
-// journal; the remembered sentence that may follow it takes the last-good time,
-// the age, and the limit of the last reading this guest took.
+// backupAlarmWords supplies one mechanism's alarm vocabulary. Known-age
+// templates take the last-good time, age, and limit in that order. Unknown-age
+// templates distinguish an unrecorded success from an unreadable record. The
+// never-recorded template takes detail alone. The unreadable template does not
+// take arguments: client errors appear only in the journal. An optional
+// remembered sentence takes the last-good time, age, and limit from this
+// guest's previous reading.
 //
-// paragraphKnownDetail is the sentence appended to a known-age paragraph that
-// names what the reading showed, and it takes the detail alone. It is empty on
-// every mechanism whose known-age detail is the provenance of the last recorded
-// success rather than an observation this run made, because "the last check
-// reported" would be a false claim about a run identifier or a restorable
-// point. Only the ledger cluster's check replaces the detail with its own live
-// reading (replicationStalenessMetric in backup_staleness_replication.go), so
-// only that mechanism declares the sentence. Every mechanism declares this field one
-// way or the other: a composer that handed these words an argument they do not
-// name printed nothing where it was dropped, which is how the sentence reached
-// one mail and no other.
+// paragraphKnownDetail appends this check's observation to a known-age
+// paragraph and takes detail alone. Only the ledger cluster check supplies a
+// live observation. Other mechanisms report the provenance of an earlier
+// success, such as a run identifier or a restorable point; calling that detail
+// "the last check reported" would misstate its source. Every mechanism sets
+// paragraphKnownDetail explicitly, including an empty value when it does not
+// apply.
 //
-// No template numbers its arguments. A numbered format string is what silenced
-// that mistake, because Go prints its "%!(EXTRA ...)" marker only for a format
-// string that does not.
+// An earlier composer supplied detail to all known-age templates, but only the
+// ledger cluster template used it. Explicit argument indexes suppressed Go's
+// "%!(EXTRA ...)" marker for unused arguments. These templates omit argument
+// indexes to expose that mistake.
 type backupAlarmWords struct {
 	phraseKnown            string
 	phraseNeverRecorded    string
