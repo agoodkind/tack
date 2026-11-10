@@ -38,12 +38,24 @@ func pushNative(t *testing.T, host, architecture string) (string, []v1.Descripto
 
 	platform := v1.Platform{OS: linuxPlatform, Architecture: architecture}
 	unknown := v1.Platform{OS: unknownPlatform, Architecture: unknownPlatform}
-	platformLayer := imagetest.Layer(t, imagetest.Entry{
-		Name: "binary-" + architecture, Type: tar.TypeReg, Content: architecture, Linkname: "",
-	})
-	attestationLayer := imagetest.Layer(t, imagetest.Entry{
-		Name: "attestation-" + architecture, Type: tar.TypeReg, Content: architecture, Linkname: "",
-	})
+	platformLayer := imagetest.Layer(
+		t,
+		imagetest.Entry{
+			Name:     "binary-" + architecture,
+			Type:     tar.TypeReg,
+			Content:  architecture,
+			Linkname: "",
+		},
+	)
+	attestationLayer := imagetest.Layer(
+		t,
+		imagetest.Entry{
+			Name:     "attestation-" + architecture,
+			Type:     tar.TypeReg,
+			Content:  architecture,
+			Linkname: "",
+		},
+	)
 	platformImage := imagetest.Image(t, platform, platformLayer)
 	attestation := imagetest.Image(t, unknown, attestationLayer)
 
@@ -52,7 +64,9 @@ func pushNative(t *testing.T, host, architecture string) (string, []v1.Descripto
 		t.Fatalf("digest platform image: %v", err)
 	}
 
-	pushed := imagetest.PushIndex(t, host+"/"+manifestOwner+"/"+manifestImage+":source-"+architecture,
+	pushed := imagetest.PushIndex(
+		t,
+		host+"/"+manifestOwner+"/"+manifestImage+":source-"+architecture,
 		mutate.IndexAddendum{Add: platformImage, Platform: &platform},
 		mutate.IndexAddendum{
 			Add:      attestation,
@@ -106,8 +120,12 @@ func writeDigest(t *testing.T, fixture manifestFixture, architecture, digest str
 
 func (fixture manifestFixture) environment() []string {
 	return []string{
-		"REGISTRY=" + fixture.host, "IMAGE_OWNER=" + manifestOwner, "IMAGE_NAME=" + manifestImage,
-		"IMAGE_TAG_FILE=" + fixture.tagFile, "DIGEST_DIRECTORY=" + fixture.digestDir,
-		actorPrefix + "builder", githubAuthKey + "test-token",
+		"REGISTRY=" + fixture.host,
+		"IMAGE_OWNER=" + manifestOwner,
+		"IMAGE_NAME=" + manifestImage,
+		"IMAGE_TAG_FILE=" + fixture.tagFile,
+		"DIGEST_DIRECTORY=" + fixture.digestDir,
+		actorPrefix + "builder",
+		githubAuthKey + "test-token",
 	}
 }

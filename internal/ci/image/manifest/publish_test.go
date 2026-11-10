@@ -18,32 +18,38 @@ const registryKey = "REGISTRY"
 // the variable key and the original cause, and that the error is not an
 // *os.PathError.
 func TestPublishReportsEnvironmentFailureWithoutPathError(t *testing.T) {
-	t.Run("unset", func(t *testing.T) {
-		t.Setenv(registryKey, "")
+	t.Run(
+		"unset",
+		func(t *testing.T) {
+			t.Setenv(registryKey, "")
 
-		err := os.Unsetenv(registryKey)
-		if err != nil {
-			t.Fatalf("unset %s: %v", registryKey, err)
-		}
+			err := os.Unsetenv(registryKey)
+			if err != nil {
+				t.Fatalf("unset %s: %v", registryKey, err)
+			}
 
-		err = manifest.Publish(context.Background())
-		if !errors.Is(err, environment.ErrUnset) {
-			t.Fatalf("err = %v, want cause %v", err, environment.ErrUnset)
-		}
+			err = manifest.Publish(context.Background())
+			if !errors.Is(err, environment.ErrUnset) {
+				t.Fatalf("err = %v, want cause %v", err, environment.ErrUnset)
+			}
 
-		assertEnvironmentError(t, err, "unset")
-	})
+			assertEnvironmentError(t, err, "unset")
+		},
+	)
 
-	t.Run("empty", func(t *testing.T) {
-		t.Setenv(registryKey, "")
+	t.Run(
+		"empty",
+		func(t *testing.T) {
+			t.Setenv(registryKey, "")
 
-		err := manifest.Publish(context.Background())
-		if err == nil {
-			t.Fatal("expected failure for an empty variable")
-		}
+			err := manifest.Publish(context.Background())
+			if err == nil {
+				t.Fatal("expected failure for an empty variable")
+			}
 
-		assertEnvironmentError(t, err, "empty")
-	})
+			assertEnvironmentError(t, err, "empty")
+		},
+	)
 }
 
 func assertEnvironmentError(t *testing.T, err error, wantCause string) {

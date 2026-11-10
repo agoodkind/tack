@@ -33,7 +33,10 @@ func Publish(ctx context.Context) error {
 		return err
 	}
 
-	index := mutate.AppendManifests(mutate.IndexMediaType(empty.Index, types.OCIImageIndex), addenda...)
+	index := mutate.AppendManifests(
+		mutate.IndexMediaType(empty.Index, types.OCIImageIndex),
+		addenda...,
+	)
 
 	for _, tag := range input.tags {
 		err = remote.WriteIndex(tag, index, options...)

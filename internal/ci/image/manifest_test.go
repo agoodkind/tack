@@ -64,75 +64,102 @@ func TestManifestRefusesBadInputBeforePublishing(t *testing.T) {
 		name   string
 		mutate func(t *testing.T, fixture manifestFixture, environment []string) []string
 	}{
-		{"uppercase digest", func(t *testing.T, fixture manifestFixture, environment []string) []string {
-			t.Helper()
-			writeDigest(t, fixture, "arm64", "sha256:"+strings.Repeat("A", 64))
+		{
+			"uppercase digest",
+			func(t *testing.T, fixture manifestFixture, environment []string) []string {
+				t.Helper()
+				writeDigest(t, fixture, "arm64", "sha256:"+strings.Repeat("A", 64))
 
-			return environment
-		}},
-		{"missing digest file", func(t *testing.T, fixture manifestFixture, environment []string) []string {
-			t.Helper()
+				return environment
+			},
+		},
+		{
+			"missing digest file",
+			func(t *testing.T, fixture manifestFixture, environment []string) []string {
+				t.Helper()
 
-			err := os.Remove(filepath.Join(fixture.digestDir, "arm64.digest"))
-			if err != nil {
-				t.Fatalf("remove digest: %v", err)
-			}
+				err := os.Remove(filepath.Join(fixture.digestDir, "arm64.digest"))
+				if err != nil {
+					t.Fatalf("remove digest: %v", err)
+				}
 
-			return environment
-		}},
-		{"absent source image", func(t *testing.T, fixture manifestFixture, environment []string) []string {
-			t.Helper()
-			writeDigest(t, fixture, "arm64", "sha256:"+strings.Repeat("b", 64))
+				return environment
+			},
+		},
+		{
+			"absent source image",
+			func(t *testing.T, fixture manifestFixture, environment []string) []string {
+				t.Helper()
+				writeDigest(t, fixture, "arm64", "sha256:"+strings.Repeat("b", 64))
 
-			return environment
-		}},
-		{"empty tag file", func(t *testing.T, fixture manifestFixture, environment []string) []string {
-			t.Helper()
-			writeTestFile(t, fixture.tagFile, "\n\n")
+				return environment
+			},
+		},
+		{
+			"empty tag file",
+			func(t *testing.T, fixture manifestFixture, environment []string) []string {
+				t.Helper()
+				writeTestFile(t, fixture.tagFile, "\n\n")
 
-			return environment
-		}},
-		{"empty token", func(_ *testing.T, _ manifestFixture, environment []string) []string {
-			kept := slices.DeleteFunc(environment, func(item string) bool {
-				return strings.HasPrefix(item, githubAuthKey)
-			})
+				return environment
+			},
+		},
+		{
+			"empty token",
+			func(_ *testing.T, _ manifestFixture, environment []string) []string {
+				kept := slices.DeleteFunc(
+					environment,
+					func(item string) bool {
+						return strings.HasPrefix(item, githubAuthKey)
+					},
+				)
 
-			return append(kept, githubAuthKey)
-		}},
-		{"missing actor", func(_ *testing.T, _ manifestFixture, environment []string) []string {
-			return slices.DeleteFunc(environment, func(item string) bool {
-				return strings.HasPrefix(item, actorPrefix)
-			})
-		}},
+				return append(kept, githubAuthKey)
+			},
+		},
+		{
+			"missing actor",
+			func(_ *testing.T, _ manifestFixture, environment []string) []string {
+				return slices.DeleteFunc(
+					environment,
+					func(item string) bool {
+						return strings.HasPrefix(item, actorPrefix)
+					},
+				)
+			},
+		},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newManifestFixture(t)
-			environment := test.mutate(t, fixture, fixture.environment())
+		t.Run(
+			test.name,
+			func(t *testing.T) {
+				fixture := newManifestFixture(t)
+				environment := test.mutate(t, fixture, fixture.environment())
 
-			output, err := runBuiltCommand(t, environment, manifestCommand)
-			if err == nil {
-				t.Fatalf("expected failure, output = %s", output)
-			}
-
-			if strings.Count(output, "ci-image.failed") != 1 {
-				t.Fatalf("expected one boundary log, output = %s", output)
-			}
-
-			if strings.Contains(output, "test-token") {
-				t.Fatalf("output contains the token: %s", output)
-			}
-
-			for _, tag := range fixture.tags {
-				reference, parseErr := name.ParseReference(tag)
-				if parseErr != nil {
-					t.Fatalf("parse %s: %v", tag, parseErr)
+				output, err := runBuiltCommand(t, environment, manifestCommand)
+				if err == nil {
+					t.Fatalf("expected failure, output = %s", output)
 				}
 
-				_, headErr := remote.Head(reference)
-				if headErr == nil {
-					t.Fatalf("tag %s exists after a refused publication", tag)
+				if strings.Count(output, "ci-image.failed") != 1 {
+					t.Fatalf("expected one boundary log, output = %s", output)
 				}
-			}
-		})
+
+				if strings.Contains(output, "test-token") {
+					t.Fatalf("output contains the token: %s", output)
+				}
+
+				for _, tag := range fixture.tags {
+					reference, parseErr := name.ParseReference(tag)
+					if parseErr != nil {
+						t.Fatalf("parse %s: %v", tag, parseErr)
+					}
+
+					_, headErr := remote.Head(reference)
+					if headErr == nil {
+						t.Fatalf("tag %s exists after a refused publication", tag)
+					}
+				}
+			},
+		)
 	}
 }

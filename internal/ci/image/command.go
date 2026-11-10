@@ -102,7 +102,8 @@ func fileOperation(name, short string, run func() error) *cobra.Command {
 // contextOperation creates a subcommand for an operation that uses the
 // command context and writes progress to stderr.
 func contextOperation(
-	name, short string,
+	name string,
+	short string,
 	run func(context.Context, io.Writer) error,
 ) *cobra.Command {
 	return &cobra.Command{

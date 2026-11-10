@@ -134,7 +134,11 @@ func readTags(path string) ([]name.Tag, error) {
 
 		tag, err := name.NewTag(line, name.StrictValidation)
 		if err != nil {
-			slog.Error("manifest.tag_parse_failed", slog.String("tag", line), slog.Any("error", err))
+			slog.Error(
+				"manifest.tag_parse_failed",
+				slog.String("tag", line),
+				slog.Any("error", err),
+			)
 
 			return nil, fmt.Errorf("parse image tag %q: %w", line, err)
 		}

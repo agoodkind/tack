@@ -57,7 +57,11 @@ func addendaFor(descriptor *remote.Descriptor) ([]mutate.IndexAddendum, error) {
 
 	image, err := descriptor.Image()
 	if err != nil {
-		slog.Error("manifest.image_read_failed", slog.String("digest", digest), slog.Any("error", err))
+		slog.Error(
+			"manifest.image_read_failed",
+			slog.String("digest", digest),
+			slog.Any("error", err),
+		)
 
 		return nil, fmt.Errorf("read image %s: %w", digest, err)
 	}
@@ -91,7 +95,11 @@ func indexChildren(descriptor *remote.Descriptor) ([]mutate.IndexAddendum, error
 
 	source, err := descriptor.ImageIndex()
 	if err != nil {
-		slog.Error("manifest.index_read_failed", slog.String("digest", digest), slog.Any("error", err))
+		slog.Error(
+			"manifest.index_read_failed",
+			slog.String("digest", digest),
+			slog.Any("error", err),
+		)
 
 		return nil, fmt.Errorf("read index %s: %w", digest, err)
 	}
