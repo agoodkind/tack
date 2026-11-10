@@ -12,9 +12,9 @@ import (
 // TACK_BACKUP_FDB_CONTINUOUS is false.
 const continuousDisabledCode = "continuous_backup_disabled"
 
-// continuousBackupEvidence is the evidence of the FoundationDB continuous
-// backup step: the destination bucket and endpoint host and the snapshot
-// interval. It omits the blobstore credentials.
+// continuousBackupEvidence records the FoundationDB continuous-backup
+// destination bucket, endpoint host, and snapshot interval. It does not
+// include blobstore credentials.
 type continuousBackupEvidence struct {
 	Bucket                  string `json:"bucket"`
 	EndpointHost            string `json:"endpoint_host"`

@@ -1,7 +1,6 @@
-// backup_fdb_restore_version.go answers the question a total loss leaves an
-// operator holding: which FoundationDB version does a restore to this wall
-// clock moment name? It reads the version record from the object store alone,
-// so it works with every cluster destroyed (TACK-468).
+// The restore-version command converts a wall-clock target to a FoundationDB
+// version using only the object-store record. It supports recovery after
+// the loss of every cluster (TACK-468).
 
 package ops
 
@@ -16,9 +15,15 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// RunBackupFDBRestoreVersion writes the version to restore to for the moment
-// want, with the reading's own timestamp beside it so the operator sees how
-// far before their moment the restore lands.
+// RunBackupFDBRestoreVersion writes the restore version for want and the
+// reading's timestamp.
+//
+// The timestamp shows the interval between the recorded restorable point
+// and the requested moment.
+//
+// The output also reports the record's coverage:
+//   - It prints the newest reading's time.
+//   - It prints the number of recorded readings.
 func RunBackupFDBRestoreVersion(ctx context.Context, cfg *config.Config, want time.Time, out io.Writer) error {
 	logger := telemetry.L(ctx)
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {

@@ -18,8 +18,8 @@ var errFDBBackupDestinationMismatch = errors.New(
 	"active FoundationDB backup targets a different destination",
 )
 
-// backupCtx bundles runtime state for one FoundationDB continuous backup
-// session without package-level state.
+// backupCtx groups runtime state for one FoundationDB continuous backup
+// session without using package-level state.
 type backupCtx struct {
 	Cfg     *config.Config
 	Cli     *client.Client
@@ -28,13 +28,16 @@ type backupCtx struct {
 	DestDir string
 }
 
-// RunBackupFDBContinuousInit starts the FoundationDB continuous backup session
-// that streams to the object store, and is safe to run repeatedly. The
-// long-lived backup_agent that drains snapshots is the fdb-backup-agent compose
-// service; this only starts the session. `ops provision` calls it on every run
-// so a streaming environment arms itself, and the `fdb-continuous-init`
-// subcommand exposes the same call for a deliberate out-of-band start. Both
-// remain gated by TACK_BACKUP_FDB_CONTINUOUS=true.
+// RunBackupFDBContinuousInit starts a FoundationDB continuous backup session
+// that writes to the object store. Repeated calls accept an existing session
+// at the configured destination.
+//
+// The fdb-backup-agent Compose service runs the long-lived backup_agent that
+// processes snapshots. This function starts the session rather than the agent.
+//
+// The same TACK_BACKUP_FDB_CONTINUOUS=true gate applies to both callers:
+//   - The ops provision command initializes the session on every run.
+//   - The fdb-continuous-init subcommand permits an explicit separate start.
 func RunBackupFDBContinuousInit(ctx context.Context, cfg *config.Config) error {
 	logger := telemetry.L(ctx)
 	if !cfg.BackupFDBContinuous {
@@ -49,8 +52,8 @@ func RunBackupFDBContinuousInit(ctx context.Context, cfg *config.Config) error {
 	}
 	defer cli.Close()
 
-	// DestDir is unused by the continuous session, which streams to the object
-	// store and binds only the cluster file.
+	// The continuous session does not use DestDir. It writes to the object store
+	// and binds only the cluster file.
 	b := &backupCtx{
 		Cfg:     cfg,
 		Cli:     cli,
@@ -62,13 +65,13 @@ func RunBackupFDBContinuousInit(ctx context.Context, cfg *config.Config) error {
 	return ensureFDBContinuousSession(ctx, b)
 }
 
-// ensureFDBContinuousSession starts the streaming fdbbackup session to the
-// object store. A session already running on the configured destination is
-// treated as success, so the call is idempotent. The blobstore credentials are
-// embedded in the destination URL, so echoed output is redacted before logging.
+// ensureFDBContinuousSession starts a continuous fdbbackup session to the
+// object store. An active session at the configured destination counts as
+// success. The destination URL includes credentials, which the function
+// redacts from echoed output before logging.
 func ensureFDBContinuousSession(ctx context.Context, b *backupCtx) error {
-	// FoundationDB 7.4.6 rejects a duplicate start on the default tag. The
-	// status guard makes repeated calls idempotent without issuing that start.
+	// FoundationDB 7.4.6 rejects a duplicate start on the default tag. The status
+	// check accepts an existing session without issuing another start.
 	active, statusErr := fdbBackupActive(ctx, b)
 	if errors.Is(statusErr, errFDBBackupDestinationMismatch) {
 		b.Log.ErrorContext(ctx, "backup.fdb.continuous_destination_mismatch",
@@ -115,10 +118,10 @@ func ensureFDBContinuousSession(ctx context.Context, b *backupCtx) error {
 	return nil
 }
 
-// fdbBackupStatusText runs `fdbbackup status` in a one-shot container against
-// the live cluster and returns its combined output. The output embeds
-// blobstore credentials in BackupURL, so callers keep it in memory and redact
-// anything they log or print.
+// fdbBackupStatusText runs fdbbackup status against the live cluster in a
+// one-shot container and returns the combined output. BackupURL includes
+// blobstore credentials. Callers must retain it in memory and redact any
+// output they log or print.
 func fdbBackupStatusText(ctx context.Context, b *backupCtx) (string, error) {
 	res, err := runOneShot(ctx, b.Cli, b.Log, runOneShotOptions{
 		Image:      b.Cfg.BackupFDBImage,
@@ -136,12 +139,11 @@ func fdbBackupStatusText(ctx context.Context, b *backupCtx) (string, error) {
 	return res.Stdout + "\n" + res.Stderr, nil
 }
 
-// fdbBackupActive reports whether a FoundationDB backup is currently running on
-// the default tag and targets the configured bucket and endpoint host. The
-// status output embeds blobstore credentials in BackupURL, so the URL is only
-// compared in memory. An infrastructure error returns false so the caller can
-// proceed to start, while an active backup at another destination returns an
-// error.
+// fdbBackupActive checks whether the default-tag backup runs at the
+// configured bucket and endpoint host. It compares BackupURL only in memory
+// because the status output includes credentials. An infrastructure error
+// returns false and an error; the caller can then attempt a start. An active
+// backup at another destination returns a destination-mismatch error.
 func fdbBackupActive(ctx context.Context, b *backupCtx) (bool, error) {
 	status, err := fdbBackupStatusText(ctx, b)
 	if err != nil {
@@ -194,9 +196,8 @@ func fdbBackupURLMatchesDestination(cfg *config.Config, backupURL string) bool {
 		return false
 	}
 
-	// Compare the full authority (host and port), not just the hostname, so an
-	// active backup on the configured host and bucket but a different port is
-	// rejected rather than silently accepted.
+	// Compare the full authority, including the port. An active backup with the
+	// configured hostname and bucket but a different port must fail this check.
 	authorityMatches := strings.EqualFold(
 		parsedBackupURL.Host,
 		parsedConfiguredHost.Host,

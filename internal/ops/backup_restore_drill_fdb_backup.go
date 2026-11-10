@@ -1,10 +1,9 @@
-// backup_restore_drill_fdb_backup.go picks which FoundationDB backup session
-// the drill restores from. Every `fdb-continuous-init` that starts a session
-// registers a new backup name in the store, and each session's restorable
-// window begins when it started, so a moment retained only by an older
-// session is one the newest session cannot reach. The drill therefore reads
-// the window of each session, newest first, and restores from the first one
-// that covers the target; without a target it restores the newest, as before.
+// Backup selection checks sessions from newest to oldest for a window that
+// includes the requested FoundationDB restore moment. Each session started
+// by fdb-continuous-init registers a new backup name. Its window starts with
+// the session; an older session may retain a moment that a newer session
+// does not cover. The drill restores the first covering session or the newest
+// session when the operator omits a target.
 
 package ops
 
@@ -19,17 +18,18 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// fdbBackupMarkerPrefix is the folder the FoundationDB blobstore registers
-// each backup under as a marker object, backups/<name>.
+// fdbBackupMarkerPrefix identifies the backups/<name> marker objects that
+// FoundationDB registers for each backup.
 const fdbBackupMarkerPrefix = "backups/"
 
-// selectFDBBackup returns the name of the backup the drill restores. With no
-// target it is the newest marker, read without describing anything, so the
-// default drill neither reads a window nor touches the source cluster. With a
-// target it is the newest backup whose restorable window covers the target,
-// checked before any restore starts, so a moment no backup can reach stops the
-// drill instead of quietly restoring some other moment. markers are the
-// backups/ marker keys sorted ascending.
+// selectFDBBackup returns the selected backup name. markers contains
+// backups/ marker keys in ascending order. Without a target, the function
+// selects the newest marker without inspecting windows or querying the
+// source cluster.
+//
+// With a target, selection checks windows before starting a restore and uses
+// the newest covering backup. If every backup excludes the target, selection
+// fails rather than restoring another moment.
 func selectFDBBackup(ctx context.Context, r *restoreDrillCtx, containerName string, markers []string) (string, error) {
 	names := fdbBackupNames(markers)
 	if r.FDBTargetTime == nil {
@@ -58,8 +58,8 @@ func selectFDBBackup(ctx context.Context, r *restoreDrillCtx, containerName stri
 	return name, nil
 }
 
-// fdbBackupNames turns the backups/ marker keys, in the order the store listed
-// them, into the bare names fdbrestore addresses, keeping that order.
+// fdbBackupNames removes the backups/ prefix from marker keys for fdbrestore
+// and preserves the store's listing order.
 func fdbBackupNames(markers []string) []string {
 	names := make([]string, 0, len(markers))
 	for _, marker := range markers {
@@ -68,16 +68,15 @@ func fdbBackupNames(markers []string) []string {
 	return names
 }
 
-// chooseFDBBackupForTarget walks the backup names newest first and returns
-// the first whose window covers the target, with that window. The search stops
-// there: when more than one backup covers the target, the newest is used and
-// the older ones are never described, because any covering backup restores
-// the same moment and the newest is the one the drill restores without a
-// target. A backup whose window cannot be read is passed over with its reason
-// handed to skip rather than ending the search, since an older backup may
-// still cover the target. When none does, the error names every backup with
-// its window or the reason it could not be read, so the operator can pick a
-// moment that works.
+// chooseFDBBackupForTarget checks backup names newest first and returns the
+// first covering backup and its window. It does not inspect older backups
+// after a match. Every covering backup can restore the target moment, and the
+// newest backup also serves the drill's default target.
+//
+// If a window read fails, skip receives the reason, and the search continues
+// because an older backup may cover the target. If every backup fails, the
+// error lists each backup with its window or read failure. The report helps
+// the operator select a restorable moment.
 func chooseFDBBackupForTarget(
 	target time.Time,
 	names []string,

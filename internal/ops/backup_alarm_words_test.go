@@ -8,19 +8,19 @@ import (
 	"time"
 )
 
-// secondsValued matches a bare seconds figure such as "129600s", the unit the
-// thresholds are configured in and the journal report prints. The mail is read
-// in hours and minutes, so none may appear in it.
+// secondsValued matches a bare seconds value such as "129600s". Threshold
+// configuration and the journal report use seconds. Alarm messages must use
+// hours and minutes instead.
 var secondsValued = regexp.MustCompile(`\b\d+s\b`)
 
-// backupAlarmMachineWords matches everything the journal report says that the
-// mail must not: the hyphenated metric names, standing alone rather than inside
-// a systemd unit name such as tack-ledger-export, and the report's field labels.
+// backupAlarmMachineWords matches journal terms that alarm messages must
+// exclude. It matches hyphenated metric names outside systemd unit names such
+// as tack-ledger-export, and it matches the report's field labels.
 var backupAlarmMachineWords = regexp.MustCompile(
 	`(?:^|[^\w-])(` + backupStalenessExportName + `|` + backupStalenessFDBName + `|age=|threshold=|STALE)`)
 
-// assertBackupAlarmPlainWords fails when the mail carries machine words, a
-// seconds-valued figure, an object-store credential, or the store's endpoint.
+// assertBackupAlarmPlainWords rejects machine terms, bare seconds values,
+// object-store credentials, and the store endpoint in alarm messages.
 func assertBackupAlarmPlainWords(t *testing.T, subject, body, endpoint string) {
 	t.Helper()
 	for _, text := range []string{subject, body} {
@@ -38,13 +38,13 @@ func assertBackupAlarmPlainWords(t *testing.T, subject, body, endpoint string) {
 	}
 }
 
-// qaHost is the guest the composed mails in this file come from.
+// qaHost identifies the guest that supplies the test alarm messages.
 const qaHost = "tack-qa"
 
-// TestBackupStalenessAlarmOneFaultMail pins the whole mail for one fault: the
-// ledger cluster last seen healthy 32 minutes ago against a 30 minute limit.
-// The subject names the guest and the fault; the body is the one sentence of
-// fact with the time in UTC and the steps, nothing else.
+// TestBackupStalenessAlarmOneFaultMail checks the complete message for a
+// ledger cluster last healthy 32 minutes ago against a 30-minute limit.
+// The subject identifies the guest and fault. The body contains the factual
+// sentence with its UTC time and the recovery steps.
 func TestBackupStalenessAlarmOneFaultMail(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 9, 6, 16, 23, 0, 0, time.UTC)
@@ -71,9 +71,10 @@ func TestBackupStalenessAlarmOneFaultMail(t *testing.T) {
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 }
 
-// TestBackupStalenessAlarmThreeFaultMail pins the whole mail for three faults
-// at once: the subject counts them, and each block opens with the fault's
-// phrase, then its sentence, then its steps.
+// TestBackupStalenessAlarmThreeFaultMail checks the complete message for
+// three simultaneous faults. The subject counts the faults. Each body block
+// contains the fault's phrase, its factual sentence, and its recovery steps
+// in that order.
 func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
@@ -121,8 +122,8 @@ func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 }
 
-// TestBackupAlarmClock pins the words the subject and body render a duration
-// in.
+// TestBackupAlarmClock checks the duration wording that the subject and body
+// use.
 func TestBackupAlarmClock(t *testing.T) {
 	tests := []struct {
 		d    time.Duration

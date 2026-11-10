@@ -1,6 +1,5 @@
-// backup_fdb_version_log_test.go exercises the version-to-time record through
-// the production writer, reader, and lookup, plus the command an operator runs
-// after a total loss, over the test SeaweedFS engine.
+// These tests exercise the production version-record writer, reader, lookup,
+// and total-loss operator command against the test SeaweedFS engine.
 
 package ops
 
@@ -24,9 +23,9 @@ func recordFDBPoints(t *testing.T, store *backupTestStore, points ...fdbRestorab
 	}
 }
 
-// TestFDBVersionLogRoundTripAndLookup is the mapping a total-loss restore
-// needs: several readings recorded, then a moment converted to the newest
-// version that does not overshoot it.
+// TestFDBVersionLogRoundTripAndLookup records several readings and converts
+// a target moment to the newest version at or before that moment. Total-loss
+// recovery requires this mapping.
 func TestFDBVersionLogRoundTripAndLookup(t *testing.T) {
 	ctx := context.Background()
 	store := newBackupTestStore(t, nil)
@@ -45,8 +44,8 @@ func TestFDBVersionLogRoundTripAndLookup(t *testing.T) {
 		t.Fatalf("points = %d, want 3", len(log.Points))
 	}
 
-	// A moment between two readings restores to the older one: the newer
-	// reading covers mutations the operator asked to exclude.
+	// A target between readings selects the older reading. The newer reading
+	// includes mutations after the requested moment.
 	point, found := fdbVersionAt(log, base.Add(15*time.Minute))
 	if !found || point.Version != 200 {
 		t.Fatalf("version at +15m = %d found=%v, want 200", point.Version, found)
@@ -60,9 +59,9 @@ func TestFDBVersionLogRoundTripAndLookup(t *testing.T) {
 	}
 }
 
-// TestAppendFDBRestorablePointIgnoresARepeatedReading proves two checks that
-// see the same restorable point leave one entry, so the record does not grow
-// while the backup is idle.
+// TestAppendFDBRestorablePointIgnoresARepeatedReading checks that two
+// readings of the same restorable version produce one entry. The record must
+// not grow while the backup stays idle.
 func TestAppendFDBRestorablePointIgnoresARepeatedReading(t *testing.T) {
 	ctx := context.Background()
 	store := newBackupTestStore(t, nil)
@@ -84,12 +83,11 @@ func TestAppendFDBRestorablePointIgnoresARepeatedReading(t *testing.T) {
 	}
 }
 
-// TestAppendFDBRestorablePointBoundsTheRecord fills the record with the
-// widest entries the writer can produce, well past the 64 KiB limit that
-// guards the other small objects, and appends through the production writer
-// and the real engine. Every append up to the entry bound must land, and each
-// one after it must drop the oldest entry, with the full record still inside
-// the read limit.
+// TestAppendFDBRestorablePointBoundsTheRecord appends the widest possible
+// entries through the production writer and real engine. The seeded record
+// exceeds the 64 KiB limit for other small objects. Appends up to the entry
+// limit must succeed. Later appends must remove the oldest entry, and the
+// full record must fit within its read limit.
 func TestAppendFDBRestorablePointBoundsTheRecord(t *testing.T) {
 	const appended = 10
 	ctx := context.Background()
@@ -137,17 +135,15 @@ func TestAppendFDBRestorablePointBoundsTheRecord(t *testing.T) {
 	}
 }
 
-// widestFDBRestorablePoint is the i-th of a run of entries that each encode as
-// wide as an entry can: a 20-character version and a timestamp with
-// nanoseconds.
+// widestFDBRestorablePoint returns entry i with a 20-character version and a
+// nanosecond timestamp, matching the widest encoding.
 func widestFDBRestorablePoint(i int) fdbRestorablePoint {
 	base := time.Date(2026, 9, 18, 4, 0, 0, 999999999, time.UTC)
 	return fdbRestorablePoint{Version: math.MinInt64 + int64(i), At: base.Add(time.Duration(i) * time.Minute)}
 }
 
-// TestReadFDBVersionLogAbsent proves a store that has never recorded a reading
-// answers with an empty record rather than an error, because the first check
-// has to start somewhere.
+// TestReadFDBVersionLogAbsent checks that a store without previous readings
+// returns an empty record without an error. This permits the first check.
 func TestReadFDBVersionLogAbsent(t *testing.T) {
 	log, err := readFDBVersionLog(context.Background(), newBackupTestStore(t, nil).versionLogGetter())
 	if err != nil {
@@ -158,9 +154,9 @@ func TestReadFDBVersionLogAbsent(t *testing.T) {
 	}
 }
 
-// TestRunBackupFDBRestoreVersionAnswersFromTheObjectStore drives the operator
-// command against the object store, with no cluster anywhere, which is the
-// total-loss case the record exists for.
+// TestRunBackupFDBRestoreVersionAnswersFromTheObjectStore runs the operator
+// command against the object store without a cluster, matching total-loss
+// recovery.
 func TestRunBackupFDBRestoreVersionAnswersFromTheObjectStore(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2026, 9, 18, 4, 0, 0, 0, time.UTC)
@@ -189,8 +185,8 @@ func TestRunBackupFDBRestoreVersionAnswersFromTheObjectStore(t *testing.T) {
 	}
 }
 
-// TestRunBackupFDBRestoreVersionRefusesAnEmptyRecord proves a store holding no
-// readings says so rather than naming a zero version.
+// TestRunBackupFDBRestoreVersionRefusesAnEmptyRecord checks that a store
+// without readings reports the missing record instead of a zero version.
 func TestRunBackupFDBRestoreVersionRefusesAnEmptyRecord(t *testing.T) {
 	cfg := newBackupTestStore(t, nil).config()
 	var out bytes.Buffer

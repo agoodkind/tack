@@ -6,13 +6,11 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// TestFDBBlobstoreURL locks down the exact blobstore:// destination the
-// continuous FDB backup path passes to `fdbbackup start` for a non-TLS
-// SeaweedFS endpoint addressed by an IPv6 literal. fdbbackup cannot resolve an
-// IPv6 literal, so the bracketed authority is replaced with the synthetic host
-// fdb-blobstore-host (port preserved); the secret must be embedded verbatim,
-// and the query keys must be ordered bucket, region, secure_connection (the
-// alphabetical order url.Values.Encode produces).
+// TestFDBBlobstoreURL checks the exact blobstore:// destination for
+// continuous fdbbackup start with a plain-HTTP SeaweedFS IPv6 endpoint.
+// The URL must use fdb-blobstore-host, preserve the port, and include the
+// secret verbatim. url.Values.Encode sorts the query keys as bucket, region,
+// and secure_connection.
 func TestFDBBlobstoreURL(t *testing.T) {
 	cfg := &config.Config{
 		BackupS3Endpoint:   "http://[3d06:bad:b01:204::410]:8333",
@@ -32,9 +30,9 @@ func TestFDBBlobstoreURL(t *testing.T) {
 	}
 }
 
-// TestFDBBlobstoreURLStripsHTTPS confirms an https:// endpoint loses its
-// scheme the same way http:// does and that the IPv6 literal is substituted
-// with the synthetic host.
+// TestFDBBlobstoreURLStripsHTTPS checks that the encoder removes https://
+// as it removes http:// and replaces the IPv6 literal with the synthetic
+// hostname.
 func TestFDBBlobstoreURLStripsHTTPS(t *testing.T) {
 	cfg := &config.Config{
 		BackupS3Endpoint:   "https://[3d06:bad:b01:204::410]:8333",
@@ -54,10 +52,10 @@ func TestFDBBlobstoreURLStripsHTTPS(t *testing.T) {
 	}
 }
 
-// TestBlobstoreHostMappingIPv6Literal verifies the IPv6-literal endpoint
-// resolves to the synthetic URL host fdb-blobstore-host:8333 and the Docker
-// ExtraHosts entry fdb-blobstore-host:3d06:bad:b01:204::410 (bare IPv6, no
-// brackets). This is the exact case proven on QA 2026-05-28.
+// TestBlobstoreHostMappingIPv6Literal checks the URL host
+// fdb-blobstore-host:8333 and the Docker ExtraHosts entry
+// fdb-blobstore-host:3d06:bad:b01:204::410. The mapping uses bare IPv6 without
+// brackets. The original QA observation on 2026-05-28 used this exact case.
 func TestBlobstoreHostMappingIPv6Literal(t *testing.T) {
 	hostForURL, extraHost, err := blobstoreHostMapping("http://[3d06:bad:b01:204::410]:8333")
 	if err != nil {
@@ -73,9 +71,9 @@ func TestBlobstoreHostMappingIPv6Literal(t *testing.T) {
 	}
 }
 
-// TestBlobstoreHostMappingPlainHostname verifies a plain-hostname endpoint is
-// returned unchanged for the URL and produces no ExtraHosts mapping, since
-// fdbbackup can resolve the name directly.
+// TestBlobstoreHostMappingPlainHostname checks that the encoder preserves a
+// plain hostname in the URL without an ExtraHosts mapping. fdbbackup resolves
+// that hostname directly.
 func TestBlobstoreHostMappingPlainHostname(t *testing.T) {
 	hostForURL, extraHost, err := blobstoreHostMapping("http://seaweedfs-s3:8333")
 	if err != nil {
@@ -89,8 +87,8 @@ func TestBlobstoreHostMappingPlainHostname(t *testing.T) {
 	}
 }
 
-// TestBlobstoreExtraHostsIPv6Literal confirms the slice helper wraps the
-// single IPv6 mapping the backup containers need.
+// TestBlobstoreExtraHostsIPv6Literal checks that the helper returns the
+// single IPv6 mapping that backup containers require.
 func TestBlobstoreExtraHostsIPv6Literal(t *testing.T) {
 	got, err := blobstoreExtraHosts("http://[3d06:bad:b01:204::410]:8333")
 	if err != nil {
@@ -101,8 +99,8 @@ func TestBlobstoreExtraHostsIPv6Literal(t *testing.T) {
 	}
 }
 
-// TestBlobstoreExtraHostsPlainHostname confirms a plain hostname yields no
-// ExtraHosts so the Docker HostConfig field stays nil.
+// TestBlobstoreExtraHostsPlainHostname checks that a plain hostname leaves
+// the Docker HostConfig ExtraHosts field nil.
 func TestBlobstoreExtraHostsPlainHostname(t *testing.T) {
 	got, err := blobstoreExtraHosts("http://seaweedfs-s3:8333")
 	if err != nil {
@@ -113,9 +111,8 @@ func TestBlobstoreExtraHostsPlainHostname(t *testing.T) {
 	}
 }
 
-// TestFDBBlobstoreURLRequiresCredentials confirms the helper refuses to build
-// a destination when either credential is missing, so a misconfigured run
-// fails loudly instead of writing an unauthenticated URL.
+// TestFDBBlobstoreURLRequiresCredentials checks that the encoder refuses
+// missing credentials rather than creating an unauthenticated destination.
 func TestFDBBlobstoreURLRequiresCredentials(t *testing.T) {
 	cfg := &config.Config{
 		BackupS3Endpoint:   "http://[3d06:bad:b01:204::410]:8333",
@@ -128,8 +125,8 @@ func TestFDBBlobstoreURLRequiresCredentials(t *testing.T) {
 	}
 }
 
-// TestFDBBlobstoreURLRejectsEmptyEndpoint confirms an empty endpoint is a hard
-// error rather than producing a host-less blobstore URL.
+// TestFDBBlobstoreURLRejectsEmptyEndpoint checks that the encoder rejects an
+// empty endpoint rather than creating a blobstore URL without a host.
 func TestFDBBlobstoreURLRejectsEmptyEndpoint(t *testing.T) {
 	cfg := &config.Config{
 		BackupS3AccessKey:  "key",

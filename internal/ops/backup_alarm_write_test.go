@@ -9,16 +9,16 @@ import (
 	"time"
 )
 
-// refusingWriter is an output stream that accepts nothing, the shape of a
-// closed stdout under a service manager.
+// refusingWriter rejects every write, matching a closed standard output
+// stream under a service manager.
 type refusingWriter struct{ err error }
 
 func (w refusingWriter) Write([]byte) (int, error) { return 0, w.err }
 
-// TestBackupStalenessAlarmMailsWhenTheReportCannotBeWritten pins that the mail
-// does not depend on stdout. A stale reading whose report write fails still
-// mails once and still returns the stale verdict, not the write error; a fresh
-// reading whose report write fails returns the write error and mails nothing.
+// TestBackupStalenessAlarmMailsWhenTheReportCannotBeWritten checks that
+// alarm mail does not depend on standard output. After a stale report write
+// fails, the command sends once and returns the stale verdict. After a fresh
+// report write fails, the command returns the write error without sending.
 func TestBackupStalenessAlarmMailsWhenTheReportCannotBeWritten(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	fixBackupStalenessClock(t, now)
