@@ -1,12 +1,9 @@
-// backup_restore_drill_yb_role_names_test.go covers what the roles-apply
-// classification does with role names the message shape does not obviously
-// survive. The tolerated class is read out of a message the server builds by
-// interpolating the role's own name, unescaped, so the name can carry the
-// characters the message uses as its own structure.
+// Role-apply classification reads duplicate-role messages with unescaped role
+// names. A role name can include the same characters that delimit the message.
 //
-// A drill that fails on an ordinary duplicate is a false failure rather than a
-// false pass, which is the safer direction but not a harmless one: an operator
-// who learns to disregard the drill's verdict is protected by nothing.
+// Rejecting an ordinary duplicate makes the drill report a false failure.
+// False failures are safer than false passes, but repeated false failures can
+// lead operators to disregard a verdict that must detect failed recovery.
 
 package ops
 
@@ -15,23 +12,19 @@ import (
 	"testing"
 )
 
-// ybRolesApplyDiagnostic renders one verbose ysqlsh diagnostic the way the
-// pinned apply prints it, so these tests drive the classification over the same
-// line shape a real apply produces rather than over a bare message.
+// ybRolesApplyDiagnostic renders the verbose ysqlsh diagnostic format that the
+// pinned apply uses. Tests classify a full diagnostic line instead of a bare
+// message.
 func ybRolesApplyDiagnostic(sqlState, message string) string {
 	return "ysqlsh:" + ybTestRolesFilePath + ":24: ERROR:  " + sqlState + ": " + message + "\n"
 }
 
-// TestClassifyYBRolesApplyReadsRoleNamesTheMessageShapeCannotDelimit proves the
-// tolerated duplicate is still recognized when the role's name carries the
-// characters the message is built from.
-//
-// A quoted SQL identifier may hold a double quote, and the server interpolates
-// the name into "role %s already exists" without escaping it, so the message
-// carries more quotes than its shape suggests. A name that itself ends in the
-// message's own fixed suffix is the same problem one step further on: the
-// capture has to span to the last suffix, not the first, or it hands back a
-// truncated name for a role the target genuinely already has.
+// TestClassifyYBRolesApplyReadsRoleNamesTheMessageShapeCannotDelimit checks
+// duplicate-role recognition when names include message delimiters. A quoted
+// SQL identifier can include a double quote. The server inserts the name into
+// "role %s already exists" without escaping it. Names can also end with the
+// fixed message suffix. The capture must include everything before the final
+// suffix; stopping earlier would truncate a valid name for an existing role.
 func TestClassifyYBRolesApplyReadsRoleNamesTheMessageShapeCannotDelimit(t *testing.T) {
 	tests := []struct {
 		name string
@@ -57,18 +50,17 @@ func TestClassifyYBRolesApplyReadsRoleNamesTheMessageShapeCannotDelimit(t *testi
 	}
 }
 
-// liveNewlineRolesApplyStderr is the stderr a real roles file produced when the
-// target already held two roles whose names carry newlines, captured on
-// 2026-09-01 by applying a ysql_dumpall --roles-only --no-role-passwords file
-// to yugabytedb/yugabyte:2025.2.3.0-b149 under the exact command and
-// environment applyYBDrillRoles uses.
+// liveNewlineRolesApplyStderr records stderr from a real roles file applied
+// on 2026-09-01 to yugabytedb/yugabyte:2025.2.3.0-b149. The target already
+// had two roles with newlines in their names. The file came from ysql_dumpall
+// --roles-only --no-role-passwords, and the apply used the exact command and
+// environment of applyYBDrillRoles.
 //
-// The server interpolates the name into the message unescaped and the client
-// prints the message as it is, so a name's newline splits the diagnostic across
-// lines: the first line ends mid-name, the rest of the name follows with no
-// prefix, label, or indent, and a name with two consecutive newlines puts an
-// empty line inside the message. Only the first line carries the file locus
-// and the SQLSTATE.
+// The server inserts role names without escaping, and the client prints those
+// names unchanged. A newline splits a diagnostic after part of the name.
+// Remaining name text does not have a prefix, label, or indentation;
+// consecutive newlines create an empty message line. Only the first line
+// contains the file location and SQLSTATE.
 const liveNewlineRolesApplyStderr = `ysqlsh:/artifacts/roles.sql:14: ERROR:  42710: role "drill" already exists
 LOCATION:  CreateRole, user.c:319
 ysqlsh:/artifacts/roles.sql:17: ERROR:  42710: role "first
@@ -90,16 +82,12 @@ ysqlsh:/artifacts/roles.sql:34: ERROR:  42710: role "yugabyte" already exists
 LOCATION:  CreateRole, user.c:319
 `
 
-// TestClassifyYBRolesApplyReassemblesARoleNameSplitAcrossLines proves the
-// tolerated duplicate is still recognized when the role's name carries a
-// newline, on the real rendering of that case.
-//
-// A quoted SQL identifier may hold a newline, and the client prints the
-// server's message with the newline in it, so the one diagnostic arrives split
-// across lines. Classifying each line alone sees a first fragment with no
-// closing suffix, which it cannot tolerate, and a rest that matches nothing,
-// which it drops: the drill fails on the one class it exists to pass over.
-// The diagnostic has to be put back together before it is read.
+// TestClassifyYBRolesApplyReassemblesARoleNameSplitAcrossLines checks duplicate
+// recognition using real output with newlines in role names. Quoted SQL
+// identifiers can include newlines, and the client preserves them in the server
+// message. Classifying lines separately would reject the first fragment without
+// a closing suffix and discard the continuation. Reassemble the diagnostic
+// before classification to avoid failing an allowed duplicate.
 func TestClassifyYBRolesApplyReassemblesARoleNameSplitAcrossLines(t *testing.T) {
 	report := classifyYBRolesApply(liveNewlineRolesApplyStderr, ybTestRolesFilePath)
 	if len(report.Unexpected) > 0 {
@@ -114,11 +102,10 @@ func TestClassifyYBRolesApplyReassemblesARoleNameSplitAcrossLines(t *testing.T) 
 	}
 }
 
-// TestClassifyYBRolesApplyStillRefusesADuplicateThatIsNotARole proves the
-// widened capture did not widen what is tolerated. SQLSTATE 42710 covers
-// duplicate objects of every kind, and only a duplicate role may be passed
-// over, so a duplicate schema whose name is built to look like the role message
-// still fails the drill.
+// TestClassifyYBRolesApplyStillRefusesADuplicateThatIsNotARole checks that a
+// wider name capture does not accept more object types. SQLSTATE 42710 covers
+// duplicate objects of every kind. A duplicate schema must fail even when its
+// name imitates a duplicate-role message.
 func TestClassifyYBRolesApplyStillRefusesADuplicateThatIsNotARole(t *testing.T) {
 	message := `schema "role "audit" already exists" already exists`
 	stderr := ybRolesApplyDiagnostic(ybDuplicateObjectSQLState, message)

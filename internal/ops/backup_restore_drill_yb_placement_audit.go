@@ -1,9 +1,8 @@
-// backup_restore_drill_yb_placement_audit.go reads what the tablet placement
-// covered and decides whether every copy it was built to make actually ran.
-// What the export carried is settled before the scripts exist, so this is the
-// half that catches the scripts themselves falling short: a chunk that never
-// ran, or a copy that recorded nothing. Output it cannot read fails the drill
-// rather than counting as nothing missing.
+// The placement audit checks whether every planned tablet copy completed.
+// Replica selection checks export contents before script construction.
+// The audit detects a script that did not run or a copy that did not record
+// success. Unreadable audit output fails the drill instead of counting as a
+// complete placement.
 
 package ops
 
@@ -17,23 +16,21 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ybPlacementMissingSample bounds how many missing tablet names one error
-// message carries. The counts it reports are always exact and the message
-// says how many names it left out, so nothing is dropped without saying so;
-// what the bound prevents is a corpus-sized error string.
+// ybPlacementMissingSample limits the tablet identities in one error message.
+// Counts remain exact, and the message reports how many identities it omits.
+// The limit prevents an error string from growing with the whole corpus.
 const ybPlacementMissingSample = 20
 
-// ybPlacementAudit is what the container counted once every placement script
-// had run: how many tablets the placement attempted, how many it copied, and
-// which ones recorded no copy.
+// ybPlacementAudit records the container's counts after the placement scripts
+// run: attempted tablets, successful copies, and tablets without a copy record.
 type ybPlacementAudit struct {
 	Expected int
 	Placed   int
 	Missing  []string
 }
 
-// auditYBPlacement reads both ledgers out of the scratch container and fails
-// unless the placement covered every tablet the import created.
+// auditYBPlacement reads both ledgers from the scratch container and fails
+// unless placement accounts for every imported tablet.
 func auditYBPlacement(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -63,11 +60,10 @@ func auditYBPlacement(
 	return nil
 }
 
-// ybPlacementVerdict fails unless the placement attempted every tablet the
-// import created and copied every one it attempted. Both halves matter: the
-// attempted count catches a chunk that never ran, and the placed count catches
-// a copy that did not, since a clause is built only for a tablet whose source
-// was already verified against the export's own record of it.
+// ybPlacementVerdict requires placement to attempt every imported tablet and
+// copy every attempted tablet. The expected count detects a script that did
+// not run. The placed count detects a missing copy record. Each clause uses a
+// source that already passed the export inventory check.
 func ybPlacementVerdict(audit ybPlacementAudit, wanted int) error {
 	if audit.Expected != wanted {
 		return fmt.Errorf(
@@ -82,9 +78,8 @@ func ybPlacementVerdict(audit ybPlacementAudit, wanted int) error {
 	return nil
 }
 
-// countDistinctTablets counts the tablets the placement scripts were built
-// from, under the same identity the ledgers record, so the audit's attempted
-// count is compared against a like number.
+// countDistinctTablets counts each table and tablet identity once. The audit
+// compares this count with ledger entries that use the same identity.
 func countDistinctTablets(remaps []ybTabletRemap) int {
 	seen := make(map[string]bool, len(remaps))
 	for _, remap := range remaps {
@@ -93,8 +88,8 @@ func countDistinctTablets(remaps []ybTabletRemap) int {
 	return len(seen)
 }
 
-// sampleTabletIdentities renders tablet names, or the reasons tablets were
-// refused, for an error message, naming how many it did not list.
+// sampleTabletIdentities formats tablet identities or refusal reasons for an
+// error and reports how many entries it omits.
 func sampleTabletIdentities(identities []string) string {
 	if len(identities) <= ybPlacementMissingSample {
 		return strings.Join(identities, ", ")
@@ -104,10 +99,9 @@ func sampleTabletIdentities(identities []string) string {
 		len(identities)-ybPlacementMissingSample)
 }
 
-// parseYBPlacementAudit reads the audit script's output, which is two counts,
-// a marker, and one line per tablet the export did not carry. It is strict on
-// purpose, and the two counts have to agree with the list, which is what
-// catches an audit read that came back truncated.
+// parseYBPlacementAudit reads two counts, a marker, and one line per tablet
+// without a placement record. It requires the count difference to equal the
+// list length and rejects inconsistent or truncated output.
 func parseYBPlacementAudit(out string) (ybPlacementAudit, error) {
 	empty := ybPlacementAudit{Expected: 0, Placed: 0, Missing: nil}
 	var lines []string
@@ -139,7 +133,7 @@ func parseYBPlacementAudit(out string) (ybPlacementAudit, error) {
 	return ybPlacementAudit{Expected: expected, Placed: placed, Missing: missing}, nil
 }
 
-// parseYBPlacementCount reads one labelled count line of the audit output.
+// parseYBPlacementCount reads one labeled count from audit output.
 func parseYBPlacementCount(line, label string) (int, error) {
 	fields := strings.Fields(line)
 	if len(fields) != 2 || fields[0] != label {

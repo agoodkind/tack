@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-// TestYBPlacementHandlesConfiguredPathsWithASpace proves a configured directory
-// carrying a space places every tablet. Unquoted, the export root split the
-// source path into two words so no tablet was ever found, and the ledger paths
-// bound only their first word, which under bash is an ambiguous redirect that
-// loses every record the placement writes.
+// TestYBPlacementHandlesConfiguredPathsWithASpace checks that placement
+// copies every tablet when configured directories contain spaces. Previously,
+// an unquoted export root split the source path into words and prevented tablet
+// discovery. Unquoted ledger paths assigned only their first word; bash treated
+// the resulting redirect as ambiguous and lost placement records.
 func TestYBPlacementHandlesConfiguredPathsWithASpace(t *testing.T) {
 	eachPlacementShell(t, func(t *testing.T, shell string) {
 		const exportSnap, newSnap = "expsnap", "newsnap"
@@ -42,15 +42,14 @@ func TestYBPlacementHandlesConfiguredPathsWithASpace(t *testing.T) {
 	})
 }
 
-// TestYBPlacementTreatsTabletIdsAsData proves the ids the placement builds its
-// paths from are data. They are fields of `yb-admin import_snapshot` output,
-// and the placement itself matches them against no pattern, so metadata
-// reaching them is a path to execution: Go's %q wrapped them in double quotes,
-// which a shell still expands, leaving $(...) and backticks live inside a
-// container holding the cluster's data. The parser now refuses ids outside the
-// engine's form before they get here; the payloads below bypass it to prove the
-// placement holds on its own, must land as directory names, and their canaries
-// must not exist.
+// TestYBPlacementTreatsTabletIdsAsData checks that placement treats IDs as
+// directory names. The IDs come from `yb-admin import_snapshot` output,
+// and placement does not validate their format. Previously, Go's %q used
+// double quotes that still allowed shell expansion of $(...) and backticks
+// inside a container with cluster data. The parser now rejects IDs outside
+// the engine's format before placement. These test payloads bypass the parser
+// to check placement quoting independently: literal directories must exist,
+// and command-substitution canaries must not exist.
 func TestYBPlacementTreatsTabletIdsAsData(t *testing.T) {
 	eachPlacementShell(t, func(t *testing.T, shell string) {
 		const exportSnap, newSnap = "expsnap", "newsnap"

@@ -7,19 +7,18 @@ import (
 	"testing"
 )
 
-// maxExecArgBytes is the Linux per-argument exec limit (MAX_ARG_STRLEN,
-// 32 pages). A placement script at or past it makes the container exec fail
-// with "argument list too long", which is the 2026-08-30 QA drill failure.
+// maxExecArgBytes specifies Linux's per-argument exec limit, MAX_ARG_STRLEN,
+// at 32 pages. A placement script at or above the limit fails container exec
+// with "argument list too long", as the 2026-08-30 QA drill did.
 const maxExecArgBytes = 128 * 1024
 
-// TestYBPlacementScriptsStayUnderTheExecArgLimit proves a corpus far past the
-// size that broke the single-script placement (~440 tablets) yields scripts
-// that each fit in one exec argument, together cover every remap exactly once,
-// and keep the fail-fast prefix. The long-directory case is why the chunks are
-// measured in bytes: each clause embeds the directory twice, so a count-based
-// chunk would grow past the limit as the configured path grows. With the
-// chunking removed (one script for all remaps), the size assertion fails,
-// which is the red proof this test exists for.
+// TestYBPlacementScriptsStayUnderTheExecArgLimit uses a corpus much larger
+// than the approximately 440 tablets that broke single-script placement.
+// It checks each script's byte limit and shared prefix, the total clause count,
+// and inclusion of the first and last remap. The long-directory case checks
+// byte measurement: each clause includes the configured directory twice, and
+// fixed clause counts could exceed the limit as paths grow. Removing chunking
+// makes the size assertion fail.
 func TestYBPlacementScriptsStayUnderTheExecArgLimit(t *testing.T) {
 	const tabletCount = 5000
 	const exportSnap = "e3e4ff5d-cf6c-42a6-93a2-1518823d5a86"
@@ -77,18 +76,19 @@ func TestYBPlacementScriptsStayUnderTheExecArgLimit(t *testing.T) {
 	}
 }
 
-// TestYBPlacementScriptsEmpty locks that zero placements produce zero scripts,
-// so the drill cannot run an empty placement exec.
+// TestYBPlacementScriptsEmpty checks that zero placements produce zero scripts
+// and cannot cause an empty placement exec.
 func TestYBPlacementScriptsEmpty(t *testing.T) {
 	if scripts := ybPlacementScripts(nil, drillPlacementLayout("/data"), "new"); len(scripts) != 0 {
 		t.Fatalf("scripts = %d, want none for zero placements", len(scripts))
 	}
 }
 
-// TestChooseYBTabletReplicasDecidesEachTabletOnce proves a mapping that names
-// one tablet twice yields one copy and one refusal, not two. The audit counts
-// tablets, so a doubled placement would attempt more than the import created
-// and a doubled refusal would claim the export is short of more than it holds.
+// TestChooseYBTabletReplicasDecidesEachTabletOnce checks duplicate mapping
+// rows. A repeated complete tablet produces one placement, and a repeated
+// absent tablet produces one refusal. The audit counts distinct tablets;
+// duplicate placements would overstate attempts, and duplicate refusals would
+// overstate missing tablets.
 func TestChooseYBTabletReplicasDecidesEachTabletOnce(t *testing.T) {
 	const exportSnap = "expsnap"
 	whole := ybTabletRemap{table: "t1", old: "o1", new: "n1"}

@@ -1,11 +1,10 @@
-// backup_restore_drill_yb_staging_test.go drives the drill's staging step end
-// to end: the artifact names a manifest declares resolve to files directly
-// inside the staging directory, and a manifest naming anything outside its own
-// run is not drilled at all. The manifest is fetched from the object store, so
-// those names are untrusted input, and the staging step joins each one onto a
-// directory the drill bind-mounts into a container and later removes
-// recursively. The byte-class sweep that proves every admitted name is a bare
-// basename is in backup_restore_drill_yb_artifact_names_test.go.
+// The staging tests check that manifest artifact names create files directly
+// inside the staging directory and that selection rejects references
+// outside the export run. The manifest comes from the object store, and its
+// names form untrusted input. Staging joins names to a directory that the
+// drill bind-mounts and later deletes recursively. The byte-class sweep in
+// backup_restore_drill_yb_artifact_names_test.go checks that every accepted
+// name is a bare basename.
 
 package ops
 
@@ -22,14 +21,13 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// ybStageStoredRunID is the export run the staging tests plant in the object
-// store. It is a run-key timestamp because nothing looser survives the
-// manifest boundary.
+// ybStageStoredRunID identifies the export run that staging tests store in the
+// object store. Its run-key timestamp format satisfies manifest validation.
 const ybStageStoredRunID = "20260830T030000Z"
 
-// newYBDrillStage returns a drill context, a throwaway root, and the staging
-// directory nested inside it, so a test can tell a file written into the stage
-// from one written anywhere else.
+// newYBDrillStage returns a drill context, a temporary root, and a staging
+// directory inside that root. Tests can distinguish staged files from files
+// written elsewhere under the root.
 func newYBDrillStage(t *testing.T, cfg *config.Config) (*restoreDrillCtx, string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -50,9 +48,9 @@ func newYBDrillStage(t *testing.T, cfg *config.Config) (*restoreDrillCtx, string
 	}, root, stageDir
 }
 
-// filesUnder returns every regular file below root, as slash-separated paths
-// relative to root, sorted. A file the drill wrote outside the stage shows up
-// here as a path that does not start with the stage's own relative path.
+// filesUnder returns sorted paths relative to root with slash separators.
+// It visits every nondirectory entry beneath root. A file outside staging has a
+// relative path without the staging prefix.
 func filesUnder(t *testing.T, root string) []string {
 	t.Helper()
 	var found []string
@@ -77,12 +75,12 @@ func filesUnder(t *testing.T, root string) []string {
 	return found
 }
 
-// TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage drives
-// the real staging step against the real object-store client and proves the
-// files it creates are exactly the declared run-root artifacts and, per node,
-// one archive and one inventory, each a direct child of the staging directory.
-// This is what ties the sweep below to the path the production code actually
-// builds: a staging step that stopped joining names this way would fail here.
+// TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage runs
+// real staging with the real object-store client. It checks that the created
+// files match all declared run-root artifacts and one archive and inventory
+// per node, directly under staging. This connects artifact-name validation
+// with production path construction; changing that construction would fail the
+// assertion.
 func TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage(t *testing.T) {
 	manifest := newYBSnapshotManifest(ybStageStoredRunID, "snap-1", "tack",
 		[]string{"yb1", "yb2"}, ybTestArtifactNames())
@@ -123,16 +121,14 @@ func TestStageYBDrillArtifactsWritesEachDeclaredNameDirectlyUnderTheStage(t *tes
 	}
 }
 
-// TestYBDrillWritesNothingOutsideTheStageForAClimbingArtifactName plants an
-// export whose manifest declares an artifact name that points above the staging
-// directory, and drives the real selection the drill runs. SeaweedFS refuses a
-// key holding "..", so the object is planted under the key that name collapses
-// to, where a download that cleaned the joined key would find it.
+// TestYBDrillWritesNothingOutsideTheStageForAClimbingArtifactName stores an
+// export with an artifact name above the staging directory and runs production
+// selection. SeaweedFS rejects keys containing "..". The fixture stores the
+// object at the cleaned key that an unsafe downloader could request.
 //
-// Two things must hold, and the second is the security property. The run must
-// not be drilled at all, because a manifest naming something outside its own
-// run describes an export nothing should restore from. And whatever the
-// selection decides, the throwaway root must hold no file outside the stage.
+// Selection must reject the run because its manifest refers outside that run.
+// Regardless of the selection result, the temporary root must not contain a
+// file outside staging.
 func TestYBDrillWritesNothingOutsideTheStageForAClimbingArtifactName(t *testing.T) {
 	const climbing = "../../escaped.txt"
 	manifest := newYBSnapshotManifest(ybStageStoredRunID, "snap-1", "tack",

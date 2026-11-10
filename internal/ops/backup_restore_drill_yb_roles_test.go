@@ -7,15 +7,15 @@ import (
 	"testing"
 )
 
-// ybTestRolesFilePath is the path the fixtures below were applied from, which
-// classification needs so it can recognize a line psql raised about that file.
+// ybTestRolesFilePath specifies the fixture apply path that classification uses
+// to recognize psql diagnostics about that file.
 const ybTestRolesFilePath = "/artifacts/roles.sql"
 
-// liveRolesApplyStderr is the stderr a real roles file produced, captured on
-// 2026-08-30 by applying a ysql_dumpall --roles-only --no-role-passwords file
-// to a yugabytedb/yugabyte:2024.2.8.0-b85 cluster holding only the roles a
-// fresh engine creates plus its bootstrap user. Every line is a role the target
-// already had; there is no other error in a healthy apply.
+// liveRolesApplyStderr records stderr captured on 2026-08-30 from a
+// real roles-file apply. The file came from ysql_dumpall --roles-only
+// --no-role-passwords. The yugabytedb/yugabyte:2024.2.8.0-b85 target had only
+// engine-created roles and its bootstrap user. Every recorded diagnostic
+// reports an existing role; a healthy apply does not report another error.
 const liveRolesApplyStderr = `ysqlsh:/artifacts/roles.sql:24: ERROR:  42710: role "postgres" already exists
 LOCATION:  CreateRole, user.c:348
 ysqlsh:/artifacts/roles.sql:26: ERROR:  42710: role "tack" already exists
@@ -30,30 +30,27 @@ ysqlsh:/artifacts/roles.sql:36: ERROR:  42710: role "yugabyte" already exists
 LOCATION:  CreateRole, user.c:348
 `
 
-// liveGermanRolesApplyStderr is the same kind of apply against a cluster whose
-// message locale is not English, captured live on 2026-08-30 from
-// yugabytedb/yugabyte:2025.2.3.0-b149 with the server's lc_messages set to
-// de_DE.utf8, a locale that image ships a message catalog for. Both the severity token and the message text change; the
-// SQLSTATE does not.
+// liveGermanRolesApplyStderr records apply diagnostics captured on 2026-08-30
+// from yugabytedb/yugabyte:2025.2.3.0-b149 with server lc_messages set to
+// de_DE.utf8. That image includes the locale's message catalog. Severity and
+// message text change, but SQLSTATE does not.
 //
-// The two lines are deliberately different failures. The first is the one a
-// healthy apply always raises and the drill tolerates when it can read it. The
-// second is a role the file could not grant, which must never be tolerated:
-// under a classification that reads the English words, neither line is seen at
-// all and the apply is reported clean.
+// The first diagnostic reports a duplicate role that a healthy apply must
+// tolerate when it can interpret the message. The second reports a failed role
+// grant that must fail the drill. Classification based on English words would
+// miss both lines and incorrectly accept the apply.
 const liveGermanRolesApplyStderr = `ysqlsh:/artifacts/roles.sql:1: FEHLER:  42710: Rolle »tack« existiert bereits
 ORT:  CreateRole, user.c:319
 ysqlsh:/artifacts/roles.sql:5: FEHLER:  42704: Rolle »role_that_is_absent« existiert nicht
 ORT:  get_role_oid, acl.c:5194
 `
 
-// TestClassifyYBRolesApplyPassesOverRolesTheTargetAlreadyHas proves the one
-// tolerated class is recognized on real output. Every restore target already
-// carries the roles its own engine created at initdb plus its bootstrap user,
-// and the roles file describes those too, so refusing them would fail every
-// restore. Nothing is lost by passing over the refused CREATE: the dump follows
-// each one with an ALTER ROLE that sets the role's attributes, and that still
-// runs.
+// TestClassifyYBRolesApplyPassesOverRolesTheTargetAlreadyHas checks the allowed
+// duplicate class against real output. Engine-created roles and the bootstrap
+// user already exist on every target, and the exported roles file includes
+// them. Rejecting these duplicates would fail every restore. Each CREATE in
+// the dump has a following ALTER ROLE that still applies the source attributes
+// after a duplicate.
 func TestClassifyYBRolesApplyPassesOverRolesTheTargetAlreadyHas(t *testing.T) {
 	report := classifyYBRolesApply(liveRolesApplyStderr, ybTestRolesFilePath)
 	if len(report.Unexpected) > 0 {
@@ -65,16 +62,12 @@ func TestClassifyYBRolesApplyPassesOverRolesTheTargetAlreadyHas(t *testing.T) {
 	}
 }
 
-// TestClassifyYBRolesApplyRefusesDiagnosticsItCannotRead drives the
-// classification with real diagnostics from a cluster whose message locale is
-// not English.
-//
-// This is the failure the pinned rendering exists to remove, and the reason the
-// classification refuses whatever it cannot account for. Reading the English
-// severity token would see neither line here: not the tolerable duplicate role,
-// and not the missing role that means the restored ledger has a grant it could
-// not make. An apply reported clean is worse than one reported broken, because
-// the drill's whole purpose is to be the place that failure surfaces.
+// TestClassifyYBRolesApplyRefusesDiagnosticsItCannotRead uses real diagnostics
+// from a non-English message locale. Locale pinning prevents this rendering,
+// and classification must reject it if it occurs. Reading only English severity
+// words would miss both the allowed duplicate and the missing-role grant
+// failure. The drill must report that failure instead of falsely accepting a
+// restored ledger with an unapplied grant.
 func TestClassifyYBRolesApplyRefusesDiagnosticsItCannotRead(t *testing.T) {
 	report := classifyYBRolesApply(liveGermanRolesApplyStderr, ybTestRolesFilePath)
 	if len(report.AlreadyPresent) > 0 {
@@ -89,13 +82,11 @@ func TestClassifyYBRolesApplyRefusesDiagnosticsItCannotRead(t *testing.T) {
 	}
 }
 
-// TestClassifyYBRolesApplyFailsClosedOnAnythingElse proves the classification
-// is deny-by-default. A roles file that could not give the target a role, for
-// any reason other than already having it, must fail the restore here: the
-// alternative is a database whose ledger nobody can read, discovered during an
-// incident. An error line carrying no SQLSTATE, or a different SQLSTATE, or a
-// duplicate object that is not a role, counts as unexpected rather than being
-// passed over.
+// TestClassifyYBRolesApplyFailsClosedOnAnythingElse checks rejection of
+// errors outside the duplicate-role class. Any other role restoration failure
+// must fail before an incident reveals a ledger that callers cannot read.
+// Missing SQLSTATE, another SQLSTATE, and a duplicate object other than a role
+// all count as unexpected.
 func TestClassifyYBRolesApplyFailsClosedOnAnythingElse(t *testing.T) {
 	tests := []struct {
 		name string
@@ -132,12 +123,11 @@ func TestClassifyYBRolesApplyFailsClosedOnAnythingElse(t *testing.T) {
 	}
 }
 
-// TestClassifyYBRolesApplyIgnoresNonErrorOutput proves the classification reads
-// failures rather than everything the apply prints. The verbose LOCATION lines
-// and psql's notices are not failures, and they stay non-failures in a locale
-// that renames both of them, because what says so is the notice's SQLSTATE
-// class rather than the word in front of it. Both notices are live output from
-// yugabytedb/yugabyte:2025.2.3.0-b149.
+// TestClassifyYBRolesApplyIgnoresNonErrorOutput checks that verbose
+// LOCATION lines and psql notices do not count as failures, including
+// localized versions. Notice SQLSTATE classes determine that result
+// independently of localized words. Both notice fixtures came from live
+// yugabytedb/yugabyte:2025.2.3.0-b149 output.
 func TestClassifyYBRolesApplyIgnoresNonErrorOutput(t *testing.T) {
 	lines := []string{
 		`NOTICE:  00000: role "never_existed" does not exist, skipping`,
@@ -154,17 +144,13 @@ func TestClassifyYBRolesApplyIgnoresNonErrorOutput(t *testing.T) {
 	}
 }
 
-// TestYBRolesApplyEnvPinsBothHalvesOfTheRendering proves the apply asks for the
-// one rendering the classification is written against, rather than accepting
-// whatever the recovery cluster and the image are set to.
-//
-// The two halves are pinned by different mechanisms because they are produced
-// by different processes: the severity token and the message text come from the
-// server, which renders them in its own lc_messages, and the LOCATION and
-// DETAIL labels come from the client. Verified live on
-// yugabytedb/yugabyte:2025.2.3.0-b149: with the server set to de_DE.utf8,
-// PGOPTIONS returns the messages to English, and with LC_ALL=de_DE.utf8 in the
-// container, the empty LC_ALL plus LC_MESSAGES returns the labels to English.
+// TestYBRolesApplyEnvPinsBothHalvesOfTheRendering checks that the apply
+// requests the diagnostic format classification requires. The server renders
+// severity and message text using lc_messages; the client renders LOCATION
+// and DETAIL labels. A live check against yugabytedb/yugabyte:2025.2.3.0-b149
+// confirmed that PGOPTIONS restored English messages from server de_DE.utf8.
+// With container LC_ALL=de_DE.utf8, empty LC_ALL plus LC_MESSAGES restored
+// English client labels.
 func TestYBRolesApplyEnvPinsBothHalvesOfTheRendering(t *testing.T) {
 	env := ybRolesApplyEnv("drill-pass") // gitleaks:allow test placeholder
 	for _, required := range []string{
@@ -179,11 +165,10 @@ func TestYBRolesApplyEnvPinsBothHalvesOfTheRendering(t *testing.T) {
 	}
 }
 
-// TestYBDrillArtifactPathsCoverEveryRequiredArtifact proves the fixed paths the
-// restore opens are built from the same object names the completeness gate
-// makes a manifest declare. A path built independently of that list would read
-// a file no gate required, which is how a run passes selection and then fails
-// deep in the restore.
+// TestYBDrillArtifactPathsCoverEveryRequiredArtifact checks that fixed restore
+// paths use the object names required by the manifest completeness gate.
+// An independent path could require a file that selection never checked and
+// fail later during restore.
 func TestYBDrillArtifactPathsCoverEveryRequiredArtifact(t *testing.T) {
 	for _, artifact := range ybRequiredRunArtifacts() {
 		path := ybDrillArtifactPath(artifact)

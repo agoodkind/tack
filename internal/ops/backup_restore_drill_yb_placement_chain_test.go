@@ -7,29 +7,27 @@ import (
 	"testing"
 )
 
-// placementShells are the shells the generated scripts are proven against. The
-// drill hands them to `sh`, which is dash on some images and bash on others,
-// and the two disagree on enough to matter: bash refuses a redirection whose
-// unquoted expansion splits into more than one word, so a script dash accepts
-// can lose every placement record under bash.
+// placementShells lists the shells for checking generated scripts. The drill
+// runs scripts with `sh`, which uses dash in some images and bash in others.
+// Bash rejects redirects when unquoted expansion produces multiple words.
+// A script that dash accepts can lose every placement record under bash.
 var placementShells = []string{"sh", "bash"}
 
-// archive tars one node's staged tree the way the export's node archive command
-// does, records the inventory read back out of that archive, stages both the
-// way the drill stages them, and unpacks the archive with the drill's own
-// extraction program. Anything a test does to the extraction afterwards is
-// damage the record still remembers, which is the situation the drill exists to
-// catch.
+// archive creates one node's archive with the export's tar command and
+// reads the inventory from that archive. It stages both artifacts as the
+// drill does and unpacks the archive with the drill's extraction program.
+// Later test damage to extracted files leaves the recorded inventory unchanged,
+// matching the failure that the drill must detect.
 func (f *placementFixture) archive(t *testing.T, node, exportSnap string) ybArchiveInventory {
 	t.Helper()
 	if err := os.MkdirAll(f.artifactDir, 0o755); err != nil {
 		t.Fatalf("make the fixture staging dir: %v", err)
 	}
 	tarPath := filepath.Join(f.artifactDir, ybDrillArchiveName(node))
-	// COPYFILE_DISABLE stops the bsdtar on a macOS developer machine adding an
-	// AppleDouble "._name" member per entry, which the Linux container the
-	// export actually runs in never produces. Without it the fixture's archive
-	// would record files that exist in no extraction anywhere.
+	// COPYFILE_DISABLE prevents macOS bsdtar from adding AppleDouble "._name"
+	// members for entries. Linux export containers do not produce those members.
+	// Without this setting, the fixture inventory would include files that
+	// extraction does not create.
 	runShell(t, f.shell, "cd "+shellQuote(filepath.Join(f.stageRoot, node))+
 		" && find . -type d -path "+shellQuote("*.snapshots/"+exportSnap)+
 		" -print0 | COPYFILE_DISABLE=1 tar czf "+shellQuote(tarPath)+" --null --files-from -")
@@ -46,16 +44,16 @@ func (f *placementFixture) archive(t *testing.T, node, exportSnap string) ybArch
 	return inventory
 }
 
-// extract runs the drill's extraction program over one node's staged archive.
-// The fixture's staging directory stands in for the container's read-only
-// /artifacts mount; nothing else about the program changes.
+// extract runs the drill's extraction program on one staged node archive.
+// The fixture staging directory replaces the container's read-only /artifacts
+// mount without changing the program.
 func (f *placementFixture) extract(t *testing.T, node string) {
 	t.Helper()
 	runShellArgs(t, f.shell, ybTabletExtractScript(f.layout.ExportRoot, f.artifactDir), node)
 }
 
-// check runs the generated comparison program for one node against the
-// inventory staged beside its archive, and returns what the extraction owes it.
+// check runs the generated comparison program against the inventory beside one
+// node's archive and returns the files missing from extraction.
 func (f *placementFixture) check(t *testing.T, inventory ybArchiveInventory) []ybArchivedFile {
 	t.Helper()
 	out := runShell(t, f.shell, ybInventoryCheckScript(
@@ -69,10 +67,10 @@ func (f *placementFixture) check(t *testing.T, inventory ybArchiveInventory) []y
 	return missing
 }
 
-// restore runs the rest of the chain over what the fixture archived: check each
-// extraction against its own node's record, choose a copy per tablet, and place
-// them. The audit is meaningful only when no tablet was refused, because
-// production stops before the placement when one is.
+// restore checks each extraction against its node's inventory, selects a copy
+// per tablet, and places those copies. The audit applies only when selection
+// accepts every tablet. Production stops before placement if selection rejects
+// a tablet.
 func (f *placementFixture) restore(t *testing.T, exportSnap, newSnap string) (ybPlacementAudit, []ybTabletDefect) {
 	t.Helper()
 	extractions := make([]ybNodeExtraction, 0, len(f.inventories))
@@ -94,16 +92,16 @@ func (f *placementFixture) restore(t *testing.T, exportSnap, newSnap string) (yb
 	return audit, nil
 }
 
-// runShell runs one generated script the way the drill hands it to the
-// container, and fails the test if the script itself errors.
+// runShell executes a generated script as the drill does and fails the test if
+// the script returns an error.
 func runShell(t *testing.T, shell, script string) string {
 	t.Helper()
 	return runShellArgs(t, shell, script)
 }
 
-// runShellArgs runs a generated script that reads positional parameters, passing
-// them the way the drill does: the program, the name the shell reports as $0,
-// then the values.
+// runShellArgs runs a generated script with positional parameters. The
+// invocation supplies the program, the shell name as $0, and then the parameter
+// values, matching the drill.
 func runShellArgs(t *testing.T, shell, script string, args ...string) string {
 	t.Helper()
 	argv := append([]string{"-c", script, shell}, args...)
@@ -114,9 +112,9 @@ func runShellArgs(t *testing.T, shell, script string, args ...string) string {
 	return string(out)
 }
 
-// eachPlacementShell runs body once per shell the drill's scripts must work
-// under. A shell that is not installed is reported rather than passed over in
-// silence, because a skipped shell proves nothing about it.
+// eachPlacementShell runs body once per required shell. It reports an
+// unavailable shell instead of silently skipping it; skipping does not
+// establish script behavior under that shell.
 func eachPlacementShell(t *testing.T, body func(t *testing.T, shell string)) {
 	t.Helper()
 	for _, shell := range placementShells {

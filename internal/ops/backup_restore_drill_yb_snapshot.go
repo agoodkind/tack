@@ -12,14 +12,12 @@ import (
 
 var ybUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// importAndRestoreYBSnapshot imports the exported snapshot metadata, copies the
-// exported tablet files into the new tablets the import created, and runs
-// restore_snapshot. The schema must already be applied so the tables exist.
-// inventories are the staged records of what each node's archive carries, in
-// manifest order; each node's archive is extracted into its own directory so
-// replicas of the same tablet from different nodes never mix files, and each
-// extraction is checked against its own node's record before any of it is
-// copied.
+// importAndRestoreYBSnapshot imports exported snapshot metadata, copies
+// exported tablet files into imported tablets, and runs restore_snapshot.
+// Apply the schema first to create the tables. inventories supplies staged
+// node archive records in manifest order. Each node archive uses a separate
+// extraction directory to prevent replica files from mixing. The drill checks
+// each extraction against its node's inventory before copying files.
 func importAndRestoreYBSnapshot(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -68,9 +66,8 @@ func importAndRestoreYBSnapshot(
 			logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 			return wrapped
 		}
-		// A clean extraction is tar's own account of itself. What the export
-		// recorded is the independent one, and it is the one each tablet is
-		// judged against below.
+		// A successful tar extraction reports only tar's result. The export inventory
+		// supplies the independent record for checking each tablet below.
 		missing, err := checkYBNodeExtraction(ctx, r, container, layout.ExportRoot, inventory)
 		if err != nil {
 			return err
@@ -92,10 +89,10 @@ func importAndRestoreYBSnapshot(
 			return wrapped
 		}
 	}
-	// Every tablet the import created has to have been found in the export
-	// before the restore is allowed to proceed. Without this the copies that
-	// found nothing are indistinguishable from copies that worked, and the
-	// row assertion downstream passes on whatever fraction did land.
+	// Require a successful placement record for every imported tablet before
+	// restore. Without this check, copies that did not find files could appear
+	// successful, and the later row assertion could pass with only some files
+	// restored.
 	if err := auditYBPlacement(ctx, r, container, layout, remaps); err != nil {
 		return err
 	}
@@ -109,11 +106,11 @@ func importAndRestoreYBSnapshot(
 		return wrapped
 	}
 
-	// Wait for the restoration to finish: reading the tables while it is still
-	// applying returns the pre-restore empty rows, which the row assertion
-	// would misreport as data loss. The wait ends on a stall, never on a
-	// duration, because restoration time grows with the ledger. A restoration
-	// the master marks failed ends the wait at once.
+	// Wait for restoration to finish before reading tables. Reads during
+	// restoration return empty pre-restore rows that the row assertion would
+	// misreport as data loss. Restoration time grows with the ledger. The wait
+	// stops on a stall instead of a fixed duration. A master-reported restoration
+	// failure ends the wait immediately.
 	restoreWatch := newYBScratchWatch(r, container, master, nil,
 		[]string{"sh", "-c", ybAdminBinary + " --master_addresses " + master + " list_snapshot_restorations | grep -q RESTORED"})
 	took, err := awaitYBScratch(ctx, "snapshot restoration", restoreWatch,
@@ -127,8 +124,9 @@ func importAndRestoreYBSnapshot(
 	return nil
 }
 
-// newestYBSnapshotID returns the single snapshot id on the scratch cluster (the
-// imported one); a fresh yugabyted has no schedule, so it is unambiguous.
+// newestYBSnapshotID returns the imported snapshot ID from the scratch cluster.
+// A fresh yugabyted cluster does not have a schedule and contains only that
+// snapshot.
 func newestYBSnapshotID(ctx context.Context, r *restoreDrillCtx, container, master string) (string, error) {
 	logger := telemetry.L(ctx)
 	res, err := containerExec(ctx, r.Cli, container,

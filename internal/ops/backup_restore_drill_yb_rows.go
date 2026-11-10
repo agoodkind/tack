@@ -1,8 +1,7 @@
-// backup_restore_drill_yb_rows.go asserts the restored auth tables came back
-// holding rows. The count is parsed rather than compared as text: an exec that
-// exits zero having printed nothing is indistinguishable from a healthy table
-// under a string comparison, so a count the drill cannot read fails the drill
-// here instead of passing it.
+// The restore drill requires rows in restored auth tables and parses counts as
+// numbers. Previously, comparing output text could accept an exec that exited
+// successfully without printing a count. The drill now rejects counts it cannot
+// read.
 
 package ops
 
@@ -18,12 +17,12 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// drillAuthTables are the auth tables a restore must bring back with rows.
-// Without them nobody can authenticate against the recovered host, whatever
-// else came back.
+// drillAuthTables lists auth tables that restoration must repopulate.
+// Authentication against the recovered host requires these tables regardless of
+// other recovered data.
 var drillAuthTables = []string{"users", "api_tokens", "org_members"}
 
-// assertYBDrillRows fails unless every restored auth table holds rows.
+// assertYBDrillRows fails unless every restored auth table contains rows.
 func assertYBDrillRows(ctx context.Context, r *restoreDrillCtx, container, database string) error {
 	logger := telemetry.L(ctx)
 	rowCounts := make([]any, 0, len(drillAuthTables))
@@ -43,8 +42,9 @@ func assertYBDrillRows(ctx context.Context, r *restoreDrillCtx, container, datab
 	return nil
 }
 
-// readYBDrillRowCount counts the rows one restored table holds. A count that
-// cannot be read is an error, not a zero and not a pass.
+// readYBDrillRowCount counts rows in one restored table. It returns an error
+// when it cannot read a count instead of treating that result as zero or
+// success.
 func readYBDrillRowCount(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -69,13 +69,11 @@ func readYBDrillRowCount(
 	return count, nil
 }
 
-// parseYBDrillRowCount reads the number out of one `ysqlsh -tAc "select
-// count(*)"` result. Everything that is not a count fails: empty output, which
-// is what an exec that exited zero having printed nothing leaves behind; text,
-// which means the query did not answer; and a negative number, which no
-// count(*) can be and so means this is not a count at all. A count nobody
-// could read says nothing about whether the table came back, so it can never
-// be treated as one that did.
+// parseYBDrillRowCount reads one `ysqlsh -tAc "select count(*)"` result.
+// It rejects empty output, text, and negative values. A successful exec can
+// print empty output without answering the query; text does not supply a count,
+// and count(*) cannot produce a negative value. Unreadable output cannot
+// establish successful table recovery.
 func parseYBDrillRowCount(out string) (int64, error) {
 	trimmed := strings.TrimSpace(out)
 	if trimmed == "" {

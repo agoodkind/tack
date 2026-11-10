@@ -1,9 +1,8 @@
-// backup_restore_drill_yb_stage.go brings one export run's artifacts down to
-// the drill host and hands the scratch container the same files through a
-// read-only bind mount. The run root contributes every artifact the manifest
-// declares, and every node contributes two: the tablet archive and the
-// inventory of what that archive carries, which the drill reads here so it
-// knows what each node's extraction owes before it copies anything.
+// Artifact staging downloads one export run to the drill host and exposes those
+// files to the scratch container through a read-only bind mount. It stages
+// every run-root artifact in the manifest and each node's tablet archive and
+// inventory. The drill reads inventories before copying tablet files to check
+// each extraction against its archive record.
 
 package ops
 
@@ -21,58 +20,56 @@ import (
 )
 
 const (
-	// ybDrillArtifactMount is where the staging directory appears inside the
+	// ybDrillArtifactMount specifies the staging directory's mount inside the
 	// scratch container.
 	ybDrillArtifactMount = "/artifacts"
-	// The staged name of one node's tablet archive is built around the node
-	// name from these two halves, so the extraction program can name the same
-	// file with the node as a positional parameter rather than as program text.
+	// The archive prefix and suffix surround the node name in a staged archive
+	// filename. Extraction supplies the node as a positional parameter instead of
+	// inserting it into shell program text.
 	ybDrillArchivePrefix = "tablets-"
 	ybDrillArchiveSuffix = ".tar.gz"
-	// ybDrillInventoryPrefix opens the staged name of one node's inventory.
+	// ybDrillInventoryPrefix starts the staged inventory filename for each node.
 	ybDrillInventoryPrefix = "inventory-"
 )
 
-// ybDrillArchiveName is the staged file name of one node's tablet archive.
+// ybDrillArchiveName returns one node's staged tablet archive filename.
 func ybDrillArchiveName(node string) string {
 	return ybDrillArchivePrefix + node + ybDrillArchiveSuffix
 }
 
-// ybDrillInventoryName is the staged file name of one node's inventory.
+// ybDrillInventoryName returns one node's staged inventory filename.
 func ybDrillInventoryName(node string) string {
 	return ybDrillInventoryPrefix + node
 }
 
-// ybDrillArtifactPath spells a staged file the way the scratch container sees
-// it through the bind mount. Every fixed path the restore opens is built here
-// from the artifact's own object name, so the files the restore reads and the
-// names ybRequiredRunArtifacts makes the manifest declare cannot drift apart.
+// ybDrillArtifactPath constructs a fixed artifact path under the scratch bind
+// mount. Restore uses the artifact object name that ybRequiredRunArtifacts
+// requires in the manifest, instead of maintaining an independent path.
 func ybDrillArtifactPath(name string) string {
 	return ybDrillArtifactMount + "/" + name
 }
 
-// ybTabletExtractScript unpacks one node's staged archive into that node's own
-// directory under the export root, so copies of the same tablet from different
-// nodes never mix files. The node name arrives as the shell's first positional
-// parameter, so a manifest-supplied name can never be parsed as shell syntax;
-// manifest decode allowlists the names as well. The export root is the
-// layout's, the same one the inventory check and the placement read, so the
-// three cannot drift apart. artifactDir is where the staged archives are
-// readable from, which is the bind mount in the scratch container.
+// ybTabletExtractScript extracts one staged archive into a directory for its
+// node under exportRoot. Separate node directories prevent replicas from mixing
+// files. The shell reads the node name as its first positional parameter
+// instead of parsing it as program syntax. Manifest decoding also checks names
+// against an allowed set.
+//
+// The inventory check and placement use the same export root from the layout.
+// artifactDir specifies the readable archive directory, which uses the scratch
+// container's bind mount.
 func ybTabletExtractScript(exportRoot, artifactDir string) string {
 	nodeDir := shellQuote(exportRoot) + `/"$1"`
 	archive := shellQuote(artifactDir) + `/"` + ybDrillArchivePrefix + `$1` + ybDrillArchiveSuffix + `"`
 	return "mkdir -p " + nodeDir + " && tar xzf " + archive + " -C " + nodeDir
 }
 
-// stageYBDrillArtifacts downloads every run-root artifact the manifest declares
-// and every node's archive and inventory into stageDir, naming each archive for
-// its node so the scratch container can extract each node's files into its own
-// directory. The run-root artifacts come from the manifest rather than a list
-// held here, so the drill stages whatever the export published, and the
-// manifest is refused before this runs unless it declares everything the
-// restore opens by name. It returns the inventories in manifest order, which is
-// the order the placement prefers replicas in.
+// stageYBDrillArtifacts downloads manifest run-root artifacts and each node's
+// archive and inventory into stageDir. Archive filenames include node names
+// for separate extraction directories. The manifest supplies the run-root
+// artifact list; selection rejects it before staging unless it includes every
+// fixed restore artifact. The returned inventories follow manifest order,
+// which determines replica preference.
 func stageYBDrillArtifacts(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -108,10 +105,10 @@ func ybStagingError(ctx context.Context, err error) error {
 	return wrapped
 }
 
-// stageYBNodeInventory downloads one node's inventory and reads it back. The
-// read is where a truncated or foreign inventory is caught: it is the record
-// every tablet of that node is judged against, so an inventory expecting less
-// than the archive carried would quietly weaken the check it exists to make.
+// stageYBNodeInventory downloads and parses one node's inventory. Parsing
+// rejects a truncated inventory or one from another run or node. Tablet
+// verification depends on this record; accepting fewer expected files than the
+// archive contained would weaken that verification.
 func stageYBNodeInventory(
 	ctx context.Context,
 	r *restoreDrillCtx,

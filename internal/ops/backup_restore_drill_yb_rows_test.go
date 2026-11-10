@@ -2,11 +2,10 @@ package ops
 
 import "testing"
 
-// TestParseYBDrillRowCountRejectsAnythingThatIsNotACount proves the row
-// assertion fails on a count it cannot read. The empty case is the one that
-// mattered: a container exec that exits zero having printed nothing yields an
-// empty string, which a comparison against "0" passes, so a restored table
-// nobody could count read as a table that came back full.
+// TestParseYBDrillRowCountRejectsAnythingThatIsNotACount checks rejection
+// of unreadable counts. Previously, an exec that exited successfully without
+// printing output produced an empty string that passed comparison against "0".
+// The drill could accept a restored table without establishing its row count.
 func TestParseYBDrillRowCountRejectsAnythingThatIsNotACount(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -27,9 +26,9 @@ func TestParseYBDrillRowCountRejectsAnythingThatIsNotACount(t *testing.T) {
 	}
 }
 
-// TestParseYBDrillRowCountReadsRealCounts proves a real count comes back
-// intact, zero included, so the assertion still fails an empty table for the
-// right reason.
+// TestParseYBDrillRowCountReadsRealCounts checks valid counts, including zero.
+// The row assertion must still reject an empty table after successfully reading
+// its zero count.
 func TestParseYBDrillRowCountReadsRealCounts(t *testing.T) {
 	for _, tc := range []struct {
 		out  string

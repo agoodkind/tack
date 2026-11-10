@@ -15,8 +15,8 @@ const ybSchemaApplyOptions = "PGOPTIONS=-c session_replication_role=replica"
 
 func applyYBDrillSchema(ctx context.Context, r *restoreDrillCtx, container, database string) error {
 	logger := telemetry.L(ctx)
-	// Roles first: the schema includes the ledger's grants, and a GRANT naming a
-	// role the database does not have fails the schema apply.
+	// Apply roles before the schema. The schema includes ledger grants, and a GRANT
+	// fails if its role does not exist.
 	if err := applyYBDrillRoles(ctx, r, container, database); err != nil {
 		return err
 	}
@@ -33,8 +33,8 @@ func applyYBDrillSchema(ctx context.Context, r *restoreDrillCtx, container, data
 	return nil
 }
 
-// ybRunSQL runs ysqlsh with the given trailing args inside the scratch
-// container, passing the throwaway password, and errors on a non-zero exit.
+// ybRunSQL runs ysqlsh inside the scratch container with the supplied trailing
+// arguments and temporary password. A nonzero exit returns an error.
 func ybRunSQL(ctx context.Context, r *restoreDrillCtx, container, database string, args ...string) error {
 	return ybRunSQLWithEnv(ctx, r, container, database, nil, args...)
 }
@@ -58,8 +58,8 @@ func ybRunSQLWithEnv(
 	return nil
 }
 
-// ybSQLError is one failed ysqlsh run. cause is the exec failure, or nil when
-// ysqlsh ran and exited non-zero.
+// ybSQLError records a failed ysqlsh run. cause records an exec failure or
+// remains nil when ysqlsh runs and exits with a nonzero status.
 type ybSQLError struct {
 	exitCode int
 	stderr   string

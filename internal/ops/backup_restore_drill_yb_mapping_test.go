@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-// importSnapshotOutput renders `yb-admin import_snapshot` output the way
-// ImportSnapshotMetaFile in YugabyteDB 2024.2's yb-admin_client.cc prints it:
-// the object type padded to sixteen characters, then the old and new ids, the
-// three separated by " \t", with tablet rows numbered. rows are the mapping
-// rows after the header.
+// importSnapshotOutput renders `yb-admin import_snapshot` output in the format
+// that ImportSnapshotMetaFile in YugabyteDB 2024.2's yb-admin_client.cc prints.
+// The object type occupies sixteen characters. The old and new IDs follow it,
+// and " \t" separates the three fields. Tablet rows include a row number.
+// The rows argument supplies mapping rows after the header.
 func importSnapshotOutput(rows ...string) string {
 	return "Snapshot metadata file: /artifacts/metadata.snapshot\n" +
 		"Importing snapshot 4963ed18-2295-4e4f-9d9f-0a1a45c39bd1 (COMPLETE)\n" +
@@ -26,9 +26,10 @@ func mappingRow(object, oldID, newID string) string {
 	return object + strings.Repeat(" ", 16-len(object)) + " \t" + oldID + " \t" + newID
 }
 
-// The table ids below are in the form GetPgsqlTableId renders (the database
-// oid in the first four bytes, the table oid in the last four); the tablet ids
-// are patterned rather than random so no scanner reads them as credentials.
+// The table IDs use the GetPgsqlTableId format, with the database OID in the
+// first four bytes and the table OID in the last four bytes. The tablet IDs
+// use visible patterns instead of random values to avoid credential scanner
+// reports.
 const (
 	usersTableID    = "000033e800003000800000000000400a"
 	tokensTableID   = "000033e8000030008000000000004010"
@@ -38,8 +39,8 @@ const (
 	tokensTabletNew = "bbbb0000bbbb0000bbbb0000bbbb0002"
 )
 
-// TestParseYBSnapshotMappingReadsTheEngineRows proves the parser reads the
-// rows the engine prints, pairing each tablet with the table row above it.
+// TestParseYBSnapshotMappingReadsTheEngineRows checks that the parser reads
+// engine output and associates each tablet with the preceding Table row.
 func TestParseYBSnapshotMappingReadsTheEngineRows(t *testing.T) {
 	out := importSnapshotOutput(
 		mappingRow("Keyspace", "000033e8000030008000000000000000", "000033e8000030008000000000000000"),
@@ -63,14 +64,13 @@ func TestParseYBSnapshotMappingReadsTheEngineRows(t *testing.T) {
 	}
 }
 
-// TestParseYBSnapshotMappingRefusesRowsItCannotPlace is the silent skip this
-// test exists for. A tablet row short of its ids, or one before any table row,
-// matched no case and fell out of the mapping: a tablet the placement never
-// tried and the audit never counted, since both work from the mapping. A
-// table row whose new id differs from its old one was read for the old id
-// alone, though the import preserves table ids and the placement's paths are
-// built from the one the row is read for. Each row below must refuse the
-// whole mapping with the row named.
+// TestParseYBSnapshotMappingRefusesRowsItCannotPlace checks rejection of the
+// whole mapping and identification of the invalid row. The parser previously
+// omitted tablet rows that lacked IDs or appeared before any Table row.
+// Placement and its audit both use the mapping and did not detect those
+// omissions. The parser also previously accepted the old ID from a Table row
+// with differing IDs, even though the import preserves table IDs and placement
+// uses the accepted ID in paths.
 func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
 	tableRow := mappingRow("Table", usersTableID, usersTableID)
 	for _, tc := range []struct {
@@ -104,9 +104,9 @@ func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
 	}
 }
 
-// TestParseYBSnapshotMappingReadsATableRowCarryingOneId settles the one
-// tolerated short form: a table row naming only the preserved id is read for
-// it, since there is no second id to disagree with.
+// TestParseYBSnapshotMappingReadsATableRowCarryingOneId checks the accepted
+// short form. A Table row with only the preserved ID cannot contain a
+// conflicting second ID.
 func TestParseYBSnapshotMappingReadsATableRowCarryingOneId(t *testing.T) {
 	out := importSnapshotOutput(
 		"Table            \t"+usersTableID,
@@ -124,13 +124,13 @@ func TestParseYBSnapshotMappingReadsATableRowCarryingOneId(t *testing.T) {
 	}
 }
 
-// TestParseYBSnapshotMappingRefusesIdsOutsideTheEngineForm is the path
-// traversal this file exists for. The ids are fields of engine output, but
-// that output is produced by importing a metadata file staged from the object
-// store, so a crafted file controls them, and the placement embeds them in
-// paths under the scratch cluster's data directory. Rather than looking for
-// the traversal, the parser requires the form the engine emits, and every
-// value below, traversal or not, is refused with the row named.
+// TestParseYBSnapshotMappingRefusesIdsOutsideTheEngineForm checks the parser's
+// protection against path traversal. A crafted metadata file staged from
+// the object store can control IDs in `yb-admin import_snapshot` output.
+// Placement uses these IDs in paths under the scratch cluster's data directory.
+// The parser requires the engine's format rather than searching for traversal
+// patterns. It must reject every listed value, including values without
+// traversal syntax, and identify the row.
 func TestParseYBSnapshotMappingRefusesIdsOutsideTheEngineForm(t *testing.T) {
 	for _, tc := range []struct {
 		name string
