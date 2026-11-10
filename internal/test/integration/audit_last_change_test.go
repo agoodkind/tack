@@ -43,7 +43,6 @@ func TestAuditLastChangeReportsLatestChangePerPathAndRelationship(t *testing.T) 
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
-
 	windowStart := clock.Now().Add(-time.Minute)
 	createArguments := auditedIssueArguments(harness)
 	createArguments.ProjectReference = harness.Project
@@ -56,13 +55,7 @@ func TestAuditLastChangeReportsLatestChangePerPathAndRelationship(t *testing.T) 
 	legacyTime := clock.Now().UTC()
 	time.Sleep(lastChangeLegacyGap)
 	updateIssue(t, harness, issueID, "last change issue second rename", nil)
-	updateIssue(
-		t,
-		harness,
-		issueID,
-		"",
-		datagen.NodeProperties{"description": json.RawMessage("null")},
-	)
+	updateIssue(t, harness, issueID, "", datagen.NodeProperties{"description": json.RawMessage("null")})
 
 	otherArguments := auditedIssueArguments(harness)
 	otherArguments.ProjectReference = harness.Project
@@ -84,129 +77,42 @@ func TestAuditLastChangeReportsLatestChangePerPathAndRelationship(t *testing.T) 
 
 	ledger := startNodeAuditLedger(t)
 	legacyID := recordLegacyIssueUpdate(t, ledger, view.OrgID, issueID, legacyTime)
-	legacyRelationshipID := recordLegacyRelationshipAdd(
-		t,
-		ledger,
-		view.OrgID,
-		issueID,
-		otherID,
-		legacyRelationshipTime,
-	)
+	legacyRelationshipID := recordLegacyRelationshipAdd(t, ledger, view.OrgID, issueID, otherID, legacyRelationshipTime)
 	rows := waitForLastChangeRows(t, ledger, view.OrgID, issueID, legacyID, legacyRelationshipID)
-	report := runLastChange(
-		t,
-		ledger,
-		view.OrgID,
-		issueID,
-		windowStart,
-		clock.Now().Add(time.Minute),
-	)
+	report := runLastChange(t, ledger, view.OrgID, issueID, windowStart, clock.Now().Add(time.Minute))
 	if report.Truncated || !report.HistoryStartInWindow {
-		t.Fatalf(
-			"report truncated = %t, history start in window = %t; want a complete read",
-			report.Truncated,
-			report.HistoryStartInWindow,
-		)
+		t.Fatalf("report truncated = %t, history start in window = %t; want a complete read", report.Truncated, report.HistoryStartInWindow)
 	}
 
 	firstRename := renameRow(t, rows.updates, "last change issue first rename")
 	secondRename := renameRow(t, rows.updates, "last change issue second rename")
-	name := requireField(
-		t,
-		report,
-		"/name",
-		audit.LastChangeKnown,
-		secondRename,
-		audit.LastChangeSet,
-	)
+	name := requireField(t, report, "/name", audit.LastChangeKnown, secondRename, audit.LastChangeSet)
 	if name.Change.CommitVersion <= commitVersion(t, firstRename) {
-		t.Fatalf(
-			"/name commit version %q, want a version after the first rename %q",
-			name.Change.CommitVersion,
-			firstRename.Context.CommitVersion,
-		)
+		t.Fatalf("/name commit version %q, want a version after the first rename %q", name.Change.CommitVersion, firstRename.Context.CommitVersion)
 	}
-
-	requireField(
-		t,
-		report,
-		"/props/description",
-		audit.LastChangeKnown,
-		changedRow(t, rows.updates, "/props/description"),
-		audit.LastChangeRemoved,
-	)
-	priority := requireField(
-		t,
-		report,
-		"/props/priority",
-		audit.LastChangeUnknown,
-		changedRow(t, rows.updates, "/props/priority"),
-		audit.LastChangeSet,
-	)
+	requireField(t, report, "/props/description", audit.LastChangeKnown, changedRow(t, rows.updates, "/props/description"), audit.LastChangeRemoved)
+	priority := requireField(t, report, "/props/priority", audit.LastChangeUnknown, changedRow(t, rows.updates, "/props/priority"), audit.LastChangeSet)
 	if len(priority.LegacyEventIDs) != 1 || priority.LegacyEventIDs[0] != legacyID {
-		t.Fatalf(
-			"/props/priority legacy events = %v, want the legacy row %s",
-			priority.LegacyEventIDs,
-			legacyID,
-		)
+		t.Fatalf("/props/priority legacy events = %v, want the legacy row %s", priority.LegacyEventIDs, legacyID)
 	}
 
-	removed := requireRelationship(
-		t,
-		report,
-		issueID,
-		otherID,
-		audit.LastChangeUnknown,
-		audit.LastChangeRemoved,
-	)
-	added := requireRelationship(
-		t,
-		report,
-		otherID,
-		issueID,
-		audit.LastChangeKnown,
-		audit.LastChangeSet,
-	)
+	removed := requireRelationship(t, report, issueID, otherID, audit.LastChangeUnknown, audit.LastChangeRemoved)
+	added := requireRelationship(t, report, otherID, issueID, audit.LastChangeKnown, audit.LastChangeSet)
 	if !slices.Equal(removed.LegacyEventIDs, []uuid.UUID{legacyRelationshipID}) {
-		t.Fatalf(
-			"relationship from the issue legacy events = %v, want only %s",
-			removed.LegacyEventIDs,
-			legacyRelationshipID,
-		)
+		t.Fatalf("relationship from the issue legacy events = %v, want only %s", removed.LegacyEventIDs, legacyRelationshipID)
 	}
-
 	requireLegacyRelationshipRow(t, report, legacyRelationshipID)
-	if removed.Change.Action != string(audit.VerbRelationshipRemove) ||
-		added.Change.Action != string(audit.VerbRelationshipAdd) {
-		t.Fatalf(
-			"relationship actions = %s and %s, want remove and add",
-			removed.Change.Action,
-			added.Change.Action,
-		)
+	if removed.Change.Action != string(audit.VerbRelationshipRemove) || added.Change.Action != string(audit.VerbRelationshipAdd) {
+		t.Fatalf("relationship actions = %s and %s, want remove and add", removed.Change.Action, added.Change.Action)
 	}
-
-	if removed.Change.EventID != rows.removal.EventID ||
-		added.Change.EventID != rows.reverseAdd.EventID {
-		t.Fatalf(
-			"relationship events = %s and %s, want %s and %s",
-			removed.Change.EventID,
-			added.Change.EventID,
-			rows.removal.EventID,
-			rows.reverseAdd.EventID,
-		)
+	if removed.Change.EventID != rows.removal.EventID || added.Change.EventID != rows.reverseAdd.EventID {
+		t.Fatalf("relationship events = %s and %s, want %s and %s", removed.Change.EventID, added.Change.EventID, rows.removal.EventID, rows.reverseAdd.EventID)
 	}
-
 	requireRefusalUncounted(t, report, rows.refused)
 }
 
 // updateIssue renames the issue when name is not empty and sets properties.
-func updateIssue(
-	t *testing.T,
-	harness *integration.MCPHarness,
-	issueID uuid.UUID,
-	name string,
-	properties datagen.NodeProperties,
-) {
+func updateIssue(t *testing.T, harness *integration.MCPHarness, issueID uuid.UUID, name string, properties datagen.NodeProperties) {
 	t.Helper()
 	arguments := auditedIssueArguments(harness)
 	arguments.NodeID = issueID.String()
@@ -218,29 +124,12 @@ func updateIssue(
 // changeRelationship calls tool for the blocks relationship from sourceID to
 // targetID. The relationship tools refuse any argument other than source_id,
 // relation_type, and target_id, and the call sets only those three.
-func changeRelationship(
-	t *testing.T,
-	harness *integration.MCPHarness,
-	tool string,
-	sourceID uuid.UUID,
-	targetID uuid.UUID,
-) {
+func changeRelationship(t *testing.T, harness *integration.MCPHarness, tool string, sourceID, targetID uuid.UUID) {
 	t.Helper()
 	arguments := datagen.ToolArguments{
-		WorkspaceReference: "",
-		ProjectReference:   "",
-		IssueReference:     "",
-		Name:               "",
-		Properties:         nil,
-		NodeID:             "",
-		Query:              "",
-		NodeType:           "",
-		Direction:          "",
-		SourceID:           sourceID.String(),
-		RelationType:       lastChangeRelationType,
-		TargetID:           targetID.String(),
-		Limit:              0,
-		Cursor:             "",
+		WorkspaceReference: "", ProjectReference: "", IssueReference: "", Name: "", Properties: nil,
+		NodeID: "", Query: "", NodeType: "", Direction: "", SourceID: sourceID.String(),
+		RelationType: lastChangeRelationType, TargetID: targetID.String(), Limit: 0, Cursor: "",
 	}
 	harness.Call(t, tool, arguments)
 }

@@ -43,11 +43,7 @@ func (f sessionAuditFixture) openSwept(t *testing.T, token string) sweptSession 
 
 // sweepAfterExpiry waits past the session's expiry minute, then runs a
 // search with the supplied token to sweep the session.
-func (f sessionAuditFixture) sweepAfterExpiry(
-	t *testing.T,
-	token string,
-	session searchdomain.Session,
-) {
+func (f sessionAuditFixture) sweepAfterExpiry(t *testing.T, token string, session searchdomain.Session) {
 	t.Helper()
 	waitUntilTime(t, session.IdleDeadline.Truncate(time.Minute).Add(time.Minute+sessionAuditMargin))
 	f.mustSearch(t, token, sweepAuditQuery, "")
@@ -71,69 +67,32 @@ func TestSearchRuntimeAuditSweepRemovalValues(t *testing.T) {
 	if err := store.BeginCleanup(sliceContext, interrupted.session.ID); err != nil {
 		t.Fatalf("close session %s: %v", interrupted.session.ID, err)
 	}
-	if done, err := store.CleanupSlice(
-		sliceContext,
-		interrupted.session.ID,
-		interruptedSliceKeys,
-	); err != nil ||
-		done {
-		t.Fatalf(
-			"one slice of session %s = %t, %v, want a partly deleted session",
-			interrupted.session.ID,
-			done,
-			err,
-		)
+	if done, err := store.CleanupSlice(sliceContext, interrupted.session.ID, interruptedSliceKeys); err != nil || done {
+		t.Fatalf("one slice of session %s = %t, %v, want a partly deleted session", interrupted.session.ID, done, err)
 	}
 	fixture.sweepAfterExpiry(t, sweeper.Token, interrupted.session)
 
-	rows := fixture.waitForRows(
-		t,
-		fixture.first.OrgID,
-		func(current []audit.Row) bool {
-			return sweepEvidenceArrived(t, current, swept, interrupted)
-		},
-	)
+	rows := fixture.waitForRows(t, fixture.first.OrgID, func(current []audit.Row) bool {
+		return sweepEvidenceArrived(t, current, swept, interrupted)
+	})
 	fixture.requireSweptValues(t, rows, swept, sweeper.UserID, owner.UserID)
 	requireRecordRemovals(t, rows, swept)
 	fixture.requireInterruptedEvents(t, rows, interrupted, sweeper.UserID)
 }
 
-func (f sessionAuditFixture) requireSweptValues(
-	t *testing.T,
-	rows []audit.Row,
-	swept sweptSession,
-	actorID uuid.UUID,
-	ownerID uuid.UUID,
-) {
+func (f sessionAuditFixture) requireSweptValues(t *testing.T, rows []audit.Row, swept sweptSession, actorID, ownerID uuid.UUID) {
 	t.Helper()
 	session := swept.session
-	deleted := onlyRow(
-		t,
-		sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession),
-		"the session delete",
-	)
-	if deleted.ActorID != actorID || deleted.EntityID != session.ID ||
-		deleted.Context.Target.OwnerID != ownerID {
-		t.Fatalf(
-			"session delete has actor %s, entity %s, target %+v, want actor %s and owner %s",
-			deleted.ActorID,
-			deleted.EntityID,
-			deleted.Context.Target,
-			actorID,
-			ownerID,
-		)
+	deleted := onlyRow(t, sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession), "the session delete")
+	if deleted.ActorID != actorID || deleted.EntityID != session.ID || deleted.Context.Target.OwnerID != ownerID {
+		t.Fatalf("session delete has actor %s, entity %s, target %+v, want actor %s and owner %s", deleted.ActorID, deleted.EntityID, deleted.Context.Target, actorID, ownerID)
 	}
 	if deleted.Delta == nil || len(deleted.Delta.After) != 0 {
 		t.Fatalf("session delete delta = %+v, want an old value only", deleted.Delta)
 	}
 	before := deltaMembers(t, deleted.Delta.Before)
-	if string(before["principal_id"]) != string(encodeJSON(t, ownerID)) ||
-		string(before["closing"]) != "true" {
-		t.Fatalf(
-			"session delete old value = %s, want a closing session of owner %s",
-			deleted.Delta.Before,
-			ownerID,
-		)
+	if string(before["principal_id"]) != string(encodeJSON(t, ownerID)) || string(before["closing"]) != "true" {
+		t.Fatalf("session delete old value = %s, want a closing session of owner %s", deleted.Delta.Before, ownerID)
 	}
 	f.requireProtectedMember(t, before, "text", encodeJSON(t, session.Query.Text))
 	f.requireProtectedMember(t, before, "query_tokens", session.Snapshot.QueryTokens)
@@ -144,16 +103,7 @@ func (f sessionAuditFixture) requireSweptValues(
 func requireRecordRemovals(t *testing.T, rows []audit.Row, swept sweptSession) {
 	t.Helper()
 	sessionID := swept.session.ID
-	replayRow := onlyRow(
-		t,
-		sessionChanges(
-			rows,
-			sessionID,
-			audit.VerbSearchSessionDelete,
-			audit.TargetSearchSessionReplay,
-		),
-		"the replay delete",
-	)
+	replayRow := onlyRow(t, sessionChanges(rows, sessionID, audit.VerbSearchSessionDelete, audit.TargetSearchSessionReplay), "the replay delete")
 	var replay struct {
 		ResultIDs []uuid.UUID `json:"result_ids"`
 		Complete  bool        `json:"complete"`
@@ -161,8 +111,7 @@ func requireRecordRemovals(t *testing.T, rows []audit.Row, swept sweptSession) {
 	if err := json.Unmarshal(replayRow.Delta.Before, &replay); err != nil {
 		t.Fatalf("decode replay value %s: %v", replayRow.Delta.Before, err)
 	}
-	if !slices.Equal(replay.ResultIDs, swept.replay.ResultIDs) ||
-		replay.Complete != swept.replay.Complete {
+	if !slices.Equal(replay.ResultIDs, swept.replay.ResultIDs) || replay.Complete != swept.replay.Complete {
 		t.Fatalf("replay removal = %+v, want %+v", replay, swept.replay)
 	}
 	visited := removedVisitedNodes(t, rows, sessionID)
@@ -176,12 +125,7 @@ func requireRecordRemovals(t *testing.T, rows []audit.Row, swept sweptSession) {
 func removedVisitedNodes(t *testing.T, rows []audit.Row, sessionID uuid.UUID) map[uuid.UUID]bool {
 	t.Helper()
 	visited := map[uuid.UUID]bool{}
-	for _, row := range sessionChanges(
-		rows,
-		sessionID,
-		audit.VerbSearchSessionDelete,
-		audit.TargetSearchSessionVisited,
-	) {
+	for _, row := range sessionChanges(rows, sessionID, audit.VerbSearchSessionDelete, audit.TargetSearchSessionVisited) {
 		var value struct {
 			NodeID uuid.UUID `json:"node_id"`
 		}
@@ -196,22 +140,8 @@ func removedVisitedNodes(t *testing.T, rows []audit.Row, sessionID uuid.UUID) ma
 func sweepEvidenceArrived(t *testing.T, rows []audit.Row, swept, interrupted sweptSession) bool {
 	t.Helper()
 	for _, session := range []searchdomain.Session{swept.session, interrupted.session} {
-		if len(
-			sessionChanges(
-				rows,
-				session.ID,
-				audit.VerbSearchSessionDelete,
-				audit.TargetSearchSession,
-			),
-		) != 1 ||
-			len(
-				sessionChanges(
-					rows,
-					session.ID,
-					audit.VerbSearchSessionDelete,
-					audit.TargetSearchSessionReplay,
-				),
-			) != 1 {
+		if len(sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession)) != 1 ||
+			len(sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSessionReplay)) != 1 {
 			return false
 		}
 	}
@@ -222,12 +152,7 @@ func sweepEvidenceArrived(t *testing.T, rows []audit.Row, swept, interrupted swe
 		}
 	}
 	closed, tokensRemoved := false, false
-	for _, update := range sessionChanges(
-		rows,
-		interrupted.session.ID,
-		audit.VerbSearchSessionUpdate,
-		audit.TargetSearchSession,
-	) {
+	for _, update := range sessionChanges(rows, interrupted.session.ID, audit.VerbSearchSessionUpdate, audit.TargetSearchSession) {
 		before, after := deltaMembers(t, update.Delta.Before), deltaMembers(t, update.Delta.After)
 		closed = closed || string(after["closing"]) == "true"
 		_, found := before["query_tokens"]
@@ -238,20 +163,10 @@ func sweepEvidenceArrived(t *testing.T, rows []audit.Row, swept, interrupted swe
 
 // The later header deletion records the state after the stopped slice
 // removes query_tokens.
-func (f sessionAuditFixture) requireInterruptedEvents(
-	t *testing.T,
-	rows []audit.Row,
-	interrupted sweptSession,
-	sweeperID uuid.UUID,
-) {
+func (f sessionAuditFixture) requireInterruptedEvents(t *testing.T, rows []audit.Row, interrupted sweptSession, sweeperID uuid.UUID) {
 	t.Helper()
 	session := interrupted.session
-	updates := sessionChanges(
-		rows,
-		session.ID,
-		audit.VerbSearchSessionUpdate,
-		audit.TargetSearchSession,
-	)
+	updates := sessionChanges(rows, session.ID, audit.VerbSearchSessionUpdate, audit.TargetSearchSession)
 	closed, tokensRemoved := false, false
 	for _, update := range updates {
 		before, after := deltaMembers(t, update.Delta.Before), deltaMembers(t, update.Delta.After)
@@ -260,44 +175,17 @@ func (f sessionAuditFixture) requireInterruptedEvents(
 			tokensRemoved = true
 			f.requireProtectedMember(t, before, "query_tokens", session.Snapshot.QueryTokens)
 			if _, kept := after["query_tokens"]; kept {
-				t.Fatalf(
-					"token removal new value = %s, want query_tokens absent",
-					update.Delta.After,
-				)
+				t.Fatalf("token removal new value = %s, want query_tokens absent", update.Delta.After)
 			}
 		}
 	}
 	if !closed || !tokensRemoved {
-		t.Fatalf(
-			"session %s records closing %t and token removal %t, want both: %s",
-			session.ID,
-			closed,
-			tokensRemoved,
-			describeRows(updates),
-		)
+		t.Fatalf("session %s records closing %t and token removal %t, want both: %s", session.ID, closed, tokensRemoved, describeRows(updates))
 	}
-	onlyRow(
-		t,
-		sessionChanges(
-			rows,
-			session.ID,
-			audit.VerbSearchSessionDelete,
-			audit.TargetSearchSessionReplay,
-		),
-		"the replay delete of the stopped slice",
-	)
-	deleted := onlyRow(
-		t,
-		sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession),
-		"the header delete",
-	)
+	onlyRow(t, sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSessionReplay), "the replay delete of the stopped slice")
+	deleted := onlyRow(t, sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession), "the header delete")
 	before := deltaMembers(t, deleted.Delta.Before)
 	if _, found := before["query_tokens"]; found || deleted.ActorID != sweeperID {
-		t.Fatalf(
-			"header delete has actor %s and old value %s, want actor %s without query_tokens",
-			deleted.ActorID,
-			deleted.Delta.Before,
-			sweeperID,
-		)
+		t.Fatalf("header delete has actor %s and old value %s, want actor %s without query_tokens", deleted.ActorID, deleted.Delta.Before, sweeperID)
 	}
 }

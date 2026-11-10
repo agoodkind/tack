@@ -66,21 +66,15 @@ func repairReferenceUniquenessOp(f *cli.Factory) clispec.Operation[repairReferen
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[repairReferenceUniquenessInput]{
-			clispec.StringParam(
-				"keep",
-				"which node keeps a contested reference: oldest or newest",
-				keepOldest,
-				false,
-				func(input *repairReferenceUniquenessInput, value string) { input.Keep = value },
-			),
-			clispec.IntParam(
-				"fail-after-renames",
+			clispec.StringParam("keep", "which node keeps a contested reference: oldest or newest",
+				keepOldest, false,
+				func(input *repairReferenceUniquenessInput, value string) { input.Keep = value }),
+			clispec.IntParam("fail-after-renames",
 				"testbed only: stop the run after this many renames to prove a partway "+
 					"failure still records what it applied; refused unless "+
 					"TACK_DATAGEN_ALLOW_TARGET is qa or local",
 				0,
-				func(input *repairReferenceUniquenessInput, value int) { input.FailAfterRenames = value },
-			),
+				func(input *repairReferenceUniquenessInput, value int) { input.FailAfterRenames = value }),
 		},
 		New: func() repairReferenceUniquenessInput {
 			return repairReferenceUniquenessInput{
@@ -120,78 +114,48 @@ func runRepairReferenceUniquenessCommand(
 	if err := checkRepairFaultAllowed(ctx, factory, input.FailAfterRenames); err != nil {
 		return err
 	}
-
 	env, err := NewEnv(ctx, factory.Cfg)
 	if err != nil {
 		wrapped := fmt.Errorf("open ops environment for the reference repair: %w", err)
-		slog.ErrorContext(
-			ctx,
-			"repair.reference_uniqueness.env_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "repair.reference_uniqueness.env_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
 	defer env.Close()
 
-	report, err := RepairReferenceUniqueness(
-		ctx,
-		env,
-		RepairReferenceOptions{
-			Execute:          execute,
-			Keep:             input.Keep,
-			FailAfterRenames: input.FailAfterRenames,
-		},
-	)
-	if outcomeErr := repairRecordOutcome(
-		ctx,
-		report,
-		err,
-		execute,
-		func(recordCtx context.Context) error {
-			return recordRepairReferenceRun(recordCtx, factory, report)
-		},
-	); outcomeErr != nil {
+	report, err := RepairReferenceUniqueness(ctx, env, RepairReferenceOptions{
+		Execute:          execute,
+		Keep:             input.Keep,
+		FailAfterRenames: input.FailAfterRenames,
+	})
+	if outcomeErr := repairRecordOutcome(ctx, report, err, execute, func(recordCtx context.Context) error {
+		return recordRepairReferenceRun(recordCtx, factory, report)
+	}); outcomeErr != nil {
 		return outcomeErr
 	}
 
 	renamed := make([]repairReferenceRenameResult, 0, len(report.Renumbered))
 	for _, rename := range report.Renumbered {
-		renamed = append(
-			renamed,
-			repairReferenceRenameResult{
-				NodeID: rename.NodeID.String(),
-				From:   rename.From,
-				To:     rename.To,
-			},
-		)
+		renamed = append(renamed, repairReferenceRenameResult{
+			NodeID: rename.NodeID.String(),
+			From:   rename.From,
+			To:     rename.To,
+		})
 	}
-
-	writeErr := clispec.WriteJSONValue(
-		ctx,
-		sink,
-		repairReferenceUniquenessResult{
-			ResultMarker:   clispec.ResultMarker{},
-			Command:        "ops.repair.reference-uniqueness",
-			DryRun:         !execute,
-			Keep:           input.Keep,
-			CountersSeeded: len(report.Counters),
-			KeysWritten:    len(report.Keys),
-			RenamedCount:   len(renamed),
-			Renamed:        renamed,
-		},
-	)
+	writeErr := clispec.WriteJSONValue(ctx, sink, repairReferenceUniquenessResult{
+		ResultMarker:   clispec.ResultMarker{},
+		Command:        "ops.repair.reference-uniqueness",
+		DryRun:         !execute,
+		Keep:           input.Keep,
+		CountersSeeded: len(report.Counters),
+		KeysWritten:    len(report.Keys),
+		RenamedCount:   len(renamed),
+		Renamed:        renamed,
+	})
 	if writeErr != nil {
 		wrapped := fmt.Errorf("write the reference repair report: %w", writeErr)
-		slog.ErrorContext(
-			ctx,
-			"repair.reference_uniqueness.report_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "repair.reference_uniqueness.report_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
 	return nil
 }
 
@@ -200,35 +164,22 @@ func runRepairReferenceUniquenessCommand(
 // do to a disposable environment and never to production, so it reuses the
 // same marker the QA data generator gates its writes on: an environment that
 // does not opt in cannot be made to fail this way.
-func checkRepairFaultAllowed(
-	ctx context.Context,
-	factory *cli.Factory,
-	failAfterRenames int,
-) error {
+func checkRepairFaultAllowed(ctx context.Context, factory *cli.Factory, failAfterRenames int) error {
 	if failAfterRenames <= 0 {
 		return nil
 	}
-
 	target := ""
 	if factory != nil && factory.Cfg != nil {
 		target = factory.Cfg.DatagenAllowTarget
 	}
-
 	if target == "qa" || target == "local" {
 		return nil
 	}
-
 	err := fmt.Errorf(
 		"--fail-after-renames is a testbed fault and needs TACK_DATAGEN_ALLOW_TARGET to be qa or local, not %q",
-		target,
-	)
-	slog.ErrorContext(
-		ctx,
-		"repair.reference_uniqueness.fault_refused",
-		slog.String("target", target),
-		slog.String("err", err.Error()),
-	)
-
+		target)
+	slog.ErrorContext(ctx, "repair.reference_uniqueness.fault_refused",
+		slog.String("target", target), slog.String("err", err.Error()))
 	return err
 }
 
@@ -263,7 +214,8 @@ func repairRecordOutcome(
 ) error {
 	var recordErr error
 	if execute {
-		recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), repairRecordTimeout)
+		recordCtx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx), repairRecordTimeout)
 		recordErr = record(recordCtx)
 		cancel()
 		if recordErr != nil {
@@ -273,24 +225,18 @@ func repairRecordOutcome(
 			}
 		}
 	}
-
 	if runErr == nil {
 		return nil
 	}
-
 	wrapped := fmt.Errorf("repair reference uniqueness: %w", runErr)
-	slog.ErrorContext(
-		ctx,
-		"repair.reference_uniqueness.failed",
+	slog.ErrorContext(ctx, "repair.reference_uniqueness.failed",
 		slog.Int("renamed_before_failure", len(report.Renumbered)),
 		slog.Int("counters_seeded_before_failure", len(report.Counters)),
 		slog.Int("keys_written_before_failure", len(report.Keys)),
-		slog.String("err", wrapped.Error()),
-	)
+		slog.String("err", wrapped.Error()))
 	if recordErr != nil {
 		return errors.Join(wrapped, recordErr)
 	}
-
 	return wrapped
 }
 
@@ -307,35 +253,29 @@ const unrecordedBatchSize = 50
 // count cannot be reconciled against the store later; an identity can, which is
 // why the identities are logged at all rather than the totals alone.
 func logUnrecordedRepair(ctx context.Context, report RepairReferenceReport, recordErr error) {
-	slog.ErrorContext(
-		ctx,
-		"repair.reference_uniqueness.partial_record_failed",
+	slog.ErrorContext(ctx, "repair.reference_uniqueness.partial_record_failed",
 		slog.Int("renamed", len(report.Renumbered)),
 		slog.Int("counters_seeded", len(report.Counters)),
 		slog.Int("keys_written", len(report.Keys)),
 		slog.Int("identities_per_line", unrecordedBatchSize),
-		slog.String("err", recordErr.Error()),
-	)
+		slog.String("err", recordErr.Error()))
 
 	renames := make([]string, 0, len(report.Renumbered))
 	for _, rename := range report.Renumbered {
 		renames = append(renames, rename.NodeID.String()+" "+rename.From+" to "+rename.To)
 	}
-
 	logUnrecordedClass(ctx, "renames", renames, recordErr)
 
 	counters := make([]string, 0, len(report.Counters))
 	for _, counter := range report.Counters {
 		counters = append(counters, counter.Key+"="+strconv.FormatInt(counter.Value, 10))
 	}
-
 	logUnrecordedClass(ctx, "counter seeds", counters, recordErr)
 
 	keys := make([]string, 0, len(report.Keys))
 	for _, key := range report.Keys {
 		keys = append(keys, key.NodeID.String()+" "+key.Encoded)
 	}
-
 	logUnrecordedClass(ctx, "reference keys", keys, recordErr)
 }
 
@@ -347,21 +287,17 @@ func logUnrecordedClass(ctx context.Context, class string, identities []string, 
 	if total == 0 {
 		return
 	}
-
 	batches := (total + unrecordedBatchSize - 1) / unrecordedBatchSize
 	for batch := range batches {
 		start := batch * unrecordedBatchSize
 		end := min(start+unrecordedBatchSize, total)
-		slog.ErrorContext(
-			ctx,
-			"repair.reference_uniqueness.unrecorded",
+		slog.ErrorContext(ctx, "repair.reference_uniqueness.unrecorded",
 			slog.String("class", class),
 			slog.Int("total", total),
 			slog.Int("batch", batch+1),
 			slog.Int("batches", batches),
 			slog.String("identities", strings.Join(identities[start:end], "; ")),
-			slog.String("err", recordErr.Error()),
-		)
+			slog.String("err", recordErr.Error()))
 	}
 }
 
@@ -375,14 +311,9 @@ func recordRepairReferenceRun(
 	principal, err := factory.OperatorIdentitySource().Resolve(ctx)
 	if err != nil {
 		wrapped := fmt.Errorf("resolve operator for the reference repair record: %w", err)
-		slog.ErrorContext(
-			ctx,
-			"repair.reference_uniqueness.principal_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "repair.reference_uniqueness.principal_failed",
+			slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
 	return recordReferenceRepair(ctx, factory.AuditOutbox(), principal, report, clock.Now().UTC())
 }

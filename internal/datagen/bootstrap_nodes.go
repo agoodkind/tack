@@ -17,18 +17,11 @@ func bootstrapOrg(
 	stores *fdbadapter.Stores,
 	workspace *WorkspaceIdentity,
 ) error {
-	return ensureBootstrapNode(
-		ctx,
-		stores,
-		bootstrapNode{
-			ID:       workspace.OrgID,
-			OrgID:    workspace.OrgID,
-			TypeKey:  "org",
-			Name:     "QA Organization " + workspace.OrgSlug,
-			Slug:     workspace.OrgSlug,
-			ParentID: uuid.Nil,
-		},
-	)
+	return ensureBootstrapNode(ctx, stores, bootstrapNode{
+		ID: workspace.OrgID, OrgID: workspace.OrgID, TypeKey: "org",
+		Name: "QA Organization " + workspace.OrgSlug,
+		Slug: workspace.OrgSlug, ParentID: uuid.Nil,
+	})
 }
 
 func bootstrapWorkspace(
@@ -36,18 +29,11 @@ func bootstrapWorkspace(
 	stores *fdbadapter.Stores,
 	workspace *WorkspaceIdentity,
 ) error {
-	return ensureBootstrapNode(
-		ctx,
-		stores,
-		bootstrapNode{
-			ID:       node.WorkspaceID(workspace.OrgID, workspace.Slug),
-			OrgID:    workspace.OrgID,
-			TypeKey:  "workspace",
-			Name:     workspace.Name,
-			Slug:     workspace.Slug,
-			ParentID: workspace.OrgID,
-		},
-	)
+	return ensureBootstrapNode(ctx, stores, bootstrapNode{
+		ID:    node.WorkspaceID(workspace.OrgID, workspace.Slug),
+		OrgID: workspace.OrgID, TypeKey: "workspace",
+		Name: workspace.Name, Slug: workspace.Slug, ParentID: workspace.OrgID,
+	})
 }
 
 type bootstrapNode struct {
@@ -79,41 +65,22 @@ func ensureBootstrapNode(
 	relationships := make([]*node.Relationship, 0, 1)
 	if input.ParentID != uuid.Nil {
 		props["parent_id"] = json.RawMessage(strconv.Quote(input.ParentID.String()))
-		relationships = append(
-			relationships,
-			&node.Relationship{
-				OrgID:        input.OrgID,
-				SourceID:     input.ID,
-				RelationType: node.RelChildOf,
-				TargetID:     input.ParentID,
-				CreatedBy:    uuid.Nil,
-				Props:        nil,
-				CreatedAt:    clock.Now().UTC(),
-			},
-		)
+		relationships = append(relationships, &node.Relationship{
+			OrgID: input.OrgID, SourceID: input.ID, RelationType: node.RelChildOf,
+			TargetID: input.ParentID, CreatedBy: uuid.Nil, Props: nil,
+			CreatedAt: clock.Now().UTC(),
+		})
 	}
 	now := clock.Now().UTC()
 	value := &node.Node{
-		ID:        input.ID,
-		OrgID:     input.OrgID,
-		NodeType:  input.TypeKey,
-		Name:      input.Name,
-		Props:     props,
-		CreatedBy: uuid.Nil,
-		UpdatedBy: uuid.Nil,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID: input.ID, OrgID: input.OrgID, NodeType: input.TypeKey,
+		Name: input.Name, Props: props, CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil,
+		CreatedAt: now, UpdatedAt: now,
 	}
 	view := &node.NodeView{
-		ID:        input.ID,
-		OrgID:     input.OrgID,
-		NodeType:  input.TypeKey,
-		Name:      input.Name,
-		Props:     props,
-		CreatedBy: uuid.Nil,
-		UpdatedBy: uuid.Nil,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID: input.ID, OrgID: input.OrgID, NodeType: input.TypeKey,
+		Name: input.Name, Props: props, CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil,
+		CreatedAt: now, UpdatedAt: now,
 	}
 	if err := stores.Nodes.CreateAtomic(
 		ctx,

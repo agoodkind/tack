@@ -30,23 +30,13 @@ type datagenManifestVerificationReport struct {
 }
 
 // verifyDatagenManifest runs the registered command against the selected generated read.
-func verifyDatagenManifest(
-	ctx context.Context,
-	factory *cli.Factory,
-	orgID uuid.UUID,
-	requestID string,
-	started time.Time,
-) (*datagenManifestVerificationReport, error) {
+func verifyDatagenManifest(ctx context.Context, factory *cli.Factory, orgID uuid.UUID, requestID string, started time.Time) (*datagenManifestVerificationReport, error) {
 	if orgID == uuid.Nil || requestID == "" {
 		return nil, fmt.Errorf("the QA seed did not provide a read request identity")
 	}
 	reader, err := audit.NewReader(ctx, factory.Cfg.AuditReaderDSN)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"qa.datagen.manifest_reader_failed",
-			slog.String("err", "the ledger reader did not open"),
-		)
+		slog.ErrorContext(ctx, "qa.datagen.manifest_reader_failed", slog.String("err", "the ledger reader did not open"))
 		return nil, fmt.Errorf("open the QA manifest reader: check AUDIT_READER_DSN")
 	}
 	defer reader.Close()
@@ -55,13 +45,7 @@ func verifyDatagenManifest(
 	ticker := time.NewTicker(datagenManifestPoll)
 	defer ticker.Stop()
 	for {
-		eventID, err := reader.ReadEventByRequest(
-			ctx,
-			orgID,
-			requestID,
-			started,
-			clock.Now().Add(time.Minute),
-		)
+		eventID, err := reader.ReadEventByRequest(ctx, orgID, requestID, started, clock.Now().Add(time.Minute))
 		if err != nil {
 			return nil, fmt.Errorf("find a QA read manifest: %w", err)
 		}
@@ -70,30 +54,19 @@ func verifyDatagenManifest(
 			if err != nil {
 				return nil, err
 			}
-			return &datagenManifestVerificationReport{
-				ManifestVerification: *verification,
-				OrgID:                orgID,
-				EventID:              eventID,
-				RequestID:            requestID,
-			}, nil
+			return &datagenManifestVerificationReport{ManifestVerification: *verification, OrgID: orgID, EventID: eventID, RequestID: requestID}, nil
 		}
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("find a QA read manifest: %w", ctx.Err())
 		case <-deadline.C:
-			return nil, fmt.Errorf(
-				"find a QA read manifest: the generated read did not arrive within %s",
-				datagenManifestWait,
-			)
+			return nil, fmt.Errorf("find a QA read manifest: the generated read did not arrive within %s", datagenManifestWait)
 		case <-ticker.C:
 		}
 	}
 }
 
-func runDatagenManifestCommand(ctx context.Context, factory *cli.Factory, orgID, eventID uuid.UUID) (
-	*audit.ManifestVerification,
-	error,
-) {
+func runDatagenManifestCommand(ctx context.Context, factory *cli.Factory, orgID, eventID uuid.UUID) (*audit.ManifestVerification, error) {
 	output := &bytes.Buffer{}
 	child := cli.System(factory.Cfg)
 	child.Out = output
@@ -110,19 +83,7 @@ func runDatagenManifestCommand(ctx context.Context, factory *cli.Factory, orgID,
 		root.AddCommand(command)
 	}
 	root.SetContext(ctx)
-	root.SetArgs([]string{
-		"--output",
-		"json",
-		"--execute",
-		"ops",
-		"audit",
-		"manifest-parts",
-		"--org",
-		orgID.String(),
-		"--event-id",
-		eventID.String(),
-		"--verify-payloads",
-	})
+	root.SetArgs([]string{"--output", "json", "--execute", "ops", "audit", "manifest-parts", "--org", orgID.String(), "--event-id", eventID.String(), "--verify-payloads"})
 	if err := root.Execute(); err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.manifest_verify_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("verify the QA read manifest: %w", err)
@@ -132,13 +93,8 @@ func runDatagenManifestCommand(ctx context.Context, factory *cli.Factory, orgID,
 			Verification *audit.ManifestVerification `json:"verification"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal(
-		output.Bytes(),
-		&envelope,
-	); err != nil || envelope.Result.Verification == nil || !envelope.Result.Verification.PayloadVerified {
-		return nil, fmt.Errorf(
-			"verify the QA read manifest: the command did not return a verified result",
-		)
+	if err := json.Unmarshal(output.Bytes(), &envelope); err != nil || envelope.Result.Verification == nil || !envelope.Result.Verification.PayloadVerified {
+		return nil, fmt.Errorf("verify the QA read manifest: the command did not return a verified result")
 	}
 	return envelope.Result.Verification, nil
 }

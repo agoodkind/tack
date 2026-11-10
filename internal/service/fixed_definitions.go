@@ -23,10 +23,7 @@ type FixedDefinitionStore interface {
 
 // FixedDefinitionAudit stages an audit event for the correction from
 // before to after on the context it returns.
-type FixedDefinitionAudit func(ctx context.Context, before, after *node.PropertyDef) (
-	context.Context,
-	error,
-)
+type FixedDefinitionAudit func(ctx context.Context, before, after *node.PropertyDef) (context.Context, error)
 
 // FixedDefinitionResult counts scanned, corrected, unchanged, and
 // conflicted definitions. A dry run counts definitions that need correction
@@ -54,84 +51,37 @@ type FixedDefinitionResult struct {
 // A dry run does not write. For each correction, it calls stage and uses
 // store.Replace to commit the definition and audit event only if the stored
 // definition still matches the scanned record.
-func CorrectFixedDefinitions(
-	ctx context.Context,
-	store FixedDefinitionStore,
-	stage FixedDefinitionAudit,
-	dryRun bool,
-) (FixedDefinitionResult, error) {
-	result := FixedDefinitionResult{
-		Scanned:       0,
-		Corrected:     0,
-		Unchanged:     0,
-		Conflicted:    0,
-		CorrectedIDs:  nil,
-		ConflictedIDs: nil,
-		Changes:       nil,
-	}
+func CorrectFixedDefinitions(ctx context.Context, store FixedDefinitionStore, stage FixedDefinitionAudit, dryRun bool) (FixedDefinitionResult, error) {
+	result := FixedDefinitionResult{Scanned: 0, Corrected: 0, Unchanged: 0, Conflicted: 0, CorrectedIDs: nil, ConflictedIDs: nil, Changes: nil}
 	seeded := seededDefinitions{orgID: uuid.Nil, byID: nil}
 	cursor := ""
-
 	for {
 		definitions, next, err := store.ScanProjections(ctx, cursor)
 		if err != nil {
-			return result, fixedDefinitionFailure(
-				ctx,
-				"scan property definitions after cursor "+cursor,
-				err,
-			)
+			return result, fixedDefinitionFailure(ctx, "scan property definitions after cursor "+cursor, err)
 		}
-
 		for _, stored := range definitions {
 			seed, err := seeded.lookup(stored.OrgID, stored.ID)
 			if err != nil {
-				return result, fixedDefinitionFailure(
-					ctx,
-					"read seeded definitions of organization "+stored.OrgID.String(),
-					err,
-				)
+				return result, fixedDefinitionFailure(ctx, "read seeded definitions of organization "+stored.OrgID.String(), err)
 			}
-
-			if err := correctDefinition(
-				ctx,
-				store,
-				stage,
-				stored,
-				seed,
-				dryRun,
-				&result,
-			); err != nil {
+			if err := correctDefinition(ctx, store, stage, stored, seed, dryRun, &result); err != nil {
 				return result, err
 			}
 		}
-
 		if next == "" {
 			return result, nil
 		}
-
 		if next == cursor {
-			return result, fixedDefinitionFailure(
-				ctx,
-				"scan property definitions",
-				errors.New("the scan cursor did not advance"),
-			)
+			return result, fixedDefinitionFailure(ctx, "scan property definitions", errors.New("the scan cursor did not advance"))
 		}
-
 		cursor = next
 	}
 }
 
 // correctDefinition counts the outcome for one stored definition. It
 // applies the correction unless dryRun is true.
-func correctDefinition(
-	ctx context.Context,
-	store FixedDefinitionStore,
-	stage FixedDefinitionAudit,
-	stored *node.PropertyDef,
-	seed *node.PropertyDef,
-	dryRun bool,
-	result *FixedDefinitionResult,
-) error {
+func correctDefinition(ctx context.Context, store FixedDefinitionStore, stage FixedDefinitionAudit, stored, seed *node.PropertyDef, dryRun bool, result *FixedDefinitionResult) error {
 	result.Scanned++
 	corrected := correctedDefinition(stored, seed)
 	identity := node.ProjectionIdentity{OrgID: stored.OrgID, PropertyDefID: stored.ID}
@@ -139,57 +89,31 @@ func correctDefinition(
 		result.Unchanged++
 		return nil
 	}
-
 	if dryRun {
 		result.Corrected++
 		result.CorrectedIDs = append(result.CorrectedIDs, identity)
-		result.Changes = append(
-			result.Changes,
-			definitionChange(FixedOutcomeCorrected, stored, corrected),
-		)
-
+		result.Changes = append(result.Changes, definitionChange(FixedOutcomeCorrected, stored, corrected))
 		return nil
 	}
-
 	staged, err := stage(ctx, stored, corrected)
 	if err != nil {
-		return fixedDefinitionFailure(
-			ctx,
-			"stage the correction audit of definition "+stored.ID.String(),
-			err,
-		)
+		return fixedDefinitionFailure(ctx, "stage the correction audit of definition "+stored.ID.String(), err)
 	}
-
 	replaced, err := store.Replace(staged, stored, corrected)
 	if err != nil {
 		return fixedDefinitionFailure(ctx, "correct definition "+stored.ID.String(), err)
 	}
-
 	if !replaced {
 		result.Conflicted++
 		result.ConflictedIDs = append(result.ConflictedIDs, identity)
-		result.Changes = append(
-			result.Changes,
-			definitionChange(FixedOutcomeConflicted, stored, corrected),
-		)
-
+		result.Changes = append(result.Changes, definitionChange(FixedOutcomeConflicted, stored, corrected))
 		return nil
 	}
-
 	result.Corrected++
 	result.CorrectedIDs = append(result.CorrectedIDs, identity)
-	result.Changes = append(
-		result.Changes,
-		definitionChange(FixedOutcomeCorrected, stored, corrected),
-	)
-	telemetry.L(ctx).InfoContext(
-		ctx,
-		"metadata.fixed_definition.corrected",
-		slog.String("org_id", stored.OrgID.String()),
-		slog.String("property_definition_id", stored.ID.String()),
-		slog.String("name", stored.Name),
-	)
-
+	result.Changes = append(result.Changes, definitionChange(FixedOutcomeCorrected, stored, corrected))
+	telemetry.L(ctx).InfoContext(ctx, "metadata.fixed_definition.corrected", slog.String("org_id", stored.OrgID.String()),
+		slog.String("property_definition_id", stored.ID.String()), slog.String("name", stored.Name))
 	return nil
 }
 
@@ -200,26 +124,20 @@ func correctedDefinition(stored, seed *node.PropertyDef) *node.PropertyDef {
 	if seed == nil {
 		return nil
 	}
-
 	next := *stored
 	changed := false
-	if seed.Search != nil && !seed.Search.Include &&
-		(stored.Search == nil || stored.Search.Include) {
+	if seed.Search != nil && !seed.Search.Include && (stored.Search == nil || stored.Search.Include) {
 		exclusion := *seed.Search
 		next.Search = &exclusion
 		changed = true
 	}
-
-	if widensApplicability(stored.AppliesToFeatures, seed.AppliesToFeatures) &&
-		!sameFeatures(stored.AppliesToFeatures, seed.AppliesToFeatures) {
+	if widensApplicability(stored.AppliesToFeatures, seed.AppliesToFeatures) && !sameFeatures(stored.AppliesToFeatures, seed.AppliesToFeatures) {
 		next.AppliesToFeatures = slices.Clone(seed.AppliesToFeatures)
 		changed = true
 	}
-
 	if !changed {
 		return nil
 	}
-
 	return &next
 }
 
@@ -229,17 +147,14 @@ func widensApplicability(stored, seeded []string) bool {
 	if len(seeded) == 0 {
 		return true
 	}
-
 	if len(stored) == 0 {
 		return false
 	}
-
 	for _, feature := range stored {
 		if !slices.Contains(seeded, feature) {
 			return false
 		}
 	}
-
 	return true
 }
 
@@ -247,7 +162,6 @@ func sameFeatures(left, right []string) bool {
 	sortedLeft, sortedRight := slices.Clone(left), slices.Clone(right)
 	slices.Sort(sortedLeft)
 	slices.Sort(sortedRight)
-
 	return slices.Equal(sortedLeft, sortedRight)
 }
 
@@ -265,22 +179,15 @@ func (s *seededDefinitions) lookup(orgID, definitionID uuid.UUID) (*node.Propert
 		if err != nil {
 			return nil, err
 		}
-
 		s.orgID, s.byID = orgID, make(map[uuid.UUID]*node.PropertyDef, len(definitions))
 		for _, definition := range definitions {
 			s.byID[definition.ID] = definition
 		}
 	}
-
 	return s.byID[definitionID], nil
 }
 
 func fixedDefinitionFailure(ctx context.Context, operation string, err error) error {
-	slog.ErrorContext(
-		ctx,
-		"metadata.fixed_definition.correction_failed",
-		slog.String("err", err.Error()),
-	)
-
+	slog.ErrorContext(ctx, "metadata.fixed_definition.correction_failed", slog.String("err", err.Error()))
 	return fmt.Errorf("correct fixed definitions: %s: %w", operation, err)
 }

@@ -28,120 +28,50 @@ func TestSearchModelRepairRecord(t *testing.T) {
 	first := claimRepair(t, store, modelID, start)
 	requireClaim(t, "first claim", first, true, 1)
 	if first.PreviousFound || !first.Record.EpisodeStarted.Equal(start) {
-		t.Fatalf(
-			"first claim previous found %t, episode start %s, want a new episode at %s",
-			first.PreviousFound,
-			first.Record.EpisodeStarted,
-			start,
-		)
+		t.Fatalf("first claim previous found %t, episode start %s, want a new episode at %s", first.PreviousFound, first.Record.EpisodeStarted, start)
 	}
-
-	requireClaim(
-		t,
-		"claim inside the spacing",
-		claimRepair(t, store, modelID, start.Add(10*time.Second)),
-		false,
-		1,
-	)
+	requireClaim(t, "claim inside the spacing", claimRepair(t, store, modelID, start.Add(10*time.Second)), false, 1)
 
 	aborted := claimRepair(t, store, modelID, start.Add(46*time.Second))
 	requireClaim(t, "second claim", aborted, true, 2)
 	if err := store.ReleaseModelRepair(WithTestOperation(t, t.Context()), aborted); err != nil {
 		t.Fatalf("release aborted claim: %v", err)
 	}
-
 	second := claimRepair(t, store, modelID, start.Add(47*time.Second))
 	requireClaim(t, "claim after the release", second, true, 2)
-	requireClaim(
-		t,
-		"third claim",
-		claimRepair(t, store, modelID, start.Add(100*time.Second)),
-		true,
-		3,
-	)
-	requireClaim(
-		t,
-		"fourth claim",
-		claimRepair(t, store, modelID, start.Add(200*time.Second)),
-		false,
-		3,
-	)
+	requireClaim(t, "third claim", claimRepair(t, store, modelID, start.Add(100*time.Second)), true, 3)
+	requireClaim(t, "fourth claim", claimRepair(t, store, modelID, start.Add(200*time.Second)), false, 3)
 
 	replaced := claimRepair(t, store, otherModelID, start.Add(201*time.Second))
 	requireClaim(t, "claim for another model", replaced, true, 1)
 	if replaced.Replaced != modelID || replaced.PreviousFound {
-		t.Fatalf(
-			"claim for another model replaced %q with previous found %t, want %q without a previous record",
-			replaced.Replaced,
-			replaced.PreviousFound,
-			modelID,
-		)
+		t.Fatalf("claim for another model replaced %q with previous found %t, want %q without a previous record", replaced.Replaced, replaced.PreviousFound, modelID)
 	}
 
 	record, found, err := store.ResetModelRepair(WithTestOperation(t, t.Context()))
 	if err != nil || !found || record.ModelID != otherModelID || record.Attempts != 1 {
-		t.Fatalf(
-			"reset returned %+v found %t err %v, want model %s with 1 attempt",
-			record,
-			found,
-			err,
-			otherModelID,
-		)
+		t.Fatalf("reset returned %+v found %t err %v, want model %s with 1 attempt", record, found, err, otherModelID)
 	}
-
-	if _, found, err := store.ResetModelRepair(WithTestOperation(t, t.Context())); err != nil ||
-		found {
+	if _, found, err := store.ResetModelRepair(WithTestOperation(t, t.Context())); err != nil || found {
 		t.Fatalf("second reset found %t err %v, want no record", found, err)
 	}
-
-	requireClaim(
-		t,
-		"claim after the reset",
-		claimRepair(t, store, modelID, start.Add(202*time.Second)),
-		true,
-		1,
-	)
+	requireClaim(t, "claim after the reset", claimRepair(t, store, modelID, start.Add(202*time.Second)), true, 1)
 }
 
-func claimRepair(
-	t *testing.T,
-	store *fdbadapter.SearchModelRepairStore,
-	modelID string,
-	now time.Time,
-) searchdomain.ModelRepairClaim {
+func claimRepair(t *testing.T, store *fdbadapter.SearchModelRepairStore, modelID string, now time.Time) searchdomain.ModelRepairClaim {
 	t.Helper()
-	claim, err := store.ClaimModelRepair(
-		WithTestOperation(t, t.Context()),
-		searchdomain.ModelRepairRequest{
-			ModelID:     modelID,
-			Now:         now,
-			Spacing:     repairRecordSpacing,
-			MaxAttempts: repairRecordMaxAttempts,
-		},
-	)
+	claim, err := store.ClaimModelRepair(WithTestOperation(t, t.Context()), searchdomain.ModelRepairRequest{
+		ModelID: modelID, Now: now, Spacing: repairRecordSpacing, MaxAttempts: repairRecordMaxAttempts,
+	})
 	if err != nil {
 		t.Fatalf("claim repair of model %s at %s: %v", modelID, now, err)
 	}
-
 	return claim
 }
 
-func requireClaim(
-	t *testing.T,
-	step string,
-	claim searchdomain.ModelRepairClaim,
-	granted bool,
-	attempts int,
-) {
+func requireClaim(t *testing.T, step string, claim searchdomain.ModelRepairClaim, granted bool, attempts int) {
 	t.Helper()
 	if claim.Granted != granted || claim.Record.Attempts != attempts {
-		t.Fatalf(
-			"%s: granted %t with %d attempts, want granted %t with %d attempts",
-			step,
-			claim.Granted,
-			claim.Record.Attempts,
-			granted,
-			attempts,
-		)
+		t.Fatalf("%s: granted %t with %d attempts, want granted %t with %d attempts", step, claim.Granted, claim.Record.Attempts, granted, attempts)
 	}
 }

@@ -9,22 +9,19 @@ import (
 )
 
 const (
-	searchLoadMinimumWords      = 3
+	searchLoadMinimumWords = 3
 	searchLoadMinimumTermLength = 3
-	searchLoadSeedMask          = 0x544C0AD
+	searchLoadSeedMask = 0x544C0AD
 )
 
 type searchLoadQueries struct {
-	terms     []string
+	terms []string
 	orders    [][]int
 	workspace []string
 	random    *rand.Rand
 }
 
-func newSearchLoadQueries(ctx context.Context, seed int64, workspace WorkspaceIdentity, planned int) (
-	*searchLoadQueries,
-	error,
-) {
+func newSearchLoadQueries(ctx context.Context, seed int64, workspace WorkspaceIdentity, planned int) (*searchLoadQueries, error) {
 	rows, err := loadApprovedSearchCorpus(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -36,9 +33,7 @@ func newSearchLoadQueries(ctx context.Context, seed int64, workspace WorkspaceId
 	terms := searchLoadTerms(corpusText...)
 	workspaceTerms := searchLoadTerms(workspace.Name, workspace.Slug)
 	if len(terms) < 2 || len(workspaceTerms) == 0 {
-		return nil, errors.New(
-			"qa datagen search-load: require at least two corpus terms and one workspace term",
-		)
+		return nil, errors.New("qa datagen search-load: require at least two corpus terms and one workspace term")
 	}
 	random := rand.New(rand.NewSource(seed ^ searchLoadSeedMask))
 	words := searchLoadMinimumWords
@@ -49,12 +44,7 @@ func newSearchLoadQueries(ctx context.Context, seed int64, workspace WorkspaceId
 	for range words {
 		orders = append(orders, random.Perm(len(terms)))
 	}
-	return &searchLoadQueries{
-		terms:     terms,
-		orders:    orders,
-		workspace: workspaceTerms,
-		random:    random,
-	}, nil
+	return &searchLoadQueries{terms: terms, orders: orders, workspace: workspaceTerms, random: random}, nil
 }
 
 func searchLoadCapacity(termCount, words int) int {
@@ -73,12 +63,9 @@ func searchLoadTerms(texts ...string) []string {
 	seen := make(map[string]struct{})
 	terms := make([]string, 0)
 	for _, text := range texts {
-		fields := strings.FieldsFunc(
-			strings.ToLower(text),
-			func(character rune) bool {
-				return !unicode.IsLetter(character) && !unicode.IsDigit(character)
-			},
-		)
+		fields := strings.FieldsFunc(strings.ToLower(text), func(character rune) bool {
+			return !unicode.IsLetter(character) && !unicode.IsDigit(character)
+		})
 		for _, field := range fields {
 			if _, duplicate := seen[field]; duplicate || len(field) < searchLoadMinimumTermLength {
 				continue

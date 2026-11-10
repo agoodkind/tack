@@ -21,39 +21,20 @@ const maxCopiedFileSize = 1 << 16
 
 // execInContainer runs command inside a running container through the Docker
 // SDK and returns its combined output and exit code.
-func execInContainer(
-	ctx context.Context,
-	cli *client.Client,
-	containerName string,
-	command []string,
-) (string, int, error) {
+func execInContainer(ctx context.Context, cli *client.Client, containerName string, command []string) (string, int, error) {
 	return execInContainerWithEnv(ctx, cli, containerName, command, nil)
 }
 
 // execInContainerWithEnv runs command like execInContainer with the KEY=VALUE
 // entries of environment added to the command's environment.
-func execInContainerWithEnv(
-	ctx context.Context,
-	cli *client.Client,
-	containerName string,
-	command []string,
-	environment []string,
-) (string, int, error) {
-	created, err := cli.ExecCreate(
-		ctx,
-		containerName,
-		client.ExecCreateOptions{
-			Cmd:          command,
-			Env:          environment,
-			AttachStdout: true,
-			AttachStderr: true,
-		},
-	)
+func execInContainerWithEnv(ctx context.Context, cli *client.Client, containerName string, command, environment []string) (string, int, error) {
+	created, err := cli.ExecCreate(ctx, containerName, client.ExecCreateOptions{
+		Cmd: command, Env: environment, AttachStdout: true, AttachStderr: true,
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.exec.create_failed", slog.String("err", err.Error()))
 		return "", 0, fmt.Errorf("exec in %s: %w", containerName, err)
 	}
-
 	attached, err := cli.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.exec.attach_failed", slog.String("err", err.Error()))
@@ -63,38 +44,25 @@ func execInContainerWithEnv(
 	stopClosing := context.AfterFunc(ctx, attached.Close)
 	defer stopClosing()
 	var output bytes.Buffer
-	if _, err := stdcopy.StdCopy(&output, &output, attached.Reader); err != nil &&
-		!errors.Is(err, io.EOF) {
+	if _, err := stdcopy.StdCopy(&output, &output, attached.Reader); err != nil && !errors.Is(err, io.EOF) {
 		slog.ErrorContext(ctx, "testenv.exec.stream_failed", slog.String("err", err.Error()))
 		return "", 0, fmt.Errorf("read exec output in %s: %w", containerName, err)
 	}
-
 	inspected, err := cli.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.exec.inspect_failed", slog.String("err", err.Error()))
 		return "", 0, fmt.Errorf("inspect exec in %s: %w", containerName, err)
 	}
-
 	return output.String(), inspected.ExitCode, nil
 }
 
 // readContainerFile returns the contents of one regular file in a container.
-func readContainerFile(
-	ctx context.Context,
-	cli *client.Client,
-	containerName string,
-	path string,
-) ([]byte, error) {
-	copied, err := cli.CopyFromContainer(
-		ctx,
-		containerName,
-		client.CopyFromContainerOptions{SourcePath: path},
-	)
+func readContainerFile(ctx context.Context, cli *client.Client, containerName, path string) ([]byte, error) {
+	copied, err := cli.CopyFromContainer(ctx, containerName, client.CopyFromContainerOptions{SourcePath: path})
 	if err != nil {
 		slog.DebugContext(ctx, "testenv.copy.unavailable", slog.String("err", err.Error()))
 		return nil, errors.New("copy " + path + " from " + containerName + ": " + err.Error())
 	}
-
 	defer func() { _ = copied.Content.Close() }()
 	archive := tar.NewReader(copied.Content)
 	header, err := archive.Next()
@@ -102,17 +70,14 @@ func readContainerFile(
 		slog.ErrorContext(ctx, "testenv.copy.read_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read the archive of %s: %w", path, err)
 	}
-
 	if header.Typeflag != tar.TypeReg {
 		return nil, fmt.Errorf("%s in %s is not a regular file", path, containerName)
 	}
-
 	contents, err := io.ReadAll(io.LimitReader(archive, maxCopiedFileSize))
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.copy.read_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
-
 	return contents, nil
 }
 
@@ -130,54 +95,20 @@ var openSearchOwner = fileOwner{uid: 1000, gid: 1000}
 // creating the file's directory, with root as the owner. The file is readable
 // by every user, because an engine's entrypoint may drop to an unprivileged
 // user before reading it.
-func writeContainerFile(
-	ctx context.Context,
-	cli *client.Client,
-	containerName string,
-	filePath string,
-	contents []byte,
-) error {
-	return writeContainerFileAs(
-		ctx,
-		cli,
-		containerName,
-		filePath,
-		contents,
-		fileOwner{uid: 0, gid: 0},
-	)
+func writeContainerFile(ctx context.Context, cli *client.Client, containerName, filePath string, contents []byte) error {
+	return writeContainerFileAs(ctx, cli, containerName, filePath, contents, fileOwner{uid: 0, gid: 0})
 }
 
 // writeContainerFileAs writes contents like writeContainerFile and sets owner
 // on the file and on its directory. The copy replaces the ownership of an
 // existing directory at that path.
-func writeContainerFileAs(
-	ctx context.Context,
-	cli *client.Client,
-	containerName string,
-	filePath string,
-	contents []byte,
-	owner fileOwner,
-) error {
+func writeContainerFileAs(ctx context.Context, cli *client.Client, containerName, filePath string, contents []byte, owner fileOwner) error {
 	var archive bytes.Buffer
 	writer := tar.NewWriter(&archive)
 	relative := strings.TrimPrefix(filePath, "/")
-
 	headers := []*tar.Header{
-		{
-			Typeflag: tar.TypeDir,
-			Name:     path.Dir(relative) + "/",
-			Mode:     0o755,
-			Uid:      owner.uid,
-			Gid:      owner.gid,
-		},
-		{
-			Typeflag: tar.TypeReg,
-			Name:     relative,
-			Mode:     0o644,
-			Size:     int64(len(contents)),
-			Uid:      owner.uid,
-			Gid:      owner.gid,
-		},
+		{Typeflag: tar.TypeDir, Name: path.Dir(relative) + "/", Mode: 0o755, Uid: owner.uid, Gid: owner.gid},
+		{Typeflag: tar.TypeReg, Name: relative, Mode: 0o644, Size: int64(len(contents)), Uid: owner.uid, Gid: owner.gid},
 	}
 	for _, header := range headers {
 		if err := writer.WriteHeader(header); err != nil {
@@ -185,31 +116,23 @@ func writeContainerFileAs(
 			return fmt.Errorf("archive %s: %w", filePath, err)
 		}
 	}
-
 	if _, err := writer.Write(contents); err != nil {
 		slog.ErrorContext(ctx, "testenv.copy.archive_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("archive %s: %w", filePath, err)
 	}
-
 	if err := writer.Close(); err != nil {
 		slog.ErrorContext(ctx, "testenv.copy.archive_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("archive %s: %w", filePath, err)
 	}
-
-	_, err := cli.CopyToContainer(
-		ctx,
-		containerName,
-		client.CopyToContainerOptions{
-			DestinationPath:           "/",
-			Content:                   &archive,
-			AllowOverwriteDirWithFile: false,
-			CopyUIDGID:                true,
-		},
-	)
+	_, err := cli.CopyToContainer(ctx, containerName, client.CopyToContainerOptions{
+		DestinationPath:           "/",
+		Content:                   &archive,
+		AllowOverwriteDirWithFile: false,
+		CopyUIDGID:                true,
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.copy.write_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("copy %s into %s: %w", filePath, containerName, err)
 	}
-
 	return nil
 }

@@ -22,12 +22,9 @@ func TestWorkflowVisitsEveryIssueInEveryProject(t *testing.T) {
 			States:    []soakNode{{RawID: "state", Group: stateGroupCompleted}},
 		}
 		for issueIndex := range issueCount {
-			project.Issues = append(
-				project.Issues,
-				&soakIssue{
-					soakNode: soakNode{RawID: fmt.Sprintf("p%d-i%d", projectIndex, issueIndex)},
-				},
-			)
+			project.Issues = append(project.Issues, &soakIssue{
+				soakNode: soakNode{RawID: fmt.Sprintf("p%d-i%d", projectIndex, issueIndex)},
+			})
 		}
 		soak.projects = append(soak.projects, project)
 	}
@@ -84,14 +81,12 @@ func TestWorkflowKeepsClosedIssueActiveWithComments(t *testing.T) {
 
 func TestWorkflowStatesExcludeCancelledAndUseSortOrder(t *testing.T) {
 	t.Parallel()
-	project := &soakProject{
-		States: []soakNode{
-			{RawID: "done", Group: "completed", SortOrder: 30},
-			{RawID: "cancelled", Group: "cancelled", SortOrder: 40},
-			{RawID: "open", Group: "unstarted", SortOrder: 10},
-			{RawID: "active", Group: "started", SortOrder: 20},
-		},
-	}
+	project := &soakProject{States: []soakNode{
+		{RawID: "done", Group: "completed", SortOrder: 30},
+		{RawID: "cancelled", Group: "cancelled", SortOrder: 40},
+		{RawID: "open", Group: "unstarted", SortOrder: 10},
+		{RawID: "active", Group: "started", SortOrder: 20},
+	}}
 	states := project.workflowStates()
 	if len(states) != 3 {
 		t.Fatalf("workflow states = %d, want 3", len(states))

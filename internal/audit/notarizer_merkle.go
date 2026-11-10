@@ -20,7 +20,6 @@ func merkleAndManifest(list []chainHead) ([]byte, []byte) {
 	sort.Slice(list, func(i, j int) bool { return list[i].shard < list[j].shard })
 
 	leaves := make([][]byte, 0, len(list))
-
 	manifestRows := make([]map[string]any, 0, len(list))
 	for _, h := range list {
 		hasher := sha256.New()
@@ -31,19 +30,14 @@ func merkleAndManifest(list []chainHead) ([]byte, []byte) {
 		hasher.Write(b[:])
 		hasher.Write(h.hash)
 		leaves = append(leaves, hasher.Sum(nil))
-		manifestRows = append(
-			manifestRows,
-			map[string]any{
-				"shard":     h.shard,
-				"last_seq":  h.seq,
-				"last_hash": hex.EncodeToString(h.hash),
-			},
-		)
+		manifestRows = append(manifestRows, map[string]any{
+			"shard":     h.shard,
+			"last_seq":  h.seq,
+			"last_hash": hex.EncodeToString(h.hash),
+		})
 	}
-
 	root := merkleRoot(leaves)
 	manifestJSON, _ := json.Marshal(manifestRows)
-
 	return root, manifestJSON
 }
 
@@ -52,7 +46,6 @@ func merkleRoot(leaves [][]byte) []byte {
 		empty := sha256.Sum256(nil)
 		return empty[:]
 	}
-
 	level := leaves
 	for len(level) > 1 {
 		next := make([][]byte, 0, (len(level)+1)/2)
@@ -65,12 +58,9 @@ func merkleRoot(leaves [][]byte) []byte {
 			} else {
 				hasher.Write(level[i])
 			}
-
 			next = append(next, hasher.Sum(nil))
 		}
-
 		level = next
 	}
-
 	return level[0]
 }

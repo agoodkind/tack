@@ -11,6 +11,5 @@ func (execution *macRunnerExecution) operation(operation, id string, err error) 
 	if err != nil {
 		result.Error = err.Error()
 	}
-
 	execution.operations = append(execution.operations, result)
 }

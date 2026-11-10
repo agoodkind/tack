@@ -35,7 +35,6 @@ func (s *NodeService) validateUpdateProps(
 	if err := refuseManagedProps(ctx, nt, "update", props, "parent_id"); err != nil {
 		return err
 	}
-
 	return s.checkDeclaredProps(ctx, orgID, nt, "update", setUpdateProps(props))
 }
 
@@ -55,18 +54,11 @@ func refuseManagedProps(
 			names = append(names, "properties."+name)
 		}
 	}
-
 	if len(names) == 0 {
 		return nil
 	}
-
 	slices.Sort(names)
-	refused := fmt.Errorf(
-		"the node service sets %s, and a request cannot set them: %w",
-		strings.Join(names, ", "),
-		domain.ErrInvalidArgument,
-	)
-
+	refused := fmt.Errorf("the node service sets %s, and a request cannot set them: %w", strings.Join(names, ", "), domain.ErrInvalidArgument)
 	return loggedPropertyCheckError(ctx, nt, operation, refused)
 }
 
@@ -82,12 +74,10 @@ func (s *NodeService) checkDeclaredProps(
 	if len(props) == 0 {
 		return nil
 	}
-
 	schema, err := s.readSchema(ctx, orgID)
 	if err != nil {
 		return loggedPropertyCheckError(ctx, nt, operation, err)
 	}
-
 	return ValidateNodeProps(ctx, schema, nt, operation, props)
 }
 
@@ -109,18 +99,11 @@ func ValidateNodeProps(
 	if len(result.Failures) > 0 {
 		return loggedPropertyCheckError(ctx, nt, operation, result.Err())
 	}
-
 	undeclared := undeclaredPropNames(result)
 	if len(undeclared) == 0 {
 		return nil
 	}
-
-	refused := fmt.Errorf(
-		"props contain undeclared keys %s: %w",
-		strings.Join(undeclared, ", "),
-		domain.ErrInvalidArgument,
-	)
-
+	refused := fmt.Errorf("props contain undeclared keys %s: %w", strings.Join(undeclared, ", "), domain.ErrInvalidArgument)
 	return loggedPropertyCheckError(ctx, nt, operation, refused)
 }
 
@@ -141,7 +124,6 @@ func undeclaredPropNames(result node.PropertyResult) []string {
 			node.PropertyIssueRequired, node.PropertyIssueReference, node.PropertyIssueParent:
 		}
 	}
-
 	return names
 }
 
@@ -149,61 +131,25 @@ func (s *NodeService) readSchema(ctx context.Context, orgID uuid.UUID) (node.Sch
 	definitions, err := s.propertyDefs.List(ctx, orgID)
 	if err != nil {
 		wrapped := fmt.Errorf("list property definitions of organization %s: %w", orgID, err)
-		slog.ErrorContext(
-			ctx,
-			"node.schema_read_failed",
-			slog.String("org_id", orgID.String()),
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "node.schema_read_failed", slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
 		return node.Schema{}, wrapped
 	}
-
 	types, err := s.nodeTypes.List(ctx, orgID)
 	if err != nil {
 		wrapped := fmt.Errorf("list node types of organization %s: %w", orgID, err)
-		slog.ErrorContext(
-			ctx,
-			"node.schema_read_failed",
-			slog.String("org_id", orgID.String()),
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "node.schema_read_failed", slog.String("org_id", orgID.String()), slog.String("err", wrapped.Error()))
 		return node.Schema{}, wrapped
 	}
-
-	return node.Schema{
-		OrgID:       orgID,
-		Types:       node.BuildTypeIndex(types),
-		Definitions: definitions,
-	}, nil
+	return node.Schema{OrgID: orgID, Types: node.BuildTypeIndex(types), Definitions: definitions}, nil
 }
 
-func loggedPropertyCheckError(
-	ctx context.Context,
-	nt *node.NodeType,
-	operation string,
-	err error,
-) error {
+func loggedPropertyCheckError(ctx context.Context, nt *node.NodeType, operation string, err error) error {
 	wrapped := fmt.Errorf("node type %q %s: %w", nt.TypeKey, operation, err)
 	if errors.Is(err, domain.ErrInvalidArgument) {
-		slog.WarnContext(
-			ctx,
-			"node.props_refused",
-			slog.String("node_type", nt.TypeKey),
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.WarnContext(ctx, "node.props_refused", slog.String("node_type", nt.TypeKey), slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
-	slog.ErrorContext(
-		ctx,
-		"node.props_check_failed",
-		slog.String("node_type", nt.TypeKey),
-		slog.String("err", wrapped.Error()),
-	)
-
+	slog.ErrorContext(ctx, "node.props_check_failed", slog.String("node_type", nt.TypeKey), slog.String("err", wrapped.Error()))
 	return wrapped
 }
 
@@ -213,10 +159,8 @@ func setUpdateProps(props map[string]json.RawMessage) map[string]json.RawMessage
 		if isDeletedPropValue(raw) {
 			continue
 		}
-
 		setProps[name] = raw
 	}
-
 	return setProps
 }
 

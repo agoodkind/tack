@@ -17,30 +17,16 @@ const (
 // tokenTarget returns the resource target of the API token tokenID.
 func tokenTarget(tokenID uuid.UUID, label string) audit.Target {
 	return audit.Target{
-		Kind:         audit.TargetKindResource,
-		NodeType:     "",
-		Reference:    "",
-		Name:         label,
-		URI:          audit.APIAccessURIPrefix + tokenID.String(),
-		RelationType: "",
-		ID:           tokenID,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
+		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: label,
+		URI: audit.APIAccessURIPrefix + tokenID.String(), RelationType: "", ID: tokenID, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
 }
 
 // userTarget returns the resource target of the user userID.
 func userTarget(userID uuid.UUID) audit.Target {
 	return audit.Target{
-		Kind:         audit.TargetKindResource,
-		NodeType:     "",
-		Reference:    "",
-		Name:         "",
-		URI:          userTargetPrefix + userID.String(),
-		RelationType: "",
-		ID:           userID,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
+		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: "",
+		URI: userTargetPrefix + userID.String(), RelationType: "", ID: userID, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
 }
 
@@ -62,50 +48,22 @@ func tokenUsedEvent(
 	if !found || operationID == uuid.Nil {
 		operationID = uuid.Must(uuid.NewV7())
 	}
-
 	if orgID == uuid.Nil {
 		orgID = audit.SystemOrgID()
 	}
-
 	completedAt := clock.Now().UTC()
 	eventTarget := target
-
 	return audit.Event{
-		Verb:    string(audit.VerbAuthTokenUsed),
-		EventID: uuid.Must(uuid.NewV7()),
-		Actor:   actor,
-		Entity: audit.Entity{
-			Type:       target.Kind,
-			NodeType:   "",
-			ID:         target.ID,
-			Identifier: "",
-			Name:       target.Name,
-		},
+		Verb: string(audit.VerbAuthTokenUsed), EventID: uuid.Must(uuid.NewV7()), Actor: actor,
+		Entity: audit.Entity{Type: target.Kind, NodeType: "", ID: target.ID, Identifier: "", Name: target.Name},
 		Context: audit.EventContext{
-			OrgID:              orgID,
-			WorkspaceID:        uuid.Nil,
-			ScopeID:            uuid.Nil,
-			ParentID:           uuid.Nil,
-			RequestID:          "",
-			TraceID:            "",
-			Source:             audit.SourceMCP,
-			Tool:               "",
-			RPC:                "",
-			Reason:             "",
+			OrgID: orgID, WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
+			RequestID: "", TraceID: "", Source: audit.SourceMCP, Tool: "", RPC: "", Reason: "",
 			APITokenID:         tokenID,
-			AuditFormatVersion: audit.AuditFormatComplete,
-			OperationClass:     audit.OperationDatabaseChange,
-			Phase:              audit.PhaseResult,
-			OperationID:        operationID,
-			StartedAt:          startedAt.UTC(),
-			CompletedAt:        completedAt,
-			Target:             &eventTarget,
+			AuditFormatVersion: audit.AuditFormatComplete, OperationClass: audit.OperationDatabaseChange,
+			Phase: audit.PhaseResult, OperationID: operationID, StartedAt: startedAt.UTC(), CompletedAt: completedAt,
+			Target: &eventTarget,
 		},
-		Delta:          nil,
-		Outcome:        audit.OutcomeCompleted,
-		Error:          nil,
-		IdempotencyKey: "",
-		OccurredAt:     completedAt,
-		Extra:          nil,
+		Delta: nil, Outcome: audit.OutcomeCompleted, Error: nil, IdempotencyKey: "", OccurredAt: completedAt, Extra: nil,
 	}
 }

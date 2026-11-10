@@ -31,36 +31,18 @@ func TestRuntimeAuditUserProtectedValues(t *testing.T) {
 
 	record := requireUserChange(t, stack, userEvent, holder)
 	redactor, redactorPool := openRedactor(t, stack)
-	requireProtectedValues(
-		t,
-		redactorPool,
-		map[uuid.UUID]string{
-			record.Email.PIIRef:       holder.Email,
-			record.DisplayName.PIIRef: holder.DisplayName,
-		},
-	)
+	requireProtectedValues(t, redactorPool, map[uuid.UUID]string{
+		record.Email.PIIRef: holder.Email, record.DisplayName.PIIRef: holder.DisplayName,
+	})
 	latest := clock.Now().UTC().Add(time.Minute)
 	personal := []string{holder.Email, holder.DisplayName}
 	requireExportWithout(t, stack, audit.SystemOrgID(), oldest, latest, personal)
 
-	redaction, err := audit.RedactActorInOrg(
-		t.Context(),
-		stack.reader,
-		redactor,
-		audit.SystemOrgID(),
-		holder.ID,
-	)
+	redaction, err := audit.RedactActorInOrg(t.Context(), stack.reader, redactor, audit.SystemOrgID(), holder.ID)
 	refs := []uuid.UUID{record.Email.PIIRef, record.DisplayName.PIIRef}
 	if err != nil || redaction.Redacted != int64(len(refs)) {
-		t.Fatalf(
-			"RedactActorInOrg for holder.ID %s: redaction = %+v, err = %v; want redaction.Redacted = %d and err = nil",
-			holder.ID,
-			redaction,
-			err,
-			len(refs),
-		)
+		t.Fatalf("RedactActorInOrg for holder.ID %s: redaction = %+v, err = %v; want redaction.Redacted = %d and err = nil", holder.ID, redaction, err, len(refs))
 	}
-
 	requireRedacted(t, redactorPool, refs)
 	requireExportWithout(t, stack, audit.SystemOrgID(), oldest, latest, personal)
 }
@@ -74,15 +56,8 @@ func TestRuntimeAuditProtectedReferenceMismatch(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7())
 	subjectID := uuid.Must(uuid.NewV7())
 	target := audit.Target{
-		Kind:         audit.TargetKindResource,
-		NodeType:     "",
-		Reference:    "",
-		Name:         "",
-		URI:          "tack:user/" + subjectID.String(),
-		RelationType: "",
-		ID:           subjectID,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
+		Kind: audit.TargetKindResource, NodeType: "", Reference: "", Name: "", URI: "tack:user/" + subjectID.String(),
+		RelationType: "", ID: subjectID, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
 	referenced := protectedChangeEvent(t, orgID, target, uuid.Must(uuid.NewV7()))
 	unreferenced := protectedChangeEvent(t, orgID, target, uuid.Must(uuid.NewV7()))
@@ -90,72 +65,37 @@ func TestRuntimeAuditProtectedReferenceMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal of synthetic user value: error = %v, want nil", err)
 	}
-
 	protectedText, err := json.Marshal("synthetic value")
 	if err != nil {
 		t.Fatalf("json.Marshal of synthetic protected value: error = %v, want nil", err)
 	}
-
 	unreferenced.Delta.After = activeValue
-	unreferenced.Protected = []audit.ProtectedValue{
-		{Ref: uuid.Must(uuid.NewV7()), SubjectID: subjectID, Value: protectedText},
-	}
+	unreferenced.Protected = []audit.ProtectedValue{{Ref: uuid.Must(uuid.NewV7()), SubjectID: subjectID, Value: protectedText}}
 	stack.record(t, referenced, unreferenced)
 
 	errorTexts := stack.waitForDeadLetters(t, 2)
-
 	for _, event := range []audit.Event{referenced, unreferenced} {
-		rejected := slices.ContainsFunc(
-			errorTexts,
-			func(text string) bool {
-				return strings.Contains(text, event.EventID.String()) &&
-					strings.Contains(text, "protected")
-			},
-		)
+		rejected := slices.ContainsFunc(errorTexts, func(text string) bool {
+			return strings.Contains(text, event.EventID.String()) && strings.Contains(text, "protected")
+		})
 		if !rejected {
-			t.Fatalf(
-				"errorTexts = %q, want an entry containing event.EventID %s and \"protected\"",
-				errorTexts,
-				event.EventID,
-			)
+			t.Fatalf("errorTexts = %q, want an entry containing event.EventID %s and \"protected\"", errorTexts, event.EventID)
 		}
-
-		if _, err := stack.reader.GetByID(t.Context(), event.EventID); !errors.Is(
-			err,
-			pgx.ErrNoRows,
-		) {
-			t.Fatalf(
-				"GetByID for rejected event %s: error = %v, want pgx.ErrNoRows",
-				event.EventID,
-				err,
-			)
+		if _, err := stack.reader.GetByID(t.Context(), event.EventID); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("GetByID for rejected event %s: error = %v, want pgx.ErrNoRows", event.EventID, err)
 		}
 	}
 }
 
 // protectedChangeEvent builds a completed format 2 change event with one
 // email reference in Delta.After. It does not set Protected.
-func protectedChangeEvent(
-	t *testing.T,
-	orgID uuid.UUID,
-	target audit.Target,
-	ref uuid.UUID,
-) audit.Event {
+func protectedChangeEvent(t *testing.T, orgID uuid.UUID, target audit.Target, ref uuid.UUID) audit.Event {
 	t.Helper()
 	after, err := json.Marshal(map[string]audit.ProtectedReference{"email": {PIIRef: ref}})
 	if err != nil {
 		t.Fatalf("json.Marshal of synthetic user value: error = %v, want nil", err)
 	}
-
-	event := completeEvent(
-		orgID,
-		userActor(),
-		target,
-		audit.OperationDatabaseChange,
-		audit.PhaseChange,
-		audit.OutcomeCompleted,
-	)
+	event := completeEvent(orgID, userActor(), target, audit.OperationDatabaseChange, audit.PhaseChange, audit.OutcomeCompleted)
 	event.Delta = &audit.Delta{Before: nil, After: after, Changed: nil}
-
 	return event
 }

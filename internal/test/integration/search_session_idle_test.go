@@ -60,35 +60,22 @@ func TestSearchIdleDeadlineRenewsSessionAndPointInTime(t *testing.T) {
 
 	opened := clock.Now()
 	page, pits := renewedPage(t, fixture, harness, capture, "")
-
 	for range renewalContinuations {
 		waitForTime(t, clock.Now().Add(renewalGap))
 		next, nextPITs := renewedPage(t, fixture, harness, capture, page.Cursor)
 		page = next
 		pits = append(pits, nextPITs...)
 	}
-
 	if elapsed := clock.Now().Sub(opened); elapsed <= renewalIdle || page.Cursor == "" {
-		t.Fatalf(
-			"traversal lasted %s and returned cursor %q but must last longer than %s and return a nonempty cursor",
-			elapsed,
-			page.Cursor,
-			renewalIdle,
-		)
+		t.Fatalf("traversal lasted %s and returned cursor %q but must last longer than %s and return a nonempty cursor", elapsed, page.Cursor, renewalIdle)
 	}
 
 	session := integration.CursorSession(t, fixture, page.Cursor)
 	requirePITOpen(t, fixture, pits)
 	waitForTime(t, session.IdleDeadline)
-	if _, err := integration.TrySearch(harness, renewalQuery, page.Cursor); err == nil ||
-		!strings.Contains(err.Error(), expiredCursorText) {
-		t.Fatalf(
-			"expired continuation returned %v instead of an error containing %q",
-			err,
-			expiredCursorText,
-		)
+	if _, err := integration.TrySearch(harness, renewalQuery, page.Cursor); err == nil || !strings.Contains(err.Error(), expiredCursorText) {
+		t.Fatalf("expired continuation returned %v instead of an error containing %q", err, expiredCursorText)
 	}
-
 	requireDeleteSent(t, capture, pits)
 	requirePITsClosed(t, fixture, pits)
 }
@@ -111,28 +98,20 @@ func TestSearchSweepDeletesExpiredPointInTime(t *testing.T) {
 	if first.Cursor == "" {
 		t.Fatalf("first sweep page returned %d matches without a cursor", sweepNodes)
 	}
-
 	pits := capturedPITs(t, capture.take())
 	session := integration.CursorSession(t, fixture, first.Cursor)
 	waitForTime(t, session.IdleDeadline.Truncate(time.Minute).Add(time.Minute+sweepMargin))
 	store := fixture.Stores.SearchSessions(clock.Wall{}, sweepIdle)
-
 	for attempt := range sweepSearches {
 		integration.CallSearch(t, harness, fmt.Sprintf("%s sweep %d", sweepQuery, attempt), "")
 		_, err := store.Load(integration.WithTestOperation(t, t.Context()), session.ID)
 		if errors.Is(err, searchdomain.ErrSessionNotFound) {
 			requireDeleteSent(t, capture, pits)
 			requirePITsClosed(t, fixture, pits)
-
 			return
 		}
 	}
-
-	t.Fatalf(
-		"session store still finds a session after %d sweep searches: %s",
-		sweepSearches,
-		session.ID,
-	)
+	t.Fatalf("session store still finds a session after %d sweep searches: %s", sweepSearches, session.ID)
 }
 
 // renewedPage calls tack_search for renewalQuery with cursor and requires the call to succeed.
@@ -140,13 +119,7 @@ func TestSearchSweepDeletesExpiredPointInTime(t *testing.T) {
 // If the page returns a cursor, it requires the stored idle deadline to fall between
 // the call start plus renewalIdle and the call end plus renewalIdle.
 // It returns the page and the point in time IDs of its ranked batches.
-func renewedPage(
-	t *testing.T,
-	fixture integration.QueryFixture,
-	harness *integration.MCPHarness,
-	capture *searchCapture,
-	cursor string,
-) (integration.SearchPage, []string) {
+func renewedPage(t *testing.T, fixture integration.QueryFixture, harness *integration.MCPHarness, capture *searchCapture, cursor string) (integration.SearchPage, []string) {
 	t.Helper()
 	started := clock.Now()
 	page, err := integration.TrySearch(harness, renewalQuery, cursor)
@@ -154,38 +127,21 @@ func renewedPage(
 	if err != nil {
 		t.Fatalf("tack_search failed for cursor %q: %v", cursor, err)
 	}
-
 	searches := capture.take()
 	keepAlive := strconv.FormatInt(renewalIdle.Milliseconds(), 10) + "ms"
-
 	for _, search := range searches {
 		var body rankedRequestBody
-		if decodeErr := json.Unmarshal(search.Request, &body); decodeErr != nil ||
-			body.PIT.KeepAlive != keepAlive {
-			t.Fatalf(
-				"ranked batch sent pit.keep_alive %q with decode error %v but must send %q",
-				body.PIT.KeepAlive,
-				decodeErr,
-				keepAlive,
-			)
+		if decodeErr := json.Unmarshal(search.Request, &body); decodeErr != nil || body.PIT.KeepAlive != keepAlive {
+			t.Fatalf("ranked batch sent pit.keep_alive %q with decode error %v but must send %q", body.PIT.KeepAlive, decodeErr, keepAlive)
 		}
 	}
-
 	if page.Cursor != "" {
 		session := integration.CursorSession(t, fixture, page.Cursor)
-		if session.IdleDeadline.Before(started.Add(renewalIdle)) ||
-			session.IdleDeadline.After(finished.Add(renewalIdle)) {
-			t.Fatalf(
-				"session %s stored idle deadline %s outside the window from %s to %s after adding idle timeout %s to both call times",
-				session.ID,
-				session.IdleDeadline,
-				started,
-				finished,
-				renewalIdle,
-			)
+		if session.IdleDeadline.Before(started.Add(renewalIdle)) || session.IdleDeadline.After(finished.Add(renewalIdle)) {
+			t.Fatalf("session %s stored idle deadline %s outside the window from %s to %s after adding idle timeout %s to both call times",
+				session.ID, session.IdleDeadline, started, finished, renewalIdle)
 		}
 	}
-
 	return page, capturedPITs(t, searches)
 }
 
@@ -197,22 +153,8 @@ func putIdleCorpus(t *testing.T, fixture integration.QueryFixture, query string,
 	workspace := fixture.Workspaces[0]
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
 	entryID := integration.EntryPoint(t, fixture, workspace)
-
 	for number := range count {
-		integration.PutOpaqueNode(
-			t,
-			fixture,
-			kind,
-			entryID,
-			fmt.Sprintf("Idle node %d", number),
-			query,
-			"excluded",
-		)
+		integration.PutOpaqueNode(t, fixture, kind, entryID, fmt.Sprintf("Idle node %d", number), query, "excluded")
 	}
-
-	integration.DrainSearchWork(
-		t,
-		fixture.Worker,
-		fullPageSlicesPerNode*count+fullPageFixtureSlices,
-	)
+	integration.DrainSearchWork(t, fixture.Worker, fullPageSlicesPerNode*count+fullPageFixtureSlices)
 }

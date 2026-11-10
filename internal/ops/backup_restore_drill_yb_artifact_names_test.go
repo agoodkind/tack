@@ -46,7 +46,6 @@ func TestEveryArtifactNameTheManifestBoundaryAdmitsStagesInsideTheStage(t *testi
 		if staged := filepath.Join(stageDir, name); filepath.Dir(staged) != stageDir {
 			t.Fatalf("admitted name %q stages at %q, outside %q", name, staged, stageDir)
 		}
-
 		if key := keyPrefix + name; filepath.Dir(key) != filepath.Clean(keyPrefix) {
 			t.Fatalf("admitted name %q keys at %q, outside %q", name, key, keyPrefix)
 		}
@@ -55,22 +54,18 @@ func TestEveryArtifactNameTheManifestBoundaryAdmitsStagesInsideTheStage(t *testi
 	// Every byte in the first position, alone, and every byte in the rest
 	// position, behind a byte the first position admits.
 	admitted := 0
-
 	for b := range 256 {
 		for _, name := range []string{string([]byte{byte(b)}), "a" + string([]byte{byte(b)})} {
 			if validateYBArtifactName(name) != nil {
 				continue
 			}
-
 			admitted++
 			if strings.ContainsAny(name, `/\`) || strings.ContainsRune(name, 0) {
 				t.Fatalf("the boundary admitted %q, which carries a separator or NUL", name)
 			}
-
 			assertContained(name)
 		}
 	}
-
 	if admitted == 0 {
 		t.Fatal("the sweep admitted no name at all, so it proved nothing")
 	}
@@ -84,14 +79,11 @@ func TestEveryArtifactNameTheManifestBoundaryAdmitsStagesInsideTheStage(t *testi
 			t.Fatalf("the boundary admitted %q, which carries a traversal segment", refused)
 		}
 	}
-
 	for _, name := range []string{"a.b", "a.", "a.b.c", "a-b", "a_b", "schema.sql"} {
 		if err := validateYBArtifactName(name); err != nil {
 			t.Fatalf("expected %q to be admitted, it is one component: %v", name, err)
 		}
-
 		assertContained(name)
 	}
-
 	t.Logf("admitted %d single-byte and two-byte names, every one a direct child", admitted)
 }

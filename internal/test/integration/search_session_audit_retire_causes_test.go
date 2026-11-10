@@ -42,25 +42,13 @@ func TestSearchSessionAuditRetireLostRecordingKeepsCauses(t *testing.T) {
 
 	remaining, err := rebuilds.RetireIndexSessions(retireContext, index, retireSliceLimit)
 	gate.requireFinished(t)
-	wanted := []error{
-		audit.ErrEventNotRecorded,
-		context.Canceled,
-		fdb.Error{Code: transactionTimedOutNumber},
-	}
+	wanted := []error{audit.ErrEventNotRecorded, context.Canceled, fdb.Error{Code: transactionTimedOutNumber}}
 	for _, want := range wanted {
 		if !remaining || !errors.Is(err, want) {
-			t.Fatalf(
-				"RetireIndexSessions of %s with a lost failure event = %t, %v, want remaining work and errors matching %v",
-				index,
-				remaining,
-				err,
-				wanted,
-			)
+			t.Fatalf("RetireIndexSessions of %s with a lost failure event = %t, %v, want remaining work and errors matching %v", index, remaining, err, wanted)
 		}
 	}
-	if events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupClose); len(
-		events,
-	) != 0 {
+	if events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupClose); len(events) != 0 {
 		t.Fatalf("outbox contains %d failed close events for session %s", len(events), session.ID)
 	}
 }

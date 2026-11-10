@@ -23,11 +23,7 @@ func writeFile(path, content string) error {
 
 		closeErr := file.Close()
 		if closeErr != nil {
-			slog.Error(
-				"image_file.close_failed",
-				slog.String("path", path),
-				slog.Any("error", closeErr),
-			)
+			slog.Error("image_file.close_failed", slog.String("path", path), slog.Any("error", closeErr))
 		}
 
 		return writeErr

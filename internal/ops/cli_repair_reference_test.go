@@ -29,11 +29,8 @@ func TestReferenceRepairIsReachableFromTheCommandLine(t *testing.T) {
 
 	keep := command.Flags().Lookup("keep")
 	if keep == nil {
-		t.Fatal(
-			"the repair has no --keep flag, so an operator could not choose which node keeps a contested reference",
-		)
+		t.Fatal("the repair has no --keep flag, so an operator could not choose which node keeps a contested reference")
 	}
-
 	if keep.DefValue != "oldest" {
 		t.Fatalf("--keep default = %q, want oldest", keep.DefValue)
 	}
@@ -48,21 +45,16 @@ func findCommand(t *testing.T, path ...string) *cobra.Command {
 	ops.RegisterCommands(registry, factory)
 
 	root := &cobra.Command{Use: "tack"}
-
 	for _, rendered := range clispec.RenderCobra(registry, factory) {
 		root.AddCommand(rendered)
 	}
-
 	current := root
-
 	for _, segment := range path {
 		next, _, err := current.Find([]string{segment})
 		if err != nil || next == current {
 			t.Fatalf("command %q not found under %q", segment, current.Name())
 		}
-
 		current = next
 	}
-
 	return current
 }

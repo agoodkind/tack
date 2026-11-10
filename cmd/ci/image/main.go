@@ -11,7 +11,7 @@ import (
 func main() {
 	err := image.NewCommand().Execute()
 	if err != nil {
-		slog.Error("ci-image.failed", slog.Any("error", err))
+		slog.Error("ci-image.failed", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 }

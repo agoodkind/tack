@@ -42,57 +42,27 @@ type modelDeploy struct {
 // step intent records the stuck model state, and the step result records the
 // deploy task and its duration or the failure. When the outbox does not save
 // the intent, deploy does not send the deploy and releases the claim.
-func (r *SearchModelRepair) deploy(
-	ctx context.Context,
-	index string,
-	claim searchdomain.ModelRepairClaim,
-	state string,
-	stuckFor time.Duration,
-) error {
+func (r *SearchModelRepair) deploy(ctx context.Context, index string, claim searchdomain.ModelRepairClaim, state string, stuckFor time.Duration) error {
 	modelID := claim.Record.ModelID
 	planned := modelRepairEvidence{
-		ModelID:         modelID,
-		Index:           index,
-		State:           state,
-		Attempt:         claim.Record.Attempts,
-		StuckForSeconds: int64(stuckFor.Seconds()),
-		TaskID:          "",
-		DeploySeconds:   0,
+		ModelID: modelID, Index: index, State: state, Attempt: claim.Record.Attempts,
+		StuckForSeconds: int64(stuckFor.Seconds()), TaskID: "", DeploySeconds: 0,
 	}
 	encoded, err := json.Marshal(planned)
 	if err != nil {
-		return modelRepairFailure(
-			ctx,
-			"encode the repair evidence of model "+modelID,
-			errors.Join(err, r.release(ctx, claim)),
-		)
+		return modelRepairFailure(ctx, "encode the repair evidence of model "+modelID, errors.Join(err, r.release(ctx, claim)))
 	}
-
 	var sent modelDeploy
 	target := audit.Target{
-		Kind:         audit.TargetKindExternal,
-		NodeType:     "",
-		Reference:    modelTargetPrefix + modelID,
-		Name:         "",
-		URI:          "",
-		RelationType: "",
-		ID:           uuid.Nil,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
+		Kind: audit.TargetKindExternal, NodeType: "", Reference: modelTargetPrefix + modelID, Name: "",
+		URI: "", RelationType: "", ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
-	recordErr := audit.RunServiceStep(
-		ctx,
-		r.ports.Audit.Outbox,
-		r.ports.Audit.Actor,
-		audit.VerbSearchModelRepair,
-		target,
-		encoded,
+	recordErr := audit.RunServiceStep(ctx, r.ports.Audit.Outbox, r.ports.Audit.Actor, audit.VerbSearchModelRepair, target, encoded,
 		func(ctx context.Context) error {
 			sent = r.sendDeploy(ctx, claim, state, stuckFor)
 			if sent.startErr != nil {
 				return sent.startErr
 			}
-
 			return sent.waitErr
 		},
 		func(ctx context.Context) (json.RawMessage, error) {
@@ -100,16 +70,10 @@ func (r *SearchModelRepair) deploy(
 			observed.TaskID, observed.DeploySeconds = sent.taskID, int64(sent.took.Seconds())
 			encoded, err := json.Marshal(observed)
 			if err != nil {
-				return nil, modelRepairFailure(
-					ctx,
-					"encode the repair evidence of model "+modelID,
-					err,
-				)
+				return nil, modelRepairFailure(ctx, "encode the repair evidence of model "+modelID, err)
 			}
-
 			return encoded, nil
-		},
-	)
+		})
 	switch {
 	case sent.startErr != nil:
 		return r.deployFailed(ctx, claim, "", sent.startErr)
@@ -118,56 +82,25 @@ func (r *SearchModelRepair) deploy(
 	case sent.waitErr != nil:
 		return r.deployFailed(ctx, claim, sent.taskID, sent.waitErr)
 	case recordErr != nil && sent.taskID == "":
-		return modelRepairFailure(
-			ctx,
-			"record the repair deploy of model "+modelID,
-			errors.Join(recordErr, r.release(ctx, claim)),
-		)
+		return modelRepairFailure(ctx, "record the repair deploy of model "+modelID, errors.Join(recordErr, r.release(ctx, claim)))
 	case recordErr != nil:
 		return modelRepairFailure(ctx, "record the repair deploy of model "+modelID, recordErr)
 	}
-
-	telemetry.L(ctx).InfoContext(
-		ctx,
-		"search.model_repair.deploy_completed",
-		slog.String("model_id", modelID),
-		slog.String("task_id", sent.taskID),
-		slog.Int("attempt", claim.Record.Attempts),
-		slog.Duration("duration", sent.took),
-	)
-
+	telemetry.L(ctx).InfoContext(ctx, "search.model_repair.deploy_completed", slog.String("model_id", modelID), slog.String("task_id", sent.taskID),
+		slog.Int("attempt", claim.Record.Attempts), slog.Duration("duration", sent.took))
 	return nil
 }
 
 // sendDeploy starts one deploy of the claimed model and waits for its task.
-func (r *SearchModelRepair) sendDeploy(
-	ctx context.Context,
-	claim searchdomain.ModelRepairClaim,
-	state string,
-	stuckFor time.Duration,
-) modelDeploy {
+func (r *SearchModelRepair) sendDeploy(ctx context.Context, claim searchdomain.ModelRepairClaim, state string, stuckFor time.Duration) modelDeploy {
 	modelID := claim.Record.ModelID
 	taskID, err := r.ports.Engine.StartModelDeploy(ctx, modelID)
 	if err != nil {
 		return modelDeploy{taskID: "", startErr: err, waitErr: nil, took: 0}
 	}
-
-	telemetry.L(ctx).InfoContext(
-		ctx,
-		"search.model_repair.deploy_started",
-		slog.String("model_id", modelID),
-		slog.String("task_id", taskID),
-		slog.Int("attempt", claim.Record.Attempts),
-		slog.String("state", state),
-		slog.Duration("stuck_for", stuckFor),
-	)
+	telemetry.L(ctx).InfoContext(ctx, "search.model_repair.deploy_started", slog.String("model_id", modelID), slog.String("task_id", taskID),
+		slog.Int("attempt", claim.Record.Attempts), slog.String("state", state), slog.Duration("stuck_for", stuckFor))
 	started := r.clock.Now()
 	waitErr := r.ports.Engine.WaitModelDeploy(ctx, modelID, taskID)
-
-	return modelDeploy{
-		taskID:   taskID,
-		startErr: nil,
-		waitErr:  waitErr,
-		took:     r.clock.Since(started),
-	}
+	return modelDeploy{taskID: taskID, startErr: nil, waitErr: waitErr, took: r.clock.Since(started)}
 }

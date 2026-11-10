@@ -28,28 +28,8 @@ func TestNodeIntegrityRepairExecuteRemovesListedNonAncestorEdges(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	graph := newRepairGraph(t, env)
 	project, epic := graph.projectID, graph.epicID
-	otherEpic := createRepairNode(
-		t,
-		env,
-		service.CreateInput{
-			ParentID:    project,
-			ScopeID:     project,
-			NodeTypeKey: "epic",
-			Name:        "Other epic",
-			ActorID:     uuid.New(),
-		},
-	)
-	moved := createRepairNode(
-		t,
-		env,
-		service.CreateInput{
-			ParentID:    epic,
-			ScopeID:     project,
-			NodeTypeKey: "issue",
-			Name:        "Issue under the first epic",
-			ActorID:     uuid.New(),
-		},
-	)
+	otherEpic := createRepairNode(t, env, service.CreateInput{ParentID: project, ScopeID: project, NodeTypeKey: "epic", Name: "Other epic", ActorID: uuid.New()})
+	moved := createRepairNode(t, env, service.CreateInput{ParentID: epic, ScopeID: project, NodeTypeKey: "issue", Name: "Issue under the first epic", ActorID: uuid.New()})
 	chosen := createRepairIssue(t, env, project, "Chosen parent issue")
 	addLegacyParentEdge(t, env, chosen, epic)
 	nested := createRepairIssue(t, env, project, "Issue with three parent edges")
@@ -69,11 +49,9 @@ func TestNodeIntegrityRepairExecuteRemovesListedNonAncestorEdges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute the non-ancestor removals: %v", err)
 	}
-
 	for _, entry := range entries {
 		requireApplyStatus(t, applied, entry.RepairID, ops.RepairApplyApplied)
 	}
-
 	requireParent(t, env, moved, otherEpic)
 	requireParent(t, env, nested, chosen)
 	requireUnchangedRerun(t, manifest)

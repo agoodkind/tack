@@ -34,57 +34,23 @@ func TestSearchVerifyReportsStuckRebuildWork(t *testing.T) {
 	drainSearchWork(t, fixture.Worker, 2000)
 	malformed := writeMalformedNodeKey(t)
 
-	request := searchdomain.BeginRebuild{
-		Mode:          searchdomain.ReplacementFull,
-		PrimaryShards: 1,
-		RoutingShards: 24,
-		Replicas:      0,
-		Restored:      false,
-		Reason:        "test",
-	}
+	request := searchdomain.BeginRebuild{Mode: searchdomain.ReplacementFull, PrimaryShards: 1, RoutingShards: 24, Replicas: 0, Restored: false, Reason: "test"}
 	rebuild := beginRebuild(t, fixture, request)
-
-	report, verifyErr := runUntilStuck(
-		t,
-		fixture,
-		searchdomain.WorkClassRebuild,
-		rebuild.ID.String(),
-		stuckAttemptLimit,
-	)
+	report, verifyErr := runUntilStuck(t, fixture, searchdomain.WorkClassRebuild, rebuild.ID.String(), stuckAttemptLimit)
 	for _, stuck := range report.StuckWork {
 		if stuck.ItemID != rebuild.ID.String() {
 			continue
 		}
-
-		if stuck.Kind != string(searchdomain.WorkClassRebuild) || stuck.Attempts < 5 ||
-			!strings.Contains(stuck.LastError, malformedNodeKeyText) {
-			t.Fatalf(
-				"stuck work = %+v, want rebuild work with at least 5 attempts and the scan failure",
-				stuck,
-			)
+		if stuck.Kind != string(searchdomain.WorkClassRebuild) || stuck.Attempts < 5 || !strings.Contains(stuck.LastError, malformedNodeKeyText) {
+			t.Fatalf("stuck work = %+v, want rebuild work with at least 5 attempts and the scan failure", stuck)
 		}
 	}
-
-	if verifyErr == nil ||
-		!strings.Contains(verifyErr.Error(), "rebuild work "+rebuild.ID.String()) ||
-		!strings.Contains(verifyErr.Error(), malformedNodeKeyText) {
-		t.Fatalf(
-			"ops search verify error = %v, want the rebuild item %s and its last error",
-			verifyErr,
-			rebuild.ID,
-		)
+	if verifyErr == nil || !strings.Contains(verifyErr.Error(), "rebuild work "+rebuild.ID.String()) || !strings.Contains(verifyErr.Error(), malformedNodeKeyText) {
+		t.Fatalf("ops search verify error = %v, want the rebuild item %s and its last error", verifyErr, rebuild.ID)
 	}
-
-	current, found, err := fixture.Stores.SearchRebuilds(clock.Wall{}).CurrentRebuild(
-		WithTestOperation(t, t.Context()),
-	)
+	current, found, err := fixture.Stores.SearchRebuilds(clock.Wall{}).CurrentRebuild(WithTestOperation(t, t.Context()))
 	if err != nil || !found || current.State != searchdomain.RebuildCopying {
-		t.Fatalf(
-			"index replacement = %+v, found %t, error %v, want it still copying",
-			current,
-			found,
-			err,
-		)
+		t.Fatalf("index replacement = %+v, found %t, error %v, want it still copying", current, found, err)
 	}
 
 	clearRawKey(t, malformed)
@@ -105,18 +71,13 @@ func writeMalformedNodeKey(t *testing.T) fdb.Key {
 	if err != nil {
 		t.Fatalf("open database to store a malformed node key: %v", err)
 	}
-
-	key := append(
-		append([]byte{}, fdbadapter.TestPrefixRange()...),
-		tuple.Tuple{"node_instance", uuid.Must(uuid.NewV7()).String(), "malformed"}.Pack()...,
-	)
+	key := append(append([]byte{}, fdbadapter.TestPrefixRange()...), tuple.Tuple{"node_instance", uuid.Must(uuid.NewV7()).String(), "malformed"}.Pack()...)
 	if _, err := database.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Set(fdb.Key(key), []byte("{}"))
 		return nil, nil
 	}); err != nil {
 		t.Fatalf("store malformed node key: %v", err)
 	}
-
 	return fdb.Key(key)
 }
 
@@ -127,7 +88,6 @@ func clearRawKey(t *testing.T, key fdb.Key) {
 	if err != nil {
 		t.Fatalf("open database to clear a key: %v", err)
 	}
-
 	if _, err := database.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Clear(key)
 		return nil, nil
@@ -139,12 +99,7 @@ func clearRawKey(t *testing.T, key fdb.Key) {
 // nodeResolveRawKey returns the key for the resolution record of nodeID
 // under the test prefix.
 func nodeResolveRawKey(nodeID uuid.UUID) fdb.Key {
-	return fdb.Key(
-		append(
-			append([]byte{}, fdbadapter.TestPrefixRange()...),
-			tuple.Tuple{"node_resolve", nodeID.String()}.Pack()...,
-		),
-	)
+	return fdb.Key(append(append([]byte{}, fdbadapter.TestPrefixRange()...), tuple.Tuple{"node_resolve", nodeID.String()}.Pack()...))
 }
 
 // replaceRawValue stores value under key and returns the previous value.
@@ -154,61 +109,40 @@ func replaceRawValue(t *testing.T, key fdb.Key, value []byte) []byte {
 	if err != nil {
 		t.Fatalf("open database to replace a value: %v", err)
 	}
-
 	var previous []byte
 	if _, err := database.Transact(func(tr fdb.Transaction) (any, error) {
 		current, readErr := tr.Get(key).Get()
 		if readErr != nil {
 			return nil, readErr
 		}
-
 		previous = current
 		tr.Set(key, value)
-
 		return nil, nil
 	}); err != nil {
 		t.Fatalf("replace value: %v", err)
 	}
-
 	return previous
 }
 
 // runUntilStuck runs worker slices until ops search verify lists stuck work
 // matching class and itemID with an attempt count of at least attempts. It
 // ignores slice failures. It fails the test after exclusionDeadline.
-func runUntilStuck(
-	t *testing.T,
-	fixture queryFixture,
-	class searchdomain.WorkClass,
-	itemID string,
-	attempts int64,
-) (searchVerifyReport, error) {
+func runUntilStuck(t *testing.T, fixture queryFixture, class searchdomain.WorkClass, itemID string, attempts int64) (searchVerifyReport, error) {
 	t.Helper()
-
 	deadline := clock.Now().Add(exclusionDeadline)
 	for clock.Now().Before(deadline) {
 		claimed, _ := fixture.Worker.RunSlice(WithTestOperation(t, t.Context()))
 		if claimed {
 			continue
 		}
-
 		report, verifyErr := runSearchVerifyCommand(t, fixture.Config)
 		for _, stuck := range report.StuckWork {
 			if stuck.Kind == string(class) && stuck.ItemID == itemID && stuck.Attempts >= attempts {
 				return report, verifyErr
 			}
 		}
-
 		waitUntil(t, clock.Now().Add(exclusionPollInterval))
 	}
-
-	t.Fatalf(
-		"ops search verify did not list %s work %s with %d attempts within %s",
-		class,
-		itemID,
-		attempts,
-		exclusionDeadline,
-	)
-
+	t.Fatalf("ops search verify did not list %s work %s with %d attempts within %s", class, itemID, attempts, exclusionDeadline)
 	return searchVerifyReport{}, nil
 }

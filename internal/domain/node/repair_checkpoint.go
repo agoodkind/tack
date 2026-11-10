@@ -43,11 +43,9 @@ func (phase RepairPhase) Follows(previous RepairPhase) bool {
 	if !phase.Valid() {
 		return false
 	}
-
 	if previous == "" {
 		return true
 	}
-
 	return previous.Valid() && repairPhaseRank[phase] > repairPhaseRank[previous]
 }
 

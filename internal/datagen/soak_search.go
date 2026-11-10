@@ -29,15 +29,10 @@ func (s *Soak) searchProject(
 	if len(project.Issues) > 0 {
 		query = project.Issues[operationIndex/soakOperationKinds%len(project.Issues)].Name
 	}
-	_, err := s.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_search",
-		ToolArguments{
-			WorkspaceReference: project.Workspace.Slug,
-			Query:              query,
-		},
-	)
+	_, err := s.driver.Call(ctx, actor.Token, "tack_search", ToolArguments{
+		WorkspaceReference: project.Workspace.Slug,
+		Query:              query,
+	})
 	if isSearchUnavailable(err) {
 		s.summary.SearchesUnavailable++
 		return soakKindSearchUnavailable, nil

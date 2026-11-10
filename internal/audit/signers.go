@@ -45,26 +45,21 @@ type SignerSet struct {
 // than a silently unmatched member.
 func ParseSignerSet(raw string) (SignerSet, error) {
 	set := SignerSet{ordered: nil, members: map[string]bool{}}
-
 	for entry := range strings.SplitSeq(raw, ",") {
 		id := strings.TrimSpace(entry)
 		if id == "" {
 			continue
 		}
-
 		if !keyIdentifierShape.MatchString(id) {
 			return SignerSet{ordered: nil, members: nil},
 				fmt.Errorf("signer set entry %q: want ed25519: followed by sixteen hex digits", id)
 		}
-
 		if set.members[id] {
 			continue
 		}
-
 		set.members[id] = true
 		set.ordered = append(set.ordered, id)
 	}
-
 	return set, nil
 }
 
@@ -78,6 +73,5 @@ func (s SignerSet) Allows(id string) bool { return s.members[id] }
 func (s SignerSet) Identifiers() []string {
 	out := make([]string, len(s.ordered))
 	copy(out, s.ordered)
-
 	return out
 }

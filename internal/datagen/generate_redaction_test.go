@@ -22,29 +22,17 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 }
 
 func redactionIdentities() Identities {
-	return Identities{
-		Workspaces: []WorkspaceIdentity{
-			{
-				OrgID: uuid.Must(uuid.NewV7()),
-				Actors: []Actor{
-					{
-						UserID: uuid.Must(uuid.NewV7()),
-						Email:  "qa@example.invalid",
-						Token:  "token",
-					},
-				},
-			},
-		},
-	}
+	return Identities{Workspaces: []WorkspaceIdentity{{
+		OrgID:  uuid.Must(uuid.NewV7()),
+		Actors: []Actor{{UserID: uuid.Must(uuid.NewV7()), Email: "qa@example.invalid", Token: "token"}},
+	}}}
 }
 
 func TestAuditRedactionDryRunPlansAndCallsNothing(t *testing.T) {
 	output := captureLogs(t)
 	generator := &Generator{
-		driver:         NewDriver(nil, true, 245),
-		dryRun:         true,
-		redactAuditPII: true,
-		identities:     redactionIdentities(),
+		driver: NewDriver(nil, true, 245), dryRun: true, redactAuditPII: true,
+		identities: redactionIdentities(),
 		redactActor: func(context.Context, uuid.UUID, uuid.UUID) (audit.ActorRedaction, error) {
 			return audit.ActorRedaction{}, errors.New("a dry run must not redact")
 		},
@@ -62,21 +50,10 @@ func TestAuditRedactionRunsTheHostPathForTheFirstActor(t *testing.T) {
 	identities := redactionIdentities()
 	var gotOrg, gotActor uuid.UUID
 	generator := &Generator{
-		driver:         NewDriver(nil, false, 245),
-		redactAuditPII: true,
-		identities:     identities,
-		redactActor: func(_ context.Context, orgID, actorID uuid.UUID) (
-			audit.ActorRedaction,
-			error,
-		) {
+		driver: NewDriver(nil, false, 245), redactAuditPII: true, identities: identities,
+		redactActor: func(_ context.Context, orgID, actorID uuid.UUID) (audit.ActorRedaction, error) {
 			gotOrg, gotActor = orgID, actorID
-			return audit.ActorRedaction{
-				OrgID:       orgID,
-				ActorID:     actorID,
-				PIIRefCount: 3,
-				Unredacted:  3,
-				Redacted:    3,
-			}, nil
+			return audit.ActorRedaction{OrgID: orgID, ActorID: actorID, PIIRefCount: 3, Unredacted: 3, Redacted: 3}, nil
 		},
 	}
 	if err := generator.redactOneActor(t.Context()); err != nil {
@@ -84,13 +61,7 @@ func TestAuditRedactionRunsTheHostPathForTheFirstActor(t *testing.T) {
 	}
 	workspace := identities.Workspaces[0]
 	if gotOrg != workspace.OrgID || gotActor != workspace.Actors[0].UserID {
-		t.Fatalf(
-			"redacted org %s actor %s, want org %s actor %s",
-			gotOrg,
-			gotActor,
-			workspace.OrgID,
-			workspace.Actors[0].UserID,
-		)
+		t.Fatalf("redacted org %s actor %s, want org %s actor %s", gotOrg, gotActor, workspace.OrgID, workspace.Actors[0].UserID)
 	}
 	if !strings.Contains(output.String(), "qa.datagen.audit_redaction_requested") ||
 		!strings.Contains(output.String(), "redacted=3") {
@@ -101,9 +72,7 @@ func TestAuditRedactionRunsTheHostPathForTheFirstActor(t *testing.T) {
 func TestAuditRedactionFailsLoudlyWhenTheHostPathFails(t *testing.T) {
 	captureLogs(t)
 	generator := &Generator{
-		driver:         NewDriver(nil, false, 245),
-		redactAuditPII: true,
-		identities:     redactionIdentities(),
+		driver: NewDriver(nil, false, 245), redactAuditPII: true, identities: redactionIdentities(),
 		redactActor: func(context.Context, uuid.UUID, uuid.UUID) (audit.ActorRedaction, error) {
 			return audit.ActorRedaction{}, errors.New("permission denied for table audit.pii")
 		},
@@ -117,9 +86,7 @@ func TestAuditRedactionFailsLoudlyWhenTheHostPathFails(t *testing.T) {
 func TestAuditRedactionSkipsWithoutDSNs(t *testing.T) {
 	output := captureLogs(t)
 	generator := &Generator{
-		driver:         NewDriver(nil, false, 245),
-		redactAuditPII: true,
-		identities:     redactionIdentities(),
+		driver: NewDriver(nil, false, 245), redactAuditPII: true, identities: redactionIdentities(),
 	}
 	if err := generator.redactOneActor(t.Context()); err != nil {
 		t.Fatalf("redactOneActor() error = %v", err)

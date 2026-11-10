@@ -32,7 +32,6 @@ func readTestKeys(t *testing.T, database fdb.Database, keyRange fdb.KeyRange) []
 	if err != nil {
 		t.Fatalf("read the keys under the test prefix: %v", err)
 	}
-
 	return keyValues
 }
 
@@ -42,11 +41,9 @@ func restoreTestPrefix(t *testing.T, database fdb.Database, saved []fdb.KeyValue
 	keyRange := testPrefixKeys(t)
 	if _, err := database.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.ClearRange(keyRange)
-
 		for _, keyValue := range saved {
 			tr.Set(keyValue.Key, keyValue.Value)
 		}
-
 		return nil, nil
 	}); err != nil {
 		t.Fatalf("restore the keys under the test prefix: %v", err)
@@ -64,7 +61,6 @@ func testPrefixKeys(t *testing.T) fdb.KeyRange {
 func testOutboxKeys(t *testing.T) fdb.KeyRange {
 	t.Helper()
 	outboxPrefix := append(bytes.Clone(activeTestPrefix(t)), tuple.Tuple{outboxKeyFamily}.Pack()...)
-
 	return prefixKeyRange(t, outboxPrefix)
 }
 
@@ -75,7 +71,6 @@ func activeTestPrefix(t *testing.T) []byte {
 	if len(prefix) == 0 {
 		t.Fatal("the test environment did not set a FoundationDB test prefix")
 	}
-
 	return prefix
 }
 
@@ -86,6 +81,5 @@ func prefixKeyRange(t *testing.T, prefix []byte) fdb.KeyRange {
 	if err != nil {
 		t.Fatalf("create the range of prefix %x: %v", prefix, err)
 	}
-
 	return keyRange
 }

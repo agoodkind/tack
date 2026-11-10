@@ -37,19 +37,9 @@ func TestSearchStepTimingLogged(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
 	entryID := integration.EntryPoint(t, fixture, workspace)
-
 	for number := range stepTimingNodes {
-		integration.PutOpaqueNode(
-			t,
-			fixture,
-			kind,
-			entryID,
-			fmt.Sprintf("Step timing node %d", number),
-			stepTimingQuery,
-			"excluded",
-		)
+		integration.PutOpaqueNode(t, fixture, kind, entryID, fmt.Sprintf("Step timing node %d", number), stepTimingQuery, "excluded")
 	}
-
 	integration.DrainSearchWork(t, fixture.Worker, 10*stepTimingNodes+100)
 
 	logged, restoreLog := captureSweepLog(t)
@@ -60,13 +50,11 @@ func TestSearchStepTimingLogged(t *testing.T) {
 	}
 
 	counts := map[string]int{}
-
 	for line := range bytes.SplitSeq(bytes.TrimSpace(logged.contents()), []byte("\n")) {
 		var record stepTimingRecord
 		if err := json.Unmarshal(line, &record); err != nil {
 			t.Fatalf("decode log record %s: %v", line, err)
 		}
-
 		if requireStepRecord(t, record) {
 			counts[record.Message]++
 			if bytes.Contains(line, []byte(stepTimingQuery)) {
@@ -74,7 +62,6 @@ func TestSearchStepTimingLogged(t *testing.T) {
 			}
 		}
 	}
-
 	for _, message := range []string{stepAdmissionMessage, stepSnapshotMessage, stepBatchMessage} {
 		if counts[message] == 0 {
 			t.Errorf("the search did not log %s", message)
@@ -92,27 +79,17 @@ func requireStepRecord(t *testing.T, record stepTimingRecord) bool {
 	case stepBatchMessage:
 		values = []*int64{record.Duration}
 	case stepSnapshotMessage:
-		values = []*int64{
-			record.Alias,
-			record.Mapping,
-			record.Model,
-			record.Predict,
-			record.PointInTime,
-			record.Total,
-		}
+		values = []*int64{record.Alias, record.Mapping, record.Model, record.Predict, record.PointInTime, record.Total}
 	default:
 		return false
 	}
-
 	if record.Level != slog.LevelDebug.String() {
 		t.Errorf("record %s has level %s, want %s", record.Message, record.Level, slog.LevelDebug)
 	}
-
 	for _, value := range values {
 		if value == nil || *value < 0 {
 			t.Errorf("record %s has a missing or negative duration: %+v", record.Message, record)
 		}
 	}
-
 	return true
 }

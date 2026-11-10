@@ -38,23 +38,16 @@ func TestDeleteProjectDeletesDescendants(t *testing.T) {
 
 	removed := append([]uuid.UUID{fixture.Project}, fixture.Descendants...)
 	if result.Deleted != len(removed) || result.State != node.SubtreeDeleteFinished {
-		t.Fatalf(
-			"delete result = %+v, want %d deleted nodes and a finished job",
-			result,
-			len(removed),
-		)
+		t.Fatalf("delete result = %+v, want %d deleted nodes and a finished job", result, len(removed))
 	}
-
 	if !auditintent.Committed(ctx) {
 		t.Fatal("the store must report the staged row of the project committed with its delete")
 	}
-
 	requireNodesGone(t, env, removed)
 	requireNodesPresent(t, env, fixture.Kept)
 	requireNoDanglingParents(t, env)
 	requireDeleteEvents(t, env, removed, actor)
 	cleanup := storedSearchWork(t, searchdomain.WorkClassCleanup)
-
 	for _, nodeID := range removed {
 		if _, scheduled := cleanup[nodeID]; !scheduled {
 			t.Errorf("node %s has no search cleanup work after its delete", nodeID)
@@ -71,55 +64,41 @@ func storedSearchWork(t *testing.T, class searchdomain.WorkClass) map[uuid.UUID]
 	if err != nil {
 		t.Fatalf("open database to read search work: %v", err)
 	}
-
 	prefix := append([]byte{}, fdbadapter.TestPrefixRange()...)
-	keyRange, err := fdb.PrefixRange(
-		append(prefix, tuple.Tuple{"search_work", string(class)}.Pack()...),
-	)
+	keyRange, err := fdb.PrefixRange(append(prefix, tuple.Tuple{"search_work", string(class)}.Pack()...))
 	if err != nil {
 		t.Fatalf("create search_work range: %v", err)
 	}
-
 	items, err := database.ReadTransact(func(tr fdb.ReadTransaction) (any, error) {
 		return tr.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
 	})
 	if err != nil {
 		t.Fatalf("read search_work range: %v", err)
 	}
-
 	nodeIDs := map[uuid.UUID]struct{}{}
-
 	for _, item := range items.([]fdb.KeyValue) {
 		values, err := tuple.Unpack(item.Key[len(prefix):])
 		if err != nil || len(values) != 5 {
 			t.Fatalf("decode search_work key %x: %v", item.Key, err)
 		}
-
 		nodeText, _ := values[4].(string)
 		nodeIDs[uuid.MustParse(nodeText)] = struct{}{}
 	}
-
 	return nodeIDs
 }
 
 // drainOutbox clears every outbox row under the test prefix.
 func drainOutbox(t *testing.T, env *TestEnv) {
 	t.Helper()
-
 	for {
 		entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(env.Ctx, nil, 100)
 		if err != nil {
 			t.Fatalf("read the outbox: %v", err)
 		}
-
 		if len(entries) == 0 {
 			return
 		}
-
-		if err := env.Stores.OpsOutbox.ClearThrough(
-			env.Ctx,
-			entries[len(entries)-1].Mark,
-		); err != nil {
+		if err := env.Stores.OpsOutbox.ClearThrough(env.Ctx, entries[len(entries)-1].Mark); err != nil {
 			t.Fatalf("clear the outbox: %v", err)
 		}
 	}
@@ -132,33 +111,23 @@ func requireDeleteEvents(t *testing.T, env *TestEnv, removed []uuid.UUID, actor 
 	t.Helper()
 	events := outboxEvents(t, env)
 	recorded := make([]uuid.UUID, 0, len(events))
-
 	eventIDs := make(map[uuid.UUID]struct{}, len(events))
 	for _, event := range events {
 		eventIDs[event.EventID] = struct{}{}
 		if event.Actor.ID != actor || event.Context.Tool != "tack_delete_project" {
 			t.Fatalf("outbox row = %+v, want a row by %s through tack_delete_project", event, actor)
 		}
-
 		if event.Verb == string(audit.VerbRelationshipRemove) {
 			continue
 		}
-
 		if event.Verb != string(audit.VerbNodeDelete) {
 			t.Fatalf("outbox row = %+v, want node.delete or relationship.remove", event)
 		}
-
 		recorded = append(recorded, event.Entity.ID)
 	}
-
 	if len(eventIDs) != len(events) {
-		t.Fatalf(
-			"outbox rows share event IDs: %d rows, %d distinct IDs",
-			len(events),
-			len(eventIDs),
-		)
+		t.Fatalf("outbox rows share event IDs: %d rows, %d distinct IDs", len(events), len(eventIDs))
 	}
-
 	slices.SortFunc(recorded, compareUUID)
 	want := slices.Clone(removed)
 	slices.SortFunc(want, compareUUID)
@@ -173,26 +142,21 @@ func outboxEvents(t *testing.T, env *TestEnv) []audit.Event {
 	t.Helper()
 	events := []audit.Event{}
 	var mark []byte
-
 	for {
 		entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(env.Ctx, mark, 500)
 		if err != nil {
 			t.Fatalf("read the outbox: %v", err)
 		}
-
 		if len(entries) == 0 {
 			return events
 		}
-
 		for _, entry := range entries {
 			var event audit.Event
 			if err := json.Unmarshal(entry.Event, &event); err != nil {
 				t.Fatalf("decode an outbox row: %v", err)
 			}
-
 			events = append(events, event)
 		}
-
 		mark = entries[len(entries)-1].Mark
 	}
 }

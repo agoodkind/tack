@@ -41,54 +41,34 @@ func TestSearchRebuildScanResumesAfterFailedRead(t *testing.T) {
 	if err := worker.Process(ctx, claimScanWork(t, stores)); err != nil {
 		t.Fatalf("run the scan step before the malformed key: %v", err)
 	}
-
 	rebuilds := stores.SearchRebuilds(clock.Wall{})
 	before := currentIdleClaimRebuild(t, rebuilds)
-	if err := worker.Process(ctx, claimScanWork(t, stores)); err == nil ||
-		!strings.Contains(err.Error(), scanFailureReason) {
-		t.Fatalf(
-			"scan step over the malformed key returned %v, want an error with %q",
-			err,
-			scanFailureReason,
-		)
+	if err := worker.Process(ctx, claimScanWork(t, stores)); err == nil || !strings.Contains(err.Error(), scanFailureReason) {
+		t.Fatalf("scan step over the malformed key returned %v, want an error with %q", err, scanFailureReason)
 	}
-
 	after := currentIdleClaimRebuild(t, rebuilds)
-	if after.State != searchdomain.RebuildCopying || after.ScanComplete ||
-		after.ScanCursor != before.ScanCursor {
-		t.Fatalf(
-			"rebuild after the failed scan step = %+v, want copying at cursor %q",
-			after,
-			before.ScanCursor,
-		)
+	if after.State != searchdomain.RebuildCopying || after.ScanComplete || after.ScanCursor != before.ScanCursor {
+		t.Fatalf("rebuild after the failed scan step = %+v, want copying at cursor %q", after, before.ScanCursor)
 	}
-
 	clearMalformedNodeKey(t, malformed)
 	runScanStepAfterRetryDelay(t, stores, worker)
 	finished := currentIdleClaimRebuild(t, rebuilds)
 	if !finished.ScanComplete {
 		t.Fatalf("rebuild after the retried scan step = %+v, want a complete scan", finished)
 	}
-
 	requireEveryNodeCopiedOnce(t, stores, finished.TargetIndex, nodes)
 }
 
 func writeMalformedNodeKey(t *testing.T) fdb.Key {
 	t.Helper()
 	database := openScanFailureDatabase(t)
-	key := fdb.Key(
-		append(
-			bytes.Clone(activeTestPrefix(t)),
-			tuple.Tuple{scanFailureNodeFamily, scanFailureOrg, "malformed"}.Pack()...,
-		),
-	)
+	key := fdb.Key(append(bytes.Clone(activeTestPrefix(t)), tuple.Tuple{scanFailureNodeFamily, scanFailureOrg, "malformed"}.Pack()...))
 	if _, err := database.Transact(func(tr fdb.Transaction) (any, error) {
 		tr.Set(key, []byte{})
 		return nil, nil
 	}); err != nil {
 		t.Fatalf("write the malformed node key: %v", err)
 	}
-
 	return key
 }
 
@@ -109,23 +89,13 @@ func openScanFailureDatabase(t *testing.T) fdb.Database {
 	if err != nil {
 		t.Fatalf("open FoundationDB: %v", err)
 	}
-
 	return database
 }
 
-func claimScanRebuildWork(
-	t *testing.T,
-	stores *fdbadapter.Stores,
-) (searchdomain.Work, bool, error) {
+func claimScanRebuildWork(t *testing.T, stores *fdbadapter.Stores) (searchdomain.Work, bool, error) {
 	t.Helper()
 	ctx := integration.WithTestOperation(t, t.Context())
-
-	return stores.SearchWork(clock.Wall{}).Claim(
-		ctx,
-		searchdomain.WorkClassRebuild,
-		"scan-failure-owner",
-		scanRestartLease,
-	)
+	return stores.SearchWork(clock.Wall{}).Claim(ctx, searchdomain.WorkClassRebuild, "scan-failure-owner", scanRestartLease)
 }
 
 func claimScanWork(t *testing.T, stores *fdbadapter.Stores) searchdomain.Work {
@@ -134,35 +104,25 @@ func claimScanWork(t *testing.T, stores *fdbadapter.Stores) searchdomain.Work {
 	if err != nil || !claimed {
 		t.Fatalf("claim replacement work: claimed %t, error %v", claimed, err)
 	}
-
 	return work
 }
 
-func runScanStepAfterRetryDelay(
-	t *testing.T,
-	stores *fdbadapter.Stores,
-	worker *service.SearchWorker,
-) {
+func runScanStepAfterRetryDelay(t *testing.T, stores *fdbadapter.Stores, worker *service.SearchWorker) {
 	t.Helper()
 	ctx := integration.WithTestOperation(t, t.Context())
-
 	deadline := clock.Now().Add(scanFailureRetryLimit)
 	for clock.Now().Before(deadline) {
 		work, claimed, err := claimScanRebuildWork(t, stores)
 		if err != nil {
 			t.Fatalf("claim replacement work after the failure: %v", err)
 		}
-
 		if claimed {
 			if err := worker.Process(ctx, work); err != nil {
 				t.Fatalf("retry the scan step: %v", err)
 			}
-
 			return
 		}
-
 		time.Sleep(scanFailureRetryPause)
 	}
-
 	t.Fatalf("replacement work stayed unclaimable for %s after the failure", scanFailureRetryLimit)
 }

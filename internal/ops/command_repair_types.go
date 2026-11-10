@@ -56,61 +56,32 @@ type repairApplyOutput struct {
 	Result      *RepairApplyResult `json:"result"`
 }
 
-func repairInspectionChecks(
-	selectedNode *repairSelectedNode,
-	report *fdbadapter.NodeInspectionReport,
-) []repairCheck {
+func repairInspectionChecks(selectedNode *repairSelectedNode, report *fdbadapter.NodeInspectionReport) []repairCheck {
 	checks := []repairCheck{
 		{Name: "resolve_row_present", OK: report.Resolve != nil, Details: ""},
-		{
-			Name:    "single_primary_row",
-			OK:      len(report.NodeInstances) == 1,
-			Details: fmt.Sprintf("count=%d", len(report.NodeInstances)),
-		},
-		{
-			Name:    "single_view_row",
-			OK:      len(report.NodeViews) == 1,
-			Details: fmt.Sprintf("count=%d", len(report.NodeViews)),
-		},
+		{Name: "single_primary_row", OK: len(report.NodeInstances) == 1, Details: fmt.Sprintf("count=%d", len(report.NodeInstances))},
+		{Name: "single_view_row", OK: len(report.NodeViews) == 1, Details: fmt.Sprintf("count=%d", len(report.NodeViews))},
 		{Name: "selected_payload_available", OK: selectedNode.Node != nil, Details: ""},
 	}
 	if report.Resolve != nil && selectedNode.NodeView != nil {
-		checks = append(
-			checks,
-			repairCheck{
-				Name:    "resolve_org_matches_view",
-				OK:      report.Resolve.OrgID == selectedNode.NodeView.OrgID,
-				Details: "",
-			},
-			repairCheck{
-				Name:    "resolve_type_matches_view",
-				OK:      report.Resolve.NodeType == selectedNode.NodeView.NodeType,
-				Details: "",
-			},
+		checks = append(checks,
+			repairCheck{Name: "resolve_org_matches_view", OK: report.Resolve.OrgID == selectedNode.NodeView.OrgID, Details: ""},
+			repairCheck{Name: "resolve_type_matches_view", OK: report.Resolve.NodeType == selectedNode.NodeView.NodeType, Details: ""},
 		)
 	}
-
 	for _, relationship := range report.Relationships {
-		checks = append(
-			checks,
-			repairCheck{
-				Name:    "relationship_reverse_row_present",
-				OK:      relationship.ReverseRowPresent,
-				Details: relationship.RelationType + " -> " + relationship.TargetID.String(),
-			},
-		)
+		checks = append(checks, repairCheck{
+			Name:    "relationship_reverse_row_present",
+			OK:      relationship.ReverseRowPresent,
+			Details: relationship.RelationType + " -> " + relationship.TargetID.String(),
+		})
 	}
-
 	for _, reverseRow := range report.RelationshipReverseRows {
-		checks = append(
-			checks,
-			repairCheck{
-				Name:    "relationship_forward_row_present",
-				OK:      reverseRow.ForwardRowPresent,
-				Details: reverseRow.RelationType + " <- " + reverseRow.SourceID.String(),
-			},
-		)
+		checks = append(checks, repairCheck{
+			Name:    "relationship_forward_row_present",
+			OK:      reverseRow.ForwardRowPresent,
+			Details: reverseRow.RelationType + " <- " + reverseRow.SourceID.String(),
+		})
 	}
-
 	return checks
 }

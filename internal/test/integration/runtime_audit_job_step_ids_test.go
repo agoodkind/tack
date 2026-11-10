@@ -30,23 +30,16 @@ func TestRuntimeAuditJobStepEventIDs(t *testing.T) {
 	root := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	child := createSchemaNode(t, env, root.ID, projectID, "issue", nil)
 	job := &node.SubtreeDeleteJob{
-		ID:        uuid.Must(uuid.NewV7()),
-		OrgID:     env.OrgID,
-		RootID:    root.ID,
-		ActorID:   integration.TestActorID,
-		Stack:     nil,
-		Deleted:   0,
-		UpdatedAt: time.Time{},
+		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, RootID: root.ID, ActorID: integration.TestActorID,
+		Stack: nil, Deleted: 0, UpdatedAt: time.Time{},
 	}
 	if err := env.Stores.NodeDeleter.StartSubtreeDelete(env.Ctx, job); err != nil {
 		t.Fatalf("start the delete of issue %s: %v", root.ID, err)
 	}
-
 	database, err := fdbadapter.Open(testenv.FoundationDB(t), prefixCopyTimeout)
 	if err != nil {
 		t.Fatalf("open FoundationDB: %v", err)
 	}
-
 	saved := readTestKeys(t, database, testPrefixKeys(t))
 
 	first := stepEventIDs(t, env, job.ID, outboxTail(t, env), child.ID)
@@ -60,13 +53,9 @@ func TestRuntimeAuditJobStepEventIDs(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	waitForEmptyOutbox(t, env)
 	ledger.waitForNoLag(t)
-
 	for _, eventID := range first {
 		var rows int
-		if err := ledger.admin.QueryRow(t.Context(), eventRowsQuery, eventID).Scan(
-			&rows,
-		); err != nil ||
-			rows != 1 {
+		if err := ledger.admin.QueryRow(t.Context(), eventRowsQuery, eventID).Scan(&rows); err != nil || rows != 1 {
 			t.Fatalf("ledger rows for event %s = %d, %v, want 1", eventID, rows, err)
 		}
 	}
@@ -74,26 +63,17 @@ func TestRuntimeAuditJobStepEventIDs(t *testing.T) {
 
 // stepEventIDs runs one step of jobID and returns the IDs of the change events
 // that the step wrote after mark. It requires the step to move childID.
-func stepEventIDs(
-	t *testing.T,
-	env *integration.TestEnv,
-	jobID uuid.UUID,
-	mark []byte,
-	childID uuid.UUID,
-) []uuid.UUID {
+func stepEventIDs(t *testing.T, env *integration.TestEnv, jobID uuid.UUID, mark []byte, childID uuid.UUID) []uuid.UUID {
 	t.Helper()
 	if _, err := env.Stores.NodeDeleter.DeleteSubtreeStep(env.Ctx, jobID); err != nil {
 		t.Fatalf("run one step of job %s: %v", jobID, err)
 	}
-
 	events := outboxEventsAfter(t, env, mark)
 	requireOneEvent(t, events, audit.VerbNodeUpdate, childID)
-
 	eventIDs := make([]uuid.UUID, 0, len(events))
 	for _, event := range events {
 		eventIDs = append(eventIDs, event.EventID)
 	}
-
 	return eventIDs
 }
 
@@ -102,12 +82,10 @@ func stepEventIDs(
 func waitForEmptyOutbox(t *testing.T, env *integration.TestEnv) {
 	t.Helper()
 	deadline := clock.Now().Add(nodeAuditDeadline)
-
 	for len(outboxEventsAfter(t, env, nil)) > 0 {
 		if clock.Now().After(deadline) {
 			t.Fatalf("the FoundationDB outbox still has entries after %s", nodeAuditDeadline)
 		}
-
 		time.Sleep(nodeAuditPollInterval)
 	}
 }

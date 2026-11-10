@@ -14,16 +14,13 @@ const waitForInterval = 200 * time.Millisecond
 func waitFor(t *testing.T, timeout time.Duration, check func() bool) bool {
 	t.Helper()
 	deadline := clock.Now().Add(timeout)
-
 	for {
 		if check() {
 			return true
 		}
-
 		if clock.Now().After(deadline) {
 			return false
 		}
-
 		select {
 		case <-t.Context().Done():
 			return false

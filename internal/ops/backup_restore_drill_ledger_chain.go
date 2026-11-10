@@ -71,12 +71,7 @@ func verifyRestoredLedgerChains(
 	logger := telemetry.L(ctx)
 	if len(orgs) == 0 {
 		err := errors.New("restored audit ledger holds no rows, so its hash chain proves nothing")
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.ledger_chain.failed",
-			slog.String("err", err.Error()),
-		)
-
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed", slog.String("err", err.Error()))
 		return err
 	}
 
@@ -94,7 +89,6 @@ func verifyRestoredLedgerChains(
 	// up has not shown the rehearsal works.
 	var failures []string
 	totalRows := 0
-
 	for _, org := range orgs {
 		orgBundle := filepath.Join(bundleRoot, org.ID.String())
 		rows, err := verifyRestoredOrgChain(ctx, org, orgBundle, export, verify)
@@ -102,48 +96,28 @@ func verifyRestoredLedgerChains(
 			wrapped := fmt.Errorf(
 				"org %s: could not free the exported bundle at %s, so the drill stopped "+
 					"rather than export another org onto a volume it cannot reclaim: %w",
-				org.ID,
-				orgBundle,
-				removeErr,
-			)
-			logger.ErrorContext(
-				ctx,
-				"backup.restore_drill.ledger_chain.failed",
-				slog.String("err", wrapped.Error()),
-			)
-
+				org.ID, orgBundle, removeErr)
+			logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed",
+				slog.String("err", wrapped.Error()))
 			return wrapped
 		}
-
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue
 		}
-
 		totalRows += rows
 	}
 
 	if len(failures) > 0 {
-		err := fmt.Errorf(
-			"restored audit ledger failed chain verification: %s",
-			strings.Join(failures, "; "),
-		)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.ledger_chain.failed",
-			slog.String("err", err.Error()),
-		)
-
+		err := fmt.Errorf("restored audit ledger failed chain verification: %s",
+			strings.Join(failures, "; "))
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.failed",
+			slog.String("err", err.Error()))
 		return err
 	}
-
-	logger.InfoContext(
-		ctx,
-		"backup.restore_drill.ledger_chain.ok",
+	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.ok",
 		slog.Int("orgs", len(orgs)),
-		slog.Int("rows_verified", totalRows),
-	)
-
+		slog.Int("rows_verified", totalRows))
 	return nil
 }
 
@@ -168,46 +142,26 @@ func exportWholeOrgLedger(
 	rowCount, err := export(ctx, org.ID, dir)
 	if err != nil {
 		wrapped := fmt.Errorf("org %s: export from the restored ledger: %w", org.ID, err)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
 	if rowCount == 0 {
 		wrapped := fmt.Errorf(
-			"org %s: the restored ledger lists this org but the export wrote no rows",
-			org.ID,
-		)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+			"org %s: the restored ledger lists this org but the export wrote no rows", org.ID)
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
 	if rowCount != org.RowCount {
 		wrapped := fmt.Errorf(
 			"org %s: the export wrote %d of the %d rows the restored ledger holds, "+
 				"so the chain of the rows it left out is unchecked",
-			org.ID,
-			rowCount,
-			org.RowCount,
-		)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+			org.ID, rowCount, org.RowCount)
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
 	return nil
 }
 
@@ -231,25 +185,18 @@ func verifyRestoredOrgChain(
 	report, err := verify(dir)
 	if err != nil {
 		wrapped := fmt.Errorf("org %s: verify the exported bundle: %w", org.ID, err)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
 		return 0, wrapped
 	}
 
 	breaks := len(report.ChainBreaks)
-	logger.InfoContext(
-		ctx,
-		"backup.restore_drill.ledger_chain.org",
+	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.org",
 		slog.String("org_id", org.ID.String()),
 		slog.Int("rows_scanned", report.RowsScanned),
 		slog.Int("hash_matches", report.HashMatches),
 		slog.Int("chain_breaks", breaks),
-		slog.Int("chain_gaps", report.ChainGapCount),
-	)
+		slog.Int("chain_gaps", report.ChainGapCount))
 
 	// The break count is read here rather than delegated to the shared verdict
 	// alone, so loosening that verdict cannot quietly let a broken chain pass
@@ -257,21 +204,12 @@ func verifyRestoredOrgChain(
 	// or a row whose stored hash does not recompute, which is what a damaged
 	// restore produces.
 	if breaks > 0 {
-		wrapped := fmt.Errorf(
-			"org %s: %d chain break(s), first: %s",
-			org.ID,
-			breaks,
-			report.ChainBreaks[0],
-		)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		wrapped := fmt.Errorf("org %s: %d chain break(s), first: %s",
+			org.ID, breaks, report.ChainBreaks[0])
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
 		return 0, wrapped
 	}
-
 	// A gap is a sequence number the bundle does not carry, and whether that is
 	// an artifact or a finding depends entirely on what the export asked for.
 	// Over a filtered or time-bounded export it is an artifact: the window cut
@@ -289,31 +227,19 @@ func verifyRestoredOrgChain(
 		wrapped := fmt.Errorf(
 			"org %s: %d sequence gap(s) in a whole-ledger export, so rows are missing from "+
 				"inside the chain and the links across them are unverified",
-			org.ID,
-			report.ChainGapCount,
-		)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+			org.ID, report.ChainGapCount)
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
 		return 0, wrapped
 	}
-
 	// The rest of the bundle's verdict (the events digest, the manifest
 	// signature, and any row that scanned without matching its hash) still
 	// applies, and it is the same rule the operator verify command enforces.
 	if verdict := report.Err(); verdict != nil {
 		wrapped := fmt.Errorf("org %s: %w", org.ID, verdict)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.ledger_chain.org_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		logger.ErrorContext(ctx, "backup.restore_drill.ledger_chain.org_failed",
+			slog.String("err", wrapped.Error()))
 		return 0, wrapped
 	}
-
 	return report.RowsScanned, nil
 }

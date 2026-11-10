@@ -25,16 +25,7 @@ func RunAudited(
 	probe audit.InfrastructureProbe,
 	run func(context.Context) error,
 ) error {
-	return runAudited(
-		withDryRunOutput(ctx, output),
-		spec,
-		source,
-		deployCommit,
-		execute,
-		outbox,
-		probe,
-		run,
-	)
+	return runAudited(withDryRunOutput(ctx, output), spec, source, deployCommit, execute, outbox, probe, run)
 }
 
 func runAudited(
@@ -50,15 +41,9 @@ func runAudited(
 	if err := validateAuditSpec(spec); err != nil {
 		return err
 	}
-
 	if source == nil {
-		return loggedAuditError(
-			ctx,
-			"resolve operator",
-			errors.New("operator identity source is nil"),
-		)
+		return loggedAuditError(ctx, "resolve operator", errors.New("operator identity source is nil"))
 	}
-
 	principal, err := source.Resolve(ctx)
 	if err != nil {
 		return loggedAuditError(ctx, "resolve operator", err)
@@ -67,7 +52,6 @@ func runAudited(
 	if !execute {
 		return printDryRun(ctx, principal, spec)
 	}
-
 	opID := uuid.Must(uuid.NewV7())
 	event, err := newOperatorEvent(ctx, spec, principal, opID, deployCommit)
 	if err != nil {
@@ -83,7 +67,6 @@ func runAudited(
 		if err := outbox.WriteOutbox(ctx, event); err != nil {
 			return loggedAuditError(ctx, "record read access", err)
 		}
-
 		return run(runContext)
 	}
 
@@ -92,17 +75,9 @@ func runAudited(
 	if err := outbox.WriteOutbox(ctx, intent); err != nil {
 		if spec.CreatesAuditInfrastructure {
 			return runAfterCreatingAuditInfrastructure(
-				ctx,
-				intent,
-				event,
-				runContext,
-				outbox,
-				probe,
-				run,
-				err,
+				ctx, intent, event, runContext, outbox, probe, run, err,
 			)
 		}
-
 		return loggedAuditError(ctx, "record command intent", err)
 	}
 
@@ -119,11 +94,9 @@ func runAudited(
 		outcome.Outcome = audit.OutcomeError
 		outcome.Error = &audit.EventError{Code: "command_failed", Message: runErr.Error()}
 	}
-
 	if err := outbox.WriteOutbox(ctx, outcome); err != nil {
 		return loggedAuditError(ctx, "record command outcome", err)
 	}
-
 	return runErr
 }
 
@@ -131,7 +104,6 @@ func validateAuditSpec(spec audit.Spec) error {
 	if spec.Verb == "" {
 		return errors.New("audit spec must declare a verb")
 	}
-
 	if spec.Atomic {
 		// A FoundationDB command records inside its own transaction, and the
 		// gate must verify it actually did. That machinery lands with the
@@ -140,14 +112,11 @@ func validateAuditSpec(spec audit.Spec) error {
 		// guarantee the flag promises.
 		return fmt.Errorf("audit spec %q declares Atomic, which is not supported yet", spec.Verb)
 	}
-
 	if spec.Mutates == spec.Reads {
 		return fmt.Errorf("audit spec %q must mark exactly one command class", spec.Verb)
 	}
-
 	if spec.CreatesAuditInfrastructure && spec.Reads {
 		return fmt.Errorf("audit spec %q cannot create audit infrastructure for a read", spec.Verb)
 	}
-
 	return nil
 }

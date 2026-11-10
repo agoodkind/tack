@@ -69,22 +69,10 @@ func (g *Generator) generateIssues(
 			return err
 		}
 	}
-	if err := g.generateNestedIssue(
-		ctx,
-		workspace,
-		projectIdentifier,
-		existing,
-		firstIssue,
-	); err != nil {
+	if err := g.generateNestedIssue(ctx, workspace, projectIdentifier, existing, firstIssue); err != nil {
 		return err
 	}
-	if err := g.probeManagedPropertiesRefused(
-		ctx,
-		workspace,
-		projectIdentifier,
-		projectReference,
-		firstIssue,
-	); err != nil {
+	if err := g.probeManagedPropertiesRefused(ctx, workspace, projectIdentifier, projectReference, firstIssue); err != nil {
 		return err
 	}
 	if err := g.generateDeletedIssue(
@@ -110,15 +98,10 @@ func (g *Generator) generateDeletedIssue(
 	name := fmt.Sprintf("QA deletion probe seed %d", g.seed)
 	existingReference := existing.ReferenceForName(name)
 	if existingReference != "" {
-		result, err := g.driver.Call(
-			ctx,
-			actor.Token,
-			"tack_get_issue",
-			ToolArguments{
-				WorkspaceReference: workspace.Slug,
-				NodeID:             existingReference,
-			},
-		)
+		result, err := g.driver.Call(ctx, actor.Token, "tack_get_issue", ToolArguments{
+			WorkspaceReference: workspace.Slug,
+			NodeID:             existingReference,
+		})
 		if err != nil {
 			return loggedError(ctx, "qa datagen: get residual deletion probe", err)
 		}
@@ -158,15 +141,10 @@ func (g *Generator) deleteIssueProbe(
 	if nodeID == "" {
 		return fmt.Errorf("qa datagen: deletion probe returned no raw id")
 	}
-	_, err := g.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_delete_issue",
-		ToolArguments{
-			WorkspaceReference: workspaceReference,
-			NodeID:             nodeID,
-		},
-	)
+	_, err := g.driver.Call(ctx, actor.Token, "tack_delete_issue", ToolArguments{
+		WorkspaceReference: workspaceReference,
+		NodeID:             nodeID,
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen: delete probe", err)
 	}

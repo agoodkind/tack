@@ -20,24 +20,19 @@ func (s *NodeService) createDefaultChildren(
 	for _, defaultChild := range nt.DefaultChildren {
 		childProps := make(map[string]json.RawMessage, len(defaultChild.Props))
 		maps.Copy(childProps, defaultChild.Props)
-		if _, err := s.Create(
-			ctx,
-			CreateInput{
-				ParentID:               parentID,
-				ScopeID:                parentID,
-				NodeTypeKey:            defaultChild.TypeKey,
-				Name:                   defaultChild.Name,
-				Props:                  childProps,
-				Relationships:          nil,
-				ActorID:                actorID,
-				IdempotencyKey:         "",
-				IdempotencyFingerprint: "",
-				IdempotencySource:      "",
-			},
-		); err != nil {
-			log.WarnContext(
-				ctx,
-				"node.Create: default child",
+		if _, err := s.Create(ctx, CreateInput{
+			ParentID:               parentID,
+			ScopeID:                parentID,
+			NodeTypeKey:            defaultChild.TypeKey,
+			Name:                   defaultChild.Name,
+			Props:                  childProps,
+			Relationships:          nil,
+			ActorID:                actorID,
+			IdempotencyKey:         "",
+			IdempotencyFingerprint: "",
+			IdempotencySource:      "",
+		}); err != nil {
+			log.WarnContext(ctx, "node.Create: default child",
 				slog.String("parent_type", nt.TypeKey),
 				slog.String("child_type", defaultChild.TypeKey),
 				slog.String("child_name", defaultChild.Name),

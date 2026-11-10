@@ -19,30 +19,20 @@ func (execution *macRunnerExecution) run(ctx context.Context) error {
 	if err := execution.attachRunner(ctx); err != nil {
 		return err
 	}
-
 	createdDeadline := clock.Now().Add(30 * time.Second)
-	_, err := macObserve(
-		ctx,
-		func(observation context.Context) (client.ContainerStartResult, error) {
-			return execution.rawClient.ContainerStart(
-				observation,
-				execution.acceptedID,
-				client.ContainerStartOptions{},
-			)
-		},
-	)
+	_, err := macObserve(ctx, func(observation context.Context) (client.ContainerStartResult, error) {
+		return execution.rawClient.ContainerStart(observation, execution.acceptedID, client.ContainerStartOptions{})
+	})
 	execution.operation("container start", execution.acceptedID, err)
 	if err != nil {
 		return macRunnerFailure("start runner "+execution.acceptedID, err)
 	}
-
 	execution.started = true
 	execution.observeWait(ctx)
 	states, err := execution.open("states.jsonl")
 	if err != nil {
 		return err
 	}
-
 	defer func() { execution.evidenceErrors = append(execution.evidenceErrors, states.Close()) }()
 	encoder := json.NewEncoder(states)
 	ticker := time.NewTicker(5 * time.Second)
@@ -50,14 +40,12 @@ func (execution *macRunnerExecution) run(ctx context.Context) error {
 	if err := execution.observeState(ctx, encoder, createdDeadline); err != nil {
 		return err
 	}
-
 	for {
 		select {
 		case outcome := <-execution.waitOutcome:
 			if err := execution.recordWaitOutcome(outcome); err != nil {
 				return err
 			}
-
 			return execution.acceptTerminal(ctx, int(outcome.Response.StatusCode))
 		case <-ticker.C:
 			if err := execution.observeState(ctx, encoder, createdDeadline); err != nil {
@@ -65,12 +53,7 @@ func (execution *macRunnerExecution) run(ctx context.Context) error {
 			}
 		case err := <-execution.eventDone:
 			execution.eventDone = nil
-			execution.observerError = macRunnerErrors(
-				"observe runner events",
-				errors.New("container event observer stopped during runtime"),
-				err,
-			)
-
+			execution.observerError = macRunnerErrors("observe runner events", errors.New("container event observer stopped during runtime"), err)
 			return execution.observerError
 		case <-ctx.Done():
 			return macRunnerFailure("observe runner runtime", ctx.Err())
@@ -84,24 +67,16 @@ func (execution *macRunnerExecution) attachRunner(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
 	attachment, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	execution.attachCancel = cancel
 	timer := time.AfterFunc(macRunnerObservation, cancel)
-	attached, err := execution.rawClient.ContainerAttach(
-		attachment,
-		execution.acceptedID,
-		client.ContainerAttachOptions{
-			Stream: true,
-			Stdout: true,
-			Stderr: true,
-		},
-	)
+	attached, err := execution.rawClient.ContainerAttach(attachment, execution.acceptedID, client.ContainerAttachOptions{
+		Stream: true, Stdout: true, Stderr: true,
+	})
 	timer.Stop()
 	if err != nil {
 		return macRunnerFailure("attach runner "+execution.acceptedID, err)
 	}
-
 	execution.attach = &attached
 	completed := make(chan error, 1)
 	execution.attachDone = completed
@@ -116,59 +91,37 @@ func (execution *macRunnerExecution) attachRunner(ctx context.Context) error {
 		_, err := stdcopy.StdCopy(execution.logFile, execution.logFile, attached.Reader)
 		completed <- err
 	}()
-
 	return nil
 }
 
-func (execution *macRunnerExecution) observeState(
-	ctx context.Context,
-	encoder *json.Encoder,
-	createdDeadline time.Time,
-) error {
+func (execution *macRunnerExecution) observeState(ctx context.Context, encoder *json.Encoder, createdDeadline time.Time) error {
 	inspection, err := execution.inspect(ctx, execution.acceptedID)
 	if err != nil {
 		return err
 	}
-
 	if inspection.State == nil {
 		return errors.New("runner state observation did not report state")
 	}
-
-	processes, processErr := macObserve(
-		ctx,
-		func(observation context.Context) (client.ContainerTopResult, error) {
-			return execution.defaultClient.ContainerTop(
-				observation,
-				execution.acceptedID,
-				client.ContainerTopOptions{},
-			)
-		},
-	)
+	processes, processErr := macObserve(ctx, func(observation context.Context) (client.ContainerTopResult, error) {
+		return execution.defaultClient.ContainerTop(observation, execution.acceptedID, client.ContainerTopOptions{})
+	})
 	state := struct {
 		Time         time.Time                  `json:"time"`
 		State        *container.State           `json:"state"`
 		Processes    *client.ContainerTopResult `json:"processes,omitempty"`
 		ProcessError string                     `json:"process_error,omitempty"`
-	}{
-		Time:         clock.Now().UTC(),
-		State:        inspection.State,
-		Processes:    nil,
-		ProcessError: "",
-	}
+	}{Time: clock.Now().UTC(), State: inspection.State, Processes: nil, ProcessError: ""}
 	if processErr == nil {
 		state.Processes = &processes
 	} else {
 		state.ProcessError = processErr.Error()
 	}
-
 	if err := encoder.Encode(state); err != nil {
 		return macRunnerFailure("write runner state", err)
 	}
-
 	if inspection.State.Status == container.StateCreated && !clock.Now().Before(createdDeadline) {
 		return errors.New("runner remained Created for 30 seconds after startup")
 	}
-
 	return nil
 }
 
@@ -177,16 +130,11 @@ func (execution *macRunnerExecution) acceptTerminal(ctx context.Context, waitedC
 	if err != nil {
 		return err
 	}
-
 	execution.terminal = &inspection
 	writeMacRunnerJSON(execution, "outer-terminal.json", inspection)
-	if inspection.State == nil || inspection.State.Running ||
-		inspection.State.Status != container.StateExited ||
-		inspection.State.ExitCode != waitedCode {
+	if inspection.State == nil || inspection.State.Running || inspection.State.Status != container.StateExited || inspection.State.ExitCode != waitedCode {
 		return errors.New("runner final inspection does not agree with ContainerWait status")
 	}
-
 	execution.runtimeExit = &waitedCode
-
 	return nil
 }

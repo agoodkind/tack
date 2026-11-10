@@ -21,86 +21,41 @@ type repairGraph struct {
 
 func newRepairGraph(t *testing.T, env *integration.TestEnv) repairGraph {
 	t.Helper()
-	workspace := createRepairNode(
-		t,
-		env,
-		service.CreateInput{
-			ParentID:    env.OrgID,
-			ScopeID:     env.OrgID,
-			NodeTypeKey: "workspace",
-			Name:        "Repair",
-			Props: map[string]json.RawMessage{
-				"slug": json.RawMessage(strconv.Quote("repair")),
-			},
-			ActorID: uuid.New(),
+	workspace := createRepairNode(t, env, service.CreateInput{
+		ParentID: env.OrgID, ScopeID: env.OrgID, NodeTypeKey: "workspace", Name: "Repair",
+		Props: map[string]json.RawMessage{"slug": json.RawMessage(strconv.Quote("repair"))}, ActorID: uuid.New(),
+	})
+	project := createRepairNode(t, env, service.CreateInput{
+		ParentID: workspace, ScopeID: workspace, NodeTypeKey: "project", Name: "Repair",
+		Props: map[string]json.RawMessage{
+			"slug": json.RawMessage(strconv.Quote("repair")), "identifier": json.RawMessage(strconv.Quote("REPAIR")),
 		},
-	)
-	project := createRepairNode(
-		t,
-		env,
-		service.CreateInput{
-			ParentID:    workspace,
-			ScopeID:     workspace,
-			NodeTypeKey: "project",
-			Name:        "Repair",
-			Props: map[string]json.RawMessage{
-				"slug":       json.RawMessage(strconv.Quote("repair")),
-				"identifier": json.RawMessage(strconv.Quote("REPAIR")),
-			},
-			ActorID: uuid.New(),
-		},
-	)
-	epic := createRepairNode(
-		t,
-		env,
-		service.CreateInput{
-			ParentID:    project,
-			ScopeID:     project,
-			NodeTypeKey: "epic",
-			Name:        "Grouping epic",
-			ActorID:     uuid.New(),
-		},
-	)
+		ActorID: uuid.New(),
+	})
+	epic := createRepairNode(t, env, service.CreateInput{
+		ParentID: project, ScopeID: project, NodeTypeKey: "epic", Name: "Grouping epic", ActorID: uuid.New(),
+	})
 	issue := createRepairIssue(t, env, project, "Issue with two parent edges")
-	if err := env.Stores.Relationships.Add(
-		env.Ctx,
-		&node.Relationship{
-			OrgID:        env.OrgID,
-			SourceID:     issue,
-			RelationType: node.RelChildOf,
-			TargetID:     epic,
-			CreatedBy:    uuid.New(),
-			CreatedAt:    time.Now().UTC(),
-			Props:        nil,
-		},
-	); err != nil {
+	if err := env.Stores.Relationships.Add(env.Ctx, &node.Relationship{
+		OrgID: env.OrgID, SourceID: issue, RelationType: node.RelChildOf, TargetID: epic,
+		CreatedBy: uuid.New(), CreatedAt: time.Now().UTC(), Props: nil,
+	}); err != nil {
 		t.Fatalf("add the legacy child_of edge to the epic: %v", err)
 	}
-
 	return repairGraph{projectID: project, epicID: epic, issueID: issue}
 }
 
 func (graph repairGraph) selectEpicEntry(repairID string) ops.NodeIntegrityEntry {
 	return ops.NodeIntegrityEntry{
-		RepairID: repairID,
-		NodeID:   graph.issueID,
-		NodeType: "issue",
-		Status:   ops.RepairEntryExecutable,
-		Classes:  []string{"multiple_child_of_edges"},
-		Evidence: []ops.RepairEvidence{
-			{
-				Kind:      ops.RepairEvidenceInferred,
-				Reference: "TACK-582 parent mappings",
-				Summary:   "The epic is the most specific linked container.",
-			},
-		},
+		RepairID: repairID, NodeID: graph.issueID, NodeType: "issue", Status: ops.RepairEntryExecutable,
+		Classes: []string{"multiple_child_of_edges"},
+		Evidence: []ops.RepairEvidence{{
+			Kind: ops.RepairEvidenceInferred, Reference: "TACK-582 parent mappings",
+			Summary: "The epic is the most specific linked container.",
+		}},
 		Result: ops.RepairResult{
-			Props: map[string]json.RawMessage{
-				"parent_id": json.RawMessage(strconv.Quote(graph.epicID.String())),
-			},
-			RemoveEdges: []ops.RepairEdge{
-				{RelationType: node.RelChildOf, TargetID: graph.projectID},
-			},
+			Props:       map[string]json.RawMessage{"parent_id": json.RawMessage(strconv.Quote(graph.epicID.String()))},
+			RemoveEdges: []ops.RepairEdge{{RelationType: node.RelChildOf, TargetID: graph.projectID}},
 		},
 	}
 }
@@ -115,44 +70,22 @@ func createRepairNode(t *testing.T, env *integration.TestEnv, in service.CreateI
 	if err != nil || created == nil || created.View == nil {
 		t.Fatalf("create %s %q: %v", in.NodeTypeKey, in.Name, err)
 	}
-
 	return created.View.ID
 }
 
-func createRepairIssue(
-	t *testing.T,
-	env *integration.TestEnv,
-	projectID uuid.UUID,
-	name string,
-) uuid.UUID {
+func createRepairIssue(t *testing.T, env *integration.TestEnv, projectID uuid.UUID, name string) uuid.UUID {
 	t.Helper()
-
-	return createRepairNode(
-		t,
-		env,
-		service.CreateInput{
-			ParentID:    projectID,
-			ScopeID:     projectID,
-			NodeTypeKey: "issue",
-			Name:        name,
-			ActorID:     uuid.New(),
-		},
-	)
+	return createRepairNode(t, env, service.CreateInput{
+		ParentID: projectID, ScopeID: projectID, NodeTypeKey: "issue", Name: name, ActorID: uuid.New(),
+	})
 }
 
 func renameNode(t *testing.T, env *integration.TestEnv, nodeID uuid.UUID) {
 	t.Helper()
 	name := "Renamed " + nodeID.String()
-	if _, err := env.NodeSvc.Update(
-		env.Ctx,
-		service.UpdateInput{
-			NodeID:              nodeID,
-			Name:                &name,
-			Props:               nil,
-			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-			ActorID:             uuid.New(),
-		},
-	); err != nil {
+	if _, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
+		NodeID: nodeID, Name: &name, Props: nil, RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
+	}); err != nil {
 		t.Fatalf("rename node %s: %v", nodeID, err)
 	}
 }
@@ -163,7 +96,6 @@ func changePropertyDefinition(t *testing.T, env *integration.TestEnv) {
 	if err != nil || len(definitions) == 0 {
 		t.Fatalf("list property definitions: %v", err)
 	}
-
 	changed := *definitions[0]
 	changed.Required = !changed.Required
 	if err := env.Stores.PropertyDefs.Set(env.Ctx, &changed); err != nil {
@@ -171,23 +103,12 @@ func changePropertyDefinition(t *testing.T, env *integration.TestEnv) {
 	}
 }
 
-func recordCheckpoint(
-	t *testing.T,
-	env *integration.TestEnv,
-	manifest ops.NodeIntegrityManifest,
-	index int,
-	phase node.RepairPhase,
-) {
+func recordCheckpoint(t *testing.T, env *integration.TestEnv, manifest ops.NodeIntegrityManifest, index int, phase node.RepairPhase) {
 	t.Helper()
 	entry := manifest.Entries[index]
 	checkpoint := node.RepairCheckpoint{
-		RepairID:       entry.RepairID,
-		ManifestDigest: manifest.Digest,
-		NodeID:         entry.NodeID,
-		SourceDigest:   entry.Source.PrimaryDigest,
-		Phase:          phase,
-		ActorID:        uuid.New(),
-		UpdatedAt:      time.Now().UTC(),
+		RepairID: entry.RepairID, ManifestDigest: manifest.Digest, NodeID: entry.NodeID,
+		SourceDigest: entry.Source.PrimaryDigest, Phase: phase, ActorID: uuid.New(), UpdatedAt: time.Now().UTC(),
 	}
 	if err := env.Stores.Repairs().AdvanceRepairCheckpoint(env.Ctx, "", checkpoint); err != nil {
 		t.Fatalf("record checkpoint %s at %s: %v", entry.RepairID, phase, err)

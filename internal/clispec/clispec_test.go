@@ -49,13 +49,7 @@ func showOp(group *clispec.Group) clispec.Operation[showInput] {
 			clispec.StringArg("id", "the id", func(in *showInput, v string) { in.ID = v }),
 		},
 		Params: []clispec.Param[showInput]{
-			clispec.StringParam(
-				"label",
-				"a label",
-				"",
-				false,
-				func(in *showInput, v string) { in.Label = v },
-			),
+			clispec.StringParam("label", "a label", "", false, func(in *showInput, v string) { in.Label = v }),
 		},
 		New: func() showInput { return showInput{} },
 		Run: func(ctx context.Context, in showInput, sink clispec.ResultSink) error {
@@ -63,7 +57,6 @@ func showOp(group *clispec.Group) clispec.Operation[showInput] {
 			if err != nil {
 				return err
 			}
-
 			return sink.WriteJSON(ctx, body)
 		},
 	}
@@ -73,11 +66,8 @@ func ctxWithSpan() context.Context {
 	traceID, _ := oteltrace.TraceIDFromHex("0123456789abcdef0123456789abcdef")
 	spanID, _ := oteltrace.SpanIDFromHex("0123456789abcdef")
 	sc := oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
-		TraceID:    traceID,
-		SpanID:     spanID,
-		TraceFlags: oteltrace.FlagsSampled,
+		TraceID: traceID, SpanID: spanID, TraceFlags: oteltrace.FlagsSampled,
 	})
-
 	return oteltrace.ContextWithSpanContext(context.Background(), sc)
 }
 
@@ -87,14 +77,11 @@ func execute(t *testing.T, reg *clispec.Registry, f *cli.Factory, args ...string
 	f.SetAuditOutbox(showTestOutbox{})
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
 	f.RegisterGlobalFlags(root)
-
 	for _, c := range clispec.RenderCobra(reg, f) {
 		root.AddCommand(c)
 	}
-
 	root.SetArgs(append([]string{"--execute"}, args...))
 	root.SetContext(ctxWithSpan())
-
 	return root.Execute()
 }
 
@@ -110,12 +97,10 @@ func TestOperationRendersAndRunsWithTraceHeader(t *testing.T) {
 	if err := execute(t, reg, f, "demo", "show", "ABC", "--label", "hi"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-
 	got := out.String()
 	if !strings.HasPrefix(got, "#meta trace_id=0123456789abcdef0123456789abcdef") {
 		t.Fatalf("missing trace header, got:\n%s", got)
 	}
-
 	if !strings.Contains(got, `"id": "ABC"`) || !strings.Contains(got, `"label": "hi"`) {
 		t.Fatalf("body missing decoded input:\n%s", got)
 	}
@@ -132,17 +117,14 @@ func TestJSONModeWrapsResultUnderMeta(t *testing.T) {
 	f.SetAuditOutbox(showTestOutbox{})
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
 	f.RegisterGlobalFlags(root)
-
 	for _, c := range clispec.RenderCobra(reg, f) {
 		root.AddCommand(c)
 	}
-
 	root.SetArgs([]string{"--execute", "--output", "json", "demo", "show", "ABC"})
 	root.SetContext(ctxWithSpan())
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-
 	var doc struct {
 		Meta   map[string]string `json:"_meta"`
 		Result map[string]string `json:"result"`
@@ -150,11 +132,9 @@ func TestJSONModeWrapsResultUnderMeta(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
 		t.Fatalf("output not a json envelope: %v\n%s", err, out.String())
 	}
-
 	if doc.Meta["trace_id"] == "" {
 		t.Fatalf("_meta.trace_id empty: %s", out.String())
 	}
-
 	if doc.Result["id"] != "ABC" {
 		t.Fatalf("result.id = %q", doc.Result["id"])
 	}
@@ -163,13 +143,7 @@ func TestJSONModeWrapsResultUnderMeta(t *testing.T) {
 func TestRequiredFlagEnforced(t *testing.T) {
 	op := showOp(nil)
 	op.Params = []clispec.Param[showInput]{
-		clispec.StringParam(
-			"org",
-			"org id",
-			"",
-			true,
-			func(in *showInput, v string) { in.Org = v },
-		),
+		clispec.StringParam("org", "org id", "", true, func(in *showInput, v string) { in.Org = v }),
 	}
 	op.Args = nil
 	reg := clispec.NewRegistry()
@@ -191,7 +165,6 @@ func TestGroupNests(t *testing.T) {
 	if len(tops) != 1 || tops[0].Use != "ops" {
 		t.Fatalf("expected single top 'ops', got %v", tops)
 	}
-
 	inspect, _, err := tops[0].Find([]string{"inspect", "show"})
 	if err != nil || inspect.Name() != "show" {
 		t.Fatalf("nested command not found: %v (%v)", inspect, err)

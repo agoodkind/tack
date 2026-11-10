@@ -18,50 +18,30 @@ func (g *Generator) generateEpicScopedIssue(
 	if epicReference == "" {
 		return nil
 	}
-	existing, err := g.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_list_issues",
-		scopeArgs(workspace.Slug, projectIdentifier),
-	)
+	existing, err := g.driver.Call(ctx, actor.Token, "tack_list_issues", scopeArgs(workspace.Slug, projectIdentifier))
 	if err != nil {
 		return loggedError(ctx, "qa datagen: list issues before the epic-scoped issue", err)
 	}
 	name := fmt.Sprintf("QA epic-scoped issue seed %d", g.seed)
-	_, created, err := g.ensureNode(
-		ctx,
-		actor.Token,
-		existing,
-		"tack_create_issue",
-		name,
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			EpicReference:      epicReference,
-			Name:               name,
-		},
-	)
+	_, created, err := g.ensureNode(ctx, actor.Token, existing, "tack_create_issue", name, ToolArguments{
+		WorkspaceReference: workspace.Slug,
+		EpicReference:      epicReference,
+		Name:               name,
+	})
 	if err != nil {
 		return err
 	}
 	g.recordEnsure(created)
-	listed, err := g.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_list_issues",
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			EpicReference:      epicReference,
-		},
-	)
+	listed, err := g.driver.Call(ctx, actor.Token, "tack_list_issues", ToolArguments{
+		WorkspaceReference: workspace.Slug,
+		EpicReference:      epicReference,
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen: list issues under epic "+epicReference, err)
 	}
 	if !g.dryRun && !strings.Contains(listed.Text(), name) {
-		return loggedError(
-			ctx,
-			"qa datagen: list issues under epic "+epicReference,
-			fmt.Errorf("the list does not contain issue %q", name),
-		)
+		return loggedError(ctx, "qa datagen: list issues under epic "+epicReference,
+			fmt.Errorf("the list does not contain issue %q", name))
 	}
 	return nil
 }

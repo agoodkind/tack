@@ -28,10 +28,8 @@ var breakGlassMailTests = []string{
 func dropBreakGlassTestTables(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.WithoutCancel(t.Context())
-	_, _ = pool.Exec(
-		ctx,
-		`DROP TABLE IF EXISTS public.tack554_rows, public.tack554_refused, audit.events_tack554_proof`,
-	)
+	_, _ = pool.Exec(ctx,
+		`DROP TABLE IF EXISTS public.tack554_rows, public.tack554_refused, audit.events_tack554_proof`)
 	_, _ = pool.Exec(ctx, `ALTER TABLE public.users DROP COLUMN IF EXISTS tack554_refused`)
 }
 
@@ -69,14 +67,9 @@ func (s *bufferSink) WriteText(_ context.Context, body string) error {
 func unreachableMsmtprc(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "msmtprc")
-	if err := os.WriteFile(
-		path,
-		[]byte(unreachableMsmtprcFormat),
-		0o600,
-	); err != nil { // gitleaks:allow test placeholder
+	if err := os.WriteFile(path, []byte(unreachableMsmtprcFormat), 0o600); err != nil { // gitleaks:allow test placeholder
 		t.Fatalf("write the unreachable msmtp account: %v", err)
 	}
-
 	return path
 }
 
@@ -88,14 +81,7 @@ const (
 
 // humanOperatorFlags are the global flags of a human operator.
 func humanOperatorFlags() []string {
-	return []string{
-		"--operator-id",
-		testOperatorID,
-		"--operator-email",
-		testOperatorEmail,
-		"--operator-name",
-		"Operator",
-	}
+	return []string{"--operator-id", testOperatorID, "--operator-email", testOperatorEmail, "--operator-name", "Operator"}
 }
 
 // flagOperatorSource parses flags as global command-line flags and returns the
@@ -108,7 +94,6 @@ func flagOperatorSource(t *testing.T, flags []string) audit.OperatorIdentitySour
 	if err := root.ParseFlags(flags); err != nil {
 		t.Fatalf("parse the operator flags: %v", err)
 	}
-
 	return cli.NewOperatorSource(factory)
 }
 
@@ -116,13 +101,8 @@ func flagOperatorSource(t *testing.T, flags []string) audit.OperatorIdentitySour
 // the identity source the command line resolves from the operator flags.
 func breakGlassDeps(t *testing.T, pool *pgxpool.Pool, dsn, recipient, msmtprc string) dbSQLDeps {
 	t.Helper()
-
 	return dbSQLDeps{
-		cfg: &config.Config{
-			DatabaseURL:            dsn,
-			BackupAlarmEmail:       recipient,
-			BackupAlarmMsmtprcPath: msmtprc,
-		},
+		cfg:      &config.Config{DatabaseURL: dsn, BackupAlarmEmail: recipient, BackupAlarmMsmtprcPath: msmtprc},
 		outbox:   audit.NewPoolOutbox(pool),
 		identity: flagOperatorSource(t, humanOperatorFlags()),
 	}
@@ -131,13 +111,8 @@ func breakGlassDeps(t *testing.T, pool *pgxpool.Pool, dsn, recipient, msmtprc st
 // breakGlassRows reads the break-glass rows recorded with reason.
 func breakGlassRows(t *testing.T, pool *pgxpool.Pool, reason string) []audit.Event {
 	t.Helper()
-	filter := opsoutbox.Filter{
-		Verb:  audit.VerbOpsDBBreakGlass,
-		Path:  []string{"context", "reason"},
-		Value: reason,
-	}
+	filter := opsoutbox.Filter{Verb: audit.VerbOpsDBBreakGlass, Path: []string{"context", "reason"}, Value: reason}
 	deleteOutboxRowsAfterTest(t, pool, filter)
-
 	return opsoutbox.Events(t, pool, filter)
 }
 
@@ -146,12 +121,8 @@ func breakGlassRows(t *testing.T, pool *pgxpool.Pool, reason string) []audit.Eve
 func deleteOutboxRowsAfterTest(t *testing.T, pool *pgxpool.Pool, filter opsoutbox.Filter) {
 	t.Helper()
 	t.Cleanup(func() {
-		_, _ = pool.Exec(
-			context.WithoutCancel(t.Context()),
-			`DELETE FROM public.ops_outbox WHERE event #>> $1 = $2`,
-			filter.Path,
-			filter.Value,
-		)
+		_, _ = pool.Exec(context.WithoutCancel(t.Context()),
+			`DELETE FROM public.ops_outbox WHERE event #>> $1 = $2`, filter.Path, filter.Value)
 	})
 }
 
@@ -160,20 +131,13 @@ func deleteOutboxRowsAfterTest(t *testing.T, pool *pgxpool.Pool, filter opsoutbo
 func runBreakGlass(t *testing.T, deps dbSQLDeps, statement, reason string) (dbSQLResult, error) {
 	t.Helper()
 	var sink bytes.Buffer
-	err := runDBSQL(
-		t.Context(),
-		deps,
-		dbSQLInput{Statement: statement, Reason: reason},
-		&bufferSink{buf: &sink},
-		true,
-	)
+	err := runDBSQL(t.Context(), deps, dbSQLInput{Statement: statement, Reason: reason}, &bufferSink{buf: &sink}, true)
 	var result dbSQLResult
 	if err == nil {
 		if decodeErr := json.Unmarshal(sink.Bytes(), &result); decodeErr != nil {
 			t.Fatalf("decode the report: %v\n%s", decodeErr, sink.String())
 		}
 	}
-
 	return result, err
 }
 
@@ -183,7 +147,6 @@ func breakGlassExtra(t *testing.T, row audit.Event) dbBreakGlassExtra {
 	if err := json.Unmarshal(row.Extra, &extra); err != nil {
 		t.Fatalf("decode the row's extra: %v", err)
 	}
-
 	return extra
 }
 
@@ -194,6 +157,5 @@ func mailpitFor(t *testing.T) testenv.MailpitFixture {
 	if err := mail.DeleteAll(t.Context()); err != nil {
 		t.Fatalf("clear the Mailpit mailbox: %v", err)
 	}
-
 	return mail
 }

@@ -51,8 +51,7 @@ var ybDiagnosticPattern = regexp.MustCompile(`(?:^|\s)[^\s:]+:\s+([0-9A-Z]{5}):\
 // label of its own continues that field (a multi-line CONTEXT, the cursor's
 // caret line), never the message.
 var ybDiagnosticLabelPattern = regexp.MustCompile(
-	`^(?:DETAIL|HINT|QUERY|CONTEXT|SCHEMA NAME|TABLE NAME|COLUMN NAME|DATATYPE NAME|CONSTRAINT NAME|LOCATION):  |^LINE [0-9]+: `,
-)
+	`^(?:DETAIL|HINT|QUERY|CONTEXT|SCHEMA NAME|TABLE NAME|COLUMN NAME|DATATYPE NAME|CONSTRAINT NAME|LOCATION):  |^LINE [0-9]+: `)
 
 // ybRenderedDiagnostic is one diagnostic as ysqlsh printed it, reassembled
 // from the lines it spanned.
@@ -87,34 +86,25 @@ func ybRenderedDiagnostics(stderr, rolesFilePath string) []ybRenderedDiagnostic 
 	// the last message rather than opening an empty line inside it.
 	for line := range strings.SplitSeq(strings.TrimSuffix(stderr, "\n"), "\n") {
 		if match := ybDiagnosticPattern.FindStringSubmatch(line); match != nil {
-			diagnostics = append(
-				diagnostics,
-				ybRenderedDiagnostic{Line: line, SQLState: match[1], Message: match[2]},
-			)
+			diagnostics = append(diagnostics,
+				ybRenderedDiagnostic{Line: line, SQLState: match[1], Message: match[2]})
 			open = len(diagnostics) - 1
 			continue
 		}
-
 		if strings.Contains(line, rolesFilePath+":") {
-			diagnostics = append(
-				diagnostics,
-				ybRenderedDiagnostic{Line: line, SQLState: "", Message: ""},
-			)
+			diagnostics = append(diagnostics,
+				ybRenderedDiagnostic{Line: line, SQLState: "", Message: ""})
 			open = -1
 			continue
 		}
-
 		if open < 0 {
 			continue
 		}
-
 		if ybDiagnosticLabelPattern.MatchString(line) {
 			open = -1
 			continue
 		}
-
 		diagnostics[open].Message += "\n" + line
 	}
-
 	return diagnostics
 }

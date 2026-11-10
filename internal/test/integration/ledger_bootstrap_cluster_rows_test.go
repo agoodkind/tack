@@ -29,11 +29,9 @@ func requireServedByYB1(t *testing.T, pool *pgxpool.Pool, yb1Address string) {
 	if err := pool.QueryRow(t.Context(), clusterServingAddressQuery).Scan(&served); err != nil {
 		t.Fatalf("read the serving node address: %v", err)
 	}
-
 	if !net.ParseIP(served).Equal(net.ParseIP(yb1Address)) {
 		t.Fatalf("the keyword DSN connection is served by %s, want yb1 at %s", served, yb1Address)
 	}
-
 	t.Logf("the keyword DSN connection is served by yb1 at %s (inet_server_addr)", served)
 }
 
@@ -47,11 +45,7 @@ func logTabletCount(t *testing.T, pool *pgxpool.Pool) {
 		t.Errorf("read the ledger tablet count with %q: %v", clusterTabletCountQuery, err)
 		return
 	}
-
-	t.Logf(
-		"ledger tablet count after the migrations: %d (yb_local_tablets, namespace tack)",
-		tablets,
-	)
+	t.Logf("ledger tablet count after the migrations: %d (yb_local_tablets, namespace tack)", tablets)
 }
 
 // requireClusterOutboxRows requires the outbox rows of both commands before
@@ -60,18 +54,12 @@ func requireClusterOutboxRows(t *testing.T, admin *pgxpool.Pool) {
 	t.Helper()
 	bootstraps := clusterOutboxEvents(t, admin, audit.VerbOpsLedgerAuditBootstrap)
 	if len(bootstraps) != clusterAuditBootstrapRows {
-		t.Fatalf(
-			"outbox audit-bootstrap rows = %d, want %d",
-			len(bootstraps),
-			clusterAuditBootstrapRows,
-		)
+		t.Fatalf("outbox audit-bootstrap rows = %d, want %d", len(bootstraps), clusterAuditBootstrapRows)
 	}
-
 	waits := clusterOutboxEvents(t, admin, audit.VerbOpsLedgerBootstrapWait)
 	if len(waits) != clusterBootstrapWaitRows {
 		t.Fatalf("outbox bootstrap-wait rows = %d, want %d", len(waits), clusterBootstrapWaitRows)
 	}
-
 	for _, event := range waits {
 		outboxOpID(t, event)
 	}
@@ -81,57 +69,36 @@ func requireClusterOutboxRows(t *testing.T, admin *pgxpool.Pool) {
 // project both commands' rows into audit.events and checks their outcomes.
 func requireClusterLedgerRows(t *testing.T, admin *pgxpool.Pool) {
 	t.Helper()
-	verbs := []string{
-		string(audit.VerbOpsLedgerAuditBootstrap),
-		string(audit.VerbOpsLedgerBootstrapWait),
-	}
+	verbs := []string{string(audit.VerbOpsLedgerAuditBootstrap), string(audit.VerbOpsLedgerBootstrapWait)}
 	want := clusterAuditBootstrapRows + clusterBootstrapWaitRows
 	var observed []bootstrapLedgerRow
 	var lastErr error
-	projected := waitFor(
-		t,
-		bootstrapRowsDeadline,
-		func() bool {
-			rows, err := admin.Query(t.Context(), bootstrapRowsQuery, verbs)
-			if err != nil {
-				lastErr = err
-				return false
-			}
-
-			observed, lastErr = pgx.CollectRows(rows, pgx.RowToStructByPos[bootstrapLedgerRow])
-
-			return lastErr == nil && len(observed) >= want
-		},
-	)
+	projected := waitFor(t, bootstrapRowsDeadline, func() bool {
+		rows, err := admin.Query(t.Context(), bootstrapRowsQuery, verbs)
+		if err != nil {
+			lastErr = err
+			return false
+		}
+		observed, lastErr = pgx.CollectRows(rows, pgx.RowToStructByPos[bootstrapLedgerRow])
+		return lastErr == nil && len(observed) >= want
+	})
 	if !projected || len(observed) != want {
-		t.Fatalf(
-			"audit.events contains %d rows after %s, want %d (last error %v): %+v",
-			len(observed),
-			bootstrapRowsDeadline,
-			want,
-			lastErr,
-			observed,
-		)
+		t.Fatalf("audit.events contains %d rows after %s, want %d (last error %v): %+v",
+			len(observed), bootstrapRowsDeadline, want, lastErr, observed)
 	}
-
 	var bootstrapOutcomes []string
-
 	for _, row := range bootstrapRowsOfVerb(observed, audit.VerbOpsLedgerAuditBootstrap) {
 		requireBootstrapOpID(t, audit.VerbOpsLedgerAuditBootstrap, row)
 		bootstrapOutcomes = append(bootstrapOutcomes, row.Outcome)
 	}
-
 	slices.Sort(bootstrapOutcomes)
 	wantOutcomes := []string{
-		string(audit.OutcomeError),
-		string(audit.OutcomeOK),
-		string(audit.OutcomePending),
-		string(audit.OutcomePending),
+		string(audit.OutcomeError), string(audit.OutcomeOK),
+		string(audit.OutcomePending), string(audit.OutcomePending),
 	}
 	if !slices.Equal(bootstrapOutcomes, wantOutcomes) {
 		t.Fatalf("audit-bootstrap outcomes = %v, want %v", bootstrapOutcomes, wantOutcomes)
 	}
-
 	for _, row := range bootstrapRowsOfVerb(observed, audit.VerbOpsLedgerBootstrapWait) {
 		requireBootstrapOpID(t, audit.VerbOpsLedgerBootstrapWait, row)
 		if row.Outcome != string(audit.OutcomeOK) {

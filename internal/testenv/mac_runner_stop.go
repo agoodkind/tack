@@ -11,7 +11,6 @@ func (prepared *macRunnerPreparation) stopGrace() time.Duration {
 	if prepared.service.StopGracePeriod == nil {
 		return macRunnerDefaultStopGrace
 	}
-
 	return time.Duration(*prepared.service.StopGracePeriod)
 }
 
@@ -21,9 +20,7 @@ func (prepared *macRunnerPreparation) stopTimeout() *int {
 	if prepared.service.StopGracePeriod == nil {
 		return nil
 	}
-
 	seconds := int(prepared.stopGrace() / time.Second)
-
 	return &seconds
 }
 
@@ -32,6 +29,5 @@ func macRunnerSameStopTimeout(actual, requested *int) bool {
 	if requested == nil {
 		return actual == nil
 	}
-
 	return actual != nil && *actual == *requested
 }

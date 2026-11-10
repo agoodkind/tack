@@ -25,49 +25,31 @@ type tokenBoundary struct {
 	offset int
 }
 
-var tokenBoundaries = []tokenBoundary{
-	{name: "inside-tokens", offset: -1},
-	{name: "at-last-token", offset: 0},
-	{name: "after-tokens", offset: 1},
-}
+var tokenBoundaries = []tokenBoundary{{name: "inside-tokens", offset: -1}, {name: "at-last-token", offset: 0}, {name: "after-tokens", offset: 1}}
 
 // TestSearchSessionAuditSliceKeepsTokenValue runs CleanupSlice with limits that
 // end inside, at the end of, and after the query token chunks.
 func TestSearchSessionAuditSliceKeepsTokenValue(t *testing.T) {
 	for _, boundary := range tokenBoundaries {
-		t.Run(
-			boundary.name,
-			func(t *testing.T) {
-				stores := sessionStoreStores(t)
-				store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
-				session := storedSearchSession(sessionTokens(boundaryTokenBytes))
-				replays := 1
-				limit := replays + boundaryTokenChunks + boundary.offset
-				mark := closingBoundarySession(t, stores, session, replays)
-				observations := observeSessionTransactions(t)
-				ctx := integration.WithTestOperation(t, t.Context())
-				if done, err := store.CleanupSlice(ctx, session.ID, limit); err != nil || done {
-					t.Fatalf(
-						"CleanupSlice of session %s at limit %d = %t, %v, want a partly deleted session",
-						session.ID,
-						limit,
-						done,
-						err,
-					)
-				}
-				observations.requireBounded(t, boundary.name, cleanupSliceOperation, session.ID, 1)
-				requireTokenRemoval(t, stores, mark, session)
-				finishSlices(
-					t,
-					"session "+session.ID.String(),
-					boundaryFinishSlices,
-					func() (bool, error) {
-						return store.CleanupSlice(ctx, session.ID, limit)
-					},
-				)
-				requireTokenRemoval(t, stores, mark, session)
-			},
-		)
+		t.Run(boundary.name, func(t *testing.T) {
+			stores := sessionStoreStores(t)
+			store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
+			session := storedSearchSession(sessionTokens(boundaryTokenBytes))
+			replays := 1
+			limit := replays + boundaryTokenChunks + boundary.offset
+			mark := closingBoundarySession(t, stores, session, replays)
+			observations := observeSessionTransactions(t)
+			ctx := integration.WithTestOperation(t, t.Context())
+			if done, err := store.CleanupSlice(ctx, session.ID, limit); err != nil || done {
+				t.Fatalf("CleanupSlice of session %s at limit %d = %t, %v, want a partly deleted session", session.ID, limit, done, err)
+			}
+			observations.requireBounded(t, boundary.name, cleanupSliceOperation, session.ID, 1)
+			requireTokenRemoval(t, stores, mark, session)
+			finishSlices(t, "session "+session.ID.String(), boundaryFinishSlices, func() (bool, error) {
+				return store.CleanupSlice(ctx, session.ID, limit)
+			})
+			requireTokenRemoval(t, stores, mark, session)
+		})
 	}
 }
 
@@ -76,61 +58,29 @@ func TestSearchSessionAuditSliceKeepsTokenValue(t *testing.T) {
 // the end of, and after the query token chunks.
 func TestSearchSessionAuditRetireSliceKeepsTokenValue(t *testing.T) {
 	for _, boundary := range tokenBoundaries {
-		t.Run(
-			boundary.name,
-			func(t *testing.T) {
-				stores := sessionStoreStores(t)
-				rebuilds := stores.SearchRebuilds(clock.Wall{})
-				index := "node-pages-token-" + boundary.name
-				beginRetiringRebuild(t, stores, index)
-				session := storedSearchSession(sessionTokens(boundaryTokenBytes))
-				session.Query.Index, session.Query.Generation = index, retiredGeneration
-				mark := closingBoundarySession(
-					t,
-					stores,
-					session,
-					maximumCleanupKeys-boundaryTokenChunks-boundary.offset,
-				)
-				observations := observeSessionTransactions(t)
-				requireStaleDeleteFenced(t, stores, index, session)
-				observations.requireBounded(
-					t,
-					boundary.name+" fenced",
-					cleanupSliceOperation,
-					session.ID,
-					0,
-				)
-				remaining, err := rebuilds.RetireIndexSessions(
-					integration.WithTestOperation(t, t.Context()),
-					index,
-					retireSliceLimit,
-				)
-				if err != nil || !remaining {
-					t.Fatalf(
-						"RetireIndexSessions of %s = %t, %v, want a partly deleted session",
-						index,
-						remaining,
-						err,
-					)
-				}
-				observations.requireBounded(t, boundary.name, cleanupSliceOperation, session.ID, 1)
-				requireTokenRemoval(t, stores, mark, session)
-				finishSlices(
-					t,
-					"index "+index,
-					boundaryFinishSlices,
-					func() (bool, error) {
-						remaining, err := rebuilds.RetireIndexSessions(
-							integration.WithTestOperation(t, t.Context()),
-							index,
-							retireSliceLimit,
-						)
-						return !remaining, err
-					},
-				)
-				requireTokenRemoval(t, stores, mark, session)
-			},
-		)
+		t.Run(boundary.name, func(t *testing.T) {
+			stores := sessionStoreStores(t)
+			rebuilds := stores.SearchRebuilds(clock.Wall{})
+			index := "node-pages-token-" + boundary.name
+			beginRetiringRebuild(t, stores, index)
+			session := storedSearchSession(sessionTokens(boundaryTokenBytes))
+			session.Query.Index, session.Query.Generation = index, retiredGeneration
+			mark := closingBoundarySession(t, stores, session, maximumCleanupKeys-boundaryTokenChunks-boundary.offset)
+			observations := observeSessionTransactions(t)
+			requireStaleDeleteFenced(t, stores, index, session)
+			observations.requireBounded(t, boundary.name+" fenced", cleanupSliceOperation, session.ID, 0)
+			remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
+			if err != nil || !remaining {
+				t.Fatalf("RetireIndexSessions of %s = %t, %v, want a partly deleted session", index, remaining, err)
+			}
+			observations.requireBounded(t, boundary.name, cleanupSliceOperation, session.ID, 1)
+			requireTokenRemoval(t, stores, mark, session)
+			finishSlices(t, "index "+index, boundaryFinishSlices, func() (bool, error) {
+				remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
+				return !remaining, err
+			})
+			requireTokenRemoval(t, stores, mark, session)
+		})
 	}
 }
 
@@ -148,12 +98,7 @@ func finishSlices(t *testing.T, label string, maxSlices int, slice func() (bool,
 	t.Fatalf("%s: cleanup remains after %d more slices", label, maxSlices)
 }
 
-func closingBoundarySession(
-	t *testing.T,
-	stores *fdbadapter.Stores,
-	session searchdomain.Session,
-	replays int,
-) []byte {
+func closingBoundarySession(t *testing.T, stores *fdbadapter.Stores, session searchdomain.Session, replays int) []byte {
 	t.Helper()
 	store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
 	ctx := integration.WithTestOperation(t, t.Context())
@@ -161,13 +106,7 @@ func closingBoundarySession(
 	if _, err := store.Create(ctx, session); err != nil {
 		t.Fatalf("create session %s: %v", session.ID, err)
 	}
-	commit := searchdomain.PageCommit{
-		Sort:      json.RawMessage(`[1]`),
-		PITID:     "pit-next",
-		Visited:   newIDs(boundaryVisitedIDs),
-		ResultIDs: newIDs(1),
-		Complete:  false,
-	}
+	commit := searchdomain.PageCommit{Sort: json.RawMessage(`[1]`), PITID: "pit-next", Visited: newIDs(boundaryVisitedIDs), ResultIDs: newIDs(1), Complete: false}
 	if _, err := store.CommitPage(ctx, session.ID, 0, commit); err != nil {
 		t.Fatalf("commit a page of session %s: %v", session.ID, err)
 	}
@@ -177,41 +116,19 @@ func closingBoundarySession(
 	if err := store.BeginCleanup(ctx, session.ID); err != nil {
 		t.Fatalf("close session %s: %v", session.ID, err)
 	}
-	if chunks := familyRecords(t, sessionChildFamily, session.ID, sessionTokenPart); len(
-		chunks,
-	) != boundaryTokenChunks {
-		t.Fatalf(
-			"session %s stores %d token chunks, want %d",
-			session.ID,
-			len(chunks),
-			boundaryTokenChunks,
-		)
+	if chunks := familyRecords(t, sessionChildFamily, session.ID, sessionTokenPart); len(chunks) != boundaryTokenChunks {
+		t.Fatalf("session %s stores %d token chunks, want %d", session.ID, len(chunks), boundaryTokenChunks)
 	}
 	return mark
 }
 
-func requireTokenRemoval(
-	t *testing.T,
-	stores *fdbadapter.Stores,
-	mark []byte,
-	session searchdomain.Session,
-) {
+func requireTokenRemoval(t *testing.T, stores *fdbadapter.Stores, mark []byte, session searchdomain.Session) {
 	t.Helper()
 	created, removed := sessionTokenValues(t, stores, mark, session.ID)
 	if len(created) != 1 || !bytes.Equal(created[0], session.Snapshot.QueryTokens) {
-		t.Fatalf(
-			"session %s recorded %d created token values, want 1 equal to the %d bytes Create received",
-			session.ID,
-			len(created),
-			len(session.Snapshot.QueryTokens),
-		)
+		t.Fatalf("session %s recorded %d created token values, want 1 equal to the %d bytes Create received", session.ID, len(created), len(session.Snapshot.QueryTokens))
 	}
 	if len(removed) != 1 || !bytes.Equal(removed[0], created[0]) {
-		t.Fatalf(
-			"session %s recorded %d removed token values, want 1 equal to the %d bytes Create stored",
-			session.ID,
-			len(removed),
-			len(created[0]),
-		)
+		t.Fatalf("session %s recorded %d removed token values, want 1 equal to the %d bytes Create stored", session.ID, len(removed), len(created[0]))
 	}
 }

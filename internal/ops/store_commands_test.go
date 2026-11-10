@@ -23,7 +23,6 @@ import (
 func storeCommandFixture(t *testing.T) (*config.Config, clispec.ResultSink) {
 	t.Helper()
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
-
 	return new(config.Config), clispec.NewCLISink(factory)
 }
 
@@ -33,7 +32,6 @@ func TestStoreSetCoordinatorsRefusesAName(t *testing.T) {
 	if err == nil {
 		t.Fatal("a name was accepted; site DNS answers every name as the proxy")
 	}
-
 	if !strings.Contains(err.Error(), "pinned addresses") {
 		t.Fatalf("the refusal said %q, which does not say why a name is refused", err)
 	}
@@ -41,16 +39,11 @@ func TestStoreSetCoordinatorsRefusesAName(t *testing.T) {
 
 func TestStoreSetCoordinatorsRefusesAnEvenCount(t *testing.T) {
 	cfg, sink := storeCommandFixture(t)
-	err := RunStoreSetCoordinators(
-		context.Background(),
-		cfg,
-		"3d06:bad:b01:210::220,3d06:bad:b01:210::221",
-		sink,
-	)
+	err := RunStoreSetCoordinators(context.Background(),
+		cfg, "3d06:bad:b01:210::220,3d06:bad:b01:210::221", sink)
 	if err == nil {
 		t.Fatal("an even coordinator count was accepted; a quorum needs an odd one")
 	}
-
 	if !strings.Contains(err.Error(), "quorum") {
 		t.Fatalf("the refusal said %q, which does not say why an even count is refused", err)
 	}

@@ -49,42 +49,20 @@ func (r *SignerReport) Err() error {
 		for _, unknown := range r.UnknownSigners {
 			ids = append(ids, unknown.SigningKey)
 		}
-
-		failures = append(
-			failures,
-			fmt.Sprintf(
-				"%d notarization(s) signed outside the valid signer set by %s",
-				r.RejectedUnknownSigner,
-				strings.Join(ids, ", "),
-			),
-		)
+		failures = append(failures, fmt.Sprintf("%d notarization(s) signed outside the valid signer set by %s",
+			r.RejectedUnknownSigner, strings.Join(ids, ", ")))
 	}
-
 	if r.SignatureFailed > 0 {
-		failures = append(
-			failures,
-			fmt.Sprintf(
-				"%d notarization(s) carry a signature the local key does not verify",
-				r.SignatureFailed,
-			),
-		)
+		failures = append(failures, fmt.Sprintf("%d notarization(s) carry a signature the local key does not verify",
+			r.SignatureFailed))
 	}
-
 	if r.AllowedUnverifiedHere > 0 && !r.UnverifiedAcknowledged {
-		failures = append(
-			failures,
-			fmt.Sprintf(
-				"%d notarization(s) under allowed identifiers this host holds no key for; "+
-					"pass --allow-unverified to accept them on the set alone",
-				r.AllowedUnverifiedHere,
-			),
-		)
+		failures = append(failures, fmt.Sprintf("%d notarization(s) under allowed identifiers this host holds no key for; "+
+			"pass --allow-unverified to accept them on the set alone", r.AllowedUnverifiedHere))
 	}
-
 	if len(failures) == 0 {
 		return nil
 	}
-
 	return errors.New(strings.Join(failures, "; "))
 }
 

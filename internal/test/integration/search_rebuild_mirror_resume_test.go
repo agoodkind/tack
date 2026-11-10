@@ -31,10 +31,7 @@ func TestSearchRebuildMirrorMissSurvivesResumedSwitch(t *testing.T) {
 	waitMirrorHold(t, proxy)
 	proxy.targetIn(secondID, mirrorExpiredOrdinal, target)
 	env.putNode(t, secondID, strings.Repeat(timingText, 40))
-	secondDone := startMirrorSlice(
-		integration.WithTestOperation(t, t.Context()),
-		newLiveFirstWorker(t, env),
-	)
+	secondDone := startMirrorSlice(integration.WithTestOperation(t, t.Context()), newLiveFirstWorker(t, env))
 	waitMirrorHold(t, proxy)
 	pauser := newLiveFirstWorker(t, env)
 	pauseReplacement(t, env, pauser)
@@ -42,81 +39,32 @@ func TestSearchRebuildMirrorMissSurvivesResumedSwitch(t *testing.T) {
 	if result := <-firstDone; !result.claimed {
 		t.Fatalf("first live slice did not claim work: %v", result.err)
 	}
-
 	firstPending := singleNodePending(t, env, firstID).record
-	if firstPending.Index != target ||
-		!firstPending.Deadline.Equal(firstPending.AbandonedAt.Add(mirrorWriteHorizon)) {
-		t.Fatalf(
-			"first pending mirror write = %+v, want the original replacement deadline",
-			firstPending,
-		)
+	if firstPending.Index != target || !firstPending.Deadline.Equal(firstPending.AbandonedAt.Add(mirrorWriteHorizon)) {
+		t.Fatalf("first pending mirror write = %+v, want the original replacement deadline", firstPending)
 	}
-
 	if result := <-secondDone; !result.claimed || result.err != nil {
-		t.Fatalf(
-			"second valid live slice did not checkpoint its mirror miss: claimed %t, error %v",
-			result.claimed,
-			result.err,
-		)
+		t.Fatalf("second valid live slice did not checkpoint its mirror miss: claimed %t, error %v", result.claimed, result.err)
 	}
-
 	rebuilds := env.Stores.SearchRebuilds(clock.Wall{})
-	if pending, err := rebuilds.CopiesPending(
-		integration.WithTestOperation(t, t.Context()),
-	); err != nil ||
-		!pending {
+	if pending, err := rebuilds.CopiesPending(integration.WithTestOperation(t, t.Context())); err != nil || !pending {
 		t.Fatalf("copies pending = %t, error %v, want the second claim's copy", pending, err)
 	}
-
 	current, found, err := rebuilds.CurrentRebuild(integration.WithTestOperation(t, t.Context()))
 	if err != nil || !found || !current.Paused || current.State != searchdomain.RebuildSwitching {
-		t.Fatalf(
-			"replacement after the second checkpoint = %+v, found %t, error %v, want paused Switching",
-			current,
-			found,
-			err,
-		)
+		t.Fatalf("replacement after the second checkpoint = %+v, found %t, error %v, want paused Switching", current, found, err)
 	}
-
-	runRebuildSlicesUntil(
-		t,
-		env,
-		func(rebuild searchdomain.Rebuild) bool {
-			return rebuild.State == searchdomain.RebuildSwitching && !rebuild.Paused
-		},
-	)
+	runRebuildSlicesUntil(t, env, func(rebuild searchdomain.Rebuild) bool {
+		return rebuild.State == searchdomain.RebuildSwitching && !rebuild.Paused
+	})
 	freshBy := firstPending.AbandonedAt.Add(mirrorResumeFreshnessBound)
-	if !runSlicesUntil(
-		t,
-		env,
-		freshBy,
-		func() bool { return indexMismatch(t, env, firstID) == "" },
-	) {
-		t.Fatalf(
-			"serving index lacks node %s before its mirror deadline: %s",
-			firstID,
-			indexMismatch(t, env, firstID),
-		)
+	if !runSlicesUntil(t, env, freshBy, func() bool { return indexMismatch(t, env, firstID) == "" }) {
+		t.Fatalf("serving index lacks node %s before its mirror deadline: %s", firstID, indexMismatch(t, env, firstID))
 	}
-
 	requireSwitchAfterCopies(t, env, target)
-	run := mirrorRun{
-		env:             env,
-		proxy:           proxy,
-		target:          target,
-		nodeID:          firstID,
-		firstAbandoned:  firstPending.AbandonedAt,
-		secondAbandoned: time.Time{},
-	}
+	run := mirrorRun{env: env, proxy: proxy, target: target, nodeID: firstID, firstAbandoned: firstPending.AbandonedAt, secondAbandoned: time.Time{}}
 	requireReplacementPages(t, run)
-	requireResendAfterHorizon(
-		t,
-		proxy,
-		firstID,
-		mirrorExpiredOrdinal,
-		target,
-		firstPending.AbandonedAt,
-	)
+	requireResendAfterHorizon(t, proxy, firstID, mirrorExpiredOrdinal, target, firstPending.AbandonedAt)
 	requirePermanentMirrorAudit(t, env, target)
 }
 
@@ -126,16 +74,12 @@ func startMirrorSlice(ctx context.Context, worker *service.SearchWorker) <-chan 
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				done <- sliceResult{
-					claimed: false,
-					err:     fmt.Errorf("mirror slice panicked: %v", recovered),
-				}
+				done <- sliceResult{claimed: false, err: fmt.Errorf("mirror slice panicked: %v", recovered)}
 			}
 		}()
 		claimed, err := worker.RunSlice(ctx)
 		done <- sliceResult{claimed: claimed, err: err}
 	}()
-
 	return done
 }
 
@@ -147,9 +91,6 @@ func waitMirrorHold(t *testing.T, proxy *pageDelayProxy) {
 	select {
 	case <-started:
 	case <-time.After(mirrorOperationTimeout):
-		t.Fatalf(
-			"the proxy did not start the delayed mirror write within %s",
-			mirrorOperationTimeout,
-		)
+		t.Fatalf("the proxy did not start the delayed mirror write within %s", mirrorOperationTimeout)
 	}
 }

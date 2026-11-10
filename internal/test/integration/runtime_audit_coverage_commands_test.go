@@ -22,65 +22,39 @@ type commandInput struct {
 // commandCase creates an executable command case with an expected audit verb
 // and outcome. It permits command errors only when the expected outcome is
 // error, failed, or refused.
-func commandCase(
-	verb audit.Verb,
-	outcome audit.Outcome,
-	input func(t *testing.T, env *coverageEnv) commandInput,
-) coverageCase {
+func commandCase(verb audit.Verb, outcome audit.Outcome, input func(t *testing.T, env *coverageEnv) commandInput) coverageCase {
 	return coverageCase{
 		run: func(t *testing.T, env *coverageEnv) coverageEvidence {
 			current := input(t, env)
 			operatorID, output, err := env.commandWith(t, current)
-			expectsFailure := outcome == audit.OutcomeError || outcome == audit.OutcomeFailed ||
-				outcome == audit.OutcomeRefused
+			expectsFailure := outcome == audit.OutcomeError || outcome == audit.OutcomeFailed || outcome == audit.OutcomeRefused
 			if err != nil && !expectsFailure {
-				t.Fatalf(
-					"The command returned an error when the case required success; the arguments, error, and output follow: %v: %v\n%s",
-					current.args,
-					err,
-					output,
-				)
+				t.Fatalf("The command returned an error when the case required success; the arguments, error, and output follow: %v: %v\n%s", current.args, err, output)
 			}
 			evidence := operatorEvidence(operatorID)
 			evidence.outbox = current.outbox
 			return evidence
 		},
-		verb:    verb,
-		outcome: outcome,
-		check:   nil,
+		verb: verb, outcome: outcome, check: nil,
 	}
 }
 
 // failingCommandCase creates a case that requires the command to return an
 // error and record the expected audit verb and outcome.
-func failingCommandCase(
-	verb audit.Verb,
-	outcome audit.Outcome,
-	input func(t *testing.T, env *coverageEnv) commandInput,
-) coverageCase {
+func failingCommandCase(verb audit.Verb, outcome audit.Outcome, input func(t *testing.T, env *coverageEnv) commandInput) coverageCase {
 	return coverageCase{
 		run: func(t *testing.T, env *coverageEnv) coverageEvidence {
 			current := input(t, env)
 			operatorID, output, err := env.commandWith(t, current)
 			if err == nil {
-				t.Fatalf(
-					"The command succeeded when the case required an error; the arguments and output follow: %v:\n%s",
-					current.args,
-					output,
-				)
+				t.Fatalf("The command succeeded when the case required an error; the arguments and output follow: %v:\n%s", current.args, output)
 			}
-			t.Logf(
-				"The command returned the expected error; the arguments and error follow: %v: %v",
-				current.args,
-				err,
-			)
+			t.Logf("The command returned the expected error; the arguments and error follow: %v: %v", current.args, err)
 			evidence := operatorEvidence(operatorID)
 			evidence.outbox = current.outbox
 			return evidence
 		},
-		verb:    verb,
-		outcome: outcome,
-		check:   nil,
+		verb: verb, outcome: outcome, check: nil,
 	}
 }
 
@@ -97,9 +71,7 @@ func searchCommandCase(withoutSearch, withSearch coverageCase) coverageCase {
 			evidence.outcome = withoutSearch.outcome
 			return evidence
 		},
-		verb:    withSearch.verb,
-		outcome: withSearch.outcome,
-		check:   nil,
+		verb: withSearch.verb, outcome: withSearch.outcome, check: nil,
 	}
 }
 
@@ -113,9 +85,7 @@ func fixedCommand(args ...string) func(*testing.T, *coverageEnv) commandInput {
 
 // argsCommand returns an input function that derives command arguments from the
 // test environment without configuration or database pool overrides.
-func argsCommand(
-	args func(t *testing.T, env *coverageEnv) []string,
-) func(*testing.T, *coverageEnv) commandInput {
+func argsCommand(args func(t *testing.T, env *coverageEnv) []string) func(*testing.T, *coverageEnv) commandInput {
 	return func(t *testing.T, env *coverageEnv) commandInput {
 		return commandInput{args: args(t, env), configure: nil, outbox: nil}
 	}

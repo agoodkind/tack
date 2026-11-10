@@ -57,11 +57,7 @@ func macCommandFixture(t *testing.T) (testenv.MacTestOptions, *client.Client) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(
-		filepath.Join(root, "go.mod"),
-		[]byte("module goodkind.io/tack\n\ngo 1.27\n"),
-		0o600,
-	); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module goodkind.io/tack\n\ngo 1.27\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	worktree, err := repository.Worktree()
@@ -71,33 +67,20 @@ func macCommandFixture(t *testing.T) (testenv.MacTestOptions, *client.Client) {
 	if _, err := worktree.Add("."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worktree.Commit(
-		"Add command fixture",
-		&git.CommitOptions{
-			Author: &object.Signature{Name: "Test", Email: "test@example.com", When: time.Now()},
-		},
-	); err != nil {
+	if _, err := worktree.Commit("Add command fixture", &git.CommitOptions{Author: &object.Signature{Name: "Test", Email: "test@example.com", When: time.Now()}}); err != nil {
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256([]byte(root))
 	project := fmt.Sprintf("tack-command-fixture-%x", digest[:8])
 	t.Setenv("COMPOSE_PROJECT_NAME", project)
-	docker, err := client.New(
-		client.WithHost("unix://" + filepath.Join(os.Getenv("HOME"), ".docker/run/docker.sock")),
-	)
+	docker, err := client.New(client.WithHost("unix://" + filepath.Join(os.Getenv("HOME"), ".docker/run/docker.sock")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = docker.Close() })
 	for _, suffix := range []string{"tack-test-go-cache", "tack-test-go-mod"} {
 		name := project + "_" + suffix
-		if _, err := docker.VolumeCreate(
-			t.Context(),
-			client.VolumeCreateOptions{
-				Name:   name,
-				Labels: map[string]string{"tack.mac-runner-fixture": project},
-			},
-		); err != nil {
+		if _, err := docker.VolumeCreate(t.Context(), client.VolumeCreateOptions{Name: name, Labels: map[string]string{"tack.mac-runner-fixture": project}}); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {

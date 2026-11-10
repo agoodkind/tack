@@ -16,24 +16,12 @@ import (
 
 // callSnapshotSearch submits an authenticated MCP request to the harness's
 // production HTTP route with a context that the test can cancel.
-func callSnapshotSearch(
-	ctx context.Context,
-	fixture failureFixture,
-	harness *integration.MCPHarness,
-	cursor string,
-) snapshotSearchResult {
+func callSnapshotSearch(ctx context.Context, fixture failureFixture, harness *integration.MCPHarness, cursor string) snapshotSearchResult {
 	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0",
-		"id":      uuid.NewString(),
-		"method":  "tools/call",
-		"params": map[string]any{
-			"name": "tack_search",
-			"arguments": map[string]any{
-				"workspace_reference": harness.Workspace,
-				"query":               failureAuditQuery,
-				"cursor":              cursor,
-			},
-		},
+		"jsonrpc": "2.0", "id": uuid.NewString(), "method": "tools/call",
+		"params": map[string]any{"name": "tack_search", "arguments": map[string]any{
+			"workspace_reference": harness.Workspace, "query": failureAuditQuery, "cursor": cursor,
+		}},
 	})
 	if err != nil {
 		return snapshotSearchResult{err: fmt.Errorf("encode the interrupted search: %w", err)}

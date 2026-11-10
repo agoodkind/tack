@@ -66,7 +66,6 @@ func runConcurrentDescriptionUpdates(t *testing.T) concurrentDescriptionRun {
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
-
 	windowStart := clock.Now().Add(-time.Minute)
 	create := auditedIssueArguments(harness)
 	create.ProjectReference = harness.Project
@@ -78,27 +77,12 @@ func runConcurrentDescriptionUpdates(t *testing.T) concurrentDescriptionRun {
 	if err != nil || view == nil {
 		t.Fatalf("issue %s after the concurrent updates = %v, %v", issueID, view, err)
 	}
-
 	run := concurrentDescriptionRun{
-		ledger:    startNodeAuditLedger(t),
-		orgID:     view.OrgID,
-		issueID:   issueID,
-		written:   written,
-		conflicts: conflicts,
-		final:     decodedJSONString(t, view.Props["description"]),
-		changes:   nil,
-		report:    lastChangeReport{},
+		ledger: startNodeAuditLedger(t), orgID: view.OrgID, issueID: issueID, written: written, conflicts: conflicts,
+		final: decodedJSONString(t, view.Props["description"]), changes: nil, report: lastChangeReport{},
 	}
 	run.changes = waitForDescriptionChanges(t, run, len(written))
-	run.report = runLastChange(
-		t,
-		run.ledger,
-		run.orgID,
-		issueID,
-		windowStart,
-		clock.Now().Add(time.Minute),
-	)
-
+	run.report = runLastChange(t, run.ledger, run.orgID, issueID, windowStart, clock.Now().Add(time.Minute))
 	return run
 }
 
@@ -107,17 +91,12 @@ func runConcurrentDescriptionUpdates(t *testing.T) concurrentDescriptionRun {
 // to concurrentUpdateAttempts times. Every writer must commit, and any other
 // error fails the test. It returns the committed descriptions and the number
 // of conflict refusals, which must be at least one.
-func writeDescriptionsConcurrently(
-	t *testing.T,
-	harness *integration.MCPHarness,
-	issueID uuid.UUID,
-) ([]string, int) {
+func writeDescriptionsConcurrently(t *testing.T, harness *integration.MCPHarness, issueID uuid.UUID) ([]string, int) {
 	t.Helper()
 	descriptions := make([]string, concurrentDescriptionWriters)
 	conflicts := make([]int, concurrentDescriptionWriters)
 	failures := make([]error, concurrentDescriptionWriters)
 	var group sync.WaitGroup
-
 	for index := range concurrentDescriptionWriters {
 		descriptions[index] = "concurrent description " + strconv.Itoa(index)
 		arguments := auditedIssueArguments(harness)
@@ -129,32 +108,20 @@ func writeDescriptionsConcurrently(
 					failures[index] = fmt.Errorf("update %d panicked: %v", index, recovered)
 				}
 			}()
-			conflicts[index], failures[index] = updateUntilCommitted(
-				t.Context(),
-				harness,
-				arguments,
-			)
+			conflicts[index], failures[index] = updateUntilCommitted(t.Context(), harness, arguments)
 		})
 	}
-
 	group.Wait()
 	if err := errors.Join(failures...); err != nil {
 		t.Fatalf("every concurrent update must commit: %v", err)
 	}
-
 	refused := 0
-
 	for _, count := range conflicts {
 		refused += count
 	}
-
 	if refused == 0 {
-		t.Fatalf(
-			"the %d concurrent updates committed without a conflict refusal. The test requires at least one conflict to exercise concurrent writes",
-			concurrentDescriptionWriters,
-		)
+		t.Fatalf("the %d concurrent updates committed without a conflict refusal. The test requires at least one conflict to exercise concurrent writes", concurrentDescriptionWriters)
 	}
-
 	return descriptions, refused
 }
 
@@ -162,32 +129,20 @@ func writeDescriptionsConcurrently(
 // it. It sends the request again after the stored-node conflict refusal, at
 // most concurrentUpdateAttempts times in total, and returns the number of
 // conflict refusals. Any other error ends the loop.
-func updateUntilCommitted(
-	ctx context.Context,
-	harness *integration.MCPHarness,
-	arguments datagen.ToolArguments,
-) (int, error) {
+func updateUntilCommitted(ctx context.Context, harness *integration.MCPHarness, arguments datagen.ToolArguments) (int, error) {
 	refused := 0
-
 	for range concurrentUpdateAttempts {
 		_, err := harness.TryCall(ctx, "tack_update_issue", arguments)
 		if err == nil {
 			return refused, nil
 		}
-
 		if !strings.Contains(err.Error(), nodeConflictRefusal) {
 			return refused, err
 		}
-
 		refused++
 		time.Sleep(concurrentRetryPause)
 	}
-
-	return refused, fmt.Errorf(
-		"update of node %s did not commit after %d attempts",
-		arguments.NodeID,
-		concurrentUpdateAttempts,
-	)
+	return refused, fmt.Errorf("update of node %s did not commit after %d attempts", arguments.NodeID, concurrentUpdateAttempts)
 }
 
 // waitForDescriptionChanges polls the ledger until it contains want
@@ -196,23 +151,14 @@ func updateUntilCommitted(
 func waitForDescriptionChanges(t *testing.T, run concurrentDescriptionRun, want int) []audit.Row {
 	t.Helper()
 	deadline := clock.Now().Add(nodeAuditDeadline)
-
 	for {
 		changes := descriptionChanges(t, run)
 		if len(changes) >= want {
 			return changes
 		}
-
 		if clock.Now().After(deadline) {
-			t.Fatalf(
-				"description change rows of issue %s after %s = %d, want %d",
-				run.issueID,
-				nodeAuditDeadline,
-				len(changes),
-				want,
-			)
+			t.Fatalf("description change rows of issue %s after %s = %d, want %d", run.issueID, nodeAuditDeadline, len(changes), want)
 		}
-
 		time.Sleep(nodeAuditPollInterval)
 	}
 }
@@ -222,21 +168,14 @@ func waitForDescriptionChanges(t *testing.T, run concurrentDescriptionRun, want 
 func descriptionChanges(t *testing.T, run concurrentDescriptionRun) []audit.Row {
 	t.Helper()
 	var changes []audit.Row
-
 	for _, row := range run.ledger.orgRows(t, run.orgID, run.issueID, audit.VerbNodeUpdate) {
-		if row.Context.Phase == audit.PhaseChange && row.Delta != nil &&
-			slices.Contains(row.Delta.Changed, descriptionPath) {
+		if row.Context.Phase == audit.PhaseChange && row.Delta != nil && slices.Contains(row.Delta.Changed, descriptionPath) {
 			changes = append(changes, row)
 		}
 	}
-
-	slices.SortFunc(
-		changes,
-		func(left, right audit.Row) int {
-			return strings.Compare(commitVersion(t, left), commitVersion(t, right))
-		},
-	)
-
+	slices.SortFunc(changes, func(left, right audit.Row) int {
+		return strings.Compare(commitVersion(t, left), commitVersion(t, right))
+	})
 	return changes
 }
 
@@ -253,6 +192,5 @@ func decodedJSONString(t *testing.T, raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &value); err != nil {
 		t.Fatalf("decode the JSON string %s: %v", raw, err)
 	}
-
 	return value
 }

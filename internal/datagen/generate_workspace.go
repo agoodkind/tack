@@ -109,7 +109,11 @@ func (g *Generator) ensureNode(
 	created := existing.ReferenceForName(name) == ""
 	result, err := g.driver.Call(ctx, token, toolName, args)
 	if err != nil {
-		return "", false, loggedError(ctx, fmt.Sprintf("qa datagen: %s %q", toolName, name), err)
+		return "", false, loggedError(
+			ctx,
+			fmt.Sprintf("qa datagen: %s %q", toolName, name),
+			err,
+		)
 	}
 	reference := result.RawID()
 	if reference == "" {

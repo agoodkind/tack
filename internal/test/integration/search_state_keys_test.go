@@ -27,7 +27,6 @@ func readStateKeys(t *testing.T, fixture parentEdgeFixture) []stateKey {
 	if err != nil {
 		t.Fatalf("open database to read search keys: %v", err)
 	}
-
 	prefix := bytes.Clone(fdbadapter.TestPrefixRange())
 	packedFamily := tuple.Tuple{stateFamilyPrefix}.Pack()
 	familyStart := append(bytes.Clone(prefix), packedFamily[:len(packedFamily)-1]...)
@@ -35,7 +34,6 @@ func readStateKeys(t *testing.T, fixture parentEdgeFixture) []stateKey {
 	if err != nil {
 		t.Fatalf("create search key range: %v", err)
 	}
-
 	transaction, err := database.CreateTransaction()
 	if err != nil {
 		t.Fatalf("create search key transaction: %v", err)
@@ -45,22 +43,18 @@ func readStateKeys(t *testing.T, fixture parentEdgeFixture) []stateKey {
 	if err != nil {
 		t.Fatalf("read search keys: %v", err)
 	}
-
 	keys := make([]stateKey, 0, len(entries))
 	for _, entry := range entries {
 		elements, decodeErr := tuple.Unpack(entry.Key[len(prefix):])
 		if decodeErr != nil || len(elements) == 0 {
 			t.Fatalf("decode search key %x: %v", entry.Key, decodeErr)
 		}
-
 		family, isText := elements[0].(string)
 		if !isText {
 			t.Fatalf("search key %x has family %v, want a string", entry.Key, elements[0])
 		}
-
 		keys = append(keys, stateKey{family: family, elements: elements})
 	}
-
 	return keys
 }
 
@@ -69,18 +63,10 @@ func (key stateKey) text(t *testing.T, position int) string {
 	if position >= len(key.elements) {
 		t.Fatalf("%s key %v has no element %d", key.family, key.elements, position)
 	}
-
 	value, isText := key.elements[position].(string)
 	if !isText {
-		t.Fatalf(
-			"%s key %v element %d is %T, want a string",
-			key.family,
-			key.elements,
-			position,
-			key.elements[position],
-		)
+		t.Fatalf("%s key %v element %d is %T, want a string", key.family, key.elements, position, key.elements[position])
 	}
-
 	return value
 }
 
@@ -89,18 +75,10 @@ func (key stateKey) integer(t *testing.T, position int) int64 {
 	if position >= len(key.elements) {
 		t.Fatalf("%s key %v has no element %d", key.family, key.elements, position)
 	}
-
 	value, isInteger := key.elements[position].(int64)
 	if !isInteger {
-		t.Fatalf(
-			"%s key %v element %d is %T, want an integer",
-			key.family,
-			key.elements,
-			position,
-			key.elements[position],
-		)
+		t.Fatalf("%s key %v element %d is %T, want an integer", key.family, key.elements, position, key.elements[position])
 	}
-
 	return value
 }
 
@@ -111,7 +89,6 @@ func (key stateKey) references(identifiers map[string]bool) bool {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -119,15 +96,12 @@ func (key stateKey) references(identifiers map[string]bool) bool {
 // element that matches an identifier in excluded.
 func countStateFamilies(keys []stateKey, excluded map[string]bool) map[string]int {
 	counts := make(map[string]int)
-
 	for _, key := range keys {
 		if key.references(excluded) {
 			continue
 		}
-
 		counts[key.family]++
 	}
-
 	return counts
 }
 
@@ -138,6 +112,5 @@ func stateKeysOf(keys []stateKey, family string) []stateKey {
 			matching = append(matching, key)
 		}
 	}
-
 	return matching
 }

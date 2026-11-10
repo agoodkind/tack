@@ -25,7 +25,6 @@ func (f parentEdgeFixture) runOps(t *testing.T, args ...string) (json.RawMessage
 	if err != nil {
 		t.Fatalf("open audit ledger pool: %v", err)
 	}
-
 	t.Cleanup(pool.Close)
 	configureSearchReadAudit(t, factory, pool)
 	t.Cleanup(factory.CloseAuditOutbox)
@@ -33,28 +32,14 @@ func (f parentEdgeFixture) runOps(t *testing.T, args ...string) (json.RawMessage
 	ops.RegisterCommands(registry, factory)
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
 	factory.RegisterGlobalFlags(root)
-
 	for _, command := range clispec.RenderCobra(registry, factory) {
 		root.AddCommand(command)
 	}
-
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
-	root.SetArgs(
-		append(
-			[]string{
-				"--execute",
-				"--output",
-				"json",
-				"--operator-id",
-				"019dd226-440e-729a-a442-281aaf73ca30",
-				"--operator-email",
-				"operator@example.com",
-				"--operator-name",
-				"Parent Edge Test",
-			},
-			args...,
-		),
-	)
+	root.SetArgs(append([]string{
+		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
+		"--operator-email", "operator@example.com", "--operator-name", "Parent Edge Test",
+	}, args...))
 	runErr := root.ExecuteContext(t.Context())
 	var envelope struct {
 		Result json.RawMessage `json:"result"`
@@ -62,6 +47,5 @@ func (f parentEdgeFixture) runOps(t *testing.T, args ...string) (json.RawMessage
 	if err := json.NewDecoder(&output).Decode(&envelope); err != nil || len(envelope.Result) == 0 {
 		t.Fatalf("decode the result of %v (command error %v): %v", args, runErr, err)
 	}
-
 	return envelope.Result, runErr
 }

@@ -30,17 +30,9 @@ func TestNodeIntegrityStrictRejectsClientManagedValuesAfterActivation(t *testing
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
 	workspaceID := storedParentID(t, env, projectID)
-	otherProject := createSchemaNode(
-		t,
-		env,
-		workspaceID,
-		workspaceID,
-		"project",
-		map[string]json.RawMessage{
-			"slug":       quoted("other"),
-			"identifier": quoted("OTHER"),
-		},
-	)
+	otherProject := createSchemaNode(t, env, workspaceID, workspaceID, "project", map[string]json.RawMessage{
+		"slug": quoted("other"), "identifier": quoted("OTHER"),
+	})
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	activateStrict(t)
 
@@ -52,60 +44,28 @@ func TestNodeIntegrityStrictRejectsClientManagedValuesAfterActivation(t *testing
 		{property: "sequence", value: json.RawMessage(strictManagedSequence)},
 	}
 	for _, managed := range cases {
-		t.Run(
-			managed.property,
-			func(t *testing.T) {
-				if !node.IsManagedProperty(managed.property) {
-					t.Fatalf(
-						"node.IsManagedProperty(%q) = false, want a service-managed property",
-						managed.property,
-					)
-				}
+		t.Run(managed.property, func(t *testing.T) {
+			if !node.IsManagedProperty(managed.property) {
+				t.Fatalf("node.IsManagedProperty(%q) = false, want a service-managed property", managed.property)
+			}
+			before, _ := mutationSnapshot(t, env, issue.ID)
+			_, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
+				NodeID: issue.ID, Name: nil, Props: schemaProps(managed.property, managed.value),
+				RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
+			})
+			requireManagedRefusal(t, err, "the client update", managed.property)
+			requireUnchanged(t, env, before)
+			after, _ := mutationSnapshot(t, env, issue.ID)
+			if !reflect.DeepEqual(after.Outgoing, before.Outgoing) {
+				t.Fatalf("the refused update of %s changed the relationships of issue %s", managed.property, issue.ID)
+			}
 
-				before, _ := mutationSnapshot(t, env, issue.ID)
-				_, err := env.NodeSvc.Update(
-					env.Ctx,
-					service.UpdateInput{
-						NodeID: issue.ID,
-						Name:   nil,
-						Props:  schemaProps(managed.property, managed.value),
-						RelationshipChanges: node.RelationshipChanges{
-							Add:    nil,
-							Remove: nil,
-						},
-						ActorID: uuid.New(),
-					},
-				)
-				requireManagedRefusal(t, err, "the client update", managed.property)
-				requireUnchanged(t, env, before)
-				after, _ := mutationSnapshot(t, env, issue.ID)
-				if !reflect.DeepEqual(after.Outgoing, before.Outgoing) {
-					t.Fatalf(
-						"the refused update of %s changed the relationships of issue %s",
-						managed.property,
-						issue.ID,
-					)
-				}
-
-				_, err = env.NodeSvc.Create(
-					env.Ctx,
-					schemaCreateInput(
-						projectID,
-						projectID,
-						"issue",
-						schemaProps(managed.property, managed.value),
-					),
-				)
-				requireManagedRefusal(t, err, "the client create", managed.property)
-				if issues := listByScope(t, env, "issue", projectID); len(issues) != 1 {
-					t.Fatalf(
-						"project %s lists %d issues after the refused create, want 1",
-						projectID,
-						len(issues),
-					)
-				}
-			},
-		)
+			_, err = env.NodeSvc.Create(env.Ctx, schemaCreateInput(projectID, projectID, "issue", schemaProps(managed.property, managed.value)))
+			requireManagedRefusal(t, err, "the client create", managed.property)
+			if issues := listByScope(t, env, "issue", projectID); len(issues) != 1 {
+				t.Fatalf("project %s lists %d issues after the refused create, want 1", projectID, len(issues))
+			}
+		})
 	}
 }
 
@@ -113,12 +73,7 @@ func TestNodeIntegrityStrictRejectsClientManagedValuesAfterActivation(t *testing
 // contains property.
 func requireManagedRefusal(t *testing.T, err error, operation, property string) {
 	t.Helper()
-	requireError(
-		t,
-		err,
-		domain.ErrInvalidArgument,
-		operation+" of the service-managed property "+property,
-	)
+	requireError(t, err, domain.ErrInvalidArgument, operation+" of the service-managed property "+property)
 	if !strings.Contains(err.Error(), property) {
 		t.Fatalf("%s of %s = %v, want the property in the error", operation, property, err)
 	}

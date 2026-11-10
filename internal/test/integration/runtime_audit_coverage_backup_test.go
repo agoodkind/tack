@@ -39,17 +39,11 @@ func startCoverageBackupLedger(t *testing.T) *coverageBackupLedger {
 	}
 	cfg := restoreDrillConfig(t, node)
 	if err := ops.RunAuditSeedRoles(ctx, cfg); err != nil {
-		t.Fatalf(
-			"Backup ledger setup failed to seed audit roles; the test requires those roles: %v",
-			err,
-		)
+		t.Fatalf("Backup ledger setup failed to seed audit roles; the test requires those roles: %v", err)
 	}
 	admin, err := pgxpool.New(ctx, node.DSN)
 	if err != nil {
-		t.Fatalf(
-			"Backup ledger setup failed to create a connection pool; the test requires database access: %v",
-			err,
-		)
+		t.Fatalf("Backup ledger setup failed to create a connection pool; the test requires database access: %v", err)
 	}
 	t.Cleanup(admin.Close)
 	seedDrillAuthRows(t, admin)
@@ -70,83 +64,40 @@ func startCoverageBackupLedger(t *testing.T) *coverageBackupLedger {
 func backupCommand(args ...string) func(*testing.T, *coverageEnv) commandInput {
 	return func(_ *testing.T, env *coverageEnv) commandInput {
 		backup := env.backup.cfg
-		return commandInput{
-			args:   args,
-			outbox: nil,
-			configure: func(cfg *config.Config) {
-				cfg.DatabaseURL, cfg.YugabyteDB, cfg.BackupRoot = backup.DatabaseURL, backup.YugabyteDB, backup.BackupRoot
-				cfg.BackupYBImage, cfg.BackupYBOverlayPath, cfg.BackupYBRocksDBDir = backup.BackupYBImage, backup.BackupYBOverlayPath, backup.BackupYBRocksDBDir
-				cfg.BackupFDBNetwork, cfg.BackupFDBContinuous, cfg.BackupYBMasterAddresses = backup.BackupFDBNetwork, false, backup.BackupYBMasterAddresses
-				cfg.BackupS3Endpoint, cfg.BackupS3Region, cfg.BackupS3BucketMain = backup.BackupS3Endpoint, backup.BackupS3Region, backup.BackupS3BucketMain
-				cfg.BackupS3AccessKey, cfg.BackupS3SecretKey = backup.BackupS3AccessKey, backup.BackupS3SecretKey
-				cfg.MigratorPassword, cfg.LedgerNodeHosts = backup.MigratorPassword, backup.LedgerNodeHosts
-			},
-		}
+		return commandInput{args: args, outbox: nil, configure: func(cfg *config.Config) {
+			cfg.DatabaseURL, cfg.YugabyteDB, cfg.BackupRoot = backup.DatabaseURL, backup.YugabyteDB, backup.BackupRoot
+			cfg.BackupYBImage, cfg.BackupYBOverlayPath, cfg.BackupYBRocksDBDir = backup.BackupYBImage, backup.BackupYBOverlayPath, backup.BackupYBRocksDBDir
+			cfg.BackupFDBNetwork, cfg.BackupFDBContinuous, cfg.BackupYBMasterAddresses = backup.BackupFDBNetwork, false, backup.BackupYBMasterAddresses
+			cfg.BackupS3Endpoint, cfg.BackupS3Region, cfg.BackupS3BucketMain = backup.BackupS3Endpoint, backup.BackupS3Region, backup.BackupS3BucketMain
+			cfg.BackupS3AccessKey, cfg.BackupS3SecretKey = backup.BackupS3AccessKey, backup.BackupS3SecretKey
+			cfg.MigratorPassword, cfg.LedgerNodeHosts = backup.MigratorPassword, backup.LedgerNodeHosts
+		}}
 	}
 }
 
 // addBackupCommandCases adds backup command cases with their expected audit
 // verbs and outcomes, including cases that expect command failure.
 func addBackupCommandCases(cases map[string]coverageCase) {
-	cases["command ops backup retention"] = commandCase(
-		audit.VerbOpsBackupRetention,
-		audit.OutcomeCompleted,
-		backupCommand("ops", "backup", "retention"),
-	)
-	cases["command ops backup"] = withReadCheck(
-		failingCommandCase(audit.VerbOpsBackup, audit.OutcomeFailed, fixedCommand("ops", "backup")),
-		audit.VerbOpsBackup,
-		audit.OutcomeFailed,
-		failedReadExpectation("backup"),
-	)
-	cases["command ops backup yb-pitr-init"] = commandCase(
-		audit.VerbOpsBackupYBPITRInit,
-		audit.OutcomeCompleted,
-		backupCommand("ops", "backup", "yb-pitr-init"),
-	)
-	cases["command ops backup yb-snapshot-export"] = commandCase(
-		audit.VerbOpsBackupYBSnapshotExport,
-		audit.OutcomeCompleted,
-		backupCommand("ops", "backup", "yb-snapshot-export"),
-	)
-	cases["command ops backup restore-drill"] = commandCase(
-		audit.VerbOpsBackupRestoreDrill,
-		audit.OutcomeCompleted,
-		restoreDrillInput,
-	)
+	cases["command ops backup retention"] = commandCase(audit.VerbOpsBackupRetention, audit.OutcomeCompleted,
+		backupCommand("ops", "backup", "retention"))
+	cases["command ops backup"] = withReadCheck(failingCommandCase(audit.VerbOpsBackup, audit.OutcomeFailed, fixedCommand("ops", "backup")),
+		audit.VerbOpsBackup, audit.OutcomeFailed, failedReadExpectation("backup"))
+	cases["command ops backup yb-pitr-init"] = commandCase(audit.VerbOpsBackupYBPITRInit, audit.OutcomeCompleted, backupCommand("ops", "backup", "yb-pitr-init"))
+	cases["command ops backup yb-snapshot-export"] = commandCase(audit.VerbOpsBackupYBSnapshotExport, audit.OutcomeCompleted,
+		backupCommand("ops", "backup", "yb-snapshot-export"))
+	cases["command ops backup restore-drill"] = commandCase(audit.VerbOpsBackupRestoreDrill, audit.OutcomeCompleted, restoreDrillInput)
 	cases["command ops backup restore-drill"+caseVariantSeparator+"fdb-leg-skipped"] = skippedLegDrillCase()
-	cases["command ops backup restore-version"] = commandCase(
-		audit.VerbOpsBackupFDBRestoreVersion,
-		audit.OutcomeOK,
+	cases["command ops backup restore-version"] = commandCase(audit.VerbOpsBackupFDBRestoreVersion, audit.OutcomeOK,
 		func(t *testing.T, env *coverageEnv) commandInput {
 			env.writeVersionLog(t)
-			return backupCommand(
-				"ops",
-				"backup",
-				"restore-version",
-				"--at",
-				time.Now().UTC().Format(time.RFC3339),
-			)(
-				t,
-				env,
-			)
-		},
-	)
-	cases["command ops backup yb-archive-node"] = commandCase(
-		audit.VerbOpsBackupYBArchiveNode,
-		audit.OutcomeCompleted,
-		backupCommand("ops", "backup", "yb-archive-node"),
-	)
-	cases["command ops backup staleness-check"] = failingCommandCase(
-		audit.VerbOpsBackupStalenessCheck,
-		audit.OutcomeCompleted,
-		emptyBucketStalenessInput,
-	)
-	cases["command ops backup fdb-continuous-init"] = commandCase(
-		audit.VerbOpsBackupFDBContinuousInit,
-		audit.OutcomeCompleted,
-		continuousInitInput,
-	)
+			return backupCommand("ops", "backup", "restore-version", "--at", time.Now().UTC().Format(time.RFC3339))(t, env)
+		})
+	cases["command ops backup yb-archive-node"] = commandCase(audit.VerbOpsBackupYBArchiveNode, audit.OutcomeCompleted,
+		backupCommand("ops", "backup", "yb-archive-node"))
+	cases["command ops backup staleness-check"] = failingCommandCase(audit.VerbOpsBackupStalenessCheck, audit.OutcomeCompleted,
+		emptyBucketStalenessInput)
+	cases["command ops backup fdb-continuous-init"] = commandCase(audit.VerbOpsBackupFDBContinuousInit, audit.OutcomeCompleted,
+		continuousInitInput)
 }
 
 // emptyBucketStalenessInput initializes a new backup bucket that does not
@@ -161,17 +112,9 @@ func emptyBucketStalenessInput(t *testing.T, env *coverageEnv) commandInput {
 		cfg.BackupRoot = root
 	}
 	if _, output, err := env.command(t, configure, "ops", "backup", "buckets-init"); err != nil {
-		t.Fatalf(
-			"Bucket initialization failed; the staleness case requires an initialized empty bucket: %v\n%s",
-			err,
-			output,
-		)
+		t.Fatalf("Bucket initialization failed; the staleness case requires an initialized empty bucket: %v\n%s", err, output)
 	}
-	return commandInput{
-		args:      []string{"ops", "backup", "staleness-check"},
-		outbox:    nil,
-		configure: configure,
-	}
+	return commandInput{args: []string{"ops", "backup", "staleness-check"}, outbox: nil, configure: configure}
 }
 
 // writeVersionLog uploads a FoundationDB version point from one hour earlier to
@@ -183,49 +126,25 @@ func (env *coverageEnv) writeVersionLog(t *testing.T) {
 		"points": {{"version": 1000, "at": time.Now().UTC().Add(-time.Hour)}},
 	})
 	if err != nil {
-		t.Fatalf(
-			"Version log encoding failed; the restore-version case requires a JSON version log: %v",
-			err,
-		)
+		t.Fatalf("Version log encoding failed; the restore-version case requires a JSON version log: %v", err)
 	}
 	client := objectStoreClient(testenv.ObjectStoreBucket{
-		Endpoint:  backup.BackupS3Endpoint,
-		Region:    backup.BackupS3Region,
-		Bucket:    backup.BackupS3BucketMain,
-		AccessKey: backup.BackupS3AccessKey,
-		SecretKey: backup.BackupS3SecretKey,
+		Endpoint: backup.BackupS3Endpoint, Region: backup.BackupS3Region, Bucket: backup.BackupS3BucketMain,
+		AccessKey: backup.BackupS3AccessKey, SecretKey: backup.BackupS3SecretKey,
 	})
-	if _, err := client.PutObject(
-		t.Context(),
-		&s3.PutObjectInput{
-			Bucket: aws.String(backup.BackupS3BucketMain),
-			Key:    aws.String("backup-status/fdb-versions.json"),
-			Body:   bytes.NewReader(body),
-		},
-	); err != nil {
-		t.Fatalf(
-			"Version log upload failed; the restore-version case requires the log in object storage: %v",
-			err,
-		)
+	if _, err := client.PutObject(t.Context(), &s3.PutObjectInput{
+		Bucket: aws.String(backup.BackupS3BucketMain), Key: aws.String("backup-status/fdb-versions.json"), Body: bytes.NewReader(body),
+	}); err != nil {
+		t.Fatalf("Version log upload failed; the restore-version case requires the log in object storage: %v", err)
 	}
 }
 
 // addLedgerCommandCases adds ledger node preparation and readiness cases
 // against the separate backup ledger.
 func addLedgerCommandCases(cases map[string]coverageCase) {
-	cases["command ops ledger node-prepare"] = commandCase(
-		audit.VerbOpsLedgerNodePrepare,
-		audit.OutcomeCompleted,
-		backupCommand("ops", "ledger", "node-prepare"),
-	)
-	cases["command ops ledger node-wait"] = commandCase(
-		audit.VerbOpsLedgerNodeWait,
-		audit.OutcomeCompleted,
-		backupCommand("ops", "ledger", "node-wait", "--stall", "3m", "--poll", "2s"),
-	)
-	cases["command ops ledger bootstrap-wait"] = commandCase(
-		audit.VerbOpsLedgerBootstrapWait,
-		audit.OutcomeOK,
-		backupCommand("ops", "ledger", "bootstrap-wait", "--masters", "1", "--tablet-servers", "1"),
-	)
+	cases["command ops ledger node-prepare"] = commandCase(audit.VerbOpsLedgerNodePrepare, audit.OutcomeCompleted, backupCommand("ops", "ledger", "node-prepare"))
+	cases["command ops ledger node-wait"] = commandCase(audit.VerbOpsLedgerNodeWait, audit.OutcomeCompleted,
+		backupCommand("ops", "ledger", "node-wait", "--stall", "3m", "--poll", "2s"))
+	cases["command ops ledger bootstrap-wait"] = commandCase(audit.VerbOpsLedgerBootstrapWait, audit.OutcomeOK,
+		backupCommand("ops", "ledger", "bootstrap-wait", "--masters", "1", "--tablet-servers", "1"))
 }

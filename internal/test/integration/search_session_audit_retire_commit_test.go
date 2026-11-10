@@ -47,59 +47,25 @@ func TestSearchSessionAuditRetireCommitTimeoutIsUncertain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the owner operation: %v", err)
 	}
-	hooks := installRetireLogHooks(
-		t,
-		session.ID.String(),
-		map[string]func(){
-			retireCommitReady:          func() { setContainerPaused(t, container, true) },
-			retireCleanupFailedMessage: func() { setContainerPaused(t, container, false) },
-		},
-	)
+	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
+		retireCommitReady:          func() { setContainerPaused(t, container, true) },
+		retireCleanupFailedMessage: func() { setContainerPaused(t, container, false) },
+	})
 
 	remaining, err := rebuilds.RetireIndexSessions(ownerContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
 	if err == nil || !remaining || !strings.Contains(err.Error(), transactionTimedOutText) {
-		t.Fatalf(
-			"RetireIndexSessions of %s with a timed-out commit = %t, %v, want remaining work and text %q",
-			index,
-			remaining,
-			err,
-			transactionTimedOutText,
-		)
+		t.Fatalf("RetireIndexSessions of %s with a timed-out commit = %t, %v, want remaining work and text %q", index, remaining, err, transactionTimedOutText)
 	}
-	events := cleanupFailureEvents(
-		t,
-		stores,
-		mark,
-		session.ID,
-		searchdomain.CleanupStep(retireResultUncertain),
-	)
-	if len(events) != 1 || events[0].Outcome != audit.OutcomeIncomplete ||
-		events[0].Context.OperationID != operation.Context.OperationID {
-		t.Fatalf(
-			"session %s uncertain events = %+v, want 1 incomplete event under operation %s",
-			session.ID,
-			events,
-			operation.Context.OperationID,
-		)
+	events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultUncertain))
+	if len(events) != 1 || events[0].Outcome != audit.OutcomeIncomplete || events[0].Context.OperationID != operation.Context.OperationID {
+		t.Fatalf("session %s uncertain events = %+v, want 1 incomplete event under operation %s", session.ID, events, operation.Context.OperationID)
 	}
-	if failed := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupClose); len(
-		failed,
-	) != 0 {
-		t.Fatalf(
-			"session %s has %d failed close events after an uncertain commit, want 0",
-			session.ID,
-			len(failed),
-		)
+	if failed := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupClose); len(failed) != 0 {
+		t.Fatalf("session %s has %d failed close events after an uncertain commit, want 0", session.ID, len(failed))
 	}
 	waitUntilTime(t, clock.Now().Add(retireCommitSettle))
-	stored, err := stores.SearchSessions(
-		clock.Wall{},
-		sessionStoreIdle,
-	).Load(
-		t.Context(),
-		session.ID,
-	)
+	stored, err := stores.SearchSessions(clock.Wall{}, sessionStoreIdle).Load(t.Context(), session.ID)
 	if err != nil {
 		t.Fatalf("load session %s after the uncertain commit: %v", session.ID, err)
 	}
@@ -108,21 +74,8 @@ func TestSearchSessionAuditRetireCommitTimeoutIsUncertain(t *testing.T) {
 		wantChanges = 1
 	}
 	t.Logf("the timed-out commit applied: %t", stored.Closing)
-	if count := sessionChangeEvents(
-		t,
-		stores,
-		mark,
-		session,
-		operation.Context.OperationID,
-		audit.VerbSearchSessionUpdate,
-	); count != wantChanges {
-		t.Fatalf(
-			"session %s closing %t has %d update change events, want %d",
-			session.ID,
-			stored.Closing,
-			count,
-			wantChanges,
-		)
+	if count := sessionChangeEvents(t, stores, mark, session, operation.Context.OperationID, audit.VerbSearchSessionUpdate); count != wantChanges {
+		t.Fatalf("session %s closing %t has %d update change events, want %d", session.ID, stored.Closing, count, wantChanges)
 	}
 }
 
@@ -137,47 +90,22 @@ func TestSearchSessionAuditRetireCommitConflictIsDefinite(t *testing.T) {
 	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
 	mark := searchOutboxTail(t, stores)
-	hooks := installRetireLogHooks(
-		t,
-		session.ID.String(),
-		map[string]func(){
-			retireCommitReady: func() {
-				integration.ReplaceRawValue(
-					t,
-					retireFamilyKey(t, sessionHeaderFamily),
-					[]byte(invalidHeaderValue),
-				)
-			},
+	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
+		retireCommitReady: func() {
+			integration.ReplaceRawValue(t, retireFamilyKey(t, sessionHeaderFamily), []byte(invalidHeaderValue))
 		},
-	)
+	})
 
-	if _, err := rebuilds.RetireIndexSessions(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		retireSliceLimit,
-	); err == nil {
-		t.Fatalf(
-			"RetireIndexSessions of %s after a conflict and an invalid header returned no error",
-			index,
-		)
+	if _, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit); err == nil {
+		t.Fatalf("RetireIndexSessions of %s after a conflict and an invalid header returned no error", index)
 	}
 	hooks.requireFinished(t)
 	failed := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupClose)
 	if len(failed) != 1 || failed[0].Outcome != audit.OutcomeFailed {
 		t.Fatalf("session %s failed close events = %+v, want 1 failed event", session.ID, failed)
 	}
-	if uncertain := cleanupFailureEvents(
-		t,
-		stores,
-		mark,
-		session.ID,
-		searchdomain.CleanupStep(retireResultUncertain),
-	); len(uncertain) != 0 {
-		t.Fatalf(
-			"session %s has %d uncertain events after a definite conflict, want 0",
-			session.ID,
-			len(uncertain),
-		)
+	if uncertain := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupStep(retireResultUncertain)); len(uncertain) != 0 {
+		t.Fatalf("session %s has %d uncertain events after a definite conflict, want 0", session.ID, len(uncertain))
 	}
 }
 
@@ -192,42 +120,19 @@ func TestSearchSessionAuditRetireFailedClearIsReported(t *testing.T) {
 	index := "node-pages-failed-clear"
 	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
-	hooks := installRetireLogHooks(
-		t,
-		session.ID.String(),
-		map[string]func(){
-			sessionDeletedMessage: func() { setContainerPaused(t, container, true) },
-			retireStorageFailed:   func() { setContainerPaused(t, container, false) },
-		},
-	)
+	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
+		sessionDeletedMessage: func() { setContainerPaused(t, container, true) },
+		retireStorageFailed:   func() { setContainerPaused(t, container, false) },
+	})
 
-	remaining, err := rebuilds.RetireIndexSessions(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		retireSliceLimit,
-	)
+	remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
 	hooks.requireFinished(t)
 	if !remaining || err == nil || errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf(
-			"RetireIndexSessions of %s with a failed clear = %t, %v, want remaining work and an error without %v",
-			index,
-			remaining,
-			err,
-			audit.ErrEventNotRecorded,
-		)
+		t.Fatalf("RetireIndexSessions of %s with a failed clear = %t, %v, want remaining work and an error without %v", index, remaining, err, audit.ErrEventNotRecorded)
 	}
-	remaining, err = rebuilds.RetireIndexSessions(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		retireSliceLimit,
-	)
+	remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
 	if err != nil || !remaining {
-		t.Fatalf(
-			"RetireIndexSessions of %s during the attempt lease = %t, %v, want remaining work",
-			index,
-			remaining,
-			err,
-		)
+		t.Fatalf("RetireIndexSessions of %s during the attempt lease = %t, %v, want remaining work", index, remaining, err)
 	}
 }
 
@@ -239,27 +144,13 @@ func TestSearchSessionAuditRetireRefusesEndedRebuild(t *testing.T) {
 	store := stores.SearchSessions(clock.Wall{}, sessionStoreIdle)
 	index := "node-pages-ended"
 	session := retiringSession(t, stores, index)
-	_, err := stores.SearchRebuilds(clock.Wall{}).RetireIndexSessions(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		retireSliceLimit,
-	)
+	_, err := stores.SearchRebuilds(clock.Wall{}).RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
 	if err == nil || !strings.Contains(err.Error(), retireRebuildEnded) {
-		t.Fatalf(
-			"RetireIndexSessions of %s without a replacement = %v, want text %q",
-			index,
-			err,
-			retireRebuildEnded,
-		)
+		t.Fatalf("RetireIndexSessions of %s without a replacement = %v, want text %q", index, err, retireRebuildEnded)
 	}
 	stored, err := store.Load(t.Context(), session.ID)
 	if err != nil || stored.Closing {
-		t.Fatalf(
-			"session %s after the refused attempt = %+v, %v, want an open session",
-			session.ID,
-			stored,
-			err,
-		)
+		t.Fatalf("session %s after the refused attempt = %+v, %v, want an open session", session.ID, stored, err)
 	}
 }
 
@@ -275,46 +166,18 @@ func TestSearchSessionAuditRetireRecoveryHonorsLimit(t *testing.T) {
 	for range retireLimitedRecords {
 		integration.ReplaceRawValue(t, retireAttemptKey(t, index), []byte(invalidAttemptValue))
 	}
-	remaining, err := rebuilds.RetireIndexSessions(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		retireLimitedSliceLimit,
-	)
+	remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireLimitedSliceLimit)
 	if err != nil || !remaining {
-		t.Fatalf(
-			"RetireIndexSessions of %s above its limit = %t, %v, want remaining work",
-			index,
-			remaining,
-			err,
-		)
+		t.Fatalf("RetireIndexSessions of %s above its limit = %t, %v, want remaining work", index, remaining, err)
 	}
 	if events := invalidAttemptEvents(t, stores, mark); len(events) != retireLimitedSliceLimit {
-		t.Fatalf(
-			"index %s has %d invalid attempt events after one pass, want %d",
-			index,
-			len(events),
-			retireLimitedSliceLimit,
-		)
+		t.Fatalf("index %s has %d invalid attempt events after one pass, want %d", index, len(events), retireLimitedSliceLimit)
 	}
-	remaining, err = rebuilds.RetireIndexSessions(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		retireLimitedSliceLimit,
-	)
+	remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireLimitedSliceLimit)
 	if err != nil || remaining {
-		t.Fatalf(
-			"RetireIndexSessions of %s below its limit = %t, %v, want a finished retirement",
-			index,
-			remaining,
-			err,
-		)
+		t.Fatalf("RetireIndexSessions of %s below its limit = %t, %v, want a finished retirement", index, remaining, err)
 	}
 	if events := invalidAttemptEvents(t, stores, mark); len(events) != retireLimitedRecords {
-		t.Fatalf(
-			"index %s has %d invalid attempt events after two passes, want %d",
-			index,
-			len(events),
-			retireLimitedRecords,
-		)
+		t.Fatalf("index %s has %d invalid attempt events after two passes, want %d", index, len(events), retireLimitedRecords)
 	}
 }

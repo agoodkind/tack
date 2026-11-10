@@ -66,62 +66,36 @@ type datagenSearchLoadPointInTimeSample struct {
 }
 
 func searchLoadReport(
-	input datagenSearchLoadInput,
-	duration time.Duration,
-	endpoints int,
-	summary datagen.SearchLoadSummary,
-	stop datagenSearchStop,
+	input datagenSearchLoadInput, duration time.Duration, endpoints int, summary datagen.SearchLoadSummary, stop datagenSearchStop,
 ) datagenSearchLoadReport {
 	samples := make([]datagenSearchLoadPointInTimeSample, 0, len(summary.PointInTime.Samples))
 	for _, sample := range summary.PointInTime.Samples {
-		samples = append(
-			samples,
-			datagenSearchLoadPointInTimeSample{
-				OffsetMs:    searchLoadMilliseconds(sample.Offset),
-				Index:       sample.Index,
-				Open:        sample.Open,
-				Unavailable: sample.Unavailable,
-				Status:      sample.Status,
-				Error:       sample.Error,
-			},
-		)
+		samples = append(samples, datagenSearchLoadPointInTimeSample{
+			OffsetMs: searchLoadMilliseconds(sample.Offset), Index: sample.Index, Open: sample.Open,
+			Unavailable: sample.Unavailable, Status: sample.Status, Error: sample.Error,
+		})
 	}
 	return datagenSearchLoadReport{
 		datagenSearchLoadResult: datagenSearchLoadResult{
-			ResultMarker:        clispec.ResultMarker{},
-			Command:             "ops.qa.datagen.search_load",
-			DryRun:              summary.DryRun,
-			Seed:                int64(input.Seed),
-			TargetRatePerMinute: input.Rate,
-			Duration:            duration.String(),
-			Concurrency:         input.Concurrency,
-			Planned:             summary.Planned,
-			Sent:                summary.Sent,
-			Completed:           summary.Completed,
-			Dropped:             summary.Dropped,
-			DistinctQueryTexts:  summary.DistinctQueries,
-			CompletedPerMinute:  searchMixedPerMinute(summary.Completed, summary.Elapsed),
-			Elapsed:             summary.Elapsed.String(),
+			ResultMarker: clispec.ResultMarker{}, Command: "ops.qa.datagen.search_load",
+			DryRun: summary.DryRun, Seed: int64(input.Seed), TargetRatePerMinute: input.Rate,
+			Duration: duration.String(), Concurrency: input.Concurrency, Planned: summary.Planned,
+			Sent: summary.Sent, Completed: summary.Completed, Dropped: summary.Dropped,
+			DistinctQueryTexts: summary.DistinctQueries, CompletedPerMinute: searchMixedPerMinute(summary.Completed, summary.Elapsed),
+			Elapsed: summary.Elapsed.String(),
 			Errors: datagenSearchLoadErrors{
-				Unavailable:    summary.Unavailable,
-				ToolError:      summary.ToolErrors,
-				TransportError: summary.TransportErrors,
+				Unavailable: summary.Unavailable, ToolError: summary.ToolErrors, TransportError: summary.TransportErrors,
 			},
 			LatencyMs: datagenSearchLoadLatency{
-				Min: searchLoadMilliseconds(summary.Latency.Min),
-				P50: searchLoadMilliseconds(summary.Latency.P50),
-				P95: searchLoadMilliseconds(summary.Latency.P95),
-				P99: searchLoadMilliseconds(summary.Latency.P99),
+				Min: searchLoadMilliseconds(summary.Latency.Min), P50: searchLoadMilliseconds(summary.Latency.P50),
+				P95: searchLoadMilliseconds(summary.Latency.P95), P99: searchLoadMilliseconds(summary.Latency.P99),
 				Max: searchLoadMilliseconds(summary.Latency.Max),
 			},
-			MaxWallTime: stop.maxWallTime.String(),
-			StopReason:  string(stop.reason),
+			MaxWallTime: stop.maxWallTime.String(), StopReason: string(stop.reason),
 		},
 		Endpoints: endpoints,
 		PointInTime: datagenSearchLoadPointInTime{
-			Peak:     summary.PointInTime.Peak,
-			Answered: summary.PointInTime.Answered,
-			Samples:  samples,
+			Peak: summary.PointInTime.Peak, Answered: summary.PointInTime.Answered, Samples: samples,
 		},
 	}
 }

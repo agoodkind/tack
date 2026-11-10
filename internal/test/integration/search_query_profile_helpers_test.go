@@ -38,37 +38,20 @@ type fieldMappingType struct {
 func requireRankFeaturesField(t *testing.T, fixture integration.QueryFixture) {
 	t.Helper()
 	var decoded map[string]fieldMappingIndex
-	request := opensearchapi.IndicesGetFieldMappingReq{
-		Indices: []string{fixture.Index},
-		Fields:  []string{sparseEmbeddingField},
-	}
-	response, err := opensearch.Execute(
-		t.Context(),
-		fixture.Client.Client,
-		http.MethodGet,
-		request,
-		&decoded,
-	)
+	request := opensearchapi.IndicesGetFieldMappingReq{Indices: []string{fixture.Index}, Fields: []string{sparseEmbeddingField}}
+	response, err := opensearch.Execute(t.Context(), fixture.Client.Client, http.MethodGet, request, &decoded)
 	if err != nil {
 		t.Fatalf("read mapping of %s: %v", sparseEmbeddingField, err)
 	}
-
 	if response.IsError() {
 		t.Fatalf("read mapping of %s: %v", sparseEmbeddingField, opensearch.ParseError(response))
 	}
-
 	for _, mapping := range decoded[fixture.Index].Mappings[sparseEmbeddingField].Mapping {
 		if mapping.Type == "rank_features" {
 			return
 		}
 	}
-
-	t.Fatalf(
-		"index %s does not map %s as rank_features: %+v",
-		fixture.Index,
-		sparseEmbeddingField,
-		decoded,
-	)
+	t.Fatalf("index %s does not map %s as rank_features: %+v", fixture.Index, sparseEmbeddingField, decoded)
 }
 
 // requestKeys collects JSON object keys recursively through objects and
@@ -84,21 +67,16 @@ func requestKeys(value json.RawMessage) []string {
 				keys = append(keys, requestKeys(child)...)
 			}
 		}
-
 		return keys
 	}
-
 	var array []json.RawMessage
 	if json.Unmarshal(value, &array) == nil {
 		var keys []string
-
 		for _, child := range array {
 			keys = append(keys, requestKeys(child)...)
 		}
-
 		return keys
 	}
-
 	return nil
 }
 
@@ -109,6 +87,5 @@ func profiledQueries(queries []profiledQuery) []profiledQuery {
 	for _, query := range queries {
 		all = append(all, profiledQueries(query.Children)...)
 	}
-
 	return all
 }

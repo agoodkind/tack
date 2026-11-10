@@ -51,38 +51,12 @@ var readerDSNVariables = []string{"AUDIT_READER_DSN", "AUDIT_READER_DSN_FILE"}
 
 // lastChangeCommand runs audit last-change for nodeID as operatorID through
 // builtAuditCommand.
-func lastChangeCommand(
-	t *testing.T,
-	readerDSN string,
-	operatorID uuid.UUID,
-	orgID uuid.UUID,
-	nodeID uuid.UUID,
-	oldest time.Time,
-	latest time.Time,
-) builtAuditRun {
+func lastChangeCommand(t *testing.T, readerDSN string, operatorID, orgID, nodeID uuid.UUID, oldest, latest time.Time) builtAuditRun {
 	t.Helper()
-
-	return builtAuditCommand(
-		t,
-		readerDSN,
-		"--execute",
-		"--operator-id",
-		operatorID.String(),
-		"--operator-email",
-		"last-change@example.test",
-		"--output",
-		"json",
-		"audit",
-		"last-change",
-		"--org",
-		orgID.String(),
-		"--entity-id",
-		nodeID.String(),
-		"--oldest",
-		oldest.UTC().Format(time.RFC3339),
-		"--latest",
-		latest.UTC().Format(time.RFC3339),
-	)
+	return builtAuditCommand(t, readerDSN,
+		"--execute", "--operator-id", operatorID.String(), "--operator-email", "last-change@example.test",
+		"--output", "json", "audit", "last-change", "--org", orgID.String(), "--entity-id", nodeID.String(),
+		"--oldest", oldest.UTC().Format(time.RFC3339), "--latest", latest.UTC().Format(time.RFC3339))
 }
 
 // builtAuditCommand runs args through the built server. It removes inherited
@@ -95,7 +69,6 @@ func builtAuditCommand(t *testing.T, readerDSN string, args ...string) builtAudi
 	logs := t.TempDir()
 	textLog := filepath.Join(logs, "tack.log")
 	process := exec.CommandContext(t.Context(), buildMigrateServer(t), args...)
-
 	environment := make([]string, 0, len(os.Environ())+8)
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
@@ -103,21 +76,13 @@ func builtAuditCommand(t *testing.T, readerDSN string, args ...string) builtAudi
 			environment = append(environment, entry)
 		}
 	}
-
-	environment = append(
-		environment,
-		"DATABASE_URL="+ledgerDSN,
-		"FDB_CLUSTER_FILE="+testenv.FoundationDB(t),
-		"ENV=development",
-		"AUDIT_OPERATOR_DSN="+ledgerDSN,
-		"LOG_DISABLE_STDOUT=true",
-		"LOG_JSON_FILE="+filepath.Join(logs, "tack.json"),
-		"LOG_TEXT_FILE="+textLog,
-	)
+	environment = append(environment,
+		"DATABASE_URL="+ledgerDSN, "FDB_CLUSTER_FILE="+testenv.FoundationDB(t), "ENV=development",
+		"AUDIT_OPERATOR_DSN="+ledgerDSN, "LOG_DISABLE_STDOUT=true",
+		"LOG_JSON_FILE="+filepath.Join(logs, "tack.json"), "LOG_TEXT_FILE="+textLog)
 	if readerDSN != "" {
 		environment = append(environment, "AUDIT_READER_DSN="+readerDSN)
 	}
-
 	process.Env = environment
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	process.Stdout, process.Stderr = stdout, stderr
@@ -126,46 +91,23 @@ func builtAuditCommand(t *testing.T, readerDSN string, args ...string) builtAudi
 	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
 		t.Fatalf("read the command log %s: %v", textLog, readErr)
 	}
-
-	return builtAuditRun{
-		stdout: stdout.String(),
-		stderr: stderr.String(),
-		log:    string(logged),
-		err:    err,
-	}
+	return builtAuditRun{stdout: stdout.String(), stderr: stderr.String(), log: string(logged), err: err}
 }
 
 // runLastChange runs `audit last-change` for issueID through the built server
 // with the audit_reader login of ledger and decodes the result.
-func runLastChange(
-	t *testing.T,
-	ledger *nodeAuditLedger,
-	orgID uuid.UUID,
-	issueID uuid.UUID,
-	oldest time.Time,
-	latest time.Time,
-) lastChangeReport {
+func runLastChange(t *testing.T, ledger *nodeAuditLedger, orgID, issueID uuid.UUID, oldest, latest time.Time) lastChangeReport {
 	t.Helper()
-	run := lastChangeCommand(
-		t,
-		ledger.cfg.AuditReaderDSN,
-		uuid.Must(uuid.NewV7()),
-		orgID,
-		issueID,
-		oldest,
-		latest,
-	)
+	run := lastChangeCommand(t, ledger.cfg.AuditReaderDSN, uuid.Must(uuid.NewV7()), orgID, issueID, oldest, latest)
 	if run.err != nil {
 		t.Fatalf("audit last-change failed: %v\n%s", run.err, run.output())
 	}
-
 	var envelope struct {
 		Result lastChangeReport `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(run.stdout), &envelope); err != nil {
 		t.Fatalf("decode the audit last-change output: %v\n%s", err, run.output())
 	}
-
 	return envelope.Result
 }
 
@@ -177,19 +119,14 @@ func ledgerLoginDSN(t *testing.T, ledger *nodeAuditLedger, baseRole string) stri
 	if _, err := rand.Read(secret); err != nil {
 		t.Fatalf("create the role secret: %v", err)
 	}
-
 	login := "tack_test_last_change_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
 	password := hex.EncodeToString(secret)
 	statement := "CREATE ROLE " + login + " LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '" + password + "' IN ROLE " + baseRole
 	if _, err := ledger.admin.Exec(t.Context(), statement); err != nil {
 		t.Fatalf("create %s in role %s: %v", login, baseRole, err)
 	}
-
 	t.Cleanup(func() {
-		if _, err := ledger.admin.Exec(
-			context.WithoutCancel(t.Context()),
-			"DROP ROLE IF EXISTS "+login,
-		); err != nil {
+		if _, err := ledger.admin.Exec(context.WithoutCancel(t.Context()), "DROP ROLE IF EXISTS "+login); err != nil {
 			t.Errorf("drop the test login role %s: %v", login, err)
 		}
 	})
@@ -197,60 +134,38 @@ func ledgerLoginDSN(t *testing.T, ledger *nodeAuditLedger, baseRole string) stri
 	if err != nil {
 		t.Fatalf("parse the ledger DSN: %v", err)
 	}
-
 	parsed.User = url.UserPassword(login, password)
-
 	return parsed.String()
 }
 
 // waitForOperatorRows polls the ledger until it contains want rows with
 // operatorID as the actor and returns them in event time order. Each failure
 // message ends with commandOutput, the captured output of the command run.
-func waitForOperatorRows(
-	t *testing.T,
-	ledger *nodeAuditLedger,
-	operatorID uuid.UUID,
-	want int,
-	commandOutput string,
-) []operatorReadRow {
+func waitForOperatorRows(t *testing.T, ledger *nodeAuditLedger, operatorID uuid.UUID, want int, commandOutput string) []operatorReadRow {
 	t.Helper()
 	deadline := clock.Now().Add(nodeAuditDeadline)
 	statement := readTestSQL(t, "last_change_operator_rows.sql")
-
 	for {
 		rows, err := ledger.admin.Query(t.Context(), statement, operatorID)
 		if err != nil {
 			t.Fatalf("read the ledger rows of operator %s: %v\n%s", operatorID, err, commandOutput)
 		}
-
 		var found []operatorReadRow
-
 		for rows.Next() {
 			var row operatorReadRow
 			if err := rows.Scan(&row.Action, &row.Outcome, &row.Code); err != nil {
 				rows.Close()
 				t.Fatalf("scan a ledger row of operator %s: %v\n%s", operatorID, err, commandOutput)
 			}
-
 			found = append(found, row)
 		}
-
 		rows.Close()
 		if len(found) >= want {
 			return found
 		}
-
 		if clock.Now().After(deadline) {
-			t.Fatalf(
-				"ledger rows of operator %s after %s = %+v, want %d\n%s",
-				operatorID,
-				nodeAuditDeadline,
-				found,
-				want,
-				commandOutput,
-			)
+			t.Fatalf("ledger rows of operator %s after %s = %+v, want %d\n%s", operatorID, nodeAuditDeadline, found, want, commandOutput)
 		}
-
 		time.Sleep(nodeAuditPollInterval)
 	}
 }

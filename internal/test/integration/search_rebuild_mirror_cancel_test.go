@@ -38,40 +38,18 @@ func TestSearchRebuildMirrorMissSurvivesCanceledSlice(t *testing.T) {
 			return nil
 		}
 	}
-	held := mirrorSteps{
-		duringFirstHold: cancelDuringHold,
-		afterFirstMiss:  nil,
-	}.startDuringHold(
-		t,
-		env,
-		proxy,
-		nodeID,
-	)
+	held := mirrorSteps{duringFirstHold: cancelDuringHold, afterFirstMiss: nil}.startDuringHold(t, env, proxy, nodeID)
 	env.putNode(t, nodeID, strings.Repeat(timingText, 40))
 	claimed, err := env.Worker.RunSlice(ctx)
 	if holdErr := <-held; holdErr != nil {
 		t.Fatalf("cancel the slice during the delayed write: %v", holdErr)
 	}
-
 	_, abandonedAt, abandoned := proxy.held()
 	if !claimed || !abandoned {
-		t.Fatalf(
-			"the canceled slice claimed %t and abandoned the write of page %d %t (error %v), want both",
-			claimed,
-			mirrorExpiredOrdinal,
-			abandoned,
-			err,
-		)
+		t.Fatalf("the canceled slice claimed %t and abandoned the write of page %d %t (error %v), want both",
+			claimed, mirrorExpiredOrdinal, abandoned, err)
 	}
-
-	run := mirrorRun{
-		env:             env,
-		proxy:           proxy,
-		target:          target,
-		nodeID:          nodeID,
-		firstAbandoned:  abandonedAt,
-		secondAbandoned: time.Time{},
-	}
+	run := mirrorRun{env: env, proxy: proxy, target: target, nodeID: nodeID, firstAbandoned: abandonedAt, secondAbandoned: time.Time{}}
 	requireSwitchAfterCopies(t, env, target)
 	requireReplacementPages(t, run)
 	requireResendAfterHorizon(t, proxy, nodeID, mirrorExpiredOrdinal, target, abandonedAt)
@@ -96,10 +74,7 @@ func TestSearchRebuildMirrorMissHeldAcrossPausedSwitch(t *testing.T) {
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				done <- sliceResult{
-					claimed: false,
-					err:     fmt.Errorf("the live slice panicked: %v", recovered),
-				}
+				done <- sliceResult{claimed: false, err: fmt.Errorf("the live slice panicked: %v", recovered)}
 			}
 		}()
 		claimed, err := env.Worker.RunSlice(ctx)
@@ -108,86 +83,44 @@ func TestSearchRebuildMirrorMissHeldAcrossPausedSwitch(t *testing.T) {
 	select {
 	case <-started:
 	case <-time.After(mirrorSwitchDeadline):
-		t.Fatalf(
-			"the proxy did not delay the write of page %d within %s",
-			mirrorExpiredOrdinal,
-			mirrorSwitchDeadline,
-		)
+		t.Fatalf("the proxy did not delay the write of page %d within %s", mirrorExpiredOrdinal, mirrorSwitchDeadline)
 	}
-
 	pauseReplacement(t, env, pauser)
 	cancel()
 	result := <-done
 	heldFrom, abandonedAt, abandoned := proxy.held()
 	if !result.claimed || !abandoned || abandonedAt.Sub(heldFrom) >= mirrorOperationTimeout {
-		t.Fatalf(
-			"the live slice claimed %t and abandoned the write %t after %s (error %v), want a cancellation before %s",
-			result.claimed,
-			abandoned,
-			abandonedAt.Sub(heldFrom),
-			result.err,
-			mirrorOperationTimeout,
-		)
+		t.Fatalf("the live slice claimed %t and abandoned the write %t after %s (error %v), want a cancellation before %s",
+			result.claimed, abandoned, abandonedAt.Sub(heldFrom), result.err, mirrorOperationTimeout)
 	}
-
-	if pending, err := env.Stores.SearchRebuilds(clock.Wall{}).CopiesPending(
-		integration.WithTestOperation(t, t.Context()),
-	); err != nil ||
-		pending {
-		t.Fatalf(
-			"copies pending = %t, error = %v, want no copy item added while claims are paused",
-			pending,
-			err,
-		)
+	if pending, err := env.Stores.SearchRebuilds(clock.Wall{}).CopiesPending(integration.WithTestOperation(t, t.Context())); err != nil || pending {
+		t.Fatalf("copies pending = %t, error = %v, want no copy item added while claims are paused", pending, err)
 	}
-
-	runRebuildSlicesUntil(
-		t,
-		env,
-		func(current searchdomain.Rebuild) bool { return current.State == searchdomain.RebuildRetiring },
-	)
+	runRebuildSlicesUntil(t, env, func(current searchdomain.Rebuild) bool { return current.State == searchdomain.RebuildRetiring })
 	replacement := *env
 	replacement.Index = target
 	bound := abandonedAt.Add(mirrorWriteHorizon + mirrorFreshnessBound)
-	if !runSlicesUntil(
-		t,
-		env,
-		bound,
-		func() bool { return indexMismatch(t, &replacement, nodeID) == "" },
-	) {
-		t.Fatalf(
-			"the new serving index %s lacked pages of node %s at %s: %s",
-			target,
-			nodeID,
-			bound,
-			indexMismatch(t, &replacement, nodeID),
-		)
+	if !runSlicesUntil(t, env, bound, func() bool { return indexMismatch(t, &replacement, nodeID) == "" }) {
+		t.Fatalf("the new serving index %s lacked pages of node %s at %s: %s", target, nodeID, bound, indexMismatch(t, &replacement, nodeID))
 	}
-
 	requireResendAfterHorizon(t, proxy, nodeID, mirrorExpiredOrdinal, target, abandonedAt)
 }
 
 func pauseReplacement(t *testing.T, env *migrationEnv, pauser *service.SearchWorker) {
 	t.Helper()
 	rebuilds := env.Stores.SearchRebuilds(clock.Wall{})
-
 	deadline := time.Now().Add(mirrorOperationTimeout)
 	for time.Now().Before(deadline) {
 		if _, err := pauser.RunSlice(integration.WithTestOperation(t, t.Context())); err != nil {
 			t.Logf("run a pausing slice: %v", err)
 		}
-
-		current, found, err := rebuilds.CurrentRebuild(
-			integration.WithTestOperation(t, t.Context()),
-		)
+		current, found, err := rebuilds.CurrentRebuild(integration.WithTestOperation(t, t.Context()))
 		if err != nil || !found {
 			t.Fatalf("read index replacement: found %t, error %v", found, err)
 		}
-
 		if current.State == searchdomain.RebuildSwitching && current.Paused {
 			return
 		}
 	}
-
 	t.Fatalf("the replacement did not pause claims within %s", mirrorOperationTimeout)
 }

@@ -42,68 +42,45 @@ func TestAnExportReclaimsTheRowsNoManifestNames(t *testing.T) {
 		exportManifestFile + "." + uuid.Must(uuid.NewV7()).String() + stagedSuffix,
 	}
 	for _, name := range abandoned {
-		if err := os.WriteFile(
-			filepath.Join(dir, name),
-			[]byte("half a ledger\n"),
-			0o600,
-		); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("half a ledger\n"), 0o600); err != nil {
 			t.Fatalf("plant %s: %v", name, err)
 		}
 	}
 
-	firstManifest, err := Export(
-		context.Background(),
-		exportTestRows(t, orgID, 40, nil),
-		privateKey,
-		"ed25519:test",
-		exportTestFilter(orgID),
-		dir,
-	)
+	firstManifest, err := Export(context.Background(), exportTestRows(t, orgID, 40, nil),
+		privateKey, "ed25519:test", exportTestFilter(orgID), dir)
 	if err != nil {
 		t.Fatalf("export: %v", err)
 	}
-
 	for _, name := range abandoned {
 		if _, statErr := os.Stat(filepath.Join(dir, name)); statErr == nil {
 			t.Fatalf("the export left the abandoned %s in place", name)
 		}
 	}
-
 	if _, statErr := os.Stat(filepath.Join(dir, firstManifest.EventsFile)); statErr != nil {
 		t.Fatalf("the export reclaimed the rows its own manifest names: %v", statErr)
 	}
 
 	// A second export supersedes the first, so the first's rows stop being named
 	// and the same rule frees them.
-	secondManifest, err := Export(
-		context.Background(),
-		exportTestRows(t, orgID, 25, nil),
-		privateKey,
-		"ed25519:test",
-		exportTestFilter(orgID),
-		dir,
-	)
+	secondManifest, err := Export(context.Background(), exportTestRows(t, orgID, 25, nil),
+		privateKey, "ed25519:test", exportTestFilter(orgID), dir)
 	if err != nil {
 		t.Fatalf("second export: %v", err)
 	}
-
 	if _, statErr := os.Stat(filepath.Join(dir, firstManifest.EventsFile)); statErr == nil {
 		t.Fatal("the superseded rows of the previous bundle were kept")
 	}
-
 	if _, statErr := os.Stat(filepath.Join(dir, secondManifest.EventsFile)); statErr != nil {
 		t.Fatalf("the published rows were reclaimed: %v", statErr)
 	}
-
 	report, err := VerifyBundle(dir, publicKey)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-
 	if verdict := report.Err(); verdict != nil {
 		t.Fatalf("the bundle left after two reclaims does not verify: %v", verdict)
 	}
-
 	assertDirectoryHoldsOnlyItsBundle(t, dir)
 }
 
@@ -140,7 +117,6 @@ func TestTheReclaimSparesFilesThisExporterDidNotWrite(t *testing.T) {
 		exportManifestFile + ".auditor-notes" + stagedSuffix,
 		legacyExportEventsFile + ".backup" + stagedSuffix,
 	}
-
 	exporterFiles := []string{
 		exportEventsFileName(uuid.Must(uuid.NewV7())),
 		legacyExportEventsFile,
@@ -153,14 +129,8 @@ func TestTheReclaimSparesFilesThisExporterDidNotWrite(t *testing.T) {
 		}
 	}
 
-	manifest, err := Export(
-		context.Background(),
-		exportTestRows(t, orgID, 30, nil),
-		privateKey,
-		"ed25519:test",
-		exportTestFilter(orgID),
-		dir,
-	)
+	manifest, err := Export(context.Background(), exportTestRows(t, orgID, 30, nil),
+		privateKey, "ed25519:test", exportTestFilter(orgID), dir)
 	if err != nil {
 		t.Fatalf("export: %v", err)
 	}
@@ -170,22 +140,18 @@ func TestTheReclaimSparesFilesThisExporterDidNotWrite(t *testing.T) {
 			t.Errorf("the reclaim removed %s, which no export wrote: %v", name, statErr)
 		}
 	}
-
 	for _, name := range exporterFiles {
 		if _, statErr := os.Stat(filepath.Join(dir, name)); statErr == nil {
 			t.Errorf("the reclaim kept %s, which an export wrote and no manifest names", name)
 		}
 	}
-
 	if _, statErr := os.Stat(filepath.Join(dir, manifest.EventsFile)); statErr != nil {
 		t.Fatalf("the reclaim removed the rows this bundle's manifest names: %v", statErr)
 	}
-
 	report, err := VerifyBundle(dir, publicKey)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-
 	if verdict := report.Err(); verdict != nil {
 		t.Fatalf("the published bundle does not verify: %v", verdict)
 	}

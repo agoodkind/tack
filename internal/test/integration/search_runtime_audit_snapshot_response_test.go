@@ -32,11 +32,7 @@ type snapshotSearchResult struct {
 
 // holdSnapshotResponse delays the first matching real engine response.
 // Cleanup releases the response before the existing proxy closes.
-func holdSnapshotResponse(
-	t *testing.T,
-	capture *searchCapture,
-	method string,
-) (<-chan snapshotResponse, func()) {
+func holdSnapshotResponse(t *testing.T, capture *searchCapture, method string) (<-chan snapshotResponse, func()) {
 	t.Helper()
 	responses := make(chan snapshotResponse, 1)
 	released := make(chan struct{})
@@ -44,8 +40,7 @@ func holdSnapshotResponse(
 	release := func() { releaseOnce.Do(func() { close(released) }) }
 	t.Cleanup(release)
 	capture.engine.ModifyResponse = func(response *http.Response) error {
-		if response.Request.Method != method ||
-			!strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
+		if response.Request.Method != method || !strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
 			return capture.record(response)
 		}
 		var responseError error
@@ -92,10 +87,7 @@ func readSnapshotResponse(response *http.Response) (snapshotResponse, error) {
 		identifier = decoded.PITs[0].PITID
 	}
 	if identifier == "" {
-		return snapshotResponse{}, fmt.Errorf(
-			"the point in time response omits its ID: %s",
-			payload,
-		)
+		return snapshotResponse{}, fmt.Errorf("the point in time response omits its ID: %s", payload)
 	}
 	return snapshotResponse{id: identifier, status: response.StatusCode}, nil
 }
@@ -123,10 +115,7 @@ func replaceSnapshotResponseWithSecurityError(response *http.Response) (snapshot
 	return replaceSnapshotErrorResponse(response, payload)
 }
 
-func replaceSnapshotErrorResponse(
-	response *http.Response,
-	payload string,
-) (snapshotResponse, error) {
+func replaceSnapshotErrorResponse(response *http.Response, payload string) (snapshotResponse, error) {
 	observed, err := readSnapshotResponse(response)
 	if err != nil {
 		return snapshotResponse{}, err
@@ -144,11 +133,7 @@ func waitSnapshotResponse(t *testing.T, responses <-chan snapshotResponse) snaps
 	select {
 	case response := <-responses:
 		if response.status != http.StatusOK {
-			t.Fatalf(
-				"the engine returned HTTP %d for point in time %s",
-				response.status,
-				response.id,
-			)
+			t.Fatalf("the engine returned HTTP %d for point in time %s", response.status, response.id)
 		}
 		return response
 	case <-time.After(sessionTimeoutHoldLimit):
@@ -159,15 +144,8 @@ func waitSnapshotResponse(t *testing.T, responses <-chan snapshotResponse) snaps
 
 func deleteObservedSnapshot(t *testing.T, fixture failureFixture, identifier string) {
 	t.Helper()
-	ranker := fixture.Adapter.Ranker(search.RankerSettings{
-		KeepAlive:  time.Minute,
-		TokenBytes: 65536,
-		BatchSize:  100,
-	})
-	if err := ranker.Close(
-		context.WithoutCancel(t.Context()),
-		searchdomain.Snapshot{PITID: identifier, Index: fixture.Index},
-	); err != nil {
+	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 65536, BatchSize: 100})
+	if err := ranker.Close(context.WithoutCancel(t.Context()), searchdomain.Snapshot{PITID: identifier, Index: fixture.Index}); err != nil {
 		t.Errorf("delete the test point in time %s: %v", identifier, err)
 	}
 }

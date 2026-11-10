@@ -93,13 +93,7 @@ func (env *coverageEnv) runCase(t *testing.T, current coverageCase) {
 	}
 }
 
-func requireCaseTables(
-	t *testing.T,
-	env *coverageEnv,
-	operations []string,
-	cases map[string]coverageCase,
-	excluded map[string]coverageExclusion,
-) {
+func requireCaseTables(t *testing.T, env *coverageEnv, operations []string, cases map[string]coverageCase, excluded map[string]coverageExclusion) {
 	t.Helper()
 	registered := map[string]bool{}
 	for _, key := range operations {
@@ -115,23 +109,14 @@ func requireCaseTables(
 			missing = append(missing, key)
 		}
 		if (hasCase && pending) || (hasCase && isExcluded) || (pending && isExcluded) {
-			t.Errorf(
-				"Operation %q appears in multiple coverage tables; each operation must appear in exactly one.",
-				key,
-			)
+			t.Errorf("Operation %q appears in multiple coverage tables; each operation must appear in exactly one.", key)
 		}
 	}
 	if len(missing) > 0 {
-		t.Errorf(
-			"Registered operations do not have a case, pending entry, or exclusion:\n%s",
-			strings.Join(missing, "\n"),
-		)
+		t.Errorf("Registered operations do not have a case, pending entry, or exclusion:\n%s", strings.Join(missing, "\n"))
 	}
-	tableKeys := slices.Concat(
-		slices.Collect(maps.Keys(pendingCoverage)),
-		slices.Collect(maps.Keys(failureOnlyCoverage)),
-		slices.Collect(maps.Keys(excluded)),
-	)
+	tableKeys := slices.Concat(slices.Collect(maps.Keys(pendingCoverage)), slices.Collect(maps.Keys(failureOnlyCoverage)),
+		slices.Collect(maps.Keys(excluded)))
 	for _, key := range tableKeys {
 		if !registered[key] {
 			t.Errorf("Coverage table entry %q does not match any registered operation.", key)
@@ -149,11 +134,7 @@ func requireCaseTables(
 	}
 	for _, key := range slices.Sorted(maps.Keys(pendingCoverage)) {
 		if class := env.commandClasses[key]; class != "" {
-			t.Errorf(
-				"Pending operation %q now records audit class %s; replace its pending entry with an executable case.",
-				key,
-				class,
-			)
+			t.Errorf("Pending operation %q now records audit class %s; replace its pending entry with an executable case.", key, class)
 		}
 	}
 }

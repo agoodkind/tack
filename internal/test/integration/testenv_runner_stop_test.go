@@ -32,7 +32,6 @@ func TestStoppedRunnerChild(t *testing.T) {
 	if os.Getenv(stoppedRunnerChildEnvironment) == "" {
 		t.Skip("TestRunnerEndRemovesItsEngines starts this test in its own runner")
 	}
-
 	_ = testenv.FoundationDB(t)
 	<-t.Context().Done()
 }
@@ -52,34 +51,25 @@ func TestRunnerEndRemovesItsEngines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("identify the runner container: %v", err)
 	}
-
 	if runner == "" {
 		t.Skip("a test process on the Docker host has no runner to stop")
 	}
-
 	cli, err := client.New(client.WithHost(client.DefaultDockerHost))
 	if err != nil {
 		t.Fatalf("build a Docker client: %v", err)
 	}
-
 	t.Cleanup(func() { _ = cli.Close() })
 	bystander := testenv.FoundationDBContainer(testenv.FoundationDB(t))
 
 	forward := func(signal string) func(*testing.T, string) {
 		return func(t *testing.T, child string) {
 			t.Helper()
-			if _, err := cli.ContainerKill(
-				t.Context(),
-				child,
-				client.ContainerKillOptions{Signal: signal},
-			); err != nil {
+			if _, err := cli.ContainerKill(t.Context(), child, client.ContainerKillOptions{Signal: signal}); err != nil {
 				t.Fatalf("send SIG%s to runner %s: %v", signal, child, err)
 			}
-
 			waitForRunnerExit(t, cli, child)
 		}
 	}
-
 	cases := []struct {
 		name    string
 		timeout string
@@ -87,46 +77,26 @@ func TestRunnerEndRemovesItsEngines(t *testing.T) {
 	}{
 		{name: "forwarded SIGTERM", timeout: stoppedRunnerChildTimeout, end: forward("TERM")},
 		{name: "forwarded SIGINT", timeout: stoppedRunnerChildTimeout, end: forward("INT")},
-		{
-			name:    "docker stop",
-			timeout: stoppedRunnerChildTimeout,
-			end: func(t *testing.T, child string) {
-				t.Helper()
-				if _, err := cli.ContainerStop(
-					t.Context(),
-					child,
-					client.ContainerStopOptions{},
-				); err != nil {
-					t.Fatalf("stop runner %s: %v", child, err)
-				}
-			},
-		},
-		{
-			name:    "go test timeout",
-			timeout: stoppedRunnerPanicTimeout,
-			end: func(t *testing.T, child string) {
-				t.Helper()
-				if status := waitForRunnerExit(t, cli, child); status != stoppedRunnerFailedStatus {
-					t.Errorf(
-						"runner %s exited with status %d after its test timed out, want %d",
-						child,
-						status,
-						stoppedRunnerFailedStatus,
-					)
-				}
-			},
-		},
+		{name: "docker stop", timeout: stoppedRunnerChildTimeout, end: func(t *testing.T, child string) {
+			t.Helper()
+			if _, err := cli.ContainerStop(t.Context(), child, client.ContainerStopOptions{}); err != nil {
+				t.Fatalf("stop runner %s: %v", child, err)
+			}
+		}},
+		{name: "go test timeout", timeout: stoppedRunnerPanicTimeout, end: func(t *testing.T, child string) {
+			t.Helper()
+			if status := waitForRunnerExit(t, cli, child); status != stoppedRunnerFailedStatus {
+				t.Errorf("runner %s exited with status %d after its test timed out, want %d", child, status, stoppedRunnerFailedStatus)
+			}
+		}},
 	}
 	for _, runnerEnd := range cases {
-		t.Run(
-			runnerEnd.name,
-			func(t *testing.T) {
-				child := startSecondRunner(t, cli, runner, runnerEnd.timeout)
-				waitForRunningEngine(t, cli, child)
-				runnerEnd.end(t, child)
-				requireOnlyChildRemoved(t, cli, runner, child, bystander)
-			},
-		)
+		t.Run(runnerEnd.name, func(t *testing.T) {
+			child := startSecondRunner(t, cli, runner, runnerEnd.timeout)
+			waitForRunningEngine(t, cli, child)
+			runnerEnd.end(t, child)
+			requireOnlyChildRemoved(t, cli, runner, child, bystander)
+		})
 	}
 }
 
@@ -135,11 +105,7 @@ func TestRunnerEndRemovesItsEngines(t *testing.T) {
 // has the container.
 func waitForRunnerExit(t *testing.T, cli *client.Client, child string) int64 {
 	t.Helper()
-	waited := cli.ContainerWait(
-		t.Context(),
-		child,
-		client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning},
-	)
+	waited := cli.ContainerWait(t.Context(), child, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
 	case result := <-waited.Result:
 		return result.StatusCode
@@ -147,7 +113,6 @@ func waitForRunnerExit(t *testing.T, cli *client.Client, child string) int64 {
 		if !cerrdefs.IsNotFound(err) {
 			t.Fatalf("wait for runner %s: %v", child, err)
 		}
-
 		return stoppedRunnerGoneStatus
 	}
 }
@@ -159,17 +124,11 @@ func requireOnlyChildRemoved(t *testing.T, cli *client.Client, runner, child, by
 	if names := listRunnerContainers(t.Context(), t, cli, child, true); len(names) != 0 {
 		t.Errorf("ending runner %s left its containers: %v", child, names)
 	}
-
 	for _, name := range []string{bystander, runner} {
-		inspected, err := cli.ContainerInspect(
-			t.Context(),
-			name,
-			client.ContainerInspectOptions{Size: false},
-		)
+		inspected, err := cli.ContainerInspect(t.Context(), name, client.ContainerInspectOptions{Size: false})
 		if err != nil {
 			t.Fatalf("inspect container %s of this test: %v", name, err)
 		}
-
 		if !inspected.Container.State.Running {
 			t.Errorf("container %s of this test stopped when runner %s ended", name, child)
 		}
@@ -189,52 +148,33 @@ func startSecondRunner(t *testing.T, cli *client.Client, runner, timeout string)
 	if err != nil {
 		t.Fatalf("inspect runner %s: %v", runner, err)
 	}
-
 	source := inspected.Container
-	created, err := cli.ContainerCreate(
-		ctx,
-		client.ContainerCreateOptions{
-			Config: &container.Config{
-				Image:      source.Image,
-				Entrypoint: source.Config.Entrypoint,
-				Cmd: []string{
-					"test",
-					"-count=1",
-					"-timeout",
-					timeout,
-					"-run",
-					"^TestStoppedRunnerChild$",
-					"./internal/test/integration",
-				},
-				Env:         append(source.Config.Env, stoppedRunnerChildEnvironment+"=1"),
-				WorkingDir:  source.Config.WorkingDir,
-				StopTimeout: source.Config.StopTimeout,
+	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image:      source.Image,
+			Entrypoint: source.Config.Entrypoint,
+			Cmd: []string{
+				"test", "-count=1", "-timeout", timeout, "-run", "^TestStoppedRunnerChild$", "./internal/test/integration",
 			},
-			HostConfig: &container.HostConfig{VolumesFrom: []string{runner}, AutoRemove: true},
+			Env:         append(source.Config.Env, stoppedRunnerChildEnvironment+"=1"),
+			WorkingDir:  source.Config.WorkingDir,
+			StopTimeout: source.Config.StopTimeout,
 		},
-	)
+		HostConfig: &container.HostConfig{VolumesFrom: []string{runner}, AutoRemove: true},
+	})
 	if err != nil {
 		t.Fatalf("create second runner: %v", err)
 	}
-
 	child := created.ID
 	t.Cleanup(func() {
 		cleanupContext := context.WithoutCancel(ctx)
-		for _, name := range append(
-			listRunnerContainers(cleanupContext, t, cli, child, true),
-			child,
-		) {
-			_, _ = cli.ContainerRemove(
-				cleanupContext,
-				name,
-				client.ContainerRemoveOptions{Force: true, RemoveVolumes: false},
-			)
+		for _, name := range append(listRunnerContainers(cleanupContext, t, cli, child, true), child) {
+			_, _ = cli.ContainerRemove(cleanupContext, name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: false})
 		}
 	})
 	if _, err := cli.ContainerStart(ctx, child, client.ContainerStartOptions{}); err != nil {
 		t.Fatalf("start second runner %s: %v", child, err)
 	}
-
 	return child
 }
 
@@ -246,20 +186,13 @@ func waitForRunningEngine(t *testing.T, cli *client.Client, child string) {
 	defer cancel()
 	ticker := time.NewTicker(stoppedRunnerPollInterval)
 	defer ticker.Stop()
-
 	for {
 		if len(listRunnerContainers(ctx, t, cli, child, false)) > 0 {
 			return
 		}
-
 		select {
 		case <-ctx.Done():
-			t.Fatalf(
-				"runner %s did not start a running engine within %s: %v",
-				child,
-				stoppedRunnerStartLimit,
-				ctx.Err(),
-			)
+			t.Fatalf("runner %s did not start a running engine within %s: %v", child, stoppedRunnerStartLimit, ctx.Err())
 		case <-ticker.C:
 		}
 	}

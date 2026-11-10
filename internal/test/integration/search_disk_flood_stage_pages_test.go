@@ -23,11 +23,7 @@ type storedPage struct {
 // document exists to refresh.
 func refreshServingIndex(t *testing.T, fixture queryFixture) error {
 	t.Helper()
-	_, err := fixture.Client.Indices.Refresh(
-		WithTestOperation(t, t.Context()),
-		&opensearchapi.IndicesRefreshReq{Indices: []string{fixture.Index}},
-	)
-
+	_, err := fixture.Client.Indices.Refresh(WithTestOperation(t, t.Context()), &opensearchapi.IndicesRefreshReq{Indices: []string{fixture.Index}})
 	return clusterFailure("refresh "+fixture.Index, err)
 }
 
@@ -36,47 +32,25 @@ func refreshServingIndex(t *testing.T, fixture queryFixture) error {
 // to each other. Only this exact read shows which text the index stores.
 func readStoredPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID) ([]storedPage, error) {
 	t.Helper()
-	query := fmt.Sprintf(
-		`{"size":1000,"_source":["search_generation","page_text"],"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`,
-		nodeID.String(),
-	)
-	response, err := fixture.Client.Search(
-		WithTestOperation(t, t.Context()),
-		&opensearchapi.SearchReq{
-			Indices:    []string{fixture.Index},
-			BodyReader: strings.NewReader(query),
-		},
-	)
+	query := fmt.Sprintf(`{"size":1000,"_source":["search_generation","page_text"],"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String())
+	response, err := fixture.Client.Search(WithTestOperation(t, t.Context()), &opensearchapi.SearchReq{Indices: []string{fixture.Index}, BodyReader: strings.NewReader(query)})
 	if err != nil {
 		return nil, clusterFailure("read the stored pages of node "+nodeID.String(), err)
 	}
-
 	if response.TimedOut || response.Shards.Failed > 0 {
-		return nil, fmt.Errorf(
-			"read the stored pages of node %s: search timed out %t with %d failed shards",
-			nodeID,
-			response.TimedOut,
-			response.Shards.Failed,
-		)
+		return nil, fmt.Errorf("read the stored pages of node %s: search timed out %t with %d failed shards", nodeID, response.TimedOut, response.Shards.Failed)
 	}
-
 	pages := make([]storedPage, 0, len(response.Hits.Hits))
 	for _, hit := range response.Hits.Hits {
 		if hit.ID == nil {
-			return nil, fmt.Errorf(
-				"read the stored pages of node %s: document ID is absent",
-				nodeID,
-			)
+			return nil, fmt.Errorf("read the stored pages of node %s: document ID is absent", nodeID)
 		}
-
 		var page storedPage
 		if err := json.Unmarshal(hit.Source, &page); err != nil {
 			return nil, clusterFailure("decode page "+*hit.ID+" of node "+nodeID.String(), err)
 		}
-
 		pages = append(pages, page)
 	}
-
 	return pages, nil
 }
 
@@ -85,18 +59,9 @@ func logStoredPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID, when s
 	t.Helper()
 	pages, err := readStoredPages(t, fixture, nodeID)
 	clusterRequire(t, "read the stored pages of node "+nodeID.String(), err)
-
 	for position, page := range pages {
-		t.Logf(
-			"%s: node %s page %d stores generation %s and text %q",
-			when,
-			nodeID,
-			position,
-			page.Generation,
-			page.PageText,
-		)
+		t.Logf("%s: node %s page %d stores generation %s and text %q", when, nodeID, position, page.Generation, page.PageText)
 	}
-
 	if len(pages) == 0 {
 		t.Logf("%s: node %s has no active page", when, nodeID)
 	}
@@ -104,48 +69,25 @@ func logStoredPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID, when s
 
 // storedTextError returns an error unless nodeID has at least one active page,
 // every active page contains stored, and no active page contains absent.
-func storedTextError(
-	t *testing.T,
-	fixture queryFixture,
-	nodeID uuid.UUID,
-	stored string,
-	absent string,
-) error {
+func storedTextError(t *testing.T, fixture queryFixture, nodeID uuid.UUID, stored, absent string) error {
 	t.Helper()
 	pages, err := readStoredPages(t, fixture, nodeID)
 	if err != nil {
 		return err
 	}
-
 	if len(pages) == 0 {
 		return fmt.Errorf("node %s has no active page, want text %q", nodeID, stored)
 	}
-
 	for position, page := range pages {
 		if !strings.Contains(page.PageText, stored) || strings.Contains(page.PageText, absent) {
-			return fmt.Errorf(
-				"node %s page %d stores generation %s and text %q, want %q and not %q",
-				nodeID,
-				position,
-				page.Generation,
-				page.PageText,
-				stored,
-				absent,
-			)
+			return fmt.Errorf("node %s page %d stores generation %s and text %q, want %q and not %q", nodeID, position, page.Generation, page.PageText, stored, absent)
 		}
 	}
-
 	return nil
 }
 
 // requireStoredText fails the test when storedTextError returns an error.
-func requireStoredText(
-	t *testing.T,
-	fixture queryFixture,
-	nodeID uuid.UUID,
-	stored string,
-	absent string,
-) {
+func requireStoredText(t *testing.T, fixture queryFixture, nodeID uuid.UUID, stored, absent string) {
 	t.Helper()
 	if err := storedTextError(t, fixture, nodeID, stored, absent); err != nil {
 		t.Fatal(err)
@@ -158,12 +100,6 @@ func requireNoStoredPages(t *testing.T, fixture queryFixture, nodeID uuid.UUID) 
 	pages, err := readStoredPages(t, fixture, nodeID)
 	clusterRequire(t, "read the stored pages of node "+nodeID.String(), err)
 	if len(pages) != 0 {
-		t.Fatalf(
-			"node %s has %d active pages, want none; first page stores generation %s and text %q",
-			nodeID,
-			len(pages),
-			pages[0].Generation,
-			pages[0].PageText,
-		)
+		t.Fatalf("node %s has %d active pages, want none; first page stores generation %s and text %q", nodeID, len(pages), pages[0].Generation, pages[0].PageText)
 	}
 }

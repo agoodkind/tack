@@ -27,41 +27,31 @@ type macRunnerFixtureLog struct {
 	Planned   int                        `json:"planned"`
 }
 
-var macRunnerLogField = regexp.MustCompile(
-	`(?:^|\s)(msg|container|cluster|planned)=("(?:[^"\\]|\\.)*"|[^\s]+)`,
-)
+var macRunnerLogField = regexp.MustCompile(`(?:^|\s)(msg|container|cluster|planned)=("(?:[^"\\]|\\.)*"|[^\s]+)`)
 
-var macRunnerDefaultMessage = regexp.MustCompile(
-	`(?:^|\s)(?:INFO|DEBUG) (testenv\.(?:engine\.started|shared\.probe_started|ledger_cluster\.node_started|cluster\.started))(?:\s|$)`,
-)
+var macRunnerDefaultMessage = regexp.MustCompile(`(?:^|\s)(?:INFO|DEBUG) (testenv\.(?:engine\.started|shared\.probe_started|ledger_cluster\.node_started|cluster\.started))(?:\s|$)`)
 
 func (execution *macRunnerExecution) fixtureLogs() (map[string]bool, error) {
 	names := make(map[string]bool)
 	if !execution.started {
 		return names, nil
 	}
-
 	complete := false
-
 	for _, stage := range execution.stages {
 		if stage.Name == "final log retrieval" && stage.Error == "" {
 			complete = true
 		}
 	}
-
 	if !complete {
 		return names, errors.New("fixture log attribution requires complete final Docker logs")
 	}
-
 	file, err := os.Open(filepath.Join(execution.prepared.options.EvidenceDirectory, "runtime.log"))
 	if err != nil {
 		return names, macRunnerFailure("read completed fixture logs", err)
 	}
-
 	defer func() { execution.evidenceErrors = append(execution.evidenceErrors, file.Close()) }()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 4096), 1024*1024)
-
 	for scanner.Scan() {
 		record := decodeMacRunnerFixtureLog(scanner.Text())
 		switch record.Message {
@@ -73,18 +63,15 @@ func (execution *macRunnerExecution) fixtureLogs() (map[string]bool, error) {
 			if record.Cluster == "" || record.Planned < 1 {
 				continue
 			}
-
 			names[record.Cluster+"-proxy"] = true
 			for member := 1; member <= record.Planned; member++ {
 				names[record.Cluster+"-"+strconv.Itoa(member)] = true
 			}
 		}
 	}
-
 	if err := scanner.Err(); err != nil {
 		return names, macRunnerFailure("scan completed fixture logs", err)
 	}
-
 	return names, nil
 }
 
@@ -94,12 +81,9 @@ func decodeMacRunnerFixtureLog(line string) macRunnerFixtureLog {
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			return macRunnerFixtureLog{Message: "", Container: "", Cluster: "", Planned: 0}
 		}
-
 		return record
 	}
-
 	values := make(map[string]string)
-
 	for _, field := range macRunnerLogField.FindAllStringSubmatch(line, -1) {
 		value := field[2]
 		if strings.HasPrefix(value, `"`) {
@@ -107,23 +91,16 @@ func decodeMacRunnerFixtureLog(line string) macRunnerFixtureLog {
 			if err != nil {
 				continue
 			}
-
 			value = decoded
 		}
-
 		values[field[1]] = value
 	}
-
-	record.Message, record.Container, record.Cluster = macRunnerFixtureLogMessage(
-		values["msg"],
-	), values["container"], values["cluster"]
+	record.Message, record.Container, record.Cluster = macRunnerFixtureLogMessage(values["msg"]), values["container"], values["cluster"]
 	if record.Message == "" {
 		if message := macRunnerDefaultMessage.FindStringSubmatch(line); len(message) == 2 {
 			record.Message = macRunnerFixtureLogMessage(message[1])
 		}
 	}
-
 	record.Planned, _ = strconv.Atoi(values["planned"])
-
 	return record
 }

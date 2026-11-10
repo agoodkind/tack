@@ -61,10 +61,7 @@ func ybDrillArtifactPath(name string) string {
 // readable from, which is the bind mount in the scratch container.
 func ybTabletExtractScript(exportRoot, artifactDir string) string {
 	nodeDir := shellQuote(exportRoot) + `/"$1"`
-	archive := shellQuote(
-		artifactDir,
-	) + `/"` + ybDrillArchivePrefix + `$1` + ybDrillArchiveSuffix + `"`
-
+	archive := shellQuote(artifactDir) + `/"` + ybDrillArchivePrefix + `$1` + ybDrillArchiveSuffix + `"`
 	return "mkdir -p " + nodeDir + " && tar xzf " + archive + " -C " + nodeDir
 }
 
@@ -84,49 +81,30 @@ func stageYBDrillArtifacts(
 	stageDir string,
 ) ([]ybArchiveInventory, error) {
 	for _, name := range manifest.Artifacts {
-		if err := objectstage.GetObjectToFile(
-			ctx,
-			s3Client,
-			r.Cfg.BackupS3BucketMain,
-			ybRunArtifactKey(manifest.RunID, name),
-			filepath.Join(stageDir, name),
-		); err != nil {
+		if err := objectstage.GetObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain,
+			ybRunArtifactKey(manifest.RunID, name), filepath.Join(stageDir, name)); err != nil {
 			return nil, ybStagingError(ctx, err)
 		}
 	}
-
 	inventories := make([]ybArchiveInventory, 0, len(manifest.Nodes))
 	for _, node := range manifest.Nodes {
 		archive := filepath.Join(stageDir, ybDrillArchiveName(node.Name))
-		if err := objectstage.GetObjectToFile(
-			ctx,
-			s3Client,
-			r.Cfg.BackupS3BucketMain,
-			ybNodeArchiveKey(manifest.RunID, node),
-			archive,
-		); err != nil {
+		if err := objectstage.GetObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain,
+			ybNodeArchiveKey(manifest.RunID, node), archive); err != nil {
 			return nil, ybStagingError(ctx, err)
 		}
-
 		inventory, err := stageYBNodeInventory(ctx, r, s3Client, manifest, node, stageDir)
 		if err != nil {
 			return nil, err
 		}
-
 		inventories = append(inventories, inventory)
 	}
-
 	return inventories, nil
 }
 
 func ybStagingError(ctx context.Context, err error) error {
 	wrapped := fmt.Errorf("stage a drill artifact: %w", err)
-	telemetry.L(ctx).ErrorContext(
-		ctx,
-		"backup.restore_drill.yb.failed",
-		slog.String("err", wrapped.Error()),
-	)
-
+	telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 	return wrapped
 }
 
@@ -145,33 +123,20 @@ func stageYBNodeInventory(
 	logger := telemetry.L(ctx)
 	empty := ybArchiveInventory{RunID: "", Node: "", Files: nil}
 	path := filepath.Join(stageDir, ybDrillInventoryName(node.Name))
-	if err := objectstage.GetObjectToFile(
-		ctx,
-		s3Client,
-		r.Cfg.BackupS3BucketMain,
-		ybNodeInventoryKey(manifest.RunID, node),
-		path,
-	); err != nil {
+	if err := objectstage.GetObjectToFile(ctx, s3Client, r.Cfg.BackupS3BucketMain,
+		ybNodeInventoryKey(manifest.RunID, node), path); err != nil {
 		return empty, ybStagingError(ctx, err)
 	}
-
 	body, err := os.ReadFile(path)
 	if err != nil {
 		wrapped := fmt.Errorf("read the staged tablet inventory %s: %w", path, err)
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.yb.failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", wrapped.Error()))
 		return empty, wrapped
 	}
-
 	inventory, err := parseYBArchiveInventory(manifest.RunID, node.Name, body)
 	if err != nil {
 		logger.ErrorContext(ctx, "backup.restore_drill.yb.failed", slog.String("err", err.Error()))
 		return empty, err
 	}
-
 	return inventory, nil
 }

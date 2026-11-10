@@ -32,14 +32,11 @@ type nodeIntegrityBackfillOutput struct {
 
 func nodeIntegrityBackfillOp(f *cli.Factory) clispec.Operation[nodeIntegrityBackfillInput] {
 	return clispec.Operation[nodeIntegrityBackfillInput]{
-		Name: clispec.Name{Canonical: "node-integrity", CLIOverride: ""},
-		Lifetime: clispec.Lifetime{
-			Ticket:   "TACK-582",
-			RemoveBy: time.Date(2026, time.December, 31, 0, 0, 0, 0, time.UTC),
-		},
-		Audit: audit.Spec{Verb: string(audit.VerbOpsBackfillNodeIntegrity), Mutates: true},
-		Group: opsGroup,
-		Short: "This command freezes, previews, and applies reviewed node integrity repairs.",
+		Name:     clispec.Name{Canonical: "node-integrity", CLIOverride: ""},
+		Lifetime: clispec.Lifetime{Ticket: "TACK-582", RemoveBy: time.Date(2026, time.December, 31, 0, 0, 0, 0, time.UTC)},
+		Audit:    audit.Spec{Verb: string(audit.VerbOpsBackfillNodeIntegrity), Mutates: true},
+		Group:    opsGroup,
+		Short:    "This command freezes, previews, and applies reviewed node integrity repairs.",
 		Long: "The command requires exactly one of --request or --manifest. " +
 			"A dry run with --request reads current records for each reviewed entry and prints a frozen manifest with its digest. " +
 			"A dry run with --manifest validates the manifest and prints each entry's state against current records and checkpoints. " +
@@ -53,27 +50,13 @@ func nodeIntegrityBackfillOp(f *cli.Factory) clispec.Operation[nodeIntegrityBack
 			"The command rejects --request with --execute. " +
 			"Every request, manifest, and export file path must be an absolute path inside the directory that TACK_REPAIR_DIR sets.",
 		Params: []clispec.Param[nodeIntegrityBackfillInput]{
-			clispec.StringParam(
-				"request",
-				"This path selects the reviewed repair request for a dry run that freezes a manifest.",
-				"",
-				false,
-				func(in *nodeIntegrityBackfillInput, value string) { in.Request = value },
-			),
-			clispec.StringParam(
-				"manifest",
-				"This path selects the frozen repair manifest for preview or execution.",
-				"",
-				false,
-				func(in *nodeIntegrityBackfillInput, value string) { in.Manifest = value },
-			),
+			clispec.StringParam("request", "This path selects the reviewed repair request for a dry run that freezes a manifest.", "", false,
+				func(in *nodeIntegrityBackfillInput, value string) { in.Request = value }),
+			clispec.StringParam("manifest", "This path selects the frozen repair manifest for preview or execution.", "", false,
+				func(in *nodeIntegrityBackfillInput, value string) { in.Manifest = value }),
 		},
 		New: func() nodeIntegrityBackfillInput {
-			return nodeIntegrityBackfillInput{
-				InputMarker: clispec.InputMarker{},
-				Request:     "",
-				Manifest:    "",
-			}
+			return nodeIntegrityBackfillInput{InputMarker: clispec.InputMarker{}, Request: "", Manifest: ""}
 		},
 		DryRun: func(ctx context.Context, in nodeIntegrityBackfillInput, sink clispec.ResultSink) error {
 			return runNodeIntegrityBackfillCommand(ctx, f, in, sink, true)
@@ -84,37 +67,19 @@ func nodeIntegrityBackfillOp(f *cli.Factory) clispec.Operation[nodeIntegrityBack
 	}
 }
 
-func runNodeIntegrityBackfillCommand(
-	ctx context.Context,
-	f *cli.Factory,
-	in nodeIntegrityBackfillInput,
-	sink clispec.ResultSink,
-	dryRun bool,
-) error {
+func runNodeIntegrityBackfillCommand(ctx context.Context, f *cli.Factory, in nodeIntegrityBackfillInput, sink clispec.ResultSink, dryRun bool) error {
 	request, manifestPath := strings.TrimSpace(in.Request), strings.TrimSpace(in.Manifest)
 	if (request == "") == (manifestPath == "") {
-		return nodeIntegrityCommandFailure(
-			ctx,
-			"read the input",
-			errors.New("pass exactly one of --request and --manifest"),
-		)
+		return nodeIntegrityCommandFailure(ctx, "read the input", errors.New("pass exactly one of --request and --manifest"))
 	}
-
 	if request != "" && !dryRun {
-		return nodeIntegrityCommandFailure(
-			ctx,
-			"read the input",
-			errors.New(
-				"--request only freezes a manifest; review the frozen manifest and execute it with --manifest",
-			),
-		)
+		return nodeIntegrityCommandFailure(ctx, "read the input",
+			errors.New("--request only freezes a manifest; review the frozen manifest and execute it with --manifest"))
 	}
-
 	directory, err := openRepairDirectory(ctx, f.Cfg.RepairDir)
 	if err != nil {
 		return nodeIntegrityCommandFailure(ctx, "open the repair directory", err)
 	}
-
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
 		return nodeIntegrityCommandFailure(ctx, "open the environment", err)
@@ -122,12 +87,8 @@ func runNodeIntegrityBackfillCommand(
 	defer env.Close()
 	repairs := env.Stores.Repairs()
 	output := nodeIntegrityBackfillOutput{
-		ResultMarker: clispec.ResultMarker{},
-		Command:      nodeIntegrityBackfillTool,
-		DryRun:       dryRun,
-		Manifest:     nil,
-		Preview:      nil,
-		Applied:      nil,
+		ResultMarker: clispec.ResultMarker{}, Command: nodeIntegrityBackfillTool, DryRun: dryRun,
+		Manifest: nil, Preview: nil, Applied: nil,
 	}
 	switch {
 	case request != "":
@@ -135,52 +96,42 @@ func runNodeIntegrityBackfillCommand(
 		if err := readNodeIntegrityDocument(ctx, directory, request, &reviewed); err != nil {
 			return err
 		}
-
 		frozen, err := freezeNodeIntegrityRequest(ctx, repairs, reviewed)
 		if err != nil {
 			return err
 		}
-
 		output.Manifest = &frozen
 	default:
 		var manifest NodeIntegrityManifest
 		if err := readNodeIntegrityDocument(ctx, directory, manifestPath, &manifest); err != nil {
 			return err
 		}
-
 		if err := checkNodeIntegrityManifest(ctx, manifest); err != nil {
 			return repairManifestRejected(ctx, "validate", err)
 		}
-
 		if dryRun {
 			preview, err := previewNodeIntegrityManifest(ctx, repairs, manifest)
 			if err != nil {
 				return err
 			}
-
 			output.Preview = &preview
 			break
 		}
-
 		applied, applyErr := applyNodeIntegrityManifest(ctx, env, manifest)
 		output.Applied = &applied
 		if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 			return nodeIntegrityCommandFailure(ctx, "write the result", err)
 		}
-
 		return applyErr
 	}
-
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 		return nodeIntegrityCommandFailure(ctx, "write the result", err)
 	}
-
 	return nil
 }
 
 func nodeIntegrityCommandFailure(ctx context.Context, step string, err error) error {
 	wrapped := fmt.Errorf("node integrity backfill: %s: %w", step, err)
 	slog.ErrorContext(ctx, "repair.command_failed", slog.String("err", wrapped.Error()))
-
 	return wrapped
 }

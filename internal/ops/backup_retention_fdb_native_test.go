@@ -52,27 +52,10 @@ func TestBackupRetentionFDBNativeExpirationRetainsBoundary(t *testing.T) {
 		action.Window.MinVersion != window.MinVersion || action.Window.MaxVersion < reading.Version {
 		t.Fatalf("public preview omitted safe native selection evidence: %+v", action)
 	}
-	t.Logf(
-		"selected snapshot begin version %d for retained cutoff %s",
-		action.ExpireBeforeVersion,
-		cutoff,
-	)
-	description := retentionFDBTestExec(
-		t,
-		fixture.config,
-		cluster,
-		[]string{
-			"fdbbackup",
-			"describe",
-			"-d",
-			retentionFDBTestURL(fixture.config, name),
-			"-C",
-			"/var/fdb/fdb.cluster",
-		},
-	)
+	t.Logf("selected snapshot begin version %d for retained cutoff %s", action.ExpireBeforeVersion, cutoff)
+	description := retentionFDBTestExec(t, fixture.config, cluster, []string{"fdbbackup", "describe", "-d", retentionFDBTestURL(fixture.config, name), "-C", "/var/fdb/fdb.cluster"})
 	for line := range strings.SplitSeq(description, "\n") {
-		if strings.HasPrefix(line, "Snapshot:") || strings.HasPrefix(line, "MinLogBeginVersion:") ||
-			strings.HasPrefix(line, "ContiguousLogEndVersion:") {
+		if strings.HasPrefix(line, "Snapshot:") || strings.HasPrefix(line, "MinLogBeginVersion:") || strings.HasPrefix(line, "ContiguousLogEndVersion:") {
 			t.Log(line)
 		}
 	}
@@ -91,11 +74,7 @@ func TestBackupRetentionFDBNativeExpirationRetainsBoundary(t *testing.T) {
 	}
 	metadata := stopMetadata()
 	if metadata.URLCommands == 0 || len(metadata.Problems) != 0 {
-		t.Fatalf(
-			"native command metadata verification failed: URL commands=%d problems=%v",
-			metadata.URLCommands,
-			metadata.Problems,
-		)
+		t.Fatalf("native command metadata verification failed: URL commands=%d problems=%v", metadata.URLCommands, metadata.Problems)
 	}
 	stepResults, terminalResults := 0, 0
 	for _, event := range fixture.events(t) {
@@ -113,28 +92,17 @@ func TestBackupRetentionFDBNativeExpirationRetainsBoundary(t *testing.T) {
 		if err := json.Unmarshal(event.Extra, &evidence); err != nil {
 			t.Fatal(err)
 		}
-		if evidence.ExpireBeforeVersion != action.ExpireBeforeVersion ||
-			evidence.Action != "expire" ||
-			evidence.Window.MinVersion != action.Window.MinVersion ||
-			evidence.Window.MaxVersion < reading.Version {
+		if evidence.ExpireBeforeVersion != action.ExpireBeforeVersion || evidence.Action != "expire" ||
+			evidence.Window.MinVersion != action.Window.MinVersion || evidence.Window.MaxVersion < reading.Version {
 			t.Fatalf("audit result differs from selected native expiration: %s", event.Extra)
 		}
 		stepResults++
 	}
 	if stepResults != 1 || terminalResults != 1 {
-		t.Fatalf(
-			"native expiration recorded %d step results and %d terminal results",
-			stepResults,
-			terminalResults,
-		)
+		t.Fatalf("native expiration recorded %d step results and %d terminal results", stepResults, terminalResults)
 	}
 	retentionFDBTestRestore(t, fixture.config, cluster, name, cutoff)
-	status := retentionFDBTestExec(
-		t,
-		fixture.config,
-		cluster,
-		[]string{"fdbbackup", "status", "-C", "/var/fdb/fdb.cluster"},
-	)
+	status := retentionFDBTestExec(t, fixture.config, cluster, []string{"fdbbackup", "status", "-C", "/var/fdb/fdb.cluster"})
 	if !strings.Contains(status, "restorable but continuing") {
 		t.Fatal("native expiration did not preserve the active session")
 	}
@@ -169,12 +137,7 @@ func TestBackupRetentionFDBDeletesClosedSessionPreservesSurvivor(t *testing.T) {
 	cluster := retentionFDBTestConfig(t, fixture.config)
 	oldName := retentionFDBTestStart(t, fixture.config, cluster)
 	retentionFDBTestWindow(t, fixture.config, cluster, oldName, 0)
-	retentionFDBTestExec(
-		t,
-		fixture.config,
-		cluster,
-		[]string{"fdbbackup", "discontinue", "-C", "/var/fdb/fdb.cluster", "-w"},
-	)
+	retentionFDBTestExec(t, fixture.config, cluster, []string{"fdbbackup", "discontinue", "-C", "/var/fdb/fdb.cluster", "-w"})
 	retentionFDBTestWindow(t, fixture.config, cluster, oldName, 0)
 	newName := retentionFDBTestStart(t, fixture.config, cluster)
 	first := retentionFDBTestRecordReading(t, fixture, cluster, time.Time{})

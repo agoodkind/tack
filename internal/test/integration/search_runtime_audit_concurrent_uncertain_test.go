@@ -51,93 +51,49 @@ func TestSearchRuntimeAuditConcurrentPageCommitUncertain(t *testing.T) {
 	var secondMutex sync.Mutex
 	var second integration.SearchPage
 	var secondErr error
-	hooks := installRetireLogHooks(
-		t,
-		session.ID.String(),
-		map[string]func(){
-			sessionPageCommitReady: func() {
-				page, searchErr := integration.TrySearch(harness, failureAuditQuery, opened.Cursor)
-				secondMutex.Lock()
-				second, secondErr = page, searchErr
-				secondMutex.Unlock()
-				setContainerPaused(t, container, true)
-			},
-			retireStorageFailed: func() { setContainerPaused(t, container, false) },
+	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
+		sessionPageCommitReady: func() {
+			page, searchErr := integration.TrySearch(harness, failureAuditQuery, opened.Cursor)
+			secondMutex.Lock()
+			second, secondErr = page, searchErr
+			secondMutex.Unlock()
+			setContainerPaused(t, container, true)
 		},
-	)
+		retireStorageFailed: func() { setContainerPaused(t, container, false) },
+	})
 	write := installSessionWriteCapture(sessionPageCommitReady)
 
 	first, firstErr := integration.TrySearch(harness, failureAuditQuery, opened.Cursor)
 	hooks.requireFinished(t)
 
-	if firstErr == nil || firstErr.Error() != sessionTimeoutUnavailableText ||
-		len(first.IDs) != 0 ||
-		first.Cursor != "" {
-		t.Fatalf(
-			"first continuation returned error %v, result count %d, cursor %q; want error text %q and an empty page",
-			firstErr,
-			len(first.IDs),
-			first.Cursor,
-			sessionTimeoutUnavailableText,
-		)
+	if firstErr == nil || firstErr.Error() != sessionTimeoutUnavailableText || len(first.IDs) != 0 || first.Cursor != "" {
+		t.Fatalf("first continuation returned error %v, result count %d, cursor %q; want error text %q and an empty page", firstErr, len(first.IDs), first.Cursor, sessionTimeoutUnavailableText)
 	}
 	secondMutex.Lock()
 	defer secondMutex.Unlock()
 	if secondErr != nil || len(second.IDs) == 0 {
-		t.Fatalf(
-			"second search returned error %v and result count %d; want results",
-			secondErr,
-			len(second.IDs),
-		)
+		t.Fatalf("second search returned error %v and result count %d; want results", secondErr, len(second.IDs))
 	}
 	_, operation, err := write.result()
 	if err != nil {
 		t.Fatalf("read session and operation for session write log %s: %v", write.message, err)
 	}
 	replaySuffix := sessionReplayURISuffix + strconv.FormatUint(session.Version, 10)
-	rows := fixture.audited.waitForRows(
-		t,
-		fixture.Workspaces[0].OrgID,
-		func(found []audit.Row) bool {
-			failed := cleanupLossReads(found, audit.OutcomeFailed)
-			return len(failed) == 1 &&
-				len(writeUncertainEvents(found, failed[0].Context.OperationID)) == 1 &&
-				len(replayChanges(found, session.ID.String(), replaySuffix)) == 1
-		},
-	)
-	read := onlyRow(
-		t,
-		cleanupLossReads(rows, audit.OutcomeFailed),
-		"the first continuation read row",
-	)
+	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(found []audit.Row) bool {
+		failed := cleanupLossReads(found, audit.OutcomeFailed)
+		return len(failed) == 1 && len(writeUncertainEvents(found, failed[0].Context.OperationID)) == 1 &&
+			len(replayChanges(found, session.ID.String(), replaySuffix)) == 1
+	})
+	read := onlyRow(t, cleanupLossReads(rows, audit.OutcomeFailed), "the first continuation read row")
 	if read.Error == nil || read.Error.Code != searchUnavailableCode {
 		t.Fatalf("read row = %+v; want code %s", read, searchUnavailableCode)
 	}
-	event := onlyRow(
-		t,
-		writeUncertainEvents(rows, read.Context.OperationID),
-		"the incomplete session write event",
-	)
-	requireWriteUncertainEvent(
-		t,
-		event,
-		read,
-		write,
-		audit.VerbSearchSessionUpdate,
-		fixture.Workspaces[0].Actors[0].UserID,
-	)
+	event := onlyRow(t, writeUncertainEvents(rows, read.Context.OperationID), "the incomplete session write event")
+	requireWriteUncertainEvent(t, event, read, write, audit.VerbSearchSessionUpdate, fixture.Workspaces[0].Actors[0].UserID)
 	requireNoChangeRows(t, rows, operation.Context.OperationID)
-	replay := onlyRow(
-		t,
-		replayChanges(rows, session.ID.String(), replaySuffix),
-		"the second search replay record change",
-	)
+	replay := onlyRow(t, replayChanges(rows, session.ID.String(), replaySuffix), "the second search replay record change")
 	if replay.Context.OperationID == operation.Context.OperationID {
-		t.Fatalf(
-			"replay record change row %+v uses uncertain write operation %s",
-			replay,
-			operation.Context.OperationID,
-		)
+		t.Fatalf("replay record change row %+v uses uncertain write operation %s", replay, operation.Context.OperationID)
 	}
 }
 
@@ -145,12 +101,8 @@ func replayChanges(rows []audit.Row, sessionID, suffix string) []audit.Row {
 	selected := []audit.Row{}
 	for _, row := range rows {
 		target := row.Context.Target
-		if row.Action == string(
-			audit.VerbSearchSessionCreate,
-		) && row.Context.Phase == audit.PhaseChange && target != nil &&
-			target.NodeType == audit.TargetSearchSessionReplay &&
-			strings.Contains(target.URI, sessionID) &&
-			strings.HasSuffix(target.URI, suffix) {
+		if row.Action == string(audit.VerbSearchSessionCreate) && row.Context.Phase == audit.PhaseChange && target != nil &&
+			target.NodeType == audit.TargetSearchSessionReplay && strings.Contains(target.URI, sessionID) && strings.HasSuffix(target.URI, suffix) {
 			selected = append(selected, row)
 		}
 	}

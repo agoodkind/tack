@@ -42,40 +42,21 @@ type flatSettings struct {
 // blocked is false. The test only reads the setting.
 func waitForBlock(t *testing.T, fixture queryFixture, blocked bool) {
 	t.Helper()
-	clusterEventually(
-		t,
-		fmt.Sprintf("read %s %t on %s", readOnlyAllowDeleteSetting, blocked, fixture.Index),
-		func() error {
-			body, err := readEngine(
-				t,
-				fixture,
-				"/"+url.PathEscape(
-					fixture.Index,
-				)+"/_settings/"+readOnlyAllowDeleteSetting+"?flat_settings=true",
-			)
-			if err != nil {
-				return err
-			}
-
-			var indices map[string]flatSettings
-			if err := json.Unmarshal(body, &indices); err != nil {
-				return clusterFailure("decode the index block", err)
-			}
-
-			value, set := indices[fixture.Index].Settings[readOnlyAllowDeleteSetting]
-			if (set && value == "true") != blocked {
-				return fmt.Errorf(
-					"%s on %s = %q (set %t)",
-					readOnlyAllowDeleteSetting,
-					fixture.Index,
-					value,
-					set,
-				)
-			}
-
-			return nil
-		},
-	)
+	clusterEventually(t, fmt.Sprintf("read %s %t on %s", readOnlyAllowDeleteSetting, blocked, fixture.Index), func() error {
+		body, err := readEngine(t, fixture, "/"+url.PathEscape(fixture.Index)+"/_settings/"+readOnlyAllowDeleteSetting+"?flat_settings=true")
+		if err != nil {
+			return err
+		}
+		var indices map[string]flatSettings
+		if err := json.Unmarshal(body, &indices); err != nil {
+			return clusterFailure("decode the index block", err)
+		}
+		value, set := indices[fixture.Index].Settings[readOnlyAllowDeleteSetting]
+		if (set && value == "true") != blocked {
+			return fmt.Errorf("%s on %s = %q (set %t)", readOnlyAllowDeleteSetting, fixture.Index, value, set)
+		}
+		return nil
+	})
 }
 
 // requireDiskSettings requires every node to report the 10 s disk-usage
@@ -86,11 +67,7 @@ func requireDiskSettings(t *testing.T, fixture queryFixture) {
 	// flat_settings=true returns each setting under its dotted key, and a
 	// dotted filter_path matches nested objects only. The read keeps every
 	// node setting.
-	body, err := readEngine(
-		t,
-		fixture,
-		"/_nodes/settings?flat_settings=true&filter_path=nodes.*.settings",
-	)
+	body, err := readEngine(t, fixture, "/_nodes/settings?flat_settings=true&filter_path=nodes.*.settings")
 	clusterRequire(t, "read node settings", err)
 	// Each value decodes as raw JSON. Under flat_settings a list setting,
 	// such as plugins.security.nodes_dn, is a JSON array.
@@ -103,12 +80,10 @@ func requireDiskSettings(t *testing.T, fixture queryFixture) {
 	if len(settings.Nodes) == 0 {
 		t.Fatalf("node settings list no node: %s", body)
 	}
-
 	wanted := map[string]json.RawMessage{
 		infoIntervalSetting:    mustJSON(infoIntervalValue),
 		mlDiskThresholdSetting: mustJSON(mlDiskThresholdValue),
 	}
-
 	for nodeID, node := range settings.Nodes {
 		for setting, want := range wanted {
 			if value := node.Settings[setting]; !bytes.Equal(value, want) {
@@ -121,21 +96,14 @@ func requireDiskSettings(t *testing.T, fixture queryFixture) {
 // readEngine returns the body of one GET request to the engine.
 func readEngine(t *testing.T, fixture queryFixture, path string) ([]byte, error) {
 	t.Helper()
-	request, err := http.NewRequestWithContext(
-		WithTestOperation(t, t.Context()),
-		http.MethodGet,
-		path,
-		nil,
-	)
+	request, err := http.NewRequestWithContext(WithTestOperation(t, t.Context()), http.MethodGet, path, nil)
 	clusterRequire(t, "build the engine request", err)
 	response, err := fixture.Client.Client.Request(request)
 	if err != nil {
 		return nil, clusterFailure("read "+path, err)
 	}
-
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)
-
 	return body, clusterFailure("read the body of "+path, err)
 }
 
@@ -144,22 +112,14 @@ func readEngine(t *testing.T, fixture queryFixture, path string) ([]byte, error)
 func createFloodProject(t *testing.T, fixture queryFixture, prefix, name string) uuid.UUID {
 	t.Helper()
 	identifier := prefix + strconv.FormatInt(clock.Now().UnixNano()%1_000_000, 10)
-	created := fixture.Harness.Call(
-		t,
-		"tack_create_project",
-		datagen.ToolArguments{
-			WorkspaceReference: fixture.Harness.Workspace,
-			Name:               name,
-			Properties: datagen.NodeProperties{
-				"identifier": json.RawMessage(strconv.Quote(identifier)),
-			},
-		},
-	)
+	created := fixture.Harness.Call(t, "tack_create_project", datagen.ToolArguments{
+		WorkspaceReference: fixture.Harness.Workspace, Name: name,
+		Properties: datagen.NodeProperties{"identifier": json.RawMessage(strconv.Quote(identifier))},
+	})
 	nodeID, err := uuid.Parse(created.RawID())
 	if err != nil {
 		t.Fatalf("parse created project id %q: %v", created.RawID(), err)
 	}
-
 	return nodeID
 }
 
@@ -167,15 +127,9 @@ func createFloodProject(t *testing.T, fixture queryFixture, prefix, name string)
 // tool.
 func renameFloodProject(t *testing.T, fixture queryFixture, nodeID uuid.UUID, name string) {
 	t.Helper()
-	fixture.Harness.Call(
-		t,
-		"tack_update_project",
-		datagen.ToolArguments{
-			WorkspaceReference: fixture.Harness.Workspace,
-			NodeID:             nodeID.String(),
-			Name:               name,
-		},
-	)
+	fixture.Harness.Call(t, "tack_update_project", datagen.ToolArguments{
+		WorkspaceReference: fixture.Harness.Workspace, NodeID: nodeID.String(), Name: name,
+	})
 }
 
 // requireFoundationDBName requires the FoundationDB view of nodeID to have
@@ -186,7 +140,6 @@ func requireFoundationDBName(t *testing.T, fixture queryFixture, nodeID uuid.UUI
 	if err != nil || view == nil {
 		t.Fatalf("read node %s: %v", nodeID, err)
 	}
-
 	if view.Name != name {
 		t.Fatalf("node %s stored name = %q, want %q", nodeID, view.Name, name)
 	}

@@ -28,8 +28,7 @@ func TestSearchRuntimeAuditMissingSnapshotIdentity(t *testing.T) {
 	}
 	responses := make(chan snapshotResponse, 1)
 	capture.engine.ModifyResponse = func(response *http.Response) error {
-		if response.Request.Method != http.MethodPost ||
-			!strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
+		if response.Request.Method != http.MethodPost || !strings.HasSuffix(response.Request.URL.Path, pointInTimePathSuffix) {
 			return capture.record(response)
 		}
 		observed, err := omitSnapshotIdentity(response)
@@ -39,31 +38,18 @@ func TestSearchRuntimeAuditMissingSnapshotIdentity(t *testing.T) {
 		responses <- observed
 		return nil
 	}
-	if _, err := integration.TrySearch(harness, failureAuditQuery, ""); err == nil ||
-		!strings.Contains(err.Error(), unexpectedErrorText) {
+	if _, err := integration.TrySearch(harness, failureAuditQuery, ""); err == nil || !strings.Contains(err.Error(), unexpectedErrorText) {
 		t.Fatalf("the unidentified partial snapshot returned %v, want the unexpected error", err)
 	}
 	observed := waitSnapshotResponse(t, responses)
 	t.Cleanup(func() { deleteObservedSnapshot(t, fixture, observed.id) })
 	requirePITOpen(t, fixture.QueryFixture, []string{observed.id})
-	rows := fixture.audited.waitForRows(
-		t,
-		fixture.Workspaces[0].OrgID,
-		func(rows []audit.Row) bool {
-			results := snapshotResults(
-				rows,
-				audit.VerbSearchPointInTimeCreate,
-				audit.OutcomeIncomplete,
-			)
-			return len(results) == 2 && snapshotResultsHaveIntents(rows, results)
-		},
-	)
+	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(rows []audit.Row) bool {
+		results := snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete)
+		return len(results) == 2 && snapshotResultsHaveIntents(rows, results)
+	})
 	requireInterruptedSnapshotRows(t, fixture, rows, audit.VerbSearchPointInTimeCreate)
-	for _, row := range snapshotResults(
-		rows,
-		audit.VerbSearchPointInTimeCreate,
-		audit.OutcomeIncomplete,
-	) {
+	for _, row := range snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeIncomplete) {
 		if len(row.Context.CommittedSteps) != 0 {
 			t.Fatalf("the unidentified partial result invented committed steps: %+v", row)
 		}
@@ -74,10 +60,7 @@ func TestSearchRuntimeAuditMissingSnapshotIdentity(t *testing.T) {
 		}
 	}
 	if deleted := partialDeletes(rows); len(deleted) != 0 {
-		t.Fatalf(
-			"the unidentified response caused an audited PIT delete: %s",
-			describeRows(deleted),
-		)
+		t.Fatalf("the unidentified response caused an audited PIT delete: %s", describeRows(deleted))
 	}
 }
 

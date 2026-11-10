@@ -51,33 +51,19 @@ type statePage struct {
 // trySearchPage calls tack_search as the first workspace actor. It counts
 // printed result items and reads the next cursor from the page text.
 // It returns an error if the search call fails.
-func trySearchPage(
-	t *testing.T,
-	fixture parentEdgeFixture,
-	query string,
-	cursor string,
-) (statePage, error) {
+func trySearchPage(t *testing.T, fixture parentEdgeFixture, query, cursor string) (statePage, error) {
 	t.Helper()
-	result, err := fixture.driver.Call(
-		t.Context(),
-		fixture.first.Actors[0].Token,
-		"tack_search",
-		datagen.ToolArguments{
-			WorkspaceReference: fixture.first.Slug,
-			Query:              query,
-			Cursor:             cursor,
-		},
-	)
+	result, err := fixture.driver.Call(t.Context(), fixture.first.Actors[0].Token, "tack_search", datagen.ToolArguments{
+		WorkspaceReference: fixture.first.Slug, Query: query, Cursor: cursor,
+	})
 	if err != nil {
 		return statePage{}, fmt.Errorf("search %q: %w", query, err)
 	}
-
 	text := result.Text()
 	page := statePage{results: len(integration.SearchResultItems(text)), cursor: ""}
 	if _, after, found := strings.Cut(text, integration.SearchCursorMarker); found {
 		page.cursor, _, _ = strings.Cut(after, "`")
 	}
-
 	return page, nil
 }
 
@@ -87,7 +73,6 @@ func searchPageOf(t *testing.T, fixture parentEdgeFixture, query, cursor string)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	return page
 }
 
@@ -99,35 +84,24 @@ func sessionOfCursor(t *testing.T, fixture parentEdgeFixture, cursor string) sea
 	if err != nil {
 		t.Fatalf("decode cursor key: %v", err)
 	}
-
 	sessionID, _, err := tools.NewSearchCursorCodec(key).Decode(cursor)
 	if err != nil {
 		t.Fatalf("decode cursor: %v", err)
 	}
-
-	session, err := fixture.stores.SearchSessions(
-		clock.Wall{},
-		time.Minute,
-	).Load(
-		t.Context(),
-		sessionID,
-	)
+	session, err := fixture.stores.SearchSessions(clock.Wall{}, time.Minute).Load(t.Context(), sessionID)
 	if err != nil {
 		t.Fatalf("load session %s: %v", sessionID, err)
 	}
-
 	return session
 }
 
 func storedSessionIDs(t *testing.T, keys []stateKey) map[string]bool {
 	t.Helper()
 	sessions := make(map[string]bool)
-
 	layout := sessionKeyLayouts[sessionHeaderFamily]
 	for _, key := range stateKeysOf(keys, sessionHeaderFamily) {
 		sessions[key.text(t, layout.session)] = true
 	}
-
 	return sessions
 }
 
@@ -140,15 +114,12 @@ func sweepExpiredSessions(t *testing.T, fixture parentEdgeFixture, query string)
 	keys := readStateKeys(t, fixture)
 	expired := storedSessionIDs(t, keys)
 	latest, found := int64(0), false
-
 	for _, key := range stateKeysOf(keys, sessionExpiryFamily) {
 		latest, found = max(latest, key.integer(t, expiryMinutePosition)), true
 	}
-
 	if found {
 		waitUntilTime(t, time.Unix((latest+1)*secondsPerMinute, 0).Add(sweepExpiryMargin))
 	}
-
 	for attempt := range sweepAttemptLimit {
 		searchPageOf(t, fixture, fmt.Sprintf("%s sweep %d", query, attempt), "")
 		keys = readStateKeys(t, fixture)
@@ -156,13 +127,7 @@ func sweepExpiredSessions(t *testing.T, fixture parentEdgeFixture, query string)
 			return storedSessionIDs(t, keys)
 		}
 	}
-
-	t.Fatalf(
-		"%d new searches left keys of the %d expired sessions",
-		sweepAttemptLimit,
-		len(expired),
-	)
-
+	t.Fatalf("%d new searches left keys of the %d expired sessions", sweepAttemptLimit, len(expired))
 	return nil
 }
 
@@ -172,7 +137,6 @@ func anyStateKeyReferences(keys []stateKey, identifiers map[string]bool) bool {
 			return true
 		}
 	}
-
 	return false
 }
 

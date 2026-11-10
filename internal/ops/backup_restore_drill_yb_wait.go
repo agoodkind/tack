@@ -74,17 +74,14 @@ func newYBScratchProgress() *ybScratchProgress {
 // page that starts answering is progress for an engine that is starting.
 func (p *ybScratchProgress) observe(counters map[string]int64) bool {
 	moved := false
-
 	for name, value := range counters {
 		previous, seen := p.highWater[name]
 		if seen && value <= previous {
 			continue
 		}
-
 		p.highWater[name] = value
 		moved = true
 	}
-
 	return moved
 }
 
@@ -94,12 +91,10 @@ func (p *ybScratchProgress) summary() string {
 	if len(p.highWater) == 0 {
 		return "no progress counter was ever readable from the scratch yugabyted"
 	}
-
 	parts := make([]string, 0, len(p.highWater))
 	for _, name := range slices.Sorted(maps.Keys(p.highWater)) {
 		parts = append(parts, name+"="+strconv.FormatInt(p.highWater[name], 10))
 	}
-
 	return strings.Join(parts, " ")
 }
 
@@ -113,84 +108,53 @@ func awaitYBScratch(
 	ctx context.Context,
 	step string,
 	watch ybScratchWatch,
-	stallWindow time.Duration,
-	pollInterval time.Duration,
-	probeTimeout time.Duration,
+	stallWindow, pollInterval, probeTimeout time.Duration,
 ) (time.Duration, error) {
 	progress := newYBScratchProgress()
 	started := opsNow()
 	lastMoved := started
 	var lastReadErr string
 	blindPolls := 0
-
 	for {
 		reading := readYBScratch(ctx, watch, probeTimeout)
-		readFailure := ybScratchReadFailure(ctx, step, progress, reading)
-		if readFailure != nil {
-			return 0, readFailure
+		if reading.exited {
+			err := fmt.Errorf("%s: the scratch yugabyted container is not running: %s", step, progress.summary())
+			slog.ErrorContext(ctx, "backup.restore_drill.yb.wait_exited", slog.String("err", err.Error()))
+			return 0, err
 		}
-
+		if reading.failure != "" {
+			err := fmt.Errorf("%s: %s: %s", step, reading.failure, progress.summary())
+			slog.ErrorContext(ctx, "backup.restore_drill.yb.wait_failed", slog.String("err", err.Error()))
+			return 0, err
+		}
 		if reading.ready {
 			return opsNow().Sub(started), nil
 		}
-
 		lastReadErr = reading.readErr
 		if reading.blind {
 			blindPolls++
 			if blindPolls >= ybScratchBlindTolerance {
-				err := fmt.Errorf(
-					"%s: the drill could not check whether the scratch yugabyted failed on %d polls in a row: %s (%s)",
-					step,
-					blindPolls,
-					lastReadErr,
-					progress.summary(),
-				)
-				slog.ErrorContext(
-					ctx,
-					"backup.restore_drill.yb.wait_blind",
-					slog.String("err", err.Error()),
-				)
-
+				err := fmt.Errorf("%s: the drill could not check whether the scratch yugabyted failed on %d polls in a row: %s (%s)",
+					step, blindPolls, lastReadErr, progress.summary())
+				slog.ErrorContext(ctx, "backup.restore_drill.yb.wait_blind", slog.String("err", err.Error()))
 				return 0, err
 			}
 		} else {
 			blindPolls = 0
 		}
-
 		if reading.counters != nil && progress.observe(reading.counters) {
 			lastMoved = opsNow()
-			slog.DebugContext(
-				ctx,
-				"backup.restore_drill.yb.wait_progress",
-				slog.String("step", step),
-				slog.String("marks", progress.summary()),
-			)
+			slog.DebugContext(ctx, "backup.restore_drill.yb.wait_progress",
+				slog.String("step", step), slog.String("marks", progress.summary()))
 		}
-
 		if stalled := opsNow().Sub(lastMoved); stalled >= stallWindow {
 			err := ybScratchStallError(step, stalled, progress, lastReadErr)
-			slog.ErrorContext(
-				ctx,
-				"backup.restore_drill.yb.wait_stalled",
-				slog.String("err", err.Error()),
-			)
-
+			slog.ErrorContext(ctx, "backup.restore_drill.yb.wait_stalled", slog.String("err", err.Error()))
 			return 0, err
 		}
-
 		if !opsWait(ctx, pollInterval) {
-			err := fmt.Errorf(
-				"%s: waiting for the scratch yugabyted: %w (%s)",
-				step,
-				ctx.Err(),
-				progress.summary(),
-			)
-			slog.ErrorContext(
-				ctx,
-				"backup.restore_drill.yb.wait_cancelled",
-				slog.String("err", err.Error()),
-			)
-
+			err := fmt.Errorf("%s: waiting for the scratch yugabyted: %w (%s)", step, ctx.Err(), progress.summary())
+			slog.ErrorContext(ctx, "backup.restore_drill.yb.wait_cancelled", slog.String("err", err.Error()))
 			return 0, err
 		}
 	}
@@ -198,56 +162,11 @@ func awaitYBScratch(
 
 // ybScratchStallError names what the drill saw before it gave up: how long
 // nothing moved, the furthest mark of every counter, and the last failed read.
-func ybScratchStallError(
-	step string,
-	stalled time.Duration,
-	progress *ybScratchProgress,
-	lastReadErr string,
-) error {
-	message := fmt.Sprintf(
-		"%s: the scratch yugabyted made no progress for %s: %s",
-		step,
-		stalled.Round(time.Second),
-		progress.summary(),
-	)
+func ybScratchStallError(step string, stalled time.Duration, progress *ybScratchProgress, lastReadErr string) error {
+	message := fmt.Sprintf("%s: the scratch yugabyted made no progress for %s: %s",
+		step, stalled.Round(time.Second), progress.summary())
 	if lastReadErr != "" {
 		message += "; the last failed read: " + lastReadErr
 	}
-
 	return errors.New(message)
-}
-
-func ybScratchReadFailure(
-	ctx context.Context,
-	step string,
-	progress *ybScratchProgress,
-	reading ybScratchReading,
-) error {
-	if reading.exited {
-		err := &ybScratchExitedError{step: step, progress: progress.summary()}
-		slog.ErrorContext(
-			ctx,
-			"backup.restore_drill.yb.wait_exited",
-			slog.String("err", err.Error()),
-		)
-
-		return err
-	}
-
-	if reading.failure != "" {
-		err := &ybScratchFailureError{
-			step:     step,
-			failure:  reading.failure,
-			progress: progress.summary(),
-		}
-		slog.ErrorContext(
-			ctx,
-			"backup.restore_drill.yb.wait_failed",
-			slog.String("err", err.Error()),
-		)
-
-		return err
-	}
-
-	return nil
 }

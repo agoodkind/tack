@@ -65,8 +65,7 @@ func (d *Driver) requestToken(token string) string {
 // NewDriver builds a request driver. A nil graph is valid only for dry runs.
 func NewDriver(graph *runtime.Graph, dryRun bool, seed int64) *Driver {
 	return &Driver{
-		graph:     graph,
-		dryRun:    dryRun,
+		graph: graph, dryRun: dryRun,
 		sessionID: fmt.Sprintf("qa-datagen-%d", seed),
 	}
 }
@@ -88,7 +87,11 @@ func (d *Driver) call(
 	args ToolArguments,
 ) (Result, error) {
 	if err := ctx.Err(); err != nil {
-		return Result{}, loggedError(ctx, "qa datagen: stop before "+toolName+" call", err)
+		return Result{}, loggedError(
+			ctx,
+			"qa datagen: stop before "+toolName+" call",
+			err,
+		)
 	}
 	d.callCount.Add(1)
 	requestID, err := d.requestID(ctx, token, toolName, args)
@@ -96,9 +99,7 @@ func (d *Driver) call(
 		return Result{}, err
 	}
 	if d.dryRun {
-		slog.InfoContext(
-			ctx,
-			"qa.datagen.call_planned",
+		slog.InfoContext(ctx, "qa.datagen.call_planned",
 			slog.String("tool", toolName),
 			slog.Any("arguments", args),
 		)
@@ -133,9 +134,15 @@ func (d *Driver) requestID(
 ) (string, error) {
 	body, err := json.Marshal(args)
 	if err != nil {
-		return "", loggedError(ctx, "qa datagen: encode "+toolName+" request identity", err)
+		return "", loggedError(
+			ctx,
+			"qa datagen: encode "+toolName+" request identity",
+			err,
+		)
 	}
 	requestToken := d.requestToken(token)
-	sum := sha256.Sum256(append([]byte(d.sessionID+":"+requestToken+":"+toolName+":"), body...))
+	sum := sha256.Sum256(
+		append([]byte(d.sessionID+":"+requestToken+":"+toolName+":"), body...),
+	)
 	return "datagen-" + hex.EncodeToString(sum[:12]), nil
 }

@@ -45,69 +45,21 @@ type filterCorpus struct {
 func putFilterCorpus(t *testing.T, fixture integration.QueryFixture) filterCorpus {
 	t.Helper()
 	caller, foreign := fixture.Workspaces[0], integration.OtherOrganization(t, fixture)
-	callerEntry, foreignEntry := integration.EntryPoint(t, fixture, caller), integration.EntryPoint(
-		t,
-		fixture,
-		foreign,
-	)
-	typed, other := integration.PutOpaqueKind(t, fixture, caller.OrgID), integration.PutOpaqueKind(
-		t,
-		fixture,
-		caller.OrgID,
-	)
+	callerEntry, foreignEntry := integration.EntryPoint(t, fixture, caller), integration.EntryPoint(t, fixture, foreign)
+	typed, other := integration.PutOpaqueKind(t, fixture, caller.OrgID), integration.PutOpaqueKind(t, fixture, caller.OrgID)
 	foreignKind := integration.PutOpaqueKind(t, fixture, foreign.OrgID)
 	text := `amber ledger notes with {"amber": "ledger"} and "quoted" text`
 	corpus := filterCorpus{
-		TypeKey:   typed.TypeKey,
-		Typed:     nil,
-		Untyped:   nil,
-		Forbidden: nil,
-		EntryID:   callerEntry,
-		Filter:    searchdomain.AccessFilter{Version: "", Keys: nil},
+		TypeKey: typed.TypeKey, Typed: nil, Untyped: nil, Forbidden: nil, EntryID: callerEntry,
+		Filter: searchdomain.AccessFilter{Version: "", Keys: nil},
 	}
-
 	for number := range filterCorpusNodes {
-		corpus.Typed = append(
-			corpus.Typed,
-			integration.PutOpaqueNode(
-				t,
-				fixture,
-				typed,
-				callerEntry,
-				fmt.Sprintf("Amber typed %d", number),
-				text,
-				"excluded",
-			),
-		)
-		corpus.Untyped = append(
-			corpus.Untyped,
-			integration.PutOpaqueNode(
-				t,
-				fixture,
-				other,
-				callerEntry,
-				fmt.Sprintf("Amber other %d", number),
-				text,
-				"excluded",
-			),
-		)
-		corpus.Forbidden = append(
-			corpus.Forbidden,
-			integration.PutOpaqueNode(
-				t,
-				fixture,
-				foreignKind,
-				foreignEntry,
-				fmt.Sprintf("Amber ledger %d", number),
-				text+" "+text,
-				"excluded",
-			),
-		)
+		corpus.Typed = append(corpus.Typed, integration.PutOpaqueNode(t, fixture, typed, callerEntry, fmt.Sprintf("Amber typed %d", number), text, "excluded"))
+		corpus.Untyped = append(corpus.Untyped, integration.PutOpaqueNode(t, fixture, other, callerEntry, fmt.Sprintf("Amber other %d", number), text, "excluded"))
+		corpus.Forbidden = append(corpus.Forbidden, integration.PutOpaqueNode(t, fixture, foreignKind, foreignEntry, fmt.Sprintf("Amber ledger %d", number), text+" "+text, "excluded"))
 	}
-
 	integration.DrainSearchWork(t, fixture.Worker, 500)
 	corpus.Filter = integration.CallerAccess(t, fixture, caller, callerEntry)
-
 	return corpus
 }
 
@@ -116,18 +68,15 @@ func putFilterCorpus(t *testing.T, fixture integration.QueryFixture) filterCorpu
 func requirePermitted(t *testing.T, query string, got, corpus []uuid.UUID, entryID uuid.UUID) {
 	t.Helper()
 	matched := false
-
 	for _, id := range got {
 		if slices.Contains(corpus, id) {
 			matched = true
 			continue
 		}
-
 		if id != entryID {
 			t.Fatalf("search %q returned node %s outside the permitted nodes", query, id)
 		}
 	}
-
 	if !matched {
 		t.Fatalf("search %q returned none of the permitted corpus nodes: %v", query, got)
 	}
@@ -136,18 +85,11 @@ func requirePermitted(t *testing.T, query string, got, corpus []uuid.UUID, entry
 // everyCapturedPage collects result IDs and ranked batches until search
 // completes. It applies node_type when nodeType is nonempty and fails the
 // test if the search exceeds 100 public pages.
-func everyCapturedPage(
-	t *testing.T,
-	harness *integration.MCPHarness,
-	capture *searchCapture,
-	query string,
-	nodeType string,
-) ([]uuid.UUID, []capturedSearch) {
+func everyCapturedPage(t *testing.T, harness *integration.MCPHarness, capture *searchCapture, query, nodeType string) ([]uuid.UUID, []capturedSearch) {
 	t.Helper()
 	capture.take()
 	var ids []uuid.UUID
 	cursor := ""
-
 	for range 100 {
 		var page integration.SearchPage
 		var err error
@@ -156,21 +98,16 @@ func everyCapturedPage(
 		} else {
 			page, err = integration.TryTypedSearch(harness, query, nodeType, cursor)
 		}
-
 		if err != nil {
 			t.Fatalf("search %q with node type %q: %v", query, nodeType, err)
 		}
-
 		ids = append(ids, page.IDs...)
 		if page.Complete {
 			return ids, capture.take()
 		}
-
 		cursor = page.Cursor
 	}
-
 	t.Fatalf("search %q did not complete within 100 pages", query)
-
 	return nil, nil
 }
 
@@ -191,7 +128,6 @@ func TestSearchQueryFiltersStayStructured(t *testing.T) {
 	ids, searches = everyCapturedPage(t, harness, capture, filterBaselineQuery, corpus.TypeKey)
 	requireCapturedFilters(t, searches, filterBaselineQuery, typedFilters)
 	integration.RequireExactlyOnce(t, ids, corpus.Typed)
-
 	for _, query := range hostileFilterQueries() {
 		ids, searches = everyCapturedPage(t, harness, capture, query, "")
 		requireCapturedFilters(t, searches, query, untypedFilters)

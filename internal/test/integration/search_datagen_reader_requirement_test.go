@@ -22,18 +22,12 @@ func TestSearchDatagenMissingReaderRefusesBeforeFixtures(t *testing.T) {
 	}
 	keyRange := testPrefixKeys(t)
 	if before := readTestKeys(t, database, keyRange); len(before) != 0 {
-		t.Fatalf(
-			"the isolated fixture prefix starts with %d keys, want an empty prefix",
-			len(before),
-		)
+		t.Fatalf("the isolated fixture prefix starts with %d keys, want an empty prefix", len(before))
 	}
 	for _, dsn := range []string{"", " \t "} {
 		cfg.AuditReaderDSN = dsn
 		output, err := runDatagenSearchCommand(t, cfg, "--commit")
-		if err == nil || !strings.Contains(
-			err.Error(),
-			"the ledger verb report needs AUDIT_READER_DSN",
-		) {
+		if err == nil || !strings.Contains(err.Error(), "the ledger verb report needs AUDIT_READER_DSN") {
 			t.Fatalf("committed search without a reader returned %v; output=%s", err, output)
 		}
 		if after := readTestKeys(t, database, keyRange); len(after) != 0 {

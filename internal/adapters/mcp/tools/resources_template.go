@@ -28,11 +28,7 @@ type referenceSetterTemplateRow struct {
 	Target   string
 }
 
-func buildGettingStartedText(
-	resolver *Resolver,
-	nodeTypes []*node.NodeType,
-	propertyDefs []*node.PropertyDef,
-) string {
+func buildGettingStartedText(resolver *Resolver, nodeTypes []*node.NodeType, propertyDefs []*node.PropertyDef) string {
 	data := gettingStartedTemplateData{
 		EntrySlug:        resolver.entryPointSlug,
 		EntryParam:       resolver.EntryPointParamName(),
@@ -40,7 +36,6 @@ func buildGettingStartedText(
 		ReferenceSetters: referenceSetterRows(resolver, nodeTypes, propertyDefs),
 		CreateInputs:     createInputRows(resolver, nodeTypes),
 	}
-
 	return executeMarkdownTemplate("getting_started.md.tmpl", data)
 }
 
@@ -50,23 +45,17 @@ func nodeTypeRows(nodeTypes []*node.NodeType) []nodeTypeTemplateRow {
 		if nodeType.Features.Has(node.FeatureExcludeFromGenericTools) {
 			continue
 		}
-
 		pluralSlug := nodeType.PluralSlug
 		if pluralSlug == "" {
 			pluralSlug = nodeType.Slug + "s"
 		}
-
-		rows = append(
-			rows,
-			nodeTypeTemplateRow{
-				Slug:          nodeType.Slug,
-				PluralSlug:    pluralSlug,
-				FeaturesText:  strings.Join(nodeType.Features, ", "),
-				ReferenceText: referenceSummary(nodeType.Reference),
-			},
-		)
+		rows = append(rows, nodeTypeTemplateRow{
+			Slug:          nodeType.Slug,
+			PluralSlug:    pluralSlug,
+			FeaturesText:  strings.Join(nodeType.Features, ", "),
+			ReferenceText: referenceSummary(nodeType.Reference),
+		})
 	}
-
 	return rows
 }
 
@@ -76,28 +65,21 @@ func referenceSetterRows(
 	propertyDefs []*node.PropertyDef,
 ) []referenceSetterTemplateRow {
 	var rows []referenceSetterTemplateRow
-
 	for _, nodeType := range nodeTypes {
 		if nodeType.Features.Has(node.FeatureExcludeFromGenericTools) {
 			continue
 		}
-
 		for _, def := range propertyDefs {
 			if !referencePropertyAppliesToTool(def, nodeType, resolver.typeIndex) {
 				continue
 			}
-
 			alias := referencePropertyAlias(def.Name)
-			rows = append(
-				rows,
-				referenceSetterTemplateRow{
-					Tool:     fmt.Sprintf("tack_set_%s_%s", strings.ToLower(nodeType.Slug), alias),
-					Property: def.Name,
-					Target:   def.ReferenceTargetTypeKey,
-				},
-			)
+			rows = append(rows, referenceSetterTemplateRow{
+				Tool:     fmt.Sprintf("tack_set_%s_%s", strings.ToLower(nodeType.Slug), alias),
+				Property: def.Name,
+				Target:   def.ReferenceTargetTypeKey,
+			})
 		}
 	}
-
 	return rows
 }

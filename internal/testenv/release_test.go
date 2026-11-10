@@ -88,12 +88,7 @@ func TestReleaseKeepsEnginesOfRunningProcesses(t *testing.T) {
 // cleanup that sends SIGTERM if the child still runs.
 func startEngineChild(t *testing.T) engineChild {
 	t.Helper()
-	command := exec.CommandContext(
-		context.WithoutCancel(t.Context()),
-		os.Args[0],
-		"-test.run=^TestEngineChild$",
-		"-test.v",
-	)
+	command := exec.CommandContext(context.WithoutCancel(t.Context()), os.Args[0], "-test.run=^TestEngineChild$", "-test.v")
 	command.Env = append(os.Environ(), engineChildVariable+"=1")
 	command.Stderr = os.Stderr
 	command.SysProcAttr = &unix.SysProcAttr{Setpgid: true}
@@ -146,11 +141,7 @@ func stopEngineChild(t *testing.T, child engineChild, stop unix.Signal) {
 func killEngineChildGroup(t *testing.T, child engineChild) {
 	t.Helper()
 	if err := unix.Kill(-child.command.Process.Pid, unix.SIGKILL); err != nil {
-		t.Fatalf(
-			"send SIGKILL to the process group of engine child %d: %v",
-			child.command.Process.Pid,
-			err,
-		)
+		t.Fatalf("send SIGKILL to the process group of engine child %d: %v", child.command.Process.Pid, err)
 	}
 	_ = child.command.Wait()
 }
@@ -166,12 +157,7 @@ func waitForEngineRemoved(t *testing.T, child engineChild) {
 		}
 		time.Sleep(enginePollInterval)
 	}
-	t.Fatalf(
-		"engine %s of child %d still exists after %s",
-		child.container,
-		child.command.Process.Pid,
-		engineRemovalLimit,
-	)
+	t.Fatalf("engine %s of child %d still exists after %s", child.container, child.command.Process.Pid, engineRemovalLimit)
 }
 
 // requireEngine fails the test unless the child's engine container exists
@@ -195,11 +181,7 @@ func engineExists(t *testing.T, child engineChild) bool {
 		t.Fatalf("build a Docker client: %v", err)
 	}
 	defer func() { _ = cli.Close() }()
-	_, err = cli.ContainerInspect(
-		t.Context(),
-		child.container,
-		client.ContainerInspectOptions{Size: false},
-	)
+	_, err = cli.ContainerInspect(t.Context(), child.container, client.ContainerInspectOptions{Size: false})
 	if cerrdefs.IsNotFound(err) {
 		return false
 	}

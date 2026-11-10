@@ -40,44 +40,28 @@ func TestSearchRuntimeAuditIntentFailureRefusesSnapshot(t *testing.T) {
 	var creates atomic.Int64
 	rewrite := capture.engine.Rewrite
 	capture.engine.Rewrite = func(outbound *httputil.ProxyRequest) {
-		if outbound.In.Method == http.MethodPost &&
-			strings.HasSuffix(outbound.In.URL.Path, pointInTimePathSuffix) {
+		if outbound.In.Method == http.MethodPost && strings.HasSuffix(outbound.In.URL.Path, pointInTimePathSuffix) {
 			creates.Add(1)
 		}
 		rewrite(outbound)
 	}
 	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
-	hooks := installRetireLogHooks(
-		t,
-		"",
-		map[string]func(){
-			servingIndexReadMessage:  func() { setContainerPaused(t, container, true) },
-			externalRecordFailedText: func() { setContainerPaused(t, container, false) },
-		},
-	)
+	hooks := installRetireLogHooks(t, "", map[string]func(){
+		servingIndexReadMessage:  func() { setContainerPaused(t, container, true) },
+		externalRecordFailedText: func() { setContainerPaused(t, container, false) },
+	})
 
 	_, err := integration.TrySearch(harness, failureAuditQuery, "")
 	hooks.requireFinished(t)
 	if err == nil || err.Error() != sessionTimeoutUnavailableText {
-		t.Fatalf(
-			"tack_search returned error %v; want unavailable text %q",
-			err,
-			sessionTimeoutUnavailableText,
-		)
+		t.Fatalf("tack_search returned error %v; want unavailable text %q", err, sessionTimeoutUnavailableText)
 	}
 	if count := creates.Load(); count != 0 {
-		t.Fatalf(
-			"The proxy received %d point in time create requests during the refused search; want 0",
-			count,
-		)
+		t.Fatalf("The proxy received %d point in time create requests during the refused search; want 0", count)
 	}
-	rows := fixture.audited.waitForRows(
-		t,
-		fixture.Workspaces[0].OrgID,
-		func(current []audit.Row) bool {
-			return len(cleanupLossReads(current, audit.OutcomeFailed)) == 1
-		},
-	)
+	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(current []audit.Row) bool {
+		return len(cleanupLossReads(current, audit.OutcomeFailed)) == 1
+	})
 	refused := cleanupLossReads(rows, audit.OutcomeFailed)[0]
 	if refused.Error == nil || refused.Error.Code != "audit_recording_failed" {
 		t.Fatalf("Read row = %+v; want a failed read row with code audit_recording_failed", refused)
@@ -85,9 +69,6 @@ func TestSearchRuntimeAuditIntentFailureRefusesSnapshot(t *testing.T) {
 
 	integration.CallSearch(t, harness, failureAuditQuery, "")
 	if count := creates.Load(); count != 1 {
-		t.Fatalf(
-			"The proxy received %d point in time create requests during the later search; want 1",
-			count,
-		)
+		t.Fatalf("The proxy received %d point in time create requests during the later search; want 1", count)
 	}
 }

@@ -59,24 +59,17 @@ func accountableOperatorID(t *testing.T, email string) uuid.UUID {
 	if err := os.WriteFile(path, []byte("[user]\n\temail = "+email+"\n"), 0o600); err != nil {
 		t.Fatalf("write the git config: %v", err)
 	}
-
 	t.Setenv("GIT_CONFIG_GLOBAL", path)
 	principal, err := cli.GitConfigOperatorSource{}.Resolve(t.Context())
 	if err != nil {
 		t.Fatalf("derive the operator ID of %s: %v", email, err)
 	}
-
 	return principal.ID
 }
 
 // runOpsDBSQL runs the audited command tree with args, the real SQL outbox,
 // and the identity source the server's root command uses.
-func runOpsDBSQL(
-	t *testing.T,
-	cfg *config.Config,
-	pool *pgxpool.Pool,
-	args ...string,
-) (string, error) {
+func runOpsDBSQL(t *testing.T, cfg *config.Config, pool *pgxpool.Pool, args ...string) (string, error) {
 	t.Helper()
 	factory := cli.System(cfg)
 	var output bytes.Buffer
@@ -87,7 +80,6 @@ func runOpsDBSQL(
 	root.SetContext(testenv.CommandContext(t))
 	root.SetArgs(args)
 	err := root.Execute()
-
 	return output.String(), err
 }
 
@@ -98,7 +90,6 @@ func ledgerNow(t *testing.T, pool *pgxpool.Pool) time.Time {
 	if err := pool.QueryRow(t.Context(), `SELECT now()`).Scan(&now); err != nil {
 		t.Fatalf("read the ledger clock: %v", err)
 	}
-
 	return now
 }
 
@@ -109,7 +100,6 @@ func decodeAttributionExtra(t *testing.T, raw []byte) attributionExtra {
 	if err := json.Unmarshal(raw, &extra); err != nil {
 		t.Fatalf("decode extra %s: %v", raw, err)
 	}
-
 	return extra
 }
 
@@ -119,46 +109,28 @@ func decodeAttributionExtra(t *testing.T, raw []byte) attributionExtra {
 func startAuditPipeline(t *testing.T, brokers, ledgerDSN string, pool *pgxpool.Pool) {
 	t.Helper()
 	topic := "audit.attribution-test-" + uuid.NewString()[:8]
-	consumer, err := audit.NewConsumer(
-		t.Context(),
-		audit.ConsumerConfig{
-			Brokers: []string{
-				brokers,
-			},
-			Topic:        topic,
-			GroupID:      "tack-attribution-test-" + uuid.NewString()[:8],
-			BatchSize:    32,
-			PollInterval: attributionPollInterval,
-			YugabyteDSN:  ledgerDSN,
-		},
-	)
+	consumer, err := audit.NewConsumer(t.Context(), audit.ConsumerConfig{
+		Brokers: []string{brokers}, Topic: topic, GroupID: "tack-attribution-test-" + uuid.NewString()[:8],
+		BatchSize: 32, PollInterval: attributionPollInterval, YugabyteDSN: ledgerDSN,
+	})
 	if err != nil {
 		t.Fatalf("start the audit consumer: %v", err)
 	}
-
 	consumer.Start(t.Context())
 	t.Cleanup(func() { _ = consumer.Close() })
 	recorder, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers:        audit.SplitBrokers(brokers),
-		Topic:          topic,
-		ClientID:       "tack-attribution-test",
-		ProduceTimeout: 30 * time.Second,
+		Brokers: audit.SplitBrokers(brokers), Topic: topic, ClientID: "tack-attribution-test", ProduceTimeout: 30 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("open the relay producer: %v", err)
 	}
-
 	relay, err := audit.NewRelay(audit.RelayConfig{
-		Recorder:     recorder,
-		Yugabyte:     audit.NewPoolOutbox(pool),
-		FoundationDB: nil,
-		PollInterval: attributionPollInterval,
-		BatchSize:    64,
+		Recorder: recorder, Yugabyte: audit.NewPoolOutbox(pool), FoundationDB: nil,
+		PollInterval: attributionPollInterval, BatchSize: 64,
 	})
 	if err != nil {
 		t.Fatalf("start the relay: %v", err)
 	}
-
 	relay.Start(t.Context())
 	t.Cleanup(func() { _ = relay.Close() })
 }
@@ -169,35 +141,19 @@ func waitForLedgerEvents(t *testing.T, pool *pgxpool.Pool, eventIDs []string) []
 	t.Helper()
 	var observed []ledgerEvent
 	var lastErr error
-	projected := waitFor(
-		t,
-		attributionDeadline,
-		func() bool {
-			rows, err := pool.Query(
-				t.Context(),
-				`SELECT event_id::text, actor_kind, actor_id, extra::text FROM audit.events WHERE event_id::text = ANY($1::text[])`,
-				eventIDs,
-			)
-			if err != nil {
-				lastErr = err
-				return false
-			}
-
-			observed, lastErr = pgx.CollectRows(rows, pgx.RowToStructByPos[ledgerEvent])
-
-			return lastErr == nil && len(observed) == len(eventIDs)
-		},
-	)
+	projected := waitFor(t, attributionDeadline, func() bool {
+		rows, err := pool.Query(t.Context(),
+			`SELECT event_id::text, actor_kind, actor_id, extra::text FROM audit.events WHERE event_id::text = ANY($1::text[])`, eventIDs)
+		if err != nil {
+			lastErr = err
+			return false
+		}
+		observed, lastErr = pgx.CollectRows(rows, pgx.RowToStructByPos[ledgerEvent])
+		return lastErr == nil && len(observed) == len(eventIDs)
+	})
 	if !projected {
-		t.Fatalf(
-			"audit.events contains %d of %d events after %s (last error %v): %+v",
-			len(observed),
-			len(eventIDs),
-			attributionDeadline,
-			lastErr,
-			observed,
-		)
+		t.Fatalf("audit.events contains %d of %d events after %s (last error %v): %+v",
+			len(observed), len(eventIDs), attributionDeadline, lastErr, observed)
 	}
-
 	return observed
 }

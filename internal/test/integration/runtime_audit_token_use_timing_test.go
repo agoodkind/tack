@@ -43,11 +43,8 @@ func TestRuntimeAuditTokenUseRequestPath(t *testing.T) {
 
 	firstLatency, firstCounts := countedRPC(t, server, newRequestID(t, "token-use-first"))
 	if firstCounts.LedgerReads > tokenUseColdLedgerReads || firstCounts.SyncProduces != 0 {
-		t.Fatalf(
-			"first request counts = %+v, want at most %d ledger read and zero synchronous produces",
-			firstCounts,
-			tokenUseColdLedgerReads,
-		)
+		t.Fatalf("first request counts = %+v, want at most %d ledger read and zero synchronous produces",
+			firstCounts, tokenUseColdLedgerReads)
 	}
 
 	laterLatencies := make([]time.Duration, 0, tokenUseWarmRequests)
@@ -57,30 +54,19 @@ func TestRuntimeAuditTokenUseRequestPath(t *testing.T) {
 		laterLatencies = append(laterLatencies, latency)
 
 		if counts.LedgerReads != 0 || counts.SyncProduces != 0 {
-			t.Fatalf(
-				"later request counts = %+v, want zero ledger reads and zero synchronous produces",
-				counts,
-			)
+			t.Fatalf("later request counts = %+v, want zero ledger reads and zero synchronous produces",
+				counts)
 		}
 	}
 
 	slices.Sort(laterLatencies)
-	t.Logf(
-		"first request %s with counts %+v, median of %d later requests %s",
-		firstLatency,
-		firstCounts,
-		tokenUseWarmRequests,
-		laterLatencies[len(laterLatencies)/2],
-	)
+	t.Logf("first request %s with counts %+v, median of %d later requests %s",
+		firstLatency, firstCounts, tokenUseWarmRequests, laterLatencies[len(laterLatencies)/2])
 }
 
 // countedRPC sends one authenticated tools/list request and returns its
 // latency and the ledger and broker round trips completed before the response.
-func countedRPC(
-	t *testing.T,
-	server *publicServer,
-	requestID string,
-) (time.Duration, telemetry.RequestPathCounts) {
+func countedRPC(t *testing.T, server *publicServer, requestID string) (time.Duration, telemetry.RequestPathCounts) {
 	t.Helper()
 
 	ctx, counter := telemetry.WithRequestPath(context.WithoutCancel(t.Context()))

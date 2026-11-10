@@ -73,12 +73,7 @@ type BufferedRecorder struct {
 //
 //	recorder := NewBufferedRecorder(ctx, inner, nil, BufferedConfig{})
 //	err := recorder.Close()
-func NewBufferedRecorder(
-	ctx context.Context,
-	inner Recorder,
-	overflow OutboxAppender,
-	cfg BufferedConfig,
-) *BufferedRecorder {
+func NewBufferedRecorder(ctx context.Context, inner Recorder, overflow OutboxAppender, cfg BufferedConfig) *BufferedRecorder {
 	if cfg.Capacity <= 0 {
 		cfg.Capacity = defaultBufferedCapacity
 	}
@@ -90,7 +85,6 @@ func NewBufferedRecorder(
 	if cfg.FlushInterval <= 0 {
 		cfg.FlushInterval = defaultBufferedFlushInterval
 	}
-
 	queue := make(chan Event, cfg.Capacity)
 	b := &BufferedRecorder{
 		inner:         inner,
@@ -171,16 +165,12 @@ func (b *BufferedRecorder) Record(ctx context.Context, event Event) error {
 }
 
 // recordThrough hands one event to inner on the caller's own path.
-func (b *BufferedRecorder) recordThrough(ctx context.Context, event Event) error {
-	if err := b.inner.Record(ctx, event); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.buffer.record_failed",
-			slog.String("verb", event.Verb),
-			slog.String("err", err.Error()),
-		)
+func (b *BufferedRecorder) recordThrough(ctx context.Context, ev Event) error {
+	if err := b.inner.Record(ctx, ev); err != nil {
+		slog.ErrorContext(ctx, "audit.buffer.record_failed",
+			slog.String("verb", ev.Verb), slog.String("err", err.Error()))
 
-		return fmt.Errorf("record %s through buffer: %w", event.Verb, err)
+		return fmt.Errorf("record %s through buffer: %w", ev.Verb, err)
 	}
 
 	return nil

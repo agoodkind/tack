@@ -24,7 +24,6 @@ func loadStoreTestConfig(t *testing.T, directory string) (*config.Config, error)
 			t.Fatalf("unset %s: %v", storeClusterDirectoryVariable, err)
 		}
 	}
-
 	return config.Load()
 }
 
@@ -39,49 +38,26 @@ func TestStoreCLIOptionsMountTheConfiguredClusterDirectory(t *testing.T) {
 		wantBind  string
 	}{
 		{name: "unset", directory: "", wantBind: "/etc/foundationdb:/etc/foundationdb"},
-		{
-			name:      "configured",
-			directory: "/srv/tack/fdb",
-			wantBind:  "/srv/tack/fdb:/etc/foundationdb",
-		},
+		{name: "configured", directory: "/srv/tack/fdb", wantBind: "/srv/tack/fdb:/etc/foundationdb"},
 	}
 	for _, testCase := range cases {
-		t.Run(
-			testCase.name,
-			func(t *testing.T) {
-				cfg, err := loadStoreTestConfig(t, testCase.directory)
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-
-				options := storeCLIOptions(cfg, "status minimal")
-				if !slices.Equal(options.Binds, []string{testCase.wantBind}) {
-					t.Fatalf("binds = %v, want [%s]", options.Binds, testCase.wantBind)
-				}
-
-				wantCmd := []string{
-					"-C",
-					"/etc/foundationdb/fdb.cluster",
-					"--timeout",
-					"30",
-					"--exec",
-					"status minimal",
-				}
-				if !slices.Equal(options.Cmd, wantCmd) {
-					t.Fatalf("cmd = %v, want %v", options.Cmd, wantCmd)
-				}
-
-				if !slices.Equal(
-					options.Env,
-					[]string{"FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster"},
-				) {
-					t.Fatalf(
-						"env = %v, want FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster",
-						options.Env,
-					)
-				}
-			},
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg, err := loadStoreTestConfig(t, testCase.directory)
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			options := storeCLIOptions(cfg, "status minimal")
+			if !slices.Equal(options.Binds, []string{testCase.wantBind}) {
+				t.Fatalf("binds = %v, want [%s]", options.Binds, testCase.wantBind)
+			}
+			wantCmd := []string{"-C", "/etc/foundationdb/fdb.cluster", "--timeout", "30", "--exec", "status minimal"}
+			if !slices.Equal(options.Cmd, wantCmd) {
+				t.Fatalf("cmd = %v, want %v", options.Cmd, wantCmd)
+			}
+			if !slices.Equal(options.Env, []string{"FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster"}) {
+				t.Fatalf("env = %v, want FDB_CLUSTER_FILE=/etc/foundationdb/fdb.cluster", options.Env)
+			}
+		})
 	}
 }
 

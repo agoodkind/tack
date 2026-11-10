@@ -45,24 +45,14 @@ func Events(t testenv.T, pool *pgxpool.Pool, filter Filter) []audit.Event {
 	if !filter.Since.IsZero() {
 		since = &filter.Since
 	}
-
-	rows, err := pool.Query(
-		t.Context(),
-		eventsStatement,
-		string(filter.Verb),
-		filter.Path,
-		filter.Value,
-		since,
-	)
+	rows, err := pool.Query(t.Context(), eventsStatement, string(filter.Verb), filter.Path, filter.Value, since)
 	if err != nil {
 		failRead(t, "query", err)
 	}
-
 	encoded, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
 	if err != nil {
 		failRead(t, "collect rows", err)
 	}
-
 	events := make([]audit.Event, 0, len(encoded))
 	for _, body := range encoded {
 		var event audit.Event
@@ -70,10 +60,8 @@ func Events(t testenv.T, pool *pgxpool.Pool, filter Filter) []audit.Event {
 			_, _ = fmt.Fprintf(t.Output(), "opsoutbox: decode the event %s: %v\n", body, err)
 			t.FailNow()
 		}
-
 		events = append(events, event)
 	}
-
 	return events
 }
 

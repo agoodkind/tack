@@ -36,62 +36,27 @@ func TestValidateTargetRejectsProductionDespiteAllowTarget(t *testing.T) {
 		configure func(*config.Config, string)
 		value     string
 	}{
-		{
-			name:      "database hostname",
-			configure: setDatabaseURL,
-			value:     "postgres://user@tack.home.goodkind.io/tack",
-		},
-		{
-			name:      "database IPv6",
-			configure: setDatabaseURL,
-			value:     "postgres://user@[3d06:bad:b01::117]/tack",
-		},
-		{
-			name:      "database expanded IPv6",
-			configure: setDatabaseURL,
-			value:     "postgres://user@[3d06:0bad:0b01:0:0:0:0:117]/tack",
-		},
-		{
-			name:      "audit writer",
-			configure: setAuditWriterDSN,
-			value:     "postgres://user@tack.home.goodkind.io/tack",
-		},
-		{
-			name:      "audit reader",
-			configure: setAuditReaderDSN,
-			value:     "postgres://user@tack.home.goodkind.io/tack",
-		},
-		{
-			name:      "audit redactor",
-			configure: setAuditRedactorDSN,
-			value:     "postgres://user@tack.home.goodkind.io/tack",
-		},
-		{
-			name:      "audit operator",
-			configure: setAuditOperatorDSN,
-			value:     "postgres://user@tack.home.goodkind.io/tack",
-		},
-		{
-			name:      "audit Kafka",
-			configure: setAuditKafkaBrokers,
-			value:     "kafka:9092,[3d06:0bad:0b01:0:0:0:0:117]:9092",
-		},
+		{name: "database hostname", configure: setDatabaseURL, value: "postgres://user@tack.home.goodkind.io/tack"},
+		{name: "database IPv6", configure: setDatabaseURL, value: "postgres://user@[3d06:bad:b01::117]/tack"},
+		{name: "database expanded IPv6", configure: setDatabaseURL, value: "postgres://user@[3d06:0bad:0b01:0:0:0:0:117]/tack"},
+		{name: "audit writer", configure: setAuditWriterDSN, value: "postgres://user@tack.home.goodkind.io/tack"},
+		{name: "audit reader", configure: setAuditReaderDSN, value: "postgres://user@tack.home.goodkind.io/tack"},
+		{name: "audit redactor", configure: setAuditRedactorDSN, value: "postgres://user@tack.home.goodkind.io/tack"},
+		{name: "audit operator", configure: setAuditOperatorDSN, value: "postgres://user@tack.home.goodkind.io/tack"},
+		{name: "audit Kafka", configure: setAuditKafkaBrokers, value: "kafka:9092,[3d06:0bad:0b01:0:0:0:0:117]:9092"},
 	}
 	for _, testCase := range testCases {
-		t.Run(
-			testCase.name,
-			func(t *testing.T) {
-				cfg := &config.Config{
-					DatabaseURL:        "postgres://user@yugabyte/tack",
-					DatagenAllowTarget: "qa",
-				}
-				testCase.configure(cfg, testCase.value)
-				err := ValidateTarget(cfg)
-				if err == nil || !strings.Contains(err.Error(), "production") {
-					t.Fatalf("ValidateTarget() error = %v, want production refusal", err)
-				}
-			},
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := &config.Config{
+				DatabaseURL:        "postgres://user@yugabyte/tack",
+				DatagenAllowTarget: "qa",
+			}
+			testCase.configure(cfg, testCase.value)
+			err := ValidateTarget(cfg)
+			if err == nil || !strings.Contains(err.Error(), "production") {
+				t.Fatalf("ValidateTarget() error = %v, want production refusal", err)
+			}
+		})
 	}
 }
 

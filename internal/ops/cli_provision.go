@@ -23,7 +23,6 @@ func (provisionInput) isCommandInput() {}
 func provisionSpec() audit.Spec {
 	spec := externalSpec(audit.VerbOpsProvision, "tack/environment")
 	spec.CreatesAuditInfrastructure = true
-
 	return spec
 }
 
@@ -41,22 +40,11 @@ func provisionCommand(f *cli.Factory) *cobra.Command {
 			"then seed initial product data when SEED_EMAIL and SEED_NAME are set. Each step does nothing when its work is already done.",
 		Args: cobra.NoArgs,
 	}
-	cmd.Flags().BoolVar(
-		&in.AllowFDBInit,
-		"allow-fdb-init",
-		false,
-		"Permit 'fdbcli configure new' when fdb is unconfigured. FRESH ENVIRONMENTS ONLY; never pass on prod.",
-	)
+	cmd.Flags().BoolVar(&in.AllowFDBInit, "allow-fdb-init", false,
+		"Permit 'fdbcli configure new' when fdb is unconfigured. FRESH ENVIRONMENTS ONLY; never pass on prod.")
 	input := func() (json.RawMessage, error) { return encodeCommandInput(in) }
-	clispec.AttachExternal(
-		cmd,
-		f,
-		provisionSpec(),
-		input,
-		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
-			return runProvisionRecorded(ctx, f.Cfg, in.AllowFDBInit, clispec.NewCLISink(f), steps)
-		},
-	)
-
+	clispec.AttachExternal(cmd, f, provisionSpec(), input, func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
+		return runProvisionRecorded(ctx, f.Cfg, in.AllowFDBInit, clispec.NewCLISink(f), steps)
+	})
 	return cmd
 }

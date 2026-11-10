@@ -13,11 +13,9 @@ func yugabyteRuntimeFiles(ctx context.Context, password string) (map[string][]by
 	if err != nil {
 		return nil, err
 	}
-
 	const runtimeInputPath = "/run/secrets/YUGABYTE_PASSWORD"
 	files := make(map[string][]byte)
 	files[runtimeInputPath] = []byte(password)
-
 	assets := []struct{ source, target string }{
 		{"entrypoint.sh", "/opt/tack/yugabyte-entrypoint.sh"},
 		{"healthcheck.sh", "/opt/tack/yugabyte-healthcheck.sh"},
@@ -28,17 +26,10 @@ func yugabyteRuntimeFiles(ctx context.Context, password string) (map[string][]by
 		contents, err := os.ReadFile(filepath.Join(root, "yugabyte-overlay", asset.source))
 		if err != nil {
 			wrapped := fmt.Errorf("read Yugabyte runtime script %s: %w", asset.source, err)
-			slog.ErrorContext(
-				ctx,
-				"testenv.ledger_script_failed",
-				slog.String("err", wrapped.Error()),
-			)
-
+			slog.ErrorContext(ctx, "testenv.ledger_script_failed", slog.String("err", wrapped.Error()))
 			return nil, wrapped
 		}
-
 		files[asset.target] = contents
 	}
-
 	return files, nil
 }

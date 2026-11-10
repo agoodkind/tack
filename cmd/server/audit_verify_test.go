@@ -37,32 +37,23 @@ func TestAuditVerifyCommandFailsOnTamperedBundle(t *testing.T) {
 	if err := os.MkdirAll(bundleDir, 0o750); err != nil {
 		t.Fatalf("create bundle dir: %v", err)
 	}
-
 	writeMismatchedBundle(t, bundleDir, keyPath)
 
 	_, keyID, err := loadAuditKey(keyPath)
 	if err != nil {
 		t.Fatalf("load key: %v", err)
 	}
-
 	factory := &cli.Factory{Cfg: nil, In: nil, Out: os.Stdout, Err: os.Stderr}
 	operation := auditVerifyOp(factory)
 	// The set names the verifying key, so the only failure left to catch is
 	// the row hash the test planted.
-	input := auditVerifyInput{
-		InputMarker: clispec.InputMarker{},
-		Bundle:      bundleDir,
-		Pub:         keyPath,
-		Signers:     keyID,
-	}
+	input := auditVerifyInput{InputMarker: clispec.InputMarker{}, Bundle: bundleDir, Pub: keyPath, Signers: keyID}
 
 	err = operation.Run(context.Background(), input, clispec.NewCLISink(factory))
 	if err == nil {
 		t.Fatal("command accepted a bundle whose row hash does not match, want failure")
 	}
-
-	if !strings.Contains(err.Error(), "failed their hash check") ||
-		strings.Contains(err.Error(), "signer") {
+	if !strings.Contains(err.Error(), "failed their hash check") || strings.Contains(err.Error(), "signer") {
 		t.Fatalf("error = %v, want the row hash named and nothing about the signer", err)
 	}
 }
@@ -73,24 +64,15 @@ func writeVerifyTestKey(t *testing.T, dir string) string {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-
 	der, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {
 		t.Fatalf("marshal key: %v", err)
 	}
-
 	path := filepath.Join(dir, "audit-signing.pem")
-	if err := os.WriteFile(
-		path,
-		pem.EncodeToMemory(&pem.Block{
-			Type:  "PRIVATE KEY",
-			Bytes: der,
-		}),
-		0o600,
-	); err != nil {
+	if err := os.WriteFile(path, pem.EncodeToMemory(
+		&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
 		t.Fatalf("write key: %v", err)
 	}
-
 	return path
 }
 
@@ -104,30 +86,20 @@ func writeMismatchedBundle(t *testing.T, bundleDir, keyPath string) {
 	if err != nil {
 		t.Fatalf("load key: %v", err)
 	}
-
 	orgID := uuid.Must(uuid.NewV7())
 	row := audit.Row{
-		OrgID:      orgID,
-		EventTime:  time.Now().UTC(),
-		EventID:    uuid.Must(uuid.NewV7()),
-		Seq:        1,
-		Shard:      1,
-		ActorID:    uuid.Must(uuid.NewV7()),
-		ActorKind:  5,
-		Action:     "ops.test.verify",
-		Outcome:    audit.OutcomeOK,
-		EntityKind: "system",
-		EntityID:   orgID,
+		OrgID: orgID, EventTime: time.Now().UTC(), EventID: uuid.Must(uuid.NewV7()),
+		Seq: 1, Shard: 1, ActorID: uuid.Must(uuid.NewV7()), ActorKind: 5,
+		Action: "ops.test.verify", Outcome: audit.OutcomeOK,
+		EntityKind: "system", EntityID: orgID,
 		// Version 3 recomputes in one try; a wrong stored hash fails outright.
-		Context:     audit.EventContext{OrgID: orgID, Source: audit.SourceSystem},
-		HashVersion: 3,
-		RowHash:     []byte("this is not the hash of this row"),
+		Context: audit.EventContext{OrgID: orgID, Source: audit.SourceSystem}, HashVersion: 3,
+		RowHash: []byte("this is not the hash of this row"),
 	}
 	rowBytes, err := json.Marshal(row)
 	if err != nil {
 		t.Fatalf("marshal row: %v", err)
 	}
-
 	jsonl := append(rowBytes, '\n')
 	if err := os.WriteFile(filepath.Join(bundleDir, "events.jsonl"), jsonl, 0o600); err != nil {
 		t.Fatalf("write events: %v", err)
@@ -136,50 +108,33 @@ func writeMismatchedBundle(t *testing.T, bundleDir, keyPath string) {
 	digest := sha256.Sum256(jsonl)
 	now := time.Now().UTC()
 	manifest := audit.ExportManifest{
-		ExportID: uuid.Must(uuid.NewV7()),
-		OrgID:    orgID,
-		Oldest:   now.Add(-time.Hour),
-		Latest:   now.Add(time.Hour),
-		RowCount: 1,
+		ExportID: uuid.Must(uuid.NewV7()), OrgID: orgID,
+		Oldest: now.Add(-time.Hour), Latest: now.Add(time.Hour), RowCount: 1,
 		// The manifest names the key that signs it, so the signer checks pass
 		// and the planted row hash is the only thing left to reject.
-		FileSHA256:  hex.EncodeToString(digest[:]),
-		SignatureBy: keyID,
+		FileSHA256: hex.EncodeToString(digest[:]), SignatureBy: keyID,
 	}
-	signable, err := json.Marshal(
-		struct {
-			ExportID    uuid.UUID `json:"export_id"`
-			OrgID       uuid.UUID `json:"org_id"`
-			Oldest      time.Time `json:"oldest"`
-			Latest      time.Time `json:"latest"`
-			RowCount    int       `json:"row_count"`
-			FileSHA256  string    `json:"file_sha256"`
-			SignatureBy string    `json:"signing_key_id"`
-		}{
-			manifest.ExportID,
-			manifest.OrgID,
-			manifest.Oldest,
-			manifest.Latest,
-			manifest.RowCount,
-			manifest.FileSHA256,
-			manifest.SignatureBy,
-		},
-	)
+	signable, err := json.Marshal(struct {
+		ExportID    uuid.UUID `json:"export_id"`
+		OrgID       uuid.UUID `json:"org_id"`
+		Oldest      time.Time `json:"oldest"`
+		Latest      time.Time `json:"latest"`
+		RowCount    int       `json:"row_count"`
+		FileSHA256  string    `json:"file_sha256"`
+		SignatureBy string    `json:"signing_key_id"`
+	}{
+		manifest.ExportID, manifest.OrgID, manifest.Oldest, manifest.Latest,
+		manifest.RowCount, manifest.FileSHA256, manifest.SignatureBy,
+	})
 	if err != nil {
 		t.Fatalf("marshal signable manifest: %v", err)
 	}
-
 	manifest.Signature = hex.EncodeToString(ed25519.Sign(priv, signable))
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatalf("marshal manifest: %v", err)
 	}
-
-	if err := os.WriteFile(
-		filepath.Join(bundleDir, "manifest.json"),
-		manifestBytes,
-		0o600,
-	); err != nil {
+	if err := os.WriteFile(filepath.Join(bundleDir, "manifest.json"), manifestBytes, 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 }

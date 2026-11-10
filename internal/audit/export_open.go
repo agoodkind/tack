@@ -35,38 +35,23 @@ import (
 func openBundleRowsFile(path string) (*os.File, error) {
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		slog.Error(
-			"audit.verify.rows_open_refused",
-			slog.String("path", path),
-			slog.String("err", err.Error()),
-		)
-
+		slog.Error("audit.verify.rows_open_refused",
+			slog.String("path", path), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("open bundle rows %s: %w", path, err)
 	}
-
 	info, err := file.Stat()
 	if err != nil {
 		_ = file.Close()
-		slog.Error(
-			"audit.verify.rows_stat_failed",
-			slog.String("path", path),
-			slog.String("err", err.Error()),
-		)
-
+		slog.Error("audit.verify.rows_stat_failed",
+			slog.String("path", path), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("stat bundle rows %s: %w", path, err)
 	}
-
 	if !info.Mode().IsRegular() {
 		_ = file.Close()
 		kindErr := fmt.Errorf("bundle rows %s is not a regular file: mode %s", path, info.Mode())
-		slog.Error(
-			"audit.verify.rows_not_regular",
-			slog.String("path", path),
-			slog.String("err", kindErr.Error()),
-		)
-
+		slog.Error("audit.verify.rows_not_regular",
+			slog.String("path", path), slog.String("err", kindErr.Error()))
 		return nil, kindErr
 	}
-
 	return file, nil
 }

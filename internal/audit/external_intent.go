@@ -14,16 +14,8 @@ import (
 func ExternalIntent(operation Event, verb Verb, target Target, orgID uuid.UUID) Event {
 	eventTarget := target
 	intent := operation
-	intent.Verb, intent.EventID, intent.OccurredAt = string(verb), uuid.Must(
-		uuid.NewV7(),
-	), clock.Now().UTC()
-	intent.Entity = Entity{
-		Type:       target.Kind,
-		NodeType:   target.NodeType,
-		ID:         target.ID,
-		Identifier: target.Reference,
-		Name:       target.Name,
-	}
+	intent.Verb, intent.EventID, intent.OccurredAt = string(verb), uuid.Must(uuid.NewV7()), clock.Now().UTC()
+	intent.Entity = Entity{Type: target.Kind, NodeType: target.NodeType, ID: target.ID, Identifier: target.Reference, Name: target.Name}
 	intent.Context.OrgID = orgID
 	intent.Context.AuditFormatVersion = AuditFormatComplete
 	intent.Context.OperationClass, intent.Context.Phase = OperationExternal, PhaseIntent
@@ -31,6 +23,5 @@ func ExternalIntent(operation Event, verb Verb, target Target, orgID uuid.UUID) 
 	intent.Context.Read, intent.Context.CommitVersion, intent.Context.CommittedSteps = nil, "", nil
 	intent.Delta, intent.Outcome, intent.Error = nil, OutcomePending, nil
 	intent.IdempotencyKey, intent.Protected = "", nil
-
 	return intent
 }

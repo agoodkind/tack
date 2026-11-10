@@ -15,6 +15,5 @@ func newLocalDockerClient(_ context.Context) (*client.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("local docker client: %w", err)
 	}
-
 	return cli, nil
 }

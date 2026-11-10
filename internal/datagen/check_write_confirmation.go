@@ -46,15 +46,9 @@ func (g *Generator) updateIssueAndCheckConfirmation(
 	if err != nil {
 		return err
 	}
-	if err := checkConfirmation(
-		ctx,
-		issueReference,
-		first,
+	if err := checkConfirmation(ctx, issueReference, first,
 		[]string{fmt.Sprintf("- Changed: `%s` from `%s` to `%s`", stateIDKey, current, target)},
-		[]string{
-			"- Unchanged: `qa_checkbox` is `true`",
-			"- Changed: `qa_checkbox` from `false` to `true`",
-		},
+		[]string{"- Unchanged: `qa_checkbox` is `true`", "- Changed: `qa_checkbox` from `false` to `true`"},
 	); err != nil {
 		return err
 	}
@@ -62,19 +56,14 @@ func (g *Generator) updateIssueAndCheckConfirmation(
 	if err != nil {
 		return err
 	}
-	if err := checkConfirmation(
-		ctx,
-		issueReference,
-		repeated,
+	if err := checkConfirmation(ctx, issueReference, repeated,
 		[]string{fmt.Sprintf("- Unchanged: `%s` is `%s`", stateIDKey, target)},
 		[]string{"- Unchanged: `qa_checkbox` is `true`"},
 		[]string{"- Unchanged: `qa_text` is `"},
 	); err != nil {
 		return err
 	}
-	slog.InfoContext(
-		ctx,
-		"qa.datagen.write_confirmation_verified",
+	slog.InfoContext(ctx, "qa.datagen.write_confirmation_verified",
 		slog.String("issue", issueReference),
 		slog.String("from_state", current),
 		slog.String("to_state", target),
@@ -114,16 +103,11 @@ func (g *Generator) updateIssue(
 	issueReference string,
 	properties NodeProperties,
 ) (Result, error) {
-	result, err := g.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_update_issue",
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			NodeID:             issueReference,
-			Properties:         properties,
-		},
-	)
+	result, err := g.driver.Call(ctx, actor.Token, "tack_update_issue", ToolArguments{
+		WorkspaceReference: workspace.Slug,
+		NodeID:             issueReference,
+		Properties:         properties,
+	})
 	if err != nil {
 		return Result{}, loggedError(ctx, "qa datagen: update issue", err)
 	}
@@ -136,15 +120,10 @@ func (g *Generator) issueStateReference(
 	workspace WorkspaceIdentity,
 	issueReference string,
 ) (string, error) {
-	result, err := g.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_get_issue",
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			NodeID:             issueReference,
-		},
-	)
+	result, err := g.driver.Call(ctx, actor.Token, "tack_get_issue", ToolArguments{
+		WorkspaceReference: workspace.Slug,
+		NodeID:             issueReference,
+	})
 	if err != nil {
 		return "", loggedError(ctx, "qa datagen: read issue state before update", err)
 	}
@@ -158,50 +137,22 @@ func (g *Generator) issueStateReference(
 			return reference, nil
 		}
 	}
-	return "", loggedError(
-		ctx,
-		"qa datagen: read issue state before update",
-		fmt.Errorf(
-			"response for issue %s does not include a readable State reference: %s",
-			issueReference,
-			result.Text(),
-		),
-	)
+	return "", loggedError(ctx, "qa datagen: read issue state before update",
+		fmt.Errorf("response for issue %s does not include a readable State reference: %s", issueReference, result.Text()))
 }
 
 // checkConfirmation checks the byte limit and requires at least one matching
 // line prefix from each group.
-func checkConfirmation(
-	ctx context.Context,
-	issueReference string,
-	result Result,
-	wanted ...[]string,
-) error {
+func checkConfirmation(ctx context.Context, issueReference string, result Result, wanted ...[]string) error {
 	operation := "qa datagen: check update confirmation for " + issueReference
 	text := result.Text()
 	if len(text) > maxWriteConfirmationBytes {
-		return loggedError(
-			ctx,
-			operation,
-			fmt.Errorf(
-				"the confirmation is %d bytes, above the %d-byte limit: %s",
-				len(text),
-				maxWriteConfirmationBytes,
-				text,
-			),
-		)
+		return loggedError(ctx, operation,
+			fmt.Errorf("the confirmation is %d bytes, above the %d-byte limit: %s", len(text), maxWriteConfirmationBytes, text))
 	}
 	for _, prefixes := range wanted {
 		if !containsAnyLine(text, prefixes) {
-			return loggedError(
-				ctx,
-				operation,
-				fmt.Errorf(
-					"the confirmation does not include a line starting with any of %q: %s",
-					prefixes,
-					text,
-				),
-			)
+			return loggedError(ctx, operation, fmt.Errorf("the confirmation does not include a line starting with any of %q: %s", prefixes, text))
 		}
 	}
 	return nil

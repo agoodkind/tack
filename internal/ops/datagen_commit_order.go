@@ -38,27 +38,13 @@ type datagenCommitOrderReport struct {
 // for each generated organization. It counts node rows, node rows with a
 // commit version, and distinct commit versions that appear in multiple node
 // rows.
-func readDatagenCommitOrder(
-	ctx context.Context,
-	f *cli.Factory,
-	scaleName string,
-	seed int64,
-	now time.Time,
-) (datagenCommitOrderReport, error) {
+func readDatagenCommitOrder(ctx context.Context, f *cli.Factory, scaleName string, seed int64, now time.Time) (datagenCommitOrderReport, error) {
 	report := datagenCommitOrderReport{
-		Command:        "ops.qa.datagen.commit_order",
-		ReadAt:         now.Format(time.RFC3339Nano),
-		NodeRows:       0,
-		CommitVersions: 0,
-		Duplicates:     0,
+		Command: "ops.qa.datagen.commit_order", ReadAt: now.Format(time.RFC3339Nano), NodeRows: 0, CommitVersions: 0, Duplicates: 0,
 	}
 	if strings.TrimSpace(f.Cfg.AuditReaderDSN) == "" {
 		err := errors.New("the commit order report needs AUDIT_READER_DSN")
-		slog.ErrorContext(
-			ctx,
-			"qa.datagen.commit_order_config_missing",
-			slog.String("err", err.Error()),
-		)
+		slog.ErrorContext(ctx, "qa.datagen.commit_order_config_missing", slog.String("err", err.Error()))
 		return report, err
 	}
 	scale, err := datagen.ParseScale(scaleName)
@@ -67,11 +53,7 @@ func readDatagenCommitOrder(
 	}
 	reader, err := audit.NewReader(ctx, f.Cfg.AuditReaderDSN)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"qa.datagen.commit_order_reader_failed",
-			slog.String("err", err.Error()),
-		)
+		slog.ErrorContext(ctx, "qa.datagen.commit_order_reader_failed", slog.String("err", err.Error()))
 		return report, fmt.Errorf("open the ledger reader from AUDIT_READER_DSN: %w", err)
 	}
 	defer reader.Close()
@@ -82,32 +64,13 @@ func readDatagenCommitOrder(
 			continue
 		}
 		read[workspace.OrgID] = true
-		page, err := reader.QueryPage(
-			ctx,
-			audit.QueryFilter{
-				OrgID:     workspace.OrgID,
-				Oldest:    now.Add(-datagenCommitOrderWindow),
-				Latest:    now.Add(time.Minute),
-				Action:    "",
-				ActorID:   uuid.Nil,
-				EntityID:  uuid.Nil,
-				RequestID: "",
-				TraceID:   "",
-				Limit:     datagenCommitOrderRows,
-			},
-			"",
-		)
+		page, err := reader.QueryPage(ctx, audit.QueryFilter{
+			OrgID: workspace.OrgID, Oldest: now.Add(-datagenCommitOrderWindow), Latest: now.Add(time.Minute),
+			Action: "", ActorID: uuid.Nil, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: datagenCommitOrderRows,
+		}, "")
 		if err != nil {
-			wrapped := fmt.Errorf(
-				"read the ledger rows of organization %s: %w",
-				workspace.OrgID,
-				err,
-			)
-			slog.ErrorContext(
-				ctx,
-				"qa.datagen.commit_order_failed",
-				slog.String("err", wrapped.Error()),
-			)
+			wrapped := fmt.Errorf("read the ledger rows of organization %s: %w", workspace.OrgID, err)
+			slog.ErrorContext(ctx, "qa.datagen.commit_order_failed", slog.String("err", wrapped.Error()))
 			return report, wrapped
 		}
 		for _, row := range page.Rows {

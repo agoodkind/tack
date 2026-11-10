@@ -32,14 +32,8 @@ func TestMacRunnerDockerRejectsNamedTemporaryVolume(t *testing.T) {
 		ctx := context.Background()
 		if runnerID != "" {
 			current, err := docker.ContainerInspect(ctx, runnerID, client.ContainerInspectOptions{})
-			if err == nil && current.Container.Config != nil &&
-				current.Container.Config.Labels["com.docker.compose.project"] == project &&
-				current.Container.Config.Labels["io.goodkind.tack.mac-runner.root"] == options.Root {
-				if _, err := docker.ContainerRemove(
-					ctx,
-					runnerID,
-					client.ContainerRemoveOptions{Force: true},
-				); err != nil {
+			if err == nil && current.Container.Config != nil && current.Container.Config.Labels["com.docker.compose.project"] == project && current.Container.Config.Labels["io.goodkind.tack.mac-runner.root"] == options.Root {
+				if _, err := docker.ContainerRemove(ctx, runnerID, client.ContainerRemoveOptions{Force: true}); err != nil {
 					t.Error(err)
 					return
 				}
@@ -56,11 +50,7 @@ func TestMacRunnerDockerRejectsNamedTemporaryVolume(t *testing.T) {
 			t.Errorf("refuse changed named volume recovery: %v", err)
 			return
 		}
-		if _, err := docker.VolumeRemove(
-			ctx,
-			volumeName,
-			client.VolumeRemoveOptions{},
-		); err != nil {
+		if _, err := docker.VolumeRemove(ctx, volumeName, client.VolumeRemoveOptions{}); err != nil {
 			t.Error(err)
 		}
 	})
@@ -71,63 +61,38 @@ func TestMacRunnerDockerRejectsNamedTemporaryVolume(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(fixtureHome) })
 	inspectionSocket := filepath.Join(fixtureHome, ".docker/run/docker.sock")
-	rawSocket := filepath.Join(
-		fixtureHome,
-		"Library/Containers/com.docker.docker/Data/docker.raw.sock",
-	)
+	rawSocket := filepath.Join(fixtureHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock")
 	for _, directory := range []string{filepath.Dir(inspectionSocket), filepath.Dir(rawSocket)} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Symlink(
-		filepath.Join(originalHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock"),
-		rawSocket,
-	); err != nil {
+	if err := os.Symlink(filepath.Join(originalHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock"), rawSocket); err != nil {
 		t.Fatal(err)
 	}
 	listener, err := net.Listen("unix", inspectionSocket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(
-				ctx,
-				"unix",
-				filepath.Join(originalHome, ".docker/run/docker.sock"),
-			)
-		},
-	}
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
-		Scheme: "http",
-		Host:   "docker",
-	})
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(originalHome, ".docker/run/docker.sock"))
+	}}
+	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "docker"})
 	proxy.Transport = transport
 	proxy.FlushInterval = -1
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if request.Method == http.MethodPost &&
-				strings.HasSuffix(request.URL.Path, "/containers/create") {
-				if _, err := docker.VolumeCreate(
-					request.Context(),
-					client.VolumeCreateOptions{
-						Name:   volumeName,
-						Labels: map[string]string{"tack.mac-runner-fixture": project},
-					},
-				); err != nil {
-					http.Error(writer, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				if err := macReplaceTemporaryMount(request, volumeName); err != nil {
-					http.Error(writer, err.Error(), http.StatusBadRequest)
-					return
-				}
+	server := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/containers/create") {
+			if _, err := docker.VolumeCreate(request.Context(), client.VolumeCreateOptions{Name: volumeName, Labels: map[string]string{"tack.mac-runner-fixture": project}}); err != nil {
+				http.Error(writer, err.Error(), http.StatusInternalServerError)
+				return
 			}
-			proxy.ServeHTTP(writer, request)
-		}),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+			if err := macReplaceTemporaryMount(request, volumeName); err != nil {
+				http.Error(writer, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		proxy.ServeHTTP(writer, request)
+	}), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close(); transport.CloseIdleConnections() })
 	t.Setenv("HOME", fixtureHome)
@@ -143,29 +108,16 @@ func TestMacRunnerDockerRejectsNamedTemporaryVolume(t *testing.T) {
 	if len(summary.CreatedIDs) == 1 {
 		runnerID = summary.CreatedIDs[0]
 	}
-	if strings.Contains(
-		macRead(t, options.EvidenceDirectory, "baseline-volumes.stdout"),
-		volumeName,
-	) {
+	if strings.Contains(macRead(t, options.EvidenceDirectory, "baseline-volumes.stdout"), volumeName) {
 		t.Fatal("named volume existed in the baseline")
 	}
-	if runErr == nil || result.ExitCode != 1 ||
-		!strings.Contains(runErr.Error(), "anonymous volume proof") ||
-		runnerID == "" {
+	if runErr == nil || result.ExitCode != 1 || !strings.Contains(runErr.Error(), "anonymous volume proof") || runnerID == "" {
 		t.Errorf("named temporary mount was not refused: result=%+v error=%v", result, runErr)
 	}
-	if _, err := docker.VolumeInspect(
-		t.Context(),
-		volumeName,
-		client.VolumeInspectOptions{},
-	); err != nil {
+	if _, err := docker.VolumeInspect(t.Context(), volumeName, client.VolumeInspectOptions{}); err != nil {
 		t.Errorf("named volume was not preserved: %v", err)
 	}
-	if _, err := docker.ContainerInspect(
-		t.Context(),
-		runnerID,
-		client.ContainerInspectOptions{},
-	); err != nil {
+	if _, err := docker.ContainerInspect(t.Context(), runnerID, client.ContainerInspectOptions{}); err != nil {
 		t.Errorf("runner with unproven mount was not preserved: %v", err)
 	}
 }

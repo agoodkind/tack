@@ -107,102 +107,42 @@ const staleGenerationMarker = "tack stale search generation"
 //go:embed access_update.painless
 var accessUpdateScript string
 
-func encodePageDocument(
-	ctx context.Context,
-	intent searchdomain.WriteIntent,
-	precondition pagePrecondition,
-) ([]byte, error) {
+func encodePageDocument(ctx context.Context, intent searchdomain.WriteIntent, precondition pagePrecondition) ([]byte, error) {
 	document := pageDocument{
-		NodeID:            intent.Work.NodeID.String(),
-		NodeType:          intent.Page.NodeType,
-		NodeRevision:      intent.Page.Revision,
-		ProjectionVersion: intent.Page.ProjectionVersion,
-		PageOrdinal:       intent.Page.Ordinal,
-		Name:              intent.Page.Name,
-		PageText:          intent.Page.Text,
-		Retired:           false,
-		SearchGeneration:  intent.Work.Generation,
-		Access:            toPageAccess(intent.Page.Access),
+		NodeID: intent.Work.NodeID.String(), NodeType: intent.Page.NodeType,
+		NodeRevision: intent.Page.Revision, ProjectionVersion: intent.Page.ProjectionVersion,
+		PageOrdinal: intent.Page.Ordinal, Name: intent.Page.Name, PageText: intent.Page.Text,
+		Retired: false, SearchGeneration: intent.Work.Generation, Access: toPageAccess(intent.Page.Access),
 	}
-
 	return encodeGuarded(ctx, intent.Work.Target, intent.DocumentID, precondition, document)
 }
 
-func encodeRetirement(
-	ctx context.Context,
-	work searchdomain.Work,
-	document searchdomain.IssuedDocument,
-	precondition pagePrecondition,
-) ([]byte, error) {
+func encodeRetirement(ctx context.Context, work searchdomain.Work, document searchdomain.IssuedDocument, precondition pagePrecondition) ([]byte, error) {
 	retired := retiredDocument{
-		NodeID:           work.NodeID.String(),
-		NodeRevision:     strconv.FormatInt(document.Revision, 10),
-		PageOrdinal:      document.Ordinal,
-		Retired:          true,
-		SearchGeneration: work.Generation,
+		NodeID: work.NodeID.String(), NodeRevision: strconv.FormatInt(document.Revision, 10),
+		PageOrdinal: document.Ordinal, Retired: true, SearchGeneration: work.Generation,
 	}
-
 	return encodeGuarded(ctx, work.Target, document.DocumentID, precondition, retired)
 }
 
 // encodeGuarded encodes a create action for an absent page, or an index
 // action that requires the read sequence number and primary term.
-func encodeGuarded[Body pageDocument | retiredDocument](
-	ctx context.Context,
-	index string,
-	documentID string,
-	precondition pagePrecondition,
-	body Body,
-) ([]byte, error) {
+func encodeGuarded[Body pageDocument | retiredDocument](ctx context.Context, index, documentID string, precondition pagePrecondition, body Body) ([]byte, error) {
 	if precondition.Create {
-		target := bulkTarget{
-			Index:           index,
-			ID:              documentID,
-			IfSeqNo:         nil,
-			IfPrimaryTerm:   nil,
-			RetryOnConflict: 0,
-		}
-
+		target := bulkTarget{Index: index, ID: documentID, IfSeqNo: nil, IfPrimaryTerm: nil, RetryOnConflict: 0}
 		return encodeBulkLines(ctx, bulkCreateHeader{Create: target}, body)
 	}
-
 	seqNo, primaryTerm := precondition.SeqNo, precondition.PrimaryTerm
-	target := bulkTarget{
-		Index:           index,
-		ID:              documentID,
-		IfSeqNo:         &seqNo,
-		IfPrimaryTerm:   &primaryTerm,
-		RetryOnConflict: 0,
-	}
-
+	target := bulkTarget{Index: index, ID: documentID, IfSeqNo: &seqNo, IfPrimaryTerm: &primaryTerm, RetryOnConflict: 0}
 	return encodeBulkLines(ctx, bulkIndexHeader{Index: target}, body)
 }
 
-func encodeAccessUpdate(
-	ctx context.Context,
-	work searchdomain.Work,
-	documentID string,
-	access node.SearchAccess,
-) ([]byte, error) {
-	target := bulkTarget{
-		Index:           work.Target,
-		ID:              documentID,
-		IfSeqNo:         nil,
-		IfPrimaryTerm:   nil,
-		RetryOnConflict: accessRetryOnConflict,
-	}
-	body := accessScriptBody{
-		Script: accessScript{
-			Source: accessUpdateScript,
-			Lang:   "painless",
-			Params: accessScriptParams{
-				Generation:  work.Generation,
-				Access:      toPageAccess(access),
-				StaleMarker: staleGenerationMarker,
-			},
-		},
-	}
-
+func encodeAccessUpdate(ctx context.Context, work searchdomain.Work, documentID string, access node.SearchAccess) ([]byte, error) {
+	target := bulkTarget{Index: work.Target, ID: documentID, IfSeqNo: nil, IfPrimaryTerm: nil, RetryOnConflict: accessRetryOnConflict}
+	body := accessScriptBody{Script: accessScript{
+		Source: accessUpdateScript, Lang: "painless",
+		Params: accessScriptParams{Generation: work.Generation, Access: toPageAccess(access), StaleMarker: staleGenerationMarker},
+	}}
 	return encodeBulkLines(ctx, bulkUpdateHeader{Update: target}, body)
 }
 
@@ -218,39 +158,22 @@ type bulkBody interface {
 	pageDocument | retiredDocument | accessScriptBody
 }
 
-func encodeBulkLines[Header bulkLine, Body bulkBody](
-	ctx context.Context,
-	header Header,
-	body Body,
-) ([]byte, error) {
+func encodeBulkLines[Header bulkLine, Body bulkBody](ctx context.Context, header Header, body Body) ([]byte, error) {
 	first, err := json.Marshal(header)
 	if err != nil {
 		wrapped := fmt.Errorf("encode bulk action: %w", err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.bulk.encode_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.bulk.encode_failed", slog.String("err", wrapped.Error()))
 		return nil, wrapped
 	}
-
 	second, err := json.Marshal(body)
 	if err != nil {
 		wrapped := fmt.Errorf("encode bulk document: %w", err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.bulk.encode_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.bulk.encode_failed", slog.String("err", wrapped.Error()))
 		return nil, wrapped
 	}
-
 	encoded := make([]byte, 0, len(first)+len(second)+2)
 	encoded = append(encoded, first...)
 	encoded = append(encoded, '\n')
 	encoded = append(encoded, second...)
-
 	return append(encoded, '\n'), nil
 }

@@ -29,45 +29,23 @@ func checkZeroTokenIDRowHash(row Row) (bool, string, error) {
 	if row.Context.APITokenID != uuid.Nil {
 		return false, "hash mismatch", nil
 	}
-
 	input, err := rowHashInputFor(row)
 	if err != nil {
 		return false, "", err
 	}
-
-	contextJSON, err := json.Marshal(contextWithZeroTokenID{
-		EventContext: row.Context,
-		APITokenID:   uuid.Nil,
-	})
+	contextJSON, err := json.Marshal(contextWithZeroTokenID{EventContext: row.Context, APITokenID: uuid.Nil})
 	if err != nil {
-		slog.Error(
-			"audit.export.row_context_encode_failed",
-			slog.String("event_id", row.EventID.String()),
-			slog.String("err", err.Error()),
-		)
-
-		return false, "", fmt.Errorf(
-			"verify row %s context with zero token id: %w",
-			row.EventID,
-			err,
-		)
+		slog.Error("audit.export.row_context_encode_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
+		return false, "", fmt.Errorf("verify row %s context with zero token id: %w", row.EventID, err)
 	}
-
 	input.ContextJSON = contextJSON
 	expected, err := hashRowForEvent(input)
 	if err != nil {
-		slog.Error(
-			"audit.export.hash_failed",
-			slog.String("event_id", row.EventID.String()),
-			slog.String("err", err.Error()),
-		)
-
+		slog.Error("audit.export.hash_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
 		return false, "", fmt.Errorf("verify hash row %s with zero token id: %w", row.EventID, err)
 	}
-
 	if bytesEqual(expected, row.RowHash) {
 		return true, "", nil
 	}
-
 	return false, "hash mismatch", nil
 }

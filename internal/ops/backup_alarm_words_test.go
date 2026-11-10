@@ -17,23 +17,19 @@ var secondsValued = regexp.MustCompile(`\b\d+s\b`)
 // mail must not: the hyphenated metric names, standing alone rather than inside
 // a systemd unit name such as tack-ledger-export, and the report's field labels.
 var backupAlarmMachineWords = regexp.MustCompile(
-	`(?:^|[^\w-])(` + backupStalenessExportName + `|` + backupStalenessFDBName + `|age=|threshold=|STALE)`,
-)
+	`(?:^|[^\w-])(` + backupStalenessExportName + `|` + backupStalenessFDBName + `|age=|threshold=|STALE)`)
 
 // assertBackupAlarmPlainWords fails when the mail carries machine words, a
 // seconds-valued figure, an object-store credential, or the store's endpoint.
 func assertBackupAlarmPlainWords(t *testing.T, subject, body, endpoint string) {
 	t.Helper()
-
 	for _, text := range []string{subject, body} {
 		if match := backupAlarmMachineWords.FindString(text); match != "" {
 			t.Errorf("the mail carries the machine word %q:\n%s", strings.TrimSpace(match), text)
 		}
-
 		if match := secondsValued.FindString(text); match != "" {
 			t.Errorf("the mail carries a seconds-valued figure %q:\n%s", match, text)
 		}
-
 		for _, secret := range []string{"test-access", "test-secret", endpoint} {
 			if secret != "" && strings.Contains(text, secret) {
 				t.Errorf("the mail leaks %q:\n%s", secret, text)
@@ -53,21 +49,14 @@ func TestBackupStalenessAlarmOneFaultMail(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 9, 6, 16, 23, 0, 0, time.UTC)
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
-	fault := knownBackupStalenessMetric(
-		ctx,
-		backupStalenessReplicationName,
-		now,
-		now.Add(-32*time.Minute),
-		30*time.Minute,
-		"1 dead nodes, 4 under-replicated tablets",
-	)
+	fault := knownBackupStalenessMetric(ctx, backupStalenessReplicationName, now,
+		now.Add(-32*time.Minute), 30*time.Minute, "1 dead nodes, 4 under-replicated tablets")
 	faults := []backupStalenessMetric{fault}
 
 	subject := backupStalenessAlarmSubject(qaHost, faults)
 	if subject != "[tack-qa] Ledger cluster unhealthy for 32 minutes" {
 		t.Errorf("subject = %q", subject)
 	}
-
 	body := backupStalenessAlarmBody(cfg, faults)
 	wantBody := "The ledger cluster (logins and audit trail) was last healthy at 3:51 PM UTC on Sep 6, 2026, " +
 		"32 minutes ago; the limit is 30 minutes. " +
@@ -79,7 +68,6 @@ func TestBackupStalenessAlarmOneFaultMail(t *testing.T) {
 	if body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", body, wantBody)
 	}
-
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 }
 
@@ -91,37 +79,18 @@ func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	cfg := unreachableBackupStalenessConfig(t, "backups@example.test")
 	faults := []backupStalenessMetric{
-		knownBackupStalenessMetric(
-			ctx,
-			backupStalenessExportName,
-			now,
-			now.Add(-40*time.Hour),
-			36*time.Hour,
-			"newest complete run 20260827T200000Z",
-		),
-		knownBackupStalenessMetric(
-			ctx,
-			backupStalenessRehearsalName,
-			now,
-			now.Add(-9*24*time.Hour),
-			8*24*time.Hour,
-			"restore drill passed every leg",
-		),
-		knownBackupStalenessMetric(
-			ctx,
-			backupStalenessReplicationName,
-			now,
-			now.Add(-45*time.Minute),
-			30*time.Minute,
-			"1 dead nodes, 2 under-replicated tablets",
-		),
+		knownBackupStalenessMetric(ctx, backupStalenessExportName, now,
+			now.Add(-40*time.Hour), 36*time.Hour, "newest complete run 20260827T200000Z"),
+		knownBackupStalenessMetric(ctx, backupStalenessRehearsalName, now,
+			now.Add(-9*24*time.Hour), 8*24*time.Hour, "restore drill passed every leg"),
+		knownBackupStalenessMetric(ctx, backupStalenessReplicationName, now,
+			now.Add(-45*time.Minute), 30*time.Minute, "1 dead nodes, 2 under-replicated tablets"),
 	}
 
 	subject := backupStalenessAlarmSubject(qaHost, faults)
 	if subject != "[tack-qa] 3 backup problems" {
 		t.Errorf("subject = %q", subject)
 	}
-
 	body := backupStalenessAlarmBody(cfg, faults)
 	wantBody := "Nightly ledger export is 40 hours old\n" +
 		"The nightly ledger export (the daily copy of the ledger in the object store) last completed at " +
@@ -146,11 +115,9 @@ func TestBackupStalenessAlarmThreeFaultMail(t *testing.T) {
 	if body != wantBody {
 		t.Errorf("body mismatch:\n got=%q\nwant=%q", body, wantBody)
 	}
-
 	if strings.Contains(body, "20260827T200000Z") {
 		t.Errorf("the export run id must not reach the mail:\n%s", body)
 	}
-
 	assertBackupAlarmPlainWords(t, subject, body, cfg.BackupS3Endpoint)
 }
 

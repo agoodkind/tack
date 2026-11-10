@@ -29,15 +29,7 @@ const refusedOption = "critical"
 func TestNodeIntegrityMutationRejectsInvalidValues(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
-	_, err := env.NodeSvc.Create(
-		env.Ctx,
-		schemaCreateInput(
-			projectID,
-			projectID,
-			"issue",
-			schemaProps("priority", quoted(refusedOption)),
-		),
-	)
+	_, err := env.NodeSvc.Create(env.Ctx, schemaCreateInput(projectID, projectID, "issue", schemaProps("priority", quoted(refusedOption))))
 	requireRefusedProperty(t, err, "priority")
 	if issues := listByScope(t, env, "issue", projectID); len(issues) != 0 {
 		t.Fatalf("the refused create stored %d issues", len(issues))
@@ -45,7 +37,6 @@ func TestNodeIntegrityMutationRejectsInvalidValues(t *testing.T) {
 
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	before, _ := mutationSnapshot(t, env, issue.ID)
-
 	for _, request := range []struct {
 		property string
 		value    json.RawMessage
@@ -56,19 +47,10 @@ func TestNodeIntegrityMutationRejectsInvalidValues(t *testing.T) {
 		{"state_id", quoted(projectID.String())},
 		{"state_id", quoted(uuid.Must(uuid.NewV7()).String())},
 	} {
-		_, err := env.NodeSvc.Update(
-			env.Ctx,
-			service.UpdateInput{
-				NodeID: issue.ID,
-				Name:   nil,
-				Props:  schemaProps(request.property, request.value),
-				RelationshipChanges: node.RelationshipChanges{
-					Add:    nil,
-					Remove: nil,
-				},
-				ActorID: uuid.New(),
-			},
-		)
+		_, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
+			NodeID: issue.ID, Name: nil, Props: schemaProps(request.property, request.value),
+			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
+		})
 		requireRefusedProperty(t, err, request.property)
 		requireUnchanged(t, env, before)
 	}
@@ -84,7 +66,6 @@ func TestNodeIntegrityMutationMCPRejectsInvalidOption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
-
 	arguments := schemaArguments(harness)
 	arguments.Name = "Refused option issue"
 	arguments.Properties = datagen.NodeProperties{"priority": quoted(refusedOption)}
@@ -102,14 +83,8 @@ func TestNodeIntegrityMutationMCPRejectsInvalidOption(t *testing.T) {
 	update.Properties = datagen.NodeProperties{"priority": quoted(refusedOption)}
 	harness.CallExpectError(t, "tack_update_issue", update)
 	after := storedStoreView(t, stores, issueID)
-	if string(after.Props["priority"]) != string(before.Props["priority"]) ||
-		!after.UpdatedAt.Equal(before.UpdatedAt) {
-		t.Fatalf(
-			"the refused update changed issue %s: priority %s to %s",
-			issueID,
-			before.Props["priority"],
-			after.Props["priority"],
-		)
+	if string(after.Props["priority"]) != string(before.Props["priority"]) || !after.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Fatalf("the refused update changed issue %s: priority %s to %s", issueID, before.Props["priority"], after.Props["priority"])
 	}
 }
 
@@ -117,8 +92,7 @@ func TestNodeIntegrityMutationMCPRejectsInvalidOption(t *testing.T) {
 // or does not contain properties.<property>.
 func requireRefusedProperty(t *testing.T, err error, property string) {
 	t.Helper()
-	if !errors.Is(err, domain.ErrInvalidArgument) ||
-		!strings.Contains(err.Error(), "properties."+property) {
+	if !errors.Is(err, domain.ErrInvalidArgument) || !strings.Contains(err.Error(), "properties."+property) {
 		t.Fatalf("error = %v, want an invalid argument that contains properties.%s", err, property)
 	}
 }

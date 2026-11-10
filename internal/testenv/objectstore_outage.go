@@ -35,7 +35,6 @@ func StartObjectStore(t T, containerName string) string {
 		_, _ = fmt.Fprintf(t.Output(), "testenv: %v\n", err)
 		t.FailNow()
 	}
-
 	return endpoint
 }
 
@@ -45,20 +44,13 @@ func stopObjectStore(ctx context.Context, containerName string) error {
 	if err != nil {
 		return err
 	}
-
 	defer func() { _ = cli.Close() }()
 	timeout := objectStoreStopSeconds
-	if _, err := cli.ContainerStop(
-		ctx,
-		containerName,
-		client.ContainerStopOptions{Signal: "", Timeout: &timeout},
-	); err != nil {
+	if _, err := cli.ContainerStop(ctx, containerName, client.ContainerStopOptions{Signal: "", Timeout: &timeout}); err != nil {
 		slog.ErrorContext(ctx, "testenv.objectstore.stop_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("stop container %s: %w", containerName, err)
 	}
-
 	slog.InfoContext(ctx, "testenv.objectstore.stopped", slog.String("container", containerName))
-
 	return nil
 }
 
@@ -71,28 +63,16 @@ func startObjectStore(ctx context.Context, containerName string) (string, error)
 	if err != nil {
 		return "", err
 	}
-
 	defer func() { _ = cli.Close() }()
-	if _, err := cli.ContainerStart(
-		ctx,
-		containerName,
-		client.ContainerStartOptions{},
-	); err != nil {
+	if _, err := cli.ContainerStart(ctx, containerName, client.ContainerStartOptions{}); err != nil {
 		slog.ErrorContext(ctx, "testenv.objectstore.start_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("start container %s: %w", containerName, err)
 	}
-
 	access, err := waitForObjectStore(ctx, cli, containerName)
 	if err != nil {
 		return "", err
 	}
-
-	slog.InfoContext(
-		ctx,
-		"testenv.objectstore.started",
-		slog.String("container", containerName),
-		slog.String("endpoint", access.Endpoint),
-	)
-
+	slog.InfoContext(ctx, "testenv.objectstore.started",
+		slog.String("container", containerName), slog.String("endpoint", access.Endpoint))
 	return access.Endpoint, nil
 }

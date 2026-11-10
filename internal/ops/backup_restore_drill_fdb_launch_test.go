@@ -28,17 +28,12 @@ func TestLaunchFDBRestorePassesTheDestinationAsData(t *testing.T) {
 	if _, err := os.Stat(canary); err == nil {
 		t.Fatal("the destination ran as shell: it created the canary file")
 	}
-
 	if exitStatus != "0" {
 		t.Fatalf("exit status = %q, want 0", exitStatus)
 	}
-
 	if logText != "["+dest+"]\n" {
-		t.Fatalf(
-			"the destination did not reach the command verbatim as one argument:\n got %q\nwant %q",
-			logText,
-			"["+dest+"]\n",
-		)
+		t.Fatalf("the destination did not reach the command verbatim as one argument:\n got %q\nwant %q",
+			logText, "["+dest+"]\n")
 	}
 }
 
@@ -54,7 +49,6 @@ func TestLaunchFDBRestoreKeepsASpacedDestinationOneArgument(t *testing.T) {
 	if exitStatus != "0" {
 		t.Fatalf("exit status = %q, want 0", exitStatus)
 	}
-
 	if logText != "["+dest+"]\n" {
 		t.Fatalf("the destination was split into more than one argument: got %q", logText)
 	}
@@ -72,11 +66,9 @@ func TestLaunchFDBRestorePublishesTheCommandsExitStatus(t *testing.T) {
 	if exitStatus != "3" {
 		t.Fatalf("exit status = %q, want the command's own 3", exitStatus)
 	}
-
 	if !strings.Contains(logText, "working") {
 		t.Fatalf("the log must carry the command's output, got %q", logText)
 	}
-
 	if _, err := os.Stat(fixture.files.Partial); err == nil {
 		t.Fatal("the partial status file must be moved into place, not left behind")
 	}
@@ -91,38 +83,28 @@ func TestLaunchFDBRestorePublishesTheCommandsExitStatus(t *testing.T) {
 // exit non-zero and the restore must not start.
 func TestLaunchFDBRestoreAbortsWhenTheStaleStatusCannotBeCleared(t *testing.T) {
 	fixture := newLaunchFixture(t)
-	if err := os.WriteFile(
-		fixture.files.Log,
-		[]byte("the previous restore's output\n"),
-		0o600,
-	); err != nil {
+	if err := os.WriteFile(fixture.files.Log, []byte("the previous restore's output\n"), 0o600); err != nil {
 		t.Fatalf("stage the previous restore log: %v", err)
 	}
-
 	if err := os.Mkdir(fixture.files.Exit, 0o755); err != nil {
 		t.Fatalf("stage an unremovable status name: %v", err)
 	}
-
 	canary := filepath.Join(fixture.dir, "canary")
 
 	argv := fdbRestoreLaunchArgv(fixture.files, []string{"touch", canary})
-
 	out, err := exec.CommandContext(t.Context(), argv[0], argv[1:]...).CombinedOutput()
+
 	if err == nil {
 		t.Fatalf("a launch whose clear failed must exit non-zero, got output %q", out)
 	}
-
 	// The guard exits before the group is forked, so the restore never runs.
 	// A launch that stepped over the failed clear forks it immediately, so a
 	// short window is enough to catch one that did.
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if _, statErr := os.Stat(canary); statErr == nil {
-			t.Fatal(
-				"the restore started even though the previous run's status could not be cleared",
-			)
+			t.Fatal("the restore started even though the previous run's status could not be cleared")
 		}
-
 		time.Sleep(5 * time.Millisecond)
 	}
 }
@@ -139,7 +121,6 @@ func TestFDBRestoreCommandCarriesTheDestinationUnaltered(t *testing.T) {
 	}
 
 	found := false
-
 	for i, arg := range command {
 		if arg == "-r" && i+1 < len(command) {
 			found = true
@@ -148,7 +129,6 @@ func TestFDBRestoreCommandCarriesTheDestinationUnaltered(t *testing.T) {
 			}
 		}
 	}
-
 	if !found {
 		t.Fatalf("the restore vector names no destination: %v", command)
 	}
@@ -172,22 +152,12 @@ func TestLaunchArgvRunsTheBuiltRestoreVector(t *testing.T) {
 	if len(argv) < len(restore) {
 		t.Fatalf("the launch dropped the restore vector: %q", argv)
 	}
-
 	if tail := argv[len(argv)-len(restore):]; !slices.Equal(tail, restore) {
-		t.Fatalf(
-			"the launch does not run the vector it was given:\n got %q\nwant %q",
-			tail,
-			restore,
-		)
+		t.Fatalf("the launch does not run the vector it was given:\n got %q\nwant %q", tail, restore)
 	}
-
 	for _, want := range []string{"--timestamp", "2026/08/30.01:05:00+0000", "--orig-cluster-file"} {
 		if !slices.Contains(argv, want) {
-			t.Fatalf(
-				"the operator's target did not reach the launched command, %q missing: %q",
-				want,
-				argv,
-			)
+			t.Fatalf("the operator's target did not reach the launched command, %q missing: %q", want, argv)
 		}
 	}
 }

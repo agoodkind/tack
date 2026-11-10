@@ -23,8 +23,5 @@ func openSearchFreeSpaceSettings() []string {
 // sharedOpenSearchNodeSettings returns the shared engine's point in time
 // context limit and disk settings.
 func sharedOpenSearchNodeSettings() []string {
-	return append(
-		[]string{"search.max_open_pit_context=" + OpenSearchPointInTimeLimit},
-		openSearchFreeSpaceSettings()...,
-	)
+	return append([]string{"search.max_open_pit_context=" + OpenSearchPointInTimeLimit}, openSearchFreeSpaceSettings()...)
 }

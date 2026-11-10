@@ -22,34 +22,17 @@ func TestDeleteSplitsHighFanOutAcrossSteps(t *testing.T) {
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	project := mustCreateScope(t, env, "project", "Wide", workspace.ID, workspace.ID, actor)
-	label := mustCreate(
-		t,
-		env,
-		service.CreateInput{
-			ParentID:    workspace.ID,
-			ScopeID:     workspace.ID,
-			NodeTypeKey: "label",
-			Name:        "wide",
-			ActorID:     actor,
-		},
-	)
-
+	label := mustCreate(t, env, service.CreateInput{
+		ParentID: workspace.ID, ScopeID: workspace.ID, NodeTypeKey: "label", Name: "wide", ActorID: actor,
+	})
 	issues := make([]uuid.UUID, 0, cascadeFanOut)
 	for range cascadeFanOut {
 		issueID := createTestIssue(t, env, project.ID, "Wide issue")
-		if err := env.NodeSvc.AddRelationship(
-			env.Ctx,
-			&node.Relationship{
-				OrgID:        env.OrgID,
-				SourceID:     issueID,
-				RelationType: node.RelLabeledWith,
-				TargetID:     label.ID,
-				CreatedBy:    actor,
-			},
-		); err != nil {
+		if err := env.NodeSvc.AddRelationship(env.Ctx, &node.Relationship{
+			OrgID: env.OrgID, SourceID: issueID, RelationType: node.RelLabeledWith, TargetID: label.ID, CreatedBy: actor,
+		}); err != nil {
 			t.Fatalf("label issue %s: %v", issueID, err)
 		}
-
 		issues = append(issues, issueID)
 	}
 
@@ -57,64 +40,36 @@ func TestDeleteSplitsHighFanOutAcrossSteps(t *testing.T) {
 	if err != nil || labelDeleted.Deleted != 1 {
 		t.Fatalf("delete label = %+v, %v; want 1 deleted node", labelDeleted, err)
 	}
-
 	requireNodesPresent(t, env, issues)
-
 	for _, issueID := range issues {
-		labels, err := env.Stores.Relationships.ListBySource(
-			env.Ctx,
-			env.OrgID,
-			issueID,
-			node.RelLabeledWith,
-		)
+		labels, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, issueID, node.RelLabeledWith)
 		if err != nil {
 			t.Fatalf("list labels of issue %s: %v", issueID, err)
 		}
-
 		if len(labels) != 0 {
-			t.Fatalf(
-				"issue %s keeps %d labeled_with edges to the deleted label",
-				issueID,
-				len(labels),
-			)
+			t.Fatalf("issue %s keeps %d labeled_with edges to the deleted label", issueID, len(labels))
 		}
 	}
 
-	states, err := env.Stores.Nodes.ListByProperty(
-		env.Ctx,
-		env.OrgID,
-		"state",
-		"parent_id",
-		jsonStr(project.ID.String()),
-	)
+	states, err := env.Stores.Nodes.ListByProperty(env.Ctx, env.OrgID, "state", "parent_id", jsonStr(project.ID.String()))
 	if err != nil {
 		t.Fatalf("list states of project %s: %v", project.ID, err)
 	}
-
 	projectDeleted, err := env.NodeSvc.Delete(env.Ctx, project.ID, actor)
 	if err != nil {
 		t.Fatalf("delete project %s: %v", project.ID, err)
 	}
-
 	/* Delete returns a running job once deleteRequestBudget ends. A slow
 	   runner ends the budget before the project's 111 nodes are gone; the
 	   resume pass then finishes the same job. */
 	if _, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0, env.LedgerResumeAudit()); err != nil {
 		t.Fatalf("resume the delete of project %s: %v", project.ID, err)
 	}
-
 	status, err := env.NodeSvc.DeleteStatus(env.Ctx, projectDeleted.JobID)
-	if want := 1 + len(states) + cascadeFanOut; err != nil || status.Deleted != want ||
-		status.State != node.SubtreeDeleteFinished {
-		t.Fatalf(
-			"delete project status = %+v, %v; first call %+v; want %d deleted nodes and a finished job",
-			status,
-			err,
-			projectDeleted,
-			want,
-		)
+	if want := 1 + len(states) + cascadeFanOut; err != nil || status.Deleted != want || status.State != node.SubtreeDeleteFinished {
+		t.Fatalf("delete project status = %+v, %v; first call %+v; want %d deleted nodes and a finished job",
+			status, err, projectDeleted, want)
 	}
-
 	requireNodesGone(t, env, append([]uuid.UUID{project.ID}, issues...))
 	requireNodesPresent(t, env, []uuid.UUID{workspace.ID})
 	requireNoDanglingParents(t, env)
@@ -129,17 +84,12 @@ func TestResumeFinishesAnInterruptedDelete(t *testing.T) {
 	env := SetupTestEnv(t)
 	fixture := newCascadeFixture(t, env)
 	job := &node.SubtreeDeleteJob{
-		ID:        uuid.Must(uuid.NewV7()),
-		OrgID:     env.OrgID,
-		RootID:    fixture.Project,
-		Stack:     nil,
-		Deleted:   0,
-		UpdatedAt: time.Time{},
+		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, RootID: fixture.Project,
+		Stack: nil, Deleted: 0, UpdatedAt: time.Time{},
 	}
 	if err := env.Stores.NodeDeleter.StartSubtreeDelete(env.Ctx, job); err != nil {
 		t.Fatalf("start the delete of project %s: %v", fixture.Project, err)
 	}
-
 	if _, err := env.Stores.NodeDeleter.DeleteSubtreeStep(env.Ctx, job.ID); err != nil {
 		t.Fatalf("run one step of job %s: %v", job.ID, err)
 	}
@@ -148,27 +98,17 @@ func TestResumeFinishesAnInterruptedDelete(t *testing.T) {
 	if err != nil || fresh != 0 {
 		t.Fatalf("resume with a one-hour bound = %d, %v; want 0 finished jobs", fresh, err)
 	}
-
 	requireNodesPresent(t, env, []uuid.UUID{fixture.Project})
 
 	finished, err := env.NodeSvc.ResumeSubtreeDeletes(env.Ctx, 0, env.LedgerResumeAudit())
 	if err != nil || finished != 1 {
 		t.Fatalf("resume with no bound = %d, %v; want 1 finished job", finished, err)
 	}
-
 	requireNodesGone(t, env, append([]uuid.UUID{fixture.Project}, fixture.Descendants...))
 	requireNodesPresent(t, env, fixture.Kept)
 	requireNoDanglingParents(t, env)
 	status, err := env.NodeSvc.DeleteStatus(env.Ctx, job.ID)
-	if want := 1 + len(
-		fixture.Descendants,
-	); err != nil || status.State != node.SubtreeDeleteFinished ||
-		status.Deleted != want {
-		t.Fatalf(
-			"status after the resume = %+v, %v; want finished with %d deleted nodes",
-			status,
-			err,
-			want,
-		)
+	if want := 1 + len(fixture.Descendants); err != nil || status.State != node.SubtreeDeleteFinished || status.Deleted != want {
+		t.Fatalf("status after the resume = %+v, %v; want finished with %d deleted nodes", status, err, want)
 	}
 }

@@ -33,16 +33,13 @@ func (m *memoryOutbox) Append(ctx context.Context, event json.RawMessage) error 
 	if m.fail != nil {
 		return m.fail
 	}
-
 	m.entries = append(m.entries, append(json.RawMessage(nil), event...))
-
 	return nil
 }
 
 func (m *memoryOutbox) count() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	return len(m.entries)
 }
 
@@ -53,43 +50,35 @@ func (m *memoryOutbox) count() int {
 func refuseProduce(cluster *kfake.Cluster) (stop func()) {
 	var stopped sync.Mutex
 	active := true
-	cluster.ControlKey(
-		kmsg.Produce.Int16(),
-		func(req kmsg.Request) (kmsg.Response, error, bool) {
-			stopped.Lock()
-			defer stopped.Unlock()
-			if !active {
-				return nil, nil, false
+	cluster.ControlKey(kmsg.Produce.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		stopped.Lock()
+		defer stopped.Unlock()
+		if !active {
+			return nil, nil, false
+		}
+		cluster.KeepControl()
+		produceReq, ok := req.(*kmsg.ProduceRequest)
+		if !ok {
+			return nil, nil, false
+		}
+		resp := produceReq.ResponseKind().(*kmsg.ProduceResponse)
+		for _, topic := range produceReq.Topics {
+			respTopic := kmsg.NewProduceResponseTopic()
+			respTopic.Topic = topic.Topic
+			// Produce v13 keys the response by topic id rather than name, and
+			// kgo re-enqueues a partition it cannot find in the reply, so a
+			// response that echoes only the name never fails the record.
+			respTopic.TopicID = topic.TopicID
+			for _, partition := range topic.Partitions {
+				respPartition := kmsg.NewProduceResponseTopicPartition()
+				respPartition.Partition = partition.Partition
+				respPartition.ErrorCode = kerr.TopicAuthorizationFailed.Code
+				respTopic.Partitions = append(respTopic.Partitions, respPartition)
 			}
-
-			cluster.KeepControl()
-			produceReq, ok := req.(*kmsg.ProduceRequest)
-			if !ok {
-				return nil, nil, false
-			}
-
-			resp := produceReq.ResponseKind().(*kmsg.ProduceResponse)
-			for _, topic := range produceReq.Topics {
-				respTopic := kmsg.NewProduceResponseTopic()
-				respTopic.Topic = topic.Topic
-				// Produce v13 keys the response by topic id rather than name, and
-				// kgo re-enqueues a partition it cannot find in the reply, so a
-				// response that echoes only the name never fails the record.
-				respTopic.TopicID = topic.TopicID
-				for _, partition := range topic.Partitions {
-					respPartition := kmsg.NewProduceResponseTopicPartition()
-					respPartition.Partition = partition.Partition
-					respPartition.ErrorCode = kerr.TopicAuthorizationFailed.Code
-					respTopic.Partitions = append(respTopic.Partitions, respPartition)
-				}
-
-				resp.Topics = append(resp.Topics, respTopic)
-			}
-
-			return resp, nil, true
-		},
-	)
-
+			resp.Topics = append(resp.Topics, respTopic)
+		}
+		return resp, nil, true
+	})
 	return func() {
 		stopped.Lock()
 		active = false
@@ -116,19 +105,9 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buffer bytes.Buffer
 	previous := slog.Default()
-	slog.SetDefault(
-		slog.New(
-			slog.NewTextHandler(
-				&buffer,
-				&slog.HandlerOptions{
-					AddSource:   false,
-					Level:       slog.LevelDebug,
-					ReplaceAttr: nil,
-				},
-			),
-		),
-	)
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buffer, &slog.HandlerOptions{
+		AddSource: false, Level: slog.LevelDebug, ReplaceAttr: nil,
+	})))
 	t.Cleanup(func() { slog.SetDefault(previous) })
-
 	return &buffer
 }

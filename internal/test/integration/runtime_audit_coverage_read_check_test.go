@@ -59,21 +59,12 @@ func requireReadExpectation(t *testing.T, env *coverageEnv, row audit.Row, want 
 	}
 	for _, text := range want.absent {
 		if strings.Contains(string(row.Extra), text) {
-			t.Fatalf(
-				"read event %s stores the text %q in its extra: %s",
-				row.EventID,
-				text,
-				row.Extra,
-			)
+			t.Fatalf("read event %s stores the text %q in its extra: %s", row.EventID, text, row.Extra)
 		}
 	}
 	if want.skipItems {
 		if row.Context.Read != nil {
-			t.Fatalf(
-				"failed read event %s stores read evidence %+v, want none",
-				row.EventID,
-				row.Context.Read,
-			)
+			t.Fatalf("failed read event %s stores read evidence %+v, want none", row.EventID, row.Context.Read)
 		}
 		return
 	}
@@ -93,12 +84,7 @@ func requireReadExpectation(t *testing.T, env *coverageEnv, row audit.Row, want 
 	}
 	for _, uri := range uris {
 		if !strings.HasPrefix(uri, want.itemPrefix) {
-			t.Fatalf(
-				"read event %s read target %q does not start with %q",
-				row.EventID,
-				uri,
-				want.itemPrefix,
-			)
+			t.Fatalf("read event %s read target %q does not start with %q", row.EventID, uri, want.itemPrefix)
 		}
 	}
 	for _, item := range want.items {
@@ -108,12 +94,7 @@ func requireReadExpectation(t *testing.T, env *coverageEnv, row audit.Row, want 
 	}
 }
 
-func withReadCheck(
-	base coverageCase,
-	verb audit.Verb,
-	outcome audit.Outcome,
-	expect func(*testing.T, *coverageEnv) readExpectation,
-) coverageCase {
+func withReadCheck(base coverageCase, verb audit.Verb, outcome audit.Outcome, expect func(*testing.T, *coverageEnv) readExpectation) coverageCase {
 	base.check = func(t *testing.T, env *coverageEnv, rows []audit.Row) {
 		t.Helper()
 		for _, row := range rows {
@@ -123,11 +104,8 @@ func withReadCheck(
 				return
 			}
 		}
-		t.Fatalf(
-			"The ledger does not contain a %s read event of class read and phase read for the operator; the events are: %s",
-			outcome,
-			describeRows(rows),
-		)
+		t.Fatalf("The ledger does not contain a %s read event of class read and phase read for the operator; the events are: %s",
+			outcome, describeRows(rows))
 	}
 	return base
 }
@@ -135,13 +113,7 @@ func withReadCheck(
 func fixedReadExpectation(reference string) func(*testing.T, *coverageEnv) readExpectation {
 	return func(*testing.T, *coverageEnv) readExpectation {
 		return readExpectation{
-			target:     referenceTarget(reference),
-			input:      "",
-			items:      nil,
-			contains:   false,
-			itemPrefix: "",
-			absent:     nil,
-			skipItems:  false,
+			target: referenceTarget(reference), input: "", items: nil, contains: false, itemPrefix: "", absent: nil, skipItems: false,
 		}
 	}
 }
@@ -149,13 +121,7 @@ func fixedReadExpectation(reference string) func(*testing.T, *coverageEnv) readE
 func failedReadExpectation(reference string) func(*testing.T, *coverageEnv) readExpectation {
 	return func(*testing.T, *coverageEnv) readExpectation {
 		return readExpectation{
-			target:     referenceTarget(reference),
-			input:      "",
-			items:      nil,
-			contains:   false,
-			itemPrefix: "",
-			absent:     nil,
-			skipItems:  true,
+			target: referenceTarget(reference), input: "", items: nil, contains: false, itemPrefix: "", absent: nil, skipItems: true,
 		}
 	}
 }

@@ -51,13 +51,11 @@ func stagedExtra(ctx context.Context) (json.RawMessage, error) {
 	if !ok {
 		return nil, nil
 	}
-
 	encoded, err := json.Marshal(actAsExtra{ActAs: provenance})
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.provenance_encode_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("encode act-as provenance: %w", err)
 	}
-
 	return encoded, nil
 }
 
@@ -67,6 +65,5 @@ func stagedSource(ctx context.Context) Source {
 	if _, ok := ActProvenanceFromContext(ctx); ok {
 		return SourceOperator
 	}
-
 	return SourceMCP
 }

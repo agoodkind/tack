@@ -25,34 +25,23 @@ type messageProducer interface {
 func (r *Relay) produceRow(ctx context.Context, row OutboxRow) (bool, error) {
 	if len(row.Messages) == 0 {
 		if err := r.recorder.Record(ctx, row.Event); err != nil {
-			slog.ErrorContext(
-				ctx,
-				"audit.relay.event_produce_failed",
-				slog.String("event_id", row.EventID.String()),
-				slog.String("err", err.Error()),
-			)
-
+			slog.ErrorContext(ctx, "audit.relay.event_produce_failed", slog.String("event_id", row.EventID.String()), slog.String("err", err.Error()))
 			return false, fmt.Errorf("produce event %s: %w", row.EventID, err)
 		}
-
 		return r.stopAfterProduce(ctx, row.EventID), nil
 	}
-
 	for _, raw := range row.Messages {
 		message, _, err := decodeTransportMessage(raw)
 		if err != nil {
 			return false, err
 		}
-
 		if err := r.produceMessage(ctx, message.partitionKey(), raw); err != nil {
 			return false, err
 		}
-
 		if r.stopAfterProduce(ctx, row.EventID) {
 			return true, nil
 		}
 	}
-
 	return false, nil
 }
 
@@ -64,11 +53,9 @@ func (r *Relay) produceEntry(ctx context.Context, entry RelayOutboxEntry) (uuid.
 	if err != nil {
 		return uuid.Nil, err
 	}
-
 	if !isTransport {
 		return r.produceEvent(ctx, entry)
 	}
-
 	value := []byte(entry.Event)
 	if message.Message == messageKindManifest && message.CommitVersion == "" {
 		message.CommitVersion = entry.CommitVersion
@@ -76,7 +63,6 @@ func (r *Relay) produceEntry(ctx context.Context, entry RelayOutboxEntry) (uuid.
 			return uuid.Nil, err
 		}
 	}
-
 	return message.EventID, r.produceMessage(ctx, message.partitionKey(), value)
 }
 
@@ -85,30 +71,16 @@ func (r *Relay) produceEntry(ctx context.Context, entry RelayOutboxEntry) (uuid.
 func (r *Relay) produceEvent(ctx context.Context, entry RelayOutboxEntry) (uuid.UUID, error) {
 	var event Event
 	if err := json.Unmarshal(entry.Event, &event); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.relay.foundationdb_decode_failed",
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.relay.foundationdb_decode_failed", slog.String("err", err.Error()))
 		return uuid.Nil, fmt.Errorf("decode FoundationDB outbox event: %w", err)
 	}
-
 	if event.Context.CommitVersion == "" {
 		event.Context.CommitVersion = entry.CommitVersion
 	}
-
 	if err := r.recorder.Record(ctx, event); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.relay.event_produce_failed",
-			slog.String("event_id", event.EventID.String()),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.relay.event_produce_failed", slog.String("event_id", event.EventID.String()), slog.String("err", err.Error()))
 		return uuid.Nil, fmt.Errorf("produce event %s: %w", event.EventID, err)
 	}
-
 	return event.EventID, nil
 }
 
@@ -119,17 +91,10 @@ func (r *Relay) produceMessage(ctx context.Context, key, value []byte) error {
 	if !ok {
 		return errRelayMessageProducer
 	}
-
 	if err := producer.produceMessage(ctx, key, value); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.relay.message_produce_failed",
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.relay.message_produce_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("publish audit transport message: %w", err)
 	}
-
 	return nil
 }
 
@@ -139,18 +104,11 @@ func (r *Relay) stopAfterProduce(ctx context.Context, eventID uuid.UUID) bool {
 	if r.afterProduce == nil {
 		return false
 	}
-
 	if err := r.afterProduce(ctx, eventID); err != nil {
-		slog.WarnContext(
-			ctx,
-			"audit.relay.stopped_after_produce",
-			slog.String("event_id", eventID.String()),
-			slog.String("err", err.Error()),
-		)
-
+		slog.WarnContext(ctx, "audit.relay.stopped_after_produce",
+			slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
 		return true
 	}
-
 	return false
 }
 
@@ -163,18 +121,10 @@ func (k *KafkaRecorder) produceMessage(ctx context.Context, key, value []byte) e
 	telemetry.DecAuditKafkaProduceInflight()
 	if err := result.FirstErr(); err != nil {
 		telemetry.IncAuditKafkaProduce("error")
-		slog.ErrorContext(
-			ctx,
-			"audit.kafka.message_produce_failed",
-			slog.String("topic", k.topic),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.kafka.message_produce_failed", slog.String("topic", k.topic), slog.String("err", err.Error()))
 		return fmt.Errorf("publish audit transport message to Kafka: %w", err)
 	}
-
 	telemetry.IncAuditKafkaProduce("ok")
-
 	return nil
 }
 
@@ -183,6 +133,5 @@ func (k *KafkaRecorder) produceMessage(ctx context.Context, key, value []byte) e
 func (message transportMessage) partitionKey() []byte {
 	key := make([]byte, 0, len(message.OrgID)+2)
 	key = append(key, message.OrgID[:]...)
-
 	return append(key, byte((message.Shard>>8)&0xFF), byte(message.Shard&0xFF))
 }

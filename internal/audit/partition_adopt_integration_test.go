@@ -34,14 +34,11 @@ func TestPartmanAdoptionPreservesLedgerAndMaintainsHeadroom(t *testing.T) {
 	var retention *string
 	var retentionKeepTable bool
 	var infiniteTimePartitions bool
-	if err := fixture.pool.QueryRow(
-		ctx,
-		`
+	if err := fixture.pool.QueryRow(ctx, `
 		SELECT premake, retention, retention_keep_table, infinite_time_partitions
 		FROM partman.part_config
 		WHERE parent_table = 'audit.events'
-	`,
-	).Scan(
+	`).Scan(
 		&premake,
 		&retention,
 		&retentionKeepTable,
@@ -66,9 +63,16 @@ func TestPartmanAdoptionPreservesLedgerAndMaintainsHeadroom(t *testing.T) {
 		t,
 		`^events_p[0-9]{4}_[0-9]{2}_[0-9]{2}$`,
 	); nativeCount < legacyPartitionCount {
-		t.Fatalf("native partition count = %d, want at least %d", nativeCount, legacyPartitionCount)
+		t.Fatalf(
+			"native partition count = %d, want at least %d",
+			nativeCount,
+			legacyPartitionCount,
+		)
 	}
-	if oldCount := fixture.partitionCount(t, `^events_[0-9]{4}_[0-9]{2}_[0-9]{2}$`); oldCount != 0 {
+	if oldCount := fixture.partitionCount(
+		t,
+		`^events_[0-9]{4}_[0-9]{2}_[0-9]{2}$`,
+	); oldCount != 0 {
 		t.Fatalf("hand-named partition count after adoption = %d, want 0", oldCount)
 	}
 
@@ -77,9 +81,7 @@ func TestPartmanAdoptionPreservesLedgerAndMaintainsHeadroom(t *testing.T) {
 		ctx,
 		`SELECT count(*) FROM audit.events WHERE event_id = $1`,
 		eventID,
-	).Scan(
-		&preservedRows,
-	); err != nil {
+	).Scan(&preservedRows); err != nil {
 		t.Fatalf("preserved row query: %v", err)
 	}
 	if preservedRows != 1 {
@@ -130,9 +132,7 @@ func assertPartitionFunctionSecurity(t *testing.T, fixture *partmanTestDatabase)
 	var securityDefiner bool
 	var searchPath string
 	var writerCanExecute bool
-	if err := fixture.pool.QueryRow(
-		context.Background(),
-		`
+	if err := fixture.pool.QueryRow(context.Background(), `
 		SELECT pg_get_userbyid(p.proowner),
 		       p.prosecdef,
 		       array_to_string(p.proconfig, ','),
@@ -145,13 +145,7 @@ func assertPartitionFunctionSecurity(t *testing.T, fixture *partmanTestDatabase)
 		JOIN pg_namespace n ON n.oid = p.pronamespace
 		WHERE n.nspname = 'audit'
 		  AND p.proname = 'run_partition_maintenance'
-	`,
-	).Scan(
-		&owner,
-		&securityDefiner,
-		&searchPath,
-		&writerCanExecute,
-	); err != nil {
+	`).Scan(&owner, &securityDefiner, &searchPath, &writerCanExecute); err != nil {
 		t.Fatalf("maintenance function query: %v", err)
 	}
 	if owner != fixture.migrationOwner {

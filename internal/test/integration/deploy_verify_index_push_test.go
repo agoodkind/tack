@@ -21,34 +21,20 @@ func (r localRegistry) pushMultiPlatformIndex(t *testing.T, repository, tag, mar
 // pushMultiPlatformList pushes one linux/amd64 and one linux/arm64 image with
 // the same layer, then a list of both with the given media type under tag. It
 // returns the digest of the list.
-func (r localRegistry) pushMultiPlatformList(
-	t *testing.T,
-	repository string,
-	tag string,
-	marker string,
-	mediaType string,
-) string {
+func (r localRegistry) pushMultiPlatformList(t *testing.T, repository, tag, marker, mediaType string) string {
 	t.Helper()
 	layer, diffID := singleFileLayer(t, marker)
 	layerDescriptor := r.pushBlob(t, repository, ocispec.MediaTypeImageLayerGzip, layer)
 	manifests := make([]registryDescriptor, 0, 2)
-
 	for _, architecture := range []string{"amd64", "arm64"} {
 		descriptor := r.pushImageManifest(t, repository, architecture, layerDescriptor, diffID, "")
 		descriptor.Platform = &ocispec.Platform{Architecture: architecture, OS: "linux"}
 		manifests = append(manifests, descriptor)
 	}
-
-	list := mustMarshal(
-		t,
-		map[string]any{
-			"schemaVersion": 2,
-			"mediaType":     mediaType,
-			"manifests":     manifests,
-		},
-	)
+	list := mustMarshal(t, map[string]any{
+		"schemaVersion": 2, "mediaType": mediaType, "manifests": manifests,
+	})
 	pushed := r.pushManifest(t, repository, tag, mediaType, list)
 	t.Logf("pushed %s:%s as %s %s", repository, tag, mediaType, pushed.Digest)
-
 	return pushed.Digest
 }

@@ -17,13 +17,10 @@ import (
 // attachFarChild attaches a 2031 week to audit.events under name.
 func attachFarChild(t *testing.T, fixture *partmanTestDatabase, name string) {
 	t.Helper()
-	statement := fmt.Sprintf(
-		`
+	statement := fmt.Sprintf(`
 		CREATE TABLE %s PARTITION OF audit.events
 		FOR VALUES FROM ('2031-03-03 00:00:00+00') TO ('2031-03-10 00:00:00+00')
-	`,
-		pgx.Identifier{"audit", name}.Sanitize(),
-	)
+	`, pgx.Identifier{"audit", name}.Sanitize())
 	if _, err := fixture.pool.Exec(context.Background(), statement); err != nil {
 		t.Fatalf("attach far child %s: %v", name, err)
 	}
@@ -55,17 +52,12 @@ func runPartitionMaintenance(ctx context.Context, fixture *partmanTestDatabase) 
 func maintenanceSource(t *testing.T, fixture *partmanTestDatabase) string {
 	t.Helper()
 	var source string
-	if err := fixture.pool.QueryRow(
-		context.Background(),
-		`
+	if err := fixture.pool.QueryRow(context.Background(), `
 		SELECT p.prosrc
 		FROM pg_proc p
 		JOIN pg_namespace n ON n.oid = p.pronamespace
 		WHERE n.nspname = 'audit' AND p.proname = 'run_partition_maintenance'
-	`,
-	).Scan(
-		&source,
-	); err != nil {
+	`).Scan(&source); err != nil {
 		t.Fatalf("read maintenance function source: %v", err)
 	}
 	return source
@@ -88,16 +80,9 @@ func requireChainVerifies(t *testing.T, fixture *partmanTestDatabase, orgID uuid
 	t.Helper()
 	ctx := context.Background()
 	var headSeq int64
-	if err := fixture.pool.QueryRow(
-		ctx,
-		`
+	if err := fixture.pool.QueryRow(ctx, `
 		SELECT last_seq FROM audit.chain_heads WHERE org_id = $1 AND shard = $2
-	`,
-		orgID,
-		farChildShard,
-	).Scan(
-		&headSeq,
-	); err != nil {
+	`, orgID, farChildShard).Scan(&headSeq); err != nil {
 		t.Fatalf("read chain head of %s: %v", orgID, err)
 	}
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -105,24 +90,10 @@ func requireChainVerifies(t *testing.T, fixture *partmanTestDatabase, orgID uuid
 		t.Fatalf("generate export key: %v", err)
 	}
 	directory := t.TempDir()
-	manifest, err := Export(
-		ctx,
-		openTestReader(t, fixture.pool),
-		privateKey,
-		"ed25519:partition-test",
-		QueryFilter{
-			OrgID:     orgID,
-			Oldest:    time.Unix(0, 0).UTC(),
-			Latest:    time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC),
-			Action:    "",
-			ActorID:   uuid.Nil,
-			EntityID:  uuid.Nil,
-			RequestID: "",
-			TraceID:   "",
-			Limit:     0,
-		},
-		directory,
-	)
+	manifest, err := Export(ctx, openTestReader(t, fixture.pool), privateKey, "ed25519:partition-test", QueryFilter{
+		OrgID: orgID, Oldest: time.Unix(0, 0).UTC(), Latest: time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC),
+		Action: "", ActorID: uuid.Nil, EntityID: uuid.Nil, RequestID: "", TraceID: "", Limit: 0,
+	}, directory)
 	if err != nil {
 		t.Fatalf("export ledger of %s: %v", orgID, err)
 	}
@@ -131,19 +102,9 @@ func requireChainVerifies(t *testing.T, fixture *partmanTestDatabase, orgID uuid
 		t.Fatalf("verify ledger bundle of %s: %v", orgID, err)
 	}
 	if manifest.RowCount != 1 || headSeq != 1 || report.HashMatches != 1 {
-		t.Fatalf(
-			"export rows %d, chain head %d, hash matches %d; want 1 each",
-			manifest.RowCount,
-			headSeq,
-			report.HashMatches,
-		)
+		t.Fatalf("export rows %d, chain head %d, hash matches %d; want 1 each", manifest.RowCount, headSeq, report.HashMatches)
 	}
 	if len(report.ChainBreaks) != 0 || report.ChainGapCount != 0 || report.Err() != nil {
-		t.Fatalf(
-			"chain verify: breaks %v, gaps %d, verdict %v",
-			report.ChainBreaks,
-			report.ChainGapCount,
-			report.Err(),
-		)
+		t.Fatalf("chain verify: breaks %v, gaps %d, verdict %v", report.ChainBreaks, report.ChainGapCount, report.Err())
 	}
 }

@@ -26,28 +26,14 @@ func TestSearchSessionAuditRecordingFailuresNotRecorded(t *testing.T) {
 	stored := retiringSession(t, stores, index)
 	fresh := storedSearchSession(sessionTokens(sessionStoreTokenBytes * 16))
 	fresh.Query.Index, fresh.Query.Generation = index, retiredGeneration
-	commit := searchdomain.PageCommit{
-		Sort:      nil,
-		PITID:     stored.Snapshot.PITID,
-		Visited:   nil,
-		ResultIDs: nil,
-		Complete:  false,
-	}
+	commit := searchdomain.PageCommit{Sort: nil, PITID: stored.Snapshot.PITID, Visited: nil, ResultIDs: nil, Complete: false}
 	cases := []struct {
 		name  string
 		ctx   context.Context
 		cause string
 	}{
-		{
-			name:  "without an operation",
-			ctx:   t.Context(),
-			cause: audit.ErrMissingMutationContext.Error(),
-		},
-		{
-			name:  "under the failing operation",
-			ctx:   withFutureOperation(t, t.Context()),
-			cause: changeEventFailure,
-		},
+		{name: "without an operation", ctx: t.Context(), cause: audit.ErrMissingMutationContext.Error()},
+		{name: "under the failing operation", ctx: withFutureOperation(t, t.Context()), cause: changeEventFailure},
 	}
 	for _, current := range cases {
 		_, createErr := store.Create(current.ctx, fresh)
@@ -57,36 +43,16 @@ func TestSearchSessionAuditRecordingFailuresNotRecorded(t *testing.T) {
 	}
 	loaded, err := store.Load(t.Context(), stored.ID)
 	if err != nil || loaded.Version != stored.Version {
-		t.Fatalf(
-			"Session %s loaded as %+v with error %v; want version %d",
-			stored.ID,
-			loaded,
-			err,
-			stored.Version,
-		)
+		t.Fatalf("Session %s loaded as %+v with error %v; want version %d", stored.ID, loaded, err, stored.Version)
 	}
-	if _, err := store.Load(t.Context(), fresh.ID); !errors.Is(
-		err,
-		searchdomain.ErrSessionNotFound,
-	) {
-		t.Fatalf(
-			"Loading session %s returned error %v; want %v",
-			fresh.ID,
-			err,
-			searchdomain.ErrSessionNotFound,
-		)
+	if _, err := store.Load(t.Context(), fresh.ID); !errors.Is(err, searchdomain.ErrSessionNotFound) {
+		t.Fatalf("Loading session %s returned error %v; want %v", fresh.ID, err, searchdomain.ErrSessionNotFound)
 	}
 }
 
 func requireSessionNotRecorded(t *testing.T, step string, err error, cause string) {
 	t.Helper()
 	if !errors.Is(err, audit.ErrEventNotRecorded) || !strings.Contains(err.Error(), cause) {
-		t.Fatalf(
-			"%s returned error %v; want a match for %v and cause text %q",
-			step,
-			err,
-			audit.ErrEventNotRecorded,
-			cause,
-		)
+		t.Fatalf("%s returned error %v; want a match for %v and cause text %q", step, err, audit.ErrEventNotRecorded, cause)
 	}
 }

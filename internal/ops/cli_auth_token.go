@@ -48,20 +48,10 @@ func authTokenCreateOp(f *cli.Factory) clispec.Operation[authTokenCreateInput] {
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[authTokenCreateInput]{
-			clispec.StringParam(
-				"email",
-				"email of the existing user the token is issued to",
-				"",
-				true,
-				func(input *authTokenCreateInput, value string) { input.Email = value },
-			),
-			clispec.StringParam(
-				"label",
-				"label stored with the token, naming the client that will hold it",
-				"",
-				true,
-				func(input *authTokenCreateInput, value string) { input.Label = value },
-			),
+			clispec.StringParam("email", "email of the existing user the token is issued to", "", true,
+				func(input *authTokenCreateInput, value string) { input.Email = value }),
+			clispec.StringParam("label", "label stored with the token, naming the client that will hold it", "", true,
+				func(input *authTokenCreateInput, value string) { input.Label = value }),
 		},
 		New: func() authTokenCreateInput {
 			return authTokenCreateInput{InputMarker: clispec.InputMarker{}, Email: "", Label: ""}
@@ -89,13 +79,8 @@ func authTokenListOp(f *cli.Factory) clispec.Operation[authTokenListInput] {
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[authTokenListInput]{
-			clispec.StringParam(
-				"email",
-				"email of the user whose tokens to list",
-				"",
-				true,
-				func(input *authTokenListInput, value string) { input.Email = value },
-			),
+			clispec.StringParam("email", "email of the user whose tokens to list", "", true,
+				func(input *authTokenListInput, value string) { input.Email = value }),
 		},
 		New: func() authTokenListInput {
 			return authTokenListInput{InputMarker: clispec.InputMarker{}, Email: ""}
@@ -122,13 +107,8 @@ func authTokenRevokeOp(f *cli.Factory) clispec.Operation[authTokenRevokeInput] {
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[authTokenRevokeInput]{
-			clispec.StringParam(
-				"id",
-				"id of the token to revoke, from token-list or token-create",
-				"",
-				true,
-				func(input *authTokenRevokeInput, value string) { input.TokenID = value },
-			),
+			clispec.StringParam("id", "id of the token to revoke, from token-list or token-create", "", true,
+				func(input *authTokenRevokeInput, value string) { input.TokenID = value }),
 		},
 		New: func() authTokenRevokeInput {
 			return authTokenRevokeInput{InputMarker: clispec.InputMarker{}, TokenID: ""}

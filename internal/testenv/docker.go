@@ -31,21 +31,13 @@ func dockerClient(ctx context.Context) (*client.Client, error) {
 		slog.ErrorContext(ctx, "testenv.docker.connect_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("build a Docker client for %s: %w", client.DefaultDockerHost, err)
 	}
-
-	if _, err := cli.Ping(
-		ctx,
-		client.PingOptions{NegotiateAPIVersion: true, ForceNegotiate: false},
-	); err != nil {
+	if _, err := cli.Ping(ctx, client.PingOptions{NegotiateAPIVersion: true, ForceNegotiate: false}); err != nil {
 		_ = cli.Close()
 		slog.ErrorContext(ctx, "testenv.docker.ping_failed", slog.String("err", err.Error()))
-
 		return nil, fmt.Errorf(
 			"the Docker daemon at %s did not answer, and store-backed tests need it (start Docker, or run go test -short to skip them): %w",
-			client.DefaultDockerHost,
-			err,
-		)
+			client.DefaultDockerHost, err)
 	}
-
 	return cli, nil
 }
 
@@ -55,9 +47,7 @@ func pingDocker(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	_ = cli.Close()
-
 	return client.DefaultDockerHost, nil
 }
 
@@ -66,41 +56,29 @@ func ensureNetwork(ctx context.Context, cli *client.Client) error {
 	if isolated() {
 		return requireIsolatedNetwork(ctx, cli)
 	}
-
-	_, err := cli.NetworkInspect(
-		ctx,
-		networkName,
-		client.NetworkInspectOptions{Scope: "", Verbose: false},
-	)
+	_, err := cli.NetworkInspect(ctx, networkName, client.NetworkInspectOptions{Scope: "", Verbose: false})
 	if err == nil {
 		return nil
 	}
-
 	if !cerrdefs.IsNotFound(err) {
 		slog.ErrorContext(ctx, "testenv.network.inspect_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("inspect network %s: %w", networkName, err)
 	}
-
 	// IPv4 only, whatever the daemon's default network options say: the
 	// upstream images' entrypoints cannot announce an IPv6 address without the
 	// production overlays, and these tests exercise the storage layer, not the
 	// IPv6-only contract.
 	enableIPv4, enableIPv6 := true, false
-	_, err = cli.NetworkCreate(
-		ctx,
-		networkName,
-		client.NetworkCreateOptions{
-			Driver:     "bridge",
-			EnableIPv4: &enableIPv4,
-			EnableIPv6: &enableIPv6,
-			Labels:     map[string]string{managedLabel: "true"},
-		},
-	)
+	_, err = cli.NetworkCreate(ctx, networkName, client.NetworkCreateOptions{
+		Driver:     "bridge",
+		EnableIPv4: &enableIPv4,
+		EnableIPv6: &enableIPv6,
+		Labels:     map[string]string{managedLabel: "true"},
+	})
 	if err != nil && !cerrdefs.IsConflict(err) && !cerrdefs.IsAlreadyExists(err) {
 		slog.ErrorContext(ctx, "testenv.network.create_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("create network %s: %w", networkName, err)
 	}
-
 	return nil
 }
 
@@ -121,49 +99,33 @@ func joinWhenContainerized(ctx context.Context, cli *client.Client, target strin
 		slog.ErrorContext(ctx, "testenv.hostname_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("read this host's name: %w", err)
 	}
-
 	self, err := cli.ContainerInspect(ctx, hostname, client.ContainerInspectOptions{Size: false})
 	if cerrdefs.IsNotFound(err) {
 		return "", nil
 	}
-
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.self.inspect_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("inspect container %s: %w", hostname, err)
 	}
-
 	if self.Container.Config == nil || self.Container.Config.Hostname != hostname {
 		return "", nil
 	}
-
 	if attachedTo(self.Container, target) {
 		return self.Container.ID, nil
 	}
-
-	_, err = cli.NetworkConnect(
-		ctx,
-		target,
-		client.NetworkConnectOptions{
-			Container:      self.Container.ID,
-			EndpointConfig: &network.EndpointSettings{},
-		},
-	)
+	_, err = cli.NetworkConnect(ctx, target, client.NetworkConnectOptions{
+		Container:      self.Container.ID,
+		EndpointConfig: &network.EndpointSettings{},
+	})
 	if err == nil {
 		return self.Container.ID, nil
 	}
-
 	// Another test binary in this container may have joined first.
-	again, inspectErr := cli.ContainerInspect(
-		ctx,
-		hostname,
-		client.ContainerInspectOptions{Size: false},
-	)
+	again, inspectErr := cli.ContainerInspect(ctx, hostname, client.ContainerInspectOptions{Size: false})
 	if inspectErr == nil && attachedTo(again.Container, target) {
 		return self.Container.ID, nil
 	}
-
 	slog.ErrorContext(ctx, "testenv.self.join_failed", slog.String("err", err.Error()))
-
 	return "", fmt.Errorf("attach container %s to network %s: %w", hostname, target, err)
 }
 
@@ -172,9 +134,7 @@ func attachedTo(inspected container.InspectResponse, target string) bool {
 	if inspected.NetworkSettings == nil {
 		return false
 	}
-
 	_, attached := inspected.NetworkSettings.Networks[target]
-
 	return attached
 }
 
@@ -183,47 +143,30 @@ func addressOn(inspected container.InspectResponse, target string) (string, erro
 	if !attachedTo(inspected, target) {
 		return "", fmt.Errorf("container %s is not attached to network %s", inspected.Name, target)
 	}
-
 	address := inspected.NetworkSettings.Networks[target].IPAddress
 	if !address.IsValid() {
 		return "", fmt.Errorf("container %s has no address on network %s", inspected.Name, target)
 	}
-
 	return address.String(), nil
 }
 
 // containerAddress returns a container's IP address on the engines' network.
-func containerAddress(
-	ctx context.Context,
-	cli *client.Client,
-	containerName string,
-) (string, error) {
+func containerAddress(ctx context.Context, cli *client.Client, containerName string) (string, error) {
 	return containerAddressOn(ctx, cli, containerName, activeNetwork())
 }
 
 // containerAddressOn returns a container's IP address on target. For a
 // container that shares another container's network stack, it reads the
 // address of that other container.
-func containerAddressOn(
-	ctx context.Context,
-	cli *client.Client,
-	containerName string,
-	target string,
-) (string, error) {
-	inspected, err := cli.ContainerInspect(
-		ctx,
-		containerName,
-		client.ContainerInspectOptions{Size: false},
-	)
+func containerAddressOn(ctx context.Context, cli *client.Client, containerName, target string) (string, error) {
+	inspected, err := cli.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{Size: false})
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.engine.inspect_failed", slog.String("err", err.Error()))
 		return "", fmt.Errorf("inspect container %s: %w", containerName, err)
 	}
-
 	hostConfig := inspected.Container.HostConfig
 	if hostConfig != nil && hostConfig.NetworkMode.IsContainer() {
 		return containerAddressOn(ctx, cli, hostConfig.NetworkMode.ConnectedContainer(), target)
 	}
-
 	return addressOn(inspected.Container, target)
 }

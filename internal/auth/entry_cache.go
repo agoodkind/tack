@@ -47,25 +47,20 @@ func (c *entryCache[V]) get(key string, now time.Time) (V, bool) {
 	var none V
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	element, exists := c.entries[key]
-	if !exists {
+	element, ok := c.entries[key]
+	if !ok {
 		return none, false
 	}
-
-	entry, exists := element.Value.(*cacheEntry[V])
-	if !exists {
+	entry, ok := element.Value.(*cacheEntry[V])
+	if !ok {
 		return none, false
 	}
-
 	if !entry.expires.After(now) {
 		c.order.Remove(element)
 		delete(c.entries, key)
-
 		return none, false
 	}
-
 	c.order.MoveToFront(element)
-
 	return entry.value, true
 }
 
@@ -79,30 +74,20 @@ func (c *entryCache[V]) put(key string, value V, expires time.Time) {
 			entry.value = value
 			entry.expires = expires
 		}
-
 		c.order.MoveToFront(element)
-
 		return
 	}
-
 	for c.order.Len() >= c.max {
 		oldest := c.order.Back()
 		if oldest == nil {
 			break
 		}
-
 		if entry, isEntry := oldest.Value.(*cacheEntry[V]); isEntry {
 			delete(c.entries, entry.key)
 		}
-
 		c.order.Remove(oldest)
 	}
-
-	c.entries[key] = c.order.PushFront(&cacheEntry[V]{
-		key:     key,
-		value:   value,
-		expires: expires,
-	})
+	c.entries[key] = c.order.PushFront(&cacheEntry[V]{key: key, value: value, expires: expires})
 }
 
 // remove forgets key, if present.

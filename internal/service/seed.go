@@ -54,33 +54,18 @@ func (s *Seeder) SeedOrg(ctx context.Context, orgID uuid.UUID) error {
 		log.ErrorContext(ctx, "seed.property_def_undeclared", slog.String("err", err.Error()))
 		return fmt.Errorf("seed org %s: %w", orgID, err)
 	}
-
 	for _, def := range propertyDefs {
 		if err := s.propertyDefs.Set(ctx, def); err != nil {
-			log.ErrorContext(
-				ctx,
-				"seed.property_def_failed",
-				slog.String("name", def.Name),
-				slog.String("err", err.Error()),
-			)
-
+			log.ErrorContext(ctx, "seed.property_def_failed", slog.String("name", def.Name), slog.String("err", err.Error()))
 			return fmt.Errorf("seed property def %q: %w", def.Name, err)
 		}
 	}
-
-	for _, nodeType := range nodeTypes {
-		if err := s.nodeTypes.Set(ctx, nodeType); err != nil {
-			log.ErrorContext(
-				ctx,
-				"seed.node_type_failed",
-				slog.String("type_key", nodeType.TypeKey),
-				slog.String("err", err.Error()),
-			)
-
-			return fmt.Errorf("seed node type %q: %w", nodeType.TypeKey, err)
+	for _, nt := range nodeTypes {
+		if err := s.nodeTypes.Set(ctx, nt); err != nil {
+			log.ErrorContext(ctx, "seed.node_type_failed", slog.String("type_key", nt.TypeKey), slog.String("err", err.Error()))
+			return fmt.Errorf("seed node type %q: %w", nt.TypeKey, err)
 		}
 	}
-
 	return nil
 }
 
@@ -92,7 +77,6 @@ func defaultOrgDefinitions(orgID uuid.UUID) ([]*node.NodeType, []*node.PropertyD
 	if err != nil {
 		return nil, nil, err
 	}
-
 	return defaultNodeTypes(orgID), propertyDefs, nil
 }
 
@@ -163,84 +147,20 @@ func defaultPropertyDefs(orgID uuid.UUID) ([]*node.PropertyDef, error) {
 	if err := applyDefaultSearchProjections(definitions); err != nil {
 		return nil, err
 	}
-
 	return definitions, nil
 }
 
 func additionalPropertyDefs(orgID uuid.UUID) []*node.PropertyDef {
 	return []*node.PropertyDef{
-		{
-			ID:                node.SystemPropID(orgID, "description"),
-			OrgID:             orgID,
-			Name:              "description",
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: nil,
-			Indexed:           false,
-		},
-		{
-			ID:                node.SystemPropID(orgID, defaultSlugProperty),
-			OrgID:             orgID,
-			Name:              defaultSlugProperty,
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: []string{node.FeatureHasAddress},
-			Indexed:           true,
-		},
-		{
-			ID:                node.SystemPropID(orgID, defaultIdentifierProperty),
-			OrgID:             orgID,
-			Name:              defaultIdentifierProperty,
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: []string{node.FeatureIsScope},
-			Indexed:           true,
-		},
-		{
-			ID:                node.SystemPropID(orgID, defaultSequenceProperty),
-			OrgID:             orgID,
-			Name:              defaultSequenceProperty,
-			Type:              node.PropertyTypeNumber,
-			AppliesToFeatures: []string{node.FeatureHasSequenceID},
-			Indexed:           true,
-		},
-		{
-			ID:                node.SystemPropID(orgID, "parent_id"),
-			OrgID:             orgID,
-			Name:              "parent_id",
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: nil,
-			Indexed:           true,
-		},
-		{
-			ID:                node.SystemPropID(orgID, "scope_id"),
-			OrgID:             orgID,
-			Name:              "scope_id",
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: nil,
-			Indexed:           true,
-		},
-		{
-			ID:                node.SystemPropID(orgID, defaultGroupProperty),
-			OrgID:             orgID,
-			Name:              defaultGroupProperty,
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: nil,
-			Indexed:           false,
-		},
-		{
-			ID:                node.SystemPropID(orgID, defaultColorProperty),
-			OrgID:             orgID,
-			Name:              defaultColorProperty,
-			Type:              node.PropertyTypeText,
-			AppliesToFeatures: nil,
-			Indexed:           false,
-		},
-		{
-			ID:                node.SystemPropID(orgID, defaultSortOrderProperty),
-			OrgID:             orgID,
-			Name:              defaultSortOrderProperty,
-			Type:              node.PropertyTypeNumber,
-			AppliesToFeatures: nil,
-			Indexed:           false,
-		},
+		{ID: node.SystemPropID(orgID, "description"), OrgID: orgID, Name: "description", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: false},
+		{ID: node.SystemPropID(orgID, "slug"), OrgID: orgID, Name: "slug", Type: node.PropertyTypeText, AppliesToFeatures: []string{node.FeatureHasAddress}, Indexed: true},
+		{ID: node.SystemPropID(orgID, "identifier"), OrgID: orgID, Name: "identifier", Type: node.PropertyTypeText, AppliesToFeatures: []string{node.FeatureIsScope}, Indexed: true},
+		{ID: node.SystemPropID(orgID, "sequence"), OrgID: orgID, Name: "sequence", Type: node.PropertyTypeNumber, AppliesToFeatures: []string{node.FeatureHasSequenceID}, Indexed: true},
+		{ID: node.SystemPropID(orgID, "parent_id"), OrgID: orgID, Name: "parent_id", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: true},
+		{ID: node.SystemPropID(orgID, "scope_id"), OrgID: orgID, Name: "scope_id", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: true},
+		{ID: node.SystemPropID(orgID, "group"), OrgID: orgID, Name: "group", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: false},
+		{ID: node.SystemPropID(orgID, "color"), OrgID: orgID, Name: "color", Type: node.PropertyTypeText, AppliesToFeatures: nil, Indexed: false},
+		{ID: node.SystemPropID(orgID, "sort_order"), OrgID: orgID, Name: "sort_order", Type: node.PropertyTypeNumber, AppliesToFeatures: nil, Indexed: false},
 	}
 }
 
@@ -251,11 +171,7 @@ type seedSearchDecisionError struct {
 }
 
 func (e seedSearchDecisionError) Error() string {
-	return fmt.Sprintf(
-		"seeded property definition %q has no search decision: %v",
-		e.name,
-		node.ErrInvalidSearchProjection,
-	)
+	return fmt.Sprintf("seeded property definition %q has no search decision: %v", e.name, node.ErrInvalidSearchProjection)
 }
 
 // Unwrap lets callers match node.ErrInvalidSearchProjection.
@@ -266,38 +182,20 @@ func (e seedSearchDecisionError) Unwrap() error { return node.ErrInvalidSearchPr
 // seed refuses it instead of storing an undeclared definition.
 func applyDefaultSearchProjections(definitions []*node.PropertyDef) error {
 	orders := map[string]int{
-		"priority":                0,
-		"due_date":                1,
-		"start_date":              2,
-		"state_id":                3,
-		"is_draft":                4,
-		"description":             10,
-		defaultSlugProperty:       20,
-		defaultIdentifierProperty: 30,
-		defaultSequenceProperty:   40,
-		"parent_id":               50,
-		"scope_id":                60,
-		defaultGroupProperty:      70,
-		defaultColorProperty:      80,
-		defaultSortOrderProperty:  90,
+		"priority": 0, "due_date": 1, "start_date": 2, "state_id": 3,
+		"is_draft": 4, "description": 10, "slug": 20, "identifier": 30,
+		"sequence": 40, "parent_id": 50, "scope_id": 60, "group": 70,
+		"color": 80, "sort_order": 90,
 	}
 	included := map[string]bool{
-		"description":             true,
-		defaultSlugProperty:       true,
-		defaultIdentifierProperty: true,
-		defaultSequenceProperty:   true,
-		defaultGroupProperty:      true,
-		"parent_id":               false,
-		"scope_id":                false,
-		"state_id":                false,
+		"description": true, "slug": true, "identifier": true, "sequence": true,
+		"group": true, "parent_id": false, "scope_id": false, "state_id": false,
 	}
-
 	for _, definition := range definitions {
 		order, ok := orders[definition.Name]
 		if !ok {
 			return seedSearchDecisionError{name: definition.Name}
 		}
-
 		definition.Search = &node.SearchProjection{
 			Include: included[definition.Name],
 			Order:   order,
@@ -309,7 +207,6 @@ func applyDefaultSearchProjections(definitions []*node.PropertyDef) error {
 			},
 		}
 	}
-
 	return nil
 }
 
@@ -324,27 +221,93 @@ func applyDefaultSearchProjections(definitions []*node.PropertyDef) error {
 // edit to a built-in type survives only until the next reseed. A durable custom
 // reference shape belongs on an org-defined type, which the seed never touches.
 func scopedSequenceTemplate() []node.ReferenceTemplate {
-	return []node.ReferenceTemplate{
-		{
-			Name:      "reference",
-			IsPrimary: true,
-			Generated: defaultSequenceProperty,
-			Parts: []node.ReferencePart{
-				{Kind: node.ReferencePartScopeRef, Value: node.FeatureIsScope},
-				{Kind: node.ReferencePartLiteral, Value: "-"},
-				{Kind: node.ReferencePartProperty, Value: defaultSequenceProperty},
-			},
+	return []node.ReferenceTemplate{{
+		Name:      "reference",
+		IsPrimary: true,
+		Generated: "sequence",
+		Parts: []node.ReferencePart{
+			{Kind: node.ReferencePartScopeRef, Value: node.FeatureIsScope},
+			{Kind: node.ReferencePartLiteral, Value: "-"},
+			{Kind: node.ReferencePartProperty, Value: "sequence"},
 		},
-	}
+	}}
 }
 
 // defaultNodeTypes returns the built-in NodeType records for a given org.
 // IDs are deterministic UUID v5 values derived from (orgID, NodeType.Slug) so
 // repeated seeding writes the same record.
 func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
-	specs := defaultContainerSpecs()
-	specs = append(specs, defaultWorkItemSpecs()...)
-	specs = append(specs, defaultSupportingSpecs()...)
+	type spec struct {
+		slug            string
+		pluralSlug      string
+		name            string
+		typeKey         string
+		features        node.Features
+		reference       node.ReferenceConfig
+		canContain      []string
+		canLiveUnder    []string
+		defaultChildren []node.DefaultChild
+	}
+	stateChild := func(name, group, color string, sortOrder int) node.DefaultChild {
+		groupRaw, _ := json.Marshal(group)
+		colorRaw, _ := json.Marshal(color)
+		sortRaw, _ := json.Marshal(sortOrder)
+		return node.DefaultChild{
+			TypeKey: nodeTypeState,
+			Name:    name,
+			Props: map[string]json.RawMessage{
+				"group":      groupRaw,
+				"color":      colorRaw,
+				"sort_order": sortRaw,
+			},
+		}
+	}
+	projectDefaultStates := []node.DefaultChild{
+		stateChild("Backlog", "backlog", "#9CA3AF", 0),
+		stateChild("Todo", "unstarted", "#6B7280", 1),
+		stateChild("In Progress", "started", "#3B82F6", 2),
+		stateChild("Done", "completed", "#10B981", 3),
+		stateChild("Cancelled", "cancelled", "#EF4444", 4),
+	}
+	issueFeatures := node.Features{
+		node.FeatureHasSequenceID, node.FeatureHasWorkflowStates,
+		node.FeatureHasAssignees, node.FeatureHasActivity,
+		node.FeatureHasComments, node.FeatureHasDueDates,
+	}
+	epicFeatures := append(node.Features{node.FeatureIsContainer}, issueFeatures...)
+	cycleFeatures := node.Features{node.FeatureHasDueDates, node.FeatureHasActivity, node.FeatureIsContainer}
+	moduleFeatures := node.Features{node.FeatureHasActivity, node.FeatureIsContainer}
+	workspaceFeatures := node.Features{
+		node.FeatureHasAddress, node.FeatureIsContainer,
+		node.FeatureIsEntryPoint, node.FeatureIsScope,
+		node.FeatureExcludeFromGenericTools,
+	}
+	projectFeatures := node.Features{
+		node.FeatureHasAddress, node.FeatureIsContainer, node.FeatureIsScope,
+	}
+	orgFeatures := node.Features{
+		node.FeatureHasAddress, node.FeatureIsContainer, node.FeatureIsScope,
+		node.FeatureExcludeFromGenericTools,
+	}
+	directIdentifier := node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "identifier"}
+	slugAddressReference := node.ReferenceConfig{Strategy: node.ReferenceDirectProperty, Property: "slug"}
+	scopedSequence := node.ReferenceConfig{Strategy: node.ReferenceScopedSequence, Property: "sequence"}
+	scopedName := node.ReferenceConfig{Strategy: node.ReferenceScopedProperty, Property: "name"}
+	uuidOnly := node.ReferenceConfig{Strategy: node.ReferenceUUIDOnly}
+
+	specs := []spec{
+		{"org", "orgs", "Org", nodeTypeOrg, orgFeatures, slugAddressReference, []string{nodeTypeWorkspace}, nil, nil},
+		{"workspace", "workspaces", "Workspace", nodeTypeWorkspace, workspaceFeatures, slugAddressReference, []string{nodeTypeProject, nodeTypeLabel, nodeTypeWorkspace}, []string{nodeTypeOrg}, nil},
+		{"project", "projects", "Project", nodeTypeProject, projectFeatures, directIdentifier, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeState}, []string{nodeTypeWorkspace}, projectDefaultStates},
+		{"issue", "issues", "Issue", nodeTypeIssue, issueFeatures, scopedSequence, []string{nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject, nodeTypeEpic, nodeTypeCycle, nodeTypeModule, nodeTypeIssue}, nil},
+		{"epic", "epics", "Epic", nodeTypeEpic, epicFeatures, scopedSequence, []string{nodeTypeIssue, nodeTypeComment, nodeTypeActivity}, []string{nodeTypeProject, nodeTypeEpic}, nil},
+		{"cycle", "cycles", "Cycle", nodeTypeCycle, cycleFeatures, scopedSequence, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
+		{"module", "modules", "Module", nodeTypeModule, moduleFeatures, scopedSequence, []string{nodeTypeIssue}, []string{nodeTypeProject}, nil},
+		{"state", "states", "State", nodeTypeState, nil, scopedName, nil, []string{nodeTypeProject}, nil},
+		{"label", "labels", "Label", nodeTypeLabel, nil, scopedName, nil, []string{nodeTypeWorkspace}, nil},
+		{"comment", "comments", "Comment", nodeTypeComment, nil, uuidOnly, nil, []string{nodeTypeIssue, nodeTypeEpic}, nil},
+		{"activity", "activities", "Activity", nodeTypeActivity, nil, uuidOnly, nil, []string{nodeTypeIssue, nodeTypeEpic, nodeTypeCycle, nodeTypeModule}, nil},
+	}
 
 	types := make([]*node.NodeType, 0, len(specs))
 	for _, sp := range specs {
@@ -353,27 +316,22 @@ func defaultNodeTypes(orgID uuid.UUID) []*node.NodeType {
 		if sp.features.Has(node.FeatureHasSequenceID) {
 			referenceTemplates = scopedSequenceTemplate()
 		}
-
-		types = append(
-			types,
-			&node.NodeType{
-				ID:                 id,
-				OrgID:              orgID,
-				Name:               sp.name,
-				Slug:               sp.slug,
-				PluralSlug:         sp.pluralSlug,
-				IsBuiltin:          true,
-				TypeKey:            sp.typeKey,
-				AllowedOps:         node.AllOps,
-				Features:           sp.features,
-				CanContain:         sp.canContain,
-				CanLiveUnder:       sp.canLiveUnder,
-				Reference:          sp.reference,
-				ReferenceTemplates: referenceTemplates,
-				DefaultChildren:    sp.defaultChildren,
-			},
-		)
+		types = append(types, &node.NodeType{
+			ID:                 id,
+			OrgID:              orgID,
+			Name:               sp.name,
+			Slug:               sp.slug,
+			PluralSlug:         sp.pluralSlug,
+			IsBuiltin:          true,
+			TypeKey:            sp.typeKey,
+			AllowedOps:         node.AllOps,
+			Features:           sp.features,
+			CanContain:         sp.canContain,
+			CanLiveUnder:       sp.canLiveUnder,
+			Reference:          sp.reference,
+			ReferenceTemplates: referenceTemplates,
+			DefaultChildren:    sp.defaultChildren,
+		})
 	}
-
 	return types
 }

@@ -18,10 +18,7 @@ type SearchAccessStateStore struct {
 }
 
 // NewSearchAccessStateStore creates the FoundationDB access-state adapter.
-func NewSearchAccessStateStore(
-	db fdb.Database,
-	policies *searchaccess.PolicySet,
-) *SearchAccessStateStore {
+func NewSearchAccessStateStore(db fdb.Database, policies *searchaccess.PolicySet) *SearchAccessStateStore {
 	return &SearchAccessStateStore{db: db, policies: policies}
 }
 
@@ -29,47 +26,21 @@ func NewSearchAccessStateStore(
 // versions of the node's authority rollout. The work store compares it with
 // the recorded access. A rollout that adds or removes a write version
 // changes the compiled access. Access work then updates every page.
-func (s *SearchAccessStateStore) Compile(
-	ctx context.Context,
-	work searchdomain.Work,
-) (access node.SearchAccess, err error) {
+func (s *SearchAccessStateStore) Compile(ctx context.Context, work searchdomain.Work) (access node.SearchAccess, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_access.compile")(&err)
 	var rollout searchRolloutRecord
-	err = transactSearch(
-		ctx,
-		s.db,
-		func(tr fdb.Transaction) error {
-			var readErr error
-			rollout, readErr = readRollout(ctx, tr, work.OrgID)
-
-			return readErr
-		},
-	)
+	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
+		var readErr error
+		rollout, readErr = readRollout(ctx, tr, work.OrgID)
+		return readErr
+	})
 	if err != nil {
-		return access, searchStorageError(
-			ctx,
-			"search.access_state.rollout_failed",
-			"read access write versions",
-			work.NodeID,
-			err,
-		)
+		return access, searchStorageError(ctx, "search.access_state.rollout_failed", "read access write versions", work.NodeID, err)
 	}
-
-	access, err = compileSearchAccess(
-		ctx,
-		s.policies,
-		rollout.WriteVersions,
-		work.OrgID,
-		work.NodeID,
-		work.Generation,
-	)
+	access, err = compileSearchAccess(ctx, s.policies, rollout.WriteVersions, work.OrgID, work.NodeID, work.Generation)
 	if err != nil {
-		return access, nodeContentContextError{
-			operation: "compile current search access for node " + work.NodeID.String(),
-			err:       err,
-		}
+		return access, nodeContentContextError{operation: "compile current search access for node " + work.NodeID.String(), err: err}
 	}
-
 	return access, nil
 }
 
@@ -78,62 +49,30 @@ func (s *SearchAccessStateStore) Compile(
 // recorded counterparts of that node. For any other node, Dependents reads
 // the policy dependents under every recorded write version after the work
 // cursor.
-func (s *SearchAccessStateStore) Dependents(
-	ctx context.Context,
-	work searchdomain.Work,
-	limit int,
-) (node.IDPage, error) {
+func (s *SearchAccessStateStore) Dependents(ctx context.Context, work searchdomain.Work, limit int) (node.IDPage, error) {
 	if work.Deleted {
 		return s.readDeletedFanout(ctx, work, limit)
 	}
-
 	recorded, err := s.recordedAccess(ctx, work)
 	if err != nil {
 		return node.IDPage{}, err
 	}
-
-	page, err := s.policies.Dependents(
-		ctx,
-		recorded.Versions,
-		work.OrgID,
-		work.NodeID,
-		work.Cursor,
-		limit,
-	)
+	page, err := s.policies.Dependents(ctx, recorded.Versions, work.OrgID, work.NodeID, work.Cursor, limit)
 	if err != nil {
-		return node.IDPage{}, nodeContentContextError{
-			operation: "list search access dependents of node " + work.NodeID.String(),
-			err:       err,
-		}
+		return node.IDPage{}, nodeContentContextError{operation: "list search access dependents of node " + work.NodeID.String(), err: err}
 	}
-
 	return page, nil
 }
 
-func (s *SearchAccessStateStore) recordedAccess(
-	ctx context.Context,
-	work searchdomain.Work,
-) (node.SearchAccess, error) {
+func (s *SearchAccessStateStore) recordedAccess(ctx context.Context, work searchdomain.Work) (node.SearchAccess, error) {
 	var recorded node.SearchAccess
-	err := transactSearch(
-		ctx,
-		s.db,
-		func(tr fdb.Transaction) error {
-			var readErr error
-			recorded, readErr = accessStateFor(ctx, tr, work.OrgID, work.NodeID)
-
-			return readErr
-		},
-	)
+	err := transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
+		var readErr error
+		recorded, readErr = accessStateFor(ctx, tr, work.OrgID, work.NodeID)
+		return readErr
+	})
 	if err != nil {
-		return recorded, searchStorageError(
-			ctx,
-			"search.access_state.read_failed",
-			"read search access state",
-			work.NodeID,
-			err,
-		)
+		return recorded, searchStorageError(ctx, "search.access_state.read_failed", "read search access state", work.NodeID, err)
 	}
-
 	return recorded, nil
 }

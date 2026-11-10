@@ -33,7 +33,6 @@ func TestNodeIntegrityStrictActivationConflictsWithInFlightMutation(t *testing.T
 	if err != nil {
 		t.Fatalf("open fdb: %v", err)
 	}
-
 	prefixID := uuid.New()
 	prefix := append([]byte("tack-test:"), prefixID[:]...)
 	fdbadapter.SetTestPrefix(prefix)
@@ -54,57 +53,36 @@ func TestNodeIntegrityStrictActivationConflictsWithInFlightMutation(t *testing.T
 	if err != nil {
 		t.Fatalf("create the mutation transaction: %v", err)
 	}
-
 	active, err := fdbadapter.FenceNodeMutation(ctx, inFlight, orgID, nodeID)
 	if err != nil || active {
 		t.Fatalf("fence before activation = %t, %v; want inactive", active, err)
 	}
-
-	activation := node.StrictActivation{
-		Active:           true,
-		ActivatedAt:      clock.Now().UTC(),
-		ScanID:           uuid.Must(uuid.NewV7()),
-		RecordsValidated: 0,
-	}
+	activation := node.StrictActivation{Active: true, ActivatedAt: clock.Now().UTC(), ScanID: uuid.Must(uuid.NewV7()), RecordsValidated: 0}
 	if _, err := store.ActivateStrict(ctx, evidence, activation); err != nil {
 		t.Fatalf("activate strict validation: %v", err)
 	}
-
 	commitErr := inFlight.Commit().Get()
 	var conflict fdb.Error
 	if !errors.As(commitErr, &conflict) || conflict.Code != fdbErrorNotCommitted {
-		t.Fatalf(
-			"in-flight commit after activation = %v, want FoundationDB error %d",
-			commitErr,
-			fdbErrorNotCommitted,
-		)
+		t.Fatalf("in-flight commit after activation = %v, want FoundationDB error %d", commitErr, fdbErrorNotCommitted)
 	}
 
 	if err := inFlight.OnError(conflict).Get(); err != nil {
 		t.Fatalf("reset the mutation transaction for a retry: %v", err)
 	}
-
 	active, err = fdbadapter.FenceNodeMutation(ctx, inFlight, orgID, nodeID)
 	if err != nil || !active {
 		t.Fatalf("fence in the retried attempt = %t, %v; want active", active, err)
 	}
-
 	if err := inFlight.Commit().Get(); err != nil {
 		t.Fatalf("commit the retried attempt: %v", err)
 	}
-
 	later, err := store.CaptureStrictEvidence(ctx)
 	if err != nil {
 		t.Fatalf("capture the evidence after the retry: %v", err)
 	}
-
 	if later.Buckets[bucket] != evidence.Buckets[bucket]+1 {
-		t.Fatalf(
-			"bucket %d epoch = %d, want %d",
-			bucket,
-			later.Buckets[bucket],
-			evidence.Buckets[bucket]+1,
-		)
+		t.Fatalf("bucket %d epoch = %d, want %d", bucket, later.Buckets[bucket], evidence.Buckets[bucket]+1)
 	}
 }
 
@@ -112,11 +90,7 @@ func clearStrictTestPrefix(t *testing.T, database fdb.Database, prefix []byte) {
 	t.Helper()
 	end := append(append([]byte(nil), prefix...), 0xFF)
 	_, err := database.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.ClearRange(fdb.KeyRange{
-			Begin: fdb.Key(prefix),
-			End:   fdb.Key(end),
-		})
-
+		tr.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
 		return nil, nil
 	})
 	if err != nil {

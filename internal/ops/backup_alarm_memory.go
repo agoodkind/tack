@@ -43,11 +43,7 @@ type backupAlarmMemory struct {
 // loadBackupAlarmMemory reads both copies and picks the state the run decides
 // against: the file alone when the store cannot be read, the store alone when
 // its generation is past the file's, and the union of the two otherwise.
-func loadBackupAlarmMemory(
-	ctx context.Context,
-	cfg *config.Config,
-	get func(key string) ([]byte, error),
-) backupAlarmMemory {
+func loadBackupAlarmMemory(ctx context.Context, cfg *config.Config, get func(key string) ([]byte, error)) backupAlarmMemory {
 	local := loadBackupAlarmState(ctx, cfg)
 	shared, readable := fetchSharedBackupAlarmMemory(ctx, get)
 	memory := backupAlarmMemory{state: local, local: local, shared: shared, readable: readable}
@@ -55,17 +51,12 @@ func loadBackupAlarmMemory(
 	case !readable:
 		memory.state = copyBackupAlarmState(local)
 	case shared.Generation > local.Generation:
-		telemetry.L(ctx).InfoContext(
-			ctx,
-			"backup.staleness.alarm_memory_adopted",
-			slog.Int("generation", shared.Generation),
-			slog.Int("local_generation", local.Generation),
-		)
+		telemetry.L(ctx).InfoContext(ctx, "backup.staleness.alarm_memory_adopted",
+			slog.Int("generation", shared.Generation), slog.Int("local_generation", local.Generation))
 		memory.state = copyBackupAlarmState(shared)
 	default:
 		memory.state = unionBackupAlarmState(local, shared)
 	}
-
 	return memory
 }
 
@@ -73,43 +64,26 @@ func loadBackupAlarmMemory(
 // object is the ordinary first run: readable, empty, generation zero. An
 // object that cannot be fetched or decoded is logged and reported unreadable,
 // so the caller decides from the file alone.
-func fetchSharedBackupAlarmMemory(
-	ctx context.Context,
-	get func(key string) ([]byte, error),
-) (backupAlarmState, bool) {
+func fetchSharedBackupAlarmMemory(ctx context.Context, get func(key string) ([]byte, error)) (backupAlarmState, bool) {
 	empty := backupAlarmState{Alarmed: map[string]time.Time{}, Generation: 0}
 	body, err := get(backupAlarmMemoryKey)
 	if err != nil {
 		if isObjectNotFound(err) {
 			return empty, true
 		}
-
-		telemetry.L(ctx).WarnContext(
-			ctx,
-			"backup.staleness.alarm_memory_unreadable",
-			slog.String("key", backupAlarmMemoryKey),
-			slog.String("err", err.Error()),
-		)
-
+		telemetry.L(ctx).WarnContext(ctx, "backup.staleness.alarm_memory_unreadable",
+			slog.String("key", backupAlarmMemoryKey), slog.String("err", err.Error()))
 		return empty, false
 	}
-
 	var state backupAlarmState
 	if err := json.Unmarshal(body, &state); err != nil {
-		telemetry.L(ctx).WarnContext(
-			ctx,
-			"backup.staleness.alarm_memory_unreadable",
-			slog.String("key", backupAlarmMemoryKey),
-			slog.String("err", err.Error()),
-		)
-
+		telemetry.L(ctx).WarnContext(ctx, "backup.staleness.alarm_memory_unreadable",
+			slog.String("key", backupAlarmMemoryKey), slog.String("err", err.Error()))
 		return empty, false
 	}
-
 	if state.Alarmed == nil {
 		state.Alarmed = map[string]time.Time{}
 	}
-
 	return state, true
 }
 
@@ -131,15 +105,13 @@ func saveBackupAlarmMemory(
 	changed bool,
 ) {
 	storeBehind := memory.readable && !sameBackupAlarms(state, memory.shared)
-	fileBehind := !sameBackupAlarms(state, memory.local) ||
-		memory.local.Generation != memory.shared.Generation
+	fileBehind := !sameBackupAlarms(state, memory.local) || memory.local.Generation != memory.shared.Generation
 	switch {
 	case memory.readable && (changed || storeBehind):
 		state.Generation = memory.shared.Generation + 1
 		if !putSharedBackupAlarmMemory(ctx, put, state) {
 			state.Generation = memory.shared.Generation
 		}
-
 		saveBackupAlarmState(ctx, cfg, state)
 	case changed:
 		state.Generation = memory.local.Generation + 1
@@ -153,43 +125,22 @@ func saveBackupAlarmMemory(
 // putSharedBackupAlarmMemory writes state to the store through put and
 // reports whether it landed. A write that fails is logged and left to the
 // next run, which unions the file back in and writes the store again.
-func putSharedBackupAlarmMemory(
-	ctx context.Context,
-	put func(key string, body []byte) error,
-	state backupAlarmState,
-) bool {
+func putSharedBackupAlarmMemory(ctx context.Context, put func(key string, body []byte) error, state backupAlarmState) bool {
 	logger := telemetry.L(ctx)
 	body, err := json.Marshal(state)
 	if err != nil {
-		logger.ErrorContext(
-			ctx,
-			"backup.staleness.alarm_memory_write_failed",
-			slog.String("key", backupAlarmMemoryKey),
-			slog.String("err", err.Error()),
-		)
-
+		logger.ErrorContext(ctx, "backup.staleness.alarm_memory_write_failed",
+			slog.String("key", backupAlarmMemoryKey), slog.String("err", err.Error()))
 		return false
 	}
-
 	if err := put(backupAlarmMemoryKey, body); err != nil {
-		logger.ErrorContext(
-			ctx,
-			"backup.staleness.alarm_memory_write_failed",
-			slog.String("key", backupAlarmMemoryKey),
-			slog.String("err", err.Error()),
-		)
-
+		logger.ErrorContext(ctx, "backup.staleness.alarm_memory_write_failed",
+			slog.String("key", backupAlarmMemoryKey), slog.String("err", err.Error()))
 		return false
 	}
-
-	logger.InfoContext(
-		ctx,
-		"backup.staleness.alarm_memory_written",
-		slog.String("key", backupAlarmMemoryKey),
-		slog.Int("generation", state.Generation),
-		slog.Int("alarmed_count", len(state.Alarmed)),
-	)
-
+	logger.InfoContext(ctx, "backup.staleness.alarm_memory_written",
+		slog.String("key", backupAlarmMemoryKey), slog.Int("generation", state.Generation),
+		slog.Int("alarmed_count", len(state.Alarmed)))
 	return true
 }
 
@@ -198,15 +149,12 @@ func putSharedBackupAlarmMemory(
 // fault first mailed. The generation is settled at save time.
 func unionBackupAlarmState(local, shared backupAlarmState) backupAlarmState {
 	merged := copyBackupAlarmState(local)
-
 	for name, acceptedAt := range shared.Alarmed {
 		if existing, ok := merged.Alarmed[name]; ok && !acceptedAt.Before(existing) {
 			continue
 		}
-
 		merged.Alarmed[name] = acceptedAt
 	}
-
 	return merged
 }
 

@@ -36,16 +36,9 @@ func TestSearchControlProvisionIsIdempotentFromEmpty(t *testing.T) {
 	if err := control.run("ops", "search", "provision"); err != nil {
 		t.Fatalf("repeated provision: %v", err)
 	}
-
 	if second := control.indexUUID(t, searchControlIndex); second != first {
-		t.Fatalf(
-			"repeated provision replaced index %s: UUID %s became %s",
-			searchControlIndex,
-			first,
-			second,
-		)
+		t.Fatalf("repeated provision replaced index %s: UUID %s became %s", searchControlIndex, first, second)
 	}
-
 	if err := control.run("ops", "search", "verify"); err != nil {
 		t.Fatalf("verify after repeated provision: %v", err)
 	}
@@ -58,7 +51,6 @@ func TestSearchControlProvisionIsIdempotentFromEmpty(t *testing.T) {
 func TestSearchControlCommandsRejectIndependentTopologyAndAliasMismatches(t *testing.T) {
 	control := newSearchControl(t)
 	control.provisionFromEmpty(t)
-
 	for _, mismatch := range []struct {
 		name    string
 		shards  string
@@ -70,55 +62,33 @@ func TestSearchControlCommandsRejectIndependentTopologyAndAliasMismatches(t *tes
 		{name: "routing shards", shards: "1", routing: "16", replica: "0", want: "1/16/0"},
 		{name: "replicas", shards: "1", routing: "8", replica: "1", want: "1/8/1"},
 	} {
-		t.Run(
-			mismatch.name,
-			func(t *testing.T) {
-				t.Setenv("OPENSEARCH_SHARDS", mismatch.shards)
-				t.Setenv("OPENSEARCH_ROUTING_SHARDS", mismatch.routing)
-				t.Setenv("OPENSEARCH_REPLICAS", mismatch.replica)
-				err := control.run("ops", "search", "verify")
-				if err == nil ||
-					!strings.Contains(err.Error(), "topology 1/8/0 does not match "+mismatch.want) {
-					t.Fatalf("topology mismatch error = %v", err)
-				}
-			},
-		)
+		t.Run(mismatch.name, func(t *testing.T) {
+			t.Setenv("OPENSEARCH_SHARDS", mismatch.shards)
+			t.Setenv("OPENSEARCH_ROUTING_SHARDS", mismatch.routing)
+			t.Setenv("OPENSEARCH_REPLICAS", mismatch.replica)
+			err := control.run("ops", "search", "verify")
+			if err == nil || !strings.Contains(err.Error(), "topology 1/8/0 does not match "+mismatch.want) {
+				t.Fatalf("topology mismatch error = %v", err)
+			}
+		})
 	}
-
 	model, err := control.adapter.Provision(WithTestOperation(t, t.Context()))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	spec := search.IndexSpec{
-		Model:          model,
-		MappingVersion: search.MappingVersion,
-		Primaries:      1,
-		RoutingShards:  8,
-		Replicas:       0,
-	}
-	if err := control.adapter.EnsureIndex(
-		WithTestOperation(t, t.Context()),
-		searchControlOtherIndex,
-		spec,
-	); err != nil {
+	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 8, Replicas: 0}
+	if err := control.adapter.EnsureIndex(WithTestOperation(t, t.Context()), searchControlOtherIndex, spec); err != nil {
 		t.Fatal(err)
 	}
-
 	body := `{"actions":[{"remove":{"index":"` + searchControlIndex + `","alias":"` + searchControlAlias + `"}},` +
 		`{"add":{"index":"` + searchControlOtherIndex + `","alias":"` + searchControlAlias + `"}}]}`
-	response, err := control.client.Indices.UpdateAliases(
-		WithTestOperation(t, t.Context()),
-		&opensearchapi.IndicesUpdateAliasesReq{BodyReader: strings.NewReader(body)},
-	)
+	response, err := control.client.Indices.UpdateAliases(WithTestOperation(t, t.Context()), &opensearchapi.IndicesUpdateAliasesReq{BodyReader: strings.NewReader(body)})
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if response.Inspect().Response.IsError() {
 		t.Fatal(response.Inspect().Response.String())
 	}
-
 	err = control.run("ops", "search", "verify")
 	if err == nil || !strings.Contains(err.Error(), `alias node-pages points to "other-index"`) {
 		t.Fatalf("alias mismatch error = %v", err)
@@ -130,12 +100,9 @@ func searchCommandRoot(factory *cli.Factory) *cobra.Command {
 	ops.RegisterCommands(registry, factory)
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
 	factory.RegisterGlobalFlags(root)
-
 	for _, command := range clispec.RenderCobra(registry, factory) {
 		root.AddCommand(command)
 	}
-
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
-
 	return root
 }

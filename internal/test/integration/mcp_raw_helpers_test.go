@@ -34,77 +34,45 @@ var rawRequestCounter atomic.Int64
 
 // callToolSuccess requires one successful text result from an MCP tool.
 // It records created nodes in harness.titles and returns the result text.
-func callToolSuccess(
-	t *testing.T,
-	harness *MCPHarness,
-	toolName string,
-	arguments map[string]any,
-) string {
+func callToolSuccess(t *testing.T, harness *MCPHarness, toolName string, arguments map[string]any) string {
 	t.Helper()
 	result := callToolRaw(t, harness, toolName, arguments)
 	if result.IsError {
 		t.Fatalf("%s returned an error: %s", toolName, toolResultText(result))
 	}
-
 	if len(result.Content) != 1 || result.Content[0].Type != "text" {
 		t.Fatalf("%s content = %+v, want one text item", toolName, result.Content)
 	}
-
 	text := result.Content[0].Text
 	if strings.HasPrefix(toolName, createToolPrefix) {
 		name, _ := arguments["name"].(string)
-		created := datagen.Result{
-			Content: []datagen.ToolContent{{Type: "text", Text: text}},
-			IsError: false,
-		}
+		created := datagen.Result{Content: []datagen.ToolContent{{Type: "text", Text: text}}, IsError: false}
 		harness.registerCreated(t, created, name)
 	}
-
 	return text
 }
 
-func callToolRaw(
-	t *testing.T,
-	harness *MCPHarness,
-	toolName string,
-	arguments map[string]any,
-) rawToolResult {
+func callToolRaw(t *testing.T, harness *MCPHarness, toolName string, arguments map[string]any) rawToolResult {
 	t.Helper()
-	payload := callRPCRaw(
-		t,
-		harness,
-		"tools/call",
-		map[string]any{
-			"name":      toolName,
-			"arguments": arguments,
-		},
-	)
+	payload := callRPCRaw(t, harness, "tools/call", map[string]any{
+		"name": toolName, "arguments": arguments,
+	})
 	var result rawToolResult
 	if err := json.Unmarshal(payload, &result); err != nil {
 		t.Fatalf("decode %s result: %v\n%s", toolName, err, payload)
 	}
-
 	return result
 }
 
-func callRPCRaw(
-	t *testing.T,
-	harness *MCPHarness,
-	method string,
-	params map[string]any,
-) json.RawMessage {
+func callRPCRaw(t *testing.T, harness *MCPHarness, method string, params map[string]any) json.RawMessage {
 	t.Helper()
 	requestID := "outage-acceptance-" + strconv.FormatInt(rawRequestCounter.Add(1), 10)
 	body, err := json.Marshal(map[string]any{
-		"jsonrpc": "2.0",
-		"id":      requestID,
-		"method":  method,
-		"params":  params,
+		"jsonrpc": "2.0", "id": requestID, "method": method, "params": params,
 	})
 	if err != nil {
 		t.Fatalf("marshal %s request: %v", method, err)
 	}
-
 	request := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
 	request.Header.Set("Authorization", "Bearer "+harness.token)
 	request.Header.Set("Content-Type", "application/json")
@@ -117,25 +85,20 @@ func callRPCRaw(
 		payload, _ := io.ReadAll(response.Body)
 		t.Fatalf("%s HTTP status = %d, body = %s", method, response.StatusCode, payload)
 	}
-
 	payload, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatalf("read %s response: %v", method, err)
 	}
-
 	if strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
 		payload = lastSSEPayload(t, payload)
 	}
-
 	var decoded rawRPCResponse
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		t.Fatalf("decode %s response: %v\n%s", method, err, payload)
 	}
-
 	if decoded.Error != nil {
 		t.Fatalf("%s protocol error: %s", method, decoded.Error.Message)
 	}
-
 	return decoded.Result
 }
 
@@ -146,18 +109,15 @@ func rawNodeID(t *testing.T, text string) string {
 	if start == -1 {
 		t.Fatalf("tool output has no raw node id:\n%s", text)
 	}
-
 	remainder := text[start+len(marker):]
 	end := strings.IndexByte(remainder, '`')
 	if end == -1 {
 		t.Fatalf("tool output has an unterminated raw node id:\n%s", text)
 	}
-
 	id := remainder[:end]
 	if _, err := uuid.Parse(id); err != nil {
 		t.Fatalf("raw node id %q is invalid: %v", id, err)
 	}
-
 	return id
 }
 
@@ -166,24 +126,20 @@ func toolResultText(result rawToolResult) string {
 	for _, content := range result.Content {
 		texts = append(texts, content.Text)
 	}
-
 	return strings.Join(texts, "\n")
 }
 
 func lastSSEPayload(t *testing.T, body []byte) []byte {
 	t.Helper()
 	var payload []byte
-
 	for _, line := range bytes.Split(body, []byte("\n")) {
 		if bytes.HasPrefix(line, []byte("data: ")) {
 			payload = bytes.TrimPrefix(line, []byte("data: "))
 		}
 	}
-
 	if len(payload) == 0 {
 		t.Fatalf("SSE response contains no data event:\n%s", body)
 	}
-
 	return payload
 }
 
@@ -192,16 +148,8 @@ func lastSSEPayload(t *testing.T, body []byte) []byte {
 // reference, and the state reference.
 func (h *MCPHarness) SetIssueState(t *testing.T, issueReference, state string) string {
 	t.Helper()
-
-	return callToolSuccess(
-		t,
-		h,
-		"tack_set_issue_state",
-		map[string]any{
-			"workspace_reference": h.Workspace,
-			"project_reference":   h.Project,
-			"issue_reference":     issueReference,
-			"state":               state,
-		},
-	)
+	return callToolSuccess(t, h, "tack_set_issue_state", map[string]any{
+		"workspace_reference": h.Workspace, "project_reference": h.Project,
+		"issue_reference": issueReference, "state": state,
+	})
 }

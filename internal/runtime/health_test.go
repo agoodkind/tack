@@ -33,7 +33,6 @@ func TestHealthzAllProbesPass(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("want 200, got %d", rec.Code)
 	}
-
 	if body := rec.Body.String(); body != "ok" {
 		t.Fatalf("body = %q, want %q", body, "ok")
 	}
@@ -48,7 +47,6 @@ func TestHealthzFailingProbeReturns503(t *testing.T) {
 	if rec.Code != 503 {
 		t.Fatalf("want 503, got %d", rec.Code)
 	}
-
 	if body := rec.Body.String(); body != "yugabyte unhealthy\n" {
 		t.Fatalf("body = %q, want %q", body, "yugabyte unhealthy\\n")
 	}
@@ -77,7 +75,6 @@ func TestHealthzStartsHangingProbesConcurrently(t *testing.T) {
 		return func(ctx context.Context) error {
 			started <- name
 			<-ctx.Done()
-
 			return ctx.Err()
 		}
 	}
@@ -89,10 +86,7 @@ func TestHealthzStartsHangingProbesConcurrently(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		h.ServeHTTP(
-			recorder,
-			httptest.NewRequest(http.MethodGet, "/healthz", nil).WithContext(requestContext),
-		)
+		h.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil).WithContext(requestContext))
 	}()
 
 	for range 2 {
@@ -104,7 +98,6 @@ func TestHealthzStartsHangingProbesConcurrently(t *testing.T) {
 			t.Fatal("handler did not start every probe concurrently")
 		}
 	}
-
 	cancel()
 	<-done
 }
@@ -122,11 +115,9 @@ func TestHealthzHangingProbeReturnsWithinSharedDeadline(t *testing.T) {
 	if elapsed := time.Since(startedAt); elapsed > 2*time.Second+250*time.Millisecond {
 		t.Fatalf("handler returned after %s, want within two seconds", elapsed)
 	}
-
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
 	}
-
 	if body := recorder.Body.String(); body != "fdb unhealthy\n" {
 		t.Fatalf("body = %q, want %q", body, "fdb unhealthy\\n")
 	}
@@ -137,7 +128,6 @@ func TestHealthzRouteUsesHealthHandler(t *testing.T) {
 		if r.Method != http.MethodGet {
 			t.Fatalf("method = %s, want GET", r.Method)
 		}
-
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux := runtime.NewRoutes(productReadRecorder(t), http.NotFoundHandler(), healthHandler)
@@ -146,7 +136,6 @@ func TestHealthzRouteUsesHealthHandler(t *testing.T) {
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
 	}
-
 	recorder = httptest.NewRecorder()
 	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/healthz", nil))
 	if recorder.Code != http.StatusMethodNotAllowed {
@@ -170,7 +159,6 @@ func productReadRecorder(t *testing.T) *mcpadapter.RequestRecorder {
 	if err != nil {
 		t.Fatalf("test could not open FoundationDB stores: %v", err)
 	}
-
 	return mcpadapter.NewRequestRecorder(stores.AuditReads(clock.Wall{}))
 }
 
@@ -183,14 +171,9 @@ func clearRecorderPrefix(t *testing.T, clusterFile string, prefix []byte) {
 		t.Logf("cleanup could not open FoundationDB: %v", err)
 		return
 	}
-
 	end := append(bytes.Clone(prefix), 0xFF)
 	if _, err := database.Transact(func(transaction fdb.Transaction) (any, error) {
-		transaction.ClearRange(fdb.KeyRange{
-			Begin: fdb.Key(prefix),
-			End:   fdb.Key(end),
-		})
-
+		transaction.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
 		return nil, nil
 	}); err != nil {
 		t.Logf("cleanup could not delete the test keys: %v", err)

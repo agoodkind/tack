@@ -60,10 +60,7 @@ func TestSearchAdmissionRefusesBeyondProcessLimit(t *testing.T) {
 	case err := <-admitted:
 		t.Fatalf("the first search returned before the proxy received its predict request: %v", err)
 	case <-time.After(admissionHoldTimeout):
-		t.Fatalf(
-			"the proxy did not receive the predict request of the first search within %s",
-			admissionHoldTimeout,
-		)
+		t.Fatalf("the proxy did not receive the predict request of the first search within %s", admissionHoldTimeout)
 	}
 
 	refusals := make(chan admissionOutcome, admissionWaiters)
@@ -74,47 +71,22 @@ func TestSearchAdmissionRefusesBeyondProcessLimit(t *testing.T) {
 			refusals <- admissionOutcome{err: err, elapsed: clock.Since(started)}
 		}()
 	}
-
 	for number := range admissionWaiters {
 		outcome := <-refusals
 		if outcome.err == nil || outcome.err.Error() != admissionUnavailableText {
-			t.Fatalf(
-				"waiting search %d returned error %v, want %q",
-				number+1,
-				outcome.err,
-				admissionUnavailableText,
-			)
+			t.Fatalf("waiting search %d returned error %v, want %q", number+1, outcome.err, admissionUnavailableText)
 		}
-
 		if outcome.elapsed < admissionWait || outcome.elapsed > admissionWait+admissionMargin {
-			t.Fatalf(
-				"waiting search %d returned after %s, want between %s and %s",
-				number+1,
-				outcome.elapsed,
-				admissionWait,
-				admissionWait+admissionMargin,
-			)
+			t.Fatalf("waiting search %d returned after %s, want between %s and %s", number+1, outcome.elapsed, admissionWait, admissionWait+admissionMargin)
 		}
-
-		t.Logf(
-			"waiting search %d returned the unavailable text after %s",
-			number+1,
-			outcome.elapsed,
-		)
+		t.Logf("waiting search %d returned the unavailable text after %s", number+1, outcome.elapsed)
 	}
-
 	if predicts := proxy.predictCount(); predicts != 1 {
-		t.Fatalf(
-			"the proxy received %d predict requests while one search kept the only slot, want 1",
-			predicts,
-		)
+		t.Fatalf("the proxy received %d predict requests while one search kept the only slot, want 1", predicts)
 	}
 
 	proxy.release()
 	if err := <-admitted; err != nil {
-		t.Fatalf(
-			"the admitted search failed after the proxy forwarded its predict request: %v",
-			err,
-		)
+		t.Fatalf("the admitted search failed after the proxy forwarded its predict request: %v", err)
 	}
 }

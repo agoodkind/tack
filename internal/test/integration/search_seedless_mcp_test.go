@@ -62,25 +62,16 @@ func seedlessString(value string) json.RawMessage {
 	return json.RawMessage(strconv.Quote(value))
 }
 
-func callSeedlessTool(
-	t *testing.T,
-	env seedlessEnvironment,
-	caller seedlessOrg,
-	tool string,
-	arguments map[string]json.RawMessage,
-) string {
+func callSeedlessTool(t *testing.T, env seedlessEnvironment, caller seedlessOrg, tool string, arguments map[string]json.RawMessage) string {
 	t.Helper()
 	requestID := uuid.NewString()
 	body, err := json.Marshal(seedlessRequest{
-		JSONRPC: "2.0",
-		ID:      requestID,
-		Method:  "tools/call",
-		Params:  seedlessToolParams{Name: tool, Arguments: arguments},
+		JSONRPC: "2.0", ID: requestID, Method: "tools/call",
+		Params: seedlessToolParams{Name: tool, Arguments: arguments},
 	})
 	if err != nil {
 		t.Fatalf("encode %s request: %v", tool, err)
 	}
-
 	ctx := telemetry.WithRequestMetadata(t.Context(), requestID)
 	request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/mcp", bytes.NewReader(body))
 	request.Header.Set(telemetry.RequestIDHeader, requestID)
@@ -93,7 +84,6 @@ func callSeedlessTool(
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("%s returned HTTP %d: %s", tool, recorder.Code, payload)
 	}
-
 	if strings.Contains(recorder.Header().Get("Content-Type"), "text/event-stream") {
 		for _, line := range bytes.Split(payload, []byte("\n")) {
 			if bytes.HasPrefix(line, []byte(seedlessEventDataLine)) {
@@ -101,31 +91,21 @@ func callSeedlessTool(
 			}
 		}
 	}
-
 	var decoded seedlessResponse
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		t.Fatalf("decode %s response %s: %v", tool, payload, err)
 	}
-
 	if decoded.Error != nil {
-		t.Fatalf(
-			"%s returned JSON-RPC error %d: %s",
-			tool,
-			decoded.Error.Code,
-			decoded.Error.Message,
-		)
+		t.Fatalf("%s returned JSON-RPC error %d: %s", tool, decoded.Error.Code, decoded.Error.Message)
 	}
-
 	parts := make([]string, 0, len(decoded.Result.Content))
 	for _, content := range decoded.Result.Content {
 		parts = append(parts, content.Text)
 	}
-
 	text := strings.Join(parts, "\n")
 	if decoded.Result.IsError {
 		t.Fatalf("%s returned an error result: %s", tool, text)
 	}
-
 	return text
 }
 
@@ -135,68 +115,46 @@ func seedlessRawID(t *testing.T, text string) uuid.UUID {
 	if marker < 0 {
 		t.Fatalf("response has no raw id:\n%s", text)
 	}
-
 	value := text[marker+len("Raw id: `"):]
 	end := strings.IndexByte(value, '`')
 	if end < 0 {
 		t.Fatalf("response has an unterminated raw id:\n%s", text)
 	}
-
 	id, err := uuid.Parse(value[:end])
 	if err != nil {
 		t.Fatalf("parse raw id %q: %v", value[:end], err)
 	}
-
 	return id
 }
 
-func searchSeedless(
-	t *testing.T,
-	env seedlessEnvironment,
-	caller seedlessOrg,
-	query string,
-	nodeType string,
-) []seedlessResult {
+func searchSeedless(t *testing.T, env seedlessEnvironment, caller seedlessOrg, query, nodeType string) []seedlessResult {
 	t.Helper()
 	var results []seedlessResult
 	cursor := ""
-
 	for range seedlessSearchPages {
 		arguments := map[string]json.RawMessage{
-			caller.Keys.Entry + "_reference": seedlessString(caller.EntryAddress),
-			"query":                          seedlessString(query),
+			caller.Keys.Entry + "_reference": seedlessString(caller.EntryAddress), "query": seedlessString(query),
 		}
 		if nodeType != "" {
 			arguments["node_type"] = seedlessString(nodeType)
 		}
-
 		if cursor != "" {
 			arguments["cursor"] = seedlessString(cursor)
 		}
-
 		text := callSeedlessTool(t, env, caller, "tack_search", arguments)
-		page, err := integration.ParseSearchPage(
-			t.Context(),
-			text,
-			datagen.SearchIdentities{Titles: caller.Titles, Resolve: nil},
-		)
+		page, err := integration.ParseSearchPage(t.Context(), text, datagen.SearchIdentities{Titles: caller.Titles, Resolve: nil})
 		if err != nil {
 			t.Fatalf("parse search %q page: %v", query, err)
 		}
-
 		for number, item := range integration.SearchResultItems(text) {
 			results = append(results, parseSeedlessResult(t, item, page.IDs[number]))
 		}
-
 		if page.Complete {
 			return results
 		}
-
 		cursor = page.Cursor
 	}
-
 	t.Fatalf("search %q did not complete within %d pages", query, seedlessSearchPages)
-
 	return nil
 }
 
@@ -205,25 +163,17 @@ func searchSeedless(
 func parseSeedlessResult(t *testing.T, item string, id uuid.UUID) seedlessResult {
 	t.Helper()
 	lines := strings.Split(item, "\n")
-
-	result := seedlessResult{
-		Name: strings.Trim(strings.TrimPrefix(lines[0], "- "), "`"),
-		Type: "",
-		ID:   id,
-	}
+	result := seedlessResult{Name: strings.Trim(strings.TrimPrefix(lines[0], "- "), "`"), Type: "", ID: id}
 	for _, line := range lines[1:] {
 		if name, found := strings.CutPrefix(line, "  - Name: "); found {
 			result.Name = name
 		}
-
 		if nodeType, found := strings.CutPrefix(line, "  - Type: "); found {
 			result.Type = strings.Trim(nodeType, "`")
 		}
 	}
-
 	if result.Type == "" {
 		t.Fatalf("result item has no node type:\n%s", item)
 	}
-
 	return result
 }

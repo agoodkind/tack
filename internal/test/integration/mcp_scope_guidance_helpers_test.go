@@ -19,15 +19,12 @@ const (
 
 func guidedCreateInputs(t *testing.T, guidance, tool string) ([]string, []string) {
 	t.Helper()
-
 	lines := strings.Split(guidance, "\n")
 	for index, line := range lines {
 		if line != "- `"+tool+"`" {
 			continue
 		}
-
 		var required, alternatives []string
-
 		for _, next := range lines[index+1:] {
 			switch {
 			case strings.HasPrefix(next, guidanceRequiredPrefix):
@@ -38,36 +35,29 @@ func guidedCreateInputs(t *testing.T, guidance, tool string) ([]string, []string
 				return required, alternatives
 			}
 		}
-
 		return required, alternatives
 	}
-
 	t.Fatalf("getting-started guidance has no entry for %s:\n%s", tool, guidance)
-
 	return nil, nil
 }
 
 func guidanceParams(text string) []string {
 	matches := guidanceParamPattern.FindAllStringSubmatch(text, -1)
-
 	names := make([]string, 0, len(matches))
 	for _, match := range matches {
 		names = append(names, match[1])
 	}
-
 	return names
 }
 
 func guidedArguments(t *testing.T, values map[string]string, names []string) datagen.ToolArguments {
 	t.Helper()
 	var arguments datagen.ToolArguments
-
 	for _, name := range names {
 		value, ok := values[name]
 		if !ok {
 			t.Fatalf("guidance requires %s, which the test has no value for", name)
 		}
-
 		switch name {
 		case "workspace_reference":
 			arguments.WorkspaceReference = value
@@ -83,7 +73,6 @@ func guidedArguments(t *testing.T, values map[string]string, names []string) dat
 			t.Fatalf("guidance names %s, which the test cannot set", name)
 		}
 	}
-
 	return arguments
 }
 
@@ -93,6 +82,5 @@ func printedReference(t *testing.T, confirmation string) string {
 	if match == nil {
 		t.Fatalf("create confirmation has no reference:\n%s", confirmation)
 	}
-
 	return match[1]
 }

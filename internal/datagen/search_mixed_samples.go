@@ -22,23 +22,14 @@ const (
 // searchMixedCatchUpClasses returns the live, access, and cleanup classes.
 // It also returns the rescan class when metadata is true.
 func searchMixedCatchUpClasses(metadata bool) []searchdomain.WorkClass {
-	classes := []searchdomain.WorkClass{
-		searchdomain.WorkClassLive,
-		searchdomain.WorkClassAccess,
-		searchdomain.WorkClassCleanup,
-	}
+	classes := []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup}
 	if metadata {
 		classes = append(classes, searchdomain.WorkClassRescan)
 	}
 	return classes
 }
 
-func (m *searchMixed) sampleUntil(
-	ctx context.Context,
-	windowStarted time.Time,
-	stop <-chan struct{},
-	done chan<- struct{},
-) {
+func (m *searchMixed) sampleUntil(ctx context.Context, windowStarted time.Time, stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -59,15 +50,8 @@ func (m *searchMixed) sampleUntil(
 
 func (m *searchMixed) recordSample(ctx context.Context, windowStarted time.Time) {
 	sample := SearchMixedSample{
-		Offset:            clock.Now().Sub(windowStarted),
-		OldestPendingWork: 0,
-		OldestClass:       "",
-		WorkClasses:       nil,
-		RebuildState:      "",
-		Nodes:             nil,
-		Error:             "",
-		FoundationDB:      nil,
-		FoundationDBError: "",
+		Offset: clock.Now().Sub(windowStarted), OldestPendingWork: 0, OldestClass: "",
+		WorkClasses: nil, RebuildState: "", Nodes: nil, Error: "", FoundationDB: nil, FoundationDBError: "",
 	}
 	problems := make([]string, 0)
 	pending, err := m.backlog.pending(ctx)
@@ -78,9 +62,7 @@ func (m *searchMixed) recordSample(ctx context.Context, windowStarted time.Time)
 	}
 	now := clock.Now()
 	for class, backlog := range pending {
-		if class != searchdomain.WorkClassRebuild && now.Sub(
-			backlog.oldest,
-		) > sample.OldestPendingWork {
+		if class != searchdomain.WorkClassRebuild && now.Sub(backlog.oldest) > sample.OldestPendingWork {
 			sample.OldestPendingWork, sample.OldestClass = now.Sub(backlog.oldest), string(class)
 		}
 	}
@@ -124,11 +106,7 @@ func rebuildProgress(rebuild SearchMixedRebuildResult, sample SearchMixedSample)
 func (m *searchMixed) rebuildState(ctx context.Context) (string, error) {
 	rebuild, found, err := m.stores.SearchRebuilds(clock.Wall{}).CurrentRebuild(ctx)
 	if err != nil {
-		return "", loggedError(
-			ctx,
-			"qa datagen search-mixed: the command could not read the index rebuild record",
-			err,
-		)
+		return "", loggedError(ctx, "qa datagen search-mixed: the command could not read the index rebuild record", err)
 	}
 	if !found {
 		return searchMixedNoRebuild, nil
@@ -157,26 +135,13 @@ func (m *searchMixed) catchUp(ctx context.Context, writesEnded time.Time) {
 	}
 	elapsed := clock.Now().Sub(writesEnded)
 	m.phases.update(func(phases *searchMixedPhaseStats) {
-		phases.catchUp = SearchMixedCatchUp{
-			Completed:    completed,
-			Elapsed:      elapsed,
-			DrainedAfter: drainedAfter,
-		}
+		phases.catchUp = SearchMixedCatchUp{Completed: completed, Elapsed: elapsed, DrainedAfter: drainedAfter}
 	})
-	slog.InfoContext(
-		ctx,
-		"qa.datagen.search_mixed_catch_up_finished",
-		slog.Bool("completed", completed),
-		slog.Duration("elapsed", elapsed),
-		slog.Duration("drained_after", drainedAfter),
-	)
+	slog.InfoContext(ctx, "qa.datagen.search_mixed_catch_up_finished", slog.Bool("completed", completed),
+		slog.Duration("elapsed", elapsed), slog.Duration("drained_after", drainedAfter))
 }
 
-func caughtUp(
-	pending map[searchdomain.WorkClass]searchClassBacklog,
-	writesEnded time.Time,
-	classes []searchdomain.WorkClass,
-) bool {
+func caughtUp(pending map[searchdomain.WorkClass]searchClassBacklog, writesEnded time.Time, classes []searchdomain.WorkClass) bool {
 	for _, class := range classes {
 		if backlog, found := pending[class]; found && !backlog.oldest.After(writesEnded) {
 			return false
@@ -191,14 +156,9 @@ func searchMixedWorkClasses(pending map[searchdomain.WorkClass]searchClassBacklo
 	classes := make([]SearchMixedWorkClass, 0, len(pending))
 	for _, class := range searchdomain.ScheduledWorkClasses() {
 		if backlog, found := pending[class]; found {
-			classes = append(
-				classes,
-				SearchMixedWorkClass{
-					Class:           string(class),
-					NonemptyBuckets: backlog.nonemptyBuckets,
-					OldestRecord:    backlog.oldestRecord,
-				},
-			)
+			classes = append(classes, SearchMixedWorkClass{
+				Class: string(class), NonemptyBuckets: backlog.nonemptyBuckets, OldestRecord: backlog.oldestRecord,
+			})
 		}
 	}
 	return classes

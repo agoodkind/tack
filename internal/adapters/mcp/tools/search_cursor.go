@@ -38,34 +38,28 @@ func (c *SearchCursorCodec) Encode(sessionID uuid.UUID, version uint64) string {
 	payload = append(payload, searchCursorFormat)
 	payload = append(payload, sessionID[:]...)
 	payload = binary.BigEndian.AppendUint64(payload, version)
-
 	return base64.RawURLEncoding.EncodeToString(append(payload, c.mac(payload)...))
 }
 
 // Decode authenticates the cursor and returns its session ID and version.
 func (c *SearchCursorCodec) Decode(cursor string) (uuid.UUID, uint64, error) {
 	decoded, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil || len(decoded) != searchCursorPayloadBytes+sha256.Size ||
-		decoded[0] != searchCursorFormat {
+	if err != nil || len(decoded) != searchCursorPayloadBytes+sha256.Size || decoded[0] != searchCursorFormat {
 		return uuid.Nil, 0, errInvalidSearchCursor
 	}
-
 	payload := decoded[:searchCursorPayloadBytes]
 	if !hmac.Equal(decoded[searchCursorPayloadBytes:], c.mac(payload)) {
 		return uuid.Nil, 0, errInvalidSearchCursor
 	}
-
 	sessionID, err := uuid.FromBytes(payload[1:17])
 	if err != nil || sessionID == uuid.Nil {
 		return uuid.Nil, 0, errInvalidSearchCursor
 	}
-
 	return sessionID, binary.BigEndian.Uint64(payload[17:]), nil
 }
 
 func (c *SearchCursorCodec) mac(payload []byte) []byte {
 	signer := hmac.New(sha256.New, c.key)
 	_, _ = signer.Write(payload)
-
 	return signer.Sum(nil)
 }

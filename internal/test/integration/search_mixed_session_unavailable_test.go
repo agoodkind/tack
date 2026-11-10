@@ -61,89 +61,34 @@ func TestSearchMixedSessionsRetryUnavailableSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse scale: %v", err)
 	}
-
-	identities, err := datagen.BootstrapIdentities(
-		integration.WithTestOperation(t, t.Context()),
-		cfg,
-		seed,
-		scale,
-	)
+	identities, err := datagen.BootstrapIdentities(integration.WithTestOperation(t, t.Context()), cfg, seed, scale)
 	if err != nil {
 		t.Fatalf("bootstrap the search-mixed identities: %v", err)
 	}
-
 	marker := "session hold " + strconv.FormatInt(seed, 10)
 	endpoints, second, proxy := startRevocationProcesses(t, cfg, marker)
 	watchContext, stopWatch := context.WithCancel(integration.WithTestOperation(t, t.Context()))
 	watched := make(chan error, 1)
 	go func() {
-		watched <- occupySlotAfterRemoval(
-			watchContext,
-			cfg,
-			proxy,
-			datagen.NewDriver(second, false, seed),
-			identities.Workspaces[0],
-			marker,
-			sessionHold,
-		)
+		watched <- occupySlotAfterRemoval(watchContext, cfg, proxy, datagen.NewDriver(second, false, seed), identities.Workspaces[0], marker, sessionHold)
 	}()
-	output, runErr := runSearchMixedCommandAs(
-		t,
-		cfg,
-		sessionHoldOperatorID,
-		"--seed",
-		strconv.FormatInt(seed, 10),
-		"--rate",
-		"6",
-		"--write-rate",
-		"6",
-		"--duration",
-		"40s",
-		"--concurrency",
-		"2",
-		"--burst-writes",
-		"4",
-		"--catch-up",
-		"5m",
-		"--rebuild",
-		"--endpoints",
-		strings.Join(endpoints, ","),
-		"--commit",
-	)
+	output, runErr := runSearchMixedCommandAs(t, cfg, sessionHoldOperatorID, "--seed", strconv.FormatInt(seed, 10), "--rate", "6", "--write-rate", "6",
+		"--duration", "40s", "--concurrency", "2", "--burst-writes", "4", "--catch-up", "5m", "--rebuild",
+		"--endpoints", strings.Join(endpoints, ","), "--commit")
 	stopWatch()
 	var envelope sessionUnavailableOutput
 	if err := json.Unmarshal(output, &envelope); err != nil {
-		t.Fatalf(
-			"decode the search-mixed result: %v (command error=%v; output=%s)",
-			err,
-			runErr,
-			output,
-		)
+		t.Fatalf("decode the search-mixed result: %v (command error=%v; output=%s)", err, runErr, output)
 	}
-
 	deleteSearchMixedIndex(t, cfg, envelope.Result.Rebuild.TargetIndex)
 	if err := <-watched; err != nil {
-		t.Fatalf(
-			"the test could not occupy the search slot during the rebuild sessions: %v (output=%s)",
-			err,
-			output,
-		)
+		t.Fatalf("the test could not occupy the search slot during the rebuild sessions: %v (output=%s)", err, output)
 	}
-
 	if runErr != nil {
-		t.Fatalf(
-			"search-mixed failed while the second process refused searches: %v (output=%s)",
-			runErr,
-			output,
-		)
+		t.Fatalf("search-mixed failed while the second process refused searches: %v (output=%s)", runErr, output)
 	}
-
 	sessions := envelope.Result.Sessions
-	if !envelope.Result.Rebuild.Requested || sessions.Unavailable <= 0 ||
-		sessions.ContinuationErrors != 0 {
-		t.Fatalf(
-			"the rebuild sessions must count unavailable responses and finish without continuation errors: %s",
-			output,
-		)
+	if !envelope.Result.Rebuild.Requested || sessions.Unavailable <= 0 || sessions.ContinuationErrors != 0 {
+		t.Fatalf("the rebuild sessions must count unavailable responses and finish without continuation errors: %s", output)
 	}
 }

@@ -31,29 +31,17 @@ func retryTimedOutRead(ctx context.Context, nodeID uuid.UUID, read func() error)
 		if !timedOut || clock.Now().After(deadline) || !waitForSearchMixedPoll(ctx) {
 			return err
 		}
-		slog.DebugContext(
-			ctx,
-			"qa.datagen.search_mixed_read_retried",
-			slog.String("node_id", nodeID.String()),
-			slog.String("err", err.Error()),
-		)
+		slog.DebugContext(ctx, "qa.datagen.search_mixed_read_retried", slog.String("node_id", nodeID.String()), slog.String("err", err.Error()))
 	}
 }
 
 // resolveResult reads the resolve record of nodeID with retryTimedOutRead.
-func (m *searchMixed) resolveResult(ctx context.Context, nodeID uuid.UUID) (
-	*node.NodeResolve,
-	error,
-) {
+func (m *searchMixed) resolveResult(ctx context.Context, nodeID uuid.UUID) (*node.NodeResolve, error) {
 	var resolved *node.NodeResolve
-	err := retryTimedOutRead(
-		ctx,
-		nodeID,
-		func() error {
-			var readErr error
-			resolved, readErr = m.stores.Views.Resolve(ctx, nodeID)
-			return readErr
-		},
-	)
+	err := retryTimedOutRead(ctx, nodeID, func() error {
+		var readErr error
+		resolved, readErr = m.stores.Views.Resolve(ctx, nodeID)
+		return readErr
+	})
 	return resolved, err
 }

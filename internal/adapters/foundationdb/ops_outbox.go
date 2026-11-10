@@ -50,24 +50,16 @@ func (s *OpsOutboxStore) ReadOutboxFrom(
 
 	outboxRange, rangeErr := fdb.PrefixRange(opsOutboxPrefix())
 	if rangeErr != nil {
-		slog.ErrorContext(
-			ctx,
-			"ops_outbox.read_prefix_failed",
-			slog.String("err", rangeErr.Error()),
-		)
-
+		slog.ErrorContext(ctx, "ops_outbox.read_prefix_failed", slog.String("err", rangeErr.Error()))
 		return nil, fmt.Errorf("ops outbox prefix range: %w", rangeErr)
 	}
-
 	begin := fdb.FirstGreaterOrEqual(outboxRange.Begin)
 	if len(mark) > 0 {
 		if err := checkOutboxMark(ctx, mark); err != nil {
 			return nil, err
 		}
-
 		begin = fdb.FirstGreaterThan(fdb.Key(mark))
 	}
-
 	readRange := fdb.SelectorRange{Begin: begin, End: fdb.FirstGreaterOrEqual(outboxRange.End)}
 
 	// db.ReadTransact is unavailable here for the same reason ClearThrough
@@ -76,40 +68,26 @@ func (s *OpsOutboxStore) ReadOutboxFrom(
 	// spelled out, over a read transaction.
 	transaction, transactionErr := s.db.CreateTransaction()
 	if transactionErr != nil {
-		slog.ErrorContext(
-			ctx,
-			"ops_outbox.read_transaction_failed",
-			slog.String("err", transactionErr.Error()),
-		)
-
+		slog.ErrorContext(ctx, "ops_outbox.read_transaction_failed",
+			slog.String("err", transactionErr.Error()))
 		return nil, fmt.Errorf("create ops outbox read transaction: %w", transactionErr)
 	}
 	defer transaction.Cancel()
-
 	for {
 		keyValues, readErr := transaction.
-			GetRange(
-				readRange,
-				fdb.RangeOptions{Limit: limit},
-			).
+			GetRange(readRange, fdb.RangeOptions{Limit: limit}).
 			GetSliceWithError()
 		if readErr == nil {
 			return outboxEntries(ctx, keyValues)
 		}
-
 		var fdbErr fdb.Error
 		if !errors.As(readErr, &fdbErr) {
 			slog.ErrorContext(ctx, "ops_outbox.read_failed", slog.String("err", readErr.Error()))
 			return nil, fmt.Errorf("read ops outbox: %w", readErr)
 		}
-
 		if retryErr := transaction.OnError(fdbErr).Get(); retryErr != nil {
-			slog.ErrorContext(
-				ctx,
-				"ops_outbox.read_retry_failed",
-				slog.String("err", retryErr.Error()),
-			)
-
+			slog.ErrorContext(ctx, "ops_outbox.read_retry_failed",
+				slog.String("err", retryErr.Error()))
 			return nil, fmt.Errorf("retry read ops outbox: %w", retryErr)
 		}
 	}
@@ -125,17 +103,12 @@ func outboxEntries(ctx context.Context, keyValues []fdb.KeyValue) ([]OutboxEntry
 		if err != nil {
 			return nil, err
 		}
-
-		entries = append(
-			entries,
-			OutboxEntry{
-				Mark:          append([]byte(nil), keyValue.Key...),
-				Event:         append(json.RawMessage(nil), keyValue.Value...),
-				CommitVersion: commitVersion,
-			},
-		)
+		entries = append(entries, OutboxEntry{
+			Mark:          append([]byte(nil), keyValue.Key...),
+			Event:         append(json.RawMessage(nil), keyValue.Value...),
+			CommitVersion: commitVersion,
+		})
 	}
-
 	return entries, nil
 }
 
@@ -148,7 +121,6 @@ func (s *OpsOutboxStore) ClearThrough(ctx context.Context, mark []byte) (err err
 	if len(mark) == 0 {
 		return nil
 	}
-
 	// A mark that is not an outbox key would make the cleared range run past
 	// the outbox and destroy unrelated key families. The relay's mark comes
 	// from a previous read, so a bad one means corrupted state, and refusing
@@ -164,7 +136,6 @@ func (s *OpsOutboxStore) ClearThrough(ctx context.Context, mark []byte) (err err
 		slog.ErrorContext(ctx, "ops_outbox.clear_end_failed", slog.String("err", endErr.Error()))
 		return fmt.Errorf("ops outbox clear end key: %w", endErr)
 	}
-
 	clearRange := fdb.KeyRange{Begin: fdb.Key(opsOutboxPrefix()), End: fdb.Key(end)}
 
 	// A mutation with no result cannot go through db.Transact here: that
@@ -173,36 +144,25 @@ func (s *OpsOutboxStore) ClearThrough(ctx context.Context, mark []byte) (err err
 	// db.Transact does internally, spelled out.
 	transaction, transactionErr := s.db.CreateTransaction()
 	if transactionErr != nil {
-		slog.ErrorContext(
-			ctx,
-			"ops_outbox.clear_transaction_failed",
-			slog.String("err", transactionErr.Error()),
-		)
-
+		slog.ErrorContext(ctx, "ops_outbox.clear_transaction_failed",
+			slog.String("err", transactionErr.Error()))
 		return fmt.Errorf("create ops outbox clear transaction: %w", transactionErr)
 	}
 	defer transaction.Cancel()
-
 	for {
 		transaction.ClearRange(clearRange)
 		commitErr := transaction.Commit().Get()
 		if commitErr == nil {
 			return nil
 		}
-
 		var fdbErr fdb.Error
 		if !errors.As(commitErr, &fdbErr) {
 			slog.ErrorContext(ctx, "ops_outbox.clear_failed", slog.String("err", commitErr.Error()))
 			return fmt.Errorf("clear ops outbox through mark: %w", commitErr)
 		}
-
 		if retryErr := transaction.OnError(fdbErr).Get(); retryErr != nil {
-			slog.ErrorContext(
-				ctx,
-				"ops_outbox.clear_retry_failed",
-				slog.String("err", retryErr.Error()),
-			)
-
+			slog.ErrorContext(ctx, "ops_outbox.clear_retry_failed",
+				slog.String("err", retryErr.Error()))
 			return fmt.Errorf("retry clear ops outbox through mark: %w", retryErr)
 		}
 	}
@@ -216,14 +176,10 @@ func checkOutboxMark(ctx context.Context, mark []byte) error {
 	if bytes.HasPrefix(mark, opsOutboxPrefix()) {
 		return nil
 	}
-
 	err := fmt.Errorf("ops outbox mark is outside the outbox key family")
-	slog.ErrorContext(
-		ctx,
-		"ops_outbox.mark_out_of_family",
+	slog.ErrorContext(ctx, "ops_outbox.mark_out_of_family",
 		slog.Int("mark_len", len(mark)),
 		slog.String("err", err.Error()),
 	)
-
 	return err
 }

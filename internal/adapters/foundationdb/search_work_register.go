@@ -24,188 +24,115 @@ import (
 // Register adopts and selects pending deadlines in this transaction.
 // intent.Pending applies to work.Target. intent.MirrorMissed applies to work.Mirror
 // and retains the later live or copy deadline.
-func (s *SearchWorkStore) Register(
-	ctx context.Context,
-	work searchdomain.Work,
-	page node.ContentPage,
-) (intent searchdomain.WriteIntent, err error) {
+func (s *SearchWorkStore) Register(ctx context.Context, work searchdomain.Work, page node.ContentPage) (intent searchdomain.WriteIntent, err error) {
 	defer telemetry.FDBOp(ctx, "store.search_work.register")(&err)
 	if pageErr := searchdomain.ValidatePage(work, page); pageErr != nil {
-		return intent, searchStorageError(
-			ctx,
-			"search.work.page_invalid",
-			"validate page intent",
-			work.NodeID,
-			pageErr,
-		)
+		return intent, searchStorageError(ctx, "search.work.page_invalid", "validate page intent", work.NodeID, pageErr)
 	}
-
 	revision, parseErr := strconv.ParseInt(page.Revision, 10, 64)
 	if parseErr != nil {
-		return intent, searchStorageError(
-			ctx,
-			"search.work.revision_invalid",
-			"parse page revision",
-			work.NodeID,
-			parseErr,
-		)
+		return intent, searchStorageError(ctx, "search.work.revision_invalid", "parse page revision", work.NodeID, parseErr)
 	}
-
-	documentID := searchdomain.DocumentID(
-		work.OrgID,
-		work.NodeID,
-		page.Revision,
-		page.ProjectionVersion,
-		page.Ordinal,
-	)
+	documentID := searchdomain.DocumentID(work.OrgID, work.NodeID, page.Revision, page.ProjectionVersion, page.Ordinal)
 	now := s.clock.Now()
 	var pending pendingWriteCheck
 	var mirrorHeld *searchdomain.PendingWrite
-	err = transactSearch(
-		ctx,
-		s.db,
-		func(tr fdb.Transaction) error {
-			err := s.verifyRegistration(ctx, tr, work, page, revision)
-			if err != nil {
+	err = transactSearch(ctx, s.db, func(tr fdb.Transaction) error {
+		access, err := s.verifyPage(ctx, tr, work, page, revision)
+		if err != nil {
+			return err
+		}
+		tracked := trackRegisteredAccess(access, page.Access)
+		if !samePageTracking(access, tracked) {
+			if err := writeSearchRecord(ctx, tr, searchAccessKey(work.OrgID, work.NodeID), tracked); err != nil {
 				return err
 			}
-
-			if err := adoptPendingWrite(ctx, tr, work); err != nil {
-				return err
-			}
-
-			if pending, err = checkPendingWrite(ctx, tr, now, work, documentID); err != nil {
-				return err
-			}
-
-			if mirrorHeld, err = heldMirrorWrite(ctx, tr, now, work, documentID); err != nil {
-				return err
-			}
-
-			tr.Set(
-				fdb.Key(
-					searchIssuedKey(
-						work.OrgID,
-						work.NodeID,
-						revision,
-						page.Ordinal,
-						page.ProjectionVersion,
-					),
-				),
-				[]byte(documentID),
-			)
-
-			return nil
-		},
-	)
+		}
+		if err := requireOneProjection(ctx, tr, work, page, revision); err != nil {
+			return err
+		}
+		if err := requireActiveProjection(ctx, tr, work.OrgID, page.ProjectionVersion); err != nil {
+			return err
+		}
+		if err := stagePropertyWarnings(ctx, tr, work, page, revision); err != nil {
+			return err
+		}
+		if err := adoptPendingWrite(ctx, tr, work); err != nil {
+			return err
+		}
+		if pending, err = checkPendingWrite(ctx, tr, now, work, documentID); err != nil {
+			return err
+		}
+		if mirrorHeld, err = heldMirrorWrite(ctx, tr, now, work, documentID); err != nil {
+			return err
+		}
+		tr.Set(fdb.Key(searchIssuedKey(work.OrgID, work.NodeID, revision, page.Ordinal, page.ProjectionVersion)), []byte(documentID))
+		return nil
+	})
 	if errors.Is(err, node.ErrContentChanged) {
 		return intent, err
 	}
-
 	if err != nil {
-		return intent, searchStorageError(
-			ctx,
-			"search.work.register_failed",
-			"register page intent",
-			work.NodeID,
-			err,
-		)
+		return intent, searchStorageError(ctx, "search.work.register_failed", "register page intent", work.NodeID, err)
 	}
-
 	logExpiredPendingWrite(ctx, now, work, pending.expired)
-
-	return searchdomain.WriteIntent{
-		Work:         work,
-		Page:         page,
-		DocumentID:   documentID,
-		Pending:      pending.held,
-		MirrorMissed: mirrorHeld,
-	}, nil
+	return searchdomain.WriteIntent{Work: work, Page: page, DocumentID: documentID, Pending: pending.held, MirrorMissed: mirrorHeld}, nil
 }
 
 // requireOneProjection returns ErrContentChanged when an issued ID of the
 // page's revision and ordinal uses another projection version.
-func requireOneProjection(
-	ctx context.Context,
-	tr fdb.Transaction,
-	work searchdomain.Work,
-	page node.ContentPage,
-	revision int64,
-) error {
-	keyRange, err := fdb.PrefixRange(
-		searchIssuedOrdinalPrefix(work.OrgID, work.NodeID, revision, page.Ordinal),
-	)
+func requireOneProjection(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, page node.ContentPage, revision int64) error {
+	keyRange, err := fdb.PrefixRange(searchIssuedOrdinalPrefix(work.OrgID, work.NodeID, revision, page.Ordinal))
 	if err != nil {
 		return searchReadFailure(ctx, "create issued ordinal range", err)
 	}
-
-	items, err := tr.GetRange(
-		keyRange,
-		fdb.RangeOptions{Limit: maxIndexedMatches},
-	).GetSliceWithError()
+	items, err := tr.GetRange(keyRange, fdb.RangeOptions{Limit: maxIndexedMatches}).GetSliceWithError()
 	if err != nil {
 		return searchReadFailure(ctx, "read issued ordinal", err)
 	}
-
 	for _, item := range items {
 		document, decodeErr := decodeIssuedDocument(ctx, item)
 		if decodeErr != nil {
 			return decodeErr
 		}
-
 		if document.Projection != page.ProjectionVersion {
 			return node.ErrContentChanged
 		}
 	}
-
 	return nil
 }
 
 // verifyPage requires page to be the next page of the claimed revision and returns the node's
 // access record.
-func (s *SearchWorkStore) verifyPage(
-	ctx context.Context,
-	tr fdb.Transaction,
-	work searchdomain.Work,
-	page node.ContentPage,
-	revision int64,
-) (searchAccessRecord, error) {
+func (s *SearchWorkStore) verifyPage(ctx context.Context, tr fdb.Transaction, work searchdomain.Work, page node.ContentPage, revision int64) (searchAccessRecord, error) {
 	var access searchAccessRecord
 	record, err := s.verifyClaim(ctx, tr, work)
 	if err != nil {
 		return access, err
 	}
-
 	current, err := readSearchCounter(ctx, tr, searchRevisionKey(work.OrgID, work.NodeID))
 	if err != nil {
 		return access, err
 	}
-
 	if record.Revision != revision || current != revision {
 		return access, searchdomain.ErrWorkChanged
 	}
-
 	progress, err := s.readProgress(ctx, tr, work.Class, record)
 	if err != nil {
 		return access, err
 	}
-
 	if progress.Phase != string(searchdomain.PhasePages) || page.Ordinal != progress.Ordinal {
 		return access, searchdomain.ErrWorkChanged
 	}
-
 	if progress.Ordinal > 0 && page.ProjectionVersion != progress.Projection {
 		return access, searchdomain.ErrWorkChanged
 	}
-
 	found, err := readSearchRecord(ctx, tr, searchAccessKey(work.OrgID, work.NodeID), &access)
 	if err != nil {
 		return access, err
 	}
-
 	if !found || !slices.Equal(access.Access.Versions, page.Access.Versions) {
 		return access, searchdomain.ErrWorkChanged
 	}
-
 	return access, nil
 }

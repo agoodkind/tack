@@ -70,30 +70,27 @@ func TestVerifyNativeRunnerCommand(t *testing.T) {
 		{amd64Architecture, amd64Architecture, machine, matching == amd64Architecture},
 		{arm64Architecture, arm64Architecture, machine, matching == arm64Architecture},
 	} {
-		t.Run(
-			test.name,
-			func(t *testing.T) {
-				command := imagetest.Prepare(t, t.TempDir(), verifyNativeRunnerCommand)
-				command.Env = []string{}
+		t.Run(test.name, func(t *testing.T) {
+			command := imagetest.Prepare(t, t.TempDir(), verifyNativeRunnerCommand)
+			command.Env = []string{}
 
-				if test.name != "missing" {
-					command.Env = append(command.Env, "IMAGE_ARCH="+test.architecture)
-				}
+			if test.name != "missing" {
+				command.Env = append(command.Env, "IMAGE_ARCH="+test.architecture)
+			}
 
-				output, err := command.CombinedOutput()
-				if test.success {
-					if err != nil || string(output) != "Native image runner: "+machine+"\n" {
-						t.Fatalf("output = %q, error = %v", output, err)
-					}
-
-					return
-				}
-
-				if err == nil || !strings.Contains(string(output), test.expected) {
+			output, err := command.CombinedOutput()
+			if test.success {
+				if err != nil || string(output) != "Native image runner: "+machine+"\n" {
 					t.Fatalf("output = %q, error = %v", output, err)
 				}
-			},
-		)
+
+				return
+			}
+
+			if err == nil || !strings.Contains(string(output), test.expected) {
+				t.Fatalf("output = %q, error = %v", output, err)
+			}
+		})
 	}
 }
 
@@ -107,53 +104,47 @@ func TestVerifyNativeRunnerOutputFailure(t *testing.T) {
 		t.Skipf("host machine %q does not match an accepted native runner pair", machine)
 	}
 
-	t.Run(
-		"read-only file",
-		func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "stdout")
+	t.Run("read-only file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "stdout")
 
-			err := os.WriteFile(path, []byte(""), 0o600)
-			if err != nil {
-				t.Fatal(err)
+		err := os.WriteFile(path, []byte(""), 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		output, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Cleanup(func() {
+			closeErr := output.Close()
+			if closeErr != nil {
+				t.Error(closeErr)
 			}
+		})
+		assertOutputFailure(t, architecture, output)
+	})
 
-			output, err := os.Open(path)
-			if err != nil {
-				t.Fatal(err)
+	t.Run("closed pipe", func(t *testing.T) {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = reader.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		t.Cleanup(func() {
+			closeErr := writer.Close()
+			if closeErr != nil {
+				t.Error(closeErr)
 			}
-
-			t.Cleanup(func() {
-				closeErr := output.Close()
-				if closeErr != nil {
-					t.Error(closeErr)
-				}
-			})
-			assertOutputFailure(t, architecture, output)
-		},
-	)
-
-	t.Run(
-		"closed pipe",
-		func(t *testing.T) {
-			reader, writer, err := os.Pipe()
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			err = reader.Close()
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			t.Cleanup(func() {
-				closeErr := writer.Close()
-				if closeErr != nil {
-					t.Error(closeErr)
-				}
-			})
-			assertOutputFailure(t, architecture, writer)
-		},
-	)
+		})
+		assertOutputFailure(t, architecture, writer)
+	})
 }
 
 func assertOutputFailure(t *testing.T, architecture string, output *os.File) {

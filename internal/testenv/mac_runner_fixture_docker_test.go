@@ -18,46 +18,20 @@ import (
 
 func TestMacRunnerDockerFixtureOwnership(t *testing.T) {
 	options, docker, project := macOwnershipFixture(t, "All")
-	baselineRunner, err := docker.ContainerCreate(
-		t.Context(),
-		client.ContainerCreateOptions{
-			Name: project + "-exited-owner",
-			Config: &container.Config{
-				Image:  options.Image,
-				Labels: map[string]string{"tack.mac-runner-fixture": project},
-			},
-		},
-	)
+	baselineRunner, err := docker.ContainerCreate(t.Context(), client.ContainerCreateOptions{Name: project + "-exited-owner", Config: &container.Config{Image: options.Image, Labels: map[string]string{"tack.mac-runner-fixture": project}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseline, err := docker.ContainerCreate(
-		t.Context(),
-		client.ContainerCreateOptions{
-			Name: project + "-exited-fixture",
-			Config: &container.Config{
-				Image: options.Image,
-				Labels: map[string]string{
-					"tack.mac-runner-fixture":          project,
-					"io.goodkind.tack.testenv":         "true",
-					"io.goodkind.tack.testenv.runner":  baselineRunner.ID,
-					"io.goodkind.tack.testenv.process": "99999999",
-					"io.goodkind.tack.testenv.run":     project,
-					"io.goodkind.tack.testenv.host":    "exited-owner",
-				},
-			},
-		},
-	)
+	baseline, err := docker.ContainerCreate(t.Context(), client.ContainerCreateOptions{Name: project + "-exited-fixture", Config: &container.Config{Image: options.Image, Labels: map[string]string{
+		"tack.mac-runner-fixture": project, "io.goodkind.tack.testenv": "true", "io.goodkind.tack.testenv.runner": baselineRunner.ID,
+		"io.goodkind.tack.testenv.process": "99999999", "io.goodkind.tack.testenv.run": project, "io.goodkind.tack.testenv.host": "exited-owner",
+	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		for _, id := range []string{baseline.ID, baselineRunner.ID} {
-			if _, err := docker.ContainerRemove(
-				context.Background(),
-				id,
-				client.ContainerRemoveOptions{Force: true},
-			); err != nil {
+			if _, err := docker.ContainerRemove(context.Background(), id, client.ContainerRemoveOptions{Force: true}); err != nil {
 				t.Error(err)
 			}
 		}
@@ -72,19 +46,11 @@ func TestMacRunnerDockerFixtureOwnership(t *testing.T) {
 		t.Errorf("fixture cleanup did not complete: %+v", summary)
 	}
 	for name := range summary.Fixtures.Volumes {
-		if _, err := docker.VolumeInspect(
-			t.Context(),
-			name,
-			client.VolumeInspectOptions{},
-		); err == nil {
+		if _, err := docker.VolumeInspect(t.Context(), name, client.VolumeInspectOptions{}); err == nil {
 			t.Errorf("owned anonymous volume remains %s", name)
 		}
 	}
-	if _, err := docker.ContainerInspect(
-		t.Context(),
-		baseline.ID,
-		client.ContainerInspectOptions{},
-	); err != nil {
+	if _, err := docker.ContainerInspect(t.Context(), baseline.ID, client.ContainerInspectOptions{}); err != nil {
 		t.Errorf("native invocation swept preexisting exited fixture %s: %v", baseline.ID, err)
 	}
 }
@@ -93,8 +59,7 @@ func TestMacRunnerDockerFixtureUnknown(t *testing.T) {
 	options, docker, _ := macOwnershipFixture(t, "Unknown")
 	macOwnershipRecovery(t, docker, options.EvidenceDirectory)
 	result, err := testenv.RunMacTests(t.Context(), options)
-	if err == nil || result.ExitCode != 1 ||
-		!strings.Contains(err.Error(), "lacks exact invocation attribution") {
+	if err == nil || result.ExitCode != 1 || !strings.Contains(err.Error(), "lacks exact invocation attribution") {
 		t.Errorf("unknown fixture did not fail attribution: result=%+v error=%v", result, err)
 	}
 	summary := macOwnershipEvidence(t, options.EvidenceDirectory)
@@ -107,11 +72,7 @@ func TestMacRunnerDockerFixtureUnknown(t *testing.T) {
 			continue
 		}
 		count++
-		if _, err := docker.ContainerInspect(
-			t.Context(),
-			preserved.ID,
-			client.ContainerInspectOptions{},
-		); err != nil {
+		if _, err := docker.ContainerInspect(t.Context(), preserved.ID, client.ContainerInspectOptions{}); err != nil {
 			t.Errorf("unknown container disappeared %s: %v", preserved.ID, err)
 		}
 	}
@@ -122,39 +83,18 @@ func TestMacRunnerDockerFixtureUnknown(t *testing.T) {
 
 func TestMacRunnerDockerFixtureMutation(t *testing.T) {
 	options, docker, project := macOwnershipFixture(t, "Mutation")
-	marker, err := docker.ContainerCreate(
-		t.Context(),
-		client.ContainerCreateOptions{
-			Name: project + "-mutation-baseline",
-			Config: &container.Config{
-				Image:  options.Image,
-				Labels: map[string]string{"tack.mac-runner-fixture": project},
-			},
-			HostConfig: &container.HostConfig{
-				Mounts: []mount.Mount{
-					{
-						Type:   mount.TypeVolume,
-						Source: project + "_tack-test-go-cache",
-						Target: "/root/.cache/go-build",
-					},
-					{
-						Type:   mount.TypeVolume,
-						Source: project + "_tack-test-go-mod",
-						Target: "/go/pkg/mod",
-					},
-				},
-			},
-		},
-	)
+	marker, err := docker.ContainerCreate(t.Context(), client.ContainerCreateOptions{
+		Name: project + "-mutation-baseline", Config: &container.Config{Image: options.Image, Labels: map[string]string{"tack.mac-runner-fixture": project}},
+		HostConfig: &container.HostConfig{Mounts: []mount.Mount{
+			{Type: mount.TypeVolume, Source: project + "_tack-test-go-cache", Target: "/root/.cache/go-build"},
+			{Type: mount.TypeVolume, Source: project + "_tack-test-go-mod", Target: "/go/pkg/mod"},
+		}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if _, err := docker.ContainerRemove(
-			context.Background(),
-			marker.ID,
-			client.ContainerRemoveOptions{},
-		); err != nil {
+		if _, err := docker.ContainerRemove(context.Background(), marker.ID, client.ContainerRemoveOptions{}); err != nil {
 			t.Error(err)
 		}
 	})
@@ -167,11 +107,7 @@ func TestMacRunnerDockerFixtureMutation(t *testing.T) {
 	if !summary.FullCleanup {
 		t.Errorf("source mutation prevented fixture cleanup: %+v", summary)
 	}
-	if _, err := docker.ContainerInspect(
-		t.Context(),
-		marker.ID,
-		client.ContainerInspectOptions{},
-	); err != nil {
+	if _, err := docker.ContainerInspect(t.Context(), marker.ID, client.ContainerInspectOptions{}); err != nil {
 		t.Errorf("source mutation removed baseline marker: %v", err)
 	}
 	macCacheMarker(t, docker, marker.ID, "/root/.cache/go-build/mac-runner-marker")
@@ -179,34 +115,22 @@ func TestMacRunnerDockerFixtureMutation(t *testing.T) {
 }
 
 func TestMacRunnerDockerFixtureAdmissionRefusals(t *testing.T) {
-	for mode, reason := range map[string]string{
-		"MissingAdmission":    "open required native runner admission",
-		"MismatchedAdmission": "does not match inspected runner identity",
-	} {
-		t.Run(
-			mode,
-			func(t *testing.T) {
-				options, docker, _ := macOwnershipFixture(t, mode)
-				result, err := testenv.RunMacTests(t.Context(), options)
-				if err != nil || result.ExitCode != 1 {
-					t.Errorf("admission refusal: result=%+v error=%v", result, err)
-				}
-				contents, err := os.ReadFile(
-					filepath.Join(options.EvidenceDirectory, "runtime.log"),
-				)
-				if err != nil || !strings.Contains(string(contents), reason) {
-					t.Errorf(
-						"admission did not refuse for the required reason: %s: %v",
-						contents,
-						err,
-					)
-				}
-				summary := macOwnershipEvidence(t, options.EvidenceDirectory)
-				if len(summary.Fixtures.Containers) != 0 {
-					t.Error("refused native runner created inner fixtures")
-				}
-				macRuntimeEvidence(t, options, docker)
-			},
-		)
+	for mode, reason := range map[string]string{"MissingAdmission": "open required native runner admission", "MismatchedAdmission": "does not match inspected runner identity"} {
+		t.Run(mode, func(t *testing.T) {
+			options, docker, _ := macOwnershipFixture(t, mode)
+			result, err := testenv.RunMacTests(t.Context(), options)
+			if err != nil || result.ExitCode != 1 {
+				t.Errorf("admission refusal: result=%+v error=%v", result, err)
+			}
+			contents, err := os.ReadFile(filepath.Join(options.EvidenceDirectory, "runtime.log"))
+			if err != nil || !strings.Contains(string(contents), reason) {
+				t.Errorf("admission did not refuse for the required reason: %s: %v", contents, err)
+			}
+			summary := macOwnershipEvidence(t, options.EvidenceDirectory)
+			if len(summary.Fixtures.Containers) != 0 {
+				t.Error("refused native runner created inner fixtures")
+			}
+			macRuntimeEvidence(t, options, docker)
+		})
 	}
 }

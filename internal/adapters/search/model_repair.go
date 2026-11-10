@@ -26,12 +26,7 @@ var _ searchdomain.ModelRepairEngine = (*Adapter)(nil)
 type activeDeployTasksRequest struct{ body []byte }
 
 func (request activeDeployTasksRequest) GetRequest(method string) (*http.Request, error) {
-	return jsonBodyRequest(
-		method,
-		"/_plugins/_ml/tasks/_search",
-		request.body,
-		"build active deploy task search request",
-	)
+	return jsonBodyRequest(method, "/_plugins/_ml/tasks/_search", request.body, "build active deploy task search request")
 }
 
 type taskCountResult struct {
@@ -44,44 +39,27 @@ type taskCountResult struct {
 
 // ModelDeployment reads the model that index maps, the model record, and the
 // number of its deploy tasks in CREATED or RUNNING.
-func (a *Adapter) ModelDeployment(
-	ctx context.Context,
-	index string,
-	now time.Time,
-) (searchdomain.ModelDeployment, error) {
+func (a *Adapter) ModelDeployment(ctx context.Context, index string, now time.Time) (searchdomain.ModelDeployment, error) {
 	var none searchdomain.ModelDeployment
 	info, err := a.IndexInfo(ctx, index)
 	if err != nil {
 		return none, queryStepError{operation: "read model of index " + index, err: err}
 	}
-
 	if info.ModelID == "" {
 		wrapped := fmt.Errorf("index %s maps no model ID", index)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.model.mapping_model_absent",
-			slog.String("err", wrapped.Error()),
-			slog.String("index", index),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.model.mapping_model_absent", slog.String("err", wrapped.Error()), slog.String("index", index))
 		return none, loggedModelError{err: wrapped}
 	}
-
 	model, err := a.getModel(ctx, info.ModelID)
 	if err != nil {
 		return none, err
 	}
-
 	active, err := a.activeDeployTasks(ctx, info.ModelID, now)
 	if err != nil {
 		return none, err
 	}
-
 	return searchdomain.ModelDeployment{
-		ModelID:     info.ModelID,
-		State:       model.State,
-		LastUpdated: time.UnixMilli(model.LastUpdated).UTC(),
-		ActiveTasks: active,
+		ModelID: info.ModelID, State: model.State, LastUpdated: time.UnixMilli(model.LastUpdated).UTC(), ActiveTasks: active,
 	}, nil
 }
 
@@ -97,46 +75,22 @@ func (a *Adapter) WaitModelDeploy(ctx context.Context, modelID, taskID string) e
 	return a.waitDeploy(ctx, modelID, taskID)
 }
 
-func (a *Adapter) activeDeployTasks(
-	ctx context.Context,
-	modelID string,
-	now time.Time,
-) (int, error) {
+func (a *Adapter) activeDeployTasks(ctx context.Context, modelID string, now time.Time) (int, error) {
 	body, err := json.Marshal(activeDeployTasksQuery(modelID, now.Add(-modelTaskWait)))
 	if err != nil {
 		wrapped := fmt.Errorf("encode active deploy task search of model %s: %w", modelID, err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.model.task_search_encode_failed",
-			slog.String("err", wrapped.Error()),
-			slog.String("model_id", modelID),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.model.task_search_encode_failed", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
 		return 0, loggedModelError{err: wrapped}
 	}
-
 	var result taskCountResult
-	response, err := opensearch.Execute(
-		ctx,
-		a.client,
-		http.MethodPost,
-		activeDeployTasksRequest{body: body},
-		&result,
-	)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, activeDeployTasksRequest{body: body}, &result)
 	if err := checkMLResponse(ctx, response, err); err != nil {
 		wrapped := fmt.Errorf("search active deploy tasks of model %s: %w", modelID, err)
 		if !isLoggedModelError(err) {
-			telemetry.L(ctx).ErrorContext(
-				ctx,
-				"search.model.task_search_failed",
-				slog.String("err", wrapped.Error()),
-				slog.String("model_id", modelID),
-			)
+			telemetry.L(ctx).ErrorContext(ctx, "search.model.task_search_failed", slog.String("err", wrapped.Error()), slog.String("model_id", modelID))
 		}
-
 		return 0, loggedModelError{err: wrapped}
 	}
-
 	return result.Hits.Total.Value, nil
 }
 
@@ -178,10 +132,5 @@ func activeDeployTasksQuery(modelID string, updatedAfter time.Time) taskCountBod
 		{Term: nil, Terms: map[string][]string{"state": states}, Range: nil},
 		{Term: nil, Terms: nil, Range: map[string]taskUpdateRange{taskUpdateField: updated}},
 	}
-
-	return taskCountBody{
-		Size:           0,
-		TrackTotalHits: true,
-		Query:          taskSearchQuery{Bool: taskBoolQuery{Filter: filters}},
-	}
+	return taskCountBody{Size: 0, TrackTotalHits: true, Query: taskSearchQuery{Bool: taskBoolQuery{Filter: filters}}}
 }

@@ -36,38 +36,14 @@ func TestSearchRuntimeAuditOwnerRedactionOnSessionTarget(t *testing.T) {
 	waitUntilTime(t, session.IdleDeadline.Truncate(time.Minute).Add(time.Minute+sessionAuditMargin))
 	fixture.mustSearch(t, sweeper.Token, redactionAuditQuery, "")
 
-	rows := fixture.waitForRows(
-		t,
-		orgID,
-		func(current []audit.Row) bool {
-			return len(
-				sessionChanges(
-					current,
-					session.ID,
-					audit.VerbSearchSessionDelete,
-					audit.TargetSearchSession,
-				),
-			) == 1
-		},
-	)
-	deleted := onlyRow(
-		t,
-		sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession),
-		"the session delete",
-	)
+	rows := fixture.waitForRows(t, orgID, func(current []audit.Row) bool {
+		return len(sessionChanges(current, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession)) == 1
+	})
+	deleted := onlyRow(t, sessionChanges(rows, session.ID, audit.VerbSearchSessionDelete, audit.TargetSearchSession), "the session delete")
 	target := deleted.Context.Target
-	if deleted.EntityID != session.ID || target.ID != session.ID ||
-		target.OwnerID != owner.UserID ||
-		deleted.ActorID != sweeper.UserID {
-		t.Fatalf(
-			"session delete has entity %s, target %+v, actor %s, want session %s, owner %s, actor %s",
-			deleted.EntityID,
-			target,
-			deleted.ActorID,
-			session.ID,
-			owner.UserID,
-			sweeper.UserID,
-		)
+	if deleted.EntityID != session.ID || target.ID != session.ID || target.OwnerID != owner.UserID || deleted.ActorID != sweeper.UserID {
+		t.Fatalf("session delete has entity %s, target %+v, actor %s, want session %s, owner %s, actor %s",
+			deleted.EntityID, target, deleted.ActorID, session.ID, owner.UserID, sweeper.UserID)
 	}
 	before := deltaMembers(t, deleted.Delta.Before)
 	references := []uuid.UUID{}
@@ -80,23 +56,13 @@ func TestSearchRuntimeAuditOwnerRedactionOnSessionTarget(t *testing.T) {
 	}
 	for _, reference := range references {
 		if !slices.Contains(ownerRefs, reference) {
-			t.Fatalf(
-				"audit.pii does not store reference %s with subject %s",
-				reference,
-				owner.UserID,
-			)
+			t.Fatalf("audit.pii does not store reference %s with subject %s", reference, owner.UserID)
 		}
 	}
 
 	redact := func(actorID uuid.UUID) {
 		t.Helper()
-		if _, err := audit.RedactActorInOrg(
-			t.Context(),
-			fixture.ledger.stack.reader,
-			fixture.redactor,
-			orgID,
-			actorID,
-		); err != nil {
+		if _, err := audit.RedactActorInOrg(t.Context(), fixture.ledger.stack.reader, fixture.redactor, orgID, actorID); err != nil {
 			t.Fatalf("redact actor %s: %v", actorID, err)
 		}
 	}
@@ -105,14 +71,7 @@ func TestSearchRuntimeAuditOwnerRedactionOnSessionTarget(t *testing.T) {
 	fixture.requireProtectedMember(t, before, "query_tokens", session.Snapshot.QueryTokens)
 	redact(owner.UserID)
 	requireRedacted(t, fixture.redactorPool, references)
-	requireExportWithout(
-		t,
-		fixture.ledger.stack,
-		orgID,
-		oldest,
-		clock.Now().UTC().Add(time.Minute),
-		rawSessionValues(t, session),
-	)
+	requireExportWithout(t, fixture.ledger.stack, orgID, oldest, clock.Now().UTC().Add(time.Minute), rawSessionValues(t, session))
 }
 
 // rawSessionValues returns the raw protected values of session that the
@@ -120,8 +79,6 @@ func TestSearchRuntimeAuditOwnerRedactionOnSessionTarget(t *testing.T) {
 func rawSessionValues(t *testing.T, session searchdomain.Session) []string {
 	t.Helper()
 	return []string{
-		string(session.Snapshot.QueryTokens),
-		string(session.Sort),
-		string(encodeJSON(t, session.Query.Access.Keys)),
+		string(session.Snapshot.QueryTokens), string(session.Sort), string(encodeJSON(t, session.Query.Access.Keys)),
 	}
 }

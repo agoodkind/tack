@@ -46,7 +46,6 @@ func validateRedundancyMode(mode string) error {
 	if !storeRedundancyModes[mode] {
 		return fmt.Errorf("redundancy mode %q is not one of single, double, triple", mode)
 	}
-
 	return nil
 }
 
@@ -58,33 +57,24 @@ func validateRedundancyMode(mode string) error {
 // wildcard record answers as the proxy.
 func parseCoordinatorAddresses(list string) ([]string, error) {
 	fields := strings.Split(list, ",")
-
 	addresses := make([]string, 0, len(fields))
 	for _, field := range fields {
 		trimmed := strings.TrimSpace(field)
 		if trimmed == "" {
 			continue
 		}
-
 		address, err := normalizeCoordinatorAddress(trimmed)
 		if err != nil {
 			return nil, err
 		}
-
 		addresses = append(addresses, address)
 	}
-
 	if len(addresses) == 0 {
 		return nil, errors.New("no coordinator addresses given")
 	}
-
 	if len(addresses)%2 == 0 {
-		return nil, fmt.Errorf(
-			"%d coordinators is an even count; a quorum needs an odd one",
-			len(addresses),
-		)
+		return nil, fmt.Errorf("%d coordinators is an even count; a quorum needs an odd one", len(addresses))
 	}
-
 	return addresses, nil
 }
 
@@ -96,23 +86,16 @@ func normalizeCoordinatorAddress(value string) (string, error) {
 		host = strings.Trim(value, "[]")
 		port = strconv.Itoa(storeDefaultPort)
 	}
-
 	if net.ParseIP(host) == nil {
-		return "", fmt.Errorf(
-			"coordinator %q is not an IP address; coordinators are the guests' pinned addresses",
-			value,
-		)
+		return "", fmt.Errorf("coordinator %q is not an IP address; coordinators are the guests' pinned addresses", value)
 	}
-
 	portNumber, convErr := strconv.Atoi(port)
 	if convErr != nil || portNumber <= 0 || portNumber > 65535 {
 		return "", fmt.Errorf("coordinator %q has no usable port", value)
 	}
-
 	if strings.Contains(host, ":") {
 		return "[" + host + "]:" + port, nil
 	}
-
 	return host + ":" + port, nil
 }
 
@@ -123,47 +106,27 @@ func normalizeCoordinatorAddress(value string) (string, error) {
 func runStoreCLI(ctx context.Context, cfg *config.Config, command string) (string, error) {
 	cli, err := newDockerClient(ctx)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"ops.store.docker_client_failed",
-			slog.String("command", command),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "ops.store.docker_client_failed",
+			slog.String("command", command), slog.String("err", err.Error()))
 		return "", fmt.Errorf("store cli docker client: %w", err)
 	}
-
 	defer func() { _ = cli.Close() }()
-
 	return runStoreCLIWith(ctx, cli, cfg, command)
 }
 
 // runStoreCLIWith is runStoreCLI against a Docker client the caller owns, so a
 // command issuing several fdbcli calls opens one client.
-func runStoreCLIWith(
-	ctx context.Context,
-	cli *client.Client,
-	cfg *config.Config,
-	command string,
-) (string, error) {
+func runStoreCLIWith(ctx context.Context, cli *client.Client, cfg *config.Config, command string) (string, error) {
 	output, exitCode, err := readStoreCLI(ctx, cli, cfg, command)
 	if err != nil {
 		return "", err
 	}
-
 	if exitCode != 0 {
 		exitErr := fmt.Errorf("store %q exited %d: %s", command, exitCode, output)
-		slog.ErrorContext(
-			ctx,
-			"ops.store.cli_nonzero",
-			slog.String("command", command),
-			slog.Int("code", exitCode),
-			slog.String("err", exitErr.Error()),
-		)
-
+		slog.ErrorContext(ctx, "ops.store.cli_nonzero",
+			slog.String("command", command), slog.Int("code", exitCode), slog.String("err", exitErr.Error()))
 		return output, exitErr
 	}
-
 	return output, nil
 }
 
@@ -180,16 +143,10 @@ func readStoreCLI(
 ) (output string, exitCode int, err error) {
 	res, err := runOneShot(ctx, cli, slog.Default(), storeCLIOptions(cfg, command))
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"ops.store.cli_failed",
-			slog.String("command", command),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "ops.store.cli_failed",
+			slog.String("command", command), slog.String("err", err.Error()))
 		return "", 0, fmt.Errorf("store %q: %w", command, err)
 	}
-
 	return strings.TrimSpace(res.Stdout + res.Stderr), res.ExitCode, nil
 }
 
@@ -202,12 +159,9 @@ func storeCLIOptions(cfg *config.Config, command string) runOneShotOptions {
 		Name:       "",
 		Entrypoint: []string{"/usr/bin/fdbcli"},
 		Cmd: []string{
-			"-C",
-			storeClusterFile,
-			"--timeout",
-			strconv.Itoa(storeCLITimeoutSeconds),
-			"--exec",
-			command,
+			"-C", storeClusterFile,
+			"--timeout", strconv.Itoa(storeCLITimeoutSeconds),
+			"--exec", command,
 		},
 		Env:        []string{"FDB_CLUSTER_FILE=" + storeClusterFile},
 		Binds:      []string{cfg.OpsFDBClusterDir + ":" + storeClusterMountPath},

@@ -33,24 +33,9 @@ const (
 )
 
 var helpGroupPaths = []string{
-	"ops",
-	"ops act-as",
-	"ops audit",
-	"ops audit dlq",
-	"ops auth",
-	"ops backfill",
-	"ops batch",
-	"ops db",
-	"ops deploy",
-	"ops inspect",
-	"ops ledger",
-	"ops qa",
-	"ops qa datagen",
-	"ops repair",
-	"ops search",
-	"ops store",
-	"ops validate",
-	"ops verify",
+	"ops", "ops act-as", "ops audit", "ops audit dlq", "ops auth", "ops backfill", "ops batch", "ops db",
+	"ops deploy", "ops inspect", "ops ledger", "ops qa", "ops qa datagen", "ops repair", "ops search",
+	"ops store", "ops validate", "ops verify",
 }
 
 func excludedCoverage() map[string]coverageExclusion {

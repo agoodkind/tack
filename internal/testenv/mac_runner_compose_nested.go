@@ -19,48 +19,27 @@ func validateMacRunnerNestedCompose(service types.ServiceConfig) error {
 			{field: "image", present: volume.Image != nil},
 		}
 		if volume.Bind != nil {
-			options = append(
-				options,
-				macRunnerUnsupportedOption{
-					field:   "bind.selinux",
-					present: volume.Bind.SELinux != "",
-				},
-				macRunnerUnsupportedOption{
-					field:   "bind.propagation",
-					present: volume.Bind.Propagation != "",
-				},
-				macRunnerUnsupportedOption{
-					field:   "bind.recursive",
-					present: volume.Bind.Recursive != "",
-				},
+			options = append(options,
+				macRunnerUnsupportedOption{field: "bind.selinux", present: volume.Bind.SELinux != ""},
+				macRunnerUnsupportedOption{field: "bind.propagation", present: volume.Bind.Propagation != ""},
+				macRunnerUnsupportedOption{field: "bind.recursive", present: volume.Bind.Recursive != ""},
 			)
 		}
-
 		if volume.Volume != nil {
-			options = append(
-				options,
-				macRunnerUnsupportedOption{
-					field:   "volume.subpath",
-					present: volume.Volume.Subpath != "",
-				},
+			options = append(options,
+				macRunnerUnsupportedOption{field: "volume.subpath", present: volume.Volume.Subpath != ""},
 				macRunnerUnsupportedOption{field: "volume.nocopy", present: volume.Volume.NoCopy},
-				macRunnerUnsupportedOption{
-					field:   "volume.labels",
-					present: len(volume.Volume.Labels) != 0,
-				},
+				macRunnerUnsupportedOption{field: "volume.labels", present: len(volume.Volume.Labels) != 0},
 			)
 		}
-
 		if err := refuseMacRunnerOptions("volume "+volume.Target, options); err != nil {
 			return err
 		}
 	}
-
 	for name, endpoint := range service.Networks {
 		if endpoint == nil {
 			continue
 		}
-
 		options := []macRunnerUnsupportedOption{
 			{field: "aliases", present: len(endpoint.Aliases) != 0},
 			{field: "driver_opts", present: len(endpoint.DriverOpts) != 0},
@@ -77,7 +56,6 @@ func validateMacRunnerNestedCompose(service types.ServiceConfig) error {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -87,6 +65,5 @@ func refuseMacRunnerOptions(subject string, options []macRunnerUnsupportedOption
 			return fmt.Errorf("unsupported tests %s field %s", subject, option.field)
 		}
 	}
-
 	return nil
 }

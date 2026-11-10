@@ -29,28 +29,13 @@ func LoadSearchModelRepairSettings(ctx context.Context) (SearchModelRepairSettin
 	var settings SearchModelRepairSettings
 	if err := env.Parse(&settings); err != nil {
 		wrapped := fmt.Errorf("parse search model repair settings: %w", err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.model_repair.config_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.model_repair.config_failed", slog.String("err", wrapped.Error()))
 		return SearchModelRepairSettings{}, wrapped
 	}
-
-	if settings.CheckInterval <= 0 || settings.StuckAfter <= 0 || settings.AttemptSpacing <= 0 ||
-		settings.MaxAttempts <= 0 {
-		wrapped := errors.New(
-			"search model repair interval, stuck age, attempt spacing, and attempt limit must be positive",
-		)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.model_repair.config_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+	if settings.CheckInterval <= 0 || settings.StuckAfter <= 0 || settings.AttemptSpacing <= 0 || settings.MaxAttempts <= 0 {
+		wrapped := errors.New("search model repair interval, stuck age, attempt spacing, and attempt limit must be positive")
+		telemetry.L(ctx).ErrorContext(ctx, "search.model_repair.config_failed", slog.String("err", wrapped.Error()))
 		return SearchModelRepairSettings{}, wrapped
 	}
-
 	return settings, nil
 }

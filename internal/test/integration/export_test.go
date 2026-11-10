@@ -36,11 +36,7 @@ const SearchCursorMarker = searchCursorMarker
 
 // ParseSearchPage reads a tack_search page and resolves node IDs through
 // identities using ctx.
-func ParseSearchPage(
-	ctx context.Context,
-	text string,
-	identities datagen.SearchIdentities,
-) (SearchPage, error) {
+func ParseSearchPage(ctx context.Context, text string, identities datagen.SearchIdentities) (SearchPage, error) {
 	return parseSearchPage(ctx, text, identities)
 }
 
@@ -85,15 +81,7 @@ func PutOpaqueKind(t *testing.T, fixture QueryFixture, orgID uuid.UUID) OpaqueKi
 
 // PutOpaqueNode creates a node under parentID with the supplied name and
 // included and excluded text values.
-func PutOpaqueNode(
-	t *testing.T,
-	fixture QueryFixture,
-	kind OpaqueKind,
-	parentID uuid.UUID,
-	name string,
-	included string,
-	excluded string,
-) uuid.UUID {
+func PutOpaqueNode(t *testing.T, fixture QueryFixture, kind OpaqueKind, parentID uuid.UUID, name, included, excluded string) uuid.UUID {
 	t.Helper()
 	return putOpaqueNode(t, fixture, kind, parentID, name, included, excluded)
 }
@@ -108,38 +96,21 @@ func DrainSearchWork(t *testing.T, worker *service.SearchWorker, maxSlices int) 
 // DrainClass runs drainClass for class with maxSlices and the fixture's search work store and
 // search worker. It returns the number of processed slices for each node.
 // Tests in integration_test use it to count access slices.
-func DrainClass(
-	t *testing.T,
-	fixture QueryFixture,
-	class searchdomain.WorkClass,
-	maxSlices int,
-) map[uuid.UUID]int {
+func DrainClass(t *testing.T, fixture QueryFixture, class searchdomain.WorkClass, maxSlices int) map[uuid.UUID]int {
 	t.Helper()
 	return drainClass(t, fixture.Stores.SearchWork(clock.Wall{}), fixture.Worker, class, maxSlices)
 }
 
 // CallerAccess compiles the access filter for the workspace's first actor
 // at entryID.
-func CallerAccess(
-	t *testing.T,
-	fixture QueryFixture,
-	workspace datagen.WorkspaceIdentity,
-	entryID uuid.UUID,
-) searchdomain.AccessFilter {
+func CallerAccess(t *testing.T, fixture QueryFixture, workspace datagen.WorkspaceIdentity, entryID uuid.UUID) searchdomain.AccessFilter {
 	t.Helper()
 	return callerAccess(t, fixture, workspace, entryID)
 }
 
 // PutDuplicatePages writes count additional page documents for nodeID with
 // the supplied access filter.
-func PutDuplicatePages(
-	t *testing.T,
-	fixture QueryFixture,
-	kind OpaqueKind,
-	nodeID uuid.UUID,
-	filter searchdomain.AccessFilter,
-	count int,
-) {
+func PutDuplicatePages(t *testing.T, fixture QueryFixture, kind OpaqueKind, nodeID uuid.UUID, filter searchdomain.AccessFilter, count int) {
 	t.Helper()
 	putDuplicatePages(t, fixture, kind, nodeID, filter, count)
 }
@@ -216,12 +187,7 @@ func ProcessHarness(t *testing.T, harness *MCPHarness, cfg *config.Config) *MCPH
 
 // UndeployNativeModel lets the external test package undeploy the model and
 // registers cleanup to redeploy the pinned model when the test ends.
-func UndeployNativeModel(
-	t *testing.T,
-	adapter *search.Adapter,
-	client *opensearchapi.Client,
-	modelID string,
-) {
+func UndeployNativeModel(t *testing.T, adapter *search.Adapter, client *opensearchapi.Client, modelID string) {
 	t.Helper()
 	undeployNativeModel(t, adapter, client, modelID)
 }
@@ -230,14 +196,7 @@ func UndeployNativeModel(
 // stores and adapter with pageBytes as the page bound.
 func NewSearchWorker(t *testing.T, fixture QueryFixture, pageBytes int) *service.SearchWorker {
 	t.Helper()
-
-	return newSearchWorker(
-		t,
-		fixture.Stores,
-		fixture.Adapter,
-		clock.Wall{},
-		searchWorkerSettings(pageBytes),
-	)
+	return newSearchWorker(t, fixture.Stores, fixture.Adapter, clock.Wall{}, searchWorkerSettings(pageBytes))
 }
 
 // SearchPageSource aliases one indexed page document read from OpenSearch.
@@ -271,7 +230,6 @@ func StartContainerdDeployFixture(t *testing.T) DeployFixture {
 	t.Helper()
 	fixture := startDeployFixture(t, testenv.ContainerdDocker)
 	requireContainerdImageStore(t, fixture.cli)
-
 	return fixture
 }
 
@@ -295,13 +253,7 @@ func CreateDeployContainers(t *testing.T, fixture DeployFixture) {
 func AddConsumerReplica(t *testing.T, fixture DeployFixture, name, tag string) {
 	t.Helper()
 	fixture.registry.pushMultiPlatformIndex(t, "tack-audit-consumer", tag, "consumer "+tag)
-	createFromIndex(
-		t,
-		fixture.cli,
-		name,
-		"audit-consumer",
-		fixture.registryHost+"/tack-audit-consumer:"+tag,
-	)
+	createFromIndex(t, fixture.cli, name, "audit-consumer", fixture.registryHost+"/tack-audit-consumer:"+tag)
 }
 
 // RemoveDeployReplica removes the named container from the fixture daemon.
@@ -318,27 +270,15 @@ func ReplaceAppReplica(t *testing.T, fixture DeployFixture, tag string) string {
 	digest := fixture.registry.pushMultiPlatformIndex(t, "tack-server", tag, "server "+tag)
 	removeDeployContainer(t, fixture.cli, "tack-app-1")
 	createFromIndex(t, fixture.cli, "tack-app-1", "app", fixture.registryHost+"/tack-server:"+tag)
-
 	return digest
 }
 
 // VerifyDeployAs runs ops deploy verify as operatorID against the fixture with
 // the supplied server and consumer index digests. It returns the command's
 // output and error.
-func VerifyDeployAs(
-	t *testing.T,
-	fixture DeployFixture,
-	operatorID string,
-	serverDigest string,
-	consumerDigest string,
-) (string, error) {
+func VerifyDeployAs(t *testing.T, fixture DeployFixture, operatorID, serverDigest, consumerDigest string) (string, error) {
 	t.Helper()
-	cfg := &config.Config{
-		DeployRegistry:       fixture.registryHost,
-		DeployImageTag:       fixture.tag,
-		DeployComposeProject: deployComposeProject,
-	}
-
+	cfg := &config.Config{DeployRegistry: fixture.registryHost, DeployImageTag: fixture.tag, DeployComposeProject: deployComposeProject}
 	return runOpsDeployVerify(t, cfg, fixture.ledgerDSN, operatorID, serverDigest, consumerDigest)
 }
 
@@ -346,31 +286,15 @@ func VerifyDeployAs(
 // tagged tack-server image with Docker Compose labels, without starting it.
 func CreateDeployAppContainer(t *testing.T, fixture DeployFixture) {
 	t.Helper()
-	createFromIndex(
-		t,
-		fixture.cli,
-		"tack-app-1",
-		"app",
-		fixture.registryHost+"/tack-server:"+fixture.tag,
-	)
+	createFromIndex(t, fixture.cli, "tack-app-1", "app", fixture.registryHost+"/tack-server:"+fixture.tag)
 }
 
 // VerifyDeployArgsAs runs ops deploy verify as operatorID against the fixture
 // with verifyArgs after the command path. It returns the command's output and
 // error.
-func VerifyDeployArgsAs(
-	t *testing.T,
-	fixture DeployFixture,
-	operatorID string,
-	verifyArgs ...string,
-) (string, error) {
+func VerifyDeployArgsAs(t *testing.T, fixture DeployFixture, operatorID string, verifyArgs ...string) (string, error) {
 	t.Helper()
-	cfg := &config.Config{
-		DeployRegistry:       fixture.registryHost,
-		DeployImageTag:       fixture.tag,
-		DeployComposeProject: deployComposeProject,
-	}
-
+	cfg := &config.Config{DeployRegistry: fixture.registryHost, DeployImageTag: fixture.tag, DeployComposeProject: deployComposeProject}
 	return runOpsDeployVerifyArgs(t, cfg, fixture.ledgerDSN, operatorID, verifyArgs...)
 }
 
@@ -380,16 +304,11 @@ func DeployTag(fixture DeployFixture) string { return fixture.tag }
 // TryCall invokes one MCP tool through the harness's bearer token. It returns
 // an error instead of failing the test, and it is safe to use from any
 // goroutine.
-func (h *MCPHarness) TryCall(
-	ctx context.Context,
-	toolName string,
-	args datagen.ToolArguments,
-) (datagen.Result, error) {
+func (h *MCPHarness) TryCall(ctx context.Context, toolName string, args datagen.ToolArguments) (datagen.Result, error) {
 	result, err := h.driver.Call(ctx, h.token, toolName, args)
 	if err != nil {
 		return result, fmt.Errorf("call %s: %w", toolName, err)
 	}
-
 	return result, nil
 }
 
@@ -405,11 +324,9 @@ func (h *MCPHarness) ReadResource(t *testing.T, uri string) string {
 	if err := json.Unmarshal(payload, &result); err != nil {
 		t.Fatalf("decode resources/read result for %s: %v\n%s", uri, err, payload)
 	}
-
 	if len(result.Contents) != 1 {
 		t.Fatalf("resources/read %s returned %d contents, want 1", uri, len(result.Contents))
 	}
-
 	return result.Contents[0].Text
 }
 
@@ -429,22 +346,14 @@ func StartSearchTestCluster(t *testing.T, members int) *testenv.OpenSearchCluste
 // worker over engine and returns the fixture and index spec.
 // The query graph, search adapter, and search worker use engine.Endpoint as their only
 // endpoint.
-func NewClusterQueryFixture(
-	t *testing.T,
-	engine testenv.OpenSearchFixture,
-) (QueryFixture, search.IndexSpec) {
+func NewClusterQueryFixture(t *testing.T, engine testenv.OpenSearchFixture) (QueryFixture, search.IndexSpec) {
 	t.Helper()
 	return newClusterQueryFixture(t, engine)
 }
 
 // CaptureClusterTestFailure logs member logs, search diagnostics, and proxy prediction records
 // only when t has failed.
-func CaptureClusterTestFailure(
-	t *testing.T,
-	cluster *testenv.OpenSearchCluster,
-	fixture QueryFixture,
-	modelID string,
-) {
+func CaptureClusterTestFailure(t *testing.T, cluster *testenv.OpenSearchCluster, fixture QueryFixture, modelID string) {
 	t.Helper()
 	captureClusterTestFailure(t, cluster, fixture, modelID)
 }
@@ -485,7 +394,6 @@ func SearchControlConfig(t *testing.T, fixture testenv.OpenSearchFixture) *confi
 func OpenSearchClient(t *testing.T, fixture testenv.OpenSearchFixture) *opensearchapi.Client {
 	t.Helper()
 	_, client := openSearchClientsFor(t, fixture)
-
 	return client
 }
 

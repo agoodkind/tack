@@ -21,24 +21,13 @@ func EffectiveSearchProjection(definition *PropertyDef) (SearchProjection, error
 	if definition.Search != nil {
 		return *definition.Search, nil
 	}
-
 	scalar := TextRule{Mode: TextRuleScalar, Fields: nil, Items: nil, Labels: nil}
-	labels := TextRule{
-		Mode:   TextRuleLabels,
-		Fields: nil,
-		Items:  nil,
-		Labels: optionLabels(definition.Options),
-	}
+	labels := TextRule{Mode: TextRuleLabels, Fields: nil, Items: nil, Labels: optionLabels(definition.Options)}
 	if definition.ReferenceTargetTypeKey != "" {
 		return SearchProjection{Include: false, Order: defaultSearchOrder, Rule: scalar}, nil
 	}
-
 	switch definition.Type {
-	case PropertyTypeText,
-		PropertyTypeURL,
-		PropertyTypeNumber,
-		PropertyTypeDate,
-		PropertyTypeTimestamp:
+	case PropertyTypeText, PropertyTypeURL, PropertyTypeNumber, PropertyTypeDate, PropertyTypeTimestamp:
 		return SearchProjection{Include: true, Order: defaultSearchOrder, Rule: scalar}, nil
 	case PropertyTypeSelect:
 		return SearchProjection{Include: true, Order: defaultSearchOrder, Rule: labels}, nil
@@ -48,13 +37,8 @@ func EffectiveSearchProjection(definition *PropertyDef) (SearchProjection, error
 	case PropertyTypeCheckbox, PropertyTypeUUID:
 		return SearchProjection{Include: false, Order: defaultSearchOrder, Rule: scalar}, nil
 	default:
-		return SearchProjection{}, definitionError{
-			message: fmt.Sprintf(
-				"property definition %s uses unknown type %q without a search declaration",
-				definition.ID,
-				definition.Type,
-			),
-		}
+		return SearchProjection{}, definitionError{message: fmt.Sprintf(
+			"property definition %s uses unknown type %q without a search declaration", definition.ID, definition.Type)}
 	}
 }
 
@@ -67,9 +51,7 @@ func optionLabels(options []EnumOption) map[string]string {
 		if strings.TrimSpace(label) == "" {
 			label = option.Key
 		}
-
 		labels[option.Key] = label
 	}
-
 	return labels
 }

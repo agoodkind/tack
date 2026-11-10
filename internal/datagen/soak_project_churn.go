@@ -13,24 +13,21 @@ func (s *Soak) churnLabel(
 	create bool,
 ) error {
 	if !create && len(project.Labels) > 0 {
-		return s.updateSimpleNode(ctx, project, actor, "label", project.Labels, operationIndex)
+		return s.updateSimpleNode(
+			ctx, project, actor, "label", project.Labels, operationIndex,
+		)
 	}
 	properties := soakProperties(s.content, operationIndex)
 	properties.setString("color", fmt.Sprintf("#%06X", operationIndex&0xFFFFFF))
-	result, err := s.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_create_label",
-		ToolArguments{
-			WorkspaceReference: project.Workspace.Slug,
-			Name: fmt.Sprintf(
-				"Soak label op-%08d seed-%d",
-				operationIndex,
-				s.options.Seed,
-			),
-			Properties: properties,
-		},
-	)
+	result, err := s.driver.Call(ctx, actor.Token, "tack_create_label", ToolArguments{
+		WorkspaceReference: project.Workspace.Slug,
+		Name: fmt.Sprintf(
+			"Soak label op-%08d seed-%d",
+			operationIndex,
+			s.options.Seed,
+		),
+		Properties: properties,
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen soak: create label", err)
 	}
@@ -51,24 +48,25 @@ func (s *Soak) churnState(
 	create bool,
 ) error {
 	if !create && len(project.States) > 0 {
-		return s.updateSimpleNode(ctx, project, actor, "state", project.States, operationIndex)
+		return s.updateSimpleNode(
+			ctx, project, actor, "state", project.States, operationIndex,
+		)
 	}
 	properties := soakProperties(s.content, operationIndex)
 	properties.setString("group", "started")
 	properties.setInt("sort_order", len(project.States)+10)
 	properties.setString("color", fmt.Sprintf("#%06X", operationIndex&0xFFFFFF))
-	name := fmt.Sprintf("Soak state op-%08d seed-%d", operationIndex, s.options.Seed)
-	result, err := s.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_create_state",
-		ToolArguments{
-			WorkspaceReference: project.Workspace.Slug,
-			ProjectReference:   project.Reference,
-			Name:               name,
-			Properties:         properties,
-		},
+	name := fmt.Sprintf(
+		"Soak state op-%08d seed-%d",
+		operationIndex,
+		s.options.Seed,
 	)
+	result, err := s.driver.Call(ctx, actor.Token, "tack_create_state", ToolArguments{
+		WorkspaceReference: project.Workspace.Slug,
+		ProjectReference:   project.Reference,
+		Name:               name,
+		Properties:         properties,
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen soak: create state", err)
 	}
@@ -76,16 +74,13 @@ func (s *Soak) churnState(
 	if rawID == "" {
 		return fmt.Errorf("qa datagen soak: create state returned no raw id")
 	}
-	project.States = append(
-		project.States,
-		soakNode{
-			Reference: rawID,
-			RawID:     rawID,
-			Name:      name,
-			Group:     "started",
-			SortOrder: len(project.States) + 10,
-		},
-	)
+	project.States = append(project.States, soakNode{
+		Reference: rawID,
+		RawID:     rawID,
+		Name:      name,
+		Group:     "started",
+		SortOrder: len(project.States) + 10,
+	})
 	s.summary.Created++
 	return nil
 }
@@ -129,10 +124,7 @@ func (s *Soak) churnProject(
 ) error {
 	if !create {
 		return s.updateSimpleNode(
-			ctx,
-			project,
-			actor,
-			"project",
+			ctx, project, actor, "project",
 			[]soakNode{{RawID: project.RawID}},
 			operationIndex,
 		)
@@ -146,24 +138,23 @@ func (s *Soak) createProject(
 	actor Actor,
 	operationIndex int,
 ) error {
-	identifier := fmt.Sprintf("S%06X%06X", uint64(s.options.Seed)&0xFFFFFF, operationIndex&0xFFFFFF)
+	identifier := fmt.Sprintf(
+		"S%06X%06X",
+		uint64(s.options.Seed)&0xFFFFFF,
+		operationIndex&0xFFFFFF,
+	)
 	properties := soakProperties(s.content, operationIndex)
 	properties.setString("identifier", identifier)
 	properties.setString("slug", slugify(identifier))
-	result, err := s.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_create_project",
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			Name: fmt.Sprintf(
-				"Soak Project op-%08d seed-%d",
-				operationIndex,
-				s.options.Seed,
-			),
-			Properties: properties,
-		},
-	)
+	result, err := s.driver.Call(ctx, actor.Token, "tack_create_project", ToolArguments{
+		WorkspaceReference: workspace.Slug,
+		Name: fmt.Sprintf(
+			"Soak Project op-%08d seed-%d",
+			operationIndex,
+			s.options.Seed,
+		),
+		Properties: properties,
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen soak: create project", err)
 	}

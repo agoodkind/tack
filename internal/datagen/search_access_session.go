@@ -22,41 +22,18 @@ func (r searchRun) verifyReplay(ctx context.Context) error {
 		return err
 	}
 	if first.Cursor == "" {
-		return fmt.Errorf(
-			"qa datagen: search %q returned no continuation cursor for replay",
-			accessPhrase,
-		)
+		return fmt.Errorf("qa datagen: search %q returned no continuation cursor for replay", accessPhrase)
 	}
-	second, err := callSearch(
-		ctx,
-		r.driver,
-		r.identities(),
-		r.token,
-		r.entry,
-		accessPhrase,
-		first.Cursor,
-	)
+	second, err := callSearch(ctx, r.driver, r.identities(), r.token, r.entry, accessPhrase, first.Cursor)
 	if err != nil {
 		return err
 	}
-	replayed, err := callSearch(
-		ctx,
-		r.driver,
-		r.identities(),
-		r.token,
-		r.entry,
-		accessPhrase,
-		first.Cursor,
-	)
+	replayed, err := callSearch(ctx, r.driver, r.identities(), r.token, r.entry, accessPhrase, first.Cursor)
 	if err != nil {
 		return err
 	}
 	if len(second.IDs) == 0 || !slices.Equal(second.IDs, replayed.IDs) {
-		return loggedError(
-			ctx,
-			"qa datagen: replay cursor",
-			fmt.Errorf("replayed page returned %v, want %v", replayed.IDs, second.IDs),
-		)
+		return loggedError(ctx, "qa datagen: replay cursor", fmt.Errorf("replayed page returned %v, want %v", replayed.IDs, second.IDs))
 	}
 	return nil
 }
@@ -64,21 +41,14 @@ func (r searchRun) verifyReplay(ctx context.Context) error {
 // verifyRevocation opens a member's search session and removes the membership.
 // It requires the server to refuse a request with the open cursor and a new
 // search, then restores the original role even when the refusal check fails.
-func (r searchRun) verifyRevocation(
-	ctx context.Context,
-	cfg *config.Config,
-	workspace WorkspaceIdentity,
-) error {
+func (r searchRun) verifyRevocation(ctx context.Context, cfg *config.Config, workspace WorkspaceIdentity) error {
 	actor := workspace.Actors[revokedActorIndex]
 	first, err := callSearch(ctx, r.driver, r.identities(), actor.Token, r.entry, accessPhrase, "")
 	if err != nil {
 		return err
 	}
 	if first.Cursor == "" {
-		return fmt.Errorf(
-			"qa datagen: member search %q returned no continuation cursor",
-			accessPhrase,
-		)
+		return fmt.Errorf("qa datagen: member search %q returned no continuation cursor", accessPhrase)
 	}
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL, nil)
 	if err != nil {
@@ -94,24 +64,11 @@ func (r searchRun) verifyRevocation(
 		return loggedError(ctx, "qa datagen: remove member "+actor.UserID.String(), err)
 	}
 	refusalErr := r.requireRevoked(ctx, actor.Token, first.Cursor)
-	restored := &org.Member{
-		ID:        uuid.Nil,
-		OrgID:     member.OrgID,
-		UserID:    member.UserID,
-		Role:      member.Role,
-		CreatedAt: time.Time{},
-	}
+	restored := &org.Member{ID: uuid.Nil, OrgID: member.OrgID, UserID: member.UserID, Role: member.Role, CreatedAt: time.Time{}}
 	if err := members.AddMember(context.WithoutCancel(ctx), restored); err != nil {
-		joined := errors.Join(
-			refusalErr,
-			fmt.Errorf("qa datagen: restore member %s: %w", actor.UserID, err),
-		)
-		slog.ErrorContext(
-			ctx,
-			"qa.datagen.member_restore_failed",
-			slog.String("user_id", actor.UserID.String()),
-			slog.String("err", joined.Error()),
-		)
+		joined := errors.Join(refusalErr, fmt.Errorf("qa datagen: restore member %s: %w", actor.UserID, err))
+		slog.ErrorContext(ctx, "qa.datagen.member_restore_failed", slog.String("user_id", actor.UserID.String()),
+			slog.String("err", joined.Error()))
 		return joined
 	}
 	return refusalErr
@@ -121,29 +78,18 @@ func (r searchRun) verifyRevocation(
 // The application caches membership for a bounded lifetime. Each refusal
 // check repeats until the convergence deadline.
 func (r searchRun) requireRevoked(ctx context.Context, token, cursor string) error {
-	if err := r.eventually(
-		ctx,
-		"refuse revoked member cursor",
-		func(ctx context.Context) error {
-			return r.refused(ctx, token, r.entry, cursor)
-		},
-	); err != nil {
+	if err := r.eventually(ctx, "refuse revoked member cursor", func(ctx context.Context) error {
+		return r.refused(ctx, token, r.entry, cursor)
+	}); err != nil {
 		return err
 	}
-	return r.eventually(
-		ctx,
-		"refuse revoked member search",
-		func(ctx context.Context) error {
-			return r.refused(ctx, token, r.entry, "")
-		},
-	)
+	return r.eventually(ctx, "refuse revoked member search", func(ctx context.Context) error {
+		return r.refused(ctx, token, r.entry, "")
+	})
 }
 
 // findOrgMember returns the membership row of userID in orgID.
-func findOrgMember(ctx context.Context, members *postgres.OrgMemberRepo, orgID, userID uuid.UUID) (
-	*org.Member,
-	error,
-) {
+func findOrgMember(ctx context.Context, members *postgres.OrgMemberRepo, orgID, userID uuid.UUID) (*org.Member, error) {
 	rows, err := members.ListMembers(ctx, orgID)
 	if err != nil {
 		return nil, loggedError(ctx, "qa datagen: list members of "+orgID.String(), err)
@@ -153,9 +99,5 @@ func findOrgMember(ctx context.Context, members *postgres.OrgMemberRepo, orgID, 
 			return member, nil
 		}
 	}
-	return nil, loggedError(
-		ctx,
-		"qa datagen: find member",
-		fmt.Errorf("user %s is not a member of org %s", userID, orgID),
-	)
+	return nil, loggedError(ctx, "qa datagen: find member", fmt.Errorf("user %s is not a member of org %s", userID, orgID))
 }

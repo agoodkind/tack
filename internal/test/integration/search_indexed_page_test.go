@@ -46,57 +46,27 @@ type indexedAccess struct {
 // when a node does not have an active page.
 func indexedPages(t *testing.T, fixture rolloutFixture, nodes []uuid.UUID) []indexedPage {
 	t.Helper()
-	if _, err := fixture.client.Indices.Refresh(
-		rolloutContext(t),
-		&opensearchapi.IndicesRefreshReq{Indices: []string{fixture.index}},
-	); err != nil {
+	if _, err := fixture.client.Indices.Refresh(rolloutContext(t), &opensearchapi.IndicesRefreshReq{Indices: []string{fixture.index}}); err != nil {
 		t.Fatalf("cannot refresh index %s: %v", fixture.index, err)
 	}
-
 	pages := make([]indexedPage, 0, len(nodes)*2)
 	for _, nodeID := range nodes {
-		query := fmt.Sprintf(
-			`{"size":1000,"seq_no_primary_term":true,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`,
-			nodeID.String(),
-		)
-		response, err := fixture.client.Search(
-			rolloutContext(t),
-			&opensearchapi.SearchReq{
-				Indices:    []string{fixture.index},
-				BodyReader: strings.NewReader(query),
-			},
-		)
+		query := fmt.Sprintf(`{"size":1000,"seq_no_primary_term":true,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String())
+		response, err := fixture.client.Search(rolloutContext(t), &opensearchapi.SearchReq{Indices: []string{fixture.index}, BodyReader: strings.NewReader(query)})
 		if err != nil {
 			t.Fatalf("cannot search pages of node %s: %v", nodeID, err)
 		}
-
 		if len(response.Hits.Hits) == 0 {
 			t.Fatalf("node %s does not have active pages", nodeID)
 		}
-
 		for _, hit := range response.Hits.Hits {
 			fields := map[string]json.RawMessage{}
-			if err := json.Unmarshal(
-				hit.Source,
-				&fields,
-			); err != nil || hit.ID == nil || hit.SeqNo == nil ||
-				hit.PrimaryTerm == nil {
+			if err := json.Unmarshal(hit.Source, &fields); err != nil || hit.ID == nil || hit.SeqNo == nil || hit.PrimaryTerm == nil {
 				t.Fatalf("cannot decode page %v of node %s: %v", hit.ID, nodeID, err)
 			}
-
-			pages = append(
-				pages,
-				indexedPage{
-					id:          *hit.ID,
-					nodeID:      nodeID,
-					seqNo:       *hit.SeqNo,
-					primaryTerm: *hit.PrimaryTerm,
-					fields:      fields,
-				},
-			)
+			pages = append(pages, indexedPage{id: *hit.ID, nodeID: nodeID, seqNo: *hit.SeqNo, primaryTerm: *hit.PrimaryTerm, fields: fields})
 		}
 	}
-
 	return pages
 }
 
@@ -106,18 +76,11 @@ func indexedPages(t *testing.T, fixture rolloutFixture, nodes []uuid.UUID) []ind
 func requireIndexedPagesUnwritten(t *testing.T, before, after []indexedPage) {
 	t.Helper()
 	requireSamePageIDs(t, before, after)
-
 	for position, page := range after {
 		previous := before[position]
 		if page.seqNo != previous.seqNo || page.primaryTerm != previous.primaryTerm {
-			t.Fatalf(
-				"page %s changed sequence number from %d to %d",
-				page.id,
-				previous.seqNo,
-				page.seqNo,
-			)
+			t.Fatalf("page %s changed sequence number from %d to %d", page.id, previous.seqNo, page.seqNo)
 		}
-
 		if field := changedField(previous.fields, page.fields); field != "" {
 			t.Fatalf("page %s changed field %s", page.id, field)
 		}
@@ -130,28 +93,19 @@ func requireIndexedPagesUnwritten(t *testing.T, before, after []indexedPage) {
 func requireAccessOnlyChange(t *testing.T, before, after []indexedPage) {
 	t.Helper()
 	requireSamePageIDs(t, before, after)
-
 	for position, page := range after {
 		previous := before[position]
 		if bytes.Equal(page.fields[indexedAccessField], previous.fields[indexedAccessField]) {
 			t.Fatalf("page %s kept access %s", page.id, page.fields[indexedAccessField])
 		}
-
 		if pageGenerationOf(t, page) <= pageGenerationOf(t, previous) {
-			t.Fatalf(
-				"page %s kept search generation %s",
-				page.id,
-				page.fields[indexedGenerationField],
-			)
+			t.Fatalf("page %s kept search generation %s", page.id, page.fields[indexedGenerationField])
 		}
-
 		current, earlier := maps.Clone(page.fields), maps.Clone(previous.fields)
-
 		for _, field := range []string{indexedGenerationField, indexedAccessField} {
 			delete(current, field)
 			delete(earlier, field)
 		}
-
 		if field := changedField(earlier, current); field != "" {
 			t.Fatalf("page %s changed field %s", page.id, field)
 		}
@@ -164,15 +118,9 @@ func requireSamePageIDs(t *testing.T, before, after []indexedPage) {
 	if len(before) != len(after) {
 		t.Fatalf("active page count changed from %d to %d", len(before), len(after))
 	}
-
 	for position, page := range after {
 		if page.id != before[position].id {
-			t.Fatalf(
-				"page %d changed document ID from %s to %s",
-				position,
-				before[position].id,
-				page.id,
-			)
+			t.Fatalf("page %d changed document ID from %s to %s", position, before[position].id, page.id)
 		}
 	}
 }
@@ -182,13 +130,11 @@ func requireSamePageIDs(t *testing.T, before, after []indexedPage) {
 // match.
 func changedField(before, after map[string]json.RawMessage) string {
 	names := slices.Sorted(maps.Keys(before))
-
 	for name := range after {
 		if !slices.Contains(names, name) {
 			names = append(names, name)
 		}
 	}
-
 	for _, name := range names {
 		previous, found := before[name]
 		current, present := after[name]
@@ -196,7 +142,6 @@ func changedField(before, after map[string]json.RawMessage) string {
 			return name
 		}
 	}
-
 	return ""
 }
 
@@ -207,12 +152,10 @@ func pageGenerationOf(t *testing.T, page indexedPage) int64 {
 	if err := json.Unmarshal(page.fields[indexedGenerationField], &generation); err != nil {
 		t.Fatalf("cannot decode the search generation of page %s: %v", page.id, err)
 	}
-
 	value, err := generation.Int64()
 	if err != nil {
 		t.Fatalf("cannot parse the search generation %q of page %s: %v", generation, page.id, err)
 	}
-
 	return value
 }
 
@@ -223,6 +166,5 @@ func pageAccessOf(t *testing.T, page indexedPage) indexedAccess {
 	if err := json.Unmarshal(page.fields[indexedAccessField], &access); err != nil {
 		t.Fatalf("cannot decode the access of page %s: %v", page.id, err)
 	}
-
 	return access
 }

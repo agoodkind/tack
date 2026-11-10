@@ -13,10 +13,7 @@ import (
 )
 
 func (execution *macRunnerExecution) finalize(ctx context.Context, primary error) error {
-	cleanupContext, cancel := context.WithTimeout(
-		context.WithoutCancel(ctx),
-		2*time.Minute+execution.prepared.stopGrace(),
-	)
+	cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute+execution.prepared.stopGrace())
 	defer cancel()
 	var failures []error
 	if execution.acceptedID != "" {
@@ -24,17 +21,14 @@ func (execution *macRunnerExecution) finalize(ctx context.Context, primary error
 		if err == nil {
 			err = execution.stopRunner(cleanupContext, inspection)
 		}
-
 		failures = append(failures, execution.stage("runner stop", err))
 		terminal, terminalErr := execution.inspect(cleanupContext, execution.acceptedID)
 		if terminalErr == nil {
 			execution.terminal = &terminal
 			writeMacRunnerJSON(execution, "outer-terminal.json", terminal)
 		}
-
 		failures = append(failures, execution.stage("terminal inspection", terminalErr))
 	}
-
 	failures = append(failures, execution.finishAttach())
 	failures = append(failures, execution.finishWait(cleanupContext))
 	if execution.acceptedID != "" {
@@ -42,72 +36,40 @@ func (execution *macRunnerExecution) finalize(ctx context.Context, primary error
 		execution.status("final-logs.exit", logErr)
 		failures = append(failures, execution.stage("final log retrieval", logErr))
 	}
-
 	failures = append(failures, execution.finishEvents())
 	var attributionErr, fixtureCleanupErr error
 	if execution.defaultClient != nil && execution.baselineReady {
-		attributionErr = execution.stage(
-			"fixture attribution",
-			execution.attributeFixtures(cleanupContext),
-		)
+		attributionErr = execution.stage("fixture attribution", execution.attributeFixtures(cleanupContext))
 		if execution.observerError != nil {
-			fixtureCleanupErr = execution.stage(
-				"fixture cleanup",
-				errors.New("preserve inner fixtures after event evidence failure"),
-			)
+			fixtureCleanupErr = execution.stage("fixture cleanup", errors.New("preserve inner fixtures after event evidence failure"))
 		} else {
-			fixtureCleanupErr = execution.stage(
-				"fixture cleanup",
-				execution.cleanupFixtures(cleanupContext),
-			)
+			fixtureCleanupErr = execution.stage("fixture cleanup", execution.cleanupFixtures(cleanupContext))
 		}
-
 		cleanupErr := execution.cleanup(cleanupContext)
 		execution.status("cleanup.exit", cleanupErr)
 		failures = append(failures, execution.stage("outer cleanup", cleanupErr))
 	}
-
-	failures = append(
-		failures,
-		execution.finalizeFixtureEvidence(cleanupContext, attributionErr, fixtureCleanupErr),
-	)
+	failures = append(failures, execution.finalizeFixtureEvidence(cleanupContext, attributionErr, fixtureCleanupErr))
 	sourceErr := execution.prepared.verifySources()
 	if !execution.prepared.sourceCaptured {
-		sourceErr = errors.New(
-			"source capture did not complete; source verification remains unavailable",
-		)
+		sourceErr = errors.New("source capture did not complete; source verification remains unavailable")
 	}
-
 	execution.status("source-hash-verification.exit", sourceErr)
-
 	failures = append(failures, execution.stage("source verification", sourceErr))
-	for _, docker := range []*client.Client{
-		execution.defaultClient,
-		execution.rawClient,
-		execution.eventClient,
-	} {
+	for _, docker := range []*client.Client{execution.defaultClient, execution.rawClient, execution.eventClient} {
 		if docker != nil {
 			failures = append(failures, docker.Close())
 		}
 	}
-
 	if execution.eventTransport != nil {
 		execution.eventTransport.CloseIdleConnections()
 	}
-
 	primaryCode := 1
 	if primary == nil && execution.runtimeExit != nil {
 		primaryCode = *execution.runtimeExit
 	}
-
 	execution.write("primary.exit", strconv.Itoa(primaryCode)+"\n")
-
-	return macRunnerErrors(
-		"finalize invocation",
-		primary,
-		macRunnerErrors("finalize stages", failures...),
-		macRunnerErrors("finalize evidence", execution.evidenceErrors...),
-	)
+	return macRunnerErrors("finalize invocation", primary, macRunnerErrors("finalize stages", failures...), macRunnerErrors("finalize evidence", execution.evidenceErrors...))
 }
 
 func (execution *macRunnerExecution) finishAttach() error {
@@ -120,42 +82,28 @@ func (execution *macRunnerExecution) finishAttach() error {
 				execution.attachDone = nil
 			}
 		}
-
 		execution.attach.Close()
 	}
-
 	if execution.attachCancel != nil {
 		execution.attachCancel()
 	}
-
 	if execution.attachDone != nil {
-		failures = append(
-			failures,
-			macRunnerAwait(execution.attachDone, "attached runtime output after close"),
-		)
+		failures = append(failures, macRunnerAwait(execution.attachDone, "attached runtime output after close"))
 		execution.attachDone = nil
 	}
-
 	if execution.logFile != nil {
 		failures = append(failures, execution.logFile.Close())
 		path := filepath.Join(execution.prepared.options.EvidenceDirectory, "attach.log")
-		slog.Debug(
-			"testenv.run_mac.attach_preserve",
-			slog.String("runner", execution.acceptedID),
-			slog.String("artifact", path),
-		)
+		slog.Debug("testenv.run_mac.attach_preserve", slog.String("runner", execution.acceptedID), slog.String("artifact", path))
 		if err := os.Rename(execution.logFile.Name(), path); err != nil {
 			failures = append(failures, macRunnerFailure("preserve attached runtime output", err))
 		}
 	}
-
 	if execution.attach == nil {
 		return macRunnerErrors("close runtime output", failures...)
 	}
-
 	err := macRunnerErrors("complete runtime output", failures...)
 	execution.status("attach.exit", err)
-
 	return execution.stage("attach completion", err)
 }
 
@@ -164,23 +112,16 @@ func (execution *macRunnerExecution) finishEvents() error {
 	if execution.eventCancel != nil {
 		execution.eventCancel()
 	}
-
 	if execution.eventDone != nil {
-		execution.observerError = macRunnerErrors(
-			"complete event observer",
-			execution.observerError,
-			macRunnerAwait(execution.eventDone, "container event observer"),
-		)
+		execution.observerError = macRunnerErrors("complete event observer", execution.observerError, macRunnerAwait(execution.eventDone, "container event observer"))
 		failures = append(failures, execution.stage("event completion", execution.observerError))
 		execution.eventDone = nil
 	}
-
 	for _, file := range []*os.File{execution.eventsFile, execution.eventsErrorFile} {
 		if file != nil {
 			failures = append(failures, file.Close())
 		}
 	}
-
 	return macRunnerErrors("complete event evidence", failures...)
 }
 
@@ -189,25 +130,17 @@ func (execution *macRunnerExecution) result(ctx context.Context, err error) (Mac
 	if err == nil && execution.runtimeExit != nil {
 		code = *execution.runtimeExit
 	}
-
 	interrupted := errors.Is(ctx.Err(), context.Canceled)
 	if interrupted {
 		code = 130
 	}
-
 	evidenceErr := execution.summarize(code, interrupted, err)
 	if evidenceErr != nil {
 		err = macRunnerErrors("final evidence", err, evidenceErr)
 		if !interrupted {
 			code = 1
 		}
-
 		execution.write("wrapper.exit", strconv.Itoa(code)+"\n")
 	}
-
-	return MacTestResult{
-		ExitCode:          code,
-		EvidenceDirectory: execution.prepared.options.EvidenceDirectory,
-		RunnerID:          execution.runnerID(),
-	}, err
+	return MacTestResult{ExitCode: code, EvidenceDirectory: execution.prepared.options.EvidenceDirectory, RunnerID: execution.runnerID()}, err
 }

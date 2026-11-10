@@ -60,44 +60,26 @@ func ledgerBootstrapMasterList(cfg *config.Config, count int) (ledgerBootstrapMa
 	if err != nil {
 		return ledgerBootstrapMasters{}, err
 	}
-
 	if count > len(names) {
-		return ledgerBootstrapMasters{}, fmt.Errorf(
-			"--masters %d exceeds the %d ledger nodes in TACK_LEDGER_NODE_HOSTS",
-			count,
-			len(names),
-		)
+		return ledgerBootstrapMasters{}, fmt.Errorf("--masters %d exceeds the %d ledger nodes in TACK_LEDGER_NODE_HOSTS", count, len(names))
 	}
-
 	addressOf := map[string]string{}
-
 	for address, name := range ledgerNodeNames(cfg) {
 		if earlier, seen := addressOf[name]; seen {
-			return ledgerBootstrapMasters{}, fmt.Errorf(
-				"TACK_LEDGER_NODE_HOSTS gives node %s two addresses, %s and %s",
-				name,
-				earlier,
-				address,
-			)
+			return ledgerBootstrapMasters{}, fmt.Errorf("TACK_LEDGER_NODE_HOSTS gives node %s two addresses, %s and %s", name, earlier, address)
 		}
-
 		addressOf[name] = address
 	}
-
 	masterNames := make([]string, 0, count)
 	extraHosts := make([]string, 0, count)
-
 	health := make([]string, 0, count)
 	for _, name := range names[:count] {
 		masterNames = append(masterNames, name+":"+ledgerMasterRPCPort)
 		extraHosts = append(extraHosts, name+":"+addressOf[name])
 		health = append(health, net.JoinHostPort(addressOf[name], ledgerMasterRPCPort))
 	}
-
 	return ledgerBootstrapMasters{
-		names:      strings.Join(masterNames, ","),
-		extraHosts: extraHosts,
-		health:     strings.Join(health, ","),
+		names: strings.Join(masterNames, ","), extraHosts: extraHosts, health: strings.Join(health, ","),
 	}, nil
 }
 
@@ -105,13 +87,11 @@ func ledgerBootstrapMasterList(cfg *config.Config, count int) (ledgerBootstrapMa
 // list_all_tablet_servers that contain the whole word ALIVE.
 func countAliveRows(output string) int {
 	rows := 0
-
 	for line := range strings.SplitSeq(output, "\n") {
 		if ledgerAliveWord.MatchString(line) {
 			rows++
 		}
 	}
-
 	return rows
 }
 
@@ -133,24 +113,16 @@ func unmarshalUniverseNumReplicas(ctx context.Context, output string) (int, erro
 	if start < 0 || end < start {
 		return 0, errors.New("get_universe_config printed no JSON object")
 	}
-
 	var universe ybUniverseConfig
 	if err := json.Unmarshal([]byte(output[start:end+1]), &universe); err != nil {
 		wrapped := fmt.Errorf("decode get_universe_config: %w", err)
-		slog.WarnContext(
-			ctx,
-			"ops.ledger.bootstrap_wait.universe_unreadable",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.WarnContext(ctx, "ops.ledger.bootstrap_wait.universe_unreadable", slog.String("err", wrapped.Error()))
 		return 0, wrapped
 	}
-
 	if universe.ReplicationInfo == nil || universe.ReplicationInfo.LiveReplicas == nil ||
 		universe.ReplicationInfo.LiveReplicas.NumReplicas == nil {
 		return 0, errors.New("get_universe_config has no replicationInfo.liveReplicas.numReplicas")
 	}
-
 	return *universe.ReplicationInfo.LiveReplicas.NumReplicas, nil
 }
 
@@ -159,17 +131,13 @@ func (r ledgerBootstrapReading) satisfies(target ledgerBootstrapTarget) bool {
 	if !r.mastersRead || r.masters != target.masters {
 		return false
 	}
-
 	if !r.tabletServersRead || r.tabletServers != target.tabletServers {
 		return false
 	}
-
 	if target.replicas == 0 {
 		return true
 	}
-
-	return r.replicasRead && r.replicas == target.replicas && r.underReplicatedRead &&
-		r.underReplicated == 0
+	return r.replicasRead && r.replicas == target.replicas && r.underReplicatedRead && r.underReplicated == 0
 }
 
 // summary renders every count of the reading. A count with a failed read
@@ -180,22 +148,17 @@ func (r ledgerBootstrapReading) summary(target ledgerBootstrapTarget) string {
 		"tablet_servers=" + readCount(r.tabletServers, r.tabletServersRead),
 	}
 	if target.replicas > 0 {
-		parts = append(
-			parts,
+		parts = append(parts,
 			"num_replicas="+readCount(r.replicas, r.replicasRead),
-			"under_replicated_tablets="+readCount(r.underReplicated, r.underReplicatedRead),
-		)
+			"under_replicated_tablets="+readCount(r.underReplicated, r.underReplicatedRead))
 	} else {
 		parts = append(parts, "num_replicas=not checked", "under_replicated_tablets=not checked")
 	}
-
 	lastError := r.lastError
 	if lastError == "" {
 		lastError = "none"
 	}
-
 	parts = append(parts, "last_read_error="+lastError)
-
 	return strings.Join(parts, " ")
 }
 
@@ -204,6 +167,5 @@ func readCount(value int, read bool) string {
 	if !read {
 		return "unreadable"
 	}
-
 	return strconv.Itoa(value)
 }

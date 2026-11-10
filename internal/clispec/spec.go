@@ -41,7 +41,6 @@ func (n Name) CLI() string {
 	if n.CLIOverride != "" {
 		return n.CLIOverride
 	}
-
 	return strings.ReplaceAll(n.Canonical, "_", "-")
 }
 

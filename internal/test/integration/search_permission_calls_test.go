@@ -30,23 +30,14 @@ func cursorSessionRecord(t *testing.T, fixture rolloutFixture, cursor string) se
 	if err != nil {
 		t.Fatalf("cannot decode cursor key: %v", err)
 	}
-
 	sessionID, _, err := tools.NewSearchCursorCodec(key).Decode(cursor)
 	if err != nil {
 		t.Fatalf("cannot decode cursor: %v", err)
 	}
-
-	session, err := fixture.stores.SearchSessions(
-		clock.Wall{},
-		cursorSessionIdle,
-	).Load(
-		rolloutContext(t),
-		sessionID,
-	)
+	session, err := fixture.stores.SearchSessions(clock.Wall{}, cursorSessionIdle).Load(rolloutContext(t), sessionID)
 	if err != nil {
 		t.Fatalf("cannot load session %s: %v", sessionID, err)
 	}
-
 	return session
 }
 
@@ -58,9 +49,7 @@ func membershipRepository(t *testing.T, fixture rolloutFixture) *postgres.OrgMem
 	if err != nil {
 		t.Fatalf("cannot open membership pool: %v", err)
 	}
-
 	t.Cleanup(pool.Close)
-
 	return postgres.NewOrgMemberRepo(pool)
 }
 
@@ -68,55 +57,27 @@ func membershipRepository(t *testing.T, fixture rolloutFixture) *postgres.OrgMem
 // the entry point's caller filter from current memberships and the
 // authority's active access version. It returns true for
 // searchaccess.ErrAccessDenied and fails the test on any other error.
-func currentCallerAccess(
-	t *testing.T,
-	fixture rolloutFixture,
-	members *postgres.OrgMemberRepo,
-	principalID uuid.UUID,
-	authorityID uuid.UUID,
-	entryID uuid.UUID,
-) (searchdomain.AccessFilter, bool) {
+func currentCallerAccess(t *testing.T, fixture rolloutFixture, members *postgres.OrgMemberRepo, principalID, authorityID, entryID uuid.UUID) (searchdomain.AccessFilter, bool) {
 	t.Helper()
 	organizations, err := members.ListOrgIDsForUser(rolloutContext(t), principalID)
 	if err != nil {
 		t.Fatalf("cannot list organizations of user %s: %v", principalID, err)
 	}
-
 	policies := fixture.stores.SearchPolicySet()
-	version, err := fixture.stores.SearchRollouts(
-		clock.Wall{},
-		policies,
-	).ActiveAccessVersion(
-		rolloutContext(t),
-		authorityID,
-	)
+	version, err := fixture.stores.SearchRollouts(clock.Wall{}, policies).ActiveAccessVersion(rolloutContext(t), authorityID)
 	if err != nil {
 		t.Fatalf("cannot read the active access version of authority %s: %v", authorityID, err)
 	}
-
-	filter, err := policies.Query(
-		rolloutContext(t),
-		searchaccess.AccessRequest{
-			Version:             version,
-			PrincipalID:         principalID,
-			AuthorityID:         authorityID,
-			EntryPointID:        entryID,
-			MemberOrganizations: organizations,
-		},
-	)
+	filter, err := policies.Query(rolloutContext(t), searchaccess.AccessRequest{
+		Version: version, PrincipalID: principalID, AuthorityID: authorityID,
+		EntryPointID: entryID, MemberOrganizations: organizations,
+	})
 	if errors.Is(err, searchaccess.ErrAccessDenied) {
 		return searchdomain.AccessFilter{Version: "", Keys: nil}, true
 	}
-
 	if err != nil {
-		t.Fatalf(
-			"cannot compile the access of user %s under entry point %s: %v",
-			principalID,
-			entryID,
-			err,
-		)
+		t.Fatalf("cannot compile the access of user %s under entry point %s: %v", principalID, entryID, err)
 	}
-
 	return filter, false
 }
 
@@ -125,17 +86,8 @@ func currentCallerAccess(
 func requireNoClaimableWork(t *testing.T, fixture rolloutFixture) {
 	t.Helper()
 	store := fixture.stores.SearchWork(clock.Wall{})
-
-	for _, class := range []searchdomain.WorkClass{
-		searchdomain.WorkClassLive,
-		searchdomain.WorkClassAccess,
-	} {
-		work, claimed, err := store.Claim(
-			rolloutContext(t),
-			class,
-			"membership-inspector",
-			time.Minute,
-		)
+	for _, class := range []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess} {
+		work, claimed, err := store.Claim(rolloutContext(t), class, "membership-inspector", time.Minute)
 		if err != nil || claimed {
 			t.Fatalf("the membership change left %s work %+v with error %v", class, work, err)
 		}
@@ -145,7 +97,6 @@ func requireNoClaimableWork(t *testing.T, fixture rolloutFixture) {
 // requireNodesAbsent requires that found does not contain any node in nodes.
 func requireNodesAbsent(t *testing.T, found, nodes []uuid.UUID) {
 	t.Helper()
-
 	for _, nodeID := range nodes {
 		if slices.Contains(found, nodeID) {
 			t.Fatalf("search results %v include node %s", found, nodeID)

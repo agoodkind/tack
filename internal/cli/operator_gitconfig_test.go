@@ -17,17 +17,10 @@ func TestGitConfigHomeFileWinsOverXDG(t *testing.T) {
 	if err := os.MkdirAll(xdgDir, 0o750); err != nil {
 		t.Fatalf("create xdg dir: %v", err)
 	}
-
-	writeIdentityFile(
-		t,
-		filepath.Join(xdgDir, "config"),
-		"[user]\n\tname = XDG Person\n\temail = xdg@goodkind.io\n",
-	)
-	writeIdentityFile(
-		t,
-		filepath.Join(home, ".gitconfig"),
-		"[user]\n\tname = Home Person\n\temail = home@goodkind.io\n",
-	)
+	writeIdentityFile(t, filepath.Join(xdgDir, "config"),
+		"[user]\n\tname = XDG Person\n\temail = xdg@goodkind.io\n")
+	writeIdentityFile(t, filepath.Join(home, ".gitconfig"),
+		"[user]\n\tname = Home Person\n\temail = home@goodkind.io\n")
 
 	t.Setenv("GIT_CONFIG_GLOBAL", "")
 	t.Setenv("XDG_CONFIG_HOME", xdg)
@@ -37,11 +30,9 @@ func TestGitConfigHomeFileWinsOverXDG(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-
 	if principal.Email != "home@goodkind.io" {
 		t.Fatalf("email = %q, want the home file to win", principal.Email)
 	}
-
 	if principal.Name != "Home Person" {
 		t.Fatalf("name = %q, want the home file to win", principal.Name)
 	}
@@ -56,13 +47,10 @@ func TestGitConfigXDGSuppliesWhatHomeOmits(t *testing.T) {
 	if err := os.MkdirAll(xdgDir, 0o750); err != nil {
 		t.Fatalf("create xdg dir: %v", err)
 	}
-
-	writeIdentityFile(
-		t,
-		filepath.Join(xdgDir, "config"),
-		"[user]\n\tname = Only In XDG\n\temail = shared@goodkind.io\n",
-	)
-	writeIdentityFile(t, filepath.Join(home, ".gitconfig"), "[user]\n\temail = home@goodkind.io\n")
+	writeIdentityFile(t, filepath.Join(xdgDir, "config"),
+		"[user]\n\tname = Only In XDG\n\temail = shared@goodkind.io\n")
+	writeIdentityFile(t, filepath.Join(home, ".gitconfig"),
+		"[user]\n\temail = home@goodkind.io\n")
 
 	t.Setenv("GIT_CONFIG_GLOBAL", "")
 	t.Setenv("XDG_CONFIG_HOME", xdg)
@@ -72,11 +60,9 @@ func TestGitConfigXDGSuppliesWhatHomeOmits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-
 	if principal.Email != "home@goodkind.io" {
 		t.Fatalf("email = %q, want the home file to win", principal.Email)
 	}
-
 	if principal.Name != "Only In XDG" {
 		t.Fatalf("name = %q, want the XDG name to survive", principal.Name)
 	}
@@ -93,22 +79,14 @@ func TestGitConfigHomeFallbackIgnoredWhenXDGSet(t *testing.T) {
 	if err := os.MkdirAll(xdgDir, 0o750); err != nil {
 		t.Fatalf("create xdg dir: %v", err)
 	}
-
 	fallbackDir := filepath.Join(home, ".config", "git")
 	if err := os.MkdirAll(fallbackDir, 0o750); err != nil {
 		t.Fatalf("create fallback dir: %v", err)
 	}
-
-	writeIdentityFile(
-		t,
-		filepath.Join(xdgDir, "config"),
-		"[user]\n\tname = XDG Person\n\temail = xdg@goodkind.io\n",
-	)
-	writeIdentityFile(
-		t,
-		filepath.Join(fallbackDir, "config"),
-		"[user]\n\tname = Stale Person\n\temail = stale@goodkind.io\n",
-	)
+	writeIdentityFile(t, filepath.Join(xdgDir, "config"),
+		"[user]\n\tname = XDG Person\n\temail = xdg@goodkind.io\n")
+	writeIdentityFile(t, filepath.Join(fallbackDir, "config"),
+		"[user]\n\tname = Stale Person\n\temail = stale@goodkind.io\n")
 
 	t.Setenv("GIT_CONFIG_GLOBAL", "")
 	t.Setenv("XDG_CONFIG_HOME", xdg)
@@ -118,11 +96,9 @@ func TestGitConfigHomeFallbackIgnoredWhenXDGSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-
 	if principal.Email != "xdg@goodkind.io" {
 		t.Fatalf("email = %q, want the fallback file ignored", principal.Email)
 	}
-
 	if principal.Name != "XDG Person" {
 		t.Fatalf("name = %q, want the fallback file ignored", principal.Name)
 	}

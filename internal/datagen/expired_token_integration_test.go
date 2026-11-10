@@ -39,15 +39,10 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 	t.Cleanup(app.Close)
 
 	ctx = withTestMutation(t, ctx)
-	holder, err := postgres.NewUserRepo(app).Create(
-		ctx,
-		&user.User{
-			ID:          uuid.Must(uuid.NewV7()),
-			Email:       "expired-" + uuid.NewString()[:8] + "@example.test",
-			DisplayName: "expired token holder",
-			AvatarURL:   nil,
-		},
-	)
+	holder, err := postgres.NewUserRepo(app).Create(ctx, &user.User{
+		ID: uuid.Must(uuid.NewV7()), Email: "expired-" + uuid.NewString()[:8] + "@example.test",
+		DisplayName: "expired token holder", AvatarURL: nil,
+	})
 	if err != nil {
 		t.Fatalf("create the holder as the app login: %v", err)
 	}
@@ -57,29 +52,13 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate a token: %v", err)
 	}
-	actor := Actor{
-		UserID:       holder.ID,
-		Email:        holder.Email,
-		DisplayName:  "",
-		Token:        "",
-		RawToken:     "",
-		RequestToken: "",
-	}
-	workspace := WorkspaceIdentity{
-		OrgID:   uuid.Must(uuid.NewV7()),
-		OrgSlug: "",
-		Slug:    "",
-		Name:    "",
-		Actors:  []Actor{actor},
-	}
+	actor := Actor{UserID: holder.ID, Email: holder.Email, DisplayName: "", Token: "", RawToken: "", RequestToken: ""}
+	workspace := WorkspaceIdentity{OrgID: uuid.Must(uuid.NewV7()), OrgSlug: "", Slug: "", Name: "", Actors: []Actor{actor}}
 	if err := expireToken(ctx, postgres.NewTokenRepo(app), raw, workspace); err != nil {
 		t.Fatalf("expireToken as the app login: %v", err)
 	}
 
-	if _, err := postgres.NewTokenRepo(app).Validate(
-		ctx,
-		raw,
-	); !errors.Is(err, domain.ErrUnauthenticated) {
+	if _, err := postgres.NewTokenRepo(app).Validate(ctx, raw); !errors.Is(err, domain.ErrUnauthenticated) {
 		t.Fatalf("Validate(expired) err = %v, want unauthenticated", err)
 	}
 	stored, err := postgres.NewTokenRepo(app).List(ctx, holder.ID)
@@ -95,21 +74,10 @@ func TestExpireTokenRunsAsTheAppLogin(t *testing.T) {
 // it to ctx, and returns the resulting context.
 func withTestMutation(t *testing.T, ctx context.Context) context.Context {
 	t.Helper()
-	operation, err := audit.NewMutationOperation(
-		audit.Actor{
-			Type:          audit.ActorService,
-			ID:            uuid.Must(uuid.NewV7()),
-			Email:         "",
-			Name:          "datagen test",
-			SessionID:     "",
-			IP:            "",
-			UserAgent:     "",
-			RequestID:     "",
-			APITokenLabel: "",
-		},
-		audit.SourceSystem,
-		"datagen-test",
-	)
+	operation, err := audit.NewMutationOperation(audit.Actor{
+		Type: audit.ActorService, ID: uuid.Must(uuid.NewV7()), Email: "", Name: "datagen test",
+		SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
+	}, audit.SourceSystem, "datagen-test")
 	if err != nil {
 		t.Fatalf("audit.NewMutationOperation error = %v, want nil", err)
 	}
@@ -134,10 +102,7 @@ func appLoginDSN(ctx context.Context, t *testing.T, admin *pgxpool.Pool, adminDS
 	}
 	login := "tack_test_datagen_" + hex.EncodeToString(suffix)
 	encodedSecret := hex.EncodeToString(secret)
-	if _, err := admin.Exec(
-		ctx,
-		"CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'",
-	); err != nil {
+	if _, err := admin.Exec(ctx, "CREATE ROLE "+login+" LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+encodedSecret+"'"); err != nil {
 		t.Fatalf("create %s: %v", login, err)
 	}
 	t.Cleanup(func() { _, _ = admin.Exec(ctx, "DROP ROLE IF EXISTS "+login) })

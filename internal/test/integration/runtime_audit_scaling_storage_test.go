@@ -35,18 +35,10 @@ func readLedgerStorage(t *testing.T, admin *pgxpool.Pool) ledgerStorage {
 	t.Helper()
 	var storage ledgerStorage
 	err := admin.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_scaling_storage.sql")).Scan(
-		&storage.indexBytes,
-		&storage.totalBytes,
-		&storage.eventTableBytes,
-		&storage.events,
-		&storage.partTableBytes,
-		&storage.parts,
-	)
+		&storage.indexBytes, &storage.totalBytes, &storage.eventTableBytes, &storage.events,
+		&storage.partTableBytes, &storage.parts)
 	if err != nil {
-		t.Fatalf(
-			"Reading the YugabyteDB audit table sizes failed; the storage measurement requires them: %v",
-			err,
-		)
+		t.Fatalf("Reading the YugabyteDB audit table sizes failed; the storage measurement requires them: %v", err)
 	}
 	return storage
 }
@@ -74,9 +66,7 @@ func perUnitGrowth(growth, added int64) string {
 func outboxRecordCount(t *testing.T, admin *pgxpool.Pool) int64 {
 	t.Helper()
 	var records int64
-	if err := admin.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_outbox_records.sql")).Scan(
-		&records,
-	); err != nil {
+	if err := admin.QueryRow(t.Context(), readTestSQL(t, "runtime_audit_outbox_records.sql")).Scan(&records); err != nil {
 		t.Fatalf("Counting YugabyteDB operator outbox rows and parts failed: %v", err)
 	}
 	return records
@@ -97,18 +87,11 @@ func drainEarlierOutbox(t *testing.T, clusterFile string) int64 {
 	}
 	topic := "audit.scaling-drain-" + uuid.NewString()[:8]
 	startScalingConsumer(t, topic, "tack-scaling-drain-"+uuid.NewString()[:8])
-	opened, err := auditrelay.Open(
-		t.Context(),
-		auditrelay.Config{
-			Brokers:               []string{testenv.Kafka(t)},
-			Topic:                 topic,
-			YugabyteDSN:           testenv.Ledger(t),
-			FDBClusterFile:        clusterFile,
-			FDBTransactionTimeout: 5 * time.Second,
-			PollInterval:          100 * time.Millisecond,
-			BatchSize:             scalingRelayBatch,
-		},
-	)
+	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
+		Brokers: []string{testenv.Kafka(t)}, Topic: topic,
+		YugabyteDSN: testenv.Ledger(t), FDBClusterFile: clusterFile, FDBTransactionTimeout: 5 * time.Second,
+		PollInterval: 100 * time.Millisecond, BatchSize: scalingRelayBatch,
+	})
 	if err != nil {
 		t.Fatalf("Opening a relay for the earlier YugabyteDB outbox records failed: %v", err)
 	}
@@ -124,11 +107,7 @@ func drainEarlierOutbox(t *testing.T, clusterFile string) int64 {
 		t.Fatalf("Closing the relay for the earlier YugabyteDB outbox records failed: %v", err)
 	}
 	if remaining > 0 {
-		t.Fatalf(
-			"The relay did not drain the earlier YugabyteDB outbox records before the deadline: %d of %d remain",
-			remaining,
-			earlier,
-		)
+		t.Fatalf("The relay did not drain the earlier YugabyteDB outbox records before the deadline: %d of %d remain", remaining, earlier)
 	}
 	return earlier
 }

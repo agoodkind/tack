@@ -45,12 +45,7 @@ func newSessionAuditFixture(t *testing.T) sessionAuditFixture {
 	stack := startWriterRoleStack(t)
 	ledger := startPublicLedgerOn(t, &publicServer{clusterFile: fixture.cfg.FDBClusterFile}, stack)
 	redactor, pool := openRedactor(t, stack)
-	return sessionAuditFixture{
-		parentEdgeFixture: fixture,
-		ledger:            ledger,
-		redactor:          redactor,
-		redactorPool:      pool,
-	}
+	return sessionAuditFixture{parentEdgeFixture: fixture, ledger: ledger, redactor: redactor, redactorPool: pool}
 }
 
 // setShortSessions sets the short session deadlines in the environment that
@@ -73,35 +68,18 @@ func (f sessionAuditFixture) putCorpus(t *testing.T, query string, count int) {
 // searchAs calls tack_search through the MCP driver with token as the caller's bearer credential.
 // The audit ledger attributes the read to the user who owns token. searchAs returns the parsed
 // integration.SearchPage and wraps tool call errors with the query text.
-func (f sessionAuditFixture) searchAs(
-	t *testing.T,
-	token string,
-	query string,
-	cursor string,
-) (integration.SearchPage, error) {
+func (f sessionAuditFixture) searchAs(t *testing.T, token, query, cursor string) (integration.SearchPage, error) {
 	t.Helper()
-	result, err := f.driver.Call(
-		t.Context(),
-		token,
-		"tack_search",
-		datagen.ToolArguments{
-			WorkspaceReference: f.first.Slug,
-			Query:              query,
-			Cursor:             cursor,
-		},
-	)
+	result, err := f.driver.Call(t.Context(), token, "tack_search", datagen.ToolArguments{
+		WorkspaceReference: f.first.Slug, Query: query, Cursor: cursor,
+	})
 	if err != nil {
 		return integration.SearchPage{}, fmt.Errorf("search %q: %w", query, err)
 	}
 	return integration.ParseSearchPage(t.Context(), result.Text(), f.identities(f.first))
 }
 
-func (f sessionAuditFixture) mustSearch(
-	t *testing.T,
-	token string,
-	query string,
-	cursor string,
-) integration.SearchPage {
+func (f sessionAuditFixture) mustSearch(t *testing.T, token, query, cursor string) integration.SearchPage {
 	t.Helper()
 	page, err := f.searchAs(t, token, query, cursor)
 	if err != nil {
@@ -114,44 +92,25 @@ func (f sessionAuditFixture) mustSearch(
 // adapter. OpenSearch confirms a later idempotent delete with HTTP 200.
 func (f sessionAuditFixture) loseSnapshot(t *testing.T, session searchdomain.Session) {
 	t.Helper()
-	ranker := f.adapter.Ranker(search.RankerSettings{
-		KeepAlive:  time.Minute,
-		TokenBytes: 64 << 10,
-		BatchSize:  100,
-	})
+	ranker := f.adapter.Ranker(search.RankerSettings{KeepAlive: time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
 	if err := ranker.Close(t.Context(), session.Snapshot); err != nil {
 		t.Fatalf("delete the point in time of session %s: %v", session.ID, err)
 	}
-	client := integration.OpenSearchClient(
-		t,
-		testenv.OpenSearchWithMemory(t, cohortEngineMemoryBytes),
-	)
+	client := integration.OpenSearchClient(t, testenv.OpenSearchWithMemory(t, cohortEngineMemoryBytes))
 	listed, err := client.PointInTime.GetAll(t.Context(), nil)
 	if err != nil {
-		t.Fatalf(
-			"list points in time after deleting the snapshot of session %s: %v",
-			session.ID,
-			err,
-		)
+		t.Fatalf("list points in time after deleting the snapshot of session %s: %v", session.ID, err)
 	}
 	for _, pointInTime := range listed.PITs {
 		if pointInTime.PITID.String() == session.Snapshot.PITID {
-			t.Fatalf(
-				"the lost-snapshot fixture left the point in time of session %s open",
-				session.ID,
-			)
+			t.Fatalf("the lost-snapshot fixture left the point in time of session %s open", session.ID)
 		}
 	}
 }
 
 func (f sessionAuditFixture) ledgerRows(t *testing.T, orgID uuid.UUID) []audit.Row {
 	t.Helper()
-	filter := audit.QueryFilter{
-		OrgID:  orgID,
-		Oldest: f.ledger.since,
-		Latest: clock.Now().Add(time.Hour),
-		Limit:  audit.MaxQueryPageLimit,
-	}
+	filter := audit.QueryFilter{OrgID: orgID, Oldest: f.ledger.since, Latest: clock.Now().Add(time.Hour), Limit: audit.MaxQueryPageLimit}
 	rows := []audit.Row{}
 	cursor := ""
 	for {
@@ -167,11 +126,7 @@ func (f sessionAuditFixture) ledgerRows(t *testing.T, orgID uuid.UUID) []audit.R
 	}
 }
 
-func (f sessionAuditFixture) waitForRows(
-	t *testing.T,
-	orgID uuid.UUID,
-	ready func([]audit.Row) bool,
-) []audit.Row {
+func (f sessionAuditFixture) waitForRows(t *testing.T, orgID uuid.UUID, ready func([]audit.Row) bool) []audit.Row {
 	t.Helper()
 	deadline := clock.Now().Add(publicDeliveryTimeout)
 	for {
@@ -180,13 +135,8 @@ func (f sessionAuditFixture) waitForRows(
 			return rows
 		}
 		if clock.Now().After(deadline) {
-			t.Fatalf(
-				"the ledger of organization %s stayed short of the expected rows for %s; it stores %d rows: %s",
-				orgID,
-				publicDeliveryTimeout,
-				len(rows),
-				describeRows(rows),
-			)
+			t.Fatalf("the ledger of organization %s stayed short of the expected rows for %s; it stores %d rows: %s",
+				orgID, publicDeliveryTimeout, len(rows), describeRows(rows))
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

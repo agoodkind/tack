@@ -33,19 +33,12 @@ type sliceBudget struct {
 }
 
 func newSliceBudget(source clock.Clock, settings config.SearchWorkerSettings) *sliceBudget {
-	return &sliceBudget{
-		clock:    source,
-		settings: settings,
-		started:  source.Now(),
-		pages:    0,
-		bytes:    0,
-	}
+	return &sliceBudget{clock: source, settings: settings, started: source.Now(), pages: 0, bytes: 0}
 }
 
 // spent reports whether the slice must start no further remote operation.
 func (b *sliceBudget) spent() bool {
-	return b.pages >= b.settings.MaxPages || b.bytes >= b.settings.MaxBytes ||
-		b.clock.Since(b.started) >= b.settings.SliceBudget
+	return b.pages >= b.settings.MaxPages || b.bytes >= b.settings.MaxBytes || b.clock.Since(b.started) >= b.settings.SliceBudget
 }
 
 func (b *sliceBudget) record(pages, encodedBytes int) {
@@ -56,37 +49,15 @@ func (b *sliceBudget) record(pages, encodedBytes int) {
 // settle ends a slice after err. The failure counts toward the attempt
 // limit of the work. Engine operations use settleEngine or
 // settleAbandonedWrite instead.
-func (w *SearchWorker) settle(
-	ctx context.Context,
-	work searchdomain.Work,
-	operation string,
-	err error,
-) error {
-	return w.fail(
-		ctx,
-		work,
-		operation,
-		err,
-		searchdomain.Failure{Message: "", Counted: true, RetryAfter: 0},
-	)
+func (w *SearchWorker) settle(ctx context.Context, work searchdomain.Work, operation string, err error) error {
+	return w.fail(ctx, work, operation, err, searchdomain.Failure{Message: "", Counted: true, RetryAfter: 0})
 }
 
 // settleEngine ends a slice after a failed OpenSearch operation, except
 // a page write that times out at OperationTimeout. The failure does not
 // count toward the attempt limit. The next claim waits OperationTimeout.
-func (w *SearchWorker) settleEngine(
-	ctx context.Context,
-	work searchdomain.Work,
-	operation string,
-	err error,
-) error {
-	return w.fail(
-		ctx,
-		work,
-		operation,
-		err,
-		searchdomain.Failure{Message: "", Counted: false, RetryAfter: w.settings.OperationTimeout},
-	)
+func (w *SearchWorker) settleEngine(ctx context.Context, work searchdomain.Work, operation string, err error) error {
+	return w.fail(ctx, work, operation, err, searchdomain.Failure{Message: "", Counted: false, RetryAfter: w.settings.OperationTimeout})
 }
 
 // fail ends a slice after err. A changed or obsolete claim yields without
@@ -96,57 +67,27 @@ func (w *SearchWorker) settleEngine(
 // and the slice succeeds. For other errors while ctx remains active, fail
 // sets only failure.Message and passes failure to Release. Release keeps
 // the work pending and delays the next claim by at least failure.RetryAfter.
-func (w *SearchWorker) fail(
-	ctx context.Context,
-	work searchdomain.Work,
-	operation string,
-	err error,
-	failure searchdomain.Failure,
-) error {
-	if errors.Is(err, searchdomain.ErrWorkChanged) ||
-		errors.Is(err, searchdomain.ErrObsoleteWrite) {
-		telemetry.L(ctx).InfoContext(
-			ctx,
-			"search.worker.work_changed",
-			slog.String("node_id", work.NodeID.String()),
-			slog.String("class", string(work.Class)),
-			slog.Int64("generation", work.Generation),
-			slog.String("operation", operation),
-		)
-
+func (w *SearchWorker) fail(ctx context.Context, work searchdomain.Work, operation string, err error, failure searchdomain.Failure) error {
+	if errors.Is(err, searchdomain.ErrWorkChanged) || errors.Is(err, searchdomain.ErrObsoleteWrite) {
+		telemetry.L(ctx).InfoContext(ctx, "search.worker.work_changed", slog.String("node_id", work.NodeID.String()),
+			slog.String("class", string(work.Class)), slog.Int64("generation", work.Generation), slog.String("operation", operation))
 		return w.yield(ctx, work)
 	}
-
 	wrapped := fmt.Errorf("%s for node %s: %w", operation, work.NodeID, err)
 	if work.Excludable() && errors.Is(err, node.ErrNoHierarchyParent) && ctx.Err() == nil {
 		return w.exclude(ctx, work, wrapped)
 	}
-
-	telemetry.L(ctx).ErrorContext(
-		ctx,
-		"search.worker.slice_failed",
-		slog.String("err", wrapped.Error()),
-		slog.String("node_id", work.NodeID.String()),
-		slog.String("class", string(work.Class)),
-		slog.Int64("generation", work.Generation),
-		slog.String("index", work.Target),
-	)
+	telemetry.L(ctx).ErrorContext(ctx, "search.worker.slice_failed", slog.String("err", wrapped.Error()),
+		slog.String("node_id", work.NodeID.String()), slog.String("class", string(work.Class)),
+		slog.Int64("generation", work.Generation), slog.String("index", work.Target))
 	if ctx.Err() != nil {
 		return loggedWorkerError{err: wrapped}
 	}
-
 	failure.Message = wrapped.Error()
-	if releaseErr := w.ports.Store.Release(ctx, work, failure); releaseErr != nil &&
-		!errors.Is(releaseErr, searchdomain.ErrWorkChanged) {
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.worker.release_failed",
-			slog.String("err", releaseErr.Error()),
-			slog.String("node_id", work.NodeID.String()),
-			slog.String("class", string(work.Class)),
-		)
+	if releaseErr := w.ports.Store.Release(ctx, work, failure); releaseErr != nil && !errors.Is(releaseErr, searchdomain.ErrWorkChanged) {
+		telemetry.L(ctx).ErrorContext(ctx, "search.worker.release_failed", slog.String("err", releaseErr.Error()),
+			slog.String("node_id", work.NodeID.String()), slog.String("class", string(work.Class)))
 	}
-
 	return loggedWorkerError{err: wrapped}
 }
 
@@ -158,21 +99,9 @@ func (w *SearchWorker) exclude(ctx context.Context, work searchdomain.Work, caus
 	if err == nil || errors.Is(err, searchdomain.ErrWorkChanged) {
 		return nil
 	}
-
-	wrapped := fmt.Errorf(
-		"exclude node %s from search after %s: %w",
-		work.NodeID,
-		cause.Error(),
-		err,
-	)
-	telemetry.L(ctx).ErrorContext(
-		ctx,
-		"search.worker.exclude_failed",
-		slog.String("err", wrapped.Error()),
-		slog.String("node_id", work.NodeID.String()),
-		slog.String("class", string(work.Class)),
-	)
-
+	wrapped := fmt.Errorf("exclude node %s from search after %s: %w", work.NodeID, cause.Error(), err)
+	telemetry.L(ctx).ErrorContext(ctx, "search.worker.exclude_failed", slog.String("err", wrapped.Error()),
+		slog.String("node_id", work.NodeID.String()), slog.String("class", string(work.Class)))
 	return loggedWorkerError{err: wrapped}
 }
 
@@ -182,15 +111,8 @@ func (w *SearchWorker) yield(ctx context.Context, work searchdomain.Work) error 
 	if err == nil || errors.Is(err, searchdomain.ErrWorkChanged) {
 		return nil
 	}
-
 	wrapped := fmt.Errorf("yield search work for node %s: %w", work.NodeID, err)
-	telemetry.L(ctx).ErrorContext(
-		ctx,
-		"search.worker.yield_failed",
-		slog.String("err", wrapped.Error()),
-		slog.String("node_id", work.NodeID.String()),
-		slog.String("class", string(work.Class)),
-	)
-
+	telemetry.L(ctx).ErrorContext(ctx, "search.worker.yield_failed", slog.String("err", wrapped.Error()),
+		slog.String("node_id", work.NodeID.String()), slog.String("class", string(work.Class)))
 	return loggedWorkerError{err: wrapped}
 }

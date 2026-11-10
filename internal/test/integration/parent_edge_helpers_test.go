@@ -27,25 +27,14 @@ const (
 
 func (f parentEdgeFixture) createLeaf(t *testing.T, parentID uuid.UUID, text string) uuid.UUID {
 	t.Helper()
-	created, err := f.nodes.Create(
-		integration.WithTestOperation(t, t.Context()),
-		service.CreateInput{
-			ParentID:    parentID,
-			NodeTypeKey: f.kind.typeKey,
-			Name:        text,
-			ActorID:     f.first.Actors[0].UserID,
-			Props: map[string]json.RawMessage{
-				f.kind.included: parentEdgeJSON(t, text),
-				f.kind.excluded: parentEdgeJSON(t, "excluded"),
-			},
-		},
-	)
+	created, err := f.nodes.Create(integration.WithTestOperation(t, t.Context()), service.CreateInput{
+		ParentID: parentID, NodeTypeKey: f.kind.typeKey, Name: text, ActorID: f.first.Actors[0].UserID,
+		Props: map[string]json.RawMessage{f.kind.included: parentEdgeJSON(t, text), f.kind.excluded: parentEdgeJSON(t, "excluded")},
+	})
 	if err != nil || created == nil || created.View == nil {
 		t.Fatalf("create leaf %q under %s: %v", text, parentID, err)
 	}
-
 	f.titles.Add(datagen.SearchItem{Title: text, NodeType: f.kind.typeKey}, created.View.ID)
-
 	return created.View.ID
 }
 
@@ -54,91 +43,43 @@ func (f parentEdgeFixture) createLeaf(t *testing.T, parentID uuid.UUID, text str
 func (f parentEdgeFixture) moveLeaf(t *testing.T, nodeID, parentID uuid.UUID) error {
 	t.Helper()
 	target := parentEdgeJSON(t, parentID.String())
-	_, err := f.nodes.Update(
-		integration.WithTestOperation(t, t.Context()),
-		service.UpdateInput{
-			NodeID:  nodeID,
-			Props:   map[string]json.RawMessage{"parent_id": target},
-			ScopeID: parentID,
-			ActorID: f.first.Actors[0].UserID,
-		},
-	)
-
+	_, err := f.nodes.Update(integration.WithTestOperation(t, t.Context()), service.UpdateInput{
+		NodeID: nodeID, Props: map[string]json.RawMessage{"parent_id": target}, ScopeID: parentID,
+		ActorID: f.first.Actors[0].UserID,
+	})
 	return err
 }
 
 // storeNode creates one node of kind with relationships through the node
 // store, which schedules the search work of the node.
-func (f parentEdgeFixture) storeNode(
-	t *testing.T,
-	kind parentEdgeKind,
-	text string,
-	relationships ...*node.Relationship,
-) uuid.UUID {
+func (f parentEdgeFixture) storeNode(t *testing.T, kind parentEdgeKind, text string, relationships ...*node.Relationship) uuid.UUID {
 	t.Helper()
 	nodeID := uuid.Must(uuid.NewV7())
-	props := map[string]json.RawMessage{
-		kind.included: parentEdgeJSON(t, text),
-		kind.excluded: parentEdgeJSON(t, "excluded"),
-	}
+	props := map[string]json.RawMessage{kind.included: parentEdgeJSON(t, text), kind.excluded: parentEdgeJSON(t, "excluded")}
 	now := clock.Now().UTC()
-	created := &node.Node{
-		ID:        nodeID,
-		OrgID:     kind.orgID,
-		NodeType:  kind.typeKey,
-		Name:      text,
-		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	view := &node.NodeView{
-		ID:        nodeID,
-		OrgID:     kind.orgID,
-		NodeType:  kind.typeKey,
-		Name:      text,
-		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
+	created := &node.Node{ID: nodeID, OrgID: kind.orgID, NodeType: kind.typeKey, Name: text, Props: props, CreatedAt: now, UpdatedAt: now}
+	view := &node.NodeView{ID: nodeID, OrgID: kind.orgID, NodeType: kind.typeKey, Name: text, Props: props, CreatedAt: now, UpdatedAt: now}
 	for _, relationship := range relationships {
 		relationship.OrgID, relationship.SourceID, relationship.CreatedAt = kind.orgID, nodeID, now
 	}
-
-	if err := f.stores.Nodes.CreateAtomic(
-		integration.WithTestOperation(t, t.Context()),
-		created,
-		view,
-		relationships,
-		nil,
-		nil,
-		nil,
-	); err != nil {
+	if err := f.stores.Nodes.CreateAtomic(integration.WithTestOperation(t, t.Context()), created, view, relationships, nil, nil, nil); err != nil {
 		t.Fatalf("store node %q: %v", text, err)
 	}
-
 	f.titles.Add(datagen.SearchItem{Title: text, NodeType: kind.typeKey}, nodeID)
-
 	return nodeID
 }
 
 // summaryKeys returns the summary access keys of each node in nodeIDs.
 func (f parentEdgeFixture) summaryKeys(t *testing.T, nodeIDs ...uuid.UUID) map[uuid.UUID][]string {
 	t.Helper()
-	results, err := f.stores.NodeSummaries(f.stores.SearchPolicySet()).Summaries(
-		integration.WithTestOperation(t, t.Context()),
-		nodeIDs,
-		parentEdgeSummaryBytes,
-	)
+	results, err := f.stores.NodeSummaries(f.stores.SearchPolicySet()).Summaries(integration.WithTestOperation(t, t.Context()), nodeIDs, parentEdgeSummaryBytes)
 	if err != nil {
 		t.Fatalf("read summaries of %d nodes: %v", len(nodeIDs), err)
 	}
-
 	keys := make(map[uuid.UUID][]string, len(results))
 	for _, result := range results {
 		keys[result.NodeID] = result.AccessKeys
 	}
-
 	return keys
 }
 
@@ -146,19 +87,12 @@ func (f parentEdgeFixture) summaryKeys(t *testing.T, nodeIDs ...uuid.UUID) map[u
 // organization.
 func (f parentEdgeFixture) index(t *testing.T, nodeID uuid.UUID) (node.SearchAccess, error) {
 	t.Helper()
-	access, err := f.stores.SearchPolicySet().Index(
-		integration.WithTestOperation(t, t.Context()),
-		searchaccess.IndexAccessRequest{
-			Version:        searchaccess.StableVersion,
-			OrganizationID: f.kind.orgID,
-			ResourceID:     nodeID,
-			Generation:     0,
-		},
-	)
+	access, err := f.stores.SearchPolicySet().Index(integration.WithTestOperation(t, t.Context()), searchaccess.IndexAccessRequest{
+		Version: searchaccess.StableVersion, OrganizationID: f.kind.orgID, ResourceID: nodeID, Generation: 0,
+	})
 	if err != nil {
 		return access, fmt.Errorf("index access of node %s: %w", nodeID, err)
 	}
-
 	return access, nil
 }
 
@@ -167,19 +101,16 @@ func (f parentEdgeFixture) index(t *testing.T, nodeID uuid.UUID) (node.SearchAcc
 // claimable for parentEdgeDeadline.
 func (f parentEdgeFixture) drain(t *testing.T) {
 	t.Helper()
-
 	deadline := clock.Now().Add(parentEdgeDeadline)
 	for clock.Now().Before(deadline) {
 		claimed, err := f.worker.RunSlice(integration.WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("search slice failed: %v", err)
 		}
-
 		if !claimed {
 			return
 		}
 	}
-
 	t.Fatalf("search work stayed claimable for %s", parentEdgeDeadline)
 }
 
@@ -191,77 +122,46 @@ func (f parentEdgeFixture) eventually(t *testing.T, check func() string) {
 	t.Helper()
 	deadline := clock.Now().Add(parentEdgeDeadline)
 	message := ""
-
 	for clock.Now().Before(deadline) {
 		f.drain(t)
 		if message = check(); message == "" {
 			return
 		}
-
 		<-time.After(time.Second)
 	}
-
 	t.Fatalf("%s after %s", message, parentEdgeDeadline)
 }
 
 // identities pairs the fixture registry with get tool lookups as workspace's
 // first actor under its entry. Each lookup uses the result's node type.
-func (f parentEdgeFixture) identities(
-	workspace datagen.WorkspaceIdentity,
-) datagen.SearchIdentities {
-	return datagen.ReferenceIdentities(
-		f.titles,
-		f.driver,
-		workspace.Actors[0].Token,
-		workspace.Slug,
-	)
+func (f parentEdgeFixture) identities(workspace datagen.WorkspaceIdentity) datagen.SearchIdentities {
+	return datagen.ReferenceIdentities(f.titles, f.driver, workspace.Actors[0].Token, workspace.Slug)
 }
 
 // search reads every tack_search page for query as workspace's first actor
 // under its entry and resolves result node IDs with the fixture identities.
-func (f parentEdgeFixture) search(
-	t *testing.T,
-	workspace datagen.WorkspaceIdentity,
-	query string,
-) []uuid.UUID {
+func (f parentEdgeFixture) search(t *testing.T, workspace datagen.WorkspaceIdentity, query string) []uuid.UUID {
 	t.Helper()
 	found := []uuid.UUID{}
 	cursor := ""
-
 	for range parentEdgeSearchPages {
-		result, err := f.driver.Call(
-			integration.WithTestOperation(t, t.Context()),
-			workspace.Actors[0].Token,
-			"tack_search",
-			datagen.ToolArguments{
-				WorkspaceReference: workspace.Slug,
-				Query:              query,
-				Cursor:             cursor,
-			},
-		)
+		result, err := f.driver.Call(integration.WithTestOperation(t, t.Context()), workspace.Actors[0].Token, "tack_search", datagen.ToolArguments{
+			WorkspaceReference: workspace.Slug, Query: query, Cursor: cursor,
+		})
 		if err != nil {
 			t.Fatalf("search %q under %s: %v", query, workspace.Slug, err)
 		}
-
-		page, err := integration.ParseSearchPage(
-			t.Context(),
-			result.Text(),
-			f.identities(workspace),
-		)
+		page, err := integration.ParseSearchPage(t.Context(), result.Text(), f.identities(workspace))
 		if err != nil {
 			t.Fatalf("parse search %q under %s: %v", query, workspace.Slug, err)
 		}
-
 		found = append(found, page.IDs...)
 		if page.Complete {
 			return found
 		}
-
 		cursor = page.Cursor
 	}
-
 	t.Fatalf("search %q did not finish within %d pages", query, parentEdgeSearchPages)
-
 	return nil
 }
 
@@ -271,18 +171,15 @@ func parentEdgeJSON(t *testing.T, value string) json.RawMessage {
 	if err != nil {
 		t.Fatalf("encode %q: %v", value, err)
 	}
-
 	return encoded
 }
 
 func intersect[T comparable](values, wanted []T) []T {
 	found := []T{}
-
 	for _, value := range values {
 		if slices.Contains(wanted, value) {
 			found = append(found, value)
 		}
 	}
-
 	return found
 }

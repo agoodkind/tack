@@ -84,11 +84,9 @@ func TestSoakSkipsProjectWhoseListCallFails(t *testing.T) {
 		t.Fatalf("projects = %#v, want only usable project %q", projects, usableProjectID)
 	}
 	soak := &Soak{
-		driver:   session.driver,
-		content:  session.content,
-		projects: projects,
-		options:  SoakOptions{Rate: 1_000_000, MaxOps: 1},
-		clock:    clock.Wall{},
+		driver: session.driver, content: session.content, projects: projects,
+		options: SoakOptions{Rate: 1_000_000, MaxOps: 1},
+		clock:   clock.Wall{},
 	}
 	summary, err := soak.Run(t.Context(), t.Context(), nil)
 	if err != nil {
@@ -145,23 +143,18 @@ func newServerCatalogSession(
 		t.Fatalf("ParseScale() error = %v", err)
 	}
 	return &runSession{
-		driver:     NewDriver(testGraph(fake), false, seed),
-		content:    content,
-		identities: Identities{Workspaces: workspaces},
-		scale:      scale,
-		seed:       seed,
-		dryRun:     dryRun,
+		driver: NewDriver(testGraph(fake), false, seed), content: content,
+		identities: Identities{Workspaces: workspaces}, scale: scale, seed: seed,
+		dryRun: dryRun,
 	}
 }
 
 func testSoakWorkspace(slug string) WorkspaceIdentity {
 	return WorkspaceIdentity{
 		Slug: slug,
-		Actors: []Actor{
-			{
-				UserID: deterministicUUID(slug + "-actor"),
-				Token:  slug + "-token",
-			},
-		},
+		Actors: []Actor{{
+			UserID: deterministicUUID(slug + "-actor"),
+			Token:  slug + "-token",
+		}},
 	}
 }

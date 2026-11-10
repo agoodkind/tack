@@ -46,35 +46,15 @@ func TestSearchDatagenTwoProcess(t *testing.T) {
 	t.Cleanup(first.Close)
 	second := httptest.NewServer(twoProcessHandler(secondGraph))
 	t.Cleanup(second.Close)
-	for _, endpoints := range []string{
-		"ftp://a.example,http://b.example",
-		"http://a.example",
-		"http://,http://b.example",
-	} {
-		if output, err := runDatagenSearchCommand(
-			t,
-			cfg,
-			"--commit",
-			"--endpoints",
-			endpoints,
-		); err == nil || len(output) != 0 {
+	for _, endpoints := range []string{"ftp://a.example,http://b.example", "http://a.example", "http://,http://b.example"} {
+		if output, err := runDatagenSearchCommand(t, cfg, "--commit", "--endpoints", endpoints); err == nil || len(output) != 0 {
 			t.Fatalf("search with endpoints %q: got %v; output=%s", endpoints, err, output)
 		}
 	}
-	if err := datagen.VerifySearchTwoProcess(
-		integration.WithTestOperation(t, t.Context()),
-		cfg,
-		[]string{first.URL, second.URL},
-		first.Client(),
-	); err != nil {
+	if err := datagen.VerifySearchTwoProcess(integration.WithTestOperation(t, t.Context()), cfg, []string{first.URL, second.URL}, first.Client()); err != nil {
 		t.Fatalf("two-process search: %v", err)
 	}
-	if err := datagen.VerifySearchTwoProcess(
-		integration.WithTestOperation(t, t.Context()),
-		cfg,
-		[]string{first.URL},
-		first.Client(),
-	); err == nil {
+	if err := datagen.VerifySearchTwoProcess(integration.WithTestOperation(t, t.Context()), cfg, []string{first.URL}, first.Client()); err == nil {
 		t.Fatal("one endpoint passed the two-process check")
 	}
 }
@@ -101,23 +81,12 @@ func newTwoProcessEngines(t *testing.T) *config.Config {
 		t.Fatalf("generate cursor key: %v", err)
 	}
 	for name, value := range map[string]string{
-		"DATABASE_URL":                    testenv.Ledger(t),
-		"FDB_CLUSTER_FILE":                cluster,
-		"ENV":                             "production",
-		"OPENSEARCH_ENDPOINT":             engine.Endpoint,
-		"OPENSEARCH_CA":                   caPath,
-		"OPENSEARCH_USERNAME":             engine.Username,
-		"OPENSEARCH_PASSWORD":             engine.Password,
-		"OPENSEARCH_PAGE_BYTES":           "128",
-		"OPENSEARCH_WORKER_IDLE_INTERVAL": "50ms",
-		"OPENSEARCH_SHARDS":               "1",
-		"OPENSEARCH_ROUTING_SHARDS":       "24",
-		"OPENSEARCH_REPLICAS":             "0",
-		"OPENSEARCH_PUBLIC_ENABLED":       "true",
-		"OPENSEARCH_CURSOR_KEY":           base64.StdEncoding.EncodeToString(cursorKey),
-		"OPENSEARCH_RESPONSE_MAX_BYTES":   "16384",
-		"AUTH_MEMBERSHIP_CACHE_LIFETIME":  "0s",
-		"AUTH_TOKEN_CACHE_LIFETIME":       "0s",
+		"DATABASE_URL": testenv.Ledger(t), "FDB_CLUSTER_FILE": cluster, "ENV": "production",
+		"OPENSEARCH_ENDPOINT": engine.Endpoint, "OPENSEARCH_CA": caPath, "OPENSEARCH_USERNAME": engine.Username,
+		"OPENSEARCH_PASSWORD": engine.Password, "OPENSEARCH_PAGE_BYTES": "128", "OPENSEARCH_WORKER_IDLE_INTERVAL": "50ms",
+		"OPENSEARCH_SHARDS": "1", "OPENSEARCH_ROUTING_SHARDS": "24", "OPENSEARCH_REPLICAS": "0",
+		"OPENSEARCH_PUBLIC_ENABLED": "true", "OPENSEARCH_CURSOR_KEY": base64.StdEncoding.EncodeToString(cursorKey),
+		"OPENSEARCH_RESPONSE_MAX_BYTES": "16384", "AUTH_MEMBERSHIP_CACHE_LIFETIME": "0s", "AUTH_TOKEN_CACHE_LIFETIME": "0s",
 	} {
 		t.Setenv(name, value)
 	}
@@ -129,24 +98,13 @@ func newTwoProcessEngines(t *testing.T) *config.Config {
 		t.Fatalf("open search stores: %v", err)
 	}
 	stores.EnableSearchWork()
-	settings := search.Config{
-		Endpoint:       engine.Endpoint,
-		CA:             engine.CA,
-		Username:       engine.Username,
-		Password:       engine.Password,
-		RequestTimeout: 2 * time.Minute,
-		MaxRetries:     1,
-	}
+	settings := search.Config{Endpoint: engine.Endpoint, CA: engine.CA, Username: engine.Username, Password: engine.Password, RequestTimeout: 2 * time.Minute, MaxRetries: 1}
 	adapter, err := search.New(integration.WithTestOperation(t, t.Context()), settings)
 	if err != nil {
 		t.Fatalf("open search adapter: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = adapter.Close(context.WithoutCancel(integration.WithTestOperation(t, t.Context())))
-	})
-	baseClientAPI, err := opensearchapi.NewClient(opensearchapi.Config{
-		Client: settings.ClientConfig(nil),
-	})
+	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(integration.WithTestOperation(t, t.Context()))) })
+	baseClientAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: settings.ClientConfig(nil)})
 	if err != nil {
 		t.Fatalf("open OpenSearch client: %v", err)
 	}
@@ -157,36 +115,16 @@ func newTwoProcessEngines(t *testing.T) *config.Config {
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	t.Cleanup(func() {
 		request := &opensearchapi.IndicesDeleteReq{Indices: []string{index}}
-		_, _ = baseClientAPI.Indices.Delete(
-			context.WithoutCancel(integration.WithTestOperation(t, t.Context())),
-			request,
-		)
+		_, _ = baseClientAPI.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request)
 	})
-	spec := search.IndexSpec{
-		Model:          model,
-		MappingVersion: search.MappingVersion,
-		Primaries:      1,
-		RoutingShards:  24,
-		Replicas:       0,
-	}
-	if err := adapter.EnsureIndex(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		spec,
-	); err != nil {
+	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
+	if err := adapter.EnsureIndex(integration.WithTestOperation(t, t.Context()), index, spec); err != nil {
 		t.Fatalf("create search index: %v", err)
 	}
-	if err := adapter.SetAlias(
-		integration.WithTestOperation(t, t.Context()),
-		search.PublicAlias,
-		index,
-	); err != nil {
+	if err := adapter.SetAlias(integration.WithTestOperation(t, t.Context()), search.PublicAlias, index); err != nil {
 		t.Fatalf("set public alias: %v", err)
 	}
-	if err := stores.InitializeSearchIndex(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-	); err != nil {
+	if err := stores.InitializeSearchIndex(integration.WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)
 	}
 	cfg, err := config.Load()
@@ -207,10 +145,7 @@ func clearTwoProcessPrefix(t *testing.T, cluster string, prefix []byte) {
 	}
 	end := append(bytes.Clone(prefix), 0xFF)
 	if _, err := database.Transact(func(transaction fdb.Transaction) (any, error) {
-		transaction.ClearRange(fdb.KeyRange{
-			Begin: fdb.Key(prefix),
-			End:   fdb.Key(end),
-		})
+		transaction.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
 		return nil, nil
 	}); err != nil {
 		t.Logf("cleanup: clear range: %v", err)

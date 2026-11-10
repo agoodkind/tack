@@ -32,10 +32,7 @@ type searchMixedDeletion struct {
 func (m *searchMixed) trackMarker(node *searchMixedNode, marker string, committed time.Time) {
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	m.markers = append(
-		m.markers,
-		searchMixedMarker{node: node, marker: marker, committed: committed},
-	)
+	m.markers = append(m.markers, searchMixedMarker{node: node, marker: marker, committed: committed})
 }
 
 func (m *searchMixed) trackDeletion(node *searchMixedNode, marker string) {
@@ -49,9 +46,7 @@ func (m *searchMixed) trackDeletion(node *searchMixedNode, marker string) {
 func (m *searchMixed) drainWaiting() bool {
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	pending := len(
-		m.markers,
-	) > 0 || len(m.deletions) > 0 || len(m.metadataChecks) > 0 || len(m.moveChecks) > 0
+	pending := len(m.markers) > 0 || len(m.deletions) > 0 || len(m.metadataChecks) > 0 || len(m.moveChecks) > 0
 	return pending && !m.finalPassDone
 }
 
@@ -60,11 +55,7 @@ func (m *searchMixed) drainWaiting() bool {
 // the final pass finishes, or scheduleContext ends. --max-wall-time, SIGINT, SIGTERM, or the end
 // of the parent context can end scheduleContext.
 // drain then calls stopProbes to cancel probing and waits for proberDone.
-func (m *searchMixed) drain(
-	scheduleContext context.Context,
-	stopProbes context.CancelFunc,
-	proberDone <-chan struct{},
-) {
+func (m *searchMixed) drain(scheduleContext context.Context, stopProbes context.CancelFunc, proberDone <-chan struct{}) {
 	m.probeMutex.Lock()
 	m.drainStarted = true
 	m.probeMutex.Unlock()
@@ -174,15 +165,7 @@ func (m *searchMixed) probeMarkers(ctx context.Context, tick int, afterCatchUp b
 	for _, entry := range pending {
 		tenant := m.tenants[entry.node.tenant]
 		driver := m.driver(tick + entry.node.ordinal)
-		page, err := callSearch(
-			ctx,
-			driver,
-			m.identities(entry.node.tenant, driver),
-			tenant.token(),
-			tenant.entry(),
-			entry.marker,
-			"",
-		)
+		page, err := callSearch(ctx, driver, m.identities(entry.node.tenant, driver), tenant.token(), tenant.entry(), entry.marker, "")
 		if err != nil {
 			m.stats.count(&m.stats.probeErrors)
 			continue
@@ -196,10 +179,7 @@ func (m *searchMixed) probeMarkers(ctx context.Context, tick int, afterCatchUp b
 	}
 	m.probeMutex.Lock()
 	defer m.probeMutex.Unlock()
-	m.markers = slices.DeleteFunc(
-		m.markers,
-		func(entry searchMixedMarker) bool { return found[entry.node] == entry.marker },
-	)
+	m.markers = slices.DeleteFunc(m.markers, func(entry searchMixedMarker) bool { return found[entry.node] == entry.marker })
 	for index := range m.markers {
 		entry := &m.markers[index]
 		if afterCatchUp && searched[entry.node] == entry.marker {

@@ -21,7 +21,6 @@ type launchFixture struct {
 func newLaunchFixture(t *testing.T) launchFixture {
 	t.Helper()
 	dir := t.TempDir()
-
 	return launchFixture{
 		dir: dir,
 		files: fdbRestoreFiles{
@@ -38,16 +37,10 @@ func newLaunchFixture(t *testing.T) launchFixture {
 func (f launchFixture) launch(t *testing.T, restore []string) (logText, exitStatus string) {
 	t.Helper()
 	argv := fdbRestoreLaunchArgv(f.files, restore)
-	if out, err := exec.CommandContext(
-		t.Context(),
-		argv[0],
-		argv[1:]...,
-	).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(t.Context(), argv[0], argv[1:]...).CombinedOutput(); err != nil {
 		t.Fatalf("launch exec: %v\n%s", err, out)
 	}
-
 	deadline := time.Now().Add(10 * time.Second)
-
 	for {
 		status, err := os.ReadFile(f.files.Exit)
 		if err == nil {
@@ -55,14 +48,11 @@ func (f launchFixture) launch(t *testing.T, restore []string) (logText, exitStat
 			if readErr != nil {
 				t.Fatalf("read restore log: %v", readErr)
 			}
-
 			return string(body), strings.TrimSpace(string(status))
 		}
-
 		if time.Now().After(deadline) {
 			t.Fatalf("the launched group never published an exit status: %v", err)
 		}
-
 		time.Sleep(5 * time.Millisecond)
 	}
 }

@@ -148,14 +148,8 @@ func (r Result) ReferenceForName(name string) string {
 }
 
 func syntheticResult(requestID string) Result {
-	return Result{
-		Content: []ToolContent{
-			{
-				Type: "text",
-				Text: "#### Planned node\n\n- Raw id: `" + deterministicUUID(
-					requestID,
-				).String() + "`",
-			},
-		},
-	}
+	return Result{Content: []ToolContent{{
+		Type: "text",
+		Text: "#### Planned node\n\n- Raw id: `" + deterministicUUID(requestID).String() + "`",
+	}}}
 }

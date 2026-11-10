@@ -37,7 +37,6 @@ func startRunWatcher(ctx context.Context, run string) error {
 		slog.ErrorContext(ctx, "testenv.watcher.start_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("find this test binary: %w", err)
 	}
-
 	command := exec.CommandContext(context.WithoutCancel(ctx), executable)
 	command.Env = append(os.Environ(), runWatcherVariable+"="+run)
 	command.Stderr = os.Stderr
@@ -45,27 +44,20 @@ func startRunWatcher(ctx context.Context, run string) error {
 		slog.ErrorContext(ctx, "testenv.watcher.start_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("create the pipe of the run watcher: %w", err)
 	}
-
 	if err := command.Start(); err != nil {
 		slog.ErrorContext(ctx, "testenv.watcher.start_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("start the run watcher: %w", err)
 	}
-
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(
-					ctx,
-					"testenv.watcher.wait_panicked",
-					slog.String("err", fmt.Sprint(recovered)),
-				)
+				slog.ErrorContext(ctx, "testenv.watcher.wait_panicked", slog.String("err", fmt.Sprint(recovered)))
 			}
 		}()
 		if err := command.Wait(); err != nil {
 			slog.ErrorContext(ctx, "testenv.watcher.wait_failed", slog.String("err", err.Error()))
 		}
 	}()
-
 	return nil
 }
 
@@ -77,16 +69,11 @@ func watchRun(run string) int {
 	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
 		slog.Error("testenv.watcher.read_failed", slog.String("err", err.Error()))
 	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), engineReleaseTimeout)
 	defer cancel()
-	if err := removeRun(
-		ctx,
-		processOwner{run: run, host: "", runner: "", native: false, operator: false},
-	); err != nil {
+	if err := removeRun(ctx, processOwner{run: run, host: "", runner: "", native: false, operator: false}); err != nil {
 		slog.ErrorContext(ctx, "testenv.watcher.release_failed", slog.String("err", err.Error()))
 		return 1
 	}
-
 	return 0
 }

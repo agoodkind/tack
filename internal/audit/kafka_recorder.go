@@ -59,11 +59,9 @@ func applyKafkaDefaults(cfg KafkaConfig) KafkaConfig {
 		// Record errors during single-broker failures.
 		cfg.ProduceTimeout = 15 * time.Second
 	}
-
 	if cfg.ClientID == "" {
 		cfg.ClientID = "tack-audit-producer"
 	}
-
 	return cfg
 }
 
@@ -74,11 +72,9 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 	if len(cfg.Brokers) == 0 {
 		return nil, errors.New("audit kafka: at least one broker required")
 	}
-
 	if cfg.Topic == "" {
 		return nil, errors.New("audit kafka: topic required")
 	}
-
 	cfg = applyKafkaDefaults(cfg)
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
@@ -95,7 +91,6 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 		slog.Error("audit.kafka.client_init_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("audit kafka: new client: %w", err)
 	}
-
 	return &KafkaRecorder{
 		client:         client,
 		topic:          cfg.Topic,
@@ -111,15 +106,9 @@ func NewKafkaRecorder(cfg KafkaConfig) (*KafkaRecorder, error) {
 func MarshalEvent(ev Event) ([]byte, error) {
 	out, err := json.Marshal(ev)
 	if err != nil {
-		slog.Error(
-			"audit.kafka.marshal_failed",
-			slog.String("verb", ev.Verb),
-			slog.String("err", err.Error()),
-		)
-
+		slog.Error("audit.kafka.marshal_failed", slog.String("verb", ev.Verb), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("audit kafka marshal: %w", err)
 	}
-
 	return out, nil
 }
 
@@ -134,10 +123,8 @@ func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 	if err != nil {
 		telemetry.IncAuditDropped(ev.Verb, "kafka_marshal")
 		telemetry.IncAuditKafkaProduce("error")
-
 		return err
 	}
-
 	produceCtx, cancel := context.WithTimeout(ctx, k.produceTimeout)
 	defer cancel()
 	eventID := eventIDForLog(ev)
@@ -163,41 +150,32 @@ func (k *KafkaRecorder) Record(ctx context.Context, ev Event) error {
 		// a SpillRecorder it is durable, and a caller with nowhere to put
 		// it logs its own loss.
 		if k.refusing.CompareAndSwap(false, true) {
-			slog.WarnContext(
-				ctx,
-				"kafka.produce.refusing",
+			slog.WarnContext(ctx, "kafka.produce.refusing",
 				slog.String("err", produceErr.Error()),
 				slog.String("topic", k.topic),
 				slog.String("event_id", eventID),
 				slog.String("verb", ev.Verb),
 			)
 		} else {
-			slog.DebugContext(
-				ctx,
-				"kafka.produce.failed",
+			slog.DebugContext(ctx, "kafka.produce.failed",
 				slog.String("err", produceErr.Error()),
 				slog.String("topic", k.topic),
 				slog.String("event_id", eventID),
 				slog.String("verb", ev.Verb),
 			)
 		}
-
 		return fmt.Errorf("audit kafka produce verb=%s: %w", ev.Verb, produceErr)
 	}
-
 	telemetry.IncAuditKafkaProduce("ok")
 	if k.refusing.CompareAndSwap(true, false) {
 		slog.InfoContext(ctx, "kafka.produce.recovered", slog.String("topic", k.topic))
 	}
-
-	telemetry.L(ctx).Debug(
-		"audit.kafka.produced",
+	telemetry.L(ctx).Debug("audit.kafka.produced",
 		slog.String("verb", ev.Verb),
 		slog.String("topic", k.topic),
 		slog.Int("payload_bytes", len(payload)),
 		slog.String("event_id", eventID),
 	)
-
 	return nil
 }
 
@@ -209,11 +187,9 @@ func eventIDForLog(ev Event) string {
 	if ev.EventID != uuid.Nil {
 		return ev.EventID.String()
 	}
-
 	if ev.IdempotencyKey != "" {
 		return ev.IdempotencyKey
 	}
-
 	return ev.Actor.ID.String() + ":" + ev.Entity.ID.String()
 }
 
@@ -232,18 +208,14 @@ func (k *KafkaRecorder) CloseContext(ctx context.Context) error {
 	if k == nil || k.client == nil {
 		return nil
 	}
-
 	flushCtx, cancel := context.WithTimeout(ctx, k.produceTimeout)
 	defer cancel()
 	if err := k.client.Flush(flushCtx); err != nil {
 		slog.ErrorContext(ctx, "audit.kafka.flush_failed", slog.String("err", err.Error()))
 		k.client.Close()
-
 		return fmt.Errorf("audit kafka flush: %w", err)
 	}
-
 	k.client.Close()
-
 	return nil
 }
 
@@ -257,7 +229,6 @@ func kafkaPartitionKey(ev Event) []byte {
 	out := make([]byte, 0, 18)
 	out = append(out, ev.Context.OrgID[:]...)
 	out = append(out, byte((shard>>8)&0xFF), byte(shard&0xFF))
-
 	return out
 }
 
@@ -267,18 +238,14 @@ func SplitBrokers(s string) []string {
 	if s == "" {
 		return nil
 	}
-
 	parts := strings.Split(s, ",")
-
 	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
 			continue
 		}
-
-		out = append(out, part)
+		out = append(out, p)
 	}
-
 	return out
 }

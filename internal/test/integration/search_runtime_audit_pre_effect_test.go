@@ -28,28 +28,15 @@ func TestSearchRuntimeAuditCanceledBeforeSnapshot(t *testing.T) {
 	cancel()
 	select {
 	case result := <-done:
-		t.Logf(
-			"search canceled before its effect: status=%d error=%v result=%q",
-			result.status,
-			result.err,
-			result.text,
-		)
+		t.Logf("search canceled before its effect: status=%d error=%v result=%q", result.status, result.err, result.text)
 	case <-time.After(sessionTimeoutHoldLimit):
 		t.Fatal("the search did not finish after cancellation before its effect")
 	}
-	rows := fixture.audited.waitForRows(
-		t,
-		fixture.Workspaces[0].OrgID,
-		func(rows []audit.Row) bool {
-			results := snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeFailed)
-			return len(results) == 2 && snapshotResultsHaveIntents(rows, results)
-		},
-	)
-	for _, result := range snapshotResults(
-		rows,
-		audit.VerbSearchPointInTimeCreate,
-		audit.OutcomeFailed,
-	) {
+	rows := fixture.audited.waitForRows(t, fixture.Workspaces[0].OrgID, func(rows []audit.Row) bool {
+		results := snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeFailed)
+		return len(results) == 2 && snapshotResultsHaveIntents(rows, results)
+	})
+	for _, result := range snapshotResults(rows, audit.VerbSearchPointInTimeCreate, audit.OutcomeFailed) {
 		if result.Error == nil || result.Error.Code != "point_in_time_failed" {
 			t.Fatalf("the known failure before the effect changed its failure code: %+v", result)
 		}

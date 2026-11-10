@@ -46,29 +46,16 @@ var backupAlarmSendFunc = sendBackupAlarmMail
 // instead of an error the caller could mistake for the verdict. A mail path
 // that fails quietly is the defect this alarm exists to remove, so each failure
 // is logged at Error with its reason.
-func mailBackupStalenessAlarm(
-	ctx context.Context,
-	cfg *config.Config,
-	faults []backupStalenessMetric,
-) bool {
+func mailBackupStalenessAlarm(ctx context.Context, cfg *config.Config, faults []backupStalenessMetric) bool {
 	logger := telemetry.L(ctx)
-
 	names := make([]string, 0, len(faults))
 	for _, fault := range faults {
 		names = append(names, fault.Name)
 	}
-
 	if cfg.BackupAlarmEmail == "" {
-		logger.WarnContext(
-			ctx,
-			"backup.staleness.alarm_recipient_unset",
-			slog.String(
-				"reason",
-				"TACK_BACKUP_ALARM_EMAIL is empty, so the fault was printed but not mailed",
-			),
-			slog.Any("metrics", names),
-		)
-
+		logger.WarnContext(ctx, "backup.staleness.alarm_recipient_unset",
+			slog.String("reason", "TACK_BACKUP_ALARM_EMAIL is empty, so the fault was printed but not mailed"),
+			slog.Any("metrics", names))
 		return false
 	}
 
@@ -85,24 +72,15 @@ func mailBackupStalenessAlarm(
 		Caller: backupAlarmCaller,
 	}
 	if err := backupAlarmSendFunc(ctx, cfg, message); err != nil {
-		logger.ErrorContext(
-			ctx,
-			"backup.staleness.alarm_undelivered",
+		logger.ErrorContext(ctx, "backup.staleness.alarm_undelivered",
 			slog.String("to", cfg.BackupAlarmEmail),
 			slog.Any("metrics", names),
-			slog.String("err", err.Error()),
-		)
-
+			slog.String("err", err.Error()))
 		return false
 	}
-
-	logger.InfoContext(
-		ctx,
-		"backup.staleness.alarm_sent",
+	logger.InfoContext(ctx, "backup.staleness.alarm_sent",
 		slog.String("to", cfg.BackupAlarmEmail),
-		slog.Any("metrics", names),
-	)
-
+		slog.Any("metrics", names))
 	return true
 }
 
@@ -120,16 +98,11 @@ func sendBackupAlarmMail(ctx context.Context, cfg *config.Config, message mailer
 		// The transport detail is logged here and the alarm-level verdict at
 		// the caller, so a mail that never left names both the account file it
 		// read and the run it was reporting.
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"backup.staleness.alarm_transport_failed",
+		telemetry.L(ctx).ErrorContext(ctx, "backup.staleness.alarm_transport_failed",
 			slog.String("msmtprc", cfg.BackupAlarmMsmtprcPath),
-			slog.String("err", wrapped.Error()),
-		)
-
+			slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
 	return nil
 }
 
@@ -139,10 +112,8 @@ func backupAlarmHost() string {
 	if err != nil {
 		return backupAlarmUnknownHost
 	}
-
 	if strings.TrimSpace(host) == "" {
 		return backupAlarmUnknownHost
 	}
-
 	return host
 }

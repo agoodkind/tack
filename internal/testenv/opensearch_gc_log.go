@@ -44,40 +44,23 @@ func OpenSearchGCLogTail(ctx context.Context, name string) (string, error) {
 	if !isOwned {
 		err := fmt.Errorf("container %s was not created by this test process", name)
 		slog.ErrorContext(ctx, "testenv.search.gc_log_unowned", slog.String("err", err.Error()))
-
 		return "", err
 	}
-
 	cli, err := dockerClient(ctx)
 	if err != nil {
 		return "", err
 	}
-
 	defer func() { _ = cli.Close() }()
 	var failures []string
-
 	for _, file := range openSearchGCLogFiles {
 		tail, err := containerFileTail(ctx, cli, name, file, openSearchGCLogLines)
 		if err == nil {
-			return fmt.Sprintf(
-				"container=%s at=%s file=%s last %d lines:\n%s",
-				name,
-				clock.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"),
-				file,
-				openSearchGCLogLines,
-				tail,
-			), nil
+			return fmt.Sprintf("container=%s at=%s file=%s last %d lines:\n%s",
+				name, clock.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"), file, openSearchGCLogLines, tail), nil
 		}
-
 		failures = append(failures, err.Error())
 	}
-
-	err = fmt.Errorf(
-		"read the garbage collection log of %s: %s",
-		name,
-		strings.Join(failures, "; "),
-	)
+	err = fmt.Errorf("read the garbage collection log of %s: %s", name, strings.Join(failures, "; "))
 	slog.ErrorContext(ctx, "testenv.search.gc_log_unreadable", slog.String("err", err.Error()))
-
 	return "", err
 }

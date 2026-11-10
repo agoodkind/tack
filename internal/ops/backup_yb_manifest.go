@@ -123,29 +123,21 @@ func (m ybSnapshotManifest) validate() error {
 	if !ybRunIDPattern.MatchString(m.RunID) {
 		return fmt.Errorf("manifest run_id %q is not a run-key timestamp", m.RunID)
 	}
-
 	for _, artifact := range m.Artifacts {
 		if err := validateYBArtifactName(artifact); err != nil {
 			return err
 		}
 	}
-
 	for _, node := range m.Nodes {
 		if err := validateYBNodeName(node.Name); err != nil {
 			return err
 		}
-
 		derived := "nodes/" + node.Name + "/"
 		if node.Prefix != derived {
-			return fmt.Errorf(
-				"manifest node %q prefix %q is not the derived %q",
-				node.Name,
-				node.Prefix,
-				derived,
-			)
+			return fmt.Errorf("manifest node %q prefix %q is not the derived %q",
+				node.Name, node.Prefix, derived)
 		}
 	}
-
 	return nil
 }
 
@@ -161,15 +153,9 @@ func (m ybSnapshotManifest) validateFetchedUnder(runID string) error {
 	if err := m.validate(); err != nil {
 		return err
 	}
-
 	if m.RunID != runID {
-		return fmt.Errorf(
-			"manifest run_id %q is not the run %q it was fetched under",
-			m.RunID,
-			runID,
-		)
+		return fmt.Errorf("manifest run_id %q is not the run %q it was fetched under", m.RunID, runID)
 	}
-
 	return nil
 }
 
@@ -180,11 +166,9 @@ func validateYBNodeName(name string) error {
 	if !ybNodeNamePattern.MatchString(name) {
 		return fmt.Errorf("manifest node name %q is not a host name or IPv6 literal", name)
 	}
-
 	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, `\`) {
 		return fmt.Errorf("manifest node name %q contains a path traversal component", name)
 	}
-
 	return nil
 }
 
@@ -194,11 +178,9 @@ func validateYBArtifactName(name string) error {
 	if !ybArtifactNamePattern.MatchString(name) {
 		return fmt.Errorf("manifest artifact name %q is not an object base name", name)
 	}
-
 	if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, `\`) {
 		return fmt.Errorf("manifest artifact name %q contains a path traversal component", name)
 	}
-
 	return nil
 }
 
@@ -207,24 +189,18 @@ func validateYBArtifactName(name string) error {
 // per tablet-server name, sorted so the manifest bytes are deterministic for a
 // given node set.
 func newYBSnapshotManifest(
-	runID string,
-	snapshotID string,
-	database string,
-	nodeNames []string,
-	artifactNames []string,
+	runID, snapshotID, database string,
+	nodeNames, artifactNames []string,
 ) ybSnapshotManifest {
 	sorted := make([]string, len(nodeNames))
 	copy(sorted, nodeNames)
 	sort.Strings(sorted)
-
 	nodes := make([]ybSnapshotManifestNode, 0, len(sorted))
 	for _, name := range sorted {
 		nodes = append(nodes, ybSnapshotManifestNode{Name: name, Prefix: "nodes/" + name + "/"})
 	}
-
 	artifacts := make([]string, len(artifactNames))
 	copy(artifacts, artifactNames)
-
 	return ybSnapshotManifest{
 		RunID:      runID,
 		SnapshotID: snapshotID,
@@ -243,7 +219,6 @@ func (m ybSnapshotManifest) nodePrefix(name string) (string, bool) {
 			return node.Prefix, true
 		}
 	}
-
 	return "", false
 }
 
@@ -270,13 +245,11 @@ func ybRequiredRunArtifacts() []string {
 // store holds, so its result stays distinguishable from missingYBRunArtifacts.
 func undeclaredYBRequiredArtifacts(manifest ybSnapshotManifest) []string {
 	var undeclared []string
-
 	for _, required := range ybRequiredRunArtifacts() {
 		if !slices.Contains(manifest.Artifacts, required) {
 			undeclared = append(undeclared, required)
 		}
 	}
-
 	return undeclared
 }
 
@@ -285,23 +258,17 @@ func undeclaredYBRequiredArtifacts(manifest ybSnapshotManifest) []string {
 // run that finished this is empty; a name here means an object the run
 // published was lost or never landed, and the run restores into a database
 // missing whatever that artifact described.
-func missingYBRunArtifacts(
-	manifest ybSnapshotManifest,
-	exists func(key string) (bool, error),
-) ([]string, error) {
+func missingYBRunArtifacts(manifest ybSnapshotManifest, exists func(key string) (bool, error)) ([]string, error) {
 	var missing []string
-
 	for _, artifact := range manifest.Artifacts {
 		present, err := exists(ybRunArtifactKey(manifest.RunID, artifact))
 		if err != nil {
 			return nil, err
 		}
-
 		if !present {
 			missing = append(missing, artifact)
 		}
 	}
-
 	return missing, nil
 }
 
@@ -320,27 +287,21 @@ const ybTabletServerAliveStatus = "ALIVE"
 // docker-compose.yml). Names are deduplicated and sorted.
 func parseYBTabletServers(stdout string) []string {
 	seen := map[string]bool{}
-
 	for line := range strings.SplitSeq(stdout, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 || !ybObjectIDPattern.MatchString(fields[0]) {
 			continue
 		}
-
 		if fields[3] != ybTabletServerAliveStatus {
 			continue
 		}
-
 		seen[hostFromHostPort(fields[1])] = true
 	}
-
 	names := make([]string, 0, len(seen))
 	for name := range seen {
 		names = append(names, name)
 	}
-
 	sort.Strings(names)
-
 	return names
 }
 
@@ -351,7 +312,6 @@ func hostFromHostPort(hostPort string) string {
 	if err != nil {
 		return strings.Trim(hostPort, "[]")
 	}
-
 	return host
 }
 
@@ -363,27 +323,18 @@ func hostFromHostPort(hostPort string) string {
 // manifest comes back as a NotFound-wrapped error without an error log,
 // because the orchestrator uploads the manifest last and walkers over the run
 // prefixes probe for it, treating absence as a skip rather than a failure.
-func fetchYBSnapshotManifest(
-	ctx context.Context,
-	client *s3.Client,
-	bucket string,
-	runID string,
-) (ybSnapshotManifest, error) {
+func fetchYBSnapshotManifest(ctx context.Context, client *s3.Client, bucket, runID string) (ybSnapshotManifest, error) {
 	logger := telemetry.L(ctx)
 	key := ybSnapshotKeyPrefix(runID) + ybSnapshotManifestObject
-	out, err := client.GetObject(
-		ctx,
-		&s3.GetObjectInput{
-			Bucket: aws.String(bucket),
-			Key:    aws.String(key),
-		},
-	)
+	out, err := client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
 	if err != nil {
 		wrapped := fmt.Errorf("get yb snapshot manifest %s/%s: %w", bucket, key, err)
 		if !isObjectNotFound(err) {
 			logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
 		}
-
 		return ybSnapshotManifest{}, wrapped
 	}
 	defer out.Body.Close()
@@ -391,25 +342,19 @@ func fetchYBSnapshotManifest(
 	if err != nil {
 		wrapped := fmt.Errorf("read yb snapshot manifest %s/%s: %w", bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
-
 		return ybSnapshotManifest{}, wrapped
 	}
-
 	var manifest ybSnapshotManifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
 		wrapped := fmt.Errorf("unmarshal yb snapshot manifest %s/%s: %w", bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
-
 		return ybSnapshotManifest{}, wrapped
 	}
-
 	if err := manifest.validateFetchedUnder(runID); err != nil {
 		wrapped := fmt.Errorf("yb snapshot manifest %s/%s: %w", bucket, key, err)
 		logger.ErrorContext(ctx, "backup.s3.get_failed", slog.String("err", wrapped.Error()))
-
 		return ybSnapshotManifest{}, wrapped
 	}
-
 	return manifest, nil
 }
 
@@ -420,17 +365,11 @@ func listYBSnapshotRunIDs(ctx context.Context, client *s3.Client, bucket string)
 	if err != nil {
 		return nil, err
 	}
-
 	runIDs := make([]string, 0, len(prefixes))
 	for _, prefix := range prefixes {
-		runIDs = append(
-			runIDs,
-			strings.TrimSuffix(strings.TrimPrefix(prefix, ybSnapshotRootPrefix), "/"),
-		)
+		runIDs = append(runIDs, strings.TrimSuffix(strings.TrimPrefix(prefix, ybSnapshotRootPrefix), "/"))
 	}
-
 	sort.Strings(runIDs)
-
 	return runIDs, nil
 }
 
@@ -448,9 +387,7 @@ func newestUploadedYBSnapshotManifest(
 	if err != nil {
 		return manifest, false, err
 	}
-
 	var skipped []string
-
 	for _, runID := range slices.Backward(runIDs) {
 		candidate, fetchErr := fetchYBSnapshotManifest(ctx, client, bucket, runID)
 		if fetchErr != nil {
@@ -458,17 +395,12 @@ func newestUploadedYBSnapshotManifest(
 				skipped = append(skipped, runID)
 				continue
 			}
-
 			return manifest, false, fetchErr
 		}
-
 		logSkippedYBRuns(ctx, skipped)
-
 		return candidate, true, nil
 	}
-
 	logSkippedYBRuns(ctx, skipped)
-
 	return manifest, false, nil
 }
 
@@ -478,36 +410,25 @@ func logSkippedYBRuns(ctx context.Context, skipped []string) {
 	if len(skipped) == 0 {
 		return
 	}
-
-	telemetry.L(ctx).InfoContext(
-		ctx,
-		"backup.yb_snapshot.runs_skipped",
-		slog.Any("run_ids", skipped),
-		slog.String("reason", "manifest not uploaded"),
-	)
+	telemetry.L(ctx).InfoContext(ctx, "backup.yb_snapshot.runs_skipped",
+		slog.Any("run_ids", skipped), slog.String("reason", "manifest not uploaded"))
 }
 
 // objectExists reports whether bucket/key exists, treating a NotFound HeadObject
 // as a clean false rather than an error.
 func objectExists(ctx context.Context, client *s3.Client, bucket, key string) (bool, error) {
-	_, err := client.HeadObject(
-		ctx,
-		&s3.HeadObjectInput{
-			Bucket: aws.String(bucket),
-			Key:    aws.String(key),
-		},
-	)
+	_, err := client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
 	if err == nil {
 		return true, nil
 	}
-
 	if isObjectNotFound(err) {
 		return false, nil
 	}
-
 	wrapped := fmt.Errorf("head object %s/%s: %w", bucket, key, err)
 	telemetry.L(ctx).ErrorContext(ctx, "backup.s3.head_failed", slog.String("err", wrapped.Error()))
-
 	return false, wrapped
 }
 
@@ -519,17 +440,14 @@ func isObjectNotFound(err error) bool {
 	if errors.As(err, &notFound) {
 		return true
 	}
-
 	var noSuchKey *s3types.NoSuchKey
 	if errors.As(err, &noSuchKey) {
 		return true
 	}
-
 	var apiErr smithy.APIError
 	if errors.As(err, &apiErr) {
 		code := apiErr.ErrorCode()
 		return code == "NotFound" || code == "NoSuchKey" || code == "404"
 	}
-
 	return false
 }

@@ -23,10 +23,7 @@ import (
 func macRequireRunnerActive(t *testing.T, directory string) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(directory, "result.json")); err == nil {
-		t.Fatalf(
-			"the runner ended before the fixture reported readiness; read the result in %s",
-			directory,
-		)
+		t.Fatalf("the runner ended before the fixture reported readiness; read the result in %s", directory)
 	}
 }
 
@@ -55,53 +52,20 @@ func macOwnershipReady(t *testing.T, directory string) string {
 	}
 }
 
-func macIndependentOwner(
-	t *testing.T,
-	docker *client.Client,
-	options testenv.MacTestOptions,
-	project string,
-) string {
+func macIndependentOwner(t *testing.T, docker *client.Client, options testenv.MacTestOptions, project string) string {
 	t.Helper()
-	created, err := docker.ContainerCreate(
-		t.Context(),
-		client.ContainerCreateOptions{
-			Name: project + "-independent",
-			Config: &container.Config{
-				Image:      options.Image,
-				Entrypoint: []string{"/usr/local/go/bin/go"},
-				Cmd: []string{
-					"test",
-					"-tags=fdb,macrunnerfixture,runtimeaudit",
-					"-run=^TestMacOwnershipIndependent$",
-					"-v",
-					"-timeout=10m",
-					"./internal/test/integration/...",
-				},
-				WorkingDir: options.Root,
-				Labels:     map[string]string{"tack.mac-runner-fixture": project},
-			},
-			HostConfig: &container.HostConfig{
-				Mounts: []mount.Mount{
-					{Type: mount.TypeBind, Source: options.Root, Target: options.Root},
-					{
-						Type:   mount.TypeBind,
-						Source: "/var/run/docker.sock.raw",
-						Target: "/var/run/docker.sock",
-					},
-					{
-						Type:   mount.TypeVolume,
-						Source: project + "_tack-test-go-cache",
-						Target: "/root/.cache/go-build",
-					},
-					{
-						Type:   mount.TypeVolume,
-						Source: project + "_tack-test-go-mod",
-						Target: "/go/pkg/mod",
-					},
-				},
-			},
-		},
-	)
+	created, err := docker.ContainerCreate(t.Context(), client.ContainerCreateOptions{
+		Name: project + "-independent", Config: &container.Config{
+			Image: options.Image, Entrypoint: []string{"/usr/local/go/bin/go"},
+			Cmd:        []string{"test", "-tags=fdb,macrunnerfixture,runtimeaudit", "-run=^TestMacOwnershipIndependent$", "-v", "-timeout=10m", "./internal/test/integration/..."},
+			WorkingDir: options.Root, Labels: map[string]string{"tack.mac-runner-fixture": project},
+		}, HostConfig: &container.HostConfig{Mounts: []mount.Mount{
+			{Type: mount.TypeBind, Source: options.Root, Target: options.Root},
+			{Type: mount.TypeBind, Source: "/var/run/docker.sock.raw", Target: "/var/run/docker.sock"},
+			{Type: mount.TypeVolume, Source: project + "_tack-test-go-cache", Target: "/root/.cache/go-build"},
+			{Type: mount.TypeVolume, Source: project + "_tack-test-go-mod", Target: "/go/pkg/mod"},
+		}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,35 +73,22 @@ func macIndependentOwner(
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		if _, err := docker.ContainerRemove(
-			ctx,
-			created.ID,
-			client.ContainerRemoveOptions{Force: true},
-		); err != nil {
+		if _, err := docker.ContainerRemove(ctx, created.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
 			t.Error(err)
 		}
 		if engine == "" {
 			return
 		}
 		inspection, err := docker.ContainerInspect(ctx, engine, client.ContainerInspectOptions{})
-		if err != nil ||
-			inspection.Container.Config.Labels["io.goodkind.tack.testenv.runner"] != created.ID {
+		if err != nil || inspection.Container.Config.Labels["io.goodkind.tack.testenv.runner"] != created.ID {
 			t.Errorf("refuse independent engine cleanup %s: %v", engine, err)
 			return
 		}
-		if _, err := docker.ContainerRemove(
-			ctx,
-			inspection.Container.ID,
-			client.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
-		); err != nil {
+		if _, err := docker.ContainerRemove(ctx, inspection.Container.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 			t.Error(err)
 		}
 	})
-	if _, err := docker.ContainerStart(
-		t.Context(),
-		created.ID,
-		client.ContainerStartOptions{},
-	); err != nil {
+	if _, err := docker.ContainerStart(t.Context(), created.ID, client.ContainerStartOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	bounded, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
@@ -147,11 +98,7 @@ func macIndependentOwner(
 	for engine == "" {
 		select {
 		case <-ticker.C:
-			logs, err := docker.ContainerLogs(
-				bounded,
-				created.ID,
-				client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true},
-			)
+			logs, err := docker.ContainerLogs(bounded, created.ID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -170,11 +117,7 @@ func macIndependentOwner(
 			t.Fatalf("independent real process did not start its engine: %v", bounded.Err())
 		}
 	}
-	inspection, err := docker.ContainerInspect(
-		t.Context(),
-		engine,
-		client.ContainerInspectOptions{},
-	)
+	inspection, err := docker.ContainerInspect(t.Context(), engine, client.ContainerInspectOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,17 +179,9 @@ func TestMacRunnerDockerFixtureOtherProcess(t *testing.T) {
 	if !summary.FullCleanup {
 		t.Errorf("fixture release did not finish cleanup: %+v", summary)
 	}
-	inspection, err := docker.ContainerInspect(
-		t.Context(),
-		independent,
-		client.ContainerInspectOptions{},
-	)
+	inspection, err := docker.ContainerInspect(t.Context(), independent, client.ContainerInspectOptions{})
 	if err != nil || inspection.Container.State == nil || !inspection.Container.State.Running {
-		t.Errorf(
-			"independent active engine did not survive native release: %s: %v",
-			independent,
-			err,
-		)
+		t.Errorf("independent active engine did not survive native release: %s: %v", independent, err)
 	}
 	if _, found := summary.Fixtures.Containers[independent]; found {
 		t.Error("native invocation attributed another process's engine")

@@ -26,6 +26,5 @@ func classifyStorageTimeout(err error) error {
 	if errors.As(err, &databaseError) && databaseError.Code == transactionTimedOut {
 		return storageTimeoutError{err: err}
 	}
-
 	return err
 }

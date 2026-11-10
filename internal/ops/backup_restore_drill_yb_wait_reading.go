@@ -25,11 +25,7 @@ type ybScratchReading struct {
 // readYBScratch takes one poll's reading. A container that is not running, or
 // a step that has failed for good, ends the reading before readiness is asked,
 // and a passed readiness check ends it before progress is read.
-func readYBScratch(
-	ctx context.Context,
-	watch ybScratchWatch,
-	timeout time.Duration,
-) ybScratchReading {
+func readYBScratch(ctx context.Context, watch ybScratchWatch, timeout time.Duration) ybScratchReading {
 	var reading ybScratchReading
 	running, err := probeYBScratch(ctx, timeout, watch.Running)
 	switch {
@@ -39,7 +35,6 @@ func readYBScratch(
 		reading.exited = true
 		return reading
 	}
-
 	failure, err := probeYBScratch(ctx, timeout, watch.Failed)
 	switch {
 	case err != nil:
@@ -49,25 +44,20 @@ func readYBScratch(
 		reading.failure = failure
 		return reading
 	}
-
 	ready, err := probeYBScratch(ctx, timeout, watch.Ready)
 	if err == nil && ready {
 		reading.ready = true
 		return reading
 	}
-
 	if err != nil {
 		reading.readErr = "readiness check: " + err.Error()
 	}
-
 	counters, err := probeYBScratch(ctx, timeout, watch.Progress)
 	if err != nil {
 		reading.readErr = "progress read: " + err.Error()
 		return reading
 	}
-
 	reading.counters = counters
-
 	return reading
 }
 
@@ -84,6 +74,5 @@ func probeYBScratch[T probeYBScratchResult](
 ) (T, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-
 	return probe(probeCtx)
 }

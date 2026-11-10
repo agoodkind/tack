@@ -26,17 +26,11 @@ func (w *hierarchyWalk) step(ancestors map[OrgNode]AncestorState) {
 		w.fail(newHierarchyDefect(fmt.Sprintf("hierarchy cycle at %s", w.current)))
 		return
 	}
-
 	w.visited[w.current] = true
 	state := ancestors[OrgNode{OrgID: orgID, NodeID: w.current}]
 	switch {
 	case !state.Exists || state.OrgID != orgID:
-		w.fail(
-			newHierarchyDefect(
-				fmt.Sprintf("ancestor %s is missing or belongs to another organization", w.current),
-			),
-		)
-
+		w.fail(newHierarchyDefect(fmt.Sprintf("ancestor %s is missing or belongs to another organization", w.current)))
 		return
 	case state.Type == nil:
 		w.fail(newHierarchyDefect(fmt.Sprintf("node type %q is missing", state.TypeKey)))
@@ -45,18 +39,15 @@ func (w *hierarchyWalk) step(ancestors map[OrgNode]AncestorState) {
 		w.finish(w.current)
 		return
 	}
-
 	parentID, err := hierarchyParent(w.current, state)
 	if err != nil {
 		w.fail(err)
 		return
 	}
-
 	if parentID == uuid.Nil {
 		w.finish(w.current)
 		return
 	}
-
 	w.current = parentID
 }
 
@@ -79,12 +70,8 @@ func (w *hierarchyWalk) finish(entryPointID uuid.UUID) {
 func hierarchyParent(nodeID uuid.UUID, state AncestorState) (uuid.UUID, error) {
 	parentID, err := node.HierarchyParent(nodeID, state.Type, state.ChildOfs)
 	if err != nil {
-		return uuid.Nil, newHierarchyDefect(
-			"resolve hierarchy parent of node "+nodeID.String(),
-			err,
-		)
+		return uuid.Nil, newHierarchyDefect("resolve hierarchy parent of node "+nodeID.String(), err)
 	}
-
 	return parentID, nil
 }
 
@@ -95,7 +82,6 @@ func unfinished(walks []*hierarchyWalk) []*hierarchyWalk {
 			active = append(active, walk)
 		}
 	}
-
 	return active
 }
 
@@ -124,21 +110,16 @@ type hierarchyDefectError struct {
 }
 
 func newHierarchyDefect(message string, causes ...error) hierarchyDefectError {
-	return hierarchyDefectError{
-		message: message,
-		causes:  append([]error{ErrHierarchyDefect}, causes...),
-	}
+	return hierarchyDefectError{message: message, causes: append([]error{ErrHierarchyDefect}, causes...)}
 }
 
 func (d hierarchyDefectError) Error() string {
 	var text strings.Builder
 	text.WriteString(d.message)
-
 	for _, cause := range d.causes {
 		text.WriteString(": ")
 		text.WriteString(cause.Error())
 	}
-
 	return text.String()
 }
 

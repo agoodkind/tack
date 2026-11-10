@@ -17,24 +17,11 @@ func verifySearchModelLocal(ctx context.Context, adapter *search.Adapter, modelI
 	model, err := adapter.LocalModel(ctx, modelID)
 	if err != nil {
 		wrapped := fmt.Errorf("verify local search model %s: %w", modelID, err)
-		logger.ErrorContext(
-			ctx,
-			"search.verify.model_local_failed",
-			slog.String("err", wrapped.Error()),
-			slog.String("model_id", modelID),
-			slog.String("bundle_sha256", model.ContentHash),
-		)
-
+		logger.ErrorContext(ctx, "search.verify.model_local_failed", slog.String("err", wrapped.Error()),
+			slog.String("model_id", modelID), slog.String("bundle_sha256", model.ContentHash))
 		return wrapped
 	}
-
-	logger.InfoContext(
-		ctx,
-		"search.verify.model_local",
-		slog.String("model_id", model.ModelID),
-		slog.String("bundle_sha256", model.ContentHash),
-		slog.String("function", model.Function),
-	)
-
+	logger.InfoContext(ctx, "search.verify.model_local", slog.String("model_id", model.ModelID),
+		slog.String("bundle_sha256", model.ContentHash), slog.String("function", model.Function))
 	return nil
 }

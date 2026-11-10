@@ -44,15 +44,9 @@ func parseDeployVerifyServices(ctx context.Context, selection string) ([]string,
 	case appService:
 		return []string{appService}, nil
 	default:
-		err := fmt.Errorf(
-			"ops deploy verify: --service %q is not %s; omit --service to check %s and %s",
-			selection,
-			appService,
-			appService,
-			auditConsumerService,
-		)
+		err := fmt.Errorf("ops deploy verify: --service %q is not %s; omit --service to check %s and %s",
+			selection, appService, appService, auditConsumerService)
 		slog.ErrorContext(ctx, "ops.deploy.verify.service_invalid", slog.String("err", err.Error()))
-
 		return nil, err
 	}
 }
@@ -60,28 +54,15 @@ func parseDeployVerifyServices(ctx context.Context, selection string) ([]string,
 // deployVerifyTargets returns each of services with its image reference under
 // cfg.DeployRegistry. It trims whitespace from the tags and uses explicitTag
 // when it is not empty, or cfg.DeployImageTag otherwise.
-func deployVerifyTargets(
-	cfg *config.Config,
-	explicitTag string,
-	services []string,
-) []deployVerifyTarget {
+func deployVerifyTargets(cfg *config.Config, explicitTag string, services []string) []deployVerifyTarget {
 	tag := strings.TrimSpace(explicitTag)
 	if tag == "" {
 		tag = strings.TrimSpace(cfg.DeployImageTag)
 	}
-
 	registry := strings.TrimSuffix(strings.TrimSpace(cfg.DeployRegistry), "/")
-
 	targets := make([]deployVerifyTarget, 0, len(services))
 	for _, service := range services {
-		targets = append(
-			targets,
-			deployVerifyTarget{
-				Service: service,
-				Image:   registry + "/" + deployVerifyImages[service] + ":" + tag,
-			},
-		)
+		targets = append(targets, deployVerifyTarget{Service: service, Image: registry + "/" + deployVerifyImages[service] + ":" + tag})
 	}
-
 	return targets
 }

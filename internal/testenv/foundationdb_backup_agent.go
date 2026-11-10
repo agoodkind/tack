@@ -43,12 +43,8 @@ func WaitForRestorableFoundationDBBackup(t *testing.T, cluster string) {
 	defer func() { _ = cli.Close() }()
 	container := FoundationDBContainer(cluster)
 	for {
-		output, exitCode, err := execInContainer(
-			ctx,
-			cli,
-			container,
-			[]string{"fdbbackup", "status", "-C", containerClusterFile},
-		)
+		output, exitCode, err := execInContainer(ctx, cli, container,
+			[]string{"fdbbackup", "status", "-C", containerClusterFile})
 		if err != nil {
 			t.Fatalf("read the FoundationDB backup status in %s: %v", container, err)
 		}
@@ -56,16 +52,9 @@ func WaitForRestorableFoundationDBBackup(t *testing.T, cluster string) {
 			break
 		}
 		if !sleepOrDone(ctx) {
-			t.Fatalf(
-				"the FoundationDB backup in %s did not become restorable before the deadline; the last exit code was %d",
-				container,
-				exitCode,
-			)
+			t.Fatalf("the FoundationDB backup in %s did not become restorable before the deadline; the last exit code was %d",
+				container, exitCode)
 		}
 	}
-	slog.InfoContext(
-		ctx,
-		"testenv.foundationdb_backup.restorable",
-		slog.String("container", container),
-	)
+	slog.InfoContext(ctx, "testenv.foundationdb_backup.restorable", slog.String("container", container))
 }

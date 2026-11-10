@@ -16,54 +16,26 @@ import (
 func recordLedgerVerbEvents(t *testing.T, cfg *config.Config) {
 	t.Helper()
 	recorder, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers:        audit.SplitBrokers(cfg.AuditKafkaBrokers),
-		Topic:          cfg.AuditKafkaTopic,
-		ClientID:       "tack-ledger-verbs-test",
-		ProduceTimeout: 30 * time.Second,
+		Brokers: audit.SplitBrokers(cfg.AuditKafkaBrokers), Topic: cfg.AuditKafkaTopic,
+		ClientID: "tack-ledger-verbs-test", ProduceTimeout: 30 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("open the audit producer: %v", err)
 	}
 	for _, verb := range recordedLedgerVerbs {
 		event := audit.Event{
-			Verb:    string(verb),
-			EventID: uuid.Must(uuid.NewV7()),
+			Verb: string(verb), EventID: uuid.Must(uuid.NewV7()),
 			Actor: audit.Actor{
-				Type:          audit.ActorOperator,
-				ID:            uuid.Must(uuid.NewV7()),
-				Email:         "",
-				Name:          "Ledger Verbs Test",
-				SessionID:     "",
-				IP:            "",
-				UserAgent:     "",
-				RequestID:     "",
-				APITokenLabel: "",
+				Type: audit.ActorOperator, ID: uuid.Must(uuid.NewV7()), Email: "", Name: "Ledger Verbs Test",
+				SessionID: "", IP: "", UserAgent: "", RequestID: "", APITokenLabel: "",
 			},
-			Entity: audit.Entity{
-				Type:       "system",
-				NodeType:   "",
-				ID:         audit.SystemOrgID(),
-				Identifier: "",
-				Name:       "",
-			},
+			Entity: audit.Entity{Type: "system", NodeType: "", ID: audit.SystemOrgID(), Identifier: "", Name: ""},
 			Context: audit.EventContext{
-				OrgID:       audit.SystemOrgID(),
-				WorkspaceID: uuid.Nil,
-				ScopeID:     uuid.Nil,
-				ParentID:    uuid.Nil,
-				RequestID:   "",
-				TraceID:     "",
-				Source:      audit.SourceSystem,
-				Tool:        "",
-				RPC:         "",
-				Reason:      "",
+				OrgID: audit.SystemOrgID(), WorkspaceID: uuid.Nil, ScopeID: uuid.Nil, ParentID: uuid.Nil,
+				RequestID: "", TraceID: "", Source: audit.SourceSystem, Tool: "", RPC: "", Reason: "",
 			},
-			Delta:          nil,
-			Outcome:        audit.OutcomeOK,
-			Error:          nil,
-			IdempotencyKey: "",
-			OccurredAt:     clock.Now().UTC(),
-			Extra:          nil,
+			Delta: nil, Outcome: audit.OutcomeOK, Error: nil, IdempotencyKey: "",
+			OccurredAt: clock.Now().UTC(), Extra: nil,
 		}
 		if err := recorder.Record(t.Context(), event); err != nil {
 			t.Fatalf("record a %s event: %v", verb, err)
@@ -103,12 +75,7 @@ func waitForLedgerVerbRows(t *testing.T, cfg *config.Config) {
 			return
 		}
 		if clock.Now().After(deadline) {
-			t.Fatalf(
-				"ledger verb presence after %s = %+v, want a row for each of %v",
-				ledgerVerbsDeadline,
-				presence,
-				verbs,
-			)
+			t.Fatalf("ledger verb presence after %s = %+v, want a row for each of %v", ledgerVerbsDeadline, presence, verbs)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}

@@ -20,67 +20,36 @@ import (
 // and search service behind tack_search. While OPENSEARCH_PUBLIC_ENABLED is
 // false it returns a binding without a runner, and tack_search keeps the
 // fixed unavailable response. Index workers run in either state.
-func buildSearchQuery(
-	ctx context.Context,
-	cfg *config.Config,
-	stores *fdbadapter.Stores,
-	search searchRuntime,
-	source clock.Clock,
-) (tools.SearchBinding, error) {
+func buildSearchQuery(ctx context.Context, cfg *config.Config, stores *fdbadapter.Stores, search searchRuntime, source clock.Clock) (tools.SearchBinding, error) {
 	disabled := tools.SearchBinding{Runner: nil, Cursors: nil}
 	if !cfg.SearchPublicEnabled {
 		telemetry.L(ctx).InfoContext(ctx, "search.public.disabled")
 		return disabled, nil
 	}
-
 	if search.adapter == nil {
-		return disabled, searchRuntimeFailure(
-			ctx,
-			"enable public search",
-			errors.New("OPENSEARCH_PUBLIC_ENABLED requires OPENSEARCH_ENDPOINT"),
-		)
+		return disabled, searchRuntimeFailure(ctx, "enable public search", errors.New("OPENSEARCH_PUBLIC_ENABLED requires OPENSEARCH_ENDPOINT"))
 	}
-
 	settings, err := config.LoadSearchQuerySettings(ctx)
 	if err != nil {
 		return disabled, searchRuntimeFailure(ctx, "load search query settings", err)
 	}
-
 	cursorKey, err := settings.CursorKeyBytes()
 	if err != nil {
 		return disabled, searchRuntimeFailure(ctx, "decode search cursor key", err)
 	}
-
 	policies := stores.SearchPolicySet()
 	sessions := stores.SearchSessions(source, settings.IdleTimeout)
 	ranker := search.adapter.Ranker(searchadapter.RankerSettings{
-		KeepAlive:  settings.IdleTimeout,
-		TokenBytes: settings.MaxTokenBytes,
-		BatchSize:  settings.BatchSize,
+		KeepAlive: settings.IdleTimeout, TokenBytes: settings.MaxTokenBytes, BatchSize: settings.BatchSize,
 	})
-	runner := service.NewSearchQueryService(
-		service.SearchQueryPorts{
-			Ranker:      ranker,
-			Sessions:    sessions,
-			Expired:     sessions,
-			Summaries:   stores.NodeSummaries(policies),
-			Access:      fdbadapter.NewSearchQueryAccess(policies),
-			Versions:    stores.SearchRollouts(source, policies),
-			Index:       stores,
-			Generations: stores,
-			Audit:       audit.NewBatchAppendOutbox(stores.OpsOutbox),
-		},
-		source,
-		settings,
-	)
-	telemetry.L(ctx).InfoContext(
-		ctx,
-		"search.public.enabled",
-		slog.Int("max_results", settings.MaxResults),
-		slog.Int("max_batches", settings.MaxBatches),
-		slog.Duration("idle_timeout", settings.IdleTimeout),
-	)
-
+	runner := service.NewSearchQueryService(service.SearchQueryPorts{
+		Ranker: ranker, Sessions: sessions, Expired: sessions,
+		Summaries: stores.NodeSummaries(policies), Access: fdbadapter.NewSearchQueryAccess(policies),
+		Versions: stores.SearchRollouts(source, policies), Index: stores, Generations: stores,
+		Audit: audit.NewBatchAppendOutbox(stores.OpsOutbox),
+	}, source, settings)
+	telemetry.L(ctx).InfoContext(ctx, "search.public.enabled", slog.Int("max_results", settings.MaxResults),
+		slog.Int("max_batches", settings.MaxBatches), slog.Duration("idle_timeout", settings.IdleTimeout))
 	return tools.SearchBinding{Runner: runner, Cursors: tools.NewSearchCursorCodec(cursorKey)}, nil
 }
 
@@ -89,22 +58,15 @@ func buildSearchQuery(
 // same index.
 func (g *Graph) SearchPageText(ctx context.Context, nodeID uuid.UUID) ([]string, error) {
 	if g.search.adapter == nil {
-		return nil, searchRuntimeFailure(
-			ctx,
-			"read search page text",
-			errors.New("OPENSEARCH_ENDPOINT is not set"),
-		)
+		return nil, searchRuntimeFailure(ctx, "read search page text", errors.New("OPENSEARCH_ENDPOINT is not set"))
 	}
-
 	index, err := g.fdbStores.ServingSearchIndex(ctx)
 	if err != nil {
 		return nil, searchRuntimeFailure(ctx, "read serving search index", err)
 	}
-
 	texts, err := g.search.adapter.NodePageText(ctx, index, nodeID)
 	if err != nil {
 		return nil, searchRuntimeFailure(ctx, "read search page text of node "+nodeID.String(), err)
 	}
-
 	return texts, nil
 }

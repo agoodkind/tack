@@ -33,69 +33,30 @@ func testCommandReferenceRepair(t *testing.T) {
 	mark := outboxTail(t, env)
 	operatorID := uuid.Must(uuid.NewV7())
 	cfg := &config.Config{
-		DatabaseURL:           testenv.Ledger(t),
-		FDBClusterFile:        testenv.FoundationDB(t),
-		FDBTransactionTimeout: 5 * time.Second,
+		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: 5 * time.Second,
 	}
-	output, err := runOpsCommandIn(
-		testenv.CommandContext(t),
-		cfg,
-		pool,
-		"--execute",
-		"--output",
-		"json",
-		"--operator-id",
-		operatorID.String(),
-		"--operator-email",
-		outcomeOperatorEmail,
-		"ops",
-		"repair",
-		"reference-uniqueness",
-		"--keep",
-		"oldest",
-	)
+	output, err := runOpsCommandIn(testenv.CommandContext(t), cfg, pool, "--execute", "--output", "json", "--operator-id", operatorID.String(),
+		"--operator-email", outcomeOperatorEmail, "ops", "repair", "reference-uniqueness", "--keep", "oldest")
 	if err != nil {
 		t.Fatalf("reference-uniqueness failed: %v\n%s", err, output)
 	}
-
-	repairEvents := outboxEventsByQuery(
-		t,
-		pool,
-		"runtime_audit_verb_outbox.sql",
-		string(audit.VerbOpsRepairReferenceUniqueness),
-		operatorID.String(),
-	)
-	renameEvents := outboxEventsByQuery(
-		t,
-		pool,
-		"runtime_audit_verb_outbox.sql",
-		string(audit.VerbNodeReferenceRename),
-		operatorID.String(),
-	)
+	repairEvents := outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql",
+		string(audit.VerbOpsRepairReferenceUniqueness), operatorID.String())
+	renameEvents := outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql",
+		string(audit.VerbNodeReferenceRename), operatorID.String())
 	if len(renameEvents) == 0 {
-		t.Fatalf(
-			"the repair did not record a %s event for operator %s",
-			audit.VerbNodeReferenceRename,
-			operatorID,
-		)
+		t.Fatalf("the repair did not record a %s event for operator %s", audit.VerbNodeReferenceRename, operatorID)
 	}
-
 	integration.RequireCommandCorrelation(t, output, append(repairEvents, renameEvents...))
 	commandID := commandOperationID(t, repairEvents)
 	renumbered := second
 	if first.String() > second.String() {
 		renumbered = first
 	}
-
 	events := outboxEventsAfter(t, env, mark)
 	if len(changeEventsFor(events, audit.VerbNodeUpdate, renumbered)) == 0 {
-		t.Fatalf(
-			"the repair recorded no node.update event for renumbered node %s in %+v",
-			renumbered,
-			events,
-		)
+		t.Fatalf("the repair recorded no node.update event for renumbered node %s in %+v", renumbered, events)
 	}
-
 	for _, event := range events {
 		if event.Context.Phase == audit.PhaseChange {
 			requireChangeEvent(t, event, commandID, operatorID)
@@ -106,12 +67,7 @@ func testCommandReferenceRepair(t *testing.T) {
 // createDuplicateReference stores a node of typeKey under projectID with
 // generated sequence 1 and without a reference claim, the stored shape of a
 // node written before reference uniqueness. It returns the node ID.
-func createDuplicateReference(
-	t *testing.T,
-	env *integration.TestEnv,
-	typeKey string,
-	projectID uuid.UUID,
-) uuid.UUID {
+func createDuplicateReference(t *testing.T, env *integration.TestEnv, typeKey string, projectID uuid.UUID) uuid.UUID {
 	t.Helper()
 	now := clock.Now().UTC()
 	props := map[string]json.RawMessage{
@@ -120,34 +76,16 @@ func createDuplicateReference(
 		"sequence":  json.RawMessage("1"),
 	}
 	current := &node.Node{
-		ID:        uuid.Must(uuid.NewV7()),
-		OrgID:     env.OrgID,
-		NodeType:  typeKey,
-		Name:      "Duplicate " + typeKey,
-		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID: uuid.Must(uuid.NewV7()), OrgID: env.OrgID, NodeType: typeKey, Name: "Duplicate " + typeKey,
+		Props: props, CreatedAt: now, UpdatedAt: now,
 	}
 	view := &node.NodeView{
-		ID:        current.ID,
-		OrgID:     current.OrgID,
-		NodeType:  current.NodeType,
-		Name:      current.Name,
-		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID: current.ID, OrgID: current.OrgID, NodeType: current.NodeType, Name: current.Name,
+		Props: props, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := env.Stores.Nodes.CreateAtomic(
-		env.Ctx,
-		current,
-		view,
-		nil,
-		[]string{"parent_id", "scope_id", "sequence"},
-		nil,
-		nil,
-	); err != nil {
+	if err := env.Stores.Nodes.CreateAtomic(env.Ctx, current, view, nil,
+		[]string{"parent_id", "scope_id", "sequence"}, nil, nil); err != nil {
 		t.Fatalf("store the duplicate %s: %v", typeKey, err)
 	}
-
 	return current.ID
 }

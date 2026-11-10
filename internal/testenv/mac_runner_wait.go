@@ -26,11 +26,7 @@ func (execution *macRunnerExecution) observeWait(ctx context.Context) {
 	observation, cancel := context.WithCancel(ctx)
 	execution.waitCancel = cancel
 	timer := time.AfterFunc(macRunnerObservation, cancel)
-	stream := execution.defaultClient.ContainerWait(
-		observation,
-		execution.acceptedID,
-		client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning},
-	)
+	stream := execution.defaultClient.ContainerWait(observation, execution.acceptedID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	timer.Stop()
 	outcome := make(chan macRunnerWaitOutcome, 1)
 	completed := make(chan error, 1)
@@ -43,7 +39,6 @@ func (execution *macRunnerExecution) observeWait(ctx context.Context) {
 				slog.Error("testenv.run_mac.wait_failed", slog.String("err", receiverError.Error()))
 				outcome <- macRunnerWaitOutcome{Response: nil, Error: receiverError}
 			}
-
 			completed <- receiverError
 		}()
 		select {
@@ -56,34 +51,21 @@ func (execution *macRunnerExecution) observeWait(ctx context.Context) {
 }
 
 func (execution *macRunnerExecution) recordWaitOutcome(outcome macRunnerWaitOutcome) error {
-	execution.waitEvidence = &macRunnerWaitEvidence{
-		Response:         outcome.Response,
-		Error:            "",
-		ReceiverComplete: false,
-	}
+	execution.waitEvidence = &macRunnerWaitEvidence{Response: outcome.Response, Error: "", ReceiverComplete: false}
 	if outcome.Error != nil {
 		execution.waitEvidence.Error = outcome.Error.Error()
 		return macRunnerFailure("wait runner "+execution.acceptedID, outcome.Error)
 	}
-
 	if outcome.Response == nil {
 		err := errors.New("container wait did not provide a response or error")
 		execution.waitEvidence.Error = err.Error()
-
 		return err
 	}
-
 	if outcome.Response.Error != nil && outcome.Response.Error.Message != "" {
-		err := fmt.Errorf(
-			"wait runner %s: %s",
-			execution.acceptedID,
-			outcome.Response.Error.Message,
-		)
+		err := fmt.Errorf("wait runner %s: %s", execution.acceptedID, outcome.Response.Error.Message)
 		execution.waitEvidence.Error = err.Error()
-
 		return err
 	}
-
 	return nil
 }
 
@@ -91,16 +73,11 @@ func (execution *macRunnerExecution) finishWait(ctx context.Context) error {
 	if execution.waitReceiverDone == nil {
 		return nil
 	}
-
 	execution.waitCancel()
-	completionError := execution.stage(
-		"wait receiver completion",
-		macRunnerAwait(execution.waitReceiverDone, "Docker wait receiver"),
-	)
+	completionError := execution.stage("wait receiver completion", macRunnerAwait(execution.waitReceiverDone, "Docker wait receiver"))
 	if completionError != nil {
 		return completionError
 	}
-
 	var outcomeError error
 	if execution.waitEvidence == nil {
 		select {
@@ -110,16 +87,10 @@ func (execution *macRunnerExecution) finishWait(ctx context.Context) error {
 			return errors.New("completed Docker wait receiver did not provide its outcome")
 		}
 	}
-
 	execution.waitEvidence.ReceiverComplete = true
 	writeMacRunnerJSON(execution, "wait.json", *execution.waitEvidence)
-	if execution.runtimeExit == nil && execution.waitEvidence.Response != nil &&
-		execution.waitEvidence.Error == "" {
-		outcomeError = execution.acceptTerminal(
-			ctx,
-			int(execution.waitEvidence.Response.StatusCode),
-		)
+	if execution.runtimeExit == nil && execution.waitEvidence.Response != nil && execution.waitEvidence.Error == "" {
+		outcomeError = execution.acceptTerminal(ctx, int(execution.waitEvidence.Response.StatusCode))
 	}
-
 	return macRunnerErrors("finalize Docker wait outcome", outcomeError)
 }

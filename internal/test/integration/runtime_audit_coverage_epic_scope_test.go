@@ -31,8 +31,7 @@ func addEpicScopeCase(cases map[string]coverageCase) {
 			evidence.targetID = issueID
 			return evidence
 		},
-		verb:    audit.VerbNodeCreate,
-		outcome: audit.OutcomeCompleted,
+		verb: audit.VerbNodeCreate, outcome: audit.OutcomeCompleted,
 		check: func(t *testing.T, env *coverageEnv, rows []audit.Row) {
 			t.Helper()
 			fixture := env.fixture(t)
@@ -48,37 +47,19 @@ func requireCreateScope(t *testing.T, rows []audit.Row, issueID, projectID, epic
 	checked := false
 	for _, row := range rows {
 		target := row.Context.Target
-		if row.Action != string(audit.VerbNodeCreate) || row.Outcome != audit.OutcomeCompleted ||
-			target == nil ||
-			target.ID != issueID {
+		if row.Action != string(audit.VerbNodeCreate) || row.Outcome != audit.OutcomeCompleted || target == nil || target.ID != issueID {
 			continue
 		}
 		checked = true
 		if row.Context.ScopeID == epicID {
-			t.Fatalf(
-				"Event %s recorded the epic %s as the scope of issue %s; the project %s is the scope.",
-				row.EventID,
-				epicID,
-				issueID,
-				projectID,
-			)
+			t.Fatalf("Event %s recorded the epic %s as the scope of issue %s; the project %s is the scope.", row.EventID, epicID, issueID, projectID)
 		}
 		if row.Context.ScopeID != projectID {
-			t.Fatalf(
-				"Event %s recorded scope %s for issue %s, want the project %s; the event context follows: %+v",
-				row.EventID,
-				row.Context.ScopeID,
-				issueID,
-				projectID,
-				row.Context,
-			)
+			t.Fatalf("Event %s recorded scope %s for issue %s, want the project %s; the event context follows: %+v",
+				row.EventID, row.Context.ScopeID, issueID, projectID, row.Context)
 		}
 	}
 	if !checked {
-		t.Fatalf(
-			"No completed node create event targeted issue %s; the rows follow: %s",
-			issueID,
-			describeRows(rows),
-		)
+		t.Fatalf("No completed node create event targeted issue %s; the rows follow: %s", issueID, describeRows(rows))
 	}
 }

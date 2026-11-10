@@ -52,92 +52,57 @@ type HierarchyReader interface {
 // Each resource with a hierarchy defect receives an error that wraps
 // ErrHierarchyDefect in defects instead of an entry point.
 // EntryPoints returns an error for the whole call when a read fails.
-func EntryPoints(
-	ctx context.Context,
-	reader HierarchyReader,
-	resources []OrgNode,
-) (entries map[OrgNode]uuid.UUID, defects map[OrgNode]error, err error) {
+func EntryPoints(ctx context.Context, reader HierarchyReader, resources []OrgNode) (entries map[OrgNode]uuid.UUID, defects map[OrgNode]error, err error) {
 	walks := make([]*hierarchyWalk, 0, len(resources))
 	for _, resource := range resources {
-		walks = append(
-			walks,
-			&hierarchyWalk{
-				resource: resource,
-				current:  resource.NodeID,
-				visited:  map[uuid.UUID]bool{},
-				entry:    uuid.Nil,
-				defect:   nil,
-				done:     false,
-			},
-		)
+		walks = append(walks, &hierarchyWalk{
+			resource: resource, current: resource.NodeID, visited: map[uuid.UUID]bool{},
+			entry: uuid.Nil, defect: nil, done: false,
+		})
 	}
-
 	ancestors := map[OrgNode]AncestorState{}
-
 	for active := walks; len(active) > 0; active = unfinished(active) {
 		if err := readLevel(ctx, reader, active, ancestors); err != nil {
 			return nil, nil, err
 		}
-
 		for _, walk := range active {
 			walk.step(ancestors)
 		}
 	}
-
 	entries = make(map[OrgNode]uuid.UUID, len(walks))
 	defects = map[OrgNode]error{}
-
 	for _, walk := range walks {
 		if walk.defect != nil {
 			defects[walk.resource] = walk.defect
 			continue
 		}
-
 		entries[walk.resource] = walk.entry
 	}
-
 	return entries, defects, nil
 }
 
 // readLevel reads the current nodes in active that it has not already read.
-func readLevel(
-	ctx context.Context,
-	reader HierarchyReader,
-	active []*hierarchyWalk,
-	ancestors map[OrgNode]AncestorState,
-) error {
+func readLevel(ctx context.Context, reader HierarchyReader, active []*hierarchyWalk, ancestors map[OrgNode]AncestorState) error {
 	unreadAncestors := newNodeSet()
-
 	for _, walk := range active {
 		key := OrgNode{OrgID: walk.resource.OrgID, NodeID: walk.current}
 		if _, read := ancestors[key]; !read {
 			unreadAncestors.add(key)
 		}
 	}
-
 	if len(unreadAncestors.nodes) == 0 {
 		return nil
 	}
-
 	states, err := reader.Ancestors(ctx, unreadAncestors.nodes)
 	if err != nil {
-		return WithContext(
-			"read "+strconv.Itoa(len(unreadAncestors.nodes))+" hierarchy ancestors",
-			err,
-		)
+		return WithContext("read "+strconv.Itoa(len(unreadAncestors.nodes))+" hierarchy ancestors", err)
 	}
-
 	for _, key := range unreadAncestors.nodes {
 		state, found := states[key]
 		if !found {
-			return fmt.Errorf(
-				"read hierarchy ancestor %s: the reader returned no state",
-				key.NodeID,
-			)
+			return fmt.Errorf("read hierarchy ancestor %s: the reader returned no state", key.NodeID)
 		}
-
 		ancestors[key] = state
 	}
-
 	return nil
 }

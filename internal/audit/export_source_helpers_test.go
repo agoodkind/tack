@@ -39,24 +39,17 @@ type ledgerRowStream struct {
 // hands over are the oldest rather than the newest page the ledger would order
 // and return: what an export must not do is take a page at all, and which page
 // it would have taken changes nothing here.
-func (s *ledgerRowStream) StreamQuery(
-	_ context.Context,
-	filter QueryFilter,
-	visit RowVisitor,
-) error {
+func (s *ledgerRowStream) StreamQuery(_ context.Context, filter QueryFilter, visit RowVisitor) error {
 	s.t.Helper()
 	rowBudget := filteredRowBudget(filter, s.rows)
 	seqByShard := make([]int64, s.shards)
 	prevByShard := make([][]byte, s.shards)
-
 	for index := range rowBudget {
 		shard := index % s.shards
 		seqByShard[shard]++
 		row := Row{
-			OrgID: s.orgID,
-			EventTime: s.base.Add(time.Duration(index) * time.Millisecond).Truncate(
-				time.Microsecond,
-			),
+			OrgID:     s.orgID,
+			EventTime: s.base.Add(time.Duration(index) * time.Millisecond).Truncate(time.Microsecond),
 			EventID:   uuid.Must(uuid.NewV7()),
 			Seq:       seqByShard[shard],
 			Shard:     int16(shard),
@@ -81,12 +74,10 @@ func (s *ledgerRowStream) StreamQuery(
 		if err := visit(row); err != nil {
 			return err
 		}
-
 		if s.observe != nil {
 			s.observe(index)
 		}
 	}
-
 	return nil
 }
 
@@ -101,11 +92,9 @@ func filteredRowBudget(filter QueryFilter, available int) int {
 	if limit < 0 {
 		limit = DefaultQueryPageLimit
 	}
-
 	if limit > 0 && limit < available {
 		return limit
 	}
-
 	return available
 }
 
@@ -116,18 +105,13 @@ type sliceRowSource struct {
 	rows []Row
 }
 
-func (s *sliceRowSource) StreamQuery(
-	_ context.Context,
-	filter QueryFilter,
-	visit RowVisitor,
-) error {
+func (s *sliceRowSource) StreamQuery(_ context.Context, filter QueryFilter, visit RowVisitor) error {
 	rowBudget := filteredRowBudget(filter, len(s.rows))
 	for _, row := range s.rows[:rowBudget] {
 		if err := visit(row); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 

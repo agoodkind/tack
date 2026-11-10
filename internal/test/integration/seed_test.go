@@ -25,29 +25,21 @@ func TestSeedIsIdempotent(t *testing.T) {
 	if len(firstTypes) == 0 {
 		t.Fatal("expected NodeTypes after first seed, got zero")
 	}
-
 	if len(firstProps) == 0 {
 		t.Fatal("expected PropertyDefs after first seed, got zero")
 	}
-
 	seededTypes, err := env.Stores.NodeTypes.List(env.Ctx, env.OrgID)
 	if err != nil {
 		t.Fatalf("list seeded NodeTypes: %v", err)
 	}
-
 	for _, seededType := range seededTypes {
 		primaryTemplate := seededType.PrimaryReferenceTemplate()
 		if seededType.Features.Has(node.FeatureHasSequenceID) {
 			if primaryTemplate == nil {
-				t.Fatalf(
-					"sequence NodeType %q has no primary reference template",
-					seededType.TypeKey,
-				)
+				t.Fatalf("sequence NodeType %q has no primary reference template", seededType.TypeKey)
 			}
-
 			continue
 		}
-
 		if len(seededType.ReferenceTemplates) != 0 {
 			t.Fatalf("non-sequence NodeType %q has reference templates", seededType.TypeKey)
 		}
@@ -65,7 +57,6 @@ func TestSeedIsIdempotent(t *testing.T) {
 	if len(secondTypes) != len(firstTypes) {
 		t.Fatalf("NodeType count drift: first=%d second=%d", len(firstTypes), len(secondTypes))
 	}
-
 	if len(secondProps) != len(firstProps) {
 		t.Fatalf("PropertyDef count drift: first=%d second=%d", len(firstProps), len(secondProps))
 	}
@@ -75,7 +66,6 @@ func TestSeedIsIdempotent(t *testing.T) {
 			t.Errorf("NodeType %q ID drift: first=%s second=%s", slug, firstID, secondID)
 		}
 	}
-
 	for name, firstID := range firstProps {
 		if secondID := secondProps[name]; secondID != firstID {
 			t.Errorf("PropertyDef %q ID drift: first=%s second=%s", name, firstID, secondID)
@@ -98,15 +88,11 @@ func TestSeedHasIdentifierPropertyDef(t *testing.T) {
 	for _, d := range defs {
 		if d.Name == "identifier" {
 			if !d.Indexed {
-				t.Fatalf(
-					`PropertyDef "identifier" exists but Indexed=false; resolver lookups will silently miss`,
-				)
+				t.Fatalf(`PropertyDef "identifier" exists but Indexed=false; resolver lookups will silently miss`)
 			}
-
 			return
 		}
 	}
-
 	t.Fatal(`PropertyDef "identifier" missing; resolver cannot find scope nodes by identifier`)
 }
 
@@ -118,34 +104,20 @@ func TestSeedHasStateIDRequiredTodoDefaultReference(t *testing.T) {
 		if d.Name != "state_id" {
 			continue
 		}
-
 		if !d.Required {
 			t.Fatalf(`PropertyDef "state_id" exists but Required=false`)
 		}
-
 		if d.DefaultReference == nil {
 			t.Fatalf(`PropertyDef "state_id" missing default reference`)
 		}
-
 		if d.DefaultReference.Scope != node.DefaultReferenceScopeCreateScope {
-			t.Fatalf(
-				"state_id default scope = %q, want %q",
-				d.DefaultReference.Scope,
-				node.DefaultReferenceScopeCreateScope,
-			)
+			t.Fatalf("state_id default scope = %q, want %q", d.DefaultReference.Scope, node.DefaultReferenceScopeCreateScope)
 		}
-
 		if d.DefaultReference.Reference != "Todo" {
-			t.Fatalf(
-				"state_id default reference = %q, want %q",
-				d.DefaultReference.Reference,
-				"Todo",
-			)
+			t.Fatalf("state_id default reference = %q, want %q", d.DefaultReference.Reference, "Todo")
 		}
-
 		return
 	}
-
 	t.Fatal(`PropertyDef "state_id" missing`)
 }
 
@@ -156,12 +128,10 @@ func listNodeTypes(t *testing.T, env *TestEnv) map[string]uuid.UUID {
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
 	}
-
 	out := make(map[string]uuid.UUID, len(types))
 	for _, nt := range types {
 		out[nt.Slug] = nt.ID
 	}
-
 	return out
 }
 
@@ -172,12 +142,10 @@ func listPropertyDefs(t *testing.T, env *TestEnv) map[string]uuid.UUID {
 	if err != nil {
 		t.Fatalf("list property defs: %v", err)
 	}
-
 	out := make(map[string]uuid.UUID, len(defs))
 	for _, d := range defs {
 		out[d.Name] = d.ID
 	}
-
 	return out
 }
 
@@ -189,8 +157,6 @@ func listPropertyDefRecords(t *testing.T, env *TestEnv) []*node.PropertyDef {
 	if err != nil {
 		t.Fatalf("list property defs: %v", err)
 	}
-
 	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
-
 	return defs
 }

@@ -43,31 +43,11 @@ func TestOpsDBSQLRecordsAgentAttribution(t *testing.T) {
 	if err := mail.DeleteAll(t.Context()); err != nil {
 		t.Fatalf("clear the Mailpit mailbox: %v", err)
 	}
-
 	since := ledgerNow(t, pool)
-	output, err := runOpsDBSQL(
-		t,
-		breakGlassConfig(ledgerDSN, mail),
-		pool,
-		"--execute",
-		"--output",
-		"json",
-		"--operator-service",
-		attributionService,
-		"--operator-session",
-		attributionSession,
-		"--operator-id",
-		operatorID.String(),
-		"--operator-email",
-		attributionEmail,
-		"ops",
-		"db",
-		"sql",
-		"--statement",
-		"select 1",
-		"--reason",
-		attributionReason,
-	)
+	output, err := runOpsDBSQL(t, breakGlassConfig(ledgerDSN, mail), pool,
+		"--execute", "--output", "json", "--operator-service", attributionService, "--operator-session", attributionSession,
+		"--operator-id", operatorID.String(), "--operator-email", attributionEmail,
+		"ops", "db", "sql", "--statement", "select 1", "--reason", attributionReason)
 	if err != nil {
 		t.Fatalf("ops db sql --execute: %v\n%s", err, output)
 	}
@@ -76,46 +56,25 @@ func TestOpsDBSQLRecordsAgentAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the Mailpit mailbox: %v", err)
 	}
-
 	agentLine := "Agent: " + attributionService + " (session " + attributionSession + ") for " + attributionEmail
 	if len(messages) != 1 || !strings.HasSuffix(messages[0].Subject, "by "+attributionEmail) ||
 		!strings.Contains(messages[0].Text, agentLine) {
-		t.Fatalf(
-			"delivered mail = %+v, want one message with a subject ending in %q and the text line %q",
-			messages,
-			"by "+attributionEmail,
-			agentLine,
-		)
+		t.Fatalf("delivered mail = %+v, want one message with a subject ending in %q and the text line %q",
+			messages, "by "+attributionEmail, agentLine)
 	}
 
 	events := opsoutbox.Events(t, pool, opsoutbox.Filter{Since: since})
 	eventIDs := requireOutboxAttribution(t, events, operatorID)
 	RequireCommandCorrelation(t, output, events)
 	startAuditPipeline(t, brokers, ledgerDSN, pool)
-
 	for _, row := range waitForLedgerEvents(t, pool, eventIDs) {
-		if row.ActorKind != actorKindService ||
-			row.ActorID != cli.ServiceActorID(attributionService) {
-			t.Fatalf(
-				"audit.events row %s actor = kind %d id %s, want kind %d id %s",
-				row.EventID,
-				row.ActorKind,
-				row.ActorID,
-				actorKindService,
-				cli.ServiceActorID(attributionService),
-			)
+		if row.ActorKind != actorKindService || row.ActorID != cli.ServiceActorID(attributionService) {
+			t.Fatalf("audit.events row %s actor = kind %d id %s, want kind %d id %s",
+				row.EventID, row.ActorKind, row.ActorID, actorKindService, cli.ServiceActorID(attributionService))
 		}
-
 		extra := decodeAttributionExtra(t, []byte(row.Extra))
-		requireAccountable(
-			t,
-			"audit.events row "+row.EventID,
-			extra,
-			operatorID,
-			extra.AttemptID != uuid.Nil,
-		)
+		requireAccountable(t, "audit.events row "+row.EventID, extra, operatorID, extra.AttemptID != uuid.Nil)
 	}
-
 	requireVerifiedBundle(t, ledgerDSN, pool, since, len(eventIDs))
 }
 
@@ -130,41 +89,21 @@ func TestOpsDBSQLRefusesSessionWithoutService(t *testing.T) {
 	if err := mail.DeleteAll(t.Context()); err != nil {
 		t.Fatalf("clear the Mailpit mailbox: %v", err)
 	}
-
 	since := ledgerNow(t, pool)
-	_, err := runOpsDBSQL(
-		t,
-		breakGlassConfig(ledgerDSN, mail),
-		pool,
-		"--execute",
-		"--operator-session",
-		attributionSession,
-		"--operator-id",
-		operatorID.String(),
-		"--operator-email",
-		attributionEmail,
-		"ops",
-		"db",
-		"sql",
-		"--statement",
-		"select 1",
-		"--reason",
-		attributionReason,
-	)
-	if err == nil ||
-		!strings.Contains(err.Error(), "--operator-session requires --operator-service") {
+	_, err := runOpsDBSQL(t, breakGlassConfig(ledgerDSN, mail), pool,
+		"--execute", "--operator-session", attributionSession,
+		"--operator-id", operatorID.String(), "--operator-email", attributionEmail,
+		"ops", "db", "sql", "--statement", "select 1", "--reason", attributionReason)
+	if err == nil || !strings.Contains(err.Error(), "--operator-session requires --operator-service") {
 		t.Fatalf("ops db sql with a session and no service = %v, want the session refusal", err)
 	}
-
 	messages, err := mail.Messages(t.Context())
 	if err != nil {
 		t.Fatalf("read the Mailpit mailbox: %v", err)
 	}
-
 	if len(messages) != 0 {
 		t.Fatalf("delivered mail = %+v, want none for a refused identity", messages)
 	}
-
 	if events := opsoutbox.Events(t, pool, opsoutbox.Filter{Since: since}); len(events) != 0 {
 		t.Fatalf("operator outbox rows = %+v, want none for a refused identity", events)
 	}
@@ -174,9 +113,7 @@ func TestOpsDBSQLRefusesSessionWithoutService(t *testing.T) {
 // mail at the Mailpit account.
 func breakGlassConfig(ledgerDSN string, mail testenv.MailpitFixture) *config.Config {
 	return &config.Config{
-		DatabaseURL:            ledgerDSN,
-		BackupAlarmEmail:       attributionRecipient,
-		BackupAlarmMsmtprcPath: mail.Msmtprc,
+		DatabaseURL: ledgerDSN, BackupAlarmEmail: attributionRecipient, BackupAlarmMsmtprcPath: mail.Msmtprc,
 	}
 }
 
@@ -186,7 +123,6 @@ func breakGlassConfig(ledgerDSN string, mail testenv.MailpitFixture) *config.Con
 func requireOutboxAttribution(t *testing.T, events []audit.Event, operatorID uuid.UUID) []string {
 	t.Helper()
 	kinds := map[string]int{}
-
 	eventIDs := make([]string, 0, len(events))
 	for _, event := range events {
 		extra := decodeAttributionExtra(t, event.Extra)
@@ -195,79 +131,41 @@ func requireOutboxAttribution(t *testing.T, events []audit.Event, operatorID uui
 		if breakGlass {
 			kind = "break-glass " + string(event.Outcome)
 		}
-
 		kinds[kind]++
 		label := "outbox " + kind + " row " + event.EventID.String()
 		actor := event.Actor
 		if event.Verb != string(audit.VerbOpsDBBreakGlass) || actor.Type != audit.ActorService ||
-			actor.ID != cli.ServiceActorID(
-				attributionService,
-			) || actor.Name != attributionService ||
+			actor.ID != cli.ServiceActorID(attributionService) || actor.Name != attributionService ||
 			actor.SessionID != attributionSession {
-			t.Fatalf(
-				"%s = verb %s actor %+v, want %s by service %s in session %s",
-				label,
-				event.Verb,
-				actor,
-				audit.VerbOpsDBBreakGlass,
-				attributionService,
-				attributionSession,
-			)
+			t.Fatalf("%s = verb %s actor %+v, want %s by service %s in session %s",
+				label, event.Verb, actor, audit.VerbOpsDBBreakGlass, attributionService, attributionSession)
 		}
-
 		requireAccountable(t, label, extra, operatorID, breakGlass)
 		eventIDs = append(eventIDs, event.EventID.String())
 	}
-
-	want := map[string]int{
-		"choke-point pending": 1,
-		"choke-point ok":      1,
-		"break-glass pending": 1,
-		"break-glass ok":      1,
-	}
+	want := map[string]int{"choke-point pending": 1, "choke-point ok": 1, "break-glass pending": 1, "break-glass ok": 1}
 	if len(events) != len(want) || len(kinds) != len(want) {
 		t.Fatalf("outbox row kinds = %v, want one each of %v", kinds, want)
 	}
-
 	for kind, count := range want {
 		if kinds[kind] != count {
 			t.Fatalf("outbox row kinds = %v, want one each of %v", kinds, want)
 		}
 	}
-
 	return eventIDs
 }
 
 // requireAccountable requires the session and the accountable operator in
 // extra, and on a break-glass row the command's reason.
-func requireAccountable(
-	t *testing.T,
-	label string,
-	extra attributionExtra,
-	operatorID uuid.UUID,
-	breakGlass bool,
-) {
+func requireAccountable(t *testing.T, label string, extra attributionExtra, operatorID uuid.UUID, breakGlass bool) {
 	t.Helper()
 	accountable := extra.OnBehalfOf
 	if extra.SessionID != attributionSession || accountable == nil ||
 		accountable.OperatorID != operatorID || accountable.OperatorEmail != attributionEmail {
-		t.Fatalf(
-			"%s extra = %+v on behalf of %+v, want session %s for %s (%s)",
-			label,
-			extra,
-			accountable,
-			attributionSession,
-			attributionEmail,
-			operatorID,
-		)
+		t.Fatalf("%s extra = %+v on behalf of %+v, want session %s for %s (%s)",
+			label, extra, accountable, attributionSession, attributionEmail, operatorID)
 	}
-
 	if breakGlass && accountable.Reason != attributionReason {
-		t.Fatalf(
-			"%s on_behalf_of.reason = %q, want %q",
-			label,
-			accountable.Reason,
-			attributionReason,
-		)
+		t.Fatalf("%s on_behalf_of.reason = %q, want %q", label, accountable.Reason, attributionReason)
 	}
 }

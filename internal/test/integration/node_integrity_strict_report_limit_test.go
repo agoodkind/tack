@@ -26,11 +26,9 @@ const strictReportInvalidRecords = 25
 func TestNodeIntegrityStrictReportListsMaxViolations(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	stored := map[uuid.UUID]bool{}
-
 	for i := range strictReportInvalidRecords {
 		stored[storeInvalidStrictRecord(t, env, i)] = true
 	}
-
 	runs := []struct {
 		execute bool
 		limit   int
@@ -40,72 +38,34 @@ func TestNodeIntegrityStrictReportListsMaxViolations(t *testing.T) {
 		{execute: true, limit: 30, listed: strictReportInvalidRecords},
 	}
 	for _, run := range runs {
-		output, err := runStrictValidation(
-			t,
-			run.execute,
-			"--max-violations="+strconv.Itoa(run.limit),
-		)
+		output, err := runStrictValidation(t, run.execute, "--max-violations="+strconv.Itoa(run.limit))
 		if run.execute == (err == nil) {
-			t.Fatalf(
-				"strict validation with execute %t and limit %d returned error %v",
-				run.execute,
-				run.limit,
-				err,
-			)
+			t.Fatalf("strict validation with execute %t and limit %d returned error %v", run.execute, run.limit, err)
 		}
-
 		result := output.Result
-		if result.Activated || result.ViolationCount != strictReportInvalidRecords ||
-			len(result.FirstViolations) != run.listed {
-			t.Fatalf(
-				"strict validation with execute %t and limit %d = %d listed of %d, activated %t; want %d listed of %d",
-				run.execute,
-				run.limit,
-				len(result.FirstViolations),
-				result.ViolationCount,
-				result.Activated,
-				run.listed,
-				strictReportInvalidRecords,
-			)
+		if result.Activated || result.ViolationCount != strictReportInvalidRecords || len(result.FirstViolations) != run.listed {
+			t.Fatalf("strict validation with execute %t and limit %d = %d listed of %d, activated %t; want %d listed of %d",
+				run.execute, run.limit, len(result.FirstViolations), result.ViolationCount, result.Activated,
+				run.listed, strictReportInvalidRecords)
 		}
-
 		if output.MaxViolations != run.limit {
-			t.Fatalf(
-				"strict validation max_violations = %d, want %d",
-				output.MaxViolations,
-				run.limit,
-			)
+			t.Fatalf("strict validation max_violations = %d, want %d", output.MaxViolations, run.limit)
 		}
-
 		for _, violation := range result.FirstViolations {
 			if !stored[violation.NodeID] {
-				t.Fatalf(
-					"strict validation listed node %s, which the test did not store as invalid",
-					violation.NodeID,
-				)
+				t.Fatalf("strict validation listed node %s, which the test did not store as invalid", violation.NodeID)
 			}
 		}
 	}
-
 	for _, rejected := range []string{"0", "5001"} {
 		output, err := runStrictValidationOutput(t, false, "--max-violations="+rejected)
 		if err == nil || !strings.Contains(err.Error(), "--max-violations") {
-			t.Fatalf(
-				"strict validation with --max-violations=%s returned error %v, want a range error",
-				rejected,
-				err,
-			)
+			t.Fatalf("strict validation with --max-violations=%s returned error %v, want a range error", rejected, err)
 		}
-
 		if bytes.Contains(output, []byte("records_validated")) {
-			t.Fatalf(
-				"strict validation with --max-violations=%s printed a scan report: %s",
-				rejected,
-				output,
-			)
+			t.Fatalf("strict validation with --max-violations=%s printed a scan report: %s", rejected, output)
 		}
 	}
-
 	activation, err := env.Stores.Nodes.StrictActivation(env.Ctx)
 	if err != nil || activation.Active {
 		t.Fatalf("activation after the runs = %+v, %v; want inactive", activation, err)
@@ -119,34 +79,17 @@ func storeInvalidStrictRecord(t *testing.T, env *integration.TestEnv, index int)
 	nodeID := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()
 	name := "invalid workspace " + strconv.Itoa(index)
-	props := map[string]json.RawMessage{
-		"strict_test_undeclared": json.RawMessage(strconv.Quote("value")),
-	}
+	props := map[string]json.RawMessage{"strict_test_undeclared": json.RawMessage(strconv.Quote("value"))}
 	record := &node.Node{
-		ID:        nodeID,
-		OrgID:     env.OrgID,
-		NodeType:  "workspace",
-		Name:      name,
-		Props:     props,
-		CreatedBy: uuid.Nil,
-		UpdatedBy: uuid.Nil,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID: nodeID, OrgID: env.OrgID, NodeType: "workspace", Name: name, Props: props,
+		CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
 	}
 	view := &node.NodeView{
-		ID:        nodeID,
-		OrgID:     env.OrgID,
-		NodeType:  "workspace",
-		Name:      name,
-		Props:     props,
-		CreatedBy: uuid.Nil,
-		UpdatedBy: uuid.Nil,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID: nodeID, OrgID: env.OrgID, NodeType: "workspace", Name: name, Props: props,
+		CreatedBy: uuid.Nil, UpdatedBy: uuid.Nil, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := env.Stores.Nodes.CreateAtomic(env.Ctx, record, view, nil, nil, nil, nil); err != nil {
 		t.Fatalf("store invalid record %d: %v", index, err)
 	}
-
 	return nodeID
 }

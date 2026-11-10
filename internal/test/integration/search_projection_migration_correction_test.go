@@ -16,51 +16,28 @@ import (
 
 // putStoredBuiltIn stores a built-in property definition for name with
 // the supplied search inclusion and feature list.
-func (env *migrationEnv) putStoredBuiltIn(
-	t *testing.T,
-	name string,
-	include bool,
-	features []string,
-) *node.PropertyDef {
+func (env *migrationEnv) putStoredBuiltIn(t *testing.T, name string, include bool, features []string) *node.PropertyDef {
 	t.Helper()
 	definition := &node.PropertyDef{
-		ID:                     node.SystemPropID(env.OrgID, name),
-		OrgID:                  env.OrgID,
-		Name:                   name,
-		Type:                   node.PropertyTypeText,
-		AppliesToFeatures:      features,
-		Indexed:                true,
-		Options:                nil,
-		Required:               false,
-		DefaultValue:           nil,
-		DefaultReference:       nil,
-		ReferenceTargetTypeKey: "",
-		Search: &node.SearchProjection{
-			Include: include,
-			Order:   50,
-			Rule:    node.TextRule{Mode: node.TextRuleScalar, Fields: nil, Items: nil, Labels: nil},
-		},
+		ID: node.SystemPropID(env.OrgID, name), OrgID: env.OrgID, Name: name, Type: node.PropertyTypeText,
+		AppliesToFeatures: features, Indexed: true, Options: nil, Required: false, DefaultValue: nil,
+		DefaultReference: nil, ReferenceTargetTypeKey: "",
+		Search: &node.SearchProjection{Include: include, Order: 50, Rule: node.TextRule{Mode: node.TextRuleScalar, Fields: nil, Items: nil, Labels: nil}},
 	}
-	if err := env.Stores.PropertyDefs.Set(
-		integration.WithTestOperation(t, t.Context()),
-		definition,
-	); err != nil {
+	if err := env.Stores.PropertyDefs.Set(integration.WithTestOperation(t, t.Context()), definition); err != nil {
 		t.Fatalf("store built-in definition %s: %v", name, err)
 	}
-
 	return definition
 }
 
 func (env *migrationEnv) pageText(t *testing.T, nodeID uuid.UUID) string {
 	t.Helper()
 	var text strings.Builder
-
 	for _, page := range env.pages(t, nodeID, false) {
 		if page.PageText != nil {
 			text.WriteString(*page.PageText)
 		}
 	}
-
 	return text.String()
 }
 
@@ -80,117 +57,62 @@ func (env *migrationEnv) pageText(t *testing.T, nodeID uuid.UUID) string {
 func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.T) {
 	env := newMigrationEnv(t, 256)
 	parentDefinition := env.putStoredBuiltIn(t, "parent_id", true, nil)
-	scopeDefinition := env.putStoredBuiltIn(
-		t,
-		"scope_id",
-		false,
-		[]string{node.FeatureHasSequenceID},
-	)
+	scopeDefinition := env.putStoredBuiltIn(t, "scope_id", false, []string{node.FeatureHasSequenceID})
 	unaffected := env.putNodes(t, 2, "copper meadow lantern")
 	child := uuid.Must(uuid.NewV7())
-	props := map[string]json.RawMessage{
-		env.IncludedKey: encodeText(t, "zephyr orchard beacon"),
-		"parent_id":     encodeText(t, unaffected[0].String()),
-	}
+	props := map[string]json.RawMessage{env.IncludedKey: encodeText(t, "zephyr orchard beacon"), "parent_id": encodeText(t, unaffected[0].String())}
 	env.putNodeProps(t, child, props)
 	env.runIdle(t)
 	if !strings.Contains(env.pageText(t, child), unaffected[0].String()) {
 		t.Fatal("the stored parent_id inclusion did not index the parent UUID")
 	}
-
-	before := map[uuid.UUID][]migrationPage{
-		unaffected[0]: env.pages(t, unaffected[0], false),
-		unaffected[1]: env.pages(t, unaffected[1], false),
-	}
+	before := map[uuid.UUID][]migrationPage{unaffected[0]: env.pages(t, unaffected[0], false), unaffected[1]: env.pages(t, unaffected[1], false)}
 	childBefore := env.revisions(t, []uuid.UUID{child})
 
-	principal := audit.OperatorPrincipal{
-		ID:     uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca31"),
-		Email:  "operator@example.invalid",
-		Name:   "Operator",
-		Source: "test",
-	}
+	principal := audit.OperatorPrincipal{ID: uuid.MustParse("019dd226-440e-729a-a442-281aaf73ca31"), Email: "operator@example.invalid", Name: "Operator", Source: "test"}
 	ctx := audit.WithOperatorPrincipal(integration.WithTestOperation(t, t.Context()), principal)
 	preview, err := ops.RunFixedDefinitionCorrection(ctx, env.Stores.PropertyDefs, true)
 	if err != nil || preview.Corrected != 2 {
 		t.Fatalf("preview = %+v, err %v; want two corrections", preview, err)
 	}
-
 	applied, err := ops.RunFixedDefinitionCorrection(ctx, env.Stores.PropertyDefs, false)
 	if err != nil || applied.Corrected != 2 || applied.Conflicted != 0 {
 		t.Fatalf("correction = %+v, err %v; want two corrections", applied, err)
 	}
-
 	repeated, err := ops.RunFixedDefinitionCorrection(ctx, env.Stores.PropertyDefs, false)
 	if err != nil || repeated.Corrected != 0 {
 		t.Fatalf("repeated correction = %+v, err %v; want no correction", repeated, err)
 	}
-
 	env.requireCorrectionEvents(t, []uuid.UUID{parentDefinition.ID, scopeDefinition.ID})
-	stored, err := env.Stores.PropertyDefs.Get(
-		integration.WithTestOperation(t, t.Context()),
-		env.OrgID,
-		parentDefinition.ID,
-	)
+	stored, err := env.Stores.PropertyDefs.Get(integration.WithTestOperation(t, t.Context()), env.OrgID, parentDefinition.ID)
 	if err != nil || stored.Search == nil || stored.Search.Include {
 		t.Fatalf("stored parent_id definition = %+v, err %v; want a search exclusion", stored, err)
 	}
-
-	scope, err := env.Stores.PropertyDefs.Get(
-		integration.WithTestOperation(t, t.Context()),
-		env.OrgID,
-		scopeDefinition.ID,
-	)
+	scope, err := env.Stores.PropertyDefs.Get(integration.WithTestOperation(t, t.Context()), env.OrgID, scopeDefinition.ID)
 	if err != nil || slices.Contains(scope.AppliesToFeatures, node.FeatureHasSequenceID) {
-		t.Fatalf(
-			"stored scope_id definition = %+v, err %v; want the seeded applicability",
-			scope,
-			err,
-		)
+		t.Fatalf("stored scope_id definition = %+v, err %v; want the seeded applicability", scope, err)
 	}
-
 	wantChanges := []service.FixedDefinitionChange{
 		{
-			OrgID:         env.OrgID,
-			PropertyDefID: parentDefinition.ID,
-			Name:          "parent_id",
-			Outcome:       service.FixedOutcomeCorrected,
-			Search: &service.FixedSearchChange{
-				Before: parentDefinition.Search,
-				After:  stored.Search,
-			},
-			AppliesToFeatures: nil,
+			OrgID: env.OrgID, PropertyDefID: parentDefinition.ID, Name: "parent_id", Outcome: service.FixedOutcomeCorrected,
+			Search: &service.FixedSearchChange{Before: parentDefinition.Search, After: stored.Search}, AppliesToFeatures: nil,
 		},
 		{
-			OrgID:         env.OrgID,
-			PropertyDefID: scopeDefinition.ID,
-			Name:          "scope_id",
-			Outcome:       service.FixedOutcomeCorrected,
-			Search:        nil,
-			AppliesToFeatures: &service.FixedListChange{
-				Before: []string{node.FeatureHasSequenceID},
-				After:  scope.AppliesToFeatures,
-			},
+			OrgID: env.OrgID, PropertyDefID: scopeDefinition.ID, Name: "scope_id", Outcome: service.FixedOutcomeCorrected, Search: nil,
+			AppliesToFeatures: &service.FixedListChange{Before: []string{node.FeatureHasSequenceID}, After: scope.AppliesToFeatures},
 		},
 	}
 	requireDefinitionChanges(t, "dry run", preview.Changes, wantChanges)
 	requireDefinitionChanges(t, "execute run", applied.Changes, wantChanges)
 
 	env.runIdle(t)
-	if text := env.pageText(t, child); strings.Contains(text, unaffected[0].String()) ||
-		!strings.Contains(text, "zephyr orchard beacon") {
-		t.Fatalf(
-			"child pages after the correction = %q, want its text without the parent UUID",
-			text,
-		)
+	if text := env.pageText(t, child); strings.Contains(text, unaffected[0].String()) || !strings.Contains(text, "zephyr orchard beacon") {
+		t.Fatalf("child pages after the correction = %q, want its text without the parent UUID", text)
 	}
-
 	env.requireNewRevisions(t, []uuid.UUID{child}, childBefore, "the parent_id correction")
-
 	for nodeID, pages := range before {
 		after := env.pages(t, nodeID, false)
-		if len(after) != len(pages) || after[0].NodeRevision != pages[0].NodeRevision ||
-			after[0].ProjectionVersion != pages[0].ProjectionVersion {
+		if len(after) != len(pages) || after[0].NodeRevision != pages[0].NodeRevision || after[0].ProjectionVersion != pages[0].ProjectionVersion {
 			t.Fatalf("unaffected node %s pages changed from %+v to %+v", nodeID, pages, after)
 		}
 	}
@@ -200,47 +122,26 @@ func TestSearchProjectionMigrationCorrectsStoredReferenceDefinitions(t *testing.
 // counts differ. It then encodes each expected entry and its reported entry
 // as JSON, matching entries by property definition ID. It fails when the
 // entries differ and uses run to label the failure message.
-func requireDefinitionChanges(
-	t *testing.T,
-	run string,
-	changes []service.FixedDefinitionChange,
-	want []service.FixedDefinitionChange,
-) {
+func requireDefinitionChanges(t *testing.T, run string, changes, want []service.FixedDefinitionChange) {
 	t.Helper()
 	if len(changes) != len(want) {
-		t.Fatalf(
-			"%s reported %d definition changes %+v, want %d",
-			run,
-			len(changes),
-			changes,
-			len(want),
-		)
+		t.Fatalf("%s reported %d definition changes %+v, want %d", run, len(changes), changes, len(want))
 	}
-
 	got := make(map[uuid.UUID]string, len(changes))
 	for _, change := range changes {
 		encoded, err := json.Marshal(change)
 		if err != nil {
 			t.Fatalf("encode the %s change for %s: %v", run, change.Name, err)
 		}
-
 		got[change.PropertyDefID] = string(encoded)
 	}
-
 	for _, expected := range want {
 		encoded, err := json.Marshal(expected)
 		if err != nil {
 			t.Fatalf("encode the expected change for %s: %v", expected.Name, err)
 		}
-
 		if got[expected.PropertyDefID] != string(encoded) {
-			t.Fatalf(
-				"%s change for %s = %s, want %s",
-				run,
-				expected.Name,
-				got[expected.PropertyDefID],
-				encoded,
-			)
+			t.Fatalf("%s change for %s = %s, want %s", run, expected.Name, got[expected.PropertyDefID], encoded)
 		}
 	}
 }
@@ -250,36 +151,23 @@ func requireDefinitionChanges(
 // definition in definitionIDs.
 func (env *migrationEnv) requireCorrectionEvents(t *testing.T, definitionIDs []uuid.UUID) {
 	t.Helper()
-	entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(
-		integration.WithTestOperation(t, t.Context()),
-		nil,
-		100,
-	)
+	entries, err := env.Stores.OpsOutbox.ReadOutboxFrom(integration.WithTestOperation(t, t.Context()), nil, 100)
 	if err != nil {
 		t.Fatalf("read the audit outbox: %v", err)
 	}
-
 	found := make(map[uuid.UUID]int, len(definitionIDs))
-
 	for _, entry := range entries {
 		var event audit.Event
 		if err := json.Unmarshal(entry.Event, &event); err != nil {
 			t.Fatalf("decode audit event: %v", err)
 		}
-
-		if event.Verb == string(audit.VerbPropertyDefUpdate) && event.Delta != nil &&
-			len(event.Delta.Changed) > 0 {
+		if event.Verb == string(audit.VerbPropertyDefUpdate) && event.Delta != nil && len(event.Delta.Changed) > 0 {
 			found[event.Entity.ID]++
 		}
 	}
-
 	for _, definitionID := range definitionIDs {
 		if found[definitionID] != 1 {
-			t.Fatalf(
-				"definition %s has %d correction events, want 1",
-				definitionID,
-				found[definitionID],
-			)
+			t.Fatalf("definition %s has %d correction events, want 1", definitionID, found[definitionID])
 		}
 	}
 }

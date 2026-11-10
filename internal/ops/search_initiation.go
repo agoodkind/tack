@@ -18,9 +18,5 @@ func commandInitiation(ctx context.Context) (searchdomain.Initiation, error) {
 		slog.ErrorContext(ctx, "search.initiation.missing", slog.String("err", err.Error()))
 		return searchdomain.Initiation{}, fmt.Errorf("read the operator command operation: %w", err)
 	}
-
-	return searchdomain.Initiation{
-		OperationID: operation.Context.OperationID,
-		ActorID:     operation.Actor.ID,
-	}, nil
+	return searchdomain.Initiation{OperationID: operation.Context.OperationID, ActorID: operation.Actor.ID}, nil
 }

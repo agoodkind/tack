@@ -24,7 +24,6 @@ func TestSearchDeleteSchedulesBoundedFanout(t *testing.T) {
 	adapter, _, _, _ := newSearchIndex(t, stores)
 	source := clock.Wall{}
 	deleted := putSearchText(t, stores, "deleted hub", readerExcludedValue)
-
 	counterparts := make(map[uuid.UUID]struct{}, deleteFanoutCounterparts)
 	for range deleteFanoutCounterparts {
 		counterpart := deleted
@@ -33,54 +32,30 @@ func TestSearchDeleteSchedulesBoundedFanout(t *testing.T) {
 		linkSearchNodes(t, stores, deleted.OrgID, deleted.NodeID, counterpart.NodeID)
 		counterparts[counterpart.NodeID] = struct{}{}
 	}
-
-	worker := newSearchWorker(
-		t,
-		stores,
-		adapter,
-		source,
-		searchWorkerSettings(deleteFanoutPageBytes),
-	)
+	worker := newSearchWorker(t, stores, adapter, source, searchWorkerSettings(deleteFanoutPageBytes))
 	runSearchWorkerWithin(t, worker, deleteFanoutSlices)
 
-	if err := stores.Nodes.Delete(
-		WithTestOperation(t, t.Context()),
-		deleted.OrgID,
-		deleted.NodeID,
-	); err != nil {
+	if err := stores.Nodes.Delete(WithTestOperation(t, t.Context()), deleted.OrgID, deleted.NodeID); err != nil {
 		t.Fatalf("delete a node with %d relationships: %v", deleteFanoutCounterparts, err)
 	}
-
 	store := stores.SearchWork(source)
 	fanout := claimAll(t, store, searchdomain.WorkClassAccess)
 	work, exists := fanout[deleted.NodeID]
 	if len(fanout) != 1 || !exists || !work.Deleted || work.Phase != searchdomain.PhaseDependents {
-		t.Fatalf(
-			"access work after the delete = %d items, deleted-node work %+v, want one deleted dependents item",
-			len(fanout),
-			work,
-		)
+		t.Fatalf("access work after the delete = %d items, deleted-node work %+v, want one deleted dependents item", len(fanout), work)
 	}
-
 	if err := worker.Process(WithTestOperation(t, t.Context()), work); err != nil {
 		t.Fatalf("process the first fanout slice: %v", err)
 	}
-
 	scheduled := claimAll(t, store, searchdomain.WorkClassAccess)
 	scheduledCounterparts := 0
-
 	for nodeID := range scheduled {
 		if _, isCounterpart := counterparts[nodeID]; isCounterpart {
 			scheduledCounterparts++
 		}
 	}
-
 	if _, pending := scheduled[deleted.NodeID]; !pending || scheduledCounterparts != 100 {
-		t.Fatalf(
-			"first fanout slice scheduled %d counterparts with deleted work pending %t, want 100 and pending",
-			scheduledCounterparts,
-			pending,
-		)
+		t.Fatalf("first fanout slice scheduled %d counterparts with deleted work pending %t, want 100 and pending", scheduledCounterparts, pending)
 	}
 
 	for _, claim := range scheduled {
@@ -88,13 +63,8 @@ func TestSearchDeleteSchedulesBoundedFanout(t *testing.T) {
 			t.Fatalf("yield inspected access work for node %s: %v", claim.NodeID, err)
 		}
 	}
-
 	runSearchWorkerWithin(t, worker, deleteFanoutSlices)
-
-	for _, class := range []searchdomain.WorkClass{
-		searchdomain.WorkClassAccess,
-		searchdomain.WorkClassCleanup,
-	} {
+	for _, class := range []searchdomain.WorkClass{searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup} {
 		if remaining := claimAll(t, store, class); len(remaining) != 0 {
 			t.Fatalf("%s work remains after the fanout: %d items", class, len(remaining))
 		}

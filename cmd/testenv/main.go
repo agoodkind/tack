@@ -69,25 +69,21 @@ func run(args []string) int {
 	if len(args) > 0 && args[0] == "run-mac" {
 		return runMac(args[1:])
 	}
-
 	if len(args) == 0 || len(args) > 2 {
 		_, _ = fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}
-
 	command := subcommand(args[0])
 	argument := ""
 	if len(args) == 2 {
 		argument = args[1]
 	}
-
 	takesArgument := command == subcommandStopStore || command == subcommandStartStore ||
 		command == subcommandSearch || command == subcommandSearchDrill
 	if (argument != "") != takesArgument {
 		_, _ = fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}
-
 	slog.Info("testenv.start", slog.String("command", args[0]), slog.String("argument", argument))
 	switch command {
 	case subcommandLedger:
@@ -103,31 +99,21 @@ func run(args []string) int {
 	case subcommandObjectStore:
 		return runStep(func(step *cliStep) {
 			store := testenv.ObjectStore(step)
-			_, _ = fmt.Println(
-				store.Endpoint,
-				store.Bucket,
-				store.AccessKey,
-				store.SecretKey,
-				store.ReadOnlyAccessKey,
-				store.ReadOnlySecretKey,
-				store.Container,
-			)
+			_, _ = fmt.Println(store.Endpoint, store.Bucket, store.AccessKey, store.SecretKey,
+				store.ReadOnlyAccessKey, store.ReadOnlySecretKey, store.Container)
 		})
 	case subcommandKafka:
 		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.Kafka(step)) })
 	case subcommandStopStore:
 		return runStep(func(step *cliStep) { testenv.StopObjectStore(step, argument) })
 	case subcommandStartStore:
-		return runStep(
-			func(step *cliStep) { _, _ = fmt.Println(testenv.StartObjectStore(step, argument)) },
-		)
+		return runStep(func(step *cliStep) { _, _ = fmt.Println(testenv.StartObjectStore(step, argument)) })
 	case subcommandSearch, subcommandSearchDrill:
 		members, err := strconv.Atoi(argument)
 		if err != nil || members < 1 {
 			_, _ = fmt.Fprintln(os.Stderr, usage)
 			return 2
 		}
-
 		return runStep(func(step *cliStep) {
 			cluster := startSearchCluster(step, members)
 			if command == subcommandSearchDrill {
@@ -143,7 +129,6 @@ func run(args []string) int {
 			if err != nil {
 				step.fail(err)
 			}
-
 			slog.Info("testenv.down.done", slog.Int("removed", removed))
 		})
 	default:

@@ -7,10 +7,6 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 permissions:
   contents: read
   packages: write
@@ -35,7 +31,6 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         image: [tack-server, tack-audit-consumer]
         arch: [amd64, arm64]
@@ -118,7 +113,6 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
           - image: tack-server

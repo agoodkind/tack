@@ -13,9 +13,7 @@ func (a *sessionAudit) recordSessionCreate(state sessionState) error {
 	if err != nil {
 		return err
 	}
-
 	target := audit.SearchSessionTarget(state.record.ID, state.record.PrincipalID)
-
 	return a.recordProtected(target, nil, after, protected)
 }
 
@@ -26,9 +24,7 @@ func (a *sessionAudit) recordSessionDelete(state sessionState) error {
 	if err != nil {
 		return err
 	}
-
 	target := audit.SearchSessionTarget(state.record.ID, state.record.PrincipalID)
-
 	return a.recordProtected(target, before, nil, protected)
 }
 
@@ -40,76 +36,57 @@ func (a *sessionAudit) recordSessionUpdate(previous, current sessionState) error
 	if err != nil {
 		return err
 	}
-
 	newPlain, err := plainSessionMembers(current.record)
 	if err != nil {
 		return err
 	}
-
 	before, after := map[string]json.RawMessage{}, map[string]json.RawMessage{}
-
 	for member, value := range oldPlain {
-		if slices.Contains(sessionIdentityMembers, member) ||
-			!bytes.Equal(value, newPlain[member]) {
+		if slices.Contains(sessionIdentityMembers, member) || !bytes.Equal(value, newPlain[member]) {
 			before[member], after[member] = value, newPlain[member]
 		}
 	}
-
 	protected, err := a.changedProtected(previous, current, before, after)
 	if err != nil {
 		return err
 	}
-
 	encodedBefore, err := encodeSessionValue(before)
 	if err != nil {
 		return err
 	}
-
 	encodedAfter, err := encodeSessionValue(after)
 	if err != nil {
 		return err
 	}
-
 	target := audit.SearchSessionTarget(current.record.ID, current.record.PrincipalID)
-
 	return a.recordProtected(target, encodedBefore, encodedAfter, protected)
 }
 
 // changedProtected adds a reference to before and after for each protected
 // member that differs between previous and current.
-func (a *sessionAudit) changedProtected(
-	previous sessionState,
-	current sessionState,
-	before map[string]json.RawMessage,
-	after map[string]json.RawMessage,
-) ([]audit.ProtectedValue, error) {
+func (a *sessionAudit) changedProtected(previous, current sessionState, before, after map[string]json.RawMessage) ([]audit.ProtectedValue, error) {
 	oldValues, err := protectedSessionMembers(previous)
 	if err != nil {
 		return nil, err
 	}
-
 	newValues, err := protectedSessionMembers(current)
 	if err != nil {
 		return nil, err
 	}
-
 	for _, member := range sessionProtectedMembers {
 		if bytes.Equal(oldValues[member], newValues[member]) {
 			delete(oldValues, member)
 			delete(newValues, member)
 		}
 	}
-
 	subject := current.record.PrincipalID
 	oldProtected, err := a.protectAll(before, oldValues, sessionSideOld, subject)
 	if err != nil {
 		return nil, err
 	}
-
 	newProtected, err := a.protectAll(after, newValues, sessionSideNew, subject)
 	if err != nil {
 		return nil, err
 	}
-
 	return append(oldProtected, newProtected...), nil
 }

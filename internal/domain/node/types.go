@@ -49,7 +49,6 @@ func (f Features) Has(feat string) bool {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -60,7 +59,6 @@ func (f Features) HasAny(feats ...string) bool {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -73,12 +71,10 @@ func (f *Features) UnmarshalJSON(b []byte) error {
 		*f = ss
 		return nil
 	}
-
 	var bits uint32
 	if err := json.Unmarshal(b, &bits); err != nil {
 		return err
 	}
-
 	mapping := []struct {
 		bit  uint32
 		name string
@@ -96,15 +92,12 @@ func (f *Features) UnmarshalJSON(b []byte) error {
 		{1 << 10, FeatureExcludeFromGenericTools},
 	}
 	var out Features
-
 	for _, m := range mapping {
 		if bits&m.bit != 0 {
 			out = append(out, m.name)
 		}
 	}
-
 	*f = out
-
 	return nil
 }
 
@@ -177,7 +170,6 @@ func BuildTypeIndex(types []*NodeType) map[string]*NodeType {
 			m[nt.TypeKey] = nt
 		}
 	}
-
 	return m
 }
 
@@ -188,7 +180,6 @@ func (n *NodeType) PrimaryReferenceTemplate() *ReferenceTemplate {
 			return &n.ReferenceTemplates[index]
 		}
 	}
-
 	return nil
 }
 

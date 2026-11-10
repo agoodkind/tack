@@ -46,71 +46,31 @@ const (
 func searchSessionBucket(sessionID uuid.UUID) int {
 	hasher := hashfnv.New32a()
 	_, _ = hasher.Write(sessionID[:])
-
 	return int(hasher.Sum32() % searchSessionBuckets)
 }
 
 func searchSessionKey(sessionID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{keySearchSession, searchSessionBucket(sessionID), sessionID.String()}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchSession, searchSessionBucket(sessionID), sessionID.String()}.Pack())
 }
 
 func searchSessionChildPrefix(sessionID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchSessionChild,
-			searchSessionBucket(sessionID),
-			sessionID.String(),
-		}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchSessionChild, searchSessionBucket(sessionID), sessionID.String()}.Pack())
 }
 
 func searchSessionPartPrefix(sessionID uuid.UUID, part string) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchSessionChild,
-			searchSessionBucket(sessionID),
-			sessionID.String(),
-			part,
-		}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchSessionChild, searchSessionBucket(sessionID), sessionID.String(), part}.Pack())
 }
 
 func searchSessionTokenKey(sessionID uuid.UUID, chunk int) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchSessionChild,
-			searchSessionBucket(sessionID),
-			sessionID.String(),
-			sessionTokenPart,
-			chunk,
-		}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchSessionChild, searchSessionBucket(sessionID), sessionID.String(), sessionTokenPart, chunk}.Pack())
 }
 
 func searchSessionVisitedKey(sessionID, nodeID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchSessionChild,
-			searchSessionBucket(sessionID),
-			sessionID.String(),
-			sessionVisitedPart,
-			nodeID.String(),
-		}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchSessionChild, searchSessionBucket(sessionID), sessionID.String(), sessionVisitedPart, nodeID.String()}.Pack())
 }
 
 func searchSessionReplayKey(sessionID uuid.UUID, version uint64) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchSessionChild,
-			searchSessionBucket(sessionID),
-			sessionID.String(),
-			sessionReplayPart,
-			version,
-		}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchSessionChild, searchSessionBucket(sessionID), sessionID.String(), sessionReplayPart, version}.Pack())
 }
 
 // searchSessionMinute returns the expiry minute bucket of one deadline.
@@ -119,14 +79,7 @@ func searchSessionMinute(deadline time.Time) int64 {
 }
 
 func searchSessionExpiryKey(sessionID uuid.UUID, deadline time.Time) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchSessionExpiry,
-			searchSessionMinute(deadline),
-			searchSessionBucket(sessionID),
-			sessionID.String(),
-		}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchSessionExpiry, searchSessionMinute(deadline), searchSessionBucket(sessionID), sessionID.String()}.Pack())
 }
 
 // searchSessionExpiryRange returns the key range of every expiry key with a
@@ -134,36 +87,15 @@ func searchSessionExpiryKey(sessionID uuid.UUID, deadline time.Time) []byte {
 func searchSessionExpiryRange(end time.Time) (begin, until []byte) {
 	begin = withPrefix(tuple.Tuple{keySearchSessionExpiry}.Pack())
 	until = withPrefix(tuple.Tuple{keySearchSessionExpiry, searchSessionMinute(end)}.Pack())
-
 	return begin, until
 }
 
 func searchSessionPresenceKey(index string, sessionID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchSessionPresent,
-			index,
-			searchSessionBucket(sessionID),
-			sessionID.String(),
-		}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchSessionPresent, index, searchSessionBucket(sessionID), sessionID.String()}.Pack())
 }
 
-func searchRetireAttemptKey(
-	index string,
-	sessionID uuid.UUID,
-	step searchdomain.CleanupStep,
-	eventID uuid.UUID,
-) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchRetireAttempt,
-			index,
-			sessionID.String(),
-			string(step),
-			eventID.String(),
-		}.Pack(),
-	)
+func searchRetireAttemptKey(index string, sessionID uuid.UUID, step searchdomain.CleanupStep, eventID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keySearchRetireAttempt, index, sessionID.String(), string(step), eventID.String()}.Pack())
 }
 
 func searchRetireAttemptPrefix(index string) []byte {
@@ -173,67 +105,35 @@ func searchRetireAttemptPrefix(index string) []byte {
 func parseRetireAttemptKey(key fdb.Key) (uuid.UUID, searchdomain.CleanupStep, uuid.UUID, error) {
 	values, err := tuple.Unpack(stripPrefix(key))
 	if err != nil {
-		return uuid.Nil, "", uuid.Nil, sessionStepError{
-			operation: "unpack retirement attempt key",
-			err:       err,
-		}
+		return uuid.Nil, "", uuid.Nil, sessionStepError{operation: "unpack retirement attempt key", err: err}
 	}
-
 	if len(values) != retireAttemptKeyElements {
-		return uuid.Nil, "", uuid.Nil, fmt.Errorf(
-			"retirement attempt key has %d elements, want %d",
-			len(values),
-			retireAttemptKeyElements,
-		)
+		return uuid.Nil, "", uuid.Nil, fmt.Errorf("retirement attempt key has %d elements, want %d", len(values), retireAttemptKeyElements)
 	}
-
 	sessionText, sessionOK := values[2].(string)
 	stepText, stepOK := values[3].(string)
 	eventText, eventOK := values[4].(string)
 	if !sessionOK || !stepOK || !eventOK {
-		return uuid.Nil, "", uuid.Nil, fmt.Errorf(
-			"retirement attempt key %x does not end with text values",
-			key,
-		)
+		return uuid.Nil, "", uuid.Nil, fmt.Errorf("retirement attempt key %x does not end with text values", key)
 	}
-
 	sessionID, err := uuid.Parse(sessionText)
 	if err != nil {
-		return uuid.Nil, "", uuid.Nil, sessionStepError{
-			operation: "parse retirement attempt session ID",
-			err:       err,
-		}
+		return uuid.Nil, "", uuid.Nil, sessionStepError{operation: "parse retirement attempt session ID", err: err}
 	}
-
 	eventID, err := uuid.Parse(eventText)
 	if err != nil {
-		return uuid.Nil, "", uuid.Nil, sessionStepError{
-			operation: "parse retirement attempt event ID",
-			err:       err,
-		}
+		return uuid.Nil, "", uuid.Nil, sessionStepError{operation: "parse retirement attempt event ID", err: err}
 	}
-
 	return sessionID, searchdomain.CleanupStep(stepText), eventID, nil
 }
 
 // searchSessionVersionKey orders one session's version presence entry by
 // the minute of its absolute deadline.
-func searchSessionVersionKey(
-	authorityID uuid.UUID,
-	version string,
-	absolute time.Time,
-	sessionID uuid.UUID,
-) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchSessionVersion,
-			authorityID.String(),
-			version,
-			searchSessionMinute(absolute),
-			searchSessionBucket(sessionID),
-			sessionID.String(),
-		}.Pack(),
-	)
+func searchSessionVersionKey(authorityID uuid.UUID, version string, absolute time.Time, sessionID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{
+		keySearchSessionVersion, authorityID.String(), version, searchSessionMinute(absolute),
+		searchSessionBucket(sessionID), sessionID.String(),
+	}.Pack())
 }
 
 // searchSessionVersionPrefix returns the key prefix of every version presence
@@ -245,12 +145,5 @@ func searchSessionVersionPrefix(authorityID uuid.UUID, version string) []byte {
 // searchSessionVersionStart returns the lower-bound key of the version
 // presence entries with an absolute deadline in the current minute or later.
 func searchSessionVersionStart(authorityID uuid.UUID, version string, now time.Time) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchSessionVersion,
-			authorityID.String(),
-			version,
-			searchSessionMinute(now),
-		}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchSessionVersion, authorityID.String(), version, searchSessionMinute(now)}.Pack())
 }

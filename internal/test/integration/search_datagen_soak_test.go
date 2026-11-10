@@ -54,29 +54,16 @@ func TestSearchDatagenSoakReportsSearchLatency(t *testing.T) {
 	output := runDatagenSoakCommit(t, &cfg)
 	result := output.Result
 	if result.StopReason != "max_ops" || result.Operations != soakTestOperations {
-		t.Fatalf(
-			"soak stopped with %q after %d operations, want max_ops after %d",
-			result.StopReason,
-			result.Operations,
-			soakTestOperations,
-		)
+		t.Fatalf("soak stopped with %q after %d operations, want max_ops after %d", result.StopReason, result.Operations, soakTestOperations)
 	}
 	if result.Searches == 0 || result.SearchesUnavailable != 0 {
-		t.Fatalf(
-			"soak searches = %d answered and %d unavailable, want answered searches only",
-			result.Searches,
-			result.SearchesUnavailable,
-		)
+		t.Fatalf("soak searches = %d answered and %d unavailable, want answered searches only", result.Searches, result.SearchesUnavailable)
 	}
 	calls, searchCalls := 0, 0
 	for _, latency := range result.Latency {
 		if latency.Calls <= 0 || latency.MinMs < 0 || latency.MinMs > latency.P50Ms ||
 			latency.P50Ms > latency.P95Ms || latency.P95Ms > latency.MaxMs {
-			t.Fatalf(
-				"latency of %s = %+v, want calls above zero and 0 <= min <= p50 <= p95 <= max",
-				latency.Kind,
-				latency,
-			)
+			t.Fatalf("latency of %s = %+v, want calls above zero and 0 <= min <= p50 <= p95 <= max", latency.Kind, latency)
 		}
 		// With 3 to 20 calls the nearest-rank p95 is the largest value, also
 		// when values tie.
@@ -89,14 +76,8 @@ func TestSearchDatagenSoakReportsSearchLatency(t *testing.T) {
 		}
 	}
 	if calls != result.Operations || searchCalls != result.Searches {
-		t.Fatalf(
-			"latency covers %d operations and %d searches, want %d and %d: %+v",
-			calls,
-			searchCalls,
-			result.Operations,
-			result.Searches,
-			result.Latency,
-		)
+		t.Fatalf("latency covers %d operations and %d searches, want %d and %d: %+v",
+			calls, searchCalls, result.Operations, result.Searches, result.Latency)
 	}
 	t.Logf("soak searches=%d latency=%+v", result.Searches, result.Latency)
 
@@ -106,15 +87,8 @@ func TestSearchDatagenSoakReportsSearchLatency(t *testing.T) {
 	wantUnavailable := soakTestOperations / soakTestKinds
 	if refused.StopReason != "max_ops" || refused.Operations != soakTestOperations ||
 		refused.Searches != 0 || refused.SearchesUnavailable != wantUnavailable {
-		t.Fatalf(
-			"soak with public search off = %q after %d operations with %d answered and %d unavailable searches, want max_ops after %d with 0 and %d",
-			refused.StopReason,
-			refused.Operations,
-			refused.Searches,
-			refused.SearchesUnavailable,
-			soakTestOperations,
-			wantUnavailable,
-		)
+		t.Fatalf("soak with public search off = %q after %d operations with %d answered and %d unavailable searches, want max_ops after %d with 0 and %d",
+			refused.StopReason, refused.Operations, refused.Searches, refused.SearchesUnavailable, soakTestOperations, wantUnavailable)
 	}
 	unavailableCalls := 0
 	for _, latency := range refused.Latency {
@@ -126,12 +100,7 @@ func TestSearchDatagenSoakReportsSearchLatency(t *testing.T) {
 		}
 	}
 	if unavailableCalls != wantUnavailable {
-		t.Fatalf(
-			"search_unavailable latency calls = %d, want %d: %+v",
-			unavailableCalls,
-			wantUnavailable,
-			refused.Latency,
-		)
+		t.Fatalf("search_unavailable latency calls = %d, want %d: %+v", unavailableCalls, wantUnavailable, refused.Latency)
 	}
 }
 
@@ -149,15 +118,8 @@ func TestSearchDatagenSoakContinuesDuringEngineOutage(t *testing.T) {
 	wantUnavailable := soakTestOperations / soakTestKinds
 	if result.StopReason != "max_ops" || result.Operations != soakTestOperations ||
 		result.Searches != 0 || result.SearchesUnavailable != wantUnavailable {
-		t.Fatalf(
-			"soak during the outage = %q after %d operations with %d answered and %d unavailable searches, want max_ops after %d with 0 and %d",
-			result.StopReason,
-			result.Operations,
-			result.Searches,
-			result.SearchesUnavailable,
-			soakTestOperations,
-			wantUnavailable,
-		)
+		t.Fatalf("soak during the outage = %q after %d operations with %d answered and %d unavailable searches, want max_ops after %d with 0 and %d",
+			result.StopReason, result.Operations, result.Searches, result.SearchesUnavailable, soakTestOperations, wantUnavailable)
 	}
 	startEngine(t, fixture)
 }
@@ -178,28 +140,10 @@ func runDatagenSoakCommit(t *testing.T, cfg *config.Config) datagenSoakOutput {
 	t.Cleanup(factory.CloseAuditOutbox)
 	root := searchCommandRoot(factory)
 	root.SetArgs([]string{
-		"--execute",
-		"--output",
-		"json",
-		"--operator-id",
-		"019dd226-440e-729a-a442-281aaf73ca33",
-		"--operator-email",
-		"operator@example.com",
-		"--operator-name",
-		"Soak Latency Test",
-		"ops",
-		"qa",
-		"datagen",
-		"soak",
-		"--commit",
-		"--duration",
-		"10m",
-		"--rate",
-		"1000",
-		"--max-ops",
-		strconv.Itoa(soakTestOperations),
-		"--seed",
-		strconv.FormatInt(nextHarnessSeed(), 10),
+		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca33",
+		"--operator-email", "operator@example.com", "--operator-name", "Soak Latency Test",
+		"ops", "qa", "datagen", "soak", "--commit", "--duration", "10m", "--rate", "1000",
+		"--max-ops", strconv.Itoa(soakTestOperations), "--seed", strconv.FormatInt(nextHarnessSeed(), 10),
 	})
 	if err := root.ExecuteContext(t.Context()); err != nil {
 		t.Fatalf("ops qa datagen soak --commit: %v\n%s", err, output.String())

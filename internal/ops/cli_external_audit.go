@@ -15,11 +15,8 @@ import (
 // contain credentials.
 func externalSpec(verb audit.Verb, reference string) audit.Spec {
 	target := externalTarget(reference)
-
 	return audit.Spec{
-		Verb:    string(verb),
-		Mutates: true,
-		Class:   audit.OperationExternal,
+		Verb: string(verb), Mutates: true, Class: audit.OperationExternal,
 		Targets: func(context.Context, json.RawMessage) ([]audit.Target, error) {
 			return []audit.Target{target}, nil
 		},
@@ -62,6 +59,5 @@ func encodeCommandInput[Input commandInput](input Input) (json.RawMessage, error
 		slog.Error("ops.command_input_encode_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("encode command input: %w", err)
 	}
-
 	return encoded, nil
 }

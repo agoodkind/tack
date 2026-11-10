@@ -12,7 +12,6 @@ func engineNetwork(spec engineSpec) string {
 	if spec.attachNetwork != "" {
 		return spec.attachNetwork
 	}
-
 	return activeNetwork()
 }
 
@@ -30,16 +29,12 @@ func engineNetworking(spec engineSpec) (*container.HostConfig, *network.Networki
 		hostConfig.NetworkMode = container.NetworkMode("container:" + spec.networkOf)
 		return hostConfig, &network.NetworkingConfig{EndpointsConfig: nil}
 	}
-
 	endpoint := &network.EndpointSettings{}
 	if spec.ipv4Address.IsValid() {
 		endpoint.IPAMConfig = &network.EndpointIPAMConfig{
-			IPv4Address:  spec.ipv4Address,
-			IPv6Address:  netip.Addr{},
-			LinkLocalIPs: nil,
+			IPv4Address: spec.ipv4Address, IPv6Address: netip.Addr{}, LinkLocalIPs: nil,
 		}
 	}
-
 	return hostConfig, &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{engineNetwork(spec): endpoint},
 	}

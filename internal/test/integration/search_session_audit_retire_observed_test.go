@@ -43,44 +43,25 @@ func TestSearchSessionAuditRetireFailedWriteClearsObservedRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the owner operation: %v", err)
 	}
-	hooks := installRetireLogHooks(
-		t,
-		session.ID.String(),
-		map[string]func(){
-			retireCleanupFailedMessage: func() { observeAttemptWithFailingCall(t, stores, index) },
-		},
-	)
+	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
+		retireCleanupFailedMessage: func() { observeAttemptWithFailingCall(t, stores, index) },
+	})
 
 	_, err = rebuilds.RetireIndexSessions(ownerContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
 	requireChangeEventFailure(t, "RetireIndexSessions of "+index, err)
 	if errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf(
-			"RetireIndexSessions of %s with a saved failed event = %v, want no %v",
-			index,
-			err,
-			audit.ErrEventNotRecorded,
-		)
+		t.Fatalf("RetireIndexSessions of %s with a saved failed event = %v, want no %v", index, err, audit.ErrEventNotRecorded)
 	}
 	attemptRecordValues(t, 0)
 	found := 0
-	for _, event := range cleanupFailureEvents(
-		t,
-		stores,
-		mark,
-		session.ID,
-		searchdomain.CleanupClose,
-	) {
+	for _, event := range cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupClose) {
 		if event.Context.OperationID == operation.Context.OperationID {
 			found++
 		}
 	}
 	if found != 1 {
-		t.Fatalf(
-			"operation %s has %d failed close events, want 1",
-			operation.Context.OperationID,
-			found,
-		)
+		t.Fatalf("operation %s has %d failed close events, want 1", operation.Context.OperationID, found)
 	}
 }
 
@@ -100,44 +81,23 @@ func TestSearchSessionAuditRetireCodeSaveKeepsObservation(t *testing.T) {
 	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
 	var observed time.Time
-	hooks := installRetireLogHooks(
-		t,
-		session.ID.String(),
-		map[string]func(){
-			retireCleanupFailedMessage: func() {
-				observed = observeAttemptWithFailingCall(t, stores, index)
-				setContainerPaused(t, container, true)
-			},
-			retireAuditFailedMessage: func() { setContainerPaused(t, container, false) },
+	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
+		retireCleanupFailedMessage: func() {
+			observed = observeAttemptWithFailingCall(t, stores, index)
+			setContainerPaused(t, container, true)
 		},
-	)
+		retireAuditFailedMessage: func() { setContainerPaused(t, container, false) },
+	})
 
-	_, err := rebuilds.RetireIndexSessions(
-		withFutureOperation(t, t.Context()),
-		index,
-		retireSliceLimit,
-	)
+	_, err := rebuilds.RetireIndexSessions(withFutureOperation(t, t.Context()), index, retireSliceLimit)
 	hooks.requireFinished(t)
 	if !errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf(
-			"RetireIndexSessions of %s with saved codes = %v, want %v",
-			index,
-			err,
-			audit.ErrEventNotRecorded,
-		)
+		t.Fatalf("RetireIndexSessions of %s with saved codes = %v, want %v", index, err, audit.ErrEventNotRecorded)
 	}
 	stored := readStoredAttempt(t)
-	if !stored.ObservedAt.Equal(observed) || stored.Cleanup != unclassifiedFailureCode ||
-		stored.Recording != transactionTimedOutCode {
-		t.Fatalf(
-			"stored attempt has observation %s and codes %q and %q, want observation %s and codes %q and %q",
-			stored.ObservedAt,
-			stored.Cleanup,
-			stored.Recording,
-			observed,
-			unclassifiedFailureCode,
-			transactionTimedOutCode,
-		)
+	if !stored.ObservedAt.Equal(observed) || stored.Cleanup != unclassifiedFailureCode || stored.Recording != transactionTimedOutCode {
+		t.Fatalf("stored attempt has observation %s and codes %q and %q, want observation %s and codes %q and %q",
+			stored.ObservedAt, stored.Cleanup, stored.Recording, observed, unclassifiedFailureCode, transactionTimedOutCode)
 	}
 }
 
@@ -154,44 +114,22 @@ func TestSearchSessionAuditRetireClearRemovesObservedRecord(t *testing.T) {
 	index := "node-pages-observed-clear"
 	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
-	hooks := installRetireLogHooks(
-		t,
-		session.ID.String(),
-		map[string]func(){
-			sessionDeletedMessage: func() {
-				remaining, err := rebuilds.RetireIndexSessions(
-					integration.WithTestOperation(t, t.Context()),
-					index,
-					retireSliceLimit,
-				)
-				if err != nil || !remaining {
-					t.Fatalf(
-						"RetireIndexSessions of %s with an active attempt = %t, %v, want remaining work",
-						index,
-						remaining,
-						err,
-					)
-				}
-				if readStoredAttempt(t).ObservedAt.IsZero() {
-					t.Fatalf("the attempt record of index %s has no observation time", index)
-				}
-			},
+	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
+		sessionDeletedMessage: func() {
+			remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
+			if err != nil || !remaining {
+				t.Fatalf("RetireIndexSessions of %s with an active attempt = %t, %v, want remaining work", index, remaining, err)
+			}
+			if readStoredAttempt(t).ObservedAt.IsZero() {
+				t.Fatalf("the attempt record of index %s has no observation time", index)
+			}
 		},
-	)
+	})
 
-	remaining, err := rebuilds.RetireIndexSessions(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		retireSliceLimit,
-	)
+	remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
 	hooks.requireFinished(t)
 	if err != nil || remaining {
-		t.Fatalf(
-			"RetireIndexSessions of %s with an observed record = %t, %v, want a finished retirement",
-			index,
-			remaining,
-			err,
-		)
+		t.Fatalf("RetireIndexSessions of %s with an observed record = %t, %v, want a finished retirement", index, remaining, err)
 	}
 	attemptRecordValues(t, 0)
 }
@@ -201,17 +139,9 @@ func TestSearchSessionAuditRetireClearRemovesObservedRecord(t *testing.T) {
 // call stores ObservedAt in the attempt record. The second call then
 // fails its own close step and clears its own attempt. The function
 // returns the stored observation time.
-func observeAttemptWithFailingCall(
-	t *testing.T,
-	stores *fdbadapter.Stores,
-	index string,
-) time.Time {
+func observeAttemptWithFailingCall(t *testing.T, stores *fdbadapter.Stores, index string) time.Time {
 	t.Helper()
-	_, err := stores.SearchRebuilds(clock.Wall{}).RetireIndexSessions(
-		withFutureOperation(t, t.Context()),
-		index,
-		retireSliceLimit,
-	)
+	_, err := stores.SearchRebuilds(clock.Wall{}).RetireIndexSessions(withFutureOperation(t, t.Context()), index, retireSliceLimit)
 	requireChangeEventFailure(t, "RetireIndexSessions recovery of "+index, err)
 	observed := readStoredAttempt(t).ObservedAt
 	if observed.IsZero() {

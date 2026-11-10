@@ -49,41 +49,24 @@ const (
 // Removing the filler must trigger automatic release and allow creation.
 // The test requires both TACK_SEARCH_INTEGRATION=1 and TACK_SEARCH_CLUSTER=1.
 func TestSearchClusterSharedDiskFloor(t *testing.T) {
-	engine := testenv.DisposableOpenSearch(
-		t,
-		testenv.DisposableOpenSearchOptions{
-			MemoryBytes:      floorMemoryBytes,
-			DataBytes:        floorDataBytes,
-			SharedDiskPolicy: true,
-		},
-	)
+	engine := testenv.DisposableOpenSearch(t, testenv.DisposableOpenSearchOptions{
+		MemoryBytes: floorMemoryBytes, DataBytes: floorDataBytes, SharedDiskPolicy: true,
+	})
 	client := integration.OpenSearchClient(t, engine.Fixture)
 
 	size, used := engine.FillData(t, floorAbovePercent)
 	t.Logf("data path after the first fill: %d of %d bytes used", used, size)
 	if size-used <= floorBytes || used*100 <= size*floorDefaultHigh {
-		t.Fatalf(
-			"data path has %d of %d bytes used, want free space above the floor and usage above %d percent",
-			used,
-			size,
-			floorDefaultHigh,
-		)
+		t.Fatalf("data path has %d of %d bytes used, want free space above the floor and usage above %d percent", used, size, floorDefaultHigh)
 	}
-
 	requireNoCreateIndexBlock(t, client, floorQuietPeriod)
 	requireIndexCreated(t, client)
 
 	watermarks := []string{watermarkLowKey, watermarkHighKey, watermarkFloodKey}
 	t.Cleanup(func() { clearPersistentSettings(t, client, watermarks...) })
-	putPersistentSettings(
-		t,
-		client,
-		map[string]string{
-			watermarkLowKey:   `"85%"`,
-			watermarkHighKey:  `"90%"`,
-			watermarkFloodKey: `"95%"`,
-		},
-	)
+	putPersistentSettings(t, client, map[string]string{
+		watermarkLowKey: `"85%"`, watermarkHighKey: `"90%"`, watermarkFloodKey: `"95%"`,
+	})
 	waitForCreateIndexBlock(t, client, true)
 	requireIndexRefused(t, client)
 	clearPersistentSettings(t, client, watermarks...)
@@ -95,7 +78,6 @@ func TestSearchClusterSharedDiskFloor(t *testing.T) {
 	if size-used >= floorBytes {
 		t.Fatalf("data path has %d of %d bytes used, want free space below the floor", used, size)
 	}
-
 	waitForCreateIndexBlock(t, client, true)
 	requireIndexRefused(t, client)
 
@@ -116,37 +98,20 @@ func requireNoCreateIndexBlock(t *testing.T, client *opensearchapi.Client, perio
 	ticker := time.NewTicker(floorPollInterval)
 	defer ticker.Stop()
 	reads := 0
-
 	for {
 		ctx, cancel := context.WithTimeout(t.Context(), floorRequestBounds)
-		settings, err := client.Cluster.GetSettings(
-			ctx,
-			&opensearchapi.ClusterGetSettingsReq{
-				Params: &opensearchapi.ClusterGetSettingsParams{FlatSettings: new(true)},
-			},
-		)
+		settings, err := client.Cluster.GetSettings(ctx, &opensearchapi.ClusterGetSettingsReq{Params: &opensearchapi.ClusterGetSettingsParams{FlatSettings: new(true)}})
 		cancel()
 		if err != nil {
 			t.Fatalf("read cluster.blocks.create_index after %d successful reads: %v", reads, err)
 		}
-
 		reads++
 		if string(settings.Persistent[createIndexBlockKey]) == `"true"` {
-			t.Fatalf(
-				"the engine set %s after %d reads with free space above the floor",
-				createIndexBlockKey,
-				reads,
-			)
+			t.Fatalf("the engine set %s after %d reads with free space above the floor", createIndexBlockKey, reads)
 		}
-
 		select {
 		case <-t.Context().Done():
-			t.Fatalf(
-				"observe %s after %d successful reads: %v",
-				createIndexBlockKey,
-				reads,
-				context.Cause(t.Context()),
-			)
+			t.Fatalf("observe %s after %d successful reads: %v", createIndexBlockKey, reads, context.Cause(t.Context()))
 		case <-expiry.C:
 			t.Logf("%s stayed unset for %d reads over %s", createIndexBlockKey, reads, period)
 			return
@@ -163,20 +128,13 @@ func requireIndexCreated(t *testing.T, client *opensearchapi.Client) {
 	name := floorIndexPrefix + uuid.NewString()
 	ctx, cancel := context.WithTimeout(t.Context(), floorRequestBounds)
 	defer cancel()
-	if _, err := client.Indices.Create(
-		ctx,
-		opensearchapi.IndicesCreateReq{Index: name},
-	); err != nil {
+	if _, err := client.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: name}); err != nil {
 		t.Fatalf("create index %s: %v", name, err)
 	}
-
 	t.Cleanup(func() {
 		cleanup, stop := context.WithTimeout(context.WithoutCancel(t.Context()), floorRequestBounds)
 		defer stop()
-		if _, err := client.Indices.Delete(
-			cleanup,
-			&opensearchapi.IndicesDeleteReq{Indices: []string{name}},
-		); err != nil {
+		if _, err := client.Indices.Delete(cleanup, &opensearchapi.IndicesDeleteReq{Indices: []string{name}}); err != nil {
 			t.Errorf("delete index %s: %v", name, err)
 		}
 	})
@@ -188,13 +146,9 @@ func requireIndexRefused(t *testing.T, client *opensearchapi.Client) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), floorRequestBounds)
 	defer cancel()
-	_, err := client.Indices.Create(
-		ctx,
-		opensearchapi.IndicesCreateReq{Index: floorIndexPrefix + uuid.NewString()},
-	)
+	_, err := client.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: floorIndexPrefix + uuid.NewString()})
 	var blocked *opensearch.StructError
-	if !errors.As(err, &blocked) || blocked.Status != http.StatusForbidden ||
-		blocked.Err.Type != floorBlockType ||
+	if !errors.As(err, &blocked) || blocked.Status != http.StatusForbidden || blocked.Err.Type != floorBlockType ||
 		!strings.Contains(blocked.Err.Reason, floorBlockReason) {
 		t.Fatalf("create index under the block returned %v", err)
 	}
@@ -206,23 +160,17 @@ func requireIndexRefused(t *testing.T, client *opensearchapi.Client) {
 // after the test context cancels.
 func putPersistentSettings(t *testing.T, client *opensearchapi.Client, settings map[string]string) {
 	t.Helper()
-
 	values := make(map[string]json.RawMessage, len(settings))
 	for key, value := range settings {
 		values[key] = json.RawMessage(value)
 	}
-
 	body, err := json.Marshal(map[string]map[string]json.RawMessage{"persistent": values})
 	if err != nil {
 		t.Fatalf("encode persistent settings: %v", err)
 	}
-
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), floorRequestBounds)
 	defer cancel()
-	response, err := client.Cluster.PutSettings(
-		ctx,
-		&opensearchapi.ClusterPutSettingsReq{BodyReader: strings.NewReader(string(body))},
-	)
+	response, err := client.Cluster.PutSettings(ctx, &opensearchapi.ClusterPutSettingsReq{BodyReader: strings.NewReader(string(body))})
 	if err != nil || !response.Acknowledged {
 		t.Fatalf("set persistent settings %s: %v", body, err)
 	}
@@ -232,11 +180,9 @@ func putPersistentSettings(t *testing.T, client *opensearchapi.Client, settings 
 // keys in one request.
 func clearPersistentSettings(t *testing.T, client *opensearchapi.Client, keys ...string) {
 	t.Helper()
-
 	cleared := make(map[string]string, len(keys))
 	for _, key := range keys {
 		cleared[key] = "null"
 	}
-
 	putPersistentSettings(t, client, cleared)
 }

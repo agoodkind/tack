@@ -26,24 +26,17 @@ type claimOperationRecord struct {
 func requireNoFailedClaim(t *testing.T, logged *bytes.Buffer) {
 	t.Helper()
 	decoder := json.NewDecoder(logged)
-
 	for {
 		var record claimOperationRecord
 		err := decoder.Decode(&record)
 		if errors.Is(err, io.EOF) {
 			return
 		}
-
 		if err != nil {
 			t.Fatalf("decode a claim log record: %v", err)
 		}
-
 		if record.Message == claimOperation && record.Status == "failed" {
-			t.Fatalf(
-				"an empty claim logged a failed %s record with error %q",
-				claimOperation,
-				record.Err,
-			)
+			t.Fatalf("an empty claim logged a failed %s record with error %q", claimOperation, record.Err)
 		}
 	}
 }

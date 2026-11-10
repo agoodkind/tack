@@ -24,31 +24,22 @@ func TestAuditReadRefusesMissingInfrastructure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load test configuration: %v", err)
 	}
-
 	cfg.AuditReaderDSN = empty.DSN
 	pool, err := pgxpool.New(t.Context(), empty.DSN)
 	if err != nil {
 		t.Fatalf("open empty ledger: %v", err)
 	}
-
 	t.Cleanup(pool.Close)
 	probeSQL := readTestSQL(t, "audit_empty_infrastructure_probe.sql")
 	probe := func(ctx context.Context) (audit.InfrastructureState, error) {
 		var state audit.InfrastructureState
-		err := pool.QueryRow(ctx, probeSQL).Scan(
-			&state.OutboxTableExists,
-			&state.OperatorLoginExists,
-			&state.OperatorReadsExist,
-		)
-
+		err := pool.QueryRow(ctx, probeSQL).Scan(&state.OutboxTableExists, &state.OperatorLoginExists, &state.OperatorReadsExist)
 		return state, err
 	}
 	state, err := probe(t.Context())
-	if err != nil || state.OutboxTableExists || state.OperatorLoginExists ||
-		state.OperatorReadsExist {
+	if err != nil || state.OutboxTableExists || state.OperatorLoginExists || state.OperatorReadsExist {
 		t.Fatalf("empty infrastructure = %+v, error %v", state, err)
 	}
-
 	run := func(args ...string) (string, error) {
 		output := &bytes.Buffer{}
 		factory := cli.System(cfg)
@@ -58,59 +49,22 @@ func TestAuditReadRefusesMissingInfrastructure(t *testing.T) {
 		factory.SetAuditInfrastructureProbe(probe)
 		root := nodeAuditCommandRoot(factory)
 		root.SetContext(t.Context())
-		root.SetArgs(
-			append(
-				[]string{
-					"--operator-id",
-					uuid.Must(uuid.NewV7()).String(),
-					"--operator-email",
-					"operator@example.test",
-				},
-				args...,
-			),
-		)
+		root.SetArgs(append([]string{"--operator-id", uuid.Must(uuid.NewV7()).String(), "--operator-email", "operator@example.test"}, args...))
 		err := root.Execute()
-
 		return output.String(), err
 	}
-	output, err := run(
-		"--execute",
-		"ops",
-		"audit",
-		"manifest-parts",
-		"--org",
-		uuid.Must(uuid.NewV7()).String(),
-		"--event-id",
-		uuid.Must(uuid.NewV7()).String(),
-	)
+	output, err := run("--execute", "ops", "audit", "manifest-parts", "--org", uuid.Must(uuid.NewV7()).String(), "--event-id", uuid.Must(uuid.NewV7()).String())
 	if !errors.Is(err, audit.ErrReadNotAdmitted) || output != "" {
 		t.Fatalf("ordinary read output = %q, error = %v; want admission refusal", output, err)
 	}
-
 	output, err = run("--execute", "ops", "deploy", "verify", "--service", "invalid")
 	if !errors.Is(err, audit.ErrReadNotAdmitted) || output != "" {
 		t.Fatalf("deploy verification output = %q, error = %v; want admission refusal", output, err)
 	}
-
-	output, err = run(
-		"--execute",
-		"ops",
-		"audit",
-		"manifest-parts",
-		"--org",
-		uuid.Must(uuid.NewV7()).String(),
-		"--event-id",
-		uuid.Must(uuid.NewV7()).String(),
-		"--verify-payloads",
-	)
+	output, err = run("--execute", "ops", "audit", "manifest-parts", "--org", uuid.Must(uuid.NewV7()).String(), "--event-id", uuid.Must(uuid.NewV7()).String(), "--verify-payloads")
 	if !errors.Is(err, audit.ErrReadNotAdmitted) || output != "" {
-		t.Fatalf(
-			"manifest verification output = %q, error = %v; want admission refusal",
-			output,
-			err,
-		)
+		t.Fatalf("manifest verification output = %q, error = %v; want admission refusal", output, err)
 	}
-
 	output, err = run("ops", "ledger", "audit-bootstrap")
 	if err != nil || !strings.Contains(output, "audit") {
 		t.Fatalf("bootstrap preview output = %q, error = %v", output, err)

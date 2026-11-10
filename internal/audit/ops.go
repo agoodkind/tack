@@ -111,7 +111,6 @@ func (p OperatorPrincipal) ActorType() ActorType {
 	if p.Kind == "" {
 		return ActorOperator
 	}
-
 	return p.Kind
 }
 

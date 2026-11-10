@@ -14,10 +14,7 @@ import (
 // the recorded replacement, and closing the raw path is what makes it the
 // only one (TACK-327).
 var dbOpsGroup = &clispec.Group{
-	Use:    "db",
-	Short:  "Recorded break-glass access to the database",
-	Long:   "",
-	Parent: opsGroup,
+	Use: "db", Short: "Recorded break-glass access to the database", Long: "", Parent: opsGroup,
 }
 
 type dbSQLInput struct {
@@ -45,49 +42,19 @@ func dbSQLOp(f *cli.Factory) clispec.Operation[dbSQLInput] {
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[dbSQLInput]{
-			clispec.StringParam(
-				"statement",
-				"the one SQL statement to run",
-				"",
-				true,
-				func(input *dbSQLInput, value string) { input.Statement = value },
-			),
-			clispec.StringParam(
-				"reason",
-				"why the database is being reached outside the product; recorded and mailed",
-				"",
-				true,
-				func(input *dbSQLInput, value string) { input.Reason = value },
-			),
+			clispec.StringParam("statement", "the one SQL statement to run", "", true,
+				func(input *dbSQLInput, value string) { input.Statement = value }),
+			clispec.StringParam("reason", "why the database is being reached outside the product; recorded and mailed", "", true,
+				func(input *dbSQLInput, value string) { input.Reason = value }),
 		},
 		New: func() dbSQLInput {
 			return dbSQLInput{InputMarker: clispec.InputMarker{}, Statement: "", Reason: ""}
 		},
 		DryRun: func(ctx context.Context, input dbSQLInput, sink clispec.ResultSink) error {
-			return runDBSQL(
-				ctx,
-				dbSQLDeps{
-					cfg:      f.Cfg,
-					outbox:   f.AuditOutbox(),
-					identity: f.OperatorIdentitySource(),
-				},
-				input,
-				sink,
-				false,
-			)
+			return runDBSQL(ctx, dbSQLDeps{cfg: f.Cfg, outbox: f.AuditOutbox(), identity: f.OperatorIdentitySource()}, input, sink, false)
 		},
 		Run: func(ctx context.Context, input dbSQLInput, sink clispec.ResultSink) error {
-			return runDBSQL(
-				ctx,
-				dbSQLDeps{
-					cfg:      f.Cfg,
-					outbox:   f.AuditOutbox(),
-					identity: f.OperatorIdentitySource(),
-				},
-				input,
-				sink,
-				true,
-			)
+			return runDBSQL(ctx, dbSQLDeps{cfg: f.Cfg, outbox: f.AuditOutbox(), identity: f.OperatorIdentitySource()}, input, sink, true)
 		},
 	}
 }

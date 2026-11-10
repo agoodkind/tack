@@ -24,7 +24,6 @@ func seedReferenceCounters(
 	if err != nil {
 		return nil, err
 	}
-
 	seeded := make([]ReferenceCounterSeed, 0, len(counters))
 	for _, counter := range counters {
 		raised, raiseErr := raiseReferenceCounter(ctx, env, orgID, counter, execute)
@@ -34,21 +33,13 @@ func seedReferenceCounters(
 			// caller owes each one a ledger row (TACK-452).
 			return seeded, raiseErr
 		}
-
 		if !raised {
 			continue
 		}
-
-		seeded = append(
-			seeded,
-			ReferenceCounterSeed{
-				OrgID: orgID,
-				Key:   counter.Key,
-				Value: counter.Value,
-			},
-		)
+		seeded = append(seeded, ReferenceCounterSeed{
+			OrgID: orgID, Key: counter.Key, Value: counter.Value,
+		})
 	}
-
 	return seeded, nil
 }
 
@@ -67,32 +58,25 @@ func raiseReferenceCounter(
 		if err != nil {
 			wrapped := fmt.Errorf("read counter %q in org %s: %w", counter.Key, orgID, err)
 			env.Log.WarnContext(
-				ctx,
-				"repair.reference_uniqueness.counter_read_failed",
+				ctx, "repair.reference_uniqueness.counter_read_failed",
 				slog.String("org_id", orgID.String()),
 				slog.String("counter_key", counter.Key),
 				slog.String("err", wrapped.Error()),
 			)
-
 			return false, wrapped
 		}
-
 		return current < counter.Value, nil
 	}
-
 	raised, err := env.Stores.Nodes.RaiseSequenceByKey(ctx, orgID, counter.Key, counter.Value)
 	if err != nil {
 		wrapped := fmt.Errorf("seed counter %q in org %s: %w", counter.Key, orgID, err)
 		env.Log.WarnContext(
-			ctx,
-			"repair.reference_uniqueness.counter_seed_failed",
+			ctx, "repair.reference_uniqueness.counter_seed_failed",
 			slog.String("org_id", orgID.String()),
 			slog.String("counter_key", counter.Key),
 			slog.String("err", wrapped.Error()),
 		)
-
 		return false, wrapped
 	}
-
 	return raised, nil
 }

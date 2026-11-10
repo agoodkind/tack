@@ -20,7 +20,6 @@ func wiredRecorder(recorder audit.Recorder) audit.Recorder {
 	if recorder == nil {
 		return audit.UnwiredRecorder{}
 	}
-
 	return recorder
 }
 
@@ -30,9 +29,7 @@ func hashBearer(raw string) string {
 	if raw == "" {
 		return ""
 	}
-
 	sum := sha256.Sum256([]byte(raw))
-
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -50,25 +47,14 @@ func emitAuthAudit(ctx context.Context, rec audit.Recorder, r *http.Request, ev 
 	ev.Context.RequestID = telemetry.RequestID(ctx)
 	ev.Context.TraceID = telemetry.TraceID(ctx)
 	if err := audit.ValidateEvent(ev); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"auth.audit_event_invalid",
-			slog.String("event_id", ev.EventID.String()),
-			slog.String("err", err.Error()),
-		)
+		slog.ErrorContext(ctx, "auth.audit_event_invalid",
+			slog.String("event_id", ev.EventID.String()), slog.String("err", err.Error()))
 	}
-
 	if err := rec.Record(ctx, ev); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.auth_record_failed",
-			slog.String("verb", ev.Verb),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.auth_record_failed",
+			slog.String("verb", ev.Verb), slog.String("err", err.Error()))
 		return fmt.Errorf("record auth event %s: %w", ev.Verb, err)
 	}
-
 	return nil
 }
 
@@ -77,9 +63,7 @@ func clientIP(r *http.Request) string {
 		if i := strings.IndexByte(v, ','); i >= 0 {
 			return strings.TrimSpace(v[:i])
 		}
-
 		return strings.TrimSpace(v)
 	}
-
 	return r.RemoteAddr
 }

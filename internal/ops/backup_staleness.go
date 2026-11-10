@@ -66,7 +66,6 @@ func (m backupStalenessMetric) stale() bool {
 	if !m.AgeKnown {
 		return true
 	}
-
 	return m.Age > m.Threshold
 }
 
@@ -75,7 +74,6 @@ func (m backupStalenessMetric) verdict() string {
 	if m.stale() {
 		return "STALE"
 	}
-
 	return "FRESH"
 }
 
@@ -90,30 +88,21 @@ func (m backupStalenessMetric) verdict() string {
 func knownBackupStalenessMetric(
 	ctx context.Context,
 	name string,
-	now time.Time,
-	at time.Time,
+	now, at time.Time,
 	threshold time.Duration,
 	detail string,
 ) backupStalenessMetric {
 	if lead := at.Sub(now); lead > backupStalenessFutureTolerance {
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"backup.staleness.timestamp_implausible",
+		telemetry.L(ctx).ErrorContext(ctx, "backup.staleness.timestamp_implausible",
 			slog.String("metric", name),
 			slog.Time("at", at.UTC()),
 			slog.Time("now", now.UTC()),
 			slog.String("lead", backupStalenessSeconds(lead)),
 			slog.String("tolerance", backupStalenessSeconds(backupStalenessFutureTolerance)),
 		)
-
-		return unknownBackupStalenessMetric(
-			name,
-			threshold,
-			backupStalenessUnreadable,
-			implausibleFutureDetail(at, lead, detail),
-		)
+		return unknownBackupStalenessMetric(name, threshold, backupStalenessUnreadable,
+			implausibleFutureDetail(at, lead, detail))
 	}
-
 	return backupStalenessMetric{
 		Name:      name,
 		At:        at.UTC(),
@@ -129,16 +118,13 @@ func knownBackupStalenessMetric(
 // timestamp. It keeps the reading's provenance, because that names the marker
 // or run whose clock is wrong.
 func implausibleFutureDetail(at time.Time, lead time.Duration, provenance string) string {
-	detail := fmt.Sprintf(
-		"success timestamp %s is %s in the future, past the %s clock-skew tolerance",
+	detail := fmt.Sprintf("success timestamp %s is %s in the future, past the %s clock-skew tolerance",
 		at.UTC().Format(time.RFC3339),
 		backupStalenessSeconds(lead),
-		backupStalenessSeconds(backupStalenessFutureTolerance),
-	)
+		backupStalenessSeconds(backupStalenessFutureTolerance))
 	if provenance == "" {
 		return detail
 	}
-
 	return detail + ": " + provenance
 }
 
@@ -171,7 +157,6 @@ func backupStalenessAge(now, at time.Time) time.Duration {
 	if age < 0 {
 		return 0
 	}
-
 	return age
 }
 
@@ -187,32 +172,23 @@ func backupStalenessThreshold(seconds int) time.Duration {
 // greppable; the alarm mail says the same thing in plain words instead.
 func backupStalenessReport(metrics []backupStalenessMetric) string {
 	width := 0
-
 	for _, metric := range metrics {
 		if len(metric.Name) > width {
 			width = len(metric.Name)
 		}
 	}
-
 	var report strings.Builder
-
 	for _, metric := range metrics {
-		fmt.Fprintf(
-			&report,
-			"%-*s age=%s threshold=%s %s",
-			width,
-			metric.Name,
+		fmt.Fprintf(&report, "%-*s age=%s threshold=%s %s",
+			width, metric.Name,
 			backupStalenessAgeField(metric),
 			backupStalenessSeconds(metric.Threshold),
-			metric.verdict(),
-		)
+			metric.verdict())
 		if detail := backupStalenessDetailField(metric); detail != "" {
 			report.WriteString(" " + detail)
 		}
-
 		report.WriteString("\n")
 	}
-
 	return report.String()
 }
 
@@ -222,7 +198,6 @@ func backupStalenessAgeField(metric backupStalenessMetric) string {
 	if !metric.AgeKnown {
 		return "unknown"
 	}
-
 	return backupStalenessSeconds(metric.Age)
 }
 
@@ -243,12 +218,10 @@ func backupStalenessSeconds(d time.Duration) string {
 // order, for the error the command exits with.
 func staleBackupStalenessMetrics(metrics []backupStalenessMetric) []string {
 	var stale []string
-
 	for _, metric := range metrics {
 		if metric.stale() {
 			stale = append(stale, metric.Name)
 		}
 	}
-
 	return stale
 }

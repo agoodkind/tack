@@ -30,7 +30,6 @@ func setEnginePaused(t *testing.T, paused bool) {
 	if err != nil {
 		t.Fatalf("open docker client: %v", err)
 	}
-
 	defer func() { _ = docker.Close() }()
 	ctx := context.WithoutCancel(integration.WithTestOperation(t, t.Context()))
 	if paused {
@@ -38,7 +37,6 @@ func setEnginePaused(t *testing.T, paused bool) {
 	} else {
 		_, err = docker.ContainerUnpause(ctx, engine.Container, client.ContainerUnpauseOptions{})
 	}
-
 	if err != nil {
 		t.Fatalf("set engine %s paused %t: %v", engine.Container, paused, err)
 	}
@@ -61,42 +59,23 @@ func TestSearchUnavailableWhileEngineUnresponsive(t *testing.T) {
 	started := time.Now()
 	_, err := integration.TrySearch(fixture.Harness, unresponsiveQuery, "")
 	if err == nil || err.Error() != unresponsiveUnavailableText {
-		t.Fatalf(
-			"tack_search with the engine paused returned error %v, want %q",
-			err,
-			unresponsiveUnavailableText,
-		)
+		t.Fatalf("tack_search with the engine paused returned error %v, want %q", err, unresponsiveUnavailableText)
 	}
-
-	t.Logf(
-		"tack_search returned the unavailable response %s after the engine paused",
-		time.Since(started),
-	)
+	t.Logf("tack_search returned the unavailable response %s after the engine paused", time.Since(started))
 
 	setEnginePaused(t, false)
 	paused = false
 	deadline := time.Now().Add(unresponsiveRecoveryDeadline)
-
 	for {
 		_, err = integration.TrySearch(fixture.Harness, unresponsiveQuery, "")
 		if err == nil {
 			return
 		}
-
 		if time.Now().After(deadline) {
 			engine := testenv.OpenSearchWithMemory(t, integration.NativeSearchMemoryBytes)
-			diagnostics := testenv.OpenSearchDiagnostics(
-				context.WithoutCancel(integration.WithTestOperation(t, t.Context())),
-				engine,
-			)
-			t.Fatalf(
-				"tack_search did not succeed within %s after the engine resumed: %v: %s",
-				unresponsiveRecoveryDeadline,
-				err,
-				diagnostics,
-			)
+			diagnostics := testenv.OpenSearchDiagnostics(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), engine)
+			t.Fatalf("tack_search did not succeed within %s after the engine resumed: %v: %s", unresponsiveRecoveryDeadline, err, diagnostics)
 		}
-
 		time.Sleep(time.Second)
 	}
 }

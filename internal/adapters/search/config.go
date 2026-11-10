@@ -32,32 +32,22 @@ func (c Config) Validate(ctx context.Context) error {
 	parsed, err := url.Parse(c.Endpoint)
 	if err != nil {
 		wrapped := fmt.Errorf("parse search endpoint: %w", err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.config.endpoint_invalid",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.config.endpoint_invalid", slog.String("err", wrapped.Error()))
 		return loggedModelError{err: wrapped}
 	}
-
 	if parsed.Scheme != "https" || parsed.Host == "" {
 		return errors.New("search endpoint must be one https URL")
 	}
-
 	if strings.TrimSpace(c.Username) == "" || c.Password == "" {
 		return errors.New("search credentials are required")
 	}
-
 	if c.RequestTimeout <= 0 || c.MaxRetries < 0 {
 		return errors.New("search timeout and retries must be valid")
 	}
-
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM([]byte(c.CA)) {
 		return errors.New("search CA is invalid")
 	}
-
 	return nil
 }
 
@@ -65,10 +55,7 @@ func (c Config) Validate(ctx context.Context) error {
 // OpenSearch returns 429 when the ML Commons memory circuit breaker rejects a
 // request because JVM heap use exceeds its threshold.
 var retryStatuses = []int{
-	http.StatusTooManyRequests,
-	http.StatusBadGateway,
-	http.StatusServiceUnavailable,
-	http.StatusGatewayTimeout,
+	http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout,
 }
 
 // retryBackoff waits one second per attempt before each client retry.
@@ -90,7 +77,6 @@ func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) op
 	// A retry can repeat a point in time create or delete after the first attempt
 	// already took effect. DisableRetry limits the client to one attempt.
 	retriesDisabled := c.MaxRetries == 0
-
 	return opensearch.Config{
 		Addresses:             []string{c.Endpoint},
 		Username:              c.Username,
@@ -115,13 +101,10 @@ func (c Config) ClientConfig(observer opensearchtransport.ConnectionObserver) op
 // With a positive MaxRetries, the client retries responses with statuses in retryStatuses
 // up to MaxRetries times and waits retryBackoff between attempts. A timeout does not trigger
 // a retry.
-func (c Config) predictClientConfig(
-	observer opensearchtransport.ConnectionObserver,
-) opensearch.Config {
+func (c Config) predictClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
 	settings := c.ClientConfig(observer)
 	settings.RequestTimeout = 0
 	settings.EnableRetryOnTimeout = false
-
 	return settings
 }
 
@@ -134,11 +117,8 @@ func (c Config) predictClientConfig(
 //
 // When a create fails without proof that the engine refused it, Open
 // returns an error and the caller records the outcome as uncertain.
-func (c Config) snapshotClientConfig(
-	observer opensearchtransport.ConnectionObserver,
-) opensearch.Config {
+func (c Config) snapshotClientConfig(observer opensearchtransport.ConnectionObserver) opensearch.Config {
 	settings := c.ClientConfig(observer)
 	settings.DisableRetry = true
-
 	return settings
 }

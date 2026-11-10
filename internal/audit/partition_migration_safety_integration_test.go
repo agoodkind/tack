@@ -18,27 +18,19 @@ func TestPartmanAdoptionStartsAfterLatestTimestampBound(t *testing.T) {
 	ctx := context.Background()
 
 	var sourceName string
-	if err := fixture.pool.QueryRow(
-		ctx,
-		`
+	if err := fixture.pool.QueryRow(ctx, `
 		SELECT 'events_' || to_char(
 		           date_trunc('week', now()) + interval '9 weeks',
 		           'YYYY_MM_DD'
 		       )
-	`,
-	).Scan(
-		&sourceName,
-	); err != nil {
+	`).Scan(&sourceName); err != nil {
 		t.Fatalf("future legacy partition identity: %v", err)
 	}
-	if _, err := fixture.pool.Exec(
-		ctx,
-		`
+	if _, err := fixture.pool.Exec(ctx, `
 		SELECT audit.ensure_events_partition(
 		    (date_trunc('week', now()) + interval '9 weeks')::date
 		)
-	`,
-	); err != nil {
+	`); err != nil {
 		t.Fatalf("create future legacy partition: %v", err)
 	}
 	renameSQL := fmt.Sprintf(
@@ -51,18 +43,13 @@ func TestPartmanAdoptionStartsAfterLatestTimestampBound(t *testing.T) {
 
 	fixture.migrateTo(t, 4)
 	var registered bool
-	if err := fixture.pool.QueryRow(
-		ctx,
-		`
+	if err := fixture.pool.QueryRow(ctx, `
 		SELECT EXISTS (
 		    SELECT 1
 		    FROM partman.part_config
 		    WHERE parent_table = 'audit.events'
 		)
-	`,
-	).Scan(
-		&registered,
-	); err != nil {
+	`).Scan(&registered); err != nil {
 		t.Fatalf("partman registration query: %v", err)
 	}
 	if !registered {
@@ -76,9 +63,7 @@ func TestPartmanAdoptionRejectsDetachedNameCollisionBeforeRenaming(t *testing.T)
 	ctx := context.Background()
 
 	var sourceName string
-	if err := fixture.pool.QueryRow(
-		ctx,
-		`
+	if err := fixture.pool.QueryRow(ctx, `
 		SELECT c.relname
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
@@ -89,10 +74,7 @@ func TestPartmanAdoptionRejectsDetachedNameCollisionBeforeRenaming(t *testing.T)
 		  AND c.relname ~ '^events_[0-9]{4}_[0-9]{2}_[0-9]{2}$'
 		ORDER BY c.relname
 		LIMIT 1
-	`,
-	).Scan(
-		&sourceName,
-	); err != nil {
+	`).Scan(&sourceName); err != nil {
 		t.Fatalf("find hand-named partition: %v", err)
 	}
 	targetName := strings.Replace(sourceName, "events_", "events_p", 1)
@@ -112,7 +94,10 @@ func TestPartmanAdoptionRejectsDetachedNameCollisionBeforeRenaming(t *testing.T)
 	if !strings.Contains(err.Error(), "detached target relation") {
 		t.Fatalf("collision error = %q, want detached target relation", err)
 	}
-	if got := fixture.partitionCount(t, `^events_[0-9]{4}_[0-9]{2}_[0-9]{2}$`); got != oldCount {
+	if got := fixture.partitionCount(
+		t,
+		`^events_[0-9]{4}_[0-9]{2}_[0-9]{2}$`,
+	); got != oldCount {
 		t.Fatalf("hand-named partitions after preflight failure = %d, want %d", got, oldCount)
 	}
 }
@@ -128,7 +113,10 @@ func TestPartmanRollbackRestoresHandNamedPartitions(t *testing.T) {
 	); nativeCount != 0 {
 		t.Fatalf("native partition count after rollback = %d, want 0", nativeCount)
 	}
-	if oldCount := fixture.partitionCount(t, `^events_[0-9]{4}_[0-9]{2}_[0-9]{2}$`); oldCount == 0 {
+	if oldCount := fixture.partitionCount(
+		t,
+		`^events_[0-9]{4}_[0-9]{2}_[0-9]{2}$`,
+	); oldCount == 0 {
 		t.Fatal("hand-named partition count after rollback = 0, want at least 1")
 	}
 

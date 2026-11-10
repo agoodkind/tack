@@ -21,12 +21,7 @@ func TestMacRunnerDockerOrdinaryOwnerRegression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	macWrite(
-		t,
-		options.Root,
-		"internal/test/integration/owner_test.go",
-		strings.Replace(string(contents), "package testenv_test", "package integration", 1),
-	)
+	macWrite(t, options.Root, "internal/test/integration/owner_test.go", strings.Replace(string(contents), "package testenv_test", "package integration", 1))
 	compose, err := os.ReadFile("../../docker-compose.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -34,71 +29,30 @@ func TestMacRunnerDockerOrdinaryOwnerRegression(t *testing.T) {
 	macWrite(t, options.Root, "docker-compose.yml", string(compose))
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	created, err := docker.ContainerCreate(
-		ctx,
-		client.ContainerCreateOptions{
-			Name: project + "-ordinary-regression",
-			Config: &container.Config{
-				Image:      options.Image,
-				Entrypoint: []string{"/usr/local/go/bin/go"},
-				Cmd: []string{
-					"test",
-					"-tags=fdb,integration,macrunnerfixture,runtimeaudit",
-					"-run=^TestReleaseKeepsEnginesOfRunningProcesses$",
-					"-count=1",
-					"-timeout=4m",
-					"-v",
-					"./internal/test/integration/...",
-				},
-				WorkingDir: options.Root,
-				Labels:     map[string]string{"tack.mac-runner-fixture": project},
-			},
-			HostConfig: &container.HostConfig{
-				Mounts: []mount.Mount{
-					{Type: mount.TypeBind, Source: options.Root, Target: options.Root},
-					{
-						Type:   mount.TypeBind,
-						Source: "/var/run/docker.sock.raw",
-						Target: "/var/run/docker.sock",
-					},
-					{
-						Type:   mount.TypeVolume,
-						Source: project + "_tack-test-go-cache",
-						Target: "/root/.cache/go-build",
-					},
-					{
-						Type:   mount.TypeVolume,
-						Source: project + "_tack-test-go-mod",
-						Target: "/go/pkg/mod",
-					},
-				},
-			},
+	created, err := docker.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name: project + "-ordinary-regression", Config: &container.Config{
+			Image: options.Image, Entrypoint: []string{"/usr/local/go/bin/go"},
+			Cmd: []string{"test", "-tags=fdb,integration,macrunnerfixture,runtimeaudit", "-run=^TestReleaseKeepsEnginesOfRunningProcesses$", "-count=1", "-timeout=4m", "-v", "./internal/test/integration/..."}, WorkingDir: options.Root, Labels: map[string]string{"tack.mac-runner-fixture": project},
 		},
-	)
+		HostConfig: &container.HostConfig{Mounts: []mount.Mount{
+			{Type: mount.TypeBind, Source: options.Root, Target: options.Root},
+			{Type: mount.TypeBind, Source: "/var/run/docker.sock.raw", Target: "/var/run/docker.sock"},
+			{Type: mount.TypeVolume, Source: project + "_tack-test-go-cache", Target: "/root/.cache/go-build"},
+			{Type: mount.TypeVolume, Source: project + "_tack-test-go-mod", Target: "/go/pkg/mod"},
+		}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if _, err := docker.ContainerRemove(
-			context.Background(),
-			created.ID,
-			client.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
-		); err != nil {
+		if _, err := docker.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 			t.Error(err)
 		}
 	})
-	if _, err := docker.ContainerStart(
-		ctx,
-		created.ID,
-		client.ContainerStartOptions{},
-	); err != nil {
+	if _, err := docker.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	wait := docker.ContainerWait(
-		ctx,
-		created.ID,
-		client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning},
-	)
+	wait := docker.ContainerWait(ctx, created.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
 	case response := <-wait.Result:
 		if response.StatusCode != 0 {
@@ -107,11 +61,7 @@ func TestMacRunnerDockerOrdinaryOwnerRegression(t *testing.T) {
 	case err := <-wait.Error:
 		t.Error(err)
 	}
-	logs, err := docker.ContainerLogs(
-		ctx,
-		created.ID,
-		client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true},
-	)
+	logs, err := docker.ContainerLogs(ctx, created.ID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 	if err != nil {
 		t.Fatal(err)
 	}

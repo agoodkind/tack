@@ -68,11 +68,7 @@ func (g *Generator) VerifyCascadeDelete(ctx context.Context) (CascadeProbeResult
 // dry run plans the calls and skips the checks.
 func (g *Generator) probeCascadeDelete(ctx context.Context, proof *CascadeProbeResult) error {
 	if len(g.identities.Workspaces) == 0 || len(g.identities.Workspaces[0].Actors) == 0 {
-		slog.InfoContext(
-			ctx,
-			"qa.datagen.cascade_probe_skipped",
-			slog.String("reason", "the scale generates no actor"),
-		)
+		slog.InfoContext(ctx, "qa.datagen.cascade_probe_skipped", slog.String("reason", "the scale generates no actor"))
 		return nil
 	}
 	workspace := g.identities.Workspaces[0]
@@ -85,43 +81,22 @@ func (g *Generator) probeCascadeDelete(ctx context.Context, proof *CascadeProbeR
 	properties := newProperties()
 	properties.setString("identifier", identifier)
 	properties.setString("slug", slugify(identifier))
-	project, err := g.driver.Call(
-		ctx,
-		token,
-		"tack_create_project",
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			Name:               name,
-			Properties:         properties,
-		},
-	)
+	project, err := g.driver.Call(ctx, token, "tack_create_project", ToolArguments{
+		WorkspaceReference: workspace.Slug, Name: name, Properties: properties,
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen: create cascade probe project", err)
 	}
-	issue, err := g.driver.Call(
-		ctx,
-		token,
-		"tack_create_issue",
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			ProjectReference:   identifier,
-			Name:               "QA cascade delete issue",
-		},
-	)
+	issue, err := g.driver.Call(ctx, token, "tack_create_issue", ToolArguments{
+		WorkspaceReference: workspace.Slug, ProjectReference: identifier, Name: "QA cascade delete issue",
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen: create cascade probe issue", err)
 	}
-	comment, err := g.driver.Call(
-		ctx,
-		token,
-		"tack_create_comment",
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			ProjectReference:   identifier,
-			IssueReference:     issue.RawID(),
-			Name:               "QA cascade delete comment",
-		},
-	)
+	comment, err := g.driver.Call(ctx, token, "tack_create_comment", ToolArguments{
+		WorkspaceReference: workspace.Slug, ProjectReference: identifier, IssueReference: issue.RawID(),
+		Name: "QA cascade delete comment",
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen: create cascade probe comment", err)
 	}
@@ -129,15 +104,9 @@ func (g *Generator) probeCascadeDelete(ctx context.Context, proof *CascadeProbeR
 	if err != nil {
 		return err
 	}
-	deleted, err := g.driver.Call(
-		ctx,
-		token,
-		"tack_delete_project",
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			NodeID:             project.RawID(),
-		},
-	)
+	deleted, err := g.driver.Call(ctx, token, "tack_delete_project", ToolArguments{
+		WorkspaceReference: workspace.Slug, NodeID: project.RawID(),
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen: delete cascade probe project "+identifier, err)
 	}
@@ -145,25 +114,12 @@ func (g *Generator) probeCascadeDelete(ctx context.Context, proof *CascadeProbeR
 		return nil
 	}
 	if !strings.Contains(deleted.Text(), cascadeCountText) {
-		return loggedError(
-			ctx,
-			"qa datagen: delete output of project "+identifier,
-			fmt.Errorf("output has no %q field:\n%s", cascadeCountText, deleted.Text()),
-		)
+		return loggedError(ctx, "qa datagen: delete output of project "+identifier, fmt.Errorf("output has no %q field:\n%s", cascadeCountText, deleted.Text()))
 	}
 	if err := recordCascadeDelete(ctx, proof, deleted, project.RawID()); err != nil {
 		return err
 	}
-	return g.requireCascadeGone(
-		ctx,
-		token,
-		workspace.Slug,
-		identifier,
-		deleted,
-		project.RawID(),
-		[]string{issue.RawID(), moved},
-		comment.RawID(),
-	)
+	return g.requireCascadeGone(ctx, token, workspace.Slug, identifier, deleted, project.RawID(), []string{issue.RawID(), moved}, comment.RawID())
 }
 
 // probeCycleMove creates a cycle in the probe project and an issue with the
@@ -171,50 +127,25 @@ func (g *Generator) probeCascadeDelete(ctx context.Context, proof *CascadeProbeR
 // delete must move the issue to the project: the output must report one
 // moved node, and tack_get_issue must still return the issue. It returns
 // the issue's raw id. A dry run plans the calls and skips the checks.
-func (g *Generator) probeCycleMove(
-	ctx context.Context,
-	token string,
-	workspaceReference string,
-	identifier string,
-) (string, error) {
-	cycle, err := g.driver.Call(
-		ctx,
-		token,
-		"tack_create_cycle",
-		ToolArguments{
-			WorkspaceReference: workspaceReference,
-			ProjectReference:   identifier,
-			Name:               "QA cascade delete cycle",
-		},
-	)
+func (g *Generator) probeCycleMove(ctx context.Context, token, workspaceReference, identifier string) (string, error) {
+	cycle, err := g.driver.Call(ctx, token, "tack_create_cycle", ToolArguments{
+		WorkspaceReference: workspaceReference, ProjectReference: identifier, Name: "QA cascade delete cycle",
+	})
 	if err != nil {
 		return "", loggedError(ctx, "qa datagen: create cascade probe cycle", err)
 	}
 	properties := newProperties()
 	properties.setString("parent_id", cycle.RawID())
-	issue, err := g.driver.Call(
-		ctx,
-		token,
-		"tack_create_issue",
-		ToolArguments{
-			WorkspaceReference: workspaceReference,
-			ProjectReference:   identifier,
-			Name:               "QA cascade delete moved issue",
-			Properties:         properties,
-		},
-	)
+	issue, err := g.driver.Call(ctx, token, "tack_create_issue", ToolArguments{
+		WorkspaceReference: workspaceReference, ProjectReference: identifier, Name: "QA cascade delete moved issue",
+		Properties: properties,
+	})
 	if err != nil {
 		return "", loggedError(ctx, "qa datagen: create cascade probe issue in the cycle", err)
 	}
-	deleted, err := g.driver.Call(
-		ctx,
-		token,
-		"tack_delete_cycle",
-		ToolArguments{
-			WorkspaceReference: workspaceReference,
-			NodeID:             cycle.RawID(),
-		},
-	)
+	deleted, err := g.driver.Call(ctx, token, "tack_delete_cycle", ToolArguments{
+		WorkspaceReference: workspaceReference, NodeID: cycle.RawID(),
+	})
 	if err != nil {
 		return "", loggedError(ctx, "qa datagen: delete cascade probe cycle", err)
 	}
@@ -222,18 +153,9 @@ func (g *Generator) probeCycleMove(
 		return issue.RawID(), nil
 	}
 	if !strings.Contains(deleted.Text(), movedCountText) {
-		return "", loggedError(
-			ctx,
-			"qa datagen: delete output of cascade probe cycle",
-			fmt.Errorf("output has no %q field:\n%s", movedCountText, deleted.Text()),
-		)
+		return "", loggedError(ctx, "qa datagen: delete output of cascade probe cycle", fmt.Errorf("output has no %q field:\n%s", movedCountText, deleted.Text()))
 	}
-	if _, err := g.driver.Call(
-		ctx,
-		token,
-		"tack_get_issue",
-		ToolArguments{WorkspaceReference: workspaceReference, NodeID: issue.RawID()},
-	); err != nil {
+	if _, err := g.driver.Call(ctx, token, "tack_get_issue", ToolArguments{WorkspaceReference: workspaceReference, NodeID: issue.RawID()}); err != nil {
 		return "", loggedError(ctx, "qa datagen: get the issue the cycle delete moved", err)
 	}
 	return issue.RawID(), nil
@@ -241,19 +163,8 @@ func (g *Generator) probeCycleMove(
 
 // deleteResidualCascadeProject deletes the probe project named name when an
 // interrupted earlier run left it in the workspace.
-func (g *Generator) deleteResidualCascadeProject(
-	ctx context.Context,
-	token string,
-	workspaceReference string,
-	name string,
-	proof *CascadeProbeResult,
-) error {
-	existing, err := g.driver.Call(
-		ctx,
-		token,
-		"tack_list_projects",
-		scopeArgs(workspaceReference, ""),
-	)
+func (g *Generator) deleteResidualCascadeProject(ctx context.Context, token, workspaceReference, name string, proof *CascadeProbeResult) error {
+	existing, err := g.driver.Call(ctx, token, "tack_list_projects", scopeArgs(workspaceReference, ""))
 	if err != nil {
 		return loggedError(ctx, "qa datagen: list projects for the cascade probe", err)
 	}
@@ -261,15 +172,9 @@ func (g *Generator) deleteResidualCascadeProject(
 	if residual == "" {
 		return nil
 	}
-	deleted, err := g.driver.Call(
-		ctx,
-		token,
-		"tack_delete_project",
-		ToolArguments{
-			WorkspaceReference: workspaceReference,
-			NodeID:             residual,
-		},
-	)
+	deleted, err := g.driver.Call(ctx, token, "tack_delete_project", ToolArguments{
+		WorkspaceReference: workspaceReference, NodeID: residual,
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen: delete residual cascade probe project "+residual, err)
 	}
@@ -279,70 +184,32 @@ func (g *Generator) deleteResidualCascadeProject(
 	if err := recordCascadeDelete(ctx, proof, deleted, residual); err != nil {
 		return err
 	}
-	return g.requireCascadeGone(
-		ctx,
-		token,
-		workspaceReference,
-		residual,
-		deleted,
-		residual,
-		nil,
-		"",
-	)
+	return g.requireCascadeGone(ctx, token, workspaceReference, residual, deleted, residual, nil, "")
 }
 
-func recordCascadeDelete(
-	ctx context.Context,
-	proof *CascadeProbeResult,
-	deleted Result,
-	root string,
-) error {
+func recordCascadeDelete(ctx context.Context, proof *CascadeProbeResult, deleted Result, root string) error {
 	state := "finished"
 	if strings.Contains(deleted.Text(), "- Delete state: running") {
 		state = "running"
 	} else if !strings.Contains(deleted.Text(), "- Delete state: finished") {
-		return loggedError(
-			ctx,
-			"qa datagen: read cascade deletion state",
-			errors.New("delete output has no recognized state"),
-		)
+		return loggedError(ctx, "qa datagen: read cascade deletion state", errors.New("delete output has no recognized state"))
 	}
 	_, suffix, found := strings.Cut(deleted.Text(), "Delete job: `")
 	jobID, _, terminated := strings.Cut(suffix, "`")
 	if !found || !terminated || jobID == "" {
-		return loggedError(
-			ctx,
-			"qa datagen: read cascade deletion job",
-			errors.New("delete output has no job ID"),
-		)
+		return loggedError(ctx, "qa datagen: read cascade deletion job", errors.New("delete output has no job ID"))
 	}
-	proof.Deletes = append(
-		proof.Deletes,
-		CascadeDeleteEvidence{RootReference: root, JobID: jobID, InitialState: state},
-	)
+	proof.Deletes = append(proof.Deletes, CascadeDeleteEvidence{RootReference: root, JobID: jobID, InitialState: state})
 	return nil
 }
 
 // requireCascadeGone polls public reads until a running deletion has removed
 // the root and every probe child. After a finished deletion, the first public
 // read must already return them as absent.
-func (g *Generator) requireCascadeGone(
-	ctx context.Context,
-	token string,
-	workspaceReference string,
-	identifier string,
-	deleted Result,
-	projectID string,
-	issueIDs []string,
-	commentID string,
-) error {
+func (g *Generator) requireCascadeGone(ctx context.Context, token, workspaceReference, identifier string, deleted Result, projectID string, issueIDs []string, commentID string) error {
 	background := strings.Contains(deleted.Text(), "- Delete state: running")
 	if !background && !strings.Contains(deleted.Text(), "- Delete state: finished") {
-		return loggedError(
-			ctx,
-			"qa datagen: read cascade deletion state",
-			errors.New("delete output has no recognized state"),
-		)
+		return loggedError(ctx, "qa datagen: read cascade deletion state", errors.New("delete output has no recognized state"))
 	}
 	ctx, cancel := context.WithTimeout(ctx, cascadeCompletionTimeout)
 	defer cancel()
@@ -353,33 +220,18 @@ func (g *Generator) requireCascadeGone(
 		{tool: "tack_get_project", rawID: projectID},
 	}
 	for _, issueID := range issueIDs {
-		children = append(
-			children,
-			struct{ tool, rawID string }{tool: "tack_get_issue", rawID: issueID},
-		)
+		children = append(children, struct{ tool, rawID string }{tool: "tack_get_issue", rawID: issueID})
 	}
 	if commentID != "" {
-		children = append(
-			children,
-			struct{ tool, rawID string }{tool: "tack_get_comment", rawID: commentID},
-		)
+		children = append(children, struct{ tool, rawID string }{tool: "tack_get_comment", rawID: commentID})
 	}
 	ticker := time.NewTicker(cascadePollInterval)
 	defer ticker.Stop()
 	for {
 		remaining := ""
 		for _, child := range children {
-			_, err := g.driver.Call(
-				ctx,
-				token,
-				child.tool,
-				ToolArguments{WorkspaceReference: workspaceReference, NodeID: child.rawID},
-			)
-			message := fmt.Sprintf(
-				"qa datagen: %s %s after the project delete",
-				child.tool,
-				child.rawID,
-			)
+			_, err := g.driver.Call(ctx, token, child.tool, ToolArguments{WorkspaceReference: workspaceReference, NodeID: child.rawID})
+			message := fmt.Sprintf("qa datagen: %s %s after the project delete", child.tool, child.rawID)
 			if err == nil {
 				remaining = message
 				continue

@@ -13,6 +13,5 @@ func readRunnerMachine() (string, error) {
 	if err := unix.Uname(&info); err != nil {
 		return "", &os.SyscallError{Syscall: "read runner machine with uname", Err: err}
 	}
-
 	return unix.ByteSliceToString(info.Machine[:]), nil
 }

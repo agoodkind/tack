@@ -22,14 +22,11 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 	if len(captured.messages) != 1 {
 		t.Fatalf("three faults on one run must mail once, sent %d", len(captured.messages))
 	}
-
 	wantSubject := "[" + backupAlarmHost() + "] 3 backup problems"
 	if captured.messages[0].Subject != wantSubject {
 		t.Errorf("subject = %q, want %q", captured.messages[0].Subject, wantSubject)
 	}
-
 	body := captured.messages[0].Body
-
 	for _, sentence := range []string{
 		"The object store (where the backups are kept) did not answer this check. " +
 			"Confirm the object store guest is running before the steps below.\n\n" +
@@ -48,23 +45,14 @@ func TestBackupStalenessAlarmUnreadableWords(t *testing.T) {
 			t.Errorf("body is missing %q:\n%s", sentence, body)
 		}
 	}
-
 	if !strings.HasPrefix(body, "The object store") {
 		t.Errorf("the body must open on the object store, named once:\n%s", body)
 	}
-
-	for _, claim := range []string{
-		"has never",
-		"never passed",
-		"never been seen",
-		"reported",
-		"failed",
-	} {
+	for _, claim := range []string{"has never", "never passed", "never been seen", "reported", "failed"} {
 		if strings.Contains(body, claim) {
 			t.Errorf("an unreadable store must not be described as empty (%q):\n%s", claim, body)
 		}
 	}
-
 	assertBackupAlarmPlainWords(t, captured.messages[0].Subject, body, cfg.BackupS3Endpoint)
 }
 
@@ -82,9 +70,7 @@ func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 	if len(captured.messages) != 1 {
 		t.Fatalf("three faults on one run must mail once, sent %d", len(captured.messages))
 	}
-
 	body := captured.messages[0].Body
-
 	for _, sentence := range []string{
 		"Nightly ledger export has never completed\n" +
 			"The nightly ledger export (the daily copy of the ledger in the object store) has never completed. " +
@@ -106,13 +92,8 @@ func TestBackupStalenessAlarmNeverRecordedWords(t *testing.T) {
 			t.Errorf("body is missing %q:\n%s", sentence, body)
 		}
 	}
-
 	if strings.Contains(body, "could not be") {
-		t.Errorf(
-			"an empty store was read fine, so nothing may be described as unreadable:\n%s",
-			body,
-		)
+		t.Errorf("an empty store was read fine, so nothing may be described as unreadable:\n%s", body)
 	}
-
 	assertBackupAlarmPlainWords(t, captured.messages[0].Subject, body, cfg.BackupS3Endpoint)
 }

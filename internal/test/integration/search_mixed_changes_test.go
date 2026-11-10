@@ -48,79 +48,29 @@ func TestSearchMixedMetadataChangesAndMoves(t *testing.T) {
 	endpoints := startSearchMixedProcesses(t, cfg)
 	seed := strconv.FormatInt(clock.Now().UnixNano(), 10)
 	planned := strconv.Itoa(searchMixedChangesPlanned)
-	output, err := runSearchMixedCommand(
-		t,
-		cfg,
-		"--seed",
-		seed,
-		"--rate",
-		"30",
-		"--write-rate",
-		"60",
-		"--duration",
-		"30s",
-		"--concurrency",
-		"4",
-		"--burst-writes",
-		"10",
-		"--metadata-writes",
-		planned,
-		"--moves",
-		planned,
-		"--endpoints",
-		strings.Join(endpoints, ","),
-		"--commit",
-	)
+	output, err := runSearchMixedCommand(t, cfg, "--seed", seed, "--rate", "30", "--write-rate", "60", "--duration", "30s",
+		"--concurrency", "4", "--burst-writes", "10", "--metadata-writes", planned, "--moves", planned,
+		"--endpoints", strings.Join(endpoints, ","), "--commit")
 	if err != nil {
-		t.Fatalf(
-			"qa datagen search-mixed: the workload with metadata changes and moves failed: %v (output=%s)",
-			err,
-			output,
-		)
+		t.Fatalf("qa datagen search-mixed: the workload with metadata changes and moves failed: %v (output=%s)", err, output)
 	}
-
 	var envelope searchMixedChangesOutput
 	if decodeErr := json.Unmarshal(output, &envelope); decodeErr != nil {
-		t.Fatalf(
-			"qa datagen search-mixed: the test could not decode the result: %v (output=%s)",
-			decodeErr,
-			output,
-		)
+		t.Fatalf("qa datagen search-mixed: the test could not decode the result: %v (output=%s)", decodeErr, output)
 	}
-
 	result := envelope.Result
-	if result.Writes.MetadataChanges != searchMixedChangesPlanned ||
-		result.Writes.Moves != searchMixedChangesPlanned ||
-		result.Writes.Failed != 0 {
-		t.Fatalf(
-			"qa datagen search-mixed: the run must commit %d metadata changes and %d moves without failed writes: %s",
-			searchMixedChangesPlanned,
-			searchMixedChangesPlanned,
-			output,
-		)
+	if result.Writes.MetadataChanges != searchMixedChangesPlanned || result.Writes.Moves != searchMixedChangesPlanned || result.Writes.Failed != 0 {
+		t.Fatalf("qa datagen search-mixed: the run must commit %d metadata changes and %d moves without failed writes: %s",
+			searchMixedChangesPlanned, searchMixedChangesPlanned, output)
 	}
-
 	if result.MetadataNotFound != 0 || result.MovesUnverified != 0 || !result.CatchUp.Completed {
-		t.Fatalf(
-			"qa datagen search-mixed: search must return every included value and every moved issue only under its new workspace after catch-up: %s",
-			output,
-		)
+		t.Fatalf("qa datagen search-mixed: search must return every included value and every moved issue only under its new workspace after catch-up: %s", output)
 	}
-
-	if result.MetadataAbsentBefore != searchMixedChangesPlanned ||
-		result.MetadataPresentBefore != 0 ||
-		result.MetadataUncheckedBefore != 0 {
-		t.Fatalf(
-			"qa datagen search-mixed: metadata_absent_before must equal 2, and metadata_present_before and metadata_unchecked_before must equal 0: %s",
-			output,
-		)
+	if result.MetadataAbsentBefore != searchMixedChangesPlanned || result.MetadataPresentBefore != 0 || result.MetadataUncheckedBefore != 0 {
+		t.Fatalf("qa datagen search-mixed: metadata_absent_before must equal 2, and metadata_present_before and metadata_unchecked_before must equal 0: %s", output)
 	}
-
 	catchUp := result.CatchUp
 	if catchUp.DrainedAfterMs <= 0 || catchUp.DrainedAfterMs > catchUp.ElapsedMs {
-		t.Fatalf(
-			"qa datagen search-mixed: catch_up.drained_after_ms must be positive and must not exceed catch_up.elapsed_ms: %s",
-			output,
-		)
+		t.Fatalf("qa datagen search-mixed: catch_up.drained_after_ms must be positive and must not exceed catch_up.elapsed_ms: %s", output)
 	}
 }

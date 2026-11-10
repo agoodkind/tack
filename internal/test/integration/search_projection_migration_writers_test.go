@@ -24,43 +24,28 @@ const (
 func claimLive(t *testing.T, store *fdbadapter.SearchWorkStore) map[uuid.UUID]searchdomain.Work {
 	t.Helper()
 	claimed := map[uuid.UUID]searchdomain.Work{}
-
 	for {
-		work, found, err := store.Claim(
-			integration.WithTestOperation(t, t.Context()),
-			searchdomain.WorkClassLive,
-			"delayed-writer",
-			time.Minute,
-		)
+		work, found, err := store.Claim(integration.WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "delayed-writer", time.Minute)
 		if err != nil {
 			t.Fatalf("claim live work: %v", err)
 		}
-
 		if !found {
 			return claimed
 		}
-
 		claimed[work.NodeID] = work
 	}
 }
 
 // requireNewRevisions requires every node to have an active revision later
 // than its revision in before. It returns the active revisions.
-func (env *migrationEnv) requireNewRevisions(
-	t *testing.T,
-	nodes []uuid.UUID,
-	before map[uuid.UUID]int64,
-	step string,
-) map[uuid.UUID]int64 {
+func (env *migrationEnv) requireNewRevisions(t *testing.T, nodes []uuid.UUID, before map[uuid.UUID]int64, step string) map[uuid.UUID]int64 {
 	t.Helper()
-
 	after := env.revisions(t, nodes)
 	for nodeID, revision := range after {
 		if revision <= before[nodeID] {
 			t.Fatalf("node %s kept revision %d after %s", nodeID, revision, step)
 		}
 	}
-
 	return after
 }
 
@@ -87,13 +72,8 @@ func TestSearchProjectionMigrationDominatesNamedRescan(t *testing.T) {
 	env.putDefinition(t, uniqueKey("p"), true)
 	resumed, _ := env.driveRescan(t, func(searchdomain.Work) bool { return true }, func(int) {})
 	if resumed.Cursor != position.Cursor {
-		t.Fatalf(
-			"rescan after a named request has cursor %q, want the kept cursor %q",
-			resumed.Cursor,
-			position.Cursor,
-		)
+		t.Fatalf("rescan after a named request has cursor %q, want the kept cursor %q", resumed.Cursor, position.Cursor)
 	}
-
 	env.runIdle(t)
 	env.requireNewRevisions(t, nodes, migrated, "a named request during an activation")
 }
@@ -120,66 +100,35 @@ func TestSearchProjectionMigrationRejectsDelayedWriters(t *testing.T) {
 	if registerWork.NodeID != registering || refreshWork.NodeID != refreshing {
 		t.Fatalf("claimed live work = %+v, want the work of both edited nodes", claimed)
 	}
-
 	delayedPage := env.readerPages(t, registering)[0]
 	for _, page := range env.readerPages(t, refreshing) {
-		intent, err := store.Register(
-			integration.WithTestOperation(t, t.Context()),
-			refreshWork,
-			page,
-		)
+		intent, err := store.Register(integration.WithTestOperation(t, t.Context()), refreshWork, page)
 		if err != nil {
 			t.Fatalf("register page %d before the activation: %v", page.Ordinal, err)
 		}
-
-		if _, err := env.Adapter.Put(
-			integration.WithTestOperation(t, t.Context()),
-			intent,
-		); err != nil {
+		if _, err := env.Adapter.Put(integration.WithTestOperation(t, t.Context()), intent); err != nil {
 			t.Fatalf("write page %d before the activation: %v", page.Ordinal, err)
 		}
-
-		if err := store.CompletePage(
-			integration.WithTestOperation(t, t.Context()),
-			intent,
-			page.NextCursor,
-			page.Done,
-		); err != nil {
+		if err := store.CompletePage(integration.WithTestOperation(t, t.Context()), intent, page.NextCursor, page.Done); err != nil {
 			t.Fatalf("checkpoint page %d before the activation: %v", page.Ordinal, err)
 		}
 	}
 
 	env.forgetProjectionState(t)
 	env.finishMetadataPass(t)
-	if _, err := store.Register(
-		integration.WithTestOperation(t, t.Context()),
-		registerWork,
-		delayedPage,
-	); !errors.Is(err, node.ErrContentChanged) {
+	if _, err := store.Register(integration.WithTestOperation(t, t.Context()), registerWork, delayedPage); !errors.Is(err, node.ErrContentChanged) {
 		t.Fatalf("register a page read before the activation = %v, want ErrContentChanged", err)
 	}
-
-	if err := store.CompleteRefresh(
-		integration.WithTestOperation(t, t.Context()),
-		refreshWork,
-	); err != nil {
+	if err := store.CompleteRefresh(integration.WithTestOperation(t, t.Context()), refreshWork); err != nil {
 		t.Fatalf("complete refresh after the activation: %v", err)
 	}
-
 	restarted, exists := claimLive(t, store)[refreshing]
-	if !exists || restarted.Generation <= refreshWork.Generation ||
-		restarted.Revision == refreshWork.Revision {
-		t.Fatalf(
-			"work after a delayed refresh = %+v, want a new generation and revision after %+v",
-			restarted,
-			refreshWork,
-		)
+	if !exists || restarted.Generation <= refreshWork.Generation || restarted.Revision == refreshWork.Revision {
+		t.Fatalf("work after a delayed refresh = %+v, want a new generation and revision after %+v", restarted, refreshWork)
 	}
-
 	if err := store.Yield(integration.WithTestOperation(t, t.Context()), restarted); err != nil {
 		t.Fatalf("yield restarted work: %v", err)
 	}
-
 	env.runIdle(t)
 	env.requireMigrated(t, nodes, initial, initialProjection)
 }

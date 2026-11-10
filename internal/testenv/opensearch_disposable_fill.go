@@ -23,13 +23,11 @@ func (e *DisposableEngine) DataUsage(t *testing.T) (int64, int64) {
 	if len(fields) != 2 {
 		t.Fatalf("read data path usage from %q", output)
 	}
-
 	size, sizeErr := strconv.ParseInt(fields[0], 10, 64)
 	used, usedErr := strconv.ParseInt(fields[1], 10, 64)
 	if sizeErr != nil || usedErr != nil {
 		t.Fatalf("parse data path usage %q: %v %v", output, sizeErr, usedErr)
 	}
-
 	return size, used
 }
 
@@ -42,18 +40,9 @@ func (e *DisposableEngine) FillData(t *testing.T, percent int64) (int64, int64) 
 	missing := size*percent/100 - used
 	if missing > 0 {
 		chunks := (missing + fillChunkBytes - 1) / fillChunkBytes
-		e.run(
-			t,
-			"dd",
-			"if=/dev/zero",
-			"of="+openSearchFillerPath,
-			"oflag=append",
-			"conv=notrunc",
-			"bs="+strconv.Itoa(fillChunkBytes),
-			"count="+strconv.FormatInt(chunks, 10),
-		)
+		e.run(t, "dd", "if=/dev/zero", "of="+openSearchFillerPath, "oflag=append", "conv=notrunc",
+			"bs="+strconv.Itoa(fillChunkBytes), "count="+strconv.FormatInt(chunks, 10))
 	}
-
 	return e.DataUsage(t)
 }
 
@@ -62,6 +51,5 @@ func (e *DisposableEngine) FillData(t *testing.T, percent int64) (int64, int64) 
 func (e *DisposableEngine) FreeData(t *testing.T) (int64, int64) {
 	t.Helper()
 	e.run(t, "rm", "-f", openSearchFillerPath)
-
 	return e.DataUsage(t)
 }

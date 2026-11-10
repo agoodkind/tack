@@ -31,7 +31,6 @@ func (r inspectListResult) AuditReadTargets() ([]audit.Target, error) {
 			targets = append(targets, audit.NodeTarget(view.ID))
 		}
 	}
-
 	return targets, nil
 }
 
@@ -45,7 +44,6 @@ func (r repairValidateResult) AuditReadTargets() ([]audit.Target, error) {
 		slog.Error("ops.validate_target_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("ops validate node: the result node ID is not a UUID: %w", err)
 	}
-
 	return []audit.Target{audit.NodeTarget(nodeID)}, nil
 }
 
@@ -53,7 +51,6 @@ func (r previewOutput) AuditReadTargets() ([]audit.Target, error) {
 	if r.Preview == nil {
 		return []audit.Target{}, nil
 	}
-
 	return []audit.Target{audit.NodeTarget(r.Preview.NodeID)}, nil
 }
 
@@ -65,9 +62,7 @@ func (r authTokenListResult) AuditReadTargets() ([]audit.Target, error) {
 			slog.Error("ops.token_list_target_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("ops auth token-list: a listed token ID is not a UUID: %w", err)
 		}
-
 		targets = append(targets, postgres.TokenTarget(tokenID, entry.Label))
 	}
-
 	return targets, nil
 }

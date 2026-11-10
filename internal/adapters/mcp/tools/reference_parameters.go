@@ -13,25 +13,16 @@ func (r *Resolver) entryPointRequiredMessage() string {
 }
 
 func entryPointSchemaFields(resolver *Resolver) []schemaField {
-	return []schemaField{
-		{
-			Name: resolver.EntryPointParamName(),
-			Type: schemaString,
-			Desc: entryPointFieldDescription(resolver),
-			Enum: nil,
-		},
-	}
+	return []schemaField{{
+		Name: resolver.EntryPointParamName(),
+		Type: schemaString,
+		Desc: entryPointFieldDescription(resolver),
+		Enum: nil,
+	}}
 }
 
 func scopeReferenceFields(level ScopeLevel, resolver *Resolver) []schemaField {
-	return []schemaField{
-		{
-			Name: level.ParamName,
-			Type: schemaString,
-			Desc: scopeFieldDescription(level, resolver),
-			Enum: nil,
-		},
-	}
+	return []schemaField{{Name: level.ParamName, Type: schemaString, Desc: scopeFieldDescription(level, resolver), Enum: nil}}
 }
 
 func requireScopeReference(args argMap, level ScopeLevel) (string, bool) {
@@ -51,7 +42,6 @@ func scopeParamNames(chain []ScopeLevel) []string {
 	for _, level := range chain {
 		names = append(names, level.ParamName)
 	}
-
 	return names
 }
 

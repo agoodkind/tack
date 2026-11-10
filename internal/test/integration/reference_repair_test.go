@@ -17,18 +17,14 @@ func TestRepairReferenceUniquenessSeedsHighestGeneratedValue(t *testing.T) {
 	mustCreateLegacyRepairReference(t, env, "issue", "Seven", project.ID, 7)
 
 	if _, err := ops.RepairReferenceUniqueness(
-		env.Ctx,
-		env.Ops,
-		ops.RepairReferenceOptions{Execute: true},
+		env.Ctx, env.Ops, ops.RepairReferenceOptions{Execute: true},
 	); err != nil {
 		t.Fatalf("RepairReferenceUniqueness: %v", err)
 	}
-
 	next, err := env.Stores.Nodes.AllocateSequenceByKey(env.Ctx, env.OrgID, "FAN-")
 	if err != nil {
 		t.Fatalf("AllocateSequenceByKey: %v", err)
 	}
-
 	if next != 8 {
 		t.Fatalf("next sequence = %d, want 8", next)
 	}
@@ -45,14 +41,11 @@ func TestRepairReferenceUniquenessRejectsUnreadableGeneratedValue(t *testing.T) 
 	writeNodeWithRawGeneratedValue(t, env, "issue", "Unreadable", project.ID, `true`)
 
 	_, err := ops.RepairReferenceUniqueness(
-		env.Ctx,
-		env.Ops,
-		ops.RepairReferenceOptions{Execute: true},
+		env.Ctx, env.Ops, ops.RepairReferenceOptions{Execute: true},
 	)
 	if err == nil {
 		t.Fatal("RepairReferenceUniqueness with an unreadable generated value: got nil error")
 	}
-
 	if !strings.Contains(err.Error(), "whole number") {
 		t.Fatalf("error = %q, want it to name the unreadable value", err)
 	}
@@ -66,18 +59,14 @@ func TestRepairReferenceUniquenessSeedsFromNumericStringValue(t *testing.T) {
 	writeNodeWithRawGeneratedValue(t, env, "issue", "Textual", project.ID, `"7"`)
 
 	if _, err := ops.RepairReferenceUniqueness(
-		env.Ctx,
-		env.Ops,
-		ops.RepairReferenceOptions{Execute: true},
+		env.Ctx, env.Ops, ops.RepairReferenceOptions{Execute: true},
 	); err != nil {
 		t.Fatalf("RepairReferenceUniqueness: %v", err)
 	}
-
 	next, err := env.Stores.Nodes.AllocateSequenceByKey(env.Ctx, env.OrgID, "FAN-")
 	if err != nil {
 		t.Fatalf("AllocateSequenceByKey: %v", err)
 	}
-
 	if next != 8 {
 		t.Fatalf("next sequence = %d, want 8", next)
 	}
@@ -116,26 +105,15 @@ func TestRepairReferenceUniquenessKeepNewestOfThree(t *testing.T) {
 	if len(report.Renumbered) != 2 {
 		t.Fatalf("renumbered = %d, want 2; report = %+v", len(report.Renumbered), report)
 	}
-
 	for _, rename := range report.Renumbered {
 		if rename.NodeID == third.ID {
 			t.Fatalf("the newest node %s was renumbered; it must be retained", third.ID)
 		}
 	}
-
-	renamed := map[uuid.UUID]bool{
-		report.Renumbered[0].NodeID: true,
-		report.Renumbered[1].NodeID: true,
-	}
+	renamed := map[uuid.UUID]bool{report.Renumbered[0].NodeID: true, report.Renumbered[1].NodeID: true}
 	if !renamed[first.ID] || !renamed[second.ID] {
-		t.Fatalf(
-			"renumbered %v, want the two older nodes %s and %s",
-			report.Renumbered,
-			first.ID,
-			second.ID,
-		)
+		t.Fatalf("renumbered %v, want the two older nodes %s and %s", report.Renumbered, first.ID, second.ID)
 	}
-
 	assertNoDuplicateReferences(t, env)
 }
 
@@ -148,24 +126,19 @@ func TestRepairReferenceUniquenessDryRunChangesNothing(t *testing.T) {
 	if len(report.Renumbered) != 1 {
 		t.Fatalf("planned renames = %d, want 1", len(report.Renumbered))
 	}
-
 	if !strings.Contains(report.Renumbered[0].To, "FAN-") {
 		t.Fatalf("planned rename = %+v, want counter key FAN-", report.Renumbered[0])
 	}
-
 	assertDuplicateReferenceGroups(t, env, 1)
 }
 
 func TestRepairReferenceUniquenessRejectsUnknownKeepPolicy(t *testing.T) {
 	_, err := ops.RepairReferenceUniqueness(
-		t.Context(),
-		&ops.Env{},
-		ops.RepairReferenceOptions{Keep: "middle"},
+		t.Context(), &ops.Env{}, ops.RepairReferenceOptions{Keep: "middle"},
 	)
 	if err == nil {
 		t.Fatal("RepairReferenceUniqueness with unknown keep policy: got nil error")
 	}
-
 	if !strings.Contains(err.Error(), "oldest") || !strings.Contains(err.Error(), "newest") {
 		t.Fatalf("unknown keep error = %q, want both accepted values", err)
 	}
@@ -180,7 +153,6 @@ func TestRepairReferenceUniquenessBackfillsReferenceKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LookupReference: %v", err)
 	}
-
 	if ownerID != legacy.ID {
 		t.Fatalf("LookupReference owner = %s, want %s", ownerID, legacy.ID)
 	}
@@ -192,17 +164,9 @@ func TestRepairReferenceUniquenessSeedsBeforeFreshCreate(t *testing.T) {
 	mustCreateLegacyRepairReference(t, env, "issue", "Second", project.ID, 1)
 
 	mustRepairReferenceUniqueness(t, env, true, "")
-	mustCreate(
-		t,
-		env,
-		service.CreateInput{
-			ParentID:    project.ID,
-			ScopeID:     project.ID,
-			NodeTypeKey: "issue",
-			Name:        "Fresh",
-			ActorID:     actor,
-		},
-	)
+	mustCreate(t, env, service.CreateInput{
+		ParentID: project.ID, ScopeID: project.ID, NodeTypeKey: "issue", Name: "Fresh", ActorID: actor,
+	})
 	assertNoDuplicateReferences(t, env)
 }
 
@@ -213,7 +177,6 @@ func repairReferenceEnv(t *testing.T) (*TestEnv, uuid.UUID, *node.NodeView) {
 	actor := uuid.New()
 	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
 	project := mustCreateScope(t, env, "project", "Fan", workspace.ID, workspace.ID, actor)
-
 	return env, actor, project
 }
 
@@ -225,14 +188,11 @@ func mustRepairReferenceUniqueness(
 ) ops.RepairReferenceReport {
 	t.Helper()
 	report, err := ops.RepairReferenceUniqueness(
-		env.Ctx,
-		env.Ops,
-		ops.RepairReferenceOptions{Execute: execute, Keep: keep},
+		env.Ctx, env.Ops, ops.RepairReferenceOptions{Execute: execute, Keep: keep},
 	)
 	if err != nil {
 		t.Fatalf("RepairReferenceUniqueness: %v", err)
 	}
-
 	return report
 }
 
@@ -241,7 +201,6 @@ func assertOneRenamedNode(t *testing.T, report ops.RepairReferenceReport, want *
 	if len(report.Renumbered) != 1 {
 		t.Fatalf("renamed nodes = %d, want 1; report = %+v", len(report.Renumbered), report)
 	}
-
 	if report.Renumbered[0].NodeID != want.ID {
 		t.Fatalf("renamed node = %s, want %s", report.Renumbered[0].NodeID, want.ID)
 	}
@@ -251,7 +210,6 @@ func newerReferenceNode(first, second *node.NodeView) *node.NodeView {
 	if first.ID.String() > second.ID.String() {
 		return first
 	}
-
 	return second
 }
 
@@ -259,7 +217,6 @@ func olderReferenceNode(first, second *node.NodeView) *node.NodeView {
 	if first.ID.String() < second.ID.String() {
 		return first
 	}
-
 	return second
 }
 
@@ -274,7 +231,6 @@ func assertDuplicateReferenceGroups(t *testing.T, env *TestEnv, want int) {
 	if err != nil {
 		t.Fatalf("FindDuplicateReferences: %v", err)
 	}
-
 	if len(duplicates) != want {
 		t.Fatalf("duplicate groups = %d, want %d; groups = %+v", len(duplicates), want, duplicates)
 	}

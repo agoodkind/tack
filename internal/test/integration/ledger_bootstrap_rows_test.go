@@ -36,52 +36,34 @@ type bootstrapLedgerRow struct {
 // step rows.
 func waitForBootstrapRows(t *testing.T, admin *pgxpool.Pool) []bootstrapLedgerRow {
 	t.Helper()
-	verbs := []audit.Verb{
-		audit.VerbOpsProvision,
-		audit.VerbOpsLedgerNodePrepare,
-		audit.VerbOpsLedgerNodeWait,
-	}
-
+	verbs := []audit.Verb{audit.VerbOpsProvision, audit.VerbOpsLedgerNodePrepare, audit.VerbOpsLedgerNodeWait}
 	names := make([]string, 0, len(verbs))
 	for _, verb := range verbs {
 		names = append(names, string(verb))
 	}
-
 	var observed []bootstrapLedgerRow
 	var lastErr error
-	projected := waitFor(
-		t,
-		bootstrapRowsDeadline,
-		func() bool {
-			rows, err := admin.Query(t.Context(), bootstrapRowsQuery, names)
-			if err != nil {
-				lastErr = err
+	projected := waitFor(t, bootstrapRowsDeadline, func() bool {
+		rows, err := admin.Query(t.Context(), bootstrapRowsQuery, names)
+		if err != nil {
+			lastErr = err
+			return false
+		}
+		observed, lastErr = pgx.CollectRows(rows, pgx.RowToStructByPos[bootstrapLedgerRow])
+		if lastErr != nil {
+			return false
+		}
+		for _, verb := range verbs {
+			if !bootstrapRunProjected(bootstrapRowsOfVerb(observed, verb)) {
 				return false
 			}
-
-			observed, lastErr = pgx.CollectRows(rows, pgx.RowToStructByPos[bootstrapLedgerRow])
-			if lastErr != nil {
-				return false
-			}
-
-			for _, verb := range verbs {
-				if !bootstrapRunProjected(bootstrapRowsOfVerb(observed, verb)) {
-					return false
-				}
-			}
-
-			return true
-		},
-	)
+		}
+		return true
+	})
 	if !projected {
-		t.Fatalf(
-			"audit.events lacks a completed result row of each bootstrap command after %s (last error %v): %+v",
-			bootstrapRowsDeadline,
-			lastErr,
-			observed,
-		)
+		t.Fatalf("audit.events lacks a completed result row of each bootstrap command after %s (last error %v): %+v",
+			bootstrapRowsDeadline, lastErr, observed)
 	}
-
 	return observed
 }
 
@@ -89,33 +71,24 @@ func waitForBootstrapRows(t *testing.T, admin *pgxpool.Pool) []bootstrapLedgerRo
 // and the completed result row of a run, both with an op id, and at least
 // one step row without an op id.
 func bootstrapRunProjected(rows []bootstrapLedgerRow) bool {
-	intent := slices.ContainsFunc(
-		rows,
-		func(row bootstrapLedgerRow) bool {
-			return row.Outcome == string(audit.OutcomePending) && row.OpID != ""
-		},
-	)
-	result := slices.ContainsFunc(
-		rows,
-		func(row bootstrapLedgerRow) bool {
-			return row.Outcome == string(audit.OutcomeCompleted) && row.OpID != ""
-		},
-	)
+	intent := slices.ContainsFunc(rows, func(row bootstrapLedgerRow) bool {
+		return row.Outcome == string(audit.OutcomePending) && row.OpID != ""
+	})
+	result := slices.ContainsFunc(rows, func(row bootstrapLedgerRow) bool {
+		return row.Outcome == string(audit.OutcomeCompleted) && row.OpID != ""
+	})
 	step := slices.ContainsFunc(rows, func(row bootstrapLedgerRow) bool { return row.OpID == "" })
-
 	return intent && result && step
 }
 
 // bootstrapRowsOfVerb returns the rows that record verb.
 func bootstrapRowsOfVerb(rows []bootstrapLedgerRow, verb audit.Verb) []bootstrapLedgerRow {
 	var matched []bootstrapLedgerRow
-
 	for _, row := range rows {
 		if row.Action == string(verb) {
 			matched = append(matched, row)
 		}
 	}
-
 	return matched
 }
 
@@ -125,7 +98,6 @@ func bootstrapRowsOfVerb(rows []bootstrapLedgerRow, verb audit.Verb) []bootstrap
 func requireBootstrapRun(t *testing.T, rows []bootstrapLedgerRow, verb audit.Verb) {
 	t.Helper()
 	var run, steps []bootstrapLedgerRow
-
 	for _, row := range bootstrapRowsOfVerb(rows, verb) {
 		if row.OpID == "" {
 			steps = append(steps, row)
@@ -133,50 +105,24 @@ func requireBootstrapRun(t *testing.T, rows []bootstrapLedgerRow, verb audit.Ver
 			run = append(run, row)
 		}
 	}
-
 	if len(run) != 2 {
 		t.Fatalf("%s rows = %+v, want an intent row and a result row with an op id", verb, rows)
 	}
-
 	outcomes := []string{run[0].Outcome, run[1].Outcome}
 	slices.Sort(outcomes)
-	if !slices.Equal(
-		outcomes,
-		[]string{string(audit.OutcomeCompleted), string(audit.OutcomePending)},
-	) {
-		t.Fatalf(
-			"%s outcomes = %v, want one %s and one %s",
-			verb,
-			outcomes,
-			audit.OutcomePending,
-			audit.OutcomeCompleted,
-		)
+	if !slices.Equal(outcomes, []string{string(audit.OutcomeCompleted), string(audit.OutcomePending)}) {
+		t.Fatalf("%s outcomes = %v, want one %s and one %s", verb, outcomes, audit.OutcomePending, audit.OutcomeCompleted)
 	}
-
 	requireBootstrapOpID(t, verb, run[0])
 	if run[0].OpID != run[1].OpID {
-		t.Fatalf(
-			"%s op ids = %s and %s, want one op id on both rows",
-			verb,
-			run[0].OpID,
-			run[1].OpID,
-		)
+		t.Fatalf("%s op ids = %s and %s, want one op id on both rows", verb, run[0].OpID, run[1].OpID)
 	}
-
 	if len(steps) == 0 {
 		t.Fatalf("%s did not record a step row", verb)
 	}
-
 	for _, step := range steps {
-		if step.Outcome != string(audit.OutcomePending) &&
-			step.Outcome != string(audit.OutcomeCompleted) {
-			t.Fatalf(
-				"%s step row outcome = %s, want %s or %s",
-				verb,
-				step.Outcome,
-				audit.OutcomePending,
-				audit.OutcomeCompleted,
-			)
+		if step.Outcome != string(audit.OutcomePending) && step.Outcome != string(audit.OutcomeCompleted) {
+			t.Fatalf("%s step row outcome = %s, want %s or %s", verb, step.Outcome, audit.OutcomePending, audit.OutcomeCompleted)
 		}
 	}
 }

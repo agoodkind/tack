@@ -25,48 +25,30 @@ func changeRow(nodeID uuid.UUID, at time.Time, commitVersion, before, after stri
 	row.Context.Phase = audit.PhaseChange
 	row.Context.CommitVersion = commitVersion
 	row.Context.Target = &audit.Target{
-		Kind:         audit.TargetKindNode,
-		NodeType:     "issue",
-		Reference:    "",
-		Name:         "",
-		URI:          "",
-		RelationType: "",
-		ID:           nodeID,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
+		Kind: audit.TargetKindNode, NodeType: "issue", Reference: "", Name: "", URI: "", RelationType: "",
+		ID: nodeID, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
 	row.Delta = &audit.Delta{
-		Before:  json.RawMessage(`{"name":"` + before + `"}`),
-		After:   json.RawMessage(`{"name":"` + after + `","props":{"priority":"high"}}`),
+		Before: json.RawMessage(`{"name":"` + before + `"}`), After: json.RawMessage(`{"name":"` + after + `","props":{"priority":"high"}}`),
 		Changed: []string{"/name", "/props/priority"},
 	}
-
 	return row
 }
 
 // deriveFields adds rows to a deriver for nodeID and returns the field
 // entries by path.
-func deriveFields(
-	t *testing.T,
-	nodeID uuid.UUID,
-	truncated bool,
-	rows ...audit.Row,
-) map[string]audit.LastChangeEntry {
+func deriveFields(t *testing.T, nodeID uuid.UUID, truncated bool, rows ...audit.Row) map[string]audit.LastChangeEntry {
 	t.Helper()
 	deriver := audit.NewLastChangeDeriver(nodeID, "")
-
 	for _, row := range rows {
 		if err := deriver.Add(row); err != nil {
 			t.Fatalf("add row %s: %v", row.EventID, err)
 		}
 	}
-
 	entries := map[string]audit.LastChangeEntry{}
-
 	for _, entry := range deriver.Report(truncated).Fields {
 		entries[entry.Path] = entry
 	}
-
 	return entries
 }
 
@@ -77,8 +59,7 @@ func TestLastChangeOrdersFoundationDBRowsByCommitVersion(t *testing.T) {
 	newer := changeRow(nodeID, now, "000000000000000000020000", "b", "c")
 	older := changeRow(nodeID, now.Add(time.Second), "000000000000000000010000", "a", "b")
 	name := deriveFields(t, nodeID, false, older, newer)["/name"]
-	if name.Change == nil || name.Change.EventID != newer.EventID ||
-		name.Status != audit.LastChangeKnown {
+	if name.Change == nil || name.Change.EventID != newer.EventID || name.Status != audit.LastChangeKnown {
 		t.Fatalf("/name = %+v, want known change %s", name, newer.EventID)
 	}
 }
@@ -92,8 +73,7 @@ func TestLastChangeReportsAmbiguousOrderAcrossDomains(t *testing.T) {
 	unversioned := changeRow(nodeID, now.Add(time.Second), "", "b", "c")
 	name := deriveFields(t, nodeID, false, versioned, unversioned)["/name"]
 	want := []uuid.UUID{versioned.EventID, unversioned.EventID}
-	if name.Status != audit.LastChangeAmbiguousOrder || name.Change != nil ||
-		!slices.Equal(name.CandidateEventIDs, want) {
+	if name.Status != audit.LastChangeAmbiguousOrder || name.Change != nil || !slices.Equal(name.CandidateEventIDs, want) {
 		t.Fatalf("/name = %+v, want ambiguous_order with candidates %v and no change", name, want)
 	}
 }
@@ -108,8 +88,7 @@ func TestLastChangeReportsPartialWithoutHistoryStart(t *testing.T) {
 	update.Delta.After = json.RawMessage(`{"name":"b","description":"kept"}`)
 	update.Delta.Changed = []string{"/name"}
 	fields := deriveFields(t, nodeID, false, update)
-	if fields["/description"].Status != audit.LastChangePartial ||
-		fields["/name"].Status != audit.LastChangeKnown {
+	if fields["/description"].Status != audit.LastChangePartial || fields["/name"].Status != audit.LastChangeKnown {
 		t.Fatalf("fields = %+v, want /description partial and /name known", fields)
 	}
 }
@@ -123,8 +102,7 @@ func TestLastChangeReportsPartialForCandidatesAfterTruncatedRead(t *testing.T) {
 	observed := changeRow(nodeID, now.Add(time.Second), "000000000000000000010000", "a", "b")
 	name := deriveFields(t, nodeID, true, observed)["/name"]
 	want := []uuid.UUID{observed.EventID}
-	if name.Status != audit.LastChangePartial || name.Change == nil ||
-		name.Change.EventID != observed.EventID ||
+	if name.Status != audit.LastChangePartial || name.Change == nil || name.Change.EventID != observed.EventID ||
 		!slices.Equal(name.CandidateEventIDs, want) {
 		t.Fatalf("/name = %+v, want partial with change and candidates %v", name, want)
 	}

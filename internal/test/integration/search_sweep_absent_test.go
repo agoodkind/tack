@@ -60,19 +60,9 @@ func TestSearchSweepSkipsSessionAnotherSweepDeleted(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
 	entryID := integration.EntryPoint(t, fixture, workspace)
-
 	for number := range absentSweepNodes {
-		integration.PutOpaqueNode(
-			t,
-			fixture,
-			kind,
-			entryID,
-			fmt.Sprintf("Absent sweep node %d", number),
-			absentSweepQuery,
-			"excluded",
-		)
+		integration.PutOpaqueNode(t, fixture, kind, entryID, fmt.Sprintf("Absent sweep node %d", number), absentSweepQuery, "excluded")
 	}
-
 	integration.DrainSearchWork(t, fixture.Worker, 10*absentSweepNodes+100)
 	harness, proxy := newPredictHoldHarness(t, fixture)
 
@@ -81,7 +71,6 @@ func TestSearchSweepSkipsSessionAnotherSweepDeleted(t *testing.T) {
 		page := integration.CallSearch(t, harness, absentSweepQuery, "")
 		expired = append(expired, integration.CursorSession(t, fixture, page.Cursor))
 	}
-
 	latest := expired[len(expired)-1].IdleDeadline
 	waitForTime(t, latest.Truncate(time.Minute).Add(time.Minute+absentSweepMargin))
 
@@ -91,26 +80,15 @@ func TestSearchSweepSkipsSessionAnotherSweepDeleted(t *testing.T) {
 
 	for name, outcome := range map[string]searchOutcome{"X": first, "Y": second} {
 		if outcome.err != nil || len(outcome.page.IDs) == 0 {
-			t.Errorf(
-				"search %s returned %d results and error %v",
-				name,
-				len(outcome.page.IDs),
-				outcome.err,
-			)
+			t.Errorf("search %s returned %d results and error %v", name, len(outcome.page.IDs), outcome.err)
 		}
 	}
-
 	store := fixture.Stores.SearchSessions(clock.Wall{}, absentSweepIdle)
-
 	for _, session := range expired {
-		if _, err := store.Load(
-			integration.WithTestOperation(t, t.Context()),
-			session.ID,
-		); !errors.Is(err, searchdomain.ErrSessionNotFound) {
+		if _, err := store.Load(integration.WithTestOperation(t, t.Context()), session.ID); !errors.Is(err, searchdomain.ErrSessionNotFound) {
 			t.Errorf("expired session %s remains after both sweeps: %v", session.ID, err)
 		}
 	}
-
 	requireSweepSkip(t, logged.contents(), absentSweepSessions)
 }
 
@@ -118,21 +96,14 @@ func TestSearchSweepSkipsSessionAnotherSweepDeleted(t *testing.T) {
 // proxy keeps the point in time delete request of the sweep of X open, runs
 // search Y to completion, releases the request, and returns the outcome of
 // both searches.
-func interleaveSweeps(
-	t *testing.T,
-	harness *integration.MCPHarness,
-	proxy *predictHoldProxy,
-) (searchOutcome, searchOutcome) {
+func interleaveSweeps(t *testing.T, harness *integration.MCPHarness, proxy *predictHoldProxy) (searchOutcome, searchOutcome) {
 	t.Helper()
 	proxy.armDelete()
 	searched := make(chan searchOutcome, 1)
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				searched <- searchOutcome{
-					page: integration.SearchPage{},
-					err:  fmt.Errorf("search X panicked: %v", recovered),
-				}
+				searched <- searchOutcome{page: integration.SearchPage{}, err: fmt.Errorf("search X panicked: %v", recovered)}
 			}
 		}()
 		page, err := integration.TrySearch(harness, absentSweepQuery, "")
@@ -141,20 +112,11 @@ func interleaveSweeps(
 	select {
 	case <-proxy.held:
 	case outcome := <-searched:
-		t.Fatalf(
-			"search X returned before its sweep sent a point in time delete request: %d results, error %v",
-			len(outcome.page.IDs),
-			outcome.err,
-		)
+		t.Fatalf("search X returned before its sweep sent a point in time delete request: %d results, error %v", len(outcome.page.IDs), outcome.err)
 	case <-time.After(absentSweepHoldTimeout):
-		t.Fatalf(
-			"the proxy did not receive a point in time delete request within %s",
-			absentSweepHoldTimeout,
-		)
+		t.Fatalf("the proxy did not receive a point in time delete request within %s", absentSweepHoldTimeout)
 	}
-
 	page, err := integration.TrySearch(harness, absentSweepQuery, "")
 	proxy.release()
-
 	return <-searched, searchOutcome{page: page, err: err}
 }

@@ -64,38 +64,13 @@ func datagenSeedOp(f *cli.Factory) clispec.Operation[datagenSeedInput] {
 			"container environment, not the default tack-ops container. Audit PII " +
 			"redaction is opt-in and runs the host redaction path for one actor.",
 		Params: []clispec.Param[datagenSeedInput]{
-			clispec.StringParam(
-				"scale",
-				"data volume: small, medium, or large",
-				"small",
-				false,
-				func(input *datagenSeedInput, value string) { input.Scale = value },
-			),
-			clispec.IntParam(
-				"seed",
-				"deterministic content seed",
-				defaultDatagenSeed,
-				func(input *datagenSeedInput, value int) { input.Seed = value },
-			),
-			clispec.BoolParam(
-				"commit",
-				"send writes after target validation",
-				false,
-				func(input *datagenSeedInput, value bool) { input.Commit = value },
-			),
-			clispec.BoolParam(
-				"redact-audit-pii",
-				"erase one generated actor's audit PII through the host redaction path",
-				false,
-				func(input *datagenSeedInput, value bool) { input.RedactAuditPII = value },
-			),
+			clispec.StringParam("scale", "data volume: small, medium, or large", "small", false, func(input *datagenSeedInput, value string) { input.Scale = value }),
+			clispec.IntParam("seed", "deterministic content seed", defaultDatagenSeed, func(input *datagenSeedInput, value int) { input.Seed = value }),
+			clispec.BoolParam("commit", "send writes after target validation", false, func(input *datagenSeedInput, value bool) { input.Commit = value }),
+			clispec.BoolParam("redact-audit-pii", "erase one generated actor's audit PII through the host redaction path", false, func(input *datagenSeedInput, value bool) { input.RedactAuditPII = value }),
 		},
 		New: func() datagenSeedInput {
-			return datagenSeedInput{
-				InputMarker: clispec.InputMarker{},
-				Scale:       "small",
-				Seed:        defaultDatagenSeed,
-			}
+			return datagenSeedInput{InputMarker: clispec.InputMarker{}, Scale: "small", Seed: defaultDatagenSeed}
 		},
 		Run: func(
 			ctx context.Context,
@@ -119,16 +94,10 @@ func runDatagenSeed(
 		}
 	}
 	started := clock.Now().UTC()
-	summary, err := datagen.RunSeed(
-		ctx,
-		factory.Cfg,
-		datagen.SeedRunOptions{
-			Scale:          input.Scale,
-			Seed:           int64(input.Seed),
-			Commit:         input.Commit,
-			RedactAuditPII: input.RedactAuditPII,
-		},
-	)
+	summary, err := datagen.RunSeed(ctx, factory.Cfg, datagen.SeedRunOptions{
+		Scale: input.Scale, Seed: int64(input.Seed), Commit: input.Commit,
+		RedactAuditPII: input.RedactAuditPII,
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "qa.datagen.seed_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("qa datagen seed: %w", err)
@@ -158,50 +127,34 @@ func runDatagenSeed(
 			return fmt.Errorf("qa datagen seed: %w", settingsVerbsErr)
 		}
 		searchSettingsVerbs = &settingsVerbs
-		order, orderErr := readDatagenCommitOrder(
-			ctx,
-			factory,
-			input.Scale,
-			int64(input.Seed),
-			clock.Now().UTC(),
-		)
+		order, orderErr := readDatagenCommitOrder(ctx, factory, input.Scale, int64(input.Seed), clock.Now().UTC())
 		if orderErr != nil {
 			return fmt.Errorf("qa datagen seed: %w", orderErr)
 		}
 		commitOrder = &order
-		manifestVerification, err = verifyDatagenManifest(
-			ctx,
-			factory,
-			summary.ManifestOrgID,
-			summary.ManifestRequestID,
-			started,
-		)
+		manifestVerification, err = verifyDatagenManifest(ctx, factory, summary.ManifestOrgID, summary.ManifestRequestID, started)
 		if err != nil {
 			return fmt.Errorf("qa datagen seed: %w", err)
 		}
 	}
-	return clispec.WriteJSONValue(
-		ctx,
-		sink,
-		datagenSeedResult{
-			ResultMarker: clispec.ResultMarker{},
-			Command:      "ops.qa.datagen.seed",
-			Scale:        summary.Scale,
-			Seed:         summary.Seed,
-			DryRun:       summary.DryRun,
-			ToolCalls:    summary.ToolCalls,
-			Created:      summary.Created,
-			Reused:       summary.Reused,
-			Workspaces:   summary.Workspaces,
-			Projects:     summary.Projects,
-			Issues:       summary.Issues,
+	return clispec.WriteJSONValue(ctx, sink, datagenSeedResult{
+		ResultMarker: clispec.ResultMarker{},
+		Command:      "ops.qa.datagen.seed",
+		Scale:        summary.Scale,
+		Seed:         summary.Seed,
+		DryRun:       summary.DryRun,
+		ToolCalls:    summary.ToolCalls,
+		Created:      summary.Created,
+		Reused:       summary.Reused,
+		Workspaces:   summary.Workspaces,
+		Projects:     summary.Projects,
+		Issues:       summary.Issues,
 
-			AuditConsumerOffsets: remainders,
-			LedgerVerbs:          ledgerVerbs,
-			SearchAccessVerbs:    searchAccessVerbs,
-			SearchSettingsVerbs:  searchSettingsVerbs,
-			CommitOrder:          commitOrder,
-			ManifestVerification: manifestVerification,
-		},
-	)
+		AuditConsumerOffsets: remainders,
+		LedgerVerbs:          ledgerVerbs,
+		SearchAccessVerbs:    searchAccessVerbs,
+		SearchSettingsVerbs:  searchSettingsVerbs,
+		CommitOrder:          commitOrder,
+		ManifestVerification: manifestVerification,
+	})
 }

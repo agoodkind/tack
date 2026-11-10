@@ -37,21 +37,13 @@ func StartOpenTofuHost(t T) OpenTofuHost {
 	if err != nil {
 		failWith(t, err)
 	}
-
 	if runner == "" {
-		failWith(
-			t,
-			errors.New(
-				"the test process does not run in a container, and OpenTofu commands run in the runner container",
-			),
-		)
+		failWith(t, errors.New("the test process does not run in a container, and OpenTofu commands run in the runner container"))
 	}
-
 	suffix, err := randomHex(ctx, tofuDirectoryBytes)
 	if err != nil {
 		failWith(t, err)
 	}
-
 	return OpenTofuHost{name: runner, Directory: path.Join("/tmp", "tack-tofu-"+suffix)}
 }
 
@@ -65,13 +57,11 @@ func (host OpenTofuHost) Run(t T, environment []string, command ...string) (stri
 	if err != nil {
 		failWith(t, err)
 	}
-
 	defer func() { _ = cli.Close() }()
 	output, code, err := execInContainerWithEnv(ctx, cli, host.name, command, environment)
 	if err != nil {
 		failWith(t, err)
 	}
-
 	return output, code
 }
 
@@ -84,7 +74,6 @@ func (host OpenTofuHost) WriteFile(t T, filePath string, contents []byte) {
 	if err != nil {
 		failWith(t, err)
 	}
-
 	defer func() { _ = cli.Close() }()
 	if err := writeContainerFile(ctx, cli, host.name, filePath, contents); err != nil {
 		failWith(t, err)
@@ -100,13 +89,11 @@ func (host OpenTofuHost) ReadFile(t T, filePath string) []byte {
 	if err != nil {
 		failWith(t, err)
 	}
-
 	defer func() { _ = cli.Close() }()
 	contents, err := readContainerFile(ctx, cli, host.name, filePath)
 	if err != nil {
 		failWith(t, err)
 	}
-
 	return contents
 }
 

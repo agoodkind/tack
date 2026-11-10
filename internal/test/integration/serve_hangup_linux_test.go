@@ -27,45 +27,18 @@ func TestServeExitsOnHangup(t *testing.T) {
 	ledger := testenv.Ledger(t)
 	logs := t.TempDir()
 	serverLog := filepath.Join(logs, "tack.jsonl")
-	environment := append(
-		os.Environ(),
-		"DATABASE_URL="+ledger,
-		"FDB_CLUSTER_FILE="+testenv.FreshFoundationDB(t),
-		"ENV=development",
-		"PORT=0",
-		"AUDIT_ALLOW_UNRECORDED=true",
-		"AUDIT_OPERATOR_DSN="+ledger,
-		"LOG_DISABLE_STDOUT=true",
-		"LOG_JSON_FILE="+serverLog,
-		"LOG_TEXT_FILE="+filepath.Join(logs, "tack.log"),
-	)
-	process := startInTerminal(
-		t,
-		buildMigrateServer(t),
-		environment,
-		"--execute",
-		"--operator-id",
-		uuid.Must(uuid.NewV7()).String(),
-		"--operator-email",
-		hangupOperatorEmail,
-		"serve",
-	)
+	environment := append(os.Environ(), "DATABASE_URL="+ledger, "FDB_CLUSTER_FILE="+testenv.FreshFoundationDB(t),
+		"ENV=development", "PORT=0", "AUDIT_ALLOW_UNRECORDED=true", "AUDIT_OPERATOR_DSN="+ledger,
+		"LOG_DISABLE_STDOUT=true", "LOG_JSON_FILE="+serverLog, "LOG_TEXT_FILE="+filepath.Join(logs, "tack.log"))
+	process := startInTerminal(t, buildMigrateServer(t), environment, "--execute",
+		"--operator-id", uuid.Must(uuid.NewV7()).String(), "--operator-email", hangupOperatorEmail, "serve")
 	process.waitForLogRecord(t, serverLog, serveStartedRecord, serveStartLimit)
 	process.hangUp(t)
 	status := process.waitForExit(t, serveExitLimit)
 	if !status.Signaled() || status.Signal() != syscall.SIGHUP {
-		t.Fatalf(
-			"serve exited with wait status %v after the terminal hangup, want an exit by SIGHUP:\n%s",
-			status,
-			process.output,
-		)
+		t.Fatalf("serve exited with wait status %v after the terminal hangup, want an exit by SIGHUP:\n%s", status, process.output)
 	}
-
 	if logContainsRecord(t, serverLog, hangupIgnoredRecord) {
-		t.Fatalf(
-			"the server log %s contains %s for serve --execute",
-			serverLog,
-			hangupIgnoredRecord,
-		)
+		t.Fatalf("the server log %s contains %s for serve --execute", serverLog, hangupIgnoredRecord)
 	}
 }

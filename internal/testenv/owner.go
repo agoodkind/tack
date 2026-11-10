@@ -65,36 +65,24 @@ func currentOwner(ctx context.Context, cli *client.Client) (processOwner, error)
 	if ownerState.owner.run != "" {
 		return ownerState.owner, nil
 	}
-
 	run, err := randomHex(ctx, 8)
 	if err != nil {
 		return processOwner{}, err
 	}
-
 	host, err := os.Hostname()
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.hostname_failed", slog.String("err", err.Error()))
 		return processOwner{}, fmt.Errorf("read this host's name: %w", err)
 	}
-
 	runner, err := selfContainer(ctx, cli)
 	if err != nil {
 		return processOwner{}, err
 	}
-
 	native, err := verifiedNativeMacRunner(ctx, cli, runner, host)
 	if err != nil {
 		return processOwner{}, err
 	}
-
-	ownerState.owner = processOwner{
-		run:      run,
-		host:     host,
-		runner:   runner,
-		native:   native,
-		operator: !testing.Testing(),
-	}
-
+	ownerState.owner = processOwner{run: run, host: host, runner: runner, native: native, operator: !testing.Testing()}
 	return ownerState.owner, nil
 }
 
@@ -104,7 +92,6 @@ func currentOwner(ctx context.Context, cli *client.Client) (processOwner, error)
 func knownOwner() (processOwner, bool) {
 	ownerState.Lock()
 	defer ownerState.Unlock()
-
 	return ownerState.owner, ownerState.owner.run != ""
 }
 
@@ -120,14 +107,12 @@ func prepareCreate(ctx context.Context, cli *client.Client) (processOwner, error
 	if err != nil {
 		return processOwner{}, err
 	}
-
 	if !owner.operator {
 		testProcessPrepared.Do(func() {
 			releaseOnSignal(ctx)
 			if !owner.native {
 				errWatcherStart = startRunWatcher(ctx, owner.run)
 			}
-
 			if !owner.native && !isolated() {
 				_, _ = removeEngines(ctx, cli, owner, ownerExited)
 			}
@@ -136,7 +121,6 @@ func prepareCreate(ctx context.Context, cli *client.Client) (processOwner, error
 			return processOwner{}, errWatcherStart
 		}
 	}
-
 	return owner, nil
 }
 
@@ -153,7 +137,6 @@ func ownerLabels(owner processOwner) map[string]string {
 	if owner.operator {
 		labels[operatorLabel] = "true"
 	}
-
 	return labels
 }
 
@@ -163,18 +146,12 @@ func ownerLabels(owner processOwner) map[string]string {
 // container is gone or stopped, or checks the process ID when the owner
 // shares this process's host and runner. It cannot check another host's
 // process ID or a Docker host's process ID from a container.
-func ownerExited(
-	ctx context.Context,
-	cli *client.Client,
-	self processOwner,
-	labels map[string]string,
-) (bool, error) {
+func ownerExited(ctx context.Context, cli *client.Client, self processOwner, labels map[string]string) (bool, error) {
 	host, labeled := labels[hostLabel]
 	process, numbered := labeledProcess(labels)
 	if !labeled || !numbered || labels[operatorLabel] == "true" {
 		return false, nil
 	}
-
 	runner := labels[runnerLabel]
 	switch {
 	case runner != "" && runner != self.runner:
@@ -193,7 +170,6 @@ func labeledProcess(labels map[string]string) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
-
 	return process, true
 }
 
@@ -204,14 +180,11 @@ func runnerStopped(ctx context.Context, cli *client.Client, runner string) (bool
 	if cerrdefs.IsNotFound(err) {
 		return true, nil
 	}
-
 	if err != nil {
 		slog.ErrorContext(ctx, "testenv.sweep.inspect_failed", slog.String("err", err.Error()))
 		return false, fmt.Errorf("inspect runner container %s: %w", runner, err)
 	}
-
 	state := inspected.Container.State
-
 	return state != nil && !state.Running, nil
 }
 

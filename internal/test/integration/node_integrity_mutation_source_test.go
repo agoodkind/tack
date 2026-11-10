@@ -20,25 +20,15 @@ func TestNodeIntegrityMutationRejectsStaleSource(t *testing.T) {
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	stale, schema := mutationSnapshot(t, env, issue.ID)
 	renamed := "Renamed by the service"
-	if _, err := env.NodeSvc.Update(
-		env.Ctx,
-		service.UpdateInput{
-			NodeID:              issue.ID,
-			Name:                &renamed,
-			Props:               nil,
-			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-			ActorID:             uuid.New(),
-		},
-	); err != nil {
+	if _, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
+		NodeID: issue.ID, Name: &renamed, Props: nil,
+		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
+	}); err != nil {
 		t.Fatalf("rename issue %s: %v", issue.ID, err)
 	}
-
 	current, _ := mutationSnapshot(t, env, issue.ID)
 
-	_, err := env.Stores.Nodes.ApplyMutation(
-		env.Ctx,
-		renamePlan(stale, schema, "Stale rename", nil),
-	)
+	_, err := env.Stores.Nodes.ApplyMutation(env.Ctx, renamePlan(stale, schema, "Stale rename", nil))
 	requireError(t, err, domain.ErrConflict, "ApplyMutation with a stale source")
 	absent := renamePlan(current, schema, "Absent rename", nil)
 	absent.Source = node.SourceExpectation{Absent: true, PrimaryDigest: node.Digest{}}
@@ -64,12 +54,7 @@ func TestNodeIntegrityMutationRejectsStaleGraph(t *testing.T) {
 	source, schema := mutationSnapshot(t, env, issue.ID)
 	move := movePlan(t, env, source, schema, epic.ID)
 	state, _ := mutationSnapshot(t, env, stateID)
-	reference := renamePlan(
-		source,
-		schema,
-		"Reference rename",
-		[]node.GraphRecord{{NodeID: stateID, PrimaryDigest: state.PrimaryDigest}},
-	)
+	reference := renamePlan(source, schema, "Reference rename", []node.GraphRecord{{NodeID: stateID, PrimaryDigest: state.PrimaryDigest}})
 	unlisted := movePlan(t, env, source, schema, epic.ID)
 	unlisted.Graph.Records = unlisted.Graph.Records[:1]
 	_, err := env.Stores.Nodes.ApplyMutation(env.Ctx, unlisted)
@@ -77,23 +62,13 @@ func TestNodeIntegrityMutationRejectsStaleGraph(t *testing.T) {
 
 	for _, renamed := range []uuid.UUID{epic.ID, stateID} {
 		name := "Renamed " + renamed.String()
-		if _, err := env.NodeSvc.Update(
-			env.Ctx,
-			service.UpdateInput{
-				NodeID: renamed,
-				Name:   &name,
-				Props:  nil,
-				RelationshipChanges: node.RelationshipChanges{
-					Add:    nil,
-					Remove: nil,
-				},
-				ActorID: uuid.New(),
-			},
-		); err != nil {
+		if _, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
+			NodeID: renamed, Name: &name, Props: nil,
+			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
+		}); err != nil {
 			t.Fatalf("rename %s: %v", renamed, err)
 		}
 	}
-
 	_, err = env.Stores.Nodes.ApplyMutation(env.Ctx, move)
 	requireError(t, err, domain.ErrConflict, "ApplyMutation with a stale parent digest")
 	_, err = env.Stores.Nodes.ApplyMutation(env.Ctx, reference)
@@ -112,39 +87,16 @@ func TestNodeIntegrityMutationRefusesReservedParentRelation(t *testing.T) {
 	epic := createSchemaNode(t, env, projectID, projectID, "epic", nil)
 	source, schema := mutationSnapshot(t, env, issue.ID)
 	plan := renamePlan(source, schema, "Reserved edge", nil)
-	plan.Relationships.Add = []*node.Relationship{
-		{
-			OrgID:        env.OrgID,
-			SourceID:     issue.ID,
-			RelationType: node.RelChildOf,
-			TargetID:     epic.ID,
-			CreatedBy:    uuid.New(),
-			CreatedAt:    source.Node.CreatedAt,
-			Props:        nil,
-		},
-	}
+	plan.Relationships.Add = []*node.Relationship{{
+		OrgID: env.OrgID, SourceID: issue.ID, RelationType: node.RelChildOf, TargetID: epic.ID,
+		CreatedBy: uuid.New(), CreatedAt: source.Node.CreatedAt, Props: nil,
+	}}
 
 	_, err := env.Stores.Nodes.ApplyMutation(env.Ctx, plan)
-	requireError(
-		t,
-		err,
-		node.ErrReservedParentRelation,
-		"ApplyMutation with a child_of relationship",
-	)
+	requireError(t, err, node.ErrReservedParentRelation, "ApplyMutation with a child_of relationship")
 	requireUnchanged(t, env, source)
-	edges, err := env.Stores.Relationships.ListBySource(
-		env.Ctx,
-		env.OrgID,
-		issue.ID,
-		node.RelChildOf,
-	)
+	edges, err := env.Stores.Relationships.ListBySource(env.Ctx, env.OrgID, issue.ID, node.RelChildOf)
 	if err != nil || len(edges) != 1 || edges[0].TargetID != projectID {
-		t.Fatalf(
-			"child_of edges of %s = %v, %v, want one edge to project %s",
-			issue.ID,
-			edges,
-			err,
-			projectID,
-		)
+		t.Fatalf("child_of edges of %s = %v, %v, want one edge to project %s", issue.ID, edges, err, projectID)
 	}
 }

@@ -15,10 +15,8 @@ import (
 // the data guests' pinned addresses, then exclude the process that is leaving
 // (TACK-408).
 var storeGroup = &clispec.Group{
-	Use:    "store",
-	Short:  "Read and change the product store's cluster configuration",
-	Long:   "",
-	Parent: opsGroup,
+	Use: "store", Short: "Read and change the product store's cluster configuration",
+	Long: "", Parent: opsGroup,
 }
 
 // storeRedundancyInput is the redundancy word, empty for the environment's own
@@ -79,13 +77,8 @@ func storeSetRedundancyOp(f *cli.Factory) clispec.Operation[storeRedundancyInput
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[storeRedundancyInput]{
-			clispec.StringParam(
-				"mode",
-				"single, double, or triple (default: this environment's configured mode)",
-				"",
-				false,
-				func(in *storeRedundancyInput, v string) { in.Mode = v },
-			),
+			clispec.StringParam("mode", "single, double, or triple (default: this environment's configured mode)",
+				"", false, func(in *storeRedundancyInput, v string) { in.Mode = v }),
 		},
 		New: func() storeRedundancyInput {
 			return storeRedundancyInput{InputMarker: clispec.InputMarker{}, Mode: ""}
@@ -118,13 +111,9 @@ func storeSetCoordinatorsOp(f *cli.Factory) clispec.Operation[storeAddressesInpu
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[storeAddressesInput]{
-			clispec.StringParam(
-				"addresses",
+			clispec.StringParam("addresses",
 				"comma-separated pinned guest addresses, for example 3d06:bad:b01:210::220,3d06:bad:b01:210::221,3d06:bad:b01:210::222",
-				"",
-				true,
-				func(in *storeAddressesInput, v string) { in.Addresses = v },
-			),
+				"", true, func(in *storeAddressesInput, v string) { in.Addresses = v }),
 		},
 		New: func() storeAddressesInput {
 			return storeAddressesInput{InputMarker: clispec.InputMarker{}, Addresses: ""}
@@ -154,13 +143,8 @@ func storeExcludeOp(f *cli.Factory) clispec.Operation[storeAddressesInput] {
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[storeAddressesInput]{
-			clispec.StringParam(
-				"addresses",
-				"comma-separated addresses of the processes to take out of service",
-				"",
-				true,
-				func(in *storeAddressesInput, v string) { in.Addresses = v },
-			),
+			clispec.StringParam("addresses", "comma-separated addresses of the processes to take out of service",
+				"", true, func(in *storeAddressesInput, v string) { in.Addresses = v }),
 		},
 		New: func() storeAddressesInput {
 			return storeAddressesInput{InputMarker: clispec.InputMarker{}, Addresses: ""}

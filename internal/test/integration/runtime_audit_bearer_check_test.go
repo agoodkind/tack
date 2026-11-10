@@ -34,43 +34,20 @@ func TestRuntimeAuditBearerCheckFailure(t *testing.T) {
 	restoreTokens := hideLedgerTable(t, hideTokensStatement, restoreTokensStatement)
 	var requestID string
 	var response publicResponse
-	integration.ClusterEventually(
-		t,
-		"fail the token check after the rename",
-		func() error {
-			requestID = newRequestID(t, "bearer-check-failure")
-			response = server.rpc(
-				t,
-				requestID,
-				"tools/call",
-				map[string]any{"name": "tack_list_workspaces", "arguments": map[string]any{}},
-			)
-			if response.status == http.StatusOK {
-				return errors.New("the token check still returned HTTP 200")
-			}
-
-			return nil
-		},
-	)
+	integration.ClusterEventually(t, "fail the token check after the rename", func() error {
+		requestID = newRequestID(t, "bearer-check-failure")
+		response = server.rpc(t, requestID, "tools/call", map[string]any{"name": "tack_list_workspaces", "arguments": map[string]any{}})
+		if response.status == http.StatusOK {
+			return errors.New("the token check still returned HTTP 200")
+		}
+		return nil
+	})
 	restoreTokens()
-	if response.status != http.StatusServiceUnavailable ||
-		string(response.body) != authenticationUnavailableResponse {
-		t.Fatalf(
-			"response = %d %s, want 503 %s",
-			response.status,
-			response.body,
-			authenticationUnavailableResponse,
-		)
+	if response.status != http.StatusServiceUnavailable || string(response.body) != authenticationUnavailableResponse {
+		t.Fatalf("response = %d %s, want 503 %s", response.status, response.body, authenticationUnavailableResponse)
 	}
 
 	ledger := startPublicLedger(t, server)
 	row := ledger.row(t, audit.SystemOrgID(), requestID)
-	requireReadRow(
-		t,
-		row,
-		audit.VerbAuthTokenRejected,
-		audit.OutcomeFailed,
-		auth.RejectionBearerCheckFailed,
-		response.body,
-	)
+	requireReadRow(t, row, audit.VerbAuthTokenRejected, audit.OutcomeFailed, auth.RejectionBearerCheckFailed, response.body)
 }

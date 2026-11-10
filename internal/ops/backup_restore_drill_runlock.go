@@ -37,61 +37,32 @@ func claimDrillRun(ctx context.Context, r *restoreDrillCtx) error {
 	root := drillScratchRoot(r)
 	if err := os.MkdirAll(drillScratchRunDir(r), 0o755); err != nil {
 		wrapped := fmt.Errorf("mkdir drill scratch %s: %w", drillScratchRunDir(r), err)
-		slog.ErrorContext(
-			ctx,
-			"backup.restore_drill.claim_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "backup.restore_drill.claim_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
-	sweepLock, err := os.OpenFile(
-		filepath.Join(root, drillSweepLockName),
-		os.O_CREATE|os.O_RDWR,
-		0o600,
-	)
+	sweepLock, err := os.OpenFile(filepath.Join(root, drillSweepLockName), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		wrapped := fmt.Errorf("open the drill sweep lock under %s: %w", root, err)
-		slog.ErrorContext(
-			ctx,
-			"backup.restore_drill.claim_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "backup.restore_drill.claim_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
 	defer sweepLock.Close()
 	if err := syscall.Flock(int(sweepLock.Fd()), syscall.LOCK_EX); err != nil {
 		wrapped := fmt.Errorf("lock the drill sweep lock under %s: %w", root, err)
-		slog.ErrorContext(
-			ctx,
-			"backup.restore_drill.claim_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "backup.restore_drill.claim_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
 	runLock, live, err := tryLockDrillRun(ctx, root, r.RunID)
 	if err != nil || live {
 		if err == nil {
 			err = errors.New("another process holds its lock")
 		}
-
 		wrapped := fmt.Errorf("lock drill run %s: %w", r.RunID, err)
-		slog.ErrorContext(
-			ctx,
-			"backup.restore_drill.claim_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "backup.restore_drill.claim_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
 	r.runLock = runLock
 	sweepDrillOrphans(ctx, r)
-
 	return nil
 }
 
@@ -105,36 +76,22 @@ func tryLockDrillRun(ctx context.Context, root, run string) (*os.File, bool, err
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
-
 	if err != nil {
 		wrapped := fmt.Errorf("open drill run directory %s: %w", run, err)
-		slog.ErrorContext(
-			ctx,
-			"backup.restore_drill.lock_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "backup.restore_drill.lock_failed", slog.String("err", wrapped.Error()))
 		return nil, false, wrapped
 	}
-
 	err = syscall.Flock(int(dir.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if errors.Is(err, syscall.EWOULDBLOCK) {
 		_ = dir.Close()
 		return nil, true, nil
 	}
-
 	if err != nil {
 		_ = dir.Close()
 		wrapped := fmt.Errorf("lock drill run directory %s: %w", run, err)
-		slog.ErrorContext(
-			ctx,
-			"backup.restore_drill.lock_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "backup.restore_drill.lock_failed", slog.String("err", wrapped.Error()))
 		return nil, false, wrapped
 	}
-
 	return dir, false, nil
 }
 

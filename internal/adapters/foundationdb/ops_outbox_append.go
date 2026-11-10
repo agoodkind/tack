@@ -30,24 +30,17 @@ func (s *OpsOutboxStore) Append(ctx context.Context, event json.RawMessage) (err
 	if len(event) == 0 {
 		err := errors.New("ops outbox append: empty event")
 		slog.ErrorContext(ctx, "ops_outbox.append_empty", slog.String("err", err.Error()))
-
 		return err
 	}
-
 	key, packErr := marshalOpsOutboxVersionstampedKey()
 	if packErr != nil {
 		slog.ErrorContext(ctx, "ops_outbox.append_pack_failed", slog.String("err", packErr.Error()))
 		return fmt.Errorf("ops outbox append key: %w", packErr)
 	}
-
-	return commitOutboxEntries(
-		ctx,
-		s.db,
-		func(tr fdb.Transaction) error {
-			tr.SetVersionstampedKey(key, event)
-			return nil
-		},
-	)
+	return commitOutboxEntries(ctx, s.db, func(tr fdb.Transaction) error {
+		tr.SetVersionstampedKey(key, event)
+		return nil
+	})
 }
 
 // AppendBatch writes events to the outbox through one OutboxWriter in one
@@ -58,36 +51,24 @@ func (s *OpsOutboxStore) AppendBatch(ctx context.Context, events []json.RawMessa
 	if len(events) == 0 {
 		err := errors.New("outbox batch append did not receive any events")
 		slog.ErrorContext(ctx, "ops_outbox.append_batch_empty", slog.String("err", err.Error()))
-
 		return err
 	}
-
-	return commitOutboxEntries(
-		ctx,
-		s.db,
-		func(tr fdb.Transaction) error {
-			writer := NewOutboxWriter(tr)
-
-			for _, event := range events {
-				if err := writer.WriteEventJSON(ctx, event); err != nil {
-					return err
-				}
+	return commitOutboxEntries(ctx, s.db, func(tr fdb.Transaction) error {
+		writer := NewOutboxWriter(tr)
+		for _, event := range events {
+			if err := writer.WriteEventJSON(ctx, event); err != nil {
+				return err
 			}
-
-			return nil
-		},
-	)
+		}
+		return nil
+	})
 }
 
 // commitOutboxEntries runs apply in a transaction and commits it. It retries
 // retryable FoundationDB errors and runs apply again on each attempt. The
 // context deadline sets the transaction timeout, and the end of the context
 // cancels the transaction.
-func commitOutboxEntries(
-	ctx context.Context,
-	db fdb.Database,
-	apply func(fdb.Transaction) error,
-) error {
+func commitOutboxEntries(ctx context.Context, db fdb.Database, apply func(fdb.Transaction) error) error {
 	// A mutation with no result cannot go through db.Transact here: that
 	// binding's closure must return an empty interface, and the repo's
 	// staticcheck rule refuses a new one. The retry loop below is what
@@ -95,12 +76,8 @@ func commitOutboxEntries(
 	// every pass because OnError resets the transaction.
 	transaction, transactionErr := db.CreateTransaction()
 	if transactionErr != nil {
-		slog.ErrorContext(
-			ctx,
-			"ops_outbox.append_transaction_failed",
-			slog.String("err", transactionErr.Error()),
-		)
-
+		slog.ErrorContext(ctx, "ops_outbox.append_transaction_failed",
+			slog.String("err", transactionErr.Error()))
 		return fmt.Errorf("create ops outbox append transaction: %w", transactionErr)
 	}
 	defer transaction.Cancel()
@@ -114,12 +91,9 @@ func commitOutboxEntries(
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(
-					ctx,
-					"ops_outbox.append_watch_panic",
+				slog.ErrorContext(ctx, "ops_outbox.append_watch_panic",
 					slog.Any("panic", recovered),
-					slog.String("err", fmt.Sprintf("%v", recovered)),
-				)
+					slog.String("err", fmt.Sprintf("%v", recovered)))
 			}
 		}()
 		select {
@@ -139,62 +113,35 @@ func commitOutboxEntries(
 		if optionErr := transaction.Options().SetTimeout(budget); optionErr != nil {
 			// Refusing is right here: proceeding would run on FoundationDB's
 			// default timeout while the caller believes its budget holds.
-			slog.ErrorContext(
-				ctx,
-				"ops_outbox.append_timeout_option_failed",
+			slog.ErrorContext(ctx, "ops_outbox.append_timeout_option_failed",
 				slog.Int64("budget_ms", budget),
-				slog.String("err", optionErr.Error()),
-			)
-
+				slog.String("err", optionErr.Error()))
 			return fmt.Errorf("set ops outbox append timeout %dms: %w", budget, optionErr)
 		}
 	}
-
 	for {
 		if applyErr := apply(transaction); applyErr != nil {
-			slog.ErrorContext(
-				ctx,
-				"ops_outbox.append_apply_failed",
-				slog.String("err", applyErr.Error()),
-			)
-
+			slog.ErrorContext(ctx, "ops_outbox.append_apply_failed", slog.String("err", applyErr.Error()))
 			return fmt.Errorf("prepare ops outbox entries: %w", applyErr)
 		}
-
 		commitErr := transaction.Commit().Get()
 		if commitErr == nil {
 			return nil
 		}
-
 		var fdbErr fdb.Error
 		if !errors.As(commitErr, &fdbErr) {
-			slog.ErrorContext(
-				ctx,
-				"ops_outbox.append_failed",
-				slog.String("err", commitErr.Error()),
-			)
-
+			slog.ErrorContext(ctx, "ops_outbox.append_failed", slog.String("err", commitErr.Error()))
 			return fmt.Errorf("append ops outbox event: %w", commitErr)
 		}
-
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			slog.ErrorContext(
-				ctx,
-				"ops_outbox.append_abandoned",
+			slog.ErrorContext(ctx, "ops_outbox.append_abandoned",
 				slog.String("commit_err", commitErr.Error()),
-				slog.String("err", ctxErr.Error()),
-			)
-
+				slog.String("err", ctxErr.Error()))
 			return fmt.Errorf("append ops outbox event: %w", errors.Join(ctxErr, commitErr))
 		}
-
 		if retryErr := transaction.OnError(fdbErr).Get(); retryErr != nil {
-			slog.ErrorContext(
-				ctx,
-				"ops_outbox.append_retry_failed",
-				slog.String("err", retryErr.Error()),
-			)
-
+			slog.ErrorContext(ctx, "ops_outbox.append_retry_failed",
+				slog.String("err", retryErr.Error()))
 			return fmt.Errorf("retry append ops outbox event: %w", retryErr)
 		}
 	}

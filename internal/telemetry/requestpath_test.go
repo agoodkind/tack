@@ -29,7 +29,6 @@ func captureDefaultLog(t *testing.T) *bytes.Buffer {
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buffer, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
-
 	return &buffer
 }
 
@@ -39,32 +38,15 @@ func captureDefaultLog(t *testing.T) *bytes.Buffer {
 func TestRequestPathCounterLogsOneRequestsTotals(t *testing.T) {
 	logged := captureDefaultLog(t)
 	tracer := &CountingQueryTracer{Next: nil}
-	handler := RequestPathCounter(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-			tracer.TraceQueryStart(
-				ctx,
-				nil,
-				pgx.TraceQueryStartData{
-					SQL:  "SELECT id FROM api_tokens WHERE token_hash = $1",
-					Args: nil,
-				},
-			)
-			tracer.TraceQueryStart(
-				ctx,
-				nil,
-				pgx.TraceQueryStartData{SQL: "UPDATE api_tokens SET last_used = now()", Args: nil},
-			)
-			tracer.TraceQueryStart(
-				ctx,
-				nil,
-				pgx.TraceQueryStartData{SQL: "select distinct org_id from org_members", Args: nil},
-			)
-			CountSyncProduce(ctx)
-			CountSyncProduce(ctx)
-			w.WriteHeader(http.StatusOK)
-		}),
-	)
+	handler := RequestPathCounter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		tracer.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "SELECT id FROM api_tokens WHERE token_hash = $1", Args: nil})
+		tracer.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "UPDATE api_tokens SET last_used = now()", Args: nil})
+		tracer.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "select distinct org_id from org_members", Args: nil})
+		CountSyncProduce(ctx)
+		CountSyncProduce(ctx)
+		w.WriteHeader(http.StatusOK)
+	}))
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
@@ -72,7 +54,6 @@ func TestRequestPathCounterLogsOneRequestsTotals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
-
 	t.Cleanup(func() { _ = response.Body.Close() })
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.StatusCode)
@@ -82,18 +63,12 @@ func TestRequestPathCounterLogsOneRequestsTotals(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(logged.Bytes()), &line); err != nil {
 		t.Fatalf("decode logged line %q: %v", logged.String(), err)
 	}
-
 	if line.Message != "request.path_counted" || line.Path != "/mcp" {
 		t.Fatalf("line = %+v, want request.path_counted for /mcp", line)
 	}
-
 	if line.LedgerReads != 2 || line.LedgerWrites != 1 || line.SyncProduces != 2 {
-		t.Fatalf(
-			"counts = reads %d writes %d produces %d, want 2, 1, 2",
-			line.LedgerReads,
-			line.LedgerWrites,
-			line.SyncProduces,
-		)
+		t.Fatalf("counts = reads %d writes %d produces %d, want 2, 1, 2",
+			line.LedgerReads, line.LedgerWrites, line.SyncProduces)
 	}
 }
 
@@ -104,10 +79,7 @@ func TestCountLedgerQueryClassifiesStatements(t *testing.T) {
 	ctx, counts := WithRequestPath(context.Background())
 	CountLedgerQuery(ctx, "SELECT 1")
 	CountLedgerQuery(ctx, "  with heads as (select 1) select * from heads")
-	CountLedgerQuery(
-		ctx,
-		"WITH moved AS (DELETE FROM a RETURNING id) INSERT INTO b SELECT id FROM moved",
-	)
+	CountLedgerQuery(ctx, "WITH moved AS (DELETE FROM a RETURNING id) INSERT INTO b SELECT id FROM moved")
 	CountLedgerQuery(ctx, "INSERT INTO api_tokens (id) VALUES ($1)")
 	CountLedgerQuery(ctx, "DELETE FROM org_members WHERE id = $1")
 	totals := counts.Counts()
@@ -124,14 +96,9 @@ func TestCountingOutsideARequestIsANoOp(t *testing.T) {
 	CountLedgerQuery(ctx, "SELECT 1")
 	CountSyncProduce(ctx)
 	tracer := &CountingQueryTracer{Next: nil}
-	if got := tracer.TraceQueryStart(
-		ctx,
-		nil,
-		pgx.TraceQueryStartData{SQL: "SELECT 1", Args: nil},
-	); got != ctx {
+	if got := tracer.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "SELECT 1", Args: nil}); got != ctx {
 		t.Fatal("a tracer with no Next must return the context it was given")
 	}
-
 	if _, ok := RequestPathFrom(ctx); ok {
 		t.Fatal("no request path is attached to a bare context")
 	}

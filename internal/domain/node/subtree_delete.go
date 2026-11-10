@@ -89,6 +89,5 @@ func (j *SubtreeDeleteJob) State() SubtreeDeleteState {
 	if j.Finished() {
 		return SubtreeDeleteFinished
 	}
-
 	return SubtreeDeleteRunning
 }

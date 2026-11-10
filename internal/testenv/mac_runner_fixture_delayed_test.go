@@ -34,38 +34,23 @@ func TestMacRunnerDockerFixtureDiskDelayedEvent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(fixtureHome) })
 	inspectionSocket := filepath.Join(fixtureHome, ".docker/run/docker.sock")
-	rawSocket := filepath.Join(
-		fixtureHome,
-		"Library/Containers/com.docker.docker/Data/docker.raw.sock",
-	)
+	rawSocket := filepath.Join(fixtureHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock")
 	for _, directory := range []string{filepath.Dir(inspectionSocket), filepath.Dir(rawSocket)} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Symlink(
-		filepath.Join(originalHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock"),
-		rawSocket,
-	); err != nil {
+	if err := os.Symlink(filepath.Join(originalHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock"), rawSocket); err != nil {
 		t.Fatal(err)
 	}
 	listener, err := net.Listen("unix", inspectionSocket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(
-				ctx,
-				"unix",
-				filepath.Join(originalHome, ".docker/run/docker.sock"),
-			)
-		},
-	}
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
-		Scheme: "http",
-		Host:   "docker",
-	})
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(originalHome, ".docker/run/docker.sock"))
+	}}
+	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "docker"})
 	proxy.Transport = transport
 	proxy.FlushInterval = -1
 	delayed := make(chan struct{})
@@ -76,15 +61,7 @@ func TestMacRunnerDockerFixtureDiskDelayedEvent(t *testing.T) {
 			reader, writer := io.Pipe()
 			original := response.Body
 			response.Body = reader
-			go macDelayDiskEvent(
-				response.Request.Context(),
-				original,
-				writer,
-				delayed,
-				release,
-				&delayedOnce,
-				matcher,
-			)
+			go macDelayDiskEvent(response.Request.Context(), original, writer, delayed, release, &delayedOnce, matcher)
 		}
 		if strings.HasSuffix(response.Request.URL.Path, "/wait") {
 			select {
@@ -95,15 +72,12 @@ func TestMacRunnerDockerFixtureDiskDelayedEvent(t *testing.T) {
 		}
 		return nil
 	}
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if request.Method == http.MethodGet && matcher.matchesInspection(request.URL.Path) {
-				releaseOnce.Do(func() { close(release) })
-			}
-			proxy.ServeHTTP(writer, request)
-		}),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	server := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet && matcher.matchesInspection(request.URL.Path) {
+			releaseOnce.Do(func() { close(release) })
+		}
+		proxy.ServeHTTP(writer, request)
+	}), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close(); transport.CloseIdleConnections() })
 	t.Setenv("HOME", fixtureHome)
@@ -122,40 +96,22 @@ func TestMacRunnerDockerFixtureDiskDelayedEvent(t *testing.T) {
 		t.Error("the runner did not inspect the data volume before cleanup")
 	}
 	summary := macOwnershipEvidence(t, options.EvidenceDirectory)
-	if !summary.Attribution || !summary.Cleanup || !summary.FullCleanup ||
-		len(summary.Fixtures.Containers) != 1 ||
-		len(summary.Fixtures.NamedVolumes) != 2 {
+	if !summary.Attribution || !summary.Cleanup || !summary.FullCleanup || len(summary.Fixtures.Containers) != 1 || len(summary.Fixtures.NamedVolumes) != 2 {
 		t.Errorf("delayed event prevented complete owned cleanup: %+v", summary)
 	}
 	for id := range summary.Fixtures.Containers {
-		if _, err := docker.ContainerInspect(
-			t.Context(),
-			id,
-			client.ContainerInspectOptions{},
-		); !errdefs.IsNotFound(err) {
+		if _, err := docker.ContainerInspect(t.Context(), id, client.ContainerInspectOptions{}); !errdefs.IsNotFound(err) {
 			t.Errorf("disk helper remains %s: %v", id, err)
 		}
 	}
 	for name := range summary.Fixtures.NamedVolumes {
-		if _, err := docker.VolumeInspect(
-			t.Context(),
-			name,
-			client.VolumeInspectOptions{},
-		); !errdefs.IsNotFound(err) {
+		if _, err := docker.VolumeInspect(t.Context(), name, client.VolumeInspectOptions{}); !errdefs.IsNotFound(err) {
 			t.Errorf("disk volume remains %s: %v", name, err)
 		}
 	}
 }
 
-func macDelayDiskEvent(
-	ctx context.Context,
-	source io.ReadCloser,
-	destination *io.PipeWriter,
-	delayed chan struct{},
-	release chan struct{},
-	once *sync.Once,
-	matcher *macFixtureDiskEvents,
-) {
+func macDelayDiskEvent(ctx context.Context, source io.ReadCloser, destination *io.PipeWriter, delayed, release chan struct{}, once *sync.Once, matcher *macFixtureDiskEvents) {
 	defer source.Close()
 	defer destination.Close()
 	scanner := bufio.NewScanner(source)
@@ -198,26 +154,15 @@ func (matcher *macFixtureDiskEvents) matchesCreate(line []byte) bool {
 	}
 	matcher.Lock()
 	defer matcher.Unlock()
-	if event.Type == "container" &&
-		event.Actor.Attributes["com.docker.compose.project"] == matcher.project &&
-		event.Actor.Attributes["io.goodkind.tack.mac-runner.native"] == "true" {
+	if event.Type == "container" && event.Actor.Attributes["com.docker.compose.project"] == matcher.project && event.Actor.Attributes["io.goodkind.tack.mac-runner.native"] == "true" {
 		matcher.runnerID = event.Actor.ID
 	}
-	if event.Type == "container" && matcher.runnerID != "" &&
-		event.Actor.Attributes["io.goodkind.tack.testenv.runner"] == matcher.runnerID &&
-		strings.HasPrefix(event.Actor.Attributes["name"], "tack-testenv-opensearch-disk-") {
+	if event.Type == "container" && matcher.runnerID != "" && event.Actor.Attributes["io.goodkind.tack.testenv.runner"] == matcher.runnerID && strings.HasPrefix(event.Actor.Attributes["name"], "tack-testenv-opensearch-disk-") {
 		matcher.dataName = event.Actor.Attributes["name"] + "-data"
 	}
-	if matcher.imageBeforeHelper && event.Type == "volume" && matcher.runnerID != "" &&
-		strings.HasPrefix(event.Actor.ID, "tack-testenv-opensearch-disk-") &&
-		strings.HasSuffix(event.Actor.ID, "-image") {
-		inspection, err := matcher.docker.VolumeInspect(
-			context.Background(),
-			event.Actor.ID,
-			client.VolumeInspectOptions{},
-		)
-		if err == nil &&
-			inspection.Volume.Labels["io.goodkind.tack.testenv.runner"] == matcher.runnerID {
+	if matcher.imageBeforeHelper && event.Type == "volume" && matcher.runnerID != "" && strings.HasPrefix(event.Actor.ID, "tack-testenv-opensearch-disk-") && strings.HasSuffix(event.Actor.ID, "-image") {
+		inspection, err := matcher.docker.VolumeInspect(context.Background(), event.Actor.ID, client.VolumeInspectOptions{})
+		if err == nil && inspection.Volume.Labels["io.goodkind.tack.testenv.runner"] == matcher.runnerID {
 			matcher.dataName = event.Actor.ID
 		}
 	}

@@ -72,12 +72,7 @@ func TestRuntimeAuditScaling(t *testing.T) {
 	for _, result := range results {
 		requireScalingRun(t, baseline, result, 0)
 	}
-	takeover := runScalingWorkload(
-		t,
-		scalingTakeoverLabel,
-		scalingTakeoverInstances,
-		scalingCrashAfter,
-	)
+	takeover := runScalingWorkload(t, scalingTakeoverLabel, scalingTakeoverInstances, scalingCrashAfter)
 	requireScalingRun(t, baseline, takeover, takeover.yugabyteBacklog)
 	results = append(results, takeover)
 	t.Log(scalingTables(results))
@@ -89,14 +84,8 @@ func TestRuntimeAuditScaling(t *testing.T) {
 func requireScalingRun(t *testing.T, baseline, result scalingResult, rollbackRecords int64) {
 	t.Helper()
 	if result.requests != baseline.requests || result.ledgerEvents != baseline.ledgerEvents {
-		t.Errorf(
-			"The workload recorded different request or ledger event counts from the expected one-instance baseline with %s instances: %d requests %d events; 1 instance: %d requests %d events",
-			result.label,
-			result.requests,
-			result.ledgerEvents,
-			baseline.requests,
-			baseline.ledgerEvents,
-		)
+		t.Errorf("The workload recorded different request or ledger event counts from the expected one-instance baseline with %s instances: %d requests %d events; 1 instance: %d requests %d events",
+			result.label, result.requests, result.ledgerEvents, baseline.requests, baseline.ledgerEvents)
 	}
 	requireFlatBroker(t, baseline, result, rollbackRecords)
 }

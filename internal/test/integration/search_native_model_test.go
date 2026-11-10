@@ -34,20 +34,13 @@ type nativeMLRequest struct {
 // GetRequest builds the request. OpenSearch rejects a body without a
 // Content-Type header with status 406.
 func (request nativeMLRequest) GetRequest(method string) (*http.Request, error) {
-	result, err := http.NewRequestWithContext(
-		context.Background(),
-		method,
-		request.path,
-		bytes.NewReader(request.body),
-	)
+	result, err := http.NewRequestWithContext(context.Background(), method, request.path, bytes.NewReader(request.body))
 	if err != nil {
 		return nil, err
 	}
-
 	if len(request.body) > 0 {
 		result.Header.Set("Content-Type", "application/json")
 	}
-
 	return result, nil
 }
 
@@ -56,29 +49,16 @@ func nativeModelPath(modelID, suffix string) string {
 }
 
 // requireNativeML sends one ML Commons request and decodes its response body.
-func requireNativeML(
-	t *testing.T,
-	client *opensearchapi.Client,
-	method string,
-	request nativeMLRequest,
-) json.RawMessage {
+func requireNativeML(t *testing.T, client *opensearchapi.Client, method string, request nativeMLRequest) json.RawMessage {
 	t.Helper()
 	var body json.RawMessage
-	response, err := opensearch.Execute(
-		WithTestOperation(t, t.Context()),
-		client.Client,
-		method,
-		request,
-		&body,
-	)
+	response, err := opensearch.Execute(WithTestOperation(t, t.Context()), client.Client, method, request, &body)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if response.IsError() {
 		t.Fatal(opensearch.ParseError(response))
 	}
-
 	return bytes.Clone(body)
 }
 
@@ -87,16 +67,10 @@ func nativeModelState(t *testing.T, client *opensearchapi.Client, modelID string
 	var model struct {
 		State string `json:"model_state"`
 	}
-	body := requireNativeML(
-		t,
-		client,
-		http.MethodGet,
-		nativeMLRequest{path: nativeModelPath(modelID, ""), body: nil},
-	)
+	body := requireNativeML(t, client, http.MethodGet, nativeMLRequest{path: nativeModelPath(modelID, ""), body: nil})
 	if err := json.Unmarshal(body, &model); err != nil {
 		t.Fatal(err)
 	}
-
 	return model.State
 }
 
@@ -109,38 +83,23 @@ var undeployedModelStates = []string{"UNDEPLOYED", "DEPLOY_FAILED"}
 
 // undeployNativeModel undeploys modelID, waits until ML Commons reports that
 // no node serves it, and calls [redeployNativeModel] when the test ends.
-func undeployNativeModel(
-	t *testing.T,
-	adapter *search.Adapter,
-	client *opensearchapi.Client,
-	modelID string,
-) {
+func undeployNativeModel(t *testing.T, adapter *search.Adapter, client *opensearchapi.Client, modelID string) {
 	t.Helper()
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(
-			context.WithoutCancel(WithTestOperation(t, t.Context())),
-			nativeRedeployTimeout,
-		)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(WithTestOperation(t, t.Context())), nativeRedeployTimeout)
 		defer cancel()
 		if err := redeployNativeModel(ctx, adapter, client); err != nil {
 			t.Errorf("redeploy native model: %v", err)
 		}
 	})
-	requireNativeML(
-		t,
-		client,
-		http.MethodPost,
-		nativeMLRequest{path: nativeModelPath(modelID, "/_undeploy"), body: nil},
-	)
+	requireNativeML(t, client, http.MethodPost, nativeMLRequest{path: nativeModelPath(modelID, "/_undeploy"), body: nil})
 	deadline := time.NewTimer(2 * time.Minute)
 	defer deadline.Stop()
-
 	for {
 		state := nativeModelState(t, client, modelID)
 		if slices.Contains(undeployedModelStates, state) {
 			return
 		}
-
 		poll := time.NewTimer(time.Second)
 		select {
 		case <-deadline.C:
@@ -159,56 +118,35 @@ func undeployNativeModel(
 // heap, and the next young collection runs only after the engine fills the
 // young generation. A rejection with status 429 continues the wait. Every
 // other failure returns at once.
-func redeployNativeModel(
-	ctx context.Context,
-	adapter *search.Adapter,
-	client *opensearchapi.Client,
-) error {
+func redeployNativeModel(ctx context.Context, adapter *search.Adapter, client *opensearchapi.Client) error {
 	model, err := adapter.Provision(ctx)
 	if err != nil {
 		return err
 	}
-
 	deadline, cancel := context.WithTimeout(ctx, nativePredictionWait)
 	defer cancel()
 	request := nativeMLRequest{
 		path: "/_plugins/_ml/_predict/sparse_encoding/" + url.PathEscape(model.ID),
 		body: []byte(`{"text_docs":["redeployed model"]}`),
 	}
-
 	for {
 		var body json.RawMessage
-		response, err := opensearch.Execute(
-			deadline,
-			client.Client,
-			http.MethodPost,
-			request,
-			&body,
-		)
+		response, err := opensearch.Execute(deadline, client.Client, http.MethodPost, request, &body)
 		if err != nil {
 			return fmt.Errorf("predict with redeployed model %s: %w", model.ID, err)
 		}
-
 		if !response.IsError() {
 			return nil
 		}
-
 		rejection := opensearch.ParseError(response)
 		if response.StatusCode != http.StatusTooManyRequests {
 			return fmt.Errorf("predict with redeployed model %s: %w", model.ID, rejection)
 		}
-
 		wait := time.NewTimer(time.Second)
 		select {
 		case <-deadline.Done():
 			wait.Stop()
-
-			return fmt.Errorf(
-				"redeployed model %s rejected every prediction for %s: %w",
-				model.ID,
-				nativePredictionWait,
-				rejection,
-			)
+			return fmt.Errorf("redeployed model %s rejected every prediction for %s: %w", model.ID, nativePredictionWait, rejection)
 		case <-wait.C:
 		}
 	}

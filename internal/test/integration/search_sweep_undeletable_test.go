@@ -32,23 +32,15 @@ func TestSearchSweepPassesUndeletableExpiryKeys(t *testing.T) {
 	waitForTime(t, session.IdleDeadline.Truncate(time.Minute).Add(time.Minute+sweepExpiryMargin))
 
 	store := fixture.Stores.SearchSessions(clock.Wall{}, undeletableIdle)
-
 	for attempt := range sweepAttemptLimit {
 		integration.CallSearch(t, fixture.Harness, undeletableQuery, "")
 		_, err := store.Load(integration.WithTestOperation(t, t.Context()), session.ID)
 		if errors.Is(err, searchdomain.ErrSessionNotFound) {
 			return
 		}
-
 		if err != nil {
 			t.Fatalf("load session %s after sweep %d: %v", session.ID, attempt, err)
 		}
 	}
-
-	t.Fatalf(
-		"%d searches did not delete session %s past %d undeletable keys",
-		sweepAttemptLimit,
-		session.ID,
-		undeletableKeys,
-	)
+	t.Fatalf("%d searches did not delete session %s past %d undeletable keys", sweepAttemptLimit, session.ID, undeletableKeys)
 }

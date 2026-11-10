@@ -15,7 +15,6 @@ func TestReferenceDuplicatesAreRegistered(t *testing.T) {
 	if !hasOperation(operations, "reference.duplicates") {
 		t.Fatal("reference.duplicates is not registered")
 	}
-
 	if !hasOperation(operations, "repair.sequence_scope_ids") {
 		t.Fatal("repair.sequence_scope_ids is not registered")
 	}
@@ -35,20 +34,16 @@ func TestFindDuplicateReferencesReportsLegacyCollision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindDuplicateReferences: %v", err)
 	}
-
 	if len(duplicates) != 1 {
 		t.Fatalf("duplicate groups = %d, want 1; groups = %+v", len(duplicates), duplicates)
 	}
-
 	group := duplicates[0]
 	if group.TemplateName != "reference" || group.Encoded != "FAN-1" {
 		t.Fatalf("group = %+v, want reference FAN-1", group)
 	}
-
 	if len(group.NodeIDs) != 2 {
 		t.Fatalf("group nodes = %d, want 2", len(group.NodeIDs))
 	}
-
 	if !containsUUID(group.NodeIDs, epic.ID) || !containsUUID(group.NodeIDs, issue.ID) {
 		t.Fatalf("group nodes = %v, want %s and %s", group.NodeIDs, epic.ID, issue.ID)
 	}
@@ -65,7 +60,6 @@ func TestFindDuplicateReferencesReturnsNoGroupsWithoutCollisions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindDuplicateReferences: %v", err)
 	}
-
 	if len(duplicates) != 0 {
 		t.Fatalf("duplicate groups = %d, want 0; groups = %+v", len(duplicates), duplicates)
 	}
@@ -83,7 +77,6 @@ func registerOpsOrg(t *testing.T, env *TestEnv) {
 	); err != nil {
 		t.Fatalf("insert ops test user %s: %v", userID, err)
 	}
-
 	if _, err := env.Ops.Pool.Exec(
 		env.Ctx,
 		"INSERT INTO org_members (org_id, user_id) VALUES ($1, $2)",
@@ -94,13 +87,7 @@ func registerOpsOrg(t *testing.T, env *TestEnv) {
 	}
 }
 
-func mustCreateLegacyReference(
-	t *testing.T,
-	env *TestEnv,
-	typeKey string,
-	name string,
-	projectID uuid.UUID,
-) *node.NodeView {
+func mustCreateLegacyReference(t *testing.T, env *TestEnv, typeKey, name string, projectID uuid.UUID) *node.NodeView {
 	t.Helper()
 	now := clock.Now().UTC()
 	props := map[string]json.RawMessage{
@@ -127,17 +114,11 @@ func mustCreateLegacyReference(
 		UpdatedAt: current.UpdatedAt,
 	}
 	if err := env.Stores.Nodes.CreateAtomic(
-		env.Ctx,
-		current,
-		view,
-		nil,
-		[]string{"parent_id", "scope_id", "sequence"},
-		nil,
-		nil,
+		env.Ctx, current, view, nil,
+		[]string{"parent_id", "scope_id", "sequence"}, nil, nil,
 	); err != nil {
 		t.Fatalf("create legacy %s: %v", typeKey, err)
 	}
-
 	return view
 }
 
@@ -147,7 +128,6 @@ func hasOperation(operations []ops.Operation, name string) bool {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -157,7 +137,6 @@ func containsString(values []string, want string) bool {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -167,7 +146,6 @@ func containsUUID(values []uuid.UUID, want uuid.UUID) bool {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -176,6 +154,5 @@ func jsonNumber(value int) json.RawMessage {
 	if err != nil {
 		panic(err)
 	}
-
 	return encoded
 }

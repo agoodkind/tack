@@ -69,16 +69,13 @@ type macRunnerEventSnapshot struct {
 func (snapshot *macRunnerEventSnapshot) copy() []macRunnerObservedCreate {
 	snapshot.Lock()
 	defer snapshot.Unlock()
-
 	return append([]macRunnerObservedCreate(nil), snapshot.creates...)
 }
 
 func newMacRunnerFixtures() macRunnerFixtureEvidence {
 	return macRunnerFixtureEvidence{
-		Containers:   make(map[string]macRunnerFixture),
-		Networks:     make(map[string]macRunnerFixture),
-		Volumes:      make(map[string]bool),
-		Processes:    make(map[string]macRunnerFixtureProcess),
+		Containers: make(map[string]macRunnerFixture), Networks: make(map[string]macRunnerFixture),
+		Volumes: make(map[string]bool), Processes: make(map[string]macRunnerFixtureProcess),
 		NamedVolumes: make(map[string]volume.Volume),
 		Preserved:    make(map[string]macRunnerPreservedResource),
 		OtherRunners: make(map[string]string),

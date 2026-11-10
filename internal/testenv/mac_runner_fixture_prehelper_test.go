@@ -31,38 +31,23 @@ func TestMacRunnerDockerFixtureImageBeforeHelper(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(fixtureHome) })
 	inspectionSocket := filepath.Join(fixtureHome, ".docker/run/docker.sock")
-	rawSocket := filepath.Join(
-		fixtureHome,
-		"Library/Containers/com.docker.docker/Data/docker.raw.sock",
-	)
+	rawSocket := filepath.Join(fixtureHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock")
 	for _, directory := range []string{filepath.Dir(inspectionSocket), filepath.Dir(rawSocket)} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Symlink(
-		filepath.Join(originalHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock"),
-		rawSocket,
-	); err != nil {
+	if err := os.Symlink(filepath.Join(originalHome, "Library/Containers/com.docker.docker/Data/docker.raw.sock"), rawSocket); err != nil {
 		t.Fatal(err)
 	}
 	listener, err := net.Listen("unix", inspectionSocket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(
-				ctx,
-				"unix",
-				filepath.Join(originalHome, ".docker/run/docker.sock"),
-			)
-		},
-	}
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
-		Scheme: "http",
-		Host:   "docker",
-	})
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(originalHome, ".docker/run/docker.sock"))
+	}}
+	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "docker"})
 	proxy.Transport = transport
 	proxy.FlushInterval = -1
 	delayed := make(chan struct{})
@@ -73,15 +58,7 @@ func TestMacRunnerDockerFixtureImageBeforeHelper(t *testing.T) {
 			reader, writer := io.Pipe()
 			original := response.Body
 			response.Body = reader
-			go macDelayDiskEvent(
-				response.Request.Context(),
-				original,
-				writer,
-				delayed,
-				release,
-				&delayedOnce,
-				matcher,
-			)
+			go macDelayDiskEvent(response.Request.Context(), original, writer, delayed, release, &delayedOnce, matcher)
 		}
 		if strings.HasSuffix(response.Request.URL.Path, "/wait") {
 			select {
@@ -92,15 +69,12 @@ func TestMacRunnerDockerFixtureImageBeforeHelper(t *testing.T) {
 		}
 		return nil
 	}
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if request.Method == http.MethodGet && matcher.matchesInventory(request.URL.Path) {
-				releaseOnce.Do(func() { close(release) })
-			}
-			proxy.ServeHTTP(writer, request)
-		}),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	server := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet && matcher.matchesInventory(request.URL.Path) {
+			releaseOnce.Do(func() { close(release) })
+		}
+		proxy.ServeHTTP(writer, request)
+	}), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close(); transport.CloseIdleConnections() })
 	t.Setenv("HOME", fixtureHome)
@@ -115,8 +89,7 @@ func TestMacRunnerDockerFixtureImageBeforeHelper(t *testing.T) {
 		}
 		ctx := context.Background()
 		volume, err := docker.VolumeInspect(ctx, name, client.VolumeInspectOptions{})
-		if err != nil || volume.Volume.Labels["io.goodkind.tack.testenv"] != "true" ||
-			volume.Volume.Labels["io.goodkind.tack.testenv.runner"] != summary.RunnerID {
+		if err != nil || volume.Volume.Labels["io.goodkind.tack.testenv"] != "true" || volume.Volume.Labels["io.goodkind.tack.testenv.runner"] != summary.RunnerID {
 			t.Errorf("refuse image volume recovery %s: %v", name, err)
 			return
 		}
@@ -124,14 +97,8 @@ func TestMacRunnerDockerFixtureImageBeforeHelper(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	if runErr == nil || result.ExitCode != 1 || summary.Attribution || summary.Cleanup ||
-		summary.FullCleanup {
-		t.Errorf(
-			"pre-helper volume reported complete cleanup: result=%+v error=%v summary=%+v",
-			result,
-			runErr,
-			summary,
-		)
+	if runErr == nil || result.ExitCode != 1 || summary.Attribution || summary.Cleanup || summary.FullCleanup {
+		t.Errorf("pre-helper volume reported complete cleanup: result=%+v error=%v summary=%+v", result, runErr, summary)
 	}
 	select {
 	case <-delayed:
@@ -145,15 +112,10 @@ func TestMacRunnerDockerFixtureImageBeforeHelper(t *testing.T) {
 	}
 	proven, found := summary.Fixtures.Volumes[name]
 	preserved := summary.Fixtures.Preserved["volume:"+name]
-	if name == "" || !found || proven || !preserved.Incomplete ||
-		len(summary.Fixtures.Containers) != 0 {
+	if name == "" || !found || proven || !preserved.Incomplete || len(summary.Fixtures.Containers) != 0 {
 		t.Errorf("pre-helper image volume was not preserved as unproven: %+v", summary.Fixtures)
 	}
-	if _, err := docker.VolumeInspect(
-		t.Context(),
-		name,
-		client.VolumeInspectOptions{},
-	); err != nil {
+	if _, err := docker.VolumeInspect(t.Context(), name, client.VolumeInspectOptions{}); err != nil {
 		t.Errorf("pre-helper image volume disappeared: %v", err)
 	}
 }

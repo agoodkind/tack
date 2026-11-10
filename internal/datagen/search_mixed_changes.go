@@ -67,11 +67,7 @@ func (m *searchMixed) prepareChanges(ctx context.Context, identities Identities)
 	for range m.options.MetadataWrites {
 		definition := searchDefinition(orgID, opaqueKey(searchMixedMetadataLabel), false, 0)
 		if err := m.stores.PropertyDefs.Set(ctx, definition); err != nil {
-			return loggedError(
-				ctx,
-				"qa datagen search-mixed: the command could not store property definition "+definition.Name,
-				err,
-			)
+			return loggedError(ctx, "qa datagen search-mixed: the command could not store property definition "+definition.Name, err)
 		}
 		m.changes.definitions = append(m.changes.definitions, definition)
 	}
@@ -79,22 +75,10 @@ func (m *searchMixed) prepareChanges(ctx context.Context, identities Identities)
 		return nil
 	}
 	stores := m.stores
-	nodes, err := service.NewNodeService(
-		stores.Nodes,
-		stores.Views,
-		stores.NodeTypes,
-		stores.PropertyDefs,
-		stores.Relationships,
-		stores.NodeDeleter,
-		m.members,
-		stores.Relationships,
-	)
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs,
+		stores.Relationships, stores.NodeDeleter, m.members, stores.Relationships)
 	if err != nil {
-		return loggedError(
-			ctx,
-			"qa datagen search-mixed: the command could not build the node service for moves",
-			err,
-		)
+		return loggedError(ctx, "qa datagen search-mixed: the command could not build the node service for moves", err)
 	}
 	m.changes.nodes = nodes
 	for index, tenant := range m.tenants {
@@ -112,10 +96,7 @@ func (m *searchMixed) prepareChanges(ctx context.Context, identities Identities)
 // project's title. It returns the workspace slug and project ID, or an error if the organization
 // has one workspace.
 func (m *searchMixed) createDestination(
-	ctx context.Context,
-	index int,
-	identities Identities,
-	tenant *searchMixedTenant,
+	ctx context.Context, index int, identities Identities, tenant *searchMixedTenant,
 ) (searchMixedDestination, error) {
 	none := searchMixedDestination{entry: "", projectID: uuid.Nil}
 	slug := ""
@@ -126,52 +107,27 @@ func (m *searchMixed) createDestination(
 		}
 	}
 	if slug == "" {
-		return none, fmt.Errorf(
-			"qa datagen search-mixed: organization %s has one workspace, and moves require a second workspace",
-			tenant.workspace.OrgID,
-		)
+		return none, fmt.Errorf("qa datagen search-mixed: organization %s has one workspace, and moves require a second workspace", tenant.workspace.OrgID)
 	}
 	if err := m.registerEntry(ctx, tenant.workspace.OrgID, slug); err != nil {
 		return none, err
 	}
 	properties := newProperties()
 	properties.setString("identifier", strings.ToUpper(opaqueKey(searchMixedDestinationLabel)))
-	result, err := m.driver(index).Call(
-		ctx,
-		tenant.token(),
-		"tack_create_project",
-		ToolArguments{
-			WorkspaceReference: slug,
-			ProjectReference:   "",
-			IssueReference:     "",
-			Name:               "Search mixed moves " + m.runKey,
-			Properties:         properties,
-			NodeID:             "",
-			Query:              "",
-			NodeType:           "",
-			Direction:          "",
-			SourceID:           "",
-			RelationType:       "",
-			TargetID:           "",
-		},
-	)
+	result, err := m.driver(index).Call(ctx, tenant.token(), "tack_create_project", ToolArguments{
+		WorkspaceReference: slug, ProjectReference: "", IssueReference: "",
+		Name: "Search mixed moves " + m.runKey, Properties: properties, NodeID: "", Query: "", NodeType: "",
+		Direction: "", SourceID: "", RelationType: "", TargetID: "",
+	})
 	if err != nil {
-		return none, loggedError(
-			ctx,
-			"qa datagen search-mixed: the command could not create a destination project in "+slug,
-			err,
-		)
+		return none, loggedError(ctx, "qa datagen search-mixed: the command could not create a destination project in "+slug, err)
 	}
 	if err := m.registerCreated(ctx, result); err != nil {
 		return none, err
 	}
 	projectID, err := uuid.Parse(result.RawID())
 	if err != nil {
-		return none, loggedError(
-			ctx,
-			"qa datagen search-mixed: the command could not parse the destination project ID in "+slug,
-			err,
-		)
+		return none, loggedError(ctx, "qa datagen search-mixed: the command could not parse the destination project ID in "+slug, err)
 	}
 	return searchMixedDestination{entry: slug, projectID: projectID}, nil
 }

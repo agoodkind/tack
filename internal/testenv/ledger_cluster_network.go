@@ -41,7 +41,6 @@ const (
 func ledgerClusterSubnet(index uint32) netip.Prefix {
 	var octets [4]byte
 	binary.BigEndian.PutUint32(octets[:], ledgerClusterPoolBase+index<<8)
-
 	return netip.PrefixFrom(netip.AddrFrom4(octets), ledgerClusterSubnetBits)
 }
 
@@ -49,7 +48,6 @@ func ledgerClusterSubnet(index uint32) netip.Prefix {
 func ledgerClusterHost(subnet netip.Prefix, host uint32) netip.Addr {
 	octets := subnet.Addr().As4()
 	binary.BigEndian.PutUint32(octets[:], binary.BigEndian.Uint32(octets[:])+host)
-
 	return netip.AddrFrom4(octets)
 }
 
@@ -57,7 +55,6 @@ func ledgerClusterHost(subnet netip.Prefix, host uint32) netip.Addr {
 func randomLedgerClusterSubnet() netip.Prefix {
 	var random [2]byte
 	_, _ = rand.Read(random[:])
-
 	return ledgerClusterSubnet(uint32(binary.BigEndian.Uint16(random[:])) % ledgerClusterSubnets)
 }
 
@@ -65,22 +62,16 @@ func randomLedgerClusterSubnet() netip.Prefix {
 // on a random /24 of the pool and returns its name and subnet. A subnet that
 // overlaps another network is retried with a new random /24, at most
 // ledgerClusterNetworkAttempts times.
-func createLedgerClusterNetwork(
-	ctx context.Context,
-	cli *client.Client,
-) (string, netip.Prefix, error) {
+func createLedgerClusterNetwork(ctx context.Context, cli *client.Client) (string, netip.Prefix, error) {
 	name, err := generatedEngineName(ctx, ledgerClusterNetworkKind)
 	if err != nil {
 		return "", netip.Prefix{}, err
 	}
-
 	owner, err := prepareCreate(ctx, cli)
 	if err != nil {
 		return "", netip.Prefix{}, err
 	}
-
 	labels := ownerLabels(owner)
-
 	created := netip.Prefix{}
 	for attempt := 1; attempt <= ledgerClusterNetworkAttempts && !created.IsValid(); attempt++ {
 		subnet := randomLedgerClusterSubnet()
@@ -89,105 +80,56 @@ func createLedgerClusterNetwork(
 		case err == nil:
 			created = subnet
 		case strings.Contains(strings.ToLower(err.Error()), "overlap"):
-			slog.DebugContext(
-				ctx,
-				"testenv.ledger_cluster.subnet_taken",
-				slog.String("subnet", subnet.String()),
-				slog.Int("attempt", attempt),
-			)
+			slog.DebugContext(ctx, "testenv.ledger_cluster.subnet_taken",
+				slog.String("subnet", subnet.String()), slog.Int("attempt", attempt))
 		default:
-			slog.ErrorContext(
-				ctx,
-				"testenv.ledger_cluster.network_create_failed",
-				slog.String("err", err.Error()),
-			)
-
+			slog.ErrorContext(ctx, "testenv.ledger_cluster.network_create_failed", slog.String("err", err.Error()))
 			return "", netip.Prefix{}, fmt.Errorf("create network %s on %s: %w", name, subnet, err)
 		}
 	}
-
 	if !created.IsValid() {
-		return "", netip.Prefix{}, fmt.Errorf(
-			"create network %s: each of %d random /24 subnets overlapped another network",
-			name,
-			ledgerClusterNetworkAttempts,
-		)
+		return "", netip.Prefix{}, fmt.Errorf("create network %s: each of %d random /24 subnets overlapped another network",
+			name, ledgerClusterNetworkAttempts)
 	}
-
-	slog.InfoContext(
-		ctx,
-		"testenv.ledger_cluster.network_created",
-		slog.String("network", name),
-		slog.String("subnet", created.String()),
-	)
-
+	slog.InfoContext(ctx, "testenv.ledger_cluster.network_created",
+		slog.String("network", name), slog.String("subnet", created.String()))
 	return name, created, nil
 }
 
 // ledgerClusterNetworkOptions configures an IPv4 bridge on subnet with
 // the daemon's dynamic range in the upper half and applies labels to it.
-func ledgerClusterNetworkOptions(
-	subnet netip.Prefix,
-	labels map[string]string,
-) client.NetworkCreateOptions {
+func ledgerClusterNetworkOptions(subnet netip.Prefix, labels map[string]string) client.NetworkCreateOptions {
 	enableIPv4, enableIPv6 := true, false
-	dynamic := netip.PrefixFrom(
-		ledgerClusterHost(subnet, ledgerClusterDynamicHost),
-		ledgerClusterDynamicBits,
-	)
+	dynamic := netip.PrefixFrom(ledgerClusterHost(subnet, ledgerClusterDynamicHost), ledgerClusterDynamicBits)
 	options := client.NetworkCreateOptions{}
 	options.Driver = "bridge"
 	options.EnableIPv4, options.EnableIPv6 = &enableIPv4, &enableIPv6
 	options.IPAM = &network.IPAM{
-		Driver:  "",
-		Options: nil,
-		Config: []network.IPAMConfig{
-			{Subnet: subnet, IPRange: dynamic, Gateway: netip.Addr{}, AuxAddress: nil},
-		},
+		Driver: "", Options: nil,
+		Config: []network.IPAMConfig{{Subnet: subnet, IPRange: dynamic, Gateway: netip.Addr{}, AuxAddress: nil}},
 	}
 	options.Labels = labels
-
 	return options
 }
 
 // removeLedgerClusterNetwork detaches the container with ID selfID from
 // network name when selfID is set, then removes the network. A network or an
 // endpoint already gone counts as removed.
-func removeLedgerClusterNetwork(
-	ctx context.Context,
-	cli *client.Client,
-	name string,
-	selfID string,
-) error {
+func removeLedgerClusterNetwork(ctx context.Context, cli *client.Client, name, selfID string) error {
 	var failures []error
 	if selfID != "" {
-		_, err := cli.NetworkDisconnect(
-			ctx,
-			name,
-			client.NetworkDisconnectOptions{Container: selfID, Force: true},
-		)
+		_, err := cli.NetworkDisconnect(ctx, name, client.NetworkDisconnectOptions{Container: selfID, Force: true})
 		if err != nil && !cerrdefs.IsNotFound(err) {
-			failures = append(
-				failures,
-				fmt.Errorf("detach container %s from network %s: %w", selfID, name, err),
-			)
+			failures = append(failures, fmt.Errorf("detach container %s from network %s: %w", selfID, name, err))
 		}
 	}
-
 	_, err := cli.NetworkRemove(ctx, name, client.NetworkRemoveOptions{})
 	if err != nil && !cerrdefs.IsNotFound(err) {
 		failures = append(failures, fmt.Errorf("remove network %s: %w", name, err))
 	}
-
 	if err := errors.Join(failures...); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"testenv.ledger_cluster.network_remove_failed",
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "testenv.ledger_cluster.network_remove_failed", slog.String("err", err.Error()))
 		return err
 	}
-
 	return nil
 }

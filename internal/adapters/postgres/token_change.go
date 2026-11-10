@@ -25,49 +25,23 @@ type tokenValue struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
-func newTokenValue(apiToken *token.Token) *tokenValue {
-	return &tokenValue{
-		ID:        apiToken.ID,
-		UserID:    apiToken.UserID,
-		Label:     apiToken.Label,
-		ExpiresAt: apiToken.ExpiresAt,
-		CreatedAt: apiToken.CreatedAt,
-	}
+func newTokenValue(t *token.Token) *tokenValue {
+	return &tokenValue{ID: t.ID, UserID: t.UserID, Label: t.Label, ExpiresAt: t.ExpiresAt, CreatedAt: t.CreatedAt}
 }
 
 func emptyToken() *token.Token {
-	return &token.Token{
-		ID:        uuid.Nil,
-		UserID:    uuid.Nil,
-		Label:     "",
-		LastUsed:  nil,
-		ExpiresAt: nil,
-		CreatedAt: time.Time{},
-	}
+	return &token.Token{ID: uuid.Nil, UserID: uuid.Nil, Label: "", LastUsed: nil, ExpiresAt: nil, CreatedAt: time.Time{}}
 }
 
 // Create stores the SHA-256 hash of raw under a new UUIDv7 ID and writes the
 // creation event in the same transaction. It never stores raw.
-func (r *TokenRepo) Create(
-	ctx context.Context,
-	orgID uuid.UUID,
-	userID uuid.UUID,
-	raw string,
-	label string,
-) (*token.Token, error) {
+func (r *TokenRepo) Create(ctx context.Context, orgID, userID uuid.UUID, raw, label string) (*token.Token, error) {
 	return r.insertToken(ctx, orgID, uuid.Must(uuid.NewV7()), userID, raw, label, nil)
 }
 
 // CreateWithID stores the SHA-256 hash of raw under the caller's chosen ID and
 // writes the creation event in the same transaction. It never stores raw.
-func (r *TokenRepo) CreateWithID(
-	ctx context.Context,
-	orgID uuid.UUID,
-	id uuid.UUID,
-	userID uuid.UUID,
-	raw string,
-	label string,
-) (*token.Token, error) {
+func (r *TokenRepo) CreateWithID(ctx context.Context, orgID, id, userID uuid.UUID, raw, label string) (*token.Token, error) {
 	return r.insertToken(ctx, orgID, id, userID, raw, label, nil)
 }
 
@@ -76,10 +50,8 @@ func (r *TokenRepo) CreateWithID(
 // transaction. It never stores raw.
 func (r *TokenRepo) CreateExpiring(
 	ctx context.Context,
-	orgID uuid.UUID,
-	userID uuid.UUID,
-	raw string,
-	label string,
+	orgID, userID uuid.UUID,
+	raw, label string,
 	expiresAt time.Time,
 ) (*token.Token, error) {
 	return r.insertToken(ctx, orgID, uuid.Must(uuid.NewV7()), userID, raw, label, &expiresAt)
@@ -87,11 +59,8 @@ func (r *TokenRepo) CreateExpiring(
 
 func (r *TokenRepo) insertToken(
 	ctx context.Context,
-	orgID uuid.UUID,
-	id uuid.UUID,
-	userID uuid.UUID,
-	raw string,
-	label string,
+	orgID, id, userID uuid.UUID,
+	raw, label string,
 	expiresAt *time.Time,
 ) (*token.Token, error) {
 	const q = `
@@ -103,50 +72,28 @@ func (r *TokenRepo) insertToken(
 	if err != nil {
 		return nil, err
 	}
-
 	target := TokenTarget(id, label)
 	t := emptyToken()
-	err = changeTx(
-		ctx,
-		r.db,
-		operation,
-		target,
-		func(tx pgx.Tx) error {
-			if err := tx.QueryRow(ctx, q, id, userID, hashToken(raw), label, expiresAt).Scan(
-				&t.ID,
-				&t.UserID,
-				&t.Label,
-				&t.LastUsed,
-				&t.ExpiresAt,
-				&t.CreatedAt,
-			); err != nil {
-				return pgErr(err)
-			}
-
-			after, err := changeValue(ctx, newTokenValue(t))
-			if err != nil {
-				return err
-			}
-
-			change, err := newChange(ctx, target, nil, after)
-			if err != nil {
-				return err
-			}
-
-			return WriteChanges(ctx, tx, operation, []audit.Change{change})
-		},
-	)
+	err = changeTx(ctx, r.db, operation, target, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, q, id, userID, hashToken(raw), label, expiresAt).Scan(
+			&t.ID, &t.UserID, &t.Label, &t.LastUsed, &t.ExpiresAt, &t.CreatedAt,
+		); err != nil {
+			return pgErr(err)
+		}
+		after, err := changeValue(ctx, newTokenValue(t))
+		if err != nil {
+			return err
+		}
+		change, err := newChange(ctx, target, nil, after)
+		if err != nil {
+			return err
+		}
+		return WriteChanges(ctx, tx, operation, []audit.Change{change})
+	})
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"token.create_failed",
-			slog.String("token_id", id.String()),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "token.create_failed", slog.String("token_id", id.String()), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("create token %s: %w", id, err)
 	}
-
 	return t, nil
 }
 
@@ -161,53 +108,30 @@ func (r *TokenRepo) Delete(ctx context.Context, orgID, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-
 	target := TokenTarget(id, "")
-	err = changeTx(
-		ctx,
-		r.db,
-		operation,
-		target,
-		func(tx pgx.Tx) error {
-			t := emptyToken()
-			if err := tx.QueryRow(ctx, q, id).Scan(
-				&t.ID,
-				&t.UserID,
-				&t.Label,
-				&t.LastUsed,
-				&t.ExpiresAt,
-				&t.CreatedAt,
-			); err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return domain.ErrNotFound
-				}
-
-				return pgErr(err)
+	err = changeTx(ctx, r.db, operation, target, func(tx pgx.Tx) error {
+		t := emptyToken()
+		if err := tx.QueryRow(ctx, q, id).Scan(
+			&t.ID, &t.UserID, &t.Label, &t.LastUsed, &t.ExpiresAt, &t.CreatedAt,
+		); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return domain.ErrNotFound
 			}
-
-			before, err := changeValue(ctx, newTokenValue(t))
-			if err != nil {
-				return err
-			}
-
-			change, err := newChange(ctx, TokenTarget(id, t.Label), before, nil)
-			if err != nil {
-				return err
-			}
-
-			return WriteChanges(ctx, tx, operation, []audit.Change{change})
-		},
-	)
+			return pgErr(err)
+		}
+		before, err := changeValue(ctx, newTokenValue(t))
+		if err != nil {
+			return err
+		}
+		change, err := newChange(ctx, TokenTarget(id, t.Label), before, nil)
+		if err != nil {
+			return err
+		}
+		return WriteChanges(ctx, tx, operation, []audit.Change{change})
+	})
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"token.delete_failed",
-			slog.String("token_id", id.String()),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "token.delete_failed", slog.String("token_id", id.String()), slog.String("err", err.Error()))
 		return fmt.Errorf("delete token %s: %w", id, err)
 	}
-
 	return nil
 }

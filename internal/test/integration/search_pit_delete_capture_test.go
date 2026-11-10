@@ -26,13 +26,11 @@ func (capture *searchCapture) recordDelete(writer http.ResponseWriter, request *
 		http.Error(writer, "read point in time delete body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
 	var decoded pitDeleteBody
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		http.Error(writer, "decode point in time delete body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
 	capture.mutex.Lock()
 	capture.deleted = append(capture.deleted, decoded.PITID...)
 	capture.mutex.Unlock()
@@ -49,10 +47,6 @@ func requireDeleteSent(t *testing.T, capture *searchCapture, ids []string) {
 	deleted := slices.Clone(capture.deleted)
 	capture.mutex.Unlock()
 	if !slices.ContainsFunc(ids, func(id string) bool { return slices.Contains(deleted, id) }) {
-		t.Fatalf(
-			"proxy did not forward a point in time delete request for any of %v and recorded delete ids %v",
-			ids,
-			deleted,
-		)
+		t.Fatalf("proxy did not forward a point in time delete request for any of %v and recorded delete ids %v", ids, deleted)
 	}
 }

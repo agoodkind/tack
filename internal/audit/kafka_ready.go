@@ -29,7 +29,6 @@ func (k *KafkaRecorder) Ready(ctx context.Context) error {
 		slog.ErrorContext(ctx, "audit.kafka.ping_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("audit kafka ping: %w", err)
 	}
-
 	return k.checkTopicWritable(ctx)
 }
 
@@ -47,51 +46,31 @@ func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
 
 	resp, err := req.RequestWith(ctx, k.client)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.kafka.topic_metadata_failed",
-			slog.String("topic", k.topic),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.kafka.topic_metadata_failed",
+			slog.String("topic", k.topic), slog.String("err", err.Error()))
 		return fmt.Errorf("audit kafka topic %s metadata: %w", k.topic, err)
 	}
-
 	if len(resp.Topics) == 0 {
 		err := fmt.Errorf("audit kafka topic %s: cluster returned no metadata for it", k.topic)
-		slog.ErrorContext(
-			ctx,
-			"audit.kafka.topic_absent",
-			slog.String("topic", k.topic),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.kafka.topic_absent",
+			slog.String("topic", k.topic), slog.String("err", err.Error()))
 		return err
 	}
-
 	minInSync, err := k.minInSyncReplicas(ctx)
 	if err != nil {
 		return err
 	}
-
 	for _, respTopic := range resp.Topics {
 		if respTopic.ErrorCode != 0 {
 			codeErr := kerr.ErrorForCode(respTopic.ErrorCode)
-			slog.ErrorContext(
-				ctx,
-				"audit.kafka.topic_unwritable",
-				slog.String("topic", k.topic),
-				slog.String("err", codeErr.Error()),
-			)
-
+			slog.ErrorContext(ctx, "audit.kafka.topic_unwritable",
+				slog.String("topic", k.topic), slog.String("err", codeErr.Error()))
 			return fmt.Errorf("audit kafka topic %s: %w", k.topic, codeErr)
 		}
-
 		if err := k.checkPartitions(ctx, respTopic, minInSync); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -100,85 +79,48 @@ func (k *KafkaRecorder) checkTopicWritable(ctx context.Context) error {
 // pair across the whole partition space, so a single unusable partition fails
 // every event that lands on it while the rest of the topic looks healthy. A
 // topic with no partitions at all can accept nothing.
-func (k *KafkaRecorder) checkPartitions(
-	ctx context.Context,
-	respTopic kmsg.MetadataResponseTopic,
-	minInSync int,
-) error {
+func (k *KafkaRecorder) checkPartitions(ctx context.Context, respTopic kmsg.MetadataResponseTopic, minInSync int) error {
 	if len(respTopic.Partitions) == 0 {
 		err := fmt.Errorf("audit kafka topic %s: reports no partitions", k.topic)
-		slog.ErrorContext(
-			ctx,
-			"audit.kafka.topic_partitionless",
-			slog.String("topic", k.topic),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.kafka.topic_partitionless",
+			slog.String("topic", k.topic), slog.String("err", err.Error()))
 		return err
 	}
-
 	for _, partition := range respTopic.Partitions {
 		if partition.ErrorCode != 0 {
 			codeErr := kerr.ErrorForCode(partition.ErrorCode)
-			slog.ErrorContext(
-				ctx,
-				"audit.kafka.partition_unwritable",
+			slog.ErrorContext(ctx, "audit.kafka.partition_unwritable",
 				slog.String("topic", k.topic),
 				slog.Int("partition", int(partition.Partition)),
-				slog.String("err", codeErr.Error()),
-			)
-
-			return fmt.Errorf(
-				"audit kafka topic %s partition %d: %w",
-				k.topic,
-				partition.Partition,
-				codeErr,
-			)
+				slog.String("err", codeErr.Error()))
+			return fmt.Errorf("audit kafka topic %s partition %d: %w",
+				k.topic, partition.Partition, codeErr)
 		}
-
 		if partition.Leader < 0 {
-			err := fmt.Errorf(
-				"audit kafka topic %s partition %d: no leader",
-				k.topic,
-				partition.Partition,
-			)
-			slog.ErrorContext(
-				ctx,
-				"audit.kafka.partition_leaderless",
+			err := fmt.Errorf("audit kafka topic %s partition %d: no leader",
+				k.topic, partition.Partition)
+			slog.ErrorContext(ctx, "audit.kafka.partition_leaderless",
 				slog.String("topic", k.topic),
 				slog.Int("partition", int(partition.Partition)),
-				slog.String("err", err.Error()),
-			)
-
+				slog.String("err", err.Error()))
 			return err
 		}
-
 		// This producer requires acks from every in-sync replica, so a
 		// partition whose in-sync set is below the topic minimum has each
 		// produce rejected with NOT_ENOUGH_REPLICAS even though it reports a
 		// leader.
 		if len(partition.ISR) < minInSync {
-			err := fmt.Errorf(
-				"audit kafka topic %s partition %d: %d in-sync replicas, below the topic minimum of %d",
-				k.topic,
-				partition.Partition,
-				len(partition.ISR),
-				minInSync,
-			)
-			slog.ErrorContext(
-				ctx,
-				"audit.kafka.partition_under_replicated",
+			err := fmt.Errorf("audit kafka topic %s partition %d: %d in-sync replicas, below the topic minimum of %d",
+				k.topic, partition.Partition, len(partition.ISR), minInSync)
+			slog.ErrorContext(ctx, "audit.kafka.partition_under_replicated",
 				slog.String("topic", k.topic),
 				slog.Int("partition", int(partition.Partition)),
 				slog.Int("in_sync", len(partition.ISR)),
 				slog.Int("min_in_sync", minInSync),
-				slog.String("err", err.Error()),
-			)
-
+				slog.String("err", err.Error()))
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -196,68 +138,35 @@ func (k *KafkaRecorder) minInSyncReplicas(ctx context.Context) (int, error) {
 
 	resp, err := req.RequestWith(ctx, k.client)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.kafka.topic_config_failed",
-			slog.String("topic", k.topic),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.kafka.topic_config_failed",
+			slog.String("topic", k.topic), slog.String("err", err.Error()))
 		return 0, fmt.Errorf("audit kafka topic %s config: %w", k.topic, err)
 	}
-
 	for _, respResource := range resp.Resources {
 		if respResource.ErrorCode != 0 {
 			codeErr := kerr.ErrorForCode(respResource.ErrorCode)
-			slog.ErrorContext(
-				ctx,
-				"audit.kafka.topic_config_rejected",
-				slog.String("topic", k.topic),
-				slog.String("err", codeErr.Error()),
-			)
-
+			slog.ErrorContext(ctx, "audit.kafka.topic_config_rejected",
+				slog.String("topic", k.topic), slog.String("err", codeErr.Error()))
 			return 0, fmt.Errorf("audit kafka topic %s config: %w", k.topic, codeErr)
 		}
-
 		for _, config := range respResource.Configs {
 			if config.Name != minInSyncReplicasConfig || config.Value == nil {
 				continue
 			}
-
 			value, convErr := strconv.Atoi(*config.Value)
 			if convErr != nil {
-				slog.ErrorContext(
-					ctx,
-					"audit.kafka.topic_config_unreadable",
+				slog.ErrorContext(ctx, "audit.kafka.topic_config_unreadable",
 					slog.String("topic", k.topic),
 					slog.String("value", *config.Value),
-					slog.String("err", convErr.Error()),
-				)
-
-				return 0, fmt.Errorf(
-					"audit kafka topic %s %s=%q: %w",
-					k.topic,
-					minInSyncReplicasConfig,
-					*config.Value,
-					convErr,
-				)
+					slog.String("err", convErr.Error()))
+				return 0, fmt.Errorf("audit kafka topic %s %s=%q: %w",
+					k.topic, minInSyncReplicasConfig, *config.Value, convErr)
 			}
-
 			return value, nil
 		}
 	}
-
-	err = fmt.Errorf(
-		"audit kafka topic %s: cluster reported no %s",
-		k.topic,
-		minInSyncReplicasConfig,
-	)
-	slog.ErrorContext(
-		ctx,
-		"audit.kafka.topic_config_absent",
-		slog.String("topic", k.topic),
-		slog.String("err", err.Error()),
-	)
-
+	err = fmt.Errorf("audit kafka topic %s: cluster reported no %s", k.topic, minInSyncReplicasConfig)
+	slog.ErrorContext(ctx, "audit.kafka.topic_config_absent",
+		slog.String("topic", k.topic), slog.String("err", err.Error()))
 	return 0, err
 }

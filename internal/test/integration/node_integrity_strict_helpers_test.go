@@ -15,33 +15,17 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-func runStrictValidation(
-	t *testing.T,
-	execute bool,
-	flags ...string,
-) (ops.StrictValidationOutput, error) {
+func runStrictValidation(t *testing.T, execute bool, flags ...string) (ops.StrictValidationOutput, error) {
 	t.Helper()
 	output, runErr := runStrictValidationOutput(t, execute, flags...)
 	var document response.JSONDocument
 	if err := json.Unmarshal(output, &document); err != nil {
-		t.Fatalf(
-			"decode the strict validation output %q (command error %v): %v",
-			output,
-			runErr,
-			err,
-		)
+		t.Fatalf("decode the strict validation output %q (command error %v): %v", output, runErr, err)
 	}
-
 	var decoded ops.StrictValidationOutput
 	if err := json.Unmarshal(document.Result, &decoded); err != nil {
-		t.Fatalf(
-			"decode the strict validation result %s (command error %v): %v",
-			document.Result,
-			runErr,
-			err,
-		)
+		t.Fatalf("decode the strict validation result %s (command error %v): %v", document.Result, runErr, err)
 	}
-
 	return decoded, runErr
 }
 
@@ -56,12 +40,10 @@ func runStrictValidationOutput(t *testing.T, execute bool, flags ...string) ([]b
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-
 	pool, err := pgxpool.New(t.Context(), ledgerDSN)
 	if err != nil {
 		t.Fatalf("open the ledger pool: %v", err)
 	}
-
 	t.Cleanup(pool.Close)
 	output := &bytes.Buffer{}
 	factory := cli.System(cfg)
@@ -70,27 +52,17 @@ func runStrictValidationOutput(t *testing.T, execute bool, flags ...string) ([]b
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	t.Cleanup(factory.CloseAuditOutbox)
 	args := []string{
-		"--output",
-		"json",
-		"--operator-id",
-		"019dd226-440e-729a-a442-281aaf73ca32",
-		"--operator-email",
-		"operator@example.com",
-		"--operator-name",
-		"Strict Validation Test",
-		"ops",
-		"verify",
-		"strict-validation",
+		"--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca32",
+		"--operator-email", "operator@example.com", "--operator-name", "Strict Validation Test",
+		"ops", "verify", "strict-validation",
 	}
 	args = append(args, flags...)
 	if execute {
 		args = append([]string{"--execute"}, args...)
 	}
-
 	root := nodeAuditCommandRoot(factory)
 	root.SetContext(t.Context())
 	root.SetArgs(args)
 	runErr := root.Execute()
-
 	return output.Bytes(), runErr
 }

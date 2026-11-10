@@ -26,27 +26,15 @@ type exportTamper struct {
 func manifestTampers(t *testing.T, readID uuid.UUID) map[string]exportTamper {
 	t.Helper()
 	parts := func(mutate func([]audit.ManifestPart) []audit.ManifestPart) exportTamper {
-		return exportTamper{
-			eventID: readID,
-			failure: "read manifest",
-			mutate: func(row *audit.Row) {
-				if len(row.ManifestParts) < 2 {
-					t.Fatalf(
-						"exported row %s has %d manifest parts, want at least 2",
-						readID,
-						len(row.ManifestParts),
-					)
-				}
-
-				row.ManifestParts = mutate(row.ManifestParts)
-			},
-		}
+		return exportTamper{eventID: readID, failure: "read manifest", mutate: func(row *audit.Row) {
+			if len(row.ManifestParts) < 2 {
+				t.Fatalf("exported row %s has %d manifest parts, want at least 2", readID, len(row.ManifestParts))
+			}
+			row.ManifestParts = mutate(row.ManifestParts)
+		}}
 	}
-
 	return map[string]exportTamper{
-		"missing manifest part": parts(
-			func(list []audit.ManifestPart) []audit.ManifestPart { return list[:len(list)-1] },
-		),
+		"missing manifest part": parts(func(list []audit.ManifestPart) []audit.ManifestPart { return list[:len(list)-1] }),
 		"reordered manifest parts": parts(func(list []audit.ManifestPart) []audit.ManifestPart {
 			list[0], list[1] = list[1], list[0]
 			return list
@@ -55,7 +43,6 @@ func manifestTampers(t *testing.T, readID uuid.UUID) map[string]exportTamper {
 			list[0].Payload = bytes.Replace(list[0].Payload, []byte(`"issue"`), []byte(`"epic"`), 1)
 			digest := sha256.Sum256(list[0].Payload)
 			list[0].Digest = hex.EncodeToString(digest[:])
-
 			return list
 		}),
 	}
@@ -67,40 +54,25 @@ func manifestTampers(t *testing.T, readID uuid.UUID) map[string]exportTamper {
 func changeTampers(t *testing.T, changeID uuid.UUID) map[string]exportTamper {
 	t.Helper()
 	target := func(edit func(*audit.Target)) exportTamper {
-		return exportTamper{
-			eventID: changeID,
-			failure: "hash mismatch",
-			mutate: func(row *audit.Row) {
-				if row.Context.Target == nil {
-					t.Fatalf("exported row %s has no target", changeID)
-				}
-
-				edit(row.Context.Target)
-				row.EntityID = row.Context.Target.ID
-			},
-		}
+		return exportTamper{eventID: changeID, failure: "hash mismatch", mutate: func(row *audit.Row) {
+			if row.Context.Target == nil {
+				t.Fatalf("exported row %s has no target", changeID)
+			}
+			edit(row.Context.Target)
+			row.EntityID = row.Context.Target.ID
+		}}
 	}
-
 	return map[string]exportTamper{
-		"altered target id": target(
-			func(edited *audit.Target) { edited.ID = uuid.Must(uuid.NewV7()) },
-		),
+		"altered target id": target(func(edited *audit.Target) { edited.ID = uuid.Must(uuid.NewV7()) }),
 		"altered relationship target": target(func(edited *audit.Target) {
 			edited.TargetID = uuid.Must(uuid.NewV7())
 		}),
-		"altered delta new value": {
-			eventID: changeID,
-			failure: "hash mismatch",
-			mutate: func(row *audit.Row) {
-				if row.Delta == nil || len(row.Delta.After) == 0 {
-					t.Fatalf("exported row %s has no delta new value", changeID)
-				}
-
-				row.Delta.After = json.RawMessage(
-					`{"target_id":"` + uuid.Must(uuid.NewV7()).String() + `"}`,
-				)
-			},
-		},
+		"altered delta new value": {eventID: changeID, failure: "hash mismatch", mutate: func(row *audit.Row) {
+			if row.Delta == nil || len(row.Delta.After) == 0 {
+				t.Fatalf("exported row %s has no delta new value", changeID)
+			}
+			row.Delta.After = json.RawMessage(`{"target_id":"` + uuid.Must(uuid.NewV7()).String() + `"}`)
+		}},
 	}
 }
 
@@ -109,19 +81,13 @@ func changeTampers(t *testing.T, changeID uuid.UUID) map[string]exportTamper {
 func ownerTampers(t *testing.T, eventID uuid.UUID) map[string]exportTamper {
 	t.Helper()
 	owner := func(ownerID uuid.UUID) exportTamper {
-		return exportTamper{
-			eventID: eventID,
-			failure: "hash mismatch",
-			mutate: func(row *audit.Row) {
-				if row.Context.Target == nil {
-					t.Fatalf("exported row %s has no target", eventID)
-				}
-
-				row.Context.Target.OwnerID = ownerID
-			},
-		}
+		return exportTamper{eventID: eventID, failure: "hash mismatch", mutate: func(row *audit.Row) {
+			if row.Context.Target == nil {
+				t.Fatalf("exported row %s has no target", eventID)
+			}
+			row.Context.Target.OwnerID = ownerID
+		}}
 	}
-
 	return map[string]exportTamper{
 		"altered owner id": owner(uuid.Must(uuid.NewV7())),
 		"removed owner id": owner(uuid.Nil),
@@ -130,23 +96,16 @@ func ownerTampers(t *testing.T, eventID uuid.UUID) map[string]exportTamper {
 
 // tamperExportedRow applies mutate to the exported row with ID eventID and
 // returns the rows with that row encoded again.
-func tamperExportedRow(
-	t *testing.T,
-	rows []byte,
-	eventID uuid.UUID,
-	mutate func(*audit.Row),
-) []byte {
+func tamperExportedRow(t *testing.T, rows []byte, eventID uuid.UUID, mutate func(*audit.Row)) []byte {
 	t.Helper()
 	lines := bytes.Split(bytes.TrimSuffix(rows, []byte("\n")), []byte("\n"))
 	output := make([]byte, 0, len(rows))
 	found := false
-
 	for _, line := range lines {
 		var row audit.Row
 		if err := json.Unmarshal(line, &row); err != nil {
 			t.Fatalf("decode an exported row: %v", err)
 		}
-
 		if row.EventID == eventID {
 			found = true
 			mutate(&row)
@@ -154,16 +113,12 @@ func tamperExportedRow(
 			if err != nil {
 				t.Fatalf("encode the tampered row: %v", err)
 			}
-
 			line = encoded
 		}
-
 		output = append(append(output, line...), '\n')
 	}
-
 	if !found {
 		t.Fatalf("the exported rows do not include event %s", eventID)
 	}
-
 	return output
 }

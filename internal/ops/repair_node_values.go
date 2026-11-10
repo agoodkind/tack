@@ -13,17 +13,14 @@ func rawUUIDProp(props map[string]json.RawMessage, key string) uuid.UUID {
 	if !ok || len(raw) == 0 {
 		return uuid.Nil
 	}
-
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return uuid.Nil
 	}
-
 	id, err := uuid.Parse(value)
 	if err != nil {
 		return uuid.Nil
 	}
-
 	return id
 }
 
@@ -31,7 +28,6 @@ func rawUUIDView(view *node.NodeView, key string) uuid.UUID {
 	if view == nil {
 		return uuid.Nil
 	}
-
 	return rawUUIDProp(view.Props, key)
 }
 
@@ -40,12 +36,10 @@ func stringProp(props map[string]json.RawMessage, key string) string {
 	if !ok || len(raw) == 0 {
 		return ""
 	}
-
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return ""
 	}
-
 	return value
 }
 

@@ -32,56 +32,16 @@ type mcpMethod struct {
 
 // mcpMethods maps MCP methods to audit verbs for read events.
 var mcpMethods = map[string]mcpMethod{
-	"initialize": {
-		verb:          audit.VerbMCPProtocolRead,
-		organizations: orgSystem,
-		metadata:      false,
-	},
-	"ping": {
-		verb:          audit.VerbMCPProtocolRead,
-		organizations: orgSystem,
-		metadata:      false,
-	},
-	"tools/list": {
-		verb:          audit.VerbMCPProtocolRead,
-		organizations: orgCaller,
-		metadata:      true,
-	},
-	"prompts/list": {
-		verb:          audit.VerbMCPProtocolRead,
-		organizations: orgSystem,
-		metadata:      false,
-	},
-	"resources/list": {
-		verb:          audit.VerbMCPProtocolRead,
-		organizations: orgSystem,
-		metadata:      false,
-	},
-	"resources/templates/list": {
-		verb:          audit.VerbMCPProtocolRead,
-		organizations: orgSystem,
-		metadata:      false,
-	},
-	"notifications/initialized": {
-		verb:          audit.VerbMCPProtocolRead,
-		organizations: orgSystem,
-		metadata:      false,
-	},
-	"notifications/cancelled": {
-		verb:          audit.VerbMCPProtocolRead,
-		organizations: orgSystem,
-		metadata:      false,
-	},
-	"prompts/get": {
-		verb:          audit.VerbMCPPromptInvoked,
-		organizations: orgCaller,
-		metadata:      true,
-	},
-	"resources/read": {
-		verb:          audit.VerbMCPResourceRead,
-		organizations: orgCaller,
-		metadata:      true,
-	},
+	"initialize":                {verb: audit.VerbMCPProtocolRead, organizations: orgSystem, metadata: false},
+	"ping":                      {verb: audit.VerbMCPProtocolRead, organizations: orgSystem, metadata: false},
+	"tools/list":                {verb: audit.VerbMCPProtocolRead, organizations: orgCaller, metadata: true},
+	"prompts/list":              {verb: audit.VerbMCPProtocolRead, organizations: orgSystem, metadata: false},
+	"resources/list":            {verb: audit.VerbMCPProtocolRead, organizations: orgSystem, metadata: false},
+	"resources/templates/list":  {verb: audit.VerbMCPProtocolRead, organizations: orgSystem, metadata: false},
+	"notifications/initialized": {verb: audit.VerbMCPProtocolRead, organizations: orgSystem, metadata: false},
+	"notifications/cancelled":   {verb: audit.VerbMCPProtocolRead, organizations: orgSystem, metadata: false},
+	"prompts/get":               {verb: audit.VerbMCPPromptInvoked, organizations: orgCaller, metadata: true},
+	"resources/read":            {verb: audit.VerbMCPResourceRead, organizations: orgCaller, metadata: true},
 }
 
 // RecordedMethods returns the MCP JSON-RPC methods that the request recorder
@@ -91,10 +51,8 @@ func RecordedMethods() []string {
 	for method := range mcpMethods {
 		methods = append(methods, method)
 	}
-
 	methods = append(methods, mcpMethodToolsCall)
 	slices.Sort(methods)
-
 	return methods
 }
 
@@ -118,16 +76,8 @@ type requestOperation struct {
 
 func routeOperation(verb audit.Verb, route string) requestOperation {
 	return requestOperation{
-		verb:          verb,
-		route:         route,
-		method:        "",
-		tool:          "",
-		source:        audit.SourceSystem,
-		mutation:      false,
-		organizations: orgSystem,
-		metadata:      false,
-		arguments:     nil,
-		selection:     nil,
+		verb: verb, route: route, method: "", tool: "", source: audit.SourceSystem, mutation: false,
+		organizations: orgSystem, metadata: false, arguments: nil, selection: nil,
 	}
 }
 
@@ -140,20 +90,13 @@ func mcpOperation(request *http.Request) requestOperation {
 	if request.Method != http.MethodPost || request.Body == nil {
 		return operation
 	}
-
 	body, err := io.ReadAll(request.Body)
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	if err != nil {
-		slog.ErrorContext(
-			request.Context(),
-			"mcp.audit_request.body_read_failed",
-			slog.String("err", err.Error()),
-		)
+		slog.ErrorContext(request.Context(), "mcp.audit_request.body_read_failed", slog.String("err", err.Error()))
 		request.Body = io.NopCloser(bytes.NewReader(nil))
-
 		return operation
 	}
-
 	var message struct {
 		Method string `json:"method"`
 		Params struct {
@@ -164,51 +107,40 @@ func mcpOperation(request *http.Request) requestOperation {
 	if json.Unmarshal(body, &message) != nil {
 		return operation
 	}
-
 	if message.Method == mcpMethodToolsCall {
 		return toolOperation(operation, checkedName(message.Params.Name), message.Params.Arguments)
 	}
-
 	method, known := mcpMethods[message.Method]
 	if !known {
 		return operation
 	}
-
 	operation.verb, operation.method = method.verb, message.Method
 	operation.organizations, operation.metadata = method.organizations, method.metadata
 	if method.verb == audit.VerbMCPPromptInvoked {
 		operation.tool = checkedName(message.Params.Name)
 		operation.selection = readSelection(message.Params.Arguments)
 	}
-
 	return operation
 }
 
 // toolOperation returns the operation for a tool call and marks tools that change state as mutations.
 // The workspace list tool uses every member organization. Other read tools use the
 // organization of the workspace or node that their arguments identify.
-func toolOperation(
-	operation requestOperation,
-	tool string,
-	arguments json.RawMessage,
-) requestOperation {
+func toolOperation(operation requestOperation, tool string, arguments json.RawMessage) requestOperation {
 	operation.method, operation.tool = mcpMethodToolsCall, tool
 	verb, covered := audit.ToolVerb(tool)
 	if tool == "" || !covered || verb == "" {
 		return operation
 	}
-
 	operation.verb = verb
 	operation.mutation = !audit.IsRead(verb)
 	operation.organizations, operation.arguments = orgArguments, arguments
 	if !operation.mutation {
 		operation.selection = readSelection(arguments)
 	}
-
 	if tool == workspaceListTool {
 		operation.organizations = orgCaller
 	}
-
 	return operation
 }
 
@@ -218,7 +150,6 @@ func checkedName(name string) string {
 	if name == "" || len(name) > maxOperationNameBytes {
 		return ""
 	}
-
 	for _, character := range name {
 		lower := character >= 'a' && character <= 'z'
 		digit := character >= '0' && character <= '9'
@@ -226,6 +157,5 @@ func checkedName(name string) string {
 			return ""
 		}
 	}
-
 	return name
 }

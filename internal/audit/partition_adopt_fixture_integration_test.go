@@ -71,10 +71,10 @@ func newPartmanTestDatabase(t *testing.T) *partmanTestDatabase {
 		dsn:          databaseDSN,
 	}
 	var connectedDatabase string
-	if err := pool.QueryRow(ctx, `SELECT current_database(), current_user`).Scan(
-		&connectedDatabase,
-		&fixture.migrationOwner,
-	); err != nil {
+	if err := pool.QueryRow(
+		ctx,
+		`SELECT current_database(), current_user`,
+	).Scan(&connectedDatabase, &fixture.migrationOwner); err != nil {
 		t.Fatalf("read fixture connection identity: %v", err)
 	}
 	if connectedDatabase != databaseName {
@@ -110,9 +110,7 @@ func partmanDatabaseDSN(baseDSN string, databaseName string) (string, error) {
 func (fixture *partmanTestDatabase) partitionCount(t *testing.T, pattern string) int {
 	t.Helper()
 	var count int
-	if err := fixture.pool.QueryRow(
-		context.Background(),
-		`
+	if err := fixture.pool.QueryRow(context.Background(), `
 		SELECT count(*)
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
@@ -123,11 +121,7 @@ func (fixture *partmanTestDatabase) partitionCount(t *testing.T, pattern string)
 		  AND p.relname = 'events'
 		  AND child_ns.nspname = 'audit'
 		  AND c.relname ~ $1
-	`,
-		pattern,
-	).Scan(
-		&count,
-	); err != nil {
+	`, pattern).Scan(&count); err != nil {
 		t.Fatalf("partition count for %q: %v", pattern, err)
 	}
 	return count
@@ -140,9 +134,7 @@ func (fixture *partmanTestDatabase) insertAuditEvent(
 ) {
 	t.Helper()
 	identifier := uuid.Must(uuid.NewV7())
-	if _, err := fixture.pool.Exec(
-		context.Background(),
-		`
+	if _, err := fixture.pool.Exec(context.Background(), `
 		INSERT INTO audit.events (
 			org_id, shard, event_time, event_id, seq, actor_id, actor_kind,
 			action, entity_kind, entity_id, context, delta, pii_ref,
@@ -152,14 +144,7 @@ func (fixture *partmanTestDatabase) insertAuditEvent(
 			'test.partition_adoption', 'node', $5, '{}', 'null', NULL,
 			''::bytea, '\x00'::bytea, $6
 		)
-	`,
-		identifier,
-		eventTime,
-		eventID,
-		identifier,
-		identifier,
-		uuid.NewString(),
-	); err != nil {
+	`, identifier, eventTime, eventID, identifier, identifier, uuid.NewString()); err != nil {
 		t.Fatalf("insert preserved audit event: %v", err)
 	}
 }

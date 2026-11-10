@@ -73,58 +73,32 @@ type searchLoadPointsInTime struct {
 	logged  bool                          `exhaustruct:"optional"`
 }
 
-func newSearchLoadPointsInTime(ctx context.Context, cfg *config.Config) (
-	*searchLoadPointsInTime,
-	error,
-) {
+func newSearchLoadPointsInTime(ctx context.Context, cfg *config.Config) (*searchLoadPointsInTime, error) {
 	client, err := newSearchStatisticsClient(ctx, cfg, "qa datagen search-load")
 	if err != nil {
 		return nil, err
 	}
-	return &searchLoadPointsInTime{
-		client: client,
-		stop:   make(chan struct{}),
-		done:   make(chan struct{}),
-	}, nil
+	return &searchLoadPointsInTime{client: client, stop: make(chan struct{}), done: make(chan struct{})}, nil
 }
 
 // newSearchStatisticsClient creates an OpenSearch client with the configured search endpoint,
 // CA certificate, runtime username and password, request timeout, and retry count. Each error
 // message starts with the command name that the caller passes.
-func newSearchStatisticsClient(ctx context.Context, cfg *config.Config, command string) (
-	*opensearch.Client,
-	error,
-) {
+func newSearchStatisticsClient(ctx context.Context, cfg *config.Config, command string) (*opensearch.Client, error) {
 	certificate, err := config.LoadSearchCA(ctx, cfg.SearchCA)
 	if err != nil {
-		return nil, loggedError(
-			ctx,
-			command+": the command could not load the search CA certificate",
-			err,
-		)
+		return nil, loggedError(ctx, command+": the command could not load the search CA certificate", err)
 	}
 	settings := search.Config{
-		Endpoint:       cfg.SearchEndpoint,
-		CA:             certificate,
-		Username:       cfg.SearchUsername,
-		Password:       cfg.SearchPassword,
-		RequestTimeout: cfg.SearchRequestTimeout,
-		MaxRetries:     cfg.SearchMaxRetries,
+		Endpoint: cfg.SearchEndpoint, CA: certificate, Username: cfg.SearchUsername,
+		Password: cfg.SearchPassword, RequestTimeout: cfg.SearchRequestTimeout, MaxRetries: cfg.SearchMaxRetries,
 	}
 	if err := settings.Validate(ctx); err != nil {
-		return nil, loggedError(
-			ctx,
-			command+": the command could not validate the search settings",
-			err,
-		)
+		return nil, loggedError(ctx, command+": the command could not validate the search settings", err)
 	}
 	client, err := opensearch.NewClient(settings.ClientConfig(nil))
 	if err != nil {
-		return nil, loggedError(
-			ctx,
-			command+": the command could not create an OpenSearch client",
-			err,
-		)
+		return nil, loggedError(ctx, command+": the command could not create an OpenSearch client", err)
 	}
 	return client, nil
 }
@@ -138,11 +112,7 @@ func (p *searchLoadPointsInTime) start(ctx context.Context) {
 		defer close(p.done)
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(
-					ctx,
-					"qa.datagen.search_load_point_in_time_panicked",
-					slog.String("err", fmt.Sprint(recovered)),
-				)
+				slog.ErrorContext(ctx, "qa.datagen.search_load_point_in_time_panicked", slog.String("err", fmt.Sprint(recovered)))
 			}
 		}()
 		ticker := time.NewTicker(searchLoadPointInTimeInterval)
@@ -178,11 +148,7 @@ func (p *searchLoadPointsInTime) finish(ctx context.Context) SearchLoadPointInTi
 
 func (p *searchLoadPointsInTime) close(ctx context.Context) {
 	if err := p.client.Close(); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"qa.datagen.search_load_point_in_time_close_failed",
-			slog.String("err", err.Error()),
-		)
+		slog.ErrorContext(ctx, "qa.datagen.search_load_point_in_time_close_failed", slog.String("err", err.Error()))
 	}
 }
 
@@ -193,30 +159,18 @@ func (p *searchLoadPointsInTime) record(ctx context.Context) {
 	defer p.mutex.Unlock()
 	if sample.Unavailable && !p.logged {
 		p.logged = true
-		slog.ErrorContext(
-			ctx,
-			"qa.datagen.search_load_point_in_time_unavailable",
-			slog.String("err", sample.Error),
-			slog.Int("status", sample.Status),
-		)
+		slog.ErrorContext(ctx, "qa.datagen.search_load_point_in_time_unavailable", slog.String("err", sample.Error),
+			slog.Int("status", sample.Status))
 	}
 	p.samples = append(p.samples, sample)
 }
 
 func (p *searchLoadPointsInTime) read(ctx context.Context) SearchLoadPointInTimeSample {
 	sample := SearchLoadPointInTimeSample{
-		Offset:      clock.Now().Sub(p.started),
-		Index:       "",
-		Open:        0,
-		Unavailable: false,
-		Status:      0,
-		Error:       "",
+		Offset: clock.Now().Sub(p.started), Index: "", Open: 0, Unavailable: false, Status: 0, Error: "",
 	}
 	var stats searchLoadIndexStats
-	request := &opensearchapi.IndicesStatsReq{
-		Indices: []string{search.PublicAlias},
-		Metric:  searchLoadIndexMetrics,
-	}
+	request := &opensearchapi.IndicesStatsReq{Indices: []string{search.PublicAlias}, Metric: searchLoadIndexMetrics}
 	response, err := opensearch.Execute(ctx, p.client, http.MethodGet, request, &stats)
 	if response != nil {
 		sample.Status = response.StatusCode
@@ -226,17 +180,9 @@ func (p *searchLoadPointsInTime) read(ctx context.Context) SearchLoadPointInTime
 		sample.Error = err.Error()
 	case response.IsError():
 		_ = response.Body.Close()
-		sample.Error = fmt.Sprintf(
-			"index statistics request failed with HTTP status %d for alias %s",
-			response.StatusCode,
-			search.PublicAlias,
-		)
+		sample.Error = fmt.Sprintf("index statistics request failed with HTTP status %d for alias %s", response.StatusCode, search.PublicAlias)
 	case len(stats.Indices) != 1:
-		sample.Error = fmt.Sprintf(
-			"alias %s selects %d indices instead of one",
-			search.PublicAlias,
-			len(stats.Indices),
-		)
+		sample.Error = fmt.Sprintf("alias %s selects %d indices instead of one", search.PublicAlias, len(stats.Indices))
 	default:
 		for index, stat := range stats.Indices {
 			sample.Index, sample.Open = index, stat.Total.Search.PointInTimeCurrent

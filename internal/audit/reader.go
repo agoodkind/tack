@@ -27,25 +27,21 @@ func NewReader(ctx context.Context, dsn string) (*Reader, error) {
 	if dsn == "" {
 		return nil, errors.New("audit: AUDIT_READER_DSN required")
 	}
-
 	cfg, err := parseReaderDSN(dsn)
 	if err != nil {
 		return nil, err
 	}
-
 	cfg.ConnConfig.Tracer = &telemetry.QueryTracer{}
 	opened, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("audit reader pool open: %w", sanitizeReaderError(err))
 	}
-
 	pool := &readerPool{unsanitized: opened}
 	// Connect lazily. A failed ping logs a deferred warning but still returns
 	// the reader; the pool connects on first query.
 	if err := pool.Ping(ctx); err != nil {
 		slog.WarnContext(ctx, "audit.reader.ping_deferred", slog.String("err", err.Error()))
 	}
-
 	return &Reader{pool: pool}, nil
 }
 
@@ -91,15 +87,12 @@ func (f QueryFilter) Validate() error {
 	if f.NilOrg && f.OrgID != uuid.Nil {
 		return fmt.Errorf("audit query: nil_org set beside org %s", f.OrgID)
 	}
-
 	if f.OrgID == uuid.Nil && !f.NilOrg {
 		return errors.New("audit query: org_id required")
 	}
-
 	if f.Oldest.IsZero() || f.Latest.IsZero() {
 		return errors.New("audit query: oldest and latest required")
 	}
-
 	return nil
 }
 
@@ -110,7 +103,6 @@ func (r *Reader) checkQueryFilter(f QueryFilter) error {
 	if r == nil || r.pool == nil {
 		return errors.New("audit reader not configured")
 	}
-
 	return f.Validate()
 }
 
@@ -119,9 +111,7 @@ func (r *Reader) checkQueryFilter(f QueryFilter) error {
 // whole match set streams it through StreamQuery instead. The caller is
 // responsible for upper-bounding the limit.
 func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
-	ctx, span := telemetry.StartSpan(
-		ctx,
-		"audit.query",
+	ctx, span := telemetry.StartSpan(ctx, "audit.query",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("org.id", f.OrgID.String()),
@@ -133,7 +123,6 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	if err := r.checkQueryFilter(f); err != nil {
 		return nil, err
 	}
-
 	if f.Limit <= 0 {
 		f.Limit = DefaultQueryPageLimit
 	}
@@ -146,25 +135,20 @@ func (r *Reader) Query(ctx context.Context, f QueryFilter) ([]Row, error) {
 	}
 	defer rows.Close()
 	var out []Row
-
 	for rows.Next() {
 		row, err := readAuditRow(rows)
 		if err != nil {
 			return nil, err
 		}
-
 		out = append(out, row)
 	}
-
 	return out, rows.Err()
 }
 
 // GetByID returns one event regardless of org. Caller must enforce org
 // authorization before exposing the row to the user.
 func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
-	ctx, span := telemetry.StartSpan(
-		ctx,
-		"audit.get_by_id",
+	ctx, span := telemetry.StartSpan(ctx, "audit.get_by_id",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(attribute.String("audit.event_id", eventID.String())),
 	)
@@ -173,11 +157,7 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 	if r == nil || r.pool == nil {
 		return nil, errors.New("audit reader not configured")
 	}
-
-	rows, err := r.pool.Rows(
-		r.pool.unsanitized.Query(
-			ctx,
-			`
+	rows, err := r.pool.Rows(r.pool.unsanitized.Query(ctx, `
 		SELECT org_id, event_time, event_id, seq, shard,
 		       actor_id, actor_kind, action, outcome, entity_kind, entity_id,
 		       context, delta, error, extra, pii_ref, prev_hash, row_hash, hash_version,
@@ -185,41 +165,25 @@ func (r *Reader) GetByID(ctx context.Context, eventID uuid.UUID) (*Row, error) {
 		FROM audit.events
 		WHERE event_id = $1
 		LIMIT 1
-	`,
-			eventID,
-		),
-	)
+	`, eventID))
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.get_query_failed",
-			slog.String("event_id", eventID.String()),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.get_query_failed",
+			slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
 		return nil, fmt.Errorf("audit get %s: %w", eventID, err)
 	}
 	defer rows.Close()
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
-			slog.ErrorContext(
-				ctx,
-				"audit.get_rows_failed",
-				slog.String("event_id", eventID.String()),
-				slog.String("err", err.Error()),
-			)
-
+			slog.ErrorContext(ctx, "audit.get_rows_failed",
+				slog.String("event_id", eventID.String()), slog.String("err", err.Error()))
 			return nil, fmt.Errorf("audit get %s: %w", eventID, err)
 		}
-
 		return nil, pgx.ErrNoRows
 	}
-
 	row, err := readAuditRow(rows)
 	if err != nil {
 		return nil, err
 	}
-
 	return &row, nil
 }
 
@@ -230,6 +194,5 @@ func outcomeFromColumn(stored *string) Outcome {
 	if stored == nil {
 		return OutcomeUnrecorded
 	}
-
 	return Outcome(*stored)
 }

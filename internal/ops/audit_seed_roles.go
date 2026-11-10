@@ -53,33 +53,16 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 		newAuditLoginRole("tack_app", "app_auth", cfg.AppPassword),
 	}
 	if cfg.MigratorPassword == "" {
-		err := fmt.Errorf(
-			"audit seed-roles: password for %s is empty; set TACK_MIGRATOR_PASSWORD",
-			migration.MigratorRole,
-		)
-		slog.ErrorContext(
-			ctx,
-			"audit.seed_roles.password_missing",
-			slog.String("login_role", migration.MigratorRole),
-			slog.String("err", err.Error()),
-		)
-
+		err := fmt.Errorf("audit seed-roles: password for %s is empty; set TACK_MIGRATOR_PASSWORD", migration.MigratorRole)
+		slog.ErrorContext(ctx, "audit.seed_roles.password_missing",
+			slog.String("login_role", migration.MigratorRole), slog.String("err", err.Error()))
 		return err
 	}
-
 	for _, role := range roles {
 		if role.password == "" {
-			err := fmt.Errorf(
-				"audit seed-roles: password for %s is empty; set its AUDIT_*_PASSWORD or TACK_APP_PASSWORD env",
-				role.login,
-			)
-			slog.ErrorContext(
-				ctx,
-				"audit.seed_roles.password_missing",
-				slog.String("login_role", role.login),
-				slog.String("err", err.Error()),
-			)
-
+			err := fmt.Errorf("audit seed-roles: password for %s is empty; set its AUDIT_*_PASSWORD or TACK_APP_PASSWORD env", role.login)
+			slog.ErrorContext(ctx, "audit.seed_roles.password_missing",
+				slog.String("login_role", role.login), slog.String("err", err.Error()))
 			return err
 		}
 	}
@@ -96,13 +79,10 @@ func RunAuditSeedRoles(ctx context.Context, cfg *config.Config) error {
 			return err
 		}
 	}
-
 	if err := setMigratorLogin(ctx, pool, cfg.MigratorPassword); err != nil {
 		return err
 	}
-
 	slog.InfoContext(ctx, "audit.seed_roles.completed", slog.Int("role_count", len(roles)+1))
-
 	return nil
 }
 
@@ -123,25 +103,17 @@ func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLog
 	if exists {
 		roleStmt = fmt.Sprintf(
 			"ALTER ROLE %s WITH LOGIN INHERIT NOCREATEDB NOCREATEROLE PASSWORD %s",
-			role.login,
-			passwordLiteral,
+			role.login, passwordLiteral,
 		)
 	} else {
 		roleStmt = fmt.Sprintf(
 			"CREATE ROLE %s LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %s",
-			role.login,
-			passwordLiteral,
+			role.login, passwordLiteral,
 		)
 	}
-
 	if _, err := pool.Exec(ctx, roleStmt); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.seed_roles.upsert_failed",
-			slog.String("login_role", role.login),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.seed_roles.upsert_failed",
+			slog.String("login_role", role.login), slog.String("err", err.Error()))
 		return fmt.Errorf("audit seed-roles: upsert %s: %w", role.login, err)
 	}
 
@@ -157,17 +129,11 @@ func upsertAuditLoginRole(ctx context.Context, pool *pgxpool.Pool, role auditLog
 
 	grantStmt := fmt.Sprintf("GRANT %s TO %s", role.base, role.login)
 	if _, err := pool.Exec(ctx, grantStmt); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.seed_roles.grant_failed",
-			slog.String("login_role", role.login),
-			slog.String("base_role", role.base),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.seed_roles.grant_failed",
+			slog.String("login_role", role.login), slog.String("base_role", role.base),
+			slog.String("err", err.Error()))
 		return fmt.Errorf("audit seed-roles: grant %s to %s: %w", role.base, role.login, err)
 	}
-
 	return nil
 }
 
@@ -191,21 +157,14 @@ func revokeOtherAuditBases(ctx context.Context, pool *pgxpool.Pool, role auditLo
 		if base == role.base {
 			continue
 		}
-
 		revokeStmt := fmt.Sprintf("REVOKE %s FROM %s", base, role.login)
 		if _, err := pool.Exec(ctx, revokeStmt); err != nil {
-			slog.ErrorContext(
-				ctx,
-				"audit.seed_roles.revoke_failed",
-				slog.String("login_role", role.login),
-				slog.String("base_role", base),
-				slog.String("err", err.Error()),
-			)
-
+			slog.ErrorContext(ctx, "audit.seed_roles.revoke_failed",
+				slog.String("login_role", role.login), slog.String("base_role", base),
+				slog.String("err", err.Error()))
 			return fmt.Errorf("audit seed-roles: revoke %s from %s: %w", base, role.login, err)
 		}
 	}
-
 	return nil
 }
 

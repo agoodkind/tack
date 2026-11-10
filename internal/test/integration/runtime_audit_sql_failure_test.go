@@ -42,12 +42,7 @@ func TestRuntimeAuditSQLFailedUserCreate(t *testing.T) {
 	before := sqlRows(t, admin, userIDs)
 	ctx, operation := sqlAuditContext(t, sqlAuditPrincipal())
 
-	_, err := datagen.BootstrapIdentities(
-		ctx,
-		sqlAuditConfig(t, restricted),
-		seed,
-		sqlAuditScale(t),
-	)
+	_, err := datagen.BootstrapIdentities(ctx, sqlAuditConfig(t, restricted), seed, sqlAuditScale(t))
 	requireAuditWriteFailure(t, "BootstrapIdentities", err)
 	requireSQLUnchanged(t, admin, userIDs, before, operation.Context.OperationID)
 }
@@ -65,14 +60,9 @@ func TestRuntimeAuditSQLFailedMembershipAdd(t *testing.T) {
 	identities := bootstrapSQLAuditIdentities(t, setupCtx, testenv.Ledger(t), seed)
 	workspace := identities.Workspaces[0]
 	removeCtx, _ := sqlAuditContext(t, principal)
-	if err := postgres.NewOrgMemberRepo(admin).RemoveMember(
-		removeCtx,
-		workspace.OrgID,
-		workspace.Actors[0].UserID,
-	); err != nil {
+	if err := postgres.NewOrgMemberRepo(admin).RemoveMember(removeCtx, workspace.OrgID, workspace.Actors[0].UserID); err != nil {
 		t.Fatalf("RemoveMember error = %v, want nil", err)
 	}
-
 	requireFailedRerun(t, admin, identities, seed)
 }
 
@@ -91,16 +81,11 @@ func TestRuntimeAuditSQLFailedMembershipRoleChange(t *testing.T) {
 	workspace := identities.Workspaces[0]
 	demoteCtx, _ := sqlAuditContext(t, principal)
 	demoted := &org.Member{
-		ID:        uuid.Nil,
-		OrgID:     workspace.OrgID,
-		UserID:    workspace.Actors[0].UserID,
-		Role:      sqlAuditMemberRole,
-		CreatedAt: time.Time{},
+		ID: uuid.Nil, OrgID: workspace.OrgID, UserID: workspace.Actors[0].UserID, Role: sqlAuditMemberRole, CreatedAt: time.Time{},
 	}
 	if err := postgres.NewOrgMemberRepo(admin).AddMember(demoteCtx, demoted); err != nil {
 		t.Fatalf("AddMember with role %d error = %v, want nil", sqlAuditMemberRole, err)
 	}
-
 	requireFailedRerun(t, admin, identities, seed)
 }
 
@@ -108,23 +93,13 @@ func TestRuntimeAuditSQLFailedMembershipRoleChange(t *testing.T) {
 // login that cannot write the operator outbox. It requires the rerun to fail
 // on the audit write and the rows of every actor in identities and the outbox
 // to stay unchanged.
-func requireFailedRerun(
-	t *testing.T,
-	admin *pgxpool.Pool,
-	identities datagen.Identities,
-	seed int64,
-) {
+func requireFailedRerun(t *testing.T, admin *pgxpool.Pool, identities datagen.Identities, seed int64) {
 	t.Helper()
 	userIDs := actorUserIDs(identities)
 	before := sqlRows(t, admin, userIDs)
 	restricted := changeOnlyDSN(t, admin)
 	ctx, operation := sqlAuditContext(t, sqlAuditPrincipal())
-	_, err := datagen.BootstrapIdentities(
-		ctx,
-		sqlAuditConfig(t, restricted),
-		seed,
-		sqlAuditScale(t),
-	)
+	_, err := datagen.BootstrapIdentities(ctx, sqlAuditConfig(t, restricted), seed, sqlAuditScale(t))
 	requireAuditWriteFailure(t, "BootstrapIdentities rerun", err)
 	requireSQLUnchanged(t, admin, userIDs, before, operation.Context.OperationID)
 }
@@ -138,22 +113,13 @@ func TestRuntimeAuditSQLFailedMembershipRemove(t *testing.T) {
 	admin := ledgerAdminPool(t)
 	principal := sqlAuditPrincipal()
 	setupCtx, _ := sqlAuditContext(t, principal)
-	identities := bootstrapSQLAuditIdentities(
-		t,
-		setupCtx,
-		testenv.Ledger(t),
-		clock.Now().UnixNano(),
-	)
+	identities := bootstrapSQLAuditIdentities(t, setupCtx, testenv.Ledger(t), clock.Now().UnixNano())
 	workspace := identities.Workspaces[0]
 	userIDs := actorUserIDs(identities)
 	before := sqlRows(t, admin, userIDs)
 
 	removeCtx, operation := sqlAuditContext(t, principal)
-	err := postgres.NewOrgMemberRepo(changeOnlyPool(t, admin)).RemoveMember(
-		removeCtx,
-		workspace.OrgID,
-		workspace.Actors[0].UserID,
-	)
+	err := postgres.NewOrgMemberRepo(changeOnlyPool(t, admin)).RemoveMember(removeCtx, workspace.OrgID, workspace.Actors[0].UserID)
 	requireAuditWriteFailure(t, "RemoveMember", err)
 	requireSQLUnchanged(t, admin, userIDs, before, operation.Context.OperationID)
 }
@@ -166,23 +132,12 @@ func TestRuntimeAuditSQLFailedTokenRevoke(t *testing.T) {
 	admin := ledgerAdminPool(t)
 	principal := sqlAuditPrincipal()
 	setupCtx, _ := sqlAuditContext(t, principal)
-	identities := bootstrapSQLAuditIdentities(
-		t,
-		setupCtx,
-		testenv.Ledger(t),
-		clock.Now().UnixNano(),
-	)
+	identities := bootstrapSQLAuditIdentities(t, setupCtx, testenv.Ledger(t), clock.Now().UnixNano())
 	holderID := identities.Workspaces[0].Actors[0].UserID
 	tokens, err := postgres.NewTokenRepo(admin).List(t.Context(), holderID)
 	if err != nil || len(tokens) == 0 {
-		t.Fatalf(
-			"TokenRepo.List(%s) = %d tokens, error = %v; want at least one token and nil error",
-			holderID,
-			len(tokens),
-			err,
-		)
+		t.Fatalf("TokenRepo.List(%s) = %d tokens, error = %v; want at least one token and nil error", holderID, len(tokens), err)
 	}
-
 	userIDs := actorUserIDs(identities)
 	before := sqlRows(t, admin, userIDs)
 

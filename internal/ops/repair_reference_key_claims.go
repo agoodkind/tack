@@ -27,37 +27,18 @@ func unheldReferenceKeys(
 	for _, key := range keys {
 		holder, err := reader.LookupReference(ctx, orgID, key.Key.TemplateName, key.Key.Encoded)
 		if err != nil {
-			wrapped := fmt.Errorf(
-				"look up reference %q for node %s: %w",
-				key.Key.Encoded,
-				key.View.ID,
-				err,
-			)
-			telemetry.L(ctx).WarnContext(
-				ctx,
-				"repair.reference_uniqueness.key_lookup_failed",
-				slog.String("node_id", key.View.ID.String()),
-				slog.String("err", wrapped.Error()),
-			)
-
+			wrapped := fmt.Errorf("look up reference %q for node %s: %w", key.Key.Encoded, key.View.ID, err)
+			telemetry.L(ctx).WarnContext(ctx, "repair.reference_uniqueness.key_lookup_failed",
+				slog.String("node_id", key.View.ID.String()), slog.String("err", wrapped.Error()))
 			return nil, wrapped
 		}
-
 		if holder == key.View.ID {
 			continue
 		}
-
-		unheld = append(
-			unheld,
-			ReferenceKeyWrite{
-				OrgID:        orgID,
-				NodeID:       key.View.ID,
-				NodeType:     key.View.NodeType,
-				TemplateName: key.Key.TemplateName,
-				Encoded:      key.Key.Encoded,
-			},
-		)
+		unheld = append(unheld, ReferenceKeyWrite{
+			OrgID: orgID, NodeID: key.View.ID, NodeType: key.View.NodeType,
+			TemplateName: key.Key.TemplateName, Encoded: key.Key.Encoded,
+		})
 	}
-
 	return unheld, nil
 }

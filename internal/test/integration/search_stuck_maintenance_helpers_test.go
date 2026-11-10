@@ -40,12 +40,10 @@ type maintenanceReport struct {
 // maintenancePastLimit attempts.
 func (report maintenanceReport) stuck(item maintenanceItem) (maintenanceStuckWork, bool) {
 	for _, stuck := range report.StuckWork {
-		if stuck.Kind == string(item.Class) && stuck.ItemID == item.itemID() &&
-			stuck.Attempts >= maintenancePastLimit {
+		if stuck.Kind == string(item.Class) && stuck.ItemID == item.itemID() && stuck.Attempts >= maintenancePastLimit {
 			return stuck, true
 		}
 	}
-
 	return maintenanceStuckWork{}, false
 }
 
@@ -59,85 +57,46 @@ type attemptLimitRecord struct {
 }
 
 // runMaintenanceVerify checks the public verify error against stored work.
-func runMaintenanceVerify(
-	t *testing.T,
-	fixture integration.QueryFixture,
-) (maintenanceReport, error) {
+func runMaintenanceVerify(t *testing.T, fixture integration.QueryFixture) (maintenanceReport, error) {
 	t.Helper()
 	verified, runErr := integration.RunSearchVerifyCommand(t, fixture.Config)
-
 	report := maintenanceReport{StuckWorkItems: verified.StuckWorkItems, StuckWork: nil}
 	for _, work := range verified.StuckWork {
-		report.StuckWork = append(
-			report.StuckWork,
-			maintenanceStuckWork{
-				Kind:      work.Kind,
-				ItemID:    work.ItemID,
-				Attempts:  work.Attempts,
-				LastError: work.LastError,
-			},
-		)
+		report.StuckWork = append(report.StuckWork, maintenanceStuckWork{
+			Kind: work.Kind, ItemID: work.ItemID, Attempts: work.Attempts, LastError: work.LastError,
+		})
 	}
-
 	return report, runErr
 }
 
 // runUntilMaintenanceClear runs worker slices until no item has an attempt
 // count and the access rollout of the items is stable. It fails the test
 // when a slice fails or after maintenanceDeadline.
-func runUntilMaintenanceClear(
-	t *testing.T,
-	fixture integration.QueryFixture,
-	items []maintenanceItem,
-) {
+func runUntilMaintenanceClear(t *testing.T, fixture integration.QueryFixture, items []maintenanceItem) {
 	t.Helper()
 	rollouts := fixture.Stores.SearchRollouts(clock.Wall{}, fixture.Stores.SearchPolicySet())
 	deadline := clock.Now().Add(maintenanceDeadline)
-
 	for {
 		remaining := make([]maintenanceItem, 0, len(items))
 		for _, item := range items {
-			if len(
-				readPrefixedValue(
-					t,
-					tuple.Tuple{
-						"search_attempt",
-						string(item.Class),
-						item.OrgID.String(),
-						item.NodeID.String(),
-					},
-				),
-			) > 0 {
+			if len(readPrefixedValue(t, tuple.Tuple{"search_attempt", string(item.Class), item.OrgID.String(), item.NodeID.String()})) > 0 {
 				remaining = append(remaining, item)
 			}
 		}
-
-		rollout, err := rollouts.Current(
-			integration.WithTestOperation(t, t.Context()),
-			items[0].OrgID,
-		)
+		rollout, err := rollouts.Current(integration.WithTestOperation(t, t.Context()), items[0].OrgID)
 		if err != nil {
 			t.Fatalf("read the access rollout of %s: %v", items[0].OrgID, err)
 		}
-
 		if len(remaining) == 0 && rollout.Phase == searchdomain.AccessStable {
 			return
 		}
-
 		if clock.Now().After(deadline) {
-			t.Fatalf(
-				"work items %+v kept an attempt count and the rollout stayed in phase %s for %s after the reads recovered",
-				remaining,
-				rollout.Phase,
-				maintenanceDeadline,
-			)
+			t.Fatalf("work items %+v kept an attempt count and the rollout stayed in phase %s for %s after the reads recovered", remaining, rollout.Phase, maintenanceDeadline)
 		}
-
 		claimed, err := fixture.Worker.RunSlice(integration.WithTestOperation(t, t.Context()))
 		if err != nil {
 			t.Fatalf("run search worker slice after the reads recovered: %v", err)
 		}
-
 		if !claimed {
 			waitUntilTime(t, clock.Now().Add(maintenancePoll))
 		}
@@ -151,7 +110,6 @@ func openPrefixedDatabase(t *testing.T) fdb.Database {
 	if err != nil {
 		t.Fatalf("open FoundationDB: %v", err)
 	}
-
 	return database
 }
 
@@ -184,14 +142,10 @@ func clearPrefixedKey(t *testing.T, values tuple.Tuple) {
 func readPrefixedValue(t *testing.T, values tuple.Tuple) []byte {
 	t.Helper()
 	key := prefixedKey(fdbadapter.TestPrefixRange(), values)
-	value, err := openPrefixedDatabase(t).ReadTransact(
-		func(tr fdb.ReadTransaction) (any, error) { return tr.Get(key).Get() },
-	)
+	value, err := openPrefixedDatabase(t).ReadTransact(func(tr fdb.ReadTransaction) (any, error) { return tr.Get(key).Get() })
 	if err != nil {
 		t.Fatalf("read key %v: %v", values, err)
 	}
-
 	stored, _ := value.([]byte)
-
 	return stored
 }

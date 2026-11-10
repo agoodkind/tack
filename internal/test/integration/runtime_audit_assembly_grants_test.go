@@ -21,25 +21,14 @@ var assemblyDeniedRoles = []string{"app_auth", "audit_reader", "audit_operator",
 // audit_writer, the role of the audit consumer.
 func TestRuntimeAuditAssemblyTablesConsumerOnly(t *testing.T) {
 	dsn := testenv.Ledger(t)
-	statements := strings.Split(
-		strings.TrimSpace(readTestSQL(t, "runtime_audit_assembly_denied.sql")),
-		";\n",
-	)
-
+	statements := strings.Split(strings.TrimSpace(readTestSQL(t, "runtime_audit_assembly_denied.sql")), ";\n")
 	for _, role := range assemblyDeniedRoles {
 		pool := rolePool(t, dsn, role)
-
 		for _, statement := range statements {
 			_, err := pool.Exec(t.Context(), statement)
 			var postgresError *pgconn.PgError
 			if !errors.As(err, &postgresError) || postgresError.Code != insufficientPrivilegeState {
-				t.Fatalf(
-					"%s as %s = %v, want SQLSTATE %s",
-					statement,
-					role,
-					err,
-					insufficientPrivilegeState,
-				)
+				t.Fatalf("%s as %s = %v, want SQLSTATE %s", statement, role, err, insufficientPrivilegeState)
 			}
 		}
 	}

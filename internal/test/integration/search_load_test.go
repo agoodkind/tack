@@ -68,80 +68,35 @@ func TestSearchLoadReportsMeasuredRate(t *testing.T) {
 	cfg := newCohortEngines(t)
 	endpoints := startSearchMixedProcesses(t, cfg)
 	seed := strconv.FormatInt(clock.Now().UnixNano(), 10)
-	if output, err := runDatagenSearchCommand(
-		t,
-		cfg,
-		"--verify-cohort",
-		"--seed",
-		seed,
-		"--commit",
-	); err != nil {
+	if output, err := runDatagenSearchCommand(t, cfg, "--verify-cohort", "--seed", seed, "--commit"); err != nil {
 		t.Fatalf("qa datagen search-load: index search cohort: %v; output=%s", err, output)
 	}
-
-	output, err := runSearchLoadCommand(
-		t,
-		cfg,
-		"--seed",
-		seed,
-		"--rate",
-		"120",
-		"--duration",
-		"5s",
-		"--concurrency",
-		"8",
-		"--endpoints",
-		strings.Join(endpoints, ","),
-		"--commit",
-	)
+	output, err := runSearchLoadCommand(t, cfg, "--seed", seed, "--rate", "120", "--duration", "5s", "--concurrency", "8",
+		"--endpoints", strings.Join(endpoints, ","), "--commit")
 	if err != nil {
 		t.Fatalf("qa datagen search-load: run workload: %v; output=%s", err, output)
 	}
-
 	var envelope searchLoadOutput
 	if err := json.Unmarshal(output, &envelope); err != nil {
 		t.Fatalf("qa datagen search-load: decode result: %v; output=%s", err, output)
 	}
-
 	result := envelope.Result
 	errorCount := result.Errors.Unavailable + result.Errors.ToolError + result.Errors.TransportError
-	if result.Endpoints != len(endpoints) || result.Completed <= 0 || errorCount != 0 ||
-		result.LatencyMs.P50 <= 0 ||
+	if result.Endpoints != len(endpoints) || result.Completed <= 0 || errorCount != 0 || result.LatencyMs.P50 <= 0 ||
 		result.DistinctQueryTexts != result.Sent {
-		t.Fatalf(
-			"qa datagen search-load: result did not show successful requests to both endpoints, distinct query texts, and positive median latency: %s",
-			output,
-		)
+		t.Fatalf("qa datagen search-load: result did not show successful requests to both endpoints, distinct query texts, and positive median latency: %s", output)
 	}
-
 	samples := result.PointInTime.Samples
 	if len(samples) < searchLoadMinimumSamples || result.PointInTime.Answered != len(samples) {
-		t.Fatalf(
-			"qa datagen search-load: result did not contain answered point-in-time samples at the start and end of the run: %s",
-			output,
-		)
+		t.Fatalf("qa datagen search-load: result did not contain answered point-in-time samples at the start and end of the run: %s", output)
 	}
-
 	for _, sample := range samples {
-		if sample.Unavailable || sample.Status != http.StatusOK ||
-			!strings.HasPrefix(sample.Index, "node-pages-") ||
-			sample.Error != "" {
-			t.Fatalf(
-				"qa datagen search-load: a point-in-time sample did not confirm a successful read of the serving index: %s",
-				output,
-			)
+		if sample.Unavailable || sample.Status != http.StatusOK || !strings.HasPrefix(sample.Index, "node-pages-") || sample.Error != "" {
+			t.Fatalf("qa datagen search-load: a point-in-time sample did not confirm a successful read of the serving index: %s", output)
 		}
 	}
-
-	t.Logf(
-		"search load sent=%d completed=%d dropped=%d completed_per_minute=%.1f p50_ms=%.1f point_in_time_peak=%d",
-		result.Sent,
-		result.Completed,
-		result.Dropped,
-		result.CompletedPerMinute,
-		result.LatencyMs.P50,
-		result.PointInTime.Peak,
-	)
+	t.Logf("search load sent=%d completed=%d dropped=%d completed_per_minute=%.1f p50_ms=%.1f point_in_time_peak=%d",
+		result.Sent, result.Completed, result.Dropped, result.CompletedPerMinute, result.LatencyMs.P50, result.PointInTime.Peak)
 }
 
 // TestSearchLoadStopsAtMaxWallTime runs search-load in process with --max-wall-time 10s and
@@ -153,50 +108,22 @@ func TestSearchLoadStopsAtMaxWallTime(t *testing.T) {
 	cfg := newCohortEngines(t)
 	seed := strconv.FormatInt(clock.Now().UnixNano(), 10)
 	started := clock.Now()
-	output, err := runSearchLoadCommand(
-		t,
-		cfg,
-		"--seed",
-		seed,
-		"--rate",
-		"60",
-		"--duration",
-		scheduleDuration.String(),
-		"--concurrency",
-		"4",
-		"--max-wall-time",
-		"10s",
-		"--commit",
-	)
+	output, err := runSearchLoadCommand(t, cfg, "--seed", seed, "--rate", "60", "--duration", scheduleDuration.String(),
+		"--concurrency", "4", "--max-wall-time", "10s", "--commit")
 	elapsed := clock.Now().Sub(started)
 	if err != nil {
-		t.Fatalf(
-			"qa datagen search-load: run workload with a wall-time bound: %v; output=%s",
-			err,
-			output,
-		)
+		t.Fatalf("qa datagen search-load: run workload with a wall-time bound: %v; output=%s", err, output)
 	}
-
 	if elapsed >= scheduleDuration {
-		t.Fatalf(
-			"qa datagen search-load: the command returned after %s, which is not before the %s duration ended",
-			elapsed,
-			scheduleDuration,
-		)
+		t.Fatalf("qa datagen search-load: the command returned after %s, which is not before the %s duration ended", elapsed, scheduleDuration)
 	}
-
 	var envelope searchLoadOutput
 	if err := json.Unmarshal(output, &envelope); err != nil {
 		t.Fatalf("qa datagen search-load: decode result: %v; output=%s", err, output)
 	}
-
 	result := envelope.Result
-	if result.StopReason != "max_wall_time" || result.MaxWallTime != "10s" ||
-		result.Sent+result.Dropped >= result.Planned {
-		t.Fatalf(
-			"qa datagen search-load: the result must report the 10s wall-time bound as the stop reason and fewer scheduled requests than planned: %s",
-			output,
-		)
+	if result.StopReason != "max_wall_time" || result.MaxWallTime != "10s" || result.Sent+result.Dropped >= result.Planned {
+		t.Fatalf("qa datagen search-load: the result must report the 10s wall-time bound as the stop reason and fewer scheduled requests than planned: %s", output)
 	}
 }
 
@@ -209,7 +136,6 @@ func runSearchLoadCommand(t *testing.T, cfg *config.Config, flags ...string) ([]
 	if err != nil {
 		t.Fatalf("qa datagen search-load: open audit ledger connection: %v", err)
 	}
-
 	t.Cleanup(pool.Close)
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
 	t.Cleanup(factory.CloseAuditOutbox)
@@ -217,33 +143,13 @@ func runSearchLoadCommand(t *testing.T, cfg *config.Config, flags ...string) ([]
 	ops.RegisterCommands(registry, factory)
 	root := &cobra.Command{Use: "tack", SilenceErrors: true, SilenceUsage: true}
 	factory.RegisterGlobalFlags(root)
-
 	for _, command := range clispec.RenderCobra(registry, factory) {
 		root.AddCommand(command)
 	}
-
 	factory.SetOperatorIdentitySource(cli.NewOperatorSource(factory))
-	root.SetArgs(
-		append(
-			[]string{
-				"--execute",
-				"--output",
-				"json",
-				"--operator-id",
-				"019dd226-440e-729a-a442-281aaf73ca30",
-				"--operator-email",
-				"operator@example.com",
-				"--operator-name",
-				"Search Test",
-				"ops",
-				"qa",
-				"datagen",
-				"search-load",
-			},
-			flags...,
-		),
-	)
+	root.SetArgs(append([]string{
+		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30", "--operator-email", "operator@example.com", "--operator-name", "Search Test", "ops", "qa", "datagen", "search-load",
+	}, flags...))
 	err = root.ExecuteContext(t.Context())
-
 	return output.Bytes(), err
 }

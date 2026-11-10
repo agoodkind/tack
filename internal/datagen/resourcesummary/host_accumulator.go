@@ -70,12 +70,8 @@ func (accumulator *hostAccumulator) checkCounters(sample hostSample) error {
 	}
 	for _, counter := range counters {
 		if counter.current < counter.previous {
-			return fmt.Errorf(
-				"guest %s decreased from %d to %d",
-				counter.name,
-				counter.previous,
-				counter.current,
-			)
+			return fmt.Errorf("guest %s decreased from %d to %d",
+				counter.name, counter.previous, counter.current)
 		}
 	}
 	return nil

@@ -18,7 +18,6 @@ func epicScopedArguments(harness *integration.MCPHarness, epic, name string) dat
 	arguments := parentIntegrityArguments(harness, "")
 	arguments.EpicReference = epic
 	arguments.Name = name
-
 	return arguments
 }
 
@@ -26,19 +25,12 @@ func createProjectEpic(t *testing.T, harness *integration.MCPHarness, name strin
 	t.Helper()
 	arguments := parentIntegrityArguments(harness, harness.Project)
 	arguments.Name = name
-
 	return harness.Call(t, "tack_create_epic", arguments)
 }
 
-func listedUnder(
-	t *testing.T,
-	harness *integration.MCPHarness,
-	tool string,
-	arguments datagen.ToolArguments,
-) string {
+func listedUnder(t *testing.T, harness *integration.MCPHarness, tool string, arguments datagen.ToolArguments) string {
 	t.Helper()
 	arguments.Name = ""
-
 	return harness.Call(t, tool, arguments).Text()
 }
 
@@ -53,19 +45,12 @@ func TestCreateIssueFromGeneratedGuidanceUnderEpic(t *testing.T) {
 	if !strings.Contains(strings.Join(alternatives, " "), "epic_reference") {
 		t.Fatalf("guidance lists %v as alternatives, want epic_reference among them", alternatives)
 	}
-
 	values := map[string]string{
-		"workspace_reference": harness.Workspace,
-		"name":                "Issue created from guidance",
-		"project_reference":   harness.Project,
-		"epic_reference":      epicReference,
+		"workspace_reference": harness.Workspace, "name": "Issue created from guidance",
+		"project_reference": harness.Project, "epic_reference": epicReference,
 	}
 
-	result := harness.Call(
-		t,
-		"tack_create_issue",
-		guidedArguments(t, values, append(required, "epic_reference")),
-	)
+	result := harness.Call(t, "tack_create_issue", guidedArguments(t, values, append(required, "epic_reference")))
 
 	issueID := result.RawID()
 	view := storedParentView(t, stores, issueID)
@@ -74,26 +59,13 @@ func TestCreateIssueFromGeneratedGuidanceUnderEpic(t *testing.T) {
 	if scope := stringProperty(t, view, "scope_id"); scope != projectID {
 		t.Fatalf("issue %s has scope_id %s, want project %s", issueID, scope, projectID)
 	}
-
-	if reference := printedReference(t, result.Text()); !strings.HasPrefix(
-		reference,
-		harness.Project+"-",
-	) {
-		t.Fatalf(
-			"issue reference %q does not start with the project identifier %q",
-			reference,
-			harness.Project,
-		)
+	if reference := printedReference(t, result.Text()); !strings.HasPrefix(reference, harness.Project+"-") {
+		t.Fatalf("issue reference %q does not start with the project identifier %q", reference, harness.Project)
 	}
-
 	for _, listing := range []datagen.ToolArguments{
-		parentIntegrityArguments(harness, harness.Project),
-		epicScopedArguments(harness, epicReference, ""),
+		parentIntegrityArguments(harness, harness.Project), epicScopedArguments(harness, epicReference, ""),
 	} {
-		if text := listedUnder(t, harness, "tack_list_issues", listing); !strings.Contains(
-			text,
-			"Issue created from guidance",
-		) {
+		if text := listedUnder(t, harness, "tack_list_issues", listing); !strings.Contains(text, "Issue created from guidance") {
 			t.Fatalf("tack_list_issues %+v does not list the issue:\n%s", listing, text)
 		}
 	}
@@ -110,22 +82,11 @@ func TestCreateIssueWithProjectOnlyStaysOutOfEpicList(t *testing.T) {
 
 	harness.Call(t, "tack_create_issue", arguments)
 
-	projectList := listedUnder(
-		t,
-		harness,
-		"tack_list_issues",
-		parentIntegrityArguments(harness, harness.Project),
-	)
+	projectList := listedUnder(t, harness, "tack_list_issues", parentIntegrityArguments(harness, harness.Project))
 	if !strings.Contains(projectList, arguments.Name) {
 		t.Fatalf("project list does not show the issue:\n%s", projectList)
 	}
-
-	if epicList := listedUnder(
-		t,
-		harness,
-		"tack_list_issues",
-		epicScopedArguments(harness, epicReference, ""),
-	); strings.Contains(epicList, arguments.Name) {
+	if epicList := listedUnder(t, harness, "tack_list_issues", epicScopedArguments(harness, epicReference, "")); strings.Contains(epicList, arguments.Name) {
 		t.Fatalf("epic list shows an issue created under the project:\n%s", epicList)
 	}
 }
@@ -137,19 +98,11 @@ func TestCreateEpicWithOnlyEpicReference(t *testing.T) {
 	stores := parentIntegrityStores(t)
 	parent := createProjectEpic(t, harness, "Outer epic")
 
-	child := harness.Call(
-		t,
-		"tack_create_epic",
-		epicScopedArguments(harness, printedReference(t, parent.Text()), "Inner epic"),
-	)
+	child := harness.Call(t, "tack_create_epic", epicScopedArguments(harness, printedReference(t, parent.Text()), "Inner epic"))
 
 	requireParents(t, stores, child.RawID(), parent.RawID(), []string{parent.RawID()})
 	parentScope := stringProperty(t, storedParentView(t, stores, parent.RawID()), "scope_id")
-	if scope := stringProperty(
-		t,
-		storedParentView(t, stores, child.RawID()),
-		"scope_id",
-	); scope != parentScope {
+	if scope := stringProperty(t, storedParentView(t, stores, child.RawID()), "scope_id"); scope != parentScope {
 		t.Fatalf("inner epic has scope_id %s, want %s", scope, parentScope)
 	}
 }
@@ -162,35 +115,18 @@ func TestCreateIssueRefusesMissingOrConflictingScope(t *testing.T) {
 	epicReference := printedReference(t, createProjectEpic(t, harness, "Conflict epic").Text())
 	both := epicScopedArguments(harness, epicReference, "Issue with two parents")
 	both.ProjectReference = harness.Project
-	withParentProperty := epicScopedArguments(
-		harness,
-		epicReference,
-		"Issue with two parent choices",
-	)
-	withParentProperty.Properties = datagen.NodeProperties{
-		"parent_id": json.RawMessage(strconv.Quote(epicReference)),
-	}
-
+	withParentProperty := epicScopedArguments(harness, epicReference, "Issue with two parent choices")
+	withParentProperty.Properties = datagen.NodeProperties{"parent_id": json.RawMessage(strconv.Quote(epicReference))}
 	cases := map[string]struct {
 		arguments datagen.ToolArguments
 		want      string
 	}{
-		"no scope": {
-			epicScopedArguments(harness, "", "Issue without scope"),
-			exactlyOneIssueScope,
-		},
-		"two scopes": {both, exactlyOneIssueScope},
-		"parent and property": {
-			withParentProperty,
-			"exactly one of epic_reference or properties.parent_id",
-		},
+		"no scope":            {epicScopedArguments(harness, "", "Issue without scope"), exactlyOneIssueScope},
+		"two scopes":          {both, exactlyOneIssueScope},
+		"parent and property": {withParentProperty, "exactly one of epic_reference or properties.parent_id"},
 	}
 	for name, test := range cases {
-		if text := harness.CallExpectError(
-			t,
-			"tack_create_issue",
-			test.arguments,
-		); !strings.Contains(text, test.want) {
+		if text := harness.CallExpectError(t, "tack_create_issue", test.arguments); !strings.Contains(text, test.want) {
 			t.Fatalf("%s: error %q does not contain %q", name, text, test.want)
 		}
 	}
@@ -207,10 +143,7 @@ func TestCreateCommentWithProjectAndIssueReference(t *testing.T) {
 
 	harness.Call(t, "tack_create_comment", arguments)
 
-	if text := listedUnder(t, harness, "tack_list_comments", arguments); !strings.Contains(
-		text,
-		"Comment on the issue",
-	) {
+	if text := listedUnder(t, harness, "tack_list_comments", arguments); !strings.Contains(text, "Comment on the issue") {
 		t.Fatalf("comment list does not show the new comment:\n%s", text)
 	}
 }

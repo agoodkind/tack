@@ -31,63 +31,39 @@ type rolloutPage struct {
 // in order.
 func rolloutPages(t *testing.T, fixture rolloutFixture, nodes []uuid.UUID) []rolloutPage {
 	t.Helper()
-	if _, err := fixture.client.Indices.Refresh(
-		rolloutContext(t),
-		&opensearchapi.IndicesRefreshReq{Indices: []string{fixture.index}},
-	); err != nil {
+	if _, err := fixture.client.Indices.Refresh(rolloutContext(t), &opensearchapi.IndicesRefreshReq{Indices: []string{fixture.index}}); err != nil {
 		t.Fatalf("cannot refresh index %s: %v", fixture.index, err)
 	}
-
 	pages := make([]rolloutPage, 0, len(nodes)*2)
 	for _, nodeID := range nodes {
-		query := fmt.Sprintf(
-			`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`,
-			nodeID.String(),
-		)
-		response, err := fixture.client.Search(
-			rolloutContext(t),
-			&opensearchapi.SearchReq{
-				Indices:    []string{fixture.index},
-				BodyReader: strings.NewReader(query),
-			},
-		)
+		query := fmt.Sprintf(`{"size":1000,"query":{"bool":{"filter":[{"term":{"node_id":%q}},{"term":{"retired":false}}]}},"sort":[{"page_ordinal":"asc"}]}`, nodeID.String())
+		response, err := fixture.client.Search(rolloutContext(t), &opensearchapi.SearchReq{Indices: []string{fixture.index}, BodyReader: strings.NewReader(query)})
 		if err != nil {
 			t.Fatalf("cannot search pages of node %s: %v", nodeID, err)
 		}
-
 		for _, hit := range response.Hits.Hits {
 			if hit.ID == nil {
 				t.Fatal("rollout page requires a document ID")
 			}
-
 			var page rolloutPage
 			if err := json.Unmarshal(hit.Source, &page); err != nil {
 				t.Fatalf("cannot decode page %s: %v", *hit.ID, err)
 			}
-
 			page.ID = *hit.ID
 			pages = append(pages, page)
 		}
 	}
-
 	if len(pages) == 0 {
 		t.Fatal("the nodes do not have active pages")
 	}
-
 	return pages
 }
 
 func requirePageVersions(t *testing.T, pages []rolloutPage, versions []string) {
 	t.Helper()
-
 	for _, page := range pages {
 		if !slices.Equal(page.Access.Versions, versions) {
-			t.Fatalf(
-				"page %s stores versions %v instead of %v",
-				page.ID,
-				page.Access.Versions,
-				versions,
-			)
+			t.Fatalf("page %s stores versions %v instead of %v", page.ID, page.Access.Versions, versions)
 		}
 	}
 }
@@ -99,16 +75,10 @@ func requirePagesPreserved(t *testing.T, before, after []rolloutPage) {
 	if len(before) != len(after) {
 		t.Fatalf("active page count changed from %d to %d", len(before), len(after))
 	}
-
 	for position, page := range after {
 		previous := before[position]
-		if page.ID != previous.ID || page.NodeRevision != previous.NodeRevision || !bytes.Equal(
-			page.Semantic,
-			previous.Semantic,
-		) ||
-			page.PageText == nil ||
-			previous.PageText == nil ||
-			*page.PageText != *previous.PageText {
+		if page.ID != previous.ID || page.NodeRevision != previous.NodeRevision || !bytes.Equal(page.Semantic, previous.Semantic) ||
+			page.PageText == nil || previous.PageText == nil || *page.PageText != *previous.PageText {
 			t.Fatalf("page %s changed its identity, text, or semantic fields", page.ID)
 		}
 	}

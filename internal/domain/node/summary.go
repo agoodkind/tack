@@ -38,11 +38,9 @@ func TruncateUTF8(text string, maxBytes int) string {
 	if len(text) <= maxBytes {
 		return text
 	}
-
 	end := max(maxBytes, 0)
 	for end > 0 && !utf8.RuneStart(text[end]) {
 		end--
 	}
-
 	return text[:end]
 }

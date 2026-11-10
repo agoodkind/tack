@@ -17,7 +17,12 @@ func (d *Driver) send(
 	if d.graph == nil {
 		return nil, fmt.Errorf("qa datagen: runtime graph is required")
 	}
-	request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/mcp", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		"/mcp",
+		bytes.NewReader(body),
+	)
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")

@@ -52,11 +52,8 @@ func outboxTokenUsed(t *testing.T, server *publicServer, requestID string) audit
 		}
 
 		if len(entries) == 0 {
-			t.Fatalf(
-				"the outbox does not contain an auth.token_used event "+
-					"for request %s when the response returned",
-				requestID,
-			)
+			t.Fatalf("the outbox does not contain an auth.token_used event "+
+				"for request %s when the response returned", requestID)
 		}
 
 		for _, entry := range entries {
@@ -67,8 +64,7 @@ func outboxTokenUsed(t *testing.T, server *publicServer, requestID string) audit
 				t.Fatalf("decoding an outbox entry failed: %v", err)
 			}
 
-			if event.Verb == string(audit.VerbAuthTokenUsed) &&
-				event.Context.RequestID == requestID {
+			if event.Verb == string(audit.VerbAuthTokenUsed) && event.Context.RequestID == requestID {
 				return event
 			}
 		}
@@ -78,31 +74,15 @@ func outboxTokenUsed(t *testing.T, server *publicServer, requestID string) audit
 }
 
 // tokenUsedRows returns the auth.token_used rows for requestID in orgID.
-func tokenUsedRows(
-	t *testing.T,
-	reader *audit.Reader,
-	orgID uuid.UUID,
-	requestID string,
-) []audit.Row {
+func tokenUsedRows(t *testing.T, reader *audit.Reader, orgID uuid.UUID, requestID string) []audit.Row {
 	t.Helper()
 
-	rows, err := reader.Query(
-		t.Context(),
-		audit.QueryFilter{
-			OrgID:      orgID,
-			Oldest:     clock.Now().Add(-time.Hour),
-			Latest:     clock.Now().Add(time.Hour),
-			Action:     string(audit.VerbAuthTokenUsed),
-			ActorID:    uuid.Nil,
-			EntityID:   uuid.Nil,
-			RequestID:  requestID,
-			TraceID:    "",
-			Limit:      10,
-			BeforeTime: time.Time{},
-			BeforeSeq:  0,
-			NilOrg:     false,
-		},
-	)
+	rows, err := reader.Query(t.Context(), audit.QueryFilter{
+		OrgID: orgID, Oldest: clock.Now().Add(-time.Hour), Latest: clock.Now().Add(time.Hour),
+		Action: string(audit.VerbAuthTokenUsed), ActorID: uuid.Nil, EntityID: uuid.Nil,
+		RequestID: requestID, TraceID: "", Limit: 10,
+		BeforeTime: time.Time{}, BeforeSeq: 0, NilOrg: false,
+	})
 	if err != nil {
 		t.Fatalf("ledger query failed for request %s: %v", requestID, err)
 	}
@@ -153,13 +133,8 @@ func requireLastUsed(t *testing.T, tokenID uuid.UUID, usedAt time.Time) {
 		}
 
 		if clock.Now().After(deadline) {
-			t.Fatalf(
-				"api_tokens.last_used of token %s = %v after %s, want %s",
-				tokenID,
-				lastUsed,
-				tokenUseProjectionWait,
-				usedAt,
-			)
+			t.Fatalf("api_tokens.last_used of token %s = %v after %s, want %s",
+				tokenID, lastUsed, tokenUseProjectionWait, usedAt)
 		}
 
 		time.Sleep(200 * time.Millisecond)
@@ -168,13 +143,7 @@ func requireLastUsed(t *testing.T, tokenID uuid.UUID, usedAt time.Time) {
 
 // requireTokenUsedRowFields checks the actor, token target, request ID,
 // operation ID, and outcome of an auth.token_used row.
-func requireTokenUsedRowFields(
-	t *testing.T,
-	row audit.Row,
-	userID uuid.UUID,
-	tokenID uuid.UUID,
-	requestID string,
-) {
+func requireTokenUsedRowFields(t *testing.T, row audit.Row, userID, tokenID uuid.UUID, requestID string) {
 	t.Helper()
 
 	target := row.Context.Target
@@ -182,22 +151,11 @@ func requireTokenUsedRowFields(
 		string(row.Outcome) != string(audit.OutcomeCompleted) ||
 		row.Context.OperationID == uuid.Nil || row.Context.APITokenID != tokenID ||
 		target == nil || target.ID != tokenID || target.URI != apiAccessTargetPrefix+tokenID.String() {
-		t.Fatalf(
-			"auth.token_used row = actor %s, request %q, operation %s, outcome %q, "+
-				"token %s, target %+v; want actor %s, request %q, an operation ID, "+
-				"outcome %q, token %s, target %s%s",
-			row.ActorID,
-			row.Context.RequestID,
-			row.Context.OperationID,
-			row.Outcome,
-			row.Context.APITokenID,
-			target,
-			userID,
-			requestID,
-			audit.OutcomeCompleted,
-			tokenID,
-			apiAccessTargetPrefix,
-			tokenID,
-		)
+		t.Fatalf("auth.token_used row = actor %s, request %q, operation %s, outcome %q, "+
+			"token %s, target %+v; want actor %s, request %q, an operation ID, "+
+			"outcome %q, token %s, target %s%s",
+			row.ActorID, row.Context.RequestID, row.Context.OperationID, row.Outcome,
+			row.Context.APITokenID, target,
+			userID, requestID, audit.OutcomeCompleted, tokenID, apiAccessTargetPrefix, tokenID)
 	}
 }

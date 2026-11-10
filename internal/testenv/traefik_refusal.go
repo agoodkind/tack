@@ -55,7 +55,6 @@ func (c *OpenSearchCluster) refusalConfig(servers string) proxyRefusal {
 	if c.refusedPath == "" {
 		return proxyRefusal{router: "", service: "", transport: ""}
 	}
-
 	return proxyRefusal{
 		router:    fmt.Sprintf(traefikRefusedRouterFormat, c.refusedPath),
 		service:   fmt.Sprintf(traefikRefusedServiceFormat, servers),
@@ -68,23 +67,13 @@ func (c *OpenSearchCluster) refusalConfig(servers string) proxyRefusal {
 // provisioning deadline expires first. The proxy forwards other paths to OpenSearch.
 func (c *OpenSearchCluster) RefusePath(t T, prefix string) {
 	t.Helper()
-	c.run(
-		t,
-		func(ctx context.Context, cli *client.Client) error {
-			c.refusedPath = prefix
-			if err := writeContainerFile(
-				ctx,
-				cli,
-				c.proxy,
-				traefikDynamicPath,
-				c.proxyConfig(),
-			); err != nil {
-				return err
-			}
-
-			return c.waitForRefusal(ctx)
-		},
-	)
+	c.run(t, func(ctx context.Context, cli *client.Client) error {
+		c.refusedPath = prefix
+		if err := writeContainerFile(ctx, cli, c.proxy, traefikDynamicPath, c.proxyConfig()); err != nil {
+			return err
+		}
+		return c.waitForRefusal(ctx)
+	})
 }
 
 // waitForRefusal polls refusedPath through the proxy until it receives HTTP 500
@@ -93,47 +82,24 @@ func (c *OpenSearchCluster) RefusePath(t T, prefix string) {
 func (c *OpenSearchCluster) waitForRefusal(ctx context.Context) error {
 	pass := c.Fixture.Password
 	configuration := search.Config{
-		Endpoint:       c.Fixture.Endpoint,
-		CA:             c.Fixture.CA,
-		Username:       c.Fixture.Username,
-		Password:       pass,
-		RequestTimeout: openSearchProbeTimeout,
-		MaxRetries:     0,
+		Endpoint: c.Fixture.Endpoint, CA: c.Fixture.CA, Username: c.Fixture.Username,
+		Password: pass, RequestTimeout: openSearchProbeTimeout, MaxRetries: 0,
 	}
 	probe, err := opensearch.NewClient(configuration.ClientConfig(nil))
 	if err != nil {
 		wrapped := fmt.Errorf("create proxy refusal client: %w", err)
-		slog.ErrorContext(
-			ctx,
-			"testenv.proxy.refusal_client_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "testenv.proxy.refusal_client_failed", slog.String("err", wrapped.Error()))
 		return wrapped
 	}
-
 	defer func() { _ = probe.Close() }()
-
 	for {
 		failure := refusalFailure(ctx, probe, c.refusedPath)
 		if failure == "" {
 			return nil
 		}
-
 		if !sleepOrDone(ctx) {
-			wrapped := fmt.Errorf(
-				"wait for proxy %s to refuse %s, last %s: %w",
-				c.proxy,
-				c.refusedPath,
-				failure,
-				ctx.Err(),
-			)
-			slog.ErrorContext(
-				ctx,
-				"testenv.proxy.refusal_wait_failed",
-				slog.String("err", wrapped.Error()),
-			)
-
+			wrapped := fmt.Errorf("wait for proxy %s to refuse %s, last %s: %w", c.proxy, c.refusedPath, failure, ctx.Err())
+			slog.ErrorContext(ctx, "testenv.proxy.refusal_wait_failed", slog.String("err", wrapped.Error()))
 			return wrapped
 		}
 	}
@@ -147,21 +113,17 @@ func refusalFailure(ctx context.Context, probe *opensearch.Client, path string) 
 	if err != nil {
 		return "build request: " + err.Error()
 	}
-
 	response, err := probe.Request(request)
 	if err != nil {
 		return "send request: " + err.Error()
 	}
-
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, refusalBodyLimit))
 	if err != nil {
 		return "read response: " + err.Error()
 	}
-
 	if response.StatusCode != http.StatusInternalServerError || string(body) != proxyErrorBody {
 		return fmt.Sprintf("status %d with body %q", response.StatusCode, body)
 	}
-
 	return ""
 }

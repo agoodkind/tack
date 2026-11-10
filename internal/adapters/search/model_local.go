@@ -56,12 +56,7 @@ type localModelDocument struct {
 type connectorSearchRequest struct{ body []byte }
 
 func (request connectorSearchRequest) GetRequest(method string) (*http.Request, error) {
-	return jsonBodyRequest(
-		method,
-		"/_plugins/_ml/connectors/_search",
-		request.body,
-		"build connector search request",
-	)
+	return jsonBodyRequest(method, "/_plugins/_ml/connectors/_search", request.body, "build connector search request")
 }
 
 type connectorSearchResult struct {
@@ -88,47 +83,25 @@ func (a *Adapter) LocalModel(ctx context.Context, modelID string) (LocalModel, e
 	if err != nil {
 		return LocalModel{}, err
 	}
-
 	if err := a.readConnectors(ctx, &model); err != nil {
 		return model, err
 	}
-
 	if violations := localModelViolations(model); len(violations) > 0 {
-		return model, localModelError{
-			operation: "OpenSearch model " + modelID + " is not local",
-			err:       errors.Join(violations...),
-		}
+		return model, localModelError{operation: "OpenSearch model " + modelID + " is not local", err: errors.Join(violations...)}
 	}
-
 	return model, nil
 }
 
 func (a *Adapter) readLocalModel(ctx context.Context, modelID string) (LocalModel, error) {
 	var document localModelDocument
-	response, err := opensearch.Execute(
-		ctx,
-		a.client,
-		http.MethodGet,
-		modelGetRequest{modelID: modelID},
-		&document,
-	)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodGet, modelGetRequest{modelID: modelID}, &document)
 	if err := localModelResponseError(response, err); err != nil {
-		return LocalModel{}, localModelError{
-			operation: "read OpenSearch model " + modelID,
-			err:       err,
-		}
+		return LocalModel{}, localModelError{operation: "read OpenSearch model " + modelID, err: err}
 	}
-
 	inline := len(document.Connector) > 0 && string(document.Connector) != "null"
-
 	return LocalModel{
-		ModelID:         modelID,
-		Function:        document.Algorithm,
-		ContentHash:     document.ContentHash,
-		ConnectorID:     document.ConnectorID,
-		InlineConnector: inline,
-		ConnectorTotal:  0,
-		Connectors:      []Connector{},
+		ModelID: modelID, Function: document.Algorithm, ContentHash: document.ContentHash,
+		ConnectorID: document.ConnectorID, InlineConnector: inline, ConnectorTotal: 0, Connectors: []Connector{},
 	}, nil
 }
 
@@ -136,25 +109,14 @@ func (a *Adapter) readLocalModel(ctx context.Context, modelID string) (LocalMode
 // returns an empty result before the first connector creates its index.
 func (a *Adapter) readConnectors(ctx context.Context, model *LocalModel) error {
 	var found connectorSearchResult
-	response, err := opensearch.Execute(
-		ctx,
-		a.client,
-		http.MethodPost,
-		connectorSearchRequest{body: []byte(connectorSearchBody)},
-		&found,
-	)
+	response, err := opensearch.Execute(ctx, a.client, http.MethodPost, connectorSearchRequest{body: []byte(connectorSearchBody)}, &found)
 	if err := localModelResponseError(response, err); err != nil {
 		return localModelError{operation: "search OpenSearch ML connectors", err: err}
 	}
-
 	model.ConnectorTotal = found.Hits.Total.Value
 	for _, hit := range found.Hits.Hits {
-		model.Connectors = append(
-			model.Connectors,
-			Connector{ID: hit.ID, Name: hit.Source.Name, Protocol: hit.Source.Protocol},
-		)
+		model.Connectors = append(model.Connectors, Connector{ID: hit.ID, Name: hit.Source.Name, Protocol: hit.Source.Protocol})
 	}
-
 	return nil
 }
 
@@ -163,61 +125,32 @@ func localModelResponseError(response *opensearch.Response, err error) error {
 	if err != nil {
 		return err
 	}
-
 	if response == nil {
 		return errors.New("OpenSearch returned no ML response")
 	}
-
 	if response.IsError() {
-		return localModelError{
-			operation: "OpenSearch ML request failed",
-			err:       opensearch.ParseError(response),
-		}
+		return localModelError{operation: "OpenSearch ML request failed", err: opensearch.ParseError(response)}
 	}
-
 	return nil
 }
 
 func localModelViolations(model LocalModel) []error {
 	var violations []error
 	if model.Function != pinnedModelAlgorithm {
-		violations = append(
-			violations,
-			fmt.Errorf("model function is %q, want %q", model.Function, pinnedModelAlgorithm),
-		)
+		violations = append(violations, fmt.Errorf("model function is %q, want %q", model.Function, pinnedModelAlgorithm))
 	}
-
 	if model.ConnectorID != "" {
 		violations = append(violations, fmt.Errorf("model uses connector %s", model.ConnectorID))
 	}
-
 	if model.InlineConnector {
 		violations = append(violations, errors.New("model defines an inline connector"))
 	}
-
 	if model.ConnectorTotal > 0 {
 		listed := make([]string, 0, len(model.Connectors))
 		for _, connector := range model.Connectors {
-			listed = append(
-				listed,
-				fmt.Sprintf(
-					"%s (name %q, protocol %q)",
-					connector.ID,
-					connector.Name,
-					connector.Protocol,
-				),
-			)
+			listed = append(listed, fmt.Sprintf("%s (name %q, protocol %q)", connector.ID, connector.Name, connector.Protocol))
 		}
-
-		violations = append(
-			violations,
-			fmt.Errorf(
-				"ML Commons lists %d connectors: %s",
-				model.ConnectorTotal,
-				strings.Join(listed, ", "),
-			),
-		)
+		violations = append(violations, fmt.Errorf("ML Commons lists %d connectors: %s", model.ConnectorTotal, strings.Join(listed, ", ")))
 	}
-
 	return violations
 }

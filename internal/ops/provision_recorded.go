@@ -22,9 +22,7 @@ const provisionSeedDeferredCode = "seed_deferred"
 
 // errProvisionSeedDeferred reports that the app container could not run the
 // product seed.
-var errProvisionSeedDeferred = errors.New(
-	"provision: the app container could not run the product seed; run provision again after the app is running",
-)
+var errProvisionSeedDeferred = errors.New("provision: the app container could not run the product seed; run provision again after the app is running")
 
 // provisionEvidence is the planned and observed state of one provision step.
 type provisionEvidence struct {
@@ -52,73 +50,32 @@ func runProvisionRecorded(
 	cli, err := newDockerClient(ctx)
 	if err != nil {
 		wrapped := fmt.Errorf("provision docker client: %w", err)
-		slog.ErrorContext(
-			ctx,
-			"provision.docker_client.failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "provision.docker_client.failed", slog.String("err", wrapped.Error()))
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, wrapped), wrapped
 	}
-
 	defer func() { _ = cli.Close() }()
-	fdbEvidence := provisionEvidence{
-		Step:         "fdb",
-		Redundancy:   cfg.OpsFDBRedundancyMode,
-		AllowFDBInit: allowFDBInit,
-		Container:    "",
-		State:        "",
-	}
-	if details, err := provisionStateStep(
-		ctx,
-		steps,
-		"foundationdb/cluster",
-		fdbEvidence,
-		func(ctx context.Context) (string, error) {
-			return provisionFDB(ctx, cli, cfg, allowFDBInit)
-		},
-	); err != nil {
+	fdbEvidence := provisionEvidence{Step: "fdb", Redundancy: cfg.OpsFDBRedundancyMode, AllowFDBInit: allowFDBInit, Container: "", State: ""}
+	if details, err := provisionStateStep(ctx, steps, "foundationdb/cluster", fdbEvidence, func(ctx context.Context) (string, error) {
+		return provisionFDB(ctx, cli, cfg, allowFDBInit)
+	}); err != nil {
 		return details, err
 	}
-
-	if _, details, err := schemastatus.ApplyRecorded(
-		ctx,
-		cfg.DatabaseURL,
-		migrations.FS,
-		schemastatus.Guard{ExpectFrom: 0, To: 0},
-		steps,
-	); err != nil {
+	if _, details, err := schemastatus.ApplyRecorded(ctx, cfg.DatabaseURL, migrations.FS, schemastatus.Guard{ExpectFrom: 0, To: 0}, steps); err != nil {
 		return details, fmt.Errorf("provision migrate: %w", err)
 	}
-
 	if details, err := runAuditSeedRolesRecorded(ctx, cfg, steps); err != nil {
 		return details, fmt.Errorf("provision seed roles: %w", err)
 	}
-
 	if cfg.BackupFDBContinuous {
 		if details, err := runBackupFDBContinuousInitRecorded(ctx, cfg, steps); err != nil {
 			return details, fmt.Errorf("provision fdb continuous backup: %w", err)
 		}
 	}
-
 	if cfg.SeedEmail == "" || cfg.SeedName == "" {
-		slog.InfoContext(
-			ctx,
-			"provision.seed.skipped",
-			slog.String(
-				"reason",
-				"SEED_EMAIL and SEED_NAME unset; product seed is left to a deliberate run",
-			),
-		)
-
-		return provisionResult(
-			ctx,
-			sink,
-			"provision complete",
-			commandOutcome(audit.OutcomeCompleted, "", nil),
-		)
+		slog.InfoContext(ctx, "provision.seed.skipped",
+			slog.String("reason", "SEED_EMAIL and SEED_NAME unset; product seed is left to a deliberate run"))
+		return provisionResult(ctx, sink, "provision complete", commandOutcome(audit.OutcomeCompleted, "", nil))
 	}
-
 	return provisionSeedRecorded(ctx, cli, cfg, sink, steps)
 }
 
@@ -132,48 +89,20 @@ func provisionSeedRecorded(
 	steps audit.StepRecorder,
 ) (audit.OutcomeDetails, error) {
 	var state string
-	seedEvidence := provisionEvidence{
-		Step:         "seed",
-		Redundancy:   "",
-		AllowFDBInit: false,
-		Container:    cfg.OpsAppContainer,
-		State:        "",
-	}
-	details, err := provisionStateStep(
-		ctx,
-		steps,
-		"docker/"+cfg.OpsAppContainer+"/seed",
-		seedEvidence,
-		func(ctx context.Context) (string, error) {
-			observed, seedErr := provisionSeed(ctx, cli, cfg)
-			state = observed
-
-			return observed, seedErr
-		},
-	)
+	seedEvidence := provisionEvidence{Step: "seed", Redundancy: "", AllowFDBInit: false, Container: cfg.OpsAppContainer, State: ""}
+	details, err := provisionStateStep(ctx, steps, "docker/"+cfg.OpsAppContainer+"/seed", seedEvidence, func(ctx context.Context) (string, error) {
+		observed, seedErr := provisionSeed(ctx, cli, cfg)
+		state = observed
+		return observed, seedErr
+	})
 	if err != nil {
 		return details, err
 	}
-
 	if state == provisionSeedDeferred {
-		return provisionResult(
-			ctx,
-			sink,
-			errProvisionSeedDeferred.Error(),
-			commandOutcome(
-				audit.OutcomeIncomplete,
-				provisionSeedDeferredCode,
-				errProvisionSeedDeferred,
-			),
-		)
+		return provisionResult(ctx, sink, errProvisionSeedDeferred.Error(),
+			commandOutcome(audit.OutcomeIncomplete, provisionSeedDeferredCode, errProvisionSeedDeferred))
 	}
-
-	return provisionResult(
-		ctx,
-		sink,
-		"provision complete",
-		commandOutcome(audit.OutcomeCompleted, "", nil),
-	)
+	return provisionResult(ctx, sink, "provision complete", commandOutcome(audit.OutcomeCompleted, "", nil))
 }
 
 // provisionStateStep records one step on reference. The step result records
@@ -189,41 +118,26 @@ func provisionStateStep(
 	if err != nil {
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, err), err
 	}
-
 	var state string
-
-	return recordedStep(
-		ctx,
-		steps,
-		audit.ExternalStep(externalTarget(reference), plannedJSON),
+	return recordedStep(ctx, steps, audit.ExternalStep(externalTarget(reference), plannedJSON),
 		func(ctx context.Context) error {
 			observed, effectErr := effect(ctx)
 			state = observed
-
 			return effectErr
 		},
 		func(ctx context.Context) (json.RawMessage, error) {
 			observed := planned
 			observed.State = state
-
 			return encodeEvidence(ctx, observed)
-		},
-	)
+		})
 }
 
 // provisionResult writes message to sink and returns details.
-func provisionResult(
-	ctx context.Context,
-	sink clispec.ResultSink,
-	message string,
-	details audit.OutcomeDetails,
-) (audit.OutcomeDetails, error) {
+func provisionResult(ctx context.Context, sink clispec.ResultSink, message string, details audit.OutcomeDetails) (audit.OutcomeDetails, error) {
 	if err := sink.WriteText(ctx, message); err != nil {
 		wrapped := fmt.Errorf("provision: write the result: %w", err)
 		slog.ErrorContext(ctx, "provision.output_failed", slog.String("err", wrapped.Error()))
-
 		return commandOutcome(audit.OutcomeFailed, commandFailedCode, wrapped), wrapped
 	}
-
 	return details, nil
 }

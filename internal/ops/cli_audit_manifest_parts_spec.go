@@ -15,69 +15,44 @@ import (
 
 // parseAuditManifestUUID parses a flag value as a UUID. Its error identifies the flag and omits the value.
 func parseAuditManifestUUID(ctx context.Context, flag, value string) (uuid.UUID, error) {
-	eventID, err := uuid.Parse(strings.TrimSpace(value))
+	id, err := uuid.Parse(strings.TrimSpace(value))
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.manifest_parts_bad_flag",
-			slog.String("flag", flag),
-			slog.String("err", "the value is not a UUID"),
-		)
-
+		slog.ErrorContext(ctx, "audit.manifest_parts_bad_flag", slog.String("flag", flag), slog.String("err", "the value is not a UUID"))
 		return uuid.Nil, fmt.Errorf("%s: %s must be a UUID", auditManifestPartsCommand, flag)
 	}
-
-	return eventID, nil
+	return id, nil
 }
 
 // decodeAuditManifestInput decodes the encoded command input.
 func decodeAuditManifestInput(input json.RawMessage) (auditManifestPartsInput, error) {
-	decodedInput := auditManifestPartsInput{
-		InputMarker:    clispec.InputMarker{},
-		Org:            "",
-		EventID:        "",
-		VerifyPayloads: false,
-	}
-	if err := json.Unmarshal(input, &decodedInput); err != nil {
+	in := auditManifestPartsInput{InputMarker: clispec.InputMarker{}, Org: "", EventID: "", VerifyPayloads: false}
+	if err := json.Unmarshal(input, &in); err != nil {
 		slog.Error("audit.manifest_parts_input_failed", slog.String("err", err.Error()))
-
-		return decodedInput, fmt.Errorf(
-			"%s: decode the command input: %w",
-			auditManifestPartsCommand,
-			err,
-		)
+		return in, fmt.Errorf("%s: decode the command input: %w", auditManifestPartsCommand, err)
 	}
-
-	return decodedInput, nil
+	return in, nil
 }
 
 // auditManifestPartsSafeInput returns canonical UUID flag values for the audit event. It returns an empty string for each malformed value.
 func auditManifestPartsSafeInput(input json.RawMessage) (json.RawMessage, error) {
-	decodedInput, err := decodeAuditManifestInput(input)
+	in, err := decodeAuditManifestInput(input)
 	if err != nil {
 		return nil, err
 	}
-
 	safe, err := json.Marshal(auditManifestPartsInput{
-		InputMarker:    clispec.InputMarker{},
-		Org:            audit.CanonicalUUID(decodedInput.Org),
-		EventID:        audit.CanonicalUUID(decodedInput.EventID),
-		VerifyPayloads: decodedInput.VerifyPayloads,
+		InputMarker: clispec.InputMarker{}, Org: audit.CanonicalUUID(in.Org), EventID: audit.CanonicalUUID(in.EventID), VerifyPayloads: in.VerifyPayloads,
 	})
 	if err != nil {
 		slog.Error("audit.manifest_parts_input_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("%s: encode the safe input: %w", auditManifestPartsCommand, err)
 	}
-
 	return safe, nil
 }
 
 // auditManifestPartsSpec declares an audited read with a target function and a safe input function that stores only parsed UUID flag values.
 func auditManifestPartsSpec() audit.Spec {
 	return audit.Spec{
-		Verb:      string(audit.VerbAuditRead),
-		Reads:     true,
-		Class:     audit.OperationRead,
+		Verb: string(audit.VerbAuditRead), Reads: true, Class: audit.OperationRead,
 		Targets:   auditManifestPartsTargets,
 		SafeInput: auditManifestPartsSafeInput,
 	}
@@ -85,12 +60,9 @@ func auditManifestPartsSpec() audit.Spec {
 
 // auditManifestPartsTargets returns the audited event target. It returns the fixed target when the event ID does not parse.
 func auditManifestPartsTargets(_ context.Context, input json.RawMessage) ([]audit.Target, error) {
-	decodedInput, err := decodeAuditManifestInput(input)
+	in, err := decodeAuditManifestInput(input)
 	if err != nil {
 		return nil, err
 	}
-
-	return []audit.Target{
-		audit.ResourceTarget(audit.ResourceURI(audit.EventURIPrefix, decodedInput.EventID)),
-	}, nil
+	return []audit.Target{audit.ResourceTarget(audit.ResourceURI(audit.EventURIPrefix, in.EventID))}, nil
 }

@@ -33,20 +33,13 @@ func macRequireDiskCleanup(t *testing.T, mode string, exitCode int) {
 	}
 	summary := macOwnershipEvidence(t, options.EvidenceDirectory)
 	if mode == "DiskKilled" && len(summary.Fixtures.Containers) != 1 {
-		t.Errorf(
-			"pre-consumer SIGKILL recorded %d containers, want only the disk helper",
-			len(summary.Fixtures.Containers),
-		)
+		t.Errorf("pre-consumer SIGKILL recorded %d containers, want only the disk helper", len(summary.Fixtures.Containers))
 	}
 	for id, fixture := range summary.Fixtures.Containers {
 		if !fixture.Absent {
 			t.Errorf("owned disk fixture lacks absence evidence: %s", id)
 		}
-		if _, err := docker.ContainerInspect(
-			t.Context(),
-			id,
-			client.ContainerInspectOptions{},
-		); !errdefs.IsNotFound(err) {
+		if _, err := docker.ContainerInspect(t.Context(), id, client.ContainerInspectOptions{}); !errdefs.IsNotFound(err) {
 			t.Errorf("owned disk fixture remains %s: %v", id, err)
 		}
 	}
@@ -55,21 +48,13 @@ func macRequireDiskCleanup(t *testing.T, mode string, exitCode int) {
 	}
 	const diskVolumeCount = 2
 	if len(summary.Fixtures.NamedVolumes) != diskVolumeCount {
-		t.Fatalf(
-			"disk volume inventory = %v, want %d volumes",
-			summary.Fixtures.NamedVolumes,
-			diskVolumeCount,
-		)
+		t.Fatalf("disk volume inventory = %v, want %d volumes", summary.Fixtures.NamedVolumes, diskVolumeCount)
 	}
 	for name := range summary.Fixtures.NamedVolumes {
 		if !summary.Fixtures.Volumes[name] {
 			t.Errorf("disk volume lacks ownership evidence: %s", name)
 		}
-		if _, err := docker.VolumeInspect(
-			t.Context(),
-			name,
-			client.VolumeInspectOptions{},
-		); !errdefs.IsNotFound(err) {
+		if _, err := docker.VolumeInspect(t.Context(), name, client.VolumeInspectOptions{}); !errdefs.IsNotFound(err) {
 			t.Errorf("owned disk volume remains %s: %v", name, err)
 		}
 	}
@@ -88,9 +73,7 @@ func macRequireDiskCleanup(t *testing.T, mode string, exitCode int) {
 			if event.Type == events.VolumeEventType && event.Actor.Attributes["driver"] == "local" {
 				volumeCreates[event.Actor.ID] = true
 			}
-			if event.Type == events.ContainerEventType &&
-				event.Actor.Attributes["io.goodkind.tack.testenv.runner"] == summary.RunnerID &&
-				event.Actor.Attributes["image"] != "" {
+			if event.Type == events.ContainerEventType && event.Actor.Attributes["io.goodkind.tack.testenv.runner"] == summary.RunnerID && event.Actor.Attributes["image"] != "" {
 				containerAttributes = true
 			}
 		}

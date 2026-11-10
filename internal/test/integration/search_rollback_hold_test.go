@@ -37,35 +37,20 @@ func holdAccessWork(t *testing.T, fixture rolloutFixture, nodeID uuid.UUID) sear
 			}
 		}
 	}()
-
 	for range holdClaimAttempts {
-		work, claimed, err := store.Claim(
-			rolloutContext(t),
-			searchdomain.WorkClassAccess,
-			"rollout-access-holder",
-			heldAccessLease,
-		)
+		work, claimed, err := store.Claim(rolloutContext(t), searchdomain.WorkClassAccess, "rollout-access-holder", heldAccessLease)
 		if err != nil {
 			t.Fatalf("Claiming access work while looking for node %s failed: %v", nodeID, err)
 		}
-
 		if !claimed {
 			t.Fatalf("Access work was not claimable while looking for node %s", nodeID)
 		}
-
 		if work.NodeID == nodeID {
 			return work
 		}
-
 		others = append(others, work)
 	}
-
-	t.Fatalf(
-		"Access work for node %s did not become claimable within %d claims",
-		nodeID,
-		holdClaimAttempts,
-	)
-
+	t.Fatalf("Access work for node %s did not become claimable within %d claims", nodeID, holdClaimAttempts)
 	return searchdomain.Work{}
 }
 

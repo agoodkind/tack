@@ -64,86 +64,48 @@ func LoadSearchWorkerSettings(ctx context.Context) (SearchWorkerSettings, error)
 	var settings SearchWorkerSettings
 	if err := env.Parse(&settings); err != nil {
 		wrapped := fmt.Errorf("parse search worker settings: %w", err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.worker.config_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.worker.config_failed", slog.String("err", wrapped.Error()))
 		return SearchWorkerSettings{}, wrapped
 	}
-
 	settings.ReplacementPauseLimit = SearchReplacementPauseLimit
 	settings.WriteCompletionHorizon = SearchWriteCompletionHorizon
 	if err := settings.Validate(); err != nil {
 		wrapped := fmt.Errorf("validate search worker settings: %w", err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.worker.config_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.worker.config_failed", slog.String("err", wrapped.Error()))
 		return SearchWorkerSettings{}, wrapped
 	}
-
 	return settings, nil
 }
 
 // Validate enforces the production page, slice, lease, and class limits.
 func (s SearchWorkerSettings) Validate() error {
 	if s.PageBytes < searchPageByteMinimum || s.PageBytes > searchPageByteMaximum {
-		return fmt.Errorf(
-			"search page bytes must be between %d and %d",
-			searchPageByteMinimum,
-			searchPageByteMaximum,
-		)
+		return fmt.Errorf("search page bytes must be between %d and %d", searchPageByteMinimum, searchPageByteMaximum)
 	}
-
 	if s.MaxPages <= 0 || s.MaxPages > searchWorkerPageMaximum {
 		return fmt.Errorf("search worker pages must be between 1 and %d", searchWorkerPageMaximum)
 	}
-
 	if s.MaxBytes <= 0 || s.MaxBytes > searchWorkerByteMaximum {
 		return fmt.Errorf("search worker bytes must be between 1 and %d", searchWorkerByteMaximum)
 	}
-
 	if s.SliceBudget <= 0 || s.SliceBudget > 2*time.Second {
-		return errors.New(
-			"search worker slice budget must be positive and must not exceed two seconds",
-		)
+		return errors.New("search worker slice budget must be positive and must not exceed two seconds")
 	}
-
 	if s.OperationTimeout <= 0 || s.OperationTimeout > 10*time.Second {
-		return errors.New(
-			"search worker operation timeout must be positive and must not exceed ten seconds",
-		)
+		return errors.New("search worker operation timeout must be positive and must not exceed ten seconds")
 	}
-
 	if s.Lease <= s.SliceBudget+s.OperationTimeout {
-		return errors.New(
-			"search worker lease must exceed the slice budget plus the operation timeout",
-		)
+		return errors.New("search worker lease must exceed the slice budget plus the operation timeout")
 	}
-
 	if s.ReplacementPauseLimit <= s.Lease {
 		return errors.New("search replacement pause limit must exceed the worker lease")
 	}
-
-	if s.WriteCompletionHorizon <= s.OperationTimeout ||
-		s.WriteCompletionHorizon >= s.ReplacementPauseLimit {
-		return errors.New(
-			"search write completion horizon must exceed the operation " +
-				"timeout and must be shorter than the replacement pause limit",
-		)
+	if s.WriteCompletionHorizon <= s.OperationTimeout || s.WriteCompletionHorizon >= s.ReplacementPauseLimit {
+		return errors.New("search write completion horizon must exceed the operation timeout and must be shorter than the replacement pause limit")
 	}
-
 	if s.IdleInterval <= 0 || s.Concurrency <= 0 || s.Concurrency > searchWorkerMaximum {
-		return fmt.Errorf(
-			"search worker idle interval must be positive, and concurrency must be between 1 and %d",
-			searchWorkerMaximum,
-		)
+		return fmt.Errorf("search worker idle interval must be positive, and concurrency must be between 1 and %d", searchWorkerMaximum)
 	}
-
 	return validateClassWeights(s.ClassWeights)
 }
 
@@ -156,21 +118,14 @@ func validateClassWeights(weights map[string]int) error {
 		if !exists {
 			return fmt.Errorf("search work class %q requires a weight", class)
 		}
-
 		if weight < 1 || weight > searchClassWeightMax {
-			return fmt.Errorf(
-				"search work class %q weight must be between 1 and %d",
-				class,
-				searchClassWeightMax,
-			)
+			return fmt.Errorf("search work class %q weight must be between 1 and %d", class, searchClassWeightMax)
 		}
 	}
-
 	for class := range weights {
 		if !slices.Contains(classes, search.WorkClass(class)) {
 			return fmt.Errorf("search work class %q is not a scheduled class", class)
 		}
 	}
-
 	return nil
 }

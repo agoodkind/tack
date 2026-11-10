@@ -42,15 +42,8 @@ type datagenRepairResult struct {
 func TestNodeIntegrityRepairDatagenProvesEveryClass(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	refused, err := runDatagenRepairCommand(t, "")
-	if err == nil || !strings.Contains(
-		err.Error(),
-		"TACK_DATAGEN_ALLOW_TARGET",
-	) || refused.OrgID != uuid.Nil || refused.Applied != nil {
-		t.Fatalf(
-			"datagen repair without a write marker = %+v, %v, want a refusal before any write",
-			refused,
-			err,
-		)
+	if err == nil || !strings.Contains(err.Error(), "TACK_DATAGEN_ALLOW_TARGET") || refused.OrgID != uuid.Nil || refused.Applied != nil {
+		t.Fatalf("datagen repair without a write marker = %+v, %v, want a refusal before any write", refused, err)
 	}
 
 	result, err := runDatagenRepairCommand(t, "local")
@@ -59,18 +52,10 @@ func TestNodeIntegrityRepairDatagenProvesEveryClass(t *testing.T) {
 	}
 	entries := len(result.Applied.Entries)
 	if result.Applied.Counts[ops.RepairApplyApplied] != entries || result.Rerun.Counts[ops.RepairApplyUnchanged] != entries {
-		t.Fatalf(
-			"apply counts %v and rerun counts %v, want %d applied and then unchanged entries",
-			result.Applied.Counts,
-			result.Rerun.Counts,
-			entries,
-		)
+		t.Fatalf("apply counts %v and rerun counts %v, want %d applied and then unchanged entries", result.Applied.Counts, result.Rerun.Counts, entries)
 	}
 	if result.OrgID == env.OrgID {
-		t.Fatalf(
-			"datagen repair wrote organization %s, want a separate datagen organization",
-			result.OrgID,
-		)
+		t.Fatalf("datagen repair wrote organization %s, want a separate datagen organization", result.OrgID)
 	}
 	classes := map[string]bool{}
 	for _, entry := range result.Preview.Entries {
@@ -78,14 +63,7 @@ func TestNodeIntegrityRepairDatagenProvesEveryClass(t *testing.T) {
 			classes[class] = true
 		}
 	}
-	for _, class := range []string{
-		"multiple_child_of_edges",
-		"absent_parent",
-		"legacy_status",
-		"printed_parent",
-		"absent_parent_uuid",
-		"test_fixture",
-	} {
+	for _, class := range []string{"multiple_child_of_edges", "absent_parent", "legacy_status", "printed_parent", "absent_parent_uuid", "test_fixture"} {
 		if !classes[class] {
 			t.Fatalf("datagen repair classes = %v, want %s", classes, class)
 		}
@@ -100,35 +78,16 @@ func TestNodeIntegrityRepairDatagenProvesEveryClass(t *testing.T) {
 			deleted++
 			continue
 		}
-		edges, err := env.Stores.Relationships.ListBySource(
-			env.Ctx,
-			result.OrgID,
-			entry.NodeID,
-			node.RelChildOf,
-		)
+		edges, err := env.Stores.Relationships.ListBySource(env.Ctx, result.OrgID, entry.NodeID, node.RelChildOf)
 		parentID := propText(t, view.Props, "parent_id")
-		if err != nil || view.OrgID != result.OrgID || len(
-			edges,
-		) != 1 || edges[0].TargetID.String() != parentID {
-			t.Fatalf(
-				"node %s in organization %s has parent_id %s and child_of edges %+v, %v, want one edge to its parent in %s",
-				entry.NodeID,
-				view.OrgID,
-				parentID,
-				edges,
-				err,
-				result.OrgID,
-			)
+		if err != nil || view.OrgID != result.OrgID || len(edges) != 1 || edges[0].TargetID.String() != parentID {
+			t.Fatalf("node %s in organization %s has parent_id %s and child_of edges %+v, %v, want one edge to its parent in %s",
+				entry.NodeID, view.OrgID, parentID, edges, err, result.OrgID)
 		}
 	}
 	exports, err := filepath.Glob(filepath.Join(repairDirectory(t), "*.json"))
 	if deleted != 1 || err != nil || len(exports) != 1 {
-		t.Fatalf(
-			"deleted %d nodes and found exports %v, %v, want one deleted comment and its export",
-			deleted,
-			exports,
-			err,
-		)
+		t.Fatalf("deleted %d nodes and found exports %v, %v, want one deleted comment and its export", deleted, exports, err)
 	}
 }
 
@@ -139,11 +98,8 @@ func TestNodeIntegrityRepairDatagenProvesEveryClass(t *testing.T) {
 func runDatagenRepairCommand(t *testing.T, target string) (datagenRepairResult, error) {
 	t.Helper()
 	cfg := &config.Config{
-		DatabaseURL:           testenv.Ledger(t),
-		FDBClusterFile:        testenv.FoundationDB(t),
-		FDBTransactionTimeout: repairTransactionTimeout,
-		RepairDir:             repairDirectory(t),
-		DatagenAllowTarget:    target,
+		DatabaseURL: testenv.Ledger(t), FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: repairTransactionTimeout,
+		RepairDir: repairDirectory(t), DatagenAllowTarget: target,
 	}
 	factory := cli.System(cfg)
 	var output bytes.Buffer
@@ -156,20 +112,9 @@ func runDatagenRepairCommand(t *testing.T, target string) (datagenRepairResult, 
 	factory.SetAuditOutbox(audit.NewPoolOutbox(pool))
 	root := repairCommandRoot(factory)
 	root.SetArgs([]string{
-		"--execute",
-		"--output",
-		"json",
-		"--operator-id",
-		repairOperatorID,
-		"--operator-email",
-		"repair@example.com",
-		"--operator-name",
-		"Repair Test",
-		"ops",
-		"qa",
-		"datagen",
-		"repair",
-		"--commit",
+		"--execute", "--output", "json", "--operator-id", repairOperatorID,
+		"--operator-email", "repair@example.com", "--operator-name", "Repair Test",
+		"ops", "qa", "datagen", "repair", "--commit",
 	})
 	runErr := root.Execute()
 	var result datagenRepairResult

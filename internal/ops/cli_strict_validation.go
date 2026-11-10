@@ -44,21 +44,13 @@ func strictValidationOp(f *cli.Factory) clispec.Operation[strictValidationInput]
 		Examples: nil,
 		Args:     nil,
 		Params: []clispec.Param[strictValidationInput]{
-			clispec.IntParam(
-				"max-violations",
-				fmt.Sprintf(
-					"how many invalid records the report lists, from 1 through %d",
-					maxReportedViolations,
-				),
+			clispec.IntParam("max-violations",
+				fmt.Sprintf("how many invalid records the report lists, from 1 through %d", maxReportedViolations),
 				defaultReportedViolations,
-				func(input *strictValidationInput, value int) { input.MaxViolations = value },
-			),
+				func(input *strictValidationInput, value int) { input.MaxViolations = value }),
 		},
 		New: func() strictValidationInput {
-			return strictValidationInput{
-				InputMarker:   clispec.InputMarker{},
-				MaxViolations: defaultReportedViolations,
-			}
+			return strictValidationInput{InputMarker: clispec.InputMarker{}, MaxViolations: defaultReportedViolations}
 		},
 		DryRun: func(ctx context.Context, input strictValidationInput, sink clispec.ResultSink) error {
 			return runStrictValidationCommand(ctx, f, input, sink, false)
@@ -69,45 +61,25 @@ func strictValidationOp(f *cli.Factory) clispec.Operation[strictValidationInput]
 	}
 }
 
-func runStrictValidationCommand(
-	ctx context.Context,
-	f *cli.Factory,
-	input strictValidationInput,
-	sink clispec.ResultSink,
-	execute bool,
-) error {
+func runStrictValidationCommand(ctx context.Context, f *cli.Factory, input strictValidationInput, sink clispec.ResultSink, execute bool) error {
 	if err := checkReportedViolations(ctx, input.MaxViolations); err != nil {
 		return err
 	}
-
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
 		slog.ErrorContext(ctx, "strict.environment_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("open the strict validation environment: %w", err)
 	}
 	defer env.Close()
-	schemas := storeSchemaSource{
-		nodeTypes:    env.Stores.NodeTypes,
-		propertyDefs: env.Stores.PropertyDefs,
-	}
-	report, runErr := RunStrictValidation(
-		ctx,
-		env.Stores.Nodes,
-		schemas,
-		execute,
-		input.MaxViolations,
-	)
+	schemas := storeSchemaSource{nodeTypes: env.Stores.NodeTypes, propertyDefs: env.Stores.PropertyDefs}
+	report, runErr := RunStrictValidation(ctx, env.Stores.Nodes, schemas, execute, input.MaxViolations)
 	output := StrictValidationOutput{
-		ResultMarker:  clispec.ResultMarker{},
-		Command:       "ops.verify.strict-validation",
-		DryRun:        !execute,
-		MaxViolations: input.MaxViolations,
-		Result:        report,
+		ResultMarker: clispec.ResultMarker{}, Command: "ops.verify.strict-validation", DryRun: !execute,
+		MaxViolations: input.MaxViolations, Result: report,
 	}
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 		slog.ErrorContext(ctx, "strict.report_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write the strict validation report: %w", err)
 	}
-
 	return runErr
 }

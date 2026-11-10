@@ -45,14 +45,11 @@ func LoadAuditConsumerSettings() (AuditConsumerSettings, error) {
 	if err != nil {
 		return AuditConsumerSettings{}, err
 	}
-
 	var settings AuditConsumerSettings
 	if err := env.ParseWithOptions(&settings, env.Options{Environment: environment}); err != nil {
 		wrapped := fmt.Errorf("parse audit consumer environment: %w", err)
 		slog.Error("config.consumer_failed", slog.String("err", wrapped.Error()))
-
 		return settings, wrapped
 	}
-
 	return settings, nil
 }

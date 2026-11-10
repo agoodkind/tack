@@ -38,7 +38,6 @@ func TestNodeIntegrityRepairExecuteRunsEntriesInManifestOrder(t *testing.T) {
 		addLegacyParentEdge(t, env, nested, chosen)
 		dependent := parentEntry(prefix+"-nested", nested, chosen, childOf(graph.projectID))
 		ancestor := parentEntry(prefix+"-chosen", chosen, graph.epicID, childOf(graph.projectID))
-
 		return dependent, ancestor
 	}
 
@@ -49,47 +48,24 @@ func TestNodeIntegrityRepairExecuteRunsEntriesInManifestOrder(t *testing.T) {
 	requireFirstEntryApplied(t, env, ancestor, dependent, graph.epicID)
 }
 
-func requireFirstEntryApplied(
-	t *testing.T,
-	env *integration.TestEnv,
-	first ops.NodeIntegrityEntry,
-	second ops.NodeIntegrityEntry,
-	firstParentID uuid.UUID,
-) {
+func requireFirstEntryApplied(t *testing.T, env *integration.TestEnv, first, second ops.NodeIntegrityEntry, firstParentID uuid.UUID) {
 	t.Helper()
 	manifest := freezeRepairRequest(t, repairRequest(first, second))
 	applied, err := executeRepairManifest(t, manifest)
 	if err != nil {
 		t.Fatalf("execute the manifest with %s first: %v", first.RepairID, err)
 	}
-
-	if len(applied.Entries) != 2 || applied.Entries[0].RepairID != first.RepairID ||
-		applied.Entries[1].RepairID != second.RepairID {
-		t.Fatalf(
-			"apply entries = %+v, want %s and then %s",
-			applied.Entries,
-			first.RepairID,
-			second.RepairID,
-		)
+	if len(applied.Entries) != 2 || applied.Entries[0].RepairID != first.RepairID || applied.Entries[1].RepairID != second.RepairID {
+		t.Fatalf("apply entries = %+v, want %s and then %s", applied.Entries, first.RepairID, second.RepairID)
 	}
-
 	requireApplyStatus(t, applied, first.RepairID, ops.RepairApplyApplied)
 	conflicted := requireApplyStatus(t, applied, second.RepairID, ops.RepairApplyConflicted)
 	if !strings.Contains(conflicted.Reason, "stale graph") {
-		t.Fatalf(
-			"conflicted entry %s reason = %q, want a stale graph",
-			second.RepairID,
-			conflicted.Reason,
-		)
+		t.Fatalf("conflicted entry %s reason = %q, want a stale graph", second.RepairID, conflicted.Reason)
 	}
-
 	requireParent(t, env, first.NodeID, firstParentID)
 	requireCheckpointPhase(t, env, second.RepairID, "")
 	if targets := childOfTargets(t, env, second.NodeID); len(targets) != 2 {
-		t.Fatalf(
-			"child_of targets of %s after the conflict = %v, want both stored edges",
-			second.NodeID,
-			targets,
-		)
+		t.Fatalf("child_of targets of %s after the conflict = %v, want both stored edges", second.NodeID, targets)
 	}
 }

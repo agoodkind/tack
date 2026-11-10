@@ -47,13 +47,9 @@ func TestDBBreakGlassRefusesWrites(t *testing.T) {
 			absent:    "SELECT NOT EXISTS (SELECT 1 FROM public.tack554_rows)",
 		},
 	}
-	if _, err := pool.Exec(
-		t.Context(),
-		"CREATE TABLE IF NOT EXISTS public.tack554_rows (id int)",
-	); err != nil {
+	if _, err := pool.Exec(t.Context(), "CREATE TABLE IF NOT EXISTS public.tack554_rows (id int)"); err != nil {
 		t.Fatalf("create the insert target: %v", err)
 	}
-
 	t.Cleanup(func() { dropBreakGlassTestTables(t, pool) })
 
 	for _, attempt := range refused {
@@ -61,12 +57,10 @@ func TestDBBreakGlassRefusesWrites(t *testing.T) {
 		if !errors.Is(err, errDBStatementWrites) {
 			t.Fatalf("%s: err = %v, want the read-only refusal", attempt.name, err)
 		}
-
 		var unchanged bool
 		if err := pool.QueryRow(t.Context(), attempt.absent).Scan(&unchanged); err != nil {
 			t.Fatalf("%s: read the database after the refusal: %v", attempt.name, err)
 		}
-
 		if !unchanged {
 			t.Fatalf("%s: the refused statement changed the database", attempt.name)
 		}
@@ -79,21 +73,12 @@ func TestDBBreakGlassRefusesWrites(t *testing.T) {
 		statement string
 		sqlState  string
 	}{
-		{
-			"DO $$ BEGIN SET LOCAL transaction_read_only = off; " +
-				"CREATE TABLE public.tack554_refused (id int); END $$",
-			"25001",
-		},
-		{
-			"COMMIT; SET default_transaction_read_only = off; BEGIN; " +
-				"CREATE TABLE public.tack554_refused (id int); COMMIT",
-			"42601",
-		},
-		{
-			"COMMIT; SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE; BEGIN; " +
-				"CREATE TABLE public.tack554_refused (id int); COMMIT",
-			"42601",
-		},
+		{"DO $$ BEGIN SET LOCAL transaction_read_only = off; " +
+			"CREATE TABLE public.tack554_refused (id int); END $$", "25001"},
+		{"COMMIT; SET default_transaction_read_only = off; BEGIN; " +
+			"CREATE TABLE public.tack554_refused (id int); COMMIT", "42601"},
+		{"COMMIT; SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE; BEGIN; " +
+			"CREATE TABLE public.tack554_refused (id int); COMMIT", "42601"},
 	}
 	for _, attempt := range turnsReadOnlyOff {
 		_, err := runBreakGlass(t, deps, attempt.statement, reason)
@@ -101,10 +86,8 @@ func TestDBBreakGlassRefusesWrites(t *testing.T) {
 		if !errors.As(err, &refusal) || refusal.Code != attempt.sqlState {
 			t.Fatalf("%q: err = %v, want SQLSTATE %s", attempt.statement, err, attempt.sqlState)
 		}
-
 		var absent bool
-		if err := pool.QueryRow(t.Context(), refused[0].absent).Scan(&absent); err != nil ||
-			!absent {
+		if err := pool.QueryRow(t.Context(), refused[0].absent).Scan(&absent); err != nil || !absent {
 			t.Fatalf("%q created its table: absent = %v, err = %v", attempt.statement, absent, err)
 		}
 	}
@@ -112,20 +95,11 @@ func TestDBBreakGlassRefusesWrites(t *testing.T) {
 	rows := breakGlassRows(t, pool, reason)
 	wantRows := 2 * (len(refused) + len(turnsReadOnlyOff))
 	if len(rows) != wantRows {
-		t.Fatalf(
-			"ledger rows = %d, want a pending row and an error row per attempt (%d)",
-			len(rows),
-			wantRows,
-		)
+		t.Fatalf("ledger rows = %d, want a pending row and an error row per attempt (%d)", len(rows), wantRows)
 	}
-
 	for i := 1; i < len(rows); i += 2 {
 		if rows[i].Outcome != audit.OutcomeError || rows[i].Error == nil {
-			t.Fatalf(
-				"ledger row %d = %+v, want the error outcome of a refused statement",
-				i,
-				rows[i],
-			)
+			t.Fatalf("ledger row %d = %+v, want the error outcome of a refused statement", i, rows[i])
 		}
 	}
 
@@ -133,7 +107,6 @@ func TestDBBreakGlassRefusesWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a SELECT must run: %v", err)
 	}
-
 	if result.RowsReturned != 1 || *result.Rows[0][0] != "on" {
 		t.Fatalf("transaction_read_only = %v, want on", result.Rows)
 	}

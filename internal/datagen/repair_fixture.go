@@ -41,59 +41,24 @@ type RepairFixture struct {
 // graph and legacy records as actorID. It writes only in that organization.
 // It returns the IDs it created before the first error together with that
 // error.
-func SeedRepairFixture(
-	ctx context.Context,
-	stores *fdbadapter.Stores,
-	members org.MemberRepository,
-	actorID uuid.UUID,
-) (RepairFixture, error) {
+func SeedRepairFixture(ctx context.Context, stores *fdbadapter.Stores, members org.MemberRepository, actorID uuid.UUID) (RepairFixture, error) {
 	orgID := uuid.Must(uuid.NewV7())
 	suffix := strings.ReplaceAll(orgID.String(), "-", "")[20:]
-	err := ensureBootstrapNode(
-		ctx,
-		stores,
-		bootstrapNode{
-			ID:       orgID,
-			OrgID:    orgID,
-			TypeKey:  "org",
-			Name:     "QA Repair Organization " + suffix,
-			Slug:     "qa-repair-" + suffix,
-			ParentID: uuid.Nil,
-		},
-	)
+	err := ensureBootstrapNode(ctx, stores, bootstrapNode{
+		ID: orgID, OrgID: orgID, TypeKey: "org", Name: "QA Repair Organization " + suffix,
+		Slug: "qa-repair-" + suffix, ParentID: uuid.Nil,
+	})
 	if err != nil {
 		return RepairFixture{}, err
 	}
-	if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(
-		ctx,
-		orgID,
-	); err != nil {
-		return RepairFixture{}, loggedError(
-			ctx,
-			"qa datagen: seed repair organization "+orgID.String(),
-			err,
-		)
+	if err := service.NewSeeder(stores.PropertyDefs, stores.NodeTypes).SeedOrg(ctx, orgID); err != nil {
+		return RepairFixture{}, loggedError(ctx, "qa datagen: seed repair organization "+orgID.String(), err)
 	}
-	nodes, err := service.NewNodeService(
-		stores.Nodes,
-		stores.Views,
-		stores.NodeTypes,
-		stores.PropertyDefs,
-		stores.Relationships,
-		stores.NodeDeleter,
-		members,
-		stores.Relationships,
-	)
+	nodes, err := service.NewNodeService(stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs, stores.Relationships, stores.NodeDeleter, members, stores.Relationships)
 	if err != nil {
 		return RepairFixture{}, loggedError(ctx, "qa datagen: build the repair node service", err)
 	}
-	builder := &repairFixtureBuilder{
-		nodes:   nodes,
-		stores:  stores,
-		orgID:   orgID,
-		actorID: actorID,
-		err:     nil,
-	}
+	builder := &repairFixtureBuilder{nodes: nodes, stores: stores, orgID: orgID, actorID: actorID, err: nil}
 	fixture := builder.build(ctx)
 	fixture.OrgID, fixture.Suffix = orgID, suffix
 	return fixture, builder.err

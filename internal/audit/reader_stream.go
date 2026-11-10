@@ -32,9 +32,7 @@ type RowVisitor func(Row) error
 // page; the caller here is the compliance export, and an export that stopped at
 // a page would be a truncated bundle that reads as a complete one.
 func (r *Reader) StreamQuery(ctx context.Context, f QueryFilter, visit RowVisitor) error {
-	ctx, span := telemetry.StartSpan(
-		ctx,
-		"audit.stream_query",
+	ctx, span := telemetry.StartSpan(ctx, "audit.stream_query",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("org.id", f.OrgID.String()),
@@ -56,34 +54,24 @@ func (r *Reader) StreamQuery(ctx context.Context, f QueryFilter, visit RowVisito
 	defer rows.Close()
 
 	streamed := 0
-
 	for rows.Next() {
 		row, readErr := readAuditRow(rows)
 		if readErr != nil {
 			return readErr
 		}
-
 		if visitErr := visit(row); visitErr != nil {
 			return fmt.Errorf("audit stream query row %s: %w", row.EventID, visitErr)
 		}
-
 		streamed++
 	}
-
 	// rows.Err is what separates a stream that ended from one that was cut off
 	// mid-result by a dropped connection or a cancelled context. Reading only
 	// the loop's exit would turn a partial read into a short, silent success,
 	// which for an export is a bundle missing its tail.
 	if err := rows.Err(); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.stream_query.interrupted",
-			slog.Int("rows_streamed", streamed),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.stream_query.interrupted",
+			slog.Int("rows_streamed", streamed), slog.String("err", err.Error()))
 		return fmt.Errorf("audit stream query after %d rows: %w", streamed, err)
 	}
-
 	return nil
 }

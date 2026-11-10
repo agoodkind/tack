@@ -63,36 +63,29 @@ type ReferenceRenderInput struct {
 // the service boundary, which holds the request context.
 func (t ReferenceTemplate) Render(in ReferenceRenderInput) (string, error) {
 	var output strings.Builder
-
 	for _, part := range t.Parts {
 		segment, err := renderReferencePart(part, in)
 		if err != nil {
 			return "", fmt.Errorf("render template %q: %s", t.Name, err.Error())
 		}
-
 		output.WriteString(segment)
 	}
-
 	return output.String(), nil
 }
 
 // CounterKey renders every template part except the generated property.
 func (t ReferenceTemplate) CounterKey(in ReferenceRenderInput) (string, error) {
 	var output strings.Builder
-
 	for _, part := range t.Parts {
 		if part.Kind == ReferencePartProperty && part.Value == t.Generated {
 			continue
 		}
-
 		segment, err := renderReferencePart(part, in)
 		if err != nil {
 			return "", fmt.Errorf("counter key for template %q: %s", t.Name, err.Error())
 		}
-
 		output.WriteString(segment)
 	}
-
 	return output.String(), nil
 }
 
@@ -104,24 +97,18 @@ func renderReferencePart(part ReferencePart, in ReferenceRenderInput) (string, e
 		if in.NodeTypeKey == "" {
 			return "", fmt.Errorf("node type part: node type key is empty")
 		}
-
 		return in.NodeTypeKey, nil
 	case ReferencePartScopeRef:
 		value := in.ScopeRefs[part.Value]
 		if value == "" {
-			return "", fmt.Errorf(
-				"scope reference part %q: no ancestor declaring that feature has a reference",
-				part.Value,
-			)
+			return "", fmt.Errorf("scope reference part %q: no ancestor declaring that feature has a reference", part.Value)
 		}
-
 		return value, nil
 	case ReferencePartProperty:
 		value, err := referencePropertyString(in.Props[part.Value])
 		if err != nil {
 			return "", fmt.Errorf("property part %q: %s", part.Value, err.Error())
 		}
-
 		return value, nil
 	default:
 		return "", fmt.Errorf("unknown reference part kind %q", part.Kind)
@@ -135,20 +122,16 @@ func referencePropertyString(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 {
 		return "", fmt.Errorf("property has no value")
 	}
-
 	var text string
 	if err := json.Unmarshal(raw, &text); err == nil {
 		if text == "" {
 			return "", fmt.Errorf("property is an empty string")
 		}
-
 		return text, nil
 	}
-
 	var number json.Number
 	if err := json.Unmarshal(raw, &number); err == nil {
 		return number.String(), nil
 	}
-
 	return "", fmt.Errorf("property value %s is neither a string nor a number", raw)
 }

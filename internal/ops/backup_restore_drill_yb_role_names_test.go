@@ -43,27 +43,17 @@ func TestClassifyYBRolesApplyReadsRoleNamesTheMessageShapeCannotDelimit(t *testi
 		{name: "the whole message shape inside the name", role: `role "inner" already exists`},
 	}
 	for _, test := range tests {
-		t.Run(
-			test.name,
-			func(t *testing.T) {
-				stderr := ybRolesApplyDiagnostic(
-					ybDuplicateObjectSQLState,
-					`role "`+test.role+`" already exists`,
-				)
-				report := classifyYBRolesApply(stderr, ybTestRolesFilePath)
-				if len(report.Unexpected) > 0 {
-					t.Fatalf("a duplicate role must not fail the drill, got %v", report.Unexpected)
-				}
-
-				if !reflect.DeepEqual(report.AlreadyPresent, []string{test.role}) {
-					t.Fatalf(
-						"already present:\n got=%v\nwant=[%s]",
-						report.AlreadyPresent,
-						test.role,
-					)
-				}
-			},
-		)
+		t.Run(test.name, func(t *testing.T) {
+			stderr := ybRolesApplyDiagnostic(ybDuplicateObjectSQLState,
+				`role "`+test.role+`" already exists`)
+			report := classifyYBRolesApply(stderr, ybTestRolesFilePath)
+			if len(report.Unexpected) > 0 {
+				t.Fatalf("a duplicate role must not fail the drill, got %v", report.Unexpected)
+			}
+			if !reflect.DeepEqual(report.AlreadyPresent, []string{test.role}) {
+				t.Fatalf("already present:\n got=%v\nwant=[%s]", report.AlreadyPresent, test.role)
+			}
+		})
 	}
 }
 
@@ -115,16 +105,9 @@ func TestClassifyYBRolesApplyReassemblesARoleNameSplitAcrossLines(t *testing.T) 
 	if len(report.Unexpected) > 0 {
 		t.Fatalf("a duplicate role must not fail the drill, got %q", report.Unexpected)
 	}
-
 	want := []string{
-		"drill",
-		"first\nsecond",
-		"postgres",
-		"third\n\nfourth",
-		"yb_db_admin",
-		"yb_extension",
-		"yb_fdw",
-		"yugabyte",
+		"drill", "first\nsecond", "postgres", "third\n\nfourth",
+		"yb_db_admin", "yb_extension", "yb_fdw", "yugabyte",
 	}
 	if !reflect.DeepEqual(report.AlreadyPresent, want) {
 		t.Fatalf("already present:\n got=%q\nwant=%q", report.AlreadyPresent, want)
@@ -143,11 +126,8 @@ func TestClassifyYBRolesApplyStillRefusesADuplicateThatIsNotARole(t *testing.T) 
 	if len(report.AlreadyPresent) > 0 {
 		t.Fatalf("only a duplicate role may be tolerated, got %v", report.AlreadyPresent)
 	}
-
-	want := []string{
-		"ysqlsh:" + ybTestRolesFilePath + ":24: ERROR:  " +
-			ybDuplicateObjectSQLState + ": " + message,
-	}
+	want := []string{"ysqlsh:" + ybTestRolesFilePath + ":24: ERROR:  " +
+		ybDuplicateObjectSQLState + ": " + message}
 	if !reflect.DeepEqual(report.Unexpected, want) {
 		t.Fatalf("unexpected:\n got=%v\nwant=%v", report.Unexpected, want)
 	}

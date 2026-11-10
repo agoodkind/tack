@@ -38,9 +38,9 @@ func TestDriverCallUsesAuthenticatedToolsCallRequest(t *testing.T) {
 			t.Errorf("tool name = %q", payload.Params.Name)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write(
-			[]byte(`{"jsonrpc":"2.0","id":"1","result":{"content":[{"type":"text","text":"ok"}]}}`),
-		)
+		_, _ = writer.Write([]byte(
+			`{"jsonrpc":"2.0","id":"1","result":{"content":[{"type":"text","text":"ok"}]}}`,
+		))
 	})
 	graph := &runtime.Graph{MCPRoute: handler}
 	driver := NewDriver(graph, false, 245)

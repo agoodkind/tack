@@ -42,24 +42,18 @@ const (
 // an engine.
 func IsolateRun(network, project string) error {
 	if network == "" || project == "" {
-		return errors.New(
-			"an isolated run needs the names of an existing Docker network and its Compose project",
-		)
+		return errors.New("an isolated run needs the names of an existing Docker network and its Compose project")
 	}
-
 	if _, started := knownOwner(); started {
 		return errors.New("IsolateRun must run before this process starts an engine or network")
 	}
-
 	isolation.Lock()
 	defer isolation.Unlock()
 	if isolation.network != "" {
 		return errors.New("IsolateRun has already configured this process")
 	}
-
 	isolation.network = network
 	isolation.project = project
-
 	return nil
 }
 
@@ -71,7 +65,6 @@ func isolationLabels(labels map[string]string) map[string]string {
 		labels[composeServiceLabel] = isolatedServiceName
 		labels[composeOneOffLabel] = "False"
 	}
-
 	return labels
 }
 
@@ -82,7 +75,6 @@ func activeNetwork() string {
 	if isolation.network != "" {
 		return isolation.network
 	}
-
 	return networkName
 }
 
@@ -90,22 +82,16 @@ func activeNetwork() string {
 func isolated() bool {
 	isolation.Lock()
 	defer isolation.Unlock()
-
 	return isolation.network != ""
 }
 
 // requireIsolatedNetwork fails unless the isolated network exists.
 func requireIsolatedNetwork(ctx context.Context, cli *client.Client) error {
 	name := activeNetwork()
-	if _, err := cli.NetworkInspect(
-		ctx,
-		name,
-		client.NetworkInspectOptions{Scope: "", Verbose: false},
-	); err != nil {
+	if _, err := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{Scope: "", Verbose: false}); err != nil {
 		slog.ErrorContext(ctx, "testenv.network.isolated_missing", slog.String("err", err.Error()))
 		return fmt.Errorf("the isolated network %s does not exist: %w", name, err)
 	}
-
 	return nil
 }
 
@@ -128,73 +114,44 @@ func CreateStoppedRunDecoy(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	defer func() { _ = cli.Close() }()
 	runner, err := selfContainer(ctx, cli)
 	if err != nil {
 		return "", err
 	}
-
 	if runner == "" {
-		return "", errors.New(
-			"a decoy needs the image of the runner container, and this process does not run in a container",
-		)
+		return "", errors.New("a decoy needs the image of the runner container, and this process does not run in a container")
 	}
-
 	self, err := cli.ContainerInspect(ctx, runner, client.ContainerInspectOptions{Size: false})
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"testenv.decoy.runner_inspect_failed",
-			slog.String("container", runner),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "testenv.decoy.runner_inspect_failed", slog.String("container", runner), slog.String("err", err.Error()))
 		return "", fmt.Errorf("inspect runner container %s: %w", runner, err)
 	}
-
 	name, err := generatedEngineName(ctx, "decoy")
 	if err != nil {
 		return "", err
 	}
-
 	owner, err := currentOwner(ctx, cli)
 	if err != nil {
 		return "", err
 	}
-
 	labels := isolationLabels(ownerLabels(owner))
 	labels[processLabel] = decoyNeverProcess
 	exited, err := ownerExited(ctx, cli, owner, labels)
 	if err != nil {
 		return "", err
 	}
-
 	if !exited {
-		return "", fmt.Errorf(
-			"process %s runs in this container, and a decoy needs a process that has exited",
-			decoyNeverProcess,
-		)
+		return "", fmt.Errorf("process %s runs in this container, and a decoy needs a process that has exited", decoyNeverProcess)
 	}
-
-	_, err = cli.ContainerCreate(
-		ctx,
-		client.ContainerCreateOptions{
-			Config: &container.Config{Image: self.Container.Config.Image, Labels: labels},
-			Name:   name,
-		},
-	)
+	_, err = cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{Image: self.Container.Config.Image, Labels: labels},
+		Name:   name,
+	})
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"testenv.decoy.create_failed",
-			slog.String("container", name),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "testenv.decoy.create_failed", slog.String("container", name), slog.String("err", err.Error()))
 		return "", fmt.Errorf("create decoy container %s: %w", name, err)
 	}
-
 	return name, nil
 }
 
@@ -204,24 +161,15 @@ func StoppedRunDecoyExists(ctx context.Context, name string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-
 	defer func() { _ = cli.Close() }()
 	_, err = cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{Size: false})
 	if cerrdefs.IsNotFound(err) {
 		return false, nil
 	}
-
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"testenv.decoy.inspect_failed",
-			slog.String("container", name),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "testenv.decoy.inspect_failed", slog.String("container", name), slog.String("err", err.Error()))
 		return false, fmt.Errorf("inspect decoy container %s: %w", name, err)
 	}
-
 	return true, nil
 }
 

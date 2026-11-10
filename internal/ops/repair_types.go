@@ -61,12 +61,10 @@ func readRequiredUUIDEnv(name string) (uuid.UUID, error) {
 	if !ok || value == "" {
 		return uuid.Nil, fmt.Errorf("%s is required", name)
 	}
-
 	id, err := uuid.Parse(value)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("parse %s %q: %w", name, value, err)
 	}
-
 	return id, nil
 }
 
@@ -75,7 +73,6 @@ func readRequiredStringEnv(name string) (string, error) {
 	if !ok || value == "" {
 		return "", fmt.Errorf("%s is required", name)
 	}
-
 	return value, nil
 }
 
@@ -84,12 +81,10 @@ func readRequiredJSONEnv(name string) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	raw := json.RawMessage(value)
 	if !json.Valid(raw) {
 		return nil, fmt.Errorf("%s must contain valid JSON", name)
 	}
-
 	return raw, nil
 }
 
@@ -103,6 +98,5 @@ func writeRepairOutput(value any) error {
 	if err := encoder.Encode(value); err != nil {
 		return fmt.Errorf("encode repair output: %w", err)
 	}
-
 	return nil
 }

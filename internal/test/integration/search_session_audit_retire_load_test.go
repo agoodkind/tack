@@ -52,89 +52,40 @@ func TestSearchSessionAuditRetireCorruptHeaderRecorded(t *testing.T) {
 			cause:       retireLoadDecodeText,
 			storedScope: false,
 		},
-		{
-			index:       "node-pages-invalid-binding",
-			header:      invalidBindingHeader,
-			cause:       retireLoadBindingText,
-			storedScope: true,
-		},
+		{index: "node-pages-invalid-binding", header: invalidBindingHeader, cause: retireLoadBindingText, storedScope: true},
 	}
 	for _, current := range cases {
-		t.Run(
-			current.index,
-			func(t *testing.T) {
-				stores := sessionStoreStores(t)
-				rebuilds := stores.SearchRebuilds(clock.Wall{})
-				beginRetiringRebuild(t, stores, current.index)
-				session := retiringSession(t, stores, current.index)
-				header := current.header(t, retireFamilyValue(t, sessionHeaderFamily))
-				integration.ReplaceRawValue(t, retireFamilyKey(t, sessionHeaderFamily), header)
-				mark := searchOutboxTail(t, stores)
+		t.Run(current.index, func(t *testing.T) {
+			stores := sessionStoreStores(t)
+			rebuilds := stores.SearchRebuilds(clock.Wall{})
+			beginRetiringRebuild(t, stores, current.index)
+			session := retiringSession(t, stores, current.index)
+			header := current.header(t, retireFamilyValue(t, sessionHeaderFamily))
+			integration.ReplaceRawValue(t, retireFamilyKey(t, sessionHeaderFamily), header)
+			mark := searchOutboxTail(t, stores)
 
-				for slice := 1; slice <= retireLoadSlices; slice++ {
-					sliceContext, cancel := context.WithTimeout(
-						integration.WithTestOperation(t, t.Context()),
-						retireLoadDeadline,
-					)
-					remaining, err := rebuilds.RetireIndexSessions(
-						sliceContext,
-						current.index,
-						retireSliceLimit,
-					)
-					cancel()
-					if !remaining || err == nil || errors.Is(err, audit.ErrEventNotRecorded) ||
-						!strings.Contains(err.Error(), current.cause) {
-						t.Fatalf(
-							"RetireIndexSessions of %s with a corrupt header = %t, %v, want remaining work and text %q without %v",
-							current.index,
-							remaining,
-							err,
-							current.cause,
-							audit.ErrEventNotRecorded,
-						)
-					}
-					if events := cleanupFailureEvents(
-						t,
-						stores,
-						mark,
-						session.ID,
-						searchdomain.CleanupDelete,
-					); len(events) != slice {
-						t.Fatalf(
-							"session %s has %d %s events after slice %d, want %d",
-							session.ID,
-							len(events),
-							searchdomain.CleanupDelete,
-							slice,
-							slice,
-						)
-					}
+			for slice := 1; slice <= retireLoadSlices; slice++ {
+				sliceContext, cancel := context.WithTimeout(integration.WithTestOperation(t, t.Context()), retireLoadDeadline)
+				remaining, err := rebuilds.RetireIndexSessions(sliceContext, current.index, retireSliceLimit)
+				cancel()
+				if !remaining || err == nil || errors.Is(err, audit.ErrEventNotRecorded) || !strings.Contains(err.Error(), current.cause) {
+					t.Fatalf("RetireIndexSessions of %s with a corrupt header = %t, %v, want remaining work and text %q without %v",
+						current.index, remaining, err, current.cause, audit.ErrEventNotRecorded)
 				}
-				organization, owner := audit.SystemOrgID(), uuid.Nil
-				if current.storedScope {
-					organization, owner = session.AuthorityID, session.PrincipalID
+				if events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupDelete); len(events) != slice {
+					t.Fatalf("session %s has %d %s events after slice %d, want %d", session.ID, len(events), searchdomain.CleanupDelete, slice, slice)
 				}
-				events := cleanupFailureEvents(
-					t,
-					stores,
-					mark,
-					session.ID,
-					searchdomain.CleanupDelete,
-				)
-				requireLoadFailureEvents(t, events, organization, owner, current.cause)
-				if stored := retireFamilyValue(
-					t,
-					sessionHeaderFamily,
-				); !bytes.Equal(stored, header) {
-					t.Fatalf(
-						"the header of session %s = %q after retirement, want the unchanged value %q",
-						session.ID,
-						stored,
-						header,
-					)
-				}
-			},
-		)
+			}
+			organization, owner := audit.SystemOrgID(), uuid.Nil
+			if current.storedScope {
+				organization, owner = session.AuthorityID, session.PrincipalID
+			}
+			events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupDelete)
+			requireLoadFailureEvents(t, events, organization, owner, current.cause)
+			if stored := retireFamilyValue(t, sessionHeaderFamily); !bytes.Equal(stored, header) {
+				t.Fatalf("the header of session %s = %q after retirement, want the unchanged value %q", session.ID, stored, header)
+			}
+		})
 	}
 }
 
@@ -152,29 +103,14 @@ func invalidBindingHeader(t *testing.T, stored []byte) []byte {
 	return encoded
 }
 
-func requireLoadFailureEvents(
-	t *testing.T,
-	events []audit.Event,
-	organization uuid.UUID,
-	owner uuid.UUID,
-	cause string,
-) {
+func requireLoadFailureEvents(t *testing.T, events []audit.Event, organization, owner uuid.UUID, cause string) {
 	t.Helper()
 	eventIDs := map[uuid.UUID]bool{}
 	for _, event := range events {
 		eventIDs[event.EventID] = true
-		if event.Verb != string(audit.VerbSearchSessionDelete) ||
-			event.Outcome != audit.OutcomeFailed ||
-			event.Context.OrgID != organization ||
-			event.Context.Target == nil ||
-			event.Context.Target.OwnerID != owner {
-			t.Fatalf(
-				"cleanup failure event = %+v, target %+v, want a failed delete in organization %s with owner %s",
-				event,
-				event.Context.Target,
-				organization,
-				owner,
-			)
+		if event.Verb != string(audit.VerbSearchSessionDelete) || event.Outcome != audit.OutcomeFailed || event.Context.OrgID != organization ||
+			event.Context.Target == nil || event.Context.Target.OwnerID != owner {
+			t.Fatalf("cleanup failure event = %+v, target %+v, want a failed delete in organization %s with owner %s", event, event.Context.Target, organization, owner)
 		}
 		encoded, err := json.Marshal(event)
 		if err != nil {
@@ -185,11 +121,7 @@ func requireLoadFailureEvents(
 		}
 	}
 	if len(eventIDs) != retireLoadSlices {
-		t.Fatalf(
-			"the cleanup failure events have %d distinct event IDs, want %d",
-			len(eventIDs),
-			retireLoadSlices,
-		)
+		t.Fatalf("the cleanup failure events have %d distinct event IDs, want %d", len(eventIDs), retireLoadSlices)
 	}
 }
 
@@ -207,47 +139,23 @@ func TestSearchSessionAuditRetireCorruptHeaderRecordingLoss(t *testing.T) {
 	index := "node-pages-corrupt-header-loss"
 	beginRetiringRebuild(t, stores, index)
 	session := retiringSession(t, stores, index)
-	integration.ReplaceRawValue(
-		t,
-		retireFamilyKey(t, sessionHeaderFamily),
-		[]byte(invalidHeaderValue),
-	)
+	integration.ReplaceRawValue(t, retireFamilyKey(t, sessionHeaderFamily), []byte(invalidHeaderValue))
 	mark := searchOutboxTail(t, stores)
 	hooks := installRetirePauseGate(t, container, session.ID.String(), retireCleanupFailedMessage)
 
-	sliceContext, cancel := context.WithTimeout(
-		integration.WithTestOperation(t, t.Context()),
-		retireLoadDeadline,
-	)
+	sliceContext, cancel := context.WithTimeout(integration.WithTestOperation(t, t.Context()), retireLoadDeadline)
 	defer cancel()
 	remaining, err := rebuilds.RetireIndexSessions(sliceContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
 	if !remaining || !errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf(
-			"RetireIndexSessions of %s with a lost failure event = %t, %v, want remaining work and %v",
-			index,
-			remaining,
-			err,
-			audit.ErrEventNotRecorded,
-		)
+		t.Fatalf("RetireIndexSessions of %s with a lost failure event = %t, %v, want remaining work and %v", index, remaining, err, audit.ErrEventNotRecorded)
 	}
-	for _, want := range []string{
-		retireLoadDecodeText,
-		cleanupRecordingFailure,
-		transactionTimedOutText,
-	} {
+	for _, want := range []string{retireLoadDecodeText, cleanupRecordingFailure, transactionTimedOutText} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("RetireIndexSessions of %s error = %v, want text %q", index, err, want)
 		}
 	}
-	if events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupDelete); len(
-		events,
-	) != 0 {
-		t.Fatalf(
-			"session %s has %d %s events after a lost write, want 0",
-			session.ID,
-			len(events),
-			searchdomain.CleanupDelete,
-		)
+	if events := cleanupFailureEvents(t, stores, mark, session.ID, searchdomain.CleanupDelete); len(events) != 0 {
+		t.Fatalf("session %s has %d %s events after a lost write, want 0", session.ID, len(events), searchdomain.CleanupDelete)
 	}
 }

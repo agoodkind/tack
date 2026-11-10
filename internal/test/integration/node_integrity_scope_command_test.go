@@ -24,29 +24,14 @@ func TestNodeIntegrityScopeCommandRequiresParentChange(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
 	workspaceID := storedParentID(t, env, projectID)
-	otherProject := createSchemaNode(
-		t,
-		env,
-		workspaceID,
-		workspaceID,
-		"project",
-		map[string]json.RawMessage{
-			"slug":       quoted("other"),
-			"identifier": quoted("OTHER"),
-		},
-	)
+	otherProject := createSchemaNode(t, env, workspaceID, workspaceID, "project", map[string]json.RawMessage{
+		"slug": quoted("other"), "identifier": quoted("OTHER"),
+	})
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 	scopeUpdate := func(props map[string]json.RawMessage) service.UpdateInput {
 		return service.UpdateInput{
-			NodeID: issue.ID,
-			Name:   nil,
-			Props:  props,
-			RelationshipChanges: node.RelationshipChanges{
-				Add:    nil,
-				Remove: nil,
-			},
-			ActorID: uuid.New(),
-			ScopeID: otherProject.ID,
+			NodeID: issue.ID, Name: nil, Props: props,
+			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(), ScopeID: otherProject.ID,
 		}
 	}
 
@@ -61,22 +46,12 @@ func TestNodeIntegrityScopeCommandRequiresParentChange(t *testing.T) {
 		requireUnchanged(t, env, before)
 	}
 
-	if _, err := env.NodeSvc.Update(
-		env.Ctx,
-		scopeUpdate(schemaProps("parent_id", quoted(otherProject.ID.String()))),
-	); err != nil {
+	if _, err := env.NodeSvc.Update(env.Ctx, scopeUpdate(schemaProps("parent_id", quoted(otherProject.ID.String())))); err != nil {
 		t.Fatalf("move issue %s to project %s with its scope: %v", issue.ID, otherProject.ID, err)
 	}
-
 	moved, _ := mutationSnapshot(t, env, issue.ID)
 	scope := string(moved.Node.Props["scope_id"])
 	if moved.ParentID != otherProject.ID || scope != strconv.Quote(otherProject.ID.String()) {
-		t.Fatalf(
-			"moved issue %s has parent %s and scope_id %s, want project %s for both",
-			issue.ID,
-			moved.ParentID,
-			scope,
-			otherProject.ID,
-		)
+		t.Fatalf("moved issue %s has parent %s and scope_id %s, want project %s for both", issue.ID, moved.ParentID, scope, otherProject.ID)
 	}
 }

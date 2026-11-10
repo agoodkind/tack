@@ -59,7 +59,6 @@ func TestClassifyYBRolesApplyPassesOverRolesTheTargetAlreadyHas(t *testing.T) {
 	if len(report.Unexpected) > 0 {
 		t.Fatalf("a healthy apply must raise nothing unexpected, got %v", report.Unexpected)
 	}
-
 	want := []string{"postgres", "tack", "yb_db_admin", "yb_extension", "yb_fdw", "yugabyte"}
 	if !reflect.DeepEqual(report.AlreadyPresent, want) {
 		t.Fatalf("already present:\n got=%v\nwant=%v", report.AlreadyPresent, want)
@@ -79,12 +78,8 @@ func TestClassifyYBRolesApplyPassesOverRolesTheTargetAlreadyHas(t *testing.T) {
 func TestClassifyYBRolesApplyRefusesDiagnosticsItCannotRead(t *testing.T) {
 	report := classifyYBRolesApply(liveGermanRolesApplyStderr, ybTestRolesFilePath)
 	if len(report.AlreadyPresent) > 0 {
-		t.Fatalf(
-			"no diagnostic in an unpinned rendering may be tolerated, got %v",
-			report.AlreadyPresent,
-		)
+		t.Fatalf("no diagnostic in an unpinned rendering may be tolerated, got %v", report.AlreadyPresent)
 	}
-
 	want := []string{
 		`ysqlsh:/artifacts/roles.sql:1: FEHLER:  42710: Rolle »tack« existiert bereits`,
 		`ysqlsh:/artifacts/roles.sql:5: FEHLER:  42704: Rolle »role_that_is_absent« existiert nicht`,
@@ -128,18 +123,12 @@ func TestClassifyYBRolesApplyFailsClosedOnAnythingElse(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		t.Run(
-			test.name,
-			func(t *testing.T) {
-				report := classifyYBRolesApply(
-					liveRolesApplyStderr+test.line+"\n",
-					ybTestRolesFilePath,
-				)
-				if !reflect.DeepEqual(report.Unexpected, []string{test.line}) {
-					t.Fatalf("unexpected:\n got=%v\nwant=[%s]", report.Unexpected, test.line)
-				}
-			},
-		)
+		t.Run(test.name, func(t *testing.T) {
+			report := classifyYBRolesApply(liveRolesApplyStderr+test.line+"\n", ybTestRolesFilePath)
+			if !reflect.DeepEqual(report.Unexpected, []string{test.line}) {
+				t.Fatalf("unexpected:\n got=%v\nwant=[%s]", report.Unexpected, test.line)
+			}
+		})
 	}
 }
 
@@ -178,7 +167,6 @@ func TestClassifyYBRolesApplyIgnoresNonErrorOutput(t *testing.T) {
 // container, the empty LC_ALL plus LC_MESSAGES returns the labels to English.
 func TestYBRolesApplyEnvPinsBothHalvesOfTheRendering(t *testing.T) {
 	env := ybRolesApplyEnv("drill-pass") // gitleaks:allow test placeholder
-
 	for _, required := range []string{
 		"PGPASSWORD=drill-pass", // gitleaks:allow test placeholder
 		"PGOPTIONS=-c lc_messages=C",
@@ -202,7 +190,6 @@ func TestYBDrillArtifactPathsCoverEveryRequiredArtifact(t *testing.T) {
 		if !strings.HasSuffix(path, "/"+artifact) {
 			t.Errorf("staged path %q does not name the artifact %q", path, artifact)
 		}
-
 		if !strings.HasPrefix(path, ybDrillArtifactMount+"/") {
 			t.Errorf("staged path %q is not under the bind-mounted stage dir", path)
 		}

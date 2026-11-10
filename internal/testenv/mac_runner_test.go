@@ -66,32 +66,14 @@ func macFixture(t *testing.T) (testenv.MacTestOptions, *git.Repository) {
 	if _, err := worktree.Add("."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worktree.Commit(
-		"Add test checkout",
-		&git.CommitOptions{
-			Author: &object.Signature{
-				Name:  "Test",
-				Email: "test@example.com",
-				When:  time.Now(),
-			},
-		},
-	); err != nil {
+	if _, err := worktree.Commit("Add test checkout", &git.CommitOptions{Author: &object.Signature{
+		Name: "Test", Email: "test@example.com", When: time.Now(),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	return testenv.MacTestOptions{
-		Root:              root,
-		Image:             macImage,
-		EvidenceDirectory: filepath.Join(t.TempDir(), "evidence"),
-		TestArguments: []string{
-			"-run",
-			"^TestSearch($|[^A-M])",
-			"-count=3",
-			"-timeout",
-			"1h25m",
-			"-tags",
-			"runtimeaudit,integration",
-			"-skip=^Skip$",
-		},
+		Root: root, Image: macImage, EvidenceDirectory: filepath.Join(t.TempDir(), "evidence"),
+		TestArguments: []string{"-run", "^TestSearch($|[^A-M])", "-count=3", "-timeout", "1h25m", "-tags", "runtimeaudit,integration", "-skip=^Skip$"},
 	}, repository
 }
 
@@ -109,18 +91,10 @@ func macWrite(t *testing.T, root, path, contents string) {
 func macPrepare(t *testing.T, options testenv.MacTestOptions) macInvocation {
 	t.Helper()
 	result, err := testenv.RunMacTests(t.Context(), options)
-	if err == nil || !strings.Contains(err.Error(), "inspect required immutable local image") ||
-		result.ExitCode != 1 ||
-		result.RunnerID != "" {
-		t.Fatalf(
-			"preparation must refuse the absent immutable image: result=%+v error=%v",
-			result,
-			err,
-		)
+	if err == nil || !strings.Contains(err.Error(), "inspect required immutable local image") || result.ExitCode != 1 || result.RunnerID != "" {
+		t.Fatalf("preparation must refuse the absent immutable image: result=%+v error=%v", result, err)
 	}
-	if _, err := os.Stat(
-		filepath.Join(result.EvidenceDirectory, "runner-request.json"),
-	); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(result.EvidenceDirectory, "runner-request.json")); !os.IsNotExist(err) {
 		t.Fatalf("source preparation attempted container creation: %v", err)
 	}
 	contents, err := os.ReadFile(filepath.Join(result.EvidenceDirectory, "invocation.json"))
@@ -141,39 +115,21 @@ func TestMacRunnerPreparation(t *testing.T) {
 	if !slices.Equal(arguments, options.TestArguments) {
 		t.Fatal("RunMacTests changed the caller's arguments")
 	}
-	expected := []string{
-		"test",
-		"-tags=fdb,runtimeaudit,integration",
-		"-run",
-		"^TestSearch($|[^A-M])",
-		"-count=3",
-		"-timeout=1h25m",
-		"-v",
-		"-skip",
-		"^Skip$",
-		"./internal/test/integration/...",
-	}
-	if !slices.Equal(invocation.Service.Command, expected) ||
-		!slices.Equal(invocation.Service.Entrypoint, []string{"/usr/local/go/bin/go"}) {
+	expected := []string{"test", "-tags=fdb,runtimeaudit,integration", "-run", "^TestSearch($|[^A-M])", "-count=3", "-timeout=1h25m", "-v", "-skip", "^Skip$", "./internal/test/integration/..."}
+	if !slices.Equal(invocation.Service.Command, expected) || !slices.Equal(invocation.Service.Entrypoint, []string{"/usr/local/go/bin/go"}) {
 		t.Fatalf("unexpected Go command: %+v", invocation.Service)
 	}
 	head, err := repository.Head()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if invocation.Service.Image != macImage || invocation.Service.WorkingDir != options.Root ||
-		invocation.Service.Build != nil {
+	if invocation.Service.Image != macImage || invocation.Service.WorkingDir != options.Root || invocation.Service.Build != nil {
 		t.Fatalf("unexpected runner identity: %+v", invocation.Service)
 	}
-	if invocation.Service.StopGracePeriod == nil ||
-		time.Duration(*invocation.Service.StopGracePeriod) != macStopGrace {
-		t.Fatalf(
-			"runner did not keep the configured stop grace period: %+v",
-			invocation.Service.StopGracePeriod,
-		)
+	if invocation.Service.StopGracePeriod == nil || time.Duration(*invocation.Service.StopGracePeriod) != macStopGrace {
+		t.Fatalf("runner did not keep the configured stop grace period: %+v", invocation.Service.StopGracePeriod)
 	}
-	if *invocation.Service.Environment["TACK_TEST_SOURCE_REVISION"] != head.Hash().String() ||
-		*invocation.Service.Environment["TACK_SEARCH_CLUSTER"] != "1" {
+	if *invocation.Service.Environment["TACK_TEST_SOURCE_REVISION"] != head.Hash().String() || *invocation.Service.Environment["TACK_SEARCH_CLUSTER"] != "1" {
 		t.Fatalf("unexpected test environment: %+v", invocation.Service.Environment)
 	}
 	for _, volume := range invocation.Service.Volumes {

@@ -61,7 +61,6 @@ func (report searchVerifyReport) reason(nodeID uuid.UUID) (string, bool) {
 			return exclusion.Reason, true
 		}
 	}
-
 	return "", false
 }
 
@@ -69,57 +68,21 @@ func (report searchVerifyReport) reason(nodeID uuid.UUID) (string, bool) {
 // records it in fixture.Harness.titles. The stores do not schedule search
 // work for the write. A replacement scan must read the node without a
 // search work item.
-func putOrphanNode(
-	t *testing.T,
-	fixture queryFixture,
-	kind opaqueKind,
-	name string,
-	included string,
-) uuid.UUID {
+func putOrphanNode(t *testing.T, fixture queryFixture, kind opaqueKind, name, included string) uuid.UUID {
 	t.Helper()
 	stores, err := fdbadapter.NewStores(testenv.FoundationDB(t), testTransactionTimeout, nil)
 	if err != nil {
 		t.Fatalf("open stores without search work: %v", err)
 	}
-
 	nodeID := uuid.Must(uuid.NewV7())
-	props := map[string]json.RawMessage{
-		kind.IncludedKey: mustJSON(included),
-		kind.ExcludedKey: mustJSON(readerExcludedValue),
-	}
+	props := map[string]json.RawMessage{kind.IncludedKey: mustJSON(included), kind.ExcludedKey: mustJSON(readerExcludedValue)}
 	now := clock.Now().UTC()
-	created := &node.Node{
-		ID:        nodeID,
-		OrgID:     kind.OrgID,
-		NodeType:  kind.TypeKey,
-		Name:      name,
-		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	view := &node.NodeView{
-		ID:        nodeID,
-		OrgID:     kind.OrgID,
-		NodeType:  kind.TypeKey,
-		Name:      name,
-		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if err := stores.Nodes.CreateAtomic(
-		WithTestOperation(t, t.Context()),
-		created,
-		view,
-		nil,
-		nil,
-		nil,
-		nil,
-	); err != nil {
+	created := &node.Node{ID: nodeID, OrgID: kind.OrgID, NodeType: kind.TypeKey, Name: name, Props: props, CreatedAt: now, UpdatedAt: now}
+	view := &node.NodeView{ID: nodeID, OrgID: kind.OrgID, NodeType: kind.TypeKey, Name: name, Props: props, CreatedAt: now, UpdatedAt: now}
+	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, view, nil, nil, nil, nil); err != nil {
 		t.Fatalf("create orphan node: %v", err)
 	}
-
 	fixture.Harness.titles.Add(datagen.SearchItem{Title: name, NodeType: kind.TypeKey}, nodeID)
-
 	return nodeID
 }
 
@@ -140,122 +103,73 @@ func runSearchVerifyCommand(t *testing.T, cfg *config.Config) (searchVerifyRepor
 	factory.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 	root := searchCommandRoot(factory)
 	root.SetArgs([]string{
-		"--execute",
-		"--operator-id",
-		"019dd226-440e-729a-a442-281aaf73ca30",
-		"--operator-email",
-		"operator@example.com",
-		"--operator-name",
-		"Search Test",
-		"ops",
-		"search",
-		"verify",
+		"--execute", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
+		"--operator-email", "operator@example.com", "--operator-name", "Search Test",
+		"ops", "search", "verify",
 	})
 	runErr := root.Execute()
 	if runErr != nil {
 		if output.Len() != 0 {
 			t.Fatalf("failed ops search verify printed unaudited result bytes: %s", output.String())
 		}
-
 		return searchVerifyFailureState(t, cfg, runErr), runErr
 	}
-
 	var report searchVerifyReport
 	if err := json.NewDecoder(&output).Decode(&report); err != nil {
 		t.Fatalf("decode ops search verify listing (command error %v): %v", runErr, err)
 	}
-
 	return report, runErr
 }
 
 // searchVerifyFailureState checks every stored stuck item against the public
 // command error. Separate storage reads preserve exclusion-state assertions.
-func searchVerifyFailureState(
-	t *testing.T,
-	cfg *config.Config,
-	commandError error,
-) searchVerifyReport {
+func searchVerifyFailureState(t *testing.T, cfg *config.Config, commandError error) searchVerifyReport {
 	t.Helper()
 	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, nil)
 	if err != nil {
 		t.Fatalf("open stores to compare verify failure evidence: %v", err)
 	}
-
 	report := searchVerifyReport{
-		ExcludedNodes:            0,
-		Exclusions:               nil,
-		StuckWorkItems:           0,
-		StuckWork:                nil,
-		ExpiredSessions:          0,
-		ExpiredSessionsTruncated: false,
+		ExcludedNodes: 0, Exclusions: nil, StuckWorkItems: 0, StuckWork: nil,
+		ExpiredSessions: 0, ExpiredSessionsTruncated: false,
 	}
 	cursor := ""
-
 	for {
 		page, err := stores.SearchExclusions(t.Context(), cursor)
 		if err != nil {
 			t.Fatalf("read exclusion state after verify failure: %v", err)
 		}
-
 		for _, exclusion := range page.Exclusions {
-			report.Exclusions = append(
-				report.Exclusions,
-				searchVerifyExclusion{
-					NodeID: exclusion.NodeID.String(),
-					Class:  string(exclusion.Class),
-					Index:  exclusion.Index,
-					Reason: exclusion.Reason,
-				},
-			)
+			report.Exclusions = append(report.Exclusions, searchVerifyExclusion{
+				NodeID: exclusion.NodeID.String(), Class: string(exclusion.Class), Index: exclusion.Index, Reason: exclusion.Reason,
+			})
 		}
-
 		if page.Done {
 			break
 		}
-
 		cursor = page.NextCursor
 	}
-
 	cursor = ""
-
 	for {
 		page, err := stores.SearchStuckWork(t.Context(), cursor)
 		if err != nil {
 			t.Fatalf("read stuck work after verify failure: %v", err)
 		}
-
 		for _, work := range page.Work {
-			want := fmt.Sprintf(
-				"%s work %s failed %d times, last error: %s",
-				work.Class,
-				work.ItemID,
-				work.Attempts,
-				work.LastError,
-			)
+			want := fmt.Sprintf("%s work %s failed %d times, last error: %s", work.Class, work.ItemID, work.Attempts, work.LastError)
 			if !strings.Contains(commandError.Error(), want) {
 				t.Fatalf("verify error %v omitted the actual stuck work %q", commandError, want)
 			}
-
-			report.StuckWork = append(
-				report.StuckWork,
-				searchVerifyStuckWork{
-					Kind:      string(work.Class),
-					ItemID:    work.ItemID,
-					Attempts:  work.Attempts,
-					LastError: work.LastError,
-				},
-			)
+			report.StuckWork = append(report.StuckWork, searchVerifyStuckWork{
+				Kind: string(work.Class), ItemID: work.ItemID, Attempts: work.Attempts, LastError: work.LastError,
+			})
 		}
-
 		if page.Done {
 			break
 		}
-
 		cursor = page.NextCursor
 	}
-
 	report.ExcludedNodes, report.StuckWorkItems = len(report.Exclusions), len(report.StuckWork)
-
 	return report
 }
 
@@ -263,12 +177,10 @@ func searchVerifyFailureState(
 // contains text.
 func indexedText(t *testing.T, fixture queryFixture, nodeID uuid.UUID, text string) bool {
 	t.Helper()
-
 	for _, page := range searchNodePages(t, fixture.Client, fixture.Index, nodeID, false) {
 		if page.PageText != nil && strings.Contains(*page.PageText, text) {
 			return true
 		}
 	}
-
 	return false
 }

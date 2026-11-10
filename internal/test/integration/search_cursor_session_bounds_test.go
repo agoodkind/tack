@@ -38,14 +38,12 @@ func sessionRecords(t *testing.T, sessionID uuid.UUID) map[string][]byte {
 	if err != nil {
 		t.Fatalf("open database to read session records: %v", err)
 	}
-
 	prefix := bytes.Clone(fdbadapter.TestPrefixRange())
 	packed := tuple.Tuple{sessionHeaderFamily}.Pack()
 	keyRange, err := fdb.PrefixRange(append(bytes.Clone(prefix), packed[:len(packed)-1]...))
 	if err != nil {
 		t.Fatalf("create session key range: %v", err)
 	}
-
 	transaction, err := database.CreateTransaction()
 	if err != nil {
 		t.Fatalf("create session key transaction: %v", err)
@@ -55,15 +53,12 @@ func sessionRecords(t *testing.T, sessionID uuid.UUID) map[string][]byte {
 	if err != nil {
 		t.Fatalf("read session keys: %v", err)
 	}
-
 	records := make(map[string][]byte)
-
 	for _, entry := range entries {
 		elements, decodeErr := tuple.Unpack(entry.Key[len(prefix):])
 		if decodeErr != nil {
 			t.Fatalf("decode session key %x: %v", entry.Key, decodeErr)
 		}
-
 		for _, element := range elements {
 			if element == sessionID.String() {
 				records[string(entry.Key)] = entry.Value
@@ -71,7 +66,6 @@ func sessionRecords(t *testing.T, sessionID uuid.UUID) map[string][]byte {
 			}
 		}
 	}
-
 	return records
 }
 
@@ -80,12 +74,7 @@ func sessionRecords(t *testing.T, sessionID uuid.UUID) map[string][]byte {
 func requireSessionUnchanged(t *testing.T, call string, before, after map[string][]byte) {
 	t.Helper()
 	if !maps.EqualFunc(before, after, bytes.Equal) {
-		t.Fatalf(
-			"%s changed the stored session records: %d records before, %d after",
-			call,
-			len(before),
-			len(after),
-		)
+		t.Fatalf("%s changed the stored session records: %d records before, %d after", call, len(before), len(after))
 	}
 }
 
@@ -101,28 +90,20 @@ type storedSessionHeader struct {
 // visited marker per distinct node in results, one replay record, one expiry
 // key, and at most one presence key and one version key. It also requires
 // each value to fit the byte limit of its record kind.
-func requireBoundedSession(
-	t *testing.T,
-	records map[string][]byte,
-	results []uuid.UUID,
-	commits uint64,
-) {
+func requireBoundedSession(t *testing.T, records map[string][]byte, results []uuid.UUID, commits uint64) {
 	t.Helper()
 	prefix := fdbadapter.TestPrefixRange()
 	counts := make(map[string]int)
 	var header storedSessionHeader
-
 	for key, value := range records {
 		elements, err := tuple.Unpack([]byte(key)[len(prefix):])
 		if err != nil {
 			t.Fatalf("decode session key %x: %v", key, err)
 		}
-
 		kind, _ := elements[0].(string)
 		if kind == sessionChildFamily {
 			kind, _ = elements[sessionChildPartPosition].(string)
 		}
-
 		counts[kind]++
 		requireSessionValueBound(t, kind, value)
 		if kind == sessionHeaderFamily {
@@ -131,27 +112,15 @@ func requireBoundedSession(
 			}
 		}
 	}
-
 	distinct := make(map[uuid.UUID]bool, len(results))
 	for _, id := range results {
 		distinct[id] = true
 	}
-
-	if header.Version != commits || counts[sessionHeaderFamily] != 1 ||
-		counts[sessionTokenPart] != header.TokenChunks ||
-		counts[sessionVisitedPart] != len(distinct) ||
-		counts[sessionReplayPart] != 1 ||
-		counts[sessionExpiryFamily] != 1 ||
-		counts[sessionPresentFamily] > 1 ||
-		counts[sessionVersionFamily] > 1 {
-		t.Fatalf(
-			"session stores version %d and records %v, want version %d, one header, %d token chunks, %d visited markers, one replay record, one expiry key, and at most one presence and version key",
-			header.Version,
-			counts,
-			commits,
-			header.TokenChunks,
-			len(distinct),
-		)
+	if header.Version != commits || counts[sessionHeaderFamily] != 1 || counts[sessionTokenPart] != header.TokenChunks ||
+		counts[sessionVisitedPart] != len(distinct) || counts[sessionReplayPart] != 1 || counts[sessionExpiryFamily] != 1 ||
+		counts[sessionPresentFamily] > 1 || counts[sessionVersionFamily] > 1 {
+		t.Fatalf("session stores version %d and records %v, want version %d, one header, %d token chunks, %d visited markers, one replay record, one expiry key, and at most one presence and version key",
+			header.Version, counts, commits, header.TokenChunks, len(distinct))
 	}
 }
 
@@ -161,17 +130,10 @@ func requireBoundedSession(
 func requireSessionValueBound(t *testing.T, kind string, value []byte) {
 	t.Helper()
 	limits := map[string]int{
-		sessionHeaderFamily: sessionHeaderBound,
-		sessionReplayPart:   sessionReplayBound,
-		sessionTokenPart:    sessionTokenChunkBound,
-		sessionVisitedPart:  1,
+		sessionHeaderFamily: sessionHeaderBound, sessionReplayPart: sessionReplayBound,
+		sessionTokenPart: sessionTokenChunkBound, sessionVisitedPart: 1,
 	}
 	if limit := limits[kind]; len(value) > limit {
-		t.Fatalf(
-			"stored session %s record contains %d bytes, above the %d-byte limit",
-			kind,
-			len(value),
-			limit,
-		)
+		t.Fatalf("stored session %s record contains %d bytes, above the %d-byte limit", kind, len(value), limit)
 	}
 }

@@ -14,7 +14,9 @@ import (
 
 const commandName = "ci-image"
 
-var errUsage = errors.New("usage: ci-image digest|tags|verify-native-runner|metadata")
+var errUsage = errors.New(
+	"usage: ci-image digest|tags|verify-native-runner|metadata",
+)
 
 // operationError prefixes an error with the operation name and exposes
 // the original error through Unwrap.

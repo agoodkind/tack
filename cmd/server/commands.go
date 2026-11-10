@@ -43,29 +43,19 @@ func buildRoot(f *cli.Factory) *cobra.Command {
 	root.CompletionOptions.DisableDefaultCmd = true
 	f.RegisterGlobalFlags(root)
 	f.SetOperatorIdentitySource(cli.NewOperatorSource(f))
-	clispec.AttachAudit(
-		root,
-		f,
-		serve.Audit,
-		func(ctx context.Context) error {
-			return runServer(ctx, f.Cfg)
-		},
-	)
+	clispec.AttachAudit(root, f, serve.Audit, func(ctx context.Context) error {
+		return runServer(ctx, f.Cfg)
+	})
 
 	reg := clispec.NewRegistry()
 	clispec.Register(reg, serve)
-	reg.AddHandwritten(clispec.HandwrittenCommand{
-		Group: nil,
-		Build: migrateCommand,
-	})
+	reg.AddHandwritten(clispec.HandwrittenCommand{Group: nil, Build: migrateCommand})
 	clispec.Register(reg, seedOp(f))
 	registerAudit(reg, f)
 	ops.RegisterCommands(reg, f)
-
 	for _, command := range clispec.RenderCobra(reg, f) {
 		root.AddCommand(command)
 	}
-
 	return root
 }
 
@@ -86,38 +76,20 @@ func configureAuditInfrastructureProbe(f *cli.Factory) {
 
 		connection, err := pgx.Connect(probeContext, databaseURL)
 		if err != nil {
-			slog.ErrorContext(
-				probeContext,
-				"audit.infrastructure_probe_connect_failed",
-				slog.String("err", err.Error()),
-			)
-
-			return audit.InfrastructureState{}, fmt.Errorf(
-				"connect audit infrastructure probe: %w",
-				err,
-			)
+			slog.ErrorContext(probeContext, "audit.infrastructure_probe_connect_failed",
+				slog.String("err", err.Error()))
+			return audit.InfrastructureState{}, fmt.Errorf("connect audit infrastructure probe: %w", err)
 		}
-
 		defer func() { connection.Close(probeContext) }()
 
 		var infrastructure audit.InfrastructureState
 		if err := connection.QueryRow(probeContext, auditInfrastructureProbeQuery).Scan(
-			&infrastructure.OutboxTableExists,
-			&infrastructure.OperatorLoginExists,
-			&infrastructure.OperatorReadsExist,
+			&infrastructure.OutboxTableExists, &infrastructure.OperatorLoginExists, &infrastructure.OperatorReadsExist,
 		); err != nil {
-			slog.ErrorContext(
-				probeContext,
-				"audit.infrastructure_probe_query_failed",
-				slog.String("err", err.Error()),
-			)
-
-			return audit.InfrastructureState{}, fmt.Errorf(
-				"query audit infrastructure probe: %w",
-				err,
-			)
+			slog.ErrorContext(probeContext, "audit.infrastructure_probe_query_failed",
+				slog.String("err", err.Error()))
+			return audit.InfrastructureState{}, fmt.Errorf("query audit infrastructure probe: %w", err)
 		}
-
 		return infrastructure, nil
 	})
 }
@@ -130,30 +102,18 @@ func configureAuditOutbox(f *cli.Factory) {
 	ctx := context.Background()
 	poolConfig, err := pgxpool.ParseConfig(f.Cfg.AuditOperatorDSN)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.operator_outbox.config_failed",
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.operator_outbox.config_failed", slog.String("err", err.Error()))
 		return
 	}
-
 	poolConfig.ConnConfig.Tracer = &telemetry.QueryTracer{}
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.operator_outbox.open_failed", slog.String("err", err.Error()))
 		return
 	}
-
 	if err := pool.Ping(ctx); err != nil {
-		slog.WarnContext(
-			ctx,
-			"audit.operator_outbox.ping_deferred",
-			slog.String("err", err.Error()),
-		)
+		slog.WarnContext(ctx, "audit.operator_outbox.ping_deferred", slog.String("err", err.Error()))
 	}
-
 	f.SetAuditOutbox(audit.NewPoolOutbox(pool))
 	f.SetAuditReads(audit.NewPoolReadLifecycle(pool))
 }

@@ -34,25 +34,16 @@ func newRefusingWorker(t *testing.T, fixture rolloutFixture) refusingWorker {
 	if err != nil {
 		t.Fatalf("cannot parse engine endpoint: %v", err)
 	}
-
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM([]byte(fixture.engine.CA))
 	forward := httputil.NewSingleHostReverseProxy(target)
-	forward.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
-	}
+	forward.Transport = &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}
 	refuse := &atomic.Bool{}
 	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if refuse.Load() && strings.HasSuffix(request.URL.Path, "/_mget") {
-			http.Error(
-				writer,
-				"the test refuses this request to read multiple documents",
-				http.StatusServiceUnavailable,
-			)
-
+			http.Error(writer, "the test refuses this request to read multiple documents", http.StatusServiceUnavailable)
 			return
 		}
-
 		request.Host = target.Host
 		forward.ServeHTTP(writer, request)
 	})
@@ -60,23 +51,17 @@ func newRefusingWorker(t *testing.T, fixture rolloutFixture) refusingWorker {
 	if err != nil {
 		t.Fatalf("cannot listen for proxy requests: %v", err)
 	}
-
 	server := httptest.NewUnstartedServer(handler)
 	server.Listener = listener
 	server.StartTLS()
 	t.Cleanup(server.Close)
-	authority := pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: server.Certificate().Raw,
-	})
+	authority := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
 	configuration := rolloutSearchConfig(fixture.engine)
 	configuration.Endpoint, configuration.CA = server.URL, string(authority)
 	adapter, err := search.New(rolloutContext(t), configuration)
 	if err != nil {
 		t.Fatalf("cannot create adapter behind proxy: %v", err)
 	}
-
 	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(t.Context())) })
-
 	return refusingWorker{worker: newRolloutWorker(t, fixture.stores, adapter), refuse: refuse}
 }

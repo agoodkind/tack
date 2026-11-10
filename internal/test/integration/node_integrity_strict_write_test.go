@@ -32,37 +32,20 @@ func TestNodeIntegrityStrictMutationInvalidatesEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture the evidence: %v", err)
 	}
-
 	updateStrictPriority(t, env, issue.ID, "high")
-	activation := node.StrictActivation{
-		Active:           true,
-		ActivatedAt:      clock.Now().UTC(),
-		ScanID:           uuid.Must(uuid.NewV7()),
-		RecordsValidated: 0,
-	}
+	activation := node.StrictActivation{Active: true, ActivatedAt: clock.Now().UTC(), ScanID: uuid.Must(uuid.NewV7()), RecordsValidated: 0}
 	change, err := env.Stores.Nodes.ActivateStrict(env.Ctx, evidence, activation)
 	bucket := node.WriteFenceBucket(env.OrgID, issue.ID)
 	if !errors.Is(err, node.ErrStrictEvidenceChanged) || !slices.Contains(change.Buckets, bucket) {
-		t.Fatalf(
-			"activation on stale evidence = %+v, %v; want ErrStrictEvidenceChanged for bucket %d",
-			change,
-			err,
-			bucket,
-		)
+		t.Fatalf("activation on stale evidence = %+v, %v; want ErrStrictEvidenceChanged for bucket %d", change, err, bucket)
 	}
-
 	stored, err := env.Stores.Nodes.StrictActivation(env.Ctx)
 	if err != nil || stored.Active {
 		t.Fatalf("activation after the rejected evidence = %+v, %v; want inactive", stored, err)
 	}
-
 	output, err := runStrictValidation(t, true)
 	if err != nil || !output.Result.Activated || output.Result.ViolationCount != 0 {
-		t.Fatalf(
-			"strict validation = %+v, %v; want activation without violations",
-			output.Result,
-			err,
-		)
+		t.Fatalf("strict validation = %+v, %v; want activation without violations", output.Result, err)
 	}
 }
 
@@ -79,35 +62,19 @@ func TestNodeIntegrityStrictRejectsInvalidWriteAfterActivation(t *testing.T) {
 	if err != nil || !output.Result.Activated {
 		t.Fatalf("strict validation = %+v, %v; want activation", output.Result, err)
 	}
-
 	before := storedStoreView(t, env.Stores, issue.ID)
 	_, err = env.NodeSvc.Update(env.Ctx, strictPriorityUpdate(issue.ID, strictInvalidPriority))
 	if !errors.Is(err, domain.ErrInvalidArgument) {
-		t.Fatalf(
-			"update with priority %q after activation = %v, want an invalid argument",
-			strictInvalidPriority,
-			err,
-		)
+		t.Fatalf("update with priority %q after activation = %v, want an invalid argument", strictInvalidPriority, err)
 	}
-
 	after := storedStoreView(t, env.Stores, issue.ID)
 	if !reflect.DeepEqual(after.Props, before.Props) || !after.UpdatedAt.Equal(before.UpdatedAt) {
-		t.Fatalf(
-			"the rejected update changed the stored issue: before %+v, after %+v",
-			before,
-			after,
-		)
+		t.Fatalf("the rejected update changed the stored issue: before %+v, after %+v", before, after)
 	}
-
 	updateStrictPriority(t, env, issue.ID, "high")
 }
 
-func updateStrictPriority(
-	t *testing.T,
-	env *integration.TestEnv,
-	issueID uuid.UUID,
-	priority string,
-) {
+func updateStrictPriority(t *testing.T, env *integration.TestEnv, issueID uuid.UUID, priority string) {
 	t.Helper()
 	if _, err := env.NodeSvc.Update(env.Ctx, strictPriorityUpdate(issueID, priority)); err != nil {
 		t.Fatalf("update issue %s priority to %q: %v", issueID, priority, err)
@@ -116,10 +83,7 @@ func updateStrictPriority(
 
 func strictPriorityUpdate(issueID uuid.UUID, priority string) service.UpdateInput {
 	return service.UpdateInput{
-		NodeID:              issueID,
-		Name:                nil,
-		Props:               schemaProps("priority", quoted(priority)),
-		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-		ActorID:             uuid.New(),
+		NodeID: issueID, Name: nil, Props: schemaProps("priority", quoted(priority)),
+		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
 	}
 }

@@ -38,13 +38,9 @@ func (r searchRun) verify(ctx context.Context, workspace WorkspaceIdentity) erro
 	}
 	for _, pair := range r.phrases.Semantic {
 		nodeID := corpus.semantic[pair.Query]
-		if err := r.eventually(
-			ctx,
-			"rank semantic target for "+pair.Query,
-			func(ctx context.Context) error {
-				return r.ranked(ctx, pair.Query, nodeID)
-			},
-		); err != nil {
+		if err := r.eventually(ctx, "rank semantic target for "+pair.Query, func(ctx context.Context) error {
+			return r.ranked(ctx, pair.Query, nodeID)
+		}); err != nil {
 			return err
 		}
 	}
@@ -52,42 +48,18 @@ func (r searchRun) verify(ctx context.Context, workspace WorkspaceIdentity) erro
 		description string
 		check       func(context.Context) error
 	}{
-		{
-			"find final-page text",
-			func(ctx context.Context) error {
-				return r.ranked(ctx, r.phrases.FinalPage, corpus.finalPage)
-			},
-		},
-		{
-			"find node created through MCP",
-			func(ctx context.Context) error {
-				return r.includes(ctx, r.phrases.CreatedThroughMCP, corpus.throughMCP)
-			},
-		},
-		{
-			"find included text of excluded case",
-			func(ctx context.Context) error {
-				return r.includes(ctx, r.phrases.ExcludedVisible, corpus.excluded)
-			},
-		},
-		{
-			"find text before edit",
-			func(ctx context.Context) error {
-				return r.includes(ctx, r.phrases.EditBefore, corpus.edited)
-			},
-		},
-		{
-			"find node before deletion",
-			func(ctx context.Context) error {
-				return r.includes(ctx, r.phrases.Deleted, corpus.deleted)
-			},
-		},
-		{
-			"traverse every continuation",
-			func(ctx context.Context) error {
-				return r.includes(ctx, r.phrases.Continuation, corpus.continuation...)
-			},
-		},
+		{"find final-page text", func(ctx context.Context) error { return r.ranked(ctx, r.phrases.FinalPage, corpus.finalPage) }},
+		{"find node created through MCP", func(ctx context.Context) error {
+			return r.includes(ctx, r.phrases.CreatedThroughMCP, corpus.throughMCP)
+		}},
+		{"find included text of excluded case", func(ctx context.Context) error {
+			return r.includes(ctx, r.phrases.ExcludedVisible, corpus.excluded)
+		}},
+		{"find text before edit", func(ctx context.Context) error { return r.includes(ctx, r.phrases.EditBefore, corpus.edited) }},
+		{"find node before deletion", func(ctx context.Context) error { return r.includes(ctx, r.phrases.Deleted, corpus.deleted) }},
+		{"traverse every continuation", func(ctx context.Context) error {
+			return r.includes(ctx, r.phrases.Continuation, corpus.continuation...)
+		}},
 	}
 	for _, step := range checks {
 		if err := r.eventually(ctx, step.description, step.check); err != nil {
@@ -114,24 +86,9 @@ func (r searchRun) verifyChanges(ctx context.Context, corpus searchCorpus) error
 		description string
 		check       func(context.Context) error
 	}{
-		{
-			"find text after edit",
-			func(ctx context.Context) error {
-				return r.includes(ctx, r.phrases.EditAfter, corpus.edited)
-			},
-		},
-		{
-			"drop text before edit",
-			func(ctx context.Context) error {
-				return r.excludes(ctx, r.phrases.EditBefore, corpus.edited)
-			},
-		},
-		{
-			"drop deleted node",
-			func(ctx context.Context) error {
-				return r.excludes(ctx, r.phrases.Deleted, corpus.deleted)
-			},
-		},
+		{"find text after edit", func(ctx context.Context) error { return r.includes(ctx, r.phrases.EditAfter, corpus.edited) }},
+		{"drop text before edit", func(ctx context.Context) error { return r.excludes(ctx, r.phrases.EditBefore, corpus.edited) }},
+		{"drop deleted node", func(ctx context.Context) error { return r.excludes(ctx, r.phrases.Deleted, corpus.deleted) }},
 	}
 	for _, step := range changes {
 		if err := r.eventually(ctx, step.description, step.check); err != nil {
@@ -143,22 +100,11 @@ func (r searchRun) verifyChanges(ctx context.Context, corpus searchCorpus) error
 
 // createCorpus writes every case node and creates one project through the
 // public MCP create tool.
-func (r searchRun) createCorpus(ctx context.Context, workspace WorkspaceIdentity) (
-	searchCorpus,
-	error,
-) {
-	corpus := searchCorpus{
-		semantic:     make(map[string]uuid.UUID),
-		continuation: make([]uuid.UUID, 0, searchContinuationNodes+1),
-	}
+func (r searchRun) createCorpus(ctx context.Context, workspace WorkspaceIdentity) (searchCorpus, error) {
+	corpus := searchCorpus{semantic: make(map[string]uuid.UUID), continuation: make([]uuid.UUID, 0, searchContinuationNodes+1)}
 	var err error
 	for _, pair := range r.phrases.Semantic {
-		if corpus.semantic[pair.Query], err = r.fixture.put(
-			ctx,
-			pair.Text,
-			pair.Text,
-			"",
-		); err != nil {
+		if corpus.semantic[pair.Query], err = r.fixture.put(ctx, pair.Text, pair.Text, ""); err != nil {
 			return corpus, err
 		}
 	}
@@ -200,41 +146,20 @@ func (r searchRun) createCorpus(ctx context.Context, workspace WorkspaceIdentity
 
 // createProject creates one project through tack_create_project and returns
 // its node ID.
-func (r searchRun) createProject(ctx context.Context, workspace WorkspaceIdentity) (
-	uuid.UUID,
-	error,
-) {
+func (r searchRun) createProject(ctx context.Context, workspace WorkspaceIdentity) (uuid.UUID, error) {
 	properties := newProperties()
 	properties["identifier"] = json.RawMessage(strconv.Quote(strings.ToUpper(opaqueKey("q"))))
-	result, err := r.driver.Call(
-		ctx,
-		r.token,
-		"tack_create_project",
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			ProjectReference:   "",
-			IssueReference:     "",
-			Name:               r.phrases.CreatedThroughMCP,
-			Properties:         properties,
-			NodeID:             "",
-			Query:              "",
-			NodeType:           "",
-			Direction:          "",
-			SourceID:           "",
-			RelationType:       "",
-			TargetID:           "",
-		},
-	)
+	result, err := r.driver.Call(ctx, r.token, "tack_create_project", ToolArguments{
+		WorkspaceReference: workspace.Slug, ProjectReference: "", IssueReference: "",
+		Name: r.phrases.CreatedThroughMCP, Properties: properties, NodeID: "", Query: "", NodeType: "",
+		Direction: "", SourceID: "", RelationType: "", TargetID: "",
+	})
 	if err != nil {
 		return uuid.Nil, loggedError(ctx, "qa datagen: create search project", err)
 	}
 	projectID, err := uuid.Parse(result.RawID())
 	if err != nil {
-		return uuid.Nil, loggedError(
-			ctx,
-			"qa datagen: parse search project id",
-			fmt.Errorf("%q: %w", result.RawID(), err),
-		)
+		return uuid.Nil, loggedError(ctx, "qa datagen: parse search project id", fmt.Errorf("%q: %w", result.RawID(), err))
 	}
 	r.fixture.titles.Add(result.SearchItem(), projectID)
 	return projectID, nil

@@ -27,10 +27,8 @@ const (
 // deployGroup is the parent of the read that checks a deploy. The repository
 // build workflow builds the images, and the configs deploy rolls them.
 var deployGroup = &clispec.Group{
-	Use:    "deploy",
-	Short:  "Check the outcome of a deploy on this daemon",
-	Long:   "",
-	Parent: opsGroup,
+	Use: "deploy", Short: "Check the outcome of a deploy on this daemon",
+	Long: "", Parent: opsGroup,
 }
 
 // deployVerifyInput is the optional explicit image tag, the optional service
@@ -46,9 +44,7 @@ type deployVerifyInput struct {
 // Compose deployment.
 func deployVerifySpec() audit.Spec {
 	return audit.Spec{
-		Verb:  string(audit.VerbOpsDeployVerify),
-		Reads: true,
-		Class: audit.OperationRead,
+		Verb: string(audit.VerbOpsDeployVerify), Reads: true, Class: audit.OperationRead,
 		Targets: func(context.Context, json.RawMessage) ([]audit.Target, error) {
 			return []audit.Target{externalTarget(deployReference)}, nil
 		},
@@ -68,60 +64,28 @@ func deployVerifyCommand(f *cli.Factory) *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	cmd.Flags().StringVar(&in.Tag, "tag", "", "image tag the containers must run")
-	cmd.Flags().StringVar(
-		&in.Service,
-		"service",
-		"",
-		"Check only this Docker Compose service. The only accepted value "+
-			"is app. Omit the flag to check app and audit-consumer.",
-	)
-	cmd.Flags().StringVar(
-		&in.ServerDigest,
-		"tack-server-digest",
-		"",
-		"Require every app replica to match this image index digest (sha256: followed by 64 lowercase hexadecimal digits).",
-	)
-	cmd.Flags().StringVar(
-		&in.ConsumerDigest,
-		"tack-audit-consumer-digest",
-		"",
-		"Require every audit-consumer replica to match this image index "+
-			"digest (sha256: followed by 64 lowercase hexadecimal digits).",
-	)
+	cmd.Flags().StringVar(&in.Service, "service", "", "Check only this Docker Compose service. The only accepted value is app. Omit the flag to check app and audit-consumer.")
+	cmd.Flags().StringVar(&in.ServerDigest, "tack-server-digest", "", "Require every app replica to match this image index digest (sha256: followed by 64 lowercase hexadecimal digits).")
+	cmd.Flags().StringVar(&in.ConsumerDigest, "tack-audit-consumer-digest", "", "Require every audit-consumer replica to match this image index digest (sha256: followed by 64 lowercase hexadecimal digits).")
 	input := func() (json.RawMessage, error) {
 		encoded, err := json.Marshal(in)
 		if err != nil {
 			slog.Error("ops.deploy.verify.input_encode_failed", slog.String("err", err.Error()))
 			return nil, fmt.Errorf("ops deploy verify: encode the command input: %w", err)
 		}
-
 		return encoded, nil
 	}
-	clispec.AttachRead(
-		cmd,
-		f,
-		deployVerifySpec(),
-		input,
-		func(ctx context.Context) (audit.OperatorReadOutput, error) {
-			services, err := parseDeployVerifyServices(ctx, in.Service)
-			if err != nil {
-				return audit.OperatorReadOutput{}, err
-			}
-
-			digests, err := parseDeployIndexDigests(
-				ctx,
-				in.ServerDigest,
-				in.ConsumerDigest,
-				services,
-			)
-			if err != nil {
-				return audit.OperatorReadOutput{}, err
-			}
-
-			return runDeployVerify(ctx, f.Cfg, in.Tag, services, digests)
-		},
-	)
-
+	clispec.AttachRead(cmd, f, deployVerifySpec(), input, func(ctx context.Context) (audit.OperatorReadOutput, error) {
+		services, err := parseDeployVerifyServices(ctx, in.Service)
+		if err != nil {
+			return audit.OperatorReadOutput{}, err
+		}
+		digests, err := parseDeployIndexDigests(ctx, in.ServerDigest, in.ConsumerDigest, services)
+		if err != nil {
+			return audit.OperatorReadOutput{}, err
+		}
+		return runDeployVerify(ctx, f.Cfg, in.Tag, services, digests)
+	})
 	return cmd
 }
 
@@ -130,11 +94,7 @@ func deployVerifyCommand(f *cli.Factory) *cobra.Command {
 func replicaTargets(replicas []serviceReplica) []audit.Target {
 	targets := make([]audit.Target, 0, len(replicas))
 	for _, replica := range replicas {
-		targets = append(
-			targets,
-			externalTarget(deployContainerReference+strings.TrimPrefix(replica.Container, "/")),
-		)
+		targets = append(targets, externalTarget(deployContainerReference+strings.TrimPrefix(replica.Container, "/")))
 	}
-
 	return targets
 }

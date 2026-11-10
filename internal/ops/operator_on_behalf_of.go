@@ -17,17 +17,8 @@ func requireAccountableOperator(ctx context.Context, principal audit.OperatorPri
 	if principal.ActorType() != audit.ActorService || principal.OnBehalfOf != nil {
 		return nil
 	}
-
-	err := errors.New(
-		"act-as by --operator-service requires --operator-id and --operator-email for the accountable operator",
-	)
-	slog.ErrorContext(
-		ctx,
-		"act_as.accountable_operator_missing",
-		slog.String("service", principal.Name),
-		slog.String("err", err.Error()),
-	)
-
+	err := errors.New("act-as by --operator-service requires --operator-id and --operator-email for the accountable operator")
+	slog.ErrorContext(ctx, "act_as.accountable_operator_missing", slog.String("service", principal.Name), slog.String("err", err.Error()))
 	return err
 }
 
@@ -35,24 +26,15 @@ func requireAccountableOperator(ctx context.Context, principal audit.OperatorPri
 // product user under grantID. A human principal records its own ID and email.
 // A service principal with an accountable operator records that operator's ID
 // and email, plus the agent service name, ID, and session.
-func userRowProvenance(
-	principal audit.OperatorPrincipal,
-	grantID uuid.UUID,
-	reason string,
-) audit.ActProvenance {
+func userRowProvenance(principal audit.OperatorPrincipal, grantID uuid.UUID, reason string) audit.ActProvenance {
 	provenance := audit.ActProvenance{
-		OperatorID:    principal.ID,
-		OperatorEmail: principal.Email,
-		GrantID:       grantID,
-		Reason:        reason,
+		OperatorID: principal.ID, OperatorEmail: principal.Email, GrantID: grantID, Reason: reason,
 	}
 	if principal.OnBehalfOf == nil {
 		return provenance
 	}
-
 	provenance.OperatorID, provenance.OperatorEmail = principal.OnBehalfOf.OperatorID, principal.OnBehalfOf.OperatorEmail
 	provenance.AgentName, provenance.AgentID, provenance.AgentSessionID = principal.Name, principal.ID, principal.SessionID
-
 	return provenance
 }
 
@@ -63,9 +45,7 @@ func onBehalfOfWithReason(principal audit.OperatorPrincipal, reason string) *aud
 	if principal.OnBehalfOf == nil {
 		return nil
 	}
-
 	provenance := *principal.OnBehalfOf
 	provenance.Reason = reason
-
 	return &provenance
 }

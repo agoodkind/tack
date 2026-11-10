@@ -24,7 +24,6 @@ func readTestSQL(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatalf("read testdata/%s: %v", name, err)
 	}
-
 	return string(statement)
 }
 
@@ -39,20 +38,17 @@ func outboxEvents(t *testing.T, records [][]byte, eventID uuid.UUID) []audit.Eve
 	}
 	var envelope []byte
 	var events []audit.Event
-
 	for _, raw := range records {
 		var record outboxRecord
 		if err := json.Unmarshal(raw, &record); err != nil || record.EventID != eventID {
 			continue
 		}
-
 		switch record.Message {
 		case "":
 			var event audit.Event
 			if err := json.Unmarshal(raw, &event); err != nil {
 				t.Fatalf("decode the plain event %s: %v", eventID, err)
 			}
-
 			events = append(events, event)
 		case "event_part":
 			envelope = append(envelope, record.Payload...)
@@ -63,12 +59,10 @@ func outboxEvents(t *testing.T, records [][]byte, eventID uuid.UUID) []audit.Eve
 			if err := json.Unmarshal(envelope, &decoded); err != nil {
 				t.Fatalf("decode the envelope of event %s: %v", eventID, err)
 			}
-
 			events = append(events, decoded.Event)
 			envelope = nil
 		}
 	}
-
 	return events
 }
 
@@ -77,36 +71,22 @@ func outboxEvents(t *testing.T, records [][]byte, eventID uuid.UUID) []audit.Eve
 func deliverReadThroughRelay(t *testing.T, backend *readBackend, eventID uuid.UUID) {
 	t.Helper()
 	stack := startRuntimeAuditStack(t)
-	opened, err := auditrelay.Open(
-		t.Context(),
-		auditrelay.Config{
-			Brokers:               []string{testenv.Kafka(t)},
-			Topic:                 stack.topic,
-			YugabyteDSN:           testenv.Ledger(t),
-			FDBClusterFile:        backend.clusterFile,
-			FDBTransactionTimeout: 5 * time.Second,
-			PollInterval:          100 * time.Millisecond,
-			BatchSize:             64,
-		},
-	)
+	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
+		Brokers: []string{testenv.Kafka(t)}, Topic: stack.topic,
+		YugabyteDSN: testenv.Ledger(t), FDBClusterFile: backend.clusterFile, FDBTransactionTimeout: 5 * time.Second,
+		PollInterval: 100 * time.Millisecond, BatchSize: 64,
+	})
 	if err != nil {
 		t.Fatalf("open the relay: %v", err)
 	}
-
 	opened.Relay.Start(t.Context())
 	defer opened.Pool.Close()
 	defer func() { _ = opened.Relay.Close() }()
 	deadline := clock.Now().Add(runtimeAuditDeadline)
-
 	for len(backend.terminal(t, eventID)) > 0 {
 		if clock.Now().After(deadline) {
-			t.Fatalf(
-				"wait for the relay to delete read %s outbox records: exceeded %s",
-				eventID,
-				runtimeAuditDeadline,
-			)
+			t.Fatalf("wait for the relay to delete read %s outbox records: exceeded %s", eventID, runtimeAuditDeadline)
 		}
-
 		time.Sleep(200 * time.Millisecond)
 	}
 }
@@ -117,19 +97,13 @@ func deliverReadThroughRelay(t *testing.T, backend *readBackend, eventID uuid.UU
 // committed write or none of them.
 func yugabyteOutboxRecords(t *testing.T, admin *pgxpool.Pool, eventID uuid.UUID) [][]byte {
 	t.Helper()
-	rows, err := admin.Query(
-		t.Context(),
-		readTestSQL(t, "runtime_audit_read_outbox_records.sql"),
-		eventID,
-	)
+	rows, err := admin.Query(t.Context(), readTestSQL(t, "runtime_audit_read_outbox_records.sql"), eventID)
 	if err != nil {
 		t.Fatalf("read the YugabyteDB outbox records of event %s: %v", eventID, err)
 	}
-
 	records, err := pgx.CollectRows(rows, pgx.RowTo[[]byte])
 	if err != nil {
 		t.Fatalf("scan the YugabyteDB outbox records of event %s: %v", eventID, err)
 	}
-
 	return records
 }

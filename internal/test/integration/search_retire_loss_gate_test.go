@@ -41,21 +41,12 @@ type retireLogHooks struct {
 	pending   map[string]func()
 }
 
-func installRetireLogHooks(
-	t *testing.T,
-	sessionID string,
-	actions map[string]func(),
-) *retireLogHooks {
+func installRetireLogHooks(t *testing.T, sessionID string, actions map[string]func()) *retireLogHooks {
 	t.Helper()
 	hooks := &retireLogHooks{sessionID: sessionID, mutex: sync.Mutex{}, pending: actions}
 	previous, writer, flags := slog.Default(), log.Writer(), log.Flags()
 	base := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
-	slog.SetDefault(
-		slog.New(retireLogHandler{
-			Handler: base,
-			hooks:   hooks,
-		}),
-	)
+	slog.SetDefault(slog.New(retireLogHandler{Handler: base, hooks: hooks}))
 	t.Cleanup(func() {
 		slog.SetDefault(previous)
 		log.SetOutput(writer)
@@ -67,21 +58,12 @@ func installRetireLogHooks(
 // installRetirePauseGate pauses container at the first log record with
 // pauseMessage and the session ID. It resumes container at the first audit
 // failure log record with the session ID.
-func installRetirePauseGate(
-	t *testing.T,
-	container string,
-	sessionID string,
-	pauseMessage string,
-) *retireLogHooks {
+func installRetirePauseGate(t *testing.T, container, sessionID, pauseMessage string) *retireLogHooks {
 	t.Helper()
-	return installRetireLogHooks(
-		t,
-		sessionID,
-		map[string]func(){
-			pauseMessage:             func() { setContainerPaused(t, container, true) },
-			retireAuditFailedMessage: func() { setContainerPaused(t, container, false) },
-		},
-	)
+	return installRetireLogHooks(t, sessionID, map[string]func(){
+		pauseMessage:             func() { setContainerPaused(t, container, true) },
+		retireAuditFailedMessage: func() { setContainerPaused(t, container, false) },
+	})
 }
 
 func (h *retireLogHooks) observe(record slog.Record) {
@@ -107,11 +89,7 @@ func (h *retireLogHooks) requireFinished(t *testing.T) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 	if len(h.pending) != 0 {
-		t.Fatalf(
-			"the log hooks of session %s did not run for %d messages",
-			h.sessionID,
-			len(h.pending),
-		)
+		t.Fatalf("the log hooks of session %s did not run for %d messages", h.sessionID, len(h.pending))
 	}
 }
 
@@ -134,18 +112,11 @@ func outboxPlainEvents(t *testing.T, stores *fdbadapter.Stores, mark []byte) []a
 
 func startRetireRelay(t *testing.T, stack runtimeAuditStack) {
 	t.Helper()
-	opened, err := auditrelay.Open(
-		t.Context(),
-		auditrelay.Config{
-			Brokers:               []string{testenv.Kafka(t)},
-			Topic:                 stack.topic,
-			YugabyteDSN:           testenv.Ledger(t),
-			FDBClusterFile:        testenv.FoundationDB(t),
-			FDBTransactionTimeout: integration.StoreTransactionTimeout,
-			PollInterval:          100 * time.Millisecond,
-			BatchSize:             64,
-		},
-	)
+	opened, err := auditrelay.Open(t.Context(), auditrelay.Config{
+		Brokers: []string{testenv.Kafka(t)}, Topic: stack.topic, YugabyteDSN: testenv.Ledger(t),
+		FDBClusterFile: testenv.FoundationDB(t), FDBTransactionTimeout: integration.StoreTransactionTimeout,
+		PollInterval: 100 * time.Millisecond, BatchSize: 64,
+	})
 	if err != nil {
 		t.Fatalf("open the audit relay: %v", err)
 	}
@@ -189,13 +160,7 @@ func retireFamilyValue(t *testing.T, family string) []byte {
 
 func retireAttemptKey(t *testing.T, index string) fdb.Key {
 	t.Helper()
-	elements := tuple.Tuple{
-		retireAttemptFamily,
-		index,
-		uuid.NewString(),
-		string(searchdomain.CleanupClose),
-		uuid.NewString(),
-	}
+	elements := tuple.Tuple{retireAttemptFamily, index, uuid.NewString(), string(searchdomain.CleanupClose), uuid.NewString()}
 	return fdb.Key(append(bytes.Clone(fdbadapter.TestPrefixRange()), elements.Pack()...))
 }
 

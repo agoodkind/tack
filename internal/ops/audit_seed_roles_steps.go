@@ -26,17 +26,14 @@ const (
 // SQLSTATE 40001. It returns immediately on success or any other error.
 func readSeededRoleStates(ctx context.Context, pool *pgxpool.Pool) (map[string]roleState, error) {
 	var err error
-
 	for range roleStateReadAttempts {
 		var states map[string]roleState
 		states, err = queryRoleStates(ctx, pool)
 		var postgresError *pgconn.PgError
-		if err == nil || !errors.As(err, &postgresError) ||
-			postgresError.Code != serializationFailureSQLState {
+		if err == nil || !errors.As(err, &postgresError) || postgresError.Code != serializationFailureSQLState {
 			return states, err
 		}
 	}
-
 	return nil, err
 }
 
@@ -49,46 +46,26 @@ func finishRoleStep(
 	steps audit.StepRecorder,
 	step audit.Event,
 	role seededRole,
-	before roleState,
-	after roleState,
+	before, after roleState,
 	runErr error,
 ) error {
-	changed := before.Exists != after.Exists || before.Login != after.Login ||
-		!slices.Equal(before.MemberOf, after.MemberOf)
+	changed := before.Exists != after.Exists || before.Login != after.Login || !slices.Equal(before.MemberOf, after.MemberOf)
 	details := commandOutcome(audit.OutcomeCompleted, "", nil)
 	passwordSet := runErr == nil
 	if runErr != nil && !changed {
-		details = commandOutcome(
-			audit.OutcomeIncomplete,
-			roleChangeUnknownCode,
-			errors.New("seed-roles failed and the role attributes and memberships did not change"),
-		)
+		details = commandOutcome(audit.OutcomeIncomplete, roleChangeUnknownCode,
+			errors.New("seed-roles failed and the role attributes and memberships did not change"))
 	}
-
 	observed := after
-	evidence, err := encodeEvidence(
-		ctx,
-		roleChangeEvidence{
-			Role:        role.login,
-			BaseRole:    role.base,
-			Before:      before,
-			After:       &observed,
-			PasswordSet: passwordSet,
-		},
-	)
+	evidence, err := encodeEvidence(ctx, roleChangeEvidence{
+		Role: role.login, BaseRole: role.base, Before: before, After: &observed, PasswordSet: passwordSet,
+	})
 	if err != nil {
 		return err
 	}
-
 	if err := steps.FinishStep(ctx, audit.FinishedStep(step, details, evidence)); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.seed_roles.step_record_failed",
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.seed_roles.step_record_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("audit seed-roles: record the result for role %s: %w", role.login, err)
 	}
-
 	return nil
 }

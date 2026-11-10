@@ -43,73 +43,39 @@ func newStaleEngine(t *testing.T) staleEngine {
 	if err != nil {
 		t.Fatalf("provision the search model: %v", err)
 	}
-
 	return staleEngine{fixture: fixture, adapter: adapter, client: client, model: model}
 }
 
 func (engine staleEngine) newIndex(t *testing.T, name string) string {
 	t.Helper()
 	createNativeSearchIndex(t, engine.adapter, engine.client, engine.model, name)
-
 	return name
 }
 
 func staleWork(nodeID uuid.UUID, generation int64, target, mirror string) searchdomain.Work {
 	return searchdomain.Work{
-		OrgID:      uuid.Nil,
-		NodeID:     nodeID,
-		Generation: generation,
-		Revision:   "1",
-		Projection: "projection",
-		Cursor:     "",
-		Ordinal:    0,
-		Phase:      searchdomain.PhasePages,
-		Deleted:    false,
-		EnqueuedAt: time.Time{},
-		Owner:      "stale-write-test",
-		LeaseUntil: time.Time{},
-		Class:      searchdomain.WorkClassLive,
-		Target:     target,
-		Mirror:     mirror,
+		OrgID: uuid.Nil, NodeID: nodeID, Generation: generation, Revision: "1", Projection: "projection",
+		Cursor: "", Ordinal: 0, Phase: searchdomain.PhasePages, Deleted: false, EnqueuedAt: time.Time{},
+		Owner: "stale-write-test", LeaseUntil: time.Time{}, Class: searchdomain.WorkClassLive,
+		Target: target, Mirror: mirror,
 	}
 }
 
 func staleContent(work searchdomain.Work, text, accessKey string) searchdomain.WriteIntent {
-	access := node.SearchAccess{
-		Versions:   []string{"v1"},
-		Keys:       []string{accessKey},
-		Generation: work.Generation,
-	}
+	access := node.SearchAccess{Versions: []string{"v1"}, Keys: []string{accessKey}, Generation: work.Generation}
 	page := node.ContentPage{
-		NodeID:            work.NodeID,
-		NodeType:          "stale-node",
-		Revision:          "1",
-		ProjectionVersion: "projection",
-		Name:              "stale page",
-		Text:              text,
-		Access:            access,
-		Ordinal:           0,
-		OverlapBytes:      0,
-		NextCursor:        "",
-		Done:              true,
+		NodeID: work.NodeID, NodeType: "stale-node", Revision: "1", ProjectionVersion: "projection",
+		Name: "stale page", Text: text, Access: access, Ordinal: 0, OverlapBytes: 0, NextCursor: "", Done: true,
 	}
-
 	return searchdomain.WriteIntent{Work: work, Page: page, DocumentID: staleDocumentID}
 }
 
 func staleIssuedDocuments() []searchdomain.IssuedDocument {
-	return []searchdomain.IssuedDocument{
-		{DocumentID: staleDocumentID, Revision: 1, Ordinal: 0, Projection: "projection"},
-	}
+	return []searchdomain.IssuedDocument{{DocumentID: staleDocumentID, Revision: 1, Ordinal: 0, Projection: "projection"}}
 }
 
 func staleAccess(work searchdomain.Work, accessKey string) searchdomain.AccessIntent {
-	access := node.SearchAccess{
-		Versions:   []string{"v1"},
-		Keys:       []string{accessKey},
-		Generation: work.Generation,
-	}
-
+	access := node.SearchAccess{Versions: []string{"v1"}, Keys: []string{accessKey}, Generation: work.Generation}
 	return searchdomain.AccessIntent{Work: work, Documents: staleIssuedDocuments(), Access: access}
 }
 
@@ -120,46 +86,23 @@ func staleRetirement(work searchdomain.Work) searchdomain.RetirementIntent {
 // rawStaleSource returns the stored _source bytes of the test page.
 func rawStaleSource(t *testing.T, client *opensearchapi.Client, index string) []byte {
 	t.Helper()
-	response, err := client.Document.Get(
-		WithTestOperation(t, t.Context()),
-		opensearchapi.GetReq{Index: index, ID: staleDocumentID},
-	)
+	response, err := client.Document.Get(WithTestOperation(t, t.Context()), opensearchapi.GetReq{Index: index, ID: staleDocumentID})
 	if err != nil || !response.Found {
 		t.Fatalf("read page in %s: found %t err %v", index, response.Found, err)
 	}
-
 	return response.Source
 }
 
 // requireUnchanged requires the stored source to equal before byte for byte.
-func requireUnchanged(
-	t *testing.T,
-	client *opensearchapi.Client,
-	index string,
-	before []byte,
-	step string,
-) {
+func requireUnchanged(t *testing.T, client *opensearchapi.Client, index string, before []byte, step string) {
 	t.Helper()
 	if after := rawStaleSource(t, client, index); !bytes.Equal(before, after) {
-		t.Fatalf(
-			"%s changed the stored source in %s:\nbefore %s\nafter  %s",
-			step,
-			index,
-			before,
-			after,
-		)
+		t.Fatalf("%s changed the stored source in %s:\nbefore %s\nafter  %s", step, index, before, after)
 	}
 }
 
 // requireStoredPage requires the stored generation, text, and access key.
-func requireStoredPage(
-	t *testing.T,
-	client *opensearchapi.Client,
-	index string,
-	generation int64,
-	text string,
-	accessKey string,
-) {
+func requireStoredPage(t *testing.T, client *opensearchapi.Client, index string, generation int64, text, accessKey string) {
 	t.Helper()
 	var stored struct {
 		SearchGeneration int64  `json:"search_generation"`
@@ -172,17 +115,9 @@ func requireStoredPage(
 	if err := json.Unmarshal(rawStaleSource(t, client, index), &stored); err != nil {
 		t.Fatalf("decode page in %s: %v", index, err)
 	}
-
 	if stored.SearchGeneration != generation || stored.PageText != text || stored.Retired ||
 		len(stored.Access.Keys) != 1 || stored.Access.Keys[0] != accessKey {
-		t.Fatalf(
-			"page in %s = %+v, want generation %d text %q access %q",
-			index,
-			stored,
-			generation,
-			text,
-			accessKey,
-		)
+		t.Fatalf("page in %s = %+v, want generation %d text %q access %q", index, stored, generation, text, accessKey)
 	}
 }
 
@@ -196,7 +131,6 @@ type staleProxy struct {
 func (proxy *staleProxy) counts() (int, int) {
 	proxy.mutex.Lock()
 	defer proxy.mutex.Unlock()
-
 	return proxy.mgetRequests, proxy.bulkRequests
 }
 
@@ -204,23 +138,16 @@ func (proxy *staleProxy) counts() (int, int) {
 // to a local TLS proxy. The proxy forwards each request to the engine. Before
 // it forwards bulk request number n (from 1) it runs inject(n), which can
 // write to the engine directly.
-func newStaleProxyAdapter(
-	t *testing.T,
-	fixture testenv.OpenSearchFixture,
-	inject func(bulkNumber int) error,
-) (*search.Adapter, *staleProxy) {
+func newStaleProxyAdapter(t *testing.T, fixture testenv.OpenSearchFixture, inject func(bulkNumber int) error) (*search.Adapter, *staleProxy) {
 	t.Helper()
 	target, err := url.Parse(fixture.Endpoint)
 	if err != nil {
 		t.Fatalf("parse engine endpoint: %v", err)
 	}
-
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM([]byte(fixture.CA))
 	forward := httputil.NewSingleHostReverseProxy(target)
-	forward.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
-	}
+	forward.Transport = &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}
 	proxy := &staleProxy{mutex: sync.Mutex{}, mgetRequests: 0, bulkRequests: 0}
 	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		proxy.mutex.Lock()
@@ -228,22 +155,18 @@ func newStaleProxyAdapter(
 		if isBulk {
 			proxy.bulkRequests++
 		}
-
 		bulkNumber := proxy.bulkRequests
 		if strings.HasSuffix(request.URL.Path, "/_mget") {
 			proxy.mgetRequests++
 		}
-
 		proxy.mutex.Unlock()
 		if isBulk {
 			if err := inject(bulkNumber); err != nil {
 				t.Errorf("inject the concurrent write: %v", err)
 				http.Error(writer, err.Error(), http.StatusInternalServerError)
-
 				return
 			}
 		}
-
 		request.Host = target.Host
 		forward.ServeHTTP(writer, request)
 	})
@@ -251,29 +174,21 @@ func newStaleProxyAdapter(
 	if err != nil {
 		t.Fatalf("listen for the proxy: %v", err)
 	}
-
 	server := httptest.NewUnstartedServer(handler)
 	server.Listener = listener
 	server.StartTLS()
 	t.Cleanup(server.Close)
-	authority := pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: server.Certificate().Raw,
-	})
+	authority := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
 	configuration := nativeSearchConfig(fixture)
 	configuration.Endpoint, configuration.CA = server.URL, string(authority)
 	adapter, err := search.New(WithTestOperation(t, t.Context()), configuration)
 	if err != nil {
 		t.Fatalf("create the adapter behind the proxy: %v", err)
 	}
-
 	t.Cleanup(func() {
-		if err := adapter.Close(
-			context.WithoutCancel(WithTestOperation(t, t.Context())),
-		); err != nil {
+		if err := adapter.Close(context.WithoutCancel(WithTestOperation(t, t.Context()))); err != nil {
 			t.Error(err)
 		}
 	})
-
 	return adapter, proxy
 }

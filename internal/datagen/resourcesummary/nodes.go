@@ -66,13 +66,9 @@ func SummarizeRun(ctx context.Context, path string) (RunSummary, error) {
 	if err != nil {
 		return RunSummary{}, err
 	}
-	slog.InfoContext(
-		ctx,
-		"resource_summary.run_read",
-		slog.String("path", path),
-		slog.Int("samples", len(result.Samples)),
-		slog.Int("nodes", len(nodes)),
-	)
+	slog.InfoContext(ctx, "resource_summary.run_read",
+		slog.String("path", path), slog.Int("samples", len(result.Samples)),
+		slog.Int("nodes", len(nodes)))
 	return RunSummary{Samples: len(result.Samples), Nodes: nodes}, nil
 }
 
@@ -96,12 +92,9 @@ func summarizeNodes(samples []runSample) ([]NodeSummary, error) {
 	for _, summary := range byName {
 		nodes = append(nodes, *summary)
 	}
-	slices.SortFunc(
-		nodes,
-		func(left NodeSummary, right NodeSummary) int {
-			return strings.Compare(left.Name, right.Name)
-		},
-	)
+	slices.SortFunc(nodes, func(left NodeSummary, right NodeSummary) int {
+		return strings.Compare(left.Name, right.Name)
+	})
 	return nodes, nil
 }
 
@@ -109,18 +102,12 @@ func summarizeNodes(samples []runSample) ([]NodeSummary, error) {
 // as zero.
 func checkNodeTotals(node datagen.SearchMixedNodeResources) error {
 	if node.HeapMaxBytes <= 0 {
-		return fmt.Errorf(
-			"node %s has heap_max_bytes %d, want a positive value",
-			node.Name,
-			node.HeapMaxBytes,
-		)
+		return fmt.Errorf("node %s has heap_max_bytes %d, want a positive value",
+			node.Name, node.HeapMaxBytes)
 	}
 	if node.MemoryTotalBytes <= 0 {
-		return fmt.Errorf(
-			"node %s has memory_total_bytes %d, want a positive value",
-			node.Name,
-			node.MemoryTotalBytes,
-		)
+		return fmt.Errorf("node %s has memory_total_bytes %d, want a positive value",
+			node.Name, node.MemoryTotalBytes)
 	}
 	return nil
 }

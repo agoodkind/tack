@@ -33,18 +33,8 @@ func TestReleaseReportsAbnormalFixtures(t *testing.T) {
 		return
 	}
 	bootstrap := testenv.Kafka(t)
-	command := exec.CommandContext(
-		t.Context(),
-		os.Args[0],
-		"-test.run=^TestReleaseReportsAbnormalFixtures$",
-		"-test.timeout=2m",
-		"-test.v",
-	)
-	command.Env = append(
-		os.Environ(),
-		diagnosticChildVariable+"=1",
-		diagnosticParentVariable+"="+bootstrap,
-	)
+	command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestReleaseReportsAbnormalFixtures$", "-test.timeout=2m", "-test.v")
+	command.Env = append(os.Environ(), diagnosticChildVariable+"=1", diagnosticParentVariable+"="+bootstrap)
 	command.Stdout, command.Stderr = t.Output(), t.Output()
 	command.SysProcAttr = &unix.SysProcAttr{Setpgid: true}
 	if err := command.Run(); err != nil {
@@ -84,41 +74,17 @@ func exerciseReleaseDiagnostics(t *testing.T) {
 	broker := diagnosticBroker(t, cli, bootstrap)
 	competing := diagnosticBroker(t, cli, parentBootstrap)
 	if broker.ID == competing.ID {
-		t.Fatal(
-			"broker discovery selected one container for distinct parent and child bootstrap addresses",
-		)
+		t.Fatal("broker discovery selected one container for distinct parent and child bootstrap addresses")
 	}
-	normal := diagnosticHelper(
-		t,
-		cli,
-		broker.Image,
-		broker.Labels,
-		[]string{"printf"},
-		[]string{"normal helper completed\n"},
-	)
-	failed := diagnosticHelper(
-		t,
-		cli,
-		broker.Image,
-		broker.Labels,
-		[]string{"java"},
-		[]string{"-" + strings.Repeat("x", 32<<10)},
-	)
+	normal := diagnosticHelper(t, cli, broker.Image, broker.Labels, []string{"printf"}, []string{"normal helper completed\n"})
+	failed := diagnosticHelper(t, cli, broker.Image, broker.Labels, []string{"java"}, []string{"-" + strings.Repeat("x", 32<<10)})
 	waitForDiagnosticExit(t, cli, normal)
 	waitForDiagnosticExit(t, cli, failed)
-	if _, err := cli.ContainerKill(
-		ctx,
-		broker.ID,
-		client.ContainerKillOptions{Signal: "SIGKILL"},
-	); err != nil {
+	if _, err := cli.ContainerKill(ctx, broker.ID, client.ContainerKillOptions{Signal: "SIGKILL"}); err != nil {
 		t.Fatal(err)
 	}
 	waitForDiagnosticExit(t, cli, broker.ID)
-	inspection, err := cli.ContainerInspect(
-		ctx,
-		broker.ID,
-		client.ContainerInspectOptions{Size: false},
-	)
+	inspection, err := cli.ContainerInspect(ctx, broker.ID, client.ContainerInspectOptions{Size: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,25 +102,14 @@ func exerciseReleaseDiagnostics(t *testing.T) {
 	slog.SetDefault(previous)
 	diagnostics := readCleanupDiagnostics(t, output.Bytes())
 	if len(diagnostics) != 2 {
-		t.Fatalf(
-			"cleanup reported %d abnormal fixtures, want the failed broker and helper",
-			len(diagnostics),
-		)
+		t.Fatalf("cleanup reported %d abnormal fixtures, want the failed broker and helper", len(diagnostics))
 	}
-	for _, expected := range []string{
-		"status exited",
-		"exit code 137",
-		"OOM killed false",
-		`error ""`,
-		"finished at " + state.FinishedAt,
-		"last 80 engine log lines:\n",
-	} {
+	for _, expected := range []string{"status exited", "exit code 137", "OOM killed false", `error ""`, "finished at " + state.FinishedAt, "last 80 engine log lines:\n"} {
 		if !strings.Contains(diagnostics[broker.ID], expected) {
 			t.Errorf("broker diagnostic omitted %q: %s", expected, diagnostics[broker.ID])
 		}
 	}
-	if !strings.Contains(diagnostics[failed], "[older log bytes omitted]") ||
-		!strings.Contains(diagnostics[failed], "Could not create the Java Virtual Machine") {
+	if !strings.Contains(diagnostics[failed], "[older log bytes omitted]") || !strings.Contains(diagnostics[failed], "Could not create the Java Virtual Machine") {
 		t.Error("helper diagnostic did not retain its bounded final log")
 	}
 	if len(diagnostics[failed]) > 32<<10 || len(diagnostics[broker.ID]) > 32<<10 {
@@ -169,11 +124,7 @@ func exerciseReleaseDiagnostics(t *testing.T) {
 			t.Errorf("Release did not remove selected fixture %s: %v", identifier, err)
 		}
 	}
-	inspection, err = cli.ContainerInspect(
-		ctx,
-		competing.ID,
-		client.ContainerInspectOptions{Size: false},
-	)
+	inspection, err = cli.ContainerInspect(ctx, competing.ID, client.ContainerInspectOptions{Size: false})
 	if err != nil || inspection.Container.State == nil || !inspection.Container.State.Running {
 		t.Fatalf("Release changed the parent broker %s: %v", competing.ID, err)
 	}

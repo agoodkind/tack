@@ -18,15 +18,8 @@ func renderList(rc *renderCtx, kind string, views []*node.NodeView) string {
 	for _, view := range views {
 		items = append(items, nodeListItem(rc, view))
 	}
-
 	addNodeTargets(rc.ctx, views...)
-	data := collectionTemplateData{
-		Heading: titleText(kind),
-		Count:   len(views),
-		Noun:    kind,
-		Items:   items,
-	}
-
+	data := collectionTemplateData{Heading: titleText(kind), Count: len(views), Noun: kind, Items: items}
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }
 
@@ -40,20 +33,13 @@ func renderWorkspaceDescribe(rc *renderCtx, ws *node.NodeView, types []nodeTypeS
 		if len(nodeType.Features) > 0 {
 			fields = append(fields, markdownFieldValue("Features", codeList(nodeType.Features)))
 		}
-
 		if ref := referenceSummary(nodeType.Reference); ref != "" {
 			fields = append(fields, markdownCodeFieldValue("Reference", ref))
 		}
-
 		fields = append(fields, markdownFieldValue("Direct children", childCountText(nodeType)))
-		items = append(
-			items,
-			markdownItem{Title: "Tool token " + markdownCodeValue(nodeType.Slug), Fields: fields},
-		)
+		items = append(items, markdownItem{Title: "Tool token " + markdownCodeValue(nodeType.Slug), Fields: fields})
 	}
-
 	data := workspaceDescribeTemplateData{Node: renderNode(rc, ws), NodeTypes: items}
-
 	return executeMarkdownTemplate("workspace_describe.md.tmpl", data)
 }
 
@@ -63,7 +49,6 @@ func childCountText(nodeType nodeTypeSummary) string {
 	if nodeType.ChildCountMore {
 		return fmt.Sprintf("%d+", nodeType.ChildCount)
 	}
-
 	return strconv.Itoa(nodeType.ChildCount)
 }
 
@@ -74,48 +59,27 @@ func renderMembers(users []*user.User) string {
 		if name == "" {
 			name = user.Email
 		}
-
 		fields := []markdownField{
 			markdownCodeFieldValue("Operational user id", user.ID.String()),
 			markdownFieldValue("Email", user.Email),
 		}
 		items = append(items, markdownItem{Title: name, Fields: fields})
 	}
-
-	data := collectionTemplateData{
-		Heading: "Members",
-		Count:   len(users),
-		Noun:    "members",
-		Items:   items,
-	}
-
+	data := collectionTemplateData{Heading: "Members", Count: len(users), Noun: "members", Items: items}
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }
 
-func renderRelationships(
-	rc *renderCtx,
-	direction string,
-	rels []*node.Relationship,
-	otherIsTarget bool,
-) string {
+func renderRelationships(rc *renderCtx, direction string, rels []*node.Relationship, otherIsTarget bool) string {
 	items := make([]markdownItem, 0, len(rels))
 	label := "Source"
 	if otherIsTarget {
 		label = "Target"
 	}
-
 	for _, rel := range rels {
 		items = append(items, relationshipListItem(rc, rel, label, otherIsTarget))
 	}
-
 	addRelationshipTargets(rc.ctx, rels)
-	data := collectionTemplateData{
-		Heading: fmt.Sprintf("%s relationships", titleText(direction)),
-		Count:   len(rels),
-		Noun:    "relationships",
-		Items:   items,
-	}
-
+	data := collectionTemplateData{Heading: fmt.Sprintf("%s relationships", titleText(direction)), Count: len(rels), Noun: "relationships", Items: items}
 	return executeMarkdownTemplate("collection.md.tmpl", data)
 }
 
@@ -133,43 +97,31 @@ func nodeListItem(rc *renderCtx, view *node.NodeView) markdownItem {
 	} else if ident != view.Name {
 		fields = append([]markdownField{markdownFieldValue("Name", view.Name)}, fields...)
 	}
-
 	if state := rc.nodeIdentifier(uuidProp(view, "state_id")); state != "" {
 		fields = append(fields, markdownCodeFieldValue("State", state))
 	}
-
 	if priority := stringProp(view, "priority"); priority != "" {
 		fields = append(fields, markdownCodeFieldValue("Priority", priority))
 	}
-
 	fields = appendNestedAssigned(fields, rc, view)
 	for index := range fields {
 		fields[index].Value = lineBreakReplacer.Replace(fields[index].Value)
 	}
-
 	return markdownItem{Title: markdownCodeValue(lineBreakReplacer.Replace(ident)), Fields: fields}
 }
 
-func relationshipListItem(
-	rc *renderCtx,
-	rel *node.Relationship,
-	label string,
-	otherIsTarget bool,
-) markdownItem {
+func relationshipListItem(rc *renderCtx, rel *node.Relationship, label string, otherIsTarget bool) markdownItem {
 	otherID := rel.SourceID
 	if otherIsTarget {
 		otherID = rel.TargetID
 	}
-
 	ident, name := rc.nodeSummaryInOrg(otherID, rel.OrgID)
 	if ident == "" {
 		ident = otherID.String()
 	}
-
 	fields := []markdownField{markdownCodeFieldValue(label, ident)}
 	if name != "" {
 		fields = append(fields, markdownFieldValue(label+" name", name))
 	}
-
 	return markdownItem{Title: markdownCodeValue(rel.RelationType), Fields: fields}
 }

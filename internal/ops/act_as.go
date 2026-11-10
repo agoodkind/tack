@@ -99,100 +99,60 @@ type actAsTarget struct {
 	parentID uuid.UUID
 }
 
-func runActAsCreate(
-	ctx context.Context,
-	deps actAsDeps,
-	input actAsCreateInput,
-	sink clispec.ResultSink,
-	execute bool,
-) error {
+func runActAsCreate(ctx context.Context, deps actAsDeps, input actAsCreateInput, sink clispec.ResultSink, execute bool) error {
 	reason := strings.TrimSpace(input.Reason)
 	if reason == "" {
 		return errors.New("a reason is required; it is recorded on the grant and on the user's row")
 	}
-
 	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.NodeType) == "" {
 		return errors.New("--node-type and --name are required")
 	}
-
 	target, err := resolveActAsTarget(ctx, deps, input)
 	if err != nil {
 		return err
 	}
-
 	result := actAsCreateResult{
-		ResultMarker: clispec.ResultMarker{},
-		Command:      "ops.act_as.create",
-		DryRun:       !execute,
-		UserID:       target.user.ID.String(),
-		Email:        target.user.Email,
-		OrgID:        target.orgID.String(),
-		ParentID:     target.parentID.String(),
-		NodeType:     input.NodeType,
-		GrantID:      "",
-		NodeID:       "",
-		RowCommitted: false,
+		ResultMarker: clispec.ResultMarker{}, Command: "ops.act_as.create", DryRun: !execute,
+		UserID: target.user.ID.String(), Email: target.user.Email, OrgID: target.orgID.String(),
+		ParentID: target.parentID.String(), NodeType: input.NodeType, GrantID: "", NodeID: "", RowCommitted: false,
 	}
 	if !execute {
 		return writeActAsResult(ctx, sink, result)
 	}
-
 	principal, err := deps.identity.Resolve(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "act_as.principal_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("resolve the operator for the act-as grant: %w", err)
 	}
-
 	if err := requireAccountableOperator(ctx, principal); err != nil {
 		return err
 	}
-
 	grantID, err := uuid.NewV7()
 	if err != nil {
 		slog.ErrorContext(ctx, "act_as.grant_id_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("generate the act-as grant id: %w", err)
 	}
-
 	grant := actAsGrantExtra{
-		GrantID:      grantID,
-		TargetUserID: target.user.ID,
-		TargetEmail:  target.user.Email,
-		OrgID:        target.orgID,
-		Reason:       reason,
-		NodeType:     input.NodeType,
-		ParentID:     target.parentID,
-		SessionID:    principal.SessionID,
-		OnBehalfOf:   onBehalfOfWithReason(principal, reason),
+		GrantID: grantID, TargetUserID: target.user.ID, TargetEmail: target.user.Email,
+		OrgID: target.orgID, Reason: reason, NodeType: input.NodeType, ParentID: target.parentID,
+		SessionID: principal.SessionID, OnBehalfOf: onBehalfOfWithReason(principal, reason),
 	}
 	if err := recordActAsGrant(ctx, deps.outbox, principal, grant); err != nil {
 		return err
 	}
-
 	result.GrantID = grant.GrantID.String()
-	created, err := createAsUser(
-		ctx,
-		deps.nodes,
-		target,
-		input,
-		userRowProvenance(principal, grant.GrantID, reason),
-	)
+	created, err := createAsUser(ctx, deps.nodes, target, input, userRowProvenance(principal, grant.GrantID, reason))
 	if err != nil {
 		return err
 	}
-
 	result.NodeID = created.nodeID.String()
 	result.RowCommitted = created.rowCommitted
-
 	return writeActAsResult(ctx, sink, result)
 }
 
 // resolveActAsTarget names the user and the org the write is for, and refuses
 // an unknown user, an unknown parent, or a user outside the parent's org.
-func resolveActAsTarget(
-	ctx context.Context,
-	deps actAsDeps,
-	input actAsCreateInput,
-) (actAsTarget, error) {
+func resolveActAsTarget(ctx context.Context, deps actAsDeps, input actAsCreateInput) (actAsTarget, error) {
 	none := actAsTarget{user: nil, orgID: uuid.Nil, parentID: uuid.Nil}
 	email := strings.TrimSpace(input.Email)
 	target, err := deps.users.GetByEmail(ctx, email)
@@ -200,87 +160,41 @@ func resolveActAsTarget(
 		slog.WarnContext(ctx, "act_as.user_unknown", slog.String("email", email))
 		return none, fmt.Errorf("no active user %q exists", email)
 	}
-
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"act_as.user_lookup_failed",
-			slog.String("email", email),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "act_as.user_lookup_failed", slog.String("email", email), slog.String("err", err.Error()))
 		return none, fmt.Errorf("look up user %q: %w", email, err)
 	}
-
 	parentID, err := uuid.Parse(strings.TrimSpace(input.ParentID))
 	if err != nil {
-		slog.WarnContext(
-			ctx,
-			"act_as.parent_invalid",
-			slog.String("parent", input.ParentID),
-			slog.String("err", err.Error()),
-		)
-
+		slog.WarnContext(ctx, "act_as.parent_invalid", slog.String("parent", input.ParentID), slog.String("err", err.Error()))
 		return none, fmt.Errorf("--parent must be a UUID: %w", err)
 	}
-
 	resolve, err := deps.reader.Resolve(ctx, parentID)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"act_as.parent_lookup_failed",
-			slog.String("parent_id", parentID.String()),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "act_as.parent_lookup_failed", slog.String("parent_id", parentID.String()), slog.String("err", err.Error()))
 		return none, fmt.Errorf("resolve parent %s: %w", parentID, err)
 	}
-
 	if resolve == nil {
 		slog.WarnContext(ctx, "act_as.parent_unknown", slog.String("parent_id", parentID.String()))
 		return none, fmt.Errorf("parent %s: %w", parentID, domain.ErrNotFound)
 	}
-
 	orgIDs, err := deps.members.ListOrgIDsForUser(ctx, target.ID)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"act_as.membership_lookup_failed",
-			slog.String("user_id", target.ID.String()),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "act_as.membership_lookup_failed", slog.String("user_id", target.ID.String()), slog.String("err", err.Error()))
 		return none, fmt.Errorf("list orgs for user %s: %w", email, err)
 	}
-
 	if !slices.Contains(orgIDs, resolve.OrgID) {
-		slog.WarnContext(
-			ctx,
-			"act_as.membership_refused",
-			slog.String("user_id", target.ID.String()),
-			slog.String("org_id", resolve.OrgID.String()),
-		)
-
-		return none, fmt.Errorf(
-			"user %q is not a member of org %s, which holds parent %s",
-			email,
-			resolve.OrgID,
-			parentID,
-		)
+		slog.WarnContext(ctx, "act_as.membership_refused",
+			slog.String("user_id", target.ID.String()), slog.String("org_id", resolve.OrgID.String()))
+		return none, fmt.Errorf("user %q is not a member of org %s, which holds parent %s", email, resolve.OrgID, parentID)
 	}
-
 	return actAsTarget{user: target, orgID: resolve.OrgID, parentID: parentID}, nil
 }
 
-func writeActAsResult(
-	ctx context.Context,
-	sink clispec.ResultSink,
-	result actAsCreateResult,
-) error {
+func writeActAsResult(ctx context.Context, sink clispec.ResultSink, result actAsCreateResult) error {
 	if err := clispec.WriteJSONValue(ctx, sink, result); err != nil {
 		slog.ErrorContext(ctx, "act_as.report_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("write the act-as report: %w", err)
 	}
-
 	return nil
 }

@@ -32,7 +32,6 @@ var postgresqlState provisioned
 func PostgreSQL(t T) string {
 	t.Helper()
 	skipWhenShort(t)
-
 	return postgresqlState.get(t, provisionPostgreSQL)
 }
 
@@ -44,28 +43,21 @@ func provisionPostgreSQL(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	cli, err := dockerClient(ctx)
 	if err != nil {
 		return "", err
 	}
-
 	defer func() { _ = cli.Close() }()
-	started, err := startEngine(
-		ctx,
-		cli,
-		engineSpec{
-			kind:     "postgresql",
-			image:    postgresqlImage,
-			platform: nil,
-			cmd:      nil,
-			env:      []string{"POSTGRES_PASSWORD=" + superuserKey},
-		},
-	)
+	started, err := startEngine(ctx, cli, engineSpec{
+		kind:     "postgresql",
+		image:    postgresqlImage,
+		platform: nil,
+		cmd:      nil,
+		env:      []string{"POSTGRES_PASSWORD=" + superuserKey},
+	})
 	if err != nil {
 		return "", err
 	}
-
 	dsn := url.URL{
 		Scheme:   "postgres",
 		User:     url.UserPassword(postgresqlAdminUser, superuserKey),
@@ -76,9 +68,7 @@ func provisionPostgreSQL(ctx context.Context) (string, error) {
 	if err := waitForPostgreSQL(ctx, dsn.String()); err != nil {
 		return "", err
 	}
-
 	slog.InfoContext(ctx, "testenv.postgresql.ready", slog.String("container", started.name))
-
 	return dsn.String(), nil
 }
 
@@ -90,18 +80,9 @@ func waitForPostgreSQL(ctx context.Context, dsn string) error {
 		if lastErr == nil {
 			return nil
 		}
-
 		if !sleepOrDone(ctx) {
-			slog.ErrorContext(
-				ctx,
-				"testenv.postgresql.not_ready",
-				slog.String("err", lastErr.Error()),
-			)
-
-			return fmt.Errorf(
-				"the test PostgreSQL server did not answer before the deadline: %w",
-				lastErr,
-			)
+			slog.ErrorContext(ctx, "testenv.postgresql.not_ready", slog.String("err", lastErr.Error()))
+			return fmt.Errorf("the test PostgreSQL server did not answer before the deadline: %w", lastErr)
 		}
 	}
 }

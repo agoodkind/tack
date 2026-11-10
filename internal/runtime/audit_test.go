@@ -26,26 +26,20 @@ func TestAppRuntimeDoesNotStartNotarizer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("kfake.NewCluster: %v", err)
 	}
-
 	t.Cleanup(cluster.Close)
 	ctx := context.Background()
 	// The brokers have to answer, because startup now refuses an unreachable
 	// backend rather than degrading to a recorder that discards events.
-	appRuntime, err := buildAuditRuntime(
-		ctx,
-		&config.Config{
-			AuditKafkaBrokers:        strings.Join(cluster.ListenAddrs(), ","),
-			AuditKafkaTopic:          "audit.events.v1",
-			AuditKafkaProduceTimeout: 10 * time.Second,
-			AuditSigningKeyPath:      writeAuditSigningKey(t),
-			AuditWriterDSN:           server.DSN(),
-		},
-		nil,
-	)
+	appRuntime, err := buildAuditRuntime(ctx, &config.Config{
+		AuditKafkaBrokers:        strings.Join(cluster.ListenAddrs(), ","),
+		AuditKafkaTopic:          "audit.events.v1",
+		AuditKafkaProduceTimeout: 10 * time.Second,
+		AuditSigningKeyPath:      writeAuditSigningKey(t),
+		AuditWriterDSN:           server.DSN(),
+	}, nil)
 	if err != nil {
 		t.Fatalf("build audit runtime: %v", err)
 	}
-
 	t.Cleanup(appRuntime.Close)
 
 	if got := server.connections.Load(); got != 0 {
@@ -64,11 +58,9 @@ func newAuditPostgresServer(t *testing.T) *auditPostgresServer {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-
 	server := &auditPostgresServer{listener: listener}
 	go server.serve()
 	t.Cleanup(func() { _ = listener.Close() })
-
 	return server
 }
 
@@ -85,7 +77,6 @@ func (s *auditPostgresServer) serve() {
 		if err != nil {
 			return
 		}
-
 		s.connections.Add(1)
 		go serveAuditPostgresConnection(connection)
 	}
@@ -97,31 +88,19 @@ func serveAuditPostgresConnection(connection net.Conn) {
 	if _, err := backend.ReceiveStartupMessage(); err != nil {
 		return
 	}
-
 	backend.Send(&pgproto3.AuthenticationOk{})
-	backend.Send(&pgproto3.ParameterStatus{
-		Name:  "client_encoding",
-		Value: "UTF8",
-	})
-	backend.Send(&pgproto3.ParameterStatus{
-		Name:  "standard_conforming_strings",
-		Value: "on",
-	})
-	backend.Send(&pgproto3.BackendKeyData{
-		ProcessID: 1,
-		SecretKey: make([]byte, 4),
-	})
+	backend.Send(&pgproto3.ParameterStatus{Name: "client_encoding", Value: "UTF8"})
+	backend.Send(&pgproto3.ParameterStatus{Name: "standard_conforming_strings", Value: "on"})
+	backend.Send(&pgproto3.BackendKeyData{ProcessID: 1, SecretKey: make([]byte, 4)})
 	backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 	if err := backend.Flush(); err != nil {
 		return
 	}
-
 	for {
 		message, err := backend.Receive()
 		if err != nil {
 			return
 		}
-
 		switch message.(type) {
 		case *pgproto3.Query:
 			backend.Send(&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{}})
@@ -142,23 +121,13 @@ func writeAuditSigningKey(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("generate signing key: %v", err)
 	}
-
 	der, err := x509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {
 		t.Fatalf("marshal signing key: %v", err)
 	}
-
 	path := filepath.Join(t.TempDir(), "audit-signing.pem")
-	if err := os.WriteFile(
-		path,
-		pem.EncodeToMemory(&pem.Block{
-			Type:  "PRIVATE KEY",
-			Bytes: der,
-		}),
-		0o600,
-	); err != nil {
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
 		t.Fatalf("write signing key: %v", err)
 	}
-
 	return path
 }

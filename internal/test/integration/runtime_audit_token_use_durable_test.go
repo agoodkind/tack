@@ -42,13 +42,8 @@ func TestRuntimeAuditTokenUseDurableBeforeSuccess(t *testing.T) {
 
 	stored := outboxTokenUsed(t, server, requestID)
 	if stored.Actor.ID != server.userID || stored.Context.APITokenID != tokenID {
-		t.Fatalf(
-			"outbox auth.token_used actor = %s, token = %s, want %s and %s",
-			stored.Actor.ID,
-			stored.Context.APITokenID,
-			server.userID,
-			tokenID,
-		)
+		t.Fatalf("outbox auth.token_used actor = %s, token = %s, want %s and %s",
+			stored.Actor.ID, stored.Context.APITokenID, server.userID, tokenID)
 	}
 
 	ledger := startPublicLedgerOn(t, server, stack)
@@ -60,12 +55,8 @@ func TestRuntimeAuditTokenUseDurableBeforeSuccess(t *testing.T) {
 	for _, other := range rows {
 		if other.Action != string(audit.VerbAuthTokenUsed) &&
 			other.Context.OperationID != row.Context.OperationID {
-			t.Fatalf(
-				"%s row operation ID = %s, want the auth.token_used operation ID %s",
-				other.Action,
-				other.Context.OperationID,
-				row.Context.OperationID,
-			)
+			t.Fatalf("%s row operation ID = %s, want the auth.token_used operation ID %s",
+				other.Action, other.Context.OperationID, row.Context.OperationID)
 		}
 	}
 

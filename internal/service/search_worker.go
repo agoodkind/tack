@@ -44,28 +44,15 @@ type SearchWorker struct {
 // NewSearchWorker constructs one worker identity with class time shares.
 // offset rotates the class order used to break ties. Concurrent workers
 // with different offsets start at different classes.
-func NewSearchWorker(
-	ports SearchWorkerPorts,
-	source clock.Clock,
-	settings config.SearchWorkerSettings,
-	offset int,
-) (*SearchWorker, error) {
+func NewSearchWorker(ports SearchWorkerPorts, source clock.Clock, settings config.SearchWorkerSettings, offset int) (*SearchWorker, error) {
 	if ports.Audit.Outbox == nil || ports.Audit.Actor.ID == uuid.Nil {
 		return nil, errors.New("search worker: set the audit outbox and service actor")
 	}
-
 	shares, err := newClassShares(settings.ClassWeights, settings.SliceBudget, offset)
 	if err != nil {
 		return nil, err
 	}
-
-	return &SearchWorker{
-		ports:    ports,
-		clock:    source,
-		owner:    uuid.NewString(),
-		settings: settings,
-		shares:   shares,
-	}, nil
+	return &SearchWorker{ports: ports, clock: source, owner: uuid.NewString(), settings: settings, shares: shares}, nil
 }
 
 // RunSlice claims from the pending class with the least worker time per
@@ -76,7 +63,6 @@ func (w *SearchWorker) RunSlice(ctx context.Context) (bool, error) {
 	if err != nil || !claimed {
 		return false, err
 	}
-
 	return true, w.Process(ctx, work)
 }
 
@@ -89,28 +75,16 @@ func (w *SearchWorker) Process(ctx context.Context, work searchdomain.Work) erro
 	err := w.processClass(ctx, work, budget)
 	duration := w.clock.Since(budget.started)
 	weighted := w.shares.spend(work.Class, duration)
-	telemetry.L(ctx).DebugContext(
-		ctx,
-		"search.worker.slice_completed",
-		slog.String("class", string(work.Class)),
-		slog.String("node_id", work.NodeID.String()),
-		slog.Int64("generation", work.Generation),
-		slog.String("index", work.Target),
-		slog.Int("pages", budget.pages),
-		slog.Int("encoded_bytes", budget.bytes),
-		slog.Duration("duration", duration),
-		slog.Duration("class_weighted_time", weighted),
-		slog.Duration("work_age", budget.started.Sub(work.EnqueuedAt)),
-	)
-
+	telemetry.L(ctx).DebugContext(ctx, "search.worker.slice_completed",
+		slog.String("class", string(work.Class)), slog.String("node_id", work.NodeID.String()),
+		slog.Int64("generation", work.Generation), slog.String("index", work.Target),
+		slog.Int("pages", budget.pages), slog.Int("encoded_bytes", budget.bytes),
+		slog.Duration("duration", duration), slog.Duration("class_weighted_time", weighted),
+		slog.Duration("work_age", budget.started.Sub(work.EnqueuedAt)))
 	return err
 }
 
-func (w *SearchWorker) processClass(
-	ctx context.Context,
-	work searchdomain.Work,
-	budget *sliceBudget,
-) error {
+func (w *SearchWorker) processClass(ctx context.Context, work searchdomain.Work, budget *sliceBudget) error {
 	switch work.Class {
 	case searchdomain.WorkClassLive, searchdomain.WorkClassCopy:
 		return w.contentSlice(ctx, work, budget)
@@ -125,12 +99,7 @@ func (w *SearchWorker) processClass(
 	case searchdomain.WorkClassRebuild:
 		return w.rebuildSlice(ctx, work)
 	default:
-		return w.settle(
-			ctx,
-			work,
-			"process search work",
-			fmt.Errorf("unknown work class %q", work.Class),
-		)
+		return w.settle(ctx, work, "process search work", fmt.Errorf("unknown work class %q", work.Class))
 	}
 }
 
@@ -142,7 +111,6 @@ func (w *SearchWorker) processClass(
 // error. Any other claim error ends the attempt with that error.
 func (w *SearchWorker) claimNext(ctx context.Context) (searchdomain.Work, bool, error) {
 	var none searchdomain.Work
-
 	order := w.shares.order()
 	for tried, position := range order {
 		class := scheduledClasses[position]
@@ -152,33 +120,19 @@ func (w *SearchWorker) claimNext(ctx context.Context) (searchdomain.Work, bool, 
 			for _, empty := range order[:tried] {
 				w.shares.limitBank(empty, position)
 			}
-
 			return work, true, nil
 		case err == nil:
 			continue
 		case errors.Is(err, searchdomain.ErrNoServingIndex):
-			telemetry.L(ctx).DebugContext(
-				ctx,
-				"search.worker.index_pending",
-				slog.String("class", string(class)),
-			)
-
+			telemetry.L(ctx).DebugContext(ctx, "search.worker.index_pending", slog.String("class", string(class)))
 			return none, false, nil
 		default:
 			wrapped := fmt.Errorf("claim %s search work: %w", class, err)
-			telemetry.L(ctx).ErrorContext(
-				ctx,
-				"search.worker.claim_failed",
-				slog.String("err", wrapped.Error()),
-				slog.String("class", string(class)),
-			)
-
+			telemetry.L(ctx).ErrorContext(ctx, "search.worker.claim_failed", slog.String("err", wrapped.Error()), slog.String("class", string(class)))
 			return none, false, loggedWorkerError{err: wrapped}
 		}
 	}
-
 	w.shares.reset()
-
 	return none, false, nil
 }
 

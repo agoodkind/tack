@@ -35,19 +35,24 @@ func (s *Soak) createIssue(
 		operationIndex,
 		s.options.Seed,
 	)
-	properties := issueProperties(s.content, actor, operationIndex, s.content.ReferenceTime())
-	name = InjectEdgeCases(operationIndex, name, properties, s.content.ReferenceTime())
-	result, err := s.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_create_issue",
-		ToolArguments{
-			WorkspaceReference: project.Workspace.Slug,
-			ProjectReference:   project.Reference,
-			Name:               name,
-			Properties:         properties,
-		},
+	properties := issueProperties(
+		s.content,
+		actor,
+		operationIndex,
+		s.content.ReferenceTime(),
 	)
+	name = InjectEdgeCases(
+		operationIndex,
+		name,
+		properties,
+		s.content.ReferenceTime(),
+	)
+	result, err := s.driver.Call(ctx, actor.Token, "tack_create_issue", ToolArguments{
+		WorkspaceReference: project.Workspace.Slug,
+		ProjectReference:   project.Reference,
+		Name:               name,
+		Properties:         properties,
+	})
 	if err != nil {
 		return nil, loggedError(ctx, "qa datagen soak: create issue", err)
 	}
@@ -125,7 +130,9 @@ func (s *Soak) churnContainer(
 	create bool,
 ) error {
 	if !create && len(*nodes) > 0 {
-		return s.updateContainer(ctx, project, actor, nodeType, *nodes, operationIndex)
+		return s.updateContainer(
+			ctx, project, actor, nodeType, *nodes, operationIndex,
+		)
 	}
 	properties := soakProperties(s.content, operationIndex)
 	result, err := s.driver.Call(

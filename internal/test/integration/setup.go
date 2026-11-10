@@ -50,12 +50,7 @@ type TestEnv struct {
 // writeOrgNode writes the org Node, NodeView, NodeResolve, and slug index
 // directly via the stores. It mirrors cmd/server/seed.go ensureNode for the
 // root case, where ParentID is [uuid.Nil] and OrgID == ID.
-func writeOrgNode(
-	ctx context.Context,
-	stores *fdbadapter.Stores,
-	orgID uuid.UUID,
-	slug string,
-) error {
+func writeOrgNode(ctx context.Context, stores *fdbadapter.Stores, orgID uuid.UUID, slug string) error {
 	now := clock.Now().UTC()
 	props := map[string]json.RawMessage{
 		"slug": mustJSON(slug),
@@ -84,7 +79,6 @@ func writeOrgNode(
 		slog.ErrorContext(ctx, "node.seed.create_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("create org node %s: %w", orgID, err)
 	}
-
 	return nil
 }
 
@@ -93,7 +87,6 @@ func mustJSON(v any) json.RawMessage {
 	if err != nil {
 		panic(err)
 	}
-
 	return b
 }
 
@@ -107,15 +100,10 @@ func clearPrefix(t *testing.T, clusterFile string, prefix []byte) {
 		t.Logf("cleanup: open fdb: %v", err)
 		return
 	}
-
 	end := append([]byte{}, prefix...)
 	end = append(end, 0xFF)
 	_, err = db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.ClearRange(fdb.KeyRange{
-			Begin: fdb.Key(prefix),
-			End:   fdb.Key(end),
-		})
-
+		tr.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
 		return nil, nil
 	})
 	if err != nil {
@@ -138,14 +126,12 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 		fdbadapter.SetTestPrefix(nil)
 		t.Fatalf("open fdb: %v", err)
 	}
-
 	ctx := WithTestOperation(t, context.Background())
 	pool, err := postgres.NewPool(ctx, ledgerDSN, nil)
 	if err != nil {
 		fdbadapter.SetTestPrefix(nil)
 		t.Fatalf("open postgres: %v", err)
 	}
-
 	// Close the pool with the test, including on early t.Fatalf paths, so
 	// repeated tests cannot exhaust the database connection limit.
 	t.Cleanup(pool.Close)
@@ -177,14 +163,8 @@ func SetupTestEnv(t *testing.T) *TestEnv {
 	})
 
 	svc, err := service.NewNodeService(
-		stores.Nodes,
-		stores.Views,
-		stores.NodeTypes,
-		stores.PropertyDefs,
-		stores.Relationships,
-		stores.NodeDeleter,
-		postgres.NewOrgMemberRepo(pool),
-		stores.Relationships,
+		stores.Nodes, stores.Views, stores.NodeTypes, stores.PropertyDefs,
+		stores.Relationships, stores.NodeDeleter, postgres.NewOrgMemberRepo(pool), stores.Relationships,
 	)
 	if err != nil {
 		t.Fatalf("build the node service: %v", err)

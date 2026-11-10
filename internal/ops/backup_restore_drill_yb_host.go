@@ -36,8 +36,6 @@ func ybScratchNetworking(networkName, host string) *network.NetworkingConfig {
 	if networking == nil {
 		return nil
 	}
-
 	networking.EndpointsConfig[networkName].Aliases = []string{host}
-
 	return networking
 }

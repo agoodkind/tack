@@ -40,31 +40,14 @@ type datagenSearchStop struct {
 }
 
 // parseDatagenSearchMaxWallTime parses --max-wall-time and refuses a bound that is not positive.
-func parseDatagenSearchMaxWallTime(ctx context.Context, command, value string) (
-	time.Duration,
-	error,
-) {
+func parseDatagenSearchMaxWallTime(ctx context.Context, command, value string) (time.Duration, error) {
 	maxWallTime, err := time.ParseDuration(value)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"qa.datagen.search_max_wall_time_refused",
-			slog.String("command", command),
-			slog.String("err", err.Error()),
-		)
-		return 0, fmt.Errorf(
-			"qa datagen %s: the command could not parse max-wall-time %q: %w",
-			command,
-			value,
-			err,
-		)
+		slog.ErrorContext(ctx, "qa.datagen.search_max_wall_time_refused", slog.String("command", command), slog.String("err", err.Error()))
+		return 0, fmt.Errorf("qa datagen %s: the command could not parse max-wall-time %q: %w", command, value, err)
 	}
 	if maxWallTime <= 0 {
-		return 0, fmt.Errorf(
-			"qa datagen %s: max-wall-time %s must be positive",
-			command,
-			maxWallTime,
-		)
+		return 0, fmt.Errorf("qa datagen %s: max-wall-time %s must be positive", command, maxWallTime)
 	}
 	return maxWallTime, nil
 }
@@ -72,17 +55,9 @@ func parseDatagenSearchMaxWallTime(ctx context.Context, command, value string) (
 // datagenSearchStopContext returns the signal context and the schedule context of a search
 // workload. SIGINT and SIGTERM end the signal context. The schedule context ends when the signal
 // context ends or maxWallTime expires.
-func datagenSearchStopContext(ctx context.Context, maxWallTime time.Duration) (
-	context.Context,
-	context.Context,
-	context.CancelFunc,
-) {
+func datagenSearchStopContext(ctx context.Context, maxWallTime time.Duration) (context.Context, context.Context, context.CancelFunc) {
 	signalContext, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	boundedContext, stopBound := context.WithTimeoutCause(
-		signalContext,
-		maxWallTime,
-		errDatagenSearchMaxWallTime,
-	)
+	boundedContext, stopBound := context.WithTimeoutCause(signalContext, maxWallTime, errDatagenSearchMaxWallTime)
 	return signalContext, boundedContext, func() {
 		stopBound()
 		stopSignals()
@@ -93,13 +68,7 @@ func datagenSearchStopContext(ctx context.Context, maxWallTime time.Duration) (
 // ended its schedule early because the schedule context ended. The reason is max_wall_time when
 // the cause of the schedule context is the bound, and signal when the signal context ended with a
 // cause that differs from the cause of parent. Every other cause is canceled.
-func datagenSearchStopped(
-	parent context.Context,
-	signalContext context.Context,
-	stopContext context.Context,
-	maxWallTime time.Duration,
-	stopped bool,
-) datagenSearchStop {
+func datagenSearchStopped(parent, signalContext, stopContext context.Context, maxWallTime time.Duration, stopped bool) datagenSearchStop {
 	if !stopped {
 		return datagenSearchStop{maxWallTime: maxWallTime, reason: datagenSearchStopNone, cause: ""}
 	}
@@ -124,12 +93,7 @@ func logDatagenSearchStop(ctx context.Context, command string, stop datagenSearc
 	if stop.reason == datagenSearchStopNone {
 		return
 	}
-	slog.InfoContext(
-		ctx,
-		"qa.datagen.search_stopped",
-		slog.String("command", command),
-		slog.String("reason", string(stop.reason)),
-		slog.String("cause", stop.cause),
-		slog.Duration("max_wall_time", stop.maxWallTime),
-	)
+	slog.InfoContext(ctx, "qa.datagen.search_stopped", slog.String("command", command),
+		slog.String("reason", string(stop.reason)), slog.String("cause", stop.cause),
+		slog.Duration("max_wall_time", stop.maxWallTime))
 }

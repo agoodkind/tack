@@ -19,34 +19,28 @@ func buildAuditQuery(filter QueryFilter) (string, []any) {
 		args = append(args, filter.Action)
 		query += fmt.Sprintf(" AND action = $%d", len(args))
 	}
-
 	if filter.ActorID != uuid.Nil {
 		args = append(args, filter.ActorID)
 		query += fmt.Sprintf(" AND actor_id = $%d", len(args))
 	}
-
 	if filter.EntityID != uuid.Nil {
 		args = append(args, filter.EntityID)
 		query += fmt.Sprintf(" AND entity_id = $%d", len(args))
 	}
-
 	if filter.RequestID != "" {
 		args = append(args, filter.RequestID)
 		query += fmt.Sprintf(" AND context->>'request_id' = $%d", len(args))
 	}
-
 	if filter.TraceID != "" {
 		args = append(args, filter.TraceID)
 		query += fmt.Sprintf(" AND context->>'trace_id' = $%d", len(args))
 	}
-
 	if !filter.BeforeTime.IsZero() {
 		args = append(args, filter.BeforeTime)
 		timeParam := len(args)
 		args = append(args, filter.BeforeSeq)
 		query += fmt.Sprintf(" AND (event_time, seq) < ($%d, $%d)", timeParam, len(args))
 	}
-
 	return appendAuditQueryOrder(query, args, filter.Limit)
 }
 
@@ -73,12 +67,9 @@ func appendAuditQueryOrder(query string, args []any, limit int) (string, []any) 
 	if limit == 0 {
 		return query, args
 	}
-
 	if limit < 0 {
 		limit = DefaultQueryPageLimit
 	}
-
 	args = append(args, limit)
-
 	return query + fmt.Sprintf(" ORDER BY event_time DESC, seq DESC LIMIT $%d", len(args)), args
 }

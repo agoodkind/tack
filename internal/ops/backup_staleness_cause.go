@@ -54,6 +54,5 @@ func backupStoreReadCause(err error) backupStalenessUnknownCause {
 	if errors.As(err, &sendErr) {
 		return backupStalenessStoreUnreachable
 	}
-
 	return backupStalenessUnreadable
 }

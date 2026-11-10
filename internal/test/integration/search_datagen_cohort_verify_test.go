@@ -60,9 +60,7 @@ func TestSearchDatagenVerifyCohort(t *testing.T) {
 		t.Fatalf("decode cohort result: %v; output=%s", err, output)
 	}
 	cohort := envelope.Result.Cohort
-	if !envelope.Result.Verified || !cohort.Verified || !cohort.WaitCompleted || len(
-		cohort.Cases,
-	) != len(envelope.Result.Manifest.Cases) {
+	if !envelope.Result.Verified || !cohort.Verified || !cohort.WaitCompleted || len(cohort.Cases) != len(envelope.Result.Manifest.Cases) {
 		t.Fatalf("cohort verification differs: %+v", cohort)
 	}
 	for i, result := range cohort.Cases {
@@ -71,27 +69,11 @@ func TestSearchDatagenVerifyCohort(t *testing.T) {
 		if !result.Passed || result.Query != declared.Query || result.Returned <= 0 || unexpected {
 			t.Fatalf("cohort case %q failed: %+v", declared.Query, result)
 		}
-		overLimit := declared.RankLimit > 0 && len(
-			result.Ranks,
-		) > 0 && slices.Max(result.Ranks) > declared.RankLimit
-		if result.Match == "ranked_targets" && (len(
-			result.Ranks,
-		) == 0 || slices.Min(result.Ranks) < 1 || overLimit) {
-			t.Fatalf(
-				"cohort case %q ranks differ from limit %d: %+v",
-				declared.Query,
-				declared.RankLimit,
-				result,
-			)
+		overLimit := declared.RankLimit > 0 && len(result.Ranks) > 0 && slices.Max(result.Ranks) > declared.RankLimit
+		if result.Match == "ranked_targets" && (len(result.Ranks) == 0 || slices.Min(result.Ranks) < 1 || overLimit) {
+			t.Fatalf("cohort case %q ranks differ from limit %d: %+v", declared.Query, declared.RankLimit, result)
 		}
-		t.Logf(
-			"cohort case query=%q match=%s ranks=%v returned=%d wait=%s",
-			result.Query,
-			result.Match,
-			result.Ranks,
-			result.Returned,
-			cohort.WaitDuration,
-		)
+		t.Logf("cohort case query=%q match=%s ranks=%v returned=%d wait=%s", result.Query, result.Match, result.Ranks, result.Returned, cohort.WaitDuration)
 	}
 }
 
@@ -116,23 +98,12 @@ func newCohortEnginesOn(t *testing.T, cluster string, prefix []byte) *config.Con
 		t.Fatalf("generate cursor key: %v", err)
 	}
 	for name, value := range map[string]string{
-		"DATABASE_URL":                    testenv.Ledger(t),
-		"FDB_CLUSTER_FILE":                cluster,
-		"ENV":                             "production",
-		"OPENSEARCH_ENDPOINT":             engine.Endpoint,
-		"OPENSEARCH_CA":                   caPath,
-		"OPENSEARCH_USERNAME":             engine.Username,
-		"OPENSEARCH_PASSWORD":             engine.Password,
-		"OPENSEARCH_PAGE_BYTES":           "128",
-		"OPENSEARCH_WORKER_IDLE_INTERVAL": "50ms",
-		"OPENSEARCH_SHARDS":               "1",
-		"OPENSEARCH_ROUTING_SHARDS":       "24",
-		"OPENSEARCH_REPLICAS":             "0",
-		"OPENSEARCH_PUBLIC_ENABLED":       "true",
-		"OPENSEARCH_CURSOR_KEY":           base64.StdEncoding.EncodeToString(cursorKey),
-		"OPENSEARCH_RESPONSE_MAX_BYTES":   "16384",
-		"AUTH_MEMBERSHIP_CACHE_LIFETIME":  "0s",
-		"AUTH_TOKEN_CACHE_LIFETIME":       "0s",
+		"DATABASE_URL": testenv.Ledger(t), "FDB_CLUSTER_FILE": cluster, "ENV": "production",
+		"OPENSEARCH_ENDPOINT": engine.Endpoint, "OPENSEARCH_CA": caPath, "OPENSEARCH_USERNAME": engine.Username,
+		"OPENSEARCH_PASSWORD": engine.Password, "OPENSEARCH_PAGE_BYTES": "128", "OPENSEARCH_WORKER_IDLE_INTERVAL": "50ms",
+		"OPENSEARCH_SHARDS": "1", "OPENSEARCH_ROUTING_SHARDS": "24", "OPENSEARCH_REPLICAS": "0",
+		"OPENSEARCH_PUBLIC_ENABLED": "true", "OPENSEARCH_CURSOR_KEY": base64.StdEncoding.EncodeToString(cursorKey),
+		"OPENSEARCH_RESPONSE_MAX_BYTES": "16384", "AUTH_MEMBERSHIP_CACHE_LIFETIME": "0s", "AUTH_TOKEN_CACHE_LIFETIME": "0s",
 	} {
 		t.Setenv(name, value)
 	}
@@ -146,24 +117,13 @@ func newCohortEnginesOn(t *testing.T, cluster string, prefix []byte) *config.Con
 		t.Fatalf("open search stores: %v", err)
 	}
 	stores.EnableSearchWork()
-	settings := search.Config{
-		Endpoint:       engine.Endpoint,
-		CA:             engine.CA,
-		Username:       engine.Username,
-		Password:       engine.Password,
-		RequestTimeout: 2 * time.Minute,
-		MaxRetries:     1,
-	}
+	settings := search.Config{Endpoint: engine.Endpoint, CA: engine.CA, Username: engine.Username, Password: engine.Password, RequestTimeout: 2 * time.Minute, MaxRetries: 1}
 	adapter, err := search.New(integration.WithTestOperation(t, t.Context()), settings)
 	if err != nil {
 		t.Fatalf("open search adapter: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = adapter.Close(context.WithoutCancel(integration.WithTestOperation(t, t.Context())))
-	})
-	baseClientAPI, err := opensearchapi.NewClient(opensearchapi.Config{
-		Client: settings.ClientConfig(nil),
-	})
+	t.Cleanup(func() { _ = adapter.Close(context.WithoutCancel(integration.WithTestOperation(t, t.Context()))) })
+	baseClientAPI, err := opensearchapi.NewClient(opensearchapi.Config{Client: settings.ClientConfig(nil)})
 	if err != nil {
 		t.Fatalf("open OpenSearch client: %v", err)
 	}
@@ -174,36 +134,16 @@ func newCohortEnginesOn(t *testing.T, cluster string, prefix []byte) *config.Con
 	index := "node-pages-" + uuid.Must(uuid.NewV7()).String()
 	t.Cleanup(func() {
 		request := &opensearchapi.IndicesDeleteReq{Indices: []string{index}}
-		_, _ = baseClientAPI.Indices.Delete(
-			context.WithoutCancel(integration.WithTestOperation(t, t.Context())),
-			request,
-		)
+		_, _ = baseClientAPI.Indices.Delete(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), request)
 	})
-	spec := search.IndexSpec{
-		Model:          model,
-		MappingVersion: search.MappingVersion,
-		Primaries:      1,
-		RoutingShards:  24,
-		Replicas:       0,
-	}
-	if err := adapter.EnsureIndex(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		spec,
-	); err != nil {
+	spec := search.IndexSpec{Model: model, MappingVersion: search.MappingVersion, Primaries: 1, RoutingShards: 24, Replicas: 0}
+	if err := adapter.EnsureIndex(integration.WithTestOperation(t, t.Context()), index, spec); err != nil {
 		t.Fatalf("create search index: %v", err)
 	}
-	if err := adapter.SetAlias(
-		integration.WithTestOperation(t, t.Context()),
-		search.PublicAlias,
-		index,
-	); err != nil {
+	if err := adapter.SetAlias(integration.WithTestOperation(t, t.Context()), search.PublicAlias, index); err != nil {
 		t.Fatalf("set public alias: %v", err)
 	}
-	if err := stores.InitializeSearchIndex(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-	); err != nil {
+	if err := stores.InitializeSearchIndex(integration.WithTestOperation(t, t.Context()), index); err != nil {
 		t.Fatalf("record serving search index: %v", err)
 	}
 	cfg, err := config.Load()
@@ -216,20 +156,12 @@ func newCohortEnginesOn(t *testing.T, cluster string, prefix []byte) *config.Con
 
 func runCohortCommand(t *testing.T, cfg *config.Config, seed int64, flags ...string) ([]byte, error) {
 	t.Helper()
-	return runDatagenSearchCommand(
-		t,
-		cfg,
-		append([]string{"--verify-cohort", "--seed", strconv.FormatInt(seed, 10)}, flags...)...,
-	)
+	return runDatagenSearchCommand(t, cfg, append([]string{"--verify-cohort", "--seed", strconv.FormatInt(seed, 10)}, flags...)...)
 }
 
 func runDatagenSearchCommand(t *testing.T, cfg *config.Config, flags ...string) ([]byte, error) {
 	t.Helper()
-	return runAuditedCommand(
-		t,
-		cfg,
-		append([]string{"ops", "qa", "datagen", "search"}, flags...)...,
-	)
+	return runAuditedCommand(t, cfg, append([]string{"ops", "qa", "datagen", "search"}, flags...)...)
 }
 
 func clearCohortPrefix(t *testing.T, cluster string, prefix []byte) {
@@ -241,10 +173,7 @@ func clearCohortPrefix(t *testing.T, cluster string, prefix []byte) {
 	}
 	end := append(bytes.Clone(prefix), 0xFF)
 	if _, err := database.Transact(func(transaction fdb.Transaction) (any, error) {
-		transaction.ClearRange(fdb.KeyRange{
-			Begin: fdb.Key(prefix),
-			End:   fdb.Key(end),
-		})
+		transaction.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
 		return nil, nil
 	}); err != nil {
 		t.Logf("cleanup: clear range: %v", err)

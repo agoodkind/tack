@@ -30,33 +30,30 @@ func TestDriverRejectsInvalidRPCEnvelopes(t *testing.T) {
 		},
 	}
 	for _, testCase := range cases {
-		t.Run(
-			testCase.name,
-			func(t *testing.T) {
-				t.Parallel()
-				handler := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-					writer.Header().Set("Content-Type", "application/json")
-					_, _ = writer.Write([]byte(testCase.body))
-				})
-				_, err := NewDriver(testGraph(handler), false, 245).Call(
-					t.Context(),
-					"token",
-					"tack_list_workspaces",
-					ToolArguments{},
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			handler := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = writer.Write([]byte(testCase.body))
+			})
+			_, err := NewDriver(testGraph(handler), false, 245).Call(
+				t.Context(),
+				"token",
+				"tack_list_workspaces",
+				ToolArguments{},
+			)
+			if err == nil {
+				t.Fatal("Call() error = nil, want invalid envelope error")
+			}
+			if testCase.wantErrorDetail != "" &&
+				!strings.Contains(err.Error(), testCase.wantErrorDetail) {
+				t.Fatalf(
+					"Call() error = %v, want error containing %q",
+					err,
+					testCase.wantErrorDetail,
 				)
-				if err == nil {
-					t.Fatal("Call() error = nil, want invalid envelope error")
-				}
-				if testCase.wantErrorDetail != "" &&
-					!strings.Contains(err.Error(), testCase.wantErrorDetail) {
-					t.Fatalf(
-						"Call() error = %v, want error containing %q",
-						err,
-						testCase.wantErrorDetail,
-					)
-				}
-			},
-		)
+			}
+		})
 	}
 }
 
@@ -96,7 +93,9 @@ func TestResponsePayloadRejectsOversizedBody(t *testing.T) {
 	response := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(strings.Repeat("x", maxResponseBodyBytes+1))),
+		Body: io.NopCloser(
+			strings.NewReader(strings.Repeat("x", maxResponseBodyBytes+1)),
+		),
 	}
 	_, err := responsePayload(t.Context(), "test", response)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {

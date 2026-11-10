@@ -56,14 +56,8 @@ func openSearchInternalUsers(ctx context.Context, user, password string) ([]byte
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		wrapped := fmt.Errorf("hash OpenSearch fixture password: %w", err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.fixture_password_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.fixture_password_failed", slog.String("err", wrapped.Error()))
 		return nil, wrapped
 	}
-
 	return fmt.Appendf(nil, openSearchInternalUsersFormat, user, hash), nil
 }

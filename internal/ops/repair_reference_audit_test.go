@@ -27,7 +27,6 @@ func repairAuditOutbox(t *testing.T) (*audit.PoolOutbox, uuid.UUID) {
 	if err != nil {
 		t.Fatalf("open the ledger pool: %v", err)
 	}
-
 	outbox := audit.NewPoolOutbox(pool)
 	orgID := uuid.Must(uuid.NewV7())
 	t.Cleanup(func() {
@@ -36,48 +35,37 @@ func repairAuditOutbox(t *testing.T) (*audit.PoolOutbox, uuid.UUID) {
 		if readErr != nil {
 			t.Errorf("read the outbox during cleanup: %v", readErr)
 		}
-
 		for _, row := range rows {
 			if row.Event.Context.OrgID != orgID {
 				continue
 			}
-
 			if deleteErr := outbox.Delete(ctx, row.EventID); deleteErr != nil {
 				t.Errorf("delete outbox row %s during cleanup: %v", row.EventID, deleteErr)
 			}
 		}
-
 		outbox.Close()
 	})
-
 	return outbox, orgID
 }
 
 // repairAuditRecordedEvents returns the outbox events that belong to orgID.
-func repairAuditRecordedEvents(
-	t *testing.T,
-	outbox *audit.PoolOutbox,
-	orgID uuid.UUID,
-) []audit.Event {
+func repairAuditRecordedEvents(t *testing.T, outbox *audit.PoolOutbox, orgID uuid.UUID) []audit.Event {
 	t.Helper()
 	rows, err := outbox.ReadBatch(context.Background(), repairAuditReadLimit)
 	if err != nil {
 		t.Fatalf("read the outbox: %v", err)
 	}
-
 	events := make([]audit.Event, 0, len(rows))
 	for _, row := range rows {
 		if row.Event.Context.OrgID == orgID {
 			events = append(events, row.Event)
 		}
 	}
-
 	return events
 }
 
 func repairAuditTestReport(orgID uuid.UUID) RepairReferenceReport {
 	nodeID := uuid.MustParse("019dc5ed-eac1-7ab4-b86b-cebc6ce06de8")
-
 	return RepairReferenceReport{
 		Renumbered: []ReferenceRename{
 			{OrgID: orgID, NodeID: nodeID, From: "APP-10", To: "APP-18"},
@@ -87,11 +75,8 @@ func repairAuditTestReport(orgID uuid.UUID) RepairReferenceReport {
 		},
 		Keys: []ReferenceKeyWrite{
 			{
-				OrgID:        orgID,
-				NodeID:       nodeID,
-				NodeType:     "issue",
-				TemplateName: "reference",
-				Encoded:      "APP-18",
+				OrgID: orgID, NodeID: nodeID, NodeType: "issue",
+				TemplateName: "reference", Encoded: "APP-18",
 			},
 		},
 	}
@@ -111,7 +96,6 @@ func repairAuditExtra(t *testing.T, event audit.Event) referenceRepairExtra {
 	if err := json.Unmarshal(event.Extra, &extra); err != nil {
 		t.Fatalf("decode extra %s: %v", event.Extra, err)
 	}
-
 	return extra
 }
 
@@ -120,18 +104,15 @@ func repairAuditEventOfClass(t *testing.T, events []audit.Event, class string) a
 	t.Helper()
 	var found audit.Event
 	matches := 0
-
 	for _, event := range events {
 		if repairAuditExtra(t, event).Class == class {
 			found = event
 			matches++
 		}
 	}
-
 	if matches != 1 {
 		t.Fatalf("events for class %q = %d, want 1", class, matches)
 	}
-
 	return found
 }
 
@@ -145,16 +126,12 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 	occurredAt := time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC)
 
 	err := recordReferenceRepair(
-		context.Background(),
-		outbox,
-		repairAuditTestPrincipal(),
-		repairAuditTestReport(orgID),
-		occurredAt,
+		context.Background(), outbox, repairAuditTestPrincipal(),
+		repairAuditTestReport(orgID), occurredAt,
 	)
 	if err != nil {
 		t.Fatalf("record repair: %v", err)
 	}
-
 	events := repairAuditRecordedEvents(t, outbox, orgID)
 	if len(events) != 3 {
 		t.Fatalf("events = %d, want one per rename, counter seed, and key", len(events))
@@ -164,11 +141,9 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 	if rename.Verb != string(audit.VerbNodeReferenceRename) {
 		t.Fatalf("rename verb = %q, want %q", rename.Verb, audit.VerbNodeReferenceRename)
 	}
-
 	if rename.Entity.Type != "node" || rename.Entity.Identifier != "APP-18" {
 		t.Fatalf("rename entity = %+v, want the renamed node holding APP-18", rename.Entity)
 	}
-
 	renameExtra := repairAuditExtra(t, rename)
 	if renameExtra.From != "APP-10" || renameExtra.To != "APP-18" {
 		t.Fatalf("rename extra = %+v, want APP-10 to APP-18", renameExtra)
@@ -178,17 +153,14 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 	if counter.Entity.Type != "sequence_counter" || counter.Entity.Identifier != "APP-" {
 		t.Fatalf("counter entity = %+v, want the seeded counter", counter.Entity)
 	}
-
 	if got := repairAuditExtra(t, counter); got.CounterValue != 17 {
 		t.Fatalf("counter extra = %+v, want the seeded value 17", got)
 	}
 
 	key := repairAuditEventOfClass(t, events, "reference keys")
-	if key.Entity.Type != "node" || key.Entity.NodeType != "issue" ||
-		key.Entity.Identifier != "APP-18" {
+	if key.Entity.Type != "node" || key.Entity.NodeType != "issue" || key.Entity.Identifier != "APP-18" {
 		t.Fatalf("key entity = %+v, want the node the key was claimed for", key.Entity)
 	}
-
 	if got := repairAuditExtra(t, key); got.TemplateName != "reference" {
 		t.Fatalf("key extra = %+v, want the template that rendered it", got)
 	}
@@ -197,14 +169,8 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 		if event.Outcome != audit.OutcomeOK {
 			t.Fatalf("%s outcome = %q, want ok", event.Verb, event.Outcome)
 		}
-
 		if !event.OccurredAt.Equal(occurredAt) {
-			t.Fatalf(
-				"%s occurred at %s, want the run time %s",
-				event.Verb,
-				event.OccurredAt,
-				occurredAt,
-			)
+			t.Fatalf("%s occurred at %s, want the run time %s", event.Verb, event.OccurredAt, occurredAt)
 		}
 	}
 }
@@ -216,29 +182,21 @@ func TestReferenceRepairRecordsEveryChangeItApplied(t *testing.T) {
 func TestReferenceRepairRowsAreNotReconstructions(t *testing.T) {
 	outbox, orgID := repairAuditOutbox(t)
 	err := recordReferenceRepair(
-		context.Background(),
-		outbox,
-		repairAuditTestPrincipal(),
-		repairAuditTestReport(orgID),
-		time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC),
+		context.Background(), outbox, repairAuditTestPrincipal(),
+		repairAuditTestReport(orgID), time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC),
 	)
 	if err != nil {
 		t.Fatalf("record repair: %v", err)
 	}
-
 	for _, event := range repairAuditRecordedEvents(t, outbox, orgID) {
 		var fields map[string]json.RawMessage
 		if unmarshalErr := json.Unmarshal(event.Extra, &fields); unmarshalErr != nil {
 			t.Fatalf("decode extra: %v", unmarshalErr)
 		}
-
 		for _, absent := range []string{"reconstruction", "historical_time", "evidence"} {
 			if _, present := fields[absent]; present {
-				t.Fatalf(
-					"%s carries %q, so a reader would read it as reconstructed history",
-					event.Verb,
-					absent,
-				)
+				t.Fatalf("%s carries %q, so a reader would read it as reconstructed history",
+					event.Verb, absent)
 			}
 		}
 	}
@@ -256,50 +214,27 @@ func TestReferenceRepairSecondRunRecordsNothingNew(t *testing.T) {
 
 	firstContext, secondContext := testenv.CommandContext(t), testenv.CommandContext(t)
 	if err := recordReferenceRepair(
-		firstContext,
-		outbox,
-		principal,
-		repairAuditTestReport(orgID),
-		first,
+		firstContext, outbox, principal, repairAuditTestReport(orgID), first,
 	); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
-
 	if err := recordReferenceRepair(
-		secondContext,
-		outbox,
-		principal,
-		repairAuditTestReport(orgID),
-		second,
+		secondContext, outbox, principal, repairAuditTestReport(orgID), second,
 	); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
-
 	events := repairAuditRecordedEvents(t, outbox, orgID)
 	if len(events) != 3 {
 		t.Fatalf("events = %d after two runs, want 3", len(events))
 	}
-
 	firstRun, secondRun := response.FromContext(firstContext), response.FromContext(secondContext)
 	if firstRun.RequestID == secondRun.RequestID || firstRun.TraceID == secondRun.TraceID {
-		t.Fatalf(
-			"the two runs share request ID %s or trace ID %s, want different IDs",
-			firstRun.RequestID,
-			firstRun.TraceID,
-		)
+		t.Fatalf("the two runs share request ID %s or trace ID %s, want different IDs", firstRun.RequestID, firstRun.TraceID)
 	}
-
 	for _, event := range events {
-		if event.Context.RequestID != firstRun.RequestID ||
-			event.Context.TraceID != firstRun.TraceID {
-			t.Fatalf(
-				"%s request ID %q and trace ID %q, want the first run's request ID %s and trace ID %s",
-				event.Verb,
-				event.Context.RequestID,
-				event.Context.TraceID,
-				firstRun.RequestID,
-				firstRun.TraceID,
-			)
+		if event.Context.RequestID != firstRun.RequestID || event.Context.TraceID != firstRun.TraceID {
+			t.Fatalf("%s request ID %q and trace ID %q, want the first run's request ID %s and trace ID %s",
+				event.Verb, event.Context.RequestID, event.Context.TraceID, firstRun.RequestID, firstRun.TraceID)
 		}
 	}
 }
@@ -308,11 +243,8 @@ func TestReferenceRepairSecondRunRecordsNothingNew(t *testing.T) {
 // recording through a writer that would append a second copy on every run.
 func TestReferenceRepairRefusesAnOutboxItCannotDedupe(t *testing.T) {
 	err := recordReferenceRepair(
-		context.Background(),
-		appendOnlyRepairOutbox{},
-		repairAuditTestPrincipal(),
-		repairAuditTestReport(uuid.Must(uuid.NewV7())),
-		time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC),
+		context.Background(), appendOnlyRepairOutbox{}, repairAuditTestPrincipal(),
+		repairAuditTestReport(uuid.Must(uuid.NewV7())), time.Date(2026, time.August, 16, 21, 0, 0, 0, time.UTC),
 	)
 	if err == nil {
 		t.Fatal("recorded through an outbox that cannot write idempotently")

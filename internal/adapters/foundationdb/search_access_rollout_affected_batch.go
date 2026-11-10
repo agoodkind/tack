@@ -40,41 +40,19 @@ func completeAffected(
 	states map[string]searchdomain.DocumentAccess,
 	now time.Time,
 ) (searchdomain.RolloutStep, affectedProgress, error) {
-	nodes, err := readRolloutAffected(
-		ctx,
-		tr,
-		work.OrgID,
-		record.Generation,
-		searchRolloutAffectedLimit+1,
-	)
+	nodes, err := readRolloutAffected(ctx, tr, work.OrgID, record.Generation, searchRolloutAffectedLimit+1)
 	if err != nil {
-		return searchdomain.RolloutContinue, affectedProgress{
-			ran:       false,
-			remaining: 0,
-			capped:    false,
-		}, err
+		return searchdomain.RolloutContinue, affectedProgress{ran: false, remaining: 0, capped: false}, err
 	}
-
 	if len(nodes) == 0 {
 		record.PreviousVersion, record.ActiveVersion = record.ActiveVersion, record.CandidateVersion
 		record.AffectedPass, record.VerifyCursor = false, ""
-
-		return searchdomain.RolloutContinue, affectedProgress{
-				ran:       true,
-				remaining: 0,
-				capped:    false,
-			},
+		return searchdomain.RolloutContinue, affectedProgress{ran: true, remaining: 0, capped: false},
 			stopRolloutCollecting(ctx, tr, work.OrgID, record.Generation)
 	}
-
 	batch := nodes[:min(len(nodes), searchRolloutAffectedLimit)]
 	step, removed, err := verifyAffectedBatch(ctx, tr, work, record, batch, documents, states, now)
-	progress := affectedProgress{
-		ran:       true,
-		remaining: len(nodes) - removed,
-		capped:    len(nodes) > searchRolloutAffectedLimit,
-	}
-
+	progress := affectedProgress{ran: true, remaining: len(nodes) - removed, capped: len(nodes) > searchRolloutAffectedLimit}
 	return step, progress, err
 }
 
@@ -99,36 +77,22 @@ func verifyAffectedBatch(
 	now time.Time,
 ) (searchdomain.RolloutStep, int, error) {
 	byNode := make(map[uuid.UUID][]searchdomain.RolloutDocument, len(nodes))
-
 	for _, document := range documents {
 		byNode[document.NodeID] = append(byNode[document.NodeID], document)
 	}
-
 	firstCursor := record.VerifyCursor
 	record.VerifyCursor = ""
 	stale := make(map[uuid.UUID]rolloutRepair)
 	removed := 0
-
 	for position, nodeID := range nodes {
 		cursor := ""
 		if position == 0 {
 			cursor = firstCursor
 		}
-
-		check, err := checkAffectedNode(
-			ctx,
-			tr,
-			work,
-			record,
-			nodeID,
-			byNode[nodeID],
-			states,
-			cursor,
-		)
+		check, err := checkAffectedNode(ctx, tr, work, record, nodeID, byNode[nodeID], states, cursor)
 		if err != nil {
 			return searchdomain.RolloutContinue, removed, err
 		}
-
 		switch {
 		case check.repair != 0:
 			stale[nodeID] = check.repair
@@ -141,22 +105,13 @@ func verifyAffectedBatch(
 		case position == 0:
 			record.VerifyCursor = check.cursor
 		}
-
 		if !check.covered {
 			break
 		}
 	}
-
 	if len(stale) > 0 {
-		return searchdomain.RolloutWait, removed, scheduleRolloutRepairs(
-			ctx,
-			tr,
-			now,
-			work.OrgID,
-			stale,
-		)
+		return searchdomain.RolloutWait, removed, scheduleRolloutRepairs(ctx, tr, now, work.OrgID, stale)
 	}
-
 	return searchdomain.RolloutContinue, removed, nil
 }
 
@@ -182,66 +137,35 @@ func checkAffectedNode(
 	if err != nil {
 		return check, err
 	}
-
 	if len(documents) > 0 {
 		last := documents[len(documents)-1]
-		check.cursor = base64.RawURLEncoding.EncodeToString(
-			searchIssuedKey(
-				work.OrgID,
-				nodeID,
-				last.Document.Revision,
-				last.Document.Ordinal,
-				last.Document.Projection,
-			),
-		)
+		check.cursor = base64.RawURLEncoding.EncodeToString(searchIssuedKey(work.OrgID, nodeID, last.Document.Revision, last.Document.Ordinal, last.Document.Projection))
 	}
-
 	keyRange, begin, err := affectedPageRange(ctx, work.OrgID, nodeID, check.cursor)
 	if err != nil {
 		return check, err
 	}
-
-	more, err := tr.GetRange(
-		fdb.SelectorRange{Begin: begin, End: fdb.FirstGreaterOrEqual(keyRange.End)},
-		fdb.RangeOptions{Limit: 1},
-	).GetSliceWithError()
+	more, err := tr.GetRange(fdb.SelectorRange{Begin: begin, End: fdb.FirstGreaterOrEqual(keyRange.End)}, fdb.RangeOptions{Limit: 1}).GetSliceWithError()
 	if err != nil {
-		return check, searchReadFailure(
-			ctx,
-			"read issued documents of affected node "+nodeID.String(),
-			err,
-		)
+		return check, searchReadFailure(ctx, "read issued documents of affected node "+nodeID.String(), err)
 	}
-
 	check.covered = len(more) == 0
 	if nodeState.pending {
 		check.repair = rolloutRepairWait
 		return check, nil
 	}
-
 	resolved, err := tr.Get(fdb.Key(nodeResolveKey(nodeID))).Get()
 	if err != nil {
-		return check, searchReadFailure(
-			ctx,
-			"read node resolution of affected node "+nodeID.String(),
-			err,
-		)
+		return check, searchReadFailure(ctx, "read node resolution of affected node "+nodeID.String(), err)
 	}
-
 	if len(resolved) == 0 {
 		check.covered = true
 		return check, nil
 	}
-
 	for _, document := range documents {
-		if repair := pageRepair(
-			states[document.Document.DocumentID],
-			record.WriteVersions,
-			nodeState,
-		); repair > check.repair {
+		if repair := pageRepair(states[document.Document.DocumentID], record.WriteVersions, nodeState); repair > check.repair {
 			check.repair = repair
 		}
 	}
-
 	return check, nil
 }

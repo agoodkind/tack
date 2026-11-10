@@ -45,69 +45,35 @@ func TestSearchPointInTimeLimitReturnsUnavailable(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	entryID := integration.EntryPoint(t, fixture, workspace)
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
-
 	for number := range pitLimitCorpusNodes {
-		integration.PutOpaqueNode(
-			t,
-			fixture,
-			kind,
-			entryID,
-			fmt.Sprintf("Limit node %d", number),
-			pitLimitQuery,
-			"excluded",
-		)
+		integration.PutOpaqueNode(t, fixture, kind, entryID, fmt.Sprintf("Limit node %d", number), pitLimitQuery, "excluded")
 	}
-
 	integration.DrainSearchWork(t, fixture.Worker, pitLimitDrainSlices)
 
 	closeOpenPointsInTime(t, fixture)
 	t.Cleanup(func() {
-		if err := setPointInTimeLimit(
-			context.WithoutCancel(integration.WithTestOperation(t, t.Context())),
-			fixture,
-			"null",
-		); err != nil {
+		if err := setPointInTimeLimit(context.WithoutCancel(integration.WithTestOperation(t, t.Context())), fixture, "null"); err != nil {
 			t.Errorf("cleanup could not restore the default point-in-time limit: %v", err)
 		}
 	})
-	if err := setPointInTimeLimit(
-		integration.WithTestOperation(t, t.Context()),
-		fixture,
-		strconv.Itoa(pitLimitSessions),
-	); err != nil {
+	if err := setPointInTimeLimit(integration.WithTestOperation(t, t.Context()), fixture, strconv.Itoa(pitLimitSessions)); err != nil {
 		t.Fatalf("test could not set the point-in-time limit to %d: %v", pitLimitSessions, err)
 	}
 
 	for number := range pitLimitSessions {
 		page, err := integration.TrySearch(fixture.Harness, pitLimitQuery, "")
 		if err != nil || page.Cursor == "" {
-			t.Fatalf(
-				"search session %d did not return a successful page with a cursor: result count %d, cursor %q, error %v",
-				number+1,
-				len(page.IDs),
-				page.Cursor,
-				err,
-			)
+			t.Fatalf("search session %d did not return a successful page with a cursor: result count %d, cursor %q, error %v", number+1, len(page.IDs), page.Cursor, err)
 		}
 	}
-
 	if open := servingIndexPointInTimeContexts(t, fixture); open != pitLimitSessions {
-		t.Fatalf(
-			"open point-in-time context count %d does not equal the limit %d",
-			open,
-			pitLimitSessions,
-		)
+		t.Fatalf("open point-in-time context count %d does not equal the limit %d", open, pitLimitSessions)
 	}
 
 	_, err := integration.TrySearch(fixture.Harness, pitLimitQuery, "")
 	if err == nil || err.Error() != pitLimitUnavailableText {
-		t.Fatalf(
-			"search at the point-in-time limit returned error %v; the test requires %q",
-			err,
-			pitLimitUnavailableText,
-		)
+		t.Fatalf("search at the point-in-time limit returned error %v; the test requires %q", err, pitLimitUnavailableText)
 	}
-
 	requireDirectPointInTimeRejected(t, fixture)
 }
 
@@ -116,28 +82,15 @@ func TestSearchPointInTimeLimitReturnsUnavailable(t *testing.T) {
 // This check confirms that the context limit produces the status that engineCause classifies.
 func requireDirectPointInTimeRejected(t *testing.T, fixture integration.QueryFixture) {
 	t.Helper()
-	created, err := fixture.Client.PointInTime.Create(
-		integration.WithTestOperation(t, t.Context()),
-		&opensearchapi.CreatePITReq{
-			Indices: []string{
-				fixture.Index,
-			},
-			Header: nil,
-			Params: &opensearchapi.CreatePITParams{KeepAlive: time.Minute},
-		},
-	)
+	created, err := fixture.Client.PointInTime.Create(integration.WithTestOperation(t, t.Context()), &opensearchapi.CreatePITReq{
+		Indices: []string{fixture.Index}, Header: nil, Params: &opensearchapi.CreatePITParams{KeepAlive: time.Minute},
+	})
 	status := 0
 	if created.Inspect().Response != nil {
 		status = created.Inspect().Response.StatusCode
 	}
-
 	if err == nil || status != http.StatusTooManyRequests {
-		t.Fatalf(
-			"direct point-in-time request returned HTTP %d with error %v; the test requires HTTP %d",
-			status,
-			err,
-			http.StatusTooManyRequests,
-		)
+		t.Fatalf("direct point-in-time request returned HTTP %d with error %v; the test requires HTTP %d", status, err, http.StatusTooManyRequests)
 	}
 }
 
@@ -147,36 +100,22 @@ func requireDirectPointInTimeRejected(t *testing.T, fixture integration.QueryFix
 // After this function returns, the engine does not have any open point-in-time contexts.
 func closeOpenPointsInTime(t *testing.T, fixture integration.QueryFixture) {
 	t.Helper()
-	listed, err := fixture.Client.PointInTime.GetAll(
-		integration.WithTestOperation(t, t.Context()),
-		&opensearchapi.GetAllPITsReq{
-			Header: nil,
-			Params: &opensearchapi.GetAllPITsParams{},
-		},
-	)
+	listed, err := fixture.Client.PointInTime.GetAll(integration.WithTestOperation(t, t.Context()), &opensearchapi.GetAllPITsReq{
+		Header: nil, Params: &opensearchapi.GetAllPITsParams{},
+	})
 	if err != nil {
 		t.Fatalf("listing open points in time failed: %v", err)
 	}
-
 	identifiers := make([]opensearchapi.PITID, 0, len(listed.PITs))
 	for _, pit := range listed.PITs {
 		identifiers = append(identifiers, pit.PITID)
 	}
-
 	if len(identifiers) == 0 {
 		return
 	}
-
-	_, err = fixture.Client.PointInTime.Delete(
-		integration.WithTestOperation(t, t.Context()),
-		&opensearchapi.DeletePITReq{
-			Body: &opensearchapi.DeletePITBody{
-				PITID: identifiers,
-			},
-			Header: nil,
-			Params: &opensearchapi.DeletePITParams{},
-		},
-	)
+	_, err = fixture.Client.PointInTime.Delete(integration.WithTestOperation(t, t.Context()), &opensearchapi.DeletePITReq{
+		Body: &opensearchapi.DeletePITBody{PITID: identifiers}, Header: nil, Params: &opensearchapi.DeletePITParams{},
+	})
 	if err != nil {
 		t.Fatalf("deleting %d open points in time failed: %v", len(identifiers), err)
 	}
@@ -189,55 +128,31 @@ func closeOpenPointsInTime(t *testing.T, fixture integration.QueryFixture) {
 // tests deleted.
 func servingIndexPointInTimeContexts(t *testing.T, fixture integration.QueryFixture) int {
 	t.Helper()
-	stats, err := fixture.Client.Indices.Stats(
-		integration.WithTestOperation(t, t.Context()),
-		&opensearchapi.IndicesStatsReq{
-			Indices: []string{
-				fixture.Index,
-			},
-			Metric: []string{"search"},
-			Header: nil,
-			Params: &opensearchapi.IndicesStatsParams{},
-		},
-	)
+	stats, err := fixture.Client.Indices.Stats(integration.WithTestOperation(t, t.Context()), &opensearchapi.IndicesStatsReq{
+		Indices: []string{fixture.Index}, Metric: []string{"search"}, Header: nil, Params: &opensearchapi.IndicesStatsParams{},
+	})
 	if err != nil {
 		t.Fatalf("reading index stats for %s failed: %v", fixture.Index, err)
 	}
-
 	open := stats.All.Total.Search.PointInTimeCurrent
 	if open == nil {
 		t.Fatal("index statistics require a point-in-time context count")
 	}
-
 	return int(*open)
 }
 
 // setPointInTimeLimit writes search.max_open_pit_context as a persistent cluster setting.
 // A value of null restores the default.
-func setPointInTimeLimit(
-	ctx context.Context,
-	fixture integration.QueryFixture,
-	value string,
-) error {
+func setPointInTimeLimit(ctx context.Context, fixture integration.QueryFixture, value string) error {
 	body := `{"persistent":{"search.max_open_pit_context":` + value + `}}`
-	response, err := fixture.Client.Cluster.PutSettings(
-		ctx,
-		&opensearchapi.ClusterPutSettingsReq{
-			BodyReader: strings.NewReader(body),
-			Header:     nil,
-			Params:     &opensearchapi.ClusterPutSettingsParams{},
-		},
-	)
+	response, err := fixture.Client.Cluster.PutSettings(ctx, &opensearchapi.ClusterPutSettingsReq{
+		BodyReader: strings.NewReader(body), Header: nil, Params: &opensearchapi.ClusterPutSettingsParams{},
+	})
 	if err != nil {
 		return fmt.Errorf("request to set persistent search.max_open_pit_context failed: %w", err)
 	}
-
 	if !response.Acknowledged {
-		return fmt.Errorf(
-			"cluster settings response did not acknowledge search.max_open_pit_context value %s",
-			value,
-		)
+		return fmt.Errorf("cluster settings response did not acknowledge search.max_open_pit_context value %s", value)
 	}
-
 	return nil
 }

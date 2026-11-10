@@ -27,26 +27,13 @@ func (s *NodeService) DeleteStatus(ctx context.Context, jobID uuid.UUID) (Delete
 	job, err := s.deleter.SubtreeDelete(ctx, jobID)
 	none := DeleteResult{JobID: jobID, Deleted: 0, Moved: 0, State: node.SubtreeDeleteRunning}
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"node.subtree_delete.status_failed",
-			slog.String("err", err.Error()),
-			slog.String("job_id", jobID.String()),
-		)
-
+		slog.ErrorContext(ctx, "node.subtree_delete.status_failed", slog.String("err", err.Error()), slog.String("job_id", jobID.String()))
 		return none, fmt.Errorf("read delete job %s: %w", jobID, err)
 	}
-
 	if job == nil {
 		return none, fmt.Errorf("delete job %s: %w", jobID, domain.ErrNotFound)
 	}
-
-	return DeleteResult{
-		JobID:   jobID,
-		Deleted: job.Deleted,
-		Moved:   job.Moved,
-		State:   job.State(),
-	}, nil
+	return DeleteResult{JobID: jobID, Deleted: job.Deleted, Moved: job.Moved, State: job.State()}, nil
 }
 
 // ResumeSubtreeDeletes finishes every running subtree delete job without a
@@ -55,39 +42,26 @@ func (s *NodeService) DeleteStatus(ctx context.Context, jobID uuid.UUID) (Delete
 // deleteRequestBudget, stopped, or crashed. The pass also clears the records
 // of jobs that finished more than finishedDeleteRetention ago. Each resumed
 // job runs as one service step that recording stores.
-func (s *NodeService) ResumeSubtreeDeletes(
-	ctx context.Context,
-	staleAfter time.Duration,
-	recording JobAudit,
-) (int, error) {
+func (s *NodeService) ResumeSubtreeDeletes(ctx context.Context, staleAfter time.Duration, recording JobAudit) (int, error) {
 	now := clock.Now()
 	after := uuid.Nil
 	finished := 0
-
 	for {
 		jobs, err := s.deleter.SubtreeDeletes(ctx, after, subtreeDeleteJobPage)
 		if err != nil {
-			slog.ErrorContext(
-				ctx,
-				"node.subtree_delete.resume_failed",
-				slog.String("err", err.Error()),
-			)
-
+			slog.ErrorContext(ctx, "node.subtree_delete.resume_failed", slog.String("err", err.Error()))
 			return finished, fmt.Errorf("list subtree delete jobs after %s: %w", after, err)
 		}
-
 		for _, job := range jobs {
 			after = job.ID
 			resumed, err := s.resumeJob(ctx, recording, job, now, staleAfter)
 			if err != nil {
 				return finished, err
 			}
-
 			if resumed {
 				finished++
 			}
 		}
-
 		if len(jobs) < subtreeDeleteJobPage {
 			return finished, nil
 		}
@@ -107,37 +81,20 @@ func (s *NodeService) resumeJob(
 		if now.Sub(job.FinishedAt) < finishedDeleteRetention {
 			return false, nil
 		}
-
 		if err := s.deleter.ClearSubtreeDelete(ctx, job.ID); err != nil {
-			slog.ErrorContext(
-				ctx,
-				"node.subtree_delete.clear_failed",
-				slog.String("err", err.Error()),
-				slog.String("job_id", job.ID.String()),
-			)
-
+			slog.ErrorContext(ctx, "node.subtree_delete.clear_failed", slog.String("err", err.Error()), slog.String("job_id", job.ID.String()))
 			return false, fmt.Errorf("clear finished delete job %s: %w", job.ID, err)
 		}
-
 		return false, nil
 	}
-
 	if job.UpdatedAt.After(now.Add(-staleAfter)) {
 		return false, nil
 	}
-
 	result, err := s.recordResume(ctx, recording, job)
 	if err != nil {
 		return false, err
 	}
-
-	telemetry.L(ctx).InfoContext(
-		ctx,
-		"node.subtree_delete.resumed",
-		slog.String("job_id", job.ID.String()),
-		slog.String("root_id", job.RootID.String()),
-		slog.Int("deleted", result.Deleted),
-	)
-
+	telemetry.L(ctx).InfoContext(ctx, "node.subtree_delete.resumed", slog.String("job_id", job.ID.String()),
+		slog.String("root_id", job.RootID.String()), slog.Int("deleted", result.Deleted))
 	return true, nil
 }

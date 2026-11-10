@@ -58,31 +58,20 @@ type initiationEvidence struct {
 }
 
 func initiatedBy(initiation searchdomain.Initiation) initiationEvidence {
-	return initiationEvidence{
-		InitiatedOperationID: initiation.OperationID,
-		InitiatedActorID:     initiation.ActorID,
-	}
+	return initiationEvidence{InitiatedOperationID: initiation.OperationID, InitiatedActorID: initiation.ActorID}
 }
 
 func replacementEvidence(action string, rebuild searchdomain.Rebuild) indexStructureEvidence {
 	return indexStructureEvidence{
-		Action:             action,
-		RebuildID:          rebuild.ID.String(),
-		Mode:               string(rebuild.Mode),
-		SourceIndex:        rebuild.SourceIndex,
-		TargetIndex:        rebuild.TargetIndex,
-		PrimaryShards:      rebuild.PrimaryShards,
-		RoutingShards:      rebuild.RoutingShards,
-		Replicas:           rebuild.Replicas,
-		AliasIndex:         "",
-		initiationEvidence: initiatedBy(rebuild.Initiation),
+		Action: action, RebuildID: rebuild.ID.String(), Mode: string(rebuild.Mode), SourceIndex: rebuild.SourceIndex,
+		TargetIndex: rebuild.TargetIndex, PrimaryShards: rebuild.PrimaryShards, RoutingShards: rebuild.RoutingShards,
+		Replicas: rebuild.Replicas, AliasIndex: "", initiationEvidence: initiatedBy(rebuild.Initiation),
 	}
 }
 
 func (w *SearchWorker) recordIndexStructure(
 	ctx context.Context,
-	action string,
-	index string,
+	action, index string,
 	rebuild searchdomain.Rebuild,
 	effect func(context.Context) error,
 ) error {
@@ -90,86 +79,49 @@ func (w *SearchWorker) recordIndexStructure(
 	if err != nil {
 		return err
 	}
-
-	return w.recordStructure(
-		ctx,
-		audit.VerbSearchIndexStructure,
-		indexTargetPrefix+index,
-		encoded,
-		effect,
-		func(context.Context) (json.RawMessage, error) { return encoded, nil },
-	)
+	return w.recordStructure(ctx, audit.VerbSearchIndexStructure, indexTargetPrefix+index, encoded, effect,
+		func(context.Context) (json.RawMessage, error) { return encoded, nil })
 }
 
-func (w *SearchWorker) recordAliasSwitch(
-	ctx context.Context,
-	rebuild searchdomain.Rebuild,
-	effect func(context.Context) error,
-) error {
+func (w *SearchWorker) recordAliasSwitch(ctx context.Context, rebuild searchdomain.Rebuild, effect func(context.Context) error) error {
 	planned := replacementEvidence("switch_alias", rebuild)
 	encoded, err := encodeStructureEvidence(ctx, planned)
 	if err != nil {
 		return err
 	}
-
-	return w.recordStructure(
-		ctx,
-		audit.VerbSearchIndexStructure,
-		aliasTarget,
-		encoded,
-		effect,
+	return w.recordStructure(ctx, audit.VerbSearchIndexStructure, aliasTarget, encoded, effect,
 		func(ctx context.Context) (json.RawMessage, error) {
 			current, err := w.ports.Replacer.PublicAliasTarget(ctx)
 			if err != nil {
 				return nil, structureFailure(ctx, "read the public alias after the switch", err)
 			}
-
 			observed := planned
 			observed.AliasIndex = current
-
 			return encodeStructureEvidence(ctx, observed)
-		},
-	)
+		})
 }
 
-func (w *SearchWorker) recordRolloutPhase(
-	ctx context.Context,
-	rollout searchdomain.AccessRollout,
-	effect func(context.Context) error,
-) error {
+func (w *SearchWorker) recordRolloutPhase(ctx context.Context, rollout searchdomain.AccessRollout, effect func(context.Context) error) error {
 	planned := rolloutPhaseEvidence{
-		AuthorityID:        rollout.AuthorityID.String(),
-		Generation:         rollout.Generation,
-		CandidateVersion:   rollout.CandidateVersion,
-		PhaseBefore:        string(rollout.Phase),
-		ActiveBefore:       rollout.ActiveVersion,
-		PhaseAfter:         "",
-		ActiveAfter:        "",
+		AuthorityID: rollout.AuthorityID.String(), Generation: rollout.Generation, CandidateVersion: rollout.CandidateVersion,
+		PhaseBefore: string(rollout.Phase), ActiveBefore: rollout.ActiveVersion, PhaseAfter: "", ActiveAfter: "",
 		initiationEvidence: initiatedBy(rollout.Initiation),
 	}
 	encoded, err := encodeStructureEvidence(ctx, planned)
 	if err != nil {
 		return err
 	}
-
-	return w.recordStructure(
-		ctx,
-		audit.VerbSearchAccessRolloutPhase,
-		searchdomain.AccessRolloutTargetReference(planned.AuthorityID),
-		encoded,
-		effect,
+	return w.recordStructure(ctx, audit.VerbSearchAccessRolloutPhase,
+		searchdomain.AccessRolloutTargetReference(planned.AuthorityID), encoded, effect,
 		func(ctx context.Context) (json.RawMessage, error) {
 			after, err := w.ports.Rollouts.Current(ctx, rollout.AuthorityID)
 			if err != nil {
 				return nil, structureFailure(ctx, "read the access rollout after the step", err)
 			}
-
 			observed := planned
 			observed.PhaseAfter, observed.ActiveAfter = string(after.Phase), after.ActiveVersion
-
 			return encodeStructureEvidence(ctx, observed)
-		},
-	)
+		})
 }
 
 func (w *SearchWorker) recordStructure(
@@ -181,29 +133,12 @@ func (w *SearchWorker) recordStructure(
 	observe func(context.Context) (json.RawMessage, error),
 ) error {
 	target := audit.Target{
-		Kind:         audit.TargetKindExternal,
-		NodeType:     "",
-		Reference:    reference,
-		Name:         "",
-		URI:          "",
-		RelationType: "",
-		ID:           uuid.Nil,
-		SourceID:     uuid.Nil,
-		TargetID:     uuid.Nil,
+		Kind: audit.TargetKindExternal, NodeType: "", Reference: reference, Name: "", URI: "", RelationType: "",
+		ID: uuid.Nil, SourceID: uuid.Nil, TargetID: uuid.Nil,
 	}
-	if err := audit.RunServiceStep(
-		ctx,
-		w.ports.Audit.Outbox,
-		w.ports.Audit.Actor,
-		verb,
-		target,
-		planned,
-		effect,
-		observe,
-	); err != nil {
+	if err := audit.RunServiceStep(ctx, w.ports.Audit.Outbox, w.ports.Audit.Actor, verb, target, planned, effect, observe); err != nil {
 		return structureFailure(ctx, "run "+string(verb)+" on "+reference, err)
 	}
-
 	return nil
 }
 
@@ -211,21 +146,16 @@ type structureEvidence interface {
 	indexStructureEvidence | rolloutPhaseEvidence
 }
 
-func encodeStructureEvidence[Evidence structureEvidence](
-	ctx context.Context,
-	evidence Evidence,
-) (json.RawMessage, error) {
+func encodeStructureEvidence[Evidence structureEvidence](ctx context.Context, evidence Evidence) (json.RawMessage, error) {
 	encoded, err := json.Marshal(evidence)
 	if err != nil {
 		return nil, structureFailure(ctx, "encode the search worker step evidence", err)
 	}
-
 	return encoded, nil
 }
 
 func structureFailure(ctx context.Context, operation string, err error) error {
 	wrapped := fmt.Errorf("search worker: %s: %w", operation, err)
 	slog.ErrorContext(ctx, "search.worker.audit_failed", slog.String("err", wrapped.Error()))
-
 	return wrapped
 }

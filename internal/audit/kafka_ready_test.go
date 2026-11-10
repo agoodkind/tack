@@ -22,12 +22,10 @@ func TestReadyRefusesWhenAnyPartitionHasNoLeader(t *testing.T) {
 	defer cancel()
 
 	err := recorder.Ready(ctx)
-	if err == nil {
-		t.Fatal(
-			"a topic with a leaderless partition must refuse: events keyed onto it cannot be recorded",
-		)
-	}
 
+	if err == nil {
+		t.Fatal("a topic with a leaderless partition must refuse: events keyed onto it cannot be recorded")
+	}
 	if !strings.Contains(err.Error(), "partition 1") {
 		t.Fatalf("err = %v, want it to name the partition that cannot accept a record", err)
 	}
@@ -44,10 +42,10 @@ func TestReadyRefusesAPartitionlessTopic(t *testing.T) {
 	defer cancel()
 
 	err := recorder.Ready(ctx)
+
 	if err == nil {
 		t.Fatal("a topic reporting no partitions must refuse")
 	}
-
 	if !strings.Contains(err.Error(), "no partitions") {
 		t.Fatalf("err = %v, want it to say the topic reports no partitions", err)
 	}
@@ -72,25 +70,20 @@ func TestReadyAcceptsAFullyLedTopic(t *testing.T) {
 // given partition state for the audit topic. The broker itself cannot be told
 // to strand a partition, so the state under test is injected at the wire.
 func serveMetadata(cluster *kfake.Cluster, partitions ...kmsg.MetadataResponseTopicPartition) {
-	cluster.ControlKey(
-		kmsg.Metadata.Int16(),
-		func(req kmsg.Request) (kmsg.Response, error, bool) {
-			cluster.KeepControl()
-			metadataReq, ok := req.(*kmsg.MetadataRequest)
-			if !ok {
-				return nil, nil, false
-			}
-
-			resp := metadataReq.ResponseKind().(*kmsg.MetadataResponse)
-			topic := kmsg.NewMetadataResponseTopic()
-			name := testKafkaTopic
-			topic.Topic = &name
-			topic.Partitions = partitions
-			resp.Topics = append(resp.Topics, topic)
-
-			return resp, nil, true
-		},
-	)
+	cluster.ControlKey(kmsg.Metadata.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		cluster.KeepControl()
+		metadataReq, ok := req.(*kmsg.MetadataRequest)
+		if !ok {
+			return nil, nil, false
+		}
+		resp := metadataReq.ResponseKind().(*kmsg.MetadataResponse)
+		topic := kmsg.NewMetadataResponseTopic()
+		name := testKafkaTopic
+		topic.Topic = &name
+		topic.Partitions = partitions
+		resp.Topics = append(resp.Topics, topic)
+		return resp, nil, true
+	})
 }
 
 func metadataPartition(id int32, leader int32) kmsg.MetadataResponseTopicPartition {
@@ -101,7 +94,6 @@ func metadataPartition(id int32, leader int32) kmsg.MetadataResponseTopicPartiti
 		partition.Replicas = []int32{leader}
 		partition.ISR = []int32{leader}
 	}
-
 	return partition
 }
 
@@ -121,12 +113,10 @@ func TestReadyRefusesAPartitionWithNoInSyncReplica(t *testing.T) {
 	defer cancel()
 
 	err := recorder.Ready(ctx)
-	if err == nil {
-		t.Fatal(
-			"a partition with no in-sync replica must refuse: acks=all rejects every produce to it",
-		)
-	}
 
+	if err == nil {
+		t.Fatal("a partition with no in-sync replica must refuse: acks=all rejects every produce to it")
+	}
 	if !strings.Contains(err.Error(), "0 in-sync replicas") {
 		t.Fatalf("err = %v, want it to name the empty in-sync set", err)
 	}
@@ -146,12 +136,10 @@ func TestReadyRefusesAPartitionBelowMinInSyncReplicas(t *testing.T) {
 	defer cancel()
 
 	err := recorder.Ready(ctx)
-	if err == nil {
-		t.Fatal(
-			"a partition below the topic's min.insync.replicas must refuse: acks=all rejects every produce to it",
-		)
-	}
 
+	if err == nil {
+		t.Fatal("a partition below the topic's min.insync.replicas must refuse: acks=all rejects every produce to it")
+	}
 	if !strings.Contains(err.Error(), "below the topic minimum of 2") {
 		t.Fatalf("err = %v, want it to name the minimum the partition falls short of", err)
 	}
@@ -169,10 +157,10 @@ func TestReadyRefusesAnUnreadableMinInSyncReplicas(t *testing.T) {
 	defer cancel()
 
 	err := recorder.Ready(ctx)
+
 	if err == nil {
 		t.Fatal("an unreadable min.insync.replicas must refuse rather than assume a default")
 	}
-
 	if !strings.Contains(err.Error(), "min.insync.replicas") {
 		t.Fatalf("err = %v, want it to name the config it could not read", err)
 	}
@@ -181,31 +169,25 @@ func TestReadyRefusesAnUnreadableMinInSyncReplicas(t *testing.T) {
 // serveMinInSyncReplicas makes the fake cluster report the given value for the
 // audit topic, which is the one topic config this readiness check reads.
 func serveMinInSyncReplicas(cluster *kfake.Cluster, value string) {
-	cluster.ControlKey(
-		kmsg.DescribeConfigs.Int16(),
-		func(req kmsg.Request) (kmsg.Response, error, bool) {
-			cluster.KeepControl()
-			configReq, ok := req.(*kmsg.DescribeConfigsRequest)
-			if !ok {
-				return nil, nil, false
-			}
-
-			resp, ok := configReq.ResponseKind().(*kmsg.DescribeConfigsResponse)
-			if !ok {
-				return nil, nil, false
-			}
-
-			resource := kmsg.NewDescribeConfigsResponseResource()
-			resource.ResourceType = kmsg.ConfigResourceTypeTopic
-			resource.ResourceName = testKafkaTopic
-			config := kmsg.NewDescribeConfigsResponseResourceConfig()
-			config.Name = "min.insync.replicas"
-			reported := value
-			config.Value = &reported
-			resource.Configs = append(resource.Configs, config)
-			resp.Resources = append(resp.Resources, resource)
-
-			return resp, nil, true
-		},
-	)
+	cluster.ControlKey(kmsg.DescribeConfigs.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		cluster.KeepControl()
+		configReq, ok := req.(*kmsg.DescribeConfigsRequest)
+		if !ok {
+			return nil, nil, false
+		}
+		resp, ok := configReq.ResponseKind().(*kmsg.DescribeConfigsResponse)
+		if !ok {
+			return nil, nil, false
+		}
+		resource := kmsg.NewDescribeConfigsResponseResource()
+		resource.ResourceType = kmsg.ConfigResourceTypeTopic
+		resource.ResourceName = testKafkaTopic
+		config := kmsg.NewDescribeConfigsResponseResourceConfig()
+		config.Name = "min.insync.replicas"
+		reported := value
+		config.Value = &reported
+		resource.Configs = append(resource.Configs, config)
+		resp.Resources = append(resp.Resources, resource)
+		return resp, nil, true
+	})
 }

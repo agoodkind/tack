@@ -17,11 +17,7 @@ func actorRedactorFor(cfg *config.Config) ActorRedactor {
 	return func(ctx context.Context, orgID, actorID uuid.UUID) (audit.ActorRedaction, error) {
 		reader, err := audit.NewReader(ctx, cfg.AuditReaderDSN)
 		if err != nil {
-			return audit.ActorRedaction{}, loggedError(
-				ctx,
-				"qa datagen: open audit reader from AUDIT_READER_DSN",
-				err,
-			)
+			return audit.ActorRedaction{}, loggedError(ctx, "qa datagen: open audit reader from AUDIT_READER_DSN", err)
 		}
 		defer reader.Close()
 		redactor, err := audit.NewRedactor(ctx, cfg.AuditRedactorDSN)

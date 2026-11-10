@@ -38,7 +38,6 @@ func TestToolVerbCoversEveryRegisteredTool(t *testing.T) {
 			t.Errorf("tool %q has no entry in ToolVerb", name)
 			continue
 		}
-
 		if v == "" {
 			// Tools handled by a deeper hook are fine; just confirm we
 			// flagged them as covered, not unknown.
@@ -60,16 +59,13 @@ func TestMemoryRecorderRoundTrip(t *testing.T) {
 	if err := r.Record(t.Context(), Event{Verb: string(VerbNodeRead)}); err != nil {
 		t.Fatalf("record: %v", err)
 	}
-
 	got := r.Events()
 	if len(got) != 1 || got[0].Verb != string(VerbNodeRead) {
 		t.Fatalf("unexpected events: %#v", got)
 	}
-
 	if got[0].OccurredAt.IsZero() {
 		t.Errorf("OccurredAt should default to now, got zero")
 	}
-
 	r.Reset()
 	if len(r.Events()) != 0 {
 		t.Errorf("Reset should empty the buffer")

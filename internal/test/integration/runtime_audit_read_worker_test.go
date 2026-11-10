@@ -20,63 +20,31 @@ func TestRuntimeAuditReadRecoveryWorker(t *testing.T) {
 	backends := readBackends(t)
 	renewed := make([]readFixture, len(backends))
 	abandoned := make([]readFixture, len(backends))
-
 	stops := make([]func() error, len(backends))
 	for position, backend := range backends {
 		renewed[position], abandoned[position] = newReadFixture(t), newReadFixture(t)
 		renewed[position].begin(t, backend.store)
 		abandoned[position].begin(t, backend.store)
-		stops[position] = audit.KeepReadOwned(
-			t.Context(),
-			backend.store,
-			renewed[position].completion.Token,
-		)
+		stops[position] = audit.KeepReadOwned(t.Context(), backend.store, renewed[position].completion.Token)
 	}
-
 	waitForReadLeases(t)
 
 	for position, backend := range backends {
 		startReadRecovery(t, backend.store)
 		abandonedID := abandoned[position].admission.Token.EventID
-		waitFor(
-			t,
-			backend.name+" recovery of read "+abandonedID.String(),
-			func() bool {
-				return len(backend.terminal(t, abandonedID)) > 0
-			},
-		)
+		waitFor(t, backend.name+" recovery of read "+abandonedID.String(), func() bool {
+			return len(backend.terminal(t, abandonedID)) > 0
+		})
 		requireTerminal(t, backend, abandonedID, audit.OutcomeIncomplete)
 		if err := stops[position](); err != nil {
-			t.Fatalf(
-				"%s renewal of read %s stopped with %v, want nil",
-				backend.name,
-				renewed[position].admission.Token.EventID,
-				err,
-			)
+			t.Fatalf("%s renewal of read %s stopped with %v, want nil", backend.name, renewed[position].admission.Token.EventID, err)
 		}
-
-		if err := backend.store.FinalizeRead(
-			t.Context(),
-			renewed[position].completion,
-		); err != nil {
+		if err := backend.store.FinalizeRead(t.Context(), renewed[position].completion); err != nil {
 			t.Fatalf("%s finalization of the renewed read: %v", backend.name, err)
 		}
-
-		requireTerminal(
-			t,
-			backend,
-			renewed[position].admission.Token.EventID,
-			audit.OutcomeCompleted,
-		)
-		if err := backend.store.FinalizeRead(
-			t.Context(),
-			abandoned[position].completion,
-		); !errors.Is(err, audit.ErrReadOwnerLost) {
-			t.Fatalf(
-				"%s finalization of the recovered read = %v, want audit.ErrReadOwnerLost",
-				backend.name,
-				err,
-			)
+		requireTerminal(t, backend, renewed[position].admission.Token.EventID, audit.OutcomeCompleted)
+		if err := backend.store.FinalizeRead(t.Context(), abandoned[position].completion); !errors.Is(err, audit.ErrReadOwnerLost) {
+			t.Fatalf("%s finalization of the recovered read = %v, want audit.ErrReadOwnerLost", backend.name, err)
 		}
 	}
 }

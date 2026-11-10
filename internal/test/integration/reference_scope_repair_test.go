@@ -25,51 +25,22 @@ func TestScopeRepairReportsRefusedWrites(t *testing.T) {
 	destination := mustCreateScope(t, env, "project", "Qat", workspace.ID, workspace.ID, actor)
 	holder := writeNodeWithSplitScope(t, env, "issue", "Holder", destination.ID, destination.ID, 1)
 	held := node.ReferenceKey{TemplateName: "reference", Encoded: "QAT-1"}
-	if err := env.Stores.Nodes.SetReferenceKeys(
-		env.Ctx,
-		env.OrgID,
-		holder.ID,
-		[]node.ReferenceKey{held},
-	); err != nil {
+	if err := env.Stores.Nodes.SetReferenceKeys(env.Ctx, env.OrgID, holder.ID, []node.ReferenceKey{held}); err != nil {
 		t.Fatalf("SetReferenceKeys failed for the holder issue: %v", err)
 	}
-
 	stale := writeNodeWithSplitScope(t, env, "issue", "Stale", destination.ID, origin.ID, 1)
 
 	repaired, _, err := ops.RepairSequenceScopeIDs(env.Ctx, env.Ops)
 	if !errors.Is(err, domain.ErrConflict) || repaired != 0 {
-		t.Fatalf(
-			"RepairSequenceScopeIDs returned %d repaired nodes and error %v; TestScopeRepairReportsRefusedWrites expects an error that wraps domain.ErrConflict and zero repaired nodes",
-			repaired,
-			err,
-		)
+		t.Fatalf("RepairSequenceScopeIDs returned %d repaired nodes and error %v; TestScopeRepairReportsRefusedWrites expects an error that wraps domain.ErrConflict and zero repaired nodes", repaired, err)
 	}
-
 	stored, err := env.Stores.Nodes.Get(env.Ctx, env.OrgID, stale.ID)
-	if err != nil || stored == nil ||
-		string(stored.Props["scope_id"]) != string(jsonStr(origin.ID.String())) {
-		t.Fatalf(
-			"The read of stale issue %s returned node %v and error %v; the stale issue must keep scope_id %s",
-			stale.ID,
-			stored,
-			err,
-			origin.ID,
-		)
+	if err != nil || stored == nil || string(stored.Props["scope_id"]) != string(jsonStr(origin.ID.String())) {
+		t.Fatalf("The read of stale issue %s returned node %v and error %v; the stale issue must keep scope_id %s", stale.ID, stored, err, origin.ID)
 	}
-
-	owner, err := env.Stores.Nodes.LookupReference(
-		env.Ctx,
-		env.OrgID,
-		held.TemplateName,
-		held.Encoded,
-	)
+	owner, err := env.Stores.Nodes.LookupReference(env.Ctx, env.OrgID, held.TemplateName, held.Encoded)
 	if err != nil || owner != holder.ID {
-		t.Fatalf(
-			"The QAT-1 lookup returned owner %s and error %v; holder issue %s must retain the claim",
-			owner,
-			err,
-			holder.ID,
-		)
+		t.Fatalf("The QAT-1 lookup returned owner %s and error %v; holder issue %s must retain the claim", owner, err, holder.ID)
 	}
 }
 
@@ -90,10 +61,7 @@ func TestScopeRepairMovesTheReferenceWithTheNode(t *testing.T) {
 	// The node sits under the second project but still names the first as its
 	// scope, which is the stale pointer this repair corrects.
 	stale := writeNodeWithSplitScope(t, env, "issue", "Stale", destination.ID, origin.ID, 1)
-	if err := env.Stores.Nodes.SetReferenceKeys(
-		env.Ctx,
-		env.OrgID,
-		stale.ID,
+	if err := env.Stores.Nodes.SetReferenceKeys(env.Ctx, env.OrgID, stale.ID,
 		[]node.ReferenceKey{{TemplateName: "reference", Encoded: "FAN-1"}},
 	); err != nil {
 		t.Fatalf("seed the node's existing claim: %v", err)
@@ -103,7 +71,6 @@ func TestScopeRepairMovesTheReferenceWithTheNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RepairSequenceScopeIDs: %v", err)
 	}
-
 	if repaired == 0 {
 		t.Fatalf("repaired = %d, skipped = %d, want the stale node repaired", repaired, skipped)
 	}
@@ -112,16 +79,13 @@ func TestScopeRepairMovesTheReferenceWithTheNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lookup old reference: %v", err)
 	}
-
 	if released != uuid.Nil {
 		t.Fatalf("FAN-1 owner after the move = %s, want it released", released)
 	}
-
 	held, err := env.Stores.Nodes.LookupReference(env.Ctx, env.OrgID, "reference", "QAT-1")
 	if err != nil {
 		t.Fatalf("lookup new reference: %v", err)
 	}
-
 	if held != stale.ID {
 		t.Fatalf("QAT-1 owner = %s, want the moved node %s", held, stale.ID)
 	}
@@ -143,12 +107,7 @@ func TestScopeRepairKeepsClaimsWhenTypeHasNoTemplate(t *testing.T) {
 
 	stale := writeNodeWithSplitScope(t, env, "issue", "Stale", destination.ID, origin.ID, 1)
 	held := node.ReferenceKey{TemplateName: "reference", Encoded: "FAN-1"}
-	if err := env.Stores.Nodes.SetReferenceKeys(
-		env.Ctx,
-		env.OrgID,
-		stale.ID,
-		[]node.ReferenceKey{held},
-	); err != nil {
+	if err := env.Stores.Nodes.SetReferenceKeys(env.Ctx, env.OrgID, stale.ID, []node.ReferenceKey{held}); err != nil {
 		t.Fatalf("seed the node's existing claim: %v", err)
 	}
 
@@ -156,16 +115,10 @@ func TestScopeRepairKeepsClaimsWhenTypeHasNoTemplate(t *testing.T) {
 		t.Fatalf("RepairSequenceScopeIDs: %v", err)
 	}
 
-	owner, err := env.Stores.Nodes.LookupReference(
-		env.Ctx,
-		env.OrgID,
-		held.TemplateName,
-		held.Encoded,
-	)
+	owner, err := env.Stores.Nodes.LookupReference(env.Ctx, env.OrgID, held.TemplateName, held.Encoded)
 	if err != nil {
 		t.Fatalf("lookup the claim: %v", err)
 	}
-
 	if owner != stale.ID {
 		t.Fatalf("FAN-1 owner after the repair = %s, want the node keeping it, %s", owner, stale.ID)
 	}
@@ -179,17 +132,14 @@ func clearReferenceTemplates(t *testing.T, env *TestEnv, typeKeys ...string) {
 	if err != nil {
 		t.Fatalf("list node types: %v", err)
 	}
-
 	wanted := make(map[string]bool, len(typeKeys))
 	for _, typeKey := range typeKeys {
 		wanted[typeKey] = true
 	}
-
 	for _, nodeType := range types {
 		if !wanted[nodeType.TypeKey] {
 			continue
 		}
-
 		nodeType.ReferenceTemplates = nil
 		if err := env.Stores.NodeTypes.Set(env.Ctx, nodeType); err != nil {
 			t.Fatalf("clear templates for %s: %v", nodeType.TypeKey, err)
@@ -202,10 +152,8 @@ func clearReferenceTemplates(t *testing.T, env *TestEnv, typeKeys ...string) {
 func writeNodeWithSplitScope(
 	t *testing.T,
 	env *TestEnv,
-	typeKey string,
-	name string,
-	parentID uuid.UUID,
-	scopeID uuid.UUID,
+	typeKey, name string,
+	parentID, scopeID uuid.UUID,
 	sequence int,
 ) *node.NodeView {
 	t.Helper()
@@ -234,16 +182,10 @@ func writeNodeWithSplitScope(
 		UpdatedAt: current.UpdatedAt,
 	}
 	if err := env.Stores.Nodes.CreateAtomic(
-		env.Ctx,
-		current,
-		view,
-		nil,
-		[]string{"parent_id", "scope_id", "sequence"},
-		nil,
-		nil,
+		env.Ctx, current, view, nil,
+		[]string{"parent_id", "scope_id", "sequence"}, nil, nil,
 	); err != nil {
 		t.Fatalf("write %s with split scope: %v", typeKey, err)
 	}
-
 	return view
 }

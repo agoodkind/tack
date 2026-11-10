@@ -48,11 +48,8 @@ func openSearchHostConfig(holder string, settings openSearchEngineSettings) *con
 		Resources:   container.Resources{Memory: settings.memoryBytes},
 	}
 	if settings.dataVolume != "" {
-		hostConfig.Mounts = []mount.Mount{
-			{Type: mount.TypeVolume, Source: settings.dataVolume, Target: openSearchDataPath},
-		}
+		hostConfig.Mounts = []mount.Mount{{Type: mount.TypeVolume, Source: settings.dataVolume, Target: openSearchDataPath}}
 	}
-
 	return hostConfig
 }
 
@@ -96,61 +93,40 @@ func DisposableOpenSearch(t *testing.T, options DisposableOpenSearchOptions) *Di
 	if err != nil {
 		t.Fatalf("open docker client: %v", err)
 	}
-
 	defer func() { _ = cli.Close() }()
 	removed, err := removeLeftoverDataDisks(ctx, cli)
 	if len(removed) > 0 {
 		t.Logf("removed data disks left by an earlier killed run: %s", strings.Join(removed, ", "))
 	}
-
 	if err != nil {
 		t.Fatalf("remove data disks left by an earlier killed run: %v", err)
 	}
-
 	disk, err = createOpenSearchDataDisk(ctx, cli, options.DataBytes)
 	if err != nil {
 		t.Fatalf("create the disposable OpenSearch data disk: %v", err)
 	}
-
 	nodeSettings := []string{openSearchInfoInterval, openSearchMLDiskThreshold}
 	if options.SharedDiskPolicy {
 		nodeSettings = append([]string{openSearchInfoInterval}, openSearchFreeSpaceSettings()...)
 	}
-
-	fixture, created, err = provisionOpenSearch(
-		ctx,
-		openSearchEngineSettings{
-			memoryBytes:  options.MemoryBytes,
-			dataVolume:   disk.dataVolume,
-			nodeSettings: nodeSettings,
-		},
-	)
+	fixture, created, err = provisionOpenSearch(ctx, openSearchEngineSettings{
+		memoryBytes: options.MemoryBytes, dataVolume: disk.dataVolume,
+		nodeSettings: nodeSettings,
+	})
 	if err != nil {
 		t.Fatalf("start disposable OpenSearch: %v", err)
 	}
-
 	engine := &DisposableEngine{Fixture: fixture}
 	limit := strings.TrimSpace(engine.run(t, "cat", "/sys/fs/cgroup/memory.max"))
 	if limit != strconv.FormatInt(options.MemoryBytes, 10) {
-		t.Fatalf(
-			"OpenSearch %s cgroup memory.max = %s, want %d",
-			fixture.Container,
-			limit,
-			options.MemoryBytes,
-		)
+		t.Fatalf("OpenSearch %s cgroup memory.max = %s, want %d", fixture.Container, limit, options.MemoryBytes)
 	}
-
 	return engine
 }
 
 // removeDisposableOpenSearch logs the engine state, removes the engine and
 // the address holder, then removes the data disk that the engine mounted.
-func removeDisposableOpenSearch(
-	t *testing.T,
-	engineName string,
-	created []string,
-	disk openSearchDataDisk,
-) {
+func removeDisposableOpenSearch(t *testing.T, engineName string, created []string, disk openSearchDataDisk) {
 	t.Helper()
 	cleanup, stop := context.WithTimeout(context.WithoutCancel(t.Context()), provisionTimeout)
 	defer stop()
@@ -158,30 +134,16 @@ func removeDisposableOpenSearch(
 		evidence, err := OpenSearchResourceEvidence(cleanup, engineName)
 		t.Logf("disposable OpenSearch state before removal (read error %v):\n%s", err, evidence)
 	}
-
 	// The data disk removal runs even when the container removal fails, and
 	// the test reports both errors.
 	containerErr := removeContainers(cleanup, created)
 	diskErr := removeDisposableDataDisk(cleanup, disk)
 	if err := errors.Join(containerErr, diskErr); err != nil {
-		t.Errorf(
-			"remove disposable OpenSearch containers %v and data disk %s: %v",
-			created,
-			disk.helper,
-			err,
-		)
-
+		t.Errorf("remove disposable OpenSearch containers %v and data disk %s: %v", created, disk.helper, err)
 		return
 	}
-
-	t.Logf(
-		"removed disposable OpenSearch containers %v, data disk helper %s, volumes %s and %s, and loop device %s",
-		created,
-		disk.helper,
-		disk.dataVolume,
-		disk.imageVolume,
-		disk.device,
-	)
+	t.Logf("removed disposable OpenSearch containers %v, data disk helper %s, volumes %s and %s, and loop device %s",
+		created, disk.helper, disk.dataVolume, disk.imageVolume, disk.device)
 }
 
 // removeDisposableDataDisk opens a Docker client and removes disk.
@@ -190,9 +152,7 @@ func removeDisposableDataDisk(ctx context.Context, disk openSearchDataDisk) erro
 	if err != nil {
 		return err
 	}
-
 	defer func() { _ = cli.Close() }()
-
 	return removeOpenSearchDataDisk(ctx, cli, disk)
 }
 
@@ -210,25 +170,12 @@ func (e *DisposableEngine) run(t *testing.T, command ...string) string {
 	if err != nil {
 		t.Fatalf("open docker client: %v", err)
 	}
-
 	defer func() { _ = cli.Close() }()
 	output, code, err := execInContainer(ctx, cli, e.Fixture.Container, command)
 	if err != nil || code != 0 {
-		wrapped := fmt.Errorf(
-			"run %v in %s: exit %d: %s: %w",
-			command,
-			e.Fixture.Container,
-			code,
-			output,
-			err,
-		)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.fixture_exec_failed",
-			slog.String("err", wrapped.Error()),
-		)
+		wrapped := fmt.Errorf("run %v in %s: exit %d: %s: %w", command, e.Fixture.Container, code, output, err)
+		telemetry.L(ctx).ErrorContext(ctx, "search.fixture_exec_failed", slog.String("err", wrapped.Error()))
 		t.Fatal(wrapped)
 	}
-
 	return output
 }

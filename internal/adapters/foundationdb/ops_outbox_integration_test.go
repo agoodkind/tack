@@ -19,7 +19,6 @@ func TestOpsOutboxReadAndClear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open fdb: %v", err)
 	}
-
 	prefixID := uuid.New()
 	prefix := append([]byte("tack-test:"), prefixID[:]...)
 	SetTestPrefix(prefix)
@@ -38,24 +37,19 @@ func TestOpsOutboxReadAndClear(t *testing.T) {
 			t.Fatalf("append %s: %v", event, err)
 		}
 	}
-
 	entries, err := store.ReadOutboxFrom(ctx, nil, 10)
 	if err != nil {
 		t.Fatalf("read outbox: %v", err)
 	}
-
 	if len(entries) != 2 {
 		t.Fatalf("outbox entries = %d, want 2", len(entries))
 	}
-
 	if bytes.Compare(entries[0].Mark, entries[1].Mark) >= 0 {
 		t.Fatal("outbox marks are not in commit order")
 	}
-
 	if !bytes.Equal(entries[0].Event, []byte(`{"verb":"first"}`)) {
 		t.Fatalf("first event = %s", entries[0].Event)
 	}
-
 	if !bytes.Equal(entries[1].Event, []byte(`{"verb":"second"}`)) {
 		t.Fatalf("second event = %s", entries[1].Event)
 	}
@@ -64,7 +58,6 @@ func TestOpsOutboxReadAndClear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read after first mark: %v", err)
 	}
-
 	if len(remaining) != 1 || !bytes.Equal(remaining[0].Event, entries[1].Event) {
 		t.Fatalf("entries after first mark = %+v, want second event", remaining)
 	}
@@ -72,12 +65,10 @@ func TestOpsOutboxReadAndClear(t *testing.T) {
 	if err := store.ClearThrough(ctx, entries[0].Mark); err != nil {
 		t.Fatalf("clear through first mark: %v", err)
 	}
-
 	remaining, err = store.ReadOutboxFrom(ctx, nil, 10)
 	if err != nil {
 		t.Fatalf("read after clear: %v", err)
 	}
-
 	if len(remaining) != 1 || !bytes.Equal(remaining[0].Event, entries[1].Event) {
 		t.Fatalf("entries after clear = %+v, want second event", remaining)
 	}
@@ -87,11 +78,7 @@ func clearOpsOutboxTestPrefix(t *testing.T, db fdb.Database, prefix []byte) {
 	t.Helper()
 	end := append(append([]byte(nil), prefix...), 0xFF)
 	_, err := db.Transact(func(tr fdb.Transaction) (any, error) {
-		tr.ClearRange(fdb.KeyRange{
-			Begin: fdb.Key(prefix),
-			End:   fdb.Key(end),
-		})
-
+		tr.ClearRange(fdb.KeyRange{Begin: fdb.Key(prefix), End: fdb.Key(end)})
 		return nil, nil
 	})
 	if err != nil {

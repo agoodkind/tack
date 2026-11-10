@@ -40,36 +40,18 @@ type slot struct {
 // WithSlot attaches an empty slot to ctx for the named tool and the actor
 // making the call.
 func WithSlot(ctx context.Context, tool string, actor uuid.UUID) context.Context {
-	return context.WithValue(
-		ctx,
-		slotKey{},
-		&slot{
-			mu:          sync.Mutex{},
-			tool:        tool,
-			actor:       actor,
-			operationID: uuid.Nil,
-			operation:   nil,
-			committed:   false,
-		},
-	)
+	return context.WithValue(ctx, slotKey{}, &slot{
+		mu: sync.Mutex{}, tool: tool, actor: actor, operationID: uuid.Nil, operation: nil, committed: false,
+	})
 }
 
 // WithOperation attaches a slot to ctx that stores the encoded audit
 // operation. Writers under the returned context read the operation from this
 // slot instead of from an earlier slot.
 func WithOperation(ctx context.Context, operation json.RawMessage) context.Context {
-	return context.WithValue(
-		ctx,
-		slotKey{},
-		&slot{
-			mu:          sync.Mutex{},
-			tool:        "",
-			actor:       uuid.Nil,
-			operationID: uuid.Nil,
-			operation:   operation,
-			committed:   false,
-		},
-	)
+	return context.WithValue(ctx, slotKey{}, &slot{
+		mu: sync.Mutex{}, tool: "", actor: uuid.Nil, operationID: uuid.Nil, operation: operation, committed: false,
+	})
 }
 
 // Operation returns the encoded audit operation of the slot on ctx. It
@@ -79,7 +61,6 @@ func Operation(ctx context.Context) json.RawMessage {
 	if current == nil {
 		return nil
 	}
-
 	return current.operation
 }
 
@@ -95,10 +76,8 @@ func Tool(ctx context.Context) string {
 	if current == nil {
 		return ""
 	}
-
 	current.mu.Lock()
 	defer current.mu.Unlock()
-
 	return current.tool
 }
 
@@ -109,10 +88,8 @@ func Actor(ctx context.Context) uuid.UUID {
 	if current == nil {
 		return uuid.Nil
 	}
-
 	current.mu.Lock()
 	defer current.mu.Unlock()
-
 	return current.actor
 }
 
@@ -124,27 +101,17 @@ func OperationID(ctx context.Context) (uuid.UUID, error) {
 	if current == nil {
 		return uuid.Nil, nil
 	}
-
 	current.mu.Lock()
 	defer current.mu.Unlock()
 	if current.operationID != uuid.Nil {
 		return current.operationID, nil
 	}
-
 	operationID, err := uuid.NewV7()
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.intent_operation_id_failed",
-			slog.String("tool", current.tool),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.intent_operation_id_failed", slog.String("tool", current.tool), slog.String("err", err.Error()))
 		return uuid.Nil, fmt.Errorf("create the operation ID of tool %s: %w", current.tool, err)
 	}
-
 	current.operationID = operationID
-
 	return operationID, nil
 }
 
@@ -154,7 +121,6 @@ func Commit(ctx context.Context) {
 	if current == nil {
 		return
 	}
-
 	current.mu.Lock()
 	defer current.mu.Unlock()
 	current.committed = true
@@ -167,9 +133,7 @@ func Committed(ctx context.Context) bool {
 	if current == nil {
 		return false
 	}
-
 	current.mu.Lock()
 	defer current.mu.Unlock()
-
 	return current.committed
 }

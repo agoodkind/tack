@@ -10,19 +10,9 @@ import (
 
 // createNode calls tool with arguments and returns the raw ID of the node
 // that the tool created.
-func (server *publicServer) createNode(
-	t *testing.T,
-	tool string,
-	arguments map[string]any,
-) uuid.UUID {
+func (server *publicServer) createNode(t *testing.T, tool string, arguments map[string]any) uuid.UUID {
 	t.Helper()
-	response := server.rpc(
-		t,
-		newRequestID(t, "create"),
-		"tools/call",
-		map[string]any{"name": tool, "arguments": arguments},
-	)
-
+	response := server.rpc(t, newRequestID(t, "create"), "tools/call", map[string]any{"name": tool, "arguments": arguments})
 	return uuid.MustParse(rawID(t, toolText(t, response)))
 }
 
@@ -30,20 +20,12 @@ func (server *publicServer) createNode(
 // child_of edges of nodeID.
 func (server *publicServer) childOfEdges(t *testing.T, nodeID uuid.UUID) string {
 	t.Helper()
-	response := server.rpc(
-		t,
-		newRequestID(t, "parents"),
-		"tools/call",
-		map[string]any{
-			"name": "tack_list_relationships",
-			"arguments": map[string]any{
-				"node_id":       nodeID.String(),
-				"direction":     "out",
-				"relation_type": "child_of",
-			},
+	response := server.rpc(t, newRequestID(t, "parents"), "tools/call", map[string]any{
+		"name": "tack_list_relationships",
+		"arguments": map[string]any{
+			"node_id": nodeID.String(), "direction": "out", "relation_type": "child_of",
 		},
-	)
-
+	})
 	return toolText(t, response)
 }
 
@@ -53,9 +35,7 @@ func withName(arguments map[string]any, name string) map[string]any {
 	for key, value := range arguments {
 		named[key] = value
 	}
-
 	named["name"] = name
-
 	return named
 }
 
@@ -74,13 +54,7 @@ func requireToolRefusal(t *testing.T, response publicResponse, reason string) {
 	if err := json.Unmarshal(response.body, &decoded); err != nil {
 		t.Fatalf("json.Unmarshal failed for the tools/call response: %v\n%s", err, response.body)
 	}
-
-	if !decoded.Result.IsError || len(decoded.Result.Content) == 0 ||
-		!strings.Contains(decoded.Result.Content[0].Text, reason) {
-		t.Fatalf(
-			"tools/call response = %s, want an error result that contains %q",
-			response.body,
-			reason,
-		)
+	if !decoded.Result.IsError || len(decoded.Result.Content) == 0 || !strings.Contains(decoded.Result.Content[0].Text, reason) {
+		t.Fatalf("tools/call response = %s, want an error result that contains %q", response.body, reason)
 	}
 }

@@ -74,44 +74,29 @@ func recordRestoreDrillRehearsal(
 	detail := "restore drill " + runID + " passed: " + strings.Join(legs, ", ")
 	wait := restoreDrillMarkerFirstWait
 	var putErr error
-
 	for attempt := 1; attempt <= restoreDrillMarkerAttempts; attempt++ {
 		putErr = writeBackupStatusMarker(ctx, put, backupStalenessRehearsalName, passedAt, detail)
 		if putErr == nil {
 			return nil
 		}
-
-		slog.ErrorContext(
-			ctx,
-			"backup.restore_drill.marker_put_failed",
+		slog.ErrorContext(ctx, "backup.restore_drill.marker_put_failed",
 			slog.Int("attempt", attempt),
 			slog.Int("attempts", restoreDrillMarkerAttempts),
-			slog.String("err", putErr.Error()),
-		)
+			slog.String("err", putErr.Error()))
 		if attempt == restoreDrillMarkerAttempts {
 			break
 		}
-
 		if !opsWait(ctx, wait) {
-			slog.ErrorContext(
-				ctx,
-				"backup.restore_drill.marker_retry_canceled",
+			slog.ErrorContext(ctx, "backup.restore_drill.marker_retry_canceled",
 				slog.Int("attempt", attempt),
-				slog.String("err", putErr.Error()),
-			)
+				slog.String("err", putErr.Error()))
 			break
 		}
-
 		wait *= 2
 	}
-
 	failure := &RestoreDrillMarkerError{Err: putErr}
-	slog.ErrorContext(
-		ctx,
-		"backup.restore_drill.failed",
+	slog.ErrorContext(ctx, "backup.restore_drill.failed",
 		slog.String("err", failure.Error()),
-		slog.Int("exit_status", restoreDrillMarkerExitStatus),
-	)
-
+		slog.Int("exit_status", restoreDrillMarkerExitStatus))
 	return failure
 }

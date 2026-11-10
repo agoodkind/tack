@@ -48,13 +48,9 @@ const (
 // the block on its own, and the pending work makes the edits searchable. No
 // step changes a watermark or a block setting.
 func TestSearchClusterDiskFloodStage(t *testing.T) {
-	engine := testenv.DisposableOpenSearch(
-		t,
-		testenv.DisposableOpenSearchOptions{
-			MemoryBytes: floodStageMemoryBytes,
-			DataBytes:   floodStageDataBytes,
-		},
-	)
+	engine := testenv.DisposableOpenSearch(t, testenv.DisposableOpenSearchOptions{
+		MemoryBytes: floodStageMemoryBytes, DataBytes: floodStageDataBytes,
+	})
 	fixture, _ := newClusterQueryFixture(t, engine.Fixture)
 	ConfigureSearchMaintenance(t, engine.Fixture)
 	requireDiskSettings(t, fixture)
@@ -65,12 +61,7 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 	logStoredPages(t, fixture, nodeA, "before the fill")
 
 	size, used := engine.FillData(t, floodStageFillPercent)
-	t.Logf(
-		"data path after the fill: %d of %d bytes used; cgroup memory.current %s",
-		used,
-		size,
-		engine.MemoryCurrent(t),
-	)
+	t.Logf("data path after the fill: %d of %d bytes used; cgroup memory.current %s", used, size, engine.MemoryCurrent(t))
 	waitForBlock(t, fixture, true)
 
 	renameFloodProject(t, fixture, nodeA, floodStageNewText)
@@ -82,13 +73,8 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 	// as stuck work if a counted failure set its attempt count to the limit.
 	report, err := runSearchVerifyCommand(t, fixture.Config)
 	if err != nil || report.ExcludedNodes != 0 || report.StuckWorkItems != 0 {
-		t.Fatalf(
-			"ops search verify during the block = %+v (error %v), want no error, no excluded node, and no stuck work",
-			report,
-			err,
-		)
+		t.Fatalf("ops search verify during the block = %+v (error %v), want no error, no excluded node, and no stuck work", report, err)
 	}
-
 	requireLiveWorkPending(t, fixture, nodeB)
 	// The sparse model relates the two texts to each other. A search result
 	// does not show which text the index stores, and these checks read the
@@ -100,47 +86,22 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 	size, used = engine.FreeData(t)
 	t.Logf("data path after the free: %d of %d bytes used", used, size)
 	if used*100 >= size*floodStageReleasePercent {
-		t.Fatalf(
-			"data path still %d of %d bytes used after the free, at or above the %d percent high watermark",
-			used,
-			size,
-			floodStageReleasePercent,
-		)
+		t.Fatalf("data path still %d of %d bytes used after the free, at or above the %d percent high watermark", used, size, floodStageReleasePercent)
 	}
-
 	waitForBlock(t, fixture, false)
-	clusterEventually(
-		t,
-		"index the pending edits",
-		func() error {
-			drainSearchWork(t, fixture.Worker, 500)
-			if err := refreshServingIndex(t, fixture); err != nil {
-				return err
-			}
-
-			if err := storedTextError(
-				t,
-				fixture,
-				nodeA,
-				floodStageNewText,
-				floodStageOldText,
-			); err != nil {
-				return err
-			}
-
-			if err := storedTextError(
-				t,
-				fixture,
-				nodeB,
-				floodStageNewText+" beacon",
-				floodStageOldText,
-			); err != nil {
-				return err
-			}
-
-			return queryResultsMatch(t, fixture, floodStageNewText, []uuid.UUID{nodeA, nodeB}, nil)
-		},
-	)
+	clusterEventually(t, "index the pending edits", func() error {
+		drainSearchWork(t, fixture.Worker, 500)
+		if err := refreshServingIndex(t, fixture); err != nil {
+			return err
+		}
+		if err := storedTextError(t, fixture, nodeA, floodStageNewText, floodStageOldText); err != nil {
+			return err
+		}
+		if err := storedTextError(t, fixture, nodeB, floodStageNewText+" beacon", floodStageOldText); err != nil {
+			return err
+		}
+		return queryResultsMatch(t, fixture, floodStageNewText, []uuid.UUID{nodeA, nodeB}, nil)
+	})
 }
 
 // requireBlockedFailures runs worker slices until floodStageFailures slices
@@ -149,38 +110,19 @@ func TestSearchClusterDiskFloodStage(t *testing.T) {
 func requireBlockedFailures(t *testing.T, fixture queryFixture, nodeID uuid.UUID) {
 	t.Helper()
 	failures := 0
-	clusterEventually(
-		t,
-		"fail the node's blocked search work repeatedly",
-		func() error {
-			_, err := fixture.Worker.RunSlice(WithTestOperation(t, t.Context()))
-			if err != nil && strings.Contains(err.Error(), nodeID.String()) {
-				if !strings.Contains(err.Error(), floodStageBlockError) ||
-					!strings.Contains(err.Error(), floodStageBlockStatus) {
-					t.Fatalf(
-						"worker slice for node %s failed without %s and %s: %v",
-						nodeID,
-						floodStageBlockStatus,
-						floodStageBlockError,
-						err,
-					)
-				}
-
-				failures++
+	clusterEventually(t, "fail the node's blocked search work repeatedly", func() error {
+		_, err := fixture.Worker.RunSlice(WithTestOperation(t, t.Context()))
+		if err != nil && strings.Contains(err.Error(), nodeID.String()) {
+			if !strings.Contains(err.Error(), floodStageBlockError) || !strings.Contains(err.Error(), floodStageBlockStatus) {
+				t.Fatalf("worker slice for node %s failed without %s and %s: %v", nodeID, floodStageBlockStatus, floodStageBlockError, err)
 			}
-
-			if failures < floodStageFailures {
-				return fmt.Errorf(
-					"%d of %d blocked failures for node %s",
-					failures,
-					floodStageFailures,
-					nodeID,
-				)
-			}
-
-			return nil
-		},
-	)
+			failures++
+		}
+		if failures < floodStageFailures {
+			return fmt.Errorf("%d of %d blocked failures for node %s", failures, floodStageFailures, nodeID)
+		}
+		return nil
+	})
 }
 
 // requireLiveWorkPending claims every claimable live item and keeps each
@@ -189,78 +131,50 @@ func requireBlockedFailures(t *testing.T, fixture queryFixture, nodeID uuid.UUID
 func requireLiveWorkPending(t *testing.T, fixture queryFixture, nodeID uuid.UUID) {
 	t.Helper()
 	store := fixture.Stores.SearchWork(clock.Wall{})
-	clusterEventually(
-		t,
-		"claim the node's pending live work",
-		func() error {
-			claimed := claimAll(t, store, searchdomain.WorkClassLive)
-			for _, work := range claimed {
-				clusterRequire(
-					t,
-					"yield inspected work",
-					store.Yield(WithTestOperation(t, t.Context()), work),
-				)
-			}
-
-			if _, found := claimed[nodeID]; !found {
-				return fmt.Errorf("claimed %d live items, none of node %s", len(claimed), nodeID)
-			}
-
-			return nil
-		},
-	)
+	clusterEventually(t, "claim the node's pending live work", func() error {
+		claimed := claimAll(t, store, searchdomain.WorkClassLive)
+		for _, work := range claimed {
+			clusterRequire(t, "yield inspected work", store.Yield(WithTestOperation(t, t.Context()), work))
+		}
+		if _, found := claimed[nodeID]; !found {
+			return fmt.Errorf("claimed %d live items, none of node %s", len(claimed), nodeID)
+		}
+		return nil
+	})
 }
 
 // requireQueryResults requires every node of present and no node of absent
 // in the complete results of query.
-func requireQueryResults(
-	t *testing.T,
-	fixture queryFixture,
-	query string,
-	present []uuid.UUID,
-	absent []uuid.UUID,
-) {
+func requireQueryResults(t *testing.T, fixture queryFixture, query string, present, absent []uuid.UUID) {
 	t.Helper()
 	if err := queryResultsMatch(t, fixture, query, present, absent); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func queryResultsMatch(
-	t *testing.T,
-	fixture queryFixture,
-	query string,
-	present []uuid.UUID,
-	absent []uuid.UUID,
-) error {
+func queryResultsMatch(t *testing.T, fixture queryFixture, query string, present, absent []uuid.UUID) error {
 	t.Helper()
 	found, cursor := []uuid.UUID{}, ""
-
 	for range clusterSearchPages {
 		page, err := trySearch(fixture.Harness, query, cursor)
 		if err != nil {
 			return fmt.Errorf("search %q: %w", query, err)
 		}
-
 		found = append(found, page.IDs...)
 		if page.Complete {
 			break
 		}
-
 		cursor = page.Cursor
 	}
-
 	for _, nodeID := range present {
 		if !slices.Contains(found, nodeID) {
 			return fmt.Errorf("search %q returned %v without node %s", query, found, nodeID)
 		}
 	}
-
 	for _, nodeID := range absent {
 		if slices.Contains(found, nodeID) {
 			return fmt.Errorf("search %q returned node %s", query, nodeID)
 		}
 	}
-
 	return nil
 }

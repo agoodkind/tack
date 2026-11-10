@@ -43,49 +43,27 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	fixture := newQueryFixture(t, defaultQueryOptions())
 	harness := fixture.Harness
 	identifier := "PIT" + strconv.FormatInt(clock.Now().UnixNano()%1_000_000, 10)
-	harness.Call(
-		t,
-		"tack_create_project",
-		datagen.ToolArguments{
-			WorkspaceReference: harness.Workspace,
-			Name:               "Point in time project",
-			Properties: datagen.NodeProperties{
-				"identifier": json.RawMessage(strconv.Quote(identifier)),
-			},
-		},
-	)
+	harness.Call(t, "tack_create_project", datagen.ToolArguments{
+		WorkspaceReference: harness.Workspace, Name: "Point in time project",
+		Properties: datagen.NodeProperties{"identifier": json.RawMessage(strconv.Quote(identifier))},
+	})
 	harness.Project = identifier
-
 	for number := range pitOriginalNodes {
 		createPITIssue(t, harness, number)
 	}
-
 	drainSearchWork(t, fixture.Worker, 4000)
 
 	first := callSearch(t, harness, pitMutationQuery, "")
 	if first.Complete || first.Cursor == "" {
-		t.Fatalf(
-			"first page returned %d nodes and complete=%t, want a continuation",
-			len(first.IDs),
-			first.Complete,
-		)
+		t.Fatalf("first page returned %d nodes and complete=%t, want a continuation", len(first.IDs), first.Complete)
 	}
-
 	session := cursorSession(t, fixture, first.Cursor)
-	ranker := fixture.Adapter.Ranker(search.RankerSettings{
-		KeepAlive:  5 * time.Minute,
-		TokenBytes: 64 << 10,
-		BatchSize:  100,
-	})
+	ranker := fixture.Adapter.Ranker(search.RankerSettings{KeepAlive: 5 * time.Minute, TokenBytes: 64 << 10, BatchSize: 100})
 	before := rawMatchesFrom(t, ranker, session)
 	remaining := distinctNodes(before, first.IDs)
 	if len(remaining) < 2 {
-		t.Fatalf(
-			"raw matches after the first page name %d nodes, want at least two",
-			len(remaining),
-		)
+		t.Fatalf("raw matches after the first page name %d nodes, want at least two", len(remaining))
 	}
-
 	edited, deleted := remaining[0], remaining[1]
 	// A deferred call can use t.Context after t.Fatalf. Test cleanup runs
 	// after the context ends.
@@ -99,37 +77,17 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	for number := range pitCreatedNodes {
 		created = append(created, createPITIssue(t, harness, pitOriginalNodes+number))
 	}
-
-	harness.Call(
-		t,
-		"tack_update_issue",
-		datagen.ToolArguments{
-			WorkspaceReference: harness.Workspace,
-			NodeID:             edited.String(),
-			Name:               pitEditedName,
-		},
-	)
-	harness.Call(
-		t,
-		"tack_delete_issue",
-		datagen.ToolArguments{WorkspaceReference: harness.Workspace, NodeID: deleted.String()},
-	)
+	harness.Call(t, "tack_update_issue", datagen.ToolArguments{WorkspaceReference: harness.Workspace, NodeID: edited.String(), Name: pitEditedName})
+	harness.Call(t, "tack_delete_issue", datagen.ToolArguments{WorkspaceReference: harness.Workspace, NodeID: deleted.String()})
 	previous := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(previous) })
-	slog.SetDefault(
-		slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})),
-	)
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	drainSearchWork(t, fixture.Worker, 4000)
 	slog.SetDefault(previous)
 
 	if after := rawMatchesFrom(t, ranker, session); !slices.Equal(after, before) {
-		t.Fatalf(
-			"raw matches under the session point in time changed: before %v, after %v",
-			before,
-			after,
-		)
+		t.Fatalf("raw matches under the session point in time changed: before %v, after %v", before, after)
 	}
-
 	requireStoredName(t, fixture, session.Snapshot.PITID, edited, pitMutationName, pitEditedName)
 	current := readSearchPages(t, fixture.Stores, edited, runtimePageBytes)
 	t.Logf("renamed issue %s current revision %s", edited, current[0].Revision)
@@ -137,39 +95,30 @@ func TestSearchCursorPointInTimeIgnoresLaterChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open a new session snapshot: %v", err)
 	}
-
 	t.Cleanup(func() {
-		if err := ranker.Close(
-			context.WithoutCancel(WithTestOperation(t, t.Context())),
-			opened,
-		); err != nil {
+		if err := ranker.Close(context.WithoutCancel(WithTestOperation(t, t.Context())), opened); err != nil {
 			t.Errorf("close the new session snapshot: %v", err)
 		}
 	})
 	requireStoredName(t, fixture, opened.PITID, edited, pitEditedName, pitMutationName)
 	continued := continueSearch(t, harness, first)
-
 	wanted := make([]uuid.UUID, 0, len(remaining))
 	for _, id := range remaining {
 		if id != deleted {
 			wanted = append(wanted, id)
 		}
 	}
-
 	requireSameNodes(t, "the public continuation", continued, wanted)
 
 	fresh := callEverySearchPage(t, pitMutationQuery, harness).IDs
-
 	for _, id := range created {
 		if !slices.Contains(fresh, id) {
 			t.Fatalf("a new session omitted created issue %s", id)
 		}
 	}
-
 	if slices.Contains(fresh, deleted) {
 		t.Fatalf("a new session returned deleted issue %s", deleted)
 	}
-
 	if !slices.Contains(callEverySearchPage(t, pitEditedQuery, harness).IDs, edited) {
 		t.Fatalf("a new session for %q omitted edited issue %s", pitEditedQuery, edited)
 	}
@@ -187,6 +136,5 @@ func createPITIssue(t *testing.T, harness *MCPHarness, number int) uuid.UUID {
 	if err != nil {
 		t.Fatalf("parse created issue id %q: %v", created.RawID(), err)
 	}
-
 	return id
 }

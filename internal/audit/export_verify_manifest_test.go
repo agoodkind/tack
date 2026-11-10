@@ -20,25 +20,19 @@ func chainedExportTestRows(t *testing.T, n int) []Row {
 	orgID := uuid.Must(uuid.NewV7())
 	rows := make([]Row, 0, n)
 	var previous []byte
-
 	for i := range n {
 		row := Row{
-			OrgID:     orgID,
-			EventTime: now.Add(time.Duration(i) * time.Second),
-			EventID:   uuid.Must(uuid.NewV7()),
-			Seq:       int64(i + 1),
-			Shard:     1,
-			ActorID:   uuid.Must(uuid.NewV7()),
-			ActorKind: 1,
-			Action:    "node.read",
-			Outcome:   OutcomeOK,
-			EntityID:  uuid.Must(uuid.NewV7()),
-			Context: EventContext{
-				OrgID:     orgID,
-				RequestID: "req-count",
-				TraceID:   "trace-count",
-				Source:    SourceMCP,
-			},
+			OrgID:       orgID,
+			EventTime:   now.Add(time.Duration(i) * time.Second),
+			EventID:     uuid.Must(uuid.NewV7()),
+			Seq:         int64(i + 1),
+			Shard:       1,
+			ActorID:     uuid.Must(uuid.NewV7()),
+			ActorKind:   1,
+			Action:      "node.read",
+			Outcome:     OutcomeOK,
+			EntityID:    uuid.Must(uuid.NewV7()),
+			Context:     EventContext{OrgID: orgID, RequestID: "req-count", TraceID: "trace-count", Source: SourceMCP},
 			PrevHash:    previous,
 			HashVersion: auditHashVersion3,
 		}
@@ -46,7 +40,6 @@ func chainedExportTestRows(t *testing.T, n int) []Row {
 		previous = row.RowHash
 		rows = append(rows, row)
 	}
-
 	return rows
 }
 
@@ -66,27 +59,16 @@ func TestVerifyBundleSurvivesAManifestClaimingMoreRowsThanCanExist(t *testing.T)
 	if err != nil {
 		t.Fatalf("VerifyBundle must report on a lying manifest, not fail outright: %v", err)
 	}
-
 	if report.RowsScanned != 3 {
-		t.Fatalf(
-			"RowsScanned = %d, want 3: the file, not the manifest, decides what was scanned",
-			report.RowsScanned,
-		)
+		t.Fatalf("RowsScanned = %d, want 3: the file, not the manifest, decides what was scanned", report.RowsScanned)
 	}
-
 	if report.ManifestRowCount != math.MaxInt64 {
-		t.Fatalf(
-			"ManifestRowCount = %d, want the claimed %d carried into the report",
-			report.ManifestRowCount,
-			math.MaxInt64,
-		)
+		t.Fatalf("ManifestRowCount = %d, want the claimed %d carried into the report", report.ManifestRowCount, math.MaxInt64)
 	}
-
 	verdict := report.Err()
 	if verdict == nil {
 		t.Fatal("a manifest claiming more rows than the file holds must fail verification")
 	}
-
 	if !strings.Contains(verdict.Error(), "declares 9223372036854775807 rows") {
 		t.Fatalf("verdict = %v, want it to name the claimed count", verdict)
 	}
@@ -106,24 +88,14 @@ func TestVerifyBundleRejectsAManifestWhoseCountDisagreesWithItsFile(t *testing.T
 	if err != nil {
 		t.Fatalf("VerifyBundle: %v", err)
 	}
-
 	if !report.SignatureOK || !report.FileSHA256OK || report.HashMatches != report.RowsScanned {
-		t.Fatalf(
-			"signature=%v digest=%v hashes=%d/%d: every other check must pass so the count check is the one under test",
-			report.SignatureOK,
-			report.FileSHA256OK,
-			report.HashMatches,
-			report.RowsScanned,
-		)
+		t.Fatalf("signature=%v digest=%v hashes=%d/%d: every other check must pass so the count check is the one under test",
+			report.SignatureOK, report.FileSHA256OK, report.HashMatches, report.RowsScanned)
 	}
-
 	verdict := report.Err()
 	if verdict == nil {
-		t.Fatal(
-			"a signed manifest whose row count disagrees with its own file must fail verification",
-		)
+		t.Fatal("a signed manifest whose row count disagrees with its own file must fail verification")
 	}
-
 	if !strings.Contains(verdict.Error(), "declares 4 rows but the events file holds 3") {
 		t.Fatalf("verdict = %v, want the declared and actual counts named", verdict)
 	}
@@ -138,18 +110,15 @@ func rewriteManifestRowCount(t *testing.T, dir string, rowCount int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	var manifest ExportManifest
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		t.Fatal(err)
 	}
-
 	manifest.RowCount = rowCount
 	edited, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if err := os.WriteFile(path, edited, 0o600); err != nil {
 		t.Fatal(err)
 	}

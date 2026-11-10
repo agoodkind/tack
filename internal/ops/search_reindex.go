@@ -46,48 +46,21 @@ type searchReindexOutput struct {
 func searchReindexCommand(f *cli.Factory) *cobra.Command {
 	in := searchReindexInput{Mode: "full", Primaries: 0, Restored: false}
 	cmd := &cobra.Command{
-		Use:   "reindex",
-		Short: "Replace the serving search index by a full FoundationDB rebuild or a native split",
-		Args:  cobra.NoArgs,
+		Use: "reindex", Short: "Replace the serving search index by a full FoundationDB rebuild or a native split",
+		Args: cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(
-		&in.Mode,
-		"mode",
-		"full",
-		"This parameter selects full for a FoundationDB rebuild or split for a native split.",
-	)
-	cmd.Flags().IntVar(
-		&in.Primaries,
-		"primaries",
-		0,
-		"This parameter sets the primary shard count of the split target.",
-	)
-	cmd.Flags().BoolVar(
-		&in.Restored,
-		"restored",
-		false,
-		"This flag marks a rebuild after a FoundationDB restore. The rebuild rejects every existing search cursor.",
-	)
+	cmd.Flags().StringVar(&in.Mode, "mode", "full", "This parameter selects full for a FoundationDB rebuild or split for a native split.")
+	cmd.Flags().IntVar(&in.Primaries, "primaries", 0, "This parameter sets the primary shard count of the split target.")
+	cmd.Flags().BoolVar(&in.Restored, "restored", false, "This flag marks a rebuild after a FoundationDB restore. The rebuild rejects every existing search cursor.")
 	spec := externalSpec(audit.VerbOpsSearchReindex, "opensearch/serving-index")
 	input := func() (json.RawMessage, error) { return encodeCommandInput(in) }
-	clispec.AttachExternalPreview(
-		cmd,
-		f,
-		spec,
-		input,
+	clispec.AttachExternalPreview(cmd, f, spec, input,
 		func(ctx context.Context, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 			return runSearchReindexRecorded(ctx, f, in, clispec.NewCLISink(f), steps)
 		},
-		recordedSearchPreview(
-			f,
-			spec,
-			input,
-			func(ctx context.Context, sink clispec.ResultSink) error {
-				return runSearchReindex(ctx, f, in, sink)
-			},
-		),
-	)
-
+		recordedSearchPreview(f, spec, input, func(ctx context.Context, sink clispec.ResultSink) error {
+			return runSearchReindex(ctx, f, in, sink)
+		}))
 	return cmd
 }
 
@@ -96,12 +69,7 @@ func searchReindexCommand(f *cli.Factory) *cobra.Command {
 // declarations and a default projection for each property definition without
 // a declaration, and it validates the request against the serving index. It
 // does not write to the search engine.
-func runSearchReindex(
-	ctx context.Context,
-	f *cli.Factory,
-	in searchReindexInput,
-	sink clispec.ResultSink,
-) error {
+func runSearchReindex(ctx context.Context, f *cli.Factory, in searchReindexInput, sink clispec.ResultSink) error {
 	env, err := NewEnv(ctx, f.Cfg)
 	if err != nil {
 		return searchReindexFailure(ctx, "open search reindex environment", err)
@@ -111,30 +79,15 @@ func runSearchReindex(
 	if err != nil {
 		return err
 	}
-
 	if plan.running {
 		return writeReindexResult(ctx, sink, plan.current, true, true)
 	}
-
 	planned := searchdomain.Rebuild{
-		ID:            uuid.Nil,
-		Mode:          plan.request.Mode,
-		State:         "",
-		SourceIndex:   plan.serving,
-		TargetIndex:   "",
-		ScanCursor:    "",
-		VerifyCursor:  "",
-		Failure:       "",
-		PrimaryShards: plan.request.PrimaryShards,
-		RoutingShards: plan.request.RoutingShards,
-		Replicas:      plan.request.Replicas,
-		ScanComplete:  false,
-		Paused:        false,
-		Restored:      plan.request.Restored,
-		PausedAt:      time.Time{},
-		Generation:    0,
+		ID: uuid.Nil, Mode: plan.request.Mode, State: "", SourceIndex: plan.serving, TargetIndex: "",
+		ScanCursor: "", VerifyCursor: "", Failure: "", PrimaryShards: plan.request.PrimaryShards,
+		RoutingShards: plan.request.RoutingShards, Replicas: plan.request.Replicas, ScanComplete: false,
+		Paused: false, Restored: plan.request.Restored, PausedAt: time.Time{}, Generation: 0,
 	}
-
 	return writeReindexResult(ctx, sink, planned, false, true)
 }
 
@@ -151,63 +104,41 @@ type reindexPlan struct {
 // requires valid search declarations and a default projection for each
 // property definition without a declaration, reads the serving index, and
 // validates the request before any engine write.
-func planSearchReindex(
-	ctx context.Context,
-	f *cli.Factory,
-	env *Env,
-	in searchReindexInput,
-) (reindexPlan, error) {
+func planSearchReindex(ctx context.Context, f *cli.Factory, env *Env, in searchReindexInput) (reindexPlan, error) {
 	var plan reindexPlan
 	current, running, err := env.Stores.SearchRebuilds(opsClockSource{}).CurrentRebuild(ctx)
 	if err != nil {
 		return plan, searchReindexFailure(ctx, "read index replacement", err)
 	}
-
 	plan.current, plan.running = current, running
 	if running {
 		return plan, nil
 	}
-
 	if err := requireSearchProjections(ctx, f); err != nil {
 		return plan, err
 	}
-
 	serving, err := env.Stores.ServingSearchIndex(ctx)
 	if err != nil {
 		return plan, searchReindexFailure(ctx, "read serving search index", err)
 	}
-
 	request, err := reindexRequest(ctx, f, in, serving)
 	if err != nil {
 		return plan, err
 	}
-
 	plan.serving, plan.request = serving, request
-
 	return plan, nil
 }
 
 // reindexRequest builds the replacement request and validates it with
 // [searchdomain.BeginRebuild.Validate].
-func reindexRequest(
-	ctx context.Context,
-	f *cli.Factory,
-	in searchReindexInput,
-	serving string,
-) (searchdomain.BeginRebuild, error) {
+func reindexRequest(ctx context.Context, f *cli.Factory, in searchReindexInput, serving string) (searchdomain.BeginRebuild, error) {
 	request, err := reindexTopology(ctx, f, in, serving)
 	if err != nil {
 		return searchdomain.BeginRebuild{}, err
 	}
-
 	if err := request.Validate(); err != nil {
-		return searchdomain.BeginRebuild{}, searchReindexFailure(
-			ctx,
-			"validate index replacement",
-			err,
-		)
+		return searchdomain.BeginRebuild{}, searchReindexFailure(ctx, "validate index replacement", err)
 	}
-
 	return request, nil
 }
 
@@ -215,19 +146,10 @@ func reindexRequest(
 // replacement uses the configured topology. A split keeps the serving
 // routing and replica counts and requires a permitted primary count. An
 // unknown mode gets an empty topology.
-func reindexTopology(
-	ctx context.Context,
-	f *cli.Factory,
-	in searchReindexInput,
-	serving string,
-) (searchdomain.BeginRebuild, error) {
+func reindexTopology(ctx context.Context, f *cli.Factory, in searchReindexInput, serving string) (searchdomain.BeginRebuild, error) {
 	request := searchdomain.BeginRebuild{
-		Mode:          searchdomain.ReplacementMode(in.Mode),
-		PrimaryShards: 0,
-		RoutingShards: 0,
-		Replicas:      0,
-		Restored:      in.Restored,
-		Reason:        "operator request",
+		Mode: searchdomain.ReplacementMode(in.Mode), PrimaryShards: 0, RoutingShards: 0,
+		Replicas: 0, Restored: in.Restored, Reason: "operator request",
 	}
 	switch request.Mode {
 	case searchdomain.ReplacementFull:
@@ -235,31 +157,22 @@ func reindexTopology(
 		if err != nil {
 			return request, searchReindexFailure(ctx, "load search topology", err)
 		}
-
 		request.PrimaryShards, request.RoutingShards, request.Replicas = topology.Primaries, topology.RoutingShards, topology.Replicas
 	case searchdomain.ReplacementSplit:
 		settings, err := validateSplit(ctx, f, serving, in.Primaries)
 		if err != nil {
 			return request, err
 		}
-
 		request.PrimaryShards, request.RoutingShards, request.Replicas = in.Primaries, settings.RoutingShards, settings.Replicas
 	}
-
 	return request, nil
 }
 
-func validateSplit(
-	ctx context.Context,
-	f *cli.Factory,
-	serving string,
-	primaries int,
-) (settings search.PhysicalSettings, runErr error) {
+func validateSplit(ctx context.Context, f *cli.Factory, serving string, primaries int) (settings search.PhysicalSettings, runErr error) {
 	adapter, err := newSearchMaintenanceAdapter(ctx, f.Cfg)
 	if err != nil {
 		return settings, searchReindexFailure(ctx, "create search adapter", err)
 	}
-
 	defer func() {
 		if closeErr := adapter.Close(ctx); closeErr != nil && runErr == nil {
 			runErr = searchReindexFailure(ctx, "close search adapter", closeErr)
@@ -269,42 +182,23 @@ func validateSplit(
 	if err != nil {
 		return settings, searchReindexFailure(ctx, "validate split of "+serving, err)
 	}
-
 	return settings, nil
 }
 
-func writeReindexResult(
-	ctx context.Context,
-	sink clispec.ResultSink,
-	rebuild searchdomain.Rebuild,
-	resumed bool,
-	dryRun bool,
-) error {
+func writeReindexResult(ctx context.Context, sink clispec.ResultSink, rebuild searchdomain.Rebuild, resumed, dryRun bool) error {
 	output := searchReindexOutput{
-		ResultMarker: clispec.ResultMarker{},
-		RebuildID:    rebuild.ID.String(),
-		Mode:         string(rebuild.Mode),
-		State:        string(rebuild.State),
-		SourceIndex:  rebuild.SourceIndex,
-		TargetIndex:  rebuild.TargetIndex,
-		Primaries:    rebuild.PrimaryShards,
-		Resumed:      resumed,
-		DryRun:       dryRun,
+		ResultMarker: clispec.ResultMarker{}, RebuildID: rebuild.ID.String(), Mode: string(rebuild.Mode),
+		State: string(rebuild.State), SourceIndex: rebuild.SourceIndex, TargetIndex: rebuild.TargetIndex,
+		Primaries: rebuild.PrimaryShards, Resumed: resumed, DryRun: dryRun,
 	}
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 		return searchReindexFailure(ctx, "write index replacement result", err)
 	}
-
 	return nil
 }
 
 func searchReindexFailure(ctx context.Context, operation string, err error) error {
 	wrapped := fmt.Errorf("search reindex: %s: %w", operation, err)
-	telemetry.L(ctx).ErrorContext(
-		ctx,
-		"search.reindex.command_failed",
-		slog.String("err", wrapped.Error()),
-	)
-
+	telemetry.L(ctx).ErrorContext(ctx, "search.reindex.command_failed", slog.String("err", wrapped.Error()))
 	return wrapped
 }

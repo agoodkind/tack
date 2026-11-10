@@ -37,11 +37,7 @@ func TestRestoreDrillFDBScratchLivesUnderBackupRoot(t *testing.T) {
 		BackupFDBOverlayPath: repoFilePath(t, "fdb-overlay", "fdb.bash"),
 		BackupFDBNetwork:     scratchDrillNetwork(ctx, t, cli),
 	}
-	drill := &restoreDrillCtx{
-		Cfg:   cfg,
-		Cli:   cli,
-		RunID: "rtscratch-fdb-" + time.Now().UTC().Format("20060102T150405Z"),
-	}
+	drill := &restoreDrillCtx{Cfg: cfg, Cli: cli, RunID: "rtscratch-fdb-" + time.Now().UTC().Format("20060102T150405Z")}
 	t.Cleanup(func() { cleanupRestoreDrill(ctx, drill) })
 	name := "tack-rtfdb-" + drill.RunID
 
@@ -53,17 +49,11 @@ func TestRestoreDrillFDBScratchLivesUnderBackupRoot(t *testing.T) {
 	mounts := scratchMounts(ctx, t, cli, name)
 	requireScratchBind(t, mounts, "/var/fdb/data", filepath.Join(runDir, "fdb", "data"))
 	requireScratchBind(t, mounts, "/var/fdb/logs", filepath.Join(runDir, "fdb", "logs"))
-
 	for target, point := range mounts {
 		if point.Type == mount.TypeVolume {
-			t.Fatalf(
-				"the scratch FoundationDB keeps %s in Docker volume %s; its data must live under the backup root",
-				target,
-				point.Name,
-			)
+			t.Fatalf("the scratch FoundationDB keeps %s in Docker volume %s; its data must live under the backup root", target, point.Name)
 		}
 	}
-
 	if !holdsEntries(t, filepath.Join(runDir, "fdb", "data")) {
 		t.Fatal("the configured scratch FoundationDB wrote no data under the backup root")
 	}
@@ -83,9 +73,7 @@ func scratchDrillDocker(t *testing.T) (context.Context, *client.Client) {
 	if err != nil {
 		t.Fatalf("docker client: %v", err)
 	}
-
 	t.Cleanup(func() { _ = cli.Close() })
-
 	return ctx, cli
 }
 
@@ -95,26 +83,12 @@ func scratchDrillNetwork(ctx context.Context, t *testing.T, cli *client.Client) 
 	t.Helper()
 	name := "tack-drill-scratch-" + time.Now().UTC().Format("20060102T150405.000000000")
 	enableIPv4, enableIPv6 := true, false
-	if _, err := cli.NetworkCreate(
-		ctx,
-		name,
-		client.NetworkCreateOptions{
-			Driver:     "bridge",
-			EnableIPv4: &enableIPv4,
-			EnableIPv6: &enableIPv6,
-		},
-	); err != nil {
+	if _, err := cli.NetworkCreate(ctx, name, client.NetworkCreateOptions{
+		Driver: "bridge", EnableIPv4: &enableIPv4, EnableIPv6: &enableIPv6,
+	}); err != nil {
 		t.Fatalf("create network %s: %v", name, err)
 	}
-
-	t.Cleanup(func() {
-		_, _ = cli.NetworkRemove(
-			context.WithoutCancel(ctx),
-			name,
-			client.NetworkRemoveOptions{},
-		)
-	})
-
+	t.Cleanup(func() { _, _ = cli.NetworkRemove(context.WithoutCancel(ctx), name, client.NetworkRemoveOptions{}) })
 	return name
 }
 
@@ -126,33 +100,20 @@ func repoFilePath(t *testing.T, parts ...string) string {
 	if err != nil {
 		t.Fatalf("resolve %v: %v", parts, err)
 	}
-
 	return path
 }
 
 // scratchMounts returns a container's mounts by their path inside it.
-func scratchMounts(
-	ctx context.Context,
-	t *testing.T,
-	cli *client.Client,
-	name string,
-) map[string]mountPoint {
+func scratchMounts(ctx context.Context, t *testing.T, cli *client.Client, name string) map[string]mountPoint {
 	t.Helper()
 	inspected, err := cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 	if err != nil {
 		t.Fatalf("inspect %s: %v", name, err)
 	}
-
 	mounts := map[string]mountPoint{}
-
 	for _, point := range inspected.Container.Mounts {
-		mounts[point.Destination] = mountPoint{
-			Type:   point.Type,
-			Name:   point.Name,
-			Source: point.Source,
-		}
+		mounts[point.Destination] = mountPoint{Type: point.Type, Name: point.Name, Source: point.Source}
 	}
-
 	return mounts
 }
 
@@ -181,7 +142,6 @@ func holdsEntries(t *testing.T, dir string) bool {
 	if err != nil {
 		t.Fatalf("list %s: %v", dir, err)
 	}
-
 	return len(entries) > 0
 }
 

@@ -31,12 +31,7 @@ func observeRetentionMetadata(t *testing.T, cfg *config.Config) func() retention
 		t.Fatal("create the synthetic retention metadata observer")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	events := cli.Events(
-		ctx,
-		client.EventsListOptions{
-			Filters: client.Filters{}.Add("type", "container").Add("event", "start"),
-		},
-	)
+	events := cli.Events(ctx, client.EventsListOptions{Filters: client.Filters{}.Add("type", "container").Add("event", "start")})
 	finished := make(chan retentionMetadataReport, 1)
 	go func() {
 		defer cli.Close()
@@ -48,27 +43,17 @@ func observeRetentionMetadata(t *testing.T, cfg *config.Config) func() retention
 				return
 			case err := <-events.Err:
 				if ctx.Err() == nil && err != nil {
-					report.Problems = append(
-						report.Problems,
-						"the Docker event observer stopped before verification",
-					)
+					report.Problems = append(report.Problems, "the Docker event observer stopped before verification")
 				}
 				return
 			case event := <-events.Messages:
 				if event.Actor.Attributes["image"] != cfg.BackupFDBImage {
 					continue
 				}
-				state, err := cli.ContainerInspect(
-					ctx,
-					event.Actor.ID,
-					client.ContainerInspectOptions{},
-				)
+				state, err := cli.ContainerInspect(ctx, event.Actor.ID, client.ContainerInspectOptions{})
 				if err != nil {
 					if !cerrdefs.IsNotFound(err) && ctx.Err() == nil {
-						report.Problems = append(
-							report.Problems,
-							"inspect a synthetic retention container",
-						)
+						report.Problems = append(report.Problems, "inspect a synthetic retention container")
 					}
 					continue
 				}
@@ -80,13 +65,7 @@ func observeRetentionMetadata(t *testing.T, cfg *config.Config) func() retention
 					continue
 				}
 				report.Containers = append(report.Containers, event.Actor.ID)
-				if problem := checkRetentionMetadata(
-					ctx,
-					cli,
-					event.Actor.ID,
-					cfg,
-					state,
-				); problem != "" {
+				if problem := checkRetentionMetadata(ctx, cli, event.Actor.ID, cfg, state); problem != "" {
 					report.Problems = append(report.Problems, problem)
 				}
 				for _, argument := range state.Container.Config.Cmd {
@@ -105,23 +84,13 @@ func observeRetentionMetadata(t *testing.T, cfg *config.Config) func() retention
 			report = <-finished
 			check, err := client.New(client.FromEnv)
 			if err != nil {
-				report.Problems = append(
-					report.Problems,
-					"create the synthetic credential cleanup observer",
-				)
+				report.Problems = append(report.Problems, "create the synthetic credential cleanup observer")
 				return
 			}
 			defer check.Close()
 			for _, identifier := range report.Containers {
-				if _, err := check.ContainerInspect(
-					t.Context(),
-					identifier,
-					client.ContainerInspectOptions{},
-				); !cerrdefs.IsNotFound(err) {
-					report.Problems = append(
-						report.Problems,
-						"a retention container and its credential file survived command completion",
-					)
+				if _, err := check.ContainerInspect(t.Context(), identifier, client.ContainerInspectOptions{}); !cerrdefs.IsNotFound(err) {
+					report.Problems = append(report.Problems, "a retention container and its credential file survived command completion")
 				}
 			}
 		})
@@ -131,13 +100,7 @@ func observeRetentionMetadata(t *testing.T, cfg *config.Config) func() retention
 	return stop
 }
 
-func checkRetentionMetadata(
-	ctx context.Context,
-	cli *client.Client,
-	identifier string,
-	cfg *config.Config,
-	state client.ContainerInspectResult,
-) string {
+func checkRetentionMetadata(ctx context.Context, cli *client.Client, identifier string, cfg *config.Config, state client.ContainerInspectResult) string {
 	for _, values := range [][]string{state.Container.Config.Cmd, state.Container.Config.Env} {
 		for _, value := range values {
 			for _, credential := range []string{cfg.BackupS3AccessKey, cfg.BackupS3SecretKey} {
@@ -159,15 +122,8 @@ func checkRetentionMetadata(
 	if credentialPath == "" {
 		return "retention did not pass a native credential file reference"
 	}
-	for target, permission := range map[string]uint32{
-		credentialPath:           0o600,
-		path.Dir(credentialPath): 0o700,
-	} {
-		copied, err := cli.CopyFromContainer(
-			ctx,
-			identifier,
-			client.CopyFromContainerOptions{SourcePath: target},
-		)
+	for target, permission := range map[string]uint32{credentialPath: 0o600, path.Dir(credentialPath): 0o700} {
+		copied, err := cli.CopyFromContainer(ctx, identifier, client.CopyFromContainerOptions{SourcePath: target})
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				continue
@@ -176,11 +132,7 @@ func checkRetentionMetadata(
 			if gone {
 				continue
 			}
-			return fmt.Sprintf(
-				"inspect protected synthetic credential file metadata: %v (container status %s)",
-				err,
-				status,
-			)
+			return fmt.Sprintf("inspect protected synthetic credential file metadata: %v (container status %s)", err, status)
 		}
 		_ = copied.Content.Close()
 		if uint32(copied.Stat.Mode.Perm()) != permission {
@@ -198,11 +150,7 @@ const (
 // retentionContainerGone waits up to retentionRemovalTimeout for Docker to report that a
 // retention container does not exist. It returns false with the last observed status when
 // the container still exists, or with the context error when ctx ends first.
-func retentionContainerGone(
-	ctx context.Context,
-	cli *client.Client,
-	identifier string,
-) (bool, string) {
+func retentionContainerGone(ctx context.Context, cli *client.Client, identifier string) (bool, string) {
 	waitCtx, cancel := context.WithTimeout(ctx, retentionRemovalTimeout)
 	defer cancel()
 	status := "unknown"

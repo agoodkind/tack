@@ -9,7 +9,12 @@ func seededProjectDefinition(
 	projectIndex int,
 ) discoveryDefinition {
 	identifier := fmt.Sprintf("Q%02d%02d", workspaceIndex+1, projectIndex+1)
-	name := fmt.Sprintf("QA Project %d.%d seed %d", workspaceIndex+1, projectIndex+1, session.seed)
+	name := fmt.Sprintf(
+		"QA Project %d.%d seed %d",
+		workspaceIndex+1,
+		projectIndex+1,
+		session.seed,
+	)
 	properties := newProperties()
 	properties.setString("identifier", identifier)
 	properties.setString("slug", slugify(name))
@@ -38,7 +43,10 @@ func seededStateDefinitions(
 		name := fmt.Sprintf("%s seed %d", session.content.Workflow(stateIndex), session.seed)
 		properties := newProperties()
 		properties.setString("group", "started")
-		properties.setString("color", fmt.Sprintf("#%06X", (stateIndex+3)*0x2A4C6D&0xFFFFFF))
+		properties.setString(
+			"color",
+			fmt.Sprintf("#%06X", (stateIndex+3)*0x2A4C6D&0xFFFFFF),
+		)
 		properties.setInt("sort_order", stateIndex+20)
 		definitions[name] = discoveryDefinition{
 			token: actor.Token,
@@ -64,7 +72,12 @@ func seededContainerDefinitions(
 	for _, singular := range []string{"epic", "cycle", "module"} {
 		byName := make(map[string]discoveryDefinition, session.scale.ContainersPerProject)
 		for containerIndex := range session.scale.ContainersPerProject {
-			name := fmt.Sprintf("QA %s %d seed %d", singular, containerIndex+1, session.seed)
+			name := fmt.Sprintf(
+				"QA %s %d seed %d",
+				singular,
+				containerIndex+1,
+				session.seed,
+			)
 			properties := newProperties()
 			properties.setString("description", session.content.Paragraph())
 			properties.setBool("qa_checkbox", containerIndex%2 == 0)
@@ -102,7 +115,12 @@ func seededIssueDefinitions(
 			globalIndex,
 			session.content.ReferenceTime(),
 		)
-		name = InjectEdgeCases(globalIndex, name, properties, session.content.ReferenceTime())
+		name = InjectEdgeCases(
+			globalIndex,
+			name,
+			properties,
+			session.content.ReferenceTime(),
+		)
 		parentReference := projectRawID
 		if len(containers) > 0 && issueIndex%3 != 0 {
 			parentReference = containers[issueIndex%len(containers)].RawID

@@ -13,58 +13,39 @@ func TestDigestCommand(t *testing.T) {
 	valid := "sha256:" + strings.Repeat("a1", 32)
 
 	for _, architecture := range []string{amd64Architecture, "arm64"} {
-		t.Run(
-			architecture,
-			func(t *testing.T) {
-				directory := filepath.Join(t.TempDir(), "new")
+		t.Run(architecture, func(t *testing.T) {
+			directory := filepath.Join(t.TempDir(), "new")
 
-				err := runCommand(
-					t,
-					digestCommand,
-					digestEnvironment(architecture, valid, directory),
-				)
-				if err != nil {
-					t.Fatal(err)
-				}
+			err := runCommand(t, digestCommand, digestEnvironment(architecture, valid, directory))
+			if err != nil {
+				t.Fatal(err)
+			}
 
-				content := readFile(t, filepath.Join(directory, architecture+".digest"))
-				if content != valid+"\n" {
-					t.Fatalf("digest = %q", content)
-				}
-			},
-		)
+			content := readFile(t, filepath.Join(directory, architecture+".digest"))
+			if content != valid+"\n" {
+				t.Fatalf("digest = %q", content)
+			}
+		})
 	}
 
 	for _, test := range []struct{ name, architecture, digest, directory string }{
 		{"architecture", "386", valid, t.TempDir()},
 		{"uppercase", amd64Architecture, "sha256:" + strings.Repeat("A", 64), t.TempDir()},
 		{"short", amd64Architecture, "sha256:abc", t.TempDir()},
-		{
-			"filesystem",
-			amd64Architecture,
-			valid,
-			filepath.Join(t.TempDir(), "missing", "..", "file"),
-		},
+		{"filesystem", amd64Architecture, valid, filepath.Join(t.TempDir(), "missing", "..", "file")},
 	} {
-		t.Run(
-			test.name,
-			func(t *testing.T) {
-				directory := test.directory
-				if test.name == "filesystem" {
-					directory = filepath.Join(t.TempDir(), "file")
-					writeFile(t, directory, fileContent)
-				}
+		t.Run(test.name, func(t *testing.T) {
+			directory := test.directory
+			if test.name == "filesystem" {
+				directory = filepath.Join(t.TempDir(), "file")
+				writeFile(t, directory, fileContent)
+			}
 
-				err := runCommand(
-					t,
-					digestCommand,
-					digestEnvironment(test.architecture, test.digest, directory),
-				)
-				if err == nil {
-					t.Fatal("expected failure")
-				}
-			},
-		)
+			err := runCommand(t, digestCommand, digestEnvironment(test.architecture, test.digest, directory))
+			if err == nil {
+				t.Fatal("expected failure")
+			}
+		})
 	}
 
 	err := runCommand(t, digestCommand, map[string]string{})
@@ -78,60 +59,45 @@ func TestDigestCommand(t *testing.T) {
 func TestTagsCommand(t *testing.T) {
 	for _, test := range []struct{ name, refType, refName, branch, expected string }{
 		{
-			tagRefType,
-			tagRefType,
-			"release/v1",
-			"",
+			tagRefType, tagRefType, "release/v1", "",
 			registryPrefix + "abc\n" + registryPrefix + "abcdef\n" +
 				registryPrefix + "release-v1\n" + registryPrefix + "latest\n",
 		},
 		{
-			mainBranch,
-			branchRefType,
-			"",
-			mainBranch,
+			mainBranch, branchRefType, "", mainBranch,
 			registryPrefix + "abc\n" + registryPrefix + "abcdef\n" +
 				registryPrefix + "main\n" + registryPrefix + "latest\n",
 		},
 		{
-			branchRefType,
-			branchRefType,
-			"",
-			"feature/a",
+			branchRefType, branchRefType, "", "feature/a",
 			registryPrefix + "abc\n" + registryPrefix + "abcdef\n" + registryPrefix + "feature-a\n",
 		},
 		{
-			"duplicate",
-			branchRefType,
-			"",
-			shortCommit,
+			"duplicate", branchRefType, "", shortCommit,
 			registryPrefix + "abc\n" + registryPrefix + "abcdef\n" + registryPrefix + "abc\n",
 		},
 	} {
-		t.Run(
-			test.name,
-			func(t *testing.T) {
-				path := filepath.Join(t.TempDir(), "tags")
-				writeFile(t, path, strings.Repeat("old", 100))
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "tags")
+			writeFile(t, path, strings.Repeat("old", 100))
 
-				environment := tagEnvironment(test.refType, path)
-				if test.refType == tagRefType {
-					environment["GITHUB_REF_NAME"] = test.refName
-				} else {
-					environment["BRANCH_NAME"] = test.branch
-				}
+			environment := tagEnvironment(test.refType, path)
+			if test.refType == tagRefType {
+				environment["GITHUB_REF_NAME"] = test.refName
+			} else {
+				environment["BRANCH_NAME"] = test.branch
+			}
 
-				err := runCommand(t, tagsCommand, environment)
-				if err != nil {
-					t.Fatal(err)
-				}
+			err := runCommand(t, tagsCommand, environment)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-				content := readFile(t, path)
-				if content != test.expected {
-					t.Fatalf("tags = %q", content)
-				}
-			},
-		)
+			content := readFile(t, path)
+			if content != test.expected {
+				t.Fatalf("tags = %q", content)
+			}
+		})
 	}
 
 	environment := tagEnvironment(branchRefType, t.TempDir())

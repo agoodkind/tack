@@ -15,15 +15,8 @@ func (c *LedgerCluster) KeywordDSN(login, secret string) string {
 	for _, name := range c.names {
 		hosts = append(hosts, c.addresses[name].String())
 	}
-
-	return fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable connect_timeout=5",
-		strings.Join(hosts, ","),
-		ledgerPort,
-		login,
-		secret,
-		ledgerDatabase,
-	)
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable connect_timeout=5",
+		strings.Join(hosts, ","), ledgerPort, login, secret, ledgerDatabase)
 }
 
 // AdminSecret returns the superuser key every node was started with.
@@ -40,23 +33,15 @@ func (c *LedgerCluster) Admin(ctx context.Context, subcommand string) (string, e
 	for _, name := range c.started {
 		addresses = append(addresses, name+":"+ledgerMasterPort)
 	}
-
 	readCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	command := []string{
-		ledgerClusterAdmin,
-		"--master_addresses",
-		strings.Join(addresses, ","),
-		subcommand,
-	}
+	command := []string{ledgerClusterAdmin, "--master_addresses", strings.Join(addresses, ","), subcommand}
 	output, code, err := execInContainer(readCtx, c.cli, c.containers[c.names[0]], command)
 	if err != nil {
 		return "", err
 	}
-
 	if code != 0 {
 		return output, fmt.Errorf("yb-admin %s exited %d: %s", subcommand, code, output)
 	}
-
 	return output, nil
 }

@@ -34,23 +34,11 @@ type searchMixedTally struct {
 
 func (m *searchMixed) sessionFor(tenant, actor int, query string, offset int) searchMixedSession {
 	workspace := m.tenants[tenant].workspace
-	return searchMixedSession{
-		tenant: tenant,
-		token:  workspace.Actors[actor].Token,
-		entry:  workspace.Slug,
-		query:  query,
-		offset: offset,
-	}
+	return searchMixedSession{tenant: tenant, token: workspace.Actors[actor].Token, entry: workspace.Slug, query: query, offset: offset}
 }
 
 // page requests page number of session with cursor and checks the page that the server answers.
-func (m *searchMixed) page(
-	ctx context.Context,
-	session searchMixedSession,
-	number int,
-	cursor string,
-	tally *searchMixedTally,
-) (searchPage, error) {
+func (m *searchMixed) page(ctx context.Context, session searchMixedSession, number int, cursor string, tally *searchMixedTally) (searchPage, error) {
 	page, requested, err := m.answeredPage(ctx, session, number, cursor, tally)
 	if err != nil {
 		return searchPage{}, err
@@ -65,13 +53,7 @@ func (m *searchMixed) page(
 // inspect counts results that this run deleted before the request started.
 // It checks the other results against their resolve records and counts nodes
 // from another organization or nodes that disappeared without a run deletion.
-func (m *searchMixed) inspect(
-	ctx context.Context,
-	tenant int,
-	nodeIDs []uuid.UUID,
-	requested time.Time,
-	tally *searchMixedTally,
-) error {
+func (m *searchMixed) inspect(ctx context.Context, tenant int, nodeIDs []uuid.UUID, requested time.Time, tally *searchMixedTally) error {
 	orgID := m.tenants[tenant].workspace.OrgID
 	for _, nodeID := range nodeIDs {
 		if m.deletedBefore(nodeID, requested) {
@@ -88,11 +70,7 @@ func (m *searchMixed) inspect(
 			continue
 		}
 		if err != nil {
-			return loggedError(
-				ctx,
-				"qa datagen search-mixed: the command could not resolve search result "+nodeID.String(),
-				err,
-			)
+			return loggedError(ctx, "qa datagen search-mixed: the command could not resolve search result "+nodeID.String(), err)
 		}
 		if resolved.OrgID != orgID {
 			tally.crossTenant++
@@ -103,13 +81,7 @@ func (m *searchMixed) inspect(
 
 // traverse requests the remaining session pages, starting with cursor.
 // It replays each continuation page with the next driver and returns issues in response order.
-func (m *searchMixed) traverse(
-	ctx context.Context,
-	session searchMixedSession,
-	first int,
-	cursor string,
-	tally *searchMixedTally,
-) ([]uuid.UUID, error) {
+func (m *searchMixed) traverse(ctx context.Context, session searchMixedSession, first int, cursor string, tally *searchMixedTally) ([]uuid.UUID, error) {
 	seen := make(map[uuid.UUID]struct{})
 	cursors := make(map[string]struct{})
 	ordered := make([]uuid.UUID, 0)
@@ -145,40 +117,19 @@ func (m *searchMixed) traverse(
 
 // replay requests the page for cursor again and checks the issue order and next cursor.
 // It allows the replay to omit issues that this run deleted before the replay finished.
-func (m *searchMixed) replay(
-	ctx context.Context,
-	session searchMixedSession,
-	number int,
-	cursor string,
-	original searchPage,
-	tally *searchMixedTally,
-) error {
+func (m *searchMixed) replay(ctx context.Context, session searchMixedSession, number int, cursor string, original searchPage, tally *searchMixedTally) error {
 	replayed, err := m.page(ctx, session, number, cursor, tally)
 	if err != nil {
 		return err
 	}
 	tally.replays++
 	finished := clock.Now()
-	expected := slices.DeleteFunc(
-		slices.Clone(original.IDs),
-		func(nodeID uuid.UUID) bool {
-			return m.deletedBefore(nodeID, finished) && !slices.Contains(replayed.IDs, nodeID)
-		},
-	)
+	expected := slices.DeleteFunc(slices.Clone(original.IDs), func(nodeID uuid.UUID) bool {
+		return m.deletedBefore(nodeID, finished) && !slices.Contains(replayed.IDs, nodeID)
+	})
 	if !slices.Equal(expected, replayed.IDs) || replayed.Cursor != original.Cursor {
 		tally.replayMismatches++
-		slog.ErrorContext(
-			ctx,
-			"qa.datagen.search_mixed_replay_mismatch",
-			slog.String(
-				"err",
-				fmt.Sprintf(
-					"search replay returned issues %v instead of the expected issues %v",
-					replayed.IDs,
-					expected,
-				),
-			),
-		)
+		slog.ErrorContext(ctx, "qa.datagen.search_mixed_replay_mismatch", slog.String("err", fmt.Sprintf("search replay returned issues %v instead of the expected issues %v", replayed.IDs, expected)))
 	}
 	return nil
 }
@@ -196,11 +147,7 @@ func (m *searchMixed) checkSessions(ctx context.Context) {
 			continue
 		}
 		if err != nil {
-			slog.ErrorContext(
-				ctx,
-				"qa.datagen.search_mixed_session_failed",
-				slog.String("err", err.Error()),
-			)
+			slog.ErrorContext(ctx, "qa.datagen.search_mixed_session_failed", slog.String("err", err.Error()))
 			tally.continuationErrors++
 		}
 		for _, nodeID := range nodes {

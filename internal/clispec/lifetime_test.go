@@ -28,15 +28,12 @@ func lifetimeOp(group *clispec.Group, lifetime clispec.Lifetime) clispec.Operati
 
 func childNamed(t *testing.T, parent *cobra.Command, name string) *cobra.Command {
 	t.Helper()
-
 	for _, child := range parent.Commands() {
 		if child.Name() == name {
 			return child
 		}
 	}
-
 	t.Fatalf("%s has no child %q; children: %v", parent.Name(), name, parent.Commands())
-
 	return nil
 }
 
@@ -44,30 +41,20 @@ func TestBackfillRendersApartFromProductCommandsWithThePrefix(t *testing.T) {
 	audit := &clispec.Group{Use: "audit", Short: "Audit commands"}
 	reg := clispec.NewRegistry()
 	clispec.Register(reg, lifetimeOp(audit, clispec.Permanent))
-	clispec.Register(
-		reg,
-		lifetimeOp(
-			audit,
-			clispec.Lifetime{
-				Ticket:   "TACK-461",
-				RemoveBy: time.Date(2026, time.October, 19, 0, 0, 0, 0, time.UTC),
-			},
-		),
-	)
+	clispec.Register(reg, lifetimeOp(audit, clispec.Lifetime{
+		Ticket:   "TACK-461",
+		RemoveBy: time.Date(2026, time.October, 19, 0, 0, 0, 0, time.UTC),
+	}))
 
 	tops := clispec.RenderCobra(reg, &cli.Factory{Cfg: nil, In: nil, Out: nil, Err: nil})
 
 	if len(tops) != 1 || tops[0].Name() != "audit" {
 		t.Fatalf("top-level commands = %v, want only audit", tops)
 	}
-
 	childNamed(t, tops[0], "move-rows")
 	backfill := childNamed(t, tops[0], "backfill")
 	childNamed(t, backfill, clispec.BackfillNamePrefix+"move-rows")
 	if len(tops[0].Commands()) != 2 {
-		t.Fatalf(
-			"audit children = %v, want the product command and the backfill group",
-			tops[0].Commands(),
-		)
+		t.Fatalf("audit children = %v, want the product command and the backfill group", tops[0].Commands())
 	}
 }

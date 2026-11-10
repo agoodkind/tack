@@ -36,23 +36,18 @@ type summaryHierarchyKinds struct {
 func TestSearchSummaryBatchReadsOnce(t *testing.T) {
 	stores := newSummaryStores(t)
 	kinds := putSummaryKinds(t, stores)
-	entries := []uuid.UUID{
-		putSummaryNode(t, stores, kinds, kinds.entry),
-		putSummaryNode(t, stores, kinds, kinds.entry),
-	}
+	entries := []uuid.UUID{putSummaryNode(t, stores, kinds, kinds.entry), putSummaryNode(t, stores, kinds, kinds.entry)}
 	containers := []uuid.UUID{
 		putSummaryNode(t, stores, kinds, kinds.container, entries[0]),
 		putSummaryNode(t, stores, kinds, kinds.container, entries[1]),
 	}
 	requested := []uuid.UUID{containers[0]}
 	entryOf := map[uuid.UUID]uuid.UUID{containers[0]: entries[0]}
-
 	for i := range summaryBatchLeaves {
 		leafID := putSummaryNode(t, stores, kinds, kinds.leaf, containers[i%2])
 		requested = append(requested, leafID)
 		entryOf[leafID] = entries[i%2]
 	}
-
 	orphan := putSummaryNode(t, stores, kinds, kinds.leaf)
 	twoParents := putSummaryNode(t, stores, kinds, kinds.leaf, containers[0], containers[1])
 	missingParent := putSummaryNode(t, stores, kinds, kinds.leaf, uuid.Must(uuid.NewV7()))
@@ -60,62 +55,32 @@ func TestSearchSummaryBatchReadsOnce(t *testing.T) {
 
 	policies := stores.SearchPolicySet()
 	before := fdbTransactionCount(t)
-	results, err := stores.NodeSummaries(policies).Summaries(
-		WithTestOperation(t, t.Context()),
-		requested,
-		summaryNameBytes,
-	)
+	results, err := stores.NodeSummaries(policies).Summaries(WithTestOperation(t, t.Context()), requested, summaryNameBytes)
 	if err != nil {
 		t.Fatalf("read %d summaries: %v", len(requested), err)
 	}
-
 	if transactions := fdbTransactionCount(t) - before; transactions != 1 {
-		t.Fatalf(
-			"summaries of %d nodes used %d FoundationDB transactions, want 1",
-			len(requested),
-			transactions,
-		)
+		t.Fatalf("summaries of %d nodes used %d FoundationDB transactions, want 1", len(requested), transactions)
 	}
-
 	if len(results) != len(requested) {
 		t.Fatalf("summaries returned %d results for %d IDs", len(results), len(requested))
 	}
-
 	for position, result := range results {
 		nodeID := requested[position]
 		if result.NodeID != nodeID || result.Status != node.SummaryFound {
-			t.Fatalf(
-				"result %d is node %s with status %q, want found node %s",
-				position,
-				result.NodeID,
-				result.Status,
-				nodeID,
-			)
+			t.Fatalf("result %d is node %s with status %q, want found node %s", position, result.NodeID, result.Status, nodeID)
 		}
-
 		if entryPointID, valid := entryOf[nodeID]; valid {
 			requireIndexedKeys(t, policies, kinds.orgID, nodeID, entryPointID, result.AccessKeys)
 			continue
 		}
-
 		if len(result.AccessKeys) != 0 {
-			t.Errorf(
-				"node %s has a hierarchy defect and received keys %v",
-				nodeID,
-				result.AccessKeys,
-			)
+			t.Errorf("node %s has a hierarchy defect and received keys %v", nodeID, result.AccessKeys)
 		}
 	}
-
-	_, err = policies.Index(
-		WithTestOperation(t, t.Context()),
-		searchaccess.IndexAccessRequest{
-			Version:        searchaccess.StableVersion,
-			OrganizationID: kinds.orgID,
-			ResourceID:     orphan,
-			Generation:     0,
-		},
-	)
+	_, err = policies.Index(WithTestOperation(t, t.Context()), searchaccess.IndexAccessRequest{
+		Version: searchaccess.StableVersion, OrganizationID: kinds.orgID, ResourceID: orphan, Generation: 0,
+	})
 	if !errors.Is(err, node.ErrNoHierarchyParent) {
 		t.Fatalf("indexing access of orphan %s returned %v, want ErrNoHierarchyParent", orphan, err)
 	}
@@ -124,61 +89,31 @@ func TestSearchSummaryBatchReadsOnce(t *testing.T) {
 // requireIndexedKeys requires keys to equal the keys that indexing compiles
 // for nodeID under both policy versions. It also requires the indexed keys of
 // nodeID to equal the indexed keys of its entry point.
-func requireIndexedKeys(
-	t *testing.T,
-	policies *searchaccess.PolicySet,
-	orgID uuid.UUID,
-	nodeID uuid.UUID,
-	entryPointID uuid.UUID,
-	keys []string,
-) {
+func requireIndexedKeys(t *testing.T, policies *searchaccess.PolicySet, orgID, nodeID, entryPointID uuid.UUID, keys []string) {
 	t.Helper()
 	want := []string{}
-
 	for _, version := range []string{searchaccess.StableVersion, searchaccess.RotatedVersion} {
 		access := indexAccess(t, policies, version, orgID, nodeID)
 		entryAccess := indexAccess(t, policies, version, orgID, entryPointID)
 		if !slices.Equal(access.Keys, entryAccess.Keys) {
-			t.Fatalf(
-				"node %s has keys %v under %s, and its entry point %s has %v",
-				nodeID,
-				access.Keys,
-				version,
-				entryPointID,
-				entryAccess.Keys,
-			)
+			t.Fatalf("node %s has keys %v under %s, and its entry point %s has %v", nodeID, access.Keys, version, entryPointID, entryAccess.Keys)
 		}
-
 		want = append(want, access.Keys...)
 	}
-
 	slices.Sort(want)
 	if !slices.Equal(keys, want) {
 		t.Errorf("summary of node %s has keys %v, want indexed keys %v", nodeID, keys, want)
 	}
 }
 
-func indexAccess(
-	t *testing.T,
-	policies *searchaccess.PolicySet,
-	version string,
-	orgID uuid.UUID,
-	nodeID uuid.UUID,
-) node.SearchAccess {
+func indexAccess(t *testing.T, policies *searchaccess.PolicySet, version string, orgID, nodeID uuid.UUID) node.SearchAccess {
 	t.Helper()
-	access, err := policies.Index(
-		WithTestOperation(t, t.Context()),
-		searchaccess.IndexAccessRequest{
-			Version:        version,
-			OrganizationID: orgID,
-			ResourceID:     nodeID,
-			Generation:     0,
-		},
-	)
+	access, err := policies.Index(WithTestOperation(t, t.Context()), searchaccess.IndexAccessRequest{
+		Version: version, OrganizationID: orgID, ResourceID: nodeID, Generation: 0,
+	})
 	if err != nil {
 		t.Fatalf("index access of node %s under %s: %v", nodeID, version, err)
 	}
-
 	return access
 }
 
@@ -190,7 +125,6 @@ func fdbTransactionCount(t *testing.T) int64 {
 	if !isInt {
 		t.Fatal("expvar tack_fdb_tx_total is not registered as an integer")
 	}
-
 	return counter.Value()
 }
 
@@ -210,7 +144,6 @@ func newSummaryStores(t *testing.T) *fdbadapter.Stores {
 	if err != nil {
 		t.Fatalf("open summary stores: %v", err)
 	}
-
 	return stores
 }
 
@@ -218,12 +151,9 @@ func newSummaryStores(t *testing.T) *fdbadapter.Stores {
 func putSummaryKinds(t *testing.T, stores *fdbadapter.Stores) summaryHierarchyKinds {
 	t.Helper()
 	kinds := summaryHierarchyKinds{
-		orgID:     uuid.Must(uuid.NewV7()),
-		entry:     opaqueSearchKey("e"),
-		container: opaqueSearchKey("c"),
-		leaf:      opaqueSearchKey("l"),
+		orgID: uuid.Must(uuid.NewV7()), entry: opaqueSearchKey("e"),
+		container: opaqueSearchKey("c"), leaf: opaqueSearchKey("l"),
 	}
-
 	types := []*node.NodeType{
 		{TypeKey: kinds.entry, Features: node.Features{node.FeatureIsEntryPoint}},
 		{TypeKey: kinds.container, CanLiveUnder: []string{kinds.entry}},
@@ -236,64 +166,25 @@ func putSummaryKinds(t *testing.T, stores *fdbadapter.Stores) summaryHierarchyKi
 			t.Fatalf("store node type %s: %v", kind.TypeKey, err)
 		}
 	}
-
 	return kinds
 }
 
 // putSummaryNode creates one node of typeKey with one child_of edge to each
 // parent in the same transaction.
-func putSummaryNode(
-	t *testing.T,
-	stores *fdbadapter.Stores,
-	kinds summaryHierarchyKinds,
-	typeKey string,
-	parents ...uuid.UUID,
-) uuid.UUID {
+func putSummaryNode(t *testing.T, stores *fdbadapter.Stores, kinds summaryHierarchyKinds, typeKey string, parents ...uuid.UUID) uuid.UUID {
 	t.Helper()
 	nodeID := uuid.Must(uuid.NewV7())
 	now := clock.Now().UTC()
-	created := &node.Node{
-		ID:        nodeID,
-		OrgID:     kinds.orgID,
-		NodeType:  typeKey,
-		Name:      "summary " + typeKey,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	view := &node.NodeView{
-		ID:        nodeID,
-		OrgID:     kinds.orgID,
-		NodeType:  typeKey,
-		Name:      created.Name,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
+	created := &node.Node{ID: nodeID, OrgID: kinds.orgID, NodeType: typeKey, Name: "summary " + typeKey, CreatedAt: now, UpdatedAt: now}
+	view := &node.NodeView{ID: nodeID, OrgID: kinds.orgID, NodeType: typeKey, Name: created.Name, CreatedAt: now, UpdatedAt: now}
 	relationships := make([]*node.Relationship, 0, len(parents))
 	for _, parentID := range parents {
-		relationships = append(
-			relationships,
-			&node.Relationship{
-				OrgID:        kinds.orgID,
-				SourceID:     nodeID,
-				RelationType: node.RelChildOf,
-				TargetID:     parentID,
-				CreatedAt:    now,
-			},
-		)
+		relationships = append(relationships, &node.Relationship{
+			OrgID: kinds.orgID, SourceID: nodeID, RelationType: node.RelChildOf, TargetID: parentID, CreatedAt: now,
+		})
 	}
-
-	if err := stores.Nodes.CreateAtomic(
-		WithTestOperation(t, t.Context()),
-		created,
-		view,
-		relationships,
-		nil,
-		nil,
-		nil,
-	); err != nil {
+	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), created, view, relationships, nil, nil, nil); err != nil {
 		t.Fatalf("create %s node: %v", typeKey, err)
 	}
-
 	return nodeID
 }

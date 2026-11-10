@@ -71,11 +71,9 @@ func readRepairManifest(ctx context.Context, path string) (*RepairManifest, erro
 	if err := decoder.Decode(&manifest); err != nil {
 		return nil, loggedRepairError(ctx, fmt.Sprintf("decode repair manifest %q", path), err)
 	}
-
 	if len(manifest.Nodes) == 0 {
 		return nil, fmt.Errorf("repair manifest %q has no nodes", path)
 	}
-
 	return &manifest, nil
 }
 
@@ -91,6 +89,5 @@ func readRepairProfile(ctx context.Context, path string) (*RepairReferenceProfil
 	if err := decoder.Decode(&profile); err != nil {
 		return nil, loggedRepairError(ctx, fmt.Sprintf("decode repair profile %q", path), err)
 	}
-
 	return &profile, nil
 }

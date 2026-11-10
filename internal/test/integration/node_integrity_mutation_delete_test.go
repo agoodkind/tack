@@ -20,14 +20,7 @@ func TestNodeIntegrityMutationDeleteRefusesChild(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
 	issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
-	comment := createSchemaNode(
-		t,
-		env,
-		issue.ID,
-		projectID,
-		"comment",
-		schemaProps("description", quoted("Child comment")),
-	)
+	comment := createSchemaNode(t, env, issue.ID, projectID, "comment", schemaProps("description", quoted("Child comment")))
 	snapshot, _ := mutationSnapshot(t, env, issue.ID)
 
 	_, err := env.Stores.Nodes.DeleteNode(env.Ctx, deletionPlan(snapshot))
@@ -45,62 +38,29 @@ func TestNodeIntegrityMutationDeleteRaces(t *testing.T) {
 	env := integration.SetupTestEnv(t)
 	projectID := createSchemaProject(t, env)
 	issues := make([]node.MutationSnapshot, 0, 3)
-
 	for range 3 {
 		issue := createSchemaNode(t, env, projectID, projectID, "issue", nil)
 		snapshot, _ := mutationSnapshot(t, env, issue.ID)
 		issues = append(issues, snapshot)
 	}
-
-	createSchemaNode(
-		t,
-		env,
-		issues[0].Node.ID,
-		projectID,
-		"comment",
-		schemaProps("description", quoted("Racing comment")),
-	)
+	createSchemaNode(t, env, issues[0].Node.ID, projectID, "comment", schemaProps("description", quoted("Racing comment")))
 	renamed := "Renamed before deletion"
-	if _, err := env.NodeSvc.Update(
-		env.Ctx,
-		service.UpdateInput{
-			NodeID:              issues[1].Node.ID,
-			Name:                &renamed,
-			Props:               nil,
-			RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
-			ActorID:             uuid.New(),
-		},
-	); err != nil {
+	if _, err := env.NodeSvc.Update(env.Ctx, service.UpdateInput{
+		NodeID: issues[1].Node.ID, Name: &renamed, Props: nil,
+		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: uuid.New(),
+	}); err != nil {
 		t.Fatalf("rename issue %s: %v", issues[1].Node.ID, err)
 	}
-
-	if err := env.Stores.Relationships.Add(
-		env.Ctx,
-		&node.Relationship{
-			OrgID:        env.OrgID,
-			SourceID:     issues[0].Node.ID,
-			RelationType: node.RelMentionedIn,
-			TargetID:     issues[2].Node.ID,
-			CreatedBy:    uuid.New(),
-			CreatedAt:    clock.Now().UTC(),
-			Props:        nil,
-		},
-	); err != nil {
+	if err := env.Stores.Relationships.Add(env.Ctx, &node.Relationship{
+		OrgID: env.OrgID, SourceID: issues[0].Node.ID, RelationType: node.RelMentionedIn, TargetID: issues[2].Node.ID,
+		CreatedBy: uuid.New(), CreatedAt: clock.Now().UTC(), Props: nil,
+	}); err != nil {
 		t.Fatalf("add a mentioned_in relationship to %s: %v", issues[2].Node.ID, err)
 	}
 
-	for position, want := range []error{
-		domain.ErrFailedPrecondition,
-		domain.ErrConflict,
-		domain.ErrConflict,
-	} {
+	for position, want := range []error{domain.ErrFailedPrecondition, domain.ErrConflict, domain.ErrConflict} {
 		_, err := env.Stores.Nodes.DeleteNode(env.Ctx, deletionPlan(issues[position]))
-		requireError(
-			t,
-			err,
-			want,
-			"prepared DeleteNode of issue "+issues[position].Node.ID.String(),
-		)
+		requireError(t, err, want, "prepared DeleteNode of issue "+issues[position].Node.ID.String())
 		if current, _ := mutationSnapshot(t, env, issues[position].Node.ID); !current.Exists {
 			t.Fatalf("a refused deletion removed issue %s", issues[position].Node.ID)
 		}
@@ -122,30 +82,20 @@ func TestNodeIntegrityMutationDeletesLeaf(t *testing.T) {
 	if err != nil || result.Deleted != 1 || result.State != node.SubtreeDeleteFinished {
 		t.Fatalf("delete issue %s = %+v, %v, want one deleted node", issue.ID, result, err)
 	}
-
 	if snapshot, _ := mutationSnapshot(t, env, issue.ID); snapshot.Exists {
 		t.Fatalf("issue %s exists after its deletion", issue.ID)
 	}
-
 	if view, err := env.Stores.Views.Get(env.Ctx, issue.ID); err != nil || view != nil {
 		t.Fatalf("view of deleted issue %s = %v, %v, want none", issue.ID, view, err)
 	}
-
-	edges, err := env.Stores.Relationships.ListByTarget(
-		env.Ctx,
-		env.OrgID,
-		projectID,
-		node.RelChildOf,
-	)
+	edges, err := env.Stores.Relationships.ListByTarget(env.Ctx, env.OrgID, projectID, node.RelChildOf)
 	if err != nil {
 		t.Fatalf("list child_of edges to project %s: %v", projectID, err)
 	}
-
 	for _, edge := range edges {
 		if edge.SourceID == issue.ID {
 			t.Fatalf("project %s keeps the child_of edge of deleted issue %s", projectID, issue.ID)
 		}
 	}
-
 	outboxEvent(t, env.Stores, issue.ID, audit.VerbNodeDelete)
 }

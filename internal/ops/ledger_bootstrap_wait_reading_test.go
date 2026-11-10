@@ -64,19 +64,15 @@ func TestLedgerBootstrapMasterListDialsNamesAndAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("master list: %v", err)
 	}
-
 	if masters.names != "yb1:7100,yb2:7100" {
 		t.Errorf("names = %q, want yb1:7100,yb2:7100", masters.names)
 	}
-
 	if !slices.Equal(masters.extraHosts, []string{"yb1:fd00::1", "yb2:fd00::2"}) {
 		t.Errorf("extra hosts = %v, want yb1:fd00::1 and yb2:fd00::2", masters.extraHosts)
 	}
-
 	if masters.health != "[fd00::1]:7100,[fd00::2]:7100" {
 		t.Errorf("health = %q, want [fd00::1]:7100,[fd00::2]:7100", masters.health)
 	}
-
 	if _, err := ledgerBootstrapMasterList(cfg, 4); err == nil {
 		t.Error("a count above the node list was accepted")
 	}
@@ -89,11 +85,7 @@ func TestUnmarshalUniverseNumReplicasRefusesAMissingKey(t *testing.T) {
 	for _, output := range []string{"{}", `{"replicationInfo":{"liveReplicas":{}}}`, "no object"} {
 		replicas, err := unmarshalUniverseNumReplicas(t.Context(), output)
 		if err == nil {
-			t.Errorf(
-				"unmarshalUniverseNumReplicas(%q) = %d, want an error for the missing key",
-				output,
-				replicas,
-			)
+			t.Errorf("unmarshalUniverseNumReplicas(%q) = %d, want an error for the missing key", output, replicas)
 		}
 	}
 }
@@ -102,33 +94,15 @@ func TestUnmarshalUniverseNumReplicasRefusesAMissingKey(t *testing.T) {
 // --masters or --tablet-servers and selects the replication deadline when
 // --replicas is set.
 func TestLedgerBootstrapWaitSettingsRequireTheCounts(t *testing.T) {
-	missing := ledgerBootstrapWaitInput{
-		Masters:       0,
-		TabletServers: 0,
-		Replicas:      0,
-		Deadline:      "",
-		Poll:          "2s",
-	}
+	missing := ledgerBootstrapWaitInput{Masters: 0, TabletServers: 0, Replicas: 0, Deadline: "", Poll: "2s"}
 	_, _, _, err := ledgerBootstrapWaitSettings(missing)
-	if err == nil || !strings.Contains(err.Error(), "--masters") ||
-		!strings.Contains(err.Error(), "--tablet-servers") {
+	if err == nil || !strings.Contains(err.Error(), "--masters") || !strings.Contains(err.Error(), "--tablet-servers") {
 		t.Fatalf("settings without counts = %v, want both flags refused", err)
 	}
-
-	replicated := ledgerBootstrapWaitInput{
-		Masters:       3,
-		TabletServers: 3,
-		Replicas:      3,
-		Deadline:      "",
-		Poll:          "2s",
-	}
+	replicated := ledgerBootstrapWaitInput{Masters: 3, TabletServers: 3, Replicas: 3, Deadline: "", Poll: "2s"}
 	_, deadline, _, err := ledgerBootstrapWaitSettings(replicated)
 	if err != nil || deadline != ledgerBootstrapReplicationDeadline {
-		t.Fatalf(
-			"settings with --replicas = %s, %v, want the %s replication deadline",
-			deadline,
-			err,
-			ledgerBootstrapReplicationDeadline,
-		)
+		t.Fatalf("settings with --replicas = %s, %v, want the %s replication deadline",
+			deadline, err, ledgerBootstrapReplicationDeadline)
 	}
 }

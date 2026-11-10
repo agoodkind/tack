@@ -59,30 +59,17 @@ func LoadSearchQuerySettings(ctx context.Context) (SearchQuerySettings, error) {
 	if err != nil {
 		return SearchQuerySettings{}, err
 	}
-
 	var settings SearchQuerySettings
 	if err := env.ParseWithOptions(&settings, env.Options{Environment: environment}); err != nil {
 		wrapped := fmt.Errorf("parse search query settings: %w", err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.query.config_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.query.config_failed", slog.String("err", wrapped.Error()))
 		return SearchQuerySettings{}, wrapped
 	}
-
 	if err := settings.Validate(); err != nil {
 		wrapped := fmt.Errorf("validate search query settings: %w", err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.query.config_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.query.config_failed", slog.String("err", wrapped.Error()))
 		return SearchQuerySettings{}, wrapped
 	}
-
 	return settings, nil
 }
 
@@ -92,14 +79,9 @@ func (s SearchQuerySettings) CursorKeyBytes() ([]byte, error) {
 	if err != nil {
 		return nil, errors.New("decode search cursor key: " + err.Error())
 	}
-
 	if len(decoded) < searchCursorKeyMinimum {
-		return nil, fmt.Errorf(
-			"search cursor key must decode to at least %d bytes",
-			searchCursorKeyMinimum,
-		)
+		return nil, fmt.Errorf("search cursor key must decode to at least %d bytes", searchCursorKeyMinimum)
 	}
-
 	return decoded, nil
 }
 
@@ -109,55 +91,30 @@ func (s SearchQuerySettings) Validate() error {
 	if s.MaxQueryBytes < 1 || s.MaxQueryBytes > searchQueryByteMaximum {
 		return fmt.Errorf("search query bytes must be between 1 and %d", searchQueryByteMaximum)
 	}
-
-	if s.MaxResponseBytes < searchResponseByteMinimum ||
-		s.MaxResponseBytes > searchResponseByteMaximum {
-		return fmt.Errorf(
-			"search response bytes must be between %d and %d",
-			searchResponseByteMinimum,
-			searchResponseByteMaximum,
-		)
+	if s.MaxResponseBytes < searchResponseByteMinimum || s.MaxResponseBytes > searchResponseByteMaximum {
+		return fmt.Errorf("search response bytes must be between %d and %d", searchResponseByteMinimum, searchResponseByteMaximum)
 	}
-
 	if s.MaxTokenBytes < 1 || s.MaxTokenBytes > searchTokenByteMaximum {
-		return fmt.Errorf(
-			"search session token bytes must be between 1 and %d",
-			searchTokenByteMaximum,
-		)
+		return fmt.Errorf("search session token bytes must be between 1 and %d", searchTokenByteMaximum)
 	}
-
-	if s.BatchSize < 1 || s.BatchSize > searchBatchMaximum || s.MaxBatches < 1 ||
-		s.MaxBatches > searchBatchCountMaximum {
-		return fmt.Errorf(
-			"search batches must contain 1 to %d matches, with 1 to %d batches per response",
-			searchBatchMaximum,
-			searchBatchCountMaximum,
-		)
+	if s.BatchSize < 1 || s.BatchSize > searchBatchMaximum || s.MaxBatches < 1 || s.MaxBatches > searchBatchCountMaximum {
+		return fmt.Errorf("search batches must contain 1 to %d matches, with 1 to %d batches per response", searchBatchMaximum, searchBatchCountMaximum)
 	}
-
 	if s.MaxResults < 1 || s.MaxResults > searchResultMaximum {
 		return fmt.Errorf("search results must be between 1 and %d", searchResultMaximum)
 	}
-
-	if s.IdleTimeout <= 0 || s.AbsoluteTimeout < s.IdleTimeout ||
-		s.AbsoluteTimeout > searchSessionMaximum {
-		return errors.New(
-			"search session idle timeout must be positive and must not exceed the absolute timeout of at most one day",
-		)
+	if s.IdleTimeout <= 0 || s.AbsoluteTimeout < s.IdleTimeout || s.AbsoluteTimeout > searchSessionMaximum {
+		return errors.New("search session idle timeout must be positive and must not exceed the absolute timeout of at most one day")
 	}
-
 	if s.RequestDeadline <= 0 || s.RequestDeadline > searchDeadlineMaximum {
 		return errors.New("search query deadline must be positive and must not exceed one minute")
 	}
-
 	if err := s.validateAdmission(); err != nil {
 		return err
 	}
-
 	if _, err := s.CursorKeyBytes(); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -165,17 +122,10 @@ func (s SearchQuerySettings) Validate() error {
 // admission wait to end before the search query deadline.
 func (s SearchQuerySettings) validateAdmission() error {
 	if s.Concurrency < 1 || s.Concurrency > searchConcurrencyMaximum {
-		return fmt.Errorf(
-			"search query concurrency must be between 1 and %d",
-			searchConcurrencyMaximum,
-		)
+		return fmt.Errorf("search query concurrency must be between 1 and %d", searchConcurrencyMaximum)
 	}
-
 	if s.AdmissionWait <= 0 || s.AdmissionWait >= s.RequestDeadline {
-		return errors.New(
-			"search admission wait must be positive and shorter than the search query deadline",
-		)
+		return errors.New("search admission wait must be positive and shorter than the search query deadline")
 	}
-
 	return nil
 }

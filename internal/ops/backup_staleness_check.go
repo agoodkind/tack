@@ -33,36 +33,20 @@ func RunBackupStalenessCheck(ctx context.Context, cfg *config.Config, out io.Wri
 	if err := requireBackupStalenessConfig(ctx, cfg); err != nil {
 		return err
 	}
-
 	metrics, writeErr := measureBackupStaleness(ctx, cfg, out)
-
 	return backupStalenessVerdict(ctx, metrics, writeErr)
 }
 
 func requireBackupStalenessConfig(ctx context.Context, cfg *config.Config) error {
 	if cfg.BackupS3Endpoint == "" || cfg.BackupS3AccessKey == "" || cfg.BackupS3SecretKey == "" {
-		err := fmt.Errorf(
-			"staleness-check: object store configuration is incomplete; set " +
-				"TACK_BACKUP_S3_ENDPOINT, TACK_BACKUP_S3_ACCESS_KEY_ID, and " +
-				"TACK_BACKUP_S3_SECRET_ACCESS_KEY",
-		)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"backup.staleness.failed",
-			slog.String("err", err.Error()),
-		)
-
+		err := fmt.Errorf("staleness-check: object store configuration is incomplete; set TACK_BACKUP_S3_ENDPOINT, TACK_BACKUP_S3_ACCESS_KEY_ID, and TACK_BACKUP_S3_SECRET_ACCESS_KEY")
+		telemetry.L(ctx).ErrorContext(ctx, "backup.staleness.failed", slog.String("err", err.Error()))
 		return err
 	}
-
 	return nil
 }
 
-func measureBackupStaleness(
-	ctx context.Context,
-	cfg *config.Config,
-	out io.Writer,
-) ([]backupStalenessMetric, error) {
+func measureBackupStaleness(ctx context.Context, cfg *config.Config, out io.Writer) ([]backupStalenessMetric, error) {
 	logger := telemetry.L(ctx)
 	s3Client := newBackupS3Client(cfg)
 	logger.InfoContext(ctx, "backup.staleness.start", slog.String("bucket", cfg.BackupS3BucketMain))
@@ -74,27 +58,17 @@ func measureBackupStaleness(
 	// and report a healthy mechanism as corrupt.
 	metrics := []backupStalenessMetric{
 		exportStalenessMetric(ctx, cfg, s3Client, opsNow().UTC()),
-		markerStalenessMetric(
-			ctx,
-			cfg,
-			s3Client,
-			backupStalenessRehearsalName,
-			opsNow().UTC(),
-			backupStalenessThreshold(cfg.BackupStalenessRehearsalMaxSeconds),
-		),
+		markerStalenessMetric(ctx, cfg, s3Client, backupStalenessRehearsalName, opsNow().UTC(),
+			backupStalenessThreshold(cfg.BackupStalenessRehearsalMaxSeconds)),
 		replicationStalenessMetric(ctx, cfg, s3Client, opsNow().UTC()),
 	}
 	if cfg.BackupFDBContinuous {
 		metrics = append(metrics, fdbStalenessMetric(ctx, cfg, s3Client, opsNow().UTC()))
 	} else {
-		logger.WarnContext(
-			ctx,
-			"backup.staleness.metric_skipped",
+		logger.WarnContext(ctx, "backup.staleness.metric_skipped",
 			slog.String("metric", backupStalenessFDBName),
-			slog.String("reason", "TACK_BACKUP_FDB_CONTINUOUS is false"),
-		)
+			slog.String("reason", "TACK_BACKUP_FDB_CONTINUOUS is false"))
 	}
-
 	// A reading that could not be taken is dated from this guest's last one
 	// that was, so a brief outage of the store or a probe stays quiet until
 	// the mechanism could have gone stale unseen (TACK-515).
@@ -109,41 +83,28 @@ func measureBackupStaleness(
 		writeErr = fmt.Errorf("write staleness report: %w", err)
 		logger.ErrorContext(ctx, "backup.staleness.failed", slog.String("err", writeErr.Error()))
 	}
-
 	logBackupStalenessMetrics(ctx, metrics)
 
 	// The alarm runs on every reading, stale or not, because a mechanism that
 	// has come back is what resets its memory. The mail is an attempt, never
 	// a gate: whatever it does, the stale verdict is what this run returns.
 	alarmBackupStalenessTransitions(ctx, cfg, s3Client, metrics)
-
 	return metrics, writeErr
 }
 
-func backupStalenessVerdict(
-	ctx context.Context,
-	metrics []backupStalenessMetric,
-	writeErr error,
-) error {
+func backupStalenessVerdict(ctx context.Context, metrics []backupStalenessMetric, writeErr error) error {
 	logger := telemetry.L(ctx)
 	stale := staleBackupStalenessMetrics(metrics)
 	if len(stale) > 0 {
-		err := fmt.Errorf(
-			"staleness-check: %d backup mechanism(s) past threshold: %s",
-			len(stale),
-			strings.Join(stale, ", "),
-		)
+		err := fmt.Errorf("staleness-check: %d backup mechanism(s) past threshold: %s",
+			len(stale), strings.Join(stale, ", "))
 		logger.ErrorContext(ctx, "backup.staleness.stale", slog.String("err", err.Error()))
-
 		return err
 	}
-
 	if writeErr != nil {
 		return writeErr
 	}
-
 	logger.InfoContext(ctx, "backup.staleness.ok", slog.Int("metric_count", len(metrics)))
-
 	return nil
 }
 
@@ -152,18 +113,12 @@ func backupStalenessVerdict(
 func logBackupStalenessMetrics(ctx context.Context, metrics []backupStalenessMetric) {
 	readings := make([]string, 0, len(metrics))
 	for _, metric := range metrics {
-		readings = append(
-			readings,
-			fmt.Sprintf(
-				"%s age=%s threshold=%s %s",
-				metric.Name,
-				backupStalenessAgeField(metric),
-				backupStalenessSeconds(metric.Threshold),
-				metric.verdict(),
-			),
-		)
+		readings = append(readings, fmt.Sprintf("%s age=%s threshold=%s %s",
+			metric.Name,
+			backupStalenessAgeField(metric),
+			backupStalenessSeconds(metric.Threshold),
+			metric.verdict()))
 	}
-
 	telemetry.L(ctx).InfoContext(ctx, "backup.staleness.metrics", slog.Any("readings", readings))
 }
 
@@ -183,16 +138,10 @@ func exportStalenessMetric(
 	threshold := backupStalenessThreshold(cfg.BackupStalenessExportMaxSeconds)
 	runIDs, err := listYBSnapshotRunIDs(ctx, s3Client, cfg.BackupS3BucketMain)
 	if err != nil {
-		return unknownBackupStalenessMetric(
-			backupStalenessExportName,
-			threshold,
-			backupStoreReadCause(err),
-			"listing export runs failed: "+err.Error(),
-		)
+		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
+			backupStoreReadCause(err), "listing export runs failed: "+err.Error())
 	}
-
-	manifest, found, err := newestCompleteYBSnapshotRun(
-		runIDs,
+	manifest, found, err := newestCompleteYBSnapshotRun(runIDs,
 		func(runID string) (ybSnapshotManifest, error) {
 			return fetchYBSnapshotManifest(ctx, s3Client, cfg.BackupS3BucketMain, runID)
 		},
@@ -200,50 +149,24 @@ func exportStalenessMetric(
 			return objectExists(ctx, s3Client, cfg.BackupS3BucketMain, key)
 		},
 		func(runID, reason string) {
-			logger.InfoContext(
-				ctx,
-				"backup.staleness.export_run_skipped",
-				slog.String("run_id", runID),
-				slog.String("reason", reason),
-			)
-		},
-	)
+			logger.InfoContext(ctx, "backup.staleness.export_run_skipped",
+				slog.String("run_id", runID), slog.String("reason", reason))
+		})
 	if err != nil {
-		return unknownBackupStalenessMetric(
-			backupStalenessExportName,
-			threshold,
-			backupStoreReadCause(err),
-			"walking export runs failed: "+err.Error(),
-		)
+		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
+			backupStoreReadCause(err), "walking export runs failed: "+err.Error())
 	}
-
 	if !found {
-		return unknownBackupStalenessMetric(
-			backupStalenessExportName,
-			threshold,
-			backupStalenessNeverRecorded,
-			"no complete export run in "+cfg.BackupS3BucketMain,
-		)
+		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
+			backupStalenessNeverRecorded, "no complete export run in "+cfg.BackupS3BucketMain)
 	}
-
-	timestamp, err := time.Parse(ybSnapshotRunIDLayout, manifest.RunID)
+	at, err := time.Parse(ybSnapshotRunIDLayout, manifest.RunID)
 	if err != nil {
-		return unknownBackupStalenessMetric(
-			backupStalenessExportName,
-			threshold,
-			backupStalenessUnreadable,
-			"export run key "+manifest.RunID+" is not a run-key timestamp",
-		)
+		return unknownBackupStalenessMetric(backupStalenessExportName, threshold,
+			backupStalenessUnreadable, "export run key "+manifest.RunID+" is not a run-key timestamp")
 	}
-
-	return knownBackupStalenessMetric(
-		ctx,
-		backupStalenessExportName,
-		now,
-		timestamp,
-		threshold,
-		"newest complete run "+manifest.RunID,
-	)
+	return knownBackupStalenessMetric(ctx, backupStalenessExportName, now, at, threshold,
+		"newest complete run "+manifest.RunID)
 }
 
 // markerStalenessMetric dates a mechanism from its success marker. An absent
@@ -256,31 +179,18 @@ func markerStalenessMetric(
 	now time.Time,
 	threshold time.Duration,
 ) backupStalenessMetric {
-	marker, found, err := readBackupStatusMarker(
-		ctx,
+	marker, found, err := readBackupStatusMarker(ctx,
 		func(key string) ([]byte, error) {
 			return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
-		},
-		name,
-	)
+		}, name)
 	if err != nil {
-		return unknownBackupStalenessMetric(
-			name,
-			threshold,
-			backupStoreReadCause(err),
-			"reading "+backupStatusKey(name)+" failed: "+err.Error(),
-		)
+		return unknownBackupStalenessMetric(name, threshold, backupStoreReadCause(err),
+			"reading "+backupStatusKey(name)+" failed: "+err.Error())
 	}
-
 	if !found {
-		return unknownBackupStalenessMetric(
-			name,
-			threshold,
-			backupStalenessNeverRecorded,
-			"no "+backupStatusKey(name)+" in "+cfg.BackupS3BucketMain,
-		)
+		return unknownBackupStalenessMetric(name, threshold, backupStalenessNeverRecorded,
+			"no "+backupStatusKey(name)+" in "+cfg.BackupS3BucketMain)
 	}
-
 	return knownBackupStalenessMetric(ctx, name, now, marker.At, threshold, marker.Detail)
 }
 
@@ -300,71 +210,39 @@ func fdbStalenessMetric(
 	threshold := backupStalenessThreshold(cfg.BackupStalenessFDBMaxSeconds)
 	cli, err := newDockerClient(ctx)
 	if err != nil {
-		return unknownBackupStalenessMetric(
-			backupStalenessFDBName,
-			threshold,
-			backupStalenessUnreadable,
-			"docker client unavailable: "+redactSecret(cfg, err.Error()),
-		)
+		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
+			backupStalenessUnreadable, "docker client unavailable: "+redactSecret(cfg, err.Error()))
 	}
 	defer cli.Close()
 
-	status, err := fdbBackupStatusText(
-		ctx,
-		&backupCtx{
-			Cfg:     cfg,
-			Cli:     cli,
-			Log:     logger,
-			RunID:   "",
-			DestDir: "",
-		},
-	)
+	status, err := fdbBackupStatusText(ctx, &backupCtx{
+		Cfg:     cfg,
+		Cli:     cli,
+		Log:     logger,
+		RunID:   "",
+		DestDir: "",
+	})
 	if err != nil {
-		return unknownBackupStalenessMetric(
-			backupStalenessFDBName,
-			threshold,
-			backupStalenessUnreadable,
-			"fdbbackup status failed: "+redactSecret(cfg, err.Error()),
-		)
+		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
+			backupStalenessUnreadable, "fdbbackup status failed: "+redactSecret(cfg, err.Error()))
 	}
-
 	point, err := fdbRestorablePointFromStatus(ctx, status)
 	if errors.Is(err, errFDBNoRestorablePoint) {
-		return unknownBackupStalenessMetric(
-			backupStalenessFDBName,
-			threshold,
-			backupStalenessNeverRecorded,
-			redactSecret(cfg, err.Error()),
-		)
+		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
+			backupStalenessNeverRecorded, redactSecret(cfg, err.Error()))
 	}
-
 	if err != nil {
-		return unknownBackupStalenessMetric(
-			backupStalenessFDBName,
-			threshold,
-			backupStalenessUnreadable,
-			redactSecret(cfg, err.Error()),
-		)
+		return unknownBackupStalenessMetric(backupStalenessFDBName, threshold,
+			backupStalenessUnreadable, redactSecret(cfg, err.Error()))
 	}
-
 	// A failed record is logged by the writer and left alone: the reading is
 	// real, and refusing the metric over it would turn a lost lookup entry
 	// into a false staleness alarm.
-	_ = appendFDBRestorablePoint(
-		ctx,
+	_ = appendFDBRestorablePoint(ctx,
 		fdbVersionLogGetter(ctx, s3Client, cfg.BackupS3BucketMain),
 		func(key string, body []byte) error {
 			return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
-		},
-		point,
-	)
-
-	return knownBackupStalenessMetric(
-		ctx,
-		backupStalenessFDBName,
-		now,
-		point.At,
-		threshold,
-		"restorable through "+point.At.UTC().Format(time.RFC3339),
-	)
+		}, point)
+	return knownBackupStalenessMetric(ctx, backupStalenessFDBName, now, point.At, threshold,
+		"restorable through "+point.At.UTC().Format(time.RFC3339))
 }

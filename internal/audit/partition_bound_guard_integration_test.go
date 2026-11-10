@@ -16,9 +16,7 @@ func TestPartmanAdoptionRejectsUnparseableChildBounds(t *testing.T) {
 	fixture.migrateTo(t, 3)
 	ctx := context.Background()
 
-	rows, err := fixture.pool.Query(
-		ctx,
-		`
+	rows, err := fixture.pool.Query(ctx, `
 		SELECT child_ns.nspname, c.relname
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
@@ -27,8 +25,7 @@ func TestPartmanAdoptionRejectsUnparseableChildBounds(t *testing.T) {
 		JOIN pg_namespace child_ns ON child_ns.oid = c.relnamespace
 		WHERE parent_ns.nspname = 'audit'
 		  AND p.relname = 'events'
-	`,
-	)
+	`)
 	if err != nil {
 		t.Fatalf("query existing partitions: %v", err)
 	}
@@ -51,13 +48,10 @@ func TestPartmanAdoptionRejectsUnparseableChildBounds(t *testing.T) {
 			t.Fatalf("drop existing partition %s: %v", partition.Sanitize(), err)
 		}
 	}
-	if _, err := fixture.pool.Exec(
-		ctx,
-		`
+	if _, err := fixture.pool.Exec(ctx, `
 		CREATE TABLE audit.events_unbounded
 		PARTITION OF audit.events DEFAULT
-	`,
-	); err != nil {
+	`); err != nil {
 		t.Fatalf("create unparseable default partition: %v", err)
 	}
 

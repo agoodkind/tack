@@ -14,22 +14,14 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-func writeConversionEngine(
-	t *testing.T,
-	directory string,
-	conversion testenv.OpenSearchConversionFixture,
-) {
+func writeConversionEngine(t *testing.T, directory string, conversion testenv.OpenSearchConversionFixture) {
 	t.Helper()
 	docker, err := client.New(client.WithHost(client.DefaultDockerHost))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer docker.Close()
-	inspected, err := docker.ContainerInspect(
-		t.Context(),
-		conversion.Fixture.Container,
-		client.ContainerInspectOptions{},
-	)
+	inspected, err := docker.ContainerInspect(t.Context(), conversion.Fixture.Container, client.ContainerInspectOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,13 +42,9 @@ func writeConversionEngine(
 		AdminKeyFile         string   `json:"admin_key_file"`
 		Containers           []string `json:"containers"`
 	}{
-		Container:            inspected.Container.ID,
-		URL:                  "https://localhost:9200",
-		AdminDN:              testenv.OpenSearchConversionAdministratorDN,
-		CAFile:               "ca.crt",
-		AdminCertificateFile: "admin.crt",
-		AdminKeyFile:         "admin.key",
-		Containers:           containers,
+		Container: inspected.Container.ID, URL: "https://localhost:9200",
+		AdminDN: testenv.OpenSearchConversionAdministratorDN, CAFile: "ca.crt",
+		AdminCertificateFile: "admin.crt", AdminKeyFile: "admin.key", Containers: containers,
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {

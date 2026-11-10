@@ -24,7 +24,6 @@ jobs:
       attestations: write
     secrets: inherit
     with:
-      job_layout: single
       golangci_lint_version: v2.15.0
       pre_make_commands: |
         fdb_version=7.4.6
@@ -33,7 +32,7 @@ jobs:
           -o /tmp/fdb-clients.deb
         sudo dpkg -i /tmp/fdb-clients.deb
         rm /tmp/fdb-clients.deb
-      # The test command takes 13 to 15 minutes. Its go test limit is 20 minutes
+      # The Test job takes 13 to 15 minutes. Its go test limit is 20 minutes
       # for each package (GO_TEST_TARGETS in the Makefile). The last package
       # starts about 5 minutes into the job, and a hung test prints its
       # timeout report before this limit ends the job.
@@ -42,7 +41,6 @@ jobs:
   # The provider job runs shared go-makefile _ci.yml with working_directory:
   # provider. Go excludes this nested module from ./... in the root go job.
   provider:
-    needs: go
     uses: agoodkind/go-makefile/.github/workflows/_ci.yml@main
     permissions:
       contents: read
@@ -50,7 +48,6 @@ jobs:
       attestations: write
     secrets: inherit
     with:
-      job_layout: single
       golangci_lint_version: v2.15.0
       working_directory: provider
       go_version_file: provider/go.mod
@@ -62,7 +59,6 @@ jobs:
   # engines that internal/testenv starts.
   postgresql-overlay:
     name: postgresql provider overlay
-    needs: go
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -75,12 +71,10 @@ jobs:
   # runs one test-store-host-shard selection in the Makefile.
   integration-shard:
     name: ${{ matrix.description }}
-    needs: go
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
           - shard: integration-a-through-l
@@ -128,7 +122,6 @@ jobs:
   # 10 minutes for setup.
   runtime-audit:
     name: runtime audit coverage
-    needs: go
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -156,12 +149,10 @@ jobs:
   # run only on the Mac runner.
   search:
     name: ${{ matrix.description }}
-    needs: integration
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
           - group: continuation-with-duplicate-pages
@@ -193,12 +184,10 @@ jobs:
 
   search-features:
     name: ${{ matrix.description }}
-    needs: integration
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
           - group: features-a-through-m

@@ -29,14 +29,9 @@ func TestVerifyBundleRejectsARowFromAnotherOrg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyBundle: %v", err)
 	}
-
 	if report.HashMatches != 3 {
-		t.Fatalf(
-			"HashMatches = %d, want 3: the foreign row is internally valid, so only the org check can catch it",
-			report.HashMatches,
-		)
+		t.Fatalf("HashMatches = %d, want 3: the foreign row is internally valid, so only the org check can catch it", report.HashMatches)
 	}
-
 	verdict := report.Err()
 	if verdict == nil || !strings.Contains(verdict.Error(), "belongs to org") {
 		t.Fatalf("verdict = %v, want a failure naming the foreign org", verdict)
@@ -60,14 +55,9 @@ func TestVerifyBundleRejectsARepeatedSequence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyBundle: %v", err)
 	}
-
 	if report.HashMatches != 4 {
-		t.Fatalf(
-			"HashMatches = %d, want 4: the replayed row is self-consistent so only the sequence check can catch it",
-			report.HashMatches,
-		)
+		t.Fatalf("HashMatches = %d, want 4: the replayed row is self-consistent so only the sequence check can catch it", report.HashMatches)
 	}
-
 	verdict := report.Err()
 	if verdict == nil || !strings.Contains(verdict.Error(), "repeats sequence 3") {
 		t.Fatalf("verdict = %v, want a break naming the repeated sequence", verdict)
@@ -86,7 +76,6 @@ func TestVerifyBundleRefusesAnOversizedManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	padded := append([]byte(strings.Repeat(" ", maxManifestBytes+1)), original...)
 	if err := os.WriteFile(path, padded, 0o600); err != nil {
 		t.Fatal(err)
@@ -111,18 +100,15 @@ func TestVerifyBundleRefusesAManifestWithAPlantedField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	var loose map[string]json.RawMessage
 	if err := json.Unmarshal(original, &loose); err != nil {
 		t.Fatal(err)
 	}
-
 	loose["auditor_note"] = json.RawMessage(`"rows verified by hand"`)
 	planted, err := json.Marshal(loose)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if err := os.WriteFile(path, planted, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +131,6 @@ func TestVerifyBundleSurvivesAMalformedPublicKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyBundle must report on a malformed key, not fail outright: %v", err)
 	}
-
 	if report.SignatureOK {
 		t.Fatal("a key of the wrong length must not verify anything")
 	}

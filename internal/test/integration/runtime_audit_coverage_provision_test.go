@@ -43,32 +43,11 @@ func TestSearchRuntimeAuditProvisionCoverage(t *testing.T) {
 	t.Cleanup(func() { deleteProvisionedIndex(t, engine) })
 	pool := ledgerAdminPool(t)
 	operatorID := uuid.Must(uuid.NewV7())
-	if output, err := runOpsCommand(
-		t,
-		cfg,
-		pool,
-		"--execute",
-		"--operator-id",
-		operatorID.String(),
-		"--operator-email",
-		outcomeOperatorEmail,
-		"ops",
-		"search",
-		"provision",
-	); err != nil {
-		t.Fatalf(
-			"ops search provision failed; the test requires a successful run on an engine without the serving index: %v\n%s",
-			err,
-			output,
-		)
+	if output, err := runOpsCommand(t, cfg, pool, "--execute", "--operator-id", operatorID.String(),
+		"--operator-email", outcomeOperatorEmail, "ops", "search", "provision"); err != nil {
+		t.Fatalf("ops search provision failed; the test requires a successful run on an engine without the serving index: %v\n%s", err, output)
 	}
-	events := outboxEventsByQuery(
-		t,
-		pool,
-		"runtime_audit_verb_outbox.sql",
-		string(audit.VerbOpsSearchProvision),
-		operatorID.String(),
-	)
+	events := outboxEventsByQuery(t, pool, "runtime_audit_verb_outbox.sql", string(audit.VerbOpsSearchProvision), operatorID.String())
 	intents := eventsInPhase(events, audit.PhaseIntent, uuid.Nil)
 	if len(intents) != 1 {
 		t.Fatalf("ops search provision recorded %d intents instead of 1", len(intents))
@@ -76,18 +55,11 @@ func TestSearchRuntimeAuditProvisionCoverage(t *testing.T) {
 	operationID := intents[0].Context.OperationID
 	stepResults := eventsInPhase(events, audit.PhaseResult, operationID)
 	if len(stepResults) != 3 {
-		t.Fatalf(
-			"ops search provision recorded %d step results instead of 3 for the model, index, and alias steps",
-			len(stepResults),
-		)
+		t.Fatalf("ops search provision recorded %d step results instead of 3 for the model, index, and alias steps", len(stepResults))
 	}
 	for _, result := range stepResults {
 		if result.Outcome != audit.OutcomeCompleted {
-			t.Fatalf(
-				"ops search provision recorded step result %s with outcome %s instead of completed",
-				result.EventID,
-				result.Outcome,
-			)
+			t.Fatalf("ops search provision recorded step result %s with outcome %s instead of completed", result.EventID, result.Outcome)
 		}
 	}
 	requireCompletedResult(t, events, operationID)
@@ -95,29 +67,16 @@ func TestSearchRuntimeAuditProvisionCoverage(t *testing.T) {
 
 // provisionCoverageConfig returns the OpenSearch, ledger, and FoundationDB
 // settings that ops search provision reads.
-func provisionCoverageConfig(
-	t *testing.T,
-	engine testenv.OpenSearchFixture,
-	clusterFile string,
-) *config.Config {
+func provisionCoverageConfig(t *testing.T, engine testenv.OpenSearchFixture, clusterFile string) *config.Config {
 	t.Helper()
 	caPath := filepath.Join(t.TempDir(), "opensearch-ca.pem")
 	if err := os.WriteFile(caPath, []byte(engine.CA), 0o600); err != nil {
-		t.Fatalf(
-			"Writing the OpenSearch CA file failed; the provision command requires it: %v",
-			err,
-		)
+		t.Fatalf("Writing the OpenSearch CA file failed; the provision command requires it: %v", err)
 	}
 	return &config.Config{
-		SearchEndpoint:        engine.Endpoint,
-		SearchCA:              caPath,
-		SearchUsername:        engine.Username,
-		SearchPassword:        engine.Password,
-		SearchRequestTimeout:  2 * time.Minute,
-		SearchMaxRetries:      1,
-		DatabaseURL:           testenv.Ledger(t),
-		FDBClusterFile:        clusterFile,
-		FDBTransactionTimeout: 5 * time.Second,
+		SearchEndpoint: engine.Endpoint, SearchCA: caPath, SearchUsername: engine.Username, SearchPassword: engine.Password,
+		SearchRequestTimeout: 2 * time.Minute, SearchMaxRetries: 1,
+		DatabaseURL: testenv.Ledger(t), FDBClusterFile: clusterFile, FDBTransactionTimeout: 5 * time.Second,
 	}
 }
 
@@ -126,23 +85,12 @@ func provisionCoverageConfig(
 func deleteProvisionedIndex(t *testing.T, engine testenv.OpenSearchFixture) {
 	t.Helper()
 	ctx := context.WithoutCancel(integration.WithTestOperation(t, t.Context()))
-	adapter, err := search.New(
-		ctx,
-		search.Config{
-			Endpoint:       engine.Endpoint,
-			CA:             engine.CA,
-			Username:       engine.Username,
-			Password:       engine.Password,
-			RequestTimeout: 2 * time.Minute,
-			MaxRetries:     1,
-		},
-	)
+	adapter, err := search.New(ctx, search.Config{
+		Endpoint: engine.Endpoint, CA: engine.CA, Username: engine.Username,
+		Password: engine.Password, RequestTimeout: 2 * time.Minute, MaxRetries: 1,
+	})
 	if err != nil {
-		t.Fatalf(
-			"Creating the OpenSearch adapter failed; the test requires it to delete %s: %v",
-			provisionCoverageIndex,
-			err,
-		)
+		t.Fatalf("Creating the OpenSearch adapter failed; the test requires it to delete %s: %v", provisionCoverageIndex, err)
 	}
 	defer func() { _ = adapter.Close(ctx) }()
 	if err := adapter.DeleteIndex(ctx, provisionCoverageIndex); err != nil {

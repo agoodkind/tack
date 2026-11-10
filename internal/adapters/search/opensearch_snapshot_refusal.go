@@ -27,12 +27,10 @@ func snapshotEffectRefused(response *opensearch.Response, err error) bool {
 	if response == nil || !response.IsError() {
 		return false
 	}
-
 	var refusal *opensearch.StructError
 	if !errors.As(err, &refusal) || refusal.Status != response.StatusCode {
 		return false
 	}
-
 	switch snapshotRefusalType(refusal.Err.Type) {
 	case snapshotRequestValidationRefusal:
 		return response.StatusCode == http.StatusBadRequest
@@ -40,12 +38,10 @@ func snapshotEffectRefused(response *opensearch.Response, err error) bool {
 		return response.StatusCode == http.StatusNotFound
 	case snapshotSecurityRefusal:
 		for _, action := range []string{snapshotCreateAction, snapshotDeleteAction} {
-			if response.StatusCode == http.StatusForbidden &&
-				strings.HasPrefix(refusal.Err.Reason, "no permissions for ["+action+"]") {
+			if response.StatusCode == http.StatusForbidden && strings.HasPrefix(refusal.Err.Reason, "no permissions for ["+action+"]") {
 				return true
 			}
 		}
 	}
-
 	return false
 }

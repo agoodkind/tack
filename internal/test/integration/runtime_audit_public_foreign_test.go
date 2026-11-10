@@ -20,48 +20,23 @@ func (server *publicServer) foreignProject(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("datagen.ParseScale failed: %v", err)
 	}
-
 	ctx := integration.WithTestOperation(t, t.Context())
-	identities, err := datagen.BootstrapIdentities(
-		ctx,
-		server.config,
-		clock.Now().UnixNano(),
-		scale,
-	)
+	identities, err := datagen.BootstrapIdentities(ctx, server.config, clock.Now().UnixNano(), scale)
 	if err != nil {
 		t.Fatalf("datagen.BootstrapIdentities failed for the foreign organization: %v", err)
 	}
-
 	foreign := identities.Workspaces[0]
 	if foreign.OrgID == server.orgID {
-		t.Fatalf(
-			"the foreign workspace %s uses the caller organization %s",
-			foreign.Slug,
-			server.orgID,
-		)
+		t.Fatalf("the foreign workspace %s uses the caller organization %s", foreign.Slug, server.orgID)
 	}
-
 	identifier := "audit-for-" + uuid.NewString()[:8]
-	body := rpcBody(
-		t,
-		"tools/call",
-		map[string]any{
-			"name": "tack_create_project",
-			"arguments": map[string]any{
-				"workspace_reference": foreign.Slug,
-				"name":                identifier,
-				"properties":          map[string]any{"identifier": identifier},
-			},
+	body := rpcBody(t, "tools/call", map[string]any{
+		"name": "tack_create_project",
+		"arguments": map[string]any{
+			"workspace_reference": foreign.Slug, "name": identifier,
+			"properties": map[string]any{"identifier": identifier},
 		},
-	)
-	created := server.send(
-		t,
-		http.MethodPost,
-		"/mcp",
-		foreign.Actors[0].Token,
-		newRequestID(t, "foreign"),
-		body,
-	)
-
+	})
+	created := server.send(t, http.MethodPost, "/mcp", foreign.Actors[0].Token, newRequestID(t, "foreign"), body)
 	return rawID(t, toolText(t, created))
 }

@@ -17,9 +17,7 @@ func (proxy *predictHoldProxy) keepsOpen(request *http.Request) bool {
 	if request.Method == http.MethodDelete && strings.HasSuffix(request.URL.Path, pitDeletePath) {
 		return proxy.holdDelete()
 	}
-
-	return strings.HasPrefix(request.URL.Path, predictPathPrefix) &&
-		proxy.hold(proxy.matches(request))
+	return strings.HasPrefix(request.URL.Path, predictPathPrefix) && proxy.hold(proxy.matches(request))
 }
 
 // holdDelete reports whether the proxy keeps a point in time delete request
@@ -30,9 +28,7 @@ func (proxy *predictHoldProxy) holdDelete() bool {
 	if !proxy.deleteArmed || proxy.holding {
 		return false
 	}
-
 	proxy.holding = true
 	close(proxy.held)
-
 	return true
 }

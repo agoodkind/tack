@@ -29,12 +29,7 @@ func TestDatagenSearchPreparationExportsStoredIsolatedSets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identities, err := datagen.BootstrapIdentities(
-		WithTestOperation(t, t.Context()),
-		cfg,
-		seed,
-		scale,
-	)
+	identities, err := datagen.BootstrapIdentities(WithTestOperation(t, t.Context()), cfg, seed, scale)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,25 +45,10 @@ func TestDatagenSearchPreparationExportsStoredIsolatedSets(t *testing.T) {
 	t.Cleanup(factory.CloseAuditOutbox)
 	root := searchCommandRoot(factory)
 	root.SetArgs([]string{
-		"--execute",
-		"--output",
-		"json",
-		"--operator-id",
-		"019dd226-440e-729a-a442-281aaf73ca30",
-		"--operator-email",
-		"operator@example.com",
-		"--operator-name",
-		"Search Test",
-		"ops",
-		"qa",
-		"datagen",
-		"search",
-		"--prepare-only",
-		"--commit",
-		"--seed",
-		strconv.FormatInt(seed, 10),
-		"--corpus",
-		"testdata/search_semantic_corpus.json",
+		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
+		"--operator-email", "operator@example.com", "--operator-name", "Search Test",
+		"ops", "qa", "datagen", "search", "--prepare-only", "--commit",
+		"--seed", strconv.FormatInt(seed, 10), "--corpus", "testdata/search_semantic_corpus.json",
 	})
 	if err := root.ExecuteContext(t.Context()); err != nil {
 		t.Fatalf("prepare fixture: %v; output=%s", err, output.String())
@@ -86,9 +66,7 @@ func TestDatagenSearchPreparationExportsStoredIsolatedSets(t *testing.T) {
 	if envelope.Result.Verified || cfg.SearchPublicEnabled {
 		t.Fatal("preparation claimed search acceptance or enabled public search")
 	}
-	if manifest.OrgID != identities.Workspaces[0].OrgID || len(
-		manifest.Nodes,
-	) != 194 || len(manifest.Cases) != 8 {
+	if manifest.OrgID != identities.Workspaces[0].OrgID || len(manifest.Nodes) != 194 || len(manifest.Cases) != 8 {
 		t.Fatalf("unexpected fixture manifest: %+v", manifest)
 	}
 	stores, err := fdbadapter.NewStores(cfg.FDBClusterFile, cfg.FDBTransactionTimeout, nil)
@@ -121,29 +99,14 @@ func TestDatagenSearchPreparationExportsStoredIsolatedSets(t *testing.T) {
 			t.Fatalf("exported node %s differs from stored node", exported.ID)
 		}
 		parentID, scopeID := "", ""
-		parentErr, scopeErr := json.Unmarshal(
-			stored.Props["parent_id"],
-			&parentID,
-		), json.Unmarshal(stored.Props["scope_id"], &scopeID)
+		parentErr, scopeErr := json.Unmarshal(stored.Props["parent_id"], &parentID), json.Unmarshal(stored.Props["scope_id"], &scopeID)
 		_, included := stored.Props[exported.IncludedKey]
 		_, excluded := stored.Props[exported.ExcludedKey]
-		if len(
-			stored.Props,
-		) != 4 || !included || !excluded || parentErr != nil || scopeErr != nil || parentID != entryID.String() || scopeID != entryID.String() {
-			t.Fatalf(
-				"exported node %s stores properties %v, want %s, %s, and parent_id and scope_id %s",
-				exported.ID,
-				stored.Props,
-				exported.IncludedKey,
-				exported.ExcludedKey,
-				entryID,
-			)
+		if len(stored.Props) != 4 || !included || !excluded || parentErr != nil || scopeErr != nil || parentID != entryID.String() || scopeID != entryID.String() {
+			t.Fatalf("exported node %s stores properties %v, want %s, %s, and parent_id and scope_id %s", exported.ID, stored.Props, exported.IncludedKey, exported.ExcludedKey, entryID)
 		}
 		var text string
-		if err := json.Unmarshal(
-			stored.Props[exported.IncludedKey],
-			&text,
-		); err != nil || len(text) != exported.TextBytes {
+		if err := json.Unmarshal(stored.Props[exported.IncludedKey], &text); err != nil || len(text) != exported.TextBytes {
 			t.Fatalf("exported text length for %s differs: %v", exported.ID, err)
 		}
 		if byType[stored.NodeType] == nil {
@@ -159,15 +122,11 @@ func TestDatagenSearchPreparationExportsStoredIsolatedSets(t *testing.T) {
 	}
 	for position, testCase := range manifest.Cases {
 		if position < 6 {
-			if testCase.Match != "ranked_targets" || testCase.RankLimit != 25 || len(
-				testCase.ExpectedIDs,
-			) != 2 || len(byType[testCase.NodeType]) != 162 {
+			if testCase.Match != "ranked_targets" || testCase.RankLimit != 25 || len(testCase.ExpectedIDs) != 2 || len(byType[testCase.NodeType]) != 162 {
 				t.Fatalf("semantic case differs from target ranking contract: %+v", testCase)
 			}
 		} else {
-			if testCase.Match != "exact" || len(
-				testCase.ExpectedIDs,
-			) != len(byType[testCase.NodeType]) {
+			if testCase.Match != "exact" || len(testCase.ExpectedIDs) != len(byType[testCase.NodeType]) {
 				t.Fatalf("exact case differs from isolated type: %+v", testCase)
 			}
 		}
@@ -180,13 +139,7 @@ func TestDatagenSearchPreparationExportsStoredIsolatedSets(t *testing.T) {
 	if len(manifest.Cases[6].ExpectedIDs) != 31 || len(manifest.Cases[7].ExpectedIDs) != 1 {
 		t.Fatal("continuation and final-page counts differ from the declared workload")
 	}
-	t.Logf(
-		"prepared nodes=%d semantic=%d continuation=%d final_page=%d with disabled public search",
-		len(manifest.Nodes),
-		162,
-		31,
-		1,
-	)
+	t.Logf("prepared nodes=%d semantic=%d continuation=%d final_page=%d with disabled public search", len(manifest.Nodes), 162, 31, 1)
 	typesBefore, err := stores.NodeTypes.List(t.Context(), manifest.OrgID)
 	if err != nil {
 		t.Fatal(err)
@@ -205,86 +158,38 @@ func TestDatagenSearchPreparationExportsStoredIsolatedSets(t *testing.T) {
 		name, marker, message string
 		arguments             []string
 	}{
-		{
-			"missing-seed",
-			"local",
-			"--seed greater than 0",
-			[]string{
-				"--prepare-only",
-				"--commit",
-				"--corpus",
-				"testdata/search_semantic_corpus.json",
-			},
-		},
-		{
-			"seed-without-preparation",
-			"local",
-			"require --prepare-only",
-			[]string{"--commit", "--seed", seedText},
-		},
-		{
-			"unmarked-target",
-			"",
-			"ALLOW_TARGET",
-			[]string{"--prepare-only", "--commit", "--seed", seedText, "--corpus", invalidCorpus},
-		},
-		{
-			"production-target",
-			"qa",
-			"identifies production",
-			[]string{"--prepare-only", "--commit", "--seed", seedText, "--corpus", invalidCorpus},
-		},
-		{
-			"invalid-corpus",
-			"local",
-			"approved SHA256",
-			[]string{"--prepare-only", "--commit", "--seed", seedText, "--corpus", invalidCorpus},
-		},
+		{"missing-seed", "local", "--seed greater than 0",[]string{"--prepare-only", "--commit", "--corpus", "testdata/search_semantic_corpus.json"}},
+		{"seed-without-preparation", "local", "require --prepare-only",[]string{"--commit", "--seed", seedText}},
+		{"unmarked-target", "", "ALLOW_TARGET", []string{"--prepare-only", "--commit", "--seed", seedText, "--corpus", invalidCorpus}},
+		{"production-target", "qa", "identifies production", []string{"--prepare-only", "--commit", "--seed", seedText, "--corpus", invalidCorpus}},
+		{"invalid-corpus", "local", "approved SHA256", []string{"--prepare-only", "--commit", "--seed", seedText, "--corpus", invalidCorpus}},
 	} {
-		t.Run(
-			refusal.name,
-			func(t *testing.T) {
-				cfg.DatagenAllowTarget = refusal.marker
-				cfg.AuditWriterDSN = writerDSN
-				if refusal.name == "production-target" {
-					cfg.AuditWriterDSN = "postgres://writer@tack.home.goodkind.io:5433/yugabyte"
-				}
-				output.Reset()
-				command := searchCommandRoot(factory)
-				command.SetArgs(
-					append(
-						[]string{
-							"--execute",
-							"--output",
-							"json",
-							"--operator-id",
-							"019dd226-440e-729a-a442-281aaf73ca30",
-							"--operator-email",
-							"operator@example.com",
-							"--operator-name",
-							"Search Test",
-							"ops",
-							"qa",
-							"datagen",
-							"search",
-						},
-						refusal.arguments...,
-					),
-				)
-				err := command.ExecuteContext(t.Context())
-				if err == nil || !strings.Contains(err.Error(), refusal.message) {
-					t.Fatalf("preparation refusal differs: %v", err)
-				}
-				typesAfter, err := stores.NodeTypes.List(t.Context(), manifest.OrgID)
-				if err != nil || len(typesAfter) != len(typesBefore) {
-					t.Fatalf("refused preparation changed node types: %v", err)
-				}
-				propertiesAfter, err := stores.PropertyDefs.List(t.Context(), manifest.OrgID)
-				if err != nil || len(propertiesAfter) != len(propertiesBefore) {
-					t.Fatalf("refused preparation changed projections: %v", err)
-				}
-			},
-		)
+		t.Run(refusal.name, func(t *testing.T) {
+			cfg.DatagenAllowTarget = refusal.marker
+			cfg.AuditWriterDSN = writerDSN
+			if refusal.name == "production-target" {
+				cfg.AuditWriterDSN = "postgres://writer@tack.home.goodkind.io:5433/yugabyte"
+			}
+			output.Reset()
+			command := searchCommandRoot(factory)
+			command.SetArgs(append([]string{
+				"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca30",
+				"--operator-email", "operator@example.com", "--operator-name", "Search Test",
+				"ops", "qa", "datagen", "search",
+			}, refusal.arguments...))
+			err := command.ExecuteContext(t.Context())
+			if err == nil || !strings.Contains(err.Error(), refusal.message) {
+				t.Fatalf("preparation refusal differs: %v", err)
+			}
+			typesAfter, err := stores.NodeTypes.List(t.Context(), manifest.OrgID)
+			if err != nil || len(typesAfter) != len(typesBefore) {
+				t.Fatalf("refused preparation changed node types: %v", err)
+			}
+			propertiesAfter, err := stores.PropertyDefs.List(t.Context(), manifest.OrgID)
+			if err != nil || len(propertiesAfter) != len(propertiesBefore) {
+				t.Fatalf("refused preparation changed projections: %v", err)
+			}
+		})
 	}
 	cfg.DatagenAllowTarget = "local"
 	cfg.AuditWriterDSN = writerDSN

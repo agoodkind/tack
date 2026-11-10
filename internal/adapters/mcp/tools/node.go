@@ -29,13 +29,11 @@ func RegisterNodeTools(s *mcpserver.MCPServer, nt *node.NodeType, b NodeTypeBind
 	if nt.Features.Has(node.FeatureExcludeFromGenericTools) {
 		return
 	}
-
 	slug := strings.ToLower(nt.Slug)
 	plural := strings.ToLower(nt.PluralSlug)
 	if plural == "" {
 		plural = slug + "s"
 	}
-
 	route := b.Resolver.ScopeRouteForType(nt)
 	epParam := b.Resolver.EntryPointParamName()
 	ops := opSet(nt.AllowedOps)
@@ -43,23 +41,15 @@ func RegisterNodeTools(s *mcpserver.MCPServer, nt *node.NodeType, b NodeTypeBind
 	if _, ok := ops[node.OpList]; ok {
 		registerTool(s, listTool(nt, plural, route, epParam, b.Resolver), listHandler(nt, route, b))
 	}
-
 	if _, ok := ops[node.OpCreate]; ok {
-		registerTool(
-			s,
-			createTool(nt, slug, route, epParam, b.Resolver),
-			createHandler(nt, route, b),
-		)
+		registerTool(s, createTool(nt, slug, route, epParam, b.Resolver), createHandler(nt, route, b))
 	}
-
 	if _, ok := ops[node.OpRead]; ok {
 		registerTool(s, getTool(nt, slug, epParam, b.Resolver), getHandler(nt, b))
 	}
-
 	if _, ok := ops[node.OpUpdate]; ok {
 		registerTool(s, updateTool(nt, slug, epParam, b.Resolver), updateHandler(nt, b))
 	}
-
 	if _, ok := ops[node.OpDelete]; ok {
 		registerTool(s, deleteTool(nt, slug, epParam, b.Resolver), deleteHandler(nt, b))
 	}
@@ -70,6 +60,5 @@ func opSet(ops []node.Op) map[node.Op]struct{} {
 	for _, op := range ops {
 		m[op] = struct{}{}
 	}
-
 	return m
 }

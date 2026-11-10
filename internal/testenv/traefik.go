@@ -81,26 +81,12 @@ type traefikService struct {
 // including a stopped member.
 func (c *OpenSearchCluster) proxyConfig() []byte {
 	var servers strings.Builder
-
 	for _, member := range c.members {
 		_, _ = fmt.Fprintf(&servers, "          - url: %s\n", c.MemberEndpoint(member))
 	}
-
-	login := base64.StdEncoding.EncodeToString(
-		[]byte(c.Fixture.Username + ":" + c.Fixture.Password),
-	)
+	login := base64.StdEncoding.EncodeToString([]byte(c.Fixture.Username + ":" + c.Fixture.Password))
 	refusal := c.refusalConfig(servers.String())
-
-	return fmt.Appendf(
-		nil,
-		traefikDynamicFormat,
-		refusal.router,
-		login,
-		servers.String(),
-		refusal.service,
-		c.name,
-		refusal.transport,
-	)
+	return fmt.Appendf(nil, traefikDynamicFormat, refusal.router, login, servers.String(), refusal.service, c.name, refusal.transport)
 }
 
 // startProxy starts Traefik on the engines' network with a certificate for
@@ -110,91 +96,57 @@ func (c *OpenSearchCluster) startProxy(ctx context.Context, cli *client.Client) 
 	if err != nil {
 		return err
 	}
-
 	files := map[string][]byte{traefikDynamicPath: c.proxyConfig()}
 	files[traefikCertsDir+"/ca.pem"] = c.authority.pem
 	files[traefikCertsDir+"/proxy.pem"] = certificate.certificate
 	files[traefikCertsDir+"/proxy-key.pem"] = certificate.key
 	command := []string{
-		"--entryPoints.search.address=:9200",
-		"--entryPoints.traefik.address=:8080",
-		"--api.insecure=true",
-		"--providers.file.directory=/etc/traefik/dynamic",
-		"--providers.file.watch=true",
-		"--log.level=INFO",
-		"--accesslog=true",
-		"--accesslog.format=json",
-		"--accesslog.filepath=" + traefikAccessPath,
+		"--entryPoints.search.address=:9200", "--entryPoints.traefik.address=:8080",
+		"--api.insecure=true", "--providers.file.directory=/etc/traefik/dynamic",
+		"--providers.file.watch=true", "--log.level=INFO",
+		"--accesslog=true", "--accesslog.format=json", "--accesslog.filepath=" + traefikAccessPath,
 	}
-
-	return startClusterContainer(
-		ctx,
-		cli,
-		clusterContainer{
-			name:      c.proxy,
-			image:     traefikImage,
-			cmd:       command,
-			env:       nil,
-			files:     files,
-			owner:     fileOwner{uid: 0, gid: 0},
-			resources: container.Resources{},
-		},
-	)
+	return startClusterContainer(ctx, cli, clusterContainer{name: c.proxy, image: traefikImage, cmd: command, env: nil, files: files, owner: fileOwner{uid: 0, gid: 0}, resources: container.Resources{}})
 }
 
 // Backends returns each server URL the proxy lists and its health status.
 func (c *OpenSearchCluster) Backends(t T) map[string]string {
 	t.Helper()
 	backends := map[string]string{}
-	c.run(
-		t,
-		func(ctx context.Context, _ *client.Client) error {
-			read, err := c.proxyBackends(ctx)
-			backends = read
-
-			return err
-		},
-	)
-
+	c.run(t, func(ctx context.Context, _ *client.Client) error {
+		read, err := c.proxyBackends(ctx)
+		backends = read
+		return err
+	})
 	return backends
 }
 
 // proxyBackends reads each configured server URL and its health status from
 // the Traefik API. A server without a reported status maps to an empty string.
 func (c *OpenSearchCluster) proxyBackends(ctx context.Context) (map[string]string, error) {
-	request, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		"http://"+c.proxy+traefikServiceAPI,
-		nil,
-	)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+c.proxy+traefikServiceAPI, nil)
 	if err != nil {
 		slog.DebugContext(ctx, "testenv.proxy.request_failed", slog.String("reason", err.Error()))
 		return nil, errors.New("build Traefik API request: " + err.Error())
 	}
-
 	response, err := (&http.Client{Timeout: openSearchProbeTimeout}).Do(request)
 	if err != nil {
 		slog.DebugContext(ctx, "testenv.proxy.unavailable", slog.String("reason", err.Error()))
 		return nil, errors.New("read Traefik API: " + err.Error())
 	}
-
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, errors.New("the Traefik API returned " + response.Status)
 	}
-
 	var service traefikService
 	if err := json.NewDecoder(response.Body).Decode(&service); err != nil {
 		slog.DebugContext(ctx, "testenv.proxy.decode_failed", slog.String("reason", err.Error()))
 		return nil, errors.New("decode Traefik API service: " + err.Error())
 	}
-
 	backends := make(map[string]string, len(service.LoadBalancer.Servers))
 	for _, server := range service.LoadBalancer.Servers {
 		backends[server.URL] = service.ServerStatus[server.URL]
 	}
-
 	return backends, nil
 }
 
@@ -209,28 +161,18 @@ func (c *OpenSearchCluster) waitForProxy(ctx context.Context) error {
 			want[c.MemberEndpoint(member)] = backendDown
 		}
 	}
-
 	for {
 		backends, err := c.proxyBackends(ctx)
 		if err == nil && maps.Equal(backends, want) {
 			return nil
 		}
-
 		last := fmt.Sprint(backends)
 		if err != nil {
 			last = err.Error()
 		}
-
 		if !sleepOrDone(ctx) {
-			wrapped := fmt.Errorf(
-				"wait for proxy %s backends %v, last %s: %w",
-				c.proxy,
-				want,
-				last,
-				ctx.Err(),
-			)
+			wrapped := fmt.Errorf("wait for proxy %s backends %v, last %s: %w", c.proxy, want, last, ctx.Err())
 			slog.ErrorContext(ctx, "testenv.proxy.wait_failed", slog.String("err", wrapped.Error()))
-
 			return wrapped
 		}
 	}

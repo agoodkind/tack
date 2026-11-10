@@ -18,11 +18,9 @@ type Route struct {
 // on it.
 func NewRoutes(requests *mcpadapter.RequestRecorder, mcpRoute, health http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
-
 	for _, route := range RouteTable(requests, mcpRoute, health) {
 		mux.Handle(route.Pattern, route.Handler)
 	}
-
 	return mux
 }
 

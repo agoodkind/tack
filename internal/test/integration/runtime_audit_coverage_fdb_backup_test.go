@@ -36,11 +36,8 @@ const (
 // partially_completed with the YugabyteDB leg and the drill step as its
 // committed steps.
 func skippedLegDrillCase() coverageCase {
-	drill := commandCase(
-		audit.VerbOpsBackupRestoreDrill,
-		audit.OutcomePartiallyCompleted,
-		backupCommand("ops", "backup", "restore-drill"),
-	)
+	drill := commandCase(audit.VerbOpsBackupRestoreDrill, audit.OutcomePartiallyCompleted,
+		backupCommand("ops", "backup", "restore-drill"))
 	drill.check = requireSkippedLegSteps
 	return drill
 }
@@ -51,25 +48,16 @@ func requireSkippedLegSteps(t *testing.T, env *coverageEnv, rows []audit.Row) {
 	t.Helper()
 	want := []string{skippedDrillLeg, drillStepPrefix + env.backup.cfg.BackupS3BucketMain}
 	for _, row := range rows {
-		result := row.Context.Phase == audit.PhaseResult &&
-			row.Context.ParentOperationID == uuid.Nil
-		if !result || row.Action != string(audit.VerbOpsBackupRestoreDrill) ||
-			row.Outcome != audit.OutcomePartiallyCompleted {
+		result := row.Context.Phase == audit.PhaseResult && row.Context.ParentOperationID == uuid.Nil
+		if !result || row.Action != string(audit.VerbOpsBackupRestoreDrill) || row.Outcome != audit.OutcomePartiallyCompleted {
 			continue
 		}
 		if !slices.Equal(row.Context.CommittedSteps, want) {
-			t.Fatalf(
-				"The drill result lists committed steps %q; the case requires %q",
-				row.Context.CommittedSteps,
-				want,
-			)
+			t.Fatalf("The drill result lists committed steps %q; the case requires %q", row.Context.CommittedSteps, want)
 		}
 		return
 	}
-	t.Fatalf(
-		"The ledger does not contain a partially_completed restore-drill result for the operator; the events are: %s",
-		describeRows(rows),
-	)
+	t.Fatalf("The ledger does not contain a partially_completed restore-drill result for the operator; the events are: %s", describeRows(rows))
 }
 
 // fdbBackupSource starts a FoundationDB cluster with one key and a backup
@@ -78,11 +66,7 @@ func requireSkippedLegSteps(t *testing.T, env *coverageEnv, rows []audit.Row) {
 func fdbBackupSource(t *testing.T) (string, string) {
 	t.Helper()
 	clusterFile := testenv.FreshFoundationDB(t)
-	testenv.ConfigureFoundationDB(
-		t,
-		clusterFile,
-		"writemode on; set "+coverageRestoreKey+" present",
-	)
+	testenv.ConfigureFoundationDB(t, clusterFile, "writemode on; set "+coverageRestoreKey+" present")
 	testenv.StartFoundationDBBackupAgent(t, clusterFile)
 	directory, _ := storeClusterDirectory(t, clusterFile)
 	return clusterFile, directory
@@ -102,18 +86,8 @@ func continuousBackup(directory string, configure func(*config.Config)) func(*co
 // and fails the test when the command fails.
 func (env *coverageEnv) startContinuousBackup(t *testing.T, configure func(*config.Config)) {
 	t.Helper()
-	if _, output, err := env.command(
-		t,
-		configure,
-		"ops",
-		"backup",
-		"fdb-continuous-init",
-	); err != nil {
-		t.Fatalf(
-			"Starting the continuous backup failed; the case requires a running backup: %v\n%s",
-			err,
-			output,
-		)
+	if _, output, err := env.command(t, configure, "ops", "backup", "fdb-continuous-init"); err != nil {
+		t.Fatalf("Starting the continuous backup failed; the case requires a running backup: %v\n%s", err, output)
 	}
 }
 
@@ -125,21 +99,15 @@ func continuousInitInput(t *testing.T, env *coverageEnv) commandInput {
 	_, directory := fdbBackupSource(t)
 	bucket := testenv.ObjectStore(t)
 	settings := objectStoreSettings(&config.Config{
-		BackupS3Endpoint:   bucket.Endpoint,
-		BackupS3Region:     bucket.Region,
-		BackupS3BucketMain: bucket.Bucket,
-		BackupS3AccessKey:  bucket.AccessKey,
-		BackupS3SecretKey:  bucket.SecretKey,
+		BackupS3Endpoint: bucket.Endpoint, BackupS3Region: bucket.Region, BackupS3BucketMain: bucket.Bucket,
+		BackupS3AccessKey: bucket.AccessKey, BackupS3SecretKey: bucket.SecretKey,
 	})
 	input := backupCommand("ops", "backup", "fdb-continuous-init")(t, env)
 	base := input.configure
-	input.configure = continuousBackup(
-		directory,
-		func(cfg *config.Config) {
-			base(cfg)
-			settings(cfg)
-		},
-	)
+	input.configure = continuousBackup(directory, func(cfg *config.Config) {
+		base(cfg)
+		settings(cfg)
+	})
 	env.startContinuousBackup(t, input.configure)
 	return input
 }
@@ -151,20 +119,14 @@ func restoreDrillInput(t *testing.T, env *coverageEnv) commandInput {
 	clusterFile, directory := fdbBackupSource(t)
 	overlay, err := filepath.Abs(filepath.Join("..", "..", "..", "fdb-overlay", "fdb.bash"))
 	if err != nil {
-		t.Fatalf(
-			"Resolving the FoundationDB overlay failed; the drill requires its absolute path: %v",
-			err,
-		)
+		t.Fatalf("Resolving the FoundationDB overlay failed; the drill requires its absolute path: %v", err)
 	}
 	input := backupCommand("ops", "backup", "restore-drill")(t, env)
 	base := input.configure
-	input.configure = continuousBackup(
-		directory,
-		func(cfg *config.Config) {
-			base(cfg)
-			cfg.BackupFDBOverlayPath = overlay
-		},
-	)
+	input.configure = continuousBackup(directory, func(cfg *config.Config) {
+		base(cfg)
+		cfg.BackupFDBOverlayPath = overlay
+	})
 	env.startContinuousBackup(t, input.configure)
 	testenv.WaitForRestorableFoundationDBBackup(t, clusterFile)
 	return input

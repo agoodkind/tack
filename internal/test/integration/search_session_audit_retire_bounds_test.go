@@ -47,67 +47,26 @@ func TestSearchSessionAuditRetireClearRetryFindsRecordAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the owner operation: %v", err)
 	}
-	hooks := installRetireLogHooks(
-		t,
-		session.ID.String(),
-		map[string]func(){
-			retireClearReady: func() {
-				clearAttemptRecord(t, retireFamilyKey(t, retireAttemptFamily))
-			},
-			retireClearAbsent: func() {},
-		},
-	)
+	hooks := installRetireLogHooks(t, session.ID.String(), map[string]func(){
+		retireClearReady:  func() { clearAttemptRecord(t, retireFamilyKey(t, retireAttemptFamily)) },
+		retireClearAbsent: func() {},
+	})
 	observations := observeSessionTransactions(t)
 
 	remaining, err := rebuilds.RetireIndexSessions(ownerContext, index, retireSliceLimit)
 	hooks.requireFinished(t)
-	if cleared := observations.requireBounded(
-		t,
-		"retried clear",
-		retireClearOperation,
-		session.ID,
-		1,
-	); cleared[0].reads != 1 {
-		t.Fatalf(
-			"the retried clear of session %s reports %d reads, want the 1 read of its committed attempt",
-			session.ID,
-			cleared[0].reads,
-		)
+	if cleared := observations.requireBounded(t, "retried clear", retireClearOperation, session.ID, 1); cleared[0].reads != 1 {
+		t.Fatalf("the retried clear of session %s reports %d reads, want the 1 read of its committed attempt", session.ID, cleared[0].reads)
 	}
 	if !remaining || err == nil || !strings.Contains(err.Error(), retireClearAbsentErr) ||
-		strings.Contains(
-			err.Error(),
-			retireAttemptFenced,
-		) || errors.Is(err, audit.ErrEventNotRecorded) {
-		t.Fatalf(
-			"RetireIndexSessions of %s with an absent record on retry = %t, %v, want remaining work and only the text %q",
-			index,
-			remaining,
-			err,
-			retireClearAbsentErr,
-		)
+		strings.Contains(err.Error(), retireAttemptFenced) || errors.Is(err, audit.ErrEventNotRecorded) {
+		t.Fatalf("RetireIndexSessions of %s with an absent record on retry = %t, %v, want remaining work and only the text %q", index, remaining, err, retireClearAbsentErr)
 	}
-	if count := sessionChangeEvents(
-		t,
-		stores,
-		mark,
-		session,
-		operation.Context.OperationID,
-		audit.VerbSearchSessionUpdate,
-	); count != 1 {
-		t.Fatalf(
-			"session %s has %d update change events under operation %s, want 1",
-			session.ID,
-			count,
-			operation.Context.OperationID,
-		)
+	if count := sessionChangeEvents(t, stores, mark, session, operation.Context.OperationID, audit.VerbSearchSessionUpdate); count != 1 {
+		t.Fatalf("session %s has %d update change events under operation %s, want 1", session.ID, count, operation.Context.OperationID)
 	}
 	for range retireFinishCalls {
-		remaining, err = rebuilds.RetireIndexSessions(
-			integration.WithTestOperation(t, t.Context()),
-			index,
-			retireSliceLimit,
-		)
+		remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
 		if err != nil {
 			t.Fatalf("RetireIndexSessions of %s after the absent record: %v", index, err)
 		}
@@ -115,11 +74,7 @@ func TestSearchSessionAuditRetireClearRetryFindsRecordAbsent(t *testing.T) {
 			return
 		}
 	}
-	t.Fatalf(
-		"RetireIndexSessions of %s reports remaining work after %d calls",
-		index,
-		retireFinishCalls,
-	)
+	t.Fatalf("RetireIndexSessions of %s reports remaining work after %d calls", index, retireFinishCalls)
 }
 
 // TestSearchSessionAuditRetireRecoveryByteLimit stores 13 invalid records
@@ -133,62 +88,27 @@ func TestSearchSessionAuditRetireRecoveryByteLimit(t *testing.T) {
 	beginRetiringRebuild(t, stores, index)
 	mark := searchOutboxTail(t, stores)
 	for range byteLimitRecords {
-		integration.ReplaceRawValue(
-			t,
-			retireAttemptKey(t, index),
-			bytes.Repeat([]byte("x"), oversizedRecordBytes),
-		)
+		integration.ReplaceRawValue(t, retireAttemptKey(t, index), bytes.Repeat([]byte("x"), oversizedRecordBytes))
 	}
-	remaining, err := rebuilds.RetireIndexSessions(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		byteLimitSlice,
-	)
+	remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, byteLimitSlice)
 	if err != nil || !remaining {
-		t.Fatalf(
-			"RetireIndexSessions of %s above its byte limit = %t, %v, want remaining work",
-			index,
-			remaining,
-			err,
-		)
+		t.Fatalf("RetireIndexSessions of %s above its byte limit = %t, %v, want remaining work", index, remaining, err)
 	}
 	if events := invalidAttemptEvents(t, stores, mark); len(events) != byteLimitFirstPass {
-		t.Fatalf(
-			"index %s has %d invalid attempt events after one pass, want %d",
-			index,
-			len(events),
-			byteLimitFirstPass,
-		)
+		t.Fatalf("index %s has %d invalid attempt events after one pass, want %d", index, len(events), byteLimitFirstPass)
 	}
-	remaining, err = rebuilds.RetireIndexSessions(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		byteLimitSlice,
-	)
+	remaining, err = rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, byteLimitSlice)
 	if err != nil || remaining {
-		t.Fatalf(
-			"RetireIndexSessions of %s below its byte limit = %t, %v, want a finished retirement",
-			index,
-			remaining,
-			err,
-		)
+		t.Fatalf("RetireIndexSessions of %s below its byte limit = %t, %v, want a finished retirement", index, remaining, err)
 	}
 	if events := invalidAttemptEvents(t, stores, mark); len(events) != byteLimitRecords {
-		t.Fatalf(
-			"index %s has %d invalid attempt events after two passes, want %d",
-			index,
-			len(events),
-			byteLimitRecords,
-		)
+		t.Fatalf("index %s has %d invalid attempt events after two passes, want %d", index, len(events), byteLimitRecords)
 	}
 }
 
 func attemptRecordValues(t *testing.T, want int) [][]byte {
 	t.Helper()
-	prefix := append(
-		bytes.Clone(fdbadapter.TestPrefixRange()),
-		tuple.Tuple{retireAttemptFamily}.Pack()...,
-	)
+	prefix := append(bytes.Clone(fdbadapter.TestPrefixRange()), tuple.Tuple{retireAttemptFamily}.Pack()...)
 	keyRange, err := fdb.PrefixRange(prefix)
 	if err != nil {
 		t.Fatalf("create the attempt record range: %v", err)

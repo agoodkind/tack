@@ -15,14 +15,19 @@ func (s *Soak) churnRelationship(
 		return s.churnIssue(ctx, project, actor, operationIndex, true)
 	}
 	issue := project.Issues[operationIndex/soakOperationKinds%len(project.Issues)]
-	target := project.Workspace.Actors[(operationIndex+1)%len(
-		project.Workspace.Actors,
-	)].UserID.String()
+	target := project.Workspace.Actors[(operationIndex+1)%len(project.Workspace.Actors)].UserID.String()
 	toolName := "tack_add_relationship"
 	if operationIndex%4 == 0 {
 		toolName = "tack_remove_relationship"
 	}
-	return s.callRelationship(ctx, actor.Token, toolName, issue.RawID, "watches", target)
+	return s.callRelationship(
+		ctx,
+		actor.Token,
+		toolName,
+		issue.RawID,
+		"watches",
+		target,
+	)
 }
 
 func (s *Soak) relationship(
@@ -32,7 +37,14 @@ func (s *Soak) relationship(
 	relationType string,
 	targetID string,
 ) error {
-	return s.callRelationship(ctx, token, "tack_add_relationship", sourceID, relationType, targetID)
+	return s.callRelationship(
+		ctx,
+		token,
+		"tack_add_relationship",
+		sourceID,
+		relationType,
+		targetID,
+	)
 }
 
 func (s *Soak) callRelationship(
@@ -43,20 +55,21 @@ func (s *Soak) callRelationship(
 	relationType string,
 	targetID string,
 ) error {
-	_, err := s.driver.Call(
-		ctx,
-		token,
-		toolName,
-		ToolArguments{
-			SourceID:     sourceID,
-			RelationType: relationType,
-			TargetID:     targetID,
-		},
-	)
+	_, err := s.driver.Call(ctx, token, toolName, ToolArguments{
+		SourceID:     sourceID,
+		RelationType: relationType,
+		TargetID:     targetID,
+	})
 	if err != nil {
 		return loggedError(
 			ctx,
-			fmt.Sprintf("qa datagen soak: %s %s %s %s", toolName, sourceID, relationType, targetID),
+			fmt.Sprintf(
+				"qa datagen soak: %s %s %s %s",
+				toolName,
+				sourceID,
+				relationType,
+				targetID,
+			),
 			err,
 		)
 	}

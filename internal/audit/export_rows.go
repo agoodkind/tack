@@ -37,53 +37,33 @@ const exportWriteBufferBytes = 1 << 20
 // It returns only once the rows and the directory entry naming them are both on
 // stable storage. That is what makes it safe for the caller's next steps to sign
 // a manifest over these rows and to free the rows this bundle replaces.
-func writeExportRows(
-	ctx context.Context,
-	source RowSource,
-	filter QueryFilter,
-	path string,
-) (int, string, error) {
+func writeExportRows(ctx context.Context, source RowSource, filter QueryFilter, path string) (int, string, error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"audit.export.open_failed",
-			slog.String("path", path),
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "audit.export.open_failed",
+			slog.String("path", path), slog.String("err", err.Error()))
 		return 0, "", fmt.Errorf("audit export open: %w", err)
 	}
-
 	fileDigest := sha256.New()
 	buffered := bufio.NewWriterSize(file, exportWriteBufferBytes)
 	encoder := json.NewEncoder(io.MultiWriter(buffered, fileDigest))
 
 	rowCount := 0
-	streamErr := source.StreamQuery(
-		ctx,
-		filter,
-		func(row Row) error {
-			if partsErr := attachManifestParts(ctx, source, &row); partsErr != nil {
-				return partsErr
-			}
-
-			if encodeErr := encoder.Encode(row); encodeErr != nil {
-				return fmt.Errorf("encode %s: %w", row.EventID, encodeErr)
-			}
-
-			rowCount++
-
-			return nil
-		},
-	)
+	streamErr := source.StreamQuery(ctx, filter, func(row Row) error {
+		if partsErr := attachManifestParts(ctx, source, &row); partsErr != nil {
+			return partsErr
+		}
+		if encodeErr := encoder.Encode(row); encodeErr != nil {
+			return fmt.Errorf("encode %s: %w", row.EventID, encodeErr)
+		}
+		rowCount++
+		return nil
+	})
 	if streamErr != nil {
 		_ = file.Close()
 		_ = os.Remove(path)
-
 		return 0, "", fmt.Errorf("audit export query: %w", streamErr)
 	}
-
 	// The buffer holds the tail of the file, and the digest has already counted
 	// those bytes. Skipping the flush would sign a digest of rows the bundle
 	// does not carry, so the failure has to reach the caller rather than be
@@ -91,10 +71,8 @@ func writeExportRows(
 	if flushErr := buffered.Flush(); flushErr != nil {
 		_ = file.Close()
 		_ = os.Remove(path)
-
 		return 0, "", fmt.Errorf("audit export flush: %w", flushErr)
 	}
-
 	// Flushing moves the tail of the file out of this process and no further.
 	// The bytes are in the kernel's page cache, where a power loss takes them,
 	// and the caller's next steps sign a manifest naming this file and free the
@@ -104,15 +82,12 @@ func writeExportRows(
 	if syncErr := file.Sync(); syncErr != nil {
 		_ = file.Close()
 		_ = os.Remove(path)
-
 		return 0, "", fmt.Errorf("audit export sync: %w", syncErr)
 	}
-
 	if closeErr := file.Close(); closeErr != nil {
 		_ = os.Remove(path)
 		return 0, "", fmt.Errorf("audit export close: %w", closeErr)
 	}
-
 	// The rows are on disk; the entry naming them is a change to the directory
 	// and is not, so the directory is synced too. Only after this does the file
 	// exist for a host that comes back from a power loss.
@@ -120,6 +95,5 @@ func writeExportRows(
 		_ = os.Remove(path)
 		return 0, "", syncErr
 	}
-
 	return rowCount, hex.EncodeToString(fileDigest.Sum(nil)), nil
 }

@@ -49,28 +49,16 @@ func drillScratchRunDir(r *restoreDrillCtx) string {
 // Both scratch engine images run as root (neither sets a USER other than
 // root), and root in a container is root on the guest, the same identity
 // every backup stage directory under the backup root already relies on.
-func makeDrillScratchDir(
-	ctx context.Context,
-	r *restoreDrillCtx,
-	image string,
-	parts ...string,
-) (string, error) {
+func makeDrillScratchDir(ctx context.Context, r *restoreDrillCtx, image string, parts ...string) (string, error) {
 	dir := filepath.Join(append([]string{drillScratchRunDir(r)}, parts...)...)
 	if r.scratchImage == "" {
 		r.scratchImage = image
 	}
-
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		wrapped := fmt.Errorf("mkdir drill scratch %s: %w", dir, err)
-		slog.ErrorContext(
-			ctx,
-			"backup.restore_drill.scratch_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "backup.restore_drill.scratch_failed", slog.String("err", wrapped.Error()))
 		return "", wrapped
 	}
-
 	return dir, nil
 }
 
@@ -87,15 +75,10 @@ func removeDrillScratch(ctx context.Context, r *restoreDrillCtx) {
 		removeDrillScratchRun(ctx, r, r.scratchImage, r.RunID)
 		return
 	}
-
 	runDir := drillScratchRunDir(r)
 	if err := os.Remove(runDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"backup.restore_drill.scratch_leaked",
-			slog.String("dir", runDir),
-			slog.String("err", err.Error()),
-		)
+		telemetry.L(ctx).ErrorContext(ctx, "backup.restore_drill.scratch_leaked",
+			slog.String("dir", runDir), slog.String("err", err.Error()))
 	}
 }
 
@@ -106,35 +89,23 @@ func removeDrillScratchRun(ctx context.Context, r *restoreDrillCtx, image, run s
 	removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), drillScratchRemoveTimeout)
 	defer cancel()
 	runDir := filepath.Join(drillScratchRoot(r), run)
-	res, err := runOneShot(
-		removeCtx,
-		r.Cli,
-		logger,
-		runOneShotOptions{
-			Image:      image,
-			Network:    r.Cfg.BackupFDBNetwork,
-			Entrypoint: []string{"rm"},
-			Cmd:        []string{"-rf", "--", path.Join(drillScratchMount, run)},
-			Env:        nil,
-			Binds:      []string{drillScratchRoot(r) + ":" + drillScratchMount},
-			ExtraHosts: nil,
-			Name:       "",
-		},
-	)
+	res, err := runOneShot(removeCtx, r.Cli, logger, runOneShotOptions{
+		Image:      image,
+		Network:    r.Cfg.BackupFDBNetwork,
+		Entrypoint: []string{"rm"},
+		Cmd:        []string{"-rf", "--", path.Join(drillScratchMount, run)},
+		Env:        nil,
+		Binds:      []string{drillScratchRoot(r) + ":" + drillScratchMount},
+		ExtraHosts: nil,
+		Name:       "",
+	})
 	if err == nil && res.ExitCode != 0 {
 		err = fmt.Errorf("rm exited %d: %s", res.ExitCode, res.Stderr)
 	}
-
 	if err != nil {
-		logger.ErrorContext(
-			ctx,
-			"backup.restore_drill.scratch_leaked",
-			slog.String("dir", runDir),
-			slog.String("err", err.Error()),
-		)
-
+		logger.ErrorContext(ctx, "backup.restore_drill.scratch_leaked",
+			slog.String("dir", runDir), slog.String("err", err.Error()))
 		return
 	}
-
 	logger.InfoContext(ctx, "backup.restore_drill.scratch_removed", slog.String("dir", runDir))
 }

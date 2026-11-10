@@ -38,10 +38,7 @@ func (r Result) collectionItems() []collectionItem {
 			// The server omits the Name field when the name is the printed
 			// title, so the title stands in until a Name line overrides it.
 			reference := trimMarkdownValue(strings.TrimPrefix(line, "- "))
-			items = append(
-				items,
-				collectionItem{Reference: reference, Name: reference, NodeType: ""},
-			)
+			items = append(items, collectionItem{Reference: reference, Name: reference, NodeType: ""})
 			current = len(items) - 1
 			continue
 		}

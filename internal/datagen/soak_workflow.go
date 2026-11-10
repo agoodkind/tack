@@ -63,13 +63,17 @@ func (s *Soak) advanceWorkflow(
 	case workflowSetState:
 		return s.setIssueState(ctx, project, actor, issue, states[action.StateIndex])
 	case workflowAssign:
-		return s.relationship(ctx, actor.Token, issue.RawID, "assigned_to", actor.UserID.String())
+		return s.relationship(
+			ctx, actor.Token, issue.RawID, "assigned_to", actor.UserID.String(),
+		)
 	case workflowLabel:
 		if len(project.Labels) == 0 {
 			return nil
 		}
 		label := project.Labels[workflowIndex%len(project.Labels)]
-		return s.relationship(ctx, actor.Token, issue.RawID, "labeled_with", label.RawID)
+		return s.relationship(
+			ctx, actor.Token, issue.RawID, "labeled_with", label.RawID,
+		)
 	case workflowComment:
 		return s.createIssueChild(ctx, project, actor, issue, "comment", operationIndex)
 	default:
@@ -86,16 +90,11 @@ func (s *Soak) setIssueState(
 ) error {
 	properties := newProperties()
 	properties.setString("state_id", state.Name)
-	_, err := s.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_update_issue",
-		ToolArguments{
-			WorkspaceReference: project.Workspace.Slug,
-			NodeID:             issue.RawID,
-			Properties:         properties,
-		},
-	)
+	_, err := s.driver.Call(ctx, actor.Token, "tack_update_issue", ToolArguments{
+		WorkspaceReference: project.Workspace.Slug,
+		NodeID:             issue.RawID,
+		Properties:         properties,
+	})
 	if err != nil {
 		return loggedError(ctx, "qa datagen soak: update issue state "+issue.RawID, err)
 	}

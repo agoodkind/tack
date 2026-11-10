@@ -46,14 +46,12 @@ func (l *lockedLog) Write(record []byte) (int, error) {
 	if err != nil {
 		return written, fmt.Errorf("write a log record: %w", err)
 	}
-
 	return written, nil
 }
 
 func (l *lockedLog) contents() []byte {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-
 	return bytes.Clone(l.buffer.Bytes())
 }
 
@@ -76,10 +74,7 @@ func captureSweepLog(t *testing.T) (*lockedLog, func()) {
 		log.SetFlags(flags)
 	}
 	t.Cleanup(restore)
-	slog.SetDefault(
-		slog.New(slog.NewJSONHandler(logged, &slog.HandlerOptions{Level: slog.LevelDebug})),
-	)
-
+	slog.SetDefault(slog.New(slog.NewJSONHandler(logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	return logged, restore
 }
 
@@ -92,41 +87,28 @@ func requireSweepSkip(t *testing.T, logged []byte, deleted int) {
 	t.Helper()
 	skipped, found := 0, 0
 	decoder := json.NewDecoder(bytes.NewReader(logged))
-
 	for {
 		var record sweepLogRecord
 		err := decoder.Decode(&record)
 		if errors.Is(err, io.EOF) {
 			break
 		}
-
 		if err != nil {
 			t.Fatalf("decode a search log record: %v", err)
 		}
-
-		if record.Level == slog.LevelError.String() &&
-			strings.HasPrefix(record.Message, searchLogPrefix) {
-			t.Errorf(
-				"the searches logged %s %s with error %q",
-				record.Level,
-				record.Message,
-				record.Err,
-			)
+		if record.Level == slog.LevelError.String() && strings.HasPrefix(record.Message, searchLogPrefix) {
+			t.Errorf("the searches logged %s %s with error %q", record.Level, record.Message, record.Err)
 		}
-
 		if record.Level == slog.LevelDebug.String() && record.Message == sweepSkippedMessage {
 			skipped++
 		}
-
 		if record.Message == sessionDeletedMessage {
 			found++
 		}
 	}
-
 	if skipped != 1 {
 		t.Errorf("the sweeps logged %d %s records, want 1", skipped, sweepSkippedMessage)
 	}
-
 	if found != deleted {
 		t.Errorf("the sweeps logged %d %s records, want %d", found, sessionDeletedMessage, deleted)
 	}

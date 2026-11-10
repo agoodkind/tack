@@ -19,36 +19,18 @@ func TestWriteConfirmationPrintsLongCommentBodyOnce(t *testing.T) {
 	view := &node.NodeView{ID: uuid.Must(uuid.NewV7()), NodeType: "comment", Name: body}
 	rc := newRenderCtxWithTypes(context.Background(), nil, nil, nil)
 
-	changes := describeFieldChanges(
-		rc,
-		writeChanges{
-			Before:        nil,
-			After:         view,
-			Name:          &view.Name,
-			Props:         nil,
-			ReferenceKeys: nil,
-		},
-	)
+	changes := describeFieldChanges(rc, writeChanges{
+		Before: nil, After: view, Name: &view.Name, Props: nil, ReferenceKeys: nil,
+	})
 
 	text := renderWriteConfirmation(rc, "Created", view, changes)
 
 	if len(text) > maxWriteConfirmationBytes {
-		t.Fatalf(
-			"confirmation is %d bytes, want at most %d:\n%s",
-			len(text),
-			maxWriteConfirmationBytes,
-			text,
-		)
+		t.Fatalf("confirmation is %d bytes, want at most %d:\n%s", len(text), maxWriteConfirmationBytes, text)
 	}
-
 	if strings.Count(text, "unique comment body") != 1 {
-		t.Fatalf(
-			"comment body printed %d times:\n%s",
-			strings.Count(text, "unique comment body"),
-			text,
-		)
+		t.Fatalf("comment body printed %d times:\n%s", strings.Count(text, "unique comment body"), text)
 	}
-
 	if !strings.Contains(text, "- Raw id: `"+view.ID.String()+"`") {
 		t.Fatalf("confirmation lacks the raw id:\n%s", text)
 	}

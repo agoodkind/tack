@@ -22,10 +22,7 @@ const SearchModelRepairService = "tack-search-model-repair"
 func SearchModelRepairAudit(stores *fdbadapter.Stores) service.SearchAudit {
 	return service.SearchAudit{
 		Outbox: audit.NewAppendOutbox(stores.OpsOutbox),
-		Actor: audit.ServiceActor(
-			cli.ServiceActorID(SearchModelRepairService),
-			SearchModelRepairService,
-		),
+		Actor:  audit.ServiceActor(cli.ServiceActorID(SearchModelRepairService), SearchModelRepairService),
 	}
 }
 
@@ -45,12 +42,10 @@ func (g *Graph) StartSearchModelRepair(ctx context.Context) {
 	if g.search.repair == nil || g.modelRepair.started {
 		return
 	}
-
 	if !g.search.repair.Enabled() {
 		telemetry.L(ctx).InfoContext(ctx, "search.model_repair.disabled")
 		return
 	}
-
 	g.modelRepair.started = true
 	loopContext, cancel := context.WithCancel(ctx)
 	g.modelRepair.cancel = cancel
@@ -60,14 +55,9 @@ func (g *Graph) StartSearchModelRepair(ctx context.Context) {
 		runModelRepairLoop(loopContext, repair)
 	})
 	settings := repair.Settings()
-	telemetry.L(ctx).InfoContext(
-		ctx,
-		"search.model_repair.started",
-		slog.Duration("interval", settings.CheckInterval),
-		slog.Duration("stuck_after", settings.StuckAfter),
-		slog.Duration("attempt_spacing", settings.AttemptSpacing),
-		slog.Int("max_attempts", settings.MaxAttempts),
-	)
+	telemetry.L(ctx).InfoContext(ctx, "search.model_repair.started", slog.Duration("interval", settings.CheckInterval),
+		slog.Duration("stuck_after", settings.StuckAfter), slog.Duration("attempt_spacing", settings.AttemptSpacing),
+		slog.Int("max_attempts", settings.MaxAttempts))
 }
 
 // runModelRepairLoop runs one check per interval until ctx ends. The next
@@ -75,7 +65,6 @@ func (g *Graph) StartSearchModelRepair(ctx context.Context) {
 func runModelRepairLoop(ctx context.Context, repair *service.SearchModelRepair) {
 	timer := time.NewTimer(repair.Settings().CheckInterval)
 	defer timer.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -99,7 +88,6 @@ func (g *Graph) stopSearchModelRepair() {
 	if g.modelRepair.cancel != nil {
 		g.modelRepair.cancel()
 	}
-
 	if g.modelRepair.started {
 		g.modelRepair.loop.Wait()
 	}

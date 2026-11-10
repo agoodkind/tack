@@ -26,9 +26,7 @@ func newCoverageFixture(t *testing.T, env *coverageEnv) *coverageFixture {
 func (env *coverageEnv) fixture(t *testing.T) *coverageFixture {
 	t.Helper()
 	if env.nodes == nil {
-		t.Fatal(
-			"The coverage environment does not contain the required node fixture; initialize it before running a case.",
-		)
+		t.Fatal("The coverage environment does not contain the required node fixture; initialize it before running a case.")
 	}
 	return env.nodes
 }
@@ -68,20 +66,15 @@ func (fixture *coverageFixture) scopeArguments(slug string) map[string]any {
 }
 
 func (fixture *coverageFixture) nodeArguments(slug string) map[string]any {
-	return map[string]any{
-		"workspace_reference": fixture.env.server.workspace,
-		"node_id":             fixture.nodes[slug].String(),
-	}
+	return map[string]any{"workspace_reference": fixture.env.server.workspace, "node_id": fixture.nodes[slug].String()}
 }
 
 // stateArguments builds arguments that set the stored node's state to Done
 // within its workspace and project.
 func (fixture *coverageFixture) stateArguments(slug string) map[string]any {
 	return map[string]any{
-		"workspace_reference": fixture.env.server.workspace,
-		"project_reference":   fixture.nodes["project"].String(),
-		slug + "_reference":   fixture.nodes[slug].String(),
-		"state":               "Done",
+		"workspace_reference": fixture.env.server.workspace, "project_reference": fixture.nodes["project"].String(),
+		slug + "_reference": fixture.nodes[slug].String(), "state": "Done",
 	}
 }
 
@@ -90,8 +83,7 @@ func (fixture *coverageFixture) stateArguments(slug string) map[string]any {
 func (fixture *coverageFixture) labelEdge(t *testing.T) map[string]any {
 	t.Helper()
 	return map[string]any{
-		"source_id":     fixture.nodes["issue"].String(),
-		"relation_type": "labeled_with",
-		"target_id":     fixture.create(t, "label").String(),
+		"source_id": fixture.nodes["issue"].String(), "relation_type": "labeled_with",
+		"target_id": fixture.create(t, "label").String(),
 	}
 }

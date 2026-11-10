@@ -68,6 +68,5 @@ func encodeTrace[Value traceValue](t *testing.T, value Value) json.RawMessage {
 	if err != nil {
 		t.Fatalf("encode trace request: %v", err)
 	}
-
 	return encoded
 }

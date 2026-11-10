@@ -28,46 +28,33 @@ func beginReplacement(t *testing.T, fixture parentEdgeFixture) string {
 	if err != nil {
 		t.Fatalf("ops search reindex --mode full: %v", err)
 	}
-
 	var replacement struct {
 		TargetIndex string `json:"target_index"`
 	}
 	if err := json.Unmarshal(result, &replacement); err != nil || replacement.TargetIndex == "" {
 		t.Fatalf("decode ops search reindex result %s: %v", result, err)
 	}
-
-	t.Cleanup(func() {
-		_ = fixture.adapter.DeleteIndex(context.WithoutCancel(t.Context()), replacement.TargetIndex)
-	})
-
+	t.Cleanup(func() { _ = fixture.adapter.DeleteIndex(context.WithoutCancel(t.Context()), replacement.TargetIndex) })
 	return replacement.TargetIndex
 }
 
 // runReplacementUntil runs search worker slices until done returns true for
 // the current rebuild and its presence flag. It fails the test if the
 // replacement deadline expires first.
-func runReplacementUntil(
-	t *testing.T,
-	fixture parentEdgeFixture,
-	done func(searchdomain.Rebuild, bool) bool,
-) {
+func runReplacementUntil(t *testing.T, fixture parentEdgeFixture, done func(searchdomain.Rebuild, bool) bool) {
 	t.Helper()
 	rebuilds := fixture.stores.SearchRebuilds(clock.Wall{})
-
 	deadline := clock.Now().Add(replacementDeadline)
 	for clock.Now().Before(deadline) {
 		current, found, err := rebuilds.CurrentRebuild(t.Context())
 		if err != nil {
 			t.Fatalf("read index replacement: %v", err)
 		}
-
 		if done(current, found) {
 			return
 		}
-
 		runSliceOrWait(t, fixture)
 	}
-
 	t.Fatalf("the index replacement stayed short of the expected state for %s", replacementDeadline)
 }
 
@@ -81,7 +68,6 @@ func runSliceOrWait(t *testing.T, fixture parentEdgeFixture) {
 	if err != nil {
 		t.Fatalf("run search worker slice: %v", err)
 	}
-
 	if !claimed {
 		waitUntilTime(t, clock.Now().Add(replacementPause))
 	}
@@ -91,21 +77,10 @@ func runSliceOrWait(t *testing.T, fixture parentEdgeFixture) {
 // as the fixture's first actor. It fails the test if the update fails.
 func editLeafText(t *testing.T, fixture parentEdgeFixture, nodeID uuid.UUID, text string) {
 	t.Helper()
-	_, err := fixture.nodes.Update(
-		integration.WithTestOperation(t, t.Context()),
-		service.UpdateInput{
-			NodeID: nodeID,
-			Name:   nil,
-			Props: map[string]json.RawMessage{
-				fixture.kind.included: parentEdgeJSON(t, text),
-			},
-			RelationshipChanges: node.RelationshipChanges{
-				Add:    nil,
-				Remove: nil,
-			},
-			ActorID: fixture.first.Actors[0].UserID,
-		},
-	)
+	_, err := fixture.nodes.Update(integration.WithTestOperation(t, t.Context()), service.UpdateInput{
+		NodeID: nodeID, Name: nil, Props: map[string]json.RawMessage{fixture.kind.included: parentEdgeJSON(t, text)},
+		RelationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil}, ActorID: fixture.first.Actors[0].UserID,
+	})
 	if err != nil {
 		t.Fatalf("edit node %s: %v", nodeID, err)
 	}
@@ -117,7 +92,6 @@ func servingIndex(t *testing.T, fixture parentEdgeFixture) string {
 	if err != nil {
 		t.Fatalf("read serving search index: %v", err)
 	}
-
 	return index
 }
 
@@ -128,12 +102,9 @@ func requireReplaced(t *testing.T, fixture parentEdgeFixture, target, source str
 	if serving := servingIndex(t, fixture); serving != target {
 		t.Fatalf("serving index = %q, want %q", serving, target)
 	}
-
-	if alias, err := fixture.adapter.AliasTarget(t.Context(), search.PublicAlias); err != nil ||
-		alias != target {
+	if alias, err := fixture.adapter.AliasTarget(t.Context(), search.PublicAlias); err != nil || alias != target {
 		t.Fatalf("public alias target = %q, error = %v, want %q", alias, err, target)
 	}
-
 	if _, err := fixture.adapter.IndexSettings(t.Context(), source); err == nil {
 		t.Fatalf("previous index %s still exists", source)
 	}

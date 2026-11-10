@@ -37,27 +37,15 @@ func TestAuditLastChangeIgnoresUpdateRefusedForNonMember(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stores: %v", err)
 	}
-
 	view := storedStoreView(t, stores, issueID)
 	if view.Name != "access last change member rename" {
-		t.Fatalf(
-			"issue %s name after the refused update = %q, want the member's rename",
-			issueID,
-			view.Name,
-		)
+		t.Fatalf("issue %s name after the refused update = %q, want the member's rename", issueID, view.Name)
 	}
 
 	ledger := startNodeAuditLedger(t)
 	updates := ledger.entityRows(t, view.OrgID, issueID, audit.VerbNodeUpdate, 1)
 	rename := renameRow(t, updates, "access last change member rename")
-	report := runLastChange(
-		t,
-		ledger,
-		view.OrgID,
-		issueID,
-		windowStart,
-		clock.Now().Add(time.Minute),
-	)
+	report := runLastChange(t, ledger, view.OrgID, issueID, windowStart, clock.Now().Add(time.Minute))
 	requireField(t, report, "/name", audit.LastChangeKnown, rename, audit.LastChangeSet)
 }
 
@@ -75,74 +63,36 @@ func TestAuditLastChangeIgnoresUpdateRefusedForNonMember(t *testing.T) {
 func TestAuditLastChangeRefusesWithoutAuditReaderRole(t *testing.T) {
 	ledger := startNodeAuditLedger(t)
 	orgID, nodeID, now := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), clock.Now()
-
 	cases := []struct {
 		name      string
 		readerDSN string
 		refusal   string
 	}{
 		{name: "without AUDIT_READER_DSN", readerDSN: "", refusal: "AUDIT_READER_DSN required"},
-		{
-			name:      "with the application role",
-			readerDSN: ledgerLoginDSN(t, ledger, lastChangeAppRole),
-			refusal:   "permission denied",
-		},
+		{name: "with the application role", readerDSN: ledgerLoginDSN(t, ledger, lastChangeAppRole), refusal: "permission denied"},
 		{name: "with audit_reader", readerDSN: ledger.cfg.AuditReaderDSN, refusal: ""},
-		{
-			name:      "with a malformed reader DSN",
-			readerDSN: readerMalformedDSN,
-			refusal:   readerFixedMessage,
-		},
+		{name: "with a malformed reader DSN", readerDSN: readerMalformedDSN, refusal: readerFixedMessage},
 	}
 	for _, current := range cases {
 		operatorID := uuid.Must(uuid.NewV7())
-		run := lastChangeCommand(
-			t,
-			current.readerDSN,
-			operatorID,
-			orgID,
-			nodeID,
-			now.Add(-time.Hour),
-			now.Add(time.Hour),
-		)
+		run := lastChangeCommand(t, current.readerDSN, operatorID, orgID, nodeID, now.Add(-time.Hour), now.Add(time.Hour))
 		succeeds := current.refusal == ""
 		printed := strings.Contains(run.stdout, `"audit.last_change"`)
-		if (run.err == nil) != succeeds || printed != succeeds ||
-			!strings.Contains(run.log, current.refusal) {
-			t.Fatalf(
-				"%s: error = %v, printed a report = %t, want success %t and a log with %q\n%s",
-				current.name,
-				run.err,
-				printed,
-				succeeds,
-				current.refusal,
-				run.output(),
-			)
+		if (run.err == nil) != succeeds || printed != succeeds || !strings.Contains(run.log, current.refusal) {
+			t.Fatalf("%s: error = %v, printed a report = %t, want success %t and a log with %q\n%s",
+				current.name, run.err, printed, succeeds, current.refusal, run.output())
 		}
-
-		if strings.Contains(run.output(), readerErrorSecret) ||
-			strings.Contains(run.output(), readerParseErrorText) {
-			t.Fatalf(
-				"%s: the command exposed the reader connection string\n%s",
-				current.name,
-				run.output(),
-			)
+		if strings.Contains(run.output(), readerErrorSecret) || strings.Contains(run.output(), readerParseErrorText) {
+			t.Fatalf("%s: the command exposed the reader connection string\n%s", current.name, run.output())
 		}
-
 		row := awaitReadLifecycleRow(t, ledger, operatorID, audit.VerbAuditRead)
 		target := uriTarget(audit.NodeURIPrefix + nodeID.String())
 		if succeeds {
 			requireReadRowShape(t, row, audit.OutcomeCompleted, target)
 		} else {
 			if run.stdout != "" {
-				t.Fatalf(
-					"%s: stdout = %q, want no output from a refused read\n%s",
-					current.name,
-					run.stdout,
-					run.output(),
-				)
+				t.Fatalf("%s: stdout = %q, want no output from a refused read\n%s", current.name, run.stdout, run.output())
 			}
-
 			requireFailedReadRow(t, row, target, "")
 		}
 	}

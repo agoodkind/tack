@@ -58,12 +58,10 @@ func CountLedgerQuery(ctx context.Context, sql string) {
 	if !ok {
 		return
 	}
-
 	if ledgerQueryReads(sql) {
 		counts.ledgerReads.Add(1)
 		return
 	}
-
 	counts.ledgerWrites.Add(1)
 }
 
@@ -74,7 +72,6 @@ func CountSyncProduce(ctx context.Context) {
 	if !ok {
 		return
 	}
-
 	counts.syncProduces.Add(1)
 }
 
@@ -103,9 +100,7 @@ func RequestPathCounter(next http.Handler) http.Handler {
 		ctx, counts := WithRequestPath(r.Context())
 		next.ServeHTTP(w, r.WithContext(ctx))
 		totals := counts.Counts()
-		L(ctx).InfoContext(
-			ctx,
-			"request.path_counted",
+		L(ctx).InfoContext(ctx, "request.path_counted",
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.Int64("ledger_reads", totals.LedgerReads),

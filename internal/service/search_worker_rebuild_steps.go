@@ -10,76 +10,39 @@ import (
 
 // rebuildCreate creates the empty full-replacement target, or splits the
 // source after claims pause and every earlier lease expires.
-func (w *SearchWorker) rebuildCreate(
-	ctx context.Context,
-	work searchdomain.Work,
-	rebuild searchdomain.Rebuild,
-) error {
+func (w *SearchWorker) rebuildCreate(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) error {
 	if rebuild.Mode == searchdomain.ReplacementFull {
-		if err := w.recordIndexStructure(
-			ctx,
-			"create_replacement",
-			rebuild.TargetIndex,
-			rebuild,
-			func(ctx context.Context) error {
-				return w.engineStep(
-					ctx,
-					func(operation context.Context) error {
-						return w.ports.Replacer.CreateReplacement(
-							operation,
-							rebuild.TargetIndex,
-							rebuild.PrimaryShards,
-							rebuild.RoutingShards,
-							rebuild.Replicas,
-						)
-					},
-				)
-			},
-		); err != nil {
+		if err := w.recordIndexStructure(ctx, "create_replacement", rebuild.TargetIndex, rebuild, func(ctx context.Context) error {
+			return w.engineStep(ctx, func(operation context.Context) error {
+				return w.ports.Replacer.CreateReplacement(operation, rebuild.TargetIndex, rebuild.PrimaryShards, rebuild.RoutingShards, rebuild.Replicas)
+			})
+		}); err != nil {
 			return w.settleEngine(ctx, work, "create replacement index "+rebuild.TargetIndex, err)
 		}
-
 		switch err := w.waitGreen(ctx, work, rebuild.TargetIndex); {
 		case errors.Is(err, searchdomain.ErrIndexNotReady):
 			return w.targetNotGreen(ctx, work, rebuild, err)
 		case err != nil:
-			return w.settleEngine(
-				ctx,
-				work,
-				"wait for green replacement index "+rebuild.TargetIndex,
-				err,
-			)
+			return w.settleEngine(ctx, work, "wait for green replacement index "+rebuild.TargetIndex, err)
 		}
-
 		next := rebuild
 		next.State, next.ScanCursor, next.ScanComplete = searchdomain.RebuildCopying, "", false
-
 		return w.advanceRebuild(ctx, work, rebuild, next)
 	}
-
 	if paused, err := w.pauseClaims(ctx, work, rebuild); !paused || err != nil {
 		return err
 	}
-
-	splitErr := w.recordIndexStructure(
-		ctx,
-		"split",
-		rebuild.TargetIndex,
-		rebuild,
-		func(ctx context.Context) error {
-			return w.splitSource(ctx, work, rebuild)
-		},
-	)
+	splitErr := w.recordIndexStructure(ctx, "split", rebuild.TargetIndex, rebuild, func(ctx context.Context) error {
+		return w.splitSource(ctx, work, rebuild)
+	})
 	switch err := splitErr; {
 	case errors.Is(err, searchdomain.ErrIndexNotReady):
 		return w.targetNotGreen(ctx, work, rebuild, err)
 	case err != nil:
 		return w.failRebuild(ctx, work, rebuild, "split index "+rebuild.SourceIndex, err)
 	}
-
 	next := rebuild
 	next.State, next.Paused, next.ScanComplete = searchdomain.RebuildCopying, false, true
-
 	return w.advanceRebuild(ctx, work, rebuild, next)
 }
 
@@ -90,23 +53,13 @@ func (w *SearchWorker) rebuildCreate(
 // [searchdomain.ErrIndexNotReady] with source writes still blocked. Claims
 // stay paused, and the next claim repeats the split steps until the pause
 // limit ends.
-func (w *SearchWorker) splitSource(
-	ctx context.Context,
-	work searchdomain.Work,
-	rebuild searchdomain.Rebuild,
-) error {
+func (w *SearchWorker) splitSource(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) error {
 	steps := []func(context.Context) error{
 		func(operation context.Context) error {
 			return w.ports.Replacer.SetWriteBlock(operation, rebuild.SourceIndex, true)
 		},
 		func(operation context.Context) error {
-			return w.ports.Replacer.SplitIndex(
-				operation,
-				rebuild.SourceIndex,
-				rebuild.TargetIndex,
-				rebuild.PrimaryShards,
-				rebuild.Replicas,
-			)
+			return w.ports.Replacer.SplitIndex(operation, rebuild.SourceIndex, rebuild.TargetIndex, rebuild.PrimaryShards, rebuild.Replicas)
 		},
 		func(operation context.Context) error {
 			return w.ports.Replacer.SetWriteBlock(operation, rebuild.TargetIndex, false)
@@ -117,20 +70,12 @@ func (w *SearchWorker) splitSource(
 			return err
 		}
 	}
-
 	if err := w.waitGreen(ctx, work, rebuild.TargetIndex); err != nil {
-		return rebuildStepError{
-			operation: "wait for green split target " + rebuild.TargetIndex,
-			err:       err,
-		}
+		return rebuildStepError{operation: "wait for green split target " + rebuild.TargetIndex, err: err}
 	}
-
-	return w.engineStep(
-		ctx,
-		func(operation context.Context) error {
-			return w.ports.Replacer.SetWriteBlock(operation, rebuild.SourceIndex, false)
-		},
-	)
+	return w.engineStep(ctx, func(operation context.Context) error {
+		return w.ports.Replacer.SetWriteBlock(operation, rebuild.SourceIndex, false)
+	})
 }
 
 // moveAlias switches the alias when it still selects the source. An alias
@@ -141,38 +86,23 @@ func (w *SearchWorker) moveAlias(ctx context.Context, rebuild searchdomain.Rebui
 	if err != nil {
 		return rebuildStepError{operation: "read public alias", err: err}
 	}
-
 	switch current {
 	case rebuild.TargetIndex:
 		return nil
 	case rebuild.SourceIndex:
-		switchErr := w.engineStep(
-			ctx,
-			func(operation context.Context) error {
-				return w.ports.Replacer.SwitchPublicAlias(
-					operation,
-					rebuild.SourceIndex,
-					rebuild.TargetIndex,
-				)
-			},
-		)
+		switchErr := w.engineStep(ctx, func(operation context.Context) error {
+			return w.ports.Replacer.SwitchPublicAlias(operation, rebuild.SourceIndex, rebuild.TargetIndex)
+		})
 		if switchErr == nil {
 			return nil
 		}
-
 		after, readErr := w.ports.Replacer.PublicAliasTarget(ctx)
 		if readErr == nil && after == rebuild.TargetIndex {
 			return nil
 		}
-
 		return switchErr
 	default:
-		return fmt.Errorf(
-			"public alias selects %s, neither source %s nor target %s",
-			current,
-			rebuild.SourceIndex,
-			rebuild.TargetIndex,
-		)
+		return fmt.Errorf("public alias selects %s, neither source %s nor target %s", current, rebuild.SourceIndex, rebuild.TargetIndex)
 	}
 }
 
@@ -188,22 +118,15 @@ func (e rebuildStepError) Unwrap() error { return e.err }
 
 // pauseClaims records the durable pause and waits until every lease granted
 // before it has expired. It reports whether the step may continue.
-func (w *SearchWorker) pauseClaims(
-	ctx context.Context,
-	work searchdomain.Work,
-	rebuild searchdomain.Rebuild,
-) (bool, error) {
+func (w *SearchWorker) pauseClaims(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild) (bool, error) {
 	if !rebuild.Paused {
 		next := rebuild
 		next.Paused, next.PausedAt = true, w.clock.Now().UTC()
-
 		return false, w.advanceRebuild(ctx, work, rebuild, next)
 	}
-
 	if w.clock.Now().Before(rebuild.PausedAt.Add(w.settings.Lease)) {
 		return false, w.waitRebuild(ctx, work)
 	}
-
 	return true, nil
 }
 
@@ -216,11 +139,9 @@ func (w *SearchWorker) waitGreen(ctx context.Context, work searchdomain.Work, in
 	if wait <= 0 {
 		return searchdomain.ErrIndexNotReady
 	}
-
 	if err := w.ports.Replacer.WaitGreen(ctx, index, wait); err != nil {
 		return rebuildStepError{operation: fmt.Sprintf("wait %s for green health", wait), err: err}
 	}
-
 	return nil
 }
 
@@ -232,15 +153,9 @@ func (w *SearchWorker) waitGreen(ctx context.Context, work searchdomain.Work, in
 // claims. A full replacement never pauses claims, and its PausedAt is the
 // begin time. For a full replacement, the limit also counts the wait for the
 // first claim of the rebuild work, and that claim creates the target.
-func (w *SearchWorker) targetNotGreen(
-	ctx context.Context,
-	work searchdomain.Work,
-	rebuild searchdomain.Rebuild,
-	cause error,
-) error {
+func (w *SearchWorker) targetNotGreen(ctx context.Context, work searchdomain.Work, rebuild searchdomain.Rebuild, cause error) error {
 	if w.clock.Since(rebuild.PausedAt) < w.settings.ReplacementPauseLimit {
 		return w.waitRebuild(ctx, work)
 	}
-
 	return w.failRebuild(ctx, work, rebuild, "wait for green target "+rebuild.TargetIndex, cause)
 }

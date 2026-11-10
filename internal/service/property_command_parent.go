@@ -28,55 +28,26 @@ func resolveCommandParent(
 	if !ok {
 		return uuid.Nil, false, nil
 	}
-
 	if isDeletedPropValue(raw) {
-		return uuid.Nil, true, invalidParentReference(
-			ctx,
-			nt,
-			"properties.parent_id cannot be empty",
-		)
+		return uuid.Nil, true, invalidParentReference(ctx, nt, "properties.parent_id cannot be empty")
 	}
-
 	parentRef, ok := rawString(raw)
 	if !ok || strings.TrimSpace(parentRef) == "" {
-		return uuid.Nil, true, invalidParentReference(
-			ctx,
-			nt,
-			"properties.parent_id must be a node reference string",
-		)
+		return uuid.Nil, true, invalidParentReference(ctx, nt, "properties.parent_id must be a node reference string")
 	}
-
 	if resolveParent == nil {
-		return uuid.Nil, true, invalidParentReference(
-			ctx,
-			nt,
-			"properties.parent_id has no parent resolver",
-		)
+		return uuid.Nil, true, invalidParentReference(ctx, nt, "properties.parent_id has no parent resolver")
 	}
-
 	parentID, err := resolveParent(ctx, nt, orgID, scopeID, parentRef)
 	if err != nil {
-		slog.WarnContext(
-			ctx,
-			"node.parent_reference_unresolved",
-			slog.String("node_type", nt.TypeKey),
-			slog.String("reference", parentRef),
-			slog.String("err", err.Error()),
-		)
-
+		slog.WarnContext(ctx, "node.parent_reference_unresolved",
+			slog.String("node_type", nt.TypeKey), slog.String("reference", parentRef), slog.String("err", err.Error()))
 		return uuid.Nil, true, fmt.Errorf("properties.parent_id %q: %w", parentRef, err)
 	}
-
 	return parentID, true, nil
 }
 
 func invalidParentReference(ctx context.Context, nt *node.NodeType, reason string) error {
-	slog.WarnContext(
-		ctx,
-		"node.parent_reference_invalid",
-		slog.String("node_type", nt.TypeKey),
-		slog.String("reason", reason),
-	)
-
+	slog.WarnContext(ctx, "node.parent_reference_invalid", slog.String("node_type", nt.TypeKey), slog.String("reason", reason))
 	return fmt.Errorf("%s: %w", reason, domain.ErrInvalidArgument)
 }

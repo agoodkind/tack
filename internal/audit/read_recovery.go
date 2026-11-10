@@ -17,7 +17,6 @@ func IncompleteReadEvent(template Event, completedAt time.Time) Event {
 	if event.Context.CompletedAt.Before(template.Context.StartedAt) {
 		event.Context.CompletedAt = template.Context.StartedAt
 	}
-
 	event.Context.Read = nil
 	event.Delta = nil
 	event.Outcome = OutcomeIncomplete
@@ -25,7 +24,6 @@ func IncompleteReadEvent(template Event, completedAt time.Time) Event {
 		Code:    readRecoveryErrorCode,
 		Message: "the read owner stopped renewing before it saved a final event",
 	}
-
 	return event
 }
 
@@ -33,18 +31,12 @@ func IncompleteReadEvent(template Event, completedAt time.Time) Event {
 func EncodeIncompleteRead(template Event, completedAt time.Time) (Event, EncodedEvent, error) {
 	event := IncompleteReadEvent(template, completedAt)
 	if err := ValidateEvent(event); err != nil {
-		return Event{}, EncodedEvent{}, fmt.Errorf(
-			"recover audit read %s: %s",
-			template.EventID,
-			err.Error(),
-		)
+		return Event{}, EncodedEvent{}, fmt.Errorf("recover audit read %s: %s", template.EventID, err.Error())
 	}
-
 	encoded, err := EncodeEvent(event, nil)
 	if err != nil {
 		return Event{}, EncodedEvent{}, err
 	}
-
 	return event, encoded, nil
 }
 
@@ -54,12 +46,10 @@ func EncodeIncompleteRead(template Event, completedAt time.Time) (Event, Encoded
 // Each application instance runs recovery without a shared lock.
 func RunReadRecovery(ctx context.Context, store ReadLifecycle) {
 	start := ReadBucket(uuid.New())
-
 	for ctx.Err() == nil {
 		for offset := range uint16(ReadRecoveryBuckets) {
 			recoverReadBucket(ctx, store, (start+offset)%ReadRecoveryBuckets)
 		}
-
 		timer := time.NewTimer(ReadRenewInterval)
 		select {
 		case <-ctx.Done():
@@ -74,32 +64,17 @@ func RunReadRecovery(ctx context.Context, store ReadLifecycle) {
 func recoverReadBucket(ctx context.Context, store ReadLifecycle, bucket uint16) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			slog.ErrorContext(
-				ctx,
-				"audit.read_recovery.panicked",
-				slog.Int("bucket", int(bucket)),
-				slog.String("err", fmt.Sprint(recovered)),
-			)
+			slog.ErrorContext(ctx, "audit.read_recovery.panicked",
+				slog.Int("bucket", int(bucket)), slog.String("err", fmt.Sprint(recovered)))
 		}
 	}()
 	recovered, recoverErr := store.RecoverExpired(ctx, bucket, ReadRecoveryScanLimit)
 	if recoverErr == nil && recovered > 0 {
-		slog.InfoContext(
-			ctx,
-			"audit.read_recovery.recovered",
-			slog.Int("bucket", int(bucket)),
-			slog.Int("count", recovered),
-		)
+		slog.InfoContext(ctx, "audit.read_recovery.recovered", slog.Int("bucket", int(bucket)), slog.Int("count", recovered))
 	}
-
 	deleted, cleanupErr := store.CleanupPublished(ctx, bucket, ReadCleanupBatch)
 	if cleanupErr == nil && deleted > 0 {
-		slog.DebugContext(
-			ctx,
-			"audit.read_receipt.cleaned",
-			slog.Int("bucket", int(bucket)),
-			slog.Int("count", deleted),
-		)
+		slog.DebugContext(ctx, "audit.read_receipt.cleaned", slog.Int("bucket", int(bucket)), slog.Int("count", deleted))
 	}
 }
 
@@ -112,20 +87,12 @@ func KeepReadOwned(ctx context.Context, store ReadLifecycle, token ReadToken) fu
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				slog.ErrorContext(
-					ctx,
-					"audit.read_renewal.panicked",
-					slog.String("err", fmt.Sprint(recovered)),
-				)
-				result <- fmt.Errorf(
-					"renew audit read %s: renewal stopped unexpectedly",
-					token.EventID,
-				)
+				slog.ErrorContext(ctx, "audit.read_renewal.panicked", slog.String("err", fmt.Sprint(recovered)))
+				result <- fmt.Errorf("renew audit read %s: renewal stopped unexpectedly", token.EventID)
 			}
 		}()
 		result <- renewUntilDone(renewContext, store, token)
 	}()
-
 	return func() error {
 		cancel()
 		return <-result
@@ -137,20 +104,14 @@ func KeepReadOwned(ctx context.Context, store ReadLifecycle, token ReadToken) fu
 func renewUntilDone(ctx context.Context, store ReadLifecycle, token ReadToken) error {
 	ticker := time.NewTicker(ReadRenewInterval)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
 			if err := store.RenewRead(ctx, token); err != nil && ctx.Err() == nil {
-				slog.ErrorContext(
-					ctx,
-					"audit.read_renewal.failed",
-					slog.String("event_id", token.EventID.String()),
-					slog.String("err", err.Error()),
-				)
-
+				slog.ErrorContext(ctx, "audit.read_renewal.failed",
+					slog.String("event_id", token.EventID.String()), slog.String("err", err.Error()))
 				return fmt.Errorf("renew audit read %s: %w", token.EventID, err)
 			}
 		}

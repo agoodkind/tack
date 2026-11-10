@@ -27,18 +27,12 @@ var activeSessionObserver atomic.Pointer[sessionObserver]
 // SetSessionObserver sets a test function that receives the approximate size
 // of each committed session transaction and its counts of session value, search
 // record, retirement fence, and child range reads. A nil function clears it.
-func SetSessionObserver(
-	report func(operation string, sessionID uuid.UUID, bytes int64, reads int),
-) {
+func SetSessionObserver(report func(operation string, sessionID uuid.UUID, bytes int64, reads int)) {
 	if report == nil {
 		activeSessionObserver.Store(nil)
 		return
 	}
-	activeSessionObserver.Store(&sessionObserver{
-		report:       report,
-		mutex:        sync.Mutex{},
-		transactions: map[fdb.ReadTransaction]sessionObservation{},
-	})
+	activeSessionObserver.Store(&sessionObserver{report: report, mutex: sync.Mutex{}, transactions: map[fdb.ReadTransaction]sessionObservation{}})
 }
 
 func countSessionRead(tr fdb.ReadTransaction) {

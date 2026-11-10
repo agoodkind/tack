@@ -72,19 +72,12 @@ func (d *Driver) searchEntryArgument(ctx context.Context, token string) (string,
 			return SearchEntryArgument(tool.InputSchema.Required)
 		}
 		if page.NextCursor == "" {
-			return "", loggedError(
-				ctx,
-				"qa datagen: read the tack_search schema",
-				errors.New("tools/list returned no tack_search tool"),
-			)
+			return "", loggedError(ctx, "qa datagen: read the tack_search schema", errors.New("tools/list returned no tack_search tool"))
 		}
 		cursor = page.NextCursor
 	}
-	return "", loggedError(
-		ctx,
-		"qa datagen: read the tack_search schema",
-		fmt.Errorf("tools/list did not finish within %d pages", maxToolListPages),
-	)
+	return "", loggedError(ctx, "qa datagen: read the tack_search schema",
+		fmt.Errorf("tools/list did not finish within %d pages", maxToolListPages))
 }
 
 // SearchEntryArgument returns the one required tack_search argument that
@@ -99,11 +92,7 @@ func SearchEntryArgument(required []string) (string, error) {
 		}
 	}
 	if len(found) != 1 {
-		err := fmt.Errorf(
-			"tack_search required arguments %v contain %d entry arguments, want 1",
-			required,
-			len(found),
-		)
+		err := fmt.Errorf("tack_search required arguments %v contain %d entry arguments, want 1", required, len(found))
 		slog.Error("qa.datagen.search_entry_argument_invalid", slog.String("err", err.Error()))
 		return "", err
 	}
@@ -117,10 +106,7 @@ func (d *Driver) listTools(ctx context.Context, token, cursor string) (listTools
 		return listToolsResult{}, err
 	}
 	body, err := json.Marshal(listToolsRequest{
-		JSONRPC: jsonRPCVersion,
-		ID:      requestID,
-		Method:  toolsList,
-		Params:  listToolsParams{Cursor: cursor},
+		JSONRPC: jsonRPCVersion, ID: requestID, Method: toolsList, Params: listToolsParams{Cursor: cursor},
 	})
 	if err != nil {
 		return listToolsResult{}, loggedError(ctx, "qa datagen: encode tools/list request", err)
@@ -150,10 +136,7 @@ func (d *Driver) listTools(ctx context.Context, token, cursor string) (listTools
 
 // callSearchArguments calls tack_search with exactly arguments through the
 // authenticated MCP session.
-func (d *Driver) callSearchArguments(ctx context.Context, token string, arguments map[string]string) (
-	Result,
-	error,
-) {
+func (d *Driver) callSearchArguments(ctx context.Context, token string, arguments map[string]string) (Result, error) {
 	identity, err := json.Marshal(arguments)
 	if err != nil {
 		return Result{}, loggedError(ctx, "qa datagen: encode tack_search arguments", err)
@@ -163,10 +146,8 @@ func (d *Driver) callSearchArguments(ctx context.Context, token string, argument
 		return Result{}, err
 	}
 	body, err := json.Marshal(searchCallRequest{
-		JSONRPC: jsonRPCVersion,
-		ID:      requestID,
-		Method:  toolsCall,
-		Params:  searchCallParams{Name: searchToolName, Arguments: arguments},
+		JSONRPC: jsonRPCVersion, ID: requestID, Method: toolsCall,
+		Params: searchCallParams{Name: searchToolName, Arguments: arguments},
 	})
 	if err != nil {
 		return Result{}, loggedError(ctx, "qa datagen: encode tack_search request", err)

@@ -29,8 +29,14 @@ func InjectEdgeCases(
 		properties.setNull("qa_url")
 		properties.setStrings("qa_multi_select", []string{})
 	case 4:
-		properties.setString("qa_timestamp", now.Add(365*24*time.Hour).UTC().Format(time.RFC3339))
-		properties.setString("qa_date", now.Add(-365*24*time.Hour).UTC().Format(time.DateOnly))
+		properties.setString(
+			"qa_timestamp",
+			now.Add(365*24*time.Hour).UTC().Format(time.RFC3339),
+		)
+		properties.setString(
+			"qa_date",
+			now.Add(-365*24*time.Hour).UTC().Format(time.DateOnly),
+		)
 	}
 	return name
 }

@@ -27,26 +27,20 @@ type classShares struct {
 func newClassShares(weights map[string]int, bank time.Duration, offset int) (*classShares, error) {
 	count := len(scheduledClasses)
 	shares := &classShares{
-		weights: make([]int, count),
-		used:    make([]time.Duration, count),
-		ties:    make([]int, count),
-		bank:    bank,
+		weights: make([]int, count), used: make([]time.Duration, count),
+		ties: make([]int, count), bank: bank,
 	}
-
 	for position, class := range scheduledClasses {
 		weight, exists := weights[string(class)]
 		if !exists || weight < 1 {
 			return nil, fmt.Errorf("search work class %s requires a positive weight", class)
 		}
-
 		shares.weights[position] = weight
 		shares.ties[position] = ((position-offset)%count + count) % count
 	}
-
 	if len(weights) != count {
 		return nil, errors.New("search work class weights name an unknown class")
 	}
-
 	return shares, nil
 }
 
@@ -57,18 +51,12 @@ func (s *classShares) order() []int {
 	for position := range positions {
 		positions[position] = position
 	}
-
-	slices.SortFunc(
-		positions,
-		func(first, second int) int {
-			if compared := cmp.Compare(s.used[first], s.used[second]); compared != 0 {
-				return compared
-			}
-
-			return cmp.Compare(s.ties[first], s.ties[second])
-		},
-	)
-
+	slices.SortFunc(positions, func(first, second int) int {
+		if compared := cmp.Compare(s.used[first], s.used[second]); compared != 0 {
+			return compared
+		}
+		return cmp.Compare(s.ties[first], s.ties[second])
+	})
 	return positions
 }
 
@@ -80,9 +68,7 @@ func (s *classShares) spend(class searchdomain.WorkClass, duration time.Duration
 	if position < 0 {
 		return 0
 	}
-
 	s.used[position] += max(duration, 0) / time.Duration(s.weights[position])
-
 	return s.used[position]
 }
 

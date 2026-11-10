@@ -40,7 +40,9 @@ func (s *Soak) stopResult(
 	if reason != "context" {
 		return summary, nil
 	}
-	slog.ErrorContext(ctx, "qa.datagen.soak_context_done", slog.String("err", ctx.Err().Error()))
+	slog.ErrorContext(ctx, "qa.datagen.soak_context_done",
+		slog.String("err", ctx.Err().Error()),
+	)
 	return summary, fmt.Errorf("qa datagen soak: context canceled: %w", ctx.Err())
 }
 

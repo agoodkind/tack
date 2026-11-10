@@ -48,7 +48,6 @@ func (item maintenanceItem) itemID() string {
 	if item.NodeID == uuid.Nil {
 		return item.OrgID.String()
 	}
-
 	return item.NodeID.String()
 }
 
@@ -66,24 +65,8 @@ func TestSearchVerifyReportsStuckMaintenanceWork(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
 	entry := integration.EntryPoint(t, fixture, workspace)
-	edited := integration.PutOpaqueNode(
-		t,
-		fixture,
-		kind,
-		entry,
-		"stuck cleanup",
-		"stuck cleanup before",
-		"excluded",
-	)
-	deleted := integration.PutOpaqueNode(
-		t,
-		fixture,
-		kind,
-		entry,
-		"stuck deletion",
-		"stuck deletion text",
-		"excluded",
-	)
+	edited := integration.PutOpaqueNode(t, fixture, kind, entry, "stuck cleanup", "stuck cleanup before", "excluded")
+	deleted := integration.PutOpaqueNode(t, fixture, kind, entry, "stuck deletion", "stuck deletion text", "excluded")
 	integration.DrainSearchWork(t, fixture.Worker, 2000)
 
 	malformed := []tuple.Tuple{
@@ -93,16 +76,10 @@ func TestSearchVerifyReportsStuckMaintenanceWork(t *testing.T) {
 	for _, key := range malformed {
 		setPrefixedValue(t, key, []byte{})
 	}
-
 	editDurableNode(t, fixture, kind, edited, "stuck cleanup after")
-	if err := fixture.Stores.Nodes.Delete(
-		integration.WithTestOperation(t, t.Context()),
-		kind.OrgID,
-		deleted,
-	); err != nil {
+	if err := fixture.Stores.Nodes.Delete(integration.WithTestOperation(t, t.Context()), kind.OrgID, deleted); err != nil {
 		t.Fatalf("delete node %s: %v", deleted, err)
 	}
-
 	requestContainmentRescan(t, fixture, kind)
 	beginMaintenanceRollout(t, fixture, kind.OrgID)
 	scanKey := tuple.Tuple{"node_instance", kind.OrgID.String(), ""}
@@ -110,42 +87,19 @@ func TestSearchVerifyReportsStuckMaintenanceWork(t *testing.T) {
 	malformed = append(malformed, scanKey)
 
 	items := []maintenanceItem{
-		{
-			Class:   searchdomain.WorkClassCleanup,
-			OrgID:   kind.OrgID,
-			NodeID:  edited,
-			Failure: malformedIssuedFailure,
-		},
-		{
-			Class:   searchdomain.WorkClassCleanup,
-			OrgID:   kind.OrgID,
-			NodeID:  deleted,
-			Failure: malformedIssuedFailure,
-		},
-		{
-			Class:   searchdomain.WorkClassRescan,
-			OrgID:   kind.OrgID,
-			NodeID:  uuid.Nil,
-			Failure: malformedScanFailure,
-		},
-		{
-			Class:   searchdomain.WorkClassRollout,
-			OrgID:   kind.OrgID,
-			NodeID:  uuid.Nil,
-			Failure: malformedScanFailure,
-		},
+		{Class: searchdomain.WorkClassCleanup, OrgID: kind.OrgID, NodeID: edited, Failure: malformedIssuedFailure},
+		{Class: searchdomain.WorkClassCleanup, OrgID: kind.OrgID, NodeID: deleted, Failure: malformedIssuedFailure},
+		{Class: searchdomain.WorkClassRescan, OrgID: kind.OrgID, NodeID: uuid.Nil, Failure: malformedScanFailure},
+		{Class: searchdomain.WorkClassRollout, OrgID: kind.OrgID, NodeID: uuid.Nil, Failure: malformedScanFailure},
 	}
 	var logged bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logged, nil))
 	var report maintenanceReport
 	var verifyErr error
-
 	for _, item := range items {
 		report, verifyErr = runUntilMaintenanceStuck(t, fixture, logger, item)
 	}
-
 	records := attemptLimitRecords(t, &logged)
-
 	for _, item := range items {
 		requireMaintenanceReported(t, report, verifyErr, records, item)
 	}
@@ -153,27 +107,16 @@ func TestSearchVerifyReportsStuckMaintenanceWork(t *testing.T) {
 	for _, key := range malformed {
 		clearPrefixedKey(t, key)
 	}
-
 	runUntilMaintenanceClear(t, fixture, items)
 	integration.DrainSearchWork(t, fixture.Worker, 2000)
-
 	for _, document := range durableNodeDocuments(t, fixture, edited, false) {
 		if document.Text == nil || !strings.Contains(*document.Text, "stuck cleanup after") {
-			t.Fatalf(
-				"node %s keeps an active document without its edited text after the cleanup",
-				edited,
-			)
+			t.Fatalf("node %s keeps an active document without its edited text after the cleanup", edited)
 		}
 	}
-
 	if active := durableNodeDocuments(t, fixture, deleted, false); len(active) != 0 {
-		t.Fatalf(
-			"deleted node %s keeps %d active documents after the cleanup",
-			deleted,
-			len(active),
-		)
+		t.Fatalf("deleted node %s keeps %d active documents after the cleanup", deleted, len(active))
 	}
-
 	if report, _ := runMaintenanceVerify(t, fixture); report.StuckWorkItems != 0 {
 		t.Fatalf("ops search verify lists %+v after every item completed", report.StuckWork)
 	}
@@ -181,56 +124,29 @@ func TestSearchVerifyReportsStuckMaintenanceWork(t *testing.T) {
 
 // requestContainmentRescan adds a type key to the CanContain list of kind,
 // which requests a rescan of its organization.
-func requestContainmentRescan(
-	t *testing.T,
-	fixture integration.QueryFixture,
-	kind integration.OpaqueKind,
-) {
+func requestContainmentRescan(t *testing.T, fixture integration.QueryFixture, kind integration.OpaqueKind) {
 	t.Helper()
-	current, err := fixture.Stores.NodeTypes.TypeByKey(
-		integration.WithTestOperation(t, t.Context()),
-		kind.OrgID,
-		kind.TypeKey,
-	)
+	current, err := fixture.Stores.NodeTypes.TypeByKey(integration.WithTestOperation(t, t.Context()), kind.OrgID, kind.TypeKey)
 	if err != nil || current == nil {
 		t.Fatalf("read node type %s: %v", kind.TypeKey, err)
 	}
-
-	current.CanContain = append(
-		current.CanContain,
-		"c"+strings.ReplaceAll(uuid.NewString(), "-", ""),
-	)
-	if err := fixture.Stores.NodeTypes.Set(
-		integration.WithTestOperation(t, t.Context()),
-		current,
-	); err != nil {
+	current.CanContain = append(current.CanContain, "c"+strings.ReplaceAll(uuid.NewString(), "-", ""))
+	if err := fixture.Stores.NodeTypes.Set(integration.WithTestOperation(t, t.Context()), current); err != nil {
 		t.Fatalf("change the containment of node type %s: %v", kind.TypeKey, err)
 	}
 }
 
 // beginMaintenanceRollout starts an access rollout of authorityID to the
 // rotated policy version through the production rollout store.
-func beginMaintenanceRollout(
-	t *testing.T,
-	fixture integration.QueryFixture,
-	authorityID uuid.UUID,
-) {
+func beginMaintenanceRollout(t *testing.T, fixture integration.QueryFixture, authorityID uuid.UUID) {
 	t.Helper()
 	rollouts := fixture.Stores.SearchRollouts(clock.Wall{}, fixture.Stores.SearchPolicySet())
 	current, err := rollouts.Current(integration.WithTestOperation(t, t.Context()), authorityID)
 	if err != nil {
 		t.Fatalf("read the access rollout of %s: %v", authorityID, err)
 	}
-
-	request := searchdomain.BeginAccessRollout{
-		AuthorityID:        authorityID,
-		CandidateVersion:   searchaccess.RotatedVersion,
-		ExpectedGeneration: current.Generation,
-	}
-	if _, err := rollouts.Begin(
-		integration.WithTestOperation(t, t.Context()),
-		request,
-	); err != nil {
+	request := searchdomain.BeginAccessRollout{AuthorityID: authorityID, CandidateVersion: searchaccess.RotatedVersion, ExpectedGeneration: current.Generation}
+	if _, err := rollouts.Begin(integration.WithTestOperation(t, t.Context()), request); err != nil {
 		t.Fatalf("begin the access rollout of %s: %v", authorityID, err)
 	}
 }
@@ -238,87 +154,44 @@ func beginMaintenanceRollout(
 // runUntilMaintenanceStuck runs worker slices with logger until ops search
 // verify lists item with at least maintenancePastLimit attempts. It ignores
 // slice failures and fails the test after maintenanceDeadline.
-func runUntilMaintenanceStuck(
-	t *testing.T,
-	fixture integration.QueryFixture,
-	logger *slog.Logger,
-	item maintenanceItem,
-) (maintenanceReport, error) {
+func runUntilMaintenanceStuck(t *testing.T, fixture integration.QueryFixture, logger *slog.Logger, item maintenanceItem) (maintenanceReport, error) {
 	t.Helper()
-
 	deadline := clock.Now().Add(maintenanceDeadline)
 	for clock.Now().Before(deadline) {
-		claimed, _ := fixture.Worker.RunSlice(
-			telemetry.WithLogger(integration.WithTestOperation(t, t.Context()), logger),
-		)
+		claimed, _ := fixture.Worker.RunSlice(telemetry.WithLogger(integration.WithTestOperation(t, t.Context()), logger))
 		if claimed {
 			continue
 		}
-
 		report, verifyErr := runMaintenanceVerify(t, fixture)
 		if _, found := report.stuck(item); found {
 			return report, verifyErr
 		}
-
 		waitUntilTime(t, clock.Now().Add(maintenancePoll))
 	}
-
-	t.Fatalf(
-		"ops search verify did not list %s work %s with %d attempts within %s",
-		item.Class,
-		item.itemID(),
-		maintenancePastLimit,
-		maintenanceDeadline,
-	)
-
+	t.Fatalf("ops search verify did not list %s work %s with %d attempts within %s", item.Class, item.itemID(), maintenancePastLimit, maintenanceDeadline)
 	return maintenanceReport{}, nil
 }
 
 // requireMaintenanceReported requires the verify listing, the verify error,
 // and exactly one attempt limit record to report item with its failure.
-func requireMaintenanceReported(
-	t *testing.T,
-	report maintenanceReport,
-	verifyErr error,
-	records []attemptLimitRecord,
-	item maintenanceItem,
-) {
+func requireMaintenanceReported(t *testing.T, report maintenanceReport, verifyErr error, records []attemptLimitRecord, item maintenanceItem) {
 	t.Helper()
 	stuck, found := report.stuck(item)
 	if !found || !strings.Contains(stuck.LastError, item.Failure) {
-		t.Fatalf(
-			"ops search verify listed %+v, want %s work %s with %d attempts and %q",
-			report.StuckWork,
-			item.Class,
-			item.itemID(),
-			maintenancePastLimit,
-			item.Failure,
-		)
+		t.Fatalf("ops search verify listed %+v, want %s work %s with %d attempts and %q", report.StuckWork, item.Class, item.itemID(), maintenancePastLimit, item.Failure)
 	}
-
 	listed := fmt.Sprintf("%s work %s failed ", item.Class, item.itemID())
 	if verifyErr == nil || !strings.Contains(verifyErr.Error(), listed) {
 		t.Fatalf("ops search verify error = %v, want %q", verifyErr, listed)
 	}
-
 	matching := make([]attemptLimitRecord, 0, 1)
-
 	for _, record := range records {
 		if record.Class == string(item.Class) && record.ItemID == item.itemID() {
 			matching = append(matching, record)
 		}
 	}
-
-	if len(matching) != 1 || matching[0].Attempts != maintenanceAttemptLimit ||
-		matching[0].Err != stuck.LastError {
-		t.Fatalf(
-			"attempt limit records of %s work %s = %+v, want one with %d attempts and %q",
-			item.Class,
-			item.itemID(),
-			matching,
-			maintenanceAttemptLimit,
-			stuck.LastError,
-		)
+	if len(matching) != 1 || matching[0].Attempts != maintenanceAttemptLimit || matching[0].Err != stuck.LastError {
+		t.Fatalf("attempt limit records of %s work %s = %+v, want one with %d attempts and %q", item.Class, item.itemID(), matching, maintenanceAttemptLimit, stuck.LastError)
 	}
 }
 
@@ -326,18 +199,15 @@ func requireMaintenanceReported(
 func attemptLimitRecords(t *testing.T, logged *bytes.Buffer) []attemptLimitRecord {
 	t.Helper()
 	records := make([]attemptLimitRecord, 0, 4)
-
 	decoder := json.NewDecoder(logged)
 	for decoder.More() {
 		var record attemptLimitRecord
 		if err := decoder.Decode(&record); err != nil {
 			t.Fatalf("decode a worker log record: %v", err)
 		}
-
 		if record.Message == maintenanceLimitRecord {
 			records = append(records, record)
 		}
 	}
-
 	return records
 }

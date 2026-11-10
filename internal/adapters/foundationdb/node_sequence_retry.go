@@ -18,11 +18,7 @@ import (
 // returns at once, and a timeout returns the error of retryFailure. The
 // caller keeps the counter lock during all transactions.
 func runSequenceTransactions(
-	ctx context.Context,
-	database fdb.Database,
-	operation string,
-	target audit.Target,
-	apply func(fdb.Transaction) error,
+	ctx context.Context, database fdb.Database, operation string, target audit.Target, apply func(fdb.Transaction) error,
 ) error {
 	for transactionNumber := 1; ; transactionNumber++ {
 		err := runNodeAttempts(ctx, database, operation, apply)
@@ -30,11 +26,9 @@ func runSequenceTransactions(
 		if !errors.As(err, &refused) {
 			return err
 		}
-
 		if !refused.conflictTimedOut() || ctx.Err() != nil {
 			return retryFailure(ctx, operation, refused.err, refused.attempts)
 		}
-
 		logSequenceTransactionRetry(ctx, target, transactionNumber, refused.attempts)
 	}
 }
@@ -43,19 +37,9 @@ func runSequenceTransactions(
 // counter at target timed out after a conflict and that a new transaction
 // starts. Each transaction lasts up to the transaction timeout, which limits
 // this record to one per timeout for each waiting writer.
-func logSequenceTransactionRetry(
-	ctx context.Context,
-	target audit.Target,
-	transactionNumber int,
-	attempts *transactionAttempts,
-) {
-	slog.InfoContext(
-		ctx,
-		"node.sequence.transaction_retried",
-		slog.String("counter", target.URI),
-		slog.Int("transaction", transactionNumber),
-		slog.Int("attempts", attempts.count),
-		slog.String("attempt_error_codes", attempts.codeList()),
-		slog.Int("attempt_error_codes_omitted", attempts.omitted),
-	)
+func logSequenceTransactionRetry(ctx context.Context, target audit.Target, transactionNumber int, attempts *transactionAttempts) {
+	slog.InfoContext(ctx, "node.sequence.transaction_retried",
+		slog.String("counter", target.URI), slog.Int("transaction", transactionNumber),
+		slog.Int("attempts", attempts.count), slog.String("attempt_error_codes", attempts.codeList()),
+		slog.Int("attempt_error_codes_omitted", attempts.omitted))
 }

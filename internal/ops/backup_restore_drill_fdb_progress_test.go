@@ -27,12 +27,7 @@ func fdbStatusLine(blocksDone, blocksTotal, blocksInProgress, bytesWritten, appl
 	return fmt.Sprintf(
 		"Tag: default  UID: 3a4b  State: running  Blocks: %d/%d  BlocksInProgress: %d  "+
 			"Files: 12  BytesWritten: %d  ApplyVersionLag: %d  LastError: ''",
-		blocksDone,
-		blocksTotal,
-		blocksInProgress,
-		bytesWritten,
-		applyLag,
-	)
+		blocksDone, blocksTotal, blocksInProgress, bytesWritten, applyLag)
 }
 
 // scriptedRestore drives one awaitFDBRestore run: statuses are handed out in
@@ -51,13 +46,11 @@ func (s *scriptedRestore) watch() fdbRestoreWatch {
 			if s.polls >= s.finishAfter {
 				return s.exitCode, true, nil
 			}
-
 			return 0, false, nil
 		},
 		Status: func(context.Context) (string, error) {
 			status := s.statuses[min(s.polls, len(s.statuses)-1)]
 			s.polls++
-
 			return status, nil
 		},
 	}
@@ -85,29 +78,19 @@ func advanceClockPerRead(t *testing.T, step time.Duration) {
 func TestAwaitFDBRestoreLetsALargeRestoreRunPastAnyFixedBudget(t *testing.T) {
 	const polls = 200
 	advanceClockPerRead(t, testClockStep)
-
 	statuses := make([]string, 0, polls)
 	for i := range polls {
 		statuses = append(statuses, fdbStatusLine(int64(i), polls, 4, int64(i)*4096, 0))
 	}
-
 	restore := &scriptedRestore{statuses: statuses, finishAfter: polls, exitCode: 0, polls: 0}
 
-	progress, exitCode, err := awaitFDBRestore(
-		t.Context(),
-		restore.watch(),
-		testStallWindow,
-		testPollInterval,
-		testProbeTimeout,
-	)
+	progress, exitCode, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval, testProbeTimeout)
 	if err != nil {
 		t.Fatalf("a restore that keeps making progress must not be failed for its size: %v", err)
 	}
-
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0", exitCode)
 	}
-
 	if !strings.Contains(progress.summary(), "byteswritten=815104") {
 		t.Fatalf("progress must carry what the restore wrote, got %q", progress.summary())
 	}
@@ -119,21 +102,13 @@ func TestAwaitFDBRestoreLetsALargeRestoreRunPastAnyFixedBudget(t *testing.T) {
 func TestAwaitFDBRestoreCountsTheGrowingBlockTotalAsProgress(t *testing.T) {
 	const polls = 40
 	advanceClockPerRead(t, testClockStep)
-
 	statuses := make([]string, 0, polls)
 	for i := range polls {
 		statuses = append(statuses, fdbStatusLine(0, int64(i)*1000, 0, 0, 0))
 	}
-
 	restore := &scriptedRestore{statuses: statuses, finishAfter: polls, exitCode: 0, polls: 0}
 
-	_, _, err := awaitFDBRestore(
-		t.Context(),
-		restore.watch(),
-		testStallWindow,
-		testPollInterval,
-		testProbeTimeout,
-	)
+	_, _, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval, testProbeTimeout)
 	if err != nil {
 		t.Fatalf("a restore still enumerating its files must not read as stalled: %v", err)
 	}
@@ -150,17 +125,10 @@ func TestAwaitFDBRestoreReturnsTheRestoresExitCode(t *testing.T) {
 		polls:       0,
 	}
 
-	_, exitCode, err := awaitFDBRestore(
-		t.Context(),
-		restore.watch(),
-		testStallWindow,
-		testPollInterval,
-		testProbeTimeout,
-	)
+	_, exitCode, err := awaitFDBRestore(t.Context(), restore.watch(), testStallWindow, testPollInterval, testProbeTimeout)
 	if err != nil {
 		t.Fatalf("awaitFDBRestore: %v", err)
 	}
-
 	if exitCode != 2 {
 		t.Fatalf("exit code = %d, want the restore's own 2", exitCode)
 	}

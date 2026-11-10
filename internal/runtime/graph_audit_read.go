@@ -30,10 +30,8 @@ func (g *Graph) StartAuditReadRecovery(ctx context.Context) {
 	if recovery.started {
 		return
 	}
-
 	recovery.started = true
 	loopContext, cancel := context.WithCancel(ctx)
-
 	recovery.cancel = cancel
 	for _, store := range recovery.stores {
 		current := store
@@ -42,12 +40,7 @@ func (g *Graph) StartAuditReadRecovery(ctx context.Context) {
 			audit.RunReadRecovery(loopContext, current)
 		})
 	}
-
-	telemetry.L(ctx).InfoContext(
-		ctx,
-		"audit.read_recovery.started",
-		slog.Int("stores", len(recovery.stores)),
-	)
+	telemetry.L(ctx).InfoContext(ctx, "audit.read_recovery.started", slog.Int("stores", len(recovery.stores)))
 }
 
 // stopAuditReadRecovery cancels the recovery loops and waits for them to finish.
@@ -56,7 +49,6 @@ func (g *Graph) stopAuditReadRecovery() {
 	if recovery.cancel != nil {
 		recovery.cancel()
 	}
-
 	if recovery.started {
 		recovery.loop.Wait()
 	}

@@ -23,16 +23,7 @@ type snapshotTiming struct {
 // newSnapshotTiming starts timing one QueryRanker.Open call.
 func newSnapshotTiming() *snapshotTiming {
 	now := clock.Now()
-
-	return &snapshotTiming{
-		started:     now,
-		previous:    now,
-		alias:       0,
-		mapping:     0,
-		model:       0,
-		predict:     0,
-		pointInTime: 0,
-	}
+	return &snapshotTiming{started: now, previous: now, alias: 0, mapping: 0, model: 0, predict: 0, pointInTime: 0}
 }
 
 // mark stores the time since the previous mark in step.
@@ -45,15 +36,9 @@ func (t *snapshotTiming) mark(step *time.Duration) {
 // log writes one Debug record with step durations in milliseconds.
 // The record does not contain the query text.
 func (t *snapshotTiming) log(ctx context.Context, index string) {
-	telemetry.L(ctx).DebugContext(
-		ctx,
-		"search.snapshot.timing",
-		slog.String("index", index),
-		slog.Int64("alias_ms", t.alias.Milliseconds()),
-		slog.Int64("mapping_ms", t.mapping.Milliseconds()),
-		slog.Int64("model_ms", t.model.Milliseconds()),
-		slog.Int64("predict_ms", t.predict.Milliseconds()),
+	telemetry.L(ctx).DebugContext(ctx, "search.snapshot.timing", slog.String("index", index),
+		slog.Int64("alias_ms", t.alias.Milliseconds()), slog.Int64("mapping_ms", t.mapping.Milliseconds()),
+		slog.Int64("model_ms", t.model.Milliseconds()), slog.Int64("predict_ms", t.predict.Milliseconds()),
 		slog.Int64("point_in_time_ms", t.pointInTime.Milliseconds()),
-		slog.Int64("total_ms", clock.Since(t.started).Milliseconds()),
-	)
+		slog.Int64("total_ms", clock.Since(t.started).Milliseconds()))
 }

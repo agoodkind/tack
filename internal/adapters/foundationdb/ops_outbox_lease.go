@@ -40,11 +40,7 @@ type LeasedOpsOutbox struct {
 // Leased returns a LeasedOpsOutbox that uses owner and duration to acquire and
 // renew the relay lease.
 func (s *OpsOutboxStore) Leased(owner uuid.UUID, duration time.Duration) *LeasedOpsOutbox {
-	return &LeasedOpsOutbox{
-		store:    s,
-		owner:    owner,
-		versions: int64(duration.Seconds() * versionsPerSecond),
-	}
+	return &LeasedOpsOutbox{store: s, owner: owner, versions: int64(duration.Seconds() * versionsPerSecond)}
 }
 
 func opsOutboxRelayLeaseKey() fdb.Key {
@@ -56,71 +52,48 @@ func opsOutboxRelayLeaseKey() fdb.Key {
 // unexpired lease.
 func (l *LeasedOpsOutbox) Hold(ctx context.Context) (held bool, err error) {
 	defer telemetry.FDBOp(ctx, "store.ops_outbox.relay_lease_hold")(&err)
-	err = transactAuditRead(
-		ctx,
-		l.store.db,
-		func(tr fdb.Transaction) error {
-			held = false
-			readVersion, versionErr := tr.GetReadVersion().Get()
-			if versionErr != nil {
-				return auditReadStepFailure("read the relay lease version", versionErr)
-			}
-
-			lease, found, readErr := readRelayLease(tr)
-			if readErr != nil {
-				return readErr
-			}
-
-			if found && lease.Owner != l.owner && readVersion < lease.ExpiresVersion {
-				return nil
-			}
-
-			held = true
-
-			return writeRelayLease(
-				tr,
-				relayLeaseRecord{Owner: l.owner, ExpiresVersion: readVersion + l.versions},
-			)
-		},
-	)
+	err = transactAuditRead(ctx, l.store.db, func(tr fdb.Transaction) error {
+		held = false
+		readVersion, versionErr := tr.GetReadVersion().Get()
+		if versionErr != nil {
+			return auditReadStepFailure("read the relay lease version", versionErr)
+		}
+		lease, found, readErr := readRelayLease(tr)
+		if readErr != nil {
+			return readErr
+		}
+		if found && lease.Owner != l.owner && readVersion < lease.ExpiresVersion {
+			return nil
+		}
+		held = true
+		return writeRelayLease(tr, relayLeaseRecord{Owner: l.owner, ExpiresVersion: readVersion + l.versions})
+	})
 	if err != nil {
 		return false, auditReadFailure(ctx, "hold the ops outbox relay lease", l.owner, err)
 	}
-
 	return held, nil
 }
 
 // Release deletes the relay lease only when the caller still owns it.
 func (l *LeasedOpsOutbox) Release(ctx context.Context) (err error) {
 	defer telemetry.FDBOp(ctx, "store.ops_outbox.relay_lease_release")(&err)
-	err = transactAuditRead(
-		ctx,
-		l.store.db,
-		func(tr fdb.Transaction) error {
-			lease, found, readErr := readRelayLease(tr)
-			if readErr != nil || !found || lease.Owner != l.owner {
-				return readErr
-			}
-
-			tr.Clear(opsOutboxRelayLeaseKey())
-
-			return nil
-		},
-	)
+	err = transactAuditRead(ctx, l.store.db, func(tr fdb.Transaction) error {
+		lease, found, readErr := readRelayLease(tr)
+		if readErr != nil || !found || lease.Owner != l.owner {
+			return readErr
+		}
+		tr.Clear(opsOutboxRelayLeaseKey())
+		return nil
+	})
 	if err != nil {
 		return auditReadFailure(ctx, "release the ops outbox relay lease", l.owner, err)
 	}
-
 	return nil
 }
 
 // ReadOutboxFrom reads up to limit entries after mark in commit order without
 // checking the lease. A nil mark starts at the beginning of the outbox.
-func (l *LeasedOpsOutbox) ReadOutboxFrom(
-	ctx context.Context,
-	mark []byte,
-	limit int,
-) ([]OutboxEntry, error) {
+func (l *LeasedOpsOutbox) ReadOutboxFrom(ctx context.Context, mark []byte, limit int) ([]OutboxEntry, error) {
 	return l.store.ReadOutboxFrom(ctx, mark, limit)
 }
 
@@ -136,48 +109,29 @@ func (l *LeasedOpsOutbox) ClearThrough(ctx context.Context, mark []byte) error {
 // ErrRelayLeaseLost without clearing entries if the caller does not own the
 // lease. A takeover after the lease read forces the clear transaction to retry
 // and check the new owner.
-func (l *LeasedOpsOutbox) ClearThroughPublished(
-	ctx context.Context,
-	mark []byte,
-	reads []audit.PublishedRead,
-) (err error) {
+func (l *LeasedOpsOutbox) ClearThroughPublished(ctx context.Context, mark []byte, reads []audit.PublishedRead) (err error) {
 	defer telemetry.FDBOp(ctx, "store.ops_outbox.leased_clear_through")(&err)
 	if len(mark) == 0 {
 		return nil
 	}
-
 	clearRange, err := outboxClearRange(ctx, mark)
 	if err != nil {
 		return err
 	}
-
-	err = transactAuditRead(
-		ctx,
-		l.store.db,
-		func(tr fdb.Transaction) error {
-			lease, found, readErr := readRelayLease(tr)
-			if readErr != nil {
-				return readErr
-			}
-
-			if !found || lease.Owner != l.owner {
-				return ErrRelayLeaseLost
-			}
-
-			tr.ClearRange(clearRange)
-
-			return acknowledgeReads(tr, processClock{}.Now(), reads)
-		},
-	)
+	err = transactAuditRead(ctx, l.store.db, func(tr fdb.Transaction) error {
+		lease, found, readErr := readRelayLease(tr)
+		if readErr != nil {
+			return readErr
+		}
+		if !found || lease.Owner != l.owner {
+			return ErrRelayLeaseLost
+		}
+		tr.ClearRange(clearRange)
+		return acknowledgeReads(tr, processClock{}.Now(), reads)
+	})
 	if err != nil {
-		return auditReadFailure(
-			ctx,
-			"clear delivered outbox entries under the relay lease",
-			l.owner,
-			err,
-		)
+		return auditReadFailure(ctx, "clear delivered outbox entries under the relay lease", l.owner, err)
 	}
-
 	return nil
 }
 
@@ -189,15 +143,12 @@ func readRelayLease(tr fdb.Transaction) (relayLeaseRecord, bool, error) {
 	if err != nil {
 		return lease, false, auditReadStepFailure("read the relay lease", err)
 	}
-
 	if len(encoded) == 0 {
 		return lease, false, nil
 	}
-
 	if err := json.Unmarshal(encoded, &lease); err != nil {
 		return lease, false, auditReadStepFailure("decode the relay lease", err)
 	}
-
 	return lease, true, nil
 }
 
@@ -207,8 +158,6 @@ func writeRelayLease(tr fdb.Transaction, lease relayLeaseRecord) error {
 	if err != nil {
 		return auditReadStepFailure("encode the relay lease", err)
 	}
-
 	tr.Set(opsOutboxRelayLeaseKey(), encoded)
-
 	return nil
 }

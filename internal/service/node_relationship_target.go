@@ -19,33 +19,16 @@ func (s *NodeService) isMemberTarget(ctx context.Context, rel *node.Relationship
 	if err == nil && resolved != nil {
 		return false, nil
 	}
-
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		wrapped := fmt.Errorf("resolve relationship target %s: %w", rel.TargetID, err)
-		slog.ErrorContext(
-			ctx,
-			"node.relationship.target_resolve_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		slog.ErrorContext(ctx, "node.relationship.target_resolve_failed", slog.String("err", wrapped.Error()))
 		return false, wrapped
 	}
-
 	orgIDs, err := s.members.ListOrgIDsForUser(ctx, rel.TargetID)
 	if err != nil {
-		wrapped := fmt.Errorf(
-			"read the organizations of relationship target %s: %w",
-			rel.TargetID,
-			err,
-		)
-		slog.ErrorContext(
-			ctx,
-			"node.relationship.target_members_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		wrapped := fmt.Errorf("read the organizations of relationship target %s: %w", rel.TargetID, err)
+		slog.ErrorContext(ctx, "node.relationship.target_members_failed", slog.String("err", wrapped.Error()))
 		return false, wrapped
 	}
-
 	return slices.Contains(orgIDs, rel.OrgID), nil
 }

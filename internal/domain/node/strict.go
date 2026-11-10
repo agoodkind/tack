@@ -21,7 +21,6 @@ func WriteFenceBucket(orgID, nodeID uuid.UUID) int {
 	hash := fnv.New32a()
 	_, _ = hash.Write(orgID[:])
 	_, _ = hash.Write(nodeID[:])
-
 	return int(hash.Sum32() % WriteFenceBuckets)
 }
 
@@ -62,24 +61,17 @@ func (e StrictEvidence) Compare(later StrictEvidence) StrictEvidenceChange {
 			change.Buckets = append(change.Buckets, bucket)
 		}
 	}
-
 	for orgID, epoch := range e.MetadataEpochs {
 		if later.MetadataEpochs[orgID] != epoch {
 			change.Organizations = append(change.Organizations, orgID)
 		}
 	}
-
 	for orgID, epoch := range later.MetadataEpochs {
 		if _, known := e.MetadataEpochs[orgID]; !known && epoch != 0 {
 			change.Organizations = append(change.Organizations, orgID)
 		}
 	}
-
-	slices.SortFunc(
-		change.Organizations,
-		func(left, right uuid.UUID) int { return bytes.Compare(left[:], right[:]) },
-	)
-
+	slices.SortFunc(change.Organizations, func(left, right uuid.UUID) int { return bytes.Compare(left[:], right[:]) })
 	return change
 }
 
@@ -87,7 +79,6 @@ func evidenceAt(values []int64, position int) int64 {
 	if position >= len(values) {
 		return 0
 	}
-
 	return values[position]
 }
 

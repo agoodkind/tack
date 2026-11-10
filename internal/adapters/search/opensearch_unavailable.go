@@ -18,10 +18,7 @@ import (
 // member unavailability after the client stops retrying.
 // [proxyFailed] checks HTTP 500 separately.
 var unavailableStatuses = []int{
-	http.StatusTooManyRequests,
-	http.StatusBadGateway,
-	http.StatusServiceUnavailable,
-	http.StatusGatewayTimeout,
+	http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout,
 }
 
 type unavailableError struct{ err error }
@@ -30,7 +27,6 @@ func (e unavailableError) Error() string {
 	if e.err == nil {
 		return "engine unavailable"
 	}
-
 	return e.err.Error()
 }
 
@@ -48,11 +44,9 @@ func engineCause(ctx context.Context, response *opensearch.Response, err error) 
 	if !refused && !rejected && !proxyFailed(response, err) && !engineTimedOut(ctx, err) {
 		return err
 	}
-
 	if response != nil && response.StatusCode == http.StatusTooManyRequests {
 		logEngineRejection(ctx, response.StatusCode, err)
 	}
-
 	return unavailableError{err: err}
 }
 
@@ -71,11 +65,8 @@ func engineTimedOut(ctx context.Context, err error) bool {
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return false
 	}
-
 	var netError net.Error
-
-	return errors.Is(err, context.DeadlineExceeded) ||
-		(errors.As(err, &netError) && netError.Timeout())
+	return errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netError) && netError.Timeout())
 }
 
 // logEngineRejection logs search.engine.rejected at Error level with the error text, HTTP status,
@@ -87,12 +78,6 @@ func logEngineRejection(ctx context.Context, status int, err error) {
 	if errors.As(err, &structured) {
 		errorType = structured.Err.Type
 	}
-
-	telemetry.L(ctx).ErrorContext(
-		ctx,
-		"search.engine.rejected",
-		slog.String("err", err.Error()),
-		slog.Int("status", status),
-		slog.String("error_type", errorType),
-	)
+	telemetry.L(ctx).ErrorContext(ctx, "search.engine.rejected", slog.String("err", err.Error()),
+		slog.Int("status", status), slog.String("error_type", errorType))
 }

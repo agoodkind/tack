@@ -35,27 +35,17 @@ func TestIssueAssignmentRendersFromAssignedToRelationships(t *testing.T) {
 	requireLine(t, listedIssue(t, harness, issue), "  - Assigned: unassigned")
 	after := getIssueText(t, harness, issue)
 	if withoutUpdated(after) != withoutUpdated(before) {
-		t.Fatalf(
-			"issue %s changed after the assignment was added and removed:\nbefore:\n%s\nafter:\n%s",
-			issue,
-			before,
-			after,
-		)
+		t.Fatalf("issue %s changed after the assignment was added and removed:\nbefore:\n%s\nafter:\n%s", issue, before, after)
 	}
 }
 
 func firstMember(t *testing.T, harness *integration.MCPHarness) (string, string) {
 	t.Helper()
-	text := harness.Call(
-		t,
-		"tack_list_members",
-		assignmentToolArguments(harness.Workspace, ""),
-	).Text()
+	text := harness.Call(t, "tack_list_members", assignmentToolArguments(harness.Workspace, "")).Text()
 	match := memberPattern.FindStringSubmatch(text)
 	if match == nil {
 		t.Fatalf("tack_list_members printed no member:\n%s", text)
 	}
-
 	return match[1], match[2]
 }
 
@@ -63,7 +53,6 @@ func getIssueText(t *testing.T, harness *integration.MCPHarness, issue string) s
 	t.Helper()
 	arguments := assignmentToolArguments(harness.Workspace, "")
 	arguments.NodeID = issue
-
 	return harness.Call(t, "tack_get_issue", arguments).Text()
 }
 
@@ -71,40 +60,29 @@ func getIssueText(t *testing.T, harness *integration.MCPHarness, issue string) s
 // from tack_list_issues output.
 func listedIssue(t *testing.T, harness *integration.MCPHarness, issue string) string {
 	t.Helper()
-	text := harness.Call(
-		t,
-		"tack_list_issues",
-		assignmentToolArguments(harness.Workspace, harness.Project),
-	).Text()
-
+	text := harness.Call(t, "tack_list_issues", assignmentToolArguments(harness.Workspace, harness.Project)).Text()
 	lines := strings.Split(text, "\n")
 	for index, line := range lines {
 		if line != "- `"+issue+"`" {
 			continue
 		}
-
 		end := index + 1
 		for end < len(lines) && strings.HasPrefix(lines[end], "  - ") {
 			end++
 		}
-
 		return strings.Join(lines[index:end], "\n")
 	}
-
 	t.Fatalf("tack_list_issues did not list issue %s:\n%s", issue, text)
-
 	return ""
 }
 
 func requireLine(t *testing.T, text, line string) {
 	t.Helper()
-
 	for _, candidate := range strings.Split(text, "\n") {
 		if candidate == line {
 			return
 		}
 	}
-
 	t.Fatalf("output has no line %q:\n%s", line, text)
 }
 
@@ -117,7 +95,6 @@ func withoutUpdated(text string) string {
 			kept = append(kept, line)
 		}
 	}
-
 	return strings.Join(kept, "\n")
 }
 
@@ -126,25 +103,12 @@ func assignmentArguments(issue, memberID string) datagen.ToolArguments {
 	arguments.SourceID = issue
 	arguments.RelationType = "assigned_to"
 	arguments.TargetID = memberID
-
 	return arguments
 }
 
 func assignmentToolArguments(workspace, project string) datagen.ToolArguments {
 	return datagen.ToolArguments{
-		WorkspaceReference: workspace,
-		ProjectReference:   project,
-		IssueReference:     "",
-		Name:               "",
-		Properties:         nil,
-		NodeID:             "",
-		Query:              "",
-		NodeType:           "",
-		Direction:          "",
-		SourceID:           "",
-		RelationType:       "",
-		TargetID:           "",
-		Limit:              0,
-		Cursor:             "",
+		WorkspaceReference: workspace, ProjectReference: project, IssueReference: "", Name: "", Properties: nil,
+		NodeID: "", Query: "", NodeType: "", Direction: "", SourceID: "", RelationType: "", TargetID: "", Limit: 0, Cursor: "",
 	}
 }

@@ -25,24 +25,8 @@ func TestSearchAccessVersionWithoutRebuild(t *testing.T) {
 	entry := entryPoint(t, fixture, workspace)
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
 	nodes := []uuid.UUID{
-		putOpaqueNode(
-			t,
-			fixture,
-			kind,
-			entry,
-			"rotated first",
-			"rotated key orchard",
-			readerExcludedValue,
-		),
-		putOpaqueNode(
-			t,
-			fixture,
-			kind,
-			entry,
-			"rotated second",
-			"rotated key orchard harbor",
-			readerExcludedValue,
-		),
+		putOpaqueNode(t, fixture, kind, entry, "rotated first", "rotated key orchard", readerExcludedValue),
+		putOpaqueNode(t, fixture, kind, entry, "rotated second", "rotated key orchard harbor", readerExcludedValue),
 	}
 	drainSearchWork(t, fixture.Worker, 2000)
 	before := pagesOf(t, fixture, nodes)
@@ -50,48 +34,25 @@ func TestSearchAccessVersionWithoutRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read pinned model: %v", err)
 	}
-
 	undeployNativeModel(t, fixture.Adapter, fixture.Client, model.ID)
 
 	beginRollout(t, fixture, workspace.OrgID, searchaccess.RotatedVersion)
-	final := runRolloutUntilStable(
-		t,
-		fixture,
-		fixture.Worker,
-		workspace.OrgID,
-		func(searchdomain.AccessPhase) {},
-	)
-	if final.ActiveVersion != searchaccess.RotatedVersion ||
-		!slices.Equal(final.WriteVersions, []string{searchaccess.RotatedVersion}) {
-		t.Fatalf(
-			"finished rollout = %+v, want %s active and written alone",
-			final,
-			searchaccess.RotatedVersion,
-		)
+	final := runRolloutUntilStable(t, fixture, fixture.Worker, workspace.OrgID, func(searchdomain.AccessPhase) {})
+	if final.ActiveVersion != searchaccess.RotatedVersion || !slices.Equal(final.WriteVersions, []string{searchaccess.RotatedVersion}) {
+		t.Fatalf("finished rollout = %+v, want %s active and written alone", final, searchaccess.RotatedVersion)
 	}
-
 	requireAliasTarget(t, fixture)
 	after := pagesOf(t, fixture, nodes)
 	requireSemanticPreserved(t, before, after)
 	requireAccessVersions(t, after, []string{searchaccess.RotatedVersion})
 
-	if err := redeployNativeModel(
-		WithTestOperation(t, t.Context()),
-		fixture.Adapter,
-		fixture.Client,
-	); err != nil {
+	if err := redeployNativeModel(WithTestOperation(t, t.Context()), fixture.Adapter, fixture.Client); err != nil {
 		t.Fatalf("redeploy pinned model: %v", err)
 	}
-
 	results := callEverySearchPage(t, "rotated key orchard", fixture.Harness)
-
 	for _, nodeID := range nodes {
 		if !slices.Contains(results.IDs, nodeID) {
-			t.Fatalf(
-				"search under the rotated version returned %v, want node %s",
-				results.IDs,
-				nodeID,
-			)
+			t.Fatalf("search under the rotated version returned %v, want node %s", results.IDs, nodeID)
 		}
 	}
 }
@@ -104,66 +65,35 @@ func TestSearchAccessMembershipQueryOnly(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	entry := entryPoint(t, fixture, workspace)
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
-	nodeID := putOpaqueNode(
-		t,
-		fixture,
-		kind,
-		entry,
-		"member node",
-		"membership lantern",
-		readerExcludedValue,
-	)
+	nodeID := putOpaqueNode(t, fixture, kind, entry, "member node", "membership lantern", readerExcludedValue)
 	drainSearchWork(t, fixture.Worker, 2000)
-	if results := callEverySearchPage(t, "membership lantern", fixture.Harness); !slices.Contains(
-		results.IDs,
-		nodeID,
-	) {
+	if results := callEverySearchPage(t, "membership lantern", fixture.Harness); !slices.Contains(results.IDs, nodeID) {
 		t.Fatalf("member search returned %v, want node %s", results.IDs, nodeID)
 	}
-
 	before := pagesOf(t, fixture, []uuid.UUID{nodeID})
 
 	pool, err := pgxpool.New(WithTestOperation(t, t.Context()), fixture.Config.DatabaseURL)
 	if err != nil {
 		t.Fatalf("open membership pool: %v", err)
 	}
-
 	t.Cleanup(pool.Close)
-	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(
-		WithTestOperation(t, t.Context()),
-		workspace.OrgID,
-		workspace.Actors[0].UserID,
-	); err != nil {
+	if err := postgres.NewOrgMemberRepo(pool).RemoveMember(WithTestOperation(t, t.Context()), workspace.OrgID, workspace.Actors[0].UserID); err != nil {
 		t.Fatalf("remove membership: %v", err)
 	}
-
 	if _, err := trySearch(fixture.Harness, "membership lantern", ""); err == nil {
 		t.Fatal("search succeeded after the caller lost membership")
 	}
-
 	store := fixture.Stores.SearchWork(clock.Wall{})
-
-	for _, class := range []searchdomain.WorkClass{
-		searchdomain.WorkClassLive,
-		searchdomain.WorkClassAccess,
-	} {
-		work, claimed, err := store.Claim(
-			WithTestOperation(t, t.Context()),
-			class,
-			"membership-inspector",
-			time.Minute,
-		)
+	for _, class := range []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess} {
+		work, claimed, err := store.Claim(WithTestOperation(t, t.Context()), class, "membership-inspector", time.Minute)
 		if err != nil || claimed {
 			t.Fatalf("membership change left %s work %+v, error = %v", class, work, err)
 		}
 	}
-
 	after := pagesOf(t, fixture, []uuid.UUID{nodeID})
 	requireSemanticPreserved(t, before, after)
-
 	for position, page := range after {
-		if page.SearchGeneration != before[position].SearchGeneration ||
-			!slices.Equal(page.Access.Keys, before[position].Access.Keys) {
+		if page.SearchGeneration != before[position].SearchGeneration || !slices.Equal(page.Access.Keys, before[position].Access.Keys) {
 			t.Fatalf("membership change rewrote page %d", position)
 		}
 	}
@@ -178,15 +108,7 @@ func TestSearchAccessResourceRefresh(t *testing.T) {
 	first, second := sameOrgWorkspaces(t, fixture)
 	from, to := entryPoint(t, fixture, first), entryPoint(t, fixture, second)
 	kind := putOpaqueKind(t, fixture, first.OrgID)
-	nodeID := putOpaqueNode(
-		t,
-		fixture,
-		kind,
-		from,
-		"moved node",
-		strings.Repeat("moved resource text ", 16),
-		readerExcludedValue,
-	)
+	nodeID := putOpaqueNode(t, fixture, kind, from, "moved node", strings.Repeat("moved resource text ", 16), readerExcludedValue)
 	drainSearchWork(t, fixture.Worker, 2000)
 	before := pagesOf(t, fixture, []uuid.UUID{nodeID})
 
@@ -194,16 +116,9 @@ func TestSearchAccessResourceRefresh(t *testing.T) {
 	drainSearchWork(t, fixture.Worker, 2000)
 	after := pagesOf(t, fixture, []uuid.UUID{nodeID})
 	requireSemanticPreserved(t, before, after)
-
 	for position, page := range after {
-		if slices.Equal(page.Access.Keys, before[position].Access.Keys) ||
-			pageGeneration(t, page) <= pageGeneration(t, before[position]) {
-			t.Fatalf(
-				"page %d kept access %v at generation %s",
-				position,
-				page.Access.Keys,
-				page.SearchGeneration,
-			)
+		if slices.Equal(page.Access.Keys, before[position].Access.Keys) || pageGeneration(t, page) <= pageGeneration(t, before[position]) {
+			t.Fatalf("page %d kept access %v at generation %s", position, page.Access.Keys, page.SearchGeneration)
 		}
 	}
 }
@@ -217,49 +132,22 @@ func TestSearchAccessRolloutRecovery(t *testing.T) {
 	workspace := fixture.Workspaces[0]
 	entry := entryPoint(t, fixture, workspace)
 	kind := putOpaqueKind(t, fixture, workspace.OrgID)
-	nodes := []uuid.UUID{
-		putOpaqueNode(
-			t,
-			fixture,
-			kind,
-			entry,
-			"recovery node",
-			strings.Repeat("recovery page text ", 16),
-			readerExcludedValue,
-		),
-	}
+	nodes := []uuid.UUID{putOpaqueNode(t, fixture, kind, entry, "recovery node", strings.Repeat("recovery page text ", 16), readerExcludedValue)}
 	drainSearchWork(t, fixture.Worker, 2000)
 
 	beginRollout(t, fixture, workspace.OrgID, searchaccess.RotatedVersion)
 	store := fixture.Stores.SearchWork(clock.Wall{})
 	abandoned := make([]searchdomain.AccessPhase, 0, 4)
-	final := runRolloutUntilStable(
-		t,
-		fixture,
-		fixture.Worker,
-		workspace.OrgID,
-		func(phase searchdomain.AccessPhase) {
-			if _, claimed, err := store.Claim(
-				WithTestOperation(t, t.Context()),
-				searchdomain.WorkClassRollout,
-				"stopped-process",
-				rolloutAbandonLease,
-			); err == nil &&
-				claimed {
-				abandoned = append(abandoned, phase)
-			}
-		},
-	)
+	final := runRolloutUntilStable(t, fixture, fixture.Worker, workspace.OrgID, func(phase searchdomain.AccessPhase) {
+		if _, claimed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassRollout, "stopped-process", rolloutAbandonLease); err == nil && claimed {
+			abandoned = append(abandoned, phase)
+		}
+	})
 	if len(abandoned) < 3 {
-		t.Fatalf(
-			"abandoned rollout steps in phases %v, want backfill, verifying, and retiring",
-			abandoned,
-		)
+		t.Fatalf("abandoned rollout steps in phases %v, want backfill, verifying, and retiring", abandoned)
 	}
-
 	if final.ActiveVersion != searchaccess.RotatedVersion {
 		t.Fatalf("recovered rollout active version = %s", final.ActiveVersion)
 	}
-
 	requireAccessVersions(t, pagesOf(t, fixture, nodes), []string{searchaccess.RotatedVersion})
 }

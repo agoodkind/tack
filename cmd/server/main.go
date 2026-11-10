@@ -55,14 +55,12 @@ func run() int {
 		slog.Error("telemetry.setup", "err", err)
 		return 1
 	}
-
 	defer func() {
 		if closer != nil {
 			_ = closer.Close()
 		}
 	}()
-	slog.Info(
-		"server.startup",
+	slog.Info("server.startup",
 		slog.String("version", version.Tag()),
 		slog.String("commit", version.Commit()),
 	)
@@ -71,7 +69,6 @@ func run() int {
 	if findErr != nil || target.CommandPath() != "tack ops audit seed-roles" {
 		configureAuditOutbox(f)
 	}
-
 	configureAuditInfrastructureProbe(f)
 	defer f.CloseAuditOutbox()
 	ctx, span := telemetry.StartSpan(context.Background(), "cli")
@@ -90,16 +87,10 @@ func run() int {
 	root.SetContext(ctx)
 	if err := root.Execute(); err != nil {
 		code := exitCodeOf(err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"cli.failed",
-			slog.String("err", err.Error()),
-			slog.Int("code", code),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "cli.failed",
+			slog.String("err", err.Error()), slog.Int("code", code))
 		return code
 	}
-
 	return 0
 }
 
@@ -115,6 +106,5 @@ func exitCodeOf(err error) int {
 	if errors.As(err, &coded) {
 		return coded.OperatorExitStatus()
 	}
-
 	return 1
 }

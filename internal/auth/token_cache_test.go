@@ -26,20 +26,14 @@ func (c *countingValidator) Validate(_ context.Context, raw string) (*token.Toke
 	if !ok {
 		return nil, domain.ErrUnauthenticated
 	}
-
 	copied := *record
-
 	return &copied, nil
 }
 
 func liveToken(expiresAt *time.Time) *token.Token {
 	return &token.Token{
-		ID:        uuid.Must(uuid.NewV7()),
-		UserID:    uuid.Must(uuid.NewV7()),
-		Label:     "cached",
-		LastUsed:  nil,
-		ExpiresAt: expiresAt,
-		CreatedAt: time.Time{},
+		ID: uuid.Must(uuid.NewV7()), UserID: uuid.Must(uuid.NewV7()), Label: "cached",
+		LastUsed: nil, ExpiresAt: expiresAt, CreatedAt: time.Time{},
 	}
 }
 
@@ -55,16 +49,13 @@ func TestCachedTokenValidatorAsksOncePerLifetime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first validate: %v", err)
 	}
-
 	second, err := cached.Validate(ctx, "tack_a")
 	if err != nil {
 		t.Fatalf("second validate: %v", err)
 	}
-
 	if calls := store.calls.Load(); calls != 1 {
 		t.Fatalf("store asked %d times, want 1", calls)
 	}
-
 	if first.ID != second.ID || first.UserID != second.UserID {
 		t.Fatalf("cached record differs: %+v vs %+v", first, second)
 	}
@@ -81,13 +72,11 @@ func TestCachedTokenValidatorForgetsAfterTheLifetime(t *testing.T) {
 	if _, err := cached.Validate(ctx, "tack_b"); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
-
 	delete(store.records, "tack_b")
 	time.Sleep(60 * time.Millisecond)
 	if _, err := cached.Validate(ctx, "tack_b"); !errors.Is(err, domain.ErrUnauthenticated) {
 		t.Fatalf("a revoked token was accepted after the lifetime: err = %v", err)
 	}
-
 	if calls := store.calls.Load(); calls != 2 {
 		t.Fatalf("store asked %d times, want 2", calls)
 	}
@@ -104,7 +93,6 @@ func TestCachedTokenValidatorHonorsTheTokensOwnExpiry(t *testing.T) {
 	if _, err := cached.Validate(ctx, "tack_c"); err != nil {
 		t.Fatalf("validate before expiry: %v", err)
 	}
-
 	delete(store.records, "tack_c")
 	time.Sleep(50 * time.Millisecond)
 	if _, err := cached.Validate(ctx, "tack_c"); !errors.Is(err, domain.ErrUnauthenticated) {
@@ -122,7 +110,6 @@ func TestCachedTokenValidatorNeverCachesARefusal(t *testing.T) {
 	if _, err := cached.Validate(ctx, "tack_d"); !errors.Is(err, domain.ErrUnauthenticated) {
 		t.Fatalf("unknown token: err = %v, want unauthenticated", err)
 	}
-
 	store.records["tack_d"] = liveToken(nil)
 	if _, err := cached.Validate(ctx, "tack_d"); err != nil {
 		t.Fatalf("a token created after a refusal was refused: %v", err)
@@ -133,18 +120,15 @@ func TestCachedTokenValidatorNeverCachesARefusal(t *testing.T) {
 // holds more than it was sized for.
 func TestCachedTokenValidatorStaysBounded(t *testing.T) {
 	store := &countingValidator{records: map[string]*token.Token{}}
-
 	for i := range 10 {
 		store.records["tack_"+string(rune('a'+i))] = liveToken(nil)
 	}
-
 	cached := NewCachedTokenValidator(store, time.Minute, 4)
 	for raw := range store.records {
 		if _, err := cached.Validate(context.Background(), raw); err != nil {
 			t.Fatalf("validate %s: %v", raw, err)
 		}
 	}
-
 	cached.cache.mu.Lock()
 	size := cached.cache.order.Len()
 	cached.cache.mu.Unlock()

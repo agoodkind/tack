@@ -16,24 +16,13 @@ func searchRevisionKey(orgID, nodeID uuid.UUID) []byte {
 }
 
 func searchWorkKey(class string, bucket int, orgID, nodeID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{keySearchWork, class, bucket, orgID.String(), nodeID.String()}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchWork, class, bucket, orgID.String(), nodeID.String()}.Pack())
 }
 
 // searchAgeKey orders one pending work record by its enqueue time inside its
 // class and bucket.
 func searchAgeKey(class string, bucket int, enqueuedAt time.Time, orgID, nodeID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchAge,
-			class,
-			bucket,
-			enqueuedAt.UnixNano(),
-			orgID.String(),
-			nodeID.String(),
-		}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchAge, class, bucket, enqueuedAt.UnixNano(), orgID.String(), nodeID.String()}.Pack())
 }
 
 func searchAgePrefix(class string, bucket int) []byte {
@@ -48,9 +37,7 @@ func searchAgeClassPrefix(class string) []byte {
 }
 
 func searchClaimKey(class string, bucket int, orgID, nodeID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{keySearchClaim, class, bucket, orgID.String(), nodeID.String()}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchClaim, class, bucket, orgID.String(), nodeID.String()}.Pack())
 }
 
 func searchCursorKey(class string, orgID, nodeID uuid.UUID) []byte {
@@ -68,37 +55,18 @@ func searchIssuedPrefix(orgID, nodeID uuid.UUID) []byte {
 }
 
 func searchIssuedRevisionPrefix(orgID, nodeID uuid.UUID, revision int64) []byte {
-	return withPrefix(
-		tuple.Tuple{keySearchIssued, orgID.String(), nodeID.String(), revision}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchIssued, orgID.String(), nodeID.String(), revision}.Pack())
 }
 
 func searchIssuedOrdinalPrefix(orgID, nodeID uuid.UUID, revision int64, ordinal uint64) []byte {
-	return withPrefix(
-		tuple.Tuple{keySearchIssued, orgID.String(), nodeID.String(), revision, ordinal}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchIssued, orgID.String(), nodeID.String(), revision, ordinal}.Pack())
 }
 
 // searchIssuedKey identifies one registered page by revision, ordinal, and
 // projection version. Two owners that register the same ordinal of one
 // revision under different projections record two document IDs.
-func searchIssuedKey(
-	orgID uuid.UUID,
-	nodeID uuid.UUID,
-	revision int64,
-	ordinal uint64,
-	projection string,
-) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchIssued,
-			orgID.String(),
-			nodeID.String(),
-			revision,
-			ordinal,
-			projection,
-		}.Pack(),
-	)
+func searchIssuedKey(orgID, nodeID uuid.UUID, revision int64, ordinal uint64, projection string) []byte {
+	return withPrefix(tuple.Tuple{keySearchIssued, orgID.String(), nodeID.String(), revision, ordinal, projection}.Pack())
 }
 
 func searchAccessKey(orgID, nodeID uuid.UUID) []byte {
@@ -106,14 +74,7 @@ func searchAccessKey(orgID, nodeID uuid.UUID) []byte {
 }
 
 func searchFanoutKey(orgID, deletedID, counterpartID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keySearchFanout,
-			orgID.String(),
-			deletedID.String(),
-			counterpartID.String(),
-		}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keySearchFanout, orgID.String(), deletedID.String(), counterpartID.String()}.Pack())
 }
 
 func searchFanoutPrefix(orgID, deletedID uuid.UUID) []byte {

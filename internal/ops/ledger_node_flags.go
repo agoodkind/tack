@@ -44,51 +44,31 @@ type ybVarzFlag struct {
 // the flags its tablet server reports, and names the ones that differ. A
 // container that is not running, or a stack without the flag file, has nothing
 // to restart and reads as current.
-func staleLedgerNodeFlags(
-	ctx context.Context,
-	cli *client.Client,
-	containerName string,
-) ([]string, error) {
+func staleLedgerNodeFlags(ctx context.Context, cli *client.Client, containerName string) ([]string, error) {
 	health, err := inspectLedgerNodeHealth(ctx, cli, containerName)
 	if err != nil {
 		return nil, err
 	}
-
 	if !health.running {
 		return nil, nil
 	}
-
 	file, found, err := readContainerFile(ctx, cli, containerName, ledgerTserverFlagFile)
 	if err != nil {
 		return nil, err
 	}
-
 	if !found {
-		slog.InfoContext(
-			ctx,
-			"ops.ledger.node_prepare.flag_file_absent",
-			slog.String("path", ledgerTserverFlagFile),
-		)
-
+		slog.InfoContext(ctx, "ops.ledger.node_prepare.flag_file_absent", slog.String("path", ledgerTserverFlagFile))
 		return nil, nil
 	}
-
 	body, err := fetchYBMasterHealth(ctx, ledgerTserverVarzURL)
 	if err != nil {
-		slog.ErrorContext(
-			ctx,
-			"ops.ledger.node_prepare.varz_unreachable",
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "ops.ledger.node_prepare.varz_unreachable", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read the tablet server's flags: %w", err)
 	}
-
 	running, err := runningTserverFlags(ctx, body)
 	if err != nil {
 		return nil, err
 	}
-
 	return staleTserverFlags(parseTserverFlagFile(file.content), running), nil
 }
 
@@ -96,18 +76,15 @@ func staleLedgerNodeFlags(
 // lines and comments are skipped; a flag without a value reads as empty.
 func parseTserverFlagFile(content []byte) map[string]string {
 	flags := map[string]string{}
-
 	for line := range strings.SplitSeq(string(content), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-
 		line = strings.TrimPrefix(line, "--")
 		name, value, _ := strings.Cut(line, "=")
 		flags[strings.TrimSpace(name)] = strings.TrimSpace(value)
 	}
-
 	return flags
 }
 
@@ -115,20 +92,13 @@ func parseTserverFlagFile(content []byte) map[string]string {
 func runningTserverFlags(ctx context.Context, body []byte) (map[string]string, error) {
 	var listing ybVarz
 	if err := json.Unmarshal(body, &listing); err != nil {
-		slog.ErrorContext(
-			ctx,
-			"ops.ledger.node_prepare.varz_unparseable",
-			slog.String("err", err.Error()),
-		)
-
+		slog.ErrorContext(ctx, "ops.ledger.node_prepare.varz_unparseable", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("unmarshal tablet server flags: %w", err)
 	}
-
 	flags := make(map[string]string, len(listing.Flags))
 	for _, flag := range listing.Flags {
 		flags[flag.Name] = flag.Value
 	}
-
 	return flags, nil
 }
 
@@ -137,14 +107,11 @@ func runningTserverFlags(ctx context.Context, body []byte) (map[string]string, e
 // not list at all counts as stale: the file names it, the server never read it.
 func staleTserverFlags(file, running map[string]string) []string {
 	var stale []string
-
 	for name, want := range file {
 		if got, ok := running[name]; !ok || got != want {
 			stale = append(stale, name)
 		}
 	}
-
 	slices.Sort(stale)
-
 	return stale
 }

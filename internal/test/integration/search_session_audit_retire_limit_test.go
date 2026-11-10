@@ -51,27 +51,13 @@ func TestSearchSessionAuditRetireObservationAboveValueLimit(t *testing.T) {
 		expected[digestOf(value)] = value
 	}
 
-	remaining, err := rebuilds.RetireIndexSessions(
-		integration.WithTestOperation(t, t.Context()),
-		index,
-		retireSliceLimit,
-	)
+	remaining, err := rebuilds.RetireIndexSessions(integration.WithTestOperation(t, t.Context()), index, retireSliceLimit)
 	if err != nil || remaining {
-		t.Fatalf(
-			"RetireIndexSessions of %s with oversized observations = %t, %v, want a finished retirement",
-			index,
-			remaining,
-			err,
-		)
+		t.Fatalf("RetireIndexSessions of %s with oversized observations = %t, %v, want a finished retirement", index, remaining, err)
 	}
 	attemptRecordValues(t, 0)
 	if events := invalidAttemptEvents(t, stores, mark); len(events) != nearLimitRecordCount {
-		t.Fatalf(
-			"index %s has %d invalid attempt events, want %d",
-			index,
-			len(events),
-			nearLimitRecordCount,
-		)
+		t.Fatalf("index %s has %d invalid attempt events, want %d", index, len(events), nearLimitRecordCount)
 	}
 	retainedIDs := retainedAttemptEvents(t, stores, mark)
 	stack := startRuntimeAuditStack(t)
@@ -90,9 +76,7 @@ func nearLimitAttemptValue(t *testing.T, deadline time.Time, fill string) []byte
 	}
 	prefix := `{"deadline":` + string(encodedDeadline) + `,"event":{"filler":"`
 	suffix := `"}}`
-	return []byte(
-		prefix + strings.Repeat(fill, nearLimitRecordBytes-len(prefix)-len(suffix)) + suffix,
-	)
+	return []byte(prefix + strings.Repeat(fill, nearLimitRecordBytes-len(prefix)-len(suffix)) + suffix)
 }
 
 // requireObservationAboveLimit requires value to fit within the limit.
@@ -110,12 +94,7 @@ func requireObservationAboveLimit(t *testing.T, value []byte) {
 		t.Fatalf("encode the near-limit record: %v", err)
 	}
 	if len(value) > retireValueLimit || len(encoded) <= retireValueLimit {
-		t.Fatalf(
-			"the stored record has %d bytes and its observed encoding has %d bytes, want at most %d and more than %d",
-			len(value),
-			len(encoded),
-			retireValueLimit,
-			retireValueLimit,
-		)
+		t.Fatalf("the stored record has %d bytes and its observed encoding has %d bytes, want at most %d and more than %d",
+			len(value), len(encoded), retireValueLimit, retireValueLimit)
 	}
 }

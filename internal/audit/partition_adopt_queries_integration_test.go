@@ -14,9 +14,7 @@ import (
 func (fixture *partmanTestDatabase) futurePartitionCount(t *testing.T) int {
 	t.Helper()
 	var count int
-	if err := fixture.pool.QueryRow(
-		context.Background(),
-		`
+	if err := fixture.pool.QueryRow(context.Background(), `
 		SELECT count(*)
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
@@ -28,10 +26,7 @@ func (fixture *partmanTestDatabase) futurePartitionCount(t *testing.T) int {
 		      pg_get_expr(c.relpartbound, c.oid),
 		      'FROM \(''([0-9 :.+-]+)'''
 		  ))[1]::timestamptz > now()
-	`,
-	).Scan(
-		&count,
-	); err != nil {
+	`).Scan(&count); err != nil {
 		t.Fatalf("future partition count: %v", err)
 	}
 	return count
@@ -41,9 +36,7 @@ func (fixture *partmanTestDatabase) dropLatestEmptyFuturePartition(t *testing.T)
 	t.Helper()
 	var schemaName string
 	var tableName string
-	if err := fixture.pool.QueryRow(
-		context.Background(),
-		`
+	if err := fixture.pool.QueryRow(context.Background(), `
 		SELECT child_ns.nspname, c.relname
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
@@ -63,11 +56,7 @@ func (fixture *partmanTestDatabase) dropLatestEmptyFuturePartition(t *testing.T)
 		    )
 		)[1]::timestamptz DESC
 		LIMIT 1
-	`,
-	).Scan(
-		&schemaName,
-		&tableName,
-	); err != nil {
+	`).Scan(&schemaName, &tableName); err != nil {
 		t.Fatalf("find latest future partition: %v", err)
 	}
 	var rows int
@@ -96,9 +85,7 @@ func (fixture *partmanTestDatabase) assertPartitionCovers(
 ) {
 	t.Helper()
 	var count int
-	if err := fixture.pool.QueryRow(
-		context.Background(),
-		`
+	if err := fixture.pool.QueryRow(context.Background(), `
 		SELECT count(*)
 		FROM pg_inherits i
 		JOIN pg_class c ON c.oid = i.inhrelid
@@ -118,11 +105,7 @@ func (fixture *partmanTestDatabase) assertPartitionCovers(
 		          'TO \(''([0-9 :.+-]+)'''
 		      )
 		  )[1]::timestamptz
-	`,
-		target,
-	).Scan(
-		&count,
-	); err != nil {
+	`, target).Scan(&count); err != nil {
 		t.Fatalf("covering partition query: %v", err)
 	}
 	if count != 1 {

@@ -33,17 +33,12 @@ func alarmBackupStalenessTransitions(
 	metrics []backupStalenessMetric,
 ) {
 	logger := telemetry.L(ctx)
-	memory := loadBackupAlarmMemory(
-		ctx,
-		cfg,
-		func(key string) ([]byte, error) {
-			return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
-		},
-	)
+	memory := loadBackupAlarmMemory(ctx, cfg, func(key string) ([]byte, error) {
+		return getObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key)
+	})
 	state := memory.state
 	var faults []backupStalenessMetric
 	var held, cleared []string
-
 	for _, metric := range metrics {
 		_, alarmed := state.Alarmed[metric.Name]
 		switch {
@@ -60,38 +55,24 @@ func alarmBackupStalenessTransitions(
 			delete(state.Alarmed, metric.Name)
 		}
 	}
-
 	if len(held) > 0 {
 		logger.InfoContext(ctx, "backup.staleness.alarm_held", slog.Any("metrics", held))
 	}
-
 	if len(cleared) > 0 {
 		logger.InfoContext(ctx, "backup.staleness.cleared", slog.Any("metrics", cleared))
 	}
-
 	changed := len(cleared) > 0
 	if len(faults) > 0 && backupAlarmDeferredToPrimary(ctx, cfg, faults) {
 		faults = nil
 	}
-
 	if len(faults) > 0 && mailBackupStalenessAlarm(ctx, cfg, faults) {
 		acceptedAt := opsNow().UTC()
-
 		for _, fault := range faults {
 			state.Alarmed[fault.Name] = acceptedAt
 		}
-
 		changed = true
 	}
-
-	saveBackupAlarmMemory(
-		ctx,
-		cfg,
-		func(key string, body []byte) error {
-			return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
-		},
-		memory,
-		state,
-		changed,
-	)
+	saveBackupAlarmMemory(ctx, cfg, func(key string, body []byte) error {
+		return putObjectBytes(ctx, s3Client, cfg.BackupS3BucketMain, key, body)
+	}, memory, state, changed)
 }

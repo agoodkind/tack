@@ -11,17 +11,13 @@ import (
 // tablet server reports. A value the server holds at the file's setting is
 // current; a changed value or a flag the server never read is stale.
 func TestStaleTserverFlagsReadsTheFileAgainstTheServer(t *testing.T) {
-	file := parseTserverFlagFile(
-		[]byte(
-			`
+	file := parseTserverFlagFile([]byte(`
 # comment
 --ysql_pg_conf_csv=max_connections=100
 
 --memory_limit_hard_bytes=8589934592
 --ysql_num_tablets=1
-`,
-		),
-	)
+`))
 	if len(file) != 3 || file["ysql_pg_conf_csv"] != "max_connections=100" {
 		t.Fatalf("parsed flags = %v", file)
 	}
@@ -35,7 +31,6 @@ func TestStaleTserverFlagsReadsTheFileAgainstTheServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runningTserverFlags: %v", err)
 	}
-
 	stale := staleTserverFlags(file, running)
 	if strings.Join(stale, ",") != "ysql_num_tablets" {
 		t.Fatalf("stale = %v, want only the flag the server still holds at its default", stale)
@@ -47,10 +42,7 @@ func TestStaleTserverFlagsReadsTheFileAgainstTheServer(t *testing.T) {
 	}
 
 	delete(running, "memory_limit_hard_bytes")
-	if stale := staleTserverFlags(file, running); strings.Join(
-		stale,
-		",",
-	) != "memory_limit_hard_bytes" {
+	if stale := staleTserverFlags(file, running); strings.Join(stale, ",") != "memory_limit_hard_bytes" {
 		t.Fatalf("stale = %v, want the flag the server never listed", stale)
 	}
 

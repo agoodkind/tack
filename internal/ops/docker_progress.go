@@ -24,7 +24,6 @@ func drainProgressStream(
 ) error {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		var msg map[string]json.RawMessage
@@ -32,25 +31,21 @@ func drainProgressStream(
 		if decErr != nil {
 			continue
 		}
-
 		if errRaw, ok := msg["error"]; ok {
 			var errStr string
 			_ = json.Unmarshal(errRaw, &errStr)
-			log.ErrorContext(ctx, eventName+".daemon_error", slog.String("err", errStr))
-
+			log.ErrorContext(ctx, eventName+".daemon_error",
+				slog.String("err", errStr))
 			return fmt.Errorf("%s: %s", eventName, errStr)
 		}
-
 		if log != nil {
 			log.DebugContext(ctx, eventName, slog.String("line", string(line)))
 		}
 	}
-
 	if err := scanner.Err(); err != nil {
-		log.ErrorContext(ctx, eventName+".scan_failed", slog.String("err", err.Error()))
-
+		log.ErrorContext(ctx, eventName+".scan_failed",
+			slog.String("err", err.Error()))
 		return fmt.Errorf("%s scan: %w", eventName, err)
 	}
-
 	return nil
 }

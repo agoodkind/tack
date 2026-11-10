@@ -28,27 +28,13 @@ func LoadSearchRetentionSettings(ctx context.Context) (SearchRetentionSettings, 
 	var settings SearchRetentionSettings
 	if err := env.Parse(&settings); err != nil {
 		wrapped := fmt.Errorf("parse search retention settings: %w", err)
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.retention.config_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.retention.config_failed", slog.String("err", wrapped.Error()))
 		return SearchRetentionSettings{}, wrapped
 	}
-
-	if settings.MaxRetiredPages <= 0 || settings.MaxRetirementAge <= 0 ||
-		settings.MaxIndexBytes <= 0 ||
-		settings.CheckInterval <= 0 {
+	if settings.MaxRetiredPages <= 0 || settings.MaxRetirementAge <= 0 || settings.MaxIndexBytes <= 0 || settings.CheckInterval <= 0 {
 		wrapped := errors.New("search retention thresholds and check interval must be positive")
-		telemetry.L(ctx).ErrorContext(
-			ctx,
-			"search.retention.config_failed",
-			slog.String("err", wrapped.Error()),
-		)
-
+		telemetry.L(ctx).ErrorContext(ctx, "search.retention.config_failed", slog.String("err", wrapped.Error()))
 		return SearchRetentionSettings{}, wrapped
 	}
-
 	return settings, nil
 }

@@ -26,8 +26,7 @@ const (
 // checkoutCredentialFile matches the file name actions/checkout generates
 // for its HTTP authentication header.
 var checkoutCredentialFile = regexp.MustCompile(
-	`^git-credentials-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.config$`,
-)
+	`^git-credentials-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.config$`)
 
 // rejectUnsupportedIncludes fails when the configuration contains an
 // include other than the credential references that actions/checkout
@@ -47,18 +46,14 @@ func rejectUnsupportedIncludes(raw *format.Config, root string) error {
 			}
 		}
 	}
-
 	generatedFile := ""
-
 	for _, subsection := range raw.Section("includeIf").Subsections {
 		file, allowed := checkoutCredentialReference(subsection, root)
 		if !allowed || (generatedFile != "" && file != generatedFile) {
 			return unsupportedInclude(root)
 		}
-
 		generatedFile = file
 	}
-
 	return nil
 }
 
@@ -75,28 +70,23 @@ func checkoutCredentialReference(subsection *format.Subsection, root string) (st
 	if len(subsection.Options) != 1 || len(paths) != 1 {
 		return "", false
 	}
-
 	gitDirectory, found := strings.CutPrefix(subsection.Name, gitDirectoryCondition)
 	if !found {
 		return "", false
 	}
-
 	gitDirectory = strings.TrimSuffix(gitDirectory, worktreeSuffix)
 	if gitDirectory == "" {
 		return "", false
 	}
-
 	file := path.Base(paths[0])
 	if !checkoutCredentialFile.MatchString(file) {
 		return "", false
 	}
-
 	directory := path.Dir(paths[0])
 	hostGitDirectory := filepath.ToSlash(filepath.Join(root, ".git"))
 	if gitDirectory == hostGitDirectory && directory == hostRunnerTemp() {
 		return file, true
 	}
-
 	return file, gitDirectory == containerGitDirectory(root) && directory == containerRunnerTemp
 }
 
@@ -105,7 +95,6 @@ func hostRunnerTemp() string {
 	if temporary == "" {
 		return ""
 	}
-
 	return filepath.ToSlash(filepath.Clean(temporary))
 }
 
@@ -114,11 +103,9 @@ func containerGitDirectory(root string) string {
 	if workspace == "" {
 		return ""
 	}
-
 	relative, err := filepath.Rel(workspace, root)
 	if err != nil {
 		return ""
 	}
-
 	return path.Join(containerWorkspace, filepath.ToSlash(relative), ".git")
 }

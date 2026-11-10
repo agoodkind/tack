@@ -18,23 +18,11 @@ type admissionCancellation struct {
 	cancel context.CancelFunc
 }
 
-func (observer admissionCancellation) TraceQueryStart(
-	ctx context.Context,
-	_ *pgx.Conn,
-	data pgx.TraceQueryStartData,
-) context.Context {
-	return context.WithValue(
-		ctx,
-		readAdmissionQuery{},
-		strings.Contains(data.SQL, "public.ops_read_begin"),
-	)
+func (observer admissionCancellation) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	return context.WithValue(ctx, readAdmissionQuery{}, strings.Contains(data.SQL, "public.ops_read_begin"))
 }
 
-func (observer admissionCancellation) TraceQueryEnd(
-	ctx context.Context,
-	_ *pgx.Conn,
-	data pgx.TraceQueryEndData,
-) {
+func (observer admissionCancellation) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
 	admission, _ := ctx.Value(readAdmissionQuery{}).(bool)
 	if admission && data.Err == nil {
 		observer.cancel()
@@ -47,14 +35,11 @@ func cancellationReadPool(t *testing.T, cancel context.CancelFunc) *pgxpool.Pool
 	if err != nil {
 		t.Fatalf("parse the test ledger address: %v", err)
 	}
-
 	settings.ConnConfig.Tracer = admissionCancellation{cancel: cancel}
 	pool, err := pgxpool.NewWithConfig(t.Context(), settings)
 	if err != nil {
 		t.Fatalf("open the observed read pool: %v", err)
 	}
-
 	t.Cleanup(pool.Close)
-
 	return pool
 }

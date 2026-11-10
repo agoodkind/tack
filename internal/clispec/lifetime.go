@@ -31,7 +31,6 @@ func (op Operation[I]) terminalName() string {
 	if op.Lifetime.isBackfill() {
 		return BackfillNamePrefix + op.Name.CLI()
 	}
-
 	return op.Name.CLI()
 }
 
@@ -43,7 +42,6 @@ func (b backfillGroups) under(parent *Group) *Group {
 	if group, ok := b[parent]; ok {
 		return group
 	}
-
 	group := &Group{
 		Use:    "backfill",
 		Short:  "One-time jobs, each deleted by its removal day",
@@ -51,7 +49,6 @@ func (b backfillGroups) under(parent *Group) *Group {
 		Parent: parent,
 	}
 	b[parent] = group
-
 	return group
 }
 
@@ -61,6 +58,5 @@ func (op Operation[I]) renderParent(backfills backfillGroups) *Group {
 	if op.Lifetime.isBackfill() {
 		return backfills.under(op.Group)
 	}
-
 	return op.Group
 }

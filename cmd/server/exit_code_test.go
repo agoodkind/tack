@@ -14,24 +14,17 @@ import (
 // the restores are not repeated to reach the same put; every other failure,
 // a failed leg included, still exits 1 and is restarted.
 func TestExitCodeOfTellsAMarkerFailureFromARestoreFailure(t *testing.T) {
-	markerFailure := &ops.RestoreDrillMarkerError{
-		Err: errors.New("put object tack-backups/backup-status/rehearsal.json: StatusCode: 500"),
-	}
+	markerFailure := &ops.RestoreDrillMarkerError{Err: errors.New("put object tack-backups/backup-status/rehearsal.json: StatusCode: 500")}
 	if got := exitCodeOf(markerFailure); got != 3 {
 		t.Fatalf("marker failure exit code = %d, want 3", got)
 	}
-
 	if got := exitCodeOf(fmt.Errorf("audited: %w", markerFailure)); got != 3 {
 		t.Fatalf("a wrapped marker failure must keep its exit code, got %d", got)
 	}
-
-	legFailure := errors.New(
-		"restore-drill: 1 leg(s) failed: fdb: restore never reached the target",
-	)
+	legFailure := errors.New("restore-drill: 1 leg(s) failed: fdb: restore never reached the target")
 	if got := exitCodeOf(legFailure); got != 1 {
 		t.Fatalf("leg failure exit code = %d, want 1", got)
 	}
-
 	// An error carrying another process's exit status is not this process's:
 	// a child that exited 3 must not read as the marker failure.
 	childExit := &childExitError{code: 3}

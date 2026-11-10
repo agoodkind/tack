@@ -48,11 +48,9 @@ func TestRaiseSequenceByKeyReportsWhetherItChangedTheCounter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AllocateSequenceByKey: %v", err)
 	}
-
 	if next != 41 {
 		t.Fatalf("allocated %d, want 41 after raising to 40", next)
 	}
-
 	assertPeek(t, env, 41)
 	assertRaise(t, env, 41, false)
 	assertRaise(t, env, 50, true)
@@ -63,23 +61,12 @@ func assertRepairCounts(
 	t *testing.T,
 	step string,
 	report ops.RepairReferenceReport,
-	renames int,
-	counters int,
-	keys int,
+	renames, counters, keys int,
 ) {
 	t.Helper()
-	if len(report.Renumbered) != renames || len(report.Counters) != counters ||
-		len(report.Keys) != keys {
-		t.Fatalf(
-			"%s reported %d renames, %d counters, %d keys; want %d, %d, %d",
-			step,
-			len(report.Renumbered),
-			len(report.Counters),
-			len(report.Keys),
-			renames,
-			counters,
-			keys,
-		)
+	if len(report.Renumbered) != renames || len(report.Counters) != counters || len(report.Keys) != keys {
+		t.Fatalf("%s reported %d renames, %d counters, %d keys; want %d, %d, %d",
+			step, len(report.Renumbered), len(report.Counters), len(report.Keys), renames, counters, keys)
 	}
 }
 
@@ -89,7 +76,6 @@ func assertRaise(t *testing.T, env *TestEnv, value int64, wantRaised bool) {
 	if err != nil {
 		t.Fatalf("RaiseSequenceByKey to %d: %v", value, err)
 	}
-
 	if raised != wantRaised {
 		t.Fatalf("RaiseSequenceByKey to %d reported raised=%t, want %t", value, raised, wantRaised)
 	}
@@ -101,7 +87,6 @@ func assertPeek(t *testing.T, env *TestEnv, want int64) {
 	if err != nil {
 		t.Fatalf("PeekSequenceByKey: %v", err)
 	}
-
 	if got != want {
 		t.Fatalf("PeekSequenceByKey = %d, want %d", got, want)
 	}

@@ -32,12 +32,8 @@ func TestNodeIntegrityStrictDatagenSoakAfterActivation(t *testing.T) {
 
 	result := runStrictSoak(t)
 	if result.StopReason != "max_ops" || result.Operations != strictSoakOperations {
-		t.Fatalf(
-			"soak after activation stopped with %q after %d operations, want max_ops after %d",
-			result.StopReason,
-			result.Operations,
-			strictSoakOperations,
-		)
+		t.Fatalf("soak after activation stopped with %q after %d operations, want max_ops after %d",
+			result.StopReason, result.Operations, strictSoakOperations)
 	}
 }
 
@@ -57,7 +53,6 @@ func runStrictSoak(t *testing.T) strictSoakResult {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-
 	cfg.DatagenAllowTarget = "local"
 	cfg.AuditKafkaBrokers = ""
 	cfg.AuditWriterDSN = ""
@@ -67,7 +62,6 @@ func runStrictSoak(t *testing.T) strictSoakResult {
 	if err != nil {
 		t.Fatalf("open the outbox pool: %v", err)
 	}
-
 	t.Cleanup(pool.Close)
 	output := &bytes.Buffer{}
 	factory := cli.System(cfg)
@@ -76,39 +70,19 @@ func runStrictSoak(t *testing.T) strictSoakResult {
 	t.Cleanup(factory.CloseAuditOutbox)
 	root := nodeAuditCommandRoot(factory)
 	root.SetArgs([]string{
-		"--execute",
-		"--output",
-		"json",
-		"--operator-id",
-		"019dd226-440e-729a-a442-281aaf73ca34",
-		"--operator-email",
-		"operator@example.com",
-		"--operator-name",
-		"Strict Soak Test",
-		"ops",
-		"qa",
-		"datagen",
-		"soak",
-		"--commit",
-		"--duration",
-		"10m",
-		"--rate",
-		"1000",
-		"--max-ops",
-		strconv.Itoa(strictSoakOperations),
-		"--seed",
-		strconv.FormatInt(clock.Now().UnixNano(), 10),
+		"--execute", "--output", "json", "--operator-id", "019dd226-440e-729a-a442-281aaf73ca34",
+		"--operator-email", "operator@example.com", "--operator-name", "Strict Soak Test",
+		"ops", "qa", "datagen", "soak", "--commit", "--duration", "10m", "--rate", "1000",
+		"--max-ops", strconv.Itoa(strictSoakOperations), "--seed", strconv.FormatInt(clock.Now().UnixNano(), 10),
 	})
 	if err := root.ExecuteContext(t.Context()); err != nil {
 		t.Fatalf("ops qa datagen soak --commit after activation: %v\n%s", err, output.String())
 	}
-
 	var decoded struct {
 		Result strictSoakResult `json:"result"`
 	}
 	if err := json.Unmarshal(output.Bytes(), &decoded); err != nil {
 		t.Fatalf("decode the soak output %q: %v", output.String(), err)
 	}
-
 	return decoded.Result
 }

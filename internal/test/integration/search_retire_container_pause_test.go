@@ -20,18 +20,12 @@ func resumeContainerIfPaused(t *testing.T, container string) {
 		t.Errorf("open docker client: %v", err)
 		return
 	}
-
 	defer func() { _ = docker.Close() }()
-	inspected, err := docker.ContainerInspect(
-		context.Background(),
-		container,
-		client.ContainerInspectOptions{},
-	)
+	inspected, err := docker.ContainerInspect(context.Background(), container, client.ContainerInspectOptions{})
 	if err != nil {
 		t.Errorf("inspect container %s: %v", container, err)
 		return
 	}
-
 	if inspected.Container.State.Paused {
 		setContainerPaused(t, container, false)
 	}

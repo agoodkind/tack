@@ -97,61 +97,36 @@ type RepairReferenceCandidate struct {
 	Error       string    `json:"error,omitempty"`
 }
 
-func (c *RepairConsole) planReferenceProperty(
-	ctx context.Context,
-	nodeID uuid.UUID,
-	profile *RepairReferenceProfile,
-) (*repairPlan, error) {
+func (c *RepairConsole) planReferenceProperty(ctx context.Context, nodeID uuid.UUID, profile *RepairReferenceProfile) (*repairPlan, error) {
 	preparedProfile, err := prepareReferenceProfile(ctx, profile)
 	if err != nil {
 		return nil, err
 	}
-
 	view, err := c.reader.Get(ctx, nodeID)
 	if err != nil {
 		return nil, loggedRepairError(ctx, fmt.Sprintf("get repair node %s", nodeID), err)
 	}
-
 	if view == nil {
 		return nil, domain.ErrNotFound
 	}
-
 	metadata, err := c.loadReferenceRepairMetadata(ctx, view, preparedProfile, false)
 	if err != nil {
 		return nil, err
 	}
-
 	preview := newReferencePreview(view, preparedProfile, metadata.targetType)
-	matchContext := referenceMatchContext{
-		reader:        c.reader,
-		typeIndex:     metadata.typeIndex,
-		orgID:         view.OrgID,
-		scopeID:       metadata.scopeID,
-		targetType:    metadata.targetType,
-		rankProperty:  preparedProfile.RankProperty,
-		matchProperty: preparedProfile.TargetMatchProperty,
-	}
-	candidates := collectReferenceCandidates(
-		ctx,
-		view,
-		preparedProfile,
-		metadata.targetDef,
-		matchContext,
-		&preview.ObservedSources,
-	)
+	matchContext := referenceMatchContext{reader: c.reader, typeIndex: metadata.typeIndex, orgID: view.OrgID, scopeID: metadata.scopeID, targetType: metadata.targetType, rankProperty: preparedProfile.RankProperty, matchProperty: preparedProfile.TargetMatchProperty}
+	candidates := collectReferenceCandidates(ctx, view, preparedProfile, metadata.targetDef, matchContext, &preview.ObservedSources)
 	preview.Candidates = candidates
 	chosen, blockReason := chooseReferenceCandidate(candidates, preparedProfile.ConflictPolicy)
 	if blockReason != "" {
 		preview.NeedsRepair = referenceSourcesPresent(preview.ObservedSources)
 		preview.Summary = blockReason
-
 		return &repairPlan{
 			preview:             preview,
 			props:               nil,
 			relationshipChanges: node.RelationshipChanges{Add: nil, Remove: nil},
 		}, nil
 	}
-
 	preview.ChosenCandidate = chosen
 	props := plannedReferenceProps(view, preparedProfile, chosen.NodeID)
 	preview.PlannedProps = props
@@ -161,7 +136,6 @@ func (c *RepairConsole) planReferenceProperty(
 	if preview.CanApply {
 		preview.ConfirmationToken = repairConfirmationToken(preview)
 	}
-
 	return &repairPlan{
 		preview:             preview,
 		props:               props,
@@ -177,112 +151,46 @@ func (c *RepairConsole) loadReferenceRepairMetadata(
 ) (*referenceRepairMetadata, error) {
 	types, err := c.nodeTypes.List(ctx, view.OrgID)
 	if err != nil {
-		return nil, loggedRepairError(
-			ctx,
-			fmt.Sprintf("list node types for repair %s", view.ID),
-			err,
-		)
+		return nil, loggedRepairError(ctx, fmt.Sprintf("list node types for repair %s", view.ID), err)
 	}
-
 	typeIndex := node.BuildTypeIndex(types)
 	currentType := typeIndex[view.NodeType]
 	if currentType == nil {
-		return nil, loggedRepairError(
-			ctx,
-			fmt.Sprintf("node type %q for repair %s", view.NodeType, view.ID),
-			domain.ErrNotFound,
-		)
+		return nil, loggedRepairError(ctx, fmt.Sprintf("node type %q for repair %s", view.NodeType, view.ID), domain.ErrNotFound)
 	}
-
 	if allowExplicitTargetType && strings.TrimSpace(profile.TargetTypeKey) != "" {
 		targetType := typeIndex[strings.TrimSpace(profile.TargetTypeKey)]
 		if targetType == nil {
-			return nil, loggedRepairError(
-				ctx,
-				fmt.Sprintf(
-					"reference target type %q for repair %s",
-					profile.TargetTypeKey,
-					view.ID,
-				),
-				domain.ErrNotFound,
-			)
+			return nil, loggedRepairError(ctx, fmt.Sprintf("reference target type %q for repair %s", profile.TargetTypeKey, view.ID), domain.ErrNotFound)
 		}
-
-		return &referenceRepairMetadata{
-			typeIndex:  typeIndex,
-			targetDef:  nil,
-			targetType: targetType,
-			scopeID:    repairScopeID(view, profile.ScopeFields),
-		}, nil
+		return &referenceRepairMetadata{typeIndex: typeIndex, targetDef: nil, targetType: targetType, scopeID: repairScopeID(view, profile.ScopeFields)}, nil
 	}
-
 	defs, err := c.propertyDefs.List(ctx, view.OrgID)
 	if err != nil {
-		return nil, loggedRepairError(
-			ctx,
-			fmt.Sprintf("list property defs for repair %s", view.ID),
-			err,
-		)
+		return nil, loggedRepairError(ctx, fmt.Sprintf("list property defs for repair %s", view.ID), err)
 	}
-
 	targetDef, err := referenceTargetDef(ctx, defs, currentType, profile.TargetProperty)
 	if err != nil {
 		return nil, err
 	}
-
 	targetType := typeIndex[targetDef.ReferenceTargetTypeKey]
 	if targetType == nil {
-		return nil, loggedRepairError(
-			ctx,
-			fmt.Sprintf(
-				"reference target type %q for repair %s",
-				targetDef.ReferenceTargetTypeKey,
-				view.ID,
-			),
-			domain.ErrNotFound,
-		)
+		return nil, loggedRepairError(ctx, fmt.Sprintf("reference target type %q for repair %s", targetDef.ReferenceTargetTypeKey, view.ID), domain.ErrNotFound)
 	}
-
-	return &referenceRepairMetadata{
-		typeIndex:  typeIndex,
-		targetDef:  targetDef,
-		targetType: targetType,
-		scopeID:    repairScopeID(view, profile.ScopeFields),
-	}, nil
+	return &referenceRepairMetadata{typeIndex: typeIndex, targetDef: targetDef, targetType: targetType, scopeID: repairScopeID(view, profile.ScopeFields)}, nil
 }
 
-func referenceTargetDef(
-	ctx context.Context,
-	defs []*node.PropertyDef,
-	currentType *node.NodeType,
-	targetProperty string,
-) (*node.PropertyDef, error) {
+func referenceTargetDef(ctx context.Context, defs []*node.PropertyDef, currentType *node.NodeType, targetProperty string) (*node.PropertyDef, error) {
 	for _, def := range defs {
 		if def.Name != targetProperty || !node.PropertyAppliesTo(def, currentType) {
 			continue
 		}
-
-		if def.Type != node.PropertyTypeUUID ||
-			strings.TrimSpace(def.ReferenceTargetTypeKey) == "" {
-			return nil, loggedRepairError(
-				ctx,
-				fmt.Sprintf("reference property %q has invalid definition", targetProperty),
-				domain.ErrFailedPrecondition,
-			)
+		if def.Type != node.PropertyTypeUUID || strings.TrimSpace(def.ReferenceTargetTypeKey) == "" {
+			return nil, loggedRepairError(ctx, fmt.Sprintf("reference property %q has invalid definition", targetProperty), domain.ErrFailedPrecondition)
 		}
-
 		return def, nil
 	}
-
-	return nil, loggedRepairError(
-		ctx,
-		fmt.Sprintf(
-			"reference property %q is not declared for node type %q",
-			targetProperty,
-			currentType.TypeKey,
-		),
-		domain.ErrNotFound,
-	)
+	return nil, loggedRepairError(ctx, fmt.Sprintf("reference property %q is not declared for node type %q", targetProperty, currentType.TypeKey), domain.ErrNotFound)
 }
 
 type referenceRepairMetadata struct {

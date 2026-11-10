@@ -14,8 +14,6 @@ func LedgerPool(tb testing.TB, dsn string) *pgxpool.Pool {
 	if err != nil {
 		tb.Fatalf("open the ledger pool: %v", err)
 	}
-
 	tb.Cleanup(pool.Close)
-
 	return pool
 }

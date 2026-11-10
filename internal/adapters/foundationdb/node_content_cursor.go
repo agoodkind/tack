@@ -38,7 +38,6 @@ func marshalContentCursor(ctx context.Context, cursor contentCursor) (string, er
 	if err != nil {
 		return "", searchReadFailure(ctx, "encode content cursor", err)
 	}
-
 	return base64.RawURLEncoding.EncodeToString(encoded), nil
 }
 
@@ -47,87 +46,55 @@ func unmarshalContentCursor(ctx context.Context, encoded string) (contentCursor,
 	if err != nil {
 		return contentCursor{}, searchReadFailure(ctx, "decode content cursor", err)
 	}
-
 	var cursor contentCursor
 	if err := json.Unmarshal(decoded, &cursor); err != nil {
 		return contentCursor{}, searchReadFailure(ctx, "parse content cursor", err)
 	}
-
-	if cursor.NextOffset <= 0 || cursor.Ordinal == 0 || cursor.MaxBytes <= 0 ||
-		strings.TrimSpace(cursor.Revision) == "" ||
-		cursor.Projection == "" {
+	if cursor.NextOffset <= 0 || cursor.Ordinal == 0 || cursor.MaxBytes <= 0 || strings.TrimSpace(cursor.Revision) == "" || cursor.Projection == "" {
 		return contentCursor{}, errors.New("content cursor fields are invalid")
 	}
-
 	return cursor, nil
 }
 
-func contentPosition(
-	ctx context.Context,
-	request searchdomain.ContentRequest,
-	revision string,
-	projection string,
-) (contentCursor, error) {
+func contentPosition(ctx context.Context, request searchdomain.ContentRequest, revision, projection string) (contentCursor, error) {
 	maxBytes := request.MaxBytes
 	if maxBytes == 0 {
 		maxBytes = searchdomain.MaxPageBytes
 	}
-
 	if maxBytes < minSearchPageBytes || maxBytes > searchdomain.MaxPageBytes {
-		return contentCursor{}, fmt.Errorf(
-			"content page bound must be between %d and %d bytes",
-			minSearchPageBytes,
-			searchdomain.MaxPageBytes,
-		)
+		return contentCursor{}, fmt.Errorf("content page bound must be between %d and %d bytes", minSearchPageBytes, searchdomain.MaxPageBytes)
 	}
-
 	if request.Cursor == "" {
 		return contentCursor{
-			Version:    searchCursorVersion,
-			NodeID:     request.NodeID.String(),
-			Revision:   revision,
-			Projection: projection,
-			MaxBytes:   maxBytes,
-			NextOffset: 0,
-			Ordinal:    0,
+			Version: searchCursorVersion, NodeID: request.NodeID.String(),
+			Revision: revision, Projection: projection, MaxBytes: maxBytes,
+			NextOffset: 0, Ordinal: 0,
 		}, nil
 	}
-
 	cursor, err := unmarshalContentCursor(ctx, request.Cursor)
 	if err != nil {
 		return contentCursor{}, err
 	}
-
 	if cursor.Version != searchCursorVersion || cursor.NodeID != request.NodeID.String() ||
 		cursor.Revision != revision || cursor.Projection != projection || cursor.MaxBytes != maxBytes {
 		return contentCursor{}, node.ErrContentChanged
 	}
-
 	return cursor, nil
 }
 
 // contentPage cuts one page from text at position. A continuation repeats at
 // most one quarter of the byte bound as overlap and starts and ends on UTF-8
 // boundaries.
-func contentPage(
-	ctx context.Context,
-	text string,
-	identity contentIdentity,
-	access node.SearchAccess,
-	position contentCursor,
-) (node.ContentPage, error) {
+func contentPage(ctx context.Context, text string, identity contentIdentity, access node.SearchAccess, position contentCursor) (node.ContentPage, error) {
 	if position.NextOffset > len(text) || position.NextOffset == len(text) && position.Ordinal > 0 {
 		return node.ContentPage{}, node.ErrContentChanged
 	}
-
 	// The check rejects a continuation offset below one overlap because this
 	// function writes every continuation cursor at least one overlap past the
 	// text start.
-	if position.NextOffset < 0 ||
-		position.Ordinal > 0 && position.NextOffset < position.MaxBytes/4 {
+	if position.NextOffset < 0 || position.Ordinal > 0 && position.NextOffset < position.MaxBytes/4 {
 		return node.ContentPage{}, node.ErrContentChanged
 	}
-
 	start := position.NextOffset
 	if position.Ordinal > 0 {
 		start -= position.MaxBytes / 4
@@ -135,28 +102,18 @@ func contentPage(
 			start++
 		}
 	}
-
 	end := min(start+position.MaxBytes, len(text))
 	for end > position.NextOffset && end < len(text) && !utf8.RuneStart(text[end]) {
 		end--
 	}
-
 	if end <= position.NextOffset {
 		return node.ContentPage{}, errors.New("UTF-8 page boundary does not advance")
 	}
-
 	page := node.ContentPage{
-		NodeID:            identity.nodeID,
-		NodeType:          identity.nodeType,
-		Revision:          identity.revision,
-		ProjectionVersion: identity.projection,
-		Name:              identity.name,
-		Text:              text[start:end],
-		Access:            access,
-		Ordinal:           position.Ordinal,
-		NextCursor:        "",
-		OverlapBytes:      position.NextOffset - start,
-		Done:              end == len(text),
+		NodeID: identity.nodeID, NodeType: identity.nodeType, Revision: identity.revision,
+		ProjectionVersion: identity.projection, Name: identity.name, Text: text[start:end],
+		Access: access, Ordinal: position.Ordinal, NextCursor: "",
+		OverlapBytes: position.NextOffset - start, Done: end == len(text),
 	}
 	if !page.Done {
 		next := position
@@ -166,9 +123,7 @@ func contentPage(
 		if err != nil {
 			return node.ContentPage{}, err
 		}
-
 		page.NextCursor = cursor
 	}
-
 	return page, nil
 }

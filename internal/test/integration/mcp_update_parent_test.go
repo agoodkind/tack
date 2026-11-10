@@ -20,7 +20,6 @@ func (h *MCPHarness) createEpic(t *testing.T, name string) string {
 	if match == nil {
 		t.Fatalf("create epic confirmation has no reference:\n%s", text)
 	}
-
 	return match[1]
 }
 
@@ -30,7 +29,6 @@ func (h *MCPHarness) getIssue(t *testing.T, reference string) string {
 	arguments := h.projectArgs()
 	arguments.ProjectReference = ""
 	arguments.NodeID = reference
-
 	return h.Call(t, "tack_get_issue", arguments).Text()
 }
 
@@ -56,29 +54,13 @@ func TestUpdateIssueReparentsByPrintedReference(t *testing.T) {
 	if !strings.Contains(text, "- Parent: `"+epic+"` (`epic`)") {
 		t.Fatalf("issue %s does not show the epic as its parent:\n%s", issue, text)
 	}
-
-	relationships := harness.Call(
-		t,
-		"tack_list_relationships",
-		datagen.ToolArguments{
-			WorkspaceReference: "",
-			ProjectReference:   "",
-			IssueReference:     "",
-			Name:               "",
-			Properties:         nil,
-			NodeID:             issue,
-			Query:              "",
-			NodeType:           "",
-			Direction:          "out",
-			SourceID:           "",
-			RelationType:       "child_of",
-			TargetID:           "",
-		},
-	).Text()
+	relationships := harness.Call(t, "tack_list_relationships", datagen.ToolArguments{
+		WorkspaceReference: "", ProjectReference: "", IssueReference: "", Name: "", Properties: nil,
+		NodeID: issue, Query: "", NodeType: "", Direction: "out", SourceID: "", RelationType: "child_of", TargetID: "",
+	}).Text()
 	if !strings.Contains(relationships, "- Target: `"+epic+"`") {
 		t.Fatalf("issue %s child_of edge does not point at %s:\n%s", issue, epic, relationships)
 	}
-
 	if strings.Contains(relationships, "- Target: `"+harness.Project+"`") {
 		t.Fatalf("issue %s still has a child_of edge to the project:\n%s", issue, relationships)
 	}
@@ -99,7 +81,6 @@ func TestUpdateIssueRejectsUnresolvableParent(t *testing.T) {
 	if !strings.Contains(text, "parent_id") {
 		t.Fatalf("error does not name parent_id:\n%s", text)
 	}
-
 	after := harness.getIssue(t, issue)
 	if !strings.Contains(after, "- Parent: `"+harness.Project+"` (`project`)") {
 		t.Fatalf("issue %s parent changed after a refused update:\n%s", issue, after)

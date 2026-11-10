@@ -7,9 +7,7 @@ import (
 
 // nodeInstanceKey packs a primary node key.
 func nodeInstanceKey(orgID uuid.UUID, nodeType string, nodeID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{keyNodeInstance, orgID.String(), nodeType, nodeID.String()}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keyNodeInstance, orgID.String(), nodeType, nodeID.String()}.Pack())
 }
 
 // nodeViewKey packs a materialized view key.
@@ -23,23 +21,8 @@ func nodeResolveKey(nodeID uuid.UUID) []byte {
 }
 
 // nodeByPropertyKey packs a secondary property index key.
-func nodeByPropertyKey(
-	orgID uuid.UUID,
-	nodeType string,
-	propName string,
-	encodedValue []byte,
-	nodeID uuid.UUID,
-) []byte {
-	return withPrefix(
-		tuple.Tuple{
-			keyNodeByProperty,
-			orgID.String(),
-			nodeType,
-			propName,
-			encodedValue,
-			nodeID.String(),
-		}.Pack(),
-	)
+func nodeByPropertyKey(orgID uuid.UUID, nodeType, propName string, encodedValue []byte, nodeID uuid.UUID) []byte {
+	return withPrefix(tuple.Tuple{keyNodeByProperty, orgID.String(), nodeType, propName, encodedValue, nodeID.String()}.Pack())
 }
 
 // nodeReferenceKey packs a forward reference ownership key.
@@ -49,9 +32,7 @@ func nodeReferenceKey(orgID uuid.UUID, templateName, encoded string) []byte {
 
 // nodeReferenceOwnedKey packs a reverse reference ownership key.
 func nodeReferenceOwnedKey(orgID, nodeID uuid.UUID, templateName string) []byte {
-	return withPrefix(
-		tuple.Tuple{keyNodeReferenceOwned, orgID.String(), nodeID.String(), templateName}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keyNodeReferenceOwned, orgID.String(), nodeID.String(), templateName}.Pack())
 }
 
 // nodeReferenceOwnedPrefix packs a node's reverse reference ownership prefix.
@@ -71,9 +52,7 @@ func nodeTypeByKeyPrefix(orgID uuid.UUID, typeKey string) []byte {
 
 // nodeTypeByKeyKey packs one type-key index entry.
 func nodeTypeByKeyKey(orgID uuid.UUID, typeKey string, typeID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{keyNodeTypeByKey, orgID.String(), typeKey, typeID.String()}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keyNodeTypeByKey, orgID.String(), typeKey, typeID.String()}.Pack())
 }
 
 // propertyDefKey packs a PropertyDef key.
@@ -88,9 +67,7 @@ func propertyDefByNamePrefix(orgID uuid.UUID, name string) []byte {
 
 // propertyDefByNameKey packs one property-name index entry.
 func propertyDefByNameKey(orgID uuid.UUID, name string, defID uuid.UUID) []byte {
-	return withPrefix(
-		tuple.Tuple{keyPropertyDefByName, orgID.String(), name, defID.String()}.Pack(),
-	)
+	return withPrefix(tuple.Tuple{keyPropertyDefByName, orgID.String(), name, defID.String()}.Pack())
 }
 
 // nodeDeleteJobKey packs the record key of one subtree delete job.

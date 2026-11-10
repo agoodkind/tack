@@ -93,16 +93,12 @@ func (r *rankingRun) requireAcrossReplacement(t *testing.T, corpus rankingCorpus
 	r.waitIndexed(t, corpus.created)
 	r.requireAll(t, "initial", corpus)
 	rebuild := r.beginRebuild(t)
-	r.waitRebuild(
-		t,
-		func(current searchdomain.Rebuild, found bool) bool {
-			return !found || current.State == searchdomain.RebuildRetiring
-		},
-	)
+	r.waitRebuild(t, func(current searchdomain.Rebuild, found bool) bool {
+		return !found || current.State == searchdomain.RebuildRetiring
+	})
 	if serving := r.servingIndex(t); serving != rebuild.TargetIndex {
 		t.Fatalf("serving index after the replacement = %s, want %s", serving, rebuild.TargetIndex)
 	}
-
 	r.requireAll(t, "rebuilt", corpus)
 	r.waitRebuild(t, func(_ searchdomain.Rebuild, found bool) bool { return !found })
 }
@@ -116,10 +112,8 @@ func startRankingRun(t *testing.T) *rankingRun {
 	if err != nil {
 		t.Fatalf("build search graph: %v", err)
 	}
-
 	t.Cleanup(graph.Close)
 	graph.StartSearchWorkers(integration.WithTestOperation(t, t.Context()))
-
 	return newRankingRun(t, cfg, graph)
 }
 
@@ -132,14 +126,11 @@ func (r *rankingRun) createApprovedCorpus(t *testing.T) rankingCorpus {
 	if err := json.Unmarshal(rankingApprovedJSON, &approved); err != nil {
 		t.Fatalf("decode approved semantic corpus: %v", err)
 	}
-
 	probes := make([]rankingProbe, len(rankingApprovedQueries))
 	for position, query := range rankingApprovedQueries {
 		probes[position] = rankingProbe{Query: query, Targets: nil, First: false}
 	}
-
 	corpus := rankingCorpus{created: nil, probes: probes, control: probes, measured: nil}
-
 	for _, node := range approved {
 		nodeID := r.createIssue(t, node.Text, node.Text)
 		corpus.created = append(corpus.created, nodeID)
@@ -148,7 +139,6 @@ func (r *rankingRun) createApprovedCorpus(t *testing.T) rankingCorpus {
 			probes[position].Targets = append(probes[position].Targets, nodeID)
 		}
 	}
-
 	return corpus
 }
 
@@ -163,24 +153,18 @@ func (r *rankingRun) addRegressionCorpus(t *testing.T, approved rankingCorpus) r
 	if err := json.Unmarshal(rankingRegressionJSON, &regression); err != nil {
 		t.Fatalf("decode ranking regression corpus: %v", err)
 	}
-
 	var commonWordNames []string
 	if err := json.Unmarshal(rankingCommonWordNamesJSON, &commonWordNames); err != nil {
 		t.Fatalf("decode common word names: %v", err)
 	}
-
 	created := append([]uuid.UUID(nil), approved.created...)
-
 	for _, record := range regression.Distractors {
 		created = append(created, r.createIssue(t, record.Name, record.Description))
 	}
-
 	for _, name := range commonWordNames {
 		created = append(created, r.createIssue(t, name, ""))
 	}
-
 	target := r.createIssue(t, regression.Target.Name, regression.Target.Description)
-
 	return rankingCorpus{
 		created: append(created, target),
 		probes: []rankingProbe{
@@ -194,15 +178,12 @@ func (r *rankingRun) addRegressionCorpus(t *testing.T, approved rankingCorpus) r
 
 func (r *rankingRun) requireAll(t *testing.T, phase string, corpus rankingCorpus) {
 	t.Helper()
-
 	for _, probe := range corpus.probes {
 		r.require(t, phase, probe)
 	}
-
 	if corpus.control != nil {
 		r.requireLexicalControl(t, phase, corpus.control)
 	}
-
 	for _, probe := range corpus.measured {
 		r.measure(t, phase, probe)
 	}

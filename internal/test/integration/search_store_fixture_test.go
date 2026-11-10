@@ -27,13 +27,11 @@ func newSearchStore(t *testing.T) *fdbadapter.Stores {
 		fdbadapter.SetTestPrefix(nil)
 		t.Fatalf("open search stores: %v", err)
 	}
-
 	t.Cleanup(func() {
 		clearPrefix(t, cluster, prefix)
 		fdbadapter.SetTestPrefix(nil)
 	})
 	stores.EnableSearchWork()
-
 	return stores
 }
 
@@ -45,9 +43,7 @@ func reopenSearchStore(t *testing.T) *fdbadapter.Stores {
 	if err != nil {
 		t.Fatalf("reopen search stores: %v", err)
 	}
-
 	stores.EnableSearchWork()
-
 	return stores
 }
 
@@ -67,119 +63,54 @@ func opaqueSearchKey(prefix string) string {
 // putSearchText stores an entry-point node type with one included and one
 // excluded text property under UUID-derived names. It then writes a node
 // with both values in a new organization.
-func putSearchText(
-	t *testing.T,
-	stores *fdbadapter.Stores,
-	included string,
-	excluded string,
-) searchFixture {
+func putSearchText(t *testing.T, stores *fdbadapter.Stores, included, excluded string) searchFixture {
 	t.Helper()
 	return putSearchTextInOrg(t, stores, uuid.Must(uuid.NewV7()), included, excluded)
 }
 
-func putSearchTextInOrg(
-	t *testing.T,
-	stores *fdbadapter.Stores,
-	orgID uuid.UUID,
-	included string,
-	excluded string,
-) searchFixture {
+func putSearchTextInOrg(t *testing.T, stores *fdbadapter.Stores, orgID uuid.UUID, included, excluded string) searchFixture {
 	t.Helper()
 	fixture := searchFixture{
-		OrgID:       orgID,
-		NodeID:      uuid.Must(uuid.NewV7()),
-		TypeKey:     opaqueSearchKey("n"),
-		IncludedKey: opaqueSearchKey("p"),
-		ExcludedKey: opaqueSearchKey("p"),
+		OrgID: orgID, NodeID: uuid.Must(uuid.NewV7()), TypeKey: opaqueSearchKey("n"),
+		IncludedKey: opaqueSearchKey("p"), ExcludedKey: opaqueSearchKey("p"),
 	}
-
 	definitions := []*node.PropertyDef{
 		{
-			ID:    uuid.Must(uuid.NewV7()),
-			OrgID: orgID,
-			Name:  fixture.IncludedKey,
-			Type:  node.PropertyTypeText,
-			Search: &node.SearchProjection{
-				Include: true,
-				Order:   0,
-				Rule:    node.TextRule{Mode: node.TextRuleScalar},
-			},
+			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.IncludedKey, Type: node.PropertyTypeText,
+			Search: &node.SearchProjection{Include: true, Order: 0, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 		},
 		{
-			ID:    uuid.Must(uuid.NewV7()),
-			OrgID: orgID,
-			Name:  fixture.ExcludedKey,
-			Type:  node.PropertyTypeText,
-			Search: &node.SearchProjection{
-				Include: false,
-				Order:   1,
-				Rule:    node.TextRule{Mode: node.TextRuleScalar},
-			},
+			ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.ExcludedKey, Type: node.PropertyTypeText,
+			Search: &node.SearchProjection{Include: false, Order: 1, Rule: node.TextRule{Mode: node.TextRuleScalar}},
 		},
 	}
 	for _, definition := range definitions {
-		if err := stores.PropertyDefs.Set(
-			WithTestOperation(t, t.Context()),
-			definition,
-		); err != nil {
+		if err := stores.PropertyDefs.Set(WithTestOperation(t, t.Context()), definition); err != nil {
 			t.Fatalf("store property definition: %v", err)
 		}
 	}
-
 	kind := &node.NodeType{
-		ID:         uuid.Must(uuid.NewV7()),
-		OrgID:      orgID,
-		Name:       fixture.TypeKey,
-		TypeKey:    fixture.TypeKey,
-		Slug:       fixture.TypeKey,
-		PluralSlug: fixture.TypeKey + "s",
-		PropertyDefIDs: []uuid.UUID{
-			definitions[0].ID,
-			definitions[1].ID,
-		},
-		Features: node.Features{node.FeatureIsEntryPoint},
+		ID: uuid.Must(uuid.NewV7()), OrgID: orgID, Name: fixture.TypeKey, TypeKey: fixture.TypeKey,
+		Slug: fixture.TypeKey, PluralSlug: fixture.TypeKey + "s",
+		PropertyDefIDs: []uuid.UUID{definitions[0].ID, definitions[1].ID}, Features: node.Features{node.FeatureIsEntryPoint},
 	}
 	if err := stores.NodeTypes.Set(WithTestOperation(t, t.Context()), kind); err != nil {
 		t.Fatalf("store node type: %v", err)
 	}
-
 	writeSearchNode(t, stores, fixture, included, excluded)
-
 	return fixture
 }
 
 // writeSearchNode stores the fixture node with the included and excluded values.
-func writeSearchNode(
-	t *testing.T,
-	stores *fdbadapter.Stores,
-	fixture searchFixture,
-	included string,
-	excluded string,
-) {
+func writeSearchNode(t *testing.T, stores *fdbadapter.Stores, fixture searchFixture, included, excluded string) {
 	t.Helper()
 	props := map[string]json.RawMessage{
 		fixture.IncludedKey: mustJSON(included),
 		fixture.ExcludedKey: mustJSON(excluded),
 	}
 	now := clock.Now().UTC()
-	value := &node.Node{
-		ID:        fixture.NodeID,
-		OrgID:     fixture.OrgID,
-		NodeType:  fixture.TypeKey,
-		Name:      searchFixtureName,
-		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	view := &node.NodeView{
-		ID:        fixture.NodeID,
-		OrgID:     fixture.OrgID,
-		NodeType:  fixture.TypeKey,
-		Name:      searchFixtureName,
-		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
+	value := &node.Node{ID: fixture.NodeID, OrgID: fixture.OrgID, NodeType: fixture.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
+	view := &node.NodeView{ID: fixture.NodeID, OrgID: fixture.OrgID, NodeType: fixture.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
 	if err := stores.Nodes.Set(WithTestOperation(t, t.Context()), value, view); err != nil {
 		t.Fatalf("store search node: %v", err)
 	}

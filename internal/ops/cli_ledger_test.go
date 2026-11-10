@@ -17,7 +17,6 @@ func TestLedgerNodeCommandsAreReachableFromTheCommandLine(t *testing.T) {
 	if stall == nil || stall.DefValue != "5m0s" {
 		t.Fatalf("node-wait --stall = %v, want a 5m0s default", stall)
 	}
-
 	poll := wait.Flags().Lookup("poll")
 	if poll == nil || poll.DefValue != "10s" {
 		t.Fatalf("node-wait --poll = %v, want a 10s default", poll)

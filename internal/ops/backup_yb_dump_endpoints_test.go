@@ -57,20 +57,14 @@ func TestWalkYBDumpEndpointsPassesADownNode(t *testing.T) {
 		if host == "yb1" {
 			return 0, "exited 2: could not connect to server: Connection refused"
 		}
-
 		return 4096, ""
 	}
 
-	err := walkYBDumpEndpoints(
-		context.Background(),
-		[]string{"yb1", "yb2", "yb3"},
-		ybTestDumpSpec("/stage/schema.sql"),
-		dump,
-	)
+	err := walkYBDumpEndpoints(context.Background(), []string{"yb1", "yb2", "yb3"},
+		ybTestDumpSpec("/stage/schema.sql"), dump)
 	if err != nil {
 		t.Fatalf("a serving endpoint after a down one must produce a dump: %v", err)
 	}
-
 	if !reflect.DeepEqual(tried, []string{"yb1", "yb2"}) {
 		t.Fatalf("tried = %v, want the walk to stop at the first endpoint that served", tried)
 	}
@@ -88,30 +82,22 @@ func TestWalkYBDumpEndpointsFailsLoudlyWhenNoneServe(t *testing.T) {
 		return 0, "exited 2: could not connect to " + host
 	}
 
-	err := walkYBDumpEndpoints(
-		context.Background(),
-		[]string{"yb1", "yb2", "yb3"},
-		ybTestDumpSpec("/stage/schema.sql"),
-		dump,
-	)
+	err := walkYBDumpEndpoints(context.Background(), []string{"yb1", "yb2", "yb3"},
+		ybTestDumpSpec("/stage/schema.sql"), dump)
 	if err == nil {
 		t.Fatal("a dump no endpoint served must fail")
 	}
-
 	if !reflect.DeepEqual(tried, []string{"yb1", "yb2", "yb3"}) {
 		t.Fatalf("tried = %v, want every configured endpoint", tried)
 	}
-
 	for _, host := range []string{"yb1", "yb2", "yb3"} {
 		if !strings.Contains(err.Error(), host) {
 			t.Errorf("the failure does not name endpoint %s: %v", host, err)
 		}
-
 		if !strings.Contains(err.Error(), "could not connect to "+host) {
 			t.Errorf("the failure does not say what %s did: %v", host, err)
 		}
 	}
-
 	if !strings.Contains(err.Error(), "schema") {
 		t.Errorf("the failure does not say which dump it was: %v", err)
 	}
@@ -142,17 +128,12 @@ func TestYBDumpAttemptOutcomeRefusesAnythingButAWrittenArtifact(t *testing.T) {
 	if err := os.WriteFile(written, []byte("CREATE TABLE t ();\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-
 	empty := filepath.Join(dir, "empty.sql")
 	if err := os.WriteFile(empty, nil, 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	size, reason := ybDumpAttemptOutcome(
-		execResult{Stdout: "", Stderr: "", ExitCode: 0},
-		nil,
-		written,
-	)
+	size, reason := ybDumpAttemptOutcome(execResult{Stdout: "", Stderr: "", ExitCode: 0}, nil, written)
 	if reason != "" || size != 19 {
 		t.Fatalf("a written dump must be accepted, got size=%d reason=%q", size, reason)
 	}
@@ -162,34 +143,21 @@ func TestYBDumpAttemptOutcomeRefusesAnythingButAWrittenArtifact(t *testing.T) {
 		t.Fatalf("an empty dump must be refused, got %q", reason)
 	}
 
-	_, reason = ybDumpAttemptOutcome(
-		execResult{Stdout: "", Stderr: "", ExitCode: 0},
-		nil,
-		filepath.Join(dir, "never-written.sql"),
-	)
+	_, reason = ybDumpAttemptOutcome(execResult{Stdout: "", Stderr: "", ExitCode: 0}, nil,
+		filepath.Join(dir, "never-written.sql"))
 	if !strings.Contains(reason, "stat ") {
 		t.Fatalf("a missing dump file must be refused, got %q", reason)
 	}
 
 	_, reason = ybDumpAttemptOutcome(
-		execResult{
-			Stdout:   "",
-			Stderr:   "FATAL: password authentication failed",
-			ExitCode: 2,
-		},
-		nil,
-		written,
-	)
+		execResult{Stdout: "", Stderr: "FATAL: password authentication failed", ExitCode: 2}, nil, written)
 	if !strings.Contains(reason, "exited 2") ||
 		!strings.Contains(reason, "password authentication failed") {
 		t.Fatalf("a failed dump must be refused with what it printed, got %q", reason)
 	}
 
-	_, reason = ybDumpAttemptOutcome(
-		execResult{Stdout: "", Stderr: "", ExitCode: 0},
-		fmt.Errorf("create one-shot container: no such image"),
-		written,
-	)
+	_, reason = ybDumpAttemptOutcome(execResult{Stdout: "", Stderr: "", ExitCode: 0},
+		fmt.Errorf("create one-shot container: no such image"), written)
 	if !strings.Contains(reason, "no such image") {
 		t.Fatalf("a one-shot that never ran must be refused with the reason, got %q", reason)
 	}

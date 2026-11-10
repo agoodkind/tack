@@ -44,18 +44,15 @@ type scalingRun struct {
 func runScalingWorkload(t *testing.T, label string, instances, crashAfter int) scalingResult {
 	t.Helper()
 	var result scalingResult
-	t.Run(
-		label+" instances",
-		func(t *testing.T) {
-			run := startScalingRun(t, instances)
-			run.result.label, run.crashAfter = label, crashAfter
-			started := clock.Now()
-			run.execute(t)
-			run.result.duration = clock.Since(started)
-			run.measure(t)
-			result = run.result
-		},
-	)
+	t.Run(label+" instances", func(t *testing.T) {
+		run := startScalingRun(t, instances)
+		run.result.label, run.crashAfter = label, crashAfter
+		started := clock.Now()
+		run.execute(t)
+		run.result.duration = clock.Since(started)
+		run.measure(t)
+		result = run.result
+	})
 	return result
 }
 
@@ -77,10 +74,7 @@ func startScalingRun(t *testing.T, instances int) *scalingRun {
 	t.Setenv("FDB_CLUSTER_FILE", clusterFile)
 	cfg, err := config.Load()
 	if err != nil {
-		t.Fatalf(
-			"Configuration loading failed; the scaling run requires valid configuration: %v",
-			err,
-		)
+		t.Fatalf("Configuration loading failed; the scaling run requires valid configuration: %v", err)
 	}
 	cfg.AuditKafkaBrokers, cfg.AuditWriterDSN, cfg.AuditAllowUnrecorded = "", "", true
 	handlers := make([]http.Handler, 0, instances)
@@ -88,10 +82,7 @@ func startScalingRun(t *testing.T, instances int) *scalingRun {
 	for range instances {
 		graph, err := appruntime.BuildGraph(ctx, cfg)
 		if err != nil {
-			t.Fatalf(
-				"Building a runtime graph failed; the scaling run requires a graph for each app instance: %v",
-				err,
-			)
+			t.Fatalf("Building a runtime graph failed; the scaling run requires a graph for each app instance: %v", err)
 		}
 		t.Cleanup(graph.Close)
 		graph.StartDeleteResumer(ctx)
@@ -103,41 +94,21 @@ func startScalingRun(t *testing.T, instances int) *scalingRun {
 	}
 	scale, err := datagen.ParseScale("small")
 	if err != nil {
-		t.Fatalf(
-			"Parsing the small data generation scale failed; the scaling run requires that scale: %v",
-			err,
-		)
+		t.Fatalf("Parsing the small data generation scale failed; the scaling run requires that scale: %v", err)
 	}
 	identities, err := datagen.BootstrapIdentities(ctx, cfg, clock.Now().UnixNano(), scale)
 	if err != nil {
-		t.Fatalf(
-			"Creating test identities failed; the scaling workload requires an organization, workspace, and actor: %v",
-			err,
-		)
+		t.Fatalf("Creating test identities failed; the scaling workload requires an organization, workspace, and actor: %v", err)
 	}
 	workspace := identities.Workspaces[0]
 	server := &publicServer{
-		handler:     handlers[0],
-		config:      cfg,
-		graph:       first,
-		token:       workspace.Actors[0].Token,
-		userID:      workspace.Actors[0].UserID,
-		orgID:       workspace.OrgID,
-		workspace:   workspace.Slug,
-		clusterFile: clusterFile,
+		handler: handlers[0], config: cfg, graph: first, token: workspace.Actors[0].Token, userID: workspace.Actors[0].UserID,
+		orgID: workspace.OrgID, workspace: workspace.Slug, clusterFile: clusterFile,
 	}
 	return &scalingRun{
-		server:     server,
-		handlers:   handlers,
-		prefix:     prefix,
-		crashAfter: 0,
-		mu:         sync.Mutex{},
-		result: scalingResult{
-			instances: instances,
-			drained:   drained,
-		},
-		leaseAcquisitions: atomic.Int64{},
-		storageBefore:     readLedgerStorage(t, ledgerAdminPool(t)),
+		server: server, handlers: handlers, prefix: prefix, crashAfter: 0, mu: sync.Mutex{},
+		result: scalingResult{instances: instances, drained: drained}, leaseAcquisitions: atomic.Int64{},
+		storageBefore: readLedgerStorage(t, ledgerAdminPool(t)),
 	}
 }
 
@@ -151,16 +122,9 @@ func (run *scalingRun) execute(t *testing.T) {
 	projects := make([]string, scalingProjects)
 	for index := range projects {
 		identifier := fmt.Sprintf("SCALE%d", index)
-		text := run.mustCall(
-			t,
-			index,
-			"tack_create_project",
-			map[string]any{
-				"workspace_reference": workspace,
-				"name":                "Scaling " + identifier,
-				"properties":          map[string]any{"identifier": identifier},
-			},
-		)
+		text := run.mustCall(t, index, "tack_create_project", map[string]any{
+			"workspace_reference": workspace, "name": "Scaling " + identifier, "properties": map[string]any{"identifier": identifier},
+		})
 		projects[index] = rawID(t, text)
 	}
 	jobs := make(chan int)
@@ -182,18 +146,10 @@ func (run *scalingRun) execute(t *testing.T) {
 	workers.Wait()
 	close(failures)
 	for err := range failures {
-		t.Fatalf(
-			"An issue job returned an error; the scaling workload requires every issue job to succeed: %v",
-			err,
-		)
+		t.Fatalf("An issue job returned an error; the scaling workload requires every issue job to succeed: %v", err)
 	}
 	for index, project := range projects {
-		run.mustCall(
-			t,
-			index,
-			"tack_list_issues",
-			map[string]any{"workspace_reference": workspace, "project_reference": project},
-		)
+		run.mustCall(t, index, "tack_list_issues", map[string]any{"workspace_reference": workspace, "project_reference": project})
 	}
 }
 
@@ -202,16 +158,9 @@ func (run *scalingRun) execute(t *testing.T) {
 // or ID parsing error.
 func (run *scalingRun) issueJob(t *testing.T, job int, project string) error {
 	workspace := run.server.workspace
-	created, err := run.call(
-		t,
-		job,
-		"tack_create_issue",
-		map[string]any{
-			"workspace_reference": workspace,
-			"project_reference":   project,
-			"name":                fmt.Sprintf("Scaling issue %d", job),
-		},
-	)
+	created, err := run.call(t, job, "tack_create_issue", map[string]any{
+		"workspace_reference": workspace, "project_reference": project, "name": fmt.Sprintf("Scaling issue %d", job),
+	})
 	if err != nil {
 		return err
 	}
@@ -219,24 +168,12 @@ func (run *scalingRun) issueJob(t *testing.T, job int, project string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := run.call(
-		t,
-		job+1,
-		"tack_get_issue",
-		map[string]any{"workspace_reference": workspace, "node_id": issue},
-	); err != nil {
+	if _, err := run.call(t, job+1, "tack_get_issue", map[string]any{"workspace_reference": workspace, "node_id": issue}); err != nil {
 		return err
 	}
-	_, err = run.call(
-		t,
-		job+2,
-		"tack_update_issue",
-		map[string]any{
-			"workspace_reference": workspace,
-			"node_id":             issue,
-			"name":                fmt.Sprintf("Scaling issue %d updated", job),
-		},
-	)
+	_, err = run.call(t, job+2, "tack_update_issue", map[string]any{
+		"workspace_reference": workspace, "node_id": issue, "name": fmt.Sprintf("Scaling issue %d updated", job),
+	})
 	return err
 }
 

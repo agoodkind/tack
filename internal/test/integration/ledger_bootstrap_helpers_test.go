@@ -42,7 +42,6 @@ func bootstrapSecret(t *testing.T) string {
 	if _, err := rand.Read(secret); err != nil {
 		t.Fatalf("generate a login secret: %v", err)
 	}
-
 	return hex.EncodeToString(secret)
 }
 
@@ -56,27 +55,20 @@ func bootstrapConfig(t *testing.T, node testenv.EmptyLedgerNode) *config.Config 
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-
 	// Provision seeds each login with a value generated for this test only.
 	logins := []*string{
-		&cfg.AuditWriterPassword,
-		&cfg.AuditReaderPassword,
-		&cfg.AuditRedactorPassword,
-		&cfg.AuditOperatorPassword,
-		&cfg.AppPassword,
-		&cfg.MigratorPassword,
+		&cfg.AuditWriterPassword, &cfg.AuditReaderPassword, &cfg.AuditRedactorPassword,
+		&cfg.AuditOperatorPassword, &cfg.AppPassword, &cfg.MigratorPassword,
 	}
 	for _, login := range logins {
 		*login = bootstrapSecret(t)
 	}
-
 	cfg.BackupFDBNetwork = node.Network
 	cfg.BackupFDBContinuous = false
 	cfg.SeedEmail = ""
 	cfg.SeedName = ""
 	cfg.LedgerNodeHosts = bootstrapLedgerContainer + "=" + node.Address
 	cfg.BackupYBMasterAddresses = node.MasterAddress
-
 	return cfg
 }
 
@@ -89,13 +81,11 @@ func bootstrapClusterDirectory(t *testing.T, clusterFile string) string {
 	if err != nil {
 		t.Fatalf("read the FoundationDB cluster file %s: %v", clusterFile, err)
 	}
-
 	directory := testenv.SharedDir(t)
 	copied := filepath.Join(directory, "fdb.cluster")
 	if err := os.WriteFile(copied, contents, 0o600); err != nil {
 		t.Fatalf("write the FoundationDB cluster file %s: %v", copied, err)
 	}
-
 	return directory
 }
 
@@ -107,9 +97,7 @@ func openBootstrapPool(t *testing.T, dsn string) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("open a ledger pool: %v", err)
 	}
-
 	t.Cleanup(pool.Close)
-
 	return pool
 }
 
@@ -120,9 +108,7 @@ func operatorLoginDSN(t *testing.T, adminDSN, password string) string {
 	if err != nil {
 		t.Fatalf("parse the ledger DSN: %v", err)
 	}
-
 	parsed.User = url.UserPassword(bootstrapOperatorLogin, password)
-
 	return parsed.String()
 }
 
@@ -134,22 +120,14 @@ func bootstrapInfrastructureProbe(adminDSN string) audit.InfrastructureProbe {
 		defer cancel()
 		connection, err := pgx.Connect(probeContext, adminDSN)
 		if err != nil {
-			return audit.InfrastructureState{}, fmt.Errorf(
-				"connect the audit infrastructure probe: %w",
-				err,
-			)
+			return audit.InfrastructureState{}, fmt.Errorf("connect the audit infrastructure probe: %w", err)
 		}
-
 		defer func() { _ = connection.Close(context.WithoutCancel(ctx)) }()
 		var state audit.InfrastructureState
 		row := connection.QueryRow(probeContext, bootstrapInfrastructureQuery)
 		if err := row.Scan(&state.OutboxTableExists, &state.OperatorLoginExists); err != nil {
-			return audit.InfrastructureState{}, fmt.Errorf(
-				"query the audit infrastructure probe: %w",
-				err,
-			)
+			return audit.InfrastructureState{}, fmt.Errorf("query the audit infrastructure probe: %w", err)
 		}
-
 		return state, nil
 	}
 }
@@ -157,15 +135,10 @@ func bootstrapInfrastructureProbe(adminDSN string) audit.InfrastructureProbe {
 // bootstrapCommandRunner returns a function that runs one audited ops command
 // with the real operator outbox, the infrastructure probe, and the identity
 // source the server's root command uses.
-func bootstrapCommandRunner(
-	t *testing.T,
-	cfg *config.Config,
-	operator *pgxpool.Pool,
-) func(...string) (string, error) {
+func bootstrapCommandRunner(t *testing.T, cfg *config.Config, operator *pgxpool.Pool) func(...string) (string, error) {
 	t.Helper()
 	outbox := audit.NewPoolOutbox(operator)
 	probe := bootstrapInfrastructureProbe(cfg.DatabaseURL)
-
 	return func(command ...string) (string, error) {
 		factory := cli.System(cfg)
 		var output bytes.Buffer
@@ -175,19 +148,11 @@ func bootstrapCommandRunner(
 		root := searchCommandRoot(factory)
 		root.SetContext(t.Context())
 		global := []string{
-			"--execute",
-			"--output",
-			"json",
-			"--operator-id",
-			bootstrapOperatorID,
-			"--operator-email",
-			"ledger-bootstrap@example.test",
-			"--operator-name",
-			"Ledger Bootstrap Test",
+			"--execute", "--output", "json", "--operator-id", bootstrapOperatorID,
+			"--operator-email", "ledger-bootstrap@example.test", "--operator-name", "Ledger Bootstrap Test",
 		}
 		root.SetArgs(append(global, command...))
 		err := root.Execute()
-
 		return output.String(), err
 	}
 }
@@ -198,53 +163,32 @@ func bootstrapCommandRunner(
 func startBootstrapAuditPipeline(t *testing.T, brokers, ledgerDSN string, admin *pgxpool.Pool) {
 	t.Helper()
 	topic := "audit.ledger-bootstrap-test-" + uuid.NewString()[:8]
-	consumer, err := audit.NewConsumer(
-		t.Context(),
-		audit.ConsumerConfig{
-			Brokers: []string{
-				brokers,
-			},
-			Topic:           topic,
-			GroupID:         "tack-ledger-bootstrap-test-" + uuid.NewString()[:8],
-			BatchSize:       32,
-			PollInterval:    bootstrapPollInterval,
-			YugabyteDSN:     ledgerDSN,
-			SigningKeyPath:  "",
-			NotarizerPeriod: 0,
-			SigningHost:     "",
-			LagWarnMessages: 0,
-			SummaryEvery:    0,
-			PartitionPeriod: 0,
-			TopicRetention:  0,
-		},
-	)
+	consumer, err := audit.NewConsumer(t.Context(), audit.ConsumerConfig{
+		Brokers: []string{brokers}, Topic: topic, GroupID: "tack-ledger-bootstrap-test-" + uuid.NewString()[:8],
+		BatchSize: 32, PollInterval: bootstrapPollInterval, YugabyteDSN: ledgerDSN,
+		SigningKeyPath: "", NotarizerPeriod: 0, SigningHost: "",
+		LagWarnMessages: 0, SummaryEvery: 0,
+		PartitionPeriod: 0, TopicRetention: 0,
+	})
 	if err != nil {
 		t.Fatalf("start the audit consumer: %v", err)
 	}
-
 	consumer.Start(t.Context())
 	t.Cleanup(func() { _ = consumer.Close() })
 	recorder, err := audit.NewKafkaRecorder(audit.KafkaConfig{
-		Brokers:        audit.SplitBrokers(brokers),
-		Topic:          topic,
-		ClientID:       "tack-ledger-bootstrap-test",
+		Brokers: audit.SplitBrokers(brokers), Topic: topic, ClientID: "tack-ledger-bootstrap-test",
 		ProduceTimeout: 30 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("open the relay producer: %v", err)
 	}
-
 	relay, err := audit.NewRelay(audit.RelayConfig{
-		Recorder:     recorder,
-		Yugabyte:     audit.NewPoolOutbox(admin),
-		FoundationDB: nil,
-		PollInterval: bootstrapPollInterval,
-		BatchSize:    64,
+		Recorder: recorder, Yugabyte: audit.NewPoolOutbox(admin), FoundationDB: nil,
+		PollInterval: bootstrapPollInterval, BatchSize: 64,
 	})
 	if err != nil {
 		t.Fatalf("start the relay: %v", err)
 	}
-
 	relay.Start(t.Context())
 	t.Cleanup(func() { _ = relay.Close() })
 }

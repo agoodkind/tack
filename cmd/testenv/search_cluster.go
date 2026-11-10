@@ -14,11 +14,9 @@ func startSearchCluster(step *cliStep, members int) *testenv.OpenSearchCluster {
 	for range members - 1 {
 		cluster.AddMember(step)
 	}
-
 	_, _ = fmt.Println(cluster.Fixture.Endpoint, cluster.Fixture.Username, cluster.Fixture.Password)
 	printSearchBackends(step, cluster)
 	_, _ = fmt.Print(cluster.Fixture.CA)
-
 	return cluster
 }
 

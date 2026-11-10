@@ -28,14 +28,8 @@ const productRecordTimeout = 5 * time.Second
 // productRecordFamilies lists the FoundationDB key families that store
 // nodes, their indexes, and relationships.
 var productRecordFamilies = []string{
-	"node_instance",
-	"node_view",
-	"node_resolve",
-	"node_by_property",
-	"node_reference",
-	"node_reference_owned",
-	"relationship",
-	"relationship_reverse",
+	"node_instance", "node_view", "node_resolve", "node_by_property",
+	"node_reference", "node_reference_owned", "relationship", "relationship_reverse",
 }
 
 // TestRuntimeAuditRepairFailedChange previews a parent repair of an issue
@@ -47,33 +41,20 @@ var productRecordFamilies = []string{
 func TestRuntimeAuditRepairFailedChange(t *testing.T) {
 	fixture := newRepairConsoleFixture(t)
 	epic := createSchemaNode(t, fixture.env, fixture.projectID, fixture.projectID, "epic", nil)
-	issue := fixture.legacyIssue(
-		t,
-		map[string]json.RawMessage{"parent_epic_title": quoted(epic.Name)},
-	)
+	issue := fixture.legacyIssue(t, map[string]json.RawMessage{"parent_epic_title": quoted(epic.Name)})
 	input := ops.RepairPreviewInput{
-		Class:   ops.RepairClassParentReference,
-		NodeID:  issue.ID,
-		Profile: parentProfile("epic", "name", "parent_epic_title"),
+		Class: ops.RepairClassParentReference, NodeID: issue.ID, Profile: parentProfile("epic", "name", "parent_epic_title"),
 	}
 	preview, err := fixture.console.Preview(fixture.env.Ctx, input)
 	if err != nil || !preview.CanApply {
 		t.Fatalf("Preview = %+v, %v, want an applicable repair", preview, err)
 	}
-
 	before := productRecords(t)
 	mark := outboxTail(t, fixture.env)
 
-	_, err = fixture.console.Apply(
-		withFutureOperation(t, fixture.env.Ctx),
-		ops.RepairApplyInput{
-			ActorID:           uuid.New(),
-			Class:             input.Class,
-			ConfirmationToken: preview.ConfirmationToken,
-			NodeID:            issue.ID,
-			Profile:           input.Profile,
-		},
-	)
+	_, err = fixture.console.Apply(withFutureOperation(t, fixture.env.Ctx), ops.RepairApplyInput{
+		ActorID: uuid.New(), Class: input.Class, ConfirmationToken: preview.ConfirmationToken, NodeID: issue.ID, Profile: input.Profile,
+	})
 	requireChangeEventFailure(t, "RepairConsole.Apply", err)
 	requireFoundationDBUnchanged(t, fixture.env, before, mark)
 }
@@ -92,33 +73,16 @@ func TestRuntimeAuditBackfillFailedChange(t *testing.T) {
 	if err := env.Stores.Nodes.Delete(env.Ctx, env.OrgID, projectID); err != nil {
 		t.Fatalf("delete project %s without its descendants: %v", projectID, err)
 	}
-
 	principal := sqlAuditPrincipal()
-	ctx := audit.WithOpID(
-		audit.WithOperatorPrincipal(t.Context(), principal),
-		uuid.Must(uuid.NewV7()),
-	)
-	planned, err := ops.RunOrphanNodeBackfill(
-		ctx,
-		env.Stores.NodeDeleter,
-		env.Stores.Relationships,
-		env.NodeSvc,
-		true,
-	)
+	ctx := audit.WithOpID(audit.WithOperatorPrincipal(t.Context(), principal), uuid.Must(uuid.NewV7()))
+	planned, err := ops.RunOrphanNodeBackfill(ctx, env.Stores.NodeDeleter, env.Stores.Relationships, env.NodeSvc, true)
 	if err != nil || planned.Orphans == 0 {
 		t.Fatalf("dry-run orphan backfill = %+v, %v, want at least one orphan", planned, err)
 	}
-
 	before := productRecords(t)
 	mark := outboxTail(t, env)
 
-	_, err = ops.RunOrphanNodeBackfill(
-		withFutureOperation(t, ctx),
-		env.Stores.NodeDeleter,
-		env.Stores.Relationships,
-		env.NodeSvc,
-		false,
-	)
+	_, err = ops.RunOrphanNodeBackfill(withFutureOperation(t, ctx), env.Stores.NodeDeleter, env.Stores.Relationships, env.NodeSvc, false)
 	requireChangeEventFailure(t, "RunOrphanNodeBackfill", err)
 	requireFoundationDBUnchanged(t, env, before, mark)
 }
@@ -130,7 +94,6 @@ func withFutureOperation(t *testing.T, ctx context.Context) context.Context {
 	if err != nil {
 		t.Fatalf("attach the failing operation: %v", err)
 	}
-
 	return attached
 }
 
@@ -145,37 +108,23 @@ func requireChangeEventFailure(t *testing.T, step string, err error) {
 
 // requireFoundationDBUnchanged requires the node and relationship records to
 // equal before and the FoundationDB outbox to hold zero entries after mark.
-func requireFoundationDBUnchanged(
-	t *testing.T,
-	env *integration.TestEnv,
-	before map[string]string,
-	mark []byte,
-) {
+func requireFoundationDBUnchanged(t *testing.T, env *integration.TestEnv, before map[string]string, mark []byte) {
 	t.Helper()
 	after := productRecords(t)
 	changed := 0
-
 	for key, value := range before {
 		if stored, ok := after[key]; !ok || stored != value {
 			changed++
 		}
 	}
-
 	for key := range after {
 		if _, ok := before[key]; !ok {
 			changed++
 		}
 	}
-
 	if changed != 0 {
-		t.Fatalf(
-			"%d node and relationship records changed after the failed audit write; %d before, %d after",
-			changed,
-			len(before),
-			len(after),
-		)
+		t.Fatalf("%d node and relationship records changed after the failed audit write; %d before, %d after", changed, len(before), len(after))
 	}
-
 	if events := outboxEventsAfter(t, env, mark); len(events) != 0 {
 		t.Fatalf("the failed audit write added outbox events %+v", events)
 	}
@@ -189,36 +138,27 @@ func productRecords(t *testing.T) map[string]string {
 	if err != nil {
 		t.Fatalf("open the database: %v", err)
 	}
-
 	records := map[string]string{}
 	_, err = database.ReadTransact(func(transaction fdb.ReadTransaction) (any, error) {
 		clear(records)
-
 		for _, family := range productRecordFamilies {
-			prefix := append(
-				append([]byte{}, fdbadapter.TestPrefixRange()...),
-				tuple.Tuple{family}.Pack()...,
-			)
+			prefix := append(append([]byte{}, fdbadapter.TestPrefixRange()...), tuple.Tuple{family}.Pack()...)
 			keyRange, err := fdb.PrefixRange(prefix)
 			if err != nil {
 				return nil, err
 			}
-
 			pairs, err := transaction.GetRange(keyRange, fdb.RangeOptions{}).GetSliceWithError()
 			if err != nil {
 				return nil, err
 			}
-
 			for _, pair := range pairs {
 				records[string(pair.Key)] = string(pair.Value)
 			}
 		}
-
 		return nil, nil
 	})
 	if err != nil {
 		t.Fatalf("read the node and relationship records: %v", err)
 	}
-
 	return records
 }

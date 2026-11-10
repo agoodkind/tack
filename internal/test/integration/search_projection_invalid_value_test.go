@@ -41,24 +41,14 @@ const (
 // tack_search returns the node for the valid text.
 func TestSearchInvalidOptionKeepsSourceAndValidText(t *testing.T) {
 	fixture := integration.NewQueryFixture(t)
-	legacy := putLegacyOptionNode(
-		t,
-		fixture,
-		fixture.Workspaces[0],
-		"Legacy option node",
-		legacyOptionText,
-	)
+	legacy := putLegacyOptionNode(t, fixture, fixture.Workspaces[0], "Legacy option node", legacyOptionText)
 	requireInvalidOptionWarning(t, fixture, legacy)
 	requireStoredProperty(t, fixture, legacy)
 	// Public tack_search combines a lexical clause with a sparse semantic clause
 	// that can return a node for a word absent from its pages.
 	// This check reads indexed page_text to prove that the index omits the option.
 	requireIndexedText(t, fixture, legacy.NodeID, legacyOptionText, legacy.Token)
-	if results := integration.CallEverySearchPage(
-		t,
-		legacyOptionText,
-		fixture.Harness,
-	); !slices.Contains(results, legacy.NodeID) {
+	if results := integration.CallEverySearchPage(t, legacyOptionText, fixture.Harness); !slices.Contains(results, legacy.NodeID) {
 		t.Fatalf("search for the valid text returned %v, want node %s", results, legacy.NodeID)
 	}
 }
@@ -75,69 +65,26 @@ func TestSearchForbiddenNodeWithWarningIsWithheld(t *testing.T) {
 	legacy := putLegacyOptionNode(t, fixture, owner, "Forbidden option node", forbiddenOptionText)
 	requireInvalidOptionWarning(t, fixture, legacy)
 	requireIndexedText(t, fixture, legacy.NodeID, forbiddenOptionText, legacy.Token)
-	callerFilter := integration.CallerAccess(
-		t,
-		fixture,
-		caller,
-		integration.EntryPoint(t, fixture, caller),
-	)
-
-	ownerFilter := integration.CallerAccess(
-		t,
-		fixture,
-		owner,
-		integration.EntryPoint(t, fixture, owner),
-	)
+	callerFilter := integration.CallerAccess(t, fixture, caller, integration.EntryPoint(t, fixture, caller))
+	ownerFilter := integration.CallerAccess(t, fixture, owner, integration.EntryPoint(t, fixture, owner))
 	for _, page := range integration.SearchNodePages(t, fixture, legacy.NodeID) {
 		if !ownerFilter.Permits(page.Access.Keys) || callerFilter.Permits(page.Access.Keys) {
-			t.Fatalf(
-				"page %s stores access keys %v; the member filter must permit them and the caller filter must reject them",
-				page.ID,
-				page.Access.Keys,
-			)
+			t.Fatalf("page %s stores access keys %v; the member filter must permit them and the caller filter must reject them", page.ID, page.Access.Keys)
 		}
 	}
-
 	member := integration.ActorHarness(fixture, owner, 0)
-	if results := integration.CallEverySearchPage(t, forbiddenOptionText, member); !slices.Contains(
-		results,
-		legacy.NodeID,
-	) {
-		t.Fatalf(
-			"search by a member of the organization returned %v, want node %s",
-			results,
-			legacy.NodeID,
-		)
+	if results := integration.CallEverySearchPage(t, forbiddenOptionText, member); !slices.Contains(results, legacy.NodeID) {
+		t.Fatalf("search by a member of the organization returned %v, want node %s", results, legacy.NodeID)
 	}
-
-	if results := integration.CallEverySearchPage(
-		t,
-		forbiddenOptionText,
-		fixture.Harness,
-	); slices.Contains(results, legacy.NodeID) {
+	if results := integration.CallEverySearchPage(t, forbiddenOptionText, fixture.Harness); slices.Contains(results, legacy.NodeID) {
 		t.Fatalf("search by the caller returned the forbidden node %s", legacy.NodeID)
 	}
-
 	integration.CorruptIndexedAccess(t, fixture, legacy.NodeID, callerFilter)
-	if !slices.Contains(
-		integration.RawRankedNodes(t, fixture, callerFilter, forbiddenOptionText),
-		legacy.NodeID,
-	) {
-		t.Fatalf(
-			"OpenSearch ranking with the caller's filter did not return node %s after the page access rewrite",
-			legacy.NodeID,
-		)
+	if !slices.Contains(integration.RawRankedNodes(t, fixture, callerFilter, forbiddenOptionText), legacy.NodeID) {
+		t.Fatalf("OpenSearch ranking with the caller's filter did not return node %s after the page access rewrite", legacy.NodeID)
 	}
-
-	if results := integration.CallEverySearchPage(
-		t,
-		forbiddenOptionText,
-		fixture.Harness,
-	); slices.Contains(results, legacy.NodeID) {
-		t.Fatalf(
-			"tack_search returned forbidden node %s to the caller after the page access rewrite",
-			legacy.NodeID,
-		)
+	if results := integration.CallEverySearchPage(t, forbiddenOptionText, fixture.Harness); slices.Contains(results, legacy.NodeID) {
+		t.Fatalf("tack_search returned forbidden node %s to the caller after the page access rewrite", legacy.NodeID)
 	}
 }
 
@@ -163,80 +110,36 @@ type legacyOptionNode struct {
 // option key through NodeStore.Set. After draining search work, it requires
 // the second node's page_text to contain the option label. This check confirms
 // that the select property renders valid values into page_text.
-func putLegacyOptionNode(
-	t *testing.T,
-	fixture integration.QueryFixture,
-	workspace datagen.WorkspaceIdentity,
-	name string,
-	validText string,
-) legacyOptionNode {
+func putLegacyOptionNode(t *testing.T, fixture integration.QueryFixture, workspace datagen.WorkspaceIdentity, name, validText string) legacyOptionNode {
 	t.Helper()
 	option := node.EnumOption{Key: opaqueName("k"), Label: opaqueName("l")}
-	labels := node.TextRule{
-		Mode:   node.TextRuleLabels,
-		Labels: map[string]string{option.Key: option.Label},
-	}
+	labels := node.TextRule{Mode: node.TextRuleLabels, Labels: map[string]string{option.Key: option.Label}}
 	definition := &node.PropertyDef{
-		ID:    uuid.Must(uuid.NewV7()),
-		OrgID: workspace.OrgID,
-		Name:  opaqueName("s"),
-		Type:  node.PropertyTypeSelect,
-		Options: []node.EnumOption{
-			option,
-		},
-		Search: &node.SearchProjection{Include: true, Order: 2, Rule: labels},
+		ID: uuid.Must(uuid.NewV7()), OrgID: workspace.OrgID, Name: opaqueName("s"), Type: node.PropertyTypeSelect,
+		Options: []node.EnumOption{option}, Search: &node.SearchProjection{Include: true, Order: 2, Rule: labels},
 	}
-	if err := fixture.Stores.PropertyDefs.Set(
-		integration.WithTestOperation(t, t.Context()),
-		definition,
-	); err != nil {
+	if err := fixture.Stores.PropertyDefs.Set(integration.WithTestOperation(t, t.Context()), definition); err != nil {
 		t.Fatalf("declare select property %s: %v", definition.Name, err)
 	}
-
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
 	entry := integration.EntryPoint(t, fixture, workspace)
 	nodeID := integration.PutOpaqueNode(t, fixture, kind, entry, name, validText, "excluded")
 	token := opaqueName("v")
 	storeUncheckedProperty(t, fixture, workspace.OrgID, nodeID, definition.Name, token)
-	declaredID := integration.PutOpaqueNode(
-		t,
-		fixture,
-		kind,
-		entry,
-		name+" declared",
-		declaredOptionText,
-		"excluded",
-	)
+	declaredID := integration.PutOpaqueNode(t, fixture, kind, entry, name+" declared", declaredOptionText, "excluded")
 	storeUncheckedProperty(t, fixture, workspace.OrgID, declaredID, definition.Name, option.Key)
 	integration.DrainSearchWork(t, fixture.Worker, legacyOptionSlices)
 	requireIndexedText(t, fixture, declaredID, option.Label, token)
-
-	return legacyOptionNode{
-		OrgID:      workspace.OrgID,
-		NodeID:     nodeID,
-		Definition: definition,
-		Stored:     jsonString(t, token),
-		Token:      token,
-	}
+	return legacyOptionNode{OrgID: workspace.OrgID, NodeID: nodeID, Definition: definition, Stored: jsonString(t, token), Token: token}
 }
 
 // requireInvalidOptionWarning requires ops search verify to list an invalid
 // value warning for the select property of legacy with its definition ID.
-func requireInvalidOptionWarning(
-	t *testing.T,
-	fixture integration.QueryFixture,
-	legacy legacyOptionNode,
-) {
+func requireInvalidOptionWarning(t *testing.T, fixture integration.QueryFixture, legacy legacyOptionNode) {
 	t.Helper()
 	warning, warned := listedWarning(t, fixture.Config, legacy.NodeID, legacy.Definition.Name)
-	if !warned || warning.Reason != string(node.DiagnosticInvalidValue) ||
-		warning.PropertyDefID != legacy.Definition.ID.String() {
-		t.Fatalf(
-			"ops search verify warning of node %s = %+v, listed %t, want an invalid value warning",
-			legacy.NodeID,
-			warning,
-			warned,
-		)
+	if !warned || warning.Reason != string(node.DiagnosticInvalidValue) || warning.PropertyDefID != legacy.Definition.ID.String() {
+		t.Fatalf("ops search verify warning of node %s = %+v, listed %t, want an invalid value warning", legacy.NodeID, warning, warned)
 	}
 }
 
@@ -244,28 +147,12 @@ func requireInvalidOptionWarning(
 // to read the node's raw properties from its NodeListView row. It compares the
 // select property value with legacy.Stored byte for byte, then reads the primary
 // record through NodeStore.Get and repeats the comparison.
-func requireStoredProperty(
-	t *testing.T,
-	fixture integration.QueryFixture,
-	legacy legacyOptionNode,
-) {
+func requireStoredProperty(t *testing.T, fixture integration.QueryFixture, legacy legacyOptionNode) {
 	t.Helper()
 	nodeID, name := legacy.NodeID, legacy.Definition.Name
 	arguments := datagen.ToolArguments{
-		WorkspaceReference: "",
-		ProjectReference:   "",
-		IssueReference:     "",
-		Name:               "",
-		Properties:         nil,
-		NodeID:             nodeID.String(),
-		Query:              "",
-		NodeType:           "",
-		Direction:          "",
-		SourceID:           "",
-		RelationType:       "",
-		TargetID:           "",
-		Limit:              0,
-		Cursor:             "",
+		WorkspaceReference: "", ProjectReference: "", IssueReference: "", Name: "", Properties: nil,
+		NodeID: nodeID.String(), Query: "", NodeType: "", Direction: "", SourceID: "", RelationType: "", TargetID: "", Limit: 0, Cursor: "",
 	}
 	text := fixture.Harness.Call(t, "tack_get_properties", arguments).Text()
 	start := strings.Index(text, rawPropertiesFence)
@@ -273,68 +160,33 @@ func requireStoredProperty(
 	if start < 0 || end < start+len(rawPropertiesFence) {
 		t.Fatalf("tack_get_properties output has no JSON block:\n%s", text)
 	}
-
 	var props map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(text[start+len(rawPropertiesFence):end]), &props); err != nil {
 		t.Fatalf("decode the properties of node %s: %v\n%s", nodeID, err, text)
 	}
-
 	if !bytes.Equal(props[name], legacy.Stored) {
-		t.Fatalf(
-			"tack_get_properties returned %s for property %s of node %s, want %s",
-			props[name],
-			name,
-			nodeID,
-			legacy.Stored,
-		)
+		t.Fatalf("tack_get_properties returned %s for property %s of node %s, want %s", props[name], name, nodeID, legacy.Stored)
 	}
-
-	primary, err := fixture.Stores.Nodes.Get(
-		integration.WithTestOperation(t, t.Context()),
-		legacy.OrgID,
-		nodeID,
-	)
+	primary, err := fixture.Stores.Nodes.Get(integration.WithTestOperation(t, t.Context()), legacy.OrgID, nodeID)
 	if err != nil || primary == nil {
 		t.Fatalf("read the primary record of node %s: %v", nodeID, err)
 	}
-
 	if !bytes.Equal(primary.Props[name], legacy.Stored) {
-		t.Fatalf(
-			"the primary record of node %s stores %s for property %s, want %s",
-			nodeID,
-			primary.Props[name],
-			name,
-			legacy.Stored,
-		)
+		t.Fatalf("the primary record of node %s stores %s for property %s, want %s", nodeID, primary.Props[name], name, legacy.Stored)
 	}
 }
 
 // requireIndexedText reads nodeID's active pages from the serving index and
 // requires their joined page_text to contain present and omit absent.
-func requireIndexedText(
-	t *testing.T,
-	fixture integration.QueryFixture,
-	nodeID uuid.UUID,
-	present string,
-	absent string,
-) {
+func requireIndexedText(t *testing.T, fixture integration.QueryFixture, nodeID uuid.UUID, present, absent string) {
 	t.Helper()
 	var text strings.Builder
-
 	for _, page := range integration.SearchNodePages(t, fixture, nodeID) {
 		if page.PageText != nil {
 			text.WriteString(*page.PageText)
 		}
 	}
-
-	if indexed := text.String(); !strings.Contains(indexed, present) ||
-		strings.Contains(indexed, absent) {
-		t.Fatalf(
-			"pages of node %s contain %q, want %q and not %q",
-			nodeID,
-			indexed,
-			present,
-			absent,
-		)
+	if indexed := text.String(); !strings.Contains(indexed, present) || strings.Contains(indexed, absent) {
+		t.Fatalf("pages of node %s contain %q, want %q and not %q", nodeID, indexed, present, absent)
 	}
 }

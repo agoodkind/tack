@@ -32,9 +32,7 @@ import (
 func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcpmcp.CallToolRequest) (*mcpmcp.CallToolResult, error) {
 		start := clock.Now()
-		ctx, span := telemetry.StartSpan(
-			ctx,
-			"mcp.tool."+name,
+		ctx, span := telemetry.StartSpan(ctx, "mcp.tool."+name,
 			trace.WithAttributes(attribute.String("mcp.tool.name", name)),
 		)
 		defer span.End()
@@ -49,10 +47,8 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 				logRecorderMissing(ctx, "tool:"+name)
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "audit_recorder_missing")
-
 				return nil, err
 			}
-
 			recorder = required
 		}
 
@@ -78,43 +74,30 @@ func wrapToolHandler(name string, h mcpserver.ToolHandlerFunc) mcpserver.ToolHan
 		// handler did not pass a membership check.
 		refused := err == nil && (res == nil || !res.IsError) && !isAuthorized(ctx)
 		if refused {
-			log.WarnContext(
-				ctx,
-				"mcp.tool.refused",
+			log.WarnContext(ctx, "mcp.tool.refused",
 				slog.String("tool", name),
 				slog.String("reason", "no membership check passed"),
 			)
 			res = permissionDenied()
 		}
-
 		logToolOutcome(ctx, span, name, dur.Milliseconds(), res, err)
 		noteToolOutcome(ctx, refused, err, res)
 		if recordsResult {
 			recordToolResult(ctx, recorder, name, res, err, refused)
 		}
-
 		return res, err
 	}
 }
 
 // logToolOutcome logs the end of one tool call and sets its span status.
-func logToolOutcome(
-	ctx context.Context,
-	span trace.Span,
-	name string,
-	durationMS int64,
-	res *mcpmcp.CallToolResult,
-	err error,
-) {
+func logToolOutcome(ctx context.Context, span trace.Span, name string, durationMS int64, res *mcpmcp.CallToolResult, err error) {
 	log := telemetry.L(ctx)
 	switch {
 	case err != nil:
 		telemetry.IncMCPToolErr(name)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed")
-		log.WarnContext(
-			ctx,
-			"mcp.tool.failed",
+		log.WarnContext(ctx, "mcp.tool.failed",
 			slog.String("tool", name),
 			slog.String("status", "failed"),
 			slog.Int64("duration_ms", durationMS),
@@ -123,24 +106,19 @@ func logToolOutcome(
 	case res != nil && res.IsError:
 		telemetry.IncMCPToolErr(name)
 		span.SetStatus(codes.Error, "error_response")
-		log.WarnContext(
-			ctx,
-			"mcp.tool.failed",
+		log.WarnContext(ctx, "mcp.tool.failed",
 			slog.String("tool", name),
 			slog.String("status", "error_response"),
 			slog.Int64("duration_ms", durationMS),
 		)
 	default:
 		span.SetStatus(codes.Ok, "ok")
-		log.InfoContext(
-			ctx,
-			"mcp.tool.completed",
+		log.InfoContext(ctx, "mcp.tool.completed",
 			slog.String("tool", name),
 			slog.String("status", "ok"),
 			slog.Int64("duration_ms", durationMS),
 		)
 	}
-
 	span.SetAttributes(
 		attribute.Int64("mcp.tool.duration_ms", durationMS),
 		attribute.Bool("mcp.tool.error", err != nil || (res != nil && res.IsError)),

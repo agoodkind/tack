@@ -50,10 +50,8 @@ func TestYBAdminClusterAccessCarriesCertificatesOnlyWhenTheClusterEncrypts(t *te
 				LedgerCertsDir:          certsDir,
 			},
 			wantArgs: []string{
-				"--master_addresses",
-				masters,
-				"--certs_dir_name",
-				certsDir,
+				"--master_addresses", masters,
+				"--certs_dir_name", certsDir,
 			},
 			wantBinds: []string{certsDir + ":" + certsDir + ":ro"},
 		},
@@ -70,19 +68,15 @@ func TestYBAdminClusterAccessCarriesCertificatesOnlyWhenTheClusterEncrypts(t *te
 	}
 
 	for _, test := range tests {
-		t.Run(
-			test.name,
-			func(t *testing.T) {
-				args, binds := ybAdminClusterAccess(test.cfg)
-				if !slices.Equal(args, test.wantArgs) {
-					t.Errorf("args = %v, want %v", args, test.wantArgs)
-				}
-
-				if !slices.Equal(binds, test.wantBinds) {
-					t.Errorf("binds = %v, want %v", binds, test.wantBinds)
-				}
-			},
-		)
+		t.Run(test.name, func(t *testing.T) {
+			args, binds := ybAdminClusterAccess(test.cfg)
+			if !slices.Equal(args, test.wantArgs) {
+				t.Errorf("args = %v, want %v", args, test.wantArgs)
+			}
+			if !slices.Equal(binds, test.wantBinds) {
+				t.Errorf("binds = %v, want %v", binds, test.wantBinds)
+			}
+		})
 	}
 }
 
@@ -128,19 +122,15 @@ func TestYBDumpTransportVerifiesTheNodeOnlyWhenTheClusterEncrypts(t *testing.T) 
 	}
 
 	for _, test := range tests {
-		t.Run(
-			test.name,
-			func(t *testing.T) {
-				env, binds := ybDumpTransport(test.cfg)
-				if !slices.Equal(env, test.wantEnv) {
-					t.Errorf("env = %v, want %v", env, test.wantEnv)
-				}
-
-				if !slices.Equal(binds, test.wantBinds) {
-					t.Errorf("binds = %v, want %v", binds, test.wantBinds)
-				}
-			},
-		)
+		t.Run(test.name, func(t *testing.T) {
+			env, binds := ybDumpTransport(test.cfg)
+			if !slices.Equal(env, test.wantEnv) {
+				t.Errorf("env = %v, want %v", env, test.wantEnv)
+			}
+			if !slices.Equal(binds, test.wantBinds) {
+				t.Errorf("binds = %v, want %v", binds, test.wantBinds)
+			}
+		})
 	}
 }
 
@@ -159,11 +149,8 @@ func TestRunYBDumpOneShotRefusesAnEncryptedLedgerWithNoCertificateDirectory(t *t
 
 	err := runYBDumpOneShot(context.Background(), nil, cfg, t.TempDir(), spec)
 	if err == nil {
-		t.Fatal(
-			"runYBDumpOneShot returned no error for an encrypted ledger with no certificate directory",
-		)
+		t.Fatal("runYBDumpOneShot returned no error for an encrypted ledger with no certificate directory")
 	}
-
 	if !strings.Contains(err.Error(), "TACK_LEDGER_CERTS_DIR") {
 		t.Errorf("error = %q, want it to name the missing setting", err.Error())
 	}
@@ -185,7 +172,6 @@ func TestLedgerCertificateSettingsTreatABlankDirectoryAsNone(t *testing.T) {
 	if slices.Contains(args, "--certs_dir_name") {
 		t.Errorf("args = %v, want no certificate flag for a blank directory", args)
 	}
-
 	if len(binds) != 0 {
 		t.Errorf("binds = %v, want none for a blank directory", binds)
 	}
@@ -194,7 +180,6 @@ func TestLedgerCertificateSettingsTreatABlankDirectoryAsNone(t *testing.T) {
 	if !slices.Equal(env, []string{"PGSSLMODE=verify-full"}) {
 		t.Errorf("env = %v, want the verification mode alone", env)
 	}
-
 	if len(dumpBinds) != 0 {
 		t.Errorf("dump binds = %v, want none for a blank directory", dumpBinds)
 	}

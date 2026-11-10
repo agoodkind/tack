@@ -90,21 +90,16 @@ func (p SearchProjection) Validate(ctx context.Context, fields ...slog.Attr) err
 	} else {
 		err = p.Rule.validate(0)
 	}
-
 	if err == nil {
 		return nil
 	}
-
 	wrapped := fmt.Errorf("validate search projection: %w", err)
 	attributes := make([]any, 0, len(fields)+1)
 	attributes = append(attributes, slog.String("err", wrapped.Error()))
-
 	for _, field := range fields {
 		attributes = append(attributes, field)
 	}
-
 	telemetry.L(ctx).ErrorContext(ctx, "search.projection.validation_failed", attributes...)
-
 	return LoggedProjectionError{Cause: wrapped}
 }
 
@@ -112,7 +107,6 @@ func (r TextRule) validate(depth int) error {
 	if depth > maxTextRuleDepth {
 		return fmt.Errorf("search projection rule exceeds recursion depth %d", maxTextRuleDepth)
 	}
-
 	switch r.Mode {
 	case TextRuleScalar:
 		return validateScalarRule(r)
@@ -120,23 +114,19 @@ func (r TextRule) validate(depth int) error {
 		if len(r.Fields) == 0 || r.Items != nil || len(r.Labels) != 0 {
 			return fmt.Errorf("object search rule requires fields and no items or labels")
 		}
-
 		seen := make(map[string]struct{}, len(r.Fields))
 		for _, field := range r.Fields {
 			if strings.TrimSpace(field.Key) == "" {
 				return fmt.Errorf("object search rule field key is empty")
 			}
-
 			if _, ok := seen[field.Key]; ok {
 				return fmt.Errorf("object search rule field %q is duplicated", field.Key)
 			}
-
 			seen[field.Key] = struct{}{}
 			if err := field.Rule.validate(depth + 1); err != nil {
 				return fmt.Errorf("field %q: %s", field.Key, err.Error())
 			}
 		}
-
 		return nil
 	case TextRuleItems:
 		return validateItemsRule(r, depth)
@@ -151,7 +141,6 @@ func validateScalarRule(rule TextRule) error {
 	if len(rule.Fields) != 0 || rule.Items != nil || len(rule.Labels) != 0 {
 		return fmt.Errorf("scalar search rule cannot include fields, items, or labels")
 	}
-
 	return nil
 }
 
@@ -159,11 +148,9 @@ func validateItemsRule(rule TextRule, depth int) error {
 	if rule.Items == nil || len(rule.Fields) != 0 || len(rule.Labels) != 0 {
 		return fmt.Errorf("items search rule requires one nested item rule")
 	}
-
 	if err := rule.Items.validate(depth + 1); err != nil {
 		return fmt.Errorf("items rule: %s", err.Error())
 	}
-
 	return nil
 }
 
@@ -171,12 +158,10 @@ func validateLabelsRule(rule TextRule) error {
 	if len(rule.Labels) == 0 || len(rule.Fields) != 0 || rule.Items != nil {
 		return fmt.Errorf("labels search rule requires a label map")
 	}
-
 	for key, value := range rule.Labels {
 		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
 			return fmt.Errorf("labels search rule contains an empty key or value")
 		}
 	}
-
 	return nil
 }

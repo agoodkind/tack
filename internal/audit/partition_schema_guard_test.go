@@ -32,25 +32,13 @@ func TestSchemaGuardRefusesHandWrittenAuditDDL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pgxpool: %v", err)
 	}
-
 	t.Cleanup(pool.Close)
 	store := audit.NewPGPartitionStore(pool)
 
-	testenv.ExecAsRole(
-		t,
-		pool,
-		migration.MigratorRole,
-		"CREATE TABLE audit.tack556_drop_probe (id int)",
-	)
+	testenv.ExecAsRole(t, pool, migration.MigratorRole, "CREATE TABLE audit.tack556_drop_probe (id int)")
 	t.Cleanup(func() {
-		testenv.ExecAsRole(
-			t,
-			pool,
-			migration.MigratorRole,
-			"DROP TABLE IF EXISTS audit.tack556_drop_probe",
-		)
+		testenv.ExecAsRole(t, pool, migration.MigratorRole, "DROP TABLE IF EXISTS audit.tack556_drop_probe")
 	})
-
 	for _, statement := range []string{
 		strayChildStatement,
 		"ALTER TABLE audit.chain_heads ADD COLUMN tack556_refused int",
@@ -63,17 +51,10 @@ func TestSchemaGuardRefusesHandWrittenAuditDDL(t *testing.T) {
 			!strings.Contains(refused.Message, "schema change refused") {
 			t.Fatalf("%q: err = %v, want the schema guard refusal", statement, err)
 		}
-
-		if !strings.Contains(refused.Detail, "session role yugabyte") ||
-			!strings.Contains(refused.Detail, "statement:") {
-			t.Fatalf(
-				"%q: detail = %q, want the session role and the statement",
-				statement,
-				refused.Detail,
-			)
+		if !strings.Contains(refused.Detail, "session role yugabyte") || !strings.Contains(refused.Detail, "statement:") {
+			t.Fatalf("%q: detail = %q, want the session role and the statement", statement, refused.Detail)
 		}
 	}
-
 	if strays, err := store.StrayChildren(ctx); err != nil || len(strays) != 0 {
 		t.Fatalf("stray children after the refusals = %v, err = %v; want none", strays, err)
 	}
@@ -81,35 +62,23 @@ func TestSchemaGuardRefusesHandWrittenAuditDDL(t *testing.T) {
 	if _, err := pool.Exec(ctx, "CREATE TABLE public.tack556_probe (id int)"); err != nil {
 		t.Fatalf("a public schema change must run: %v", err)
 	}
-
 	if _, err := pool.Exec(ctx, "DROP TABLE public.tack556_probe"); err != nil {
 		t.Fatalf("drop the public probe: %v", err)
 	}
 
 	before := guardPartitionCount(ctx, t, pool)
-	if _, err := pool.Exec(
-		ctx,
-		`UPDATE partman.part_config SET premake = premake + 1 WHERE parent_table = 'audit.events'`,
-	); err != nil {
+	if _, err := pool.Exec(ctx,
+		`UPDATE partman.part_config SET premake = premake + 1 WHERE parent_table = 'audit.events'`); err != nil {
 		t.Fatalf("raise the pg_partman premake: %v", err)
 	}
-
 	t.Cleanup(func() {
-		_, _ = pool.Exec(
-			ctx,
-			`UPDATE partman.part_config SET premake = premake - 1 WHERE parent_table = 'audit.events'`,
-		)
+		_, _ = pool.Exec(ctx, `UPDATE partman.part_config SET premake = premake - 1 WHERE parent_table = 'audit.events'`)
 	})
 	if err := store.RunMaintenance(ctx); err != nil {
 		t.Fatalf("partition maintenance under the guard: %v", err)
 	}
-
 	if after := guardPartitionCount(ctx, t, pool); after <= before {
-		t.Fatalf(
-			"partitions of audit.events = %d after maintenance, want more than %d",
-			after,
-			before,
-		)
+		t.Fatalf("partitions of audit.events = %d after maintenance, want more than %d", after, before)
 	}
 
 	setGuardTriggers(ctx, t, pool, "DISABLE")
@@ -120,7 +89,6 @@ func TestSchemaGuardRefusesHandWrittenAuditDDL(t *testing.T) {
 	if _, err := pool.Exec(ctx, strayChildStatement); err != nil {
 		t.Fatalf("create the stray child with the triggers disabled: %v", err)
 	}
-
 	strays, err := store.StrayChildren(ctx)
 	if err != nil || !slices.Equal(strays, []string{"events_tack556_proof"}) {
 		t.Fatalf("stray children = %v, err = %v; want events_tack556_proof", strays, err)
@@ -129,7 +97,6 @@ func TestSchemaGuardRefusesHandWrittenAuditDDL(t *testing.T) {
 
 func setGuardTriggers(ctx context.Context, t *testing.T, pool *pgxpool.Pool, state string) {
 	t.Helper()
-
 	for _, trigger := range []string{"tack_audit_schema_guard", "tack_audit_schema_guard_drop"} {
 		if _, err := pool.Exec(ctx, "ALTER EVENT TRIGGER "+trigger+" "+state); err != nil {
 			t.Fatalf("%s event trigger %s: %v", state, trigger, err)
@@ -143,6 +110,5 @@ func guardPartitionCount(ctx context.Context, t *testing.T, pool *pgxpool.Pool) 
 	if err := pool.QueryRow(ctx, guardPartitionCountQuery).Scan(&count); err != nil {
 		t.Fatalf("count the partitions of audit.events: %v", err)
 	}
-
 	return count
 }

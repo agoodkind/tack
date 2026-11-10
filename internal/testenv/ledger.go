@@ -38,10 +38,7 @@ const (
 // them, from creating tablets by the dozen; the test ledger carries a few
 // rows per test, so tablet count changes nothing the tests observe.
 var ledgerCommand = []string{
-	"/home/yugabyte/bin/yugabyted",
-	"start",
-	"--daemon=false",
-	"--base_dir=/home/yugabyte/var",
+	"/home/yugabyte/bin/yugabyted", "start", "--daemon=false", "--base_dir=/home/yugabyte/var",
 	"--tserver_flags=ysql_num_shards_per_tserver=1,yb_num_shards_per_tserver=1",
 }
 
@@ -61,26 +58,15 @@ func ledgerPlatform(ctx context.Context, cli *client.Client) (*ocispec.Platform,
 		slog.ErrorContext(ctx, "testenv.daemon.info_failed", slog.String("err", err.Error()))
 		return nil, fmt.Errorf("read Docker daemon architecture: %w", err)
 	}
-
-	platform := &ocispec.Platform{
-		Architecture: "",
-		OS:           "linux",
-		OSVersion:    "",
-		OSFeatures:   nil,
-		Variant:      "",
-	}
+	platform := &ocispec.Platform{Architecture: "", OS: "linux", OSVersion: "", OSFeatures: nil, Variant: ""}
 	switch dockerArchitecture(information.Info.Architecture) {
 	case dockerARM64, dockerAArch64:
 		platform.Architecture, platform.Variant = "arm64", "v8"
 	case dockerAMD64, dockerX86:
 		platform.Architecture = "amd64"
 	default:
-		return nil, fmt.Errorf(
-			"unsupported Docker daemon architecture %q",
-			information.Info.Architecture,
-		)
+		return nil, fmt.Errorf("unsupported Docker daemon architecture %q", information.Info.Architecture)
 	}
-
 	return platform, nil
 }
 
@@ -92,42 +78,33 @@ func provisionLedger(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	superuserKey, err := randomHex(ctx, 16)
 	if err != nil {
 		return "", err
 	}
-
 	cli, err := dockerClient(ctx)
 	if err != nil {
 		return "", err
 	}
-
 	defer func() { _ = cli.Close() }()
 	platform, err := ledgerPlatform(ctx, cli)
 	if err != nil {
 		return "", err
 	}
-
-	started, err := startEngine(
-		ctx,
-		cli,
-		engineSpec{
-			kind:     "yugabyte",
-			image:    image,
-			platform: platform,
-			cmd:      ledgerCommand,
-			env: []string{
-				"YSQL_USER=" + ledgerAdminUser,
-				"YSQL_PASSWORD=" + superuserKey,
-				"YSQL_DB=" + ledgerDatabase,
-			},
+	started, err := startEngine(ctx, cli, engineSpec{
+		kind:     "yugabyte",
+		image:    image,
+		platform: platform,
+		cmd:      ledgerCommand,
+		env: []string{
+			"YSQL_USER=" + ledgerAdminUser,
+			"YSQL_PASSWORD=" + superuserKey,
+			"YSQL_DB=" + ledgerDatabase,
 		},
-	)
+	})
 	if err != nil {
 		return "", err
 	}
-
 	dsn := url.URL{
 		Scheme:   "postgres",
 		User:     url.UserPassword(ledgerAdminUser, superuserKey),
@@ -138,13 +115,10 @@ func provisionLedger(ctx context.Context) (string, error) {
 	if err := waitForLedger(ctx, dsn.String()); err != nil {
 		return "", err
 	}
-
 	if err := migrateLedger(ctx, dsn.String()); err != nil {
 		return "", err
 	}
-
 	slog.InfoContext(ctx, "testenv.ledger.ready", slog.String("container", started.name))
-
 	return dsn.String(), nil
 }
 
@@ -156,7 +130,6 @@ func waitForLedger(ctx context.Context, dsn string) error {
 		if lastErr == nil {
 			return nil
 		}
-
 		if !sleepOrDone(ctx) {
 			slog.ErrorContext(ctx, "testenv.ledger.not_ready", slog.String("err", lastErr.Error()))
 			return fmt.Errorf("the test ledger did not answer before the deadline: %w", lastErr)
@@ -175,14 +148,12 @@ func probeLedger(ctx context.Context, dsn string) error {
 		slog.DebugContext(ctx, "testenv.ledger.probe", slog.String("err", err.Error()))
 		return errors.New("connect: " + err.Error())
 	}
-
 	defer func() { _ = connection.Close(context.WithoutCancel(ctx)) }()
 	var answer int
 	if err := connection.QueryRow(probeCtx, "SELECT 1").Scan(&answer); err != nil {
 		slog.DebugContext(ctx, "testenv.ledger.probe", slog.String("err", err.Error()))
 		return errors.New("query: " + err.Error())
 	}
-
 	return nil
 }
 
@@ -193,6 +164,5 @@ func migrateLedger(ctx context.Context, dsn string) error {
 		slog.ErrorContext(ctx, "testenv.ledger.migrate_failed", slog.String("err", err.Error()))
 		return fmt.Errorf("migrate the test ledger: %w", err)
 	}
-
 	return nil
 }

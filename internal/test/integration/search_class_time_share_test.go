@@ -80,30 +80,12 @@ const (
 // most worker time and access remains pending at pacedSliceLimit.
 func TestSearchWorkerSharesTimeByClassWeight(t *testing.T) {
 	env, proxy := newPacedMigrationEnv(t, timingPageBytes)
-	buildFairnessBacklog(
-		t,
-		env,
-		pacedAccessNodes,
-		pacedDeletedNodes,
-		pacedLiveNodes,
-		strings.Repeat(timingText, pacedLiveRepeats),
-	)
+	buildFairnessBacklog(t, env, pacedAccessNodes, pacedDeletedNodes, pacedLiveNodes, strings.Repeat(timingText, pacedLiveRepeats))
 	proxy.pace(pacedPageDelay, pacedOtherDelay)
-	slices := runFairnessSlices(
-		t,
-		newFairnessWorker(t, env, pacedSliceBudget),
-		pacedSliceLimit,
-		pacedDeadline,
-	)
+	slices := runFairnessSlices(t, newFairnessWorker(t, env, pacedSliceBudget), pacedSliceLimit, pacedDeadline)
 	run := sliceTotalsOf(slices)
-	t.Logf(
-		"the run claimed %d slices that took %s with a longest slice of %s; slices by class %v, time by class %v",
-		len(slices),
-		run.total,
-		run.longest,
-		run.counts,
-		run.spent,
-	)
+	t.Logf("the run claimed %d slices that took %s with a longest slice of %s; slices by class %v, time by class %v",
+		len(slices), run.total, run.longest, run.counts, run.spent)
 	requireTimeShares(t, allPendingWindow(slices))
 	requireAccessCaughtUp(t, slices)
 }
@@ -117,7 +99,6 @@ func allPendingWindow(slices []fairnessSlice) []fairnessSlice {
 			return slices[:position+1]
 		}
 	}
-
 	return slices
 }
 
@@ -135,20 +116,13 @@ type sliceTotals struct {
 // fairnessSlice values. It also sums all slice durations and finds
 // the longest slice duration. It returns these values as a sliceTotals.
 func sliceTotalsOf(slices []fairnessSlice) sliceTotals {
-	totals := sliceTotals{
-		spent:   map[string]time.Duration{},
-		counts:  map[string]int{},
-		total:   0,
-		longest: 0,
-	}
-
+	totals := sliceTotals{spent: map[string]time.Duration{}, counts: map[string]int{}, total: 0, longest: 0}
 	for _, slice := range slices {
 		totals.spent[slice.class] += slice.duration
 		totals.counts[slice.class]++
 		totals.total += slice.duration
 		totals.longest = max(totals.longest, slice.duration)
 	}
-
 	return totals
 }
 
@@ -162,52 +136,25 @@ func requireTimeShares(t *testing.T, window []fairnessSlice) {
 	if err != nil {
 		t.Fatalf("load search worker settings: %v", err)
 	}
-
-	classes := []searchdomain.WorkClass{
-		searchdomain.WorkClassLive,
-		searchdomain.WorkClassAccess,
-		searchdomain.WorkClassCleanup,
-	}
+	classes := []searchdomain.WorkClass{searchdomain.WorkClassLive, searchdomain.WorkClassAccess, searchdomain.WorkClassCleanup}
 	measured := sliceTotalsOf(window)
 	spent, total, longest := measured.spent, measured.total, measured.longest
-	t.Logf(
-		"the slices before the first class finished took %s with a longest slice of %s; slices by class %v, time by class %v",
-		total,
-		longest,
-		measured.counts,
-		spent,
-	)
+	t.Logf("the slices before the first class finished took %s with a longest slice of %s; slices by class %v, time by class %v",
+		total, longest, measured.counts, spent)
 	if total < shareWindowSlices*longest {
-		t.Fatalf(
-			"the slices before the first class finished took %s with a longest slice of %s, want at least %d longest slices; slices by class %v, time by class %v",
-			total,
-			longest,
-			shareWindowSlices,
-			measured.counts,
-			spent,
-		)
+		t.Fatalf("the slices before the first class finished took %s with a longest slice of %s, want at least %d longest slices; slices by class %v, time by class %v",
+			total, longest, shareWindowSlices, measured.counts, spent)
 	}
-
 	weights := 0
-
 	for _, class := range classes {
 		weights += settings.ClassWeights[string(class)]
 	}
-
 	for _, class := range classes {
 		share := float64(spent[string(class)]) / float64(total)
 		want := float64(settings.ClassWeights[string(class)]) / float64(weights)
 		if math.Abs(share-want) > shareTolerance {
-			t.Fatalf(
-				"class %s received %.2f of %s of worker time across %d slices, want %.2f within %.2f; time by class %v",
-				class,
-				share,
-				total,
-				len(window),
-				want,
-				shareTolerance,
-				spent,
-			)
+			t.Fatalf("class %s received %.2f of %s of worker time across %d slices, want %.2f within %.2f; time by class %v",
+				class, share, total, len(window), want, shareTolerance, spent)
 		}
 	}
 }

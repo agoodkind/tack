@@ -40,11 +40,7 @@ func searchSettingsOp(f *cli.Factory) clispec.Operation[searchSettingsInput] {
 		Audit:    readSpec(audit.VerbOpsSearchSettings, "opensearch/settings"),
 		Group:    searchGroup,
 		Short:    "Read the OpenSearch point-in-time limit and ML heap threshold",
-		New: func() searchSettingsInput {
-			return searchSettingsInput{
-				InputMarker: clispec.InputMarker{},
-			}
-		},
+		New:      func() searchSettingsInput { return searchSettingsInput{InputMarker: clispec.InputMarker{}} },
 		Run: func(ctx context.Context, _ searchSettingsInput, sink clispec.ResultSink) error {
 			return runSearchSettings(ctx, f, sink)
 		},
@@ -57,16 +53,11 @@ func (searchSettingsOutput) AuditReadTargets() ([]audit.Target, error) {
 }
 
 // runSearchSettings reads the settings with the maintenance identity.
-func runSearchSettings(
-	ctx context.Context,
-	f *cli.Factory,
-	sink clispec.ResultSink,
-) (runErr error) {
+func runSearchSettings(ctx context.Context, f *cli.Factory, sink clispec.ResultSink) (runErr error) {
 	adapter, err := newSearchMaintenanceAdapter(ctx, f.Cfg)
 	if err != nil {
 		return searchSettingsFailure("create search adapter", err)
 	}
-
 	defer func() {
 		if err := adapter.Close(ctx); err != nil && runErr == nil {
 			runErr = searchSettingsFailure("close search adapter", err)
@@ -76,32 +67,19 @@ func runSearchSettings(
 	if err != nil {
 		return searchSettingsFailure("read the search settings", err)
 	}
-
 	limit := settings.PointInTimeLimit
 	heap := settings.MLJVMHeapMemoryThreshold
 	output := searchSettingsOutput{
-		ResultMarker: clispec.ResultMarker{},
-		Command:      "ops.search.settings",
-		Persistent:   limit.Persistent,
-		Transient:    limit.Transient,
-		Defaults:     limit.Defaults,
-		Effective:    limit.Effective(),
+		ResultMarker: clispec.ResultMarker{}, Command: "ops.search.settings",
+		Persistent: limit.Persistent, Transient: limit.Transient, Defaults: limit.Defaults, Effective: limit.Effective(),
 		MLJVMHeapMemoryThreshold: searchSettingOutput{
-			Persistent: heap.Persistent,
-			Transient:  heap.Transient,
-			Defaults:   heap.Defaults,
-			Effective:  heap.Effective(),
+			Persistent: heap.Persistent, Transient: heap.Transient, Defaults: heap.Defaults, Effective: heap.Effective(),
 		},
 	}
-	telemetry.L(ctx).InfoContext(
-		ctx,
-		"search.settings.read",
-		slog.String("effective", output.Effective),
-	)
+	telemetry.L(ctx).InfoContext(ctx, "search.settings.read", slog.String("effective", output.Effective))
 	if err := clispec.WriteJSONValue(ctx, sink, output); err != nil {
 		return searchSettingsFailure("write the search settings", err)
 	}
-
 	return nil
 }
 

@@ -12,8 +12,7 @@ import (
 func mustCreateLegacyRepairReference(
 	t *testing.T,
 	env *TestEnv,
-	typeKey string,
-	name string,
+	typeKey, name string,
 	projectID uuid.UUID,
 	sequence int,
 ) *node.NodeView {
@@ -43,17 +42,11 @@ func mustCreateLegacyRepairReference(
 		UpdatedAt: current.UpdatedAt,
 	}
 	if err := env.Stores.Nodes.CreateAtomic(
-		env.Ctx,
-		current,
-		view,
-		nil,
-		[]string{"parent_id", "scope_id", "sequence"},
-		nil,
-		nil,
+		env.Ctx, current, view, nil,
+		[]string{"parent_id", "scope_id", "sequence"}, nil, nil,
 	); err != nil {
 		t.Fatalf("create legacy %s: %v", typeKey, err)
 	}
-
 	return view
 }
 
@@ -63,8 +56,7 @@ func mustCreateLegacyRepairReference(
 func writeNodeWithRawGeneratedValue(
 	t *testing.T,
 	env *TestEnv,
-	typeKey string,
-	name string,
+	typeKey, name string,
 	projectID uuid.UUID,
 	rawSequence string,
 ) *node.NodeView {
@@ -94,16 +86,10 @@ func writeNodeWithRawGeneratedValue(
 		UpdatedAt: current.UpdatedAt,
 	}
 	if err := env.Stores.Nodes.CreateAtomic(
-		env.Ctx,
-		current,
-		view,
-		nil,
-		[]string{"parent_id", "scope_id", "sequence"},
-		nil,
-		nil,
+		env.Ctx, current, view, nil,
+		[]string{"parent_id", "scope_id", "sequence"}, nil, nil,
 	); err != nil {
 		t.Fatalf("write %s with raw generated value: %v", typeKey, err)
 	}
-
 	return view
 }

@@ -42,11 +42,7 @@ const (
 // rows the engine prints, pairing each tablet with the table row above it.
 func TestParseYBSnapshotMappingReadsTheEngineRows(t *testing.T) {
 	out := importSnapshotOutput(
-		mappingRow(
-			"Keyspace",
-			"000033e8000030008000000000000000",
-			"000033e8000030008000000000000000",
-		),
+		mappingRow("Keyspace", "000033e8000030008000000000000000", "000033e8000030008000000000000000"),
 		mappingRow("Table", usersTableID, usersTableID),
 		mappingRow("Tablet 0", usersTabletOld, usersTabletNew),
 		mappingRow("Table", tokensTableID, tokensTableID),
@@ -82,59 +78,29 @@ func TestParseYBSnapshotMappingRefusesRowsItCannotPlace(t *testing.T) {
 		before []string
 		row    string
 	}{
-		{
-			name:   "a tablet row short of its new id",
-			before: []string{tableRow},
-			row:    "Tablet 0        \t" + usersTabletOld,
-		},
+		{name: "a tablet row short of its new id", before: []string{tableRow}, row: "Tablet 0        \t" + usersTabletOld},
 		{name: "a tablet row with no ids", before: []string{tableRow}, row: "Tablet 0"},
-		{
-			name:   "a tablet row before any table row",
-			before: nil,
-			row:    mappingRow("Tablet 0", usersTabletOld, usersTabletNew),
-		},
+		{name: "a tablet row before any table row", before: nil, row: mappingRow("Tablet 0", usersTabletOld, usersTabletNew)},
 		{name: "a table row with no id", before: nil, row: "Table"},
-		{
-			name:   "a table row whose new id differs from its old",
-			before: nil,
-			row:    mappingRow("Table", usersTableID, tokensTableID),
-		},
-		{
-			name:   "a table row whose new id is outside the engine form",
-			before: nil,
-			row:    mappingRow("Table", usersTableID, "../.."),
-		},
+		{name: "a table row whose new id differs from its old", before: nil, row: mappingRow("Table", usersTableID, tokensTableID)},
+		{name: "a table row whose new id is outside the engine form", before: nil, row: mappingRow("Table", usersTableID, "../..")},
 	} {
-		t.Run(
-			tc.name,
-			func(t *testing.T) {
-				rows := append(
-					append([]string{}, tc.before...),
-					tc.row,
-					mappingRow("Tablet 1", tokensTabletOld, tokensTabletNew),
-				)
-				out := importSnapshotOutput(rows...)
+		t.Run(tc.name, func(t *testing.T) {
+			rows := append(append([]string{}, tc.before...), tc.row, mappingRow("Tablet 1", tokensTabletOld, tokensTabletNew))
+			out := importSnapshotOutput(rows...)
 
-				remaps, err := parseYBSnapshotMapping(out)
-				if err == nil {
-					t.Fatalf(
-						"a mapping row the placement cannot use must be refused, got %+v",
-						remaps,
-					)
-				}
+			remaps, err := parseYBSnapshotMapping(out)
 
-				if remaps != nil {
-					t.Fatalf(
-						"a refused mapping must yield no rows for the placement, got %+v",
-						remaps,
-					)
-				}
-
-				if !strings.Contains(err.Error(), strings.Join(strings.Fields(tc.row), " ")) {
-					t.Fatalf("the refusal must name the row, got: %v", err)
-				}
-			},
-		)
+			if err == nil {
+				t.Fatalf("a mapping row the placement cannot use must be refused, got %+v", remaps)
+			}
+			if remaps != nil {
+				t.Fatalf("a refused mapping must yield no rows for the placement, got %+v", remaps)
+			}
+			if !strings.Contains(err.Error(), strings.Join(strings.Fields(tc.row), " ")) {
+				t.Fatalf("the refusal must name the row, got: %v", err)
+			}
+		})
 	}
 }
 
@@ -170,64 +136,33 @@ func TestParseYBSnapshotMappingRefusesIdsOutsideTheEngineForm(t *testing.T) {
 		name string
 		row  string
 	}{
-		{
-			name: "parent directory as a new tablet id",
-			row:  mappingRow("Tablet 0", usersTabletOld, "../../../../var/lib/evil"),
-		},
-		{
-			name: "parent directory as an old tablet id",
-			row:  mappingRow("Tablet 0", "..", usersTabletNew),
-		},
+		{name: "parent directory as a new tablet id", row: mappingRow("Tablet 0", usersTabletOld, "../../../../var/lib/evil")},
+		{name: "parent directory as an old tablet id", row: mappingRow("Tablet 0", "..", usersTabletNew)},
 		{name: "parent directory as a table id", row: mappingRow("Table", "../..", "../..")},
-		{
-			name: "a separator inside a tablet id",
-			row:  mappingRow("Tablet 0", usersTabletOld, "bbbb0000/bbb0000bbbb0000bbbb0001"),
-		},
-		{
-			name: "uppercase hexadecimal",
-			row:  mappingRow("Tablet 0", usersTabletOld, strings.ToUpper(usersTabletNew)),
-		},
-		{
-			name: "one character short",
-			row:  mappingRow("Tablet 0", usersTabletOld, usersTabletNew[1:]),
-		},
-		{
-			name: "a dashed uuid",
-			row:  mappingRow("Tablet 0", usersTabletOld, "4963ed18-2295-4e4f-9d9f-0a1a45c39bd1"),
-		},
-		{
-			name: "a colocated parent table id",
-			row:  mappingRow("Table", usersTableID+".colocated.parent.uuid", usersTableID),
-		},
+		{name: "a separator inside a tablet id", row: mappingRow("Tablet 0", usersTabletOld, "bbbb0000/bbb0000bbbb0000bbbb0001")},
+		{name: "uppercase hexadecimal", row: mappingRow("Tablet 0", usersTabletOld, strings.ToUpper(usersTabletNew))},
+		{name: "one character short", row: mappingRow("Tablet 0", usersTabletOld, usersTabletNew[1:])},
+		{name: "a dashed uuid", row: mappingRow("Tablet 0", usersTabletOld, "4963ed18-2295-4e4f-9d9f-0a1a45c39bd1")},
+		{name: "a colocated parent table id", row: mappingRow("Table", usersTableID+".colocated.parent.uuid", usersTableID)},
 	} {
-		t.Run(
-			tc.name,
-			func(t *testing.T) {
-				out := importSnapshotOutput(
-					mappingRow("Table", usersTableID, usersTableID),
-					tc.row,
-					mappingRow("Tablet 1", tokensTabletOld, tokensTabletNew),
-				)
+		t.Run(tc.name, func(t *testing.T) {
+			out := importSnapshotOutput(
+				mappingRow("Table", usersTableID, usersTableID),
+				tc.row,
+				mappingRow("Tablet 1", tokensTabletOld, tokensTabletNew),
+			)
 
-				remaps, err := parseYBSnapshotMapping(out)
-				if err == nil {
-					t.Fatalf(
-						"a mapping row outside the engine's form must be refused, got %+v",
-						remaps,
-					)
-				}
+			remaps, err := parseYBSnapshotMapping(out)
 
-				if remaps != nil {
-					t.Fatalf(
-						"a refused mapping must yield no rows for the placement, got %+v",
-						remaps,
-					)
-				}
-
-				if !strings.Contains(err.Error(), strings.Join(strings.Fields(tc.row), " ")) {
-					t.Fatalf("the refusal must name the row, got: %v", err)
-				}
-			},
-		)
+			if err == nil {
+				t.Fatalf("a mapping row outside the engine's form must be refused, got %+v", remaps)
+			}
+			if remaps != nil {
+				t.Fatalf("a refused mapping must yield no rows for the placement, got %+v", remaps)
+			}
+			if !strings.Contains(err.Error(), strings.Join(strings.Fields(tc.row), " ")) {
+				t.Fatalf("the refusal must name the row, got: %v", err)
+			}
+		})
 	}
 }

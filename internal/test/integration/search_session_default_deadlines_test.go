@@ -33,27 +33,12 @@ func TestSearchSessionDefaultDeadlines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot load search query settings: %v", err)
 	}
-
-	if settings.IdleTimeout != acceptanceIdleTimeout ||
-		settings.AbsoluteTimeout != acceptanceAbsoluteTimeout {
-		t.Fatalf(
-			"default session timeouts are %s idle and %s absolute instead of %s and %s",
-			settings.IdleTimeout,
-			settings.AbsoluteTimeout,
-			acceptanceIdleTimeout,
-			acceptanceAbsoluteTimeout,
-		)
+	if settings.IdleTimeout != acceptanceIdleTimeout || settings.AbsoluteTimeout != acceptanceAbsoluteTimeout {
+		t.Fatalf("default session timeouts are %s idle and %s absolute instead of %s and %s",
+			settings.IdleTimeout, settings.AbsoluteTimeout, acceptanceIdleTimeout, acceptanceAbsoluteTimeout)
 	}
-
 	workspace := fixture.workspaces[0]
-	putRolloutCorpus(
-		t,
-		fixture,
-		putRolloutKind(t, fixture, workspace.OrgID),
-		rolloutEntryPoint(t, fixture, workspace),
-		defaultDeadlineQuery,
-		defaultDeadlineNodes,
-	)
+	putRolloutCorpus(t, fixture, putRolloutKind(t, fixture, workspace.OrgID), rolloutEntryPoint(t, fixture, workspace), defaultDeadlineQuery, defaultDeadlineNodes)
 	drainRolloutWork(t, fixture)
 
 	started := clock.Now()
@@ -62,35 +47,14 @@ func TestSearchSessionDefaultDeadlines(t *testing.T) {
 	if page.complete {
 		t.Fatalf("search for %q completed in one page", defaultDeadlineQuery)
 	}
-
 	session := cursorSessionRecord(t, fixture, page.cursor)
 	if session.CreatedAt.Before(started) || session.CreatedAt.After(finished) {
-		t.Fatalf(
-			"session %s was created at %s, outside the call from %s to %s",
-			session.ID,
-			session.CreatedAt,
-			started,
-			finished,
-		)
+		t.Fatalf("session %s was created at %s, outside the call from %s to %s", session.ID, session.CreatedAt, started, finished)
 	}
-
 	if !session.AbsoluteDeadline.Equal(session.CreatedAt.Add(acceptanceAbsoluteTimeout)) {
-		t.Fatalf(
-			"session %s stores absolute deadline %s for creation time %s",
-			session.ID,
-			session.AbsoluteDeadline,
-			session.CreatedAt,
-		)
+		t.Fatalf("session %s stores absolute deadline %s for creation time %s", session.ID, session.AbsoluteDeadline, session.CreatedAt)
 	}
-
-	if session.IdleDeadline.Before(session.CreatedAt.Add(acceptanceIdleTimeout)) ||
-		session.IdleDeadline.After(finished.Add(acceptanceIdleTimeout)) {
-		t.Fatalf(
-			"session %s stores idle deadline %s for creation time %s and call end %s",
-			session.ID,
-			session.IdleDeadline,
-			session.CreatedAt,
-			finished,
-		)
+	if session.IdleDeadline.Before(session.CreatedAt.Add(acceptanceIdleTimeout)) || session.IdleDeadline.After(finished.Add(acceptanceIdleTimeout)) {
+		t.Fatalf("session %s stores idle deadline %s for creation time %s and call end %s", session.ID, session.IdleDeadline, session.CreatedAt, finished)
 	}
 }

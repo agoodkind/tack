@@ -51,58 +51,40 @@ func (r *resolveRetryTransport) RoundTrip(request *http.Request) (*http.Response
 	if err != nil {
 		return nil, err
 	}
-
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	response, err := http.DefaultTransport.RoundTrip(request)
 	if err != nil {
 		return response, err
 	}
-
 	var call resolveRetryCall
 	if json.Unmarshal(body, &call) != nil {
 		return response, nil
 	}
-
 	arguments := call.Params.Arguments
-	if call.Params.Name == resolveRetryCreateTool &&
-		strings.HasPrefix(arguments.Name, lostDeleteIssuePrefix) {
+	if call.Params.Name == resolveRetryCreateTool && strings.HasPrefix(arguments.Name, lostDeleteIssuePrefix) {
 		r.armed.Store(true)
 	}
-
-	victimSearch := call.Params.Name == resolveRetrySearchTool &&
-		strings.HasPrefix(arguments.Query, resolveRetryVictimPrefix)
+	victimSearch := call.Params.Name == resolveRetrySearchTool && strings.HasPrefix(arguments.Query, resolveRetryVictimPrefix)
 	if !victimSearch || !r.armed.Load() || !r.paused.CompareAndSwap(false, true) {
 		return response, nil
 	}
-
 	answer, err := io.ReadAll(response.Body)
 	if err != nil {
 		return nil, err
 	}
-
 	if err := response.Body.Close(); err != nil {
 		return nil, err
 	}
-
 	response.Body = io.NopCloser(bytes.NewReader(answer))
 	ctx := context.WithoutCancel(request.Context())
 	if err := changeContainerPause(ctx, r.container, true); err != nil {
 		return nil, err
 	}
-
-	time.AfterFunc(
-		r.pause,
-		func() {
-			if err := changeContainerPause(ctx, r.container, false); err != nil {
-				slog.ErrorContext(
-					ctx,
-					"test.resolve_retry_resume_failed",
-					slog.String("err", err.Error()),
-				)
-			}
-		},
-	)
-
+	time.AfterFunc(r.pause, func() {
+		if err := changeContainerPause(ctx, r.container, false); err != nil {
+			slog.ErrorContext(ctx, "test.resolve_retry_resume_failed", slog.String("err", err.Error()))
+		}
+	})
 	return response, nil
 }
 
@@ -116,25 +98,13 @@ func TestSearchMixedResolveRetriesTimeout(t *testing.T) {
 	endpoints := startSearchMixedProcesses(t, cfg)
 	container := testenv.FoundationDBContainer(testenv.FoundationDB(t))
 	t.Cleanup(func() { resumeContainerIfPaused(t, container) })
-	transport := &resolveRetryTransport{
-		container: container,
-		pause:     cfg.FDBTransactionTimeout + resolveRetryPauseMargin,
-	}
+	transport := &resolveRetryTransport{container: container, pause: cfg.FDBTransactionTimeout + resolveRetryPauseMargin}
 	ctx := integration.WithTestOperation(t, t.Context())
 	options := datagen.SearchMixedOptions{
-		Seed:           clock.Now().UnixNano(),
-		Rate:           30,
-		WriteRate:      60,
-		Duration:       time.Minute,
-		Concurrency:    4,
-		Commit:         true,
-		BurstWrites:    10,
-		CatchUp:        0,
-		Endpoints:      endpoints,
-		Client:         &http.Client{Timeout: lostDeleteCallLimit, Transport: transport},
-		Rebuild:        nil,
-		MetadataWrites: 0,
-		Moves:          0,
+		Seed: clock.Now().UnixNano(), Rate: 30, WriteRate: 60, Duration: time.Minute, Concurrency: 4,
+		Commit: true, BurstWrites: 10, CatchUp: 0, Endpoints: endpoints,
+		Client:  &http.Client{Timeout: lostDeleteCallLimit, Transport: transport},
+		Rebuild: nil, MetadataWrites: 0, Moves: 0,
 	}
 	logged, restoreLog := captureSweepLog(t)
 	summary, err := datagen.RunSearchMixed(ctx, ctx, cfg, options)
@@ -142,18 +112,12 @@ func TestSearchMixedResolveRetriesTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunSearchMixed returned an error: %v (summary=%+v)", err, summary)
 	}
-
 	if !transport.paused.Load() {
-		t.Fatalf(
-			"the run did not send a victim word search after its first scheduled write: %+v",
-			summary,
-		)
+		t.Fatalf("the run did not send a victim word search after its first scheduled write: %+v", summary)
 	}
-
 	if !bytes.Contains(logged.contents(), []byte(resolveRetryRecord)) {
 		t.Fatalf("the run did not log %s while FoundationDB was paused", resolveRetryRecord)
 	}
-
 	if err := summary.Verify(ctx, "none"); err != nil {
 		t.Fatalf("Verify returned an error: %v", err)
 	}

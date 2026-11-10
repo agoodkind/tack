@@ -33,14 +33,12 @@ func hideLedgerTable(t *testing.T, hide, restore string) func() {
 	if err != nil {
 		t.Fatalf("pgxpool.New failed for the administrator pool: %v", err)
 	}
-
 	t.Cleanup(admin.Close)
 	hidden := true
 	t.Cleanup(func() {
 		if !hidden {
 			return
 		}
-
 		if _, err := admin.Exec(context.WithoutCancel(t.Context()), restore); err != nil {
 			t.Errorf("run %q: %v", restore, err)
 		}
@@ -48,13 +46,11 @@ func hideLedgerTable(t *testing.T, hide, restore string) func() {
 	if _, err := admin.Exec(t.Context(), hide); err != nil {
 		t.Fatalf("run %q: %v", hide, err)
 	}
-
 	return func() {
 		t.Helper()
 		if _, err := admin.Exec(t.Context(), restore); err != nil {
 			t.Fatalf("run %q: %v", restore, err)
 		}
-
 		hidden = false
 	}
 }
@@ -70,51 +66,22 @@ func TestRuntimeAuditOrganizationLookupFailure(t *testing.T) {
 	cfg := publicConfig(t)
 	cfg.AuthMembershipCacheLifetime = 0
 	server := newPublicServer(t, cfg, nil)
-	if warm := server.rpc(
-		t,
-		newRequestID(t, "lookup-warm"),
-		"ping",
-		map[string]any{},
-	); warm.status != http.StatusOK {
+	if warm := server.rpc(t, newRequestID(t, "lookup-warm"), "ping", map[string]any{}); warm.status != http.StatusOK {
 		t.Fatalf("ping status = %d, want 200: %s", warm.status, warm.body)
 	}
-
 	restoreMemberships := hideLedgerTable(t, hideMembershipsStatement, restoreMembershipsStatement)
 	requestID := newRequestID(t, "lookup-failure")
-	response := server.rpc(
-		t,
-		requestID,
-		"tools/call",
-		map[string]any{"name": "tack_list_workspaces", "arguments": map[string]any{}},
-	)
+	response := server.rpc(t, requestID, "tools/call", map[string]any{"name": "tack_list_workspaces", "arguments": map[string]any{}})
 	restoreMemberships()
-	if response.status != http.StatusServiceUnavailable ||
-		string(response.body) != organizationUnavailableResponse {
-		t.Fatalf(
-			"response = %d %s, want 503 %s",
-			response.status,
-			response.body,
-			organizationUnavailableResponse,
-		)
+	if response.status != http.StatusServiceUnavailable || string(response.body) != organizationUnavailableResponse {
+		t.Fatalf("response = %d %s, want 503 %s", response.status, response.body, organizationUnavailableResponse)
 	}
 
 	ledger := startPublicLedger(t, server)
 	row := ledger.row(t, audit.SystemOrgID(), requestID)
-	requireReadRow(
-		t,
-		row,
-		audit.VerbWorkspaceList,
-		audit.OutcomeFailed,
-		"organization_unavailable",
-		response.body,
-	)
+	requireReadRow(t, row, audit.VerbWorkspaceList, audit.OutcomeFailed, "organization_unavailable", response.body)
 	if row.ActorID != server.userID || row.Context.Tool != "tack_list_workspaces" {
-		t.Fatalf(
-			"event %s actor = %s, tool = %q, want the verified user %s and tack_list_workspaces",
-			row.EventID,
-			row.ActorID,
-			row.Context.Tool,
-			server.userID,
-		)
+		t.Fatalf("event %s actor = %s, tool = %q, want the verified user %s and tack_list_workspaces",
+			row.EventID, row.ActorID, row.Context.Tool, server.userID)
 	}
 }

@@ -31,7 +31,6 @@ func TestSearchClusterProxyEndpoint(t *testing.T) {
 	if len(endpoints) == 0 {
 		t.Fatal("the adapter reported no endpoint")
 	}
-
 	for _, endpoint := range endpoints {
 		if used, err := url.Parse(endpoint); err != nil || used.Host != proxy.Host {
 			t.Fatalf("the adapter used endpoint %q; want only %s", endpoint, proxy.Host)
@@ -58,72 +57,34 @@ func TestSearchClusterEngineOutage(t *testing.T) {
 	if response := info.Inspect().Response; response != nil {
 		status = response.StatusCode
 	}
-
 	if err == nil || status != http.StatusServiceUnavailable {
-		t.Fatalf(
-			"the proxy answered with HTTP %d and error %v during the outage, want HTTP 503",
-			status,
-			err,
-		)
+		t.Fatalf("the proxy answered with HTTP %d and error %v during the outage, want HTTP 503", status, err)
 	}
-
-	text, isError, err := rawSearchCall(
-		fixture.Harness,
-		searchArguments(fixture.Harness, clusterPhrase, ""),
-	)
+	text, isError, err := rawSearchCall(fixture.Harness, searchArguments(fixture.Harness, clusterPhrase, ""))
 	if err != nil || !isError || text != unavailableSearchMessage {
-		t.Fatalf(
-			"tack_search during the outage returned isError=%t text %q error %v, want %q",
-			isError,
-			text,
-			err,
-			unavailableSearchMessage,
-		)
+		t.Fatalf("tack_search during the outage returned isError=%t text %q error %v, want %q", isError, text, err, unavailableSearchMessage)
 	}
-
-	clusterEventually(
-		t,
-		"fail the node's search work during the outage",
-		func() error {
-			if _, err := fixture.Worker.RunSlice(WithTestOperation(t, t.Context())); err != nil &&
-				strings.Contains(err.Error(), nodeID.String()) {
-				return nil
-			}
-
-			return errors.New("no worker slice failed for the node")
-		},
-	)
-	store := fixture.Stores.SearchWork(clock.Wall{})
-	clusterEventually(
-		t,
-		"claim the node's pending live work",
-		func() error {
-			work, claimed, err := store.Claim(
-				WithTestOperation(t, t.Context()),
-				searchdomain.WorkClassLive,
-				"cluster-inspector",
-				time.Minute,
-			)
-			if err != nil {
-				return clusterFailure("claim live work", err)
-			}
-
-			if !claimed {
-				return fmt.Errorf("node %s has no claimable live work", nodeID)
-			}
-
-			clusterRequire(
-				t,
-				"yield inspected work",
-				store.Yield(WithTestOperation(t, t.Context()), work),
-			)
-			if work.NodeID != nodeID {
-				return fmt.Errorf("claimed live work of node %s", work.NodeID)
-			}
-
+	clusterEventually(t, "fail the node's search work during the outage", func() error {
+		if _, err := fixture.Worker.RunSlice(WithTestOperation(t, t.Context())); err != nil && strings.Contains(err.Error(), nodeID.String()) {
 			return nil
-		},
-	)
+		}
+		return errors.New("no worker slice failed for the node")
+	})
+	store := fixture.Stores.SearchWork(clock.Wall{})
+	clusterEventually(t, "claim the node's pending live work", func() error {
+		work, claimed, err := store.Claim(WithTestOperation(t, t.Context()), searchdomain.WorkClassLive, "cluster-inspector", time.Minute)
+		if err != nil {
+			return clusterFailure("claim live work", err)
+		}
+		if !claimed {
+			return fmt.Errorf("node %s has no claimable live work", nodeID)
+		}
+		clusterRequire(t, "yield inspected work", store.Yield(WithTestOperation(t, t.Context()), work))
+		if work.NodeID != nodeID {
+			return fmt.Errorf("claimed live work of node %s", work.NodeID)
+		}
+		return nil
+	})
 	cluster.StartMember(t, member)
 	clusterProvision(t, fixture.Adapter)
 	requireSearchable(t, fixture, []uuid.UUID{nodeID})
@@ -140,35 +101,21 @@ func TestSearchClusterScaleOut(t *testing.T) {
 	cluster.AddMember(t)
 	members := cluster.Members()
 	backends := cluster.Backends(t)
-
 	for _, member := range members {
 		if backends[cluster.MemberEndpoint(member)] != "UP" {
 			t.Fatalf("proxy backends %v lack member %s", backends, member)
 		}
 	}
-
 	if len(backends) != len(members) {
 		t.Fatalf("proxy backends %v, want exactly the %d members", backends, len(members))
 	}
-
 	fixture, spec := newClusterQueryFixture(t, cluster.Fixture)
 	defer captureClusterTestFailure(t, cluster, fixture, spec.Model.ID)
 	requireModelOnEveryMember(t, fixture, spec.Model.ID, len(members))
 	awaitGreen := func() {
-		clusterEventually(
-			t,
-			"wait for green index health",
-			func() error {
-				return clusterFailure(
-					"read index health",
-					fixture.Adapter.WaitGreen(
-						WithTestOperation(t, t.Context()),
-						fixture.Index,
-						search.DefaultGreenWait,
-					),
-				)
-			},
-		)
+		clusterEventually(t, "wait for green index health", func() error {
+			return clusterFailure("read index health", fixture.Adapter.WaitGreen(WithTestOperation(t, t.Context()), fixture.Index, search.DefaultGreenWait))
+		})
 	}
 	awaitGreen()
 	write := clusterNodeWriter(t, fixture)
@@ -176,35 +123,22 @@ func TestSearchClusterScaleOut(t *testing.T) {
 	requireSearchable(t, fixture, []uuid.UUID{initial})
 	before := pagesOf(t, fixture, []uuid.UUID{initial})
 	spec.Replicas = 1
-	clusterRequire(
-		t,
-		"raise the replica count",
-		fixture.Adapter.EnsureIndex(WithTestOperation(t, t.Context()), fixture.Index, spec),
-	)
+	clusterRequire(t, "raise the replica count", fixture.Adapter.EnsureIndex(WithTestOperation(t, t.Context()), fixture.Index, spec))
 	awaitGreen()
 	settings, err := fixture.Adapter.IndexSettings(WithTestOperation(t, t.Context()), fixture.Index)
 	if err != nil || settings.Replicas != 1 {
 		t.Fatalf("index settings %+v err %v, want one replica", settings, err)
 	}
-
 	requireSemanticPreserved(t, before, pagesOf(t, fixture, []uuid.UUID{initial}))
 	t.Logf("replica change preserved %d pages with byte-identical semantic fields", len(before))
 	requireClusterDistribution(t, cluster, fixture)
 	written := []uuid.UUID{initial}
 	requireClusterPredictors(t, cluster, fixture, spec.Model.ID)
-
 	for _, member := range members {
 		stoppedAt := time.Now()
 		cluster.StopMember(t, member)
 		written = append(written, write())
-		diagnostics := clusterModelDiagnostics(
-			t,
-			cluster,
-			fixture,
-			spec.Model.ID,
-			member,
-			stoppedAt,
-		)
+		diagnostics := clusterModelDiagnostics(t, cluster, fixture, spec.Model.ID, member, stoppedAt)
 		defer diagnostics.Finish()
 		requireSearchable(t, fixture, written, diagnostics)
 		cluster.StartMember(t, member)
@@ -223,28 +157,16 @@ func TestSearchClusterScaleOut(t *testing.T) {
 // with the other copy before that recovery ends.
 func awaitClusterGreen(t *testing.T, fixture queryFixture) {
 	t.Helper()
-	clusterEventually(
-		t,
-		"wait for green cluster health",
-		func() error {
-			response, err := fixture.Client.Cluster.Health(
-				WithTestOperation(t, t.Context()),
-				&opensearchapi.ClusterHealthReq{
-					Params: &opensearchapi.ClusterHealthParams{
-						WaitForStatus: "green",
-						Timeout:       search.DefaultGreenWait,
-					},
-				},
-			)
-			if err != nil {
-				return clusterFailure("read cluster health", err)
-			}
-
-			if response.TimedOut || response.Status != "green" {
-				return fmt.Errorf("cluster health is %s", response.Status)
-			}
-
-			return nil
-		},
-	)
+	clusterEventually(t, "wait for green cluster health", func() error {
+		response, err := fixture.Client.Cluster.Health(WithTestOperation(t, t.Context()), &opensearchapi.ClusterHealthReq{
+			Params: &opensearchapi.ClusterHealthParams{WaitForStatus: "green", Timeout: search.DefaultGreenWait},
+		})
+		if err != nil {
+			return clusterFailure("read cluster health", err)
+		}
+		if response.TimedOut || response.Status != "green" {
+			return fmt.Errorf("cluster health is %s", response.Status)
+		}
+		return nil
+	})
 }

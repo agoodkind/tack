@@ -42,27 +42,13 @@ func TestSearchIndexesEmojiAcrossChunkBoundaries(t *testing.T) {
 	if !slices.Equal(offsets, wantOffsets) {
 		t.Fatalf("emoji UTF-16 offsets = %v, want %v", offsets, wantOffsets)
 	}
-
 	fixture := integration.NewQueryFixture(t)
 	workspace := fixture.Workspaces[0]
 	kind := integration.PutOpaqueKind(t, fixture, workspace.OrgID)
 	parent := integration.EntryPoint(t, fixture, workspace)
 	included := strings.TrimSuffix(strings.TrimPrefix(text, boundaryNodeName+"\n"), "\n")
-	nodeID := integration.PutOpaqueNode(
-		t,
-		fixture,
-		kind,
-		parent,
-		boundaryNodeName,
-		included,
-		boundaryExcludedValue,
-	)
-	t.Logf(
-		"node %s page has %d UTF-16 units; the emoji start at units %v",
-		nodeID,
-		utf16Units(text),
-		offsets,
-	)
+	nodeID := integration.PutOpaqueNode(t, fixture, kind, parent, boundaryNodeName, included, boundaryExcludedValue)
+	t.Logf("node %s page has %d UTF-16 units; the emoji start at units %v", nodeID, utf16Units(text), offsets)
 
 	worker := integration.NewSearchWorker(t, fixture, searchdomain.MaxPageBytes)
 	integration.DrainSearchWork(t, worker, 2000)
@@ -71,27 +57,19 @@ func TestSearchIndexesEmojiAcrossChunkBoundaries(t *testing.T) {
 
 	report, verifyErr := integration.RunSearchVerifyCommand(t, fixture.Config)
 	t.Logf("ops search verify physical checks: %v", verifyErr)
-
 	for _, exclusion := range report.Exclusions {
 		if exclusion.NodeID == nodeID.String() {
 			t.Fatalf("ops search verify lists node %s as excluded: %s", nodeID, exclusion.Reason)
 		}
 	}
-
 	for _, stuck := range report.StuckWork {
 		if stuck.ItemID == nodeID.String() {
 			t.Fatalf("ops search verify lists stuck work for node %s: %+v", nodeID, stuck)
 		}
 	}
-
 	if len(documents) != 1 || documents[0].PageText == nil || *documents[0].PageText != text {
-		t.Fatalf(
-			"node %s has %d active page documents, want one with the rendered boundary text",
-			nodeID,
-			len(documents),
-		)
+		t.Fatalf("node %s has %d active page documents, want one with the rendered boundary text", nodeID, len(documents))
 	}
-
 	for _, word := range []string{boundaryBeforeWord, boundaryAfterWord, boundaryFinalWord} {
 		results := integration.CallEverySearchPage(t, word, fixture.Harness)
 		if !slices.Contains(results, nodeID) {
@@ -111,7 +89,6 @@ func boundaryPageText() string {
 	text.WriteString(" " + boundaryEmoji + " " + boundaryAfterWord + " ")
 	padUTF16(&text, 2*boundaryChunkUnits-2)
 	text.WriteString(" " + boundaryEmoji + " " + boundaryFinalWord + "\n")
-
 	return text.String()
 }
 
@@ -131,13 +108,11 @@ func utf16Units(text string) int {
 func emojiUTF16Offsets(text string) []int {
 	offsets := []int{}
 	start := 0
-
 	for {
 		found := strings.Index(text[start:], boundaryEmoji)
 		if found < 0 {
 			return offsets
 		}
-
 		offsets = append(offsets, utf16Units(text[:start+found]))
 		start += found + len(boundaryEmoji)
 	}
@@ -153,7 +128,6 @@ type boundaryChunk struct {
 // documents. The log shows where the chunker split each surrogate pair.
 func logBoundaryChunks(t *testing.T, documents []integration.SearchPageSource) {
 	t.Helper()
-
 	for _, document := range documents {
 		var chunks []boundaryChunk
 		if err := json.Unmarshal(document.Semantic, &chunks); err != nil {
@@ -161,19 +135,12 @@ func logBoundaryChunks(t *testing.T, documents []integration.SearchPageSource) {
 				Chunks []boundaryChunk `json:"chunks"`
 			}
 			if err := json.Unmarshal(document.Semantic, &nested); err != nil {
-				t.Logf(
-					"page %d generated semantic info does not decode as chunks: %v",
-					document.PageOrdinal,
-					err,
-				)
+				t.Logf("page %d generated semantic info does not decode as chunks: %v", document.PageOrdinal, err)
 				continue
 			}
-
 			chunks = nested.Chunks
 		}
-
 		t.Logf("page %d has %d generated chunks", document.PageOrdinal, len(chunks))
-
 		for number, chunk := range chunks {
 			t.Logf("page %d chunk %d raw text %s", document.PageOrdinal, number, chunk.Text)
 		}

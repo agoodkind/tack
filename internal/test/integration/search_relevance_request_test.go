@@ -85,11 +85,9 @@ func decodeStrict[Part rankedRequestPart](t *testing.T, raw []byte) Part {
 	if err := decoder.Decode(&part); err != nil {
 		t.Fatalf("ranked batch request part %s does not match the expected fields: %v", raw, err)
 	}
-
 	if decoder.More() {
 		t.Fatalf("ranked batch request part %s has trailing data", raw)
 	}
-
 	return part
 }
 
@@ -100,13 +98,8 @@ func decodeRankedRequest(t *testing.T, search capturedSearch) rankedRequest {
 	t.Helper()
 	body := decodeStrict[rankedRequestBody](t, search.Request)
 	if len(body.Query.Bool.Should) != 2 {
-		t.Fatalf(
-			"ranked batch has %d scoring clauses, want the lexical and sparse clauses: %s",
-			len(body.Query.Bool.Should),
-			search.Request,
-		)
+		t.Fatalf("ranked batch has %d scoring clauses, want the lexical and sparse clauses: %s", len(body.Query.Bool.Should), search.Request)
 	}
-
 	request := rankedRequest{
 		Body:    body,
 		Lexical: decodeStrict[rankedLexicalClause](t, body.Query.Bool.Should[0]),
@@ -114,17 +107,11 @@ func decodeRankedRequest(t *testing.T, search capturedSearch) rankedRequest {
 		Tokens:  nil,
 	}
 	if len(request.Sparse.Nested.Query.NeuralSparse) != 1 {
-		t.Fatalf(
-			"sparse clause targets %d fields, want 1: %s",
-			len(request.Sparse.Nested.Query.NeuralSparse),
-			search.Request,
-		)
+		t.Fatalf("sparse clause targets %d fields, want 1: %s", len(request.Sparse.Nested.Query.NeuralSparse), search.Request)
 	}
-
 	for _, tokens := range request.Sparse.Nested.Query.NeuralSparse {
 		request.Tokens = tokens.QueryTokens
 	}
-
 	return request
 }
 
@@ -138,30 +125,23 @@ func rankedRequestShape(t *testing.T, request rankedRequest) []byte {
 	lexical := request.Lexical
 	lexical.MultiMatch.Query = ""
 	sparse := request.Sparse
-
 	sparse.Nested.Query.NeuralSparse = map[string]rankedQueryTokens{}
 	for field := range request.Sparse.Nested.Query.NeuralSparse {
-		sparse.Nested.Query.NeuralSparse[field] = rankedQueryTokens{
-			QueryTokens: json.RawMessage("null"),
-		}
+		sparse.Nested.Query.NeuralSparse[field] = rankedQueryTokens{QueryTokens: json.RawMessage("null")}
 	}
-
 	encodedLexical, err := json.Marshal(lexical)
 	if err != nil {
 		t.Fatalf("encode lexical clause shape: %v", err)
 	}
-
 	encodedSparse, err := json.Marshal(sparse)
 	if err != nil {
 		t.Fatalf("encode sparse clause shape: %v", err)
 	}
-
 	body.Query.Bool.Should = []json.RawMessage{encodedLexical, encodedSparse}
 	shape, err := json.Marshal(body)
 	if err != nil {
 		t.Fatalf("encode ranked batch shape: %v", err)
 	}
-
 	return shape
 }
 
@@ -173,12 +153,7 @@ func requirePredictedTokens(t *testing.T, tokens json.RawMessage, predicted map[
 	if err := json.Unmarshal(tokens, &weights); err != nil {
 		t.Fatalf("decode ranked batch query tokens: %v", err)
 	}
-
 	if !maps.Equal(weights, predicted) {
-		t.Fatalf(
-			"ranked batch sends %d query tokens that differ from the %d predicted tokens",
-			len(weights),
-			len(predicted),
-		)
+		t.Fatalf("ranked batch sends %d query tokens that differ from the %d predicted tokens", len(weights), len(predicted))
 	}
 }

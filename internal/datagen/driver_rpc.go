@@ -20,7 +20,11 @@ func decodeRPCEnvelope(payload []byte) (json.RawMessage, *rpcError, error) {
 		return nil, nil, err
 	}
 	if envelope.JSONRPC != jsonRPCVersion {
-		return nil, nil, fmt.Errorf("jsonrpc = %q, want %q", envelope.JSONRPC, jsonRPCVersion)
+		return nil, nil, fmt.Errorf(
+			"jsonrpc = %q, want %q",
+			envelope.JSONRPC,
+			jsonRPCVersion,
+		)
 	}
 	if len(envelope.ID) == 0 {
 		return nil, nil, fmt.Errorf("JSON-RPC response id is required")

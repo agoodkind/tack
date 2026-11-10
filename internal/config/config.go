@@ -377,45 +377,33 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	var cfg Config
 	if err := env.ParseWithOptions(&cfg, env.Options{Environment: environment}); err != nil {
 		wrapped := fmt.Errorf("parse server environment: %w", err)
 		slog.Error("config.load_failed", slog.String("err", wrapped.Error()))
-
 		return nil, wrapped
 	}
-
 	if !filepath.IsAbs(cfg.OpsFDBClusterDir) {
-		err := fmt.Errorf(
-			"TACK_OPS_FDB_CLUSTER_DIR %q is not an absolute path",
-			cfg.OpsFDBClusterDir,
-		)
+		err := fmt.Errorf("TACK_OPS_FDB_CLUSTER_DIR %q is not an absolute path", cfg.OpsFDBClusterDir)
 		slog.Error("config.load_failed", slog.String("err", err.Error()))
-
 		return nil, err
 	}
-
 	logsDir := xdgStatePath("tack", "logs")
 	if cfg.LogJSONFile == "" {
 		cfg.LogJSONFile = filepath.Join(logsDir, "app.jsonl")
 	}
-
 	if cfg.LogTextFile == "" {
 		cfg.LogTextFile = filepath.Join(logsDir, "app.log")
 	}
-
 	// "-" is the explicit way to disable a handler that would otherwise
 	// take the XDG default. gklog treats empty paths as disabled, so we
 	// translate "-" to empty here.
 	if cfg.LogJSONFile == "-" {
 		cfg.LogJSONFile = ""
 	}
-
 	if cfg.LogTextFile == "-" {
 		cfg.LogTextFile = ""
 	}
-
 	return &cfg, nil
 }
 
@@ -427,6 +415,5 @@ func xdgStatePath(elem ...string) string {
 	if base == "" {
 		base = filepath.Join(os.Getenv("HOME"), ".local", "state")
 	}
-
 	return filepath.Join(append([]string{base}, elem...)...)
 }

@@ -17,7 +17,12 @@ func (g *Generator) generateProject(
 	if err := g.generateStates(ctx, actor, workspace, projectIdentifier); err != nil {
 		return err
 	}
-	containers, err := g.generateContainers(ctx, actor, workspace, projectIdentifier)
+	containers, err := g.generateContainers(
+		ctx,
+		actor,
+		workspace,
+		projectIdentifier,
+	)
 	if err != nil {
 		return err
 	}
@@ -26,13 +31,7 @@ func (g *Generator) generateProject(
 	if g.scale.ContainersPerProject > 0 {
 		firstEpic = containers[0]
 	}
-	if err := g.generateNestedEpic(
-		ctx,
-		actor,
-		workspace,
-		projectIdentifier,
-		firstEpic,
-	); err != nil {
+	if err := g.generateNestedEpic(ctx, actor, workspace, projectIdentifier, firstEpic); err != nil {
 		return err
 	}
 	if err := g.generateIssues(
@@ -46,13 +45,7 @@ func (g *Generator) generateProject(
 	); err != nil {
 		return err
 	}
-	if err := g.generateEpicScopedIssue(
-		ctx,
-		actor,
-		workspace,
-		projectIdentifier,
-		firstEpic,
-	); err != nil {
+	if err := g.generateEpicScopedIssue(ctx, actor, workspace, projectIdentifier, firstEpic); err != nil {
 		return err
 	}
 	return g.verifyListPaging(ctx, workspace, projectIdentifier)
@@ -73,7 +66,10 @@ func (g *Generator) generateStates(
 		name := fmt.Sprintf("%s seed %d", g.content.Workflow(stateIndex), g.seed)
 		properties := newProperties()
 		properties.setString("group", "started")
-		properties.setString("color", fmt.Sprintf("#%06X", (stateIndex+3)*0x2A4C6D&0xFFFFFF))
+		properties.setString(
+			"color",
+			fmt.Sprintf("#%06X", (stateIndex+3)*0x2A4C6D&0xFFFFFF),
+		)
 		properties.setInt("sort_order", stateIndex+20)
 		_, created, err := g.ensureNode(
 			ctx,
@@ -112,12 +108,22 @@ func (g *Generator) generateContainers(
 		{singular: "module", plural: "modules"},
 	} {
 		listArgs := scopeArgs(workspace.Slug, projectIdentifier)
-		existing, err := g.driver.Call(ctx, actor.Token, "tack_list_"+nodeType.plural, listArgs)
+		existing, err := g.driver.Call(
+			ctx,
+			actor.Token,
+			"tack_list_"+nodeType.plural,
+			listArgs,
+		)
 		if err != nil {
 			return nil, loggedError(ctx, "qa datagen: list "+nodeType.plural, err)
 		}
 		for containerIndex := range g.scale.ContainersPerProject {
-			name := fmt.Sprintf("QA %s %d seed %d", nodeType.singular, containerIndex+1, g.seed)
+			name := fmt.Sprintf(
+				"QA %s %d seed %d",
+				nodeType.singular,
+				containerIndex+1,
+				g.seed,
+			)
 			properties := newProperties()
 			properties.setString("description", g.content.Paragraph())
 			properties.setBool("qa_checkbox", containerIndex%2 == 0)

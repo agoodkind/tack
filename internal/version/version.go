@@ -39,7 +39,6 @@ func BuildHash() string {
 	buildHashOnce.Do(func() {
 		buildHash = computeBuildHash()
 	})
-
 	return buildHash
 }
 
@@ -48,18 +47,15 @@ func computeBuildHash() string {
 	if err != nil {
 		return "unknown"
 	}
-
 	f, err := os.Open(exe)
 	if err != nil {
 		return "unknown"
 	}
-
 	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "unknown"
 	}
-
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
@@ -67,6 +63,5 @@ func def(val, fallback string) string {
 	if val == "" {
 		return fallback
 	}
-
 	return val
 }

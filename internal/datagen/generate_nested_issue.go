@@ -25,32 +25,20 @@ func (g *Generator) generateNestedIssue(
 	name := fmt.Sprintf("QA nested issue seed %d", g.seed)
 	properties := newProperties()
 	properties.setString("parent_id", parentIssue)
-	nested, created, err := g.ensureNode(
-		ctx,
-		actor.Token,
-		existing,
-		"tack_create_issue",
-		name,
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			ProjectReference:   projectIdentifier,
-			Name:               name,
-			Properties:         properties,
-		},
-	)
+	nested, created, err := g.ensureNode(ctx, actor.Token, existing, "tack_create_issue", name, ToolArguments{
+		WorkspaceReference: workspace.Slug,
+		ProjectReference:   projectIdentifier,
+		Name:               name,
+		Properties:         properties,
+	})
 	if err != nil {
 		return err
 	}
 	g.recordEnsure(created)
-	if _, err := g.driver.Call(
-		ctx,
-		actor.Token,
-		"tack_get_issue",
-		ToolArguments{
-			WorkspaceReference: workspace.Slug,
-			NodeID:             nested,
-		},
-	); err != nil {
+	if _, err := g.driver.Call(ctx, actor.Token, "tack_get_issue", ToolArguments{
+		WorkspaceReference: workspace.Slug,
+		NodeID:             nested,
+	}); err != nil {
 		return loggedError(ctx, "qa datagen: get nested issue "+nested, err)
 	}
 	return g.probeParentRemovalRefused(ctx, actor.Token, nested, parentIssue)

@@ -34,62 +34,20 @@ func newMovableChild(t *testing.T, stores *fdbadapter.Stores, text string) movab
 	child.NodeID = uuid.Must(uuid.NewV7())
 	child.TypeKey = opaqueSearchKey("n")
 	kind := &node.NodeType{
-		ID:           uuid.Must(uuid.NewV7()),
-		OrgID:        first.OrgID,
-		Name:         child.TypeKey,
-		TypeKey:      child.TypeKey,
-		Slug:         child.TypeKey,
-		PluralSlug:   child.TypeKey + "s",
-		CanLiveUnder: []string{first.TypeKey},
+		ID: uuid.Must(uuid.NewV7()), OrgID: first.OrgID, Name: child.TypeKey, TypeKey: child.TypeKey,
+		Slug: child.TypeKey, PluralSlug: child.TypeKey + "s", CanLiveUnder: []string{first.TypeKey},
 	}
 	if err := stores.NodeTypes.Set(WithTestOperation(t, t.Context()), kind); err != nil {
 		t.Fatalf("store child node type: %v", err)
 	}
-
-	props := map[string]json.RawMessage{
-		child.IncludedKey: mustJSON(text),
-		child.ExcludedKey: mustJSON(readerExcludedValue),
-	}
+	props := map[string]json.RawMessage{child.IncludedKey: mustJSON(text), child.ExcludedKey: mustJSON(readerExcludedValue)}
 	now := clock.Now().UTC()
-	value := &node.Node{
-		ID:        child.NodeID,
-		OrgID:     child.OrgID,
-		NodeType:  child.TypeKey,
-		Name:      searchFixtureName,
-		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	view := &node.NodeView{
-		ID:        child.NodeID,
-		OrgID:     child.OrgID,
-		NodeType:  child.TypeKey,
-		Name:      searchFixtureName,
-		Props:     props,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	parent := &node.Relationship{
-		OrgID:        child.OrgID,
-		SourceID:     child.NodeID,
-		RelationType: node.RelChildOf,
-		TargetID:     first.NodeID,
-		CreatedBy:    uuid.Nil,
-		CreatedAt:    now,
-		Props:        nil,
-	}
-	if err := stores.Nodes.CreateAtomic(
-		WithTestOperation(t, t.Context()),
-		value,
-		view,
-		[]*node.Relationship{parent},
-		nil,
-		nil,
-		nil,
-	); err != nil {
+	value := &node.Node{ID: child.NodeID, OrgID: child.OrgID, NodeType: child.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
+	view := &node.NodeView{ID: child.NodeID, OrgID: child.OrgID, NodeType: child.TypeKey, Name: searchFixtureName, Props: props, CreatedAt: now, UpdatedAt: now}
+	parent := &node.Relationship{OrgID: child.OrgID, SourceID: child.NodeID, RelationType: node.RelChildOf, TargetID: first.NodeID, CreatedBy: uuid.Nil, CreatedAt: now, Props: nil}
+	if err := stores.Nodes.CreateAtomic(WithTestOperation(t, t.Context()), value, view, []*node.Relationship{parent}, nil, nil, nil); err != nil {
 		t.Fatalf("create child node: %v", err)
 	}
-
 	return movableChild{Fixture: child, First: first.NodeID, Second: second.NodeID}
 }
 
@@ -99,26 +57,11 @@ func newMovableChild(t *testing.T, stores *fdbadapter.Stores, text string) movab
 func moveChild(t *testing.T, stores *fdbadapter.Stores, moved movableChild) {
 	t.Helper()
 	orgID := moved.Fixture.OrgID
-	parent := &node.Relationship{
-		OrgID:        orgID,
-		SourceID:     moved.Fixture.NodeID,
-		RelationType: node.RelChildOf,
-		TargetID:     moved.Second,
-		CreatedBy:    uuid.Nil,
-		CreatedAt:    clock.Now().UTC(),
-		Props:        nil,
-	}
+	parent := &node.Relationship{OrgID: orgID, SourceID: moved.Fixture.NodeID, RelationType: node.RelChildOf, TargetID: moved.Second, CreatedBy: uuid.Nil, CreatedAt: clock.Now().UTC(), Props: nil}
 	if err := stores.Relationships.Add(WithTestOperation(t, t.Context()), parent); err != nil {
 		t.Fatalf("add parent edge: %v", err)
 	}
-
-	if err := stores.Relationships.Remove(
-		WithTestOperation(t, t.Context()),
-		orgID,
-		moved.Fixture.NodeID,
-		node.RelChildOf,
-		moved.First,
-	); err != nil {
+	if err := stores.Relationships.Remove(WithTestOperation(t, t.Context()), orgID, moved.Fixture.NodeID, node.RelChildOf, moved.First); err != nil {
 		t.Fatalf("remove parent edge: %v", err)
 	}
 }
@@ -131,19 +74,12 @@ func TestSearchAccessOnlyUpdateWithoutModel(t *testing.T) {
 	stores := newSearchStore(t)
 	adapter, client, model, index := newSearchIndex(t, stores)
 	moved := newMovableChild(t, stores, strings.Repeat("semantic access page text ", 12))
-	worker := newSearchWorker(
-		t,
-		stores,
-		adapter,
-		clock.Wall{},
-		searchWorkerSettings(accessPageBytes),
-	)
+	worker := newSearchWorker(t, stores, adapter, clock.Wall{}, searchWorkerSettings(accessPageBytes))
 	runSearchWorkerUntilIdle(t, worker)
 	before := searchNodePages(t, client, index, moved.Fixture.NodeID, false)
 	if len(before) < 2 {
 		t.Fatalf("child has %d pages, want several", len(before))
 	}
-
 	undeployNativeModel(t, adapter, client, model.ID)
 	moveChild(t, stores, moved)
 	runSearchWorkerUntilIdle(t, worker)
@@ -151,22 +87,13 @@ func TestSearchAccessOnlyUpdateWithoutModel(t *testing.T) {
 	if len(after) != len(before) {
 		t.Fatalf("access update changed the page count from %d to %d", len(before), len(after))
 	}
-
 	for position, page := range after {
 		previous := before[position]
-		if page.ID != previous.ID || *page.PageText != *previous.PageText ||
-			!bytes.Equal(page.Semantic, previous.Semantic) {
+		if page.ID != previous.ID || *page.PageText != *previous.PageText || !bytes.Equal(page.Semantic, previous.Semantic) {
 			t.Fatalf("page %d changed its document ID, text, chunks, or sparse weights", position)
 		}
-
-		if slices.Equal(page.Access.Keys, previous.Access.Keys) ||
-			pageGeneration(t, page) <= pageGeneration(t, previous) {
-			t.Fatalf(
-				"page %d kept access %v at generation %s",
-				position,
-				page.Access.Keys,
-				page.SearchGeneration,
-			)
+		if slices.Equal(page.Access.Keys, previous.Access.Keys) || pageGeneration(t, page) <= pageGeneration(t, previous) {
+			t.Fatalf("page %d kept access %v at generation %s", position, page.Access.Keys, page.SearchGeneration)
 		}
 	}
 }
