@@ -83,9 +83,9 @@ func retentionFDBCommand(ctx context.Context, cfg *config.Config, operation rete
 	return retentionFDBToolCommand(ctx, cfg, "fdbbackup", string(operation), command)
 }
 
-// retentionFDBToolCommand runs tool with operation as its first argument,
-// followed by arguments, in a one-shot container. Errors name the tool and
-// the operation.
+// retentionFDBToolCommand runs tool in a container for one command, with
+// operation as its first argument and arguments afterward. Errors identify
+// the tool and operation.
 func retentionFDBToolCommand(ctx context.Context, cfg *config.Config, tool, operation string, arguments []string) (string, error) {
 	if !filepath.IsAbs(cfg.OpsFDBClusterDir) {
 		return "", fmt.Errorf("FoundationDB retention requires an absolute TACK_OPS_FDB_CLUSTER_DIR")

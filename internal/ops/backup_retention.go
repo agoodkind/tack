@@ -52,8 +52,13 @@ func planBackupRetention(ctx context.Context, cfg *config.Config, options Backup
 	return plan, err
 }
 
-// PreviewBackupRetention reports the same selection as execution without
-// deleting objects or expiring a FoundationDB session.
+// PreviewBackupRetention reports the backup selection that execution uses.
+//
+// The preview plans retention under the backup operation lock. It writes the
+// plan to output without deleting objects or expiring a FoundationDB session.
+//
+//   - A nonpositive KeepDays value returns an error.
+//   - A write error returns an error after planning.
 func PreviewBackupRetention(ctx context.Context, cfg *config.Config, options BackupRetentionOptions, output io.Writer) error {
 	lock, err := lockBackupOperation(ctx, cfg.BackupRoot)
 	if err != nil {
@@ -73,7 +78,13 @@ func PreviewBackupRetention(ctx context.Context, cfg *config.Config, options Bac
 }
 
 // RunBackupRetention removes selected old backups and records each target's
-// observed result. The caller must use the external-operation audit gate.
+// observed result.
+//
+// The caller must use the external-operation audit gate. The function records
+// each target's intent before applying its action.
+//
+//   - RunBackupRetention refuses the operation without a step recorder.
+//   - An action failure stops processing later targets.
 func RunBackupRetention(ctx context.Context, cfg *config.Config, options BackupRetentionOptions, output io.Writer, steps audit.StepRecorder) (audit.OutcomeDetails, error) {
 	if steps == nil {
 		err := errors.New("backup retention requires an audit step recorder")

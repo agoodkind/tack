@@ -18,8 +18,8 @@ func TestBackupRetentionFDBRefusesSurvivorAfterCutoff(t *testing.T) {
 	retentionFDBTestWindow(t, fixture.config, cluster, oldName, 0)
 	retentionFDBTestExec(t, fixture.config, cluster, []string{"fdbbackup", "discontinue", "-C", "/var/fdb/fdb.cluster", "-w"})
 	oldWindow := retentionFDBTestWindow(t, fixture.config, cluster, oldName, 0)
-	// Record a version log reading between the two sessions, which the native
-	// conversion places after the old session's last restorable version.
+	// Record a version log reading between the sessions. Native conversion places
+	// that reading after the old session's last restorable version.
 	reading := retentionFDBTestRecordMoment(t, fixture, cluster, oldName, time.Now().UTC().Truncate(time.Second).Add(time.Second))
 	if reading.Version <= oldWindow.MaxVersion {
 		t.Fatalf("the reading must follow the old session: reading=%d max=%d", reading.Version, oldWindow.MaxVersion)

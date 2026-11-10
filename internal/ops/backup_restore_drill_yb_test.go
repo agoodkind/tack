@@ -8,8 +8,8 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-// drillWalkFixture builds the walk-back callbacks from a run-id-keyed manifest
-// set and a set of present archive keys, recording every skip.
+// drillWalkFixture provides callbacks for checking older runs. It stores
+// manifests by run ID, tracks present archive keys, and records every skip.
 type drillWalkFixture struct {
 	manifests map[string]ybSnapshotManifest
 	present   map[string]bool
@@ -32,9 +32,9 @@ func (f *drillWalkFixture) skip(runID, reason string) {
 	f.skips = append(f.skips, runID+": "+reason)
 }
 
-// completeYBRun builds a manifest for the run and marks every object it
-// declares present in the fixture: each run-root artifact and every artifact
-// every node owes.
+// completeYBRun builds a run manifest and marks every declared object present
+// in the fixture. It includes artifacts at the run root and every artifact
+// that each node must archive.
 func completeYBRun(f *drillWalkFixture, runID string, nodes []string) ybSnapshotManifest {
 	manifest := newYBSnapshotManifest(runID, "snap-"+runID, "tack", nodes, ybTestArtifactNames())
 	markYBRunArtifactsPresent(f, manifest)
@@ -44,8 +44,8 @@ func completeYBRun(f *drillWalkFixture, runID string, nodes []string) ybSnapshot
 	return manifest
 }
 
-// markYBRunArtifactsPresent marks every run-root artifact the manifest declares
-// as published, which is what a run whose orchestrator finished looks like.
+// markYBRunArtifactsPresent marks every declared artifact at the run root as
+// published. This models a run after its orchestrator finishes.
 func markYBRunArtifactsPresent(f *drillWalkFixture, manifest ybSnapshotManifest) {
 	for _, artifact := range manifest.Artifacts {
 		f.present[ybRunArtifactKey(manifest.RunID, artifact)] = true
@@ -59,9 +59,9 @@ func archiveYBNode(f *drillWalkFixture, runID string, node ybSnapshotManifestNod
 	}
 }
 
-// TestNewestCompleteYBSnapshotRunWalksBack proves the drill's discovery walk:
-// a manifest-less newest run and an incomplete second run are skipped with
-// reasons, and the newest complete run wins.
+// TestNewestCompleteYBSnapshotRunWalksBack checks discovery across older runs.
+// Discovery records reasons for skipping the newest run without a manifest and
+// the next run with incomplete archives. It selects the newest complete run.
 func TestNewestCompleteYBSnapshotRunWalksBack(t *testing.T) {
 	fixture := &drillWalkFixture{
 		manifests: map[string]ybSnapshotManifest{},
@@ -70,13 +70,13 @@ func TestNewestCompleteYBSnapshotRunWalksBack(t *testing.T) {
 	}
 	complete := completeYBRun(fixture, "run-1", []string{"yb1", "yb2"})
 	fixture.manifests["run-1"] = complete
-	// run-2 has a manifest and its artifacts but yb2 has not archived.
+	// run-2 has a manifest and its artifacts, but yb2 has not archived its data.
 	incomplete := newYBSnapshotManifest("run-2", "snap-run-2", "tack",
 		[]string{"yb1", "yb2"}, ybTestArtifactNames())
 	fixture.manifests["run-2"] = incomplete
 	markYBRunArtifactsPresent(fixture, incomplete)
 	archiveYBNode(fixture, "run-2", incomplete.Nodes[0])
-	// run-3 (the newest) has no manifest at all.
+	// The newest run, run-3, does not have a manifest.
 
 	got, found, err := newestCompleteYBSnapshotRun(
 		[]string{"run-1", "run-2", "run-3"}, fixture.fetch, fixture.exists, fixture.skip)
@@ -98,8 +98,8 @@ func TestNewestCompleteYBSnapshotRunWalksBack(t *testing.T) {
 	}
 }
 
-// TestNewestCompleteYBSnapshotRunPrefersNewest proves the walk stops at the
-// newest complete run without touching older ones.
+// TestNewestCompleteYBSnapshotRunPrefersNewest checks that discovery selects
+// the newest complete run without checking older runs.
 func TestNewestCompleteYBSnapshotRunPrefersNewest(t *testing.T) {
 	fixture := &drillWalkFixture{
 		manifests: map[string]ybSnapshotManifest{},
@@ -122,15 +122,16 @@ func TestNewestCompleteYBSnapshotRunPrefersNewest(t *testing.T) {
 	}
 }
 
-// TestNewestCompleteYBSnapshotRunNoneComplete proves the walk reports not
-// found, with every run skipped for its own reason, when no run is complete.
+// TestNewestCompleteYBSnapshotRunNoneComplete checks that discovery reports
+// that it did not find a complete run. It records a reason for skipping each
+// incomplete run.
 func TestNewestCompleteYBSnapshotRunNoneComplete(t *testing.T) {
 	fixture := &drillWalkFixture{
 		manifests: map[string]ybSnapshotManifest{},
 		present:   map[string]bool{},
 		skips:     nil,
 	}
-	// run-1's manifest lists no nodes; run-2 has no manifest.
+	// run-1's manifest does not list any nodes. run-2 does not have a manifest.
 	fixture.manifests["run-1"] = newYBSnapshotManifest("run-1", "snap-1", "tack", nil, ybTestArtifactNames())
 
 	_, found, err := newestCompleteYBSnapshotRun(
@@ -150,11 +151,12 @@ func TestNewestCompleteYBSnapshotRunNoneComplete(t *testing.T) {
 	}
 }
 
-// TestNewestCompleteYBSnapshotRunSkipsRunMissingAnArtifact proves the run-root
-// artifacts are gated exactly like the node archives: a run whose roles file
-// never landed restores into a database whose ledger no application role can
-// read, so discovery walks past it, naming the artifact, rather than drilling
-// it and calling the result a rehearsed recovery.
+// TestNewestCompleteYBSnapshotRunSkipsRunMissingAnArtifact checks that
+// discovery requires artifacts at the run root as well as node archives.
+// Discovery skips a run without its roles file and identifies the missing
+// artifact. Without those roles, a restore cannot provide the privileges that
+// applications need to read the ledger. It does not establish a usable
+// recovery.
 func TestNewestCompleteYBSnapshotRunSkipsRunMissingAnArtifact(t *testing.T) {
 	fixture := &drillWalkFixture{
 		manifests: map[string]ybSnapshotManifest{},
@@ -180,14 +182,15 @@ func TestNewestCompleteYBSnapshotRunSkipsRunMissingAnArtifact(t *testing.T) {
 	}
 }
 
-// TestYBDrillManifestDefectRequiresEveryArtifactTheRestoreOpens proves a
-// manifest is refused unless it declares all three artifacts the restore reads
-// by name, and that the refusal names the ones it left out.
+// TestYBDrillManifestDefectRequiresEveryArtifactTheRestoreOpens checks that
+// the manifest declares all three artifacts that the restore reads by name.
+// The refusal identifies every missing declaration.
 //
-// A run declaring none predates the roles file; a run declaring some was
-// truncated. Either restores tables, rows, and row-level-security policies with
-// none of the privileges those policies depend on, or with no schema at all, so
-// a drill that passed on one would report a recovery nobody can actually read.
+// A run without artifact declarations predates the roles file. A run with
+// only some declarations has an incomplete manifest. Without the roles file,
+// restored tables, rows, and row-level security policies lack the privileges
+// that the policies require. Without the schema file, the restore lacks the
+// schema. Neither case establishes a recovery that applications can read.
 func TestYBDrillManifestDefectRequiresEveryArtifactTheRestoreOpens(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -227,16 +230,14 @@ func TestYBDrillManifestDefectRequiresEveryArtifactTheRestoreOpens(t *testing.T)
 	}
 }
 
-// TestNewestCompleteYBSnapshotRunSkipsATruncatedDeclaration proves discovery
-// walks past a run that declares fewer artifacts than the restore reads, even
-// though every object that run declared is present.
+// TestNewestCompleteYBSnapshotRunSkipsATruncatedDeclaration checks that
+// discovery skips a run with fewer artifact declarations than the restore
+// requires, even when every declared object exists.
 //
-// This is the gap a declared-complete gate leaves open. Such a run passes every
-// presence check, because a presence check can only probe for what was
-// declared, so it would be selected as the newest complete run and then fail
-// deep in the restore on a fixed path nothing ever gated. The skip reason says
-// the manifest is at fault, which is a different repair from an object that did
-// not land.
+// Checking only declared objects would accept that run. The restore would
+// then fail when it opened an undeclared fixed artifact path. The skip reason
+// identifies an incomplete manifest, which requires a different repair from
+// an artifact that the backup did not upload.
 func TestNewestCompleteYBSnapshotRunSkipsATruncatedDeclaration(t *testing.T) {
 	fixture := &drillWalkFixture{
 		manifests: map[string]ybSnapshotManifest{},
@@ -269,9 +270,9 @@ func TestNewestCompleteYBSnapshotRunSkipsATruncatedDeclaration(t *testing.T) {
 	}
 }
 
-// TestNewestCompleteYBSnapshotRunPropagatesFetchErrors proves a store error
-// other than a missing manifest aborts the walk instead of silently demoting
-// the drill to an older run.
+// TestNewestCompleteYBSnapshotRunPropagatesFetchErrors checks that a store
+// error aborts discovery unless it reports a missing manifest. Discovery must
+// not silently select an older run after another store error.
 func TestNewestCompleteYBSnapshotRunPropagatesFetchErrors(t *testing.T) {
 	fetch := func(string) (ybSnapshotManifest, error) {
 		return ybSnapshotManifest{}, fmt.Errorf("store unreachable")

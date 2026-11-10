@@ -147,9 +147,10 @@ const (
 	retentionRemovalTimeout      = 10 * time.Second
 )
 
-// retentionContainerGone waits up to retentionRemovalTimeout for Docker to report that a
-// retention container does not exist. It returns false with the last observed status when
-// the container still exists, or with the context error when ctx ends first.
+// retentionContainerGone waits up to retentionRemovalTimeout for Docker to
+// report that a retention container does not exist. It returns false with the
+// last observed status if the container still exists. If ctx ends first, it
+// returns false with the context error.
 func retentionContainerGone(ctx context.Context, cli *client.Client, identifier string) (bool, string) {
 	waitCtx, cancel := context.WithTimeout(ctx, retentionRemovalTimeout)
 	defer cancel()
@@ -173,7 +174,8 @@ func retentionContainerGone(ctx context.Context, cli *client.Client, identifier 
 	return false, status
 }
 
-// retentionContainerStatus returns the inspect error text or the container state status.
+// retentionContainerStatus returns the inspection error text or the
+// container's state status.
 func retentionContainerStatus(state client.ContainerInspectResult, err error) string {
 	if err != nil {
 		return err.Error()

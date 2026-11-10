@@ -6,18 +6,19 @@ import (
 	"testing"
 )
 
-// ybTabletsPage is a tablet server tablets page in the shape yugabyte serves
-// it, trimmed from a QA ledger node read on 2026-09-15: keyed by tablet id,
-// with the state and file count the wait reads beside fields it ignores.
+// ybTabletsPage contains a tablet server status page from a QA ledger node
+// on 2026-09-15, with unused content removed. yugabyte indexes entries by
+// tablet ID. The fixture includes the state and file count that the wait reads
+// alongside fields that it ignores.
 const ybTabletsPage = `{
 "0084c4a62d894302b2934a2de6161384":{"namespace":"tack","table_name":"events_2026_09_07_org_id_shard_seq_idx","table_id":"000040000000300080000000000040ac","partition":"hash_split: [0xAAAA, 0xFFFF]","state":"RUNNING","hidden":false,"num_sst_files":4,"on_disk_size":{"total_size":"633.4K"}},
 "1a2b3c4d5e6f47089a0b1c2d3e4f5061":{"namespace":"tack","table_name":"users","table_id":"000040000000300080000000000040b0","partition":"hash_split: [0x0000, 0xFFFF]","state":"RUNNING","hidden":false,"num_sst_files":2,"on_disk_size":{"total_size":"12.0K"}},
 "2b3c4d5e6f7a48099b0c1d2e3f405162":{"namespace":"tack","table_name":"api_tokens","table_id":"000040000000300080000000000040b4","partition":"hash_split: [0x0000, 0xFFFF]","state":"BOOTSTRAPPING","hidden":false,"num_sst_files":0,"on_disk_size":{"total_size":"0B"}}
 }`
 
-// TestYBScratchTabletCountersReadsTheServedPage proves the counters come from
-// the page yugabyte actually serves: running tablets are counted by state, and
-// files are summed across every tablet, including one still bootstrapping.
+// TestYBScratchTabletCountersReadsTheServedPage checks counters against the
+// served yugabyte page shape. The parser counts running tablets by state and
+// sums files across all tablets, including a bootstrapping tablet.
 func TestYBScratchTabletCountersReadsTheServedPage(t *testing.T) {
 	counters, err := ybScratchTabletCounters(t.Context(), ybTabletsPage)
 	if err != nil {
@@ -31,9 +32,9 @@ func TestYBScratchTabletCountersReadsTheServedPage(t *testing.T) {
 	}
 }
 
-// TestParseYBScratchDataBytesReadsDuOutput proves the byte count is read from
-// the shape `du -sb` prints, and that a failed or empty du is an error rather
-// than a zero that would read as a reading.
+// TestParseYBScratchDataBytesReadsDuOutput checks the byte count from du -sb
+// output. A failed command without a numeric total or an empty result must
+// return an error rather than a zero reading.
 func TestParseYBScratchDataBytesReadsDuOutput(t *testing.T) {
 	bytes, err := parseYBScratchDataBytes(t.Context(), 0, "48123904\t/home/yugabyte/var/data\n")
 	if err != nil || bytes != 48123904 {
@@ -54,9 +55,9 @@ func TestParseYBScratchDataBytesReadsDuOutput(t *testing.T) {
 	}
 }
 
-// TestParseYBScratchRestartsReadsGrepCount proves the restart count is read
-// the way grep -c reports it: exit 1 with a zero count is no restart, and a
-// log grep could not read is an error, never a zero.
+// TestParseYBScratchRestartsReadsGrepCount checks grep -c results. Exit 1
+// with a zero count means that a restart did not occur. An unreadable log
+// must return an error rather than zero.
 func TestParseYBScratchRestartsReadsGrepCount(t *testing.T) {
 	for _, tc := range []struct {
 		exitCode int
@@ -73,10 +74,10 @@ func TestParseYBScratchRestartsReadsGrepCount(t *testing.T) {
 	}
 }
 
-// TestYBScratchRestartMarkerMatchesOnlyTheEngineProcesses proves the restart
-// pattern names the two processes the restore depends on. yugabyted logs the
-// same sentence for its own web server, which no drill step uses, and a
-// pattern that matched it would fail a healthy drill with a false cause.
+// TestYBScratchRestartMarkerMatchesOnlyTheEngineProcesses checks that the
+// restart pattern matches only the two processes that restore requires.
+// yugabyted also logs the sentence for its web server, which the drill does
+// not use. Matching a web server restart would falsely fail a healthy drill.
 func TestYBScratchRestartMarkerMatchesOnlyTheEngineProcesses(t *testing.T) {
 	marker := regexp.MustCompile(ybScratchRestartMarker)
 	for _, line := range []string{
@@ -93,9 +94,9 @@ func TestYBScratchRestartMarkerMatchesOnlyTheEngineProcesses(t *testing.T) {
 	}
 }
 
-// TestYBRestorationFailureNamesATerminalState proves a restoration the master
-// failed or cancelled ends the wait, and one still restoring or restored does
-// not.
+// TestYBRestorationFailureNamesATerminalState checks that a master-reported
+// FAILED restoration ends the wait. A listing with a RESTORING or RESTORED
+// restoration does not end it.
 func TestYBRestorationFailureNamesATerminalState(t *testing.T) {
 	failed := `{"restorations": [{"id": "a1", "snapshot_id": "b2", "state": "FAILED"}]}`
 	if got := ybRestorationFailure(failed); !strings.Contains(got, "FAILED") {
@@ -112,9 +113,8 @@ func TestYBRestorationFailureNamesATerminalState(t *testing.T) {
 	}
 }
 
-// TestYBScratchTabletCountersRefusesAnotherPage proves a page that is not the
-// tablets page yields an error, so an endpoint that answers with something
-// else never vouches for progress.
+// TestYBScratchTabletCountersRefusesAnotherPage checks that the parser
+// rejects an HTML error page instead of treating it as tablet progress.
 func TestYBScratchTabletCountersRefusesAnotherPage(t *testing.T) {
 	if _, err := ybScratchTabletCounters(t.Context(), "<html>Error retrieving leader master URL</html>"); err == nil {
 		t.Fatal("an HTML page must not parse as tablet counters")

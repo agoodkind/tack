@@ -1,7 +1,7 @@
-// backup_restore_drill_yb_wait_failure_test.go runs the failure check against
-// a real container: no log yet reads as zero restarts, restart lines are
-// counted, and a container that is gone is a read failure. It needs a Docker
-// daemon, which testenv.RequireDocker demands.
+// The failure check tests use a real container. They check that a missing log
+// means zero restarts, that the check counts restart lines, and that removing
+// the container causes a read error. testenv.RequireDocker requires a Docker
+// daemon.
 
 package ops
 

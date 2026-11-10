@@ -98,8 +98,8 @@ func retentionFDBTestStartEvery(t *testing.T, cfg *config.Config, cluster, snaps
 	return name
 }
 
-// retentionFDBTestWindow waits until backup name is restorable past version
-// after, and returns its restorable versions from describe without
+// retentionFDBTestWindow waits until backup name supports restoration past
+// version after. It returns the restorable versions from describe without
 // --version-timestamps.
 func retentionFDBTestWindow(t *testing.T, cfg *config.Config, cluster, name string, after int64) retentionFDBWindow {
 	t.Helper()
@@ -135,8 +135,9 @@ func retentionFDBTestExec(t *testing.T, cfg *config.Config, cluster string, comm
 	return output
 }
 
-// retentionFDBTestExecResult runs command in the cluster container and returns
-// its output, with the object store credentials redacted, and its exit code.
+// retentionFDBTestExecResult runs command in the cluster container. It returns
+// the output after redacting object store credentials, along with the exit
+// code.
 func retentionFDBTestExecResult(t *testing.T, cfg *config.Config, cluster string, command []string) (string, int) {
 	t.Helper()
 	cli, err := client.New(client.FromEnv)

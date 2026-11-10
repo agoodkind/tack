@@ -1,6 +1,5 @@
-// backup_restore_drill_yb_wait_reading.go takes one poll's reading of the
-// scratch yugabyted for the wait, with every probe under its own deadline, so
-// a probe that never answers cannot keep the stall check from running.
+// Each scratch yugabyted poll gives every probe its own deadline. A probe
+// that does not answer cannot prevent the wait from checking for a stall.
 
 package ops
 
@@ -9,10 +8,10 @@ import (
 	"time"
 )
 
-// ybScratchReading is what one poll observed. failure is a reason the step can
-// never succeed, blind is a poll whose failure check could not be read, readErr
-// is the last read that failed this poll, and counters is nil when no progress
-// was read.
+// ybScratchReading records one poll. failure explains a terminal step failure,
+// and blind reports that the poll could not read the failure check. readErr
+// records the last failed read in the poll. counters stays nil when the poll
+// does not obtain a progress reading.
 type ybScratchReading struct {
 	exited   bool
 	ready    bool
@@ -22,9 +21,9 @@ type ybScratchReading struct {
 	readErr  string
 }
 
-// readYBScratch takes one poll's reading. A container that is not running, or
-// a step that has failed for good, ends the reading before readiness is asked,
-// and a passed readiness check ends it before progress is read.
+// readYBScratch collects one poll. A stopped container or terminal step failure
+// ends the reading before the readiness check. A successful readiness check
+// ends the reading before the progress check.
 func readYBScratch(ctx context.Context, watch ybScratchWatch, timeout time.Duration) ybScratchReading {
 	var reading ybScratchReading
 	running, err := probeYBScratch(ctx, timeout, watch.Running)

@@ -1,7 +1,6 @@
-// backup_restore_drill_yb_wait_probes.go wires the scratch yugabyted wait to
-// what it reads: the container's running state from the Docker daemon, the
-// step's readiness command, and progress counters from the engine's own status
-// pages, fetched with the curl the yugabyte image carries.
+// The scratch yugabyted wait reads the container's running state from Docker,
+// runs the step's readiness command, and reads engine progress counters from
+// status pages. It fetches the pages with curl from the yugabyte image.
 
 package ops
 
@@ -18,7 +17,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// Progress counter names, as they appear in a stall error.
+// These constants identify progress counters in stall errors and the running
+// tablet state.
 const (
 	ybCounterMasterAnswers  = "master_answers"
 	ybCounterTServerAnswers = "tserver_answers"
@@ -26,22 +26,22 @@ const (
 	ybCounterSSTFiles       = "sst_files"
 	ybCounterDataBytes      = "data_bytes"
 	ybTabletStateRunning    = "RUNNING"
-	// ybScratchDataDir is the scratch engine's data directory under the
-	// --base_dir the drill starts it with.
+	// ybScratchDataDir identifies the scratch engine's data directory under the
+	// --base_dir that the drill supplies.
 	ybScratchDataDir = "/home/yugabyte/var/data"
 )
 
-// ybScratchTablet is the part of one tablet server status entry the wait
-// reads. The page is keyed by tablet id.
+// ybScratchTablet contains the fields that the wait reads from one tablet
+// server status entry. The status page indexes entries by tablet ID.
 type ybScratchTablet struct {
 	State       string `json:"state"`
 	NumSSTFiles int64  `json:"num_sst_files"`
 }
 
-// newYBScratchWatch builds the watch for one step against the scratch
-// container. master is the scratch master address whose restorations the
-// failure check reads, or "" for a step that runs no restoration. readyCmd is
-// the step's readiness command and env its environment.
+// newYBScratchWatch builds the watch for one step in the scratch container.
+// master specifies the scratch master address for restoration failure checks.
+// An empty master identifies a step that does not run a restoration. readyCmd
+// specifies the readiness command, and env supplies its environment.
 func newYBScratchWatch(r *restoreDrillCtx, container, master string, env, readyCmd []string) ybScratchWatch {
 	return ybScratchWatch{
 		Running: func(ctx context.Context) (bool, error) {
@@ -62,12 +62,12 @@ func newYBScratchWatch(r *restoreDrillCtx, container, master string, env, readyC
 	}
 }
 
-// readYBScratchCounters reads the master's and tablet server's status pages
-// and the data directory's size. A page that answers sets its answers counter
-// to 1, so an engine moving through its start reads as moving; the tablet page
-// adds the count of running tablets and the files they hold, which rise as a
-// restoration lands. Only a reading where no counter could be read is an
-// error.
+// readYBScratchCounters reads the master and tablet server status pages and
+// the data directory's size. Each successful page read sets its answer counter
+// to 1 to detect startup progress. The tablet page supplies a running-tablet
+// count and a file count across all tablets. Those counts can increase during
+// restoration. The function returns an error only if it cannot read any
+// counter.
 func readYBScratchCounters(ctx context.Context, r *restoreDrillCtx, container string) (map[string]int64, error) {
 	counters := map[string]int64{}
 	var failures []string
@@ -99,14 +99,16 @@ func readYBScratchCounters(ctx context.Context, r *restoreDrillCtx, container st
 	return counters, nil
 }
 
-// readYBScratchDataBytes reads how many bytes the scratch engine's data
-// directory holds, leaving out its logs. A master replaying its catalog onto a
-// slow disk shows no new status page and no new tablet for minutes while it
-// writes, so the bytes it writes are the reading that moves in that phase
-// (observed on QA 2026-09-15: the master answered its page but stayed not
-// leader-ready while its log fsyncs took up to 0.19 s each). The engine's logs
-// sit under the same directory and grow on every heartbeat, so counting them
-// would read a wedged engine as one still moving.
+// readYBScratchDataBytes reads the scratch data directory's size without logs.
+// A master can spend minutes replaying its catalog on a slow disk without a
+// new status page or tablet. Data writes provide a progress reading then.
+//
+// On QA on 2026-09-15, the master answered its status page but did not become
+// ready as leader while log fsync operations took up to 0.19 s each. fsync
+// requires the operating system to finish writing data to storage.
+//
+// Engine logs share the data directory and grow with every heartbeat. Counting
+// them would mistake log writes from a stalled engine for restoration progress.
 func readYBScratchDataBytes(ctx context.Context, r *restoreDrillCtx, container string) (int64, error) {
 	res, err := containerExec(ctx, r.Cli, container, []string{"du", "-sb", "--exclude=logs", ybScratchDataDir})
 	if err != nil {
@@ -117,9 +119,9 @@ func readYBScratchDataBytes(ctx context.Context, r *restoreDrillCtx, container s
 	return parseYBScratchDataBytes(ctx, res.ExitCode, res.Stdout)
 }
 
-// parseYBScratchDataBytes reads the byte count from one `du -sb` output. GNU
-// du exits 1 when a file vanished during the walk, which compaction causes,
-// and still prints the total, so exit 1 with a total is a reading.
+// parseYBScratchDataBytes reads the byte count from du -sb output. GNU du can
+// exit 1 after compaction removes a file during the directory scan and still
+// print the total. Exit 1 with a total counts as a reading.
 func parseYBScratchDataBytes(ctx context.Context, exitCode int, stdout string) (int64, error) {
 	fields := strings.Fields(stdout)
 	if exitCode > 1 || len(fields) == 0 {
@@ -137,7 +139,7 @@ func parseYBScratchDataBytes(ctx context.Context, exitCode int, stdout string) (
 }
 
 // fetchYBScratchPage runs curl inside the scratch container and returns the
-// body of a page that answered with a success status.
+// body when curl reports success.
 func fetchYBScratchPage(ctx context.Context, r *restoreDrillCtx, container, url string) (string, error) {
 	res, err := containerExec(ctx, r.Cli, container, []string{"curl", "-sf", "-m", "20", url})
 	if err != nil {
@@ -149,8 +151,8 @@ func fetchYBScratchPage(ctx context.Context, r *restoreDrillCtx, container, url 
 	return res.Stdout, nil
 }
 
-// ybScratchTabletCounters counts running tablets and the files they hold from
-// the tablet server's tablet page.
+// ybScratchTabletCounters counts running tablets and sums file counts across
+// all tablets in the tablet server's status page.
 func ybScratchTabletCounters(ctx context.Context, body string) (map[string]int64, error) {
 	var tablets map[string]ybScratchTablet
 	if err := json.Unmarshal([]byte(body), &tablets); err != nil {

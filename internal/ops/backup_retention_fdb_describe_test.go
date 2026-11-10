@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	// retentionFDBReadLifeKnob and retentionFDBCommitIntervalKnob shorten how
-	// long the storage server keeps old versions readable. With them, a
-	// describe with --version-timestamps fails on the test cluster after a few
-	// hundred snapshots, as it fails on QA after weeks of hourly snapshots.
+	// retentionFDBReadLifeKnob and retentionFDBCommitIntervalKnob shorten the
+	// period during which the storage server permits reads of old versions.
+	// With these settings, describe with --version-timestamps fails after a few
+	// hundred test snapshots. QA showed that failure after weeks of hourly
+	// snapshots.
 	retentionFDBReadLifeKnob       = "max_read_transaction_life_versions"
 	retentionFDBReadLifeVersions   = "50000"
 	retentionFDBCommitIntervalKnob = "storage_commit_interval"
@@ -27,9 +28,10 @@ const (
 )
 
 // TestBackupRetentionFDBPlansBackupWithManySnapshots runs retention on a
-// backup with enough snapshots that `fdbbackup describe --version-timestamps`
-// fails with error 1007 (TACK-609). The preview and the execution must expire
-// the backup, and the cutoff must stay restorable.
+// backup with enough snapshots to make fdbbackup describe --version-timestamps
+// fail with error 1007 (TACK-609). That error reports an old transaction.
+// Preview must select expiration, execution must expire the backup, and the
+// cutoff must remain restorable.
 func TestBackupRetentionFDBPlansBackupWithManySnapshots(t *testing.T) {
 	fixture := newRetentionCommandFixture(t)
 	cluster := retentionFDBTestConfigWithKnobs(t, fixture.config, map[string]string{
@@ -69,9 +71,9 @@ func TestBackupRetentionFDBPlansBackupWithManySnapshots(t *testing.T) {
 	retentionFDBTestRestore(t, fixture.config, cluster, name, cutoff)
 }
 
-// retentionFDBTestAwaitTooOld runs describe with --version-timestamps until it
-// fails with error 1007, and returns the number of snapshots in the backup at
-// that point.
+// retentionFDBTestAwaitTooOld runs describe with --version-timestamps until
+// the transaction becomes too old, error 1007. It returns the backup's snapshot
+// count at that point.
 func retentionFDBTestAwaitTooOld(t *testing.T, cfg *config.Config, cluster, name string) int {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
@@ -96,8 +98,8 @@ func retentionFDBTestAwaitTooOld(t *testing.T, cfg *config.Config, cluster, name
 	}
 }
 
-// retentionFDBTestPreviewAction returns the one FoundationDB action of the
-// JSON plan that a public preview prints.
+// retentionFDBTestPreviewAction returns the single FoundationDB action from
+// the JSON plan that a public preview prints.
 func retentionFDBTestPreviewAction(t *testing.T, output string) retentionFDBPreviewAction {
 	t.Helper()
 	jsonPlan := ""

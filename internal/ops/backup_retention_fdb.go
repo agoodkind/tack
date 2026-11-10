@@ -85,8 +85,8 @@ func planRetentionFDB(ctx context.Context, cfg *config.Config, cutoff time.Time)
 }
 
 // retentionFDBHasSurvivor reports whether a backup newer than name has a
-// window that contains cutoffVersion and a native dry run that restores it at
-// the exact cutoff.
+// window containing cutoffVersion and passes a native restore dry run at the
+// exact cutoff.
 func retentionFDBHasSurvivor(
 	ctx context.Context,
 	cfg *config.Config,
@@ -111,13 +111,14 @@ func retentionFDBHasSurvivor(
 	return false, nil
 }
 
-// fdbClosedBackupStatuses lists the lowercase phrases of fdbbackup status
-// output that report a closed backup or no backup.
+// fdbClosedBackupStatuses contains the lowercase fdbbackup status phrases
+// that report a closed backup or the absence of a backup.
 var fdbClosedBackupStatuses = []string{"completed", "no previous backups", "aborted"}
 
-// readRetentionFDBActiveName runs fdbbackup status and returns the run
-// identifier of the active backup. It returns an empty name when the status
-// reports a closed backup or no backup, and an error for any other status.
+// readRetentionFDBActiveName runs fdbbackup status and returns the active
+// backup's run identifier. A closed or absent backup returns an empty name.
+// The function returns an error if it cannot establish either status or a
+// valid active run identifier.
 func readRetentionFDBActiveName(ctx context.Context, cfg *config.Config) (string, error) {
 	status, err := retentionFDBCommand(ctx, cfg, retentionFDBStatus)
 	if err != nil {
@@ -149,9 +150,9 @@ func readRetentionFDBActiveName(ctx context.Context, cfg *config.Config) (string
 	return name, nil
 }
 
-// retentionFDBWindow reads the restorable versions of backup name. It runs
-// describe without --version-timestamps, because that flag fails on a backup
-// with hundreds of snapshots (TACK-609).
+// retentionFDBWindow reads backup name's restorable versions. It runs describe
+// without --version-timestamps. TACK-609 recorded that the flag fails on
+// backups with hundreds of snapshots.
 func retentionFDBWindow(ctx context.Context, cfg *config.Config, name string) (fdbRestorableVersions, error) {
 	destination, err := fdbBlobstoreURL(cfg, name)
 	if err != nil {

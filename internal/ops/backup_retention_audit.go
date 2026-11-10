@@ -19,8 +19,8 @@ type retentionEvidence struct {
 	RequestedObjects    int       `json:"requested_objects"`
 	Uncertain           bool      `json:"uncertain"`
 	ExpireBeforeVersion int64     `json:"expire_before_version,omitempty"`
-	// Window is the restorable window the plan compared for a FoundationDB
-	// action. Ledger runs leave it nil.
+	// Window records the restorable window that the plan compared for a
+	// FoundationDB action. Ledger runs leave it nil.
 	Window *fdbRestorableVersions `json:"window,omitempty"`
 }
 

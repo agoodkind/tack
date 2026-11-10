@@ -10,8 +10,9 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// retentionFDBExpireVersion preserves a native snapshot that can restore the
-// retained boundary. The native expiration guard validates the exact version.
+// retentionFDBExpireVersion selects a snapshot begin version that preserves
+// restoration at the retained boundary. The native expiration guard validates
+// the exact version when expiration runs.
 func retentionFDBExpireVersion(ctx context.Context, cfg *config.Config, name string, cutoff time.Time) (int64, error) {
 	destination, err := fdbBlobstoreURL(cfg, name)
 	if err != nil {
