@@ -78,7 +78,8 @@ func TestAuditPartRestoreCommandRepairsMissingPart(t *testing.T) {
 		pipeline.org,
 		pipeline.target,
 	)
-	if err != nil || !verification.PayloadVerified || verification.IdentityCount != partRestoreIdentityCount ||
+	if err != nil || !verification.PayloadVerified ||
+		verification.IdentityCount != partRestoreIdentityCount ||
 		verification.PartCount != 1 ||
 		verification.DeclaredDigest != verification.RecomputedDigest {
 		t.Fatalf(

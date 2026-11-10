@@ -121,8 +121,10 @@ func (p *partRestorePipeline) requireOperationRecords(
 
 	intent, result = intents[operations-1], results[operations-1]
 	for _, row := range []audit.Row{intent, result} {
-		if row.Context.OperationClass != audit.OperationExternal || row.Context.AuditFormatVersion != audit.AuditFormatComplete ||
-			row.ActorID != p.operatorID || row.Context.Target == nil ||
+		if row.Context.OperationClass != audit.OperationExternal ||
+			row.Context.AuditFormatVersion != audit.AuditFormatComplete ||
+			row.ActorID != p.operatorID ||
+			row.Context.Target == nil ||
 			row.Context.Target.URI != p.partURI() ||
 			row.Context.Target.Kind != audit.TargetKindResource ||
 			row.Context.Target.NodeType != audit.TargetAuditEventPart {
@@ -219,11 +221,11 @@ func (p *partRestorePipeline) requireStepRecords(t *testing.T, intent audit.Row)
 			RootDigest    string    `json:"root_digest"`
 		}
 		manifest := p.manifest
-		if row.Context.Target == nil || row.Context.Target.URI != p.partURI() || row.Context.Target.NodeType != audit.TargetAuditEventPart ||
-			json.Unmarshal(
-				row.Extra,
-				&identity,
-			) != nil || identity.OrgID != manifest.OrgID || identity.TargetEventID != manifest.TargetEventID ||
+		if row.Context.Target == nil || row.Context.Target.URI != p.partURI() ||
+			row.Context.Target.NodeType != audit.TargetAuditEventPart ||
+			json.Unmarshal(row.Extra, &identity) != nil ||
+			identity.OrgID != manifest.OrgID ||
+			identity.TargetEventID != manifest.TargetEventID ||
 			identity.SourceEventID != manifest.SourceEventID ||
 			identity.PartIndex != manifest.PartIndex ||
 			identity.RootDigest != manifest.ManifestSHA256 {
@@ -284,9 +286,13 @@ func (p *partRestorePipeline) requireChangeRecord(
 	}
 
 	change, eventContext := rows[0], rows[0].Context
-	if eventContext.OperationClass != audit.OperationDatabaseChange || eventContext.Phase != audit.PhaseChange ||
-		eventContext.AuditFormatVersion != audit.AuditFormatComplete || change.Outcome != audit.OutcomeCompleted ||
-		eventContext.Target == nil || eventContext.Target.URI != p.partURI() || eventContext.Target.NodeType != audit.TargetAuditEventPart ||
+	if eventContext.OperationClass != audit.OperationDatabaseChange ||
+		eventContext.Phase != audit.PhaseChange ||
+		eventContext.AuditFormatVersion != audit.AuditFormatComplete ||
+		change.Outcome != audit.OutcomeCompleted ||
+		eventContext.Target == nil ||
+		eventContext.Target.URI != p.partURI() ||
+		eventContext.Target.NodeType != audit.TargetAuditEventPart ||
 		eventContext.Target.Kind != audit.TargetKindResource ||
 		change.ActorID != p.operatorID ||
 		change.OrgID != p.org ||

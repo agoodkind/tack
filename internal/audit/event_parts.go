@@ -73,6 +73,7 @@ func EncodeEvent(event Event, readTargets []Target) (EncodedEvent, error) {
 			slog.String("event_id", event.EventID.String()),
 			slog.String("err", err.Error()),
 		)
+
 		return EncodedEvent{}, fmt.Errorf("encode audit event %s: %w", event.EventID, err)
 	}
 
@@ -161,5 +162,6 @@ func checkReadManifest(event Event, targets []Target) error {
 //	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 func SHA256Hex(payload []byte) string {
 	digest := sha256.Sum256(payload)
+
 	return hex.EncodeToString(digest[:])
 }

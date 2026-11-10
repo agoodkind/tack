@@ -86,6 +86,7 @@ func (f partRestoreRawFixture) insertEvent(
 
 func newPartRestoreRawFixture(t *testing.T, admin *pgxpool.Pool) partRestoreRawFixture {
 	t.Helper()
+
 	return newPartRestoreRawFixtureWithPayload(
 		t,
 		admin,
@@ -101,6 +102,7 @@ func buildRestoreChange(
 	actorID uuid.UUID,
 ) (uuid.UUID, []byte, [][]byte) {
 	t.Helper()
+
 	return buildRestoreChangeWithTool(t, manifest, fileDigest, payload, actorID, "")
 }
 

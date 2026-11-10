@@ -122,6 +122,7 @@ func storeOnePartRead(
 
 func startPartRestorePipeline(t *testing.T) *partRestorePipeline {
 	t.Helper()
+
 	return newPartRestorePipeline(t, startNodeAuditLedger(t))
 }
 
@@ -208,6 +209,7 @@ func (p *partRestorePipeline) writeManifestFile(t *testing.T, content []byte) (s
 
 func (p *partRestorePipeline) run(t *testing.T, execute bool) partRestoreRun {
 	t.Helper()
+
 	return p.runManifest(t, execute, p.manifestPath, p.fileDigest, p.target.String())
 }
 

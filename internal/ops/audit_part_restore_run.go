@@ -68,12 +68,14 @@ func loadAuditPartRestore(
 			"audit_part_restore.reader_failed",
 			slog.String("err", "the ledger reader did not open"),
 		)
+
 		return auditPartRestoreLoaded{}, errAuditPartReaderOpen
 	}
 
 	state, err := inspectAuditPartRestore(ctx, reader, request.manifest)
 	if err != nil {
 		reader.Close()
+
 		return auditPartRestoreLoaded{}, err
 	}
 
@@ -113,6 +115,7 @@ func runAuditPartRestore(
 	defer loaded.reader.Close()
 	if loaded.state.Present {
 		err := writeAuditPartResult(ctx, sink, request.result(auditPartStatusPresent, ""))
+
 		return outcomeFor(err), err
 	}
 

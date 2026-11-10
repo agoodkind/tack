@@ -72,6 +72,7 @@ func marshalRaw[T []json.RawMessage | map[string]json.RawMessage | string](
 
 func quotedJSON(t *testing.T, text string) json.RawMessage {
 	t.Helper()
+
 	return marshalRaw(t, text)
 }
 

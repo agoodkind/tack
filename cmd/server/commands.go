@@ -136,6 +136,7 @@ func configureAuditOutbox(f *cli.Factory) {
 			"audit.operator_outbox.config_failed",
 			slog.String("err", err.Error()),
 		)
+
 		return
 	}
 
@@ -143,6 +144,7 @@ func configureAuditOutbox(f *cli.Factory) {
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		slog.ErrorContext(ctx, "audit.operator_outbox.open_failed", slog.String("err", err.Error()))
+
 		return
 	}
 

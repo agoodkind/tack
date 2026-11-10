@@ -61,11 +61,13 @@ func (p *partRestorePipeline) dryRunRead(
 						TargetEventID  string `json:"target_event_id"`
 					} `json:"input"`
 				}
-				if row.Context.OperationClass == audit.OperationRead && row.Context.Phase == audit.PhaseRead &&
+				if row.Context.OperationClass == audit.OperationRead &&
+					row.Context.Phase == audit.PhaseRead &&
 					json.Unmarshal(row.Extra, &extra) == nil &&
 					extra.Input.ManifestSHA256 == manifestDigest &&
 					extra.Input.TargetEventID == targetFlag {
 					found = row
+
 					return true
 				}
 			}

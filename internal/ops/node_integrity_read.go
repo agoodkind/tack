@@ -93,6 +93,7 @@ func decodeStrictJSON[Target strictJSONTarget](
 	err := decoder.Decode(target)
 	if err != nil {
 		slog.ErrorContext(ctx, "repair.strict_json.decode_failed", slog.String("err", err.Error()))
+
 		return fmt.Errorf("cannot decode JSON: %w", err)
 	}
 

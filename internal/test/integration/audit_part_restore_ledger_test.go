@@ -241,6 +241,7 @@ func (a *shardAppender) during(t *testing.T) func() {
 
 			if err := a.appendOne(); err != nil {
 				t.Errorf("append to shard %d during the restore: %v", a.shard, err)
+
 				return
 			}
 

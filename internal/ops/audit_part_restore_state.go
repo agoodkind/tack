@@ -245,7 +245,8 @@ func readPinnedRow(
 }
 
 func sameLedgerRow(before, after audit.Row) bool {
-	return before.EventID == after.EventID && before.Seq == after.Seq && before.Shard == after.Shard &&
+	return before.EventID == after.EventID && before.Seq == after.Seq &&
+		before.Shard == after.Shard &&
 		before.HashVersion == after.HashVersion &&
 		bytes.Equal(before.PrevHash, after.PrevHash) &&
 		bytes.Equal(before.RowHash, after.RowHash)
