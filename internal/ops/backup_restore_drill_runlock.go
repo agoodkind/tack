@@ -1,9 +1,8 @@
-// backup_restore_drill_runlock.go marks a restore drill as running for as long
-// as its process lives. Each drill holds an exclusive lock on its own scratch
-// directory, and the kernel drops the lock when the process ends, however it
-// ends, so a drill killed before its teardown (an out-of-memory kill, say)
-// leaves resources whose lock any later drill can take. That is how the
-// orphan sweep tells a dead run's leftovers from a live run's scratch.
+// Each restore drill acquires an exclusive lock on its scratch directory.
+// The kernel releases the lock when the process ends, including after an
+// out-of-memory kill that prevents cleanup. The orphan sweep can acquire a
+// stopped run's lock and distinguish its leftover resources from a live run's
+// scratch data.
 
 package ops
 
@@ -18,21 +17,22 @@ import (
 	"syscall"
 )
 
-// drillSweepLockName is the file under the scratch root that a drill holds
-// exclusively while it claims its run and sweeps orphans, so no sweep sees
-// a run whose directory exists but is not locked yet.
+// drillSweepLockName identifies the file that serializes run claims and orphan
+// sweeps under the scratch root. The lock coordinates those operations while
+// a run acquires its directory lock.
 const drillSweepLockName = ".sweep.lock"
 
-// drillScratchRoot is the directory holding every run's scratch directory.
+// drillScratchRoot returns the directory that contains every run's scratch
+// directory.
 func drillScratchRoot(r *restoreDrillCtx) string {
 	return filepath.Join(r.Cfg.BackupRoot, drillScratchDirName)
 }
 
-// claimDrillRun creates this run's scratch directory, locks it for the rest of
-// the process's life, and then removes what killed runs left behind. The claim
-// and the sweep run under the sweep lock, so a drill starting beside this one
-// either holds its own lock before this sweep looks or looks after this run is
-// locked. A sweep failure is logged and does not stop the drill.
+// claimDrillRun creates the scratch directory, acquires the sweep lock, locks
+// the run directory for the process lifetime, and sweeps stopped runs. The
+// sweep lock serializes the claim and sweep after directory creation. Sweep
+// failures do not stop the drill. Scratch-removal and staging RemoveAll errors
+// produce logs; container-removal and staging-path Stat errors do not.
 func claimDrillRun(ctx context.Context, r *restoreDrillCtx) error {
 	root := drillScratchRoot(r)
 	if err := os.MkdirAll(drillScratchRunDir(r), 0o755); err != nil {
@@ -66,11 +66,10 @@ func claimDrillRun(ctx context.Context, r *restoreDrillCtx) error {
 	return nil
 }
 
-// tryLockDrillRun takes the exclusive lock on run's scratch directory without
-// waiting. It returns the locked directory, or live when another process
-// holds the lock. A run with no scratch directory returns neither: no drill
-// can be running it, since a drill locks its directory before it starts
-// anything.
+// tryLockDrillRun attempts an exclusive run-directory lock without waiting.
+// It returns the locked directory on success or live when another process
+// owns the lock. A missing directory returns neither. A drill locks its
+// directory before starting scratch engines.
 func tryLockDrillRun(ctx context.Context, root, run string) (*os.File, bool, error) {
 	dir, err := os.Open(filepath.Join(root, run))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -95,8 +94,9 @@ func tryLockDrillRun(ctx context.Context, root, run string) (*os.File, bool, err
 	return dir, false, nil
 }
 
-// releaseDrillRun drops this run's lock. Teardown calls it last, after the
-// run's scratch directory is gone.
+// releaseDrillRun releases the run's lock. Cleanup invokes releaseDrillRun
+// last, after attempting scratch-directory removal, even when that removal
+// fails and leaves the directory behind.
 func releaseDrillRun(r *restoreDrillCtx) {
 	if r.runLock != nil {
 		_ = r.runLock.Close()

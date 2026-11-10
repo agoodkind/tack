@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-// runInventoryCheck runs the generated comparison for one node the way the
-// drill does and returns its output and exit error, so a test can assert on a
-// check that must fail rather than have the fixture fail it first.
+// runInventoryCheck invokes the generated node comparison and returns its
+// output and exit error. Tests can check expected program failures without
+// the fixture failing first.
 func runInventoryCheck(t *testing.T, fixture *placementFixture, node string) (string, error) {
 	t.Helper()
 	script := ybInventoryCheckScript(
@@ -22,14 +22,14 @@ func runInventoryCheck(t *testing.T, fixture *placementFixture, node string) (st
 	return string(out), err
 }
 
-// TestYBInventoryCheckFailsWhenTheInventoryCannotBeRead is the silent success
-// this file exists for. The inventory is what the extraction is judged against,
-// and the check read it through a pipeline, whose exit status is the sort's:
-// an inventory that could not be read sorted to nothing, the check wanted no
-// files, found none missing, and passed a tablet it had verified against
-// nothing. The extraction below is short of a file its archive carried, and
-// its inventory is gone; the check must fail on the read, not report zero
-// missing.
+// TestYBInventoryCheckFailsWhenTheInventoryCannotBeRead checks an earlier
+// false success. A pipeline exposed only sort's successful exit after the
+// inventory read failed. The empty comparison baseline could report zero
+// missing files without checking the tablet against its archived contents.
+//
+// This fixture removes an archived file from the extraction and removes the
+// inventory. The comparison must fail on the read instead of reporting zero
+// missing files.
 func TestYBInventoryCheckFailsWhenTheInventoryCannotBeRead(t *testing.T) {
 	eachPlacementShell(t, func(t *testing.T, shell string) {
 		const exportSnap = "expsnap"
@@ -56,9 +56,9 @@ func TestYBInventoryCheckFailsWhenTheInventoryCannotBeRead(t *testing.T) {
 	})
 }
 
-// TestYBInventoryCheckStillReportsTheMissingFile proves the restructured
-// check gives the same answer as before when every step works: the one file
-// taken out of the extraction is named, with the size the archive recorded.
+// TestYBInventoryCheckStillReportsTheMissingFile checks the successful
+// comparison after the pipeline correction. The result must identify the one
+// removed file and the size that the archive recorded.
 func TestYBInventoryCheckStillReportsTheMissingFile(t *testing.T) {
 	eachPlacementShell(t, func(t *testing.T, shell string) {
 		const exportSnap = "expsnap"
@@ -81,11 +81,10 @@ func TestYBInventoryCheckStillReportsTheMissingFile(t *testing.T) {
 	})
 }
 
-// TestParseYBInventoryCheckRefusesWhatItCannotAttribute proves the extraction
-// check never reports a subset. Each missing file is attributed to the tablet
-// it belongs to, so a count the report cannot cover, or one that disagrees with
-// the lines, has to fail rather than leave tablets it could not account for
-// looking whole.
+// TestParseYBInventoryCheckRefusesWhatItCannotAttribute requires the parser
+// to reject incomplete reports. Every missing file requires tablet attribution.
+// An unreportable count or a count that disagrees with the file lines must fail
+// instead of leaving affected tablets incorrectly classified as complete.
 func TestParseYBInventoryCheckRefusesWhatItCannotAttribute(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -105,8 +104,9 @@ func TestParseYBInventoryCheckRefusesWhatItCannotAttribute(t *testing.T) {
 	}
 }
 
-// TestParseYBInventoryCheckReadsAWholeRun proves the two answers the check
-// gives: nothing missing, and the files that are, padding from wc included.
+// TestParseYBInventoryCheckReadsAWholeRun checks both complete and incomplete
+// extractions. The parser accepts wc padding in the count and returns each
+// reported missing file.
 func TestParseYBInventoryCheckReadsAWholeRun(t *testing.T) {
 	missing, err := parseYBInventoryCheck("yb1", "missing       0\n")
 	if err != nil || len(missing) != 0 {

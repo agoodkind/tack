@@ -1,7 +1,6 @@
-// backup_restore_drill_ledger_export.go is the ledger half of the yugabyte
-// drill leg: it creates the run-scoped reader role in the restored database,
-// finds the orgs holding rows, and exports one signed bundle per org for the
-// chain verdict to read.
+// The YugabyteDB restore drill creates a reader role in the restored database,
+// finds organizations with audit rows, and exports one signed bundle per
+// organization for chain verification.
 
 package ops
 
@@ -22,40 +21,38 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// drillLedgerSigningKeyID labels the throwaway signing key in the bundle
-// manifest. The drill signs with a key it generates per run and discards, so
-// the production signing key never enters the drill and the signature check
-// proves only that the bundle is the one the export just wrote. The row-hash
-// and chain-link checks, which are what this leg exists for, cover the ledger's
-// own integrity and involve no key at all.
+// drillLedgerSigningKeyID identifies the temporary signing key in each bundle
+// manifest. Each run generates and discards its own key without reading the
+// production signing key. The signature check verifies the bundle that this
+// export wrote. Row-hash and chain-link checks verify ledger integrity without
+// a signing key.
 const drillLedgerSigningKeyID = "ed25519:restore-drill"
 
-// drillLedgerExportUnlimited is the row limit the drill asks the export for:
-// none. The export streams, writing and releasing each row as it reads it, so
-// its cost does not grow with the org and the drill inside the 512 MiB
-// tack-ops sidecar reaches a verdict on a ledger of any size. A cap here would
-// have to rise every time the ledger grows, and an operator who has not raised
-// it yet gets no verdict at all.
+// drillLedgerExportUnlimited requests every matching row. The export writes
+// each streamed row without collecting the full result in memory. This avoids
+// a row-count cap that an operator would need to raise as the ledger grows.
+// Compose sets a 512 MiB memory limit for tack-ops. Streaming does not
+// guarantee that every ledger size fits that budget.
 const drillLedgerExportUnlimited = 0
 
-// drillLedgerOldest and drillLedgerLatest bound the export by nothing. The
-// reader requires both bounds, so the full range is stated with sentinels no
-// stored row can fall outside. Bounding by a time window instead would leave
-// rows out mid-chain, and every omission raises the report's chain-gap count.
-// Over a windowed export that count is an artifact of the window and says
-// nothing about the ledger, which is why the shared verifier counts a gap
-// rather than calling it a break. Asking for the whole range is what makes the
-// count mean something here: nothing was left out on purpose, so a gap is a
-// row the restore did not bring back, and the chain verdict fails on it.
+// drillLedgerOldest and drillLedgerLatest supply the time bounds the reader
+// requires. The configured range starts at the Unix epoch and ends before
+// January 1, 9999. The row-count reconciliation rejects exports that omit
+// counted rows outside that range.
+//
+// A narrow time window can omit interior chain rows. The shared verifier
+// counts those omissions as sequence gaps rather than broken links. This drill
+// requests the full configured range and rejects reported gaps because it
+// cannot verify prev_hash across them.
 var (
 	drillLedgerOldest = time.Unix(0, 0).UTC()
 	drillLedgerLatest = time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC)
 )
 
-// assertRestoredLedgerChain verifies the hash chain of the ledger the yugabyte
-// leg restored. It creates a run-scoped reader role in the throwaway database,
-// lists the orgs holding rows, exports a signed bundle per org, and fails the
-// drill on any chain break the verifier reports.
+// assertRestoredLedgerChain checks the audit hash chains in the YugabyteDB
+// restore. It creates a temporary reader role, lists organizations with rows,
+// exports a signed bundle for each, and fails the drill when verification
+// reports a broken chain.
 func assertRestoredLedgerChain(ctx context.Context, r *restoreDrillCtx, containerName, database string) error {
 	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.restore_drill.ledger_chain.start")
@@ -99,10 +96,10 @@ func assertRestoredLedgerChain(ctx context.Context, r *restoreDrillCtx, containe
 	return verifyRestoredLedgerChains(ctx, orgs, bundleRoot, export, verify)
 }
 
-// drillLedgerRoleName derives the run-scoped login role the drill reads the
-// restored ledger as. The run id carries a timestamp and a pid, so it is
-// folded to the lower-case letters, digits, and underscores an unquoted SQL
-// identifier accepts.
+// drillLedgerRoleName derives the run-specific login role for restored ledger
+// reads. Run IDs contain a timestamp and process ID. The function converts
+// them to lowercase letters, digits, and underscores for an unquoted SQL
+// identifier.
 func drillLedgerRoleName(runID string) string {
 	safe := strings.Map(func(r rune) rune {
 		switch {
@@ -117,12 +114,10 @@ func drillLedgerRoleName(runID string) string {
 	return "tack_drill_reader_" + safe
 }
 
-// createDrillLedgerReader creates the run-scoped login role and grants it the
-// ledger's read base role. The drill reads through the same base role the
-// product reads through rather than through the scratch database's bootstrap
-// user, because audit.events forces row-level security: only a member of
-// audit_reader is covered by a select policy, so any other identity either
-// sees nothing or depends on happening to hold a superuser bypass.
+// createDrillLedgerReader creates the run-specific login and grants it
+// audit_reader, the base role for ledger reads. audit.events forces row-level
+// security. Membership supplies the SELECT policy without relying on the
+// scratch database's bootstrap user or a superuser bypass.
 func createDrillLedgerReader(ctx context.Context, r *restoreDrillCtx, containerName, database, roleName string) error {
 	logger := telemetry.L(ctx)
 	statements := []string{
@@ -143,20 +138,18 @@ func createDrillLedgerReader(ctx context.Context, r *restoreDrillCtx, containerN
 	return nil
 }
 
-// exportRestoredOrgBundle writes one org's signed bundle with the same export
-// the operator `audit export` command runs, so the drill rehearses the
-// documented procedure rather than a private imitation of it.
+// exportRestoredOrgBundle uses audit.Export, the export operation that the
+// operator audit export command invokes, to write one signed organization
+// bundle. The drill therefore exercises that operation directly.
 //
-// It takes the ledger read as an interface rather than the concrete reader so a
-// test can assert what the drill asks the export for. What it asks for is the
-// whole thing, and a drill that quietly asked for less would still write a
-// bundle and still verify it.
+// The RowSource interface permits tests to inspect the requested filter. The
+// filter requests every matching row; a subset could still produce a valid
+// bundle without establishing complete ledger coverage.
 //
-// The org list comes from the rows themselves, and a ledger holding rows
-// recorded before every event carried an org lists the nil org among them.
-// Those rows chain per (org, shard) like any other org's, so the drill names
-// the nil org on purpose rather than leaving the one chain the reader refuses
-// by default unverified.
+// The organization list includes the nil organization when historical rows
+// predate mandatory organization recording. Those rows use the same per-org
+// and shard chains as tenant rows. The filter explicitly selects the nil
+// organization because the reader otherwise rejects it.
 func exportRestoredOrgBundle(
 	ctx context.Context,
 	reader audit.RowSource,

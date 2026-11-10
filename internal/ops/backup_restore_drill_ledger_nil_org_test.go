@@ -1,8 +1,7 @@
-// backup_restore_drill_ledger_nil_org_test.go covers the chain the restored
-// ledger holds under the nil org: rows recorded before every event carried an
-// org. The reader refuses a nil org by default, so a drill that asked for it
-// the way it asks for a tenant org left that chain unverified and failed the
-// run on the refusal.
+// The nil-organization tests verify historical ledger rows from before every
+// event recorded an organization. The reader rejects a nil organization unless
+// the filter explicitly selects it. An earlier drill used the tenant filter
+// for these rows, left their chain unverified, and failed on that refusal.
 
 package ops
 
@@ -16,10 +15,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestRestoredLedgerChainVerifiesTheNilOrgChain is the defect: a restored
-// ledger holding a tenant org and the nil org must pass when both chains are
-// intact, with the nil org's rows exported, digested, signed, and re-hashed
-// with the same rigor as the tenant's rather than refused as a missing org.
+// TestRestoredLedgerChainVerifiesTheNilOrgChain reproduces the earlier
+// nil-organization refusal. Intact tenant and nil-organization chains must both
+// pass export, digest, signature, and row-hash verification. The reader must
+// not reject the nil organization as an absent organization.
 func TestRestoredLedgerChainVerifiesTheNilOrgChain(t *testing.T) {
 	tenant := uuid.Must(uuid.NewV7())
 	ledger := twoOrgLedger(t, tenant)
@@ -48,9 +47,10 @@ func TestRestoredLedgerChainVerifiesTheNilOrgChain(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerChainFailsOnABreakInTheNilOrgChain pins that the nil org's
-// chain is judged, not merely exported: a row under it whose stored hash does
-// not recompute fails the leg, and the failure names the nil org and no other.
+// TestRestoredLedgerChainFailsOnABreakInTheNilOrgChain requires verification
+// of the exported nil-organization rows. An incorrect stored row hash must fail
+// the drill. The error must identify the nil organization and must not identify
+// the intact tenant chain.
 func TestRestoredLedgerChainFailsOnABreakInTheNilOrgChain(t *testing.T) {
 	tenant := uuid.Must(uuid.NewV7())
 	ledger := twoOrgLedger(t, tenant)
@@ -71,10 +71,9 @@ func TestRestoredLedgerChainFailsOnABreakInTheNilOrgChain(t *testing.T) {
 	}
 }
 
-// TestDrillExportNamesTheNilOrgOnPurpose pins the filter the drill hands the
-// ledger for each org it lists: the nil org is named as such, and a tenant org
-// is not, so the reader's guard against a forgotten org still applies to every
-// other export.
+// TestDrillExportNamesTheNilOrgOnPurpose checks each organization's filter.
+// NilOrg must apply only to the nil organization. The reader must still reject
+// accidentally omitted organization IDs in other exports.
 func TestDrillExportNamesTheNilOrgOnPurpose(t *testing.T) {
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

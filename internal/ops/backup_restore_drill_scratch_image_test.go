@@ -1,6 +1,6 @@
-// backup_restore_drill_scratch_image_test.go reads the engine images the
-// scratch tests boot from docker-compose.yml, so they run the versions the
-// live stores run, the same source internal/testenv reads its engines from.
+// The scratch tests read engine images from the Compose stack, matching the
+// image source that internal/testenv uses. The tests use those configured
+// versions rather than proving the image revision of a running store.
 
 package ops
 
@@ -15,8 +15,13 @@ import (
 // composeDefaultedVariable matches the compose form ${NAME:-default}.
 var composeDefaultedVariable = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}`)
 
-// composeServiceImage returns the image docker-compose.yml runs for service,
-// with any ${NAME:-default} reference resolved the way compose resolves it.
+// composeServiceImage returns the configured image for service and resolves
+// supported environment substitutions. A nonempty variable overrides its
+// default; an empty or unset variable uses the default.
+//
+// The supported form matches Compose's default-value syntax:
+//
+//	${NAME:-default}
 func composeServiceImage(t *testing.T, service string) string {
 	t.Helper()
 	path := repoFilePath(t, "docker-compose.yml")

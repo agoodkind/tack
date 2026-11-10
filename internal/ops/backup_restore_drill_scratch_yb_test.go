@@ -1,11 +1,9 @@
-// backup_restore_drill_scratch_yb_test.go boots the drill's throwaway
-// yugabyted through the drill's own start and readiness steps and proves its
-// base directory is the run's directory under the backup root, that the
-// engine can write there, and that the drill's teardown removes it. It boots
-// under the longest run id a production drill can have, the one yugabyted's
-// advertise-address check would be slowest on, and logs how long the start
-// took. The helpers are in
-// backup_restore_drill_scratch_test.go.
+// The YugabyteDB scratch test invokes the drill's start and readiness checks.
+// It requires the engine to write its base directory under the run's backup
+// directory and requires cleanup to remove it. The run ID uses the maximum
+// Linux process ID to exercise the longest production container-name form.
+// The test logs startup duration to check the address-validation regression.
+// The companion scratch test supplies the shared helpers.
 
 package ops
 
@@ -20,8 +18,8 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// linuxPIDMax is the largest pid a 64-bit Linux kernel can hand out, and so
-// the longest pid a drill's run id can end in.
+// linuxPIDMax supplies the maximum process ID for the 64-bit Linux run-ID
+// fixture. It exercises the longest process-ID suffix.
 const linuxPIDMax = 4194304
 
 func TestRestoreDrillYugabyteScratchLivesUnderBackupRoot(t *testing.T) {
@@ -33,11 +31,10 @@ func TestRestoreDrillYugabyteScratchLivesUnderBackupRoot(t *testing.T) {
 		BackupYBOverlayPath: repoFilePath(t, "yugabyte-overlay", "yugabyted"),
 		BackupFDBNetwork:    scratchDrillNetwork(ctx, t, cli),
 	}
-	// The run ID has the drill's own shape with the largest pid Linux hands
-	// out, so the container name is as long as a production run's can be. A
-	// name that long is what yugabyted's advertise-address check backtracks
-	// over for 39s natively and past the drill's stall window under emulation
-	// when the drill advertises the container name itself (TACK-527).
+	// The run ID uses the drill's timestamp format and maximum Linux process ID.
+	// Its container name has the longest production form. Advertising that name
+	// previously made yugabyted's address check take 39 seconds natively and exceed
+	// the drill's stall window under emulation, as recorded in TACK-527.
 	runID := fmt.Sprintf("rt%s-%d", time.Now().UTC().Format("20060102T150405Z"), linuxPIDMax)
 	if !drillRunIDPattern.MatchString(runID) {
 		t.Fatalf("run id %q does not have the shape the drill gives its runs", runID)

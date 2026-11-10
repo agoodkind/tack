@@ -1,9 +1,8 @@
-// backup_restore_drill_orphans_test.go leaves behind what a restore drill
-// killed before its teardown leaves, starts a drill beside a drill that is
-// still running, and proves the new drill's claim removes the killed run's
-// scratch engine, scratch directory, and staging directory while the running
-// drill keeps its own. Its backup root is a testenv.SharedDir, since the
-// scratch directory is removed through a bind mount.
+// The orphan test creates leftovers from a stopped drill beside a running
+// drill. Claiming a new run must remove the stopped run's scratch engine,
+// scratch directory, and staging directory while preserving the running
+// drill's resources. testenv.SharedDir supplies a backup root that the cleanup
+// container can access through a bind mount.
 
 package ops
 
@@ -52,7 +51,7 @@ func TestClaimDrillRunSweepsKilledRunAndKeepsLiveRun(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(killedStage, "staged"), 0o755); err != nil {
 		t.Fatalf("mkdir the killed run's staging directory: %v", err)
 	}
-	// A killed process runs no teardown; the kernel only drops its lock.
+	// A killed process does not run cleanup. The kernel releases its lock.
 	releaseDrillRun(killed)
 
 	if err := claimDrillRun(ctx, current); err != nil {
@@ -77,8 +76,8 @@ func TestClaimDrillRunSweepsKilledRunAndKeepsLiveRun(t *testing.T) {
 	}
 }
 
-// startSleepingEngine starts a container named like a scratch engine that
-// binds scratchDir the way one does, and removes it when the test ends.
+// startSleepingEngine starts a container with a scratch-engine name and a
+// bind mount of scratchDir. Test cleanup removes the container.
 func startSleepingEngine(ctx context.Context, t *testing.T, cli *client.Client, image, name, scratchDir string) string {
 	t.Helper()
 	if err := ensureImage(ctx, cli, nopLogger(), image); err != nil {

@@ -1,8 +1,7 @@
-// backup_restore_drill_ledger_reach.go finds and opens the throwaway database
-// the yugabyte leg just restored. Everything here is scoped to the run: the
-// address comes from the run-scoped scratch container, and the live cluster's
-// connection string is never read, so this leg cannot verify the running
-// ledger by mistake and report that as a successful restore.
+// The ledger reader connects to the temporary database that the YugabyteDB
+// drill restored. It derives the address from the run-specific scratch
+// container without reading the live cluster's connection string. This avoids
+// mistaking a check of the running ledger for proof of a successful restore.
 
 package ops
 
@@ -21,12 +20,12 @@ import (
 )
 
 const (
-	// drillLedgerPort is the YSQL port the scratch yugabyted serves on, the
-	// same port the leg's ysqlsh calls use.
+	// drillLedgerPort selects the scratch yugabyted YSQL port, matching the drill's
+	// ysqlsh calls.
 	drillLedgerPort = "5433"
 
-	// drillLedgerDefaultNetwork is the network a container joins when the
-	// backup config names none, which is what the address lookup falls back to.
+	// drillLedgerDefaultNetwork selects Docker's bridge network when the backup
+	// configuration does not specify a network. The address lookup uses it too.
 	drillLedgerDefaultNetwork = "bridge"
 )
 
@@ -51,12 +50,11 @@ func openRestoredLedgerReader(
 	return reader, nil
 }
 
-// scratchLedgerAddress returns the address this process dials the restored
-// database on. The scratch container's name resolves only through the compose
-// network's embedded DNS and the drill runs on the host's network stack, so
-// the address comes from the container's own endpoint on the drill network.
-// Reading it from the run-scoped container by name is what keeps the leg
-// pointed at the restore: no value here can name the live cluster.
+// scratchLedgerAddress returns the restored database address for this process.
+// The scratch container name resolves through Compose's embedded DNS, while
+// the drill uses the host network. The function therefore reads the named
+// container's endpoint on the drill network instead of using the live cluster
+// configuration.
 func scratchLedgerAddress(ctx context.Context, r *restoreDrillCtx, containerName string) (netip.Addr, error) {
 	logger := telemetry.L(ctx)
 	inspected, err := r.Cli.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{Size: false})
@@ -82,9 +80,9 @@ func scratchLedgerAddress(ctx context.Context, r *restoreDrillCtx, containerName
 	return address, nil
 }
 
-// endpointAddress picks the container's address on the named network,
-// preferring its IPv6 address because the production bridge carries no IPv4.
-// An invalid result means the container has no usable address there.
+// endpointAddress selects the container address on networkName. It prefers
+// IPv6 because the production bridge does not provide IPv4. An invalid result
+// indicates that the endpoint does not provide a usable address.
 func endpointAddress(inspected client.ContainerInspectResult, networkName string) netip.Addr {
 	settings := inspected.Container.NetworkSettings
 	if settings == nil {
@@ -100,9 +98,9 @@ func endpointAddress(inspected client.ContainerInspectResult, networkName string
 	return endpoint.IPAddress
 }
 
-// scratchLedgerDSN is the only connection string this leg builds. It names the
-// scratch container's address, the run-scoped role, and the run's throwaway
-// password, so nothing in this path can resolve to the live ledger.
+// scratchLedgerDSN builds the ledger connection string from the supplied
+// scratch address, run-specific role, and temporary password. The drill
+// supplies these values from the scratch restore instead of the live ledger.
 func scratchLedgerDSN(address netip.Addr, database, roleName, password string) string {
 	dsn := url.URL{
 		Scheme:   "postgres",

@@ -1,9 +1,8 @@
-// backup_restore_drill_orphans.go removes what a killed restore drill left
-// behind. A drill that dies before its teardown, such as one the kernel kills
-// at its memory limit, leaves its scratch engines running, its scratch
-// directory full, and its staged artifacts on disk. The next drill finds them
-// by the run id in their names and removes every run whose lock no live drill
-// holds.
+// The orphan sweep removes resources from restore drills that stopped before
+// cleanup, including drills that exceeded their memory limit. Such runs can
+// leave scratch engines, scratch data, and staged artifacts. The sweep reads
+// run IDs from resource names and removes resources when another process does
+// not own the run's lock. A running drill's lock prevents that removal.
 
 package ops
 
@@ -25,30 +24,31 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// drillRunIDPattern matches the run ids RunBackupRestoreDrill makes, so a
-// name the sweep reads becomes a path only when it is one.
+// drillRunIDPattern recognizes the run IDs that RunBackupRestoreDrill creates.
+// The sweep accepts a discovered run path only when its ID matches.
 var drillRunIDPattern = regexp.MustCompile(`^rt[0-9]{8}T[0-9]{6}Z-[0-9]+$`)
 
-// drillContainerPrefixes open the names of a run's scratch engines, which end
-// in the run id.
+// drillContainerPrefixes start scratch-engine names. Each name ends with the
+// run ID.
 var drillContainerPrefixes = []string{"tack-rtfdb-", "tack-rtyb-"}
 
-// drillStagePrefixes open the names of the directories a run stages files in
-// directly under the backup root, which end in the run id.
+// drillStagePrefixes start staging-directory names directly under the backup
+// root. Each name ends with the run ID.
 var drillStagePrefixes = []string{"restore-drill-yb-", "restore-drill-chain-"}
 
-// drillOrphan is one earlier run's leftovers: its scratch engines, and the
-// image one of them ran, which removes the run's scratch directory.
+// drillOrphan records an earlier run's scratch containers and an engine image
+// that can remove its scratch directory.
 type drillOrphan struct {
 	containers []string
 	image      string
 }
 
-// sweepDrillOrphans removes the scratch engines, the scratch directory, and
-// the staging directories of every earlier run whose lock is free, and logs
-// one line naming every container and directory it removed and every run it
-// left to a live drill. It is best effort: a failure is logged and the drill
-// goes on.
+// sweepDrillOrphans attempts to remove earlier runs' scratch engines, scratch
+// directories, and staging directories after checking each run's lock. It
+// logs resources selected for removal and live runs it skips. Scratch-removal
+// errors and staging-directory RemoveAll errors produce logs. ContainerRemove
+// errors and staging-path Stat errors do not. Cleanup failures do not stop the
+// current drill.
 func sweepDrillOrphans(ctx context.Context, r *restoreDrillCtx) {
 	orphans := findDrillRuns(ctx, r)
 	delete(orphans, r.RunID)
@@ -74,9 +74,9 @@ func sweepDrillOrphans(ctx context.Context, r *restoreDrillCtx) {
 	}
 }
 
-// findDrillRuns returns the run id of every scratch engine, scratch directory,
-// and staging directory that belongs to this drill's backup root, with each
-// run's engines.
+// findDrillRuns finds scratch engines, scratch directories, and staging
+// directories associated with this backup root. It groups their run IDs and
+// container names by run.
 func findDrillRuns(ctx context.Context, r *restoreDrillCtx) map[string]*drillOrphan {
 	logger := telemetry.L(ctx)
 	runs := map[string]*drillOrphan{}
@@ -118,10 +118,10 @@ func findDrillRuns(ctx context.Context, r *restoreDrillCtx) map[string]*drillOrp
 	return runs
 }
 
-// drillEngineUnderBackupRoot reports whether this drill owns an engine.
-// The function returns true for a bind mount source under the backup root or
-// an existing run scratch directory under that root.
-// This check excludes engines it cannot associate with this backup root (TACK-563).
+// drillEngineUnderBackupRoot checks whether an engine belongs to this backup
+// root. A bind-mount source under the root or an existing run scratch path
+// establishes the association. The sweep excludes engines that lack either
+// association, as required by TACK-563.
 func drillEngineUnderBackupRoot(r *restoreDrillCtx, mounts []container.MountPoint, run string) bool {
 	backupRoot := filepath.Clean(r.Cfg.BackupRoot) + string(filepath.Separator)
 	for _, point := range mounts {
@@ -133,7 +133,8 @@ func drillEngineUnderBackupRoot(r *restoreDrillCtx, mounts []container.MountPoin
 	return err == nil
 }
 
-// drillRunFromName returns the run id that follows one of prefixes in name.
+// drillRunFromName returns a valid run ID after one of the supplied prefixes
+// in name.
 func drillRunFromName(name string, prefixes []string) (string, bool) {
 	for _, prefix := range prefixes {
 		run, found := strings.CutPrefix(name, prefix)
@@ -144,7 +145,8 @@ func drillRunFromName(name string, prefixes []string) (string, bool) {
 	return "", false
 }
 
-// readDirEntries lists dir, logging and returning nothing when it cannot.
+// readDirEntries returns the entries in dir. A missing directory returns an
+// empty result without an error log. Other listing errors produce a log entry.
 func readDirEntries(ctx context.Context, dir string) []os.DirEntry {
 	entries, err := os.ReadDir(dir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -154,10 +156,10 @@ func readDirEntries(ctx context.Context, dir string) []os.DirEntry {
 	return entries
 }
 
-// removeDrillOrphan removes one dead run's engines first, so nothing still
-// writes into its directories, then its scratch and staging directories, and
-// returns the names of the containers and the paths of the staging
-// directories it removed. The scratch directory's removal logs itself.
+// removeDrillOrphan attempts engine removal before deleting scratch and
+// staging directories to stop engine writes before directory cleanup. It
+// returns container names selected for removal and staging paths it removed.
+// Scratch-directory removal logs its own result.
 func removeDrillOrphan(ctx context.Context, r *restoreDrillCtx, run string, orphan *drillOrphan) []string {
 	removed := make([]string, 0, len(orphan.containers)+len(drillStagePrefixes))
 	for _, name := range orphan.containers {

@@ -16,10 +16,9 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// restoreDrillYugabyte restores the newest complete YugabyteDB
-// distributed-snapshot export (or the explicitly requested run) into a
-// throwaway yugabyted, asserts the auth tables hold rows, and verifies the
-// restored audit ledger's hash chain.
+// restoreDrillYugabyte restores the newest complete distributed-snapshot
+// export, or an explicitly requested run, into a temporary yugabyted. It checks
+// that the auth tables contain rows and verifies the restored audit chains.
 func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 	logger := telemetry.L(ctx)
 	logger.InfoContext(ctx, "backup.restore_drill.yb.start")
@@ -77,19 +76,17 @@ func restoreDrillYugabyte(ctx context.Context, r *restoreDrillCtx) error {
 	if err := assertYBDrillRows(ctx, r, name, manifest.Database); err != nil {
 		return err
 	}
-	// Rows on their own say nothing about the ledger's hash chain, and a
-	// restore is where a chain breaks silently, so the chain is verified from
-	// the restored database before this leg passes.
+	// Row counts do not establish hash-chain integrity. The drill verifies the
+	// chain from the restored database before this check can pass.
 	return assertRestoredLedgerChain(ctx, r, name, manifest.Database)
 }
 
-// resolveYBDrillExport picks the export run to drill. With an explicit run key
-// (--yb-run-key) that run is used as-is and refused if incomplete, because the
-// operator asked for it specifically. Without one the newest complete run
-// wins: the window between the orchestrator's upload and the last node's
-// archive timer is normal, so manifest-less or incomplete newer runs are
-// skipped with a log line naming the reason, and the drill fails only when no
-// complete run exists at all.
+// resolveYBDrillExport selects the export run. An explicit --yb-run-key must
+// identify a complete run; the drill refuses an incomplete requested run.
+// Without that option, it selects the newest complete run. Uploads can remain
+// incomplete between the orchestrator upload and the final node archive timer.
+// The drill logs why it skips newer runs with missing manifests or archives.
+// It fails when it cannot select a complete run.
 func resolveYBDrillExport(ctx context.Context, r *restoreDrillCtx, s3Client *s3.Client) (ybSnapshotManifest, error) {
 	logger := telemetry.L(ctx)
 	if r.YBRunKey != "" {
@@ -128,11 +125,10 @@ func resolveYBDrillExport(ctx context.Context, r *restoreDrillCtx, s3Client *s3.
 	return manifest, nil
 }
 
-// resolveYBDrillExportStrict enforces the completeness gate on one explicitly
-// requested export run: the manifest must name the snapshot, the database, and
-// at least one tablet-server node, and every listed node prefix must hold its
-// archive object. An incomplete run is refused with the missing node names so
-// the operator can see which archive timers have not fired yet.
+// resolveYBDrillExportStrict checks one explicitly requested export. Its
+// manifest must specify a snapshot, database, and at least one tablet-server
+// node. Every listed node prefix must contain an archive. The refusal reports
+// missing nodes and identifies their unfinished archive uploads.
 func resolveYBDrillExportStrict(
 	ctx context.Context,
 	r *restoreDrillCtx,
@@ -176,13 +172,14 @@ func resolveYBDrillExportStrict(
 	return manifest, nil
 }
 
-// newestCompleteYBSnapshotRun walks runIDs (sorted ascending) newest-first and
-// returns the first run whose manifest is present, well-formed, and fully
-// archived. skip is called with the run id and the reason for every run passed
-// over, so the operator can see why an older export was chosen. found is false
-// when no walked run is complete. Fetch errors other than a missing manifest
-// and archive-existence errors abort the walk, because a transient store error
-// must not silently demote the drill to an older run.
+// newestCompleteYBSnapshotRun reads ascending runIDs in reverse order and
+// selects the first run with a present, valid manifest and complete archives.
+// It invokes skip with each rejected run ID and reason. found remains false
+// when every run is incomplete.
+//
+// A fetch error other than an absent manifest stops selection. An object
+// existence-check error also stops it. A transient store error must not select
+// an older run silently.
 func newestCompleteYBSnapshotRun(
 	runIDs []string,
 	fetch func(runID string) (ybSnapshotManifest, error),
@@ -223,20 +220,16 @@ func newestCompleteYBSnapshotRun(
 	return manifest, false, nil
 }
 
-// ybDrillManifestDefect reports why a manifest cannot be drilled, or "" when
-// it is well-formed: the manifest must name the snapshot and the database, it
-// must declare every artifact the restore opens by name, and it must list at
-// least one tablet-server node or it would gate nothing.
+// ybDrillManifestDefect returns a reason that the manifest cannot support a
+// restore, or an empty string when it declares a snapshot, database, every
+// required artifact, and at least one tablet-server node.
 //
-// The declaration is checked here, against the manifest alone, because it is a
-// defect in how the run describes itself rather than a report on the object
-// store. A run declaring fewer artifacts than a restore reads (an export
-// written before the run carried its own roles file, or one whose declaration
-// was truncated) is unusable however many of the objects it named are present:
-// the drill would select it as the newest complete run and then fail deep in
-// the restore on a path nothing gated. Naming the undeclared artifacts here
-// keeps that separate from "the run declared them and one is absent", which
-// missingYBRunArtifacts reports and a re-upload fixes.
+// This check examines declarations rather than object-store contents. An old
+// export that predates the roles-file declaration, or a truncated declaration,
+// cannot qualify even when every declared object exists. Otherwise selection
+// could accept a run and fail later on an artifact it never checked.
+// missingYBRunArtifacts separately checks declared objects; re-uploading an
+// absent object can repair that failure without correcting the manifest.
 func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 	if manifest.SnapshotID == "" || manifest.Database == "" {
 		return "manifest missing snapshot_id or database"
@@ -250,11 +243,11 @@ func ybDrillManifestDefect(manifest ybSnapshotManifest) string {
 	return ""
 }
 
-// startScratchYugabyte boots a throwaway yugabyted with the is_port_available
-// overlay, advertising on [ybScratchHost], which the container's hostname and
-// its network alias both resolve on the IPv6-only bridge. stageDir is bind-mounted read-only at /artifacts,
-// and the engine's base directory is a fresh per-run directory under the
-// backup root.
+// startScratchYugabyte starts a temporary yugabyted with the is_port_available
+// overlay. It advertises [ybScratchHost] through both the container hostname
+// and network alias on the IPv6-only bridge. The engine uses a fresh per-run
+// base directory under the backup root. stageDir mounts read-only at
+// /artifacts.
 func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, database, stageDir string) error {
 	logger := telemetry.L(ctx)
 	if err := ensureImage(ctx, r.Cli, logger, r.Cfg.BackupYBImage); err != nil {
@@ -308,9 +301,9 @@ func startScratchYugabyte(ctx context.Context, r *restoreDrillCtx, name, databas
 	return nil
 }
 
-// ysqlshArgs builds a ysqlsh command vector for the scratch's bootstrap user,
-// whose name equals the database name (the scratch is created with YSQL_USER
-// set to it). Use [ysqlshRoleArgs] to connect as any other role.
+// ysqlshArgs builds command arguments for the scratch bootstrap user. The
+// scratch configuration sets YSQL_USER to the database name. Use
+// [ysqlshRoleArgs] for another role.
 func ysqlshArgs(host, database, sql string) []string {
 	return ysqlshRoleArgs(host, database, database, sql)
 }

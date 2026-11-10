@@ -1,10 +1,10 @@
-// backup_restore_drill_scratch_test.go boots the drill's throwaway
-// FoundationDB through the drill's own boot step and proves its data lands in
-// the run's directory under the backup root, not in a Docker volume, that the
-// engine can write there, and that the drill's teardown removes the directory.
-// The yugabyte counterpart is backup_restore_drill_scratch_yb_test.go. Both
-// put the backup root in a testenv.SharedDir, since the scratch directories
-// are bind-mount sources the Docker daemon must see at this process's paths.
+// The FoundationDB scratch test invokes the drill's boot step and checks
+// that the engine writes to a per-run backup directory through bind mounts.
+// The test rejects Docker volumes and requires cleanup to remove the directory.
+// The YugabyteDB scratch test checks the corresponding engine behavior.
+//
+// Both use testenv.SharedDir for the backup root because Docker must access
+// bind-mount sources at the same paths as the test process.
 
 package ops
 
@@ -24,8 +24,7 @@ import (
 	"goodkind.io/tack/internal/testenv"
 )
 
-// scratchDrillTimeout bounds one scratch engine test, which pulls and boots a
-// real engine.
+// scratchDrillTimeout limits a test that pulls and boots a real scratch engine.
 const scratchDrillTimeout = 20 * time.Minute
 
 func TestRestoreDrillFDBScratchLivesUnderBackupRoot(t *testing.T) {
@@ -62,8 +61,8 @@ func TestRestoreDrillFDBScratchLivesUnderBackupRoot(t *testing.T) {
 	requireScratchRemoved(t, runDir)
 }
 
-// scratchDrillDocker demands a Docker daemon and returns a bounded context and
-// a client on it.
+// scratchDrillDocker requires a Docker daemon and returns its client with a
+// time-limited context.
 func scratchDrillDocker(t *testing.T) (context.Context, *client.Client) {
 	t.Helper()
 	testenv.RequireDocker(t)
@@ -77,8 +76,8 @@ func scratchDrillDocker(t *testing.T) (context.Context, *client.Client) {
 	return ctx, cli
 }
 
-// scratchDrillNetwork creates an IPv4 bridge for the scratch engines, which
-// reach each other by container name the way they do on the stack's network.
+// scratchDrillNetwork creates an IPv4 bridge. The scratch engines can resolve
+// each other by container name, as they do on the stack network.
 func scratchDrillNetwork(ctx context.Context, t *testing.T, cli *client.Client) string {
 	t.Helper()
 	name := "tack-drill-scratch-" + time.Now().UTC().Format("20060102T150405.000000000")
@@ -92,8 +91,8 @@ func scratchDrillNetwork(ctx context.Context, t *testing.T, cli *client.Client) 
 	return name
 }
 
-// repoFilePath returns the absolute path of a file in the repository, which
-// go test runs two levels below.
+// repoFilePath returns an absolute repository file path. Tests run from a
+// package directory two levels below the repository root.
 func repoFilePath(t *testing.T, parts ...string) string {
 	t.Helper()
 	path, err := filepath.Abs(filepath.Join(append([]string{"..", ".."}, parts...)...))
@@ -117,7 +116,7 @@ func scratchMounts(ctx context.Context, t *testing.T, cli *client.Client, name s
 	return mounts
 }
 
-// mountPoint is the part of a container mount the scratch tests check.
+// mountPoint records the container mount fields that the scratch tests check.
 type mountPoint struct {
 	Type   mount.Type
 	Name   string
@@ -133,9 +132,9 @@ func requireScratchBind(t *testing.T, mounts map[string]mountPoint, target, sour
 	}
 }
 
-// holdsEntries reports whether dir lists anything. Only the top level is
-// read: the engine writes the entries as root, and this process may not be
-// allowed to list the directories it created.
+// holdsEntries reports whether dir contains entries. It lists only the top
+// level because the engine creates root-owned entries that this process might
+// lack permission to inspect recursively.
 func holdsEntries(t *testing.T, dir string) bool {
 	t.Helper()
 	entries, err := os.ReadDir(dir)

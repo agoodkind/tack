@@ -21,9 +21,9 @@ import (
 	"goodkind.io/tack/internal/audit"
 )
 
-// cleanLedgerReport is the shape of a report on a bundle that verified: every
-// row re-hashed, no broken link, and a manifest whose digest and signature
-// both check out.
+// cleanLedgerReport returns a successful bundle report. Every scanned row
+// matches its hash, the chain has neither gaps nor broken links, and the
+// manifest digest and signature pass verification.
 func cleanLedgerReport(dir string, rows int) *audit.VerifyReport {
 	return &audit.VerifyReport{
 		BundleDir: dir, RowsScanned: rows, HashMatches: rows, ChainGapCount: 0,
@@ -32,26 +32,25 @@ func cleanLedgerReport(dir string, rows int) *audit.VerifyReport {
 	}
 }
 
-// fixedExport stands in for the database half of the leg: it reports the row
-// count the caller asked for and writes nothing, so a test can drive the
-// verdict without a restored ledger.
+// fixedExport replaces the database export in tests. It returns the supplied
+// row count without writing a bundle. Tests can select a verification outcome
+// without restoring a ledger.
 func fixedExport(rows int) drillLedgerExportFunc {
 	return func(context.Context, uuid.UUID, string) (int, error) {
 		return rows, nil
 	}
 }
 
-// ledgerOrg is one org the restored ledger holds rows for. The count is what
-// the export's own row count is reconciled against, so a test that wants a
-// complete export passes the same number to both.
+// ledgerOrg returns an organization with the supplied restored row count.
+// The drill compares that count with the export's row count. Tests of complete
+// exports supply the same count to both helpers.
 func ledgerOrg(rows int) drillLedgerOrg {
 	return drillLedgerOrg{ID: uuid.Must(uuid.NewV7()), RowCount: rows}
 }
 
-// TestRestoredLedgerChainFailsOnReportedBreak is the point of the whole leg: a
-// verifier that reports a broken chain must fail the drill. The report is what
-// the drill reads, so a verifier that found breaks and still exited zero
-// cannot pass here either.
+// TestRestoredLedgerChainFailsOnReportedBreak requires a reported chain break
+// to fail the drill. The drill checks the report even when the verifier returns
+// without an error.
 func TestRestoredLedgerChainFailsOnReportedBreak(t *testing.T) {
 	org := ledgerOrg(4)
 	verify := func(dir string) (*audit.VerifyReport, error) {
@@ -70,8 +69,8 @@ func TestRestoredLedgerChainFailsOnReportedBreak(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerChainPassesOnCleanReport pins the other half: a ledger
-// whose bundles verify must not fail the drill, or the check is useless noise.
+// TestRestoredLedgerChainPassesOnCleanReport requires intact verified bundles
+// to pass the drill. A false failure would make the check unreliable.
 func TestRestoredLedgerChainPassesOnCleanReport(t *testing.T) {
 	orgs := []drillLedgerOrg{ledgerOrg(3), ledgerOrg(3)}
 	verify := func(dir string) (*audit.VerifyReport, error) {
@@ -84,13 +83,13 @@ func TestRestoredLedgerChainPassesOnCleanReport(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerChainFailsOnSequenceGap pins the rule this leg reads a gap
-// by. The drill exports every row the ledger holds and reconciles the bundle
-// against the ledger's own count, so nothing was left out on purpose. A missing
-// sequence number in that bundle is a row the restore did not bring back, and
-// the verifier cannot compare prev_hash across it: the chain is unverified
-// exactly where the ledger is incomplete, so the drill fails. Tolerating gaps
-// here is only correct for a time-bounded export, which this is not.
+// TestRestoredLedgerChainFailsOnSequenceGap requires a sequence gap to fail
+// the drill. The export requests every row and reconciles its count with the
+// restored ledger. A gap prevents comparison of prev_hash across the missing
+// sequence numbers. The drill cannot verify that part of the chain.
+//
+// A time window can legitimately omit rows from a bundle. This drill requests
+// the full configured range and does not accept such gaps.
 func TestRestoredLedgerChainFailsOnSequenceGap(t *testing.T) {
 	org := ledgerOrg(6)
 	verify := func(dir string) (*audit.VerifyReport, error) {
@@ -109,11 +108,10 @@ func TestRestoredLedgerChainFailsOnSequenceGap(t *testing.T) {
 	}
 }
 
-// TestDrillExportAsksTheLedgerForEveryRow drives the drill's real export and
-// reads back the filter it handed the ledger. A row limit there would have to
-// rise every time the ledger grows, and until an operator raised it the drill
-// would reach no verdict on the orgs that matter most, while still writing a
-// bundle that verified clean over the slice it could see.
+// TestDrillExportAsksTheLedgerForEveryRow inspects the filter from the drill's
+// production export. A fixed row cap would need increases as the ledger grows.
+// Until that adjustment, the drill could verify only the exported subset and
+// could not establish a result for larger organizations.
 func TestDrillExportAsksTheLedgerForEveryRow(t *testing.T) {
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -136,16 +134,16 @@ func TestDrillExportAsksTheLedgerForEveryRow(t *testing.T) {
 	if ledger.filter.OrgID != orgID {
 		t.Fatalf("export org = %s, want %s", ledger.filter.OrgID, orgID)
 	}
-	// The range sentinels matter as much as the limit: a time window would leave
-	// rows out mid-chain, and the drill fails on the gaps that creates.
+	// The range sentinels also require coverage. A time window can omit interior
+	// chain rows, and the drill fails when the verifier reports the resulting gaps.
 	if !ledger.filter.Oldest.Equal(drillLedgerOldest) || !ledger.filter.Latest.Equal(drillLedgerLatest) {
 		t.Fatalf("export range = [%s, %s), want the whole range [%s, %s)",
 			ledger.filter.Oldest, ledger.filter.Latest, drillLedgerOldest, drillLedgerLatest)
 	}
 }
 
-// capturedLedgerRead stands in for the restored ledger and records the filter
-// the drill asked it for.
+// capturedLedgerRead replaces the restored ledger and records the drill's
+// requested filter.
 type capturedLedgerRead struct {
 	filter audit.QueryFilter
 	calls  int
@@ -159,12 +157,13 @@ func (c *capturedLedgerRead) StreamQuery(
 	return nil
 }
 
-// TestRestoredLedgerChainFailsOnAnyShortfall pins the reconciliation against
-// the ledger's own row count. It is the only check that sees a bundle missing
-// a shard's newest or oldest rows: those leave the rows that remain contiguous
-// and correctly linked, so the chain verdict passes them. An export that stops
-// short for any reason, a streaming read that loses a row at a boundary or a
-// role that cannot see every row, leaves unverified rows behind and fails here.
+// TestRestoredLedgerChainFailsOnAnyShortfall compares the export count with
+// the restored ledger's count. Omitting a shard's first or last rows can leave
+// the remaining rows contiguous and correctly linked. A chain check alone
+// cannot detect that shortfall.
+//
+// A stopped export, a streaming read that omits a boundary row, or a role that
+// cannot read all counted rows must fail this reconciliation.
 func TestRestoredLedgerChainFailsOnAnyShortfall(t *testing.T) {
 	org := ledgerOrg(9)
 	verify := func(string) (*audit.VerifyReport, error) {
@@ -182,12 +181,11 @@ func TestRestoredLedgerChainFailsOnAnyShortfall(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerChainFailsOnEmptyLedger records the decision that a
-// restored ledger holding no rows is a failure. Every operator command records
-// through the ledger and the export command records itself, so a ledger that
-// could be exported holds rows; zero rows means the restore did not bring it
-// back, and a chain check with nothing to check is the silent skip this leg
-// exists to remove.
+// TestRestoredLedgerChainFailsOnEmptyLedger requires an empty restored ledger
+// to fail. Every operator command must record audit evidence, including the
+// export command. An exported ledger should therefore contain rows. An empty
+// restore cannot establish chain integrity and must not pass by skipping the
+// check.
 func TestRestoredLedgerChainFailsOnEmptyLedger(t *testing.T) {
 	err := verifyRestoredLedgerChains(
 		context.Background(), nil, t.TempDir(), fixedExport(0), func(string) (*audit.VerifyReport, error) {
@@ -199,8 +197,8 @@ func TestRestoredLedgerChainFailsOnEmptyLedger(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerChainFailsWhenVerifyCannotRun pins that a verifier which
-// cannot run fails the drill rather than being logged and skipped.
+// TestRestoredLedgerChainFailsWhenVerifyCannotRun requires a verifier error
+// to fail the drill. Logging the error and skipping verification must not pass.
 func TestRestoredLedgerChainFailsWhenVerifyCannotRun(t *testing.T) {
 	verify := func(string) (*audit.VerifyReport, error) {
 		return nil, errors.New("bundle manifest unreadable")
@@ -213,9 +211,8 @@ func TestRestoredLedgerChainFailsWhenVerifyCannotRun(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerChainFailsWhenExportFails pins the same rule one step
-// earlier: no bundle means no verdict, which is a failed drill and never a
-// pass.
+// TestRestoredLedgerChainFailsWhenExportFails requires an export error to
+// fail the drill. An absent bundle cannot establish a verification result.
 func TestRestoredLedgerChainFailsWhenExportFails(t *testing.T) {
 	export := func(context.Context, uuid.UUID, string) (int, error) {
 		return 0, errors.New("ledger unreachable")
@@ -232,11 +229,10 @@ func TestRestoredLedgerChainFailsWhenExportFails(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerChainFailsOnTamperedBundleThroughTheRealVerifier runs the
-// production verifier over a bundle whose rows do not re-hash, so the break
-// the drill acts on is one audit.VerifyBundle actually produced rather than
-// one the test asserted. This is the wiring: swapping the drill's break check
-// for a row count leaves the report-level tests above green and this one red.
+// TestRestoredLedgerChainFailsOnTamperedBundleThroughTheRealVerifier invokes
+// audit.VerifyBundle on rows with incorrect stored hashes. The production
+// verifier supplies the break report. A drill that checked only row counts
+// would miss this corruption, even if the report-based tests passed.
 func TestRestoredLedgerChainFailsOnTamperedBundleThroughTheRealVerifier(t *testing.T) {
 	org := ledgerOrg(2)
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -260,10 +256,9 @@ func TestRestoredLedgerChainFailsOnTamperedBundleThroughTheRealVerifier(t *testi
 	}
 }
 
-// writeUnhashableBundle writes a correctly signed bundle whose two rows carry
-// stored hashes that do not recompute from the rows. The events digest and the
-// manifest signature are both valid, so the only thing that can reject this
-// bundle is the chain check the drill reads.
+// writeUnhashableBundle writes two rows with stored hashes that do not match
+// their contents. The events digest and manifest signature remain valid.
+// Verification must detect the invalid row hashes through the chain checks.
 func writeUnhashableBundle(t *testing.T, dir string, orgID uuid.UUID, signer ed25519.PrivateKey) int {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -300,9 +295,9 @@ func writeUnhashableBundle(t *testing.T, dir string, orgID uuid.UUID, signer ed2
 	return 2
 }
 
-// writeBundleManifest signs the manifest exactly as the export does, so the
-// verifier's digest and signature checks pass and the chain check is the only
-// thing left to fail.
+// writeBundleManifest signs the manifest with the export's signable fields.
+// The digest and signature checks can pass independently of the row hashes
+// that the chain verification checks.
 func writeBundleManifest(
 	t *testing.T,
 	dir string,
@@ -344,10 +339,9 @@ func writeBundleManifest(
 	}
 }
 
-// TestRestoredLedgerOrgCarriesItsRowCount pins the format the row count is read
-// in. The count is what every export is reconciled against, so a line this
-// misreads would either fail every org or, worse, hand the verdict a number the
-// ledger never reported.
+// TestRestoredLedgerOrgCarriesItsRowCount checks the row-count input format.
+// Every export uses this count for reconciliation. A parsing error could reject
+// an organization or compare its export with a count the ledger did not return.
 func TestRestoredLedgerOrgCarriesItsRowCount(t *testing.T) {
 	const orgID = "019dd226-440e-729a-a442-281aaf73ca30"
 	org, err := parseRestoredLedgerOrg(context.Background(), orgID+"|412903")
@@ -362,9 +356,9 @@ func TestRestoredLedgerOrgCarriesItsRowCount(t *testing.T) {
 	}
 }
 
-// TestRestoredLedgerOrgWithoutARowCountIsAnError pins that a line the drill
-// cannot read fails rather than being skipped. A skipped line is an org whose
-// chain nothing checked, which is the silent pass this leg exists to remove.
+// TestRestoredLedgerOrgWithoutARowCountIsAnError requires an absent or
+// unreadable row count to fail parsing. Skipping that organization would leave
+// its chain unverified while allowing the drill to pass.
 func TestRestoredLedgerOrgWithoutARowCountIsAnError(t *testing.T) {
 	ctx := context.Background()
 	if _, err := parseRestoredLedgerOrg(ctx, "019dd226-440e-729a-a442-281aaf73ca30"); err == nil {
@@ -375,11 +369,10 @@ func TestRestoredLedgerOrgWithoutARowCountIsAnError(t *testing.T) {
 	}
 }
 
-// TestDrillLedgerRoleNameIsAnUnquotedIdentifier pins that the run-scoped role
-// name survives interpolation into CREATE ROLE. The run id carries a timestamp
-// and a pid, and an identifier holding a dash or an upper-case letter would
-// either fail the statement or bind under a name the connection string does
-// not match.
+// TestDrillLedgerRoleNameIsAnUnquotedIdentifier checks the role name that
+// CREATE ROLE interpolates. Run IDs include a timestamp and process ID. A
+// hyphen would make the unquoted identifier invalid, and uppercase letters
+// would fold to lowercase and could disagree with the connection string.
 func TestDrillLedgerRoleNameIsAnUnquotedIdentifier(t *testing.T) {
 	name := drillLedgerRoleName("rt20260830T101500Z-4711")
 	if name != "tack_drill_reader_rt20260830t101500z_4711" {
@@ -394,16 +387,16 @@ func TestDrillLedgerRoleNameIsAnUnquotedIdentifier(t *testing.T) {
 	}
 }
 
-// TestScratchLedgerDSNTargetsTheScratchContainer pins that the only connection
-// string this leg builds names the scratch container's own address and the
-// run-scoped role, bracketing the IPv6 literal the production bridge hands out.
+// TestScratchLedgerDSNTargetsTheScratchContainer checks that the connection
+// string uses the scratch address and run-specific role. The IPv6 address
+// requires brackets, as addresses from the production bridge do.
 func TestScratchLedgerDSNTargetsTheScratchContainer(t *testing.T) {
 	address := netip.MustParseAddr("3d06:bad:b01:0:7ac::5")
 	const role, throwaway = "tack_drill_reader_rt1", "drill-rt1"
 
-	// Asserted through the parser rather than against a literal string: the
-	// parts are what has to be right, and a literal connection string in a
-	// source file is what the repo's secret scanners exist to reject.
+	// The URL parser checks each connection field without storing a complete
+	// connection string literal in the source. Repository secret scanners reject
+	// such literals.
 	parsed, err := url.Parse(scratchLedgerDSN(address, "tack", role, throwaway))
 	if err != nil {
 		t.Fatalf("parse the drill dsn: %v", err)
