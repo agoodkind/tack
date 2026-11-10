@@ -47,6 +47,7 @@ func decodeStatus(ctx context.Context, stdout []byte) (schemaStatus, error) {
 			slog.Int("stdout_bytes", len(stdout)),
 			slog.String("err", err.Error()),
 		)
+
 		return schemaStatus{}, fmt.Errorf(
 			"decode the status document from %d bytes of stdout: %w",
 			len(stdout),
