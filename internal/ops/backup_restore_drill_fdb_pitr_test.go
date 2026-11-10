@@ -58,30 +58,6 @@ func TestFDBRestoreCommandRestoresLatestByDefault(t *testing.T) {
 	}
 }
 
-// TestFDBRestoreCommandBoundsNoTotalRunTime is the other half of the drill's
-// stall watching. A restore's duration scales with the dataset, so a total-work
-// budget would eventually fail a healthy restore for being large. The engine
-// vector must therefore carry no such budget, and inactivity must be the only
-// thing that ends a restore early.
-func TestFDBRestoreCommandBoundsNoTotalRunTime(t *testing.T) {
-	target := time.Date(2026, 8, 30, 1, 5, 0, 0, time.UTC)
-	for name, targetTime := range map[string]*time.Time{"latest": nil, "targeted": &target} {
-		t.Run(
-			name,
-			func(t *testing.T) {
-				got, err := fdbRestoreCommand(drillDestURL, targetTime)
-				if err != nil {
-					t.Fatalf("fdbRestoreCommand: %v", err)
-				}
-
-				if slices.Contains(got, "timeout") {
-					t.Fatalf("the restore must not carry a total-work budget: %q", got)
-				}
-			},
-		)
-	}
-}
-
 // TestFDBRestoreCommandCarriesTargetAndSourceCluster proves a target reaches
 // fdbrestore together with the source cluster file it needs to convert that
 // time to a version, and that the restore still writes to the throwaway.

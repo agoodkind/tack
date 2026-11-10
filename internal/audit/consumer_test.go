@@ -7,8 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -620,13 +618,4 @@ func loadPublicKey(t *testing.T, path string) ed25519.PublicKey {
 	}
 
 	return priv.Public().(ed25519.PublicKey)
-}
-
-// TestErrMalformedSignal documents that errors.Is correctly identifies the
-// malformed-payload sentinel even when wrapped.
-func TestErrMalformedSignal(t *testing.T) {
-	wrapped := fmt.Errorf("decode failed: %w", errMalformedPayload)
-	if !errors.Is(wrapped, errMalformedPayload) {
-		t.Fatal("errors.Is should match errMalformedPayload through wrapping")
-	}
 }

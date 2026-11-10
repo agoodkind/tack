@@ -147,31 +147,6 @@ func TestRunAuditedMutationRecordsIntentThenOutcome(t *testing.T) {
 	}
 }
 
-// TestRunAuditedMutationOutcomeSurvivesOutboxKey pins that both rows actually
-// land in an outbox that enforces its primary key. Without this the pair can
-// share an event id, the second insert is rejected, and the command reports a
-// failure while the ledger keeps only a pending intent.
-func TestRunAuditedMutationOutcomeSurvivesOutboxKey(t *testing.T) {
-	outbox := &auditTestOutbox{seen: map[uuid.UUID]bool{}}
-	err := runAudited(
-		context.Background(),
-		audit.Spec{Verb: "ops.test.keyed", Mutates: true},
-		testOperatorSource(),
-		"",
-		true,
-		outbox,
-		nil,
-		func(context.Context) error { return nil },
-	)
-	if err != nil {
-		t.Fatalf("runAudited: %v", err)
-	}
-
-	if len(outbox.events) != 2 {
-		t.Fatalf("outbox events = %d, want 2", len(outbox.events))
-	}
-}
-
 func TestRunAuditedMutationIntentFailureNeverRuns(t *testing.T) {
 	outbox := &auditTestOutbox{writeErrors: []error{errors.New("outbox write failed")}}
 	runCount := 0

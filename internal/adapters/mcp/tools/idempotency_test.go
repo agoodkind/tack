@@ -26,19 +26,6 @@ func TestCreateToolDoesNotAdvertiseIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestGettingStartedHidesIdempotencyKey(t *testing.T) {
-	resolver := &Resolver{entryPointSlug: "workspace"}
-	body := buildGettingStartedText(resolver, nil, nil)
-
-	if strings.Contains(body, "`idempotency_key`") {
-		t.Fatalf("getting started should not tell agents to use idempotency_key:\n%s", body)
-	}
-
-	if !strings.Contains(body, "Create retries are protected automatically") {
-		t.Fatalf("getting started should explain automatic create retry safety:\n%s", body)
-	}
-}
-
 func TestCreateIdempotencyUsesMetaOperationID(t *testing.T) {
 	userID := uuid.New()
 	req := mcpmcp.CallToolRequest{

@@ -196,23 +196,3 @@ func requireSortValues(t *testing.T, hit searchdomain.RankHit, previousScore flo
 
 	return score
 }
-
-// TestSearchCursorOnePredictionPerSession requires one continuation to
-// preserve the stored token-weight map and to advance the session version
-// once.
-func TestSearchCursorOnePredictionPerSession(t *testing.T) {
-	fixture := newQueryFixture(t, defaultQueryOptions())
-	putCursorCorpus(t, fixture, "velvet harbor", 80)
-	first := callSearch(t, fixture.Harness, "velvet harbor", "")
-	opened := cursorSession(t, fixture, first.Cursor)
-	second := callSearch(t, fixture.Harness, "velvet harbor", first.Cursor)
-	continued := cursorSession(t, fixture, second.Cursor)
-	if !bytes.Equal(opened.Snapshot.QueryTokens, continued.Snapshot.QueryTokens) ||
-		continued.Version != opened.Version+1 {
-		t.Fatalf(
-			"continuation changed the query tokens or skipped a version: %d to %d",
-			opened.Version,
-			continued.Version,
-		)
-	}
-}

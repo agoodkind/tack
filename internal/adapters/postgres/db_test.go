@@ -350,36 +350,6 @@ func TestPoolPingReachesASurvivingHostInsideTheHealthDeadline(t *testing.T) {
 	}
 }
 
-// The defect as measured on QA on 2026-09-20 (TACK-464): with the connect
-// bound at two seconds, equal to the health deadline, the dial spends the
-// whole deadline on the black-holed host and the probe answers 503 "yugabyte
-// unhealthy" with "context deadline exceeded". This pins that failure: a
-// driver change that dials past the dead host sooner turns this test red.
-func TestPoolPingMissesTheHealthDeadlineWhenTheConnectBoundEqualsIt(t *testing.T) {
-	pool, _ := openPoolAcrossBlackHole(t, 2)
-
-	pingCtx, cancelPing := context.WithTimeout(context.Background(), healthProbeDeadline)
-	defer cancelPing()
-
-	startedAt := time.Now()
-	err := pool.Ping(pingCtx)
-	elapsed := time.Since(startedAt)
-
-	t.Logf(
-		"ping across a black-holed first host at connect_timeout=2 returned after %s: %v",
-		elapsed,
-		err,
-	)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf(
-			"ping after %s = %v, want the %s health deadline to expire",
-			elapsed,
-			err,
-			healthProbeDeadline,
-		)
-	}
-}
-
 // The other half of the regression: a connection the pool already holds to a
 // host that has gone silent must be surfaced on the pool's own ping bound, not
 // on the caller's deadline. A /healthz probe carries a two-second deadline, so

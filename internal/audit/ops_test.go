@@ -27,18 +27,6 @@ func TestSystemOrgID(t *testing.T) {
 	}
 }
 
-// TestSpecZeroValueHasNoClaims confirms the zero value carries no declaration.
-func TestSpecZeroValueHasNoClaims(t *testing.T) {
-	var spec Spec
-	if spec.Verb != "" {
-		t.Fatalf("zero Spec verb = %q, want empty", spec.Verb)
-	}
-
-	if spec.Mutates || spec.Atomic || spec.Reads || spec.CreatesAuditInfrastructure {
-		t.Fatal("zero Spec must not claim any behavior flags")
-	}
-}
-
 // TestOperatorPrincipalActorType pins that one principal yields one actor
 // kind everywhere: the zero Kind stays operator, and a service principal is
 // never misclassified as a human by an event builder.

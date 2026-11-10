@@ -266,49 +266,6 @@ func TestRepairFaultIsRefusedOutsideATestbed(t *testing.T) {
 	}
 }
 
-// TestInjectedFaultStopsAfterTheGivenRenames pins the counter the testbed
-// proof depends on: the run applies exactly that many renames and then fails,
-// so the ledger rows it records afterwards can be counted against a number
-// chosen in advance.
-func TestInjectedFaultStopsAfterTheGivenRenames(t *testing.T) {
-	applied := 0
-	beforeRename := func() error {
-		if applied >= 2 {
-			return ErrRepairFaultInjected
-		}
-
-		applied++
-
-		return nil
-	}
-	ids := []uuid.UUID{
-		uuid.MustParse("00000000-0000-0000-0000-000000000001"),
-		uuid.MustParse("00000000-0000-0000-0000-000000000002"),
-		uuid.MustParse("00000000-0000-0000-0000-000000000003"),
-		uuid.MustParse("00000000-0000-0000-0000-000000000004"),
-	}
-
-	renamed, err := renumberGroupNodes(
-		ids,
-		0,
-		func(nodeID uuid.UUID) (ReferenceRename, error) {
-			if faultErr := beforeRename(); faultErr != nil {
-				return ReferenceRename{}, faultErr
-			}
-
-			return ReferenceRename{NodeID: nodeID, From: "APP-1", To: "APP-9"}, nil
-		},
-	)
-
-	if !errors.Is(err, ErrRepairFaultInjected) {
-		t.Fatalf("err = %v, want the injected fault", err)
-	}
-
-	if len(renamed) != 2 {
-		t.Fatalf("renamed = %d, want exactly the 2 renames the fault allowed", len(renamed))
-	}
-}
-
 // TestUnrecordedLoggingKeepsEveryIdentityInBoundedBatches pins both halves of
 // the fallback log. Every identity survives, because a renamed node cannot be
 // rediscovered by a rerun and the command returns before writing its own

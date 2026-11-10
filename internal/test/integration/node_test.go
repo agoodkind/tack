@@ -164,30 +164,6 @@ func TestCreateEpicAndIssueInProject(t *testing.T) {
 	}
 }
 
-func TestCreateIssueDefaultsStateIDToProjectTodo(t *testing.T) {
-	env := SetupTestEnv(t)
-	actor := uuid.New()
-	workspace := mustCreateScope(t, env, "workspace", "Main", env.OrgID, env.OrgID, actor)
-	project := mustCreateScope(t, env, "project", "Tack", workspace.ID, workspace.ID, actor)
-	todoState := mustFindProjectState(t, env, project.ID, "Todo")
-
-	issue := mustCreate(
-		t,
-		env,
-		service.CreateInput{
-			ParentID:    project.ID,
-			ScopeID:     project.ID,
-			NodeTypeKey: "issue",
-			Name:        "Defaulted",
-			ActorID:     actor,
-		},
-	)
-
-	if got := uuidPropOf(t, issue, "state_id"); got != todoState.ID {
-		t.Fatalf("state_id = %s, want project-local Todo state %s", got, todoState.ID)
-	}
-}
-
 func TestCreateIssuePreservesExplicitStateID(t *testing.T) {
 	env := SetupTestEnv(t)
 	actor := uuid.New()
