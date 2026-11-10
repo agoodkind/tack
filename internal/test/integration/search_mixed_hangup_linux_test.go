@@ -106,6 +106,7 @@ func TestSearchMixedKeepsRunningAfterHangup(t *testing.T) {
 			process.output,
 		)
 	}
+
 	if status.ExitStatus() != 0 {
 		t.Fatalf(
 			"search-mixed exited with status %d after the terminal hangup:\n%s",
@@ -113,6 +114,7 @@ func TestSearchMixedKeepsRunningAfterHangup(t *testing.T) {
 			process.output,
 		)
 	}
+
 	if !logContainsRecord(t, commandLog, hangupIgnoredRecord) {
 		t.Fatalf(
 			"the command log %s does not contain %s. The process did not receive SIGHUP",
@@ -120,6 +122,7 @@ func TestSearchMixedKeepsRunningAfterHangup(t *testing.T) {
 			hangupIgnoredRecord,
 		)
 	}
+
 	if stopReason := searchMixedLoggedStopReason(
 		t,
 		commandLog,
@@ -131,6 +134,7 @@ func TestSearchMixedKeepsRunningAfterHangup(t *testing.T) {
 			hangupMixedStopReason,
 		)
 	}
+
 	events := outboxEventsByQuery(
 		t,
 		ledgerAdminPool(t),
@@ -151,6 +155,7 @@ func requireCommandAuditPair(t *testing.T, events []audit.Event, operatorID uuid
 		for _, event := range events {
 			outcomes = append(outcomes, event.Outcome)
 		}
+
 		t.Fatalf(
 			"the outbox events of operator %s have outcomes %v, want %s and then %s",
 			operatorID,
@@ -159,6 +164,7 @@ func requireCommandAuditPair(t *testing.T, events []audit.Event, operatorID uuid
 			audit.OutcomeOK,
 		)
 	}
+
 	intentOperation, outcomeOperation := decodeCommandExtra(t, events[0]).OpID, decodeCommandExtra(
 		t,
 		events[1],
@@ -186,13 +192,16 @@ func searchMixedLoggedStopReason(t *testing.T, pattern string) string {
 			err,
 		)
 	}
+
 	file, err := os.Open(matches[0])
 	if err != nil {
 		t.Fatalf("open the command log %s: %v", matches[0], err)
 	}
+
 	defer func() { _ = file.Close() }()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 1<<16), 1<<24)
+
 	for scanner.Scan() {
 		var record struct {
 			Message    string `json:"msg"`
@@ -202,9 +211,12 @@ func searchMixedLoggedStopReason(t *testing.T, pattern string) string {
 			return record.StopReason
 		}
 	}
+
 	if err := scanner.Err(); err != nil {
 		t.Fatalf("read the command log %s: %v", matches[0], err)
 	}
+
 	t.Fatalf("the command log %s does not contain the %s record", matches[0], hangupMixedResult)
+
 	return ""
 }

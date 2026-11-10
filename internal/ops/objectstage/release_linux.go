@@ -25,6 +25,7 @@ func releaseCachedPages(ctx context.Context, file *os.File, offset, length int64
 			err = controlErr
 		}
 	}
+
 	if err != nil {
 		slog.InfoContext(
 			ctx,

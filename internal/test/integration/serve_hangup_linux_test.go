@@ -60,6 +60,7 @@ func TestServeExitsOnHangup(t *testing.T) {
 			process.output,
 		)
 	}
+
 	if logContainsRecord(t, serverLog, hangupIgnoredRecord) {
 		t.Fatalf(
 			"the server log %s contains %s for serve --execute",

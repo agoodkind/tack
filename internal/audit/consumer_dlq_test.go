@@ -96,13 +96,7 @@ func TestConsumerDeadLettersARefusedInsertAndReplaysIt(t *testing.T) {
 	// The cause clears: the week gains a partition. Replay everything.
 	// DDL takes no bind parameters; the bounds are dates this test computed.
 	partitionDDL := `CREATE TABLE ` + deadLetterTestPartition + ` PARTITION OF audit.events FOR VALUES FROM ('` +
-		weekStart.Format(
-			"2006-01-02",
-		) + `') TO ('` + weekStart.AddDate(
-		0,
-		0,
-		7,
-	).Format(
+		weekStart.Format("2006-01-02") + `') TO ('` + weekStart.AddDate(0, 0, 7).Format(
 		"2006-01-02",
 	) + `')`
 	// The schema guard of migration 019 refuses this statement from any role

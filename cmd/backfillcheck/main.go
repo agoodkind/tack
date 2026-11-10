@@ -17,5 +17,6 @@ func main() {
 			slog.Int("exit", code),
 		)
 	}
+
 	os.Exit(code)
 }

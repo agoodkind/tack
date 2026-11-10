@@ -120,9 +120,7 @@ func injectDiskDiagnosticFault(response *http.Response, fault string) error {
 			if fault == "zero_free" {
 				node.FS.Total["free_in_bytes"], node.FS.Total["available_in_bytes"] = json.RawMessage(
 					"0",
-				), json.RawMessage(
-					"0",
-				)
+				), json.RawMessage("0")
 			} else {
 				delete(node.FS.Total, "available_in_bytes")
 			}

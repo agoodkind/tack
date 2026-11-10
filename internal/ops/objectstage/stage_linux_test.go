@@ -93,6 +93,7 @@ func TestGetObjectToFileBoundsUnwrittenStagingData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open the test object: %v", err)
 	}
+
 	defer func() { _ = sourceFile.Close() }()
 	if _, err := client.PutObject(
 		ctx,
@@ -124,6 +125,7 @@ func TestGetObjectToFileBoundsUnwrittenStagingData(t *testing.T) {
 	if gotSum := fileSum(t, staged); !bytes.Equal(gotSum, wantSum) {
 		t.Fatalf("staged file sha256 %x, want %x", gotSum, wantSum)
 	}
+
 	t.Logf(
 		"object %d bytes; peak unwritten staged data %d bytes of %d cached; heap in use %d bytes before, %d peak",
 		streamTestObjectBytes,
@@ -138,6 +140,7 @@ func TestGetObjectToFileBoundsUnwrittenStagingData(t *testing.T) {
 				"(overlayfs reports nothing); run with TMPDIR on a disk filesystem such as a Docker volume",
 		)
 	}
+
 	if peaks.unwrittenBytes > streamTestCacheLimit {
 		t.Errorf(
 			"staged data sitting dirty or under writeback peaked at %d bytes, want at most %d",
@@ -145,6 +148,7 @@ func TestGetObjectToFileBoundsUnwrittenStagingData(t *testing.T) {
 			streamTestCacheLimit,
 		)
 	}
+
 	if peaks.cachedBytes > streamTestCacheLimit {
 		t.Errorf(
 			"staged data held in the page cache peaked at %d bytes, want at most %d",
@@ -152,6 +156,7 @@ func TestGetObjectToFileBoundsUnwrittenStagingData(t *testing.T) {
 			streamTestCacheLimit,
 		)
 	}
+
 	if peaks.heapInuseBytes > before.HeapInuse+streamTestHeapGrowthLimit {
 		t.Errorf(
 			"heap in use peaked at %d bytes from %d, want growth under %d",
@@ -171,6 +176,7 @@ func sampleStaging(t *testing.T, path string, stop <-chan struct{}) streamPeaks 
 	pageSize := uint64(os.Getpagesize())
 	ticker := time.NewTicker(streamTestSampleInterval)
 	defer ticker.Stop()
+
 	for {
 		var stats runtime.MemStats
 		runtime.ReadMemStats(&stats)
@@ -188,9 +194,11 @@ func sampleStaging(t *testing.T, path string, stop <-chan struct{}) streamPeaks 
 				t.Errorf("cachestat %s: %v (the test needs Linux 6.5 or later)", path, statErr)
 				return peaks
 			}
+
 			peaks.unwrittenBytes = max(peaks.unwrittenBytes, (cache.Dirty+cache.Writeback)*pageSize)
 			peaks.cachedBytes = max(peaks.cachedBytes, cache.Cache*pageSize)
 		}
+
 		select {
 		case <-stop:
 			return peaks
@@ -208,6 +216,7 @@ func writeStreamTestSource(t *testing.T, path string) []byte {
 	if err != nil {
 		t.Fatalf("create %s: %v", path, err)
 	}
+
 	defer func() { _ = file.Close() }()
 	generator := rand.NewChaCha8([32]byte{'t', 'a', 'c', 'k'})
 	hash := sha256.New()
@@ -218,6 +227,7 @@ func writeStreamTestSource(t *testing.T, path string) []byte {
 	); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
+
 	return hash.Sum(nil)
 }
 
@@ -228,10 +238,12 @@ func fileSum(t *testing.T, path string) []byte {
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
+
 	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
+
 	return hash.Sum(nil)
 }
