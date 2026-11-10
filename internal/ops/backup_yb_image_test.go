@@ -9,8 +9,8 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// assertRefusesEmptyYBImage checks a refusal names the variable the operator
-// has to set, so the failure reads as configuration and not as an engine fault.
+// assertRefusesEmptyYBImage checks that a refusal identifies the required
+// variable as a configuration error instead of an engine failure.
 func assertRefusesEmptyYBImage(t *testing.T, err error) {
 	t.Helper()
 	if err == nil {
@@ -21,18 +21,18 @@ func assertRefusesEmptyYBImage(t *testing.T, err error) {
 	}
 }
 
-// TestRunBackupYBPITRInitRequiresImage proves yb-pitr-init refuses an empty
-// engine image before it opens a Docker client. The config carries nothing
-// else, so reaching the yb-admin one-shot would fail on a different error.
+// TestRunBackupYBPITRInitRequiresImage checks that yb-pitr-init rejects an
+// empty engine image before opening a Docker client. The configuration
+// omits other required values; attempting the yb-admin container would
+// produce a different error.
 func TestRunBackupYBPITRInitRequiresImage(t *testing.T) {
 	err := RunBackupYBPITRInit(context.Background(), &config.Config{YugabyteDB: "tack"})
 	assertRefusesEmptyYBImage(t, err)
 }
 
-// TestRunBackupYBSnapshotExportRequiresImage proves yb-snapshot-export refuses
-// an empty engine image after the object-store and password checks it already
-// makes and before it stages anything: BackupRoot points into the test's
-// temporary directory, which must stay empty.
+// TestRunBackupYBSnapshotExportRequiresImage checks that the export rejects
+// an empty image after its object-store and password checks and before
+// staging files. The test requires BackupRoot to remain empty.
 func TestRunBackupYBSnapshotExportRequiresImage(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -56,10 +56,10 @@ func TestRunBackupYBSnapshotExportRequiresImage(t *testing.T) {
 	}
 }
 
-// TestRestoreDrillYugabyteRequiresImage proves the drill's ledger leg refuses an
-// empty engine image before it touches the object store or Docker. The context
-// carries a nil Docker client, so any container call would fail on it rather
-// than on the assertion below.
+// TestRestoreDrillYugabyteRequiresImage checks that the ledger restore
+// component rejects an empty image before using the object store or Docker.
+// The drill uses a nil Docker client; a container call would fail before the
+// expected missing-image assertion.
 func TestRestoreDrillYugabyteRequiresImage(t *testing.T) {
 	drill := &restoreDrillCtx{
 		Cfg: &config.Config{

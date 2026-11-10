@@ -7,14 +7,16 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// TestYBDumpDialUsesTheNodeNameOnlyWhenTheClusterEncrypts pins how a dump
-// one-shot addresses a ledger node. In the clear it dials the address the
-// master list carries and needs nothing else. Under encryption it dials the
-// node's permanent name, mapped to that same address in its own hosts file,
-// because the dumper's client library verifies a certificate by name only and
-// refused the address on the QA proof. An address with no known name still
-// dials as an address, so a half-rendered map fails on the certificate rather
-// than on a name that resolves nowhere.
+// TestYBDumpDialUsesTheNodeNameOnlyWhenTheClusterEncrypts checks the dump's
+// node selection. Plaintext uses the master-list address without an extra
+// hosts-file entry. Encryption uses the permanent node name and maps it to
+// the same address. TACK-460 QA found that the dumper's client rejected
+// address-based certificate verification.
+//
+// An address without a known name remains an address. An incomplete name map
+// then leaves certificate validation to the client instead of inventing an
+// unresolvable hostname. This test checks the returned host and mapping; it
+// does not establish a TLS connection.
 func TestYBDumpDialUsesTheNodeNameOnlyWhenTheClusterEncrypts(t *testing.T) {
 	const hosts = "yb1=3d06:bad:b01:210::220, yb2=3d06:bad:b01:210::221,yb3=3d06:bad:b01:210::222"
 
@@ -68,9 +70,9 @@ func TestYBDumpDialUsesTheNodeNameOnlyWhenTheClusterEncrypts(t *testing.T) {
 	}
 }
 
-// TestLedgerNodeNamesSkipsMalformedEntries pins that a blank entry or one
-// without a separator adds no node, so a stray comma in the rendered value
-// cannot become a name the dump dials.
+// TestLedgerNodeNamesSkipsMalformedEntries checks that blank entries and
+// entries without a separator do not add nodes. A stray comma must not
+// create a dump hostname.
 func TestLedgerNodeNamesSkipsMalformedEntries(t *testing.T) {
 	cfg := &config.Config{LedgerNodeHosts: "yb1=::220,,yb2,=::222, yb3 = ::223 "}
 	names := ledgerNodeNames(cfg)

@@ -12,9 +12,9 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// fdbStatusRestorable is `fdbbackup status` output captured verbatim from a
-// live foundationdb 7.4.6 continuous backup on 2026-08-30, the steady state the
-// production session runs in.
+// fdbStatusRestorable contains verbatim fdbbackup status output from a live
+// FoundationDB 7.4.6 continuous backup on 2026-08-30. That capture recorded
+// the production session in its restorable, continuing state.
 const fdbStatusRestorable = "The backup on tag `default' is restorable but continuing to file:///var/fdb/backups/backup-2026-08-30-01-05-43.994468.\n" +
 	"BackupUID: 32d0e1787333ae5acb80042744bc3bf1\n" +
 	"BackupURL: file:///var/fdb/backups/backup-2026-08-30-01-05-43.994468\n" +
@@ -29,8 +29,9 @@ const fdbStatusRestorable = "The backup on tag `default' is restorable but conti
 	" Expected snapshot end version and timestamp    - 122454655, 2026/08/30.01:07:45+0000\n" +
 	" Backup supposed to stop at next snapshot completion - No\n"
 
-// fdbStatusNotYetRestorable is the same command's output captured from the same
-// session before its first snapshot finished, when no restore is possible yet.
+// fdbStatusNotYetRestorable contains verbatim fdbbackup status output from
+// the same session before its first snapshot finished. The backup could not
+// yet support a restore.
 const fdbStatusNotYetRestorable = "The backup on tag `default' is in progress to file:///var/fdb/backups/backup-2026-08-30-01-05-43.994468.\n" +
 	"BackupUID: 32d0e1787333ae5acb80042744bc3bf1\n" +
 	"BackupURL: file:///var/fdb/backups/backup-2026-08-30-01-05-43.994468\n" +
@@ -42,13 +43,13 @@ const fdbStatusNotYetRestorable = "The backup on tag `default' is in progress to
 	" Last complete log version and timestamp        - 720665, 2026/08/30.01:05:43+0000\n" +
 	" Backup supposed to stop at next snapshot completion - No\n"
 
-// ybHealthAllGood is the /api/v1/health-check body captured verbatim from
-// yugabytedb/yugabyte:2025.2.3.0-b149, the engine image it was captured on.
+// ybHealthAllGood contains the verbatim /api/v1/health-check response from
+// yugabytedb/yugabyte:2025.2.3.0-b149.
 const ybHealthAllGood = `{"dead_nodes":[],"most_recent_uptime":0,"under_replicated_tablets":[]}`
 
-// TestBackupStalenessClassification covers the verdict every alert acts on: a
-// mechanism inside its window is fresh, one exactly at the threshold is still
-// fresh, and one past it is stale.
+// TestBackupStalenessClassification checks the verdict that backup alerts
+// use. A known age remains fresh through the threshold and becomes stale
+// after it.
 func TestBackupStalenessClassification(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
@@ -81,10 +82,9 @@ func TestBackupStalenessClassification(t *testing.T) {
 	}
 }
 
-// TestUnknownAgeIsStale locks the rule the whole alert rests on: a mechanism
-// with no datable success is stale, not fresh. A silently empty backup is the
-// incident this check exists to catch, so an absent marker must never read as
-// a success.
+// TestUnknownAgeIsStale checks that a mechanism without a dated success
+// reports STALE and an unknown age. A missing marker must not count as a
+// success because the check must detect backups that silently stop.
 func TestUnknownAgeIsStale(t *testing.T) {
 	metric := unknownBackupStalenessMetric("rehearsal", 8*24*time.Hour,
 		backupStalenessNeverRecorded, "no marker in tack-backups")
@@ -99,9 +99,9 @@ func TestUnknownAgeIsStale(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessAgeFloorsAtZero proves the tolerated clock skew reads as
-// brand new rather than as a negative age. Only skew inside the tolerance
-// reaches this helper; a larger lead is refused before an age is taken.
+// TestBackupStalenessAgeFloorsAtZero checks that tolerated future clock
+// skew produces a zero age. knownBackupStalenessMetric rejects a timestamp
+// beyond the tolerance before computing its age.
 func TestBackupStalenessAgeFloorsAtZero(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	if got := backupStalenessAge(now, now.Add(-90*time.Second)); got != 90*time.Second {
@@ -112,12 +112,12 @@ func TestBackupStalenessAgeFloorsAtZero(t *testing.T) {
 	}
 }
 
-// TestMarkerStalenessMetricRefusesAFutureMarker drives the marker leg through
-// the real object-store client against markers dated ahead of the checking
-// host's clock. A marker is JSON another process wrote, so ordinary skew still
-// dates a success, while a lead past the tolerance is refused: trusting it
-// would pin the mechanism at a zero age and report FRESH against every
-// threshold for as long as that marker stands, however dead the cluster is.
+// TestMarkerStalenessMetricRefusesAFutureMarker uses the real object-store
+// client to read markers ahead of the checking host's clock. Another process
+// writes the JSON marker. The check accepts ordinary clock skew and rejects
+// a lead beyond the tolerance. Accepting that lead would report a zero age
+// and FRESH while the timestamp remains in the future, even after the cluster
+// stops.
 func TestMarkerStalenessMetricRefusesAFutureMarker(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
@@ -182,12 +182,11 @@ func TestMarkerStalenessMetricRefusesAFutureMarker(t *testing.T) {
 	}
 }
 
-// TestExportStalenessMetricRefusesAnUndatableRun drives the export leg through
-// the real object-store client. The export carries no marker: it is dated from
-// the newest complete run's key, and that key is only pattern-checked, so a run
-// prefix dated in 2099 and a manifest that declares a different run than the
-// prefix it sits under both reach the metric. Either one must report an unknown
-// age, which is stale, rather than a fresh export nobody produced.
+// TestExportStalenessMetricRefusesAnUndatableRun uses the real object-store
+// client to check export dates without a separate marker. The check dates the
+// newest complete run from its key. A 2099 key passes the run-ID pattern but
+// fails the future-time check. A manifest for a different run fails during
+// fetch validation. Both cases must report an unknown age and STALE.
 func TestExportStalenessMetricRefusesAnUndatableRun(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
@@ -245,8 +244,8 @@ func TestExportStalenessMetricRefusesAnUndatableRun(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessReport pins the text the alert mail carries: one line per
-// mechanism naming its age, threshold, verdict, and provenance.
+// TestBackupStalenessReport checks that each report line includes the
+// mechanism, age, threshold, verdict, and provenance.
 func TestBackupStalenessReport(t *testing.T) {
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	report := backupStalenessReport([]backupStalenessMetric{
@@ -262,9 +261,9 @@ func TestBackupStalenessReport(t *testing.T) {
 	}
 }
 
-// TestBackupStalenessReportKeepsOneLinePerMetric proves a detail carrying an
-// error string with newlines cannot split a metric across lines, because the
-// alert mail is read one line per mechanism.
+// TestBackupStalenessReportKeepsOneLinePerMetric checks that newlines in an
+// error detail do not create extra report lines. Each mechanism must occupy
+// one line.
 func TestBackupStalenessReportKeepsOneLinePerMetric(t *testing.T) {
 	report := backupStalenessReport([]backupStalenessMetric{
 		unknownBackupStalenessMetric(backupStalenessExportName, time.Hour, backupStalenessUnreadable,
@@ -278,8 +277,8 @@ func TestBackupStalenessReportKeepsOneLinePerMetric(t *testing.T) {
 	}
 }
 
-// TestStaleBackupStalenessMetrics names only the mechanisms past threshold, in
-// report order, because that list becomes the command's error.
+// TestStaleBackupStalenessMetrics checks that the command error lists stale
+// mechanisms in report order, including mechanisms with an unknown age.
 func TestStaleBackupStalenessMetrics(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
@@ -293,9 +292,9 @@ func TestStaleBackupStalenessMetrics(t *testing.T) {
 	}
 }
 
-// TestExportRunKeyIsDatable proves the claim that lets the ledger export skip a
-// marker: a run key the orchestrator formats parses back to the instant it was
-// generated, so the newest complete run's key is its success timestamp.
+// TestExportRunKeyIsDatable checks that a run key with whole-second
+// precision parses to its generation time. The staleness check uses the
+// newest complete run's key as its success timestamp instead of a marker.
 func TestExportRunKeyIsDatable(t *testing.T) {
 	generated := time.Date(2026, 8, 29, 1, 2, 3, 0, time.UTC)
 	runID := generated.Format(ybSnapshotRunIDLayout)
@@ -314,9 +313,9 @@ func TestExportRunKeyIsDatable(t *testing.T) {
 	}
 }
 
-// TestFDBRestorablePointFromStatus reads the restorable point out of the real
-// `fdbbackup status` text of the pinned FoundationDB release, and refuses the
-// output of a backup that has no restorable point yet.
+// TestFDBRestorablePointFromStatus checks the restorable timestamp and
+// version in captured fdbbackup status output from FoundationDB 7.4.6. It
+// rejects output that does not report a restorable point.
 func TestFDBRestorablePointFromStatus(t *testing.T) {
 	ctx := context.Background()
 	point, err := fdbRestorablePointFromStatus(ctx, fdbStatusRestorable)
@@ -327,8 +326,8 @@ func TestFDBRestorablePointFromStatus(t *testing.T) {
 	if !point.At.Equal(want) {
 		t.Fatalf("restorable point = %s, want %s", point.At.UTC(), want)
 	}
-	// The version is read beside the timestamp, because a restore after a
-	// total loss names the version and nothing else can convert the moment.
+	// A restore after total cluster loss requires the version beside the
+	// timestamp. The lost cluster cannot convert that timestamp to a version.
 	if point.Version != 100720665 {
 		t.Fatalf("version = %d, want 100720665", point.Version)
 	}
@@ -338,9 +337,9 @@ func TestFDBRestorablePointFromStatus(t *testing.T) {
 		t.Fatal("an unparseable version must be an error, not a silent zero")
 	}
 
-	// A status that vouches for no restorable point is told apart from one
-	// that could not be parsed, because the mail says different things about
-	// each: nothing exists to restore from, versus nothing could be read.
+	// The parser distinguishes an absent restorable point from invalid status
+	// text. The alert can then distinguish an unavailable restore point from a
+	// failed status read.
 	if _, err := fdbRestorablePointFromStatus(ctx, fdbStatusNotYetRestorable); !errors.Is(err, errFDBNoRestorablePoint) {
 		t.Fatalf("a backup whose first snapshot has not finished has no restorable point, got %v", err)
 	}
@@ -354,9 +353,9 @@ func TestFDBRestorablePointFromStatus(t *testing.T) {
 		t.Fatalf("an unparseable timestamp must be an error of its own, not a silent success, got %v", err)
 	}
 
-	// The word alone appears in destination URLs and tag names, so a backup
-	// that is merely writing to a bucket named for restorability must not be
-	// able to vouch for itself and report its advancing log timestamp.
+	// Destination URLs and tag names can include the word restorable. That
+	// word alone must not make an in-progress backup's log timestamp count as a
+	// restorable point.
 	inProgressToNamedURL := "The backup on tag `default' is in progress to " +
 		"blobstore://key@host/restorable-backups?bucket=restorable-backups\n" +
 		" Last complete log version and timestamp        - 100720665, 2026/08/30.01:07:23+0000\n"
@@ -365,10 +364,10 @@ func TestFDBRestorablePointFromStatus(t *testing.T) {
 	}
 }
 
-// TestYBClusterHealthFromBody reads the master health payload the pinned
-// YugabyteDB image serves: an all-clear cluster is healthy, a cluster with dead
-// nodes or under-replicated tablets is not, and a payload that omits either
-// list vouches for nothing.
+// TestYBClusterHealthFromBody checks the captured YugabyteDB health response.
+// The parser accepts empty dead-node and under-replicated-tablet lists. It
+// rejects a response that omits either list and reports an unhealthy cluster
+// when either list contains entries.
 func TestYBClusterHealthFromBody(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
@@ -418,8 +417,8 @@ func TestYBClusterHealthFromBody(t *testing.T) {
 	}
 }
 
-// TestYBMasterHealthURLs proves the probe swaps the configured RPC port for the
-// admin port and brackets IPv6 literals.
+// TestYBMasterHealthURLs checks that the probe replaces the configured RPC
+// port with the admin port and brackets IPv6 literals.
 func TestYBMasterHealthURLs(t *testing.T) {
 	tests := []struct {
 		masters string
@@ -449,9 +448,9 @@ func TestYBMasterHealthURLs(t *testing.T) {
 	}
 }
 
-// TestRunBackupStalenessCheckRequiresObjectStoreConfig proves the command
-// refuses to report anything when it has no object store to read, rather than
-// reporting every mechanism as unmeasurable.
+// TestRunBackupStalenessCheckRequiresObjectStoreConfig checks that missing
+// object-store settings cause an error before the command prints a report.
+// The command must not report every mechanism as unmeasurable in this case.
 func TestRunBackupStalenessCheckRequiresObjectStoreConfig(t *testing.T) {
 	var out bytes.Buffer
 	err := RunBackupStalenessCheck(context.Background(), &config.Config{}, &out)
@@ -466,11 +465,11 @@ func TestRunBackupStalenessCheckRequiresObjectStoreConfig(t *testing.T) {
 	}
 }
 
-// TestRunBackupStalenessCheckReportsUnreachableStoreAsStale runs the whole
-// command against an object store and masters that refuse connections, the
-// shape of a host where every backup mechanism is unmeasurable. Every metric
-// must report unknown, the report must still reach the caller's writer (the
-// alert mail is built from it), and the command must exit nonzero.
+// TestRunBackupStalenessCheckReportsUnreachableStoreAsStale runs the command
+// with object-store and master endpoints that refuse connections. Every
+// enabled metric must report an unknown age and STALE. The command must
+// write the report to the caller's writer and return an error. The alert
+// uses the resulting readings.
 func TestRunBackupStalenessCheckReportsUnreachableStoreAsStale(t *testing.T) {
 	nowFunc = func() time.Time { return time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC) }
 	t.Cleanup(func() { nowFunc = time.Now })

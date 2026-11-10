@@ -5,13 +5,12 @@ import (
 	"testing"
 )
 
-// TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory is the defect
-// this file exists for. The archive command decided it was done by probing the
-// archive object alone, so an archive uploaded before inventories existed read
-// as finished and no inventory was ever written for it; the restore drill then
-// refused the run for lacking one, and nothing healed it. Against the test
-// SeaweedFS engine, yb1's prefix holds the archive and no inventory and must come back
-// as work to do. The yb2 prefix contains both and resolves as complete.
+// TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory reproduces
+// the legacy archive state that the earlier archive-only check accepted.
+// That check left archives without inventories and caused the restore drill
+// to reject their runs. The test uses SeaweedFS with an archive but without
+// an inventory for yb1; it must require another upload. The yb2 prefix
+// contains both artifacts and must resolve as complete.
 func TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory(t *testing.T) {
 	ctx := context.Background()
 	const runID = "20260830T010203Z"
@@ -43,9 +42,9 @@ func TestResolveYBArchiveTargetRedoesAnArchiveWithoutItsInventory(t *testing.T) 
 	}
 }
 
-// TestResolveYBArchiveTargetRedoesAnExplicitRunWithoutItsInventory proves the
-// same rule holds when the operator names the run, which is how an old run is
-// healed by hand.
+// TestResolveYBArchiveTargetRedoesAnExplicitRunWithoutItsInventory checks
+// that an explicit run ID also requires another upload when its inventory
+// is missing. An operator can select an older run for this repair.
 func TestResolveYBArchiveTargetRedoesAnExplicitRunWithoutItsInventory(t *testing.T) {
 	ctx := context.Background()
 	const runID = "20260830T010203Z"

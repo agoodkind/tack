@@ -7,11 +7,10 @@ import (
 	"testing"
 )
 
-// TestYBArchiveInventoryRecordsEveryFileWithItsSize proves the record is taken
-// from the archive itself: every regular member is listed at the size it was
-// archived with, directory entries carry no bytes and are left out, and the
-// "./" the export's find prefixes every path with is gone, so the paths are the
-// ones the restore compares its extraction against.
+// TestYBArchiveInventoryRecordsEveryFileWithItsSize checks that the inventory
+// lists every regular archive member with its archived size. It omits
+// directory entries and removes the export's ./ prefix. The restore uses
+// these relative paths to compare extracted files.
 func TestYBArchiveInventoryRecordsEveryFileWithItsSize(t *testing.T) {
 	entries := tabletArchiveEntries("table-a/tablet-1.snapshots/snap",
 		map[string]string{"CURRENT": "abc", "000123.sst": strings.Repeat("x", 4096)})
@@ -36,11 +35,10 @@ func TestYBArchiveInventoryRecordsEveryFileWithItsSize(t *testing.T) {
 	}
 }
 
-// TestYBArchiveInventoryRefusesArchivesItCannotDescribe proves the export fails
-// rather than publishing an archive whose record is silently short. A member
-// the inventory skips is a member the restore never checks, which is the
-// silence the whole record exists to remove, and an archive of directory
-// entries alone carries no tablet data at all.
+// TestYBArchiveInventoryRefusesArchivesItCannotDescribe checks that the
+// inventory reader rejects directory-only archives, nonregular members, and
+// paths with a tab. Publishing an incomplete record would omit files from
+// the restore's checks. A directory-only archive does not contain tablet data.
 func TestYBArchiveInventoryRefusesArchivesItCannotDescribe(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -75,8 +73,8 @@ func TestYBArchiveInventoryRefusesArchivesItCannotDescribe(t *testing.T) {
 	}
 }
 
-// TestYBArchiveInventoryRoundTrip proves the record the export writes is the
-// record the restore reads, field for field, through the same bytes that go to
+// TestYBArchiveInventoryRoundTrip checks that the restore parser reads every
+// field the export renderer writes using the inventory bytes intended for
 // the object store.
 func TestYBArchiveInventoryRoundTrip(t *testing.T) {
 	inventory := ybArchiveInventory{
@@ -97,11 +95,10 @@ func TestYBArchiveInventoryRoundTrip(t *testing.T) {
 	}
 }
 
-// TestParseYBArchiveInventoryRefusesWhatWouldWeakenTheCheck is the point of the
-// header. An inventory that arrives short, or that belongs to another run or
-// node, expects the wrong set of files, and every tablet judged against the
-// wrong set is judged too leniently. Each shape below must be refused rather
-// than read as a smaller archive.
+// TestParseYBArchiveInventoryRefusesWhatWouldWeakenTheCheck checks that the
+// header prevents truncated inventories and inventories for another run or
+// node from passing. These records select the wrong comparison set. The test
+// also rejects missing headers, missing sizes, and invalid sizes.
 func TestParseYBArchiveInventoryRefusesWhatWouldWeakenTheCheck(t *testing.T) {
 	whole := ybArchiveInventory{
 		RunID: "20260830T010203Z",

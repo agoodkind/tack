@@ -12,19 +12,17 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// ybTestDumpSpec is the production schema-dump spec, so the walk tests assert
-// against the real label and event names rather than ones invented here.
+// ybTestDumpSpec returns the production schema-dump specification. Endpoint
+// tests use its actual label and event names.
 func ybTestDumpSpec(outPath string) ybDumpSpec {
 	return ybSchemaDumpSpec(&config.Config{YugabyteDB: "tack"}, outPath)
 }
 
-// TestYBDumpHosts covers the master_addresses shapes a deployment writes: the
-// single-node default, a quorum list, a bracketed IPv6 literal on the v6-only
-// bridge, and a list carrying whitespace, a repeat, and an empty entry.
-//
-// Every node in the list is an endpoint the dump may use, which is the point:
-// pinning to the first entry made both SQL artifacts depend on one named node
-// while the rest of the quorum was serving.
+// TestYBDumpHosts checks the single-node default, a quorum list, a bracketed
+// IPv6 literal for the IPv6-only bridge, and whitespace, duplicate, and empty
+// entries. All listed nodes can supply dump endpoints. The earlier
+// first-entry selection prevented schema and role dumps when that node
+// stopped even if the remaining quorum served requests.
 func TestYBDumpHosts(t *testing.T) {
 	tests := []struct {
 		masters string
@@ -46,10 +44,9 @@ func TestYBDumpHosts(t *testing.T) {
 	}
 }
 
-// TestWalkYBDumpEndpointsPassesADownNode proves a dump survives one node being
-// unavailable: the walk moves to the next configured endpoint and succeeds
-// there, and it stops as soon as one serves rather than dumping again from
-// every remaining node.
+// TestWalkYBDumpEndpointsPassesADownNode uses a callback that refuses yb1
+// and succeeds on yb2. It checks that the function stops before trying yb3
+// after that success.
 func TestWalkYBDumpEndpointsPassesADownNode(t *testing.T) {
 	var tried []string
 	dump := func(host string) (int64, string) {
@@ -70,11 +67,10 @@ func TestWalkYBDumpEndpointsPassesADownNode(t *testing.T) {
 	}
 }
 
-// TestWalkYBDumpEndpointsFailsLoudlyWhenNoneServe proves the only outcome left
-// when every configured node refuses is a failure that names each node and what
-// it did. Nothing downstream may treat this as a dump: the caller uploads
-// nothing without the artifact, so a quiet return here would publish a run
-// missing a file its restore opens by name.
+// TestWalkYBDumpEndpointsFailsLoudlyWhenNoneServe checks that the walker
+// returns one error when every endpoint refuses. The error includes the dump
+// label and each attempted host and reason. The caller must not upload a run
+// without a required restore file.
 func TestWalkYBDumpEndpointsFailsLoudlyWhenNoneServe(t *testing.T) {
 	var tried []string
 	dump := func(host string) (int64, string) {
@@ -103,8 +99,8 @@ func TestWalkYBDumpEndpointsFailsLoudlyWhenNoneServe(t *testing.T) {
 	}
 }
 
-// TestWalkYBDumpEndpointsWithNoConfiguredEndpoint proves an empty endpoint list
-// fails instead of reporting a dump nobody ran.
+// TestWalkYBDumpEndpointsWithNoConfiguredEndpoint checks that an empty
+// endpoint list fails without invoking the dump callback.
 func TestWalkYBDumpEndpointsWithNoConfiguredEndpoint(t *testing.T) {
 	dump := func(host string) (int64, string) {
 		t.Fatalf("dump attempted against %q with no configured endpoint", host)
@@ -116,12 +112,10 @@ func TestWalkYBDumpEndpointsWithNoConfiguredEndpoint(t *testing.T) {
 	}
 }
 
-// TestYBDumpAttemptOutcomeRefusesAnythingButAWrittenArtifact proves what counts
-// as one endpoint having served the dump. A non-zero exit, an unreadable file,
-// and a file of zero bytes are each a refusal that moves the walk on, and only
-// a file with content is a dump. The zero-byte rule is the one worth stating:
-// the dumper can exit cleanly having written nothing, and shipping that would
-// restore as an absence nobody notices.
+// TestYBDumpAttemptOutcomeRefusesAnythingButAWrittenArtifact checks which
+// results qualify as a dump. Container errors, nonzero exits, missing files,
+// and zero-byte files must fail. A successful exit requires a nonempty
+// artifact for restore, even when the process reports success.
 func TestYBDumpAttemptOutcomeRefusesAnythingButAWrittenArtifact(t *testing.T) {
 	dir := t.TempDir()
 	written := filepath.Join(dir, "schema.sql")

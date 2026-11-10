@@ -8,18 +8,18 @@ import (
 	"testing"
 )
 
-// testArchiveEntry is one member of a fixture archive, written the way the
-// export's tar writes them: names prefixed "./", a directory entry ahead of the
-// files under it.
+// testArchiveEntry specifies a fixture archive member. Export-style fixtures
+// prefix paths with ./ and place a directory entry before its files.
 type testArchiveEntry struct {
 	name     string
 	typeflag byte
 	body     string
 }
 
-// writeTestArchive builds a gzip tar of the given members and returns its path.
-// The members are written by hand rather than by tarring a tree, so a test can
-// put shapes in an archive that no local filesystem would produce.
+// writeTestArchive writes the supplied members into a gzip tar archive and
+// returns its path. It writes member headers directly instead of archiving a
+// filesystem tree. Tests can include archive shapes that a local filesystem
+// would not produce.
 func writeTestArchive(t *testing.T, entries []testArchiveEntry) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), ybNodeArchiveObject)
@@ -59,8 +59,8 @@ func writeTestArchive(t *testing.T, entries []testArchiveEntry) string {
 	return path
 }
 
-// tabletArchiveEntries is one tablet's directory entry and its files, the shape
-// the export's `find -type d | tar` produces.
+// tabletArchiveEntries returns a tablet directory entry followed by its
+// files, matching the export's find -type d | tar output.
 func tabletArchiveEntries(dir string, files map[string]string) []testArchiveEntry {
 	entries := []testArchiveEntry{{name: "./" + dir + "/", typeflag: tar.TypeDir, body: ""}}
 	for _, name := range []string{"CURRENT", "000123.sst", "MANIFEST-000004"} {

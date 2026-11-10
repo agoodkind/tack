@@ -1,22 +1,17 @@
-// backup_yb_manifest.go is the completeness contract between the yb snapshot
-// export orchestrator, the per-node archive command, and the restore drill.
-// The orchestrator writes a manifest listing the artifacts it published at the
-// run root and every live tablet-server node with the object-store prefix that
-// node must fill, and uploads the manifest last so its presence implies every
-// other run artifact landed; each data guest's archive command fills its own
-// prefix with its tablet tar and the inventory of what that tar carries (the
-// node artifacts ybNodeArtifactObjects declares); the restore drill never uses
-// a run whose manifest declares a run-root artifact with no object behind it
-// or lists a node prefix those node artifacts are missing from (skipping it in
-// discovery, refusing it when the run was requested explicitly).
+// The snapshot manifest defines completeness for the export orchestrator,
+// node archive commands, and restore drill. The orchestrator lists its
+// artifacts at the run root and every live tablet-server node with a node
+// prefix. It uploads its manifest after its other artifacts. Each data guest
+// then uploads a tablet archive and its inventory under that prefix.
 //
-// Completeness is two separate rules, because a manifest that misdescribes its
-// own run and a run that lost an object are different failures with different
-// fixes. A manifest that does not declare every artifact a restore reads is
-// defective whatever the object store holds, so the run is unusable and a new
-// export is the only remedy; a manifest that declares them all while one object
-// is absent describes a run that did not finish, which a re-upload or the next
-// export resolves. Both refuse the run, and each says which it is.
+// The restore drill requires every declared artifact and required node
+// artifact to exist. Discovery skips incomplete runs; an explicit run
+// selection fails when its run is incomplete.
+//
+// An incomplete declaration differs from a missing object. A manifest that
+// omits a required restore artifact needs a new export. A declaration with
+// an absent object requires re-upload or another export. Both conditions
+// refuse the run and identify the failure.
 
 package ops
 
@@ -43,7 +38,7 @@ import (
 )
 
 const (
-	// ybSnapshotRootPrefix is the object-store folder that holds one child
+	// ybSnapshotRootPrefix specifies the object-store prefix with one child
 	// prefix per export run.
 	ybSnapshotRootPrefix = "yugabyte-snapshot/"
 	// ybSnapshotManifestObject is the manifest's object base name under the
@@ -61,64 +56,58 @@ const (
 	// ybNodeArchiveObject is the tablet archive's object base name under each
 	// node's prefix.
 	ybNodeArchiveObject = "tablets.tar.gz"
-	// ybNodeInventoryObject is the object base name, beside the archive under
-	// the same node prefix, of the record of what that archive carries.
+	// ybNodeInventoryObject specifies the inventory object beside the tablet
+	// archive under the same node prefix.
 	ybNodeInventoryObject = "tablets.inventory"
-	// ybSnapshotRunIDLayout is the layout the export orchestrator formats a run
-	// id with. A run id is therefore a UTC timestamp, which is what lets the
-	// staleness check date the newest complete run without a marker.
+	// ybSnapshotRunIDLayout formats an export run ID as a UTC timestamp. The
+	// staleness check dates the newest complete run from that key instead of
+	// using a separate marker.
 	ybSnapshotRunIDLayout = "20060102T150405Z"
 )
 
-// ybSnapshotManifestNode is one tablet server's slot in the manifest: the node
-// name yb-admin reported and the run-relative prefix its archive must land
-// under (for example "nodes/yb1/").
+// ybSnapshotManifestNode records the tablet-server name from yb-admin and
+// its run-relative archive prefix, such as nodes/yb1/.
 type ybSnapshotManifestNode struct {
 	Name   string `json:"name"`
 	Prefix string `json:"prefix"`
 }
 
-// ybSnapshotManifest describes one export run: which snapshot it captured,
-// which artifacts the orchestrator published at the run root, and which node
-// prefixes must be filled before the run is restorable.
+// ybSnapshotManifest records an export's snapshot, published artifacts at
+// the run root, and node prefixes that require archives before restore.
 type ybSnapshotManifest struct {
 	RunID      string `json:"run_id"`
 	SnapshotID string `json:"snapshot_id"`
 	Database   string `json:"database"`
 	CreatedAt  string `json:"created_at"`
-	// Artifacts are the run-relative object names the orchestrator published
-	// at the run root, all of which must be present before the run is
-	// restorable. The run declares them, so an artifact added to the export
-	// joins the presence gate without the gate knowing what it is; the
-	// declaration is not free-form, because a run must still declare every
-	// artifact in ybRequiredRunArtifacts, which are the ones a restore opens by
-	// name whatever the manifest says.
+	// Artifacts lists run-relative object names at the run root. Each declared
+	// object must exist before restore. New declarations automatically join the
+	// presence check. The list must also include every ybRequiredRunArtifacts
+	// entry that the restore opens regardless of the declaration.
 	Artifacts []string                 `json:"artifacts"`
 	Nodes     []ybSnapshotManifestNode `json:"nodes"`
 }
 
-// ybRunIDPattern matches the run ids the export orchestrator generates,
-// opsNow().UTC().Format(ybSnapshotRunIDLayout). RunID feeds [filepath.Join] on
-// staging dirs that are recursively removed, so nothing looser may pass.
+// ybRunIDPattern matches the run ID shape from
+// opsNow().UTC().Format(ybSnapshotRunIDLayout). Staging uses the ID in
+// [filepath.Join] and recursively removes the resulting directory. The pattern
+// must reject path characters.
 var ybRunIDPattern = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z$`)
 
-// ybNodeNamePattern matches the node identities hostFromHostPort produces for
-// the manifest: DNS names or unbracketed IPv6 literals. Node names feed staged
-// file names and in-container extraction paths, so no separator, whitespace,
-// or shell metacharacter may pass.
+// ybNodeNamePattern accepts DNS-style node names and unbracketed IPv6
+// literals from hostFromHostPort. These values form staging filenames and
+// container extraction paths. The pattern rejects separators, whitespace,
+// and shell metacharacters.
 var ybNodeNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.:-]*$`)
 
-// ybArtifactNamePattern matches the run-root artifact base names the export
-// publishes. Artifact names feed object keys and staged file names, so no
-// separator, whitespace, or shell metacharacter may pass, for the same reason
-// node names are constrained.
+// ybArtifactNamePattern accepts base names for artifacts at the run root.
+// Those values form object keys and staging filenames. Like node names,
+// they must not include separators, whitespace, or shell metacharacters.
 var ybArtifactNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// validate rejects a manifest whose strings could escape the paths built from
-// them. The manifest is fetched from the object store, so a corrupted or
-// attacker-written manifest is untrusted input. Validation runs at both trust
-// boundaries, decode after fetch and write before upload, so every downstream
-// use of RunID, node names, and node prefixes handles only vetted strings.
+// validate rejects unsafe strings before they form filesystem paths. An
+// object-store manifest can contain corrupt or attacker-supplied values.
+// Validation checks RunID, artifact names, node names, and derived node
+// prefixes after decoding and before upload.
 func (m ybSnapshotManifest) validate() error {
 	if !ybRunIDPattern.MatchString(m.RunID) {
 		return fmt.Errorf("manifest run_id %q is not a run-key timestamp", m.RunID)
@@ -141,14 +130,11 @@ func (m ybSnapshotManifest) validate() error {
 	return nil
 }
 
-// validateFetchedUnder validates a manifest decoded from the object store and
-// additionally requires that it declares the run it was fetched under. Every
-// downstream path keys off the manifest's own RunID rather than the prefix it
-// came from: the node archive keys the completeness walk probes, the artifact
-// prefix the restore drill stages from, and the timestamp the staleness check
-// dates the export by. A manifest copied or planted under another run's prefix
-// would redirect all three at a run it does not belong to, so the two must
-// agree before any of them runs.
+// validateFetchedUnder validates the decoded manifest and requires its
+// RunID to match the object-store prefix used to fetch it. Node archive
+// checks, restore staging, and export dating use the manifest's RunID. A
+// manifest under another run's prefix could select the wrong object keys,
+// artifacts, and timestamp without this check.
 func (m ybSnapshotManifest) validateFetchedUnder(runID string) error {
 	if err := m.validate(); err != nil {
 		return err
@@ -159,9 +145,10 @@ func (m ybSnapshotManifest) validateFetchedUnder(runID string) error {
 	return nil
 }
 
-// validateYBNodeName enforces the node-name allowlist. The explicit
-// traversal-substring checks are redundant with the pattern today; they keep a
-// future pattern relaxation from silently reopening path traversal.
+// validateYBNodeName checks the node-name allowlist and separately rejects
+// traversal components. The pattern accepts repeated dots. The .. check
+// adds a restriction. Explicit slash checks also preserve that restriction
+// if the pattern changes later.
 func validateYBNodeName(name string) error {
 	if !ybNodeNamePattern.MatchString(name) {
 		return fmt.Errorf("manifest node name %q is not a host name or IPv6 literal", name)
@@ -172,8 +159,8 @@ func validateYBNodeName(name string) error {
 	return nil
 }
 
-// validateYBArtifactName enforces the artifact-name allowlist, so a manifest
-// cannot redirect a staged file or an object key somewhere else.
+// validateYBArtifactName checks the artifact-name allowlist and traversal
+// components before a name can select a staging file or object key.
 func validateYBArtifactName(name string) error {
 	if !ybArtifactNamePattern.MatchString(name) {
 		return fmt.Errorf("manifest artifact name %q is not an object base name", name)
@@ -184,10 +171,9 @@ func validateYBArtifactName(name string) error {
 	return nil
 }
 
-// newYBSnapshotManifest builds the manifest for a run: the artifact names the
-// orchestrator published at the run root, in upload order, and one node entry
-// per tablet-server name, sorted so the manifest bytes are deterministic for a
-// given node set.
+// newYBSnapshotManifest records root artifact names in upload order and a
+// node entry for each tablet-server name. It sorts node names for stable
+// node ordering within the manifest.
 func newYBSnapshotManifest(
 	runID, snapshotID, database string,
 	nodeNames, artifactNames []string,
@@ -211,8 +197,8 @@ func newYBSnapshotManifest(
 	}
 }
 
-// nodePrefix returns the run-relative prefix the named node must fill, or
-// false when the manifest does not list that node.
+// nodePrefix returns a node's run-relative prefix and reports false when
+// the manifest does not list the node.
 func (m ybSnapshotManifest) nodePrefix(name string) (string, bool) {
 	for _, node := range m.Nodes {
 		if node.Name == name {
@@ -222,27 +208,25 @@ func (m ybSnapshotManifest) nodePrefix(name string) (string, bool) {
 	return "", false
 }
 
-// ybRunArtifactKey is the full object key of one run-root artifact.
+// ybRunArtifactKey returns a root artifact's full object key for a run.
 func ybRunArtifactKey(runID, artifact string) string {
 	return ybSnapshotKeyPrefix(runID) + artifact
 }
 
-// ybRequiredRunArtifacts returns the run-root artifacts a restore opens by
-// name, so a run that does not carry all three cannot be restored however
-// complete it otherwise looks. The restore drill reads each one at
-// ybDrillArtifactPath: the exported snapshot metadata every tablet mapping
-// comes from, the schema that recreates the tables and their grants, and the
-// roles the grants name. A declaration short of this list is the manifest
-// describing a run that cannot work, which is why it is refused before any
-// object is probed for.
+// ybRequiredRunArtifacts returns the artifacts that restore opens by name.
+// ybDrillArtifactPath selects each artifact. The completeness check rejects
+// a declaration that omits a required artifact before probing object presence.
+//
+//   - Exported snapshot metadata supplies tablet mappings.
+//   - The schema recreates tables and their grants.
+//   - Roles supply the identities those grants require.
 func ybRequiredRunArtifacts() []string {
 	return []string{ybSnapshotMetadataObject, ybSnapshotSchemaObject, ybSnapshotRolesObject}
 }
 
-// undeclaredYBRequiredArtifacts returns the required artifacts the manifest
-// leaves out of its declaration, in the required order. This reads the
-// manifest only: it says what the run claims to hold, never what the object
-// store holds, so its result stays distinguishable from missingYBRunArtifacts.
+// undeclaredYBRequiredArtifacts returns required artifacts that the manifest
+// omits, in required-list order. It examines the declaration without reading
+// the object store. missingYBRunArtifacts checks object presence separately.
 func undeclaredYBRequiredArtifacts(manifest ybSnapshotManifest) []string {
 	var undeclared []string
 	for _, required := range ybRequiredRunArtifacts() {
@@ -253,11 +237,10 @@ func undeclaredYBRequiredArtifacts(manifest ybSnapshotManifest) []string {
 	return undeclared
 }
 
-// missingYBRunArtifacts returns the names of the run-root artifacts the
-// manifest declares whose object is absent. The manifest uploads last, so in a
-// run that finished this is empty; a name here means an object the run
-// published was lost or never landed, and the run restores into a database
-// missing whatever that artifact described.
+// missingYBRunArtifacts returns declared root artifact names without an
+// object in the store. A finished run has uploaded these before its
+// manifest. A missing object indicates an interrupted upload or later loss;
+// the restore would lack the definitions or data in that artifact.
 func missingYBRunArtifacts(manifest ybSnapshotManifest, exists func(key string) (bool, error)) ([]string, error) {
 	var missing []string
 	for _, artifact := range manifest.Artifacts {
@@ -272,19 +255,19 @@ func missingYBRunArtifacts(manifest ybSnapshotManifest, exists func(key string) 
 	return missing, nil
 }
 
-// ybTabletServerAliveStatus is the Status column value of a live tablet
-// server in yb-admin list_all_tablet_servers output.
+// ybTabletServerAliveStatus specifies the Status value for a live server
+// in yb-admin list_all_tablet_servers output.
 const ybTabletServerAliveStatus = "ALIVE"
 
-// parseYBTabletServers extracts the tablet-server node names from yb-admin
-// list_all_tablet_servers output. Data rows start with the undashed server
-// UUID, in the form ybObjectIDPattern names, carry the advertised RPC
-// host:port in the second column, and report liveness in the fourth (Status)
-// column. Only ALIVE servers are included: a DEAD server can never archive its
-// tablets, so listing it in the manifest would block the completeness gate and
-// every restore forever. The host is the node name the compose deploy
-// announces (never an address, per the identity contract in
-// docker-compose.yml). Names are deduplicated and sorted.
+// parseYBTabletServers reads node names from yb-admin
+// list_all_tablet_servers output. Each data row starts with an undashed UUID
+// that matches ybObjectIDPattern, followed by an RPC host:port in column two
+// and Status in column four. It includes only ALIVE servers; a DEAD server
+// cannot publish its tablet archive and would prevent run completeness
+// while it remains unavailable.
+//
+// The Compose deployment advertises permanent node names instead of
+// addresses. The parser removes ports, deduplicates names, and sorts them.
 func parseYBTabletServers(stdout string) []string {
 	seen := map[string]bool{}
 	for line := range strings.SplitSeq(stdout, "\n") {
@@ -305,8 +288,8 @@ func parseYBTabletServers(stdout string) []string {
 	return names
 }
 
-// hostFromHostPort strips the port from a host:port pair, unbracketing IPv6
-// literals; a value with no port is returned unchanged.
+// hostFromHostPort removes a port and IPv6 brackets from a host:port pair.
+// If [net.SplitHostPort] fails, it trims outer brackets from the input.
 func hostFromHostPort(hostPort string) string {
 	host, _, err := net.SplitHostPort(hostPort)
 	if err != nil {
@@ -315,14 +298,14 @@ func hostFromHostPort(hostPort string) string {
 	return host
 }
 
-// fetchYBSnapshotManifest downloads, decodes, and validates the manifest of
-// one export run; a manifest whose run id or node entries fail validation, or
-// which declares a run other than the prefix it was fetched from, is refused
-// here so no downstream path builds paths, keys, or commands from them. The
-// manifest is small, so it is read into memory rather than staged. A missing
-// manifest comes back as a NotFound-wrapped error without an error log,
-// because the orchestrator uploads the manifest last and walkers over the run
-// prefixes probe for it, treating absence as a skip rather than a failure.
+// fetchYBSnapshotManifest downloads and decodes one run's manifest into
+// memory. It rejects invalid run IDs or node entries and a RunID that
+// differs from the fetch prefix before callers construct paths, keys, or
+// commands from them.
+//
+// A missing manifest returns a wrapped object-not-found error without an
+// error log. The orchestrator uploads the manifest last, and discovery
+// walks skip prefixes without one.
 func fetchYBSnapshotManifest(ctx context.Context, client *s3.Client, bucket, runID string) (ybSnapshotManifest, error) {
 	logger := telemetry.L(ctx)
 	key := ybSnapshotKeyPrefix(runID) + ybSnapshotManifestObject
@@ -358,8 +341,9 @@ func fetchYBSnapshotManifest(ctx context.Context, client *s3.Client, bucket, run
 	return manifest, nil
 }
 
-// listYBSnapshotRunIDs returns every export run id in the bucket, sorted
-// ascending. Run ids are UTC timestamps, so the last element is the newest.
+// listYBSnapshotRunIDs returns bucket run-prefix suffixes in ascending
+// order. Generated IDs use UTC timestamps, making the last generated ID
+// chronologically newest.
 func listYBSnapshotRunIDs(ctx context.Context, client *s3.Client, bucket string) ([]string, error) {
 	prefixes, err := listImmediatePrefixes(ctx, client, bucket, ybSnapshotRootPrefix)
 	if err != nil {
@@ -373,11 +357,11 @@ func listYBSnapshotRunIDs(ctx context.Context, client *s3.Client, bucket string)
 	return runIDs, nil
 }
 
-// newestUploadedYBSnapshotManifest walks the export run prefixes newest-first
-// and returns the newest run whose manifest object exists. The orchestrator
-// uploads the manifest last, so a manifest-less prefix is a run that has not
-// finished (or never will); those are skipped and logged in one summary rather
-// than treated as errors. found is false when no run has a manifest yet.
+// newestUploadedYBSnapshotManifest searches run prefixes from newest to
+// oldest and returns the first existing manifest. It skips prefixes without
+// a manifest and logs one summary; those runs may be unfinished or
+// abandoned because the orchestrator uploads the manifest last. It returns
+// found=false if every prefix lacks a manifest.
 func newestUploadedYBSnapshotManifest(
 	ctx context.Context,
 	client *s3.Client,
@@ -404,8 +388,8 @@ func newestUploadedYBSnapshotManifest(
 	return manifest, false, nil
 }
 
-// logSkippedYBRuns logs one summary for the manifest-less run prefixes a walk
-// skipped, so the skips stay visible without a log line per run.
+// logSkippedYBRuns logs one summary for skipped prefixes without manifests
+// instead of a separate message for each run.
 func logSkippedYBRuns(ctx context.Context, skipped []string) {
 	if len(skipped) == 0 {
 		return
@@ -414,8 +398,8 @@ func logSkippedYBRuns(ctx context.Context, skipped []string) {
 		slog.Any("run_ids", skipped), slog.String("reason", "manifest not uploaded"))
 }
 
-// objectExists reports whether bucket/key exists, treating a NotFound HeadObject
-// as a clean false rather than an error.
+// objectExists checks bucket/key and returns false without an error when
+// HeadObject reports a missing object.
 func objectExists(ctx context.Context, client *s3.Client, bucket, key string) (bool, error) {
 	_, err := client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
@@ -432,9 +416,10 @@ func objectExists(ctx context.Context, client *s3.Client, bucket, key string) (b
 	return false, wrapped
 }
 
-// isObjectNotFound reports whether a HeadObject error means the key is absent.
-// HeadObject returns no typed body, so a NotFound smithy.APIError code or a
-// NoSuchKey typed error both indicate absence.
+// isObjectNotFound checks whether an object-store error reports an absent
+// key. It accepts typed NotFound and NoSuchKey errors and smithy.APIError
+// codes NotFound, NoSuchKey, or 404. HeadObject does not provide a typed
+// response body for missing keys.
 func isObjectNotFound(err error) bool {
 	var notFound *s3types.NotFound
 	if errors.As(err, &notFound) {

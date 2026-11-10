@@ -1,17 +1,15 @@
-// backup_yb_dump.go writes the SQL-text artifacts of a YugabyteDB snapshot
-// export: the database's schema and the cluster's roles. Between them they
-// describe what the restored database holds and who may read it.
+// The snapshot export writes SQL text for the database schema and cluster
+// roles. Together these artifacts recreate database structure and access
+// control. The schema dump includes grants and revokes from backup time.
 //
-// The schema dump carries the grants and revokes exactly as they stood at
-// backup time. It used to exclude them, which left a restored ledger with its
-// tables, its rows, and its row-level-security policies, but with none of the
-// privileges those policies depend on, so no application role could read it
-// (TACK-474). The privileges are not re-creatable from anywhere else in a
-// recovery: the migration that first granted them is never re-run against a
-// restored database.
+// The earlier dump omitted privileges. A restored ledger had tables, rows,
+// and row-level security policies but lacked the privileges those policies
+// required, preventing application roles from reading it (TACK-474).
+// Recovery does not rerun the original grant migration on a restored
+// database. The backup must preserve those privileges.
 //
-// Roles are cluster objects rather than database objects, so the schema dump
-// cannot carry them and the roles dump is a separate artifact.
+// Roles apply to the whole cluster instead of one database. A separate roles
+// dump supplies them because the schema dump does not include them.
 
 package ops
 
@@ -25,9 +23,9 @@ import (
 	"goodkind.io/tack/internal/config"
 )
 
-// stageWriterUser returns the uid and gid of this process. The one-shot
-// containers that write into the stage directory run as this user. The
-// export then reads and uploads the files they wrote.
+// stageWriterUser returns this process's user and group IDs. Containers
+// that write staging files run with these IDs. The export reads and uploads
+// the resulting files.
 func stageWriterUser() string {
 	return strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
 }
@@ -35,35 +33,33 @@ func stageWriterUser() string {
 const (
 	// ysqlDumpBinary is the single-database dumper inside the engine image.
 	ysqlDumpBinary = "/home/yugabyte/postgres/bin/ysql_dump"
-	// ysqlDumpAllBinary is the cluster-wide dumper, the only one that
-	// describes roles and their memberships.
+	// ysqlDumpAllBinary selects the cluster-wide dumper that exports roles and
+	// role memberships.
 	ysqlDumpAllBinary = "/home/yugabyte/postgres/bin/ysql_dumpall"
-	// ybDumpPort is the YSQL port both dumpers connect on.
+	// ybDumpPort specifies the YSQL port for both dumpers.
 	ybDumpPort = "5433"
-	// ybDumpOutDir is where the staging dir is bind-mounted inside the
-	// one-shot, which is where both dumpers write their file.
+	// ybDumpOutDir specifies the staging directory's mount path in the temporary
+	// container. Both dumpers write their output there.
 	ybDumpOutDir = "/out"
-	// ybDumpPasswordVar names the environment variable the dumpers read their
-	// password from. It is a name here rather than written inline beside the
-	// value, so the secret scanner does not read the pair as a credential.
+	// ybDumpPasswordVar specifies the environment variable that supplies the
+	// dumpers' password. A separate constant avoids placing a variable name
+	// beside its value where a secret scanner could mistake it for a credential.
 	ybDumpPasswordVar = "PGPASSWORD"
 )
 
-// ybSchemaDumpArgs is the argument vector, after the shared connection flags,
-// that describes the database's schema.
+// ybSchemaDumpArgs returns schema-dump arguments after the shared connection
+// flags. It omits --no-privileges to preserve database GRANT and REVOKE
+// statements.
 //
-// No --no-privileges: the artifact must describe its own access control, so
-// the dump carries every GRANT and REVOKE the database holds. --no-owner
-// stays, because ownership is a property of the environment rather than of the
-// data, and it grants no read the restore needs: every audit table is declared
-// FORCE ROW LEVEL SECURITY in migrations/002_audit.sql, which subjects the
-// owner to the same policies as anyone else, so an owner who is not a member
-// of a base role sees nothing regardless.
+// The dump uses --no-owner because ownership depends on the restore
+// environment. Audit tables use FORCE ROW LEVEL SECURITY. Owners subject to
+// forced row-level security require an applicable SELECT policy to read rows;
+// ownership alone does not grant that access. A policy can authorize a role
+// directly or through base-role membership.
 //
-// --dump-role-checks is deliberately absent. It would make each privilege
-// statement conditional on its role existing, which turns a missing role from
-// a failed restore into a restore that quietly grants nothing: the same silent
-// success this artifact exists to remove.
+// The dump omits --dump-role-checks. That flag would make each privilege
+// statement conditional on the role's existence and permit a restore to
+// skip required grants when a role is missing.
 func ybSchemaDumpArgs(cfg *config.Config) []string {
 	return []string{
 		"-d", cfg.YugabyteDB,
@@ -74,14 +70,10 @@ func ybSchemaDumpArgs(cfg *config.Config) []string {
 	}
 }
 
-// ybRolesDumpArgs is the argument vector, after the shared connection flags,
-// that describes the cluster's roles and their memberships.
-//
-// --no-role-passwords is deliberate and load-bearing: the artifact gains the
-// identities the ledger's policies name, never the credentials behind them, so
-// restoring access control never turns the export into a place passwords live.
-// A restored login role therefore has no password until `ops audit seed-roles`
-// sets one, which is where those passwords are owned.
+// ybRolesDumpArgs returns role and membership dump arguments after the
+// shared connection flags. The dump uses --no-role-passwords to export role
+// identities without credentials. A restored login role cannot authenticate
+// with a password until ops audit seed-roles assigns one.
 func ybRolesDumpArgs(cfg *config.Config) []string {
 	return []string{
 		"-l", cfg.YugabyteDB,
@@ -91,11 +83,10 @@ func ybRolesDumpArgs(cfg *config.Config) []string {
 	}
 }
 
-// ybDumpSpec is one dump one-shot: which dumper runs, the arguments after the
-// shared connection flags, where the file it writes lands on the host, and the
-// log events and error text that name it. attemptEvent names one endpoint's
-// refusal, which is a note about the cluster rather than a failed dump, and is
-// logged even on a run that goes on to succeed elsewhere.
+// ybDumpSpec supplies a dumper binary, its arguments after the shared
+// connection flags, the host output path, and its log events and error label.
+// attemptEvent records an endpoint refusal even if a later endpoint succeeds.
+// One refusal does not mean the whole dump failed.
 type ybDumpSpec struct {
 	binary       string
 	args         []string
@@ -106,10 +97,9 @@ type ybDumpSpec struct {
 	failEvent    string
 }
 
-// ybSchemaDumpSpec describes the schema dump's one-shot. The export_snapshot
-// metadata references table ids this schema recreates on import;
-// --include-yb-metadata preserves the YugabyteDB table properties the import
-// path needs.
+// ybSchemaDumpSpec configures the schema dump. export_snapshot metadata
+// references the table IDs that schema import recreates. The dump uses
+// --include-yb-metadata to preserve YugabyteDB table properties for import.
 func ybSchemaDumpSpec(cfg *config.Config, schemaPath string) ybDumpSpec {
 	return ybDumpSpec{
 		binary:       ysqlDumpBinary,
@@ -122,10 +112,9 @@ func ybSchemaDumpSpec(cfg *config.Config, schemaPath string) ybDumpSpec {
 	}
 }
 
-// ybRolesDumpSpec describes the roles dump's one-shot. Without the artifact it
-// writes, a restore has no identity to grant anything to: the schema's
-// privilege statements name roles, and the restore that applies them creates
-// none.
+// ybRolesDumpSpec configures the roles dump. Schema privilege statements
+// require existing roles and do not create them. The roles artifact supplies
+// those identities during restore.
 func ybRolesDumpSpec(cfg *config.Config, rolesPath string) ybDumpSpec {
 	return ybDumpSpec{
 		binary:       ysqlDumpAllBinary,
@@ -138,14 +127,13 @@ func ybRolesDumpSpec(cfg *config.Config, rolesPath string) ybDumpSpec {
 	}
 }
 
-// dumpYBSchemaOneShot writes a schema-only dump of the database into the
-// bind-mounted stage dir.
+// dumpYBSchemaOneShot writes a schema-only database dump into the mounted
+// staging directory.
 func dumpYBSchemaOneShot(ctx context.Context, cli *client.Client, cfg *config.Config, stageDir, schemaPath string) error {
 	return runYBDumpOneShot(ctx, cli, cfg, stageDir, ybSchemaDumpSpec(cfg, schemaPath))
 }
 
-// dumpYBRolesOneShot writes the cluster's roles into the bind-mounted stage
-// dir.
+// dumpYBRolesOneShot writes cluster roles into the mounted staging directory.
 func dumpYBRolesOneShot(ctx context.Context, cli *client.Client, cfg *config.Config, stageDir, rolesPath string) error {
 	return runYBDumpOneShot(ctx, cli, cfg, stageDir, ybRolesDumpSpec(cfg, rolesPath))
 }

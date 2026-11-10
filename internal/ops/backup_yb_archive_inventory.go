@@ -1,11 +1,8 @@
-// backup_yb_archive_inventory.go records what one node's tablet archive
-// carries. Every check between the export and the restore is a claim by
-// whichever tool touched the archive last, and a tool that loses part of a
-// tablet without saying so leaves a restore that cannot tell. The inventory is
-// a fact recorded at capture time: the path and size of every file the archive
-// holds, uploaded beside it, so the restore compares its extraction against
-// what this backup actually captured instead of guessing what a tablet ought to
-// contain.
+// The tablet inventory records each archived file's path and size at capture
+// time. The export uploads it beside the archive. The restore compares the
+// extracted files with this record instead of assuming which files a tablet
+// should contain. A tool that silently omits a file can otherwise leave a
+// restore unable to detect that loss.
 
 package ops
 
@@ -25,9 +22,8 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// writeYBArchiveInventory records what the staged archive carries and stages
-// that record beside it under its own object name, ready for the upload that
-// publishes both.
+// writeYBArchiveInventory records the staged archive's files in a separate
+// object beside the archive. The upload publishes both artifacts.
 func writeYBArchiveInventory(ctx context.Context, runID, node, stageDir, tarPath string) error {
 	logger := telemetry.L(ctx)
 	inventory, err := readYBArchiveInventory(ctx, runID, node, tarPath)
@@ -45,30 +41,27 @@ func writeYBArchiveInventory(ctx context.Context, runID, node, stageDir, tarPath
 	return nil
 }
 
-// ybArchivedFile is one regular file the node archive carries: its path
-// relative to the rocksdb root the export tarred from, and the size it was
-// archived at.
+// ybArchivedFile records a regular file's path relative to the RocksDB root
+// and its archived size.
 type ybArchivedFile struct {
 	Path string
 	Size int64
 }
 
-// ybArchiveInventory is everything one node's archive carries, together with
-// the run and node it was recorded for. The restore verifies an extraction
-// against it, so it declares its own run and node the way the run manifest
-// does: an inventory read for the wrong node describes a different set of files
-// and would condemn a healthy extraction.
+// ybArchiveInventory records a node archive's files and the run and node
+// identities. The restore checks those identities before comparing an
+// extraction. An inventory for another node lists different files and can
+// reject a healthy extraction.
 type ybArchiveInventory struct {
 	RunID string
 	Node  string
 	Files []ybArchivedFile
 }
 
-// readYBArchiveInventory reads the staged archive back and records every file
-// in it. It reads the finished artifact rather than the tree the tar walked,
-// so the inventory describes the bytes that get uploaded: a file the walk saw
-// but the archive did not keep can never reach it. The cost is one sequential
-// pass over a local file, against the compress pass that produced it.
+// readYBArchiveInventory records files from the finished staged archive
+// instead of the source tree. It cannot list a file that the tree walk found
+// but the archive omitted. Reading the archive requires a sequential local
+// pass after the compression pass that created it.
 func readYBArchiveInventory(ctx context.Context, runID, node, tarPath string) (ybArchiveInventory, error) {
 	logger := telemetry.L(ctx)
 	empty := ybArchiveInventory{RunID: "", Node: "", Files: nil}
@@ -99,12 +92,10 @@ func readYBArchiveInventory(ctx context.Context, runID, node, tarPath string) (y
 	return ybArchiveInventory{RunID: runID, Node: node, Files: files}, nil
 }
 
-// readYBArchivedFiles walks the archive's members. Directory entries carry no
-// bytes and are skipped; anything that is neither a directory nor a regular
-// file is refused rather than skipped, because a member the inventory does not
-// describe is a member the restore never checks, which is the silence this
-// whole record exists to remove. The export tars each tablet's snapshot
-// directory once, so no two members name one inode and tar emits no hard links.
+// readYBArchivedFiles reads archive members and skips directories. It rejects
+// members that are not regular files because the restore cannot check an
+// unrecorded member. The export archives each tablet snapshot directory once
+// to avoid duplicate inode entries and tar hard links.
 func readYBArchivedFiles(ctx context.Context, tarPath string, reader *tar.Reader) ([]ybArchivedFile, error) {
 	logger := telemetry.L(ctx)
 	var files []ybArchivedFile
@@ -136,11 +127,10 @@ func readYBArchivedFiles(ctx context.Context, tarPath string, reader *tar.Reader
 	}
 }
 
-// ybArchivedPath is the inventory's form of one member name: the path relative
-// to the rocksdb root, without the "./" the export's find prefixes every entry
-// with. The inventory is one line per file with a tab between path and size, so
-// a name carrying either delimiter is refused here rather than splitting a line
-// the restore would then read as two files it never finds.
+// ybArchivedPath removes the export's ./ prefix from a member path relative
+// to the RocksDB root. Inventory lines separate each path and size with a
+// tab and end with a newline. The helper rejects either delimiter in a path
+// to prevent a filename from creating extra inventory fields or records.
 func ybArchivedPath(name string) (string, error) {
 	path := strings.TrimPrefix(name, "./")
 	if path == "" || strings.ContainsAny(path, "\t\n") {

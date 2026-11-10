@@ -1,7 +1,6 @@
-// backup_yb_archive_target.go decides which export run, if any, the guest
-// running the archive command owes work to, and what this guest's identity in
-// that run is. The node timers fire independently of the orchestrator's, so
-// finding nothing to do is a normal outcome here rather than a failure.
+// The node archive command selects an export run and identifies the local
+// guest within that run. Node timers run independently of the orchestrator
+// timer. A timer invocation can succeed without requiring another upload.
 
 package ops
 
@@ -18,25 +17,23 @@ import (
 	"goodkind.io/tack/internal/telemetry"
 )
 
-// ybArchiveTarget is the resolved work for one archive invocation: the run's
-// manifest and the object key prefix this node must fill. complete reports
-// that every artifact this node owes the run already exists under the prefix.
+// ybArchiveTarget records the selected manifest and this node's object-key
+// prefix. complete reports whether every required node artifact exists
+// under that prefix.
 type ybArchiveTarget struct {
 	manifest ybSnapshotManifest
 	prefix   string
 	complete bool
 }
 
-// resolveYBArchiveTarget decides what, if anything, this node must archive.
-// A nil target with a nil error is the quiet nothing-to-do outcome, reachable
-// only in discovery mode (empty runID): no run has a manifest yet or the
-// newest manifest does not list this node. A target with complete set means
-// that every artifact this node owes the run is already uploaded, and the
-// caller uploads nothing. The orchestrator uploads the manifest last, so
-// discovery walks past manifest-less run prefixes (runs that never finished)
-// instead of treating them as errors. With an explicit runID a missing
-// manifest or an unlisted node is an error, because the operator asked for
-// that run specifically.
+// resolveYBArchiveTarget selects this node's archive work. Discovery uses an
+// empty runID and returns a nil target and nil error if a manifest does not
+// exist or the newest manifest omits this node. A complete target requires
+// the caller to skip the upload.
+//
+// The orchestrator uploads the manifest last. Discovery skips prefixes
+// without a manifest, including unfinished runs. An explicit runID requires
+// a manifest and a listed node; either omission returns an error.
 func resolveYBArchiveTarget(
 	ctx context.Context,
 	cfg *config.Config,
@@ -77,15 +74,15 @@ func resolveYBArchiveTarget(
 	}
 
 	node := ybSnapshotManifestNode{Name: nodeName, Prefix: prefix}
-	// Done means every artifact this node owes the run is in the store, by the
-	// same rule the restore drill and the snapshot cleanup apply. Probing the
-	// archive alone read an archive uploaded before inventories existed as
-	// finished, so no inventory was ever written for it: the drill refused the
-	// run for lacking one and nothing healed it. A node with such an archive
-	// redoes its whole run, re-tarring the snapshot and uploading the archive
-	// again beside the inventory, because the inventory is recorded from the
-	// archive it is uploaded with and cannot vouch for bytes another run put in
-	// the store.
+	// Completion requires every node artifact, matching the restore drill and
+	// snapshot cleanup. The earlier archive-only probe treated archives from
+	// before inventories existed as complete. It never produced their missing
+	// inventories, and the drill rejected those runs.
+	//
+	// An archive without its inventory now requires the entire node upload
+	// again. The command creates a new tar archive and records its inventory
+	// from that exact file. An inventory for newly captured bytes cannot verify
+	// an earlier archive in the store.
 	complete, err := ybNodeFullyArchived(manifest.RunID, node, func(key string) (bool, error) {
 		return objectExists(ctx, s3Client, cfg.BackupS3BucketMain, key)
 	})
@@ -100,11 +97,10 @@ func resolveYBArchiveTarget(
 	return &ybArchiveTarget{manifest: manifest, prefix: ybNodeKeyPrefix(manifest.RunID, node), complete: complete}, nil
 }
 
-// localYBNodeName is the node name this guest's yugabyte container announces
-// to the cluster. The compose deploy sets the container's hostname to the
-// node's permanent name (never an address), the same name the masters report
-// in list_all_tablet_servers and the manifest lists, so the container hostname
-// is the node's identity.
+// localYBNodeName reads the hostname of the local YugabyteDB container. The
+// Compose deployment sets it to the node's permanent name instead of an
+// address. The masters report this identity in list_all_tablet_servers, and
+// the manifest uses it to identify the node.
 func localYBNodeName(ctx context.Context, cli *client.Client) (string, error) {
 	logger := telemetry.L(ctx)
 	insp, err := cli.ContainerInspect(ctx, yugabyteBackupContainer, client.ContainerInspectOptions{})

@@ -1,9 +1,7 @@
-// backup_yb_archive_inventory_format.go is the inventory's wire form: how the
-// export writes what an archive carries, and how the restore reads it back. It
-// is a header line and one line per file rather than JSON, because the scratch
-// container compares its extraction against the same bytes with sort and comm,
-// and a shell that had to parse JSON first would be the weaker half of the
-// check.
+// The inventory format uses a header followed by one line per archived file.
+// The export writes this text, and the restore reads it. The scratch
+// container compares the extraction with the inventory using sort and comm.
+// Plain lines avoid a separate shell JSON parser in that comparison.
 
 package ops
 
@@ -14,19 +12,18 @@ import (
 )
 
 const (
-	// ybInventoryMarker opens the inventory's header line, so a file that is
-	// not an inventory is refused rather than read as one carrying no files.
+	// ybInventoryMarker starts the inventory header. The parser rejects a file
+	// without this marker instead of accepting it as an empty inventory.
 	ybInventoryMarker = "tack-yb-tablet-inventory"
-	// ybInventoryHeaderFields is the header's field count: the marker, the run,
-	// the node, and how many file lines follow.
+	// ybInventoryHeaderFields counts the header fields for the marker, run,
+	// node, and following file count.
 	ybInventoryHeaderFields = 4
 )
 
-// render writes the inventory as its header line followed by one
-// "path<TAB>size" line per file, sorted, which is the form the restore's
-// comparison consumes directly. The header carries the file count so an
-// inventory that arrives short is refused rather than read as a smaller
-// archive, which would be a weaker check that still passed.
+// render writes the inventory header and one path<TAB>size line per file
+// in the Files order. Capture sorts Files before rendering. The restore
+// compares these lines directly. The header's count lets the parser reject a
+// truncated inventory rather than accept it as a smaller archive.
 func (inv ybArchiveInventory) render() []byte {
 	var out strings.Builder
 	out.WriteString(ybInventoryMarker + " " + inv.RunID + " " + inv.Node + " " +
@@ -37,11 +34,10 @@ func (inv ybArchiveInventory) render() []byte {
 	return []byte(out.String())
 }
 
-// parseYBArchiveInventory reads an inventory that must have been recorded for
-// runID and node. It is strict throughout: an inventory expects exactly the
-// files it lists, so one that arrives short, or that belongs to another run or
-// node, expects the wrong set, and a restore checked against the wrong set
-// passes on the wrong set.
+// parseYBArchiveInventory reads the inventory for runID and node. It rejects
+// a different run or node and a file count that differs from the header.
+// Those checks prevent the restore from comparing files with another
+// archive's inventory or a truncated record.
 func parseYBArchiveInventory(runID, node string, body []byte) (ybArchiveInventory, error) {
 	empty := ybArchiveInventory{RunID: "", Node: "", Files: nil}
 	header, rest, found := strings.Cut(string(body), "\n")
@@ -70,8 +66,8 @@ func parseYBArchiveInventory(runID, node string, body []byte) (ybArchiveInventor
 	return ybArchiveInventory{RunID: runID, Node: node, Files: files}, nil
 }
 
-// parseYBInventoryHeader reads the header line and returns the file count it
-// declares, refusing an inventory recorded for another run or node.
+// parseYBInventoryHeader reads the declared file count and rejects a header
+// for another run or node.
 func parseYBInventoryHeader(header, runID, node string) (int, error) {
 	fields := strings.Fields(header)
 	if len(fields) != ybInventoryHeaderFields || fields[0] != ybInventoryMarker {
